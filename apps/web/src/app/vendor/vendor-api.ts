@@ -21,6 +21,7 @@ import { Injectable, inject } from '@angular/core';
 import { firstValueFrom } from 'rxjs';
 
 import type {
+  ContestAnchorKind,
   RetireIntegrationResponse,
   ClaimIntegrationResponse,
   CreateVendorIntegrationInput,
@@ -283,14 +284,18 @@ export class VendorApi {
 
   /** `POST /api/vendor/integrations/:id/contests` — contest one field (201).
    *  `proposed_value` is in wire form: `direction` caller-relative, `owner` a
-   *  vendor id or `null`. */
+   *  vendor id or `null`. With `anchor = 'evidenced_pair'` (AECI-1092) the id is a
+   *  connector-evidenced pair's and the path is
+   *  `POST /api/vendor/evidenced-pairs/:id/contests`, with the same body. */
   submitContest(
     integrationId: string,
     body: SubmitIntegrationContestInput,
+    anchor: ContestAnchorKind = 'integration',
   ): Promise<VendorContestResponse> {
+    const collection = anchor === 'evidenced_pair' ? 'evidenced-pairs' : 'integrations';
     return firstValueFrom(
       this.http.post<VendorContestResponse>(
-        `/api/vendor/integrations/${encodeURIComponent(integrationId)}/contests`,
+        `/api/vendor/${collection}/${encodeURIComponent(integrationId)}/contests`,
         body,
       ),
     );

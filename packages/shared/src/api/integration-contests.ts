@@ -11,6 +11,8 @@ import { ContextDirectionSchema, IntegrationMechanismKindSchema } from './integr
  * the integration's owner when it is claimed, and to AECi otherwise.
  *
  *   POST /api/vendor/integrations/:id/contests   — submit (201).
+ *   POST /api/vendor/evidenced-pairs/:id/contests — submit on an evidenced pair
+ *                                                  (201, AECI-1092).
  *   GET  /api/vendor/contests                    — `{ submitted, received }`.
  *   POST /api/vendor/contests/:id/withdraw       — the submitter withdraws.
  *   POST /api/vendor/contests/:id/decision       — the owner accepts or declines.
@@ -66,6 +68,33 @@ export const INTEGRATION_CONTEST_FIELDS = [
 
 export const IntegrationContestFieldSchema = z.enum(INTEGRATION_CONTEST_FIELDS);
 export type IntegrationContestField = z.infer<typeof IntegrationContestFieldSchema>;
+
+/**
+ * What a contest sits on (AECI-1092 / §11b.13): an `integrations` row, or a
+ * `connector_evidenced_pairs` row. On the wire a contest's `integration_id` is the
+ * id of that row in either table, and `anchor` says which. Pair ids are unique
+ * across both tables by construction (AECI-721 moves a row under its own id), so the
+ * id alone never collides, but readers must not assume the `integrations` table.
+ */
+export const CONTEST_ANCHORS = ['integration', 'evidenced_pair'] as const;
+export const ContestAnchorSchema = z.enum(CONTEST_ANCHORS);
+export type ContestAnchorKind = z.infer<typeof ContestAnchorSchema>;
+
+/**
+ * The eleven fields a contest on an evidenced pair may name: every field above
+ * except `mechanism_kind`, because `connector_evidenced_pairs` has no such column
+ * (`DATABASE_SCHEMA.md` §9a.6). `direction` there is in the pair's canonical A/B
+ * frame, which the vendor wire re-frames per caller exactly as it does for an
+ * `integrations` row.
+ */
+export const EVIDENCED_PAIR_CONTEST_FIELDS = INTEGRATION_CONTEST_FIELDS.filter(
+  (field) => field !== 'mechanism_kind',
+) as readonly Exclude<IntegrationContestField, 'mechanism_kind'>[];
+
+/** The fields a contest on this anchor may name, in the §11b.3 order. */
+export function contestFieldsFor(anchor: ContestAnchorKind): readonly IntegrationContestField[] {
+  return anchor === 'evidenced_pair' ? EVIDENCED_PAIR_CONTEST_FIELDS : INTEGRATION_CONTEST_FIELDS;
+}
 
 /** The four fields that must carry an absolute `http(s)` URL. */
 export const CONTEST_URL_FIELDS: ReadonlySet<IntegrationContestField> =
@@ -344,7 +373,10 @@ export type ContestProtest = z.infer<typeof ContestProtestSchema>;
  */
 export const VendorContestSchema = z.object({
   id: z.string().uuid(),
+  /** The anchor row's id, in whichever table `anchor` names (AECI-1092). */
   integration_id: z.string().uuid(),
+  /** AECI-1092. Defaulted for deploy skew: every earlier contest is an integration's. */
+  anchor: ContestAnchorSchema.default('integration'),
   integration_name: z.string().nullable(),
   context_product: ProductLinkSchema,
   other_product: ProductLinkSchema,
@@ -415,6 +447,31 @@ export const EMPTY_CONTESTABLE_FIELDS: ContestableFields = Object.fromEntries(
   INTEGRATION_CONTEST_FIELDS.map((field) => [field, null]),
 ) as ContestableFields;
 
+/**
+ * One connector-evidenced pair as the portal needs it to file a contest on it
+ * (AECI-1092), carried on `GET /api/vendor/products/:id/connectors` beside each
+ * `delivered` row. It is the evidenced-pair counterpart of the contest fields
+ * `GET /api/vendor/integrations` carries per integration, framed the same way:
+ * `context_product` is the owned product the connectors section is about, and
+ * `contestable_fields.direction` is relative to it. `contestable_fields.mechanism_kind`
+ * is always `null`: the column does not exist on the table, and the field is not
+ * contestable there (`EVIDENCED_PAIR_CONTEST_FIELDS`). `is_owner` is true when the caller's vendor is the pair's
+ * recorded owner, which may not contest it (§11b.2).
+ */
+export const EvidencedPairContestTargetSchema = z.object({
+  id: z.string().uuid(),
+  name: z.string().nullable(),
+  context_product: ProductLinkSchema,
+  other_product: ProductLinkSchema,
+  connector: ProductLinkSchema,
+  contestable_fields: ContestableFieldsSchema,
+  endpoint_vendors: z.array(ContestVendorRefSchema),
+  owner: ContestVendorRefSchema.nullable(),
+  is_owner: z.boolean(),
+  retired: z.boolean(),
+});
+export type EvidencedPairContestTarget = z.infer<typeof EvidencedPairContestTargetSchema>;
+
 // ─── Admin ───────────────────────────────────────────────────────────────────
 
 /**
@@ -441,12 +498,20 @@ export type ListAdminContestsQuery = z.infer<typeof ListAdminContestsQuerySchema
  */
 export const AdminContestSchema = z.object({
   id: z.string().uuid(),
+  /**
+   * The row the contest sits on. On an evidenced pair (`anchor = 'evidenced_pair'`,
+   * AECI-1092) `source_product` is endpoint A and `target_product` endpoint B of the
+   * canonical order, which is the frame a stored `direction` is in, and `connector`
+   * names the product that delivers the pair. Both default for deploy skew.
+   */
   integration: z.object({
     id: z.string().uuid(),
     name: z.string().nullable(),
     source_product: ProductLinkSchema,
     target_product: ProductLinkSchema,
     pair_path: z.string(),
+    anchor: ContestAnchorSchema.default('integration'),
+    connector: ProductLinkSchema.nullable().default(null),
   }),
   field: IntegrationContestFieldSchema,
   current_value: z.string().nullable(),

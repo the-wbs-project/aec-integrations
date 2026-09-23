@@ -2,6 +2,7 @@ import { HttpErrorResponse } from '@angular/common/http';
 import { Injectable } from '@angular/core';
 
 import type {
+  ContestAnchorKind,
   RetireIntegrationResponse,
   ClaimIntegrationResponse,
   CreateVendorIntegrationInput,
@@ -473,12 +474,21 @@ export class PreviewVendorApi extends VendorApi {
   override async submitContest(
     integrationId: string,
     body: SubmitIntegrationContestInput,
+    anchor: ContestAnchorKind = 'integration',
   ): Promise<VendorContestResponse> {
-    const integration = this.integrations.integrations.find(
-      (i) =>
-        i.id === integrationId &&
-        (!body.context_product_id || i.context_product.id === body.context_product_id),
+    // AECI-1092: an evidenced pair is looked up among the connectors fixture's
+    // contest targets, which carry the same fields an integration entry does.
+    const pairTargets = Object.values(VENDOR_PRODUCT_CONNECTORS_FIXTURE).flatMap((r) =>
+      r.connectors.flatMap((g) => g.delivered_contest_targets ?? []),
     );
+    const integration =
+      anchor === 'evidenced_pair'
+        ? pairTargets.find((p) => p.id === integrationId)
+        : this.integrations.integrations.find(
+            (i) =>
+              i.id === integrationId &&
+              (!body.context_product_id || i.context_product.id === body.context_product_id),
+          );
     if (!integration) throw apiError(404, 'NOT_FOUND', 'Integration not found');
     if (integration.is_owner) {
       throw apiError(403, 'CONTEST_OWN_INTEGRATION', 'You own this integration');
@@ -495,7 +505,11 @@ export class PreviewVendorApi extends VendorApi {
     }
     if (
       this.contests.submitted.some(
-        (c) => c.integration_id === integrationId && c.field === body.field && c.status === 'open',
+        (c) =>
+          c.integration_id === integrationId &&
+          c.anchor === anchor &&
+          c.field === body.field &&
+          c.status === 'open',
       )
     ) {
       throw apiError(409, 'CONTEST_DUPLICATE', 'You already have an open contest on this field');
@@ -508,6 +522,7 @@ export class PreviewVendorApi extends VendorApi {
     const contest: VendorContest = {
       id: `00000000-0000-4000-8000-${String(0xc100 + ++this.nextContestSeq).padStart(12, '0')}`,
       integration_id: integration.id,
+      anchor,
       integration_name: integration.name,
       context_product: integration.context_product,
       other_product: integration.other_product,

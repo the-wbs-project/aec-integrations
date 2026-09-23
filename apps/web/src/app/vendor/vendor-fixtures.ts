@@ -1328,6 +1328,7 @@ export const VENDOR_CONTESTS_FIXTURE: ListVendorContestsResponse = {
     {
       id: '00000000-0000-4000-8000-000000005c01',
       integration_id: INTEGRATION_VENDOR_B.id,
+      anchor: 'integration',
       integration_name: INTEGRATION_VENDOR_B.name,
       context_product: CONTEXT_SECONDARY,
       other_product: OTHER_AUTODESK_BUILD,
@@ -1354,6 +1355,7 @@ export const VENDOR_CONTESTS_FIXTURE: ListVendorContestsResponse = {
     {
       id: '00000000-0000-4000-8000-000000005c02',
       integration_id: INTEGRATION_VENDOR_B.id,
+      anchor: 'integration',
       integration_name: INTEGRATION_VENDOR_B.name,
       context_product: CONTEXT_SECONDARY,
       other_product: OTHER_AUTODESK_BUILD,
@@ -1395,6 +1397,7 @@ export const VENDOR_CONTESTS_FIXTURE: ListVendorContestsResponse = {
     {
       id: '00000000-0000-4000-8000-000000005c11',
       integration_id: INTEGRATION_PROCORE.id,
+      anchor: 'integration',
       integration_name: INTEGRATION_PROCORE.name,
       context_product: CONTEXT_PRIMARY,
       other_product: OTHER_PROCORE,
@@ -1421,6 +1424,7 @@ export const VENDOR_CONTESTS_FIXTURE: ListVendorContestsResponse = {
     {
       id: '00000000-0000-4000-8000-000000005c12',
       integration_id: INTEGRATION_PROCORE.id,
+      anchor: 'integration',
       integration_name: INTEGRATION_PROCORE.name,
       context_product: CONTEXT_PRIMARY,
       other_product: OTHER_PROCORE,
@@ -1448,6 +1452,7 @@ export const VENDOR_CONTESTS_FIXTURE: ListVendorContestsResponse = {
     {
       id: '00000000-0000-4000-8000-000000005c13',
       integration_id: INTEGRATION_NO_CLAIMS.id,
+      anchor: 'integration',
       integration_name: null,
       context_product: CONTEXT_SECONDARY,
       other_product: OTHER_PROCORE,
@@ -1474,6 +1479,7 @@ export const VENDOR_CONTESTS_FIXTURE: ListVendorContestsResponse = {
     {
       id: '00000000-0000-4000-8000-000000005c14',
       integration_id: INTEGRATION_PROCORE.id,
+      anchor: 'integration',
       integration_name: INTEGRATION_PROCORE.name,
       context_product: CONTEXT_PRIMARY,
       other_product: OTHER_PROCORE,
@@ -1500,6 +1506,7 @@ export const VENDOR_CONTESTS_FIXTURE: ListVendorContestsResponse = {
     {
       id: '00000000-0000-4000-8000-000000005c15',
       integration_id: INTEGRATION_PROCORE.id,
+      anchor: 'integration',
       integration_name: INTEGRATION_PROCORE.name,
       context_product: CONTEXT_PRIMARY,
       other_product: OTHER_PROCORE,
@@ -1643,6 +1650,37 @@ export const VENDOR_PRODUCT_CONNECTORS_FIXTURE: Readonly<
             data_object_slugs: [],
           },
         ],
+        // AECI-1092: the delivered pair can be contested from here. Kroo's vendor
+        // owns it (a third-party owner), so the Summit seat is not the owner.
+        delivered_contest_targets: [
+          {
+            id: '00000000-0000-4000-8000-000000005510',
+            name: 'Summit Model Coordination + Sage Intacct',
+            context_product: {
+              id: PRIMARY_PRODUCT.id,
+              slug: PRIMARY_PRODUCT.slug,
+              name: PRIMARY_PRODUCT.name,
+              logo_url: null,
+            },
+            other_product: link('5520', 'sage-intacct', 'Sage Intacct'),
+            connector: KROO_LINK,
+            contestable_fields: {
+              ...EMPTY_CONTESTABLE_FIELDS,
+              name: 'Summit Model Coordination + Sage Intacct',
+              mechanism_name: 'Kroo Connector',
+              direction: 'outbound',
+              docs_url: 'https://kroo.example/docs/summit-sage',
+              owner: '00000000-0000-4000-8000-000000005540',
+            },
+            endpoint_vendors: [
+              { id: '00000000-0000-4000-8000-000000005541', name: 'Sage' },
+              { id: '00000000-0000-4000-8000-000000005200', name: 'Summit BIM' },
+            ],
+            owner: { id: '00000000-0000-4000-8000-000000005540', name: 'Kroo' },
+            is_owner: false,
+            retired: false,
+          },
+        ],
         reachable: [
           link('5521', 'acumatica', 'Acumatica'),
           link('5522', 'netsuite', 'NetSuite'),
@@ -1653,6 +1691,7 @@ export const VENDOR_PRODUCT_CONNECTORS_FIXTURE: Readonly<
         connector: AQUIFER_LINK,
         catalog_as_of: null,
         delivered: [],
+        delivered_contest_targets: [],
         reachable: [
           link('5524', 'bluebeam-revu', 'Bluebeam Revu'),
           link('5525', 'deltek-vantagepoint', 'Deltek Vantagepoint'),

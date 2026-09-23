@@ -318,7 +318,7 @@ The editor shipped as a summary card per facet with a modal behind a pencil, on 
 > | Retire and restore | Allowed on the same terms. An evidenced pair has `retired_at` and `retired_by` since migration `0049` (AECI-1088) and will reuse AECI-1010's route and batch (AECI-1091). AECi gets an admin retire and restore there too. | §4.6 |
 > | Per-side links | No change. Endpoint-only, and a `PUT` on a connector-powered row stays refused. | §4.5.7 |
 > | Create | No change. Still refused. A vendor that wants a connector-powered row added messages AECi. | §4.7 |
-> | Contest | AECI-1008's path and routing, unchanged. Evidenced pairs become contestable in the same release as their claim. | §11b.13 |
+> | Contest | **Built (AECI-1092).** AECI-1008's path and routing, with rulings A, B, C and E. Evidenced pairs are contestable through `POST /api/vendor/evidenced-pairs/:id/contests`, in the same promote as their claim. | §11b.13 |
 >
 > **A third-party owner sees its rows (AECI-1089).** `GET /api/vendor/integrations` and the `integrations` cursor were scoped by `ownedEndpointJoin` to the endpoint vendors. The list now also returns `owned`: every row the caller owns in either table that the endpoint-scoped list does not carry. The cursor gained one statement under the same predicates (`STAGE_2_REALTIME_SPEC.md` §2.2). The portal shows those rows in their own section (§6.15).
 
@@ -358,7 +358,7 @@ Wire shape and error table: `API_CONTRACTS.md` §6.14. Handler: `apps/api/src/ro
 
 - the same batch writes `built_by_vendor_id` = the submitter, `claimed_at`, and §13.9's maintenance transfer, with an `integration.claimed` audit row (`metadata.reason = 'owner-approved'`) and a claim notification to every other endpoint vendor, exactly as the owner's own claim does (§4.5.2);
 - after commit it purges the pair page and both product pages and files `REVIEW - Record integration owner: <integration>`, so the review app records the owner upstream;
-- **on a connector-powered row it writes nothing here** (decision 9, v1). The accept still stands and files the ordinary `REVIEW - Apply contested field: owner …` issue, so the curation lane can still record who offers the row. The refusal sits at the accept rather than at submit for that reason. *Ruled 2026-09-23, build pending (AECI-1040):* once the carve-out ships, this accept has no special case. It writes the owner and `claimed_at` exactly as on any other row (§11b.13). Until then it writes nothing here.
+- **on a connector-powered row it now writes the same** (AECI-1092, ruling C, §11b.13). It records the owner and `claimed_at` exactly as on any other row, in either table. On an evidenced pair the audit and notification rows use the entity type `connector_evidenced_pair`. Before AECI-1092 it wrote nothing here (decision 9, v1) and only filed `REVIEW - Apply contested field: owner …`.
 
 The same accept shape covers a vendor that says "we own it, not them" on a row whose recorded owner is someone else: proposed = submitter, so it too writes the owner and `claimed_at`.
 
@@ -1849,7 +1849,10 @@ hidden at zero (`STAGE_1_5_SPEC.md` §13.7).
   ownership only. It has no entitlement gate and no rate limit.
 - **One card per connector.** A card has up to two blocks, each with its own label:
   - **Delivered.** The partner products the connector ships a listing for. These are
-    `connector_evidenced_pairs` rows.
+    `connector_evidenced_pairs` rows. **Since AECI-1092** each pair the vendor does not own, and
+    that is not retired, carries "Contest a field" (`VendorContestForm` with
+    `anchor = 'evidenced_pair'`), fed by the read's `delivered_contest_targets`. A contest is a
+    request, not an edit, so the section is still not editable (§11b.13).
   - **Reachable.** Partner products that sit in the connector's catalogue alongside this one. The
     block is a closed `<details>`, because Kroo's catalogue reaches hundreds of products. Its
     summary always carries an "as of" date: the catalogue's latest `last_ingested_at`, or "catalogue
@@ -2258,7 +2261,7 @@ mail is bounded by the cooldown and the per-vendor `write` bucket, not by this p
 
 ## 11b. Integration field contests (AECI-1008)
 
-**API half shipped 2026-09-18 (PR A). Portal half shipped 2026-09-18 (PR B), §11b.10. Admin queue shipped 2026-09-18 (PR C), §11b.11. The protest to AECi (AECI-1009) shipped 2026-09-22, §11b.12. Contests on connector-powered rows and evidenced pairs are ruled, build pending, §11b.13.** This section is the build contract. The code is `apps/api/src/routes/{vendor-contests,admin-contests}.ts`, `apps/api/src/lib/integration-contests.ts` and `packages/shared/src/api/integration-contests.ts`. The table is `integration_field_challenges`, migration `0043_needy_hobgoblin.sql`.
+**API half shipped 2026-09-18 (PR A). Portal half shipped 2026-09-18 (PR B), §11b.10. Admin queue shipped 2026-09-18 (PR C), §11b.11. The protest to AECi (AECI-1009) shipped 2026-09-22, §11b.12. Contests on connector-powered rows and evidenced pairs (AECI-1092) shipped 2026-09-23, §11b.13.** This section is the build contract. The code is `apps/api/src/routes/{vendor-contests,admin-contests}.ts`, `apps/api/src/lib/integration-contests.ts` and `packages/shared/src/api/integration-contests.ts`. The table is `integration_field_challenges`, migration `0043_needy_hobgoblin.sql`, rebuilt onto two anchors by `0049_rainy_puma.sql`.
 
 ### 11b.1 What a contest is
 
@@ -2340,7 +2343,7 @@ Anyone else gets a `404`. A closed contest answers `409 CONTEST_NOT_OPEN`. **The
 | content field | unclaimed | nothing | `Apply contested field` |
 | content field | claimed | the column + `integration.updated` (`reason: 'contest-accepted'`), purge. No maintenance transfer: an AECi write | `Apply contested field`, worded "AECi already applied it" |
 | `owner`, proposed = submitter | not connector-powered | `built_by_vendor_id`, `claimed_at`, transfer + `integration.claimed` (`reason: 'owner-approved'`), claim notification, purge | `Record integration owner` |
-| `owner`, proposed = submitter | connector-powered | nothing (decision 9, v1). After AECI-1040 ships: the row above applies, with no special case (§11b.13) | `Apply contested field` |
+| `owner`, proposed = submitter | connector-powered | *Retired by AECI-1092 (ruling C, §11b.13).* The row above applies, in either table, with no special case. Before it: nothing (decision 9, v1) | `Record integration owner` |
 | `owner`, proposed = someone else or neither | claimed | `built_by_vendor_id` = proposed, `claimed_at = NULL` + `integration.updated` (`reason: 'owner-reassigned'`), purge | `Record integration owner` |
 | `owner`, proposed = someone else or neither | unclaimed | nothing | `Apply contested field` |
 
@@ -2378,6 +2381,8 @@ Every transition writes, in one `db.batch`:
 `integration_id` is `ON DELETE CASCADE`. A promote cross-table move (AECI-888) or a retraction deletes the `integrations` row and takes its contests with it. This is accepted because it can now happen only to unclaimed rows, which carry no owner-side state. AECI-1005 closed the other half: promote refuses the cross-table move on a claimed row, and the retraction consumer refuses to delete a claimed row (§4.5.5).
 
 The table is now the second cascade child of `integrations`. `apps/api/src/test/d1.spec.ts` pins the list, so the next recreate of `integrations` must carry it out of the way first (`docs/migrations.md` §3.3a).
+
+**Since AECI-1092 (migration `0049`) it is a cascade child of `connector_evidenced_pairs` too**, through `evidenced_pair_id`. The same accepted risk applies to a pair that is not vendor-held, and AECI-1088's fence refuses the move and the deletes on a vendor-held pair. `ops:retract-product` deletes a pair's contests explicitly before the pair and counts them on its tombstone. `d1.spec.ts` pins that list as well, and pins that nothing references the contest table, which is what made the `0049` rebuild safe.
 
 ### 11b.10 As built — the portal (PR B, 2026-09-18)
 
@@ -2705,21 +2710,43 @@ Chris ruled on 2026-09-22 that the ruling is advice, that the windows are 30 day
 12. **One badge.** Open protests fold into `pending_contests`.
 13. **Counsel does not block the merge.** The listing-accuracy wording joins the AECI-308 counsel review.
 
-### 11b.13 Contests on connector-powered rows (AECI-1040, ruled 2026-09-23, build pending)
+### 11b.13 Contests on connector-powered rows (AECI-1040 — built 2026-09-23, AECI-1092)
 
-**Ruled, build pending (AECI-1040 follow-ups).** Chris ruled that a contest on a connector-powered row uses the normal contest path and routing (`STAGE_2_SPEC.md` §8.10(8), ruling 4). Nothing below is built unless it says "today".
+**Built 2026-09-23 (AECI-1092), as ruled.** Chris ruled that a contest on a connector-powered row uses the normal contest path and routing (`STAGE_2_SPEC.md` §8.10(8), ruling 4), with four follow-up rulings below. It ships in the same promote as the claim on evidenced pairs (AECI-1089), because an evidenced-pair contest can route to an owner only once that owner can claim. The code: `apps/api/src/lib/integration-contests.ts` (the anchor helpers, `routeContest`, `planEntitlementClearReroute`), `resolveEvidencedPairSlots` in `lib/attestation-authority.ts`, `routes/vendor-contests.ts`, `routes/admin-contests.ts`, `routes/admin-entitlements.ts`, and migration `0049_rainy_puma.sql`.
 
-- **Today.** The submit route has no connector-powered check. So a non-owner endpoint vendor can already contest a connector-powered `integrations` row. It always routes to AECi, because no connector-powered row can be claimed in v1. An evidenced pair cannot be contested at all: `integration_field_challenges.integration_id` references `integrations` only.
-- **Who may contest is unchanged (§11b.2).** An endpoint vendor that is not the owner. A third-party owner still cannot contest its own rows, because it holds neither endpoint.
-- **Routing is §11b.4, unchanged.** A content contest routes to the owner when the row is claimed and an owner is on file. Every other contest routes to AECi, and an `owner` contest always does. So "the owner is in the system" means **the owner has claimed the row**. No new test is added. Once the carve-out ships, a claim on a connector-powered row moves new content contests on it to the owner. Contests already open keep their route, because routing is frozen at submit. Two follow-up rulings change the owner route on these rows. A `mechanism_kind` contest never takes it, and an entitlement clear sends open owner-routed contests back to AECi. Both are below.
-- **Evidenced pairs ship with their claim.** Contest support on `connector_evidenced_pairs` reaches production in the same release as the claim on that table. It needs a rebuild of `integration_field_challenges` with two anchor columns and an exactly-one check. The rebuild must carry the AECI-1009 protest columns from migration `0047`. Nothing holds a foreign key into the table, so the rebuild cannot cascade. `resolveAttestationSlots` reads `integrations` only, so the endpoint-vendor check needs an evidenced arm.
-- **Fields on an evidenced pair.** The ten content fields that exist on that table, plus `owner`. `mechanism_kind` is not one, because the column does not exist there. `direction` is in the canonical A/B frame (`DATABASE_SCHEMA.md` §9a.6).
+- **Who may contest is unchanged (§11b.2).** An endpoint vendor that is not the owner. On an evidenced pair the endpoint check is `resolveEvidencedPairSlots`, the evidenced arm of `resolveAttestationSlots`. It applies the same `product_vendors` rule to `product_a_id` and `product_b_id`, and answers the same `404` for "no such pair" and "you own neither endpoint". A third-party owner still cannot contest its own rows, because it holds neither endpoint.
+- **The routes.** `POST /api/vendor/integrations/:id/contests` as before, and `POST /api/vendor/evidenced-pairs/:id/contests` for a pair. Both take the same body, gate (`requireVendor()` then `rateLimit('write')`), checks and answers. Every other contest route addresses a contest by its own id and needed no new path.
+- **Two anchors, exactly one set.** `integration_field_challenges` has `integration_id` and `evidenced_pair_id`. Both are nullable and `ON DELETE CASCADE`. `integration_field_challenges_anchor_check` holds exactly one, in the sum form `claims_anchor_check` uses (`DATABASE_SCHEMA.md` §8.7). On the wire a contest's `integration_id` is the anchor row's id. `anchor` (`integration | evidenced_pair`, default `integration`) says which table. The admin row adds `integration.anchor` and `integration.connector`.
+- **Fields on an evidenced pair.** The ten content fields that exist on that table, plus `owner`: `EVIDENCED_PAIR_CONTEST_FIELDS` in `@aeci/shared`. `mechanism_kind` on a pair answers `400 VALIDATION_FAILED` on `field`. `direction` is stored in the pair's canonical A/B frame (`DATABASE_SCHEMA.md` §9a.6). The wire re-frames it per caller, exactly as on an `integrations` row.
+- **Routing is §11b.4 with the exceptions below on a connector-powered row.** Decision 9's predicate decides which rows those are: `isConnectorPoweredEdge`, or any evidenced pair. Routing stays frozen at submit.
+- **Accepts write the anchor's own table.** An owner accept and an AECi accept on a pair write `connector_evidenced_pairs`. The audit row is `connector_evidenced_pair.updated` with entity type `connector_evidenced_pair`, the vocabulary promote and the AECI-1089 claim use, in the same batch. An AECi owner approval writes `integration.claimed` on the pair. A pair write purges `pair:{a}__{b}`, both endpoint `product:` tags and the connector's `product:` tag, because the connector's page lists the pair. There is no Algolia write, as on the `integrations` path. The promote fence (AECI-1088) holds: only a claimed pair is written here, and promote never writes a claimed pair.
+- **Notifications** carry `metadata.anchor = 'evidenced_pair'` on a pair contest. The `REVIEW - ` issue names the evidenced pair id and the connector.
+- **The portal** offers "Contest a field" on each delivered pair the vendor does not own. It sits in the Connectors section of a product's Integrations tab (§6.13). `GET /api/vendor/products/:id/connectors` carries one `delivered_contest_targets` entry per delivered pair (`API_CONTRACTS.md` §6.14). The admin queue names the connector on a pair row ("Delivered through {connector}").
 
-**Follow-up rulings (2026-09-23, Chris).** Three questions the first rulings left open are now decided. None is built.
+**Follow-up rulings (2026-09-23, Chris), all built.**
 
-1. **A `mechanism_kind` contest on a connector-powered `integrations` row always routes to AECi.** It never routes to the owner, even on a claimed row. That is an exception to §11b.4's owner route. It settles the conflict with ruling 5: the owner can neither edit that column nor accept a contest that writes it. An AECi accept follows §11b.6 as on any row.
-2. **An owner decision on a contest over a connector-powered row needs an active entitlement.** Accepting or declining is an owner write, so ruling 2 applies. The fallback fires **when an admin clears the vendor's entitlement**, through the `clear` action of `PATCH /api/admin/vendors/:id/entitlement` (`STAGE_2_PAID_TIERS_SPEC.md` §5.1). It does not fire on a timer. Term expiry never changes `status` (`STAGE_2_PAID_TIERS_SPEC.md` §7). From the clear on, every open owner-routed contest on that vendor's connector-powered rows falls back to the AECi admin queue. It mirrors the §11b.5 deleted-owner rule. An admin decides it through `PATCH /api/admin/contests/:id`. It counts in `pending_contests` and shows Accept and Decline on `/admin/contests`.
-3. **An AECi accept of an `owner` contest on a connector-powered row has no special case** once the carve-out ships. It writes exactly what §11b.6 writes on any other row. That includes the owner-approved case, which writes `built_by_vendor_id`, `claimed_at` and the maintenance transfer. The `connector-powered` row of the §11b.6 table is retired by that build. Until then it writes nothing here, as built.
+1. **A `mechanism_kind` contest on a connector-powered `integrations` row always routes to AECi (ruling A).** It never routes to the owner, even on a claimed row. That settles the conflict with ruling 5: the owner can neither edit that column nor accept a contest that writes it. An AECi accept follows §11b.6 as on any row.
+2. **An owner decision on a contest over a connector-powered row needs an active entitlement (ruling B).** `POST /api/vendor/contests/:id/decision` calls `requireActiveEntitlement` after ownership settles. A seat without one gets `403 INTEGRATION_ENTITLEMENT_REQUIRED`. The fallback fires **when an admin clears the vendor's entitlement**, through the `clear` action of `PATCH /api/admin/vendors/:id/entitlement` (`STAGE_2_PAID_TIERS_SPEC.md` §5.1). It does not fire on a timer: term expiry never changes `status` (`STAGE_2_PAID_TIERS_SPEC.md` §7). In the clear's own batch, every open owner-routed contest on that vendor's connector-powered rows moves to `routed_to = 'aeci'`. Each gets an `integration.contest.rerouted` audit row with `metadata.reason = 'entitlement-cleared'` and an `open → open` transition. Contests on rows that are not connector-powered keep their owner route.
+3. **An AECi accept of an `owner` contest on a connector-powered row has no special case (ruling C).** It writes exactly what §11b.6 writes on any other row, in either table. That includes the owner-approved case: `built_by_vendor_id`, `claimed_at` and the maintenance transfer. The `connector-powered` row of the §11b.6 table is retired.
+4. **A NEW content contest on a claimed connector-powered row routes to the owner only when the owner is on file AND holds an active entitlement (ruling E, 2026-09-23, recorded on AECI-1092).** Otherwise it routes to AECi at submit, where ruling B's fallback sends an open one. The submit route reads the owner's `vendor_entitlements` row through `vendorHoldsActiveEntitlement`, the same `tierFor` test the vendor guard runs on its own session. A contest routed to an unentitled owner would sit where nobody can decide it.
+
+**Ruling B is a re-route in the clear's batch, not a read-time check.** The build issue left the choice to the plan. A read-time check, like the §11b.5 deleted-owner rule, would leave `routed_to = 'owner'` on the row. Every reader of `routed_to` would then have to re-derive "AECi decides this" from a join to `vendor_entitlements` plus the connector-powered predicate. There are five such readers:
+
+- the `pending_contests` badge;
+- the admin queue's "Decided by" filter;
+- the admin PATCH's `CONTEST_ROUTED_TO_OWNER` refusal;
+- the owner's Received list, whose predicate `receivedContestsWhere` is also the `contests` cursor predicate;
+- protest eligibility (§11b.12.2), which would still treat the row as protestable against an owner who can no longer decide.
+
+A read-time rule would also hand the contest back to the owner when the entitlement is re-opened. The re-route writes the answer once, audited, in the same batch that clears the entitlement. All five readers agree from the commit on, and the cursor invariant (`STAGE_2_REALTIME_SPEC.md` §2.2) holds with no predicate change. The portal also refetches loaded contests when the `entitlement` scope moves (§2.3 there), so the owner's Received list drops the row. The re-route reuses AECI-1005's owner-reassignment builder, `rerouteToAeciStatements`. The deleted-owner case stays read-time because `ON DELETE SET NULL` makes that write with no application code to hook.
+
+**The races, closed.**
+
+- **A contest submitted during a clear.** The clear's batch starts with a guard. It aborts unless the vendor's open owner-routed contests are exactly the set the handler read. The handler re-plans and retries once, then answers `409 CONTEST_INTEGRATION_CHANGED` with nothing written.
+- **A clear during a submit.** When a contest routes to an owner on a connector-powered row, its batch carries `ownerEntitlementActiveSentinel`. A clear that commits first aborts the submit, which re-reads and routes the contest to AECi.
+- **A re-route during an owner decision.** The owner decide route's guarded `UPDATE` now also requires `routed_to = 'owner' AND owner_vendor_id = caller`. A re-route that commits mid-decision, by a clear or by an owner reassignment, leaves the decision unwritten and answers `409 CONTEST_INTEGRATION_CHANGED`.
+
+**Open gap, for AECI-1091.** A retire closes the open contests on the retired row (§4.6). The evidenced-pair retire AECI-1091 builds must close contests anchored by `evidenced_pair_id`, not only by `integration_id`. Its `noOpenContestsSentinel` needs the same arm.
 
 ## 12. Cross-references
 

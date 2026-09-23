@@ -162,6 +162,9 @@ export const CASCADE_CHILD_HANDLING: Readonly<Record<string, FkOutcome>> = {
   'claims.connector_evidenced_pair_id': 'cascade-child',
   'attestations.claim_id': 'cascade-child',
   'integration_field_challenges.integration_id': 'cascade-child',
+  // AECI-1092 (0049): a contest can sit on an evidenced pair. Deleted explicitly
+  // before the pairs, and counted on the pair's tombstone, like the integrations arm.
+  'integration_field_challenges.evidenced_pair_id': 'cascade-child',
   // AECI-1007. Deleted explicitly, and counted on the integration's tombstone, only
   // where the table exists (`vendorLinksTable`): migration 0045 reaches each tier at
   // its next deploy, and naming a missing table would fail the whole batch.
@@ -264,6 +267,15 @@ export const EVIDENCED_PAIRS_DDL_SQL = `SELECT "sql" FROM "sqlite_master" WHERE 
 /** AECI-1007: does the per-side links table exist on this tier yet? One row when it
  *  does, none when migration 0045 has not reached it. */
 export const VENDOR_LINKS_TABLE_SQL = `SELECT "name" FROM "sqlite_master" WHERE "type" = 'table' AND "name" = 'integration_vendor_links';`;
+
+/** AECI-1092: the contest table's DDL. It carries `evidenced_pair_id` on a tier
+ *  migration 0049 has reached, and not before. */
+export const CONTESTS_DDL_SQL = `SELECT "sql" FROM "sqlite_master" WHERE "type" = 'table' AND "name" = 'integration_field_challenges';`;
+
+/** Does this contest-table DDL carry 0049's evidenced-pair anchor? */
+export function ddlHasEvidencedContestAnchor(ddl: string | null): boolean {
+  return ddl !== null && ddl.includes('evidenced_pair_id');
+}
 
 export function buildFootprintSql(
   id: string,
@@ -544,6 +556,10 @@ export interface ProductDeleteArgs {
   vendorHeldColumns?: boolean;
   /** AECI-1088 review: the same for `connector_evidenced_pairs` and migration 0049. */
   vendorHeldPairColumns?: boolean;
+  /** AECI-1092: whether `integration_field_challenges.evidenced_pair_id` exists on
+   *  the target tier (migration 0049). Defaults to true, the schema at HEAD; the CLI
+   *  passes its {@link CONTESTS_DDL_SQL} probe. */
+  evidencedContestAnchor?: boolean;
 }
 
 /** The token the plan's first statement raises when a vendor-held row appeared in
@@ -701,6 +717,7 @@ export function buildDeleteStatements(args: ProductDeleteArgs): string[] {
       ? `SELECT 1 FROM "connector_evidenced_pairs" WHERE "id" IN (${s.pairs}) AND ("claimed_at" IS NOT NULL OR "origin" = 'vendor')`
       : null;
   const heldChecks = [heldIntegrations, heldPairs].filter((q): q is string => q !== null);
+  const evidencedContests = args.evidencedContestAnchor ?? true;
   const refusalGuard =
     `NOT EXISTS (SELECT 1 FROM "connector_catalogs" WHERE "connector_product_id" = ${p})` +
     ` AND NOT EXISTS (SELECT 1 FROM "connector_stub_mappings" WHERE "product_id" = ${p})` +
@@ -725,7 +742,11 @@ export function buildDeleteStatements(args: ProductDeleteArgs): string[] {
     reason: 'connector or endpoint product retracted',
     beforeState:
       `json_object('table', 'connector_evidenced_pairs', 'row', ${rowJson(['id', 'name', 'connector_product_id', 'product_a_id', 'product_b_id', 'mechanism_name', 'direction', 'created_at'])}, ` +
-      `'cascade', json_object('claims', ${claimCount('connector_evidenced_pair_id')}, 'attestations', ${attestationCount('connector_evidenced_pair_id')}))`,
+      `'cascade', json_object('claims', ${claimCount('connector_evidenced_pair_id')}, 'attestations', ${attestationCount('connector_evidenced_pair_id')}` +
+      (evidencedContests
+        ? `, 'field_challenges', (SELECT count(*) FROM "integration_field_challenges" f WHERE f."evidenced_pair_id" = t."id")`
+        : '') +
+      `))`,
     from: `FROM "connector_evidenced_pairs" t WHERE t."id" IN (${s.pairs})`,
   });
 
@@ -785,6 +806,10 @@ export function buildDeleteStatements(args: ProductDeleteArgs): string[] {
     `DELETE FROM "attestations" WHERE "claim_id" IN (${s.claims});`,
     `DELETE FROM "claims" WHERE "id" IN (${s.claims});`,
     `DELETE FROM "integration_field_challenges" WHERE "integration_id" IN (${s.integrations});`,
+    // AECI-1092: contests on the pairs about to go, explicitly and before them.
+    ...(withPairs && evidencedContests
+      ? [`DELETE FROM "integration_field_challenges" WHERE "evidenced_pair_id" IN (${s.pairs});`]
+      : []),
     ...(vendorLinksTable
       ? [
           `DELETE FROM "integration_vendor_links" WHERE "integration_id" IN (${s.integrations});`,

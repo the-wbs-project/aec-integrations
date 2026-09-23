@@ -22,6 +22,7 @@ import {
   claimDirectionFromContext,
   orderedPairSlugs,
   type ClaimDirection,
+  type ContestAnchorKind,
   type ContestNotificationEvent,
   type ContestRoute,
   type ContextDirection,
@@ -29,12 +30,23 @@ import {
   type IntegrationRetiredBy,
 } from '@aeci/shared';
 import type { AuditLogEntry } from '@aeci/shared/audit-log';
+import { PAID_TIERS, tierFor } from '@aeci/shared/entitlements';
 import { and, eq, inArray, or, sql, type SQL } from 'drizzle-orm';
 
 import type { Db } from '../db/client';
-import { integrationFieldChallenges, integrations, vendors } from '../db/schema';
+import {
+  connectorEvidencedPairs,
+  integrationFieldChallenges,
+  integrations,
+  products,
+  vendorEntitlements,
+  vendors,
+} from '../db/schema';
+import { workflowTransitionInsert, type BatchStmt } from './audit';
 import { NOTIFICATION_SENT_ACTION } from './attestation-notify';
+import { isConnectorPoweredEdge } from './connector-powered';
 import { isClaimed, ONE_ROW } from './integration-claims';
+import { integrationLiveSentinel } from './live-integration';
 
 type IntegrationRow = typeof integrations.$inferSelect;
 
@@ -65,11 +77,20 @@ export function isIntegrationClaimed(
 export type IntegrationClaimedPredicate = typeof isIntegrationClaimed;
 
 /**
- * Who decides a contest, fixed at submit (§11b).
+ * Who decides a contest, fixed at submit (§11b.4, with the AECI-1040 exceptions of
+ * §11b.13).
  *
- * `owner` iff the integration is claimed, the field is not `owner`, and an owner
- * is on file. An `owner` contest ALWAYS routes to AECi: the owner cannot be the
- * judge of whether it is the owner.
+ * `owner` iff the row is claimed, the field is not `owner`, and an owner is on file.
+ * An `owner` contest ALWAYS routes to AECi: the owner cannot be the judge of whether
+ * it is the owner. On a CONNECTOR-POWERED row (either table) two more rules send a
+ * contest to AECi even when the row is claimed:
+ *
+ *   - **Ruling A.** A `mechanism_kind` contest. The owner may neither edit that
+ *     column (it decides routing, ruling 5) nor accept a contest that writes it.
+ *     Only an `integrations` row has the column, so this bites there alone.
+ *   - **Ruling E.** The owner holds no active entitlement. Deciding is an owner write,
+ *     and an owner write on these rows needs an active entitlement (ruling 2), so a
+ *     contest routed to an owner without one would sit where nobody can decide it.
  *
  * `ownerVendorId` is the `built_by_vendor_id` snapshot either way. On an
  * AECi-routed row it is informational (the admin screen shows who is on file).
@@ -78,13 +99,435 @@ export function routeContest(
   integration: Pick<IntegrationRow, 'id' | 'builtByVendorId' | 'claimedAt'>,
   field: IntegrationContestField,
   claimed: IntegrationClaimedPredicate = isIntegrationClaimed,
+  carveOut: { connectorPowered: boolean; ownerEntitled: boolean } = {
+    connectorPowered: false,
+    ownerEntitled: true,
+  },
 ): { routedTo: ContestRoute; ownerVendorId: string | null } {
   const ownerVendorId = integration.builtByVendorId ?? null;
-  const routedTo: ContestRoute =
-    claimed(integration) && field !== 'owner' && ownerVendorId !== null ? 'owner' : 'aeci';
+  const ownerMayDecide = claimed(integration) && field !== 'owner' && ownerVendorId !== null;
+  const carvedOut =
+    carveOut.connectorPowered && (field === 'mechanism_kind' || !carveOut.ownerEntitled);
+  const routedTo: ContestRoute = ownerMayDecide && !carvedOut ? 'owner' : 'aeci';
   return { routedTo, ownerVendorId };
 }
 
+// ─── The two anchors (AECI-1092) ─────────────────────────────────────────────
+
+/** The row a contest sits on: exactly one of the two anchor columns is set
+ *  (`integration_field_challenges_anchor_check`). */
+export interface ContestAnchor {
+  kind: ContestAnchorKind;
+  id: string;
+}
+
+/** The anchor a stored contest row names. The CHECK guarantees one is set. */
+export function contestAnchorOf(
+  row: Pick<ContestRow, 'integrationId' | 'evidencedPairId'>,
+): ContestAnchor {
+  if (row.evidencedPairId) return { kind: 'evidenced_pair', id: row.evidencedPairId };
+  return { kind: 'integration', id: row.integrationId ?? '' };
+}
+
+/** Accept an anchor, or a bare id meaning an `integrations` row (the pre-AECI-1092
+ *  call form, which the specs still use). */
+export function toContestAnchor(anchor: ContestAnchor | string): ContestAnchor {
+  return typeof anchor === 'string' ? { kind: 'integration', id: anchor } : anchor;
+}
+
+/** The two anchor columns, for an insert. */
+export function anchorColumns(anchor: ContestAnchor): {
+  integrationId: string | null;
+  evidencedPairId: string | null;
+} {
+  return anchor.kind === 'evidenced_pair'
+    ? { integrationId: null, evidencedPairId: anchor.id }
+    : { integrationId: anchor.id, evidencedPairId: null };
+}
+
+/** Contests on this anchor. */
+export function contestAnchorWhere(anchor: ContestAnchor): SQL {
+  return anchor.kind === 'evidenced_pair'
+    ? eq(integrationFieldChallenges.evidencedPairId, anchor.id)
+    : eq(integrationFieldChallenges.integrationId, anchor.id);
+}
+
+/**
+ * An UPDATE of the anchor row, in whichever table it lives. `set` uses the Drizzle
+ * property names both tables share (`name`, `direction`, `builtByVendorId`,
+ * `claimedAt`, `maintainedBy`, `lastReviewedAt`, …). Only an `integrations` anchor
+ * may set `mechanismKind`; the callers never pass it for a pair.
+ */
+export function anchorUpdate(db: Db, anchor: ContestAnchor, set: Record<string, unknown>) {
+  return anchor.kind === 'evidenced_pair'
+    ? db
+        .update(connectorEvidencedPairs)
+        .set(set as Partial<typeof connectorEvidencedPairs.$inferInsert>)
+        .where(eq(connectorEvidencedPairs.id, anchor.id))
+    : db
+        .update(integrations)
+        .set(set as Partial<typeof integrations.$inferInsert>)
+        .where(eq(integrations.id, anchor.id));
+}
+
+/** The anchor column's name, for the raw-SQL sentinels. A constant, never input. */
+export function anchorColumnSql(kind: ContestAnchorKind): SQL {
+  return sql.raw(kind === 'evidenced_pair' ? '"evidenced_pair_id"' : '"integration_id"');
+}
+
+/** The anchor table's name, for the raw-SQL sentinels. A constant, never input. */
+function anchorTableSql(kind: ContestAnchorKind): SQL {
+  return sql.raw(kind === 'evidenced_pair' ? '"connector_evidenced_pairs"' : '"integrations"');
+}
+
+/** `audit_log.entity_type` for a catalog write on the anchor row. An evidenced pair
+ *  uses the entity type promote already writes for it. */
+export function anchorEntityType(kind: ContestAnchorKind): string {
+  return kind === 'evidenced_pair' ? 'connector_evidenced_pair' : 'integration';
+}
+
+/** `audit_log.action` for a content write on the anchor row, matching promote's. */
+export function anchorUpdatedAction(kind: ContestAnchorKind): string {
+  return kind === 'evidenced_pair' ? 'connector_evidenced_pair.updated' : 'integration.updated';
+}
+
+/** Audit metadata naming the anchor: `integrationId` or `evidencedPairId`. */
+export function anchorMetadata(anchor: ContestAnchor): Record<string, string> {
+  return anchor.kind === 'evidenced_pair'
+    ? { evidencedPairId: anchor.id }
+    : { integrationId: anchor.id };
+}
+
+/**
+ * The row a contest sits on, normalized across both tables. On an evidenced pair
+ * `sourceProductId` is endpoint A and `targetProductId` endpoint B of the canonical
+ * order, which is the frame its `direction` is stored in, so every direction
+ * translation reads the same on both. `mechanismKind` is `null` there.
+ */
+export interface ContestTarget {
+  anchor: ContestAnchor;
+  id: string;
+  name: string | null;
+  mechanismKind: string | null;
+  mechanismName: string | null;
+  direction: string | null;
+  description: string | null;
+  listingUrl: string | null;
+  docsUrl: string | null;
+  website: string | null;
+  mechanismUrl: string | null;
+  pricingModel: string | null;
+  maturity: string | null;
+  builtByVendorId: string | null;
+  claimedAt: string | null;
+  retiredAt: string | null;
+  maintainedBy: string;
+  lastReviewedAt: string | null;
+  sourceProductId: string;
+  targetProductId: string;
+  /** The delivering connector product, on an evidenced pair only. */
+  connectorProductId: string | null;
+  /** Decision 9's predicate: `isConnectorPoweredEdge`, or any evidenced pair. */
+  connectorPowered: boolean;
+}
+
+/** Load the row a contest sits on, in either table, or `null` when it is gone. */
+export async function loadContestTarget(
+  db: Db,
+  anchorOrId: ContestAnchor | string,
+): Promise<ContestTarget | null> {
+  const anchor = toContestAnchor(anchorOrId);
+  if (anchor.kind === 'evidenced_pair') {
+    const pair = await db.query.connectorEvidencedPairs.findFirst({
+      where: eq(connectorEvidencedPairs.id, anchor.id),
+    });
+    if (!pair) return null;
+    return {
+      anchor,
+      id: pair.id,
+      name: pair.name,
+      mechanismKind: null,
+      mechanismName: pair.mechanismName,
+      direction: pair.direction,
+      description: pair.description,
+      listingUrl: pair.listingUrl,
+      docsUrl: pair.docsUrl,
+      website: pair.website,
+      mechanismUrl: pair.mechanismUrl,
+      pricingModel: pair.pricingModel,
+      maturity: pair.maturity,
+      builtByVendorId: pair.builtByVendorId,
+      claimedAt: pair.claimedAt,
+      retiredAt: pair.retiredAt,
+      maintainedBy: pair.maintainedBy,
+      lastReviewedAt: pair.lastReviewedAt,
+      sourceProductId: pair.productAId,
+      targetProductId: pair.productBId,
+      connectorProductId: pair.connectorProductId,
+      connectorPowered: true,
+    };
+  }
+  const row = await db.query.integrations.findFirst({ where: eq(integrations.id, anchor.id) });
+  if (!row) return null;
+  return {
+    anchor,
+    id: row.id,
+    name: row.name,
+    mechanismKind: row.mechanismKind,
+    mechanismName: row.mechanismName,
+    direction: row.direction,
+    description: row.description,
+    listingUrl: row.listingUrl,
+    docsUrl: row.docsUrl,
+    website: row.website,
+    mechanismUrl: row.mechanismUrl,
+    pricingModel: row.pricingModel,
+    maturity: row.maturity,
+    builtByVendorId: row.builtByVendorId,
+    claimedAt: row.claimedAt,
+    retiredAt: row.retiredAt,
+    maintainedBy: row.maintainedBy,
+    lastReviewedAt: row.lastReviewedAt,
+    sourceProductId: row.sourceProductId,
+    targetProductId: row.targetProductId,
+    connectorProductId: null,
+    connectorPowered: isConnectorPoweredEdge(row),
+  };
+}
+
+/** Cache-Tags a catalog write on the anchor row must purge: the pair page, both
+ *  endpoint product pages, and on an evidenced pair the connector's page too, which
+ *  lists the pair (`retract-product.ts` purges the same set for a deleted pair). */
+export async function anchorPurgeTags(
+  db: Db,
+  target: Pick<ContestTarget, 'sourceProductId' | 'targetProductId' | 'connectorProductId'>,
+  pairTag: (a: string, b: string) => string,
+): Promise<{ tags: string[]; pairSlugs: readonly [string, string] | null }> {
+  const ids = [target.sourceProductId, target.targetProductId];
+  if (target.connectorProductId) ids.push(target.connectorProductId);
+  const rows = await db
+    .select({ id: products.id, slug: products.slug })
+    .from(products)
+    .where(inArray(products.id, ids));
+  const slug = new Map(rows.map((r) => [r.id, r.slug]));
+  const a = slug.get(target.sourceProductId);
+  const b = slug.get(target.targetProductId);
+  if (!a || !b) return { tags: [], pairSlugs: null };
+  const tags = [pairTag(a, b), `product:${a}`, `product:${b}`];
+  const connector = target.connectorProductId ? slug.get(target.connectorProductId) : undefined;
+  if (connector) tags.push(`product:${connector}`);
+  return { tags, pairSlugs: [a, b] };
+}
+
+// ─── The owner's entitlement (AECI-1040 rulings 2, B and E) ─────────────────
+
+/**
+ * Does this vendor hold an active entitlement? The same test the vendor guard runs
+ * on its own session (`tierFor`: a `vendor_entitlements` row with `status =
+ * 'active'` at a tier this build knows), read for ANOTHER vendor: the submit route
+ * routes on the OWNER's entitlement, and the caller is the submitter.
+ */
+export async function vendorHoldsActiveEntitlement(db: Db, vendorId: string): Promise<boolean> {
+  const row = await db.query.vendorEntitlements.findFirst({
+    columns: { tier: true, status: true },
+    where: eq(vendorEntitlements.vendorId, vendorId),
+  });
+  return tierFor(row ?? null) !== 'unclaimed';
+}
+
+/**
+ * A batch statement that ABORTS a contest submit routed to an owner on a
+ * connector-powered row when the owner's entitlement is no longer active at commit.
+ * The other half of ruling B: an admin clear that commits between the submit's read
+ * and its batch would otherwise leave a new contest with an owner who cannot decide
+ * it, after the clear's own re-route had already run. The handler re-routes and
+ * retries. Same `json()` abort as the other contest sentinels.
+ */
+export function ownerEntitlementActiveSentinel(db: Db, ownerVendorId: string) {
+  const tiers = sql.join(
+    PAID_TIERS.map((tier) => sql`${tier}`),
+    sql`, `,
+  );
+  return db
+    .select({
+      guard: sql`CASE WHEN NOT EXISTS (SELECT 1 FROM "vendor_entitlements"
+          WHERE "vendor_id" = ${ownerVendorId} AND "status" = 'active' AND "tier" IN (${tiers}))
+        THEN json('contest-owner-unentitled') END`,
+    })
+    .from(ONE_ROW);
+}
+
+/**
+ * A batch statement that ABORTS a write when the anchor row is retired at commit
+ * (AECI-1010), on either table. The `integrations` arm is the shared
+ * `integrationLiveSentinel`; the evidenced arm is its twin over
+ * `connector_evidenced_pairs.retired_at` (migration 0048). Both raise through
+ * `isIntegrationRetiredRaceError`'s match.
+ */
+export function contestAnchorLiveSentinel(db: Db, anchor: ContestAnchor) {
+  if (anchor.kind === 'integration') return integrationLiveSentinel(db, anchor.id);
+  return db
+    .select({
+      guard: sql`CASE WHEN ${connectorEvidencedPairs.retiredAt} IS NOT NULL THEN json('integration-retired') END`,
+    })
+    .from(connectorEvidencedPairs)
+    .where(eq(connectorEvidencedPairs.id, anchor.id));
+}
+
+// ─── Ruling B: an entitlement clear re-routes the owner's contests ──────────
+
+/**
+ * What an admin entitlement `clear` adds to its batch (AECI-1040 follow-up ruling 2,
+ * "ruling B"; `STAGE_2_VENDOR_PORTAL_SPEC.md` §11b.13): every OPEN owner-routed
+ * contest this vendor decides on a CONNECTOR-POWERED row (either table) moves to the
+ * AECi queue, because deciding it is an owner write that now needs an entitlement
+ * the vendor no longer holds. Contests on rows that are not connector-powered keep
+ * their owner route: those rows keep the seat as their whole gate (decision 15).
+ *
+ * A re-route IN the clear's batch, not a read-time check, so every reader agrees
+ * from the commit on: `routed_to` is what `pending_contests`, the owner's Received
+ * list, the admin queue's filters, the admin PATCH, the protest eligibility rule and
+ * the `contests` cursor predicate all read. See §11b.13 for the comparison.
+ *
+ * `guard` goes FIRST among these statements. It aborts the batch unless the set of
+ * open owner-routed contests for the vendor is exactly the set read here, so a
+ * contest submitted (or re-routed) between this read and the commit cannot be left
+ * with an owner who can no longer decide it. The handler re-plans and retries.
+ */
+export async function planEntitlementClearReroute(
+  db: Db,
+  vendorId: string,
+  actor: { actorId: string; actorType: AuditLogEntry['actorType'] },
+  now: string,
+): Promise<{ stmts: BatchStmt[]; audits: AuditLogEntry[]; rerouted: number }> {
+  const open = await db
+    .select()
+    .from(integrationFieldChallenges)
+    .where(
+      and(
+        eq(integrationFieldChallenges.routedTo, 'owner'),
+        eq(integrationFieldChallenges.ownerVendorId, vendorId),
+        eq(integrationFieldChallenges.status, 'open'),
+      ),
+    );
+  const integrationIds = [
+    ...new Set(open.map((row) => row.integrationId).filter((id): id is string => id !== null)),
+  ];
+  const powered =
+    integrationIds.length === 0
+      ? []
+      : await db
+          .select({
+            id: integrations.id,
+            poweredByProductId: integrations.poweredByProductId,
+            mechanismKind: integrations.mechanismKind,
+          })
+          .from(integrations)
+          .where(inArray(integrations.id, integrationIds));
+  const poweredIds = new Set(powered.filter(isConnectorPoweredEdge).map((row) => row.id));
+  const moving = open.filter(
+    (row) =>
+      row.evidencedPairId !== null ||
+      (row.integrationId !== null && poweredIds.has(row.integrationId)),
+  );
+  const reroute = rerouteToAeciStatements(
+    db,
+    moving,
+    actor,
+    now,
+    'owner entitlement cleared: re-routed to AECi',
+    { reason: 'entitlement-cleared', ownerVendorId: vendorId },
+  );
+  const ids = open.map((row) => row.id);
+  const scope = sql`"routed_to" = 'owner' AND "owner_vendor_id" = ${vendorId} AND "status" = 'open'`;
+  const listed =
+    ids.length === 0
+      ? sql`0`
+      : sql`(SELECT count(*) FROM "integration_field_challenges" WHERE ${scope} AND "id" IN (${sql.join(
+          ids.map((id) => sql`${id}`),
+          sql`, `,
+        )}))`;
+  const guard = db
+    .select({
+      guard: sql`CASE WHEN (SELECT count(*) FROM "integration_field_challenges" WHERE ${scope}) <> ${ids.length}
+          OR ${listed} <> ${ids.length}
+        THEN json('contest-reroute-changed') END`,
+    })
+    .from(ONE_ROW);
+  return {
+    stmts: [guard, ...reroute.stmts],
+    audits: reroute.audits,
+    rerouted: moving.length,
+  };
+}
+
+// ─── Re-routing open owner contests to AECi ─────────────────────────────────
+
+/**
+ * Move OPEN owner-routed contests to the AECi queue: a guarded UPDATE per contest,
+ * an `open → open` workflow transition (the state holds, the decider changes) and an
+ * `integration.contest.rerouted` audit row. Pushed into the caller's batch.
+ *
+ * Two callers. An AECi accept that takes a claimed row away from its owner
+ * (AECI-1005, `routes/admin-contests.ts`), and an admin clearing a vendor's
+ * entitlement, which sends that vendor's open contests on connector-powered rows
+ * back to AECi (ruling B, `routes/admin-entitlements.ts`). The UPDATE is guarded on
+ * `routed_to = 'owner'` as well as `status = 'open'`. `updated_at` moves, so the
+ * submitter's `contests` cursor sees it.
+ */
+export function rerouteToAeciStatements(
+  db: Db,
+  contests: readonly ContestRow[],
+  actor: { actorId: string; actorType: AuditLogEntry['actorType'] },
+  now: string,
+  reason: string,
+  extra: Record<string, unknown>,
+): { stmts: BatchStmt[]; audits: AuditLogEntry[] } {
+  const stmts: BatchStmt[] = [];
+  const audits: AuditLogEntry[] = [];
+  for (const contest of contests) {
+    const metadata = {
+      source: 'admin-moderation',
+      contestId: contest.id,
+      ...anchorMetadata(contestAnchorOf(contest)),
+      ...extra,
+    };
+    stmts.push(
+      db
+        .update(integrationFieldChallenges)
+        .set({ routedTo: 'aeci', updatedAt: now })
+        .where(
+          and(
+            eq(integrationFieldChallenges.id, contest.id),
+            eq(integrationFieldChallenges.status, 'open'),
+            eq(integrationFieldChallenges.routedTo, 'owner'),
+          ),
+        ),
+    );
+    if (contest.workflowId) {
+      stmts.push(
+        workflowTransitionInsert(db, {
+          workflowId: contest.workflowId,
+          fromState: 'open',
+          toState: 'open',
+          actorId: actor.actorId,
+          reason,
+          metadata,
+        }),
+      );
+    }
+    audits.push({
+      ...actor,
+      action: 'integration.contest.rerouted',
+      entityType: CONTEST_ENTITY_TYPE,
+      entityId: contest.id,
+      beforeState: { routed_to: 'owner', owner_vendor_id: contest.ownerVendorId },
+      afterState: { routed_to: 'aeci', owner_vendor_id: contest.ownerVendorId },
+      metadata,
+    });
+  }
+  return { stmts, audits };
+}
 // ─── Field ↔ column ──────────────────────────────────────────────────────────
 
 /** The `integrations` column each content field names. `owner` is absent on
@@ -179,7 +622,11 @@ export interface ContestNotificationMetadata {
   kind: 'contest';
   vendorId: string;
   contestId: string;
+  /** The anchor row's id, in whichever table `anchor` names. */
   integrationId: string;
+  /** AECI-1092: present, as `'evidenced_pair'`, only on a contest over an evidenced
+   *  pair. Absent means an `integrations` row, which is every row written before. */
+  anchor?: 'evidenced_pair';
   integrationName: string | null;
   field: IntegrationContestField;
   event: ContestNotificationEvent;
@@ -245,31 +692,60 @@ interface HydratedProduct {
   logoUrl: string | null;
 }
 
+/**
+ * The row a contest sits on, as the lists render it. On an evidenced pair
+ * (`anchor = 'evidenced_pair'`, AECI-1092) `sourceProduct` is endpoint A and
+ * `targetProduct` endpoint B of the canonical order, `mechanismKind` is `null`, and
+ * `connectorProduct` names the product that delivers the pair.
+ */
 export interface ContestIntegrationContext extends Pick<
   IntegrationRow,
   ContestColumn | 'builtByVendorId' | 'claimedAt'
 > {
   id: string;
   name: string | null;
+  anchor: ContestAnchorKind;
   sourceProduct: HydratedProduct;
   targetProduct: HydratedProduct;
+  connectorProduct: HydratedProduct | null;
 }
 
 export interface ContestHydration {
   integrations: Map<string, ContestIntegrationContext>;
+  /** AECI-1092: the evidenced pairs, kept apart so an id can never resolve against
+   *  the wrong table. Read through {@link hydratedTarget}. */
+  evidencedPairs: Map<string, ContestIntegrationContext>;
   vendorNames: Map<string, string>;
 }
 
+/** The hydrated row a contest sits on, from the map for its anchor's table. */
+export function hydratedTarget(
+  hydration: ContestHydration,
+  row: Pick<ContestRow, 'integrationId' | 'evidencedPairId'>,
+): ContestIntegrationContext | undefined {
+  const anchor = contestAnchorOf(row);
+  return anchor.kind === 'evidenced_pair'
+    ? hydration.evidencedPairs?.get(anchor.id)
+    : hydration.integrations.get(anchor.id);
+}
+
+const PRODUCT_COLUMNS = { columns: { id: true, name: true, slug: true, logoUrl: true } } as const;
+
 /**
- * Everything a list of contest rows needs to render, in two reads: the
- * integrations (with both endpoint products) and the vendor names — submitter,
- * owner, and the vendor ids an `owner` contest carries as its values.
+ * Everything a list of contest rows needs to render, in at most three reads: the
+ * integrations and the evidenced pairs (each with its endpoint products), and the
+ * vendor names — submitter, owner, and the vendor ids an `owner` contest carries
+ * as its values.
  */
 export async function hydrateContests(
   db: Db,
   rows: readonly ContestRow[],
 ): Promise<ContestHydration> {
-  const integrationIds = [...new Set(rows.map((r) => r.integrationId))];
+  const anchors = rows.map(contestAnchorOf);
+  const integrationIds = [
+    ...new Set(anchors.filter((a) => a.kind === 'integration').map((a) => a.id)),
+  ];
+  const pairIds = [...new Set(anchors.filter((a) => a.kind === 'evidenced_pair').map((a) => a.id))];
   const vendorIds = [
     ...new Set(
       rows.flatMap((r) =>
@@ -284,10 +760,10 @@ export async function hydrateContests(
   // Every contestable column and the claim state too (AECI-1006): the admin
   // queue shows the LIVE value beside the one recorded at submit, so an operator
   // can see why an accept would be refused as stale.
-  const integrationRows =
+  const [integrationRows, pairRows] = await Promise.all([
     integrationIds.length === 0
       ? []
-      : await db.query.integrations.findMany({
+      : db.query.integrations.findMany({
           columns: {
             id: true,
             name: true,
@@ -304,16 +780,59 @@ export async function hydrateContests(
             builtByVendorId: true,
             claimedAt: true,
           },
-          with: {
-            sourceProduct: { columns: { id: true, name: true, slug: true, logoUrl: true } },
-            targetProduct: { columns: { id: true, name: true, slug: true, logoUrl: true } },
-          },
+          with: { sourceProduct: PRODUCT_COLUMNS, targetProduct: PRODUCT_COLUMNS },
           where: inArray(integrations.id, integrationIds),
-        });
+        }),
+    pairIds.length === 0
+      ? []
+      : db.query.connectorEvidencedPairs.findMany({
+          columns: {
+            id: true,
+            name: true,
+            mechanismName: true,
+            direction: true,
+            description: true,
+            listingUrl: true,
+            docsUrl: true,
+            website: true,
+            mechanismUrl: true,
+            pricingModel: true,
+            maturity: true,
+            builtByVendorId: true,
+            claimedAt: true,
+          },
+          with: {
+            productA: PRODUCT_COLUMNS,
+            productB: PRODUCT_COLUMNS,
+            connectorProduct: PRODUCT_COLUMNS,
+          },
+          where: inArray(connectorEvidencedPairs.id, pairIds),
+        }),
+  ]);
+  const integrationMap = new Map<string, ContestIntegrationContext>(
+    integrationRows.map((row) => [
+      row.id,
+      { ...row, anchor: 'integration' as const, connectorProduct: null },
+    ]),
+  );
+  const pairMap = new Map<string, ContestIntegrationContext>(
+    pairRows.map(({ productA, productB, connectorProduct, ...row }) => [
+      row.id,
+      {
+        ...row,
+        mechanismKind: null,
+        anchor: 'evidenced_pair' as const,
+        sourceProduct: productA,
+        targetProduct: productB,
+        connectorProduct,
+      },
+    ]),
+  );
+  const hydration = { integrations: integrationMap, evidencedPairs: pairMap };
   // The live owner of an `owner` contest's row needs a name as well.
   for (const r of rows) {
     if (r.field !== 'owner') continue;
-    const live = integrationRows.find((i) => i.id === r.integrationId)?.builtByVendorId;
+    const live = hydratedTarget({ ...hydration, vendorNames: new Map() }, r)?.builtByVendorId;
     if (live && !vendorIds.includes(live)) vendorIds.push(live);
   }
   const vendorRows =
@@ -324,7 +843,7 @@ export async function hydrateContests(
           .from(vendors)
           .where(inArray(vendors.id, vendorIds));
   return {
-    integrations: new Map(integrationRows.map((row) => [row.id, row])),
+    ...hydration,
     vendorNames: new Map(vendorRows.map((row) => [row.id, row.name])),
   };
 }
@@ -387,16 +906,20 @@ export function contestStillOpenSentinel(db: Db, _contestId: string) {
  */
 export function contestIntegrationStateSentinel(
   db: Db,
-  integrationId: string,
+  anchorOrId: ContestAnchor | string,
   expected: { claimed: boolean; ownerVendorId: string | null },
 ) {
+  // AECI-1092: either anchor table. Both carry `claimed_at` and `built_by_vendor_id`
+  // with the same meaning (migration 0048).
+  const anchor = toContestAnchor(anchorOrId);
+  const table = anchorTableSql(anchor.kind);
   // Raises when the row is GONE as well as when it moved (AECI-1005 review): a
   // promote cross-table move deletes an unclaimed row, and a guard that reads
   // `FROM integrations WHERE id = ?` would return zero rows and pass silently.
   return db
     .select({
-      guard: sql`CASE WHEN NOT EXISTS (SELECT 1 FROM "integrations" WHERE "id" = ${integrationId})
-        OR EXISTS (SELECT 1 FROM "integrations" WHERE "id" = ${integrationId}
+      guard: sql`CASE WHEN NOT EXISTS (SELECT 1 FROM ${table} WHERE "id" = ${anchor.id})
+        OR EXISTS (SELECT 1 FROM ${table} WHERE "id" = ${anchor.id}
           AND (("claimed_at" IS NOT NULL) <> ${expected.claimed ? 1 : 0}
             OR ifnull("built_by_vendor_id", '') <> ${expected.ownerVendorId ?? ''}))
         THEN json('contest-integration-changed') END`,
@@ -434,14 +957,20 @@ export function isContestValueStale(
  */
 export function contestValueUnchangedSentinel(
   db: Db,
-  integrationId: string,
+  anchorOrId: ContestAnchor | string,
   field: ContentContestField,
   expected: string | null,
 ) {
-  const column = integrations[CONTEST_FIELD_COLUMNS[field]];
+  // AECI-1092: either anchor table. The column name is the same on both, and only an
+  // `integrations` contest can name `mechanism_kind` (§11b.13).
+  const anchor = toContestAnchor(anchorOrId);
+  if (anchor.kind === 'evidenced_pair' && field === 'mechanism_kind') {
+    throw new Error('connector_evidenced_pairs has no mechanism_kind column');
+  }
+  const column = sql.identifier(integrations[CONTEST_FIELD_COLUMNS[field]].name);
   return db
     .select({
-      guard: sql`CASE WHEN EXISTS (SELECT 1 FROM "integrations" WHERE "id" = ${integrationId}
+      guard: sql`CASE WHEN EXISTS (SELECT 1 FROM ${anchorTableSql(anchor.kind)} WHERE "id" = ${anchor.id}
           AND ${column} IS NOT ${expected})
         THEN json('contest-value-stale') END`,
     })

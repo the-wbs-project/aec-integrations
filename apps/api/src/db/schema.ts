@@ -1555,14 +1555,25 @@ const CONTEST_FIELD_CHECK = sql`"field" IN ('name', 'mechanism_kind', 'mechanism
  * An `owner` contest proposing "neither endpoint vendor owns this" (an SI or a
  * connector offers it). Every other field requires a value; the handler enforces it.
  *
+ * ── TWO ANCHORS, EXACTLY ONE SET (AECI-1092) ───────────────────────────────
+ * A contest sits on an `integrations` row (`integration_id`) or on a
+ * `connector_evidenced_pairs` row (`evidenced_pair_id`), never both and never
+ * neither: `integration_field_challenges_anchor_check` is the sum-form CHECK
+ * `claims_anchor_check` uses. `0049_…` rebuilt the table to add the second anchor
+ * (SQLite cannot relax a NOT NULL in place). NOTHING holds a foreign key INTO this
+ * table, which is what made that rebuild safe; `test/d1.spec.ts` pins the empty
+ * list. A future rebuild must re-check it first (`docs/migrations.md` §3.3a).
+ *
  * ── CASCADE ─────────────────────────────────────────────────────────────────
- * `integration_id` is `ON DELETE CASCADE`: a promote cross-table move (AECI-888)
- * or a retraction deletes the `integrations` row and takes its contests with it.
- * Accepted for unclaimed rows, which carry no owner-side state; AECI-1005 fences
- * moves on claimed ones. This table is therefore the second cascade child of
- * `integrations` (after `claims`), and `test/d1.spec.ts` pins the list — the next
- * `integrations` recreate must carry it out of the way first (`docs/migrations.md`
- * §3.3a).
+ * Both anchors are `ON DELETE CASCADE`: a promote cross-table move (AECI-888) or a
+ * retraction deletes the anchor row and takes its contests with it. Accepted for
+ * rows that are not vendor-held, which carry no owner-side state; AECI-1005 and AECI-1088 fence
+ * moves on vendor-held ones. `SET NULL` is not an option: it would leave a row with
+ * no anchor, which the CHECK refuses, so the parent DELETE would fail instead. This
+ * table is therefore a cascade child of `integrations` (with `claims` and
+ * `integration_vendor_links`) AND of `connector_evidenced_pairs` (with `claims`),
+ * and `test/d1.spec.ts` pins both lists — the next recreate of either parent must
+ * carry it out of the way first (`docs/migrations.md` §3.3a).
  *
  * ── PROFILES ────────────────────────────────────────────────────────────────
  * `submitted_by` and `decided_by` are two of the ten inbound FKs to
@@ -1579,9 +1590,16 @@ export const integrationFieldChallenges = sqliteTable(
   'integration_field_challenges',
   {
     id: uuidPk(),
-    integrationId: text('integration_id')
-      .notNull()
-      .references(() => integrations.id, { onDelete: 'cascade' }),
+    /** The `integrations` anchor. NULL when the contest sits on an evidenced pair. */
+    integrationId: text('integration_id').references(() => integrations.id, {
+      onDelete: 'cascade',
+    }),
+    /** The `connector_evidenced_pairs` anchor (AECI-1092). NULL on an `integrations`
+     *  contest. `direction` values on such a row are in the pair's canonical A/B
+     *  frame (`product_a_id < product_b_id`). */
+    evidencedPairId: text('evidenced_pair_id').references(() => connectorEvidencedPairs.id, {
+      onDelete: 'cascade',
+    }),
     field: text('field').notNull(),
     /** What the integration held at submit time, in storage form. */
     currentValue: text('current_value'),
@@ -1669,6 +1687,12 @@ export const integrationFieldChallenges = sqliteTable(
     uniqueIndex('integration_field_challenges_open_key')
       .on(t.integrationId, t.field, t.submitterVendorId)
       .where(sql`"status" = 'open'`),
+    // AECI-1092: the same rule on the evidenced-pair anchor. The index above cannot
+    // cover it: its leading column is NULL on these rows, and SQLite treats NULLs as
+    // distinct in a unique index.
+    uniqueIndex('integration_field_challenges_open_evidenced_key')
+      .on(t.evidencedPairId, t.field, t.submitterVendorId)
+      .where(sql`"status" = 'open' AND "evidenced_pair_id" IS NOT NULL`),
     // The owner's "received" list and its cursor.
     index('integration_field_challenges_owner_idx').on(t.ownerVendorId, t.status),
     // The admin queue: AECi-routed rows by status, newest first.
@@ -1676,6 +1700,11 @@ export const integrationFieldChallenges = sqliteTable(
     // The submitter's "submitted" list and its cursor.
     index('integration_field_challenges_submitter_idx').on(t.submitterVendorId, t.updatedAt),
     check('integration_field_challenges_field_check', CONTEST_FIELD_CHECK),
+    // AECI-1092: exactly one anchor, in the sum form `claims_anchor_check` uses.
+    check(
+      'integration_field_challenges_anchor_check',
+      sql`(("integration_id" IS NOT NULL) + ("evidenced_pair_id" IS NOT NULL)) = 1`,
+    ),
     check('integration_field_challenges_routed_to_check', sql`"routed_to" IN ('owner', 'aeci')`),
     check(
       'integration_field_challenges_status_check',

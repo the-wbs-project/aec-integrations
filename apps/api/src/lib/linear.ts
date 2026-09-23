@@ -591,7 +591,13 @@ export function drizzleContestLinearStore(db: Db): LinearContestStore {
  *  therefore reads `a_to_b | b_to_a | both` against the two product names. */
 export interface LinearContestIssueInput {
   contestId: string;
+  /** The anchor row's id. On an evidenced pair it is a `connector_evidenced_pairs` id. */
   integrationId: string;
+  /** AECI-1092: set when the contest sits on a connector-evidenced pair, so the
+   *  review-app operator looks in the right place. Absent means `integrations`. */
+  anchor?: 'evidenced_pair';
+  /** The delivering connector's name, on an evidenced pair. */
+  connectorProductName?: string | null;
   /** `integrations.name`, or `null` — the title falls back to the pair. */
   integrationName: string | null;
   sourceProductName: string;
@@ -730,9 +736,14 @@ function contestValue(value: string | null, label?: string | null): string {
 function buildContestDescription(env: Env, input: LinearContestIssueInput): string {
   const lines = [
     `**Integration:** ${contestSubject(input)}`,
-    `**App-DB integration id:** \`${input.integrationId}\``,
+    input.anchor === 'evidenced_pair'
+      ? `**App-DB evidenced pair id:** \`${input.integrationId}\` (table \`connector_evidenced_pairs\`)`
+      : `**App-DB integration id:** \`${input.integrationId}\``,
     `**Endpoints:** A = ${input.sourceProductName}, B = ${input.targetProductName}`,
   ];
+  if (input.anchor === 'evidenced_pair' && input.connectorProductName) {
+    lines.push(`**Delivered through:** ${input.connectorProductName}`);
+  }
   if (input.pairPath) {
     lines.push(`**Pair page:** ${publicPairUrl(env, input.pairPath) ?? input.pairPath}`);
   }

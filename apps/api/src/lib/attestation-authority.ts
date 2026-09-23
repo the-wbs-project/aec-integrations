@@ -72,7 +72,7 @@ import { VENDOR_ATTESTATION_SLOTS, type VendorAttestationSlot } from '@aeci/shar
 import { and, eq, inArray, isNotNull, or } from 'drizzle-orm';
 
 import type { Db } from '../db/client';
-import { claims, integrations, productVendors } from '../db/schema';
+import { claims, connectorEvidencedPairs, integrations, productVendors } from '../db/schema';
 import { ApiError, notFoundError } from '../errors';
 
 /**
@@ -491,4 +491,120 @@ export function assertClaimProvenance(row: {
       }`,
     );
   }
+}
+
+// ──────────── The evidenced-pair arm: one `connector_evidenced_pairs` row (AECI-1092) ────────────
+
+/**
+ * The caller's endpoint authority over ONE connector-evidenced pair.
+ *
+ * The same §2.1 ownership rule as {@link resolveAttestationSlots}, applied to the
+ * other anchor table: `vendor_a` is `product_a_id`, `vendor_b` is `product_b_id`, and
+ * the slots fold through the one `slotsForOwnership`. It exists for the contest submit
+ * (`STAGE_2_VENDOR_PORTAL_SPEC.md` §11b.13), which asks "does the caller own an
+ * endpoint of this pair" exactly as it asks it of an `integrations` row. It is NOT an
+ * attestation seat: an evidenced pair is connector-delivered by construction, and §14
+ * forbids attesting on those, so no §5 write path calls this.
+ *
+ * Same non-disclosure property: one INNER JOIN with the vendor filter inside the join,
+ * so "no such pair" and "you own neither endpoint" are one empty result and one `404`.
+ * `sourceProductId` / `targetProductId` carry A / B, which is the frame a pair's
+ * stored `direction` is in. `poweredByProductId` carries the connector, so
+ * `isConnectorPoweredEdge` reads it as connector-powered, which every pair is.
+ */
+export async function resolveEvidencedPairSlots(
+  db: Db,
+  vendorId: string,
+  pairId: string,
+): Promise<AttestationAuthority> {
+  const rows = await db
+    .select({
+      pairId: connectorEvidencedPairs.id,
+      productAId: connectorEvidencedPairs.productAId,
+      productBId: connectorEvidencedPairs.productBId,
+      connectorProductId: connectorEvidencedPairs.connectorProductId,
+      maintainedBy: connectorEvidencedPairs.maintainedBy,
+      retiredAt: connectorEvidencedPairs.retiredAt,
+      ownedProductId: productVendors.productId,
+    })
+    .from(connectorEvidencedPairs)
+    .innerJoin(
+      productVendors,
+      and(
+        eq(productVendors.vendorId, vendorId),
+        or(
+          eq(productVendors.productId, connectorEvidencedPairs.productAId),
+          eq(productVendors.productId, connectorEvidencedPairs.productBId),
+        ),
+      ),
+    )
+    .where(eq(connectorEvidencedPairs.id, pairId));
+  const first = rows[0];
+  if (!first) throw notFoundError('integration', { id: pairId });
+  const owned = new Set(rows.map((row) => row.ownedProductId));
+  return {
+    integrationId: first.pairId,
+    sourceProductId: first.productAId,
+    targetProductId: first.productBId,
+    maintainedBy: first.maintainedBy,
+    poweredByProductId: first.connectorProductId,
+    mechanismKind: null,
+    retiredAt: first.retiredAt,
+    slots: slotsForOwnership(owned.has(first.productAId), owned.has(first.productBId)),
+  };
+}
+
+/**
+ * {@link vendorsForIntegrationSlots} for connector-evidenced pairs: which vendors own
+ * endpoint A and endpoint B of each pair. Used for an `owner` contest's proposal check
+ * and for the recipients of an owner-approved claim notification (AECI-1092). Folds
+ * through `slotsForOwnership` like its twin.
+ */
+export async function vendorsForEvidencedPairSlots(
+  db: Db,
+  pairIds: readonly string[],
+): Promise<Map<string, IntegrationSlotVendors>> {
+  const scope = [...new Set(pairIds)];
+  if (scope.length === 0) return new Map();
+  const rows = await db
+    .select({
+      pairId: connectorEvidencedPairs.id,
+      productAId: connectorEvidencedPairs.productAId,
+      productBId: connectorEvidencedPairs.productBId,
+      ownedProductId: productVendors.productId,
+      vendorId: productVendors.vendorId,
+    })
+    .from(connectorEvidencedPairs)
+    .innerJoin(
+      productVendors,
+      or(
+        eq(productVendors.productId, connectorEvidencedPairs.productAId),
+        eq(productVendors.productId, connectorEvidencedPairs.productBId),
+      ),
+    )
+    .where(inArray(connectorEvidencedPairs.id, scope));
+  const acc = new Map<string, { row: (typeof rows)[number]; a: Set<string>; b: Set<string> }>();
+  for (const row of rows) {
+    let entry = acc.get(row.pairId);
+    if (!entry) {
+      entry = { row, a: new Set(), b: new Set() };
+      acc.set(row.pairId, entry);
+    }
+    for (const slot of slotsForOwnership(
+      row.ownedProductId === row.productAId,
+      row.ownedProductId === row.productBId,
+    )) {
+      (slot === 'vendor_a' ? entry.a : entry.b).add(row.vendorId);
+    }
+  }
+  const out = new Map<string, IntegrationSlotVendors>();
+  for (const [pairId, { row, a, b }] of acc) {
+    out.set(pairId, {
+      integrationId: pairId,
+      sourceProductId: row.productAId,
+      targetProductId: row.productBId,
+      slots: { vendor_a: [...a].sort(), vendor_b: [...b].sort() },
+    });
+  }
+  return out;
 }

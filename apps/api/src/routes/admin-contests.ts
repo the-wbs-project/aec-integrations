@@ -15,11 +15,15 @@
  *     Issue: "Apply contested field".
  *   - content field, claimed row: the column plus `integration.updated`, and a
  *     purge. Issue: "Apply contested field", worded "AECi already applied it".
- *   - `owner`, proposed = submitter, not connector-powered: `built_by_vendor_id`,
- *     `claimed_at`, the maintenance transfer, `integration.claimed`, and a claim
- *     notification to the other endpoint vendors. Issue: "Record integration owner".
- *   - `owner`, proposed = submitter, connector-powered: nothing here, because
- *     decision 9 keeps the claim off those rows in v1. Issue: "Apply contested field".
+ *   - `owner`, proposed = submitter: `built_by_vendor_id`, `claimed_at`, the
+ *     maintenance transfer, `integration.claimed`, and a claim notification to the
+ *     other endpoint vendors. Issue: "Record integration owner". Since AECI-1092
+ *     (ruling C) this holds on a connector-powered row too; before it, decision 9
+ *     kept the claim off those rows and the accept wrote nothing here.
+ *
+ * AECI-1092: every case applies to a contest on a connector-evidenced pair as well.
+ * The writes go to `connector_evidenced_pairs` under the entity type promote uses
+ * for it (`connector_evidenced_pair`), and the purge adds the connector's page.
  *   - `owner`, proposed = someone else (or neither), claimed row: the new
  *     `built_by_vendor_id` and `claimed_at = NULL`, so the new owner must claim by
  *     its own act and the promote fence lifts. Issue: "Record integration owner".
@@ -28,8 +32,8 @@
  * The owner-unknown claim of decision 11 is the third case: an endpoint vendor
  * contests the `owner` field on a row with no owner and proposes itself. Only an
  * endpoint vendor can file one, because contests require an endpoint seat. That is
- * enough in v1: a non-endpoint owner's rows are connector-powered, and decision 9
- * keeps the claim off them anyway.
+ * enough: a non-endpoint owner claims its own connector-powered rows directly since
+ * AECI-1089.
  *
  * A second sentinel (`contestIntegrationStateSentinel`) aborts the batch if the
  * row's claim state or owner moved after the read, so the cases above are always
@@ -73,7 +77,7 @@ import { and, asc, count, desc, eq } from 'drizzle-orm';
 import type { Context } from 'hono';
 
 import { getDb, type Db } from '../db/client';
-import { integrationFieldChallenges, integrations, vendors, workflowInstances } from '../db/schema';
+import { integrationFieldChallenges, vendors, workflowInstances } from '../db/schema';
 import type { Env } from '../env';
 import { ApiError, notFoundError } from '../errors';
 import { json } from '../http';
@@ -81,8 +85,10 @@ import { logToPosthog, submitCount } from '../posthog';
 import { auditInsert, workflowTransitionInsert, type BatchStmt } from '../lib/audit';
 import { auditActorType, type AuthzVariables } from '../lib/authz';
 import { validateResponseInDev, writeDb, type DbFactory } from '../lib/handler-utils';
-import { vendorsForIntegrationSlots } from '../lib/attestation-authority';
-import { isConnectorPoweredEdge } from '../lib/connector-powered';
+import {
+  vendorsForEvidencedPairSlots,
+  vendorsForIntegrationSlots,
+} from '../lib/attestation-authority';
 import {
   claimColumns,
   claimNotificationAudit,
@@ -90,6 +96,17 @@ import {
   isClaimed,
 } from '../lib/integration-claims';
 import {
+  anchorEntityType,
+  anchorMetadata,
+  anchorPurgeTags,
+  anchorUpdate,
+  anchorUpdatedAction,
+  contestAnchorOf,
+  contestAnchorWhere,
+  hydratedTarget,
+  loadContestTarget,
+  rerouteToAeciStatements,
+  type ContestAnchor,
   CONTEST_ENTITY_TYPE,
   CONTEST_FIELD_COLUMNS,
   contestIntegrationStateSentinel,
@@ -132,7 +149,7 @@ const FINAL_OUTCOME = { accepted: 'approved', declined: 'rejected' } as const;
 // ─── Mapping ─────────────────────────────────────────────────────────────────
 
 export function toAdminContest(row: ContestRow, hydration: ContestHydration): AdminContest | null {
-  const integration = hydration.integrations.get(row.integrationId);
+  const integration = hydratedTarget(hydration, row);
   if (!integration) return null;
   const link = (p: ContestIntegrationContext['sourceProduct']) => ({
     id: p.id,
@@ -151,6 +168,8 @@ export function toAdminContest(row: ContestRow, hydration: ContestHydration): Ad
       target_product: link(integration.targetProduct),
       pair_path:
         pairPathFor([integration.sourceProduct.slug, integration.targetProduct.slug]) ?? '',
+      anchor: integration.anchor,
+      connector: integration.connectorProduct ? link(integration.connectorProduct) : null,
     },
     field: row.field as IntegrationContestField,
     current_value: row.currentValue,
@@ -315,7 +334,7 @@ export function createModerateContestHandler(
     const metadata = {
       source: 'admin-moderation',
       contestId: id,
-      integrationId: row.integrationId,
+      ...anchorMetadata(contestAnchorOf(row)),
       field: row.field,
       submitterVendorId: row.submitterVendorId,
     };
@@ -449,11 +468,17 @@ async function fileContestIssue(
   hydration: ContestHydration,
   appliedMode: ContestAppliedMode,
 ): Promise<LinearIssueOutcome | null> {
-  const integration = hydration.integrations.get(row.integrationId);
+  const integration = hydratedTarget(hydration, row);
   if (!integration) return null;
   return fileIssue(c, drizzleContestLinearStore(db), {
     contestId: row.id,
-    integrationId: row.integrationId,
+    integrationId: integration.id,
+    ...(integration.anchor === 'evidenced_pair'
+      ? {
+          anchor: 'evidenced_pair' as const,
+          connectorProductName: integration.connectorProduct?.name ?? null,
+        }
+      : {}),
     integrationName: integration.name,
     sourceProductName: integration.sourceProduct.name,
     targetProductName: integration.targetProduct.name,
@@ -471,18 +496,18 @@ async function fileContestIssue(
 }
 
 /**
- * Re-route every OPEN owner-routed contest on this integration to AECi, because the
- * accept being planned takes the row away from the owner they were routed to
- * (AECI-1005 review). Without it the old owner kept an inbox of contests on a row it
- * no longer owns, and could still accept them. Each re-route gets its own audit row
- * and a workflow transition (`open → open`, the state does not change, the decider
- * does), all in the accept's batch. The vendor decide handler also refuses a caller
- * that no longer owns the row, so a contest submitted in the gap is covered too.
+ * Re-route every OPEN owner-routed contest on this row to AECi, because the accept
+ * being planned takes the row away from the owner they were routed to (AECI-1005
+ * review). Without it the old owner kept an inbox of contests on a row it no longer
+ * owns, and could still accept them. The statements are
+ * `rerouteToAeciStatements`'s, shared with ruling B's entitlement clear. The vendor
+ * decide handler also refuses a caller that no longer owns the row, so a contest
+ * submitted in the gap is covered too.
  */
 async function rerouteOwnerContests(
   db: Db,
   deciding: ContestRow,
-  integrationId: string,
+  anchor: ContestAnchor,
   actor: { actorId: string; actorType: AuditLogEntry['actorType'] },
   now: string,
   stmts: BatchStmt[],
@@ -493,52 +518,21 @@ async function rerouteOwnerContests(
     .from(integrationFieldChallenges)
     .where(
       and(
-        eq(integrationFieldChallenges.integrationId, integrationId),
+        contestAnchorWhere(anchor),
         eq(integrationFieldChallenges.routedTo, 'owner'),
         eq(integrationFieldChallenges.status, 'open'),
       ),
     );
-  for (const contest of open) {
-    if (contest.id === deciding.id) continue;
-    const metadata = {
-      source: 'admin-moderation',
-      contestId: contest.id,
-      integrationId,
-      reroutedBy: deciding.id,
-    };
-    stmts.push(
-      db
-        .update(integrationFieldChallenges)
-        .set({ routedTo: 'aeci', updatedAt: now })
-        .where(
-          and(
-            eq(integrationFieldChallenges.id, contest.id),
-            eq(integrationFieldChallenges.status, 'open'),
-          ),
-        ),
-    );
-    if (contest.workflowId) {
-      stmts.push(
-        workflowTransitionInsert(db, {
-          workflowId: contest.workflowId,
-          fromState: 'open',
-          toState: 'open',
-          actorId: actor.actorId,
-          reason: 'owner changed: re-routed to AECi',
-          metadata,
-        }),
-      );
-    }
-    audits.push({
-      ...actor,
-      action: 'integration.contest.rerouted',
-      entityType: CONTEST_ENTITY_TYPE,
-      entityId: contest.id,
-      beforeState: { routed_to: 'owner', owner_vendor_id: contest.ownerVendorId },
-      afterState: { routed_to: 'aeci', owner_vendor_id: contest.ownerVendorId },
-      metadata,
-    });
-  }
+  const reroute = rerouteToAeciStatements(
+    db,
+    open.filter((contest) => contest.id !== deciding.id),
+    actor,
+    now,
+    'owner changed: re-routed to AECi',
+    { reroutedBy: deciding.id },
+  );
+  stmts.push(...reroute.stmts);
+  audits.push(...reroute.audits);
 }
 
 /** `409 CONTEST_VALUE_STALE` (AECI-1006). */
@@ -552,9 +546,7 @@ function contestValueStale(): ApiError {
 
 /** After a lost batch: did the contested column move while claim state held? */
 async function acceptWentStale(db: Db, row: ContestRow): Promise<boolean> {
-  const integration = await db.query.integrations.findFirst({
-    where: eq(integrations.id, row.integrationId),
-  });
+  const integration = await loadContestTarget(db, contestAnchorOf(row));
   return integration ? isContestValueStale(row, integration) : false;
 }
 
@@ -563,6 +555,12 @@ async function acceptWentStale(db: Db, row: ContestRow): Promise<boolean> {
  * catalog write the header's cases call for, its audit rows, and the purge tags.
  * Every statement runs after the contest's own sentinel, so a lost decision race
  * writes none of it.
+ *
+ * AECI-1092: the row may be an `integrations` row or a connector-evidenced pair, and
+ * every case below applies to both. The writes go to the anchor's own table, under
+ * the entity type promote uses for it. Ruling C (§11b.13): an owner-approved accept
+ * on a connector-powered row is no longer a special case; it records the owner and
+ * the claim exactly as on any other row.
  */
 export async function planAcceptWrites(
   db: Db,
@@ -575,9 +573,8 @@ export async function planAcceptWrites(
   tags: string[];
   appliedMode: ContestAppliedMode;
 }> {
-  const integration = await db.query.integrations.findFirst({
-    where: eq(integrations.id, row.integrationId),
-  });
+  const anchor = contestAnchorOf(row);
+  const integration = await loadContestTarget(db, anchor);
   if (!integration) throw notFoundError('contest', { id: row.id });
   const claimed = isClaimed(integration);
   // AECI-1006: a content accept on a claimed row writes the column here, so it
@@ -586,41 +583,30 @@ export async function planAcceptWrites(
   // in-batch half for an edit that lands after this read.
   if (isContestValueStale(row, integration)) throw contestValueStale();
   const stmts: BatchStmt[] = [
-    contestIntegrationStateSentinel(db, integration.id, {
+    contestIntegrationStateSentinel(db, anchor, {
       claimed,
       ownerVendorId: integration.builtByVendorId,
     }),
   ];
   if (row.field !== 'owner' && claimed) {
     stmts.push(
-      contestValueUnchangedSentinel(
-        db,
-        integration.id,
-        row.field as ContentContestField,
-        row.currentValue,
-      ),
+      contestValueUnchangedSentinel(db, anchor, row.field as ContentContestField, row.currentValue),
     );
   }
   const audits: AuditLogEntry[] = [];
   const field = row.field as IntegrationContestField;
-  const base = { source: 'admin-moderation', contestId: row.id, integrationId: integration.id };
-  const where = eq(integrations.id, integration.id);
+  const base = { source: 'admin-moderation', contestId: row.id, ...anchorMetadata(anchor) };
+  const entity = { entityType: anchorEntityType(anchor.kind), entityId: integration.id };
 
   let appliedMode: ContestAppliedMode = 'upstream-only';
   if (field !== 'owner') {
     if (claimed) {
       const column = CONTEST_FIELD_COLUMNS[field];
-      stmts.push(
-        db
-          .update(integrations)
-          .set({ [column]: row.proposedValue })
-          .where(where),
-      );
+      stmts.push(anchorUpdate(db, anchor, { [column]: row.proposedValue }));
       audits.push({
         ...actor,
-        action: 'integration.updated',
-        entityType: 'integration',
-        entityId: integration.id,
+        action: anchorUpdatedAction(anchor.kind),
+        ...entity,
         beforeState: { [field]: storedFieldValue(integration, field) },
         afterState: { [field]: row.proposedValue },
         metadata: { ...base, reason: 'contest-accepted' },
@@ -629,84 +615,76 @@ export async function planAcceptWrites(
     }
   } else if (row.proposedValue === row.submitterVendorId) {
     // The owner-unknown claim (decision 11) and "we own it, not them" alike: an admin
-    // approval is an act, so it sets `claimed_at` (decision 12). Not on a
-    // connector-powered row, where decision 9 keeps the claim off in v1 (AECI-1005 Q1):
-    // the accept stands and the issue still goes upstream, but nothing is written here.
-    if (!isConnectorPoweredEdge(integration)) {
-      const newOwner = row.submitterVendorId;
-      stmts.push(
-        db
-          .update(integrations)
-          .set({ builtByVendorId: newOwner, ...claimColumns(now) })
-          .where(where),
-      );
-      audits.push({
-        ...actor,
-        action: INTEGRATION_CLAIMED_ACTION,
-        entityType: 'integration',
-        entityId: integration.id,
-        beforeState: {
-          claimed_at: integration.claimedAt,
-          built_by_vendor_id: integration.builtByVendorId,
-          maintained_by: integration.maintainedBy,
-          last_reviewed_at: integration.lastReviewedAt,
-        },
-        afterState: {
-          claimed_at: now,
-          built_by_vendor_id: newOwner,
-          maintained_by: 'vendor',
-          last_reviewed_at: now,
-        },
-        metadata: {
-          ...base,
-          reason: 'owner-approved',
-          ...(integration.maintainedBy !== 'vendor' ? { maintenanceTransfer: true } : {}),
-        },
-      });
-      // Tell every other endpoint vendor, exactly as the owner's own claim does.
-      const [slotVendors, pairSlugs, owner] = await Promise.all([
-        vendorsForIntegrationSlots(db, [integration.id]),
-        endpointSlugs(db, integration.sourceProductId, integration.targetProductId),
-        db.query.vendors.findFirst({
-          columns: { companyName: true },
-          where: eq(vendors.id, newOwner),
-        }),
-      ]);
-      const slots = slotVendors.get(integration.id)?.slots;
-      const recipients = [...new Set([...(slots?.vendor_a ?? []), ...(slots?.vendor_b ?? [])])]
-        .filter((vendorId) => vendorId !== newOwner)
-        .sort();
-      for (const vendorId of recipients) {
-        audits.push(
-          claimNotificationAudit(actor, {
+    // approval is an act, so it sets `claimed_at` (decision 12). AECI-1092 ruling C:
+    // this now holds on a connector-powered row too, in either table. The v1
+    // exception (decision 9 kept the claim off those rows) is retired.
+    const newOwner = row.submitterVendorId;
+    stmts.push(anchorUpdate(db, anchor, { builtByVendorId: newOwner, ...claimColumns(now) }));
+    audits.push({
+      ...actor,
+      action: INTEGRATION_CLAIMED_ACTION,
+      ...entity,
+      beforeState: {
+        claimed_at: integration.claimedAt,
+        built_by_vendor_id: integration.builtByVendorId,
+        maintained_by: integration.maintainedBy,
+        last_reviewed_at: integration.lastReviewedAt,
+      },
+      afterState: {
+        claimed_at: now,
+        built_by_vendor_id: newOwner,
+        maintained_by: 'vendor',
+        last_reviewed_at: now,
+      },
+      metadata: {
+        ...base,
+        reason: 'owner-approved',
+        ...(integration.maintainedBy !== 'vendor' ? { maintenanceTransfer: true } : {}),
+      },
+    });
+    // Tell every other endpoint vendor, exactly as the owner's own claim does.
+    const [slotVendors, pairSlugs, owner] = await Promise.all([
+      anchor.kind === 'evidenced_pair'
+        ? vendorsForEvidencedPairSlots(db, [integration.id])
+        : vendorsForIntegrationSlots(db, [integration.id]),
+      endpointSlugs(db, integration.sourceProductId, integration.targetProductId),
+      db.query.vendors.findFirst({
+        columns: { companyName: true },
+        where: eq(vendors.id, newOwner),
+      }),
+    ]);
+    const slots = slotVendors.get(integration.id)?.slots;
+    const recipients = [...new Set([...(slots?.vendor_a ?? []), ...(slots?.vendor_b ?? [])])]
+      .filter((vendorId) => vendorId !== newOwner)
+      .sort();
+    for (const vendorId of recipients) {
+      audits.push(
+        claimNotificationAudit(
+          actor,
+          {
             vendorId,
             integrationId: integration.id,
             integrationName: integration.name,
             ownerVendorId: newOwner,
             ownerName: owner?.companyName ?? null,
             pairSlugs,
-          }),
-        );
-      }
-      appliedMode = 'owner-recorded';
-      if (integration.builtByVendorId !== newOwner) {
-        await rerouteOwnerContests(db, row, integration.id, actor, now, stmts, audits);
-      }
+          },
+          anchor.kind,
+        ),
+      );
+    }
+    appliedMode = 'owner-recorded';
+    if (integration.builtByVendorId !== newOwner) {
+      await rerouteOwnerContests(db, row, anchor, actor, now, stmts, audits);
     }
   } else if (claimed) {
     // Reassigned away from the vendor that claimed it, or to "neither": the new owner
     // has not acted, so `claimed_at` clears and the promote fence lifts (ADR 0035).
-    stmts.push(
-      db
-        .update(integrations)
-        .set({ builtByVendorId: row.proposedValue, claimedAt: null })
-        .where(where),
-    );
+    stmts.push(anchorUpdate(db, anchor, { builtByVendorId: row.proposedValue, claimedAt: null }));
     audits.push({
       ...actor,
-      action: 'integration.updated',
-      entityType: 'integration',
-      entityId: integration.id,
+      action: anchorUpdatedAction(anchor.kind),
+      ...entity,
       beforeState: {
         built_by_vendor_id: integration.builtByVendorId,
         claimed_at: integration.claimedAt,
@@ -715,23 +693,12 @@ export async function planAcceptWrites(
       metadata: { ...base, reason: 'owner-reassigned' },
     });
     appliedMode = 'owner-recorded';
-    await rerouteOwnerContests(db, row, integration.id, actor, now, stmts, audits);
+    await rerouteOwnerContests(db, row, anchor, actor, now, stmts, audits);
   }
 
   let tags: string[] = [];
   if (appliedMode !== 'upstream-only') {
-    const pairSlugs = await endpointSlugs(
-      db,
-      integration.sourceProductId,
-      integration.targetProductId,
-    );
-    if (pairSlugs) {
-      tags = [
-        pairCacheTag(pairSlugs[0], pairSlugs[1]),
-        `product:${pairSlugs[0]}`,
-        `product:${pairSlugs[1]}`,
-      ];
-    }
+    tags = (await anchorPurgeTags(db, integration, pairCacheTag)).tags;
   }
   return { stmts, audits, tags, appliedMode };
 }

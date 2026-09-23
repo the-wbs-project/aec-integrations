@@ -52,7 +52,11 @@ import {
   type SetVendorEntitlementInput,
   type VendorEntitlementResponse,
 } from '@aeci/shared';
-import { forwardAuditLog, type AuditLogForwarder } from '@aeci/shared/audit-log';
+import {
+  forwardAuditLog,
+  type AuditLogEntry,
+  type AuditLogForwarder,
+} from '@aeci/shared/audit-log';
 import { capabilitiesFor } from '@aeci/shared/entitlements';
 import { eq } from 'drizzle-orm';
 import type { Context } from 'hono';
@@ -63,9 +67,10 @@ import { logToPosthog, submitCount } from '../posthog';
 import type { Env } from '../env';
 import { ApiError, notFoundError } from '../errors';
 import { json } from '../http';
-import { type BatchTuple } from '../lib/audit';
+import { auditInsert, type BatchTuple } from '../lib/audit';
 import { auditActorType, type AuthzVariables } from '../lib/authz';
 import { validateResponseInDev, writeDb, type DbFactory } from '../lib/handler-utils';
+import { isContestRaceError, planEntitlementClearReroute } from '../lib/integration-contests';
 import { vendorPurgeTags } from '../lib/vendor-cache-tags';
 import {
   activateEntitlementStatements,
@@ -345,7 +350,37 @@ export function createSetVendorEntitlementHandler(
     // The entitlement row, the guarded `vendors.verified` + `updated_at` flip and the
     // `audit_log` row commit or roll back together (§26.1). D1 has no interactive
     // transactions; `db.batch` is the only atomic unit there is.
-    await db.batch(batch.stmts as BatchTuple);
+    //
+    // AECI-1092, ruling B: a `clear` also re-routes the vendor's open owner-routed
+    // contests on connector-powered rows to AECi, in THIS batch, each with its own
+    // `integration.contest.rerouted` audit row and workflow transition. The plan's
+    // guard aborts the batch if those contests changed after the plan read them; the
+    // plan is then re-read and the batch retried once.
+    const rerouteAudits: AuditLogEntry[] = [];
+    for (let attempt = 1; ; attempt++) {
+      const reroute =
+        action === 'clear'
+          ? await planEntitlementClearReroute(db, vendor.id, { actorId, actorType }, now)
+          : null;
+      try {
+        await db.batch([
+          ...batch.stmts,
+          ...(reroute?.stmts ?? []),
+          ...(reroute?.audits ?? []).map((entry) => auditInsert(db, entry)),
+        ] as BatchTuple);
+        rerouteAudits.push(...(reroute?.audits ?? []));
+        break;
+      } catch (error) {
+        if (!reroute || !isContestRaceError(error)) throw error;
+        if (attempt >= 2) {
+          throw new ApiError(
+            409,
+            ApiErrorCode.CONTEST_INTEGRATION_CHANGED,
+            'Field contests on this vendor’s integrations changed while the entitlement was being cleared. Nothing was saved. Try again.',
+          );
+        }
+      }
+    }
 
     // ── 7. Metric ────────────────────────────────────────────────────────────
     emitEntitlementAction(c, action, 'ok');
@@ -375,7 +410,13 @@ export function createSetVendorEntitlementHandler(
       const tags = await vendorPurgeTags(db, vendor);
       c.executionCtx.waitUntil(purgeEntitlementTags(c, tags));
     }
-    c.executionCtx.waitUntil(forwardAuditLog(batch.auditEntry, makeForwarder(c)));
+    c.executionCtx.waitUntil(
+      Promise.all(
+        [batch.auditEntry, ...rerouteAudits].map((entry) =>
+          forwardAuditLog(entry, makeForwarder(c)),
+        ),
+      ),
+    );
 
     // ── 9. Response ──────────────────────────────────────────────────────────
     const verified = action === 'set' ? true : action === 'clear' ? false : vendor.verified;

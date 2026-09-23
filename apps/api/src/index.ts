@@ -1010,6 +1010,14 @@ authVendor.post(
   rateLimit('write'),
   createSubmitContestHandler(),
 );
+// AECI-1092: the same submit on a connector-evidenced pair. The same gate: a seat,
+// then the write limiter, and the endpoint-vendor check (404) in the handler.
+authVendor.post(
+  '/api/vendor/evidenced-pairs/:id/contests',
+  requireVendor(),
+  rateLimit('write'),
+  createSubmitContestHandler(undefined, undefined, 'evidenced_pair'),
+);
 authVendor.get('/api/vendor/contests', requireVendor(), createListVendorContestsHandler());
 authVendor.post(
   '/api/vendor/contests/:id/withdraw',

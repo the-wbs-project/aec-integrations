@@ -1577,12 +1577,13 @@ Notes:
 A seated endpoint vendor's contest of one integration field. The row is a **request, never
 the value**: no public page reads it, and the catalog changes only when the owner accepts.
 Contract: `STAGE_2_VENDOR_PORTAL_SPEC.md` §11b. Migration `0043_needy_hobgoblin.sql`, purely
-additive.
+additive. **Rebuilt by `0049_rainy_puma.sql` (AECI-1092) onto two anchors**, below.
 
 ```sql
 create table integration_field_challenges (
   id text primary key not null,
-  integration_id text not null references integrations(id) on delete cascade,
+  integration_id text references integrations(id) on delete cascade,               -- nullable since 0049
+  evidenced_pair_id text references connector_evidenced_pairs(id) on delete cascade, -- 0049
   field text not null check (field in ('name', 'mechanism_kind', 'mechanism_name', 'direction',
     'description', 'listing_url', 'docs_url', 'website', 'mechanism_url', 'pricing_model',
     'maturity', 'owner')),
@@ -1612,6 +1613,11 @@ create table integration_field_challenges (
 
 create unique index integration_field_challenges_open_key
   on integration_field_challenges(integration_id, field, submitter_vendor_id) where status = 'open';
+create unique index integration_field_challenges_open_evidenced_key                -- 0049
+  on integration_field_challenges(evidenced_pair_id, field, submitter_vendor_id)
+  where status = 'open' and evidenced_pair_id is not null;
+-- 0049: constraint integration_field_challenges_anchor_check
+--   check ((integration_id is not null) + (evidenced_pair_id is not null) = 1)
 create index integration_field_challenges_owner_idx on integration_field_challenges(owner_vendor_id, status);
 create index integration_field_challenges_queue_idx on integration_field_challenges(routed_to, status, created_at);
 create index integration_field_challenges_submitter_idx on integration_field_challenges(submitter_vendor_id, updated_at);
@@ -1680,6 +1686,30 @@ create index integration_field_challenges_protest_idx
   `protest_decided_by`), nulled explicitly in the erasure batch too (`AUTH_AND_RLS.md` §8).
 - **`protest_workflow_id` is the contest's second `correction_request` instance**, with the
   same `entity_id`. `workflow_instances_type_entity_idx` is not unique, so that is legal.
+
+**Two anchors (AECI-1092, migration `0049_rainy_puma.sql`, a table rebuild).** A contest sits
+on an `integrations` row or on a `connector_evidenced_pairs` row
+(`STAGE_2_VENDOR_PORTAL_SPEC.md` §11b.13). `integration_id` lost its NOT NULL,
+`evidenced_pair_id` arrived, and `integration_field_challenges_anchor_check` holds exactly one,
+in the sum form `claims_anchor_check` uses. SQLite cannot drop a NOT NULL or add a CHECK in
+place, so this was the table's first rebuild.
+
+- **Why the rebuild was safe.** Nothing holds a foreign key INTO this table. No migration names
+  it in a `REFERENCES` clause, no `schema.ts` column references it, and the 0048 snapshot lists
+  no FK with it as `tableTo`. Dropping a table that is only a child fires nothing on its
+  parents. `src/test/d1.spec.ts` asserts the empty list at HEAD, so a table that references it
+  later fails CI before the next rebuild relies on this.
+- **What the rebuild carried.** Every row, copied with an explicit column list (the old
+  `integration_id` into the integrations arm, `evidenced_pair_id` NULL). The ten outgoing FKs
+  of `0043` + `0047` unchanged, with their `ON DELETE` actions. The two hand-written protest
+  CHECKs of `0047`, restored by hand because drizzle-kit's generated CREATE dropped them (they
+  are still not declared in `schema.ts`). Every index, plus the evidenced open-contest key.
+  `src/test/migration-0049.spec.ts` is the tripwire.
+- **Both anchors cascade.** `SET NULL` would leave a row with no anchor, which the CHECK
+  refuses, so the parent DELETE would fail. The table is therefore a cascade child of
+  `connector_evidenced_pairs` as well as of `integrations` (§9a.6).
+- **`direction` on a pair contest** is in the pair's canonical A/B frame
+  (`product_a_id < product_b_id`), like `connector_evidenced_pairs.direction`.
 
 ### 8.8 `integration_vendor_links` (Stage 2.1 — AECI-1007)
 
@@ -2898,6 +2928,9 @@ create table connector_evidenced_pairs (
 -- path, `ops:retract-product`, never relies on that: it counts the pairs per role,
 -- refuses them unless `--delete-evidenced-pairs`, and deletes them child to parent
 -- (AECI-904, `apps/api/src/lib/retract-product.ts`).
+-- Cascade children (pinned in `src/test/d1.spec.ts`): `claims` (→ `attestations`) and,
+-- since AECI-1092's 0049, `integration_field_challenges.evidenced_pair_id`, a leaf. A
+-- recreate of this table would empty all three.
 
 create unique index connector_evidenced_pairs_pair_idx
   on connector_evidenced_pairs(connector_product_id, product_a_id, product_b_id);

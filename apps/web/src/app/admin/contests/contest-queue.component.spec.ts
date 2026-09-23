@@ -33,6 +33,8 @@ function makeContest(over: Partial<AdminContest> & { id: string }): AdminContest
       source_product: { id: uuid(11), name: 'Procore', slug: 'procore', logo_url: null },
       target_product: { id: uuid(12), name: 'Summit', slug: 'summit', logo_url: null },
       pair_path: '/products/procore/integrations/summit',
+      anchor: 'integration',
+      connector: null,
     },
     field: over.field ?? 'docs_url',
     current_value: 'current_value' in over ? over.current_value! : 'https://old.example.com',
@@ -166,6 +168,26 @@ describe('ContestQueue', () => {
     );
     expect(el.querySelector('article h3 a')).toBeNull();
     expect(el.querySelector('article h3')?.textContent).toContain('Procore and Summit');
+  });
+
+  it('names the delivering connector on an evidenced-pair contest (AECI-1092)', async () => {
+    const base = makeContest({ id: 'k1' });
+    const connector = { id: uuid(13), name: 'Kroo Connector', slug: 'kroo', logo_url: null };
+    const { el } = await setup(
+      makeApiMock([
+        makeContest({
+          id: 'k1',
+          integration: { ...base.integration, anchor: 'evidenced_pair', connector },
+        }),
+        makeContest({ id: 'k2' }),
+      ]),
+    );
+    const cards = el.querySelectorAll('article');
+    expect(cards[0]!.querySelector('[data-testid="contest-connector"]')?.textContent).toContain(
+      'Delivered through Kroo Connector',
+    );
+    // An integrations row names no connector.
+    expect(cards[1]!.querySelector('[data-testid="contest-connector"]')).toBeNull();
   });
 
   it('labels the owner field "Owner" and shows vendor names, not ids', async () => {

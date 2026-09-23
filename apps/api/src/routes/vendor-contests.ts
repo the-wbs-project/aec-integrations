@@ -3,6 +3,8 @@
  * `STAGE_2_VENDOR_PORTAL_SPEC.md` §11b) — Drizzle/D1.
  *
  *   POST /api/vendor/integrations/:id/contests   — submit a contest (201).
+ *   POST /api/vendor/evidenced-pairs/:id/contests — the same on a connector-evidenced
+ *                                                  pair (201, AECI-1092, §11b.13).
  *   GET  /api/vendor/contests                    — `{ submitted, received }`.
  *   POST /api/vendor/contests/:id/withdraw       — the submitter withdraws.
  *   POST /api/vendor/contests/:id/decision       — the owner accepts or declines.
@@ -11,7 +13,10 @@
  * of this module's own:
  *
  * ── 1. A SEAT IS THE WHOLE GATE ─────────────────────────────────────────────
- * `requireVendor()` only. No `requireCapability`, no Verified check. This is a
+ * `requireVendor()` only. No `requireCapability`, no Verified check. One exception
+ * (AECI-1092, AECI-1040 ruling 2): the OWNER's decision on a connector-powered row
+ * needs an active entitlement (`requireActiveEntitlement`), because it is an owner
+ * write on such a row. Submitting and withdrawing never do. This is a
  * named exception to §6.14's "writes are entitlement-gated": a contest asks AECi
  * or the owner to fix a fact on a public page, and gating that behind a paid tier
  * would make accuracy something a vendor buys. It writes nothing public itself.
@@ -49,12 +54,14 @@ import {
   addContestDays,
   ApiErrorCode,
   CONTEST_PROTEST_FILING_DAYS,
+  contestFieldsFor,
   contestValueProblem,
   DecideContestSchema,
   ListVendorContestsResponseSchema,
   SubmitIntegrationContestSchema,
   VENDOR_CONTEST_LIST_CAP,
   VendorContestResponseSchema,
+  type ContestAnchorKind,
   type ContestNotificationEvent,
   type IntegrationContestField,
   type ListVendorContestsResponse,
@@ -68,7 +75,6 @@ import { and, asc, desc, eq, inArray } from 'drizzle-orm';
 import { getDb, type Db } from '../db/client';
 import {
   integrationFieldChallenges,
-  integrations,
   productVendors,
   products,
   vendors,
@@ -78,6 +84,8 @@ import { ApiError, notFoundError } from '../errors';
 import { json } from '../http';
 import {
   resolveAttestationSlots,
+  resolveEvidencedPairSlots,
+  vendorsForEvidencedPairSlots,
   vendorsForIntegrationSlots,
   type AttestationAuthority,
 } from '../lib/attestation-authority';
@@ -90,38 +98,49 @@ import {
 import { auditActorType } from '../lib/authz';
 import { validateResponseInDev, writeDb, type DbFactory } from '../lib/handler-utils';
 import {
+  anchorColumns,
+  anchorEntityType,
+  anchorMetadata,
+  anchorPurgeTags,
+  anchorUpdate,
+  anchorUpdatedAction,
   CONTEST_ENTITY_TYPE,
   CONTEST_FIELD_COLUMNS,
+  contestAnchorLiveSentinel,
+  contestAnchorOf,
+  contestAnchorWhere,
   contestNotificationAudit,
   contestValueLabel,
+  hydratedTarget,
   hydrateContests,
   isIntegrationClaimed,
+  loadContestTarget,
+  ownerEntitlementActiveSentinel,
   receivedContestsWhere,
   routeContest,
   storedFieldValue,
   submittedContestsWhere,
   toStorageValue,
   toWireValue,
+  vendorHoldsActiveEntitlement,
+  type ContestAnchor,
   type ContestHydration,
   type ContestRow,
+  type ContestTarget,
   type IntegrationClaimedPredicate,
   contestIntegrationStateSentinel,
   contestStillOpenSentinel,
   isContestRaceError,
 } from '../lib/integration-contests';
 import { isClaimed } from '../lib/integration-claims';
+import { requireActiveEntitlement } from '../lib/integration-entitlement';
 import { ownerSeatLapsed } from '../lib/vendor-handback';
 import {
   protestSubmitRefusal,
   submitterProtestFields,
   toContestProtest,
 } from '../lib/contest-protests';
-import {
-  assertIntegrationLive,
-  integrationLiveSentinel,
-  integrationRetiredError,
-  isIntegrationRetiredRaceError,
-} from '../lib/live-integration';
+import { assertIntegrationLive, integrationRetiredError } from '../lib/live-integration';
 import { publicSiteBase } from '../lib/public-urls';
 import { pairCacheTag } from './promote-pair';
 import { attestationEditRecrawl } from './vendor-recrawl';
@@ -189,7 +208,7 @@ export function toVendorContest(
   viewerVendorId: string | null = null,
   now: string = new Date().toISOString(),
 ): VendorContest | null {
-  const integration = hydration.integrations.get(row.integrationId);
+  const integration = hydratedTarget(hydration, row);
   if (!integration) return null;
   const contextIsSource = frameIsSource(
     owned,
@@ -202,7 +221,8 @@ export function toVendorContest(
   const vendorRef = (id: string) => ({ id, name: hydration.vendorNames.get(id) ?? '' });
   return {
     id: row.id,
-    integration_id: row.integrationId,
+    integration_id: integration.id,
+    anchor: integration.anchor,
     integration_name: integration.name,
     context_product: {
       id: context.id,
@@ -358,38 +378,45 @@ function isOpenContestConflict(error: unknown): boolean {
 }
 
 // ─── POST /api/vendor/integrations/:id/contests ──────────────────────────────
+// ─── POST /api/vendor/evidenced-pairs/:id/contests (AECI-1092) ──────────────
 
 /**
+ * The submit route, for either anchor.
+ *
  * `claimed` is the routing predicate. It defaults to {@link isIntegrationClaimed},
  * the real `claimed_at` test since AECI-1005 replaced the stub, and stays a
  * parameter so a spec can pin either route without seeding a claim.
+ *
+ * `anchorKind` picks the table the path id names (AECI-1092). An evidenced pair is
+ * contested exactly as an `integrations` row is: the same endpoint-vendor check (its
+ * evidenced arm, `resolveEvidencedPairSlots`), the same owner refusal, the same
+ * checks and the same routing, over the eleven fields that table has.
  */
 export function createSubmitContestHandler(
   dbFor: DbFactory = getDb,
   claimed: IntegrationClaimedPredicate = isIntegrationClaimed,
+  anchorKind: ContestAnchorKind = 'integration',
 ): (c: VendorContext) => Promise<Response> {
   return async (c) => {
-    const session = c.get('auth');
     const vendorId = sessionVendorId(c);
-    const integrationId = idParam(c, 'id');
+    const anchor: ContestAnchor = { kind: anchorKind, id: idParam(c, 'id') };
     const { db } = writeDb(c, dbFor);
 
     // 1. Authority, alone in its wave: an endpoint vendor or a flat 404.
-    const authority: AttestationAuthority = await resolveAttestationSlots(
-      db,
-      vendorId,
-      integrationId,
-    );
+    const authority: AttestationAuthority =
+      anchor.kind === 'evidenced_pair'
+        ? await resolveEvidencedPairSlots(db, vendorId, anchor.id)
+        : await resolveAttestationSlots(db, vendorId, anchor.id);
 
-    const [integration, vendor] = await Promise.all([
-      db.query.integrations.findFirst({ where: eq(integrations.id, integrationId) }),
+    const [target, vendor] = await Promise.all([
+      loadContestTarget(db, anchor),
       db.query.vendors.findFirst({ columns: { id: true }, where: eq(vendors.id, vendorId) }),
     ]);
     if (!vendor) throw notFoundError('vendor', { id: vendorId });
-    if (!integration) throw notFoundError('integration', { id: integrationId });
+    if (!target) throw notFoundError('integration', { id: anchor.id });
 
     // 2. The owner cannot contest its own integration.
-    if (integration.builtByVendorId === vendorId) {
+    if (target.builtByVendorId === vendorId) {
       throw new ApiError(
         403,
         ApiErrorCode.CONTEST_OWN_INTEGRATION,
@@ -398,11 +425,20 @@ export function createSubmitContestHandler(
     }
     // 2b. A retired row takes no new contest (AECI-1010). Its owner withdrew it, and
     //     the retire closed every open contest on it as withdrawn.
-    assertIntegrationLive(integration);
+    assertIntegrationLive(target);
 
-    // 3. Shape.
+    // 3. Shape. A field the anchor's table does not have is a shape error: an
+    //    evidenced pair has no `mechanism_kind` (§11b.13).
     const payload = await parseJsonBody(c, SubmitIntegrationContestSchema);
     const field = payload.field;
+    if (!contestFieldsFor(anchor.kind).includes(field)) {
+      throw new ApiError(
+        400,
+        'VALIDATION_FAILED',
+        `${field} cannot be contested on an integration delivered through a connector product`,
+        { field: 'field' },
+      );
+    }
     const owned = authority.slots.map((slot) =>
       slot === 'vendor_a' ? authority.sourceProductId : authority.targetProductId,
     );
@@ -427,7 +463,11 @@ export function createSubmitContestHandler(
       });
     }
     if (field === 'owner' && wire !== null) {
-      const slots = (await vendorsForIntegrationSlots(db, [integrationId])).get(integrationId);
+      const slotVendors =
+        anchor.kind === 'evidenced_pair'
+          ? await vendorsForEvidencedPairSlots(db, [anchor.id])
+          : await vendorsForIntegrationSlots(db, [anchor.id]);
+      const slots = slotVendors.get(anchor.id);
       const endpointVendors = new Set([
         ...(slots?.slots.vendor_a ?? []),
         ...(slots?.slots.vendor_b ?? []),
@@ -442,7 +482,7 @@ export function createSubmitContestHandler(
       }
     }
     const proposedValue = toStorageValue(field, wire, contextIsSource);
-    const currentValue = storedFieldValue(integration, field);
+    const currentValue = storedFieldValue(target, field);
     if (proposedValue === currentValue) {
       throw new ApiError(
         422,
@@ -452,12 +492,12 @@ export function createSubmitContestHandler(
       );
     }
 
-    // 5. One open contest per (integration, field, vendor). The partial unique
-    //    index is the guarantee; this read turns the common case into a clean 409.
+    // 5. One open contest per (anchor, field, vendor). The partial unique index is
+    //    the guarantee; this read turns the common case into a clean 409.
     const duplicate = await db.query.integrationFieldChallenges.findFirst({
       columns: { id: true },
       where: and(
-        eq(integrationFieldChallenges.integrationId, integrationId),
+        contestAnchorWhere(anchor),
         eq(integrationFieldChallenges.field, field),
         eq(integrationFieldChallenges.submitterVendorId, vendorId),
         eq(integrationFieldChallenges.status, 'open'),
@@ -468,7 +508,7 @@ export function createSubmitContestHandler(
     // 6. AECI-1009 (§11b.12.8): an open protest on this field, then a lost
     //    protest's 90-day cooldown, which any change to the value lifts.
     const refusal = await protestSubmitRefusal(db, {
-      integrationId,
+      anchor,
       field,
       vendorId,
       liveValue: currentValue,
@@ -476,127 +516,192 @@ export function createSubmitContestHandler(
     });
     if (refusal) throw refusal;
 
-    const route = routeContest(integration, field, claimed);
-    const now = new Date().toISOString();
-    // AECI-989: an owner with no unbanned seat cannot answer. The contest goes to
-    // AECi, stamped so an unban routes it back (`lib/vendor-handback.ts`).
-    const seatLapsed =
-      route.routedTo === 'owner' &&
-      route.ownerVendorId !== null &&
-      (await ownerSeatLapsed(db, route.ownerVendorId));
-    const routedTo: typeof route.routedTo = seatLapsed ? 'aeci' : route.routedTo;
-    const { ownerVendorId } = route;
-    const contestId = crypto.randomUUID();
-    const workflowId = crypto.randomUUID();
-    const pairSlugs = await endpointSlugs(
-      db,
-      integration.sourceProductId,
-      integration.targetProductId,
-    );
-
-    const row: ContestRow = {
-      id: contestId,
-      integrationId,
+    const pairSlugs = await endpointSlugs(db, target.sourceProductId, target.targetProductId);
+    const draft = {
+      anchor,
+      target,
       field,
       currentValue,
       proposedValue,
       reason: payload.reason,
-      submitterVendorId: vendorId,
-      submittedBy: session.userId,
-      routedTo,
-      ownerVendorId,
-      status: 'open',
-      decisionNote: null,
-      decidedBy: null,
-      decidedAt: null,
-      upstreamLinearIssueId: null,
-      upstreamLinearIssueUrl: null,
-      workflowId,
-      ownerSeatLapsedAt: seatLapsed ? now : null,
-      ...EMPTY_PROTEST_COLUMNS,
-      createdAt: now,
-      updatedAt: now,
+      pairSlugs,
     };
-    const metadata = {
-      source: AUDIT_SOURCE,
-      vendorId,
-      contestId,
-      integrationId,
-      field,
-      routedTo,
-    };
-    const audit: AuditLogEntry = {
-      actorId: session.userId,
-      actorType: auditActorType(session),
-      action: 'integration.contest.submitted',
-      entityType: CONTEST_ENTITY_TYPE,
-      entityId: contestId,
-      afterState: {
-        field,
-        current_value: currentValue,
-        proposed_value: proposedValue,
-        routed_to: routedTo,
-        owner_vendor_id: ownerVendorId,
-      },
-      metadata,
-    };
-    const transition: WorkflowTransitionEntry = {
-      workflowId,
-      fromState: null,
-      toState: 'open',
-      actorId: session.userId,
-      reason: 'contest submitted',
-      metadata,
-    };
-    const audits: AuditLogEntry[] = [audit];
-    if (routedTo === 'owner' && ownerVendorId) {
-      audits.push(
-        contestNotificationAudit(
-          { actorId: session.userId, actorType: auditActorType(session) },
-          {
-            vendorId: ownerVendorId,
-            contestId,
-            integrationId,
-            integrationName: integration.name,
-            field,
-            event: 'submitted',
-            pairSlugs,
-          },
-        ),
-      );
-    }
 
-    const stmts: BatchStmt[] = [
-      // The instance first: the contest's `workflow_id` FK points at it.
-      db.insert(workflowInstances).values({
-        id: workflowId,
-        workflowType: CONTEST_WORKFLOW_TYPE,
-        entityId: contestId,
-        currentState: 'open',
-        initiatedBy: session.userId,
-        initiatedAt: now,
-      }),
-      db.insert(integrationFieldChallenges).values(row),
-      // AECI-1010: a retire that committed after the read above would otherwise leave
-      // an open contest on a retired row, which the retire's own close missed.
-      integrationLiveSentinel(db, integrationId),
-      workflowTransitionInsert(db, transition),
-      ...audits.map((entry) => auditInsert(db, entry)),
-    ];
-    try {
-      await db.batch(stmts as BatchTuple);
-    } catch (error) {
-      // Two submits raced past the read above; the index caught the second.
-      if (isOpenContestConflict(error)) throw duplicateContest(null);
-      // The only `json()` in this batch is the live sentinel.
-      if (isIntegrationRetiredRaceError(error)) throw integrationRetiredError();
-      throw error;
+    // 7. Route and write. A lost race with an admin clearing the owner's entitlement
+    //    (ruling B) aborts on `ownerEntitlementActiveSentinel`; the second attempt
+    //    re-reads the entitlement and routes the contest to AECi (ruling E).
+    for (let attempt = 1; ; attempt++) {
+      const plan = await planSubmit(db, c, vendorId, draft, claimed);
+      try {
+        await db.batch(plan.stmts as BatchTuple);
+      } catch (error) {
+        // Two submits raced past the read above; the index caught the second.
+        if (isOpenContestConflict(error)) throw duplicateContest(null);
+        if (!isContestRaceError(error)) throw error;
+        // A `json()` abort: the live sentinel, or the owner-entitlement one. Re-read
+        // to tell them apart, because the D1 error does not carry the token.
+        const now = await loadContestTarget(db, anchor);
+        if (!now || now.retiredAt) throw integrationRetiredError();
+        if (plan.entitlementGuarded && attempt < 2) continue;
+        throw error;
+      }
+      // No purge: nothing public changed. The forward still runs.
+      afterVendorWrite(c, [], plan.audits);
+      return echo(c, db, vendorId, plan.row, 201);
     }
-
-    // No purge: nothing public changed. The forward still runs.
-    afterVendorWrite(c, [], audits);
-    return echo(c, db, vendorId, row, 201);
   };
+}
+
+interface SubmitDraft {
+  anchor: ContestAnchor;
+  target: ContestTarget;
+  field: IntegrationContestField;
+  currentValue: string | null;
+  proposedValue: string | null;
+  reason: string;
+  pairSlugs: readonly [string, string] | null;
+}
+
+/**
+ * Route one contest and build its submit batch (§11b.4, with ruling A and ruling E
+ * on a connector-powered row). The owner's entitlement is read only when it can
+ * change the answer. When the contest does route to that owner, the batch carries
+ * `ownerEntitlementActiveSentinel`, so a clear that commits first aborts it.
+ */
+async function planSubmit(
+  db: Db,
+  c: VendorContext,
+  vendorId: string,
+  draft: SubmitDraft,
+  claimed: IntegrationClaimedPredicate,
+): Promise<{
+  stmts: BatchStmt[];
+  audits: AuditLogEntry[];
+  row: ContestRow;
+  entitlementGuarded: boolean;
+}> {
+  const session = c.get('auth');
+  const { anchor, target, field } = draft;
+  const owner = target.builtByVendorId;
+  const needsEntitlement =
+    target.connectorPowered &&
+    owner !== null &&
+    field !== 'owner' &&
+    field !== 'mechanism_kind' &&
+    claimed(target);
+  const ownerEntitled = needsEntitlement ? await vendorHoldsActiveEntitlement(db, owner) : true;
+  const route = routeContest(target, field, claimed, {
+    connectorPowered: target.connectorPowered,
+    ownerEntitled,
+  });
+  // AECI-989: an owner with no unbanned seat cannot answer. The contest goes to
+  // AECi, stamped so an unban routes it back (`lib/vendor-handback.ts`).
+  const seatLapsed =
+    route.routedTo === 'owner' &&
+    route.ownerVendorId !== null &&
+    (await ownerSeatLapsed(db, route.ownerVendorId));
+  const routedTo: typeof route.routedTo = seatLapsed ? 'aeci' : route.routedTo;
+  const { ownerVendorId } = route;
+  const entitlementGuarded = routedTo === 'owner' && target.connectorPowered;
+
+  const now = new Date().toISOString();
+  const contestId = crypto.randomUUID();
+  const workflowId = crypto.randomUUID();
+  const row: ContestRow = {
+    id: contestId,
+    ...anchorColumns(anchor),
+    field,
+    currentValue: draft.currentValue,
+    proposedValue: draft.proposedValue,
+    reason: draft.reason,
+    submitterVendorId: vendorId,
+    submittedBy: session.userId,
+    routedTo,
+    ownerVendorId,
+    status: 'open',
+    decisionNote: null,
+    decidedBy: null,
+    decidedAt: null,
+    upstreamLinearIssueId: null,
+    upstreamLinearIssueUrl: null,
+    workflowId,
+    ownerSeatLapsedAt: seatLapsed ? now : null,
+    ...EMPTY_PROTEST_COLUMNS,
+    createdAt: now,
+    updatedAt: now,
+  };
+  const metadata = {
+    source: AUDIT_SOURCE,
+    vendorId,
+    contestId,
+    ...anchorMetadata(anchor),
+    field,
+    routedTo,
+  };
+  const audit: AuditLogEntry = {
+    actorId: session.userId,
+    actorType: auditActorType(session),
+    action: 'integration.contest.submitted',
+    entityType: CONTEST_ENTITY_TYPE,
+    entityId: contestId,
+    afterState: {
+      field,
+      current_value: draft.currentValue,
+      proposed_value: draft.proposedValue,
+      routed_to: routedTo,
+      owner_vendor_id: ownerVendorId,
+    },
+    metadata,
+  };
+  const transition: WorkflowTransitionEntry = {
+    workflowId,
+    fromState: null,
+    toState: 'open',
+    actorId: session.userId,
+    reason: 'contest submitted',
+    metadata,
+  };
+  const audits: AuditLogEntry[] = [audit];
+  if (routedTo === 'owner' && ownerVendorId) {
+    audits.push(
+      contestNotificationAudit(
+        { actorId: session.userId, actorType: auditActorType(session) },
+        {
+          vendorId: ownerVendorId,
+          contestId,
+          integrationId: anchor.id,
+          ...(anchor.kind === 'evidenced_pair' ? { anchor: 'evidenced_pair' as const } : {}),
+          integrationName: target.name,
+          field,
+          event: 'submitted',
+          pairSlugs: draft.pairSlugs,
+        },
+      ),
+    );
+  }
+
+  const stmts: BatchStmt[] = [
+    // The instance first: the contest's `workflow_id` FK points at it.
+    db.insert(workflowInstances).values({
+      id: workflowId,
+      workflowType: CONTEST_WORKFLOW_TYPE,
+      entityId: contestId,
+      currentState: 'open',
+      initiatedBy: session.userId,
+      initiatedAt: now,
+    }),
+    db.insert(integrationFieldChallenges).values(row),
+    // AECI-1010: a retire that committed after the read above would otherwise leave
+    // an open contest on a retired row, which the retire's own close missed.
+    contestAnchorLiveSentinel(db, anchor),
+    // Ruling B's submit-side half: the owner must still be entitled at commit.
+    ...(entitlementGuarded && ownerVendorId
+      ? [ownerEntitlementActiveSentinel(db, ownerVendorId)]
+      : []),
+    workflowTransitionInsert(db, transition),
+    ...audits.map((entry) => auditInsert(db, entry)),
+  ];
+  return { stmts, audits, row, entitlementGuarded };
 }
 
 /** Every AECI-1009 protest column, empty. A new contest carries no protest. */
@@ -710,7 +815,7 @@ export function createWithdrawContestHandler(
       source: AUDIT_SOURCE,
       vendorId,
       contestId: id,
-      integrationId: row.integrationId,
+      ...anchorMetadata(contestAnchorOf(row)),
       field: row.field,
     };
     const audits: AuditLogEntry[] = [
@@ -772,10 +877,8 @@ export async function notificationFor(
       : null
     : row.submitterVendorId;
   if (!recipient) return null;
-  const integration = await db.query.integrations.findFirst({
-    columns: { name: true, sourceProductId: true, targetProductId: true },
-    where: eq(integrations.id, row.integrationId),
-  });
+  const anchor = contestAnchorOf(row);
+  const integration = await loadContestTarget(db, anchor);
   const pairSlugs = integration
     ? await endpointSlugs(db, integration.sourceProductId, integration.targetProductId)
     : null;
@@ -784,7 +887,8 @@ export async function notificationFor(
     {
       vendorId: recipient,
       contestId: row.id,
-      integrationId: row.integrationId,
+      integrationId: anchor.id,
+      ...(anchor.kind === 'evidenced_pair' ? { anchor: 'evidenced_pair' as const } : {}),
       integrationName: integration?.name ?? null,
       field: row.field as IntegrationContestField,
       event,
@@ -818,17 +922,22 @@ export function createDecideContestHandler(
     // re-routes its open contests to AECi in the same batch); a caller that lost the
     // row, or a row that is no longer claimed, must not decide. The same condition
     // is re-asserted inside the batch by `contestIntegrationStateSentinel` below.
-    const owned = await db.query.integrations.findFirst({
-      columns: { id: true, claimedAt: true, builtByVendorId: true },
-      where: eq(integrations.id, row.integrationId),
-    });
-    if (!owned || !isClaimed(owned) || owned.builtByVendorId !== vendorId) {
+    // AECI-1092: the row may be an evidenced pair; both tables carry the same columns.
+    const anchor = contestAnchorOf(row);
+    const target = await loadContestTarget(db, anchor);
+    if (!target || !isClaimed(target) || target.builtByVendorId !== vendorId) {
       throw new ApiError(
         409,
         ApiErrorCode.CONTEST_INTEGRATION_CHANGED,
         'Your company is no longer the owner of this integration, so AEC Integrations decides this contest.',
       );
     }
+    // AECI-1040 ruling 2 (§11b.13 follow-up ruling 2): deciding a contest on a
+    // connector-powered row is an owner write, so it needs an active entitlement.
+    // Ownership has settled above, so the 403 discloses nothing new. An admin clear
+    // re-routes these contests to AECi in its own batch (ruling B), so this is the
+    // backstop for a portal that has not refetched yet.
+    if (target.connectorPowered) requireActiveEntitlement(c);
 
     const payload = await parseJsonBody(c, DecideContestSchema);
     const status = payload.decision === 'accept' ? 'accepted' : 'declined';
@@ -839,7 +948,7 @@ export function createDecideContestHandler(
       source: AUDIT_SOURCE,
       vendorId,
       contestId: id,
-      integrationId: row.integrationId,
+      ...anchorMetadata(anchor),
       field,
     };
 
@@ -866,14 +975,22 @@ export function createDecideContestHandler(
           updatedAt: now,
         })
         .where(
-          and(eq(integrationFieldChallenges.id, id), eq(integrationFieldChallenges.status, 'open')),
+          and(
+            eq(integrationFieldChallenges.id, id),
+            eq(integrationFieldChallenges.status, 'open'),
+            // AECI-1092: still this caller's to decide. A re-route to AECi (an owner
+            // reassignment, or ruling B's entitlement clear) that commits between the
+            // read above and this batch leaves the row open but no longer owner-routed,
+            // and the old owner must not decide it.
+            receivedContestsWhere(vendorId),
+          ),
         ),
       // Immediately after the guarded UPDATE: a lost race aborts the batch here,
       // before the catalog write, the audit rows and the notification.
       contestStillOpenSentinel(db, id),
       // AECI-1005 review: and the caller must still hold the claimed row when the
       // batch runs, or a reassignment landing mid-decision is decided by the old owner.
-      contestIntegrationStateSentinel(db, row.integrationId, {
+      contestIntegrationStateSentinel(db, anchor, {
         claimed: true,
         ownerVendorId: vendorId,
       }),
@@ -883,34 +1000,34 @@ export function createDecideContestHandler(
     let pairSlugs: readonly [string, string] | null = null;
     if (status === 'accepted') {
       // `owner` never routes to a vendor (§11b), so this is unreachable short of a
-      // corrupt row. Refuse rather than write a column no accept may touch.
-      if (field === 'owner') {
-        throw new ApiError(500, 'INTERNAL_ERROR', 'An owner contest cannot be owner-decided');
+      // corrupt row. Refuse rather than write a column no accept may touch. The same
+      // holds for `mechanism_kind` on a connector-powered row (ruling A), and that
+      // column does not exist on an evidenced pair at all.
+      if (field === 'owner' || (field === 'mechanism_kind' && target.connectorPowered)) {
+        throw new ApiError(500, 'INTERNAL_ERROR', `A ${field} contest cannot be owner-decided`);
       }
-      const integration = await db.query.integrations.findFirst({
-        where: eq(integrations.id, row.integrationId),
-      });
-      if (!integration) throw notFoundError('contest', { id });
       const column = CONTEST_FIELD_COLUMNS[field];
-      const before = storedFieldValue(integration, field);
-      pairSlugs = await endpointSlugs(db, integration.sourceProductId, integration.targetProductId);
+      const before = storedFieldValue(target, field);
+      const purge = await anchorPurgeTags(db, target, pairCacheTag);
+      pairSlugs = purge.pairSlugs;
+      tags = purge.tags;
       stmts.push(
-        db
-          .update(integrations)
-          .set({ [column]: row.proposedValue, ...maintenanceTransferColumns(now) })
-          // Runs only if the sentinel above passed, i.e. this request won.
-          .where(eq(integrations.id, row.integrationId)),
+        // Runs only if the sentinels above passed, i.e. this request won.
+        anchorUpdate(db, anchor, {
+          [column]: row.proposedValue,
+          ...maintenanceTransferColumns(now),
+        }),
       );
       audits.push({
         actorId: session.userId,
         actorType: auditActorType(session),
-        action: 'integration.updated',
-        entityType: 'integration',
-        entityId: row.integrationId,
+        action: anchorUpdatedAction(anchor.kind),
+        entityType: anchorEntityType(anchor.kind),
+        entityId: anchor.id,
         beforeState: {
           [field]: before,
-          maintained_by: integration.maintainedBy,
-          last_reviewed_at: integration.lastReviewedAt,
+          maintained_by: target.maintainedBy,
+          last_reviewed_at: target.lastReviewedAt,
         },
         afterState: {
           [field]: row.proposedValue,
@@ -921,18 +1038,10 @@ export function createDecideContestHandler(
           ...metadata,
           reason: 'contest-accepted',
           // Present only on the hand-changing save, never as `false` (§13.9).
-          ...(isMaintenanceTransfer(integration) ? { maintenanceTransfer: true } : {}),
+          ...(isMaintenanceTransfer(target) ? { maintenanceTransfer: true } : {}),
         },
       });
-      if (pairSlugs) {
-        tags = [
-          pairCacheTag(pairSlugs[0], pairSlugs[1]),
-          `product:${pairSlugs[0]}`,
-          `product:${pairSlugs[1]}`,
-        ];
-      }
     }
-
     // AECI-1009: an OWNER decline can be protested to AECi for 30 days, and the
     // notification says until when. This is the owner's decision route, so it is
     // always an owner decision; an AECi decline never carries the date.

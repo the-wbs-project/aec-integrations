@@ -10,10 +10,12 @@ import {
   signal,
 } from '@angular/core';
 
-import type { VendorProductConnector } from '@aeci/shared';
+import type { EvidencedPairContestTarget, VendorProductConnector } from '@aeci/shared';
 
 import { LogoOrInitial } from '../../shared/logo-or-initial/logo-or-initial';
 import { VendorApi } from '../vendor-api';
+
+import { VendorContestForm } from './vendor-contest-form';
 
 type LoadState = 'idle' | 'loading' | 'loaded' | 'failed';
 
@@ -36,8 +38,10 @@ type LoadState = 'idle' | 'loading' | 'loaded' | 'failed';
  * itself when there is nothing to show, like the public page's reach line.
  *
  * ── READ-ONLY, AND OUTSIDE THE LIVE CURSOR ─────────────────────────────────
- * No controls: connector-powered edges are out of scope for vendor editing,
- * creating and retiring. The read is `GET /api/vendor/products/:id/connectors`,
+ * No edit controls: connector-powered edges are out of scope for vendor editing,
+ * creating and retiring here. Since AECI-1092 each delivered pair the vendor does
+ * not own carries "Contest a field" (`VendorContestForm` with `anchor =
+ * 'evidenced_pair'`), because a contest is not an edit (§11b.13). The read is `GET /api/vendor/products/:id/connectors`,
  * fetched once per product in the browser and never polled. Nothing a vendor
  * does moves it, so it has no `GET /api/vendor/updates` scope
  * (`STAGE_2_REALTIME_SPEC.md` §2.3).
@@ -47,7 +51,7 @@ type LoadState = 'idle' | 'loading' | 'loaded' | 'failed';
  */
 @Component({
   selector: 'aec-vendor-product-connectors',
-  imports: [LogoOrInitial],
+  imports: [LogoOrInitial, VendorContestForm],
   changeDetection: ChangeDetectionStrategy.OnPush,
   host: { class: 'block' },
   template: `
@@ -122,6 +126,21 @@ type LoadState = 'idle' | 'loading' | 'loaded' | 'failed';
                       <li>{{ partnerName(item) }}</li>
                     }
                   </ul>
+                  @for (target of contestable(group); track target.id) {
+                    <div
+                      class="mt-3 rounded-(--radius-md) border border-(--border-default) bg-(--surface-base)"
+                      data-contest-target
+                    >
+                      <p
+                        class="px-5 pt-3 text-sm text-(--text-secondary)"
+                        i18n="@@vendor.connectors.contest.intro"
+                      >
+                        {{ target.other_product.name }}, through {{ group.connector.name }}. Offered
+                        by {{ ownerName(target) }}.
+                      </p>
+                      <aec-vendor-contest-form [integration]="target" anchor="evidenced_pair" />
+                    </div>
+                  }
                 </div>
               }
 
@@ -211,6 +230,19 @@ export class VendorProductConnectors {
   protected retry(): void {
     const id = this.productId();
     if (id) void this.load(id);
+  }
+
+  /**
+   * AECI-1092: the delivered pairs this vendor may contest. Not its own (the owner
+   * edits instead, §11b.2), and not a retired one (a retired row takes no contest).
+   * An API older than AECI-1092 sends no targets, so nothing renders.
+   */
+  protected contestable(group: VendorProductConnector): readonly EvidencedPairContestTarget[] {
+    return (group.delivered_contest_targets ?? []).filter((t) => !t.is_owner && !t.retired);
+  }
+
+  protected ownerName(target: EvidencedPairContestTarget): string {
+    return target.owner?.name ?? $localize`:@@vendor.connectors.contest.noOwner:nobody on record`;
   }
 
   protected partnerName(item: VendorProductConnector['delivered'][number]): string {
