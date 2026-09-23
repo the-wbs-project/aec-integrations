@@ -247,6 +247,32 @@ describe('ProductIntegrationRow', () => {
       expect(el.querySelector('[data-testid="row-data-objects"]')).not.toBeNull();
     });
 
+    it('drops the "–" beside the chip on a Via-lane row (ruled 2026-09-23)', () => {
+      const { el } = setup({
+        integration: signal({
+          ...baseIntegration,
+          mechanism_kind: null,
+          via: { id: 'z1', slug: 'zapier', name: 'Zapier', logo_url: null },
+          data_object_slugs: ['rfis', 'models'],
+        }),
+      });
+      expect(el.querySelector('span[aria-label="Mechanism not listed"]')).toBeNull();
+      expect(el.querySelector('[data-testid="row-data-objects"]')?.textContent?.trim()).toBe(
+        '2 data objects',
+      );
+    });
+
+    it('keeps the "–" on a Via-lane row that has no objects', () => {
+      const { el } = setup({
+        integration: signal({
+          ...baseIntegration,
+          mechanism_kind: null,
+          via: { id: 'z1', slug: 'zapier', name: 'Zapier', logo_url: null },
+        }),
+      });
+      expect(el.querySelector('span[aria-label="Mechanism not listed"]')).not.toBeNull();
+    });
+
     it('renders no chip and no marker when the edge has no claims', () => {
       const { el } = setup();
       expect(el.querySelector('[data-testid="row-data-objects"]')).toBeNull();

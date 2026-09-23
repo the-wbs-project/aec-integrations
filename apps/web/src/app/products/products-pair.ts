@@ -778,7 +778,10 @@ function writePairViewCookie(mode: PairViewMode): void {
                       <span>{{ m.depthDirection.label }}</span>
                     </span>
                   }
-                  @if (m.dataObjectLabel) {
+                  <!-- Ruled 2026-09-23: with one mechanism the band headline
+                       already says "N data objects sync", so the card chip would
+                       only repeat it. -->
+                  @if (m.dataObjectLabel && !(v.mechanisms.length === 1 && v.syncTotal > 0)) {
                     <span
                       class="inline-flex items-center rounded-(--radius-sm) border border-(--border-default) bg-(--surface-raised) px-3 py-1 text-[0.8125rem] font-bold tracking-[0.01em] text-(--text-secondary)"
                       data-testid="pair-depth-objects"

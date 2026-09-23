@@ -354,6 +354,20 @@ describe('ProductsPairPage', () => {
 
   describe('depth axis in the mechanism card header (AECI-711)', () => {
     const header = (el: HTMLElement) => el.querySelector('article header')!;
+    /** A second, claim-less mechanism. With one mechanism the band headline
+     *  carries the count and the card chip is hidden (ruled 2026-09-23), so the
+     *  object-chip cases need two. */
+    const withSecond = (pair: ProductPairResponse): ProductPairResponse => ({
+      ...pair,
+      mechanisms: [
+        ...pair.mechanisms,
+        {
+          ...buildPair().mechanisms[0]!,
+          id: '00000000-0000-4000-8000-0000000000bb',
+          mechanism_name: 'Second mechanism',
+        },
+      ],
+    });
 
     it('renders the direction chip with an sr-only prefix and an aria-hidden glyph', () => {
       const { el } = setup(buildPair(), { view: 'basic' });
@@ -366,9 +380,12 @@ describe('ProductsPairPage', () => {
     });
 
     it('renders the chips in Basic view too', () => {
-      const { el } = setup(buildPairWithClaims([claim('models', 'Models', 'outbound')]), {
-        view: 'basic',
-      });
+      const { el } = setup(
+        withSecond(buildPairWithClaims([claim('models', 'Models', 'outbound')])),
+        {
+          view: 'basic',
+        },
+      );
       expect(header(el).querySelector('[data-testid="pair-depth-direction"]')).not.toBeNull();
       expect(header(el).querySelector('[data-testid="pair-depth-objects"]')?.textContent).toContain(
         '1 data object',
@@ -377,11 +394,13 @@ describe('ProductsPairPage', () => {
 
     it('counts distinct objects across directions (the AECI-1042 rule)', () => {
       const { el } = setup(
-        buildPairWithClaims([
-          claim('models', 'Models', 'outbound'),
-          claim('models', 'Models', 'inbound'),
-          claim('rfis', 'RFIs', 'inbound'),
-        ]),
+        withSecond(
+          buildPairWithClaims([
+            claim('models', 'Models', 'outbound'),
+            claim('models', 'Models', 'inbound'),
+            claim('rfis', 'RFIs', 'inbound'),
+          ]),
+        ),
       );
       expect(
         header(el).querySelector('[data-testid="pair-depth-objects"]')?.textContent?.trim(),
@@ -390,10 +409,12 @@ describe('ProductsPairPage', () => {
 
     it('does not count a removed claim', () => {
       const { el } = setup(
-        buildPairWithClaims([
-          claim('models', 'Models', 'outbound'),
-          { ...claim('rfis', 'RFIs', 'inbound'), version_status: 'removed' },
-        ]),
+        withSecond(
+          buildPairWithClaims([
+            claim('models', 'Models', 'outbound'),
+            { ...claim('rfis', 'RFIs', 'inbound'), version_status: 'removed' },
+          ]),
+        ),
       );
       expect(
         header(el).querySelector('[data-testid="pair-depth-objects"]')?.textContent?.trim(),
@@ -427,31 +448,43 @@ describe('ProductsPairPage', () => {
 
     it('renders the object chip without a direction chip when neither direction is known', () => {
       const base = buildPairWithClaims([claim('models', 'Models', 'outbound')]);
-      const { el } = setup({
-        ...base,
-        mechanisms: [{ ...base.mechanisms[0]!, direction: null, effective_direction: null }],
-      });
+      const { el } = setup(
+        withSecond({
+          ...base,
+          mechanisms: [{ ...base.mechanisms[0]!, direction: null, effective_direction: null }],
+        }),
+      );
       expect(header(el).querySelector('[data-testid="pair-depth-direction"]')).toBeNull();
       expect(header(el).querySelector('[data-testid="pair-depth-objects"]')).not.toBeNull();
     });
 
     it('renders the connector-evidenced arm the same way', () => {
       const base = buildPairWithClaims([claim('models', 'Models', 'both')]);
-      const { el } = setup({
-        ...base,
-        mechanisms: [
-          {
-            ...base.mechanisms[0]!,
-            mechanism_kind: null,
-            direction: 'both',
-            effective_direction: 'both',
-            via: { id: 'z1', slug: 'zapier', name: 'Zapier', logo_url: null },
-          },
-        ],
-      });
+      const { el } = setup(
+        withSecond({
+          ...base,
+          mechanisms: [
+            {
+              ...base.mechanisms[0]!,
+              mechanism_kind: null,
+              direction: 'both',
+              effective_direction: 'both',
+              via: { id: 'z1', slug: 'zapier', name: 'Zapier', logo_url: null },
+            },
+          ],
+        }),
+      );
       const chip = header(el).querySelector('[data-testid="pair-depth-direction"]');
       expect(chip?.querySelector('[aria-hidden="true"]')?.textContent).toBe('\u21C4');
       expect(header(el).querySelector('[data-testid="pair-depth-objects"]')).not.toBeNull();
+    });
+
+    it('hides the object chip when one mechanism and the headline already carry the count', () => {
+      const { el } = setup(buildPairWithClaims([claim('models', 'Models', 'outbound')]));
+      expect(el.textContent).toContain('1 data object syncs');
+      expect(header(el).querySelector('[data-testid="pair-depth-objects"]')).toBeNull();
+      // The direction chip is unaffected: the headline does not state a direction.
+      expect(header(el).querySelector('[data-testid="pair-depth-direction"]')).not.toBeNull();
     });
   });
 

@@ -15,6 +15,8 @@ import {
 } from '../search/mechanism-labels';
 import { LogoOrInitial } from '../shared/logo-or-initial/logo-or-initial';
 
+import { routeIntegrationLane } from './connector-lane-grouping';
+
 /**
  * Row representation of one of a product's integrations, slotted into the
  * integrations `<table>` on the product-detail page (`product-detail.ts`).
@@ -168,9 +170,11 @@ import { LogoOrInitial } from '../shared/logo-or-initial/logo-or-initial';
         <!-- The mechanism badge(s), then the AECI-711 object-coverage chip at the
              same weight: depth is orthogonal to mechanism, so it sits beside the
              badge rather than under it. With no kinds the "–" keeps its place and
-             meaning (mechanism not listed) and the chip follows it. A row with no
-             kinds AND no objects takes the @else below, unchanged since before
-             the depth axis (depth-axis-null.component.spec.ts). -->
+             meaning (mechanism not listed) and the chip follows it, EXCEPT on a
+             Via-lane row (ruled 2026-09-23): there the lane heading already names
+             the connector, and a bare dash beside "2 data objects" read as a minus
+             sign. A row with no kinds AND no objects takes the @else below,
+             unchanged since before the depth axis (depth-axis-null.component.spec.ts). -->
         @if (mechanismKindLabels().length > 0 || dataObjectLabel()) {
           <span class="flex flex-wrap items-center gap-1">
             @for (label of mechanismKindLabels(); track label) {
@@ -179,13 +183,15 @@ import { LogoOrInitial } from '../shared/logo-or-initial/logo-or-initial';
                 >{{ label }}</span
               >
             } @empty {
-              <span
-                class="text-(--text-secondary)"
-                i18n="@@products.detail.integrations.mechanism.none"
-                i18n-aria-label="@@products.detail.integrations.mechanism.none.aria"
-                aria-label="Mechanism not listed"
-                >–</span
-              >
+              @if (!isViaLane()) {
+                <span
+                  class="text-(--text-secondary)"
+                  i18n="@@products.detail.integrations.mechanism.none"
+                  i18n-aria-label="@@products.detail.integrations.mechanism.none.aria"
+                  aria-label="Mechanism not listed"
+                  >–</span
+                >
+              }
             }
             @if (dataObjectLabel(); as objects) {
               <span
@@ -282,6 +288,12 @@ export class ProductIntegrationRow {
     dataObjectCountLabel(
       (this.mergedDataObjectSlugs() ?? this.integration().data_object_slugs).length,
     ),
+  );
+
+  /** The same router the section splits lanes with, so the row and its lane
+   *  cannot disagree about which lane it is in. */
+  protected readonly isViaLane = computed(
+    () => routeIntegrationLane(this.integration()).lane === 'via',
   );
 
   protected readonly direction = computed(() => {

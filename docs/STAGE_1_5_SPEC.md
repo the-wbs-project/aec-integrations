@@ -1219,7 +1219,12 @@ delivered-tier tables alike. The pair page's mechanism card header shows a direc
 objects" chip, at the kind badge's weight, in Basic and Detailed views. The chip reads the new
 `effective_direction`, the claims-aware value the row's `context_direction` uses. It never reads the
 stored direction, which this page already hides once claims exist. In Detailed view with no claims
-the chip is omitted, because the Layer-A line states the same direction in that card. This section's rows show the
+the chip is omitted, because the Layer-A line states the same direction in that card. Three
+rulings from 2026-09-23 apply. First, on a pair with one mechanism whose band headline already
+reads "N data objects sync", the card's object chip is hidden, because it would repeat the headline.
+Second, on a Via-lane row with no mechanism kind, the "–" placeholder is dropped when the object chip
+shows, because the lane heading already names the connector. Third, the card header keeps its chips
+on one line with the heading at 1280px. This section's rows show the
 "N data objects" chip beside the Connection badge, and on the meta line below `md`. Direction on
 rows was already there (§13.3a) and did not change. The count is the AECI-1042 rule,
 `distinctDataObjectSlugs` in `packages/shared/src/agreement.ts`, the same function
