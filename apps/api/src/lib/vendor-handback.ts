@@ -97,6 +97,7 @@ import {
   clearSeatStamp,
   CONTEST_ENTITY_TYPE,
   contestAnchorOf,
+  contestRowChangedSentinel,
   ownerEntitlementActiveSentinel,
   vendorHoldsActiveEntitlement,
 } from './integration-contests';
@@ -824,6 +825,10 @@ function rerouteContest(
         ),
       ),
   );
+  // The return only (review MINOR 4): a concurrent grant or decision that moved this
+  // contest first leaves the UPDATE matching nothing, and the batch must then abort
+  // rather than commit a `rerouted` row and a transition for a move it did not make.
+  if (move.to === 'owner') batch.stmts.push(contestRowChangedSentinel(db));
   if (contest.workflowId) {
     const transition: WorkflowTransitionEntry = {
       workflowId: contest.workflowId,

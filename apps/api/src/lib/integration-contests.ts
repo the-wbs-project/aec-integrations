@@ -541,6 +541,25 @@ export async function planEntitlementClearReroute(
 
 // ─── The seat-lapse stamp (AECI-989, reconciled by AECI-1092) ───────────────
 
+/**
+ * A batch statement that ABORTS the batch when the statement just before it changed
+ * no row. Put it DIRECTLY after a guarded contest UPDATE whose audit row and
+ * transition ride the same batch: a concurrent writer that got there first (a second
+ * seat grant, a decision, a clear) leaves the guard matching nothing, and without
+ * this the batch would still commit an audit row and a transition for a write it
+ * never made (review MINOR 4). `json('contest-row-changed')` is malformed JSON, so the
+ * whole batch rolls back. The seat writers answer it as `409 VENDOR_SEATS_CHANGED`
+ * (`isSeatsChangedError`), the clear re-plans (`isContestRaceError`), and the admin
+ * accept answers `409 CONTEST_INTEGRATION_CHANGED` through `runGuardedContestBatch`.
+ * Same mechanism as `seatRaceSentinels`, and FROM a one-row constant for the same
+ * reason.
+ */
+export function contestRowChangedSentinel(db: Db) {
+  return db
+    .select({ guard: sql`CASE WHEN changes() = 0 THEN json('contest-row-changed') END` })
+    .from(ONE_ROW);
+}
+
 /** The audit action for clearing `owner_seat_lapsed_at` without a re-route: the
  *  contest stays with AECi, and stops being one a seat event can send back. */
 export const SEAT_STAMP_CLEARED_ACTION = 'integration.contest.seat_stamp_cleared';
@@ -579,6 +598,8 @@ export function clearSeatStamp(
             isNotNull(integrationFieldChallenges.ownerSeatLapsedAt),
           ),
         ),
+      // Directly after the UPDATE: a lost race writes no phantom audit row.
+      contestRowChangedSentinel(db),
     );
     audits.push({
       ...actor,

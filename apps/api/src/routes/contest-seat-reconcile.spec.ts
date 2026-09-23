@@ -504,3 +504,54 @@ describe('the reconciliation races', () => {
     expect(isContestRaceError(error)).toBe(true);
   });
 });
+
+// ─── A losing concurrent grant writes no phantom rows (review MINOR 4) ───────
+
+describe('a seat grant that loses the contest to a concurrent grant writes nothing', () => {
+  const rowsFor = async (id: string) =>
+    (await t.db.select().from(auditLog).where(eq(auditLog.entityId, id))).length;
+
+  it('a double grant: the loser answers 409 VENDOR_SEATS_CHANGED and writes no rerouted row', async () => {
+    await banSeatDirectly(SEAT_B);
+    const id = await stampedContest({ integrationId: I_PLAIN });
+    // The first grant's return commits between the second grant's read and its batch.
+    const original = t.db.batch.bind(t.db);
+    vi.spyOn(t.db, 'batch').mockImplementationOnce((async (stmts: never) => {
+      await t.db
+        .update(integrationFieldChallenges)
+        .set({ routedTo: 'owner', ownerSeatLapsedAt: null })
+        .where(eq(integrationFieldChallenges.id, id));
+      return original(stmts);
+    }) as never);
+    const res = await provisionSeat(VENDOR_B);
+    expect(res.status).toBe(409);
+    expect(res.body.error.code).toBe('VENDOR_SEATS_CHANGED');
+    expect(await rowsFor(id)).toBe(0);
+    // Nothing of the grant landed either.
+    const seat = (await t.db.select().from(profiles).where(eq(profiles.id, SEAT_NEW)))[0];
+    expect(seat?.vendorId ?? null).not.toBe(VENDOR_B);
+  });
+
+  it('a withheld contest whose stamp another writer cleared first: no phantom seat_stamp_cleared row', async () => {
+    await banSeatDirectly(SEAT_B);
+    const id = await stampedContest({ integrationId: I_POWERED });
+    const plan = await planSeatGrantReturn(
+      t.db,
+      { vendorId: VENDOR_B, actorId: ADMIN, actorType: 'admin', now: STAMP, source: 's' },
+      SEAT_NEW,
+    );
+    expect(plan).not.toBeNull();
+    await t.db
+      .update(integrationFieldChallenges)
+      .set({ ownerSeatLapsedAt: null })
+      .where(eq(integrationFieldChallenges.id, id));
+    let error: unknown = null;
+    try {
+      await t.db.batch(plan!.stmts as BatchTuple);
+    } catch (e) {
+      error = e;
+    }
+    expect(isContestRaceError(error)).toBe(true);
+    expect(await rowsFor(id)).toBe(0);
+  });
+});

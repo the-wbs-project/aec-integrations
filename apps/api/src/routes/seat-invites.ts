@@ -229,7 +229,7 @@ export function createAcceptSeatInviteHandler(
     try {
       await db.batch([...batch.stmts, ...(returned?.stmts ?? [])] as BatchTuple);
     } catch (error) {
-      if (returned?.entitlementGuarded && isSeatsChangedError(error)) throw seatsChangedError();
+      if (returned && isSeatsChangedError(error)) throw seatsChangedError();
       throw error;
     }
     // Post-commit forward (§26.5). No cache tags: a seat change renders on no

@@ -590,7 +590,7 @@ async function approveClaim(
   try {
     await db.batch([...grant.stmts, ...ent.stmts, ...(returned?.stmts ?? [])] as BatchTuple);
   } catch (error) {
-    if (returned?.entitlementGuarded && isSeatsChangedError(error)) throw seatsChangedError();
+    if (returned && isSeatsChangedError(error)) throw seatsChangedError();
     throw error;
   }
   emitClaimModeration(c, 'approve', 'ok');

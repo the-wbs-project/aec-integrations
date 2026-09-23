@@ -1119,7 +1119,7 @@ export function createProvisionSeatHandler(
     try {
       await db.batch([...batch.stmts, ...(returned?.stmts ?? [])] as BatchTuple);
     } catch (error) {
-      if (returned?.entitlementGuarded && isSeatsChangedError(error)) throw seatsChangedError();
+      if (returned && isSeatsChangedError(error)) throw seatsChangedError();
       throw error;
     }
     emitSeatProvision(c, 'ok');
