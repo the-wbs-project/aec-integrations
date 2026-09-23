@@ -55,6 +55,10 @@
  *     (AECI-305), not in this concurrently-fired set. Adding `index:home` here would
  *     let the purge race ahead of the refresh and re-cache stale HTML.
  *
+ *   - `product:{hostSlug}` (AECI-710, `STAGE_1_5_SPEC.md` §13.3b) invalidates the
+ *     page of each host the promoted product is built within, whose Extensions
+ *     section lists it. Passed in as `opts.extensionHostSlugs`, read post-commit.
+ *
  * Known bounded gaps (out of scope here — see the handler doc-comment and
  * `docs/REVIEW_APP_PROMOTE_API.md`):
  *   - Embedded reverse-tagging is Phase 4 and not wired yet, so e.g. a vendor edit
@@ -116,7 +120,7 @@ export function touchedTradeSlugs(
  */
 export function cacheTagsForPromote(
   response: PromoteResponse,
-  opts: { removedTradeSlugs?: string[] } = {},
+  opts: { removedTradeSlugs?: string[]; extensionHostSlugs?: readonly string[] } = {},
 ): string[] {
   const tags = new Set<string>();
 
@@ -125,6 +129,13 @@ export function cacheTagsForPromote(
     tags.add(`product:${response.product.slug}`);
     tags.add('index:products');
     if (response.product.operation === 'created') tags.add('sitemap');
+    // AECI-710 / `STAGE_1_5_SPEC.md` §13.3b: each host this product is built
+    // within lists it under "Extensions built on {host}". An edit to a listed
+    // extension, or its removal, reaches the host through the embedded
+    // `product:{extension}` tag. A NEWLY added extension does not, because the
+    // host's cached page does not carry that tag yet. So name the host directly.
+    // The handler reads the post-commit host set and passes it in.
+    for (const slug of opts.extensionHostSlugs ?? []) tags.add(`product:${slug}`);
   }
 
   // Vendor detail pages. (No `index:vendors` — the `/vendors` index page was

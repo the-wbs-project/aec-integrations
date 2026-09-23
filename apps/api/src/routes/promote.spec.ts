@@ -3664,6 +3664,22 @@ describe('cache purge after promote (AECI-105 → WC-5 / AECI-319)', () => {
     expect(msg.tags?.some((tag) => tag.startsWith('route:'))).toBe(false);
   });
 
+  it('purges the HOST page when a product names it in extensionOf (AECI-710 / §13.3b)', async () => {
+    // The host lists its extensions. A newly added extension is not yet among the
+    // host page's embedded tags, so only a direct `product:{host}` reaches it.
+    const host = uuid(1);
+    await seedProduct(host, 'revit', 'Revit');
+
+    const { res, sendBatch } = await promoteWithPurge({
+      product: { ref: 'p1', name: 'Augmenta', extensionOf: [{ supabaseId: host }] },
+    });
+
+    expect(res.status).toBe(200);
+    const tags = new Set(firstMessage(sendBatch).tags);
+    expect(tags.has('product:augmenta')).toBe(true);
+    expect(tags.has('product:revit')).toBe(true);
+  });
+
   it('purges the pair page AND the connector for a ROUTED edge (AECI-721)', async () => {
     // `deriveCacheTags` iterates `response.integrations` to emit `pair:{a}__{b}` and
     // `product:{connectorSlug}`. A routed edge leaves the `integrations` table, so if
@@ -4173,6 +4189,24 @@ describe('cacheTagsForPromote (AECI-105)', () => {
     operation,
   });
   const emptyTaxonomy = { categories: [], audiences: [], phases: [], trades: [] };
+
+  it('adds product:{host} for each extension host passed in (AECI-710 / §13.3b)', () => {
+    const response: PromoteResponse = {
+      vendors: [],
+      product: entity('augmenta', 'updated'),
+      integrations: [],
+      taxonomy: emptyTaxonomy,
+      skipped: [],
+      preserved: [],
+    };
+    expect(
+      new Set(cacheTagsForPromote(response, { extensionHostSlugs: ['revit', 'forma'] })),
+    ).toEqual(new Set(['product:augmenta', 'index:products', 'product:revit', 'product:forma']));
+    // No product in the response: nothing was written, so no host is purged.
+    expect(
+      cacheTagsForPromote({ ...response, product: null }, { extensionHostSlugs: ['revit'] }),
+    ).toEqual([]);
+  });
 
   it('created product + vendor + mixed taxonomy → entity, index, taxonomy, sitemap tags', () => {
     const response: PromoteResponse = {

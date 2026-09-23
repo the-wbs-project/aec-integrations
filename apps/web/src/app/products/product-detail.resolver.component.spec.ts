@@ -58,6 +58,8 @@ function buildProduct(overrides: Partial<ProductDetail> = {}): ProductDetail {
     integrations_as_target: [],
     integrations_as_connector: [],
     related_products: [],
+    extension_of: [],
+    extensions: [],
     reviews: [],
     reachable_pair_count: 0,
     // The unreviewed baseline (AECI-616): bare attribution, no date.
@@ -213,6 +215,36 @@ describe('productDetailResolver — product-specific', () => {
     // No vendor link → no `vendor:*` tag (and no fabricated `vendor:unknown`).
     // This product has no embedded integrations either, so the list is empty.
     expect(ctx.embedded).toEqual([]);
+  });
+
+  it('tags every host and every extension the §13.3b sections render (AECI-710)', async () => {
+    // Both directions render a product's name and logo, so each is an embedded
+    // entity under CACHE_STRATEGY.md §3 rule 2. The host tag is also what purges
+    // this page when the host is renamed; the extension tag is what purges a
+    // host page that still lists an extension whose relation was dropped.
+    const item = (slug: string) => ({ ...buildProduct(), slug, name: slug });
+    const product = buildProduct({
+      vendor: null,
+      extension_of: [item('revit')],
+      extensions: [item('augmenta'), item('ideatura')],
+    });
+    const ctx = createRequestContext(buildClient(async () => product));
+
+    const { run } = setup({
+      platform: 'server',
+      ctx,
+      responseInit: { status: 200 },
+      request: new Request('https://aecintegrations.com/products/procore'),
+      meta: { setEntityMeta: vi.fn(), setProductJsonLd: vi.fn() } as Partial<MetaService>,
+    });
+
+    await run();
+
+    expect(ctx.embedded).toEqual([
+      { type: 'product', slug: 'revit' },
+      { type: 'product', slug: 'augmenta' },
+      { type: 'product', slug: 'ideatura' },
+    ]);
   });
 
   it('does NOT tag the connector of a Convention-A edge, which renders no heading', async () => {

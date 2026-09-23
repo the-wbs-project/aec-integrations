@@ -23,6 +23,7 @@ import {
   integrations,
   productAudiences,
   productCategories,
+  productExtensions,
   productPhases,
   products,
   productTrades,
@@ -771,6 +772,61 @@ describe('GET /api/products/:slug', () => {
   it('404s an unknown slug', async () => {
     const res = await get(detailApp(), '/api/products/nope');
     expect(res.status).toBe(404);
+  });
+});
+
+describe('GET /api/products/:slug — extensions (AECI-710 / §13.3b)', () => {
+  // Revit hosts two add-ins; `augmenta` is also built within a second host so
+  // the extension side carries more than one row. Names are mixed-case on
+  // purpose: the sort is `textAsc`, so case must not decide the order.
+  beforeEach(async () => {
+    await seedVendor(u(90), 'autodesk', 'Autodesk');
+    await seedProduct(u(1), 'revit', 'Revit', { integrationCount: 0 });
+    await t.db.insert(productVendors).values({ productId: u(1), vendorId: u(90), isPrimary: true });
+    await seedProduct(u(2), 'ideatura', 'ideatura');
+    await seedProduct(u(3), 'augmenta', 'Augmenta');
+    await seedProduct(u(4), 'forma', 'Forma');
+    await seedProduct(u(5), 'unrelated', 'Unrelated');
+    await t.db.insert(productExtensions).values([
+      { productId: u(2), hostProductId: u(1) },
+      { productId: u(3), hostProductId: u(1) },
+      { productId: u(3), hostProductId: u(4) },
+    ]);
+  });
+
+  it('lists the products built within a host, sorted case-insensitively by name', async () => {
+    const detail = ProductDetailSchema.parse(
+      await (await get(detailApp(), '/api/products/revit')).json(),
+    );
+    expect(detail.extensions.map((p) => p.slug)).toEqual(['augmenta', 'ideatura']);
+    expect(detail.extension_of).toEqual([]);
+  });
+
+  it('lists the hosts an extension is built within, as full list rows', async () => {
+    const detail = ProductDetailSchema.parse(
+      await (await get(detailApp(), '/api/products/augmenta')).json(),
+    );
+    expect(detail.extension_of.map((p) => p.slug)).toEqual(['forma', 'revit']);
+    expect(detail.extension_of.find((p) => p.slug === 'revit')?.vendor?.slug).toBe('autodesk');
+    expect(detail.extensions).toEqual([]);
+  });
+
+  it('never enters the integration lists or the integration count', async () => {
+    const detail = ProductDetailSchema.parse(
+      await (await get(detailApp(), '/api/products/revit')).json(),
+    );
+    expect(detail.integration_count).toBe(0);
+    expect(detail.integrations_as_source).toEqual([]);
+    expect(detail.integrations_as_target).toEqual([]);
+    expect(detail.integrations_as_connector).toEqual([]);
+  });
+
+  it('is empty in both directions for a product with no extension rows', async () => {
+    const detail = ProductDetailSchema.parse(
+      await (await get(detailApp(), '/api/products/unrelated')).json(),
+    );
+    expect(detail.extension_of).toEqual([]);
+    expect(detail.extensions).toEqual([]);
   });
 });
 

@@ -90,7 +90,7 @@ Five items stay here with the epic. Build order is 724, then 769, then 710 and 7
 |---|---|---|
 | **AECI-724** | iPaaS vendor seats on the connector admin surface. | It is the connector-vendor seat. It also fixes the one live upsell defect on a zero-entitlement seat. |
 | **AECI-769** | Per-product list with `RoleBadge` on `/admin/vendors/:id`. | Polish on the admin identify step that precedes a grant. |
-| **AECI-710** | Surface `extension_of` on product pages. | It renders data the catalog already holds. It adds no new data or route. |
+| **AECI-710** | Surface `extension_of` on product pages. | It renders data the catalog already holds. It adds no new data or route. Built as `STAGE_1_5_SPEC.md` §13.3b (2026-09-23). |
 | **AECI-711** | Render integration direction and object coverage, only where present. | It renders data the catalog already holds. It adds no new data or route. |
 | **AECI-928** | Apply I24 to Zapier's 59 powered rows. | Data cleanup on the connector lane. It is blocked on the AECI-1064 ruling. |
 

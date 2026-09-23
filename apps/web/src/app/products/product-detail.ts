@@ -23,6 +23,7 @@ import { TaxonomyBadge } from '../shared/taxonomy-badge/taxonomy-badge';
 import { VendorAccountBadge } from '../shared/vendor-account-badge/vendor-account-badge';
 
 import { connectedProductCount, groupPoweredIntegrations } from './powered-hub-grouping';
+import { ProductBuiltWithin, ProductExtensionsSection } from './product-extensions';
 import { ProductIntegrationsSection } from './product-integrations-section';
 import { ProductPoweredHub } from './product-powered-hub';
 import { ProductReviews } from './product-reviews';
@@ -82,6 +83,8 @@ import { RoleBadge } from './role-badge';
     NgTemplateOutlet,
     NewTabIcon,
     NotFound,
+    ProductBuiltWithin,
+    ProductExtensionsSection,
     ProductIntegrationsSection,
     ProductPoweredHub,
     ProductReviews,
@@ -319,6 +322,18 @@ import { RoleBadge } from './role-badge';
               </p>
             }
           </section>
+
+          <!-- §13.3b (AECI-710): the host(s) this product is built within. The
+               same card as Vendor because it is the same kind of fact: what the
+               product IS. Never an integration, never counted. -->
+          @if (p.extension_of.length > 0) {
+            <section
+              aec-product-built-within
+              aria-labelledby="built-within-title"
+              class="space-y-3 sm:col-span-2 lg:col-span-1"
+              [hosts]="p.extension_of"
+            ></section>
+          }
 
           @if (p.categories.length > 0) {
             <section aria-labelledby="categories-label" class="space-y-3">
@@ -575,6 +590,20 @@ import { RoleBadge } from './role-badge';
             <ng-container [ngTemplateOutlet]="poweredSection" />
           }
 
+          <!-- §13.3b (AECI-710): products built within this one. After every
+               integrations section and outside it: an extension is not an edge,
+               so it is never a lane of #integrations and never in its count. -->
+          @if (p.extensions.length > 0) {
+            <section
+              aec-product-extensions-section
+              id="extensions"
+              aria-labelledby="extensions-title"
+              class="scroll-mt-20 space-y-4"
+              [productName]="p.name"
+              [extensions]="p.extensions"
+            ></section>
+          }
+
           <section id="reviews" aria-labelledby="reviews-title" class="scroll-mt-20">
             <aec-product-reviews
               [slug]="p.slug"
@@ -789,6 +818,14 @@ export class ProductDetailPage {
     } else {
       items.push(integrations);
       if (powered) items.push(powered);
+    }
+    // Gated on the same condition as the section, after every integrations
+    // entry because the section renders after them (§13.3b).
+    if (p.extensions.length > 0) {
+      items.push({
+        id: 'extensions',
+        label: $localize`:@@products.detail.nav.extensions:Extensions`,
+      });
     }
     // Reviews always renders (its empty state still does), so it is always in
     // the nav — same rule as Integrations above.

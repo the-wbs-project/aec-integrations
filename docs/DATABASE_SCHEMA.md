@@ -974,6 +974,12 @@ create table product_extensions (
 create index product_extensions_host_idx on product_extensions(host_product_id);
 ```
 
+**Writer and readers.** Promote is the only writer: it deletes the product's rows and re-inserts
+the payload's `extensionOf` hosts in the same batch (`REVIEW_APP_PROMOTE_API.md` §3). The public
+reader is product detail (AECI-710, `STAGE_1_5_SPEC.md` §13.3b): `productExtensionRows` reads both
+directions, using the primary key for hosts and `product_extensions_host_idx` for extensions. An
+extension is **not** an integration, so no `integration_count` expression reads this table.
+
 ---
 
 ## 7. User and content tables

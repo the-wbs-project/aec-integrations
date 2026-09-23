@@ -146,6 +146,7 @@ import { runHomeStats, type HomeStatsResult } from '../lib/home-stats';
 import { emitHomeStatsMetrics, type StatsMetricSink } from '../lib/home-stats-metrics';
 import { enqueueIndexNowUrls } from '../lib/indexnow-queue';
 import { enqueueGscRecrawl } from '../lib/gsc-recrawl-queue';
+import { extensionHostSlugs } from '../lib/product-extensions';
 import { recomputeProductCounts } from '../lib/recompute-counts';
 import { cacheTagsForPromote, touchedTradeSlugs } from './promote-cache-tags';
 import { gscRecrawlEntriesForPromote } from './promote-gsc-recrawl-entries';
@@ -1014,11 +1015,32 @@ async function purgeAfterPromote(
   rc: PromoteRunCtx,
   response: PromoteResponse,
   removedTradeSlugs: string[] = [],
+  db?: Db,
 ): Promise<void> {
   const queue = rc.env.CACHE_PURGE_QUEUE;
   if (!queue) return;
 
-  const tags = cacheTagsForPromote(response, { removedTradeSlugs });
+  // AECI-710 / §13.3b: the hosts this product is built within. A host page lists
+  // its extensions, and a NEWLY added extension is the one case its embedded tags
+  // cannot reach (`CACHE_STRATEGY.md` §3 rule 7). Read post-commit, so it is the
+  // pushed set; a removed host still carries the extension's embedded tag. A failed
+  // read costs only those host tags, so it must not cost the rest of the purge.
+  let hostSlugs: string[] = [];
+  if (db && response.product) {
+    try {
+      hostSlugs = await extensionHostSlugs(db, response.product.id);
+    } catch (error) {
+      logToPosthog(rc, rc.env, rc.request, {
+        level: 'warn',
+        message: 'aeci.api.promote.extension_host_read_failed',
+        source: 'review-app-promote',
+        product_id: response.product.id,
+        reason: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
+  const tags = cacheTagsForPromote(response, { removedTradeSlugs, extensionHostSlugs: hostSlugs });
   if (tags.length === 0) return;
 
   const batches: string[][] = [];
@@ -3510,7 +3532,16 @@ export function dispatchPromoteHooks(
   // AECI-105 → WC-5: enqueue the edge-cache tags this promote invalidated.
   // Best-effort, post-commit; no-ops without the queue producer.
   if (rc.env.CACHE_PURGE_QUEUE) {
-    dispatchHook(rc, 'cache-purge', purgeAfterPromote(rc, response, removedTradeSlugs));
+    dispatchHook(
+      rc,
+      'cache-purge',
+      purgeAfterPromote(
+        rc,
+        response,
+        removedTradeSlugs,
+        dbFor(rc.env, { bookmark: rc.bookmark() }).db,
+      ),
+    );
   }
 
   // AECI-305: refresh the `home.*` `stats_cache` keys the home page reads, then
