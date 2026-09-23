@@ -77,7 +77,7 @@ Seeded empty **by design** — it is filled by rehearsal findings, parked-claim 
 
 | Issue | What it closes | Why it moved |
 |---|---|---|
-| **AECI-770** | A failed profile-ensure during `/auth/callback` leaves a signed-in user with no `profiles` row, locked out of every authenticated surface. | A vendor with no `profiles` row can never be seated. It gates seat-granting. |
+| **AECI-770** | A failed profile-ensure during `/auth/callback` leaves a signed-in user with no `profiles` row, locked out of every authenticated surface. Fix: the callback retries and signs out on persistent failure, and `GET /api/account` self-heals (`AUTH_AND_RLS.md` §3.1a). | A vendor with no `profiles` row can never be seated. It gates seat-granting. |
 | **AECI-1053** | Set `is_internal` on the operator's PostHog person from the identify path, not by hand. | The operator exclusion must survive a person reset before vendor-seat telemetry is read. |
 
 #### 3.3.2 Connector-lane epic AECI-771 (placed 2026-09-23)

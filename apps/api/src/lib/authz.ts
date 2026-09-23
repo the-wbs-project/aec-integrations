@@ -27,7 +27,8 @@
  *      an authenticated route is 401, never anonymous treatment).
  *   3. Re-fetch `profiles.role` + `vendor_id` + `banned_at` from the DB on
  *      every request (§4.5 — never trust client-side claims about role).
- *      Missing profile → 401; banned → `403` (`REVIEW_BANNED` on review writes
+ *      Missing profile → 401, unless the guard opted into the AECI-770
+ *      `onMissingProfile` self-heal (only `GET /api/account` does); banned → `403` (`REVIEW_BANNED` on review writes
  *      via `bannedCode`, else `FORBIDDEN`); wrong role for the route → `403
  *      FORBIDDEN`.
  *
@@ -78,6 +79,7 @@ import { profiles, vendorEntitlements } from '../db/schema';
 import type { Env } from '../env';
 import { ApiError } from '../errors';
 import type { DbFactory } from './handler-utils';
+import type { MissingProfileHook } from './profile-provisioning';
 import { extractBearer, unauthenticated, verifySupabaseJwt } from './user-auth';
 
 /** The verified session a guarded handler receives via `c.get('auth')`. */
@@ -150,6 +152,15 @@ export type AuthzOptions = {
    * else defaults to `FORBIDDEN`. The status is 403 either way.
    */
   bannedCode?: typeof ApiErrorCode.FORBIDDEN | typeof ApiErrorCode.REVIEW_BANNED;
+  /**
+   * Opt-in self-heal for a verified token with no `profiles` row (AECI-770). When
+   * set, the guard calls it once and re-reads the profile; a row that is still
+   * missing 401s as before. Absent (the default for every guard but
+   * `GET /api/account`), a missing profile 401s immediately — the strict stance
+   * writes and the admin/vendor surfaces keep. The hook may throw an `ApiError`
+   * (the account self-heal throws 503 `PROFILE_UNAVAILABLE`).
+   */
+  onMissingProfile?: MissingProfileHook;
 };
 
 const SESSION_COOKIE_RE = /^(sb-.+-auth-token)(?:\.(\d+))?$/;
@@ -343,15 +354,22 @@ function createAuthzMiddleware(
     // identical to before this issue: zero added latency, zero regression
     // surface. Do not "simplify" this to always join.
     const { db } = (options.dbFor ?? getDb)(c.env);
-    const profile: ProfileAuthz | undefined =
+    const readProfile = (): Promise<ProfileAuthz | undefined> =>
       requiredRole === 'vendor_admin'
-        ? await findVendorProfile(db, user.userId)
-        : await db.query.profiles.findFirst({
+        ? findVendorProfile(db, user.userId)
+        : db.query.profiles.findFirst({
             columns: { role: true, vendorId: true, bannedAt: true, banReason: true },
             where: eq(profiles.id, user.userId),
           });
-    // A verified token with no profiles row is an identity we can't authorize
-    // (sync trigger lag or a deleted account) — 401, not anonymous treatment.
+    let profile = await readProfile();
+    // A verified token with no profiles row is an identity we can't authorize (a
+    // failed first-sign-in ensure, or an erased account) — 401, not anonymous
+    // treatment. Only a guard that opted into the AECI-770 self-heal gets one
+    // provisioning attempt first; every other guard stays strict.
+    if (!profile && options.onMissingProfile) {
+      await options.onMissingProfile(c, db, user.userId);
+      profile = await readProfile();
+    }
     if (!profile) throw unauthenticated();
     if (profile.bannedAt) {
       throw new ApiError(

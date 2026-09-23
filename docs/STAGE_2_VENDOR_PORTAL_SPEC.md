@@ -1333,8 +1333,10 @@ cookie lives weeks. So the ordinary "my login timed out" state is **recoverable*
 
 > ⚠️ **The client probe is the loop breaker, not an optimization.** A verified JWT whose
 > `profiles` row is missing also 401s (`createAuthzMiddleware` treats an unauthorizable
-> identity as unauthenticated, deliberately — the AECI-652 `profile-ensure` seam is
-> non-fatal, so that state is reachable). Redirect on every 401 and that account rides
+> identity as unauthenticated, deliberately). Since AECI-770 the `profile-ensure` seam is
+> fatal at sign-in and `GET /api/account` self-heals a missing row
+> (`AUTH_AND_RLS.md` §3.1a), so that state should no longer arise — the loop breaker
+> stays regardless. Redirect on every 401 and that account rides
 > login → session found → return → 401 → login forever. Redirecting **only when the
 > probe reports signed out** bounds it: a signed-in caller retries once and then falls
 > through to the 404 render, which is terminal. Deleting the probe reintroduces an

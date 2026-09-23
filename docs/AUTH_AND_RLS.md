@@ -90,7 +90,7 @@ Three roles exist in `profiles.role`. All are set server-side — no client can 
 
 | Role | Who | How assigned |
 |---|---|---|
-| `reviewer` | Any authenticated user | Default role of the **D1** profile created by `POST /api/auth/profile/ensure` on first sign-in (the authoritative path under ADR 0016). The Postgres `handle_new_user()` trigger on `auth.users` still exists in the auth-only baseline but is **vestigial** — the app reads `profiles.role` from D1, not Postgres. See §8.1. |
+| `reviewer` | Any authenticated user | Default role of the **D1** profile. Seam #1 (§3.1) creates it on first sign-in, and `GET /api/account` re-creates it if that failed (§3.1a). No database trigger provisions the D1 row. The Postgres-side triggers in §8.1 are vestigial and touch only a mirror the app never reads. |
 | `admin` | Chris and Bill | Manual grant against the per-environment **D1** `profiles` row whose `id` equals the user's Supabase `auth.users.id` (the verified JWT `sub`). There is no self-serve path and no `auth.users`↔`profiles` FK. Since ADR 0017 one shared auth project backs every tier, so a human has **one** id everywhere and the grant is per-environment-D1 against that same id. **Procedure: see §3.3.** |
 | `vendor_admin` | Stage 2 vendor contacts | Granted app-side on **vendor-claim approval** — the same app-layer seam as `admin` (no `auth.users`↔`profiles` FK, AECI-254). The claim form is anonymous, so the *identity* the grant links is resolved from `vendor_requests.submitter_email` by **seam #4** (§3.1) — either linking an existing `auth.users` row or provisioning one. See `STAGE_2_VENDOR_PORTAL_SPEC.md` §2–§3. Enforcement **shipped in AECI-520**: `requireVendor()` (`apps/api/src/lib/authz.ts`) requires `role = 'vendor_admin'` **and** a non-null `profiles.vendor_id`, and every `/api/vendor/*` query is scoped by that `vendor_id` (§4.4). Many `profiles` → one `vendor_id`. Multi-seat is **flat in data capability** — every seat edits the same things — but since **AECI-664** not flat in seat management: `profiles.seat_owner` gates invite/remove alone. A seat arrives from an AECi claim grant (owner), from the AECI-740 admin provision (owner, and **without** an entitlement row — `STAGE_2_SPEC.md` §8.9(2)), or by redeeming an owner's invite (not an owner), which is the bound that stops one reviewed human seeding an unbounded chain of unreviewed ones. See `STAGE_2_VENDOR_PORTAL_SPEC.md` §11a and §5.3. |
 
@@ -108,7 +108,7 @@ outside it must use a JWT-scoped path.
 
 | Seam | Operation | Code | GoTrue endpoint | Degrade when creds absent |
 |---|---|---|---|---|
-| **#1** provisioning | Idempotent D1 `profiles` create on the first authenticated request. The **primary** creator under D1 (no `handle_new_user` trigger). | `routes/auth-profile.ts` | *none — D1 only, no service role* | n/a |
+| **#1** provisioning | Idempotent D1 `profiles` create at sign-in, with a self-heal on `GET /api/account` (§3.1a). The **only** creator under D1: no trigger provisions the row. | `lib/profile-provisioning.ts` (called by `routes/auth-profile.ts` and the `GET /api/account` guard) | *none — D1 only, no service role* | n/a |
 | **#2** `auth.users` account reads | Emails for the admin moderation queue, the claim queue, the vendor seat roster and `/admin/vendors`; **plus `last_sign_in_at` / `created_at` / `email_confirmed_at`** for `/admin/users` (AECI-692). | `lib/supabase-admin.ts` → `fetchAuthUserEmails` (bare map), `fetchAuthUserEmailsResult` (+availability), `fetchAuthUserRecords` (+the three timestamps) | `GET /auth/v1/admin/users/:id` | Every auth-derived field `null` **and the surface says so** — the `Result`/record forms carry `available` + `reason`, so a page renders "unavailable" rather than asserting "no email on file". The queue stays usable |
 | **#3** GDPR erasure | Delete the `auth.users` row **after** the D1 erasure batch commits (§8). | `lib/supabase-admin.ts` → `deleteAuthUser` | `DELETE /auth/v1/admin/users/:id` | **Skipped** — the D1 erasure already completed, but the `auth.users` row **survives** and needs manual cleanup (§8 step 4) |
 | **#4a** claimant lookup | Resolve a vendor claim's `submitter_email` → an `auth.users` id so the grant can link a `profiles` row. Since **AECI-740** the same seam also resolves the address `POST /api/admin/vendors/:id/seats` names, which is why that route reports 503 on a tier with no service-role key exactly as the grant does. Also batched for the admin claim queue's `has_auth_account` reviewer signal. | `lib/supabase-admin.ts` → `findAuthUserByEmail`, `fetchAuthAccountsByEmail` | `GET /auth/v1/admin/users?filter=` | Resolution reports `unavailable` and the grant refuses rather than half-granting; the reviewer signal reports `null` (unknown) |
@@ -133,6 +133,37 @@ stories about one account. Seam #1
 carries no service-role call at all; it is listed so the register is complete and nobody
 "adds" one to profile-ensure later. Full contract:
 [`STAGE_2_VENDOR_PORTAL_SPEC.md`](./STAGE_2_VENDOR_PORTAL_SPEC.md) §2.
+
+### 3.1a Seam #1 is fatal at sign-in and self-heals after it (AECI-770)
+
+A verified session with no D1 `profiles` row is unusable. §4.2 401s it on every
+authenticated call, and `/admin` and `/vendor` render 404. Seam #1 is therefore **not
+best-effort**. Two mechanisms guarantee nobody is left in that state.
+
+1. **The callback fails closed.** `/auth/callback` (`apps/web/src/server/routes/auth-callback.ts`)
+   calls `POST /api/auth/profile/ensure` right after the PKCE exchange. It retries a
+   transient failure (a 5xx or an unreachable service binding) up to 3 attempts, with
+   200 ms and 600 ms backoff. A 4xx is not retried. If every attempt fails, the callback
+   calls `signOut({ scope: 'local' })`, which expires the cookies it just set, and
+   redirects to `/auth/login?error=profile_unavailable`. The login page tells the
+   visitor to wait a minute and sign in again.
+2. **`GET /api/account` self-heals.** It is the only route whose `requireAuth()` carries
+   the `onMissingProfile` hook (`healMissingProfile()` in `lib/profile-provisioning.ts`).
+   The header's `RoleStatus` probes it on every signed-in page view, so a stuck user
+   recovers on their next page load. On a missing row the hook first checks for an
+   `account.deleted` audit row for that id. An erased account is never re-created, so a
+   stale tab cannot resurrect it. Otherwise it runs the same idempotent insert and the
+   guard re-reads. If the insert throws, the route answers **503 `PROFILE_UNAVAILABLE`**
+   instead of 401. `/account` shows "try again", not "sign in again".
+
+Every other guard stays **strict**. `requireAuth()`, `requireAdmin()` and `requireVendor()`
+without the hook 401 a missing profile and never create one. Writes, `/api/admin/*` and
+`/api/vendor/*` never provision.
+
+Both paths count `aeci.auth.profile_ensure` (`docs/OBSERVABILITY.md` §3), tagged
+`source:auth-callback` or `source:self-heal`. A non-zero `outcome:failed` series means real
+users are meeting this state. The self-heal's write on a `GET` is bounded: it fires only
+while the row is missing, so at most once per user.
 
 Seam **#4b provisions rather than invites.** It creates the account already-confirmed via
 `POST /auth/v1/admin/users` (`email_confirm: true`), **not** a GoTrue invite email — the
@@ -394,7 +425,8 @@ Two properties of that branch are load-bearing and must survive any refactor.
    `hasLiveSession()`, retries once when a session survives, and redirects only when
    one does not.
 2. **That probe is the loop breaker.** §4.2's "a verified token with no `profiles` row
-   is 401, not anonymous treatment" means an identity can 401 permanently. Redirect on
+   is 401, not anonymous treatment" means an identity could 401 permanently. §3.1a now
+   stops that state arising, but the loop breaker stays. Redirect on
    every 401 and it rides login → session found → return → 401 → login forever.
    Redirecting only on a signed-out probe bounds it to one round trip.
 
@@ -411,6 +443,7 @@ const profile = await db.query.profiles.findFirst({
   columns: { role: true, bannedAt: true, banReason: true },
   where: eq(profiles.id, user.userId),
 });
+// GET /api/account alone passes `onMissingProfile` (§3.1a): one ensure, then re-read.
 if (!profile) throw unauthenticated();          // 401: verified token, no profile row
 if (profile.bannedAt) {
   throw new ApiError(403, ApiErrorCode.FORBIDDEN, profile.banReason ?? 'Account suspended');

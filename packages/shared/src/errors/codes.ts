@@ -85,6 +85,10 @@ export const ApiErrorCode = {
   // INTEGRATION_CLAIMED_DURING_PROMOTE.
   VENDOR_OWNED_TWIN_CREATED_DURING_PROMOTE: 'VENDOR_OWNED_TWIN_CREATED_DURING_PROMOTE',
   RATE_LIMITED: 'RATE_LIMITED',
+  // AECI-770: a verified session has no `profiles` row and the self-heal could not
+  // create one (503). Retryable. Distinct from UNAUTHENTICATED, which says "sign in
+  // again" and never helped this user.
+  PROFILE_UNAVAILABLE: 'PROFILE_UNAVAILABLE',
   DEPENDENCY_FAILURE: 'DEPENDENCY_FAILURE',
   INTERNAL_ERROR: 'INTERNAL_ERROR',
 } as const;

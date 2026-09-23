@@ -352,9 +352,10 @@ Running the app locally renders real seeded data and you can freely exercise wri
 This is the highest-cost local failure to misread, because the browser symptom
 (site-wide "Page Not Found") looks like a routing or build bug, while the only
 real signal is one line in the Worker log. It also silently breaks **first-ever
-sign-in**: `/auth/callback` still succeeds and sets a session cookie, but its
-`POST /api/auth/profile/ensure` is **non-fatal**, so you end up authenticated with
-no D1 `profiles` row — and that state does not self-heal (AECI-765).
+sign-in**: `/auth/callback` cannot reach `POST /api/auth/profile/ensure`, so after
+three attempts it signs you out and lands you on
+`/auth/login?error=profile_unavailable` (AECI-770). Before AECI-770 the ensure was
+non-fatal and left you signed in with no D1 `profiles` row (AECI-765).
 
 **Diagnose** — one of:
 
@@ -455,8 +456,9 @@ the **single shared auth project** (`ktuhnlypztujpsseujzx`, ADR 0017):
    to step 1 rather than debugging Supabase.
 
    **c. Sign in** at `/auth/login` with a magic link. The `/auth/callback` handler
-   exchanges the code and fires a non-fatal `POST /api/auth/profile/ensure`, which
-   creates your D1 `profiles` row as `role='reviewer'`. At this point `/account`
+   exchanges the code and calls `POST /api/auth/profile/ensure`, which
+   creates your D1 `profiles` row as `role='reviewer'`. If that call fails the
+   callback signs you out with `?error=profile_unavailable`. At this point `/account`
    works and `/admin` still 404s — correct, and the next step is what fixes it.
 
    **d. Find your Supabase user id** (the JWT `sub`, which is also the `profiles` PK):

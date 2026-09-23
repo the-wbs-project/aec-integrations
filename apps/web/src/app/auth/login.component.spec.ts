@@ -6,10 +6,13 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { AuthService } from './auth.service';
 import { LoginPage } from './login';
 
-function mockRoute(returnParam: string | null): ActivatedRoute {
+function mockRoute(returnParam: string | null, errorParam: string | null = null): ActivatedRoute {
   return {
     snapshot: {
-      queryParamMap: convertToParamMap(returnParam === null ? {} : { return: returnParam }),
+      queryParamMap: convertToParamMap({
+        ...(returnParam === null ? {} : { return: returnParam }),
+        ...(errorParam === null ? {} : { error: errorParam }),
+      }),
     },
   } as unknown as ActivatedRoute;
 }
@@ -56,6 +59,7 @@ function makeAuthMock(
 async function setup(
   opts: {
     returnParam?: string | null;
+    errorParam?: string | null;
     configured?: boolean;
     cookie?: boolean;
     signedIn?: boolean;
@@ -70,7 +74,10 @@ async function setup(
     providers: [
       provideZonelessChangeDetection(),
       provideRouter([]),
-      { provide: ActivatedRoute, useValue: mockRoute(opts.returnParam ?? null) },
+      {
+        provide: ActivatedRoute,
+        useValue: mockRoute(opts.returnParam ?? null, opts.errorParam ?? null),
+      },
       { provide: AuthService, useValue: auth },
     ],
   });
@@ -210,6 +217,21 @@ describe('LoginPage', () => {
     // The submit button must stay enabled so the user can retry.
     const button = el.querySelector('button[type="submit"]') as HTMLButtonElement;
     expect(button.disabled).toBe(false);
+  });
+
+  it('explains a profile_unavailable bounce from the callback and keeps sign-in usable (AECI-770)', async () => {
+    const { el } = await setup({ errorParam: 'profile_unavailable' });
+    const notice = el.querySelector('[role="alert"]');
+    expect(notice?.textContent).toContain("couldn't finish setting up your account");
+    const google = [...el.querySelectorAll('button[type="button"]')].find((b) =>
+      b.textContent?.includes('Continue with Google'),
+    ) as HTMLButtonElement;
+    expect(google.disabled).toBe(false);
+  });
+
+  it('shows no profile notice for other callback error codes', async () => {
+    const { el } = await setup({ errorParam: 'link_invalid' });
+    expect(el.textContent).not.toContain("couldn't finish setting up your account");
   });
 
   it('renders the unavailable notice with disabled actions when unconfigured', async () => {

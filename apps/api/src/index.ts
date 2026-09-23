@@ -20,6 +20,7 @@ import { resolveClaimantIdentity } from './lib/claimant-identity';
 import { sendClaimDecisionEmail, sendSeatInvite } from './lib/email';
 import { pushRequestResolutionToLinear } from './lib/linear';
 import { requireReviewAppAuth } from './lib/review-auth';
+import { healMissingProfile } from './lib/profile-provisioning';
 import { requireUserAuth } from './lib/user-auth';
 import type { UserAuthVariables } from './lib/user-auth';
 import {
@@ -389,15 +390,17 @@ app.route('/', authSpike);
 
 // Phase 5.4 user-auth sub-router (AECI-195) — PERMANENT, unlike the spike
 // above. Same Variables-extended shape because `requireUserAuth()` sets
-// `c.get('user')`. `/api/auth/profile/ensure` is the defensive profile-ensure
-// the SSR `/auth/callback` handler calls after the PKCE code exchange.
+// `c.get('user')`. `/api/auth/profile/ensure` is the PRIMARY profile creator the
+// SSR `/auth/callback` handler calls after the PKCE code exchange; since AECI-770
+// that call is fatal and retried (`AUTH_AND_RLS.md` §3.1a).
 const authUser = new Hono<{ Bindings: Env; Variables: UserAuthVariables }>();
 authUser.onError(errorHandler());
 // AECI-773: `rateLimit` AFTER the guard so the counter is keyed on the verified
 // JWT `sub` rather than on a NAT. This is a `profiles` upsert, so an unbounded
 // loop is a D1 write loop — but it is also the last hop of every sign-in, so a
 // mis-set limit here is a login outage. The `write` bucket's 30/60s is the
-// loosest in the set and one sign-in spends exactly one of them.
+// loosest in the set and one sign-in spends one of them per attempt — up to 3
+// since the AECI-770 retry, still far inside the bucket.
 authUser.post(
   '/api/auth/profile/ensure',
   requireUserAuth(),
@@ -438,7 +441,16 @@ app.route('/', authReviews);
 // erasure must bypass a ban (would need an `allowBanned` middleware seam).
 const authAccount = new Hono<{ Bindings: Env; Variables: AuthzVariables }>();
 authAccount.onError(errorHandler());
-authAccount.get('/api/account', requireAuth(), createGetAccountHandler());
+// AECI-770: the ONLY guard with the self-heal hook. The header's `RoleStatus`
+// probes this on every signed-in page view, so a user whose first-sign-in
+// profile-ensure failed gets their `profiles` row here on the next page load,
+// and a failure that persists answers 503 `PROFILE_UNAVAILABLE` instead of a 401.
+// Every other `requireAuth()` stays strict.
+authAccount.get(
+  '/api/account',
+  requireAuth({ onMissingProfile: healMissingProfile() }),
+  createGetAccountHandler(),
+);
 authAccount.get('/api/account/reviews', requireAuth(), createGetAccountReviewsHandler());
 authAccount.patch('/api/account', requireAuth(), rateLimit('write'), createUpdateAccountHandler());
 // AECI-773: `DELETE /api/account` is DELIBERATELY NOT rate-limited. Erasure is a
