@@ -155,6 +155,15 @@ describe('VendorPlanPanel — state 3: downgraded', () => {
     expect(renewLink(fixture)?.textContent?.trim()).toBe('Renew access');
   });
 
+  it('names attestation authoring as paused, since it is gated on the entitlement (AECI-623)', () => {
+    const fixture = create(REVOKED);
+
+    // `requireCapability('attestation.author')` refuses a lapsed vendor, so the
+    // paused list must say so (AECI-1108).
+    expect(text(fixture)).toContain('confirming data flows on your integrations');
+    expect(text(fixture)).toContain('Renewing turns all of it back on');
+  });
+
   it('does not read as an error: no alert role, no error token', () => {
     const fixture = create(REVOKED);
     const host = el(fixture);

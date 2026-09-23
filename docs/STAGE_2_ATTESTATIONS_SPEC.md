@@ -808,6 +808,9 @@ Decisions taken at build that §5.1–§5.3 did not pre-specify:
   settled for the version list. Authoring is the Verified capability; reading your own surface is
   not, so the §6 tab renders read-only and explains what verification unlocks rather than 403-ing a
   vendor out of its own data.
+  **Superseded 2026-09-23 (AECI-1108):** authoring is no longer "the Verified capability". Since
+  AECI-623 it is `requireCapability('attestation.author')`, which refuses with
+  `403 ENTITLEMENT_REQUIRED`. The read stays ungated. See the AECI-623 note at the end of this section.
 - **The gate ORDER needed one adaptation, and it is load-bearing.** §8.3's rule — prove ownership
   first, in its own wave, parse the body last — assumes the id is a path param. `POST
   /api/vendor/claims` carries its `integration_id` in the **body**, so authority cannot be resolved
@@ -887,7 +890,8 @@ run three times against the real partial unique index, direction round-trip, fin
 version-stamp authority, the purge tag set, and the §26.1 rollback proved by a ghost `actor_id` that
 makes `auditInsert` throw *inside* the batch); the four routes added to every cell of
 `vendor.authz-matrix.spec.ts` plus its own Verified-gate and cross-vendor 404 blocks (117 cases
-total); `resolveClaimAuthority` in `attestation-authority.spec.ts`; the round-trip property in
+total; **superseded 2026-09-23, AECI-1108:** the Verified-gate block is now the `attestation.author`
+capability-gate block, `/api/vendor/claims* — the attestation.author gate (AECI-301, AECI-623)`); `resolveClaimAuthority` in `attestation-authority.spec.ts`; the round-trip property in
 `integration-context.spec.ts`; the extracted resolver in `data-object-vocabulary.spec.ts`; and the
 wire contract in `packages/shared/src/api/vendor-attestations.spec.ts`. Suites green at merge:
 `apps/api` 75 files / 1110 tests (was 72 / 926), `packages/shared` 26 / 390 (was 23 / 328). Every

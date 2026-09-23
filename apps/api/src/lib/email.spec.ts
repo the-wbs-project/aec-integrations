@@ -1582,6 +1582,10 @@ describe('entitlement expiry templates', () => {
     // Says outright that nothing was changed — the operator must not read this as
     // a notification of an automatic action.
     expect(String(body.text)).toContain('warns and never lapses');
+    // The entitlement control lives on the admin vendor page, not the claim queue
+    // (STAGE_2_PAID_TIERS_SPEC.md §5.1, AECI-1108).
+    expect(String(body.text)).toContain('/admin/vendors');
+    expect(String(body.text)).not.toContain('/admin/claims');
   });
 
   it('names the vendor half\u2019s outcome so delivery is never assumed', async () => {
