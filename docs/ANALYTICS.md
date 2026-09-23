@@ -253,14 +253,25 @@ retrofitted (§3.10).
   — so the two surfaces disagree for a reason that looks like a bug. Configure
   PostHog's "filter internal and test users" on project 354071.
 - **How the operator is marked internal: by code, since 2026-09-23 (AECI-1053).**
-  Both projects (354071 and 525793) define their internal-user filter as the
-  person property rule "`is_internal` is not set" (AECI-858).
+  Both projects gained the person-property rule "`is_internal` is not set" in
+  their internal-user filter on **2026-09-23** (AECI-1053). It sits beside each
+  project's existing rule:
 
-  ~~The operator's PostHog person was tagged `is_internal = true` by hand, once per
-  project.~~ **Superseded by code on 2026-09-23 (AECI-1053).** A hand tag did not
-  survive a new person: a newly seated admin, a person deleted or merged in
-  PostHog, or a new project each produced an untagged person, and the exclusion
-  stopped silently.
+  | Project | Rules in "filter internal and test users" |
+  |---|---|
+  | 354071 (prod) | event `$host` not matching `localhost` / `127.0.0.1`, **and** person `is_internal` is not set |
+  | 525793 (dev) | not in cohort 432998 "Internal / Test users", **and** person `is_internal` is not set |
+
+  ~~AECI-858 closed on 2026-09-22 with the operator excluded by a hand-set
+  `is_internal` person tag.~~ **Superseded on 2026-09-23 (AECI-1053).** An API
+  read that day found no `is_internal` rule in either project, so that exclusion
+  was never in effect (correction comment on AECI-858). A hand tag would not
+  have lasted anyway: a newly seated admin, a person deleted or merged in
+  PostHog, or a new project each produces an untagged person.
+
+  Cohort 432998 matches person `$internal_or_test_user = true` or an email
+  containing `@thewbsproject.com`. The client sends neither (§2 forbids the
+  email), so on its own that cohort excludes nobody the app identifies.
 
   Now `AnalyticsIdentity` reads the header's existing `GET /api/account` probe.
   When the live profile has `role = 'admin'` in D1, it calls
@@ -280,10 +291,12 @@ retrofitted (§3.10).
     page load at most.
   - **Never the email** (§2).
 
-  Two limits remain. Both projects store person properties on each event at
-  capture time, so events captured before the tag landed stay unfiltered. And an
-  admin who never grants consent is never tagged, but also sends no product
-  events, so there is nothing to filter.
+  Limits. Both projects store person properties on each event at capture time,
+  so events captured before the tag landed stay unfiltered, and every number
+  before 2026-09-23 includes the operator. The project filter reaches a
+  committed SQL insight only when that insight sets `filterTestAccounts: true`
+  (see the next bullet). An admin who never grants consent is never tagged, but
+  also sends no product events, so there is nothing to filter.
 - **Which committed insights apply that filter (AECI-858).** The project setting
   reaches a PostHog UI insight through its "Filter out internal and test users"
   toggle. It reaches a committed SQL insight only through a `{filters}` placeholder
