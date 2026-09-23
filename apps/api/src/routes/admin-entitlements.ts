@@ -63,7 +63,7 @@ import type { Context } from 'hono';
 
 import { getDb } from '../db/client';
 import { vendorEntitlements, vendors } from '../db/schema';
-import { logToPosthog, submitCount } from '../posthog';
+import { logBatchToPosthog, logToPosthog, submitCount } from '../posthog';
 import type { Env } from '../env';
 import { ApiError, notFoundError } from '../errors';
 import { json } from '../http';
@@ -410,13 +410,25 @@ export function createSetVendorEntitlementHandler(
       const tags = await vendorPurgeTags(db, vendor);
       c.executionCtx.waitUntil(purgeEntitlementTags(c, tags));
     }
-    c.executionCtx.waitUntil(
-      Promise.all(
-        [batch.auditEntry, ...rerouteAudits].map((entry) =>
-          forwardAuditLog(entry, makeForwarder(c)),
-        ),
-      ),
-    );
+    c.executionCtx.waitUntil(forwardAuditLog(batch.auditEntry, makeForwarder(c)));
+    // AECI-1092: the re-route rows go in ONE request, never one per contest, so a
+    // clear that moves many contests cannot run past the Worker connection limit
+    // and lose forwards silently (AECI-666). Each leg self-gates on its own key.
+    if (rerouteAudits.length > 0) {
+      logBatchToPosthog(
+        c.executionCtx,
+        c.env,
+        c.req.raw,
+        rerouteAudits.map((entry) => ({
+          level: 'info' as const,
+          message: `audit ${entry.action} ${entry.entityId ?? ''}`.trim(),
+          action: entry.action,
+          entity_type: entry.entityType ?? undefined,
+          entity_id: entry.entityId ?? undefined,
+          source: 'admin-entitlement',
+        })),
+      );
+    }
 
     // ── 9. Response ──────────────────────────────────────────────────────────
     const verified = action === 'set' ? true : action === 'clear' ? false : vendor.verified;

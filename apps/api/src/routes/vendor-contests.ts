@@ -132,6 +132,7 @@ import {
   contestStillOpenSentinel,
   isContestRaceError,
 } from '../lib/integration-contests';
+import { isConnectorPoweredEdge } from '../lib/connector-powered';
 import { isClaimed } from '../lib/integration-claims';
 import { requireActiveEntitlement } from '../lib/integration-entitlement';
 import { ownerSeatLapsed } from '../lib/vendor-handback';
@@ -543,7 +544,13 @@ export function createSubmitContestHandler(
         const now = await loadContestTarget(db, anchor);
         if (!now || now.retiredAt) throw integrationRetiredError();
         if (plan.entitlementGuarded && attempt < 2) continue;
-        throw error;
+        // A second lost race with an entitlement change, or an abort the re-read cannot
+        // explain: nothing was written, so answer 409 rather than a raw D1 error.
+        throw new ApiError(
+          409,
+          ApiErrorCode.CONTEST_INTEGRATION_CHANGED,
+          'The integration’s owner changed while you were filing. Nothing was sent. Try again.',
+        );
       }
       // No purge: nothing public changed. The forward still runs.
       afterVendorWrite(c, [], plan.audits);
@@ -583,6 +590,16 @@ async function planSubmit(
   const session = c.get('auth');
   const { anchor, target, field } = draft;
   const owner = target.builtByVendorId;
+  // Ruling A, forward-looking: a `mechanism_kind` contest whose proposal would make the
+  // row connector-powered goes to AECi too. Otherwise an owner could turn its own row
+  // into a connector-powered one by accepting a contest, which the owner edit refuses.
+  const connectorPowered =
+    target.connectorPowered ||
+    (field === 'mechanism_kind' &&
+      isConnectorPoweredEdge({
+        poweredByProductId: target.poweredByProductId,
+        mechanismKind: draft.proposedValue,
+      }));
   const needsEntitlement =
     target.connectorPowered &&
     owner !== null &&
@@ -591,7 +608,7 @@ async function planSubmit(
     claimed(target);
   const ownerEntitled = needsEntitlement ? await vendorHoldsActiveEntitlement(db, owner) : true;
   const route = routeContest(target, field, claimed, {
-    connectorPowered: target.connectorPowered,
+    connectorPowered,
     ownerEntitled,
   });
   // AECI-989: an owner with no unbanned seat cannot answer. The contest goes to

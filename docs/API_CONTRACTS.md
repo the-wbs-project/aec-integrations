@@ -2586,7 +2586,7 @@ The three actions:
   connector-powered row (either table) moves to `routed_to = 'aeci'`, each with an
   `integration.contest.rerouted` audit row (`metadata.reason: 'entitlement-cleared'`) and an
   `open → open` workflow transition. A guard first in those statements aborts the batch if
-  that set of contests changed after the handler read it; the handler re-plans and retries
+  that set of contests changed after the handler read it (its count and newest `updated_at`); the handler re-plans and retries
   once, then answers `409 CONTEST_INTEGRATION_CHANGED` with nothing written
   (`STAGE_2_VENDOR_PORTAL_SPEC.md` §11b.13).
 

@@ -59,6 +59,7 @@ import {
 } from '../lib/contest-protests';
 import { writeDb, type DbFactory } from '../lib/handler-utils';
 import {
+  anchorMetadata,
   CONTEST_ENTITY_TYPE,
   contestAnchorOf,
   loadContestTarget,
@@ -228,7 +229,7 @@ export function createFileContestProtestHandler(
       source: AUDIT_SOURCE,
       vendorId,
       contestId: id,
-      integrationId: row.integrationId,
+      ...anchorMetadata(contestAnchorOf(row)),
       field: row.field,
       basis,
     };
@@ -388,7 +389,7 @@ export function createReplyContestProtestHandler(
       source: AUDIT_SOURCE,
       vendorId,
       contestId: id,
-      integrationId: row.integrationId,
+      ...anchorMetadata(contestAnchorOf(row)),
       field: row.field,
     };
     const audits: AuditLogEntry[] = [
@@ -480,7 +481,7 @@ export function createWithdrawContestProtestHandler(
       source: AUDIT_SOURCE,
       vendorId,
       contestId: id,
-      integrationId: row.integrationId,
+      ...anchorMetadata(contestAnchorOf(row)),
       field: row.field,
     };
     const audits: AuditLogEntry[] = [

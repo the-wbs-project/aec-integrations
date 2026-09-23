@@ -37,6 +37,8 @@ import { auditActorType } from '../lib/authz';
 import { PROTEST_ACTIONS, protestNotOpen, runGuardedProtestBatch } from '../lib/contest-protests';
 import { validateResponseInDev, writeDb, type DbFactory } from '../lib/handler-utils';
 import {
+  anchorMetadata,
+  contestAnchorOf,
   CONTEST_ENTITY_TYPE,
   contestStillOpenSentinel,
   hydrateContests,
@@ -70,7 +72,7 @@ export function createDecideContestProtestHandler(
     const metadata = {
       source: 'admin-moderation',
       contestId: id,
-      integrationId: row.integrationId,
+      ...anchorMetadata(contestAnchorOf(row)),
       field: row.field,
       submitterVendorId: row.submitterVendorId,
     };

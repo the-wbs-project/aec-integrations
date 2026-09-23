@@ -227,6 +227,8 @@ export interface ContestTarget {
   targetProductId: string;
   /** The delivering connector product, on an evidenced pair only. */
   connectorProductId: string | null;
+  /** `integrations.powered_by_product_id`; the connector product on a pair. */
+  poweredByProductId: string | null;
   /** Decision 9's predicate: `isConnectorPoweredEdge`, or any evidenced pair. */
   connectorPowered: boolean;
 }
@@ -264,6 +266,7 @@ export async function loadContestTarget(
       sourceProductId: pair.productAId,
       targetProductId: pair.productBId,
       connectorProductId: pair.connectorProductId,
+      poweredByProductId: pair.connectorProductId,
       connectorPowered: true,
     };
   }
@@ -291,6 +294,7 @@ export async function loadContestTarget(
     sourceProductId: row.sourceProductId,
     targetProductId: row.targetProductId,
     connectorProductId: null,
+    poweredByProductId: row.poweredByProductId,
     connectorPowered: isConnectorPoweredEdge(row),
   };
 }
@@ -390,7 +394,8 @@ export function contestAnchorLiveSentinel(db: Db, anchor: ContestAnchor) {
  * the `contests` cursor predicate all read. See §11b.13 for the comparison.
  *
  * `guard` goes FIRST among these statements. It aborts the batch unless the set of
- * open owner-routed contests for the vendor is exactly the set read here, so a
+ * open owner-routed contests for the vendor still has the count and newest
+ * `updated_at` read here, so a
  * contest submitted (or re-routed) between this read and the commit cannot be left
  * with an owner who can no longer decide it. The handler re-plans and retries.
  */
@@ -438,19 +443,20 @@ export async function planEntitlementClearReroute(
     'owner entitlement cleared: re-routed to AECi',
     { reason: 'entitlement-cleared', ownerVendorId: vendorId },
   );
-  const ids = open.map((row) => row.id);
+  // A fingerprint of the set, in two bound values rather than one per id, so a
+  // vendor with many open contests cannot run past D1's bound-parameter cap: the
+  // count, and the newest `updated_at`. A contest that joins the set is newer than
+  // everything read (it is inserted after the read), and one that leaves it changes
+  // the count unless another joins, which moves the maximum.
+  const newest = open.reduce<string | null>(
+    (max, row) => (max === null || row.updatedAt > max ? row.updatedAt : max),
+    null,
+  );
   const scope = sql`"routed_to" = 'owner' AND "owner_vendor_id" = ${vendorId} AND "status" = 'open'`;
-  const listed =
-    ids.length === 0
-      ? sql`0`
-      : sql`(SELECT count(*) FROM "integration_field_challenges" WHERE ${scope} AND "id" IN (${sql.join(
-          ids.map((id) => sql`${id}`),
-          sql`, `,
-        )}))`;
   const guard = db
     .select({
-      guard: sql`CASE WHEN (SELECT count(*) FROM "integration_field_challenges" WHERE ${scope}) <> ${ids.length}
-          OR ${listed} <> ${ids.length}
+      guard: sql`CASE WHEN (SELECT count(*) FROM "integration_field_challenges" WHERE ${scope}) <> ${open.length}
+          OR ifnull((SELECT max("updated_at") FROM "integration_field_challenges" WHERE ${scope}), '') <> ${newest ?? ''}
         THEN json('contest-reroute-changed') END`,
     })
     .from(ONE_ROW);

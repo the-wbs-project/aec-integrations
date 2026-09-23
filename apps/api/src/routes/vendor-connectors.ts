@@ -155,9 +155,13 @@ async function evidencedContestTargets(
     ),
   );
   const pairs = pages.flat();
-  const slotVendors = await vendorsForEvidencedPairSlots(
-    db,
-    pairs.map((p) => p.id),
+  // Chunked like the reads around it: D1 caps bound parameters per statement.
+  const slotVendors = new Map(
+    (
+      await Promise.all(
+        chunked(pairs.map((p) => p.id)).map((chunk) => vendorsForEvidencedPairSlots(db, chunk)),
+      )
+    ).flatMap((m) => [...m]),
   );
   const vendorIds = new Set<string>();
   for (const pair of pairs) {

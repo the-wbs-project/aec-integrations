@@ -406,6 +406,18 @@ describe('routing on connector-powered rows (rulings A and E)', () => {
     expect(res.body.contest.routed_to).toBe('owner');
   });
 
+  it('routes a mechanism_kind proposal that would make the row connector-powered to AECi', async () => {
+    // Otherwise the owner could turn its own row connector-powered by accepting it,
+    // which its own edit route refuses (review finding, ruling A forward-looking).
+    const res = await submitIntegration(AUTH_A, I_PLAIN, {
+      field: 'mechanism_kind',
+      proposed_value: 'iPaaS',
+      reason: 'x',
+    });
+    expect(res.status).toBe(201);
+    expect(res.body.contest.routed_to).toBe('aeci');
+  });
+
   it('pins the pure rule', () => {
     const row = { id: PAIR, builtByVendorId: VENDOR_T, claimedAt: CLAIMED_AT };
     const on = (field: 'name' | 'mechanism_kind', ownerEntitled: boolean) =>
