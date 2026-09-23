@@ -69,6 +69,7 @@ If your work touches a topic below, that document is the truth, not your prior k
 | Vendor Performance reporting (`/vendor/:slug/performance` behind `analytics.view`) | `docs/VENDOR_PERFORMANCE_SPEC.md`; rationale `docs/design/vendor-performance-direction.md` |
 | Product Docs / Help Center (`/docs` inside `apps/web`; kickoff draft) | `docs/STAGE_2_PRODUCT_DOCS_SPEC.md` |
 | Stage 2.1 vendor-activation interlude (dark launch → seat pilot vendors; proposal) | `docs/STAGE_2_1_SPEC.md` |
+| Stage 2.1 dress rehearsal: the vendor-lifecycle script, zero-DB-intervention rule, run log | `docs/STAGE_2_1_REHEARSAL.md` |
 | Stage 2.5 hardening interlude (search-ranking overhaul, §7 trust/answer-surface artifacts; proposal) | `docs/STAGE_2_5_SPEC.md` |
 | Stage 3 scope outline (trust ladder, pSEO, rebrand option survey §2.6; kickoff draft) | `docs/STAGE_3_SPEC.md` |
 | `data_object` controlled vocabulary | `docs/DATA_OBJECT_VOCABULARY.md` (+ generated JSON mirror) |

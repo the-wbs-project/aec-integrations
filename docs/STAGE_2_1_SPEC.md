@@ -56,6 +56,8 @@ claim submission → claimant identity resolution → admin claim review → app
 
 Tools that exist for this: `/preview/vendor-dashboard` (persona/entitlement presets, no session needed) for surface passes; a staged claim with a test vendor identity for the real pipeline. The rehearsal is complete only when a full pass requires **zero manual DB intervention**.
 
+**The script is `docs/STAGE_2_1_REHEARSAL.md` (AECI-1103).** It numbers the steps, states the expected state and evidence for each, defines what counts as manual DB intervention, and holds the run log for both sittings.
+
 ### 3.2 The refinement backlog
 
 Seeded empty **by design** — it is filled by rehearsal findings, parked-claim observations, and dark-window telemetry. This is the stage's actual work; the admission test in §1 governs what lands here.
