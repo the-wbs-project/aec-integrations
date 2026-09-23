@@ -18,7 +18,7 @@
  * `sql.raw(liveIntegrationSql('bi'))` from the shared module.
  *
  * **Both arms (AECI-1091, rule 2).** `connector_evidenced_pairs` carries `retired_at`
- * too (migration `0048`), and the owner and AECi retire pairs through the same routes.
+ * too (migration `0049`), and the owner and AECi retire pairs through the same routes.
  * Every count, id set and public read over that table filters it with
  * {@link liveEvidencedPairWhere} / {@link liveEvidencedPairOn}. Same SQL, separate
  * name, so `count-lockstep.spec.ts` can prove a site filters both arms and not one.

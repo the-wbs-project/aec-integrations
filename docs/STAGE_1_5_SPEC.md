@@ -1659,7 +1659,7 @@ mid-flight will make a local decision about a cross-cutting contract.
      `liveEvidencedPairSql(alias)` / `liveEvidencedPairSqlIf` for raw SQL, and a filter named
      `evidencedLiveFilter` in `.mjs`. Separate names so the lockstep spec can prove each site
      carries BOTH arms rather than one. Tools that probe the DDL probe the pair table on its own,
-     because migration `0048` reaches a tier at a different promote than `0044`. (Until
+     because migration `0049` reaches a tier at a different promote than `0044`. (Until
      AECI-1091 this rule was "the `integrations` arm only", because no route could retire a
      pair.)
   3. **Never key membership on `claimed_at` or `origin`.** Only `retired_at` removes a row. A

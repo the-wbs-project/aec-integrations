@@ -20,7 +20,7 @@
  *    record look orphaned (the cap then refuses the pass, so retired records are
  *    never swept either).
  * 2. **Both arms (AECI-1091).** `connector_evidenced_pairs` gained `retired_at` in
- *    migration `0048`, and since AECI-1091 the owner and AECi retire pairs too (the
+ *    migration `0049`, and since AECI-1091 the owner and AECi retire pairs too (the
  *    AECI-1040 carve-out). So every count and id set filters BOTH tables: the
  *    `integrations` arm with {@link liveIntegrationSql} and the evidenced arm with
  *    {@link liveEvidencedPairSql}. They are the same SQL. They have two names so
@@ -98,10 +98,10 @@ export function liveIntegrationSqlIf(alias: string, hasRetiredColumn: boolean): 
 
 // ─── The evidenced arm (AECI-1091) ───────────────────────────────────────────
 //
-// `connector_evidenced_pairs` carries `retired_at` too (migration `0048`), with the
+// `connector_evidenced_pairs` carries `retired_at` too (migration `0049`), with the
 // same meaning. The functions below are the evidenced arm's names for the same SQL.
 // A site that counts or lists both tables uses one name per arm, so the lockstep
-// spec's source scan can tell a two-arm site from a one-arm site. Migration `0048`
+// spec's source scan can tell a two-arm site from a one-arm site. Migration `0049`
 // reaches a deployed tier later than `0044` did, so the tools that probe
 // `integrations` for the column probe this table separately.
 
@@ -129,7 +129,7 @@ export function evidencedPairsDdlOrThrow(sql: unknown): string {
   return sql;
 }
 
-/** {@link liveEvidencedPairSql} when the column exists (migration `0048`), else the
+/** {@link liveEvidencedPairSql} when the column exists (migration `0049`), else the
  *  always-true `1 = 1`. A table without the column cannot hold a retired pair. */
 export function liveEvidencedPairSqlIf(alias: string, hasRetiredColumn: boolean): string {
   return hasRetiredColumn ? liveEvidencedPairSql(alias) : '1 = 1';

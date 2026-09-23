@@ -49,7 +49,7 @@ import {
 
 /**
  * The same probe for `connector_evidenced_pairs`, whose `retired_at` is migration
- * 0048's (AECI-1091). Probed on its own because the two migrations reach a tier at
+ * 0049's (AECI-1091). Probed on its own because the two migrations reach a tier at
  * different promotes.
  */
 async function hasEvidencedRetiredColumn(db: D1Database): Promise<boolean> {

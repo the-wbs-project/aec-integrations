@@ -510,7 +510,7 @@ export async function checkRetiredIntegrationsUnclaimed(db: Db): Promise<CheckFi
     )
     .orderBy(asc(integrations.id));
   // AECI-1091: the same invariant on `connector_evidenced_pairs`, which the owner and
-  // AECi retire since then. Both columns exist there from migration 0048 on.
+  // AECi retire since then. Both columns exist there from migration 0049 on.
   const pairs = await db
     .select({
       id: connectorEvidencedPairs.id,

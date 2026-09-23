@@ -65,7 +65,7 @@ import {
 // this script runs daily against production, whose migrations lag `main` until the
 // next prod promote, and a query naming a missing `retired_at` would fail every run
 // until then. `main()` reads both table definitions first, separately, because `0044`
-// and `0048` reach a tier at different promotes. Without the column no row of that
+// and `0049` reach a tier at different promotes. Without the column no row of that
 // table is retired.
 //
 // These two are sites 2 and 3 of the lockstep list (`LOCKSTEP_SITES` in
@@ -88,7 +88,7 @@ const EVIDENCED_COUNT_SQL = (
        AND ${liveEvidencedPairSqlIf('cep', pairsRetiredColumn)})`;
 
 /** Which of the two tables carry `retired_at` on the target (migrations `0044` and
- *  `0048`). Both default to true: the exported constants are the migrated form. */
+ *  `0049`). Both default to true: the exported constants are the migrated form. */
 export interface RetiredColumns {
   integrations: boolean;
   evidencedPairs: boolean;
@@ -247,7 +247,7 @@ function readDdl(target: Target, query: string, table: string): unknown {
 }
 
 /** Whether each table has `retired_at` yet on the target: `integrations` since
- *  AECI-1010 (`0044`), `connector_evidenced_pairs` since AECI-1091 (`0048`). An empty
+ *  AECI-1010 (`0044`), `connector_evidenced_pairs` since AECI-1091 (`0049`). An empty
  *  or failed read THROWS: "could not check" is never "no column". */
 function retiredColumnsOf(target: Target): RetiredColumns {
   return {

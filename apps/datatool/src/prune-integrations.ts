@@ -339,7 +339,7 @@ export async function hasRetiredColumn(db: D1Database): Promise<boolean> {
   return ddlHasRetiredColumn(integrationsDdlOrThrow(row?.sql));
 }
 
-/** The same probe for `connector_evidenced_pairs` (migration 0048, AECI-1091): the
+/** The same probe for `connector_evidenced_pairs` (migration 0049, AECI-1091): the
  *  recount's evidenced arm counts live pairs only once the column exists. */
 export async function hasEvidencedRetiredColumn(db: D1Database): Promise<boolean> {
   const [row] = await selectAll(db, EVIDENCED_PAIRS_DDL_QUERY, []);

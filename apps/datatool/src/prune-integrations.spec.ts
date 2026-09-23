@@ -338,7 +338,7 @@ describe('pruneExecute', () => {
   });
 
   it('runs on a tier whose pair table lacks retired_at (AECI-1091)', async () => {
-    // 0048 can reach a tier later than 0044. The probe degrades the evidenced arm.
+    // 0049 can reach a tier later than 0044. The probe degrades the evidenced arm.
     h.raw.prepare('ALTER TABLE connector_evidenced_pairs DROP COLUMN retired_by').run();
     h.raw.prepare('ALTER TABLE connector_evidenced_pairs DROP COLUMN retired_at').run();
     const plan = await prunePlan(h.db, [ORPHAN]);

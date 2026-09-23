@@ -1420,7 +1420,7 @@ async function main() {
   // content genuinely changed.
   const liveFilter = ddlHasColumn(integrationsDdl, 'retired_at') ? 'AND retired_at IS NULL' : '';
   // AECI-1091: the evidenced arm counts live pairs only too, probed on its own DDL
-  // (migration 0048 reaches a tier at a different promote than 0044).
+  // (migration 0049 reaches a tier at a different promote than 0044).
   const evidencedLiveFilter = ddlHasColumn(pairsDdl, 'retired_at') ? 'AND retired_at IS NULL' : '';
   const now = new Date().toISOString();
   const productIds = [...affected];
