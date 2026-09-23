@@ -1138,7 +1138,7 @@ Four IA notes, in §5.10's voice:
 - **Contests on connector-evidenced pairs (AECI-1092).** A contest can sit on a
   `connector_evidenced_pairs` row as well as on an `integrations` row. The card reads the
   same, with one more line under the pair, "Delivered through {connector}". An accept on a
-  claimed pair writes the pair itself (`connector_evidenced_pair.updated`), and the `REVIEW - `
+  claimed pair writes the pair itself (`integration.updated` with entity type `connector_evidenced_pair`), and the `REVIEW - `
   issue names the evidenced pair id and the connector. Protests work on pair contests
   unchanged. `/preview/admin-contests` carries one pair contest.
 - **No detail route.** The API has no single-contest read, and a row already carries every

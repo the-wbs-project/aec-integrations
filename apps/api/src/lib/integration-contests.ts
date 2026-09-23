@@ -186,9 +186,23 @@ export function anchorEntityType(kind: ContestAnchorKind): string {
   return kind === 'evidenced_pair' ? 'connector_evidenced_pair' : 'integration';
 }
 
-/** `audit_log.action` for a content write on the anchor row, matching promote's. */
-export function anchorUpdatedAction(kind: ContestAnchorKind): string {
-  return kind === 'evidenced_pair' ? 'connector_evidenced_pair.updated' : 'integration.updated';
+/** `audit_log.action` for a content write on the anchor row: `integration.updated` on
+ *  either table, the action the AECI-1090 owner edit writes. The table is told apart by
+ *  the entity type and {@link anchorWriteMarkers}. */
+export function anchorUpdatedAction(_kind: ContestAnchorKind): string {
+  return 'integration.updated';
+}
+
+/**
+ * The carve-out markers a vendor-held write on a connector-powered row carries in its
+ * audit metadata, exactly as the AECI-1089 claim and the AECI-1090 owner edit write
+ * them: `{ connectorPowered: true, anchor }`. Empty on any other row.
+ */
+export function anchorWriteMarkers(target: Pick<ContestTarget, 'anchor' | 'connectorPowered'>): {
+  connectorPowered?: true;
+  anchor?: ContestAnchorKind;
+} {
+  return target.connectorPowered ? { connectorPowered: true, anchor: target.anchor.kind } : {};
 }
 
 /** Audit metadata naming the anchor: `integrationId` or `evidencedPairId`. */

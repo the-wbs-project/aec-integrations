@@ -104,6 +104,7 @@ import {
   anchorPurgeTags,
   anchorUpdate,
   anchorUpdatedAction,
+  anchorWriteMarkers,
   CONTEST_ENTITY_TYPE,
   CONTEST_FIELD_COLUMNS,
   contestAnchorLiveSentinel,
@@ -143,6 +144,7 @@ import {
 } from '../lib/contest-protests';
 import { assertIntegrationLive, integrationRetiredError } from '../lib/live-integration';
 import { publicSiteBase } from '../lib/public-urls';
+import { dispatchOwnerWriteSearch, syncOwnerWriteSearch } from './integration-retire-write';
 import { pairCacheTag } from './promote-pair';
 import { attestationEditRecrawl } from './vendor-recrawl';
 import {
@@ -1033,6 +1035,8 @@ export function createDecideContestHandler(
         anchorUpdate(db, anchor, {
           [column]: row.proposedValue,
           ...maintenanceTransferColumns(now),
+          // Explicit, as the AECI-1090 owner edit does: it moves the owned-rows cursor.
+          updatedAt: now,
         }),
       );
       audits.push({
@@ -1056,6 +1060,9 @@ export function createDecideContestHandler(
           reason: 'contest-accepted',
           // Present only on the hand-changing save, never as `false` (§13.9).
           ...(isMaintenanceTransfer(target) ? { maintenanceTransfer: true } : {}),
+          // The AECI-1089/1090 carve-out markers, so an owner accept and an owner
+          // edit on the same row audit identically.
+          ...anchorWriteMarkers(target),
         },
       });
     }
@@ -1081,6 +1088,22 @@ export function createDecideContestHandler(
     );
     stmts.push(...workflow.stmts, ...audits.map((entry) => auditInsert(db, entry)));
     const after = await runGuardedContestBatch(db, id, stmts);
+
+    // The owner edit's tail (AECI-1090): a by-id Algolia sync of the record, behind
+    // promote's `dispatchHook` watchdog. The integrations index holds evidenced pairs
+    // too, and the by-id path reads both tables.
+    if (status === 'accepted') {
+      dispatchOwnerWriteSearch(
+        c,
+        'vendor-contest-algolia',
+        syncOwnerWriteSearch(
+          c,
+          db,
+          { integrations: [anchor.id], products: [], vendors: [] },
+          'aeci.api.vendor.contest_algolia_sync_failed',
+        ),
+      );
+    }
 
     const base = publicSiteBase(c.env);
     const recrawl =

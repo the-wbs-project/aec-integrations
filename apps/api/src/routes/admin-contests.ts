@@ -101,6 +101,7 @@ import {
   anchorPurgeTags,
   anchorUpdate,
   anchorUpdatedAction,
+  anchorWriteMarkers,
   contestAnchorOf,
   contestAnchorWhere,
   hydratedTarget,
@@ -129,6 +130,7 @@ import {
   type LinearIssueOutcome,
 } from '../lib/linear';
 import { ownerStillHolds, toContestProtest } from '../lib/contest-protests';
+import { dispatchOwnerWriteSearch, syncOwnerWriteSearch } from './integration-retire-write';
 import { pairCacheTag } from './promote-pair';
 import {
   CONTEST_WORKFLOW_TYPE,
@@ -445,6 +447,22 @@ export function createModerateContestHandler(
     );
     if (accept) {
       if (accept.tags.length) c.executionCtx.waitUntil(purgeTags(c, accept.tags));
+      // AECI-1092: an accept that wrote the row here takes the owner edit's search
+      // tail too (a by-id Algolia sync, either table). An upstream-only accept wrote
+      // nothing, so promote carries it.
+      if (accept.appliedMode !== 'upstream-only') {
+        const anchor = contestAnchorOf(after);
+        dispatchOwnerWriteSearch(
+          c,
+          'admin-contest-algolia',
+          syncOwnerWriteSearch(
+            c,
+            db,
+            { integrations: [anchor.id], products: [], vendors: [] },
+            'aeci.api.admin.contest_algolia_sync_failed',
+          ),
+        );
+      }
       c.executionCtx.waitUntil(
         fileContestIssue(c, db, fileIssue, after, hydration, accept.appliedMode),
       );
@@ -595,7 +613,12 @@ export async function planAcceptWrites(
   }
   const audits: AuditLogEntry[] = [];
   const field = row.field as IntegrationContestField;
-  const base = { source: 'admin-moderation', contestId: row.id, ...anchorMetadata(anchor) };
+  const base = {
+    source: 'admin-moderation',
+    contestId: row.id,
+    ...anchorMetadata(anchor),
+    ...anchorWriteMarkers(integration),
+  };
   const entity = { entityType: anchorEntityType(anchor.kind), entityId: integration.id };
 
   let appliedMode: ContestAppliedMode = 'upstream-only';

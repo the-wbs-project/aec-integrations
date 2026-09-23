@@ -459,13 +459,16 @@ describe('POST /api/vendor/contests/:id/decision on a pair', () => {
     const pair = await pairRow();
     expect(pair.docsUrl).toBe(DOCS.proposed_value);
     expect(pair.maintainedBy).toBe('vendor');
+    // The same audit shape the AECI-1090 owner edit writes on a pair.
     const updated = (await t.db.select().from(auditLog)).find(
-      (r) => r.action === 'connector_evidenced_pair.updated',
+      (r) => r.action === 'integration.updated',
     );
     expect(updated).toMatchObject({ entityType: 'connector_evidenced_pair', entityId: PAIR });
     expect(updated!.metadata).toMatchObject({
       reason: 'contest-accepted',
       maintenanceTransfer: true,
+      connectorPowered: true,
+      anchor: 'evidenced_pair',
     });
     const tags = res.send.mock.calls.flatMap((c) => (c[0] as { tags: string[] }).tags);
     expect(tags).toEqual(
