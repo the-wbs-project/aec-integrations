@@ -380,7 +380,9 @@ Two terms, used exactly:
 
 6. **Closed 2026-09-23 by (8), ruling 2: carve-out writes need an active entitlement.** The original text follows.
 
-   **A hole AECI-1040 must close before it lifts decision 9.** Decision 15 makes any seat the gate, and a §8.9 catalogue-maintenance seat is a seat. So once an owner may write its connector-powered rows, a connector vendor holding only the free §8.9 seat could act on integrations it owns without paying. That would bypass (1). In v1 decision 9 keeps every write off those rows, so the hole is closed today. AECI-1040 must choose how to keep it closed: an operator rule at seat-provision time, or a refusal for a seat with no entitlement row, which would be the first entitlement check on an integration ownership route and a named exception to (3).
+   **A hole AECI-1040 must close before it lifts decision 9.** Decision 15 makes any seat the gate, and a §8.9 catalogue-maintenance seat is a seat. So once an owner may write its connector-powered rows, a connector vendor holding only the free §8.9 seat could act on integrations it owns without paying. That would bypass (1). In v1 decision 9 keeps every write off those rows, so the hole is closed today. AECI-1040 must choose how to keep it closed: an operator rule at seat-provision time, or a refusal for a seat with no entitlement row, which would be the first entitlement check on an integration route and a named exception to (3).
+
+   Note (2026-09-23): since #808 gates attestation writes on `attestation.author`, the ruled check is the first entitlement check on an integration *ownership* route.
 
 7. **What this does NOT change.** §8.8(1)'s hybrid rule and its per-product scoping stand. §8.8(3) still holds: anything priced above the entry fee is sold to every vendor on the same terms. §8.9 is unchanged for a connector vendor that owns no integration it manages, including the parked-claim procedure. AECI-705's attestation gate is unchanged: a third-party owner owns neither endpoint, so it has no attestation seat on its own integrations (§8.4(2)). No ranking input changes.
 
