@@ -44,6 +44,7 @@ import { createBanReviewerHandler } from './admin-reviewers';
 import { createAdminRevokeSeatHandler, createProvisionSeatHandler } from './admin-vendors';
 import type { resolveClaimantIdentity } from '../lib/claimant-identity';
 import { REFUSED_CLAIMED_INTEGRATION, runPromoteIngest, type PromoteRunCtx } from './promote';
+import { logBatchToPosthog, logToPosthog } from '../posthog';
 
 vi.mock('../posthog', () => ({
   logToPosthog: vi.fn(),
@@ -766,5 +767,60 @@ describe('revoking the LAST seat hands back claimed evidenced pairs too (AECI-10
     await revoke(SEAT_A);
     expect((await pair(EP_OWNED)).claimedAt).toBe(CLAIMED_AT);
     expect((await pair(EP_ATTESTED)).claimedAt).toBe(CLAIMED_AT);
+  });
+});
+
+// ─── Telemetry: one batched forward per seat write (connection limit) ────────
+
+describe('each seat write forwards its audit rows and transitions in ONE request', () => {
+  const auditForwardsPerRow = () =>
+    vi
+      .mocked(logToPosthog)
+      .mock.calls.filter((call) =>
+        String((call[3] as { message?: string }).message ?? '').startsWith('audit '),
+      );
+  const batchedMessages = () =>
+    (vi.mocked(logBatchToPosthog).mock.calls[0]![3] as { message: string }[]).map((e) => e.message);
+
+  beforeEach(() => {
+    vi.mocked(logBatchToPosthog).mockClear();
+    vi.mocked(logToPosthog).mockClear();
+  });
+
+  it('the last-seat revoke: the seat row and every hand-back row', async () => {
+    await revoke(SEAT_A);
+    expect(logBatchToPosthog).toHaveBeenCalledTimes(1);
+    // seat_revoked, vendor, product, 5 integration rows and the contest re-route.
+    expect(batchedMessages().filter((m) => m.startsWith('audit '))).toHaveLength(9);
+    expect(batchedMessages().filter((m) => m.startsWith('workflow '))).toHaveLength(0);
+    expect(auditForwardsPerRow()).toEqual([]);
+  });
+
+  it('a ban and an unban: the ban row, its transition, and each re-route', async () => {
+    await ban(SEAT_A);
+    expect(logBatchToPosthog).toHaveBeenCalledTimes(1);
+    expect(batchedMessages().filter((m) => m.startsWith('audit '))).toHaveLength(2);
+    vi.mocked(logBatchToPosthog).mockClear();
+    await unban(SEAT_A);
+    expect(logBatchToPosthog).toHaveBeenCalledTimes(1);
+    expect(batchedMessages().filter((m) => m.startsWith('audit '))).toHaveLength(2);
+    expect(auditForwardsPerRow()).toEqual([]);
+  });
+
+  it('a new seat grant that returns contests', async () => {
+    await ban(SEAT_A);
+    vi.mocked(logBatchToPosthog).mockClear();
+    expect(
+      (
+        await call(`/api/admin/vendors/${VENDOR}/seats`, 'POST', {
+          email: 'new-seat@bentley.example',
+          reason: 'pilot',
+        })
+      ).status,
+    ).toBe(201);
+    expect(logBatchToPosthog).toHaveBeenCalledTimes(1);
+    // The provision row and the returned contest's re-route.
+    expect(batchedMessages().filter((m) => m.startsWith('audit '))).toHaveLength(2);
+    expect(auditForwardsPerRow()).toEqual([]);
   });
 });

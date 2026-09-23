@@ -99,6 +99,7 @@ import {
   vendors,
   workflowInstances,
 } from '../db/schema';
+import { forwardAuditBatch } from '../lib/moderation-forward';
 import { logToPosthog, submitCount } from '../posthog';
 import type { Env } from '../env';
 import { ApiError, notFoundError } from '../errors';
@@ -608,18 +609,14 @@ async function approveClaim(
       }
     }),
   );
-  // Both audit rows forward (§26.5). `ent.auditEntry` is null on the second-seat
-  // path, and `forwardAuditLog` is a no-op for it.
-  c.executionCtx.waitUntil(
-    Promise.all([
-      forwardAuditLog(grant.auditEntry, makeForwarder(c)),
-      ent.auditEntry ? forwardAuditLog(ent.auditEntry, makeForwarder(c)) : Promise.resolve(),
-      forwardWorkflowTransition(grant.workflowEntry, makeWorkflowForwarder(c)),
-      ...(returned?.audits ?? []).map((entry) => forwardAuditLog(entry, makeForwarder(c))),
-      ...(returned?.transitions ?? []).map((entry) =>
-        forwardWorkflowTransition(entry, makeWorkflowForwarder(c)),
-      ),
-    ]),
+  // Every audit row and transition forwards (§26.5) in ONE batched request: the
+  // seat return adds a row and a transition per contest, so one `fetch` per row
+  // would run past the connection limit. `ent.auditEntry` is null on the
+  // second-seat path, and the batch skips it.
+  forwardAuditBatch(
+    c,
+    [grant.auditEntry, ent.auditEntry, ...(returned?.audits ?? [])],
+    [grant.workflowEntry, ...(returned?.transitions ?? [])],
   );
 
   const body = claimResponse(
