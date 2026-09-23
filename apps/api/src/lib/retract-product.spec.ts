@@ -720,8 +720,8 @@ describe('vendor-held evidenced pairs are refused, whatever the flags (AECI-1088
     t.dispose();
   });
 
-  it('still reads a footprint on a database without migration 0048', async () => {
-    const t = await makeTestDb({ upToExclusive: '0048_majestic_mentallo.sql' });
+  it('still reads a footprint on a database without migration 0049', async () => {
+    const t = await makeTestDb({ upToExclusive: '0049_majestic_mentallo.sql' });
     seed(t);
     const ddl = (t.raw.prepare(EVIDENCED_PAIRS_DDL_SQL).get() as { sql: string }).sql;
     expect(ddlHasVendorHeldColumns(ddl)).toBe(false);

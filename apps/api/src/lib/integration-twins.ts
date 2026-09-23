@@ -38,7 +38,7 @@
  *     ({@link TwinCandidate.excludeIds}). It never deletes
  *     anything, and curated-versus-curated behaviour is unchanged.
  *
- * **Its evidenced counterpart is narrower (AECI-1088).** Since migration 0048 a
+ * **Its evidenced counterpart is narrower (AECI-1088).** Since migration 0049 a
  * `connector_evidenced_pairs` row can be vendor-held too. There the only collision
  * that matters is the unique index `connector_evidenced_pairs_pair_idx` on
  * (connector, A, B): a curated write onto a vendor-held triple would fail the whole
@@ -236,7 +236,7 @@ export interface EvidencedTwinCandidate {
 }
 
 /** Vendor-held on the second table: claimed, or created by a vendor. The same
- *  predicate as {@link vendorHeldIntegrationWhere}, over the columns migration 0048
+ *  predicate as {@link vendorHeldIntegrationWhere}, over the columns migration 0049
  *  added. */
 export const vendorHeldEvidencedPairWhere: SQL = or(
   isNotNull(connectorEvidencedPairs.claimedAt),

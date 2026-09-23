@@ -28,7 +28,7 @@
  * is read off `SELECT *`, so it degrades to "none held" on a database that has not yet
  * applied migration 0044, which is also the right answer there. Since AECI-1088 a
  * requested id that names a vendor-held `connector_evidenced_pairs` row is refused the
- * same way, although this route could never delete one (migration 0048).
+ * same way, although this route could never delete one (migration 0049).
  *
  * **The three guards** are the whole safety story, and a non-zero value on ANY of
  * them blocks the run. Each means "this row is not actually a redundant copy":
@@ -341,10 +341,10 @@ export async function hasRetiredColumn(db: D1Database): Promise<boolean> {
  *
  * The prune deletes from `integrations` only, so an id that lives in
  * `connector_evidenced_pairs` is never deleted here. It is still checked (AECI-1088):
- * since migration 0048 a pair can be vendor-held, and an operator who pastes one
+ * since migration 0049 a pair can be vendor-held, and an operator who pastes one
  * should be told it is the vendor's, not see it reported as `missing` and go looking
  * for another tool to delete it with. `SELECT *` degrades to "none held" on a tier
- * without 0048's columns, which is also the right answer there.
+ * without 0049's columns, which is also the right answer there.
  */
 async function vendorHeldIds(db: D1Database, ids: string[]): Promise<string[]> {
   const ph = placeholders(ids.length);

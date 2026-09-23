@@ -87,7 +87,7 @@ describe('the DDL probe', () => {
     }
   });
 
-  it('finds both on connector_evidenced_pairs after 0048, and neither before it (AECI-1088)', async () => {
+  it('finds both on connector_evidenced_pairs after 0049, and neither before it (AECI-1088)', async () => {
     const t = await makeTestDb();
     try {
       const ddl = (t.raw.prepare(DDL_SQL).get('connector_evidenced_pairs') as { sql: string }).sql;
@@ -95,7 +95,7 @@ describe('the DDL probe', () => {
     } finally {
       t.dispose();
     }
-    const pre = await makeTestDb({ upToExclusive: '0048_majestic_mentallo.sql' });
+    const pre = await makeTestDb({ upToExclusive: '0049_majestic_mentallo.sql' });
     try {
       const ddl = (pre.raw.prepare(DDL_SQL).get('connector_evidenced_pairs') as { sql: string })
         .sql;

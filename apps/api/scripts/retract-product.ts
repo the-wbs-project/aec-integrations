@@ -291,7 +291,7 @@ export async function main(argv: string[]): Promise<number> {
     runD1<{ sql: string }>(target, INTEGRATIONS_DDL_SQL)[0]?.results[0]?.sql,
     'integrations',
   );
-  // AECI-1088: the same for migration 0048's columns on `connector_evidenced_pairs`.
+  // AECI-1088: the same for migration 0049's columns on `connector_evidenced_pairs`.
   const evidencedPairsDdl = tableDdlOrThrow(
     runD1<{ sql: string }>(target, EVIDENCED_PAIRS_DDL_SQL)[0]?.results[0]?.sql,
     'connector_evidenced_pairs',

@@ -226,7 +226,7 @@ the ruling file as an absence rather than guessed at.
 
 A row its owner has **claimed**, or one a vendor **created** (`origin = 'vendor'`), is the
 vendor's (ADR 0035). That covers both tables: `integrations` since migration `0044`, and
-`connector_evidenced_pairs` since migration `0048` (AECI-1088), where a vendor-held pair is
+`connector_evidenced_pairs` since migration `0049` (AECI-1088), where a vendor-held pair is
 kept out of `evidencedPairSourceGone` the same way. "No upstream record carries this id"
 is expected for such a row: promote stopped writing it at the claim, and a vendor-created
 row never had a record. So `classifyRows` puts it in a `vendorHeld` list that the run
@@ -235,7 +235,7 @@ logs as a count and never adds to `integrationSourceGone`, the exit code or the
 `integrationEndpointStranded` finding, because the stranded thing is the product, and
 the entry carries `vendorHeld: true` so nobody deletes the edge to fix it. The columns
 are probed from each table's live DDL, because production applies migrations `0044` and
-`0048` only at its next promote. An empty table-definition read exits `2` (could not check); it never falls
+`0049` only at its next promote. An empty table-definition read exits `2` (could not check); it never falls
 back to "no columns", which would quietly turn the exemption off. The rule lives in `../2026-09-retraction-consumer/vendor-held.mjs`, shared
 with the consumer, and `apps/api/src/test/vendor-held.spec.ts` pins it.
 

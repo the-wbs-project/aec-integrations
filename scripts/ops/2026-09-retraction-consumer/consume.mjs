@@ -958,7 +958,7 @@ async function main() {
   const integrationsDdl = ddlOf('integrations');
   const pairsDdl = ddlOf('connector_evidenced_pairs');
   const integrationsHeldSql = vendorHeldColumnsSql('i', integrationsDdl);
-  // AECI-1088: migration 0048 gave `connector_evidenced_pairs` the same two columns,
+  // AECI-1088: migration 0049 gave `connector_evidenced_pairs` the same two columns,
   // so this projection and the guard below switch on for pairs once it reaches a tier.
   const pairsHeldSql = vendorHeldColumnsSql('e', pairsDdl);
   // Re-asserted in the DELETE itself, so a row claimed after this read survives the

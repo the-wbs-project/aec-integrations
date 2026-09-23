@@ -227,7 +227,7 @@ function reviewSignalRefused(
  * (`lib/integration-twins.ts`), and so is the commit-time sentinel's. The 1005
  * function is widened here rather than on the 1005 branch (ADR 0035).
  *
- * **Since AECI-1088 it covers both anchor tables.** Migration 0048 gave
+ * **Since AECI-1088 it covers both anchor tables.** Migration 0049 gave
  * `connector_evidenced_pairs` the same `claimed_at` and `origin`, and the owner
  * carve-out (`STAGE_2_SPEC.md` §8.10(8)) lets an owner hold a pair. A vendor-held pair
  * gets the same whole-edge refusal: no content, no endpoint or connector re-point, no
@@ -674,7 +674,7 @@ type LocatedEvidencedRow = LocatedMaintenance & {
   productAId: string;
   productBId: string;
   connectorProductId: string;
-  /** AECI-1088: the ownership fence's input on this table (migration 0048) — see
+  /** AECI-1088: the ownership fence's input on this table (migration 0049) — see
    *  {@link claimFenceRefuses}. */
   claimedAt: string | null;
   origin: string;
@@ -801,7 +801,7 @@ function planIntegrationWrite(args: {
         // Belt-and-braces on the single-table invariant, mirroring the evidenced branch:
         // an id must never live in both tables. A clean `integrations` row has no twin,
         // so this is a no-op then; it only bites if a prior partial state left one.
-        // A VENDOR-HELD pair is never deleted (AECI-1088): before 0048 this DELETE
+        // A VENDOR-HELD pair is never deleted (AECI-1088): before 0049 this DELETE
         // carried no ownership guard, and a pair is a cascade parent of its claims
         // and their attestations.
         db
@@ -2993,7 +2993,7 @@ export async function runPromoteIngest(
       }
 
       // ── AECI-1088: the evidenced VENDOR_OWNED_TWIN guard. ────────────────────
-      // Since migration 0048 a pair can be vendor-held. A curated write that lands on
+      // Since migration 0049 a pair can be vendor-held. A curated write that lands on
       // the (connector, A, B) key of a vendor-held pair, live or retired, would fail
       // the WHOLE promote on `connector_evidenced_pairs_pair_idx`. So skip it at plan
       // time, name the vendor's pair, and write nothing about this edge: no row, no

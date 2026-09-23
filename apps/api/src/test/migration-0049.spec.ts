@@ -9,7 +9,7 @@ import {
 import { makeTestDb, statementsForMigration, type TestDb } from './d1';
 
 /**
- * AECI-1088 — `0048_majestic_mentallo.sql`, the vendor-ownership columns on
+ * AECI-1088 — `0049_majestic_mentallo.sql`, the vendor-ownership columns on
  * `connector_evidenced_pairs` (`claimed_at`, `origin`, `retired_at`, `retired_by`;
  * the AECI-1040 owner carve-out, ADR 0035).
  *
@@ -19,15 +19,15 @@ import { makeTestDb, statementsForMigration, type TestDb } from './d1';
  * deep (`docs/migrations.md` §3.3a). So:
  *
  *   1. The file is four `ADD COLUMN`s on this table and nothing else.
- *   2. Applied to a SEEDED pre-0048 database, the pair, its claim and its
+ *   2. Applied to a SEEDED pre-0049 database, the pair, its claim and its
  *      attestation survive, and the pair reads as AECi-seeded and unclaimed.
  *   3. The hand-written `origin` and `retired_by` CHECKs are in the live DDL and
  *      enforced. drizzle-kit cannot see them, so a later recreate generated from
  *      `schema.ts` would drop them silently. This assertion is what notices.
  *   4. The ops lanes' DDL probe now finds both vendor-held columns on this table, so
- *      `notVendorHeldSql` switches on. Before 0048 it returns '' without an error.
+ *      `notVendorHeldSql` switches on. Before 0049 it returns '' without an error.
  */
-const MIGRATION = '0048_majestic_mentallo.sql';
+const MIGRATION = '0049_majestic_mentallo.sql';
 const NOW = '2026-09-23T00:00:00.000Z';
 const DDL_SQL = `SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'connector_evidenced_pairs'`;
 const STATEMENT = /^ALTER TABLE `connector_evidenced_pairs` ADD `([a-z_]+)`/;

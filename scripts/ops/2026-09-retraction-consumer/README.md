@@ -32,14 +32,14 @@ ever name. Every guard stays; `confirm_retractions` is never called. See
 **Since AECI-1005 it refuses to delete a vendor-held row.** A row its owner has claimed
 (`claimed_at` set) or a vendor created (`origin = 'vendor'`) belongs to the
 vendor. That holds in both tables: `integrations` since migration `0044`, and
-`connector_evidenced_pairs` since migration `0048` (AECI-1088). An upstream delete of its
+`connector_evidenced_pairs` since migration `0049` (AECI-1088). An upstream delete of its
 curation record is not a ruling on it (ADR 0035). If
 any resolved row in the cohort is vendor-held and not on `HOLD`, the run prints the rows,
 writes nothing to either side, and exits `1`, in dry-run and apply alike. To proceed, put
 each such id on `HOLD` with the reason; a held entry is never deleted and never confirmed,
 so it stays pending on the journal until someone rules on it. The columns are probed from
 the live DDL of each table (`vendor-held.mjs`), so the run still works on a database that
-has not yet applied migration `0044` or `0048`, where no row of that table can be vendor-held. An EMPTY table-definition read is not that case: it throws and the run exits `2` (could not check), because falling back to an empty definition would switch the protection off silently. The DELETEs on both tables also carry `AND claimed_at IS NULL AND origin <> 'vendor'` when that table has the columns, so a row claimed between the plan and the write survives, and the verify step reports it as a leftover rather than confirming its entry. Before AECI-1088 the `connector_evidenced_pairs` DELETEs carried no such guard. Both tables now build their DELETEs through one helper, `guardedAnchorDeleteSql` in `vendor-held.mjs`.
+has not yet applied migration `0044` or `0049`, where no row of that table can be vendor-held. An EMPTY table-definition read is not that case: it throws and the run exits `2` (could not check), because falling back to an empty definition would switch the protection off silently. The DELETEs on both tables also carry `AND claimed_at IS NULL AND origin <> 'vendor'` when that table has the columns, so a row claimed between the plan and the write survives, and the verify step reports it as a leftover rather than confirming its entry. Before AECI-1088 the `connector_evidenced_pairs` DELETEs carried no such guard. Both tables now build their DELETEs through one helper, `guardedAnchorDeleteSql` in `vendor-held.mjs`.
 
 Unlike the four retraction lanes before it, this one is **re-runnable and not row-specific**.
 It takes whatever the feed holds. It stays here rather than becoming a `pnpm ops:*` CLI

@@ -50,10 +50,10 @@
  * columns, where no row can be vendor-held (`buildFootprintSql`'s option).
  *
  * The same refusal covers a vendor-held CONNECTOR-EVIDENCED PAIR (AECI-1088). Migration
- * 0048 gave `connector_evidenced_pairs` the same two columns, and the owner carve-out
+ * 0049 gave `connector_evidenced_pairs` the same two columns, and the owner carve-out
  * lets an owner hold a pair. `--delete-evidenced-pairs` authorises deleting AECi-seeded
  * pairs only: a vendor-held pair is refused with that flag, with `--force`, and with
- * both. Its count degrades to 0 on a database without 0048's columns.
+ * both. Its count degrades to 0 on a database without 0049's columns.
  *
  * Why the two refusals hold even under --force. A connector catalogue and its stub
  * mappings are a mirror the connector-catalogue sync owns (`POST
@@ -226,7 +226,7 @@ function scopes(p: string, opts: { includePairs: boolean } = { includePairs: tru
  */
 export function ddlHasVendorHeldColumns(ddl: string | null | undefined): boolean {
   // Used for both anchor tables: `integrations` (migration 0044) and
-  // `connector_evidenced_pairs` (migration 0048, AECI-1088).
+  // `connector_evidenced_pairs` (migration 0049, AECI-1088).
   if (typeof ddl !== 'string') return false;
   const has = (column: string) =>
     new RegExp(
@@ -258,7 +258,7 @@ export function tableDdlOrThrow(sql: string | null | undefined, table: string): 
 export const INTEGRATIONS_DDL_SQL = `SELECT "sql" FROM "sqlite_master" WHERE "type" = 'table' AND "name" = 'integrations';`;
 
 /** AECI-1088: the same probe for `connector_evidenced_pairs`, whose vendor-held columns
- *  arrive with migration 0048. */
+ *  arrive with migration 0049. */
 export const EVIDENCED_PAIRS_DDL_SQL = `SELECT "sql" FROM "sqlite_master" WHERE "type" = 'table' AND "name" = 'connector_evidenced_pairs';`;
 
 /** AECI-1007: does the per-side links table exist on this tier yet? One row when it
@@ -269,7 +269,7 @@ export function buildFootprintSql(
   id: string,
   opts: {
     vendorHeldColumns?: boolean;
-    /** AECI-1088: `connector_evidenced_pairs` has migration 0048's columns. */
+    /** AECI-1088: `connector_evidenced_pairs` has migration 0049's columns. */
     vendorHeldPairColumns?: boolean;
     vendorLinksTable?: boolean;
   } = {},
@@ -542,7 +542,7 @@ export interface ProductDeleteArgs {
   /** AECI-1088 review: whether `integrations` has migration 0044's vendor-held columns.
    *  Defaults to true, the schema at HEAD; the CLI passes its probe. */
   vendorHeldColumns?: boolean;
-  /** AECI-1088 review: the same for `connector_evidenced_pairs` and migration 0048. */
+  /** AECI-1088 review: the same for `connector_evidenced_pairs` and migration 0049. */
   vendorHeldPairColumns?: boolean;
 }
 

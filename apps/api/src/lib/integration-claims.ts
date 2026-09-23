@@ -59,7 +59,7 @@ export function isClaimed(row: Pick<IntegrationRow, 'claimedAt'>): boolean {
  */
 export function isVendorHeld(row: Pick<IntegrationRow, 'claimedAt' | 'origin'>): boolean {
   // One definition for both anchor tables (AECI-1088): `connector_evidenced_pairs`
-  // carries the same two columns since migration 0048, with the same meaning.
+  // carries the same two columns since migration 0049, with the same meaning.
   return isClaimed(row) || row.origin === 'vendor';
 }
 

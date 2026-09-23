@@ -1215,7 +1215,7 @@ a vendor-created row has no upstream record for promote to write from. A row can
 vendor-maintained because an endpoint vendor attested to it, and promote still
 writes such a row's content (only its `lastReviewedAt` is refused, §3.6a).
 
-**The same fence on `connector_evidenced_pairs` (AECI-1088, migration 0048).** The owner
+**The same fence on `connector_evidenced_pairs` (AECI-1088, migration 0049).** The owner
 carve-out (`STAGE_2_SPEC.md` §8.10(8)) lets an owner hold an evidenced pair, so this section
 applies to a vendor-held pair exactly as to a vendor-held integration. Vendor-held means the same
 `claimed_at IS NOT NULL OR origin = 'vendor'` on both tables (`DATABASE_SCHEMA.md` §9a.6). No
@@ -1306,7 +1306,7 @@ row created or claimed mid-promote that the stored row already matched can abort
 promote with this race error. The re-push then counts that row as already twinned and
 writes the update.
 
-**The evidenced twin guard (AECI-1088).** Since migration 0048 an evidenced pair can be
+**The evidenced twin guard (AECI-1088).** Since migration 0049 an evidenced pair can be
 vendor-held. A curated write onto the same connector and pair would hit the unique index
 `connector_evidenced_pairs_pair_idx` and fail the whole promote. So promote skips it at plan
 time and reports `VENDOR_OWNED_TWIN` with the vendor pair's id, as above.

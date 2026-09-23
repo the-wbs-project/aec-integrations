@@ -2,7 +2,7 @@
  * The promote ownership fence and twin guard on `connector_evidenced_pairs`
  * (AECI-1088, the AECI-1040 owner carve-out; `REVIEW_APP_PROMOTE_API.md` §4b, §4c).
  *
- * Migration 0048 gave the second anchor table `claimed_at`, `origin`, `retired_at` and
+ * Migration 0049 gave the second anchor table `claimed_at`, `origin`, `retired_at` and
  * `retired_by`. From then on a vendor-held pair (claimed, or `origin = 'vendor'`) gets
  * everything a vendor-held `integrations` row gets from promote:
  *

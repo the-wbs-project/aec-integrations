@@ -28,7 +28,7 @@
 // ─── WHY THE COLUMNS ARE PROBED, NOT ASSUMED ─────────────────────────────────
 //
 // These tools run against DEPLOYED databases, and migrations `0044` (`integrations`)
-// and `0048` (`connector_evidenced_pairs`, AECI-1088) reach each tier
+// and `0049` (`connector_evidenced_pairs`, AECI-1088) reach each tier
 // only when that tier is next deployed. Production can lag `main` by days. A query
 // that names `claimed_at` on a database without the column fails outright, which is
 // "could not check" (exit 2) every day until the promote lands. So each lane reads the
@@ -37,7 +37,7 @@
 // hold a claimed or vendor-created row, so the degraded answer is also the correct one.
 
 /** The two columns the rule reads. `integrations` gained them in migration 0044 and
- *  `connector_evidenced_pairs` in migration 0048 (AECI-1088). */
+ *  `connector_evidenced_pairs` in migration 0049 (AECI-1088). */
 export const VENDOR_HELD_COLUMNS = ['claimed_at', 'origin'];
 
 /**
@@ -87,7 +87,7 @@ export function tableDdlOrThrow(rows, table) {
 
 /**
  * A WHERE-clause suffix that keeps a DELETE off vendor-held rows, or `''` when the
- * table predates its ownership migration (0044 for `integrations`, 0048 for
+ * table predates its ownership migration (0044 for `integrations`, 0049 for
  * `connector_evidenced_pairs`), where no row can be vendor-held. The consumer puts
  * it in the DELETE itself, so a row claimed between the plan and the write survives,
  * and the verify step reports it as a leftover instead of confirming it.

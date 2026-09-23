@@ -4,7 +4,7 @@
 -- ADDITIVE ONLY. Four `ALTER TABLE ... ADD COLUMN` statements and nothing else.
 -- `connector_evidenced_pairs` is NEVER recreated here: it is a cascade parent of
 -- `claims`, and `attestations` cascade from `claims`, so a recreate's DROP deletes
--- both, two levels deep (docs/migrations.md §3.3a). `src/test/migration-0048.spec.ts`
+-- both, two levels deep (docs/migrations.md §3.3a). `src/test/migration-0049.spec.ts`
 -- is the tripwire.
 --
 -- `origin` and `retired_by` carry COLUMN-level CHECKs written by hand, on the 0044 and
