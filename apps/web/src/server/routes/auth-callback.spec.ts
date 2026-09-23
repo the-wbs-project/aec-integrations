@@ -1,9 +1,9 @@
 /**
  * Unit coverage for the Phase 5.4 `/auth/callback` handler (AECI-195):
  * return-path validation (no open redirect), the error → `/auth/login`
- * contract, code→session exchange, defensive profile-ensure (idempotent on
- * the API side; non-fatal here), and that session `Set-Cookie` headers
- * written during the exchange survive onto the redirect response.
+ * contract, code→session exchange, profile-ensure (idempotent on the API side;
+ * retried, then FATAL here since AECI-770), and that session `Set-Cookie`
+ * headers written during the exchange survive onto the redirect response.
  */
 
 import type { SupabaseClient } from '@supabase/supabase-js';
@@ -12,11 +12,13 @@ import { setCookie } from 'hono/cookie';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { WebEnv } from '../../env';
-import type { ServerApiClient } from '../../server-api-client';
+import { ServerApiError, type ServerApiClient } from '../../server-api-client';
 import { submitCount } from '../../server-posthog';
 import {
   createAuthCallbackHandler,
+  isTransientEnsureError,
   normalizeAuthMethod,
+  PROFILE_ENSURE_ATTEMPTS,
   sanitizeReturnPath,
   type AuthCallbackDeps,
 } from './auth-callback';
@@ -89,6 +91,8 @@ function makeHarness(options: {
   ensure?: ServerApiClient['request'];
 }) {
   const exchangeCalls: string[] = [];
+  const signOutCalls: unknown[] = [];
+  const sleeps: number[] = [];
   const ensure =
     options.ensure ?? vi.fn().mockResolvedValue({ created: false } as never as Promise<never>);
 
@@ -115,18 +119,27 @@ function makeHarness(options: {
             }
             return result;
           },
+          // Mimic `signOut({ scope: 'local' })`: the adapter expires the cookie.
+          signOut: async (opts: unknown) => {
+            signOutCalls.push(opts);
+            setCookie(c, 'sb-test-auth-token', '', { path: '/', maxAge: 0 });
+            return { error: null };
+          },
         },
       };
       return client as unknown as SupabaseClient;
     },
     apiFor: () => ({ request: ensure }),
+    sleep: async (ms) => {
+      sleeps.push(ms);
+    },
   };
 
   const app = new Hono<{ Bindings: WebEnv }>();
   app.get('/auth/callback', createAuthCallbackHandler(deps));
   const request = (query: string) =>
     app.request(`/auth/callback${query}`, {}, {} as unknown as WebEnv, fakeExecutionContext());
-  return { request, exchangeCalls, ensure };
+  return { request, exchangeCalls, ensure, signOutCalls, sleeps };
 }
 
 describe('createAuthCallbackHandler', () => {
@@ -189,19 +202,86 @@ describe('createAuthCallbackHandler', () => {
     const res = await request('?code=pkce-123');
     expect(res.headers.get('Location')).toBe('/auth/login?error=auth_not_configured');
   });
+});
 
-  it('treats a profile-ensure failure as non-fatal and still redirects', async () => {
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
-    try {
-      const ensure = vi.fn().mockRejectedValue(new Error('api down'));
-      const { request } = makeHarness({ ensure });
-      const res = await request('?code=pkce-123&return=%2Faccount');
-      expect(res.status).toBe(303);
-      expect(res.headers.get('Location')).toBe('/account');
-      expect(warn).toHaveBeenCalled();
-    } finally {
-      warn.mockRestore();
-    }
+/** The `aeci.auth.profile_ensure` tags recorded this test. */
+function ensureMetrics(): string[][] {
+  return submitCountMock.mock.calls
+    .filter((call) => call[3] === 'aeci.auth.profile_ensure')
+    .map((call) => call[5] as string[]);
+}
+
+const apiError = (status: number) =>
+  new ServerApiError({ status, code: 'X', message: `status ${status}` });
+
+describe('profile-ensure is retried, then fatal (AECI-770)', () => {
+  let error: ReturnType<typeof vi.spyOn>;
+  beforeEach(() => {
+    error = vi.spyOn(console, 'error').mockImplementation(() => {});
+    return () => error.mockRestore();
+  });
+
+  it('retries a transient failure and completes the sign-in when a later attempt succeeds', async () => {
+    const ensure = vi
+      .fn()
+      .mockRejectedValueOnce(new Error('Worker "aeci-api-preview" not found'))
+      .mockRejectedValueOnce(apiError(503))
+      .mockResolvedValue({ created: true });
+    const { request, signOutCalls, sleeps } = makeHarness({ ensure });
+    const res = await request('?code=pkce-123&method=magic_link&return=%2Fvendor');
+
+    expect(res.status).toBe(303);
+    expect(res.headers.get('Location')).toBe('/vendor');
+    expect(res.headers.get('Set-Cookie')).toContain('sb-test-auth-token=session-value');
+    expect(ensure).toHaveBeenCalledTimes(3);
+    expect(sleeps).toEqual([200, 600]);
+    expect(signOutCalls).toHaveLength(0);
+    expect(ensureMetrics()).toEqual([['source:auth-callback', 'outcome:ok', 'attempts:3']]);
+    expect(signinMetrics()).toEqual([{ value: 1, tags: ['method:magic_link', 'outcome:success'] }]);
+  });
+
+  it('signs out and redirects to profile_unavailable when every attempt fails', async () => {
+    const ensure = vi.fn().mockRejectedValue(apiError(503));
+    const { request, signOutCalls } = makeHarness({ ensure });
+    const res = await request('?code=pkce-123&method=google&return=%2Faccount');
+
+    expect(res.status).toBe(303);
+    expect(res.headers.get('Location')).toBe(
+      `/auth/login?error=profile_unavailable&return=${encodeURIComponent('/account')}`,
+    );
+    expect(res.headers.get('Cache-Control')).toBe('private, no-store');
+    // No usable session is handed out: the cookie the exchange set is expired.
+    expect(signOutCalls).toEqual([{ scope: 'local' }]);
+    expect(res.headers.get('Set-Cookie')).toMatch(/sb-test-auth-token=;.*Max-Age=0/);
+    expect(ensure).toHaveBeenCalledTimes(PROFILE_ENSURE_ATTEMPTS);
+    expect(ensureMetrics()).toEqual([
+      ['source:auth-callback', 'outcome:failed', `attempts:${PROFILE_ENSURE_ATTEMPTS}`],
+    ]);
+    expect(signinMetrics()).toEqual([
+      { value: 1, tags: ['method:google', 'outcome:failed', 'reason:profile_unavailable'] },
+    ]);
+    expect(error).toHaveBeenCalled();
+  });
+
+  it('does not retry a 4xx, and still fails closed', async () => {
+    const ensure = vi.fn().mockRejectedValue(apiError(401));
+    const { request, sleeps } = makeHarness({ ensure });
+    const res = await request('?code=pkce-123');
+
+    expect(res.headers.get('Location')).toBe('/auth/login?error=profile_unavailable');
+    expect(ensure).toHaveBeenCalledTimes(1);
+    expect(sleeps).toEqual([]);
+    expect(ensureMetrics()).toEqual([['source:auth-callback', 'outcome:failed', 'attempts:1']]);
+  });
+
+  it.each([
+    [new Error('binding not connected'), true],
+    [apiError(500), true],
+    [apiError(503), true],
+    [apiError(401), false],
+    [apiError(429), false],
+  ])('classifies %s as transient=%s', (err, expected) => {
+    expect(isTransientEnsureError(err)).toBe(expected);
   });
 });
 

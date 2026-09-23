@@ -20,6 +20,7 @@ import { resolveClaimantIdentity } from './lib/claimant-identity';
 import { sendClaimDecisionEmail, sendSeatInvite } from './lib/email';
 import { pushRequestResolutionToLinear } from './lib/linear';
 import { requireReviewAppAuth } from './lib/review-auth';
+import { healMissingProfile } from './lib/profile-provisioning';
 import { requireUserAuth } from './lib/user-auth';
 import type { UserAuthVariables } from './lib/user-auth';
 import {
@@ -438,7 +439,16 @@ app.route('/', authReviews);
 // erasure must bypass a ban (would need an `allowBanned` middleware seam).
 const authAccount = new Hono<{ Bindings: Env; Variables: AuthzVariables }>();
 authAccount.onError(errorHandler());
-authAccount.get('/api/account', requireAuth(), createGetAccountHandler());
+// AECI-770: the ONLY guard with the self-heal hook. The header's `RoleStatus`
+// probes this on every signed-in page view, so a user whose first-sign-in
+// profile-ensure failed gets their `profiles` row here on the next page load,
+// and a failure that persists answers 503 `PROFILE_UNAVAILABLE` instead of a 401.
+// Every other `requireAuth()` stays strict.
+authAccount.get(
+  '/api/account',
+  requireAuth({ onMissingProfile: healMissingProfile() }),
+  createGetAccountHandler(),
+);
 authAccount.get('/api/account/reviews', requireAuth(), createGetAccountReviewsHandler());
 authAccount.patch('/api/account', requireAuth(), rateLimit('write'), createUpdateAccountHandler());
 // AECI-773: `DELETE /api/account` is DELIBERATELY NOT rate-limited. Erasure is a

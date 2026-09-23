@@ -990,7 +990,8 @@ extension is **not** an integration, so no `integration_count` expression reads 
 > the authoritative `profiles` row lives in **D1**, so the triggers described below are
 > **vestigial** (`AUTH_AND_RLS.md` §8.1): they maintain the Supabase Postgres
 > `public.profiles` mirror, which the app never reads. The **primary** creator is
-> `POST /api/auth/profile/ensure` (split-identity seam #1, `AUTH_AND_RLS.md` §3.1), and
+> `POST /api/auth/profile/ensure` (split-identity seam #1, `AUTH_AND_RLS.md` §3.1), with a
+> self-heal on `GET /api/account` since AECI-770 (`AUTH_AND_RLS.md` §3.1a), and
 > erasure deletes the D1 row in the Worker plus the `auth.users` row via the Admin API
 > (seam #3). The DDL below is Postgres notation; the source of truth is
 > `apps/api/src/db/schema.ts`.

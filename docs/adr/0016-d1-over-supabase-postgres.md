@@ -175,6 +175,9 @@ batch commits via `ctx.waitUntil`.
   backstop (`auth-profile.ts`) becomes the **primary** profile creator: an
   idempotent D1 upsert on first authenticated request, optionally fronted by a
   Supabase Auth Hook on signup. No DB-level FK/trigger required.
+  *Amended 2026-09-23 (AECI-770):* the callback's call to it was non-fatal, which
+  left users signed in with no row. It is now retried and fatal at sign-in, and
+  `GET /api/account` self-heals a missing row. `AUTH_AND_RLS.md` §3.1a.
 - **Seam #2 — `auth.users` email reads.** Replaced by a Supabase **Admin API**
   call (service-role key, auth project only), degrading to `null` on failure
   exactly as today.

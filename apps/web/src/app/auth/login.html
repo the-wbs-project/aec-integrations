@@ -95,6 +95,16 @@
   >
     Sign-in is temporarily unavailable. Please try again later.
   </p>
+  } @if (profileUnavailable) {
+  <!-- AECI-770: the callback signed the visitor out because their profile could not be created. -->
+  <p
+    class="mt-8 rounded-(--radius-md) border border-(--border-default) bg-(--surface-raised) px-4 py-3 text-sm font-medium text-(--text-primary)"
+    role="alert"
+    i18n="@@auth.login.profileUnavailable"
+  >
+    We couldn't finish setting up your account, so you're not signed in yet. This is on our side.
+    Wait a minute, then sign in again.
+  </p>
   }
 
   <!-- ── Google ───────────────────────────────────────────────────────── -->
