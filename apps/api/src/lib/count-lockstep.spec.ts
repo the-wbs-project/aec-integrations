@@ -1072,8 +1072,19 @@ describe('a retired row counts nowhere, on either arm (AECI-1010, AECI-1091 / §
       if (site.definitions) {
         const defs = windowAfter(source, site.definitions);
         expect(defs, `${site.id}: definitions marker not found`).not.toBeNull();
+        // The line that ASSIGNS each arm's filter must hold the predicate itself, probed
+        // on that arm's own table. Matching the name alone let an emptied definition
+        // (`const evidencedLiveFilter = ''`) pass (AECI-1091 re-review).
+        const assigns: Record<Arm, RegExp> = {
+          integrations:
+            /const liveFilter = ddlHasColumn\(integrationsDdl, 'retired_at'\).*retired_at IS NULL/,
+          evidenced:
+            /const evidencedLiveFilter = ddlHasColumn\(pairsDdl, 'retired_at'\).*retired_at IS NULL/,
+        };
         for (const arm of site.arms) {
-          expect(windowHasArm(defs!, arm), `${site.id}: ${arm} filter not defined`).toBe(true);
+          expect(defs!, `${site.id}: ${arm} filter not defined with its predicate`).toMatch(
+            assigns[arm],
+          );
         }
       }
       if (site.proof === 'excluded') {
