@@ -33,10 +33,12 @@
  * The guarded `UPDATE … WHERE built_by_vendor_id = <caller> AND claimed_at IS NOT
  * NULL AND retired_at IS NULL` (changed columns, §13.9's maintenance transfer,
  * `updated_at`), `ownerWriteSentinel` right after it, the `integration.updated`
- * audit row (`reason: 'owner-edit'`, plus `table: 'connector_evidenced_pairs'`), and
- * one `notification.sent` row (`kind: 'integration_update'`) per vendor of either
- * endpoint other than the owner. `entity_type` is `integration`, as promote writes
- * it for an evidenced pair.
+ * audit row (`reason: 'owner-edit'`, `entity_type` `connector_evidenced_pair`, as
+ * promote and the AECI-1089 claim write it for this table), and one
+ * `notification.sent` row (`kind: 'integration_update'`, `entity_type`
+ * `integration`, like the claim's notification) per vendor of either endpoint other
+ * than the owner. The `updated_at` bump moves the owner's owned-rows freshness
+ * cursor (`routes/vendor-updates.ts`, AECI-1089).
  *
  * ── 5. AFTER COMMIT ─────────────────────────────────────────────────────────
  * A by-id Algolia sync of the record (the integrations index holds evidenced pairs
@@ -249,7 +251,8 @@ export async function editEvidencedPair(
     {
       ...actor,
       action: INTEGRATION_UPDATED_ACTION,
-      entityType: 'integration',
+      // The entity vocabulary promote and the AECI-1089 claim write for this table.
+      entityType: 'connector_evidenced_pair',
       entityId: pairId,
       beforeState,
       afterState,
@@ -258,8 +261,6 @@ export async function editEvidencedPair(
         vendorId,
         reason: 'owner-edit',
         fields: changed,
-        // Which anchor table the row is in, as promote records a cross-table move.
-        table: 'connector_evidenced_pairs',
         ...(isMaintenanceTransfer(pair) ? { maintenanceTransfer: true } : {}),
       },
     },

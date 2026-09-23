@@ -404,13 +404,13 @@ describe('a connector_evidenced_pairs row (AECI-1090)', () => {
     expect(after.updatedAt).not.toBe(CLAIMED_AT);
   });
 
-  it('writes the same integration.updated audit row, naming the table, in the batch', async () => {
+  it('writes the integration.updated audit row with the pair entity type, in the batch', async () => {
     await edit(AUTH_C, E_OWNED, { name: 'Renamed pair' });
     const rows = await updateAudits();
     expect(rows).toHaveLength(1);
     expect(rows[0]).toMatchObject({
       actorId: AUTH_C.userId,
-      entityType: 'integration',
+      entityType: 'connector_evidenced_pair',
       entityId: E_OWNED,
     });
     expect(rows[0]!.beforeState).toMatchObject({ name: 'Revit and MicroStation via Agave' });
@@ -420,7 +420,6 @@ describe('a connector_evidenced_pairs row (AECI-1090)', () => {
       vendorId: VENDOR_C,
       reason: 'owner-edit',
       fields: ['name'],
-      table: 'connector_evidenced_pairs',
       maintenanceTransfer: true,
     });
   });
