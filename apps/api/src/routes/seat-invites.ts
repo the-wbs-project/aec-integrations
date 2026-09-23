@@ -51,7 +51,11 @@ import { auditActorType, type AuthzVariables } from '../lib/authz';
 import type { BatchTuple } from '../lib/audit';
 import { validateResponseInDev, type DbFactory } from '../lib/handler-utils';
 import { computeDomainMatch } from '../lib/domain-match';
-import { planSeatGrantReturn } from '../lib/vendor-handback';
+import {
+  isSeatsChangedError,
+  planSeatGrantReturn,
+  seatsChangedError,
+} from '../lib/vendor-handback';
 import { acceptInviteStatements, inviteRedeemState } from '../lib/vendor-seat-invites';
 import { afterVendorWrite } from './vendor-shared';
 
@@ -218,7 +222,15 @@ export function createAcceptSeatInviteHandler(
       },
       auth.userId,
     );
-    await db.batch([...batch.stmts, ...(returned?.stmts ?? [])] as BatchTuple);
+    // AECI-1092 reconciliation: a return of a contest on a connector-powered row carries
+    // `ownerEntitlementActiveSentinel`. An entitlement clear that commits first aborts
+    // the batch, and the caller retries against the cleared state.
+    try {
+      await db.batch([...batch.stmts, ...(returned?.stmts ?? [])] as BatchTuple);
+    } catch (error) {
+      if (returned?.entitlementGuarded && isSeatsChangedError(error)) throw seatsChangedError();
+      throw error;
+    }
     // Post-commit forward (§26.5). No cache tags: a seat change renders on no
     // cacheable page — the portal is `private, no-store` by the fail-closed
     // classifier, and `vendors.verified` is untouched by design (§8.3(2)).

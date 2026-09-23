@@ -2588,7 +2588,11 @@ The three actions:
   `open → open` workflow transition. A guard first in those statements aborts the batch if
   that set of contests changed after the handler read it (its count and newest `updated_at`); the handler re-plans and retries
   once, then answers `409 CONTEST_INTEGRATION_CHANGED` with nothing written
-  (`STAGE_2_VENDOR_PORTAL_SPEC.md` §11b.13).
+  (`STAGE_2_VENDOR_PORTAL_SPEC.md` §11b.13). **Reconciled with AECI-989:** the same batch
+  clears `owner_seat_lapsed_at` on the vendor's open stamped AECi contests on
+  connector-powered rows (`integration.contest.seat_stamp_cleared`,
+  `metadata.reason: 'entitlement-cleared'`), so a later seat grant or unban cannot send them
+  back, and the guard fingerprints that stamped set too.
 
 One atomic `db.batch` carries the entitlement row, the guarded `vendors.verified` +
 `updated_at` flip, and the `audit_log` row (`vendor_entitlement.set` / `.renewed` /
@@ -3008,7 +3012,15 @@ unbanned `vendor_admin` re-routes its open owner contests to AECi in the same ba
 stamped with `owner_seat_lapsed_at` (`integration.contest.rerouted`,
 `metadata.reason = 'owner-seat-lapsed'`, an `open → open` transition each). An unban of a
 vendor seat routes every stamped open contest back to the owner, when the row is live and
-claimed by that vendor since before the stamp (`reason = 'owner-seat-restored'`). A ban
+claimed by that vendor since before the stamp (`reason = 'owner-seat-restored'`).
+A connector-powered row adds two conditions (AECI-1092, reconciled with AECI-989 on
+2026-09-23): the owner must also hold an active entitlement, and a `mechanism_kind` contest
+never goes to the owner. A contest that fails either is not returned. It stays with AECi and
+its stamp clears (`integration.contest.seat_stamp_cleared`,
+`metadata.reason = 'owner-may-not-decide'`), so no later seat event returns it. A return of
+a contest on a connector-powered row carries the owner-entitlement sentinel, so a
+return that loses a race with an entitlement clear writes nothing and answers
+`409 VENDOR_SEATS_CHANGED` (`STAGE_2_VENDOR_PORTAL_SPEC.md` §11b.13). A ban
 hands nothing back: `claimed_at` and `maintained_by` are untouched, and there is still no
 cache purge. The response shape is unchanged (`STAGE_2_ATTESTATIONS_SPEC.md` §13.9). A
 vendor-seat ban or unban whose batch lost a race answers `409 VENDOR_SEATS_CHANGED` and
@@ -5920,6 +5932,8 @@ Stage 2 (AECI-1008, `STAGE_2_VENDOR_PORTAL_SPEC.md` §11b). An endpoint vendor t
 **Submit order: authority → owner → shape → value → duplicate.** A caller owning neither endpoint, or an unknown id, gets the same `404` before the body is read. The owner gets `403 CONTEST_OWN_INTEGRATION`. Then `400 VALIDATION_FAILED` for the body shape, `422 CONTEST_INVALID_VALUE` or `422 CONTEST_NO_CHANGE` for the value, and `409 CONTEST_DUPLICATE` for a second open contest on the same field.
 
 **Routing (AECI-989).** A content contest on a claimed row routes to the owner, unless the owner vendor has no unbanned `vendor_admin` seat. Then it routes to `aeci`, is stamped so it routes back when the vendor has an unbanned seat again (an unban or a new seat grant), and the owner gets no notice. The wire shape is unchanged (`STAGE_2_VENDOR_PORTAL_SPEC.md` §11b.4).
+
+**Routing on a connector-powered row, reconciled with AECI-989 (AECI-1092, 2026-09-23).** A contest routes to the owner only when the owner has an unbanned `vendor_admin` seat AND an active entitlement, and a `mechanism_kind` contest never does (rulings A and E). The stamp is set only when the missing seat is the one reason the contest went to AECi. A contest ruling A or E sent there is AECi's for good (`STAGE_2_VENDOR_PORTAL_SPEC.md` §11b.13).
 
 ```typescript
 export const SubmitIntegrationContestSchema = z.object({

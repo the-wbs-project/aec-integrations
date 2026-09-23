@@ -31,7 +31,7 @@ import {
 } from '@aeci/shared';
 import type { AuditLogEntry } from '@aeci/shared/audit-log';
 import { PAID_TIERS, tierFor } from '@aeci/shared/entitlements';
-import { and, eq, inArray, or, sql, type SQL } from 'drizzle-orm';
+import { and, eq, inArray, isNotNull, or, sql, type SQL } from 'drizzle-orm';
 
 import type { Db } from '../db/client';
 import {
@@ -450,8 +450,27 @@ export async function planEntitlementClearReroute(
         eq(integrationFieldChallenges.status, 'open'),
       ),
     );
+  // AECI-1092 reconciliation with AECI-989: contests a seat lapse already moved to
+  // AECi for this owner, stamped so a seat event would send them back. On a
+  // connector-powered row the owner can no longer decide them, so the clear makes
+  // them AECi's for good by clearing the stamp.
+  const stamped = await db
+    .select()
+    .from(integrationFieldChallenges)
+    .where(
+      and(
+        eq(integrationFieldChallenges.routedTo, 'aeci'),
+        eq(integrationFieldChallenges.ownerVendorId, vendorId),
+        eq(integrationFieldChallenges.status, 'open'),
+        isNotNull(integrationFieldChallenges.ownerSeatLapsedAt),
+      ),
+    );
   const integrationIds = [
-    ...new Set(open.map((row) => row.integrationId).filter((id): id is string => id !== null)),
+    ...new Set(
+      [...open, ...stamped]
+        .map((row) => row.integrationId)
+        .filter((id): id is string => id !== null),
+    ),
   ];
   // Chunked: D1 caps bound parameters per statement, and a vendor may have more open
   // owner-routed contests than that (review finding, AECI-1092).
@@ -470,11 +489,11 @@ export async function planEntitlementClearReroute(
     )
   ).flat();
   const poweredIds = new Set(powered.filter(isConnectorPoweredEdge).map((row) => row.id));
-  const moving = open.filter(
-    (row) =>
-      row.evidencedPairId !== null ||
-      (row.integrationId !== null && poweredIds.has(row.integrationId)),
-  );
+  const onPoweredRow = (row: ContestRow): boolean =>
+    row.evidencedPairId !== null ||
+    (row.integrationId !== null && poweredIds.has(row.integrationId));
+  const moving = open.filter(onPoweredRow);
+  const unstamping = stamped.filter(onPoweredRow);
   const reroute = rerouteToAeciStatements(
     db,
     moving,
@@ -488,23 +507,95 @@ export async function planEntitlementClearReroute(
   // count, and the newest `updated_at`. A contest that joins the set is newer than
   // everything read (it is inserted after the read), and one that leaves it changes
   // the count unless another joins, which moves the maximum.
-  const newest = open.reduce<string | null>(
-    (max, row) => (max === null || row.updatedAt > max ? row.updatedAt : max),
-    null,
-  );
+  const newestOf = (rows: readonly ContestRow[]) =>
+    rows.reduce<string | null>(
+      (max, row) => (max === null || row.updatedAt > max ? row.updatedAt : max),
+      null,
+    );
+  const newest = newestOf(open);
   const scope = sql`"routed_to" = 'owner' AND "owner_vendor_id" = ${vendorId} AND "status" = 'open'`;
+  // The same fingerprint over the stamped set (AECI-1092 reconciliation): a seat
+  // lapse or return committing in between changes one of the two, and the clear
+  // re-plans.
+  const newestStamped = newestOf(stamped);
+  const stampedScope = sql`"routed_to" = 'aeci' AND "owner_vendor_id" = ${vendorId} AND "status" = 'open' AND "owner_seat_lapsed_at" IS NOT NULL`;
   const guard = db
     .select({
       guard: sql`CASE WHEN (SELECT count(*) FROM "integration_field_challenges" WHERE ${scope}) <> ${open.length}
           OR ifnull((SELECT max("updated_at") FROM "integration_field_challenges" WHERE ${scope}), '') <> ${newest ?? ''}
+          OR (SELECT count(*) FROM "integration_field_challenges" WHERE ${stampedScope}) <> ${stamped.length}
+          OR ifnull((SELECT max("updated_at") FROM "integration_field_challenges" WHERE ${stampedScope}), '') <> ${newestStamped ?? ''}
         THEN json('contest-reroute-changed') END`,
     })
     .from(ONE_ROW);
+  const unstamp = clearSeatStamp(db, unstamping, actor, now, {
+    reason: 'entitlement-cleared',
+    ownerVendorId: vendorId,
+  });
   return {
-    stmts: [guard, ...reroute.stmts],
-    audits: reroute.audits,
+    stmts: [guard, ...reroute.stmts, ...unstamp.stmts],
+    audits: [...reroute.audits, ...unstamp.audits],
     rerouted: moving.length,
   };
+}
+
+// ─── The seat-lapse stamp (AECI-989, reconciled by AECI-1092) ───────────────
+
+/** The audit action for clearing `owner_seat_lapsed_at` without a re-route: the
+ *  contest stays with AECi, and stops being one a seat event can send back. */
+export const SEAT_STAMP_CLEARED_ACTION = 'integration.contest.seat_stamp_cleared';
+
+/**
+ * Clear `owner_seat_lapsed_at` on stamped OPEN AECi contests, so no seat event can
+ * route them back: each is AECi's for good (`STAGE_2_VENDOR_PORTAL_SPEC.md` §11b.13,
+ * "Reconciled with AECI-989"). A guarded UPDATE per contest (still open, still with
+ * AECi, still stamped) and an audit row naming why. `updated_at` moves, so the
+ * submitter's `contests` cursor sees it. No workflow transition: the state and the
+ * decider both hold.
+ *
+ * Three callers: the seat return, for a contest its owner may not decide
+ * (`lib/vendor-handback.ts`); the entitlement clear (ruling B, below); and the accept
+ * that makes a row connector-powered (`routes/admin-contests.ts`).
+ */
+export function clearSeatStamp(
+  db: Db,
+  contests: readonly ContestRow[],
+  actor: { actorId: string; actorType: AuditLogEntry['actorType'] },
+  now: string,
+  extra: { reason: string; source?: string } & Record<string, unknown>,
+): { stmts: BatchStmt[]; audits: AuditLogEntry[] } {
+  const stmts: BatchStmt[] = [];
+  const audits: AuditLogEntry[] = [];
+  for (const contest of contests) {
+    stmts.push(
+      db
+        .update(integrationFieldChallenges)
+        .set({ ownerSeatLapsedAt: null, updatedAt: now })
+        .where(
+          and(
+            eq(integrationFieldChallenges.id, contest.id),
+            eq(integrationFieldChallenges.status, 'open'),
+            eq(integrationFieldChallenges.routedTo, 'aeci'),
+            isNotNull(integrationFieldChallenges.ownerSeatLapsedAt),
+          ),
+        ),
+    );
+    audits.push({
+      ...actor,
+      action: SEAT_STAMP_CLEARED_ACTION,
+      entityType: CONTEST_ENTITY_TYPE,
+      entityId: contest.id,
+      beforeState: { routed_to: 'aeci', owner_seat_lapsed_at: contest.ownerSeatLapsedAt },
+      afterState: { routed_to: 'aeci', owner_seat_lapsed_at: null },
+      metadata: {
+        source: 'admin-moderation',
+        contestId: contest.id,
+        ...anchorMetadata(contestAnchorOf(contest)),
+        ...extra,
+      },
+    });
+  }
+  return { stmts, audits };
 }
 
 // ─── Re-routing open owner contests to AECi ─────────────────────────────────
@@ -541,7 +632,9 @@ export function rerouteToAeciStatements(
     stmts.push(
       db
         .update(integrationFieldChallenges)
-        .set({ routedTo: 'aeci', updatedAt: now })
+        // `owner_seat_lapsed_at` is cleared explicitly (AECI-1092 reconciliation): a
+        // contest this moves is AECi's for good, never one a seat event returns.
+        .set({ routedTo: 'aeci', ownerSeatLapsedAt: null, updatedAt: now })
         .where(
           and(
             eq(integrationFieldChallenges.id, contest.id),

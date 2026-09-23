@@ -126,7 +126,11 @@ import {
   selectProductRoleGroups,
 } from '../lib/vendor-product-roles';
 import { EMPTY_OWNED_INTEGRATIONS, loadOwnedIntegrations } from '../lib/vendor-owned-integrations';
-import { planSeatGrantReturn } from '../lib/vendor-handback';
+import {
+  isSeatsChangedError,
+  planSeatGrantReturn,
+  seatsChangedError,
+} from '../lib/vendor-handback';
 import {
   activateEntitlementStatements,
   loadEntitlement,
@@ -570,13 +574,24 @@ async function approveClaim(
   // ONE batch. The seat, the request resolve, the workflow, the entitlement row,
   // the mirror flip and both audit rows commit or roll back together (§26.1).
   // AECI-989: a new active seat returns the contests a ban moved to AECi.
+  // The grant activates the entitlement in this same batch, which the return's
+  // pre-batch read cannot see (AECI-1092 reconciliation).
   const returned = await planSeatGrantReturn(
     db,
     { vendorId: vendor.id, actorId, actorType, now: resolvedAt, source: CLAIM_AUDIT_SOURCE },
     userId,
+    { entitledAfterBatch: true },
   );
 
-  await db.batch([...grant.stmts, ...ent.stmts, ...(returned?.stmts ?? [])] as BatchTuple);
+  // AECI-1092 reconciliation: a return of a contest on a connector-powered row carries
+  // `ownerEntitlementActiveSentinel`. An entitlement clear that commits first aborts
+  // the batch, and the caller retries against the cleared state.
+  try {
+    await db.batch([...grant.stmts, ...ent.stmts, ...(returned?.stmts ?? [])] as BatchTuple);
+  } catch (error) {
+    if (returned?.entitlementGuarded && isSeatsChangedError(error)) throw seatsChangedError();
+    throw error;
+  }
   emitClaimModeration(c, 'approve', 'ok');
 
   // Resolve the claimed target's display name up front — reused by the email

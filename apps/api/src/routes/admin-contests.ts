@@ -70,7 +70,7 @@ import {
 } from '@aeci/shared';
 import type { AuditLogEntry } from '@aeci/shared/audit-log';
 import type { WorkflowTransitionEntry } from '@aeci/shared/workflow-transition';
-import { and, asc, count, desc, eq, inArray, sql } from 'drizzle-orm';
+import { and, asc, count, desc, eq, inArray, isNotNull, sql } from 'drizzle-orm';
 import type { Context } from 'hono';
 
 import { getDb, type Db } from '../db/client';
@@ -105,6 +105,7 @@ import {
   loadContestTarget,
   rerouteToAeciStatements,
   ownerEntitlementActiveSentinel,
+  clearSeatStamp,
   vendorHoldsActiveEntitlement,
   type ContestAnchor,
   CONTEST_ENTITY_TYPE,
@@ -592,6 +593,11 @@ async function rerouteOwnerContests(
  *  - every other open owner-routed contest when the owner holds no active entitlement
  *    (ruling B: deciding is an owner write, and ruling E would have sent them to AECi).
  *
+ * Contests a seat lapse already moved to AECi on this row (stamped with
+ * `owner_seat_lapsed_at`, AECI-989) take the same two rules: a `mechanism_kind` one
+ * always, and every other one when the owner holds no active entitlement, lose the
+ * stamp, so no seat event can send them back (AECI-1092 reconciliation, §11b.13).
+ *
  * An entitled owner keeps its content contests, as ruling B allows. Those rows get an
  * `updated_at` touch (the DB clock at commit) in the same batch, and `ownerEntitlementActiveSentinel` guards
  * the batch: a clear committing first aborts this accept, and a clear that planned
@@ -620,10 +626,31 @@ async function rerouteOnBecomingConnectorPowered(
         ),
       )
   ).filter((contest) => contest.id !== deciding.id);
-  if (open.length === 0) return;
+  const stamped = (
+    await db
+      .select()
+      .from(integrationFieldChallenges)
+      .where(
+        and(
+          contestAnchorWhere(anchor),
+          eq(integrationFieldChallenges.routedTo, 'aeci'),
+          eq(integrationFieldChallenges.ownerVendorId, ownerVendorId),
+          eq(integrationFieldChallenges.status, 'open'),
+          isNotNull(integrationFieldChallenges.ownerSeatLapsedAt),
+        ),
+      )
+  ).filter((contest) => contest.id !== deciding.id);
+  if (open.length === 0 && stamped.length === 0) return;
   const entitled = await vendorHoldsActiveEntitlement(db, ownerVendorId);
   const moving = entitled ? open.filter((c) => c.field === 'mechanism_kind') : open;
   const staying = open.filter((c) => !moving.includes(c));
+  const unstamping = entitled ? stamped.filter((c) => c.field === 'mechanism_kind') : stamped;
+  const unstamp = clearSeatStamp(db, unstamping, actor, now, {
+    reason: 'became-connector-powered',
+    reroutedBy: deciding.id,
+  });
+  stmts.push(...unstamp.stmts);
+  audits.push(...unstamp.audits);
   const reroute = rerouteToAeciStatements(
     db,
     moving,

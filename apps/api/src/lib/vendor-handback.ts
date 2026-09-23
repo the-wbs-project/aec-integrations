@@ -92,7 +92,14 @@ import { VENDOR_ADMIN_ROLE } from './claimed-vendors';
 import { liveAttestationsWhere } from './drizzle-helpers';
 import { ONE_ROW } from './integration-claims';
 import { isConnectorPoweredEdge } from './connector-powered';
-import { CONTEST_ENTITY_TYPE } from './integration-contests';
+import {
+  anchorMetadata,
+  clearSeatStamp,
+  CONTEST_ENTITY_TYPE,
+  contestAnchorOf,
+  ownerEntitlementActiveSentinel,
+  vendorHoldsActiveEntitlement,
+} from './integration-contests';
 
 /** Who is acting. The admin on the revoke and the ban. */
 export interface HandbackActor {
@@ -114,6 +121,13 @@ export interface HandbackBatch {
   audits: AuditLogEntry[];
   transitions: WorkflowTransitionEntry[];
   purgeTags: string[];
+  /**
+   * True when the batch returns a contest on a connector-powered row, and so carries
+   * `ownerEntitlementActiveSentinel`. A clear that commits first aborts the batch
+   * with the same malformed-JSON error the seat sentinels raise, which the seat
+   * writers answer as `409 VENDOR_SEATS_CHANGED` (AECI-1092 reconciliation).
+   */
+  entitlementGuarded?: boolean;
 }
 
 /** `metadata.reason` on the un-claim row. The marker flips keep
@@ -125,6 +139,11 @@ export const SEAT_LAPSE_REASON = 'owner-seat-lapsed';
 
 /** `metadata.reason` on a contest the unban moves back to its owner. */
 export const SEAT_RETURN_REASON = 'owner-seat-restored';
+
+/** `metadata.reason` on a stamped contest the return keeps at AECi for good,
+ *  because its owner may not decide it on a connector-powered row (AECI-1092
+ *  reconciliation with AECI-989). */
+export const SEAT_RETURN_WITHHELD_REASON = 'owner-may-not-decide';
 
 const MAINTENANCE_REASON = 'maintenance-marker';
 
@@ -623,34 +642,111 @@ export async function planOwnerSeatLapse(db: Db, p: HandbackParams): Promise<Han
 
 // ─── 3. The seat return ──────────────────────────────────────────────────────
 
-export async function planOwnerSeatReturn(db: Db, p: HandbackParams): Promise<HandbackBatch> {
+export interface SeatReturnOptions {
+  /**
+   * The caller's own batch makes the vendor's entitlement active (the claim grant,
+   * `PATCH /api/admin/claims/:id`, activates it beside the seat). The pre-batch read
+   * cannot see that, so the caller says so.
+   */
+  entitledAfterBatch?: boolean;
+}
+
+/**
+ * Route stamped contests back to the owner, under the AECI-1092 reconciliation
+ * (`STAGE_2_VENDOR_PORTAL_SPEC.md` §11b.13, "Reconciled with AECI-989"): a contest
+ * returns to the owner only when the owner has an unbanned seat (the caller's event)
+ * AND, on a connector-powered row, an active entitlement. A `mechanism_kind`
+ * contest on a connector-powered row never returns (ruling A). A stamped contest
+ * that fails those tests stays with AECi and loses its stamp, so no later seat
+ * event can send it back.
+ *
+ * Both anchors: an `integrations` row, and since AECI-1092 a
+ * `connector_evidenced_pairs` row, which is connector-powered by construction. The
+ * "claimed by this vendor since before the stamp" rule is AECI-989's, on either table.
+ */
+export async function planOwnerSeatReturn(
+  db: Db,
+  p: HandbackParams,
+  opts: SeatReturnOptions = {},
+): Promise<HandbackBatch> {
   const batch = emptyBatch();
   const actor = { actorId: p.actorId, actorType: p.actorType };
-  const stamped = await db
-    .select({ contest: integrationFieldChallenges })
+  const stampedOpen = and(
+    eq(integrationFieldChallenges.ownerVendorId, p.vendorId),
+    eq(integrationFieldChallenges.routedTo, 'aeci'),
+    eq(integrationFieldChallenges.status, 'open'),
+    isNotNull(integrationFieldChallenges.ownerSeatLapsedAt),
+  );
+  const onIntegrations = await db
+    .select({
+      contest: integrationFieldChallenges,
+      poweredByProductId: integrations.poweredByProductId,
+      mechanismKind: integrations.mechanismKind,
+    })
     .from(integrationFieldChallenges)
     .innerJoin(integrations, eq(integrations.id, integrationFieldChallenges.integrationId))
     .where(
       and(
-        eq(integrationFieldChallenges.ownerVendorId, p.vendorId),
-        eq(integrationFieldChallenges.routedTo, 'aeci'),
-        eq(integrationFieldChallenges.status, 'open'),
-        isNotNull(integrationFieldChallenges.ownerSeatLapsedAt),
+        stampedOpen,
         eq(integrations.builtByVendorId, p.vendorId),
         isNotNull(integrations.claimedAt),
         isNull(integrations.retiredAt),
         sql`${integrationFieldChallenges.ownerSeatLapsedAt} >= ${integrations.claimedAt}`,
       ),
     );
-  for (const { contest } of stamped) {
-    rerouteContest(db, batch, actor, contest, p.now, {
-      to: 'owner',
-      stamp: null,
-      reason: SEAT_RETURN_REASON,
-      transitionReason: 'owner seat restored: routed back to the owner',
-      source: p.source,
-    });
+  const onPairs = await db
+    .select({ contest: integrationFieldChallenges })
+    .from(integrationFieldChallenges)
+    .innerJoin(
+      connectorEvidencedPairs,
+      eq(connectorEvidencedPairs.id, integrationFieldChallenges.evidencedPairId),
+    )
+    .where(
+      and(
+        stampedOpen,
+        eq(connectorEvidencedPairs.builtByVendorId, p.vendorId),
+        isNotNull(connectorEvidencedPairs.claimedAt),
+        isNull(connectorEvidencedPairs.retiredAt),
+        sql`${integrationFieldChallenges.ownerSeatLapsedAt} >= ${connectorEvidencedPairs.claimedAt}`,
+      ),
+    );
+  const candidates = [
+    ...onIntegrations.map((row) => ({
+      contest: row.contest,
+      connectorPowered: isConnectorPoweredEdge(row),
+    })),
+    ...onPairs.map((row) => ({ contest: row.contest, connectorPowered: true })),
+  ];
+  const needsEntitlement = candidates.some(
+    (row) => row.connectorPowered && row.contest.field !== 'mechanism_kind',
+  );
+  const entitled =
+    opts.entitledAfterBatch === true ||
+    (needsEntitlement && (await vendorHoldsActiveEntitlement(db, p.vendorId)));
+
+  for (const { contest, connectorPowered } of candidates) {
+    const ownerMayDecide = !connectorPowered || (contest.field !== 'mechanism_kind' && entitled);
+    if (ownerMayDecide) {
+      if (connectorPowered) batch.entitlementGuarded = true;
+      rerouteContest(db, batch, actor, contest, p.now, {
+        to: 'owner',
+        stamp: null,
+        reason: SEAT_RETURN_REASON,
+        transitionReason: 'owner seat restored: routed back to the owner',
+        source: p.source,
+      });
+    } else {
+      const cleared = clearSeatStamp(db, [contest], actor, p.now, {
+        reason: SEAT_RETURN_WITHHELD_REASON,
+        source: p.source,
+      });
+      batch.stmts.push(...cleared.stmts);
+      batch.audits.push(...cleared.audits);
+    }
   }
+  // Ruling B's guard on the return: a clear that commits between the read above and
+  // this batch aborts it, and the retry keeps those contests with AECi.
+  if (batch.entitlementGuarded) batch.stmts.push(ownerEntitlementActiveSentinel(db, p.vendorId));
   return sealed(batch, db);
 }
 
@@ -672,13 +768,14 @@ export async function planSeatGrantReturn(
   db: Db,
   p: HandbackParams,
   seatUserId: string,
+  opts: SeatReturnOptions = {},
 ): Promise<HandbackBatch | null> {
   const seat = await db.query.profiles.findFirst({
     columns: { bannedAt: true },
     where: eq(profiles.id, seatUserId),
   });
   if (seat?.bannedAt) return null;
-  const batch = await planOwnerSeatReturn(db, p);
+  const batch = await planOwnerSeatReturn(db, p, opts);
   return batch.stmts.length > 0 ? batch : null;
 }
 
@@ -709,7 +806,7 @@ function rerouteContest(
   const metadata = {
     source: move.source,
     contestId: contest.id,
-    integrationId: contest.integrationId,
+    ...anchorMetadata(contestAnchorOf(contest)),
     reason: move.reason,
   };
   batch.stmts.push(
@@ -721,6 +818,9 @@ function rerouteContest(
           eq(integrationFieldChallenges.id, contest.id),
           eq(integrationFieldChallenges.status, 'open'),
           eq(integrationFieldChallenges.routedTo, from),
+          // A return needs the stamp still set: an entitlement clear or a
+          // connector-making accept that cleared it made the contest AECi's for good.
+          ...(move.to === 'owner' ? [isNotNull(integrationFieldChallenges.ownerSeatLapsedAt)] : []),
         ),
       ),
   );

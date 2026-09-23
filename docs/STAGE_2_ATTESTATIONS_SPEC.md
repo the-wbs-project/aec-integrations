@@ -2558,7 +2558,7 @@ while the vendor has no unbanned `vendor_admin`:
   (`planOwnerSeatLapse`).
 - **New contests route there too.** The contest submit routes to AECi, stamped, when the
   owner has no unbanned seat, and sends the owner no notice.
-- **They route back as soon as the vendor has an unbanned seat again** (`planOwnerSeatReturn`, `reason = 'owner-seat-restored'`, ruled 2026-09-23). That is an unban, or a new seat grant by any of the three seat writers: the admin provision, the claim grant and the invite redeem (`planSeatGrantReturn`). A new seat whose own profile is banned returns nothing.
+- **They route back as soon as the vendor has an unbanned seat again** (`planOwnerSeatReturn`, `reason = 'owner-seat-restored'`, ruled 2026-09-23). That is an unban, or a new seat grant by any of the three seat writers: the admin provision, the claim grant and the invite redeem (`planSeatGrantReturn`). A new seat whose own profile is banned returns nothing. On a connector-powered row a contest returns only to an owner that also holds an active entitlement, and a `mechanism_kind` contest never does. The rest stay with AECi and lose the stamp (AECI-1092, reconciled 2026-09-23, `STAGE_2_VENDOR_PORTAL_SPEC.md` §11b.13).
   It returns every open, stamped contest whose row is live and has been claimed by that
   vendor since before the stamp, and clears the stamp. "Since before the stamp" is what
   stops a contest the hand-back took for good from returning after a re-seated vendor
