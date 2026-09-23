@@ -45,6 +45,8 @@ Build sequence (from the issue, unchanged):
 
 ## 3. Live defects and broken operations
 
+Two items went straight to Stage 2.1 on 2026-09-22 under the pull-forward rule, and are recorded here as that rule requires. **AECI-770** (a failed profile-ensure leaves a signed-in user with no `profiles` row) gates seat-granting. **AECI-1053** (set `is_internal` on the operator's PostHog person from code) keeps vendor-seat telemetry clean. See `STAGE_2_1_SPEC.md` §3.3.1.
+
 | Issue | What is broken | Priority |
 |---|---|---|
 | ~~**AECI-618**~~ | ~~Listing pages SSR an error string and zero product links on both public tiers.~~ **Closed 2026-09-11 as a duplicate of AECI-746, which shipped the fix.** Fix direction 1 is what landed: `apps/web/src/app/app.routes.ts` prefetches page 1 through the service binding during resolution. Locked by `apps/web/e2e/ssr-listing-crawlability.spec.ts` and by the deployed-tier probe `scripts/check-ssr-listings.sh`. **No longer Stage 2.5 work.** | — |
@@ -127,7 +129,7 @@ Three planned surfaces overlap, and without a rule they duplicate:
 
 ## 9. Out of scope
 
-Everything in `docs/STAGE_3_SPEC.md` — trust-ladder rungs 2/3, pSEO, stack-aware discovery, DX tail. Stage 2.5 admits **no new surface area**, with exactly three named exceptions: the `/methodology` page in §7, admitted under §1 test 4 and scoped to one page; and the vendor Performance page in §10, admitted 2026-09-14 by operator decision and scoped to one portal section plus its measurement foundation; and the logo controls in §11, admitted 2026-09-15 under AECI-955.
+Everything in `docs/STAGE_3_SPEC.md` — trust-ladder rungs 2/3, pSEO, stack-aware discovery, DX tail. Stage 2.5 admits **no new surface area**, with exactly five named exceptions: the `/methodology` page in §7, admitted under §1 test 4 and scoped to one page; the vendor Performance page in §10, admitted 2026-09-14 by operator decision and scoped to one portal section plus its measurement foundation; the logo controls in §11, admitted 2026-09-15 under AECI-955; the vendor-authored "How teams use it" block in §12, admitted 2026-09-16 by operator decision under AECI-963; and the two connector-lane public surfaces in §13, placed here 2026-09-23 by operator decision.
 
 **Not out of scope, but not *in* Stage 2.5 either:** the Product Docs / Help Center (**AECI-634**) is **Stage 2 work** (`STAGE_2_SPEC.md` §2.6) that runs in the same calendar window — it was always sequenced after vendor-portal testing settles, and it must ship **before vendors are asked to do the work and pay**, because that ask has to come with support. Stage 2.5 neither blocks it nor absorbs it; the one touchpoint is §2 step 3 (the ranking-method page prefers the `/docs` trust section as its home).
 
@@ -222,3 +224,14 @@ Two rules the editor keeps because the caps are newer than the data. Promote enf
 The editor stages into a dirty-diff rather than persisting on close, because a staged edit is protected by `VendorPortalStore.markDirty` and the "changed somewhere else" banner. Since AECI-994 the tags and the points for a facet share that one draft and one Save, and the same PATCH carries both (`STAGE_2_VENDOR_PORTAL_SPEC.md` §6.12).
 
 `MATERIAL_PRODUCT_FIELDS` gains `usefulness`, so an edit files as `product.updated` and not `product.minor` in the ADR 0031 Google re-crawl worklist. Cache purging is unchanged (`product:{slug}` already covers the detail page) and Algolia needs nothing, since `usefulness` is not an indexed attribute.
+
+## 13. Connector-lane public surfaces (placed 2026-09-23)
+
+**The fifth admitted exception to §9's "no new surface area".** On 2026-09-23 Chris moved two children of the connector-lane epic **AECI-771** here from Stage 2.1. The record is the 2026-09-23 comment on AECI-771.
+
+| Issue | What it builds | Why it is here, not 2.1 |
+|---|---|---|
+| **AECI-715** | Connector coverage surface: "reaches N of M catalog products" plus a per-app depth list. Its host is every live connector-role product page, on the `STAGE_1_5_SPEC.md` §13.6 template. It is not a standalone route. | It is a new public catalog surface. It fails the `STAGE_2_1_SPEC.md` §1 admission test. |
+| **AECI-716** | Reachable-lane publication: the endpoint summary line and curated pair pages for undelivered pairs, with a connector comparison. Verify that two connectors reach each candidate pair before building. | It is a new public catalog surface. It fails the `STAGE_2_1_SPEC.md` §1 admission test. |
+
+Both stay children of AECI-771. The epic itself stays in Stage 2.1, with AECI-724, AECI-769, AECI-710, AECI-711 and AECI-928 (`STAGE_2_1_SPEC.md` §3.3.2). The epic's gate, Epics 1 to 4 closing, was met on 2026-09-22. The contract for both surfaces is `STAGE_1_5_SPEC.md` §13.7 (the reachable-lane boundary), with §13.6 for the AECI-715 host page.

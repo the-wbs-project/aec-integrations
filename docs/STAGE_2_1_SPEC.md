@@ -66,12 +66,35 @@ Seeded empty **by design** — it is filled by rehearsal findings, parked-claim 
 |---|---|---|
 | **AECI-954** | 2026-09-14, demo portal | An expired vendor session rendered "Page not found" with no way forward, because the gate mapped a 401 onto the same not-found render as a 403. It now redirects to `/auth/login?return=<url>`, and the browser refreshes the cookie first so a still-valid session never has to re-authenticate. Covers `/admin` too, which carried the identical mapping and is the surface seats are granted from. `STAGE_2_VENDOR_PORTAL_SPEC.md` §6.6. |
 
-### 3.3 Moved-in close-out items (from Stage 2.5 §5)
+### 3.3 Moved-in items and stage placements
 
 | Issue | What it closes | Why it moved |
 |---|---|---|
 | **AECI-623** | Converge `assertVerifiedVendor` onto `requireCapability('attestation.author')` — the one seam the Paid Tiers epic left duplicated. | Pure vendor-portal authz polish; exactly this stage's admission test. |
 | **AECI-633** | The manual screen-reader pass over the vendor portal's live-updating surface (per `docs/a11y-manual-testing-checklist.md`). | Gates asking vendors in; a11y of the surface vendors are invited to is a seat-granting blocker. May still be run in the same sitting as AECI-244 (which stays in 2.5 §5) if calendars align — the pairing was a scheduling convenience, not a dependency. |
+
+#### 3.3.1 Pulled forward 2026-09-22
+
+| Issue | What it closes | Why it moved |
+|---|---|---|
+| **AECI-770** | A failed profile-ensure during `/auth/callback` leaves a signed-in user with no `profiles` row, locked out of every authenticated surface. | A vendor with no `profiles` row can never be seated. It gates seat-granting. |
+| **AECI-1053** | Set `is_internal` on the operator's PostHog person from the identify path, not by hand. | The operator exclusion must survive a person reset before vendor-seat telemetry is read. |
+
+#### 3.3.2 Connector-lane epic AECI-771 (placed 2026-09-23)
+
+The AECI-771 gate is met. AECI-885, AECI-636 and AECI-1037 were all Done on 2026-09-22. On 2026-09-23 the epic's children were split between the two stages. The record is the 2026-09-23 comment on AECI-771.
+
+Five items stay here with the epic. Build order is 724, then 769, then 710 and 711. 928 waits on a ruling.
+
+| Issue | What it does | Why it is admitted |
+|---|---|---|
+| **AECI-724** | iPaaS vendor seats on the connector admin surface. | It is the connector-vendor seat. It also fixes the one live upsell defect on a zero-entitlement seat. |
+| **AECI-769** | Per-product list with `RoleBadge` on `/admin/vendors/:id`. | Polish on the admin identify step that precedes a grant. |
+| **AECI-710** | Surface `extension_of` on product pages. | It renders data the catalog already holds. It adds no new data or route. |
+| **AECI-711** | Render integration direction and object coverage, only where present. | It renders data the catalog already holds. It adds no new data or route. |
+| **AECI-928** | Apply I24 to Zapier's 59 powered rows. | Data cleanup on the connector lane. It is blocked on the AECI-1064 ruling. |
+
+Two children moved out to Stage 2.5 on 2026-09-23. **AECI-715** is the coverage checker. **AECI-716** is reachable-lane publication. Both are new public catalog surfaces and fail the §1 admission test. They stay children of AECI-771. `STAGE_2_5_SPEC.md` §13 records them.
 
 ### 3.4 Dark-window operations
 
