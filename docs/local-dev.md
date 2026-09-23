@@ -26,7 +26,7 @@ pnpm build
 | `pnpm install` | Install dependencies. |
 | `pnpm dev` | Boots the AECi app: SSR Worker on `:8788` and private API Worker on `:8787`, bound. Alias for `pnpm dev:bound`. Uses `.dev.vars` for secrets. |
 | `pnpm typecheck` | Type check across the monorepo. |
-| `pnpm lint` | ESLint across all packages plus Prettier `--check`. |
+| `pnpm lint` | The `CLAUDE.md` size gate (`scripts/check-claude-md-size.mjs`), ESLint across all packages, the `apps/web` source-constraint guards, and Prettier `--check`. |
 | `pnpm lint:fix` | ESLint `--fix` across all packages plus Prettier `--write`. |
 | `pnpm format` | Prettier `--write .` |
 | `pnpm format:check` | Prettier `--check .` |
@@ -212,7 +212,9 @@ from the tree. Restore it for marketing work with `pnpm skills:update`. It must 
 
 ## 7. MCP servers
 
-All four servers below are wired in the repo-root `.mcp.json`.
+Three of the four servers below (`angular-cli`, `aeci-review`, `linear`) are wired in the
+repo-root `.mcp.json` and pre-approved in `.claude/settings.json`. Mobbin is not in `.mcp.json`;
+it is configured at the user level, so it is available per machine, not per checkout.
 
 ### 7.1 Angular CLI (`angular-cli`)
 

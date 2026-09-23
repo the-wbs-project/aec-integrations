@@ -202,7 +202,7 @@ contract.
 2. **Pick the anchor reference** via Mobbin before building; record it in the issue or commit.
    Components for a surface come from the same anchor site (`DESIGN.md` "The Anchor-Site Rule").
 3. **Build via the matching skill:** `/impeccable craft`, or `typeset` / `layout` / `colorize` /
-   `distill` / `normalize` for refinement.
+   `distill` for refinement. Design-system alignment is part of `polish`.
 4. **Polish:** `/impeccable polish`.
 5. **Detect anti-patterns against the RENDERED surface:** `npx impeccable detect <url>` with
    `pnpm dev:agent` running. A file-path scan reports a false clean here because templates are
@@ -265,8 +265,10 @@ Shared skills live in `.agents/skills/`, checked in. Commit any changes there.
   `npx skills add https://github.com/angular/skills`.
 - **`wrangler`** / **`workers-best-practices`** / **`cloudflare`** / **`web-perf`**: the Cloudflare
   skills this repo uses, copied from the user-level set so nothing outside the repo has to load.
-  Not copied on purpose: `durable-objects` and `agents-sdk` (ADR 0023 declined them),
+  Not copied as standalone skills: `durable-objects` and `agents-sdk` (ADR 0023 declined them),
   `cloudflare-email-service` (email is Resend), the `sandbox-*` and `cloudflare-one*` bundles.
+  Note the umbrella `cloudflare` skill still carries `durable-objects`, `agents-sdk`, `sandbox`
+  and the email topics under its own `references/`; that is upstream content, not an adoption.
 - The `coreyhaines31/marketingskills` bundle is removed; restore with `pnpm skills:update`. It must
   never clobber `impeccable/`.
 
