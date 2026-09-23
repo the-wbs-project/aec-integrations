@@ -168,7 +168,7 @@ async function ownershipRefusal(
 }
 
 /** Steps 4 and 5: claimed, then live. Both tables carry `claimed_at` and
- *  `retired_at` with the same meaning (migrations `0044` and `0048`). */
+ *  `retired_at` with the same meaning (migrations `0044` and `0049`). */
 function claimedAndLiveRefusal(row: {
   readonly claimedAt: string | null;
   readonly retiredAt: string | null;
