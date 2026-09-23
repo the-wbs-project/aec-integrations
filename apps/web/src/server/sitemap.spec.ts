@@ -293,7 +293,8 @@ describe('resolveSitemapEntries', () => {
     // The other static pages stay OUT, so a future "add every static page" edit
     // has to be a deliberate one. /roadmap in particular is noindex, and listing
     // a noindexed URL is a crawl-budget contradiction.
-    for (const path of ['/', '/about', '/updates', '/roadmap']) {
+    // AECI-1104: the noindexed vendor guide stays out too, until AECI-1105.
+    for (const path of ['/', '/about', '/updates', '/roadmap', '/docs/vendors/your-seat']) {
       expect(
         entries.find((e) => e.loc === `https://aecintegrations.com${path}`),
         path,

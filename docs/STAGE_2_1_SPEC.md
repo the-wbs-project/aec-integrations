@@ -109,6 +109,8 @@ Two children moved out to Stage 2.5 on 2026-09-23. **AECI-715** is the coverage 
 
 The Product Docs / Help Center epic remains Stage 2 scope (`STAGE_2_SPEC.md` §2.6, `STAGE_2_PRODUCT_DOCS_SPEC.md`), but its deferred **vendor-guide tranche** was always triggered by "vendor-portal testing settles" — which is this stage. Publication of the vendor guides is a §5 exit gate: vendors are not asked to do the work (and later pay) without support content in place.
 
+**Built 2026-09-23 (AECI-1104).** Six task pages render at `/docs/vendors/*` (`STAGE_2_PRODUCT_DOCS_SPEC.md` §5). They are live but noindex, out of the sitemap, and not yet linked from the footer or the portal. AECI-1105 flips all three when the first pilot vendor is seated, which is the moment §5's "published" becomes literal. The rehearsal script (`STAGE_2_1_REHEARSAL.md`, AECI-1103) links each lifecycle step to its page in its "Vendor-guide mapping" table.
+
 ## 4. Out of scope
 
 Everything in `docs/STAGE_2_5_SPEC.md` and `docs/STAGE_3_SPEC.md`. The AECI-636 ranking overhaul was this stage's named temptation; it shipped on 2026-09-22 (`STAGE_2_5_SPEC.md` §2), so the firewall now guards the rest of the 2.5 list, including the two connector-lane public surfaces in `STAGE_2_5_SPEC.md` §13. No new vendor features: no billing automation, no portal surface additions, no attestation-model extensions. If the rehearsal reveals a *missing capability* rather than a defect in a built one, it is written up for 2.5/3 triage, not built here.
