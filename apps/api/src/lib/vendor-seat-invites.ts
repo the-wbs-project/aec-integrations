@@ -424,7 +424,9 @@ export interface AcceptInviteParams {
    *  nothing else — it is a signal, never a gate (docblock property 2). */
   domainMatched: boolean;
   /** The redeemer's `profiles` row before the write; `null` if they have none yet
-   *  (possible even for a signed-in user — `profile-ensure` is non-fatal).
+   *  (still defensible for a signed-in user: since AECI-770 the sign-in ensure is
+   *  fatal and `GET /api/account` self-heals, but a seat grant can precede the
+   *  claimant's first sign-in — `AUTH_AND_RLS.md` §3.1a).
    *  `seatOwner` and `workEmailVerified` are read so redeeming can only ever ADD
    *  to a profile, never strip a bit it already earned — see properties 1 and 2. */
   profileBefore: {

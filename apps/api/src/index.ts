@@ -390,15 +390,17 @@ app.route('/', authSpike);
 
 // Phase 5.4 user-auth sub-router (AECI-195) — PERMANENT, unlike the spike
 // above. Same Variables-extended shape because `requireUserAuth()` sets
-// `c.get('user')`. `/api/auth/profile/ensure` is the defensive profile-ensure
-// the SSR `/auth/callback` handler calls after the PKCE code exchange.
+// `c.get('user')`. `/api/auth/profile/ensure` is the PRIMARY profile creator the
+// SSR `/auth/callback` handler calls after the PKCE code exchange; since AECI-770
+// that call is fatal and retried (`AUTH_AND_RLS.md` §3.1a).
 const authUser = new Hono<{ Bindings: Env; Variables: UserAuthVariables }>();
 authUser.onError(errorHandler());
 // AECI-773: `rateLimit` AFTER the guard so the counter is keyed on the verified
 // JWT `sub` rather than on a NAT. This is a `profiles` upsert, so an unbounded
 // loop is a D1 write loop — but it is also the last hop of every sign-in, so a
 // mis-set limit here is a login outage. The `write` bucket's 30/60s is the
-// loosest in the set and one sign-in spends exactly one of them.
+// loosest in the set and one sign-in spends one of them per attempt — up to 3
+// since the AECI-770 retry, still far inside the bucket.
 authUser.post(
   '/api/auth/profile/ensure',
   requireUserAuth(),
