@@ -1,0 +1,1015 @@
+{
+  "issue": "AECI-1064",
+  "generated_at": "2026-09-23T08:05:09.383Z",
+  "target": "aeci-app-production (read-only derivation)",
+  "rule": "upstream integrations whose powered_by is Zapier or Workato and which store a production id, matched to production integrations rows with powered_by_product_id IS NULL AND retired_at IS NULL",
+  "connectors": {
+    "recdsJWp651jBwrBW": {
+      "name": "Zapier",
+      "supabaseId": "4e0e4400-2ad3-43e6-a4cb-0c3392473259"
+    },
+    "recH4fhVn8TXnev2K": {
+      "name": "Workato",
+      "supabaseId": "6023cc70-a234-4dca-ab66-6aed72d2b798"
+    }
+  },
+  "totals": {
+    "Zapier": {
+      "upstream": 115,
+      "withProductionId": 28
+    },
+    "Workato": {
+      "upstream": 49,
+      "withProductionId": 18
+    },
+    "edges": 39,
+    "edgesByConnector": {
+      "Workato": 16,
+      "Zapier": 23
+    },
+    "products": 36,
+    "excluded": 7,
+    "minimalCover": 14
+  },
+  "product_record_ids": [
+    "recm0nW1LBobVjf3E",
+    "recpq25ro2WtVsrhp",
+    "recGdDNhaQR8HTaFm",
+    "rec2KtJeJUzqih3ad",
+    "reczEGtViSFRAHnXi",
+    "recxgGwHqms9mSB5N",
+    "recCOE9Ju0ZRoW8ss",
+    "recDzKmObXRE6uHpm",
+    "rec4v7OJgpyhYtRPF",
+    "reczwqLaNNmExNoib",
+    "recvm3gJmUFLMzVIL",
+    "recBQc0ecoQCnBscj",
+    "reciuNOl8P0aK1CcI",
+    "recdO5uJDgWBpNVmD",
+    "recEuQ8n9wSqaoEBL",
+    "recE1QYJGBueJQvaL",
+    "recBec7hSiuPp0YY2",
+    "recvpojsNSEzNQ4oa",
+    "rec0mseBTsUkL2rAp",
+    "recFQWCD5vkQp36NA",
+    "recHPkOgUcw8XXu1D",
+    "rect9wzhIaFOUakW2",
+    "recNY9nwIB6jYcxSF",
+    "recohQSEjZl4EP4zL",
+    "rec8AUNOuPw97eUdL",
+    "recLdjECxTUFoQZ25",
+    "rec07zp4kBlO6mLhN",
+    "recbGEdHIUfltsUo1",
+    "rec944YjKNRfRCgAf",
+    "recRd7g8zjLcaz3yd",
+    "recGSSm4x4QiohK5U",
+    "recV6ze7hEqkafWTJ",
+    "recvTtJLtPerJyKVB",
+    "rec6UUp8iEaL1vUpk",
+    "recv89wPMoG9t3UDB",
+    "recoiDWUn1VK93IdS"
+  ],
+  "edge_ids": [
+    "035115f3-793c-4b03-92dc-d660fae4467f",
+    "09b38f3a-7992-4df9-bf72-bea5b27e26e1",
+    "0b61941e-8bc6-48d0-991c-c2d75043c59f",
+    "0ec2b8bf-61b6-4a60-b2a0-484e7e7709ae",
+    "10b72933-543b-4ab1-b542-bfe465dbe1a4",
+    "1b1953e8-b19b-4e95-8d9d-bd7b538c5140",
+    "1fbd35bb-5fa8-4c37-9905-f26870403748",
+    "20415952-8a1d-410c-9570-8880becb4791",
+    "45629e89-0e1a-40c4-b7fa-0e26595841d0",
+    "4b1499f9-902c-4de5-94f1-b387c10fa924",
+    "58886749-6561-4b70-964f-d9ef20e4dcbf",
+    "5fd537dc-6312-4ad6-80c6-903b981a7795",
+    "62293162-2ed2-4a64-b248-485aa8fd4fc3",
+    "623fc071-3d42-4b10-8870-6a4584ccfb73",
+    "6c86d907-a1b2-4d34-8a16-82c9cff323c7",
+    "78101f0f-8a18-4dfc-af62-75dbb3763cdc",
+    "7a1d9704-297a-4ed8-a918-9e5fabedb9f1",
+    "86b5b572-2c9c-4c2a-bfc1-23df428f5090",
+    "8f85c4f5-cfd2-4296-91fd-0657cf874747",
+    "9301b03a-ac1c-486a-9e0d-e12249080728",
+    "97c1833b-bdbd-4551-b99a-1ca19eb6160b",
+    "981daa40-68e6-4bf0-b9b2-66d4955a7a30",
+    "a3ef77ab-af10-416d-8aa7-56e5c827f7a8",
+    "a4ee6242-d6f0-4191-8aa6-e1ef59fa3603",
+    "a59122dc-9f40-46ff-b21c-c7e7facdec0e",
+    "a722998c-1acf-42fb-bf31-2056b1eeb7f8",
+    "a77916a4-f701-4f77-986a-b625cc2d7fe9",
+    "aba87b18-d6ca-42d6-8bf8-5ee0809dd884",
+    "b1f4f83a-4b58-450d-812e-95ff271f1045",
+    "ba09c8e4-e431-48cb-8144-91531c0a1967",
+    "bb34ac33-e425-43e8-991d-f40c11c7ae59",
+    "c7010f9b-3693-49cb-a600-a5ed20776ae8",
+    "d254c808-932c-4b0d-b9af-e83afaba3b7d",
+    "d855e70a-ef03-4097-b94a-9f2b4acc6af9",
+    "dc6c9315-1042-4bf5-b46d-7ea6862d932d",
+    "e8e51da5-8460-4950-ae68-18702c995447",
+    "f9f77dc3-6cb7-4bc2-a0f4-bdacbc8a65bf",
+    "fceb7c5c-0a14-4bb4-806c-e880e8109feb",
+    "fea24c35-c86a-42da-89a2-38cdf138d372"
+  ],
+  "products": [
+    {
+      "rec": "recm0nW1LBobVjf3E",
+      "name": "AccuLynx",
+      "edges": ["a722998c-1acf-42fb-bf31-2056b1eeb7f8", "a77916a4-f701-4f77-986a-b625cc2d7fe9"]
+    },
+    {
+      "rec": "recpq25ro2WtVsrhp",
+      "name": "ADP Workforce Now",
+      "edges": ["aba87b18-d6ca-42d6-8bf8-5ee0809dd884"]
+    },
+    {
+      "rec": "recGdDNhaQR8HTaFm",
+      "name": "Amazon Redshift",
+      "edges": ["e8e51da5-8460-4950-ae68-18702c995447"]
+    },
+    {
+      "rec": "rec2KtJeJUzqih3ad",
+      "name": "Autodesk Forma",
+      "edges": [
+        "035115f3-793c-4b03-92dc-d660fae4467f",
+        "20415952-8a1d-410c-9570-8880becb4791",
+        "62293162-2ed2-4a64-b248-485aa8fd4fc3",
+        "623fc071-3d42-4b10-8870-6a4584ccfb73",
+        "981daa40-68e6-4bf0-b9b2-66d4955a7a30",
+        "a4ee6242-d6f0-4191-8aa6-e1ef59fa3603",
+        "ba09c8e4-e431-48cb-8144-91531c0a1967",
+        "e8e51da5-8460-4950-ae68-18702c995447",
+        "fceb7c5c-0a14-4bb4-806c-e880e8109feb"
+      ]
+    },
+    {
+      "rec": "reczEGtViSFRAHnXi",
+      "name": "BambooHR",
+      "edges": ["86b5b572-2c9c-4c2a-bfc1-23df428f5090"]
+    },
+    {
+      "rec": "recxgGwHqms9mSB5N",
+      "name": "BIM 360",
+      "edges": ["4b1499f9-902c-4de5-94f1-b387c10fa924", "78101f0f-8a18-4dfc-af62-75dbb3763cdc"]
+    },
+    {
+      "rec": "recCOE9Ju0ZRoW8ss",
+      "name": "Box",
+      "edges": ["035115f3-793c-4b03-92dc-d660fae4467f", "9301b03a-ac1c-486a-9e0d-e12249080728"]
+    },
+    {
+      "rec": "recDzKmObXRE6uHpm",
+      "name": "busybusy",
+      "edges": ["86b5b572-2c9c-4c2a-bfc1-23df428f5090"]
+    },
+    {
+      "rec": "rec4v7OJgpyhYtRPF",
+      "name": "CompanyCam",
+      "edges": ["d855e70a-ef03-4097-b94a-9f2b4acc6af9"]
+    },
+    {
+      "rec": "reczwqLaNNmExNoib",
+      "name": "Connecteam",
+      "edges": ["6c86d907-a1b2-4d34-8a16-82c9cff323c7"]
+    },
+    {
+      "rec": "recvm3gJmUFLMzVIL",
+      "name": "Deltek Vantagepoint",
+      "edges": [
+        "7a1d9704-297a-4ed8-a918-9e5fabedb9f1",
+        "a3ef77ab-af10-416d-8aa7-56e5c827f7a8",
+        "f9f77dc3-6cb7-4bc2-a0f4-bdacbc8a65bf"
+      ]
+    },
+    {
+      "rec": "recBQc0ecoQCnBscj",
+      "name": "Docusign",
+      "edges": ["a3ef77ab-af10-416d-8aa7-56e5c827f7a8"]
+    },
+    {
+      "rec": "reciuNOl8P0aK1CcI",
+      "name": "Dropbox",
+      "edges": ["a4ee6242-d6f0-4191-8aa6-e1ef59fa3603"]
+    },
+    {
+      "rec": "recdO5uJDgWBpNVmD",
+      "name": "Egnyte",
+      "edges": ["4b1499f9-902c-4de5-94f1-b387c10fa924", "7a1d9704-297a-4ed8-a918-9e5fabedb9f1"]
+    },
+    {
+      "rec": "recEuQ8n9wSqaoEBL",
+      "name": "Google Calendar",
+      "edges": ["c7010f9b-3693-49cb-a600-a5ed20776ae8", "fceb7c5c-0a14-4bb4-806c-e880e8109feb"]
+    },
+    {
+      "rec": "recE1QYJGBueJQvaL",
+      "name": "HOVER",
+      "edges": [
+        "0b61941e-8bc6-48d0-991c-c2d75043c59f",
+        "10b72933-543b-4ab1-b542-bfe465dbe1a4",
+        "d254c808-932c-4b0d-b9af-e83afaba3b7d",
+        "d855e70a-ef03-4097-b94a-9f2b4acc6af9"
+      ]
+    },
+    {
+      "rec": "recBec7hSiuPp0YY2",
+      "name": "Jobber",
+      "edges": [
+        "10b72933-543b-4ab1-b542-bfe465dbe1a4",
+        "5fd537dc-6312-4ad6-80c6-903b981a7795",
+        "6c86d907-a1b2-4d34-8a16-82c9cff323c7"
+      ]
+    },
+    {
+      "rec": "recvpojsNSEzNQ4oa",
+      "name": "JobNimbus",
+      "edges": ["97c1833b-bdbd-4551-b99a-1ca19eb6160b"]
+    },
+    {
+      "rec": "rec0mseBTsUkL2rAp",
+      "name": "JobTread",
+      "edges": ["1fbd35bb-5fa8-4c37-9905-f26870403748"]
+    },
+    {
+      "rec": "recFQWCD5vkQp36NA",
+      "name": "Microsoft Dynamics 365",
+      "edges": ["ba09c8e4-e431-48cb-8144-91531c0a1967"]
+    },
+    {
+      "rec": "recHPkOgUcw8XXu1D",
+      "name": "Microsoft Outlook",
+      "edges": ["09b38f3a-7992-4df9-bf72-bea5b27e26e1"]
+    },
+    {
+      "rec": "rect9wzhIaFOUakW2",
+      "name": "Microsoft SharePoint",
+      "edges": ["9301b03a-ac1c-486a-9e0d-e12249080728", "981daa40-68e6-4bf0-b9b2-66d4955a7a30"]
+    },
+    {
+      "rec": "recNY9nwIB6jYcxSF",
+      "name": "monday.com",
+      "edges": [
+        "58886749-6561-4b70-964f-d9ef20e4dcbf",
+        "8f85c4f5-cfd2-4296-91fd-0657cf874747",
+        "bb34ac33-e425-43e8-991d-f40c11c7ae59"
+      ]
+    },
+    {
+      "rec": "recohQSEjZl4EP4zL",
+      "name": "Motion",
+      "edges": ["0ec2b8bf-61b6-4a60-b2a0-484e7e7709ae", "bb34ac33-e425-43e8-991d-f40c11c7ae59"]
+    },
+    {
+      "rec": "rec8AUNOuPw97eUdL",
+      "name": "Oracle NetSuite",
+      "edges": ["62293162-2ed2-4a64-b248-485aa8fd4fc3"]
+    },
+    {
+      "rec": "recLdjECxTUFoQZ25",
+      "name": "Pipedrive",
+      "edges": [
+        "0b61941e-8bc6-48d0-991c-c2d75043c59f",
+        "1b1953e8-b19b-4e95-8d9d-bd7b538c5140",
+        "a59122dc-9f40-46ff-b21c-c7e7facdec0e"
+      ]
+    },
+    {
+      "rec": "rec07zp4kBlO6mLhN",
+      "name": "PlanGrid",
+      "edges": ["dc6c9315-1042-4bf5-b46d-7ea6862d932d"]
+    },
+    {
+      "rec": "recbGEdHIUfltsUo1",
+      "name": "Power BI",
+      "edges": ["f9f77dc3-6cb7-4bc2-a0f4-bdacbc8a65bf"]
+    },
+    {
+      "rec": "rec944YjKNRfRCgAf",
+      "name": "Procore",
+      "edges": [
+        "1b1953e8-b19b-4e95-8d9d-bd7b538c5140",
+        "8f85c4f5-cfd2-4296-91fd-0657cf874747",
+        "b1f4f83a-4b58-450d-812e-95ff271f1045"
+      ]
+    },
+    {
+      "rec": "recRd7g8zjLcaz3yd",
+      "name": "Roofr",
+      "edges": [
+        "09b38f3a-7992-4df9-bf72-bea5b27e26e1",
+        "45629e89-0e1a-40c4-b7fa-0e26595841d0",
+        "58886749-6561-4b70-964f-d9ef20e4dcbf",
+        "5fd537dc-6312-4ad6-80c6-903b981a7795",
+        "97c1833b-bdbd-4551-b99a-1ca19eb6160b",
+        "a59122dc-9f40-46ff-b21c-c7e7facdec0e",
+        "a77916a4-f701-4f77-986a-b625cc2d7fe9",
+        "d254c808-932c-4b0d-b9af-e83afaba3b7d",
+        "fea24c35-c86a-42da-89a2-38cdf138d372"
+      ]
+    },
+    {
+      "rec": "recGSSm4x4QiohK5U",
+      "name": "Salesforce",
+      "edges": ["20415952-8a1d-410c-9570-8880becb4791", "fea24c35-c86a-42da-89a2-38cdf138d372"]
+    },
+    {
+      "rec": "recV6ze7hEqkafWTJ",
+      "name": "ServiceTitan",
+      "edges": ["c7010f9b-3693-49cb-a600-a5ed20776ae8"]
+    },
+    {
+      "rec": "recvTtJLtPerJyKVB",
+      "name": "Smartsheet",
+      "edges": ["78101f0f-8a18-4dfc-af62-75dbb3763cdc", "dc6c9315-1042-4bf5-b46d-7ea6862d932d"]
+    },
+    {
+      "rec": "rec6UUp8iEaL1vUpk",
+      "name": "SumoQuote",
+      "edges": ["45629e89-0e1a-40c4-b7fa-0e26595841d0", "a722998c-1acf-42fb-bf31-2056b1eeb7f8"]
+    },
+    {
+      "rec": "recv89wPMoG9t3UDB",
+      "name": "Wrike",
+      "edges": [
+        "0ec2b8bf-61b6-4a60-b2a0-484e7e7709ae",
+        "623fc071-3d42-4b10-8870-6a4584ccfb73",
+        "b1f4f83a-4b58-450d-812e-95ff271f1045"
+      ]
+    },
+    {
+      "rec": "recoiDWUn1VK93IdS",
+      "name": "Xero",
+      "edges": ["1fbd35bb-5fa8-4c37-9905-f26870403748", "aba87b18-d6ca-42d6-8bf8-5ee0809dd884"]
+    }
+  ],
+  "edges": [
+    {
+      "id": "035115f3-793c-4b03-92dc-d660fae4467f",
+      "rec": "recWiVmDXrW3hv6wt",
+      "name": "Box (via Forma Construction Connect)",
+      "connector": "Workato",
+      "source": {
+        "rec": "rec2KtJeJUzqih3ad",
+        "name": "Autodesk Forma"
+      },
+      "target": {
+        "rec": "recCOE9Ju0ZRoW8ss",
+        "name": "Box"
+      }
+    },
+    {
+      "id": "09b38f3a-7992-4df9-bf72-bea5b27e26e1",
+      "rec": "recnGlzzw2PdkrUhX",
+      "name": "Roofr ↔ Microsoft Outlook",
+      "connector": "Zapier",
+      "source": {
+        "rec": "recRd7g8zjLcaz3yd",
+        "name": "Roofr"
+      },
+      "target": {
+        "rec": "recHPkOgUcw8XXu1D",
+        "name": "Microsoft Outlook"
+      }
+    },
+    {
+      "id": "0b61941e-8bc6-48d0-991c-c2d75043c59f",
+      "rec": "recS6UmY7RseNxIbe",
+      "name": "Pipedrive (manual)",
+      "connector": "Zapier",
+      "source": {
+        "rec": "recE1QYJGBueJQvaL",
+        "name": "HOVER"
+      },
+      "target": {
+        "rec": "recLdjECxTUFoQZ25",
+        "name": "Pipedrive"
+      }
+    },
+    {
+      "id": "0ec2b8bf-61b6-4a60-b2a0-484e7e7709ae",
+      "rec": "recnxiacwVgqY4Afl",
+      "name": "Wrike (manual)",
+      "connector": "Zapier",
+      "source": {
+        "rec": "recohQSEjZl4EP4zL",
+        "name": "Motion"
+      },
+      "target": {
+        "rec": "recv89wPMoG9t3UDB",
+        "name": "Wrike"
+      }
+    },
+    {
+      "id": "10b72933-543b-4ab1-b542-bfe465dbe1a4",
+      "rec": "recpQTwRxZAomKyyW",
+      "name": "HOVER → Jobber (Zapier)",
+      "connector": "Zapier",
+      "source": {
+        "rec": "recE1QYJGBueJQvaL",
+        "name": "HOVER"
+      },
+      "target": {
+        "rec": "recBec7hSiuPp0YY2",
+        "name": "Jobber"
+      }
+    },
+    {
+      "id": "1b1953e8-b19b-4e95-8d9d-bd7b538c5140",
+      "rec": "receij2xW1yObLT1B",
+      "name": "Procore (manual)",
+      "connector": "Zapier",
+      "source": {
+        "rec": "recLdjECxTUFoQZ25",
+        "name": "Pipedrive"
+      },
+      "target": {
+        "rec": "rec944YjKNRfRCgAf",
+        "name": "Procore"
+      }
+    },
+    {
+      "id": "1fbd35bb-5fa8-4c37-9905-f26870403748",
+      "rec": "rec2tu8FUMd2T11S7",
+      "name": "JobTread ↔ Xero (Zapier)",
+      "connector": "Zapier",
+      "source": {
+        "rec": "rec0mseBTsUkL2rAp",
+        "name": "JobTread"
+      },
+      "target": {
+        "rec": "recoiDWUn1VK93IdS",
+        "name": "Xero"
+      }
+    },
+    {
+      "id": "20415952-8a1d-410c-9570-8880becb4791",
+      "rec": "recLoW6P3VuTd8c8t",
+      "name": "Salesforce (via Forma Construction Connect)",
+      "connector": "Workato",
+      "source": {
+        "rec": "rec2KtJeJUzqih3ad",
+        "name": "Autodesk Forma"
+      },
+      "target": {
+        "rec": "recGSSm4x4QiohK5U",
+        "name": "Salesforce"
+      }
+    },
+    {
+      "id": "45629e89-0e1a-40c4-b7fa-0e26595841d0",
+      "rec": "recVgPu4D296vMSRo",
+      "name": "SumoQuote (manual)",
+      "connector": "Zapier",
+      "source": {
+        "rec": "recRd7g8zjLcaz3yd",
+        "name": "Roofr"
+      },
+      "target": {
+        "rec": "rec6UUp8iEaL1vUpk",
+        "name": "SumoQuote"
+      }
+    },
+    {
+      "id": "4b1499f9-902c-4de5-94f1-b387c10fa924",
+      "rec": "recY3YBqRYJH6OAj2",
+      "name": "BIM 360 (ipaas)",
+      "connector": "Workato",
+      "source": {
+        "rec": "recdO5uJDgWBpNVmD",
+        "name": "Egnyte"
+      },
+      "target": {
+        "rec": "recxgGwHqms9mSB5N",
+        "name": "BIM 360"
+      }
+    },
+    {
+      "id": "58886749-6561-4b70-964f-d9ef20e4dcbf",
+      "rec": "recdrZTmTZ5svPunn",
+      "name": "Monday.com (manual)",
+      "connector": "Zapier",
+      "source": {
+        "rec": "recRd7g8zjLcaz3yd",
+        "name": "Roofr"
+      },
+      "target": {
+        "rec": "recNY9nwIB6jYcxSF",
+        "name": "monday.com"
+      }
+    },
+    {
+      "id": "5fd537dc-6312-4ad6-80c6-903b981a7795",
+      "rec": "reco4gH1gtQy4PLm4",
+      "name": "Roofr → Jobber (Zapier)",
+      "connector": "Zapier",
+      "source": {
+        "rec": "recRd7g8zjLcaz3yd",
+        "name": "Roofr"
+      },
+      "target": {
+        "rec": "recBec7hSiuPp0YY2",
+        "name": "Jobber"
+      }
+    },
+    {
+      "id": "62293162-2ed2-4a64-b248-485aa8fd4fc3",
+      "rec": "recsUZnGyaiO6sqEK",
+      "name": "Oracle NetSuite ↔ Autodesk Forma",
+      "connector": "Workato",
+      "source": {
+        "rec": "rec8AUNOuPw97eUdL",
+        "name": "Oracle NetSuite"
+      },
+      "target": {
+        "rec": "rec2KtJeJUzqih3ad",
+        "name": "Autodesk Forma"
+      }
+    },
+    {
+      "id": "623fc071-3d42-4b10-8870-6a4584ccfb73",
+      "rec": "recJGLghIv8KnlsXG",
+      "name": "Wrike (manual)",
+      "connector": "Workato",
+      "source": {
+        "rec": "rec2KtJeJUzqih3ad",
+        "name": "Autodesk Forma"
+      },
+      "target": {
+        "rec": "recv89wPMoG9t3UDB",
+        "name": "Wrike"
+      }
+    },
+    {
+      "id": "6c86d907-a1b2-4d34-8a16-82c9cff323c7",
+      "rec": "rec0RJvPgEZFInvq4",
+      "name": "Connecteam ↔ Jobber (Zapier)",
+      "connector": "Zapier",
+      "source": {
+        "rec": "reczwqLaNNmExNoib",
+        "name": "Connecteam"
+      },
+      "target": {
+        "rec": "recBec7hSiuPp0YY2",
+        "name": "Jobber"
+      }
+    },
+    {
+      "id": "78101f0f-8a18-4dfc-af62-75dbb3763cdc",
+      "rec": "rec7b2bl0TvdoSLwL",
+      "name": "BIM 360 (manual)",
+      "connector": "Workato",
+      "source": {
+        "rec": "recvTtJLtPerJyKVB",
+        "name": "Smartsheet"
+      },
+      "target": {
+        "rec": "recxgGwHqms9mSB5N",
+        "name": "BIM 360"
+      }
+    },
+    {
+      "id": "7a1d9704-297a-4ed8-a918-9e5fabedb9f1",
+      "rec": "rec985mneNvmSoWIS",
+      "name": "Deltek Vantagepoint (ipaas)",
+      "connector": "Workato",
+      "source": {
+        "rec": "recdO5uJDgWBpNVmD",
+        "name": "Egnyte"
+      },
+      "target": {
+        "rec": "recvm3gJmUFLMzVIL",
+        "name": "Deltek Vantagepoint"
+      }
+    },
+    {
+      "id": "86b5b572-2c9c-4c2a-bfc1-23df428f5090",
+      "rec": "recy1LgPZbAWc2VOk",
+      "name": "busybusy (manual)",
+      "connector": "Zapier",
+      "source": {
+        "rec": "reczEGtViSFRAHnXi",
+        "name": "BambooHR"
+      },
+      "target": {
+        "rec": "recDzKmObXRE6uHpm",
+        "name": "busybusy"
+      }
+    },
+    {
+      "id": "8f85c4f5-cfd2-4296-91fd-0657cf874747",
+      "rec": "rec3enWacm5E3eS0q",
+      "name": "monday.com ↔ Procore (via Zapier)",
+      "connector": "Zapier",
+      "source": {
+        "rec": "recNY9nwIB6jYcxSF",
+        "name": "monday.com"
+      },
+      "target": {
+        "rec": "rec944YjKNRfRCgAf",
+        "name": "Procore"
+      }
+    },
+    {
+      "id": "9301b03a-ac1c-486a-9e0d-e12249080728",
+      "rec": "reci3P0uZ7P8szjag",
+      "name": "Box (ipaas)",
+      "connector": "Zapier",
+      "source": {
+        "rec": "rect9wzhIaFOUakW2",
+        "name": "Microsoft SharePoint"
+      },
+      "target": {
+        "rec": "recCOE9Ju0ZRoW8ss",
+        "name": "Box"
+      }
+    },
+    {
+      "id": "97c1833b-bdbd-4551-b99a-1ca19eb6160b",
+      "rec": "reckCN1Posw6AwyYC",
+      "name": "JobNimbus (manual)",
+      "connector": "Zapier",
+      "source": {
+        "rec": "recRd7g8zjLcaz3yd",
+        "name": "Roofr"
+      },
+      "target": {
+        "rec": "recvpojsNSEzNQ4oa",
+        "name": "JobNimbus"
+      }
+    },
+    {
+      "id": "981daa40-68e6-4bf0-b9b2-66d4955a7a30",
+      "rec": "recTZwkhNzampNeSS",
+      "name": "Microsoft SharePoint (via Forma Construction Connect)",
+      "connector": "Workato",
+      "source": {
+        "rec": "rec2KtJeJUzqih3ad",
+        "name": "Autodesk Forma"
+      },
+      "target": {
+        "rec": "rect9wzhIaFOUakW2",
+        "name": "Microsoft SharePoint"
+      }
+    },
+    {
+      "id": "a3ef77ab-af10-416d-8aa7-56e5c827f7a8",
+      "rec": "recburKTVmRubMTfX",
+      "name": "Docusign (manual)",
+      "connector": "Workato",
+      "source": {
+        "rec": "recvm3gJmUFLMzVIL",
+        "name": "Deltek Vantagepoint"
+      },
+      "target": {
+        "rec": "recBQc0ecoQCnBscj",
+        "name": "Docusign"
+      }
+    },
+    {
+      "id": "a4ee6242-d6f0-4191-8aa6-e1ef59fa3603",
+      "rec": "recKow9Go3vC4OZUd",
+      "name": "Dropbox (via Forma Construction Connect)",
+      "connector": "Workato",
+      "source": {
+        "rec": "rec2KtJeJUzqih3ad",
+        "name": "Autodesk Forma"
+      },
+      "target": {
+        "rec": "reciuNOl8P0aK1CcI",
+        "name": "Dropbox"
+      }
+    },
+    {
+      "id": "a59122dc-9f40-46ff-b21c-c7e7facdec0e",
+      "rec": "recgOcMGip0QN5QLr",
+      "name": "Pipedrive (manual)",
+      "connector": "Zapier",
+      "source": {
+        "rec": "recRd7g8zjLcaz3yd",
+        "name": "Roofr"
+      },
+      "target": {
+        "rec": "recLdjECxTUFoQZ25",
+        "name": "Pipedrive"
+      }
+    },
+    {
+      "id": "a722998c-1acf-42fb-bf31-2056b1eeb7f8",
+      "rec": "recg8XEOtG6ACGsrB",
+      "name": "SumoQuote (manual)",
+      "connector": "Zapier",
+      "source": {
+        "rec": "recm0nW1LBobVjf3E",
+        "name": "AccuLynx"
+      },
+      "target": {
+        "rec": "rec6UUp8iEaL1vUpk",
+        "name": "SumoQuote"
+      }
+    },
+    {
+      "id": "a77916a4-f701-4f77-986a-b625cc2d7fe9",
+      "rec": "reccJN1HCQHgRpxLX",
+      "name": "AccuLynx (manual)",
+      "connector": "Zapier",
+      "source": {
+        "rec": "recRd7g8zjLcaz3yd",
+        "name": "Roofr"
+      },
+      "target": {
+        "rec": "recm0nW1LBobVjf3E",
+        "name": "AccuLynx"
+      }
+    },
+    {
+      "id": "aba87b18-d6ca-42d6-8bf8-5ee0809dd884",
+      "rec": "reclrO4YUxAMtOxmx",
+      "name": "ADP Workforce Now ↔ Xero",
+      "connector": "Workato",
+      "source": {
+        "rec": "recpq25ro2WtVsrhp",
+        "name": "ADP Workforce Now"
+      },
+      "target": {
+        "rec": "recoiDWUn1VK93IdS",
+        "name": "Xero"
+      }
+    },
+    {
+      "id": "b1f4f83a-4b58-450d-812e-95ff271f1045",
+      "rec": "recHEhBqoVs85Yo95",
+      "name": "Wrike (manual)",
+      "connector": "Zapier",
+      "source": {
+        "rec": "rec944YjKNRfRCgAf",
+        "name": "Procore"
+      },
+      "target": {
+        "rec": "recv89wPMoG9t3UDB",
+        "name": "Wrike"
+      }
+    },
+    {
+      "id": "ba09c8e4-e431-48cb-8144-91531c0a1967",
+      "rec": "recNojqvcP0PCKgHW",
+      "name": "Microsoft Dynamics 365 ↔ Autodesk Forma",
+      "connector": "Workato",
+      "source": {
+        "rec": "recFQWCD5vkQp36NA",
+        "name": "Microsoft Dynamics 365"
+      },
+      "target": {
+        "rec": "rec2KtJeJUzqih3ad",
+        "name": "Autodesk Forma"
+      }
+    },
+    {
+      "id": "bb34ac33-e425-43e8-991d-f40c11c7ae59",
+      "rec": "rec1CHDLtnFH8GZJX",
+      "name": "Monday.com (manual)",
+      "connector": "Zapier",
+      "source": {
+        "rec": "recohQSEjZl4EP4zL",
+        "name": "Motion"
+      },
+      "target": {
+        "rec": "recNY9nwIB6jYcxSF",
+        "name": "monday.com"
+      }
+    },
+    {
+      "id": "c7010f9b-3693-49cb-a600-a5ed20776ae8",
+      "rec": "reccCVw4EgV41DMW1",
+      "name": "ServiceTitan ↔ Google Calendar",
+      "connector": "Zapier",
+      "source": {
+        "rec": "recV6ze7hEqkafWTJ",
+        "name": "ServiceTitan"
+      },
+      "target": {
+        "rec": "recEuQ8n9wSqaoEBL",
+        "name": "Google Calendar"
+      }
+    },
+    {
+      "id": "d254c808-932c-4b0d-b9af-e83afaba3b7d",
+      "rec": "recsbm54PMKMo6HKY",
+      "name": "HOVER ↔ Roofr (via Zapier)",
+      "connector": "Zapier",
+      "source": {
+        "rec": "recE1QYJGBueJQvaL",
+        "name": "HOVER"
+      },
+      "target": {
+        "rec": "recRd7g8zjLcaz3yd",
+        "name": "Roofr"
+      }
+    },
+    {
+      "id": "d855e70a-ef03-4097-b94a-9f2b4acc6af9",
+      "rec": "recRAvS2Wwz7oZEXw",
+      "name": "HOVER → CompanyCam (via Zapier)",
+      "connector": "Zapier",
+      "source": {
+        "rec": "recE1QYJGBueJQvaL",
+        "name": "HOVER"
+      },
+      "target": {
+        "rec": "rec4v7OJgpyhYtRPF",
+        "name": "CompanyCam"
+      }
+    },
+    {
+      "id": "dc6c9315-1042-4bf5-b46d-7ea6862d932d",
+      "rec": "rec60E94UuePC6HG0",
+      "name": "PlanGrid → Smartsheet",
+      "connector": "Workato",
+      "source": {
+        "rec": "rec07zp4kBlO6mLhN",
+        "name": "PlanGrid"
+      },
+      "target": {
+        "rec": "recvTtJLtPerJyKVB",
+        "name": "Smartsheet"
+      }
+    },
+    {
+      "id": "e8e51da5-8460-4950-ae68-18702c995447",
+      "rec": "recYns7vHz1YEgzfb",
+      "name": "Amazon Redshift (via Forma Construction Connect)",
+      "connector": "Workato",
+      "source": {
+        "rec": "rec2KtJeJUzqih3ad",
+        "name": "Autodesk Forma"
+      },
+      "target": {
+        "rec": "recGdDNhaQR8HTaFm",
+        "name": "Amazon Redshift"
+      }
+    },
+    {
+      "id": "f9f77dc3-6cb7-4bc2-a0f4-bdacbc8a65bf",
+      "rec": "recGw89US0TM7cS6y",
+      "name": "Deltek Vantagepoint ↔ Power BI",
+      "connector": "Workato",
+      "source": {
+        "rec": "recvm3gJmUFLMzVIL",
+        "name": "Deltek Vantagepoint"
+      },
+      "target": {
+        "rec": "recbGEdHIUfltsUo1",
+        "name": "Power BI"
+      }
+    },
+    {
+      "id": "fceb7c5c-0a14-4bb4-806c-e880e8109feb",
+      "rec": "recRvjDXtsP2tCcZ3",
+      "name": "Autodesk Forma → Google Calendar (via Forma Construction Connect)",
+      "connector": "Workato",
+      "source": {
+        "rec": "rec2KtJeJUzqih3ad",
+        "name": "Autodesk Forma"
+      },
+      "target": {
+        "rec": "recEuQ8n9wSqaoEBL",
+        "name": "Google Calendar"
+      }
+    },
+    {
+      "id": "fea24c35-c86a-42da-89a2-38cdf138d372",
+      "rec": "recA9bojxuWKcfAVW",
+      "name": "Salesforce (manual)",
+      "connector": "Zapier",
+      "source": {
+        "rec": "recRd7g8zjLcaz3yd",
+        "name": "Roofr"
+      },
+      "target": {
+        "rec": "recGSSm4x4QiohK5U",
+        "name": "Salesforce"
+      }
+    }
+  ],
+  "excluded": [
+    {
+      "id": "7547e28b-489e-410a-884e-14853a8cb9d7",
+      "rec": "recqbe9tXABECTOgn",
+      "name": "Connecteam ↔ Zapier",
+      "connector": "Zapier",
+      "source": {
+        "rec": "reczwqLaNNmExNoib",
+        "name": "Connecteam"
+      },
+      "target": {
+        "rec": "recdsJWp651jBwrBW",
+        "name": "Zapier"
+      },
+      "reason": "self-referential (Convention A): stays in integrations by design"
+    },
+    {
+      "id": "47cfc062-d51e-4be1-8968-0290b74ca034",
+      "rec": "recHnfHkKGV6OrDsT",
+      "name": "CupixWorks → Zapier",
+      "connector": "Zapier",
+      "source": {
+        "rec": "rec1FG7U1OdVdDkyu",
+        "name": "CupixWorks"
+      },
+      "target": {
+        "rec": "recdsJWp651jBwrBW",
+        "name": "Zapier"
+      },
+      "reason": "self-referential (Convention A): stays in integrations by design"
+    },
+    {
+      "id": "47fefc94-df13-4914-ac47-8a2850dc20fb",
+      "rec": "recP2lZCcYYAW8NSw",
+      "name": "Databricks → Zapier",
+      "connector": "Zapier",
+      "source": {
+        "rec": "recPQ8BgBuJe40dZu",
+        "name": "Databricks"
+      },
+      "target": {
+        "rec": "recdsJWp651jBwrBW",
+        "name": "Zapier"
+      },
+      "reason": "self-referential (Convention A): stays in integrations by design"
+    },
+    {
+      "id": "d3aa277a-710b-4456-83a5-4a092fc90bdb",
+      "rec": "recPINO2bWs1qtXv2",
+      "name": "Microsoft Entra ID ↔ Zapier",
+      "connector": "Zapier",
+      "source": {
+        "rec": "recCHpr6BhQc2i9IV",
+        "name": "Microsoft Entra ID"
+      },
+      "target": {
+        "rec": "recdsJWp651jBwrBW",
+        "name": "Zapier"
+      },
+      "reason": "self-referential (Convention A): stays in integrations by design"
+    },
+    {
+      "id": "86bd7f10-a16f-4b26-93cd-7081d97d78d8",
+      "rec": "rec2YptRk9dePMy7y",
+      "name": "Oracle Primavera Cloud → Zapier",
+      "connector": "Zapier",
+      "source": {
+        "rec": "recUpVn8zWjkgihwY",
+        "name": "Oracle Primavera Cloud"
+      },
+      "target": {
+        "rec": "recdsJWp651jBwrBW",
+        "name": "Zapier"
+      },
+      "reason": "self-referential (Convention A): stays in integrations by design"
+    },
+    {
+      "id": "26f9bc2a-295a-4121-be05-b92b386fa025",
+      "rec": "recRYPWiahEwtBlHJ",
+      "name": "Microsoft Fabric ↔ Workato",
+      "connector": "Workato",
+      "source": {
+        "rec": "rec5UJTYxSuIIRPiF",
+        "name": "Microsoft Fabric"
+      },
+      "target": {
+        "rec": "recH4fhVn8TXnev2K",
+        "name": "Workato"
+      },
+      "reason": "self-referential (Convention A): stays in integrations by design"
+    },
+    {
+      "id": "c4116b09-5e69-41fe-8e4c-67b7a2dc76f3",
+      "rec": "recHESUPOUxMywYgj",
+      "name": "Oracle Fusion Cloud ERP → Workato",
+      "connector": "Workato",
+      "source": {
+        "rec": "receXiDR6Yaeaach4",
+        "name": "Oracle Fusion Cloud ERP"
+      },
+      "target": {
+        "rec": "recH4fhVn8TXnev2K",
+        "name": "Workato"
+      },
+      "reason": "self-referential (Convention A): stays in integrations by design"
+    }
+  ],
+  "minimal_cover_record_ids": [
+    "rec2KtJeJUzqih3ad",
+    "recRd7g8zjLcaz3yd",
+    "rec944YjKNRfRCgAf",
+    "recE1QYJGBueJQvaL",
+    "recvm3gJmUFLMzVIL",
+    "recohQSEjZl4EP4zL",
+    "recoiDWUn1VK93IdS",
+    "recvTtJLtPerJyKVB",
+    "rec6UUp8iEaL1vUpk",
+    "recBec7hSiuPp0YY2",
+    "recCOE9Ju0ZRoW8ss",
+    "recDzKmObXRE6uHpm",
+    "recEuQ8n9wSqaoEBL",
+    "recdO5uJDgWBpNVmD"
+  ]
+}
