@@ -1,9 +1,11 @@
 import {
   Component,
   ElementRef,
+  InjectionToken,
   Injector,
   afterNextRender,
   computed,
+  type OnInit,
   inject,
   input,
   signal,
@@ -11,6 +13,7 @@ import {
 } from '@angular/core';
 
 import {
+  CONNECTOR_POWERED_FROZEN_EDIT_FIELDS,
   INTEGRATION_EDIT_FIELDS,
   INTEGRATION_EDIT_REQUIRED_FIELDS,
   OWNER_EDITABLE_MECHANISM_KINDS,
@@ -71,6 +74,17 @@ export const EDIT_GROUPS: readonly {
 
 type Draft = Record<IntegrationEditField, string>;
 
+/**
+ * Render one card's edit form open on first paint: the id of the integration
+ * whose form starts open. Provided ONLY by the dev preview
+ * (`/preview/vendor-dashboard/products/<slug>/integrations?edit=<integration id>`),
+ * so `npx impeccable detect`, which reads the first render, can see the form.
+ * Nothing in the product provides it.
+ */
+export const VENDOR_EDIT_FORM_START_OPEN = new InjectionToken<string | null>(
+  'VENDOR_EDIT_FORM_START_OPEN',
+);
+
 /** Where the caller stands on this integration. See {@link VendorIntegrationOwnership}. */
 export type OwnershipState =
   | 'owner-claimed'
@@ -78,7 +92,9 @@ export type OwnershipState =
   | 'owner-unclaimed'
   // AECI-1089: the owner of a connector-delivered row. It may claim with an active
   // entitlement (`owner-connector-unclaimed`), and is told a plan is needed without
-  // one (`owner-connector-locked`). A claimed one has no edit form until AECI-1090.
+  // one (`owner-connector-locked`). Once claimed, an entitled owner gets the
+  // ordinary `owner-claimed` edit (AECI-1090); `owner-connector-claimed` is the
+  // claimed row whose vendor no longer holds an active entitlement.
   | 'owner-connector-unclaimed'
   | 'owner-connector-locked'
   | 'owner-connector-claimed'
@@ -99,9 +115,11 @@ export type OwnershipState =
  * - **the owner, claimed** — "Edit details", a disclosure over the edit form;
  * - **the owner of a connector-delivered row** (AECI-1089) — Claim when the vendor
  *   holds an active entitlement, and a sentence saying a plan is needed when it
- *   does not (AECI-1040 ruling 2). Once claimed, a line saying it owns the row;
- *   editing it is AECI-1090. `attestable` is the server's connector-powered
- *   verdict, read off the wire and never re-derived;
+ *   does not (AECI-1040 ruling 2). Once claimed (AECI-1090), "Edit details" with
+ *   an active entitlement, with the frozen type left out of the form and named
+ *   instead (ruling 5), and without one a sentence saying editing needs an active
+ *   plan. `attestable` is the server's connector-powered verdict, read off the
+ *   wire and never re-derived;
  * - **anyone else** — "Offered by {vendor}", and who reviews a contest on it.
  *   The contest form below the card is their recourse.
  *
@@ -147,8 +165,6 @@ export type OwnershipState =
       }
       @if (state() === 'owner-unclaimed' || state() === 'owner-connector-unclaimed') {
         @if (state() === 'owner-connector-unclaimed') {
-          <!-- AECI-1089: no edit form on a connector-delivered row yet (AECI-1090),
-               so this hint does not promise edits. -->
           <p
             class="mt-1 max-w-prose text-xs text-(--text-secondary)"
             i18n="@@vendor.integrationClaim.hintConnector"
@@ -186,6 +202,15 @@ export type OwnershipState =
             {{ message }}
           </p>
         }
+      } @else if (state() === 'owner-connector-claimed') {
+        <p
+          class="mt-1 max-w-prose text-xs text-(--text-secondary)"
+          data-testid="ownership-entitlement-hint"
+          i18n="@@vendor.integrationEdit.connectorEntitlementHint"
+        >
+          Editing an integration delivered through a connector product needs an active plan.
+          Contact AEC Integrations to activate or renew it.
+        </p>
       } @else if (state() === 'owner-claimed') {
         <div class="mt-3">
           <button
@@ -218,13 +243,26 @@ export type OwnershipState =
               >
                 Edit this integration
               </p>
-              <p class="text-xs text-(--text-secondary)" i18n="@@vendor.integrationEdit.intro">
+              <p
+                class="max-w-prose text-xs text-(--text-secondary)"
+                i18n="@@vendor.integrationEdit.intro"
+              >
                 Changes go live on the public integration page as soon as you save. There is no
                 review step. The other product's vendor is told what changed.
               </p>
+              @if (connectorDelivered()) {
+                <p
+                  class="max-w-prose text-xs text-(--text-secondary)"
+                  data-testid="edit-frozen-type"
+                  i18n="@@vendor.integrationEdit.connectorTypeFrozen"
+                >
+                  A connector product delivers this integration, so AEC Integrations sets its type.
+                  You can edit everything else.
+                </p>
+              }
             </div>
 
-            @for (group of groups; track group.key) {
+            @for (group of groups(); track group.key) {
               <fieldset class="space-y-4">
                 <legend [class]="legendClass">{{ groupLabel(group.key) }}</legend>
                 @for (field of group.fields; track field) {
@@ -364,7 +402,7 @@ export type OwnershipState =
     </div>
   `,
 })
-export class VendorIntegrationOwnership {
+export class VendorIntegrationOwnership implements OnInit {
   private readonly api = inject(VendorApi);
   private readonly store = inject(VendorPortalStore);
   private readonly announcer = inject(VendorPortalAnnouncer);
@@ -375,7 +413,27 @@ export class VendorIntegrationOwnership {
   private readonly trigger = viewChild<ElementRef<HTMLButtonElement>>('trigger');
   private readonly line = viewChild<ElementRef<HTMLParagraphElement>>('line');
 
-  protected readonly groups = EDIT_GROUPS;
+  private readonly startOpenId = inject(VENDOR_EDIT_FORM_START_OPEN, { optional: true }) ?? null;
+
+  /** The server's connector-powered verdict (AECI-705), read off the wire. */
+  protected readonly connectorDelivered = computed(() => !this.integration().attestable);
+
+  /** The fields this row's form edits: all eleven, or on a connector-delivered row
+   *  all but the frozen type (AECI-1090 / AECI-1040 ruling 5). An evidenced pair
+   *  has no type column at all, which is the same set. */
+  protected readonly editableFields = computed<readonly IntegrationEditField[]>(() =>
+    this.connectorDelivered()
+      ? INTEGRATION_EDIT_FIELDS.filter((field) => !CONNECTOR_POWERED_FROZEN_EDIT_FIELDS.has(field))
+      : INTEGRATION_EDIT_FIELDS,
+  );
+
+  protected readonly groups = computed(() => {
+    const editable = new Set(this.editableFields());
+    return EDIT_GROUPS.map((group) => ({
+      key: group.key,
+      fields: group.fields.filter((field) => editable.has(field)),
+    }));
+  });
 
   protected readonly claiming = signal(false);
   protected readonly claimNotice = signal<string | null>(null);
@@ -403,8 +461,9 @@ export class VendorIntegrationOwnership {
         return this.entitled() ? 'owner-connector-unclaimed' : 'owner-connector-locked';
       }
       if (integration.retired_at) return 'owner-retired';
-      // AECI-1089: a claimed connector-delivered row. Its edit form is AECI-1090.
-      if (connector) return 'owner-connector-claimed';
+      // AECI-1090: a claimed connector-delivered row takes the ordinary edit from an
+      // entitled owner, with its type frozen. Without an entitlement it says so.
+      if (connector && !this.entitled()) return 'owner-connector-claimed';
       // AECI-1010: a retired row takes no edit. The server answers 409
       // INTEGRATION_RETIRED; the form is not offered. Restore is on the card's foot.
       return integration.retired_at ? 'owner-retired' : 'owner-claimed';
@@ -432,7 +491,7 @@ export class VendorIntegrationOwnership {
         // below says an active plan is needed (AECI-1089 review).
         return $localize`:@@vendor.integrationOwnership.ownerConnectorLocked:Your company is recorded as the owner of this integration, which is delivered through a connector. AEC Integrations maintains its details.`;
       case 'owner-connector-claimed':
-        return $localize`:@@vendor.integrationOwnership.ownerConnectorClaimed:Your company owns this integration, which is delivered through a connector. Editing its details here is not available yet.`;
+        return $localize`:@@vendor.integrationOwnership.ownerConnectorClaimed:Your company owns this integration, which is delivered through a connector.`;
       case 'other-owned':
         return $localize`:@@vendor.integrationOwnership.otherOwned:Offered by ${owner}:owner:. ${owner}:owner: maintains its details, and reviews any contest you send about them. A contest about who owns it goes to AEC Integrations.`;
       case 'other-unclaimed':
@@ -442,14 +501,23 @@ export class VendorIntegrationOwnership {
     }
   });
 
+  /** The dev preview's `?edit=<id>` (see {@link VENDOR_EDIT_FORM_START_OPEN}).
+   *  Inputs are set by now, and this runs before the first render, so the form is
+   *  in the server-rendered HTML. */
+  ngOnInit(): void {
+    if (this.startOpenId !== null && this.startOpenId === this.integration().id) {
+      if (this.state() === 'owner-claimed') this.openEdit();
+    }
+  }
+
   // ─── Claim (AECI-1005) ─────────────────────────────────────────────────────
 
   protected async onClaim(): Promise<void> {
     if (this.claiming()) return;
     this.claiming.set(true);
     this.claimNotice.set(null);
-    // AECI-1089: a claimed connector-delivered row has no edit form yet (AECI-1090),
-    // so the announcement does not promise one and focus goes to the status line.
+    // AECI-1089: the connector announcement names what the claim changed. Focus goes
+    // to the Edit trigger (AECI-1090) when the row now offers one, else the status line.
     const connector = !this.integration().attestable;
     try {
       await this.api.claimIntegration(this.integration().id);
@@ -479,6 +547,10 @@ export class VendorIntegrationOwnership {
       this.closeEdit();
       return;
     }
+    this.openEdit();
+  }
+
+  private openEdit(): void {
     const start = draftFrom(this.integration());
     this.seed.set(start);
     this.draft.set(start);
@@ -505,7 +577,8 @@ export class VendorIntegrationOwnership {
     const draft = this.draft();
     const seed = this.seed();
     const out: Partial<Record<IntegrationEditField, string>> = {};
-    for (const field of INTEGRATION_EDIT_FIELDS) {
+    // Only the fields the form shows: a frozen type is never sent (AECI-1090).
+    for (const field of this.editableFields()) {
       if (draft[field].trim() !== seed[field].trim()) out[field] = draft[field];
     }
     return out;

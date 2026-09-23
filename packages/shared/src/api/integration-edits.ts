@@ -30,9 +30,15 @@ import { IntegrationMechanismKindSchema, type IntegrationMechanismKind } from '.
  *    that changes nothing writes nothing at all.
  * 4. **`direction` is caller-relative on the wire, canonical in the DB**, framed
  *    against `context_product_id`, exactly as contests and claims frame it.
- * 5. **No edit may make the row connector-powered.** A connector-powered row is
- *    out of every vendor write (AECI-1003 decision 9), so an owner cannot type its
- *    own row into that state and freeze it. `iPaaS` and `integrator` are refused.
+ * 5. **No edit may make the row connector-powered.** An owner cannot type an
+ *    ordinary row into that state, where only an entitled owner could write it
+ *    again (AECI-1003 decision 9, carved open by AECI-1040). `iPaaS` and
+ *    `integrator` are refused.
+ * 6. **No edit may move a connector-powered row out of that state either**
+ *    (AECI-1090, AECI-1040 ruling 5). On a connector-powered row the owner edits
+ *    {@link CONNECTOR_POWERED_EDIT_FIELDS}: every field but `mechanism_kind`,
+ *    which decides the row's lane. A `connector_evidenced_pairs` row has no such
+ *    column at all, so the same ten fields are its whole edit set.
  *
  * i18n note: framework-agnostic package (no `$localize`). The messages below are
  * for API consumers and logs; the portal renders its own copy.
@@ -43,6 +49,19 @@ export const INTEGRATION_EDIT_FIELDS = INTEGRATION_CONTEST_FIELDS.filter(
   (field): field is Exclude<IntegrationContestField, 'owner'> => field !== 'owner',
 );
 export type IntegrationEditField = Exclude<IntegrationContestField, 'owner'>;
+
+/**
+ * The fields an owner edits on a connector-powered row (AECI-1090 / AECI-1040
+ * ruling 5 / `STAGE_2_VENDOR_PORTAL_SPEC.md` §4.5.6): every standard field except
+ * the frozen ones in {@link CONNECTOR_POWERED_FROZEN_EDIT_FIELDS}. It is the whole
+ * edit set of a `connector_evidenced_pairs` row, which has no `mechanism_kind`
+ * column, and the edit set of a connector-powered `integrations` row, whose
+ * `mechanism_kind` is frozen.
+ */
+export const CONNECTOR_POWERED_FROZEN_EDIT_FIELDS: ReadonlySet<IntegrationEditField> =
+  new Set<IntegrationEditField>(['mechanism_kind']);
+export const CONNECTOR_POWERED_EDIT_FIELDS: readonly IntegrationEditField[] =
+  INTEGRATION_EDIT_FIELDS.filter((field) => !CONNECTOR_POWERED_FROZEN_EDIT_FIELDS.has(field));
 
 /** The fields a pair page cannot render without, so an edit may change but never
  *  clear them. */

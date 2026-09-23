@@ -13,6 +13,9 @@
  *   4. Success announces through the one live region and revalidates
  *      `integrations`. Each refusal renders its own sentence in a `role="alert"`.
  *   5. The card mounts the panel for owners and non-owners alike.
+ *   6. AECI-1090: a claimed connector-delivered row is editable by an entitled
+ *      owner, with the frozen type left out of the form and never sent. Without
+ *      an active entitlement it says a plan is needed and offers no form.
  */
 import { HttpErrorResponse, provideHttpClient } from '@angular/common/http';
 import { provideZonelessChangeDetection } from '@angular/core';
@@ -25,14 +28,20 @@ import { INTEGRATION_EDIT_FIELDS, type VendorIntegration } from '@aeci/shared';
 import { VendorPortalAnnouncer } from '../vendor-announcer';
 import { VendorApi } from '../vendor-api';
 import {
+  INTEGRATION_CONNECTOR_OWNED,
   VENDOR_INTEGRATIONS_FIXTURE,
+  VENDOR_ME_DOWNGRADED_FIXTURE,
   VENDOR_ME_FIXTURE,
   VENDOR_ME_UNVERIFIED_FIXTURE,
 } from '../vendor-fixtures';
 import { VendorPortalStore } from '../vendor-portal-store';
 
 import { VendorIntegrationCard } from './vendor-integration-card';
-import { EDIT_GROUPS, VendorIntegrationOwnership } from './vendor-integration-ownership';
+import {
+  EDIT_GROUPS,
+  VENDOR_EDIT_FORM_START_OPEN,
+  VendorIntegrationOwnership,
+} from './vendor-integration-ownership';
 
 const flush = () => new Promise<void>((resolve) => setTimeout(resolve));
 
@@ -168,10 +177,10 @@ describe('VendorIntegrationOwnership — what it shows', () => {
     expect(q(fixture, '[data-testid="claim-needs-plan"]')).toBeNull();
   });
 
-  it('offers no Edit on a claimed connector-delivered row yet (AECI-1090 adds it)', async () => {
+  it('offers Edit on a claimed connector-delivered row with an active plan (AECI-1090)', async () => {
     const fixture = await create({ ...CLAIMED, attestable: false });
-    expect(line(fixture)).toContain('not available yet');
-    expect(q(fixture, 'button')).toBeNull();
+    expect(q(fixture, '[data-testid="edit-integration"]')).not.toBeNull();
+    expect(q(fixture, '[data-testid="claim-integration"]')).toBeNull();
   });
 
   it('claims a connector-delivered row and moves focus to the status line', async () => {
@@ -370,5 +379,85 @@ describe('VendorIntegrationCard — mounts the ownership panel', () => {
         b.textContent?.includes('Contest a field'),
       ),
     ).toBe(true);
+  });
+});
+
+describe('VendorIntegrationOwnership — a connector-delivered row (AECI-1090)', () => {
+  const CONNECTOR = INTEGRATION_CONNECTOR_OWNED;
+
+  it('offers Edit to the claimed owner when its vendor holds an active entitlement', async () => {
+    const fixture = await create(CONNECTOR);
+    expect(line(fixture)).toContain('owns this integration');
+    expect(q(fixture, '[data-testid="edit-integration"]')).not.toBeNull();
+    expect(q(fixture, '[data-testid="claim-integration"]')).toBeNull();
+  });
+
+  it('leaves the frozen type out of the form and says why', async () => {
+    const fixture = await create(CONNECTOR);
+    await openEdit(fixture);
+    expect(q(fixture, '[id$="-mechanism_kind"]')).toBeNull();
+    expect(q(fixture, '[data-testid="edit-frozen-type"]')!.textContent).toContain(
+      'AEC Integrations sets its type',
+    );
+    // The other ten fields are all there.
+    for (const field of INTEGRATION_EDIT_FIELDS.filter((f) => f !== 'mechanism_kind')) {
+      expect(q(fixture, `[id$="-${field}"]`)).not.toBeNull();
+    }
+  });
+
+  it('never sends the type, only the changed fields', async () => {
+    api.updateIntegration.mockResolvedValue({});
+    const fixture = await create(CONNECTOR);
+    await openEdit(fixture);
+    await type(fixture, 'maturity', 'GA');
+    await save(fixture);
+    expect(api.updateIntegration).toHaveBeenCalledWith(CONNECTOR.id, {
+      maturity: 'GA',
+      context_product_id: CONNECTOR.context_product.id,
+    });
+  });
+
+  it('maps INTEGRATION_ENTITLEMENT_REQUIRED to its own sentence', async () => {
+    api.updateIntegration.mockRejectedValue(apiError(403, 'INTEGRATION_ENTITLEMENT_REQUIRED'));
+    const fixture = await create(CONNECTOR);
+    await openEdit(fixture);
+    await type(fixture, 'maturity', 'GA');
+    await save(fixture);
+    expect(q(fixture, 'form [role="alert"]')!.textContent).toContain('needs an active plan');
+  });
+
+  it('offers no form, and says a plan is needed, without an active entitlement', async () => {
+    TestBed.inject(VendorPortalStore).seed(VENDOR_ME_DOWNGRADED_FIXTURE);
+    const fixture = await create(CONNECTOR);
+    expect(line(fixture)).toContain('owns this integration');
+    expect(q(fixture, '[data-testid="edit-integration"]')).toBeNull();
+    expect(q(fixture, '[data-testid="ownership-entitlement-hint"]')!.textContent).toContain(
+      'needs an active plan',
+    );
+  });
+
+  it('offers no Edit on a retired connector-delivered row', async () => {
+    const fixture = await create({ ...CONNECTOR, retired_at: '2026-09-21T00:00:00.000Z' });
+    expect(q(fixture, '[data-testid="edit-integration"]')).toBeNull();
+  });
+
+  it('opens on first render when the preview names the row', async () => {
+    // The module is already built by `beforeEach`, so rebuild it with the token.
+    TestBed.resetTestingModule();
+    TestBed.configureTestingModule({
+      providers: [
+        provideZonelessChangeDetection(),
+        provideHttpClient(),
+        provideRouter([]),
+        { provide: VendorApi, useValue: api as unknown as VendorApi },
+        VendorPortalStore,
+        { provide: VENDOR_EDIT_FORM_START_OPEN, useValue: CONNECTOR.id },
+      ],
+    });
+    TestBed.inject(VendorPortalStore).seed(VENDOR_ME_FIXTURE);
+    const fixture = await create(CONNECTOR);
+    expect(q(fixture, 'form')).not.toBeNull();
+    const other = await create(CLAIMED);
+    expect(q(other, 'form')).toBeNull();
   });
 });
