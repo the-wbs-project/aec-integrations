@@ -3,7 +3,7 @@
  * pairs, with the AECI-1040 routing rulings (`STAGE_2_VENDOR_PORTAL_SPEC.md`
  * §11b.13).
  *
- * Real migrations (0049 included) on in-memory SQLite, with `db.batch` shimmed onto
+ * Real migrations (0050 included) on in-memory SQLite, with `db.batch` shimmed onto
  * one transaction, so the two-arm anchor CHECK, the evidenced open-contest key and
  * the audit-in-batch rule are exercised, not mocked. What each block pins:
  *

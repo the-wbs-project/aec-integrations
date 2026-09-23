@@ -162,7 +162,7 @@ export const CASCADE_CHILD_HANDLING: Readonly<Record<string, FkOutcome>> = {
   'claims.connector_evidenced_pair_id': 'cascade-child',
   'attestations.claim_id': 'cascade-child',
   'integration_field_challenges.integration_id': 'cascade-child',
-  // AECI-1092 (0049): a contest can sit on an evidenced pair. Deleted explicitly
+  // AECI-1092 (0050): a contest can sit on an evidenced pair. Deleted explicitly
   // before the pairs, and counted on the pair's tombstone, like the integrations arm.
   'integration_field_challenges.evidenced_pair_id': 'cascade-child',
   // AECI-1007. Deleted explicitly, and counted on the integration's tombstone, only
@@ -269,10 +269,10 @@ export const EVIDENCED_PAIRS_DDL_SQL = `SELECT "sql" FROM "sqlite_master" WHERE 
 export const VENDOR_LINKS_TABLE_SQL = `SELECT "name" FROM "sqlite_master" WHERE "type" = 'table' AND "name" = 'integration_vendor_links';`;
 
 /** AECI-1092: the contest table's DDL. It carries `evidenced_pair_id` on a tier
- *  migration 0049 has reached, and not before. */
+ *  migration 0050 has reached, and not before. */
 export const CONTESTS_DDL_SQL = `SELECT "sql" FROM "sqlite_master" WHERE "type" = 'table' AND "name" = 'integration_field_challenges';`;
 
-/** Does this contest-table DDL carry 0049's evidenced-pair anchor? */
+/** Does this contest-table DDL carry 0050's evidenced-pair anchor? */
 export function ddlHasEvidencedContestAnchor(ddl: string | null): boolean {
   return ddl !== null && ddl.includes('evidenced_pair_id');
 }
@@ -557,7 +557,7 @@ export interface ProductDeleteArgs {
   /** AECI-1088 review: the same for `connector_evidenced_pairs` and migration 0049. */
   vendorHeldPairColumns?: boolean;
   /** AECI-1092: whether `integration_field_challenges.evidenced_pair_id` exists on
-   *  the target tier (migration 0049). Defaults to true, the schema at HEAD; the CLI
+   *  the target tier (migration 0050). Defaults to true, the schema at HEAD; the CLI
    *  passes its {@link CONTESTS_DDL_SQL} probe. */
   evidencedContestAnchor?: boolean;
 }

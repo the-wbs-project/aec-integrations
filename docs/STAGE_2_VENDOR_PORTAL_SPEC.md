@@ -2261,7 +2261,7 @@ mail is bounded by the cooldown and the per-vendor `write` bucket, not by this p
 
 ## 11b. Integration field contests (AECI-1008)
 
-**API half shipped 2026-09-18 (PR A). Portal half shipped 2026-09-18 (PR B), §11b.10. Admin queue shipped 2026-09-18 (PR C), §11b.11. The protest to AECi (AECI-1009) shipped 2026-09-22, §11b.12. Contests on connector-powered rows and evidenced pairs (AECI-1092) shipped 2026-09-23, §11b.13.** This section is the build contract. The code is `apps/api/src/routes/{vendor-contests,admin-contests}.ts`, `apps/api/src/lib/integration-contests.ts` and `packages/shared/src/api/integration-contests.ts`. The table is `integration_field_challenges`, migration `0043_needy_hobgoblin.sql`, rebuilt onto two anchors by `0049_rainy_puma.sql`.
+**API half shipped 2026-09-18 (PR A). Portal half shipped 2026-09-18 (PR B), §11b.10. Admin queue shipped 2026-09-18 (PR C), §11b.11. The protest to AECi (AECI-1009) shipped 2026-09-22, §11b.12. Contests on connector-powered rows and evidenced pairs (AECI-1092) shipped 2026-09-23, §11b.13.** This section is the build contract. The code is `apps/api/src/routes/{vendor-contests,admin-contests}.ts`, `apps/api/src/lib/integration-contests.ts` and `packages/shared/src/api/integration-contests.ts`. The table is `integration_field_challenges`, migration `0043_needy_hobgoblin.sql`, rebuilt onto two anchors by `0050_rainy_puma.sql`.
 
 ### 11b.1 What a contest is
 
@@ -2382,7 +2382,7 @@ Every transition writes, in one `db.batch`:
 
 The table is now the second cascade child of `integrations`. `apps/api/src/test/d1.spec.ts` pins the list, so the next recreate of `integrations` must carry it out of the way first (`docs/migrations.md` §3.3a).
 
-**Since AECI-1092 (migration `0049`) it is a cascade child of `connector_evidenced_pairs` too**, through `evidenced_pair_id`. The same accepted risk applies to a pair that is not vendor-held, and AECI-1088's fence refuses the move and the deletes on a vendor-held pair. `ops:retract-product` deletes a pair's contests explicitly before the pair and counts them on its tombstone. `d1.spec.ts` pins that list as well, and pins that nothing references the contest table, which is what made the `0049` rebuild safe.
+**Since AECI-1092 (migration `0050`) it is a cascade child of `connector_evidenced_pairs` too**, through `evidenced_pair_id`. The same accepted risk applies to a pair that is not vendor-held, and AECI-1088's fence refuses the move and the deletes on a vendor-held pair. `ops:retract-product` deletes a pair's contests explicitly before the pair and counts them on its tombstone. `d1.spec.ts` pins that list as well, and pins that nothing references the contest table, which is what made the `0050` rebuild safe.
 
 ### 11b.10 As built — the portal (PR B, 2026-09-18)
 
@@ -2712,7 +2712,7 @@ Chris ruled on 2026-09-22 that the ruling is advice, that the windows are 30 day
 
 ### 11b.13 Contests on connector-powered rows (AECI-1040 — built 2026-09-23, AECI-1092)
 
-**Built 2026-09-23 (AECI-1092), as ruled.** Chris ruled that a contest on a connector-powered row uses the normal contest path and routing (`STAGE_2_SPEC.md` §8.10(8), ruling 4), with four follow-up rulings below. It ships in the same promote as the claim on evidenced pairs (AECI-1089), because an evidenced-pair contest can route to an owner only once that owner can claim. The code: `apps/api/src/lib/integration-contests.ts` (the anchor helpers, `routeContest`, `planEntitlementClearReroute`), `resolveEvidencedPairSlots` in `lib/attestation-authority.ts`, `routes/vendor-contests.ts`, `routes/admin-contests.ts`, `routes/admin-entitlements.ts`, and migration `0049_rainy_puma.sql`.
+**Built 2026-09-23 (AECI-1092), as ruled.** Chris ruled that a contest on a connector-powered row uses the normal contest path and routing (`STAGE_2_SPEC.md` §8.10(8), ruling 4), with four follow-up rulings below. It ships in the same promote as the claim on evidenced pairs (AECI-1089), because an evidenced-pair contest can route to an owner only once that owner can claim. The code: `apps/api/src/lib/integration-contests.ts` (the anchor helpers, `routeContest`, `planEntitlementClearReroute`), `resolveEvidencedPairSlots` in `lib/attestation-authority.ts`, `routes/vendor-contests.ts`, `routes/admin-contests.ts`, `routes/admin-entitlements.ts`, and migration `0050_rainy_puma.sql`.
 
 - **Who may contest is unchanged (§11b.2).** An endpoint vendor that is not the owner. On an evidenced pair the endpoint check is `resolveEvidencedPairSlots`, the evidenced arm of `resolveAttestationSlots`. It applies the same `product_vendors` rule to `product_a_id` and `product_b_id`, and answers the same `404` for "no such pair" and "you own neither endpoint". A third-party owner still cannot contest its own rows, because it holds neither endpoint.
 - **One route.** `POST /api/vendor/integrations/:id/contests` takes an evidenced pair's id too. The handler finds the table the way the AECI-1089 claim and the AECI-1090 edit do on the same `/integrations/:id` path: `integrations` first, then `connector_evidenced_pairs` (`locateContestAnchor`). An id in neither table gets the ordinary flat `404`. The gate, checks and answers are unchanged, and no new rate-limit entry was needed. Every other contest route addresses a contest by its own id.

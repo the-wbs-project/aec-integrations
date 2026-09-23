@@ -946,7 +946,7 @@ describe('connector lane (AECI-714)', () => {
   it('pins the tables that cascade INTO connector_evidenced_pairs — the next recreate depends on it', async () => {
     // `claims.connector_evidenced_pair_id` (AECI-721), whose chain is two deep through
     // `attestations`, and since AECI-1092 `integration_field_challenges.evidenced_pair_id`
-    // (migration 0049), a leaf. A recreate of `connector_evidenced_pairs` in
+    // (migration 0050), a leaf. A recreate of `connector_evidenced_pairs` in
     // drizzle-kit's generated order would empty all three, which is why AECI-1088 added
     // its ownership columns as plain ADDs (`docs/migrations.md` §3.3a).
     const t = await makeTestDb();
@@ -964,8 +964,8 @@ describe('connector lane (AECI-714)', () => {
     t.dispose();
   });
 
-  it('keeps integration_field_challenges free of children — 0049 rebuilt it on that fact', async () => {
-    // `0049_rainy_puma.sql` (AECI-1092) rebuilt this table in place, which is safe ONLY
+  it('keeps integration_field_challenges free of children — 0050 rebuilt it on that fact', async () => {
+    // `0050_rainy_puma.sql` (AECI-1092) rebuilt this table in place, which is safe ONLY
     // because nothing holds a foreign key into it: dropping a table that is purely a
     // child fires no cascade anywhere. A table that later references it turns the next
     // rebuild into the dangerous class, so this list must be re-read, and the rebuild

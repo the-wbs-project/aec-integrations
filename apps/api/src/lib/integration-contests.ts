@@ -400,7 +400,7 @@ export function ownerEntitlementActiveSentinel(db: Db, ownerVendorId: string) {
  * A batch statement that ABORTS a write when the anchor row is retired at commit
  * (AECI-1010), on either table. The `integrations` arm is the shared
  * `integrationLiveSentinel`; the evidenced arm is its twin over
- * `connector_evidenced_pairs.retired_at` (migration 0048). Both raise through
+ * `connector_evidenced_pairs.retired_at` (migration 0049). Both raise through
  * `isIntegrationRetiredRaceError`'s match.
  */
 export function contestAnchorLiveSentinel(db: Db, anchor: ContestAnchor) {
@@ -956,7 +956,7 @@ export function contestIntegrationStateSentinel(
   expected: { claimed: boolean; ownerVendorId: string | null },
 ) {
   // AECI-1092: either anchor table. Both carry `claimed_at` and `built_by_vendor_id`
-  // with the same meaning (migration 0048).
+  // with the same meaning (migration 0049).
   const anchor = toContestAnchor(anchorOrId);
   const table = anchorTableSql(anchor.kind);
   // Raises when the row is GONE as well as when it moved (AECI-1005 review): a

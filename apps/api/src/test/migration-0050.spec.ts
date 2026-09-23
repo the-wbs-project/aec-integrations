@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { makeTestDb, statementsForMigration, type TestDb } from './d1';
 
 /**
- * AECI-1092 — `0049_rainy_puma.sql`, the two-arm anchor on
+ * AECI-1092 — `0050_rainy_puma.sql`, the two-arm anchor on
  * `integration_field_challenges` (`STAGE_2_VENDOR_PORTAL_SPEC.md` §11b.13).
  *
  * The migration is a TABLE REBUILD: `integration_id` loses its NOT NULL, a second
@@ -15,7 +15,7 @@ import { makeTestDb, statementsForMigration, type TestDb } from './d1';
  *   1. The committed statement order: the D1 pragma, CREATE __new, an explicit-column
  *      copy that never reads `evidenced_pair_id` from the old table, DROP, RENAME,
  *      then the indexes. No `foreign_keys=` pragma.
- *   2. Applied to a SEEDED pre-0049 database, every contest survives with every
+ *   2. Applied to a SEEDED pre-0050 database, every contest survives with every
  *      column, including the AECI-1009 protest data, and lands in the integrations arm.
  *   3. The anchor CHECK refuses both "neither" and "both", and accepts either arm.
  *   4. Both hand-written protest CHECKs from 0047 are in the live DDL and enforced.
@@ -23,7 +23,7 @@ import { makeTestDb, statementsForMigration, type TestDb } from './d1';
  *   6. Deleting either anchor parent cascades its contests, and deleting a profile
  *      still nulls the protest profile columns.
  */
-const MIGRATION = '0049_rainy_puma.sql';
+const MIGRATION = '0050_rainy_puma.sql';
 const NOW = '2026-09-23T00:00:00.000Z';
 
 const stripComments = (s: string): string =>
@@ -100,7 +100,7 @@ function seedParents(t: TestDb): void {
   );
 }
 
-/** Every column a pre-0049 contest carries, protest data included. */
+/** Every column a pre-0050 contest carries, protest data included. */
 const PROTESTED_ROW = {
   id: 'f1',
   integration_id: 'i1',

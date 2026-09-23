@@ -303,7 +303,7 @@ export async function main(argv: string[]): Promise<number> {
   // AECI-1007: the same for migration 0045's per-side links table.
   const vendorLinksTable =
     (runD1<{ name: string }>(target, VENDOR_LINKS_TABLE_SQL)[0]?.results.length ?? 0) > 0;
-  // AECI-1092: the same for migration 0049's evidenced-pair contest anchor.
+  // AECI-1092: the same for migration 0050's evidenced-pair contest anchor.
   const evidencedContestAnchor = ddlHasEvidencedContestAnchor(
     runD1<{ sql: string }>(target, CONTESTS_DDL_SQL)[0]?.results[0]?.sql ?? null,
   );

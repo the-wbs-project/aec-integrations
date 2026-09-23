@@ -1559,7 +1559,7 @@ const CONTEST_FIELD_CHECK = sql`"field" IN ('name', 'mechanism_kind', 'mechanism
  * A contest sits on an `integrations` row (`integration_id`) or on a
  * `connector_evidenced_pairs` row (`evidenced_pair_id`), never both and never
  * neither: `integration_field_challenges_anchor_check` is the sum-form CHECK
- * `claims_anchor_check` uses. `0049_…` rebuilt the table to add the second anchor
+ * `claims_anchor_check` uses. `0050_…` rebuilt the table to add the second anchor
  * (SQLite cannot relax a NOT NULL in place). NOTHING holds a foreign key INTO this
  * table, which is what made that rebuild safe; `test/d1.spec.ts` pins the empty
  * list. A future rebuild must re-check it first (`docs/migrations.md` §3.3a).

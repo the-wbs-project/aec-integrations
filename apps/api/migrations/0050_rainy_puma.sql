@@ -13,7 +13,7 @@
 -- violation reporting, not cascade actions. That hazard needs a CHILD. NOTHING
 -- holds a foreign key INTO `integration_field_challenges`: no migration contains
 -- `REFERENCES integration_field_challenges`, no `schema.ts` column
--- `.references(() => integrationFieldChallenges…)`, and no table in the 0048
+-- `.references(() => integrationFieldChallenges…)`, and no table in the 0049
 -- snapshot names it in `tableTo`. `src/test/d1.spec.ts` asserts the empty list at
 -- HEAD, so a child added later fails CI before the next rebuild can rely on this.
 -- Dropping a table that is only a CHILD fires nothing on its parents
@@ -46,8 +46,8 @@
 -- the parent DELETE fail. This makes the table a cascade child of
 -- `connector_evidenced_pairs` too, which `d1.spec.ts` pins.
 --
--- `src/test/migration-0049.spec.ts` is the tripwire: it applies this file to a
--- seeded pre-0049 database and asserts every row, including its protest data,
+-- `src/test/migration-0050.spec.ts` is the tripwire: it applies this file to a
+-- seeded pre-0050 database and asserts every row, including its protest data,
 -- survives, that the anchor CHECK holds both ways, and that every index and both
 -- protest CHECKs are in the live DDL. Regenerating this file undoes all four edits.
 PRAGMA defer_foreign_keys = true;--> statement-breakpoint
