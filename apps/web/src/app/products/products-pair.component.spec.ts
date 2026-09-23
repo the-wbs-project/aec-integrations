@@ -96,6 +96,7 @@ function buildPair(overrides: Partial<ProductPairResponse> = {}): ProductPairRes
         mechanism_kind: 'marketplace-app',
         mechanism_name: 'Procore + Autodesk Construction Cloud',
         direction: 'outbound',
+        effective_direction: 'outbound',
         description: 'The marketplace connector.',
         listing_url: 'https://example.com/listing',
         docs_url: null,
@@ -355,7 +356,7 @@ describe('ProductsPairPage', () => {
     const header = (el: HTMLElement) => el.querySelector('article header')!;
 
     it('renders the direction chip with an sr-only prefix and an aria-hidden glyph', () => {
-      const { el } = setup(buildPair());
+      const { el } = setup(buildPair(), { view: 'basic' });
       const chip = header(el).querySelector('[data-testid="pair-depth-direction"]');
       expect(chip).not.toBeNull();
       expect(chip!.querySelector('.sr-only')?.textContent).toContain('Direction:');
@@ -399,11 +400,36 @@ describe('ProductsPairPage', () => {
       ).toBe('1 data object');
     });
 
-    it('renders the object chip without a direction chip when only claims exist', () => {
+    it('reads the claims-aware direction, never the stored one', () => {
+      // Stored one-way, but the claims sync both ways. The product row reads
+      // `both` for this edge, so the chip must too, not the stored `outbound`.
+      const base = buildPairWithClaims([
+        claim('models', 'Models', 'outbound'),
+        claim('rfis', 'RFIs', 'both'),
+      ]);
+      const { el } = setup({
+        ...base,
+        mechanisms: [
+          { ...base.mechanisms[0]!, direction: 'outbound', effective_direction: 'both' },
+        ],
+      });
+      const chip = header(el).querySelector('[data-testid="pair-depth-direction"]');
+      expect(chip?.querySelector('[aria-hidden="true"]')?.textContent).toBe('\u21C4');
+      expect(chip?.textContent).not.toContain('Outbound');
+    });
+
+    it('leaves the direction to the Layer-A line in Detailed view when there are no claims', () => {
+      const { el } = setup(buildPair());
+      expect(header(el).querySelector('[data-testid="pair-depth-direction"]')).toBeNull();
+      // The Layer-A line still states it, once.
+      expect((el.textContent ?? '').split('Sends to Revit').length - 1).toBe(1);
+    });
+
+    it('renders the object chip without a direction chip when neither direction is known', () => {
       const base = buildPairWithClaims([claim('models', 'Models', 'outbound')]);
       const { el } = setup({
         ...base,
-        mechanisms: [{ ...base.mechanisms[0]!, direction: null }],
+        mechanisms: [{ ...base.mechanisms[0]!, direction: null, effective_direction: null }],
       });
       expect(header(el).querySelector('[data-testid="pair-depth-direction"]')).toBeNull();
       expect(header(el).querySelector('[data-testid="pair-depth-objects"]')).not.toBeNull();
@@ -418,6 +444,7 @@ describe('ProductsPairPage', () => {
             ...base.mechanisms[0]!,
             mechanism_kind: null,
             direction: 'both',
+            effective_direction: 'both',
             via: { id: 'z1', slug: 'zapier', name: 'Zapier', logo_url: null },
           },
         ],

@@ -269,10 +269,11 @@ interface MechanismView {
   readonly directionLabel: string;
   readonly directionAria: string;
   /**
-   * AECI-711 depth axis, rendered in the card header beside the mechanism badge
-   * in BOTH views. `depthDirection.token` is `null` when the mechanism stores no
-   * direction, and `dataObjectLabel` is `''` when it has no claims; each chip
-   * renders only when present (the 2026-09-22 ruling: no "not specified" marker).
+   * AECI-711 depth axis, rendered in the card header beside the mechanism badge.
+   * `depthDirection` is the claims-aware `effective_direction` (the product row's
+   * rule), with a `null` token when there is neither claim nor stored direction.
+   * `dataObjectLabel` is `''` when the mechanism has no claims. Each chip renders
+   * only when present (the 2026-09-22 ruling: no "not specified" marker).
    */
   readonly depthDirection: ContextDirectionLabel;
   readonly dataObjectLabel: string;
@@ -761,7 +762,9 @@ function writePairViewCookie(mode: PairViewMode): void {
                        before (depth-axis-null.component.spec.ts). The glyph comes
                        from contextDirectionLabel, one of the Arrow Rule's three
                        emitters, and is aria-hidden behind an sr-only prefix. -->
-                  @if (m.depthDirection.token) {
+                  <!-- Not where the Layer-A line below already states the same
+                       direction (Detailed, no claims): one card, one statement. -->
+                  @if (m.depthDirection.token && !(viewMode() === 'detailed' && !m.hasClaims)) {
                     <span
                       class="inline-flex items-center gap-1.5 rounded-(--radius-sm) border border-(--border-default) bg-(--surface-raised) px-3 py-1 text-[0.8125rem] font-bold tracking-[0.01em] text-(--text-secondary)"
                       data-testid="pair-depth-direction"
@@ -1089,7 +1092,10 @@ export class ProductsPairPage {
       glyph: m.direction ? directionGlyph(m.direction) : '',
       directionLabel: m.direction ? directionHeading(m.direction, otherName) : '',
       directionAria: m.direction ? directionAria(m.direction, otherName) : '',
-      depthDirection: contextDirectionLabel(m.direction),
+      // The claims-aware direction, never the stored one: the stored arrow is
+      // exactly what this page hides once claims exist, and the product row reads
+      // the claims-aware value, so a stored-direction chip would contradict both.
+      depthDirection: contextDirectionLabel(m.effective_direction),
       // The headline's rule, scoped to one mechanism: distinct objects
       // (AECI-1042), and a `removed` claim does not count — it still renders,
       // struck through, but "N data objects" may not include a flow that stopped.

@@ -71,6 +71,7 @@ function pairFixture(overrides: Partial<ProductPairResponse> = {}): ProductPairR
         mechanism_kind: 'native',
         mechanism_name: 'Procore ⇄ Revit',
         direction: 'outbound',
+        effective_direction: 'outbound',
         description: null,
         listing_url: null,
         docs_url: null,

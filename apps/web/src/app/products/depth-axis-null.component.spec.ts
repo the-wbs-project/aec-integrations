@@ -117,6 +117,7 @@ function nullPair(via: ProductLink | null): ProductPairResponse {
         mechanism_kind: via ? null : 'api',
         mechanism_name: 'Procore and Revit',
         direction: null,
+        effective_direction: null,
         description: 'A mechanism with no direction and no claims.',
         listing_url: null,
         docs_url: null,

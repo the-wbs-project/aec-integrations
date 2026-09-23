@@ -1633,6 +1633,16 @@ function toProductPairMechanism(
     mechanism_kind: toMechanismKind(raw.mechanismKind, raw.id),
     mechanism_name: toMechanismHeading(raw.name, raw.mechanismName),
     direction: integrationDirectionForContext(coerceDirection(raw.direction), contextIsSource),
+    // AECI-711: the product row's rule, verbatim (`toProductIntegrationItem`). Every
+    // claim, not the version-filtered list below, because the row sees them all.
+    effective_direction: effectiveContextDirection(
+      coerceDirection(raw.direction),
+      raw.claims.map((claim) => ({
+        direction: coerceClaimDirection(claim.direction, raw.id),
+        attestations: claim.attestations,
+      })),
+      contextIsSource,
+    ),
     description: raw.description,
     listing_url: raw.listingUrl,
     docs_url: raw.docsUrl,
@@ -1698,6 +1708,18 @@ function toProductPairMechanismFromEvidencedPair(
     mechanism_kind: null,
     mechanism_name: toMechanismHeading(raw.name, raw.mechanismName),
     direction: integrationDirectionForContext(direction, contextIsSource),
+    // AECI-711: the claims-aware direction, as `toProductIntegrationItemFromEvidencedPair`
+    // derives it. Both arguments are read in the CANONICAL A/B frame here — the
+    // stored `raw.direction` is anchored to `product_a_id`, and so are the claims —
+    // so one flag, `contextIsA`, frames both and no flip is needed.
+    effective_direction: effectiveContextDirection(
+      coerceDirection(raw.direction),
+      raw.claims.map((claim) => ({
+        direction: coerceClaimDirection(claim.direction, raw.id),
+        attestations: claim.attestations,
+      })),
+      contextIsA,
+    ),
     description: raw.description,
     listing_url: raw.listingUrl,
     docs_url: raw.docsUrl,

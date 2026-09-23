@@ -235,6 +235,14 @@ export const ProductPairMechanismSchema = z.object({
   // integration's stored `direction` column is null (AECI-115) — the card
   // renders a neutral "connects" state rather than fabricating a direction.
   direction: ContextDirectionSchema.nullable(),
+  /**
+   * The claims-aware direction (AECI-711): `effectiveContextDirection`, the SAME
+   * rule `ProductIntegrationItem.context_direction` uses, so the pair card's
+   * depth chip and the product page's row can never disagree. Non-refuted claims
+   * win; with none it falls back to `direction` above. `direction` stays as it was
+   * because the Layer-A arrow is explicitly the stored value (§7).
+   */
+  effective_direction: ContextDirectionSchema.nullable().default(null),
   description: z.string().nullable(),
   /** AECi's curated links (promote-written). The pair page falls back to these per
    *  kind when neither endpoint vendor has set its own (`vendor_links`). */
