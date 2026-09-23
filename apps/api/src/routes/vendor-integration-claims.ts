@@ -352,14 +352,18 @@ export function createClaimIntegrationHandler(
         },
       },
       ...recipients.map((recipient) =>
-        claimNotificationAudit(actor, {
-          vendorId: recipient,
-          integrationId,
-          integrationName: target.name,
-          ownerVendorId: vendorId,
-          ownerName: owner.companyName,
-          pairSlugs,
-        }),
+        claimNotificationAudit(
+          actor,
+          {
+            vendorId: recipient,
+            integrationId,
+            integrationName: target.name,
+            ownerVendorId: vendorId,
+            ownerName: owner.companyName,
+            pairSlugs,
+          },
+          evidenced ? 'evidenced_pair' : 'integration',
+        ),
       ),
     ];
 
@@ -375,11 +379,16 @@ export function createClaimIntegrationHandler(
       if (!isClaimRaceError(error)) throw error;
       const current = await locateClaimTarget(db, integrationId);
       if (!current) throw notFoundError('integration', { id: integrationId });
+      // No refusal on the re-read means the row changed under the claim without
+      // becoming unclaimable: most likely promote moved it to the other table
+      // between the read and the batch, so the guarded UPDATE aimed at the old one.
+      // Nothing was written. Answer as retire does, so the portal says "reload and
+      // try again" rather than "already claimed".
       throw (
         (await refusalFor(db, vendorId, session, current)) ??
         new ApiError(
           409,
-          ApiErrorCode.INTEGRATION_ALREADY_CLAIMED,
+          ApiErrorCode.INTEGRATION_CHANGED_WHILE_SAVING,
           'This integration changed while it was being claimed. Reload and try again.',
         )
       );

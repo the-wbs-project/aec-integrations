@@ -486,6 +486,10 @@ describe('POST /api/vendor/integrations/:id/claim — evidenced pairs (AECI-1089
     expect(rows.map((r) => (r.metadata as { vendorId: string }).vendorId).sort()).toEqual(
       [VENDOR_A, VENDOR_B].sort(),
     );
+    // The notification names the pair's table, as the claim's own audit row does.
+    for (const r of rows) {
+      expect(r).toMatchObject({ entityType: 'connector_evidenced_pair', entityId: E_THIRD });
+    }
     expect(rows[0]!.metadata).toMatchObject({
       kind: 'integration_claim',
       integrationId: E_THIRD,
@@ -601,6 +605,51 @@ describe('POST /api/vendor/integrations/:id/claim — evidenced pairs (AECI-1089
     expect(res.status).toBe(404);
     expect((await pair(E_THIRD)).claimedAt).toBeNull();
     expect(await claimAudits()).toHaveLength(0);
+  });
+
+  it('answers 409 INTEGRATION_CHANGED_WHILE_SAVING when promote moved the row to the other table mid-claim', async () => {
+    // The owner reads I_POWERED in `integrations`; before the batch runs, a promote
+    // de-routes it into `connector_evidenced_pairs` under the same id. The guarded
+    // UPDATE aims at the old table and matches nothing. The re-read finds an
+    // unclaimed pair the caller owns, so there is nothing to refuse, and it must not
+    // answer "already claimed".
+    const factory = t.factory;
+    let moved = false;
+    const racing = createClaimIntegrationHandler((env, opts) => {
+      const ctx = factory(env, opts);
+      if (!moved) {
+        const batch = ctx.db.batch.bind(ctx.db);
+        (ctx.db as unknown as { batch: typeof batch }).batch = (async (stmts: never) => {
+          moved = true;
+          t.raw.prepare(`DELETE FROM integrations WHERE id = ?`).run(I_POWERED);
+          t.raw
+            .prepare(
+              `INSERT INTO connector_evidenced_pairs (id, connector_product_id, product_a_id, product_b_id, built_by_vendor_id, created_at, updated_at)
+               VALUES (?, ?, ?, ?, ?, '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z')`,
+            )
+            .run(I_POWERED, P_BRIDGE, P_SOURCE, P_CONNECTOR, VENDOR_B);
+          return batch(stmts);
+        }) as typeof batch;
+      }
+      return ctx;
+    });
+    const a = new Hono<{ Bindings: Env; Variables: AuthzVariables }>();
+    a.onError(errorHandler());
+    a.use('*', async (c, next) => {
+      c.set('auth', entitled(AUTH_B));
+      await next();
+    });
+    a.post('/api/vendor/integrations/:id/claim', racing);
+    const res = await a.request(
+      `/api/vendor/integrations/${I_POWERED}/claim`,
+      { method: 'POST' },
+      TEST_ENV,
+      fakeExecutionContext(),
+    );
+    expect(res.status).toBe(409);
+    expect(((await res.json()) as JsonBody).error.code).toBe('INTEGRATION_CHANGED_WHILE_SAVING');
+    expect((await pair(I_POWERED)).claimedAt).toBeNull();
+    expect(await auditRows()).toHaveLength(0);
   });
 });
 

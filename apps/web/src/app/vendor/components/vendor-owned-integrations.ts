@@ -95,8 +95,9 @@ export function ownedRowsForProduct(
             class="max-w-prose text-sm text-(--text-secondary)"
             i18n="@@vendor.ownedIntegrations.intro"
           >
-            Your company is recorded as the owner of these integrations. Each one is delivered
-            through a connector, so it is listed here rather than with the integrations above.
+            Your company is recorded as the owner of these integrations. They are listed here,
+            rather than with the integrations above, because they are delivered through a connector
+            or connect products your company does not make.
           </p>
         </div>
 
@@ -138,14 +139,29 @@ export function ownedRowsForProduct(
                     </p>
                   }
                   @case ('claimable') {
-                    <p
-                      class="mt-1 max-w-prose text-xs text-(--text-secondary)"
-                      i18n="@@vendor.ownedIntegrations.claimHint"
-                    >
-                      Claiming takes this integration over from AEC Integrations. Our catalogue
-                      updates stop reaching it. The vendors of both products are told that you
-                      claimed it.
-                    </p>
+                    <!-- Who is told: every endpoint vendor except the owner. So when the
+                         caller makes one of the two products, only the other side is. -->
+                    @if (holdsEndpoint(row)) {
+                      <p
+                        class="mt-1 max-w-prose text-xs text-(--text-secondary)"
+                        data-testid="claim-hint"
+                        i18n="@@vendor.ownedIntegrations.claimHintOtherSide"
+                      >
+                        Claiming takes this integration over from AEC Integrations. Our catalogue
+                        updates stop reaching it. The other product's vendor is told that you
+                        claimed it.
+                      </p>
+                    } @else {
+                      <p
+                        class="mt-1 max-w-prose text-xs text-(--text-secondary)"
+                        data-testid="claim-hint"
+                        i18n="@@vendor.ownedIntegrations.claimHint"
+                      >
+                        Claiming takes this integration over from AEC Integrations. Our catalogue
+                        updates stop reaching it. The vendors of both products are told that you
+                        claimed it.
+                      </p>
+                    }
                     <div class="mt-3 flex flex-wrap items-center gap-3">
                       <button
                         type="button"
@@ -194,14 +210,24 @@ export class VendorOwnedIntegrations {
   protected readonly claimingId = signal<string | null>(null);
   protected readonly notice = signal<{ id: string; message: string } | null>(null);
 
-  protected readonly rows = computed(() => {
-    const vendorProducts = new Set((this.store.me()?.products ?? []).map((p) => p.id));
-    return ownedRowsForProduct(
+  private readonly vendorProducts = computed(
+    () => new Set((this.store.me()?.products ?? []).map((p) => p.id)),
+  );
+
+  protected readonly rows = computed(() =>
+    ownedRowsForProduct(
       this.store.ownedIntegrations(),
       this.contextProductId(),
-      vendorProducts,
-    );
-  });
+      this.vendorProducts(),
+    ),
+  );
+
+  /** Does the caller make one of the two products? Then the claim notifies only the
+   *  other side, since the server never notifies the owner itself. */
+  protected holdsEndpoint(row: OwnedIntegration): boolean {
+    const mine = this.vendorProducts();
+    return mine.has(row.product_a.id) || mine.has(row.product_b.id);
+  }
 
   protected stateOf(row: OwnedIntegration): OwnedRowState {
     if (row.retired_at) return 'retired';

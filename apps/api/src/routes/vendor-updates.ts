@@ -216,7 +216,9 @@ export function createVendorUpdatesHandler(
       // resolves its authority map with. Same predicate, one more column: the
       // scoping is unchanged, only what counts as a change widened.
       //
-      // The list reads no `connector_evidenced_pairs` row, so neither does this.
+      // This half covers the endpoint-scoped list only, which reads no
+      // `connector_evidenced_pairs` row. The list's `owned` rows, pairs included,
+      // are the third half below (AECI-1089).
       db
         .select({ value: max(integrations.updatedAt) })
         .from(integrations)

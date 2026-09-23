@@ -426,8 +426,11 @@ export class VendorIntegrationOwnership {
       case 'owner-unclaimed':
         return $localize`:@@vendor.integrationOwnership.ownerUnclaimed:Your company is recorded as the owner of this integration. Claim it to edit its details.`;
       case 'owner-connector-unclaimed':
-      case 'owner-connector-locked':
         return $localize`:@@vendor.integrationOwnership.ownerConnectorUnclaimed:Your company is recorded as the owner of this integration, which is delivered through a connector. Claim it to take over its details.`;
+      case 'owner-connector-locked':
+        // No Claim button renders here, so the line does not ask for one. The note
+        // below says an active plan is needed (AECI-1089 review).
+        return $localize`:@@vendor.integrationOwnership.ownerConnectorLocked:Your company is recorded as the owner of this integration, which is delivered through a connector. AEC Integrations maintains its details.`;
       case 'owner-connector-claimed':
         return $localize`:@@vendor.integrationOwnership.ownerConnectorClaimed:Your company owns this integration, which is delivered through a connector. Editing its details here is not available yet.`;
       case 'other-owned':

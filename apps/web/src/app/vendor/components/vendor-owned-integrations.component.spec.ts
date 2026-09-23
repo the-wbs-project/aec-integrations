@@ -147,6 +147,28 @@ describe('VendorOwnedIntegrations — what it shows', () => {
     );
   });
 
+  it('says only the other side is told when the vendor makes one of the products', async () => {
+    const fixture = await create();
+    // UNCLAIMED joins the vendor's primary product, so only the other vendor is told.
+    expect(
+      rowEl(fixture, UNCLAIMED.id)!.querySelector('[data-testid="claim-hint"]')!.textContent,
+    ).toContain("The other product's vendor is told");
+  });
+
+  it('says both sides are told when the vendor makes neither product', async () => {
+    const fixture = await create([ELSEWHERE]);
+    expect(
+      rowEl(fixture, ELSEWHERE.id)!.querySelector('[data-testid="claim-hint"]')!.textContent,
+    ).toContain('The vendors of both products are told');
+  });
+
+  it('does not claim every row is connector-delivered', async () => {
+    const fixture = await create();
+    const intro = el(fixture).querySelector('section p')!.textContent!;
+    expect(intro).not.toContain('Each one is delivered through a connector');
+    expect(intro).toContain('connect products your company does not make');
+  });
+
   it('offers Claim on an unclaimed row with an active plan, and nothing on a claimed one', async () => {
     const fixture = await create();
     expect(
@@ -214,6 +236,7 @@ describe('VendorOwnedIntegrations — the claim', () => {
   it.each([
     ['INTEGRATION_ENTITLEMENT_REQUIRED', 403, 'needs an active plan'],
     ['INTEGRATION_ALREADY_CLAIMED', 409, 'already claimed'],
+    ['INTEGRATION_CHANGED_WHILE_SAVING', 409, 'changed while you were claiming'],
     ['INTEGRATION_NOT_OWNER', 403, 'Another company'],
     ['RATE_LIMITED', 429, 'Too many requests'],
   ])('renders %s in an alert on that row', async (code, status, text) => {

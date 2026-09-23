@@ -70,6 +70,8 @@ export function claimErrorMessage(err: unknown): string {
       return $localize`:@@vendor.integrationClaim.error.notOwner:Another company is now recorded as the owner of this integration, so it was not claimed.`;
     case 'INTEGRATION_CONNECTOR_POWERED':
       return $localize`:@@vendor.integrationClaim.error.connector:Connector-delivered integrations cannot be claimed yet.`;
+    case 'INTEGRATION_CHANGED_WHILE_SAVING':
+      return $localize`:@@vendor.integrationClaim.error.changed:This integration changed while you were claiming it, so it was not claimed. Reload and try again.`;
     case 'INTEGRATION_ENTITLEMENT_REQUIRED':
       return $localize`:@@vendor.integrationClaim.error.entitlement:Claiming an integration delivered through a connector needs an active plan, so it was not claimed. Contact AEC Integrations to activate or renew it.`;
     case 'RATE_LIMITED':

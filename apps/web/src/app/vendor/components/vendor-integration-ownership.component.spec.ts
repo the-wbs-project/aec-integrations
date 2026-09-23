@@ -156,6 +156,9 @@ describe('VendorIntegrationOwnership — what it shows', () => {
       'needs an active plan',
     );
     expect(q(fixture, 'button')).toBeNull();
+    // With no button, the status line does not ask the vendor to claim.
+    expect(line(fixture)).not.toContain('Claim it');
+    expect(line(fixture)).toContain('AEC Integrations maintains its details');
   });
 
   it('never asks for a plan on a row that is not connector-delivered', async () => {
