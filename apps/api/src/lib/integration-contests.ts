@@ -113,6 +113,30 @@ export function routeContest(
   return { routedTo, ownerVendorId };
 }
 
+/**
+ * Does a contest route under the connector-powered rules (rulings A and E)? True on a
+ * connector-powered row, and also, ruling A's forward-looking half, for a
+ * `mechanism_kind` contest whose proposed value would MAKE the row connector-powered
+ * (`iPaaS`, `integrator`): otherwise an owner could turn its own row into one by
+ * accepting a contest, which the owner edit refuses. The submit routes on it, and
+ * the seat return (`lib/vendor-handback.ts`) re-applies it, so a contest the submit
+ * would have kept from the owner is never returned to the owner either.
+ */
+export function routesAsConnectorPowered(
+  row: { connectorPowered: boolean; poweredByProductId: string | null },
+  field: string,
+  proposedValue: string | null,
+): boolean {
+  return (
+    row.connectorPowered ||
+    (field === 'mechanism_kind' &&
+      isConnectorPoweredEdge({
+        poweredByProductId: row.poweredByProductId,
+        mechanismKind: proposedValue,
+      }))
+  );
+}
+
 // ─── The two anchors (AECI-1092) ─────────────────────────────────────────────
 
 /** The row a contest sits on: exactly one of the two anchor columns is set

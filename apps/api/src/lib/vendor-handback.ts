@@ -98,6 +98,7 @@ import {
   CONTEST_ENTITY_TYPE,
   contestAnchorOf,
   contestRowChangedSentinel,
+  routesAsConnectorPowered,
   ownerEntitlementActiveSentinel,
   vendorHoldsActiveEntitlement,
 } from './integration-contests';
@@ -712,9 +713,18 @@ export async function planOwnerSeatReturn(
       ),
     );
   const candidates = [
+    // The submit's test, forward-looking half of ruling A included: a `mechanism_kind`
+    // contest proposing a connector kind is never returned to the owner (review MINOR 5).
     ...onIntegrations.map((row) => ({
       contest: row.contest,
-      connectorPowered: isConnectorPoweredEdge(row),
+      connectorPowered: routesAsConnectorPowered(
+        {
+          connectorPowered: isConnectorPoweredEdge(row),
+          poweredByProductId: row.poweredByProductId,
+        },
+        row.contest.field,
+        row.contest.proposedValue,
+      ),
     })),
     ...onPairs.map((row) => ({ contest: row.contest, connectorPowered: true })),
   ];

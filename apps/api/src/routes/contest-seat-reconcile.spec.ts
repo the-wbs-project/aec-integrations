@@ -555,3 +555,30 @@ describe('a seat grant that loses the contest to a concurrent grant writes nothi
     expect(await rowsFor(id)).toBe(0);
   });
 });
+
+// ─── Ruling A's forward-looking half on the return (review MINOR 5) ──────────
+
+describe('the seat return never hands the owner a contest that would make its row connector-powered', () => {
+  it('keeps a stamped mechanism_kind → iPaaS contest on an ordinary row with AECi, unstamped', async () => {
+    await entitle(VENDOR_B);
+    await banSeatDirectly(SEAT_B);
+    const id = await stampedContest({ integrationId: I_PLAIN, field: 'mechanism_kind' });
+    await t.db
+      .update(integrationFieldChallenges)
+      .set({ proposedValue: 'iPaaS' })
+      .where(eq(integrationFieldChallenges.id, id));
+    expect((await unban(SEAT_B)).status).toBe(200);
+    expect(await contest(id)).toMatchObject({ routedTo: 'aeci', ownerSeatLapsedAt: null });
+    expect(await auditsFor(id)).toEqual([
+      { action: 'integration.contest.seat_stamp_cleared', reason: 'owner-may-not-decide' },
+    ]);
+  });
+
+  it('still returns a mechanism_kind contest on an ordinary row that keeps it ordinary', async () => {
+    await banSeatDirectly(SEAT_B);
+    const id = await stampedContest({ integrationId: I_PLAIN, field: 'mechanism_kind' });
+    // proposed 'marketplace-app': not a connector kind.
+    await unban(SEAT_B);
+    expect(await contest(id)).toMatchObject({ routedTo: 'owner', ownerSeatLapsedAt: null });
+  });
+});

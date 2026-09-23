@@ -120,6 +120,7 @@ import {
   ownerEntitlementActiveSentinel,
   receivedContestsWhere,
   routeContest,
+  routesAsConnectorPowered,
   storedFieldValue,
   submittedContestsWhere,
   toStorageValue,
@@ -600,15 +601,9 @@ async function planSubmit(
   const { anchor, target, field } = draft;
   const owner = target.builtByVendorId;
   // Ruling A, forward-looking: a `mechanism_kind` contest whose proposal would make the
-  // row connector-powered goes to AECi too. Otherwise an owner could turn its own row
-  // into a connector-powered one by accepting a contest, which the owner edit refuses.
-  const connectorPowered =
-    target.connectorPowered ||
-    (field === 'mechanism_kind' &&
-      isConnectorPoweredEdge({
-        poweredByProductId: target.poweredByProductId,
-        mechanismKind: draft.proposedValue,
-      }));
+  // row connector-powered goes to AECi too (`routesAsConnectorPowered`, shared with
+  // the seat return).
+  const connectorPowered = routesAsConnectorPowered(target, field, draft.proposedValue);
   const needsEntitlement =
     target.connectorPowered &&
     owner !== null &&
