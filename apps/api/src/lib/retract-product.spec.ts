@@ -11,6 +11,8 @@ import {
   buildFootprintSql,
   ddlHasVendorHeldColumns,
   EVIDENCED_PAIRS_DDL_SQL,
+  RETRACT_VENDOR_HELD_TOKEN,
+  tableDdlOrThrow,
   INTEGRATIONS_DDL_SQL,
   buildProductLookupSql,
   classifyRetraction,
@@ -731,6 +733,106 @@ describe('vendor-held evidenced pairs are refused, whatever the flags (AECI-1088
     markEp1(t, `claimed_at = ${TS}`);
     const report = formatFootprintReport(PRODUCT, footprintWithProbes(t, P));
     expect(report).toMatch(/vendor-held \(REFUSE\)\s+1/);
+    t.dispose();
+  });
+});
+
+describe('the delete plan re-checks vendor-held at write time (AECI-1088 review)', () => {
+  const args = (t: TestDb, deleteEvidencedPairs: boolean) => ({
+    product: productRow(t, P),
+    footprint: footprintOf(t, P),
+    auditId: 'audit-race',
+    now: NOW,
+    force: true,
+    deleteEvidencedPairs,
+  });
+  const snapshot = (t: TestDb) => ({
+    products: t.raw.prepare('SELECT id FROM products ORDER BY id').all(),
+    integrations: t.raw.prepare('SELECT id FROM integrations ORDER BY id').all(),
+    pairs: t.raw.prepare('SELECT id FROM connector_evidenced_pairs ORDER BY id').all(),
+    claims: t.raw.prepare('SELECT id FROM claims ORDER BY id').all(),
+    attestations: t.raw.prepare('SELECT id FROM attestations ORDER BY id').all(),
+    audit: t.raw.prepare('SELECT id FROM audit_log ORDER BY id').all(),
+  });
+
+  it.each([
+    ['a pair', `UPDATE connector_evidenced_pairs SET claimed_at = ${TS} WHERE id = 'ep1'`],
+    ['an integration', `UPDATE integrations SET origin = 'vendor' WHERE id = 'i1'`],
+  ])(
+    'aborts before any write when %s becomes vendor-held between the check and --apply',
+    async (_label, claim) => {
+      const t = await makeTestDb();
+      seed(t);
+      // The plan is built from a footprint read while nothing was vendor-held...
+      const statements = buildDeleteStatements(args(t, true));
+      expect(statements[0]).toContain(RETRACT_VENDOR_HELD_TOKEN);
+      // ...then the owner claims before the execute runs.
+      t.raw.prepare(claim).run();
+      const before = snapshot(t);
+      expect(() => apply(t, statements)).toThrow(/malformed JSON/i);
+      expect(snapshot(t)).toEqual(before);
+      t.dispose();
+    },
+  );
+
+  it('the product DELETE and its tombstone carry the vendor-held guard too', async () => {
+    const t = await makeTestDb();
+    seed(t);
+    const statements = buildDeleteStatements(args(t, true));
+    const productDelete = statements.find((q) => q.startsWith('DELETE FROM "products"'))!;
+    expect(productDelete).toContain(
+      `NOT EXISTS (SELECT 1 FROM "connector_evidenced_pairs" WHERE "id" IN`,
+    );
+    expect(productDelete).toMatch(/"claimed_at" IS NOT NULL OR "origin" = 'vendor'\)\)/);
+    t.dispose();
+  });
+
+  it('still retracts when nothing in scope is vendor-held', async () => {
+    const t = await makeTestDb();
+    seed(t);
+    apply(t, buildDeleteStatements(args(t, true)));
+    expect(t.raw.prepare(`SELECT count(*) AS n FROM products WHERE id = '${P}'`).get()).toEqual({
+      n: 0,
+    });
+    t.dispose();
+  });
+
+  it('never names the columns on a tier without them', async () => {
+    const t = await makeTestDb({ upToExclusive: '0044_slippery_edwin_jarvis.sql' });
+    seed(t);
+    const footprint = parseFootprint(
+      t.raw.prepare(buildFootprintSql(P, { vendorLinksTable: false })).get() as RawFootprintRow,
+    );
+    const statements = buildDeleteStatements({
+      product: productRow(t, P),
+      auditId: 'audit-race',
+      now: NOW,
+      force: true,
+      deleteEvidencedPairs: true,
+      footprint,
+      vendorLinksTable: false,
+      vendorHeldColumns: false,
+      vendorHeldPairColumns: false,
+    });
+    expect(statements.join('\n')).not.toMatch(/claimed_at/);
+    apply(t, statements);
+    t.dispose();
+  });
+});
+
+describe('tableDdlOrThrow: an empty DDL read is could-not-check (AECI-1088 review)', () => {
+  it.each(['integrations', 'connector_evidenced_pairs'])('throws for %s', (table) => {
+    expect(() => tableDdlOrThrow(undefined, table)).toThrow(/could not read/);
+    expect(() => tableDdlOrThrow(null, table)).toThrow(/could not read/);
+    expect(() => tableDdlOrThrow('  ', table)).toThrow(/could not read/);
+  });
+
+  it('returns the definition it was given, for both tables', async () => {
+    const t = await makeTestDb();
+    for (const probe of [INTEGRATIONS_DDL_SQL, EVIDENCED_PAIRS_DDL_SQL]) {
+      const sql = (t.raw.prepare(probe).get() as { sql: string }).sql;
+      expect(ddlHasVendorHeldColumns(tableDdlOrThrow(sql, 'x'))).toBe(true);
+    }
     t.dispose();
   });
 });

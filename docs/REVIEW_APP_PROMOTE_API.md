@@ -1201,6 +1201,9 @@ the whole promote rolls back and the job ends `errored` with
 `INTEGRATION_CLAIMED_DURING_PROMOTE` (409). Nothing was written, including the
 job's ledger row, so re-push the bundle under a new job id. The re-push fences
 the claimed edge and commits everything else. This is expected to be rare.
+The race applies only to an edge the promote was going to write. An edge that §4c's
+twin guard skips writes nothing, so a claim on its row mid-promote does not abort the
+promote (AECI-1088 review).
 
 **Promote never writes four columns at all:** `claimed_at`, `origin`,
 `retired_at` and `retired_by` (AECI-1046). A row promote creates is `origin = 'aeci'`
@@ -1223,6 +1226,9 @@ and nothing changes on your side.
   cover the second table. The in-batch claim sentinel has an evidenced twin,
   `promoteEvidencedClaimFenceSentinel` in `apps/api/src/lib/integration-claims.ts`. A pair
   claimed mid-promote ends the job `errored` with the same `INTEGRATION_CLAIMED_DURING_PROMOTE`.
+  An edge located in `integrations` carries both sentinels, so a pair that shares its id and is
+  claimed mid-promote aborts the promote too. The `promote.blocked` audit row for a fenced pair
+  has `entityType: 'connector_evidenced_pair'`.
 - A `poweredByProduct: null` that would move a vendor-held pair back into `integrations` is
   refused, as the move out already is. That move deletes the pair, and the delete would cascade
   away the vendor's claims and attestations.
@@ -1234,8 +1240,10 @@ and nothing changes on your side.
   is shared across both tables.
 - The retraction consumer's evidenced delete re-checks vendor-held at write time, as its
   `integrations` delete already did. The consumer and the strand audit exempt vendor-held pairs.
-  `ops:retract-product --delete-evidenced-pairs` refuses a vendor-held pair, with no override.
-  The datatool prune refuses an id that names one.
+  `ops:retract-product --delete-evidenced-pairs` refuses a vendor-held pair, with no override,
+  and its delete plan re-checks at write time: it opens with a statement that aborts the run
+  if a vendor-held integration or pair entered scope after the footprint check. The datatool
+  prune refuses an id that names one.
 - Promote never writes the four ownership columns on that table: `claimed_at`, `origin`,
   `retired_at` and `retired_by`. A pair promote creates, or moves in from `integrations`, is
   `origin = 'aeci'` and unclaimed.

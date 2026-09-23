@@ -98,6 +98,26 @@ const racing =
     return ctx;
   };
 
+/** A DbFactory that records the SQL of every statement the promote batch sends, after
+ *  running `before` (the mid-promote race window). */
+function capturingBatch(sent: string[], before: () => void = () => {}): DbFactory {
+  return (env, opts) => {
+    const ctx = t.factory(env, opts);
+    const batch = ctx.db.batch.bind(ctx.db);
+    (ctx.db as unknown as { batch: typeof batch }).batch = (async (stmts: never) => {
+      for (const stmt of stmts as unknown as Array<{ toSQL(): { sql: string } }>) {
+        sent.push(stmt.toSQL().sql);
+      }
+      before();
+      return batch(stmts);
+    }) as typeof batch;
+    return ctx;
+  };
+}
+
+/** The claim-fence sentinels raise this token; the twin sentinels raise another. */
+const CLAIM_SENTINEL = 'integration-claimed-during-promote';
+
 /** The review app's push of Revit, restating one edge via Agave. */
 function push(edge: Record<string, unknown>) {
   return {
@@ -225,7 +245,8 @@ describe('the ownership fence on connector_evidenced_pairs (AECI-1088)', () => {
     expectFenced(response, PAIR);
     expect(await snapshot()).toEqual(before);
     expect(await blockedRows()).toEqual([
-      expect.objectContaining({ entityType: 'integration', entityId: PAIR }),
+      // The entity is the table the fenced row sits in (AECI-1088 review).
+      expect.objectContaining({ entityType: 'connector_evidenced_pair', entityId: PAIR }),
     ]);
   });
 
@@ -359,17 +380,41 @@ describe('the ownership fence on connector_evidenced_pairs (AECI-1088)', () => {
     expect(await snapshot()).toEqual(before);
   });
 
-  it('the duplicate-id safety DELETE keeps a pair claimed mid-promote (commit time)', async () => {
+  it('the plan-time fence names the pair as the blocked entity', async () => {
     await seedBothTables();
-    await insertPair(PAIR);
+    await seedHeldPair();
+    await ingest(push({ supabaseId: PAIR, poweredByProduct: null }));
+    expect(await blockedRows()).toEqual([
+      expect.objectContaining({ entityType: 'connector_evidenced_pair', entityId: PAIR }),
+    ]);
+  });
+
+  it('aborts when the same-id pair is claimed mid-promote, and keeps its claims (commit time)', async () => {
+    await seedBothTables();
+    // AECi-seeded and unclaimed at plan time, with an AECi claim and attestation. The
+    // payload's `claims: []` would retire that claim on the shared `anchor_id`, and
+    // the UPDATE branch's safety DELETE targets the pair.
+    await seedHeldPair({ claimedAt: null });
+    const before = await snapshot();
     const claimMidPromote = racing(() => {
       t.raw
         .prepare(`UPDATE connector_evidenced_pairs SET claimed_at = ? WHERE id = ?`)
         .run(CLAIMED_AT, PAIR);
     });
-    await ingest(push({ supabaseId: PAIR, poweredByProduct: null }), { dbFor: claimMidPromote });
-    const pairs = await t.db.select().from(connectorEvidencedPairs);
-    expect(pairs).toEqual([expect.objectContaining({ id: PAIR, claimedAt: CLAIMED_AT })]);
+    await expect(
+      ingest(push({ supabaseId: PAIR, poweredByProduct: null }), {
+        jobId: 'job-same-id-race',
+        dbFor: claimMidPromote,
+      }),
+    ).rejects.toMatchObject({ status: 409, code: 'INTEGRATION_CLAIMED_DURING_PROMOTE' });
+    const after = await snapshot();
+    // Nothing was written: the pair is intact apart from the racing claim itself, and
+    // its claim and attestation are exactly as they were.
+    expect(after.pairs).toEqual([{ ...before.pairs[0]!, claimedAt: CLAIMED_AT }]);
+    expect(after.claims).toEqual(before.claims);
+    expect(after.attestations).toEqual(before.attestations);
+    expect(after.integrations).toEqual(before.integrations);
+    expect(await t.db.select().from(promoteJobs)).toEqual([]);
   });
 
   it('the duplicate-id safety DELETE still removes an AECi-seeded pair', async () => {
@@ -470,6 +515,58 @@ describe('the evidenced VENDOR_OWNED_TWIN guard (AECI-1088)', () => {
     });
     expect(created.response.skipped.filter((s) => s.kind === 'integration')).toEqual([]);
     expect(await t.db.select().from(connectorEvidencedPairs)).toHaveLength(2);
+  });
+
+  it('a twin-skipped edge does not abort on a claim of its own row mid-promote', async () => {
+    // AECI-1088 review: the claim sentinel goes in only for an edge that writes. This
+    // edge is skipped at plan time, so a claim landing on OTHER_PAIR mid-promote is
+    // none of this promote's business.
+    await seedHeldPair();
+    await insertPair(OTHER_PAIR, {
+      connectorProductId: WORKATO,
+      builtByVendorId: null,
+      maintainedBy: 'aeci',
+    });
+    const sent: string[] = [];
+    const claimMidPromote = capturingBatch(sent, () => {
+      t.raw
+        .prepare(`UPDATE connector_evidenced_pairs SET claimed_at = ? WHERE id = ?`)
+        .run(CLAIMED_AT, OTHER_PAIR);
+    });
+    const { response } = await ingest(push({ supabaseId: OTHER_PAIR }), {
+      jobId: 'job-skip-race',
+      dbFor: claimMidPromote,
+    });
+    expectTwinSkip(response, PAIR);
+    // The promote committed, and it sent no sentinel for the skipped edge.
+    expect(await t.db.select().from(promoteJobs)).toHaveLength(1);
+    expect(sent.some((sql) => sql.includes(CLAIM_SENTINEL))).toBe(false);
+  });
+
+  it('a twin-skipped edge adds nothing to the batch but its audit row', async () => {
+    // `catalogWrites` counts every statement before the audit rows, so a skipped edge
+    // must add none. The payload's product upsert is the only catalog write here.
+    await seedHeldPair();
+    // A located row, so the pre-fix code would have pushed its claim sentinel.
+    await insertPair(OTHER_PAIR, {
+      connectorProductId: WORKATO,
+      builtByVendorId: null,
+      maintainedBy: 'aeci',
+    });
+    const skippedRun: string[] = [];
+    const { response } = await ingest(push({ supabaseId: OTHER_PAIR }), {
+      jobId: 'job-skip-only',
+      dbFor: capturingBatch(skippedRun),
+    });
+    expectTwinSkip(response, PAIR);
+    // No statement names an edge table, a claim or an attestation, and no sentinel
+    // selects from one: the only rows this edge produced are its audit row.
+    const edgeStatements = skippedRun.filter(
+      (sql) =>
+        !/insert into "(audit_log|promote_jobs)"/i.test(sql) &&
+        /"(integrations|connector_evidenced_pairs|claims|attestations)"/i.test(sql),
+    );
+    expect(edgeStatements).toEqual([]);
   });
 
   it('aborts with the twin race code when the key holder is claimed mid-promote', async () => {

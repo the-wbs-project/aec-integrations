@@ -236,6 +236,24 @@ export function ddlHasVendorHeldColumns(ddl: string | null | undefined): boolean
   return has('claimed_at') && has('origin');
 }
 
+/**
+ * The `CREATE TABLE` text out of an {@link INTEGRATIONS_DDL_SQL} or
+ * {@link EVIDENCED_PAIRS_DDL_SQL} read, or a THROW (AECI-1088 review).
+ *
+ * An empty read is "could not check", never "no columns": treating it as a table
+ * without the vendor-held columns would count 0 vendor-held rows and switch the
+ * refusal off silently. The ops scripts' `tableDdlOrThrow` draws the same line.
+ */
+export function tableDdlOrThrow(sql: string | null | undefined, table: string): string {
+  if (typeof sql !== 'string' || sql.trim() === '') {
+    throw new Error(
+      `could not read the table definition of "${table}" from sqlite_master, so the ` +
+        'vendor-held refusal cannot be checked. Refusing to continue.',
+    );
+  }
+  return sql;
+}
+
 /** The DDL probe the CLI runs before {@link buildFootprintSql}. */
 export const INTEGRATIONS_DDL_SQL = `SELECT "sql" FROM "sqlite_master" WHERE "type" = 'table' AND "name" = 'integrations';`;
 
@@ -521,7 +539,16 @@ export interface ProductDeleteArgs {
    *  to true, the schema at HEAD; the CLI passes its {@link VENDOR_LINKS_TABLE_SQL}
    *  probe so a tier without migration 0045 gets a plan that never names the table. */
   vendorLinksTable?: boolean;
+  /** AECI-1088 review: whether `integrations` has migration 0044's vendor-held columns.
+   *  Defaults to true, the schema at HEAD; the CLI passes its probe. */
+  vendorHeldColumns?: boolean;
+  /** AECI-1088 review: the same for `connector_evidenced_pairs` and migration 0048. */
+  vendorHeldPairColumns?: boolean;
 }
+
+/** The token the plan's first statement raises when a vendor-held row appeared in
+ *  scope after the footprint check. `json()` on it is malformed JSON, so it errors. */
+export const RETRACT_VENDOR_HELD_TOKEN = 'retract-product-vendor-held-row-in-scope';
 
 function sqlLiteral(v: string | number | boolean | null | undefined): string {
   if (v === null || v === undefined) return 'NULL';
@@ -639,11 +666,35 @@ export function buildDeleteStatements(args: ProductDeleteArgs): string[] {
   const attestationCount = (col: string) =>
     `(SELECT count(*) FROM "attestations" a JOIN "claims" c ON c."id" = a."claim_id" WHERE c."${col}" = t."id")`;
   const vendorLinksTable = args.vendorLinksTable ?? true;
+  // AECI-1088 review: the vendor-held refusal, re-checked at write time. The CLI
+  // refused on the footprint, but a claim can land between that read and `--apply`.
+  // Every edge the plan deletes (or detaches, for `powered_by`) is in scope, pairs
+  // included, since with `--delete-evidenced-pairs` they are deleted and without it
+  // they block the product DELETE anyway. Each arm needs its table's columns.
+  const heldIntegrations =
+    (args.vendorHeldColumns ?? true)
+      ? `SELECT 1 FROM "integrations" WHERE ("id" IN (${s.integrations}) OR ${s.poweredOnly}) AND ("claimed_at" IS NOT NULL OR "origin" = 'vendor')`
+      : null;
+  const heldPairs =
+    (args.vendorHeldPairColumns ?? true)
+      ? `SELECT 1 FROM "connector_evidenced_pairs" WHERE "id" IN (${s.pairs}) AND ("claimed_at" IS NOT NULL OR "origin" = 'vendor')`
+      : null;
+  const heldChecks = [heldIntegrations, heldPairs].filter((q): q is string => q !== null);
   const refusalGuard =
     `NOT EXISTS (SELECT 1 FROM "connector_catalogs" WHERE "connector_product_id" = ${p})` +
     ` AND NOT EXISTS (SELECT 1 FROM "connector_stub_mappings" WHERE "product_id" = ${p})` +
     // Without the flag a pair must block the product DELETE, never cascade off it.
-    (withPairs ? '' : ` AND NOT EXISTS (${s.pairs})`);
+    (withPairs ? '' : ` AND NOT EXISTS (${s.pairs})`) +
+    heldChecks.map((q) => ` AND NOT EXISTS (${q})`).join('');
+  // A guard on the product DELETE alone would come too late: the edge, claim and
+  // attestation DELETEs run before it. So the plan OPENS with a statement that raises
+  // when a vendor-held row is in scope. It errors before any write runs, whether the
+  // execute is atomic or not, and the CLI reports the failure.
+  const vendorHeldSentinel = heldChecks.length
+    ? [
+        `SELECT CASE WHEN ${heldChecks.map((q) => `EXISTS (${q})`).join(' OR ')} THEN json('${RETRACT_VENDOR_HELD_TOKEN}') END;`,
+      ]
+    : [];
 
   const pairTombstone = tombstoneSelect({
     args,
@@ -658,6 +709,8 @@ export function buildDeleteStatements(args: ProductDeleteArgs): string[] {
   });
 
   return [
+    // 0. Abort before anything runs if a vendor-held row entered scope (AECI-1088).
+    ...vendorHeldSentinel,
     // 1. Per-row tombstones, before anything they describe is gone.
     tombstoneSelect({
       args,

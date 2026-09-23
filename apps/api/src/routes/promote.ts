@@ -2897,23 +2897,39 @@ export async function runPromoteIngest(
     // still reports `wrote: false`.
     if (claimFenceRefuses(located)) {
       skipped.push({ ref: intg.ref, kind: 'integration', reason: REFUSED_CLAIMED_INTEGRATION });
+      // AECI-1088: name the table the vendor-held row actually sits in. A fenced pair,
+      // or an `integrations` row fenced only because a vendor-held pair shares its id,
+      // is a `connector_evidenced_pair` entity.
+      const fencedIntegrationRow =
+        located!.table === 'integrations' &&
+        (located!.row.claimedAt !== null || located!.row.origin === 'vendor');
       audit({
         actorType: 'system',
         action: 'promote.blocked',
-        entityType: 'integration',
+        entityType: fencedIntegrationRow ? 'integration' : 'connector_evidenced_pair',
         entityId: located!.id,
       });
       continue;
     }
     // The commit-time half: the row was unclaimed when we read it, so abort the whole
-    // batch if it is claimed by the time the batch runs. Pushed AHEAD of this edge's
-    // writes, for a row that already exists in either table. The evidenced arm is
-    // AECI-1088's: since migration 0048 a pair can be claimed too.
-    if (located?.table === 'integrations') {
-      stmts.push(promoteClaimFenceSentinel(db, located.id));
-    } else if (located?.table === 'evidenced') {
-      stmts.push(promoteEvidencedClaimFenceSentinel(db, located.id));
-    }
+    // batch if it is claimed by the time the batch runs. Pushed immediately AHEAD of
+    // this edge's own writes, never here (AECI-1088 review): an edge the twin guards
+    // below skip writes nothing, so a claim landing on it mid-promote must not abort
+    // the promote, and its sentinel must not count as a catalog write (`wrote`).
+    //
+    // Both tables are guarded for an `integrations`-located id too. The single-table
+    // invariant says no pair shares the id, but the UPDATE branch still carries a
+    // belt-and-braces DELETE of one, and a pair claimed after the plan read would
+    // otherwise lose its claims to the claim ingest keyed on the shared `anchor_id`.
+    // On a clean id the evidenced sentinel selects zero rows and does nothing.
+    const pushClaimFenceSentinels = (): void => {
+      if (located?.table === 'integrations') {
+        stmts.push(promoteClaimFenceSentinel(db, located.id));
+        stmts.push(promoteEvidencedClaimFenceSentinel(db, located.id));
+      } else if (located?.table === 'evidenced') {
+        stmts.push(promoteEvidencedClaimFenceSentinel(db, located.id));
+      }
+    };
     // The AECI-981 fence receipt, pushed ONCE here rather than per branch. `located`
     // answers it for all four write branches at the same grain: a create cannot be
     // vendor-maintained, and both the same-table UPDATE and the cross-table move
@@ -3034,6 +3050,8 @@ export async function runPromoteIngest(
         stmts.push(vendorOwnedEvidencedTwinSentinel(db, evidencedTwinCandidate));
       }
 
+      // Past every skip: this edge will write, so guard its existing row now.
+      pushClaimFenceSentinels();
       const evidenced = planEvidencedPairWrite({
         db,
         intg,
@@ -3306,6 +3324,8 @@ export async function runPromoteIngest(
     // survives `compact()`, and it correctly writes NULL.
     const inheritedConnectorId =
       movedFromEvidenced && !connectorStated ? movedFromEvidenced.connectorProductId : null;
+    // Past every skip: this edge will write, so guard its existing row now.
+    pushClaimFenceSentinels();
     const written = planIntegrationWrite({
       db,
       intg,

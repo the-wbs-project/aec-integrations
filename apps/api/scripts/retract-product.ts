@@ -64,6 +64,7 @@ import {
   buildFootprintSql,
   ddlHasVendorHeldColumns,
   EVIDENCED_PAIRS_DDL_SQL,
+  tableDdlOrThrow,
   VENDOR_LINKS_TABLE_SQL,
   INTEGRATIONS_DDL_SQL,
   buildProductLookupSql,
@@ -270,19 +271,27 @@ export async function main(argv: string[]): Promise<number> {
   // 2. Footprint + report.
   // AECI-1005: probe for the vendor-held columns first. Migration 0044 reaches each
   // tier only at its next deploy, and naming a missing column would fail the read.
-  const integrationsDdl =
-    runD1<{ sql: string }>(target, INTEGRATIONS_DDL_SQL)[0]?.results[0]?.sql ?? null;
+  // An empty read THROWS (could not check), never reads as "no columns", which would
+  // count 0 vendor-held rows and switch the refusal off silently (AECI-1088 review).
+  const integrationsDdl = tableDdlOrThrow(
+    runD1<{ sql: string }>(target, INTEGRATIONS_DDL_SQL)[0]?.results[0]?.sql,
+    'integrations',
+  );
   // AECI-1088: the same for migration 0048's columns on `connector_evidenced_pairs`.
-  const evidencedPairsDdl =
-    runD1<{ sql: string }>(target, EVIDENCED_PAIRS_DDL_SQL)[0]?.results[0]?.sql ?? null;
+  const evidencedPairsDdl = tableDdlOrThrow(
+    runD1<{ sql: string }>(target, EVIDENCED_PAIRS_DDL_SQL)[0]?.results[0]?.sql,
+    'connector_evidenced_pairs',
+  );
+  const vendorHeldColumns = ddlHasVendorHeldColumns(integrationsDdl);
+  const vendorHeldPairColumns = ddlHasVendorHeldColumns(evidencedPairsDdl);
   // AECI-1007: the same for migration 0045's per-side links table.
   const vendorLinksTable =
     (runD1<{ name: string }>(target, VENDOR_LINKS_TABLE_SQL)[0]?.results.length ?? 0) > 0;
   const rawFootprint = runD1<RawFootprintRow>(
     target,
     buildFootprintSql(product.id, {
-      vendorHeldColumns: ddlHasVendorHeldColumns(integrationsDdl),
-      vendorHeldPairColumns: ddlHasVendorHeldColumns(evidencedPairsDdl),
+      vendorHeldColumns,
+      vendorHeldPairColumns,
       vendorLinksTable,
     }),
   )[0]?.results[0];
@@ -359,6 +368,8 @@ export async function main(argv: string[]): Promise<number> {
     force,
     deleteEvidencedPairs,
     vendorLinksTable,
+    vendorHeldColumns,
+    vendorHeldPairColumns,
   }).join('\n');
   const results = runD1<unknown>(target, statements);
   const changed = results.reduce((sum, r) => sum + (r.meta?.changes ?? 0), 0);
