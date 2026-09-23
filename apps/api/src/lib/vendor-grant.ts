@@ -359,8 +359,10 @@ export function rejectClaimStatements(db: Db, p: RejectClaimParams): ClaimBatch 
  * Two HTTP endpoints compose it unchanged: `DELETE /api/vendor/seats/:userId`
  * (the owner side, AECI-664, `STAGE_2_VENDOR_PORTAL_SPEC.md` §11a.5) and
  * `DELETE /api/admin/vendors/:id/seats/:userId` (AECI-652, `ADMIN_PANEL_SPEC.md`
- * §5.7). It shipped unwired at launch because AECI-524 wired the ban gate only
- * (§7), so un-granting stays a separate, explicit revoke action.
+ * §5.7). The admin route also adds `planVendorHandback` (`vendor-handback.ts`,
+ * AECI-989) to the same batch when this is the vendor's last seat. It shipped
+ * unwired at launch because AECI-524 wired the ban gate only (§7), so
+ * un-granting stays a separate, explicit revoke action.
  */
 export function revokeSeatStatements(db: Db, p: RevokeSeatParams): RevokeBatch {
   const metadata = {
