@@ -127,7 +127,7 @@ import { VendorSeatRoster } from './components/vendor-seat-roster';
             -->
             <aec-vendor-notifications-list />
             <aec-vendor-integrations-section
-              [verified]="m.vendor.verified"
+              [canAuthor]="canAuthorAttestations()"
               [vendorName]="m.vendor.company_name"
             />
           </div>
@@ -198,5 +198,9 @@ export class VendorDashboardSingle {
   );
   protected readonly canEditUsefulness = computed(() =>
     this.capabilities().includes('product.usefulness.edit'),
+  );
+  /** AECI-623: the same capability the six attestation and version writes assert. */
+  protected readonly canAuthorAttestations = computed(() =>
+    this.capabilities().includes('attestation.author'),
   );
 }

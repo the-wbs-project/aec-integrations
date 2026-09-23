@@ -35,10 +35,11 @@
  *      existence-independent and leaks nothing about the integration.
  *   2. Authority, alone in its wave (only the caller's own `vendors` row rides
  *      along, exactly as `requireOwnedProduct` does) — checked in order:
- *      authority → 404, then `assertAttestableEdge` → 403, then
- *      `assertVerifiedVendor` → 403. The edge gate sits BETWEEN the two on
- *      purpose: an unverified vendor on a connector-powered edge must not be
- *      told that verification would unlock it (AECI-705 / §14).
+ *      authority → 404, then `assertAttestableEdge` → 403 `FORBIDDEN`, then
+ *      `requireCapability(c, 'attestation.author')` → 403 `ENTITLEMENT_REQUIRED`
+ *      (AECI-623). The edge gate sits BETWEEN the two on purpose: a vendor
+ *      without the capability on a connector-powered edge must not be told that
+ *      an entitlement would unlock it (AECI-705 / §14).
  *   3. Everything else — vocabulary resolution, the duplicate-identity check,
  *      version-stamp authority. All of it resolves BEFORE the batch opens, so
  *      nothing is ever half-applied.
@@ -47,10 +48,10 @@
  * warns about: a 400 naming a bad `data_object` would win the `Promise.all` race
  * and answer a request that should have been a flat 404.
  *
- * `GET` is **not** Verified-gated — only ownership. Authoring is the
- * Verified-vendor capability (§1); reading your own surface is not, so the §6 tab
- * renders read-only and explains what verification unlocks instead of 403-ing a
- * vendor out of its own data. Same split as AECI-607's version CRUD.
+ * `GET` is **not** capability-gated — only ownership. Authoring is the
+ * `attestation.author` capability (§1); reading your own surface is not, so the §6
+ * tab renders read-only and explains what active access unlocks instead of
+ * 403-ing a vendor out of its own data. Same split as AECI-607's version CRUD.
  *
  * ── 3. A VENDOR OWNING BOTH ENDPOINTS WRITES BOTH SLOTS ─────────────────────
  * `product_vendors` is many-to-many, so one company can own both endpoints of an
@@ -150,7 +151,7 @@ import {
   type AttestationSlot,
 } from '../lib/attestation-authority';
 import { auditInsert, type BatchStmt, type BatchTuple } from '../lib/audit';
-import { auditActorType } from '../lib/authz';
+import { auditActorType, requireCapability } from '../lib/authz';
 import { loadDataObjectResolver, type DataObjectTerm } from '../lib/data-object-vocabulary';
 import { productLinkColumns, toMechanismKind, toProductLink } from '../lib/drizzle-helpers';
 import { validateResponseInDev, writeDb, type DbFactory } from '../lib/handler-utils';
@@ -159,7 +160,6 @@ import { pairCacheTag } from './promote-pair';
 import { attestationEditRecrawl } from './vendor-recrawl';
 import {
   afterVendorWrite,
-  assertVerifiedVendor,
   AUDIT_SOURCE,
   parseJsonBody,
   recrawlEnabled,
@@ -407,9 +407,10 @@ function claimIdParam(c: VendorContext): string {
  * Authority + the caller's own vendor row, in ONE wave, checked IN ORDER.
  *
  * The two reads are co-located because neither can produce anything but the 404
- * this wave owns; the ordering of the *checks* is what matters, and it is
- * ownership-before-verification so a non-owner never gets the 403 that would
- * confirm the resource exists. Identical shape to `requireOwnedProduct`.
+ * this wave owns. The vendor row is not an authorization input (AECI-623): it
+ * only turns a seat whose vendor was deleted into a 404. The capability gate runs
+ * after this returns, so a non-owner never gets the 403 that would confirm the
+ * resource exists. Identical shape to `requireOwnedProduct`.
  */
 async function authorityAndVendor<T>(
   db: Db,
@@ -442,10 +443,10 @@ async function authorityAndVendor<T>(
  * powered-ness is public on the pair page. There is nothing left to conceal, and
  * a 404 here would be a lie the caller can disprove by loading its own page.
  *
- * **It runs BEFORE `assertVerifiedVendor`, and that order is load-bearing.**
- * Reversed, an unverified vendor on a powered edge is told to get verified in
- * order to author — a promise verification will never keep, because verification
- * does not and will not unlock this edge. The copy therefore points at the
+ * **It runs BEFORE `requireCapability`, and that order is load-bearing.**
+ * Reversed, a vendor without `attestation.author` on a powered edge is told to
+ * activate access in order to author — a promise an entitlement will never keep,
+ * because no tier unlocks this edge. The copy therefore points at the
  * connector, never at verification, ranking or placement (§5.2).
  *
  * `DELETE` is deliberately NOT gated — see its handler.
@@ -1018,12 +1019,12 @@ export function createVendorClaimHandler(
     const payload = await parseJsonBody(c, CreateVendorClaimSchema);
 
     // Step 2 — authority (404) then the capability gate (403), in that order.
-    const { resolved: authority, vendor } = await authorityAndVendor(db, vendorId, () =>
+    const { resolved: authority } = await authorityAndVendor(db, vendorId, () =>
       resolveAttestationSlots(db, vendorId, payload.integration_id),
     );
     assertAttestableEdge(authority);
     assertIntegrationLive(authority);
-    assertVerifiedVendor(vendor);
+    requireCapability(c, 'attestation.author');
 
     // Step 3 — everything that can fail, resolved before the batch opens.
     // The frame is validated before it is used: a `context_product_id` naming an
@@ -1193,13 +1194,13 @@ export function createUpsertVendorAttestationHandler(
     const claimId = claimIdParam(c);
     const { db } = writeDb(c, dbFor);
 
-    const { resolved, vendor } = await authorityAndVendor(db, vendorId, () =>
+    const { resolved } = await authorityAndVendor(db, vendorId, () =>
       resolveClaimAuthority(db, vendorId, claimId),
     );
     const { claim, authority } = resolved;
     assertAttestableEdge(authority);
     assertIntegrationLive(authority);
-    assertVerifiedVendor(vendor);
+    requireCapability(c, 'attestation.author');
 
     const payload = await parseJsonBody(c, UpsertVendorAttestationSchema);
     // Echo framing only — nothing stored by this write depends on it (AECI-666).
@@ -1333,7 +1334,7 @@ export function createRetractVendorAttestationHandler(
     const claimId = claimIdParam(c);
     const { db } = writeDb(c, dbFor);
 
-    const { resolved, vendor } = await authorityAndVendor(db, vendorId, () =>
+    const { resolved } = await authorityAndVendor(db, vendorId, () =>
       resolveClaimAuthority(db, vendorId, claimId),
     );
     const { authority } = resolved;
@@ -1343,7 +1344,7 @@ export function createRetractVendorAttestationHandler(
     // that already exist. Gating retract would trap a vendor holding a position
     // it can no longer withdraw, which is a worse failure than the one the gate
     // prevents. Withdrawing is always allowed; only taking a new position is not.
-    assertVerifiedVendor(vendor);
+    requireCapability(c, 'attestation.author');
 
     const [endpoints, liveBefore] = await Promise.all([
       endpointSlugs(db, authority),

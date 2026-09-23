@@ -72,11 +72,11 @@ afterEach(() => {
 });
 
 async function create(
-  verified = true,
+  canAuthor = true,
   contextProductId: string | null = null,
 ): Promise<ComponentFixture<VendorIntegrationsSection>> {
   const fixture = TestBed.createComponent(VendorIntegrationsSection);
-  fixture.componentRef.setInput('verified', verified);
+  fixture.componentRef.setInput('canAuthor', canAuthor);
   fixture.componentRef.setInput('vendorName', 'Summit BIM');
   fixture.componentRef.setInput('contextProductId', contextProductId);
   fixture.detectChanges();
@@ -807,7 +807,7 @@ describe('VendorIntegrationsSection — drill-down (AECI-999)', () => {
     const location = TestBed.inject(Location);
     const replace = vi.spyOn(location, 'replaceState');
     const fixture = TestBed.createComponent(VendorIntegrationsSection);
-    fixture.componentRef.setInput('verified', true);
+    fixture.componentRef.setInput('canAuthor', true);
     fixture.componentRef.setInput('vendorName', 'Summit BIM');
     fixture.componentRef.setInput('urlState', true);
     fixture.detectChanges();

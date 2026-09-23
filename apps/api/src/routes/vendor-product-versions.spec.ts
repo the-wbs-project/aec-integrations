@@ -10,8 +10,9 @@
  *
  * The security-relevant cases here are the two gates and their ORDER: a
  * non-owning vendor gets a flat 404 (never a 403 that would confirm the product
- * exists), and an unverified OWNER gets a 403 on writes but still reads its own
- * list.
+ * exists), and an OWNER without `attestation.author` gets a 403
+ * `ENTITLEMENT_REQUIRED` on writes (AECI-623) but still reads its own list. The
+ * gate reads the session tier, never the `vendors.verified` mirror.
  */
 
 import { ListProductVersionsResponseSchema } from '@aeci/shared';
@@ -360,7 +361,7 @@ describe('POST /api/vendor/products/:id/versions', () => {
     expect(await auditRows()).toHaveLength(2);
   });
 
-  it('403s an unverified vendor on its OWN product, and writes nothing', async () => {
+  it('403s an entitlement-less vendor on its OWN product with ENTITLEMENT_REQUIRED, and writes nothing', async () => {
     const { status, body } = await sendJson(
       'POST',
       versionsUrl(UNVERIFIED_PRODUCT),
@@ -368,15 +369,42 @@ describe('POST /api/vendor/products/:id/versions', () => {
       UNVERIFIED_AUTH,
     );
     expect(status).toBe(403);
-    expect(body.error.code).toBe('FORBIDDEN');
-    // Copy points at verification, never at ranking or placement.
-    expect(body.error.message).toMatch(/verified/i);
+    expect(body.error.code).toBe('ENTITLEMENT_REQUIRED');
+    expect(body.error.details).toEqual({ capability: 'attestation.author', tier: 'unclaimed' });
+    // Copy points at activation, never at ranking or placement.
     expect(body.error.message).not.toMatch(/rank|placement|search/i);
     expect(await versionRows()).toEqual([]);
     expect(await auditRows()).toEqual([]);
   });
 
-  it('404s a non-owning vendor BEFORE the verified gate — ownership wins the race', async () => {
+  // AECI-623: the two cases below pull the session tier and the mirror apart.
+  it('rejects an entitlement-less seat even when its vendor row still reads verified', async () => {
+    const { status, body } = await sendJson(
+      'POST',
+      versionsUrl(PRODUCT),
+      { label: '2026.1' },
+      { ...AUTH, entitlementTier: 'unclaimed', entitlement: null },
+    );
+    expect(status).toBe(403);
+    expect(body.error.code).toBe('ENTITLEMENT_REQUIRED');
+    expect(await auditRows()).toEqual([]);
+  });
+
+  it('accepts a seat holding attestation.author even when its vendor row reads unverified', async () => {
+    const { status } = await sendJson(
+      'POST',
+      versionsUrl(UNVERIFIED_PRODUCT),
+      { label: '2026.1' },
+      {
+        ...UNVERIFIED_AUTH,
+        entitlementTier: 'verified',
+        entitlement: { status: 'active', periodEnd: null },
+      },
+    );
+    expect(status).toBe(201);
+  });
+
+  it('404s a non-owning vendor BEFORE the capability gate — ownership wins the race', async () => {
     // An unverified vendor asking about a product it does not own must learn
     // nothing: 404, not the 403 it would get on its own product.
     const { status, body } = await sendJson(
@@ -514,12 +542,18 @@ describe('PATCH /api/vendor/products/:id/versions/:versionId', () => {
     expect(status).toBe(404);
   });
 
-  it('403s an unverified vendor on its own product', async () => {
+  it('403s an entitlement-less vendor on its own product with ENTITLEMENT_REQUIRED', async () => {
     await t.db
       .insert(productVersions)
       .values({ id: uuid(240), productId: UNVERIFIED_PRODUCT, label: 'v1', sortKey: 1 });
-    const { status } = await patch({ label: 'v2' }, uuid(240), UNVERIFIED_PRODUCT, UNVERIFIED_AUTH);
+    const { status, body } = await patch(
+      { label: 'v2' },
+      uuid(240),
+      UNVERIFIED_PRODUCT,
+      UNVERIFIED_AUTH,
+    );
     expect(status).toBe(403);
+    expect(body.error.code).toBe('ENTITLEMENT_REQUIRED');
   });
 });
 
@@ -606,12 +640,13 @@ describe('DELETE /api/vendor/products/:id/versions/:versionId', () => {
     expect(status).toBe(404);
   });
 
-  it('403s an unverified vendor on its own product', async () => {
+  it('403s an entitlement-less vendor on its own product with ENTITLEMENT_REQUIRED', async () => {
     await t.db
       .insert(productVersions)
       .values({ id: uuid(240), productId: UNVERIFIED_PRODUCT, label: 'v1', sortKey: 1 });
-    const { status } = await del(uuid(240), UNVERIFIED_PRODUCT, UNVERIFIED_AUTH);
+    const { status, body } = await del(uuid(240), UNVERIFIED_PRODUCT, UNVERIFIED_AUTH);
     expect(status).toBe(403);
+    expect(body.error.code).toBe('ENTITLEMENT_REQUIRED');
     expect(await versionRows()).toHaveLength(2);
   });
 });

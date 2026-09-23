@@ -831,8 +831,9 @@ app.route('/', authAdmin);
 //   - PATCH /api/vendor/products/:id — edit an owned product (cross-vendor → 404).
 //
 // Stage 2 / AECI-607 adds the product-version CRUD on the same sub-router. Two
-// gates, in this order: ownership → 404 (as above), then `vendors.verified` → 403
-// on the WRITES only — authoring is a Verified-vendor capability
+// gates, in this order: ownership → 404 (as above), then
+// `requireCapability(c, 'attestation.author')` → 403 `ENTITLEMENT_REQUIRED` on the
+// WRITES only (AECI-623) — authoring is an entitlement capability
 // (`STAGE_2_ATTESTATIONS_SPEC.md` §1), while the list stays readable so the
 // dashboard can render a read-only tab instead of 403-ing a vendor out of its
 // own data.
@@ -844,7 +845,7 @@ app.route('/', authAdmin);
 // Stage 2 / AECI-302 adds the in-portal notification list. It reads the same
 // `audit_log` `notification.sent` rows the §7 detector sweep writes — no separate
 // store (`STAGE_2_ATTESTATIONS_SPEC.md` §7.3) — scoped to the caller's vendor, and
-// not verified-gated (reading is not the capability).
+// not capability-gated (reading is not the capability).
 //   - GET   /api/vendor/notifications — the last 90 days of detector nudges.
 //
 // Stage 2 / AECI-301 adds the attestation authoring surface — the first code that
@@ -852,8 +853,9 @@ app.route('/', authAdmin);
 // move a claim off `unverified` (`STAGE_2_ATTESTATIONS_SPEC.md` §5). Same two
 // gates and the same order, but at INTEGRATION grain: which slot the caller may
 // fill comes from `lib/attestation-authority.ts` (product ownership, never the
-// request), a miss is a 404, and only then is `vendors.verified` checked. `GET`
-// is not Verified-gated, for the same reason the version list is not.
+// request), a miss is a 404, and only then is `attestation.author` checked
+// (AECI-623). `GET` is not capability-gated, for the same reason the version list
+// is not.
 //   - GET    /api/vendor/integrations                — the attestable surface.
 //   - POST   /api/vendor/integrations                — create one (AECI-1011, 201).
 //   - POST   /api/vendor/claims                      — create a claim (201).
@@ -865,7 +867,7 @@ app.route('/', authAdmin);
 // sub-router with neither an ownership check nor a `vendor_id` filter — the
 // vocabulary is AECi-curated and holds no vendor-owned rows, so the filter would
 // be vacuous rather than omitted (`docs/AUTH_AND_RLS.md` §4.4). Not
-// verified-gated either, for the same reason the two lists above are not.
+// capability-gated either, for the same reason the two lists above are not.
 //   - GET   /api/vendor/data-objects — the closed `data_object` vocabulary.
 //
 // Stage 2 / AECI-627 adds the surface's polling endpoint — six (seven since
@@ -873,7 +875,7 @@ app.route('/', authAdmin);
 // `updated_at` cursors in one response, so the dashboard can refetch only the
 // section that moved instead of reloading (ADR 0023 chose this over Durable-Object
 // WebSockets / SSE; `STAGE_2_REALTIME_SPEC.md` §2). It is a pure read, so it writes
-// no `audit_log` row, and it is NOT verified-gated. The rule that makes it correct:
+// no `audit_log` row, and it is NOT capability-gated. The rule that makes it correct:
 // each cursor reuses the scoping predicate of the endpoint it is a cursor for —
 // see the route module's header for what breaks when one drifts.
 //   - GET   /api/vendor/updates — per-scope freshness cursors + `server_time`.
@@ -981,7 +983,7 @@ authVendor.delete(
   rateLimit('write'),
   createRetractVendorAttestationHandler(),
 );
-// AECI-606. Guard only — no authority resolution and no verified gate; see the
+// AECI-606. Guard only — no authority resolution and no capability gate; see the
 // route module's header for why that is the contract rather than an omission.
 authVendor.get('/api/vendor/data-objects', requireVendor(), createListDataObjectsHandler());
 // AECI-627. No path overlap with anything above, so ordering is free.

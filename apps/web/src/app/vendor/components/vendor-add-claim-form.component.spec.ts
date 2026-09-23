@@ -316,7 +316,34 @@ describe('VendorAddClaimForm — the duplicate pivot', () => {
 });
 
 describe('VendorAddClaimForm — failures and copy', () => {
-  it('surfaces a 403 as an account-access message, never a ranking one', async () => {
+  it('surfaces ENTITLEMENT_REQUIRED as an account-access message, never a ranking one', async () => {
+    // AECI-623: `POST /api/vendor/claims` gates on `requireCapability('attestation.author')`.
+    createClaim.mockRejectedValue(
+      new HttpErrorResponse({
+        status: 403,
+        error: {
+          error: {
+            code: 'ENTITLEMENT_REQUIRED',
+            message: 'nope',
+            details: { capability: 'attestation.author', tier: 'unclaimed' },
+          },
+          trace_id: 't',
+        },
+      }),
+    );
+    const fixture = create();
+    choose(fixture, 'documents', 'outbound');
+    button(fixture, 'Add data flow')!.click();
+    await flush();
+    fixture.detectChanges();
+
+    const message =
+      (fixture.nativeElement as HTMLElement).querySelector('[role="alert"]')?.textContent ?? '';
+    expect(message).toContain('active vendor access');
+    expect(message).not.toMatch(/rank|placement/i);
+  });
+
+  it('surfaces a plain FORBIDDEN without sending the vendor to ask for access', async () => {
     createClaim.mockRejectedValue(
       new HttpErrorResponse({
         status: 403,
@@ -331,8 +358,8 @@ describe('VendorAddClaimForm — failures and copy', () => {
 
     const message =
       (fixture.nativeElement as HTMLElement).querySelector('[role="alert"]')?.textContent ?? '';
-    expect(message).toContain('active vendor access');
-    expect(message).not.toMatch(/rank|placement/i);
+    expect(message).toContain('You cannot add a data flow');
+    expect(message).not.toContain('active vendor access');
   });
 
   it('never promises instant search', () => {

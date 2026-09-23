@@ -276,6 +276,7 @@ export class VendorOverviewSection {
 
   private readonly canEditProfile = vendorCan(this.store, 'profile.edit');
   private readonly canEditProducts = vendorCan(this.store, 'product.edit');
+  private readonly canAttest = vendorCan(this.store, 'attestation.author');
 
   protected readonly conflicts = computed(() => conflictsByProduct(this.store.integrations()));
   protected readonly corrections = computed(() => openCorrections(this.me()?.requests ?? []));
@@ -298,9 +299,8 @@ export class VendorOverviewSection {
             Date.parse(c.protest.reply_due_at) > Date.now(),
         ).length,
       canManageSeats: this.store.canManageSeats(),
-      // `vendor.verified`, as the Integrations tab gates today. See
-      // `vendor-integrations-page.ts` on why it is not `attestation.author` yet.
-      canAttest: me.vendor.verified,
+      // The same capability the Integrations tab gates on (AECI-623).
+      canAttest: this.canAttest(),
       canEditProducts: this.canEditProducts(),
       canEditProfile: this.canEditProfile(),
     });

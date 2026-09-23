@@ -2,6 +2,7 @@ import { Component, computed, inject } from '@angular/core';
 
 import { VendorIntegrationsSection } from '../components/vendor-integrations-section';
 import { VendorProductConnectors } from '../components/vendor-product-connectors';
+import { vendorCan } from '../vendor-capabilities';
 import { VendorPortalStore } from '../vendor-portal-store';
 
 import { vendorProductContext } from './vendor-product-context';
@@ -20,12 +21,11 @@ import { vendorProductContext } from './vendor-product-context';
  * answer a per-product question. The read stays vendor-wide (one call, one cursor
  * scope — see `contextProductId` on the section); only the view narrows.
  *
- * `verified` is still passed down verbatim rather than resolved into a
- * capability here — `attestation.author` is declared but has no server-side
- * consumer yet (`STAGE_2_REALTIME_SPEC.md` §6.1, "what would have to change for
- * it to become a capability"), so flipping the client half first would show
- * enabled controls that collect a 403. Both halves move in one change or
- * neither does.
+ * The write gate is the `attestation.author` capability off `me`, the same
+ * capability the server's `requireCapability` asserts on the attestation and
+ * version writes (AECI-623; `STAGE_2_REALTIME_SPEC.md` §6.1). It used to be the
+ * `vendors.verified` mirror; the client and server halves moved in one change so
+ * enabled controls can never collect a 403.
  *
  * AECI-1013 adds the read-only Connectors section below the list: the connectors
  * that deliver or reach this product. It is its own per-product read, outside the
@@ -39,7 +39,7 @@ import { vendorProductContext } from './vendor-product-context';
       <div>
         <div class="mt-4">
           <aec-vendor-integrations-section
-            [verified]="m.vendor.verified"
+            [canAuthor]="canAuthor()"
             [vendorName]="m.vendor.company_name"
             [contextProductId]="contextProductId()"
             [urlState]="true"
@@ -56,7 +56,9 @@ import { vendorProductContext } from './vendor-product-context';
 export class VendorIntegrationsPage {
   private readonly ctx = vendorProductContext();
 
-  protected readonly me = inject(VendorPortalStore).me;
+  private readonly store = inject(VendorPortalStore);
+  protected readonly me = this.store.me;
+  protected readonly canAuthor = vendorCan(this.store, 'attestation.author');
 
   /**
    * In practice never `null`: the product shell only renders its outlet once

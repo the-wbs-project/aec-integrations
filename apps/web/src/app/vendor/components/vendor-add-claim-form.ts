@@ -612,9 +612,19 @@ export class VendorAddClaimForm {
       return;
     }
 
-    if (info?.status === 403) {
+    if (info?.code === 'ENTITLEMENT_REQUIRED') {
+      // AECI-623: the server gate is `requireCapability('attestation.author')`.
       this.notice.set(
         $localize`:@@vendor.attest.add.error.accountAccess:Adding a data flow needs active vendor access. Contact AEC Integrations to arrange access.`,
+      );
+      return;
+    }
+
+    if (info?.status === 403) {
+      // Any other 403 (a connector-powered edge, a seat banned mid-session) is
+      // not an access problem, so it must not send the vendor to ask for access.
+      this.notice.set(
+        $localize`:@@vendor.attest.add.error.forbidden:You cannot add a data flow to this integration. Reload to see the current list.`,
       );
       return;
     }

@@ -235,7 +235,37 @@ describe('VendorAttestationControl — Clear', () => {
 });
 
 describe('VendorAttestationControl — failure handling', () => {
-  it('reports a 403 as an account-access message that never mentions ranking or search', async () => {
+  it('reports ENTITLEMENT_REQUIRED as an account-access message that never mentions ranking or search', async () => {
+    // AECI-623: the attestation writes gate on `requireCapability('attestation.author')`.
+    const { HttpErrorResponse } = await import('@angular/common/http');
+    upsertAttestation.mockRejectedValue(
+      new HttpErrorResponse({
+        status: 403,
+        error: {
+          error: {
+            code: 'ENTITLEMENT_REQUIRED',
+            message: 'nope',
+            details: { capability: 'attestation.author', tier: 'unclaimed' },
+          },
+          trace_id: 't',
+        },
+      }),
+    );
+    const fixture = create();
+
+    button(fixture, 'Affirm').click();
+    await flush();
+    fixture.detectChanges();
+
+    const alert = (fixture.nativeElement as HTMLElement).querySelector('[role="alert"]');
+    const text = alert?.textContent ?? '';
+    expect(text).toContain('active vendor access');
+    expect(text).not.toMatch(/rank|placement|search/i);
+  });
+
+  it('reports a plain FORBIDDEN without sending the vendor to ask for access', async () => {
+    // A connector-powered edge or a mid-session ban answers FORBIDDEN, and an
+    // entitlement would not fix either.
     const { HttpErrorResponse } = await import('@angular/common/http');
     upsertAttestation.mockRejectedValue(
       new HttpErrorResponse({
@@ -251,8 +281,8 @@ describe('VendorAttestationControl — failure handling', () => {
 
     const alert = (fixture.nativeElement as HTMLElement).querySelector('[role="alert"]');
     const text = alert?.textContent ?? '';
-    expect(text).toContain('active vendor access');
-    expect(text).not.toMatch(/rank|placement|search/i);
+    expect(text).toContain('You cannot change this data flow');
+    expect(text).not.toContain('active vendor access');
   });
 
   it('falls back to a retry notice on an unrecognised failure', async () => {
