@@ -8,7 +8,7 @@ last_updated: 23 September 2026
 
 An integration belongs to the vendor that offers it: the company a customer buys it from or gets it from. The public integration page names that vendor on its "Offered by" line. AEC Integrations recorded most integrations from public sources to start the catalogue. This page is for the vendor that owns one.
 
-Everything here needs a seat on your company's vendor account ([Your seat](/docs/vendors/your-seat)). None of it affects where anything ranks. One part depends on your plan: claiming an integration delivered through a connector, and deciding contests on one, need an active plan (see the last section). Nothing else here does.
+Everything here needs a seat on your company's vendor account ([Your seat](/docs/vendors/your-seat)). None of it affects where anything ranks. One part depends on your plan: claiming, editing, retiring or restoring an integration delivered through a connector, and deciding contests on one, need an active plan (see the last section). Nothing else here does.
 
 ## Find your integrations
 
@@ -89,7 +89,7 @@ A vendor at either end that does not own the integration can contest one of its 
 
 ## Integrations delivered through a connector
 
-Where a connector product carries the data, the company recorded as the owner can claim the integration, if it has an active plan. That includes a company that sells the connector and makes neither product. Those integrations appear on your Integrations tab under **Integrations your company offers**. Once you claim one, AEC Integrations stops updating it. Editing and retiring a connector-delivered integration are not available yet. No vendor can add links to one, or add a new one. Other vendors can still contest a detail on one that appears on their Integrations tab.
+Where a connector product carries the data, the company recorded as the owner can claim the integration, if it has an active plan. That includes a company that sells the connector and makes neither product. Those integrations appear on your Integrations tab under **Integrations your company offers**. Once you claim one, AEC Integrations stops updating it. With an active plan you can then edit its details and retire or restore it, from the same row. Its type is set by AEC Integrations and cannot be edited. Retiring it also stops it counting on the connector product. No vendor can add links to one, or add a new one. Other vendors can still contest a detail on one that appears on their Integrations tab.
 
 An integration can become connector-delivered after you added your links to it, when our records change. Your links are then no longer shown on the public page. They still appear under **Your links** on the card, and you can remove them there.
 

@@ -373,7 +373,9 @@ helper enqueues for all of them (`purgeTags` / `afterVendorWrite` in
   `product:{connectorSlug}`. The connector's page lists the pairs it delivers and its
   `integration_count` counts them (§12.5 option B), so the pair batch recomputes three
   stored counts in the batch (both endpoints and the connector) and purges all three
-  product pages. The `pair:` tag uses the pair's two endpoints, as on any row.
+  product pages. The `pair:` tag uses the pair's two endpoints, as on any row. A
+  connector-powered `integrations` row with a `powered_by` product purges that product's
+  tag too, because its page lists the row (its count does not move).
 
 - **Attestation write** (`POST /api/vendor/claims`, `PUT`/`DELETE
   /api/vendor/claims/:claimId/attestation`, AECI-301) → **`pair:{min}__{max}`

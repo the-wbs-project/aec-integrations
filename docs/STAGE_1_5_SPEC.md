@@ -1685,7 +1685,10 @@ mid-flight will make a local decision about a cross-cutting contract.
   unfiltered arm reads 3, a lost evidenced arm reads 1. The completeness case fails if an
   executed site has an arm no case proves. `scan` = cannot run in the api suite, so a source scan
   requires each arm's own predicate within 60 lines of the named marker (the evidenced arm by its
-  own names, so one predicate cannot stand in for both); `excluded` = deliberately unfiltered,
+  own names, so one predicate cannot stand in for both), except at X5, X6 and X7, where the SQL
+  template is scanned one `FROM` at a time and every subquery over either table must carry its
+  own arm's filter (the AECI-1091 review showed a window could be satisfied by one branch while a
+  sibling had none); `excluded` = deliberately unfiltered,
   with its reason recorded. Only X8 is scanned for the predicates' ABSENCE, on both arms, because
   it is the one exclusion where adding a filter would break something (a vendor delete would
   proceed into a foreign-key failure). The other three are held by their reasons alone. Delete
