@@ -216,6 +216,9 @@ retrofitted (§3.10).
   the B2B piece and it is the reason groups exist here at all: it makes "how
   many **vendors** activated" answerable, which a per-person count cannot
   approximate. One vendor with four seats is one activated vendor, not four.
+- **`setPersonProperties({ is_internal: true })` for admin-role profiles
+  (AECI-1053).** The one person property the client sends, and only for
+  `role = 'admin'`. See §9 for why it exists and how it is gated.
 - **`posthog.reset()` on logout.** Without it, the next anonymous session on
   that browser is attributed to the person who just left — which is both wrong
   and, on a shared machine, a privacy problem.
@@ -249,6 +252,38 @@ retrofitted (§3.10).
   production product analytics carry operator traffic and `page_views` does not
   — so the two surfaces disagree for a reason that looks like a bug. Configure
   PostHog's "filter internal and test users" on project 354071.
+- **How the operator is marked internal: by code, since 2026-09-23 (AECI-1053).**
+  Both projects (354071 and 525793) define their internal-user filter as the
+  person property rule "`is_internal` is not set" (AECI-858).
+
+  ~~The operator's PostHog person was tagged `is_internal = true` by hand, once per
+  project.~~ **Superseded by code on 2026-09-23 (AECI-1053).** A hand tag did not
+  survive a new person: a newly seated admin, a person deleted or merged in
+  PostHog, or a new project each produced an untagged person, and the exclusion
+  stopped silently.
+
+  Now `AnalyticsIdentity` reads the header's existing `GET /api/account` probe.
+  When the live profile has `role = 'admin'` in D1, it calls
+  `Analytics.markInternal()`, which sends `setPersonProperties({ is_internal: true })`.
+  The rules:
+
+  - **Admin only.** No other role is ever tagged, and the client never writes
+    `false`.
+  - **Same consent gate as `identify()`.** A declined, DNT or GPC admin sends
+    nothing.
+  - **Bound to the identified user, and sent after `identify()`,** so the tag
+    lands on that person.
+  - **Its own `$set`, not a rider on `identify()`.** `identify()` sends no
+    `$identify` when the distinct id is unchanged, so a rider would fire once
+    per browser and never reach an admin identified before this shipped. The
+    SDK dedupes the `$set` within a page load, so it costs one event per admin
+    page load at most.
+  - **Never the email** (§2).
+
+  Two limits remain. Both projects store person properties on each event at
+  capture time, so events captured before the tag landed stay unfiltered. And an
+  admin who never grants consent is never tagged, but also sends no product
+  events, so there is nothing to filter.
 - **Which committed insights apply that filter (AECI-858).** The project setting
   reaches a PostHog UI insight through its "Filter out internal and test users"
   toggle. It reaches a committed SQL insight only through a `{filters}` placeholder
