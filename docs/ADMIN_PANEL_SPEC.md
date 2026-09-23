@@ -832,6 +832,47 @@ time. That is the only state in which the sync is frozen out of a catalogue and 
 row, and `STAGE_2_SPEC.md` §8.9(2) already pins its authz model (`profiles.role = 'vendor_admin'`
 + `vendor_id`, ownership-checked, never through `requireCapability`).
 
+#### Mapping authoring — SHIPPED (AECI-724, 2026-09-23)
+
+**On a vendor-managed catalogue, each mapping in the triage table has an Edit control.** On a
+review-managed one there is none, because the endpoint would answer
+**409 `CATALOG_REVIEW_MANAGED`** and the next sync page would overwrite the edit anyway. The host
+decides with `managed_by === 'vendor'`; a control that could only fail is not rendered.
+
+The control (`apps/web/src/app/admin/connectors/mapping-edit-control.{ts,html}`, behind its own
+`MappingEditApi` client) edits four columns and nothing else:
+
+| Field | Control | Notes |
+|---|---|---|
+| Status | `aec-select` over the five statuses | A decision status hides the product picker and sends `productId: null` |
+| Product | Search over `GET /api/products`, pick from results | Published products only, which is also what the endpoint accepts |
+| Confidence | `aec-select`, including "Not set" | |
+| Evidence link | `https:` URL input | Optional |
+
+It says one thing out loud: **saving records AECi as the decider**, and a matched listing then
+counts toward the product's public reach. `decided_by` becomes `aeci-operator`, which clears
+§9a.4's provenance gate. That is the publication consequence an operator should mean.
+
+Four things the build settled:
+
+1. **The gate is the exact complement of the promote refusal.** Promote refuses `vendor`-managed
+   catalogues; this refuses `review`-managed ones. The two lanes never write the same row. A
+   `json()` sentinel inside the batch re-checks the flag, so a lane reclaimed mid-request rolls
+   the batch back. `apps/api/src/lib/connector-mapping-lanes.spec.ts` drives both writers over one
+   database to pin it.
+2. **The audit row files under the catalogue.** `connector_mapping.updated`,
+   `entity_type = 'connector_catalog'`, mapping id in `metadata.mapping_id`. So the Audit section
+   on this screen shows every edit beside the handover and the sync runs, with no new read path.
+   A seat's edit also carries `metadata.vendor_id`, which puts it on `/admin/vendors/:id`'s audit
+   tab.
+3. **The row is replaced in place.** The PATCH returns the triage row's own shape, so the table
+   updates without a refetch. The Audit section refetches. The counts block waits for the next
+   load, as it does after the managed-by flip.
+4. **This is the console's first catalog-content write**, which §2's read-mostly rule did not
+   anticipate. It is admissible for the same reason as the flip: the lane is frozen, so AECi is
+   the only author left. It is still a write only an admin can make here. The seat holder's twin
+   is `PATCH /api/vendor/connector-stub-mappings/:id` (`STAGE_2_VENDOR_PORTAL_SPEC.md` §5.2).
+
 **It does not decide publication.** The pairs view renders §13.7's *inputs* — both sides in our
 catalogue, and whether a person rather than the auto pass made the mapping — and carries a
 `publication_gate_inputs_only` advisory saying so. Clause (b) (the pair being undelivered) and
@@ -1174,6 +1215,7 @@ All endpoints are admin-gated and register on the existing `authAdmin` sub-route
 | `GET /api/admin/vendors/:id/audit` | §5.7 audit — **SHIPPED (AECI-652)** | The first read surface `audit_log` has ever had. `?scope=all\|entity\|actor`; entity scope is four OR'd disjuncts because `entity_id = <vendor>` misses more than it catches |
 | `DELETE /api/admin/vendors/:id/seats/:userId` | §5.7 revoke — **SHIPPED (AECI-652)** | **A write, not a read.** Composes `revokeSeatStatements`, so its `audit_log` row rides the same `db.batch` and no statement names `vendors` |
 | `POST /api/admin/vendors/:id/seats` | §5.7 seat provision — **SHIPPED (AECI-740)** | **A write, not a read.** Composes `provisionSeatStatements`, so its `audit_log` row rides the same `db.batch` and no statement names `vendors`. Opens no `vendor_entitlements` row, so the badge never lights. Contract in `packages/shared/src/api/admin-vendors.ts` |
+| `PATCH /api/admin/connector-stub-mappings/:id` | §5.9 mapping authoring — **SHIPPED (AECI-724)** | **A write, not a read.** Edits one mapping's `status` / `product_id` / `confidence` / `evidence_url` on a **vendor-managed** catalogue only; any other catalogue is **409 `CATALOG_REVIEW_MANAGED`**. Stamps `decided_by = 'aeci-operator'`. Audit row `connector_mapping.updated` (filed under the catalogue) in the same `db.batch`, after a gate sentinel. Purges `product:*` for both endpoints and the connector when the row was or becomes publishable. Conflicts on the two unique indexes are **409 `MAPPING_CONFLICT`**. Contract in `packages/shared/src/api/connector-stub-mappings.ts` |
 | `PATCH /api/admin/connector-catalogs/:id` | The per-iPaaS management cutoff — **SHIPPED (AECI-720)** | **The third write in this table.** Flips `connector_catalogs.managed_by`; `vendor` freezes the review lane so promote refuses that catalogue's pages with `CATALOG_VENDOR_MANAGED`. Audit row in the same `db.batch` as a guarded `UPDATE`; no `workflow_instances` row (closed CHECK) and no purge — not because nothing reads these tables (AECI-892's reach line does, `CACHE_STRATEGY.md` §3 rule 5) but because `managed_by` is a governance flag no public surface reads. Reversible — "one-way forever" governs the data direction, not the flag. Contract in `packages/shared/src/api/admin-connector-catalogs.ts`; the screen that will call it is AECI-722's |
 | `GET /api/admin/users` | §5.8 list — **SHIPPED (AECI-692)** | Profiles-first (ADR 0017 — one auth project backs every env). Filters `role` / `banned` / `has_seat`, all enum-plus-transform. `perPage` defaults 24, caps **50** not 100 — every row is a GoTrue round trip. `auth_available` + `email_search` report what the seam did |
 | `GET /api/admin/users/:id` | §5.8 detail — **SHIPPED (AECI-692)** | Profile, auth account, the one seat, live pending invites, counts. `pending_invites: null` and `requests_by_email: null` mean *unknowable without the seam* — never `[]` or `0` |

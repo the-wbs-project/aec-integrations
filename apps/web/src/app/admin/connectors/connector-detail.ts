@@ -14,6 +14,7 @@ import {
   type AdminConnectorStubRow,
   type AdminNote,
   type ConnectorCatalogManagementResponse,
+  type ConnectorStubMappingEditResponse,
 } from '@aeci/shared';
 
 import { AecSelect, type AecSelectOption } from '../../shared/aec-select/aec-select';
@@ -23,7 +24,9 @@ import { AdminNotes } from '../admin-notes';
 import { AdminPaginator } from '../admin-paginator';
 import { AuditTrail } from '../audit/audit-trail';
 import { AdminConnectorsApi } from './admin-connectors-api';
+import { mappingStatusLabel } from './connector-labels';
 import { ManagedByControl } from './managed-by-control';
+import { MappingEditControl } from './mapping-edit-control';
 
 const STUB_PAGE_SIZE = 25;
 const PAIR_PAGE_SIZE = 25;
@@ -69,6 +72,7 @@ type StubState =
     AdminPaginator,
     AuditTrail,
     ManagedByControl,
+    MappingEditControl,
     NewTabIcon,
   ],
   templateUrl: './connector-detail.html',
@@ -212,6 +216,34 @@ export class ConnectorDetail {
 
   protected onAnnounce(message: string): void {
     this.liveMessage.set(message);
+  }
+
+  /**
+   * AECI-724: only a vendor-managed catalogue takes mapping edits. On a
+   * review-managed one the endpoint 409s, because the next sync page would
+   * overwrite the edit, so the control is not rendered at all.
+   */
+  protected readonly mappingsEditable = computed(() => this.catalog()?.managed_by === 'vendor');
+
+  /**
+   * The PATCH returns the committed row, so it replaces the one in the table with
+   * no refetch. The audit trail does refetch: the edit wrote a row filed under this
+   * catalogue. The counts block is left alone until the next load, the same as the
+   * managed-by flip leaves it.
+   */
+  protected onMappingChanged(result: ConnectorStubMappingEditResponse): void {
+    if (!result.changed) return;
+    this.stubs.update((rows) =>
+      rows.map((row) =>
+        row.id !== result.stub_id
+          ? row
+          : {
+              ...row,
+              mappings: row.mappings.map((m) => (m.id === result.mapping.id ? result.mapping : m)),
+            },
+      ),
+    );
+    void this.loadAudit();
   }
 
   // ── Triage ─────────────────────────────────────────────────────────────────
@@ -417,20 +449,7 @@ export class ConnectorDetail {
   }
 
   protected statusLabel(status: string): string {
-    switch (status) {
-      case 'mapped':
-        return $localize`:@@admin.connectors.status.mapped:Matched`;
-      case 'ruled_out':
-        return $localize`:@@admin.connectors.status.ruledOut:Ruled out`;
-      case 'out_of_scope':
-        return $localize`:@@admin.connectors.status.outOfScope:Out of scope`;
-      case 'no_record':
-        return $localize`:@@admin.connectors.status.noRecord:No record`;
-      case 'ambiguous_parked':
-        return $localize`:@@admin.connectors.status.parked:Parked`;
-      default:
-        return status;
-    }
+    return mappingStatusLabel(status);
   }
 
   /**

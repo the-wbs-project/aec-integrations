@@ -74,7 +74,11 @@ interface NeedsRow {
             Account access
           </h2>
           <div [class]="compactAccess() ? '' : 'mt-4'">
-            <aec-vendor-plan-panel [entitlement]="m.entitlement" [compact]="true" />
+            <aec-vendor-plan-panel
+              [entitlement]="m.entitlement"
+              [products]="m.products"
+              [compact]="true"
+            />
           </div>
         </section>
 

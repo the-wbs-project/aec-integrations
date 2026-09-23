@@ -399,6 +399,35 @@ export const VENDOR_ME_UNVERIFIED_FIXTURE: VendorMeResponse = {
   entitlement: { tier: 'unclaimed', status: null, period_end: null, capabilities: [] },
 };
 
+/**
+ * The connector catalogue-maintenance seat (AECI-724, `STAGE_2_SPEC.md` §8.9): a
+ * pure iPaaS vendor handed a seat by the AECI-740 provision, so NO entitlement row
+ * (`status: null`) and one `connector`-role product. The plan panel renders its
+ * `catalogue` state for this, never the `none` upsell.
+ */
+export const VENDOR_ME_CONNECTOR_SEAT_FIXTURE: VendorMeResponse = {
+  vendor: {
+    ...VENDOR_ME_UNVERIFIED_FIXTURE.vendor,
+    id: '00000000-0000-4000-8000-000000005230',
+    slug: 'agave-inc',
+    company_name: 'Agave',
+  },
+  products: [
+    {
+      ...VENDOR_ME_FIXTURE.products[0]!,
+      id: '00000000-0000-4000-8000-000000005231',
+      slug: 'agave',
+      name: 'Agave',
+      product_role: 'connector',
+      integration_count: 0,
+      review_count: 0,
+    },
+  ],
+  requests: [],
+  seat_count: 1,
+  entitlement: { tier: 'unclaimed', status: null, period_end: null, capabilities: [] },
+};
+
 // ─── The §8 entitlement states (AECI-614) ────────────────────────────────────
 //
 // `VENDOR_ME_FIXTURE` is state 1 (active, far term) and

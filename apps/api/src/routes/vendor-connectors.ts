@@ -29,8 +29,10 @@
  * rate-limited: reads never are (ADR 0026).
  *
  * ── OUTSIDE THE AECI-516 CURSOR, DELIBERATELY ───────────────────────────────
- * Nothing a vendor does moves this data. It changes only when an operator's
- * catalogue sync or a promote lands, so a `GET /api/vendor/updates` scope for it
+ * Nothing the reading vendor does moves this data. It changes only when an
+ * operator's catalogue sync or a promote lands, or when a connector's seat edits a
+ * mapping on its own vendor-managed catalogue (AECI-724), which is another vendor's
+ * action. So a `GET /api/vendor/updates` scope for it
  * would poll every 20 s for a value that moves a few times a month, and adding
  * one means widening the cursor's scoping predicates, which ARE the
  * authorization on this surface (`STAGE_2_REALTIME_SPEC.md` §2.2). The client

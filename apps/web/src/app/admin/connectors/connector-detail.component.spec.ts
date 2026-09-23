@@ -447,6 +447,42 @@ describe('ConnectorDetail', () => {
     });
   });
 
+  describe('mapping authoring (AECI-724)', () => {
+    const mapped = {
+      id: 'map-1',
+      status: 'mapped' as const,
+      product: { id: '00000000-0000-4000-8000-000000000030', name: 'Procore', slug: 'procore' },
+      confidence: 'high' as const,
+      evidence_url: null,
+      decided_by: 'auto-name-match',
+      decided_at: null,
+      checked_at: null,
+      notes: null,
+      publishable: false,
+    };
+    const withMapping = (managed_by: 'review' | 'vendor') =>
+      makeApiMock({
+        getCatalog: vi.fn(async () => makeCatalog({ managed_by })),
+        listStubs: vi.fn(async () => ({
+          data: [makeStub({ mappings: [mapped] })],
+          page: 1,
+          perPage: 25,
+          total: 1,
+          advisories: [],
+        })),
+      });
+
+    it('renders an edit control per mapping on a vendor-managed catalogue', async () => {
+      const { el } = await setup(withMapping('vendor'));
+      expect(el.querySelectorAll('aec-mapping-edit-control')).toHaveLength(1);
+    });
+
+    it('renders NO edit control on a review-managed catalogue: the sync would clobber it', async () => {
+      const { el } = await setup(withMapping('review'));
+      expect(el.querySelector('aec-mapping-edit-control')).toBeNull();
+    });
+  });
+
   describe('accessibility (structural)', () => {
     it('uses one h2 and no h1, with sections below it', async () => {
       const { el } = await setup(makeApiMock());

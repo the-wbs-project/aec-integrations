@@ -256,6 +256,8 @@ Machine-readable codes are stable identifiers. Messages are localized.
 | `ENTITLEMENT_REQUIRED` | 403 | The vendor's entitlement tier does not hold the capability this write requires (code minted AECI-610, thrown since AECI-611; `details: { capability, tier, fields? }` — `fields` is present only on the field-level rejection in `splitPatch`). **403, not 402** — 402 Payment Required would leak a billing model into a contract that must stay payer-model-agnostic, and this table has no 402 row. **Reads are never gated**, and the gate never fires before ownership settles on a product write (a 403 there would confirm a foreign product exists). Raised only from `entitlementRequired()` in `apps/api/src/lib/authz.ts`, so the status, copy and `details` shape cannot diverge between the two call sites |
 | `SLUG_CONFLICT` | 409 | Slug collision detected on entity creation |
 | `GRANT_CONFLICT` | 409 | Vendor-claim grant would violate role/vendor exclusivity — the claimant account is a site `admin`, or is already linked to a different vendor (AECI-519; `details.reason` ∈ `already_admin` \| `other_vendor`). Also returned by `POST /api/vendor/seats/invites` when the address already holds a live invite, and by the invite accept when the redeemer is a site admin or belongs to another vendor (AECI-664) |
+| `CATALOG_REVIEW_MANAGED` | 409 | The inverse of `CATALOG_VENDOR_MANAGED` (AECI-724). A mapping edit (`PATCH /api/admin/connector-stub-mappings/:id` or `PATCH /api/vendor/connector-stub-mappings/:id`) addressed a catalogue whose `managed_by` is still `review`, so the review-app sync authors it and its next page would overwrite the edit. Nothing is written. Re-checked inside the batch by a sentinel, so a lane reclaimed mid-request also answers this. Resolved only by an operator handing the catalogue over through `PATCH /api/admin/connector-catalogs/:id` |
+| `MAPPING_CONFLICT` | 409 | A mapping edit would collide with another row on the same listing (AECI-724): the same product twice (`connector_stub_mappings_pair_idx`), or a second listing-level decision (`connector_stub_mappings_decision_idx`). Nothing is written. Edit the other row instead |
 | `CATALOG_VENDOR_MANAGED` | 409 | The connector catalogue a promote page addresses is **vendor-managed** on AECi, so the review lane is frozen for it and the page was not written (AECI-720). Raised from `planConnectorCatalogPage` before any statement is built, so nothing at all is committed — no rows, no `promote_jobs` ledger row, no `audit_log` row — and it reaches the caller on the job poll, not the kick-off. **Not re-sendable**, which is precisely why it is an error and not a `skipped[]` entry: every connector skip kind means "this could not be resolved *yet*". A catalogue returns to review authorship only through `PATCH /api/admin/connector-catalogs/:id` |
 | `INVALID_STATE_TRANSITION` | 422 | Attempted workflow transition is not allowed from current state |
 | `CONTEST_OWN_INTEGRATION` | 403 | The caller's vendor owns this integration (`built_by_vendor_id`, the vendor that offers it per AECI-1003), so it cannot contest it (AECI-1008, `STAGE_2_VENDOR_PORTAL_SPEC.md` §11b) |
@@ -2645,15 +2647,15 @@ handlers in `apps/api/src/routes/admin-connectors.ts` over `apps/api/src/lib/adm
 no `Cache-Tag`. The envelope is the **bare** `paginatedResponseSchema` (the Operations lineage),
 except that the detail and stubs responses carry an `advisories: AdminNote[]` honesty envelope.
 
-**Mapping decisions are deliberately NOT writable.** The originating issue asked for
+**Mapping decisions are not writable through these reads.** The originating issue asked for
 approve/adjust on the triage queue; `planConnectorCatalogPage` upserts `connector_stub_mappings`
 with `set: { ...values }` across `status` / `confidence` / `evidence_url` / `decided_by` /
 `notes` and skips only rows it computes as *unchanged*, so an AECi-authored decision is exactly
 the row the next sync page overwrites. Guarding the sync instead would make AECI-731's
 "re-running it end to end reports every row `unchanged`" acceptance criterion unachievable for
-any catalogue an operator had touched. Authoring returns at **AECI-724** time as
-`PATCH /api/admin/connector-stub-mappings/:id` **gated on `managed_by = 'vendor'`** — the one
-state in which the sync is frozen out and cannot clobber the row.
+any catalogue an operator had touched. **Authoring shipped in AECI-724** as
+`PATCH /api/admin/connector-stub-mappings/:id` **gated on `managed_by = 'vendor'`**, the one
+state in which the sync is frozen out and cannot clobber the row. Contract below.
 
 Four response shapes are worth knowing before extending them:
 
@@ -2688,6 +2690,68 @@ so a never-fetched inventory cannot render as an empty one (§9a.3).
 Errors: the shared `requireAdmin()` 401/403, plus `404 NOT_FOUND` with
 `details.resource = 'connector_catalog'` on an unknown id, and `400 VALIDATION_FAILED` on a bad
 query.
+
+#### `PATCH /api/admin/connector-stub-mappings/:id` (AECI-724)
+
+Mapping authoring on a **vendor-managed** connector catalogue (`ADMIN_PANEL_SPEC.md` §5.9,
+`STAGE_2_SPEC.md` §8.9). Behind `requireAdmin()`. The connector seat's twin is
+`PATCH /api/vendor/connector-stub-mappings/:id` (§6.14). Both compose
+`apps/api/src/lib/connector-mapping-edit.ts`, so the two actors cannot behave differently. Contract
+in `packages/shared/src/api/connector-stub-mappings.ts`.
+
+```typescript
+export const UpdateConnectorStubMappingSchema = z
+  .object({
+    status: ConnectorMappingStatusSchema.optional(),
+    productId: z.string().uuid().nullable().optional(),        // null clears the pointer
+    confidence: ConnectorMappingConfidenceSchema.nullable().optional(),
+    evidenceUrl: HttpsUrlSchema.nullable().optional(),         // https only
+  })
+  .strict()                                                    // decidedBy, notes → 400
+  .refine((body) => Object.keys(body).length > 0);             // {} → 400
+
+export const ConnectorStubMappingEditResponseSchema = z.object({
+  catalog_id: z.string(),
+  stub_id: z.string(),
+  mapping: AdminConnectorMappingSchema,   // the triage row's own shape, replaced in place
+  changed: z.boolean(),                   // false = the 200 no-op
+});
+```
+
+**Editable columns: the product pointer and the depth, nothing else.** `product_id` + `status`
+(they move together under §9a.4's two-column invariant), `confidence`, `evidence_url`. The server
+stamps `decided_by` (`aeci-operator` here, `vendor:{slug}` on the seat route), `decided_at` and
+`checked_at`. `notes`, `stub_id` and `catalog_id` are not writable. `DATABASE_SCHEMA.md` §9a.4 has
+the column table.
+
+| Order | Check | Outcome |
+|---|---|---|
+| 1 | Unknown mapping id | 404 `NOT_FOUND` |
+| 2 | `connector_catalogs.managed_by <> 'vendor'` | **409 `CATALOG_REVIEW_MANAGED`**, nothing written |
+| 3 | Body | 400 on a strict-schema miss; 422 `VALIDATION_FAILED` when the merged row breaks the two-column invariant or names an unpromoted product |
+| 4 | Unique indexes | **409 `MAPPING_CONFLICT`**, pre-read and also mapped from a constraint error |
+| 5 | Body equals the stored row | **200** with `changed: false`, writes nothing, no audit row, no purge |
+| 6 | One `db.batch` | Gate sentinel, then the UPDATE, then the audit row |
+
+**The gate is the exact complement of the promote refusal.** Promote refuses a `vendor`-managed
+catalogue with `CATALOG_VENDOR_MANAGED` (§6.12). This refuses a `review`-managed one. So the two
+lanes never write the same row, and the sync needs no skip guard (a guard would break AECI-731's
+"every row `unchanged`" criterion). The gate is checked on the preload for the clean 409 and again
+inside the batch by a `json()` sentinel, the `contestStillOpenSentinel` pattern: an operator
+reclaiming the lane between the read and the write rolls the whole batch back, audit row included.
+
+**Audit.** `connector_mapping.updated`, filed under `entity_type = 'connector_catalog'`,
+`entity_id` = the catalogue, so `GET /api/admin/connector-catalogs/:id/audit` shows it with no new
+read path. `before_state` / `after_state` carry `status`, `product_id`, `confidence`,
+`evidence_url`, `decided_by`. `metadata` carries `source`, `mapping_id`, `stub_id`,
+`connector_product_id`, `publishable_before`, `publishable_after`, and `vendor_id` on the seat
+route. No `workflow_instances` row (closed CHECK). No `rateLimit()`, like every admin write.
+
+**Purge.** An edited `mapped` row clears the provenance gate and reaches the public reach line
+(`STAGE_1_5_SPEC.md` §13.7). When the row was **or** becomes publishable, the handler enqueues
+`product:{slug}` for the product losing the row, the product gaining it, and the connector,
+post-commit (`CACHE_STRATEGY.md` §3 rule 5). An edit that is publishable on neither side purges
+nothing, because no public page reads it.
 
 #### `GET /api/admin/users` (AECI-692)
 
@@ -5486,9 +5550,34 @@ export const VendorProductConnectorsResponseSchema = z.object({
 
 **Ordering.** Connectors by delivered count, then reachable count (both descending), then name through `compareText`. Partners by name through `compareText`. Nothing paid is read.
 
-**Outside the AECI-516 cursor.** No `GET /api/vendor/updates` scope covers this read. Only an operator catalogue sync or a promote moves it, and nothing a vendor does. The client fetches it once per product (`STAGE_2_REALTIME_SPEC.md` §2.3). A pure read, so no `audit_log` row.
+**Outside the AECI-516 cursor.** No `GET /api/vendor/updates` scope covers this read. Only an operator catalogue sync, a promote, or a connector seat's mapping edit on its own vendor-managed catalogue moves it (AECI-724). Nothing the reading vendor does moves it. The client fetches it once per product (`STAGE_2_REALTIME_SPEC.md` §2.3). A pure read, so no `audit_log` row.
 
 Errors: `NOT_FOUND` (unknown product, or one owned by another vendor, deliberately indistinguishable), plus the §6.14 guard errors.
+
+#### `PATCH /api/vendor/connector-stub-mappings/:id`
+
+Stage 2.1 (AECI-724, `STAGE_2_SPEC.md` §8.9(1)–(2), `STAGE_2_VENDOR_PORTAL_SPEC.md` §5.2). The
+connector catalogue seat edits one mapping on its own catalogue. Same body, response, gate,
+audit and purge as `PATCH /api/admin/connector-stub-mappings/:id` (§6.10). Only the authorization
+and `decided_by` differ.
+
+| Gate | Success |
+|---|---|
+| `requireVendor()` → `rateLimit('write')` → **ownership**: the caller's vendor holds the catalogue's `connector_product_id` through `product_vendors`, and that product is `connector`-role. **No `requireCapability`, no capability id, no `vendor_entitlements` read**: the connector seat is not an entitlement row, so a zero-entitlement seat resolving to `unclaimed` passes | `200` `ConnectorStubMappingEditResponse`, `decided_by = 'vendor:{vendor slug}'` |
+
+**Ownership is a 404, asked first.** An unknown id, a mapping on another vendor's catalogue, and a
+catalogue whose product the caller holds only as a non-connector role all answer the same
+`NOT_FOUND`, before the managed-by check and before the body is parsed. So a non-owner cannot learn
+whether a catalogue has been handed over. Only then **409 `CATALOG_REVIEW_MANAGED`** on the owner's
+own review-managed catalogue.
+
+Audit `metadata.source` is `vendor-portal` and `metadata.vendor_id` is the caller's vendor, which is
+the leg by which `/admin/vendors/:id`'s audit tab reaches a row filed under a catalogue. Not in the
+AECI-516 cursor: no portal screen renders a mapping for editing yet. The portal UI for this
+route is AECI-1083; today the seat reaches it through the API alone.
+
+Errors: `NOT_FOUND`, `CATALOG_REVIEW_MANAGED`, `MAPPING_CONFLICT`, `VALIDATION_FAILED`, plus the
+§6.14 guard errors and `RATE_LIMITED`.
 
 #### Product versions — `/api/vendor/products/:id/versions`
 

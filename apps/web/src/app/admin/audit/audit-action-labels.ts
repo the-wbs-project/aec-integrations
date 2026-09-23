@@ -152,6 +152,8 @@ const ACTION_LABELS: Readonly<Record<string, string>> = {
   'connector_catalog.managed_by_vendor': $localize`:@@admin.audit.action.connectorHandedToVendor:Catalogue handed to a vendor (review lane frozen)`,
   'connector_catalog.managed_by_review': $localize`:@@admin.audit.action.connectorReclaimed:Catalogue reclaimed (review lane re-opened)`,
   'connector_catalog.synced': $localize`:@@admin.audit.action.connectorSynced:Catalogue feed delivered`,
+  // AECI-724. Filed under the catalogue, so it sits on the same tab as the handover.
+  'connector_mapping.updated': $localize`:@@admin.audit.action.connectorMappingUpdated:Listing mapping edited`,
 
   // ── System ────────────────────────────────────────────────────────────────
   'notification.sent': $localize`:@@admin.audit.action.notificationSent:Notification sent`,

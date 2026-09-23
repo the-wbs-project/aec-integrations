@@ -1618,7 +1618,69 @@ mid-flight will make a local decision about a cross-cutting contract.
 - **Reachable never counts** — not in the heading, not in `integration_count`, not in a facet, not
   in the home stats. Publishing the tail buries the products with real integrations underneath it.
 
-#### Operating notes (moved from CLAUDE.md, 2026-09-23)
+#### 13.12 What AECI-724 landed (2026-09-23)
+
+The lane's first **writer** of mapping content on the AECi side. §13.11 closed with "authoring
+lands at AECI-724 time"; this is that authoring, plus the connector seat it was for.
+
+**Two routes, one module.** `PATCH /api/admin/connector-stub-mappings/:id` (behind
+`requireAdmin()`) and `PATCH /api/vendor/connector-stub-mappings/:id` (behind `requireVendor()` and
+`rateLimit('write')`) both compose `apps/api/src/lib/connector-mapping-edit.ts`. They differ only in
+authorization and in what `decided_by` says. Contracts in `API_CONTRACTS.md` §6.10 and §6.14.
+
+**The columns chosen: the product pointer and the depth.** `product_id` + `status` move together
+under §9a.4's two-column invariant. `confidence` and `evidence_url` are the depth of the assertion.
+`decided_by`, `decided_at` and `checked_at` are stamped. `notes`, `stub_id` and `catalog_id` are
+not writable. `DATABASE_SCHEMA.md` §9a.4 has the table.
+
+**`decided_by` widened, and that is the publication consequence.** Before, only the review app
+wrote it. Now an admin edit writes `aeci-operator` and a seat edit writes `vendor:{vendor slug}`.
+Both clear the provenance gate, so an edited `mapped` row reaches §13.7's reach line. The edit
+therefore purges, with AECI-892's tag shape: `product:{slug}` for the product losing the row, the
+product gaining it, and the connector. It purges only when the row was or becomes publishable,
+because nothing public reads a row that is neither. AECI-892's bounded gap (partners that lost a
+reach are not purged) applies unchanged.
+
+**The gate is the exact complement of AECI-720's promote refusal**, and that is the whole
+no-clobber argument:
+
+| Catalogue `managed_by` | Promote page | Mapping edit |
+|---|---|---|
+| `review` | writes | **409 `CATALOG_REVIEW_MANAGED`** |
+| `vendor` | **409 `CATALOG_VENDOR_MANAGED`** | writes |
+
+So the sync needs no skip guard, and AECI-731's "every row `unchanged`" criterion stays reachable
+on every catalogue. `lib/connector-mapping-lanes.spec.ts` drives the planner and the edit over one
+database in both states to pin the pair. The edit's gate is also re-checked **inside** its batch
+by a `json()` sentinel (the `contestStillOpenSentinel` pattern), so a lane reclaimed between the
+read and the write rolls the batch back with its audit row.
+
+**One residual race, stated.** The promote side reads `managed_by` when it plans a page, not inside
+its batch. A page planned while a catalogue is `review` and committed after an operator flipped it
+to `vendor` and a seat edited a row could overwrite that edit. The window is one page's plan-to-commit
+time, the flip is operator-only, and reclaiming already "reconciles nothing". Not closed here,
+because a sentinel in the promote batch would change the ADR 0021 ledger batch. **Tracked as
+AECI-1084**: give the planner's mapping upsert the same `managed_by = 'vendor'` guard the PATCH
+uses, after the ledger insert, so a page planned before the flip writes nothing after it.
+
+**The seat authorizes on ownership, never on an entitlement.** `requireVendor()`, then the caller's
+`vendor_id` must hold the catalogue's `connector`-role product through `product_vendors`. No
+`requireCapability`, no capability id, no `vendor_entitlements` read (`STAGE_2_SPEC.md` §8.9(2)).
+Every ownership miss is the same 404, asked before the managed-by 409 and before the body, so a
+non-owner cannot learn whether a catalogue was handed over. `AUTH_AND_RLS.md` §4.4 has the rows.
+
+**§8.9(5) is closed.** The vendor plan panel has a `catalogue` state for a seat with no entitlement
+row whose vendor holds a `connector`-role product. It replaces the `none` upsell rather than
+softening it: no call to action, no "not active" chip, no account framing. The signal is data
+`GET /api/vendor/me` already carries.
+
+**What is still not built.** A vendor-portal **screen** for the seat's mapping edit (AECI-1083); the
+route exists and the seat reaches it through the API. The overview's "Editing is paused" row and
+the form notices still read as lapsed access to this seat (AECI-1082). Stub and per-app depth editing beyond the mapping
+row (§8.9(1) names "stubs, mappings, and per-app depth"; the stub's action inventory stays
+review-side). And AECI-1065's endpoint-vendor mapping proposals, which were preconditioned on this.
+
+### Operating notes (moved from CLAUDE.md, 2026-09-23)
 
 - **The two DELETE-authority sites do not share a file.** `drizzlePromotedIds` sits beside the drift counter in `apps/api/src/lib/algolia-drift-deps.ts`. `INTEGRATION_IDS_SQL` is in `apps/api/scripts/reconcile-algolia-drift.ts`, the CLI caller, which reaches a deployed D1 through `wrangler` because a Node process has no `env.DB`. What holds them together is `apps/api/src/lib/count-lockstep.spec.ts`, not proximity.
 - **AECI-721 PR-A also added `integrator` to the AECI-705 attestation gate**, alongside the enums and `MECHANISM_RANK`.

@@ -35,6 +35,8 @@ import {
   createSaveClaimNotesHandler,
 } from './routes/admin-claims';
 import { createSetConnectorCatalogManagementHandler } from './routes/admin-connector-catalogs';
+import { createAdminUpdateConnectorStubMappingHandler } from './routes/admin-connector-stub-mappings';
+import { createVendorUpdateConnectorStubMappingHandler } from './routes/vendor-connector-stub-mappings';
 import {
   createAdminConnectorAuditHandler,
   createAdminConnectorCatalogDetailHandler,
@@ -491,6 +493,9 @@ app.route('/', authAccount);
 //     `CATALOG_VENDOR_MANAGED`. Audit-only (no workflow row, closed CHECK) and no
 //     purge — nothing reads that table yet. Reversible: "one-way forever" governs
 //     the data direction, not the flag. Grants no seat (§8.9(2)/(3)).
+//   - PATCH /api/admin/connector-stub-mappings/:id (AECI-724) — mapping authoring,
+//     only on a `vendor`-managed catalogue (409 `CATALOG_REVIEW_MANAGED` otherwise).
+//     Audit row filed under the catalogue, same batch; purges the reach line.
 //   - GET    /api/admin/vendors                   (S2 §5.6, AECI-652) — paginated
 //     vendor list + name/slug search. The way in for a vendor that never filed a
 //     claim; before this the entitlement control could only be reached through a
@@ -779,6 +784,16 @@ authAdmin.get(
   requireAdmin(),
   createAdminConnectorAuditHandler(),
 );
+// AECI-724: AECi-side mapping authoring, the first catalog-CONTENT write on this
+// console. Gated on `managed_by = 'vendor'` (409 `CATALOG_REVIEW_MANAGED` otherwise),
+// the exact complement of the promote refusal, so the sync and this route never write
+// the same row. Audit row in the same batch (filed under the catalogue), purge of the
+// reach line's `product:*` tags post-commit. The seat holder's twin is on `authVendor`.
+authAdmin.patch(
+  '/api/admin/connector-stub-mappings/:id',
+  requireAdmin(),
+  createAdminUpdateConnectorStubMappingHandler(),
+);
 // Admin panel reads (AECI-574, AECI-577, AECI-579, AECI-580, AECI-586).
 // Registered after the moderation routes; no path collides with
 // `/api/admin/re*` or `/api/admin/summary`.
@@ -1052,6 +1067,17 @@ authVendor.patch(
   requireVendor(),
   rateLimit('write'),
   createUpdateVendorIntegrationHandler(),
+);
+// AECI-724 / `STAGE_2_SPEC.md` §8.9(1)–(2): the connector seat edits a mapping on
+// its own catalogue. A SEAT IS THE WHOLE GATE: no `requireCapability` and no
+// entitlement read, because the connector seat is deliberately not a
+// `vendor_entitlements` row. Ownership of the catalogue's connector-role product
+// (404) and `managed_by = 'vendor'` (409) are decided in the handler, in that order.
+authVendor.patch(
+  '/api/vendor/connector-stub-mappings/:id',
+  requireVendor(),
+  rateLimit('write'),
+  createVendorUpdateConnectorStubMappingHandler(),
 );
 // AECI-1007 / ADR 0035 decision 6: each endpoint vendor sets its OWN listing and
 // docs links on an integration. `:productId` is the endpoint the link speaks for,
