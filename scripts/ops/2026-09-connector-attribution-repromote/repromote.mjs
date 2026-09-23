@@ -53,7 +53,7 @@
 //   node scripts/ops/2026-09-connector-attribution-repromote/repromote.mjs manifest
 //   node scripts/ops/2026-09-connector-attribution-repromote/repromote.mjs preflight
 //   node scripts/ops/2026-09-connector-attribution-repromote/repromote.mjs dry-run
-//   node scripts/ops/2026-09-connector-attribution-repromote/repromote.mjs apply --confirm-count 36
+//   node scripts/ops/2026-09-connector-attribution-repromote/repromote.mjs apply --confirm-count 14
 //   node scripts/ops/2026-09-connector-attribution-repromote/repromote.mjs verify
 
 import { execFileSync } from 'node:child_process';
@@ -218,19 +218,31 @@ async function buildManifest() {
   }
   edges.sort((a, b) => (a.id < b.id ? -1 : 1));
 
-  // 3. The endpoint products: every product at either end of a manifest edge.
-  const products = new Map();
+  // 3. The endpoint products. Promoting either end of an edge carries it (§3.4), so the
+  //    run promotes a covering subset, not every endpoint: fewer promotes, a smaller blast
+  //    radius, and every edge still sent at least once. Operator ruling 2026-09-23 on
+  //    AECI-1064: cut from all 36 endpoints to the greedy cover.
+  const endpoints = new Map();
   for (const e of edges) {
     for (const end of [e.source, e.target]) {
-      const p = products.get(end.rec) ?? { rec: end.rec, name: end.name, edges: [] };
+      const p = endpoints.get(end.rec) ?? { rec: end.rec, name: end.name, edges: [] };
       p.edges.push(e.id);
-      products.set(end.rec, p);
+      endpoints.set(end.rec, p);
     }
   }
-  const productList = [...products.values()].sort(byName);
+  const allEndpoints = [...endpoints.values()].sort(byName);
+  const cover = new Set(greedyCover(edges));
+  const productList = allEndpoints.filter((p) => cover.has(p.rec));
 
-  // A smaller set that still carries every edge, for the operator's information only.
-  const cover = greedyCover(edges);
+  // The cover must carry every edge, or the run silently leaves one behind.
+  const carried = new Set(productList.flatMap((p) => p.edges));
+  const uncarried = edges.filter((e) => !carried.has(e.id));
+  if (uncarried.length) {
+    console.error(
+      `REFUSING: the cover misses ${uncarried.length} edge(s): ${uncarried.map((e) => e.id).join(', ')}`,
+    );
+    process.exit(1);
+  }
 
   const manifest = {
     issue: 'AECI-1064',
@@ -238,29 +250,38 @@ async function buildManifest() {
     target: `${DB} (read-only derivation)`,
     rule:
       'upstream integrations whose powered_by is Zapier or Workato and which store a production id, ' +
-      'matched to production integrations rows with powered_by_product_id IS NULL AND retired_at IS NULL',
+      'matched to production integrations rows with powered_by_product_id IS NULL AND retired_at IS NULL; ' +
+      'products = greedy cover of those edges over their endpoints',
     connectors: CONNECTORS,
     totals: {
       ...totals,
       edges: edges.length,
       edgesByConnector: countBy(edges, (e) => e.connector),
       products: productList.length,
+      allEndpointProducts: allEndpoints.length,
+      edgesCarriedByTwoProducts: edges.filter(
+        (e) => cover.has(e.source.rec) && cover.has(e.target.rec),
+      ).length,
       excluded: excluded.length,
-      minimalCover: cover.length,
     },
     product_record_ids: productList.map((p) => p.rec),
     edge_ids: edges.map((e) => e.id),
     products: productList,
     edges,
     excluded,
-    minimal_cover_record_ids: cover,
+    all_endpoint_record_ids: allEndpoints.map((p) => p.rec),
   };
   writeJson(FILES.manifest, manifest);
 
   console.log(`Manifest → ${FILES.manifest}`);
   console.log(`  upstream: ${JSON.stringify(totals)}`);
   console.log(`  edges: ${edges.length} ${JSON.stringify(manifest.totals.edgesByConnector)}`);
-  console.log(`  endpoint products: ${productList.length}`);
+  console.log(
+    `  endpoint products: ${allEndpoints.length}; covering subset promoted: ${productList.length}`,
+  );
+  console.log(
+    `  every edge carried: yes (${manifest.totals.edgesCarriedByTwoProducts} by both endpoints)`,
+  );
   console.log(`  excluded: ${excluded.length}`);
   for (const x of excluded)
     console.log(`    ${x.id}  ${x.source.name} → ${x.target.name} | ${x.connector} | ${x.reason}`);
@@ -270,11 +291,14 @@ async function buildManifest() {
       `  ${p.rec}  ${p.name}  (${p.edges.length} edge${p.edges.length === 1 ? '' : 's'})`,
     );
   console.log(`\n${edges.length} edge ids:`);
-  for (const e of edges)
-    console.log(`  ${e.id}  ${e.source.name} → ${e.target.name} | ${e.connector}`);
-  console.log(
-    `\nA ${cover.length}-product subset would also carry every edge (minimal_cover_record_ids).`,
-  );
+  for (const e of edges) {
+    const via = productList
+      .filter((p) => p.rec === e.source.rec || p.rec === e.target.rec)
+      .map((p) => p.name);
+    console.log(
+      `  ${e.id}  ${e.source.name} → ${e.target.name} | ${e.connector} | carried by ${via.join(' + ')}`,
+    );
+  }
 }
 
 function countBy(items, key) {
@@ -283,7 +307,7 @@ function countBy(items, key) {
   return out;
 }
 
-/** Greedy set cover: products that together carry every edge. Informational. */
+/** Greedy set cover: products that together carry every edge. Ties break on record id. */
 function greedyCover(edges) {
   const left = new Set(edges.map((e) => e.id));
   const chosen = [];

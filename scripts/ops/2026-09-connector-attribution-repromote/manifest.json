@@ -1,8 +1,8 @@
 {
   "issue": "AECI-1064",
-  "generated_at": "2026-09-23T08:05:09.383Z",
+  "generated_at": "2026-09-23T09:13:21.500Z",
   "target": "aeci-app-production (read-only derivation)",
-  "rule": "upstream integrations whose powered_by is Zapier or Workato and which store a production id, matched to production integrations rows with powered_by_product_id IS NULL AND retired_at IS NULL",
+  "rule": "upstream integrations whose powered_by is Zapier or Workato and which store a production id, matched to production integrations rows with powered_by_product_id IS NULL AND retired_at IS NULL; products = greedy cover of those edges over their endpoints",
   "connectors": {
     "recdsJWp651jBwrBW": {
       "name": "Zapier",
@@ -27,46 +27,25 @@
       "Workato": 16,
       "Zapier": 23
     },
-    "products": 36,
-    "excluded": 7,
-    "minimalCover": 14
+    "products": 14,
+    "allEndpointProducts": 36,
+    "edgesCarriedByTwoProducts": 7,
+    "excluded": 7
   },
   "product_record_ids": [
-    "recm0nW1LBobVjf3E",
-    "recpq25ro2WtVsrhp",
-    "recGdDNhaQR8HTaFm",
     "rec2KtJeJUzqih3ad",
-    "reczEGtViSFRAHnXi",
-    "recxgGwHqms9mSB5N",
     "recCOE9Ju0ZRoW8ss",
     "recDzKmObXRE6uHpm",
-    "rec4v7OJgpyhYtRPF",
-    "reczwqLaNNmExNoib",
     "recvm3gJmUFLMzVIL",
-    "recBQc0ecoQCnBscj",
-    "reciuNOl8P0aK1CcI",
     "recdO5uJDgWBpNVmD",
     "recEuQ8n9wSqaoEBL",
     "recE1QYJGBueJQvaL",
     "recBec7hSiuPp0YY2",
-    "recvpojsNSEzNQ4oa",
-    "rec0mseBTsUkL2rAp",
-    "recFQWCD5vkQp36NA",
-    "recHPkOgUcw8XXu1D",
-    "rect9wzhIaFOUakW2",
-    "recNY9nwIB6jYcxSF",
     "recohQSEjZl4EP4zL",
-    "rec8AUNOuPw97eUdL",
-    "recLdjECxTUFoQZ25",
-    "rec07zp4kBlO6mLhN",
-    "recbGEdHIUfltsUo1",
     "rec944YjKNRfRCgAf",
     "recRd7g8zjLcaz3yd",
-    "recGSSm4x4QiohK5U",
-    "recV6ze7hEqkafWTJ",
     "recvTtJLtPerJyKVB",
     "rec6UUp8iEaL1vUpk",
-    "recv89wPMoG9t3UDB",
     "recoiDWUn1VK93IdS"
   ],
   "edge_ids": [
@@ -112,21 +91,6 @@
   ],
   "products": [
     {
-      "rec": "recm0nW1LBobVjf3E",
-      "name": "AccuLynx",
-      "edges": ["a722998c-1acf-42fb-bf31-2056b1eeb7f8", "a77916a4-f701-4f77-986a-b625cc2d7fe9"]
-    },
-    {
-      "rec": "recpq25ro2WtVsrhp",
-      "name": "ADP Workforce Now",
-      "edges": ["aba87b18-d6ca-42d6-8bf8-5ee0809dd884"]
-    },
-    {
-      "rec": "recGdDNhaQR8HTaFm",
-      "name": "Amazon Redshift",
-      "edges": ["e8e51da5-8460-4950-ae68-18702c995447"]
-    },
-    {
       "rec": "rec2KtJeJUzqih3ad",
       "name": "Autodesk Forma",
       "edges": [
@@ -142,16 +106,6 @@
       ]
     },
     {
-      "rec": "reczEGtViSFRAHnXi",
-      "name": "BambooHR",
-      "edges": ["86b5b572-2c9c-4c2a-bfc1-23df428f5090"]
-    },
-    {
-      "rec": "recxgGwHqms9mSB5N",
-      "name": "BIM 360",
-      "edges": ["4b1499f9-902c-4de5-94f1-b387c10fa924", "78101f0f-8a18-4dfc-af62-75dbb3763cdc"]
-    },
-    {
       "rec": "recCOE9Ju0ZRoW8ss",
       "name": "Box",
       "edges": ["035115f3-793c-4b03-92dc-d660fae4467f", "9301b03a-ac1c-486a-9e0d-e12249080728"]
@@ -162,16 +116,6 @@
       "edges": ["86b5b572-2c9c-4c2a-bfc1-23df428f5090"]
     },
     {
-      "rec": "rec4v7OJgpyhYtRPF",
-      "name": "CompanyCam",
-      "edges": ["d855e70a-ef03-4097-b94a-9f2b4acc6af9"]
-    },
-    {
-      "rec": "reczwqLaNNmExNoib",
-      "name": "Connecteam",
-      "edges": ["6c86d907-a1b2-4d34-8a16-82c9cff323c7"]
-    },
-    {
       "rec": "recvm3gJmUFLMzVIL",
       "name": "Deltek Vantagepoint",
       "edges": [
@@ -179,16 +123,6 @@
         "a3ef77ab-af10-416d-8aa7-56e5c827f7a8",
         "f9f77dc3-6cb7-4bc2-a0f4-bdacbc8a65bf"
       ]
-    },
-    {
-      "rec": "recBQc0ecoQCnBscj",
-      "name": "Docusign",
-      "edges": ["a3ef77ab-af10-416d-8aa7-56e5c827f7a8"]
-    },
-    {
-      "rec": "reciuNOl8P0aK1CcI",
-      "name": "Dropbox",
-      "edges": ["a4ee6242-d6f0-4191-8aa6-e1ef59fa3603"]
     },
     {
       "rec": "recdO5uJDgWBpNVmD",
@@ -220,67 +154,9 @@
       ]
     },
     {
-      "rec": "recvpojsNSEzNQ4oa",
-      "name": "JobNimbus",
-      "edges": ["97c1833b-bdbd-4551-b99a-1ca19eb6160b"]
-    },
-    {
-      "rec": "rec0mseBTsUkL2rAp",
-      "name": "JobTread",
-      "edges": ["1fbd35bb-5fa8-4c37-9905-f26870403748"]
-    },
-    {
-      "rec": "recFQWCD5vkQp36NA",
-      "name": "Microsoft Dynamics 365",
-      "edges": ["ba09c8e4-e431-48cb-8144-91531c0a1967"]
-    },
-    {
-      "rec": "recHPkOgUcw8XXu1D",
-      "name": "Microsoft Outlook",
-      "edges": ["09b38f3a-7992-4df9-bf72-bea5b27e26e1"]
-    },
-    {
-      "rec": "rect9wzhIaFOUakW2",
-      "name": "Microsoft SharePoint",
-      "edges": ["9301b03a-ac1c-486a-9e0d-e12249080728", "981daa40-68e6-4bf0-b9b2-66d4955a7a30"]
-    },
-    {
-      "rec": "recNY9nwIB6jYcxSF",
-      "name": "monday.com",
-      "edges": [
-        "58886749-6561-4b70-964f-d9ef20e4dcbf",
-        "8f85c4f5-cfd2-4296-91fd-0657cf874747",
-        "bb34ac33-e425-43e8-991d-f40c11c7ae59"
-      ]
-    },
-    {
       "rec": "recohQSEjZl4EP4zL",
       "name": "Motion",
       "edges": ["0ec2b8bf-61b6-4a60-b2a0-484e7e7709ae", "bb34ac33-e425-43e8-991d-f40c11c7ae59"]
-    },
-    {
-      "rec": "rec8AUNOuPw97eUdL",
-      "name": "Oracle NetSuite",
-      "edges": ["62293162-2ed2-4a64-b248-485aa8fd4fc3"]
-    },
-    {
-      "rec": "recLdjECxTUFoQZ25",
-      "name": "Pipedrive",
-      "edges": [
-        "0b61941e-8bc6-48d0-991c-c2d75043c59f",
-        "1b1953e8-b19b-4e95-8d9d-bd7b538c5140",
-        "a59122dc-9f40-46ff-b21c-c7e7facdec0e"
-      ]
-    },
-    {
-      "rec": "rec07zp4kBlO6mLhN",
-      "name": "PlanGrid",
-      "edges": ["dc6c9315-1042-4bf5-b46d-7ea6862d932d"]
-    },
-    {
-      "rec": "recbGEdHIUfltsUo1",
-      "name": "Power BI",
-      "edges": ["f9f77dc3-6cb7-4bc2-a0f4-bdacbc8a65bf"]
     },
     {
       "rec": "rec944YjKNRfRCgAf",
@@ -307,16 +183,6 @@
       ]
     },
     {
-      "rec": "recGSSm4x4QiohK5U",
-      "name": "Salesforce",
-      "edges": ["20415952-8a1d-410c-9570-8880becb4791", "fea24c35-c86a-42da-89a2-38cdf138d372"]
-    },
-    {
-      "rec": "recV6ze7hEqkafWTJ",
-      "name": "ServiceTitan",
-      "edges": ["c7010f9b-3693-49cb-a600-a5ed20776ae8"]
-    },
-    {
       "rec": "recvTtJLtPerJyKVB",
       "name": "Smartsheet",
       "edges": ["78101f0f-8a18-4dfc-af62-75dbb3763cdc", "dc6c9315-1042-4bf5-b46d-7ea6862d932d"]
@@ -325,15 +191,6 @@
       "rec": "rec6UUp8iEaL1vUpk",
       "name": "SumoQuote",
       "edges": ["45629e89-0e1a-40c4-b7fa-0e26595841d0", "a722998c-1acf-42fb-bf31-2056b1eeb7f8"]
-    },
-    {
-      "rec": "recv89wPMoG9t3UDB",
-      "name": "Wrike",
-      "edges": [
-        "0ec2b8bf-61b6-4a60-b2a0-484e7e7709ae",
-        "623fc071-3d42-4b10-8870-6a4584ccfb73",
-        "b1f4f83a-4b58-450d-812e-95ff271f1045"
-      ]
     },
     {
       "rec": "recoiDWUn1VK93IdS",
@@ -996,20 +853,42 @@
       "reason": "self-referential (Convention A): stays in integrations by design"
     }
   ],
-  "minimal_cover_record_ids": [
+  "all_endpoint_record_ids": [
+    "recm0nW1LBobVjf3E",
+    "recpq25ro2WtVsrhp",
+    "recGdDNhaQR8HTaFm",
     "rec2KtJeJUzqih3ad",
-    "recRd7g8zjLcaz3yd",
-    "rec944YjKNRfRCgAf",
-    "recE1QYJGBueJQvaL",
-    "recvm3gJmUFLMzVIL",
-    "recohQSEjZl4EP4zL",
-    "recoiDWUn1VK93IdS",
-    "recvTtJLtPerJyKVB",
-    "rec6UUp8iEaL1vUpk",
-    "recBec7hSiuPp0YY2",
+    "reczEGtViSFRAHnXi",
+    "recxgGwHqms9mSB5N",
     "recCOE9Ju0ZRoW8ss",
     "recDzKmObXRE6uHpm",
+    "rec4v7OJgpyhYtRPF",
+    "reczwqLaNNmExNoib",
+    "recvm3gJmUFLMzVIL",
+    "recBQc0ecoQCnBscj",
+    "reciuNOl8P0aK1CcI",
+    "recdO5uJDgWBpNVmD",
     "recEuQ8n9wSqaoEBL",
-    "recdO5uJDgWBpNVmD"
+    "recE1QYJGBueJQvaL",
+    "recBec7hSiuPp0YY2",
+    "recvpojsNSEzNQ4oa",
+    "rec0mseBTsUkL2rAp",
+    "recFQWCD5vkQp36NA",
+    "recHPkOgUcw8XXu1D",
+    "rect9wzhIaFOUakW2",
+    "recNY9nwIB6jYcxSF",
+    "recohQSEjZl4EP4zL",
+    "rec8AUNOuPw97eUdL",
+    "recLdjECxTUFoQZ25",
+    "rec07zp4kBlO6mLhN",
+    "recbGEdHIUfltsUo1",
+    "rec944YjKNRfRCgAf",
+    "recRd7g8zjLcaz3yd",
+    "recGSSm4x4QiohK5U",
+    "recV6ze7hEqkafWTJ",
+    "recvTtJLtPerJyKVB",
+    "rec6UUp8iEaL1vUpk",
+    "recv89wPMoG9t3UDB",
+    "recoiDWUn1VK93IdS"
   ]
 }

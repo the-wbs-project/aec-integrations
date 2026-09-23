@@ -360,7 +360,7 @@ endpoints**. The other endpoint must already be promoted (reference it by
 > still carry a NULL `powered_by_product_id` and sit in `integrations`, exactly as this
 > paragraph predicts: promoting the two connectors repaired none of them. The repair
 > is a re-promote of each edge's endpoints, run as
-> `scripts/ops/2026-09-connector-attribution-repromote/` (39 edges, 36 products). Make,
+> `scripts/ops/2026-09-connector-attribution-repromote/` (39 edges, 14 products). Make,
 > n8n and Boomi are still unpromoted, so their edges keep reporting `unresolvedLinks`.
 >
 > **Your stored value is never clobbered (AECI-730).** On an *update*, a connector

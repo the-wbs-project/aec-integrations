@@ -1,8 +1,8 @@
 # 2026-09 connector-attribution re-promote — the AECI-1064 tail
 
 **Status: NOT RUN.** Manifest, preflight and dry run taken read-only against
-`aeci-app-production` on 2026-09-23. The apply is the operator's, under an AECI-881 writer
-slot. Issue: AECI-1064.
+`aeci-app-production` on 2026-09-23 (final pass 09:13Z, on the 14-product cover). The apply
+is the operator's, under an AECI-881 writer slot. Issue: AECI-1064.
 
 ## What is wrong
 
@@ -33,11 +33,31 @@ existing id, its claims are re-homed with it, and the `integrations` row is drop
 3. The other **7 are excluded**. Each is self-referential (Convention A: the connector is one of
    the edge's own endpoints, e.g. `Connecteam → Zapier`), and §3.4a keeps those in
    `integrations` by design. None is in `connector_evidenced_pairs`, retired, or missing.
-4. The products: every product at either end of the 39 edges. **36.**
+4. The products. The 39 edges have **36** distinct endpoints (`all_endpoint_record_ids`).
+   Promoting either end of an edge carries it (§3.4), so the run promotes a greedy cover of
+   the edges instead: **14 products** that between them carry all 39. The manifest refuses to
+   write if the cover misses an edge. Operator ruling 2026-09-23 on AECI-1064.
 
-A 14-product subset would carry every edge (`minimal_cover_record_ids`). The run uses all 36,
-as the brief asked. Promoting both endpoints of an edge is harmless: the second push finds the
-row already in `connector_evidenced_pairs` and updates it in place (§3.4a).
+7 of the 39 edges have both endpoints in the cover, so they are sent twice. That is harmless:
+the second push finds the row already in `connector_evidenced_pairs` and updates it in place
+(§3.4a). `manifest` prints which product carries each edge.
+
+| Product | Record | Manifest edges |
+|---|---|---|
+| Autodesk Forma | `rec2KtJeJUzqih3ad` | 9 |
+| Box | `recCOE9Ju0ZRoW8ss` | 2 |
+| busybusy | `recDzKmObXRE6uHpm` | 1 |
+| Deltek Vantagepoint | `recvm3gJmUFLMzVIL` | 3 |
+| Egnyte | `recdO5uJDgWBpNVmD` | 2 |
+| Google Calendar | `recEuQ8n9wSqaoEBL` | 2 |
+| HOVER | `recE1QYJGBueJQvaL` | 4 |
+| Jobber | `recBec7hSiuPp0YY2` | 3 |
+| Motion | `recohQSEjZl4EP4zL` | 2 |
+| Procore | `rec944YjKNRfRCgAf` | 3 |
+| Roofr | `recRd7g8zjLcaz3yd` | 9 |
+| Smartsheet | `recvTtJLtPerJyKVB` | 2 |
+| SumoQuote | `rec6UUp8iEaL1vUpk` | 2 |
+| Xero | `recoiDWUn1VK93IdS` | 2 |
 
 ## Expected numbers
 
@@ -47,36 +67,33 @@ row already in `connector_evidenced_pairs` and updates it in place (§3.4a).
 | The 39 ids in `connector_evidenced_pairs` | 0 | **39** |
 | `connector_product_id` matches the manifest's connector | n/a | **39 / 39** |
 | Claims on the 39 edges | 63 on `integration_id` (35 edges carry claims) | **63** on `connector_evidenced_pair_id`, 0 left on `integration_id` |
-| Promote jobs | n/a | **36** new `promote_jobs` rows, one per product |
+| Promote jobs | n/a | **14** new `promote_jobs` rows, one per product |
 | Collateral moves (edges outside the manifest) | n/a | **0** |
 | New integrations created | n/a | **1**: `QuickBooks Online (Deltek-built)` (`recLOKlsKSqqRP2dN`), via Deltek Vantagepoint |
-| Withheld by the owner gate | n/a | **10** (listed below) |
-| Sent without their connector (`connectorsParked`) | n/a | **7** (Make, n8n, Boomi, Forma Construction Connect, Autodesk Platform Services) |
+| Withheld by the owner gate | n/a | **3** (listed below) |
+| Sent without their connector (`connectorsParked`) | n/a | **2**: CMiC ↔ Autodesk Forma (Boomi), Smartsheet ↔ Autodesk Build (Forma Construction Connect) |
 | Claimed rows skipped (§4b) | n/a | **0** |
 
 ### Withheld by the owner gate (AECI-1014)
 
 These are not live, their far endpoint is promoted, and they have no owner, so the review app
-withholds them. **They are curation work, not failures.** Eight are Convention A edges that
-could not publish before because Zapier or Workato was their far endpoint.
+withholds them. **They are curation work, not failures.**
 
 | Record | Integration | Via product |
 |---|---|---|
-| `rec9j4pqSj5EsAU60` | Amazon Redshift → Zapier | Amazon Redshift |
-| `recP6XKHjqqUlz1Vn` | Amazon Redshift → Workato | Amazon Redshift |
-| `recVflfLU8FwplWK5` | CompanyCam ↔ Zapier | CompanyCam |
 | `recDH7fyreT2duB29` | Deltek Vantagepoint ↔ Blackbox Connector | Deltek Vantagepoint |
 | `recD0cM64HrOXK1mM` | Workday HCM → Deltek Vantagepoint | Deltek Vantagepoint |
-| `recaz6LQUkGPhWQSU` | JobNimbus via Zapier | JobNimbus |
-| `recv9hFbJOrh6d9Sg` | JobTread ↔ Zapier | JobTread |
-| `recDiQLkjesEkWfor` | Oracle NetSuite ↔ Zapier (iPaaS connector) | Oracle NetSuite |
-| `recu1XqfeDUoDSbvm` | Oracle NetSuite ↔ Workato (iPaaS connector) | Oracle NetSuite |
 | `rec1S4PDtQIi1gZPb` | Smartsheet ↔ Zapier | Smartsheet |
 
-No live integration on these products is sent with an owner warning. 48 live ones have an owner
-ruled empty. **43 of those rulings cite AECI-700 as the reason** ("connector product is
+The 36-product dry run found 7 more on products this run no longer promotes (Amazon Redshift,
+CompanyCam, JobNimbus, JobTread, Oracle NetSuite). They are unaffected here and tracked on
+AECI-1098 with the rest.
+
+No live integration on these products is sent with an owner warning. 41 live ones have an owner
+ruled empty. **40 of those rulings cite AECI-700 as the reason** ("connector product is
 parked/unpromoted"), and for the Zapier and Workato rows that reason is now false. They still
-promote. Re-ruling them is curation follow-up, listed in `dry-run.json` → `no_owner`.
+promote. Re-ruling them is curation follow-up (AECI-1098), listed in `dry-run.json` →
+`no_owner`.
 
 ## Runbook
 
@@ -95,7 +112,7 @@ node scripts/ops/2026-09-connector-attribution-repromote/repromote.mjs dry-run
 The apply. Take the AECI-881 writer slot first:
 
 ```
-node scripts/ops/2026-09-connector-attribution-repromote/repromote.mjs apply --confirm-count 36
+node scripts/ops/2026-09-connector-attribution-repromote/repromote.mjs apply --confirm-count 14
 ```
 
 Then:
@@ -108,8 +125,10 @@ node scripts/ops/2026-09-connector-attribution-repromote/repromote.mjs verify
 
 ### What `apply` checks
 
-It promotes serially, smallest blast radius first (Amazon Redshift, 3 edges sent, through
-Autodesk Forma, 47). It refuses to start when:
+It promotes serially, smallest blast radius first, counting every edge the product sends:
+Motion (4), SumoQuote (5), Jobber (9), Xero (11), Roofr (12), HOVER (13), Google Calendar (14),
+busybusy (15), Box (17), Deltek Vantagepoint (19), Egnyte (20), Smartsheet (22), Procore (39),
+Autodesk Forma (47). It refuses to start when:
 
 - `--confirm-count` is not the number of products still to promote;
 - either connector row is missing from production, or its `product_role` is not `connector`;
@@ -141,7 +160,7 @@ The MCP client's write door never retries. A retried `promote_product` is the AE
 |---|---|
 | `repromote.mjs` | the lane: `manifest`, `preflight`, `dry-run`, `apply`, `verify` |
 | `mcp-client.mjs` | two-door MCP client; the write door allows only `promote_product` |
-| `manifest.json` | the 36 product record ids, the 39 edge ids, the 7 exclusions |
+| `manifest.json` | the 14 product record ids, the 39 edge ids, the 7 exclusions, all 36 endpoints for reference |
 | `preflight-rows.json` | the 39 `integrations` rows, their 63 claims, the two connector rows |
 | `dry-run.json` | per-product prediction, the no-owner list, parked connectors |
 | `promote-jobs.json` | written by `apply` |
