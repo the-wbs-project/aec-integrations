@@ -68,12 +68,9 @@ import {
   type IntegrationContestField,
   type ListAdminContestsResponse,
 } from '@aeci/shared';
-import { forwardAuditLog, type AuditLogEntry } from '@aeci/shared/audit-log';
-import {
-  forwardWorkflowTransition,
-  type WorkflowTransitionEntry,
-} from '@aeci/shared/workflow-transition';
-import { and, asc, count, desc, eq } from 'drizzle-orm';
+import type { AuditLogEntry } from '@aeci/shared/audit-log';
+import type { WorkflowTransitionEntry } from '@aeci/shared/workflow-transition';
+import { and, asc, count, desc, eq, inArray } from 'drizzle-orm';
 import type { Context } from 'hono';
 
 import { getDb, type Db } from '../db/client';
@@ -81,7 +78,7 @@ import { integrationFieldChallenges, vendors, workflowInstances } from '../db/sc
 import type { Env } from '../env';
 import { ApiError, notFoundError } from '../errors';
 import { json } from '../http';
-import { logToPosthog, submitCount } from '../posthog';
+import { logBatchToPosthog, logToPosthog, submitCount, type PosthogLogEvent } from '../posthog';
 import { auditInsert, workflowTransitionInsert, type BatchStmt } from '../lib/audit';
 import { auditActorType, type AuthzVariables } from '../lib/authz';
 import { validateResponseInDev, writeDb, type DbFactory } from '../lib/handler-utils';
@@ -107,6 +104,8 @@ import {
   hydratedTarget,
   loadContestTarget,
   rerouteToAeciStatements,
+  ownerEntitlementActiveSentinel,
+  vendorHoldsActiveEntitlement,
   type ContestAnchor,
   CONTEST_ENTITY_TYPE,
   CONTEST_FIELD_COLUMNS,
@@ -138,6 +137,7 @@ import {
   notificationFor,
   runGuardedContestBatch,
 } from './vendor-contests';
+import { isConnectorPoweredEdge } from '../lib/connector-powered';
 import { purgeTags } from './vendor-shared';
 
 type AdminContext = Context<{ Bindings: Env; Variables: AuthzVariables }>;
@@ -213,6 +213,38 @@ function emitModeration(
   } catch {
     // Telemetry must never fail a committed decision.
   }
+}
+
+/**
+ * The §26.5 forward of a moderation write's audit rows and workflow transitions, as
+ * ONE `logBatchToPosthog` call rather than one request per row. The events are the
+ * ones {@link forwarders} logs, field for field. Each leg self-gates on its own key.
+ */
+export function forwardModerationBatch(
+  c: AdminContext,
+  audits: readonly AuditLogEntry[],
+  transitions: readonly WorkflowTransitionEntry[],
+): void {
+  const events: PosthogLogEvent[] = [
+    ...audits.map((entry) => ({
+      level: 'info' as const,
+      message: `audit ${entry.action} ${entry.entityId ?? ''}`.trim(),
+      source: 'admin-moderation',
+      action: entry.action,
+      entity_type: entry.entityType ?? undefined,
+      entity_id: entry.entityId ?? undefined,
+    })),
+    ...transitions.map((entry) => ({
+      level: 'info' as const,
+      message: `workflow ${entry.fromState ?? '∅'}→${entry.toState} ${entry.workflowId}`,
+      source: 'admin-moderation',
+      from_state: entry.fromState ?? undefined,
+      to_state: entry.toState,
+      workflow_id: entry.workflowId,
+    })),
+  ];
+  if (events.length === 0) return;
+  logBatchToPosthog(c.executionCtx, c.env, c.req.raw, events);
 }
 
 export function forwarders(c: AdminContext) {
@@ -438,13 +470,11 @@ export function createModerateContestHandler(
     emitModeration(c, payload.decision, 'ok');
 
     const hydration = await hydrateContests(db, [after]);
-    const f = forwarders(c);
-    c.executionCtx.waitUntil(
-      Promise.all([
-        ...audits.map((entry) => forwardAuditLog(entry, f.audit)),
-        forwardWorkflowTransition(transition, f.workflow),
-      ]),
-    );
+    // ONE request for every audit row and the transition (AECI-1092 review, the
+    // AECI-666 connection-limit class). An accept can carry the owner claim, a
+    // notification per endpoint vendor and several re-routes, and it shares the
+    // tail with the purge, the Algolia sync and the Linear filing.
+    forwardModerationBatch(c, audits, [transition]);
     if (accept) {
       if (accept.tags.length) c.executionCtx.waitUntil(purgeTags(c, accept.tags));
       // AECI-1092: an accept that wrote the row here takes the owner edit's search
@@ -553,6 +583,76 @@ async function rerouteOwnerContests(
   audits.push(...reroute.audits);
 }
 
+/**
+ * An accept that makes a claimed row connector-powered moves the open owner-routed
+ * contests on it that the owner may no longer decide (AECI-1092 review):
+ *
+ *  - every open `mechanism_kind` contest, always (ruling A: that column is frozen on a
+ *    connector-powered row, so the owner can accept no contest on it);
+ *  - every other open owner-routed contest when the owner holds no active entitlement
+ *    (ruling B: deciding is an owner write, and ruling E would have sent them to AECi).
+ *
+ * An entitled owner keeps its content contests, as ruling B allows. Those rows get an
+ * `updated_at` touch in the same batch, and `ownerEntitlementActiveSentinel` guards
+ * the batch: a clear committing first aborts this accept, and a clear that planned
+ * before this commit sees the touch move its fingerprint and re-plans against the
+ * now connector-powered row. The touch changes no state, so it writes no audit row.
+ */
+async function rerouteOnBecomingConnectorPowered(
+  db: Db,
+  deciding: ContestRow,
+  anchor: ContestAnchor,
+  ownerVendorId: string,
+  actor: { actorId: string; actorType: AuditLogEntry['actorType'] },
+  now: string,
+  stmts: BatchStmt[],
+  audits: AuditLogEntry[],
+): Promise<void> {
+  const open = (
+    await db
+      .select()
+      .from(integrationFieldChallenges)
+      .where(
+        and(
+          contestAnchorWhere(anchor),
+          eq(integrationFieldChallenges.routedTo, 'owner'),
+          eq(integrationFieldChallenges.status, 'open'),
+        ),
+      )
+  ).filter((contest) => contest.id !== deciding.id);
+  if (open.length === 0) return;
+  const entitled = await vendorHoldsActiveEntitlement(db, ownerVendorId);
+  const moving = entitled ? open.filter((c) => c.field === 'mechanism_kind') : open;
+  const staying = open.filter((c) => !moving.includes(c));
+  const reroute = rerouteToAeciStatements(
+    db,
+    moving,
+    actor,
+    now,
+    'row became connector-powered: re-routed to AECi',
+    { reroutedBy: deciding.id, reason: 'became-connector-powered' },
+  );
+  stmts.push(...reroute.stmts);
+  audits.push(...reroute.audits);
+  if (staying.length > 0) {
+    stmts.push(
+      ownerEntitlementActiveSentinel(db, ownerVendorId),
+      db
+        .update(integrationFieldChallenges)
+        .set({ updatedAt: now })
+        .where(
+          and(
+            inArray(
+              integrationFieldChallenges.id,
+              staying.map((c) => c.id),
+            ),
+            eq(integrationFieldChallenges.status, 'open'),
+          ),
+        ),
+    );
+  }
+}
+
 /** `409 CONTEST_VALUE_STALE` (AECI-1006). */
 function contestValueStale(): ApiError {
   return new ApiError(
@@ -635,6 +735,29 @@ export async function planAcceptWrites(
         metadata: { ...base, reason: 'contest-accepted' },
       });
       appliedMode = 'applied-here';
+      // Review finding (AECI-1092): this accept can turn an ordinary claimed row into a
+      // connector-powered one (`mechanism_kind` → `iPaaS` / `integrator`). Rulings A
+      // and B then apply to the contests already open on it, in this same batch.
+      if (
+        field === 'mechanism_kind' &&
+        !integration.connectorPowered &&
+        integration.builtByVendorId !== null &&
+        isConnectorPoweredEdge({
+          poweredByProductId: integration.poweredByProductId,
+          mechanismKind: row.proposedValue,
+        })
+      ) {
+        await rerouteOnBecomingConnectorPowered(
+          db,
+          row,
+          anchor,
+          integration.builtByVendorId,
+          actor,
+          now,
+          stmts,
+          audits,
+        );
+      }
     }
   } else if (row.proposedValue === row.submitterVendorId) {
     // The owner-unknown claim (decision 11) and "we own it, not them" alike: an admin

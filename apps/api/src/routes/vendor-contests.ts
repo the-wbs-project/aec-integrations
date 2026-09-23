@@ -3,8 +3,8 @@
  * `STAGE_2_VENDOR_PORTAL_SPEC.md` §11b) — Drizzle/D1.
  *
  *   POST /api/vendor/integrations/:id/contests   — submit a contest (201).
- *   POST /api/vendor/evidenced-pairs/:id/contests — the same on a connector-evidenced
- *                                                  pair (201, AECI-1092, §11b.13).
+ *                                                  The id may name a connector-evidenced
+ *                                                  pair (AECI-1092, §11b.13).
  *   GET  /api/vendor/contests                    — `{ submitted, received }`.
  *   POST /api/vendor/contests/:id/withdraw       — the submitter withdraws.
  *   POST /api/vendor/contests/:id/decision       — the owner accepts or declines.
@@ -116,6 +116,7 @@ import {
   hydrateContests,
   isIntegrationClaimed,
   loadContestTarget,
+  locateContestAnchor,
   ownerEntitlementActiveSentinel,
   receivedContestsWhere,
   routeContest,
@@ -381,7 +382,6 @@ function isOpenContestConflict(error: unknown): boolean {
 }
 
 // ─── POST /api/vendor/integrations/:id/contests ──────────────────────────────
-// ─── POST /api/vendor/evidenced-pairs/:id/contests (AECI-1092) ──────────────
 
 /**
  * The submit route, for either anchor.
@@ -390,20 +390,27 @@ function isOpenContestConflict(error: unknown): boolean {
  * the real `claimed_at` test since AECI-1005 replaced the stub, and stays a
  * parameter so a spec can pin either route without seeding a claim.
  *
- * `anchorKind` picks the table the path id names (AECI-1092). An evidenced pair is
- * contested exactly as an `integrations` row is: the same endpoint-vendor check (its
- * evidenced arm, `resolveEvidencedPairSlots`), the same owner refusal, the same
- * checks and the same routing, over the eleven fields that table has.
+ * The path id may name a `connector_evidenced_pairs` row (AECI-1092), found the way
+ * the AECI-1089 claim and the AECI-1090 edit find it on the same `/integrations/:id`
+ * path: `integrations` first, then the pairs (`locateContestAnchor`). An evidenced
+ * pair is contested exactly as an `integrations` row is: the same endpoint-vendor
+ * check (its evidenced arm, `resolveEvidencedPairSlots`), the same owner refusal,
+ * the same checks and the same routing, over the eleven fields that table has. An
+ * id in neither table falls through to the integrations check and its flat 404, so
+ * the lookup discloses nothing. `anchorKind` pins the table in a spec.
  */
 export function createSubmitContestHandler(
   dbFor: DbFactory = getDb,
   claimed: IntegrationClaimedPredicate = isIntegrationClaimed,
-  anchorKind: ContestAnchorKind = 'integration',
+  anchorKind?: ContestAnchorKind,
 ): (c: VendorContext) => Promise<Response> {
   return async (c) => {
     const vendorId = sessionVendorId(c);
-    const anchor: ContestAnchor = { kind: anchorKind, id: idParam(c, 'id') };
+    const id = idParam(c, 'id');
     const { db } = writeDb(c, dbFor);
+    const anchor: ContestAnchor = anchorKind
+      ? { kind: anchorKind, id }
+      : await locateContestAnchor(db, id);
 
     // 1. Authority, alone in its wave: an endpoint vendor or a flat 404.
     const authority: AttestationAuthority =
@@ -1024,6 +1031,25 @@ export function createDecideContestHandler(
       // column does not exist on an evidenced pair at all.
       if (field === 'owner' || (field === 'mechanism_kind' && target.connectorPowered)) {
         throw new ApiError(500, 'INTERNAL_ERROR', `A ${field} contest cannot be owner-decided`);
+      }
+      // AECI-1092 review: the owner may not make its own row connector-powered through
+      // a contest, exactly as its edit may not (`vendor-integration-edits.ts`). A
+      // contest routed before AECI-1092 can still propose `iPaaS` or `integrator` to
+      // the owner, so the accept is refused on the row as it would be. Declining stays
+      // open, and AECi can still decide it through the admin queue.
+      if (
+        field === 'mechanism_kind' &&
+        isConnectorPoweredEdge({
+          poweredByProductId: target.poweredByProductId,
+          mechanismKind: row.proposedValue,
+        })
+      ) {
+        throw new ApiError(
+          422,
+          ApiErrorCode.INTEGRATION_INVALID_VALUE,
+          'A connector-delivered integration type cannot be set here',
+          { field: 'mechanism_kind' },
+        );
       }
       const column = CONTEST_FIELD_COLUMNS[field];
       const before = storedFieldValue(target, field);

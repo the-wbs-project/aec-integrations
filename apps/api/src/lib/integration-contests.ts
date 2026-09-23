@@ -47,6 +47,7 @@ import { NOTIFICATION_SENT_ACTION } from './attestation-notify';
 import { isConnectorPoweredEdge } from './connector-powered';
 import { isClaimed, ONE_ROW } from './integration-claims';
 import { integrationLiveSentinel } from './live-integration';
+import { chunked } from './promote-claims';
 
 type IntegrationRow = typeof integrations.$inferSelect;
 
@@ -127,6 +128,26 @@ export function contestAnchorOf(
 ): ContestAnchor {
   if (row.evidencedPairId) return { kind: 'evidenced_pair', id: row.evidencedPairId };
   return { kind: 'integration', id: row.integrationId ?? '' };
+}
+
+/**
+ * Which table an id on `/api/vendor/integrations/:id/contests` names (AECI-1092): the
+ * `integrations` row when there is one, else the `connector_evidenced_pairs` row, the
+ * order promote's `locateEdge` and the AECI-1089 claim use. At most one matches (the
+ * single-table invariant). An id in neither table answers the integrations kind, so
+ * the caller's authority check returns its ordinary flat 404.
+ */
+export async function locateContestAnchor(db: Db, id: string): Promise<ContestAnchor> {
+  const row = await db.query.integrations.findFirst({
+    columns: { id: true },
+    where: eq(integrations.id, id),
+  });
+  if (row) return { kind: 'integration', id };
+  const pair = await db.query.connectorEvidencedPairs.findFirst({
+    columns: { id: true },
+    where: eq(connectorEvidencedPairs.id, id),
+  });
+  return { kind: pair ? 'evidenced_pair' : 'integration', id };
 }
 
 /** Accept an anchor, or a bare id meaning an `integrations` row (the pre-AECI-1092
@@ -432,17 +453,22 @@ export async function planEntitlementClearReroute(
   const integrationIds = [
     ...new Set(open.map((row) => row.integrationId).filter((id): id is string => id !== null)),
   ];
-  const powered =
-    integrationIds.length === 0
-      ? []
-      : await db
+  // Chunked: D1 caps bound parameters per statement, and a vendor may have more open
+  // owner-routed contests than that (review finding, AECI-1092).
+  const powered = (
+    await Promise.all(
+      chunked(integrationIds).map((chunk) =>
+        db
           .select({
             id: integrations.id,
             poweredByProductId: integrations.poweredByProductId,
             mechanismKind: integrations.mechanismKind,
           })
           .from(integrations)
-          .where(inArray(integrations.id, integrationIds));
+          .where(inArray(integrations.id, chunk)),
+      ),
+    )
+  ).flat();
   const poweredIds = new Set(powered.filter(isConnectorPoweredEdge).map((row) => row.id));
   const moving = open.filter(
     (row) =>

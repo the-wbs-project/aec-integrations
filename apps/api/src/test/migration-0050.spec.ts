@@ -294,6 +294,24 @@ describe(`${MIGRATION} — constraints at HEAD`, () => {
         'integration_field_challenges_submitter_idx',
       ]);
 
+      // The three partial indexes keep their WHERE clauses: a regenerated index
+      // without one would turn "one OPEN contest" into "one contest ever".
+      const indexSql = (name: string) =>
+        (
+          t.raw
+            .prepare(`SELECT sql FROM sqlite_master WHERE type = 'index' AND name = ?`)
+            .get(name) as { sql: string }
+        ).sql;
+      expect(indexSql('integration_field_challenges_open_key')).toMatch(
+        /\(`integration_id`,`field`,`submitter_vendor_id`\) WHERE "status" = 'open'$/,
+      );
+      expect(indexSql('integration_field_challenges_open_evidenced_key')).toMatch(
+        /\(`evidenced_pair_id`,`field`,`submitter_vendor_id`\) WHERE "status" = 'open' AND "evidenced_pair_id" IS NOT NULL$/,
+      );
+      expect(indexSql('integration_field_challenges_protest_idx')).toMatch(
+        /\(`protest_status`,`protested_at`\) WHERE "protest_status" IS NOT NULL$/,
+      );
+
       seedParents(t);
       const open = {
         ...PLAIN_ROW,

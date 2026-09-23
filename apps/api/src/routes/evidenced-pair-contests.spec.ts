@@ -28,6 +28,13 @@ import { eq } from 'drizzle-orm';
 import { Hono } from 'hono';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+// Spy on the batched telemetry forward (the AECI-666 connection-limit rule); every
+// other export keeps its real, self-gating behaviour.
+vi.mock('../posthog', async (importOriginal) => {
+  const real = await importOriginal<typeof import('../posthog')>();
+  return { ...real, logBatchToPosthog: vi.fn() };
+});
+
 import {
   auditLog,
   connectorEvidencedPairs,
@@ -44,6 +51,8 @@ import type { Env } from '../env';
 import { errorHandler } from '../errors';
 import type { AuthzVariables } from '../lib/authz';
 import type { BatchTuple } from '../lib/audit';
+import type { DbFactory } from '../lib/handler-utils';
+import { logBatchToPosthog } from '../posthog';
 import {
   contestIntegrationStateSentinel,
   contestValueUnchangedSentinel,
@@ -117,6 +126,8 @@ const fileIssue = vi.fn().mockResolvedValue({ status: 'created' });
 
 beforeEach(async () => {
   fileIssue.mockClear();
+  factory = null;
+  vi.mocked(logBatchToPosthog).mockClear();
   t = await makeTestDb();
   await t.db.insert(vendors).values([
     { id: VENDOR_A, slug: 'autodesk', companyName: 'Autodesk' },
@@ -193,24 +204,24 @@ const claimPair = () =>
     .set({ claimedAt: CLAIMED_AT })
     .where(eq(connectorEvidencedPairs.id, PAIR));
 
+let factory: DbFactory | null = null;
+
 function app(auth: Auth) {
+  const f: DbFactory = factory ?? t.factory;
   const a = new Hono<{ Bindings: Env; Variables: AuthzVariables }>();
   a.onError(errorHandler());
   a.use('*', async (c, next) => {
     c.set('auth', auth);
     await next();
   });
-  a.post('/api/vendor/integrations/:id/contests', createSubmitContestHandler(t.factory));
-  a.post(
-    '/api/vendor/evidenced-pairs/:id/contests',
-    createSubmitContestHandler(t.factory, undefined, 'evidenced_pair'),
-  );
-  a.get('/api/vendor/contests', createListVendorContestsHandler(t.factory));
-  a.post('/api/vendor/contests/:id/decision', createDecideContestHandler(t.factory));
-  a.post('/api/vendor/contests/:id/protest', createFileContestProtestHandler(t.factory));
-  a.get('/api/vendor/products/:id/connectors', createListVendorProductConnectorsHandler(t.factory));
-  a.patch('/api/admin/contests/:id', createModerateContestHandler(t.factory, fileIssue));
-  a.patch('/api/admin/vendors/:id/entitlement', createSetVendorEntitlementHandler(t.factory));
+  // AECI-1092: one route for both tables; the handler finds which one the id names.
+  a.post('/api/vendor/integrations/:id/contests', createSubmitContestHandler(f));
+  a.get('/api/vendor/contests', createListVendorContestsHandler(f));
+  a.post('/api/vendor/contests/:id/decision', createDecideContestHandler(f));
+  a.post('/api/vendor/contests/:id/protest', createFileContestProtestHandler(f));
+  a.get('/api/vendor/products/:id/connectors', createListVendorProductConnectorsHandler(f));
+  a.patch('/api/admin/contests/:id', createModerateContestHandler(f, fileIssue));
+  a.patch('/api/admin/vendors/:id/entitlement', createSetVendorEntitlementHandler(f));
   return a;
 }
 
@@ -239,7 +250,7 @@ async function call(
 }
 
 const submitPair = (auth: Auth, body: unknown) =>
-  call(auth, `/api/vendor/evidenced-pairs/${PAIR}/contests`, body);
+  call(auth, `/api/vendor/integrations/${PAIR}/contests`, body);
 const submitIntegration = (auth: Auth, id: string, body: unknown) =>
   call(auth, `/api/vendor/integrations/${id}/contests`, body);
 const contest = async (id: string) =>
@@ -263,7 +274,7 @@ const DOCS = {
 
 // ─── Submit on a pair ────────────────────────────────────────────────────────
 
-describe('POST /api/vendor/evidenced-pairs/:id/contests — submit', () => {
+describe('POST /api/vendor/integrations/:id/contests on an evidenced pair — submit', () => {
   it('lets an endpoint vendor contest a pair, anchored on the pair, routed to AECi when unclaimed', async () => {
     const res = await submitPair(AUTH_A, DOCS);
     expect(res.status).toBe(201);
@@ -285,9 +296,9 @@ describe('POST /api/vendor/evidenced-pairs/:id/contests — submit', () => {
 
   it('answers a vendor that owns neither endpoint with the unknown-id 404', async () => {
     expect((await submitPair(AUTH_C, DOCS)).status).toBe(404);
-    expect(
-      (await call(AUTH_A, `/api/vendor/evidenced-pairs/${uuid(99)}/contests`, DOCS)).status,
-    ).toBe(404);
+    expect((await call(AUTH_A, `/api/vendor/integrations/${uuid(99)}/contests`, DOCS)).status).toBe(
+      404,
+    );
   });
 
   it('refuses the pair owner with 403 CONTEST_OWN_INTEGRATION, once it proves an endpoint', async () => {
@@ -691,5 +702,318 @@ describe('the AECI-1092 batch sentinels', () => {
     const again = await planEntitlementClearReroute(t.db, VENDOR_B, actor, CLAIMED_AT);
     expect(again.rerouted).toBe(1);
     await expect(run(again.stmts)).resolves.toBeDefined();
+  });
+});
+
+// ─── Review findings (2026-09-23) ────────────────────────────────────────────
+
+/**
+ * A factory whose `db.batch` runs `wrap` around the real batch, as another request
+ * would. It returns a NEW db object (prototype-linked to the shared one) so the
+ * wrapper never leaks into the shared test client or into a later request.
+ */
+function wrappedFactory(
+  wrap: (attempt: number, run: () => Promise<unknown>) => Promise<unknown>,
+): DbFactory {
+  let attempt = 0;
+  return (env, opts) => {
+    const ctx = t.factory(env, opts);
+    const real = ctx.db.batch.bind(ctx.db);
+    const db = Object.create(ctx.db) as typeof ctx.db;
+    (db as unknown as { batch: typeof real }).batch = ((stmts: never) => {
+      attempt += 1;
+      return wrap(attempt, () => real(stmts));
+    }) as typeof real;
+    return { ...ctx, db };
+  };
+}
+
+/** A factory whose `db.batch` runs `before` first. */
+function racingFactory(before: (attempt: number) => void): DbFactory {
+  return wrappedFactory(async (attempt, run) => {
+    before(attempt);
+    return run();
+  });
+}
+
+const transitionsFor = async (workflowId: string | null) =>
+  (await t.db.select().from(workflowTransitions)).filter((r) => r.workflowId === workflowId);
+
+describe('a row that BECOMES connector-powered (review MAJOR 1)', () => {
+  // C also owns endpoint A here, so two vendors can hold open contests on the row.
+  beforeEach(async () => {
+    await t.db
+      .insert(productVendors)
+      .values({ productId: P_A, vendorId: VENDOR_C, isPrimary: false });
+  });
+
+  async function openContests() {
+    const name = await submitIntegration(AUTH_A, I_PLAIN, {
+      field: 'name',
+      proposed_value: 'Better name',
+      reason: 'x',
+    });
+    const kind = await submitIntegration(AUTH_C, I_PLAIN, {
+      field: 'mechanism_kind',
+      proposed_value: 'marketplace-app',
+      reason: 'x',
+    });
+    const toIpaas = await submitIntegration(AUTH_A, I_PLAIN, {
+      field: 'mechanism_kind',
+      proposed_value: 'iPaaS',
+      reason: 'It runs through an iPaaS.',
+    });
+    expect(name.body.contest.routed_to).toBe('owner');
+    expect(kind.body.contest.routed_to).toBe('owner');
+    expect(toIpaas.body.contest.routed_to).toBe('aeci');
+    return {
+      name: name.body.contest.id as string,
+      kind: kind.body.contest.id as string,
+      toIpaas: toIpaas.body.contest.id as string,
+    };
+  }
+
+  it('re-routes every open owner contest when the owner is unentitled, with audit and transitions', async () => {
+    const ids = await openContests();
+    const res = await call(
+      AUTH_ADMIN,
+      `/api/admin/contests/${ids.toIpaas}`,
+      { decision: 'accept' },
+      'PATCH',
+    );
+    expect(res.status).toBe(200);
+    expect(
+      (await t.db.select().from(integrations).where(eq(integrations.id, I_PLAIN)))[0]!
+        .mechanismKind,
+    ).toBe('iPaaS');
+    for (const id of [ids.name, ids.kind]) {
+      const row = await contest(id);
+      expect(row.routedTo).toBe('aeci');
+      const moved = await transitionsFor(row.workflowId);
+      expect(moved.some((r) => r.fromState === 'open' && r.toState === 'open')).toBe(true);
+    }
+    const rerouted = (await t.db.select().from(auditLog)).filter(
+      (r) => r.action === 'integration.contest.rerouted',
+    );
+    expect(rerouted.map((r) => r.entityId).sort()).toEqual([ids.name, ids.kind].sort());
+    expect(rerouted[0]!.metadata).toMatchObject({ reason: 'became-connector-powered' });
+  });
+
+  it('keeps an entitled owner’s content contests, and still moves its type contests (ruling A)', async () => {
+    await entitle(VENDOR_B);
+    const ids = await openContests();
+    const res = await call(
+      AUTH_ADMIN,
+      `/api/admin/contests/${ids.toIpaas}`,
+      { decision: 'accept' },
+      'PATCH',
+    );
+    expect(res.status).toBe(200);
+    expect((await contest(ids.name)).routedTo).toBe('owner');
+    expect((await contest(ids.kind)).routedTo).toBe('aeci');
+    // The entitled owner can still decide the content contest it kept.
+    const decided = await call(
+      seat(SEAT_B, VENDOR_B, true),
+      `/api/vendor/contests/${ids.name}/decision`,
+      { decision: 'decline' },
+    );
+    expect(decided.status).toBe(200);
+  });
+
+  it('refuses an owner accept that would make its own row connector-powered (422)', async () => {
+    // A contest routed to the owner before AECI-1092 could propose iPaaS.
+    const res = await submitIntegration(AUTH_A, I_PLAIN, {
+      field: 'mechanism_kind',
+      proposed_value: 'marketplace-app',
+      reason: 'x',
+    });
+    const id = res.body.contest.id as string;
+    await t.db
+      .update(integrationFieldChallenges)
+      .set({ proposedValue: 'iPaaS' })
+      .where(eq(integrationFieldChallenges.id, id));
+    const accept = await call(AUTH_B, `/api/vendor/contests/${id}/decision`, {
+      decision: 'accept',
+    });
+    expect(accept.status).toBe(422);
+    expect(accept.body.error.code).toBe('INTEGRATION_INVALID_VALUE');
+    expect(
+      (await t.db.select().from(integrations).where(eq(integrations.id, I_PLAIN)))[0]!
+        .mechanismKind,
+    ).toBe('native');
+    expect((await contest(id)).status).toBe('open');
+    const decline = await call(AUTH_B, `/api/vendor/contests/${id}/decision`, {
+      decision: 'decline',
+    });
+    expect(decline.status).toBe(200);
+  });
+});
+
+describe('batched telemetry on the admin tail (review MAJOR 2)', () => {
+  it('forwards every audit row and the transition of an accept in ONE request', async () => {
+    const { body } = await submitPair(AUTH_A, {
+      field: 'owner',
+      proposed_value: VENDOR_A,
+      reason: 'x',
+    });
+    vi.mocked(logBatchToPosthog).mockClear();
+    const res = await call(
+      AUTH_ADMIN,
+      `/api/admin/contests/${body.contest.id}`,
+      { decision: 'accept' },
+      'PATCH',
+    );
+    expect(res.status).toBe(200);
+    const moderation = vi
+      .mocked(logBatchToPosthog)
+      .mock.calls.filter((c) => c[3].some((e) => e.source === 'admin-moderation'));
+    expect(moderation).toHaveLength(1);
+    // decision + claim + one notification per other endpoint vendor + contest
+    // notification, and the transition.
+    const events = moderation[0]![3];
+    expect(events.filter((e) => String(e.message).startsWith('workflow '))).toHaveLength(1);
+    expect(
+      events.filter((e) => String(e.message).startsWith('audit ')).length,
+    ).toBeGreaterThanOrEqual(3);
+  });
+});
+
+describe('ruling B, the races and the edges (review MINOR 5)', () => {
+  it('re-routes an evidenced-pair contest on a clear, with its workflow transition', async () => {
+    await claimPair();
+    await entitle(VENDOR_T);
+    const { body } = await submitPair(AUTH_A, DOCS);
+    expect(body.contest.routed_to).toBe('owner');
+    const res = await call(
+      AUTH_ADMIN,
+      `/api/admin/vendors/${VENDOR_T}/entitlement`,
+      { action: 'clear' },
+      'PATCH',
+    );
+    expect(res.status).toBe(200);
+    const row = await contest(body.contest.id);
+    expect(row.routedTo).toBe('aeci');
+    const moved = await transitionsFor(row.workflowId);
+    expect(moved.find((r) => r.fromState === 'open' && r.toState === 'open')).toMatchObject({
+      reason: 'owner entitlement cleared: re-routed to AECi',
+    });
+  });
+
+  it('does not hand contests back when the entitlement is set again', async () => {
+    await claimPair();
+    await entitle(VENDOR_T);
+    const { body } = await submitPair(AUTH_A, DOCS);
+    await call(
+      AUTH_ADMIN,
+      `/api/admin/vendors/${VENDOR_T}/entitlement`,
+      { action: 'clear' },
+      'PATCH',
+    );
+    const set = await call(
+      AUTH_ADMIN,
+      `/api/admin/vendors/${VENDOR_T}/entitlement`,
+      { action: 'set' },
+      'PATCH',
+    );
+    expect(set.status).toBe(200);
+    expect((await contest(body.contest.id)).routedTo).toBe('aeci');
+  });
+
+  it('answers 409 when a submit loses to an entitlement change twice, and writes nothing', async () => {
+    await claimPair();
+    await entitle(VENDOR_T);
+    // Every batch commits against a revoked entitlement, and every read sees it active
+    // again: the owner route every time, and a lost race every time.
+    const flip = (status: string) =>
+      t.raw
+        .prepare(`UPDATE vendor_entitlements SET status = ? WHERE vendor_id = ?`)
+        .run(status, VENDOR_T);
+    factory = wrappedFactory(async (_attempt, run) => {
+      flip('revoked');
+      try {
+        return await run();
+      } finally {
+        flip('active');
+      }
+    });
+    const res = await submitPair(AUTH_A, DOCS);
+    expect(res.status).toBe(409);
+    expect(res.body.error.code).toBe('CONTEST_INTEGRATION_CHANGED');
+    expect(await t.db.select().from(integrationFieldChallenges)).toHaveLength(0);
+    expect(await t.db.select().from(auditLog)).toHaveLength(0);
+  });
+
+  it('re-plans a clear once when a contest lands mid-clear, and 409s when it happens twice', async () => {
+    await claimPair();
+    await entitle(VENDOR_T);
+    await submitPair(AUTH_A, DOCS);
+    // One field per late contest: one open contest per (pair, field, vendor).
+    const FIELDS = ['website', 'listing_url', 'maturity', 'pricing_model', 'name', 'description'];
+    const late = (n: number) => {
+      t.raw
+        .prepare(
+          `INSERT INTO integration_field_challenges (id, evidenced_pair_id, field, current_value, proposed_value, reason, submitter_vendor_id, routed_to, owner_vendor_id, status, created_at, updated_at)
+           VALUES (?, ?, ?, NULL, 'https://late.example', 'late', ?, 'owner', ?, 'open', ?, ?)`,
+        )
+        .run(
+          uuid(700 + n),
+          PAIR,
+          FIELDS[n],
+          VENDOR_B,
+          VENDOR_T,
+          `2026-09-23T10:00:0${n}.000Z`,
+          `2026-09-23T10:00:0${n}.000Z`,
+        );
+    };
+    // Twice: every attempt sees a new contest land, so the clear gives up.
+    factory = racingFactory((attempt) => late(attempt));
+    const lost = await call(
+      AUTH_ADMIN,
+      `/api/admin/vendors/${VENDOR_T}/entitlement`,
+      { action: 'clear' },
+      'PATCH',
+    );
+    expect(lost.status).toBe(409);
+    expect(lost.body.error.code).toBe('CONTEST_INTEGRATION_CHANGED');
+    expect((await t.db.select().from(vendorEntitlements))[0]!.status).toBe('active');
+
+    // Once: the second attempt re-plans, commits, and moves the late contest too.
+    factory = racingFactory((attempt) => {
+      if (attempt === 1) late(5);
+    });
+    const won = await call(
+      AUTH_ADMIN,
+      `/api/admin/vendors/${VENDOR_T}/entitlement`,
+      { action: 'clear' },
+      'PATCH',
+    );
+    expect(won.status).toBe(200);
+    const open = await t.db.select().from(integrationFieldChallenges);
+    expect(open.every((r) => r.routedTo === 'aeci')).toBe(true);
+  });
+
+  it('never binds one parameter per contest in the clear (more than 100 open)', async () => {
+    const many = Array.from({ length: 130 }, (_, i) => i);
+    const extra = many.map((i) => ({
+      id: uuid(10_000 + i),
+      sourceProductId: P_A,
+      targetProductId: P_B,
+      mechanismKind: 'iPaaS',
+      builtByVendorId: VENDOR_B,
+      claimedAt: CLAIMED_AT,
+    }));
+    for (const row of extra) await t.db.insert(integrations).values(row);
+    for (const i of many) {
+      t.raw
+        .prepare(
+          `INSERT INTO integration_field_challenges (id, integration_id, field, current_value, proposed_value, reason, submitter_vendor_id, routed_to, owner_vendor_id, status, created_at, updated_at)
+           VALUES (?, ?, 'name', NULL, 'n', 'r', ?, 'owner', ?, 'open', ?, ?)`,
+        )
+        .run(uuid(20_000 + i), uuid(10_000 + i), VENDOR_A, VENDOR_B, CLAIMED_AT, CLAIMED_AT);
+    }
+    const actor = { actorId: ADMIN, actorType: 'admin' as const };
+    const plan = await planEntitlementClearReroute(t.db, VENDOR_B, actor, CLAIMED_AT);
+    expect(plan.rerouted).toBe(130);
+    await expect(t.db.batch(plan.stmts as unknown as BatchTuple)).resolves.toBeDefined();
   });
 });

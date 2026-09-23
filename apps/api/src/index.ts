@@ -1004,19 +1004,13 @@ authVendor.get('/api/vendor/updates', requireVendor(), createVendorUpdatesHandle
 // `requireCapability`, deliberately (the §6.14 exception in
 // `STAGE_2_VENDOR_PORTAL_SPEC.md` §11b). Writes carry `rateLimit('write')`; the
 // GET does not, and must not.
+// AECI-1092: the id may name a connector-evidenced pair, resolved in the handler the
+// way the AECI-1089 claim and the AECI-1090 edit resolve it on this same path.
 authVendor.post(
   '/api/vendor/integrations/:id/contests',
   requireVendor(),
   rateLimit('write'),
   createSubmitContestHandler(),
-);
-// AECI-1092: the same submit on a connector-evidenced pair. The same gate: a seat,
-// then the write limiter, and the endpoint-vendor check (404) in the handler.
-authVendor.post(
-  '/api/vendor/evidenced-pairs/:id/contests',
-  requireVendor(),
-  rateLimit('write'),
-  createSubmitContestHandler(undefined, undefined, 'evidenced_pair'),
 );
 authVendor.get('/api/vendor/contests', requireVendor(), createListVendorContestsHandler());
 authVendor.post(

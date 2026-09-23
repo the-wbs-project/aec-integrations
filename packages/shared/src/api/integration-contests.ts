@@ -11,8 +11,7 @@ import { ContextDirectionSchema, IntegrationMechanismKindSchema } from './integr
  * the integration's owner when it is claimed, and to AECi otherwise.
  *
  *   POST /api/vendor/integrations/:id/contests   — submit (201).
- *   POST /api/vendor/evidenced-pairs/:id/contests — submit on an evidenced pair
- *                                                  (201, AECI-1092).
+ *     (the id may name a connector-evidenced pair since AECI-1092)
  *   GET  /api/vendor/contests                    — `{ submitted, received }`.
  *   POST /api/vendor/contests/:id/withdraw       — the submitter withdraws.
  *   POST /api/vendor/contests/:id/decision       — the owner accepts or declines.

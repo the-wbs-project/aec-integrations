@@ -25,7 +25,7 @@ import {
   DecideContestProtestSchema,
   AdminContestSchema,
 } from '@aeci/shared';
-import { forwardAuditLog, type AuditLogEntry } from '@aeci/shared/audit-log';
+import type { AuditLogEntry } from '@aeci/shared/audit-log';
 import { and, eq } from 'drizzle-orm';
 
 import { getDb } from '../db/client';
@@ -43,7 +43,7 @@ import {
   contestStillOpenSentinel,
   hydrateContests,
 } from '../lib/integration-contests';
-import { forwarders, readJson, toAdminContest } from './admin-contests';
+import { forwardModerationBatch, readJson, toAdminContest } from './admin-contests';
 import { closeProtestWorkflow, protestNotifications, type Clock } from './vendor-contest-protests';
 import type { VendorContext } from './vendor-shared';
 
@@ -120,8 +120,8 @@ export function createDecideContestProtestHandler(
     ];
     const after = await runGuardedProtestBatch(db, id, stmts, async () => protestNotOpen());
 
-    const f = forwarders(c);
-    c.executionCtx.waitUntil(Promise.all(audits.map((entry) => forwardAuditLog(entry, f.audit))));
+    // ONE request for every audit row (AECI-1092 review, the AECI-666 class).
+    forwardModerationBatch(c, audits, []);
 
     const hydration = await hydrateContests(db, [after]);
     const body = toAdminContest(after, hydration);
