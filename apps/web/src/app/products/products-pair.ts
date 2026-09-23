@@ -4,6 +4,7 @@ import { toSignal } from '@angular/core/rxjs-interop';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { map } from 'rxjs';
 
+import { distinctDataObjectSlugs } from '@aeci/shared';
 import type {
   ClaimTimeline,
   ContextDirection,
@@ -18,7 +19,12 @@ import { CONTEXT_VERSION_PARAM, OTHER_VERSION_PARAM } from '@aeci/shared/version
 import { ExternalLinkTracker } from '../analytics/external-link-tracker';
 import { fetchPairTimeline } from '../core/api/product-pairs';
 import { NotFound } from '../not-found/not-found';
-import { mechanismKindLabel } from '../search/mechanism-labels';
+import {
+  contextDirectionLabel,
+  dataObjectCountLabel,
+  mechanismKindLabel,
+  type ContextDirectionLabel,
+} from '../search/mechanism-labels';
 import { LogoOrInitial } from '../shared/logo-or-initial/logo-or-initial';
 import { MailingListSignup } from '../shared/mailing-list-signup/mailing-list-signup';
 import { MaintenanceMarker } from '../shared/maintenance-marker/maintenance-marker';
@@ -262,6 +268,14 @@ interface MechanismView {
   readonly glyph: string;
   readonly directionLabel: string;
   readonly directionAria: string;
+  /**
+   * AECI-711 depth axis, rendered in the card header beside the mechanism badge
+   * in BOTH views. `depthDirection.token` is `null` when the mechanism stores no
+   * direction, and `dataObjectLabel` is `''` when it has no claims; each chip
+   * renders only when present (the 2026-09-22 ruling: no "not specified" marker).
+   */
+  readonly depthDirection: ContextDirectionLabel;
+  readonly dataObjectLabel: string;
   /** Data-object claim lanes (§8). Empty when the mechanism has no claims yet. */
   readonly claimGroups: readonly ClaimGroup[];
   readonly hasClaims: boolean;
@@ -738,6 +752,36 @@ function writePairViewCookie(mode: PairViewMode): void {
                       }
                     </h2>
                   }
+                  <!-- AECI-711 depth axis: direction and object coverage at the
+                       mechanism badge's weight, in Basic and Detailed alike. Depth
+                       is orthogonal to mechanism: a one-way read of one object and
+                       a two-way sync of twelve used to render identically here.
+                       Each chip renders only when present; a mechanism with no
+                       stored direction and no claims renders exactly as it did
+                       before (depth-axis-null.component.spec.ts). The glyph comes
+                       from contextDirectionLabel, one of the Arrow Rule's three
+                       emitters, and is aria-hidden behind an sr-only prefix. -->
+                  @if (m.depthDirection.token) {
+                    <span
+                      class="inline-flex items-center gap-1.5 rounded-(--radius-sm) border border-(--border-default) bg-(--surface-raised) px-3 py-1 text-[0.8125rem] font-bold tracking-[0.01em] text-(--text-secondary)"
+                      data-testid="pair-depth-direction"
+                    >
+                      <span class="sr-only" i18n="@@pair.depth.direction.srLabel">Direction:</span>
+                      <span
+                        class="leading-none text-(--accent-primary) rtl:-scale-x-100"
+                        aria-hidden="true"
+                        >{{ m.depthDirection.glyph }}</span
+                      >
+                      <span>{{ m.depthDirection.label }}</span>
+                    </span>
+                  }
+                  @if (m.dataObjectLabel) {
+                    <span
+                      class="inline-flex items-center rounded-(--radius-sm) border border-(--border-default) bg-(--surface-raised) px-3 py-1 text-[0.8125rem] font-bold tracking-[0.01em] text-(--text-secondary)"
+                      data-testid="pair-depth-objects"
+                      >{{ m.dataObjectLabel }}</span
+                    >
+                  }
                 </header>
 
                 <!-- Linked provenance byline (Stage 1 §4.4: "Offered by" / "Powered
@@ -1045,6 +1089,13 @@ export class ProductsPairPage {
       glyph: m.direction ? directionGlyph(m.direction) : '',
       directionLabel: m.direction ? directionHeading(m.direction, otherName) : '',
       directionAria: m.direction ? directionAria(m.direction, otherName) : '',
+      depthDirection: contextDirectionLabel(m.direction),
+      // The headline's rule, scoped to one mechanism: distinct objects
+      // (AECI-1042), and a `removed` claim does not count — it still renders,
+      // struck through, but "N data objects" may not include a flow that stopped.
+      dataObjectLabel: dataObjectCountLabel(
+        distinctDataObjectSlugs(m.claims.filter((c) => c.version_status !== 'removed')).length,
+      ),
       claimGroups: buildClaimGroups(
         m.claims,
         otherName,

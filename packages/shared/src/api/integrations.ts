@@ -181,6 +181,17 @@ export const ProductIntegrationItemSchema = IntegrationListItemSchema.extend({
    *     environment misfiles as direct — the failure AECI-706 guarded against.
    */
   powered_by_product: ProductLinkSchema.nullable().default(null),
+  /**
+   * The distinct `data_object` slugs this edge's claims cover (AECI-711, the depth
+   * axis), from `distinctDataObjectSlugs` — the AECI-1042 counting rule the pair
+   * page's sync headline uses. Empty when the edge has no claims, and an empty
+   * list renders nothing: no "not specified" marker (the 2026-09-22 ruling).
+   *
+   * Slugs rather than a count because the Via lane collapses several edges into
+   * one (connector, partner) row, and a merged row's coverage is the UNION of its
+   * edges' objects. Two counts cannot be unioned; two slug lists can.
+   */
+  data_object_slugs: z.array(z.string()).default([]),
 });
 
 export type ProductIntegrationItem = z.infer<typeof ProductIntegrationItemSchema>;

@@ -28,6 +28,7 @@ const baseIntegration: ProductIntegrationItem = {
   target: OTHER,
   via: null,
   powered_by_product: null,
+  data_object_slugs: [],
   created_at: '2024-03-01T00:00:00.000Z',
   updated_at: '2024-06-15T00:00:00.000Z',
 };
@@ -203,5 +204,53 @@ describe('ProductIntegrationRow', () => {
     const { el } = setup({ integration: signal({ ...baseIntegration, mechanism_kind: null }) });
     const placeholder = el.querySelector('span[aria-label="Mechanism not listed"]');
     expect(placeholder?.textContent?.trim()).toBe('–');
+  });
+
+  describe('depth axis: object coverage (AECI-711)', () => {
+    it('renders an "N data objects" chip beside the mechanism badge', () => {
+      const { el } = setup({
+        integration: signal({ ...baseIntegration, data_object_slugs: ['rfis', 'models'] }),
+      });
+      const chip = el.querySelector('[data-testid="row-data-objects"]');
+      expect(chip?.textContent?.trim()).toBe('2 data objects');
+      // Same cell, same wrapper as the mechanism badge: the same visual weight.
+      expect(chip?.parentElement?.textContent).toContain('API');
+    });
+
+    it('uses the singular for one object', () => {
+      const { el } = setup({
+        integration: signal({ ...baseIntegration, data_object_slugs: ['rfis'] }),
+      });
+      expect(el.querySelector('[data-testid="row-data-objects"]')?.textContent?.trim()).toBe(
+        '1 data object',
+      );
+    });
+
+    it('repeats the count on the below-md meta line', () => {
+      const { el } = setup({
+        integration: signal({ ...baseIntegration, data_object_slugs: ['rfis', 'models'] }),
+      });
+      const sub = el.querySelector('[data-testid="row-data-objects-sublabel"]');
+      expect(sub?.textContent?.trim()).toBe('2 data objects');
+      expect(sub?.classList).toContain('md:hidden');
+    });
+
+    it('keeps the "–" mechanism placeholder and adds the chip when the kind is null', () => {
+      const { el } = setup({
+        integration: signal({
+          ...baseIntegration,
+          mechanism_kind: null,
+          data_object_slugs: ['rfis'],
+        }),
+      });
+      expect(el.querySelector('span[aria-label="Mechanism not listed"]')).not.toBeNull();
+      expect(el.querySelector('[data-testid="row-data-objects"]')).not.toBeNull();
+    });
+
+    it('renders no chip and no marker when the edge has no claims', () => {
+      const { el } = setup();
+      expect(el.querySelector('[data-testid="row-data-objects"]')).toBeNull();
+      expect(el.querySelector('[data-testid="row-data-objects-sublabel"]')).toBeNull();
+    });
   });
 });

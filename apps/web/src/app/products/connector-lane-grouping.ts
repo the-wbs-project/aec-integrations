@@ -51,6 +51,12 @@ export interface IntegrationLaneRow {
    * frame to mirror here.
    */
   readonly direction: ContextDirection | null;
+  /**
+   * Distinct `data_object` slugs across the collapsed edges (AECI-711): the UNION
+   * of each edge's `data_object_slugs`, so an object two edges both move counts
+   * once, exactly as the pair page's headline counts it (AECI-1042).
+   */
+  readonly dataObjectSlugs: readonly string[];
   /** Edges collapsed into this row. `> 1` means duplicates or several mechanisms. */
   readonly edgeCount: number;
 }
@@ -142,6 +148,7 @@ interface MutableRow {
   other: ProductLink;
   mechanismKinds: Set<IntegrationMechanismKind>;
   direction: ContextDirection | null;
+  dataObjectSlugs: Set<string>;
   edgeCount: number;
 }
 
@@ -152,6 +159,7 @@ function freeze(row: MutableRow): IntegrationLaneRow {
     other: row.other,
     mechanismKinds: MECHANISM_ORDER.filter((k) => row.mechanismKinds.has(k)),
     direction: row.direction,
+    dataObjectSlugs: [...row.dataObjectSlugs],
     edgeCount: row.edgeCount,
   };
 }
@@ -177,6 +185,7 @@ function seed(
     other,
     mechanismKinds: new Set(integration.mechanism_kind ? [integration.mechanism_kind] : []),
     direction: integration.context_direction,
+    dataObjectSlugs: new Set(integration.data_object_slugs),
     edgeCount: 1,
   };
 }
@@ -224,6 +233,7 @@ export function splitIntegrationLanes(
     existing.edgeCount += 1;
     existing.direction = mergeContextDirections(existing.direction, integration.context_direction);
     if (integration.mechanism_kind) existing.mechanismKinds.add(integration.mechanism_kind);
+    for (const slug of integration.data_object_slugs) existing.dataObjectSlugs.add(slug);
     // Keep the representative deterministic rather than arrival-ordered: the
     // partner is identical by construction here, so name-then-id decides it.
     const isEarlier =

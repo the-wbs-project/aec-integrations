@@ -34,7 +34,7 @@ function normalize(html: string): string {
 const OTHER: ProductLink = { id: 't1', slug: 'revit', name: 'Revit', logo_url: null };
 
 /** Null direction, no claims: the population the ruling protects. */
-const nullRow = {
+const nullRow: ProductIntegrationItem = {
   id: '00000000-0000-4000-8000-000000071101',
   name: 'Procore and Revit',
   mechanism_kind: 'api',
@@ -45,9 +45,10 @@ const nullRow = {
   target: OTHER,
   via: null,
   powered_by_product: null,
+  data_object_slugs: [],
   created_at: '2024-03-01T00:00:00.000Z',
   updated_at: '2024-06-15T00:00:00.000Z',
-} as ProductIntegrationItem;
+};
 
 @Component({
   imports: [ProductIntegrationRow],

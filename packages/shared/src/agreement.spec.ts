@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import {
   computeAgreement,
   computeSyncHeadline,
+  distinctDataObjectSlugs,
   isClaimRefuted,
   type AgreementAttestation,
   type SyncHeadlineClaim,
@@ -256,5 +257,29 @@ describe('computeSyncHeadline', () => {
         claim('conflict', 'models'),
       ]),
     ).toEqual({ total: 3, confirmed: 1, single_source: 1 });
+  });
+});
+
+describe('distinctDataObjectSlugs (AECI-711)', () => {
+  const c = (slug: string) => ({ data_object_slug: slug });
+
+  it('is empty for no claims', () => {
+    expect(distinctDataObjectSlugs([])).toEqual([]);
+  });
+
+  it('counts an object once across directions, mechanisms and duplicate rows', () => {
+    expect(distinctDataObjectSlugs([c('rfis'), c('models'), c('rfis'), c('rfis')])).toEqual([
+      'rfis',
+      'models',
+    ]);
+  });
+
+  it('is the length computeSyncHeadline reports as total', () => {
+    const claims = [
+      { agreement: 'unverified' as const, data_object_slug: 'rfis' },
+      { agreement: 'confirmed' as const, data_object_slug: 'rfis' },
+      { agreement: 'unverified' as const, data_object_slug: 'models' },
+    ];
+    expect(computeSyncHeadline(claims).total).toBe(distinctDataObjectSlugs(claims).length);
   });
 });

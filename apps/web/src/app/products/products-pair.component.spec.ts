@@ -351,6 +351,83 @@ describe('ProductsPairPage', () => {
     expect(el.querySelector('h3.aec-overline')?.textContent).toContain('Sends to Revit');
   });
 
+  describe('depth axis in the mechanism card header (AECI-711)', () => {
+    const header = (el: HTMLElement) => el.querySelector('article header')!;
+
+    it('renders the direction chip with an sr-only prefix and an aria-hidden glyph', () => {
+      const { el } = setup(buildPair());
+      const chip = header(el).querySelector('[data-testid="pair-depth-direction"]');
+      expect(chip).not.toBeNull();
+      expect(chip!.querySelector('.sr-only')?.textContent).toContain('Direction:');
+      const glyph = chip!.querySelector('[aria-hidden="true"]');
+      expect(glyph?.textContent).toBe('\u2192');
+      expect(chip!.textContent).toContain('Outbound');
+    });
+
+    it('renders the chips in Basic view too', () => {
+      const { el } = setup(buildPairWithClaims([claim('models', 'Models', 'outbound')]), {
+        view: 'basic',
+      });
+      expect(header(el).querySelector('[data-testid="pair-depth-direction"]')).not.toBeNull();
+      expect(header(el).querySelector('[data-testid="pair-depth-objects"]')?.textContent).toContain(
+        '1 data object',
+      );
+    });
+
+    it('counts distinct objects across directions (the AECI-1042 rule)', () => {
+      const { el } = setup(
+        buildPairWithClaims([
+          claim('models', 'Models', 'outbound'),
+          claim('models', 'Models', 'inbound'),
+          claim('rfis', 'RFIs', 'inbound'),
+        ]),
+      );
+      expect(
+        header(el).querySelector('[data-testid="pair-depth-objects"]')?.textContent?.trim(),
+      ).toBe('2 data objects');
+    });
+
+    it('does not count a removed claim', () => {
+      const { el } = setup(
+        buildPairWithClaims([
+          claim('models', 'Models', 'outbound'),
+          { ...claim('rfis', 'RFIs', 'inbound'), version_status: 'removed' },
+        ]),
+      );
+      expect(
+        header(el).querySelector('[data-testid="pair-depth-objects"]')?.textContent?.trim(),
+      ).toBe('1 data object');
+    });
+
+    it('renders the object chip without a direction chip when only claims exist', () => {
+      const base = buildPairWithClaims([claim('models', 'Models', 'outbound')]);
+      const { el } = setup({
+        ...base,
+        mechanisms: [{ ...base.mechanisms[0]!, direction: null }],
+      });
+      expect(header(el).querySelector('[data-testid="pair-depth-direction"]')).toBeNull();
+      expect(header(el).querySelector('[data-testid="pair-depth-objects"]')).not.toBeNull();
+    });
+
+    it('renders the connector-evidenced arm the same way', () => {
+      const base = buildPairWithClaims([claim('models', 'Models', 'both')]);
+      const { el } = setup({
+        ...base,
+        mechanisms: [
+          {
+            ...base.mechanisms[0]!,
+            mechanism_kind: null,
+            direction: 'both',
+            via: { id: 'z1', slug: 'zapier', name: 'Zapier', logo_url: null },
+          },
+        ],
+      });
+      const chip = header(el).querySelector('[data-testid="pair-depth-direction"]');
+      expect(chip?.querySelector('[aria-hidden="true"]')?.textContent).toBe('\u21C4');
+      expect(header(el).querySelector('[data-testid="pair-depth-objects"]')).not.toBeNull();
+    });
+  });
+
   it('renders the singular sync headline for one claim', () => {
     const { el } = setup(buildPairWithClaims([claim('models', 'Models', 'outbound')]));
     expect(el.textContent).toContain('1 data object syncs');

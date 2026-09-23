@@ -145,3 +145,18 @@ export function contextDirectionLabel(direction: ContextDirection | null): Conte
       return { label: '', glyph: '', token: null };
   }
 }
+
+/**
+ * The depth axis's object-coverage label (AECI-711): "1 data object" /
+ * "N data objects", for an integration row and a pair-page mechanism card alike,
+ * so the two surfaces cannot word the same count two ways. `''` for `0`, which
+ * the caller renders as nothing at all — the 2026-09-22 ruling forbids a
+ * "not specified" marker. Singular and plural are separate ids rather than an ICU
+ * plural, the pattern the rest of the integrations section uses.
+ */
+export function dataObjectCountLabel(count: number): string {
+  if (count <= 0) return '';
+  return count === 1
+    ? $localize`:@@integrations.dataObjects.one:1 data object`
+    : $localize`:@@integrations.dataObjects.other:${count}:count: data objects`;
+}

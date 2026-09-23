@@ -76,6 +76,7 @@ import type { IntegrationLaneRow } from './connector-lane-grouping';
               [contextSlug]="contextSlug()"
               [mergedMechanismKinds]="row.mechanismKinds"
               [mergedDirection]="row.direction"
+              [mergedDataObjectSlugs]="row.dataObjectSlugs"
             ></tr>
           }
           @if (deferred().length > 0) {
@@ -88,6 +89,7 @@ import type { IntegrationLaneRow } from './connector-lane-grouping';
                   [contextSlug]="contextSlug()"
                   [mergedMechanismKinds]="row.mechanismKinds"
                   [mergedDirection]="row.direction"
+                  [mergedDataObjectSlugs]="row.dataObjectSlugs"
                 ></tr>
               }
             } @placeholder (minimum 100ms) {
