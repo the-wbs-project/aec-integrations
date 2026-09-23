@@ -3,7 +3,7 @@
  * (AECI-1089 / AECI-1040 ruling 2 / `STAGE_2_SPEC.md` §8.10(8) /
  * `STAGE_2_PAID_TIERS_SPEC.md` §3.1 / ADR 0035 decision 15).
  *
- * **The first entitlement check on an integration route, and a named exception to
+ * **The first entitlement check on an integration ownership route, and a named exception to
  * decision 15.** Every other integration route keeps the seat as its whole gate. This
  * one applies only where the carve-out applies: an owner's claim, edit, retire and
  * restore of a connector-powered row (either table), and an owner's decision on a
