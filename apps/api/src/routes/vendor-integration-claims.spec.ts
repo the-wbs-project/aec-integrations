@@ -14,7 +14,15 @@ import { eq } from 'drizzle-orm';
 import { Hono } from 'hono';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { auditLog, integrations, productVendors, products, profiles, vendors } from '../db/schema';
+import {
+  auditLog,
+  connectorEvidencedPairs,
+  integrations,
+  productVendors,
+  products,
+  profiles,
+  vendors,
+} from '../db/schema';
 import type { Env } from '../env';
 import { errorHandler } from '../errors';
 import { NOTIFICATION_SENT_ACTION } from '../lib/attestation-notify';
@@ -39,11 +47,17 @@ const P_SOURCE = uuid(10);
 const P_TARGET = uuid(11);
 const P_FOREIGN = uuid(12);
 const P_CONNECTOR = uuid(13);
+const P_BRIDGE = uuid(14); // a third-party connector product, held by T
 
 const I_MAIN = uuid(20); // SOURCE (A) → TARGET (B), owned by B
 const I_NO_OWNER = uuid(21); // SOURCE (A) → TARGET (B), nobody on file
 const I_THIRD_PARTY = uuid(22); // SOURCE (A) → TARGET (B), owned by T
 const I_POWERED = uuid(23); // SOURCE (A) → CONNECTOR (B), Convention-A self-reference, owned by B
+
+// AECI-1089: `connector_evidenced_pairs` rows, all delivered through BRIDGE (T's).
+const E_THIRD = uuid(30); // SOURCE (A) ↔ TARGET (B), owned by T, a third party
+const E_ENDPOINT = uuid(31); // SOURCE (A) ↔ FOREIGN (C), owned by A, an endpoint vendor
+const E_NO_OWNER = uuid(32); // TARGET (B) ↔ FOREIGN (C), nobody on file
 
 const seat = (n: number, vendorId: string): AuthzVariables['auth'] => ({
   userId: uuid(100 + n),
@@ -58,6 +72,13 @@ const AUTH_A = seat(1, VENDOR_A);
 const AUTH_B = seat(2, VENDOR_B);
 const AUTH_C = seat(3, VENDOR_C);
 const AUTH_T = seat(4, VENDOR_T);
+
+/** The same seat with an active entitlement (AECI-1040 ruling 2). */
+const entitled = (auth: AuthzVariables['auth']): AuthzVariables['auth'] => ({
+  ...auth,
+  entitlementTier: 'verified',
+  entitlement: { status: 'active', periodEnd: null },
+});
 
 let t: TestDb;
 
@@ -74,12 +95,14 @@ beforeEach(async () => {
     { id: P_TARGET, slug: 'microstation', name: 'MicroStation' },
     { id: P_FOREIGN, slug: 'archicad', name: 'ArchiCAD' },
     { id: P_CONNECTOR, slug: 'bentley-connect', name: 'Bentley Connect', productRole: 'connector' },
+    { id: P_BRIDGE, slug: 'bridge', name: 'Bridge', productRole: 'connector' },
   ]);
   await t.db.insert(productVendors).values([
     { productId: P_SOURCE, vendorId: VENDOR_A, isPrimary: true },
     { productId: P_TARGET, vendorId: VENDOR_B, isPrimary: true },
     { productId: P_FOREIGN, vendorId: VENDOR_C, isPrimary: true },
     { productId: P_CONNECTOR, vendorId: VENDOR_B, isPrimary: true },
+    { productId: P_BRIDGE, vendorId: VENDOR_T, isPrimary: true },
   ]);
   await t.db.insert(integrations).values([
     {
@@ -106,6 +129,25 @@ beforeEach(async () => {
       poweredByProductId: P_CONNECTOR,
       builtByVendorId: VENDOR_B,
     },
+  ]);
+  await t.db.insert(connectorEvidencedPairs).values([
+    {
+      id: E_THIRD,
+      connectorProductId: P_BRIDGE,
+      productAId: P_SOURCE,
+      productBId: P_TARGET,
+      name: 'Revit and MicroStation via Bridge',
+      builtByVendorId: VENDOR_T,
+      lastReviewedAt: '2026-01-01T00:00:00.000Z',
+    },
+    {
+      id: E_ENDPOINT,
+      connectorProductId: P_BRIDGE,
+      productAId: P_SOURCE,
+      productBId: P_FOREIGN,
+      builtByVendorId: VENDOR_A,
+    },
+    { id: E_NO_OWNER, connectorProductId: P_BRIDGE, productAId: P_TARGET, productBId: P_FOREIGN },
   ]);
   // `audit_log.actor_id` is an FK to `profiles`, so every seat needs its row.
   await t.db.insert(profiles).values(
@@ -254,10 +296,11 @@ describe('POST /api/vendor/integrations/:id/claim — the owner claims', () => {
     expect(recipients).toEqual([VENDOR_A, VENDOR_B].sort());
   });
 
-  it('refuses a connector-powered row with 403, and writes nothing (decision 9, Q1 ruling)', async () => {
+  it('refuses the owner of a connector-powered row with no entitlement, and writes nothing (AECI-1040 ruling 2)', async () => {
     const res = await claim(AUTH_B, I_POWERED);
     expect(res.status).toBe(403);
-    expect(res.body.error.code).toBe('INTEGRATION_CONNECTOR_POWERED');
+    expect(res.body.error.code).toBe('INTEGRATION_ENTITLEMENT_REQUIRED');
+    expect(res.body.error.details).toEqual({ tier: 'unclaimed', status: null });
     expect((await row(I_POWERED)).claimedAt).toBeNull();
     expect(await auditRows()).toHaveLength(0);
   });
@@ -269,13 +312,47 @@ describe('POST /api/vendor/integrations/:id/claim — the owner claims', () => {
       .where(eq(integrations.id, I_MAIN));
     const res = await claim(AUTH_B, I_MAIN);
     expect(res.status).toBe(403);
-    expect(res.body.error.code).toBe('INTEGRATION_CONNECTOR_POWERED');
+    expect(res.body.error.code).toBe('INTEGRATION_ENTITLEMENT_REQUIRED');
+  });
+
+  it('refuses a lapsed entitlement and says which status it is', async () => {
+    const res = await claim(
+      { ...AUTH_B, entitlement: { status: 'expired', periodEnd: '2026-01-01T00:00:00.000Z' } },
+      I_POWERED,
+    );
+    expect(res.status).toBe(403);
+    expect(res.body.error.details).toEqual({ tier: 'unclaimed', status: 'expired' });
+  });
+
+  it('lets an entitled owner claim a connector-powered integrations row (AECI-1089)', async () => {
+    const res = await claim(entitled(AUTH_B), I_POWERED);
+    expect(res.status).toBe(200);
+    const after = await row(I_POWERED);
+    expect(after.claimedAt).toBe(res.body.integration.claimed_at);
+    expect(after.maintainedBy).toBe('vendor');
+    // The row stays connector-powered: the claim changes ownership, not routing.
+    expect(after.poweredByProductId).toBe(P_CONNECTOR);
+    expect(after.mechanismKind).toBe('iPaaS');
+    const [audit] = await claimAudits();
+    expect(audit).toMatchObject({ entityType: 'integration', entityId: I_POWERED });
+    expect(audit!.metadata).toMatchObject({ connectorPowered: true, anchor: 'integration' });
+  });
+
+  it('never asks for an entitlement on a row that is not connector-powered', async () => {
+    // AUTH_B has no entitlement at all. A seat stays the whole gate here (decision 15).
+    const res = await claim(AUTH_B, I_MAIN);
+    expect(res.status).toBe(200);
+    const [audit] = await claimAudits();
+    expect(audit!.metadata).not.toHaveProperty('connectorPowered');
   });
 
   it('still answers a non-owner on a connector-powered row with the ownership refusal', async () => {
-    const res = await claim(AUTH_A, I_POWERED);
-    expect(res.status).toBe(403);
-    expect(res.body.error.code).toBe('INTEGRATION_NOT_OWNER');
+    // Entitled or not: ownership is asked first, so the entitlement never leaks.
+    for (const auth of [AUTH_A, entitled(AUTH_A)]) {
+      const res = await claim(auth, I_POWERED);
+      expect(res.status).toBe(403);
+      expect(res.body.error.code).toBe('INTEGRATION_NOT_OWNER');
+    }
   });
 });
 
@@ -356,6 +433,173 @@ describe('POST /api/vendor/integrations/:id/claim — refusals', () => {
     );
     expect(res.status).toBe(403);
     expect((await row(I_MAIN)).claimedAt).toBeNull();
+    expect(await claimAudits()).toHaveLength(0);
+  });
+});
+
+describe('POST /api/vendor/integrations/:id/claim — evidenced pairs (AECI-1089)', () => {
+  const pair = async (id: string) =>
+    (await t.db.query.connectorEvidencedPairs.findFirst({
+      where: eq(connectorEvidencedPairs.id, id),
+    }))!;
+
+  it('lets an entitled third-party owner claim its evidenced pair', async () => {
+    const before = (await pair(E_THIRD)).updatedAt;
+    const res = await claim(entitled(AUTH_T), E_THIRD);
+    expect(res.status).toBe(200);
+    expect(() => ClaimIntegrationResponseSchema.parse(res.body)).not.toThrow();
+    expect(res.body.integration).toMatchObject({ id: E_THIRD, owner_vendor_id: VENDOR_T });
+    const after = await pair(E_THIRD);
+    expect(after.claimedAt).toBe(res.body.integration.claimed_at);
+    expect(after.maintainedBy).toBe('vendor');
+    expect(after.lastReviewedAt).toBe(res.body.integration.claimed_at);
+    // The claim moves `updated_at`, which is what the §2.2 cursor reads.
+    expect(after.updatedAt >= before).toBe(true);
+    expect(after.builtByVendorId).toBe(VENDOR_T);
+    expect(after.origin).toBe('aeci');
+    // It is written to the pair's table, not to `integrations`.
+    expect(
+      await t.db.query.integrations.findFirst({ where: eq(integrations.id, E_THIRD) }),
+    ).toBeUndefined();
+  });
+
+  it('writes the audit row on the pair entity, in the same batch', async () => {
+    await claim(entitled(AUTH_T), E_THIRD);
+    const [audit] = await claimAudits();
+    expect(audit).toMatchObject({
+      actorId: AUTH_T.userId,
+      entityType: 'connector_evidenced_pair',
+      entityId: E_THIRD,
+    });
+    expect(audit!.beforeState).toMatchObject({ claimed_at: null, maintained_by: 'aeci' });
+    expect(audit!.metadata).toMatchObject({
+      reason: 'owner-claim',
+      maintenanceTransfer: true,
+      connectorPowered: true,
+      anchor: 'evidenced_pair',
+    });
+  });
+
+  it('notifies both endpoint vendors and never the connector product’s vendor', async () => {
+    await claim(entitled(AUTH_T), E_THIRD);
+    const rows = await notificationRows();
+    expect(rows.map((r) => (r.metadata as { vendorId: string }).vendorId).sort()).toEqual(
+      [VENDOR_A, VENDOR_B].sort(),
+    );
+    expect(rows[0]!.metadata).toMatchObject({
+      kind: 'integration_claim',
+      integrationId: E_THIRD,
+      ownerVendorId: VENDOR_T,
+      integrationName: 'Revit and MicroStation via Bridge',
+      pairSlugs: ['microstation', 'revit'],
+    });
+  });
+
+  it('purges the pair page, both endpoint pages and the connector page', async () => {
+    const res = await claim(entitled(AUTH_T), E_THIRD);
+    expect(res.send).toHaveBeenCalledWith({
+      tags: ['pair:microstation__revit', 'product:revit', 'product:microstation', 'product:bridge'],
+      source: 'vendor',
+    });
+  });
+
+  it('lets an entitled endpoint-vendor owner claim, notifying only the other side', async () => {
+    const res = await claim(entitled(AUTH_A), E_ENDPOINT);
+    expect(res.status).toBe(200);
+    const recipients = (await notificationRows()).map(
+      (r) => (r.metadata as { vendorId: string }).vendorId,
+    );
+    expect(recipients).toEqual([VENDOR_C]);
+  });
+
+  it('refuses the owner with no entitlement, and writes nothing', async () => {
+    const res = await claim(AUTH_T, E_THIRD);
+    expect(res.status).toBe(403);
+    expect(res.body.error.code).toBe('INTEGRATION_ENTITLEMENT_REQUIRED');
+    expect((await pair(E_THIRD)).claimedAt).toBeNull();
+    expect(await auditRows()).toHaveLength(0);
+  });
+
+  it('answers an endpoint vendor that is not the owner with 403, entitled or not', async () => {
+    for (const auth of [AUTH_A, entitled(AUTH_A), AUTH_B]) {
+      const res = await claim(auth, E_THIRD);
+      expect(res.status).toBe(403);
+      expect(res.body.error.code).toBe('INTEGRATION_NOT_OWNER');
+    }
+    expect(await auditRows()).toHaveLength(0);
+  });
+
+  it('answers 409 INTEGRATION_OWNER_UNKNOWN to an endpoint vendor when nobody is on file', async () => {
+    const res = await claim(entitled(AUTH_C), E_NO_OWNER);
+    expect(res.status).toBe(409);
+    expect(res.body.error.code).toBe('INTEGRATION_OWNER_UNKNOWN');
+  });
+
+  it('answers the unknown-id 404 to a vendor holding neither endpoint, the connector vendor included', async () => {
+    const unknown = await claim(entitled(AUTH_T), uuid(998));
+    // T holds BRIDGE, the connector, but neither endpoint of these two pairs.
+    for (const id of [E_ENDPOINT, E_NO_OWNER]) {
+      const hidden = await claim(entitled(AUTH_T), id);
+      expect(hidden.status).toBe(404);
+      expect(hidden.body.error.code).toBe(unknown.body.error.code);
+    }
+    // A vendor holding nothing on the pair learns nothing either.
+    expect((await claim(entitled(AUTH_C), E_THIRD)).status).toBe(404);
+    expect(await auditRows()).toHaveLength(0);
+  });
+
+  it('refuses a second claim with 409 and writes nothing', async () => {
+    await claim(entitled(AUTH_T), E_THIRD);
+    const before = (await auditRows()).length;
+    const res = await claim(entitled(AUTH_T), E_THIRD);
+    expect(res.status).toBe(409);
+    expect(res.body.error.code).toBe('INTEGRATION_ALREADY_CLAIMED');
+    expect(await auditRows()).toHaveLength(before);
+  });
+
+  it('lets exactly one of two racing claims win, and the loser writes nothing', async () => {
+    const [first, second] = await Promise.all([
+      claim(entitled(AUTH_T), E_THIRD),
+      claim(entitled(AUTH_T), E_THIRD),
+    ]);
+    expect([first.status, second.status].sort()).toEqual([200, 409]);
+    expect(await claimAudits()).toHaveLength(1);
+    expect(await notificationRows()).toHaveLength(2);
+  });
+
+  it('refuses the old owner when promote re-pointed the pair’s owner before the batch ran', async () => {
+    const factory = t.factory;
+    let flipped = false;
+    const racing = createClaimIntegrationHandler((env, opts) => {
+      const ctx = factory(env, opts);
+      if (!flipped) {
+        const batch = ctx.db.batch.bind(ctx.db);
+        (ctx.db as unknown as { batch: typeof batch }).batch = (async (stmts: never) => {
+          flipped = true;
+          t.raw
+            .prepare(`UPDATE connector_evidenced_pairs SET built_by_vendor_id = ? WHERE id = ?`)
+            .run(VENDOR_A, E_THIRD);
+          return batch(stmts);
+        }) as typeof batch;
+      }
+      return ctx;
+    });
+    const a = new Hono<{ Bindings: Env; Variables: AuthzVariables }>();
+    a.onError(errorHandler());
+    a.use('*', async (c, next) => {
+      c.set('auth', entitled(AUTH_T));
+      await next();
+    });
+    a.post('/api/vendor/integrations/:id/claim', racing);
+    const res = await a.request(
+      `/api/vendor/integrations/${E_THIRD}/claim`,
+      { method: 'POST' },
+      TEST_ENV,
+      fakeExecutionContext(),
+    );
+    // T no longer owns it and holds neither endpoint, so the re-read answers 404.
+    expect(res.status).toBe(404);
+    expect((await pair(E_THIRD)).claimedAt).toBeNull();
     expect(await claimAudits()).toHaveLength(0);
   });
 });

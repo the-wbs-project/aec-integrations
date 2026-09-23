@@ -24,7 +24,11 @@ import { INTEGRATION_EDIT_FIELDS, type VendorIntegration } from '@aeci/shared';
 
 import { VendorPortalAnnouncer } from '../vendor-announcer';
 import { VendorApi } from '../vendor-api';
-import { VENDOR_INTEGRATIONS_FIXTURE, VENDOR_ME_FIXTURE } from '../vendor-fixtures';
+import {
+  VENDOR_INTEGRATIONS_FIXTURE,
+  VENDOR_ME_FIXTURE,
+  VENDOR_ME_UNVERIFIED_FIXTURE,
+} from '../vendor-fixtures';
 import { VendorPortalStore } from '../vendor-portal-store';
 
 import { VendorIntegrationCard } from './vendor-integration-card';
@@ -137,10 +141,57 @@ describe('VendorIntegrationOwnership — what it shows', () => {
     expect(el(fixture).textContent).toContain('has retired it. Restore it to edit its details.');
   });
 
-  it('offers neither on a connector-delivered row it owns (decision 9)', async () => {
-    const fixture = await create({ ...CLAIMED, attestable: false });
-    expect(line(fixture)).toContain('cannot be claimed or edited yet');
+  it('offers Claim on a connector-delivered row it owns, with an active plan (AECI-1089)', async () => {
+    // VENDOR_ME_FIXTURE holds an active `verified` entitlement.
+    const fixture = await create({ ...OWNED, attestable: false });
+    expect(line(fixture)).toContain('delivered through a connector');
+    expect(q(fixture, '[data-testid="claim-integration"]')).not.toBeNull();
+    expect(q(fixture, '[data-testid="claim-needs-plan"]')).toBeNull();
+  });
+
+  it('says a plan is needed, and offers no button, without an active entitlement', async () => {
+    TestBed.inject(VendorPortalStore).seed(VENDOR_ME_UNVERIFIED_FIXTURE);
+    const fixture = await create({ ...OWNED, attestable: false });
+    expect(q(fixture, '[data-testid="claim-needs-plan"]')!.textContent).toContain(
+      'needs an active plan',
+    );
     expect(q(fixture, 'button')).toBeNull();
+  });
+
+  it('never asks for a plan on a row that is not connector-delivered', async () => {
+    TestBed.inject(VendorPortalStore).seed(VENDOR_ME_UNVERIFIED_FIXTURE);
+    const fixture = await create(OWNED);
+    expect(q(fixture, '[data-testid="claim-integration"]')).not.toBeNull();
+    expect(q(fixture, '[data-testid="claim-needs-plan"]')).toBeNull();
+  });
+
+  it('offers no Edit on a claimed connector-delivered row yet (AECI-1090 adds it)', async () => {
+    const fixture = await create({ ...CLAIMED, attestable: false });
+    expect(line(fixture)).toContain('not available yet');
+    expect(q(fixture, 'button')).toBeNull();
+  });
+
+  it('claims a connector-delivered row and moves focus to the status line', async () => {
+    api.claimIntegration.mockResolvedValue({});
+    const row = { ...OWNED, attestable: false };
+    api.getIntegrations.mockResolvedValue({
+      integrations: [{ ...row, claimed_at: '2026-09-23T00:00:00.000Z' }],
+      owned: [],
+    });
+    const announce = vi.spyOn(TestBed.inject(VendorPortalAnnouncer), 'announce');
+    const fixture = await create(row);
+    q<HTMLButtonElement>(fixture, '[data-testid="claim-integration"]')!.click();
+    await settle(fixture);
+    expect(api.claimIntegration).toHaveBeenCalledWith(row.id);
+    expect(announce).toHaveBeenCalledWith(expect.stringContaining('no longer updates it'));
+  });
+
+  it('renders the entitlement refusal in an alert', async () => {
+    api.claimIntegration.mockRejectedValue(apiError(403, 'INTEGRATION_ENTITLEMENT_REQUIRED'));
+    const fixture = await create({ ...OWNED, attestable: false });
+    q<HTMLButtonElement>(fixture, '[data-testid="claim-integration"]')!.click();
+    await settle(fixture);
+    expect(q(fixture, '[role="alert"]')!.textContent).toContain('needs an active plan');
   });
 
   it('tells a non-owner who offers it and who reviews a contest', async () => {
