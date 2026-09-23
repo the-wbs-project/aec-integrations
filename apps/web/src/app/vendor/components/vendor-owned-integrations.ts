@@ -19,6 +19,7 @@ import { vendorHasActiveEntitlement } from '../vendor-capabilities';
 import { VendorPortalStore } from '../vendor-portal-store';
 
 import { VendorIntegrationEditForm } from './vendor-integration-edit-form';
+import { VENDOR_EDIT_FORM_START_OPEN } from './vendor-integration-ownership';
 import { claimErrorMessage } from './vendor-integration-ownership-labels';
 
 /** Where the owner stands on one owned row. `claimed-needs-plan` is a claimed
@@ -257,8 +258,13 @@ export class VendorOwnedIntegrations {
   private readonly statusLines = viewChildren<ElementRef<HTMLParagraphElement>>('status');
   private readonly editTriggers = viewChildren<ElementRef<HTMLButtonElement>>('editTrigger');
 
-  /** The one row whose edit form is open, or `null`. */
-  protected readonly editingId = signal<string | null>(null);
+  /** The one row whose edit form is open, or `null`. The dev preview's `?edit=<id>`
+   *  (`VENDOR_EDIT_FORM_START_OPEN`) opens it on first paint, for the detector; a
+   *  row that is not claimed and editable ignores it (the form renders only in the
+   *  `claimed` state). */
+  protected readonly editingId = signal<string | null>(
+    inject(VENDOR_EDIT_FORM_START_OPEN, { optional: true }) ?? null,
+  );
 
   protected readonly claimingId = signal<string | null>(null);
   protected readonly notice = signal<{ id: string; message: string } | null>(null);
