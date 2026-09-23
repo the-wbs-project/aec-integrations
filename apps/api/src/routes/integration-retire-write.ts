@@ -54,7 +54,7 @@ import {
 } from '../lib/integration-retire';
 import { publicSiteBase } from '../lib/public-urls';
 import { integrationCountRecomputeStmt } from '../lib/recompute-counts';
-import { logToPosthog, submitCount, submitDistribution } from '../posthog';
+import { logToPosthog, submitCount, submitDistribution, submitMetricsBatch } from '../posthog';
 import { dispatchHook, type PromoteRunCtx } from './promote';
 import { pairCacheTag } from './promote-pair';
 import { closeWorkflow } from './vendor-contests';
@@ -309,6 +309,10 @@ export async function syncOwnerWriteSearch(
           submitCount(c.executionCtx, c.env, c.req.raw, metric, value, tags),
         distribution: (metric, value, tags) =>
           submitDistribution(c.executionCtx, c.env, c.req.raw, metric, value, tags),
+        // ONE request for the whole run (AECI-1092 review): this runs on a request
+        // path beside the purge, the audit forward and, on a contest accept, the
+        // Linear filing, so one request per point could pass the connection limit.
+        batch: (points) => submitMetricsBatch(c.executionCtx, c.env, c.req.raw, points),
       },
       'vendor',
       results,

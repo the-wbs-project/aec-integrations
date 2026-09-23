@@ -114,3 +114,21 @@ describe('emitAlgoliaSyncMetrics', () => {
     ]);
   });
 });
+
+describe('emitAlgoliaSyncMetrics with a batch sink (AECI-1092 review)', () => {
+  it('hands every point to ONE batch call and none to the single-point submitters', () => {
+    const sink = recordingSink();
+    const batches: unknown[][] = [];
+    emitAlgoliaSyncMetrics(
+      { ...sink, batch: (points) => batches.push(points) },
+      'vendor',
+      [result({ entity: 'integrations', saved: 1 }), result({ entity: 'products' })],
+      12,
+    );
+    expect(batches).toHaveLength(1);
+    // Three counts per entity plus one run duration.
+    expect(batches[0]).toHaveLength(7);
+    expect(sink.counts).toHaveLength(0);
+    expect(sink.dists).toHaveLength(0);
+  });
+});

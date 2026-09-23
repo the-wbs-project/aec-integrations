@@ -1011,9 +1011,122 @@ describe('ruling B, the races and the edges (review MINOR 5)', () => {
         )
         .run(uuid(20_000 + i), uuid(10_000 + i), VENDOR_A, VENDOR_B, CLAIMED_AT, CLAIMED_AT);
     }
+    // D1 caps bound parameters per statement at 100; local SQLite allows far more,
+    // so the harness would hide an unchunked `IN (…)`. Refuse such a statement here.
+    const prepare = t.raw.prepare.bind(t.raw);
+    const capped = vi.spyOn(t.raw, 'prepare').mockImplementation(((sqlText: string) => {
+      const params = (sqlText.match(/\?/g) ?? []).length;
+      if (params > 100) throw new Error(`D1 bound-parameter cap: ${params} > 100`);
+      return prepare(sqlText);
+    }) as typeof t.raw.prepare);
+    try {
+      const actor = { actorId: ADMIN, actorType: 'admin' as const };
+      const plan = await planEntitlementClearReroute(t.db, VENDOR_B, actor, CLAIMED_AT);
+      expect(plan.rerouted).toBe(130);
+      await expect(t.db.batch(plan.stmts as unknown as BatchTuple)).resolves.toBeDefined();
+    } finally {
+      capped.mockRestore();
+    }
+  });
+
+  it('retries a submit once after losing to a clear, and routes it to AECi (ruling E)', async () => {
+    await claimPair();
+    await entitle(VENDOR_T);
+    // The clear commits between the submit's read and its first batch; it stays.
+    factory = wrappedFactory(async (attempt, run) => {
+      if (attempt === 1) {
+        t.raw
+          .prepare(`UPDATE vendor_entitlements SET status = 'revoked' WHERE vendor_id = ?`)
+          .run(VENDOR_T);
+      }
+      return run();
+    });
+    const res = await submitPair(AUTH_A, DOCS);
+    expect(res.status).toBe(201);
+    expect(res.body.contest.routed_to).toBe('aeci');
+    expect(await t.db.select().from(integrationFieldChallenges)).toHaveLength(1);
+    // No notification to the owner: it never became the decider.
+    expect(await actions()).not.toContain('notification.sent');
+  });
+});
+
+describe('the entitled-owner branch of a row becoming connector-powered (re-review)', () => {
+  beforeEach(async () => {
+    await entitle(VENDOR_B);
+  });
+
+  async function ownerNameContest(): Promise<string> {
+    const res = await submitIntegration(AUTH_A, I_PLAIN, {
+      field: 'name',
+      proposed_value: 'Better name',
+      reason: 'x',
+    });
+    expect(res.body.contest.routed_to).toBe('owner');
+    return res.body.contest.id as string;
+  }
+
+  async function aeciTypeContest(): Promise<string> {
+    const res = await submitIntegration(AUTH_A, I_PLAIN, {
+      field: 'mechanism_kind',
+      proposed_value: 'iPaaS',
+      reason: 'x',
+    });
+    expect(res.body.contest.routed_to).toBe('aeci');
+    return res.body.contest.id as string;
+  }
+
+  it('aborts the accept when a clear commits first (ownerEntitlementActiveSentinel)', async () => {
+    const name = await ownerNameContest();
+    const toIpaas = await aeciTypeContest();
+    // The clear lands after the accept read the entitlement, before its batch. Its
+    // own re-route saw a row that was not connector-powered, so it moved nothing.
+    factory = racingFactory(() => {
+      t.raw
+        .prepare(`UPDATE vendor_entitlements SET status = 'revoked' WHERE vendor_id = ?`)
+        .run(VENDOR_B);
+    });
+    const res = await call(
+      AUTH_ADMIN,
+      `/api/admin/contests/${toIpaas}`,
+      { decision: 'accept' },
+      'PATCH',
+    );
+    expect(res.status).toBe(409);
+    expect(res.body.error.code).toBe('CONTEST_INTEGRATION_CHANGED');
+    expect(
+      (await t.db.select().from(integrations).where(eq(integrations.id, I_PLAIN)))[0]!
+        .mechanismKind,
+    ).toBe('native');
+    expect((await contest(toIpaas)).status).toBe('open');
+    expect((await contest(name)).routedTo).toBe('owner');
+  });
+
+  it('moves the clear’s fingerprint, so a clear planned before the accept re-plans (the touch)', async () => {
+    const name = await ownerNameContest();
+    const toIpaas = await aeciTypeContest();
+    // Make the kept contest clearly older than the accept's commit.
+    t.raw
+      .prepare(`UPDATE integration_field_challenges SET updated_at = ? WHERE id = ?`)
+      .run('2026-01-01T00:00:00.000Z', name);
     const actor = { actorId: ADMIN, actorType: 'admin' as const };
-    const plan = await planEntitlementClearReroute(t.db, VENDOR_B, actor, CLAIMED_AT);
-    expect(plan.rerouted).toBe(130);
-    await expect(t.db.batch(plan.stmts as unknown as BatchTuple)).resolves.toBeDefined();
+    // The clear plans while the row is still ordinary: it would move nothing.
+    const stalePlan = await planEntitlementClearReroute(t.db, VENDOR_B, actor, CLAIMED_AT);
+    expect(stalePlan.rerouted).toBe(0);
+    const res = await call(
+      AUTH_ADMIN,
+      `/api/admin/contests/${toIpaas}`,
+      { decision: 'accept' },
+      'PATCH',
+    );
+    expect(res.status).toBe(200);
+    expect((await contest(name)).routedTo).toBe('owner');
+    // The stale plan must not commit: its fingerprint no longer matches.
+    const stale = await t.db
+      .batch(stalePlan.stmts as unknown as BatchTuple)
+      .catch((e: unknown) => e);
+    expect(isContestRaceError(stale)).toBe(true);
+    // A fresh plan sees the row as connector-powered and moves the contest.
+    const fresh = await planEntitlementClearReroute(t.db, VENDOR_B, actor, CLAIMED_AT);
+    expect(fresh.rerouted).toBe(1);
   });
 });

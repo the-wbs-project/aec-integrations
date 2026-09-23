@@ -94,6 +94,15 @@ import { discardResponseBody } from './response-drain';
 
 export type PosthogLogLevel = 'debug' | 'info' | 'warn' | 'error';
 
+/** One metric point for {@link PosthogClient.submitMetricsBatch}. Each kind is sent
+ *  exactly as its single-point submitter sends it. */
+export type PosthogMetricPoint = {
+  kind: 'count' | 'distribution' | 'gauge';
+  metric: string;
+  value: number;
+  tags?: string[];
+};
+
 export type PosthogLogEvent = {
   message: string;
   level?: PosthogLogLevel;
@@ -165,6 +174,16 @@ export type PosthogClient = {
     metric: string,
     value: number,
     tags?: string[],
+  ): void;
+  /**
+   * N metric points → ONE request (the metrics twin of `logBatchToPosthog`, for a
+   * caller whose point count scales with its work, e.g. an Algolia sync run).
+   */
+  submitMetricsBatch(
+    ctx: WaitUntilContext,
+    env: PosthogEnv,
+    request: Request,
+    points: readonly PosthogMetricPoint[],
   ): void;
   submitGauge(
     ctx: WaitUntilContext,
@@ -544,15 +563,95 @@ export function createPosthogClient(config: PosthogClientConfig): PosthogClient 
     metric: Record<string, unknown>,
     label: string,
   ): void {
+    postMetrics(ctx, env, projectKey, [metric], label);
+  }
+
+  /** Several metric descriptors in ONE envelope, so ONE request. OTLP's
+   *  `scopeMetrics[].metrics` is an array for exactly this. */
+  function postMetrics(
+    ctx: WaitUntilContext,
+    env: PosthogEnv,
+    projectKey: string,
+    metrics: Record<string, unknown>[],
+    label: string,
+  ): void {
     const payload = {
       resourceMetrics: [
         {
           resource: { attributes: metricResourceAttributes(env) },
-          scopeMetrics: [{ scope: { name: SCOPE_NAME }, metrics: [metric] }],
+          scopeMetrics: [{ scope: { name: SCOPE_NAME }, metrics }],
         },
       ],
     };
     postToIntake(ctx, projectKey, `${ingestHost(env)}${METRICS_PATH}`, payload, label);
+  }
+
+  /** The OTLP descriptor for one point, the same shape each single-point submitter
+   *  builds (histogram with the ms bounds, monotonic delta sum, or gauge). */
+  function metricDescriptor(
+    point: PosthogMetricPoint,
+    timeUnixNano: string,
+  ): Record<string, unknown> {
+    const attributes = tagsToAttributes(point.tags ?? []);
+    if (point.kind === 'distribution') {
+      return {
+        name: point.metric,
+        unit: 'ms',
+        histogram: {
+          aggregationTemporality: TEMPORALITY_DELTA,
+          dataPoints: [
+            {
+              startTimeUnixNano: timeUnixNano,
+              timeUnixNano,
+              count: 1,
+              sum: point.value,
+              bucketCounts: bucketCountsFor(point.value),
+              explicitBounds: DURATION_BUCKET_BOUNDS,
+              attributes,
+            },
+          ],
+        },
+      };
+    }
+    if (point.kind === 'gauge') {
+      return {
+        name: point.metric,
+        gauge: {
+          dataPoints: [
+            { startTimeUnixNano: timeUnixNano, timeUnixNano, asDouble: point.value, attributes },
+          ],
+        },
+      };
+    }
+    return {
+      name: point.metric,
+      sum: {
+        aggregationTemporality: TEMPORALITY_DELTA,
+        isMonotonic: true,
+        dataPoints: [
+          { startTimeUnixNano: timeUnixNano, timeUnixNano, asDouble: point.value, attributes },
+        ],
+      },
+    };
+  }
+
+  /** N points, ONE request (see the interface). Never posts an empty batch. */
+  function submitMetricsBatch(
+    ctx: WaitUntilContext,
+    env: PosthogEnv,
+    _request: Request,
+    points: readonly PosthogMetricPoint[],
+  ): void {
+    const projectKey = env.POSTHOG_PROJECT_KEY;
+    if (!projectKey || points.length === 0) return;
+    const timeUnixNano = nowUnixNano();
+    postMetrics(
+      ctx,
+      env,
+      projectKey,
+      points.map((point) => metricDescriptor(point, timeUnixNano)),
+      'submitMetricsBatch',
+    );
   }
 
   /**
@@ -898,6 +997,7 @@ export function createPosthogClient(config: PosthogClientConfig): PosthogClient 
     submitDistribution,
     submitCount,
     submitGauge,
+    submitMetricsBatch,
     captureEvent,
     captureException,
     isFeatureEnabled,

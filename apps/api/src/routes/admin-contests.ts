@@ -70,7 +70,7 @@ import {
 } from '@aeci/shared';
 import type { AuditLogEntry } from '@aeci/shared/audit-log';
 import type { WorkflowTransitionEntry } from '@aeci/shared/workflow-transition';
-import { and, asc, count, desc, eq, inArray } from 'drizzle-orm';
+import { and, asc, count, desc, eq, inArray, sql } from 'drizzle-orm';
 import type { Context } from 'hono';
 
 import { getDb, type Db } from '../db/client';
@@ -593,7 +593,7 @@ async function rerouteOwnerContests(
  *    (ruling B: deciding is an owner write, and ruling E would have sent them to AECi).
  *
  * An entitled owner keeps its content contests, as ruling B allows. Those rows get an
- * `updated_at` touch in the same batch, and `ownerEntitlementActiveSentinel` guards
+ * `updated_at` touch (the DB clock at commit) in the same batch, and `ownerEntitlementActiveSentinel` guards
  * the batch: a clear committing first aborts this accept, and a clear that planned
  * before this commit sees the touch move its fingerprint and re-plans against the
  * now connector-powered row. The touch changes no state, so it writes no audit row.
@@ -639,7 +639,11 @@ async function rerouteOnBecomingConnectorPowered(
       ownerEntitlementActiveSentinel(db, ownerVendorId),
       db
         .update(integrationFieldChallenges)
-        .set({ updatedAt: now })
+        // The DB clock AT COMMIT, not the request's `now` (review): the touch must be
+        // newer than any contest updated before this batch lands, or a clear that
+        // planned in between could see an unchanged MAX(updated_at). The format is
+        // `toISOString()`'s (`YYYY-MM-DDTHH:MM:SS.sssZ`), so ordering stays lexical.
+        .set({ updatedAt: sql`strftime('%Y-%m-%dT%H:%M:%fZ', 'now')` })
         .where(
           and(
             inArray(
