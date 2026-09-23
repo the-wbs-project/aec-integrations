@@ -216,6 +216,12 @@ describe('GET /api/vendor/integrations — owned rows (AECI-1089)', () => {
       claimed_at: null,
       retired_at: null,
       retired_by: null,
+      // AECI-1090: the edit form's starting values. A pair has no type.
+      contestable_fields: expect.objectContaining({
+        name: 'Revit and MicroStation via Bridge',
+        mechanism_kind: null,
+        owner: VENDOR_T,
+      }),
     });
     const row = body.owned.find((r: JsonBody) => r.id === I_T);
     expect(row).toMatchObject({
@@ -225,6 +231,32 @@ describe('GET /api/vendor/integrations — owned rows (AECI-1089)', () => {
       product_b: expect.objectContaining({ id: P_MICRO }),
       connector: expect.objectContaining({ id: P_BRIDGE }),
       connector_powered: true,
+    });
+  });
+
+  it('carries each owned row’s values on record, direction framed against product_a (AECI-1090)', async () => {
+    await t.db
+      .update(connectorEvidencedPairs)
+      .set({ direction: 'b_to_a', website: 'https://bridge.example/pair' })
+      .where(eq(connectorEvidencedPairs.id, E_T));
+    await t.db
+      .update(integrations)
+      .set({ direction: 'a_to_b', maturity: 'GA' })
+      .where(eq(integrations.id, I_T));
+    const body = await list(AUTH_T);
+    const pair = body.owned.find((r: JsonBody) => r.id === E_T);
+    // Stored B to A, framed against A (REVIT): A receives, so `inbound`.
+    expect(pair.contestable_fields).toMatchObject({
+      direction: 'inbound',
+      website: 'https://bridge.example/pair',
+      mechanism_kind: null,
+    });
+    const row = body.owned.find((r: JsonBody) => r.id === I_T);
+    // An `integrations` row's product_a is its source, so a_to_b reads `outbound`.
+    expect(row.contestable_fields).toMatchObject({
+      direction: 'outbound',
+      maturity: 'GA',
+      mechanism_kind: 'iPaaS',
     });
   });
 

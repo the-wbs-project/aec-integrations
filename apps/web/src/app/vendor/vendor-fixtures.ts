@@ -1221,6 +1221,11 @@ export const VENDOR_OWNED_INTEGRATIONS_FIXTURE: readonly OwnedIntegration[] = [
     claimed_at: null,
     retired_at: null,
     retired_by: null,
+    contestable_fields: {
+      ...EMPTY_CONTESTABLE_FIELDS,
+      name: 'Summit Model Coordination and Procore via Agave',
+      owner: SUMMIT_VENDOR.id,
+    },
   },
   {
     id: '00000000-0000-4000-8000-00000000531a',
@@ -1240,6 +1245,19 @@ export const VENDOR_OWNED_INTEGRATIONS_FIXTURE: readonly OwnedIntegration[] = [
     claimed_at: '2026-09-22T00:00:00.000Z',
     retired_at: null,
     retired_by: null,
+    // AECI-1090: the values the owner's edit form starts from. A pair has no type,
+    // and `direction` is framed against product_a.
+    contestable_fields: {
+      ...EMPTY_CONTESTABLE_FIELDS,
+      name: 'Summit Model Coordination and Autodesk Build via Kroo',
+      mechanism_name: 'Kroo Connector',
+      direction: 'outbound',
+      description: 'Sends coordination issues to Autodesk Build through Kroo.',
+      website: 'https://summitbim.example.com/kroo',
+      pricing_model: 'Subscription',
+      maturity: 'GA',
+      owner: SUMMIT_VENDOR.id,
+    },
   },
 ];
 

@@ -1072,9 +1072,12 @@ authVendor.post(
   createRestoreIntegrationHandler(),
 );
 // AECI-1006 / ADR 0035: the claimed owner edits the integration's standard fields
-// (the eleven contestable content fields). A SEAT IS THE WHOLE GATE (decision 15),
-// as for the claim above. Gate order: `requireVendor()` → `rateLimit('write')` →
-// ownership → connector-powered → claimed, the last three inside the handler
+// (the eleven contestable content fields), on an `integrations` row or, since
+// AECI-1090, a `connector_evidenced_pairs` row. A SEAT IS THE WHOLE GATE (decision
+// 15) on an ordinary row, as for the claim above. The named exception (AECI-1040
+// ruling 2): a connector-powered row also needs an active entitlement. Gate order:
+// `requireVendor()` → `rateLimit('write')` → ownership → entitlement on a
+// connector-powered row → claimed, the last three inside the handler
 // (`lib/integration-owner-writes.ts`). The GET list above is a different path.
 authVendor.patch(
   '/api/vendor/integrations/:id',

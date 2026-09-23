@@ -276,6 +276,8 @@ export function createUpdateVendorIntegrationHandler(
           fields: changed,
           // Present only on the hand-changing write, never as `false` (§13.9).
           ...(isMaintenanceTransfer(row) ? { maintenanceTransfer: true } : {}),
+          // AECI-1090: present only on the carve-out, the markers the claim writes.
+          ...(connectorPowered ? { connectorPowered: true, anchor: 'integration' } : {}),
         },
       },
       ...recipients.map((recipient) =>

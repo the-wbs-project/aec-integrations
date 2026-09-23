@@ -596,6 +596,44 @@ export class PreviewVendorApi extends VendorApi {
     integrationId: string,
     body: UpdateVendorIntegrationInput,
   ): Promise<UpdateVendorIntegrationResponse> {
+    // AECI-1090: an owned row outside the attestable list (an evidenced pair). Its
+    // values are framed against product_a, as the form sends them, and a pair has no
+    // type, so a type in the body is refused as the handler refuses it.
+    const owned = (this.integrations.owned ?? []).find((row) => row.id === integrationId);
+    if (owned) {
+      const entitled = (this.me?.entitlement.tier ?? 'unclaimed') !== 'unclaimed';
+      if (owned.connector_powered && !entitled) {
+        throw apiError(403, 'INTEGRATION_ENTITLEMENT_REQUIRED', 'Needs an active plan');
+      }
+      if (!owned.claimed_at) throw apiError(409, 'INTEGRATION_NOT_CLAIMED', 'Claim it first');
+      const changed: (typeof INTEGRATION_EDIT_FIELDS)[number][] = [];
+      for (const field of INTEGRATION_EDIT_FIELDS) {
+        const raw = body[field];
+        if (raw === undefined) continue;
+        const value = raw === null || raw.trim() === '' ? null : raw.trim();
+        if (field === 'mechanism_kind' && owned.anchor === 'evidenced_pair') {
+          throw apiError(422, 'INTEGRATION_INVALID_VALUE', 'No type on this row', { field });
+        }
+        const problem = integrationEditValueProblem(field, value);
+        if (problem) throw apiError(422, 'INTEGRATION_INVALID_VALUE', problem, { field });
+        if (value === (owned.contestable_fields[field] ?? null)) continue;
+        changed.push(field);
+        owned.contestable_fields = { ...owned.contestable_fields, [field]: value };
+        if (field === 'name') owned.name = value;
+        if (field === 'mechanism_name') owned.mechanism_name = value;
+      }
+      const at = '2026-09-23T12:00:00.000Z';
+      return {
+        integration: {
+          id: integrationId,
+          changed,
+          maintained_by: 'vendor',
+          last_reviewed_at: at,
+          updated_at: at,
+        },
+      };
+    }
+
     const entries = this.integrations.integrations.filter((i) => i.id === integrationId);
     const integration = entries[0];
     if (!integration) throw apiError(404, 'NOT_FOUND', 'Integration not found');

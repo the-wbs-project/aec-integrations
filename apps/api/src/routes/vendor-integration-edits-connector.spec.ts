@@ -41,6 +41,7 @@ import {
   INTEGRATION_UPDATED_ACTION,
 } from './vendor-integration-edits';
 import { createListVendorNotificationsHandler } from './vendor-notifications';
+import { createVendorUpdatesHandler } from './vendor-updates';
 
 const uuid = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
 
@@ -219,6 +220,7 @@ function app(auth: Auth, handler = createUpdateVendorIntegrationHandler(t.factor
   });
   a.patch('/api/vendor/integrations/:id', handler);
   a.get('/api/vendor/notifications', createListVendorNotificationsHandler(t.factory));
+  a.get('/api/vendor/updates', createVendorUpdatesHandler(t.factory));
   return a;
 }
 
@@ -296,6 +298,9 @@ describe('a connector-powered integrations row (AECI-1090)', () => {
     expect(audit!.metadata).toMatchObject({
       reason: 'owner-edit',
       fields: ['name', 'description'],
+      // The carve-out markers the AECI-1089 claim writes.
+      connectorPowered: true,
+      anchor: 'integration',
     });
     const notes = await notificationRows();
     expect(notes.map((n) => (n.metadata as { vendorId: string }).vendorId)).toEqual([VENDOR_A]);
@@ -421,7 +426,10 @@ describe('a connector_evidenced_pairs row (AECI-1090)', () => {
       reason: 'owner-edit',
       fields: ['name'],
       maintenanceTransfer: true,
+      connectorPowered: true,
+      anchor: 'evidenced_pair',
     });
+    expect(rows[0]!.metadata).not.toHaveProperty('table');
   });
 
   it('notifies both endpoint vendors, never the owner or the connector vendor, and feeds it', async () => {
@@ -448,6 +456,24 @@ describe('a connector_evidenced_pairs row (AECI-1090)', () => {
         pair_path: '/products/microstation/integrations/revit',
       }),
     ]);
+  });
+
+  it('moves the owner’s owned-rows freshness cursor (AECI-1089)', async () => {
+    // The owner holds neither endpoint, so only the owned-rows statement over
+    // `connector_evidenced_pairs.updated_at` can see this write.
+    const before = await call(AUTH_C, '/api/vendor/updates', { method: 'GET' });
+    expect(before.status).toBe(200);
+    await edit(AUTH_C, E_OWNED, { maturity: 'GA' });
+    const after = await call(AUTH_C, '/api/vendor/updates', { method: 'GET' });
+    expect(after.body.revisions.integrations).not.toBe(before.body.revisions.integrations);
+    expect(after.body.revisions.integrations).toBe((await evPair(E_OWNED)).updatedAt);
+  });
+
+  it('notifies with the claim’s entity type on each notification row', async () => {
+    await edit(AUTH_C, E_OWNED, { maturity: 'GA' });
+    const rows = await notificationRows();
+    expect(rows.length).toBeGreaterThan(0);
+    for (const row of rows) expect(row.entityId).toBe(E_OWNED);
   });
 
   it('purges the pair page, both endpoint pages and the connector page', async () => {

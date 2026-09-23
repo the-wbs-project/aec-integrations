@@ -9,6 +9,10 @@
  *      status line with no action.
  *   3. A claim announces, revalidates `integrations` and moves focus to the row's
  *      status line. A refusal renders its own sentence in a `role="alert"`.
+ *   4. AECI-1090: a claimed row offers Edit details. The form starts at the values on
+ *      record, leaves out the frozen type on a connector-delivered row, sends only
+ *      what changed framed against product_a, and returns focus to its trigger.
+ *      Without an active plan a claimed connector-delivered row says one is needed.
  */
 import { HttpErrorResponse, provideHttpClient } from '@angular/common/http';
 import { provideZonelessChangeDetection } from '@angular/core';
@@ -47,6 +51,7 @@ const ELSEWHERE: OwnedIntegration = {
 
 let api: {
   claimIntegration: ReturnType<typeof vi.fn>;
+  updateIntegration: ReturnType<typeof vi.fn>;
   getIntegrations: ReturnType<typeof vi.fn>;
   getContests: ReturnType<typeof vi.fn>;
 };
@@ -59,6 +64,7 @@ beforeEach(() => {
   TestBed.resetTestingModule();
   api = {
     claimIntegration: vi.fn(),
+    updateIntegration: vi.fn(),
     getIntegrations: vi.fn().mockResolvedValue({
       integrations: [],
       owned: [...VENDOR_OWNED_INTEGRATIONS_FIXTURE],
@@ -169,13 +175,14 @@ describe('VendorOwnedIntegrations — what it shows', () => {
     expect(intro).toContain('connect products your company does not make');
   });
 
-  it('offers Claim on an unclaimed row with an active plan, and nothing on a claimed one', async () => {
+  it('offers Claim on an unclaimed row with an active plan, and Edit on a claimed one', async () => {
     const fixture = await create();
     expect(
       rowEl(fixture, UNCLAIMED.id)!.querySelector('[data-testid="claim-owned-integration"]'),
     ).not.toBeNull();
     const claimed = rowEl(fixture, CLAIMED.id)!;
-    expect(claimed.querySelector('button')).toBeNull();
+    expect(claimed.querySelector('[data-testid="claim-owned-integration"]')).toBeNull();
+    expect(claimed.querySelector('[data-testid="edit-owned-integration"]')).not.toBeNull();
     expect(claimed.textContent).toContain('Your company owns this integration');
   });
 
@@ -212,7 +219,7 @@ describe('VendorOwnedIntegrations — what it shows', () => {
 });
 
 describe('VendorOwnedIntegrations — the claim', () => {
-  it('claims, announces, revalidates and moves focus to the status line', async () => {
+  it('claims, announces, revalidates and moves focus to the Edit trigger that replaced it', async () => {
     const fixture = await create();
     api.claimIntegration.mockResolvedValue({});
     api.getIntegrations.mockResolvedValue({
@@ -228,6 +235,29 @@ describe('VendorOwnedIntegrations — the claim', () => {
 
     expect(api.claimIntegration).toHaveBeenCalledWith(UNCLAIMED.id);
     expect(announce).toHaveBeenCalledWith(expect.stringContaining('You claimed this integration'));
+    const row = rowEl(fixture, UNCLAIMED.id)!;
+    expect(row.querySelector('[data-testid="claim-owned-integration"]')).toBeNull();
+    // AECI-1090: a claimed row offers Edit, so focus lands on it.
+    expect(document.activeElement).toBe(
+      row.querySelector('[data-testid="edit-owned-integration"]'),
+    );
+  });
+
+  it('moves focus to the status line when the claimed row offers no Edit', async () => {
+    const fixture = await create();
+    api.claimIntegration.mockResolvedValue({});
+    // The plan lapsed between the claim and the refetch: no Edit on the row.
+    api.getIntegrations.mockImplementation(async () => {
+      TestBed.inject(VendorPortalStore).seed(VENDOR_ME_UNVERIFIED_FIXTURE);
+      return {
+        integrations: [],
+        owned: [{ ...UNCLAIMED, claimed_at: '2026-09-23T00:00:00.000Z' }, CLAIMED],
+      };
+    });
+    rowEl(fixture, UNCLAIMED.id)!
+      .querySelector<HTMLButtonElement>('[data-testid="claim-owned-integration"]')!
+      .click();
+    await settle(fixture);
     const row = rowEl(fixture, UNCLAIMED.id)!;
     expect(row.querySelector('button')).toBeNull();
     expect(document.activeElement).toBe(row.querySelector('[data-testid="owned-status"]'));
@@ -248,5 +278,89 @@ describe('VendorOwnedIntegrations — the claim', () => {
     await settle(fixture);
     const alert = rowEl(fixture, UNCLAIMED.id)!.querySelector('[role="alert"]')!;
     expect(alert.textContent).toContain(text);
+  });
+});
+
+describe('VendorOwnedIntegrations — the edit (AECI-1090)', () => {
+  const trigger = (fixture: ComponentFixture<unknown>) =>
+    rowEl(fixture, CLAIMED.id)!.querySelector<HTMLButtonElement>(
+      '[data-testid="edit-owned-integration"]',
+    )!;
+  const field = (fixture: ComponentFixture<unknown>, name: string) =>
+    rowEl(fixture, CLAIMED.id)!.querySelector<HTMLInputElement>(`[id$="-${name}"]`);
+
+  async function open(): Promise<ComponentFixture<VendorOwnedIntegrations>> {
+    const fixture = await create();
+    trigger(fixture).click();
+    await settle(fixture);
+    return fixture;
+  }
+
+  it('opens the form at the values on record, without the frozen type', async () => {
+    const fixture = await open();
+    expect(trigger(fixture).getAttribute('aria-expanded')).toBe('true');
+    expect(field(fixture, 'name')!.value).toBe(CLAIMED.contestable_fields['name']);
+    expect(field(fixture, 'maturity')!.value).toBe('GA');
+    expect(field(fixture, 'mechanism_kind')).toBeNull();
+    expect(
+      rowEl(fixture, CLAIMED.id)!.querySelector('[data-testid="edit-frozen-type"]'),
+    ).not.toBeNull();
+  });
+
+  it('sends only what changed, framed against product_a, then closes and restores focus', async () => {
+    api.updateIntegration.mockResolvedValue({});
+    const announce = vi.spyOn(TestBed.inject(VendorPortalAnnouncer), 'announce');
+    const fixture = await open();
+    const input = field(fixture, 'maturity')!;
+    input.value = 'Beta';
+    input.dispatchEvent(new Event('input'));
+    await settle(fixture);
+    rowEl(fixture, CLAIMED.id)!.querySelector('form')!.dispatchEvent(new Event('submit'));
+    await settle(fixture);
+    expect(api.updateIntegration).toHaveBeenCalledWith(CLAIMED.id, {
+      maturity: 'Beta',
+      context_product_id: CLAIMED.product_a.id,
+    });
+    expect(announce).toHaveBeenCalledWith(expect.stringContaining('live on the public'));
+    expect(rowEl(fixture, CLAIMED.id)!.querySelector('form')).toBeNull();
+    expect(document.activeElement).toBe(trigger(fixture));
+  });
+
+  it('keeps the form open with the refusal in an alert', async () => {
+    api.updateIntegration.mockRejectedValue(apiError(403, 'INTEGRATION_ENTITLEMENT_REQUIRED'));
+    const fixture = await open();
+    const input = field(fixture, 'maturity')!;
+    input.value = 'Beta';
+    input.dispatchEvent(new Event('input'));
+    await settle(fixture);
+    rowEl(fixture, CLAIMED.id)!.querySelector('form')!.dispatchEvent(new Event('submit'));
+    await settle(fixture);
+    const alert = rowEl(fixture, CLAIMED.id)!.querySelector('form [role="alert"]');
+    expect(alert!.textContent).toContain('needs an active plan');
+  });
+
+  it('says a plan is needed, and offers no Edit, without an active entitlement', async () => {
+    TestBed.inject(VendorPortalStore).seed(VENDOR_ME_UNVERIFIED_FIXTURE);
+    const fixture = await create();
+    const row = rowEl(fixture, CLAIMED.id)!;
+    expect(row.querySelector('[data-testid="edit-owned-integration"]')).toBeNull();
+    expect(row.querySelector('[data-testid="edit-needs-plan"]')!.textContent).toContain(
+      'needs an active plan',
+    );
+  });
+
+  it('offers Edit with the type on a claimed owned row that is not connector-delivered', async () => {
+    TestBed.inject(VendorPortalStore).seed(VENDOR_ME_UNVERIFIED_FIXTURE);
+    const ordinary: OwnedIntegration = {
+      ...CLAIMED,
+      anchor: 'integration',
+      mechanism_kind: 'api',
+      connector_powered: false,
+      contestable_fields: { ...CLAIMED.contestable_fields, mechanism_kind: 'api' },
+    };
+    const fixture = await create([ordinary]);
+    trigger(fixture).click();
+    await settle(fixture);
+    expect(field(fixture, 'mechanism_kind')).not.toBeNull();
   });
 });

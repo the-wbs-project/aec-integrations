@@ -33,8 +33,9 @@
  * The guarded `UPDATE … WHERE built_by_vendor_id = <caller> AND claimed_at IS NOT
  * NULL AND retired_at IS NULL` (changed columns, §13.9's maintenance transfer,
  * `updated_at`), `ownerWriteSentinel` right after it, the `integration.updated`
- * audit row (`reason: 'owner-edit'`, `entity_type` `connector_evidenced_pair`, as
- * promote and the AECI-1089 claim write it for this table), and one
+ * audit row (`reason: 'owner-edit'`, `entity_type` `connector_evidenced_pair` and
+ * `metadata { connectorPowered: true, anchor: 'evidenced_pair' }`, as the AECI-1089
+ * claim writes them), and one
  * `notification.sent` row (`kind: 'integration_update'`, `entity_type`
  * `integration`, like the claim's notification) per vendor of either endpoint other
  * than the owner. The `updated_at` bump moves the owner's owned-rows freshness
@@ -251,7 +252,7 @@ export async function editEvidencedPair(
     {
       ...actor,
       action: INTEGRATION_UPDATED_ACTION,
-      // The entity vocabulary promote and the AECI-1089 claim write for this table.
+      // The entity type the AECI-1089 claim writes for this table.
       entityType: 'connector_evidenced_pair',
       entityId: pairId,
       beforeState,
@@ -262,6 +263,9 @@ export async function editEvidencedPair(
         reason: 'owner-edit',
         fields: changed,
         ...(isMaintenanceTransfer(pair) ? { maintenanceTransfer: true } : {}),
+        // The same carve-out markers the AECI-1089 claim writes.
+        connectorPowered: true,
+        anchor: 'evidenced_pair',
       },
     },
     ...recipients.map((recipient) =>
