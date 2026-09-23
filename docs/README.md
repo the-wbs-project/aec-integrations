@@ -44,6 +44,7 @@ This directory holds the planning, architecture, and operational documentation f
 | [`linear-issue-conventions.md`](./linear-issue-conventions.md) | Active | How an AECi Linear issue is written so an agent can resolve what governs it: the `**Spec section:**` anchor grammar and its `n/a` form, the three-repo title-prefix routing, and the checked-in mirror of the team's Linear issue templates (AECI-601). |
 | [`CODE_REVIEW_CHECKLIST.md`](./CODE_REVIEW_CHECKLIST.md) | Active | Pre-merge review checklist for LLM and human reviewers. Severity model, output format. |
 | [`CODE_REVIEW_EXEMPTIONS.md`](./CODE_REVIEW_EXEMPTIONS.md) | Active | Accepted/deferred review findings and their expiry rules. Loaded alongside the checklist on every review. |
+| [`STAGE_2_1_REHEARSAL.md`](./STAGE_2_1_REHEARSAL.md) | Active (script, no run yet) | Stage 2.1 dress rehearsal (AECI-1103): the numbered vendor-lifecycle script from claim to seat revoke, with the surface, expected state, evidence and vendor-guide page per step. Defines what counts as manual DB intervention and holds the run log for the staging and dark-production sittings. |
 | [`SEARCH_RANKING.md`](./SEARCH_RANKING.md) | Active | Canonical search-ranking spec: per-index searchable attributes, custom ranking signals, mechanism-kind priority, tie-breakers, and the post-launch tuning/feedback loop. Lifts `STAGE_1_SPEC.md` §7.3. |
 
 ### Design and brand
