@@ -17,12 +17,15 @@
  *    in its own wave, before the body is even looked at. A product the caller's
  *    vendor does not own is indistinguishable from one that does not exist — the
  *    AECI-520 non-disclosure rule.
- * 2. **Verified → 403**, on the WRITES only. Authoring is a Verified-vendor
- *    capability (§1); `GET` is not gated, so the §6 dashboard can render the tab
- *    read-only and explain why rather than 403-ing a vendor out of its own data.
+ * 2. **Capability → 403 `ENTITLEMENT_REQUIRED`**, on the WRITES only:
+ *    `requireCapability(c, 'attestation.author')` over the session's tier
+ *    (AECI-623; `STAGE_2_PAID_TIERS_SPEC.md` §3.3(a)). Versions exist only to
+ *    stamp attestations, so they share that capability. `GET` is not gated, so
+ *    the §6 dashboard can render the tab read-only and explain why rather than
+ *    403-ing a vendor out of its own data.
  *
- * Ownership is checked before verification so an unverified NON-owner still gets
- * a flat 404 and learns nothing about the product.
+ * Ownership is checked before the capability so a NON-owner without it still
+ * gets a flat 404 and learns nothing about the product.
  *
  * ── ORDERING ────────────────────────────────────────────────────────────────
  * Never by `label` (`'2026.10' < '2026.9'` as strings) and never by the nullable
@@ -70,7 +73,7 @@ import { productVersions } from '../db/schema';
 import { ApiError, notFoundError } from '../errors';
 import { json, noContent } from '../http';
 import { auditInsert, type BatchTuple } from '../lib/audit';
-import { auditActorType } from '../lib/authz';
+import { auditActorType, requireCapability } from '../lib/authz';
 import { VERSION_ORDER } from '../lib/drizzle-helpers';
 import { validateResponseInDev, writeDb, type DbFactory } from '../lib/handler-utils';
 import { readPairCounterpartSlugs } from '../lib/product-pair-slugs';
@@ -79,7 +82,6 @@ import { productVersionRecrawl } from './vendor-recrawl';
 import {
   AUDIT_SOURCE,
   afterVendorWrite,
-  assertVerifiedVendor,
   parseJsonBody,
   recrawlEnabled,
   productMaintenanceTransfer,
@@ -252,10 +254,10 @@ export function createProductVersionHandler(
     const { db } = writeDb(c, dbFor);
 
     // Ownership (404) settles before anything else, then the capability gate
-    // (403). Body parsing comes after both, so a malformed body from a
+    // (403 ENTITLEMENT_REQUIRED). Body parsing comes after both, so a malformed body from a
     // non-owning vendor still answers 404 rather than leaking a 400.
-    const { product, vendor } = await requireOwnedProduct(db, vendorId, productId);
-    assertVerifiedVendor(vendor);
+    const { product } = await requireOwnedProduct(db, vendorId, productId);
+    requireCapability(c, 'attestation.author');
 
     const payload = await parseJsonBody(c, CreateProductVersionSchema);
     await assertLabelFree(db, productId, payload.label);
@@ -335,8 +337,8 @@ export function createUpdateProductVersionHandler(
     const versionId = versionIdParam(c);
     const { db } = writeDb(c, dbFor);
 
-    const { product, vendor } = await requireOwnedProduct(db, vendorId, productId);
-    assertVerifiedVendor(vendor);
+    const { product } = await requireOwnedProduct(db, vendorId, productId);
+    requireCapability(c, 'attestation.author');
 
     const payload = await parseJsonBody(c, UpdateProductVersionSchema);
     const before = await loadOwnedVersion(db, productId, versionId);
@@ -427,8 +429,8 @@ export function createDeleteProductVersionHandler(
     const versionId = versionIdParam(c);
     const { db } = writeDb(c, dbFor);
 
-    const { product, vendor } = await requireOwnedProduct(db, vendorId, productId);
-    assertVerifiedVendor(vendor);
+    const { product } = await requireOwnedProduct(db, vendorId, productId);
+    requireCapability(c, 'attestation.author');
 
     const before = await loadOwnedVersion(db, productId, versionId);
 

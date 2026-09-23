@@ -470,7 +470,7 @@ Integration attestations are the one place that filter is not a single equality,
 | **both** endpoints | **both** slots |
 | neither | **404**, not 403 |
 
-**Ownership is necessary, not sufficient (AECI-705).** A second, edge-scoped check runs immediately after: a **connector-powered** integration — `powered_by_product_id` set, or `mechanism_kind = 'iPaaS'` — is not attestable by anyone, because neither endpoint vendor built the plumbing and the connector holds no seat. The full gate order on a write is therefore **authority → `404`, attestable edge → `403`, `vendors.verified` → `403`**, and that order is load-bearing: reversed, an unverified vendor on a powered edge is told to get verified in order to author, which verification will never deliver. It is a `403` rather than a `404` because the caller has *already* proven it owns an endpoint and powered-ness is public on the pair page, so the non-disclosure rule has nothing left to protect. **`DELETE` is exempt** — an edge can become powered after a vendor attests, and a vendor must always be able to withdraw. Contract: `docs/STAGE_2_ATTESTATIONS_SPEC.md` §14.
+**Ownership is necessary, not sufficient (AECI-705).** A second, edge-scoped check runs immediately after: a **connector-powered** integration — `powered_by_product_id` set, or `mechanism_kind = 'iPaaS'` — is not attestable by anyone, because neither endpoint vendor built the plumbing and the connector holds no seat. The full gate order on a write is therefore **authority → `404`, attestable edge → `403 FORBIDDEN`, `attestation.author` → `403 ENTITLEMENT_REQUIRED`** (AECI-623), and that order is load-bearing: reversed, a vendor without the capability on a powered edge is told to activate access in order to author, which no tier will ever deliver. It is a `403` rather than a `404` because the caller has *already* proven it owns an endpoint and powered-ness is public on the pair page, so the non-disclosure rule has nothing left to protect. **`DELETE` is exempt** — an edge can become powered after a vendor attests, and a vendor must always be able to withdraw. Contract: `docs/STAGE_2_ATTESTATIONS_SPEC.md` §14.
 
 Three rules bind here:
 
@@ -693,31 +693,28 @@ row filter RLS would have provided, and they are not optional:
    that should have been a flat `404`.
 
 **A third obligation applies to the version WRITES only** (AECI-607,
-`STAGE_2_ATTESTATIONS_SPEC.md` §1/§8.3): authoring is a **Verified-vendor
-capability**, so `POST` / `PATCH` / `DELETE` additionally require
-`vendors.verified` and answer **`403`** without it. Two details that are easy to
-get backwards:
+`STAGE_2_ATTESTATIONS_SPEC.md` §1/§8.3): authoring is the **`attestation.author`
+capability**, so `POST` / `PATCH` / `DELETE` additionally call
+`requireCapability(c, 'attestation.author')` and answer **`403
+ENTITLEMENT_REQUIRED`** without it (AECI-623). Two details that are easy to get
+backwards:
 
-- **Ownership (404) is evaluated before verification (403).** Reversed, the
+- **Ownership (404) is evaluated before the capability (403).** Reversed, the
   ordering would start leaking on the day a *verified* non-owner probes a
   product. `requireOwnedProduct()` loads the ownership row, the product and the
   caller's `vendors` row in one wave and then checks them in that fixed order.
 - **`GET` is not gated.** Reading your own product's versions is not the
   capability; authoring is. Gating the read would 403 a vendor out of its own
   data instead of letting the dashboard render a read-only tab that explains what
-  verification unlocks. The 403 copy points at the claim/verification flow and
-  **never at ranking, placement, or search** — no pay-for-placement.
-- The check lives in `assertVerifiedVendor()` (`routes/vendor-shared.ts`), a
-  deliberate **one-function stand-in** for the capability registry. It **reads**
-  `vendors.verified` and never writes it. **The registry has since landed**
-  (AECI-610/611): `@aeci/shared/entitlements` declares `attestation.author` and
-  `requireCapability()` is the general gate — but these routes are still gated on
-  the **mirror**, not the capability, and are now the last place in the portal not
-  driven by `capabilities`. That is a behavioural no-op today (the ladder is
-  binary, so `verified = 1` and `hasCapability(tier, 'attestation.author')` agree
-  on every row the mirror invariant permits) and a real divergence the moment a
-  rung is added between them. The one-function stand-in is what keeps the swap
-  mechanical. Tracked as **AECI-623**.
+  active access unlocks. The 403 copy points at activation and **never at
+  ranking, placement, or search** — no pay-for-placement.
+- The check is `requireCapability()` over the session's `entitlementTier`, the
+  same DB-free gate every other vendor write uses. Until **AECI-623** it was
+  `assertVerifiedVendor()`, a one-function stand-in that read the
+  `vendors.verified` mirror and answered `403 FORBIDDEN`. That stand-in is
+  deleted. No authorization decision reads the mirror any more; it survives only
+  for rendering (the public account badge, the version-diff depth gate). The
+  same capability gates the three attestation writes on `/api/vendor/claims*`.
 
 Two rejection cells are deliberate and easy to get wrong:
 

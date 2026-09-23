@@ -42,9 +42,10 @@
  * for one denial — an ops row and a counterparty row — and only the second is
  * addressed to a vendor id, so it is the only one this endpoint can return.
  *
- * **Not verified-gated.** `vendors.verified` gates authoring (§1), not reading —
- * an unverified vendor sees its own (probably empty) list rather than a 403 it
- * cannot act on. Same reasoning as `GET /api/vendor/products/:id/versions`.
+ * **Not capability-gated.** `attestation.author` gates authoring (§1), not
+ * reading (AECI-623) — a vendor without it sees its own (probably empty) list
+ * rather than a 403 it cannot act on. Same reasoning as
+ * `GET /api/vendor/products/:id/versions`.
  */
 
 import {

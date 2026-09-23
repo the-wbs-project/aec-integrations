@@ -460,10 +460,12 @@ export function productMaintenanceTransfer(
  * integration-grain `resolveAttestationSlots`: same `product_vendors` source,
  * same 404-never-403 property, different question. Neither re-derives the other.
  *
- * The caller's `vendors` row rides along because `assertVerifiedVendor` needs it
- * and a second round-trip on the Worker for one boolean is not worth it. The
- * three reads go in one wave and are then checked **in order** — ownership
- * first, so a non-owner gets a 404 rather than learning it is merely unverified.
+ * The caller's `vendors` row rides along in the same wave so a granted seat
+ * whose vendor row was deleted answers 404, as `GET /api/vendor/me` does. It is
+ * NOT an authorization input: the capability gate is `requireCapability`, which
+ * reads the session's `entitlementTier`, never the `vendors.verified` mirror
+ * (AECI-623). Callers run that gate after this returns, so a non-owner gets a
+ * 404 rather than learning it lacks the capability.
  */
 export async function requireOwnedProduct(
   db: Db,
@@ -482,36 +484,4 @@ export async function requireOwnedProduct(
   // answers 404 for the same state; do the same here rather than 500.
   if (!vendor) throw notFoundError('vendor', { id: vendorId });
   return { product, isPrimary: ownership.isPrimary, vendor };
-}
-
-/**
- * ⚠️ **PLACEHOLDER** — the `aeci-514`-local stand-in for
- * `requireCapability('attestation.author')`.
- *
- * Attestation authoring, and the product-version model that exists only to stamp
- * attestations, is a **Verified-vendor capability**
- * (`STAGE_2_ATTESTATIONS_SPEC.md` §1; `STAGE_2_SPEC.md` §8.1(3)), with
- * `vendors.verified` as the launch entitlement bit. AECI-610 has already shipped
- * the real registry on the `aeci-515` branch — `@aeci/shared/entitlements`
- * declares the `'attestation.author'` capability id — and AECI-611 adds the guard
- * that loads a tier onto the session. Neither is reachable from this branch, so
- * this is deliberately ONE function with ONE call site per handler: swapping it
- * for `requireCapability` at the `aeci-514`/`aeci-515` → `stage-2` merge is a
- * mechanical edit, not an audit.
- *
- * It **reads** `vendors.verified` and never writes it. On `aeci-515` an ESLint
- * rule makes the entitlement-mirror module the only writer of that column;
- * nothing here should give a future editor a reason to break that.
- *
- * The 403 copy points at the claim/verification flow and **never at ranking or
- * placement** — verification gates capability only (no pay-for-placement).
- */
-export function assertVerifiedVendor(vendor: Pick<VendorRow, 'verified'>): void {
-  if (!vendor.verified) {
-    throw new ApiError(
-      403,
-      'FORBIDDEN',
-      'This action requires a verified vendor account. Claim your company profile to get verified.',
-    );
-  }
 }

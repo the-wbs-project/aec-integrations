@@ -529,9 +529,15 @@ export class VendorAttestationControl {
 
   private messageFor(err: unknown): string {
     const info = readVendorApiError(err);
-    if (info?.status === 403) {
-      // `verified` can flip between the SSR payload and this write.
+    if (info?.code === 'ENTITLEMENT_REQUIRED') {
+      // The entitlement can lapse between the SSR payload and this write
+      // (AECI-623: the server gate is `requireCapability('attestation.author')`).
       return $localize`:@@vendor.attest.error.accountAccess:Confirming a data flow needs active vendor access. Contact AEC Integrations to arrange access.`;
+    }
+    if (info?.status === 403) {
+      // Any other 403 (a connector-powered edge, a seat banned mid-session) is
+      // not an access problem, so it must not send the vendor to ask for access.
+      return $localize`:@@vendor.attest.error.forbidden:You cannot change this data flow. Reload to see the current list.`;
     }
     if (info?.status === 404) {
       return $localize`:@@vendor.attest.error.gone:This data flow is no longer available. Reload to see the current list.`;

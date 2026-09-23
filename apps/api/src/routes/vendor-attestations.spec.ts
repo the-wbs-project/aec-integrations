@@ -14,8 +14,10 @@
  * that really are in the database.
  *
  * The load-bearing cases:
- *   - authority → 404 before verified → 403, and a 404 that cannot be told apart
+ *   - authority → 404 before the `attestation.author` capability → 403
+ *     `ENTITLEMENT_REQUIRED` (AECI-623), and a 404 that cannot be told apart
  *     from "no such claim";
+ *   - the capability reads the SESSION tier, never the `vendors.verified` mirror;
  *   - retract-then-insert never trips the partial unique index, however many
  *     times it runs;
  *   - a vendor owning BOTH endpoints writes both slots and still reads
@@ -90,19 +92,19 @@ const SEAT_B = uuid(101);
 const SEAT_BOTH = uuid(102);
 const SEAT_UNVERIFIED = uuid(103);
 
-const seat = (userId: string, vendorId: string): AuthzVariables['auth'] => ({
+const seat = (userId: string, vendorId: string, entitled = true): AuthzVariables['auth'] => ({
   userId,
   email: `${userId}@example.test`,
   role: 'vendor_admin',
   vendorId,
-  entitlementTier: 'verified',
-  entitlement: { status: 'active', periodEnd: null },
+  entitlementTier: entitled ? 'verified' : 'unclaimed',
+  entitlement: entitled ? { status: 'active', periodEnd: null } : null,
 });
 
 const AUTH_A = seat(SEAT_A, VENDOR_A);
 const AUTH_B = seat(SEAT_B, VENDOR_B);
 const AUTH_BOTH = seat(SEAT_BOTH, VENDOR_BOTH);
-const AUTH_UNVERIFIED = seat(SEAT_UNVERIFIED, VENDOR_UNVERIFIED);
+const AUTH_UNVERIFIED = seat(SEAT_UNVERIFIED, VENDOR_UNVERIFIED, false);
 
 let t: TestDb;
 
@@ -361,8 +363,9 @@ describe('connector-powered edges are not attestable (AECI-705)', () => {
       AUTH_UNVERIFIED,
     );
     expect(status).toBe(403);
+    expect(body.error.code).toBe('FORBIDDEN');
     expect(body.error.message).toMatch(CONNECTOR_403);
-    expect(body.error.message).not.toMatch(/verified vendor account/i);
+    expect(body.error.message).not.toMatch(/Verified plan|activate/i);
   });
 
   it('still answers 404, never 403, to a vendor owning neither endpoint', async () => {
@@ -870,7 +873,7 @@ describe('POST /api/vendor/claims', () => {
     expect(ghost.body.error.details.resource).toBe(foreign.body.error.details.resource);
   });
 
-  it('403s an UNVERIFIED owner — and the copy points at verification, not ranking', async () => {
+  it('403s an owner without attestation.author with ENTITLEMENT_REQUIRED — copy points at activation, not ranking', async () => {
     const { status, body: res } = await sendJson(
       'POST',
       '/api/vendor/claims',
@@ -878,10 +881,34 @@ describe('POST /api/vendor/claims', () => {
       AUTH_UNVERIFIED,
     );
     expect(status).toBe(403);
-    expect(res.error.code).toBe('FORBIDDEN');
-    expect(res.error.message).toMatch(/verified/i);
+    expect(res.error.code).toBe('ENTITLEMENT_REQUIRED');
+    expect(res.error.details).toEqual({ capability: 'attestation.author', tier: 'unclaimed' });
     expect(res.error.message).not.toMatch(/rank|placement|search/i);
     expect(await auditRows()).toHaveLength(0);
+  });
+
+  // AECI-623: the gate is the session's entitlement tier. The `vendors.verified`
+  // mirror is not an authorization input, so the two cases below pull them apart.
+  it('rejects an entitlement-less seat even when its vendor row still reads verified', async () => {
+    const { status, body: res } = await sendJson(
+      'POST',
+      '/api/vendor/claims',
+      body(),
+      seat(SEAT_A, VENDOR_A, false),
+    );
+    expect(status).toBe(403);
+    expect(res.error.code).toBe('ENTITLEMENT_REQUIRED');
+    expect(await auditRows()).toHaveLength(0);
+  });
+
+  it('accepts a seat holding attestation.author even when its vendor row reads unverified', async () => {
+    const { status } = await sendJson(
+      'POST',
+      '/api/vendor/claims',
+      { integration_id: I_UNVERIFIED, data_object: 'rfis', direction: 'outbound' },
+      seat(SEAT_UNVERIFIED, VENDOR_UNVERIFIED, true),
+    );
+    expect(status).toBe(201);
   });
 
   it('404s an unverified NON-owner — ownership is evaluated before verification', async () => {
@@ -1145,20 +1172,21 @@ describe('PUT /api/vendor/claims/:claimId/attestation', () => {
     expect(Object.keys(ghost.body.error).sort()).toEqual(Object.keys(foreign.body.error).sort());
   });
 
-  it('403s an unverified owner and writes nothing', async () => {
+  it('403s an owner without attestation.author with ENTITLEMENT_REQUIRED and writes nothing', async () => {
     await t.db.insert(claims).values({
       id: uuid(48),
       integrationId: I_UNVERIFIED,
       dataObjectId: DO_RFIS,
       direction: 'a_to_b',
     });
-    const { status } = await sendJson(
+    const { status, body: res } = await sendJson(
       'PUT',
       attestationUrl(uuid(48)),
       { asserted: true },
       AUTH_UNVERIFIED,
     );
     expect(status).toBe(403);
+    expect(res.error.code).toBe('ENTITLEMENT_REQUIRED');
     expect(await auditRows()).toHaveLength(0);
   });
 
@@ -1256,7 +1284,7 @@ describe('DELETE /api/vendor/claims/:claimId/attestation', () => {
     ]);
   });
 
-  it('403s an unverified owner', async () => {
+  it('403s an owner without attestation.author with ENTITLEMENT_REQUIRED', async () => {
     await t.db.insert(claims).values({
       id: uuid(49),
       integrationId: I_UNVERIFIED,
@@ -1270,8 +1298,13 @@ describe('DELETE /api/vendor/claims/:claimId/attestation', () => {
       asserted: true,
       attestedByVendorId: VENDOR_UNVERIFIED,
     });
-    const { status } = await call(attestationUrl(uuid(49)), { method: 'DELETE' }, AUTH_UNVERIFIED);
+    const { status, body: res } = await call(
+      attestationUrl(uuid(49)),
+      { method: 'DELETE' },
+      AUTH_UNVERIFIED,
+    );
     expect(status).toBe(403);
+    expect(res.error.code).toBe('ENTITLEMENT_REQUIRED');
     expect(await liveAttestations(uuid(49))).toHaveLength(1);
   });
 });

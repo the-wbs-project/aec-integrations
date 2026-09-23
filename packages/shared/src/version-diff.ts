@@ -321,7 +321,6 @@ export function vendorTiersFromMirror(
  * independently of the version selection, so the dispute is never paywalled; only
  * the *diff* is.
  *
- * Same discipline as `assertVerifiedVendor` (`apps/api/src/routes/vendor-shared.ts`):
  * ONE function, and — per §9.3 and AECI-303's acceptance criteria — exactly **two**
  * consult sites repo-wide, asserted by `version-diff.consult-sites.spec.ts`. Those
  * two are `resolveDiffAccess` (`apps/api/src/lib/pair-version-diff.ts`, which both

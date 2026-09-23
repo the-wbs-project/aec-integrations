@@ -5611,11 +5611,11 @@ Stage 2 (AECI-607, `STAGE_2_ATTESTATIONS_SPEC.md` §8.3). A product's vendor-dec
 | Method | Path | Gate | Success |
 |---|---|---|---|
 | `GET` | `/api/vendor/products/:id/versions` | ownership | `200 { versions }` |
-| `POST` | `/api/vendor/products/:id/versions` | ownership **+ verified** | `201 { version }` |
-| `PATCH` | `/api/vendor/products/:id/versions/:versionId` | ownership **+ verified** | `200 { version }` |
-| `DELETE` | `/api/vendor/products/:id/versions/:versionId` | ownership **+ verified** | `204` (no body) |
+| `POST` | `/api/vendor/products/:id/versions` | ownership **+ `attestation.author`** | `201 { version }` |
+| `PATCH` | `/api/vendor/products/:id/versions/:versionId` | ownership **+ `attestation.author`** | `200 { version }` |
+| `DELETE` | `/api/vendor/products/:id/versions/:versionId` | ownership **+ `attestation.author`** | `204` (no body) |
 
-**Two gates, and the order is load-bearing.** Ownership is proven first and a miss is a **`404`** (the §6.14 non-disclosure rule); only then is the legacy `vendors.verified` mirror checked, and a miss there is a **`403`**. Reversed, a caller without active access probing another vendor's product would get a `403` — which still discloses nothing by itself, but the fixed order also keeps an active non-owner on the 404 path. **`GET` is not account-access-gated**: authoring requires active vendor access (`STAGE_2_ATTESTATIONS_SPEC.md` §1), so the dashboard renders a read-only tab and explains why rather than 403-ing a vendor out of its own data. The 403 copy points at the vendor-access flow and **never at ranking, placement, or search** — account access gates capability only.
+**Two gates, and the order is load-bearing.** Ownership is proven first and a miss is a **`404`** (the §6.14 non-disclosure rule); only then is the `attestation.author` capability checked (`requireCapability`, over the session's `entitlementTier`), and a miss there is a **`403 ENTITLEMENT_REQUIRED`** with `details: { capability: 'attestation.author', tier }`. Until AECI-623 this gate read the `vendors.verified` mirror and answered `403 FORBIDDEN`; the status is unchanged, the `code` is not. Reversed, a caller without active access probing another vendor's product would get a `403` — which still discloses nothing by itself, but the fixed order also keeps an active non-owner on the 404 path. **`GET` is not account-access-gated**: authoring requires active vendor access (`STAGE_2_ATTESTATIONS_SPEC.md` §1), so the dashboard renders a read-only tab and explains why rather than 403-ing a vendor out of its own data. The 403 copy points at the vendor-access flow and **never at ranking, placement, or search** — account access gates capability only.
 
 `:versionId` must belong to `:id`; a mismatch is a `404`, so a version id cannot be probed across products.
 
@@ -5664,7 +5664,7 @@ Writes go through one `db.batch([...])` carrying the mutation and its `audit_log
 
 **Promote does not ingest versions** at launch; this surface is the only writer (`STAGE_2_ATTESTATIONS_SPEC.md` §8.3 / §11).
 
-Errors: `NOT_FOUND` (unknown product/version, a product owned by another vendor, or a version on a different product — all deliberately indistinguishable), `FORBIDDEN` (owner, but without active vendor access), `VALIDATION_FAILED` (empty body, a `label` already used on this product, a non-date stamp, an out-of-range `sort_key`), `MALFORMED_REQUEST`, `RATE_LIMITED` (429 — AECI-773 `write` burst cap on the three writes, `Retry-After: 60`; the sibling `GET` is not limited, because reads never are).
+Errors: `NOT_FOUND` (unknown product/version, a product owned by another vendor, or a version on a different product — all deliberately indistinguishable), `ENTITLEMENT_REQUIRED` (403 — owner, but the tier lacks `attestation.author`; was `FORBIDDEN` before AECI-623), `VALIDATION_FAILED` (empty body, a `label` already used on this product, a non-date stamp, an out-of-range `sort_key`), `MALFORMED_REQUEST`, `RATE_LIMITED` (429 — AECI-773 `write` burst cap on the three writes, `Retry-After: 60`; the sibling `GET` is not limited, because reads never are).
 
 #### Attestations — `/api/vendor/integrations` + `/api/vendor/claims` + `/api/vendor/data-objects`
 
@@ -5675,15 +5675,15 @@ Stage 2 (AECI-301, `STAGE_2_ATTESTATIONS_SPEC.md` §5). The surface a vendor wit
 | Method | Path | Gate | Success |
 |---|---|---|---|
 | `GET` | `/api/vendor/integrations` | authority | `200 { integrations }` |
-| `POST` | `/api/vendor/claims` | authority **+ attestable edge + verified** | `201 { claim }` |
-| `PUT` | `/api/vendor/claims/:claimId/attestation` | authority **+ attestable edge + verified** | `200 { claim }` |
-| `DELETE` | `/api/vendor/claims/:claimId/attestation` | authority **+ verified** — **no edge gate**, deliberately | `204` (no body) |
-| `GET` | `/api/vendor/data-objects` | guard only — **no authority, no verified** | `200 { data_objects }` |
+| `POST` | `/api/vendor/claims` | authority **+ attestable edge + `attestation.author`** | `201 { claim }` |
+| `PUT` | `/api/vendor/claims/:claimId/attestation` | authority **+ attestable edge + `attestation.author`** | `200 { claim }` |
+| `DELETE` | `/api/vendor/claims/:claimId/attestation` | authority **+ `attestation.author`** — **no edge gate**, deliberately | `204` (no body) |
+| `GET` | `/api/vendor/data-objects` | guard only — **no authority, no capability** | `200 { data_objects }` |
 
 **The edge gate: a connector-powered integration is not attestable (AECI-705 / `STAGE_2_ATTESTATIONS_SPEC.md` §14).** An edge carrying `powered_by_product_id`, or typed `mechanism_kind` `'iPaaS'` **or `'integrator'`** (AECI-721 — an SI or consultancy built it, which is the same "neither endpoint vendor did"), was built by someone other than either endpoint vendor, and that party holds no attestation seat — so `POST` and `PUT` answer **`403 FORBIDDEN`** on it whatever the caller's tier. Three things about that:
 
 - **403, not 404.** The §6.14 non-disclosure rule has already been satisfied by the time this runs — the caller proved it owns an endpoint — and powered-ness is public on the pair page, so there is nothing left to conceal. It reuses `FORBIDDEN` rather than minting a code: the portal already knows from `attestable: false`, so the 403 is a backstop for direct API callers and a new code would need a §4 row no reader would consume.
-- **The order is authority → `404`, edge → `403`, active access → `403`.** Reversed, a vendor without active access on a powered edge is told to activate access in order to author, which that edge will never allow. The connector 403's copy names the connector and never mentions account access, ranking or placement.
+- **The order is authority → `404`, edge → `403 FORBIDDEN`, capability → `403 ENTITLEMENT_REQUIRED`.** The two 403s carry different codes since AECI-623, so a client tells them apart by `code`, not status. Reversed, a vendor without active access on a powered edge is told to activate access in order to author, which that edge will never allow. The connector 403's copy names the connector and never mentions account access, ranking or placement.
 - **`DELETE` is exempt on purpose.** An edge can *become* powered after a vendor has attested (promote sets `powered_by_product_id` late). Gating retract would trap a vendor with a position it can no longer withdraw. Withdrawing is always allowed; only taking a new position is not.
 
 **Authority is the §6.14 ownership rule, one grain up.** `PATCH /api/vendor/products/:id` asks "do you own this product"; these ask "do you own an *endpoint* of this integration", because an integration has **two** vendor-writable slots — `vendor_a` for endpoint A (`integrations.source_product_id`), `vendor_b` for endpoint B. `resolveAttestationSlots` / `resolveClaimAuthority` (`apps/api/src/lib/attestation-authority.ts`) are the single implementation; no handler re-derives the table. A caller owning neither endpoint gets **`404`**, and it is indistinguishable from a resource that does not exist — collapsed into one join result rather than two branches that must be kept identical, so the endpoint cannot be walked as an existence oracle. See `AUTH_AND_RLS.md` §4.2a.
@@ -5817,7 +5817,7 @@ Writes go through one `db.batch([...])` carrying every mutation and its `audit_l
 
 **No Algolia reindex.** Claims do not feed the index; vendor edits reach search on the nightly watermark sync (`STAGE_2_SPEC.md` §8.3(5)). Dashboard copy must not promise "live in search".
 
-Errors: `NOT_FOUND` (unknown claim/integration, or one whose endpoints the caller does not own — deliberately indistinguishable; also a `DELETE` with nothing to retract), `FORBIDDEN` (endpoint owner, but without active vendor access — copy points at the vendor-access flow and never at ranking, placement, or search), `VALIDATION_FAILED` (unknown `data_object`, a duplicate claim identity, a version outside the caller's endpoint, a missing stance on `PUT`), `MALFORMED_REQUEST`, `RATE_LIMITED` (429 — AECI-773 `write` burst cap on `POST /api/vendor/claims` and the two attestation writes, `Retry-After: 60`; the two `GET`s are not limited, because reads never are). The attestation `PUT`/`DELETE` are the AECI-516 optimistic toggles, so a 429 needs no new UI — the client already applies locally and rolls back with a visible error.
+Errors: `NOT_FOUND` (unknown claim/integration, or one whose endpoints the caller does not own — deliberately indistinguishable; also a `DELETE` with nothing to retract), `ENTITLEMENT_REQUIRED` (403 — endpoint owner, but the tier lacks `attestation.author`; `details: { capability, tier }`; copy points at activation and never at ranking, placement, or search. Was `FORBIDDEN` before AECI-623), `FORBIDDEN` (403 — a connector-powered edge on `POST` / `PUT`, AECI-705; checked before the capability, so no tier is promised to unlock it), `VALIDATION_FAILED` (unknown `data_object`, a duplicate claim identity, a version outside the caller's endpoint, a missing stance on `PUT`), `MALFORMED_REQUEST`, `RATE_LIMITED` (429 — AECI-773 `write` burst cap on `POST /api/vendor/claims` and the two attestation writes, `Retry-After: 60`; the two `GET`s are not limited, because reads never are). The attestation `PUT`/`DELETE` are the AECI-516 optimistic toggles, so a 429 needs no new UI — the client already applies locally and rolls back with a visible error.
 
 ---
 

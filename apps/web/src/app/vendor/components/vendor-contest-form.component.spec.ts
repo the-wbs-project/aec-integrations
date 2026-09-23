@@ -148,8 +148,8 @@ async function submit(fixture: ComponentFixture<unknown>): Promise<void> {
 
 describe('VendorContestForm — who sees it', () => {
   it('shows on a card the caller does not own, even with no write access', async () => {
-    // Seat-only (§11b.2): `canWrite` is the Verified gate, and a contest must
-    // not be something a vendor buys.
+    // Seat-only (§11b.2): `canWrite` is the `attestation.author` gate, and a
+    // contest must not be something a vendor buys.
     const fixture = await createCard(PROCORE, false);
     expect(el(fixture).querySelector('aec-vendor-contest-form')).not.toBeNull();
   });

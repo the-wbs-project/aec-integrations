@@ -28,11 +28,10 @@ agreement.** Everything in §4 exists to make that structurally true rather than
 
 **Capability gate.** Attestation authoring is a **Verified-vendor** capability (`STAGE_2_SPEC.md`
 §8.1(3)). It gates **capability only, never ranking, placement, or badge trust** — no
-pay-for-placement. This epic reads `vendors.verified` directly (`assertVerifiedVendor`), which was
-the launch entitlement bit per §8.3(1); since AECI-609 that column is a **mirror** of a
-`vendor_entitlements` row (`STAGE_2_SPEC.md` §8.5(1)), so these routes still read the right thing
-but are gated on the mirror rather than on the `attestation.author` **capability** the registry now
-declares. Behaviourally identical while the ladder is binary; **AECI-623** does the swap.
+pay-for-placement. **As built (AECI-623):** the gate is `requireCapability(c, 'attestation.author')`
+over the session's entitlement tier (`STAGE_2_PAID_TIERS_SPEC.md` §3.3(a), §4), and a miss is
+`403 ENTITLEMENT_REQUIRED`. This epic originally read the `vendors.verified` mirror through a
+placeholder, `assertVerifiedVendor`, which answered `403 FORBIDDEN`; that placeholder is deleted.
 
 ### 1.1 Issue map & critical path
 
@@ -216,7 +215,7 @@ guarantees: check before editing.
   `apps/api/src/routes/vendor-shared.ts`** — `sessionVendorId`, `parseJsonBody`, `purgeTags`,
   `afterVendorWrite`, the audit source, plus `requireOwnedProduct()` (product-grain ownership,
   the sibling of §2.3's integration-grain `resolveAttestationSlots`) and `assertVerifiedVendor()`
-  (the §1 capability gate). **§5 imports them; it does not re-implement them.** *(As built: it
+  (the §1 capability gate; replaced by `requireCapability(c, 'attestation.author')` in AECI-623). **§5 imports them; it does not re-implement them.** *(As built: it
   did, and the only change it needed was an array overload on `afterVendorWrite`, because a
   claim write emits more than one audit row — §5.4.)*
 - **`data_object` find-only resolution** — `loadDataObjectResolver` /`safeSlugify` in
@@ -752,12 +751,15 @@ Shapes, Zod schemas and error codes go in `packages/shared/src/api/` and are doc
   The UI (§6) should offer the closed list rather than free text in the first place.
 - **Authority through §2.3 only.** No handler re-derives the slot rule. A claim on an integration
   the caller touches neither endpoint of is a **404**.
-- **Verified gate.** Authoring requires `vendors.verified` (§1). Unverified → `403 FORBIDDEN` with
-  copy that points at the claim/verification flow, never at ranking.
+- **Capability gate.** Authoring requires the `attestation.author` capability (§1). Without it →
+  `403 ENTITLEMENT_REQUIRED` with `details: { capability, tier }` and copy that points at
+  activation, never at ranking. *(As built, AECI-623: `requireCapability` over the session tier.
+  Until then the gate read `vendors.verified` through `assertVerifiedVendor` and answered
+  `403 FORBIDDEN`.)*
 - **Connector gate, and it runs FIRST of the two 403s** (AECI-705 / §14). A connector-powered edge is
   `403 FORBIDDEN` on `POST` / `PUT` whatever the caller's tier, with copy that points at the
-  connector and never at verification — verification will never unlock it. Order:
-  authority → 404, powered → 403, verified → 403.
+  connector and never at account access — no tier will ever unlock it. Order:
+  authority → 404, powered → `403 FORBIDDEN`, capability → `403 ENTITLEMENT_REQUIRED`.
 - **Direction is stored canonically** (`a_to_b` / `b_to_a` / `both`, relative to the integration
   row's own endpoints — `STAGE_1_5_SPEC.md` §3.2) and translated to the caller's frame at the API
   boundary. The vendor UI speaks "inbound/outbound"; the DB never does.
@@ -894,6 +896,15 @@ pre-existing spec passes **unmodified**.
 > **⚠️ Release gate, restated.** §4/AECI-605 is merged on `aeci-514`, so the §1.1 gate is discharged
 > *on this branch*. It is still the reason this must not be cherry-picked anywhere §4 is absent.
 
+> **As built (AECI-623 — 2026-09-23): the gate is the capability.** The three writes above
+> (`POST /api/vendor/claims`, `PUT` and `DELETE /api/vendor/claims/:claimId/attestation`) and the
+> three §8 version writes call `requireCapability(c, 'attestation.author')` in place of
+> `assertVerifiedVendor`, which is deleted. The wire change is the `code`: `403 FORBIDDEN` became
+> `403 ENTITLEMENT_REQUIRED` with `details: { capability: 'attestation.author', tier }`. The
+> connector-powered 403 stays `FORBIDDEN`, so a client tells the two apart by `code`. The portal's
+> write gate moved in the same change (`STAGE_2_REALTIME_SPEC.md` §6.1), and its two write
+> components show the access message only for `ENTITLEMENT_REQUIRED`. Gate order is unchanged.
+
 ---
 
 ## 6. Vendor portal — Integrations tab (AECI-606)
@@ -965,7 +976,9 @@ Decisions taken at build that §6 did not pre-specify:
   loudly instead of reading as a fix.
 - **Not Verified-gated**, following `GET /api/vendor/integrations` and `/notifications`: 403-ing the
   vocabulary would leave the read-only tab unable to label its own claims. `assertVerifiedVendor` is
-  deliberately not imported there, keeping its call sites at one-per-authoring-handler.
+  deliberately not imported there, keeping its call sites at one-per-authoring-handler. *(Since
+  AECI-623 the gate is `requireCapability(c, 'attestation.author')`, and this read still does not
+  call it.)*
 - **`aliases` is off the wire, and it is the load-bearing exclusion.** The picker submits a
   canonical slug, which always resolves, so alias matching buys nothing; shipping them would invite
   a client-side match that reimplements `safeSlugify`, and a second matcher is exactly the drift
@@ -1695,6 +1708,7 @@ brought forward to match. Decisions taken at build that §8.1–§8.3 did not pr
   already shipped on `aeci-515` (`@aeci/shared/entitlements` declares the id) and whose guard
   AECI-611 adds. Swapping it at the `stage-2` merge is mechanical. It **reads** `vendors.verified`
   and never writes it — `aeci-515` lints that column's writes down to the entitlement mirror.
+  *(Swapped in AECI-623: the version writes now answer `403 ENTITLEMENT_REQUIRED`.)*
 - **A shared vendor-route seam was extracted, and §5 should build on it.**
   `routes/vendor-shared.ts` now owns `sessionVendorId` / `parseJsonBody` / `purgeTags` /
   `afterVendorWrite` / the audit source, plus `requireOwnedProduct()` — the **product-grain**
@@ -2639,7 +2653,9 @@ Three properties of that table are load-bearing.
    code rather than minting a new one: the portal already knows from `attestable: false`, so the 403
    is a backstop for direct API callers and a new code would cost an `API_CONTRACTS.md` §4 row for no
    reader.
-2. **The order is authority → 404, powered → 403, verified → 403.** Reversed, an unverified vendor on
+2. **The order is authority → 404, powered → 403 `FORBIDDEN`, capability → 403
+   `ENTITLEMENT_REQUIRED`** (the last gate was `vendors.verified` → `FORBIDDEN` until AECI-623; the
+   two 403s now differ by `code`). Reversed, an unverified vendor on
    a powered edge is told to get verified in order to author — a promise verification will never
    keep, because the edge stays closed to it afterwards. The copy points at the connector and never
    at verification, ranking or placement (§5.2).
