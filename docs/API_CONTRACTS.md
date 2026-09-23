@@ -2372,7 +2372,8 @@ is omitted with its row. `last_reviewed_at`, `built_by_vendor_id`, `origin`, ret
 claims and attestations are never touched, and nothing is deleted. **Purge:** only the pages
 whose maintenance marker changed, through `CACHE_PURGE_QUEUE` with `source: 'moderation'`.
 That means `vendor:{slug}`, each flipped `product:{slug}` plus `index:products`, and the pair
-tag plus both product tags for each integration whose marker flipped. An evidenced pair whose
+tag plus both product tags for each integration whose marker flipped (and its `powered_by`
+product's tag when set). An evidenced pair whose
 marker flipped also purges its connector's `product:` tag (AECI-1089). A revoke that leaves
 a seat purges nothing. The response is `204` in every case, and the wire shape is unchanged.
 Builder: `apps/api/src/lib/vendor-handback.ts`. Contract: `STAGE_2_ATTESTATIONS_SPEC.md` §13.9.

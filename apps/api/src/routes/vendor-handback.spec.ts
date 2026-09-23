@@ -824,3 +824,49 @@ describe('each seat write forwards its audit rows and transitions in ONE request
     expect(auditForwardsPerRow()).toEqual([]);
   });
 });
+
+// ─── A connector-powered integrations row (review MINOR 3) ───────────────────
+
+describe('the hand-back of a connector-powered integrations row', () => {
+  const P_POWERED_BY = u(35);
+  const I_POWERED = u(44);
+
+  beforeEach(async () => {
+    await t.db
+      .insert(products)
+      .values({ id: P_POWERED_BY, slug: 'workato', name: 'Workato', promotionStatus: 'promoted' });
+    await t.db.insert(integrations).values({
+      id: I_POWERED,
+      name: 'Via Workato',
+      mechanismKind: 'native',
+      poweredByProductId: P_POWERED_BY,
+      sourceProductId: P_THEIRS,
+      targetProductId: P_MINE,
+      builtByVendorId: VENDOR,
+      maintainedBy: 'vendor',
+      lastReviewedAt: REVIEWED,
+      claimedAt: CLAIMED_AT,
+    });
+  });
+
+  it("purges the powered_by product's page when the marker flips", async () => {
+    const { send } = await revoke(SEAT_A);
+    const { tags } = send.mock.calls[0]![0] as { tags: string[] };
+    expect(tags).toContain('product:workato');
+  });
+
+  it('marks both of its audit rows with the carve-out markers, and no ordinary row', async () => {
+    await revoke(SEAT_A);
+    const rows = await t.db
+      .select()
+      .from(auditLog)
+      .where(eq(auditLog.action, 'integration.updated'));
+    const powered = rows.filter((r) => r.entityId === I_POWERED);
+    expect(powered).toHaveLength(2);
+    for (const row of powered) {
+      expect(row.metadata).toMatchObject({ connectorPowered: true, anchor: 'integration' });
+    }
+    const ordinary = rows.find((r) => r.entityId === I_OWNED)!;
+    expect(ordinary.metadata).not.toHaveProperty('connectorPowered');
+  });
+});

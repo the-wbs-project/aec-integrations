@@ -2506,9 +2506,9 @@ What rides the revoke's `db.batch`, each write with its own audit row (§26.1):
 |---|---|---|
 | `vendors` | `maintained_by` → `'aeci'` | `vendor.updated`, `metadata.reason = 'maintenance-marker'`, `cause = 'owner-seat-revoked'` |
 | each owned `products` row (`product_vendors`, any role) | `maintained_by` → `'aeci'`, unless another owning vendor still holds a seat | `product.updated`, same metadata |
-| each LIVE owned integration (`built_by_vendor_id` = vendor, `claimed_at` set) | `claimed_at` → NULL | `integration.updated`, `metadata.reason = 'owner-seat-revoked'` |
+| each LIVE owned integration (`built_by_vendor_id` = vendor, `claimed_at` set) | `claimed_at` → NULL | `integration.updated`, `metadata.reason = 'owner-seat-revoked'`; on a connector-powered row also `connectorPowered: true, anchor: 'integration'`, the claim's markers |
 | the same integration | `maintained_by` → `'aeci'`, only when no live vendor attestation survives on it (§13.4) | `integration.updated`, `reason = 'maintenance-marker'`, `cause = 'owner-seat-revoked'` |
-| each LIVE owned evidenced pair (`connector_evidenced_pairs`, AECI-1089) | `claimed_at` → NULL | `integration.updated` on entity type `connector_evidenced_pair`, `metadata.anchor = 'evidenced_pair'`, `reason = 'owner-seat-revoked'` |
+| each LIVE owned evidenced pair (`connector_evidenced_pairs`, AECI-1089) | `claimed_at` → NULL | `integration.updated` on entity type `connector_evidenced_pair`, `metadata.connectorPowered = true`, `metadata.anchor = 'evidenced_pair'`, `reason = 'owner-seat-revoked'` |
 | the same pair | `maintained_by` → `'aeci'`, only when no live vendor attestation survives on a claim anchored on it (§13.4) | as above, `reason = 'maintenance-marker'`, `cause = 'owner-seat-revoked'` |
 | each open contest routed to this owner | `routed_to` → `'aeci'`, for good | `integration.contest.rerouted`, plus an `open → open` transition |
 
@@ -2540,7 +2540,8 @@ The rules behind the table:
    claim, gets no statement and no audit row, as `aeciMaintainedFlip` returns `null`.
 9. **The purge covers only what changed on a public page:** `vendor:{slug}` for the vendor
    flip, `product:{slug}` plus `index:products` for each product flip, and the pair tag
-   plus both product tags for each integration whose marker flipped. An evidenced pair whose
+   plus both product tags for each integration whose marker flipped, plus its `powered_by`
+   product's tag when it has one. An evidenced pair whose
    marker flipped also purges its connector's `product:` tag, because the connector's page
    lists the pair (AECI-1089). `claimed_at` is not
    rendered publicly, so an un-claim alone purges nothing.

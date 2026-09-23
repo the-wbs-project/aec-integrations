@@ -91,6 +91,7 @@ import { auditInsert, workflowTransitionInsert, type BatchStmt } from './audit';
 import { VENDOR_ADMIN_ROLE } from './claimed-vendors';
 import { liveAttestationsWhere } from './drizzle-helpers';
 import { ONE_ROW } from './integration-claims';
+import { isConnectorPoweredEdge } from './connector-powered';
 import { CONTEST_ENTITY_TYPE } from './integration-contests';
 
 /** Who is acting. The admin on the revoke and the ban. */
@@ -324,17 +325,22 @@ export async function planVendorHandback(db: Db, p: HandbackParams): Promise<Han
   // Every live integration it owns and has claimed.
   const source = alias(products, 'handback_source');
   const target = alias(products, 'handback_target');
+  const poweredBy = alias(products, 'handback_powered_by');
   const claimedRows = await db
     .select({
       id: integrations.id,
       claimedAt: integrations.claimedAt,
       maintainedBy: integrations.maintainedBy,
+      poweredByProductId: integrations.poweredByProductId,
+      mechanismKind: integrations.mechanismKind,
       sourceSlug: source.slug,
       targetSlug: target.slug,
+      poweredBySlug: poweredBy.slug,
     })
     .from(integrations)
     .innerJoin(source, eq(source.id, integrations.sourceProductId))
     .innerJoin(target, eq(target.id, integrations.targetProductId))
+    .leftJoin(poweredBy, eq(poweredBy.id, integrations.poweredByProductId))
     .where(
       and(
         eq(integrations.builtByVendorId, p.vendorId),
@@ -348,6 +354,11 @@ export async function planVendorHandback(db: Db, p: HandbackParams): Promise<Han
   );
   for (const row of claimedRows) {
     const guard = and(eq(integrations.id, row.id), eq(integrations.builtByVendorId, p.vendorId));
+    // The carve-out markers the AECI-1089 claim and the AECI-1090 edit write on a
+    // connector-powered row, so one filter finds every owner-side write on them.
+    const markers = isConnectorPoweredEdge(row)
+      ? { connectorPowered: true as const, anchor: 'integration' as const }
+      : {};
     batch.stmts.push(
       db
         .update(integrations)
@@ -361,7 +372,7 @@ export async function planVendorHandback(db: Db, p: HandbackParams): Promise<Han
       entityId: row.id,
       beforeState: { claimed_at: row.claimedAt },
       afterState: { claimed_at: null },
-      metadata: { ...base, integrationId: row.id, reason: HANDBACK_REASON },
+      metadata: { ...base, integrationId: row.id, ...markers, reason: HANDBACK_REASON },
     });
     if (row.maintainedBy === 'vendor' && !attested.has(row.id)) {
       batch.stmts.push(
@@ -380,6 +391,7 @@ export async function planVendorHandback(db: Db, p: HandbackParams): Promise<Han
         metadata: {
           ...base,
           integrationId: row.id,
+          ...markers,
           reason: MAINTENANCE_REASON,
           cause: HANDBACK_REASON,
         },
@@ -388,6 +400,8 @@ export async function planVendorHandback(db: Db, p: HandbackParams): Promise<Han
         pairCacheTag(row.sourceSlug, row.targetSlug),
         `product:${row.sourceSlug}`,
         `product:${row.targetSlug}`,
+        // The `powered_by` product's page lists the row too.
+        ...(row.poweredBySlug ? [`product:${row.poweredBySlug}`] : []),
       );
     }
   }
@@ -426,7 +440,12 @@ export async function planVendorHandback(db: Db, p: HandbackParams): Promise<Han
       eq(connectorEvidencedPairs.id, row.id),
       eq(connectorEvidencedPairs.builtByVendorId, p.vendorId),
     );
-    const pairMeta = { ...base, integrationId: row.id, anchor: 'evidenced_pair' as const };
+    const pairMeta = {
+      ...base,
+      integrationId: row.id,
+      connectorPowered: true as const,
+      anchor: 'evidenced_pair' as const,
+    };
     batch.stmts.push(
       db
         .update(connectorEvidencedPairs)
