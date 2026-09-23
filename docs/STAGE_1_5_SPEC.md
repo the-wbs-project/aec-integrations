@@ -877,8 +877,10 @@ correct FK. Both are fixed: the drop is now reported on the response as `unresol
 (`REVIEW_APP_PROMOTE_API.md` §3.4/§4) and as `aeci.api.promote.unresolved_link{field}` in PostHog,
 and the column is left untouched rather than nulled when the link doesn't resolve. So the
 `connectorUnpromoted` population is visible **at promote time** instead of only in an offline
-sweep — but it does not shrink: AECI-700 parks Zapier and Workato permanently, so their share of
-that bucket is a permanent, expected floor. The same guard covers `builtByVendor`.
+sweep. AECI-700 parked Zapier and Workato permanently, which made their share of that bucket a
+floor. **Reversed 2026-09-23 (AECI-1064):** both are promoted under the `product_role: connector`
+admission test, so the floor drains once each endpoint is re-promoted. At the ruling, 39 live
+production edges carried the dropped FK (Zapier 23, Workato 16). The same guard covers `builtByVendor`.
 
 Separately tracked follow-ups: 22 exact-duplicate integration rows; connector discovery in
 search/browse (`product_role` on Algolia records, a Connectors facet, `RoleBadge` on search
@@ -1048,8 +1050,8 @@ the move out is **lossy on `mechanism_kind`**, because the evidenced table has n
 
 **One correction to this paragraph, from the build.** `mechanism_kind` DOES still contain `iPaaS`.
 53 production edges are `iPaaS` with a NULL `powered_by` because their connector is not a promoted
-product, `connector_evidenced_pairs.connector_product_id` is NOT NULL, and AECI-700 parks Zapier and
-Workato permanently — so they cannot be routed, and they are 53 of the 132 edges
+product, `connector_evidenced_pairs.connector_product_id` is NOT NULL, and AECI-700 parked Zapier and
+Workato (reversed 2026-09-23 by AECI-1064) — so they cannot be routed, and they are 53 of the 132 edges
 `isConnectorPoweredEdge` gates for AECI-705. **Those two figures are the 2026-08-31 measurement; the
 `iPaaS` half reads 57 as of 2026-09-07 (AECI-766 re-promoted four more onto it). `SEARCH_RANKING.md`
 §4.3 carries the maintained count — this paragraph is not it.** Dropping the value would have
@@ -1059,7 +1061,8 @@ matters for the ~60 Convention-A rows that stay.
 **Closed by AECI-735 (2026-09-02): `iPaaS` is retained PERMANENTLY, not deferred.** AECI-730
 shipped and the question it gated came back no. The unroutable population does not merely persist,
 it cannot drain — those edges need `connector_evidenced_pairs.connector_product_id`, which is NOT
-NULL, and AECI-700 parks Zapier and Workato indefinitely — while ~144 of the 308 upstream `iPaaS`
+NULL, and AECI-700 parked Zapier and Workato (reversed 2026-09-23 by AECI-1064; Make, n8n and Boomi
+stay unpromoted, so the conclusion stands) — while ~144 of the 308 upstream `iPaaS`
 rows are Convention-A self-references that stay in `integrations` by design. Meanwhile the value
 became load-bearing in **three** shipped predicates, not one: `isConnectorPoweredEdge` (AECI-705's
 attestation gate), `routeIntegrationLane` clause (c) below (AECI-713's Via lane — the only thing
@@ -1513,7 +1516,8 @@ mid-flight will make a local decision about a cross-cutting contract.
     rather than letting a structurally-absent kind fall through to the unknown-kind `0`. Removing
     `iPaaS` is deferred: 53 production edges (2026-08-31; 57 as of 2026-09-07 — see
     `SEARCH_RANKING.md` §4.3) are `iPaaS` with a NULL `powered_by` because their
-    connector is unpromoted and AECI-700 parks Zapier and Workato permanently, they cannot migrate
+    connector is unpromoted and AECI-700 parked Zapier and Workato (reversed 2026-09-23 by
+    AECI-1064), they cannot migrate
     (`connector_product_id` is NOT NULL), and they are 53 of the 132 edges `isConnectorPoweredEdge`
     gates — so nulling their kind would silently re-open AECI-705's attestation prompts on every
     one. `SEARCH_RANKING.md` §4.1–§4.3 records all three decisions.
@@ -2066,6 +2070,22 @@ split. These are **review-catalogue** figures; §12.6 carries the **production a
 (946 integrations, 79 with the FK, as of AECI-706) — different populations, not a supersession. The
 "5 of 421" snapshot §12.6 once carried was itself superseded there by AECI-706.
 
+**2026-09-23 (AECI-1085): production connector catalogues.** Read-only against
+`aeci-app-production`. AECI-1064 reversed AECI-700 the same day, so the "Via" lane is no longer
+mostly-Agave by design.
+
+| Catalogue | Live since | Pages | `connector_stubs` | `connector_pairs` |
+|---|---|---|---|---|
+| Agave ERP Sync | 2026-09-10 (AECI-764) | 1 | 24 | 19 |
+| Aquifer | 2026-09-10 (AECI-764) | 1 | 71 | 69 |
+| Kroo Connector | 2026-09-10 (AECI-764) | 1 | 89 | 498 |
+| Trimble AppXchange | 2026-09-10 (AECI-764) | 1 | 19 | 171 |
+| MindCloud | 2026-09-21 (AECI-902) | 12 | 3,395 | 2,016 |
+| Zapier | product live 2026-09-23 (AECI-1064), catalogue sync in progress | 26 | n/a | n/a |
+
+Workato went live as a product on 2026-09-23 and has no tracked catalogue. Production holds 34
+connector-role products.
+
 ### 13.10 What AECI-714 landed (2026-08-31)
 
 The data half of this addendum. §13.1 named "derived pairs (AECI-714)" and §13.7 said "the data
@@ -2213,7 +2233,7 @@ argument.
 - **The AECI-892 reach read applies `publishableMappingOn` at both ends** of the pair.
 - **The `dispatchConnectorHooks` purge is live on preview and staging only.** `demo` and `production` run uncached today, so the emission does nothing there yet (`CACHE_STRATEGY.md` §3 rule 5).
 - **AECI-1013's vendor-portal reader** reads through `GET /api/vendor/products/:id/connectors`. It dates every reach and sits outside the live-update cursor.
-- **The first production sync (AECI-764, 2026-09-10) followed the review-side sender, AECI-731, shipping.** Three things that run did not change:
-  - **MindCloud stays unsynced by decision.** It is `promotion_status: unreviewed`, and `connector_catalogs.connector_product_id` is NOT NULL, so every one of its 12 pages would skip whole and write nothing.
-  - **Zapier stays parked** (AECI-700).
-  - **Every catalogue currently fits in one page**, so the >512 KiB KV spill path in the Workflow is still unexercised in production.
+- **The first production sync (AECI-764, 2026-09-10) followed the review-side sender, AECI-731, shipping.** It loaded Agave, Trimble AppXchange, Aquifer and Kroo, each in one page. Three things it left open have since moved:
+  - **MindCloud is live in production since 2026-09-21.** AECI-1029 promoted the product at `04:48Z`. AECI-902 synced its catalogue at `10:14–10:19Z`: 12 pages, 3,395 stubs, 2,016 pairs, 52 mappings, with 79 mappings skipped because their product is unpromoted.
+  - **Zapier and Workato are promoted since 2026-09-23** (AECI-1064, reversing AECI-700). Zapier's catalogue is 26 pages. Workato has no tracked catalogue.
+  - **Not every catalogue fits in one page, and the KV spill path has still never run in production.** All 13 MindCloud page jobs inlined their payload. The largest was 193,311 bytes, 37% of the 512 KiB threshold. The evidence is the Workflow instance params: none carries `payloadRef: 'kv'` (AECI-1085).

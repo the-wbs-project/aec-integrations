@@ -2842,7 +2842,8 @@ Three rules decided which rows moved:
 - **Convention-A self-references stayed** in `integrations` (60 prod rows — Aquifer 31, Kroo 29),
   as `connector_evidenced_pairs_distinct_connector` requires.
 - **An edge whose connector is unpromoted stayed too** — `connector_product_id` is NOT NULL, and
-  AECI-700 parks Zapier and Workato permanently. 53 prod `iPaaS` rows are in that state. This is
+  AECI-700 parked Zapier and Workato (reversed 2026-09-23 by AECI-1064). 53 prod `iPaaS` rows were
+  in that state at the time. This is
   the answer to the open question §9a.1 records: **no, an evidenced pair may not name an
   unpromoted connector**, and the consequence is that those edges keep `mechanism_kind = 'iPaaS'`
   — which is why `iPaaS` did NOT leave the `integrations` CHECK.

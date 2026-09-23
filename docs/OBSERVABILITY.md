@@ -824,8 +824,9 @@ A fourth (AECI-730): an integration written **without** an optional link, becaus
 `poweredByProduct` / `builtByVendor` didn't resolve. This is not a skip — the row landed — so it
 gets its own `info` log `aeci.api.promote.unresolved_link` (every `{ ref, field, supabaseId,
 outcome }` + per-field counts) plus the `aeci.api.promote.unresolved_link` count above, and is
-deliberately kept **out** of `aeci.api.promote.skipped`. The severity split is the point: Zapier
-and Workato are parked permanently (AECI-700), so this fires on routine promotes forever, and a
+deliberately kept **out** of `aeci.api.promote.skipped`. The severity split is the point: some
+connectors are never promoted (Make, n8n, Boomi today; Zapier and Workato until AECI-1064 promoted
+them on 2026-09-23), so this fires on routine promotes forever, and a
 permanent `warn` — or a permanently dirty `skipped` series — is exactly the noise an operator
 learns to ignore. `outcome: 'preserved'` means the update left a stored FK alone rather than
 nulling it (the clobber guard); `'unset'` means the row was created with the column NULL. The
