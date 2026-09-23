@@ -63,6 +63,7 @@ import {
   type VendorSeatInvite,
 } from '@aeci/shared';
 import { forwardAuditLog, type AuditLogForwarder } from '@aeci/shared/audit-log';
+import { forwardWorkflowTransition } from '@aeci/shared/workflow-transition';
 import { and, asc, count, desc, eq, inArray, or, sql, type SQL } from 'drizzle-orm';
 import { alias } from 'drizzle-orm/sqlite-core';
 import type { Context } from 'hono';
@@ -90,7 +91,20 @@ import { toProductRole, vendorListConfig } from '../lib/drizzle-helpers';
 import { resolveAdminVendorOrderBy } from '../lib/sort';
 import { likeContains } from '../lib/sql-like';
 import { fetchAuthUserEmailsResult, type AuthEmailLookup } from '../lib/supabase-admin';
-import { provisionSeatStatements, revokeSeatStatements } from '../lib/vendor-grant';
+import {
+  CLAIM_AUDIT_SOURCE,
+  provisionSeatStatements,
+  revokeSeatStatements,
+} from '../lib/vendor-grant';
+import {
+  isSeatsChangedError,
+  planOwnerSeatLapse,
+  planSeatGrantReturn,
+  planVendorHandback,
+  seatLossOutcome,
+  seatRaceSentinels,
+  seatsChangedError,
+} from '../lib/vendor-handback';
 import {
   EMPTY_PRODUCT_ROLES,
   foldProductRoleGroups,
@@ -106,7 +120,8 @@ import {
 import { liveInvitesFor } from '../lib/vendor-seat-invites';
 import { resolveClaimantIdentity } from '../lib/claimant-identity';
 import { logToPosthog, submitCount } from '../posthog';
-import { ownedProductIds, seatsOf, vendorRequestsWhere } from './vendor-shared';
+import { forwarders } from './admin-contests';
+import { ownedProductIds, purgeTags, seatsOf, vendorRequestsWhere } from './vendor-shared';
 
 type AdminVendorContext = Context<{ Bindings: Env; Variables: AuthzVariables }>;
 
@@ -822,7 +837,14 @@ export function createAdminVendorAuditHandler(
  * and the badge alone. Clearing an entitlement and revoking a seat are
  * orthogonal actions (§5.2) and this endpoint is only the second one.
  *
- * No cache purge: nothing a seat revoke changes is rendered on a cached page.
+ * **The last seat hands the record back (AECI-989).** When no `vendor_admin`
+ * profile remains, `planVendorHandback` joins the batch: the vendor and its owned
+ * products return to `maintained_by = 'aeci'`, its live claimed integrations lose
+ * `claimed_at` so promote writes them again, and its open owner contests go to
+ * AECi. When only banned seats remain, `planOwnerSeatLapse` moves the contests
+ * alone. Both are `lib/vendor-handback.ts` and ride the revoke's batch (§26.1).
+ * The purge covers only the pages whose maintenance marker changed. A revoke that
+ * leaves an unbanned seat changes nothing beyond the profile.
  */
 export function createAdminRevokeSeatHandler(
   dbFor: DbFactory = getDb,
@@ -845,17 +867,56 @@ export function createAdminRevokeSeatHandler(
     });
     if (!target) throw notFoundError('profile', { id: targetId });
 
+    const now = new Date().toISOString();
+    const actor = { actorId: auth.userId, actorType: auditActorType(auth) };
     const batch = revokeSeatStatements(db, {
       userId: targetId,
       vendorId,
-      actorId: auth.userId,
-      actorType: auditActorType(auth),
-      now: new Date().toISOString(),
+      ...actor,
+      now,
       profileBefore: { role: target.role, vendorId: target.vendorId },
     });
 
-    await db.batch(batch.stmts as BatchTuple);
-    c.executionCtx.waitUntil(forwardAuditLog(batch.auditEntry, makeForwarder(c)));
+    // AECI-989: what the vendor is left with decides what else rides this batch.
+    // No seat at all hands the record back to AECi. Only banned seats left moves
+    // the owner's open contests to AECi's queue until an unban.
+    const outcome = await seatLossOutcome(db, vendorId, targetId);
+    const handbackParams = { vendorId, ...actor, now, source: CLAIM_AUDIT_SOURCE };
+    const follow =
+      outcome === 'handback'
+        ? await planVendorHandback(db, handbackParams)
+        : outcome === 'lapse'
+          ? await planOwnerSeatLapse(db, handbackParams)
+          : null;
+
+    // The profile UPDATE, then the race guards, then everything else: a batch whose
+    // plan no longer matches the seats rolls back whole (`seatRaceSentinels`).
+    const [profileWrite, ...revokeRest] = batch.stmts;
+    try {
+      await db.batch([
+        profileWrite!,
+        ...seatRaceSentinels(db, vendorId, outcome),
+        ...revokeRest,
+        ...(follow?.stmts ?? []),
+      ] as BatchTuple);
+    } catch (error) {
+      if (isSeatsChangedError(error)) throw seatsChangedError();
+      throw error;
+    }
+    const forwarder = makeForwarder(c);
+    const workflowForwarder = forwarders(c).workflow;
+    c.executionCtx.waitUntil(
+      Promise.all([
+        forwardAuditLog(batch.auditEntry, forwarder),
+        ...(follow?.audits ?? []).map((entry) => forwardAuditLog(entry, forwarder)),
+        ...(follow?.transitions ?? []).map((entry) =>
+          forwardWorkflowTransition(entry, workflowForwarder),
+        ),
+      ]),
+    );
+    if (follow?.purgeTags.length) {
+      c.executionCtx.waitUntil(purgeTags(c, follow.purgeTags, 'moderation'));
+    }
 
     return new Response(null, { status: 204 });
   };
@@ -1066,9 +1127,32 @@ export function createProvisionSeatHandler(
       reason: payload.reason ?? null,
     });
 
-    await db.batch(batch.stmts as BatchTuple);
+    // AECI-989: a new active seat returns the contests a ban moved to AECi.
+    const returned = await planSeatGrantReturn(
+      db,
+      {
+        vendorId,
+        actorId: auth.userId,
+        actorType: auditActorType(auth),
+        now: new Date().toISOString(),
+        source: CLAIM_AUDIT_SOURCE,
+      },
+      userId,
+    );
+
+    await db.batch([...batch.stmts, ...(returned?.stmts ?? [])] as BatchTuple);
     emitSeatProvision(c, 'ok');
-    c.executionCtx.waitUntil(forwardAuditLog(batch.auditEntry, makeForwarder(c)));
+    const provisionForwarder = makeForwarder(c);
+    const provisionWorkflowForwarder = forwarders(c).workflow;
+    c.executionCtx.waitUntil(
+      Promise.all([
+        forwardAuditLog(batch.auditEntry, provisionForwarder),
+        ...(returned?.audits ?? []).map((entry) => forwardAuditLog(entry, provisionForwarder)),
+        ...(returned?.transitions ?? []).map((entry) =>
+          forwardWorkflowTransition(entry, provisionWorkflowForwarder),
+        ),
+      ]),
+    );
 
     const body = readout(false);
     validateResponseInDev(c.env, () => ProvisionVendorSeatResponseSchema.parse(body));

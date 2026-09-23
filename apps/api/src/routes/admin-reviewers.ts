@@ -18,6 +18,12 @@
  * metric are role-aware (`vendor_admin.banned` vs `reviewer.banned`). Ban is
  * per-seat: it touches one `profiles` row and never `vendors.verified` (§8.3(2)).
  * Unbanning restores portal access without re-granting the seat.
+ *
+ * AECI-989: a ban never hands a vendor's record back to AECi, because a ban is
+ * reversible. When it leaves the vendor with no unbanned `vendor_admin`, the
+ * vendor's open owner contests move to AECi's queue in the same batch, and an
+ * unban moves them back (`lib/vendor-handback.ts`). `claimed_at` and the
+ * maintenance marker are untouched either way.
  */
 
 import {
@@ -59,6 +65,14 @@ import {
 } from '../lib/audit';
 import { validateResponseInDev, writeDb, type DbFactory } from '../lib/handler-utils';
 import { fetchAuthUserEmails } from '../lib/supabase-admin';
+import {
+  isSeatsChangedError,
+  planOwnerSeatLapse,
+  planOwnerSeatReturn,
+  seatLossOutcome,
+  seatRaceSentinels,
+  seatsChangedError,
+} from '../lib/vendor-handback';
 import type { FetchReviewerEmails } from './admin-reviews';
 
 type AdminContext = Context<{ Bindings: Env; Variables: AuthzVariables }>;
@@ -187,7 +201,7 @@ export function createBanReviewerHandler(
     const { db } = writeDb(c, dbFor);
 
     const existing = await db.query.profiles.findFirst({
-      columns: { id: true, role: true, bannedAt: true, banReason: true },
+      columns: { id: true, role: true, vendorId: true, bannedAt: true, banReason: true },
       where: eq(profiles.id, id),
     });
     if (!existing) throw notFoundError('profile', { id });
@@ -279,13 +293,59 @@ export function createBanReviewerHandler(
           }),
       workflowTransitionInsert(db, workflowEntry),
     ];
-    await db.batch(stmts as BatchTuple);
+    // AECI-989: a ban hands nothing back, but a vendor with no unbanned seat left
+    // cannot answer a contest. Its open owner contests go to AECi until an unban
+    // routes them back. `claimed_at` and the maintenance marker are untouched.
+    const seatVendorId = seatRole === 'vendor_admin' ? existing.vendorId : null;
+    const contestParams = seatVendorId
+      ? {
+          vendorId: seatVendorId,
+          actorId: userId,
+          actorType: auditActorType(session),
+          now: bannedAt ?? new Date().toISOString(),
+          source: 'admin-moderation',
+        }
+      : null;
+    // What the ban leaves: the target stays a (banned) profile, so any outcome but
+    // `none` means no active seat is left, which is a lapse.
+    const planned = !contestParams
+      ? null
+      : ban
+        ? (await seatLossOutcome(db, contestParams.vendorId, id)) === 'none'
+          ? ('none' as const)
+          : ('lapse' as const)
+        : null;
+    const follow = !contestParams
+      ? null
+      : !ban
+        ? await planOwnerSeatReturn(db, contestParams)
+        : planned === 'lapse'
+          ? await planOwnerSeatLapse(db, contestParams)
+          : null;
+    if (contestParams) {
+      // Straight after the profile UPDATE: a lost race rolls the batch back whole.
+      stmts.splice(1, 0, ...seatRaceSentinels(db, contestParams.vendorId, planned));
+    }
+    if (follow) stmts.push(...follow.stmts);
+
+    try {
+      await db.batch(stmts as BatchTuple);
+    } catch (error) {
+      if (isSeatsChangedError(error)) throw seatsChangedError();
+      throw error;
+    }
 
     emitBanAction(c, payload.action, seatRole, 'ok');
+    const auditForwarder = makeForwarder(c);
+    const workflowForwarder = makeWorkflowForwarder(c);
     c.executionCtx.waitUntil(
       Promise.all([
-        forwardAuditLog(auditEntry, makeForwarder(c)),
-        forwardWorkflowTransition(workflowEntry, makeWorkflowForwarder(c)),
+        forwardAuditLog(auditEntry, auditForwarder),
+        forwardWorkflowTransition(workflowEntry, workflowForwarder),
+        ...(follow?.audits ?? []).map((entry) => forwardAuditLog(entry, auditForwarder)),
+        ...(follow?.transitions ?? []).map((entry) =>
+          forwardWorkflowTransition(entry, workflowForwarder),
+        ),
       ]),
     );
 

@@ -75,12 +75,14 @@ Seeded empty **by design** — it is filled by rehearsal findings, parked-claim 
 | **AECI-623** | Converge `assertVerifiedVendor` onto `requireCapability('attestation.author')` — the one seam the Paid Tiers epic left duplicated. | Pure vendor-portal authz polish; exactly this stage's admission test. |
 | **AECI-633** | The manual screen-reader pass over the vendor portal's live-updating surface (per `docs/a11y-manual-testing-checklist.md`). | Gates asking vendors in; a11y of the surface vendors are invited to is a seat-granting blocker. May still be run in the same sitting as AECI-244 (which stays in 2.5 §5) if calendars align — the pairing was a scheduling convenience, not a dependency. |
 
-#### 3.3.1 Pulled forward 2026-09-22
+#### 3.3.1 Pulled forward 2026-09-22 and 2026-09-23
 
 | Issue | What it closes | Why it moved |
 |---|---|---|
 | **AECI-770** | A failed profile-ensure during `/auth/callback` leaves a signed-in user with no `profiles` row, locked out of every authenticated surface. Fix: the callback retries and signs out on persistent failure, and `GET /api/account` self-heals (`AUTH_AND_RLS.md` §3.1a). | A vendor with no `profiles` row can never be seated. It gates seat-granting. |
 | **AECI-1053** | Set `is_internal` on the operator's PostHog person from the identify path, not by hand. | The operator exclusion must survive a person reset before vendor-seat telemetry is read. |
+| **AECI-989** (2026-09-23, from Stage 2.5) | Revoking a vendor's last seat handed nothing back: its claimed integrations stayed fenced from promote with nobody able to edit them, and `maintained_by` kept the vendor's name. Fix: the revoke hands the record back in its own batch, and a ban moves open owner contests to AECi until the vendor has an unbanned seat again (`STAGE_2_ATTESTATIONS_SPEC.md` §13.9). | It gates seating a pilot vendor AECi might need to revoke (AECI-1105). |
+| **AECI-1106** (filed 2026-09-23, High) | Account erasure of a vendor's last seat hands nothing back either. It will call AECI-989's exported `planVendorHandback` from the erasure batch. | The follow-up AECI-989 named. It is the same seat-granting gate. |
 
 #### 3.3.2 Connector-lane epic AECI-771 (placed 2026-09-23)
 

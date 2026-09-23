@@ -2205,7 +2205,7 @@ column is indexed — both are read with the row.
 | Column | Written by | Never written by |
 |---|---|---|
 | `last_reviewed_at` | `lastReviewedAt` in the promote payload (`REVIEW_APP_PROMOTE_API.md` §3.6), **and only on an AECi-maintained row** (§13.9); a vendor attestation (§5); **any vendor-authorized catalog write** (§13.9) | anything else — no default, no trigger, no derivation |
-| `maintained_by` | the §5 vendor attestation path; **any vendor-authorized catalog write** (§13.9) | **promote** — the payload does not accept it |
+| `maintained_by` | the §5 vendor attestation path; **any vendor-authorized catalog write** (§13.9); **back to `'aeci'`** by an attestation retraction (§13.4) and by the last-seat hand-back (§13.9, AECI-989) | **promote** — the payload does not accept it |
 
 > **Updated by AECI-981 (2026-09-16).** This table read "the §5 vendor attestation
 > path only" for four weeks while the vendor portal shipped a profile editor, a
@@ -2447,10 +2447,11 @@ column never appears in any projection. Two holes survived that:
   in production. **Since AECI-1005 a CLAIMED edge is blocked wholesale** (the ownership
   fence, `REVIEW_APP_PROMOTE_API.md` §4b), so this `last_reviewed_at` fence now does its
   work on the unclaimed-but-attested edge only.
-- **`claimedVendorIds` is seat-derived.** Revoke or ban every `vendor_admin` seat and
-  the block lifts while `maintained_by` stays `'vendor'`. So the `vendors` and
-  `products` arms of the fence are near-unreachable while a seat exists and fire
-  post-revoke. They are not dead branches.
+- **`claimedVendorIds` is seat-derived.** Ban every `vendor_admin` seat and the block
+  lifts while `maintained_by` stays `'vendor'`. A revoke of the last seat no longer
+  leaves that state behind: since AECI-989 it hands the marker back (below). So the
+  `vendors` and `products` arms of the fence fire during a ban, and on a co-owned
+  product whose other owner still holds a seat. They are not dead branches.
 
 Implemented as a `CASE` inside the UPDATE (`fencedLastReviewedAt` in
 `routes/promote.ts`), on all four tables that carry the column — `vendors`,
@@ -2478,16 +2479,103 @@ its selects, and `carriedMaintenance` puts them on the destination INSERT in bot
 directions. The fence cannot cover this: it guards UPDATEs, and a move is an insert
 plus a drop.
 
-#### Deferred: the seat-revoke path
+#### The seat hand-back (AECI-989 — 2026-09-23)
 
-**The transfer is one-way today. Nothing hands a record back to `'aeci'`, and there
-is a real gap in that.** Once the last un-banned `vendor_admin` seat is removed,
-AECI-520's block lifts and promote resumes writing the content, but `maintained_by`
-stays `'vendor'` indefinitely — so a record AECi has resumed curating keeps the
-vendor's name on it. The principled fix mirrors §13.4's retraction rule: flip the
-vendor and every owned product back to `'aeci'` in the same batch as the revoke,
-never clearing `last_reviewed_at`. Tracked as **AECI-989**; named here so a reader
-between the two PRs is not misled.
+**Revoking a vendor's last seat hands its record back to AECi.** Until this shipped the
+transfer was one-way. Once the last seat was gone, AECI-520's block lifted and promote
+wrote the vendor and its products again, but `maintained_by` stayed `'vendor'` forever.
+Worse, every integration the vendor had claimed stayed fenced by `claimed_at`, so nobody
+could write it at all: not promote, and not a vendor with no seat. AECI-989 was pulled
+forward from Stage 2.5 into Stage 2.1 on 2026-09-23 because it gates seating a pilot
+vendor AECi might need to revoke (`STAGE_2_1_SPEC.md` §3.3.1).
+
+**The trigger is "no `vendor_admin` profile left", banned or not.** The one caller today
+is the admin revoke, `DELETE /api/admin/vendors/:id/seats/:userId`. The vendor portal's
+own remove cannot reach it, because it refuses self-removal. Account erasure is the third
+way a seat disappears. AECI-1106 wires it onto the same builder, `planVendorHandback` in
+`apps/api/src/lib/vendor-handback.ts`, which is exported and takes no request context for
+that reason.
+
+What rides the revoke's `db.batch`, each write with its own audit row (§26.1):
+
+| Row | Change | Audit row |
+|---|---|---|
+| `vendors` | `maintained_by` → `'aeci'` | `vendor.updated`, `metadata.reason = 'maintenance-marker'`, `cause = 'owner-seat-revoked'` |
+| each owned `products` row (`product_vendors`, any role) | `maintained_by` → `'aeci'`, unless another owning vendor still holds a seat | `product.updated`, same metadata |
+| each LIVE owned integration (`built_by_vendor_id` = vendor, `claimed_at` set) | `claimed_at` → NULL | `integration.updated`, `metadata.reason = 'owner-seat-revoked'` |
+| the same integration | `maintained_by` → `'aeci'`, only when no live vendor attestation survives on it (§13.4) | `integration.updated`, `reason = 'maintenance-marker'`, `cause = 'owner-seat-revoked'` |
+| each open contest routed to this owner | `routed_to` → `'aeci'`, for good | `integration.contest.rerouted`, plus an `open → open` transition |
+
+The rules behind the table:
+
+1. **Ownership returns the way ADR 0035 already defines it.** Clearing `claimed_at` is
+   what the owner-reassignment accept does (`STAGE_2_VENDOR_PORTAL_SPEC.md` §4.5.3), for
+   the same reason: nobody who has acted owns the row now. The promote fence
+   (`REVIEW_APP_PROMOTE_API.md` §4b) lifts, so promote writes the row again.
+   `built_by_vendor_id` stays, so the review app's owner of record is unchanged.
+2. **Nothing is deleted, and claims, attestations, links and contests are all kept.**
+3. **A vendor-created row stays fenced** (ruled 2026-09-23). Its claim clears, but
+   `origin = 'vendor'` keeps the fence on, because the review app has no record to write
+   it from. It then shows in the `vendor_integration_unclaimed` data-quality warning, and
+   an admin can still retire it (`STAGE_2_VENDOR_PORTAL_SPEC.md` §4.6.4).
+4. **A retired row keeps its claim.** It is already off the public record. The claim is
+   what lets a re-seated vendor restore its own withdrawal. Clearing it would also break
+   "retired implies vendor-held" on an `origin = 'aeci'` row.
+5. **A co-owned product with a seated co-owner keeps its marker.** AECI-520 still blocks
+   promote on that product, so AECi is not curating it again.
+6. **`last_reviewed_at` is never touched in either direction** (§13.4).
+7. **The entitlement and `vendors.verified` are untouched.** Seat and entitlement stay
+   orthogonal (`STAGE_2_PAID_TIERS_SPEC.md` §5.2). Clearing the entitlement is its own
+   action.
+8. **A no-op writes nothing.** A row already at `'aeci'`, or an integration with no
+   claim, gets no statement and no audit row, as `aeciMaintainedFlip` returns `null`.
+9. **The purge covers only what changed on a public page:** `vendor:{slug}` for the vendor
+   flip, `product:{slug}` plus `index:products` for each product flip, and the pair tag
+   plus both product tags for each integration whose marker flipped. `claimed_at` is not
+   rendered publicly, so an un-claim alone purges nothing.
+
+**A ban hands nothing back** (ruled 2026-09-23). A ban is reversible, and handing
+ownership back on a ban would make an unban silently lose data. `claimed_at` and the
+marker stay as they are. But a vendor with no unbanned seat cannot answer a contest. So
+while the vendor has no unbanned `vendor_admin`:
+
+- **Open owner contests move to AECi's queue.** A ban of the last active seat, or a revoke
+  that leaves only banned seats, re-routes them in the same batch, each stamped with
+  `integration_field_challenges.owner_seat_lapsed_at` (migration `0048`). Audit
+  `integration.contest.rerouted` with `metadata.reason = 'owner-seat-lapsed'`
+  (`planOwnerSeatLapse`).
+- **New contests route there too.** The contest submit routes to AECi, stamped, when the
+  owner has no unbanned seat, and sends the owner no notice.
+- **They route back as soon as the vendor has an unbanned seat again** (`planOwnerSeatReturn`, `reason = 'owner-seat-restored'`, ruled 2026-09-23). That is an unban, or a new seat grant by any of the three seat writers: the admin provision, the claim grant and the invite redeem (`planSeatGrantReturn`). A new seat whose own profile is banned returns nothing.
+  It returns every open, stamped contest whose row is live and has been claimed by that
+  vendor since before the stamp, and clears the stamp. "Since before the stamp" is what
+  stops a contest the hand-back took for good from returning after a re-seated vendor
+  re-claims the row. A contest AECi decided during the lapse stays decided.
+- **The silence clock does not pause.** It runs from `created_at`
+  (`STAGE_2_VENDOR_PORTAL_SPEC.md` §11b.12.2). A contest that sat with AECi through a
+  long lapse can come back already protestable for silence. Accepted: the owner's own
+  seat was the cause.
+
+**Races are guarded in SQL.** Whether a revoke or ban is the last one is read before
+the batch, so the batch re-checks it. Two sentinels sit straight after the profile UPDATE
+(`seatRaceSentinels`). One aborts when the UPDATE matched no row, such as a double-click.
+The other aborts when the seats left do not match the plan. That covers a seat provisioned
+in the gap and two seats revoked or banned at once. A lost race writes nothing and answers
+`409 VENDOR_SEATS_CHANGED`. A retry then plans against the real seats. Without the first,
+the loser of a double-click would commit every hand-back audit row for writes its guarded
+UPDATEs never made.
+
+**Lookups are chunked.** The two `IN (...)` reads over a vendor's products and claimed
+integrations run in groups of 80 ids, because D1 allows 100 bound parameters per query.
+
+**Test coverage:** `routes/vendor-handback.spec.ts` covers the last seat against a seat
+that is not the last and against only banned seats remaining. It also covers each
+integration case, kept claims and attestations, and the audit set with its reasons. It
+checks the purge set, and that the real promote ingest writes a handed-back edge it
+fenced a moment earlier. For bans it covers ban, unban, a decided contest, and a
+hand-back contest that must never return. Two cases cover the return on a new seat grant, and none when that seat's profile is banned. Three race cases cover a double-click, a seat
+provisioned mid-revoke, and two seats revoked at once. `routes/vendor-contests.spec.ts` covers the
+stamped submit.
 
 #### Acceptance
 
@@ -2508,6 +2596,9 @@ between the two PRs is not misled.
 - [x] A cross-table move preserves both columns.
 - [x] The rendered marker is asserted at the product-detail and vendor-detail mount
       sites, which had no test at all before this issue.
+- [x] Revoking the last seat hands the vendor, its solely-owned products and its live
+      claimed integrations back to AECi in the revoke's batch, keeping claims,
+      attestations and `last_reviewed_at` (AECI-989, "The seat hand-back" above).
 
 **Test coverage:** `vendor.spec.ts` (9 cases across both PATCHes),
 `vendor-product-versions.spec.ts` (transfer, the `updated_at` fact, the

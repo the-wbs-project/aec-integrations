@@ -121,7 +121,7 @@ What the build brings to `connector_evidenced_pairs`: four columns, `claimed_at`
 
 ## Consequences
 
-- The review app is no longer the source of truth for a claimed integration. Its copy of that row is dead until one path hands the row back: an AECi admin accept of an `owner` contest that reassigns the row to another vendor (or to "neither") clears `claimed_at`, so promote writes it again. That accept also re-routes the old owner's open contests to AECi in the same batch.
+- The review app is no longer the source of truth for a claimed integration. Its copy of that row is dead until one of two paths hands the row back. An AECi admin accept of an `owner` contest that reassigns the row to another vendor (or to "neither") clears `claimed_at`, so promote writes it again. Since AECI-989, revoking the owner's last seat does the same on every live row it claimed (see the 2026-09-23 note below). Both re-route the old owner's open contests to AECi in the same batch.
 - Every owner write refuses a connector-powered row, the claim included (decision 9, v1). AECI-1040 lifts that for claim, edit and retire together. The lift is ruled (2026-09-23) and not yet built.
 - The contest owner path is live. All four gaps AECI-1008 listed for it are closed: promote can no longer revert an owner accept; the `integrations` freshness cursor now covers the rows themselves (the AECI-992 row read); a stranded owner-routed contest is decidable by an admin; and a direction contest cannot see its anchor re-oriented, because promote can no longer re-point a claimed row.
 - `built_by_vendor_id` on a claimed row can change only through AECi's own admin path (an `owner` contest accept), never through promote. Reassigning it clears `claimed_at`.
@@ -142,6 +142,18 @@ Decision 7 gave retire to the owner. It left AECi with no audited way to act on 
 
 Contract: `STAGE_2_VENDOR_PORTAL_SPEC.md` §4.6.4. This does not open any AECi *content* write on a vendor-held row. AECi still changes such a row's content only through an `owner` contest accept or an owner-routed decision.
 
+## 2026-09-23 note: the last seat hands claimed rows back (AECI-989)
+
+The Revisit section named this trigger: a claimed row going back to AECi other than by the owner-reassignment accept. A seat is the gate on every integration action (decision 15). So once a vendor has no seat left, nobody can edit, retire or answer contests on its claimed rows, and the fence stops promote writing them. The rows were frozen.
+
+- **Revoking a vendor's last `vendor_admin` seat clears `claimed_at` on every live row it owns and claimed**, in the revoke's batch, with an `integration.updated` row (`metadata.reason = 'owner-seat-revoked'`). Promote writes those rows again. `built_by_vendor_id` stays. Its open owner contests re-route to AECi.
+- **`origin` is never changed.** A vendor-created row stays fenced without its claim, as the AECI-1011 consequence above already says for the reassignment accept. It shows in `vendor_integration_unclaimed`.
+- **A retired row keeps its claim**, so "retired implies vendor-held" holds and a re-seated vendor can restore its own retire.
+- **A ban un-claims nothing** (ruled 2026-09-23). A ban is reversible. While a vendor has no unbanned seat, its open owner contests route to AECi, and an unban or a new seat grant routes them back.
+- **No delete, and claims, attestations, links and contests survive.** Decisions 1 to 15 are unchanged.
+
+Contract: `STAGE_2_ATTESTATIONS_SPEC.md` §13.9, builder `apps/api/src/lib/vendor-handback.ts`. Account erasure of the last seat is the one remaining path, AECI-1106.
+
 ## Revisit
 
-When the AECI-1040 follow-ups ship the owner carve-out (decision 9), if tiers start to differentiate what a seat may do (decision 15), or if a claimed row needs to go back to AECi other than by the owner-reassignment accept, which today is the only path.
+When the AECI-1040 follow-ups ship the owner carve-out (decision 9), if tiers start to differentiate what a seat may do (decision 15), or if a claimed row needs to go back to AECi by a path other than the owner-reassignment accept or the last-seat hand-back (the 2026-09-23 note).

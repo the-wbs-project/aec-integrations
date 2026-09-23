@@ -85,8 +85,9 @@ const lastReviewedAt = () => text('last_reviewed_at');
  *  any vendor-authorized catalog write, on the row it writes — per row, never
  *  transitively. Promote must never write this column, or a routine push would
  *  silently un-vendor a record; a cross-table move must CARRY it for the same
- *  reason, since an INSERT would otherwise take the default below. Only an
- *  attestation retract flips back today — the seat-revoke path is AECI-989. */
+ *  reason, since an INSERT would otherwise take the default below. Two paths flip
+ *  it back: an attestation retract (§13.4), and the last-seat hand-back
+ *  (`lib/vendor-handback.ts`, AECI-989). */
 const maintainedBy = () => text('maintained_by').notNull().default('aeci');
 
 /** The CHECK companion to {@link maintainedBy}, so the four tables can't drift. */
@@ -1610,6 +1611,18 @@ export const integrationFieldChallenges = sqliteTable(
     workflowId: text('workflow_id').references(() => workflowInstances.id, {
       onDelete: 'set null',
     }),
+
+    /**
+     * Set while this contest sits with AECi ONLY because its owner vendor has no
+     * unbanned `vendor_admin` seat (AECI-989, migration 0048). A ban of the last
+     * active seat re-routes open owner contests here, and a contest submitted in
+     * that window routes here too; both carry the stamp. An unban routes every
+     * stamped open contest back to the owner and clears it, when the row has been
+     * claimed by that owner since before the stamp. Revoking the last seat keeps the
+     * stamp and routes nothing back, because the hand-back ends the claim the return
+     * requires (`lib/vendor-handback.ts`). NULL on every other row.
+     */
+    ownerSeatLapsedAt: text('owner_seat_lapsed_at'),
 
     // ── Protest to AECi (AECI-1009, §11b.12; migration 0047, hand-authored) ──
     // `protest_status` and `protest_basis` carry COLUMN-level CHECKs written by

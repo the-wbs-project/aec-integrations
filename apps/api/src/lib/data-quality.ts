@@ -518,9 +518,10 @@ export async function checkRetiredIntegrationsUnclaimed(db: Db): Promise<CheckFi
 /**
  * #15 — a vendor-created integration nobody holds a claim on (AECI-1011).
  *
- * A vendor create is born claimed. The one path that clears `claimed_at` is an AECi
- * admin accept of an `owner` contest that reassigns the row to another vendor or to
- * "neither" (`planAcceptWrites` in `routes/admin-contests.ts`). For a promote-seeded
+ * A vendor create is born claimed. Two paths clear `claimed_at`: an AECi admin accept
+ * of an `owner` contest that reassigns the row to another vendor or to "neither"
+ * (`planAcceptWrites` in `routes/admin-contests.ts`), and, since AECI-989, the admin
+ * revoke of the owner's last seat (`planVendorHandback` in `lib/vendor-handback.ts`). For a promote-seeded
  * row that is fine: promote writes it again. A vendor-created row stays behind the
  * promote fence with or without a claim (the fence keys on `origin = 'vendor'` too,
  * AECI-1011), and it has no upstream record anyway, so promote never writes it. Until

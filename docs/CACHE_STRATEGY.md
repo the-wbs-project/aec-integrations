@@ -280,6 +280,19 @@ as every other vendor write (see the verified-badge-flip paragraph below): the f
 stamps `vendors.updated_at` in **both** directions, so an un-verify reaches Algolia
 within 24h rather than never.
 
+**(b1a) the last-seat hand-back (AECI-989)** — `DELETE
+/api/admin/vendors/:id/seats/:userId` purges only when the revoke removes the vendor's
+last seat, because only then does a rendered value change: the maintenance marker
+(`STAGE_2_ATTESTATIONS_SPEC.md` §13.9). The builder, `planVendorHandback` in
+`apps/api/src/lib/vendor-handback.ts`, returns exactly the tags whose marker flipped, and
+the route sends them with `source: 'moderation'`. That means `vendor:{slug}` for the vendor
+row, `product:{slug}` plus `index:products` for each solely-owned product, and
+`pair:{min}__{max}` plus both `product:` tags for each integration whose marker flipped.
+Clearing `claimed_at` alone purges nothing, because no public read renders it. It is **not**
+`vendorPurgeTags`: the account-status label is untouched by a revoke, so purging every
+owned product would evict pages whose HTML did not change. Any other revoke, and a ban or
+unban, purges nothing.
+
 **(b2) the `/api/vendor/*` write surface on the API Worker (Stage 2, AECI-520 /
 607 / 301)** — the vendor portal's self-service edits use the same producer path
 with a distinct `source: 'vendor'`, so the `aeci.cache.purge{source}` metric

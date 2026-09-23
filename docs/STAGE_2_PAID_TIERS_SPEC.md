@@ -392,8 +392,8 @@ After this epic there are three distinct "take it away" actions, and an admin cl
 
 | Action | Endpoint | Scope | Effect | Touches `vendors.verified`? |
 |---|---|---|---|---|
-| **Ban a seat** | `PATCH /api/admin/reviewers/:id` | one `profiles` row | that seat 403s on every `/api/vendor/*` call; other seats unaffected | **No** |
-| **Revoke a seat** | `DELETE /api/vendor/seats/:userId` (AECI-664; owner-only, **not** capability-gated) — or `DELETE /api/admin/vendors/:id/seats/:userId` (AECI-652 §5.6, admin-side) | one `profiles` row | drops the seat to `reviewer`, unlinks `vendor_id`, clears `seat_owner` | **No** |
+| **Ban a seat** | `PATCH /api/admin/reviewers/:id` | one `profiles` row | that seat 403s on every `/api/vendor/*` call; other seats unaffected. A ban of the last active seat moves open owner contests to AECi until the unban, and hands nothing back (AECI-989) | **No** |
+| **Revoke a seat** | `DELETE /api/vendor/seats/:userId` (AECI-664; owner-only, **not** capability-gated) — or `DELETE /api/admin/vendors/:id/seats/:userId` (AECI-652 §5.6, admin-side) | one `profiles` row; the vendor's record too when it is the **last** seat (admin-side only, AECI-989) | drops the seat to `reviewer`, unlinks `vendor_id`, clears `seat_owner`. The last seat also hands the record back to AECi: marker to `'aeci'`, claimed integrations un-claimed, owner contests to AECi (`STAGE_2_ATTESTATIONS_SPEC.md` §13.9) | **No** |
 | **Clear an entitlement** | `PATCH /api/admin/vendors/:id/entitlement` | the vendor | badge goes away; **seats, logins and dashboard survive, read-only** | **Yes** (via the mirror) |
 
 **A pure connector vendor never appears in this table**, because it never gets a row: its seat is not an entitlement (`STAGE_2_SPEC.md` §8.9(2)), and its claim is routed to the partnership track rather than granted here (`STAGE_2_VENDOR_PORTAL_SPEC.md` §5.2). "Grant it a non-paying tier" is not an available move — §5.1 returns **403** on any `set` whose tier grants zero capabilities, and `SetVendorEntitlementSchema.tier` derives from `PAID_TIERS`, so Zod rejects it first.
