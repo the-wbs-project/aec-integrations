@@ -1128,12 +1128,14 @@ A vendor is **claimed** only while it has at least one **active** portal seat. I
 AECi bans a vendor's only admin, the vendor is no longer claimed and promote can
 write to it again — that is deliberate, so moderation hands control back to AECi
 rather than freezing the record. **Revoking the last seat (AECI-989) goes further:**
-the vendor, its solely-owned products and its live claimed integrations are handed
-back to AECi. The vendor and product rows promote again as above. Each claimed
+the vendor, its solely-owned products and its live claimed integrations and evidenced
+pairs are handed back to AECi. The vendor and product rows promote again as above. Each claimed
 integration loses `claimed_at`, so §4b's fence lifts and your pushes write it again.
 Its `maintained_by` returns to `'aeci'` unless a vendor attestation still stands, so
 your `lastReviewedAt` lands again too (§3.6a). A vendor-created row stays fenced (§4c).
-Nothing on your side changes.
+A claimed evidenced pair (AECI-1089) is handed back the same way, so the §4b fence on
+`connector_evidenced_pairs` lifts and the connector-catalog arm writes it again. Nothing on
+your side changes.
 - **`unresolvedLinks[]` is the other half, and it is NOT `skipped[]` (AECI-730).**
   A `skipped` entry means the row was never written. An entry here means the
   integration **was** written and only one optional link is missing:
@@ -1192,7 +1194,8 @@ carry it, and do not re-promote to "apply" it. A reassignment away from the clai
 vendor clears `claimed_at`, so promote writes that row again from then on, **unless the
 row is vendor-created** (`origin = 'vendor'`, §4c). A vendor-created row stays fenced
 with or without a claim. **Revoking the owner's last portal seat clears `claimed_at` the
-same way** on every live row it claimed (AECI-989, §4a's last paragraph). A retired row
+same way** on every live row it claimed, in either table (AECI-989, §4a's last paragraph;
+evidenced pairs since AECI-1089). A retired row
 keeps its claim. No `REVIEW - ` issue is filed, because the owner of record did not change.
 
 **One race is an error, deliberately.** If the owner claims the integration while

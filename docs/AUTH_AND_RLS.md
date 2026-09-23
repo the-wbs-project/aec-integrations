@@ -303,7 +303,7 @@ seats and logins survive). Banning or revoking one abusive seat leaves the vendo
 verified and its other seats working. Grant and revoke each emit their `audit_log` row in the
 same batch (§4.3) and are fully reversible. **One qualification since AECI-989:** the admin
 revoke of a vendor's **last** seat also hands its record back to AECi in the same batch. The
-marker returns to `'aeci'`, its live claimed integrations lose `claimed_at`, and its owner
+marker returns to `'aeci'`, its live claimed integrations and evidenced pairs lose `claimed_at`, and its owner
 contests go to AECi. A later re-grant restores access, but the vendor must claim its
 integrations again. A ban of the last active seat hands nothing back. It only moves open
 owner contests to AECi until the vendor has an unbanned seat again, by an unban or a new seat grant (`STAGE_2_ATTESTATIONS_SPEC.md` §13.9). Full contract:

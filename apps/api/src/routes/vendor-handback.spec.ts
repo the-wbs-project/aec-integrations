@@ -24,6 +24,7 @@ import {
   attestations,
   auditLog,
   claims,
+  connectorEvidencedPairs,
   integrationFieldChallenges,
   integrations,
   productVendors,
@@ -611,5 +612,159 @@ describe('a new seat grant returns the contests a ban moved to AECi', () => {
       .values({ id: SEAT_B, role: 'reviewer', bannedAt: CLAIMED_AT, banReason: 'abuse' });
     await provision();
     expect((await contest()).routedTo).toBe('aeci');
+  });
+});
+
+// ─── Evidenced pairs (AECI-1089) ─────────────────────────────────────────────
+
+describe('revoking the LAST seat hands back claimed evidenced pairs too (AECI-1089)', () => {
+  const P_CONNECTOR = u(33);
+  const P_OTHER_CONNECTOR = u(34);
+  const EP_OWNED = u(80); // owned + claimed, no vendor attestation
+  const EP_ATTESTED = u(81); // owned + claimed, a live vendor attestation on the pair
+  const EP_RETIRED = u(82); // owned + claimed, retired
+  const PAIR_CLAIM = u(83);
+
+  const pair = async (id: string) =>
+    (await t.db.query.connectorEvidencedPairs.findFirst({
+      where: eq(connectorEvidencedPairs.id, id),
+    }))!;
+
+  beforeEach(async () => {
+    await t.db.insert(products).values([
+      { id: P_CONNECTOR, slug: 'zapier', name: 'Zapier', promotionStatus: 'promoted' },
+      { id: P_OTHER_CONNECTOR, slug: 'make', name: 'Make', promotionStatus: 'promoted' },
+    ]);
+    const ownedPair = {
+      productAId: P_MINE,
+      productBId: P_THEIRS,
+      builtByVendorId: VENDOR,
+      maintainedBy: 'vendor',
+      lastReviewedAt: REVIEWED,
+      claimedAt: CLAIMED_AT,
+    };
+    await t.db.insert(connectorEvidencedPairs).values([
+      { id: EP_OWNED, connectorProductId: P_CONNECTOR, name: 'Pair owned', ...ownedPair },
+      {
+        id: EP_ATTESTED,
+        connectorProductId: P_OTHER_CONNECTOR,
+        name: 'Pair attested',
+        ...ownedPair,
+      },
+      {
+        id: EP_RETIRED,
+        connectorProductId: P_CONNECTOR,
+        name: 'Pair retired',
+        ...ownedPair,
+        productAId: P_SHARED,
+        retiredAt: CLAIMED_AT,
+        retiredBy: 'owner',
+      },
+    ]);
+    await t.db.insert(claims).values({
+      id: PAIR_CLAIM,
+      connectorEvidencedPairId: EP_ATTESTED,
+      dataObjectId: DATA_OBJECT,
+      direction: 'a_to_b',
+    });
+    await t.db
+      .insert(attestations)
+      .values({ id: u(84), claimId: PAIR_CLAIM, source: 'vendor_a', asserted: true });
+  });
+
+  it('un-claims every live owned pair, and flips the marker only where no vendor attestation survives', async () => {
+    expect((await revoke(SEAT_A)).status).toBe(204);
+
+    const owned = await pair(EP_OWNED);
+    expect(owned.claimedAt).toBeNull();
+    expect(owned.maintainedBy).toBe('aeci');
+    expect(owned.origin).toBe('aeci');
+    expect(owned.builtByVendorId).toBe(VENDOR);
+    expect(owned.lastReviewedAt).toBe(REVIEWED);
+
+    // §13.4: a live vendor attestation keeps the pair vendor-maintained.
+    const attested = await pair(EP_ATTESTED);
+    expect(attested.claimedAt).toBeNull();
+    expect(attested.maintainedBy).toBe('vendor');
+
+    // Retired: keeps its claim, so a re-seated vendor can restore it.
+    const retired = await pair(EP_RETIRED);
+    expect(retired.claimedAt).toBe(CLAIMED_AT);
+    expect(retired.retiredAt).toBe(CLAIMED_AT);
+  });
+
+  it('keeps the pair claims and attestations, and deletes no pair', async () => {
+    const before = {
+      pairs: await t.db.select().from(connectorEvidencedPairs),
+      claims: await t.db.select().from(claims),
+      attestations: await t.db.select().from(attestations),
+    };
+    await revoke(SEAT_A);
+    expect(await t.db.select().from(connectorEvidencedPairs)).toHaveLength(before.pairs.length);
+    expect(await t.db.select().from(claims)).toEqual(before.claims);
+    expect(await t.db.select().from(attestations)).toEqual(before.attestations);
+  });
+
+  it('writes the pair audit rows in the revoke batch, on the pair entity with the evidenced anchor', async () => {
+    const batchSpy = vi.spyOn(t.db, 'batch');
+    await revoke(SEAT_A);
+    expect(batchSpy.mock.calls.filter(([stmts]) => stmts.length > 0)).toHaveLength(1);
+    batchSpy.mockRestore();
+
+    const rows = (await t.db.select().from(auditLog)).filter(
+      (row) => row.entityType === 'connector_evidenced_pair',
+    );
+    // EP_OWNED un-claim + marker, EP_ATTESTED un-claim. EP_RETIRED writes nothing.
+    expect(rows.map((r) => r.entityId).sort()).toEqual([EP_OWNED, EP_OWNED, EP_ATTESTED].sort());
+    for (const row of rows) {
+      expect(row.action).toBe('integration.updated');
+      expect(row.metadata).toMatchObject({
+        anchor: 'evidenced_pair',
+        integrationId: row.entityId,
+        vendor_id: VENDOR,
+      });
+    }
+    const flip = rows.find(
+      (row) => (row.afterState as { maintained_by?: string } | null)?.maintained_by === 'aeci',
+    );
+    expect(flip?.metadata).toMatchObject({
+      reason: 'maintenance-marker',
+      cause: 'owner-seat-revoked',
+    });
+  });
+
+  it("purges the flipped pair's page, both endpoints and its connector's page", async () => {
+    const { send } = await revoke(SEAT_A);
+    const { tags } = send.mock.calls[0]![0] as { tags: string[] };
+    expect(tags).toEqual(
+      expect.arrayContaining([
+        'pair:microstation__revit',
+        'product:microstation',
+        'product:revit',
+        'product:zapier',
+      ]),
+    );
+    // EP_ATTESTED kept its marker, so its connector's page does not move.
+    expect(tags).not.toContain('product:make');
+  });
+
+  it('writes nothing to the pairs when a seat lands between the plan and the batch (409 VENDOR_SEATS_CHANGED)', async () => {
+    const original = t.db.batch.bind(t.db);
+    vi.spyOn(t.db, 'batch').mockImplementationOnce((async (stmts: never) => {
+      await t.db.insert(profiles).values({ id: SEAT_B, role: 'vendor_admin', vendorId: VENDOR });
+      return original(stmts);
+    }) as never);
+    const { status } = await revoke(SEAT_A);
+    expect(status).toBe(409);
+    const owned = await pair(EP_OWNED);
+    expect(owned.claimedAt).toBe(CLAIMED_AT);
+    expect(owned.maintainedBy).toBe('vendor');
+  });
+
+  it('leaves the pairs alone when an active seat remains', async () => {
+    await t.db.insert(profiles).values({ id: SEAT_B, role: 'vendor_admin', vendorId: VENDOR });
+    await revoke(SEAT_A);
+    expect((await pair(EP_OWNED)).claimedAt).toBe(CLAIMED_AT);
+    expect((await pair(EP_ATTESTED)).claimedAt).toBe(CLAIMED_AT);
   });
 });

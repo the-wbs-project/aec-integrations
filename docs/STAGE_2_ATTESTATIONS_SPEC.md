@@ -2508,6 +2508,8 @@ What rides the revoke's `db.batch`, each write with its own audit row (§26.1):
 | each owned `products` row (`product_vendors`, any role) | `maintained_by` → `'aeci'`, unless another owning vendor still holds a seat | `product.updated`, same metadata |
 | each LIVE owned integration (`built_by_vendor_id` = vendor, `claimed_at` set) | `claimed_at` → NULL | `integration.updated`, `metadata.reason = 'owner-seat-revoked'` |
 | the same integration | `maintained_by` → `'aeci'`, only when no live vendor attestation survives on it (§13.4) | `integration.updated`, `reason = 'maintenance-marker'`, `cause = 'owner-seat-revoked'` |
+| each LIVE owned evidenced pair (`connector_evidenced_pairs`, AECI-1089) | `claimed_at` → NULL | `integration.updated` on entity type `connector_evidenced_pair`, `metadata.anchor = 'evidenced_pair'`, `reason = 'owner-seat-revoked'` |
+| the same pair | `maintained_by` → `'aeci'`, only when no live vendor attestation survives on a claim anchored on it (§13.4) | as above, `reason = 'maintenance-marker'`, `cause = 'owner-seat-revoked'` |
 | each open contest routed to this owner | `routed_to` → `'aeci'`, for good | `integration.contest.rerouted`, plus an `open → open` transition |
 
 The rules behind the table:
@@ -2516,7 +2518,10 @@ The rules behind the table:
    what the owner-reassignment accept does (`STAGE_2_VENDOR_PORTAL_SPEC.md` §4.5.3), for
    the same reason: nobody who has acted owns the row now. The promote fence
    (`REVIEW_APP_PROMOTE_API.md` §4b) lifts, so promote writes the row again.
-   `built_by_vendor_id` stays, so the review app's owner of record is unchanged.
+   `built_by_vendor_id` stays, so the review app's owner of record is unchanged. **The same
+   holds for evidenced pairs** (AECI-1089, which made them claimable): each rule below
+   applies to a `connector_evidenced_pairs` row exactly as to an `integrations` row, and the
+   §4b fence on that table lifts the same way.
 2. **Nothing is deleted, and claims, attestations, links and contests are all kept.**
 3. **A vendor-created row stays fenced** (ruled 2026-09-23). Its claim clears, but
    `origin = 'vendor'` keeps the fence on, because the review app has no record to write
@@ -2535,7 +2540,9 @@ The rules behind the table:
    claim, gets no statement and no audit row, as `aeciMaintainedFlip` returns `null`.
 9. **The purge covers only what changed on a public page:** `vendor:{slug}` for the vendor
    flip, `product:{slug}` plus `index:products` for each product flip, and the pair tag
-   plus both product tags for each integration whose marker flipped. `claimed_at` is not
+   plus both product tags for each integration whose marker flipped. An evidenced pair whose
+   marker flipped also purges its connector's `product:` tag, because the connector's page
+   lists the pair (AECI-1089). `claimed_at` is not
    rendered publicly, so an un-claim alone purges nothing.
 
 **A ban hands nothing back** (ruled 2026-09-23). A ban is reversible, and handing
@@ -2569,8 +2576,8 @@ in the gap and two seats revoked or banned at once. A lost race writes nothing a
 the loser of a double-click would commit every hand-back audit row for writes its guarded
 UPDATEs never made.
 
-**Lookups are chunked.** The two `IN (...)` reads over a vendor's products and claimed
-integrations run in groups of 80 ids, because D1 allows 100 bound parameters per query.
+**Lookups are chunked.** The `IN (...)` reads over a vendor's products, claimed
+integrations and claimed evidenced pairs run in groups of 80 ids, because D1 allows 100 bound parameters per query.
 
 **Test coverage:** `routes/vendor-handback.spec.ts` covers the last seat against a seat
 that is not the last and against only banned seats remaining. It also covers each
@@ -2578,8 +2585,11 @@ integration case, kept claims and attestations, and the audit set with its reaso
 checks the purge set, and that the real promote ingest writes a handed-back edge it
 fenced a moment earlier. For bans it covers ban, unban, a decided contest, and a
 hand-back contest that must never return. Two cases cover the return on a new seat grant, and none when that seat's profile is banned. Three race cases cover a double-click, a seat
-provisioned mid-revoke, and two seats revoked at once. `routes/vendor-contests.spec.ts` covers the
-stamped submit.
+provisioned mid-revoke, and two seats revoked at once. The evidenced-pair block (AECI-1089)
+covers the pair un-claim, the attested and retired pairs, kept claims and attestations, the
+pair audit rows with their anchor, the connector tag in the purge, a seat race that writes
+nothing to the pairs, and a revoke that is not the last. `routes/vendor-contests.spec.ts`
+covers the stamped submit.
 
 #### Acceptance
 

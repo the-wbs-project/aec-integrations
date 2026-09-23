@@ -2365,12 +2365,15 @@ what else rides the same batch:
 | none | the hand-back: `vendors.maintained_by` and each solely-owned product's `maintained_by` → `'aeci'`; `claimed_at` cleared on each live integration the vendor owns and claimed, so promote writes it again; that integration's `maintained_by` → `'aeci'` when no live vendor attestation survives; open owner contests → AECi for good |
 
 Each write carries its own audit row (`vendor.updated`, `product.updated`,
-`integration.updated`, `integration.contest.rerouted`). A write that would change nothing
+`integration.updated`, `integration.contest.rerouted`). Since AECI-1089 the un-claim and the
+marker flip also cover the vendor's live claimed `connector_evidenced_pairs` rows, audited on
+entity type `connector_evidenced_pair` with `metadata.anchor = 'evidenced_pair'`. A write that would change nothing
 is omitted with its row. `last_reviewed_at`, `built_by_vendor_id`, `origin`, retired rows,
 claims and attestations are never touched, and nothing is deleted. **Purge:** only the pages
 whose maintenance marker changed, through `CACHE_PURGE_QUEUE` with `source: 'moderation'`.
 That means `vendor:{slug}`, each flipped `product:{slug}` plus `index:products`, and the pair
-tag plus both product tags for each integration whose marker flipped. A revoke that leaves
+tag plus both product tags for each integration whose marker flipped. An evidenced pair whose
+marker flipped also purges its connector's `product:` tag (AECI-1089). A revoke that leaves
 a seat purges nothing. The response is `204` in every case, and the wire shape is unchanged.
 Builder: `apps/api/src/lib/vendor-handback.ts`. Contract: `STAGE_2_ATTESTATIONS_SPEC.md` §13.9.
 

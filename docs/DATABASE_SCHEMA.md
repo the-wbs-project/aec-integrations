@@ -465,7 +465,7 @@ create index integrations_powered_by_idx on integrations(powered_by_product_id) 
 >   sets `maintained_by = 'vendor'` too, so the chip reads right, but `maintained_by` also
 >   flips when an endpoint vendor merely attests, so it cannot mean ownership.
 >   `REVIEW_APP_PROMOTE_API.md` §4b is the promote contract.
-> - **Two paths un-claim a row.** An AECi admin accept of an `owner` contest that reassigns it to a different vendor or to "neither" clears `claimed_at`, because the new owner has not acted (§11b.6 of `STAGE_2_VENDOR_PORTAL_SPEC.md`). Since AECI-989, revoking the owner's last `vendor_admin` seat clears it on every live row the owner claimed (`STAGE_2_ATTESTATIONS_SPEC.md` §13.9). Both re-route the old owner's open contests to AECi. Nothing else, promote included, clears it.
+> - **Two paths un-claim a row.** An AECi admin accept of an `owner` contest that reassigns it to a different vendor or to "neither" clears `claimed_at`, because the new owner has not acted (§11b.6 of `STAGE_2_VENDOR_PORTAL_SPEC.md`). Since AECI-989, revoking the owner's last `vendor_admin` seat clears it on every live row the owner claimed, in `integrations` and, since AECI-1089, in `connector_evidenced_pairs` (`STAGE_2_ATTESTATIONS_SPEC.md` §13.9). Both re-route the old owner's open contests to AECi. Nothing else, promote included, clears it.
 > - **Vendor-held = claimed OR `origin = 'vendor'`.** The strand audit, the datatool prune, the
 >   retraction consumer and `ops:retract-product` never treat a vendor-held row as an orphan
 >   (`STAGE_2_VENDOR_PORTAL_SPEC.md` §4.5).
@@ -2952,7 +2952,8 @@ retire an evidenced pair, and AECi gets an admin retire and restore on a vendor-
 and NULL for the other three. **What reads and writes them today:** the promote fence, the
 promote twin guard and the ops lanes below. **Since AECI-1089 the vendor claim route writes
 `claimed_at`** (with the §13.9 maintenance transfer) on a pair its entitled owner claims
-(`STAGE_2_VENDOR_PORTAL_SPEC.md` §4.5.2). No route writes `origin`, `retired_at` or
+(`STAGE_2_VENDOR_PORTAL_SPEC.md` §4.5.2), and the last-seat hand-back clears it on the owner's
+live claimed pairs (AECI-989, `STAGE_2_ATTESTATIONS_SPEC.md` §13.9). No route writes `origin`, `retired_at` or
 `retired_by` yet. Retire and restore, with the `retired_at` filter on every count and public
 read, is AECI-1091.
 
