@@ -67,31 +67,31 @@ Check every box before a sitting starts. A box you cannot tick is a blocker, not
 
 ### Dark production (`https://www.aecintegrations.com`)
 
-- [ ] **The input is AECI-855.** It is a product claim on `procore-project-management`, submitted
-      by `aecintegrations@gmail.com`, request id `943e4502-6d8d-4f56-ad8e-f446a2616399`. Load
-      `/admin/claims/943e4502-6d8d-4f56-ad8e-f446a2616399`. It must show **Open**. Steps 1–2 are
+- [ ] **The input is AECI-857.** It is a product claim on `companycam`, submitted by
+      `aecintegrations@gmail.com`, request id `80924132-868f-424b-a11e-e48387331e30`. Load
+      `/admin/claims/80924132-868f-424b-a11e-e48387331e30`. It must show **Open**. Steps 1–2 are
       not re-run on production. The claim already exists, and its row is the evidence for them.
-- [ ] **Parked test claims to clear in the same sitting.** AECI-856 (Oracle Textura) and AECI-857
-      (CompanyCam) are production claims by `aecintegrations@gmail.com`. Reject both in
-      `/admin/claims/:id`, then cancel their Linear issues. Each reject sends a real
+- [ ] **Parked test claims to clear in the same sitting.** AECI-855 (Procore Project Management)
+      and AECI-856 (Oracle Textura) are production claims by `aecintegrations@gmail.com`. Reject
+      both in production's `/admin/claims/:id` (close-out C4). Each reject sends a real
       `Your claim for {name} was not approved` email to that mailbox. **AECI-923 (Autodesk) is a
       demo claim**, not production: its admin link is `demo.aecintegrations.com`. Reject it in
-      demo's admin, not production's.
+      demo's admin.
+- [ ] **Steps 11a–11e do not run on production.** No attestation is written on a real pair. Steps
+      12b and 12c still prove the AECI-623 gate on production, with a request that writes nothing
+      (see step 12b).
 - [ ] **Accept the public exposure, or stop.** Production is dark, but the approve at step 4 is
       live. The table below lists what a real visitor can see during the sitting and what undoes
       it. Close-out (§"Close-out") must leave every row reverted.
 
       | Step | What becomes public | Undone by |
       |---|---|---|
-      | 4 approve | "Vendor account active" on the Procore vendor, product and pair pages (SSR, on the next request after the purge) | C1 entitlement clear |
-      | 4 approve | the same label in `/search`, **only if** the 08:00 UTC Algolia sync runs while verified | C1 clear, then the next 08:00 UTC sync |
-      | 11a affirm | "Confirmed by Procore" on one real pair page, and "Vendor-maintained" on that integration | C2 retract. `last_reviewed_at` stays set by design |
+      | 4 approve, 12c set | "Vendor account active" on the CompanyCam vendor, product and pair pages (SSR, on the next request after the purge) | C1 entitlement clear |
+      | 4 approve, 12c set | the same label in `/search`, **only if** the 08:00 UTC Algolia sync runs while verified | C1 clear, then the next 08:00 UTC sync |
 
-      **Finish the production sitting before 08:00 UTC.** Then the search index never sees Procore
-      as verified.
-- [ ] **Pick the production pair for step 11a in advance.** Use a direct Procore integration whose
-      other vendor has no seat, so no attestation email can reach a real vendor. Production has
-      zero seats today, so any direct pair qualifies. Record it.
+- [ ] **The production sitting ends before 08:00 UTC,** C1 included. Then the search index never
+      sees CompanyCam as verified. Start early enough to finish. If the clock runs short, run C1
+      and C3 first and stop.
 
 ---
 
@@ -162,16 +162,16 @@ Every error body has the shape `{ error: { code, message, field?, details? }, tr
 | 10b | Same. | Undock DevTools and click into another window for 3 minutes. | The gap becomes **60 s**. `document.hasFocus()` decides the interval each time the next poll is scheduled. | Timestamps. | [your-seat] |
 | 10c | Same. | Switch to another browser tab for 2 minutes, then back. | **No** requests while hidden. **One** request fires immediately on return. | Timestamps across the gap. | [your-seat] |
 | 10d | **Admin** changes something this vendor can see, for example the entitlement at step 12a. | Watch the Claimant tab without reloading. | Within one interval the moved cursor triggers a refetch. `entitlement` and `profile` both refetch `/api/vendor/me`. The screen updates without a reload. | Before and after screenshots, no reload in between. | [your-seat] |
-| 11a | **Claimant (A).** `/vendor/:slug/products/:productSlug/integrations`. Calls `POST /api/vendor/claims` or `PUT /api/vendor/claims/:claimId/attestation`. | Affirm one data flow on the chosen pair. | `2xx` echoing `agreement: "single_source"`. The public pair page `/products/:contextSlug/integrations/:otherSlug` shows **"Confirmed by {vendor}"**, with aria-label "…The other vendor has not responded." The listing flips from "Maintained by AEC Integrations" to "Vendor-maintained · Updated {date}". Audit rows are `attestation.created`, plus `claim.created` if the flow was new, plus `integration.updated` (`reason: maintenance-marker`). Cache purge covers `pair:{min}__{max}` and both `product:` tags. The announcer says "{dataObject} · you confirmed this flow." | Response. Pair-page screenshot. Portal screenshot. | [attesting-to-integrations], [owning-an-integration] |
+| 11a | **Staging only.** **Claimant (A).** `/vendor/:slug/products/:productSlug/integrations`. Calls `POST /api/vendor/claims` or `PUT /api/vendor/claims/:claimId/attestation`. | Affirm one data flow on the chosen pair. | `2xx` echoing `agreement: "single_source"`. The public pair page `/products/:contextSlug/integrations/:otherSlug` shows **"Confirmed by {vendor}"**, with aria-label "…The other vendor has not responded." The listing flips from "Maintained by AEC Integrations" to "Vendor-maintained · Updated {date}". Audit rows are `attestation.created`, plus `claim.created` if the flow was new, plus `integration.updated` (`reason: maintenance-marker`). Cache purge covers `pair:{min}__{max}` and both `product:` tags. The announcer says "{dataObject} · you confirmed this flow." | Response. Pair-page screenshot. Portal screenshot. | [attesting-to-integrations], [owning-an-integration] |
 | 11b | **Staging only.** Repeat steps 1–9 for **vendor B**, from the second claimant mailbox. | Seat B through the same pipeline. | As steps 1–9. | Abbreviated: the step-4 response and the step-9 `/vendor/me` body. | as 1–9 |
 | 11c | **Staging only.** **Claimant (B)**, same pair from B's side. | Deny the flow A affirmed. | `2xx` echoing `agreement: "conflict"`. The pair page shows **"Vendors disagree"**, the only red state, with a ✕. The portal shows "You and {other} describe this flow differently." The announcer says "{dataObject} · you denied this flow." | Response. Pair-page screenshot. Both portals. | [attesting-to-integrations] |
 | 11d | **Staging only.** **Claimant (B).** | Retract B's denial, then affirm. | Retract (`DELETE …/attestation`) returns `204` and the state goes back to `single_source`. The announcer says "Position withdrawn." Affirm returns `agreement: "confirmed"`, and the pair page shows **"Both vendors confirmed"**. | Responses. Pair-page screenshot. | [attesting-to-integrations] |
 | 11e | **Staging only.** **Claimant (B)**, then **Admin** at `/admin/vendors/:id` for B. | B retracts its affirm. Then Admin clears B's entitlement and revokes B's seat (the paths of 12a and 16a). | The retract returns `204` and the pair goes back to `single_source`. Revoking a seat retracts nothing, which is why B retracts first. B's portal then renders the 404 page. | Responses. Pair-page screenshot. | [your-seat] |
 | 12a | **Admin.** `/admin/vendors/:id`, "Clear entitlement" then "Confirm clear". Calls `PATCH /api/admin/vendors/:id/entitlement` with `{ action: "clear" }`. | Clear A's entitlement. | `200`. The admin screen says "Entitlement cleared for {name}. Portal access continues, read-only. Search results update within a day." Status becomes `revoked` and `vendors.verified` becomes false. Audit row `vendor_entitlement.cleared` carries `seats_untouched: true`. Cache purge covers `vendor:`, each `product:`, and `index:products`. Within one poll the Claimant's plan panel shows the lapsed state: "What is paused: the public account label, and editing your profile and products." The integrations page shows the read-only notice: "You can review everything on record here. Confirming data flows and adding new ones opens up with active vendor access…" | Admin response. Claimant screen before and after, no reload. | [plans-and-entitlements] |
-| 12b | **Claimant (A)**, integrations page. Force the write through DevTools: replay the step-11a `PUT` with "Replay XHR". | Attempt an attestation write while unentitled. | **`403 ENTITLEMENT_REQUIRED`**, `details: { capability: "attestation.author", tier: "unclaimed" }`, message "This action requires an active Verified plan. Contact AEC Integrations to activate or renew it." This is the AECI-623 gate. The ordinary UI hides the write controls, so the replay is the only way to reach the 403. | The 403 body. | [plans-and-entitlements] |
-| 12c | **Admin.** "Grant entitlement" then "Confirm grant". `{ action: "set" }`, with a `period_end` more than 30 days out. | Set it again. | `200`. The admin screen says "Entitlement granted for {name}. Search results update within a day." `vendors.verified` becomes true, with audit `vendor_entitlement.set`. The Claimant's controls unlock within one poll, no reload. Replaying the step-12b request now returns `2xx`. `set` on an already-active entitlement is `422 INVALID_STATE_TRANSITION`. | Admin response. The replayed `2xx`. | [plans-and-entitlements] |
+| 12b | **Claimant (A)**, DevTools console on any `/vendor` page. Read a `claim_id` on a direct, live integration from `GET /api/vendor/integrations`. Then send `PUT /api/vendor/claims/:claimId/attestation` with the body `{}`. | Attempt an attestation write while unentitled. | **`403 ENTITLEMENT_REQUIRED`**, `details: { capability: "attestation.author", tier: "unclaimed" }`, message "This action requires an active Verified plan. Contact AEC Integrations to activate or renew it." This is the AECI-623 gate. The capability check runs before the body is parsed, so the empty body writes nothing. That makes this safe on production. The ordinary UI hides the write controls, so a hand-sent request is the only way to reach the 403. A connector-powered edge answers `403 FORBIDDEN` first: pick a direct one. | The 403 body. | [plans-and-entitlements] |
+| 12c | **Admin.** "Grant entitlement" then "Confirm grant". `{ action: "set" }`, with a `period_end` more than 30 days out. | Set it again. | `200`. The admin screen says "Entitlement granted for {name}. Search results update within a day." `vendors.verified` becomes true, with audit `vendor_entitlement.set`. The Claimant's controls unlock within one poll, no reload. Sending the step-12b request again now returns **`400 VALIDATION_FAILED`**. The gate passed, and the empty body was refused, so nothing is written. On staging, also affirm a flow in the UI and expect `2xx`. `set` on an already-active entitlement is `422 INVALID_STATE_TRANSITION`. | Admin response. The `400` body. On staging, the `2xx`. | [plans-and-entitlements] |
 | 12d | **Admin.** "Renew term" then "Confirm renewal". `{ action: "renew" }`. | Renew. | `200`, audit `vendor_entitlement.renewed`. **No** `vendors` write and **no** cache purge. The Claimant's `entitlement` revision still moves and `/vendor/me` refetches. `renew` on an inactive entitlement is `422 INVALID_STATE_TRANSITION`. Renew and clear send **no** email. | Admin response. The `updates` response showing the moved `entitlement` revision. | [plans-and-entitlements] |
-| 13a | **Anonymous visitor.** `/vendors/:slug`, `/products/:slug`, and the step-11 pair page. | Load each while A is entitled. | The vendor page shows **"Vendor account active"**. The product-page vendor card and both pair-page rails show **"Account active"**. The tooltip says the label "does not verify product quality or integration accuracy, and it does not affect ranking or placement." No surface says "Verified". | Three screenshots. On staging, the `Cache-Tag` header. | [plans-and-entitlements] |
+| 13a | **Anonymous visitor.** `/vendors/:slug`, `/products/:slug`, and one of A's pair pages (the step-11 pair on staging). | Load each while A is entitled. | The vendor page shows **"Vendor account active"**. The product-page vendor card and both pair-page rails show **"Account active"**. The tooltip says the label "does not verify product quality or integration accuracy, and it does not affect ranking or placement." No surface says "Verified". | Three screenshots. On staging, the `Cache-Tag` header. | [plans-and-entitlements] |
 | 13b | **Anonymous visitor.** `/search`, vendor results. **Next morning, after 08:00 UTC.** | Search for A by name. | The vendor card shows "Vendor account active". Product records never carry the label, by design. **Production:** expect **no** label, because the sitting ended before 08:00 UTC and C1 cleared it. | Screenshot. | [plans-and-entitlements] |
 
 ### Part 3 — Seats and sessions
@@ -193,9 +193,9 @@ Run these before the sitting ends. On production they are mandatory, not tidy-up
 | # | Action | Expected |
 |---|---|---|
 | C1 | Admin clears A's entitlement (as 12a). **Production:** in the sitting, before 08:00 UTC. **Staging:** the next morning, after step 13b has seen the label. | Status `revoked`, `vendors.verified` false, public label gone on the next request. |
-| C2 | Claimant (A) retracts every attestation written in step 11. | Each `DELETE` returns `204`. The pair returns to `unverified` on production, and "Maintained by AEC Integrations" returns. `last_reviewed_at` stays by design. |
+| C2 | **Staging only.** Claimant (A) retracts every attestation written in steps 11 and 12c. | Each `DELETE` returns `204`. The pair returns to `unverified`, and "Maintained by AEC Integrations" returns. `last_reviewed_at` stays by design. |
 | C3 | Admin revokes every seat on A (and B on staging) through `/admin/vendors/:id`. | As 16a. The vendor is inert again. |
-| C4 | **Production:** reject AECI-856 and AECI-857 in `/admin/claims/:id`, then cancel their Linear issues. Reject AECI-923 in **demo's** admin. Cancel AECI-855's Linear issue with a pointer to this run. | Each reject returns `200` and sends `Your claim for {name} was not approved` to the submitter. The `reason` goes to the audit log only. |
+| C4 | **Production:** reject AECI-855 and AECI-856 in `/admin/claims/:id`, then cancel their Linear issues. Reject AECI-923 in **demo's** admin, then cancel its issue. Close AECI-857's Linear issue with a pointer to this run. | Each reject returns `200` and sends `Your claim for {name} was not approved` to the submitter. The `reason` goes to the audit log only. |
 | C5 | The morning after C1, after 08:00 UTC, load `/search` on both environments. | No vendor card shows the label. On staging this proves the clear reached search. |
 
 ---
@@ -229,8 +229,8 @@ to `a11y-manual-testing-checklist.md` §4. File every ❌ against AECI-633.
 
 AECI-1104 writes six pages under `/docs/vendors/*`. None exists yet, so each link below points at
 the production URL the page will have. The slugs come from `STAGE_2_PRODUCT_DOCS_SPEC.md` §5 where
-that doc names one. The two it does not name are **provisional** and marked †. When AECI-1104
-fixes its slugs, update this table in the same PR.
+that doc names one. The two it does not name are marked †. **AECI-1104 owns those two slugs.** It
+confirms them and updates this table in its own PR.
 
 | AECI-1104 page | Slug | Steps |
 |---|---|---|
