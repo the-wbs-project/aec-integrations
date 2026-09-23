@@ -1304,7 +1304,7 @@ Worker; it does not apply when the whole Worker goes.
 #### 10.6 Seeding, if you build one again
 
 `pnpm db:seed:<tier>` chaining `catalog` → `phase2-fixtures` → `auth-fixtures` →
-`version-diff-fixtures` → `connector-fixtures` is the pattern. `seed/catalog.sql` and
+`version-diff-fixtures` → `connector-fixtures` → `extension-fixtures` is the pattern. `seed/catalog.sql` and
 `seed/phase2-fixtures.sql` carry a "dev / CI only — never staging/production" warning;
 applying them to a throwaway tier is a deliberate exception. Four things they give you
 that a bare catalog does not:
@@ -1315,6 +1315,7 @@ that a bare catalog does not:
 | `phase2-fixtures.sql` claim + `aeci` attestation | The pair page's "Layer B" and the vendor dashboard's Integrations tab have a real lane. |
 | `auth-fixtures.sql` `vendor_admin` profile | `requireVendor()` authorizes the `/vendor` portal. Pair with `SUPABASE_VENDOR_TEST_USER_*`. |
 | `version-diff-fixtures.sql` | Product versions + version-stamped attestations, so the version-diff selectors render. |
+| `extension-fixtures.sql` | Two Revit extensions in `product_extensions` (AECI-710), so "Built within" and "Extensions built within Revit" render (`STAGE_1_5_SPEC.md` §13.3b). Idempotent (`INSERT OR IGNORE`). |
 
 Four things they do **not** cover, all of which had to be applied by hand:
 

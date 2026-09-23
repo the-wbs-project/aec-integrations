@@ -15,7 +15,7 @@ import { TestBed } from '@angular/core/testing';
 import { provideRouter } from '@angular/router';
 import { beforeEach, describe, expect, it } from 'vitest';
 
-import type { ProductIntegrationItem, ProductLink } from '@aeci/shared';
+import type { ProductIntegrationItem, ProductLink, ProductListItem } from '@aeci/shared';
 
 import { ProductIntegrationsSection } from './product-integrations-section';
 
@@ -64,6 +64,8 @@ function edge(
       [asSource]="asSource()"
       [asTarget]="asTarget()"
       [reachableCount]="reachableCount()"
+      productName="Enscape"
+      [hosts]="hosts()"
     ></section>
   `,
 })
@@ -71,15 +73,21 @@ class Host {
   asSource = signal<readonly ProductIntegrationItem[]>([]);
   asTarget = signal<readonly ProductIntegrationItem[]>([]);
   reachableCount = signal(0);
+  hosts = signal<readonly ProductListItem[]>([]);
 }
 
-function setup(asSource: readonly ProductIntegrationItem[], reachableCount = 0) {
+function setup(
+  asSource: readonly ProductIntegrationItem[],
+  reachableCount = 0,
+  hosts: readonly ProductListItem[] = [],
+) {
   TestBed.configureTestingModule({
     providers: [provideZonelessChangeDetection(), provideRouter([])],
   });
   const fixture = TestBed.createComponent(Host);
   fixture.componentInstance.asSource.set(asSource);
   fixture.componentInstance.reachableCount.set(reachableCount);
+  fixture.componentInstance.hosts.set(hosts);
   fixture.detectChanges();
   return { fixture, el: fixture.nativeElement as HTMLElement };
 }
@@ -384,5 +392,48 @@ describe('ProductIntegrationsSection reach line (§13.7)', () => {
     )!;
     expect(line.textContent).not.toContain('Agave');
     expect(line.querySelector('a')).toBeNull();
+  });
+});
+
+describe('ProductIntegrationsSection empty state on an extension (§13.3b / AECI-710)', () => {
+  beforeEach(() => TestBed.resetTestingModule());
+
+  const host = (slug: string, name: string): ProductListItem => ({
+    ...link(slug, name),
+    product_role: 'application',
+    vendor: null,
+    primary_category: null,
+    integration_count: 0,
+    review_count: 0,
+    rating_overall_avg: null,
+    rating_onboarding_avg: null,
+    created_at: '2026-01-01T00:00:00.000Z',
+    updated_at: '2026-01-01T00:00:00.000Z',
+  });
+
+  it('names the host in one sentence and points at Built within', () => {
+    const { el } = setup([], 0, [host('revit', 'Revit')]);
+
+    expect(el.textContent).toContain('Enscape runs inside Revit; see Built within.');
+    // The existing empty-state copy and its correction link still render.
+    expect(el.textContent).toContain('No integrations recorded yet');
+  });
+
+  it('joins several hosts as prose', () => {
+    const { el } = setup([], 0, [host('revit', 'Revit'), host('forma', 'Forma')]);
+
+    expect(el.textContent).toContain('Enscape runs inside Revit and Forma; see Built within.');
+  });
+
+  it('says nothing about a host when the product has none', () => {
+    const { el } = setup([]);
+
+    expect(el.textContent).not.toContain('runs inside');
+  });
+
+  it('says nothing about a host when the section has rows', () => {
+    const { el } = setup([edge(link('navisworks', 'Navisworks'))], 0, [host('revit', 'Revit')]);
+
+    expect(el.textContent).not.toContain('runs inside');
   });
 });

@@ -1297,6 +1297,13 @@ edge between an extension and its host. The relationship is stored as a row in `
   Vendor. It holds one linked host card per host (logo plus name, linking `/products/{hostSlug}`),
   in the same card shape as the vendor card. It is metadata about what the product is, like its
   vendor, so it sits with the metadata. Omitted when the product has no host.
+- **On the extension's page, the EMPTY Integrations state names the host in one sentence**, first
+  inside the empty-state box: *"{product} runs inside {host}; see Built within."* Several hosts
+  join as prose ("Revit and Forma"). An extension usually has no integrations with its host, so
+  without this the body shows a bare "Integrations (0)" while the one fact that explains it sits
+  in the sidebar. The sentence names the host but never links it or counts it; the sidebar card
+  stays the only link. It renders only on the empty branch: a section with rows needs no pointer.
+  The existing "No integrations recorded yet" copy and its correction link follow it unchanged.
 - **On the host's page: an "Extensions built within {product}" body section**, `id="extensions"`,
   placed after `#integrations` and before `#reviews`, with its own section-nav entry
   ("Extensions"). It renders a grid of linked tiles (logo, name, vendor), one per extension, sorted
@@ -1336,8 +1343,10 @@ the shape.
 
 **Data at build time (2026-09-23, read-only).** Production holds **13** `product_extensions` rows:
 13 extensions across **7** hosts, each extension naming exactly one host. The largest host lists
-three (Autodesk Revit, Microsoft Dynamics 365). The local seed holds **0**, so local verification
-needs fixture rows. One production extension, `extractus-by-smoothx` on Procore, **also** carries
+three (Autodesk Revit, Microsoft Dynamics 365). The local seed held **0**, so AECI-710 added
+`apps/api/seed/extension-fixtures.sql` to the `db:seed:local` chain: Dynamo for Revit (Autodesk)
+and pyRevit (no vendor), both built within Revit. `db:setup:local` now renders both directions and
+the host-naming empty state. One production extension, `extractus-by-smoothx` on Procore, **also** carries
 an `integrations` edge to its host. That is an I3 violation upstream. This page renders both
 facts as stored and does not hide either one.
 

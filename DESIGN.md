@@ -470,6 +470,7 @@ Two components in `apps/web/src/app/products/product-extensions.ts` render the `
 
 - **`ProductBuiltWithin`** (`section[aec-product-built-within]`): a "Built within" overline and one link card per host, in the metadata sidebar directly under Vendor. Same card shape and surfaces as the vendor card, because it is the same kind of fact.
 - **`ProductExtensionsSection`** (`section[aec-product-extensions-section]`, `#extensions`): an `h2` "Extensions built within {product}", one sentence in the reader's terms, then a one-column (two from `sm`) grid of link tiles: logo, name, vendor. Tiles take a `--surface-sunken` wash on hover.
+- **The extension's empty Integrations state** (`ProductIntegrationsSection`, `hosts` input) opens with one plain sentence, "{product} runs inside {host}; see Built within.", above the usual empty copy. Unlinked, and only when the section has no rows.
 - **Never integration vocabulary.** No table, no lane, no `IntegrationGroupCard`, no direction, **no chevron** and **no count** in the heading. The missing chevron is what keeps a tile from reading as an integration row, so do not add one. One verb, *built within*, names the relation in both directions.
 
 ### Product card grid (AECI-190)

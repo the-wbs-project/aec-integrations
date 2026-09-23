@@ -584,6 +584,8 @@ import { RoleBadge } from './role-badge';
             [asSource]="p.integrations_as_source"
             [asTarget]="p.integrations_as_target"
             [reachableCount]="p.reachable_pair_count"
+            [productName]="p.name"
+            [hosts]="p.extension_of"
           ></section>
 
           @if (showPowered() && !leadWithPowered()) {

@@ -1141,7 +1141,11 @@ describe('ProductDetailPage extensions (§13.3b / AECI-710)', () => {
     const integrations = el.querySelector('#integrations')!;
 
     expect(integrations.textContent).not.toContain('Extractus');
-    expect(integrations.textContent).not.toContain('Salesforce');
+    // The host appears once, in the empty state's pointer sentence, never as a
+    // row or a link into the integrations list.
+    expect(integrations.querySelector('table')).toBeNull();
+    expect(integrations.querySelector('a[href="/products/salesforce"]')).toBeNull();
+    expect(integrations.textContent).toContain('Procore runs inside Salesforce; see Built within.');
     expect(integrations.querySelector('h2')!.textContent).not.toMatch(/[1-9]/);
   });
 
