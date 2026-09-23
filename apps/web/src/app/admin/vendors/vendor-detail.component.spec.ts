@@ -17,7 +17,8 @@
 import { HttpErrorResponse } from '@angular/common/http';
 import { provideZonelessChangeDetection } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
-import { ActivatedRoute, convertToParamMap, provideRouter } from '@angular/router';
+import { ActivatedRoute, convertToParamMap, provideRouter, Router } from '@angular/router';
+import { RouterTestingHarness } from '@angular/router/testing';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type {
@@ -849,6 +850,91 @@ describe('VendorDetail — products by role', () => {
     expect(el.textContent).toContain('5 (via a connector)');
     expect(el.textContent).toContain('pure connector that owns integrations');
     expect(el.textContent).not.toContain('no paid vendor access');
+  });
+
+  describe('the link to the Products tab (AECI-769)', () => {
+    /** The breakdown's own anchor, found by where it goes rather than by text. */
+    function rolesLink(el: HTMLElement): HTMLAnchorElement | null {
+      return el.querySelector('dd a[href*="tab=products"]');
+    }
+
+    it('links the breakdown to ?tab=products and keeps the count text unchanged', async () => {
+      const { el } = await setup(makeApiMock(makeVendor()));
+      const link = rolesLink(el);
+      expect(link).not.toBeNull();
+      expect(link?.getAttribute('href')).toBe('/?tab=products');
+      // The only VISIBLE text is the count, exactly as before the link existed.
+      const visible = [...(link?.childNodes ?? [])]
+        .filter((n) => n.nodeType === Node.TEXT_NODE)
+        .map((n) => n.textContent)
+        .join('')
+        .trim();
+      expect(visible).toBe('3 application · 1 connector');
+    });
+
+    it('gives the link an accessible name that says where it goes', async () => {
+      const { el } = await setup(makeApiMock(makeVendor()));
+      const link = rolesLink(el);
+      // Label-in-name: the name starts with the visible count, then names the
+      // destination through a visually-hidden span inside the anchor.
+      expect(link?.hasAttribute('aria-label')).toBe(false);
+      const name = link?.textContent?.replace(/\s+/g, ' ').trim();
+      expect(name?.startsWith('3 application · 1 connector')).toBe(true);
+      expect(name).toContain('Products tab');
+      expect(link?.querySelector('.sr-only')?.textContent?.trim()).toBe(
+        ', see each product on the Products tab',
+      );
+    });
+
+    it('offers no link when there are no products to see', async () => {
+      const { el } = await setup(
+        makeApiMock(
+          makeVendor({
+            product_count: 0,
+            product_roles: { application: 0, connector: 0, hybrid: 0, total: 0 },
+            is_pure_connector_vendor: false,
+          }),
+        ),
+      );
+      expect(rolesLink(el)).toBeNull();
+    });
+
+    it('activates the Products tab when followed, and loads the roster', async () => {
+      // A real router, not the stub ActivatedRoute: the claim under test is that
+      // clicking the link moves `?tab=` and the page reacts to it.
+      const api = makeApiMock(makeVendor(), [], [makeProductRow({ product_role: 'connector' })]);
+      TestBed.resetTestingModule();
+      TestBed.configureTestingModule({
+        providers: [
+          provideZonelessChangeDetection(),
+          provideRouter([{ path: 'admin/vendors/:id', component: VendorDetail }]),
+          { provide: AdminVendorsApi, useValue: api },
+          { provide: AdminEntitlementApi, useValue: { setEntitlement: vi.fn() } },
+          { provide: SeatProvisionApi, useValue: { provisionSeat: vi.fn() } },
+        ],
+      });
+      const harness = await RouterTestingHarness.create();
+      await harness.navigateByUrl(`/admin/vendors/${VENDOR_ID}`);
+      await settle();
+      harness.detectChanges();
+      const el = harness.routeNativeElement as HTMLElement;
+      expect(api.listProducts).not.toHaveBeenCalled();
+
+      const link = rolesLink(el);
+      expect(link?.getAttribute('href')).toBe(`/admin/vendors/${VENDOR_ID}?tab=products`);
+      link?.click();
+      await harness.fixture.whenStable();
+      await settle();
+      harness.detectChanges();
+
+      expect(TestBed.inject(Router).url).toBe(`/admin/vendors/${VENDOR_ID}?tab=products`);
+      const current = [...el.querySelectorAll('nav[aria-label="Vendor sections"] a')].filter(
+        (a) => a.getAttribute('aria-current') === 'page',
+      );
+      expect(current.map((a) => a.textContent?.trim())).toEqual(['Products']);
+      expect(api.listProducts).toHaveBeenCalledTimes(1);
+      expect(el.textContent).not.toContain('Basics');
+    });
   });
 
   it('shows a vendor with no products as unrecorded, never as a carve-out', async () => {
