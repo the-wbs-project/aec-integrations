@@ -473,7 +473,10 @@ describe('a connector_evidenced_pairs row (AECI-1090)', () => {
     await edit(AUTH_C, E_OWNED, { maturity: 'GA' });
     const rows = await notificationRows();
     expect(rows.length).toBeGreaterThan(0);
-    for (const row of rows) expect(row.entityId).toBe(E_OWNED);
+    for (const row of rows) {
+      expect(row.entityId).toBe(E_OWNED);
+      expect(row.entityType).toBe('connector_evidenced_pair');
+    }
   });
 
   it('purges the pair page, both endpoint pages and the connector page', async () => {

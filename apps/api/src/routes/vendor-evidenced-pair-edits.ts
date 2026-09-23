@@ -37,8 +37,8 @@
  * `metadata { connectorPowered: true, anchor: 'evidenced_pair' }`, as the AECI-1089
  * claim writes them), and one
  * `notification.sent` row (`kind: 'integration_update'`, `entity_type`
- * `integration`, like the claim's notification) per vendor of either endpoint other
- * than the owner. The `updated_at` bump moves the owner's owned-rows freshness
+ * `connector_evidenced_pair`, like the claim's notification) per vendor of either
+ * endpoint other than the owner. The `updated_at` bump moves the owner's owned-rows freshness
  * cursor (`routes/vendor-updates.ts`, AECI-1089).
  *
  * ── 5. AFTER COMMIT ─────────────────────────────────────────────────────────
@@ -269,15 +269,19 @@ export async function editEvidencedPair(
       },
     },
     ...recipients.map((recipient) =>
-      updateNotificationAudit(actor, {
-        vendorId: recipient,
-        integrationId: pairId,
-        integrationName: (changes.name as string | undefined) ?? pair.name,
-        ownerVendorId: vendorId,
-        ownerName: owner.companyName,
-        fields: changed,
-        pairSlugs,
-      }),
+      updateNotificationAudit(
+        actor,
+        {
+          vendorId: recipient,
+          integrationId: pairId,
+          integrationName: (changes.name as string | undefined) ?? pair.name,
+          ownerVendorId: vendorId,
+          ownerName: owner.companyName,
+          fields: changed,
+          pairSlugs,
+        },
+        'evidenced_pair',
+      ),
     ),
   ];
 

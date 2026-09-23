@@ -279,12 +279,14 @@ export interface UpdateNotificationMetadata {
 /**
  * The `notification.sent` row telling one endpoint vendor that the owner edited an
  * integration on its product. Pushed into the SAME batch as the edit, so a
- * rolled-back edit cannot leave a notification behind. `entity_type` is
- * `integration`, like the claim notification.
+ * rolled-back edit cannot leave a notification behind. `entity_type` follows the
+ * claim notification (`claimNotificationAudit`): `integration`, or
+ * `connector_evidenced_pair` for a pair (AECI-1090).
  */
 export function updateNotificationAudit(
   actor: { actorId: string | null; actorType: AuditLogEntry['actorType'] },
   metadata: Omit<UpdateNotificationMetadata, 'kind'>,
+  anchor: 'integration' | 'evidenced_pair' = 'integration',
 ): AuditLogEntry {
   const full: UpdateNotificationMetadata = {
     kind: UPDATE_NOTIFICATION_KIND,
@@ -295,7 +297,7 @@ export function updateNotificationAudit(
     actorId: actor.actorId,
     actorType: actor.actorType,
     action: NOTIFICATION_SENT_ACTION,
-    entityType: 'integration',
+    entityType: anchor === 'evidenced_pair' ? 'connector_evidenced_pair' : 'integration',
     entityId: metadata.integrationId,
     metadata: full,
   };

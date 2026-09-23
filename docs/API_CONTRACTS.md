@@ -5854,6 +5854,9 @@ export const OwnedIntegrationSchema = z.object({
   claimed_at: z.string().nullable(),
   retired_at: z.string().nullable(),
   retired_by: IntegrationRetiredBySchema.nullable(),
+  // AECI-1090: the owner edit's starting values, `direction` framed against
+  // product_a; `mechanism_kind` null on a pair. `.default(EMPTY_CONTESTABLE_FIELDS)`.
+  contestable_fields: ContestableFieldsSchema,
 });
 ```
 
