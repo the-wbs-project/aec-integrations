@@ -384,6 +384,13 @@ interface LockstepSite {
   marker: string;
   proof: 'executed' | 'scan' | 'excluded';
   arms: readonly Arm[];
+  /** Scan the template literal that starts at the marker, one FROM at a time:
+   *  every subquery over `integrations` or `connector_evidenced_pairs` must carry
+   *  its own arm's predicate (AECI-1091 review). A window can be satisfied by one
+   *  branch's filter while a sibling branch has none; this cannot. */
+  sqlBlock?: boolean;
+  /** A second marker whose window must also carry each arm (X5's filter definitions). */
+  definitions?: string;
   evidencedReason?: string;
   deletes?: boolean;
   reason?: string;
@@ -583,9 +590,13 @@ export const LOCKSTEP_SITES: readonly LockstepSite[] = [
   {
     id: 'X5',
     file: '../../scripts/ops/2026-09-retraction-consumer/consume.mjs',
-    // The DDL-probed filters, which the recount's UPDATE below interpolates.
-    marker: "const liveFilter = ddlHasColumn(integrationsDdl, 'retired_at')",
+    // The recount's UPDATE itself, scanned per FROM (`sqlBlock`), so each subquery
+    // must interpolate its own filter. `definitions` also scans the DDL-probed
+    // filters it interpolates, so neither can be emptied where it is defined.
+    marker: '`UPDATE products SET integration_count =',
+    definitions: "const liveFilter = ddlHasColumn(integrationsDdl, 'retired_at')",
     proof: 'scan',
+    sqlBlock: true,
     arms: BOTH_ARMS,
   },
   {
@@ -593,6 +604,7 @@ export const LOCKSTEP_SITES: readonly LockstepSite[] = [
     file: '../agent/src/tools/count-integrations.ts',
     marker: 'const COUNT_SQL',
     proof: 'scan',
+    sqlBlock: true,
     arms: BOTH_ARMS,
   },
   {
@@ -600,6 +612,7 @@ export const LOCKSTEP_SITES: readonly LockstepSite[] = [
     file: '../agent/src/lib/corpus.ts',
     marker: 'const EDGES_SQL',
     proof: 'scan',
+    sqlBlock: true,
     arms: BOTH_ARMS,
   },
   {
@@ -635,6 +648,57 @@ const EVIDENCED_LIVE_PREDICATE =
  *  on the evidenced filter cannot stand in for it. */
 const INTEGRATIONS_LIVE_PREDICATE =
   /liveIntegrationWhere|liveIntegrationSql\(|liveIntegrationSqlIf\(|retired_at IS NULL|liveIntegrationOn\(/;
+
+/** The `.mjs` recount's interpolated filter for the `integrations` arm (X5). */
+const MJS_INTEGRATIONS_FILTER = /\$\{liveFilter\}/;
+
+/** The template literal that opens at or after `marker`, without its backticks.
+ *  Interpolations in these blocks never contain a backtick, so the next one closes it. */
+function sqlBlockAfter(source: string, marker: string): string | null {
+  const at = source.indexOf(marker);
+  if (at === -1) return null;
+  const open = source.indexOf('`', at);
+  const close = source.indexOf('`', open + 1);
+  return open === -1 || close === -1 ? null : source.slice(open + 1, close);
+}
+
+/** Each `FROM <table>` in a block, with the text up to the next FROM. */
+function fromSegments(block: string): { table: string; text: string }[] {
+  const re = /\bFROM\s+"?(\w+)"?/g;
+  const hits = [...block.matchAll(re)];
+  return hits.map((hit, i) => ({
+    table: hit[1]!,
+    text: block.slice(hit.index!, i + 1 < hits.length ? hits[i + 1]!.index : block.length),
+  }));
+}
+
+const ARM_TABLE: Record<Arm, string> = {
+  integrations: 'integrations',
+  evidenced: 'connector_evidenced_pairs',
+};
+
+function fromsOf(block: string, arm: Arm): number {
+  return fromSegments(block).filter((s) => s.table === ARM_TABLE[arm]).length;
+}
+
+/** The FROMs over either arm's table that do not carry that arm's own predicate. */
+function unfilteredFroms(block: string): string[] {
+  return fromSegments(block)
+    .filter((s) => {
+      if (s.table === 'connector_evidenced_pairs') return !EVIDENCED_LIVE_PREDICATE.test(s.text);
+      if (s.table === 'integrations') {
+        return !s.text
+          .split('\n')
+          .some(
+            (line) =>
+              (INTEGRATIONS_LIVE_PREDICATE.test(line) || MJS_INTEGRATIONS_FILTER.test(line)) &&
+              !EVIDENCED_LIVE_PREDICATE.test(line),
+          );
+      }
+      return false;
+    })
+    .map((s) => s.text.trim().split('\n')[0]!);
+}
 
 function windowHasArm(window: string, arm: Arm): boolean {
   const lines = window.split('\n');
@@ -985,12 +1049,31 @@ describe('a retired row counts nowhere, on either arm (AECI-1010, AECI-1091 / §
       const source = await readRaw(site.file);
       const window = windowAfter(source, site.marker);
       expect(window, `${site.id}: marker not found in ${site.file}`).not.toBeNull();
-      if (site.proof === 'scan') {
+      if (site.proof === 'scan' && site.sqlBlock) {
+        const block = sqlBlockAfter(source, site.marker);
+        expect(block, `${site.id}: no template literal at ${site.marker}`).not.toBeNull();
+        expect(unfilteredFroms(block!), `${site.id}: a subquery without its arm's filter`).toEqual(
+          [],
+        );
+        // Not vacuous: the block reads both tables.
+        for (const arm of site.arms) {
+          expect(fromsOf(block!, arm), `${site.id}: no FROM over the ${arm} arm`).toBeGreaterThan(
+            0,
+          );
+        }
+      } else if (site.proof === 'scan') {
         for (const arm of site.arms) {
           expect(
             windowHasArm(window!, arm),
             `${site.id}: no ${arm} live predicate near ${site.marker}`,
           ).toBe(true);
+        }
+      }
+      if (site.definitions) {
+        const defs = windowAfter(source, site.definitions);
+        expect(defs, `${site.id}: definitions marker not found`).not.toBeNull();
+        for (const arm of site.arms) {
+          expect(windowHasArm(defs!, arm), `${site.id}: ${arm} filter not defined`).toBe(true);
         }
       }
       if (site.proof === 'excluded') {
