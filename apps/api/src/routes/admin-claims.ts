@@ -585,7 +585,8 @@ async function approveClaim(
 
   // AECI-1092 reconciliation: a return of a contest on a connector-powered row carries
   // `ownerEntitlementActiveSentinel`. An entitlement clear that commits first aborts
-  // the batch, and the caller retries against the cleared state.
+  // the batch: nothing is written and this handler answers `409 VENDOR_SEATS_CHANGED`.
+  // The admin's (or redeemer's) retry then re-plans against the cleared state.
   try {
     await db.batch([...grant.stmts, ...ent.stmts, ...(returned?.stmts ?? [])] as BatchTuple);
   } catch (error) {
