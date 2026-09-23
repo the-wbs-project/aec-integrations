@@ -4809,8 +4809,9 @@ the integration lands without that column. Three payload states, matching how
 reported in `unresolvedLinks[]`. That last branch is the fix — it used to write NULL,
 so a re-push whose connector had stopped resolving silently cleared a correct FK.
 Reported post-commit as `aeci.api.promote.unresolved_link{field}` at `info`, not
-`warn`: Zapier and Workato are parked permanently (AECI-700), so the series is
-non-zero by design.
+`warn`: unpromoted connectors (Make, n8n, Boomi and others) keep the series
+non-zero by design. Zapier and Workato were the largest source until AECI-1064
+promoted both on 2026-09-23.
 
 **Claimed-vendor block (Stage 2, AECI-520).** A vendor is **claimed** once AECi
 has granted it a vendor-portal seat — at least one `profiles` row with

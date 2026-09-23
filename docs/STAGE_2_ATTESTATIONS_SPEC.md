@@ -2587,8 +2587,8 @@ above; correct at re-key time.
 
 **The `iPaaS` disjunct is PERMANENT (AECI-735).** It reads as a transitional accommodation for
 edges whose FK has not been backfilled yet, and it is not one. Those 53 edges cannot acquire the FK
-— `connector_evidenced_pairs.connector_product_id` is NOT NULL and AECI-700 parks Zapier and Workato
-indefinitely — so AECI-735 asked whether `iPaaS` could leave the mechanism vocabulary now that the
+— `connector_evidenced_pairs.connector_product_id` is NOT NULL and AECI-700 parked Zapier and Workato
+(reversed 2026-09-23 by AECI-1064; Make, n8n and Boomi stay unpromoted) — so AECI-735 asked whether `iPaaS` could leave the mechanism vocabulary now that the
 connector lane has its own tables, and closed it as **no**. There is no replacement marker short of a
 new `integrations` column. This predicate has a sibling that reads the same value for the same
 population: `routeIntegrationLane` clause (c) in

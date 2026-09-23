@@ -355,10 +355,12 @@ endpoints**. The other endpoint must already be promoted (reference it by
 > connector alone does not repair edges already in the database, because promote is
 > product-driven and those edges belong to their endpoints' bundles.
 >
-> **Two connectors will never resolve, by decision.** Zapier and Workato are parked
-> permanently (AECI-700) and will not be promoted. Every edge naming them therefore
-> reports an `unresolvedLinks` entry on **every** push, forever. That is the expected
-> steady state, not a backlog to drain and not something a re-push fixes.
+> **Reversed 2026-09-23 (AECI-1064): Zapier and Workato are promoted.** AECI-700 had
+> parked both permanently, so every edge naming them reported an `unresolvedLinks`
+> entry on every push. AECI-1064 reversed that. The admission test is now
+> `product_role: connector`, and Zapier went live at `2026-09-23T05:34Z` and Workato
+> at `07:43Z`. Their edges resolve from now on. The rows already in production still
+> carry a NULL FK until each **endpoint** is re-promoted, per the paragraph above.
 >
 > **Your stored value is never clobbered (AECI-730).** On an *update*, a connector
 > that fails to resolve leaves `powered_by_product_id` exactly as it was rather than
