@@ -1568,7 +1568,7 @@ shape, which is the AECI-888 signature.
 > you take is a question about the UPSTREAM record. Do not hand-DELETE either way.** The
 > datatool prune cannot touch `connector_evidenced_pairs`. `ops:retract-product` deletes (and
 > tombstones) them only as a side effect of retracting an endpoint or connector product, and
-> only under `--delete-evidenced-pairs`, which `--force` does not imply (AECI-687, AECI-904), and never for a vendor-held pair, flag or not (AECI-1088). The plan re-checks that at write time and aborts before any write if a pair was claimed after the dry run. So it is not a tool for one stranded pair. The retraction consumer is,
+> only under `--delete-evidenced-pairs`, which `--force` does not imply (AECI-687, AECI-904), and never for a vendor-held pair, flag or not (AECI-1088). The plan re-checks that at write time and aborts before any write if a pair was claimed after the dry run. The CLI then says a vendor-held row entered scope and nothing was written, and exits `1`. It does not mean a credentials problem. So it is not a tool for one stranded pair. The retraction consumer is,
 > and it takes two cohorts:
 >
 > - **Route A, the upstream record still exists — prefer this.** Confirm the ruling, have the

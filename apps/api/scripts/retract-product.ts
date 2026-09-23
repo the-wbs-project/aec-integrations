@@ -65,6 +65,8 @@ import {
   ddlHasVendorHeldColumns,
   EVIDENCED_PAIRS_DDL_SQL,
   tableDdlOrThrow,
+  isVendorHeldAbort,
+  VENDOR_HELD_ABORT_MESSAGE,
   VENDOR_LINKS_TABLE_SQL,
   INTEGRATIONS_DDL_SQL,
   buildProductLookupSql,
@@ -167,6 +169,17 @@ function wranglerMissing(err: unknown): boolean {
 const WRANGLER_HINT =
   'Run via pnpm so wrangler is on PATH:\n  pnpm --filter @aeci/api ops:retract-product -- …';
 
+/** A failed `wrangler d1 execute`, carrying what it printed so a caller can classify
+ *  the failure (the vendor-held sentinel) before falling back to the generic hint. */
+class D1ExecError extends Error {
+  constructor(
+    message: string,
+    readonly output: string,
+  ) {
+    super(message);
+  }
+}
+
 function runD1<T>(target: Target, sql: string): D1ExecResult<T>[] {
   const res = spawnSync(
     'wrangler',
@@ -181,8 +194,9 @@ function runD1<T>(target: Target, sql: string): D1ExecResult<T>[] {
     const hint = target.remote
       ? `Check CLOUDFLARE_API_TOKEN (Account→D1→Edit) + CLOUDFLARE_ACCOUNT_ID, and that "${target.db}" exists for --env ${target.label}.`
       : 'Set up the local D1 first:  pnpm --filter @aeci/api db:setup:local';
-    throw new Error(
+    throw new D1ExecError(
       `wrangler d1 execute failed on "${target.db}" (exit ${res.status}).\n${hint}\n\n${res.stderr}`,
+      `${res.stderr ?? ''}\n${res.stdout ?? ''}`,
     );
   }
   return parseWranglerJson<T>(res.stdout);
@@ -371,7 +385,18 @@ export async function main(argv: string[]): Promise<number> {
     vendorHeldColumns,
     vendorHeldPairColumns,
   }).join('\n');
-  const results = runD1<unknown>(target, statements);
+  let results: D1ExecResult<unknown>[];
+  try {
+    results = runD1<unknown>(target, statements);
+  } catch (err) {
+    // AECI-1088: the plan's first statement aborts when a vendor-held row entered scope
+    // after the dry run. Say that, not the generic credentials hint.
+    if (err instanceof D1ExecError && isVendorHeldAbort(err.output)) {
+      console.error(VENDOR_HELD_ABORT_MESSAGE);
+      return 1;
+    }
+    throw err;
+  }
   const changed = results.reduce((sum, r) => sum + (r.meta?.changes ?? 0), 0);
   console.log(`✓ D1: ${changed} row(s) written across ${results.length} statement(s),`);
   console.log('   tombstones included (product.deleted + one per deleted edge/review/version).');

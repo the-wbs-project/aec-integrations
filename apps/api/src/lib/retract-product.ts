@@ -550,6 +550,27 @@ export interface ProductDeleteArgs {
  *  scope after the footprint check. `json()` on it is malformed JSON, so it errors. */
 export const RETRACT_VENDOR_HELD_TOKEN = 'retract-product-vendor-held-row-in-scope';
 
+/**
+ * Did an `--apply` execute fail because the plan's vendor-held sentinel fired?
+ *
+ * SQLite reports only "malformed JSON" and never echoes the argument, so the token
+ * cannot be matched directly. The match is still unambiguous: the sentinel is the only
+ * `json()` call in the plan (the tombstones use `json_object`, which never raises it).
+ * `output` is whatever the failed execute printed, stderr and stdout together.
+ */
+export function isVendorHeldAbort(output: string): boolean {
+  return /malformed JSON/i.test(output) || output.includes(RETRACT_VENDOR_HELD_TOKEN);
+}
+
+/** What the CLI prints when {@link isVendorHeldAbort} is true, instead of the generic
+ *  wrangler-failure hint about credentials. */
+export const VENDOR_HELD_ABORT_MESSAGE =
+  '✗ Aborted before any write: a vendor-held integration or connector-evidenced pair\n' +
+  "  (claimed by its owner, or created by a vendor) entered this product's scope after the\n" +
+  '  dry run. Nothing was written to D1, and Algolia and the cache were not touched.\n' +
+  '  Re-run without --apply to see it. The owner retires the row, or AECi rules on it first\n' +
+  '  (ADR 0035).';
+
 function sqlLiteral(v: string | number | boolean | null | undefined): string {
   if (v === null || v === undefined) return 'NULL';
   if (typeof v === 'number') return String(v);

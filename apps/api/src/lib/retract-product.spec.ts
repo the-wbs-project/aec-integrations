@@ -13,6 +13,8 @@ import {
   EVIDENCED_PAIRS_DDL_SQL,
   RETRACT_VENDOR_HELD_TOKEN,
   tableDdlOrThrow,
+  isVendorHeldAbort,
+  VENDOR_HELD_ABORT_MESSAGE,
   INTEGRATIONS_DDL_SQL,
   buildProductLookupSql,
   classifyRetraction,
@@ -817,6 +819,43 @@ describe('the delete plan re-checks vendor-held at write time (AECI-1088 review)
     expect(statements.join('\n')).not.toMatch(/claimed_at/);
     apply(t, statements);
     t.dispose();
+  });
+});
+
+describe('isVendorHeldAbort: the CLI names the sentinel abort (AECI-1088 review)', () => {
+  it('recognises the error SQLite raises when the plan sentinel fires', async () => {
+    const t = await makeTestDb();
+    seed(t);
+    t.raw.prepare(`UPDATE connector_evidenced_pairs SET claimed_at = ${TS} WHERE id = 'ep1'`).run();
+    const [sentinel] = buildDeleteStatements({
+      product: productRow(t, P),
+      footprint: footprintOf(t, P),
+      auditId: 'audit-abort',
+      now: NOW,
+      force: true,
+      deleteEvidencedPairs: true,
+    });
+    let message = '';
+    try {
+      t.raw.prepare(sentinel!).get();
+    } catch (err) {
+      message = String((err as Error).message);
+    }
+    expect(message).not.toBe('');
+    // Shaped like what `wrangler d1 execute` prints on stderr.
+    expect(isVendorHeldAbort(`[ERROR] ${message}: SQLITE_ERROR`)).toBe(true);
+    t.dispose();
+  });
+
+  it('does not claim a credentials or missing-database failure', () => {
+    expect(isVendorHeldAbort('[ERROR] Authentication error [code: 10000]')).toBe(false);
+    expect(isVendorHeldAbort("Couldn't find a D1 DB with the name or binding")).toBe(false);
+  });
+
+  it('tells the operator nothing was written and to re-run the dry run', () => {
+    expect(VENDOR_HELD_ABORT_MESSAGE).toMatch(/Nothing was written/);
+    expect(VENDOR_HELD_ABORT_MESSAGE).toMatch(/without --apply/);
+    expect(VENDOR_HELD_ABORT_MESSAGE).not.toMatch(/CLOUDFLARE_API_TOKEN/);
   });
 });
 
