@@ -146,14 +146,26 @@ export type OwnershipState =
         </p>
       }
       @if (state() === 'owner-unclaimed' || state() === 'owner-connector-unclaimed') {
-        <p
-          class="mt-1 max-w-prose text-xs text-(--text-secondary)"
-          i18n="@@vendor.integrationClaim.hint"
-        >
-          Claiming takes this integration over from AEC Integrations. Our catalogue updates stop
-          reaching it, and your edits go live on the public page with no review. The other product's
-          vendor is told that you claimed it.
-        </p>
+        @if (state() === 'owner-connector-unclaimed') {
+          <!-- AECI-1089: no edit form on a connector-delivered row yet (AECI-1090),
+               so this hint does not promise edits. -->
+          <p
+            class="mt-1 max-w-prose text-xs text-(--text-secondary)"
+            i18n="@@vendor.integrationClaim.hintConnector"
+          >
+            Claiming takes this integration over from AEC Integrations. Our catalogue updates stop
+            reaching it. The other product's vendor is told that you claimed it.
+          </p>
+        } @else {
+          <p
+            class="mt-1 max-w-prose text-xs text-(--text-secondary)"
+            i18n="@@vendor.integrationClaim.hint"
+          >
+            Claiming takes this integration over from AEC Integrations. Our catalogue updates stop
+            reaching it, and your edits go live on the public page with no review. The other
+            product's vendor is told that you claimed it.
+          </p>
+        }
         <div class="mt-3 flex flex-wrap items-center gap-3">
           <button
             type="button"
