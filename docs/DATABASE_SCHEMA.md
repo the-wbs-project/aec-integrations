@@ -2987,9 +2987,13 @@ and NULL for the other three. **What reads and writes them today:** the promote 
 promote twin guard and the ops lanes below. **Since AECI-1089 the vendor claim route writes
 `claimed_at`** (with the §13.9 maintenance transfer) on a pair its entitled owner claims
 (`STAGE_2_VENDOR_PORTAL_SPEC.md` §4.5.2), and the last-seat hand-back clears it on the owner's
-live claimed pairs (AECI-989, `STAGE_2_ATTESTATIONS_SPEC.md` §13.9). No route writes `origin`, `retired_at` or
-`retired_by` yet. Retire and restore, with the `retired_at` filter on every count and public
-read, is AECI-1091.
+live claimed pairs (AECI-989, `STAGE_2_ATTESTATIONS_SPEC.md` §13.9). No route writes `origin`. **Since AECI-1091 the
+owner and admin retire and restore routes write `retired_at` and `retired_by`** (`'owner'` or
+`'aeci'`, set together, cleared together by restore) on a pair. It is a soft retire, never a
+delete, because this table is a cascade parent of `claims` and on into `attestations`. Every
+count, id set and public read filters `retired_at IS NULL` on this table too
+(`liveEvidencedPairWhere`, `STAGE_1_5_SPEC.md` §13.5 rule 2), and the 04:00 data-quality check
+`retired_integration_unclaimed` reports a retired pair that is not vendor-held.
 
 - **Vendor-held means the same thing on both tables:** `claimed_at IS NOT NULL OR origin =
   'vendor'`. The one definition is `isVendorHeld` in `apps/api/src/lib/integration-claims.ts`.

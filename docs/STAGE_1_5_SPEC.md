@@ -1541,14 +1541,17 @@ mid-flight will make a local decision about a cross-cutting contract.
 
   ```
   product: count(integrations WHERE (src=p OR tgt=p) AND retired_at IS NULL)
-         + count(evidenced_pairs WHERE a=p OR b=p OR connector=p)   ← §12.5 option B
+         + count(evidenced_pairs WHERE (a=p OR b=p OR connector=p)
+                 AND retired_at IS NULL)                            ← §12.5 option B
   vendor:  count(integrations WHERE built_by=v AND retired_at IS NULL)
-         + count(evidenced_pairs WHERE built_by=v)
-  total:   count(integrations WHERE retired_at IS NULL) + count(evidenced_pairs)
+         + count(evidenced_pairs WHERE built_by=v AND retired_at IS NULL)
+  total:   count(integrations WHERE retired_at IS NULL)
+         + count(evidenced_pairs WHERE retired_at IS NULL)
   ```
 
-  The `retired_at IS NULL` terms are AECI-1010's. `connector_evidenced_pairs` has no such column
-  and never takes the term (see the AECI-1010 bullet below).
+  The `retired_at IS NULL` terms on the `integrations` arm are AECI-1010's. The evidenced arm
+  took them in AECI-1091, when the owner and AECi gained a retire on `connector_evidenced_pairs`
+  (see the AECI-1010 bullet below, rule 2).
 
   1. `apps/api/src/lib/recompute-counts.ts` — `computeExpected`, the canonical definition.
   2. and 3. **the same rule as raw SQL, twice**, in `apps/api/scripts/reconcile-product-counts.ts`
@@ -1649,11 +1652,16 @@ mid-flight will make a local decision about a cross-cutting contract.
   1. **`IS NULL`, never `= NULL`.** `eq(col, null)` binds a NULL and is never true. On the sweep's
      id set that empties the set, every record looks orphaned, and the 50-delete cap then refuses
      every pass, so retired records are never swept either.
-  2. **The `integrations` arm only.** Every evidenced pair is connector-powered, and AECI-1003
-     decision 9 keeps every vendor write, retire included, off connector-powered rows. *Ruled
-     2026-09-23, build pending (AECI-1040 follow-ups):* the owner may retire an evidenced pair.
-     When that ships, this rule becomes "both arms", and every evidenced arm filters `retired_at`
-     (`STAGE_2_VENDOR_PORTAL_SPEC.md` §4.6).
+  2. **Both arms (AECI-1091, 2026-09-23).** The owner of an evidenced pair, and AECi, can retire
+     it since AECI-1091 (the AECI-1040 carve-out and ruling D, `STAGE_2_VENDOR_PORTAL_SPEC.md`
+     §4.6). So every evidenced arm filters `retired_at` too, through its own names for the same
+     predicate: `liveEvidencedPairWhere` / `liveEvidencedPairOn()` for Drizzle and
+     `liveEvidencedPairSql(alias)` / `liveEvidencedPairSqlIf` for raw SQL, and a filter named
+     `evidencedLiveFilter` in `.mjs`. Separate names so the lockstep spec can prove each site
+     carries BOTH arms rather than one. Tools that probe the DDL probe the pair table on its own,
+     because migration `0048` reaches a tier at a different promote than `0044`. (Until
+     AECI-1091 this rule was "the `integrations` arm only", because no route could retire a
+     pair.)
   3. **Never key membership on `claimed_at` or `origin`.** Only `retired_at` removes a row. A
      predicate that drops a small live subset sits under the sweep's cap and deletes it for good.
 
@@ -1669,11 +1677,17 @@ mid-flight will make a local decision about a cross-cutting contract.
   without migration `0044`. `reconcile-product-counts.ts` runs daily against production, so an
   unprobed filter would fail it every morning between the merge and the next prod promote.
 
-  **The asserted list** (`LOCKSTEP_SITES`). `executed` = run against the test D1 with a live and a
-  retired row between the same promoted endpoints; `scan` = cannot run in the api suite, so a source
-  scan requires the predicate within 40 lines of the named marker; `excluded` = deliberately
-  unfiltered, with its reason recorded. Only X8 is scanned for the predicate's ABSENCE, because it
-  is the one exclusion where adding the filter would break something (a vendor delete would
+  **The asserted list** (`LOCKSTEP_SITES`). **Both arms at every site (AECI-1091).** Each entry
+  names the arms it reads (`arms`), and every counting site reads both except X3 (below).
+  `executed` = run against the test D1 seeded with a live and a retired row in EACH table
+  between the same promoted endpoints (`i1`/`r1` in `integrations`, `e1`/`er1` in
+  `connector_evidenced_pairs`), so every two-arm site must answer exactly `i1 + e1`: an
+  unfiltered arm reads 3, a lost evidenced arm reads 1. The completeness case fails if an
+  executed site has an arm no case proves. `scan` = cannot run in the api suite, so a source scan
+  requires each arm's own predicate within 60 lines of the named marker (the evidenced arm by its
+  own names, so one predicate cannot stand in for both); `excluded` = deliberately unfiltered,
+  with its reason recorded. Only X8 is scanned for the predicates' ABSENCE, on both arms, because
+  it is the one exclusion where adding a filter would break something (a vendor delete would
   proceed into a foreign-key failure). The other three are held by their reasons alone. Delete
   authority on four:
 
@@ -1698,7 +1712,7 @@ mid-flight will make a local decision about a cross-cutting contract.
   | 16 | `scripts/reconcile-algolia-drift.ts` `INTEGRATION_IDS_SQL` (**deletes**) | executed |
   | X1 | `algolia-sync.ts` `buildIntegrationRequests` upsert and delete arms (**deletes**) | executed |
   | X2 | `algolia-reindex.ts` `buildIntegrationRecords` full rebuild (**deletes**) | scan |
-  | X3 | `drizzle-helpers.ts` `integrationCountFor` (taxonomy term counts) | executed |
+  | X3 | `drizzle-helpers.ts` `integrationCountFor` (taxonomy term counts; `integrations` arm only, the pre-existing gap below) | executed |
   | X4 | `admin-analytics.ts` `CATALOG_NET_SOURCE` net series (both tables since AECI-1074) | executed |
   | X5 | `scripts/ops/2026-09-retraction-consumer/consume.mjs` recount | scan |
   | X6 | `apps/agent/src/tools/count-integrations.ts` `COUNT_SQL` | scan |
@@ -1718,6 +1732,16 @@ mid-flight will make a local decision about a cross-cutting contract.
   additions series. **AECI-1074 closed X4** (2026-09-22): the net series now reads both tables,
   each bucketed by its own `created_at`, and the X4 case executes it against the card. X3 is
   unchanged.
+
+  **The evidenced arm of the public reads (AECI-1091).** The same reads filter a retired
+  evidenced pair through `liveEvidencedPairWhere`: the integrations list and its total (and so the
+  sitemap), the pair page and its timeline, the product page's evidenced relations as endpoint
+  (`evidencedPairsAsA`/`AsB`) and as connector (`evidencedPairsAsConnector`),
+  `readPairCounterpartSlugs`, `resolveMovedPair`, the vendor portal's Connectors section
+  (AECI-1013, which reads the product-detail config) and the admin connector screens (the
+  per-catalogue `evidenced_pairs` tally and the evidenced lane). The §7 detector sweep reads no
+  pair at all. `apps/api/src/routes/retired-evidenced-public-reads.spec.ts` runs each against a
+  retired pair beside a live one.
 - **Reachable never counts** — not in the heading, not in `integration_count`, not in a facet, not
   in the home stats. Publishing the tail buries the products with real integrations underneath it.
 

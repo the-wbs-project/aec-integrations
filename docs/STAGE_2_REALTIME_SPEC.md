@@ -206,7 +206,9 @@ Every value is an **ISO-8601 string or `null`**; `null` means *this scope has no
 > row, including owned rows the attestable list carries. That is wider than `owned` but not wider
 > than the response, since each row it counts is the caller's own and sits in one list or the
 > other, so it leaks nothing and costs no wasted refetch. It stays unfiltered on `retired_at` for
-> the retract reason above. A claim on either table moves it through `updated_at`.
+> the retract reason above. A claim on either table moves it through `updated_at`, and so do a
+> retire and a restore (AECI-1091), which bump `updated_at` on the row in either table. The
+> `owned` array keeps a retired row listed, so the owner can reach Restore.
 > `vendor-owned-integrations.spec.ts` pins the evidenced write, the owned-row write, the non-owned
 > case, the null case, and the cursor against the list for four vendors.
 | `notifications` | `MAX(audit_log.created_at)` under the **exact** predicate the list endpoint uses — `vendorNotificationLedgerWhere(vendorId)` (`apps/api/src/routes/vendor-notifications.ts:83`): `action = 'notification.sent'` + the 90-day window + `json_extract(metadata, '$.vendorId') = ?` |
