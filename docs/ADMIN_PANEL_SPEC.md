@@ -1147,7 +1147,14 @@ defaults:
   CLAIMED integration promote writes nothing, so the accept applies the value itself; and
   an `owner` accept that approves the submitting vendor as owner writes the owner and
   `claimed_at` (the owner-unknown claim, AECI-1003 decision 11), except on a
-  connector-powered row, where decision 9 keeps the claim off in v1. A reassignment of a
+  connector-powered row, where decision 9 keeps the claim off in v1. AECI-1040 was ruled on
+  2026-09-23 and is not built. Once it ships, this accept has no special case on a
+  connector-powered row, and it writes the owner and `claimed_at` as on any other row. Two
+  more AECI-1040 rulings add rows to this queue. A `mechanism_kind` contest on a
+  connector-powered `integrations` row always routes here, even when the row is claimed. And
+  when an admin clears a vendor's entitlement, that vendor's open owner-routed contests on
+  connector-powered rows fall back here, decidable like a stranded contest.
+  `STAGE_2_VENDOR_PORTAL_SPEC.md` §11b.13 is the contract. A reassignment of a
   claimed row to another owner clears `claimed_at`. The full table is
   `STAGE_2_VENDOR_PORTAL_SPEC.md` §11b.6 and `API_CONTRACTS.md`. The screen does not know
   the row's claim state, so the Accept help text (`aria-describedby`) states both outcomes:

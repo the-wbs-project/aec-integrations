@@ -1646,7 +1646,10 @@ mid-flight will make a local decision about a cross-cutting contract.
      id set that empties the set, every record looks orphaned, and the 50-delete cap then refuses
      every pass, so retired records are never swept either.
   2. **The `integrations` arm only.** Every evidenced pair is connector-powered, and AECI-1003
-     decision 9 keeps every vendor write, retire included, off connector-powered rows.
+     decision 9 keeps every vendor write, retire included, off connector-powered rows. *Ruled
+     2026-09-23, build pending (AECI-1040 follow-ups):* the owner may retire an evidenced pair.
+     When that ships, this rule becomes "both arms", and every evidenced arm filters `retired_at`
+     (`STAGE_2_VENDOR_PORTAL_SPEC.md` §4.6).
   3. **Never key membership on `claimed_at` or `origin`.** Only `retired_at` removes a row. A
      predicate that drops a small live subset sits under the sweep's cap and deletes it for good.
 

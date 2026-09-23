@@ -2924,6 +2924,27 @@ create index connector_evidenced_pairs_built_by_idx on connector_evidenced_pairs
   `scripts/ops/2026-09-evidenced-claim-direction-repair/`, which derives each pair's source from
   the review app's integration record or the creation audit row, never from this row.
 
+**Planned: ownership columns (AECI-1040, ruled 2026-09-23, build pending).** The owner carve-out
+(`STAGE_2_SPEC.md` §8.10(8)) lets an owner claim, edit and retire an evidenced pair. AECi also
+gets an admin retire and restore on a vendor-held pair. So a future migration adds four columns
+here: `claimed_at`, `origin`, `retired_at` and `retired_by`. They are the four that `0044` and
+`0046` added to `integrations`. None exists yet.
+
+- **`ALTER TABLE … ADD COLUMN` only. Never recreate this table.** It is a cascade parent of
+  `claims`, and `attestations` cascade from `claims`, so a recreate deletes both, two levels deep
+  (`docs/migrations.md` §0).
+- **No CHECK change that drizzle-kit can see.** `schema.ts` gets no `check()` for these columns,
+  because a table-level `check()` makes drizzle-kit render a recreate. A constraint on `origin`
+  or `retired_by` is written by hand as a column-level `CHECK` inside its `ADD COLUMN` statement.
+  That is the `0044` and `0046` pattern.
+- **`claimed_at` and `origin` must land together.** `notVendorHeldSql` in
+  `scripts/ops/2026-09-retraction-consumer/vendor-held.mjs` returns an empty guard unless both
+  columns exist. It raises no error in that case, so a half-applied schema silently guards
+  nothing.
+- **A second migration rebuilds `integration_field_challenges`** so a contest can anchor on either
+  table, with an exactly-one check. It carries the AECI-1009 protest columns. Nothing holds a
+  foreign key into that table, so its rebuild cascades nothing.
+
 ---
 
 ### 9.8 `gsc_recrawl_queue`

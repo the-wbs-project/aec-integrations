@@ -191,6 +191,15 @@ Every value is an **ISO-8601 string or `null`**; `null` means *this scope has no
 > claim** is now visible to it. Before, the claim-rooted join could not reach that row at all. The
 > list handler reads no `connector_evidenced_pairs` row, so the cursor covers none.
 > `vendor-updates.spec.ts` pins the row edit, the claimless insert, and the non-owned case.
+>
+> **Planned amendment: owned rows (AECI-1040, ruled 2026-09-23, build pending).** The owner
+> carve-out (`STAGE_2_SPEC.md` §8.10(8)) lets a third-party owner claim, edit and retire its
+> rows. It holds neither endpoint, so `ownedEndpointJoin` never returns those rows, and 35 of them
+> are evidenced pairs the list does not read at all. The build adds an owned-rows read to
+> `GET /api/vendor/integrations`: rows in either table whose `built_by_vendor_id` is the caller.
+> This cursor gains one statement with the **same** owned-rows predicate. The invariant below
+> still holds: each cursor statement reuses the predicate of the read it covers. Until it ships,
+> the paragraph above stands.
 | `notifications` | `MAX(audit_log.created_at)` under the **exact** predicate the list endpoint uses — `vendorNotificationLedgerWhere(vendorId)` (`apps/api/src/routes/vendor-notifications.ts:83`): `action = 'notification.sent'` + the 90-day window + `json_extract(metadata, '$.vendorId') = ?` |
 | `requests` | `MAX(COALESCE(resolved_at, created_at))` under the **exact** predicate `GET /api/vendor/me` uses — `vendorRequestsWhere(vendorId, ownedProductIds(...))` (`apps/api/src/routes/vendor-shared.ts:155`): requests targeting the vendor itself, plus those targeting any product it owns. `COALESCE` because **`vendor_requests` has no `updated_at`** — a resolution is the only post-creation mutation that matters here |
 | `contests` (AECI-1008) | `MAX(integration_field_challenges.updated_at)` under the **exact** predicate `GET /api/vendor/contests` uses — `vendorContestsWhere(vendorId)` (`apps/api/src/lib/integration-contests.ts`): contests the vendor submitted, plus owner-routed contests where it is the snapshot owner. `updated_at` moves on submit, withdraw and every decision, and since AECI-1009 on every protest step (file, reply, withdraw, decide), which needed no predicate change. The list caps each side at 100 rows (ordered by `updated_at` since AECI-1009) and the cursor does not, so an edit past the cap costs one wasted refetch and nothing else |

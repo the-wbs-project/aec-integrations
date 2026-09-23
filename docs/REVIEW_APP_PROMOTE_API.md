@@ -1202,6 +1202,27 @@ a vendor-created row has no upstream record for promote to write from. A row can
 vendor-maintained because an endpoint vendor attested to it, and promote still
 writes such a row's content (only its `lastReviewedAt` is refused, §3.6a).
 
+**Planned: the same fence on `connector_evidenced_pairs` (AECI-1040, ruled 2026-09-23, build
+pending).** Today this fence covers `integrations` only, because no evidenced pair can be claimed.
+The owner carve-out (`STAGE_2_SPEC.md` §8.10(8)) lets an owner claim an evidenced pair. When that
+ships, everything in this section applies to a claimed or vendor-created evidenced pair too.
+
+- `claimFenceRefuses` and the `locateEdge` evidenced read in `apps/api/src/routes/promote.ts` cover
+  the second table. The in-batch claim sentinel gets an evidenced twin.
+- A `poweredByProduct` change that would move a claimed evidenced pair back into `integrations` is
+  refused, as the move out already is.
+- Two deletes that check no ownership today gain a guard. One is the duplicate-id safety delete
+  in the `integrations` UPDATE branch of `promote.ts`. The other is the retraction consumer's
+  evidenced delete (`scripts/ops/2026-09-retraction-consumer/consume.mjs`).
+- The retraction consumer and the strand audit exempt vendor-held evidenced pairs.
+  `ops:retract-product --delete-evidenced-pairs` refuses a vendor-held pair, with no override.
+
+- Promote never writes the four new ownership columns on that table: `claimed_at`, `origin`,
+  `retired_at` and `retired_by`. A pair promote creates is `origin = 'aeci'` and unclaimed.
+
+You will see the same `skipped[]` entry for a fenced evidenced pair. Nothing changes on your side
+until the build ships.
+
 ## 4c. Vendor-created integrations, and the `VENDOR_OWNED_TWIN` skip (AECI-1011)
 
 Vendors can **create** integrations in the AECi portal (`POST /api/vendor/integrations`,
@@ -1220,7 +1241,7 @@ the same day to include `mechanismKind`):
 |---|---|
 | Vendor-held | Claimed (`claimed_at` set), or vendor-created (`origin = 'vendor'`). Live **or retired**: a retired row is the owner's withdrawal, and a live twin would undo it in public. |
 | Strong match | The same two products **in either order**, the same connector (`poweredByProduct`, none equal to none), the same `mechanismKind` (none equal to none, and none does not match a stated kind), and an owner that is the same **or unknown on either side**. `name` is not compared. Every value is the one the row **would hold after the write**. On an UPDATE or a de-route, an absent field keeps the stored value, and so does a `builtByVendor` or `poweredByProduct` that does not resolve, because an unresolvable link is left unwritten (§3.4). On an INSERT there is no stored value, so an absent `mechanismKind` means none, and an absent or unresolvable owner means unknown. |
-| Where it applies | Three writes into `integrations`. (1) An INSERT: an edge with no `supabaseId`, or the §5 stale-id fallback insert for a `supabaseId` that resolves nowhere. (2) A **de-route**: an explicit `poweredByProduct: null` that moves a `connector_evidenced_pairs` row back into `integrations` (§3.4a). (3) An **UPDATE that changes a key field** of an unclaimed row: its two products change as a pair, its connector changes, its `mechanismKind` changes, or its owner (`builtByVendor`) changes. A kind change (`api` to `native` beside a vendor's `native` row) or an owner change (to none, or to the vendor's own id) makes a twin as surely as a re-point. Every connector-delivered edge that stays connector-delivered is unaffected, because its table can never be vendor-held. |
+| Where it applies | Three writes into `integrations`. (1) An INSERT: an edge with no `supabaseId`, or the §5 stale-id fallback insert for a `supabaseId` that resolves nowhere. (2) A **de-route**: an explicit `poweredByProduct: null` that moves a `connector_evidenced_pairs` row back into `integrations` (§3.4a). (3) An **UPDATE that changes a key field** of an unclaimed row: its two products change as a pair, its connector changes, its `mechanismKind` changes, or its owner (`builtByVendor`) changes. A kind change (`api` to `native` beside a vendor's `native` row) or an owner change (to none, or to the vendor's own id) makes a twin as surely as a re-point. Every connector-delivered edge that stays connector-delivered is unaffected, because its table can never be vendor-held. *That stops being true when AECI-1040 ships (planned, below).* |
 | Where it does not | (a) An UPDATE of a row that already exists that changes none of those four fields. Its key is unchanged, so it cannot create a match that did not already exist, and it is written as before. That includes a direction swap of the same two products. (b) An UPDATE that changes a key field but creates no **new** twin. The guard exists to stop promote creating a twin, so a vendor-held row that the stored row already twinned does not count (ruled on AECI-1012). An already-twinned curated row keeps receiving your updates, an owner backfill included. The UPDATE is skipped only when the row after the write would twin a vendor-held row it did not twin before. A vendor-held row itself is §4b's, and never reaches this check. |
 
 The edge is written **not at all**: no row, no claims, no partial UPDATE of the row you
@@ -1257,6 +1278,12 @@ The exception is an UPDATE. The already-twinned set is read at plan time, so a v
 row created or claimed mid-promote that the stored row already matched can abort the
 promote with this race error. The re-push then counts that row as already twinned and
 writes the update.
+
+**Planned: an evidenced twin guard (AECI-1040, ruled 2026-09-23, build pending).** Once an evidenced
+pair can be vendor-held, a curated write onto the same connector and pair would hit the unique
+index `connector_evidenced_pairs_pair_idx` and fail the whole promote. So promote will skip it at
+plan time and report `VENDOR_OWNED_TWIN` with the vendor row's id, as above. The exact key is set
+by the build issue.
 
 **The AECI-1010 promotion gate is closed by the 1011 twin guard, which covers the insert,
 de-route and UPDATE paths.** ADR 0035 and `STAGE_2_VENDOR_PORTAL_SPEC.md` §4.6.2 hold
