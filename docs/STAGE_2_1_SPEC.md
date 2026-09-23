@@ -109,12 +109,14 @@ The Product Docs / Help Center epic remains Stage 2 scope (`STAGE_2_SPEC.md` §2
 
 ## 4. Out of scope
 
-Everything in `docs/STAGE_2_5_SPEC.md` (the AECI-636 ranking overhaul above all — it is the named temptation this stage firewalls against) and `docs/STAGE_3_SPEC.md`. No new vendor features: no billing automation, no portal surface additions, no attestation-model extensions. If the rehearsal reveals a *missing capability* rather than a defect in a built one, it is written up for 2.5/3 triage, not built here.
+Everything in `docs/STAGE_2_5_SPEC.md` and `docs/STAGE_3_SPEC.md`. The AECI-636 ranking overhaul was this stage's named temptation; it shipped on 2026-09-22 (`STAGE_2_5_SPEC.md` §2), so the firewall now guards the rest of the 2.5 list, including the two connector-lane public surfaces in `STAGE_2_5_SPEC.md` §13. No new vendor features: no billing automation, no portal surface additions, no attestation-model extensions. If the rehearsal reveals a *missing capability* rather than a defect in a built one, it is written up for 2.5/3 triage, not built here.
 
 ## 5. Exit criteria — the vendor go-live gate
 
 - [ ] Dress rehearsal (§3.1) passes end-to-end on staging **and** dark production with zero manual DB intervention.
 - [ ] AECI-623 merged; AECI-633 logged green.
+- [ ] The pulled-forward seat-gating items (§3.3.1) closed: AECI-770 and AECI-1053.
+- [ ] The connector-lane epic's Stage 2.1 children (§3.3.2) closed or explicitly deferred with a recorded reason: AECI-724, AECI-769, AECI-710, AECI-711, and AECI-928 (which is held on the AECI-1064 ruling).
 - [ ] Vendor guides (§3.5) published.
 - [ ] Refinement backlog (§3.2) empty, or each remainder explicitly deferred with a recorded reason.
 - [ ] First pilot vendor(s) invited, claimed, granted, and attesting successfully — then the parked queue is processed and claim approval becomes routine operation.
@@ -123,4 +125,4 @@ When these are green, vendors are live — and Stage 2.5 opens.
 
 ---
 
-*This is a living kickoff outline. When seeded into Linear it becomes a "Stage 2.1 Vendor Activation" project; §3.3's two issues move projects; §3.2 issues are created as found.*
+*This is a living kickoff outline. When seeded into Linear it becomes a "Stage 2.1 Vendor Activation" project; §3.3's moved-in and pulled-forward issues change projects, except the AECI-771 children of §3.3.2, which stay children of the epic; §3.2 issues are created as found.*
