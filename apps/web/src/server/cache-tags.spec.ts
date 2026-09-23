@@ -132,6 +132,8 @@ describe('cacheTagInputsForPath', () => {
     ['/methodology', { route: 'index' }],
     ['/legal', { route: 'index' }],
     ['/legal/privacy', { route: 'index' }],
+    // AECI-1104 — the /docs vendor guide: static content, route tag only.
+    ['/docs/vendors/claiming-your-listing', { route: 'index' }],
     ['/products', { route: 'index', entity: { type: 'index', slug: 'products' } }],
     ['/products/procore', { route: 'detail', entity: { type: 'product', slug: 'procore' } }],
     ['/vendors/autodesk', { route: 'detail', entity: { type: 'vendor', slug: 'autodesk' } }],
@@ -218,6 +220,7 @@ describe('cacheTagInputsForPath', () => {
       '/updates',
       '/roadmap',
       '/legal/terms',
+      '/docs/vendors/your-seat',
       '/products',
       '/products/procore',
       '/products/procore/integrations/revit',

@@ -5,6 +5,20 @@
 **Status:** Kickoff draft (the AECI-634 epic). Deliberately light: the vendor-guide half documents portal surfaces that are about to be tested hands-on, so the site map in §5 is a v0 expected to move. Firm this doc up (as the other Stage 2 pillars did) **before** decomposing the epic into sub-issues, and not before portal testing settles.
 **Companion to:** `docs/STAGE_2_SPEC.md` §2.6 (the pillar stub) — this doc is the fuller outline.
 
+> **2026-09-23 — v0 vendor tranche shipped (AECI-1104).** The vendor guide is built ahead of the
+> rest of the epic, because publishing it is a `STAGE_2_1_SPEC.md` §5 exit gate (§3.5 there). It
+> brought the minimum shell with it: a docs manifest (`apps/web/src/app/docs/docs-content.ts`), one
+> article component (`docs-page.ts`, anchor site **Zendesk**'s help-center article page:
+> breadcrumb, a section rail, the article), and one route pattern, `/docs/<section>/<slug>`, as
+> explicit lazy children generated from the manifest (`docs.routes.ts`). There is **no `/docs` home
+> page and no section index yet**; the breadcrumb's "Docs" and section crumbs are plain text. Six
+> pages, organised by task (open question 2, answered: task). They are **noindex in every env and
+> absent from `sitemap.xml`** until the portal opens: the page sets `robots: noindex` and the SSR
+> egress stamps `X-Robots-Tag` on `/docs/vendors/*` (`pathForcesNoindex`). AECI-1105 lifts both.
+> Nothing links into `/docs` yet: the footer entry (open question 3) and the portal "Learn more"
+> links (open question 1) wait for the same trigger. The §5 site map below is updated to what
+> shipped. The same-PR sync rule (§4) is now in `docs/CODE_REVIEW_CHECKLIST.md` §Spec alignment.
+
 ---
 
 ## 1. What this is
@@ -53,7 +67,7 @@ No new Worker, no new schema, no new bindings, no migration.
 | Rendering | `marked` (GFM), same pipeline as `legal-content.ts`; the registry generalizes into a **docs manifest** that also carries the nav tree (section order, page order, prev/next) from frontmatter |
 | Frontmatter | Scalar keys only (reuse/generalize `parseFrontmatter`): `title`, `description`, `section`, `order`, `last_updated` (pre-formatted display string — the legal rule), optional `related` |
 | Styling | Tailwind v4 + the semantic tokens; typography per `DESIGN.md`. Light-only until §2.5 dark reintroduction, after which docs inherit dark for free |
-| Caching | Native Workers Cache; `Cache-Tag: docs docs:{slug}` via the AECI-56 helper; freshness on deploy is automatic (see §2.3) |
+| Caching | Native Workers Cache on the static-page TTL (24h edge / 1h browser); freshness on deploy is automatic (see §2.3). **Shipped as `Cache-Tag: route:index`, not the `docs docs:{slug}` first sketched here** (AECI-1104): the build-inlined content changes only on deploy, which already rotates the cache key, so a per-page purge handle would have no producer. `cache-tags.ts` also forbids ad-hoc tag namespaces. Add a `docs` entity only if a runtime purge of docs ever becomes real |
 | Search | **None at v0.** Nav + browser find. The deferred path is an Algolia `docs_{env}` index (Algolia is already wired) — not a new search system |
 | i18n | Body is content, not UI strings (the legal rule — not extracted to `messages.xlf`); page chrome is `$localize`-wrapped; per-locale `.md` files are the later mechanism |
 | Analytics | PostHog page events, standard — no new instrumentation concept |
@@ -79,16 +93,16 @@ URL scheme: `/docs/<section>/<slug>`, kebab-case. Roughly 18 pages.
 │  └─ taxonomy                       — mechanisms, data objects, trades (the four facets)
 ├─ trust/
 │  ├─ how-ranking-works              — purely algorithmic; what paid does NOT buy
-│  ├─ verification-and-the-badge     — what "Verified" means, how it's granted, that it's paid
+│  ├─ the-account-label              — what "Vendor account active" means (AECI-965 retired "Verified badge"), that it is the plan
 │  └─ agreement-states               — unverified / single-source / confirmed / conflict, plainly
-├─ vendors/                          — the Stage 2 core; write LAST, after portal testing
-│  ├─ claiming-your-profile          — the claim flow, what the reviewer checks, timelines
-│  ├─ plans-and-entitlements         — tiers, offline invoicing, renewal warnings, what expiry does
-│  ├─ your-dashboard                 — tour of /vendor: tabs, live updates, notifications
-│  ├─ editing-profile-and-products   — what's editable, guard-rails, when edits appear (search ≤24h)
-│  ├─ attesting-to-integrations      — assert/deny/retract, creating claims, conflicts, retraction
-│  ├─ owning-an-integration          — claim, edit, per-side links, retire/restore, create, contests received (AECI-1023)
-│  └─ product-versions               — the version timeline, version-diff depth (and its paywall)
+├─ vendors/                          — SHIPPED v0 2026-09-23 (AECI-1104), noindex until AECI-1105
+│  ├─ claiming-your-listing          — the claim form, what we check, outcomes, connector-vendor seats (§8.9/§8.10)
+│  ├─ your-seat                      — sign-in, portal tabs, owners vs members, invites, removal, seat vs plan
+│  ├─ attesting-an-integration       — Affirm/Deny/Clear, add a data flow, agreement states, what happens next
+│  ├─ owning-an-integration          — claim, edit, per-side links, retire/restore, create (AECI-1023, ADR 0035)
+│  ├─ contests-and-protests          — sending and receiving contests, the protest to AECi (§11b)
+│  └─ plans-and-the-account-label    — the four things a plan changes, what it never changes, billing, expiry
+│     (not yet written: your-dashboard, editing-profile-and-products, product-versions)
 ├─ reviewers/
 │  ├─ writing-a-review               — dual reviews: product quality vs onboarding experience
 │  └─ requests-and-corrections       — requesting an integration, correcting a listing, contesting a detail (AECI-1023)
@@ -110,7 +124,9 @@ URL scheme: `/docs/<section>/<slug>`, kebab-case. Roughly 18 pages.
 > `.legal-prose` by AECI-804 precisely because it now styles more than the legal set), and the
 > "assemble, never invent" rule with its six do-not-say items in `STAGE_2_5_SPEC.md` §7.1.
 
-> **Two pages are drafted ahead of the epic (AECI-1023, 2026-09-22).** The vendor-owned
+> **Two pages were drafted ahead of the epic (AECI-1023, 2026-09-22).** *Update 2026-09-23:
+> `owning-an-integration` is now the fourth entry of the manifest and renders. `requests-and-corrections`
+> is still unimported, pending the reviewer tranche.* The vendor-owned
 > integrations epic (AECI-1003, ADR 0035) changed what a vendor can do to an integration, and the
 > docs were the fourth public surface that needed the new rule. This epic had not started, so there
 > is no `/docs` route and no registry. The two pages were written as Markdown at the paths §3
@@ -138,7 +154,7 @@ URL scheme: `/docs/<section>/<slug>`, kebab-case. Roughly 18 pages.
 ## 7. Open questions (answer during portal testing, before decomposition)
 
 1. Which portal moments get a "Learn more" link — claim form, attestation lanes, plan panel, notification list?
-2. Does the vendor guide organize by task (leaning yes) or by tier?
+2. ~~Does the vendor guide organize by task (leaning yes) or by tier?~~ **Answered: by task** (AECI-1104). Seat-only and plan-gated actions are marked on each task page rather than split into tiers.
 3. ~~Header nav entry or footer-only at launch?~~ **Answered: footer-only.** The header's primary row is public-directory-only, width-budgeted and closed, and its `More▾` overflow menu was retired — a new *secondary* destination now goes to the footer by rule, not by preference (`DESIGN.md` §Navigation → The Overflow Rule). `/docs` is exactly such a destination. Promoting it into the row later is possible but is a deliberate re-measure at 1024px, not a default.
 4. What does the FAQ actually need? Collect the real questions from the first concierge cohort rather than inventing them.
 

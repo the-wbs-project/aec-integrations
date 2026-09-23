@@ -93,7 +93,7 @@ import { createServerApiClient, isServerApiError } from './server-api-client';
 import { buildCacheTags, cacheTagInputsForPath, type CacheTagInputs } from './server/cache-tags';
 import { createRequestContext, type AeciRequestContext } from './server/request-context';
 import { buildRobotsTxt } from './server/robots';
-import { NOINDEX_DIRECTIVE, indexingAllowed } from './server/robots-policy';
+import { NOINDEX_DIRECTIVE, indexingAllowed, pathForcesNoindex } from './server/robots-policy';
 import { applySeoHeaders } from './server/seo-headers';
 import { createAdminPurgeHandler } from './server/routes/admin-purge';
 import { createAuthCallbackHandler, sanitizeReturnPath } from './server/routes/auth-callback';
@@ -431,6 +431,11 @@ const ROUTE_CACHE_PATTERNS: readonly RoutePattern[] = [
     match: (p) => p === '/legal' || p.startsWith('/legal/'),
     ttl: { edge: 86_400, browser: 3_600 },
   },
+  // AECI-1104 — the `/docs` vendor guide (`/docs/vendors/:slug`). Build-inlined
+  // Markdown, static and visitor-state-neutral, so the static-page TTL. Content is
+  // fresh on every deploy because the cache key includes the Worker version.
+  // Noindex for now (`pathForcesNoindex`), which does not affect cacheability.
+  { match: (p) => p.startsWith('/docs/'), ttl: { edge: 86_400, browser: 3_600 } },
   // Phase 2 §8.3: detail pages are `s-maxage=900, max-age=0`. AECI-294 retired
   // the standalone /integrations/:id detail (now a 301 to the pair page) and
   // added the product-PAIR page /products/:contextSlug/integrations/:otherSlug —
@@ -1245,8 +1250,11 @@ export function createApp(options: {
   // the Cloudflare Workers dashboard (docs/OBSERVABILITY.md, docs/CACHE_STRATEGY.md §7.1).
   app.use('*', async (c, next) => {
     await next();
-    if (indexingAllowed(c.env)) return;
-    if (new URL(c.req.url).pathname.startsWith('/api/')) return;
+    const pathname = new URL(c.req.url).pathname;
+    // AECI-1104: a few paths stay noindex even in the indexed env
+    // (`pathForcesNoindex`, the unopened vendor guide). Same stamp, same bake.
+    if (indexingAllowed(c.env) && !pathForcesNoindex(stripLocalePrefix(pathname).path)) return;
+    if (pathname.startsWith('/api/')) return;
     const res = c.res;
     if (res.headers.get('X-Robots-Tag')) return;
     const headers = new Headers(res.headers);

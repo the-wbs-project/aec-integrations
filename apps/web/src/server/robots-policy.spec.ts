@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { NOINDEX_DIRECTIVE, indexingAllowed } from './robots-policy';
+import { NOINDEX_DIRECTIVE, indexingAllowed, pathForcesNoindex } from './robots-policy';
 
 describe('indexingAllowed (fail-closed crawler gate)', () => {
   it('allows indexing only when ALLOW_INDEXING is exactly "true"', () => {
@@ -21,5 +21,17 @@ describe('indexingAllowed (fail-closed crawler gate)', () => {
 describe('NOINDEX_DIRECTIVE', () => {
   it('blocks both indexing and link-following', () => {
     expect(NOINDEX_DIRECTIVE).toBe('noindex, nofollow');
+  });
+});
+
+describe('pathForcesNoindex (AECI-1104, lifted by AECI-1105)', () => {
+  it('holds the vendor guide out of the index', () => {
+    expect(pathForcesNoindex('/docs/vendors/your-seat')).toBe(true);
+  });
+
+  it('leaves every other path to the env gate', () => {
+    for (const path of ['/', '/docs', '/docs/vendors', '/methodology', '/vendors/acme']) {
+      expect(pathForcesNoindex(path)).toBe(false);
+    }
   });
 });

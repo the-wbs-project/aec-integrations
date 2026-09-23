@@ -191,6 +191,8 @@ export async function resolveSitemapEntries(
     // Higher priority than the legal set and a shorter changefreq, because it is
     // revised whenever the product's verification posture moves.
     { loc: `${base}/methodology`, changefreq: 'monthly', priority: 0.5 },
+    // AECI-1104 — the `/docs/vendors/*` guide is deliberately ABSENT while it is
+    // noindex (`pathForcesNoindex`). TODO(AECI-1105): list it when the portal opens.
   ];
 
   for (const product of products) {
