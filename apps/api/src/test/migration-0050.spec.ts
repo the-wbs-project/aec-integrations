@@ -22,6 +22,8 @@ import { makeTestDb, statementsForMigration, type TestDb } from './d1';
  *   5. Every index is present, and the evidenced open-contest key is enforced.
  *   6. Deleting either anchor parent cascades its contests, and deleting a profile
  *      still nulls the protest profile columns.
+ *   7. AECI-989's `owner_seat_lapsed_at` (main's 0048) is in the new table and in
+ *      both sides of the copy, and a stamped contest keeps its stamp.
  */
 const MIGRATION = '0050_rainy_puma.sql';
 const NOW = '2026-09-23T00:00:00.000Z';
@@ -119,6 +121,7 @@ const PROTESTED_ROW = {
   upstream_linear_issue_id: null,
   upstream_linear_issue_url: null,
   workflow_id: 'w1',
+  owner_seat_lapsed_at: null,
   protest_status: 'open',
   protest_basis: 'declined',
   protest_reason: 'It is wrong',
@@ -152,6 +155,8 @@ const PLAIN_ROW = {
   upstream_linear_issue_id: 'lin_1',
   upstream_linear_issue_url: 'https://linear.app/x/issue/AECI-1',
   workflow_id: null,
+  // AECI-989 (main's 0048): AECi holds it only because the owner had no seat.
+  owner_seat_lapsed_at: '2026-09-20T00:00:00.000Z',
   protest_status: null,
   protest_basis: null,
   protest_reason: null,
@@ -223,6 +228,35 @@ describe(`${MIGRATION} — applied to seeded data`, () => {
       expect(count(t, 'integrations')).toBe(1);
       expect(count(t, 'connector_evidenced_pairs')).toBe(1);
       expect(count(t, 'workflow_instances')).toBe(2);
+    } finally {
+      t.dispose();
+    }
+  });
+});
+
+describe(`${MIGRATION} — AECI-989's owner_seat_lapsed_at`, () => {
+  it('lists the column on both sides of the copy', () => {
+    const copy = stripComments(statementsForMigration(MIGRATION)[2]!);
+    const [into, select] = copy.split(' SELECT ');
+    expect(into).toContain('"owner_seat_lapsed_at"');
+    expect(select).toContain('"owner_seat_lapsed_at"');
+  });
+
+  it('keeps a stamped contest stamped, and leaves an unstamped one NULL', async () => {
+    const t = await seedPreMigration();
+    try {
+      t.applyMigration(MIGRATION);
+      const stamp = (id: string) =>
+        (
+          t.raw
+            .prepare(
+              `SELECT owner_seat_lapsed_at AS s FROM integration_field_challenges WHERE id = ?`,
+            )
+            .get(id) as { s: string | null }
+        ).s;
+      expect(stamp('f2')).toBe('2026-09-20T00:00:00.000Z');
+      expect(stamp('f1')).toBeNull();
+      expect(ddl(t)).toContain('`owner_seat_lapsed_at` text');
     } finally {
       t.dispose();
     }

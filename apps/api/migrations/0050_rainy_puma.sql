@@ -40,6 +40,11 @@
 --      `integration_field_challenges_protest_idx` index.
 --   4. THIS HEADER.
 --
+-- AECI-989's `owner_seat_lapsed_at` (main's `0048_wild_black_queen.sql`, a plain
+-- nullable ADD COLUMN with no CHECK and no index) is carried like every other old
+-- column: the generator placed it after `workflow_id` in the new table, and the
+-- explicit copy lists it on both sides, so a stamped contest keeps its stamp.
+--
 -- The outgoing FKs match 0043 + 0047 exactly (ten), plus the new
 -- `evidenced_pair_id -> connector_evidenced_pairs(id) ON DELETE CASCADE`. CASCADE and
 -- not SET NULL, because a NULLed anchor would violate the anchor CHECK and so make
@@ -47,9 +52,10 @@
 -- `connector_evidenced_pairs` too, which `d1.spec.ts` pins.
 --
 -- `src/test/migration-0050.spec.ts` is the tripwire: it applies this file to a
--- seeded pre-0050 database and asserts every row, including its protest data,
--- survives, that the anchor CHECK holds both ways, and that every index and both
--- protest CHECKs are in the live DDL. Regenerating this file undoes all four edits.
+-- seeded pre-0050 database and asserts every row, including its protest data and
+-- its `owner_seat_lapsed_at` stamp, survives, that the anchor CHECK holds both
+-- ways, and that every index and both protest CHECKs are in the live DDL.
+-- Regenerating this file undoes all four edits.
 PRAGMA defer_foreign_keys = true;--> statement-breakpoint
 CREATE TABLE `__new_integration_field_challenges` (
 	`id` text PRIMARY KEY NOT NULL,
@@ -70,6 +76,7 @@ CREATE TABLE `__new_integration_field_challenges` (
 	`upstream_linear_issue_id` text,
 	`upstream_linear_issue_url` text,
 	`workflow_id` text,
+	`owner_seat_lapsed_at` text,
 	`protest_status` text CONSTRAINT "integration_field_challenges_protest_status_check" CHECK ("protest_status" IN ('open', 'upheld', 'rejected', 'withdrawn')),
 	`protest_basis` text CONSTRAINT "integration_field_challenges_protest_basis_check" CHECK ("protest_basis" IN ('declined', 'silence')),
 	`protest_reason` text,
@@ -104,7 +111,7 @@ CREATE TABLE `__new_integration_field_challenges` (
 	CONSTRAINT "integration_field_challenges_status_check" CHECK("status" IN ('open', 'accepted', 'declined', 'withdrawn'))
 );
 --> statement-breakpoint
-INSERT INTO `__new_integration_field_challenges`("id", "integration_id", "field", "current_value", "proposed_value", "reason", "submitter_vendor_id", "submitted_by", "routed_to", "owner_vendor_id", "status", "decision_note", "decided_by", "decided_at", "upstream_linear_issue_id", "upstream_linear_issue_url", "workflow_id", "protest_status", "protest_basis", "protest_reason", "protest_evidence", "protested_by", "protested_at", "protest_reply_due_at", "protest_reply", "protest_reply_evidence", "protest_replied_by", "protest_replied_at", "protest_decision_note", "protest_decided_by", "protest_decided_at", "protest_workflow_id", "created_at", "updated_at") SELECT "id", "integration_id", "field", "current_value", "proposed_value", "reason", "submitter_vendor_id", "submitted_by", "routed_to", "owner_vendor_id", "status", "decision_note", "decided_by", "decided_at", "upstream_linear_issue_id", "upstream_linear_issue_url", "workflow_id", "protest_status", "protest_basis", "protest_reason", "protest_evidence", "protested_by", "protested_at", "protest_reply_due_at", "protest_reply", "protest_reply_evidence", "protest_replied_by", "protest_replied_at", "protest_decision_note", "protest_decided_by", "protest_decided_at", "protest_workflow_id", "created_at", "updated_at" FROM `integration_field_challenges`;--> statement-breakpoint
+INSERT INTO `__new_integration_field_challenges`("id", "integration_id", "field", "current_value", "proposed_value", "reason", "submitter_vendor_id", "submitted_by", "routed_to", "owner_vendor_id", "status", "decision_note", "decided_by", "decided_at", "upstream_linear_issue_id", "upstream_linear_issue_url", "workflow_id", "owner_seat_lapsed_at", "protest_status", "protest_basis", "protest_reason", "protest_evidence", "protested_by", "protested_at", "protest_reply_due_at", "protest_reply", "protest_reply_evidence", "protest_replied_by", "protest_replied_at", "protest_decision_note", "protest_decided_by", "protest_decided_at", "protest_workflow_id", "created_at", "updated_at") SELECT "id", "integration_id", "field", "current_value", "proposed_value", "reason", "submitter_vendor_id", "submitted_by", "routed_to", "owner_vendor_id", "status", "decision_note", "decided_by", "decided_at", "upstream_linear_issue_id", "upstream_linear_issue_url", "workflow_id", "owner_seat_lapsed_at", "protest_status", "protest_basis", "protest_reason", "protest_evidence", "protested_by", "protested_at", "protest_reply_due_at", "protest_reply", "protest_reply_evidence", "protest_replied_by", "protest_replied_at", "protest_decision_note", "protest_decided_by", "protest_decided_at", "protest_workflow_id", "created_at", "updated_at" FROM `integration_field_challenges`;--> statement-breakpoint
 DROP TABLE `integration_field_challenges`;--> statement-breakpoint
 ALTER TABLE `__new_integration_field_challenges` RENAME TO `integration_field_challenges`;--> statement-breakpoint
 CREATE INDEX `integration_field_challenges_protest_idx` ON `integration_field_challenges` (`protest_status`,`protested_at`) WHERE "protest_status" IS NOT NULL;--> statement-breakpoint

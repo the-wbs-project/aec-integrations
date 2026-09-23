@@ -1700,7 +1700,8 @@ place, so this was the table's first rebuild.
   parents. `src/test/d1.spec.ts` asserts the empty list at HEAD, so a table that references it
   later fails CI before the next rebuild relies on this.
 - **What the rebuild carried.** Every row, copied with an explicit column list (the old
-  `integration_id` into the integrations arm, `evidenced_pair_id` NULL). The ten outgoing FKs
+  `integration_id` into the integrations arm, `evidenced_pair_id` NULL). That list includes
+  AECI-989's `owner_seat_lapsed_at` (`0048`), so a stamped contest keeps its stamp. The ten outgoing FKs
   of `0043` + `0047` unchanged, with their `ON DELETE` actions. The two hand-written protest
   CHECKs of `0047`, restored by hand because drizzle-kit's generated CREATE dropped them (they
   are still not declared in `schema.ts`). Every index, plus the evidenced open-contest key.
