@@ -13,6 +13,10 @@
  *   `noOpenContestsSentinel`, then the `integration.retired` / `integration.restored`
  *   audit row and one `notification.sent` row per recipient, then both endpoints'
  *   `integration_count` recomputed over the row as the batch leaves it.
+ * - {@link buildPairRetireBatch} (AECI-1091): the same batch for a
+ *   `connector_evidenced_pairs` row. Soft retire only, entity type
+ *   `connector_evidenced_pair`, three count recomputes (the connector too), and the
+ *   pair's own contests (`evidenced_pair_id`, AECI-1092) closed on retire.
  * - {@link afterRetireCommit}: the post-commit tail. A by-id Algolia sync of the
  *   integration, both products and the owner vendor behind promote's `dispatchHook`
  *   watchdog, the queue purge, the recrawl buffer and the PostHog audit forward.
@@ -34,7 +38,7 @@ import type { AuditLogEntry } from '@aeci/shared/audit-log';
 import { and, eq, isNotNull, isNull, type SQL } from 'drizzle-orm';
 
 import type { Db } from '../db/client';
-import { integrationFieldChallenges, integrations } from '../db/schema';
+import { connectorEvidencedPairs, integrationFieldChallenges, integrations } from '../db/schema';
 import { syncIndexTargets, type IndexTargetIds } from '../lib/algolia-sync';
 import { emitAlgoliaSyncMetrics } from '../lib/algolia-sync-metrics';
 import { auditInsert, type BatchStmt } from '../lib/audit';
@@ -42,8 +46,11 @@ import {
   CONTEST_ENTITY_TYPE,
   contestNotificationAudit,
   contestStillOpenSentinel,
+  type ContestAnchor,
 } from '../lib/integration-contests';
 import {
+  EVIDENCED_PAIR_ANCHOR,
+  EVIDENCED_PAIR_ENTITY_TYPE,
   INTEGRATION_RESTORED_ACTION,
   INTEGRATION_RETIRED_ACTION,
   noOpenContestsSentinel,
@@ -148,19 +155,63 @@ export function buildRetireBatch(db: Db, input: RetireBatchInput): RetireBatch {
     // Immediately after the guarded UPDATE: a lost race aborts the batch here.
     retireRaceSentinel(db),
   ];
+  // Retire closes every open contest on the row as withdrawn (ruled 2026-09-22).
+  const closes = contestCloseStatements(db, input, contests, {
+    anchor: { kind: 'integration', id: integrationId },
+    rowName: row.name,
+  });
+  stmts.push(...closes.stmts);
+  const audits: AuditLogEntry[] = [...closes.audits];
+
+  audits.unshift(integrationAudit, ...notices);
+  stmts.push(auditInsert(db, integrationAudit), ...notices.map((n) => auditInsert(db, n)));
+
+  // Last: both endpoints' counts, recomputed over the row as this batch leaves it.
+  // Committed with the retire, so the purge after commit can never race a stale count.
+  const productIds = [...new Set([row.sourceProductId, row.targetProductId])];
+  for (const productId of productIds) stmts.push(integrationCountRecomputeStmt(db, productId));
+
+  return { stmts, audits, retiredAt, retiredBy, withdrawnContestIds, productIds };
+}
+
+/**
+ * The contest closes a retire writes, on either anchor (AECI-1010; the pair anchor
+ * since AECI-1091 over AECI-1092's `evidenced_pair_id`). For each open contest: its
+ * guarded UPDATE to `withdrawn` and `contestStillOpenSentinel`, the workflow closure,
+ * an `integration.contest.withdrawn` audit row and a `closed_by_retire` notice to the
+ * submitter vendor (unless it is the acting vendor). Then, on a retire,
+ * `noOpenContestsSentinel` over the same anchor column, so a contest filed between the
+ * read and the batch aborts it. Restore passes no contests and gets no sentinel.
+ */
+function contestCloseStatements(
+  db: Db,
+  input: Pick<
+    RetireBatchInput,
+    'mode' | 'now' | 'actor' | 'source' | 'metadata' | 'actingVendorId' | 'retiredBy' | 'pairSlugs'
+  >,
+  contests: readonly OpenContest[],
+  target: { anchor: ContestAnchor; rowName: string | null },
+): { stmts: BatchStmt[]; audits: AuditLogEntry[] } {
+  const { now, actor, pairSlugs } = input;
+  const { anchor } = target;
+  const stmts: BatchStmt[] = [];
   const audits: AuditLogEntry[] = [];
 
-  // The admin's reason (AECI-1046) belongs on the integration's audit row only. The
-  // contest rows and their workflow transitions carry the fixed retire reason.
+  // The admin's reason (AECI-1046) belongs on the row's audit row only. The contest
+  // rows and their workflow transitions carry the fixed retire reason.
   const { reason: _adminReason, ...contestExtra } = input.metadata;
 
-  // Retire closes every open contest on the row as withdrawn (ruled 2026-09-22).
   for (const contest of contests) {
     const metadata = {
       source: input.source,
       ...contestExtra,
       contestId: contest.id,
-      integrationId,
+      // `integrationId` names the anchor row in either table, as the contest
+      // notification does; a pair adds `anchor` (AECI-1092).
+      integrationId: anchor.id,
+      ...(anchor.kind === 'evidenced_pair'
+        ? { anchor: EVIDENCED_PAIR_ANCHOR, connectorPowered: true }
+        : {}),
       field: contest.field,
       reason: RETIRE_CLOSED_CONTEST_REASON,
     };
@@ -180,8 +231,9 @@ export function buildRetireBatch(db: Db, input: RetireBatchInput): RetireBatch {
         ? contestNotificationAudit(actor, {
             vendorId: contest.submitterVendorId,
             contestId: contest.id,
-            integrationId,
-            integrationName: row.name,
+            integrationId: anchor.id,
+            ...(anchor.kind === 'evidenced_pair' ? { anchor: 'evidenced_pair' as const } : {}),
+            integrationName: target.rowName,
             field: contest.field as IntegrationContestField,
             event: 'closed_by_retire',
             // AECI-1046: the submitter is told who retired it. No reason travels here.
@@ -213,15 +265,107 @@ export function buildRetireBatch(db: Db, input: RetireBatchInput): RetireBatch {
       ...(submitterNotice ? [auditInsert(db, submitterNotice)] : []),
     );
   }
-  if (mode === 'retire') stmts.push(noOpenContestsSentinel(db, integrationId));
+  if (input.mode === 'retire') stmts.push(noOpenContestsSentinel(db, anchor));
+  return { stmts, audits };
+}
 
-  audits.unshift(integrationAudit, ...notices);
-  stmts.push(auditInsert(db, integrationAudit), ...notices.map((n) => auditInsert(db, n)));
+type EvidencedPairRow = typeof connectorEvidencedPairs.$inferSelect;
 
-  // Last: both endpoints' counts, recomputed over the row as this batch leaves it.
-  // Committed with the retire, so the purge after commit can never race a stale count.
-  const productIds = [...new Set([row.sourceProductId, row.targetProductId])];
-  for (const productId of productIds) stmts.push(integrationCountRecomputeStmt(db, productId));
+/** {@link RetireBatchInput} for a `connector_evidenced_pairs` row (AECI-1091). The
+ *  contests are the ones anchored on the pair (`evidenced_pair_id`, AECI-1092). */
+export interface PairRetireBatchInput extends Omit<RetireBatchInput, 'row'> {
+  pair: EvidencedPairRow;
+}
+
+/**
+ * {@link buildRetireBatch} for an evidenced pair (AECI-1091, the AECI-1040 carve-out
+ * and ruling D). Soft retire only: `retired_at` and `retired_by` on the pair, never a
+ * delete, because the table is a cascade parent of `claims` and `claims` of
+ * `attestations`. The same statements in the same order as on `integrations`:
+ *
+ * 1. the guarded UPDATE of `retired_at`, `retired_by`, `updated_at`, with the
+ *    caller's guard beside the retired-state guard;
+ * 2. `retireRaceSentinel` right after it;
+ * 3. on a retire, every open contest anchored on the pair (`evidenced_pair_id`,
+ *    AECI-1092) closed as `withdrawn`, exactly as on `integrations`, then
+ *    `noOpenContestsSentinel` over the pair's anchor column;
+ * 4. the `integration.retired` / `integration.restored` audit row, entity type
+ *    `connector_evidenced_pair` and `metadata { anchor: 'evidenced_pair',
+ *    connectorPowered: true }`;
+ * 5. one `notification.sent` row per recipient, the same entity type;
+ * 6. THREE `integration_count` recomputes: both endpoints and the connector, because
+ *    the evidenced arm counts a pair toward its connector too (§12.5 option B).
+ */
+export function buildPairRetireBatch(db: Db, input: PairRetireBatchInput): RetireBatch {
+  const { mode, pair, now, actor, pairSlugs, contests } = input;
+  const pairId = pair.id;
+  const retiredAt = mode === 'retire' ? now : null;
+  const retiredBy = mode === 'retire' ? input.retiredBy : null;
+  const event: IntegrationRetireEvent = mode === 'retire' ? 'retired' : 'restored';
+  const withdrawnContestIds = contests.map((contest) => contest.id);
+
+  const pairAudit: AuditLogEntry = {
+    ...actor,
+    action: mode === 'retire' ? INTEGRATION_RETIRED_ACTION : INTEGRATION_RESTORED_ACTION,
+    entityType: EVIDENCED_PAIR_ENTITY_TYPE,
+    entityId: pairId,
+    beforeState: { retired_at: pair.retiredAt, retired_by: pair.retiredBy },
+    afterState: { retired_at: retiredAt, retired_by: retiredBy },
+    metadata: {
+      source: input.source,
+      ...input.metadata,
+      retiredBy: input.retiredBy,
+      // As the AECI-1089 claim and the AECI-1090 edit record a pair write.
+      connectorPowered: true,
+      anchor: EVIDENCED_PAIR_ANCHOR,
+      connectorProductId: pair.connectorProductId,
+      ...(mode === 'retire' ? { withdrawnContestIds } : {}),
+    },
+  };
+  const notices = input.recipients.map((recipient) =>
+    retireNotificationAudit(
+      actor,
+      {
+        event,
+        retiredBy: input.retiredBy,
+        vendorId: recipient,
+        integrationId: pairId,
+        integrationName: pair.name,
+        ownerVendorId: input.owner.id,
+        ownerName: input.owner.name,
+        pairSlugs,
+      },
+      EVIDENCED_PAIR_ENTITY_TYPE,
+    ),
+  );
+  const closes = contestCloseStatements(db, input, contests, {
+    anchor: { kind: 'evidenced_pair', id: pairId },
+    rowName: pair.name,
+  });
+  const audits = [pairAudit, ...notices, ...closes.audits];
+
+  const productIds = [...new Set([pair.productAId, pair.productBId, pair.connectorProductId])];
+  const stmts: BatchStmt[] = [
+    db
+      .update(connectorEvidencedPairs)
+      .set({ retiredAt, retiredBy, updatedAt: now })
+      .where(
+        and(
+          eq(connectorEvidencedPairs.id, pairId),
+          mode === 'retire'
+            ? isNull(connectorEvidencedPairs.retiredAt)
+            : isNotNull(connectorEvidencedPairs.retiredAt),
+          input.guard,
+        ),
+      ),
+    // Immediately after the guarded UPDATE: a lost race aborts the batch here.
+    retireRaceSentinel(db),
+    ...closes.stmts,
+    auditInsert(db, pairAudit),
+    ...notices.map((entry) => auditInsert(db, entry)),
+    // Last: all three counts, over the pair as this batch leaves it.
+    ...productIds.map((productId) => integrationCountRecomputeStmt(db, productId)),
+  ];
 
   return { stmts, audits, retiredAt, retiredBy, withdrawnContestIds, productIds };
 }
@@ -232,6 +376,9 @@ export interface RetireCommitInput {
   productIds: readonly string[];
   owner: { id: string; slug: string } | null;
   pairSlugs: readonly [string, string] | null;
+  /** The connector product's slug, for an evidenced pair (AECI-1091): its page
+   *  lists the pair and its count moved. `null` on an `integrations` row. */
+  connectorSlug?: string | null;
   audits: readonly AuditLogEntry[];
   /** Hook name prefix and the Algolia failure log message, per route. */
   hookPrefix: string;
@@ -265,6 +412,7 @@ export function afterRetireCommit(c: VendorContext, db: Db, input: RetireCommitI
           `product:${pairSlugs[1]}`,
         ]
       : []),
+    ...(input.connectorSlug ? [`product:${input.connectorSlug}`] : []),
     ...(input.owner ? [`vendor:${input.owner.slug}`] : []),
     'index:products',
     'taxonomy',
