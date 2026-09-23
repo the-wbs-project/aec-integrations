@@ -252,7 +252,7 @@ confirms them and updates this table in its own PR.
 
 ## Known spec/code drift
 
-Found while deriving this script. The script follows the code. Each row is a doc fix, not a
+Found while deriving this script and tracked as AECI-1108. The script follows the code. Each row is a doc fix, not a
 rehearsal defect, unless the run shows otherwise.
 
 | Where | Spec or comment says | Code does |
@@ -260,12 +260,12 @@ rehearsal defect, unless the run shows otherwise.
 | `STAGE_2_VENDOR_PORTAL_SPEC.md` §3.1, `vendor-grant.ts` header | seat revoke has no endpoint | two endpoints exist (step 16) |
 | `STAGE_2_VENDOR_PORTAL_SPEC.md` §6 | self-serve invite and revoke are deferred | both ship (steps 14, 16b) |
 | `STAGE_2_VENDOR_PORTAL_SPEC.md` §11a.3 | a freemail address gives `manual_review` | no freemail list. `gmail.com` gives `no_match` |
-| `email.ts` comment, §11a | invite subject "You've been invited…" | `You're invited to manage {name} on AEC Integrations` |
+| `email.ts` comment (the spec never quotes it) | invite subject "You've been invited…" | `You're invited to manage {name} on AEC Integrations` |
 | `email.md` catalogue | no subject lines for `claim-approved`, `claim-rejected`, `vendor-seat-invite` | subjects as quoted in steps 6, 14a, C4 |
 | `email.ts` admin expiry email | "renew it or clear it … from /admin/claims" | the control is on `/admin/vendors/:id` (`STAGE_2_PAID_TIERS_SPEC.md` §5.1) |
 | `vendor-plan-panel.ts` lapsed copy | "What is paused: the public account label, and editing your profile and products." | attestation authoring is paused too, since AECI-623 |
 | `STAGE_2_ATTESTATIONS_SPEC.md` §5.4 | the AECI-301 "Verified-gate" matrix | replaced by the AECI-623 note at the end of §5, but not marked superseded |
-| `vendor-invite-page.ts` | a `409 GRANT_CONFLICT` on accept | renders "We couldn't load this invite", not a conflict message |
+| `API_CONTRACTS.md` lists `409 GRANT_CONFLICT` on accept. No spec states the UI copy, so this is a UX gap, not drift | a conflict on accept is a distinct outcome | `vendor-invite-page.ts` renders "We couldn't load this invite" |
 
 **Section pointers.** The cadence contract is `STAGE_2_REALTIME_SPEC.md` §4.1. §6 is what the
 screen shows. The agreement states are `STAGE_2_ATTESTATIONS_SPEC.md` §4.2. §5 is the authoring API.
