@@ -43,6 +43,8 @@ Owners remove a seat with **Remove** on the **Seats** tab. The person loses acce
 
 You cannot remove your own seat from the portal. If you are leaving your company, ask an owner to remove you. If you are the last owner, contact us first so the account is not left without one.
 
+If AEC Integrations removes the last seat on your company's account, your listing goes back to us to maintain. The integrations your company claimed become unclaimed, and your data flows and attestations stay on them. When your company has a seat again, claim the integrations again.
+
 ## What a seat can do
 
 With a seat alone, whether or not your company has a plan, you can:
