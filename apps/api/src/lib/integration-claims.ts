@@ -25,7 +25,7 @@ import type { AuditLogEntry } from '@aeci/shared/audit-log';
 import { eq, sql } from 'drizzle-orm';
 
 import type { Db } from '../db/client';
-import { integrations } from '../db/schema';
+import { connectorEvidencedPairs, integrations } from '../db/schema';
 import { NOTIFICATION_SENT_ACTION } from './attestation-notify';
 
 type IntegrationRow = typeof integrations.$inferSelect;
@@ -58,6 +58,8 @@ export function isClaimed(row: Pick<IntegrationRow, 'claimedAt'>): boolean {
  * `scripts/ops/**` cannot import TypeScript. `vendor-held.spec.ts` pins the two.
  */
 export function isVendorHeld(row: Pick<IntegrationRow, 'claimedAt' | 'origin'>): boolean {
+  // One definition for both anchor tables (AECI-1088): `connector_evidenced_pairs`
+  // carries the same two columns since migration 0048, with the same meaning.
   return isClaimed(row) || row.origin === 'vendor';
 }
 
@@ -122,6 +124,27 @@ export function promoteClaimFenceSentinel(db: Db, integrationId: string) {
     })
     .from(integrations)
     .where(eq(integrations.id, integrationId));
+}
+
+/**
+ * The evidenced twin of {@link promoteClaimFenceSentinel} (AECI-1088). Pushed ahead of
+ * the writes for an edge whose plan read found it in `connector_evidenced_pairs`,
+ * unclaimed. If the owner claims the pair before the batch runs, the batch aborts and
+ * the job errors with `INTEGRATION_CLAIMED_DURING_PROMOTE`, exactly as on the first
+ * table. The predicate is the same `claimed_at IS NOT NULL OR origin = 'vendor'`, and
+ * it raises the same token, so {@link isPromoteClaimFenceError} recognises it.
+ *
+ * Needed for the same reason as the first one: a promote writes more than the pair. It
+ * writes the pair's claims and attestations, and a de-route out of this table DELETEs
+ * the pair, which would cascade away a freshly claimed vendor's claims.
+ */
+export function promoteEvidencedClaimFenceSentinel(db: Db, pairId: string) {
+  return db
+    .select({
+      guard: sql`CASE WHEN ${connectorEvidencedPairs.claimedAt} IS NOT NULL OR ${connectorEvidencedPairs.origin} = 'vendor' THEN json('integration-claimed-during-promote') END`,
+    })
+    .from(connectorEvidencedPairs)
+    .where(eq(connectorEvidencedPairs.id, pairId));
 }
 
 function raisedMalformedJson(error: unknown, token: string): boolean {

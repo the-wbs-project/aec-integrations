@@ -245,6 +245,26 @@ describe('prunePlan', () => {
     expect((await prunePlan(h.db, [ORPHAN])).vendorHeld).toEqual([ORPHAN]);
   });
 
+  it('refuses an id that names a vendor-held connector-evidenced pair (AECI-1088)', async () => {
+    h.raw
+      .prepare(
+        "INSERT INTO products (id, slug, name, promotion_status, created_at, updated_at) VALUES ('prod-c','agave','Agave','promoted',?,?)",
+      )
+      .run(TS, TS);
+    const pair = 'dddddddd-0000-4000-8000-000000000004';
+    h.raw
+      .prepare(
+        `INSERT INTO connector_evidenced_pairs (id, connector_product_id, product_a_id, product_b_id, claimed_at, created_at, updated_at)
+         VALUES (?, 'prod-c', 'prod-1', 'prod-2', ?, ?, ?)`,
+      )
+      .run(pair, TS, TS, TS);
+    const plan = await prunePlan(h.db, [ORPHAN, pair]);
+    expect(plan.vendorHeld).toEqual([pair]);
+    // An AECi-seeded pair is not held: it is only `missing` from `integrations`.
+    h.raw.prepare('UPDATE connector_evidenced_pairs SET claimed_at = NULL WHERE id = ?').run(pair);
+    expect((await prunePlan(h.db, [ORPHAN, pair])).vendorHeld).toEqual([]);
+  });
+
   it('reports unmatched ids as missing instead of failing', async () => {
     const ghost = 'cccccccc-0000-4000-8000-000000000003';
     const plan = await prunePlan(h.db, [ORPHAN, ghost]);

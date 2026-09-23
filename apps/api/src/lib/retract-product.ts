@@ -49,6 +49,12 @@
  * on it first. The count degrades to 0 on a database without migration 0044's
  * columns, where no row can be vendor-held (`buildFootprintSql`'s option).
  *
+ * The same refusal covers a vendor-held CONNECTOR-EVIDENCED PAIR (AECI-1088). Migration
+ * 0048 gave `connector_evidenced_pairs` the same two columns, and the owner carve-out
+ * lets an owner hold a pair. `--delete-evidenced-pairs` authorises deleting AECi-seeded
+ * pairs only: a vendor-held pair is refused with that flag, with `--force`, and with
+ * both. Its count degrades to 0 on a database without 0048's columns.
+ *
  * Why the two refusals hold even under --force. A connector catalogue and its stub
  * mappings are a mirror the connector-catalogue sync owns (`POST
  * /api/promote/connector-catalog`, `docs/REVIEW_APP_PROMOTE_API.md` §3a). Deleting the
@@ -219,6 +225,8 @@ function scopes(p: string, opts: { includePairs: boolean } = { includePairs: tru
  * import. A declared type must follow the name, so a CHECK expression does not count.
  */
 export function ddlHasVendorHeldColumns(ddl: string | null | undefined): boolean {
+  // Used for both anchor tables: `integrations` (migration 0044) and
+  // `connector_evidenced_pairs` (migration 0048, AECI-1088).
   if (typeof ddl !== 'string') return false;
   const has = (column: string) =>
     new RegExp(
@@ -231,13 +239,22 @@ export function ddlHasVendorHeldColumns(ddl: string | null | undefined): boolean
 /** The DDL probe the CLI runs before {@link buildFootprintSql}. */
 export const INTEGRATIONS_DDL_SQL = `SELECT "sql" FROM "sqlite_master" WHERE "type" = 'table' AND "name" = 'integrations';`;
 
+/** AECI-1088: the same probe for `connector_evidenced_pairs`, whose vendor-held columns
+ *  arrive with migration 0048. */
+export const EVIDENCED_PAIRS_DDL_SQL = `SELECT "sql" FROM "sqlite_master" WHERE "type" = 'table' AND "name" = 'connector_evidenced_pairs';`;
+
 /** AECI-1007: does the per-side links table exist on this tier yet? One row when it
  *  does, none when migration 0045 has not reached it. */
 export const VENDOR_LINKS_TABLE_SQL = `SELECT "name" FROM "sqlite_master" WHERE "type" = 'table' AND "name" = 'integration_vendor_links';`;
 
 export function buildFootprintSql(
   id: string,
-  opts: { vendorHeldColumns?: boolean; vendorLinksTable?: boolean } = {},
+  opts: {
+    vendorHeldColumns?: boolean;
+    /** AECI-1088: `connector_evidenced_pairs` has migration 0048's columns. */
+    vendorHeldPairColumns?: boolean;
+    vendorLinksTable?: boolean;
+  } = {},
 ): string {
   const p = `'${escapeSqlLiteral(id)}'`;
   const s = scopes(p);
@@ -255,8 +272,15 @@ export function buildFootprintSql(
   const vendorHeld = opts.vendorHeldColumns
     ? `(SELECT count(*) FROM "integrations" WHERE ("id" IN (${s.integrations}) OR ${s.poweredOnly}) AND ("claimed_at" IS NOT NULL OR "origin" = 'vendor'))`
     : '0';
+  // AECI-1088: pairs the product touches, in any of the three roles, that are
+  // vendor-held. Counted whatever `--delete-evidenced-pairs` says, because that flag
+  // never authorises deleting one.
+  const vendorHeldPairs = opts.vendorHeldPairColumns
+    ? `(SELECT count(*) FROM "connector_evidenced_pairs" WHERE "id" IN (${s.pairs}) AND ("claimed_at" IS NOT NULL OR "origin" = 'vendor'))`
+    : '0';
   return `SELECT
     ${vendorHeld} AS vendor_held_integrations,
+    ${vendorHeldPairs} AS vendor_held_evidenced_pairs,
     (SELECT count(*) FROM "connector_catalogs" WHERE "connector_product_id" = ${p}) AS connector_catalogs,
     (SELECT count(*) FROM "connector_stub_mappings" WHERE "product_id" = ${p}) AS stub_mappings,
     (SELECT count(*) FROM (${s.integrations})) AS integrations,
@@ -289,6 +313,8 @@ export function buildFootprintSql(
 export interface RawFootprintRow {
   /** AECI-1005. Optional so a row built before it still parses. */
   vendor_held_integrations?: number;
+  /** AECI-1088. Optional so a row built before it still parses. */
+  vendor_held_evidenced_pairs?: number;
   connector_catalogs: number;
   stub_mappings: number;
   integrations: number;
@@ -322,6 +348,9 @@ export interface RawFootprintRow {
 export interface RetractFootprint {
   /** Claimed or vendor-created integrations the retraction would delete or detach. */
   vendorHeldIntegrations: number;
+  /** Claimed or vendor-created connector-evidenced pairs the product is part of
+   *  (AECI-1088). A refusal whatever the flags say. */
+  vendorHeldEvidencedPairs: number;
   connectorCatalogs: number;
   stubMappings: number;
   integrations: number;
@@ -360,6 +389,7 @@ function splitConcat(value: string | null): string[] {
 export function parseFootprint(row: RawFootprintRow): RetractFootprint {
   return {
     vendorHeldIntegrations: row.vendor_held_integrations ?? 0,
+    vendorHeldEvidencedPairs: row.vendor_held_evidenced_pairs ?? 0,
     connectorCatalogs: row.connector_catalogs,
     stubMappings: row.stub_mappings,
     integrations: row.integrations,
@@ -435,6 +465,10 @@ export function classifyRetraction(
   if (footprint.vendorHeldIntegrations > 0)
     refusals.push(
       `${footprint.vendorHeldIntegrations} vendor-held integration(s) — claimed by the owner or created by a vendor (ADR 0035); the vendor retires them, this tool does not delete them`,
+    );
+  if (footprint.vendorHeldEvidencedPairs > 0)
+    refusals.push(
+      `${footprint.vendorHeldEvidencedPairs} vendor-held connector-evidenced pair(s) — claimed by the owner or created by a vendor (ADR 0035); ${DELETE_EVIDENCED_PAIRS_FLAG} does not cover them, and neither does --force`,
     );
   if (footprint.connectorCatalogs > 0)
     refusals.push(
@@ -752,6 +786,7 @@ export function formatFootprintReport(product: ProductRow, footprint: RetractFoo
     ['  as connector', footprint.evidencedPairsAsConnector],
     ['  as endpoint A', footprint.evidencedPairsAsA],
     ['  as endpoint B', footprint.evidencedPairsAsB],
+    ['  vendor-held (REFUSE)', footprint.vendorHeldEvidencedPairs],
     ['claims', footprint.claims],
     ['attestations', footprint.attestations],
     ['field contests', footprint.fieldChallenges],

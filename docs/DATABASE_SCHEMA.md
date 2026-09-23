@@ -2883,6 +2883,12 @@ create table connector_evidenced_pairs (
   maintained_by text not null default 'aeci' check (maintained_by in ('aeci', 'vendor')),
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
+  -- Ownership (AECI-1088, migration 0048). Added by ALTER TABLE ... ADD COLUMN only;
+  -- both CHECKs are column constraints written by hand, never in schema.ts.
+  claimed_at timestamptz,
+  origin text not null default 'aeci' check (origin in ('aeci', 'vendor')),
+  retired_at timestamptz,
+  retired_by text check (retired_by in ('owner', 'aeci')),
   constraint connector_evidenced_pairs_canonical_order check (product_a_id < product_b_id),
   constraint connector_evidenced_pairs_distinct_connector
     check (connector_product_id <> product_a_id and connector_product_id <> product_b_id)
@@ -2938,26 +2944,43 @@ create index connector_evidenced_pairs_built_by_idx on connector_evidenced_pairs
   `scripts/ops/2026-09-evidenced-claim-direction-repair/`, which derives each pair's source from
   the review app's integration record or the creation audit row, never from this row.
 
-**Planned: ownership columns (AECI-1040, ruled 2026-09-23, build pending).** The owner carve-out
-(`STAGE_2_SPEC.md` §8.10(8)) lets an owner claim, edit and retire an evidenced pair. AECi also
-gets an admin retire and restore on a vendor-held pair. So a future migration adds four columns
-here: `claimed_at`, `origin`, `retired_at` and `retired_by`. They are the four that `0044` and
-`0046` added to `integrations`. None exists yet.
+**Ownership columns (AECI-1088, migration `0048_majestic_mentallo.sql`; the AECI-1040 owner
+carve-out).** The owner carve-out (`STAGE_2_SPEC.md` §8.10(8)) lets an owner claim, edit and
+retire an evidenced pair, and AECi gets an admin retire and restore on a vendor-held pair. So
+`0048` added the four columns `0044` and `0046` gave `integrations`: `claimed_at`, `origin`,
+`retired_at` and `retired_by`, with the same meaning. Every existing pair took `origin = 'aeci'`
+and NULL for the other three. **What reads and writes them today:** the promote fence, the
+promote twin guard and the ops lanes below. No vendor or admin route writes them yet. The claim
+across both tables is AECI-1089, and retire and restore, with the `retired_at` filter on every
+count and public read, is AECI-1091.
 
+- **Vendor-held means the same thing on both tables:** `claimed_at IS NOT NULL OR origin =
+  'vendor'`. The one definition is `isVendorHeld` in `apps/api/src/lib/integration-claims.ts`.
+  Its SQL forms are `vendorHeldIntegrationWhere` and `vendorHeldEvidencedPairWhere` in
+  `apps/api/src/lib/integration-twins.ts`. The ops lanes' plain-JS copy is
+  `scripts/ops/2026-09-retraction-consumer/vendor-held.mjs`. `origin` is always `'aeci'` on
+  this table today, because vendor create stays closed on connector-powered rows (ruling 1).
+  It exists so the predicate reads identically on both tables.
 - **`ALTER TABLE … ADD COLUMN` only. Never recreate this table.** It is a cascade parent of
   `claims`, and `attestations` cascade from `claims`, so a recreate deletes both, two levels deep
-  (`docs/migrations.md` §0).
-- **No CHECK change that drizzle-kit can see.** `schema.ts` gets no `check()` for these columns,
-  because a table-level `check()` makes drizzle-kit render a recreate. A constraint on `origin`
-  or `retired_by` is written by hand as a column-level `CHECK` inside its `ADD COLUMN` statement.
-  That is the `0044` and `0046` pattern.
-- **`claimed_at` and `origin` must land together.** `notVendorHeldSql` in
-  `scripts/ops/2026-09-retraction-consumer/vendor-held.mjs` returns an empty guard unless both
-  columns exist. It raises no error in that case, so a half-applied schema silently guards
+  (`docs/migrations.md` §0 and §3.3a). `apps/api/src/test/migration-0048.spec.ts` is the
+  tripwire.
+- **No CHECK change that drizzle-kit can see.** `schema.ts` declares the four columns with no
+  `check()`, because a table-level `check()` makes drizzle-kit render a recreate. The `origin`
+  and `retired_by` constraints are column-level `CHECK`s written by hand inside their `ADD
+  COLUMN` statements (`connector_evidenced_pairs_origin_check`,
+  `connector_evidenced_pairs_retired_by_check`). That is the `0044` and `0046` pattern.
+- **`claimed_at` and `origin` landed together.** `notVendorHeldSql` in `vendor-held.mjs`
+  returns an empty guard unless both columns exist, and it raises no error then. With `0048`
+  applied it returns the guard for this table, which `migration-0048.spec.ts` asserts. On a
+  tier that has not yet applied `0048` the ops lanes degrade to "no pair is held", which is
+  also true there.
+- **Promote never writes the four columns** (`REVIEW_APP_PROMOTE_API.md` §4b). A pair promote
+  creates or moves in from `integrations` is `origin = 'aeci'` and unclaimed.
+- **Planned: a second migration rebuilds `integration_field_challenges`** (AECI-1092) so a
+  contest can anchor on either table, with an exactly-one check. It carries the AECI-1009
+  protest columns. Nothing holds a foreign key into that table, so its rebuild cascades
   nothing.
-- **A second migration rebuilds `integration_field_challenges`** so a contest can anchor on either
-  table, with an exactly-one check. It carries the AECI-1009 protest columns. Nothing holds a
-  foreign key into that table, so its rebuild cascades nothing.
 
 ---
 

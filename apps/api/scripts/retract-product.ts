@@ -26,8 +26,9 @@
  *     claims and their attestations are deleted explicitly, child to parent, and
  *     tombstoned in the same batch; their `pair:` and endpoint `product:` Cache-Tags
  *     join the purge.
- *   - Refuses a vendor-held integration (claimed, or `origin = 'vendor'`) ALWAYS,
- *     `--force` or `--delete-evidenced-pairs` or not (AECI-1005 / ADR 0035).
+ *   - Refuses a vendor-held integration or connector-evidenced pair (claimed, or
+ *     `origin = 'vendor'`) ALWAYS, `--force` or `--delete-evidenced-pairs` or not
+ *     (AECI-1005 for integrations, AECI-1088 for pairs; ADR 0035).
  *   - Refuses a connector catalogue or connector stub mapping ALWAYS, `--force` or
  *     not: the connector-catalogue sync owns those rows.
  *   - Refuses `production` writes without `--allow-production`.
@@ -62,6 +63,7 @@ import {
   buildDeleteStatements,
   buildFootprintSql,
   ddlHasVendorHeldColumns,
+  EVIDENCED_PAIRS_DDL_SQL,
   VENDOR_LINKS_TABLE_SQL,
   INTEGRATIONS_DDL_SQL,
   buildProductLookupSql,
@@ -270,6 +272,9 @@ export async function main(argv: string[]): Promise<number> {
   // tier only at its next deploy, and naming a missing column would fail the read.
   const integrationsDdl =
     runD1<{ sql: string }>(target, INTEGRATIONS_DDL_SQL)[0]?.results[0]?.sql ?? null;
+  // AECI-1088: the same for migration 0048's columns on `connector_evidenced_pairs`.
+  const evidencedPairsDdl =
+    runD1<{ sql: string }>(target, EVIDENCED_PAIRS_DDL_SQL)[0]?.results[0]?.sql ?? null;
   // AECI-1007: the same for migration 0045's per-side links table.
   const vendorLinksTable =
     (runD1<{ name: string }>(target, VENDOR_LINKS_TABLE_SQL)[0]?.results.length ?? 0) > 0;
@@ -277,6 +282,7 @@ export async function main(argv: string[]): Promise<number> {
     target,
     buildFootprintSql(product.id, {
       vendorHeldColumns: ddlHasVendorHeldColumns(integrationsDdl),
+      vendorHeldPairColumns: ddlHasVendorHeldColumns(evidencedPairsDdl),
       vendorLinksTable,
     }),
   )[0]?.results[0];
@@ -294,8 +300,9 @@ export async function main(argv: string[]): Promise<number> {
     console.error('✗ This product cannot be retracted by this tool, --force or not:');
     for (const r of classification.refusals) console.error(`     • ${r}`);
     console.error(
-      '\nThe connector-catalogue sync owns those rows. Unmap or retire the catalogue upstream,\n' +
-        'let the sync carry it, then re-run.',
+      "\nA connector catalogue or stub mapping is the connector-catalogue sync's: unmap or\n" +
+        'retire it upstream, let the sync carry it, then re-run. A vendor-held integration or\n' +
+        "pair is its owner's (ADR 0035): the owner retires it, or AECi rules on it first.",
     );
     return 1;
   }

@@ -18,6 +18,7 @@ import { describe, expect, it } from 'vitest';
 import { isVendorHeld as apiIsVendorHeld } from '../lib/integration-claims';
 import {
   ddlHasColumn,
+  guardedAnchorDeleteSql,
   isVendorHeld,
   notVendorHeldSql,
   tableDdlOrThrow,
@@ -27,6 +28,8 @@ import {
 } from '../../../../scripts/ops/2026-09-retraction-consumer/vendor-held.mjs';
 import {
   classifyRows,
+  evidencedPairEndpoints,
+  evidencedPairEntry,
   integrationEndpoints,
   integrationEntry,
   // @ts-expect-error — plain-ESM ops module, deliberately untyped.
@@ -84,13 +87,21 @@ describe('the DDL probe', () => {
     }
   });
 
-  it('never finds them on connector_evidenced_pairs, which has neither', async () => {
+  it('finds both on connector_evidenced_pairs after 0048, and neither before it (AECI-1088)', async () => {
     const t = await makeTestDb();
     try {
       const ddl = (t.raw.prepare(DDL_SQL).get('connector_evidenced_pairs') as { sql: string }).sql;
-      expect(vendorHeldColumnsSql('e', ddl)).toBe('NULL AS claimedAt, NULL AS origin');
+      expect(vendorHeldColumnsSql('e', ddl)).toBe('e.claimed_at AS claimedAt, e.origin AS origin');
     } finally {
       t.dispose();
+    }
+    const pre = await makeTestDb({ upToExclusive: '0048_majestic_mentallo.sql' });
+    try {
+      const ddl = (pre.raw.prepare(DDL_SQL).get('connector_evidenced_pairs') as { sql: string })
+        .sql;
+      expect(vendorHeldColumnsSql('e', ddl)).toBe('NULL AS claimedAt, NULL AS origin');
+    } finally {
+      pre.dispose();
     }
   });
 
@@ -224,5 +235,133 @@ describe('the consumer DELETE re-checks vendor-held at write time (AECI-1005 rev
     } finally {
       pre.dispose();
     }
+  });
+});
+
+describe('the consumer DELETEs on connector_evidenced_pairs keep vendor-held pairs (AECI-1088)', () => {
+  const NOW = '2026-09-23T00:00:00.000Z';
+
+  it('deletes an AECi-seeded pair with its children and keeps a claimed and a vendor-created one', async () => {
+    const t = await makeTestDb();
+    try {
+      const run = (sql: string, ...args: unknown[]) => t.raw.prepare(sql).run(...args);
+      for (const id of ['p1', 'p2', 'p3', 'p4', 'p5', 'c']) {
+        run(
+          `INSERT INTO products (id, slug, name, created_at, updated_at) VALUES (?, ?, ?, ?, ?)`,
+          id,
+          id,
+          id,
+          NOW,
+          NOW,
+        );
+      }
+      run(
+        `INSERT INTO taxonomy_data_objects (id, slug, name, display_order, created_at, updated_at)
+           VALUES ('do1','rfis','RFIs',10,?,?)`,
+        NOW,
+        NOW,
+      );
+      const pair = (id: string, a: string, claimedAt: string | null, origin: string) => {
+        run(
+          `INSERT INTO connector_evidenced_pairs
+             (id, connector_product_id, product_a_id, product_b_id, claimed_at, origin, created_at, updated_at)
+           VALUES (?, 'c', ?, 'p5', ?, ?, ?, ?)`,
+          id,
+          a,
+          claimedAt,
+          origin,
+          NOW,
+          NOW,
+        );
+        run(
+          `INSERT INTO claims (id, connector_evidenced_pair_id, data_object_id, direction, created_at, updated_at)
+             VALUES (?, ?, 'do1', 'a_to_b', ?, ?)`,
+          `claim-${id}`,
+          id,
+          NOW,
+          NOW,
+        );
+        run(
+          `INSERT INTO attestations (id, claim_id, source, asserted, created_at, updated_at)
+             VALUES (?, ?, 'aeci', 1, ?, ?)`,
+          `att-${id}`,
+          `claim-${id}`,
+          NOW,
+          NOW,
+        );
+      };
+      pair('seeded', 'p1', null, 'aeci');
+      pair('claimed', 'p2', NOW, 'aeci');
+      pair('vendor', 'p3', null, 'vendor');
+
+      const ddl = (t.raw.prepare(DDL_SQL).get('connector_evidenced_pairs') as { sql: string }).sql;
+      const statements = guardedAnchorDeleteSql({
+        table: 'connector_evidenced_pairs',
+        anchorColumn: 'connector_evidenced_pair_id',
+        ph: `'seeded', 'claimed', 'vendor'`,
+        keep: notVendorHeldSql(ddl),
+      });
+      for (const statement of statements) t.raw.prepare(statement).run();
+
+      const ids = (table: string) =>
+        (t.raw.prepare(`SELECT id FROM ${table} ORDER BY id`).all() as { id: string }[]).map(
+          (r) => r.id,
+        );
+      expect(ids('connector_evidenced_pairs')).toEqual(['claimed', 'vendor']);
+      expect(ids('claims')).toEqual(['claim-claimed', 'claim-vendor']);
+      expect(ids('attestations')).toEqual(['att-claimed', 'att-vendor']);
+    } finally {
+      t.dispose();
+    }
+  });
+
+  it('renders the integrations DELETEs exactly as before the helper existed', () => {
+    const keep = ` AND "claimed_at" IS NULL AND "origin" <> 'vendor'`;
+    expect(
+      guardedAnchorDeleteSql({
+        table: 'integrations',
+        anchorColumn: 'integration_id',
+        ph: `'a'`,
+        keep,
+      }),
+    ).toEqual([
+      `DELETE FROM attestations WHERE claim_id IN (SELECT id FROM claims WHERE integration_id IN (SELECT id FROM integrations WHERE id IN ('a')${keep}));`,
+      `DELETE FROM claims WHERE integration_id IN (SELECT id FROM integrations WHERE id IN ('a')${keep});`,
+      `DELETE FROM integrations WHERE id IN ('a')${keep};`,
+    ]);
+  });
+});
+
+describe('the strand audit never reports a vendor-held PAIR as source-gone (AECI-1088)', () => {
+  const pairRow = (id: string, extra: Record<string, unknown>) => ({
+    id,
+    name: id,
+    mechanism_name: 'Agave',
+    product_a_id: 'p1',
+    product_b_id: 'p2',
+    connector_product_id: 'c',
+    built_by_vendor_id: null,
+    claim_count: 0,
+    attestation_count: 0,
+    ...extra,
+  });
+  const deps = { slugOf: (id: string) => id, promotedOf: () => true };
+
+  it('buckets claimed and vendor-created pairs as vendorHeld', () => {
+    const out = classifyRows({
+      rows: [
+        pairRow('seeded-orphan', { claimedAt: null, origin: 'aeci' }),
+        pairRow('claimed', { claimedAt: '2026-09-23T00:00:00.000Z', origin: 'aeci' }),
+        pairRow('vendor-created', { claimedAt: null, origin: 'vendor' }),
+      ],
+      entryFor: evidencedPairEntry,
+      claimedIds: new Set<string>(),
+      strandedProductIds: new Set<string>(),
+      strandedVendorIds: new Set<string>(),
+      endpointsOf: evidencedPairEndpoints,
+      deps,
+    });
+    expect(out.sourceGone.map((e: { id: string }) => e.id)).toEqual(['seeded-orphan']);
+    expect(out.vendorHeld.map((e: { id: string }) => e.id)).toEqual(['claimed', 'vendor-created']);
   });
 });

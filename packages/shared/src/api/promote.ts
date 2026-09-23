@@ -639,9 +639,11 @@ export interface PromoteSkipped {
   reason: string;
   /**
    * The EXISTING app-DB row that caused the skip, when there is one to name.
-   * Only the AECI-1011 twin guard sets it today: on `kind: 'integration'` with
-   * `reason: 'VENDOR_OWNED_TWIN'` it is the vendor-held integration the payload
-   * edge strongly matches (`REVIEW_APP_PROMOTE_API.md` §4c). Absent otherwise.
+   * Only the twin guards set it today: on `kind: 'integration'` with
+   * `reason: 'VENDOR_OWNED_TWIN'` it is the vendor-held row the payload edge would
+   * have twinned. That is an `integrations` row the edge strongly matches (AECI-1011),
+   * or a `connector_evidenced_pairs` row holding the same connector and pair
+   * (AECI-1088). `REVIEW_APP_PROMOTE_API.md` §4c. Absent otherwise.
    */
   existingId?: string;
 }

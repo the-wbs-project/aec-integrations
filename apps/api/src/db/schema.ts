@@ -2975,6 +2975,38 @@ export const connectorEvidencedPairs = sqliteTable(
     lastReviewedAt: lastReviewedAt(),
     maintainedBy: maintainedBy(),
 
+    // ── Vendor ownership (AECI-1088, the AECI-1040 owner carve-out) ─────────
+    // The same four columns `0044` and `0046` gave `integrations`, with the same
+    // meaning. All four were added by `0048_…` as plain `ALTER TABLE … ADD COLUMN`,
+    // and none may ever gain a table-level `check()` here: drizzle-kit renders any
+    // CHECK change as a DROP + recreate, and this table is a cascade parent of
+    // `claims`, which cascade into `attestations` (`docs/migrations.md` §3.3a).
+    // The `origin` and `retired_by` CHECKs are COLUMN constraints written by hand
+    // into 0048; `migration-0048.spec.ts` fails if a later recreate drops them.
+    //
+    // **Vendor-held** means exactly what it means on `integrations`: `claimed_at IS
+    // NOT NULL OR origin = 'vendor'` (`vendorHeldEvidencedPairWhere` in
+    // `lib/integration-twins.ts`, `isVendorHeld` in `lib/integration-claims.ts`).
+    // Promote never writes any of the four (`REVIEW_APP_PROMOTE_API.md` §4b).
+
+    /** When the owner took the pair by a claim. NULL = not claimed. The promote
+     *  fence keys on it, never on `maintained_by`. No route sets it yet: the
+     *  claim across both tables is AECI-1089. */
+    claimedAt: text('claimed_at'),
+    /** Who created the row. Always `'aeci'` today, because vendor create stays
+     *  closed on connector-powered rows (`STAGE_2_SPEC.md` §8.10(8), ruling 1).
+     *  It exists so the vendor-held predicate reads identically on both tables,
+     *  and because the ops lanes' `notVendorHeldSql` switches on only when
+     *  both `claimed_at` and `origin` exist. Enforced by the hand-written CHECK. */
+    origin: text('origin').notNull().default('aeci'),
+    /** When the pair was retired, or NULL while it is live. Written only by the
+     *  retire routes (AECI-1091); promote never writes it. No read filters on it
+     *  yet: the evidenced arm of every count and public read is AECI-1091. */
+    retiredAt: text('retired_at'),
+    /** Who retired the pair: `'owner'` or `'aeci'`. NULL while live. Enforced by
+     *  the hand-written column CHECK in 0048. */
+    retiredBy: text('retired_by'),
+
     createdAt: createdAt(),
     updatedAt: updatedAt(),
   },
