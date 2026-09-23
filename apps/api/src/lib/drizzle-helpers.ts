@@ -25,6 +25,7 @@ import {
   claimDirectionForContext,
   computeAgreement,
   computeSyncHeadline,
+  distinctDataObjectSlugs,
   effectiveContextDirection,
   integrationDirectionForContext,
   ProductUsefulnessSchema,
@@ -202,6 +203,8 @@ export const productDetailIntegrationConfig = {
     claims: {
       columns: { direction: true },
       with: {
+        // AECI-711: the depth axis counts distinct objects per row.
+        dataObject: { columns: { slug: true } },
         attestations: {
           columns: { source: true, asserted: true, attestedByVendorId: true, retractedAt: true },
           where: liveAttestationsWhere,
@@ -267,6 +270,8 @@ export const connectorEvidencedPairDetailConfig = {
     claims: {
       columns: { direction: true },
       with: {
+        // AECI-711: the depth axis counts distinct objects per row.
+        dataObject: { columns: { slug: true } },
         attestations: {
           columns: { source: true, asserted: true, attestedByVendorId: true, retractedAt: true },
           where: liveAttestationsWhere,
@@ -370,8 +375,17 @@ export interface RawConnectorEvidencedPairRow {
 
 /** Evidenced-pair row + its claims, for the ENDPOINT product-detail embed. Sibling
  *  of `RawProductIntegrationRow`; the two feed the same `ProductIntegrationItem`. */
+/** A claim as the product-detail read hydrates it: direction and votes for the
+ *  claims-aware `context_direction`, plus the `data_object` slug the AECI-711
+ *  depth axis counts. */
+export interface RawProductDetailClaimRow {
+  direction: string;
+  attestations: RawAgreementVoteRow[];
+  dataObject: { slug: string };
+}
+
 export interface RawProductEvidencedPairRow extends RawConnectorEvidencedPairRow {
-  claims: Array<{ direction: string; attestations: RawAgreementVoteRow[] }>;
+  claims: RawProductDetailClaimRow[];
 }
 
 export interface RawConnectorEvidencedPairDetailRow extends RawConnectorEvidencedPairRow {
@@ -504,6 +518,7 @@ export function toProductIntegrationItemFromEvidencedPair(
     // Never both: a row in `connector_evidenced_pairs` has no
     // `powered_by_product_id` to carry (§13.4(1)).
     powered_by_product: null,
+    data_object_slugs: productDetailDataObjectSlugs(raw.claims),
   };
 }
 
@@ -1009,7 +1024,7 @@ export interface RawIntegrationListRow {
  *  attestations decide whether a claim still gets a say (§4.3 — a flow every
  *  voting vendor denies must stop steering the arrow). */
 export interface RawProductIntegrationRow extends RawIntegrationListRow {
-  claims: Array<{ direction: string; attestations: RawAgreementVoteRow[] }>;
+  claims: RawProductDetailClaimRow[];
   /** §13.4(1) — nullable because the partial index is on the non-null rows only. */
   poweredByProduct: RawProductLink | null;
 }
@@ -1412,7 +1427,20 @@ export function toProductIntegrationItem(
     // the DIRECT lane) and, in an un-migrated database, on a routable connector
     // edge the AECI-721 migration has not moved yet.
     powered_by_product: raw.poweredByProduct ? toProductLink(raw.poweredByProduct) : null,
+    data_object_slugs: productDetailDataObjectSlugs(raw.claims),
   };
+}
+
+/**
+ * AECI-711 depth axis: the distinct objects one edge's claims cover, by the same
+ * AECI-1042 rule as the pair page's sync headline. Every claim counts, as it does
+ * there with no version selected: a refuted claim still names an object the
+ * catalog records, and the pair page lists it too.
+ */
+function productDetailDataObjectSlugs(claims: readonly RawProductDetailClaimRow[]): string[] {
+  return distinctDataObjectSlugs(
+    claims.map((claim) => ({ data_object_slug: claim.dataObject.slug })),
+  );
 }
 
 export function toIntegrationDetail(raw: RawIntegrationDetailRow): IntegrationDetail {
@@ -1605,6 +1633,16 @@ function toProductPairMechanism(
     mechanism_kind: toMechanismKind(raw.mechanismKind, raw.id),
     mechanism_name: toMechanismHeading(raw.name, raw.mechanismName),
     direction: integrationDirectionForContext(coerceDirection(raw.direction), contextIsSource),
+    // AECI-711: the product row's rule, verbatim (`toProductIntegrationItem`). Every
+    // claim, not the version-filtered list below, because the row sees them all.
+    effective_direction: effectiveContextDirection(
+      coerceDirection(raw.direction),
+      raw.claims.map((claim) => ({
+        direction: coerceClaimDirection(claim.direction, raw.id),
+        attestations: claim.attestations,
+      })),
+      contextIsSource,
+    ),
     description: raw.description,
     listing_url: raw.listingUrl,
     docs_url: raw.docsUrl,
@@ -1670,6 +1708,18 @@ function toProductPairMechanismFromEvidencedPair(
     mechanism_kind: null,
     mechanism_name: toMechanismHeading(raw.name, raw.mechanismName),
     direction: integrationDirectionForContext(direction, contextIsSource),
+    // AECI-711: the claims-aware direction, as `toProductIntegrationItemFromEvidencedPair`
+    // derives it. Both arguments are read in the CANONICAL A/B frame here — the
+    // stored `raw.direction` is anchored to `product_a_id`, and so are the claims —
+    // so one flag, `contextIsA`, frames both and no flip is needed.
+    effective_direction: effectiveContextDirection(
+      coerceDirection(raw.direction),
+      raw.claims.map((claim) => ({
+        direction: coerceClaimDirection(claim.direction, raw.id),
+        attestations: claim.attestations,
+      })),
+      contextIsA,
+    ),
     description: raw.description,
     listing_url: raw.listingUrl,
     docs_url: raw.docsUrl,

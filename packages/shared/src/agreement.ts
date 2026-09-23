@@ -144,6 +144,22 @@ export interface SyncHeadlineClaim {
 }
 
 /**
+ * The distinct `data_object` slugs a set of claims covers, in first-seen order.
+ * The AECI-1042 counting rule, and the one place it is written down: an object
+ * moving in two directions, through two mechanisms, or on a duplicate row counts
+ * once. `computeSyncHeadline().total` is this list's length, and the AECI-711
+ * depth axis reads the same function for a single mechanism or a merged row, so
+ * a row's "N data objects" and the pair page's cannot count differently.
+ */
+export function distinctDataObjectSlugs(
+  claims: Iterable<{ readonly data_object_slug: string }>,
+): string[] {
+  const slugs = new Set<string>();
+  for (const claim of claims) slugs.add(claim.data_object_slug);
+  return [...slugs];
+}
+
+/**
  * The sync headline (§3.5, widened by Stage 2 §4.3; re-based on data objects by
  * AECI-1042). `total` is the number of **distinct `data_object` slugs** across the
  * pair's claims — all directions, all mechanisms, both delivered anchors. A
@@ -167,14 +183,16 @@ export function computeSyncHeadline(claims: readonly SyncHeadlineClaim[]): {
   confirmed: number;
   single_source: number;
 } {
-  const objects = new Set<string>();
   const confirmed = new Set<string>();
   const singleSource = new Set<string>();
   for (const claim of claims) {
-    objects.add(claim.data_object_slug);
     if (claim.agreement === 'confirmed') confirmed.add(claim.data_object_slug);
     else if (claim.agreement === 'single_source') singleSource.add(claim.data_object_slug);
   }
   for (const slug of confirmed) singleSource.delete(slug);
-  return { total: objects.size, confirmed: confirmed.size, single_source: singleSource.size };
+  return {
+    total: distinctDataObjectSlugs(claims).length,
+    confirmed: confirmed.size,
+    single_source: singleSource.size,
+  };
 }

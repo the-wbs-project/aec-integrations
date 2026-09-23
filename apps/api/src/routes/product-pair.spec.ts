@@ -549,6 +549,68 @@ describe('GET /api/products/:slug/integrations/:otherSlug — Layer B claims (§
     expect(body.sync_headline).toEqual({ total: 1, confirmed: 0, single_source: 0 });
   });
 
+  it('reports the claims-aware effective_direction beside the stored direction (AECI-711)', async () => {
+    // Stored a_to_b, but the claims run both ways: the product row reads `both`
+    // for this edge (`context_direction`), so the pair card's chip must too.
+    await seedPairWithClaims();
+    const body = ProductPairResponseSchema.parse(
+      await (await get('/api/products/procore/integrations/revit')).json(),
+    );
+    const [m] = body.mechanisms;
+    expect(m?.direction).toBe('outbound');
+    expect(m?.effective_direction).toBe('both');
+  });
+
+  it('falls back to the stored direction for effective_direction when there are no claims (AECI-711)', async () => {
+    await seedProducts();
+    await integration(u(10), u(1), u(2));
+    const fromSource = ProductPairResponseSchema.parse(
+      await (await get('/api/products/procore/integrations/revit')).json(),
+    );
+    expect(fromSource.mechanisms[0]?.effective_direction).toBe('outbound');
+    const fromTarget = ProductPairResponseSchema.parse(
+      await (await get('/api/products/revit/integrations/procore')).json(),
+    );
+    expect(fromTarget.mechanisms[0]?.effective_direction).toBe('inbound');
+  });
+
+  it("frames an evidenced pair's effective_direction in the canonical A/B frame (AECI-711)", async () => {
+    await seedProducts();
+    await t.db.insert(products).values({
+      id: u(3),
+      slug: 'agave-erp-sync',
+      name: 'Agave ERP Sync',
+      productRole: 'connector',
+      promotionStatus: 'promoted',
+    });
+    // u(1) = Procore sorts first, so Procore is A.
+    await t.db.insert(connectorEvidencedPairs).values({
+      id: u(60),
+      connectorProductId: u(3),
+      productAId: u(1),
+      productBId: u(2),
+      direction: 'a_to_b',
+      mechanismName: 'Agave ERP Sync',
+    });
+    await dataObject(u(101), 'models', 'Models', 1);
+    // The only claim runs B to A, so it overrides the stored a_to_b.
+    await t.db.insert(claims).values({
+      id: u(201),
+      connectorEvidencedPairId: u(60),
+      dataObjectId: u(101),
+      direction: 'b_to_a',
+    });
+    const fromA = ProductPairResponseSchema.parse(
+      await (await get('/api/products/procore/integrations/revit')).json(),
+    );
+    expect(fromA.mechanisms[0]?.direction).toBe('outbound');
+    expect(fromA.mechanisms[0]?.effective_direction).toBe('inbound');
+    const fromB = ProductPairResponseSchema.parse(
+      await (await get('/api/products/revit/integrations/procore')).json(),
+    );
+    expect(fromB.mechanisms[0]?.effective_direction).toBe('outbound');
+  });
+
   it('orders claims by the data_object display_order', async () => {
     await seedProducts();
     await integration(u(10), u(1), u(2), { mechanismKind: 'native' });

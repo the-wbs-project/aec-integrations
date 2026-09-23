@@ -89,6 +89,7 @@ registerDetailResolverSuite<ProductDetail>({
           target: { id: 't1', name: 'B', slug: 'b', logo_url: null },
           via: null,
           powered_by_product: null,
+          data_object_slugs: [],
           created_at: '2024-01-01T00:00:00.000Z',
           updated_at: '2024-01-01T00:00:00.000Z',
         },
@@ -107,6 +108,7 @@ registerDetailResolverSuite<ProductDetail>({
           target: { id: 't4', name: 'F', slug: 'f', logo_url: null },
           via: { id: 'v1', name: 'Agave ERP Sync', slug: 'agave-erp-sync', logo_url: null },
           powered_by_product: null,
+          data_object_slugs: [],
           created_at: '2024-01-01T00:00:00.000Z',
           updated_at: '2024-01-01T00:00:00.000Z',
         },
@@ -123,6 +125,7 @@ registerDetailResolverSuite<ProductDetail>({
           target: { id: 't2', name: 'Procore', slug: 'procore', logo_url: null },
           via: null,
           powered_by_product: null,
+          data_object_slugs: [],
           created_at: '2024-01-01T00:00:00.000Z',
           updated_at: '2024-01-01T00:00:00.000Z',
         },
@@ -236,6 +239,7 @@ describe('productDetailResolver — product-specific', () => {
           target: aquifer,
           via: null,
           powered_by_product: aquifer, // the connector is also an ENDPOINT
+          data_object_slugs: [],
           created_at: '2024-01-01T00:00:00.000Z',
           updated_at: '2024-01-01T00:00:00.000Z',
         },
@@ -303,6 +307,7 @@ describe('productDetailResolver — product-specific', () => {
     target: { id: `t-${targetSlug}`, name: targetSlug, slug: targetSlug, logo_url: null },
     via: null,
     powered_by_product: null,
+    data_object_slugs: [],
     created_at: '2024-01-01T00:00:00.000Z',
     updated_at: '2024-01-01T00:00:00.000Z',
   });
@@ -413,6 +418,7 @@ describe('productDetailResolver — title and description (AECI-802)', () => {
       target: { id: slug, name, slug, logo_url: null },
       via: null,
       powered_by_product: null,
+      data_object_slugs: [],
       created_at: '2024-01-01T00:00:00.000Z',
       updated_at: '2024-01-01T00:00:00.000Z',
     };

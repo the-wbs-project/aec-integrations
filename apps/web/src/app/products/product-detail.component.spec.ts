@@ -410,7 +410,12 @@ describe('ProductDetailPage powered-integrations hub', () => {
     const { el } = setup(
       connector({
         integrations_as_source: [
-          { ...edge(procore, acumatica), context_direction: null, powered_by_product: null },
+          {
+            ...edge(procore, acumatica),
+            context_direction: null,
+            powered_by_product: null,
+            data_object_slugs: [],
+          },
         ],
         integrations_as_connector: [edge(procore, acumatica), edge(sage, procore)],
       }),
@@ -476,6 +481,7 @@ describe('ProductDetailPage integrations table order', () => {
     mechanism_kind: 'native',
     context_direction: null,
     powered_by_product: null,
+    data_object_slugs: [],
   });
 
   /**
@@ -607,6 +613,7 @@ describe('ProductDetailPage integrations lanes (§13.3)', () => {
     mechanism_kind: 'native',
     context_direction: null,
     powered_by_product: null,
+    data_object_slugs: [],
     ...overrides,
   });
 
@@ -1004,9 +1011,24 @@ describe('ProductDetailPage self-exclusion (§13.4(2))', () => {
         // what §13.2(a) reads to keep it in the DIRECT lane — so these render
         // here once, and never as a "Via Agave ERP Sync → Agave ERP Sync" group.
         integrations_as_target: [
-          { ...selfEdge(procore, agave), context_direction: null, powered_by_product: agave },
-          { ...selfEdge(acumatica, agave), context_direction: null, powered_by_product: agave },
-          { ...selfEdge(sage, agave), context_direction: null, powered_by_product: agave },
+          {
+            ...selfEdge(procore, agave),
+            context_direction: null,
+            powered_by_product: agave,
+            data_object_slugs: [],
+          },
+          {
+            ...selfEdge(acumatica, agave),
+            context_direction: null,
+            powered_by_product: agave,
+            data_object_slugs: [],
+          },
+          {
+            ...selfEdge(sage, agave),
+            context_direction: null,
+            powered_by_product: agave,
+            data_object_slugs: [],
+          },
         ],
       }),
     );

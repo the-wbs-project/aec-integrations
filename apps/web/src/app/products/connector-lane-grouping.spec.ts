@@ -35,6 +35,7 @@ const edge = (
   context_direction: null,
   via: null,
   powered_by_product: null,
+  data_object_slugs: [],
   created_at: '2026-01-01T00:00:00.000Z',
   updated_at: '2026-01-01T00:00:00.000Z',
   ...partial,
@@ -164,6 +165,26 @@ describe('splitIntegrationLanes — §13.3', () => {
     // page's grouping applies, from the one shared definition.
     expect(view.via[0]?.rows[0]?.direction).toBe<ContextDirection>('both');
     expect(view.rowCount).toBe(1);
+  });
+
+  it("unions the collapsed edges' data objects, counting a shared one once (AECI-711)", () => {
+    const view = splitIntegrationLanes(
+      [
+        edge({
+          source: procore,
+          target: sage,
+          via: agave,
+          data_object_slugs: ['invoices', 'vendors'],
+        }),
+        edge({ source: procore, target: sage, via: agave, data_object_slugs: ['vendors', 'jobs'] }),
+      ],
+      [],
+    );
+    expect([...(view.via[0]?.rows[0]?.dataObjectSlugs ?? [])]).toEqual([
+      'invoices',
+      'vendors',
+      'jobs',
+    ]);
   });
 
   it('does NOT collapse two partners under one connector', () => {

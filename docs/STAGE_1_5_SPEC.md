@@ -1212,6 +1212,32 @@ filter did not.
   count are all as stated above. The `role="status"` "Showing N of M" line remains the only thing
   that reports the filtered view.
 
+**Depth axis (AECI-711, 2026-09-23).** Depth is orthogonal to mechanism. Before it, a one-way read
+of one object and a two-way sync of twelve rendered identically. Two surfaces now carry it, on both
+delivered-tier tables alike. The pair page's mechanism card header shows a direction chip (the
+`contextDirectionLabel` glyph, `aria-hidden`, behind an `sr-only` "Direction:" prefix) and an "N data
+objects" chip, at the kind badge's weight, in Basic and Detailed views. The chip reads the new
+`effective_direction`, the claims-aware value the row's `context_direction` uses. It never reads the
+stored direction, which this page already hides once claims exist. In Detailed view with no claims
+the chip is omitted, because the Layer-A line states the same direction in that card. Three
+rulings from 2026-09-23 apply. First, on a pair with one mechanism whose band headline already
+reads "N data objects sync", the card's object chip is hidden, because it would repeat the headline.
+Second, on a Via-lane row with no mechanism kind, the "–" placeholder is dropped when the object chip
+shows, because the lane heading already names the connector. Third, the card header keeps its chips
+on one line with the heading at 1280px. This section's rows show the
+"N data objects" chip beside the Connection badge, and on the meta line below `md`. Direction on
+rows was already there (§13.3a) and did not change. The count is the AECI-1042 rule,
+`distinctDataObjectSlugs` in `packages/shared/src/agreement.ts`, the same function
+`computeSyncHeadline` counts with. The pair card excludes `removed` claims, as the headline does. The
+row reads the new `ProductIntegrationItem.data_object_slugs`, which counts every claim on the edge.
+The two differ only on a pair whose version diff drops a claim. A collapsed Via row shows the
+**union** of its edges' slugs, which is why the wire carries slugs and not a count. **Ruling
+(2026-09-22): each chip renders only when present.** There is no "not specified" marker. A null
+direction with no claims renders byte-identically to before, pinned by
+`depth-axis-null.component.spec.ts`. The row's existing `–` direction placeholder is part of that
+unchanged render. AECI-1066 investigates why ~55% of rows carry no direction and does not block
+this. The powered hub (§12.3) does not show the count yet, because its payload loads no claims. AECI-1080 tracks it.
+
 #### 13.3a Direction is a meta line, not a column (AECI-853, 2026-09-10)
 
 This subsection records a **reversal**. §13.3 originally required a Direction column and said

@@ -637,6 +637,57 @@ describe('GET /api/products/:slug', () => {
     expect(row?.context_direction).toBe('both');
   });
 
+  it('carries the distinct data_object slugs on BOTH delivered-tier arms (AECI-711)', async () => {
+    await seedProduct(u(1), 'egnyte', 'Egnyte');
+    await seedProduct(u(2), 'procore', 'Procore');
+    await seedProduct(u(3), 'agave-erp-sync', 'Agave ERP Sync', { productRole: 'connector' });
+    await seedProduct(u(4), 'sage-intacct', 'Sage Intacct');
+    await t.db
+      .insert(integrations)
+      .values({ id: u(51), sourceProductId: u(1), targetProductId: u(2) });
+    const [a, b] = [u(1), u(4)].sort();
+    await t.db.insert(connectorEvidencedPairs).values({
+      id: u(52),
+      connectorProductId: u(3),
+      productAId: a!,
+      productBId: b!,
+      direction: 'both',
+      mechanismName: 'Agave ERP Sync',
+    });
+    await t.db.insert(taxonomyDataObjects).values([
+      { id: u(71), slug: 'drawings', name: 'Drawings' },
+      { id: u(72), slug: 'rfis', name: 'RFIs' },
+    ]);
+    await t.db.insert(claims).values([
+      // The same object in two directions counts once (the AECI-1042 rule).
+      { id: u(81), integrationId: u(51), dataObjectId: u(71), direction: 'a_to_b' },
+      { id: u(82), integrationId: u(51), dataObjectId: u(71), direction: 'b_to_a' },
+      { id: u(83), integrationId: u(51), dataObjectId: u(72), direction: 'a_to_b' },
+      { id: u(84), connectorEvidencedPairId: u(52), dataObjectId: u(72), direction: 'both' },
+    ]);
+
+    const detail = ProductDetailSchema.parse(
+      await (await get(detailApp(), '/api/products/egnyte')).json(),
+    );
+    const all = [...detail.integrations_as_source, ...detail.integrations_as_target];
+    const direct = all.find((i) => i.id === u(51));
+    const evidenced = all.find((i) => i.id === u(52));
+    expect([...(direct?.data_object_slugs ?? [])].sort()).toEqual(['drawings', 'rfis']);
+    expect(evidenced?.data_object_slugs).toEqual(['rfis']);
+  });
+
+  it('serialises data_object_slugs as [] for an edge with no claims (AECI-711)', async () => {
+    await seedProduct(u(1), 'egnyte', 'Egnyte');
+    await seedProduct(u(2), 'procore', 'Procore');
+    await t.db
+      .insert(integrations)
+      .values({ id: u(51), sourceProductId: u(1), targetProductId: u(2) });
+    const body = (await (await get(detailApp(), '/api/products/egnyte')).json()) as {
+      integrations_as_source: Array<{ data_object_slugs: unknown }>;
+    };
+    expect(body.integrations_as_source[0]?.data_object_slugs).toEqual([]);
+  });
+
   it('frames a one-way claim relative to the page product (outbound from source, inbound from target)', async () => {
     await seedProduct(u(1), 'egnyte', 'Egnyte');
     await seedProduct(u(2), 'procore', 'Procore');

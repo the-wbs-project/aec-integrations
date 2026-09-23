@@ -8,8 +8,14 @@ import type {
   ProductLink,
 } from '@aeci/shared';
 
-import { contextDirectionLabel, mechanismKindLabel } from '../search/mechanism-labels';
+import {
+  contextDirectionLabel,
+  dataObjectCountLabel,
+  mechanismKindLabel,
+} from '../search/mechanism-labels';
 import { LogoOrInitial } from '../shared/logo-or-initial/logo-or-initial';
+
+import { routeIntegrationLane } from './connector-lane-grouping';
 
 /**
  * Row representation of one of a product's integrations, slotted into the
@@ -33,7 +39,8 @@ import { LogoOrInitial } from '../shared/logo-or-initial/logo-or-initial';
  *      a name link to that product's page), over a muted meta line carrying the
  *      **direction** at every width and, below `md`, the mechanism as well.
  *   2. **Connection** — the `mechanism_kind` badge (shared `mechanismKindLabel()`)
- *      plus the optional `mechanism_name`. Hidden below `md`, where it folds into
+ *      and, when the edge has claims, the AECI-711 "N data objects" chip beside
+ *      it, plus the optional `mechanism_name`. Hidden below `md`, where it folds into
  *      the meta line above. `–` when absent.
  *
  * **Direction used to be its own leading column, and AECI-853 folded it into the
@@ -139,6 +146,13 @@ import { LogoOrInitial } from '../shared/logo-or-initial/logo-or-initial';
               <span class="md:hidden" aria-hidden="true">·</span>
               <span class="md:hidden">{{ label }}</span>
             }
+            <!-- AECI-711 depth axis, below md: the object count joins the meta
+                 line for the same reason the mechanism does. Nothing renders for
+                 an edge with no claims (no "not specified" marker). -->
+            @if (dataObjectLabel(); as objects) {
+              <span class="md:hidden" aria-hidden="true">·</span>
+              <span class="md:hidden" data-testid="row-data-objects-sublabel">{{ objects }}</span>
+            }
           </span>
         </span>
       </span>
@@ -153,12 +167,37 @@ import { LogoOrInitial } from '../shared/logo-or-initial/logo-or-initial';
     </td>
     <td class="hidden px-4 py-3 text-(--text-secondary) md:table-cell">
       <span class="flex flex-col items-start gap-1">
-        @if (mechanismKindLabels().length > 0) {
+        <!-- The mechanism badge(s), then the AECI-711 object-coverage chip at the
+             same weight: depth is orthogonal to mechanism, so it sits beside the
+             badge rather than under it. With no kinds the "–" keeps its place and
+             meaning (mechanism not listed) and the chip follows it, EXCEPT on a
+             Via-lane row (ruled 2026-09-23): there the lane heading already names
+             the connector, and a bare dash beside "2 data objects" read as a minus
+             sign. A row with no kinds AND no objects takes the @else below,
+             unchanged since before the depth axis (depth-axis-null.component.spec.ts). -->
+        @if (mechanismKindLabels().length > 0 || dataObjectLabel()) {
           <span class="flex flex-wrap items-center gap-1">
             @for (label of mechanismKindLabels(); track label) {
               <span
                 class="inline-flex items-center rounded-(--radius-sm) border border-(--border-default) bg-(--surface-raised) px-2.5 py-0.5 text-xs font-bold tracking-[0.01em]"
                 >{{ label }}</span
+              >
+            } @empty {
+              @if (!isViaLane()) {
+                <span
+                  class="text-(--text-secondary)"
+                  i18n="@@products.detail.integrations.mechanism.none"
+                  i18n-aria-label="@@products.detail.integrations.mechanism.none.aria"
+                  aria-label="Mechanism not listed"
+                  >–</span
+                >
+              }
+            }
+            @if (dataObjectLabel(); as objects) {
+              <span
+                class="inline-flex items-center rounded-(--radius-sm) border border-(--border-default) bg-(--surface-raised) px-2.5 py-0.5 text-xs font-bold tracking-[0.01em]"
+                data-testid="row-data-objects"
+                >{{ objects }}</span
               >
             }
           </span>
@@ -216,6 +255,9 @@ export class ProductIntegrationRow {
    */
   readonly mergedMechanismKinds = input<readonly IntegrationMechanismKind[] | undefined>(undefined);
   readonly mergedDirection = input<ContextDirection | null | undefined>(undefined);
+  /** The union of the collapsed edges' `data_object_slugs` (AECI-711). Same
+   *  `undefined` sentinel: unset means "read `integration()`". */
+  readonly mergedDataObjectSlugs = input<readonly string[] | undefined>(undefined);
 
   /** RouterLink to the product-PAIR page, this product as the context slug. */
   protected readonly pairLink = computed(() => [
@@ -239,6 +281,20 @@ export class ProductIntegrationRow {
   /** Below `md` the Connection column is hidden, so the kinds join the meta
    *  line under the partner name, after the direction. */
   protected readonly mechanismSublabel = computed(() => this.mechanismKindLabels().join(' · '));
+
+  /** AECI-711 depth axis: "N data objects", or `''` (renders nothing). The slugs
+   *  are already distinct — server-side per edge, unioned per collapsed row. */
+  protected readonly dataObjectLabel = computed(() =>
+    dataObjectCountLabel(
+      (this.mergedDataObjectSlugs() ?? this.integration().data_object_slugs).length,
+    ),
+  );
+
+  /** The same router the section splits lanes with, so the row and its lane
+   *  cannot disagree about which lane it is in. */
+  protected readonly isViaLane = computed(
+    () => routeIntegrationLane(this.integration()).lane === 'via',
+  );
 
   protected readonly direction = computed(() => {
     const merged = this.mergedDirection();
