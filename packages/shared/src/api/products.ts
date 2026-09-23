@@ -130,6 +130,16 @@ export const ProductDetailSchema = ProductListItemSchema.extend({
   // `source` and `target`, and grouping/presentation is a client concern.
   integrations_as_connector: z.array(IntegrationListItemSchema),
   related_products: z.array(ProductListItemSchema),
+  // The `product_extensions` relation, both directions (AECI-710 / Stage 1.5
+  // §13.3b). `extension_of` is the hosts this product is built WITHIN;
+  // `extensions` is the products built within this one. An extension runs
+  // inside its host, so there is no boundary for data to cross: these are NOT
+  // integrations, never enter an integrations list, and never reach
+  // `integration_count` or any §13.5 lockstep site. Sorted by name.
+  //
+  // Defaulted because every non-production database holds zero rows today.
+  extension_of: z.array(ProductListItemSchema).default([]),
+  extensions: z.array(ProductListItemSchema).default([]),
   // First page of approved reviews, newest-first, SSR'd into the cached product
   // page so the reviews section renders without a client round-trip (AECI-199 /
   // §5.4). `review_count` (inherited from ProductListItem) is the approved total

@@ -67,6 +67,7 @@ Every Stage 1.5 issue opens with `**Spec section:** §X.Y (docs/STAGE_1_5_SPEC.m
 | §12.7 | — | Catalog-scope note under both populated integration lists |
 | §13 | AECI-708 | Addendum C — connector presentation contract (this addendum) |
 | §13.2 / §13.3 | AECI-713 *(done)* | Endpoint Integrations split — direct lane + "Via {connector}" groups |
+| §13.3b | AECI-710 | "Built within {host}" and the reciprocal Extensions section; never an integration, never counted |
 | §13.4(1) / §13.4(3) | AECI-713 *(done)* | Contract addition the split needs (`powered_by` on the product-detail embed; the endpoint read's union with the evidenced tier) + the connector cache tag |
 | §13.4(2) | AECI-707 *(done)* | Powered-section self-exclusion — shipped with the role-varied template, because 707 promotes that section to the top of a connector page |
 | §13.5 | AECI-721, AECI-789, AECI-1010 | Count invariants — §12.5 resolved as B; the lockstep (26 expressions plus four exclusions since AECI-1010, asserted as `LOCKSTEP_SITES`) |
@@ -1305,6 +1306,75 @@ unknown (no claims and no stored direction).
 > this way" mark and carries no direction vocabulary. None of the arithmetic above changes: the cell
 > is `text-end` with a `size-4` glyph, the same box the character occupied. Binding rule: `DESIGN.md`
 > §"Named Rules" → **The Arrow Rule**.
+
+#### 13.3b "Built within {host}": extensions are not edges (AECI-710, 2026-09-23)
+
+**What `extension_of` means.** An extension is a product built **inside** a host product: a Revit
+add-in, a Dynamics 365 vertical, a NetSuite SuiteApp. It runs in the host's process or tenant, so
+there is no boundary for data to cross. The review app's integrity rubric (`record-integrity-checks`
+**I3** in `aec-integrations-review`, not this document's I3 prototype) therefore bars an integration
+edge between an extension and its host. The relationship is stored as a row in `product_extensions`
+(`DATABASE_SCHEMA.md` §6.5), written only by promote from the payload's `extensionOf` list
+(`REVIEW_APP_PROMOTE_API.md` §3). Promote replaces the product's host set on every push.
+
+**Where it renders.** Both directions, on the product detail page only:
+
+- **On the extension's page: a "Built within" group in the metadata sidebar**, directly under
+  Vendor. It holds one linked host card per host (logo plus name, linking `/products/{hostSlug}`),
+  in the same card shape as the vendor card. It is metadata about what the product is, like its
+  vendor, so it sits with the metadata. Omitted when the product has no host.
+- **On the extension's page, the EMPTY Integrations state names the host in one sentence**, first
+  inside the empty-state box: *"{product} runs inside {host}; see Built within."* Several hosts
+  join as prose ("Revit and Forma"). An extension usually has no integrations with its host, so
+  without this the body shows a bare "Integrations (0)" while the one fact that explains it sits
+  in the sidebar. The sentence names the host but never links it or counts it; the sidebar card
+  stays the only link. It renders only on the empty branch: a section with rows needs no pointer.
+  The existing "No integrations recorded yet" copy and its correction link follow it unchanged.
+- **On the host's page: an "Extensions built within {product}" body section**, `id="extensions"`,
+  placed after `#integrations` and before `#reviews`, with its own section-nav entry
+  ("Extensions"). It renders a grid of linked tiles (logo, name, vendor), one per extension, sorted
+  by name through `textAsc`. One sentence under the heading says what the products are, in the
+  reader's terms ("Add-ins and apps that run inside {product} rather than connecting to it"). One
+  verb, *built within*, names the relation in both directions. Omitted when the product has no
+  extensions.
+
+**It is visually distinct from Integrations and never counted in it.**
+
+- **A different element, not a lane.** It is never a third lane of §13.3's split, never a row in
+  an integrations table, and never an `IntegrationGroupCard`. Tiles and a sidebar card, not table
+  rows, so a reader cannot mistake it for the delivered tier (§13.1).
+- **No count reaches the integration numbers.** `integration_count`, the `Integrations (N)`
+  heading, the lane sub-counts, the hero `IntegrationStat`, the §13.7 reach line and the meta
+  description are all untouched. **The §13.5 lockstep does not change**: no site in
+  `LOCKSTEP_SITES` reads `product_extensions`, and this subsection adds none. The Extensions
+  heading carries no `(N)`, so the page never shows two counts that look like the same kind.
+- **No pair page.** An extension and its host get no `/products/{a}/integrations/{b}` link from
+  this surface. There is no edge to describe.
+
+**Contract.** `ProductDetail` gains two arrays of `ProductListItem`, both defaulted to `[]`:
+`extension_of` (the hosts this product is built within) and `extensions` (the products built
+within this one). They ride the existing `GET /api/products/:slug` fetch and the existing product
+detail resolver, so there is no new request, route or chain fetch. `API_CONTRACTS.md` §5.1 carries
+the shape.
+
+**Cache.** Two halves, the same shape as `CACHE_STRATEGY.md` §3 rule 4:
+
+- **(a) Embedded tags.** The resolver pushes `product:{slug}` for every host and every extension it
+  renders (§3 rule 2). That already covers an edit to a rendered neighbour, and it covers a
+  relation being **removed**, because the page that loses the tile still carries the tag.
+- **(b) Promote emits the host.** A relation being **added** is the case (a) cannot reach: the
+  host's cached page does not yet carry the new extension's tag. So a promote that writes a
+  product also purges `product:{hostSlug}` for each host the product now names. The hook reads the
+  post-commit host set; the ledger shape does not change.
+
+**Data at build time (2026-09-23, read-only).** Production holds **13** `product_extensions` rows:
+13 extensions across **7** hosts, each extension naming exactly one host. The largest host lists
+three (Autodesk Revit, Microsoft Dynamics 365). The local seed held **0**, so AECI-710 added
+`apps/api/seed/extension-fixtures.sql` to the `db:seed:local` chain: Dynamo for Revit (Autodesk)
+and pyRevit (no vendor), both built within Revit. `db:setup:local` now renders both directions and
+the host-naming empty state. One production extension, `extractus-by-smoothx` on Procore, **also** carries
+an `integrations` edge to its host. That is an I3 violation upstream. This page renders both
+facts as stored and does not hide either one.
 
 ### 13.4 Contract elements the split needs and does not have
 

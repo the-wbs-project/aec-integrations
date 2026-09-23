@@ -115,6 +115,11 @@ Codified so callers don't re-derive the rules per surface:
 
    **All three filter on EXACT paths, and AECI-991 makes that a second bounded residual rather than a clean line.** A pair URL naming a retired endpoint now only redirects too, and `/products/{retired}/integrations/{other}` is not in the retired-path set. It is left out on purpose: a buffered URL is written from a promote's own results, so a pair URL can only enter the queue while both endpoint products are live, and a prefix matcher inside a helper whose contract is exact-path membership is how a filter starts suppressing URLs it knows nothing about. The residual is a URL buffered before its mapping was seeded and drained after — a submitted 301 costs a crawl, not correctness.
 
+7. **A host page lists its extensions, and a promote purges it** (AECI-710, `STAGE_1_5_SPEC.md` §13.3b). An extension's page shows "Built within {host}" in the sidebar, and the host's page lists "Extensions built within {host}" in the body. Both come from `product_extensions`. Two halves, the same shape as rule 4:
+
+   - **(a) Embedded tags.** The product detail resolver pushes `product:{slug}` for every host and every extension it renders (rule 2). An edit to a rendered neighbour purges the page. So does a **removed** relation: the host page that still lists a dropped extension carries that extension's tag, and the extension's own promote emits it.
+   - **(b) Promote emits the host.** An **added** relation is the case (a) cannot reach, because the host's cached page does not carry the new extension's tag yet. So when a promote writes a product, the cache-purge hook reads the product's post-commit hosts (`extensionHostSlugs`, `apps/api/src/lib/product-extensions.ts`) and `cacheTagsForPromote` adds `product:{hostSlug}` for each. No new tag vocabulary. The promote ledger shape is unchanged, and a replay re-reads the same committed set. A failed read logs `aeci.api.promote.extension_host_read_failed` and purges everything else.
+
 ### Cache-Tag header construction helper
 
 Building the header is a single helper, implemented in Phase 2.10 ([AECI-56](https://linear.app/aec-integrations/issue/AECI-56)). Lives at `apps/web/src/server/cache-tags.ts`:

@@ -39,6 +39,7 @@ import {
   type RawProductListRow,
 } from '../lib/drizzle-helpers';
 import { reportMissingVendors, validateResponseInDev, type DbFactory } from '../lib/handler-utils';
+import { productExtensionRows } from '../lib/product-extensions';
 import { resolveProductOrderBy } from '../lib/sort';
 
 export function createProductsListHandler(
@@ -115,7 +116,7 @@ export function createProductDetailHandler(
             limit: 6,
           });
 
-    const [relatedProducts, reviewRows, reachablePartners] = await Promise.all([
+    const [relatedProducts, reviewRows, reachablePartners, extensionRows] = await Promise.all([
       relatedPromise,
       // First page of approved reviews, newest-first; `id` tiebreaks ties.
       db.query.reviews.findMany({
@@ -130,6 +131,9 @@ export function createProductDetailHandler(
       // load hundreds of mapping rows to produce one integer. One extra D1 round
       // trip, spent in parallel with the two above, so it costs no latency.
       reachablePartnerProductIds(db, row.id),
+      // §13.3b (AECI-710): hosts this product is built within, and the products
+      // built within it. Not integrations; see `lib/product-extensions.ts`.
+      productExtensionRows(db, row.id),
     ]);
 
     const body: ProductDetail = toProductDetail(
@@ -137,9 +141,15 @@ export function createProductDetailHandler(
       relatedProducts,
       reviewRows,
       reachablePartners,
+      extensionRows,
     );
 
-    reportMissingVendors(c, [body, ...body.related_products]);
+    reportMissingVendors(c, [
+      body,
+      ...body.related_products,
+      ...body.extension_of,
+      ...body.extensions,
+    ]);
 
     validateResponseInDev(c.env, () => {
       ProductDetailSchema.parse(body);

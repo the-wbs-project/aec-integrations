@@ -227,6 +227,7 @@ Per-detail hydration rules:
 | `ProductDetail` | `integrations_as_source` / `integrations_as_target` | `ProductIntegrationItem[]` (= `IntegrationListItem` + `context_direction` + `powered_by_product` + `data_object_slugs`). **Each array spans BOTH delivered-tier tables** (AECI-713 / `STAGE_1_5_SPEC.md` §13.1) — an edge in `integrations`, or a `connector_evidenced_pairs` row on which this product is an endpoint, discriminated by `via`. An evidenced pair is filed by its **oriented** source/target, never by which of `product_a` / `product_b` matched: the canonical order is a storage detail and carries no orientation meaning. **Both arrays are unordered** — deliberately. The rendered table interleaves them into one list sorted alphabetically by partner name (`STAGE_1_5_SPEC.md` §7.1), which SQL cannot express here: the relations can only `ORDER BY` columns of `integrations`, while the partner name lives on the joined product. Do not add an `orderBy` and assume the client inherits it. |
 | `ProductDetail` | `integrations_as_connector` | `IntegrationListItem[]` — edges this product **powers** as the mechanism (`powered_by_product_id`), not as an endpoint (Stage 1.5 Addendum B). Bare list item **by design**: the page product is neither endpoint, so `context_direction` has no frame to be relative to. |
 | `ProductDetail` | `related_products` | `ProductListItem[]` |
+| `ProductDetail` | `extension_of` / `extensions` | `ProductListItem[]`, both defaulted to `[]` (AECI-710 / `STAGE_1_5_SPEC.md` §13.3b). `extension_of` is the hosts this product is built **within**; `extensions` is the products built within it. Read from `product_extensions` by `productExtensionRows` (`apps/api/src/lib/product-extensions.ts`), each sorted by `textAsc(name)` then `id`, unbounded. **Not integrations**: never in `integrations_as_*`, never in `integration_count`, never a §13.5 lockstep site. |
 | `VendorDetail` | `products` | `ProductListItem[]` |
 | `IntegrationDetail` | `source` / `target` | `ProductLink` |
 | `IntegrationDetail` | `built_by_vendor` | `VendorLink \| null` |
@@ -451,6 +452,11 @@ export const ProductDetailSchema = ProductListItemSchema.extend({
   // grouping ("Connects Procore with: …") is a client-side presentation concern.
   integrations_as_connector: z.array(IntegrationListItemSchema),
   related_products: z.array(ProductListItemSchema),
+  // `product_extensions`, both directions (AECI-710 / Stage 1.5 §13.3b): the hosts
+  // this product is built WITHIN, and the products built within it. Not
+  // integrations, and never counted as one. Defaulted: non-prod DBs hold no rows.
+  extension_of: z.array(ProductListItemSchema).default([]),
+  extensions: z.array(ProductListItemSchema).default([]),
   // The REACHABLE tier's one number (AECI-892 / Stage 1.5 §13.7): how many MORE
   // products this one could be joined to through a connector, beyond the delivered
   // edges in the two arrays above. Feeds one unattributed sentence under the

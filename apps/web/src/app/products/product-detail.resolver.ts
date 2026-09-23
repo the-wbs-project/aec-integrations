@@ -14,7 +14,8 @@
  * On success → set page meta + JSON-LD; push embedded cache tags
  * (`vendor:{slug}` + `integration:{id}` + `product:{slug}` for each shown
  * integration's partner product, and for each connector a "Via {connector}"
- * heading names — §13.4(3)) onto `ctx.embedded` so `Cache-Tag` covers
+ * heading names — §13.4(3); and `product:{slug}` for each host and extension
+ * the §13.3b sections render) onto `ctx.embedded` so `Cache-Tag` covers
  * data-derived dependencies.
  */
 import type { ProductDetail, ProductIntegrationItem } from '@aeci/shared';
@@ -192,6 +193,17 @@ export const productDetailResolver = createDetailResolver<ProductDetail>({
       ctx.embedded.push({ type: 'integration', id: i.id });
       ctx.embedded.push({ type: 'product', slug: i.source.slug });
       ctx.embedded.push({ type: 'product', slug: i.target.slug });
+    }
+    // §13.3b (AECI-710): every host in "Built within" and every tile in
+    // "Extensions built within {product}" renders that product's name and logo.
+    // The embedded tag also carries a REMOVED relation: the page that still
+    // lists a dropped extension is purged by that extension's own promote.
+    // (An ADDED extension is the promote hook's job — `product:{host}`.)
+    for (const host of product.extension_of) {
+      ctx.embedded.push({ type: 'product', slug: host.slug });
+    }
+    for (const extension of product.extensions) {
+      ctx.embedded.push({ type: 'product', slug: extension.slug });
     }
   },
 });

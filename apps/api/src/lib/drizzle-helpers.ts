@@ -2280,11 +2280,22 @@ export function deliveredPartnerIdsOf(
   return ids;
 }
 
+/** The two `product_extensions` directions for one product, as list rows
+ *  (AECI-710 / Stage 1.5 §13.3b). Read by `productExtensionRows`
+ *  (`./product-extensions`). */
+export type ProductExtensionRows = {
+  /** Products this one is built within. */
+  hosts: RawProductListRow[];
+  /** Products built within this one. */
+  extensions: RawProductListRow[];
+};
+
 export function toProductDetail(
   raw: RawProductDetailRow,
   relatedProducts: RawProductListRow[],
   reviews: RawPublicReviewRow[] = [],
   reachablePartnerIds: readonly string[] = [],
+  extensionRows: ProductExtensionRows = { hosts: [], extensions: [] },
 ): ProductDetail {
   // `toProductListItem` already applies the §5.5 ≥5-review gate (nulling the
   // averages below the threshold), so the detail inherits it via the spread.
@@ -2365,6 +2376,8 @@ export function toProductDetail(
       ...raw.evidencedPairsAsConnector.map(toIntegrationListItemFromEvidencedPair),
     ],
     related_products: relatedProducts.map(toProductListItem),
+    extension_of: extensionRows.hosts.map(toProductListItem),
+    extensions: extensionRows.extensions.map(toProductListItem),
     reviews: reviews.map(toPublicReview),
     reachable_pair_count: reachOnlyPartnerCount(reachablePartnerIds, deliveredPartnerIds),
     maintenance: toMaintenance(raw),

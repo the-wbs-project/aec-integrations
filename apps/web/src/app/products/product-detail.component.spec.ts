@@ -73,6 +73,8 @@ function buildProduct(overrides: Partial<ProductDetail> = {}): ProductDetail {
     integrations_as_target: [],
     integrations_as_connector: [],
     related_products: [],
+    extension_of: [],
+    extensions: [],
     reviews: [],
     reachable_pair_count: 0,
     // The unreviewed baseline (AECI-616): bare attribution, no date.
@@ -1111,5 +1113,69 @@ describe('ProductDetailPage hero reach line (§13.6)', () => {
       expect(el.querySelector('[slot="hero"]')!.textContent).not.toContain('Connects');
       TestBed.resetTestingModule();
     }
+  });
+});
+
+describe('ProductDetailPage extensions (§13.3b / AECI-710)', () => {
+  beforeEach(() => TestBed.resetTestingModule());
+
+  const listItem = (slug: string, name: string) => ({
+    ...buildProduct(),
+    id: 'p-' + slug,
+    slug,
+    name,
+  });
+
+  it('puts "Built within" in the metadata sidebar, directly under Vendor', () => {
+    const { el } = setup(buildProduct({ extension_of: [listItem('salesforce', 'Salesforce')] }));
+    const metadata = el.querySelector('[slot="metadata"]')!;
+    const groups = [...metadata.querySelectorAll(':scope > section')].map((s) =>
+      s.getAttribute('aria-labelledby'),
+    );
+
+    expect(groups.slice(0, 2)).toEqual(['vendor-card-title', 'built-within-title']);
+    expect(el.querySelector('[slot="body"] [aec-product-built-within]')).toBeNull();
+  });
+
+  it('lists extensions after every integrations section and before Reviews, with a nav entry', () => {
+    const { el } = setup(
+      buildProduct({
+        description: 'Construction management platform.',
+        extensions: [listItem('extractus', 'Extractus')],
+      }),
+    );
+
+    const order = bodySectionIds(el);
+    expect(order.indexOf('extensions')).toBe(order.indexOf('reviews') - 1);
+    expect(order.indexOf('extensions')).toBeGreaterThan(order.indexOf('integrations'));
+    expect(navIds(el)).toContain('extensions');
+    expect(navIds(el).indexOf('extensions')).toBe(navIds(el).indexOf('reviews') - 1);
+  });
+
+  it('never renders an extension inside #integrations, and leaves its count alone', () => {
+    const { el } = setup(
+      buildProduct({
+        integration_count: 0,
+        extensions: [listItem('extractus', 'Extractus')],
+        extension_of: [listItem('salesforce', 'Salesforce')],
+      }),
+    );
+    const integrations = el.querySelector('#integrations')!;
+
+    expect(integrations.textContent).not.toContain('Extractus');
+    // The host appears once, in the empty state's pointer sentence, never as a
+    // row or a link into the integrations list.
+    expect(integrations.querySelector('table')).toBeNull();
+    expect(integrations.querySelector('a[href="/products/salesforce"]')).toBeNull();
+    expect(integrations.textContent).toContain('Procore runs inside Salesforce; see Built within.');
+    expect(integrations.querySelector('h2')!.textContent).not.toMatch(/[1-9]/);
+  });
+
+  it('omits both sections and the nav entry for a product with no extension rows', () => {
+    const { el } = setup(buildProduct({ description: 'Construction management platform.' }));
+
+    expect(el.querySelector('[aec-product-built-within]')).toBeNull();
+    expect(el.querySelector('#extensions')).toBeNull();
+    expect(navIds(el)).not.toContain('extensions');
   });
 });

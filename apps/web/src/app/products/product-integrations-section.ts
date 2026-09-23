@@ -1,8 +1,9 @@
 import { NgTemplateOutlet } from '@angular/common';
 import { Component, computed, input, signal } from '@angular/core';
 
-import type { ProductIntegrationItem } from '@aeci/shared';
+import type { ProductIntegrationItem, ProductListItem } from '@aeci/shared';
 
+import { formatNameList } from '../core/meta.helpers';
 import { RequestTrigger } from '../requests/request-trigger';
 
 import {
@@ -128,22 +129,30 @@ import { ProductIntegrationsTable } from './product-integrations-table';
     </div>
 
     @if (lanes().rowCount === 0) {
-      <p
-        class="rounded-(--radius-lg) border border-dashed border-(--border-default)
+      <div
+        class="space-y-2 rounded-(--radius-lg) border border-dashed border-(--border-default)
             bg-(--surface-sunken) p-6 text-sm text-(--text-secondary)"
-        i18n="@@products.detail.body.integrations.empty"
       >
-        No integrations recorded yet. Vendor data is curated; if you know of one,
-        <a
-          aecRequestTrigger
-          [entity]="'product'"
-          [kind]="'correction'"
-          [slug]="slug()"
-          [href]="'/products/' + slug() + '/correction'"
-          class="text-(--accent-primary) underline underline-offset-2"
-          >suggest a correction</a
-        >.
-      </p>
+        <!-- §13.3b (AECI-710): an extension usually has no integrations with its
+             host, because it runs inside it. Say so where the reader is looking,
+             in one sentence, and point at the sidebar card that carries the host.
+             Only on the EMPTY branch: a populated section needs no excuse. -->
+        @if (builtWithinLine(); as line) {
+          <p>{{ line }}</p>
+        }
+        <p i18n="@@products.detail.body.integrations.empty">
+          No integrations recorded yet. Vendor data is curated; if you know of one,
+          <a
+            aecRequestTrigger
+            [entity]="'product'"
+            [kind]="'correction'"
+            [slug]="slug()"
+            [href]="'/products/' + slug() + '/correction'"
+            class="text-(--accent-primary) underline underline-offset-2"
+            >suggest a correction</a
+          >.
+        </p>
+      </div>
       <ng-container [ngTemplateOutlet]="reachLine" />
     } @else {
       <!-- A page with no connector edges renders exactly what it always did:
@@ -266,6 +275,26 @@ export class ProductIntegrationsSection {
    * non-production environment today — simply renders nothing.
    */
   readonly reachableCount = input(0);
+  /** This page's product name, for the §13.3b empty-state line. */
+  readonly productName = input('');
+  /**
+   * §13.3b (AECI-710): the hosts this product is built within
+   * (`ProductDetail.extension_of`). Read ONLY by the empty state's one-sentence
+   * pointer to "Built within". Never a lane, never a row, never counted.
+   */
+  readonly hosts = input<readonly ProductListItem[]>([]);
+
+  /** "Enscape runs inside Revit; see Built within." or `null` when there is no host. */
+  protected readonly builtWithinLine = computed(() => {
+    const hosts = this.hosts();
+    const name = this.productName();
+    if (hosts.length === 0 || !name) return null;
+    const hostList = formatNameList(
+      hosts.map((h) => h.name),
+      hosts.length,
+    );
+    return $localize`:@@products.detail.body.integrations.empty.builtWithin:${name}:name: runs inside ${hostList}:hosts:; see Built within.`;
+  });
 
   /**
    * The reader's filter text (AECI-841). Component-local and deliberately NOT a

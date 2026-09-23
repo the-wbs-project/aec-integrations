@@ -339,6 +339,8 @@ describe('buildProductJsonLd', () => {
       integrations_as_target: [],
       integrations_as_connector: [],
       related_products: [],
+      extension_of: [],
+      extensions: [],
       reviews: [],
     };
     return { ...base, ...overrides };
@@ -787,6 +789,8 @@ function makeDescribedProduct(overrides: Partial<ProductDetail> = {}): ProductDe
     integrations_as_target: [],
     integrations_as_connector: [],
     related_products: [],
+    extension_of: [],
+    extensions: [],
     reviews: [],
     maintenance: { maintained_by: 'aeci', last_reviewed_at: null },
   };
