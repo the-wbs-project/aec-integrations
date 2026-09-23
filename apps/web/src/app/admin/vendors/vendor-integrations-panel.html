@@ -70,7 +70,14 @@
             >{{ row.name ?? pairLabel(row) }}</span
           >
           <span class="mt-0.5 block text-xs text-(--text-secondary)">{{ pairLabel(row) }}</span>
-          @if (row.origin === 'vendor') {
+          @if (row.connector; as connector) {
+          <span
+            class="mt-0.5 block text-xs text-(--text-secondary)"
+            data-testid="admin-integration-via"
+            i18n="@@admin.vendors.integrations.via"
+            >Delivered through {{ connector.name }}</span
+          >
+          } @if (row.origin === 'vendor') {
           <span
             class="mt-0.5 block text-xs text-(--text-secondary)"
             i18n="@@admin.vendors.integrations.origin.vendor"
@@ -155,6 +162,18 @@
             >
               Retire this integration as AEC Integrations?
             </p>
+            @if (row.connector; as connector) {
+            <p
+              class="mt-1 max-w-prose text-sm text-(--text-secondary)"
+              data-testid="admin-retire-body-connector"
+              i18n="@@admin.vendors.integrations.retire.bodyConnector"
+            >
+              It leaves the public site and search, and stops counting on both products and on {{
+              connector.name }}. Nothing is deleted. The owner and the vendors at both ends are told
+              that AEC Integrations retired it. Open contests on it close as withdrawn. The owner
+              cannot restore it. Only AEC Integrations can.
+            </p>
+            } @else {
             <p
               class="mt-1 max-w-prose text-sm text-(--text-secondary)"
               i18n="@@admin.vendors.integrations.retire.body"
@@ -164,7 +183,7 @@
               it. Open contests on it close as withdrawn. The owner cannot restore it. Only AEC
               Integrations can.
             </p>
-            } @else {
+            } } @else {
             <p
               [id]="formId(row, 'title')"
               class="text-sm font-semibold text-(--text-primary)"

@@ -28,6 +28,7 @@ import {
   INTEGRATION_RETIRED_BY_OTHER,
   VENDOR_INTEGRATIONS_FIXTURE,
   VENDOR_ME_FIXTURE,
+  VENDOR_ME_UNVERIFIED_FIXTURE,
 } from '../vendor-fixtures';
 import { VendorPortalStore } from '../vendor-portal-store';
 
@@ -110,9 +111,28 @@ describe('who sees the retire section', () => {
     expect(el(fixture).querySelector('[data-testid="retire-section"]')).toBeNull();
   });
 
-  it('shows nothing on a connector-powered owned row', async () => {
+  it('offers an ENTITLED owner Retire on a claimed connector-powered row (AECI-1091)', async () => {
+    // VENDOR_ME_FIXTURE holds an active `verified` entitlement.
+    const fixture = await create({ ...OWNED, attestable: false });
+    expect(button(fixture, 'Retire integration')).toBeTruthy();
+  });
+
+  it('shows nothing on a connector-powered row to an owner with no active plan', async () => {
+    TestBed.inject(VendorPortalStore).seed(VENDOR_ME_UNVERIFIED_FIXTURE);
     const fixture = await create({ ...OWNED, attestable: false });
     expect(el(fixture).querySelector('[data-testid="retire-section"]')).toBeNull();
+  });
+
+  it('shows an unentitled owner its retired connector-powered row with no Restore', async () => {
+    TestBed.inject(VendorPortalStore).seed(VENDOR_ME_UNVERIFIED_FIXTURE);
+    const fixture = await create({
+      ...OWNED,
+      attestable: false,
+      retired_at: '2026-09-20T00:00:00.000Z',
+      retired_by: 'owner',
+    });
+    expect(el(fixture).querySelector('[data-testid="retire-restore-needs-plan"]')).toBeTruthy();
+    expect(button(fixture, 'Restore integration')).toBeUndefined();
   });
 
   it('shows nothing to a non-owner on a live row', async () => {

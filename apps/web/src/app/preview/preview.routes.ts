@@ -81,6 +81,16 @@ export const previewRoutes: Routes = [
     loadComponent: () =>
       import('./admin-contests/admin-contests-preview').then((m) => m.AdminContestsPreview),
   },
+  // AECI-1091 — the Integrations tab of `/admin/vendors/:id` over a fake API, so the
+  // evidenced-pair rows and the retire form render without an admin session.
+  // `?retire=<row id>` opens that row's form.
+  {
+    path: 'admin-vendor-integrations',
+    loadComponent: () =>
+      import('./admin-vendor-integrations/admin-vendor-integrations-preview').then(
+        (m) => m.AdminVendorIntegrationsPreview,
+      ),
+  },
   // AECI-286 — search relevance lab: compare candidate `customRanking` levers
   // (SEARCH_RANKING.md §7) over curated fixtures while real query data is still
   // too thin to tune against (the real-data run is AECI-283). No Algolia.
