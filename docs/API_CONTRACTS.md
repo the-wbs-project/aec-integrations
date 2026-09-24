@@ -225,7 +225,7 @@ Per-detail hydration rules:
 | `ProductDetail` | `vendor` | `VendorLink` |
 | `ProductDetail` | `categories` / `audiences` / `phases` / `trades` | `LinkRef[]` — `trades` (AECI-541) is **sparse by design**: most products carry zero trade tags, so `[]` is the common, correct value, not missing data (`STAGE_1_SPEC.md` §5.5a). |
 | `ProductDetail` | `integrations_as_source` / `integrations_as_target` | `ProductIntegrationItem[]` (= `IntegrationListItem` + `context_direction` + `powered_by_product` + `data_object_slugs`). **Each array spans BOTH delivered-tier tables** (AECI-713 / `STAGE_1_5_SPEC.md` §13.1) — an edge in `integrations`, or a `connector_evidenced_pairs` row on which this product is an endpoint, discriminated by `via`. An evidenced pair is filed by its **oriented** source/target, never by which of `product_a` / `product_b` matched: the canonical order is a storage detail and carries no orientation meaning. **Both arrays are unordered** — deliberately. The rendered table interleaves them into one list sorted alphabetically by partner name (`STAGE_1_5_SPEC.md` §7.1), which SQL cannot express here: the relations can only `ORDER BY` columns of `integrations`, while the partner name lives on the joined product. Do not add an `orderBy` and assume the client inherits it. |
-| `ProductDetail` | `integrations_as_connector` | `IntegrationListItem[]` — edges this product **powers** as the mechanism (`powered_by_product_id`), not as an endpoint (Stage 1.5 Addendum B). Bare list item **by design**: the page product is neither endpoint, so `context_direction` has no frame to be relative to. |
+| `ProductDetail` | `integrations_as_connector` | `PoweredIntegrationItem[]` (= `IntegrationListItem` + `data_object_slugs`) — edges this product **powers** as the mechanism (`powered_by_product_id`), not as an endpoint (Stage 1.5 Addendum B). No `context_direction` **by design**: the page product is neither endpoint, so it has no frame to be relative to. `data_object_slugs` (AECI-1080) means what it means on `ProductIntegrationItem`, on both arms (`integrations` and `connector_evidenced_pairs`). The hub unions it per collapsed pair row. `/api/integrations` does not carry it. |
 | `ProductDetail` | `related_products` | `ProductListItem[]` |
 | `ProductDetail` | `extension_of` / `extensions` | `ProductListItem[]`, both defaulted to `[]` (AECI-710 / `STAGE_1_5_SPEC.md` §13.3b). `extension_of` is the hosts this product is built **within**; `extensions` is the products built within it. Read from `product_extensions` by `productExtensionRows` (`apps/api/src/lib/product-extensions.ts`), each sorted by `textAsc(name)` then `id`, unbounded. **Not integrations**: never in `integrations_as_*`, never in `integration_count`, never a §13.5 lockstep site. |
 | `VendorDetail` | `products` | `ProductListItem[]` |
@@ -450,10 +450,10 @@ export const ProductDetailSchema = ProductListItemSchema.extend({
   integrations_as_source: z.array(ProductIntegrationItemSchema),
   integrations_as_target: z.array(ProductIntegrationItemSchema),
   // Edges this product POWERS as the connector/mechanism, not as an endpoint
-  // (Stage 1.5 Addendum B, §12). Bare IntegrationListItem — no `context_direction`,
-  // because the page product is neither `source` nor `target`. Flat list; the hub
-  // grouping ("Connects Procore with: …") is a client-side presentation concern.
-  integrations_as_connector: z.array(IntegrationListItemSchema),
+  // (Stage 1.5 Addendum B, §12). IntegrationListItem + data_object_slugs (AECI-1080),
+  // no `context_direction`, because the page product is neither `source` nor
+  // `target`. Flat list; the hub grouping is a client-side presentation concern.
+  integrations_as_connector: z.array(PoweredIntegrationItemSchema),
   related_products: z.array(ProductListItemSchema),
   // `product_extensions`, both directions (AECI-710 / Stage 1.5 §13.3b): the hosts
   // this product is built WITHIN, and the products built within it. Not

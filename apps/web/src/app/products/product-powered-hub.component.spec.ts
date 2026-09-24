@@ -13,7 +13,7 @@ import { By } from '@angular/platform-browser';
 import { provideRouter, RouterLink } from '@angular/router';
 import { beforeEach, describe, expect, it } from 'vitest';
 
-import type { IntegrationListItem, ProductLink } from '@aeci/shared';
+import type { PoweredIntegrationItem, ProductLink } from '@aeci/shared';
 
 import { groupPoweredIntegrations, type PoweredHubView } from './powered-hub-grouping';
 import { ProductPoweredHub } from './product-powered-hub';
@@ -28,7 +28,7 @@ const link = (slug: string, name: string): ProductLink => ({
 const HUB = link('procore', 'Procore');
 let seq = 0;
 
-function poweredEdge(source: ProductLink, target: ProductLink): IntegrationListItem {
+function poweredEdge(source: ProductLink, target: ProductLink): PoweredIntegrationItem {
   seq += 1;
   return {
     id: '00000000-0000-4000-8000-0000000' + String(seq).padStart(5, '0'),
@@ -39,6 +39,7 @@ function poweredEdge(source: ProductLink, target: ProductLink): IntegrationListI
     source,
     target,
     via: null,
+    data_object_slugs: [],
     created_at: '2026-01-01T00:00:00.000Z',
     updated_at: '2026-01-01T00:00:00.000Z',
   };
@@ -220,5 +221,49 @@ describe('ProductPoweredHub', () => {
     // Clearing restores the reader's own state rather than discarding it.
     type(fixture, filterInput(el)!, '');
     expect(el.querySelector('h3 button')!.getAttribute('aria-expanded')).toBe('false');
+  });
+  describe('the depth axis (AECI-1080)', () => {
+    function setupWithObjects(slugs: readonly (readonly string[])[]) {
+      TestBed.configureTestingModule({
+        providers: [provideZonelessChangeDetection(), provideRouter([])],
+      });
+      const fixture = TestBed.createComponent(Host);
+      fixture.componentInstance.view.set(
+        groupPoweredIntegrations(
+          slugs.map((objects, i) => ({
+            ...poweredEdge(HUB, link('partner-' + i, 'Partner ' + i)),
+            data_object_slugs: [...objects],
+          })),
+          'agave-erp-sync',
+        ),
+      );
+      fixture.detectChanges();
+      return fixture.nativeElement as HTMLElement;
+    }
+
+    it('shows the object count beside the badge and on the narrow meta line', () => {
+      const el = setupWithObjects([['rfis', 'models', 'issues'], ['rfis']]);
+      const chips = [...el.querySelectorAll('[data-testid="hub-data-objects"]')].map((c) =>
+        c.textContent?.trim(),
+      );
+      expect(chips).toEqual(['3 data objects', '1 data object']);
+      const sublabels = el.querySelectorAll('[data-testid="hub-data-objects-sublabel"]');
+      expect(sublabels).toHaveLength(2);
+    });
+
+    it('names the count in the row link, whose aria-label hides the chip', () => {
+      const el = setupWithObjects([['rfis', 'models'], []]);
+      const labels = [...el.querySelectorAll('ul li a')].map((a) => a.getAttribute('aria-label'));
+      expect(labels).toEqual([
+        'View the Procore and Partner 0 integration, 2 data objects',
+        'View the Procore and Partner 1 integration',
+      ]);
+    });
+
+    it('renders nothing for a pair with no claims', () => {
+      const el = setupWithObjects([[], []]);
+      expect(el.querySelector('[data-testid="hub-data-objects"]')).toBeNull();
+      expect(el.querySelector('[data-testid="hub-data-objects-sublabel"]')).toBeNull();
+    });
   });
 });

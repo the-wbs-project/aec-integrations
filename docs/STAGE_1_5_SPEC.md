@@ -613,6 +613,7 @@ pointer. Rejected, deliberately:
 
 - **Field:** `integrations_as_connector: IntegrationListItem[]` on `ProductDetailSchema`
   (`packages/shared/src/api/products.ts`), beside `integrations_as_source` / `_as_target`.
+  It is `PoweredIntegrationItem[]` since AECI-1080. See the hydration bullet.
 - **Row shape is the bare `IntegrationListItem`, deliberately** — *not*
   `ProductIntegrationItem`. `context_direction` (§3.2) is meaningless here: the page product is
   **neither endpoint**, so there is no context frame to translate a direction into. The row's
@@ -621,7 +622,11 @@ pointer. Rejected, deliberately:
   `poweredIntegrations: many(integrations, { relationName: 'IntegrationPoweredByProduct' })`
   (`apps/api/src/db/schema.ts`). Relations file only — the FK column and its partial index already
   existed, so **no migration**. `productDetailConfig.with` reuses the plain `integrationListConfig`
-  (no claims join — the pair page owns claim depth).
+  (no claims join — the pair page owns claim depth). *Amended by AECI-1080 (2026-09-24): both arms
+  now load each claim's `data_object` slug, and nothing else, so the hub can show the §13.3 depth
+  axis. The row shape became `PoweredIntegrationItem` (`IntegrationListItem` + `data_object_slugs`).
+  Still no direction, no attestations and no `context_direction`: the pair page owns the rest of
+  claim depth.*
 - **The API stays a flat edge list.** Grouping is a presentation concern (§12.3), so no shape churn
   if the presentation changes.
 - **Amended by §13.4(2) — the relation has no self-exclusion.** `poweredIntegrations` selects on
@@ -1240,7 +1245,14 @@ The two differ only on a pair whose version diff drops a claim. A collapsed Via 
 direction with no claims renders byte-identically to before, pinned by
 `depth-axis-null.component.spec.ts`. The row's existing `–` direction placeholder is part of that
 unchanged render. AECI-1066 investigates why ~55% of rows carry no direction and does not block
-this. The powered hub (§12.3) does not show the count yet, because its payload loads no claims. AECI-1080 tracks it.
+this. **The powered hub (§12.3) shows the count too (AECI-1080, 2026-09-24).** Its payload now
+loads each claim's `data_object` slug on both arms, as `PoweredIntegrationItem.data_object_slugs`.
+A collapsed hub row shows the union of its edges' slugs, the same rule as a collapsed Via row. The
+chip sits beside the mechanism badge from `md` up and joins the meta line below `md`. On a flat
+"Other connections" row there is no meta line, so the chip shows from `md` up only. The row link's
+`aria-label` replaces its content as the accessible name, so the count is appended to that label
+("…integration, 3 data objects"), and only when present. A pair with no claims renders
+byte-identically to before, pinned by the hub case in `depth-axis-null.component.spec.ts`.
 
 #### 13.3a Direction is a meta line, not a column (AECI-853, 2026-09-10)
 

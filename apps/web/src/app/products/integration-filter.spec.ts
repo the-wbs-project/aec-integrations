@@ -11,7 +11,7 @@ import {
 } from './integration-filter';
 import { groupPoweredIntegrations } from './powered-hub-grouping';
 
-import type { IntegrationListItem } from '@aeci/shared';
+import type { PoweredIntegrationItem } from '@aeci/shared';
 
 /**
  * AECI-841 — the client-side name filter over both product-detail integration
@@ -55,7 +55,7 @@ function edge(
 /** A `integrations_as_connector` edge. The payload bucket is already filtered
  *  server-side to edges this product powers, so the connector itself is not a
  *  field on the row. */
-function poweredEdge(source: ProductLink, target: ProductLink): IntegrationListItem {
+function poweredEdge(source: ProductLink, target: ProductLink): PoweredIntegrationItem {
   edgeSeq += 1;
   return {
     id: '00000000-0000-4000-8000-0000000' + String(edgeSeq).padStart(5, '0'),
@@ -66,6 +66,7 @@ function poweredEdge(source: ProductLink, target: ProductLink): IntegrationListI
     source,
     target,
     via: null,
+    data_object_slugs: [],
     created_at: '2026-01-01T00:00:00.000Z',
     updated_at: '2026-01-01T00:00:00.000Z',
   };

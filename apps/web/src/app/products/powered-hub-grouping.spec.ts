@@ -1,6 +1,7 @@
 import {
   IntegrationMechanismKindSchema,
   type IntegrationListItem,
+  type PoweredIntegrationItem,
   type ProductLink,
 } from '@aeci/shared';
 import { describe, expect, it } from 'vitest';
@@ -38,7 +39,7 @@ const edge = (
   target: ProductLink,
   mechanismKind: IntegrationListItem['mechanism_kind'] = 'native',
   direction: IntegrationListItem['direction'] = null,
-): IntegrationListItem => ({
+): PoweredIntegrationItem => ({
   id: `00000000-0000-4000-8000-${String(++seq).padStart(12, '0')}`,
   name: `${source.name} ↔ ${target.name}`,
   mechanism_kind: mechanismKind,
@@ -47,6 +48,7 @@ const edge = (
   source,
   target,
   via: null,
+  data_object_slugs: [],
   created_at: '2026-01-01T00:00:00.000Z',
   updated_at: '2026-01-01T00:00:00.000Z',
 });
@@ -198,6 +200,28 @@ describe('groupPoweredIntegrations', () => {
     expect(acumaticaRow!.mechanismNames).toEqual(['DWG file reader', 'IFC export']);
     const sageRow = groups[0]!.partners.find((p) => p.partner.slug === 'sage-intacct');
     expect(sageRow!.mechanismNames).toEqual([]);
+  });
+
+  it('unions data_object slugs across a collapsed pair, hub rows and flat rows alike (AECI-1080)', () => {
+    const vista = link('viewpoint-vista', 'Viewpoint Vista');
+    const bluebeam = link('bluebeam', 'Bluebeam');
+    const { groups, others } = groupPoweredIntegrations(
+      [
+        // Two edges for one pair: an object both move counts once.
+        { ...edge(procore, acumatica, 'native'), data_object_slugs: ['invoices', 'vendors'] },
+        { ...edge(acumatica, procore, 'iPaaS'), data_object_slugs: ['vendors', 'jobs'] },
+        edge(procore, sage, 'native'),
+        // A pair with no shared hub lands in `others`, and keeps its slugs too.
+        { ...edge(vista, bluebeam, 'api'), data_object_slugs: ['rfis'] },
+      ],
+      CONNECTOR,
+    );
+
+    const acumaticaRow = groups[0]!.partners.find((p) => p.partner.slug === 'acumatica');
+    expect([...acumaticaRow!.dataObjectSlugs].sort()).toEqual(['invoices', 'jobs', 'vendors']);
+    const sageRow = groups[0]!.partners.find((p) => p.partner.slug === 'sage-intacct');
+    expect(sageRow!.dataObjectSlugs).toEqual([]);
+    expect(others[0]!.dataObjectSlugs).toEqual(['rfis']);
   });
 
   it('keeps a pair whose edges carry NO kind, with an empty badge set (AECI-721)', () => {

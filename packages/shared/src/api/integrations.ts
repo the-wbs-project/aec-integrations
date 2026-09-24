@@ -197,6 +197,24 @@ export const ProductIntegrationItemSchema = IntegrationListItemSchema.extend({
 export type ProductIntegrationItem = z.infer<typeof ProductIntegrationItemSchema>;
 
 /**
+ * Product-detail embed of an edge the page product POWERS as the connector: the
+ * rows in `ProductDetail.integrations_as_connector` (Stage 1.5 Addendum B). The
+ * bare list item plus `data_object_slugs` only (AECI-1080). No
+ * `context_direction`, because the page product is neither endpoint.
+ *
+ * `data_object_slugs` means exactly what it means on `ProductIntegrationItem`:
+ * the distinct objects the edge's claims cover, `[]` when it has none. The hub
+ * collapses several edges into one pair row and shows the union, which is why
+ * the wire carries slugs rather than a count. `/api/integrations` does not carry
+ * it and does not pay for the claims join.
+ */
+export const PoweredIntegrationItemSchema = IntegrationListItemSchema.extend({
+  data_object_slugs: z.array(z.string()).default([]),
+});
+
+export type PoweredIntegrationItem = z.infer<typeof PoweredIntegrationItemSchema>;
+
+/**
  * Full integration detail returned by `GET /api/integrations/:id`. Adds the
  * description, links, optional vendor / connector product, and editorial
  * metadata (pricing, maturity) on top of the list-item shape.

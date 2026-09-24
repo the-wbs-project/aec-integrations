@@ -20,9 +20,16 @@ import { ActivatedRoute, convertToParamMap, provideRouter } from '@angular/route
 import { of } from 'rxjs';
 import { beforeEach, describe, expect, it } from 'vitest';
 
-import type { ProductIntegrationItem, ProductLink, ProductPairResponse } from '@aeci/shared';
+import type {
+  PoweredIntegrationItem,
+  ProductIntegrationItem,
+  ProductLink,
+  ProductPairResponse,
+} from '@aeci/shared';
 
+import { groupPoweredIntegrations, type PoweredHubView } from './powered-hub-grouping';
 import { ProductIntegrationRow } from './product-integration-row';
+import { ProductPoweredHub } from './product-powered-hub';
 import { ProductsPairPage } from './products-pair';
 
 function normalize(html: string): string {
@@ -160,6 +167,62 @@ function renderPair(pair: ProductPairResponse, view: 'basic' | 'detailed'): stri
 
 const ZAPIER: ProductLink = { id: 'z1', slug: 'zapier', name: 'Zapier', logo_url: null };
 
+/**
+ * AECI-1080: the powered hub's null case. A connector page whose powered edges
+ * carry no direction and no claims. Two edges share Procore, so it earns a hub
+ * card, and a third pair shares no endpoint and lands in the flat card. Both row
+ * shapes are pinned. Recorded before the hub learned the depth axis.
+ */
+const PROCORE: ProductLink = { id: 's1', slug: 'procore', name: 'Procore', logo_url: null };
+const SAGE: ProductLink = { id: 's2', slug: 'sage', name: 'Sage Intacct', logo_url: null };
+const ACUMATICA: ProductLink = { id: 's3', slug: 'acumatica', name: 'Acumatica', logo_url: null };
+const BLUEBEAM: ProductLink = { id: 's4', slug: 'bluebeam', name: 'Bluebeam', logo_url: null };
+const FIELDWIRE: ProductLink = { id: 's5', slug: 'fieldwire', name: 'Fieldwire', logo_url: null };
+
+function nullPoweredEdge(
+  n: number,
+  source: ProductLink,
+  target: ProductLink,
+): PoweredIntegrationItem {
+  return {
+    id: `00000000-0000-4000-8000-0000001080${String(n).padStart(2, '0')}`,
+    name: `${source.name} and ${target.name}`,
+    mechanism_kind: null,
+    mechanism_name: null,
+    direction: null,
+    source,
+    target,
+    via: null,
+    data_object_slugs: [],
+    created_at: '2024-03-01T00:00:00.000Z',
+    updated_at: '2024-06-15T00:00:00.000Z',
+  };
+}
+
+@Component({
+  imports: [ProductPoweredHub],
+  template: `<section aec-product-powered-hub [view]="view" slug="agave-erp-sync"></section>`,
+})
+class HubHost {
+  view: PoweredHubView = groupPoweredIntegrations(
+    [
+      nullPoweredEdge(1, PROCORE, SAGE),
+      nullPoweredEdge(2, PROCORE, ACUMATICA),
+      nullPoweredEdge(3, BLUEBEAM, FIELDWIRE),
+    ],
+    'agave-erp-sync',
+  );
+}
+
+function renderHub(): string {
+  TestBed.configureTestingModule({
+    providers: [provideZonelessChangeDetection(), provideRouter([])],
+  });
+  const fixture = TestBed.createComponent(HubHost);
+  fixture.detectChanges();
+  return normalize((fixture.nativeElement as HTMLElement).querySelector('section')!.outerHTML);
+}
+
 describe('AECI-711 depth axis: the null case renders exactly as before', () => {
   beforeEach(() => TestBed.resetTestingModule());
 
@@ -181,5 +244,9 @@ describe('AECI-711 depth axis: the null case renders exactly as before', () => {
 
   it('pair page mechanism card, connector_evidenced_pairs arm, Detailed view', () => {
     expect(renderPair(nullPair(ZAPIER), 'detailed')).toMatchSnapshot();
+  });
+
+  it('powered hub, hub-card and flat rows (AECI-1080)', () => {
+    expect(renderHub()).toMatchSnapshot();
   });
 });

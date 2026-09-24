@@ -49,6 +49,7 @@ import type {
   Maintenance,
   PairClaimAttestation,
   PairVersionDiff,
+  PoweredIntegrationItem,
   ProductDetail,
   ProductIntegrationItem,
   ProductLink,
@@ -282,6 +283,31 @@ export const connectorEvidencedPairDetailConfig = {
 } as const;
 
 /**
+ * The powered hub's claim hydration (AECI-1080): the `data_object` slug and
+ * nothing else. The hub has no context product, so it derives no direction and
+ * needs neither the claim's direction nor its attestations. Every claim counts,
+ * as `productDetailDataObjectSlugs` documents for the endpoint embed.
+ */
+const poweredClaimsConfig = {
+  columns: {},
+  with: { dataObject: { columns: { slug: true } } },
+} as const;
+
+/** `ProductDetail.integrations_as_connector`, `integrations` arm: the list config
+ *  plus the depth axis's claim slugs (AECI-1080). `/api/integrations` keeps the
+ *  bare config and does not pay for the join. */
+export const poweredIntegrationConfig = {
+  columns: integrationListConfig.columns,
+  with: { ...integrationListConfig.with, claims: poweredClaimsConfig },
+} as const;
+
+/** The same bucket's `connector_evidenced_pairs` arm (AECI-1080). */
+export const connectorEvidencedPairPoweredConfig = {
+  columns: connectorEvidencedPairListConfig.columns,
+  with: { ...connectorEvidencedPairListConfig.with, claims: poweredClaimsConfig },
+} as const;
+
+/**
  * The pair page's `claims` hydration (§8), shared by BOTH delivered-tier tables so
  * the two arms of one pair read cannot select different claim or attestation
  * columns. Why each column is here is documented at `integrationPairConfig`, the
@@ -386,6 +412,16 @@ export interface RawProductDetailClaimRow {
 
 export interface RawProductEvidencedPairRow extends RawConnectorEvidencedPairRow {
   claims: RawProductDetailClaimRow[];
+}
+
+/** A claim as the powered hub hydrates it (AECI-1080): the object slug only. */
+export interface RawPoweredClaimRow {
+  dataObject: { slug: string };
+}
+
+/** Evidenced pair + claim slugs, for `integrations_as_connector`. */
+export interface RawPoweredEvidencedPairRow extends RawConnectorEvidencedPairRow {
+  claims: RawPoweredClaimRow[];
 }
 
 export interface RawConnectorEvidencedPairDetailRow extends RawConnectorEvidencedPairRow {
@@ -754,15 +790,15 @@ export const productDetailConfig = {
     evidencedPairsAsA: { ...connectorEvidencedPairDetailConfig, where: liveEvidencedPairWhere },
     evidencedPairsAsB: { ...connectorEvidencedPairDetailConfig, where: liveEvidencedPairWhere },
     // Edges this product powers as the connector/mechanism (Stage 1.5
-    // Addendum B). The bare list config, not `productDetailIntegrationConfig`:
-    // the page product is neither endpoint, so there is no context_direction
-    // and no claims join to pay for.
-    poweredIntegrations: { ...integrationListConfig, where: liveIntegrationWhere },
+    // Addendum B). Not `productDetailIntegrationConfig`: the page product is
+    // neither endpoint, so there is no context_direction to derive. The claims
+    // join loads the data_object slug only, for the hub's depth axis (AECI-1080).
+    poweredIntegrations: { ...poweredIntegrationConfig, where: liveIntegrationWhere },
     // The same bucket's SECOND source after AECI-721: edges this product powers
     // that have moved out of `integrations` into the connector lane's delivered
     // tier. `toProductDetail` unions the two into `integrations_as_connector`.
     evidencedPairsAsConnector: {
-      ...connectorEvidencedPairListConfig,
+      ...connectorEvidencedPairPoweredConfig,
       where: liveEvidencedPairWhere,
     },
   },
@@ -1026,6 +1062,11 @@ export interface RawIntegrationListRow {
  *  `effectiveContextDirection`: the direction is what the table renders, the
  *  attestations decide whether a claim still gets a say (§4.3 — a flow every
  *  voting vendor denies must stop steering the arrow). */
+/** List row + claim slugs, for `integrations_as_connector` (AECI-1080). */
+export interface RawPoweredIntegrationRow extends RawIntegrationListRow {
+  claims: RawPoweredClaimRow[];
+}
+
 export interface RawProductIntegrationRow extends RawIntegrationListRow {
   claims: RawProductDetailClaimRow[];
   /** §13.4(1) — nullable because the partial index is on the non-null rows only. */
@@ -1189,8 +1230,8 @@ export interface RawProductDetailRow extends RawProductListRow, RawMaintenanceCo
   targetIntegrations: RawProductIntegrationRow[];
   evidencedPairsAsA: RawProductEvidencedPairRow[];
   evidencedPairsAsB: RawProductEvidencedPairRow[];
-  poweredIntegrations: RawIntegrationListRow[];
-  evidencedPairsAsConnector: RawConnectorEvidencedPairRow[];
+  poweredIntegrations: RawPoweredIntegrationRow[];
+  evidencedPairsAsConnector: RawPoweredEvidencedPairRow[];
 }
 
 export interface RawPublicReviewRow {
@@ -1440,10 +1481,33 @@ export function toProductIntegrationItem(
  * there with no version selected: a refuted claim still names an object the
  * catalog records, and the pair page lists it too.
  */
-function productDetailDataObjectSlugs(claims: readonly RawProductDetailClaimRow[]): string[] {
+function productDetailDataObjectSlugs(claims: readonly RawPoweredClaimRow[]): string[] {
   return distinctDataObjectSlugs(
     claims.map((claim) => ({ data_object_slug: claim.dataObject.slug })),
   );
+}
+
+/**
+ * A powered edge (`integrations` arm) as the hub reads it: the list item plus the
+ * AECI-1080 depth axis. Same counting rule as the endpoint embed, so a pair's
+ * object count cannot differ between the connector page and an endpoint page.
+ */
+export function toPoweredIntegrationItem(raw: RawPoweredIntegrationRow): PoweredIntegrationItem {
+  return {
+    ...toIntegrationListItem(raw),
+    data_object_slugs: productDetailDataObjectSlugs(raw.claims),
+  };
+}
+
+/** The `connector_evidenced_pairs` arm of the same bucket (AECI-1080). A claim's
+ *  object does not depend on the pair's orientation, so no frame flip is needed. */
+export function toPoweredIntegrationItemFromEvidencedPair(
+  raw: RawPoweredEvidencedPairRow,
+): PoweredIntegrationItem {
+  return {
+    ...toIntegrationListItemFromEvidencedPair(raw),
+    data_object_slugs: productDetailDataObjectSlugs(raw.claims),
+  };
 }
 
 export function toIntegrationDetail(raw: RawIntegrationDetailRow): IntegrationDetail {
@@ -2375,8 +2439,8 @@ export function toProductDetail(
     integrations_as_connector: [
       ...raw.poweredIntegrations
         .filter((r) => r.sourceProduct.id !== raw.id && r.targetProduct.id !== raw.id)
-        .map(toIntegrationListItem),
-      ...raw.evidencedPairsAsConnector.map(toIntegrationListItemFromEvidencedPair),
+        .map(toPoweredIntegrationItem),
+      ...raw.evidencedPairsAsConnector.map(toPoweredIntegrationItemFromEvidencedPair),
     ],
     related_products: relatedProducts.map(toProductListItem),
     extension_of: extensionRows.hosts.map(toProductListItem),
