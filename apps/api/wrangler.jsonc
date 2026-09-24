@@ -404,7 +404,8 @@
         // AECI-1132 on an AECi-routed integration contest — the support inbox,
         // deliberately NOT `ADMIN_ALERT_EMAIL` (which stays the individual
         // operator address for sweep alerts + lead capture). Absent -> the alert is a
-        // fail-open `skipped` and the Linear issue is still the durable record.
+        // fail-open `skipped`. The durable record is the Linear issue (claim) or the
+        // contest row (contest).
         "CLAIM_ALERT_EMAIL": "support@aecintegrations.com",
         // AECI-862: the founder escalation for a claim ticket nobody has
         // started after 24h. A THIRD address on purpose — ADMIN_ALERT_EMAIL
@@ -652,7 +653,8 @@
         // AECI-1132 on an AECi-routed integration contest — the support inbox,
         // deliberately NOT `ADMIN_ALERT_EMAIL` (which stays the individual
         // operator address for sweep alerts + lead capture). Absent -> the alert is a
-        // fail-open `skipped` and the Linear issue is still the durable record.
+        // fail-open `skipped`. The durable record is the Linear issue (claim) or the
+        // contest row (contest).
         "CLAIM_ALERT_EMAIL": "support@aecintegrations.com",
         // AECI-862: the founder escalation for a claim ticket nobody has
         // started after 24h. The cron still runs here (it emits
@@ -838,7 +840,8 @@
         // AECI-1132 on an AECi-routed integration contest — the support inbox,
         // deliberately NOT `ADMIN_ALERT_EMAIL` (which stays the individual
         // operator address for sweep alerts + lead capture). Absent -> the alert is a
-        // fail-open `skipped` and the Linear issue is still the durable record.
+        // fail-open `skipped`. The durable record is the Linear issue (claim) or the
+        // contest row (contest).
         "CLAIM_ALERT_EMAIL": "support@aecintegrations.com",
         // AECI-862: the founder escalation for a claim ticket nobody has
         // started after 24h. A THIRD address on purpose — ADMIN_ALERT_EMAIL
