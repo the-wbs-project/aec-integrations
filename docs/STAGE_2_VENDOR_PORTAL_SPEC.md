@@ -2199,6 +2199,20 @@ No `requireCapability` call exists in `routes/vendor-seat-invites.ts`, and that 
 
 The portal is `/vendor/:vendorSlug/<section>` since §6.2, so the redeem page is `/vendor/invite/:token`, registered **ahead of `:vendorSlug`** in `vendor.routes.ts` (or the literal `invite` segment is captured as a slug and `vendorMeResolver` 404s the one page a non-vendor must reach). It is deliberately OUTSIDE that layout route — everything under it is behind the resolver — but stays under `/vendor/` so the worker-level anon gate (`isVendorPath`) bounces a signed-out visitor to `/auth/login?return=<path>` with the token intact (`safeReturnPath` preserves query strings and path segments alike). **That bounce is the flow, not a side-effect.**
 
+### 11a.7a The redeem page's states (AECI-1109, 2026-09-24)
+
+`vendor-invite-page.ts` renders one of five states. Each refusal has its own copy, because a generic "invalid invite" leaves the redeemer with no next step.
+
+| State | When | What the page says |
+|---|---|---|
+| `ready` | the preview is `redeemable` | "Join your team on AEC Integrations" and an **Accept invite** button |
+| `blocked` | the preview is not `redeemable` | "This invite can't be used", with copy per `reason`: `email_mismatch` names the invited address, `expired`, `revoked`, `accepted` |
+| `conflict` | the accept returns **409 `GRANT_CONFLICT`** | "This account can't join this team". The signed-in account already holds another vendor's seat, or is an AECi admin. Have the invite sent to a different address, then sign in with it |
+| `error` | the preview read fails, or the accept fails any other way | "We couldn't load this invite" |
+| `loading` | before the browser-side preview read returns | "Checking your invite…" |
+
+**Why `conflict` does not re-read the preview.** Every other accept failure re-reads the preview, because the server's `reason` drives the copy. A conflict is about the redeeming *account*, not the invite, so the preview still says `redeemable` and the re-read would fall through to `error`. The preview's `reason` enum stays invite-only. One sentence covers both conflict causes, because the accept sends no `details.reason` and the fix is the same for both.
+
 ### 11a.8 Deliberately deferred
 
 - **An `invites` scope on `GET /api/vendor/updates`.** There were exactly six cursor scopes when this shipped. AECI-1008 has since added a seventh, `contests` (§11b.8), so an `invites` scope would be the eighth, and it is still its own change. (AECI-992 added a second `integrations` read, not a scope, so the batch is eight SELECTs for seven scopes.) Cross-tab invite freshness degrades to on-demand `store.reload('seats')`, which the surface already does after every write.

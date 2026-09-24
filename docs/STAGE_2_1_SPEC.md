@@ -72,7 +72,7 @@ Seeded empty **by design** — it is filled by rehearsal findings, parked-claim 
 | **AECI-1105** | 2026-09-23, project seed | Seat the first pilot vendors, then process the parked claim queue. It also flips the vendor guides to indexed and linked. This is the last §5 criterion. | Backlog. Blocked until the rehearsal passes on dark production. |
 | **AECI-1106** | 2026-09-23, from AECI-989 | Account erasure of a vendor's last seat hands nothing back. Described in §3.3.1. | Backlog. |
 | **AECI-1107** | 2026-09-23, writing the AECI-1104 guide | The lapsed-plan panel does not say that attestation writes pause without a plan. `STAGE_2_PAID_TIERS_SPEC.md` §3.1 still says `attestation.author` has no consumer. | Backlog. |
-| **AECI-1109** | 2026-09-23, writing rehearsal step 14b (AECI-1108 row 9) | A `409 GRANT_CONFLICT` on invite accept renders the generic "We couldn't load this invite". The redeemer, an AECi admin or another vendor's seat, never learns why. Fix: a distinct, explained page state. `STAGE_2_VENDOR_PORTAL_SPEC.md` §11a. | Todo. |
+| **AECI-1109** | 2026-09-23, writing rehearsal step 14b (AECI-1108 row 9) | A `409 GRANT_CONFLICT` on invite accept renders the generic "We couldn't load this invite". The redeemer, an AECi admin or another vendor's seat, never learns why. Fixed 2026-09-24: the page now renders its own conflict state, "This account can't join this team". `STAGE_2_VENDOR_PORTAL_SPEC.md` §11a.7a. | Done. PR #824. |
 
 ### 3.3 Moved-in items and stage placements
 
