@@ -106,25 +106,31 @@ interface FieldConfig {
         targets /vendors/:slug. No bodyPrefill. The request already carries
         (target_type, slug), which is the whole of the context.
       -->
-      <p
-        class="rounded-(--radius-md) border border-(--border-default) bg-(--surface-sunken) p-4 text-xs leading-relaxed text-(--text-secondary)"
-        i18n="@@vendor.profile.identityHint"
-      >
-        Your company name and the address of your public listing are on record with AEC
-        Integrations, so they are not editable here. To change either,
-        <a
-          aecRequestTrigger
-          [entity]="'vendor'"
-          [kind]="'correction'"
-          [slug]="vendor().slug"
-          [href]="'/vendors/' + vendor().slug + '/correction'"
-          target="_blank"
-          rel="noopener"
-          class="text-(--accent-primary) underline underline-offset-2"
-          >send us a correction request
-          <span class="inline-flex align-middle"><aec-new-tab-icon /></span></a
-        >.
-      </p>
+      <!--
+        AECI-1116: the box spans the form, the sentence keeps a reading measure.
+        At full width it ran ~200 characters a line.
+      -->
+      <div class="rounded-(--radius-md) border border-(--border-default) bg-(--surface-sunken) p-4">
+        <p
+          class="max-w-prose text-xs leading-relaxed text-(--text-secondary)"
+          i18n="@@vendor.profile.identityHint"
+        >
+          Your company name and the address of your public listing are on record with AEC
+          Integrations, so they are not editable here. To change either,
+          <a
+            aecRequestTrigger
+            [entity]="'vendor'"
+            [kind]="'correction'"
+            [slug]="vendor().slug"
+            [href]="'/vendors/' + vendor().slug + '/correction'"
+            target="_blank"
+            rel="noopener"
+            class="text-(--accent-primary) underline underline-offset-2"
+            >send us a correction request
+            <span class="inline-flex align-middle"><aec-new-tab-icon /></span></a
+          >.
+        </p>
+      </div>
 
       @if (updatedElsewhere()) {
         <div
@@ -148,22 +154,30 @@ interface FieldConfig {
       @if (!canEdit()) {
         @if (catalogueSeat()) {
           <!-- AECI-1082: the catalogue seat never had profile editing, so it is not paused. -->
-          <p
-            class="rounded-(--radius-md) border border-(--border-default) bg-(--surface-sunken) p-4 text-sm leading-relaxed text-(--text-secondary)"
-            i18n="@@vendor.profile.readOnly.catalogue"
+          <div
+            class="rounded-(--radius-md) border border-(--border-default) bg-(--surface-sunken) p-4"
           >
-            Your company profile stays with the AECi team, so this seat cannot edit it. Everything
-            below stays published and is here to read.
-          </p>
+            <p
+              class="max-w-prose text-sm leading-relaxed text-(--text-secondary)"
+              i18n="@@vendor.profile.readOnly.catalogue"
+            >
+              Your company profile stays with the AECi team, so this seat cannot edit it. Everything
+              below stays published and is here to read.
+            </p>
+          </div>
         } @else {
-          <p
-            class="rounded-(--radius-md) border border-(--border-default) bg-(--surface-sunken) p-4 text-sm leading-relaxed text-(--text-secondary)"
-            i18n="@@vendor.profile.readOnly"
+          <div
+            class="rounded-(--radius-md) border border-(--border-default) bg-(--surface-sunken) p-4"
           >
-            Editing is paused while your account access is inactive. Everything below stays
-            published and is here to read. The account panel on Vendor Overview has the renewal
-            path.
-          </p>
+            <p
+              class="max-w-prose text-sm leading-relaxed text-(--text-secondary)"
+              i18n="@@vendor.profile.readOnly"
+            >
+              Editing is paused while your account access is inactive. Everything below stays
+              published and is here to read. The account panel on Vendor Overview has the renewal
+              path.
+            </p>
+          </div>
         }
       }
 
