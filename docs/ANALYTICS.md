@@ -308,7 +308,7 @@ retrofitted (§3.10).
 
   | Filters internal users | Does not |
   |---|---|
-  | `search-browser-latency`, `search-browser-error-rate` (both read `search_performed`) | all 43 `posthog.metrics` insights: traffic, search sync, home stats, auth, moderation, Linear, cron, retention, and the 14 alert sources |
+  | `search-browser-latency`, `search-browser-error-rate` (both read `search_performed`) | all 44 `posthog.metrics` insights: traffic, search sync, home stats, auth, moderation, Linear, cron, retention, and the 15 alert sources |
 
   The rule is **person-linked events filter, server metrics do not**. A metric has
   no person, so there is nothing to exclude. A health tile should count every

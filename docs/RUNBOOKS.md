@@ -99,6 +99,10 @@ a 100% HTTP 429 failure rate for at least three days with nothing noticing. The 
 disposition record for the 26 *retired* monitors, so a net-new alert belongs beside it, not
 inside it. Runbook: [IndexNow submissions refused](#indexnow-submissions-refused).
 
+**A fifteenth alert, `profile-ensure-failed` (AECI-1099), sits outside the table for the
+same reason.** It watches `aeci.auth.profile_ensure` failures, a metric AECI-770 added.
+Runbook: [Account record could not be created at sign-in](#account-record-could-not-be-created-at-sign-in).
+
 ### The combined cron-failure alert — where the detail is
 
 Rows 2, 3, 4 and 6 above are **one** PostHog alert:
@@ -1774,6 +1778,38 @@ before or after the retraction: a live product row always beats a mapping, so an
 seed is inert rather than harmful. Move rows themselves no longer cascade away with the
 product — that was the AECI-991 defect, and `apps/api/src/test/d1.spec.ts` pins the
 absence of the foreign key that caused it.
+
+---
+
+## Account record could not be created at sign-in
+
+**Signal:** the PostHog alert *"AECi — Account record could not be created (any, 1 h)"*
+(`observability/posthog/alerts.json` → `profile-ensure-failed`, hourly, AECI-1099). Its label
+column names the source or sources that failed: `auth-callback`, `self-heal`, or both.
+
+**What it means:** someone signed in, and no D1 `profiles` row could be created for them.
+`POST /api/auth/profile/ensure` is the only thing that creates that row (`AUTH_AND_RLS.md`
+§3.1a). On `auth-callback` the user was signed out and sent to
+`/auth/login?error=profile_unavailable` after three attempts. On `self-heal` they saw a 503
+`PROFILE_UNAVAILABLE` on `/account`. A vendor with no `profiles` row cannot be seated, so treat
+a failure during a seating as blocking.
+
+### Triage
+
+1. **Is the API Worker up?** The callback reaches ensure over the SSR → API service binding. A
+   burst of `auth-callback` failures with nothing else wrong usually means the API Worker was
+   unreachable. Check `GET /api/version` and the Worker error-rate board.
+2. **Is D1 answering?** A `self-heal` failure is the insert itself failing. Look for D1 errors
+   on the API Worker's logs in the same hour.
+3. **Is it one person or many?** One failure that the user retried past needs no action. The
+   self-heal recovers them on their next `/account` visit. Many failures in one hour is an
+   outage. Follow [High Worker error rate](#high-worker-error-rate).
+
+### Confirming it is fixed
+
+The alert clears on the first hourly check with no failed ensures. A user who was stuck
+recovers on their next `GET /api/account`, with no operator step. If one does not, read their
+row in D1 before touching anything. An erased account is refused on purpose.
 
 ---
 

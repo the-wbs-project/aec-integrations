@@ -678,6 +678,22 @@
       ],
       "display": "ActionsTable",
       "query": "-- AECI-826 / \u00a720.2. No Datadog predecessor \u2014 this metric was never alerted on.\n-- The drain cron emits one aeci.indexnow.submit per TICK that submitted, not per\n-- HTTP request (a retried tick still counts 1 \u2014 AECI-833); a tick with an empty\n-- buffer emits none, which is why the denominator floor matters.\nSELECT\n    if(sum(m.value) >= 3,\n       round(100.0 * sumIf(m.value, m.attributes.outcome = 'failed')\n             / greatest(sum(m.value), 1), 1),\n       0.0)                                                       AS failure_rate_pct,\n    concat(toString(toInt(sum(m.value))), ' IndexNow submissions in 24h; ',\n           toString(toInt(sumIf(m.value, m.attributes.outcome = 'failed'))),\n           ' refused')                                            AS sample\nFROM posthog.metrics AS m\nWHERE m.timestamp >= now() - INTERVAL 24 HOUR\n  AND m.metric_name = 'aeci.indexnow.submit'"
+    },
+    {
+      "key": "alert-profile-ensure-failed",
+      "name": "Alert: someone signed in but has no account record",
+      "dashboard": "AECi — What the alerts are watching",
+      "dashboardKey": "alert-sources",
+      "description": "Fires when anyone's account record could not be created in the last hour, at sign-in or on the account page's retry. At sign-in they were signed out again; on the account page they saw an error. A vendor's first sign-in goes through this path, so one failure is worth a look.",
+      "notes": "NEW with AECI-1099, no Datadog predecessor. Watches aeci.auth.profile_ensure outcome:failed from both sources (auth-callback, self-heal), threshold > 0. The first query in this file written against posthog.metric_series: labels left the metrics row, see AECI-1115. Verified read-only on 354071 on 2026-09-24: one row on an empty window, and the same shape counted aeci.auth.signin failures correctly.",
+      "tags": [
+        "aeci",
+        "alert-source",
+        "managed-by:aeci-647",
+        "aeci-key:alert-profile-ensure-failed"
+      ],
+      "display": "ActionsTable",
+      "query": "-- AECI-1099. Fires on ANY failed profile-ensure, from either emitter (AECI-770):\n--   source:auth-callback  apps/web/src/server/routes/auth-callback.ts  (service aeci-web)\n--   source:self-heal      apps/api/src/lib/profile-provisioning.ts     (service aeci-api)\n-- Every point here is a real user who met the no-profile state. At sign-in they were\n-- signed out; on the GET /api/account self-heal they saw a 503 PROFILE_UNAVAILABLE.\n--\n-- LABELS ARE NOT ON posthog.metrics ANY MORE. PostHog moved them to\n-- posthog.metric_series, keyed by series_fingerprint, and `m.attributes` now fails\n-- validation (AECI-1115: that is why most other alerts here show Errored). The\n-- labels are a Map, so read them with ['key'], not a dotted path. The subquery\n-- collapses the series table to one row per fingerprint so a repeated series row\n-- cannot double-count a point.\n--\n-- 1 h window to match the hourly evaluation, so each breach reflects new failures.\n-- No GROUP BY at the top level: always exactly one row (0 / '') on an empty window.\nSELECT\n    sum(m.value)                                              AS failed_ensures,\n    arrayStringConcat(groupUniqArray(s.source), ', ')         AS failing_sources\nFROM posthog.metrics AS m\nINNER JOIN (\n    SELECT series_fingerprint, any(attributes['source']) AS source\n    FROM posthog.metric_series\n    WHERE metric_name = 'aeci.auth.profile_ensure'\n      AND attributes['outcome'] = 'failed'\n    GROUP BY series_fingerprint\n) AS s ON m.series_fingerprint = s.series_fingerprint\nWHERE m.timestamp >= now() - INTERVAL 1 HOUR\n  AND m.metric_name = 'aeci.auth.profile_ensure'"
     }
   ]
 }
