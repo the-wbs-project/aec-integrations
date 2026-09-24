@@ -582,6 +582,11 @@ export type Env = {
    * lead-capture notifications use. Plain wrangler var per env. Absent → the alert is
    * a `skipped` no-op and the submit still returns `201` — the Linear issue
    * (§6.4) stays the durable record either way.
+   *
+   * Since AECI-1132 it is also the `To:` for `contest-submitted-alert`, sent when an
+   * integration field contest routes to AECi at submit (§11b.8). An `owner` contest
+   * is the owner-unknown claim path, so it belongs in the same inbox. Absent → the
+   * contest alert skips too, and the contest row stays the durable record.
    */
   CLAIM_ALERT_EMAIL?: string;
   /**

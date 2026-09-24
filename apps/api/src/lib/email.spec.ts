@@ -29,6 +29,7 @@ import {
   sendClaimApprovedEmail,
   sendClaimRejectedEmail,
   sendClaimSubmittedNotification,
+  sendContestSubmittedNotification,
   sendEmail,
   sendEntitlementExpiringAdminEmail,
   sendEntitlementExpiringEmail,
@@ -1043,6 +1044,77 @@ describe('sendStuckRequestAdminAlert', () => {
     const text = String(lastBody(fetchSpy).text);
     expect(text).toContain('no_api_key: no LINEAR_API_KEY on this Worker');
     expect(text).not.toContain('—');
+  });
+});
+
+describe('sendContestSubmittedNotification (AECI-1132)', () => {
+  const CONTEST = {
+    contestId: 'contest-7',
+    integrationName: 'Revit for MicroStation',
+    field: 'owner',
+    currentValue: null,
+    proposedValue: 'Autodesk',
+    reason: 'We built it',
+    submitterVendorName: 'Autodesk',
+    routeReason: 'owner-field' as const,
+    pairSlugs: ['revit', 'microstation'] as const,
+  };
+  const SITE = {
+    CLAIM_ALERT_EMAIL: 'support@aecintegrations.com',
+    PUBLIC_SITE_URL: 'https://www.aecintegrations.com',
+  };
+
+  it('sends an owner contest to CLAIM_ALERT_EMAIL, saying nobody owns it on file', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
+    const outcome = await sendContestSubmittedNotification(fakeContext(SITE), CONTEST);
+
+    expect(outcome).toBe('sent');
+    const body = lastBody(fetchSpy);
+    expect(body.to).toBe('support@aecintegrations.com');
+    expect(body.subject).toBe('[AECi] Ownership contest: Revit for MicroStation');
+    const text = String(body.text);
+    expect(text).toContain('Owner on file: none');
+    expect(text).toContain('Proposed owner: Autodesk');
+    expect(text).toContain('Why AECi decides: Ownership contests always go to AECi');
+    expect(text).toContain('Contest id: contest-7');
+    expect(text).toContain('https://www.aecintegrations.com/admin/contests');
+    expect(text).toContain(
+      'https://www.aecintegrations.com/products/microstation/integrations/revit',
+    );
+    expect(sendTags()).toContainEqual(['outcome:sent', 'template:contest-submitted-alert']);
+  });
+
+  it('names the field in the subject of a content contest', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
+    await sendContestSubmittedNotification(fakeContext(SITE), {
+      ...CONTEST,
+      field: 'name',
+      currentValue: 'Old name',
+      proposedValue: 'New name',
+      routeReason: 'unclaimed',
+    });
+    const body = lastBody(fetchSpy);
+    expect(body.subject).toBe('[AECi] Field contest: name on Revit for MicroStation');
+    expect(String(body.text)).toContain('Current value: Old name');
+    expect(String(body.text)).toContain('Why AECi decides: No vendor has claimed this integration');
+  });
+
+  it('skips (no fetch) when CLAIM_ALERT_EMAIL is unset', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
+    expect(await sendContestSubmittedNotification(fakeContext(), CONTEST)).toBe('skipped');
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it('escapes HTML in the vendor-supplied reason and names', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
+    await sendContestSubmittedNotification(fakeContext(SITE), {
+      ...CONTEST,
+      submitterVendorName: '<b>Evil</b>',
+      reason: '<script>alert(1)</script>',
+    });
+    const html = String(lastBody(fetchSpy).html);
+    expect(html).not.toContain('<script>');
+    expect(html).not.toContain('<b>Evil</b>');
   });
 });
 

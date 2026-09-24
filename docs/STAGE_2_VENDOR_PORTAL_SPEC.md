@@ -2293,7 +2293,7 @@ mail is bounded by the cooldown and the per-vendor `write` bucket, not by this p
 
 ## 11b. Integration field contests (AECI-1008)
 
-**API half shipped 2026-09-18 (PR A). Portal half shipped 2026-09-18 (PR B), §11b.10. Admin queue shipped 2026-09-18 (PR C), §11b.11. The protest to AECi (AECI-1009) shipped 2026-09-22, §11b.12. Contests on connector-powered rows and evidenced pairs (AECI-1092) shipped 2026-09-23, §11b.13.** This section is the build contract. The code is `apps/api/src/routes/{vendor-contests,admin-contests}.ts`, `apps/api/src/lib/integration-contests.ts` and `packages/shared/src/api/integration-contests.ts`. The table is `integration_field_challenges`, migration `0043_needy_hobgoblin.sql`, rebuilt onto two anchors by `0050_rainy_puma.sql`.
+**API half shipped 2026-09-18 (PR A). Portal half shipped 2026-09-18 (PR B), §11b.10. Admin queue shipped 2026-09-18 (PR C), §11b.11. The protest to AECi (AECI-1009) shipped 2026-09-22, §11b.12. Contests on connector-powered rows and evidenced pairs (AECI-1092) shipped 2026-09-23, §11b.13. The AECi email on an AECi-routed submit (AECI-1132) shipped 2026-09-24, §11b.8.** This section is the build contract. The code is `apps/api/src/routes/{vendor-contests,admin-contests}.ts`, `apps/api/src/lib/integration-contests.ts` and `packages/shared/src/api/integration-contests.ts`. The table is `integration_field_challenges`, migration `0043_needy_hobgoblin.sql`, rebuilt onto two anchors by `0050_rainy_puma.sql`.
 
 ### 11b.1 What a contest is
 
@@ -2404,7 +2404,14 @@ Every transition writes, in one `db.batch`:
 
 ### 11b.8 Notifications and freshness
 
-**Notifications are audit rows.** A contest event writes `notification.sent` with `metadata.kind = 'contest'` and `metadata.vendorId` set to the recipient. `submitted` and `withdrawn` go to the owner, and only on an owner-routed row. `accepted` and `declined` go to the submitter. Since AECI-1010 a retire that closes an open contest also sends the submitter a `closed_by_retire` event (§4.6). There is no email. `GET /api/vendor/notifications` returns them as a union member on `kind` (`STAGE_2_ATTESTATIONS_SPEC.md` §7.5). The feed's scoping predicate is unchanged, so the `notifications` cursor needed no change.
+**Notifications are audit rows.** A contest event writes `notification.sent` with `metadata.kind = 'contest'` and `metadata.vendorId` set to the recipient. `submitted` and `withdrawn` go to the owner, and only on an owner-routed row. `accepted` and `declined` go to the submitter. Since AECI-1010 a retire that closes an open contest also sends the submitter a `closed_by_retire` event (§4.6). No vendor gets an email about a contest. `GET /api/vendor/notifications` returns them as a union member on `kind` (`STAGE_2_ATTESTATIONS_SPEC.md` §7.5). The feed's scoping predicate is unchanged, so the `notifications` cursor needed no change.
+
+**AECi gets an email when a contest routes to it at submit (AECI-1132, ruled 2026-09-24).** An AECi-routed contest has no vendor on the other side, so it writes no `notification.sent` row. Before AECI-1132 nobody learned of it until someone opened `/admin/contests`. Now a successful submit whose frozen route is `aeci` sends the `contest-submitted-alert` email to `CLAIM_ALERT_EMAIL`, the support inbox. That is the inbox claim intake uses, because an `owner` contest is the owner-unknown claim path (§4.5).
+
+- **When.** After the submit batch commits, through `ctx.waitUntil`, from `createSubmitContestHandler` in `routes/vendor-contests.ts`. A refused or lost submit sends nothing. A failed send never changes the `201`.
+- **Which contests.** Every AECi-routed submit. The body names the reason: an `owner` contest, an unclaimed row, an owner with no active seat (AECI-989), or a connector-powered row whose owner cannot decide (AECI-1092). An owner-routed submit sends no email, because the owner gets its portal notification.
+- **What it carries.** The integration, the field, the current and proposed values (an `owner` value as a vendor name, `none` for no owner), the submitting vendor, its reason, the contest id, the deployment host and the pair page. The one call to action opens `/admin/contests`.
+- **Not covered.** A contest that moves to AECi later (seat loss, an owner reassignment, §11b.4) and a protest filed to AECi (§11b.12) send no email yet.
 
 **`contests` is the seventh cursor scope** on `GET /api/vendor/updates`. It reports `MAX(updated_at)` under `vendorContestsWhere`, which is the same predicate `GET /api/vendor/contests` imports (`STAGE_2_REALTIME_SPEC.md` §2.2). The list is capped at 100 rows per side; the cursor covers the whole scope, so an edit past the cap costs one wasted refetch and nothing else.
 

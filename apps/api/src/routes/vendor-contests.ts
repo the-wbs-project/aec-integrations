@@ -82,6 +82,7 @@ import {
 } from '../db/schema';
 import { ApiError, notFoundError } from '../errors';
 import { json } from '../http';
+import { logToPosthog } from '../posthog';
 import {
   resolveAttestationSlots,
   resolveEvidencedPairSlots,
@@ -96,6 +97,7 @@ import {
   type BatchTuple,
 } from '../lib/audit';
 import { auditActorType } from '../lib/authz';
+import { sendContestSubmittedNotification, type ContestAlertRouteReason } from '../lib/email';
 import { validateResponseInDev, writeDb, type DbFactory } from '../lib/handler-utils';
 import {
   anchorColumns,
@@ -404,6 +406,7 @@ export function createSubmitContestHandler(
   dbFor: DbFactory = getDb,
   claimed: IntegrationClaimedPredicate = isIntegrationClaimed,
   anchorKind?: ContestAnchorKind,
+  sendAlert: SendContestAlert = sendContestSubmittedNotification,
 ): (c: VendorContext) => Promise<Response> {
   return async (c) => {
     const vendorId = sessionVendorId(c);
@@ -564,9 +567,73 @@ export function createSubmitContestHandler(
       }
       // No purge: nothing public changed. The forward still runs.
       afterVendorWrite(c, [], plan.audits);
+      // AECI-1132: an AECi-routed contest has no vendor to notify, so email AECi.
+      if (plan.row.routedTo === 'aeci') {
+        c.executionCtx.waitUntil(alertAeciOfContest(c, db, plan.row, draft, claimed, sendAlert));
+      }
       return echo(c, db, vendorId, plan.row, 201);
     }
   };
+}
+
+/** The operator alert seam, injectable so a spec can capture what was sent. */
+export type SendContestAlert = typeof sendContestSubmittedNotification;
+
+/** Why the contest reached AECi (§11b.4), in the order `planSubmit` decides it. */
+function contestRouteReason(
+  row: ContestRow,
+  target: ContestTarget,
+  claimed: IntegrationClaimedPredicate,
+): ContestAlertRouteReason {
+  if (row.field === 'owner') return 'owner-field';
+  if (row.ownerSeatLapsedAt) return 'owner-seat-lapsed';
+  if (target.builtByVendorId === null || !claimed(target)) return 'unclaimed';
+  return 'owner-cannot-decide';
+}
+
+/**
+ * Email AECi about a contest it now has to decide (AECI-1132, §11b.8). Runs after
+ * commit inside `waitUntil`. It never rejects: the vendor-name read is best effort,
+ * and `sendContestSubmittedNotification` resolves every failure to an outcome.
+ */
+async function alertAeciOfContest(
+  c: VendorContext,
+  db: Db,
+  row: ContestRow,
+  draft: SubmitDraft,
+  claimed: IntegrationClaimedPredicate,
+  sendAlert: SendContestAlert,
+): Promise<void> {
+  try {
+    const ids = [row.submitterVendorId];
+    if (row.field === 'owner') {
+      for (const value of [row.currentValue, row.proposedValue]) if (value) ids.push(value);
+    }
+    const named = await db
+      .select({ id: vendors.id, name: vendors.companyName })
+      .from(vendors)
+      .where(inArray(vendors.id, ids));
+    const names = new Map(named.map((v) => [v.id, v.name]));
+    const label = (value: string | null): string | null =>
+      row.field === 'owner' ? (contestValueLabel('owner', value, names) ?? value) : value;
+    await sendAlert(c, {
+      contestId: row.id,
+      integrationName: draft.target.name ?? draft.pairSlugs?.join(' and ') ?? draft.anchor.id,
+      field: row.field,
+      currentValue: label(row.currentValue),
+      proposedValue: label(row.proposedValue),
+      reason: row.reason,
+      submitterVendorName: names.get(row.submitterVendorId) ?? row.submitterVendorId,
+      routeReason: contestRouteReason(row, draft.target, claimed),
+      pairSlugs: draft.pairSlugs,
+    });
+  } catch (error) {
+    logToPosthog(c.executionCtx, c.env, c.req.raw, {
+      level: 'warn',
+      message: `Contest alert failed for ${row.id}`,
+      outcome: error instanceof Error ? error.message : String(error),
+    });
+  }
 }
 
 interface SubmitDraft {

@@ -400,10 +400,12 @@
         "EMAIL_BCC": "support@aecintegrations.com",
         "PUBLIC_SITE_URL": "https://staging.aecintegrations.com",
         "ADMIN_ALERT_EMAIL": "chrisw@thewbsproject.com",
-        // Operator alert on claim INTAKE (`POST /api/requests/claim`) — the support
-        // inbox, deliberately NOT `ADMIN_ALERT_EMAIL` (which stays the individual
+        // Operator alert on claim INTAKE (`POST /api/requests/claim`), and since
+        // AECI-1132 on an AECi-routed integration contest — the support inbox,
+        // deliberately NOT `ADMIN_ALERT_EMAIL` (which stays the individual
         // operator address for sweep alerts + lead capture). Absent -> the alert is a
-        // fail-open `skipped` and the Linear issue is still the durable record.
+        // fail-open `skipped`. The durable record is the Linear issue (claim) or the
+        // contest row (contest).
         "CLAIM_ALERT_EMAIL": "support@aecintegrations.com",
         // AECI-862: the founder escalation for a claim ticket nobody has
         // started after 24h. A THIRD address on purpose — ADMIN_ALERT_EMAIL
@@ -647,10 +649,12 @@
         "EMAIL_BCC": "support@aecintegrations.com",
         "PUBLIC_SITE_URL": "https://demo.aecintegrations.com",
         "ADMIN_ALERT_EMAIL": "chrisw@thewbsproject.com",
-        // Operator alert on claim INTAKE (`POST /api/requests/claim`) — the support
-        // inbox, deliberately NOT `ADMIN_ALERT_EMAIL` (which stays the individual
+        // Operator alert on claim INTAKE (`POST /api/requests/claim`), and since
+        // AECI-1132 on an AECi-routed integration contest — the support inbox,
+        // deliberately NOT `ADMIN_ALERT_EMAIL` (which stays the individual
         // operator address for sweep alerts + lead capture). Absent -> the alert is a
-        // fail-open `skipped` and the Linear issue is still the durable record.
+        // fail-open `skipped`. The durable record is the Linear issue (claim) or the
+        // contest row (contest).
         "CLAIM_ALERT_EMAIL": "support@aecintegrations.com",
         // AECI-862: the founder escalation for a claim ticket nobody has
         // started after 24h. The cron still runs here (it emits
@@ -832,10 +836,12 @@
         // Blind copy on every send, so the operator sees what users receive.
         "EMAIL_BCC": "support@aecintegrations.com",
         "ADMIN_ALERT_EMAIL": "chrisw@thewbsproject.com",
-        // Operator alert on claim INTAKE (`POST /api/requests/claim`) — the support
-        // inbox, deliberately NOT `ADMIN_ALERT_EMAIL` (which stays the individual
+        // Operator alert on claim INTAKE (`POST /api/requests/claim`), and since
+        // AECI-1132 on an AECi-routed integration contest — the support inbox,
+        // deliberately NOT `ADMIN_ALERT_EMAIL` (which stays the individual
         // operator address for sweep alerts + lead capture). Absent -> the alert is a
-        // fail-open `skipped` and the Linear issue is still the durable record.
+        // fail-open `skipped`. The durable record is the Linear issue (claim) or the
+        // contest row (contest).
         "CLAIM_ALERT_EMAIL": "support@aecintegrations.com",
         // AECI-862: the founder escalation for a claim ticket nobody has
         // started after 24h. A THIRD address on purpose — ADMIN_ALERT_EMAIL

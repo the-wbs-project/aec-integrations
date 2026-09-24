@@ -92,6 +92,12 @@ export type EmailTemplate =
   // support inbox), NOT `ADMIN_ALERT_EMAIL`. The claimant gets nothing at submit
   // time by design — the only claimant-facing mail is the decision pair above.
   | 'claim-submitted-alert'
+  // Operator alert on a field contest that routes to AECi at submit (AECI-1132 /
+  // `STAGE_2_VENDOR_PORTAL_SPEC.md` §11b.8). An AECi-routed contest has no vendor on
+  // the other side, so it writes no notification row, and without this nobody learns
+  // of it until someone opens `/admin/contests`. Recipient is `CLAIM_ALERT_EMAIL`,
+  // because an `owner` contest is the owner-unknown claim path (§4.5).
+  | 'contest-submitted-alert'
   // Founder escalation: a claim ticket that EXISTS in Linear and that nobody has
   // started after 24h (AECI-862). Recipient is `FOUNDER_ALERT_EMAIL`, a third
   // address on purpose — `stuck-request-alert` means the pipeline is broken and
@@ -1505,6 +1511,94 @@ export function sendClaimSubmittedNotification(
     to: c.env.CLAIM_ALERT_EMAIL ?? '',
     template: 'claim-submitted-alert',
     subject: `[AECi] New vendor claim: ${opts.targetName}`,
+    text: renderEmailText({ ...shared, blocks: [intro] }),
+    html: renderEmailHtml({ ...shared, blocks: [introHtml] }),
+  });
+}
+
+/** Why a contest reached AECi rather than the owner (§11b.4), for the alert body. */
+export type ContestAlertRouteReason =
+  | 'owner-field'
+  | 'unclaimed'
+  | 'owner-seat-lapsed'
+  | 'owner-cannot-decide';
+
+const CONTEST_ROUTE_REASON_TEXT: Record<ContestAlertRouteReason, string> = {
+  'owner-field': 'Ownership contests always go to AECi',
+  unclaimed: 'No vendor has claimed this integration',
+  'owner-seat-lapsed': 'The owner has no active seat',
+  'owner-cannot-decide': 'The owner cannot decide this field on a connector-powered row',
+};
+
+/**
+ * Operator alert: a vendor filed an integration field contest that routes to AECi
+ * (`POST /api/vendor/integrations/:id/contests`, AECI-1132).
+ *
+ * Fired fire-and-forget via `ctx.waitUntil` AFTER the submit batch commits, so a mail
+ * failure can never roll back the contest or delay the `201`. Only an AECi-routed
+ * submit sends it. An owner-routed one already reaches its decider through the portal
+ * notification (§11b.8). Recipient is `CLAIM_ALERT_EMAIL`; absent → `'skipped'`.
+ *
+ * The values arrive already labelled: an `owner` value is a vendor id, and the caller
+ * resolves it to a name. `null` renders as `none`, because "nobody owns it" is the fact
+ * an owner-unknown contest is about. The single CTA is `/admin/contests`, the queue
+ * where AECi decides it. There is no per-contest route, so the contest id row is what
+ * the operator matches there.
+ */
+export function sendContestSubmittedNotification(
+  c: EmailContext,
+  opts: {
+    contestId: string;
+    integrationName: string;
+    field: string;
+    currentValue: string | null;
+    proposedValue: string | null;
+    reason: string;
+    submitterVendorName: string;
+    routeReason: ContestAlertRouteReason;
+    /** Both endpoint slugs, for the pair-page link, or `null` when unresolved. */
+    pairSlugs: readonly [string, string] | null;
+  },
+): Promise<EmailOutcome> {
+  const base = siteUrl(c.env);
+  const host = environmentHost(c.env);
+  const isOwner = opts.field === 'owner';
+  const rows: Array<[string, string]> = [
+    ['Integration', opts.integrationName],
+    ['Field', opts.field],
+    [isOwner ? 'Owner on file' : 'Current value', opts.currentValue ?? 'none'],
+    [isOwner ? 'Proposed owner' : 'Proposed value', opts.proposedValue ?? 'none'],
+    ['Submitted by', opts.submitterVendorName],
+    ['Reason given', opts.reason],
+    ['Why AECi decides', CONTEST_ROUTE_REASON_TEXT[opts.routeReason]],
+    ['Contest id', opts.contestId],
+  ];
+  if (host) rows.push(['Environment', host]);
+  const pair = opts.pairSlugs ? pairUrl(c.env, opts.pairSlugs[0], opts.pairSlugs[1]) : null;
+  if (pair) rows.push(['Pair page', pair]);
+
+  const subject = isOwner
+    ? `[AECi] Ownership contest: ${opts.integrationName}`
+    : `[AECi] Field contest: ${opts.field} on ${opts.integrationName}`;
+  const intro = isOwner
+    ? `${opts.submitterVendorName} contested who owns ${opts.integrationName}. AECi decides it.`
+    : `${opts.submitterVendorName} contested the ${opts.field} of ${opts.integrationName}. AECi decides it.`;
+  const introHtml = isOwner
+    ? `${escapeHtml(opts.submitterVendorName)} contested who owns <strong>${escapeHtml(opts.integrationName)}</strong>. AECi decides it.`
+    : `${escapeHtml(opts.submitterVendorName)} contested the ${escapeHtml(opts.field)} of <strong>${escapeHtml(opts.integrationName)}</strong>. AECi decides it.`;
+  const shared = {
+    preheader: intro,
+    heading: isOwner
+      ? `Ownership contest on ${opts.integrationName}`
+      : `Field contest on ${opts.integrationName}`,
+    table: rows,
+    ...(base ? { cta: { label: 'Open the contest queue', url: `${base}/admin/contests` } } : {}),
+  };
+
+  return sendTransactionalEmail(c, {
+    to: c.env.CLAIM_ALERT_EMAIL ?? '',
+    template: 'contest-submitted-alert',
+    subject,
     text: renderEmailText({ ...shared, blocks: [intro] }),
     html: renderEmailHtml({ ...shared, blocks: [introHtml] }),
   });
