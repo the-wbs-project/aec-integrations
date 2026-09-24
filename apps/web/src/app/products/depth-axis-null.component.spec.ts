@@ -176,6 +176,11 @@ const ZAPIER: ProductLink = { id: 'z1', slug: 'zapier', name: 'Zapier', logo_url
  * carry no direction and no claims. Two edges share Procore, so it earns a hub
  * card, and a third pair shares no endpoint and lands in the flat card. Both row
  * shapes are pinned. Recorded before the hub learned the depth axis.
+ *
+ * Re-recorded ONCE, deliberately, by AECI-1117, which is not a depth-axis
+ * change: the trailing `→` became the chevron, the card header learned to wrap,
+ * and the row name now says "direction not listed". The depth axis still adds
+ * nothing to this null case, which is what this snapshot exists to hold.
  */
 const PROCORE: ProductLink = { id: 's1', slug: 'procore', name: 'Procore', logo_url: null };
 const SAGE: ProductLink = { id: 's2', slug: 'sage', name: 'Sage Intacct', logo_url: null };

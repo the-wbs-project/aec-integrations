@@ -823,6 +823,37 @@ counting and render-condition rules above are all still in force.
    the section boundary, so `#powered-integrations`, its `aria-labelledby`, the section-nav entry
    and the cache tags are all untouched.
 
+⚠️ **Amended by AECI-1117 (2026-09-24): the row's accessible name, its trailing mark, and the card
+header at narrow widths.** Presentation and accessibility only. Grouping, counting, direction values
+and the render condition are unchanged.
+
+1. **The row link's accessible name restates what the row shows.** Each row is one `<a>`, and its
+   `aria-label` replaces everything inside it as the name. So the `sr-only` "Direction:" prefix, the
+   direction word and the mechanism badge were never announced. The name is now built in
+   `ProductPoweredHub.rowAriaLabel()` as "View the {A} and {B} integration", then, each only when the
+   row shows it: the direction, the mechanism summary, and the AECI-1080 object count. Example:
+   "View the Procore and Sage integration, direction Outbound, API, 2 data objects".
+   - **A hub row** says the hub-relative word it shows ("direction Outbound"). The name opens with
+     the hub, which is what that word is relative to.
+   - **A flat "Other connections" row** says which way a one-way pair flows: "direction One-way from
+     Fieldwire to Bluebeam". "One-way" alone would drop the half the `A → B` glyph carries, and below
+     `md` that glyph is the only direction cue on screen.
+   - **An unknown direction** reads "direction not listed", because the row shows a dash for it.
+   - The separator is its own `$localize` message (`@@products.detail.body.powers.row.aria.part`),
+     so a translation can change it. The AECI-1080 id `…row.aria.objects` is retired.
+2. **The trailing mark is the Lucide `chevron-right`, not `→`.** This section already said "a
+   chevron" above. The code had kept the character. DESIGN.md "The Arrow Rule" (AECI-919) reserves
+   the arrow for data-flow direction, and every hub row already carries a direction arrow on its meta
+   line. The chevron is the same inlined SVG `ProductIntegrationRow` uses: `aria-hidden`, `size-4`,
+   `rtl:-scale-x-100`.
+3. **The card header wraps on its own width.** At 375px the count and the "View product" link took the
+   whole bar and the hub name truncated to zero width. The header bar is now `flex-wrap` and the `<h3>`
+   takes `basis-72`, so the link drops to its own line when the bar is narrower than about 18rem plus
+   the link. Inside the button, the name wraps instead of truncating, and the count drops under the
+   name when both do not fit. No viewport breakpoint is involved, because the card sits in the body
+   column, whose width is not the viewport's. This is `IntegrationGroupCard`, so §13.3's endpoint lane
+   cards get the same behaviour.
+
 ### 12.4 Cache-tag composition
 
 - **SSR (resolver, `product-detail.resolver.ts`):** each powered edge contributes
@@ -1253,6 +1284,8 @@ chip sits beside the mechanism badge from `md` up and joins the meta line below 
 `aria-label` replaces its content as the accessible name, so the count is appended to that label
 ("…integration, 3 data objects"), and only when present. A pair with no claims renders
 byte-identically to before, pinned by the hub case in `depth-axis-null.component.spec.ts`.
+AECI-1117 re-recorded that snapshot once for its own changes (chevron, header wrap, and direction and
+mechanism in the row name, §12.3). The depth axis still adds nothing to the null case.
 
 #### 13.3a Direction is a meta line, not a column (AECI-853, 2026-09-10)
 

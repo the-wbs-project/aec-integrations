@@ -67,11 +67,19 @@ import { NewTabIcon } from '../shared/new-tab-icon/new-tab-icon';
   host: { class: 'block' },
   template: `
     <section class="overflow-hidden rounded-(--radius-lg) border border-(--border-default)">
+      <!-- The header wraps on its own width, not on a viewport breakpoint
+           (AECI-1117). The card sits in the body column, whose width is not the
+           viewport's (see the Browse-table container lesson), so a sm: rule would
+           fire at the wrong width. basis-72 is the room the heading needs before
+           the name gets any: chevron, logo, count and padding take about 170px
+           of it. When the bar cannot give the heading that much, the trailing
+           link drops to its own line. Before this, at 375px the link and the
+           count took the whole bar and the hub name truncated to zero width. -->
       <div
-        class="flex items-center gap-x-3 border-b border-(--border-default)
+        class="flex flex-wrap items-center gap-x-3 border-b border-(--border-default)
           bg-(--surface-sunken) pe-4"
       >
-        <h3 [id]="headingId()" class="min-w-0 flex-1">
+        <h3 [id]="headingId()" class="min-w-0 flex-1 basis-72">
           <button
             type="button"
             [attr.aria-expanded]="expanded()"
@@ -104,10 +112,19 @@ import { NewTabIcon } from '../shared/new-tab-icon/new-tab-icon';
                  layer, and unlayered rules beat every Tailwind utility, so a
                  text-* utility on the h3 itself is silently dead. See DESIGN.md
                  §3 "The Unlayered-Heading Rule". -->
-            <span class="min-w-0 flex-1 truncate text-lg">{{ heading() }}</span>
-            @if (countLabel(); as count) {
-              <span class="shrink-0 text-xs font-normal text-(--text-secondary)">{{ count }}</span>
-            }
+            <!-- The name wraps rather than truncates (AECI-1117). A group name is
+                 the one thing this header exists to say, so a long one takes a
+                 second line instead of losing its end. The count sits beside it
+                 while both fit and drops under it when they do not, so the count
+                 never squeezes the name. -->
+            <span class="flex min-w-0 flex-1 flex-wrap items-baseline justify-between gap-x-3">
+              <span class="min-w-0 text-lg break-words">{{ heading() }}</span>
+              @if (countLabel(); as count) {
+                <span class="shrink-0 text-xs font-normal text-(--text-secondary)">{{
+                  count
+                }}</span>
+              }
+            </span>
           </button>
         </h3>
         @if (link(); as target) {
@@ -122,7 +139,7 @@ import { NewTabIcon } from '../shared/new-tab-icon/new-tab-icon';
             target="_blank"
             rel="noopener"
             [attr.aria-label]="linkAriaLabel()"
-            class="inline-flex shrink-0 items-center gap-1.5 rounded-(--radius-md) px-3 py-1.5
+            class="ms-auto inline-flex shrink-0 items-center gap-1.5 rounded-(--radius-md) px-3 py-1.5
               text-xs font-medium text-(--text-secondary) underline decoration-(--border-strong)
               underline-offset-4 transition-colors hover:text-(--text-primary)
               focus-visible:outline-2 focus-visible:outline-offset-2

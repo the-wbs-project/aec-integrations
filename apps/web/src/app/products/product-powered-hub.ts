@@ -16,7 +16,7 @@ import { filterPoweredHubView, isFilterActive } from './integration-filter';
 import { IntegrationGroupCard } from './integration-group-card';
 import { IntegrationListFilter } from './integration-list-filter';
 
-import type { PoweredConnection, PoweredHubView } from './powered-hub-grouping';
+import type { PoweredConnection, PoweredHubPartner, PoweredHubView } from './powered-hub-grouping';
 
 /**
  * Stage 1.5 Addendum B — the "Integrations it powers" section on a
@@ -149,7 +149,7 @@ import type { PoweredConnection, PoweredHubView } from './powered-hub-grouping';
               <li>
                 <a
                   [routerLink]="pairLink(partner)"
-                  [attr.aria-label]="pairAriaLabel(group.hub.name, partner.partner.name, partner)"
+                  [attr.aria-label]="hubRowAriaLabel(group.hub.name, partner)"
                   class="flex items-center gap-3 px-4 py-3 text-(--text-primary) no-underline
                     transition-colors hover:bg-(--surface-muted)
                     focus-visible:outline-2 focus-visible:-outline-offset-2
@@ -230,11 +230,21 @@ import type { PoweredConnection, PoweredHubView } from './powered-hub-grouping';
                       >{{ objects }}</span
                     >
                   }
-                  <span
-                    class="inline-block shrink-0 text-(--text-tertiary) rtl:-scale-x-100"
+                  <!-- Navigation affordance, not direction: the Lucide chevron
+                       ProductIntegrationRow uses (DESIGN.md "The Arrow Rule",
+                       AECI-919, applied here by AECI-1117). -->
+                  <svg
+                    class="size-4 shrink-0 text-(--text-tertiary) rtl:-scale-x-100"
                     aria-hidden="true"
-                    >→</span
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
                   >
+                    <path d="m9 18 6-6-6-6" />
+                  </svg>
                 </a>
               </li>
             }
@@ -259,7 +269,7 @@ import type { PoweredConnection, PoweredHubView } from './powered-hub-grouping';
               <li>
                 <a
                   [routerLink]="pairLink(pair)"
-                  [attr.aria-label]="pairAriaLabel(pair.a.name, pair.b.name, pair)"
+                  [attr.aria-label]="flatRowAriaLabel(pair)"
                   class="flex items-center gap-3 px-4 py-3 text-(--text-primary) no-underline
                     transition-colors hover:bg-(--surface-muted)
                     focus-visible:outline-2 focus-visible:-outline-offset-2
@@ -306,11 +316,21 @@ import type { PoweredConnection, PoweredHubView } from './powered-hub-grouping';
                       >{{ objects }}</span
                     >
                   }
-                  <span
-                    class="inline-block shrink-0 text-(--text-tertiary) rtl:-scale-x-100"
+                  <!-- Navigation affordance, not direction: the Lucide chevron
+                       ProductIntegrationRow uses (DESIGN.md "The Arrow Rule",
+                       AECI-919, applied here by AECI-1117). -->
+                  <svg
+                    class="size-4 shrink-0 text-(--text-tertiary) rtl:-scale-x-100"
                     aria-hidden="true"
-                    >→</span
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
                   >
+                    <path d="m9 18 6-6-6-6" />
+                  </svg>
                 </a>
               </li>
             }
@@ -547,20 +567,73 @@ export class ProductPoweredHub {
   }
 
   /**
-   * Built in TS rather than an interpolated `i18n-*` attribute — those emit no
-   * attribute at all in this app (see the repo note on interpolated i18n attrs),
-   * which would silently leave these row links unnamed.
+   * Accessible name for a hub card's partner row (AECI-1117).
+   *
+   * The row is ONE link, and its `aria-label` replaces everything inside it as
+   * the accessible name. So whatever the row shows has to be restated here or a
+   * screen reader never hears it: the `sr-only` "Direction:" prefix, the
+   * direction word, the mechanism badge and the object chip are all inside the
+   * link. Before AECI-1117 only the object count (AECI-1080) made it in, and a
+   * reader heard "View the Procore and Sage integration" with no direction.
+   *
+   * Direction is the hub-relative word the row shows ("Outbound"), so the name
+   * contains the visible text (WCAG 2.5.3). The name opens with the hub, which is
+   * what that word is relative to. An unknown direction is said in words, since
+   * the row shows a dash for it.
    */
-  protected pairAriaLabel(first: string, second: string, pair: PoweredConnection): string {
-    // AECI-1080: this aria-label replaces the link's content as its accessible
-    // name, so a chip inside the link is never announced. The object count is
-    // appended here instead, and only when present: a pair with no claims keeps
-    // the name it always had (pinned by depth-axis-null.component.spec.ts).
-    const objects = this.dataObjectLabel(pair);
-    if (objects) {
-      return $localize`:@@products.detail.body.powers.row.aria.objects:View the ${first}:FIRST: and ${second}:SECOND: integration, ${objects}:OBJECTS:`;
+  protected hubRowAriaLabel(hubName: string, partner: PoweredHubPartner): string {
+    const direction = this.hubDirection(partner);
+    const directionPhrase = direction
+      ? $localize`:@@products.detail.body.powers.row.aria.direction:direction ${direction.label}:DIRECTION:`
+      : $localize`:@@products.detail.body.powers.row.aria.direction.none:direction not listed`;
+    return this.rowAriaLabel(hubName, partner.partner.name, directionPhrase, partner);
+  }
+
+  /**
+   * Accessible name for a flat "Other connections" row (AECI-1117). The row
+   * draws `A → B`, so a one-way pair says which way in words: "One-way" alone,
+   * the visible label from `md` up, would drop the half the arrow carries. Below
+   * `md` the arrow is the ONLY direction cue on screen, and it is `aria-hidden`.
+   */
+  protected flatRowAriaLabel(pair: PoweredConnection): string {
+    let directionPhrase: string;
+    switch (pair.direction) {
+      case 'outbound':
+        directionPhrase = $localize`:@@products.detail.body.powers.row.aria.oneWay:direction ${directionLabel('one-way')}:DIRECTION: from ${pair.a.name}:FROM: to ${pair.b.name}:TO:`;
+        break;
+      case 'inbound':
+        directionPhrase = $localize`:@@products.detail.body.powers.row.aria.oneWay:direction ${directionLabel('one-way')}:DIRECTION: from ${pair.b.name}:FROM: to ${pair.a.name}:TO:`;
+        break;
+      case 'both':
+        directionPhrase = $localize`:@@products.detail.body.powers.row.aria.direction:direction ${directionLabel('both')}:DIRECTION:`;
+        break;
+      default:
+        directionPhrase = $localize`:@@products.detail.body.powers.row.aria.direction.none:direction not listed`;
     }
-    return $localize`:@@products.detail.body.powers.row.aria:View the ${first}:FIRST: and ${second}:SECOND: integration`;
+    return this.rowAriaLabel(pair.a.name, pair.b.name, directionPhrase, pair);
+  }
+
+  /**
+   * "View the {A} and {B} integration, {direction}, {mechanism}, {objects}".
+   * Built in TS rather than an interpolated `i18n-*` attribute, which emits no
+   * attribute at all in this app (see the repo note on interpolated i18n attrs).
+   * Each optional part is appended only when the row shows it, and the separator
+   * is its own message so a translation can change it.
+   */
+  private rowAriaLabel(
+    first: string,
+    second: string,
+    directionPhrase: string,
+    pair: PoweredConnection,
+  ): string {
+    const parts = [directionPhrase, this.mechanismSummary(pair), this.dataObjectLabel(pair)];
+    return parts
+      .filter((part) => part !== '')
+      .reduce(
+        (name, part) =>
+          $localize`:@@products.detail.body.powers.row.aria.part:${name}:NAME:, ${part}:PART:`,
+        $localize`:@@products.detail.body.powers.row.aria:View the ${first}:FIRST: and ${second}:SECOND: integration`,
+      );
   }
 
   /**
