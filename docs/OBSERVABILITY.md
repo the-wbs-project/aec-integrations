@@ -24,10 +24,10 @@ browser RUM SDK, the `observability/datadog/` monitor + dashboard JSON, every
 
 | Question | Where to look |
 |---|---|
-| "My phone buzzed — what fired?" | One of the 13 PostHog alerts live in production (hourly cadence), production project only. **14 are committed** — the AECI-826 `indexnow-failure-rate` alert reaches PostHog only when `apply.sh` is re-run; see Dashboards below |
+| "My phone buzzed — what fired?" | One of the 14 PostHog alerts live in production (hourly cadence, production project only, verified 2026-09-24). **15 are committed**: the AECI-1099 `profile-ensure-failed` alert reaches PostHog only when `apply.sh` is re-run. **12 of the 14 live alerts are `Errored` today (AECI-1115)**, see Alerts below |
 | "Did the 08:00 cron actually run?" | The **CI liveness sweep** (`.github/workflows/posthog-liveness-sweep.yml`), every 3 h, **fifteen** crons watched. It runs OUTSIDE the Worker, which is what lets it detect a dead Worker |
 | "What does this metric mean?" | This document |
-| "Show me the graph" | PostHog — 7 dashboards, 43 insights, applied from `observability/posthog/insights.json` |
+| "Show me the graph" | PostHog — 7 dashboards, 46 committed insights, applied from `observability/posthog/insights.json` |
 | "Read the error log for this request" | The PostHog Logs explorer |
 | "Which person hit this 500?" | PostHog — `posthogDistinctId` is a log attribute (AECI-644) |
 | "Core Web Vitals in the field" | PostHog web vitals (`$web_vitals`), live on every tier since the project toggle was flipped 2026-08-26 |
@@ -249,7 +249,7 @@ than a Worker metric.
 | `aeci.pageviews.write` | count | `apps/api/src/routes/page-views.ts` (`capturePageView`, the deferred `POST /api/page-views` insert) | `outcome` (ok / failed / **deduped**); on `outcome:ok` also `bot` (true / false — the ingest-time UA+ASN classification, AECI-526) so the human/bot ratio is queryable in the metrics plane without waiting for the daily digest |
 | `aeci.pageviews.speculative` | count | `apps/web/src/server-runtime.ts` (`firePageView`) | none — a browser prefetch/prerender the Worker refused to count as an arrival (AECI-743) |
 | `aeci.auth.signin` | count | `apps/web/src/server/routes/auth-callback.ts` (the SSR `/auth/callback` handler — **carries `service:aeci-web`**, AECI-206) | `method` (google / magic_link / unknown), `outcome` (success / failed), `reason` on failure (link_invalid / missing_code / auth_not_configured / **profile_unavailable**). Since AECI-770 `success` fires only after the profile-ensure succeeds, and an ensure that fails every retry is `failed` with `reason:profile_unavailable` |
-| `aeci.auth.profile_ensure` | count | `apps/web/src/server/routes/auth-callback.ts` (**`service:aeci-web`**) and `apps/api/src/lib/profile-provisioning.ts` (`healMissingProfile`, the `GET /api/account` self-heal) | `source` (auth-callback / self-heal). On `auth-callback`: `outcome` (ok / failed) and `attempts` (1–3). On `self-heal`: `outcome` (created / existing / erased / failed). AECI-770. **Any `outcome:failed` is a user who met the no-profile state**: at sign-in they were signed out, on self-heal they saw a 503. `AUTH_AND_RLS.md` §3.1a |
+| `aeci.auth.profile_ensure` | count | `apps/web/src/server/routes/auth-callback.ts` (**`service:aeci-web`**) and `apps/api/src/lib/profile-provisioning.ts` (`healMissingProfile`, the `GET /api/account` self-heal) | `source` (auth-callback / self-heal). On `auth-callback`: `outcome` (ok / failed) and `attempts` (1–3). On `self-heal`: `outcome` (created / existing / erased / failed). AECI-770. **Any `outcome:failed` is a user who met the no-profile state**: at sign-in they were signed out, on self-heal they saw a 503. `AUTH_AND_RLS.md` §3.1a. **Alert (AECI-1099):** `profile-ensure-failed`, fires when `outcome:failed` sums to more than 0 in 1 h across both sources, hourly, production only. Runbook: `RUNBOOKS.md` "Account record could not be created at sign-in" |
 | `aeci.review.submit` | count | `apps/api/src/routes/reviews.ts` (`createSubmitReviewHandler`, AECI-206) | `outcome` (ok / duplicate / product_not_found / **rate_limited**) — `rate_limited` added by AECI-773 for the §15.1 hourly per-user cap (3 per rolling hour, a D1 count). It is distinct from the burst bucket's own rejection, which lands on `aeci.api.ratelimit` instead, so the two windows stay separable |
 | `aeci.moderation.action` | count | `apps/api/src/routes/admin-reviews.ts` (`createModerateReviewHandler`, AECI-206) | `action` (approve / reject), `outcome` (ok / invalid_state) |
 | `aeci.toxicity.api` | count | `apps/api/src/lib/toxicity.ts` (`scoreToxicity`, AECI-206 / AECI-258) | `outcome` (ok / failed), `reason` on failure (http_error / malformed / timeout / network) |
@@ -1138,8 +1138,8 @@ duplicate either here, or the two will drift and the doc will lose.
 |---|---|
 | `observability/posthog/README.md` | The **26-row monitor disposition table** (every Datadog monitor → its new home, with its retired threshold), the AW6 judgement calls, the migration hazards, the drill record, the numbered manual steps and the operator checklist. `docs/RUNBOOKS.md` carries the disposition table as well, for the on-call reader. |
 | `observability/posthog/project-config.json` | Project topology, alert subscribers, and the **fifteen-cron liveness registry** the CI sweep reads. |
-| `observability/posthog/insights.json` | 7 dashboards, 45 insights (31 board + 14 alert-source), as data. Board and tile **names and descriptions are written for the reader** — plain English, no issue ids or metric names; the Datadog lineage lives in a repo-only `notes` field. Convention and the `previousNames` rename mechanism: `observability/posthog/README.md` §"Naming and descriptions". |
-| `observability/posthog/alerts.json` | 14 alerts. Each names its source insight by **stable key** (`insightKey`), not by title, and carries the **retired Datadog query verbatim** — except `indexnow-failure-rate` (AECI-826), which has no Datadog predecessor because that metric was never alerted on by either plane. |
+| `observability/posthog/insights.json` | 7 dashboards, 46 insights (31 board + 15 alert-source), as data. Board and tile **names and descriptions are written for the reader** — plain English, no issue ids or metric names; the Datadog lineage lives in a repo-only `notes` field. Convention and the `previousNames` rename mechanism: `observability/posthog/README.md` §"Naming and descriptions". |
+| `observability/posthog/alerts.json` | 15 alerts. Each names its source insight by **stable key** (`insightKey`), not by title, and carries the **retired Datadog query verbatim**. Two have no Datadog predecessor: `indexnow-failure-rate` (AECI-826) and `profile-ensure-failed` (AECI-1099). |
 | `observability/posthog/apply.sh` | The applier. `--dry-run` / `--verify`; dashboards + insights to **both** projects, alerts to **prod only**. |
 
 **Every insight is a HogQL query over `posthog.metrics`** (or, for the two re-homed
@@ -1150,7 +1150,7 @@ to "no rows", which is the shape that makes a threshold alert safe.
 
 **Only the two `events` insights filter internal users** (AECI-858):
 `search-browser-latency` and `search-browser-error-rate` carry
-`filters.filterTestAccounts: true` and a `{filters}` placeholder. The 43
+`filters.filterTestAccounts: true` and a `{filters}` placeholder. The 44
 `posthog.metrics` insights, including every health, cron and alert-source tile, are
 unfiltered by design, because server metrics have no person to exclude. `apply.sh`
 refuses a half-configured filter and `--verify` reports a flag switched off in the UI.
@@ -1194,9 +1194,11 @@ slowness rather than on a reconstruction defect. The latency itself is AECI-839.
 
 Two alert sets, only one of which is armed on production.
 
+> **12 of the 14 live production alerts are `Errored`, checked read-only on 2026-09-24 (AECI-1115).** PostHog moved metric labels off `posthog.metrics` into `posthog.metric_series`, so every committed query that reads `m.attributes` fails validation. Only `reconcile-persistent-stuck` and `webhook-hmac-failure` still evaluate, because neither reads a label. The AECI-1099 `profile-ensure-failed` query is written against the new table and is the template for the fix.
+
 | | Datadog monitors | PostHog alerts |
 |---|---|---|
-| Count | **26**, all applied and live | **13**, covering 16 of those 26 |
+| Count | **26**, all applied and live | **15** committed, 14 live: 13 cover 16 of those 26, and 2 are net-new (AECI-826, AECI-1099) |
 | Applied to | production (and `env`-scoped where relevant) | **non-production dashboards only**; alerts are prod-only and unapplied pending the `phx_` key |
 | Cadence | 5 min – 1 day, per monitor | **hourly**, uniformly (`every_15_minutes` needs the Boost add-on; `real_time` needs Scale/Enterprise) |
 | Absence detection | `notify_no_data`, 8 monitors | **none** — moved out of the vendor entirely, to the CI liveness sweep |

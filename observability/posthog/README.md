@@ -10,8 +10,8 @@ change it here first and carry the edit across; keep the table clean and liftabl
 | File | What it is |
 |---|---|
 | `project-config.json` | Topology (both projects, hosts, alert subscribers) + the fifteen-cron **liveness registry** the CI sweep reads. |
-| `insights.json` | 7 dashboards, 45 insights (31 board + 14 alert-source), as data. Names and descriptions are written for a **reader**, not for an archaeologist — see "Naming and descriptions". |
-| `alerts.json` | 14 PostHog alerts. Each names its source insight by **stable key** (`insightKey`, never by title) and carries the **retired Datadog query verbatim**. |
+| `insights.json` | 7 dashboards, 46 insights (31 board + 15 alert-source), as data. Names and descriptions are written for a **reader**, not for an archaeologist — see "Naming and descriptions". |
+| `alerts.json` | 15 PostHog alerts. Each names its source insight by **stable key** (`insightKey`, never by title) and carries the **retired Datadog query verbatim**. |
 | `apply.sh` | Thin applier over the three JSON files. Dashboards + insights to both projects, alerts to prod only. |
 | `../../scripts/ci/posthog-liveness-sweep.sh` | The absence detector. Replaces all eight `notify_no_data` monitors. |
 | `../../.github/workflows/posthog-liveness-sweep.yml` | Runs it every 3 hours, outside the Worker, and **fails red**. |
@@ -248,7 +248,7 @@ test users" setting to a SQL insight, and it works only when the query also cont
   gets its own `DRIFT: filterTestAccounts is OFF` line, ahead of any other drift reason.
 - **Apply.** The whole `filters` object is compared, so a UI edit to it is overwritten.
 
-The 43 `posthog.metrics` insights carry no `filters` and are sent without one. Server
+The 44 `posthog.metrics` insights carry no `filters` and are sent without one. Server
 metrics have no person, so the filter would mean nothing there.
 
 ---
@@ -475,6 +475,12 @@ Non-production 525793 was created 2026-08-24; **production 354071 was applied 20
 and carries the same 7 dashboards (ids `2033129`–`2033136`) and 43 insights (ids
 `11342302`–`11342372`), verified 2026-09-04.
 
+> **Update 2026-09-24 (AECI-1099):** the committed set is now 46 insights and 15 alerts.
+> Production carries 14 alerts, checked read-only that day, so the paragraph below is
+> out of date on the alert count. The new `profile-ensure-failed` alert and its source
+> insight reach PostHog on the next `apply.sh` run. 12 of the 14 live alerts are
+> `Errored`, because `posthog.metrics` lost its `attributes` column (AECI-1115).
+>
 > **The committed set is now 45 insights and 14 alerts; live is still 43 and 13
 > (AECI-826, 2026-09-09).** The two new insights (`indexnow-submissions`,
 > `alert-indexnow-failure-rate`) and the `indexnow-failure-rate` alert reach PostHog only
