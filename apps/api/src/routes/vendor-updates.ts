@@ -36,7 +36,8 @@
  *   | `profile`      | trivially `vendors.id = <session vendor>`                    |
  *   | `entitlement`  | trivially `vendor_entitlements.vendor_id = <session vendor>` |
  *   | `products`     | `ownedProductIds` (`vendor-shared.ts`)                       |
- *   | `integrations` | `ownedEndpointJoin` (`lib/attestation-authority.ts`)         |
+ *   | `integrations` | `ownedEndpointJoin` (`lib/attestation-authority.ts`), plus   |
+ *   |                | the owned-rows predicates (`lib/owned-integrations.ts`)      |
  *   | `notifications`| `vendorNotificationLedgerWhere` (`vendor-notifications.ts`)  |
  *   | `requests`     | `vendorRequestsWhere` (`vendor-shared.ts`)                   |
  *   | `contests`     | `vendorContestsWhere` (`lib/integration-contests.ts`)        |
@@ -52,13 +53,14 @@
  * endpoint would degrade the very list it is a cursor for.
  *
  * ── ONE ROUND TRIP ──────────────────────────────────────────────────────────
- * Eight SELECTs in one `db.batch([...])` for seven scopes (six until AECI-1008
- * added `contests`, and one per scope until AECI-992 split `integrations` in
- * two). The Worker pays per D1 hop, and this is the most frequently called
+ * Nine SELECTs in one `db.batch([...])` for seven scopes (six until AECI-1008
+ * added `contests`, one per scope until AECI-992 split `integrations` in two, and
+ * eight until AECI-1089 added the owned-rows statement). The Worker pays per D1 hop, and this is the most frequently called
  * endpoint on the surface, so eight sequential reads would multiply the epic's
  * cost by eight for no benefit. Each statement returns a single aggregate row.
- * `integrations` is the one scope fed by two statements (AECI-992): its own
- * rows, and the claims and attestations under them.
+ * `integrations` is the one scope fed by several statements: its own rows and the
+ * claims and attestations under them (AECI-992), and the rows the vendor owns in
+ * either table (AECI-1089).
  *
  * `db.batch` here carries **no** mutation, which makes it the one batch in the
  * codebase that is not about atomicity. It is about the round trip. (Atomicity is
@@ -78,6 +80,7 @@ import {
   attestations,
   auditLog,
   claims,
+  connectorEvidencedPairs,
   integrationFieldChallenges,
   integrations,
   productVendors,
@@ -89,6 +92,8 @@ import {
 import { submitCount } from '../posthog';
 import { json } from '../http';
 import { ownedEndpointJoin } from '../lib/attestation-authority';
+import { ONE_ROW } from '../lib/integration-claims';
+import { ownedEvidencedPairsWhere, ownedIntegrationsWhere } from '../lib/owned-integrations';
 import { vendorContestsWhere } from '../lib/integration-contests';
 import { validateResponseInDev, type DbFactory } from '../lib/handler-utils';
 import { vendorNotificationLedgerWhere } from './vendor-notifications';
@@ -174,6 +179,7 @@ export function createVendorUpdatesHandler(
       productRows,
       integrationRowRows,
       integrationRows,
+      ownedRows,
       ledgerRows,
       requestRows,
       contestRows,
@@ -210,7 +216,9 @@ export function createVendorUpdatesHandler(
       // resolves its authority map with. Same predicate, one more column: the
       // scoping is unchanged, only what counts as a change widened.
       //
-      // The list reads no `connector_evidenced_pairs` row, so neither does this.
+      // This half covers the endpoint-scoped list only, which reads no
+      // `connector_evidenced_pairs` row. The list's `owned` rows, pairs included,
+      // are the third half below (AECI-1089).
       db
         .select({ value: max(integrations.updatedAt) })
         .from(integrations)
@@ -239,6 +247,30 @@ export function createVendorUpdatesHandler(
         .innerJoin(integrations, eq(integrations.id, claims.integrationId))
         .innerJoin(productVendors, ownedEndpointJoin(vendorId))
         .leftJoin(attestations, eq(attestations.claimId, claims.id)),
+
+      // `integrations`, third half (AECI-1089) — the rows the vendor OWNS, in both
+      // tables, under the SAME two predicates `loadOwnedIntegrations` reads the
+      // list's `owned` array with. A third-party owner holds neither endpoint, so
+      // `ownedEndpointJoin` above never sees its rows, and it never read
+      // `connector_evidenced_pairs` at all. One statement: two scalar subqueries
+      // over a one-row source, each an indexed MAX on `built_by_vendor_id`.
+      //
+      // It counts owned `integrations` rows the attestable list already carries,
+      // which is wider than the `owned` array but not wider than the response:
+      // every row it counts is the caller's own and is in one list or the other.
+      // Unfiltered on `retired_at`, for the reason the row term above is.
+      db
+        .select({
+          rows: sql<string | null>`(${db
+            .select({ value: max(integrations.updatedAt) })
+            .from(integrations)
+            .where(ownedIntegrationsWhere(vendorId))})`,
+          pairs: sql<string | null>`(${db
+            .select({ value: max(connectorEvidencedPairs.updatedAt) })
+            .from(connectorEvidencedPairs)
+            .where(ownedEvidencedPairsWhere(vendorId))})`,
+        })
+        .from(ONE_ROW),
 
       // `notifications` — the §7.3 `notification.sent` ledger, under the list
       // endpoint's own predicate (action + 90-day window + the `json_extract`
@@ -284,6 +316,8 @@ export function createVendorUpdatesHandler(
         integrationRowRows[0]?.value ?? null,
         integrationRow?.claims ?? null,
         integrationRow?.attestations ?? null,
+        ownedRows[0]?.rows ?? null,
+        ownedRows[0]?.pairs ?? null,
       ),
       notifications: ledgerRows[0]?.value ?? null,
       requests: requestRows[0]?.value ?? null,

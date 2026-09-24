@@ -2990,8 +2990,8 @@ export const connectorEvidencedPairs = sqliteTable(
     // Promote never writes any of the four (`REVIEW_APP_PROMOTE_API.md` §4b).
 
     /** When the owner took the pair by a claim. NULL = not claimed. The promote
-     *  fence keys on it, never on `maintained_by`. No route sets it yet: the
-     *  claim across both tables is AECI-1089. */
+     *  fence keys on it, never on `maintained_by`. Set by the vendor claim route
+     *  (`routes/vendor-integration-claims.ts`, AECI-1089) for an entitled owner. */
     claimedAt: text('claimed_at'),
     /** Who created the row. Always `'aeci'` today, because vendor create stays
      *  closed on connector-powered rows (`STAGE_2_SPEC.md` §8.10(8), ruling 1).

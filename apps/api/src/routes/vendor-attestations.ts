@@ -115,6 +115,7 @@ import {
   type ListVendorIntegrationsResponse,
   type VendorClaim,
   type VendorClaimResponse,
+  type OwnedIntegration,
   type VendorIntegration,
   type VendorOwnAttestation,
   effectiveRetiredBy,
@@ -124,6 +125,7 @@ import { compareText } from '@aeci/shared/text-sort';
 import { and, eq, inArray, isNull, notInArray, or } from 'drizzle-orm';
 
 import { isConnectorPoweredEdge } from '../lib/connector-powered';
+import { loadOwnedIntegrations } from '../lib/owned-integrations';
 import { assertIntegrationLive } from '../lib/live-integration';
 import { toSideLinks } from '../lib/integration-vendor-links';
 import { storedFieldValue, toWireValue } from '../lib/integration-contests';
@@ -840,9 +842,13 @@ export function createListVendorIntegrationsHandler(
     // capability, authoring is (§1). An unverified vendor sees an accurate
     // surface it cannot yet write to, rather than a 403 it cannot act on.
     const authorities = await resolveAttestationSlotsForVendor(db, vendorId);
-    // A vendor whose products carry no integrations: a 200 with an empty list, not
-    // a 404 — the account is fine, it simply has nothing to attest on yet.
-    if (authorities.size === 0) return json(surfaceBody(c, []));
+    // A vendor whose products carry no integrations: a 200 with an empty attestable
+    // list, not a 404 — the account is fine, it simply has nothing to attest on yet.
+    // It may still OWN rows (AECI-1089): a third-party owner holds neither endpoint
+    // of the rows it owns, so its owned list is all it has.
+    if (authorities.size === 0) {
+      return json(surfaceBody(c, [], await loadOwnedIntegrations(db, vendorId, new Set())));
+    }
 
     // Query by the caller's OWNED PRODUCT ids, not by the integration ids the
     // authority map already holds. Both express the same set, but the product
@@ -961,7 +967,12 @@ export function createListVendorIntegrationsHandler(
         compareText(a.other_product.name, b.other_product.name),
     );
 
-    return json(surfaceBody(c, surface));
+    // AECI-1089: the rows the caller owns that the list above does not carry, from
+    // both tables. Its own predicate (`lib/owned-integrations.ts`), which the
+    // freshness cursor imports too (`STAGE_2_REALTIME_SPEC.md` §2.2).
+    const ownedRows = await loadOwnedIntegrations(db, vendorId, new Set(authorities.keys()));
+
+    return json(surfaceBody(c, surface, ownedRows));
   };
 }
 
@@ -998,8 +1009,9 @@ function endpointVendorsFor(row: {
 function surfaceBody(
   c: VendorContext,
   integrations: VendorIntegration[],
+  owned: OwnedIntegration[],
 ): ListVendorIntegrationsResponse {
-  const body: ListVendorIntegrationsResponse = { integrations };
+  const body: ListVendorIntegrationsResponse = { integrations, owned };
   validateResponseInDev(c.env, () => ListVendorIntegrationsResponseSchema.parse(body));
   return body;
 }

@@ -14,6 +14,7 @@
 import type {
   DataObjectOption,
   ListVendorIntegrationsResponse,
+  OwnedIntegration,
   ProductVersion,
   TaxonomyResponse,
   TaxonomyTermWithCount,
@@ -1110,13 +1111,91 @@ export const VENDOR_INTEGRATIONS_FIXTURE: ListVendorIntegrationsResponse = {
     // Last, so every index-based spec reference to the entries above holds.
     INTEGRATION_PROCORE_VIA_CONNECTOR,
   ],
+  owned: [],
 };
 
 /** A vendor whose products carry no integrations. The API returns exactly this
  *  — a 200 with an empty list, never a 404. */
 export const VENDOR_INTEGRATIONS_EMPTY_FIXTURE: ListVendorIntegrationsResponse = {
   integrations: [],
+  owned: [],
 };
+
+/**
+ * A connector-delivered row the CALLER owns, unclaimed (AECI-1089). It sits on the
+ * attestable list because Summit makes one endpoint, so its card shows Claim when the
+ * vendor holds an active plan and the plan sentence when it does not. Appended by the
+ * preview API, like {@link INTEGRATION_RETIRED_BY_AECI}.
+ */
+export const INTEGRATION_OWNED_VIA_CONNECTOR: VendorIntegration = {
+  id: '00000000-0000-4000-8000-000000005318',
+  name: 'Summit Model Coordination ↔ Sage Intacct (Summit Sync)',
+  mechanism_kind: 'iPaaS',
+  mechanism_name: 'Summit Sync',
+  attestable: false,
+  ...NOT_OWNER,
+  is_owner: true,
+  owner: SUMMIT_VENDOR,
+  endpoint_vendors: [SUMMIT_VENDOR],
+  own_links: EMPTY_SIDE_LINKS,
+  powered_by: null,
+  context_product: CONTEXT_PRIMARY,
+  other_product: {
+    id: '00000000-0000-4000-8000-000000005306',
+    slug: 'sage-intacct',
+    name: 'Sage Intacct',
+    logo_url: null,
+  },
+  slots: ['vendor_a'],
+  claims: [],
+};
+
+/**
+ * The vendor's owned rows outside the attestable list (AECI-1089): two evidenced
+ * pairs on the primary product, one unclaimed and one claimed. `owned` on
+ * `GET /api/vendor/integrations`. Kept out of {@link VENDOR_INTEGRATIONS_FIXTURE} so
+ * the specs that count that list are unaffected; the preview API adds them.
+ */
+export const VENDOR_OWNED_INTEGRATIONS_FIXTURE: readonly OwnedIntegration[] = [
+  {
+    id: '00000000-0000-4000-8000-000000005319',
+    anchor: 'evidenced_pair',
+    name: 'Summit Model Coordination and Procore via Agave',
+    mechanism_kind: null,
+    mechanism_name: null,
+    product_a: CONTEXT_PRIMARY,
+    product_b: OTHER_PROCORE,
+    connector: {
+      id: '00000000-0000-4000-8000-0000000053a0',
+      slug: 'agave-erp-sync',
+      name: 'Agave ERP Sync',
+      logo_url: null,
+    },
+    connector_powered: true,
+    claimed_at: null,
+    retired_at: null,
+    retired_by: null,
+  },
+  {
+    id: '00000000-0000-4000-8000-00000000531a',
+    anchor: 'evidenced_pair',
+    name: null,
+    mechanism_kind: null,
+    mechanism_name: null,
+    product_a: CONTEXT_PRIMARY,
+    product_b: OTHER_AUTODESK_BUILD,
+    connector: {
+      id: '00000000-0000-4000-8000-0000000053a1',
+      slug: 'kroo-connector',
+      name: 'Kroo Connector',
+      logo_url: null,
+    },
+    connector_powered: true,
+    claimed_at: '2026-09-22T00:00:00.000Z',
+    retired_at: null,
+    retired_by: null,
+  },
+];
 
 /**
  * The §7 detector ledger as the in-portal list reads it.

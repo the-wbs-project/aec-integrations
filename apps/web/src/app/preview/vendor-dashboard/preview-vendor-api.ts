@@ -56,9 +56,11 @@ import {
   VENDOR_CONTEST_NOTIFICATIONS_FIXTURE,
   VENDOR_CONTESTS_FIXTURE,
   VENDOR_DATA_OBJECTS_FIXTURE,
+  INTEGRATION_OWNED_VIA_CONNECTOR,
   INTEGRATION_RETIRED_BY_AECI,
   INTEGRATION_RETIRED_BY_OTHER,
   VENDOR_INTEGRATIONS_FIXTURE,
+  VENDOR_OWNED_INTEGRATIONS_FIXTURE,
   VENDOR_NOTIFICATIONS_FIXTURE,
   VENDOR_PRODUCT_CONNECTORS_FIXTURE,
   VENDOR_PRODUCT_VERSIONS_FIXTURE,
@@ -169,7 +171,13 @@ const PREVIEW_INTEGRATIONS: ListVendorIntegrationsResponse = {
     ...VENDOR_INTEGRATIONS_FIXTURE.integrations,
     INTEGRATION_RETIRED_BY_OTHER,
     INTEGRATION_RETIRED_BY_AECI,
+    // AECI-1089: a connector-delivered row Summit owns, so the card's claim (or the
+    // plan sentence, on the no-access presets) is reviewable.
+    INTEGRATION_OWNED_VIA_CONNECTOR,
   ],
+  // AECI-1089: the owned evidenced pairs, for the "Integrations your company offers"
+  // section on the primary product's tab.
+  owned: [...VENDOR_OWNED_INTEGRATIONS_FIXTURE],
 };
 
 /**
@@ -529,6 +537,30 @@ export class PreviewVendorApi extends VendorApi {
    *  entry for the integration (both frames when the caller owns both sides)
    *  reads as claimed. */
   override async claimIntegration(integrationId: string): Promise<ClaimIntegrationResponse> {
+    const now = '2026-09-22T12:00:00.000Z';
+    // AECI-1089: a connector-delivered row needs an active entitlement, read the
+    // way the server reads it (the resolved tier, fail closed).
+    const entitled = (this.me?.entitlement.tier ?? 'unclaimed') !== 'unclaimed';
+    const needsPlan = () =>
+      apiError(403, 'INTEGRATION_ENTITLEMENT_REQUIRED', 'An active plan is needed');
+
+    // The owned rows outside the attestable list (evidenced pairs and the like).
+    const owned = (this.integrations.owned ?? []).find((row) => row.id === integrationId);
+    if (owned) {
+      if (owned.connector_powered && !entitled) throw needsPlan();
+      if (owned.claimed_at) throw apiError(409, 'INTEGRATION_ALREADY_CLAIMED', 'Already claimed');
+      owned.claimed_at = now;
+      return {
+        integration: {
+          id: integrationId,
+          owner_vendor_id: this.me?.vendor.id ?? '',
+          claimed_at: now,
+          maintained_by: 'vendor',
+          last_reviewed_at: now,
+        },
+      };
+    }
+
     const entries = this.integrations.integrations.filter((i) => i.id === integrationId);
     const integration = entries[0];
     if (!integration) throw apiError(404, 'NOT_FOUND', 'Integration not found');
@@ -537,13 +569,10 @@ export class PreviewVendorApi extends VendorApi {
         ? apiError(403, 'INTEGRATION_NOT_OWNER', 'Another company owns this integration')
         : apiError(409, 'INTEGRATION_OWNER_UNKNOWN', 'No owner is on file');
     }
-    if (!integration.attestable) {
-      throw apiError(403, 'INTEGRATION_CONNECTOR_POWERED', 'Connector-delivered integration');
-    }
+    if (!integration.attestable && !entitled) throw needsPlan();
     if (integration.claimed_at) {
       throw apiError(409, 'INTEGRATION_ALREADY_CLAIMED', 'Already claimed');
     }
-    const now = '2026-09-22T12:00:00.000Z';
     for (const entry of entries) entry.claimed_at = now;
     return {
       integration: {

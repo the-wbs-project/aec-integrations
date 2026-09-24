@@ -10,14 +10,15 @@ A plan is what lets your company edit its own listings and confirm its integrati
 
 ## What a plan changes
 
-A vendor plan affects four things, and this is the complete list:
+A vendor plan affects five things, and this is the complete list:
 
 - what your company may edit about itself and its products: the profile, product details, categories, trades, audiences, phases and "How teams use it",
 - whether your company can confirm or deny data flows on its integrations ([Attesting an integration](/docs/vendors/attesting-an-integration)),
+- whether your company can claim an integration it owns that is delivered through a connector ([Owning an integration](/docs/vendors/owning-an-integration)),
 - whether the "Vendor account active" label appears on your listing,
 - how far back the version history on an integration page goes. Readers always see the current state in full. The comparison with older versions opens when either vendor at the ends of that integration holds a plan.
 
-Some things need only a seat, not a plan: managing seats, owning your integrations, adding your own links, and contesting a detail. See [Your seat](/docs/vendors/your-seat).
+Some things need only a seat, not a plan: managing seats, owning your integrations, adding your own links, and contesting a detail. The exception is claiming an integration delivered through a connector, which needs a plan. See [Your seat](/docs/vendors/your-seat).
 
 ## What a plan never changes
 
@@ -50,6 +51,7 @@ The portal shows your plan's status, and the end date where there is one. Before
 - Your listings stay published.
 - The "Vendor account active" label comes off.
 - You can no longer edit your profile or products, or confirm, deny or clear a data flow.
+- You can no longer claim an integration delivered through a connector. One you already claimed stays claimed.
 - Owning your integrations, your own links and contests keep working, because they need only a seat.
 
 ## Related

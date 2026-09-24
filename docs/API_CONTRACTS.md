@@ -278,12 +278,13 @@ Machine-readable codes are stable identifiers. Messages are localized.
 | `CONTEST_INVALID_VALUE` | 422 | The proposed value is wrong for its field: not an `http(s)` URL, not a known `mechanism_kind`, not a caller-relative direction, or an owner that is not one of the integration's endpoint vendors. `field` is `proposed_value` |
 | `INTEGRATION_NOT_OWNER` | 403 | `POST /api/vendor/integrations/:id/claim` or `PATCH /api/vendor/integrations/:id` (AECI-1006) by a vendor of one of the endpoints when another vendor is the recorded owner (`built_by_vendor_id`, AECI-1005). Its recourse is an `owner` contest |
 | `INTEGRATION_OWNER_UNKNOWN` | 409 | The same claim or edit when no owner is on file. An owner-unknown claim goes through AECi approval instead (AECI-1003 decision 11) |
-| `INTEGRATION_CONNECTOR_POWERED` | 403 | `POST /api/vendor/integrations/:id/claim` or `PATCH /api/vendor/integrations/:id` (AECI-1006) by the owner of a connector-powered row (`isConnectorPoweredEdge`: `powered_by` set or a connector `mechanism_kind`). Decision 9 keeps the claim off those rows in v1; AECI-1040 opens it. Also `PUT /api/vendor/integrations/:id/links/…` on such a row, after the side check (AECI-1007). A `DELETE` of the caller's own link passes, so a link stranded when promote made the row connector-powered in place can still be removed |
+| `INTEGRATION_CONNECTOR_POWERED` | 403 | `PATCH /api/vendor/integrations/:id` (AECI-1006), retire and restore (AECI-1010) by the owner of a connector-powered row (`isConnectorPoweredEdge`: `powered_by` set or a connector `mechanism_kind`), until AECI-1090 and AECI-1091 open them. **The claim no longer raises it (AECI-1089):** the owner of a connector-powered row gets `INTEGRATION_ENTITLEMENT_REQUIRED` without an active entitlement, and claims with one. Also `PUT /api/vendor/integrations/:id/links/…` on such a row, after the side check (AECI-1007). A `DELETE` of the caller's own link passes, so a link stranded when promote made the row connector-powered in place can still be removed |
+| `INTEGRATION_ENTITLEMENT_REQUIRED` | 403 | An owner write on a connector-powered row (either table) from a seat with no active entitlement (AECI-1089, AECI-1040 ruling 2, `STAGE_2_SPEC.md` §8.10(8)). The first entitlement check on an integration ownership route and a named exception to decision 15: every other integration route keeps the seat as its whole gate. Not a capability, and no tier is compared: it passes when the session resolved to a paid tier, which `tierFor` returns only for a `vendor_entitlements` row with `status = 'active'`. Raised only after ownership settles (so a non-owner still gets `404` / `INTEGRATION_NOT_OWNER` / `INTEGRATION_OWNER_UNKNOWN`) and only on a connector-powered row. `details: { tier, status }`, where `status` is the entitlement row's status or `null` when the vendor has none, so the portal can tell "never bought" from "lapsed". Its own code rather than `ENTITLEMENT_REQUIRED`, whose `details.capability` this gate cannot fill. Raised only from `integrationEntitlementRequired()` in `apps/api/src/lib/integration-entitlement.ts` |
 | `INTEGRATION_ALREADY_CLAIMED` | 409 | The integration is already claimed. Also the answer to the loser of two racing claims, whose batch rolls back entirely |
 | `INTEGRATION_RETIRED` | 409 | `POST /api/vendor/integrations/:id/retire` or `POST /api/admin/integrations/:id/retire` (AECI-1046) on a row already retired, and any other vendor write on a retired row: a new data-flow claim, an attestation upsert, a contest submit (including one whose batch lost a race with the retire), the owner edit `PATCH /api/vendor/integrations/:id` (AECI-1006, including one whose batch lost that race), and a per-side link `PUT` or `DELETE` (AECI-1007). Withdrawing an attestation is still allowed (AECI-1010) |
 | `INTEGRATION_NOT_RETIRED` | 409 | `POST /api/vendor/integrations/:id/restore` or `POST /api/admin/integrations/:id/restore` on a live row (AECI-1010, AECI-1046) |
 | `VENDOR_SEATS_CHANGED` | 409 | `DELETE /api/admin/vendors/:id/seats/:userId` or `PATCH /api/admin/reviewers/:id` on a vendor seat whose batch lost a race with another seat write on the same vendor: a double-click, a seat provisioned mid-request, or two seats removed at once. Nothing was written. Reload and try again (AECI-989) |
-| `INTEGRATION_CHANGED_WHILE_SAVING` | 409 | A retire, restore or owner edit whose batch lost a race, when the re-read finds no other refusal to give: a contest was filed on the row between the read and the batch, say. Nothing was written. Reload and try again (AECI-1010) |
+| `INTEGRATION_CHANGED_WHILE_SAVING` | 409 | A retire, restore, owner edit or claim (AECI-1089) whose batch lost a race, when the re-read finds no other refusal to give: a contest was filed on the row between the read and the batch, say, or (for a claim) promote moved the row to the other table. Nothing was written. Reload and try again (AECI-1010) |
 | `INTEGRATION_RETIRED_BY_AECI` | 403 | `POST /api/vendor/integrations/:id/restore` on a row an AECi admin retired (`retired_by = 'aeci'`). Only an admin restores an admin retire (AECI-1046, ruled 2026-09-22). Nothing is written |
 | `INTEGRATION_RETIRED_BY_OWNER` | 409 | `POST /api/admin/integrations/:id/restore` on a row its owner retired (`retired_by = 'owner'`, or NULL on a retire from before migration 0046). The owner controls its own retire, so the admin restore never undoes it (AECI-1046) |
 | `INTEGRATION_NOT_VENDOR_HELD` | 409 | `POST /api/admin/integrations/:id/retire` or `/restore` on an AECi-held row (not claimed and `origin = 'aeci'`). Promote, the review app and the retraction tools own that row, and a retire here would hide a row the next promote still writes (AECI-1046) |
@@ -2364,12 +2365,16 @@ what else rides the same batch:
 | none | the hand-back: `vendors.maintained_by` and each solely-owned product's `maintained_by` → `'aeci'`; `claimed_at` cleared on each live integration the vendor owns and claimed, so promote writes it again; that integration's `maintained_by` → `'aeci'` when no live vendor attestation survives; open owner contests → AECi for good |
 
 Each write carries its own audit row (`vendor.updated`, `product.updated`,
-`integration.updated`, `integration.contest.rerouted`). A write that would change nothing
+`integration.updated`, `integration.contest.rerouted`). Since AECI-1089 the un-claim and the
+marker flip also cover the vendor's live claimed `connector_evidenced_pairs` rows, audited on
+entity type `connector_evidenced_pair` with `metadata.anchor = 'evidenced_pair'`. A write that would change nothing
 is omitted with its row. `last_reviewed_at`, `built_by_vendor_id`, `origin`, retired rows,
 claims and attestations are never touched, and nothing is deleted. **Purge:** only the pages
 whose maintenance marker changed, through `CACHE_PURGE_QUEUE` with `source: 'moderation'`.
 That means `vendor:{slug}`, each flipped `product:{slug}` plus `index:products`, and the pair
-tag plus both product tags for each integration whose marker flipped. A revoke that leaves
+tag plus both product tags for each integration whose marker flipped (and its `powered_by`
+product's tag when set). An evidenced pair whose
+marker flipped also purges its connector's `product:` tag (AECI-1089). A revoke that leaves
 a seat purges nothing. The response is `204` in every case, and the wire shape is unchanged.
 Builder: `apps/api/src/lib/vendor-handback.ts`. Contract: `STAGE_2_ATTESTATIONS_SPEC.md` §13.9.
 
@@ -5189,7 +5194,7 @@ Source of truth: `packages/shared/src/api/vendor.ts` + `product-versions.ts` + `
 
    **Named exception: integration field contests (AECI-1008).** The four contest endpoints below need a seat and nothing else. A contest asks for a public fact to be fixed and writes nothing public by itself, and gating accuracy behind a paid tier is the pay-for-placement line from the other side. The owner accept does write the catalog, and it is still not capability-gated, because the owner is deciding someone else's request about a row it already maintains. `STAGE_2_VENDOR_PORTAL_SPEC.md` §11b.2 holds the reasoning.
 
-   **Second named exception: integration ownership (AECI-1005, AECI-1003 decision 15).** `POST /api/vendor/integrations/:id/claim` needs a seat and nothing else, and so does `PATCH /api/vendor/integrations/:id` (AECI-1006), and so do the later owner writes on integrations (AECI-1010 retire and restore, AECI-1011 create). The per-side link writes (AECI-1007, below) are seat-gated the same way; they need an endpoint, not ownership. Who gets a seat is the commercial control (decision 14: an owner pays); there is no `integration.edit` capability. `STAGE_2_VENDOR_PORTAL_SPEC.md` §4.5 holds the contract.
+   **Second named exception: integration ownership (AECI-1005, AECI-1003 decision 15).** `POST /api/vendor/integrations/:id/claim` needs a seat and nothing else (except on a connector-powered row, below), and so does `PATCH /api/vendor/integrations/:id` (AECI-1006), and so do the later owner writes on integrations (AECI-1010 retire and restore, AECI-1011 create). The per-side link writes (AECI-1007, below) are seat-gated the same way; they need an endpoint, not ownership. Who gets a seat is the commercial control (decision 14: an owner pays); there is no `integration.edit` capability. `STAGE_2_VENDOR_PORTAL_SPEC.md` §4.5 holds the contract. **One exception inside the exception (AECI-1040 ruling 2, AECI-1089):** an owner write on a connector-powered row also needs an active entitlement, and answers `403 INTEGRATION_ENTITLEMENT_REQUIRED` without one. It is not a capability and compares no tier (`apps/api/src/lib/integration-entitlement.ts`). Built for the claim; the edit, retire and contest decision reuse it when they open.
 
 Every editable field is `.nullable().optional()`: an **absent** key leaves the column untouched, an explicit **`null`** clears it. Taxonomy arrays are set-replacement — absent leaves the facet alone, `[]` clears it. URLs must be `http://` or `https://` (§7.1); a plain `.url()` would accept `javascript:`.
 
@@ -5470,6 +5475,7 @@ export const VendorRevisionsSchema = z.object({
   entitlement: z.string().nullable(),    // MAX(vendor_entitlements.updated_at) — vendor_id is UNIQUE, so ≤ 1 row
   products: z.string().nullable(),       // MAX(products.updated_at) over product_vendors
   integrations: z.string().nullable(),   // MAX over integrations ∪ claims ∪ attestations on the attestable surface (row term: AECI-992; it is also what moves on an AECI-1005 claim)
+                                         // ∪ the rows the vendor owns in either table (AECI-1089, the `owned` list's predicates)
   notifications: z.string().nullable(),  // MAX(audit_log.created_at) over this vendor's notification.sent ledger
   requests: z.string().nullable(),       // MAX(COALESCE(resolved_at, created_at)) — vendor_requests has no updated_at
   contests: z.string().nullable().default(null), // AECI-1008: MAX(integration_field_challenges.updated_at)
@@ -5481,7 +5487,7 @@ export const VendorUpdatesResponseSchema = z.object({
 });
 ```
 
-**The invariant that makes it correct: every cursor query reuses the scoping predicate of the handler it is a cursor for.** Not an equivalent predicate — the same one, imported (`ownedProductIds` / `vendorRequestsWhere` in `vendor-shared.ts`, `ownedEndpointJoin` in `lib/attestation-authority.ts`, `vendorNotificationLedgerWhere` in `vendor-notifications.ts`, `vendorContestsWhere` in `lib/integration-contests.ts`). A cursor that scopes **too narrowly** never moves for a change its section would show, so the client stops refetching and the portal goes silently stale; one that scopes **too widely** moves on a row the section will never return, which both amplifies polling and — with no RLS behind `/api/vendor/*` (ADR 0016) — leaks the *existence* of another vendor's write through the timestamp.
+**The invariant that makes it correct: every cursor query reuses the scoping predicate of the handler it is a cursor for.** Not an equivalent predicate — the same one, imported (`ownedProductIds` / `vendorRequestsWhere` in `vendor-shared.ts`, `ownedEndpointJoin` in `lib/attestation-authority.ts`, `ownedIntegrationsWhere` / `ownedEvidencedPairsWhere` in `lib/owned-integrations.ts` (AECI-1089), `vendorNotificationLedgerWhere` in `vendor-notifications.ts`, `vendorContestsWhere` in `lib/integration-contests.ts`). A cursor that scopes **too narrowly** never moves for a change its section would show, so the client stops refetching and the portal goes silently stale; one that scopes **too widely** moves on a row the section will never return, which both amplifies polling and — with no RLS behind `/api/vendor/*` (ADR 0016) — leaks the *existence* of another vendor's write through the timestamp.
 
 Two consumer rules follow from what a cursor is:
 
@@ -5830,7 +5836,26 @@ export const ListDataObjectsResponseSchema = z.object({
 });
 ```
 
-**`GET /api/vendor/integrations`** returns every integration touching a product the caller owns, with each claim's live attestations resolved into `mine` / `counterparty`, its computed `agreement`, and the slot(s) that are the caller's. Unpaginated — the set is bounded by the vendor's own catalog. Retracted attestations never appear (`retracted_at IS NULL`, the same filter the public pair page applies). Claims are ordered by the `data_object` vocabulary's `display_order`. A vendor whose products carry no integrations gets `200 { integrations: [] }`, not a 404.
+**`GET /api/vendor/integrations`** returns every integration touching a product the caller owns, with each claim's live attestations resolved into `mine` / `counterparty`, its computed `agreement`, and the slot(s) that are the caller's. Unpaginated — the set is bounded by the vendor's own catalog. Retracted attestations never appear (`retracted_at IS NULL`, the same filter the public pair page applies). Claims are ordered by the `data_object` vocabulary's `display_order`. A vendor whose products carry no integrations gets `200 { integrations: [], owned: [] }`, not a 404.
+
+**`owned` (AECI-1089).** The rows the caller's vendor owns (`built_by_vendor_id`) that `integrations` does not carry: every owned `connector_evidenced_pairs` row, and every owned `integrations` row on which the caller holds no endpoint. A third-party owner makes neither product of its rows, so this is the only place it sees them. Retired rows are listed. Sorted by `product_a` name, then `product_b` name (`compareText`), then `id`. `.default([])` for deploy skew. The freshness cursor covers it (`GET /api/vendor/updates`).
+
+```typescript
+export const OwnedIntegrationSchema = z.object({
+  id: z.string().uuid(),
+  anchor: z.enum(['integration', 'evidenced_pair']),  // which table holds it
+  name: z.string().nullable(),
+  mechanism_kind: IntegrationMechanismKindSchema.nullable(), // null on an evidenced pair
+  mechanism_name: z.string().nullable(),
+  product_a: ProductLinkSchema,          // source on integrations, product_a on a pair
+  product_b: ProductLinkSchema,          // target on integrations, product_b on a pair
+  connector: ProductLinkSchema.nullable(), // powered_by product, or the pair's connector
+  connector_powered: z.boolean(),        // decision 9's predicate, computed server-side
+  claimed_at: z.string().nullable(),
+  retired_at: z.string().nullable(),
+  retired_by: IntegrationRetiredBySchema.nullable(),
+});
+```
 
 **`POST /api/vendor/claims`** creates the claim **and** the caller's affirming attestation in one batch. There is no `asserted` field — creating a claim *is* affirming it; recording a denial means `PUT` on a claim that already exists. `origin` is set to `'vendor'` with `created_by_vendor_id` (§2.2), never from the request.
 
@@ -5952,9 +5977,11 @@ Stage 2.1 (AECI-1005, ADR 0035, `STAGE_2_VENDOR_PORTAL_SPEC.md` §4.5). The reco
 
 | Method | Path | Gate | Success |
 |---|---|---|---|
-| `POST` | `/api/vendor/integrations/:id/claim` | seat, `rateLimit('write')`, caller = `built_by_vendor_id` | `200 { integration }` |
+| `POST` | `/api/vendor/integrations/:id/claim` | seat, `rateLimit('write')`, caller = `built_by_vendor_id`; on a connector-powered row also an active entitlement | `200 { integration }` |
 
-**No body and no capability gate.** A seat is the whole gate (AECI-1003 decision 15), the same named exception to invariant 3 that contests took. No approval: the owner is on file, so the claim goes straight through.
+**No body and no capability gate.** A seat is the whole gate (AECI-1003 decision 15), the same named exception to invariant 3 that contests took, **except on a connector-powered row, where the owner also needs an active entitlement** (AECI-1089, AECI-1040 ruling 2). No approval: the owner is on file, so the claim goes straight through.
+
+**Either table (AECI-1089).** `:id` may name an `integrations` row or a `connector_evidenced_pairs` row. The handler looks in `integrations` first, then in the pair table, as promote's `locateEdge` does. On a pair, "endpoint" means `product_a` or `product_b`; the connector product's vendor is not an endpoint vendor.
 
 ```typescript
 export const ClaimIntegrationResponseSchema = z.object({
@@ -5968,9 +5995,9 @@ export const ClaimIntegrationResponseSchema = z.object({
 });
 ```
 
-**Order: row → ownership → state.** An unknown id, and a row whose endpoints the caller owns neither of (and which it does not own), are the same `404`. A vendor of either endpoint can already see the row, so it gets `403 INTEGRATION_NOT_OWNER` when another vendor owns it and `409 INTEGRATION_OWNER_UNKNOWN` when nobody is on file. The owner of a connector-powered row gets `403 INTEGRATION_CONNECTOR_POWERED` (decision 9 covers the claim in v1, ruled 2026-09-22; AECI-1040 opens it). An already-claimed row is `409 INTEGRATION_ALREADY_CLAIMED`.
+**Order: row → ownership → state.** An unknown id, and a row whose endpoints the caller owns neither of (and which it does not own), are the same `404`. A vendor of either endpoint can already see the row, so it gets `403 INTEGRATION_NOT_OWNER` when another vendor owns it and `409 INTEGRATION_OWNER_UNKNOWN` when nobody is on file. The owner of a connector-powered row (`isConnectorPoweredEdge`, or any evidenced pair) with no active entitlement gets `403 INTEGRATION_ENTITLEMENT_REQUIRED`, `details: { tier, status }`. It answered `403 INTEGRATION_CONNECTOR_POWERED` until AECI-1089. An already-claimed row is `409 INTEGRATION_ALREADY_CLAIMED`.
 
-**One batch.** The guarded `UPDATE … SET claimed_at, maintained_by = 'vendor', last_reviewed_at WHERE claimed_at IS NULL AND built_by_vendor_id = <caller>`, a race sentinel right after it, an `integration.claimed` audit row (`metadata.source: 'vendor-portal'`, `reason: 'owner-claim'`, `maintenanceTransfer: true` only on the hand-changing claim), and one `notification.sent` row (`metadata.kind: 'integration_claim'`) per vendor of either endpoint other than the owner. A lost race writes nothing and answers `409`. After commit it purges `pair:{a}__{b}` and both `product:` tags and queues the pair re-crawl.
+**One batch.** The guarded `UPDATE … SET claimed_at, maintained_by = 'vendor', last_reviewed_at WHERE claimed_at IS NULL AND built_by_vendor_id = <caller>` on whichever table holds the row, a race sentinel right after it, an `integration.claimed` audit row (entity `integration` or `connector_evidenced_pair`; `metadata.source: 'vendor-portal'`, `reason: 'owner-claim'`, `maintenanceTransfer: true` only on the hand-changing claim, and `connectorPowered: true` with `anchor` only on the carve-out), and one `notification.sent` row (`metadata.kind: 'integration_claim'`) per vendor of either endpoint other than the owner. A lost race writes nothing and answers the refusal the re-read finds, or `409 INTEGRATION_CHANGED_WHILE_SAVING` when there is none (promote moved the row to the other table, say). After commit it purges `pair:{a}__{b}` and both `product:` tags, plus the connector's `product:` tag on a pair, and queues the pair re-crawl.
 
 **After the claim,** promote writes nothing to the row (§6.12) and content contests on it route to the owner.
 

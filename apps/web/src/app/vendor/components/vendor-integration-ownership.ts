@@ -25,6 +25,7 @@ import { directionHeading } from '../../products/pair-direction-labels';
 import { mechanismKindLabel } from '../../search/mechanism-labels';
 import { VendorPortalAnnouncer } from '../vendor-announcer';
 import { VendorApi } from '../vendor-api';
+import { vendorHasActiveEntitlement } from '../vendor-capabilities';
 import { VendorPortalStore } from '../vendor-portal-store';
 
 import { contestFieldLabel } from './vendor-contest-labels';
@@ -75,7 +76,12 @@ export type OwnershipState =
   | 'owner-claimed'
   | 'owner-retired'
   | 'owner-unclaimed'
-  | 'owner-connector'
+  // AECI-1089: the owner of a connector-delivered row. It may claim with an active
+  // entitlement (`owner-connector-unclaimed`), and is told a plan is needed without
+  // one (`owner-connector-locked`). A claimed one has no edit form until AECI-1090.
+  | 'owner-connector-unclaimed'
+  | 'owner-connector-locked'
+  | 'owner-connector-claimed'
   | 'other-owned'
   | 'other-unclaimed'
   | 'no-owner';
@@ -91,14 +97,17 @@ export type OwnershipState =
  * - **the owner, unclaimed** — a Claim button. Editing is meaningless until the
  *   row is claimed, because promote still writes it;
  * - **the owner, claimed** — "Edit details", a disclosure over the edit form;
- * - **the owner of a connector-delivered row** — a sentence saying it cannot be
- *   claimed or edited yet (AECI-1003 decision 9). `attestable` is the server's
- *   connector-powered verdict, read off the wire and never re-derived;
+ * - **the owner of a connector-delivered row** (AECI-1089) — Claim when the vendor
+ *   holds an active entitlement, and a sentence saying a plan is needed when it
+ *   does not (AECI-1040 ruling 2). Once claimed, a line saying it owns the row;
+ *   editing it is AECI-1090. `attestable` is the server's connector-powered
+ *   verdict, read off the wire and never re-derived;
  * - **anyone else** — "Offered by {vendor}", and who reviews a contest on it.
  *   The contest form below the card is their recourse.
  *
- * A seat is the whole gate (decision 15), so nothing here reads `canWrite` or
- * the entitlement.
+ * A seat is the whole gate (decision 15), so nothing here reads `canWrite`. The
+ * one exception is the connector-delivered row, which reads the resolved tier
+ * through `vendorHasActiveEntitlement`, the client half of the server's gate.
  *
  * ── PESSIMISTIC, NOT OPTIMISTIC ─────────────────────────────────────────────
  * The realtime spec keeps forms pessimistic (`STAGE_2_REALTIME_SPEC.md` §4):
@@ -117,12 +126,37 @@ export type OwnershipState =
   styles: [':host { display: block; }'],
   template: `
     <div class="border-t border-(--border-default) px-5 py-4" data-testid="integration-ownership">
-      <p class="max-w-prose text-sm text-(--text-primary)" data-testid="ownership-line">
+      <p
+        #line
+        tabindex="-1"
+        class="max-w-prose text-sm text-(--text-primary) focus:outline-none"
+        data-testid="ownership-line"
+      >
         {{ ownershipLine() }}
       </p>
 
-      @switch (state()) {
-        @case ('owner-unclaimed') {
+      @if (state() === 'owner-connector-locked') {
+        <p
+          class="mt-1 max-w-prose text-xs text-(--text-secondary)"
+          data-testid="claim-needs-plan"
+          i18n="@@vendor.integrationClaim.needsPlan"
+        >
+          Claiming an integration delivered through a connector needs an active plan. Contact AEC
+          Integrations to activate it.
+        </p>
+      }
+      @if (state() === 'owner-unclaimed' || state() === 'owner-connector-unclaimed') {
+        @if (state() === 'owner-connector-unclaimed') {
+          <!-- AECI-1089: no edit form on a connector-delivered row yet (AECI-1090),
+               so this hint does not promise edits. -->
+          <p
+            class="mt-1 max-w-prose text-xs text-(--text-secondary)"
+            i18n="@@vendor.integrationClaim.hintConnector"
+          >
+            Claiming takes this integration over from AEC Integrations. Our catalogue updates stop
+            reaching it. The other product's vendor is told that you claimed it.
+          </p>
+        } @else {
           <p
             class="mt-1 max-w-prose text-xs text-(--text-secondary)"
             i18n="@@vendor.integrationClaim.hint"
@@ -131,203 +165,200 @@ export type OwnershipState =
             reaching it, and your edits go live on the public page with no review. The other
             product's vendor is told that you claimed it.
           </p>
-          <div class="mt-3 flex flex-wrap items-center gap-3">
-            <button
-              type="button"
-              [class]="primaryButtonClass"
-              [disabled]="claiming()"
-              (click)="onClaim()"
-              data-testid="claim-integration"
-            >
-              @if (claiming()) {
-                <span i18n="@@vendor.integrationClaim.claiming">Claiming…</span>
-              } @else {
-                <span i18n="@@vendor.integrationClaim.button">Claim this integration</span>
-              }
-            </button>
-          </div>
-          @if (claimNotice(); as message) {
-            <p role="alert" class="mt-3 text-sm font-medium text-(--text-primary)">
-              {{ message }}
-            </p>
-          }
         }
-        @case ('owner-claimed') {
-          <div class="mt-3">
-            <button
-              #trigger
-              type="button"
-              [attr.aria-expanded]="editing()"
-              [attr.aria-controls]="fieldId('form')"
-              (click)="toggleEdit()"
-              [class]="triggerClass"
-              data-testid="edit-integration"
-              i18n="@@vendor.integrationEdit.trigger"
-            >
-              Edit details
-            </button>
-          </div>
+        <div class="mt-3 flex flex-wrap items-center gap-3">
+          <button
+            type="button"
+            [class]="primaryButtonClass"
+            [disabled]="claiming()"
+            (click)="onClaim()"
+            data-testid="claim-integration"
+          >
+            @if (claiming()) {
+              <span i18n="@@vendor.integrationClaim.claiming">Claiming…</span>
+            } @else {
+              <span i18n="@@vendor.integrationClaim.button">Claim this integration</span>
+            }
+          </button>
+        </div>
+        @if (claimNotice(); as message) {
+          <p role="alert" class="mt-3 text-sm font-medium text-(--text-primary)">
+            {{ message }}
+          </p>
+        }
+      } @else if (state() === 'owner-claimed') {
+        <div class="mt-3">
+          <button
+            #trigger
+            type="button"
+            [attr.aria-expanded]="editing()"
+            [attr.aria-controls]="fieldId('form')"
+            (click)="toggleEdit()"
+            [class]="triggerClass"
+            data-testid="edit-integration"
+            i18n="@@vendor.integrationEdit.trigger"
+          >
+            Edit details
+          </button>
+        </div>
 
-          @if (editing()) {
-            <form
-              [id]="fieldId('form')"
-              class="mt-4 space-y-6"
-              novalidate
-              (submit)="onSave($event)"
-              [attr.aria-labelledby]="fieldId('title')"
-            >
-              <div class="max-w-prose space-y-1">
-                <p
-                  [id]="fieldId('title')"
-                  class="text-sm font-semibold text-(--text-primary)"
-                  i18n="@@vendor.integrationEdit.title"
-                >
-                  Edit this integration
-                </p>
-                <p class="text-xs text-(--text-secondary)" i18n="@@vendor.integrationEdit.intro">
-                  Changes go live on the public integration page as soon as you save. There is no
-                  review step. The other product's vendor is told what changed.
-                </p>
-              </div>
-
-              @for (group of groups; track group.key) {
-                <fieldset class="space-y-4">
-                  <legend [class]="legendClass">{{ groupLabel(group.key) }}</legend>
-                  @for (field of group.fields; track field) {
-                    <div class="max-w-2xl space-y-2">
-                      <label [for]="fieldId(field)" [class]="labelClass">
-                        {{ fieldLabel(field) }}
-                        @if (!required(field)) {
-                          <span class="font-normal tracking-normal normal-case">{{
-                            optionalLabel
-                          }}</span>
-                        }
-                      </label>
-                      @switch (control(field)) {
-                        @case ('textarea') {
-                          <textarea
-                            [id]="fieldId(field)"
-                            rows="4"
-                            [attr.maxlength]="maxLength(field)"
-                            [value]="draft()[field]"
-                            (input)="onInput(field, inputValue($event))"
-                            [attr.aria-invalid]="showError(field) ? 'true' : null"
-                            [attr.aria-describedby]="
-                              showError(field) ? fieldId(field) + '-error' : null
-                            "
-                            [class]="inputClass"
-                          ></textarea>
-                        }
-                        @case ('url') {
-                          <input
-                            [id]="fieldId(field)"
-                            type="url"
-                            inputmode="url"
-                            autocomplete="url"
-                            [attr.maxlength]="maxLength(field)"
-                            [value]="draft()[field]"
-                            (input)="onInput(field, inputValue($event))"
-                            [attr.aria-invalid]="showError(field) ? 'true' : null"
-                            [attr.aria-describedby]="
-                              showError(field) ? fieldId(field) + '-error' : null
-                            "
-                            [class]="inputClass"
-                          />
-                        }
-                        @case ('text') {
-                          <input
-                            [id]="fieldId(field)"
-                            type="text"
-                            [attr.maxlength]="maxLength(field)"
-                            [value]="draft()[field]"
-                            (input)="onInput(field, inputValue($event))"
-                            [attr.aria-invalid]="showError(field) ? 'true' : null"
-                            [attr.aria-describedby]="
-                              showError(field) ? fieldId(field) + '-error' : null
-                            "
-                            [class]="inputClass"
-                          />
-                        }
-                        @default {
-                          <div class="relative max-w-sm">
-                            <select
-                              [id]="fieldId(field)"
-                              (change)="onInput(field, selectValue($event))"
-                              [attr.aria-invalid]="showError(field) ? 'true' : null"
-                              [attr.aria-describedby]="
-                                showError(field) ? fieldId(field) + '-error' : null
-                              "
-                              [class]="selectClass"
-                            >
-                              @if (draft()[field] === '') {
-                                <option value="" disabled selected>{{ choosePlaceholder }}</option>
-                              }
-                              @for (option of optionsFor(field); track option.value) {
-                                <option
-                                  [value]="option.value"
-                                  [selected]="option.value === draft()[field]"
-                                >
-                                  {{ option.label }}
-                                </option>
-                              }
-                            </select>
-                            <svg
-                              class="pointer-events-none absolute end-3 top-1/2 h-4 w-4 -translate-y-1/2 text-(--text-secondary)"
-                              viewBox="0 0 24 24"
-                              fill="none"
-                              stroke="currentColor"
-                              stroke-width="2"
-                              stroke-linecap="round"
-                              stroke-linejoin="round"
-                              aria-hidden="true"
-                            >
-                              <path d="m6 9 6 6 6-6" />
-                            </svg>
-                          </div>
-                        }
-                      }
-                      @if (showError(field)) {
-                        <p
-                          [id]="fieldId(field) + '-error'"
-                          role="alert"
-                          class="text-xs font-medium text-(--text-primary)"
-                        >
-                          {{ errorFor(field) }}
-                        </p>
-                      }
-                    </div>
-                  }
-                </fieldset>
-              }
-
-              <div
-                class="flex flex-wrap items-center gap-3 border-t border-(--border-default) pt-4"
+        @if (editing()) {
+          <form
+            [id]="fieldId('form')"
+            class="mt-4 space-y-6"
+            novalidate
+            (submit)="onSave($event)"
+            [attr.aria-labelledby]="fieldId('title')"
+          >
+            <div class="max-w-prose space-y-1">
+              <p
+                [id]="fieldId('title')"
+                class="text-sm font-semibold text-(--text-primary)"
+                i18n="@@vendor.integrationEdit.title"
               >
-                <button type="submit" [class]="primaryButtonClass" [disabled]="saving()">
-                  @if (saving()) {
-                    <span i18n="@@vendor.integrationEdit.saving">Saving…</span>
-                  } @else {
-                    <span i18n="@@vendor.integrationEdit.save">Save changes</span>
-                  }
-                </button>
-                <button
-                  type="button"
-                  [class]="secondaryButtonClass"
-                  [disabled]="saving()"
-                  (click)="closeEdit()"
-                  i18n="@@vendor.integrationEdit.cancel"
-                >
-                  Cancel
-                </button>
-              </div>
+                Edit this integration
+              </p>
+              <p class="text-xs text-(--text-secondary)" i18n="@@vendor.integrationEdit.intro">
+                Changes go live on the public integration page as soon as you save. There is no
+                review step. The other product's vendor is told what changed.
+              </p>
+            </div>
 
-              @if (saveNotice(); as message) {
-                <p role="alert" class="text-sm font-medium text-(--text-primary)">
-                  {{ message }}
-                </p>
-              }
-            </form>
-          }
+            @for (group of groups; track group.key) {
+              <fieldset class="space-y-4">
+                <legend [class]="legendClass">{{ groupLabel(group.key) }}</legend>
+                @for (field of group.fields; track field) {
+                  <div class="max-w-2xl space-y-2">
+                    <label [for]="fieldId(field)" [class]="labelClass">
+                      {{ fieldLabel(field) }}
+                      @if (!required(field)) {
+                        <span class="font-normal tracking-normal normal-case">{{
+                          optionalLabel
+                        }}</span>
+                      }
+                    </label>
+                    @switch (control(field)) {
+                      @case ('textarea') {
+                        <textarea
+                          [id]="fieldId(field)"
+                          rows="4"
+                          [attr.maxlength]="maxLength(field)"
+                          [value]="draft()[field]"
+                          (input)="onInput(field, inputValue($event))"
+                          [attr.aria-invalid]="showError(field) ? 'true' : null"
+                          [attr.aria-describedby]="
+                            showError(field) ? fieldId(field) + '-error' : null
+                          "
+                          [class]="inputClass"
+                        ></textarea>
+                      }
+                      @case ('url') {
+                        <input
+                          [id]="fieldId(field)"
+                          type="url"
+                          inputmode="url"
+                          autocomplete="url"
+                          [attr.maxlength]="maxLength(field)"
+                          [value]="draft()[field]"
+                          (input)="onInput(field, inputValue($event))"
+                          [attr.aria-invalid]="showError(field) ? 'true' : null"
+                          [attr.aria-describedby]="
+                            showError(field) ? fieldId(field) + '-error' : null
+                          "
+                          [class]="inputClass"
+                        />
+                      }
+                      @case ('text') {
+                        <input
+                          [id]="fieldId(field)"
+                          type="text"
+                          [attr.maxlength]="maxLength(field)"
+                          [value]="draft()[field]"
+                          (input)="onInput(field, inputValue($event))"
+                          [attr.aria-invalid]="showError(field) ? 'true' : null"
+                          [attr.aria-describedby]="
+                            showError(field) ? fieldId(field) + '-error' : null
+                          "
+                          [class]="inputClass"
+                        />
+                      }
+                      @default {
+                        <div class="relative max-w-sm">
+                          <select
+                            [id]="fieldId(field)"
+                            (change)="onInput(field, selectValue($event))"
+                            [attr.aria-invalid]="showError(field) ? 'true' : null"
+                            [attr.aria-describedby]="
+                              showError(field) ? fieldId(field) + '-error' : null
+                            "
+                            [class]="selectClass"
+                          >
+                            @if (draft()[field] === '') {
+                              <option value="" disabled selected>{{ choosePlaceholder }}</option>
+                            }
+                            @for (option of optionsFor(field); track option.value) {
+                              <option
+                                [value]="option.value"
+                                [selected]="option.value === draft()[field]"
+                              >
+                                {{ option.label }}
+                              </option>
+                            }
+                          </select>
+                          <svg
+                            class="pointer-events-none absolute end-3 top-1/2 h-4 w-4 -translate-y-1/2 text-(--text-secondary)"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            stroke-width="2"
+                            stroke-linecap="round"
+                            stroke-linejoin="round"
+                            aria-hidden="true"
+                          >
+                            <path d="m6 9 6 6 6-6" />
+                          </svg>
+                        </div>
+                      }
+                    }
+                    @if (showError(field)) {
+                      <p
+                        [id]="fieldId(field) + '-error'"
+                        role="alert"
+                        class="text-xs font-medium text-(--text-primary)"
+                      >
+                        {{ errorFor(field) }}
+                      </p>
+                    }
+                  </div>
+                }
+              </fieldset>
+            }
+
+            <div class="flex flex-wrap items-center gap-3 border-t border-(--border-default) pt-4">
+              <button type="submit" [class]="primaryButtonClass" [disabled]="saving()">
+                @if (saving()) {
+                  <span i18n="@@vendor.integrationEdit.saving">Saving…</span>
+                } @else {
+                  <span i18n="@@vendor.integrationEdit.save">Save changes</span>
+                }
+              </button>
+              <button
+                type="button"
+                [class]="secondaryButtonClass"
+                [disabled]="saving()"
+                (click)="closeEdit()"
+                i18n="@@vendor.integrationEdit.cancel"
+              >
+                Cancel
+              </button>
+            </div>
+
+            @if (saveNotice(); as message) {
+              <p role="alert" class="text-sm font-medium text-(--text-primary)">
+                {{ message }}
+              </p>
+            }
+          </form>
         }
       }
     </div>
@@ -342,6 +373,7 @@ export class VendorIntegrationOwnership {
   readonly integration = input.required<VendorIntegration>();
 
   private readonly trigger = viewChild<ElementRef<HTMLButtonElement>>('trigger');
+  private readonly line = viewChild<ElementRef<HTMLParagraphElement>>('line');
 
   protected readonly groups = EDIT_GROUPS;
 
@@ -358,12 +390,21 @@ export class VendorIntegrationOwnership {
   protected readonly optionalLabel = $localize`:@@vendor.integrationEdit.optional:(optional)`;
   protected readonly choosePlaceholder = $localize`:@@vendor.integrationEdit.choose:Choose a value`;
 
+  /** The client half of the carve-out's entitlement gate (AECI-1089). */
+  private readonly entitled = vendorHasActiveEntitlement(this.store);
+
   readonly state = computed<OwnershipState>(() => {
     const integration = this.integration();
     if (integration.is_owner) {
       // `attestable` is the server's connector-powered verdict (AECI-705).
-      if (!integration.attestable) return 'owner-connector';
-      if (!integration.claimed_at) return 'owner-unclaimed';
+      const connector = !integration.attestable;
+      if (!integration.claimed_at) {
+        if (!connector) return 'owner-unclaimed';
+        return this.entitled() ? 'owner-connector-unclaimed' : 'owner-connector-locked';
+      }
+      if (integration.retired_at) return 'owner-retired';
+      // AECI-1089: a claimed connector-delivered row. Its edit form is AECI-1090.
+      if (connector) return 'owner-connector-claimed';
       // AECI-1010: a retired row takes no edit. The server answers 409
       // INTEGRATION_RETIRED; the form is not offered. Restore is on the card's foot.
       return integration.retired_at ? 'owner-retired' : 'owner-claimed';
@@ -384,8 +425,14 @@ export class VendorIntegrationOwnership {
           : $localize`:@@vendor.integrationOwnership.ownerRetired:Your company owns this integration and has retired it. Restore it to edit its details.`;
       case 'owner-unclaimed':
         return $localize`:@@vendor.integrationOwnership.ownerUnclaimed:Your company is recorded as the owner of this integration. Claim it to edit its details.`;
-      case 'owner-connector':
-        return $localize`:@@vendor.integrationOwnership.ownerConnector:Your company is recorded as the owner of this integration. Integrations delivered through a connector cannot be claimed or edited yet.`;
+      case 'owner-connector-unclaimed':
+        return $localize`:@@vendor.integrationOwnership.ownerConnectorUnclaimed:Your company is recorded as the owner of this integration, which is delivered through a connector. Claim it to take over its details.`;
+      case 'owner-connector-locked':
+        // No Claim button renders here, so the line does not ask for one. The note
+        // below says an active plan is needed (AECI-1089 review).
+        return $localize`:@@vendor.integrationOwnership.ownerConnectorLocked:Your company is recorded as the owner of this integration, which is delivered through a connector. AEC Integrations maintains its details.`;
+      case 'owner-connector-claimed':
+        return $localize`:@@vendor.integrationOwnership.ownerConnectorClaimed:Your company owns this integration, which is delivered through a connector. Editing its details here is not available yet.`;
       case 'other-owned':
         return $localize`:@@vendor.integrationOwnership.otherOwned:Offered by ${owner}:owner:. ${owner}:owner: maintains its details, and reviews any contest you send about them. A contest about who owns it goes to AEC Integrations.`;
       case 'other-unclaimed':
@@ -401,16 +448,23 @@ export class VendorIntegrationOwnership {
     if (this.claiming()) return;
     this.claiming.set(true);
     this.claimNotice.set(null);
+    // AECI-1089: a claimed connector-delivered row has no edit form yet (AECI-1090),
+    // so the announcement does not promise one and focus goes to the status line.
+    const connector = !this.integration().attestable;
     try {
       await this.api.claimIntegration(this.integration().id);
       this.announcer.announce(
-        $localize`:@@vendor.integrationClaim.live.done:You claimed this integration. You can now edit its details.`,
+        connector
+          ? $localize`:@@vendor.integrationClaim.live.doneConnector:You claimed this integration. AEC Integrations no longer updates it.`
+          : $localize`:@@vendor.integrationClaim.live.done:You claimed this integration. You can now edit its details.`,
       );
       await this.store.revalidate(['integrations']);
       // The Claim button is gone once the row reads as claimed. Hand focus to the
-      // Edit trigger that replaced it, so a keyboard user is not dropped at the
-      // top of the page.
-      afterNextRender(() => this.trigger()?.nativeElement.focus(), { injector: this.injector });
+      // Edit trigger that replaced it (or the status line when there is none), so a
+      // keyboard user is not dropped at the top of the page.
+      afterNextRender(() => (this.trigger() ?? this.line())?.nativeElement.focus(), {
+        injector: this.injector,
+      });
     } catch (err) {
       this.claimNotice.set(claimErrorMessage(err));
     } finally {

@@ -60,6 +60,7 @@ import {
 
 import type {
   ListVendorContestsResponse,
+  OwnedIntegration,
   VendorIntegration,
   VendorMeResponse,
   VendorNotification,
@@ -268,6 +269,18 @@ export class VendorPortalStore {
   private readonly manageSeats = signal(false);
   readonly seatInvites: Signal<readonly ManageableSeatInvite[]> = this.invites.asReadonly();
   readonly canManageSeats: Signal<boolean> = this.manageSeats.asReadonly();
+
+  /**
+   * The rows the vendor owns that the attestable list does not carry (AECI-1089):
+   * its owned evidenced pairs, and owned `integrations` rows on which it holds no
+   * endpoint. They arrive on the SAME `GET /api/vendor/integrations` fetch, so they
+   * share its status and cursor scope. A plain signal for the reason the two seat
+   * signals above are one: a separate resource key would add bookkeeping for data
+   * that cannot load separately. No form edits these rows, so no dirty section can
+   * be holding them.
+   */
+  private readonly owned = signal<readonly OwnedIntegration[]>([]);
+  readonly ownedIntegrations: Signal<readonly OwnedIntegration[]> = this.owned.asReadonly();
 
   readonly meStatus: Signal<VendorPortalStatus> = this.statuses.me.asReadonly();
   readonly integrationsStatus: Signal<VendorPortalStatus> = this.statuses.integrations.asReadonly();
@@ -501,9 +514,14 @@ export class VendorPortalStore {
         case 'me':
           this.receive('me', await this.api.getMe());
           break;
-        case 'integrations':
-          this.receive('integrations', (await this.api.getIntegrations()).integrations);
+        case 'integrations': {
+          const payload = await this.api.getIntegrations();
+          this.receive('integrations', payload.integrations);
+          // Defaulted for deploy skew: an API that predates AECI-1089 sends no
+          // `owned`, which reads as "owns nothing outside the list".
+          this.owned.set(payload.owned ?? []);
           break;
+        }
         case 'notifications':
           this.receive('notifications', (await this.api.getNotifications()).notifications);
           break;

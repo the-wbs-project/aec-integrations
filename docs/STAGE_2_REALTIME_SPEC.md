@@ -154,7 +154,7 @@ Every value is an **ISO-8601 string or `null`**; `null` means *this scope has no
 
 `server_time` is the server's clock at read, carried so the client never has to compare a server timestamp against `Date.now()`. It exists because the two clocks are not the same clock and the difference between them is not bounded; without it, a modest client skew turns a fresh cursor into a permanently-stale one (or the reverse).
 
-**Eight SELECTs for seven scopes in one `db.batch([...])`** — one D1 round trip, not eight. (Six until AECI-1008 added the `contests` scope, seven until AECI-992 added the `integrations` row term; see §2.2.) The batch here is for round-trip economy, not atomicity: this is the one place in the codebase where `db.batch` carries no `audit_log` row, precisely because it carries no write.
+**Nine SELECTs for seven scopes in one `db.batch([...])`** — one D1 round trip, not nine. (Six until AECI-1008 added the `contests` scope, seven until AECI-992 added the `integrations` row term, eight until AECI-1089 added the owned-rows statement; see §2.2.) The batch here is for round-trip economy, not atomicity: this is the one place in the codebase where `db.batch` carries no `audit_log` row, precisely because it carries no write.
 
 ### 2.2 Scope → source of truth
 
@@ -163,7 +163,7 @@ Every value is an **ISO-8601 string or `null`**; `null` means *this scope has no
 | `profile` | `vendors.updated_at` for the session vendor (also moves on the `verified` mirror flip, since the mirror is written in the same batch as the entitlement — `STAGE_2_PAID_TIERS_SPEC.md` §2.1) |
 | `entitlement` | `MAX(vendor_entitlements.updated_at)` for the vendor (`vendor_id` is UNIQUE → ≤1 row, so the `MAX` is a formality that keeps the query shape uniform) |
 | `products` | `MAX(products.updated_at)` over `product_vendors.vendor_id = ?` — the shared `ownedProductIds(db, vendorId)` subquery (`apps/api/src/routes/vendor-shared.ts:137`) |
-| `integrations` | `MAX` over `integrations.updated_at` ∪ `claims.updated_at` ∪ `attestations.updated_at` for integrations whose `source_product_id` **or** `target_product_id` is in the owned set — the shared `ownedEndpointJoin(vendorId)` predicate (`apps/api/src/lib/attestation-authority.ts`), which is also what `resolveClaimAuthority` and `createListVendorIntegrationsHandler` join on. The row term (AECI-992) is also what moves the cursor for an owner's claim and an owner's contest accept (AECI-1005), and an owner's edit (AECI-1006), which write the `integrations` row and touch no claim or attestation. The edit stamps `updated_at` explicitly, so the other endpoint vendor's portal repaints on its next poll. Since AECI-1010 the same term is what moves the cursor on a **retire and a restore**, for both endpoint vendors, with no new statement. It must stay unfiltered on `retired_at`: the list keeps showing a retired row to both sides, and a live-only cursor could not move on the very write that retires it (the retract argument, one grain up). A consequence worth knowing: an ordinary promote of an edge on the caller's surface moves this cursor too, which costs one refetch. **A per-side link write (AECI-1007) moves it through the same term**: the link lives in `integration_vendor_links`, but its batch also performs the §13.9 maintenance transfer on the `integrations` row, and that UPDATE moves `updated_at`. So the other endpoint vendor's portal learns about it with no new cursor term. **A vendor create (AECI-1011) moves it the same way**: the new row has no claims, so only the row term can see it (the claimless-row case AECI-992 was built for), and its `updated_at` is the create time, which is newer than anything else on the surface |
+| `integrations` | `MAX` over `integrations.updated_at` ∪ `claims.updated_at` ∪ `attestations.updated_at` for integrations whose `source_product_id` **or** `target_product_id` is in the owned set — the shared `ownedEndpointJoin(vendorId)` predicate (`apps/api/src/lib/attestation-authority.ts`), which is also what `resolveClaimAuthority` and `createListVendorIntegrationsHandler` join on. The row term (AECI-992) is also what moves the cursor for an owner's claim and an owner's contest accept (AECI-1005), and an owner's edit (AECI-1006), which write the `integrations` row and touch no claim or attestation. The edit stamps `updated_at` explicitly, so the other endpoint vendor's portal repaints on its next poll. Since AECI-1010 the same term is what moves the cursor on a **retire and a restore**, for both endpoint vendors, with no new statement. It must stay unfiltered on `retired_at`: the list keeps showing a retired row to both sides, and a live-only cursor could not move on the very write that retires it (the retract argument, one grain up). A consequence worth knowing: an ordinary promote of an edge on the caller's surface moves this cursor too, which costs one refetch. **A per-side link write (AECI-1007) moves it through the same term**: the link lives in `integration_vendor_links`, but its batch also performs the §13.9 maintenance transfer on the `integrations` row, and that UPDATE moves `updated_at`. So the other endpoint vendor's portal learns about it with no new cursor term. **A vendor create (AECI-1011) moves it the same way**: the new row has no claims, so only the row term can see it (the claimless-row case AECI-992 was built for), and its `updated_at` is the create time, which is newer than anything else on the surface. **Since AECI-1089 a third statement adds `MAX(updated_at)` over the rows the caller owns in either table**, under `ownedIntegrationsWhere` / `ownedEvidencedPairsWhere` (`apps/api/src/lib/owned-integrations.ts`), the predicates the list's `owned` array is read with. That is how a third-party owner's portal, and an endpoint vendor's owned evidenced pair, stay live. See the amendment below |
 
 > **AECI-705 left this predicate deliberately alone (2026-08-31).** The connector gate
 > (`STAGE_2_ATTESTATIONS_SPEC.md` §14) makes ~14% of edges non-attestable, and the obvious
@@ -189,17 +189,26 @@ Every value is an **ISO-8601 string or `null`**; `null` means *this scope has no
 > closed with it: an edit to a row field the list ships (`name`, `mechanism_kind`, `mechanism_name`,
 > `powered_by_product_id` → `attestable`) now moves the cursor, and an owned integration with **no
 > claim** is now visible to it. Before, the claim-rooted join could not reach that row at all. The
-> list handler reads no `connector_evidenced_pairs` row, so the cursor covers none.
-> `vendor-updates.spec.ts` pins the row edit, the claimless insert, and the non-owned case.
+> list handler read no `connector_evidenced_pairs` row, so the cursor covered none (true until
+> AECI-1089, below). `vendor-updates.spec.ts` pins the row edit, the claimless insert, and the
+> non-owned case.
 >
-> **Planned amendment: owned rows (AECI-1040, ruled 2026-09-23, build pending).** The owner
-> carve-out (`STAGE_2_SPEC.md` §8.10(8)) lets a third-party owner claim, edit and retire its
-> rows. It holds neither endpoint, so `ownedEndpointJoin` never returns those rows, and 35 of them
-> are evidenced pairs the list does not read at all. The build adds an owned-rows read to
-> `GET /api/vendor/integrations`: rows in either table whose `built_by_vendor_id` is the caller.
-> This cursor gains one statement with the **same** owned-rows predicate. The invariant below
-> still holds: each cursor statement reuses the predicate of the read it covers. Until it ships,
-> the paragraph above stands.
+> **Amended: owned rows (AECI-1089, built 2026-09-23; ruled on AECI-1040).** The owner
+> carve-out (`STAGE_2_SPEC.md` §8.10(8)) lets a third-party owner claim, and later edit and
+> retire, its rows. It holds neither endpoint, so `ownedEndpointJoin` never returns those rows,
+> and 35 of them in production are evidenced pairs the list did not read at all. So
+> `GET /api/vendor/integrations` now also returns `owned`: rows in either table whose
+> `built_by_vendor_id` is the caller, minus the `integrations` rows the endpoint-scoped list
+> already carries. The predicates are `ownedIntegrationsWhere` and `ownedEvidencedPairsWhere` in
+> `apps/api/src/lib/owned-integrations.ts`, and this cursor imports them for its third
+> statement: `MAX(updated_at)` over each table under its predicate, as two scalar subqueries in
+> one SELECT. The batch is now nine SELECTs for seven scopes. The statement counts every owned
+> row, including owned rows the attestable list carries. That is wider than `owned` but not wider
+> than the response, since each row it counts is the caller's own and sits in one list or the
+> other, so it leaks nothing and costs no wasted refetch. It stays unfiltered on `retired_at` for
+> the retract reason above. A claim on either table moves it through `updated_at`.
+> `vendor-owned-integrations.spec.ts` pins the evidenced write, the owned-row write, the non-owned
+> case, the null case, and the cursor against the list for four vendors.
 | `notifications` | `MAX(audit_log.created_at)` under the **exact** predicate the list endpoint uses — `vendorNotificationLedgerWhere(vendorId)` (`apps/api/src/routes/vendor-notifications.ts:83`): `action = 'notification.sent'` + the 90-day window + `json_extract(metadata, '$.vendorId') = ?` |
 | `requests` | `MAX(COALESCE(resolved_at, created_at))` under the **exact** predicate `GET /api/vendor/me` uses — `vendorRequestsWhere(vendorId, ownedProductIds(...))` (`apps/api/src/routes/vendor-shared.ts:155`): requests targeting the vendor itself, plus those targeting any product it owns. `COALESCE` because **`vendor_requests` has no `updated_at`** — a resolution is the only post-creation mutation that matters here |
 | `contests` (AECI-1008) | `MAX(integration_field_challenges.updated_at)` under the **exact** predicate `GET /api/vendor/contests` uses — `vendorContestsWhere(vendorId)` (`apps/api/src/lib/integration-contests.ts`): contests the vendor submitted, plus owner-routed contests where it is the snapshot owner. `updated_at` moves on submit, withdraw and every decision, and since AECI-1009 on every protest step (file, reply, withdraw, decide), which needed no predicate change. The list caps each side at 100 rows (ordered by `updated_at` since AECI-1009) and the cursor does not, so an edit past the cap costs one wasted refetch and nothing else |

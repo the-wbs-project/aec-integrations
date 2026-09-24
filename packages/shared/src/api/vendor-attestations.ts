@@ -365,6 +365,44 @@ export const VendorIntegrationSchema = z.object({
 
 export type VendorIntegration = z.infer<typeof VendorIntegrationSchema>;
 
+/** Which table an owned row lives in (AECI-1089). */
+export const OWNED_INTEGRATION_ANCHORS = ['integration', 'evidenced_pair'] as const;
+export type OwnedIntegrationAnchor = (typeof OWNED_INTEGRATION_ANCHORS)[number];
+
+/**
+ * A row the caller's vendor owns but that the attestable surface does not list
+ * (AECI-1089 / `STAGE_2_VENDOR_PORTAL_SPEC.md` §4.5). It has no `context_product`,
+ * no slots and no claims: the caller may hold none of its products, and nothing
+ * here is attestable. It carries what the owner needs to recognise the row and act
+ * on it.
+ *
+ * `product_a` / `product_b` are `source` / `target` on an `integrations` row and the
+ * canonical `product_a` / `product_b` on an evidenced pair. `connector` is the
+ * `powered_by` product or the pair's connector product, when it is promoted.
+ */
+export const OwnedIntegrationSchema = z.object({
+  id: z.string().uuid(),
+  anchor: z.enum(OWNED_INTEGRATION_ANCHORS),
+  name: z.string().nullable(),
+  /** `null` on an evidenced pair, which has no such column. */
+  mechanism_kind: IntegrationMechanismKindSchema.nullable(),
+  mechanism_name: z.string().nullable(),
+  product_a: ProductLinkSchema,
+  product_b: ProductLinkSchema,
+  connector: ProductLinkSchema.nullable(),
+  /**
+   * Decision 9's predicate, computed server-side: `isConnectorPoweredEdge` on an
+   * `integrations` row, always `true` on an evidenced pair. An owner write on such
+   * a row needs an active entitlement (AECI-1040 ruling 2).
+   */
+  connector_powered: z.boolean(),
+  claimed_at: z.string().nullable(),
+  retired_at: z.string().nullable(),
+  retired_by: IntegrationRetiredBySchema.nullable(),
+});
+
+export type OwnedIntegration = z.infer<typeof OwnedIntegrationSchema>;
+
 // ─── GET /api/vendor/integrations ────────────────────────────────────────────
 
 /**
@@ -374,6 +412,15 @@ export type VendorIntegration = z.infer<typeof VendorIntegrationSchema>;
  */
 export const ListVendorIntegrationsResponseSchema = z.object({
   integrations: z.array(VendorIntegrationSchema),
+  /**
+   * AECI-1089: the rows the caller's vendor OWNS (`built_by_vendor_id`) that
+   * `integrations` above does not list, from both tables. That is every owned
+   * `connector_evidenced_pairs` row, and every owned `integrations` row on which the
+   * caller holds neither endpoint. A third-party owner holds neither endpoint of its
+   * rows, so without this list it could not see what it owns
+   * (`STAGE_2_REALTIME_SPEC.md` §2.2). Defaulted to `[]` for deploy skew.
+   */
+  owned: z.array(OwnedIntegrationSchema).default([]),
 });
 
 export type ListVendorIntegrationsResponse = z.infer<typeof ListVendorIntegrationsResponseSchema>;

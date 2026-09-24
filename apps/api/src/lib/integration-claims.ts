@@ -187,13 +187,16 @@ export interface ClaimNotificationMetadata {
 /**
  * The `notification.sent` row telling one endpoint vendor that the owner claimed an
  * integration on its product. Pushed into the SAME batch as the claim, so a
- * rolled-back claim cannot leave a notification behind. `entity_type` is
- * `integration` and `entity_id` the integration, which keeps it apart from the §7
- * detector rows (entity: a claim) and the contest rows (entity: a contest).
+ * rolled-back claim cannot leave a notification behind. `entity_id` is the claimed
+ * row, and `entity_type` names its table: `integration`, or `connector_evidenced_pair`
+ * when `anchor` is `'evidenced_pair'` (AECI-1089, the vocabulary promote and the
+ * claim's own audit row use). Either keeps it apart from the §7 detector rows
+ * (entity: a claim) and the contest rows (entity: a contest).
  */
 export function claimNotificationAudit(
   actor: { actorId: string | null; actorType: AuditLogEntry['actorType'] },
   metadata: Omit<ClaimNotificationMetadata, 'kind'>,
+  anchor: 'integration' | 'evidenced_pair' = 'integration',
 ): AuditLogEntry {
   const full: ClaimNotificationMetadata = {
     kind: CLAIM_NOTIFICATION_KIND,
@@ -204,7 +207,7 @@ export function claimNotificationAudit(
     actorId: actor.actorId,
     actorType: actor.actorType,
     action: NOTIFICATION_SENT_ACTION,
-    entityType: 'integration',
+    entityType: anchor === 'evidenced_pair' ? 'connector_evidenced_pair' : 'integration',
     entityId: metadata.integrationId,
     metadata: full,
   };

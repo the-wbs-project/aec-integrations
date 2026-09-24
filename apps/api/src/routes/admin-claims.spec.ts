@@ -43,7 +43,7 @@ import {
   workflowInstances,
   workflowTransitions,
 } from '../db/schema';
-import { submitCount } from '../posthog';
+import { logBatchToPosthog, logToPosthog, submitCount } from '../posthog';
 import type { Env } from '../env';
 import { errorHandler } from '../errors';
 import type { AuthzVariables } from '../lib/authz';
@@ -361,6 +361,29 @@ describe('PATCH /api/admin/claims/:id — grant', () => {
     });
 
     expect(claimModerationActions()).toEqual([['action:approve', 'outcome:ok']]);
+  });
+
+  it("forwards the grant's audit rows and transition in ONE batched request (connection limit)", async () => {
+    await seedVendor();
+    await seedRequest();
+    vi.mocked(logBatchToPosthog).mockClear();
+    vi.mocked(logToPosthog).mockClear();
+    const { status } = await patchClaim(moderateApp(resolveInvited()), { action: 'approve' });
+    expect(status).toBe(200);
+    expect(logBatchToPosthog).toHaveBeenCalledTimes(1);
+    const events = vi.mocked(logBatchToPosthog).mock.calls[0]![3] as { message: string }[];
+    const messages = events.map((e) => e.message);
+    // The claim row, the entitlement row and the workflow transition, in one request.
+    expect(messages.filter((m) => m.startsWith('audit '))).toHaveLength(2);
+    expect(messages.filter((m) => m.startsWith('workflow '))).toHaveLength(1);
+    // No per-row forward is left behind.
+    expect(
+      vi
+        .mocked(logToPosthog)
+        .mock.calls.filter((call) =>
+          String((call[3] as { message?: string }).message ?? '').startsWith('audit '),
+        ),
+    ).toEqual([]);
   });
 
   it('provisions a seat for an invited claimant (no prior profile row)', async () => {
