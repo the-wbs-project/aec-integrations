@@ -125,6 +125,7 @@ import {
   selectProductRoleGroups,
 } from '../lib/vendor-product-roles';
 import { EMPTY_OWNED_INTEGRATIONS, loadOwnedIntegrations } from '../lib/vendor-owned-integrations';
+import { planSeatGrantReturn } from '../lib/vendor-handback';
 import {
   activateEntitlementStatements,
   loadEntitlement,
@@ -567,7 +568,14 @@ async function approveClaim(
 
   // ONE batch. The seat, the request resolve, the workflow, the entitlement row,
   // the mirror flip and both audit rows commit or roll back together (§26.1).
-  await db.batch([...grant.stmts, ...ent.stmts] as BatchTuple);
+  // AECI-989: a new active seat returns the contests a ban moved to AECi.
+  const returned = await planSeatGrantReturn(
+    db,
+    { vendorId: vendor.id, actorId, actorType, now: resolvedAt, source: CLAIM_AUDIT_SOURCE },
+    userId,
+  );
+
+  await db.batch([...grant.stmts, ...ent.stmts, ...(returned?.stmts ?? [])] as BatchTuple);
   emitClaimModeration(c, 'approve', 'ok');
 
   // Resolve the claimed target's display name up front — reused by the email
@@ -607,6 +615,10 @@ async function approveClaim(
       forwardAuditLog(grant.auditEntry, makeForwarder(c)),
       ent.auditEntry ? forwardAuditLog(ent.auditEntry, makeForwarder(c)) : Promise.resolve(),
       forwardWorkflowTransition(grant.workflowEntry, makeWorkflowForwarder(c)),
+      ...(returned?.audits ?? []).map((entry) => forwardAuditLog(entry, makeForwarder(c))),
+      ...(returned?.transitions ?? []).map((entry) =>
+        forwardWorkflowTransition(entry, makeWorkflowForwarder(c)),
+      ),
     ]),
   );
 

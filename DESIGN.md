@@ -632,6 +632,16 @@ the product row, so the two can never drift apart visually.
 
 - **Copy carries the trust promise.** Nothing implies attesting affects ranking or placement; the only search reference is that search refreshes within a day; "Verified" is framed as an account status arranged with AEC Integrations, and the unverified state explains what verification unlocks rather than 403-ing a vendor out of their own data.
 
+### Product docs (Stage 2, AECI-1104)
+
+The `/docs/<section>/<slug>` article page (`apps/web/src/app/docs/docs-page.ts`). **Anchor site: Zendesk**, its help-center article page (Copenhagen theme): a breadcrumb, an "articles in this section" rail beside the article, and the article. It is a public, edge-cached reading surface, so it reuses the `/legal/*` and `/methodology` prose vocabulary rather than the portal's cards.
+
+- **Breadcrumb** follows the public treatment (`Home › Docs › Vendor guide`). Only ancestors appear, and "Docs" and the section are plain text until they have pages.
+- **Article column** carries the overline section name, the Source Serif `h1`, a lede from the frontmatter description, the pre-formatted "Last updated" line, a hairline, then `.aec-prose`. The measure is **62ch**, not the 70ch of `/legal/*`. `npx impeccable detect` measured ~91 characters a line at 70ch in Atkinson and flagged every paragraph.
+- **Section rail** is an `ol` under an "In this guide" overline, sticky from `lg`. The current page gets `aria-current="page"`, a `--surface-muted` fill, semibold text and a Forest start edge. The edge colour is on the unlayered `.aec-docs-nav-link` class, for the reason `.aec-nav-tab` records.
+- **Reading order:** the article is first in the DOM. From `lg`, grid placement moves the rail to the left column, so small screens and screen readers reach the content first.
+- No screenshots in content at v0 (`STAGE_2_PRODUCT_DOCS_SPEC.md` §4). Light only. Token-only. Chrome is i18n-wrapped, and the Markdown body is content.
+
 ### Inputs / Fields
 
 Native inputs driven by Signal Forms today (ADR 0009); richer controls use Angular Aria per the provider note above (ADR 0010, Accepted) — `select`/`radio` are realised via combobox/listbox (Aria@22 ships neither), and these discrete-choice controls bridge into Signal Forms via `[(value)]`+`(valueChange)`, not `[formField]`. Styling binds to tokens.

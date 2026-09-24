@@ -1,4 +1,5 @@
 import { DatePipe } from '@angular/common';
+import { HttpErrorResponse } from '@angular/common/http';
 import { Component, afterNextRender, computed, inject, signal } from '@angular/core';
 import { FormField, form, submit, validateStandardSchema } from '@angular/forms/signals';
 import { Meta, Title } from '@angular/platform-browser';
@@ -12,7 +13,12 @@ import {
   BrnDialogTrigger,
 } from '@spartan-ng/brain/dialog';
 
-import { UpdateAccountSchema, type AccountProfileResponse, type AccountReview } from '@aeci/shared';
+import {
+  ApiErrorCode,
+  UpdateAccountSchema,
+  type AccountProfileResponse,
+  type AccountReview,
+} from '@aeci/shared';
 
 import { Analytics } from '../analytics/analytics';
 import { AuthService } from '../auth/auth.service';
@@ -75,6 +81,13 @@ export class AccountPage {
   /** True when the identity fetch failed (e.g. an expired session → 401). */
   protected readonly loadFailed = signal(false);
 
+  /**
+   * True when the API answered 503 `PROFILE_UNAVAILABLE` (AECI-770): the session
+   * is fine but its profile could not be created yet. The page offers a retry,
+   * not "sign in again", because signing in again does not help.
+   */
+  protected readonly profileUnavailable = signal(false);
+
   /** Display-name save feedback. */
   protected readonly saved = signal(false);
   protected readonly saveFailed = signal(false);
@@ -127,15 +140,26 @@ export class AccountPage {
 
   private async load(): Promise<void> {
     this.loadFailed.set(false);
+    this.profileUnavailable.set(false);
     try {
       const profile = await this.api.getProfile();
       this.profile.set(profile);
       this.model.set({ display_name: profile.display_name ?? '' });
-    } catch {
-      this.loadFailed.set(true);
+      // `GET /api/account` may have just created the profile (the AECI-770
+      // self-heal), and the reviews fetch that ran beside it would have 401'd.
+      if (this.reviewsFailed()) void this.loadReviews();
+    } catch (err) {
+      if (isProfileUnavailable(err)) this.profileUnavailable.set(true);
+      else this.loadFailed.set(true);
     } finally {
       this.loading.set(false);
     }
+  }
+
+  /** Retry the identity fetch after a `PROFILE_UNAVAILABLE` answer. */
+  protected async retryLoad(): Promise<void> {
+    this.loading.set(true);
+    await this.load();
   }
 
   private async loadReviews(): Promise<void> {
@@ -219,4 +243,11 @@ export class AccountPage {
   private redirectHome(): void {
     globalThis.location.assign('/');
   }
+}
+
+/** The API's 503 `PROFILE_UNAVAILABLE` envelope (`docs/API_CONTRACTS.md` §4). */
+function isProfileUnavailable(err: unknown): boolean {
+  if (!(err instanceof HttpErrorResponse) || err.status !== 503) return false;
+  const body = err.error as { error?: { code?: unknown } } | null;
+  return body?.error?.code === ApiErrorCode.PROFILE_UNAVAILABLE;
 }

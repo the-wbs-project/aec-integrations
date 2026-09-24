@@ -10,6 +10,11 @@ import {
   buildDeleteStatements,
   buildFootprintSql,
   ddlHasVendorHeldColumns,
+  EVIDENCED_PAIRS_DDL_SQL,
+  RETRACT_VENDOR_HELD_TOKEN,
+  tableDdlOrThrow,
+  isVendorHeldAbort,
+  VENDOR_HELD_ABORT_MESSAGE,
   INTEGRATIONS_DDL_SQL,
   buildProductLookupSql,
   classifyRetraction,
@@ -660,6 +665,213 @@ describe('vendor-held integrations are refused, --force or not (AECI-1005)', () 
     const ddl = (t.raw.prepare(INTEGRATIONS_DDL_SQL).get() as { sql: string }).sql;
     expect(ddlHasVendorHeldColumns(ddl)).toBe(false);
     expect(footprintWithProbe(t, P).vendorHeldIntegrations).toBe(0);
+    t.dispose();
+  });
+});
+
+describe('vendor-held evidenced pairs are refused, whatever the flags (AECI-1088)', () => {
+  const footprintWithProbes = (t: TestDb, id: string): RetractFootprint => {
+    const ddl = (sql: string) => (t.raw.prepare(sql).get() as { sql: string } | undefined)?.sql;
+    return parseFootprint(
+      t.raw
+        .prepare(
+          buildFootprintSql(id, {
+            vendorHeldColumns: ddlHasVendorHeldColumns(ddl(INTEGRATIONS_DDL_SQL)),
+            vendorHeldPairColumns: ddlHasVendorHeldColumns(ddl(EVIDENCED_PAIRS_DDL_SQL)),
+            vendorLinksTable: Boolean(t.raw.prepare(VENDOR_LINKS_TABLE_SQL).get()),
+          }),
+        )
+        .get() as RawFootprintRow,
+    );
+  };
+  const markEp1 = (t: TestDb, set: string) =>
+    t.raw.prepare(`UPDATE connector_evidenced_pairs SET ${set} WHERE id = 'ep1'`).run();
+
+  it.each([
+    ['claimed', `claimed_at = ${TS}`],
+    ['vendor-created', `origin = 'vendor'`],
+  ])(
+    'refuses a %s pair with --delete-evidenced-pairs, and with --force as well',
+    async (_label, set) => {
+      const t = await makeTestDb();
+      seed(t);
+      markEp1(t, set);
+      const fp = footprintWithProbes(t, P);
+      expect(fp.vendorHeldEvidencedPairs).toBe(1);
+      // `--force` waives blockers only; the CLI refuses on any refusal first.
+      const verdict = classifyRetraction(fp, { deleteEvidencedPairs: true });
+      expect(verdict.safe).toBe(false);
+      expect(verdict.evidencedPairRefusal).toBeNull();
+      expect(verdict.refusals).toEqual([
+        expect.stringMatching(/vendor-held connector-evidenced pair.*--delete-evidenced-pairs/),
+      ]);
+      t.dispose();
+    },
+  );
+
+  it('still lets --delete-evidenced-pairs cover an AECi-seeded pair', async () => {
+    const t = await makeTestDb();
+    seed(t);
+    const fp = footprintWithProbes(t, P);
+    expect(fp.vendorHeldEvidencedPairs).toBe(0);
+    const verdict = classifyRetraction(fp, { deleteEvidencedPairs: true });
+    expect(verdict.refusals).toEqual([]);
+    expect(verdict.evidencedPairRefusal).toBeNull();
+    t.dispose();
+  });
+
+  it('still reads a footprint on a database without migration 0049', async () => {
+    const t = await makeTestDb({ upToExclusive: '0049_majestic_mentallo.sql' });
+    seed(t);
+    const ddl = (t.raw.prepare(EVIDENCED_PAIRS_DDL_SQL).get() as { sql: string }).sql;
+    expect(ddlHasVendorHeldColumns(ddl)).toBe(false);
+    expect(footprintWithProbes(t, P).vendorHeldEvidencedPairs).toBe(0);
+    t.dispose();
+  });
+
+  it('shows the vendor-held pair count in the footprint report', async () => {
+    const t = await makeTestDb();
+    seed(t);
+    markEp1(t, `claimed_at = ${TS}`);
+    const report = formatFootprintReport(PRODUCT, footprintWithProbes(t, P));
+    expect(report).toMatch(/vendor-held \(REFUSE\)\s+1/);
+    t.dispose();
+  });
+});
+
+describe('the delete plan re-checks vendor-held at write time (AECI-1088 review)', () => {
+  const args = (t: TestDb, deleteEvidencedPairs: boolean) => ({
+    product: productRow(t, P),
+    footprint: footprintOf(t, P),
+    auditId: 'audit-race',
+    now: NOW,
+    force: true,
+    deleteEvidencedPairs,
+  });
+  const snapshot = (t: TestDb) => ({
+    products: t.raw.prepare('SELECT id FROM products ORDER BY id').all(),
+    integrations: t.raw.prepare('SELECT id FROM integrations ORDER BY id').all(),
+    pairs: t.raw.prepare('SELECT id FROM connector_evidenced_pairs ORDER BY id').all(),
+    claims: t.raw.prepare('SELECT id FROM claims ORDER BY id').all(),
+    attestations: t.raw.prepare('SELECT id FROM attestations ORDER BY id').all(),
+    audit: t.raw.prepare('SELECT id FROM audit_log ORDER BY id').all(),
+  });
+
+  it.each([
+    ['a pair', `UPDATE connector_evidenced_pairs SET claimed_at = ${TS} WHERE id = 'ep1'`],
+    ['an integration', `UPDATE integrations SET origin = 'vendor' WHERE id = 'i1'`],
+  ])(
+    'aborts before any write when %s becomes vendor-held between the check and --apply',
+    async (_label, claim) => {
+      const t = await makeTestDb();
+      seed(t);
+      // The plan is built from a footprint read while nothing was vendor-held...
+      const statements = buildDeleteStatements(args(t, true));
+      expect(statements[0]).toContain(RETRACT_VENDOR_HELD_TOKEN);
+      // ...then the owner claims before the execute runs.
+      t.raw.prepare(claim).run();
+      const before = snapshot(t);
+      expect(() => apply(t, statements)).toThrow(/malformed JSON/i);
+      expect(snapshot(t)).toEqual(before);
+      t.dispose();
+    },
+  );
+
+  it('the product DELETE and its tombstone carry the vendor-held guard too', async () => {
+    const t = await makeTestDb();
+    seed(t);
+    const statements = buildDeleteStatements(args(t, true));
+    const productDelete = statements.find((q) => q.startsWith('DELETE FROM "products"'))!;
+    expect(productDelete).toContain(
+      `NOT EXISTS (SELECT 1 FROM "connector_evidenced_pairs" WHERE "id" IN`,
+    );
+    expect(productDelete).toMatch(/"claimed_at" IS NOT NULL OR "origin" = 'vendor'\)\)/);
+    t.dispose();
+  });
+
+  it('still retracts when nothing in scope is vendor-held', async () => {
+    const t = await makeTestDb();
+    seed(t);
+    apply(t, buildDeleteStatements(args(t, true)));
+    expect(t.raw.prepare(`SELECT count(*) AS n FROM products WHERE id = '${P}'`).get()).toEqual({
+      n: 0,
+    });
+    t.dispose();
+  });
+
+  it('never names the columns on a tier without them', async () => {
+    const t = await makeTestDb({ upToExclusive: '0044_slippery_edwin_jarvis.sql' });
+    seed(t);
+    const footprint = parseFootprint(
+      t.raw.prepare(buildFootprintSql(P, { vendorLinksTable: false })).get() as RawFootprintRow,
+    );
+    const statements = buildDeleteStatements({
+      product: productRow(t, P),
+      auditId: 'audit-race',
+      now: NOW,
+      force: true,
+      deleteEvidencedPairs: true,
+      footprint,
+      vendorLinksTable: false,
+      vendorHeldColumns: false,
+      vendorHeldPairColumns: false,
+    });
+    expect(statements.join('\n')).not.toMatch(/claimed_at/);
+    apply(t, statements);
+    t.dispose();
+  });
+});
+
+describe('isVendorHeldAbort: the CLI names the sentinel abort (AECI-1088 review)', () => {
+  it('recognises the error SQLite raises when the plan sentinel fires', async () => {
+    const t = await makeTestDb();
+    seed(t);
+    t.raw.prepare(`UPDATE connector_evidenced_pairs SET claimed_at = ${TS} WHERE id = 'ep1'`).run();
+    const [sentinel] = buildDeleteStatements({
+      product: productRow(t, P),
+      footprint: footprintOf(t, P),
+      auditId: 'audit-abort',
+      now: NOW,
+      force: true,
+      deleteEvidencedPairs: true,
+    });
+    let message = '';
+    try {
+      t.raw.prepare(sentinel!).get();
+    } catch (err) {
+      message = String((err as Error).message);
+    }
+    expect(message).not.toBe('');
+    // Shaped like what `wrangler d1 execute` prints on stderr.
+    expect(isVendorHeldAbort(`[ERROR] ${message}: SQLITE_ERROR`)).toBe(true);
+    t.dispose();
+  });
+
+  it('does not claim a credentials or missing-database failure', () => {
+    expect(isVendorHeldAbort('[ERROR] Authentication error [code: 10000]')).toBe(false);
+    expect(isVendorHeldAbort("Couldn't find a D1 DB with the name or binding")).toBe(false);
+  });
+
+  it('tells the operator nothing was written and to re-run the dry run', () => {
+    expect(VENDOR_HELD_ABORT_MESSAGE).toMatch(/Nothing was written/);
+    expect(VENDOR_HELD_ABORT_MESSAGE).toMatch(/without --apply/);
+    expect(VENDOR_HELD_ABORT_MESSAGE).not.toMatch(/CLOUDFLARE_API_TOKEN/);
+  });
+});
+
+describe('tableDdlOrThrow: an empty DDL read is could-not-check (AECI-1088 review)', () => {
+  it.each(['integrations', 'connector_evidenced_pairs'])('throws for %s', (table) => {
+    expect(() => tableDdlOrThrow(undefined, table)).toThrow(/could not read/);
+    expect(() => tableDdlOrThrow(null, table)).toThrow(/could not read/);
+    expect(() => tableDdlOrThrow('  ', table)).toThrow(/could not read/);
+  });
+
+  it('returns the definition it was given, for both tables', async () => {
+    const t = await makeTestDb();
+    for (const probe of [INTEGRATIONS_DDL_SQL, EVIDENCED_PAIRS_DDL_SQL]) {
+      const sql = (t.raw.prepare(probe).get() as { sql: string }).sql;
+      expect(ddlHasVendorHeldColumns(tableDdlOrThrow(sql, 'x'))).toBe(true);
+    }
     t.dispose();
   });
 });

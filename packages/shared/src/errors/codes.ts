@@ -66,6 +66,10 @@ export const ApiErrorCode = {
   // AECI-1010: a retire or restore lost a race (a contest filed, the row changed)
   // and the re-read finds no refusal to give. Nothing was written; reload and retry.
   INTEGRATION_CHANGED_WHILE_SAVING: 'INTEGRATION_CHANGED_WHILE_SAVING',
+  // AECI-989: a seat revoke or ban lost a race with another seat write on the same
+  // vendor (a double-click, or two seats removed at once), so the planned hand-back
+  // or contest re-route no longer matches the seats left. Nothing was written.
+  VENDOR_SEATS_CHANGED: 'VENDOR_SEATS_CHANGED',
   // AECI-1046 admin retire/restore. `INTEGRATION_RETIRED_BY_AECI` (403) answers the
   // owner's restore of a row AECi retired: only an admin restores an admin retire.
   // `INTEGRATION_RETIRED_BY_OWNER` (409) answers an admin restore of a row its owner
@@ -85,6 +89,10 @@ export const ApiErrorCode = {
   // INTEGRATION_CLAIMED_DURING_PROMOTE.
   VENDOR_OWNED_TWIN_CREATED_DURING_PROMOTE: 'VENDOR_OWNED_TWIN_CREATED_DURING_PROMOTE',
   RATE_LIMITED: 'RATE_LIMITED',
+  // AECI-770: a verified session has no `profiles` row and the self-heal could not
+  // create one (503). Retryable. Distinct from UNAUTHENTICATED, which says "sign in
+  // again" and never helped this user.
+  PROFILE_UNAVAILABLE: 'PROFILE_UNAVAILABLE',
   DEPENDENCY_FAILURE: 'DEPENDENCY_FAILURE',
   INTERNAL_ERROR: 'INTERNAL_ERROR',
 } as const;

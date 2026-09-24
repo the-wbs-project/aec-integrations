@@ -337,6 +337,20 @@
       "when": 1790066363919,
       "tag": "0047_quick_makkari",
       "breakpoints": true
+    },
+    {
+      "idx": 48,
+      "version": "6",
+      "when": 1790156437040,
+      "tag": "0048_wild_black_queen",
+      "breakpoints": true
+    },
+    {
+      "idx": 49,
+      "version": "6",
+      "when": 1790171210896,
+      "tag": "0049_majestic_mentallo",
+      "breakpoints": true
     }
   ]
 }

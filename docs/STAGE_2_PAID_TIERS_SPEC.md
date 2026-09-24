@@ -288,6 +288,8 @@ The other half of the firewall **already exists and must stay untouched**: `algo
 
 > **Amended at build (AECI-611).** This bullet originally read "immediately after `sessionVendorId(c)`", which is not universally satisfiable. On `PATCH /api/vendor/profile` it holds — the caller's own vendor is the subject, so there is nothing to leak. On `PATCH /api/vendor/products/:id` the gate **must** run after `requireOwnedProduct`, because a 403 raised before ownership settles would confirm to a non-owner that the product exists, and **404-never-403 is the harder invariant** of this surface (`AUTH_AND_RLS.md` §4.2a). Same ordering as the AECI-607 version routes. The rule is "as early as possible, but never before ownership".
 
+> **As built (AECI-623 — 2026-09-23).** `attestation.author` now has its consumers. The three attestation writes (`POST /api/vendor/claims`, `PUT` and `DELETE /api/vendor/claims/:claimId/attestation`) and the three product-version writes (`POST`, `PATCH`, `DELETE` under `/api/vendor/products/:id/versions`) call `requireCapability(c, 'attestation.author')` after authority or ownership settles. They answer `403 ENTITLEMENT_REQUIRED` where they used to answer `403 FORBIDDEN`. The placeholder they replaced, `assertVerifiedVendor`, read the `vendors.verified` mirror and is deleted. No authorization decision reads the mirror any more. On an attestation write the connector-powered edge check still runs first and still answers `FORBIDDEN` (`STAGE_2_ATTESTATIONS_SPEC.md` §5.2). The portal's Integrations write gate reads the same capability (§8.1).
+
 **(b) The vendor-editable column allow-list** — `VENDOR_COLUMN_MAP` / `PRODUCT_COLUMN_MAP` (`apps/api/src/routes/vendor.ts` ~:525-543, ~:605-611) go from `Record<string, string>` to `Record<string, { column: string; capability: Capability }>`, and `splitPatch` (~:390-403) gains the caller's tier. This extends the header invariant in `packages/shared/src/api/vendor.ts` from one axis to two: **Zod is the parse allow-list, the column map is the entitlement allow-list, and both must agree.** At launch every field maps to a capability `verified` holds, so behaviour is unchanged; adding a rung later is a data edit in two tables.
 
 **(c) The render path — deliberately asymmetric.**
@@ -390,8 +392,8 @@ After this epic there are three distinct "take it away" actions, and an admin cl
 
 | Action | Endpoint | Scope | Effect | Touches `vendors.verified`? |
 |---|---|---|---|---|
-| **Ban a seat** | `PATCH /api/admin/reviewers/:id` | one `profiles` row | that seat 403s on every `/api/vendor/*` call; other seats unaffected | **No** |
-| **Revoke a seat** | `DELETE /api/vendor/seats/:userId` (AECI-664; owner-only, **not** capability-gated) — or `DELETE /api/admin/vendors/:id/seats/:userId` (AECI-652 §5.6, admin-side) | one `profiles` row | drops the seat to `reviewer`, unlinks `vendor_id`, clears `seat_owner` | **No** |
+| **Ban a seat** | `PATCH /api/admin/reviewers/:id` | one `profiles` row | that seat 403s on every `/api/vendor/*` call; other seats unaffected. A ban of the last active seat moves open owner contests to AECi until the unban, and hands nothing back (AECI-989) | **No** |
+| **Revoke a seat** | `DELETE /api/vendor/seats/:userId` (AECI-664; owner-only, **not** capability-gated) — or `DELETE /api/admin/vendors/:id/seats/:userId` (AECI-652 §5.6, admin-side) | one `profiles` row; the vendor's record too when it is the **last** seat (admin-side only, AECI-989) | drops the seat to `reviewer`, unlinks `vendor_id`, clears `seat_owner`. The last seat also hands the record back to AECi: marker to `'aeci'`, claimed integrations un-claimed, owner contests to AECi (`STAGE_2_ATTESTATIONS_SPEC.md` §13.9) | **No** |
 | **Clear an entitlement** | `PATCH /api/admin/vendors/:id/entitlement` | the vendor | badge goes away; **seats, logins and dashboard survive, read-only** | **Yes** (via the mirror) |
 
 **A pure connector vendor never appears in this table**, because it never gets a row: its seat is not an entitlement (`STAGE_2_SPEC.md` §8.9(2)), and its claim is routed to the partnership track rather than granted here (`STAGE_2_VENDOR_PORTAL_SPEC.md` §5.2). "Grant it a non-paying tier" is not an available move — §5.1 returns **403** on any `set` whose tier grants zero capabilities, and `SetVendorEntitlementSchema.tier` derives from `PAID_TIERS`, so Zod rejects it first.
@@ -750,7 +752,7 @@ Copy discipline held after AECI-965: public and vendor-facing copy describes **a
 
 **Compact variant (AECI-983, 2026-09-17).** The panel gained a `compact` input for the vendor overview (`STAGE_2_VENDOR_PORTAL_SPEC.md` §6.10). It applies to `active` **only**: the strip is the badge, the term and a `<details>` holding the framing sentence, rendered from the same template so the copy is never forked. `expiring`, `pending`, `lapsed` and `none` render in full regardless of the input, because each is a conversation the vendor must read.
 
-One thing this panel does **not** yet drive: `attestation.author` is still gated on the `vendors.verified` **mirror** (`assertVerifiedVendor`), not on the capability — the last place in the portal not driven by `capabilities`. Behaviourally identical while the ladder is binary; a real divergence the moment a rung lands between. Tracked as **AECI-623**.
+Since **AECI-623** the Integrations write gate is driven by `capabilities` too: the portal reads `attestation.author`, the same capability the API asserts on the attestation and version writes. It used to read the `vendors.verified` mirror, the last place in the portal that did. Every write gate in the portal now reads `capabilities`.
 
 ---
 

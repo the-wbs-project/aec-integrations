@@ -29,7 +29,7 @@ Phase 5 is the first phase that introduces **visitor state** (an authenticated s
 
 Phase 5 is **app code**. The data layer and authorization model shipped in earlier phases. Confirmed against `main` @ 2026-06-10:
 
-- **`profiles`** (baseline migration; Prisma `Profile`): `id`, `display_name`, `role` (default `reviewer`), `vendor_id`, `work_email_verified`, `trust_tier`, `theme_preference`, `banned_at`, `ban_reason`. Auto-created on signup by the `handle_new_user()` trigger (`AFTER INSERT ON auth.users`, search_path pinned — AECI-44); delete mirror trigger (AECI-69).
+- **`profiles`** (baseline migration; Prisma `Profile`): `id`, `display_name`, `role` (default `reviewer`), `vendor_id`, `work_email_verified`, `trust_tier`, `theme_preference`, `banned_at`, `ban_reason`. Under ADR 0016 the authoritative row lives in D1 and is created by `POST /api/auth/profile/ensure` at sign-in, with a self-heal on `GET /api/account` (AECI-770, `AUTH_AND_RLS.md` §3.1a). No database trigger creates it. The Postgres-era triggers are history (`AUTH_AND_RLS.md` §8.1).
 - **`reviews`** (baseline migration; Prisma `Review`) — **every column Phase 5 needs already exists**: `id`, `product_id`, `reviewer_id`, `rating_overall`, `rating_onboarding`, `title`, `body`, `role_at_company`, `years_using`, `would_recommend`, `status` (default `pending`), `rejection_reason`, `moderated_at`, `moderated_by`, `toxicity_score`, `verified_work_email`, `locale`, `created_at`, `updated_at`. Indexes: `(product_id, status)`, `(status, created_at desc)`, and a **partial unique index `(product_id, reviewer_id) WHERE reviewer_id IS NOT NULL AND status <> 'archived'`** — DB-enforced one-review-per-user-per-product.
 - **`products`** already carries denormalized `review_count`, `rating_overall_avg`, `rating_onboarding_avg` (app-maintained; AECI-104).
 - **RLS** (AECI-29/87, live on every env): profiles — owner-read + admin-read-all; reviews — public read `status='approved'`, owner-read-own (if `is_active_user()`), admin-read-all. **No INSERT/UPDATE/DELETE grants to anon/authenticated — all writes are Worker-only.** Helpers `public.is_admin()` and `public.is_active_user()` exist.
@@ -87,7 +87,7 @@ Implements `STAGE_1_SPEC.md` §8 and `AUTH_AND_RLS.md` §3–§4.
 
 1. An auth-gated CTA (e.g. "Submit a review") on an unauthenticated session links to `/auth/login?return=<path>`.
 2. `/auth/login` offers **magic link** (email → Supabase sends link) and **Google OAuth** (Supabase OAuth).
-3. Callback returns to `/auth/callback?return=<path>`; the handler exchanges the code for a session (PKCE), sets the session cookie, ensures a `profiles` row exists (the trigger already creates it; the handler is defensive), and redirects to `return` (validated to be a same-origin path — no open redirect).
+3. Callback returns to `/auth/callback?return=<path>`; the handler exchanges the code for a session (PKCE), sets the session cookie, ensures the D1 `profiles` row exists (no trigger creates it under ADR 0016, so this call is the primary creator; it is retried and fatal, and a failure signs the user out to `/auth/login?error=profile_unavailable` — AECI-770, `AUTH_AND_RLS.md` §3.1a), and redirects to `return` (validated to be a same-origin path — no open redirect).
 4. Session token in an HTTP-only, `Secure`, `SameSite=Lax` cookie (Supabase default).
 
 ### 4.3 Session model & cache-neutrality

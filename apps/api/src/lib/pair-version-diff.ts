@@ -99,8 +99,9 @@ export interface ResolveVersionSelectionInput {
  * three. This wrapper reconciles the two: one importer here, one in the web
  * resolver, and AECI-304 swaps the seam without auditing call sites.
  *
- * The looser precedent — `assertVerifiedVendor`'s "ONE function with ONE call site
- * per handler" — does not satisfy the literal AC, which is why this exists.
+ * The looser precedent — the retired `assertVerifiedVendor`'s "ONE function with
+ * ONE call site per handler" (replaced by `requireCapability` in AECI-623) — does
+ * not satisfy the literal AC, which is why this exists.
  *
  * `pairVendorTiers` is the PAIR'S two endpoint vendors, not the reader (AECI-304).
  * That is what keeps the answer a pure function of the two slugs in the URL, and

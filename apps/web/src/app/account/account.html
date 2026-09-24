@@ -15,6 +15,25 @@
 
   @if (loading()) {
   <p class="mt-8 text-sm text-(--text-secondary)" i18n="@@account.loading">Loading your account…</p>
+  } @else if (profileUnavailable()) {
+  <div class="mt-8 space-y-3">
+    <p
+      class="text-sm font-medium text-(--text-primary)"
+      role="alert"
+      i18n="@@account.profileUnavailable"
+    >
+      You're signed in, but we couldn't finish setting up your account. This is on our side. Try
+      again in a minute.
+    </p>
+    <button
+      type="button"
+      (click)="retryLoad()"
+      class="inline-flex items-center rounded-(--radius-md) border border-(--border-strong) bg-(--surface-raised) px-5 py-2.5 text-sm font-bold text-(--text-primary) transition-colors hover:text-(--accent-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+      i18n="@@account.profileUnavailable.retry"
+    >
+      Try again
+    </button>
+  </div>
   } @else if (loadFailed()) {
   <div class="mt-8 space-y-3">
     <p class="text-sm font-medium text-(--text-primary)" role="alert" i18n="@@account.loadFailed">

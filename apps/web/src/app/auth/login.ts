@@ -75,6 +75,15 @@ export class LoginPage {
   /** Validated same-origin return path threaded into both auth flows. */
   protected readonly returnPath = safeReturnPath(this.route.snapshot.queryParamMap.get('return'));
 
+  /**
+   * True when `/auth/callback` bounced here with `?error=profile_unavailable`
+   * (AECI-770): the sign-in worked but the account's profile could not be
+   * created, so the callback signed the visitor out. The notice tells them it is
+   * safe to try again.
+   */
+  protected readonly profileUnavailable =
+    this.route.snapshot.queryParamMap.get('error') === 'profile_unavailable';
+
   /** Set to the submitted address on success; flips to "Check your email". */
   protected readonly emailSent = signal<string | null>(null);
 

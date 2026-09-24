@@ -26,7 +26,9 @@
  *
  * AECI-607 adds the four `/products/:id/versions` routes to every cell above,
  * plus the one gate that is NOT part of `requireVendor()`: version WRITES also
- * require `vendors.verified` (`STAGE_2_ATTESTATIONS_SPEC.md` §1), and ownership
+ * require the `attestation.author` capability, answering 403
+ * `ENTITLEMENT_REQUIRED` without it (AECI-623; it was the `vendors.verified`
+ * mirror and `FORBIDDEN` before that), and ownership
  * is evaluated first so a non-owner still gets a 404 rather than a 403 that
  * would confirm the product exists.
  *
@@ -525,9 +527,29 @@ describe('/api/vendor/* — guard deny cells (every route)', () => {
   });
 });
 
-describe('/api/vendor/products/:id/versions — the Verified capability gate (AECI-607)', () => {
+/** AECI-623: the six writes gated on `requireCapability(c, 'attestation.author')`,
+ *  as a granted seat WITH the capability (seat A, active entitlement row) calls them. */
+const ATTESTATION_AUTHOR_WRITES = ROUTES.filter(
+  (r) =>
+    r.method !== 'GET' && (r.path.includes('/versions') || r.path.startsWith('/api/vendor/claims')),
+);
+
+describe('attestation.author writes — the capability gate (AECI-623)', () => {
+  it('covers exactly the six converted routes', () => {
+    expect(ATTESTATION_AUTHOR_WRITES).toHaveLength(6);
+  });
+
+  it.each(ATTESTATION_AUTHOR_WRITES)(
+    '$method $path accepts a seat holding attestation.author',
+    async ({ path, method, body, ok }) => {
+      expect((await call(path, method, SEAT_A, body)).status).toBe(ok ?? 200);
+    },
+  );
+});
+
+describe('/api/vendor/products/:id/versions — the attestation.author gate (AECI-607, AECI-623)', () => {
   it.each(VERSION_WRITE_ROUTES)(
-    '$method rejects an UNVERIFIED vendor on its own product with 403',
+    '$method rejects a seat with no entitlement on its own product with 403 ENTITLEMENT_REQUIRED',
     async ({ path, method, body }) => {
       const versionId = uuid(30);
       await t.db
@@ -541,7 +563,8 @@ describe('/api/vendor/products/:id/versions — the Verified capability gate (AE
         body,
       );
       expect(status).toBe(403);
-      expect(res.error.code).toBe(ApiErrorCode.FORBIDDEN);
+      expect(res.error.code).toBe(ApiErrorCode.ENTITLEMENT_REQUIRED);
+      expect(res.error.details).toEqual({ capability: 'attestation.author', tier: 'unclaimed' });
       // Nothing written, and the row is still there.
       expect(await t.db.select().from(auditLog)).toHaveLength(0);
       const [row] = await t.db
@@ -623,13 +646,14 @@ const ATTESTATION_WRITE_ROUTES: ReadonlyArray<{
   },
 ];
 
-describe('/api/vendor/claims* — the Verified capability gate (AECI-301)', () => {
+describe('/api/vendor/claims* — the attestation.author gate (AECI-301, AECI-623)', () => {
   it.each(ATTESTATION_WRITE_ROUTES)(
-    '$label rejects an UNVERIFIED vendor on its OWN integration with 403',
+    '$label rejects a seat with no entitlement on its OWN integration with 403 ENTITLEMENT_REQUIRED',
     async ({ method, own }) => {
       const { status, body } = await call(own.path, method, SEAT_UNVERIFIED, own.body);
       expect(status).toBe(403);
-      expect(body.error.code).toBe(ApiErrorCode.FORBIDDEN);
+      expect(body.error.code).toBe(ApiErrorCode.ENTITLEMENT_REQUIRED);
+      expect(body.error.details).toEqual({ capability: 'attestation.author', tier: 'unclaimed' });
       // Nothing written, and the claim set is untouched.
       expect(await t.db.select().from(auditLog)).toHaveLength(0);
       expect(await t.db.select().from(claims)).toHaveLength(3);

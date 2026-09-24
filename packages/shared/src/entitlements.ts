@@ -46,12 +46,12 @@
  * fails that test until someone edits it deliberately, and it must never name a
  * search-ranking concept (§3.2, the no-pay-for-placement firewall).
  *
- * `attestation.author` and `analytics.view` are **declared with no consumer on
- * purpose**, so the issues that need them become pure render-path/handler changes
- * with no registry edit, and so the whole vocabulary is auditable in one place.
- * (Attestation authoring IS gated today, but on `assertVerifiedVendor` reading the
- * `vendors.verified` mirror — `apps/api/src/routes/vendor-shared.ts` — not through
- * this registry; the swap to `requireCapability` is still pending.)
+ * `analytics.view` is **declared with no consumer on purpose**, so the issue that
+ * needs it becomes a pure render-path/handler change with no registry edit, and
+ * so the whole vocabulary is auditable in one place. `attestation.author` was in
+ * that set until AECI-623 made it the gate on the six attestation and
+ * product-version writes (`requireCapability` in `apps/api/src/lib/authz.ts`) and
+ * on the portal's Integrations tab (`vendorCan`).
  *
  * `integration.version_diff` is **no longer in that set**: AECI-304 shipped its
  * consumer in `./version-diff` (`canViewVersionDiff`), and it is the one capability
@@ -66,7 +66,7 @@ export const CAPABILITIES = [
   'product.edit', // PATCH /api/vendor/products/:id
   'product.taxonomy.edit', // taxonomy assignment on an owned product
   'product.usefulness.edit', // AECI-963 — the "how teams use it" narrative on an owned product
-  'attestation.author', // AECI-301 — declared, no consumer yet
+  'attestation.author', // AECI-623 — the attestation + product-version writes
   'analytics.view', // vendor analytics — declared, no consumer yet
   'integration.version_diff', // AECI-304 — consulted by `./version-diff`
 ] as const;

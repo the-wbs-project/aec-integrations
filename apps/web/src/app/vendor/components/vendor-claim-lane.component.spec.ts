@@ -216,7 +216,7 @@ describe('VendorClaimLane — the unverified read-only state', () => {
     const el = fixture.nativeElement as HTMLElement;
 
     // Real data, not a gate: `GET /api/vendor/integrations` is not
-    // Verified-gated, so the vendor sees their surface.
+    // capability-gated, so the vendor sees their surface.
     expect(el.textContent).toContain('RFIs');
     expect(el.textContent).toContain('Sends to Procore');
     expect(el.querySelector('aec-vendor-attestation-control')).toBeNull();

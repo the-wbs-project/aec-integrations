@@ -1,3 +1,4 @@
+import { HttpErrorResponse } from '@angular/common/http';
 import { provideZonelessChangeDetection } from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { provideRouter } from '@angular/router';
@@ -173,6 +174,40 @@ describe('AccountPage', () => {
     const { el } = await setup(api);
     expect(el.querySelector('[role="alert"]')?.textContent).toContain('session may have expired');
     expect(el.querySelector('a[href="/auth/login"]')).not.toBeNull();
+  });
+
+  it('offers a retry, not "sign in again", on 503 PROFILE_UNAVAILABLE and recovers (AECI-770)', async () => {
+    const api = makeApiMock();
+    api.getProfile.mockRejectedValueOnce(
+      new HttpErrorResponse({
+        status: 503,
+        error: { error: { code: 'PROFILE_UNAVAILABLE', message: 'x' }, trace_id: 't' },
+      }),
+    );
+    // The reviews fetch raced the self-heal and 401'd.
+    api.listReviews.mockRejectedValueOnce(new HttpErrorResponse({ status: 401 }));
+    const { fixture, el } = await setup(api);
+
+    expect(el.querySelector('[role="alert"]')?.textContent).toContain(
+      "couldn't finish setting up your account",
+    );
+    expect(el.querySelector('a[href="/auth/login"]')).toBeNull();
+
+    const retry = [...el.querySelectorAll('button')].find((b) =>
+      b.textContent?.includes('Try again'),
+    ) as HTMLButtonElement;
+    retry.click();
+    await fixture.whenStable();
+    await settle();
+    fixture.detectChanges();
+
+    expect(api.getProfile).toHaveBeenCalledTimes(2);
+    expect((el.querySelector('#account-display-name') as HTMLInputElement).value).toBe(
+      'Dana Reviewer',
+    );
+    // A successful identity load re-runs the reviews fetch that lost the race.
+    expect(api.listReviews).toHaveBeenCalledTimes(2);
+    expect(el.textContent).toContain('Rolled out across two studios');
   });
 
   it('saves a new display name via PATCH and confirms success', async () => {

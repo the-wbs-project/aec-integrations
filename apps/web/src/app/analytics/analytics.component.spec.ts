@@ -21,7 +21,12 @@ vi.mock('posthog-js/dist/module.full.no-external', async () => {
   return posthogJsModuleMock();
 });
 
-import { APP_STARTED_EVENT, Analytics, VENDOR_GROUP_TYPE } from './analytics';
+import {
+  APP_STARTED_EVENT,
+  Analytics,
+  INTERNAL_PERSON_PROPERTY,
+  VENDOR_GROUP_TYPE,
+} from './analytics';
 import { ConsentService, type ConsentState } from './consent';
 import {
   POSTHOG_CLIENT_FACTORY,
@@ -42,6 +47,7 @@ function setup(opts: { platform?: 'browser' | 'server'; consent?: ConsentState }
     captureException: vi.fn(),
     historyAutocapture: { startIfEnabled: vi.fn() },
     identify: vi.fn(),
+    setPersonProperties: vi.fn(),
     group: vi.fn(),
     reset: vi.fn(),
   };
@@ -460,6 +466,128 @@ describe('Analytics — vendor group (§AW8)', () => {
   });
 });
 
+/**
+ * The internal-user tag — AECI-1053 (`docs/ANALYTICS.md` §9).
+ *
+ * `AnalyticsIdentity` decides WHO is internal (admin role only; its spec pins
+ * that). This block pins HOW the tag is written: consent-gated like
+ * `identify`, bound to the identified user, after `identify`, and as its own
+ * `$set` rather than a rider on `identify`.
+ */
+describe('Analytics — markInternal (AECI-1053)', () => {
+  it('sets is_internal = true on the identified person, and nothing else', async () => {
+    const { analytics, client } = setup({ consent: 'granted' });
+    analytics.identify('admin-1');
+    analytics.markInternal('admin-1');
+    TestBed.tick();
+    await flush();
+
+    expect(INTERNAL_PERSON_PROPERTY).toBe('is_internal');
+    expect(client.setPersonProperties).toHaveBeenCalledExactlyOnceWith({ is_internal: true });
+  });
+
+  it('never rides identify: identify still carries the user id alone', async () => {
+    // The trap: identify() sends no $identify when the distinct id is
+    // unchanged, so a $set riding it fires once per browser and never reaches
+    // an admin identified before this shipped. The tag must be its own call.
+    const { analytics, client } = setup({ consent: 'granted' });
+    analytics.identify('admin-1');
+    analytics.markInternal('admin-1');
+    TestBed.tick();
+    await flush();
+
+    expect(client.identify).toHaveBeenCalledExactlyOnceWith('admin-1');
+  });
+
+  it('writes the tag after identify, so it lands on the identified person', async () => {
+    const { analytics, client } = setup({ consent: 'granted' });
+    analytics.markInternal('admin-1');
+    analytics.identify('admin-1');
+    TestBed.tick();
+    await flush();
+
+    const identifyOrder = client.identify.mock.invocationCallOrder[0];
+    const tagOrder = client.setPersonProperties.mock.invocationCallOrder[0];
+    expect(identifyOrder).toBeLessThan(tagOrder);
+  });
+
+  it('does NOT tag an admin who declined the banner, or sends DNT/GPC', async () => {
+    const { analytics, client } = setup({ consent: 'denied' });
+    analytics.identify('admin-1');
+    analytics.markInternal('admin-1');
+    TestBed.tick();
+    await flush();
+    expect(client.setPersonProperties).not.toHaveBeenCalled();
+  });
+
+  it('tags when consent is granted after the role resolved', async () => {
+    const { analytics, client, state } = setup({ consent: 'unknown' });
+    analytics.identify('admin-1');
+    analytics.markInternal('admin-1');
+    TestBed.tick();
+    await flush();
+    expect(client.setPersonProperties).not.toHaveBeenCalled();
+
+    state.set('granted');
+    TestBed.tick();
+    await flush();
+    expect(client.setPersonProperties).toHaveBeenCalledExactlyOnceWith({ is_internal: true });
+  });
+
+  it('does NOT tag when the id differs from the identified user', async () => {
+    const { analytics, client } = setup({ consent: 'granted' });
+    analytics.identify('user-1');
+    analytics.markInternal('admin-1');
+    TestBed.tick();
+    await flush();
+    expect(client.setPersonProperties).not.toHaveBeenCalled();
+  });
+
+  it('does NOT tag before any identity is known', async () => {
+    const { analytics, client } = setup({ consent: 'granted' });
+    analytics.markInternal('admin-1');
+    TestBed.tick();
+    await flush();
+    expect(client.setPersonProperties).not.toHaveBeenCalled();
+  });
+
+  it('tags once per page load across repeat resolutions', async () => {
+    const { analytics, client } = setup({ consent: 'granted' });
+    analytics.identify('admin-1');
+    analytics.markInternal('admin-1');
+    TestBed.tick();
+    await flush();
+    analytics.markInternal('admin-1');
+    TestBed.tick();
+    await flush();
+    expect(client.setPersonProperties).toHaveBeenCalledTimes(1);
+  });
+
+  it('forgets the tag on logout, so the next person on the browser is not tagged', async () => {
+    const { analytics, client } = setup({ consent: 'granted' });
+    analytics.identify('admin-1');
+    analytics.markInternal('admin-1');
+    TestBed.tick();
+    await flush();
+
+    await analytics.resetIdentity();
+    analytics.identify('user-2');
+    TestBed.tick();
+    await flush();
+
+    expect(client.setPersonProperties).toHaveBeenCalledTimes(1);
+  });
+
+  it('is a no-op on the server platform', async () => {
+    const { analytics, client } = setup({ platform: 'server', consent: 'granted' });
+    analytics.identify('admin-1');
+    analytics.markInternal('admin-1');
+    TestBed.tick();
+    await flush();
+    expect(client.setPersonProperties).not.toHaveBeenCalled();
+  });
+});
+
 describe('Analytics — resetIdentity on logout (§AW8)', () => {
   it('resets the client', async () => {
     const { analytics, client } = setup({ consent: 'granted' });
@@ -521,6 +649,7 @@ describe('Analytics — an email address never reaches PostHog (§2)', () => {
     // rather than an address; if that term is ever an email it is the visitor's
     // own typing, not something this service put there.
     analytics.identify('4f1a0e3e-0000-4000-8000-000000000001');
+    analytics.markInternal('4f1a0e3e-0000-4000-8000-000000000001');
     analytics.groupVendor({ id: 'vendor-1', name: 'Autodesk' });
     analytics.searchPerformed(SEARCH_INPUT);
     analytics.productViewed('prod-1');
@@ -539,6 +668,7 @@ describe('Analytics — an email address never reaches PostHog (§2)', () => {
     const everySentArgument = [
       ...client.capture.mock.calls,
       ...client.identify.mock.calls,
+      ...client.setPersonProperties.mock.calls,
       ...client.group.mock.calls,
       ...client.register.mock.calls,
     ].flat();

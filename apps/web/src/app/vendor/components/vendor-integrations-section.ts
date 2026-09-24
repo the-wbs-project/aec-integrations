@@ -346,7 +346,8 @@ export class VendorIntegrationsSection implements OnInit {
   private readonly store = inject(VendorPortalStore);
   private readonly announcer = inject(VendorPortalAnnouncer);
 
-  readonly verified = input.required<boolean>();
+  /** Holds `attestation.author` (AECI-623): the write controls render only then. */
+  readonly canAuthor = input.required<boolean>();
   readonly vendorName = input.required<string>();
 
   /**
@@ -471,7 +472,7 @@ export class VendorIntegrationsSection implements OnInit {
   /** Set after a create or a pivot; consumed once the lane exists. */
   private readonly pendingFocusClaimId = signal<string | null>(null);
 
-  protected readonly canWrite = computed(() => this.verified());
+  protected readonly canWrite = computed(() => this.canAuthor());
   protected readonly loaded = computed(() => !this.loading() && !this.failed());
 
   /**

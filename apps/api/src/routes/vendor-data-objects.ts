@@ -36,12 +36,10 @@
  *
  * ── NOT VERIFIED-GATED ──────────────────────────────────────────────────────
  * Same posture as `GET /api/vendor/integrations` and `/notifications`:
- * `vendors.verified` gates **authoring** (§1), not reading. An unverified vendor
- * renders the tab read-only and is told what verification unlocks; 403-ing the
- * vocabulary would leave that read-only view unable to label its own data.
- * `assertVerifiedVendor` is deliberately not imported here — keeping its call
- * sites at one-per-authoring-handler is what makes the eventual
- * `requireCapability('attestation.author')` swap mechanical.
+ * `attestation.author` gates **authoring** (§1), not reading. A vendor without it
+ * renders the tab read-only and is told what active access unlocks; 403-ing the
+ * vocabulary would leave that read-only view unable to label its own data. So
+ * `requireCapability` is deliberately not called here (AECI-623).
  */
 
 import { ListDataObjectsResponseSchema, type ListDataObjectsResponse } from '@aeci/shared';

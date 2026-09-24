@@ -85,8 +85,9 @@ const lastReviewedAt = () => text('last_reviewed_at');
  *  any vendor-authorized catalog write, on the row it writes — per row, never
  *  transitively. Promote must never write this column, or a routine push would
  *  silently un-vendor a record; a cross-table move must CARRY it for the same
- *  reason, since an INSERT would otherwise take the default below. Only an
- *  attestation retract flips back today — the seat-revoke path is AECI-989. */
+ *  reason, since an INSERT would otherwise take the default below. Two paths flip
+ *  it back: an attestation retract (§13.4), and the last-seat hand-back
+ *  (`lib/vendor-handback.ts`, AECI-989). */
 const maintainedBy = () => text('maintained_by').notNull().default('aeci');
 
 /** The CHECK companion to {@link maintainedBy}, so the four tables can't drift. */
@@ -1611,6 +1612,18 @@ export const integrationFieldChallenges = sqliteTable(
       onDelete: 'set null',
     }),
 
+    /**
+     * Set while this contest sits with AECi ONLY because its owner vendor has no
+     * unbanned `vendor_admin` seat (AECI-989, migration 0048). A ban of the last
+     * active seat re-routes open owner contests here, and a contest submitted in
+     * that window routes here too; both carry the stamp. An unban routes every
+     * stamped open contest back to the owner and clears it, when the row has been
+     * claimed by that owner since before the stamp. Revoking the last seat keeps the
+     * stamp and routes nothing back, because the hand-back ends the claim the return
+     * requires (`lib/vendor-handback.ts`). NULL on every other row.
+     */
+    ownerSeatLapsedAt: text('owner_seat_lapsed_at'),
+
     // ── Protest to AECi (AECI-1009, §11b.12; migration 0047, hand-authored) ──
     // `protest_status` and `protest_basis` carry COLUMN-level CHECKs written by
     // hand into the migration, never a table-level `check()` here: declaring one
@@ -2961,6 +2974,38 @@ export const connectorEvidencedPairs = sqliteTable(
 
     lastReviewedAt: lastReviewedAt(),
     maintainedBy: maintainedBy(),
+
+    // ── Vendor ownership (AECI-1088, the AECI-1040 owner carve-out) ─────────
+    // The same four columns `0044` and `0046` gave `integrations`, with the same
+    // meaning. All four were added by `0049_…` as plain `ALTER TABLE … ADD COLUMN`,
+    // and none may ever gain a table-level `check()` here: drizzle-kit renders any
+    // CHECK change as a DROP + recreate, and this table is a cascade parent of
+    // `claims`, which cascade into `attestations` (`docs/migrations.md` §3.3a).
+    // The `origin` and `retired_by` CHECKs are COLUMN constraints written by hand
+    // into 0049; `migration-0049.spec.ts` fails if a later recreate drops them.
+    //
+    // **Vendor-held** means exactly what it means on `integrations`: `claimed_at IS
+    // NOT NULL OR origin = 'vendor'` (`vendorHeldEvidencedPairWhere` in
+    // `lib/integration-twins.ts`, `isVendorHeld` in `lib/integration-claims.ts`).
+    // Promote never writes any of the four (`REVIEW_APP_PROMOTE_API.md` §4b).
+
+    /** When the owner took the pair by a claim. NULL = not claimed. The promote
+     *  fence keys on it, never on `maintained_by`. No route sets it yet: the
+     *  claim across both tables is AECI-1089. */
+    claimedAt: text('claimed_at'),
+    /** Who created the row. Always `'aeci'` today, because vendor create stays
+     *  closed on connector-powered rows (`STAGE_2_SPEC.md` §8.10(8), ruling 1).
+     *  It exists so the vendor-held predicate reads identically on both tables,
+     *  and because the ops lanes' `notVendorHeldSql` switches on only when
+     *  both `claimed_at` and `origin` exist. Enforced by the hand-written CHECK. */
+    origin: text('origin').notNull().default('aeci'),
+    /** When the pair was retired, or NULL while it is live. Written only by the
+     *  retire routes (AECI-1091); promote never writes it. No read filters on it
+     *  yet: the evidenced arm of every count and public read is AECI-1091. */
+    retiredAt: text('retired_at'),
+    /** Who retired the pair: `'owner'` or `'aeci'`. NULL while live. Enforced by
+     *  the hand-written column CHECK in 0049. */
+    retiredBy: text('retired_by'),
 
     createdAt: createdAt(),
     updatedAt: updatedAt(),

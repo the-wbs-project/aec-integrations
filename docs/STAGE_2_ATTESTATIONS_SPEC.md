@@ -28,11 +28,10 @@ agreement.** Everything in §4 exists to make that structurally true rather than
 
 **Capability gate.** Attestation authoring is a **Verified-vendor** capability (`STAGE_2_SPEC.md`
 §8.1(3)). It gates **capability only, never ranking, placement, or badge trust** — no
-pay-for-placement. This epic reads `vendors.verified` directly (`assertVerifiedVendor`), which was
-the launch entitlement bit per §8.3(1); since AECI-609 that column is a **mirror** of a
-`vendor_entitlements` row (`STAGE_2_SPEC.md` §8.5(1)), so these routes still read the right thing
-but are gated on the mirror rather than on the `attestation.author` **capability** the registry now
-declares. Behaviourally identical while the ladder is binary; **AECI-623** does the swap.
+pay-for-placement. **As built (AECI-623):** the gate is `requireCapability(c, 'attestation.author')`
+over the session's entitlement tier (`STAGE_2_PAID_TIERS_SPEC.md` §3.3(a), §4), and a miss is
+`403 ENTITLEMENT_REQUIRED`. This epic originally read the `vendors.verified` mirror through a
+placeholder, `assertVerifiedVendor`, which answered `403 FORBIDDEN`; that placeholder is deleted.
 
 ### 1.1 Issue map & critical path
 
@@ -216,7 +215,7 @@ guarantees: check before editing.
   `apps/api/src/routes/vendor-shared.ts`** — `sessionVendorId`, `parseJsonBody`, `purgeTags`,
   `afterVendorWrite`, the audit source, plus `requireOwnedProduct()` (product-grain ownership,
   the sibling of §2.3's integration-grain `resolveAttestationSlots`) and `assertVerifiedVendor()`
-  (the §1 capability gate). **§5 imports them; it does not re-implement them.** *(As built: it
+  (the §1 capability gate; replaced by `requireCapability(c, 'attestation.author')` in AECI-623). **§5 imports them; it does not re-implement them.** *(As built: it
   did, and the only change it needed was an array overload on `afterVendorWrite`, because a
   claim write emits more than one audit row — §5.4.)*
 - **`data_object` find-only resolution** — `loadDataObjectResolver` /`safeSlugify` in
@@ -752,12 +751,15 @@ Shapes, Zod schemas and error codes go in `packages/shared/src/api/` and are doc
   The UI (§6) should offer the closed list rather than free text in the first place.
 - **Authority through §2.3 only.** No handler re-derives the slot rule. A claim on an integration
   the caller touches neither endpoint of is a **404**.
-- **Verified gate.** Authoring requires `vendors.verified` (§1). Unverified → `403 FORBIDDEN` with
-  copy that points at the claim/verification flow, never at ranking.
+- **Capability gate.** Authoring requires the `attestation.author` capability (§1). Without it →
+  `403 ENTITLEMENT_REQUIRED` with `details: { capability, tier }` and copy that points at
+  activation, never at ranking. *(As built, AECI-623: `requireCapability` over the session tier.
+  Until then the gate read `vendors.verified` through `assertVerifiedVendor` and answered
+  `403 FORBIDDEN`.)*
 - **Connector gate, and it runs FIRST of the two 403s** (AECI-705 / §14). A connector-powered edge is
   `403 FORBIDDEN` on `POST` / `PUT` whatever the caller's tier, with copy that points at the
-  connector and never at verification — verification will never unlock it. Order:
-  authority → 404, powered → 403, verified → 403.
+  connector and never at account access — no tier will ever unlock it. Order:
+  authority → 404, powered → `403 FORBIDDEN`, capability → `403 ENTITLEMENT_REQUIRED`.
 - **Direction is stored canonically** (`a_to_b` / `b_to_a` / `both`, relative to the integration
   row's own endpoints — `STAGE_1_5_SPEC.md` §3.2) and translated to the caller's frame at the API
   boundary. The vendor UI speaks "inbound/outbound"; the DB never does.
@@ -806,6 +808,9 @@ Decisions taken at build that §5.1–§5.3 did not pre-specify:
   settled for the version list. Authoring is the Verified capability; reading your own surface is
   not, so the §6 tab renders read-only and explains what verification unlocks rather than 403-ing a
   vendor out of its own data.
+  **Superseded 2026-09-23 (AECI-1108):** authoring is no longer "the Verified capability". Since
+  AECI-623 it is `requireCapability('attestation.author')`, which refuses with
+  `403 ENTITLEMENT_REQUIRED`. The read stays ungated. See the AECI-623 note at the end of this section.
 - **The gate ORDER needed one adaptation, and it is load-bearing.** §8.3's rule — prove ownership
   first, in its own wave, parse the body last — assumes the id is a path param. `POST
   /api/vendor/claims` carries its `integration_id` in the **body**, so authority cannot be resolved
@@ -885,7 +890,8 @@ run three times against the real partial unique index, direction round-trip, fin
 version-stamp authority, the purge tag set, and the §26.1 rollback proved by a ghost `actor_id` that
 makes `auditInsert` throw *inside* the batch); the four routes added to every cell of
 `vendor.authz-matrix.spec.ts` plus its own Verified-gate and cross-vendor 404 blocks (117 cases
-total); `resolveClaimAuthority` in `attestation-authority.spec.ts`; the round-trip property in
+total; **superseded 2026-09-23, AECI-1108:** the Verified-gate block is now the `attestation.author`
+capability-gate block, `/api/vendor/claims* — the attestation.author gate (AECI-301, AECI-623)`); `resolveClaimAuthority` in `attestation-authority.spec.ts`; the round-trip property in
 `integration-context.spec.ts`; the extracted resolver in `data-object-vocabulary.spec.ts`; and the
 wire contract in `packages/shared/src/api/vendor-attestations.spec.ts`. Suites green at merge:
 `apps/api` 75 files / 1110 tests (was 72 / 926), `packages/shared` 26 / 390 (was 23 / 328). Every
@@ -893,6 +899,15 @@ pre-existing spec passes **unmodified**.
 
 > **⚠️ Release gate, restated.** §4/AECI-605 is merged on `aeci-514`, so the §1.1 gate is discharged
 > *on this branch*. It is still the reason this must not be cherry-picked anywhere §4 is absent.
+
+> **As built (AECI-623 — 2026-09-23): the gate is the capability.** The three writes above
+> (`POST /api/vendor/claims`, `PUT` and `DELETE /api/vendor/claims/:claimId/attestation`) and the
+> three §8 version writes call `requireCapability(c, 'attestation.author')` in place of
+> `assertVerifiedVendor`, which is deleted. The wire change is the `code`: `403 FORBIDDEN` became
+> `403 ENTITLEMENT_REQUIRED` with `details: { capability: 'attestation.author', tier }`. The
+> connector-powered 403 stays `FORBIDDEN`, so a client tells the two apart by `code`. The portal's
+> write gate moved in the same change (`STAGE_2_REALTIME_SPEC.md` §6.1), and its two write
+> components show the access message only for `ENTITLEMENT_REQUIRED`. Gate order is unchanged.
 
 ---
 
@@ -965,7 +980,9 @@ Decisions taken at build that §6 did not pre-specify:
   loudly instead of reading as a fix.
 - **Not Verified-gated**, following `GET /api/vendor/integrations` and `/notifications`: 403-ing the
   vocabulary would leave the read-only tab unable to label its own claims. `assertVerifiedVendor` is
-  deliberately not imported there, keeping its call sites at one-per-authoring-handler.
+  deliberately not imported there, keeping its call sites at one-per-authoring-handler. *(Since
+  AECI-623 the gate is `requireCapability(c, 'attestation.author')`, and this read still does not
+  call it.)*
 - **`aliases` is off the wire, and it is the load-bearing exclusion.** The picker submits a
   canonical slug, which always resolves, so alias matching buys nothing; shipping them would invite
   a client-side match that reimplements `safeSlugify`, and a second matcher is exactly the drift
@@ -1695,6 +1712,7 @@ brought forward to match. Decisions taken at build that §8.1–§8.3 did not pr
   already shipped on `aeci-515` (`@aeci/shared/entitlements` declares the id) and whose guard
   AECI-611 adds. Swapping it at the `stage-2` merge is mechanical. It **reads** `vendors.verified`
   and never writes it — `aeci-515` lints that column's writes down to the entitlement mirror.
+  *(Swapped in AECI-623: the version writes now answer `403 ENTITLEMENT_REQUIRED`.)*
 - **A shared vendor-route seam was extracted, and §5 should build on it.**
   `routes/vendor-shared.ts` now owns `sessionVendorId` / `parseJsonBody` / `purgeTags` /
   `afterVendorWrite` / the audit source, plus `requireOwnedProduct()` — the **product-grain**
@@ -2191,7 +2209,7 @@ column is indexed — both are read with the row.
 | Column | Written by | Never written by |
 |---|---|---|
 | `last_reviewed_at` | `lastReviewedAt` in the promote payload (`REVIEW_APP_PROMOTE_API.md` §3.6), **and only on an AECi-maintained row** (§13.9); a vendor attestation (§5); **any vendor-authorized catalog write** (§13.9) | anything else — no default, no trigger, no derivation |
-| `maintained_by` | the §5 vendor attestation path; **any vendor-authorized catalog write** (§13.9) | **promote** — the payload does not accept it |
+| `maintained_by` | the §5 vendor attestation path; **any vendor-authorized catalog write** (§13.9); **back to `'aeci'`** by an attestation retraction (§13.4) and by the last-seat hand-back (§13.9, AECI-989) | **promote** — the payload does not accept it |
 
 > **Updated by AECI-981 (2026-09-16).** This table read "the §5 vendor attestation
 > path only" for four weeks while the vendor portal shipped a profile editor, a
@@ -2433,10 +2451,11 @@ column never appears in any projection. Two holes survived that:
   in production. **Since AECI-1005 a CLAIMED edge is blocked wholesale** (the ownership
   fence, `REVIEW_APP_PROMOTE_API.md` §4b), so this `last_reviewed_at` fence now does its
   work on the unclaimed-but-attested edge only.
-- **`claimedVendorIds` is seat-derived.** Revoke or ban every `vendor_admin` seat and
-  the block lifts while `maintained_by` stays `'vendor'`. So the `vendors` and
-  `products` arms of the fence are near-unreachable while a seat exists and fire
-  post-revoke. They are not dead branches.
+- **`claimedVendorIds` is seat-derived.** Ban every `vendor_admin` seat and the block
+  lifts while `maintained_by` stays `'vendor'`. A revoke of the last seat no longer
+  leaves that state behind: since AECI-989 it hands the marker back (below). So the
+  `vendors` and `products` arms of the fence fire during a ban, and on a co-owned
+  product whose other owner still holds a seat. They are not dead branches.
 
 Implemented as a `CASE` inside the UPDATE (`fencedLastReviewedAt` in
 `routes/promote.ts`), on all four tables that carry the column — `vendors`,
@@ -2464,16 +2483,103 @@ its selects, and `carriedMaintenance` puts them on the destination INSERT in bot
 directions. The fence cannot cover this: it guards UPDATEs, and a move is an insert
 plus a drop.
 
-#### Deferred: the seat-revoke path
+#### The seat hand-back (AECI-989 — 2026-09-23)
 
-**The transfer is one-way today. Nothing hands a record back to `'aeci'`, and there
-is a real gap in that.** Once the last un-banned `vendor_admin` seat is removed,
-AECI-520's block lifts and promote resumes writing the content, but `maintained_by`
-stays `'vendor'` indefinitely — so a record AECi has resumed curating keeps the
-vendor's name on it. The principled fix mirrors §13.4's retraction rule: flip the
-vendor and every owned product back to `'aeci'` in the same batch as the revoke,
-never clearing `last_reviewed_at`. Tracked as **AECI-989**; named here so a reader
-between the two PRs is not misled.
+**Revoking a vendor's last seat hands its record back to AECi.** Until this shipped the
+transfer was one-way. Once the last seat was gone, AECI-520's block lifted and promote
+wrote the vendor and its products again, but `maintained_by` stayed `'vendor'` forever.
+Worse, every integration the vendor had claimed stayed fenced by `claimed_at`, so nobody
+could write it at all: not promote, and not a vendor with no seat. AECI-989 was pulled
+forward from Stage 2.5 into Stage 2.1 on 2026-09-23 because it gates seating a pilot
+vendor AECi might need to revoke (`STAGE_2_1_SPEC.md` §3.3.1).
+
+**The trigger is "no `vendor_admin` profile left", banned or not.** The one caller today
+is the admin revoke, `DELETE /api/admin/vendors/:id/seats/:userId`. The vendor portal's
+own remove cannot reach it, because it refuses self-removal. Account erasure is the third
+way a seat disappears. AECI-1106 wires it onto the same builder, `planVendorHandback` in
+`apps/api/src/lib/vendor-handback.ts`, which is exported and takes no request context for
+that reason.
+
+What rides the revoke's `db.batch`, each write with its own audit row (§26.1):
+
+| Row | Change | Audit row |
+|---|---|---|
+| `vendors` | `maintained_by` → `'aeci'` | `vendor.updated`, `metadata.reason = 'maintenance-marker'`, `cause = 'owner-seat-revoked'` |
+| each owned `products` row (`product_vendors`, any role) | `maintained_by` → `'aeci'`, unless another owning vendor still holds a seat | `product.updated`, same metadata |
+| each LIVE owned integration (`built_by_vendor_id` = vendor, `claimed_at` set) | `claimed_at` → NULL | `integration.updated`, `metadata.reason = 'owner-seat-revoked'` |
+| the same integration | `maintained_by` → `'aeci'`, only when no live vendor attestation survives on it (§13.4) | `integration.updated`, `reason = 'maintenance-marker'`, `cause = 'owner-seat-revoked'` |
+| each open contest routed to this owner | `routed_to` → `'aeci'`, for good | `integration.contest.rerouted`, plus an `open → open` transition |
+
+The rules behind the table:
+
+1. **Ownership returns the way ADR 0035 already defines it.** Clearing `claimed_at` is
+   what the owner-reassignment accept does (`STAGE_2_VENDOR_PORTAL_SPEC.md` §4.5.3), for
+   the same reason: nobody who has acted owns the row now. The promote fence
+   (`REVIEW_APP_PROMOTE_API.md` §4b) lifts, so promote writes the row again.
+   `built_by_vendor_id` stays, so the review app's owner of record is unchanged.
+2. **Nothing is deleted, and claims, attestations, links and contests are all kept.**
+3. **A vendor-created row stays fenced** (ruled 2026-09-23). Its claim clears, but
+   `origin = 'vendor'` keeps the fence on, because the review app has no record to write
+   it from. It then shows in the `vendor_integration_unclaimed` data-quality warning, and
+   an admin can still retire it (`STAGE_2_VENDOR_PORTAL_SPEC.md` §4.6.4).
+4. **A retired row keeps its claim.** It is already off the public record. The claim is
+   what lets a re-seated vendor restore its own withdrawal. Clearing it would also break
+   "retired implies vendor-held" on an `origin = 'aeci'` row.
+5. **A co-owned product with a seated co-owner keeps its marker.** AECI-520 still blocks
+   promote on that product, so AECi is not curating it again.
+6. **`last_reviewed_at` is never touched in either direction** (§13.4).
+7. **The entitlement and `vendors.verified` are untouched.** Seat and entitlement stay
+   orthogonal (`STAGE_2_PAID_TIERS_SPEC.md` §5.2). Clearing the entitlement is its own
+   action.
+8. **A no-op writes nothing.** A row already at `'aeci'`, or an integration with no
+   claim, gets no statement and no audit row, as `aeciMaintainedFlip` returns `null`.
+9. **The purge covers only what changed on a public page:** `vendor:{slug}` for the vendor
+   flip, `product:{slug}` plus `index:products` for each product flip, and the pair tag
+   plus both product tags for each integration whose marker flipped. `claimed_at` is not
+   rendered publicly, so an un-claim alone purges nothing.
+
+**A ban hands nothing back** (ruled 2026-09-23). A ban is reversible, and handing
+ownership back on a ban would make an unban silently lose data. `claimed_at` and the
+marker stay as they are. But a vendor with no unbanned seat cannot answer a contest. So
+while the vendor has no unbanned `vendor_admin`:
+
+- **Open owner contests move to AECi's queue.** A ban of the last active seat, or a revoke
+  that leaves only banned seats, re-routes them in the same batch, each stamped with
+  `integration_field_challenges.owner_seat_lapsed_at` (migration `0048`). Audit
+  `integration.contest.rerouted` with `metadata.reason = 'owner-seat-lapsed'`
+  (`planOwnerSeatLapse`).
+- **New contests route there too.** The contest submit routes to AECi, stamped, when the
+  owner has no unbanned seat, and sends the owner no notice.
+- **They route back as soon as the vendor has an unbanned seat again** (`planOwnerSeatReturn`, `reason = 'owner-seat-restored'`, ruled 2026-09-23). That is an unban, or a new seat grant by any of the three seat writers: the admin provision, the claim grant and the invite redeem (`planSeatGrantReturn`). A new seat whose own profile is banned returns nothing.
+  It returns every open, stamped contest whose row is live and has been claimed by that
+  vendor since before the stamp, and clears the stamp. "Since before the stamp" is what
+  stops a contest the hand-back took for good from returning after a re-seated vendor
+  re-claims the row. A contest AECi decided during the lapse stays decided.
+- **The silence clock does not pause.** It runs from `created_at`
+  (`STAGE_2_VENDOR_PORTAL_SPEC.md` §11b.12.2). A contest that sat with AECi through a
+  long lapse can come back already protestable for silence. Accepted: the owner's own
+  seat was the cause.
+
+**Races are guarded in SQL.** Whether a revoke or ban is the last one is read before
+the batch, so the batch re-checks it. Two sentinels sit straight after the profile UPDATE
+(`seatRaceSentinels`). One aborts when the UPDATE matched no row, such as a double-click.
+The other aborts when the seats left do not match the plan. That covers a seat provisioned
+in the gap and two seats revoked or banned at once. A lost race writes nothing and answers
+`409 VENDOR_SEATS_CHANGED`. A retry then plans against the real seats. Without the first,
+the loser of a double-click would commit every hand-back audit row for writes its guarded
+UPDATEs never made.
+
+**Lookups are chunked.** The two `IN (...)` reads over a vendor's products and claimed
+integrations run in groups of 80 ids, because D1 allows 100 bound parameters per query.
+
+**Test coverage:** `routes/vendor-handback.spec.ts` covers the last seat against a seat
+that is not the last and against only banned seats remaining. It also covers each
+integration case, kept claims and attestations, and the audit set with its reasons. It
+checks the purge set, and that the real promote ingest writes a handed-back edge it
+fenced a moment earlier. For bans it covers ban, unban, a decided contest, and a
+hand-back contest that must never return. Two cases cover the return on a new seat grant, and none when that seat's profile is banned. Three race cases cover a double-click, a seat
+provisioned mid-revoke, and two seats revoked at once. `routes/vendor-contests.spec.ts` covers the
+stamped submit.
 
 #### Acceptance
 
@@ -2494,6 +2600,9 @@ between the two PRs is not misled.
 - [x] A cross-table move preserves both columns.
 - [x] The rendered marker is asserted at the product-detail and vendor-detail mount
       sites, which had no test at all before this issue.
+- [x] Revoking the last seat hands the vendor, its solely-owned products and its live
+      claimed integrations back to AECi in the revoke's batch, keeping claims,
+      attestations and `last_reviewed_at` (AECI-989, "The seat hand-back" above).
 
 **Test coverage:** `vendor.spec.ts` (9 cases across both PATCHes),
 `vendor-product-versions.spec.ts` (transfer, the `updated_at` fact, the
@@ -2587,8 +2696,8 @@ above; correct at re-key time.
 
 **The `iPaaS` disjunct is PERMANENT (AECI-735).** It reads as a transitional accommodation for
 edges whose FK has not been backfilled yet, and it is not one. Those 53 edges cannot acquire the FK
-— `connector_evidenced_pairs.connector_product_id` is NOT NULL and AECI-700 parks Zapier and Workato
-indefinitely — so AECI-735 asked whether `iPaaS` could leave the mechanism vocabulary now that the
+— `connector_evidenced_pairs.connector_product_id` is NOT NULL and AECI-700 parked Zapier and Workato
+(reversed 2026-09-23 by AECI-1064; Make, n8n and Boomi stay unpromoted) — so AECI-735 asked whether `iPaaS` could leave the mechanism vocabulary now that the
 connector lane has its own tables, and closed it as **no**. There is no replacement marker short of a
 new `integrations` column. This predicate has a sibling that reads the same value for the same
 population: `routeIntegrationLane` clause (c) in
@@ -2639,7 +2748,9 @@ Three properties of that table are load-bearing.
    code rather than minting a new one: the portal already knows from `attestable: false`, so the 403
    is a backstop for direct API callers and a new code would cost an `API_CONTRACTS.md` §4 row for no
    reader.
-2. **The order is authority → 404, powered → 403, verified → 403.** Reversed, an unverified vendor on
+2. **The order is authority → 404, powered → 403 `FORBIDDEN`, capability → 403
+   `ENTITLEMENT_REQUIRED`** (the last gate was `vendors.verified` → `FORBIDDEN` until AECI-623; the
+   two 403s now differ by `code`). Reversed, an unverified vendor on
    a powered edge is told to get verified in order to author — a promise verification will never
    keep, because the edge stays closed to it afterwards. The copy points at the connector and never
    at verification, ranking or placement (§5.2).

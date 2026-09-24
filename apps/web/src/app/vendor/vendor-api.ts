@@ -177,7 +177,7 @@ export class VendorApi {
   /** `GET /api/vendor/integrations` — every integration touching a product the
    *  caller owns, with its claims, each claim's computed `agreement`, the
    *  counterparty's position, and which slots are the caller's. Unpaginated
-   *  (bounded by the vendor's own catalog) and **not** Verified-gated: an
+   *  (bounded by the vendor's own catalog) and **not** capability-gated: a
    *  vendor without active account access gets a real surface it cannot yet write to. */
   getIntegrations(): Promise<ListVendorIntegrationsResponse> {
     return firstValueFrom(

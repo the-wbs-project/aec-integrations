@@ -90,7 +90,7 @@ Three roles exist in `profiles.role`. All are set server-side — no client can 
 
 | Role | Who | How assigned |
 |---|---|---|
-| `reviewer` | Any authenticated user | Default role of the **D1** profile created by `POST /api/auth/profile/ensure` on first sign-in (the authoritative path under ADR 0016). The Postgres `handle_new_user()` trigger on `auth.users` still exists in the auth-only baseline but is **vestigial** — the app reads `profiles.role` from D1, not Postgres. See §8.1. |
+| `reviewer` | Any authenticated user | Default role of the **D1** profile. Seam #1 (§3.1) creates it on first sign-in, and `GET /api/account` re-creates it if that failed (§3.1a). No database trigger provisions the D1 row. The Postgres-side triggers in §8.1 are vestigial and touch only a mirror the app never reads. |
 | `admin` | Chris and Bill | Manual grant against the per-environment **D1** `profiles` row whose `id` equals the user's Supabase `auth.users.id` (the verified JWT `sub`). There is no self-serve path and no `auth.users`↔`profiles` FK. Since ADR 0017 one shared auth project backs every tier, so a human has **one** id everywhere and the grant is per-environment-D1 against that same id. **Procedure: see §3.3.** |
 | `vendor_admin` | Stage 2 vendor contacts | Granted app-side on **vendor-claim approval** — the same app-layer seam as `admin` (no `auth.users`↔`profiles` FK, AECI-254). The claim form is anonymous, so the *identity* the grant links is resolved from `vendor_requests.submitter_email` by **seam #4** (§3.1) — either linking an existing `auth.users` row or provisioning one. See `STAGE_2_VENDOR_PORTAL_SPEC.md` §2–§3. Enforcement **shipped in AECI-520**: `requireVendor()` (`apps/api/src/lib/authz.ts`) requires `role = 'vendor_admin'` **and** a non-null `profiles.vendor_id`, and every `/api/vendor/*` query is scoped by that `vendor_id` (§4.4). Many `profiles` → one `vendor_id`. Multi-seat is **flat in data capability** — every seat edits the same things — but since **AECI-664** not flat in seat management: `profiles.seat_owner` gates invite/remove alone. A seat arrives from an AECi claim grant (owner), from the AECI-740 admin provision (owner, and **without** an entitlement row — `STAGE_2_SPEC.md` §8.9(2)), or by redeeming an owner's invite (not an owner), which is the bound that stops one reviewed human seeding an unbounded chain of unreviewed ones. See `STAGE_2_VENDOR_PORTAL_SPEC.md` §11a and §5.3. |
 
@@ -108,7 +108,7 @@ outside it must use a JWT-scoped path.
 
 | Seam | Operation | Code | GoTrue endpoint | Degrade when creds absent |
 |---|---|---|---|---|
-| **#1** provisioning | Idempotent D1 `profiles` create on the first authenticated request. The **primary** creator under D1 (no `handle_new_user` trigger). | `routes/auth-profile.ts` | *none — D1 only, no service role* | n/a |
+| **#1** provisioning | Idempotent D1 `profiles` create at sign-in, with a self-heal on `GET /api/account` (§3.1a). The **only** creator under D1: no trigger provisions the row. | `lib/profile-provisioning.ts` (called by `routes/auth-profile.ts` and the `GET /api/account` guard) | *none — D1 only, no service role* | n/a |
 | **#2** `auth.users` account reads | Emails for the admin moderation queue, the claim queue, the vendor seat roster and `/admin/vendors`; **plus `last_sign_in_at` / `created_at` / `email_confirmed_at`** for `/admin/users` (AECI-692). | `lib/supabase-admin.ts` → `fetchAuthUserEmails` (bare map), `fetchAuthUserEmailsResult` (+availability), `fetchAuthUserRecords` (+the three timestamps) | `GET /auth/v1/admin/users/:id` | Every auth-derived field `null` **and the surface says so** — the `Result`/record forms carry `available` + `reason`, so a page renders "unavailable" rather than asserting "no email on file". The queue stays usable |
 | **#3** GDPR erasure | Delete the `auth.users` row **after** the D1 erasure batch commits (§8). | `lib/supabase-admin.ts` → `deleteAuthUser` | `DELETE /auth/v1/admin/users/:id` | **Skipped** — the D1 erasure already completed, but the `auth.users` row **survives** and needs manual cleanup (§8 step 4) |
 | **#4a** claimant lookup | Resolve a vendor claim's `submitter_email` → an `auth.users` id so the grant can link a `profiles` row. Since **AECI-740** the same seam also resolves the address `POST /api/admin/vendors/:id/seats` names, which is why that route reports 503 on a tier with no service-role key exactly as the grant does. Also batched for the admin claim queue's `has_auth_account` reviewer signal. | `lib/supabase-admin.ts` → `findAuthUserByEmail`, `fetchAuthAccountsByEmail` | `GET /auth/v1/admin/users?filter=` | Resolution reports `unavailable` and the grant refuses rather than half-granting; the reviewer signal reports `null` (unknown) |
@@ -133,6 +133,37 @@ stories about one account. Seam #1
 carries no service-role call at all; it is listed so the register is complete and nobody
 "adds" one to profile-ensure later. Full contract:
 [`STAGE_2_VENDOR_PORTAL_SPEC.md`](./STAGE_2_VENDOR_PORTAL_SPEC.md) §2.
+
+### 3.1a Seam #1 is fatal at sign-in and self-heals after it (AECI-770)
+
+A verified session with no D1 `profiles` row is unusable. §4.2 401s it on every
+authenticated call, and `/admin` and `/vendor` render 404. Seam #1 is therefore **not
+best-effort**. Two mechanisms guarantee nobody is left in that state.
+
+1. **The callback fails closed.** `/auth/callback` (`apps/web/src/server/routes/auth-callback.ts`)
+   calls `POST /api/auth/profile/ensure` right after the PKCE exchange. It retries a
+   transient failure (a 5xx or an unreachable service binding) up to 3 attempts, with
+   200 ms and 600 ms backoff. A 4xx is not retried. If every attempt fails, the callback
+   calls `signOut({ scope: 'local' })`, which expires the cookies it just set, and
+   redirects to `/auth/login?error=profile_unavailable`. The login page tells the
+   visitor to wait a minute and sign in again.
+2. **`GET /api/account` self-heals.** It is the only route whose `requireAuth()` carries
+   the `onMissingProfile` hook (`healMissingProfile()` in `lib/profile-provisioning.ts`).
+   The header's `RoleStatus` probes it on every signed-in page view, so a stuck user
+   recovers on their next page load. On a missing row the hook first checks for an
+   `account.deleted` audit row for that id. An erased account is never re-created, so a
+   stale tab cannot resurrect it. Otherwise it runs the same idempotent insert and the
+   guard re-reads. If the insert throws, the route answers **503 `PROFILE_UNAVAILABLE`**
+   instead of 401. `/account` shows "try again", not "sign in again".
+
+Every other guard stays **strict**. `requireAuth()`, `requireAdmin()` and `requireVendor()`
+without the hook 401 a missing profile and never create one. Writes, `/api/admin/*` and
+`/api/vendor/*` never provision.
+
+Both paths count `aeci.auth.profile_ensure` (`docs/OBSERVABILITY.md` §3), tagged
+`source:auth-callback` or `source:self-heal`. A non-zero `outcome:failed` series means real
+users are meeting this state. The self-heal's write on a `GET` is bounded: it fires only
+while the row is missing, so at most once per user.
 
 Seam **#4b provisions rather than invites.** It creates the account already-confirmed via
 `POST /auth/v1/admin/users` (`email_confirm: true`), **not** a GoTrue invite email — the
@@ -270,7 +301,12 @@ mirror untouched), **revoke a seat** (one `profiles` row, drops to `reviewer`, m
 untouched), and **clear an entitlement** (vendor-level, badge goes away,
 seats and logins survive). Banning or revoking one abusive seat leaves the vendor
 verified and its other seats working. Grant and revoke each emit their `audit_log` row in the
-same batch (§4.3) and are fully reversible. Full contract:
+same batch (§4.3) and are fully reversible. **One qualification since AECI-989:** the admin
+revoke of a vendor's **last** seat also hands its record back to AECi in the same batch. The
+marker returns to `'aeci'`, its live claimed integrations lose `claimed_at`, and its owner
+contests go to AECi. A later re-grant restores access, but the vendor must claim its
+integrations again. A ban of the last active seat hands nothing back. It only moves open
+owner contests to AECi until the vendor has an unbanned seat again, by an unban or a new seat grant (`STAGE_2_ATTESTATIONS_SPEC.md` §13.9). Full contract:
 [`STAGE_2_VENDOR_PORTAL_SPEC.md`](./STAGE_2_VENDOR_PORTAL_SPEC.md) §2, §3.1, §7.
 
 ---
@@ -394,7 +430,8 @@ Two properties of that branch are load-bearing and must survive any refactor.
    `hasLiveSession()`, retries once when a session survives, and redirects only when
    one does not.
 2. **That probe is the loop breaker.** §4.2's "a verified token with no `profiles` row
-   is 401, not anonymous treatment" means an identity can 401 permanently. Redirect on
+   is 401, not anonymous treatment" means an identity could 401 permanently. §3.1a now
+   stops that state arising, but the loop breaker stays. Redirect on
    every 401 and it rides login → session found → return → 401 → login forever.
    Redirecting only on a signed-out probe bounds it to one round trip.
 
@@ -411,6 +448,7 @@ const profile = await db.query.profiles.findFirst({
   columns: { role: true, bannedAt: true, banReason: true },
   where: eq(profiles.id, user.userId),
 });
+// GET /api/account alone passes `onMissingProfile` (§3.1a): one ensure, then re-read.
 if (!profile) throw unauthenticated();          // 401: verified token, no profile row
 if (profile.bannedAt) {
   throw new ApiError(403, ApiErrorCode.FORBIDDEN, profile.banReason ?? 'Account suspended');
@@ -437,7 +475,7 @@ Integration attestations are the one place that filter is not a single equality,
 | **both** endpoints | **both** slots |
 | neither | **404**, not 403 |
 
-**Ownership is necessary, not sufficient (AECI-705).** A second, edge-scoped check runs immediately after: a **connector-powered** integration — `powered_by_product_id` set, or `mechanism_kind = 'iPaaS'` — is not attestable by anyone, because neither endpoint vendor built the plumbing and the connector holds no seat. The full gate order on a write is therefore **authority → `404`, attestable edge → `403`, `vendors.verified` → `403`**, and that order is load-bearing: reversed, an unverified vendor on a powered edge is told to get verified in order to author, which verification will never deliver. It is a `403` rather than a `404` because the caller has *already* proven it owns an endpoint and powered-ness is public on the pair page, so the non-disclosure rule has nothing left to protect. **`DELETE` is exempt** — an edge can become powered after a vendor attests, and a vendor must always be able to withdraw. Contract: `docs/STAGE_2_ATTESTATIONS_SPEC.md` §14.
+**Ownership is necessary, not sufficient (AECI-705).** A second, edge-scoped check runs immediately after: a **connector-powered** integration — `powered_by_product_id` set, or `mechanism_kind = 'iPaaS'` — is not attestable by anyone, because neither endpoint vendor built the plumbing and the connector holds no seat. The full gate order on a write is therefore **authority → `404`, attestable edge → `403 FORBIDDEN`, `attestation.author` → `403 ENTITLEMENT_REQUIRED`** (AECI-623), and that order is load-bearing: reversed, a vendor without the capability on a powered edge is told to activate access in order to author, which no tier will ever deliver. It is a `403` rather than a `404` because the caller has *already* proven it owns an endpoint and powered-ness is public on the pair page, so the non-disclosure rule has nothing left to protect. **`DELETE` is exempt** — an edge can become powered after a vendor attests, and a vendor must always be able to withdraw. Contract: `docs/STAGE_2_ATTESTATIONS_SPEC.md` §14.
 
 Three rules bind here:
 
@@ -509,7 +547,7 @@ await db.batch([
 | `PATCH /api/admin/contests/:id` (AECI-1008) | Hard-required | `admin`; an owner-routed contest is **409 `CONTEST_ROUTED_TO_OWNER`**, because the owner decides it, unless it is **stranded** (owner vendor deleted), which AECi decides (AECI-1005) | `integration.contest.accepted \| declined` (`metadata.source: 'admin-moderation'`) + a `notification.sent` for the submitting vendor, in one batch. A **decision** write: an accept writes **no** catalog data and files a `REVIEW - ` Linear issue post-commit Since AECI-1005 an accept also writes catalog data on a claimed row or an owner approval (`integration.updated` / `integration.claimed`, same batch). |
 | `PATCH /api/admin/vendors/:id/entitlement` (AECI-532) | Hard-required | `admin` | `vendor_entitlement.set` / `.renewed` / `.cleared` (`entity_type: 'vendor_entitlement'`, `entity_id` = the **vendor** id, `metadata.source: 'admin-entitlement'`) — set/renew/clear the offline arrangement. **The only writer that takes `vendors.verified` back down**, and it does so through the entitlement row, never by writing the mirror. `verified` is never in the request body; it appears on the response as a read-only readout. **No `workflow_instances` row** (that CHECK is closed; `audit_log` is the ledger). Clearing does **not** revoke seats. |
 | `GET /api/admin/vendors`, `/:id`, `/:id/audit` (AECI-652) | Hard-required | `admin` | No (reads only). The audit read is the FIRST reader `audit_log` has ever had — reading the ledger is not a domain-state write, so it emits nothing of its own. Its `entity` scope is three OR'd disjuncts because `entity_id = <vendor>` misses a rejected claim (no `vendor_id` in its metadata) and a revoked seat (whose `profiles.vendor_id` is already null); `STAGE_2_PAID_TIERS_SPEC.md` §5.6.2 has the query. `/:id` reports `seat_emails_available` so an unreachable GoTrue seam renders as "unavailable" rather than as an empty roster |
-| `DELETE /api/admin/vendors/:id/seats/:userId` (AECI-652) | Hard-required | `admin`; the target must be a `vendor_admin` seat **on that vendor** — a cross-vendor id is a flat **404** | `vendor_claim.seat_revoked` with `metadata.source: 'admin-moderation'` (vs `vendor-portal` for the owner-side revoke). The admin-side sibling of `DELETE /api/vendor/seats/:userId`; composes the same `revokeSeatStatements`, so **no statement names `vendors`** and the mirror is untouched. No self-removal guard (an admin holds no seat) and **no last-owner guard** — that guard exists because only an AECi grant can rescue an unadministrable account, and this IS that grant's operator. Banning stays `PATCH /api/admin/reviewers/:id` |
+| `DELETE /api/admin/vendors/:id/seats/:userId` (AECI-652) | Hard-required | `admin`; the target must be a `vendor_admin` seat **on that vendor** — a cross-vendor id is a flat **404** | `vendor_claim.seat_revoked` with `metadata.source: 'admin-moderation'` (vs `vendor-portal` for the owner-side revoke). The admin-side sibling of `DELETE /api/vendor/seats/:userId`; composes the same `revokeSeatStatements`, so **that builder names no `vendors` statement** and the mirror is untouched. **The last seat adds the AECI-989 hand-back rows** to the same batch: `vendor.updated` / `product.updated` / `integration.updated` (`metadata.reason = 'maintenance-marker'` or `'owner-seat-revoked'`) and `integration.contest.rerouted`, one per real change. No self-removal guard (an admin holds no seat) and **no last-owner guard** — that guard exists because only an AECi grant can rescue an unadministrable account, and this IS that grant's operator. Banning stays `PATCH /api/admin/reviewers/:id` |
 | `POST /api/admin/vendors/:id/seats` (AECI-740) | Hard-required | `admin`; the body names an EMAIL, resolved (and provisioned if absent) through the AECI-527 GoTrue seam. Exclusivity is `classifyClaimantConflict` unchanged — a site `admin` or an account linked to another vendor is a **409**, never a silent overwrite | `vendor_seat.provisioned` with `metadata.source: 'admin-moderation'`, `entity_type: 'profile'`, in the same `db.batch` as the profile upsert. **The only route that writes `role = 'vendor_admin'` on its own** — the claim grant (`PATCH /api/admin/claims/:id`) and the invite redeem (`POST /api/seat-invites/:token/accept`) write it too, but only behind a claim or an owner's invite — and it opens **no `vendor_entitlements` row** — no statement names `vendors`, so the mirror, the badge and `vendors.updated_at` are untouched (`STAGE_2_SPEC.md` §8.9(2); the wire's `entitlement_granted` is a `z.literal(false)`). `metadata.vendor_id` is load-bearing: it is the only leg by which the vendor audit viewer reaches a row filed under a profile. `seat_owner: true`, matching the claim grant. **Not** a second writer of `banned_at` — a banned account is provisioned and flagged, not refused. No email, no cache purge, no workflow row |
 | `PATCH /api/admin/reviewers/:id` (AECI-218 / AECI-524) | Hard-required | `admin` | `reviewer.banned` / `vendor_admin.banned` / `.unbanned` — bans/unbans any non-admin `profiles` row (reviewer **or** `vendor_admin` seat); role-agnostic UPDATE, role-aware audit, per-seat, never touches `vendors.verified`. **The sole writer of `profiles.banned_at` anywhere** — AECI-692 gave it a second caller (`/admin/users/:id`) and no second writer; `routes/banned-at-writers.spec.ts` asserts that at the source level |
 | `GET /api/admin/users` + `/:id` (AECI-692) | Hard-required | `admin` | — reads only, no `audit_log` row (ADR 0022). Profiles-first because one auth project backs every env (ADR 0017). Every GoTrue-derived field is tri-state: `auth_available: false` = seam down, an absent account = orphaned profile, a `null` field = genuinely empty. `ADMIN_PANEL_SPEC.md` §5.8 |
@@ -660,31 +698,28 @@ row filter RLS would have provided, and they are not optional:
    that should have been a flat `404`.
 
 **A third obligation applies to the version WRITES only** (AECI-607,
-`STAGE_2_ATTESTATIONS_SPEC.md` §1/§8.3): authoring is a **Verified-vendor
-capability**, so `POST` / `PATCH` / `DELETE` additionally require
-`vendors.verified` and answer **`403`** without it. Two details that are easy to
-get backwards:
+`STAGE_2_ATTESTATIONS_SPEC.md` §1/§8.3): authoring is the **`attestation.author`
+capability**, so `POST` / `PATCH` / `DELETE` additionally call
+`requireCapability(c, 'attestation.author')` and answer **`403
+ENTITLEMENT_REQUIRED`** without it (AECI-623). Two details that are easy to get
+backwards:
 
-- **Ownership (404) is evaluated before verification (403).** Reversed, the
+- **Ownership (404) is evaluated before the capability (403).** Reversed, the
   ordering would start leaking on the day a *verified* non-owner probes a
   product. `requireOwnedProduct()` loads the ownership row, the product and the
   caller's `vendors` row in one wave and then checks them in that fixed order.
 - **`GET` is not gated.** Reading your own product's versions is not the
   capability; authoring is. Gating the read would 403 a vendor out of its own
   data instead of letting the dashboard render a read-only tab that explains what
-  verification unlocks. The 403 copy points at the claim/verification flow and
-  **never at ranking, placement, or search** — no pay-for-placement.
-- The check lives in `assertVerifiedVendor()` (`routes/vendor-shared.ts`), a
-  deliberate **one-function stand-in** for the capability registry. It **reads**
-  `vendors.verified` and never writes it. **The registry has since landed**
-  (AECI-610/611): `@aeci/shared/entitlements` declares `attestation.author` and
-  `requireCapability()` is the general gate — but these routes are still gated on
-  the **mirror**, not the capability, and are now the last place in the portal not
-  driven by `capabilities`. That is a behavioural no-op today (the ladder is
-  binary, so `verified = 1` and `hasCapability(tier, 'attestation.author')` agree
-  on every row the mirror invariant permits) and a real divergence the moment a
-  rung is added between them. The one-function stand-in is what keeps the swap
-  mechanical. Tracked as **AECI-623**.
+  active access unlocks. The 403 copy points at activation and **never at
+  ranking, placement, or search** — no pay-for-placement.
+- The check is `requireCapability()` over the session's `entitlementTier`, the
+  same DB-free gate every other vendor write uses. Until **AECI-623** it was
+  `assertVerifiedVendor()`, a one-function stand-in that read the
+  `vendors.verified` mirror and answered `403 FORBIDDEN`. That stand-in is
+  deleted. No authorization decision reads the mirror any more; it survives only
+  for rendering (the public account badge, the version-diff depth gate). The
+  same capability gates the three attestation writes on `/api/vendor/claims*`.
 
 Two rejection cells are deliberate and easy to get wrong:
 

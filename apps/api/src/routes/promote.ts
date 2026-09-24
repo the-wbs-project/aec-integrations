@@ -85,7 +85,7 @@ import {
 import { type AlgoliaEnv } from '@aeci/shared/algolia';
 import { type AuditLogEntry } from '@aeci/shared/audit-log';
 import { disambiguateSlug, SlugReservedError, slugify } from '@aeci/shared/slug';
-import { and, eq, inArray, isNull, sql, type Table } from 'drizzle-orm';
+import { and, eq, inArray, isNull, ne, sql, type Table } from 'drizzle-orm';
 import { type SQLiteColumn } from 'drizzle-orm/sqlite-core';
 
 import { getDb, type Db, type DbContext } from '../db/client';
@@ -121,12 +121,20 @@ import { syncPromoteTargets } from '../lib/algolia-sync';
 import { emitAlgoliaSyncMetrics, type SyncMetricSink } from '../lib/algolia-sync-metrics';
 import { auditInsert, type BatchStmt, type BatchTuple } from '../lib/audit';
 import { loadClaimedVendorIds } from '../lib/claimed-vendors';
-import { isPromoteClaimFenceError, promoteClaimFenceSentinel } from '../lib/integration-claims';
 import {
+  isPromoteClaimFenceError,
+  promoteClaimFenceSentinel,
+  promoteEvidencedClaimFenceSentinel,
+} from '../lib/integration-claims';
+import {
+  anyVendorOwnedEvidencedTwin,
   anyVendorOwnedTwin,
   findStrongMatches,
+  findVendorHeldEvidencedTwin,
   VENDOR_OWNED_TWIN,
+  vendorOwnedEvidencedTwinSentinel,
   vendorOwnedTwinSentinel,
+  type EvidencedTwinCandidate,
   type TwinCandidate,
 } from '../lib/integration-twins';
 import {
@@ -219,17 +227,24 @@ function reviewSignalRefused(
  * (`lib/integration-twins.ts`), and so is the commit-time sentinel's. The 1005
  * function is widened here rather than on the 1005 branch (ADR 0035).
  *
+ * **Since AECI-1088 it covers both anchor tables.** Migration 0049 gave
+ * `connector_evidenced_pairs` the same `claimed_at` and `origin`, and the owner
+ * carve-out (`STAGE_2_SPEC.md` §8.10(8)) lets an owner hold a pair. A vendor-held pair
+ * gets the same whole-edge refusal: no content, no endpoint or connector re-point, no
+ * claims, and no de-route back into `integrations`, whose source DELETE would cascade
+ * the vendor's claims and attestations away (`REVIEW_APP_PROMOTE_API.md` §4b).
+ *
  * This is the plan-time half. It is decided from {@link locateEdge}'s read, so it
- * covers every row claimed before the promote started. The commit-time half is
- * `promoteClaimFenceSentinel` (`lib/integration-claims.ts`): one guard statement per
- * written `integrations` row that aborts the whole batch if the row was claimed
- * after this read. Only the `integrations` arm can be claimed.
+ * covers every row claimed before the promote started. The commit-time half is one
+ * guard statement per written existing row that aborts the whole batch if the row was
+ * claimed after this read: `promoteClaimFenceSentinel` for an `integrations` row and
+ * `promoteEvidencedClaimFenceSentinel` for a pair (`lib/integration-claims.ts`).
  */
 function claimFenceRefuses(located: LocatedEdge | null): boolean {
-  return (
-    located?.table === 'integrations' &&
-    (located.row.claimedAt !== null || located.row.origin === 'vendor')
-  );
+  if (located === null) return false;
+  if (located.row.claimedAt !== null || located.row.origin === 'vendor') return true;
+  // A vendor-held pair left under the same id by a prior partial state (AECI-1088).
+  return located.table === 'integrations' && located.row.evidencedTwinVendorHeld;
 }
 
 /**
@@ -540,10 +555,18 @@ function planEvidencedPairWrite(args: {
         // Belt-and-braces on the single-table invariant: an id must never live in
         // both tables. A clean evidenced row is not in `integrations`, so this is a
         // no-op then; it only bites if a prior partial state left a stale twin. A
-        // CLAIMED twin is never deleted (AECI-1005): it is the vendor's row now.
+        // VENDOR-HELD twin is never deleted (AECI-1005): it is the vendor's row now.
+        // AECI-1088 widened the guard from `claimed_at` alone to the full vendor-held
+        // predicate, so a vendor-created twin whose claim was cleared survives too.
         db
           .delete(integrations)
-          .where(and(eq(integrations.id, existing.id), isNull(integrations.claimedAt))),
+          .where(
+            and(
+              eq(integrations.id, existing.id),
+              isNull(integrations.claimedAt),
+              ne(integrations.origin, 'vendor'),
+            ),
+          ),
       ],
     };
   }
@@ -637,12 +660,24 @@ type LocatedIntegrationRow = LocatedMaintenance & {
   /** AECI-1011: the stored owner and kind, for the UPDATE twin guard. */
   builtByVendorId: string | null;
   mechanismKind: string | null;
+  /**
+   * AECI-1088: the same id ALSO sits in `connector_evidenced_pairs`, and that pair is
+   * vendor-held. That breaks the single-table invariant, so it only follows a prior
+   * partial state. The edge is fenced whole, because `claims.anchor_id` is shared
+   * across both tables: planning this row's claims would rewrite the vendor pair's
+   * claims, which §4b never allows.
+   */
+  evidencedTwinVendorHeld: boolean;
 };
 
 type LocatedEvidencedRow = LocatedMaintenance & {
   productAId: string;
   productBId: string;
   connectorProductId: string;
+  /** AECI-1088: the ownership fence's input on this table (migration 0049) — see
+   *  {@link claimFenceRefuses}. */
+  claimedAt: string | null;
+  origin: string;
 };
 
 async function locateEdge(
@@ -653,21 +688,40 @@ async function locateEdge(
   // `integrations` first: it is the larger table and the overwhelmingly common hit, so
   // the second read is skipped on most rows. Order is a cost choice only — the
   // single-table invariant means at most one of these can match.
-  const intg = await db.query.integrations.findFirst({
-    columns: {
-      sourceProductId: true,
-      targetProductId: true,
-      poweredByProductId: true,
-      maintainedBy: true,
-      lastReviewedAt: true,
-      claimedAt: true,
-      origin: true,
-      builtByVendorId: true,
-      mechanismKind: true,
-    },
-    where: eq(integrations.id, supabaseId),
-  });
-  if (intg) return { id: supabaseId, table: 'integrations', row: intg };
+  //
+  // AECI-1088: the LEFT JOIN asks, in the same read, whether a prior partial state left
+  // a VENDOR-HELD pair under the same id. The `integrations` UPDATE branch then carries
+  // a DELETE aimed at that pair (guarded in SQL too), and the claim plan would key on
+  // the shared `anchor_id`, so such an edge is fenced (see `evidencedTwinVendorHeld`).
+  const [intg] = await db
+    .select({
+      sourceProductId: integrations.sourceProductId,
+      targetProductId: integrations.targetProductId,
+      poweredByProductId: integrations.poweredByProductId,
+      maintainedBy: integrations.maintainedBy,
+      lastReviewedAt: integrations.lastReviewedAt,
+      claimedAt: integrations.claimedAt,
+      origin: integrations.origin,
+      builtByVendorId: integrations.builtByVendorId,
+      mechanismKind: integrations.mechanismKind,
+      pairClaimedAt: connectorEvidencedPairs.claimedAt,
+      pairOrigin: connectorEvidencedPairs.origin,
+    })
+    .from(integrations)
+    .leftJoin(connectorEvidencedPairs, eq(connectorEvidencedPairs.id, integrations.id))
+    .where(eq(integrations.id, supabaseId))
+    .limit(1);
+  if (intg) {
+    const { pairClaimedAt, pairOrigin, ...row } = intg;
+    return {
+      id: supabaseId,
+      table: 'integrations',
+      row: {
+        ...row,
+        evidencedTwinVendorHeld: pairClaimedAt !== null || pairOrigin === 'vendor',
+      },
+    };
+  }
 
   const pair = await db.query.connectorEvidencedPairs.findFirst({
     columns: {
@@ -676,6 +730,8 @@ async function locateEdge(
       connectorProductId: true,
       maintainedBy: true,
       lastReviewedAt: true,
+      claimedAt: true,
+      origin: true,
     },
     where: eq(connectorEvidencedPairs.id, supabaseId),
   });
@@ -745,7 +801,18 @@ function planIntegrationWrite(args: {
         // Belt-and-braces on the single-table invariant, mirroring the evidenced branch:
         // an id must never live in both tables. A clean `integrations` row has no twin,
         // so this is a no-op then; it only bites if a prior partial state left one.
-        db.delete(connectorEvidencedPairs).where(eq(connectorEvidencedPairs.id, existing.id)),
+        // A VENDOR-HELD pair is never deleted (AECI-1088): before 0049 this DELETE
+        // carried no ownership guard, and a pair is a cascade parent of its claims
+        // and their attestations.
+        db
+          .delete(connectorEvidencedPairs)
+          .where(
+            and(
+              eq(connectorEvidencedPairs.id, existing.id),
+              isNull(connectorEvidencedPairs.claimedAt),
+              ne(connectorEvidencedPairs.origin, 'vendor'),
+            ),
+          ),
       ],
     };
   }
@@ -2720,6 +2787,8 @@ export async function runPromoteIngest(
   // AECI-1011: every insert the twin guard let through, so a sentinel abort can be
   // told apart from an AECI-1005 fence abort after the batch fails.
   const twinCandidates: TwinCandidate[] = [];
+  // AECI-1088: the same, for the evidenced twin guard's writes.
+  const evidencedTwinCandidates: EvidencedTwinCandidate[] = [];
 
   // An integration touching THIS payload's blocked product is skipped too
   // (AECI-520).
@@ -2828,21 +2897,39 @@ export async function runPromoteIngest(
     // still reports `wrote: false`.
     if (claimFenceRefuses(located)) {
       skipped.push({ ref: intg.ref, kind: 'integration', reason: REFUSED_CLAIMED_INTEGRATION });
+      // AECI-1088: name the table the vendor-held row actually sits in. A fenced pair,
+      // or an `integrations` row fenced only because a vendor-held pair shares its id,
+      // is a `connector_evidenced_pair` entity.
+      const fencedIntegrationRow =
+        located!.table === 'integrations' &&
+        (located!.row.claimedAt !== null || located!.row.origin === 'vendor');
       audit({
         actorType: 'system',
         action: 'promote.blocked',
-        entityType: 'integration',
+        entityType: fencedIntegrationRow ? 'integration' : 'connector_evidenced_pair',
         entityId: located!.id,
       });
       continue;
     }
     // The commit-time half: the row was unclaimed when we read it, so abort the whole
-    // batch if it is claimed by the time the batch runs. Pushed AHEAD of this edge's
-    // writes, and only for a row that already exists in `integrations`, the one arm
-    // a claim can reach.
-    if (located?.table === 'integrations') {
-      stmts.push(promoteClaimFenceSentinel(db, located.id));
-    }
+    // batch if it is claimed by the time the batch runs. Pushed immediately AHEAD of
+    // this edge's own writes, never here (AECI-1088 review): an edge the twin guards
+    // below skip writes nothing, so a claim landing on it mid-promote must not abort
+    // the promote, and its sentinel must not count as a catalog write (`wrote`).
+    //
+    // Both tables are guarded for an `integrations`-located id too. The single-table
+    // invariant says no pair shares the id, but the UPDATE branch still carries a
+    // belt-and-braces DELETE of one, and a pair claimed after the plan read would
+    // otherwise lose its claims to the claim ingest keyed on the shared `anchor_id`.
+    // On a clean id the evidenced sentinel selects zero rows and does nothing.
+    const pushClaimFenceSentinels = (): void => {
+      if (located?.table === 'integrations') {
+        stmts.push(promoteClaimFenceSentinel(db, located.id));
+        stmts.push(promoteEvidencedClaimFenceSentinel(db, located.id));
+      } else if (located?.table === 'evidenced') {
+        stmts.push(promoteEvidencedClaimFenceSentinel(db, located.id));
+      }
+    };
     // The AECI-981 fence receipt, pushed ONCE here rather than per branch. `located`
     // answers it for all four write branches at the same grain: a create cannot be
     // vendor-maintained, and both the same-table UPDATE and the cross-table move
@@ -2899,11 +2986,72 @@ export async function runPromoteIngest(
       const existingEvidenced = located?.table === 'evidenced' ? located.row : undefined;
       // A supplied id that resolves in neither table is dead — the create branch
       // mints a new one, and we report the stale pointer the same way the
-      // `integrations` branch does (AECI-568).
+      // `integrations` branch does (AECI-568). Reported before the twin guard below,
+      // because the pointer is dead whether or not the insert runs.
       if (intg.supabaseId && !located) {
         staleSupabaseIds.push({ kind: 'integration', ref: intg.ref, supabaseId: intg.supabaseId });
       }
 
+      // ── AECI-1088: the evidenced VENDOR_OWNED_TWIN guard. ────────────────────
+      // Since migration 0049 a pair can be vendor-held. A curated write that lands on
+      // the (connector, A, B) key of a vendor-held pair, live or retired, would fail
+      // the WHOLE promote on `connector_evidenced_pairs_pair_idx`. So skip it at plan
+      // time, name the vendor's pair, and write nothing about this edge: no row, no
+      // claims, and on a move in from `integrations` the source row stays exactly as
+      // it is (`REVIEW_APP_PROMOTE_API.md` §4c). Three writes can land on a new key:
+      //   1. an INSERT (brand new, or the AECI-568 fallback for a dead id);
+      //   2. a move IN from `integrations` (a curator added a third-party connector);
+      //   3. an UPDATE of an unclaimed pair that changes its connector or its pair.
+      // An UPDATE that keeps the key cannot collide, because the index already holds.
+      const evidencedAId = sourceId < targetId ? sourceId : targetId;
+      const evidencedBId = sourceId < targetId ? targetId : sourceId;
+      const keyUnchanged =
+        located?.table === 'evidenced' &&
+        located.row.connectorProductId === connectorId &&
+        located.row.productAId === evidencedAId &&
+        located.row.productBId === evidencedBId;
+      if (!keyUnchanged) {
+        const evidencedTwinCandidate: EvidencedTwinCandidate = {
+          connectorProductId: connectorId,
+          productAId: evidencedAId,
+          productBId: evidencedBId,
+          ...(located?.table === 'evidenced' ? { excludeId: located.id } : {}),
+        };
+        const twin = await findVendorHeldEvidencedTwin(db, evidencedTwinCandidate);
+        if (twin) {
+          skipped.push({
+            ref: intg.ref,
+            kind: 'integration',
+            reason: VENDOR_OWNED_TWIN,
+            existingId: twin.id,
+          });
+          audit({
+            actorType: 'system',
+            action: 'promote.blocked',
+            entityType: 'connector_evidenced_pair',
+            entityId: twin.id,
+            metadata: {
+              reason: VENDOR_OWNED_TWIN,
+              ref: intg.ref,
+              ...(intg.supabaseId ? { supabaseId: intg.supabaseId } : {}),
+              // `route` for a move in from `integrations`, `re-point` for an UPDATE
+              // that moves the pair or its connector. An insert carries no `write`.
+              ...(located
+                ? { write: located.table === 'integrations' ? 'route' : 're-point' }
+                : {}),
+            },
+          });
+          continue;
+        }
+        // The commit-time half: a claim that lands on the key's holder between this
+        // read and the batch aborts the whole promote with the twin race code, rather
+        // than letting the write fail on the unique index.
+        evidencedTwinCandidates.push(evidencedTwinCandidate);
+        stmts.push(vendorOwnedEvidencedTwinSentinel(db, evidencedTwinCandidate));
+      }
+
+      // Past every skip: this edge will write, so guard its existing row now.
+      pushClaimFenceSentinels();
       const evidenced = planEvidencedPairWrite({
         db,
         intg,
@@ -3039,9 +3187,9 @@ export async function runPromoteIngest(
     //      asked. A direction swap of the same two products changes no key field.
     //      An UPDATE is skipped only for a NEW twin: a vendor-held row the stored row
     //      already twinned does not count, so the write goes through.
-    // The evidenced branch above needs no guard: every row it writes carries a
-    // third-party connector, and no vendor-held row has one (a vendor create cannot
-    // set `powered_by`, and a claim is refused on a connector-powered row).
+    // The evidenced branch above runs its own, narrower guard on the unique pair key
+    // (AECI-1088). This one does not search `connector_evidenced_pairs`: see the
+    // header of `lib/integration-twins.ts` for why the two cannot meet.
     const storedIntegration = located?.table === 'integrations' ? located.row : null;
     const finalConnectorId =
       poweredBy.value === undefined
@@ -3176,6 +3324,8 @@ export async function runPromoteIngest(
     // survives `compact()`, and it correctly writes NULL.
     const inheritedConnectorId =
       movedFromEvidenced && !connectorStated ? movedFromEvidenced.connectorProductId : null;
+    // Past every skip: this edge will write, so guard its existing row now.
+    pushClaimFenceSentinels();
     const written = planIntegrationWrite({
       db,
       intg,
@@ -3456,8 +3606,12 @@ export async function runPromoteIngest(
       // a re-push plans against the claimed row and skips it.
       if (isPromoteClaimFenceError(err)) {
         // AECI-1011: the twin sentinel raises the same SQLite error, so re-read to
-        // say which one fired. Both mean "nothing was written; re-push".
-        if (await anyVendorOwnedTwin(db, twinCandidates)) {
+        // say which one fired. Both mean "nothing was written; re-push". AECI-1088
+        // adds the evidenced twin sentinel's candidates to the same re-read.
+        if (
+          (await anyVendorOwnedTwin(db, twinCandidates)) ||
+          (await anyVendorOwnedEvidencedTwin(db, evidencedTwinCandidates))
+        ) {
           throw new ApiError(
             409,
             'VENDOR_OWNED_TWIN_CREATED_DURING_PROMOTE',

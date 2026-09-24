@@ -42,9 +42,11 @@ export function extractWebsiteDomain(url: string | null | undefined): string | n
  *
  *   - `'match'`         — email and website resolve to the same registrable domain.
  *   - `'no_match'`      — both resolve, but differ (drives the Linear label).
- *   - `'manual_review'` — either side is missing/unparseable (no target website on
- *                          file, or a non-corporate email host). NOT a mismatch, so
- *                          it does NOT fire the label; surfaced to the admin to verify.
+ *   - `'manual_review'` — either side is missing or unparseable (no target website
+ *                          on file, or a domain `getDomain` cannot resolve). NOT a
+ *                          mismatch, so it does NOT fire the label; surfaced to the
+ *                          admin to verify. There is no freemail list: `gmail.com`
+ *                          against a corporate website is `'no_match'`.
  */
 export function computeDomainMatch(
   submitterEmail: string,

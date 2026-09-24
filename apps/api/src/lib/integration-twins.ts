@@ -38,15 +38,28 @@
  *     ({@link TwinCandidate.excludeIds}). It never deletes
  *     anything, and curated-versus-curated behaviour is unchanged.
  *
- * `connector_evidenced_pairs` is not searched. Every row there is connector-powered
- * by construction, so it can never be vendor-held and never shares "no connector"
- * with a vendor row (rule 2).
+ * **Its evidenced counterpart is narrower (AECI-1088).** Since migration 0049 a
+ * `connector_evidenced_pairs` row can be vendor-held too. There the only collision
+ * that matters is the unique index `connector_evidenced_pairs_pair_idx` on
+ * (connector, A, B): a curated write onto a vendor-held triple would fail the whole
+ * promote on it. So promote's evidenced branch skips such a write and reports the
+ * same `VENDOR_OWNED_TWIN` ({@link findVendorHeldEvidencedTwin}). The key is the
+ * index's key, nothing more: no owner, no kind (the table has none), no name.
+ *
+ * The `integrations` guard above does not search `connector_evidenced_pairs`, and the
+ * evidenced guard does not search `integrations`. The two tables hold different
+ * shapes of edge: promote routes every write whose stated connector is a third
+ * product into the evidenced table, so an `integrations` write carries no connector,
+ * an endpoint connector (Convention A), or a stored connector the payload left
+ * unstated. The one collision each table can raise is its own, and the unique index
+ * exists only on the evidenced one. A de-route of a vendor-held pair never reaches
+ * either guard, because the ownership fence refuses it first.
  */
 
 import { and, eq, isNotNull, isNull, notInArray, or, sql, type SQL } from 'drizzle-orm';
 
 import type { Db } from '../db/client';
-import { integrations, vendors } from '../db/schema';
+import { connectorEvidencedPairs, integrations, vendors } from '../db/schema';
 import { ONE_ROW } from './integration-claims';
 
 /** `skipped[].reason` for an insert promote refused because a vendor holds its twin.
@@ -205,6 +218,89 @@ export async function anyVendorOwnedTwin(
       .where(and(strongMatchWhere(candidate), vendorHeldIntegrationWhere))
       .limit(1);
     if (hit.length > 0) return true;
+  }
+  return false;
+}
+
+// ─── The evidenced twin guard (AECI-1088) ───────────────────────────────────
+
+/** The key of `connector_evidenced_pairs_pair_idx`, as the row would hold it after the
+ *  write. `productAId < productBId`, the table's canonical order. */
+export interface EvidencedTwinCandidate {
+  readonly connectorProductId: string;
+  readonly productAId: string;
+  readonly productBId: string;
+  /** The row being written, when it already exists in this table, so an UPDATE that
+   *  moves its own key is not read as its own twin. */
+  readonly excludeId?: string;
+}
+
+/** Vendor-held on the second table: claimed, or created by a vendor. The same
+ *  predicate as {@link vendorHeldIntegrationWhere}, over the columns migration 0049
+ *  added. */
+export const vendorHeldEvidencedPairWhere: SQL = or(
+  isNotNull(connectorEvidencedPairs.claimedAt),
+  eq(connectorEvidencedPairs.origin, 'vendor'),
+)!;
+
+function evidencedTwinWhere(candidate: EvidencedTwinCandidate): SQL {
+  const clauses: SQL[] = [
+    eq(connectorEvidencedPairs.connectorProductId, candidate.connectorProductId),
+    eq(connectorEvidencedPairs.productAId, candidate.productAId),
+    eq(connectorEvidencedPairs.productBId, candidate.productBId),
+    vendorHeldEvidencedPairWhere,
+  ];
+  if (candidate.excludeId !== undefined) {
+    clauses.push(sql`${connectorEvidencedPairs.id} <> ${candidate.excludeId}`);
+  }
+  return and(...clauses)!;
+}
+
+/**
+ * The vendor-held pair, live or retired, that already holds `candidate`'s key, or
+ * `null`. At most one row can, because the key is a unique index. Retired counts for
+ * the reason it does on `integrations`: a retired pair still occupies the index, and
+ * it is the owner's withdrawal.
+ */
+export async function findVendorHeldEvidencedTwin(
+  db: Db,
+  candidate: EvidencedTwinCandidate,
+): Promise<{ id: string } | null> {
+  const [row] = await db
+    .select({ id: connectorEvidencedPairs.id })
+    .from(connectorEvidencedPairs)
+    .where(evidencedTwinWhere(candidate))
+    .limit(1);
+  return row ?? null;
+}
+
+/**
+ * The commit-time half of the evidenced guard. Pushed immediately ahead of the
+ * evidenced write it checked; ABORTS the whole batch when the key's holder became
+ * vendor-held after the plan read (a claim mid-promote). Without it that write would
+ * fail on `connector_evidenced_pairs_pair_idx` instead, which also rolls back but
+ * reports a generic failure. Raises the same token as {@link vendorOwnedTwinSentinel},
+ * so the job errors with `VENDOR_OWNED_TWIN_CREATED_DURING_PROMOTE` once
+ * {@link anyVendorOwnedEvidencedTwin} confirms it.
+ */
+export function vendorOwnedEvidencedTwinSentinel(db: Db, candidate: EvidencedTwinCandidate) {
+  return db
+    .select({
+      guard: sql`CASE WHEN EXISTS (
+        SELECT 1 FROM ${connectorEvidencedPairs} WHERE ${evidencedTwinWhere(candidate)}
+      ) THEN json('vendor-owned-twin-during-promote') END`,
+    })
+    .from(ONE_ROW);
+}
+
+/** The post-failure re-read for {@link vendorOwnedEvidencedTwinSentinel}. Sequential
+ *  reads, never a fan-out. */
+export async function anyVendorOwnedEvidencedTwin(
+  db: Db,
+  candidates: readonly EvidencedTwinCandidate[],
+): Promise<boolean> {
+  for (const candidate of candidates) {
+    if (await findVendorHeldEvidencedTwin(db, candidate)) return true;
   }
   return false;
 }

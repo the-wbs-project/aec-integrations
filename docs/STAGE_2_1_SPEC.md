@@ -56,6 +56,8 @@ claim submission → claimant identity resolution → admin claim review → app
 
 Tools that exist for this: `/preview/vendor-dashboard` (persona/entitlement presets, no session needed) for surface passes; a staged claim with a test vendor identity for the real pipeline. The rehearsal is complete only when a full pass requires **zero manual DB intervention**.
 
+**The script is `docs/STAGE_2_1_REHEARSAL.md` (AECI-1103).** It numbers the steps, states the expected state and evidence for each, defines what counts as manual DB intervention, and holds the run log for both sittings.
+
 ### 3.2 The refinement backlog
 
 Seeded empty **by design** — it is filled by rehearsal findings, parked-claim observations, and dark-window telemetry. This is the stage's actual work; the admission test in §1 governs what lands here.
@@ -65,6 +67,7 @@ Seeded empty **by design** — it is filled by rehearsal findings, parked-claim 
 | Issue | Found | What it fixes |
 |---|---|---|
 | **AECI-954** | 2026-09-14, demo portal | An expired vendor session rendered "Page not found" with no way forward, because the gate mapped a 401 onto the same not-found render as a 403. It now redirects to `/auth/login?return=<url>`, and the browser refreshes the cookie first so a still-valid session never has to re-authenticate. Covers `/admin` too, which carried the identical mapping and is the surface seats are granted from. `STAGE_2_VENDOR_PORTAL_SPEC.md` §6.6. |
+| **AECI-1109** | 2026-09-23, writing rehearsal step 14b (AECI-1108 row 9) | A `409 GRANT_CONFLICT` on invite accept renders the generic "We couldn't load this invite". The redeemer, an AECi admin or another vendor's seat, never learns why. Fix: a distinct, explained page state. `STAGE_2_VENDOR_PORTAL_SPEC.md` §11a. |
 
 ### 3.3 Moved-in items and stage placements
 
@@ -73,12 +76,14 @@ Seeded empty **by design** — it is filled by rehearsal findings, parked-claim 
 | **AECI-623** | Converge `assertVerifiedVendor` onto `requireCapability('attestation.author')` — the one seam the Paid Tiers epic left duplicated. | Pure vendor-portal authz polish; exactly this stage's admission test. |
 | **AECI-633** | The manual screen-reader pass over the vendor portal's live-updating surface (per `docs/a11y-manual-testing-checklist.md`). | Gates asking vendors in; a11y of the surface vendors are invited to is a seat-granting blocker. May still be run in the same sitting as AECI-244 (which stays in 2.5 §5) if calendars align — the pairing was a scheduling convenience, not a dependency. |
 
-#### 3.3.1 Pulled forward 2026-09-22
+#### 3.3.1 Pulled forward 2026-09-22 and 2026-09-23
 
 | Issue | What it closes | Why it moved |
 |---|---|---|
-| **AECI-770** | A failed profile-ensure during `/auth/callback` leaves a signed-in user with no `profiles` row, locked out of every authenticated surface. | A vendor with no `profiles` row can never be seated. It gates seat-granting. |
+| **AECI-770** | A failed profile-ensure during `/auth/callback` leaves a signed-in user with no `profiles` row, locked out of every authenticated surface. Fix: the callback retries and signs out on persistent failure, and `GET /api/account` self-heals (`AUTH_AND_RLS.md` §3.1a). | A vendor with no `profiles` row can never be seated. It gates seat-granting. |
 | **AECI-1053** | Set `is_internal` on the operator's PostHog person from the identify path, not by hand. | The operator exclusion must survive a person reset before vendor-seat telemetry is read. |
+| **AECI-989** (2026-09-23, from Stage 2.5) | Revoking a vendor's last seat handed nothing back: its claimed integrations stayed fenced from promote with nobody able to edit them, and `maintained_by` kept the vendor's name. Fix: the revoke hands the record back in its own batch, and a ban moves open owner contests to AECi until the vendor has an unbanned seat again (`STAGE_2_ATTESTATIONS_SPEC.md` §13.9). | It gates seating a pilot vendor AECi might need to revoke (AECI-1105). |
+| **AECI-1106** (filed 2026-09-23, High) | Account erasure of a vendor's last seat hands nothing back either. It will call AECI-989's exported `planVendorHandback` from the erasure batch. | The follow-up AECI-989 named. It is the same seat-granting gate. |
 
 #### 3.3.2 Connector-lane epic AECI-771 (placed 2026-09-23)
 
@@ -106,6 +111,8 @@ Two children moved out to Stage 2.5 on 2026-09-23. **AECI-715** is the coverage 
 ### 3.5 Vendor-guide docs dependency (AECI-634 — stays Stage 2 work)
 
 The Product Docs / Help Center epic remains Stage 2 scope (`STAGE_2_SPEC.md` §2.6, `STAGE_2_PRODUCT_DOCS_SPEC.md`), but its deferred **vendor-guide tranche** was always triggered by "vendor-portal testing settles" — which is this stage. Publication of the vendor guides is a §5 exit gate: vendors are not asked to do the work (and later pay) without support content in place.
+
+**Built 2026-09-23 (AECI-1104).** Six task pages render at `/docs/vendors/*` (`STAGE_2_PRODUCT_DOCS_SPEC.md` §5). They are live but noindex, out of the sitemap, and not yet linked from the footer or the portal. AECI-1105 flips all three when the first pilot vendor is seated, which is the moment §5's "published" becomes literal. The rehearsal script (`STAGE_2_1_REHEARSAL.md`, AECI-1103) links each lifecycle step to its page in its "Vendor-guide mapping" table.
 
 ## 4. Out of scope
 

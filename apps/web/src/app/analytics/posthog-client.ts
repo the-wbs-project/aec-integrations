@@ -166,10 +166,20 @@ export interface PostHogClient {
    * implement them is a compile error, which is the point.
    *
    * `identify` takes the Supabase user id and NOTHING else: no user-property
-   * bag, because §2 forbids duplicating the email into a property and there is
-   * nothing else worth sending. `group` carries only the display name.
+   * bag, because §2 forbids duplicating the email into a property. The one
+   * person property the client sends, `is_internal`, goes through
+   * `setPersonProperties` below. `group` carries only the display name.
    */
   identify(distinctId: string, properties?: Record<string, unknown>): void;
+  /**
+   * A `$set` on the current person, sent as its own event (AECI-1053). Used for
+   * exactly one property, `is_internal`, on admin-role profiles
+   * (`docs/ANALYTICS.md` §9). Not folded into `identify`, because `identify`
+   * sends nothing when the distinct id is unchanged, so a `$set` riding it
+   * would never reach a browser that was identified before the property
+   * existed. The SDK dedupes an identical call within a page load.
+   */
+  setPersonProperties(properties: Record<string, unknown>): void;
   group(groupType: string, groupKey: string, properties?: Record<string, unknown>): void;
   reset(resetDeviceId?: boolean): void;
 

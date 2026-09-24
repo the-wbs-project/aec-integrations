@@ -355,13 +355,16 @@ endpoints**. The other endpoint must already be promoted (reference it by
 > connector alone does not repair edges already in the database, because promote is
 > product-driven and those edges belong to their endpoints' bundles.
 >
-> **Zapier and Workato were promoted on 2026-09-23 (AECI-1064), reversing the AECI-700
-> park.** Both are live as `product_role: connector`. Edges promoted before that date
-> still carry a NULL `powered_by_product_id` and sit in `integrations`, exactly as this
-> paragraph predicts: promoting the two connectors repaired none of them. The repair
-> is a re-promote of each edge's endpoints, run as
-> `scripts/ops/2026-09-connector-attribution-repromote/` (39 edges, 14 products). Make,
-> n8n and Boomi are still unpromoted, so their edges keep reporting `unresolvedLinks`.
+> **Reversed 2026-09-23 (AECI-1064): Zapier and Workato are promoted.** AECI-700 had
+> parked both permanently, so every edge naming them reported an `unresolvedLinks`
+> entry on every push. AECI-1064 reversed that. The admission test is now
+> `product_role: connector`, and Zapier went live at `2026-09-23T05:34Z` and Workato
+> at `07:43Z`. Their edges resolve from now on. Rows promoted before that kept a NULL
+> FK until an **endpoint** was re-promoted, per the paragraph above. That re-promote
+> ran on 2026-09-23: 14 endpoint products carried all 39 affected
+> edges into `connector_evidenced_pairs`
+> (`scripts/ops/2026-09-connector-attribution-repromote/`). Make, n8n and Boomi are
+> still unpromoted, so their edges keep reporting `unresolvedLinks`.
 >
 > **Your stored value is never clobbered (AECI-730).** On an *update*, a connector
 > that fails to resolve leaves `powered_by_product_id` exactly as it was rather than
@@ -1129,7 +1132,13 @@ The taxonomy facets on a blocked product are not resolved at all, so
 A vendor is **claimed** only while it has at least one **active** portal seat. If
 AECi bans a vendor's only admin, the vendor is no longer claimed and promote can
 write to it again — that is deliberate, so moderation hands control back to AECi
-rather than freezing the record.
+rather than freezing the record. **Revoking the last seat (AECI-989) goes further:**
+the vendor, its solely-owned products and its live claimed integrations are handed
+back to AECi. The vendor and product rows promote again as above. Each claimed
+integration loses `claimed_at`, so §4b's fence lifts and your pushes write it again.
+Its `maintained_by` returns to `'aeci'` unless a vendor attestation still stands, so
+your `lastReviewedAt` lands again too (§3.6a). A vendor-created row stays fenced (§4c).
+Nothing on your side changes.
 - **`unresolvedLinks[]` is the other half, and it is NOT `skipped[]` (AECI-730).**
   A `skipped` entry means the row was never written. An entry here means the
   integration **was** written and only one optional link is missing:
@@ -1187,7 +1196,9 @@ Record the value in the review app so it stays in step; do not expect a promote 
 carry it, and do not re-promote to "apply" it. A reassignment away from the claiming
 vendor clears `claimed_at`, so promote writes that row again from then on, **unless the
 row is vendor-created** (`origin = 'vendor'`, §4c). A vendor-created row stays fenced
-with or without a claim.
+with or without a claim. **Revoking the owner's last portal seat clears `claimed_at` the
+same way** on every live row it claimed (AECI-989, §4a's last paragraph). A retired row
+keeps its claim. No `REVIEW - ` issue is filed, because the owner of record did not change.
 
 **One race is an error, deliberately.** If the owner claims the integration while
 your promote is running, after AECi planned the write and before it committed,
@@ -1195,10 +1206,13 @@ the whole promote rolls back and the job ends `errored` with
 `INTEGRATION_CLAIMED_DURING_PROMOTE` (409). Nothing was written, including the
 job's ledger row, so re-push the bundle under a new job id. The re-push fences
 the claimed edge and commits everything else. This is expected to be rare.
+The race applies only to an edge the promote was going to write. An edge that §4c's
+twin guard skips writes nothing, so a claim on its row mid-promote does not abort the
+promote (AECI-1088 review).
 
-**Promote never writes three columns at all:** `claimed_at`, `origin` and
-`retired_at`. A row promote creates is `origin = 'aeci'` and unclaimed. Promote
-never un-retires a row.
+**Promote never writes four columns at all:** `claimed_at`, `origin`,
+`retired_at` and `retired_by` (AECI-1046). A row promote creates is `origin = 'aeci'`
+and unclaimed. Promote never un-retires a row.
 
 The fence reads `claimed_at IS NOT NULL OR origin = 'vendor'`, never `maintained_by`.
 The `origin` half was added by AECI-1011: an AECi `owner` accept clears `claimed_at`, and
@@ -1206,26 +1220,40 @@ a vendor-created row has no upstream record for promote to write from. A row can
 vendor-maintained because an endpoint vendor attested to it, and promote still
 writes such a row's content (only its `lastReviewedAt` is refused, §3.6a).
 
-**Planned: the same fence on `connector_evidenced_pairs` (AECI-1040, ruled 2026-09-23, build
-pending).** Today this fence covers `integrations` only, because no evidenced pair can be claimed.
-The owner carve-out (`STAGE_2_SPEC.md` §8.10(8)) lets an owner claim an evidenced pair. When that
-ships, everything in this section applies to a claimed or vendor-created evidenced pair too.
+**The same fence on `connector_evidenced_pairs` (AECI-1088, migration 0049).** The owner
+carve-out (`STAGE_2_SPEC.md` §8.10(8)) lets an owner hold an evidenced pair, so this section
+applies to a vendor-held pair exactly as to a vendor-held integration. Vendor-held means the same
+`claimed_at IS NOT NULL OR origin = 'vendor'` on both tables (`DATABASE_SCHEMA.md` §9a.6). No
+route can claim a pair yet: that is AECI-1089. Until it ships, no production pair is vendor-held
+and nothing changes on your side.
 
-- `claimFenceRefuses` and the `locateEdge` evidenced read in `apps/api/src/routes/promote.ts` cover
-  the second table. The in-batch claim sentinel gets an evidenced twin.
-- A `poweredByProduct` change that would move a claimed evidenced pair back into `integrations` is
-  refused, as the move out already is.
-- Two deletes that check no ownership today gain a guard. One is the duplicate-id safety delete
-  in the `integrations` UPDATE branch of `promote.ts`. The other is the retraction consumer's
-  evidenced delete (`scripts/ops/2026-09-retraction-consumer/consume.mjs`).
-- The retraction consumer and the strand audit exempt vendor-held evidenced pairs.
-  `ops:retract-product --delete-evidenced-pairs` refuses a vendor-held pair, with no override.
+- `claimFenceRefuses` and the `locateEdge` evidenced read in `apps/api/src/routes/promote.ts`
+  cover the second table. The in-batch claim sentinel has an evidenced twin,
+  `promoteEvidencedClaimFenceSentinel` in `apps/api/src/lib/integration-claims.ts`. A pair
+  claimed mid-promote ends the job `errored` with the same `INTEGRATION_CLAIMED_DURING_PROMOTE`.
+  An edge located in `integrations` carries both sentinels, so a pair that shares its id and is
+  claimed mid-promote aborts the promote too. The `promote.blocked` audit row for a fenced pair
+  has `entityType: 'connector_evidenced_pair'`.
+- A `poweredByProduct: null` that would move a vendor-held pair back into `integrations` is
+  refused, as the move out already is. That move deletes the pair, and the delete would cascade
+  away the vendor's claims and attestations.
+- The duplicate-id safety delete in the `integrations` UPDATE branch of `promote.ts` now keeps
+  a vendor-held pair. So does its mirror in the evidenced UPDATE branch, which now keeps a
+  vendor-created integration too, not only a claimed one. An edge whose id names both an
+  `integrations` row and a vendor-held pair is fenced whole. Only a broken earlier state can
+  produce that, and planning the edge would rewrite the pair's claims, because `claims.anchor_id`
+  is shared across both tables.
+- The retraction consumer's evidenced delete re-checks vendor-held at write time, as its
+  `integrations` delete already did. The consumer and the strand audit exempt vendor-held pairs.
+  `ops:retract-product --delete-evidenced-pairs` refuses a vendor-held pair, with no override,
+  and its delete plan re-checks at write time: it opens with a statement that aborts the run
+  if a vendor-held integration or pair entered scope after the footprint check. The datatool
+  prune refuses an id that names one.
+- Promote never writes the four ownership columns on that table: `claimed_at`, `origin`,
+  `retired_at` and `retired_by`. A pair promote creates, or moves in from `integrations`, is
+  `origin = 'aeci'` and unclaimed.
 
-- Promote never writes the four new ownership columns on that table: `claimed_at`, `origin`,
-  `retired_at` and `retired_by`. A pair promote creates is `origin = 'aeci'` and unclaimed.
-
-You will see the same `skipped[]` entry for a fenced evidenced pair. Nothing changes on your side
-until the build ships.
+You see the same `skipped[]` entry for a fenced evidenced pair as for a fenced integration.
 
 ## 4c. Vendor-created integrations, and the `VENDOR_OWNED_TWIN` skip (AECI-1011)
 
@@ -1245,7 +1273,7 @@ the same day to include `mechanismKind`):
 |---|---|
 | Vendor-held | Claimed (`claimed_at` set), or vendor-created (`origin = 'vendor'`). Live **or retired**: a retired row is the owner's withdrawal, and a live twin would undo it in public. |
 | Strong match | The same two products **in either order**, the same connector (`poweredByProduct`, none equal to none), the same `mechanismKind` (none equal to none, and none does not match a stated kind), and an owner that is the same **or unknown on either side**. `name` is not compared. Every value is the one the row **would hold after the write**. On an UPDATE or a de-route, an absent field keeps the stored value, and so does a `builtByVendor` or `poweredByProduct` that does not resolve, because an unresolvable link is left unwritten (§3.4). On an INSERT there is no stored value, so an absent `mechanismKind` means none, and an absent or unresolvable owner means unknown. |
-| Where it applies | Three writes into `integrations`. (1) An INSERT: an edge with no `supabaseId`, or the §5 stale-id fallback insert for a `supabaseId` that resolves nowhere. (2) A **de-route**: an explicit `poweredByProduct: null` that moves a `connector_evidenced_pairs` row back into `integrations` (§3.4a). (3) An **UPDATE that changes a key field** of an unclaimed row: its two products change as a pair, its connector changes, its `mechanismKind` changes, or its owner (`builtByVendor`) changes. A kind change (`api` to `native` beside a vendor's `native` row) or an owner change (to none, or to the vendor's own id) makes a twin as surely as a re-point. Every connector-delivered edge that stays connector-delivered is unaffected, because its table can never be vendor-held. *That stops being true when AECI-1040 ships (planned, below).* |
+| Where it applies | Three writes into `integrations`. (1) An INSERT: an edge with no `supabaseId`, or the §5 stale-id fallback insert for a `supabaseId` that resolves nowhere. (2) A **de-route**: an explicit `poweredByProduct: null` that moves a `connector_evidenced_pairs` row back into `integrations` (§3.4a). (3) An **UPDATE that changes a key field** of an unclaimed row: its two products change as a pair, its connector changes, its `mechanismKind` changes, or its owner (`builtByVendor`) changes. A kind change (`api` to `native` beside a vendor's `native` row) or an owner change (to none, or to the vendor's own id) makes a twin as surely as a re-point. A write into `connector_evidenced_pairs` has its own, narrower guard (below). |
 | Where it does not | (a) An UPDATE of a row that already exists that changes none of those four fields. Its key is unchanged, so it cannot create a match that did not already exist, and it is written as before. That includes a direction swap of the same two products. (b) An UPDATE that changes a key field but creates no **new** twin. The guard exists to stop promote creating a twin, so a vendor-held row that the stored row already twinned does not count (ruled on AECI-1012). An already-twinned curated row keeps receiving your updates, an owner backfill included. The UPDATE is skipped only when the row after the write would twin a vendor-held row it did not twin before. A vendor-held row itself is §4b's, and never reaches this check. |
 
 The edge is written **not at all**: no row, no claims, no partial UPDATE of the row you
@@ -1283,11 +1311,29 @@ row created or claimed mid-promote that the stored row already matched can abort
 promote with this race error. The re-push then counts that row as already twinned and
 writes the update.
 
-**Planned: an evidenced twin guard (AECI-1040, ruled 2026-09-23, build pending).** Once an evidenced
-pair can be vendor-held, a curated write onto the same connector and pair would hit the unique
-index `connector_evidenced_pairs_pair_idx` and fail the whole promote. So promote will skip it at
-plan time and report `VENDOR_OWNED_TWIN` with the vendor row's id, as above. The exact key is set
-by the build issue.
+**The evidenced twin guard (AECI-1088).** Since migration 0049 an evidenced pair can be
+vendor-held. A curated write onto the same connector and pair would hit the unique index
+`connector_evidenced_pairs_pair_idx` and fail the whole promote. So promote skips it at plan
+time and reports `VENDOR_OWNED_TWIN` with the vendor pair's id, as above.
+
+| Term | Meaning |
+|---|---|
+| Key | The unique index's key and nothing else: the connector, and the two products in canonical order. The two products therefore match in either order. Owner, `name` and kind are not compared, and the table has no kind. Every value is the one the row would hold after the write. |
+| Vendor-held | As above: claimed or vendor-created, live or retired. A retired pair still occupies the index. |
+| Where it applies | Three writes into `connector_evidenced_pairs`. (1) An INSERT: an edge with no `supabaseId`, or the §5 stale-id fallback insert. (2) A **move in** from `integrations`: a `poweredByProduct` that newly names a third-party connector (§3.4a). (3) An UPDATE of an unclaimed pair that changes its connector or its pair. An UPDATE that keeps its key cannot collide, so it is not asked. |
+
+A skipped edge writes nothing: no pair, no claims, and on a move in the `integrations` row stays
+exactly as it was. The `promote.blocked` audit row has `entityType: 'connector_evidenced_pair'`
+and names the vendor's pair. Its `metadata.write` is `route` for a move in and `re-point` for an
+UPDATE. An insert carries no `write`. A dead `supabaseId` on a skipped insert is still reported
+(§5). If the key's holder is claimed after the plan read and before the batch runs, the promote
+rolls back and ends `errored` with `VENDOR_OWNED_TWIN_CREATED_DURING_PROMOTE` (409), rather than
+failing on the unique index. The functions are `findVendorHeldEvidencedTwin` and
+`vendorOwnedEvidencedTwinSentinel` in `apps/api/src/lib/integration-twins.ts`.
+
+The two guards never search each other's table. Promote routes every write whose stated
+connector is a third product into `connector_evidenced_pairs`, and the unique index that can fail
+a promote exists on that table only.
 
 **The AECI-1010 promotion gate is closed by the 1011 twin guard, which covers the insert,
 de-route and UPDATE paths.** ADR 0035 and `STAGE_2_VENDOR_PORTAL_SPEC.md` §4.6.2 hold
@@ -1575,7 +1621,8 @@ FKs cascade, with `claims` → `attestations` two levels below. So retracting on
 product removes every pair it powers: 16 to 22 each for Agave ERP Sync, Aquifer and Trimble
 AppXchange. Since AECI-904 `ops:retract-product` prints those pairs per role (as connector, as
 endpoint A, as endpoint B) and **refuses** them unless `--delete-evidenced-pairs` is passed.
-`--force` does not cover them. With the flag it deletes attestations → claims → pairs → the
+`--force` does not cover them. Since AECI-1088 a **vendor-held** pair is refused even with the
+flag and with `--force`: the flag covers AECi-seeded pairs only (§4b). With the flag it deletes attestations → claims → pairs → the
 product explicitly, in the same batch as the tombstones, and adds each pair's
 `pair:{min}__{max}` tag and `product:` for both endpoints and the connector to the purge. It
 never relies on the cascade.

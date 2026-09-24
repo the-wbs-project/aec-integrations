@@ -87,7 +87,9 @@ that tier's own SSR Worker consumes.
   The check reads `SELECT *`, so it degrades to "none held" on a tier that has not yet
   applied migration `0044`. The three DELETEs also re-assert `claimed_at IS NULL AND
   origin <> 'vendor'` at write time when the columns exist, so a row claimed after the
-  check survives with its claims and attestations.
+  check survives with its claims and attestations. **Since AECI-1088** an id that names a
+  vendor-held `connector_evidenced_pairs` row is refused with `VENDOR_HELD` too. The prune
+  never deletes from that table, so such an id would otherwise only show as `missing`.
 - **Three guards block the prune**, and a non-zero value on *any* of them refuses
   the run — on the execute path too, not just in the dry-run summary. Each means
   "this row is not actually a redundant copy": `claimsUniqueToOrphans` (the

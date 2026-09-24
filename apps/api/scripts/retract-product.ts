@@ -26,8 +26,9 @@
  *     claims and their attestations are deleted explicitly, child to parent, and
  *     tombstoned in the same batch; their `pair:` and endpoint `product:` Cache-Tags
  *     join the purge.
- *   - Refuses a vendor-held integration (claimed, or `origin = 'vendor'`) ALWAYS,
- *     `--force` or `--delete-evidenced-pairs` or not (AECI-1005 / ADR 0035).
+ *   - Refuses a vendor-held integration or connector-evidenced pair (claimed, or
+ *     `origin = 'vendor'`) ALWAYS, `--force` or `--delete-evidenced-pairs` or not
+ *     (AECI-1005 for integrations, AECI-1088 for pairs; ADR 0035).
  *   - Refuses a connector catalogue or connector stub mapping ALWAYS, `--force` or
  *     not: the connector-catalogue sync owns those rows.
  *   - Refuses `production` writes without `--allow-production`.
@@ -62,6 +63,10 @@ import {
   buildDeleteStatements,
   buildFootprintSql,
   ddlHasVendorHeldColumns,
+  EVIDENCED_PAIRS_DDL_SQL,
+  tableDdlOrThrow,
+  isVendorHeldAbort,
+  VENDOR_HELD_ABORT_MESSAGE,
   VENDOR_LINKS_TABLE_SQL,
   INTEGRATIONS_DDL_SQL,
   buildProductLookupSql,
@@ -164,6 +169,17 @@ function wranglerMissing(err: unknown): boolean {
 const WRANGLER_HINT =
   'Run via pnpm so wrangler is on PATH:\n  pnpm --filter @aeci/api ops:retract-product -- …';
 
+/** A failed `wrangler d1 execute`, carrying what it printed so a caller can classify
+ *  the failure (the vendor-held sentinel) before falling back to the generic hint. */
+class D1ExecError extends Error {
+  constructor(
+    message: string,
+    readonly output: string,
+  ) {
+    super(message);
+  }
+}
+
 function runD1<T>(target: Target, sql: string): D1ExecResult<T>[] {
   const res = spawnSync(
     'wrangler',
@@ -178,8 +194,9 @@ function runD1<T>(target: Target, sql: string): D1ExecResult<T>[] {
     const hint = target.remote
       ? `Check CLOUDFLARE_API_TOKEN (Account→D1→Edit) + CLOUDFLARE_ACCOUNT_ID, and that "${target.db}" exists for --env ${target.label}.`
       : 'Set up the local D1 first:  pnpm --filter @aeci/api db:setup:local';
-    throw new Error(
+    throw new D1ExecError(
       `wrangler d1 execute failed on "${target.db}" (exit ${res.status}).\n${hint}\n\n${res.stderr}`,
+      `${res.stderr ?? ''}\n${res.stdout ?? ''}`,
     );
   }
   return parseWranglerJson<T>(res.stdout);
@@ -268,15 +285,27 @@ export async function main(argv: string[]): Promise<number> {
   // 2. Footprint + report.
   // AECI-1005: probe for the vendor-held columns first. Migration 0044 reaches each
   // tier only at its next deploy, and naming a missing column would fail the read.
-  const integrationsDdl =
-    runD1<{ sql: string }>(target, INTEGRATIONS_DDL_SQL)[0]?.results[0]?.sql ?? null;
+  // An empty read THROWS (could not check), never reads as "no columns", which would
+  // count 0 vendor-held rows and switch the refusal off silently (AECI-1088 review).
+  const integrationsDdl = tableDdlOrThrow(
+    runD1<{ sql: string }>(target, INTEGRATIONS_DDL_SQL)[0]?.results[0]?.sql,
+    'integrations',
+  );
+  // AECI-1088: the same for migration 0049's columns on `connector_evidenced_pairs`.
+  const evidencedPairsDdl = tableDdlOrThrow(
+    runD1<{ sql: string }>(target, EVIDENCED_PAIRS_DDL_SQL)[0]?.results[0]?.sql,
+    'connector_evidenced_pairs',
+  );
+  const vendorHeldColumns = ddlHasVendorHeldColumns(integrationsDdl);
+  const vendorHeldPairColumns = ddlHasVendorHeldColumns(evidencedPairsDdl);
   // AECI-1007: the same for migration 0045's per-side links table.
   const vendorLinksTable =
     (runD1<{ name: string }>(target, VENDOR_LINKS_TABLE_SQL)[0]?.results.length ?? 0) > 0;
   const rawFootprint = runD1<RawFootprintRow>(
     target,
     buildFootprintSql(product.id, {
-      vendorHeldColumns: ddlHasVendorHeldColumns(integrationsDdl),
+      vendorHeldColumns,
+      vendorHeldPairColumns,
       vendorLinksTable,
     }),
   )[0]?.results[0];
@@ -294,8 +323,9 @@ export async function main(argv: string[]): Promise<number> {
     console.error('✗ This product cannot be retracted by this tool, --force or not:');
     for (const r of classification.refusals) console.error(`     • ${r}`);
     console.error(
-      '\nThe connector-catalogue sync owns those rows. Unmap or retire the catalogue upstream,\n' +
-        'let the sync carry it, then re-run.',
+      "\nA connector catalogue or stub mapping is the connector-catalogue sync's: unmap or\n" +
+        'retire it upstream, let the sync carry it, then re-run. A vendor-held integration or\n' +
+        "pair is its owner's (ADR 0035): the owner retires it, or AECi rules on it first.",
     );
     return 1;
   }
@@ -352,8 +382,21 @@ export async function main(argv: string[]): Promise<number> {
     force,
     deleteEvidencedPairs,
     vendorLinksTable,
+    vendorHeldColumns,
+    vendorHeldPairColumns,
   }).join('\n');
-  const results = runD1<unknown>(target, statements);
+  let results: D1ExecResult<unknown>[];
+  try {
+    results = runD1<unknown>(target, statements);
+  } catch (err) {
+    // AECI-1088: the plan's first statement aborts when a vendor-held row entered scope
+    // after the dry run. Say that, not the generic credentials hint.
+    if (err instanceof D1ExecError && isVendorHeldAbort(err.output)) {
+      console.error(VENDOR_HELD_ABORT_MESSAGE);
+      return 1;
+    }
+    throw err;
+  }
   const changed = results.reduce((sum, r) => sum + (r.meta?.changes ?? 0), 0);
   console.log(`✓ D1: ${changed} row(s) written across ${results.length} statement(s),`);
   console.log('   tombstones included (product.deleted + one per deleted edge/review/version).');

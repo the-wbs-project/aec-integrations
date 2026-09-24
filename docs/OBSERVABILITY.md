@@ -245,7 +245,8 @@ than a Worker metric.
 | `aeci.metrics_snapshot.recheck.refused` | count | `apps/api/src/lib/metrics-snapshot.ts` (`emitMetricsRecheckMetrics`) | `trigger` (cron), `metric`, `reason` (`increase` / `raw_rows_absent`). Both reasons mean the guard held rather than the data converged: an increase cannot come from the retro-join, and absent raw rows mean the day's source is gone. **Worth an alert** — a non-zero series here is evidence about the data, not about the cron |
 | `aeci.pageviews.write` | count | `apps/api/src/routes/page-views.ts` (`capturePageView`, the deferred `POST /api/page-views` insert) | `outcome` (ok / failed / **deduped**); on `outcome:ok` also `bot` (true / false — the ingest-time UA+ASN classification, AECI-526) so the human/bot ratio is queryable in the metrics plane without waiting for the daily digest |
 | `aeci.pageviews.speculative` | count | `apps/web/src/server-runtime.ts` (`firePageView`) | none — a browser prefetch/prerender the Worker refused to count as an arrival (AECI-743) |
-| `aeci.auth.signin` | count | `apps/web/src/server/routes/auth-callback.ts` (the SSR `/auth/callback` handler — **carries `service:aeci-web`**, AECI-206) | `method` (google / magic_link / unknown), `outcome` (success / failed), `reason` on failure (link_invalid / missing_code / auth_not_configured) |
+| `aeci.auth.signin` | count | `apps/web/src/server/routes/auth-callback.ts` (the SSR `/auth/callback` handler — **carries `service:aeci-web`**, AECI-206) | `method` (google / magic_link / unknown), `outcome` (success / failed), `reason` on failure (link_invalid / missing_code / auth_not_configured / **profile_unavailable**). Since AECI-770 `success` fires only after the profile-ensure succeeds, and an ensure that fails every retry is `failed` with `reason:profile_unavailable` |
+| `aeci.auth.profile_ensure` | count | `apps/web/src/server/routes/auth-callback.ts` (**`service:aeci-web`**) and `apps/api/src/lib/profile-provisioning.ts` (`healMissingProfile`, the `GET /api/account` self-heal) | `source` (auth-callback / self-heal). On `auth-callback`: `outcome` (ok / failed) and `attempts` (1–3). On `self-heal`: `outcome` (created / existing / erased / failed). AECI-770. **Any `outcome:failed` is a user who met the no-profile state**: at sign-in they were signed out, on self-heal they saw a 503. `AUTH_AND_RLS.md` §3.1a |
 | `aeci.review.submit` | count | `apps/api/src/routes/reviews.ts` (`createSubmitReviewHandler`, AECI-206) | `outcome` (ok / duplicate / product_not_found / **rate_limited**) — `rate_limited` added by AECI-773 for the §15.1 hourly per-user cap (3 per rolling hour, a D1 count). It is distinct from the burst bucket's own rejection, which lands on `aeci.api.ratelimit` instead, so the two windows stay separable |
 | `aeci.moderation.action` | count | `apps/api/src/routes/admin-reviews.ts` (`createModerateReviewHandler`, AECI-206) | `action` (approve / reject), `outcome` (ok / invalid_state) |
 | `aeci.toxicity.api` | count | `apps/api/src/lib/toxicity.ts` (`scoreToxicity`, AECI-206 / AECI-258) | `outcome` (ok / failed), `reason` on failure (http_error / malformed / timeout / network) |
@@ -824,8 +825,9 @@ A fourth (AECI-730): an integration written **without** an optional link, becaus
 `poweredByProduct` / `builtByVendor` didn't resolve. This is not a skip — the row landed — so it
 gets its own `info` log `aeci.api.promote.unresolved_link` (every `{ ref, field, supabaseId,
 outcome }` + per-field counts) plus the `aeci.api.promote.unresolved_link` count above, and is
-deliberately kept **out** of `aeci.api.promote.skipped`. The severity split is the point: Zapier
-and Workato are parked permanently (AECI-700), so this fires on routine promotes forever, and a
+deliberately kept **out** of `aeci.api.promote.skipped`. The severity split is the point: some
+connectors are never promoted (Make, n8n, Boomi today; Zapier and Workato until AECI-1064 promoted
+them on 2026-09-23), so this fires on routine promotes forever, and a
 permanent `warn` — or a permanently dirty `skipped` series — is exactly the noise an operator
 learns to ignore. `outcome: 'preserved'` means the update left a stored FK alone rather than
 nulling it (the clobber guard); `'unset'` means the row was created with the column NULL. The

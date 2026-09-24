@@ -127,6 +127,8 @@ export function cacheTagInputsForPath(path: string): CacheTagInputs | null {
   // route-class tag only, like /about and /updates. Never an ad-hoc namespace.
   if (path === '/methodology') return { route: 'index' };
   if (path === '/legal' || path.startsWith('/legal/')) return { route: 'index' };
+  // AECI-1104 — the `/docs` vendor guide. Static content, route-class tag only.
+  if (path.startsWith('/docs/')) return { route: 'index' };
 
   let m: RegExpExecArray | null;
   // AECI-294 — the product-PAIR page. The `pair:{min}__{max}` tag is

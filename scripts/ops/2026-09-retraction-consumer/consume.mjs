@@ -154,6 +154,7 @@ import { fileURLToPath } from 'node:url';
 import { listAll, openMcpSession } from './mcp-client.mjs';
 import {
   ddlHasColumn,
+  guardedAnchorDeleteSql,
   notVendorHeldSql,
   tableDdlOrThrow,
   vendorHeldColumnsSql,
@@ -955,11 +956,15 @@ async function main() {
       table,
     );
   const integrationsDdl = ddlOf('integrations');
+  const pairsDdl = ddlOf('connector_evidenced_pairs');
   const integrationsHeldSql = vendorHeldColumnsSql('i', integrationsDdl);
-  const pairsHeldSql = vendorHeldColumnsSql('e', ddlOf('connector_evidenced_pairs'));
+  // AECI-1088: migration 0049 gave `connector_evidenced_pairs` the same two columns,
+  // so this projection and the guard below switch on for pairs once it reaches a tier.
+  const pairsHeldSql = vendorHeldColumnsSql('e', pairsDdl);
   // Re-asserted in the DELETE itself, so a row claimed after this read survives the
   // write and `verifyDeleted` reports it instead of it being confirmed.
   const integrationsDeletable = notVendorHeldSql(integrationsDdl);
+  const pairsDeletable = notVendorHeldSql(pairsDdl);
   // AECI-1007: the per-side links an integration delete cascades, counted and reported
   // like `ops:retract-product` does. Probed, because migration 0045 reaches each tier
   // only at its next deploy and naming a missing table would fail the read. Reported,
@@ -1366,23 +1371,28 @@ async function main() {
     const pairIds = batch
       .filter((p) => p.table === 'connector_evidenced_pairs')
       .map((p) => p.entry.supabaseId);
+    // AECI-1005 review, and AECI-1088 for pairs: every statement is scoped to the rows
+    // that are still not vendor-held AT WRITE TIME, so a claim landing after the plan
+    // keeps the row, its claims and its attestations. `verifyDeleted` then reports the
+    // survivor. Before AECI-1088 the pair DELETEs carried no guard at all.
     if (intIds.length) {
-      const ph = sqlIdList(intIds);
       sql.push(
-        // AECI-1005 review: every statement is scoped to the rows that are still not
-        // vendor-held AT WRITE TIME, so a claim landing after the plan keeps the row,
-        // its claims and its attestations. `verifyDeleted` then reports the survivor.
-        `DELETE FROM attestations WHERE claim_id IN (SELECT id FROM claims WHERE integration_id IN (SELECT id FROM integrations WHERE id IN (${ph})${integrationsDeletable}));`,
-        `DELETE FROM claims WHERE integration_id IN (SELECT id FROM integrations WHERE id IN (${ph})${integrationsDeletable});`,
-        `DELETE FROM integrations WHERE id IN (${ph})${integrationsDeletable};`,
+        ...guardedAnchorDeleteSql({
+          table: 'integrations',
+          anchorColumn: 'integration_id',
+          ph: sqlIdList(intIds),
+          keep: integrationsDeletable,
+        }),
       );
     }
     if (pairIds.length) {
-      const ph = sqlIdList(pairIds);
       sql.push(
-        `DELETE FROM attestations WHERE claim_id IN (SELECT id FROM claims WHERE connector_evidenced_pair_id IN (${ph}));`,
-        `DELETE FROM claims WHERE connector_evidenced_pair_id IN (${ph});`,
-        `DELETE FROM connector_evidenced_pairs WHERE id IN (${ph});`,
+        ...guardedAnchorDeleteSql({
+          table: 'connector_evidenced_pairs',
+          anchorColumn: 'connector_evidenced_pair_id',
+          ph: sqlIdList(pairIds),
+          keep: pairsDeletable,
+        }),
       );
     }
     d1Write(target, `${sql.join('\n')}\n`, scratch, `delete-${i}`);

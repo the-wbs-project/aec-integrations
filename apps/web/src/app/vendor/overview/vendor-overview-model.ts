@@ -256,8 +256,8 @@ export interface NeedsInput {
   /** Open protests in the Received list with no reply yet and the due date still
    *  ahead (AECI-1009). `0` until the read lands, and when omitted. */
   readonly protestsToReply?: number;
-  /** `vendor.verified`, the gate the Integrations tab uses today (see
-   *  `vendor-integrations-page.ts` on why it is not yet `attestation.author`). */
+  /** The `attestation.author` capability, the gate the Integrations tab uses
+   *  (AECI-623). */
   readonly canAttest: boolean;
   readonly canEditProducts: boolean;
   readonly canEditProfile: boolean;
