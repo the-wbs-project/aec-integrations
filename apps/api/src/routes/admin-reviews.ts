@@ -27,21 +27,14 @@ import {
   type ModerateReviewResponse,
   type RepeatOffenderPrompt,
 } from '@aeci/shared';
-import {
-  forwardAuditLog,
-  type AuditLogEntry,
-  type AuditLogForwarder,
-} from '@aeci/shared/audit-log';
-import {
-  forwardWorkflowTransition,
-  type WorkflowTransitionEntry,
-  type WorkflowTransitionForwarder,
-} from '@aeci/shared/workflow-transition';
+import { type AuditLogEntry } from '@aeci/shared/audit-log';
+import { type WorkflowTransitionEntry } from '@aeci/shared/workflow-transition';
 import { and, asc, count, desc, eq } from 'drizzle-orm';
 import type { Context } from 'hono';
 import type { ZodType } from 'zod';
 
 import { getDb } from '../db/client';
+import { forwardAuditBatch } from '../lib/moderation-forward';
 import type { Db } from '../db/client';
 import { reviews, workflowInstances } from '../db/schema';
 import { logToPosthog, submitCount } from '../posthog';
@@ -73,34 +66,6 @@ export type FetchReviewerEmails = (
 type RecomputeFn = (db: Db, productIds: Iterable<string>) => Promise<void>;
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
-
-function makeForwarder(c: AdminContext): AuditLogForwarder | undefined {
-  if (!c.env.POSTHOG_PROJECT_KEY) return undefined;
-  return (entry) => {
-    logToPosthog(c.executionCtx, c.env, c.req.raw, {
-      level: 'info',
-      message: `audit ${entry.action} ${entry.entityId ?? ''}`.trim(),
-      action: entry.action,
-      entity_type: entry.entityType ?? undefined,
-      entity_id: entry.entityId ?? undefined,
-      source: 'admin-moderation',
-    });
-  };
-}
-
-function makeWorkflowForwarder(c: AdminContext): WorkflowTransitionForwarder | undefined {
-  if (!c.env.POSTHOG_PROJECT_KEY) return undefined;
-  return (entry) => {
-    logToPosthog(c.executionCtx, c.env, c.req.raw, {
-      level: 'info',
-      message: `workflow ${entry.fromState ?? '∅'}→${entry.toState} ${entry.workflowId}`.trim(),
-      from_state: entry.fromState ?? undefined,
-      to_state: entry.toState,
-      workflow_id: entry.workflowId,
-      source: 'admin-moderation',
-    });
-  };
-}
 
 async function parseJsonBody<T>(c: AdminContext, schema: ZodType<T>): Promise<T> {
   let raw: unknown;
@@ -308,12 +273,8 @@ export function createModerateReviewHandler(
     if (approve && c.env.CACHE_PURGE_QUEUE) {
       c.executionCtx.waitUntil(purgeProductTag(c, existing.product.slug));
     }
-    c.executionCtx.waitUntil(
-      Promise.all([
-        forwardAuditLog(auditEntry, makeForwarder(c)),
-        forwardWorkflowTransition(workflowEntry, makeWorkflowForwarder(c)),
-      ]),
-    );
+    // §26.5 audit + workflow forwards, in ONE request (AECI-1112).
+    forwardAuditBatch(c, [auditEntry], [workflowEntry]);
 
     const moderatedRow: RawAdminReviewRow = {
       ...existing,

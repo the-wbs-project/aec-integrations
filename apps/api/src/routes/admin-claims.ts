@@ -80,12 +80,7 @@ import {
   type VendorOwnedIntegrations,
   type VendorProductRoles,
 } from '@aeci/shared';
-import { forwardAuditLog, type AuditLogForwarder } from '@aeci/shared/audit-log';
 import { tierFor, type EntitlementTier } from '@aeci/shared/entitlements';
-import {
-  forwardWorkflowTransition,
-  type WorkflowTransitionForwarder,
-} from '@aeci/shared/workflow-transition';
 import { and, asc, count, desc, eq, inArray, isNull, ne, or } from 'drizzle-orm';
 import type { Context } from 'hono';
 import type { ZodType } from 'zod';
@@ -193,36 +188,9 @@ const ENTITLEMENT_GRANT_ACTION = 'vendor_entitlement.granted';
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
-/** Telemetry forwarder (PostHog + the dual-run Datadog leg) for the audit write; each vendor leg no-ops without its own key. Tagged
- *  `source: admin-moderation`, matching `admin-requests.ts`. */
-function makeForwarder(c: ClaimContext): AuditLogForwarder | undefined {
-  if (!c.env.POSTHOG_PROJECT_KEY) return undefined;
-  return (entry) => {
-    logToPosthog(c.executionCtx, c.env, c.req.raw, {
-      level: 'info',
-      message: `audit ${entry.action} ${entry.entityId ?? ''}`.trim(),
-      action: entry.action,
-      entity_type: entry.entityType ?? undefined,
-      entity_id: entry.entityId ?? undefined,
-      source: 'admin-moderation',
-    });
-  };
-}
-
-/** Telemetry forwarder (PostHog + the dual-run Datadog leg) for the workflow-transition write; each vendor leg no-ops without its own key. */
-function makeWorkflowForwarder(c: ClaimContext): WorkflowTransitionForwarder | undefined {
-  if (!c.env.POSTHOG_PROJECT_KEY) return undefined;
-  return (entry) => {
-    logToPosthog(c.executionCtx, c.env, c.req.raw, {
-      level: 'info',
-      message: `workflow ${entry.fromState ?? '∅'}→${entry.toState} ${entry.workflowId}`.trim(),
-      from_state: entry.fromState ?? undefined,
-      to_state: entry.toState,
-      workflow_id: entry.workflowId,
-      source: 'admin-moderation',
-    });
-  };
-}
+// Every handler here forwards its audit rows and transitions (§26.5) through
+// `forwardAuditBatch`: one request per write, tagged `source: admin-moderation`,
+// never one `fetch` per row (AECI-666, AECI-1112).
 
 async function parseJsonBody<T>(c: ClaimContext, schema: ZodType<T>): Promise<T> {
   let raw: unknown;
@@ -731,12 +699,8 @@ async function rejectClaim(
       }
     }),
   );
-  c.executionCtx.waitUntil(
-    Promise.all([
-      forwardAuditLog(auditEntry, makeForwarder(c)),
-      forwardWorkflowTransition(workflowEntry, makeWorkflowForwarder(c)),
-    ]),
-  );
+  // The audit row and the transition go in ONE request (AECI-1112).
+  forwardAuditBatch(c, [auditEntry], [workflowEntry]);
 
   const body = claimResponse(
     existing,
@@ -1420,7 +1384,7 @@ export function createSaveClaimNotesHandler(
         targetId: row.targetId,
       });
       await db.batch(batch.stmts as BatchTuple);
-      c.executionCtx.waitUntil(forwardAuditLog(batch.auditEntry, makeForwarder(c)));
+      forwardAuditBatch(c, [batch.auditEntry], []);
     }
 
     emitClaimModeration(c, 'note', unchanged ? 'noop' : 'ok');

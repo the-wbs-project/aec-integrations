@@ -1086,7 +1086,8 @@ function emitSync(
 }
 
 /** Telemetry forwarder (PostHog + the dual-run Datadog leg) for the sync transition write; each vendor leg no-ops without its own key.
- *  Mirrors `routes/webhooks.ts`'s `makeWorkflowForwarder`, tagged
+ *  One transition per sync, so a single-row forward is fine here. Handlers with more
+ *  than one entry use `forwardAuditBatch` (`lib/moderation-forward.ts`). Tagged
  *  `source: site-linear-sync`. */
 function makeSyncForwarder(c: LinearContext): WorkflowTransitionForwarder | undefined {
   if (!c.env.POSTHOG_PROJECT_KEY) return undefined;

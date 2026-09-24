@@ -33,22 +33,15 @@
  */
 
 import { ApiErrorCode, LinearWebhookSchema, type LinearWebhook } from '@aeci/shared';
-import {
-  forwardAuditLog,
-  type AuditLogEntry,
-  type AuditLogForwarder,
-} from '@aeci/shared/audit-log';
-import {
-  forwardWorkflowTransition,
-  type WorkflowTransitionEntry,
-  type WorkflowTransitionForwarder,
-} from '@aeci/shared/workflow-transition';
+import { type AuditLogEntry } from '@aeci/shared/audit-log';
+import { type WorkflowTransitionEntry } from '@aeci/shared/workflow-transition';
 import { and, eq, inArray } from 'drizzle-orm';
 import type { Context } from 'hono';
 
 import { getDb } from '../db/client';
+import { forwardAuditBatch } from '../lib/moderation-forward';
 import { vendorRequests, workflowInstances } from '../db/schema';
-import { logToPosthog, submitCount } from '../posthog';
+import { submitCount } from '../posthog';
 import type { Env } from '../env';
 import { ApiError } from '../errors';
 import { json } from '../http';
@@ -88,39 +81,6 @@ const TERMINAL_OUTCOME: Partial<Record<VendorRequestStatus, string>> = {
 };
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
-
-/** Telemetry forwarder (PostHog + the dual-run Datadog leg) for the audit write; each vendor leg no-ops without its own key. Mirrors
- *  `routes/requests.ts`, tagged `source: linear-webhook`. */
-function makeAuditForwarder(c: Context<{ Bindings: Env }>): AuditLogForwarder | undefined {
-  if (!c.env.POSTHOG_PROJECT_KEY) return undefined;
-  return (entry) => {
-    logToPosthog(c.executionCtx, c.env, c.req.raw, {
-      level: 'info',
-      message: `audit ${entry.action} ${entry.entityId ?? ''}`.trim(),
-      action: entry.action,
-      entity_type: entry.entityType ?? undefined,
-      entity_id: entry.entityId ?? undefined,
-      source: 'linear-webhook',
-    });
-  };
-}
-
-/** Telemetry forwarder (PostHog + the dual-run Datadog leg) for the transition write; each vendor leg no-ops without its own key. */
-function makeWorkflowForwarder(
-  c: Context<{ Bindings: Env }>,
-): WorkflowTransitionForwarder | undefined {
-  if (!c.env.POSTHOG_PROJECT_KEY) return undefined;
-  return (entry) => {
-    logToPosthog(c.executionCtx, c.env, c.req.raw, {
-      level: 'info',
-      message: `workflow ${entry.fromState ?? '∅'}→${entry.toState} ${entry.workflowId}`.trim(),
-      from_state: entry.fromState ?? undefined,
-      to_state: entry.toState,
-      workflow_id: entry.workflowId,
-      source: 'linear-webhook',
-    });
-  };
-}
 
 /** A no-op acknowledgement. Linear only cares about the 2xx; the body aids
  *  debugging and the test assertions. */
@@ -255,13 +215,8 @@ export function createLinearWebhookHandler(
     ];
     await db.batch(stmts as BatchTuple);
 
-    // Best-effort §26.5 forwards AFTER the atomic commit.
-    c.executionCtx.waitUntil(
-      Promise.all([
-        forwardAuditLog(auditEntry, makeAuditForwarder(c)),
-        forwardWorkflowTransition(workflowEntry, makeWorkflowForwarder(c)),
-      ]),
-    );
+    // Best-effort §26.5 forwards AFTER the atomic commit, in ONE request (AECI-1112).
+    forwardAuditBatch(c, [auditEntry], [workflowEntry], 'linear-webhook');
 
     return ack(true, `${currentStatus}→${targetStatus}`);
   };

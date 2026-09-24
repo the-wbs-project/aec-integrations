@@ -3373,7 +3373,7 @@ await db.batch([
 ]);
 ```
 
-Each helper returns a Drizzle insert *statement* the caller pushes into its batch array; `db.batch()` commits them as a single unit. The best-effort observability forward (§26.5) is decoupled — call `forwardAuditLog` from `@aeci/shared` **after** the batch commits, via `ctx.waitUntil`. Its *target* moved Datadog → PostHog through the injected-forwarder seam (ADR 0024, completed at AECI-651); the in-batch rule above was unaffected.
+Each helper returns a Drizzle insert *statement* the caller pushes into its batch array; `db.batch()` commits them as a single unit. The best-effort observability forward (§26.5) is decoupled — **after** the batch commits, call `forwardAuditBatch` (`apps/api/src/lib/moderation-forward.ts`) with every audit row and transition the batch wrote. It sends them in one request (AECI-1112). `forwardAuditLog` from `@aeci/shared`, via `ctx.waitUntil`, is only for a path that forwards exactly one entry. Its *target* moved Datadog → PostHog through the injected-forwarder seam (ADR 0024, completed at AECI-651); the in-batch rule above was unaffected.
 
 **Cache invalidation runs after commit.** A state-changing write that affects cached SSR pages purges by **`Cache-Tag`** *after* `db.batch()` resolves, never inside it. On the API Worker (and datatool) that means **enqueuing** a typed `CachePurgeMessage` onto the `aeci-cache-purge-{env}` Cloudflare Queue; the SSR consumer issues the native `ctx.cache.purge()` (the SSR Worker's own `/admin/purge` purges in-process instead). Wrap the enqueue in `ctx.waitUntil()` so the response is not blocked on it:
 

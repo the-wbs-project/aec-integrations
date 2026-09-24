@@ -44,6 +44,7 @@ import type { BatchTuple } from '../lib/audit';
 import type { resolveClaimantIdentity } from '../lib/claimant-identity';
 import { isContestRaceError, planEntitlementClearReroute } from '../lib/integration-contests';
 import { planSeatGrantReturn } from '../lib/vendor-handback';
+import { logBatchToPosthog } from '../posthog';
 import { makeTestDb, type TestDb } from '../test/d1';
 import { TEST_ENV, fakeExecutionContext } from '../test/helpers';
 import { createModerateContestHandler } from './admin-contests';
@@ -397,6 +398,38 @@ describe('the entitlement clear makes stamped connector-row contests AECi’s fo
     await unban(SEAT_B);
     expect((await contest(powered)).routedTo).toBe('aeci');
     expect((await contest(plain)).routedTo).toBe('owner');
+  });
+
+  it('forwards the entitlement row and every cleared stamp in ONE batched request (AECI-1112)', async () => {
+    await entitle(VENDOR_B);
+    await banSeatDirectly(SEAT_B);
+    // Seven contests, past the Worker's ~6 open connections (AECI-666). One open
+    // contest per (row, field, submitter), so each takes its own field.
+    const fields = [
+      'name',
+      'mechanism_name',
+      'direction',
+      'description',
+      'listing_url',
+      'docs_url',
+      'website',
+    ];
+    for (const field of fields) await stampedContest({ integrationId: I_POWERED, field });
+    vi.mocked(logBatchToPosthog).mockClear();
+
+    expect((await clearEntitlement(VENDOR_B)).status).toBe(200);
+
+    expect(logBatchToPosthog).toHaveBeenCalledTimes(1);
+    const events = vi.mocked(logBatchToPosthog).mock.calls[0]![3] as {
+      message: string;
+      source: string;
+    }[];
+    const messages = events.map((e) => e.message);
+    expect(messages.filter((m) => m.startsWith('audit vendor_entitlement.'))).toHaveLength(1);
+    expect(
+      messages.filter((m) => m.startsWith('audit integration.contest.seat_stamp_cleared ')),
+    ).toHaveLength(fields.length);
+    expect(events.every((e) => e.source === 'admin-entitlement')).toBe(true);
   });
 
   it('clears the stamp on an evidenced-pair contest too', async () => {

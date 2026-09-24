@@ -66,7 +66,9 @@ mode.
 > follow, and both are enforced in review: every transport **releases its response
 > body** on every path (`discardResponseBody`), and a caller whose line count scales
 > with its payload uses the **batched** sender (`logBatchToPosthog`, N entries → one
-> request) rather than a loop. Metrics have the same sender since AECI-1092
+> request) rather than a loop. The §26.5 audit forward from a request handler goes
+> through `forwardAuditBatch` (`apps/api/src/lib/moderation-forward.ts`): one request
+> per write, however many audit rows and transitions it committed (AECI-1112). Metrics have the same sender since AECI-1092
 > (`submitMetricsBatch`, N points in one OTLP envelope, one request); the request-path
 > Algolia sync (`syncOwnerWriteSearch`) uses it for its per-entity counts and run
 > duration. Where an upstream has no batch endpoint, bound the

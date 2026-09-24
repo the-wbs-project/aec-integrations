@@ -21,6 +21,7 @@ import type { AuthzVariables } from '../lib/authz';
 import { sendReviewSubmittedEmail } from '../lib/email';
 import { makeTestDb, type TestDb } from '../test/d1';
 import { fakeExecutionContext, TEST_ENV } from '../test/helpers';
+import { stubPosthogIntake } from '../test/posthog-intake';
 import { createSubmitReviewHandler, REVIEW_HOURLY_LIMIT } from './reviews';
 
 // The §11.1 confirmation send is fire-and-forget; mock it so the route specs can
@@ -66,11 +67,11 @@ function app() {
   return a;
 }
 
-function post(body: unknown) {
+function post(body: unknown, env: Env = TEST_ENV) {
   return app().request(
     '/api/reviews',
     { method: 'POST', body: JSON.stringify(body), headers: { 'content-type': 'application/json' } },
-    TEST_ENV,
+    env,
     fakeExecutionContext(),
   );
 }
@@ -116,6 +117,25 @@ describe('POST /api/reviews', () => {
       expect.anything(),
       expect.objectContaining({ to: USER_EMAIL }),
     );
+  });
+
+  it('forwards the audit row and the genesis transition in ONE request (AECI-1112)', async () => {
+    const intake = stubPosthogIntake();
+    try {
+      const res = await post(validBody(), { ...TEST_ENV, POSTHOG_PROJECT_KEY: 'phc_test' });
+      expect(res.status).toBe(201);
+      const { id } = (await res.json()) as { id: string };
+
+      expect(intake.auditRequests()).toHaveLength(1);
+      expect(intake.auditRequests()[0]!.messages).toEqual([
+        `audit review.submitted ${id}`,
+        expect.stringMatching(/^workflow ∅→pending /),
+      ]);
+      // The confirmation email still goes out alongside the forward.
+      expect(sendReviewSubmittedEmail).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 
   it('rejects a duplicate (non-archived) review for the same product → 409', async () => {
