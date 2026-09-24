@@ -396,6 +396,8 @@
         // ADMIN_ALERT_EMAIL receives the §6.2 reconcile-sweep stuck-request alert.
         // The RESEND_API_KEY secret is pushed by CI (graceful) — absent → sends skip.
         "EMAIL_FROM": "AEC Integrations <notifications@aecintegrations.com>",
+        // Blind copy on every send, so the operator sees what users receive.
+        "EMAIL_BCC": "support@aecintegrations.com",
         "PUBLIC_SITE_URL": "https://staging.aecintegrations.com",
         "ADMIN_ALERT_EMAIL": "chrisw@thewbsproject.com",
         // Operator alert on claim INTAKE (`POST /api/requests/claim`) — the support
@@ -641,6 +643,8 @@
         "POSTHOG_PROJECT_KEY": "phc_pY8FDQ9FNAmFUJFFd85jNKAAUCMvndUsyGMMV8TR97MD",
         // AECI-240 / Phase 7.5: transactional email (Resend). See the staging note.
         "EMAIL_FROM": "AEC Integrations <notifications@aecintegrations.com>",
+        // Blind copy on every send, so the operator sees what users receive.
+        "EMAIL_BCC": "support@aecintegrations.com",
         "PUBLIC_SITE_URL": "https://demo.aecintegrations.com",
         "ADMIN_ALERT_EMAIL": "chrisw@thewbsproject.com",
         // Operator alert on claim INTAKE (`POST /api/requests/claim`) — the support
@@ -825,6 +829,8 @@
         // The RESEND_API_KEY secret is pushed by CI from RESEND_API_KEY_PRODUCTION
         // — absent → sends skip.
         "EMAIL_FROM": "AEC Integrations <notifications@aecintegrations.com>",
+        // Blind copy on every send, so the operator sees what users receive.
+        "EMAIL_BCC": "support@aecintegrations.com",
         "ADMIN_ALERT_EMAIL": "chrisw@thewbsproject.com",
         // Operator alert on claim INTAKE (`POST /api/requests/claim`) — the support
         // inbox, deliberately NOT `ADMIN_ALERT_EMAIL` (which stays the individual

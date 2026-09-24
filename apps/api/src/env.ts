@@ -605,6 +605,17 @@ export type Env = {
    */
   EMAIL_FROM?: string;
   /**
+   * Operator blind copy on EVERY email the API Worker sends, both transports in
+   * `lib/email.ts` (transactional templates and the cron digests). A send with a
+   * `List-Unsubscribe` header gets a separate `COPY:` message instead of a bcc,
+   * so the copy cannot opt the recipient out (`sendOperatorCopy`). Lets the
+   * operator see exactly what users receive. Comma/whitespace-separated list,
+   * parsed by `parseRecipients`; an address already in `to` is not repeated.
+   * Plain wrangler var, set on staging, demo and production to
+   * `support@aecintegrations.com`. Absent → no `bcc` field. See `docs/email.md`.
+   */
+  EMAIL_BCC?: string;
+  /**
    * Sender + recipient(s) for the data-quality digest (AECI-241). `_FROM` is a
    * single verified Resend sender; `_TO` is a comma/whitespace-separated list
    * (Chris + Bill), parsed by `parseRecipients` (`lib/email.ts`). Plain wrangler

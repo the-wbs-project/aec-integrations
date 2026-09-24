@@ -218,6 +218,9 @@ RESEND_API_KEY=
 # Sender for transactional email — the Resend `from`. Bare address or `Name <addr>`.
 # Must be on a Resend-verified domain. Absent → sends skip (with RESEND_API_KEY).
 EMAIL_FROM=
+# Optional. Blind copy on EVERY send, both transports in lib/email.ts. Deployed tiers
+# set it to support@aecintegrations.com. Leave it empty locally so test sends stay quiet.
+EMAIL_BCC=
 # Optional. Recipient of the reconcile-sweep stuck-request admin alert (§6.2).
 ADMIN_ALERT_EMAIL=
 # Optional. Recipient of the operator "new vendor claim" alert, sent post-commit

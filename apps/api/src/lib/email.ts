@@ -131,6 +131,9 @@ export type EmailTemplate =
 
 const RESEND_URL = 'https://api.resend.com/emails';
 
+/** The dud unsubscribe token in an operator copy's body. Matches no subscriber. */
+const OPERATOR_COPY_TOKEN = 'operator-copy';
+
 /** Cap on how long we wait for Resend before giving up (fail-open to `'failed'`). */
 const TIMEOUT_MS = 5000;
 
@@ -142,6 +145,12 @@ interface SendInput {
   template: EmailTemplate;
   /** Extra MIME headers (e.g. `List-Unsubscribe`) forwarded to Resend verbatim. */
   headers?: Record<string, string>;
+  /**
+   * Body for the separate operator copy of a send that carries `List-Unsubscribe`.
+   * Same layout as the recipient's body, but rendered with a dud unsubscribe token.
+   * Absent on such a send → no operator copy at all. See `sendOperatorCopy`.
+   */
+  operatorCopy?: { text: string; html?: string };
 }
 
 /**
@@ -161,6 +170,11 @@ export async function sendTransactionalEmail(
     return 'skipped';
   }
 
+  // A send with an unsubscribe header never blind-copies: a bcc is the same
+  // message, so the operator's copy would carry the recipient's one-click opt-out.
+  // The operator gets a separate copy instead, after the recipient's send lands.
+  const unsubscribable = Boolean(input.headers?.['List-Unsubscribe']);
+
   try {
     const res = await fetch(RESEND_URL, {
       method: 'POST',
@@ -171,6 +185,7 @@ export async function sendTransactionalEmail(
       body: JSON.stringify({
         from,
         to: input.to,
+        ...(unsubscribable ? {} : bccField(c.env.EMAIL_BCC, [input.to])),
         subject: input.subject,
         text: input.text,
         ...(input.html ? { html: input.html } : {}),
@@ -188,7 +203,6 @@ export async function sendTransactionalEmail(
       return 'failed';
     }
     emit(c, 'sent', input.template);
-    return 'sent';
   } catch (err) {
     // Timeout (AbortError), network failure, or a malformed body — all non-fatal.
     warn(
@@ -197,6 +211,50 @@ export async function sendTransactionalEmail(
     );
     emit(c, 'failed', input.template);
     return 'failed';
+  }
+  if (unsubscribable) await sendOperatorCopy(c, apiKey, from, input);
+  return 'sent';
+}
+
+/**
+ * The operator's copy of a send that carries `List-Unsubscribe`, as its own message
+ * to the `EMAIL_BCC` list. The subject is prefixed `COPY: `. It has no unsubscribe
+ * headers, and its body is the template's `operatorCopy`, rendered with a dud token,
+ * so nothing in the operator's inbox can opt the real recipient out. Sent only after
+ * the recipient's send succeeded. Never throws, and a failure only warns: the copy
+ * is not counted in `aeci.email.send`, which stays one count per recipient send.
+ */
+async function sendOperatorCopy(
+  c: EmailContext,
+  apiKey: string,
+  from: string,
+  input: SendInput,
+): Promise<void> {
+  const to = bccField(c.env.EMAIL_BCC, [input.to]).bcc;
+  if (!to || !input.operatorCopy) return;
+  try {
+    const res = await fetch(RESEND_URL, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        from,
+        to,
+        subject: `COPY: ${input.subject}`,
+        text: input.operatorCopy.text,
+        ...(input.operatorCopy.html ? { html: input.operatorCopy.html } : {}),
+      }),
+      signal: AbortSignal.timeout(TIMEOUT_MS),
+    });
+    discardResponseBody(res);
+    if (!res.ok) warn(c, `Resend ${input.template} operator copy returned ${res.status}`);
+  } catch (err) {
+    warn(
+      c,
+      `Resend ${input.template} operator copy failed: ${err instanceof Error ? err.message : String(err)}`,
+    );
   }
 }
 
@@ -1013,20 +1071,8 @@ export function sendMailingListWelcomeEmail(
   // Tokenized page link + one-click endpoint (preferred), else the mailto opt-out.
   const mailto = unsubscribeMailto(c.env);
   const token = opts.token ?? null;
-  const pageUrl = base && token ? `${base}/unsubscribe?token=${encodeURIComponent(token)}` : null;
   const oneClickUrl =
     base && token ? `${base}/api/unsubscribe?token=${encodeURIComponent(token)}` : null;
-
-  const unsubText = pageUrl
-    ? `To stop these updates, unsubscribe here: ${pageUrl}`
-    : mailto
-      ? `To stop these updates, email ${mailto} with the subject unsubscribe.`
-      : null;
-  const unsubHtml = pageUrl
-    ? `To stop these updates, <a href="${escapeHtml(pageUrl)}">unsubscribe</a>.`
-    : mailto
-      ? `To stop these updates, <a href="mailto:${escapeHtml(mailto)}?subject=unsubscribe">unsubscribe</a>.`
-      : null;
 
   // List-Unsubscribe: https one-click (RFC 8058) with the mailto as a secondary
   // value when both are available; otherwise whichever single value we have.
@@ -1040,27 +1086,45 @@ export function sendMailingListWelcomeEmail(
   if (listUnsub) unsubHeaders['List-Unsubscribe'] = listUnsub;
   if (oneClickUrl) unsubHeaders['List-Unsubscribe-Post'] = 'List-Unsubscribe=One-Click';
 
-  const textParagraphs = [
-    intro,
-    what,
-    browseUrl ? `${browseLead} Browse the directory: ${browseUrl}` : fallback,
-    ...(unsubText ? [unsubText] : []),
-  ];
-  const htmlParagraphs = [
-    intro,
-    what,
-    browseUrl
-      ? `${browseLead} <a href="${escapeHtml(browseUrl)}">Browse the directory</a>`
-      : fallback,
-    ...(unsubHtml ? [unsubHtml] : []),
-  ];
+  // The body is rendered twice: once with the subscriber's token, once with a dud
+  // for the operator copy. The dud keeps the layout identical, and the unsubscribe
+  // page rejects it, so the operator's link cannot opt the subscriber out.
+  const render = (tok: string | null): { text: string; html: string } => {
+    const pageUrl = base && tok ? `${base}/unsubscribe?token=${encodeURIComponent(tok)}` : null;
+    const unsubText = pageUrl
+      ? `To stop these updates, unsubscribe here: ${pageUrl}`
+      : mailto
+        ? `To stop these updates, email ${mailto} with the subject unsubscribe.`
+        : null;
+    const unsubHtml = pageUrl
+      ? `To stop these updates, <a href="${escapeHtml(pageUrl)}">unsubscribe</a>.`
+      : mailto
+        ? `To stop these updates, <a href="mailto:${escapeHtml(mailto)}?subject=unsubscribe">unsubscribe</a>.`
+        : null;
+    const textParagraphs = [
+      intro,
+      what,
+      browseUrl ? `${browseLead} Browse the directory: ${browseUrl}` : fallback,
+      ...(unsubText ? [unsubText] : []),
+    ];
+    const htmlParagraphs = [
+      intro,
+      what,
+      browseUrl
+        ? `${browseLead} <a href="${escapeHtml(browseUrl)}">Browse the directory</a>`
+        : fallback,
+      ...(unsubHtml ? [unsubHtml] : []),
+    ];
+    return { text: toText(textParagraphs), html: toHtml(htmlParagraphs) };
+  };
+
   return sendTransactionalEmail(c, {
     to: opts.to ?? '',
     template: 'mailing-list-welcome',
     subject: 'Welcome to AEC Integrations',
-    text: toText(textParagraphs),
-    html: toHtml(htmlParagraphs),
+    ...render(token),
     ...(Object.keys(unsubHeaders).length ? { headers: unsubHeaders } : {}),
+    operatorCopy: render(token ? OPERATOR_COPY_TOKEN : null),
   });
 }
 
@@ -1513,6 +1577,8 @@ export interface EmailMessage {
 /** The env slice the transport reads. `RESEND_API_KEY` is a per-env Wrangler secret. */
 export interface EmailEnv {
   RESEND_API_KEY?: string;
+  /** Operator copy on every send; see `bccField`. */
+  EMAIL_BCC?: string;
 }
 
 /**
@@ -1547,6 +1613,7 @@ export async function sendEmail(
       body: JSON.stringify({
         from: message.from,
         to: message.to,
+        ...bccField(env.EMAIL_BCC, message.to),
         subject: message.subject,
         text: message.text,
         ...(message.html ? { html: message.html } : {}),
@@ -1569,6 +1636,25 @@ export async function sendEmail(
     logger.error(`email: send threw — ${error instanceof Error ? error.message : String(error)}`);
     return 'failed';
   }
+}
+
+/**
+ * The Resend `bcc` field for one send, from the `EMAIL_BCC` var. Every email AECi
+ * sends, through either transport above, blind-copies the operator so they see
+ * exactly what users receive. An address already in `to` is dropped, so an
+ * operator alert never lands twice. Absent or empty → no `bcc` field at all.
+ * `sendOperatorCopy` reuses it as the `to` list of its separate copy.
+ */
+function bccField(raw: string | undefined, to: readonly string[]): { bcc?: string[] } {
+  const addressed = new Set(to.map((t) => bareAddress(t)));
+  const bcc = parseRecipients(raw).filter((b) => !addressed.has(bareAddress(b)));
+  return bcc.length > 0 ? { bcc } : {};
+}
+
+/** `Name <a@b.com>` or `a@b.com` → `a@b.com`, lowercased for comparison. */
+function bareAddress(value: string): string {
+  const match = /<([^>]+)>/.exec(value);
+  return (match ? match[1]! : value).trim().toLowerCase();
 }
 
 /** Parse a comma/semicolon/whitespace-separated recipient var into a clean list. */
