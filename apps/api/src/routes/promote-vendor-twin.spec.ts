@@ -354,6 +354,73 @@ describe('the review probe: the two reported twin paths now skip', () => {
   });
 });
 
+/** A DbFactory that records the SQL of every statement the promote batch sends, after
+ *  running `before` (the mid-promote race window). */
+function capturingBatch(sent: string[], before: () => void = () => {}): DbFactory {
+  return (env, opts) => {
+    const ctx = t.factory(env, opts);
+    const batch = ctx.db.batch.bind(ctx.db);
+    (ctx.db as unknown as { batch: typeof batch }).batch = (async (stmts: never) => {
+      for (const stmt of stmts as unknown as Array<{ toSQL(): { sql: string } }>) {
+        sent.push(stmt.toSQL().sql);
+      }
+      before();
+      return batch(stmts);
+    }) as typeof batch;
+    return ctx;
+  };
+}
+
+/** The claim-fence sentinels raise this token; the twin sentinels raise another. */
+const CLAIM_SENTINEL = 'integration-claimed-during-promote';
+
+describe('a twin-skipped edge carries no claim sentinel (AECI-1088 review)', () => {
+  // Before the review fix the AECI-1005 claim sentinel was pushed before the twin guard,
+  // so a skipped UPDATE still aborted the promote when its own row was claimed
+  // mid-promote, and still counted as a catalog write.
+  async function seedCuratedRepointable() {
+    await t.db.insert(integrations).values({
+      id: CURATED_ROW,
+      name: 'Curated Revit to BIM 360',
+      sourceProductId: REVIT,
+      targetProductId: BIM360,
+      mechanismKind: 'native',
+      builtByVendorId: OWNER,
+    });
+  }
+
+  it('does not abort when the skipped row is claimed between plan and commit', async () => {
+    await seedCuratedRepointable();
+    const sent: string[] = [];
+    const racing = capturingBatch(sent, () => {
+      t.raw.prepare(`UPDATE integrations SET claimed_at = ? WHERE id = ?`).run(NOW, CURATED_ROW);
+    });
+    const { response } = await ingest(curatorUpdate(CURATED_ROW), {
+      jobId: 'job-skip-race',
+      dbFor: racing,
+    });
+    expectTwinSkip(response);
+    expect(sent.some((sql) => sql.includes(CLAIM_SENTINEL))).toBe(false);
+  });
+
+  it('adds nothing to the batch but its audit row, so it is not a catalog write', async () => {
+    await seedCuratedRepointable();
+    const skippedRun: string[] = [];
+    await ingest(curatorUpdate(CURATED_ROW), {
+      jobId: 'job-skip',
+      dbFor: capturingBatch(skippedRun),
+    });
+    // No statement names an edge table, a claim or an attestation, and no sentinel
+    // selects from one: the only rows this edge produced are its audit row.
+    const edgeStatements = skippedRun.filter(
+      (sql) =>
+        !/insert into "(audit_log|promote_jobs)"/i.test(sql) &&
+        /"(integrations|connector_evidenced_pairs|claims|attestations)"/i.test(sql),
+    );
+    expect(edgeStatements).toEqual([]);
+  });
+});
+
 describe('the UPDATE guard', () => {
   async function seedCurated(values: Partial<typeof integrations.$inferInsert>) {
     await t.db.insert(integrations).values({

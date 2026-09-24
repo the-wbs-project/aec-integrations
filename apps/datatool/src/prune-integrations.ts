@@ -26,7 +26,9 @@
  * never had a record. Such ids land in `PrunePlan.vendorHeld`, the route refuses the
  * run with `VENDOR_HELD`, and there is NO acknowledgment that overrides it. The rule
  * is read off `SELECT *`, so it degrades to "none held" on a database that has not yet
- * applied migration 0044, which is also the right answer there.
+ * applied migration 0044, which is also the right answer there. Since AECI-1088 a
+ * requested id that names a vendor-held `connector_evidenced_pairs` row is refused the
+ * same way, although this route could never delete one (migration 0049).
  *
  * **The three guards** are the whole safety story, and a non-zero value on ANY of
  * them blocks the run. Each means "this row is not actually a redundant copy":
@@ -334,14 +336,26 @@ export async function hasRetiredColumn(db: D1Database): Promise<boolean> {
   return ddlHasRetiredColumn(integrationsDdlOrThrow(row?.sql));
 }
 
-/** The requested ids whose rows are vendor-held, in id order. */
+/**
+ * The requested ids whose rows are vendor-held, in id order, in EITHER anchor table.
+ *
+ * The prune deletes from `integrations` only, so an id that lives in
+ * `connector_evidenced_pairs` is never deleted here. It is still checked (AECI-1088):
+ * since migration 0049 a pair can be vendor-held, and an operator who pastes one
+ * should be told it is the vendor's, not see it reported as `missing` and go looking
+ * for another tool to delete it with. `SELECT *` degrades to "none held" on a tier
+ * without 0049's columns, which is also the right answer there.
+ */
 async function vendorHeldIds(db: D1Database, ids: string[]): Promise<string[]> {
-  const rows = await selectAll(
-    db,
-    `SELECT * FROM integrations WHERE id IN (${placeholders(ids.length)}) ORDER BY id`,
-    ids,
+  const ph = placeholders(ids.length);
+  const rows = [
+    ...(await selectAll(db, `SELECT * FROM integrations WHERE id IN (${ph})`, ids)),
+    ...(await selectAll(db, `SELECT * FROM connector_evidenced_pairs WHERE id IN (${ph})`, ids)),
+  ];
+  // BINARY order, as the old `ORDER BY id` gave: ids are uuids, never a display sort.
+  return [...new Set(rows.filter(isVendorHeldRow).map((r) => String(r.id).toLowerCase()))].sort(
+    (a, b) => (a < b ? -1 : a > b ? 1 : 0),
   );
-  return rows.filter(isVendorHeldRow).map((r) => String(r.id).toLowerCase());
 }
 
 /**

@@ -344,6 +344,13 @@
       "when": 1790156437040,
       "tag": "0048_wild_black_queen",
       "breakpoints": true
+    },
+    {
+      "idx": 49,
+      "version": "6",
+      "when": 1790171210896,
+      "tag": "0049_majestic_mentallo",
+      "breakpoints": true
     }
   ]
 }

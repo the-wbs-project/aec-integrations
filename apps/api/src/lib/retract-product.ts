@@ -49,6 +49,12 @@
  * on it first. The count degrades to 0 on a database without migration 0044's
  * columns, where no row can be vendor-held (`buildFootprintSql`'s option).
  *
+ * The same refusal covers a vendor-held CONNECTOR-EVIDENCED PAIR (AECI-1088). Migration
+ * 0049 gave `connector_evidenced_pairs` the same two columns, and the owner carve-out
+ * lets an owner hold a pair. `--delete-evidenced-pairs` authorises deleting AECi-seeded
+ * pairs only: a vendor-held pair is refused with that flag, with `--force`, and with
+ * both. Its count degrades to 0 on a database without 0049's columns.
+ *
  * Why the two refusals hold even under --force. A connector catalogue and its stub
  * mappings are a mirror the connector-catalogue sync owns (`POST
  * /api/promote/connector-catalog`, `docs/REVIEW_APP_PROMOTE_API.md` §3a). Deleting the
@@ -219,6 +225,8 @@ function scopes(p: string, opts: { includePairs: boolean } = { includePairs: tru
  * import. A declared type must follow the name, so a CHECK expression does not count.
  */
 export function ddlHasVendorHeldColumns(ddl: string | null | undefined): boolean {
+  // Used for both anchor tables: `integrations` (migration 0044) and
+  // `connector_evidenced_pairs` (migration 0049, AECI-1088).
   if (typeof ddl !== 'string') return false;
   const has = (column: string) =>
     new RegExp(
@@ -228,8 +236,30 @@ export function ddlHasVendorHeldColumns(ddl: string | null | undefined): boolean
   return has('claimed_at') && has('origin');
 }
 
+/**
+ * The `CREATE TABLE` text out of an {@link INTEGRATIONS_DDL_SQL} or
+ * {@link EVIDENCED_PAIRS_DDL_SQL} read, or a THROW (AECI-1088 review).
+ *
+ * An empty read is "could not check", never "no columns": treating it as a table
+ * without the vendor-held columns would count 0 vendor-held rows and switch the
+ * refusal off silently. The ops scripts' `tableDdlOrThrow` draws the same line.
+ */
+export function tableDdlOrThrow(sql: string | null | undefined, table: string): string {
+  if (typeof sql !== 'string' || sql.trim() === '') {
+    throw new Error(
+      `could not read the table definition of "${table}" from sqlite_master, so the ` +
+        'vendor-held refusal cannot be checked. Refusing to continue.',
+    );
+  }
+  return sql;
+}
+
 /** The DDL probe the CLI runs before {@link buildFootprintSql}. */
 export const INTEGRATIONS_DDL_SQL = `SELECT "sql" FROM "sqlite_master" WHERE "type" = 'table' AND "name" = 'integrations';`;
+
+/** AECI-1088: the same probe for `connector_evidenced_pairs`, whose vendor-held columns
+ *  arrive with migration 0049. */
+export const EVIDENCED_PAIRS_DDL_SQL = `SELECT "sql" FROM "sqlite_master" WHERE "type" = 'table' AND "name" = 'connector_evidenced_pairs';`;
 
 /** AECI-1007: does the per-side links table exist on this tier yet? One row when it
  *  does, none when migration 0045 has not reached it. */
@@ -237,7 +267,12 @@ export const VENDOR_LINKS_TABLE_SQL = `SELECT "name" FROM "sqlite_master" WHERE 
 
 export function buildFootprintSql(
   id: string,
-  opts: { vendorHeldColumns?: boolean; vendorLinksTable?: boolean } = {},
+  opts: {
+    vendorHeldColumns?: boolean;
+    /** AECI-1088: `connector_evidenced_pairs` has migration 0049's columns. */
+    vendorHeldPairColumns?: boolean;
+    vendorLinksTable?: boolean;
+  } = {},
 ): string {
   const p = `'${escapeSqlLiteral(id)}'`;
   const s = scopes(p);
@@ -255,8 +290,15 @@ export function buildFootprintSql(
   const vendorHeld = opts.vendorHeldColumns
     ? `(SELECT count(*) FROM "integrations" WHERE ("id" IN (${s.integrations}) OR ${s.poweredOnly}) AND ("claimed_at" IS NOT NULL OR "origin" = 'vendor'))`
     : '0';
+  // AECI-1088: pairs the product touches, in any of the three roles, that are
+  // vendor-held. Counted whatever `--delete-evidenced-pairs` says, because that flag
+  // never authorises deleting one.
+  const vendorHeldPairs = opts.vendorHeldPairColumns
+    ? `(SELECT count(*) FROM "connector_evidenced_pairs" WHERE "id" IN (${s.pairs}) AND ("claimed_at" IS NOT NULL OR "origin" = 'vendor'))`
+    : '0';
   return `SELECT
     ${vendorHeld} AS vendor_held_integrations,
+    ${vendorHeldPairs} AS vendor_held_evidenced_pairs,
     (SELECT count(*) FROM "connector_catalogs" WHERE "connector_product_id" = ${p}) AS connector_catalogs,
     (SELECT count(*) FROM "connector_stub_mappings" WHERE "product_id" = ${p}) AS stub_mappings,
     (SELECT count(*) FROM (${s.integrations})) AS integrations,
@@ -289,6 +331,8 @@ export function buildFootprintSql(
 export interface RawFootprintRow {
   /** AECI-1005. Optional so a row built before it still parses. */
   vendor_held_integrations?: number;
+  /** AECI-1088. Optional so a row built before it still parses. */
+  vendor_held_evidenced_pairs?: number;
   connector_catalogs: number;
   stub_mappings: number;
   integrations: number;
@@ -322,6 +366,9 @@ export interface RawFootprintRow {
 export interface RetractFootprint {
   /** Claimed or vendor-created integrations the retraction would delete or detach. */
   vendorHeldIntegrations: number;
+  /** Claimed or vendor-created connector-evidenced pairs the product is part of
+   *  (AECI-1088). A refusal whatever the flags say. */
+  vendorHeldEvidencedPairs: number;
   connectorCatalogs: number;
   stubMappings: number;
   integrations: number;
@@ -360,6 +407,7 @@ function splitConcat(value: string | null): string[] {
 export function parseFootprint(row: RawFootprintRow): RetractFootprint {
   return {
     vendorHeldIntegrations: row.vendor_held_integrations ?? 0,
+    vendorHeldEvidencedPairs: row.vendor_held_evidenced_pairs ?? 0,
     connectorCatalogs: row.connector_catalogs,
     stubMappings: row.stub_mappings,
     integrations: row.integrations,
@@ -436,6 +484,10 @@ export function classifyRetraction(
     refusals.push(
       `${footprint.vendorHeldIntegrations} vendor-held integration(s) — claimed by the owner or created by a vendor (ADR 0035); the vendor retires them, this tool does not delete them`,
     );
+  if (footprint.vendorHeldEvidencedPairs > 0)
+    refusals.push(
+      `${footprint.vendorHeldEvidencedPairs} vendor-held connector-evidenced pair(s) — claimed by the owner or created by a vendor (ADR 0035); ${DELETE_EVIDENCED_PAIRS_FLAG} does not cover them, and neither does --force`,
+    );
   if (footprint.connectorCatalogs > 0)
     refusals.push(
       `${footprint.connectorCatalogs} connector catalogue(s) — deleting the product would cascade the whole catalogue`,
@@ -487,7 +539,37 @@ export interface ProductDeleteArgs {
    *  to true, the schema at HEAD; the CLI passes its {@link VENDOR_LINKS_TABLE_SQL}
    *  probe so a tier without migration 0045 gets a plan that never names the table. */
   vendorLinksTable?: boolean;
+  /** AECI-1088 review: whether `integrations` has migration 0044's vendor-held columns.
+   *  Defaults to true, the schema at HEAD; the CLI passes its probe. */
+  vendorHeldColumns?: boolean;
+  /** AECI-1088 review: the same for `connector_evidenced_pairs` and migration 0049. */
+  vendorHeldPairColumns?: boolean;
 }
+
+/** The token the plan's first statement raises when a vendor-held row appeared in
+ *  scope after the footprint check. `json()` on it is malformed JSON, so it errors. */
+export const RETRACT_VENDOR_HELD_TOKEN = 'retract-product-vendor-held-row-in-scope';
+
+/**
+ * Did an `--apply` execute fail because the plan's vendor-held sentinel fired?
+ *
+ * SQLite reports only "malformed JSON" and never echoes the argument, so the token
+ * cannot be matched directly. The match is still unambiguous: the sentinel is the only
+ * `json()` call in the plan (the tombstones use `json_object`, which never raises it).
+ * `output` is whatever the failed execute printed, stderr and stdout together.
+ */
+export function isVendorHeldAbort(output: string): boolean {
+  return /malformed JSON/i.test(output) || output.includes(RETRACT_VENDOR_HELD_TOKEN);
+}
+
+/** What the CLI prints when {@link isVendorHeldAbort} is true, instead of the generic
+ *  wrangler-failure hint about credentials. */
+export const VENDOR_HELD_ABORT_MESSAGE =
+  '✗ Aborted before any write: a vendor-held integration or connector-evidenced pair\n' +
+  "  (claimed by its owner, or created by a vendor) entered this product's scope after the\n" +
+  '  dry run. Nothing was written to D1, and Algolia and the cache were not touched.\n' +
+  '  Re-run without --apply to see it. The owner retires the row, or AECi rules on it first\n' +
+  '  (ADR 0035).';
 
 function sqlLiteral(v: string | number | boolean | null | undefined): string {
   if (v === null || v === undefined) return 'NULL';
@@ -605,11 +687,35 @@ export function buildDeleteStatements(args: ProductDeleteArgs): string[] {
   const attestationCount = (col: string) =>
     `(SELECT count(*) FROM "attestations" a JOIN "claims" c ON c."id" = a."claim_id" WHERE c."${col}" = t."id")`;
   const vendorLinksTable = args.vendorLinksTable ?? true;
+  // AECI-1088 review: the vendor-held refusal, re-checked at write time. The CLI
+  // refused on the footprint, but a claim can land between that read and `--apply`.
+  // Every edge the plan deletes (or detaches, for `powered_by`) is in scope, pairs
+  // included, since with `--delete-evidenced-pairs` they are deleted and without it
+  // they block the product DELETE anyway. Each arm needs its table's columns.
+  const heldIntegrations =
+    (args.vendorHeldColumns ?? true)
+      ? `SELECT 1 FROM "integrations" WHERE ("id" IN (${s.integrations}) OR ${s.poweredOnly}) AND ("claimed_at" IS NOT NULL OR "origin" = 'vendor')`
+      : null;
+  const heldPairs =
+    (args.vendorHeldPairColumns ?? true)
+      ? `SELECT 1 FROM "connector_evidenced_pairs" WHERE "id" IN (${s.pairs}) AND ("claimed_at" IS NOT NULL OR "origin" = 'vendor')`
+      : null;
+  const heldChecks = [heldIntegrations, heldPairs].filter((q): q is string => q !== null);
   const refusalGuard =
     `NOT EXISTS (SELECT 1 FROM "connector_catalogs" WHERE "connector_product_id" = ${p})` +
     ` AND NOT EXISTS (SELECT 1 FROM "connector_stub_mappings" WHERE "product_id" = ${p})` +
     // Without the flag a pair must block the product DELETE, never cascade off it.
-    (withPairs ? '' : ` AND NOT EXISTS (${s.pairs})`);
+    (withPairs ? '' : ` AND NOT EXISTS (${s.pairs})`) +
+    heldChecks.map((q) => ` AND NOT EXISTS (${q})`).join('');
+  // A guard on the product DELETE alone would come too late: the edge, claim and
+  // attestation DELETEs run before it. So the plan OPENS with a statement that raises
+  // when a vendor-held row is in scope. It errors before any write runs, whether the
+  // execute is atomic or not, and the CLI reports the failure.
+  const vendorHeldSentinel = heldChecks.length
+    ? [
+        `SELECT CASE WHEN ${heldChecks.map((q) => `EXISTS (${q})`).join(' OR ')} THEN json('${RETRACT_VENDOR_HELD_TOKEN}') END;`,
+      ]
+    : [];
 
   const pairTombstone = tombstoneSelect({
     args,
@@ -624,6 +730,8 @@ export function buildDeleteStatements(args: ProductDeleteArgs): string[] {
   });
 
   return [
+    // 0. Abort before anything runs if a vendor-held row entered scope (AECI-1088).
+    ...vendorHeldSentinel,
     // 1. Per-row tombstones, before anything they describe is gone.
     tombstoneSelect({
       args,
@@ -752,6 +860,7 @@ export function formatFootprintReport(product: ProductRow, footprint: RetractFoo
     ['  as connector', footprint.evidencedPairsAsConnector],
     ['  as endpoint A', footprint.evidencedPairsAsA],
     ['  as endpoint B', footprint.evidencedPairsAsB],
+    ['  vendor-held (REFUSE)', footprint.vendorHeldEvidencedPairs],
     ['claims', footprint.claims],
     ['attestations', footprint.attestations],
     ['field contests', footprint.fieldChallenges],
