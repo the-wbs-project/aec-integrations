@@ -199,12 +199,13 @@ The values below are quoted from `INDEX_SETTINGS` in `packages/shared/src/algoli
   > still hidden — `STAGE_1_SPEC.md` §7.5 — so this facet is not currently reachable in the UI.)
 - **Custom ranking:** `desc(mechanism_rank)` — see §4 for what `mechanism_rank` encodes.
 - **Membership (AECI-1010):** an `integrations` row is in the index when both endpoints are
-  promoted **and it is live** (`retired_at IS NULL`). A connector-evidenced pair needs only the
-  first, because it has no `retired_at`. The sync's delete arm is the exact complement (either
-  endpoint unpromoted, or retired), so the 08:00 sync removes a retired record and the 09:00
-  orphan sweep is only the backstop. The drift counter, both orphan id sets and the datatool
-  rebuild apply the same rule. A retire also re-indexes the integration, both product records and
-  the owner's vendor record by id right after commit. Retire changes no ranking signal's meaning:
+  promoted **and it is live** (`retired_at IS NULL`). A connector-evidenced pair takes the same
+  rule since AECI-1091, when the owner and AECi gained a retire on that table. The sync's delete
+  arm is the exact complement on both tables (either endpoint unpromoted, or retired), so the
+  08:00 sync removes a retired record and the 09:00 orphan sweep is only the backstop. The drift
+  counter, both orphan id sets and the datatool rebuild apply the same rule. A retire also
+  re-indexes the integration, both product records (and the connector's, for a pair) and the
+  owner's vendor record by id right after commit. Retire changes no ranking signal's meaning:
   it lowers `integration_count` on both products and the owner vendor, exactly as the edge being
   gone would. `STAGE_1_5_SPEC.md` §13.5 holds the asserted site list.
 

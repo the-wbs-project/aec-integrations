@@ -3029,8 +3029,10 @@ export const connectorEvidencedPairs = sqliteTable(
      *  both `claimed_at` and `origin` exist. Enforced by the hand-written CHECK. */
     origin: text('origin').notNull().default('aeci'),
     /** When the pair was retired, or NULL while it is live. Written only by the
-     *  retire routes (AECI-1091); promote never writes it. No read filters on it
-     *  yet: the evidenced arm of every count and public read is AECI-1091. */
+     *  retire routes (AECI-1091); promote never writes it. Every count, id set and
+     *  public read filters it through `liveEvidencedPairWhere` /
+     *  `liveEvidencedPairSql` (`lib/live-integration.ts`, `STAGE_1_5_SPEC.md` §13.5
+     *  rule 2). */
     retiredAt: text('retired_at'),
     /** Who retired the pair: `'owner'` or `'aeci'`. NULL while live. Enforced by
      *  the hand-written column CHECK in 0049. */

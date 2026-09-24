@@ -85,7 +85,7 @@ import {
 import { textAsc } from './collation';
 import { displayOrderAsc } from './display-order';
 import { liveAttestationsWhere } from './drizzle-helpers';
-import { liveIntegrationWhere } from './live-integration';
+import { liveEvidencedPairWhere, liveIntegrationWhere } from './live-integration';
 
 // ─── Correlated-subquery identifiers ─────────────────────────────────────────
 
@@ -511,17 +511,26 @@ export async function claimCoverage(db: Db, sampleLimit: number): Promise<AdminC
     //
     // Live anchors only (AECI-1010). A retired row keeps its claims, so without
     // this the numerator would count anchors the denominator above has dropped,
-    // and `integrations_without_claims` would under-report or go negative. Claims
-    // on the other two anchor arms have no `retired_at` and always count.
+    // and `integrations_without_claims` would under-report or go negative. The same
+    // holds for a retired evidenced pair since AECI-1091, so that arm is restricted
+    // to live pairs too. Claims on the reach arm (`connector_pair_id`) have no
+    // retired state and always count.
     db
       .select({ value: countDistinct(claims.anchorId) })
       .from(claims)
       .where(
         or(
-          isNull(claims.integrationId),
+          and(isNull(claims.integrationId), isNull(claims.connectorEvidencedPairId)),
           inArray(
             claims.integrationId,
             db.select({ id: integrations.id }).from(integrations).where(liveIntegrationWhere),
+          ),
+          inArray(
+            claims.connectorEvidencedPairId,
+            db
+              .select({ id: connectorEvidencedPairs.id })
+              .from(connectorEvidencedPairs)
+              .where(liveEvidencedPairWhere),
           ),
         ),
       ),
@@ -531,7 +540,7 @@ export async function claimCoverage(db: Db, sampleLimit: number): Promise<AdminC
       .from(attestations)
       .where(liveAttestationsWhere),
     db.select({ value: count() }).from(attestations),
-    db.select({ value: count() }).from(connectorEvidencedPairs),
+    db.select({ value: count() }).from(connectorEvidencedPairs).where(liveEvidencedPairWhere),
     sampleLimit > 0
       ? db
           .select({
@@ -602,12 +611,12 @@ export async function catalogTotals(db: Db): Promise<{
 }> {
   const [[p], [i], [v], [c], [a], [ep]] = await Promise.all([
     db.select({ value: count() }).from(products),
-    // Live rows only (AECI-1010); the evidenced arm below has no `retired_at`.
+    // Live rows only, in both tables (AECI-1010, AECI-1091).
     db.select({ value: count() }).from(integrations).where(liveIntegrationWhere),
     db.select({ value: count() }).from(vendors),
     db.select({ value: count() }).from(claims),
     db.select({ value: count() }).from(attestations),
-    db.select({ value: count() }).from(connectorEvidencedPairs),
+    db.select({ value: count() }).from(connectorEvidencedPairs).where(liveEvidencedPairWhere),
   ]);
   return {
     products: p?.value ?? 0,

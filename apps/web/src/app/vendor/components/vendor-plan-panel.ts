@@ -212,8 +212,9 @@ import { VendorAccountBadge } from '../../shared/vendor-account-badge/vendor-acc
               class="mt-4 max-w-prose border-s-2 border-(--border-strong) ps-3 text-sm leading-relaxed text-(--text-primary)"
             >
               <span i18n="@@vendor.plan.lapsed.paused"
-                >What is paused: the public account label, editing your profile and products, and
-                confirming data flows on your integrations.</span
+                >What is paused: the public account label, editing your profile and products,
+                confirming data flows on your integrations, and managing the integrations you own
+                that are delivered through a connector.</span
               >
             </p>
             <p class="mt-4 max-w-prose text-sm leading-relaxed text-(--text-secondary)">

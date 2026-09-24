@@ -59,7 +59,7 @@ With an active plan, you can also:
 
 - edit your company profile and product details, including categories, trades, audiences, phases and "How teams use it",
 - confirm or deny data flows ([Attesting an integration](/docs/vendors/attesting-an-integration)),
-- claim an integration your company owns that is delivered through a connector, and decide contests on it ([Owning an integration](/docs/vendors/owning-an-integration)).
+- claim, edit, retire and restore an integration your company owns that is delivered through a connector, and decide contests on it ([Owning an integration](/docs/vendors/owning-an-integration)).
 
 A seat never changes where your company or products appear in search or in any listing. Neither does a plan. See [Plans and the account label](/docs/vendors/plans-and-the-account-label).
 

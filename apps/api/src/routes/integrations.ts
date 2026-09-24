@@ -59,7 +59,7 @@ import {
   VERSION_ORDER,
 } from '../lib/drizzle-helpers';
 import { validateResponseInDev, type DbFactory } from '../lib/handler-utils';
-import { liveIntegrationWhere } from '../lib/live-integration';
+import { liveEvidencedPairWhere, liveIntegrationWhere } from '../lib/live-integration';
 import {
   CONTEXT_VERSION_PARAM,
   OTHER_VERSION_PARAM,
@@ -181,7 +181,9 @@ function evidencedListPredicate(
 ): SQL | undefined | typeof EXCLUDE_EVIDENCED {
   if (query.mechanism_kind) return EXCLUDE_EVIDENCED;
 
-  const conds: SQL[] = [];
+  // AECI-1091: live pairs only, always, like the `integrations` arm. The list (and
+  // the sitemap, which reads it) must not carry a retired pair.
+  const conds: SQL[] = [liveEvidencedPairWhere];
   if (query.search) {
     const term = `%${query.search}%`;
     const matchByProductName = () =>
@@ -213,7 +215,7 @@ function evidencedListPredicate(
   } else if (query.direction === 'bidirectional') {
     conds.push(eq(connectorEvidencedPairs.direction, 'both'));
   }
-  return conds.length ? and(...conds) : undefined;
+  return and(...conds);
 }
 
 /** `resolveIntegrationOrderBy` addresses `integrations` columns, which a union has
@@ -310,8 +312,8 @@ export function createIntegrationsListHandler(
 
     const { db } = dbFor(c.env);
     // Live rows only (AECI-1010). This list is also the sitemap's only pair source,
-    // so a retired edge leaves the sitemap here. The evidenced arm has its own
-    // predicate and no `retired_at`.
+    // so a retired edge leaves the sitemap here. The evidenced arm applies its own
+    // live predicate in `evidencedListPredicate` (AECI-1091).
     const conds: SQL[] = [liveIntegrationWhere];
     if (query.search) {
       const term = `%${query.search}%`;
@@ -533,6 +535,7 @@ export function createProductPairHandler(
         where: and(
           eq(connectorEvidencedPairs.productAId, pairA),
           eq(connectorEvidencedPairs.productBId, pairB),
+          liveEvidencedPairWhere,
         ),
         orderBy: [textAsc(connectorEvidencedPairs.name), asc(connectorEvidencedPairs.id)],
       }),
@@ -703,6 +706,7 @@ export function createPairTimelineHandler(
         where: and(
           eq(connectorEvidencedPairs.productAId, pairA),
           eq(connectorEvidencedPairs.productBId, pairB),
+          liveEvidencedPairWhere,
         ),
       }),
       db.query.productVersions.findMany({

@@ -899,12 +899,17 @@ export class PreviewVendorApi extends VendorApi {
   }
 
   private setRetired(integrationId: string, mode: 'retire' | 'restore'): RetireIntegrationResponse {
+    // AECI-1091: an owned row outside the attestable list (an evidenced pair) takes
+    // the same retire and restore, on the same terms.
+    const owned = (this.integrations.owned ?? []).find((row) => row.id === integrationId);
+    if (owned) return this.setOwnedRetired(owned, mode);
     const entries = this.integrations.integrations.filter((i) => i.id === integrationId);
     const first = entries[0];
     if (!first) throw apiError(404, 'NOT_FOUND', 'Integration not found');
     if (!first.is_owner) throw apiError(403, 'INTEGRATION_NOT_OWNER', 'Not the owner');
-    if (!first.attestable) {
-      throw apiError(403, 'INTEGRATION_CONNECTOR_POWERED', 'Connector-powered');
+    // AECI-1091: a connector-delivered row retires for an entitled owner only.
+    if (!first.attestable && (this.me?.entitlement.tier ?? 'unclaimed') === 'unclaimed') {
+      throw apiError(403, 'INTEGRATION_ENTITLEMENT_REQUIRED', 'Needs an active plan');
     }
     if (first.claimed_at === null) throw apiError(409, 'INTEGRATION_NOT_CLAIMED', 'Not claimed');
     if (mode === 'retire' && first.retired_at !== null) {
@@ -943,6 +948,39 @@ export class PreviewVendorApi extends VendorApi {
         updated_at: now,
       },
       withdrawn_contest_ids: [...new Set(withdrawn)],
+    };
+  }
+
+  /** The owned-row half of {@link setRetired} (AECI-1091), with the server's refusal
+   *  order: the entitlement on a connector-delivered row, then claimed, then state. */
+  private setOwnedRetired(
+    owned: NonNullable<ListVendorIntegrationsResponse['owned']>[number],
+    mode: 'retire' | 'restore',
+  ): RetireIntegrationResponse {
+    if (owned.connector_powered && (this.me?.entitlement.tier ?? 'unclaimed') === 'unclaimed') {
+      throw apiError(403, 'INTEGRATION_ENTITLEMENT_REQUIRED', 'Needs an active plan');
+    }
+    if (owned.claimed_at === null) throw apiError(409, 'INTEGRATION_NOT_CLAIMED', 'Not claimed');
+    if (mode === 'retire' && owned.retired_at !== null) {
+      throw apiError(409, 'INTEGRATION_RETIRED', 'Already retired');
+    }
+    if (mode === 'restore' && owned.retired_at === null) {
+      throw apiError(409, 'INTEGRATION_NOT_RETIRED', 'Not retired');
+    }
+    if (mode === 'restore' && owned.retired_by === 'aeci') {
+      throw apiError(403, 'INTEGRATION_RETIRED_BY_AECI', 'Retired by AEC Integrations');
+    }
+    const now = '2026-09-23T12:00:00.000Z';
+    owned.retired_at = mode === 'retire' ? now : null;
+    owned.retired_by = mode === 'retire' ? 'owner' : null;
+    return {
+      integration: {
+        id: owned.id,
+        retired_at: owned.retired_at,
+        retired_by: owned.retired_by,
+        updated_at: now,
+      },
+      withdrawn_contest_ids: [],
     };
   }
 

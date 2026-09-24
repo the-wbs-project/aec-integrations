@@ -55,7 +55,12 @@ import {
   type RawAlgoliaProductRow,
   type RawAlgoliaVendorRow,
 } from './algolia-transforms';
-import { liveIntegrationWhere, retiredIntegrationWhere } from './live-integration';
+import {
+  liveEvidencedPairWhere,
+  liveIntegrationWhere,
+  retiredEvidencedPairWhere,
+  retiredIntegrationWhere,
+} from './live-integration';
 
 /** The `promotion_status` value that marks a product/vendor as live. */
 const PROMOTED = 'promoted';
@@ -180,7 +185,7 @@ export async function buildIntegrationRequests(
   // upsert and a delete in the same batch. This arm is the PRIMARY remover of a
   // retired record: the 09:00 orphan sweep is only the backstop, and it refuses a
   // pass above 50 deletes, so a bulk retire left to the sweep would stay
-  // searchable. `connector_evidenced_pairs` below has no `retired_at`.
+  // searchable. The evidenced arm below applies the same rule (AECI-1091).
   const member = and(
     inArray(integrations.sourceProductId, promotedProductIds),
     inArray(integrations.targetProductId, promotedProductIds),
@@ -224,13 +229,17 @@ export async function buildIntegrationRequests(
     connectorEvidencedPairs.id,
     connectorEvidencedPairs.updatedAt,
   );
+  // AECI-1091: the same live rule as the `integrations` arm above. A retired pair
+  // is in the delete arm, and the two arms stay exact complements.
   const pairBothPromoted = and(
     inArray(connectorEvidencedPairs.productAId, promotedProductIds),
     inArray(connectorEvidencedPairs.productBId, promotedProductIds),
+    liveEvidencedPairWhere,
   );
   const pairEitherNotPromoted = or(
     notInArray(connectorEvidencedPairs.productAId, promotedProductIds),
     notInArray(connectorEvidencedPairs.productBId, promotedProductIds),
+    retiredEvidencedPairWhere,
   );
 
   const eligiblePairs = (await db.query.connectorEvidencedPairs.findMany({

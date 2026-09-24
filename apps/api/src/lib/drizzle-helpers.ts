@@ -31,7 +31,7 @@ import {
   ProductUsefulnessSchema,
   RATING_VISIBILITY_MIN_REVIEWS,
 } from '@aeci/shared';
-import { liveIntegrationSql } from '@aeci/shared/live-integration';
+import { liveEvidencedPairSql, liveIntegrationSql } from '@aeci/shared/live-integration';
 import { compareText } from '@aeci/shared/text-sort';
 import type {
   AccountReview,
@@ -92,7 +92,7 @@ import {
 
 import { isConnectorPoweredEdge } from './connector-powered';
 import { reachOnlyPartnerCount } from './connector-reach';
-import { liveIntegrationWhere } from './live-integration';
+import { liveEvidencedPairWhere, liveIntegrationWhere } from './live-integration';
 import { toPairVendorLinks, type StoredVendorLink } from './integration-vendor-links';
 
 // ---------------------------------------------------------------------------
@@ -741,7 +741,7 @@ export const productDetailConfig = {
     //
     // Live rows only (AECI-1010). A retired edge leaves the page, the JSON-LD
     // partner list and the reach arithmetic together. The evidenced relations
-    // below take no filter: that table has no `retired_at`.
+    // below take the same filter since AECI-1091 (`liveEvidencedPairWhere`).
     sourceIntegrations: { ...productDetailIntegrationConfig, where: liveIntegrationWhere },
     targetIntegrations: { ...productDetailIntegrationConfig, where: liveIntegrationWhere },
     // The endpoint buckets' SECOND source (AECI-713 / §13.1's delivered tier).
@@ -751,8 +751,8 @@ export const productDetailConfig = {
     // Without these two the AECI-721 migration silently removed every moved edge
     // from both endpoints' pages while `integration_count` kept counting it —
     // the §13.5 invariant reads "regardless of which table holds them".
-    evidencedPairsAsA: connectorEvidencedPairDetailConfig,
-    evidencedPairsAsB: connectorEvidencedPairDetailConfig,
+    evidencedPairsAsA: { ...connectorEvidencedPairDetailConfig, where: liveEvidencedPairWhere },
+    evidencedPairsAsB: { ...connectorEvidencedPairDetailConfig, where: liveEvidencedPairWhere },
     // Edges this product powers as the connector/mechanism (Stage 1.5
     // Addendum B). The bare list config, not `productDetailIntegrationConfig`:
     // the page product is neither endpoint, so there is no context_direction
@@ -761,7 +761,10 @@ export const productDetailConfig = {
     // The same bucket's SECOND source after AECI-721: edges this product powers
     // that have moved out of `integrations` into the connector lane's delivered
     // tier. `toProductDetail` unions the two into `integrations_as_connector`.
-    evidencedPairsAsConnector: connectorEvidencedPairListConfig,
+    evidencedPairsAsConnector: {
+      ...connectorEvidencedPairListConfig,
+      where: liveEvidencedPairWhere,
+    },
   },
 } as const;
 
@@ -858,10 +861,10 @@ export const vendorListConfig = {
       // own unless the evidenced table is summed here too. The ~20-row accountable
       // residue §13.2 records is exactly this population: Agave built 11 of the 19
       // edges that move, so without the second subquery Agave's vendor record
-      // reports 0 integrations the day the migration lands. AECI-1010: live
-      // `integrations` rows only; the evidenced table has no `retired_at`.
+      // reports 0 integrations the day the migration lands. Live rows only, in both
+      // tables (AECI-1010, AECI-1091).
       sql<number>`((SELECT count(*) FROM integrations bi WHERE bi.built_by_vendor_id = "vendors"."id" AND ${sql.raw(liveIntegrationSql('bi'))})
-        + (SELECT count(*) FROM connector_evidenced_pairs cep WHERE cep.built_by_vendor_id = "vendors"."id"))`.as(
+        + (SELECT count(*) FROM connector_evidenced_pairs cep WHERE cep.built_by_vendor_id = "vendors"."id" AND ${sql.raw(liveEvidencedPairSql('cep'))}))`.as(
         'integration_count',
       ),
   },

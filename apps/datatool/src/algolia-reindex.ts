@@ -39,10 +39,23 @@ import { algoliaSortKey, flattenTradeAliases } from '@aeci/shared/algolia-record
 import { listingTierField, productListingTier, vendorListingTier } from '@aeci/shared/listing-tier';
 import {
   ddlHasRetiredColumn,
+  EVIDENCED_PAIRS_DDL_QUERY,
+  evidencedPairsDdlOrThrow,
   INTEGRATIONS_DDL_QUERY,
   integrationsDdlOrThrow,
+  liveEvidencedPairSqlIf,
   liveIntegrationSqlIf,
 } from '@aeci/shared/live-integration';
+
+/**
+ * The same probe for `connector_evidenced_pairs`, whose `retired_at` is migration
+ * 0049's (AECI-1091). Probed on its own because the two migrations reach a tier at
+ * different promotes.
+ */
+async function hasEvidencedRetiredColumn(db: D1Database): Promise<boolean> {
+  const row = await db.prepare(EVIDENCED_PAIRS_DDL_QUERY).first<{ sql: string }>();
+  return ddlHasRetiredColumn(evidencedPairsDdlOrThrow(row?.sql));
+}
 
 /**
  * Whether this tier's `integrations` has migration 0044's `retired_at` yet (AECI-1010).
@@ -167,6 +180,7 @@ export async function buildProductRecords(db: D1Database): Promise<Record<string
 
 export async function buildVendorRecords(db: D1Database): Promise<Record<string, unknown>[]> {
   const retiredColumn = await hasRetiredColumn(db);
+  const pairsRetiredColumn = await hasEvidencedRetiredColumn(db);
   const { results } = await db
     .prepare(
       `SELECT
@@ -176,10 +190,12 @@ export async function buildVendorRecords(db: D1Database): Promise<Record<string,
          -- AECI-721 / §13.5 item 6: datatool's independent copy of the VENDOR rule,
          -- which counts what the vendor BUILT rather than reading the denormalized
          -- product column. Both tables, or connector vendors' counts collapse.
-         -- AECI-1010: live integrations only; the evidenced table has no retired_at.
+         -- Live rows only, in both tables (AECI-1010, AECI-1091).
          ((SELECT count(*) FROM integrations i
              WHERE i.built_by_vendor_id = v.id AND ${liveIntegrationSqlIf('i', retiredColumn)})
-          + (SELECT count(*) FROM connector_evidenced_pairs cep WHERE cep.built_by_vendor_id = v.id))
+          + (SELECT count(*) FROM connector_evidenced_pairs cep
+             WHERE cep.built_by_vendor_id = v.id
+               AND ${liveEvidencedPairSqlIf('cep', pairsRetiredColumn)}))
            AS integration_count
        FROM vendors v WHERE v.promotion_status = 'promoted'`,
     )
@@ -242,6 +258,7 @@ export async function buildVendorRecords(db: D1Database): Promise<Record<string,
  */
 export async function buildIntegrationRecords(db: D1Database): Promise<Record<string, unknown>[]> {
   const retiredColumn = await hasRetiredColumn(db);
+  const pairsRetiredColumn = await hasEvidencedRetiredColumn(db);
   const { results } = await db
     .prepare(
       `SELECT
@@ -286,7 +303,9 @@ export async function buildIntegrationRecords(db: D1Database): Promise<Record<st
        FROM connector_evidenced_pairs cep
        JOIN products pa ON pa.id = cep.product_a_id
        JOIN products pb ON pb.id = cep.product_b_id
-       WHERE pa.promotion_status = 'promoted' AND pb.promotion_status = 'promoted'`,
+       -- AECI-1091: the same rule on the evidenced arm. A retired pair is not re-added.
+       WHERE pa.promotion_status = 'promoted' AND pb.promotion_status = 'promoted'
+         AND ${liveEvidencedPairSqlIf('cep', pairsRetiredColumn)}`,
     )
     .all<{
       objectID: string;

@@ -21,6 +21,7 @@ import { VendorPortalStore } from '../vendor-portal-store';
 import { VendorIntegrationEditForm } from './vendor-integration-edit-form';
 import { VENDOR_EDIT_FORM_START_OPEN } from './vendor-integration-ownership';
 import { claimErrorMessage } from './vendor-integration-ownership-labels';
+import { VendorOwnedRetire } from './vendor-owned-retire';
 
 /** Where the owner stands on one owned row. `claimed-needs-plan` is a claimed
  *  connector-delivered row whose vendor no longer holds an active entitlement, so
@@ -71,8 +72,10 @@ export function ownedRowsForProduct(
  * - **claimed** — a line saying the vendor owns it, and **Edit details** (AECI-1090),
  *   the card's edit form with the frozen type left out on a connector-delivered row.
  *   Without an active plan on such a row, a sentence saying one is needed instead.
- *   Retire is AECI-1091, so it is not offered yet;
- * - **retired** — who retired it. Restore is AECI-1091.
+ *   Below it, **Retire integration** (AECI-1091, `vendor-owned-retire.ts`), on the
+ *   same terms;
+ * - **retired** — who retired it, and **Restore integration** when the owner
+ *   retired it and may restore it (AECI-1091). An AECi retire offers no Restore.
  *
  * ── PESSIMISTIC ─────────────────────────────────────────────────────────────
  * The claim waits for the `200`, announces through the one live region, revalidates
@@ -83,7 +86,7 @@ export function ownedRowsForProduct(
  */
 @Component({
   selector: 'aec-vendor-owned-integrations',
-  imports: [VendorIntegrationEditForm],
+  imports: [VendorIntegrationEditForm, VendorOwnedRetire],
   changeDetection: ChangeDetectionStrategy.OnPush,
   host: { class: 'block' },
   template: `
@@ -231,6 +234,8 @@ export function ownedRowsForProduct(
                     </div>
                   }
                 }
+                <!-- AECI-1091: retire and restore. Renders nothing on an unclaimed row. -->
+                <aec-vendor-owned-retire [row]="row" [statusLine]="status" />
                 @if (notice()?.id === row.id) {
                   <p role="alert" class="mt-3 text-sm font-medium text-(--text-primary)">
                     {{ notice()!.message }}

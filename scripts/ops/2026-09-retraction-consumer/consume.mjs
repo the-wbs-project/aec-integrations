@@ -1419,6 +1419,9 @@ async function main() {
   // recorded. The bump also moves each page's sitemap `<lastmod>`, which is correct: the
   // content genuinely changed.
   const liveFilter = ddlHasColumn(integrationsDdl, 'retired_at') ? 'AND retired_at IS NULL' : '';
+  // AECI-1091: the evidenced arm counts live pairs only too, probed on its own DDL
+  // (migration 0049 reaches a tier at a different promote than 0044).
+  const evidencedLiveFilter = ddlHasColumn(pairsDdl, 'retired_at') ? 'AND retired_at IS NULL' : '';
   const now = new Date().toISOString();
   const productIds = [...affected];
   console.log(
@@ -1432,7 +1435,7 @@ async function main() {
              ((SELECT COUNT(*) FROM integrations
                  WHERE (source_product_id = '${pid}' OR target_product_id = '${pid}') ${liveFilter})
               + (SELECT COUNT(*) FROM connector_evidenced_pairs
-                   WHERE product_a_id = '${pid}' OR product_b_id = '${pid}' OR connector_product_id = '${pid}')),
+                   WHERE (product_a_id = '${pid}' OR product_b_id = '${pid}' OR connector_product_id = '${pid}') ${evidencedLiveFilter})),
              updated_at = '${now}'
            WHERE id = '${pid}';`,
       )

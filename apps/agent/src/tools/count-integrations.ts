@@ -37,7 +37,7 @@
 import { defineTool } from '@flue/runtime';
 import * as v from 'valibot';
 
-import { liveIntegrationSql } from '@aeci/shared/live-integration';
+import { liveEvidencedPairSql, liveIntegrationSql } from '@aeci/shared/live-integration';
 
 /** Ceiling on returned groups. The mechanism vocabulary is seven plus one bucket. */
 export const MAX_GROUPS = 20;
@@ -83,8 +83,8 @@ export type IntegrationCounts = {
  * forces `product_a_id < product_b_id`, so a product sits on at most ONE side
  * of any edge and matches exactly one branch per edge.
  *
- * The `integrations` branches count LIVE rows only (AECI-1010). The evidenced
- * table has no `retired_at`.
+ * Every branch counts LIVE rows only: the `integrations` branches since AECI-1010,
+ * the evidenced branches since AECI-1091.
  */
 const COUNT_SQL = `
 SELECT mechanism AS mechanism, COUNT(*) AS edge_count
@@ -109,7 +109,7 @@ FROM (
   FROM connector_evidenced_pairs cep
   JOIN products pa ON pa.id = cep.product_a_id AND pa.promotion_status = ?
   JOIN products pb ON pb.id = cep.product_b_id AND pb.promotion_status = ?
-  WHERE cep.product_a_id = ?
+  WHERE cep.product_a_id = ? AND ${liveEvidencedPairSql('cep')}
 
   UNION ALL
 
@@ -117,7 +117,7 @@ FROM (
   FROM connector_evidenced_pairs cep
   JOIN products pa ON pa.id = cep.product_a_id AND pa.promotion_status = ?
   JOIN products pb ON pb.id = cep.product_b_id AND pb.promotion_status = ?
-  WHERE cep.product_b_id = ?
+  WHERE cep.product_b_id = ? AND ${liveEvidencedPairSql('cep')}
 )
 GROUP BY mechanism
 ORDER BY edge_count DESC, mechanism ASC

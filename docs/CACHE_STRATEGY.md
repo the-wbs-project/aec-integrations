@@ -369,6 +369,13 @@ helper enqueues for all of them (`purgeTags` / `afterVendorWrite` in
   and a re-render between purge and recompute cannot cache the old count. The pair and both product URLs are also queued for re-crawl, so a crawler
   learns the pair page went `noindex`. The legacy `/integrations/:id` 301 keeps pointing
   at the pair page (ruled 2026-09-22), so its `integration:{id}` tag needs no purge.
+  **On a `connector_evidenced_pairs` row (AECI-1091), eight tags:** the seven above plus
+  `product:{connectorSlug}`. The connector's page lists the pairs it delivers and its
+  `integration_count` counts them (§12.5 option B), so the pair batch recomputes three
+  stored counts in the batch (both endpoints and the connector) and purges all three
+  product pages. The `pair:` tag uses the pair's two endpoints, as on any row. A
+  connector-powered `integrations` row with a `powered_by` product purges that product's
+  tag too, because its page lists the row (its count does not move).
 
 - **Attestation write** (`POST /api/vendor/claims`, `PUT`/`DELETE
   /api/vendor/claims/:claimId/attestation`, AECI-301) → **`pair:{min}__{max}`

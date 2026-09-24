@@ -2,6 +2,7 @@ import { DatePipe, DOCUMENT } from '@angular/common';
 import {
   Component,
   ElementRef,
+  InjectionToken,
   Injector,
   afterNextRender,
   computed,
@@ -19,6 +20,16 @@ import { AdminVendorsApi } from './admin-vendors-api';
 
 /** Rows per fetch. The API caps a page at 100; a vendor owning more is told so. */
 export const INTEGRATIONS_PAGE_SIZE = 100;
+
+/**
+ * Open one row's retire (or restore) form once the list loads: the row's id.
+ * Provided ONLY by the dev preview (`/preview/admin-vendor-integrations?retire=<id>`,
+ * AECI-1091) so the design detector and the axe pass can see the open form without
+ * an admin session. Nothing in the product provides it.
+ */
+export const ADMIN_RETIRE_FORM_START_OPEN = new InjectionToken<string | null>(
+  'ADMIN_RETIRE_FORM_START_OPEN',
+);
 
 type Mode = 'retire' | 'restore';
 
@@ -40,6 +51,11 @@ type Mode = 'retire' | 'restore';
  *
  * Restore is offered only on an AECi retire. An owner retire is the owner's to undo
  * (ruled 2026-09-22), so that row says so and offers nothing.
+ *
+ * Since AECI-1091 the list also carries the vendor's vendor-held evidenced pairs
+ * (`anchor: 'evidenced_pair'`). A pair row names the connector it is delivered
+ * through, and its retire form says the row stops counting on that connector too.
+ * The action and the route are the same.
  */
 @Component({
   selector: 'aec-vendor-integrations-panel',
@@ -53,6 +69,7 @@ export class VendorIntegrationsPanel {
   private readonly api = inject(AdminVendorsApi);
   private readonly injector = inject(Injector);
   private readonly document = inject(DOCUMENT);
+  private readonly startOpenId = inject(ADMIN_RETIRE_FORM_START_OPEN, { optional: true }) ?? null;
 
   protected readonly rows = signal<readonly AdminVendorIntegrationRow[]>([]);
   protected readonly total = signal(0);
@@ -85,6 +102,10 @@ export class VendorIntegrationsPanel {
       });
       this.rows.set(res.data);
       this.total.set(res.total);
+      const startOpen = res.data.find((row) => row.id === this.startOpenId);
+      if (startOpen && this.formFor() === null) {
+        this.formFor.set({ id: startOpen.id, mode: startOpen.retired_at ? 'restore' : 'retire' });
+      }
     } catch {
       this.failed.set(true);
     } finally {
