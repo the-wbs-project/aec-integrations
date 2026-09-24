@@ -33,6 +33,22 @@ decision record; no separate ADR.
     `LINEAR_API_KEY`.
   - `POST https://api.resend.com/emails` (Bearer auth, `from/to/subject/text/html`,
     `AbortSignal.timeout`).
+  - **Operator blind copy.** Both transports (`sendTransactionalEmail` and the cron
+    `sendEmail`) add a Resend `bcc` from the `EMAIL_BCC` var, so every email the API
+    Worker sends also reaches `support@aecintegrations.com`. The point is to see exactly
+    what users receive. An address already in `to` is not copied again. The magic-link
+    email is not covered: Supabase sends it over SMTP, outside this code (see
+    §Magic-link sender below).
+  - **Separate copy for unsubscribable sends.** A send with a `List-Unsubscribe`
+    header never gets a `bcc`. Today that is only `mailing-list-welcome`. A `bcc` is
+    the same message, so the operator's copy would carry the subscriber's one-click
+    opt-out, and Outlook's Unsubscribe button on it would remove the real subscriber.
+    Instead, after the subscriber's send succeeds, `sendOperatorCopy` sends a second
+    message to the `EMAIL_BCC` list. Its subject is `COPY: ` plus the original. It
+    has no unsubscribe headers. Its body is the same template rendered with the dud
+    token `operator-copy`, which matches no subscriber, so the link is inert. The copy
+    is not counted in `aeci.email.send`, and a failed copy only warns. No copy goes
+    out when the subscriber's send fails.
 - **Observability:** every attempt emits `aeci.email.send` (count) tagged
   `outcome:sent|failed|skipped` + `template:<id>`; failures also `warn` with
   `source: 'email'`. Telemetry is wrapped so it can never turn a send into a throw.
@@ -337,6 +353,7 @@ left unset).
 |---|---|---|---|
 | `RESEND_API_KEY` | Wrangler **secret** | API Worker, staging + production | CI pushes it from a **single shared, un-suffixed** `RESEND_API_KEY` GH secret — one Resend account/key spans every env (like `SUPABASE_ANON_KEY`); `deploy.yml`, `promote-to-demo.yml`, and `promote-to-prod.yml` all push the same secret. Graceful warn-and-skip; absent → sends `'skipped'`. |
 | `EMAIL_FROM` | plain `var` | API Worker, per env (`wrangler.jsonc`) | Resend `from`; `Name <addr>` on the verified sending domain. **One value on every tier: `AEC Integrations <notifications@aecintegrations.com>`.** |
+| `EMAIL_BCC` | plain `var` | API Worker, staging + demo + production (`wrangler.jsonc`) | Resend `bcc` on every send from both transports, except a send with a `List-Unsubscribe` header, which gets a separate `COPY:` message instead (see the transport notes above). **`support@aecintegrations.com` on all three tiers.** Comma/whitespace-separated list (`parseRecipients`). An address already in `to` is dropped. Absent → no `bcc` field. Remove the var to stop the copies. |
 | `CLAIM_ALERT_EMAIL` | plain `var` | API Worker, per env (`wrangler.jsonc`) | `To:` for `claim-submitted-alert`. **`support@aecintegrations.com` on every tier.** A single address (not a parsed list). Kept separate from `ADMIN_ALERT_EMAIL` so claim intake reaches the shared support inbox while sweep alerts and lead capture keep going to the individual operator. Absent → the alert is a `skipped` no-op and the Linear issue remains the durable record. |
 | `FOUNDER_ALERT_EMAIL` | plain `var` | API Worker, per env (`wrangler.jsonc`) | `To:` for `stale-claim-ticket-alert`. **`founders@thewbsproject.com` on staging and production; deliberately UNSET on demo** (demo claims are rehearsal rows, so the digest fail-open skips there — the cron still runs and still emits its metrics). A single address, not a parsed list. The third alert recipient, and separate on purpose: `ADMIN_ALERT_EMAIL` means the pipeline broke, `CLAIM_ALERT_EMAIL` means a claim arrived, this means a vendor has been waiting a day for a human reply. Absent → the digest is a `skipped` no-op and the job still emits its metric and log, so the signal survives an unset var. |
 | `DATA_QUALITY_EMAIL_FROM` | plain `var` | API Worker, staging / demo / production | `from` for the daily data-quality digest (AECI-241). **Same address as `EMAIL_FROM`** — see the note below. |

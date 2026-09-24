@@ -120,6 +120,39 @@ describe('sendTransactionalEmail (low-level)', () => {
     expect(sendTags()).toEqual([['outcome:sent', 'template:review-submitted']]);
   });
 
+  it('blind-copies EMAIL_BCC on every send', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
+    await sendTransactionalEmail(fakeContext({ EMAIL_BCC: 'support@aecintegrations.com' }), {
+      to: 'r@example.com',
+      subject: 'Hi',
+      text: 'Body',
+      template: 'review-submitted',
+    });
+    expect(lastBody(fetchSpy)).toMatchObject({
+      to: 'r@example.com',
+      bcc: ['support@aecintegrations.com'],
+    });
+  });
+
+  it('omits bcc when EMAIL_BCC is unset or is already the recipient', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
+    await sendTransactionalEmail(fakeContext(), {
+      to: 'r@example.com',
+      subject: 'Hi',
+      text: 'Body',
+      template: 'review-submitted',
+    });
+    expect(lastBody(fetchSpy)).not.toHaveProperty('bcc');
+
+    await sendTransactionalEmail(fakeContext({ EMAIL_BCC: 'Support@AECIntegrations.com' }), {
+      to: 'support@aecintegrations.com',
+      subject: 'Hi',
+      text: 'Body',
+      template: 'claim-submitted-alert',
+    });
+    expect(lastBody(fetchSpy)).not.toHaveProperty('bcc');
+  });
+
   it('skips silently (no fetch) when RESEND_API_KEY is absent', async () => {
     const fetchSpy = vi.spyOn(globalThis, 'fetch');
     const outcome = await sendTransactionalEmail(fakeContext({ RESEND_API_KEY: undefined }), {
@@ -495,6 +528,66 @@ describe('sendMailingListWelcomeEmail', () => {
     // Without a host there is no page/one-click link; it degrades to the mailto.
     expect(String(body.text)).not.toContain('/unsubscribe');
     expect((body.headers as Record<string, string>)['List-Unsubscribe-Post']).toBeUndefined();
+  });
+
+  it('sends the operator a separate COPY: with no bcc, no unsubscribe headers and a dud token', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
+    const outcome = await sendMailingListWelcomeEmail(
+      fakeContext({
+        PUBLIC_SITE_URL: 'https://aecintegrations.com',
+        EMAIL_BCC: 'support@aecintegrations.com',
+      }),
+      { to: 'sub@example.com', token: 'tok-123' },
+    );
+
+    expect(outcome).toBe('sent');
+    expect(fetchSpy).toHaveBeenCalledTimes(2);
+    const bodyAt = (i: number) =>
+      JSON.parse(String((fetchSpy.mock.calls[i]![1] as RequestInit).body)) as Record<
+        string,
+        unknown
+      >;
+    // First the subscriber, with their real opt-out and no bcc riding along.
+    const user = bodyAt(0);
+    expect(user.to).toBe('sub@example.com');
+    expect(user).not.toHaveProperty('bcc');
+    expect(String(user.text)).toContain('/unsubscribe?token=tok-123');
+    // Then the operator copy: same layout, nothing that can opt the subscriber out.
+    const copy = bodyAt(1);
+    expect(copy.to).toEqual(['support@aecintegrations.com']);
+    expect(copy.subject).toBe('COPY: Welcome to AEC Integrations');
+    expect(copy).not.toHaveProperty('headers');
+    expect(String(copy.text)).not.toContain('tok-123');
+    expect(String(copy.html)).not.toContain('tok-123');
+    expect(String(copy.text)).toContain('/unsubscribe?token=operator-copy');
+    expect(String(copy.text)).toBe(String(user.text).replace('tok-123', 'operator-copy'));
+    // One count per recipient send; the copy is not counted.
+    expect(sendTags()).toEqual([['outcome:sent', 'template:mailing-list-welcome']]);
+  });
+
+  it('sends no operator copy when the subscriber send fails', async () => {
+    const fetchSpy = vi
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValue(new Response('bad', { status: 422 }));
+    const outcome = await sendMailingListWelcomeEmail(
+      fakeContext({ EMAIL_BCC: 'support@aecintegrations.com' }),
+      { to: 'sub@example.com', token: 'tok-123' },
+    );
+    expect(outcome).toBe('failed');
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps the subscriber outcome when the operator copy fails', async () => {
+    const fetchSpy = vi
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(ok())
+      .mockRejectedValueOnce(new Error('network down'));
+    const outcome = await sendMailingListWelcomeEmail(
+      fakeContext({ EMAIL_BCC: 'support@aecintegrations.com' }),
+      { to: 'sub@example.com', token: 'tok-123' },
+    );
+    expect(outcome).toBe('sent');
+    expect(fetchSpy).toHaveBeenCalledTimes(2);
   });
 
   it('skips when the subscriber email is undefined', async () => {
@@ -1183,6 +1276,20 @@ describe('sendEmail', () => {
     const body = JSON.parse(init.body as string) as { to: string[]; subject: string };
     expect(body.to).toEqual(['a@x.com', 'b@x.com']);
     expect(body.subject).toBe('subj');
+  });
+
+  it('blind-copies EMAIL_BCC, minus any address already in to', async () => {
+    const fetchImpl = vi.fn(
+      async (_url: string | URL, _init?: RequestInit) => new Response('{}', { status: 200 }),
+    );
+    await sendEmail(
+      { RESEND_API_KEY: 'secret', EMAIL_BCC: 'support@aecintegrations.com, A@x.com' },
+      MSG,
+      fetchImpl as unknown as typeof fetch,
+      silent,
+    );
+    const body = JSON.parse(fetchImpl.mock.calls[0]![1]!.body as string) as { bcc?: string[] };
+    expect(body.bcc).toEqual(['support@aecintegrations.com']);
   });
 
   it('returns failed on a non-2xx response', async () => {
