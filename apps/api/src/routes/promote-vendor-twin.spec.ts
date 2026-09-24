@@ -698,3 +698,65 @@ describe('the promote fence holds a vendor-created row without a claim', () => {
     expect(await integrationRows()).toEqual(before);
   });
 });
+
+describe('a twin-skipped vendor-maintained edge reports the twin skip alone (AECI-1101)', () => {
+  // The AECI-981 review-signal receipt used to be pushed before the twin guard, so a
+  // skipped edge on a vendor-maintained row reported both `VENDOR_OWNED_TWIN` and a
+  // receipt for a date that was never considered. The skip writes nothing, so the
+  // twin report is its only entry.
+  const REVIEWED = '2026-09-24T00:00:00.000Z';
+
+  async function seedVendorMaintainedCurated() {
+    // Unclaimed and AECi-seeded, so the §4b fence does not hold it, but vendor-maintained.
+    await t.db.insert(integrations).values({
+      id: CURATED_ROW,
+      name: 'Curated Revit to BIM 360',
+      sourceProductId: REVIT,
+      targetProductId: BIM360,
+      mechanismKind: 'native',
+      builtByVendorId: OWNER,
+      maintainedBy: 'vendor',
+      lastReviewedAt: NOW,
+    });
+  }
+
+  it('reports VENDOR_OWNED_TWIN and no review-signal receipt', async () => {
+    await seedVendorMaintainedCurated();
+    // The re-point onto Navisworks twins the vendor row.
+    const { response } = await ingest(curatorUpdate(CURATED_ROW, { lastReviewedAt: REVIEWED }));
+    expect(response.skipped).toEqual([
+      { ref: 'i1', kind: 'integration', reason: VENDOR_OWNED_TWIN, existingId: VENDOR_ROW },
+    ]);
+  });
+
+  it('still reports the receipt on an edge that passes the twin guard', async () => {
+    await seedVendorMaintainedCurated();
+    // Same row, no re-point: it stays on BIM 360, so there is no twin and it writes.
+    const { response } = await ingest(
+      curatorUpdate(CURATED_ROW, {
+        targetProduct: { supabaseId: BIM360 },
+        lastReviewedAt: REVIEWED,
+      }),
+    );
+    expect(response.integrations).toEqual([
+      expect.objectContaining({ id: CURATED_ROW, operation: 'updated' }),
+    ]);
+    expect(response.skipped.filter((s) => s.ref === 'i1')).toEqual([
+      expect.objectContaining({ ref: 'i1', kind: 'review-signal' }),
+    ]);
+    const row = await t.db.query.integrations.findFirst({
+      where: eq(integrations.id, CURATED_ROW),
+    });
+    expect(row!.lastReviewedAt).toBe(NOW);
+  });
+
+  it('a replay returns the recorded twin skip unchanged', async () => {
+    await seedVendorMaintainedCurated();
+    const body = curatorUpdate(CURATED_ROW, { lastReviewedAt: REVIEWED });
+    const first = await ingest(body, { jobId: 'job-1101' });
+    const replay = await ingest(body, { jobId: 'job-1101' });
+    expect(replay.response).toEqual(first.response);
+    expect(replay.response.skipped.map((s) => s.reason)).toEqual([VENDOR_OWNED_TWIN]);
+    expect(await t.db.select().from(promoteJobs)).toHaveLength(1);
+  });
+});

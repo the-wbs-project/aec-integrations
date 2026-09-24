@@ -2470,7 +2470,9 @@ column default, so there is nothing to protect.
 the review app is told to inspect (`REVIEW_APP_PROMOTE_API.md` §4). This is not the
 §13.8 case that was refused a receipt: that was the *absent* field on the normal
 path, which fires on every push and means nothing. This is an explicitly supplied
-value that was refused, it is actionable, and re-sending will not clear it.
+value that was refused, it is actionable, and re-sending will not clear it. An edge
+promote skips whole (the claim fence or a `VENDOR_OWNED_TWIN` skip) earns no receipt:
+its own `skipped[]` entry is its only one (AECI-1101, `REVIEW_APP_PROMOTE_API.md` §3.6a).
 
 #### The cross-table move carry
 

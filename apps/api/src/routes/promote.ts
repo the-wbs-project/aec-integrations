@@ -2933,17 +2933,21 @@ export async function runPromoteIngest(
         stmts.push(promoteEvidencedClaimFenceSentinel(db, located.id));
       }
     };
-    // The AECI-981 fence receipt, pushed ONCE here rather than per branch. `located`
-    // answers it for all four write branches at the same grain: a create cannot be
-    // vendor-maintained, and both the same-table UPDATE and the cross-table move
-    // refuse the supplied date on a `'vendor'` row.
-    if (reviewSignalRefused(intg.lastReviewedAt, located?.row.maintainedBy)) {
-      skipped.push({
-        ref: intg.ref,
-        kind: 'review-signal',
-        reason: REFUSED_REVIEW_SIGNAL_INTEGRATION,
-      });
-    }
+    // The AECI-981 fence receipt. `located` answers it for all four write branches at
+    // the same grain: a create cannot be vendor-maintained, and both the same-table
+    // UPDATE and the cross-table move refuse the supplied date on a `'vendor'` row.
+    // Called only once an edge is past both twin guards (AECI-1101): a twin-skipped
+    // edge writes nothing, so its one `skipped[]` entry is the `VENDOR_OWNED_TWIN`
+    // report, never a receipt for a date that was never considered.
+    const pushReviewSignalReceipt = (): void => {
+      if (reviewSignalRefused(intg.lastReviewedAt, located?.row.maintainedBy)) {
+        skipped.push({
+          ref: intg.ref,
+          kind: 'review-signal',
+          reason: REFUSED_REVIEW_SIGNAL_INTEGRATION,
+        });
+      }
+    };
     // Kept under its old name for the AECI-730 `preserved` branch below, which needs the
     // STORED `powered_by_product_id` — not the payload's — to know whose product page
     // still needs purging. Narrowed to the `integrations` arm because that is the only
@@ -3052,6 +3056,7 @@ export async function runPromoteIngest(
         evidencedTwinCandidates.push(evidencedTwinCandidate);
         stmts.push(vendorOwnedEvidencedTwinSentinel(db, evidencedTwinCandidate));
       }
+      pushReviewSignalReceipt();
 
       // Past every skip: this edge will write, so guard its existing row now.
       pushClaimFenceSentinels();
@@ -3300,6 +3305,7 @@ export async function runPromoteIngest(
     if (intg.supabaseId && !located) {
       staleSupabaseIds.push({ kind: 'integration', ref: intg.ref, supabaseId: intg.supabaseId });
     }
+    pushReviewSignalReceipt();
     // A move out of the evidenced tier changes the OLD pair's endpoints and its
     // connector, and §13.5 option B counts the edge for the connector's own
     // `integration_count` — so all three have to be recomputed or the connector's hub
