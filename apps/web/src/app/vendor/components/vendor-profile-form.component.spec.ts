@@ -6,7 +6,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { UpdateVendorProfileResponse, VendorAccount } from '@aeci/shared';
 
 import { VendorApi } from '../vendor-api';
-import { VENDOR_ME_FIXTURE } from '../vendor-fixtures';
+import {
+  VENDOR_ME_CONNECTOR_SEAT_FIXTURE,
+  VENDOR_ME_FIXTURE,
+  VENDOR_ME_UNVERIFIED_FIXTURE,
+} from '../vendor-fixtures';
 import { VendorPortalStore } from '../vendor-portal-store';
 import { VendorProfileForm } from './vendor-profile-form';
 
@@ -207,6 +211,23 @@ describe('VendorProfileForm — read-only when the entitlement lapsed', () => {
     const fixture = create(false);
 
     expect(saveButton(fixture)).toBeNull();
+    expect(fixture.nativeElement.textContent).toContain('Editing is paused');
+  });
+
+  it('tells the connector catalogue seat the profile stays with AECi, not that it is paused (AECI-1082)', () => {
+    TestBed.inject(VendorPortalStore).seed(VENDOR_ME_CONNECTOR_SEAT_FIXTURE);
+    const fixture = create(false);
+    const text = fixture.nativeElement.textContent as string;
+
+    expect(text).toContain('Your company profile stays with the AECi team');
+    expect(text).not.toContain('Editing is paused');
+    expect(text).not.toContain('renewal');
+  });
+
+  it('keeps the paused copy for a never-arranged vendor with no connector product', () => {
+    TestBed.inject(VendorPortalStore).seed(VENDOR_ME_UNVERIFIED_FIXTURE);
+    const fixture = create(false);
+
     expect(fixture.nativeElement.textContent).toContain('Editing is paused');
   });
 

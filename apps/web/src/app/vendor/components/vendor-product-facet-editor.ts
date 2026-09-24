@@ -28,6 +28,7 @@ import {
 
 import { VendorApi } from '../vendor-api';
 import { VendorPortalStore } from '../vendor-portal-store';
+import { vendorIsCatalogueSeat } from '../vendor-capabilities';
 import { VendorBulletListEditor, newBullet, type BulletDraft } from './vendor-bullet-list-editor';
 
 /** The four taxonomy facets, each its own product tab (AECI-994). */
@@ -192,14 +193,25 @@ interface PendingRemoval {
       }
 
       @if (!canEdit()) {
-        <p
-          class="rounded-(--radius-md) border border-(--border-default) bg-(--surface-sunken) p-4 text-sm leading-relaxed text-(--text-secondary)"
-          i18n="@@vendor.product.facet.readOnly"
-        >
-          Editing is paused while your account access is inactive. This product stays published
-          exactly as it is, and everything on record is here to read. The account panel on Vendor
-          Overview has the renewal path.
-        </p>
+        @if (catalogueSeat()) {
+          <!-- AECI-1082: the catalogue seat never had product editing, so it is not paused. -->
+          <p
+            class="rounded-(--radius-md) border border-(--border-default) bg-(--surface-sunken) p-4 text-sm leading-relaxed text-(--text-secondary)"
+            i18n="@@vendor.product.facet.readOnly.catalogue"
+          >
+            Product details stay with the AECi team, so this seat cannot edit them. This product
+            stays published exactly as it is, and everything on record is here to read.
+          </p>
+        } @else {
+          <p
+            class="rounded-(--radius-md) border border-(--border-default) bg-(--surface-sunken) p-4 text-sm leading-relaxed text-(--text-secondary)"
+            i18n="@@vendor.product.facet.readOnly"
+          >
+            Editing is paused while your account access is inactive. This product stays published
+            exactly as it is, and everything on record is here to read. The account panel on Vendor
+            Overview has the renewal path.
+          </p>
+        }
       }
 
       @if (taxonomy() === null) {
@@ -373,6 +385,8 @@ interface PendingRemoval {
 export class VendorProductFacetEditor {
   private readonly api = inject(VendorApi);
   private readonly store = inject(VendorPortalStore);
+  /** The §8.9 connector seat (AECI-1082): its read-only notice is not paused copy. */
+  protected readonly catalogueSeat = vendorIsCatalogueSeat(this.store);
 
   readonly product = input.required<VendorProduct>();
   readonly facet = input.required<ProductFacetKind>();

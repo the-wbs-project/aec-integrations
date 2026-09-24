@@ -6,7 +6,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { TaxonomyResponse, UpdateVendorProductResponse, VendorProduct } from '@aeci/shared';
 
 import { VendorApi } from '../vendor-api';
-import { VENDOR_ME_FIXTURE, VENDOR_TAXONOMY_FIXTURE } from '../vendor-fixtures';
+import {
+  VENDOR_ME_CONNECTOR_SEAT_FIXTURE,
+  VENDOR_ME_FIXTURE,
+  VENDOR_TAXONOMY_FIXTURE,
+} from '../vendor-fixtures';
 import { VendorPortalStore } from '../vendor-portal-store';
 import { VendorProductFacetEditor, type ProductFacetKind } from './vendor-product-facet-editor';
 
@@ -353,6 +357,15 @@ describe('VendorProductFacetEditor', () => {
   });
 
   // ── Gates ────────────────────────────────────────────────────────────────
+
+  it('tells the connector catalogue seat product details stay with AECi (AECI-1082)', () => {
+    TestBed.inject(VendorPortalStore).seed(VENDOR_ME_CONNECTOR_SEAT_FIXTURE);
+    const f = create('audiences', { canEdit: false });
+
+    expect(el(f).textContent).toContain('Product details stay with the AECi team');
+    expect(el(f).textContent).not.toContain('Editing is paused');
+    expect(save(f)).toBeNull();
+  });
 
   it('is read-only with Save withheld when account access lapsed', async () => {
     const f = create('audiences', { canEdit: false });
