@@ -38,6 +38,7 @@ import type { AuthzVariables } from '../lib/authz';
 import { routeContest, vendorContestsWhere } from '../lib/integration-contests';
 import { makeTestDb, type TestDb } from '../test/d1';
 import { TEST_ENV, fakeExecutionContext } from '../test/helpers';
+import { racingFactory } from '../test/racing-factory';
 import {
   createDecideContestHandler,
   createListVendorContestsHandler,
@@ -576,17 +577,13 @@ describe('POST /api/vendor/contests/:id/decision (owner path, predicate injected
 
   it('aborts when the row is reassigned between the re-check and the batch', async () => {
     const id = await ownerContest();
-    const racing = createDecideContestHandler((env, opts) => {
-      const ctx = t.factory(env, opts);
-      const batch = ctx.db.batch.bind(ctx.db);
-      (ctx.db as unknown as { batch: typeof batch }).batch = (async (stmts: never) => {
+    const racing = createDecideContestHandler(
+      racingFactory(t.factory, () => {
         t.raw
           .prepare('UPDATE integrations SET built_by_vendor_id = ?, claimed_at = NULL WHERE id = ?')
           .run(VENDOR_C, I_MAIN);
-        return batch(stmts);
-      }) as typeof batch;
-      return ctx;
-    });
+      }),
+    );
     const a = new Hono<{ Bindings: Env; Variables: AuthzVariables }>();
     a.onError(errorHandler());
     a.use('*', async (c, next) => {

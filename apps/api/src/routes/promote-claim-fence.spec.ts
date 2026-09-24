@@ -29,6 +29,7 @@ import {
 import type { Env } from '../env';
 import type { DbFactory } from '../lib/handler-utils';
 import { makeTestDb, type TestDb } from '../test/d1';
+import { racingFactory } from '../test/racing-factory';
 import {
   REFUSED_CLAIMED_INTEGRATION,
   runPromoteIngest,
@@ -280,15 +281,9 @@ describe('promote ownership fence (AECI-1005)', () => {
     const before = await snapshot();
     // Claim the row inside the batch call, i.e. after the plan read and before any
     // statement runs. That is the window the in-SQL sentinel exists for.
-    const racing: DbFactory = (env, opts) => {
-      const ctx = t.factory(env, opts);
-      const batch = ctx.db.batch.bind(ctx.db);
-      (ctx.db as unknown as { batch: typeof batch }).batch = (async (stmts: never) => {
-        t.raw.prepare(`UPDATE integrations SET claimed_at = ? WHERE id = ?`).run(CLAIMED_AT, EDGE);
-        return batch(stmts);
-      }) as typeof batch;
-      return ctx;
-    };
+    const racing = racingFactory(t.factory, () => {
+      t.raw.prepare(`UPDATE integrations SET claimed_at = ? WHERE id = ?`).run(CLAIMED_AT, EDGE);
+    });
     await expect(ingest(repush(), { jobId: 'job-race', dbFor: racing })).rejects.toMatchObject({
       status: 409,
       code: 'INTEGRATION_CLAIMED_DURING_PROMOTE',
