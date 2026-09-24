@@ -1013,6 +1013,13 @@ export type ProductPairResponse = z.infer<typeof ProductPairResponseSchema>;
 
 The pair's **per-claim attestation history** (§9.1), read off the append-only rows: §2.1's supersession is retract-then-insert, never an in-place `UPDATE`, precisely so this read has something to show.
 
+> **As-built (2026-09-24) — no web consumer.** The pair page's `ClaimProvenance` popover dropped
+> its History section, so nothing in `apps/web` calls this endpoint anymore. Everything below is
+> unchanged and still deployed — the route, `integrationTimelineConfig`,
+> `connectorEvidencedPairTimelineConfig`, `toClaimTimelineEntry`, its `readerFacingNote`
+> suppression, and `resolveDiffAccess`'s gating all still run. `STAGE_1_5_SPEC.md` §3.3 and
+> `STAGE_2_ATTESTATIONS_SPEC.md` §9.4 carry the matching note.
+
 ```typescript
 // packages/shared/src/api/product-pairs.ts
 export const ClaimTimelineEntrySchema = z.object({
@@ -1040,7 +1047,7 @@ export const PairTimelineResponseSchema = z.object({
 - **This is the ONE endpoint in the system that returns retracted rows.** Every other read applies `liveAttestationsWhere`, so a withdrawn assertion neither votes nor renders as current. Its two read configs (`integrationTimelineConfig`, and `connectorEvidencedPairTimelineConfig` for claims on a connector-evidenced pair since AECI-1035) are deliberately separate for that reason, and `computeAgreement` must never be called on their output.
 - **Both delivered-tier tables (AECI-1035).** The pair read and this timeline read `integrations` and `connector_evidenced_pairs` alike, and each evidenced mechanism carries its claims. An evidenced pair's claims are framed against canonical endpoint A (`product_a_id`), so `attestor` and claim `direction` come out context-relative exactly as they do on an `integrations` row.
 - **Pair-scoped, not claim-scoped**, so one browser fetch serves every provenance popover on the page. Entries are ordered `created_at` then `id` (a total order, so the render is stable regardless of D1 row order). A claim with no attestations is omitted — the browser's "does this claim have a history?" test is the absence of an entry for its id.
-- **Why it is a separate, lazy endpoint rather than inline on the pair response.** History is the gateable depth (§9.3), and the pair page is stored in a shared, URL-keyed edge cache — baking gated content into it would break §9.1a the moment AECI-304 makes the gate visitor-dependent. `/api/*` responses are `private, no-store`, which is a legal home for content that may vary per reader. It is also the only unbounded payload in the system, since the append-only log grows forever. Fetched from the browser on the first popover open; **never during SSR**.
+- **Why it is a separate, lazy endpoint rather than inline on the pair response.** History is the gateable depth (§9.3), and the pair page is stored in a shared, URL-keyed edge cache — baking gated content into it would break §9.1a the moment AECI-304 makes the gate visitor-dependent. `/api/*` responses are `private, no-store`, which is a legal home for content that may vary per reader. It is also the only unbounded payload in the system, since the append-only log grows forever. Designed to be fetched from the browser on the first popover open, **never during SSR** — as-built 2026-09-24, no page currently calls it (see the note above).
 - Gated ⇒ `{ claims: [], diff_access: 'latest_only' }`. The latest state is already rendered in full on the free page, so withholding *history* is exactly what `STAGE_2_SPEC.md` §8.1(4) permits and no more.
 - **Errors / status:** identical to the pair read — `NOT_FOUND` on an unknown slug or two equal slugs; a valid-but-unconnected pair is a 200 with `claims: []`. No new error codes.
 

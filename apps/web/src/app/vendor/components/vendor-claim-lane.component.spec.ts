@@ -358,6 +358,21 @@ describe('VendorClaimLane — the optimistic retract interim (AECI-630)', () => 
     expect(body).toContain('No position yet');
     expect(body).not.toContain('Confirmed by Summit BIM');
   });
+
+  it('marks a waiting flow with the attention chip, and only a waiting one', () => {
+    // The card passes `awaitingMe` from `claimWaitsOnVendor`, so the chip sits
+    // on exactly the rows the group's "needs your input" count counts.
+    const waiting = create({ ...SINGLE_SOURCE, mine: [] });
+    waiting.componentRef.setInput('awaitingMe', true);
+    waiting.detectChanges();
+    const chip = (waiting.nativeElement as HTMLElement).querySelector('.aec-pill-attention');
+    expect(chip?.textContent).toContain('No position yet');
+
+    // Non-attestable edge: no position either, but nothing is asked of the vendor.
+    const notAsked = create({ ...SINGLE_SOURCE, mine: [] });
+    expect((notAsked.nativeElement as HTMLElement).querySelector('.aec-pill-attention')).toBeNull();
+    expect(text(notAsked)).toContain('No position yet');
+  });
 });
 
 /**
