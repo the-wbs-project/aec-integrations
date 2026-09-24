@@ -351,6 +351,13 @@
       "when": 1790171210896,
       "tag": "0049_majestic_mentallo",
       "breakpoints": true
+    },
+    {
+      "idx": 50,
+      "version": "6",
+      "when": 1790172168294,
+      "tag": "0050_rainy_puma",
+      "breakpoints": true
     }
   ]
 }

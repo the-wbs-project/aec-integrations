@@ -13,9 +13,10 @@ import {
 
 import {
   CONTEST_VALUE_MAX_LENGTH,
-  INTEGRATION_CONTEST_FIELDS,
   IntegrationMechanismKindSchema,
   SubmitIntegrationContestSchema,
+  contestFieldsFor,
+  type ContestAnchorKind,
   type IntegrationContestField,
   type SubmitIntegrationContestInput,
   type VendorIntegration,
@@ -64,6 +65,16 @@ function controlFor(field: IntegrationContestField): ControlKind {
       return 'text';
   }
 }
+
+/**
+ * What the form needs to know about the row it contests. A `VendorIntegration`
+ * satisfies it, and so does an `EvidencedPairContestTarget` from the connectors
+ * read (AECI-1092), which is how a delivered pair is contested.
+ */
+export type VendorContestTarget = Pick<
+  VendorIntegration,
+  'id' | 'contestable_fields' | 'endpoint_vendors' | 'other_product' | 'context_product'
+> & { readonly owner: { readonly id: string; readonly name: string } | null };
 
 interface SelectOption {
   readonly value: string;
@@ -373,11 +384,21 @@ export class VendorContestForm {
   private readonly announcer = inject(VendorPortalAnnouncer);
   private readonly locale = inject(LOCALE_ID);
 
-  readonly integration = input.required<VendorIntegration>();
+  readonly integration = input.required<VendorContestTarget>();
+  /** AECI-1092: which table `integration.id` names. An evidenced pair posts to its
+   *  own route and offers the eleven fields that table has (no type). */
+  readonly anchor = input<ContestAnchorKind>('integration');
   /** The caller's company, for the owner picker when the wire carries no
    *  endpoint vendors (a pre-AECI-1008 API during a rollout). */
-  readonly vendorId = input.required<string>();
-  readonly vendorName = input.required<string>();
+  readonly vendorId = input('');
+  readonly vendorName = input('');
+
+  /** The fields this anchor may contest, in the §11b.3 order. */
+  private readonly fields = computed(() => contestFieldsFor(this.anchor()));
+
+  /** A caller contest on THIS row: the same id on the same anchor table. */
+  private readonly isHere = (c: { integration_id: string; anchor?: ContestAnchorKind }) =>
+    c.integration_id === this.integration().id && (c.anchor ?? 'integration') === this.anchor();
 
   private readonly trigger = viewChild<ElementRef<HTMLButtonElement>>('trigger');
 
@@ -408,13 +429,13 @@ export class VendorContestForm {
     return new Set(
       this.store
         .contests()
-        .submitted.filter((c) => c.integration_id === id && c.status === 'open')
+        .submitted.filter((c) => c.integration_id === id && this.isHere(c) && c.status === 'open')
         .map((c) => c.field),
     );
   });
 
   protected readonly openFieldLabels = computed<string | null>(() => {
-    const fields = INTEGRATION_CONTEST_FIELDS.filter((f) => this.openFields().has(f));
+    const fields = this.fields().filter((f) => this.openFields().has(f));
     if (fields.length === 0) return null;
     const names = fields.map(contestFieldLabel).join(', ');
     return $localize`:@@vendor.contest.openLine:You have an open contest on this integration: ${names}:FIELDS:. Follow it in Messages.`;
@@ -434,7 +455,7 @@ export class VendorContestForm {
     const now = Date.now();
     const blocks = new Map<IntegrationContestField, { until: string | null }>();
     for (const c of this.store.contests().submitted) {
-      if (c.integration_id !== id) continue;
+      if (c.integration_id !== id || !this.isHere(c)) continue;
       if (c.protest?.status === 'open') blocks.set(c.field, { until: null });
       else if (c.cooldown_until && Date.parse(c.cooldown_until) > now && !blocks.has(c.field)) {
         blocks.set(c.field, { until: c.cooldown_until });
@@ -444,7 +465,7 @@ export class VendorContestForm {
   });
 
   protected readonly fieldOptions = computed<readonly SelectOption[]>(() =>
-    INTEGRATION_CONTEST_FIELDS.map((f) => {
+    this.fields().map((f) => {
       const busy = this.openFields().has(f);
       const block = this.protestBlocks().get(f);
       const label = contestFieldLabel(f);
@@ -558,7 +579,7 @@ export class VendorContestForm {
   }
 
   protected onField(value: string): void {
-    const f = (INTEGRATION_CONTEST_FIELDS as readonly string[]).includes(value)
+    const f = (this.fields() as readonly string[]).includes(value)
       ? (value as IntegrationContestField)
       : null;
     this.field.set(f);
@@ -598,7 +619,11 @@ export class VendorContestForm {
 
     this.submitting.set(true);
     try {
-      const { contest } = await this.api.submitContest(this.integration().id, parsed.data);
+      const { contest } = await this.api.submitContest(
+        this.integration().id,
+        parsed.data,
+        this.anchor(),
+      );
       const label = contestFieldLabel(f);
       this.announcer.announce(
         contest.routed_to === 'owner'
@@ -624,7 +649,7 @@ export class VendorContestForm {
   }
 
   protected fieldId(key: string): string {
-    return `vendor-contest-${this.integration().id}-${this.integration().context_product.id}-${key}`;
+    return `vendor-contest-${this.anchor()}-${this.integration().id}-${this.integration().context_product.id}-${key}`;
   }
 
   protected selectValue(event: Event): string {

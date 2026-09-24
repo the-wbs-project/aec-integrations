@@ -885,3 +885,42 @@ describe('createPosthogClient — logBatchToPosthog', () => {
     expect(fetchSpy).not.toHaveBeenCalled();
   });
 });
+
+// ─── AECI-1092 review: batched metric submission ─────────────────────────────
+
+describe('createPosthogClient — submitMetricsBatch', () => {
+  it('sends every point in ONE request, each shaped as its single-point submitter shapes it', async () => {
+    const { ctx, promises } = makeCtx();
+
+    client.submitMetricsBatch(ctx, makeEnv(), makeRequest(), [
+      { kind: 'count', metric: 'aeci.algolia.sync', value: 1, tags: ['entity:integrations'] },
+      { kind: 'count', metric: 'aeci.algolia.sync.records', value: 3, tags: ['op:saved'] },
+      { kind: 'distribution', metric: 'aeci.algolia.sync.duration_ms', value: 42 },
+    ]);
+    await Promise.all(promises);
+
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    expect(fetchSpy.mock.calls[0][0]).toBe('https://us.i.posthog.com/i/v1/metrics');
+    const metrics = (
+      lastBody() as unknown as {
+        resourceMetrics: { scopeMetrics: { metrics: Record<string, unknown>[] }[] }[];
+      }
+    ).resourceMetrics[0]!.scopeMetrics[0]!.metrics;
+    expect(metrics.map((m) => m.name)).toEqual([
+      'aeci.algolia.sync',
+      'aeci.algolia.sync.records',
+      'aeci.algolia.sync.duration_ms',
+    ]);
+    expect(metrics[0]).toHaveProperty('sum');
+    expect(metrics[2]).toHaveProperty('histogram');
+  });
+
+  it('never posts an empty batch, and no-ops without POSTHOG_PROJECT_KEY', () => {
+    const { ctx } = makeCtx();
+    client.submitMetricsBatch(ctx, makeEnv(), makeRequest(), []);
+    client.submitMetricsBatch(ctx, makeEnv({ POSTHOG_PROJECT_KEY: undefined }), makeRequest(), [
+      { kind: 'count', metric: 'x', value: 1 },
+    ]);
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+});

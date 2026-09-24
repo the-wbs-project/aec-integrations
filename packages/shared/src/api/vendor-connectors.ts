@@ -1,6 +1,7 @@
 import { z } from 'zod';
 
 import { ProductLinkSchema } from './common';
+import { EvidencedPairContestTargetSchema } from './integration-contests';
 import { ProductIntegrationItemSchema } from './integrations';
 
 /**
@@ -8,7 +9,8 @@ import { ProductIntegrationItemSchema } from './integrations';
  * (`GET /api/vendor/products/:id/connectors`, AECI-1013 /
  * `STAGE_2_VENDOR_PORTAL_SPEC.md` §6.13), behind `requireVendor()` plus the
  * product-ownership check. Read-only: connector-powered edges are out of scope
- * for vendor editing, creating and retiring.
+ * for vendor editing, creating and retiring. Since AECI-1092 a delivered pair can
+ * be CONTESTED from here (`delivered_contest_targets`), which is not an edit.
  *
  * Two tiers, kept apart on the wire so the client can never merge them
  * (`STAGE_1_5_SPEC.md` §13.1):
@@ -37,6 +39,12 @@ export const VendorProductConnectorSchema = z.object({
   connector: ProductLinkSchema,
   catalog_as_of: z.string().nullable(),
   delivered: z.array(ProductIntegrationItemSchema),
+  /**
+   * AECI-1092: one contest target per `delivered` row, matched by id, so an endpoint
+   * vendor that does not own a pair can contest a field of it from this section.
+   * Defaulted for deploy skew; a web build that sees `[]` offers no contest.
+   */
+  delivered_contest_targets: z.array(EvidencedPairContestTargetSchema).default([]),
   reachable: z.array(ProductLinkSchema),
 });
 

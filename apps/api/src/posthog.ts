@@ -28,7 +28,7 @@
 
 import { createPosthogClient } from '@aeci/shared/posthog';
 
-export type { PosthogLogEvent, PosthogLogLevel } from '@aeci/shared/posthog';
+export type { PosthogLogEvent, PosthogLogLevel, PosthogMetricPoint } from '@aeci/shared/posthog';
 
 const client = createPosthogClient({
   service: 'aeci-api',
@@ -62,6 +62,8 @@ export const {
    * Resolves p95 server-side; never buckets client-side.
    */
   submitDistribution,
+  /** N metric points → ONE request (the metrics twin of `logBatchToPosthog`). */
+  submitMetricsBatch,
   captureEvent,
   captureException,
   isFeatureEnabled,

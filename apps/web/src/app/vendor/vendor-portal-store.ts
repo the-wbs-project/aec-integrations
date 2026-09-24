@@ -356,6 +356,14 @@ export class VendorPortalStore {
     if (resources.has('integrations') && this.statuses.contests() !== 'idle') {
       resources.add('contests');
     }
+    // AECI-1092 (ruling B): an admin clearing this vendor's entitlement re-routes its
+    // open owner contests on connector-powered rows to AECi. That moves `entitlement`
+    // for this vendor, but the `contests` cursor only moves if a re-routed row was
+    // the newest in scope, so the Received list could keep a row it can no longer
+    // decide. Refetch loaded contests with the entitlement. Never from cold.
+    if (scopes.includes('entitlement') && this.statuses.contests() !== 'idle') {
+      resources.add('contests');
+    }
     return Promise.all([...resources].map((resource) => this.fetch(resource))).then(
       () => undefined,
     );

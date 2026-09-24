@@ -1084,7 +1084,7 @@ Four IA notes, in §5.10's voice:
   it is accepted. `audit_log` filtered on `reindex.cleared` is the history, which is
   where the other admin writes keep theirs too.
 
-### 5.12 Field contests — SHIPPED (AECI-1008, 2026-09-18)
+### 5.12 Field contests — SHIPPED (AECI-1008, 2026-09-18; connector-powered rows and evidenced pairs AECI-1092, 2026-09-23)
 
 The queue for integration field contests routed to AECi. `STAGE_2_VENDOR_PORTAL_SPEC.md`
 §11b owns the contract (§11b.11 is this screen as built) and `API_CONTRACTS.md` §6.10 the
@@ -1135,6 +1135,12 @@ Four IA notes, in §5.10's voice:
   owner, and that the admin should decline or ask the vendor to re-file. Decline stays
   available. If the value moves after the list loaded, the API's `409 CONTEST_VALUE_STALE`
   announces "Not accepted" and reloads, so the card shows the live value and the note.
+- **Contests on connector-evidenced pairs (AECI-1092).** A contest can sit on a
+  `connector_evidenced_pairs` row as well as on an `integrations` row. The card reads the
+  same, with one more line under the pair, "Delivered through {connector}". An accept on a
+  claimed pair writes the pair itself (`integration.updated` with entity type `connector_evidenced_pair`), and the `REVIEW - `
+  issue names the evidenced pair id and the connector. Protests work on pair contests
+  unchanged. `/preview/admin-contests` carries one pair contest.
 - **No detail route.** The API has no single-contest read, and a row already carries every
   field a decision needs. A parameterised route would cost a breadcrumb rule (§5.0b) for no
   content.
@@ -1148,14 +1154,14 @@ defaults:
   nothing else: the review app applies the value and the next promote carries it. On a
   CLAIMED integration promote writes nothing, so the accept applies the value itself; and
   an `owner` accept that approves the submitting vendor as owner writes the owner and
-  `claimed_at` (the owner-unknown claim, AECI-1003 decision 11), except on a
-  connector-powered row, where decision 9 keeps the claim off in v1. AECI-1040 was ruled on
-  2026-09-23 and is not built. Once it ships, this accept has no special case on a
-  connector-powered row, and it writes the owner and `claimed_at` as on any other row. Two
-  more AECI-1040 rulings add rows to this queue. A `mechanism_kind` contest on a
-  connector-powered `integrations` row always routes here, even when the row is claimed. And
-  when an admin clears a vendor's entitlement, that vendor's open owner-routed contests on
-  connector-powered rows fall back here, decidable like a stranded contest.
+  `claimed_at` (the owner-unknown claim, AECI-1003 decision 11). Since AECI-1092 (ruling C)
+  that holds on a connector-powered row too, in either table. Three more AECI-1040 rulings,
+  built by AECI-1092, add rows to this queue. A `mechanism_kind` contest on a
+  connector-powered `integrations` row always routes here, even when the row is claimed. A new
+  content contest on a claimed connector-powered row routes here when its owner holds no
+  active entitlement. And when an admin clears a vendor's entitlement, that vendor's open
+  owner-routed contests on connector-powered rows are re-routed here in the clear's own batch,
+  so they are ordinary AECi-routed rows: counted in the badge, with Accept and Decline.
   `STAGE_2_VENDOR_PORTAL_SPEC.md` §11b.13 is the contract. A reassignment of a
   claimed row to another owner clears `claimed_at`. The full table is
   `STAGE_2_VENDOR_PORTAL_SPEC.md` §11b.6 and `API_CONTRACTS.md`. The screen does not know

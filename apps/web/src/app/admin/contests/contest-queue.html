@@ -211,6 +211,14 @@
             </h3>
             @if (c.integration.name) {
             <p class="mt-0.5 text-sm text-(--text-secondary)">{{ c.integration.name }}</p>
+            } @if (c.integration.connector; as connector) {
+            <p
+              class="mt-0.5 text-sm text-(--text-secondary)"
+              data-testid="contest-connector"
+              i18n="@@admin.contests.deliveredThrough"
+            >
+              Delivered through {{ connector.name }}
+            </p>
             }
           </div>
 

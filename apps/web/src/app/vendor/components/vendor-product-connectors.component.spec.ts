@@ -16,7 +16,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { VendorProductConnectorsResponse } from '@aeci/shared';
 
 import { VendorApi } from '../vendor-api';
-import { VENDOR_PRODUCT_CONNECTORS_FIXTURE } from '../vendor-fixtures';
+import { VENDOR_ME_FIXTURE, VENDOR_PRODUCT_CONNECTORS_FIXTURE } from '../vendor-fixtures';
+import { VendorPortalStore } from '../vendor-portal-store';
 
 import { VendorProductConnectors } from './vendor-product-connectors';
 
@@ -34,9 +35,18 @@ beforeEach(() => {
   TestBed.configureTestingModule({
     providers: [
       provideZonelessChangeDetection(),
-      { provide: VendorApi, useValue: { listProductConnectors } },
+      {
+        provide: VendorApi,
+        useValue: {
+          listProductConnectors,
+          getContests: vi.fn().mockResolvedValue({ submitted: [], received: [] }),
+          submitContest: vi.fn(),
+        },
+      },
+      VendorPortalStore,
     ],
   });
+  TestBed.inject(VendorPortalStore).seed(VENDOR_ME_FIXTURE);
 });
 
 async function create(productId: string): Promise<ComponentFixture<VendorProductConnectors>> {
@@ -83,6 +93,28 @@ describe('VendorProductConnectors', () => {
     expect(text(aquifer!.querySelector('summary'))).toBe(
       'Reachable 5 products catalogue date not recorded',
     );
+  });
+
+  it('offers "Contest a field" on a delivered pair the vendor does not own (AECI-1092)', async () => {
+    const fixture = await create(PRIMARY);
+    const target = el(fixture).querySelector('[data-contest-target]');
+    expect(text(target)).toContain('Sage Intacct, through Kroo Connector. Offered by Kroo.');
+    const trigger = target!.querySelector('button');
+    expect(text(trigger)).toBe('Contest a field');
+  });
+
+  it('offers no contest on a pair the vendor owns, or on a retired one', async () => {
+    const owned = structuredClone(VENDOR_PRODUCT_CONNECTORS_FIXTURE[PRIMARY]!);
+    owned.connectors[0]!.delivered_contest_targets[0]!.is_owner = true;
+    listProductConnectors.mockResolvedValueOnce(owned);
+    const fixture = await create(PRIMARY);
+    expect(el(fixture).querySelector('[data-contest-target]')).toBeNull();
+
+    const retired = structuredClone(VENDOR_PRODUCT_CONNECTORS_FIXTURE[PRIMARY]!);
+    retired.connectors[0]!.delivered_contest_targets[0]!.retired = true;
+    listProductConnectors.mockResolvedValueOnce(retired);
+    const again = await create(PRIMARY);
+    expect(el(again).querySelector('[data-contest-target]')).toBeNull();
   });
 
   it('links nowhere', async () => {

@@ -815,8 +815,11 @@ describe('the delete plan re-checks vendor-held at write time (AECI-1088 review)
       vendorLinksTable: false,
       vendorHeldColumns: false,
       vendorHeldPairColumns: false,
+      // AECI-1092: nor 0050's evidenced contest anchor.
+      evidencedContestAnchor: false,
     });
     expect(statements.join('\n')).not.toMatch(/claimed_at/);
+    expect(statements.join('\n')).not.toMatch(/"evidenced_pair_id"/);
     apply(t, statements);
     t.dispose();
   });

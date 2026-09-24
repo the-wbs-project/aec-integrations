@@ -2366,7 +2366,7 @@ The nine write sites are the complete list (five at AECI-981; AECI-1008 added th
 | `POST /api/vendor/products/:id/versions` | `products` | own statement + own audit row |
 | `PATCH …/versions/:versionId` | `products` | own statement + own audit row |
 | `DELETE …/versions/:versionId` | `products` | own statement + own audit row |
-| `POST /api/vendor/contests/:id/decision` with `accept` (AECI-1008) | `integrations` | folded into the field write; one `integration.updated` row with before/after, `metadata.reason = 'contest-accepted'` |
+| `POST /api/vendor/contests/:id/decision` with `accept` (AECI-1008) | `integrations`, or `connector_evidenced_pairs` since AECI-1092 | folded into the field write; one `integration.updated` row (entity type `connector_evidenced_pair` on a pair, and the `connectorPowered`/`anchor` markers on a connector-powered row, as the AECI-1090 edit writes) with before/after, `metadata.reason = 'contest-accepted'`. On a connector-powered row it needs an active entitlement (`STAGE_2_VENDOR_PORTAL_SPEC.md` §11b.13) |
 | `POST /api/vendor/integrations/:id/claim` (AECI-1005) | `integrations` | folded into the claim write (`claimed_at` + the transfer in one statement); one `integration.claimed` row with before/after, `metadata.reason = 'owner-claim'` |
 | `PATCH /api/vendor/integrations/:id` (AECI-1006) | `integrations` | folded into the field write (the changed columns + the transfer in one statement); one `integration.updated` row with before/after, `metadata.reason = 'owner-edit'` |
 | `PUT` / `DELETE /api/vendor/integrations/:id/links/:productId/:kind` (AECI-1007) | `integrations` | own statement in the link batch (the link lives in `integration_vendor_links`); one `integration.link_set` / `integration.link_removed` row carrying the link's before/after. A DELETE of an unset link writes nothing and transfers nothing |
@@ -2558,7 +2558,7 @@ while the vendor has no unbanned `vendor_admin`:
   (`planOwnerSeatLapse`).
 - **New contests route there too.** The contest submit routes to AECi, stamped, when the
   owner has no unbanned seat, and sends the owner no notice.
-- **They route back as soon as the vendor has an unbanned seat again** (`planOwnerSeatReturn`, `reason = 'owner-seat-restored'`, ruled 2026-09-23). That is an unban, or a new seat grant by any of the three seat writers: the admin provision, the claim grant and the invite redeem (`planSeatGrantReturn`). A new seat whose own profile is banned returns nothing.
+- **They route back as soon as the vendor has an unbanned seat again** (`planOwnerSeatReturn`, `reason = 'owner-seat-restored'`, ruled 2026-09-23). That is an unban, or a new seat grant by any of the three seat writers: the admin provision, the claim grant and the invite redeem (`planSeatGrantReturn`). A new seat whose own profile is banned returns nothing. On a connector-powered row a contest returns only to an owner that also holds an active entitlement, and a `mechanism_kind` contest never does. The rest stay with AECi and lose the stamp (AECI-1092, reconciled 2026-09-23, `STAGE_2_VENDOR_PORTAL_SPEC.md` §11b.13).
   It returns every open, stamped contest whose row is live and has been claimed by that
   vendor since before the stamp, and clears the stamp. "Since before the stamp" is what
   stops a contest the hand-back took for good from returning after a re-seated vendor

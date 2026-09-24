@@ -40,9 +40,9 @@ import { and, eq, gt, isNull } from 'drizzle-orm';
 import type { ZodType } from 'zod';
 
 import { getDb, type Db } from '../db/client';
-import { integrationFieldChallenges, integrations, workflowInstances } from '../db/schema';
+import { integrationFieldChallenges, workflowInstances } from '../db/schema';
 import { ApiError, notFoundError } from '../errors';
-import { resolveAttestationSlots } from '../lib/attestation-authority';
+import { resolveAttestationSlots, resolveEvidencedPairSlots } from '../lib/attestation-authority';
 import { auditInsert, workflowTransitionInsert, type BatchStmt } from '../lib/audit';
 import { auditActorType } from '../lib/authz';
 import {
@@ -59,7 +59,10 @@ import {
 } from '../lib/contest-protests';
 import { writeDb, type DbFactory } from '../lib/handler-utils';
 import {
+  anchorMetadata,
   CONTEST_ENTITY_TYPE,
+  contestAnchorOf,
+  loadContestTarget,
   contestIntegrationStateSentinel,
   contestNotificationAudit,
   contestStillOpenSentinel,
@@ -140,10 +143,8 @@ export async function protestNotifications(
     (r): r is typeof r & { vendorId: string } => typeof r.vendorId === 'string',
   );
   if (targets.length === 0) return [];
-  const integration = await db.query.integrations.findFirst({
-    columns: { name: true, sourceProductId: true, targetProductId: true },
-    where: eq(integrations.id, row.integrationId),
-  });
+  const anchor = contestAnchorOf(row);
+  const integration = await loadContestTarget(db, anchor);
   const pairSlugs = integration
     ? await endpointSlugs(db, integration.sourceProductId, integration.targetProductId)
     : null;
@@ -151,7 +152,8 @@ export async function protestNotifications(
     contestNotificationAudit(actor, {
       vendorId: target.vendorId,
       contestId: row.id,
-      integrationId: row.integrationId,
+      integrationId: anchor.id,
+      ...(anchor.kind === 'evidenced_pair' ? { anchor: 'evidenced_pair' as const } : {}),
       integrationName: integration?.name ?? null,
       field: row.field as IntegrationContestField,
       event,
@@ -164,7 +166,10 @@ export async function protestNotifications(
 /** A 404 from the authority resolver becomes the contest's own unknown-id 404. */
 async function assertStillEndpointVendor(db: Db, vendorId: string, row: ContestRow) {
   try {
-    await resolveAttestationSlots(db, vendorId, row.integrationId);
+    // AECI-1092: the endpoint check for the contest's own anchor table.
+    const anchor = contestAnchorOf(row);
+    if (anchor.kind === 'evidenced_pair') await resolveEvidencedPairSlots(db, vendorId, anchor.id);
+    else await resolveAttestationSlots(db, vendorId, anchor.id);
   } catch (error) {
     if (error instanceof ApiError && error.status === 404) {
       throw notFoundError('contest', { id: row.id });
@@ -209,9 +214,7 @@ export function createFileContestProtestHandler(
     );
 
     // 5. The same owner still holds the claimed row. 6. The value is unchanged.
-    const integration = await db.query.integrations.findFirst({
-      where: eq(integrations.id, row.integrationId),
-    });
+    const integration = await loadContestTarget(db, contestAnchorOf(row));
     if (!integration) throw notFoundError('contest', { id });
     if (!ownerStillHolds(row, integration)) throw integrationChangedForProtest();
     if (!valueUnchanged(row, integration)) throw valueStaleForProtest();
@@ -226,7 +229,7 @@ export function createFileContestProtestHandler(
       source: AUDIT_SOURCE,
       vendorId,
       contestId: id,
-      integrationId: row.integrationId,
+      ...anchorMetadata(contestAnchorOf(row)),
       field: row.field,
       basis,
     };
@@ -267,13 +270,13 @@ export function createFileContestProtestHandler(
         ),
       // Immediately after the guarded UPDATE.
       contestStillOpenSentinel(db, id),
-      contestIntegrationStateSentinel(db, row.integrationId, {
+      contestIntegrationStateSentinel(db, contestAnchorOf(row), {
         claimed: true,
         ownerVendorId: row.ownerVendorId,
       }),
       contestValueUnchangedSentinel(
         db,
-        row.integrationId,
+        contestAnchorOf(row),
         row.field as ContentContestField,
         row.currentValue,
       ),
@@ -340,9 +343,7 @@ export function createFileContestProtestHandler(
       if (fresh.protestStatus !== null) return protestNotAvailable('already_protested');
       if (fresh.status !== row.status) return protestNotAvailable('contest_changed');
       if (await hasOtherOpenContest(db, row)) return protestNotAvailable('contest_open');
-      const live = await db.query.integrations.findFirst({
-        where: eq(integrations.id, row.integrationId),
-      });
+      const live = await loadContestTarget(db, contestAnchorOf(row));
       if (!live || !ownerStillHolds(row, live)) return integrationChangedForProtest();
       if (!valueUnchanged(row, live)) return valueStaleForProtest();
       return protestNotAvailable('contest_changed');
@@ -388,7 +389,7 @@ export function createReplyContestProtestHandler(
       source: AUDIT_SOURCE,
       vendorId,
       contestId: id,
-      integrationId: row.integrationId,
+      ...anchorMetadata(contestAnchorOf(row)),
       field: row.field,
     };
     const audits: AuditLogEntry[] = [
@@ -480,7 +481,7 @@ export function createWithdrawContestProtestHandler(
       source: AUDIT_SOURCE,
       vendorId,
       contestId: id,
-      integrationId: row.integrationId,
+      ...anchorMetadata(contestAnchorOf(row)),
       field: row.field,
     };
     const audits: AuditLogEntry[] = [

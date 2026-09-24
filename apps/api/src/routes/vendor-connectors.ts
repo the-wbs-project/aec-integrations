@@ -23,6 +23,10 @@
  * section already shows them read-only (`attestable: false`, AECI-705).
  *
  * ── GATES ───────────────────────────────────────────────────────────────────
+ * AECI-1092: each delivered row also gets a contest target
+ * (`delivered_contest_targets`), so an endpoint vendor can contest a pair it does not
+ * own. That adds no write here; the contest posts to its own route.
+ *
  * `requireVendor()` at the route, then `requireOwnedProduct` → 404 for a product
  * the caller does not own (the AECI-520 non-disclosure rule). Not entitlement-
  * gated: reading your own product's data is not a paid capability. Not
@@ -40,7 +44,10 @@
  */
 
 import {
+  INTEGRATION_CONTEST_FIELDS,
   VendorProductConnectorsResponseSchema,
+  type ContestableFields,
+  type EvidencedPairContestTarget,
   type ProductLink,
   type VendorProductConnectorsResponse,
 } from '@aeci/shared';
@@ -48,10 +55,18 @@ import { compareText } from '@aeci/shared/text-sort';
 import { eq, inArray, sql } from 'drizzle-orm';
 
 import { getDb, type Db } from '../db/client';
-import { connectorCatalogSurfaces, connectorCatalogs, products } from '../db/schema';
+import {
+  connectorCatalogSurfaces,
+  connectorCatalogs,
+  connectorEvidencedPairs,
+  products,
+  vendors,
+} from '../db/schema';
 import { ApiError, notFoundError } from '../errors';
 import { json } from '../http';
+import { vendorsForEvidencedPairSlots } from '../lib/attestation-authority';
 import { reachablePartnersByConnector } from '../lib/connector-reach';
+import { storedFieldValue, toWireValue } from '../lib/integration-contests';
 import {
   deliveredPartnerIdsOf,
   productDetailConfig,
@@ -112,6 +127,93 @@ async function catalogAsOfByConnector(
   return out;
 }
 
+/**
+ * AECI-1092: one contest target per delivered pair, so an endpoint vendor can
+ * contest a field of a pair it does not own (`STAGE_2_VENDOR_PORTAL_SPEC.md`
+ * §11b.13). Values are framed against the owned product this section is about, the
+ * way `GET /api/vendor/integrations` frames them. Two reads for the pairs (chunked)
+ * and one for the endpoint vendors, then one for the vendor names.
+ */
+async function evidencedContestTargets(
+  db: Db,
+  vendorId: string,
+  productId: string,
+  pairIds: readonly string[],
+): Promise<Map<string, EvidencedPairContestTarget>> {
+  const out = new Map<string, EvidencedPairContestTarget>();
+  if (pairIds.length === 0) return out;
+  const pages = await Promise.all(
+    chunked(pairIds).map((chunk) =>
+      db.query.connectorEvidencedPairs.findMany({
+        with: {
+          productA: { columns: productLinkColumns },
+          productB: { columns: productLinkColumns },
+          connectorProduct: { columns: productLinkColumns },
+        },
+        where: inArray(connectorEvidencedPairs.id, chunk),
+      }),
+    ),
+  );
+  const pairs = pages.flat();
+  // Chunked like the reads around it: D1 caps bound parameters per statement.
+  const slotVendors = new Map(
+    (
+      await Promise.all(
+        chunked(pairs.map((p) => p.id)).map((chunk) => vendorsForEvidencedPairSlots(db, chunk)),
+      )
+    ).flatMap((m) => [...m]),
+  );
+  const vendorIds = new Set<string>();
+  for (const pair of pairs) {
+    if (pair.builtByVendorId) vendorIds.add(pair.builtByVendorId);
+    const slots = slotVendors.get(pair.id)?.slots;
+    for (const id of [...(slots?.vendor_a ?? []), ...(slots?.vendor_b ?? [])]) vendorIds.add(id);
+  }
+  const names = new Map<string, string>();
+  for (const chunk of chunked([...vendorIds])) {
+    const rows = await db
+      .select({ id: vendors.id, name: vendors.companyName })
+      .from(vendors)
+      .where(inArray(vendors.id, chunk));
+    for (const r of rows) names.set(r.id, r.name);
+  }
+  const ref = (id: string) => ({ id, name: names.get(id) ?? '' });
+  for (const pair of pairs) {
+    const contextIsSource = pair.productAId === productId;
+    const context = contextIsSource ? pair.productA : pair.productB;
+    const other = contextIsSource ? pair.productB : pair.productA;
+    const slots = slotVendors.get(pair.id)?.slots;
+    const endpointVendors = [...new Set([...(slots?.vendor_a ?? []), ...(slots?.vendor_b ?? [])])]
+      .map(ref)
+      .sort((a, b) => compareText(a.name, b.name) || compareText(a.id, b.id));
+    const contestable = Object.fromEntries(
+      INTEGRATION_CONTEST_FIELDS.map((field) => [
+        field,
+        field === 'mechanism_kind'
+          ? null
+          : toWireValue(
+              field,
+              storedFieldValue({ ...pair, mechanismKind: null }, field),
+              contextIsSource,
+            ),
+      ]),
+    ) as ContestableFields;
+    out.set(pair.id, {
+      id: pair.id,
+      name: pair.name,
+      context_product: toProductLink(context),
+      other_product: toProductLink(other),
+      connector: toProductLink(pair.connectorProduct),
+      contestable_fields: contestable,
+      endpoint_vendors: endpointVendors,
+      owner: pair.builtByVendorId ? ref(pair.builtByVendorId) : null,
+      is_owner: pair.builtByVendorId === vendorId,
+      retired: pair.retiredAt !== null,
+    });
+  }
+  return out;
+}
+
 export function createListVendorProductConnectorsHandler(
   dbFor: DbFactory = getDb,
 ): (c: VendorContext) => Promise<Response> {
@@ -143,11 +245,17 @@ export function createListVendorProductConnectorsHandler(
     for (const item of delivered) if (item.via) connectorIds.add(item.via.id);
     for (const r of reachOnly) connectorIds.add(r.connectorProductId);
 
-    const [links, asOf] = await Promise.all([
+    const [links, asOf, contestTargets] = await Promise.all([
       productLinksById(db, [
         ...new Set([...connectorIds, ...reachOnly.map((r) => r.partnerProductId)]),
       ]),
       catalogAsOfByConnector(db, [...connectorIds]),
+      evidencedContestTargets(
+        db,
+        vendorId,
+        productId,
+        delivered.map((item) => item.id),
+      ),
     ]);
 
     const partnerOf = (item: (typeof delivered)[number]) =>
@@ -164,12 +272,16 @@ export function createListVendorProductConnectorsHandler(
         const partner = links.get(r.partnerProductId);
         if (partner) reachable.push(partner);
       }
+      const deliveredHere = delivered
+        .filter((item) => item.via?.id === id)
+        .sort((a, b) => compareText(partnerOf(a).name, partnerOf(b).name));
       connectors.push({
         connector,
         catalog_as_of: asOf.get(id) ?? null,
-        delivered: delivered
-          .filter((item) => item.via?.id === id)
-          .sort((a, b) => compareText(partnerOf(a).name, partnerOf(b).name)),
+        delivered: deliveredHere,
+        delivered_contest_targets: deliveredHere
+          .map((item) => contestTargets.get(item.id))
+          .filter((t): t is EvidencedPairContestTarget => t !== undefined),
         reachable: reachable.sort((a, b) => compareText(a.name, b.name)),
       });
     }

@@ -266,7 +266,7 @@ Machine-readable codes are stable identifiers. Messages are localized.
 | `CONTEST_DUPLICATE` | 409 | The caller's vendor already has an OPEN contest on this field of this integration. `details.contest_id` names it when known |
 | `CONTEST_NOT_OPEN` | 409 | The contest is already accepted, declined or withdrawn. Also the answer to the loser of a decision race, whose batch rolls back entirely (no audit, transition or notification row) |
 | `CONTEST_ROUTED_TO_OWNER` | 409 | `PATCH /api/admin/contests/:id` on a contest the integration's owner decides, not AECi. A **stranded** owner-routed contest (owner vendor deleted) is not refused: AECi decides it (AECI-1005) |
-| `CONTEST_INTEGRATION_CHANGED` | 409 | `PATCH /api/admin/contests/:id` accept, when the integration was claimed, re-owned or deleted after the handler read it; or `POST /api/vendor/contests/:id/decision`, when the caller no longer holds the integration claimed. The whole batch rolled back; reload and decide again (AECI-1005) |
+| `CONTEST_INTEGRATION_CHANGED` | 409 | `PATCH /api/admin/contests/:id` accept, when the integration was claimed, re-owned or deleted after the handler read it; or `POST /api/vendor/contests/:id/decision`, when the caller no longer holds the integration claimed, or (AECI-1092) the contest was re-routed to AECi while deciding. The whole batch rolled back; reload and decide again (AECI-1005). Also `PATCH /api/admin/vendors/:id/entitlement` `clear` (AECI-1092), when the vendor's open owner-routed contests changed twice while it re-routed them; nothing was written, try again |
 | `CONTEST_VALUE_STALE` | 409 | `PATCH /api/admin/contests/:id` accept of a **content** contest on a **claimed** row, when the column no longer holds the value recorded at submit (almost always the owner's own edit, AECI-1006). Accepting would overwrite that change, so nothing is written. Checked on the handler's read and again inside the batch. The admin declines, or the submitter withdraws and re-files against the current value |
 | `PROTEST_NOT_AVAILABLE` | 409 | `POST /api/vendor/contests/:id/protest` when the contest cannot be protested now. `details.reason` is `aeci_routed`, `owner_unknown`, `already_protested`, `not_declined`, `owner_not_silent_yet` (with `details.opens_at`), `window_closed`, `contest_open` (the caller has another open contest on the same integration and field; checked on the read and inside the batch), or `contest_changed` for a lost race (AECI-1009, `STAGE_2_VENDOR_PORTAL_SPEC.md` §11b.12) |
 | `PROTEST_NOT_OPEN` | 409 | A protest reply, withdraw or decision on a protest that is absent, already decided or withdrawn, or that lost a race (AECI-1009) |
@@ -283,7 +283,7 @@ Machine-readable codes are stable identifiers. Messages are localized.
 | `INTEGRATION_ALREADY_CLAIMED` | 409 | The integration is already claimed. Also the answer to the loser of two racing claims, whose batch rolls back entirely |
 | `INTEGRATION_RETIRED` | 409 | `POST /api/vendor/integrations/:id/retire` or `POST /api/admin/integrations/:id/retire` (AECI-1046) on a row already retired, and any other vendor write on a retired row: a new data-flow claim, an attestation upsert, a contest submit (including one whose batch lost a race with the retire), the owner edit `PATCH /api/vendor/integrations/:id` (AECI-1006, including one whose batch lost that race), and a per-side link `PUT` or `DELETE` (AECI-1007). Withdrawing an attestation is still allowed (AECI-1010) |
 | `INTEGRATION_NOT_RETIRED` | 409 | `POST /api/vendor/integrations/:id/restore` or `POST /api/admin/integrations/:id/restore` on a live row (AECI-1010, AECI-1046) |
-| `VENDOR_SEATS_CHANGED` | 409 | `DELETE /api/admin/vendors/:id/seats/:userId` or `PATCH /api/admin/reviewers/:id` on a vendor seat whose batch lost a race with another seat write on the same vendor: a double-click, a seat provisioned mid-request, or two seats removed at once. Nothing was written. Reload and try again (AECI-989) |
+| `VENDOR_SEATS_CHANGED` | 409 | `DELETE /api/admin/vendors/:id/seats/:userId` or `PATCH /api/admin/reviewers/:id` on a vendor seat whose batch lost a race with another seat write on the same vendor: a double-click, a seat provisioned mid-request, or two seats removed at once. Nothing was written. Reload and try again (AECI-989). Also the claim grant (`PATCH /api/admin/claims/:id`), the admin seat provision (`POST /api/admin/vendors/:id/seats`) and the invite accept (`POST /api/seat-invites/:token/accept`) when the seat grant's batch returned contests a seat lapse had moved to AECi, and an entitlement clear committed between its read and its batch (`ownerEntitlementActiveSentinel`, AECI-1092), or another writer (a second grant, say) moved one of those contests first (`contestRowChangedSentinel`). Nothing was written. Try again |
 | `INTEGRATION_CHANGED_WHILE_SAVING` | 409 | A retire, restore, owner edit or claim (AECI-1089) whose batch lost a race, when the re-read finds no other refusal to give: a contest was filed on the row between the read and the batch, say, or (for a claim) promote moved the row to the other table. Nothing was written. Reload and try again (AECI-1010) |
 | `INTEGRATION_RETIRED_BY_AECI` | 403 | `POST /api/vendor/integrations/:id/restore` on a row an AECi admin retired (`retired_by = 'aeci'`). Only an admin restores an admin retire (AECI-1046, ruled 2026-09-22). Nothing is written |
 | `INTEGRATION_RETIRED_BY_OWNER` | 409 | `POST /api/admin/integrations/:id/restore` on a row its owner retired (`retired_by = 'owner'`, or NULL on a retire from before migration 0046). The owner controls its own retire, so the admin restore never undoes it (AECI-1046) |
@@ -1954,6 +1954,7 @@ Errors:
 - `INVALID_STATE_TRANSITION` (422) — the request is not a claim, is already terminal
   (and not an exact re-grant), or a claimed product has no vendor.
 - `NOT_FOUND` (404) — unknown request id, or the resolved vendor is missing.
+- `VENDOR_SEATS_CHANGED` (409) — the seat grant's batch returned contests a seat lapse had moved to AECi, and an entitlement clear committed between its read and its batch (`ownerEntitlementActiveSentinel`, AECI-1092), or another writer (a second grant, say) moved one of those contests first (`contestRowChangedSentinel`). Nothing was written. Try again.
 
 #### `GET /api/admin/claims/:id` (Stage 2 — AECI-739)
 
@@ -2493,6 +2494,7 @@ Errors:
 |---|---|---|
 | 404 | `NOT_FOUND` | Unknown vendor id. Checked **before** identity resolution, so a bad id cannot orphan a provisioned `auth.users` row |
 | 409 | `GRANT_CONFLICT` | The account is a site `admin`, or is already linked to a **different** vendor. `details.reason` is `already_admin` \| `other_vendor` |
+| 409 | `VENDOR_SEATS_CHANGED` | the seat grant's batch returned contests a seat lapse had moved to AECi, and an entitlement clear committed between its read and its batch (`ownerEntitlementActiveSentinel`, AECI-1092), or another writer (a second grant, say) moved one of those contests first (`contestRowChangedSentinel`). Nothing was written. Try again |
 | 503 | `DEPENDENCY_FAILURE` | `SUPABASE_SERVICE_ROLE_KEY` absent or GoTrue errored. Refuses rather than half-provisioning |
 | 400 | `VALIDATION_FAILED` | Malformed body or email (the shared `ZodError` mapping), or a missing path parameter |
 | 400 | `MALFORMED_REQUEST` | Body is not valid JSON |
@@ -2581,7 +2583,18 @@ The three actions:
 - **`clear`** — end it. Writes `status: 'revoked'` (`revoked` = pulled for cause;
   `expired` = lapsed amicably, which only the §7 sweep would have grounds to write, and per
   §7.3 it never writes `status`). Takes the mirror to `false`. **Does not revoke seats**: the
-  vendor keeps its logins and its dashboard, read-only.
+  vendor keeps its logins and its dashboard, read-only. **Re-routes contests (AECI-1092,
+  ruling B):** in the same batch, every open owner-routed contest the vendor decides on a
+  connector-powered row (either table) moves to `routed_to = 'aeci'`, each with an
+  `integration.contest.rerouted` audit row (`metadata.reason: 'entitlement-cleared'`) and an
+  `open → open` workflow transition. A guard first in those statements aborts the batch if
+  that set of contests changed after the handler read it (its count and newest `updated_at`); the handler re-plans and retries
+  once, then answers `409 CONTEST_INTEGRATION_CHANGED` with nothing written
+  (`STAGE_2_VENDOR_PORTAL_SPEC.md` §11b.13). **Reconciled with AECI-989:** the same batch
+  clears `owner_seat_lapsed_at` on the vendor's open stamped AECi contests on
+  connector-powered rows (`integration.contest.seat_stamp_cleared`,
+  `metadata.reason: 'entitlement-cleared'`), so a later seat grant or unban cannot send them
+  back, and the guard fingerprints that stamped set too.
 
 One atomic `db.batch` carries the entitlement row, the guarded `vendors.verified` +
 `updated_at` flip, and the `audit_log` row (`vendor_entitlement.set` / `.renewed` /
@@ -3001,7 +3014,15 @@ unbanned `vendor_admin` re-routes its open owner contests to AECi in the same ba
 stamped with `owner_seat_lapsed_at` (`integration.contest.rerouted`,
 `metadata.reason = 'owner-seat-lapsed'`, an `open → open` transition each). An unban of a
 vendor seat routes every stamped open contest back to the owner, when the row is live and
-claimed by that vendor since before the stamp (`reason = 'owner-seat-restored'`). A ban
+claimed by that vendor since before the stamp (`reason = 'owner-seat-restored'`).
+A connector-powered row adds two conditions (AECI-1092, reconciled with AECI-989 on
+2026-09-23): the owner must also hold an active entitlement, and a `mechanism_kind` contest
+never goes to the owner. A contest that fails either is not returned. It stays with AECi and
+its stamp clears (`integration.contest.seat_stamp_cleared`,
+`metadata.reason = 'owner-may-not-decide'`), so no later seat event returns it. A return of
+a contest on a connector-powered row carries the owner-entitlement sentinel, so a
+return that loses a race with an entitlement clear writes nothing and answers
+`409 VENDOR_SEATS_CHANGED` (`STAGE_2_VENDOR_PORTAL_SPEC.md` §11b.13). A ban
 hands nothing back: `claimed_at` and `maintained_by` are untouched, and there is still no
 cache purge. The response shape is unchanged (`STAGE_2_ATTESTATIONS_SPEC.md` §13.9). A
 vendor-seat ban or unban whose batch lost a race answers `409 VENDOR_SEATS_CHANGED` and
@@ -3073,7 +3094,7 @@ Accept or decline an **AECi-routed** contest, or a **stranded** owner-routed one
 | content field | unclaimed | nothing | `REVIEW - Apply contested field: <field> on <integration>` |
 | content field | claimed | the column + `integration.updated`, purge | the same title, body "AECi already applied it" |
 | `owner`, proposed = submitter | not connector-powered | `built_by_vendor_id`, `claimed_at`, maintenance transfer + `integration.claimed` + claim notification, purge | `REVIEW - Record integration owner: <integration>` |
-| `owner`, proposed = submitter | connector-powered | nothing (decision 9, v1) | `Apply contested field` |
+| `owner`, proposed = submitter | connector-powered | *Since AECI-1092 (ruling C):* the row above, in either table. Before it: nothing (decision 9, v1) | `Record integration owner` |
 | `owner`, proposed = other / neither | claimed | `built_by_vendor_id` = proposed, `claimed_at = NULL` + `integration.updated`, purge | `Record integration owner` |
 | `owner`, proposed = other / neither | unclaimed | nothing | `Apply contested field` |
 
@@ -3082,6 +3103,8 @@ The third row is the **owner-unknown claim** of AECI-1003 decision 11: an endpoi
 One batch: the guarded contest UPDATE (`WHERE status = 'open'`), the contest sentinel, an integration-state sentinel (claim state and owner as read), any catalog write above with its audit rows, the contest's `audit_log` row (`integration.contest.accepted | declined`, `actor_type: 'admin'`), the workflow transition and instance close, and a `notification.sent` row that tells the submitting vendor. This is the eighth named write exception in `ADMIN_PANEL_SPEC.md`: a **decision** write, which writes catalog data only on the claimed-row and owner-approval paths. Emits `aeci.contest.moderation.action`.
 
 **A stale accept is refused (AECI-1006).** On a claimed row a content accept writes the column, so it must not land on a value that moved since submit. Routing is frozen at submit, so a contest filed before the claim stays AECi's to decide after it, while the owner may have edited the same field through `PATCH /api/vendor/integrations/:id`. When the live column differs from the contest's recorded `current_value` (`NULL` counts as a value), the accept answers `409 CONTEST_VALUE_STALE` and writes nothing. The handler checks it on its own read, and a `contestValueUnchangedSentinel` (a `ONE_ROW` guard) checks it again inside the batch, so an owner edit that lands between the two is caught too. The list read carries `live_value` and `value_stale` so the queue can show why before the admin tries. Declining a stale contest is always allowed. An unclaimed row is never stale, because its accept writes nothing here, and an `owner` contest is decided on ownership rather than on a column.
+
+**On an evidenced pair (AECI-1092)** every case above applies to `connector_evidenced_pairs`: the write goes to the pair, and its audit row is `integration.updated` or `integration.claimed` with entity type `connector_evidenced_pair`. Every write on a connector-powered row (either table) carries `metadata { connectorPowered: true, anchor }`, as the AECI-1089 claim and the AECI-1090 owner edit write them. The purge adds the connector's `product:` tag. An accept that wrote the row here (`applied-here`, `owner-recorded`) also runs the owner edit's by-id Algolia sync behind `dispatchHook`, with failures logged as `aeci.api.admin.contest_algolia_sync_failed`. The Linear issue names the evidenced pair id and the connector. `AdminContestSchema.integration` gains `anchor` (default `'integration'`) and `connector` (`ProductLink | null`, default `null`).
 
 Errors: `NOT_FOUND`; `409 CONTEST_ROUTED_TO_OWNER` when the owner decides this row; `409 CONTEST_NOT_OPEN` when it is already closed or another admin won the race; `409 CONTEST_INTEGRATION_CHANGED` when the integration was claimed or re-owned while deciding (nothing written); `409 CONTEST_VALUE_STALE` when a content accept on a claimed row would overwrite a value that changed since submit (nothing written); `400 VALIDATION_FAILED` for a bad body.
 
@@ -5194,7 +5217,7 @@ Source of truth: `packages/shared/src/api/vendor.ts` + `product-versions.ts` + `
 
    **Named exception: integration field contests (AECI-1008).** The four contest endpoints below need a seat and nothing else. A contest asks for a public fact to be fixed and writes nothing public by itself, and gating accuracy behind a paid tier is the pay-for-placement line from the other side. The owner accept does write the catalog, and it is still not capability-gated, because the owner is deciding someone else's request about a row it already maintains. `STAGE_2_VENDOR_PORTAL_SPEC.md` §11b.2 holds the reasoning.
 
-   **Second named exception: integration ownership (AECI-1005, AECI-1003 decision 15).** `POST /api/vendor/integrations/:id/claim` needs a seat and nothing else (except on a connector-powered row, below), and so does `PATCH /api/vendor/integrations/:id` (AECI-1006), and so do the later owner writes on integrations (AECI-1010 retire and restore, AECI-1011 create). The per-side link writes (AECI-1007, below) are seat-gated the same way; they need an endpoint, not ownership. Who gets a seat is the commercial control (decision 14: an owner pays); there is no `integration.edit` capability. `STAGE_2_VENDOR_PORTAL_SPEC.md` §4.5 holds the contract. **One exception inside the exception (AECI-1040 ruling 2, AECI-1089):** an owner write on a connector-powered row also needs an active entitlement, and answers `403 INTEGRATION_ENTITLEMENT_REQUIRED` without one. It is not a capability and compares no tier (`apps/api/src/lib/integration-entitlement.ts`). Built for the claim and the edit (AECI-1090); retire and the contest decision reuse it when they open.
+   **Second named exception: integration ownership (AECI-1005, AECI-1003 decision 15).** `POST /api/vendor/integrations/:id/claim` needs a seat and nothing else (except on a connector-powered row, below), and so does `PATCH /api/vendor/integrations/:id` (AECI-1006), and so do the later owner writes on integrations (AECI-1010 retire and restore, AECI-1011 create). The per-side link writes (AECI-1007, below) are seat-gated the same way; they need an endpoint, not ownership. Who gets a seat is the commercial control (decision 14: an owner pays); there is no `integration.edit` capability. `STAGE_2_VENDOR_PORTAL_SPEC.md` §4.5 holds the contract. **One exception inside the exception (AECI-1040 ruling 2, AECI-1089):** an owner write on a connector-powered row also needs an active entitlement, and answers `403 INTEGRATION_ENTITLEMENT_REQUIRED` without one. It is not a capability and compares no tier (`apps/api/src/lib/integration-entitlement.ts`). Built for the claim and the edit (AECI-1090) and the contest decision (AECI-1092); retire reuses it when it opens.
 
 Every editable field is `.nullable().optional()`: an **absent** key leaves the column untouched, an explicit **`null`** clears it. Taxonomy arrays are set-replacement — absent leaves the facet alone, `[]` clears it. URLs must be `http://` or `https://` (§7.1); a plain `.url()` would accept `javascript:`.
 
@@ -5376,7 +5399,7 @@ Redeem it. `requireAuth()`. Returns `{ vendor_slug, vendor_name }` so the client
 
 **`profiles.work_email_verified` is decided here, not at invite time.** `computeDomainMatch(invite.email, vendors.website) === 'match'` sets it; an off-domain redeem leaves it as it was. This moved onto the accept path when the invite-time domain gate was removed: an invited address may now legitimately be off-domain, so "a redeem happened" is not a claim about employment, and the bit means what the §5 reviewer reads it to mean. Like `seat_owner`, it is never cleared — a profile that already earned it keeps it.
 
-Errors: `FORBIDDEN` (422, wrong signed-in address) · `INVALID_STATE_TRANSITION` (422, expired/revoked/already used) · `GRANT_CONFLICT` (409, redeemer is a site admin or already belongs to another vendor) · `NOT_FOUND` (404, unknown token — **with no identifier echoed back**, since the token is the identifier) · `RATE_LIMITED` (429 — AECI-773 `token` bucket, keyed by client IP and **never by the token**, `Retry-After: 10`). The sibling `GET` is deliberately NOT limited: reads are never rate-limited (`waf-rate-limits.md` §6.3).
+Errors: `FORBIDDEN` (422, wrong signed-in address) · `INVALID_STATE_TRANSITION` (422, expired/revoked/already used) · `GRANT_CONFLICT` (409, redeemer is a site admin or already belongs to another vendor) · `VENDOR_SEATS_CHANGED` (409, the seat grant's batch returned contests a seat lapse had moved to AECi, and an entitlement clear committed between its read and its batch (`ownerEntitlementActiveSentinel`, AECI-1092), or another writer (a second grant, say) moved one of those contests first (`contestRowChangedSentinel`); nothing is written) · `NOT_FOUND` (404, unknown token — **with no identifier echoed back**, since the token is the identifier) · `RATE_LIMITED` (429 — AECI-773 `token` bucket, keyed by client IP and **never by the token**, `Retry-After: 10`). The sibling `GET` is deliberately NOT limited: reads are never rate-limited (`waf-rate-limits.md` §6.3).
 
 #### `GET /api/vendor/notifications`
 
@@ -5601,6 +5624,10 @@ export const VendorProductConnectorSchema = z.object({
   connector: ProductLinkSchema,
   catalog_as_of: z.string().nullable(),               // MAX(connector_catalog_surfaces.last_ingested_at)
   delivered: z.array(ProductIntegrationItemSchema),   // connector_evidenced_pairs rows, via = connector
+  // AECI-1092: one per delivered row, so an endpoint vendor can contest the pair. The
+  // contest fields framed on the owned product (mechanism_kind always null), the endpoint
+  // vendors, the owner, is_owner and retired. Default [] for deploy skew.
+  delivered_contest_targets: z.array(EvidencedPairContestTargetSchema).default([]),
   reachable: z.array(ProductLinkSchema),              // partner products, never delivered by any path
 });
 
@@ -5890,6 +5917,8 @@ Errors: `NOT_FOUND` (unknown claim/integration, or one whose endpoints the calle
 
 Stage 2 (AECI-1008, `STAGE_2_VENDOR_PORTAL_SPEC.md` §11b). An endpoint vendor that does not own an integration challenges one of its fields. Zod in `packages/shared/src/api/integration-contests.ts`, handlers in `apps/api/src/routes/vendor-contests.ts`, shared rules in `apps/api/src/lib/integration-contests.ts`.
 
+**Evidenced pairs (AECI-1092, §11b.13).** A `connector_evidenced_pairs` row is contested through the same `POST /api/vendor/integrations/:id/contests`: the handler looks the id up in `integrations` first, then in the pairs, as the AECI-1089 claim and the AECI-1090 edit do. Same body, gate, order and errors. The endpoint check is `resolveEvidencedPairSlots` (same `404` rule). The fields are the eleven in `EVIDENCED_PAIR_CONTEST_FIELDS`: `field: 'mechanism_kind'` there is `400 VALIDATION_FAILED` on `field`. `direction` is in the pair's canonical A/B frame. Every read shape below gains `anchor: 'integration' | 'evidenced_pair'` (default `'integration'`), and `integration_id` is the anchor row's id in that table. Routing on a connector-powered row follows rulings A and E: `mechanism_kind` routes to AECi, and a content contest routes to the owner only while the owner holds an active entitlement. The owner's `decision` on a connector-powered row needs an active entitlement (`403 INTEGRATION_ENTITLEMENT_REQUIRED`), and answers `409 CONTEST_INTEGRATION_CHANGED` if the contest was re-routed to AECi while deciding. An owner accept of a `mechanism_kind` proposal that would make the row connector-powered answers `422 INTEGRATION_INVALID_VALUE` on `mechanism_kind`, as the owner edit does. An AECi accept that makes a claimed row connector-powered re-routes the open owner contests rulings A and B require, in its own batch (`STAGE_2_VENDOR_PORTAL_SPEC.md` §11b.13).
+
 | Method | Path | Gate | Success |
 |---|---|---|---|
 | `POST` | `/api/vendor/integrations/:id/contests` | seat + endpoint authority, `rateLimit('write')` | `201 { contest }` |
@@ -5906,6 +5935,8 @@ Stage 2 (AECI-1008, `STAGE_2_VENDOR_PORTAL_SPEC.md` §11b). An endpoint vendor t
 
 **Routing (AECI-989).** A content contest on a claimed row routes to the owner, unless the owner vendor has no unbanned `vendor_admin` seat. Then it routes to `aeci`, is stamped so it routes back when the vendor has an unbanned seat again (an unban or a new seat grant), and the owner gets no notice. The wire shape is unchanged (`STAGE_2_VENDOR_PORTAL_SPEC.md` §11b.4).
 
+**Routing on a connector-powered row, reconciled with AECI-989 (AECI-1092, 2026-09-23).** A contest routes to the owner only when the owner has an unbanned `vendor_admin` seat AND an active entitlement, and a `mechanism_kind` contest never does (rulings A and E). The stamp is set only when the missing seat is the one reason the contest went to AECi. A contest ruling A or E sent there is AECi's for good (`STAGE_2_VENDOR_PORTAL_SPEC.md` §11b.13).
+
 ```typescript
 export const SubmitIntegrationContestSchema = z.object({
   field: IntegrationContestFieldSchema,       // the twelve INTEGRATION_CONTEST_FIELDS
@@ -5921,7 +5952,8 @@ export const DecideContestSchema = z.object({
 
 export const VendorContestSchema = z.object({
   id: z.string().uuid(),
-  integration_id: z.string().uuid(),
+  integration_id: z.string().uuid(),    // the anchor row's id, in the table `anchor` names
+  anchor: z.enum(['integration', 'evidenced_pair']).default('integration'), // AECI-1092
   integration_name: z.string().nullable(),
   context_product: ProductLinkSchema,   // the caller's endpoint, endpoint A first
   other_product: ProductLinkSchema,

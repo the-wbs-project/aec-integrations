@@ -27,6 +27,7 @@ import {
   VENDOR_CONTESTS_FIXTURE,
   VENDOR_INTEGRATIONS_FIXTURE,
   VENDOR_ME_FIXTURE,
+  VENDOR_PRODUCT_CONNECTORS_FIXTURE,
 } from '../vendor-fixtures';
 import { VendorPortalStore } from '../vendor-portal-store';
 
@@ -302,12 +303,16 @@ describe('VendorContestForm — submitting', () => {
     api.getContests.mockClear();
     await submit(fixture);
 
-    expect(api.submitContest).toHaveBeenCalledWith(PROCORE.id, {
-      field: 'direction',
-      proposed_value: 'outbound',
-      reason: 'Only Summit pushes data.',
-      context_product_id: PROCORE.context_product.id,
-    });
+    expect(api.submitContest).toHaveBeenCalledWith(
+      PROCORE.id,
+      {
+        field: 'direction',
+        proposed_value: 'outbound',
+        reason: 'Only Summit pushes data.',
+        context_product_id: PROCORE.context_product.id,
+      },
+      'integration',
+    );
     expect(TestBed.inject(VendorPortalAnnouncer).message()).toContain(
       'was sent to AEC Integrations',
     );
@@ -346,5 +351,54 @@ describe('VendorContestForm — submitting', () => {
     expect(alerts.join(' ')).toContain(copy);
     expect(el(fixture).querySelector('form')).not.toBeNull();
     expect(TestBed.inject(VendorPortalAnnouncer).message()).toBe('');
+  });
+});
+
+describe('VendorContestForm on a connector-evidenced pair (AECI-1092)', () => {
+  const PAIR = Object.values(VENDOR_PRODUCT_CONNECTORS_FIXTURE)[0]!.connectors[0]!
+    .delivered_contest_targets[0]!;
+
+  async function createPairForm(): Promise<ComponentFixture<VendorContestForm>> {
+    const fixture = TestBed.createComponent(VendorContestForm);
+    fixture.componentRef.setInput('integration', PAIR);
+    fixture.componentRef.setInput('anchor', 'evidenced_pair');
+    await settle(fixture);
+    (fixture.nativeElement as HTMLElement).querySelector('button')!.click();
+    await settle(fixture);
+    return fixture;
+  }
+
+  it('offers the eleven fields that table has, and never the integration type', async () => {
+    const fixture = await createPairForm();
+    const select = (fixture.nativeElement as HTMLElement).querySelector('select')!;
+    const values = [...select.options].map((o) => o.value).filter((v) => v !== '');
+    expect(values).toHaveLength(11);
+    expect(values).not.toContain('mechanism_kind');
+  });
+
+  it('posts to the pair route', async () => {
+    api.submitContest.mockResolvedValue({
+      contest: { ...VENDOR_CONTESTS_FIXTURE.submitted[0]!, routed_to: 'aeci' },
+    });
+    const fixture = await createPairForm();
+    const root = fixture.nativeElement as HTMLElement;
+    const select = root.querySelector('select')!;
+    select.value = 'docs_url';
+    select.dispatchEvent(new Event('change'));
+    await settle(fixture);
+    const input = root.querySelector('input[type="url"]') as HTMLInputElement;
+    input.value = 'https://kroo.example/docs/new';
+    input.dispatchEvent(new Event('input'));
+    const reason = root.querySelector('textarea') as HTMLTextAreaElement;
+    reason.value = 'The docs moved.';
+    reason.dispatchEvent(new Event('input'));
+    await settle(fixture);
+    root.querySelector('form')!.dispatchEvent(new Event('submit', { cancelable: true }));
+    await settle(fixture);
+    expect(api.submitContest).toHaveBeenCalledWith(
+      PAIR.id,
+      expect.objectContaining({ field: 'docs_url', context_product_id: PAIR.context_product.id }),
+      'evidenced_pair',
+    );
   });
 });

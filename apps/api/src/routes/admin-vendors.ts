@@ -1112,7 +1112,16 @@ export function createProvisionSeatHandler(
       userId,
     );
 
-    await db.batch([...batch.stmts, ...(returned?.stmts ?? [])] as BatchTuple);
+    // AECI-1092 reconciliation: a return of a contest on a connector-powered row carries
+    // `ownerEntitlementActiveSentinel`. An entitlement clear that commits first aborts
+    // the batch: nothing is written and this handler answers `409 VENDOR_SEATS_CHANGED`.
+    // The admin's (or redeemer's) retry then re-plans against the cleared state.
+    try {
+      await db.batch([...batch.stmts, ...(returned?.stmts ?? [])] as BatchTuple);
+    } catch (error) {
+      if (returned && isSeatsChangedError(error)) throw seatsChangedError();
+      throw error;
+    }
     emitSeatProvision(c, 'ok');
     // ONE batched forward: the return adds a row and a transition per contest.
     forwardAuditBatch(

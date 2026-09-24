@@ -6,7 +6,7 @@ order: 5
 last_updated: 23 September 2026
 ---
 
-A contest is how a vendor challenges one detail of an integration it does not own. A protest is how it asks AEC Integrations to look again when the owner turns a contest down. Both need a seat on your vendor account. Neither needs a plan.
+A contest is how a vendor challenges one detail of an integration it does not own. A protest is how it asks AEC Integrations to look again when the owner turns a contest down. Both need a seat on your vendor account. Neither needs a plan. An owner deciding a contest on an integration delivered through a connector does need one.
 
 ## Contest a detail
 
@@ -18,6 +18,8 @@ You can contest a detail on any integration where one of your products is at an 
 
 Choose **Send contest**.
 
+Integrations delivered through a connector can be contested too. The ones a connector product delivers to your product are listed in the **Connectors** section of that product's Integrations tab, each one your company does not own with **Contest a field**. Those have no type field, so their type cannot be contested.
+
 The fields you can contest are the integration's name, type, mechanism name, direction, description, website, listing link, documentation link, mechanism link, pricing model, maturity, and owner. You can have one open contest per field on each integration. To send a different value, withdraw the open one first.
 
 A contest is a request, not a change. While it is open, the public page keeps the value on record and does not show that a contest exists.
@@ -27,8 +29,10 @@ A contest is a request, not a change. While it is open, the public page keeps th
 - If the owner has claimed the integration, the owner decides.
 - If nobody has claimed it, AEC Integrations decides.
 - A contest on the owner field always goes to AEC Integrations, even after a claim. An owner never rules on its own ownership.
+- On an integration delivered through a connector, the owner decides only while it holds an active plan. Otherwise AEC Integrations decides.
+- A contest on an integration's type goes to AEC Integrations when the integration is delivered through a connector, or when the proposed type would make it one.
 
-A contest stays with whoever was deciding when you sent it. You can follow yours in **Messages**, under **Field contests** and then **Submitted**. While it is open it shows "With the owner" or "With AEC Integrations".
+A contest stays with whoever was deciding when you sent it, with two exceptions. If we end the owner's plan, its open contests on integrations delivered through a connector move to AEC Integrations. Open contests can also move to us when an accepted change makes an integration delivered through a connector. You can follow yours in **Messages**, under **Field contests** and then **Submitted**. While it is open it shows "With the owner" or "With AEC Integrations".
 
 Updates about contests appear in the portal. We do not email them, so check **Messages**.
 
@@ -44,6 +48,8 @@ Once your company has claimed an integration, contests on its details come to yo
 
 - **Accept** writes the proposed value to the public page straight away.
 - **Decline** leaves the value as it is. You can add a note, which the sender sees.
+
+On an integration delivered through a connector, deciding a contest needs an active plan. If we end your plan, the open ones move to AEC Integrations.
 
 Editing a field yourself does not close a contest on it. The contest stays open until you decide it.
 

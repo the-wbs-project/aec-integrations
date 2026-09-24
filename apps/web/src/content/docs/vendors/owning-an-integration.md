@@ -8,7 +8,7 @@ last_updated: 23 September 2026
 
 An integration belongs to the vendor that offers it: the company a customer buys it from or gets it from. The public integration page names that vendor on its "Offered by" line. AEC Integrations recorded most integrations from public sources to start the catalogue. This page is for the vendor that owns one.
 
-Everything here needs a seat on your company's vendor account ([Your seat](/docs/vendors/your-seat)). None of it affects where anything ranks. One part depends on your plan: claiming an integration delivered through a connector needs an active plan (see the last section). Nothing else here does.
+Everything here needs a seat on your company's vendor account ([Your seat](/docs/vendors/your-seat)). None of it affects where anything ranks. One part depends on your plan: claiming an integration delivered through a connector, and deciding contests on one, need an active plan (see the last section). Nothing else here does.
 
 ## Find your integrations
 
@@ -33,12 +33,12 @@ Once you claim it:
 - AEC Integrations' catalogue updates stop reaching the integration. That covers its details, its owner, and the data flows recorded under it.
 - You can edit its details, and your edits go live.
 - The vendor of the other product is told that you claimed it.
-- Contests sent after the claim about its details come to you, in Messages under Field contests. Contests sent before the claim stay with AEC Integrations.
+- Contests sent after the claim about its details come to you, in Messages under Field contests. Contests sent before the claim stay with AEC Integrations. On an integration delivered through a connector, new contests come to you only while your company has an active plan.
 - The public page shows it as vendor-maintained.
 
 A claim cannot be undone from the portal. The only way an integration leaves its owner is an AEC Integrations decision on a contest about who owns it.
 
-**If your company offers an integration but is not recorded as the owner,** contest the Owner field on the card and propose your company. AEC Integrations reviews it. If it is accepted, your company is recorded as the owner and the integration is claimed for you in the same step. On an integration delivered through a connector, the owner is recorded upstream instead and the integration is not claimed.
+**If your company offers an integration but is not recorded as the owner,** contest the Owner field on the card and propose your company. AEC Integrations reviews it. If it is accepted, your company is recorded as the owner and the integration is claimed for you in the same step. This works the same way on an integration delivered through a connector.
 
 ## Edit its details
 
@@ -85,7 +85,7 @@ If a similar integration was already listed for the same two products, you are t
 
 ## Contests you receive
 
-A vendor at either end that does not own the integration can contest one of its details. Once you have claimed the integration, those contests come to you in **Messages** under **Field contests**, and you accept or decline each one. A contest about who owns the integration never comes to you. It always goes to AEC Integrations. [Contests and protests](/docs/vendors/contests-and-protests) covers both sides of a contest, including what happens if you decline one.
+A vendor at either end that does not own the integration can contest one of its details. Once you have claimed the integration, those contests come to you in **Messages** under **Field contests**, and you accept or decline each one. A contest about who owns the integration never comes to you. It always goes to AEC Integrations. On an integration delivered through a connector, deciding a contest needs an active plan. [Contests and protests](/docs/vendors/contests-and-protests) covers both sides of a contest, including what happens if you decline one.
 
 ## Integrations delivered through a connector
 

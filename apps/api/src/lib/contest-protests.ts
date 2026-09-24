@@ -39,8 +39,13 @@ import { ApiError } from '../errors';
 import type { BatchStmt, BatchTuple } from './audit';
 import { isClaimed, ONE_ROW } from './integration-claims';
 import {
+  anchorColumnSql,
+  contestAnchorOf,
+  contestAnchorWhere,
   isContestRaceError,
   storedFieldValue,
+  toContestAnchor,
+  type ContestAnchor,
   type ContestIntegrationContext,
   type ContestRow,
 } from './integration-contests';
@@ -234,7 +239,7 @@ export function assertProtestable(
  *  declines it. */
 function otherOpenContestWhere(row: ContestRow) {
   return and(
-    eq(integrationFieldChallenges.integrationId, row.integrationId),
+    contestAnchorWhere(contestAnchorOf(row)),
     eq(integrationFieldChallenges.field, row.field),
     eq(integrationFieldChallenges.submitterVendorId, row.submitterVendorId),
     eq(integrationFieldChallenges.status, 'open'),
@@ -260,10 +265,12 @@ export async function hasOtherOpenContest(db: Db, row: ContestRow): Promise<bool
 /** The in-batch half of {@link hasOtherOpenContest}: aborts the file batch when a
  *  contest on the same field was filed between the handler's read and the batch. */
 export function noOtherOpenContestSentinel(db: Db, row: ContestRow) {
+  // AECI-1092: on the contest's own anchor column, whichever table it names.
+  const anchor = contestAnchorOf(row);
   return db
     .select({
       guard: sql`CASE WHEN EXISTS (SELECT 1 FROM "integration_field_challenges"
-        WHERE "integration_id" = ${row.integrationId} AND "field" = ${row.field}
+        WHERE ${anchorColumnSql(anchor.kind)} = ${anchor.id} AND "field" = ${row.field}
           AND "submitter_vendor_id" = ${row.submitterVendorId} AND "status" = 'open'
           AND "id" <> ${row.id})
         THEN json('protest-contest-open') END`,
@@ -284,15 +291,18 @@ export function noOtherOpenContestSentinel(db: Db, row: ContestRow) {
 export async function protestSubmitRefusal(
   db: Db,
   args: {
-    integrationId: string;
+    /** The anchor, or (the pre-AECI-1092 form) a bare `integrations` id. */
+    anchor?: ContestAnchor;
+    integrationId?: string;
     field: IntegrationContestField;
     vendorId: string;
     liveValue: string | null;
     now: string;
   },
 ): Promise<ApiError | null> {
+  const anchor = args.anchor ?? toContestAnchor(args.integrationId ?? '');
   const scope = and(
-    eq(integrationFieldChallenges.integrationId, args.integrationId),
+    contestAnchorWhere(anchor),
     eq(integrationFieldChallenges.field, args.field),
     eq(integrationFieldChallenges.submitterVendorId, args.vendorId),
   );

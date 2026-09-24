@@ -21,6 +21,7 @@ import { Injectable, inject } from '@angular/core';
 import { firstValueFrom } from 'rxjs';
 
 import type {
+  ContestAnchorKind,
   RetireIntegrationResponse,
   ClaimIntegrationResponse,
   CreateVendorIntegrationInput,
@@ -283,10 +284,13 @@ export class VendorApi {
 
   /** `POST /api/vendor/integrations/:id/contests` — contest one field (201).
    *  `proposed_value` is in wire form: `direction` caller-relative, `owner` a
-   *  vendor id or `null`. */
+   *  vendor id or `null`. The id may be a connector-evidenced pair's (AECI-1092): the
+   *  server finds the table, as it does for the claim and the edit. `anchor` is only
+   *  what the caller knows about the row; it does not change the request. */
   submitContest(
     integrationId: string,
     body: SubmitIntegrationContestInput,
+    _anchor: ContestAnchorKind = 'integration',
   ): Promise<VendorContestResponse> {
     return firstValueFrom(
       this.http.post<VendorContestResponse>(

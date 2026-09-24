@@ -445,16 +445,19 @@ describe('PATCH /api/admin/contests/:id — accepts on owned rows (AECI-1005)', 
     });
   });
 
-  it('refuses the ownership write on a connector-powered row, but the accept stands (decision 9)', async () => {
+  it('records the owner and the claim on a connector-powered row too (AECI-1092 ruling C)', async () => {
+    // Decision 9's v1 exception is retired: an admin owner-approval writes the owner
+    // and `claimed_at` on a connector-powered row exactly as on any other row.
     await setIntegration({ builtByVendorId: null, mechanismKind: 'iPaaS' });
     const id = await fileContest('owner', VENDOR_A);
     const res = await accept(id);
     expect(res.status).toBe(200);
     const row = await integrationRow();
-    expect(row.builtByVendorId).toBeNull();
-    expect(row.claimedAt).toBeNull();
-    expect(await auditActions()).not.toContain('integration.claimed');
-    expect(fileIssue.mock.calls[0]![2]).toMatchObject({ appliedMode: 'upstream-only' });
+    expect(row.builtByVendorId).toBe(VENDOR_A);
+    expect(row.claimedAt).not.toBeNull();
+    expect(row.maintainedBy).toBe('vendor');
+    expect(await auditActions()).toContain('integration.claimed');
+    expect(fileIssue.mock.calls[0]![2]).toMatchObject({ appliedMode: 'owner-recorded' });
   });
 
   it('reassigns a claimed row to someone else and clears claimed_at', async () => {
