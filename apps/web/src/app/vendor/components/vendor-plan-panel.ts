@@ -58,7 +58,7 @@ import { VendorAccountBadge } from '../../shared/vendor-account-badge/vendor-acc
  *    **not an error**, so it borrows nothing from the error vocabulary — no
  *    `--status-error`, no alert role, no warning glyph. It leads with what the
  *    vendor KEEPS (dashboard, listing, reviews, seats, everything readable),
- *    names the one thing that is paused, and offers a renewal path.
+ *    names what is paused, and offers a renewal path.
  *  - **`none`** (`status: null`) — never arranged. An invitation, not a loss.
  *  - **`catalogue`** (`status: null` on a vendor holding a `connector`-role
  *    product) — the connector catalogue-maintenance seat (AECI-724,
@@ -213,8 +213,8 @@ import { VendorAccountBadge } from '../../shared/vendor-account-badge/vendor-acc
             >
               <span i18n="@@vendor.plan.lapsed.paused"
                 >What is paused: the public account label, editing your profile and products,
-                confirming data flows on your integrations, and managing the integrations you own
-                that are delivered through a connector.</span
+                confirming, denying or clearing data flows on your integrations, and managing the
+                integrations you own that are delivered through a connector.</span
               >
             </p>
             <p class="mt-4 max-w-prose text-sm leading-relaxed text-(--text-secondary)">
