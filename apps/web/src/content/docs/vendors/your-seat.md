@@ -3,7 +3,7 @@ title: Your seat
 description: Signing in to the vendor portal, inviting and removing colleagues, and what a seat lets you do with and without a plan.
 section: vendors
 order: 2
-last_updated: 23 September 2026
+last_updated: 24 September 2026
 ---
 
 A seat is one person's access to one vendor's account on AEC Integrations. Seats have no price and no limit on how many your company holds. What a seat can change depends partly on whether your company has an active plan, set out below.
@@ -36,6 +36,8 @@ Owners invite from the **Seats** tab. Choose **Invite**, enter your colleague's 
 - Your company can send up to 10 invitations a day.
 
 Invited colleagues join as members. Members cannot invite others.
+
+If your colleague's account already holds a seat at another company, the invite page says the account can't join your team. They need to sign in with a different address, and you need to invite that address.
 
 ## Remove a colleague
 

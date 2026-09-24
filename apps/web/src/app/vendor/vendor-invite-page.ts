@@ -7,6 +7,7 @@ import type { AcceptSeatInviteResponse, SeatInvitePreview } from '@aeci/shared';
 
 import { MetaService } from '../core/meta.service';
 import { canonicalUrl } from '../core/canonical';
+import { readVendorApiError } from './vendor-api-error';
 
 /**
  * `/vendor/invite/:token` — where a seat invite is redeemed (AECI-664 /
@@ -83,6 +84,28 @@ import { canonicalUrl } from '../core/canonical';
             </h1>
             <p class="mt-3 text-sm leading-relaxed text-(--text-secondary)">{{ blockedCopy() }}</p>
           }
+          @case ('conflict') {
+            <h1
+              class="font-display text-2xl font-semibold tracking-tight text-(--text-primary)"
+              i18n="@@vendor.invite.conflict.title"
+            >
+              This account can't join this team
+            </h1>
+            <p
+              class="mt-3 text-sm leading-relaxed text-(--text-secondary)"
+              i18n="@@vendor.invite.conflict.body"
+            >
+              The account you are signed in with already holds a seat at another company, or is an
+              AEC Integrations staff account. One account can hold a seat at only one company.
+            </p>
+            <p
+              class="mt-3 text-sm leading-relaxed text-(--text-secondary)"
+              i18n="@@vendor.invite.conflict.action"
+            >
+              Ask whoever invited you to send the invite to a different email address. Then sign
+              out, and sign back in with that address to accept it.
+            </p>
+          }
           @case ('error') {
             <h1
               class="font-display text-2xl font-semibold tracking-tight text-(--text-primary)"
@@ -112,7 +135,9 @@ export class VendorInvitePage {
   private readonly token = this.route.snapshot.paramMap.get('token');
 
   protected readonly preview = signal<SeatInvitePreview | null>(null);
-  protected readonly state = signal<'loading' | 'ready' | 'blocked' | 'error'>('loading');
+  protected readonly state = signal<'loading' | 'ready' | 'blocked' | 'conflict' | 'error'>(
+    'loading',
+  );
   protected readonly busy = signal(false);
 
   protected readonly btn =
@@ -180,7 +205,17 @@ export class VendorInvitePage {
       // router hop: the session's role has just changed server-side, and the
       // portal's own resolver has to re-run against the new one.
       await this.router.navigateByUrl(`/vendor/${body.vendor_slug}/overview`);
-    } catch {
+    } catch (err) {
+      // A 409 GRANT_CONFLICT (AECI-1109) is the one refusal the preview cannot
+      // describe: the invite is fine, the redeeming ACCOUNT is not. It is a site
+      // admin, or already holds another vendor's seat (§11a, `routes/seat-invites.ts`).
+      // Re-reading the preview would say "redeemable" and fall through to the
+      // generic error, so it gets its own state and never re-reads.
+      const info = readVendorApiError(err);
+      if (info?.status === 409 && info.code === 'GRANT_CONFLICT') {
+        this.state.set('conflict');
+        return;
+      }
       // Re-read rather than guessing: the server knows WHICH refusal this was,
       // and the reason drives the copy.
       await this.load();

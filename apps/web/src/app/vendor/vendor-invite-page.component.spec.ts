@@ -85,6 +85,55 @@ describe('VendorInvitePage', () => {
     expect(navigate).toHaveBeenCalledWith('/vendor/summit-bim/overview');
   });
 
+  it('explains a 409 GRANT_CONFLICT on accept instead of the generic error (AECI-1109)', async () => {
+    const fixture = await render(preview());
+    (fixture.nativeElement.querySelector('button') as HTMLButtonElement).click();
+
+    http.expectOne(`/api/seat-invites/${TOKEN}/accept`).flush(
+      {
+        error: {
+          code: 'GRANT_CONFLICT',
+          message: 'This account is already linked to a different vendor',
+        },
+        trace_id: 't',
+      },
+      { status: 409, statusText: 'Conflict' },
+    );
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    const text = fixture.nativeElement.textContent as string;
+    expect(text).toContain("This account can't join this team");
+    expect(text).toContain('another company');
+    expect(text).toContain('different email address');
+    expect(text).not.toContain("couldn't load this invite");
+    // The preview cannot describe this refusal, so the page must not re-read it.
+    http.expectNone(`/api/seat-invites/${TOKEN}`);
+    expect(fixture.nativeElement.querySelector('button')).toBeNull();
+    expect(navigate).not.toHaveBeenCalled();
+  });
+
+  it('keeps any other accept failure on the generic error state', async () => {
+    const fixture = await render(preview());
+    (fixture.nativeElement.querySelector('button') as HTMLButtonElement).click();
+
+    http
+      .expectOne(`/api/seat-invites/${TOKEN}/accept`)
+      .flush(
+        { error: { code: 'INTERNAL_ERROR', message: 'boom' }, trace_id: 't' },
+        { status: 500, statusText: 'Server Error' },
+      );
+    await Promise.resolve();
+    // The existing path re-reads the preview; it still says redeemable.
+    http.expectOne(`/api/seat-invites/${TOKEN}`).flush(preview());
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    const text = fixture.nativeElement.textContent as string;
+    expect(text).toContain("couldn't load this invite");
+    expect(text).not.toContain("can't join this team");
+  });
+
   it('tells a mismatched signer WHICH address to use, and offers no button', async () => {
     const fixture = await render(preview({ redeemable: false, reason: 'email_mismatch' }));
     const text = fixture.nativeElement.textContent as string;
