@@ -14,27 +14,27 @@
 
 Stage 1.5 — **Integration Redesign** — is a focused, pre-launch redesign of the one surface in Stage 1 that misleads: the integration page. It lands two coordinated changes.
 
-- **(A) The product-PAIR page.** Today an integration is rendered as a standalone `source → target` row at `/integrations/:id`. Two products can be connected by several mechanisms (a native connector *and* a Zapier app *and* a partner API), and the directionality of each is buried. Stage 1.5 replaces the per-row page with a single **context-oriented pair page** nested under a product — `/products/:contextSlug/integrations/:otherSlug` — that consolidates **every** mechanism between the two products into one view.
-- **(B) The claim/attestation model.** Stage 1.5 adds a structured answer to *"what actually flows between these two products, and in which direction?"* A **claim** is the unit: a closed-vocabulary `data_object` (RFIs, Budgets, Models…) moving in a `direction`, attached to a specific integration (mechanism) row. Claims carry **attestations** (who says so). In Stage 1.5 the only attestor is **AECi itself** (staff curation); vendor attestations — and everything that depends on them — are Stage 2.
+- **(A) The product-PAIR page.** Today an integration is rendered as a standalone `source → target` row at `/integrations/:id`. Two products can be connected by several mechanisms (a native connector _and_ a Zapier app _and_ a partner API), and the directionality of each is buried. Stage 1.5 replaces the per-row page with a single **context-oriented pair page** nested under a product — `/products/:contextSlug/integrations/:otherSlug` — that consolidates **every** mechanism between the two products into one view.
+- **(B) The claim/attestation model.** Stage 1.5 adds a structured answer to _"what actually flows between these two products, and in which direction?"_ A **claim** is the unit: a closed-vocabulary `data_object` (RFIs, Budgets, Models…) moving in a `direction`, attached to a specific integration (mechanism) row. Claims carry **attestations** (who says so). In Stage 1.5 the only attestor is **AECi itself** (staff curation); vendor attestations — and everything that depends on them — are Stage 2.
 
 The redesign is deliberately split into **two layers** so visible value ships before any data exists:
 
-| Layer | What | Needs claim data? | Ships |
-|---|---|---|---|
-| **A** | The pair page — routing, 301 consolidation, SEO (§7) | **No** | First (AECI-294) |
+| Layer | What                                                          | Needs claim data?      | Ships                     |
+| ----- | ------------------------------------------------------------- | ---------------------- | ------------------------- |
+| **A** | The pair page — routing, 301 consolidation, SEO (§7)          | **No**                 | First (AECI-294)          |
 | **B** | Claim rendering on the pair page — the data-flow section (§8) | Yes (seeded via §4–§6) | After the spine is seeded |
 
 ### 1.1 The 1.5 ⇄ Stage 2 split
 
 Everything in Stage 1.5 is **AECi-seeded and read-only to the public**. The dividing line is the **vendor portal**: anything that requires a vendor to log in and assert something is Stage 2.
 
-| In Stage 1.5 | Deferred to Stage 2 |
-|---|---|
-| Pair page + 301 consolidation (§7) | Vendor attestation authoring (AECI-301) |
-| Claim model + AECi attestations (§3) | Conflict UI + notification pipeline (AECI-302) |
-| `data_object` closed vocabulary (§2) | Version-diff timeline (AECI-303) — **shipped**, over the `product_versions` FKs rather than these date stamps |
-| `computeAgreement` (vendor-vs-vendor; AECi-never-red) (§3.4) | Paywalled integration depth (AECI-304) |
-| Read-only claim rendering — everything shows **"Unverified"** (§8) | Per-pair Algolia records + integrations search tab (§9) |
+| In Stage 1.5                                                       | Deferred to Stage 2                                                                                           |
+| ------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------- |
+| Pair page + 301 consolidation (§7)                                 | Vendor attestation authoring (AECI-301)                                                                       |
+| Claim model + AECi attestations (§3)                               | Conflict UI + notification pipeline (AECI-302)                                                                |
+| `data_object` closed vocabulary (§2)                               | Version-diff timeline (AECI-303) — **shipped**, over the `product_versions` FKs rather than these date stamps |
+| `computeAgreement` (vendor-vs-vendor; AECi-never-red) (§3.4)       | Paywalled integration depth (AECI-304)                                                                        |
+| Read-only claim rendering — everything shows **"Unverified"** (§8) | Per-pair Algolia records + integrations search tab (§9)                                                       |
 
 Because no vendor can attest in 1.5, **every claim renders "Unverified"** and the agreement engine can never produce a red "conflict" state (§3.4). The version stamps (`introduced_at`/`deprecated_at`) and the `vendor_a`/`vendor_b` attestation sources ship **additive and dormant** — present in the schema, exercised by Stage 2.
 
@@ -42,37 +42,37 @@ Because no vendor can attest in 1.5, **every claim renders "Unverified"** and th
 
 Every Stage 1.5 issue opens with `**Spec section:** §X.Y (docs/STAGE_1_5_SPEC.md)`. The subsection numbering below is load-bearing — it must not be renumbered without updating the issues.
 
-| Anchor | Issue | Surface |
-|---|---|---|
-| §2 | AECI-287 *(done)* | `data_object` controlled vocabulary |
-| §3 | — | Claim/attestation model (foundational; no single issue) |
-| §4.1 | AECI-290 | Review app: Airtable `data_objects` + `integration_claims` |
-| §4.2 | AECI-292 | Review app: claim MCP tools + seeding playbook |
-| §4.3 | AECI-299 | OPS: re-curate the catalog into claims |
-| §4.4 | AECI-295 | Review app: read-only Claims tab (QA) |
-| §5 | AECI-291 | Promote contract: add `claims[]` (shared schema) |
-| §5.2 | AECI-296 | Review app: emit `claims[]` from `buildPromotePayload` |
-| §6.1 | AECI-293 | Main app: D1 schema (`taxonomy_data_objects` / `claims` / `attestations`) |
-| §6.2 | AECI-297 | Main app: `POST /api/promote` ingests `claims[]` |
-| §7 | AECI-294 | Pair page (Layer A) — routing / 301 / SEO |
-| §8 | AECI-300 | Claim rendering (Layer B) |
-| §9 | AECI-298 | Search / SEO / Algolia follow-through |
-| §11 | AECI-339 | Addendum A — search-intent pair indexing (this addendum) |
-| §11.2 | AECI-340 | Dual-orientation indexable pair pages |
-| §11.3 | AECI-341 | Context-specific suggestions module |
-| §11.4 | AECI-342 | "Meaningful no" pair pages — scoring / template / tiered indexing |
-| §11.5 | AECI-343 | Per-pair "report a missing integration" CTA |
-| §11.6 | AECI-344 | GSC measurement loop — gate + quarterly tier review |
-| §12 | — | Addendum B — connector-role product detail: powered integrations (`integrations_as_connector` + hub view) |
-| §12.7 | — | Catalog-scope note under both populated integration lists |
-| §13 | AECI-708 | Addendum C — connector presentation contract (this addendum) |
-| §13.2 / §13.3 | AECI-713 *(done)* | Endpoint Integrations split — direct lane + "Via {connector}" groups |
-| §13.3b | AECI-710 | "Built within {host}" and the reciprocal Extensions section; never an integration, never counted |
-| §13.4(1) / §13.4(3) | AECI-713 *(done)* | Contract addition the split needs (`powered_by` on the product-detail embed; the endpoint read's union with the evidenced tier) + the connector cache tag |
-| §13.4(2) | AECI-707 *(done)* | Powered-section self-exclusion — shipped with the role-varied template, because 707 promotes that section to the top of a connector page |
-| §13.5 | AECI-721, AECI-789, AECI-1010 | Count invariants — §12.5 resolved as B; the lockstep (26 expressions plus four exclusions since AECI-1010, asserted as `LOCKSTEP_SITES`) |
-| §13.6 | AECI-707 | Connector / hybrid role-varied product-detail template |
-| §13.7 | AECI-715 / AECI-716 (first bullet: **AECI-892** *(done)*) | Connector coverage surface + reachable-lane publication boundary; AECI-892 shipped the endpoint reach line only |
+| Anchor              | Issue                                                     | Surface                                                                                                                                                   |
+| ------------------- | --------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| §2                  | AECI-287 _(done)_                                         | `data_object` controlled vocabulary                                                                                                                       |
+| §3                  | —                                                         | Claim/attestation model (foundational; no single issue)                                                                                                   |
+| §4.1                | AECI-290                                                  | Review app: Airtable `data_objects` + `integration_claims`                                                                                                |
+| §4.2                | AECI-292                                                  | Review app: claim MCP tools + seeding playbook                                                                                                            |
+| §4.3                | AECI-299                                                  | OPS: re-curate the catalog into claims                                                                                                                    |
+| §4.4                | AECI-295                                                  | Review app: read-only Claims tab (QA)                                                                                                                     |
+| §5                  | AECI-291                                                  | Promote contract: add `claims[]` (shared schema)                                                                                                          |
+| §5.2                | AECI-296                                                  | Review app: emit `claims[]` from `buildPromotePayload`                                                                                                    |
+| §6.1                | AECI-293                                                  | Main app: D1 schema (`taxonomy_data_objects` / `claims` / `attestations`)                                                                                 |
+| §6.2                | AECI-297                                                  | Main app: `POST /api/promote` ingests `claims[]`                                                                                                          |
+| §7                  | AECI-294                                                  | Pair page (Layer A) — routing / 301 / SEO                                                                                                                 |
+| §8                  | AECI-300                                                  | Claim rendering (Layer B)                                                                                                                                 |
+| §9                  | AECI-298                                                  | Search / SEO / Algolia follow-through                                                                                                                     |
+| §11                 | AECI-339                                                  | Addendum A — search-intent pair indexing (this addendum)                                                                                                  |
+| §11.2               | AECI-340                                                  | Dual-orientation indexable pair pages                                                                                                                     |
+| §11.3               | AECI-341                                                  | Context-specific suggestions module                                                                                                                       |
+| §11.4               | AECI-342                                                  | "Meaningful no" pair pages — scoring / template / tiered indexing                                                                                         |
+| §11.5               | AECI-343                                                  | Per-pair "report a missing integration" CTA                                                                                                               |
+| §11.6               | AECI-344                                                  | GSC measurement loop — gate + quarterly tier review                                                                                                       |
+| §12                 | —                                                         | Addendum B — connector-role product detail: powered integrations (`integrations_as_connector` + hub view)                                                 |
+| §12.7               | —                                                         | Catalog-scope note under both populated integration lists                                                                                                 |
+| §13                 | AECI-708                                                  | Addendum C — connector presentation contract (this addendum)                                                                                              |
+| §13.2 / §13.3       | AECI-713 _(done)_                                         | Endpoint Integrations split — direct lane + "Via {connector}" groups                                                                                      |
+| §13.3b              | AECI-710                                                  | "Built within {host}" and the reciprocal Extensions section; never an integration, never counted                                                          |
+| §13.4(1) / §13.4(3) | AECI-713 _(done)_                                         | Contract addition the split needs (`powered_by` on the product-detail embed; the endpoint read's union with the evidenced tier) + the connector cache tag |
+| §13.4(2)            | AECI-707 _(done)_                                         | Powered-section self-exclusion — shipped with the role-varied template, because 707 promotes that section to the top of a connector page                  |
+| §13.5               | AECI-721, AECI-789, AECI-1010                             | Count invariants — §12.5 resolved as B; the lockstep (26 expressions plus four exclusions since AECI-1010, asserted as `LOCKSTEP_SITES`)                  |
+| §13.6               | AECI-707                                                  | Connector / hybrid role-varied product-detail template                                                                                                    |
+| §13.7               | AECI-715 / AECI-716 (first bullet: **AECI-892** _(done)_) | Connector coverage surface + reachable-lane publication boundary; AECI-892 shipped the endpoint reach line only                                           |
 
 Prototypes (AECI-289) gate §7/§8 — build the production pair page and claim rendering **against the approved I3 prototype**. The §11 rows are **post-launch Addendum A** work (project "Pair-Page Search Intent (pSEO)"), not part of the original 1.5 critical path.
 
@@ -83,7 +83,7 @@ Prototypes (AECI-289) gate §7/§8 — build the production pair page and claim 
             → 293 (D1 schema) → 297 (promote ingest) → 300 (claim rendering)
 ```
 
-The Review-app lane (290 → 292 → 295/296) and the OPS re-curation (299) run in parallel; the pair page (294, Layer A) needs none of them and ships first. The two locked architectural decisions — *claims attach to the mechanism row* and *agreement is computed-not-stored* — are recorded in **ADR 0018**.
+The Review-app lane (290 → 292 → 295/296) and the OPS re-curation (299) run in parallel; the pair page (294, Layer A) needs none of them and ships first. The two locked architectural decisions — _claims attach to the mechanism row_ and _agreement is computed-not-stored_ — are recorded in **ADR 0018**.
 
 ---
 
@@ -91,7 +91,7 @@ The Review-app lane (290 → 292 → 295/296) and the OPS re-curation (299) run 
 
 The `data_object` controlled vocabulary is **frozen** and lives in **`docs/DATA_OBJECT_VOCABULARY.md`** (with a generated machine-readable mirror, `docs/data-object-vocabulary.json`). **That document is the source of truth — this spec references it and does not duplicate the 27-term table** (one source of truth; the table drifts the moment it is copied).
 
-A `data_object` is the **noun that flows between two integrated products** — the *what* of an integration (RFIs, Budgets, Models…). It is the load-bearing middle term of claim identity (§3.1). The vocabulary mirrors the existing taxonomy vocabularies (`taxonomy_categories` / `taxonomy_audiences` / `taxonomy_phases`) in shape — `slug` / `name` / `description` / `display_order` — and adds one field, **`aliases`**.
+A `data_object` is the **noun that flows between two integrated products** — the _what_ of an integration (RFIs, Budgets, Models…). It is the load-bearing middle term of claim identity (§3.1). The vocabulary mirrors the existing taxonomy vocabularies (`taxonomy_categories` / `taxonomy_audiences` / `taxonomy_phases`) in shape — `slug` / `name` / `description` / `display_order` — and adds one field, **`aliases`**.
 
 The rules every consumer must honour (full detail in `DATA_OBJECT_VOCABULARY.md` §2–§5):
 
@@ -105,11 +105,11 @@ The rules every consumer must honour (full detail in `DATA_OBJECT_VOCABULARY.md`
 
 The vocabulary is one logical list seeded into two stores with each store's own naming convention. **This spec sets the canonical names** (reconciling a `data_objects` shorthand that appears in some issue drafts):
 
-| Store | Table / file | Convention it mirrors |
-|---|---|---|
-| Review app (own D1) | **`data_objects`** lookup table | sibling lookup tables `categories` / `disciplines` (no prefix) |
-| Main app (D1) | **`taxonomy_data_objects`** | the existing `taxonomy_categories` / `taxonomy_audiences` / `taxonomy_phases` |
-| Main app seed | **`apps/api/seed/data-objects.sql`** | `apps/api/seed/taxonomy.sql` |
+| Store               | Table / file                         | Convention it mirrors                                                         |
+| ------------------- | ------------------------------------ | ----------------------------------------------------------------------------- |
+| Review app (own D1) | **`data_objects`** lookup table      | sibling lookup tables `categories` / `disciplines` (no prefix)                |
+| Main app (D1)       | **`taxonomy_data_objects`**          | the existing `taxonomy_categories` / `taxonomy_audiences` / `taxonomy_phases` |
+| Main app seed       | **`apps/api/seed/data-objects.sql`** | `apps/api/seed/taxonomy.sql`                                                  |
 
 The relational claim tables are **not** taxonomy and carry no prefix: D1 `claims` + `attestations` (§6.1); the review app's authoring table is `claims` (§4.1).
 
@@ -129,11 +129,11 @@ A **claim** asserts that a particular `data_object` flows in a particular `direc
 
 The **integration row is the anchor** (ADR 0018). Consequences:
 
-- A pair of products connected by **two mechanisms** (e.g. a native connector and a Zapier app) that both move RFIs yields **two claims** — one per integration row. The pair page (§8) groups them under the pair but they remain distinct rows. *(The §3.5 headline counts that data_object once — AECI-1042.)*
-- Consolidation onto the pair page needs **no `integrations`-table migration**: there is no unique pair index today (`apps/api/src/db/schema.ts` integrations table — only non-unique `source`/`target` indexes and a distinct-endpoints check), and Stage 1.5 adds none. The pair page is a *query-time* grouping (§7), not a stored entity.
-- The unique index `(integration_id, data_object_id, direction)` (§6.1) makes promote ingest an idempotent upsert (§6.2). *(Intended from the start; actually true only since AECI-604 — the 1.5 ingest shipped as delete-and-reinsert. See the §6.2 note.)*
+- A pair of products connected by **two mechanisms** (e.g. a native connector and a Zapier app) that both move RFIs yields **two claims** — one per integration row. The pair page (§8) groups them under the pair but they remain distinct rows. _(The §3.5 headline counts that data_object once — AECI-1042.)_
+- Consolidation onto the pair page needs **no `integrations`-table migration**: there is no unique pair index today (`apps/api/src/db/schema.ts` integrations table — only non-unique `source`/`target` indexes and a distinct-endpoints check), and Stage 1.5 adds none. The pair page is a _query-time_ grouping (§7), not a stored entity.
+- The unique index `(integration_id, data_object_id, direction)` (§6.1) makes promote ingest an idempotent upsert (§6.2). _(Intended from the start; actually true only since AECI-604 — the 1.5 ingest shipped as delete-and-reinsert. See the §6.2 note.)_
 
-**Amended by AECI-721 (2026-08-31): the anchor is polymorphic, the identity is not.** "The mechanism row" now means a row of *either* delivered-tier table — `integrations`, or `connector_evidenced_pairs` for an edge an iPaaS delivers (§13.1). `claims` carries both FKs, nullable, with a CHECK that exactly one is set, and the identity triple becomes `(anchor_id, data_object_id, direction)` where `anchor_id` is a STORED generated `coalesce` of the two.
+**Amended by AECI-721 (2026-08-31): the anchor is polymorphic, the identity is not.** "The mechanism row" now means a row of _either_ delivered-tier table — `integrations`, or `connector_evidenced_pairs` for an edge an iPaaS delivers (§13.1). `claims` carries both FKs, nullable, with a CHECK that exactly one is set, and the identity triple becomes `(anchor_id, data_object_id, direction)` where `anchor_id` is a STORED generated `coalesce` of the two.
 
 Nothing above changes in substance. The anchor is still the mechanism row, still not the pair, and the identity is still immutable — the migration passed each moved edge's id verbatim to its evidenced pair, so all 85 production claims kept the same `anchor_id` value and only changed which column holds it. The generated column is load-bearing rather than cosmetic: a nullable `integration_id` in the unique index would break the identity outright, because SQLite treats NULLs as distinct. ADR 0018 carries the dated amendment.
 
@@ -142,7 +142,7 @@ Nothing above changes in substance. The anchor is still the mechanism row, still
 Three consequences, and only the first is a code shape:
 
 - **The CHECK is a sum, not a chain of `<>`.** With two terms `a <> b` said "exactly one"; with three, `a <> b <> c` parses as `(a <> b) <> c` and is TRUE when all three are set. `claims_anchor_check` sums the three `IS NOT NULL` booleans and compares to `1`. The identity triple is unchanged — `anchor_id` simply coalesces three columns instead of two, and the id spaces cannot collide because `connector_pairs.id` is a review-app record id while the other two are UUIDs minted here.
-- **The alternative was rejected on the same grounds.** Translating the upstream anchor onto `connector_evidenced_pairs` at promote time would have minted a *delivered* row for a pair nobody built, which is worse than carrying the reach anchor honestly.
+- **The alternative was rejected on the same grounds.** Translating the upstream anchor onto `connector_evidenced_pairs` at promote time would have minted a _delivered_ row for a pair nobody built, which is worse than carrying the reach anchor honestly.
 - **Nothing renders it, and that is a stated carve-out.** A pair-anchored claim can land; no surface reads one. The reachable pair page is **AECI-716** and is unbuilt, and §13.7's endpoint summary line enumerates nothing. Attestation is closed to it by construction, because the authority read scopes on `integration_id IS NOT NULL` (ADR 0018's 2026-08-31 amendment).
 
 ### 3.2 Direction encoding — stored vs context-relative
@@ -151,23 +151,23 @@ Direction is stored **relative to the integration row's own two endpoints**, and
 
 **Stored (AECi D1 `claims.direction` — and, since AECI-921, `integrations.direction` too; plus the review app's own claims table):** one of
 
-| Stored value | Meaning |
-|---|---|
-| `a_to_b` | flows from endpoint **A** to endpoint **B** |
-| `b_to_a` | flows from endpoint **B** to endpoint **A** |
-| `both` | bidirectional |
+| Stored value | Meaning                                     |
+| ------------ | ------------------------------------------- |
+| `a_to_b`     | flows from endpoint **A** to endpoint **B** |
+| `b_to_a`     | flows from endpoint **B** to endpoint **A** |
+| `both`       | bidirectional                               |
 
 where **A = the integration's `source_product_id`** and **B = its `target_product_id`** (the stored endpoint order on the row). This is canonical and never depends on which product the visitor is viewing.
 
 > **Amendment (AECI-996, 2026-09-17) — the evidenced-pair anchor.** A claim anchored on a `connector_evidenced_pairs` row is stored relative to **that** row's endpoints, where **A = `product_a_id`** and **B = `product_b_id`**, the id-sorted canonical order (`DATABASE_SCHEMA.md` §9a.6). The same holds for its attestations' `vendor_a` / `vendor_b` slots. The payload still speaks source → target (`REVIEW_APP_PROMOTE_API.md` §3.5), so when the integration's source is B the writer flips every one-way direction and every vendor slot (`both` and `aeci` are unchanged), swapping contents in place where a flip would collide with a unique index. The rule is `apps/api/src/lib/claim-frame.ts`, and it runs on ingest and on both cross-table moves. Before AECI-996 the writers copied claims across unchanged, so one-way claims on reversed pairs rendered backwards on the product page. The `connector_pairs` anchor (AECI-891) is unaffected: its wire direction is already relative to the pair's stub A/B.
 
-**Context-relative (API / `packages/shared`):** the pair page is viewed *from* a context product. The API translates the stored direction into the visitor's frame:
+**Context-relative (API / `packages/shared`):** the pair page is viewed _from_ a context product. The API translates the stored direction into the visitor's frame:
 
-| Stored | Context product = A | Context product = B |
-|---|---|---|
-| `a_to_b` | `outbound` | `inbound` |
-| `b_to_a` | `inbound` | `outbound` |
-| `both` | `both` | `both` |
+| Stored   | Context product = A | Context product = B |
+| -------- | ------------------- | ------------------- |
+| `a_to_b` | `outbound`          | `inbound`           |
+| `b_to_a` | `inbound`           | `outbound`          |
+| `both`   | `both`              | `both`              |
 
 So a claim stored `a_to_b` reads as **"outbound"** on product A's pair page and **"inbound"** on product B's. The translation is a pure function in `packages/shared` (the same place `defaultIntegrationContext` lives — §7); the stored value is never rewritten.
 
@@ -181,7 +181,7 @@ So a claim stored `a_to_b` reads as **"outbound"** on product A's pair page and 
 >
 > **Why it had to change.** The two-value form could not express "flows from B to A". That is not a
 > gap you can route around, because the review app orders an integration's endpoints by **who built
-> the connector**, not by which way data moves. When the builder is the data *consumer* — Power BI
+> the connector**, not by which way data moves. When the builder is the data _consumer_ — Power BI
 > reading BigQuery, Tableau reading Snowflake, ArcGIS reading a CDE — the row had no correct value
 > to store, wrote `one-way`, and the pair page rendered the exact reverse of the truth. AECI-920
 > confirmed 14 such rows from a single keyword probe and holds the upstream correction; this spec
@@ -197,19 +197,19 @@ So a claim stored `a_to_b` reads as **"outbound"** on product A's pair page and 
 
 ### 3.3 Attestation shape
 
-An **attestation** records *who asserts a claim*. Attestations hang off a claim (AECi D1: relationally in `attestations`; review app: as a JSON array on the claim row — §4.1).
+An **attestation** records _who asserts a claim_. Attestations hang off a claim (AECi D1: relationally in `attestations`; review app: as a JSON array on the claim row — §4.1).
 
-| Field | Type | Notes |
-|---|---|---|
-| `source` | `'aeci' \| 'vendor_a' \| 'vendor_b'` | who attests. `vendor_a` / `vendor_b` map to the integration's endpoint-A / endpoint-B vendors. **In Stage 1.5 only `aeci` is ever written.** |
-| `asserted` | boolean | `true` = this source affirms the claim; `false` = denies it. AECi seeds `true`. |
-| `introduced_at` | date \| null | **dormant in 1.5** — a coarse version stamp. AECI-303 ships the §9 diff over the PRECISE `introduced_version_id`/`deprecated_version_id` FKs (Stage 2 migration 2) instead; these dates remain the fallback for the claims promote writes, and a claim with neither is **always present** at every selection. |
-| `deprecated_at` | date \| null | **dormant in 1.5** — version stamp. |
-| `note` | string \| null | optional provenance/source note. **Audience: curation-internal when `source = 'aeci'`, reader-facing only when a vendor authored it** (AECI-779 — see the note below). |
+| Field           | Type                                 | Notes                                                                                                                                                                                                                                                                                                         |
+| --------------- | ------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `source`        | `'aeci' \| 'vendor_a' \| 'vendor_b'` | who attests. `vendor_a` / `vendor_b` map to the integration's endpoint-A / endpoint-B vendors. **In Stage 1.5 only `aeci` is ever written.**                                                                                                                                                                  |
+| `asserted`      | boolean                              | `true` = this source affirms the claim; `false` = denies it. AECi seeds `true`.                                                                                                                                                                                                                               |
+| `introduced_at` | date \| null                         | **dormant in 1.5** — a coarse version stamp. AECI-303 ships the §9 diff over the PRECISE `introduced_version_id`/`deprecated_version_id` FKs (Stage 2 migration 2) instead; these dates remain the fallback for the claims promote writes, and a claim with neither is **always present** at every selection. |
+| `deprecated_at` | date \| null                         | **dormant in 1.5** — version stamp.                                                                                                                                                                                                                                                                           |
+| `note`          | string \| null                       | optional provenance/source note. **Audience: curation-internal when `source = 'aeci'`, reader-facing only when a vendor authored it** (AECI-779 — see the note below).                                                                                                                                        |
 
 `vendor_a` / `vendor_b` and the version stamps are **additive and dormant**: present in schema and contract, written by no 1.5 code path.
 
-> **Stage 2 update (AECI-603, 2026-08-14).** `vendor_a` / `vendor_b` are no longer dormant, and the table above is no longer the whole row. Migration 1 of the AECI-514 epic added **`attested_by_vendor_id`** (which vendor identity filled the slot — `confirmed` requires two *distinct* ones) and **`retracted_at`** (supersession, which is **not** what `introduced_at`/`deprecated_at` mean — those stay version stamps exactly as defined above). Which slot a caller may write derives from product ownership in `product_vendors`, never from the request. See `docs/STAGE_2_ATTESTATIONS_SPEC.md` §2 and `docs/DATABASE_SCHEMA.md` §5a.2.
+> **Stage 2 update (AECI-603, 2026-08-14).** `vendor_a` / `vendor_b` are no longer dormant, and the table above is no longer the whole row. Migration 1 of the AECI-514 epic added **`attested_by_vendor_id`** (which vendor identity filled the slot — `confirmed` requires two _distinct_ ones) and **`retracted_at`** (supersession, which is **not** what `introduced_at`/`deprecated_at` mean — those stay version stamps exactly as defined above). Which slot a caller may write derives from product ownership in `product_vendors`, never from the request. See `docs/STAGE_2_ATTESTATIONS_SPEC.md` §2 and `docs/DATABASE_SCHEMA.md` §5a.2.
 
 > **Audience of `note` (AECI-779, 2026-09-04).** The row above assigned `note` a type but never an
 > **audience**, and that gap shipped: the AECI-300 provenance popover rendered the AECi seed note to
@@ -231,6 +231,14 @@ An **attestation** records *who asserts a claim*. Attestations hang off a claim 
 > mappers call — `toPairClaimAttestation` (the popover) and `toClaimTimelineEntry` (the AECI-303
 > History section). They are reached from different routes, so suppressing in one leaves the note
 > published by the other; that lockstep is pinned by a test in each route spec.
+>
+> **As-built (2026-09-24).** The `ClaimProvenance` popover no longer renders the History section:
+> its `timeline` input and `historyRequested` output are gone, and the pair page no longer calls
+> `GET …/integrations/:otherSlug/timeline` from the browser. `toClaimTimelineEntry` and
+> `readerFacingNote`'s enforcement on it are unchanged and still deployed (`API_CONTRACTS.md`
+> §6.3) — there is just no web consumer left to call the endpoint. The lockstep claim above still
+> holds for the endpoint's own reader-facing behavior; it no longer describes anything the pair
+> page renders.
 
 ### 3.4 Computed agreement — `computeAgreement` and the AECi-never-red rule
 
@@ -244,9 +252,9 @@ It lives at **`packages/shared/src/agreement.ts`** (AECI-300) so the API, SSR, a
 
 Rules:
 
-- **Only vendor attestations vote.** Agreement is a *vendor-vs-vendor* signal: it asks whether the two vendors of a pair agree about a data flow. **The AECi attestation is excluded from the vote** — it is the baseline/seed, not a party to the disagreement.
+- **Only vendor attestations vote.** Agreement is a _vendor-vs-vendor_ signal: it asks whether the two vendors of a pair agree about a data flow. **The AECi attestation is excluded from the vote** — it is the baseline/seed, not a party to the disagreement.
 - **AECi-never-red.** Because AECi never votes, an AECi-only claim can **never** produce a `conflict` state. The conflict (red) state requires two distinct vendors to disagree — impossible until the Stage 2 portal exists.
-- **Distinct vendor identities** *(added by AECI-605 — `STAGE_2_ATTESTATIONS_SPEC.md` §4)*. Votes are deduped by `attestations.attested_by_vendor_id`, and **`confirmed` requires two of them**. `product_vendors` is many-to-many, so one company can own *both* endpoints of an integration and fill both attestation slots; without the dedupe it could affirm both and manufacture "Vendor-confirmed" on its own intra-portfolio integrations. A single vendor affirming alone resolves **`single_source`**, never `confirmed`. Retracted attestations (`retracted_at IS NOT NULL`) do not vote — note that `deprecated_at` is a *version stamp* (§3.3), not retraction, and never gates the read.
+- **Distinct vendor identities** _(added by AECI-605 — `STAGE_2_ATTESTATIONS_SPEC.md` §4)_. Votes are deduped by `attestations.attested_by_vendor_id`, and **`confirmed` requires two of them**. `product_vendors` is many-to-many, so one company can own _both_ endpoints of an integration and fill both attestation slots; without the dedupe it could affirm both and manufacture "Vendor-confirmed" on its own intra-portfolio integrations. A single vendor affirming alone resolves **`single_source`**, never `confirmed`. Retracted attestations (`retracted_at IS NOT NULL`) do not vote — note that `deprecated_at` is a _version stamp_ (§3.3), not retraction, and never gates the read.
 - **Stage 1.5 reality.** With only an `aeci` attestation present, every claim resolves to an **"Unverified"** state and renders as such (§8). The agreement engine ships fully but, by construction, only ever returns the unverified branch in 1.5.
 
 `AgreementState` is enumerated in `agreement.ts` as `unverified | single_source | confirmed | conflict` (ascending verification); the 1.5-reachable value is the unverified one. The other three branches are implemented and unit-tested against synthetic vendor attestations so Stage 2 inherits a proven function. The full outcome matrix lives in `STAGE_2_ATTESTATIONS_SPEC.md` §4.2, and the render contract for each state in §4.3.
@@ -257,11 +265,21 @@ The pair page leads its data-flow section with a headline of the form **"N data 
 
 - **`total`** — the number of distinct **data objects** on the pair: distinct `data_object` slugs across every live claim, all directions, all mechanisms, both delivered anchors (`integrations` and `connector_evidenced_pairs`).
 - **`confirmed`** — data objects with at least one claim whose computed agreement is vendor-confirmed.
-- **`single_source`** *(added by AECI-605 — `STAGE_2_ATTESTATIONS_SPEC.md` §4.3)* — data objects with at least one claim exactly one vendor affirms with the counterparty silent, and **no** confirmed claim. An object is in at most one of the two counts, so `confirmed + single_source ≤ total`.
+- **`single_source`** _(added by AECI-605 — `STAGE_2_ATTESTATIONS_SPEC.md` §4.3)_ — data objects with at least one claim exactly one vendor affirms with the counterparty silent, and **no** confirmed claim. An object is in at most one of the two counts, so `confirmed + single_source ≤ total`.
 
 > **Amendment (AECI-1042, 2026-09-22) — the headline counts objects, not claim rows.** Until this change `total` was the distinct **claim** count, so a data_object moving through two mechanisms counted twice (the §3.1 consequence carried straight into the headline). The header reads "N data objects sync", so a pair with a native connector and a Zapier app that both move RFIs over-stated its coverage, and a duplicate integration row doubled it. The count is now taken over distinct `data_object` slugs, in `computeSyncHeadline` (`packages/shared/src/agreement.ts`). §3.1 is unchanged: those remain **two claims**, and both still render under their own mechanism. Only the headline de-duplicates. `removed` claims stay excluded before the count (AECI-303).
 
-`single_source` is reported as its **own clause**, never added into `confirmed` — folding a one-sided assertion into the bilateral figure is the overstatement `STAGE_2_SPEC.md` §8.1(4) forbids. The rendered line reads e.g. "3 of 12 vendor-confirmed · 4 confirmed by one vendor only", and the second clause is omitted entirely at zero rather than rendered as "0".
+`single_source` is reported as its **own clause**, never added into `confirmed` — folding a one-sided assertion into the bilateral figure is the overstatement `STAGE_2_SPEC.md` §8.1(4) forbids. The rendered line reads e.g. "3 of 12 confirmed by both vendors · 4 confirmed by one vendor only", and the second clause is omitted entirely at zero rather than rendered as "0".
+
+> **As-built (2026-09-24).** The numerator clause was reworded from "N of M vendor-confirmed" to
+> "N of M confirmed by both vendors" (`@@pair.dataflow.ratio` → `@@pair.dataflow.ratio.bothVendors`):
+> a pair page always shows two vendors, and "vendor-confirmed" read as a count of vendors rather
+> than of data objects. A new `i` popover, `apps/web/src/app/products/confirmed-ratio-info.ts`
+> (`aec-confirmed-ratio-info`), sits beside the ratio and names the two vendors who must both sign
+> off, falling back to generic "both vendors" copy when a vendor name is missing or both endpoints
+> share one vendor. Its "Until then, a flow comes from AECi's own research" line renders only under
+> the same `awaitingVendors` gate as the band subline, so it never credits AECi once a vendor has
+> attested. The "confirmed by one vendor only" clause is unchanged.
 
 In Stage 1.5 **both counts are 0** for every pair (no vendor attestations), so the headline communicates breadth ("12 data objects sync") with an honest **"Unverified"** posture, never a fake trust signal. The ratio becomes meaningful in Stage 2.
 
@@ -269,11 +287,11 @@ In Stage 1.5 **both counts are 0** for every pair (no vendor attestations), so t
 
 ## 4. Review app (bamako) — authoring & re-curation
 
-The Review app (`aec-integrations-review`, codename *bamako*) is the **system of record** for claims, exactly as it is for products/vendors/integrations. AECi staff (and Claude via MCP) author claims there; they reach the main app only through promote (§5). Authoring is **MCP-first** in 1.5 — the Review app has no integration editor UI today, and building one is out of scope. A cross-repo handoff for the bamako team lives at **`docs/stage-1-5-review-app-handoff.md`**.
+The Review app (`aec-integrations-review`, codename _bamako_) is the **system of record** for claims, exactly as it is for products/vendors/integrations. AECi staff (and Claude via MCP) author claims there; they reach the main app only through promote (§5). Authoring is **MCP-first** in 1.5 — the Review app has no integration editor UI today, and building one is out of scope. A cross-repo handoff for the bamako team lives at **`docs/stage-1-5-review-app-handoff.md`**.
 
 ### 4.1 Airtable `data_objects` + `integration_claims` tables (AECI-290)
 
-> **Historical, kept as built (AECI-797, 2026-09-13).** This subsection records what AECI-290 shipped, when the review app ran on an Airtable base. The review app moved onto its own Cloudflare D1 on **2026-08-25** (ADR 0029) — the two tables are D1 tables now, and the claims table is named `claims`. The *model* below is unchanged; only the store is.
+> **Historical, kept as built (AECI-797, 2026-09-13).** This subsection records what AECI-290 shipped, when the review app ran on an Airtable base. The review app moved onto its own Cloudflare D1 on **2026-08-25** (ADR 0029) — the two tables are D1 tables now, and the claims table is named `claims`. The _model_ below is unchanged; only the store is.
 
 - **`data_objects`** — a new lookup table mirroring the existing `categories` / `disciplines` lookups: `Name`, `slug`, `description`, `display_order`, `aliases`, `deprecated_at`. **Seed it from the frozen vocabulary** (`DATA_OBJECT_VOCABULARY.md` §4 / the JSON mirror).
 - **`integration_claims`** — the authoring table for claims. Each row **links to one integration record** (the mechanism anchor — §3.1) and carries:
@@ -361,6 +379,7 @@ Extend the existing plan-then-batch promote flow (`apps/api/src/routes/promote.t
 > a dropped claim a vendor attests is converted rather than deleted. The atomicity and audit
 > bullet below is unchanged. See §3 of the attestations spec and `REVIEW_APP_PROMOTE_API.md`
 > §5.2.
+
 - **Audit + atomicity.** Claim/attestation writes go in the **same `db.batch([...])`** as the rest of the promote transaction and emit their `audit_log` row in that batch (the §26.1 invariant of `STAGE_1_SPEC.md`). Edge-cache purge for affected pair pages reuses the existing promote→purge path (`affectedUrlsForPromote`; ADR 0028) extended with the pair URLs (§7).
 
 ---
@@ -380,11 +399,11 @@ The pair page is **Layer A**: it ships first, needs **no** claim data, and deliv
     was rejected as the replacement because `DESIGN.md` already spends it on the version-diff
     `added` marker.
   - **The mechanism card `h2` never carries a directional pair title.** `mechanism_name` on
-    `ProductPairMechanism` is the *mechanism's own label*, resolved by `toMechanismHeading`
+    `ProductPairMechanism` is the _mechanism's own label_, resolved by `toMechanismHeading`
     (`apps/api/src/lib/drizzle-helpers.ts`): `integrations.mechanism_name` first, falling back to
     `integrations.name` **only when that name carries no directional glyph**, else `null` (the
     template then promotes the kind label, which it already did for rows with neither). The mapper
-    previously read `name ?? mechanismName` — name first — and `integrations.name` is the *pair's*
+    previously read `name ?? mechanismName` — name first — and `integrations.name` is the _pair's_
     title, written source-first by the review app's authorship convention, so **56% of rows** put an
     absolute "A → B" heading directly above a context-relative lane pointing the other way, with
     nothing marking the frame switch. Measured on a 200-row sample of `native` rows: 112 names carry
@@ -397,7 +416,7 @@ The pair page is **Layer A**: it ships first, needs **no** claim data, and deliv
 
 - **`defaultIntegrationContext(a, b)`** in `packages/shared` (e.g. `packages/shared/src/integration-context.ts`) — given two product slugs, returns the canonical **context product** for the default pair URL: the **alphabetically-first slug** is the context. Deterministic, pure, shared by SSR and the 301.
 - **Nested route:** `/products/:contextSlug/integrations/:otherSlug`. The page resolves the two products, finds **all** integration rows between them (either source/target orientation), and renders one consolidated view. Multiple mechanisms → multiple rows on one page (§3.1), not multiple pages.
-- **Per-mechanism direction (Layer A).** Each mechanism card shows a context-relative arrow. In Layer A this is the **integration row's own** stored direction translated to the context product's frame. **Amended 2026-09-14 by AECI-921:** that used to be a *second* translation — the row stored `one-way`/`bidirectional` and this sentence said it was "*not* the claim-level `a_to_b`/`b_to_a`/`both` translation of §3.2". It is now exactly that translation, because the row stores exactly that vocabulary; `a_to_b` reads `outbound` when the context product is the row's `source`, `b_to_a` is the mirror, `both` reads `both`. Both translations live in the same pure `packages/shared` helper module (`integration-context.ts`: `defaultIntegrationContext` + `integrationDirectionForContext`). The **product-detail page** (`/products/:slug`) — the entry point into the pair pages — lists a product's integrations as a **column-aligned table** (partner · connection, with direction on a meta line under the partner name — **amended 2026-09-10 by AECI-853**, which superseded the original "direction · partner · connection; direction leads the row so the relationship reads at a glance"; §13.3a carries the reasoning) rather than a card stack, one row per integration, each row a stretched link to the pair page with the *other* product linked separately. Its **direction** readout is the **effective, claims-aware** context-relative direction, `effectiveContextDirection` (`integration-context.ts`): it prefers the aggregate of the mechanism's `data_object` claim directions — the richer signal the pair page surfaces, where any `both` (or an opposing `a_to_b`+`b_to_a` pair) reads `both` — and falls back to the row's own stored `a_to_b`/`b_to_a`/`both` (AECI-921), both framed to this product and now in the same vocabulary, so the aggregate and the fallback can no longer disagree about what an endpoint ordering means; `null` (em-dash) only when there is **neither** a claim nor a stored direction. It is **precomputed server-side** and carried on `ProductDetail.integrations_as_*[]` as `context_direction` (the `ProductIntegrationItem` shape — see `API_CONTRACTS.md`), so the table renders it verbatim and can **never contradict** the pair page (which, once a mechanism has claims, shows those claim lanes and hides its own bare Layer-A arrow). **This supersedes** the earlier "Direction = the row's stored direction, translated" framing: that promise that the two surfaces couldn't drift did **not** hold when a mechanism's stored `direction` was null while its claims flowed both ways (the reported bug — the table showed "–" while the pair page said "Syncs both ways"). The endpoint (`GET /api/products/:slug/integrations/:otherSlug`) returns `{ context_product, other_product, mechanisms[], sync_headline }`; `context_product`/`other_product` hydrate as `ProductListItem`, and `sync_headline` is `{ total: 0, confirmed: 0 }` until claims land (§8). An empty pair (both products exist, no integration between them) is a **200** with `mechanisms: []`; the page renders but is `noindex`. **One exception since AECI-953 (§7.2a):** an empty pair whose edges were re-pointed onto another product answers `moved_to` and **301s** to the pair that now holds them.
+- **Per-mechanism direction (Layer A).** Each mechanism card shows a context-relative arrow. In Layer A this is the **integration row's own** stored direction translated to the context product's frame. **Amended 2026-09-14 by AECI-921:** that used to be a _second_ translation — the row stored `one-way`/`bidirectional` and this sentence said it was "_not_ the claim-level `a_to_b`/`b_to_a`/`both` translation of §3.2". It is now exactly that translation, because the row stores exactly that vocabulary; `a_to_b` reads `outbound` when the context product is the row's `source`, `b_to_a` is the mirror, `both` reads `both`. Both translations live in the same pure `packages/shared` helper module (`integration-context.ts`: `defaultIntegrationContext` + `integrationDirectionForContext`). The **product-detail page** (`/products/:slug`) — the entry point into the pair pages — lists a product's integrations as a **column-aligned table** (partner · connection, with direction on a meta line under the partner name — **amended 2026-09-10 by AECI-853**, which superseded the original "direction · partner · connection; direction leads the row so the relationship reads at a glance"; §13.3a carries the reasoning) rather than a card stack, one row per integration, each row a stretched link to the pair page with the _other_ product linked separately. Its **direction** readout is the **effective, claims-aware** context-relative direction, `effectiveContextDirection` (`integration-context.ts`): it prefers the aggregate of the mechanism's `data_object` claim directions — the richer signal the pair page surfaces, where any `both` (or an opposing `a_to_b`+`b_to_a` pair) reads `both` — and falls back to the row's own stored `a_to_b`/`b_to_a`/`both` (AECI-921), both framed to this product and now in the same vocabulary, so the aggregate and the fallback can no longer disagree about what an endpoint ordering means; `null` (em-dash) only when there is **neither** a claim nor a stored direction. It is **precomputed server-side** and carried on `ProductDetail.integrations_as_*[]` as `context_direction` (the `ProductIntegrationItem` shape — see `API_CONTRACTS.md`), so the table renders it verbatim and can **never contradict** the pair page (which, once a mechanism has claims, shows those claim lanes and hides its own bare Layer-A arrow). **This supersedes** the earlier "Direction = the row's stored direction, translated" framing: that promise that the two surfaces couldn't drift did **not** hold when a mechanism's stored `direction` was null while its claims flowed both ways (the reported bug — the table showed "–" while the pair page said "Syncs both ways"). The endpoint (`GET /api/products/:slug/integrations/:otherSlug`) returns `{ context_product, other_product, mechanisms[], sync_headline }`; `context_product`/`other_product` hydrate as `ProductListItem`, and `sync_headline` is `{ total: 0, confirmed: 0 }` until claims land (§8). An empty pair (both products exist, no integration between them) is a **200** with `mechanisms: []`; the page renders but is `noindex`. **One exception since AECI-953 (§7.2a):** an empty pair whose edges were re-pointed onto another product answers `moved_to` and **301s** to the pair that now holds them.
 - **Row order on the product-detail table: alphabetical by partner name** (2026-08-24). The `integrations_as_source` / `integrations_as_target` buckets **interleave** into one alphabetized list rather than concatenating — the split is invisible to the reader (every row shows `context_direction`, never its bucket), so concatenating would surface a distinction they cannot see as an unexplained break in the alphabet. Ties (one partner reachable by more than one mechanism) fall back to the integration name, then `id`, so the order is **total** and cannot reshuffle between renders. Before this the list carried **no** ordering at all — neither the `sourceIntegrations` / `targetIntegrations` read configs nor the client sorted — so rows arrived in D1 row order (effectively promote order) and the 20-row `@defer` cut fell at an arbitrary point. The sort lives in `product-detail.ts`, not SQL: those relations can only `ORDER BY` columns of `integrations` itself (the partner name is on the joined product), and ordering each bucket separately still would not interleave them. Contrast the sibling powered-hub section, which has always sorted (§12.3).
 
 - **Mechanism links are per side (AECI-1007, 2026-09-22).** Each endpoint vendor may set its own listing and docs link on an integration (`STAGE_2_VENDOR_PORTAL_SPEC.md` §4.5.7), carried on `ProductPairMechanism.vendor_links` as `{ context, other }`, framed like every other pair field. The card renders, **per kind**, each side's own link labelled with that side's vendor name (the product name when no vendor is on file), context side first: "Procore Technologies listing", "Revit listing". Only when **neither** side has set that kind does it fall back to AECi's curated `listing_url` / `docs_url` under the old unlabelled copy ("View listing", "Documentation"). So a vendor link replaces the curated one for its kind rather than sitting beside it, which is what keeps the card from showing two listing links that disagree. All of them are external links: `target="_blank"`, `rel="noopener noreferrer nofollow"` and `aecTrackExternalLink="pair_detail"`, so `external_link_clicked` keeps firing. A connector-evidenced pair carries no vendor links (decision 9). Labels are `$localize` (`@@pair.mechanism.listingBy`, `@@pair.mechanism.docsBy`).
@@ -416,7 +435,7 @@ The cause is structural rather than a defect in the promote: an edge's identity 
 
 **The record.** `integration_endpoint_moves` (`DATABASE_SCHEMA.md` §4.3a) holds one row per `(edge, pair it left)` — keyed on the two **slugs** since AECI-991 — written by the promote ingest in the **same `db.batch`** as the endpoint update, with an `integration.endpoint_moved` `audit_log` row beside it (§26.1). A re-promote that restates the same endpoints plans nothing at all — neither statement, nor audit row. A source/target **swap** likewise plans nothing: the two endpoints are compared as an unordered pair, so AECI-920's direction corrections never mint a redirect to the page they are already on. Both anchor tables write it, because §13.1's delivered tier spans both and a pair page renders both.
 
-**Only the `from` side is stored, deliberately.** There is no `moved_to` column. The destination is read live from the moved edge's current row, which removes three problems rather than handling them: a chain of moves resolves to its end with no chain-walking code, a deleted edge has no destination and correctly falls back to the empty page, and the target is guaranteed to hold the edge because it *is* the edge's row.
+**Only the `from` side is stored, deliberately.** There is no `moved_to` column. The destination is read live from the moved edge's current row, which removes three problems rather than handling them: a chain of moves resolves to its end with no chain-walking code, a deleted edge has no destination and correctly falls back to the empty page, and the target is guaranteed to hold the edge because it _is_ the edge's row.
 
 **The read fires only on an empty pair.** `GET /api/products/:slug/integrations/:otherSlug` answers `moved_to: { context_slug, other_slug }` when — and only when — both anchor tables returned nothing for the pair AND a move record resolves to a live edge elsewhere. A pair that lost one edge of two is **smaller, not moved**: Smartsheet kept its second Procore Project Management edge through AECI-726, and redirecting that URL would hide live rows. The move row for it exists and stays inert, which is the correct behaviour and needs no special case.
 
@@ -430,7 +449,7 @@ The cause is structural rather than a defect in the promote: an edge's identity 
 
 #### 7.2b A retired ENDPOINT SLUG rewrites the pair path (AECI-991, 2026-09-16)
 
-§7.2a covers an edge that moved between two products that both still exist. It does **not** cover the product itself going away, and that gap was live: `moved_to` can only ride a **200**, so a pair URL whose endpoint product has been deleted 404s before anything is consulted. Worse, the record was gone too — `integration_endpoint_moves` keyed its two `from_product_*` columns as foreign keys to `products` with `ON DELETE CASCADE`, and a redirect keyed on the thing it points *away from* cannot survive a cascade on that thing.
+§7.2a covers an edge that moved between two products that both still exist. It does **not** cover the product itself going away, and that gap was live: `moved_to` can only ride a **200**, so a pair URL whose endpoint product has been deleted 404s before anything is consulted. Worse, the record was gone too — `integration_endpoint_moves` keyed its two `from_product_*` columns as foreign keys to `products` with `ON DELETE CASCADE`, and a redirect keyed on the thing it points _away from_ cannot survive a cascade on that thing.
 
 **What it cost.** AECI-809 merged Autodesk Construction Cloud into Autodesk Forma: re-point the 44 edges, consume the retractions, retract the ACC record last. That order is correct for the retraction consumer and is exactly what fires the cascade. Production was left with 44 `integration.endpoint_moved` audit rows, **0** move rows, and every `/products/autodesk-construction-cloud/integrations/*` URL serving 404 — while `/products/autodesk-construction-cloud` itself still 301'd correctly via AECI-978. Nothing logged any of it. It is not specific to AECI-809: **it fires on every merge-then-retire.**
 
@@ -438,7 +457,7 @@ The cause is structural rather than a defect in the promote: an edge's identity 
 
 1. **The move record is keyed on slugs, with no foreign keys** (`0041_shocking_maggott.sql`). A slug has no owning row, so it cannot cascade, and the row stays readable after either endpoint is deleted. `resolveMovedPair` takes two slugs rather than two product rows — it never needed the ids, and needing them was what made it unreachable exactly when it mattered.
 2. **`slug_redirects` applies to the pair route as a path-PREFIX rewrite.** `/products/{from_slug}/integrations/{x}` 301s to `/products/{to_slug}/integrations/{x}` whenever `{from_slug}` is mapped, on the pair route's **not-found branch only** — the same "a live page always beats a mapping" rule the detail resolvers follow (`STAGE_3_SPEC.md` §2.6 option B). **Both** URL slugs are looked up, because §11.2 makes both orientations of a real pair indexable and the retired endpoint is the second segment in half the indexed URLs. This is what covers every merge-then-retire **without per-pair rows**: one retired slug fixes every pair page under it, where a per-pair record would mean writing 44 rows to say one thing and re-deriving them at the next merge. A rewrite that would collapse the two slugs into one product is **refused** — `/products/x/integrations/x` is a guaranteed 404 and a 301 onto one is worse than the 404 already being served.
-3. **The lost rows are rebuilt from `audit_log`** by `scripts/ops/2026-09-endpoint-move-rebuild/`. The audit row carries the edge and the pair it left, so the derived state is recoverable. The one thing it could not carry was the *slug* of a deleted product — a pre-AECI-991 row names ids — so the ingest now records `productSlugs` alongside `productIds` in both states, and the one-off script closes the historical gap with a committed, sourced id→slug ruling rather than a guess.
+3. **The lost rows are rebuilt from `audit_log`** by `scripts/ops/2026-09-endpoint-move-rebuild/`. The audit row carries the edge and the pair it left, so the derived state is recoverable. The one thing it could not carry was the _slug_ of a deleted product — a pre-AECI-991 row names ids — so the ingest now records `productSlugs` alongside `productIds` in both states, and the one-off script closes the historical gap with a committed, sourced id→slug ruling rather than a guess.
 
 **Cache.** The rewrite 301 carries the same `public, max-age=3600, s-maxage=86400` as §7.2a's, and four tags: **both** pair tags plus `product:` for each slug that changed. The old pair tag is the one that matters — it is what clears the redirect if the retired slug ever comes back. See `CACHE_STRATEGY.md` §3 rule 6.
 
@@ -448,29 +467,29 @@ The cause is structural rather than a defect in the promote: an edge's identity 
 
 > **Superseded in part by §11 (Addendum A, 2026-07-08).** The single-canonical rule below was the shipped Layer-A behaviour and remains accurate until AECI-340 lands; from then on, **pairs with ≥1 mechanism carry a self-referential canonical on each orientation** (two indexable URLs per real pair, each direction-framed). Empty pairs are unchanged (render + `noindex`). See §11.2 for the replacement contract and §11.1 for why the alphabetical default survives everywhere else.
 
-- **Canonical** uses the serving origin (ADR 0011) — the default-context pair URL is the canonical; the non-default orientation (viewing from the other product) is a secondary entry that canonicalises to the default. Avoid two indexable URLs for one pair. *(Superseded by §11.2 for pairs with mechanisms — see the note above.)*
-- JSON-LD and per-pair meta describe the product pair. *(Per-pair meta shipped with the page in 1.5. **JSON-LD did not** — Phase 2 §9.2 had deferred integration structured data to Stage 2, so this line described an intent rather than the build for as long as the page has existed. ✅ **Closed 2026-08-20 by AECI-518**: a `schema.org/WebPage` whose `about` names both endpoint products, plus a `BreadcrumbList` mirroring the visible trail, emitted only when the page is indexable. Contract: `STAGE_2_SPEC.md` §8.7.)*
+- **Canonical** uses the serving origin (ADR 0011) — the default-context pair URL is the canonical; the non-default orientation (viewing from the other product) is a secondary entry that canonicalises to the default. Avoid two indexable URLs for one pair. _(Superseded by §11.2 for pairs with mechanisms — see the note above.)_
+- JSON-LD and per-pair meta describe the product pair. _(Per-pair meta shipped with the page in 1.5. **JSON-LD did not** — Phase 2 §9.2 had deferred integration structured data to Stage 2, so this line described an intent rather than the build for as long as the page has existed. ✅ **Closed 2026-08-20 by AECI-518**: a `schema.org/WebPage` whose `about` names both endpoint products, plus a `BreadcrumbList` mirroring the visible trail, emitted only when the page is indexable. Contract: `STAGE_2_SPEC.md` §8.7.)_
 - **Cache tags** per `CACHE_STRATEGY.md` — tag the pair page by both product slugs so a promote touching either product (or its claims) purges it (§6.2).
 
 ---
 
 ## 8. Claim rendering (Layer B) — the data-flow section (AECI-300)
 
-**Layer B** renders claims on the pair page. Build against the AECI-289 prototype; it is *the* integration point of the project.
+**Layer B** renders claims on the pair page. Build against the AECI-289 prototype; it is _the_ integration point of the project.
 
 - **`computeAgreement`** — `packages/shared/src/agreement.ts` (pure; vendor-vs-vendor; AECi excluded → never `conflict` — §3.4), unit-tested against synthetic vendor attestations so the Stage 2 branches are proven now.
 - **Data-flow section.** For the pair, list each claim as a **`data_object` + direction** row, with the direction shown **context-relative** to the page's context product (`outbound` / `inbound` / `both` — §3.2). Group by integration (mechanism) so a pair connected by two connectors reads clearly.
-- **"Unverified" pills.** Every claim shows an **"Unverified"** state in 1.5 (§3.4). The pill styling and copy must read as *"not yet vendor-confirmed"*, not as a warning/defect. *(AECI-605 added the other three states to the same `AgreementBadge`; their tone and copy are specified in `STAGE_2_ATTESTATIONS_SPEC.md` §4.3/§4.5. `unverified` is unchanged and still the only 1.5-reachable one.)*
+- **"Unverified" pills.** Every claim shows an **"Unverified"** state in 1.5 (§3.4). The pill styling and copy must read as _"not yet vendor-confirmed"_, not as a warning/defect. _(AECI-605 added the other three states to the same `AgreementBadge`; their tone and copy are specified in `STAGE_2_ATTESTATIONS_SPEC.md` §4.3/§4.5. `unverified` is unchanged and still the only 1.5-reachable one.)_
 - **The empty band has two copies, and the Layer-A arrow picks between them (AECI-919).** The band
   counts **Layer-B claims**, while the standalone Layer-A direction arrow renders whenever
   `!hasClaims && direction` — so on a mechanism with a stored direction and no claims the band went
-  empty *directly above a documented direction* and read "Data flows aren't documented yet". The
+  empty _directly above a documented direction_ and read "Data flows aren't documented yet". The
   band was right about the claims and wrong about the page. Copy now forks:
 
-  | Condition | Headline | Subline |
-  | -- | -- | -- |
+  | Condition                                                                | Headline                             | Subline                                                           |
+  | ------------------------------------------------------------------------ | ------------------------------------ | ----------------------------------------------------------------- |
   | `viewMode === 'detailed'` **and** some mechanism renders a Layer-A arrow | We haven't catalogued what syncs yet | Direction is documented below; the records that cross aren't yet. |
-  | otherwise (no direction anywhere, an unconnected pair, or Basic view) | Data flows aren't documented yet | We're cataloguing what each integration syncs. |
+  | otherwise (no direction anywhere, an unconnected pair, or Basic view)    | Data flows aren't documented yet     | We're cataloguing what each integration syncs.                    |
 
   The gate is `PairView.hasLayerADirection`, and it applies **the same predicate the per-mechanism
   card gates its arrow on**. If the two drift the band promises a direction "below" that no card
@@ -499,7 +518,7 @@ Follow-through after the pair page lands.
 
 - **Defer per-pair Algolia records.** The `/search` integrations tab is already hidden (`STAGE_1_SPEC.md` §7.5). Stage 1.5 does **not** add a per-pair search record; document the deferral in `SEARCH_RANKING.md` and record the **future `{prefix}_pairs` record shape** there for Stage 2. (The existing per-integration index continues to be built/maintained by the sync; it is simply not surfaced.)
 - **No dead `/integrations/:id` links.** Ensure the still-built per-integration Algolia records and any internal links resolve **through the §7.2 301** to the pair page, never to a dead route. Audit internal link generation and the sitemap so they emit pair URLs (or 301-safe legacy URLs), not orphaned integration URLs.
-- **Sitemap.** Pair pages are the canonical integration surface; reflect them in the sitemap per the existing generator, dropping standalone `/integrations/:id` entries in favour of (canonical) pair URLs. *(Extended by §11.2: from AECI-340 the sitemap emits **both** orientations per real pair; §11.4 later adds scored "meaningful no" pairs.)*
+- **Sitemap.** Pair pages are the canonical integration surface; reflect them in the sitemap per the existing generator, dropping standalone `/integrations/:id` entries in favour of (canonical) pair URLs. _(Extended by §11.2: from AECI-340 the sitemap emits **both** orientations per real pair; §11.4 later adds scored "meaningful no" pairs.)_
 
 ---
 
@@ -508,7 +527,7 @@ Follow-through after the pair page lands.
 Recorded so the boundary is explicit (see §1.1). These were **placeholders** when 1.5 shipped; three of them have now **shipped** under the AECI-514 epic, specified in **`docs/STAGE_2_ATTESTATIONS_SPEC.md`** (kickoff 2026-08-14, swept closed by AECI-608 2026-08-18):
 
 - **AECI-301** — vendor attestation authoring (the portal seam that makes `vendor_a`/`vendor_b` attestations real). ✅ **Shipped** (`STAGE_2_ATTESTATIONS_SPEC.md` §5 + §5.4 as-built): four `/api/vendor/*` endpoints, authority derived from `product_vendors` ownership and never from the request. This is what makes the dormant sources real — every attestation in D1 before it was `source='aeci'`.
-- **AECI-302** — conflict UI + notification pipeline (activates the red/`conflict` branch of `computeAgreement`). ✅ **Shipped** (§4 surfacing + §7 pipeline, §7.5 as-built): email-only (Resend), four cron-driven detectors deduped through an `audit_log` ledger rather than a notifications table. *("Email-only" was the launch shape pending the then-open real-time transport question, which **resolved 2026-08-19** — `STAGE_2_SPEC.md` §8.6 / ADR 0023 / `docs/STAGE_2_REALTIME_SPEC.md`, the AECI-516 epic. The answer adds **no second channel**: the portal polls a per-vendor freshness cursor and re-reads this same `audit_log`-backed endpoint, surfacing new rows as a session-scoped count. **Email stays primary**, and nothing AECI-302 shipped changes.)* **Four detectors** (`silent-counterparty`, `open-conflict`, `stale-version`, `claim-denied` — renamed from `aeci-denied` by AECI-961, which also widened it to notify the counterparty); the `cross-grain` detector `STAGE_2_SPEC.md` §2.4 also listed was **dropped at build** (§7.1 / §11) because its only proposed definition described legitimate data — two mechanisms genuinely can move the same `data_object` in opposite directions.
+- **AECI-302** — conflict UI + notification pipeline (activates the red/`conflict` branch of `computeAgreement`). ✅ **Shipped** (§4 surfacing + §7 pipeline, §7.5 as-built): email-only (Resend), four cron-driven detectors deduped through an `audit_log` ledger rather than a notifications table. _("Email-only" was the launch shape pending the then-open real-time transport question, which **resolved 2026-08-19** — `STAGE_2_SPEC.md` §8.6 / ADR 0023 / `docs/STAGE_2_REALTIME_SPEC.md`, the AECI-516 epic. The answer adds **no second channel**: the portal polls a per-vendor freshness cursor and re-reads this same `audit_log`-backed endpoint, surfacing new rows as a session-scoped count. **Email stays primary**, and nothing AECI-302 shipped changes.)_ **Four detectors** (`silent-counterparty`, `open-conflict`, `stale-version`, `claim-denied` — renamed from `aeci-denied` by AECI-961, which also widened it to notify the counterparty); the `cross-grain` detector `STAGE_2_SPEC.md` §2.4 also listed was **dropped at build** (§7.1 / §11) because its only proposed definition described legitimate data — two mechanisms genuinely can move the same `data_object` in opposite directions.
 - **AECI-303** — version-diff timeline. ✅ **Shipped** (`STAGE_2_ATTESTATIONS_SPEC.md` §9 + §9.4 as-built): over the `product_versions` FKs from §8, not the dormant `introduced_at`/`deprecated_at` dates, which could not express "source-version × target-version". Also fixed a pre-existing TransferState orientation bug on the pair resolver that §11.2 (AECI-340) would have surfaced.
 - **AECI-304** — paywalled integration depth. Stays under the Paid Tiers epic (AECI-515); AECI-514 ships the entitlement **seam** only (§9.3).
 
@@ -516,8 +535,8 @@ The Stage 1.5 schema and contract are forward-compatible with all four in the se
 
 > **Two corrections from the AECI-514 kickoff**, recorded here because they touch §3's definitions:
 >
-> 1. **`introduced_at`/`deprecated_at` are version *stamps*, per §3.3 — not attestation retirement.** ✅ **Resolved by AECI-603** (2026-08-14; migration `0021`, shipped as `0016`). As shipped in 1.5, `attestations_active_idx` was partial on `deprecated_at IS NULL` with a comment describing it as retirement. §3.3's definition won (AECI-303 depends on it): supersession got its own `retracted_at` column and the index predicate moved onto it, with the shared `liveAttestationsWhere` (`apps/api/src/lib/drizzle-helpers.ts`) as the one definition every read applies. *(AECI-608 found one read that had kept the old predicate — the admin panel's claim-coverage count — and corrected it. Nothing reads `deprecated_at` as a gate now.)*
-> 2. **`computeAgreement` needs a `single_source` state.** ✅ **Resolved by AECI-605** (2026-08-14; `STAGE_2_ATTESTATIONS_SPEC.md` §4.5). As originally shipped (§3.4), a *single* vendor affirming with the counterparty silent resolved to `confirmed`. That branch was unreachable in 1.5, so the gap was latent — but it would have rendered one-sided assertion as agreement, which `STAGE_2_SPEC.md` §8.1(4) forbids. `confirmed` is now narrowed to **two distinct vendor identities** and §3.4 above reflects the shipped rule.
+> 1. **`introduced_at`/`deprecated_at` are version _stamps_, per §3.3 — not attestation retirement.** ✅ **Resolved by AECI-603** (2026-08-14; migration `0021`, shipped as `0016`). As shipped in 1.5, `attestations_active_idx` was partial on `deprecated_at IS NULL` with a comment describing it as retirement. §3.3's definition won (AECI-303 depends on it): supersession got its own `retracted_at` column and the index predicate moved onto it, with the shared `liveAttestationsWhere` (`apps/api/src/lib/drizzle-helpers.ts`) as the one definition every read applies. _(AECI-608 found one read that had kept the old predicate — the admin panel's claim-coverage count — and corrected it. Nothing reads `deprecated_at` as a gate now.)_
+> 2. **`computeAgreement` needs a `single_source` state.** ✅ **Resolved by AECI-605** (2026-08-14; `STAGE_2_ATTESTATIONS_SPEC.md` §4.5). As originally shipped (§3.4), a _single_ vendor affirming with the counterparty silent resolved to `confirmed`. That branch was unreachable in 1.5, so the gap was latent — but it would have rendered one-sided assertion as agreement, which `STAGE_2_SPEC.md` §8.1(4) forbids. `confirmed` is now narrowed to **two distinct vendor identities** and §3.4 above reflects the shipped rule.
 >
 > Also: "no migration is required to light them up" was **too strong**. It holds for the agreement engine and the attestation sources; it does not hold for vendor-created claims or for real per-product version selectors, which need a version entity that §6.1 never defined. AECI-514 shipped **three** additive migrations (`STAGE_2_ATTESTATIONS_SPEC.md` §1.2): `0016` claim provenance + attestation authority, `0017` the product-version model, and `0018` the maintenance marker's `last_reviewed_at` / `maintained_by` (AECI-616, scoped in after kickoff).
 
@@ -525,11 +544,11 @@ The Stage 1.5 schema and contract are forward-compatible with all four in the se
 
 ## 11. Addendum A — Search-intent pair indexing (AECI-339, 2026-07-08)
 
-**Status:** Approved — post-launch growth play (Linear project *"Pair-Page Search Intent (pSEO)"*). **Supersedes** the single-alphabetical-canonical rule of §7.3 (for pairs with mechanisms) and **extends** the §9 sitemap contract. Everything else in §7–§9 stands.
+**Status:** Approved — post-launch growth play (Linear project _"Pair-Page Search Intent (pSEO)"_). **Supersedes** the single-alphabetical-canonical rule of §7.3 (for pairs with mechanisms) and **extends** the §9 sitemap contract. Everything else in §7–§9 stands.
 
-**Goal.** Make AECi the search result for *"does [Tool A] integrate with [Tool B]"* — in **both directions** of the question and for **both "yes" and "no"** answers — without triggering Google's thin-content / duplicate-content systems on a young domain.
+**Goal.** Make AECi the search result for _"does [Tool A] integrate with [Tool B]"_ — in **both directions** of the question and for **both "yes" and "no"** answers — without triggering Google's thin-content / duplicate-content systems on a young domain.
 
-**Why the orientation matters.** A pair's two URL orientations answer two different questions: *"I own Revit — does Bluebeam fit us?"* is not the question the Bluebeam owner is asking in reverse. The existence answer and mechanism list are symmetric; the **framing, context-relative direction, and (future) suggestions are not**. §7.3's alphabetical canonical resolved that asymmetry by ignoring it — the searcher of the non-alphabetical direction was served a page framed for the other side. This addendum resolves it by **indexing both orientations**, gated on genuinely differentiated content.
+**Why the orientation matters.** A pair's two URL orientations answer two different questions: _"I own Revit — does Bluebeam fit us?"_ is not the question the Bluebeam owner is asking in reverse. The existence answer and mechanism list are symmetric; the **framing, context-relative direction, and (future) suggestions are not**. §7.3's alphabetical canonical resolved that asymmetry by ignoring it — the searcher of the non-alphabetical direction was served a page framed for the other side. This addendum resolves it by **indexing both orientations**, gated on genuinely differentiated content.
 
 ### 11.1 Decision record
 
@@ -552,21 +571,21 @@ Scope — must ship as one change:
 
 ### 11.3 Context-specific suggestions module (AECI-341)
 
-*"Other tools that connect to {context product}"* — ranked **purely algorithmically** from taxonomy overlap (category/audience/phase) + integration presence. **No pay-for-placement, ever.** Rendered on the pair page in both yes and no states, framed from the context product — the suggestion set genuinely differs by which tool the reader owns, making it the strongest per-orientation differentiator (§11.1(2)) and the content backbone of §11.4. API shape lands in `API_CONTRACTS.md`; suggested products join the pair page's embedded cache tags.
+_"Other tools that connect to {context product}"_ — ranked **purely algorithmically** from taxonomy overlap (category/audience/phase) + integration presence. **No pay-for-placement, ever.** Rendered on the pair page in both yes and no states, framed from the context product — the suggestion set genuinely differs by which tool the reader owns, making it the strongest per-orientation differentiator (§11.1(2)) and the content backbone of §11.4. API shape lands in `API_CONTRACTS.md`; suggested products join the pair page's embedded cache tags.
 
 ### 11.4 Tiered indexing for empty pairs — the "meaningful no" (AECI-342)
 
-The searcher whose true answer is *no* currently gets nothing from us; a good "no" page — honest answer, viable bridge, alternatives — is the trust-first positioning made concrete, and the anti-thin-content moat is that it is **data-derived and unique per pair**.
+The searcher whose true answer is _no_ currently gets nothing from us; a good "no" page — honest answer, viable bridge, alternatives — is the trust-first positioning made concrete, and the anti-thin-content moat is that it is **data-derived and unique per pair**.
 
 - **Scoring function** (pure, `packages/shared`): an empty pair qualifies on same category cluster + `data_object` overlap + demonstrated GSC demand (§11.6). Below the bar → stays `noindex`.
-- **Content template** for qualifying pairs: existence answer → **data-object bridge** ("X and Y both handle *cost codes* — a CSV/manual bridge is viable", derived from each product's claims on its other integrations) → suggestions (§11.3) → report CTA (§11.5).
+- **Content template** for qualifying pairs: existence answer → **data-object bridge** ("X and Y both handle _cost codes_ — a CSV/manual bridge is viable", derived from each product's claims on its other integrations) → suggestions (§11.3) → report CTA (§11.5).
 - **Indexing flip:** qualifying pairs lose `noindex` and enter the sitemap. Dual-orientation only where scoring shows demand in both directions.
 - **Internal links (required):** a "commonly asked about" module on product-detail pages links each product to its qualifying no-pairs — indexable pages must not be sitemap-only orphans.
 - **Batched rollout:** first batch tens of pages; widen only on GSC evidence (§11.6). Gated behind the §11.2 GSC gate passing.
 
 ### 11.5 Per-pair "report a missing integration" CTA (AECI-343)
 
-*"Know of an integration between {X} and {Y} we're missing?"* — a prefilled entry point into the **existing** Phase 6 requests + moderation pipeline (no new pipeline), carrying both product slugs with distinguishable type/metadata so **per-pair report counts are queryable**. Doubles as a coverage-gap demand signal feeding the §11.4 scoring. Writes obey the §26.1 audit-batch invariant.
+_"Know of an integration between {X} and {Y} we're missing?"_ — a prefilled entry point into the **existing** Phase 6 requests + moderation pipeline (no new pipeline), carrying both product slugs with distinguishable type/metadata so **per-pair report counts are queryable**. Doubles as a coverage-gap demand signal feeding the §11.4 scoring. Writes obey the §26.1 audit-batch invariant.
 
 ### 11.6 Measurement, gates & rollback (AECI-344)
 
@@ -601,7 +620,7 @@ The obvious "industry standard" fix is to model the connector as an **endpoint**
 edges (`agave ↔ procore`, `agave ↔ acumatica`) instead of a pair edge carrying a `powered_by`
 pointer. Rejected, deliberately:
 
-- **Pair-level truth.** The user-facing question is *"does Procore integrate with Acumatica?"* The
+- **Pair-level truth.** The user-facing question is _"does Procore integrate with Acumatica?"_ The
   pair edge answers it directly; hub-spoke edges only imply it transitively and can never express
   what actually syncs **between the two endpoints**.
 - **Claims anchoring.** `claims` / `attestations` (§3) hang off the pair edge and are asserted about
@@ -614,7 +633,7 @@ pointer. Rejected, deliberately:
 - **Field:** `integrations_as_connector: IntegrationListItem[]` on `ProductDetailSchema`
   (`packages/shared/src/api/products.ts`), beside `integrations_as_source` / `_as_target`.
   It is `PoweredIntegrationItem[]` since AECI-1080. See the hydration bullet.
-- **Row shape is the bare `IntegrationListItem`, deliberately** — *not*
+- **Row shape is the bare `IntegrationListItem`, deliberately** — _not_
   `ProductIntegrationItem`. `context_direction` (§3.2) is meaningless here: the page product is
   **neither endpoint**, so there is no context frame to translate a direction into. The row's
   `direction` remains between `source` and `target`.
@@ -622,11 +641,11 @@ pointer. Rejected, deliberately:
   `poweredIntegrations: many(integrations, { relationName: 'IntegrationPoweredByProduct' })`
   (`apps/api/src/db/schema.ts`). Relations file only — the FK column and its partial index already
   existed, so **no migration**. `productDetailConfig.with` reuses the plain `integrationListConfig`
-  (no claims join — the pair page owns claim depth). *Amended by AECI-1080 (2026-09-24): both arms
+  (no claims join — the pair page owns claim depth). _Amended by AECI-1080 (2026-09-24): both arms
   now load each claim's `data_object` slug, and nothing else, so the hub can show the §13.3 depth
   axis. The row shape became `PoweredIntegrationItem` (`IntegrationListItem` + `data_object_slugs`).
   Still no direction, no attestations and no `context_direction`: the pair page owns the rest of
-  claim depth.*
+  claim depth._
 - **The API stays a flat edge list.** Grouping is a presentation concern (§12.3), so no shape churn
   if the presentation changes.
 - **Amended by §13.4(2) — the relation has no self-exclusion.** `poweredIntegrations` selects on
@@ -657,7 +676,7 @@ between `#integrations` and `#reviews`, with a matching "Integrations it powers"
   order) and a merged direction; two opposing one-ways merge to a round trip.
 - **The hub is decided per PRODUCT, not per edge.** Source/target orientation on a powered edge is
   arbitrary — it records how the row was authored, not a hub/spoke truth — so the hub is derived.
-  Deriving it per *edge* (the original heuristic: file each edge under its more frequent endpoint)
+  Deriving it per _edge_ (the original heuristic: file each edge under its more frequent endpoint)
   is locally correct and globally incoherent: given `ACC↔QuickBooks` and `QuickBooks↔Roofr`, ACC
   wins the first and QuickBooks wins the second, so **QuickBooks renders as a partner row AND as a
   hub heading in the same section** — it reads as a data error. Deciding once per product makes
@@ -678,7 +697,7 @@ between `#integrations` and `#reviews`, with a matching "Integrations it powers"
   (linked to the hub product) + the group size; body = full-width partner rows carrying logo,
   partner name, **hub-relative direction** (`integrationDirectionForContext`, mirrored when the hub
   is endpoint B — the same `→ Outbound / ← Inbound / ⇄ Both` vocabulary the endpoint table frames
-  relative to *its* page product), the mechanism badge, and a chevron. **Amended 2026-09-10
+  relative to _its_ page product), the mechanism badge, and a chevron. **Amended 2026-09-10
   (AECI-853): direction is no longer a slot on the right of the row.** It moved into a muted meta
   line under the partner name, present at every width, with the mechanism joining that same line
   below `md`. The mechanism badge still folds at `md`. This tracks `ProductIntegrationRow`, which
@@ -694,14 +713,14 @@ between `#integrations` and `#reviews`, with a matching "Integrations it powers"
   it actually powers edges, a data-driven safety net for a mis-roled product.
   - ⚠️ **Amended by AECI-707 (2026-08-31): a third branch sits FIRST, and one case now hides the
     section.** The condition is evaluated against the **post-§13.4(2)** view, in this order:
-    *(1)* the view renders anything → show, whatever the role; *(2)* the view is empty **but the raw
-    `integrations_as_connector` is not** → **hide**; *(3)* the raw list is empty too → the empty
+    _(1)_ the view renders anything → show, whatever the role; _(2)_ the view is empty **but the raw
+    `integrations_as_connector` is not** → **hide**; _(3)_ the raw list is empty too → the empty
     state above, for connector/hybrid.
     Branch 2 is the Convention-A case. Those edges were not lost, they are rendering in
     `#integrations`, where §13.2(a) keeps them direct — so the empty state's claim ("no integrations
     are recorded as running on this connector yet") would be false, and its correction CTA would be
-    soliciting data already on the page. Worse, §13.6's hero line sits directly above it: *"Connects
-    43 products in the AECi catalog"* over *"powers 0, none recorded yet"* is a plain-English
+    soliciting data already on the page. Worse, §13.6's hero line sits directly above it: _"Connects
+    43 products in the AECi catalog"_ over _"powers 0, none recorded yet"_ is a plain-English
     contradiction. This is not a corner: **every one of Aquifer's 43 and Kroo's 44 powered edges is
     Convention A**, and both are promoted.
     The rule this preserves is §12.3's own. The always-render rule exists so a connector page never
@@ -715,12 +734,12 @@ between `#integrations` and `#reviews`, with a matching "Integrations it powers"
 - **Heading: "Integrations it powers (N)"** (`@@products.detail.body.powers.heading`). A noun
   phrase, parallel to the endpoint "Integrations (N)" heading directly above it, because on a
   connector page **both sections can be populated at once** — NetSuite Connector by Appficiency
-  carries its own endpoint integration *and* powered edges — so the two headings must be tellable
+  carries its own endpoint integration _and_ powered edges — so the two headings must be tellable
   apart. The former "Powers these integrations" failed at that: verb-first (breaking the
   `About` / `How teams use it` / `Integrations` / `Reviews` heading grammar), "these" pointed
   forward at nothing, and "powers" is vendor marketing voice rather than the neutral catalog voice
   PRODUCT.md asks for. The pronoun in "it powers" does the disambiguating work "these" was not.
-  (Renaming the *sibling* endpoint heading to "Direct integrations (N)" on connector/hybrid pages
+  (Renaming the _sibling_ endpoint heading to "Direct integrations (N)" on connector/hybrid pages
   was considered as a matching pair and is **not** adopted — the pronoun carries it alone.)
 - **N counts distinct pairs** — i.e. the rows actually rendered — not raw edges and not groups.
   Counting edges made the heading lie: live data carries duplicate rows for one pair (that same
@@ -730,7 +749,7 @@ between `#integrations` and `#reviews`, with a matching "Integrations it powers"
   and the rendered rows are provably the same set.
 - **`RoleBadge` in the hero**, beside the "Product" eyebrow. It self-hides for `application`, so
   only connectors/hybrids are flagged. The endpoint "Integrations (0)" section is left as-is — for
-  a pure connector that number is factually correct. (Its *populated* branch does gain the §12.7
+  a pure connector that number is factually correct. (Its _populated_ branch does gain the §12.7
   scope note.)
 - **Pair page (Stage 1 §4.4).** The mechanism card's "Built by {vendor} · Powered by {product}"
   byline (relabelled "Offered by" in AECI-1021 — the vendor that owns the edge) is now **linked** (it rendered as plain text), so a via-connector mechanism navigates to
@@ -762,7 +781,7 @@ grouping, counting or render-condition rules.
    **That anchor opens in a new tab** (`target="_blank"` + `rel="noopener"`, a plain `href` rather
    than a `routerLink`, since a router navigation is pointless once the browser opens a new
    context). The reasoning is the admin console's "View Page" rule pointed at a reader: someone on a
-   product page who wants to know what Agave ERP Sync *is* has not finished with the page they are
+   product page who wants to know what Agave ERP Sync _is_ has not finished with the page they are
    on, so the link is a lookup rather than a destination. The new tab is **announced in the
    accessible name** ("View product: {name} (opens in a new tab)") rather than left to be
    discovered, and the name begins with the visible "View product" text so WCAG 2.5.3 Label in Name
@@ -771,17 +790,17 @@ grouping, counting or render-condition rules.
    `aec-new-tab-icon`, which every new-tab link in `apps/web` carries. The anchor also moved off
    accent onto the standalone-link role — see `DESIGN.md` → "The Link Treatment Rule".)**
 4. **The section gains a name filter at ten or more rows** (`INTEGRATION_FILTER_MIN_ROWS`).
-   *Superseded by the AECI-848 amendment below: the threshold is gone and the constant is deleted.*
+   _Superseded by the AECI-848 amendment below: the threshold is gone and the constant is deleted._
    It matches partner names — **and, since AECI-966 (2026-09-15), the pair's `mechanism_name`
    labels as well**, collected across the collapsed edges as `PoweredConnection.mechanismNames`.
    **That is a field this section does not render**, and deliberately so: a hub card summarises a
    pair's mechanisms as a kind label or a count ("3 connection types"), never as the curator's free
    text, because the per-mechanism detail belongs to the pair page. So the widening adds an
-   *invisible* match here rather than fixing a *visible* miss, which is the reverse of §13.3's case.
+   _invisible_ match here rather than fixing a _visible_ miss, which is the reverse of §13.3's case.
    It was widened anyway for the reason item 2 of the AECI-848 amendment below gives: the two
    sections sit side by side on a connector page, and one filter finding "DWG" while its neighbour
    does not is exactly the inconsistency that amendment spent a threshold to remove. The placeholder
-   moved to "Filter by product or connection" in lockstep with §13.3's. And a hub whose *own* name
+   moved to "Filter by product or connection" in lockstep with §13.3's. And a hub whose _own_ name
    matches keeps every partner under it —
    typing the hub name is a request for that card, not for a partner that happens to share the
    name. The query is **component state and never a route query param**: `/products/:slug` is a
@@ -847,17 +866,17 @@ should dominate. Three options — (A) keep endpoint-only, (B) count powered edg
 **Recommendation: B, as its own follow-up after the data backfill**, so the numbers change once and
 the Algolia products reindex (custom ranking + numeric facet buckets + sort replica, see
 `docs/SEARCH_RANKING.md`) happens once. `affectedProducts` in `promote.ts` is deliberately
-**unchanged** here. *(AECI-636 PR-B, 2026-09-22: the custom-ranking and sort-replica parts of that
-reindex no longer exist. See the note below.)*
+**unchanged** here. _(AECI-636 PR-B, 2026-09-22: the custom-ranking and sort-replica parts of that
+reindex no longer exist. See the note below.)_
 
 ✅ **Resolved by §13.5 (Addendum C, 2026-08-31): option B, scheduled into the AECI-721 migration**
 rather than shipped ahead of it, so the numbers move once and the Algolia reindex happens once —
 which is what the recommendation above was asking for. Two things this section did not anticipate
 are recorded there: B **is** a ranking change (it lifts connectors up `desc(integration_count)` on
 both indices), and the count rule is duplicated across **ten** sites that must move in lockstep —
-including the Algolia *vendor* count, which is a different rule, and the `metrics_daily` cron,
+including the Algolia _vendor_ count, which is a different rule, and the `metrics_daily` cron,
 which is a time series.
-*(AECI-636 PR-B, 2026-09-22: the ranking half no longer holds. `desc(integration_count)` left both indices' custom ranking, replaced by `listing_tier`, and both "Most integrations" sort replicas were retired. The count still feeds the numeric facet. See `SEARCH_RANKING.md` §3 and §5a.)*
+_(AECI-636 PR-B, 2026-09-22: the ranking half no longer holds. `desc(integration_count)` left both indices' custom ranking, replaced by `listing_tier`, and both "Most integrations" sort replicas were retired. The count still feeds the numeric facet. See `SEARCH_RANKING.md` §3 and §5a.)_
 
 ### 12.6 Known data state
 
@@ -868,16 +887,16 @@ integrations carry `powered_by_product_id`; all ~13 Agave edges have it NULL". B
 gap is closed** — all 12 upstream Agave powered edges carry it, so Agave's hub view is live.
 
 The residual gap is **promotion coverage, not a D1 data defect**. Of the 325 upstream powered
-edges: 79 are correct in prod, 62 are edges whose *connector* is not promoted (Zapier, Workato,
+edges: 79 are correct in prod, 62 are edges whose _connector_ is not promoted (Zapier, Workato,
 et al — the `on_hold` set), and 184 are edges never promoted at all. Zero prod rows have a NULL FK
-whose connector *is* promoted, so there is nothing for a D1 backfill to do today. The ruling above
+whose connector _is_ promoted, so there is nothing for a D1 backfill to do today. The ruling above
 still stands for how a row gets fixed — **fix it upstream in the review app, then re-promote**, no D1 stopgap — with one
 narrow, audited exception now tooled in `scripts/ops/2026-08-powered-by-backfill/`: a row whose FK
-is the *only* difference from upstream. That sweep is also the detector; see its README for the
+is the _only_ difference from upstream. That sweep is also the detector; see its README for the
 bucket definitions and the standing measurement.
 
 **Root cause closed 2026-09-01 (AECI-730).** The gap re-accrued because promote dropped an
-unresolvable `poweredByProduct` with no report of any kind, and on an *update* actively cleared a
+unresolvable `poweredByProduct` with no report of any kind, and on an _update_ actively cleared a
 correct FK. Both are fixed: the drop is now reported on the response as `unresolvedLinks[]`
 (`REVIEW_APP_PROMOTE_API.md` §3.4/§4) and as `aeci.api.promote.unresolved_link{field}` in PostHog,
 and the column is left untouched rather than nulled when the link doesn't resolve. So the
@@ -951,7 +970,7 @@ count decision. Nothing in §3–§12 is superseded.
 **Why this exists.** Addendum B gave a **connector** its own page. This addendum governs the
 mirror-image surface — what an **endpoint**'s page says about the connectors that reach it — plus
 the role-varied template and the boundary around the reachable tier. The four issues above each
-open with *"governed by the Stage 1.5 addendum"* and, until now, pointed at nothing; the recurring
+open with _"governed by the Stage 1.5 addendum"_ and, until now, pointed at nothing; the recurring
 code-review finding on this repo is docs trailing the build, and a contract written after the build
 is a description, not a contract.
 
@@ -969,22 +988,22 @@ load-bearing; each is argued where it lands.
 The spine every other subsection references. It is written down because it existed only in session
 notes, and the words were already drifting between issues.
 
-| Tier | What it asserts | Where it lives | Counts as an integration? |
-|---|---|---|---|
-| **Delivered** | A working integration exists **today**. Two sub-kinds: *accountable-party* — a vendor or SI built it and maintains it — and *via-connector* — an iPaaS ships a listing covering both sides | `integrations`; after AECI-721, also the connector lane's **evidenced pairs** | **Yes — both sub-kinds** |
-| **Reachable** | Both sides appear in the same connector's catalogue, so a connector **could** deliver it with configuration and no code. Computed from stub↔product mappings; **never stored as delivered** | derived at read time from `connector_stubs` + `connector_stub_mappings`, gated for publication by `connector_pairs.surface` (AECI-714 — §13.10) | **No, ever** |
-| **Buildable** | Both sides expose an API, so somebody **could** write it. True of very nearly every pair in the catalog | nowhere — deliberately not modelled | **No** |
+| Tier          | What it asserts                                                                                                                                                                             | Where it lives                                                                                                                                  | Counts as an integration? |
+| ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------- |
+| **Delivered** | A working integration exists **today**. Two sub-kinds: _accountable-party_ — a vendor or SI built it and maintains it — and _via-connector_ — an iPaaS ships a listing covering both sides  | `integrations`; after AECI-721, also the connector lane's **evidenced pairs**                                                                   | **Yes — both sub-kinds**  |
+| **Reachable** | Both sides appear in the same connector's catalogue, so a connector **could** deliver it with configuration and no code. Computed from stub↔product mappings; **never stored as delivered** | derived at read time from `connector_stubs` + `connector_stub_mappings`, gated for publication by `connector_pairs.surface` (AECI-714 — §13.10) | **No, ever**              |
+| **Buildable** | Both sides expose an API, so somebody **could** write it. True of very nearly every pair in the catalog                                                                                     | nowhere — deliberately not modelled                                                                                                             | **No**                    |
 
 - **Delivered is a tier, not a column.** There is **no `integrations.status`** and no delivered
   flag anywhere in the schema; `recompute-counts.ts` counts with no status predicate at all.
   Membership in `integrations` **is** the delivered assertion. Read "delivered-only" throughout
-  this addendum as *"the delivered tier"*, never as a filter to be added — no migration is implied
+  this addendum as _"the delivered tier"_, never as a filter to be added — no migration is implied
   or wanted.
 - **Buildable is named specifically so it can be refused.** It is the claim connector marketing
   makes, and it is the reason AECI-670 separated capability from delivery. Publishing it would make
   AECi a larger directory and a worse one: an answer true of every pair answers nothing.
 - **Reachable is publishable, but only when labelled.** Reach evidence scraped from a published
-  spec is *spec-published*, not *exercised* — a schema page proves a connector published a spec,
+  spec is _spec-published_, not _exercised_ — a schema page proves a connector published a spec,
   not that the connector has ever run for that pair. Every reachable-tier claim therefore renders
   with visible provenance and an "as of" date. **An incomplete coverage list is acceptable; an
   unlabelled one is not.**
@@ -996,16 +1015,16 @@ describes only one side of that boundary is stale whichever way the work sequenc
 
 **Phase 1 — today until AECI-721.** Three clauses, applied in order:
 
-- **(a) Self-reference carve-out. An edge whose `powered_by_product_id` equals *either of its own
-  endpoints* stays in the DIRECT list.** Review-side **Convention A** (settled 2026-08-27,
-  `record-integrity-checks` I10) stores *"product X ships a connector on platform C"* as **one**
+- **(a) Self-reference carve-out. An edge whose `powered_by_product_id` equals _either of its own
+  endpoints_ stays in the DIRECT list.** Review-side **Convention A** (settled 2026-08-27,
+  `record-integrity-checks` I10) stores _"product X ships a connector on platform C"_ as **one**
   edge — source `X`, target `C`, `powered_by` = `C` — and the self-reference is deliberate, not
   dirt. That is roughly **144 of the 308** `iPaaS` rows (57 Zapier/Make/Workato/Boomi/Celigo, 43
-  Aquifer, 44 Kroo). Without this clause each routes into a "Via C" group whose only partner *is*
+  Aquifer, 44 Kroo). Without this clause each routes into a "Via C" group whose only partner _is_
   C, rendering **"Via Aquifer → Aquifer"**. Half the connector rows, misfiled.
-  *(Corrected 2026-08-31, AECI-707: this read "152 … 52 Kroo". `list_integrations({powered_by_product_id: Kroo})`
+  _(Corrected 2026-08-31, AECI-707: this read "152 … 52 Kroo". `list_integrations({powered_by_product_id: Kroo})`
   returns `total: 44`, and a Convention-A row carries `powered_by` by definition, so 52 was not
-  reachable. The ratio claim is unaffected; the arithmetic is 57 + 43 + 44.)*
+  reachable. The ratio claim is unaffected; the arithmetic is 57 + 43 + 44.)_
 - **(b) Otherwise, the Via lane is `powered_by_product_id IS NOT NULL` OR
   `mechanism_kind = 'iPaaS'`.** The FK leads deliberately. `mechanism_kind` is the dirty column —
   nullable with no default (`apps/api/src/db/schema.ts`), and AECI-712 counts 478 unset-or-`partner`
@@ -1021,8 +1040,8 @@ describes only one side of that boundary is stale whichever way the work sequenc
 `powered_by_product_id IS NOT NULL AND <> source AND <> target`, **regardless of
 `mechanism_kind`** — so the ~20 accountable `marketplace-app`-with-`powered_by` rows move into the
 evidenced tier alongside the `iPaaS` ones, carrying `built_by_vendor_id`. Read the originating
-issue's "`integrations` keeps only accountable-party edges" as *"no connector intermediary"*, not
-*"no named builder"*: `connector_evidenced_pairs.built_by_vendor_id` exists on day one precisely so
+issue's "`integrations` keeps only accountable-party edges" as _"no connector intermediary"_, not
+_"no named builder"_: `connector_evidenced_pairs.built_by_vendor_id` exists on day one precisely so
 this residue would not be pre-decided (`DATABASE_SCHEMA.md` §9a.6). **AECI-713's Via lane therefore
 composes ONE source, not two.** In production that is 17 of the 19 migrating edges — Agave's 11,
 Cherry Bekaert's 2, ClearPlan's 2, Appficiency's 2. The cost accepted with it: those rows lose
@@ -1044,7 +1063,7 @@ evidenced connector pairs. No key, no heuristic, no dirty column — the structu
 predicate used to, **for every edge that could be routed**.
 
 **Which means the routing key is now a TRANSITION rule, not only a placement rule (AECI-888).**
-Membership *is* the assertion (§13.1), so when `powered_by_product_id` changes on an already-promoted
+Membership _is_ the assertion (§13.1), so when `powered_by_product_id` changes on an already-promoted
 edge, the edge has to **move tables** — it cannot be re-placed by writing a second row, because
 identity here is table-scoped. Promote does that move in one batch, in both directions, preserving
 the id and re-homing the claims before dropping the source. Before AECI-888 only the `integrations`
@@ -1089,7 +1108,7 @@ within it.
 
 - **Order: the direct lane first, then one group per connector.** Connector groups sort by row
   count desc, then connector name. Direct-first because an accountable-party integration is a
-  stronger answer to *"does A integrate with B"* than a configurable one — someone is on the hook
+  stronger answer to _"does A integrate with B"_ than a configurable one — someone is on the hook
   for it.
 - **Group heading: "Via {connector}"**, the connector name linking `/products/{connectorSlug}`.
   That link is the return path into Addendum B's hub, mirroring §12.3's linked hub heading in the
@@ -1173,7 +1192,7 @@ count invariant and the one-table-per-lane requirement are all untouched. What c
   toggle. This subsection already rejected a "Direct integrations" heading over the only table as
   chrome over a fact the `<h2>` states, and a collapsible card would be that same chrome with a
   button on it. It **does** get the filter when it is long, which is exactly the list a filter is
-  for. *Superseded by the AECI-848 amendment below: it gets the filter whatever its length.*
+  for. _Superseded by the AECI-848 amendment below: it gets the filter whatever its length._
 - **The filter turns the `@defer` cut off.** With a query active the cut limit becomes the filtered
   row count. A filtered list is short by construction, and a collapsed card's deferred block would
   otherwise never reach the viewport that triggers it, so a match hiding past row 20 would render
@@ -1194,7 +1213,7 @@ same component shape there.
 ⚠️ **Amended again by AECI-966 (2026-09-15): the filter matches the mechanism label as well as the
 partner name.** Matching only `other.name` broke the filter's own promise against text the reader
 could see. This section renders `mechanism_name` in the **Connection** column, which is visible
-from `md` up. (Below `md` that column is hidden and only the mechanism *kind* joins the meta line —
+from `md` up. (Below `md` that column is hidden and only the mechanism _kind_ joins the meta line —
 §13.3a — so on a narrow viewport a label match is an invisible one, the same trade §12.3 makes at
 every width.) Typing `DWG` on the AutoCAD Architecture page returned nothing while a row on screen
 read "Navisworks DWG file reader". The mechanism label is where the
@@ -1271,24 +1290,24 @@ single column at any width below 1280px.
 Measured intrinsic cell widths, worst-case realistic data ("Autodesk Construction Cloud" partner,
 a "Marketplace app" badge, a long `mechanism_name`):
 
-| column | width | composition |
-|---|---|---|
-| Direction | 121px | 32 padding + 20 glyph + 8 gap + 61 label ("Outbound") |
-| Integrates with | 261px | 32 padding + 32 logo + 12 gap + 185 name |
-| Connection | 258px | 32 padding + widest of badge (118) / `mechanism_name` (226) |
-| Details (the decorative `→`) | 46px | 32 padding + 14 glyph |
+| column                       | width | composition                                                 |
+| ---------------------------- | ----- | ----------------------------------------------------------- |
+| Direction                    | 121px | 32 padding + 20 glyph + 8 gap + 61 label ("Outbound")       |
+| Integrates with              | 261px | 32 padding + 32 logo + 12 gap + 185 name                    |
+| Connection                   | 258px | 32 padding + widest of badge (118) / `mechanism_name` (226) |
+| Details (the decorative `→`) | 46px  | 32 padding + 14 glyph                                       |
 
 666px total, which is where the `44rem` floor came from. Only 61 of Direction's 121px was
 information; the rest was padding and a decorative glyph.
 
 Four dispositions were measured before choosing:
 
-| variant | table width | row height w/ `mechanism_name` | row height badge-only |
-|---|---|---|---|
-| keep the column | 666px | 67px | 57px |
-| **meta line under the partner name (chosen)** | **545px** | 67px | 63px |
-| glyph inline, label `sr-only` | 577px | 67px | 57px |
-| glyph + label inline after the name | 656px | 67px | 57px |
+| variant                                       | table width | row height w/ `mechanism_name` | row height badge-only |
+| --------------------------------------------- | ----------- | ------------------------------ | --------------------- |
+| keep the column                               | 666px       | 67px                           | 57px                  |
+| **meta line under the partner name (chosen)** | **545px**   | 67px                           | 63px                  |
+| glyph inline, label `sr-only`                 | 577px       | 67px                           | 57px                  |
+| glyph + label inline after the name           | 656px       | 67px                           | 57px                  |
 
 The chosen fold is close to free vertically: a row carrying a `mechanism_name` is already two lines
 tall, because the Connection cell stacks the badge over the name, so the meta line costs nothing
@@ -1339,7 +1358,7 @@ edge between an extension and its host. The relationship is stored as a row in `
   in the same card shape as the vendor card. It is metadata about what the product is, like its
   vendor, so it sits with the metadata. Omitted when the product has no host.
 - **On the extension's page, the EMPTY Integrations state names the host in one sentence**, first
-  inside the empty-state box: *"{product} runs inside {host}; see Built within."* Several hosts
+  inside the empty-state box: _"{product} runs inside {host}; see Built within."_ Several hosts
   join as prose ("Revit and Forma"). An extension usually has no integrations with its host, so
   without this the body shows a bare "Integrations (0)" while the one fact that explains it sits
   in the sidebar. The sentence names the host but never links it or counts it; the sidebar card
@@ -1350,7 +1369,7 @@ edge between an extension and its host. The relationship is stored as a row in `
   ("Extensions"). It renders a grid of linked tiles (logo, name, vendor), one per extension, sorted
   by name through `textAsc`. One sentence under the heading says what the products are, in the
   reader's terms ("Add-ins and apps that run inside {product} rather than connecting to it"). One
-  verb, *built within*, names the relation in both directions. Omitted when the product has no
+  verb, _built within_, names the relation in both directions. Omitted when the product has no
   extensions.
 
 **It is visually distinct from Integrations and never counted in it.**
@@ -1400,7 +1419,7 @@ mid-flight will make a local decision about a cross-cutting contract.
    payload.** `IntegrationListItemSchema` (`packages/shared/src/api/integrations.ts`) carries
    `mechanism_kind` / `mechanism_name` / `direction` / `source` / `target` and **no `powered_by`**;
    only `IntegrationDetailSchema` and the pair-page read have it. On product detail the FK is
-   expressed *implicitly* — by an edge appearing in `integrations_as_connector`, which is the
+   expressed _implicitly_ — by an edge appearing in `integrations_as_connector`, which is the
    **connector's** own page, not the endpoint's. **Contract:** add
    `powered_by_product: ProductLink | null` to **`ProductIntegrationItemSchema`** — the
    product-detail embed — and **not** to the bare list item, which `/api/integrations` and the home
@@ -1427,7 +1446,7 @@ mid-flight will make a local decision about a cross-cutting contract.
    which was wrong about staging — staging has been CI-migrated since AECI-256
    (`docs/CICD_PLAN.md` §3.2) — and is now wrong about preview too, which
    `deploy.yml`'s `migrate-preview` job has owned since AECI-828
-   (`docs/migrations.md` §0). The *shape* of the failure is what to keep: on any
+   (`docs/migrations.md` §0). The _shape_ of the failure is what to keep: on any
    tier where `0026`/`0027` have not landed, the evidenced table is empty while
    the powered edges sit in `integrations`, so without the field every connector
    edge there misfiles as direct — the failure §13.2's last paragraph names
@@ -1446,9 +1465,10 @@ mid-flight will make a local decision about a cross-cutting contract.
 
    The claims join needed one schema fix to work at all: `claimsRelations` had no
    inverse for `connectorEvidencedPairsRelations.claims`, so Drizzle threw
-   *"not enough information to infer relation"* the first time a read config asked
+   _"not enough information to infer relation"_ the first time a read config asked
    for it — which nothing did until the endpoint read hydrated claims on an
    evidenced pair. A `relations()` addition, no DDL.
+
 2. **Self-exclusion — a latent double-render that AECI-706 is about to switch on.** This amends
    §12.2 / §12.3. `poweredIntegrations` (`apps/api/src/db/schema.ts`) is a plain `many(...)` with
    **no `where`**: it selects on `powered_by_product_id` alone. A Convention-A edge (§13.2a) has the
@@ -1456,7 +1476,7 @@ mid-flight will make a local decision about a cross-cutting contract.
    lands in `sourceIntegrations`/`targetIntegrations` **and** in `poweredIntegrations` — rendering
    **twice**, once in `#integrations` and once in `#powered-integrations`. Production is blind to
    this today only because `powered_by` is un-backfilled (§12.6, since remeasured by AECI-706). **AECI-706 turns it
-   on**, and 706 lands *before* AECI-721 removes the class — Aquifer's 43 and Kroo's 44 duplicate on
+   on**, and 706 lands _before_ AECI-721 removes the class — Aquifer's 43 and Kroo's 44 duplicate on
    the day the backfill ships. **Rule: the powered section excludes edges where the page product is
    also an endpoint.** Those edges belong to the endpoint lane, where §13.2(a) already keeps them
    direct. Stated in the spec rather than in a build issue because it governs a surface that is
@@ -1473,6 +1493,7 @@ mid-flight will make a local decision about a cross-cutting contract.
    consequences this addendum promised and kept: `API_CONTRACTS.md` / `DATABASE_SCHEMA.md` are
    unchanged (§13.8), and §12.4's cache-tag walk still sees every powered edge. Applying it also
    forced a third branch into §12.3's render condition — see the amendment there.
+
 3. **Cache-tag composition — the connector becomes a rendered entity on the endpoint's page.**
    `product-detail.resolver.ts` pushes `integration:{id}` plus the partner's `product:{slug}` for
    endpoint edges. A linked "Via {connector}" heading renders the connector, so it must push
@@ -1487,6 +1508,7 @@ mid-flight will make a local decision about a cross-cutting contract.
    not name it. `pushConnector` calls the same `routeIntegrationLane` the render
    does; one rule, one place. `CACHE_STRATEGY.md` needed no edit, as §13.8
    predicted.
+
 4. **No promote-deriver change is needed.** `promote-cache-tags.ts` already emits
    `product:{poweredBySlug}` (§12.4), which covers the reverse purge.
 
@@ -1505,7 +1527,7 @@ mid-flight will make a local decision about a cross-cutting contract.
   recommendation asked for. Post-migration the expression becomes AECI-713's recorded rule:
   headline = direct + evidenced-connector.
   - **Shipped 2026-08-31.** The expression is `count(integrations WHERE src=p OR tgt=p) +
-    count(evidenced_pairs WHERE a=p OR b=p OR connector=p)`; the third disjunct IS option B. The
+count(evidenced_pairs WHERE a=p OR b=p OR connector=p)`; the third disjunct IS option B. The
     `affectedProducts` comment in `apps/api/src/routes/promote.ts` no longer cites it as open, and
     the connector joins `affectedProducts` on the routing branch, where the row it counts is
     written. Prod effect: Agave ERP Sync 0 → 12, ClearSync 0 → 2, Be.Smart 0 → 1, NetSuite
@@ -1514,14 +1536,14 @@ mid-flight will make a local decision about a cross-cutting contract.
     catalogue alone is ~3,411 stubs, and the `integration_count` facet buckets
     (`0 / 1–10 / 11–50 / 51+`) were calibrated against a catalogue topping out near 52 — letting
     derived pairs into the count would not so much shift the numbers as destroy the scale.
-- **Correction to this addendum's originating issue: §12.5-B *is* a ranking change.** AECI-708
+- **Correction to this addendum's originating issue: §12.5-B _is_ a ranking change.** AECI-708
   cross-referenced `SEARCH_RANKING.md` as "no ranking change". That is true of Addendum C in
   isolation — §4's `MECHANISM_RANK` / `mechanism_rank` are untouched here — and **false of option
   B**, which lifts connectors up `desc(integration_count)` on **both** the products and vendors
   indices, in a numeric facet and in two sort replicas. The `SEARCH_RANKING.md` edit belongs to
   AECI-721, alongside AECI-698's enum revision. Ranking stays purely algorithmic throughout — this
   is a change in a signal's inputs, never in who can buy position.
-  *(AECI-636 PR-B, 2026-09-22: the ranking half no longer holds. `desc(integration_count)` left both indices' custom ranking, replaced by `listing_tier`, and both "Most integrations" sort replicas were retired. The count still feeds the numeric facet. See `SEARCH_RANKING.md` §3 and §5a.)*
+  _(AECI-636 PR-B, 2026-09-22: the ranking half no longer holds. `desc(integration_count)` left both indices' custom ranking, replaced by `listing_tier`, and both "Most integrations" sort replicas were retired. The count still feeds the numeric facet. See `SEARCH_RANKING.md` §3 and §5a.)_
   - **Landed 2026-08-31, with one clause of this bullet overturned by the data.** `iPaaS` does NOT
     leave §4's rank table. AECI-721 adds `integrator` (tied with the `partner` it replaces, so the
     upstream re-key is rank-neutral) and pins connector-evidenced pairs to a fixed rank of **4**
@@ -1564,38 +1586,36 @@ mid-flight will make a local decision about a cross-cutting contract.
   The `retired_at IS NULL` terms on the `integrations` arm are AECI-1010's. The evidenced arm
   took them in AECI-1091, when the owner and AECi gained a retire on `connector_evidenced_pairs`
   (see the AECI-1010 bullet below, rule 2).
-
   1. `apps/api/src/lib/recompute-counts.ts` — `computeExpected`, the canonical definition.
   2. and 3. **the same rule as raw SQL, twice**, in `apps/api/scripts/reconcile-product-counts.ts`
      (`DRIFT_QUERY` and `RECOMPUTE_SQL`). Miss these and the daily `reconcile-counts.yml` cron
      reports 100% drift every morning and `--fix` silently reverts the new rule.
-  4. `apps/datatool/src/prune-integrations.ts` — the prune-path repair copy.
-  5. `apps/api/src/lib/algolia-transforms.ts` — the product record (reads the denormalized column).
-  6. **The Algolia *vendor* count is a different rule** — a correlated subquery on
+  3. `apps/datatool/src/prune-integrations.ts` — the prune-path repair copy.
+  4. `apps/api/src/lib/algolia-transforms.ts` — the product record (reads the denormalized column).
+  5. **The Algolia _vendor_ count is a different rule** — a correlated subquery on
      `built_by_vendor_id` (`algolia-transforms.ts` and, independently,
      `apps/datatool/src/algolia-reindex.ts`). It is not downstream of the product column, so it
      drops every migrated edge on its own and connector vendors' counts collapse. Named nowhere
      before this addendum.
-  7. `apps/datatool/src/algolia-reindex.ts` — datatool's independent copy of the *product* rule.
-  8. Four expressions in `apps/api/src/lib/home-stats.ts`: the total, the added-in-30-days figure,
+  6. `apps/datatool/src/algolia-reindex.ts` — datatool's independent copy of the _product_ rule.
+  7. Four expressions in `apps/api/src/lib/home-stats.ts`: the total, the added-in-30-days figure,
      most-active-category, and the recent-integrations rail.
-  9. `apps/api/src/lib/admin-catalog.ts` — `integrations_total` / `_with_claims` /
+  8. `apps/api/src/lib/admin-catalog.ts` — `integrations_total` / `_with_claims` /
      `_without_claims` on the operator console. Named nowhere before this addendum.
-  10. **`apps/api/src/lib/metrics-snapshot.ts` — `catalog.integrations_total`**, written daily into
-      `metrics_daily` by cron (AECI-581). This one is a **time series**: an unadjusted migration
-      writes a permanent, unexplained step-change into recorded history, and it is the only site on
-      this list where the damage cannot be repaired after the fact.
+  9. **`apps/api/src/lib/metrics-snapshot.ts` — `catalog.integrations_total`**, written daily into
+     `metrics_daily` by cron (AECI-581). This one is a **time series**: an unadjusted migration
+     writes a permanent, unexplained step-change into recorded history, and it is the only site on
+     this list where the damage cannot be repaired after the fact.
 
-      **Resolved: no backfill is needed, and that is the point of doing it this way.** Summing both
-      tables makes the series *continuous across the migration* — the migration moves rows between
-      two tables that are already added together and creates none, so there is no step to annotate
-      and no recorded history to rewrite. That is how AECI-721 discharges this item's "backfill or
-      annotate deliberately"; the alternative, editing `metrics_daily` after the fact, would have
-      been the less honest of the two. Recorded in `DATABASE_SCHEMA.md` §9.3.
+     **Resolved: no backfill is needed, and that is the point of doing it this way.** Summing both
+     tables makes the series _continuous across the migration_ — the migration moves rows between
+     two tables that are already added together and creates none, so there is no step to annotate
+     and no recorded history to rewrite. That is how AECI-721 discharges this item's "backfill or
+     annotate deliberately"; the alternative, editing `metrics_daily` after the fact, would have
+     been the less honest of the two. Recorded in `DATABASE_SCHEMA.md` §9.3.
 
   **Four further sites, found during AECI-721 PR-A and unnamed above** — the enumeration was
   written from the `integration_count` name, and these express the rule without using it:
-
   11. `apps/api/src/routes/admin-overview.ts` — a **module-local `catalogTotals`** that shadows the
       exported one in `admin-catalog.ts`. Two independent implementations of the same operator
       number; if only one moved, the overview and the catalog screen would disagree with each other,
@@ -1607,7 +1627,7 @@ mid-flight will make a local decision about a cross-cutting contract.
       migration — otherwise it reports drift for the whole window between the migration and the
       reindex, drift that is an artifact of its own single-table definition. Its membership rule
       must stay byte-for-byte the rule `algolia-sync.ts` applies, because any divergence between
-      those two *is* the alarm.
+      those two _is_ the alarm.
   14. Three more copies of the **vendor `built_by_vendor_id` rule outside Algolia** —
       `apps/api/src/lib/drizzle-helpers.ts` (`vendorListConfig`, feeding the public vendor list —
       the ADMIN list dropped its Integrations column on 2026-09-03 and no longer selects this
@@ -1621,7 +1641,6 @@ mid-flight will make a local decision about a cross-cutting contract.
   `integrations` index whose id is absent from the set. An omission here is not a wrong number, it
   is a deleted record. Both were still single-table after AECI-721 shipped, because item 13 (the
   count) lived in `lib/` and the set lived elsewhere — which is why they now share a file.
-
   15. `apps/api/src/lib/algolia-drift-deps.ts` — **`drizzlePromotedIds`**, the 09:00 orphan sweep's
       injected `PromotedIdProvider`. It ran with `apply: true`, so for the whole window between
       AECI-721 and AECI-789 any environment whose `<env>_integrations` index held connector-evidenced
@@ -1638,9 +1657,9 @@ mid-flight will make a local decision about a cross-cutting contract.
   Plus two things that are not `integration_count` but move with it: the rendered section heading
   (computed from the payload, not the stored column — §13.3), and the Algolia settings themselves —
   custom ranking on both indices, the numeric facet, both sort replicas
-  (`packages/shared/src/algolia.ts`, `docs/SEARCH_RANKING.md` §5a). *(AECI-636 PR-B, 2026-09-22:
+  (`packages/shared/src/algolia.ts`, `docs/SEARCH_RANKING.md` §5a). _(AECI-636 PR-B, 2026-09-22:
   only the numeric facet still moves with the count. The custom ranking no longer names
-  `integration_count`, and both "Most integrations" replicas were retired.)*
+  `integration_count`, and both "Most integrations" replicas were retired.)_
 
   **The lockstep is regression-tested, not just enumerated.** `apps/api/src/lib/count-lockstep.spec.ts`
   seeds `connector_evidenced_pairs` and leaves `integrations` untouched, then asserts each
@@ -1652,6 +1671,7 @@ mid-flight will make a local decision about a cross-cutting contract.
   line, so the two AECI-721 PRs reach prod D1 **together** at the `stage-2` → `main` promote, and at
   that boundary count-neutrality stops being a deployment-order property and becomes a code
   property. The spec is the artifact that survives the promote.
+
 - **A retired integration counts nowhere and is in no id set (AECI-1010, 2026-09-22).** The owner
   of a claimed integration can retire it (`STAGE_2_VENDOR_PORTAL_SPEC.md` §4.6). Retire is not
   retract (ADR 0030): nothing is deleted, claims and attestations are kept, and a restore is
@@ -1706,34 +1726,34 @@ mid-flight will make a local decision about a cross-cutting contract.
   proceed into a foreign-key failure). The other three are held by their reasons alone. Delete
   authority on four:
 
-  | Id | Site | Proof |
-  |---|---|---|
-  | 1 | `recompute-counts.ts` `computeExpected` | executed |
-  | 2, 3 | `scripts/reconcile-product-counts.ts` `DRIFT_QUERY`, `RECOMPUTE_SQL` | executed |
-  | 4 | `apps/datatool/src/prune-integrations.ts` recount | scan |
-  | 5 | `algolia-transforms.ts` product record | excluded: reads the stored column |
-  | 6a | `algolia-transforms.ts` `algoliaVendorConfig` | executed |
-  | 6b | `apps/datatool/src/algolia-reindex.ts` `buildVendorRecords` | scan |
-  | 7 | `algolia-reindex.ts` `buildProductRecords` | excluded: reads the stored column |
-  | 8a-8d | `home-stats.ts` total, 30-day window, most-active category, recent rail | executed |
-  | 9 | `admin-catalog.ts` `claimCoverage` (numerator restricted to live anchors too) | executed |
-  | 10 | `metrics-snapshot.ts` `catalog.integrations_total` | scan |
-  | 11 | `admin-overview.ts` module-local `catalogTotals` | scan |
-  | 12 | `admin-catalog.ts` exported `catalogTotals` | executed |
-  | 13 | `algolia-drift-deps.ts` `drizzleDriftCounter` | executed |
-  | 14a | `drizzle-helpers.ts` `vendorListConfig` | executed |
-  | 14b | `vendor-owned-integrations.ts` `selectOwnedIntegrationGroups` (vendor detail and, since AECI-1041, the `/admin/claims` owner test) | executed |
-  | 15 | `algolia-drift-deps.ts` `drizzlePromotedIds` (**deletes**) | executed |
-  | 16 | `scripts/reconcile-algolia-drift.ts` `INTEGRATION_IDS_SQL` (**deletes**) | executed |
-  | X1 | `algolia-sync.ts` `buildIntegrationRequests` upsert and delete arms (**deletes**) | executed |
-  | X2 | `algolia-reindex.ts` `buildIntegrationRecords` full rebuild (**deletes**) | scan |
-  | X3 | `drizzle-helpers.ts` `integrationCountFor` (taxonomy term counts; `integrations` arm only, the pre-existing gap below) | executed |
-  | X4 | `admin-analytics.ts` `CATALOG_NET_SOURCE` net series (both tables since AECI-1074) | executed |
-  | X5 | `scripts/ops/2026-09-retraction-consumer/consume.mjs` recount | scan |
-  | X6 | `apps/agent/src/tools/count-integrations.ts` `COUNT_SQL` | scan |
-  | X7 | `apps/agent/src/lib/corpus.ts` `EDGES_SQL` | scan |
-  | X8 | `retract-vendor.ts` footprint | excluded: a foreign-key blocker must count retired rows |
-  | X9 | the three spent 2026-09 one-off `retract.mjs` scripts | excluded: never re-run |
+  | Id    | Site                                                                                                                               | Proof                                                   |
+  | ----- | ---------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------- |
+  | 1     | `recompute-counts.ts` `computeExpected`                                                                                            | executed                                                |
+  | 2, 3  | `scripts/reconcile-product-counts.ts` `DRIFT_QUERY`, `RECOMPUTE_SQL`                                                               | executed                                                |
+  | 4     | `apps/datatool/src/prune-integrations.ts` recount                                                                                  | scan                                                    |
+  | 5     | `algolia-transforms.ts` product record                                                                                             | excluded: reads the stored column                       |
+  | 6a    | `algolia-transforms.ts` `algoliaVendorConfig`                                                                                      | executed                                                |
+  | 6b    | `apps/datatool/src/algolia-reindex.ts` `buildVendorRecords`                                                                        | scan                                                    |
+  | 7     | `algolia-reindex.ts` `buildProductRecords`                                                                                         | excluded: reads the stored column                       |
+  | 8a-8d | `home-stats.ts` total, 30-day window, most-active category, recent rail                                                            | executed                                                |
+  | 9     | `admin-catalog.ts` `claimCoverage` (numerator restricted to live anchors too)                                                      | executed                                                |
+  | 10    | `metrics-snapshot.ts` `catalog.integrations_total`                                                                                 | scan                                                    |
+  | 11    | `admin-overview.ts` module-local `catalogTotals`                                                                                   | scan                                                    |
+  | 12    | `admin-catalog.ts` exported `catalogTotals`                                                                                        | executed                                                |
+  | 13    | `algolia-drift-deps.ts` `drizzleDriftCounter`                                                                                      | executed                                                |
+  | 14a   | `drizzle-helpers.ts` `vendorListConfig`                                                                                            | executed                                                |
+  | 14b   | `vendor-owned-integrations.ts` `selectOwnedIntegrationGroups` (vendor detail and, since AECI-1041, the `/admin/claims` owner test) | executed                                                |
+  | 15    | `algolia-drift-deps.ts` `drizzlePromotedIds` (**deletes**)                                                                         | executed                                                |
+  | 16    | `scripts/reconcile-algolia-drift.ts` `INTEGRATION_IDS_SQL` (**deletes**)                                                           | executed                                                |
+  | X1    | `algolia-sync.ts` `buildIntegrationRequests` upsert and delete arms (**deletes**)                                                  | executed                                                |
+  | X2    | `algolia-reindex.ts` `buildIntegrationRecords` full rebuild (**deletes**)                                                          | scan                                                    |
+  | X3    | `drizzle-helpers.ts` `integrationCountFor` (taxonomy term counts; `integrations` arm only, the pre-existing gap below)             | executed                                                |
+  | X4    | `admin-analytics.ts` `CATALOG_NET_SOURCE` net series (both tables since AECI-1074)                                                 | executed                                                |
+  | X5    | `scripts/ops/2026-09-retraction-consumer/consume.mjs` recount                                                                      | scan                                                    |
+  | X6    | `apps/agent/src/tools/count-integrations.ts` `COUNT_SQL`                                                                           | scan                                                    |
+  | X7    | `apps/agent/src/lib/corpus.ts` `EDGES_SQL`                                                                                         | scan                                                    |
+  | X8    | `retract-vendor.ts` footprint                                                                                                      | excluded: a foreign-key blocker must count retired rows |
+  | X9    | the three spent 2026-09 one-off `retract.mjs` scripts                                                                              | excluded: never re-run                                  |
 
   The same predicate also filters the public reads that are not counts: the integrations list (and
   so the sitemap), the pair page and its timeline, `resolveMovedPair`, the product page's three
@@ -1757,6 +1777,7 @@ mid-flight will make a local decision about a cross-cutting contract.
   per-catalogue `evidenced_pairs` tally and the evidenced lane). The §7 detector sweep reads no
   pair at all. `apps/api/src/routes/retired-evidenced-public-reads.spec.ts` runs each against a
   retired pair beside a live one.
+
 - **Reachable never counts** — not in the heading, not in `integration_count`, not in a facet, not
   in the home stats. Publishing the tail buries the products with real integrations underneath it.
 
@@ -1786,10 +1807,10 @@ reach are not purged) applies unchanged.
 **The gate is the exact complement of AECI-720's promote refusal**, and that is the whole
 no-clobber argument:
 
-| Catalogue `managed_by` | Promote page | Mapping edit |
-|---|---|---|
-| `review` | writes | **409 `CATALOG_REVIEW_MANAGED`** |
-| `vendor` | **409 `CATALOG_VENDOR_MANAGED`** | writes |
+| Catalogue `managed_by` | Promote page                     | Mapping edit                     |
+| ---------------------- | -------------------------------- | -------------------------------- |
+| `review`               | writes                           | **409 `CATALOG_REVIEW_MANAGED`** |
+| `vendor`               | **409 `CATALOG_VENDOR_MANAGED`** | writes                           |
 
 So the sync needs no skip guard, and AECI-731's "every row `unchanged`" criterion stays reachable
 on every catalogue. `lib/connector-mapping-lanes.spec.ts` drives the planner and the edit over one
@@ -1852,9 +1873,9 @@ review-side). And AECI-1065's endpoint-vendor mapping proposals, which were prec
     Written unguarded, this bullet leads with an **empty section on four of the eight promoted
     connector pages** (§13.9): Aquifer and Kroo are emptied by §13.4(2), and Extractus and MYOB 0link
     carry no powered edges at all. On Aquifer the empty state would sit directly beneath this
-    section's own hero line reading *"Connects 43 products in the AECi catalog"*, above a populated
+    section's own hero line reading _"Connects 43 products in the AECi catalog"_, above a populated
     endpoint table.
-    This is **not** the data-driven rule rejected above. That one was *comparative* — powered versus
+    This is **not** the data-driven rule rejected above. That one was _comparative_ — powered versus
     endpoint, re-ordering a populated page as counts move, which is the churn the paragraph objects
     to. This is the degenerate empty/non-empty case, and a section with nothing in it cannot lead a
     page under any reading of "the powered set is the page's entire subject". Under the guard the
@@ -1871,15 +1892,15 @@ review-side). And AECI-1065's endpoint-vendor mapping proposals, which were prec
     Not over the §13.4(2)-filtered set the section renders — and that difference is exactly why
     "excludes self-references" is in this bullet. Under Convention A the distinct-endpoint set is
     `{43 partners} ∪ {Aquifer}`, so dropping the self-reference turns **44 into 43**, not into 0.
-    The two figures answer different questions about the same edges — *how many products does this
-    reach* (hero) versus *how many pairs does it sit in the middle of* (section heading, §12.3) —
+    The two figures answer different questions about the same edges — _how many products does this
+    reach_ (hero) versus _how many pairs does it sit in the middle of_ (section heading, §12.3) —
     and on a Convention-A connector the honest answers are 43 and 0.
   - **No role gate.** This bullet states only the `N > 0` condition and the build honours that
     literally: a mis-roled `application` that powers edges is described just as accurately by the
     line, which is the same data-driven reading §12.3's render condition already takes. Contrast the
     order bullet above, which is `connector`-only and says so.
 - **Meta description variant.** `product-detail.resolver.ts` sets one shape for every role. The
-  connector variant targets *"«connector» for construction"*-class queries. **Pair-shaped queries
+  connector variant targets _"«connector» for construction"_-class queries. **Pair-shaped queries
   stay on pair pages**, which Addendum A §11.2 owns — stated as a boundary so the two addenda do
   not compete for the same SERP with two different pages.
   - ⚠️ **Amended by AECI-802 (2026-09-09): "one shape for every role" is no longer true, and the
@@ -1887,14 +1908,14 @@ review-side). And AECI-1065's endpoint-vendor mapping proposals, which were prec
     (`STAGE_1_PHASE_2_SPEC.md` §9.1). **This variant is rung 1 and is unchanged** — same gate, same
     message id, same reasoning, and it still wins over everything below it. What changed is what a
     non-connector page falls to: rung 2 composes a sentence from the product's own integration data
-    (*"Connecteam has 5 integrations in the AEC stack, including Jobber, QuickBooks Online and
-    Xero."*), and only a product with nothing to count reaches the vendor blurb at rung 3. The
+    (_"Connecteam has 5 integrations in the AEC stack, including Jobber, QuickBooks Online and
+    Xero."_), and only a product with nothing to count reaches the vendor blurb at rung 3. The
     sub-bullet below that reads "it falls back to the `STAGE_1_PHASE_2_SPEC.md` §9.1 default" is
     still correct by reference — that default is now the ladder, not the blurb.
     **The JSON-LD carve-out survives intact and applies to the new rung too**: rung 2 varies the
     SERP snippet and never `SoftwareApplication.description`. AECI-802 added the same rule on the
     vendor side, where `buildVendorJsonLd` keeps `Organization.description` raw.
-  - **Gated on `product_role === 'connector' && N > 0`.** Unlike the hero line this one *is*
+  - **Gated on `product_role === 'connector' && N > 0`.** Unlike the hero line this one _is_
     role-scoped, as written, and it reduces to a decision about a single page: Datagrid has no
     powered edges so it never trips `N > 0`, leaving AnyWare Apps as the only hybrid in range — and
     AnyWare is half first-party `native` apps, which connector-shaped SERP copy would misrepresent.
@@ -1915,8 +1936,8 @@ review-side). And AECI-1065's endpoint-vendor mapping proposals, which were prec
 
 Presentation only; the data lands in AECI-714 and the curation in the review app.
 
-- **One line on the endpoint page**, below the Integrations section: *"N more pairs reachable via
-  connectors"*, linking **our** filtered view. Never a list, never a table row, never part of the
+- **One line on the endpoint page**, below the Integrations section: _"N more pairs reachable via
+  connectors"_, linking **our** filtered view. Never a list, never a table row, never part of the
   §13.3 heading count.
   - ✅ **Shipped by AECI-892 (2026-09-14), unlinked, and the link is deferred to AECI-716.** The
     "filtered view" this bullet names has never existed as a route — `/admin/connectors` is the only
@@ -1925,9 +1946,9 @@ Presentation only; the data lands in AECI-714 and the curation in the review app
     the publication gate below. It does not, so AECI-889's sweep waits on the count alone. The line
     is `ProductIntegrationsSection`'s `reachLabel()`, fed by `ProductDetail.reachable_pair_count`.
   - **Four message ids, not two.** On a section with **no** delivered rows there is nothing for the
-    reach to be *more* than, so the copy drops the word: *"N pairs reachable via connectors"*. That
+    reach to be _more_ than, so the copy drops the word: _"N pairs reachable via connectors"_. That
     is not an edge case — it is exactly the page the I24 sweep creates, a product whose only
-    connector-delivered edge has just been retired, and shipping *"3 more pairs"* above an
+    connector-delivered edge has just been retired, and shipping _"3 more pairs"_ above an
     empty-integrations notice would contradict the screen it sits on.
   - **Hidden at zero**, so the overwhelming majority of pages render nothing new.
 - **Never link out to a connector's own generated pair pages.** MindCloud publishes 104,186 of them;
@@ -1942,17 +1963,17 @@ Presentation only; the data lands in AECI-714 and the curation in the review app
   `connector_pairs.surface` gained a fourth value, `derived` — a pair the vendor never published a
   page for, enumerated by us from a closed and published connector list. It **fails clause (d) by
   construction**: the label points at the vendor's own page, and there is no page. So a `derived`
-  pair counts toward the one summary line above — *"N more pairs reachable via connectors"* — and
+  pair counts toward the one summary line above — _"N more pairs reachable via connectors"_ — and
   toward §13.10's coverage numbers, and it renders nothing that implies the vendor said anything.
   No pair page, no comparison column, no outbound link. **Publication still means the `curated`
   set**; the other three values are unchanged. Upstream wrote the first 669 of these on
   2026-09-13 for **Kroo Connector** and **Trimble AppXchange** (AECI-890, review-repo PR #110).
-  Read the value as *enumerated by AECi*, not as §13.1's "derived at read time", which is about
-  the reachable tier not being a table. *(Amended the same day by AECI-891, and this bullet
+  Read the value as _enumerated by AECi_, not as §13.1's "derived at read time", which is about
+  the reachable tier not being a table. _(Amended the same day by AECI-891, and this bullet
   originally read "no claim": a claim **may** anchor to a `connector_pairs` row, including a
   `derived` one, because the anchor carries no `surface` predicate. Nothing reader-facing moves —
   a reach claim renders nowhere at all until AECI-716 — so read the list above as a rendering rule
-  and not as a structural bar on anchoring.)*
+  and not as a structural bar on anchoring.)_
 - **Comparison requires at least two connectors.** A one-column comparison is an advertisement, and
   publishing one would undercut the no-pay-for-placement posture on the exact surface where a
   connector has the most to gain. This is why AECI-716 blocks on the second catalogue (AECI-701).
@@ -1976,16 +1997,16 @@ gate is production rather than merge:
    the **whole page** rather than skipping a row. Three admin count sites additionally treat the
    surfaces as a fixed triple and would drop a `derived` row **silently**. The CHECK change is a
    destructive table recreate, but nothing holds a foreign key to `connector_pairs`, so it has no
-   cascade children and migration `0027`'s shape does not repeat. *(That last clause was true when
+   cascade children and migration `0027`'s shape does not repeat. _(That last clause was true when
    `0032` was written and stopped being true the same day: step 4's AECI-891 adds
    `claims.connector_pair_id` **ON DELETE cascade**, putting `attestations` two levels below this
    table. The **next** recreate of `connector_pairs` is the dangerous class —
-   `DATABASE_SCHEMA.md` §9a, `docs/migrations.md` §3.3a.)*
+   `DATABASE_SCHEMA.md` §9a, `docs/migrations.md` §3.3a.)_
 3. Those two catalogues re-sync. `POST /api/promote/connector-catalog` is what carries `pairs[]`
    into the app-side table (`REVIEW_APP_PROMOTE_API.md` §3a); nothing else writes it.
-4. AECI-891 and AECI-892 ship **and reach production**. *(Both merged: AECI-891 on 2026-09-13,
+4. AECI-891 and AECI-892 ship **and reach production**. _(Both merged: AECI-891 on 2026-09-13,
    AECI-892 on 2026-09-14. AECI-892's done-when is production, not merge, because the point is that
-   the reach renders before the delivered row is deleted.)*
+   the reach renders before the delivered row is deleted.)_
 5. Only then does AECI-889 retire the remaining 113 duplicates, one catalogue per batch, each batch
    followed by a run of the AECI-882 retraction consumer.
 
@@ -2004,13 +2025,12 @@ moving it to a better shelf. AECI-852 stopped the first sweep for exactly that r
     criterion said the page should "still show reachable via Kroo Connector", and this section
     forbids that: a per-connector group is a list, renders a table row, and enters the §13.3 heading
     count, which is three of the first bullet's three prohibitions. The sanctioned form names **no
-    connector** — *"N more pairs reachable via connectors"*, unattributed, outside the count. A Via
+    connector** — _"N more pairs reachable via connectors"_, unattributed, outside the count. A Via
     card that survives its own delivered row would assert a delivery that I24 has just ruled does
     not exist. The issue was retitled and its AC rewritten rather than closed as a duplicate,
     because the sequencing gate onto AECI-889 lives on it.
   - **Attribution:** the endpoint line is **AECI-716**'s first bullet, whose own title is "endpoint
-    summary line + curated undelivered pair pages"; AECI-892 built that bullet and nothing else of
-    716. AECI-715 is the *connector's* page, reads `catalogs → stubs → mappings` and never touches
+    summary line + curated undelivered pair pages"; AECI-892 built that bullet and nothing else of 716. AECI-715 is the _connector's_ page, reads `catalogs → stubs → mappings` and never touches
     `connector_pairs`, and counts apps rather than pairs. The two share one predicate,
     `publishableMapping` in `apps/api/src/lib/admin-connectors.ts`, and nothing else — which is why
     that function was widened to `publishableMappingOn(t)` over an `alias()` rather than copied.
@@ -2068,7 +2088,7 @@ Stated explicitly so a reviewer can check them rather than infer them:
   table recreate). **It landed 2026-08-31** as `0027_powerful_killraven.sql`: the `integrations`
   CHECK gains `integrator`, `claims` gains the polymorphic anchor (§3.1's amendment), and the 19
   production powered edges move. §5a.1, §9.3 and §9a.6 of that document carry the as-built detail.
-- **`SEARCH_RANKING.md` — no ranking *rule* change from Addendum C**, with the §12.5-B correction
+- **`SEARCH_RANKING.md` — no ranking _rule_ change from Addendum C**, with the §12.5-B correction
   recorded in §13.5 rather than the originating issue's blanket claim. §4's rank table changes with
   AECI-698 / AECI-721 — **landed 2026-08-31**: `integrator` added at 1, the connector-evidenced pin
   at 4, `iPaaS` retained (§4.1–§4.3), and §5's `integration_count` tie-break re-scoped to both
@@ -2080,26 +2100,26 @@ Stated explicitly so a reviewer can check them rather than infer them:
 - **`API_CONTRACTS.md`** — changes with AECI-713 (the §13.4(1) field), not with this addendum.
   Confirmed by AECI-707: it shipped §13.4(2) **and** §13.6 with no edit here, because the
   self-exclusion landed in the web layer rather than in the payload (see §13.4(2)).
-- **`REVIEW_APP_PROMOTE_API.md`** — unchanged *by this addendum*; the connector-coverage payload
+- **`REVIEW_APP_PROMOTE_API.md`** — unchanged _by this addendum_; the connector-coverage payload
   extension was AECI-714's, and it **landed 2026-08-31** as §3a of that document. See §13.10.
 
 ### 13.9 Known data state (2026-08-30/31)
 
 Dated like §12.6, because every number here moves. Figures are **review-catalogue** (pipeline-side),
-which is materially larger than the promoted app DB — the *ratios* are the durable claim:
+which is materially larger than the promoted app DB — the _ratios_ are the durable claim:
 
 - **308 of 2,428** integration edges are `mechanism_kind = 'iPaaS'` (12.7%); ~**326** carry
   `powered_by_product_id`. The two sets are not the same set (§13.2).
 - ≈**144** of the `iPaaS` rows are Convention-A self-references (57 Zapier/Make/Workato/Boomi/Celigo,
-  43 Aquifer, 44 Kroo) — the rows §13.2(a) and §13.4(2) exist for. *(Kroo re-counted 2026-08-31; see
-  §13.2(a).)*
+  43 Aquifer, 44 Kroo) — the rows §13.2(a) and §13.4(2) exist for. _(Kroo re-counted 2026-08-31; see
+  §13.2(a).)_
 - **Of the 8 promoted connector-role products, §13.4(2) empties the powered section on two and finds
   it already empty on two more** — the count that decided §13.6's order guard. Agave ERP Sync (12
   powered edges, 0 Convention A), NetSuite Connector by Appficiency (2/0), ClearSync: AP (2/0) and
   Be.Smart Connector (1/0) keep a populated section; Aquifer (43/43) and Kroo Connector (44/44) are
   emptied by self-exclusion; Extractus by Smoothx and MYOB AccountRight / Business Connector by 0link
   carry no powered edges at all. These are review-catalogue figures — the app DB only holds an edge
-  once **both** endpoints are promoted, so prod's numbers are smaller. The *structure* (powered = 0,
+  once **both** endpoints are promoted, so prod's numbers are smaller. The _structure_ (powered = 0,
   direct > 0) is what the guard keys on, and it is invariant under that gap.
 - ~**20** accountable `marketplace-app`-with-`powered_by` rows are the open residue of §13.2;
   **4** `iPaaS` rows carry no `powered_by`.
@@ -2118,14 +2138,14 @@ join the "Via" lane as each endpoint is re-promoted. These are **review-catalogu
 `aeci-app-production`. AECI-1064 reversed AECI-700 the same day, so the "Via" lane is no longer
 mostly-Agave by design.
 
-| Catalogue | Live since | Pages | `connector_stubs` | `connector_pairs` |
-|---|---|---|---|---|
-| Agave ERP Sync | 2026-09-10 (AECI-764) | 1 | 24 | 19 |
-| Aquifer | 2026-09-10 (AECI-764) | 1 | 71 | 69 |
-| Kroo Connector | 2026-09-10 (AECI-764) | 1 | 89 | 498 |
-| Trimble AppXchange | 2026-09-10 (AECI-764) | 1 | 19 | 171 |
-| MindCloud | 2026-09-21 (AECI-902) | 12 | 3,395 | 2,016 |
-| Zapier | product live 2026-09-23 (AECI-1064), catalogue sync in progress | 26 | n/a | n/a |
+| Catalogue          | Live since                                                      | Pages | `connector_stubs` | `connector_pairs` |
+| ------------------ | --------------------------------------------------------------- | ----- | ----------------- | ----------------- |
+| Agave ERP Sync     | 2026-09-10 (AECI-764)                                           | 1     | 24                | 19                |
+| Aquifer            | 2026-09-10 (AECI-764)                                           | 1     | 71                | 69                |
+| Kroo Connector     | 2026-09-10 (AECI-764)                                           | 1     | 89                | 498               |
+| Trimble AppXchange | 2026-09-10 (AECI-764)                                           | 1     | 19                | 171               |
+| MindCloud          | 2026-09-21 (AECI-902)                                           | 12    | 3,395             | 2,016             |
+| Zapier             | product live 2026-09-23 (AECI-1064), catalogue sync in progress | 26    | n/a               | n/a               |
 
 Workato went live as a product on 2026-09-23 and has no tracked catalogue. Production holds 34
 connector-role products.
@@ -2172,16 +2192,16 @@ both endpoints' pages. AECI-713 closed it (§13.4(1)), and with it the last sing
 
 **The reachable tier is still not a table**, exactly as §13.1 requires. Reachability derives at
 read time from `connector_stubs` + `connector_stub_mappings`. `connector_pairs` is projected not
-because reachability needs it but because **publication** does: §13.7 publishes the *curated* set,
+because reachability needs it but because **publication** does: §13.7 publishes the _curated_ set,
 and `curated | generated | unknown` is a classification on the vendor's own published pair row
 (AECI-677) that exists nowhere in the mapping graph. Without it the only derivable thing is the
-auto-generated cross-product this addendum refuses to publish. *(**Four values since AECI-906,
+auto-generated cross-product this addendum refuses to publish. _(**Four values since AECI-906,
 2026-09-13**: `derived` joined the enum for a pair with no vendor page at all. It is the one value
-that classifies nothing the vendor published, and §13.7 settles that it never publishes.)*
+that classifies nothing the vendor published, and §13.7 settles that it never publishes.)_
 
 **A paged sync**, `POST /api/promote/connector-catalog` (`REVIEW_APP_PROMOTE_API.md` §3a). AECi
 holds the **full** mirror — every stub, including the ~3,342 that map to nothing — because the
-question the lane answers is *"is this new listing one of ours?"*, because AECI-720's cutoff is
+question the lane answers is _"is this new listing one of ours?"_, because AECI-720's cutoff is
 only a lane freeze if AECi's copy is complete, and because those rows **are** AECI-722's triage
 queue. One page is one complete ADR 0021 job; there is no atomicity across pages, and every
 statement is an idempotent upsert keyed on the review record id.
@@ -2220,13 +2240,13 @@ write nothing. The one write the screen drives is AECI-720's `managed_by` flip, 
 control for rather than re-implementing.
 
 **The `relations()` block is discharged.** `apps/api/src/db/schema.ts` recorded the six tables'
-missing relations as a *deferral* — "whichever issue builds the first read config adds the
+missing relations as a _deferral_ — "whichever issue builds the first read config adds the
 relations and the inverse entries on `productsRelations`". That is now done, and AECI-715 / 716
 inherit them.
 
 **The cache-tag obligation is NOT discharged, and now has a second reason to stay parked.**
 §13.10 said the coverage surfaces would need a tag set. `/admin/*` is deliberately uncacheable
-(`CACHE_STRATEGY.md` §4 — *"Do not add an `/admin` entry to `ROUTE_CACHE_PATTERNS`"*), so an
+(`CACHE_STRATEGY.md` §4 — _"Do not add an `/admin` entry to `ROUTE_CACHE_PATTERNS`"_), so an
 admin-only reader renders nothing cacheable. The obligation belongs to AECI-715 / 716, the first
 **public** reader. `CACHE_STRATEGY.md` is unchanged by this issue — recorded here explicitly, in
 the §13.8 spirit, so a reviewer can check the claim rather than infer it.
@@ -2238,13 +2258,13 @@ for each endpoint whose reach moved, and **never** `pair:*` (§13.7 forbids enum
 before touching it:
 
 - **A page that writes nothing purges nothing.** The purge set is collected at the points a
-  statement is emitted, so §13.10's *"a re-sent page writes nothing at all"* extends to the cache.
+  statement is emitted, so §13.10's _"a re-sent page writes nothing at all"_ extends to the cache.
   Without that, a nightly six-catalogue re-sync would repaint the whole catalog.
 - **A pair row moving purges both its endpoints, even with no mapping on the page.** AECI-890 wrote
   669 pair rows and touched not one mapping, so a mapping-only collector would have purged nothing
   on the largest reach change made to date.
 - **Bounded gap, stated rather than left to be found.** Deleting a mapping purges the product that
-  lost it, not the partners that lost *it*. Closing that needs a pairs-by-stub read plus a mappings
+  lost it, not the partners that lost _it_. Closing that needs a pairs-by-stub read plus a mappings
   read per partner stub — three round trips to repaint pages whose only change is one line's
   integer. Same shape and same disposition as Addendum B's re-pointed-connector gap: those pages go
   stale until TTL.

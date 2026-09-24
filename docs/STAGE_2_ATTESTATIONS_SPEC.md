@@ -612,7 +612,10 @@ two distinct vendors.
   and required all copy through `$localize`, while the note was the one string that was neither
   localized nor specified — **because it is data occupying a copy slot**, and nobody had assigned it
   an audience (`STAGE_1_5_SPEC.md` §3.3). Note the History section (§9.1) renders the same note from
-  a **different** route, so both mappers suppress; see `readerFacingNote`.
+  a **different** route, so both mappers suppress; see `readerFacingNote`. **As-built (2026-09-24):**
+  the History section itself was removed from the `ClaimProvenance` popover (see below); the
+  timeline route and `readerFacingNote`'s suppression on it are unchanged, just unconsumed by the
+  web.
 
 **UI-touching, so the `CLAUDE.md` design checklist applies:** critique → the pair page's existing
 Mobbin anchor site (the anchor-site rule — do not introduce a second site for badge states) →
@@ -696,9 +699,10 @@ migration. Decisions taken at build that §4.1–§4.4 did not pre-specify:
   justification moves — a vendor that has spoken to deny makes "asserted by AECi" no longer the
   whole provenance of the pair. **The band subline says *who asserted*, never *how many are
   confirmed*:** the `confirmedRatio` line directly beneath it always reads "0 of N
-  vendor-confirmed" in exactly the state the subline renders, so a subline phrased around the
-  absence of confirmation would restate it verbatim. The provenance popover's closing line has no
-  ratio beneath it and so keeps the confirmation phrasing.
+  confirmed by both vendors" (reworded 2026-09-24, see `STAGE_1_5_SPEC.md` §3.5's as-built note) in
+  exactly the state the subline renders, so a subline phrased around the absence of confirmation
+  would restate it verbatim. The provenance popover's closing line has no ratio beneath it and so
+  keeps the confirmation phrasing.
 - **No Mobbin anchor exists for the pair page.** DESIGN.md and the AECI-289/294/300 commits name
   none, so the anchor-site rule had nothing to anchor to. No second site was introduced: the badge
   states reuse the in-repo chip vocabulary without borrowing the account-status label's meaning.
@@ -1244,7 +1248,7 @@ screens. A vendor could not tell which integrations were healthy without reading
 |---|---|---|---|
 | 1. Counterpart product | `vendor-counterpart-group.ts` (`<h2>`) | Logo, name, health pill, counts ("2 integrations · 5 data flows · 1 in conflict · 1 needs your input · 1 confirmed by both vendors"), and the pair-page link beside the button | Level 2 |
 | 2. Integration | `vendor-integration-card.ts` (`<h3>`) | Mechanism, source ("On record from AEC Integrations" or "Via {connector}"), "You own both sides" when true, counts, health pill | Level 3 and the add-a-data-flow form |
-| 3. Data flow | `vendor-claim-lane.ts` | Data object, direction, your stance, agreement badge | Provenance, counterparty line, the §6.2 outcome sentence, the conflict box, the attestation control |
+| 3. Data flow | `vendor-claim-lane.ts` | Data object, direction, your stance, agreement badge. A flow counted as waiting (`claimWaitsOnVendor`) shows its stance as the "Needs your input" pill's chip: Clay dot, never red | Provenance, counterparty line, the §6.2 outcome sentence, the conflict box, the attestation control |
 
 **One integration skips level 2.** When a counterpart has exactly one integration on record (counted
 before any filter, `CounterpartGroup.totalIntegrations`) the card renders in
@@ -1261,7 +1265,7 @@ portal still never recomputes agreement. States, most urgent first:
 |---|---|---|
 | `conflict` | Conflict (red, with the ✕ shape) | Any flow is `conflict`. Outranks `connector`. |
 | `needs_you` | Needs your input | Attestable edge, and a flow with no position of the vendor's own. |
-| `responded` | You have responded | Every flow answered, not all `confirmed`. An owns-both edge settles here, because `confirmed` needs two distinct vendors. |
+| `responded` | None. The row shows no pill, because nothing waits on the vendor. The status filter chip still reads "You have responded". | Every flow answered, not all `confirmed`. An owns-both edge settles here, because `confirmed` needs two distinct vendors. |
 | `confirmed` | Fully confirmed (Forest wash) | Every flow `confirmed`. |
 | `connector` | Via connector | `attestable: false` (§14). |
 | `empty` | No data flows | No claims. |
@@ -1979,6 +1983,18 @@ Decisions taken at build that §9.1–§9.3 did not pre-specify:
   `pnpm --filter @aeci/api db:seed:version-diff:local` is the reproducible local input that makes it
   run. It is deliberately NOT part of `db:seed:local` — every other pair page should keep showing
   the launch-reality default so a regression there stays visible.
+
+> **As-built (2026-09-24) — the History section was removed from the pair page.** The
+> `ClaimProvenance` popover no longer embeds a per-claim History section: its `timeline` input and
+> `historyRequested` output are gone, `products-pair.ts` dropped its lazy `loadTimeline()` browser
+> fetch, and `fetchPairTimeline` was deleted from `apps/web/src/app/core/api/product-pairs.ts`
+> (`pairPath` also lost its `suffix` param). Everything else this section describes is unchanged
+> and still deployed: `GET …/integrations/:otherSlug/timeline`, `integrationTimelineConfig`,
+> `toClaimTimelineEntry`, its `readerFacingNote` suppression, and `resolveDiffAccess`'s gating all
+> still run — the endpoint simply has no web consumer left to call it. The version-diff **markers**
+> on the claim rows (added/removed/unchanged, the diff-marker bullet above) are a separate
+> mechanism from the History section and are unaffected. `docs/API_CONTRACTS.md`'s timeline section
+> and `docs/AUTH_AND_RLS.md` §4.4 carry the matching note.
 
 ---
 

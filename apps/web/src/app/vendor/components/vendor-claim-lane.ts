@@ -160,7 +160,24 @@ import { claimOutcomeLine } from './vendor-claim-outcome';
         </span>
       </span>
       <span class="flex shrink-0 flex-wrap items-center gap-x-3 gap-y-1 ps-7 sm:ps-0">
-        <span class="text-xs text-(--text-secondary)">{{ stance() }}</span>
+        @if (awaitingMe()) {
+          <!-- The same chip as the group row's "Needs your input" pill, so the
+               header count points at the row it counts. Clay dot, never red:
+               conflict is the only red (DESIGN.md). -->
+          <span
+            class="aec-pill-attention inline-flex items-center gap-1.5 whitespace-nowrap
+              rounded-(--radius-sm) border bg-(--surface-raised) px-2 py-0.5 text-xs
+              font-semibold tracking-[0.01em] text-(--text-primary)"
+          >
+            <span
+              aria-hidden="true"
+              class="h-1.5 w-1.5 rounded-full bg-(--accent-secondary-deep)"
+            ></span>
+            {{ stance() }}
+          </span>
+        } @else {
+          <span class="text-xs text-(--text-secondary)">{{ stance() }}</span>
+        }
         <aec-agreement-badge [agreement]="claim().agreement" [attributedTo]="attributedTo()" />
       </span>
     </button>
@@ -270,6 +287,9 @@ export class VendorClaimLane {
   readonly canWrite = input.required<boolean>();
   readonly versions = input.required<readonly ProductVersion[]>();
   readonly highlighted = input(false);
+  /** The lane counts toward the group's "Needs your input" (`claimWaitsOnVendor`).
+   *  Passed in, not derived: only the card knows whether the edge is attestable. */
+  readonly awaitingMe = input(false);
 
   readonly changed = output<VendorClaim>();
   readonly retracted = output<string>();

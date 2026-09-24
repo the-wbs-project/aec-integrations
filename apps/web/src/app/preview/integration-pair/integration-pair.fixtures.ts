@@ -295,7 +295,7 @@ export const COPY = {
   syncSubline: 'These flows are asserted by AECi.',
   /** Muted metadata, never a red/green hero stat (§3.5). */
   confirmedRatio: (confirmed: number, total: number): string =>
-    `${confirmed} of ${total} vendor-confirmed`,
+    `${confirmed} of ${total} confirmed by both vendors`,
   /** Data-flow section, empty state — Layer A ships before Layer B seeds. */
   emptyHeadline: 'No data flows documented yet',
   /** Neutral agreement badge (§3.4 — never red). */
