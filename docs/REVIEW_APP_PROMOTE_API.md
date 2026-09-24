@@ -1134,7 +1134,8 @@ The taxonomy facets on a blocked product are not resolved at all, so
 A vendor is **claimed** only while it has at least one **active** portal seat. If
 AECi bans a vendor's only admin, the vendor is no longer claimed and promote can
 write to it again — that is deliberate, so moderation hands control back to AECi
-rather than freezing the record. **Revoking the last seat (AECI-989) goes further:**
+rather than freezing the record. **Revoking the last seat (AECI-989), or erasing its
+account (AECI-1106), goes further:**
 the vendor, its solely-owned products and its live claimed integrations and evidenced
 pairs are handed back to AECi. The vendor and product rows promote again as above. Each claimed
 integration loses `claimed_at`, so §4b's fence lifts and your pushes write it again.
@@ -1200,8 +1201,8 @@ Record the value in the review app so it stays in step; do not expect a promote 
 carry it, and do not re-promote to "apply" it. A reassignment away from the claiming
 vendor clears `claimed_at`, so promote writes that row again from then on, **unless the
 row is vendor-created** (`origin = 'vendor'`, §4c). A vendor-created row stays fenced
-with or without a claim. **Revoking the owner's last portal seat clears `claimed_at` the
-same way** on every live row it claimed, in either table (AECI-989, §4a's last paragraph;
+with or without a claim. **Revoking the owner's last portal seat, or erasing its account, clears `claimed_at` the
+same way** on every live row it claimed, in either table (AECI-989, AECI-1106, §4a's last paragraph;
 evidenced pairs since AECI-1089). A retired row
 keeps its claim. No `REVIEW - ` issue is filed, because the owner of record did not change.
 

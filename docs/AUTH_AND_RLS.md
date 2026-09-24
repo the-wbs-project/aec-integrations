@@ -535,7 +535,7 @@ await db.batch([
 | `GET /api/products/:slug/integrations/:otherSlug` (AECI-294) | None | None | None — the product-PAIR read. Its `?context_version=` / `?other_version=` selectors (AECI-303 / §9) are **not** an authz surface: a bad label degrades to latest rather than erroring, and the reader's diff depth is decided by the `canViewVersionDiff` seam, which clamps the response rather than rejecting it. |
 | `GET /api/products/:slug/integrations/:otherSlug/timeline` (AECI-303) | None | None | None — the pair's per-claim attestation **history**. Public like the pair read itself: a reader who can see a pair can see how its claims got there. The only content control is the same seam, which answers `{ claims: [], diff_access: 'latest_only' }` when gated — never a 403, because the free latest view must survive a shared historical link (`STAGE_2_SPEC.md` §8.1(4)). |
 | `POST /api/reviews` | Hard-required | `reviewer`, not banned | `review.submitted` |
-| `DELETE /api/account` | Hard-required | Active user | `account.deleted` |
+| `DELETE /api/account` | Hard-required | Active user | `account.deleted`; on a vendor's last seat also the AECI-989 hand-back rows, and on a seat left with only banned colleagues the `integration.contest.rerouted` rows, all with a `null` actor and `metadata.source: 'account'` (AECI-1106) |
 | `POST /api/requests/claim`, `/correction` | None (anon form) | None | `claim/correction.submitted` |
 | `POST /api/track/pageview` | Optional | None | Logged to `page_views` |
 | `GET /api/admin/*` | Hard-required | `admin` | No (reads only) |
@@ -967,6 +967,11 @@ and no `apps/api/src/prisma.ts`:
 2. **D1 erasure — one atomic `db.batch([...])`** (`apps/api/src/routes/account.ts`):
    in order, null all ten inbound references above, write the `account.deleted`
    audit row, then delete the `profiles` row. All commit or roll back as a unit.
+   **When the profile is a `vendor_admin` seat (AECI-1106)**, the AECI-989 seat-loss
+   rows join the same batch after the delete. The vendor's last seat hands its record
+   back to AECi. A seat whose colleagues are all banned moves the owner's contests to
+   AECi. The rules, the null actor on those rows, and the bounded retry on a lost seat
+   race are in §8.2 and `STAGE_2_ATTESTATIONS_SPEC.md` §13.9.
 3. The `account.deleted` audit row has **`actorId = null`** — the profile is deleted
    in the same batch and `audit_log.actor_id` is `NO ACTION`, so a non-null actor
    would either block the profile delete (written before) or FK-reject (written
@@ -1078,8 +1083,13 @@ with the D1 app DB is part of the AECI-256/257 Supabase-Postgres decommission.)
 
 A `vendor_admin` **seat *is* a `profiles` row** — it carries `role = 'vendor_admin'` plus a
 non-null `vendor_id`. `DELETE /api/account` (`routes/account.ts`, the §8 flow) deletes that
-`profiles` row and **never touches the `vendors` table**: there is no `vendors.verified = false`
-flip anywhere in the handler, and there is **no inbound FK from `vendors` to `profiles`**, so
+`profiles` row and **never touches `vendors.verified` or the entitlement**: there is no
+`vendors.verified = false` flip anywhere in the handler. **Since AECI-1106 it does write
+`vendors.maintained_by` when the seat is the vendor's last one.** That is the AECI-989
+hand-back, run in the erasure batch (`STAGE_2_ATTESTATIONS_SPEC.md` §13.9). Its audit rows
+carry a `null` actor, because the actor's profile is deleted in the same batch. A lost
+seat race re-plans up to three times rather than failing the erasure. There is still
+**no inbound FK from `vendors` to `profiles`**, so
 the erasure batch's seven-FK trap (§8, above) is unaffected and nothing cascades to the vendor.
 (AECI-609 added the seventh ref, `vendor_entitlements.granted_by`. It points at the *granting
 admin*, not the vendor, so deleting a seat still cannot disturb the vendor's entitlement — the

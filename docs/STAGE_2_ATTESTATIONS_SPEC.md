@@ -2493,14 +2493,16 @@ could write it at all: not promote, and not a vendor with no seat. AECI-989 was 
 forward from Stage 2.5 into Stage 2.1 on 2026-09-23 because it gates seating a pilot
 vendor AECi might need to revoke (`STAGE_2_1_SPEC.md` §3.3.1).
 
-**The trigger is "no `vendor_admin` profile left", banned or not.** The one caller today
-is the admin revoke, `DELETE /api/admin/vendors/:id/seats/:userId`. The vendor portal's
-own remove cannot reach it, because it refuses self-removal. Account erasure is the third
-way a seat disappears. AECI-1106 wires it onto the same builder, `planVendorHandback` in
+**The trigger is "no `vendor_admin` profile left", banned or not.** Two writers reach it.
+One is the admin revoke, `DELETE /api/admin/vendors/:id/seats/:userId`. The other is
+account erasure, `DELETE /api/account` (AECI-1106), when the erased profile is the
+vendor's last seat. The vendor portal's own remove cannot reach it, because it refuses
+self-removal. Both call the same builder, `planVendorHandback` in
 `apps/api/src/lib/vendor-handback.ts`, which is exported and takes no request context for
 that reason.
 
-What rides the revoke's `db.batch`, each write with its own audit row (§26.1):
+What rides the revoke's or the erasure's `db.batch`, each write with its own audit row
+(§26.1):
 
 | Row | Change | Audit row |
 |---|---|---|
@@ -2577,6 +2579,29 @@ in the gap and two seats revoked or banned at once. A lost race writes nothing a
 the loser of a double-click would commit every hand-back audit row for writes its guarded
 UPDATEs never made.
 
+**Account erasure is a seat loss too (AECI-1106, 2026-09-24).** A `vendor_admin` seat is
+a `profiles` row, so `DELETE /api/account` removes a seat. The erasure makes the revoke's
+decision with the same read (`seatLossOutcome`). No seat left runs `planVendorHandback`.
+Only banned seats left runs `planOwnerSeatLapse`. An unbanned seat left changes nothing.
+The erased user is never banned, because `requireAuth()` rejects a banned session. It
+differs from the revoke in four ways:
+
+- **Every hand-back audit row and contest transition has a `null` actor.** The actor's own
+  profile is deleted in the same batch, and `audit_log.actor_id` and
+  `workflow_transitions.actor_id` are NO ACTION foreign keys (`AUTH_AND_RLS.md` §8 step 3).
+  `metadata.source` is `'account'`, which is how the audit viewer tells an erasure from a
+  revoke.
+- **The purge goes out with `source: 'vendor'`.** The tags are the builder's, as for the
+  revoke.
+- **A lost race retries instead of failing.** The race guards sit straight after the
+  profile delete. When they abort, the handler re-reads the seats and re-plans, up to three
+  attempts (`ERASURE_SEAT_ATTEMPTS`). Only three lost races in a row answer
+  `409 VENDOR_SEATS_CHANGED`, with nothing written. An erasure is a legal obligation, so a
+  colleague's seat changing at the same moment must not be the reason it fails.
+- **The `auth.users` delete is unchanged.** It still runs after the batch commits. The
+  AECI-531 skip when the service-role key is absent still applies (`AUTH_AND_RLS.md` §8
+  step 4).
+
 **Lookups are chunked.** The `IN (...)` reads over a vendor's products, claimed
 integrations and claimed evidenced pairs run in groups of 80 ids, because D1 allows 100 bound parameters per query.
 
@@ -2590,7 +2615,10 @@ provisioned mid-revoke, and two seats revoked at once. The evidenced-pair block 
 covers the pair un-claim, the attested and retired pairs, kept claims and attestations, the
 pair audit rows with their anchor, the connector tag in the purge, a seat race that writes
 nothing to the pairs, and a revoke that is not the last. `routes/vendor-contests.spec.ts`
-covers the stamped submit.
+covers the stamped submit. `routes/account-handback.spec.ts` covers erasure (AECI-1106): the last
+seat, a seat with an unbanned colleague, a seat with only banned colleagues, an account
+with no seat, a second vendor left untouched, the AECI-531 skip, a seat provisioned
+mid-erasure, and three lost races in a row.
 
 #### Acceptance
 
@@ -2614,6 +2642,8 @@ covers the stamped submit.
 - [x] Revoking the last seat hands the vendor, its solely-owned products and its live
       claimed integrations back to AECi in the revoke's batch, keeping claims,
       attestations and `last_reviewed_at` (AECI-989, "The seat hand-back" above).
+- [x] Erasing the account of a vendor's last seat hands the record back the same way,
+      in the erasure batch (AECI-1106).
 
 **Test coverage:** `vendor.spec.ts` (9 cases across both PATCHes),
 `vendor-product-versions.spec.ts` (transfer, the `updated_at` fact, the

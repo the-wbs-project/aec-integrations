@@ -291,7 +291,9 @@ row, `product:{slug}` plus `index:products` for each solely-owned product, and
 Clearing `claimed_at` alone purges nothing, because no public read renders it. It is **not**
 `vendorPurgeTags`: the account-status label is untouched by a revoke, so purging every
 owned product would evict pages whose HTML did not change. Any other revoke, and a ban or
-unban, purges nothing.
+unban, purges nothing. **Account erasure of a vendor's last seat** (`DELETE /api/account`,
+AECI-1106) runs the same builder in its own batch and sends the same tags, with
+`source: 'vendor'`.
 
 **(b2) the `/api/vendor/*` write surface on the API Worker (Stage 2, AECI-520 /
 607 / 301)** — the vendor portal's self-service edits use the same producer path
