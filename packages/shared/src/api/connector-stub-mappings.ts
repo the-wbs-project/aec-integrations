@@ -15,7 +15,9 @@ import { HttpsUrlSchema } from './https-url';
  *   PATCH /api/vendor/connector-stub-mappings/:id — behind `requireVendor()`, for the
  *     seat holder of the vendor that owns the catalogue's connector-role product
  *
- * Both take this body and return this response. One wire, two actors.
+ * Both take this body. The admin route returns {@link ConnectorStubMappingEditResponseSchema};
+ * the seat's route returns the vendor-shaped twin in `vendor-connector-catalog.ts`
+ * (AECI-1127), which drops the curation `notes` and ships `decided_by` as a kind.
  *
  * ── THE GATE IS `managed_by = 'vendor'` ─────────────────────────────────────
  * The review-app sync upserts `connector_stub_mappings` wholesale, so on a
@@ -55,8 +57,8 @@ export const UpdateConnectorStubMappingSchema = z
 export type UpdateConnectorStubMappingInput = z.infer<typeof UpdateConnectorStubMappingSchema>;
 
 /**
- * The row after the edit, in the admin triage row's own shape so the screen can
- * replace it in place. `changed: false` is the 200 no-op: a body that matches the
+ * The admin route's answer: the row after the edit, in the admin triage row's own
+ * shape so the screen can replace it in place. The seat's route does NOT use this. `changed: false` is the 200 no-op: a body that matches the
  * stored row writes nothing, including no `audit_log` row.
  */
 export const ConnectorStubMappingEditResponseSchema = z.object({

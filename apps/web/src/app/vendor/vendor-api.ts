@@ -55,7 +55,7 @@ import type {
   VendorMeResponse,
   VendorProductConnectorsResponse,
   VendorUpdatesResponse,
-  ConnectorStubMappingEditResponse,
+  VendorConnectorStubMappingEditResponse,
   UpdateConnectorStubMappingInput,
   VendorConnectorCatalogResponse,
   AdminConnectorStubState,
@@ -254,15 +254,15 @@ export class VendorApi {
   }
 
   /** `PATCH /api/vendor/connector-stub-mappings/:id` (AECI-724) — the seat's edit of
-   *  one mapping. Answers in the admin mapping shape; convert it with
-   *  `toVendorConnectorMapping` before showing it. `409 CATALOG_REVIEW_MANAGED` when
+   *  one mapping. Answers in the vendor mapping shape (AECI-1127), the same one the
+   *  catalogue read ships, so the echo splices in as is. `409 CATALOG_REVIEW_MANAGED` when
    *  AECi took the catalogue back, `409 MAPPING_CONFLICT` on a duplicate. */
   updateConnectorMapping(
     mappingId: string,
     input: UpdateConnectorStubMappingInput,
-  ): Promise<ConnectorStubMappingEditResponse> {
+  ): Promise<VendorConnectorStubMappingEditResponse> {
     return firstValueFrom(
-      this.http.patch<ConnectorStubMappingEditResponse>(
+      this.http.patch<VendorConnectorStubMappingEditResponse>(
         `/api/vendor/connector-stub-mappings/${encodeURIComponent(mappingId)}`,
         input,
       ),

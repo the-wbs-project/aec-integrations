@@ -42,10 +42,9 @@ import type {
   VendorProductConnectorsResponse,
   VendorSeat,
   VendorUpdatesResponse,
-  ConnectorStubMappingEditResponse,
+  VendorConnectorStubMappingEditResponse,
   UpdateConnectorStubMappingInput,
   VendorConnectorCatalogResponse,
-  VendorConnectorDecider,
 } from '@aeci/shared';
 import { compareText } from '@aeci/shared/text-sort';
 import {
@@ -158,20 +157,6 @@ function pageCatalogue(
       publishable: fixture.listings.flatMap((l) => l.mappings).filter((m) => m.publishable).length,
     },
   };
-}
-
-/** The vendor-facing decider kind back to a stored `decided_by`, for the PATCH echo. */
-function rawDecider(kind: VendorConnectorDecider | null, vendorSlug: string): string | null {
-  switch (kind) {
-    case 'vendor':
-      return `vendor:${vendorSlug}`;
-    case 'aeci':
-      return 'aeci-operator';
-    case 'automatic':
-      return 'auto-name-match';
-    default:
-      return null;
-  }
 }
 
 /** Build the error body the API Worker actually returns, so the preview
@@ -903,7 +888,7 @@ export class PreviewVendorApi extends VendorApi {
   override async updateConnectorMapping(
     mappingId: string,
     input: UpdateConnectorStubMappingInput,
-  ): Promise<ConnectorStubMappingEditResponse> {
+  ): Promise<VendorConnectorStubMappingEditResponse> {
     for (const [productId, fixture] of this.catalogues) {
       const listing = fixture.listings.find((l) => l.mappings.some((m) => m.id === mappingId));
       if (!listing) continue;
@@ -979,10 +964,8 @@ export class PreviewVendorApi extends VendorApi {
           product: next.product,
           confidence: next.confidence,
           evidence_url: next.evidence_url,
-          decided_by: rawDecider(next.decided_by, this.me?.vendor.slug ?? 'preview'),
+          decided_by: next.decided_by,
           decided_at: next.decided_at,
-          checked_at: next.decided_at,
-          notes: null,
           publishable: next.publishable,
         },
       };

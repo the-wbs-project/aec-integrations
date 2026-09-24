@@ -22,12 +22,19 @@
  * caller does not own (the AECI-520 non-disclosure rule: a vendor must not be able to
  * probe another vendor's catalogue). Only then 409 `CATALOG_REVIEW_MANAGED`, then the
  * body. An owner learning its own catalogue is not handed over yet discloses nothing.
+ *
+ * ── THE ECHO IS VENDOR-SHAPED (AECI-1127) ───────────────────────────────────
+ * The shared edit returns the admin row, which carries the review app's curation
+ * `notes`. The seat gets `VendorConnectorStubMappingEditResponse` instead: the same
+ * mapping the catalogue read ships, `notes` dropped and `decided_by` as a kind.
  */
 
 import {
-  ConnectorStubMappingEditResponseSchema,
   UpdateConnectorStubMappingSchema,
+  VendorConnectorStubMappingEditResponseSchema,
   connectorVendorDecider,
+  toVendorConnectorMapping,
+  type VendorConnectorStubMappingEditResponse,
 } from '@aeci/shared';
 import { and, eq } from 'drizzle-orm';
 
@@ -100,9 +107,15 @@ export function createVendorUpdateConnectorStubMappingHandler(
       afterVendorWrite(c, result.purgeTags, result.auditEntries);
     }
 
+    const response: VendorConnectorStubMappingEditResponse = {
+      catalog_id: result.response.catalog_id,
+      stub_id: result.response.stub_id,
+      mapping: toVendorConnectorMapping(result.response.mapping),
+      changed: result.response.changed,
+    };
     validateResponseInDev(c.env, () => {
-      ConnectorStubMappingEditResponseSchema.parse(result.response);
+      VendorConnectorStubMappingEditResponseSchema.parse(response);
     });
-    return json(result.response);
+    return json(response);
   };
 }

@@ -886,7 +886,7 @@ UI:
 |---|---|---|
 | Who | Any admin, any catalogue | The seat of the vendor holding the catalogue's `connector`-role product |
 | Read | `GET /api/admin/connector-catalogs/:id/stubs` (triage filters, removed stubs, action inventory, raw `decided_by`, `notes`) | `GET /api/vendor/products/:id/connector-catalog` (no removed stubs, no `notes`, `decided_by` as a kind) |
-| Write | `PATCH /api/admin/connector-stub-mappings/:id`, stamps `aeci-operator` | `PATCH /api/vendor/connector-stub-mappings/:id`, stamps `vendor:{slug}` |
+| Write | `PATCH /api/admin/connector-stub-mappings/:id`, stamps `aeci-operator`, echoes the admin row | `PATCH /api/vendor/connector-stub-mappings/:id`, stamps `vendor:{slug}`, echoes the vendor row (no `notes`, AECI-1127) |
 | Review-managed catalogue | No Edit control | Read-only, with a note that the AECi team maintains it |
 | Live | Reads on load | In the AECI-516 cursor as the `catalogue` scope |
 

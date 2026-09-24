@@ -19,7 +19,8 @@ import { CONNECTOR_AUTO_DECIDER } from './promote-connector';
  *     rate-limited (a read), not entitlement-gated (the §8.9 seat has no entitlement).
  *
  * The screen it feeds edits mappings through AECI-724's
- * `PATCH /api/vendor/connector-stub-mappings/:id`, whose contract is unchanged.
+ * `PATCH /api/vendor/connector-stub-mappings/:id`, which answers in this module's
+ * mapping shape too (AECI-1127, {@link VendorConnectorStubMappingEditResponseSchema}).
  *
  * ── WHY IT IS NOT THE ADMIN SHAPE ───────────────────────────────────────────
  * The admin triage row (`AdminConnectorStubRow`) carries two things a vendor should
@@ -78,9 +79,8 @@ export const VendorConnectorMappingSchema = z.object({
 export type VendorConnectorMapping = z.infer<typeof VendorConnectorMappingSchema>;
 
 /**
- * The admin mapping shape → the vendor one. The PATCH answers in the admin shape
- * (its contract is AECI-724's and does not change), so the screen converts its
- * echo through this before splicing it into the list.
+ * The admin mapping shape → the vendor one. The seat's PATCH handler runs its echo
+ * through this, so `notes` and the raw `decided_by` never reach the wire (AECI-1127).
  */
 export function toVendorConnectorMapping(m: AdminConnectorMapping): VendorConnectorMapping {
   return {
@@ -94,6 +94,22 @@ export function toVendorConnectorMapping(m: AdminConnectorMapping): VendorConnec
     publishable: m.publishable,
   };
 }
+
+/**
+ * `PATCH /api/vendor/connector-stub-mappings/:id`'s answer (AECI-1127). The admin
+ * route's `ConnectorStubMappingEditResponseSchema` with the mapping in the vendor
+ * shape: no `notes`, no `checked_at`, and `decided_by` as a kind. After a seat save
+ * that kind is always `vendor`. `changed: false` is the 200 no-op.
+ */
+export const VendorConnectorStubMappingEditResponseSchema = z.object({
+  catalog_id: z.string().min(1),
+  stub_id: z.string().min(1),
+  mapping: VendorConnectorMappingSchema,
+  changed: z.boolean(),
+});
+export type VendorConnectorStubMappingEditResponse = z.infer<
+  typeof VendorConnectorStubMappingEditResponseSchema
+>;
 
 /** One listing on the vendor's catalogue, with every mapping on it. */
 export const VendorConnectorListingSchema = z.object({

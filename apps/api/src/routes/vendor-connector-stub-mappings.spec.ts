@@ -12,6 +12,8 @@
  *     all answer the same 404 — before the managed-by 409, so a non-owner cannot learn
  *     whether a catalogue has been handed over.
  *   - **The owner's review-managed catalogue is a 409**, not a write.
+ *   - **The echo is vendor-shaped (AECI-1127).** No curation `notes` key, and
+ *     `decided_by` is the kind (`vendor`), not the stored `vendor:{slug}`.
  */
 
 import { eq } from 'drizzle-orm';
@@ -59,6 +61,7 @@ const CATALOG_ID = 'fx-cat-agave';
 const STUB_ID = 'fx-stub-ag-procore';
 const MAPPING_ID = 'fx-map-ag-1';
 const OLD_TS = '2020-01-01T00:00:00.000Z';
+const CURATION_NOTE = 'reviewer: confirm against the vendor listing';
 
 let t: TestDb;
 let jwks: TestJwks;
@@ -117,6 +120,7 @@ async function seed(opts: { managedBy?: 'review' | 'vendor'; connectorRole?: str
     status: 'mapped',
     confidence: 'high',
     decidedBy: 'auto-name-match',
+    notes: CURATION_NOTE,
   });
 }
 
@@ -164,10 +168,11 @@ describe('PATCH /api/vendor/connector-stub-mappings/:id — the owner seat', () 
     const res = await call({ as: AGAVE_SEAT });
     expect(res.status).toBe(200);
     const body = (await res.json()) as { mapping: { decided_by: string; publishable: boolean } };
-    expect(body.mapping.decided_by).toBe('vendor:agave-inc');
+    expect(body.mapping.decided_by).toBe('vendor');
     expect(body.mapping.publishable).toBe(true);
 
     expect((await readMapping())?.productId).toBe(AUTODESK_ID);
+    expect((await readMapping())?.decidedBy).toBe('vendor:agave-inc');
     const audits = await t.db.select().from(auditLog);
     expect(audits).toHaveLength(1);
     expect(audits[0]).toMatchObject({
@@ -186,6 +191,38 @@ describe('PATCH /api/vendor/connector-stub-mappings/:id — the owner seat', () 
     });
     // Still no entitlement: nothing here opens one.
     expect(await t.db.select().from(vendorEntitlements)).toHaveLength(0);
+  });
+
+  it('echoes the vendor mapping shape: no notes key, decided_by as a kind (AECI-1127)', async () => {
+    await seed();
+    const res = await call({ as: AGAVE_SEAT });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      catalog_id: string;
+      stub_id: string;
+      changed: boolean;
+      mapping: Record<string, unknown>;
+    };
+    expect(body).toMatchObject({ catalog_id: CATALOG_ID, stub_id: STUB_ID, changed: true });
+    expect(body.mapping).not.toHaveProperty('notes');
+    expect(body.mapping).not.toHaveProperty('checked_at');
+    expect(JSON.stringify(body)).not.toContain(CURATION_NOTE);
+    // The kind, not the raw column value the row now stores.
+    expect(body.mapping.decided_by).toBe('vendor');
+    expect(JSON.stringify(body)).not.toContain('vendor:agave-inc');
+    // The note is untouched in the row; it is only kept off the wire.
+    expect((await readMapping())?.notes).toBe(CURATION_NOTE);
+  });
+
+  it('keeps the vendor shape on the unchanged 200 no-op', async () => {
+    await seed();
+    const res = await call({ as: AGAVE_SEAT, body: { productId: PROCORE_ID } });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { changed: boolean; mapping: Record<string, unknown> };
+    expect(body.changed).toBe(false);
+    expect(body.mapping).not.toHaveProperty('notes');
+    // The untouched row is still the name-match pass's proposal.
+    expect(body.mapping.decided_by).toBe('automatic');
   });
 
   it("409s CATALOG_REVIEW_MANAGED on the owner's own review-managed catalogue", async () => {
