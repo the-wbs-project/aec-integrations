@@ -18,10 +18,19 @@ import { VendorApi } from '../vendor-api';
 import { vendorHasActiveEntitlement } from '../vendor-capabilities';
 import { VendorPortalStore } from '../vendor-portal-store';
 
+import { VendorIntegrationEditForm } from './vendor-integration-edit-form';
+import { VENDOR_EDIT_FORM_START_OPEN } from './vendor-integration-ownership';
 import { claimErrorMessage } from './vendor-integration-ownership-labels';
 
-/** Where the owner stands on one owned row. */
-export type OwnedRowState = 'retired' | 'claimed' | 'claimable' | 'needs-plan';
+/** Where the owner stands on one owned row. `claimed-needs-plan` is a claimed
+ *  connector-delivered row whose vendor no longer holds an active entitlement, so
+ *  it cannot be edited (AECI-1090 / AECI-1040 ruling 2). */
+export type OwnedRowState =
+  | 'retired'
+  | 'claimed'
+  | 'claimed-needs-plan'
+  | 'claimable'
+  | 'needs-plan';
 
 /**
  * Which owned rows a product's tab lists: the rows that touch this product as an
@@ -59,19 +68,22 @@ export function ownedRowsForProduct(
  * - **unclaimed, entitled** — the claim hint and **Claim this integration**;
  * - **unclaimed, no active plan** on a connector-delivered row — a sentence saying a
  *   plan is needed (AECI-1040 ruling 2). No button, so nothing collects a 403;
- * - **claimed** — a line saying the vendor owns it. Edit is AECI-1090 and retire is
- *   AECI-1091, so neither is offered yet;
+ * - **claimed** — a line saying the vendor owns it, and **Edit details** (AECI-1090),
+ *   the card's edit form with the frozen type left out on a connector-delivered row.
+ *   Without an active plan on such a row, a sentence saying one is needed instead.
+ *   Retire is AECI-1091, so it is not offered yet;
  * - **retired** — who retired it. Restore is AECI-1091.
  *
  * ── PESSIMISTIC ─────────────────────────────────────────────────────────────
  * The claim waits for the `200`, announces through the one live region, revalidates
- * `integrations` (which carries `owned`) and moves focus to the row's status line,
- * because the button it replaces is gone. A refusal renders its own sentence in a
+ * `integrations` (which carries `owned`) and moves focus to the Edit trigger that
+ * replaces the button, or to the row's status line when it offers none. A refusal renders its own sentence in a
  * `role="alert"`. No browser dialog: a claim is reversible by AECi and the hint says
  * what it does before the vendor presses it.
  */
 @Component({
   selector: 'aec-vendor-owned-integrations',
+  imports: [VendorIntegrationEditForm],
   changeDetection: ChangeDetectionStrategy.OnPush,
   host: { class: 'block' },
   template: `
@@ -128,6 +140,44 @@ export function ownedRowsForProduct(
                   {{ statusLine(row) }}
                 </p>
                 @switch (stateOf(row)) {
+                  @case ('claimed') {
+                    <div class="mt-3">
+                      <button
+                        #editTrigger
+                        type="button"
+                        [attr.data-edit-for]="row.id"
+                        [attr.aria-expanded]="editingId() === row.id"
+                        [attr.aria-controls]="formPrefix(row) + '-form'"
+                        (click)="toggleEdit(row)"
+                        [class]="triggerClass"
+                        data-testid="edit-owned-integration"
+                        i18n="@@vendor.ownedIntegrations.edit"
+                      >
+                        Edit details
+                      </button>
+                    </div>
+                    @if (editingId() === row.id) {
+                      <aec-vendor-integration-edit-form
+                        [integrationId]="row.id"
+                        [contextProductId]="row.product_a.id"
+                        [otherProductName]="row.product_b.name"
+                        [values]="row.contestable_fields"
+                        [connectorDelivered]="row.connector_powered"
+                        [idPrefix]="formPrefix(row)"
+                        (closed)="closeEdit(row)"
+                      />
+                    }
+                  }
+                  @case ('claimed-needs-plan') {
+                    <p
+                      class="mt-1 max-w-prose text-xs text-(--text-secondary)"
+                      data-testid="edit-needs-plan"
+                      i18n="@@vendor.ownedIntegrations.editNeedsPlan"
+                    >
+                      Editing an integration delivered through a connector product needs an active
+                      plan. Contact AEC Integrations to activate or renew it.
+                    </p>
+                  }
                   @case ('needs-plan') {
                     <p
                       class="mt-1 max-w-prose text-xs text-(--text-secondary)"
@@ -206,6 +256,15 @@ export class VendorOwnedIntegrations {
 
   private readonly entitled = vendorHasActiveEntitlement(this.store);
   private readonly statusLines = viewChildren<ElementRef<HTMLParagraphElement>>('status');
+  private readonly editTriggers = viewChildren<ElementRef<HTMLButtonElement>>('editTrigger');
+
+  /** The one row whose edit form is open, or `null`. The dev preview's `?edit=<id>`
+   *  (`VENDOR_EDIT_FORM_START_OPEN`) opens it on first paint, for the detector; a
+   *  row that is not claimed and editable ignores it (the form renders only in the
+   *  `claimed` state). */
+  protected readonly editingId = signal<string | null>(
+    inject(VENDOR_EDIT_FORM_START_OPEN, { optional: true }) ?? null,
+  );
 
   protected readonly claimingId = signal<string | null>(null);
   protected readonly notice = signal<{ id: string; message: string } | null>(null);
@@ -231,7 +290,10 @@ export class VendorOwnedIntegrations {
 
   protected stateOf(row: OwnedIntegration): OwnedRowState {
     if (row.retired_at) return 'retired';
-    if (row.claimed_at) return 'claimed';
+    if (row.claimed_at) {
+      // AECI-1090: the edit needs the plan on a connector-delivered row only.
+      return row.connector_powered && !this.entitled() ? 'claimed-needs-plan' : 'claimed';
+    }
     // Only a connector-delivered row needs the plan (AECI-1040 ruling 2). An owned
     // row that is not one takes the seat as its whole gate, like any other claim.
     return row.connector_powered && !this.entitled() ? 'needs-plan' : 'claimable';
@@ -261,7 +323,8 @@ export class VendorOwnedIntegrations {
           ? $localize`:@@vendor.ownedIntegrations.retiredByAeci:AEC Integrations retired this integration. It is not shown on the public site.`
           : $localize`:@@vendor.ownedIntegrations.retired:Your company retired this integration. It is not shown on the public site.`;
       case 'claimed':
-        return $localize`:@@vendor.ownedIntegrations.claimed:Your company owns this integration. AEC Integrations no longer updates it. Editing its details here is not available yet.`;
+      case 'claimed-needs-plan':
+        return $localize`:@@vendor.ownedIntegrations.claimed:Your company owns this integration. AEC Integrations no longer updates it.`;
       case 'claimable':
       case 'needs-plan':
         return $localize`:@@vendor.ownedIntegrations.unclaimed:Your company is recorded as the owner. AEC Integrations still maintains its details until you claim it.`;
@@ -278,13 +341,15 @@ export class VendorOwnedIntegrations {
         $localize`:@@vendor.ownedIntegrations.live.claimed:You claimed this integration. AEC Integrations no longer updates it.`,
       );
       await this.store.revalidate(['integrations']);
-      // The button is gone once the row reads as claimed. Move focus to the row's
-      // status line so a keyboard user stays where they were.
+      // The button is gone once the row reads as claimed. Move focus to the Edit
+      // trigger that replaced it (AECI-1090), or to the row's status line when the
+      // row offers none, so a keyboard user stays where they were.
       afterNextRender(
         () =>
-          this.statusLines()
-            .find((line) => line.nativeElement.dataset['statusFor'] === row.id)
-            ?.nativeElement.focus(),
+          (
+            this.editTriggers().find((b) => b.nativeElement.dataset['editFor'] === row.id) ??
+            this.statusLines().find((line) => line.nativeElement.dataset['statusFor'] === row.id)
+          )?.nativeElement.focus(),
         { injector: this.injector },
       );
     } catch (err) {
@@ -293,6 +358,32 @@ export class VendorOwnedIntegrations {
       this.claimingId.set(null);
     }
   }
+
+  // ─── Edit (AECI-1090) ──────────────────────────────────────────────────────
+
+  protected formPrefix(row: OwnedIntegration): string {
+    return `vendor-owned-${row.id}`;
+  }
+
+  protected toggleEdit(row: OwnedIntegration): void {
+    this.editingId.update((open) => (open === row.id ? null : row.id));
+  }
+
+  /** The form closed (saved or cancelled): return focus to its trigger so a
+   *  keyboard user is not dropped at the top of the page. */
+  protected closeEdit(row: OwnedIntegration): void {
+    this.editingId.set(null);
+    afterNextRender(
+      () =>
+        this.editTriggers()
+          .find((b) => b.nativeElement.dataset['editFor'] === row.id)
+          ?.nativeElement.focus(),
+      { injector: this.injector },
+    );
+  }
+
+  protected readonly triggerClass =
+    'inline-flex items-center rounded-(--radius-md) border border-(--border-default) px-3 py-1.5 text-sm font-medium text-(--text-primary) transition-colors hover:border-(--border-strong) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)';
 
   protected readonly primaryButtonClass =
     'inline-flex items-center justify-center rounded-(--radius-md) border border-(--border-strong) bg-(--accent-primary) px-5 py-2.5 text-sm font-bold text-(--surface-base) transition-colors hover:bg-(--accent-primary-hover) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) disabled:cursor-not-allowed disabled:opacity-50';

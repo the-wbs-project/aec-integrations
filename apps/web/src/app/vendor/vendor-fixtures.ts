@@ -1101,6 +1101,52 @@ export const INTEGRATION_RETIRED_BY_AECI: VendorIntegration = {
   claims: [],
 };
 
+/**
+ * A connector-delivered row the CALLER owns and has claimed (AECI-1090, the
+ * AECI-1040 owner carve-out). With an active entitlement the owner sees "Edit
+ * details", and the form leaves out the frozen type. The preview's downgraded
+ * persona sees the "needs an active plan" sentence instead. Appended by the
+ * preview API, like {@link INTEGRATION_RETIRED_BY_AECI}, because the drill-down
+ * specs count the shared fixture's groups.
+ */
+export const INTEGRATION_CONNECTOR_OWNED: VendorIntegration = {
+  id: '00000000-0000-4000-8000-00000000531b',
+  name: 'Summit Model Coordination ↔ Acumatica (Agave)',
+  mechanism_kind: 'iPaaS',
+  mechanism_name: 'Agave ERP Sync',
+  attestable: false,
+  ...NOT_OWNER,
+  is_owner: true,
+  owner: SUMMIT_VENDOR,
+  endpoint_vendors: [SUMMIT_VENDOR],
+  claimed_at: '2026-09-23T00:00:00.000Z',
+  contestable_fields: {
+    name: 'Summit Model Coordination ↔ Acumatica (Agave)',
+    mechanism_kind: 'iPaaS',
+    mechanism_name: 'Agave ERP Sync',
+    direction: 'outbound',
+    description: 'Sends model quantities to Acumatica job costing through Agave.',
+    listing_url: null,
+    docs_url: 'https://summitbim.example.com/docs/agave',
+    website: 'https://summitbim.example.com/agave',
+    mechanism_url: null,
+    pricing_model: 'Subscription',
+    maturity: 'Beta',
+    owner: SUMMIT_VENDOR.id,
+  },
+  own_links: EMPTY_SIDE_LINKS,
+  powered_by: {
+    id: '00000000-0000-4000-8000-0000000053a0',
+    slug: 'agave-erp-sync',
+    name: 'Agave ERP Sync',
+    logo_url: null,
+  },
+  context_product: CONTEXT_PRIMARY,
+  other_product: OTHER_ACUMATICA,
+  slots: ['vendor_a'],
+  claims: [],
+};
+
 export const VENDOR_INTEGRATIONS_FIXTURE: ListVendorIntegrationsResponse = {
   integrations: [
     INTEGRATION_PROCORE,
@@ -1175,6 +1221,11 @@ export const VENDOR_OWNED_INTEGRATIONS_FIXTURE: readonly OwnedIntegration[] = [
     claimed_at: null,
     retired_at: null,
     retired_by: null,
+    contestable_fields: {
+      ...EMPTY_CONTESTABLE_FIELDS,
+      name: 'Summit Model Coordination and Procore via Agave',
+      owner: SUMMIT_VENDOR.id,
+    },
   },
   {
     id: '00000000-0000-4000-8000-00000000531a',
@@ -1194,6 +1245,19 @@ export const VENDOR_OWNED_INTEGRATIONS_FIXTURE: readonly OwnedIntegration[] = [
     claimed_at: '2026-09-22T00:00:00.000Z',
     retired_at: null,
     retired_by: null,
+    // AECI-1090: the values the owner's edit form starts from. A pair has no type,
+    // and `direction` is framed against product_a.
+    contestable_fields: {
+      ...EMPTY_CONTESTABLE_FIELDS,
+      name: 'Summit Model Coordination and Autodesk Build via Kroo',
+      mechanism_name: 'Kroo Connector',
+      direction: 'outbound',
+      description: 'Sends coordination issues to Autodesk Build through Kroo.',
+      website: 'https://summitbim.example.com/kroo',
+      pricing_model: 'Subscription',
+      maturity: 'GA',
+      owner: SUMMIT_VENDOR.id,
+    },
   },
 ];
 

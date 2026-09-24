@@ -22,13 +22,19 @@
  * same response. So the cursor cannot leak another vendor's row.
  */
 
-import { effectiveRetiredBy, type OwnedIntegration } from '@aeci/shared';
+import {
+  INTEGRATION_CONTEST_FIELDS,
+  effectiveRetiredBy,
+  type ContestableFields,
+  type OwnedIntegration,
+} from '@aeci/shared';
 import { compareText } from '@aeci/shared/text-sort';
 import { eq } from 'drizzle-orm';
 
 import type { Db } from '../db/client';
 import { connectorEvidencedPairs, integrations } from '../db/schema';
 import { isConnectorPoweredEdge } from './connector-powered';
+import { storedFieldValue, toWireValue } from './integration-contests';
 import { productLinkColumns, toMechanismKind, toProductLink } from './drizzle-helpers';
 
 /** The owned-rows predicate on `integrations`. */
@@ -71,6 +77,16 @@ export async function loadOwnedIntegrations(
         claimedAt: true,
         retiredAt: true,
         retiredBy: true,
+        // AECI-1090: the edit form's starting values.
+        builtByVendorId: true,
+        direction: true,
+        description: true,
+        listingUrl: true,
+        docsUrl: true,
+        website: true,
+        mechanismUrl: true,
+        pricingModel: true,
+        maturity: true,
       },
       with: {
         sourceProduct: { columns: productLinkColumns },
@@ -87,6 +103,16 @@ export async function loadOwnedIntegrations(
         claimedAt: true,
         retiredAt: true,
         retiredBy: true,
+        // AECI-1090: the edit form's starting values.
+        builtByVendorId: true,
+        direction: true,
+        description: true,
+        listingUrl: true,
+        docsUrl: true,
+        website: true,
+        mechanismUrl: true,
+        pricingModel: true,
+        maturity: true,
       },
       with: {
         productA: { columns: productLinkColumns },
@@ -113,6 +139,7 @@ export async function loadOwnedIntegrations(
       claimed_at: row.claimedAt,
       retired_at: row.retiredAt,
       retired_by: effectiveRetiredBy({ retired_at: row.retiredAt, retired_by: row.retiredBy }),
+      contestable_fields: contestableFieldsOnA(row),
     });
   }
   for (const pair of pairs) {
@@ -129,6 +156,9 @@ export async function loadOwnedIntegrations(
       claimed_at: pair.claimedAt,
       retired_at: pair.retiredAt,
       retired_by: effectiveRetiredBy({ retired_at: pair.retiredAt, retired_by: pair.retiredBy }),
+      // A pair has every standard column but `mechanism_kind`, and stores
+      // `direction` against the canonical A, the same frame as `product_a` here.
+      contestable_fields: contestableFieldsOnA({ ...pair, mechanismKind: null }),
     });
   }
   // Case never decides the order (`API_CONTRACTS.md` §3.2). The id is the final,
@@ -139,4 +169,20 @@ export async function loadOwnedIntegrations(
       compareText(a.product_b.name, b.product_b.name) ||
       (a.id < b.id ? -1 : a.id > b.id ? 1 : 0),
   );
+}
+
+/**
+ * The value on record of every contestable field, in wire form with `direction`
+ * framed against `product_a` (AECI-1090). `product_a` is the row's source on
+ * `integrations` and the canonical A on a pair, so "A is the context" is the one
+ * frame both tables share. The portal's edit form sends `context_product_id =
+ * product_a.id` to match.
+ */
+function contestableFieldsOnA(row: Parameters<typeof storedFieldValue>[0]): ContestableFields {
+  return Object.fromEntries(
+    INTEGRATION_CONTEST_FIELDS.map((field) => [
+      field,
+      toWireValue(field, storedFieldValue(row, field), true),
+    ]),
+  ) as ContestableFields;
 }

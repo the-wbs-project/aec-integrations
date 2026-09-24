@@ -44,6 +44,7 @@ import type {
 } from '@aeci/shared';
 import {
   CreateVendorIntegrationSchema,
+  CONNECTOR_POWERED_FROZEN_EDIT_FIELDS,
   INTEGRATION_EDIT_FIELDS,
   computeAgreement,
   contestValueProblem,
@@ -56,6 +57,7 @@ import {
   VENDOR_CONTEST_NOTIFICATIONS_FIXTURE,
   VENDOR_CONTESTS_FIXTURE,
   VENDOR_DATA_OBJECTS_FIXTURE,
+  INTEGRATION_CONNECTOR_OWNED,
   INTEGRATION_OWNED_VIA_CONNECTOR,
   INTEGRATION_RETIRED_BY_AECI,
   INTEGRATION_RETIRED_BY_OTHER,
@@ -174,6 +176,8 @@ const PREVIEW_INTEGRATIONS: ListVendorIntegrationsResponse = {
     // AECI-1089: a connector-delivered row Summit owns, so the card's claim (or the
     // plan sentence, on the no-access presets) is reviewable.
     INTEGRATION_OWNED_VIA_CONNECTOR,
+    // AECI-1090: a claimed connector-delivered row the caller owns.
+    INTEGRATION_CONNECTOR_OWNED,
   ],
   // AECI-1089: the owned evidenced pairs, for the "Integrations your company offers"
   // section on the primary product's tab.
@@ -592,14 +596,54 @@ export class PreviewVendorApi extends VendorApi {
     integrationId: string,
     body: UpdateVendorIntegrationInput,
   ): Promise<UpdateVendorIntegrationResponse> {
+    // AECI-1090: an owned row outside the attestable list (an evidenced pair). Its
+    // values are framed against product_a, as the form sends them, and a pair has no
+    // type, so a type in the body is refused as the handler refuses it.
+    const owned = (this.integrations.owned ?? []).find((row) => row.id === integrationId);
+    if (owned) {
+      const entitled = (this.me?.entitlement.tier ?? 'unclaimed') !== 'unclaimed';
+      if (owned.connector_powered && !entitled) {
+        throw apiError(403, 'INTEGRATION_ENTITLEMENT_REQUIRED', 'Needs an active plan');
+      }
+      if (!owned.claimed_at) throw apiError(409, 'INTEGRATION_NOT_CLAIMED', 'Claim it first');
+      const changed: (typeof INTEGRATION_EDIT_FIELDS)[number][] = [];
+      for (const field of INTEGRATION_EDIT_FIELDS) {
+        const raw = body[field];
+        if (raw === undefined) continue;
+        const value = raw === null || raw.trim() === '' ? null : raw.trim();
+        if (field === 'mechanism_kind' && owned.anchor === 'evidenced_pair') {
+          throw apiError(422, 'INTEGRATION_INVALID_VALUE', 'No type on this row', { field });
+        }
+        const problem = integrationEditValueProblem(field, value);
+        if (problem) throw apiError(422, 'INTEGRATION_INVALID_VALUE', problem, { field });
+        if (value === (owned.contestable_fields[field] ?? null)) continue;
+        changed.push(field);
+        owned.contestable_fields = { ...owned.contestable_fields, [field]: value };
+        if (field === 'name') owned.name = value;
+        if (field === 'mechanism_name') owned.mechanism_name = value;
+      }
+      const at = '2026-09-23T12:00:00.000Z';
+      return {
+        integration: {
+          id: integrationId,
+          changed,
+          maintained_by: 'vendor',
+          last_reviewed_at: at,
+          updated_at: at,
+        },
+      };
+    }
+
     const entries = this.integrations.integrations.filter((i) => i.id === integrationId);
     const integration = entries[0];
     if (!integration) throw apiError(404, 'NOT_FOUND', 'Integration not found');
     if (!integration.is_owner) {
       throw apiError(403, 'INTEGRATION_NOT_OWNER', 'Another company owns this integration');
     }
-    if (!integration.attestable) {
-      throw apiError(403, 'INTEGRATION_CONNECTOR_POWERED', 'Connector-delivered integration');
+    // AECI-1090: a connector-delivered row takes the edit from an entitled owner,
+    // with its type frozen, as the handler does.
+    if (!integration.attestable && (this.me?.entitlement.tier ?? 'unclaimed') === 'unclaimed') {
+      throw apiError(403, 'INTEGRATION_ENTITLEMENT_REQUIRED', 'Needs an active plan');
     }
     if (!integration.claimed_at) {
       throw apiError(409, 'INTEGRATION_NOT_CLAIMED', 'Claim it first');
@@ -611,6 +655,14 @@ export class PreviewVendorApi extends VendorApi {
       const raw = body[field];
       if (raw === undefined) continue;
       const value = raw === null || raw.trim() === '' ? null : raw.trim();
+      if (
+        !integration.attestable &&
+        CONNECTOR_POWERED_FROZEN_EDIT_FIELDS.has(field) &&
+        value !== (frame.contestable_fields[field] ?? null)
+      ) {
+        throw apiError(422, 'INTEGRATION_INVALID_VALUE', 'Frozen on this row', { field });
+      }
+      if (!integration.attestable && CONNECTOR_POWERED_FROZEN_EDIT_FIELDS.has(field)) continue;
       const problem = integrationEditValueProblem(field, value);
       if (problem) throw apiError(422, 'INTEGRATION_INVALID_VALUE', problem, { field });
       if (value === (frame.contestable_fields[field] ?? null)) continue;

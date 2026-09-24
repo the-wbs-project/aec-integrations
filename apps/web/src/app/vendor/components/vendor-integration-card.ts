@@ -1,4 +1,13 @@
-import { Component, computed, inject, input, output, signal, viewChildren } from '@angular/core';
+import {
+  Component,
+  computed,
+  inject,
+  input,
+  output,
+  signal,
+  viewChildren,
+  type OnInit,
+} from '@angular/core';
 
 import type {
   DataObjectOption,
@@ -18,7 +27,10 @@ import { VendorContestForm } from './vendor-contest-form';
 import { VendorHealthPill } from './vendor-health-pill';
 import { summarizeIntegration } from './vendor-integration-health';
 import { VendorIntegrationRetire } from './vendor-integration-retire';
-import { VendorIntegrationOwnership } from './vendor-integration-ownership';
+import {
+  VENDOR_EDIT_FORM_START_OPEN,
+  VendorIntegrationOwnership,
+} from './vendor-integration-ownership';
 // AECI-1007: per-side links.
 import { VendorIntegrationLinksForm } from './vendor-integration-links-form';
 
@@ -226,7 +238,7 @@ import { VendorIntegrationLinksForm } from './vendor-integration-links-form';
     </article>
   `,
 })
-export class VendorIntegrationCard {
+export class VendorIntegrationCard implements OnInit {
   readonly integration = input.required<VendorIntegration>();
   readonly vendorName = input.required<string>();
   readonly canWrite = input.required<boolean>();
@@ -256,6 +268,16 @@ export class VendorIntegrationCard {
   /** Collapsed by default in `nested` mode (AECI-999). Local, because the group
    *  tracks cards by integration id, so the state survives every splice. */
   readonly expanded = signal(false);
+
+  /** The dev preview's `?edit=<id>` (AECI-1090): a nested card whose edit form
+   *  starts open starts expanded too, or the open form would sit hidden. */
+  private readonly startOpenId = inject(VENDOR_EDIT_FORM_START_OPEN, { optional: true }) ?? null;
+
+  ngOnInit(): void {
+    if (this.startOpenId !== null && this.startOpenId === this.integration().id) {
+      this.expanded.set(true);
+    }
+  }
 
   protected readonly ownsBothEndpoints = computed(() => this.integration().slots.length === 2);
 

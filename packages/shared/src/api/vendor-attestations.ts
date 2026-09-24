@@ -399,6 +399,14 @@ export const OwnedIntegrationSchema = z.object({
   claimed_at: z.string().nullable(),
   retired_at: z.string().nullable(),
   retired_by: IntegrationRetiredBySchema.nullable(),
+  /**
+   * AECI-1090: the value on record of every contestable field, so the owner's edit
+   * form starts from what is stored. Wire form, with `direction` framed against
+   * `product_a` (the source of an `integrations` row, the canonical A of a pair).
+   * `mechanism_kind` is `null` on a pair, which has no such column. Defaulted for
+   * deploy skew, like `integrations[].contestable_fields`.
+   */
+  contestable_fields: ContestableFieldsSchema.default(EMPTY_CONTESTABLE_FIELDS),
 });
 
 export type OwnedIntegration = z.infer<typeof OwnedIntegrationSchema>;

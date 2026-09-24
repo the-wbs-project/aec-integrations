@@ -406,7 +406,9 @@ helper enqueues for all of them (`purgeTags` / `afterVendorWrite` in
   columns the pair page and the product-detail integrations table render (name,
   type, direction, links, pricing, maturity) and transfers `maintained_by`. An
   integration `name` also appears in no `index:*` hub, so no index tag is needed.
-  A body that changes nothing purges nothing.
+  A body that changes nothing purges nothing. On a `connector_evidenced_pairs`
+  row (AECI-1090) the edit also purges the connector's `product:` tag, because
+  the pair is delivered through that product.
 - **An endpoint vendor's own link** (`PUT` / `DELETE
   /api/vendor/integrations/:id/links/:productId/:kind`, AECI-1007) → the **same three
   tags**. The pair page renders the link, and the write transfers `maintained_by`.

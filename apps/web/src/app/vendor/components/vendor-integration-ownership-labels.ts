@@ -52,6 +52,8 @@ export function editSaveErrorMessage(err: unknown): string {
       return $localize`:@@vendor.integrationEdit.save.error.notOwner:Your company is no longer recorded as the owner of this integration, so nothing was saved.`;
     case 'INTEGRATION_CONNECTOR_POWERED':
       return $localize`:@@vendor.integrationEdit.save.error.connector:Connector-delivered integrations cannot be edited yet, so nothing was saved.`;
+    case 'INTEGRATION_ENTITLEMENT_REQUIRED':
+      return $localize`:@@vendor.integrationEdit.save.error.entitlement:Editing an integration delivered through a connector product needs an active plan, so nothing was saved. Contact AEC Integrations to activate or renew it.`;
     case 'INTEGRATION_INVALID_VALUE':
       return $localize`:@@vendor.integrationEdit.save.error.invalid:One of the values is not valid for its field. Check the form and try again.`;
     case 'RATE_LIMITED':
