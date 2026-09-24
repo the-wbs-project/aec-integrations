@@ -1,0 +1,3498 @@
+{
+  "issue": "AECI-1064",
+  "target": "aeci-app-production (via review-app promote_product, serialized)",
+  "jobs": [
+    {
+      "n": 1,
+      "rec": "recohQSEjZl4EP4zL",
+      "name": "Motion",
+      "started_at": "2026-09-23T09:17:08.059Z",
+      "raw": {
+        "status": "pending",
+        "job_status": "running",
+        "job_id": "recohQSEjZl4EP4zL-mudw35gp-df2db566",
+        "withheld": [
+          {
+            "name": "Asana (manual)",
+            "reason": "the other endpoint product is not promoted yet"
+          },
+          {
+            "name": "Microsoft Teams (manual)",
+            "reason": "the other endpoint product is not promoted yet"
+          },
+          {
+            "name": "Motion ↔ Microsoft Teams: Meetings & Minutes",
+            "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+          },
+          {
+            "name": "Gmail (manual)",
+            "reason": "the other endpoint product is not promoted yet"
+          },
+          {
+            "name": "Typeform (manual)",
+            "reason": "the other endpoint product is not promoted yet"
+          },
+          {
+            "name": "Slack (manual)",
+            "reason": "the other endpoint product is not promoted yet"
+          },
+          {
+            "name": "Google Meet (manual)",
+            "reason": "the other endpoint product is not promoted yet"
+          },
+          {
+            "name": "Motion ↔ Google Meet: Meetings & Minutes",
+            "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+          },
+          {
+            "name": "ClickUp (manual)",
+            "reason": "the other endpoint product is not promoted yet"
+          },
+          {
+            "name": "GitHub (manual)",
+            "reason": "the other endpoint product is not promoted yet"
+          },
+          {
+            "name": "Notion (manual)",
+            "reason": "the other endpoint product is not promoted yet"
+          },
+          {
+            "name": "Zoom (manual)",
+            "reason": "the other endpoint product is not promoted yet"
+          },
+          {
+            "name": "Motion ↔ Zoom: Meetings & Minutes",
+            "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+          },
+          {
+            "name": "HubSpot (manual)",
+            "reason": "the other endpoint product is not promoted yet"
+          }
+        ],
+        "note": "The promote is running on the AECi side and will complete without you. Call get_promote_status job_id:recohQSEjZl4EP4zL-mudw35gp-df2db566 in a few seconds to collect its ids. Do NOT call promote_product again — that would just re-poll this same job."
+      },
+      "collected": {
+        "status": "ok",
+        "product": {
+          "recId": "recohQSEjZl4EP4zL",
+          "supabaseId": "e9f11a18-08fd-4b1c-81d6-cedce4771d3f",
+          "slug": "motion",
+          "operation": "updated",
+          "reviewUrl": "https://review.aecintegrations.com/products/recohQSEjZl4EP4zL"
+        },
+        "withheld": [],
+        "skipped": [],
+        "unresolvedLinks": [],
+        "note": "Pushed to the live AECi site. Verify on the public site (aecintegrations.com) that the change propagated as expected."
+      },
+      "job_id": "recohQSEjZl4EP4zL-mudw35gp-df2db566",
+      "job_created_at": "2026-09-23T09:17:25.922Z",
+      "status": "ok",
+      "operation": "updated",
+      "skipped": [],
+      "withheld": [
+        {
+          "name": "Asana (manual)",
+          "reason": "the other endpoint product is not promoted yet"
+        },
+        {
+          "name": "Microsoft Teams (manual)",
+          "reason": "the other endpoint product is not promoted yet"
+        },
+        {
+          "name": "Motion ↔ Microsoft Teams: Meetings & Minutes",
+          "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+        },
+        {
+          "name": "Gmail (manual)",
+          "reason": "the other endpoint product is not promoted yet"
+        },
+        {
+          "name": "Typeform (manual)",
+          "reason": "the other endpoint product is not promoted yet"
+        },
+        {
+          "name": "Slack (manual)",
+          "reason": "the other endpoint product is not promoted yet"
+        },
+        {
+          "name": "Google Meet (manual)",
+          "reason": "the other endpoint product is not promoted yet"
+        },
+        {
+          "name": "Motion ↔ Google Meet: Meetings & Minutes",
+          "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+        },
+        {
+          "name": "ClickUp (manual)",
+          "reason": "the other endpoint product is not promoted yet"
+        },
+        {
+          "name": "GitHub (manual)",
+          "reason": "the other endpoint product is not promoted yet"
+        },
+        {
+          "name": "Notion (manual)",
+          "reason": "the other endpoint product is not promoted yet"
+        },
+        {
+          "name": "Zoom (manual)",
+          "reason": "the other endpoint product is not promoted yet"
+        },
+        {
+          "name": "Motion ↔ Zoom: Meetings & Minutes",
+          "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+        },
+        {
+          "name": "HubSpot (manual)",
+          "reason": "the other endpoint product is not promoted yet"
+        }
+      ],
+      "warnings": [],
+      "unresolvedLinks": [],
+      "connectorsParked": [],
+      "connectorsPromoted": [],
+      "retriedAfter": null,
+      "edges_moved": 2,
+      "edges_stuck": [],
+      "finished_at": "2026-09-23T09:17:52.239Z"
+    },
+    {
+      "n": 2,
+      "rec": "rec6UUp8iEaL1vUpk",
+      "name": "SumoQuote",
+      "started_at": "2026-09-23T09:17:52.242Z",
+      "raw": {
+        "status": "pending",
+        "job_status": "running",
+        "job_id": "rec6UUp8iEaL1vUpk-mudw46s3-89ad3b95",
+        "withheld": [],
+        "note": "The promote is running on the AECi side and will complete without you. Call get_promote_status job_id:rec6UUp8iEaL1vUpk-mudw46s3-89ad3b95 in a few seconds to collect its ids. Do NOT call promote_product again — that would just re-poll this same job."
+      },
+      "collected": {
+        "status": "ok",
+        "product": {
+          "recId": "rec6UUp8iEaL1vUpk",
+          "supabaseId": "5f95790a-68ea-42d2-9b54-91be680d49ad",
+          "slug": "sumoquote",
+          "operation": "updated",
+          "reviewUrl": "https://review.aecintegrations.com/products/rec6UUp8iEaL1vUpk"
+        },
+        "withheld": [],
+        "skipped": [],
+        "unresolvedLinks": [],
+        "note": "Pushed to the live AECi site. Verify on the public site (aecintegrations.com) that the change propagated as expected."
+      },
+      "job_id": "rec6UUp8iEaL1vUpk-mudw46s3-89ad3b95",
+      "job_created_at": "2026-09-23T09:18:14.590Z",
+      "status": "ok",
+      "operation": "updated",
+      "skipped": [],
+      "withheld": [],
+      "warnings": [],
+      "unresolvedLinks": [],
+      "connectorsParked": [],
+      "connectorsPromoted": [],
+      "retriedAfter": null,
+      "edges_moved": 2,
+      "edges_stuck": [],
+      "finished_at": "2026-09-23T09:18:32.495Z"
+    },
+    {
+      "n": 3,
+      "rec": "recBec7hSiuPp0YY2",
+      "name": "Jobber",
+      "started_at": "2026-09-23T09:18:32.496Z",
+      "raw": {
+        "status": "pending",
+        "job_status": "running",
+        "job_id": "recBec7hSiuPp0YY2-mudw4w59-fa98d57b",
+        "withheld": [
+          {
+            "name": "Jobber → Paychex",
+            "reason": "the other endpoint product is not promoted yet"
+          },
+          {
+            "name": "Jobber → Paychex: Time & Labor",
+            "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+          },
+          {
+            "name": "Jobber → Paychex: Directory & Contacts",
+            "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+          },
+          {
+            "name": "Jobber ↔ Make (community connector)",
+            "reason": "the other endpoint product is not promoted yet"
+          },
+          {
+            "name": "ArcSite ↔ Jobber",
+            "reason": "the other endpoint product is not promoted yet"
+          },
+          {
+            "name": "ArcSite ← Jobber: Directory & Contacts",
+            "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+          },
+          {
+            "name": "ArcSite → Jobber: Bids & Tenders",
+            "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+          },
+          {
+            "name": "Azuga Fleet → Jobber",
+            "reason": "the other endpoint product is not promoted yet"
+          },
+          {
+            "name": "Geotab → Jobber",
+            "reason": "the other endpoint product is not promoted yet"
+          },
+          {
+            "name": "Protiv → Jobber",
+            "reason": "the other endpoint product is not promoted yet"
+          },
+          {
+            "name": "Protiv ← Jobber: Time & Labor",
+            "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+          },
+          {
+            "name": "Protiv ← Jobber: Directory & Contacts",
+            "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+          },
+          {
+            "name": "Jobber → Stripe",
+            "reason": "the other endpoint product is not promoted yet"
+          },
+          {
+            "name": "Jobber → Stripe: Invoices & Payments",
+            "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+          },
+          {
+            "name": "Jobber ↔ EagleView",
+            "reason": "the other endpoint product is not promoted yet"
+          },
+          {
+            "name": "Jobber → EagleView: Directory & Contacts",
+            "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+          },
+          {
+            "name": "Jobber ← EagleView: Drawings",
+            "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+          },
+          {
+            "name": "Jobber → Gusto",
+            "reason": "the other endpoint product is not promoted yet"
+          },
+          {
+            "name": "Jobber → Gusto: Time & Labor",
+            "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+          },
+          {
+            "name": "Handoff → Jobber (Zapier)",
+            "reason": "the other endpoint product is not promoted yet"
+          },
+          {
+            "name": "Handoff ↔ Jobber: Directory & Contacts",
+            "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+          },
+          {
+            "name": "Handoff → Jobber: Bids & Tenders",
+            "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+          },
+          {
+            "name": "Jobber → NiceJob",
+            "reason": "the other endpoint product is not promoted yet"
+          },
+          {
+            "name": "Jobber → NiceJob: Directory & Contacts",
+            "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+          },
+          {
+            "name": "Jobber → Mailchimp",
+            "reason": "the other endpoint product is not promoted yet"
+          },
+          {
+            "name": "Jobber → Mailchimp: Directory & Contacts",
+            "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+          },
+          {
+            "name": "CallCrewAI ↔ Jobber",
+            "reason": "the other endpoint product is not promoted yet"
+          },
+          {
+            "name": "CallCrewAI ↔ Jobber: Directory & Contacts",
+            "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+          },
+          {
+            "name": "CallCrewAI ↔ Jobber: Invoices & Payments",
+            "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+          },
+          {
+            "name": "CallCrewAI ↔ Jobber: Schedules",
+            "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+          }
+        ],
+        "note": "The promote is running on the AECi side and will complete without you. Call get_promote_status job_id:recBec7hSiuPp0YY2-mudw4w59-fa98d57b in a few seconds to collect its ids. Do NOT call promote_product again — that would just re-poll this same job."
+      },
+      "collected": {
+        "status": "ok",
+        "product": {
+          "recId": "recBec7hSiuPp0YY2",
+          "supabaseId": "f4f5471f-e5ca-4061-9f2d-1e333dc496cf",
+          "slug": "jobber",
+          "operation": "updated",
+          "reviewUrl": "https://review.aecintegrations.com/products/recBec7hSiuPp0YY2"
+        },
+        "withheld": [],
+        "skipped": [],
+        "unresolvedLinks": [],
+        "note": "Pushed to the live AECi site. Verify on the public site (aecintegrations.com) that the change propagated as expected."
+      },
+      "job_id": "recBec7hSiuPp0YY2-mudw4w59-fa98d57b",
+      "job_created_at": "2026-09-23T09:18:50.194Z",
+      "status": "ok",
+      "operation": "updated",
+      "skipped": [],
+      "withheld": [
+        {
+          "name": "Jobber → Paychex",
+          "reason": "the other endpoint product is not promoted yet"
+        },
+        {
+          "name": "Jobber → Paychex: Time & Labor",
+          "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+        },
+        {
+          "name": "Jobber → Paychex: Directory & Contacts",
+          "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+        },
+        {
+          "name": "Jobber ↔ Make (community connector)",
+          "reason": "the other endpoint product is not promoted yet"
+        },
+        {
+          "name": "ArcSite ↔ Jobber",
+          "reason": "the other endpoint product is not promoted yet"
+        },
+        {
+          "name": "ArcSite ← Jobber: Directory & Contacts",
+          "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+        },
+        {
+          "name": "ArcSite → Jobber: Bids & Tenders",
+          "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+        },
+        {
+          "name": "Azuga Fleet → Jobber",
+          "reason": "the other endpoint product is not promoted yet"
+        },
+        {
+          "name": "Geotab → Jobber",
+          "reason": "the other endpoint product is not promoted yet"
+        },
+        {
+          "name": "Protiv → Jobber",
+          "reason": "the other endpoint product is not promoted yet"
+        },
+        {
+          "name": "Protiv ← Jobber: Time & Labor",
+          "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+        },
+        {
+          "name": "Protiv ← Jobber: Directory & Contacts",
+          "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+        },
+        {
+          "name": "Jobber → Stripe",
+          "reason": "the other endpoint product is not promoted yet"
+        },
+        {
+          "name": "Jobber → Stripe: Invoices & Payments",
+          "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+        },
+        {
+          "name": "Jobber ↔ EagleView",
+          "reason": "the other endpoint product is not promoted yet"
+        },
+        {
+          "name": "Jobber → EagleView: Directory & Contacts",
+          "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+        },
+        {
+          "name": "Jobber ← EagleView: Drawings",
+          "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+        },
+        {
+          "name": "Jobber → Gusto",
+          "reason": "the other endpoint product is not promoted yet"
+        },
+        {
+          "name": "Jobber → Gusto: Time & Labor",
+          "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+        },
+        {
+          "name": "Handoff → Jobber (Zapier)",
+          "reason": "the other endpoint product is not promoted yet"
+        },
+        {
+          "name": "Handoff ↔ Jobber: Directory & Contacts",
+          "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+        },
+        {
+          "name": "Handoff → Jobber: Bids & Tenders",
+          "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+        },
+        {
+          "name": "Jobber → NiceJob",
+          "reason": "the other endpoint product is not promoted yet"
+        },
+        {
+          "name": "Jobber → NiceJob: Directory & Contacts",
+          "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+        },
+        {
+          "name": "Jobber → Mailchimp",
+          "reason": "the other endpoint product is not promoted yet"
+        },
+        {
+          "name": "Jobber → Mailchimp: Directory & Contacts",
+          "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+        },
+        {
+          "name": "CallCrewAI ↔ Jobber",
+          "reason": "the other endpoint product is not promoted yet"
+        },
+        {
+          "name": "CallCrewAI ↔ Jobber: Directory & Contacts",
+          "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+        },
+        {
+          "name": "CallCrewAI ↔ Jobber: Invoices & Payments",
+          "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+        },
+        {
+          "name": "CallCrewAI ↔ Jobber: Schedules",
+          "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+        }
+      ],
+      "warnings": [],
+      "unresolvedLinks": [],
+      "connectorsParked": [],
+      "connectorsPromoted": [],
+      "retriedAfter": null,
+      "edges_moved": 3,
+      "edges_stuck": [],
+      "finished_at": "2026-09-23T09:19:07.332Z"
+    },
+    {
+      "n": 4,
+      "rec": "recoiDWUn1VK93IdS",
+      "name": "Xero",
+      "started_at": "2026-09-23T09:19:07.333Z",
+      "raw": {
+        "status": "pending",
+        "job_status": "running",
+        "job_id": "recoiDWUn1VK93IdS-mudw5m5l-3946eea8",
+        "withheld": [
+          {
+            "name": "Xero (manual)",
+            "reason": "the other endpoint product is not promoted yet"
+          },
+          {
+            "name": "WorkflowMax → Xero: Time & Labor",
+            "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+          },
+          {
+            "name": "WorkflowMax ↔ Xero: Invoices & Payments",
+            "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+          },
+          {
+            "name": "Xero (manual)",
+            "reason": "the other endpoint product is not promoted yet"
+          },
+          {
+            "name": "Fergus → Xero: Invoices & Payments",
+            "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+          },
+          {
+            "name": "Xero (manual)",
+            "reason": "the other endpoint product is not promoted yet"
+          },
+          {
+            "name": "Buildertrend ↔ Xero: Directory & Contacts",
+            "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+          },
+          {
+            "name": "Buildertrend → Xero: Cost Codes",
+            "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+          },
+          {
+            "name": "Buildertrend → Xero: Budgets",
+            "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+          },
+          {
+            "name": "Buildertrend ↔ Xero: Invoices & Payments",
+            "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+          },
+          {
+            "name": "Xero (manual)",
+            "reason": "the other endpoint product is not promoted yet"
+          },
+          {
+            "name": "UpKeep → Xero: Invoices & Payments",
+            "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+          },
+          {
+            "name": "UpKeep → Xero: Time & Labor",
+            "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+          },
+          {
+            "name": "Xero (manual)",
+            "reason": "the other endpoint product is not promoted yet"
+          },
+          {
+            "name": "BQE CORE ↔ Xero: Directory & Contacts",
+            "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+          },
+          {
+            "name": "BQE CORE ↔ Xero: Invoices & Payments",
+            "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+          },
+          {
+            "name": "Xero (manual)",
+            "reason": "the other endpoint product is not promoted yet"
+          },
+          {
+            "name": "Tradify ↔ Xero: Invoices & Payments",
+            "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+          },
+          {
+            "name": "Tradify ↔ Xero: Directory & Contacts",
+            "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+          },
+          {
+            "name": "Xero (manual)",
+            "reason": "the other endpoint product is not promoted yet"
+          },
+          {
+            "name": "Simpro ↔ Xero: Directory & Contacts",
+            "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+          },
+          {
+            "name": "Simpro → Xero: Time & Labor",
+            "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+          },
+          {
+            "name": "Simpro ↔ Xero: Invoices & Payments",
+            "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+          },
+          {
+            "name": "Xero (manual)",
+            "reason": "the other endpoint product is not promoted yet"
+          },
+          {
+            "name": "MaintainX → Xero: Invoices & Payments",
+            "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+          },
+          {
+            "name": "Xero (manual)",
+            "reason": "the other endpoint product is not promoted yet"
+          },
+          {
+            "name": "FieldPulse ↔ Xero: Invoices & Payments",
+            "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+          },
+          {
+            "name": "FieldPulse → Xero: Bids & Tenders",
+            "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+          },
+          {
+            "name": "FieldPulse ↔ Xero: Directory & Contacts",
+            "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+          },
+          {
+            "name": "Xero (manual)",
+            "reason": "the other endpoint product is not promoted yet"
+          },
+          {
+            "name": "NextMinute → Xero: Invoices & Payments",
+            "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+          },
+          {
+            "name": "Xero (manual)",
+            "reason": "the other endpoint product is not promoted yet"
+          },
+          {
+            "name": "ServiceM8 ↔ Xero: Invoices & Payments",
+            "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+          },
+          {
+            "name": "ServiceM8 ↔ Xero: Directory & Contacts",
+            "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+          },
+          {
+            "name": "ServiceM8 → Xero: Time & Labor",
+            "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+          },
+          {
+            "name": "Xero (manual)",
+            "reason": "the other endpoint product is not promoted yet"
+          },
+          {
+            "name": "Precoro → Xero: Directory & Contacts",
+            "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+          },
+          {
+            "name": "Precoro → Xero: Commitments & Contracts",
+            "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+          },
+          {
+            "name": "Precoro → Xero: Invoices & Payments",
+            "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+          },
+          {
+            "name": "Xero (manual)",
+            "reason": "the other endpoint product is not promoted yet"
+          },
+          {
+            "name": "TriNet → Xero: Invoices & Payments",
+            "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+          }
+        ],
+        "note": "The promote is running on the AECi side and will complete without you. Call get_promote_status job_id:recoiDWUn1VK93IdS-mudw5m5l-3946eea8 in a few seconds to collect its ids. Do NOT call promote_product again — that would just re-poll this same job."
+      },
+      "collected": {
+        "status": "ok",
+        "product": {
+          "recId": "recoiDWUn1VK93IdS",
+          "supabaseId": "2aac16bb-3752-44c1-9144-b3eb85dd4587",
+          "slug": "xero",
+          "operation": "updated",
+          "reviewUrl": "https://review.aecintegrations.com/products/recoiDWUn1VK93IdS"
+        },
+        "withheld": [],
+        "skipped": [],
+        "unresolvedLinks": [],
+        "note": "Pushed to the live AECi site. Verify on the public site (aecintegrations.com) that the change propagated as expected."
+      },
+      "job_id": "recoiDWUn1VK93IdS-mudw5m5l-3946eea8",
+      "job_created_at": "2026-09-23T09:19:23.330Z",
+      "status": "ok",
+      "operation": "updated",
+      "skipped": [],
+      "withheld": [
+        {
+          "name": "Xero (manual)",
+          "reason": "the other endpoint product is not promoted yet"
+        },
+        {
+          "name": "WorkflowMax → Xero: Time & Labor",
+          "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+        },
+        {
+          "name": "WorkflowMax ↔ Xero: Invoices & Payments",
+          "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+        },
+        {
+          "name": "Xero (manual)",
+          "reason": "the other endpoint product is not promoted yet"
+        },
+        {
+          "name": "Fergus → Xero: Invoices & Payments",
+          "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+        },
+        {
+          "name": "Xero (manual)",
+          "reason": "the other endpoint product is not promoted yet"
+        },
+        {
+          "name": "Buildertrend ↔ Xero: Directory & Contacts",
+          "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+        },
+        {
+          "name": "Buildertrend → Xero: Cost Codes",
+          "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+        },
+        {
+          "name": "Buildertrend → Xero: Budgets",
+          "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+        },
+        {
+          "name": "Buildertrend ↔ Xero: Invoices & Payments",
+          "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+        },
+        {
+          "name": "Xero (manual)",
+          "reason": "the other endpoint product is not promoted yet"
+        },
+        {
+          "name": "UpKeep → Xero: Invoices & Payments",
+          "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+        },
+        {
+          "name": "UpKeep → Xero: Time & Labor",
+          "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+        },
+        {
+          "name": "Xero (manual)",
+          "reason": "the other endpoint product is not promoted yet"
+        },
+        {
+          "name": "BQE CORE ↔ Xero: Directory & Contacts",
+          "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+        },
+        {
+          "name": "BQE CORE ↔ Xero: Invoices & Payments",
+          "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+        },
+        {
+          "name": "Xero (manual)",
+          "reason": "the other endpoint product is not promoted yet"
+        },
+        {
+          "name": "Tradify ↔ Xero: Invoices & Payments",
+          "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+        },
+        {
+          "name": "Tradify ↔ Xero: Directory & Contacts",
+          "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+        },
+        {
+          "name": "Xero (manual)",
+          "reason": "the other endpoint product is not promoted yet"
+        },
+        {
+          "name": "Simpro ↔ Xero: Directory & Contacts",
+          "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+        },
+        {
+          "name": "Simpro → Xero: Time & Labor",
+          "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+        },
+        {
+          "name": "Simpro ↔ Xero: Invoices & Payments",
+          "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+        },
+        {
+          "name": "Xero (manual)",
+          "reason": "the other endpoint product is not promoted yet"
+        },
+        {
+          "name": "MaintainX → Xero: Invoices & Payments",
+          "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+        },
+        {
+          "name": "Xero (manual)",
+          "reason": "the other endpoint product is not promoted yet"
+        },
+        {
+          "name": "FieldPulse ↔ Xero: Invoices & Payments",
+          "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+        },
+        {
+          "name": "FieldPulse → Xero: Bids & Tenders",
+          "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+        },
+        {
+          "name": "FieldPulse ↔ Xero: Directory & Contacts",
+          "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+        },
+        {
+          "name": "Xero (manual)",
+          "reason": "the other endpoint product is not promoted yet"
+        },
+        {
+          "name": "NextMinute → Xero: Invoices & Payments",
+          "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+        },
+        {
+          "name": "Xero (manual)",
+          "reason": "the other endpoint product is not promoted yet"
+        },
+        {
+          "name": "ServiceM8 ↔ Xero: Invoices & Payments",
+          "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+        },
+        {
+          "name": "ServiceM8 ↔ Xero: Directory & Contacts",
+          "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+        },
+        {
+          "name": "ServiceM8 → Xero: Time & Labor",
+          "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+        },
+        {
+          "name": "Xero (manual)",
+          "reason": "the other endpoint product is not promoted yet"
+        },
+        {
+          "name": "Precoro → Xero: Directory & Contacts",
+          "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+        },
+        {
+          "name": "Precoro → Xero: Commitments & Contracts",
+          "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+        },
+        {
+          "name": "Precoro → Xero: Invoices & Payments",
+          "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+        },
+        {
+          "name": "Xero (manual)",
+          "reason": "the other endpoint product is not promoted yet"
+        },
+        {
+          "name": "TriNet → Xero: Invoices & Payments",
+          "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+        }
+      ],
+      "warnings": [],
+      "unresolvedLinks": [],
+      "connectorsParked": [],
+      "connectorsPromoted": [],
+      "retriedAfter": null,
+      "edges_moved": 2,
+      "edges_stuck": [],
+      "finished_at": "2026-09-23T09:19:39.953Z"
+    },
+    {
+      "n": 5,
+      "rec": "recRd7g8zjLcaz3yd",
+      "name": "Roofr",
+      "started_at": "2026-09-23T09:19:39.954Z",
+      "raw": {
+        "status": "pending",
+        "job_status": "running",
+        "job_id": "recRd7g8zjLcaz3yd-mudw6bv3-2ab3756c",
+        "withheld": [
+          {
+            "name": "Slack (manual)",
+            "reason": "the other endpoint product is not promoted yet"
+          },
+          {
+            "name": "NiceJob (manual)",
+            "reason": "the other endpoint product is not promoted yet"
+          },
+          {
+            "name": "Roofr → NiceJob: Directory & Contacts",
+            "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+          },
+          {
+            "name": "Google Drive (manual)",
+            "reason": "the other endpoint product is not promoted yet"
+          },
+          {
+            "name": "Roofr → Google Drive: Documents",
+            "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+          },
+          {
+            "name": "Gmail (manual)",
+            "reason": "the other endpoint product is not promoted yet"
+          },
+          {
+            "name": "Google Sheets (manual)",
+            "reason": "the other endpoint product is not promoted yet"
+          },
+          {
+            "name": "Roofr → Google Sheets: Directory & Contacts",
+            "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+          },
+          {
+            "name": "Roofr → Google Sheets: Bids & Tenders",
+            "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+          },
+          {
+            "name": "Airtable (manual)",
+            "reason": "the other endpoint product is not promoted yet"
+          },
+          {
+            "name": "Roofr → Airtable: Bids & Tenders",
+            "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+          },
+          {
+            "name": "Roofr → Airtable: Directory & Contacts",
+            "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+          },
+          {
+            "name": "HubSpot (manual)",
+            "reason": "the other endpoint product is not promoted yet"
+          },
+          {
+            "name": "Roofr → HubSpot: Directory & Contacts",
+            "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+          },
+          {
+            "name": "Calendly (manual)",
+            "reason": "the other endpoint product is not promoted yet"
+          },
+          {
+            "name": "Roofr ← Calendly: Schedules",
+            "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+          },
+          {
+            "name": "Roofr ← Calendly: Directory & Contacts",
+            "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+          },
+          {
+            "name": "Jotform (manual)",
+            "reason": "the other endpoint product is not promoted yet"
+          },
+          {
+            "name": "Roofr ← Jotform: Directory & Contacts",
+            "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+          },
+          {
+            "name": "ABC Supply (manual)",
+            "reason": "the other endpoint product is not promoted yet"
+          },
+          {
+            "name": "Roofr ↔ ABC Supply: Commitments & Contracts",
+            "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+          },
+          {
+            "name": "Roofr ↔ Roof Hub",
+            "reason": "the other endpoint product is not promoted yet"
+          },
+          {
+            "name": "Roofr ↔ Roof Hub: Commitments & Contracts",
+            "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+          },
+          {
+            "name": "Twilio (manual)",
+            "reason": "the other endpoint product is not promoted yet"
+          },
+          {
+            "name": "Roofr ↔ QXO",
+            "reason": "the other endpoint product is not promoted yet"
+          },
+          {
+            "name": "Roofr ↔ QXO: Commitments & Contracts",
+            "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+          }
+        ],
+        "note": "The promote is running on the AECi side and will complete without you. Call get_promote_status job_id:recRd7g8zjLcaz3yd-mudw6bv3-2ab3756c in a few seconds to collect its ids. Do NOT call promote_product again — that would just re-poll this same job."
+      },
+      "collected": {
+        "status": "ok",
+        "product": {
+          "recId": "recRd7g8zjLcaz3yd",
+          "supabaseId": "d8f04618-637d-4101-bc6a-af81d6771069",
+          "slug": "roofr",
+          "operation": "updated",
+          "reviewUrl": "https://review.aecintegrations.com/products/recRd7g8zjLcaz3yd"
+        },
+        "withheld": [],
+        "skipped": [],
+        "unresolvedLinks": [],
+        "note": "Pushed to the live AECi site. Verify on the public site (aecintegrations.com) that the change propagated as expected."
+      },
+      "job_id": "recRd7g8zjLcaz3yd-mudw6bv3-2ab3756c",
+      "job_created_at": "2026-09-23T09:19:58.511Z",
+      "status": "ok",
+      "operation": "updated",
+      "skipped": [],
+      "withheld": [
+        {
+          "name": "Slack (manual)",
+          "reason": "the other endpoint product is not promoted yet"
+        },
+        {
+          "name": "NiceJob (manual)",
+          "reason": "the other endpoint product is not promoted yet"
+        },
+        {
+          "name": "Roofr → NiceJob: Directory & Contacts",
+          "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+        },
+        {
+          "name": "Google Drive (manual)",
+          "reason": "the other endpoint product is not promoted yet"
+        },
+        {
+          "name": "Roofr → Google Drive: Documents",
+          "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+        },
+        {
+          "name": "Gmail (manual)",
+          "reason": "the other endpoint product is not promoted yet"
+        },
+        {
+          "name": "Google Sheets (manual)",
+          "reason": "the other endpoint product is not promoted yet"
+        },
+        {
+          "name": "Roofr → Google Sheets: Directory & Contacts",
+          "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+        },
+        {
+          "name": "Roofr → Google Sheets: Bids & Tenders",
+          "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+        },
+        {
+          "name": "Airtable (manual)",
+          "reason": "the other endpoint product is not promoted yet"
+        },
+        {
+          "name": "Roofr → Airtable: Bids & Tenders",
+          "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+        },
+        {
+          "name": "Roofr → Airtable: Directory & Contacts",
+          "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+        },
+        {
+          "name": "HubSpot (manual)",
+          "reason": "the other endpoint product is not promoted yet"
+        },
+        {
+          "name": "Roofr → HubSpot: Directory & Contacts",
+          "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+        },
+        {
+          "name": "Calendly (manual)",
+          "reason": "the other endpoint product is not promoted yet"
+        },
+        {
+          "name": "Roofr ← Calendly: Schedules",
+          "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+        },
+        {
+          "name": "Roofr ← Calendly: Directory & Contacts",
+          "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+        },
+        {
+          "name": "Jotform (manual)",
+          "reason": "the other endpoint product is not promoted yet"
+        },
+        {
+          "name": "Roofr ← Jotform: Directory & Contacts",
+          "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+        },
+        {
+          "name": "ABC Supply (manual)",
+          "reason": "the other endpoint product is not promoted yet"
+        },
+        {
+          "name": "Roofr ↔ ABC Supply: Commitments & Contracts",
+          "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+        },
+        {
+          "name": "Roofr ↔ Roof Hub",
+          "reason": "the other endpoint product is not promoted yet"
+        },
+        {
+          "name": "Roofr ↔ Roof Hub: Commitments & Contracts",
+          "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+        },
+        {
+          "name": "Twilio (manual)",
+          "reason": "the other endpoint product is not promoted yet"
+        },
+        {
+          "name": "Roofr ↔ QXO",
+          "reason": "the other endpoint product is not promoted yet"
+        },
+        {
+          "name": "Roofr ↔ QXO: Commitments & Contracts",
+          "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+        }
+      ],
+      "warnings": [],
+      "unresolvedLinks": [],
+      "connectorsParked": [],
+      "connectorsPromoted": [],
+      "retriedAfter": null,
+      "edges_moved": 9,
+      "edges_stuck": [],
+      "finished_at": "2026-09-23T09:20:16.863Z"
+    },
+    {
+      "n": 6,
+      "rec": "recE1QYJGBueJQvaL",
+      "name": "HOVER",
+      "started_at": "2026-09-23T09:20:16.865Z",
+      "raw": {
+        "status": "pending",
+        "job_status": "running",
+        "job_id": "recE1QYJGBueJQvaL-mudw74e2-de195854",
+        "withheld": [
+          {
+            "name": "Roof Hub (manual)",
+            "reason": "the other endpoint product is not promoted yet"
+          },
+          {
+            "name": "HOVER ← Roof Hub: Documents",
+            "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+          },
+          {
+            "name": "HOVER → Roof Hub: Commitments & Contracts",
+            "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+          },
+          {
+            "name": "HOVER → Roof Hub: Bids & Tenders",
+            "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+          },
+          {
+            "name": "HubSpot (manual)",
+            "reason": "the other endpoint product is not promoted yet"
+          },
+          {
+            "name": "HOVER → HubSpot: Bids & Tenders",
+            "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+          },
+          {
+            "name": "HOVER → HubSpot: Directory & Contacts",
+            "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+          },
+          {
+            "name": "Zuper (manual)",
+            "reason": "the other endpoint product is not promoted yet"
+          },
+          {
+            "name": "HOVER → Zuper: Documents",
+            "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+          },
+          {
+            "name": "ProLine (manual)",
+            "reason": "the other endpoint product is not promoted yet"
+          },
+          {
+            "name": "HOVER → ProLine: Models",
+            "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+          },
+          {
+            "name": "HOVER → ProLine: Bids & Tenders",
+            "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+          },
+          {
+            "name": "RoofLink (manual)",
+            "reason": "the other endpoint product is not promoted yet"
+          },
+          {
+            "name": "HOVER → RoofLink: Documents",
+            "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+          },
+          {
+            "name": "HOVER → RoofLink: Models",
+            "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+          },
+          {
+            "name": "ContractorFlow (manual)",
+            "reason": "the other endpoint product is not promoted yet"
+          },
+          {
+            "name": "HOVER → ContractorFlow: Documents",
+            "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+          },
+          {
+            "name": "HOVER → ContractorFlow: Photos",
+            "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+          },
+          {
+            "name": "ABC Supply (manual)",
+            "reason": "the other endpoint product is not promoted yet"
+          },
+          {
+            "name": "HOVER → ABC Supply: Bids & Tenders",
+            "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+          },
+          {
+            "name": "HOVER → ABC Supply: Commitments & Contracts",
+            "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+          },
+          {
+            "name": "Builder Prime (manual)",
+            "reason": "the other endpoint product is not promoted yet"
+          },
+          {
+            "name": "HOVER → Builder Prime: Models",
+            "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+          },
+          {
+            "name": "HOVER → Builder Prime: Bids & Tenders",
+            "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+          },
+          {
+            "name": "Paradigm Vendo (manual)",
+            "reason": "the other endpoint product is not promoted yet"
+          },
+          {
+            "name": "HOVER → Paradigm Vendo: Bids & Tenders",
+            "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+          },
+          {
+            "name": "One Click Contractor (manual)",
+            "reason": "the other endpoint product is not promoted yet"
+          },
+          {
+            "name": "HOVER → One Click Contractor: Models",
+            "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+          },
+          {
+            "name": "HOVER → One Click Contractor: Bids & Tenders",
+            "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+          },
+          {
+            "name": "Xactimate (manual)",
+            "reason": "the other endpoint product is not promoted yet"
+          },
+          {
+            "name": "HOVER → Xactimate: Photos",
+            "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+          },
+          {
+            "name": "HOVER → Xactimate: Bids & Tenders",
+            "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+          },
+          {
+            "name": "HOVER ↔ QXO",
+            "reason": "the other endpoint product is not promoted yet"
+          },
+          {
+            "name": "QXO ← HOVER: Commitments & Contracts",
+            "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+          },
+          {
+            "name": "Bolster (manual)",
+            "reason": "the other endpoint product is not promoted yet"
+          },
+          {
+            "name": "HOVER → Bolster: Bids & Tenders",
+            "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+          },
+          {
+            "name": "Restoration AI (manual)",
+            "reason": "the other endpoint product is not promoted yet"
+          },
+          {
+            "name": "HOVER → Restoration AI: Bids & Tenders",
+            "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+          },
+          {
+            "name": "Scopeworx (manual)",
+            "reason": "the other endpoint product is not promoted yet"
+          },
+          {
+            "name": "HOVER → Scopeworx: Photos",
+            "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+          },
+          {
+            "name": "HOVER → Scopeworx: Bids & Tenders",
+            "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+          },
+          {
+            "name": "Leap SalesPro (manual)",
+            "reason": "the other endpoint product is not promoted yet"
+          },
+          {
+            "name": "HOVER → Leap SalesPro: Models",
+            "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+          },
+          {
+            "name": "HOVER → Leap SalesPro: Photos",
+            "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+          },
+          {
+            "name": "HOVER → Leap SalesPro: Bids & Tenders",
+            "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+          },
+          {
+            "name": "HOVER → Leap SalesPro: Commitments & Contracts",
+            "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+          },
+          {
+            "name": "QMax (manual)",
+            "reason": "the other endpoint product is not promoted yet"
+          },
+          {
+            "name": "HOVER → QMax: Photos",
+            "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+          },
+          {
+            "name": "HOVER → QMax: Models",
+            "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+          },
+          {
+            "name": "HOVER → QMax: Documents",
+            "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+          }
+        ],
+        "note": "The promote is running on the AECi side and will complete without you. Call get_promote_status job_id:recE1QYJGBueJQvaL-mudw74e2-de195854 in a few seconds to collect its ids. Do NOT call promote_product again — that would just re-poll this same job."
+      },
+      "collected": {
+        "status": "ok",
+        "product": {
+          "recId": "recE1QYJGBueJQvaL",
+          "supabaseId": "30c6153b-f5c8-441d-85f4-6138e2dcc3a9",
+          "slug": "hover",
+          "operation": "updated",
+          "reviewUrl": "https://review.aecintegrations.com/products/recE1QYJGBueJQvaL"
+        },
+        "withheld": [],
+        "skipped": [],
+        "unresolvedLinks": [],
+        "note": "Pushed to the live AECi site. Verify on the public site (aecintegrations.com) that the change propagated as expected."
+      },
+      "job_id": "recE1QYJGBueJQvaL-mudw74e2-de195854",
+      "job_created_at": "2026-09-23T09:20:33.971Z",
+      "status": "ok",
+      "operation": "updated",
+      "skipped": [],
+      "withheld": [
+        {
+          "name": "Roof Hub (manual)",
+          "reason": "the other endpoint product is not promoted yet"
+        },
+        {
+          "name": "HOVER ← Roof Hub: Documents",
+          "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+        },
+        {
+          "name": "HOVER → Roof Hub: Commitments & Contracts",
+          "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+        },
+        {
+          "name": "HOVER → Roof Hub: Bids & Tenders",
+          "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+        },
+        {
+          "name": "HubSpot (manual)",
+          "reason": "the other endpoint product is not promoted yet"
+        },
+        {
+          "name": "HOVER → HubSpot: Bids & Tenders",
+          "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+        },
+        {
+          "name": "HOVER → HubSpot: Directory & Contacts",
+          "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+        },
+        {
+          "name": "Zuper (manual)",
+          "reason": "the other endpoint product is not promoted yet"
+        },
+        {
+          "name": "HOVER → Zuper: Documents",
+          "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+        },
+        {
+          "name": "ProLine (manual)",
+          "reason": "the other endpoint product is not promoted yet"
+        },
+        {
+          "name": "HOVER → ProLine: Models",
+          "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+        },
+        {
+          "name": "HOVER → ProLine: Bids & Tenders",
+          "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+        },
+        {
+          "name": "RoofLink (manual)",
+          "reason": "the other endpoint product is not promoted yet"
+        },
+        {
+          "name": "HOVER → RoofLink: Documents",
+          "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+        },
+        {
+          "name": "HOVER → RoofLink: Models",
+          "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+        },
+        {
+          "name": "ContractorFlow (manual)",
+          "reason": "the other endpoint product is not promoted yet"
+        },
+        {
+          "name": "HOVER → ContractorFlow: Documents",
+          "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+        },
+        {
+          "name": "HOVER → ContractorFlow: Photos",
+          "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+        },
+        {
+          "name": "ABC Supply (manual)",
+          "reason": "the other endpoint product is not promoted yet"
+        },
+        {
+          "name": "HOVER → ABC Supply: Bids & Tenders",
+          "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+        },
+        {
+          "name": "HOVER → ABC Supply: Commitments & Contracts",
+          "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+        },
+        {
+          "name": "Builder Prime (manual)",
+          "reason": "the other endpoint product is not promoted yet"
+        },
+        {
+          "name": "HOVER → Builder Prime: Models",
+          "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+        },
+        {
+          "name": "HOVER → Builder Prime: Bids & Tenders",
+          "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+        },
+        {
+          "name": "Paradigm Vendo (manual)",
+          "reason": "the other endpoint product is not promoted yet"
+        },
+        {
+          "name": "HOVER → Paradigm Vendo: Bids & Tenders",
+          "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+        },
+        {
+          "name": "One Click Contractor (manual)",
+          "reason": "the other endpoint product is not promoted yet"
+        },
+        {
+          "name": "HOVER → One Click Contractor: Models",
+          "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+        },
+        {
+          "name": "HOVER → One Click Contractor: Bids & Tenders",
+          "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+        },
+        {
+          "name": "Xactimate (manual)",
+          "reason": "the other endpoint product is not promoted yet"
+        },
+        {
+          "name": "HOVER → Xactimate: Photos",
+          "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+        },
+        {
+          "name": "HOVER → Xactimate: Bids & Tenders",
+          "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+        },
+        {
+          "name": "HOVER ↔ QXO",
+          "reason": "the other endpoint product is not promoted yet"
+        },
+        {
+          "name": "QXO ← HOVER: Commitments & Contracts",
+          "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+        },
+        {
+          "name": "Bolster (manual)",
+          "reason": "the other endpoint product is not promoted yet"
+        },
+        {
+          "name": "HOVER → Bolster: Bids & Tenders",
+          "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+        },
+        {
+          "name": "Restoration AI (manual)",
+          "reason": "the other endpoint product is not promoted yet"
+        },
+        {
+          "name": "HOVER → Restoration AI: Bids & Tenders",
+          "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+        },
+        {
+          "name": "Scopeworx (manual)",
+          "reason": "the other endpoint product is not promoted yet"
+        },
+        {
+          "name": "HOVER → Scopeworx: Photos",
+          "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+        },
+        {
+          "name": "HOVER → Scopeworx: Bids & Tenders",
+          "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+        },
+        {
+          "name": "Leap SalesPro (manual)",
+          "reason": "the other endpoint product is not promoted yet"
+        },
+        {
+          "name": "HOVER → Leap SalesPro: Models",
+          "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+        },
+        {
+          "name": "HOVER → Leap SalesPro: Photos",
+          "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+        },
+        {
+          "name": "HOVER → Leap SalesPro: Bids & Tenders",
+          "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+        },
+        {
+          "name": "HOVER → Leap SalesPro: Commitments & Contracts",
+          "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+        },
+        {
+          "name": "QMax (manual)",
+          "reason": "the other endpoint product is not promoted yet"
+        },
+        {
+          "name": "HOVER → QMax: Photos",
+          "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+        },
+        {
+          "name": "HOVER → QMax: Models",
+          "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+        },
+        {
+          "name": "HOVER → QMax: Documents",
+          "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+        }
+      ],
+      "warnings": [],
+      "unresolvedLinks": [],
+      "connectorsParked": [],
+      "connectorsPromoted": [],
+      "retriedAfter": null,
+      "edges_moved": 4,
+      "edges_stuck": [],
+      "finished_at": "2026-09-23T09:20:50.801Z"
+    },
+    {
+      "n": 7,
+      "rec": "recEuQ8n9wSqaoEBL",
+      "name": "Google Calendar",
+      "started_at": "2026-09-23T09:20:50.802Z",
+      "raw": {
+        "status": "pending",
+        "job_status": "running",
+        "job_id": "recEuQ8n9wSqaoEBL-mudw7uk2-0438f899",
+        "withheld": [
+          {
+            "name": "ConstructionOnline → Google Calendar",
+            "reason": "the other endpoint product is not promoted yet"
+          },
+          {
+            "name": "ConstructionOnline → Google Calendar: Meetings & Minutes",
+            "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+          },
+          {
+            "name": "FieldPulse → Google Calendar",
+            "reason": "the other endpoint product is not promoted yet"
+          },
+          {
+            "name": "FieldPulse → Google Calendar: Schedules",
+            "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+          },
+          {
+            "name": "Buildertrend → Google Calendar",
+            "reason": "the other endpoint product is not promoted yet"
+          },
+          {
+            "name": "Buildertrend → Google Calendar: Schedules",
+            "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+          },
+          {
+            "name": "Jotform ↔ Google Calendar",
+            "reason": "the other endpoint product is not promoted yet"
+          },
+          {
+            "name": "Jotform ↔ Google Calendar: Schedules",
+            "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+          },
+          {
+            "name": "TrackVia → Google Calendar",
+            "reason": "the other endpoint product is not promoted yet"
+          },
+          {
+            "name": "Cal.com ↔ Google Calendar",
+            "reason": "the other endpoint product is not promoted yet"
+          }
+        ],
+        "note": "The promote is running on the AECi side and will complete without you. Call get_promote_status job_id:recEuQ8n9wSqaoEBL-mudw7uk2-0438f899 in a few seconds to collect its ids. Do NOT call promote_product again — that would just re-poll this same job."
+      },
+      "collected": {
+        "status": "ok",
+        "product": {
+          "recId": "recEuQ8n9wSqaoEBL",
+          "supabaseId": "990753bf-c49e-46ac-9b14-70cceb769626",
+          "slug": "google-calendar",
+          "operation": "updated",
+          "reviewUrl": "https://review.aecintegrations.com/products/recEuQ8n9wSqaoEBL"
+        },
+        "withheld": [],
+        "skipped": [],
+        "unresolvedLinks": [],
+        "note": "Pushed to the live AECi site. Verify on the public site (aecintegrations.com) that the change propagated as expected."
+      },
+      "job_id": "recEuQ8n9wSqaoEBL-mudw7uk2-0438f899",
+      "job_created_at": "2026-09-23T09:21:08.962Z",
+      "status": "ok",
+      "operation": "updated",
+      "skipped": [],
+      "withheld": [
+        {
+          "name": "ConstructionOnline → Google Calendar",
+          "reason": "the other endpoint product is not promoted yet"
+        },
+        {
+          "name": "ConstructionOnline → Google Calendar: Meetings & Minutes",
+          "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+        },
+        {
+          "name": "FieldPulse → Google Calendar",
+          "reason": "the other endpoint product is not promoted yet"
+        },
+        {
+          "name": "FieldPulse → Google Calendar: Schedules",
+          "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+        },
+        {
+          "name": "Buildertrend → Google Calendar",
+          "reason": "the other endpoint product is not promoted yet"
+        },
+        {
+          "name": "Buildertrend → Google Calendar: Schedules",
+          "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+        },
+        {
+          "name": "Jotform ↔ Google Calendar",
+          "reason": "the other endpoint product is not promoted yet"
+        },
+        {
+          "name": "Jotform ↔ Google Calendar: Schedules",
+          "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+        },
+        {
+          "name": "TrackVia → Google Calendar",
+          "reason": "the other endpoint product is not promoted yet"
+        },
+        {
+          "name": "Cal.com ↔ Google Calendar",
+          "reason": "the other endpoint product is not promoted yet"
+        }
+      ],
+      "warnings": [],
+      "unresolvedLinks": [],
+      "connectorsParked": [],
+      "connectorsPromoted": [],
+      "retriedAfter": null,
+      "edges_moved": 2,
+      "edges_stuck": [],
+      "finished_at": "2026-09-23T09:21:29.812Z"
+    },
+    {
+      "n": 8,
+      "rec": "recDzKmObXRE6uHpm",
+      "name": "busybusy",
+      "started_at": "2026-09-23T09:21:29.813Z",
+      "raw": {
+        "status": "pending",
+        "job_status": "running",
+        "job_id": "recDzKmObXRE6uHpm-mudw8p61-ccf50ae5",
+        "withheld": [
+          {
+            "name": "Explorer Eclipse (manual)",
+            "reason": "the other endpoint product is not promoted yet"
+          },
+          {
+            "name": "busybusy → Explorer Eclipse: Time & Labor",
+            "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+          },
+          {
+            "name": "Viewpoint ProContractor (manual)",
+            "reason": "the other endpoint product is not promoted yet"
+          },
+          {
+            "name": "busybusy → Viewpoint ProContractor: Directory & Contacts",
+            "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+          },
+          {
+            "name": "busybusy → Viewpoint ProContractor: Time & Labor",
+            "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+          },
+          {
+            "name": "busybusy → Viewpoint ProContractor: Budgets",
+            "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+          },
+          {
+            "name": "ConstructionPayroll.com (manual)",
+            "reason": "the other endpoint product is not promoted yet"
+          },
+          {
+            "name": "busybusy → ConstructionPayroll.com: Time & Labor",
+            "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+          },
+          {
+            "name": "Paychex (manual)",
+            "reason": "the other endpoint product is not promoted yet"
+          },
+          {
+            "name": "busybusy → Paychex: Time & Labor",
+            "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+          },
+          {
+            "name": "Protiv (manual)",
+            "reason": "the other endpoint product is not promoted yet"
+          },
+          {
+            "name": "busybusy → Protiv: Time & Labor",
+            "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+          },
+          {
+            "name": "Sage 100 (manual)",
+            "reason": "the other endpoint product is not promoted yet"
+          },
+          {
+            "name": "busybusy → Sage 100: Cost Codes",
+            "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+          },
+          {
+            "name": "busybusy → Sage 100: Time & Labor",
+            "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+          },
+          {
+            "name": "A-Systems JobView (manual)",
+            "reason": "the other endpoint product is not promoted yet"
+          },
+          {
+            "name": "busybusy → A-Systems JobView: Time & Labor",
+            "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+          },
+          {
+            "name": "busybusy → A-Systems JobView: Cost Codes",
+            "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+          }
+        ],
+        "note": "The promote is running on the AECi side and will complete without you. Call get_promote_status job_id:recDzKmObXRE6uHpm-mudw8p61-ccf50ae5 in a few seconds to collect its ids. Do NOT call promote_product again — that would just re-poll this same job."
+      },
+      "collected": {
+        "status": "ok",
+        "product": {
+          "recId": "recDzKmObXRE6uHpm",
+          "supabaseId": "2c6d8766-035e-4730-852c-84a3455233da",
+          "slug": "busybusy",
+          "operation": "updated",
+          "reviewUrl": "https://review.aecintegrations.com/products/recDzKmObXRE6uHpm"
+        },
+        "withheld": [],
+        "skipped": [],
+        "unresolvedLinks": [],
+        "note": "Pushed to the live AECi site. Verify on the public site (aecintegrations.com) that the change propagated as expected."
+      },
+      "job_id": "recDzKmObXRE6uHpm-mudw8p61-ccf50ae5",
+      "job_created_at": "2026-09-23T09:21:46.591Z",
+      "status": "ok",
+      "operation": "updated",
+      "skipped": [],
+      "withheld": [
+        {
+          "name": "Explorer Eclipse (manual)",
+          "reason": "the other endpoint product is not promoted yet"
+        },
+        {
+          "name": "busybusy → Explorer Eclipse: Time & Labor",
+          "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+        },
+        {
+          "name": "Viewpoint ProContractor (manual)",
+          "reason": "the other endpoint product is not promoted yet"
+        },
+        {
+          "name": "busybusy → Viewpoint ProContractor: Directory & Contacts",
+          "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+        },
+        {
+          "name": "busybusy → Viewpoint ProContractor: Time & Labor",
+          "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+        },
+        {
+          "name": "busybusy → Viewpoint ProContractor: Budgets",
+          "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+        },
+        {
+          "name": "ConstructionPayroll.com (manual)",
+          "reason": "the other endpoint product is not promoted yet"
+        },
+        {
+          "name": "busybusy → ConstructionPayroll.com: Time & Labor",
+          "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+        },
+        {
+          "name": "Paychex (manual)",
+          "reason": "the other endpoint product is not promoted yet"
+        },
+        {
+          "name": "busybusy → Paychex: Time & Labor",
+          "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+        },
+        {
+          "name": "Protiv (manual)",
+          "reason": "the other endpoint product is not promoted yet"
+        },
+        {
+          "name": "busybusy → Protiv: Time & Labor",
+          "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+        },
+        {
+          "name": "Sage 100 (manual)",
+          "reason": "the other endpoint product is not promoted yet"
+        },
+        {
+          "name": "busybusy → Sage 100: Cost Codes",
+          "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+        },
+        {
+          "name": "busybusy → Sage 100: Time & Labor",
+          "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+        },
+        {
+          "name": "A-Systems JobView (manual)",
+          "reason": "the other endpoint product is not promoted yet"
+        },
+        {
+          "name": "busybusy → A-Systems JobView: Time & Labor",
+          "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+        },
+        {
+          "name": "busybusy → A-Systems JobView: Cost Codes",
+          "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+        }
+      ],
+      "warnings": [],
+      "unresolvedLinks": [],
+      "connectorsParked": [],
+      "connectorsPromoted": [],
+      "retriedAfter": null,
+      "edges_moved": 1,
+      "edges_stuck": [],
+      "finished_at": "2026-09-23T09:22:10.493Z"
+    },
+    {
+      "n": 9,
+      "rec": "recCOE9Ju0ZRoW8ss",
+      "name": "Box",
+      "started_at": "2026-09-23T09:22:10.496Z",
+      "raw": {
+        "status": "pending",
+        "job_status": "running",
+        "job_id": "recCOE9Ju0ZRoW8ss-mudw9lpp-40b54967",
+        "withheld": [
+          {
+            "name": "Box Connector (SparkGrid Software)",
+            "reason": "the other endpoint product is not promoted yet"
+          },
+          {
+            "name": "HubSpot ↔ Box: Documents",
+            "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+          },
+          {
+            "name": "Jotform → Box",
+            "reason": "the other endpoint product is not promoted yet"
+          },
+          {
+            "name": "Jotform → Box: Photos",
+            "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+          },
+          {
+            "name": "Jotform → Box: Documents",
+            "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+          }
+        ],
+        "note": "The promote is running on the AECi side and will complete without you. Call get_promote_status job_id:recCOE9Ju0ZRoW8ss-mudw9lpp-40b54967 in a few seconds to collect its ids. Do NOT call promote_product again — that would just re-poll this same job."
+      },
+      "collected": {
+        "status": "ok",
+        "product": {
+          "recId": "recCOE9Ju0ZRoW8ss",
+          "supabaseId": "51921700-ce33-4862-83df-973885a16f95",
+          "slug": "box",
+          "operation": "updated",
+          "reviewUrl": "https://review.aecintegrations.com/products/recCOE9Ju0ZRoW8ss"
+        },
+        "withheld": [],
+        "skipped": [],
+        "unresolvedLinks": [],
+        "note": "Pushed to the live AECi site. Verify on the public site (aecintegrations.com) that the change propagated as expected."
+      },
+      "job_id": "recCOE9Ju0ZRoW8ss-mudw9lpp-40b54967",
+      "job_created_at": "2026-09-23T09:22:33.717Z",
+      "status": "ok",
+      "operation": "updated",
+      "skipped": [],
+      "withheld": [
+        {
+          "name": "Box Connector (SparkGrid Software)",
+          "reason": "the other endpoint product is not promoted yet"
+        },
+        {
+          "name": "HubSpot ↔ Box: Documents",
+          "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+        },
+        {
+          "name": "Jotform → Box",
+          "reason": "the other endpoint product is not promoted yet"
+        },
+        {
+          "name": "Jotform → Box: Photos",
+          "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+        },
+        {
+          "name": "Jotform → Box: Documents",
+          "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+        }
+      ],
+      "warnings": [],
+      "unresolvedLinks": [],
+      "connectorsParked": [],
+      "connectorsPromoted": [],
+      "retriedAfter": null,
+      "edges_moved": 2,
+      "edges_stuck": [],
+      "finished_at": "2026-09-23T09:22:55.738Z"
+    },
+    {
+      "n": 10,
+      "rec": "recvm3gJmUFLMzVIL",
+      "name": "Deltek Vantagepoint",
+      "started_at": "2026-09-23T09:22:55.739Z",
+      "raw": {
+        "status": "pending",
+        "job_status": "running",
+        "job_id": "recvm3gJmUFLMzVIL-mudwaj35-9277f7d2",
+        "withheld": [
+          {
+            "name": "Deltek Vantagepoint ↔ Mailchimp",
+            "reason": "the other endpoint product is not promoted yet"
+          },
+          {
+            "name": "Deltek Vantagepoint ↔ Mailchimp: Directory & Contacts",
+            "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+          },
+          {
+            "name": "Deltek Vantagepoint ↔ Deltek PIM",
+            "reason": "the other endpoint product is not promoted yet"
+          },
+          {
+            "name": "Deltek Vantagepoint ↔ Deltek PIM: Documents",
+            "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+          },
+          {
+            "name": "Deltek Vantagepoint ↔ Deltek PIM: Directory & Contacts",
+            "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+          },
+          {
+            "name": "Deltek Vantagepoint ↔ Harbor Compliance",
+            "reason": "the other endpoint product is not promoted yet"
+          },
+          {
+            "name": "Deltek Vantagepoint ↔ Harbor Compliance: Directory & Contacts",
+            "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+          },
+          {
+            "name": "Deltek Vantagepoint ↔ Knowledge Architecture",
+            "reason": "the other endpoint product is not promoted yet"
+          },
+          {
+            "name": "Deltek Vantagepoint → Synthesis: Directory & Contacts",
+            "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+          },
+          {
+            "name": "Workday HCM → Deltek Vantagepoint",
+            "reason": "no owner recorded, and a new integration cannot be promoted without one. Set built_by to the vendor a customer pays for it or gets it from, not the firm that wrote the code. A third-party owner also needs its connector product set as powered_by. A build for one customer is not a catalogue row: delete it rather than leave the owner blank (AECI-1022)"
+          },
+          {
+            "name": "Workday HCM → Deltek Vantagepoint: Invoices & Payments",
+            "reason": "its integration has no owner recorded (AECI-1014)"
+          },
+          {
+            "name": "Workday HCM → Deltek Vantagepoint: Directory & Contacts",
+            "reason": "its integration has no owner recorded (AECI-1014)"
+          },
+          {
+            "name": "Deltek Vantagepoint ↔ Blackbox Connector",
+            "reason": "no owner recorded, and a new integration cannot be promoted without one. Set built_by to the vendor a customer pays for it or gets it from, not the firm that wrote the code. A third-party owner also needs its connector product set as powered_by. A build for one customer is not a catalogue row: delete it rather than leave the owner blank (AECI-1022)"
+          },
+          {
+            "name": "Deltek Vantagepoint ↔ Blackbox Connector: Directory & Contacts",
+            "reason": "its integration has no owner recorded (AECI-1014)"
+          },
+          {
+            "name": "Deltek Vantagepoint ↔ Vantagepoint Connect for Gmail",
+            "reason": "the other endpoint product is not promoted yet"
+          },
+          {
+            "name": "Deltek Vantagepoint ↔ Vantagepoint Connect for Gmail: Directory & Contacts",
+            "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+          },
+          {
+            "name": "Deltek Vantagepoint ↔ Vantagepoint Connect for Gmail: Meetings & Minutes",
+            "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+          },
+          {
+            "name": "Deltek Vantagepoint ↔ LEAF Commercial Capital",
+            "reason": "the other endpoint product is not promoted yet"
+          },
+          {
+            "name": "Deltek Vantagepoint ↔ ClientPay",
+            "reason": "the other endpoint product is not promoted yet"
+          },
+          {
+            "name": "Deltek Vantagepoint ↔ ClientPay: Invoices & Payments",
+            "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+          },
+          {
+            "name": "Deltek Vantagepoint ↔ UKG Pro",
+            "reason": "the other endpoint product is not promoted yet"
+          },
+          {
+            "name": "Deltek Vantagepoint ↔ UKG Pro: Directory & Contacts",
+            "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+          },
+          {
+            "name": "Deltek Vantagepoint ↔ UKG Pro: Time & Labor",
+            "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+          },
+          {
+            "name": "Deltek Vantagepoint ↔ Entrinsik Informer",
+            "reason": "the other endpoint product is not promoted yet"
+          },
+          {
+            "name": "Deltek Vantagepoint → Entrinsik Informer: Budgets",
+            "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+          },
+          {
+            "name": "Deltek Vantagepoint → Entrinsik Informer: Invoices & Payments",
+            "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+          },
+          {
+            "name": "Deltek Vantagepoint ↔ HubSpot",
+            "reason": "the other endpoint product is not promoted yet"
+          },
+          {
+            "name": "Deltek Vantagepoint ↔ HubSpot: Directory & Contacts",
+            "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+          },
+          {
+            "name": "Deltek Vantagepoint ↔ EY eInvoicing",
+            "reason": "the other endpoint product is not promoted yet"
+          },
+          {
+            "name": "Deltek Vantagepoint → EY eInvoicing: Invoices & Payments",
+            "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+          },
+          {
+            "name": "Deltek Vantagepoint ↔ NDS Forms Division",
+            "reason": "the other endpoint product is not promoted yet"
+          },
+          {
+            "name": "Deltek Vantagepoint ↔ Xe",
+            "reason": "the other endpoint product is not promoted yet"
+          },
+          {
+            "name": "Deltek Vantagepoint ↔ insightsoftware",
+            "reason": "the other endpoint product is not promoted yet"
+          },
+          {
+            "name": "Deltek Vantagepoint ↔ insightsoftware: Budgets",
+            "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+          },
+          {
+            "name": "Deltek Vantagepoint ↔ FMIS",
+            "reason": "the other endpoint product is not promoted yet"
+          },
+          {
+            "name": "Deltek Vantagepoint → FMIS: Commitments & Contracts",
+            "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+          },
+          {
+            "name": "Deltek Vantagepoint ↔ Thomson Reuters",
+            "reason": "the other endpoint product is not promoted yet"
+          },
+          {
+            "name": "Deltek Vantagepoint ↔ Thomson Reuters: Invoices & Payments",
+            "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+          },
+          {
+            "name": "Deltek Vantagepoint ↔ Deltek ArchiSnapper",
+            "reason": "the other endpoint product is not promoted yet"
+          },
+          {
+            "name": "Deltek Vantagepoint → Deltek ArchiSnapper: Directory & Contacts",
+            "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+          },
+          {
+            "name": "Deltek Vantagepoint ↔ EleVia Software",
+            "reason": "the other endpoint product is not promoted yet"
+          },
+          {
+            "name": "Deltek Vantagepoint ↔ EleVia Software: Invoices & Payments",
+            "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+          },
+          {
+            "name": "Deltek Ajera (manual)",
+            "reason": "the other endpoint product is not promoted yet"
+          },
+          {
+            "name": "Deltek Vantagepoint ↔ Deltek Ajera: Directory & Contacts",
+            "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+          },
+          {
+            "name": "Deltek Vantagepoint ↔ Microsoft Teams",
+            "reason": "the other endpoint product is not promoted yet"
+          },
+          {
+            "name": "Deltek Vantagepoint ↔ Microsoft Teams: Meetings & Minutes",
+            "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+          },
+          {
+            "name": "GovWin IQ → Deltek Vantagepoint",
+            "reason": "the other endpoint product is not promoted yet"
+          },
+          {
+            "name": "Deltek GovWin IQ → Deltek Vantagepoint: Bids & Tenders",
+            "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+          },
+          {
+            "name": "Deltek Vantagepoint ↔ Mosaic",
+            "reason": "the other endpoint product is not promoted yet"
+          },
+          {
+            "name": "Deltek Vantagepoint → Mosaic: Schedules",
+            "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+          },
+          {
+            "name": "Deltek Vantagepoint → Mosaic: Time & Labor",
+            "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+          },
+          {
+            "name": "Deltek Vantagepoint → Mosaic: Directory & Contacts",
+            "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+          },
+          {
+            "name": "Deltek Vantagepoint → Mosaic: Budgets",
+            "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+          },
+          {
+            "name": "Deltek Vantagepoint ↔ R&D Tax Savers",
+            "reason": "the other endpoint product is not promoted yet"
+          },
+          {
+            "name": "Deltek Vantagepoint ↔ Berkley Design Professional",
+            "reason": "the other endpoint product is not promoted yet"
+          },
+          {
+            "name": "Deltek Maconomy (manual)",
+            "reason": "the other endpoint product is not promoted yet"
+          },
+          {
+            "name": "Deltek Vantagepoint ↔ Deltek Maconomy: Directory & Contacts",
+            "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+          },
+          {
+            "name": "Deltek Vantagepoint ↔ Prophix",
+            "reason": "the other endpoint product is not promoted yet"
+          },
+          {
+            "name": "Deltek Vantagepoint ↔ Prophix: Budgets",
+            "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+          },
+          {
+            "name": "Deltek Vantagepoint ↔ Clarity Benefit Solutions",
+            "reason": "the other endpoint product is not promoted yet"
+          },
+          {
+            "name": "Deltek Vantagepoint → Clarity Benefit Solutions: Directory & Contacts",
+            "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+          },
+          {
+            "name": "Deltek Vantagepoint ↔ Points North",
+            "reason": "the other endpoint product is not promoted yet"
+          },
+          {
+            "name": "Deltek Vantagepoint → Points North: Time & Labor",
+            "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+          },
+          {
+            "name": "Deltek Vantagepoint ↔ Vena Solutions",
+            "reason": "the other endpoint product is not promoted yet"
+          },
+          {
+            "name": "Deltek Vantagepoint → Vena Solutions: Cost Codes",
+            "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+          },
+          {
+            "name": "Deltek Vantagepoint ↔ Vena Solutions: Budgets",
+            "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+          },
+          {
+            "name": "Deltek Vantagepoint ↔ Deltek Specpoint",
+            "reason": "the other endpoint product is not promoted yet"
+          },
+          {
+            "name": "Deltek Vantagepoint ↔ Deltek Specpoint: Specifications",
+            "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+          },
+          {
+            "name": "Replicon Time Tracking → Deltek Vantagepoint",
+            "reason": "the other endpoint product is not promoted yet"
+          },
+          {
+            "name": "Replicon Time Tracking ← Deltek Vantagepoint: Projects & Jobs",
+            "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+          },
+          {
+            "name": "Replicon Time Tracking ← Deltek Vantagepoint: Directory & Contacts",
+            "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+          },
+          {
+            "name": "Replicon Time Tracking → Deltek Vantagepoint: Time & Labor",
+            "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+          },
+          {
+            "name": "Deltek Vantagepoint ↔ UK HMRC",
+            "reason": "the other endpoint product is not promoted yet"
+          },
+          {
+            "name": "Deltek Vantagepoint ↔ Deltek Unionpoint",
+            "reason": "the other endpoint product is not promoted yet"
+          },
+          {
+            "name": "Deltek Vantagepoint ↔ Deltek Unionpoint: Directory & Contacts",
+            "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+          },
+          {
+            "name": "Flowcase ↔ Deltek Vantagepoint",
+            "reason": "the other endpoint product is not promoted yet"
+          },
+          {
+            "name": "Flowcase ↔ Deltek Vantagepoint: Documents",
+            "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+          },
+          {
+            "name": "Flowcase ↔ Deltek Vantagepoint: Directory & Contacts",
+            "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+          }
+        ],
+        "note": "The promote is running on the AECi side and will complete without you. Call get_promote_status job_id:recvm3gJmUFLMzVIL-mudwaj35-9277f7d2 in a few seconds to collect its ids. Do NOT call promote_product again — that would just re-poll this same job."
+      },
+      "collected": {
+        "status": "ok",
+        "product": {
+          "recId": "recvm3gJmUFLMzVIL",
+          "supabaseId": "d94e6b16-64a4-4d38-bf56-6bd45c75a0e1",
+          "slug": "deltek-vantagepoint",
+          "operation": "updated",
+          "reviewUrl": "https://review.aecintegrations.com/products/recvm3gJmUFLMzVIL"
+        },
+        "withheld": [],
+        "skipped": [],
+        "unresolvedLinks": [],
+        "note": "Pushed to the live AECi site. Verify on the public site (aecintegrations.com) that the change propagated as expected."
+      },
+      "job_id": "recvm3gJmUFLMzVIL-mudwaj35-9277f7d2",
+      "job_created_at": "2026-09-23T09:23:18.795Z",
+      "status": "ok",
+      "operation": "updated",
+      "skipped": [],
+      "withheld": [
+        {
+          "name": "Deltek Vantagepoint ↔ Mailchimp",
+          "reason": "the other endpoint product is not promoted yet"
+        },
+        {
+          "name": "Deltek Vantagepoint ↔ Mailchimp: Directory & Contacts",
+          "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+        },
+        {
+          "name": "Deltek Vantagepoint ↔ Deltek PIM",
+          "reason": "the other endpoint product is not promoted yet"
+        },
+        {
+          "name": "Deltek Vantagepoint ↔ Deltek PIM: Documents",
+          "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+        },
+        {
+          "name": "Deltek Vantagepoint ↔ Deltek PIM: Directory & Contacts",
+          "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+        },
+        {
+          "name": "Deltek Vantagepoint ↔ Harbor Compliance",
+          "reason": "the other endpoint product is not promoted yet"
+        },
+        {
+          "name": "Deltek Vantagepoint ↔ Harbor Compliance: Directory & Contacts",
+          "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+        },
+        {
+          "name": "Deltek Vantagepoint ↔ Knowledge Architecture",
+          "reason": "the other endpoint product is not promoted yet"
+        },
+        {
+          "name": "Deltek Vantagepoint → Synthesis: Directory & Contacts",
+          "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+        },
+        {
+          "name": "Workday HCM → Deltek Vantagepoint",
+          "reason": "no owner recorded, and a new integration cannot be promoted without one. Set built_by to the vendor a customer pays for it or gets it from, not the firm that wrote the code. A third-party owner also needs its connector product set as powered_by. A build for one customer is not a catalogue row: delete it rather than leave the owner blank (AECI-1022)"
+        },
+        {
+          "name": "Workday HCM → Deltek Vantagepoint: Invoices & Payments",
+          "reason": "its integration has no owner recorded (AECI-1014)"
+        },
+        {
+          "name": "Workday HCM → Deltek Vantagepoint: Directory & Contacts",
+          "reason": "its integration has no owner recorded (AECI-1014)"
+        },
+        {
+          "name": "Deltek Vantagepoint ↔ Blackbox Connector",
+          "reason": "no owner recorded, and a new integration cannot be promoted without one. Set built_by to the vendor a customer pays for it or gets it from, not the firm that wrote the code. A third-party owner also needs its connector product set as powered_by. A build for one customer is not a catalogue row: delete it rather than leave the owner blank (AECI-1022)"
+        },
+        {
+          "name": "Deltek Vantagepoint ↔ Blackbox Connector: Directory & Contacts",
+          "reason": "its integration has no owner recorded (AECI-1014)"
+        },
+        {
+          "name": "Deltek Vantagepoint ↔ Vantagepoint Connect for Gmail",
+          "reason": "the other endpoint product is not promoted yet"
+        },
+        {
+          "name": "Deltek Vantagepoint ↔ Vantagepoint Connect for Gmail: Directory & Contacts",
+          "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+        },
+        {
+          "name": "Deltek Vantagepoint ↔ Vantagepoint Connect for Gmail: Meetings & Minutes",
+          "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+        },
+        {
+          "name": "Deltek Vantagepoint ↔ LEAF Commercial Capital",
+          "reason": "the other endpoint product is not promoted yet"
+        },
+        {
+          "name": "Deltek Vantagepoint ↔ ClientPay",
+          "reason": "the other endpoint product is not promoted yet"
+        },
+        {
+          "name": "Deltek Vantagepoint ↔ ClientPay: Invoices & Payments",
+          "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+        },
+        {
+          "name": "Deltek Vantagepoint ↔ UKG Pro",
+          "reason": "the other endpoint product is not promoted yet"
+        },
+        {
+          "name": "Deltek Vantagepoint ↔ UKG Pro: Directory & Contacts",
+          "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+        },
+        {
+          "name": "Deltek Vantagepoint ↔ UKG Pro: Time & Labor",
+          "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+        },
+        {
+          "name": "Deltek Vantagepoint ↔ Entrinsik Informer",
+          "reason": "the other endpoint product is not promoted yet"
+        },
+        {
+          "name": "Deltek Vantagepoint → Entrinsik Informer: Budgets",
+          "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+        },
+        {
+          "name": "Deltek Vantagepoint → Entrinsik Informer: Invoices & Payments",
+          "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+        },
+        {
+          "name": "Deltek Vantagepoint ↔ HubSpot",
+          "reason": "the other endpoint product is not promoted yet"
+        },
+        {
+          "name": "Deltek Vantagepoint ↔ HubSpot: Directory & Contacts",
+          "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+        },
+        {
+          "name": "Deltek Vantagepoint ↔ EY eInvoicing",
+          "reason": "the other endpoint product is not promoted yet"
+        },
+        {
+          "name": "Deltek Vantagepoint → EY eInvoicing: Invoices & Payments",
+          "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+        },
+        {
+          "name": "Deltek Vantagepoint ↔ NDS Forms Division",
+          "reason": "the other endpoint product is not promoted yet"
+        },
+        {
+          "name": "Deltek Vantagepoint ↔ Xe",
+          "reason": "the other endpoint product is not promoted yet"
+        },
+        {
+          "name": "Deltek Vantagepoint ↔ insightsoftware",
+          "reason": "the other endpoint product is not promoted yet"
+        },
+        {
+          "name": "Deltek Vantagepoint ↔ insightsoftware: Budgets",
+          "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+        },
+        {
+          "name": "Deltek Vantagepoint ↔ FMIS",
+          "reason": "the other endpoint product is not promoted yet"
+        },
+        {
+          "name": "Deltek Vantagepoint → FMIS: Commitments & Contracts",
+          "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+        },
+        {
+          "name": "Deltek Vantagepoint ↔ Thomson Reuters",
+          "reason": "the other endpoint product is not promoted yet"
+        },
+        {
+          "name": "Deltek Vantagepoint ↔ Thomson Reuters: Invoices & Payments",
+          "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+        },
+        {
+          "name": "Deltek Vantagepoint ↔ Deltek ArchiSnapper",
+          "reason": "the other endpoint product is not promoted yet"
+        },
+        {
+          "name": "Deltek Vantagepoint → Deltek ArchiSnapper: Directory & Contacts",
+          "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+        },
+        {
+          "name": "Deltek Vantagepoint ↔ EleVia Software",
+          "reason": "the other endpoint product is not promoted yet"
+        },
+        {
+          "name": "Deltek Vantagepoint ↔ EleVia Software: Invoices & Payments",
+          "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+        },
+        {
+          "name": "Deltek Ajera (manual)",
+          "reason": "the other endpoint product is not promoted yet"
+        },
+        {
+          "name": "Deltek Vantagepoint ↔ Deltek Ajera: Directory & Contacts",
+          "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+        },
+        {
+          "name": "Deltek Vantagepoint ↔ Microsoft Teams",
+          "reason": "the other endpoint product is not promoted yet"
+        },
+        {
+          "name": "Deltek Vantagepoint ↔ Microsoft Teams: Meetings & Minutes",
+          "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+        },
+        {
+          "name": "GovWin IQ → Deltek Vantagepoint",
+          "reason": "the other endpoint product is not promoted yet"
+        },
+        {
+          "name": "Deltek GovWin IQ → Deltek Vantagepoint: Bids & Tenders",
+          "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+        },
+        {
+          "name": "Deltek Vantagepoint ↔ Mosaic",
+          "reason": "the other endpoint product is not promoted yet"
+        },
+        {
+          "name": "Deltek Vantagepoint → Mosaic: Schedules",
+          "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+        },
+        {
+          "name": "Deltek Vantagepoint → Mosaic: Time & Labor",
+          "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+        },
+        {
+          "name": "Deltek Vantagepoint → Mosaic: Directory & Contacts",
+          "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+        },
+        {
+          "name": "Deltek Vantagepoint → Mosaic: Budgets",
+          "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+        },
+        {
+          "name": "Deltek Vantagepoint ↔ R&D Tax Savers",
+          "reason": "the other endpoint product is not promoted yet"
+        },
+        {
+          "name": "Deltek Vantagepoint ↔ Berkley Design Professional",
+          "reason": "the other endpoint product is not promoted yet"
+        },
+        {
+          "name": "Deltek Maconomy (manual)",
+          "reason": "the other endpoint product is not promoted yet"
+        },
+        {
+          "name": "Deltek Vantagepoint ↔ Deltek Maconomy: Directory & Contacts",
+          "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+        },
+        {
+          "name": "Deltek Vantagepoint ↔ Prophix",
+          "reason": "the other endpoint product is not promoted yet"
+        },
+        {
+          "name": "Deltek Vantagepoint ↔ Prophix: Budgets",
+          "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+        },
+        {
+          "name": "Deltek Vantagepoint ↔ Clarity Benefit Solutions",
+          "reason": "the other endpoint product is not promoted yet"
+        },
+        {
+          "name": "Deltek Vantagepoint → Clarity Benefit Solutions: Directory & Contacts",
+          "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+        },
+        {
+          "name": "Deltek Vantagepoint ↔ Points North",
+          "reason": "the other endpoint product is not promoted yet"
+        },
+        {
+          "name": "Deltek Vantagepoint → Points North: Time & Labor",
+          "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+        },
+        {
+          "name": "Deltek Vantagepoint ↔ Vena Solutions",
+          "reason": "the other endpoint product is not promoted yet"
+        },
+        {
+          "name": "Deltek Vantagepoint → Vena Solutions: Cost Codes",
+          "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+        },
+        {
+          "name": "Deltek Vantagepoint ↔ Vena Solutions: Budgets",
+          "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+        },
+        {
+          "name": "Deltek Vantagepoint ↔ Deltek Specpoint",
+          "reason": "the other endpoint product is not promoted yet"
+        },
+        {
+          "name": "Deltek Vantagepoint ↔ Deltek Specpoint: Specifications",
+          "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+        },
+        {
+          "name": "Replicon Time Tracking → Deltek Vantagepoint",
+          "reason": "the other endpoint product is not promoted yet"
+        },
+        {
+          "name": "Replicon Time Tracking ← Deltek Vantagepoint: Projects & Jobs",
+          "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+        },
+        {
+          "name": "Replicon Time Tracking ← Deltek Vantagepoint: Directory & Contacts",
+          "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+        },
+        {
+          "name": "Replicon Time Tracking → Deltek Vantagepoint: Time & Labor",
+          "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+        },
+        {
+          "name": "Deltek Vantagepoint ↔ UK HMRC",
+          "reason": "the other endpoint product is not promoted yet"
+        },
+        {
+          "name": "Deltek Vantagepoint ↔ Deltek Unionpoint",
+          "reason": "the other endpoint product is not promoted yet"
+        },
+        {
+          "name": "Deltek Vantagepoint ↔ Deltek Unionpoint: Directory & Contacts",
+          "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+        },
+        {
+          "name": "Flowcase ↔ Deltek Vantagepoint",
+          "reason": "the other endpoint product is not promoted yet"
+        },
+        {
+          "name": "Flowcase ↔ Deltek Vantagepoint: Documents",
+          "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+        },
+        {
+          "name": "Flowcase ↔ Deltek Vantagepoint: Directory & Contacts",
+          "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+        }
+      ],
+      "warnings": [],
+      "unresolvedLinks": [],
+      "connectorsParked": [],
+      "connectorsPromoted": [],
+      "retriedAfter": null,
+      "edges_moved": 3,
+      "edges_stuck": [],
+      "finished_at": "2026-09-23T09:23:42.086Z"
+    },
+    {
+      "n": 11,
+      "rec": "recdO5uJDgWBpNVmD",
+      "name": "Egnyte",
+      "started_at": "2026-09-23T09:23:42.088Z",
+      "raw": {
+        "status": "pending",
+        "job_status": "running",
+        "job_id": "recdO5uJDgWBpNVmD-mudwbi6t-ec5b7412",
+        "withheld": [
+          {
+            "name": "Microsoft Teams (website)",
+            "reason": "the other endpoint product is not promoted yet"
+          },
+          {
+            "name": "Egnyte ↔ Microsoft Teams: Documents",
+            "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+          },
+          {
+            "name": "Jotform → Egnyte",
+            "reason": "the other endpoint product is not promoted yet"
+          },
+          {
+            "name": "Jotform → Egnyte: Documents",
+            "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+          },
+          {
+            "name": "Jotform → Egnyte: Photos",
+            "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+          },
+          {
+            "name": "HubSpot (ipaas)",
+            "reason": "the other endpoint product is not promoted yet"
+          },
+          {
+            "name": "Egnyte ↔ HubSpot: Documents",
+            "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+          }
+        ],
+        "note": "The promote is running on the AECi side and will complete without you. Call get_promote_status job_id:recdO5uJDgWBpNVmD-mudwbi6t-ec5b7412 in a few seconds to collect its ids. Do NOT call promote_product again — that would just re-poll this same job."
+      },
+      "collected": {
+        "status": "ok",
+        "product": {
+          "recId": "recdO5uJDgWBpNVmD",
+          "supabaseId": "f673dd7e-c1aa-4ae8-a070-64de11fbb157",
+          "slug": "egnyte",
+          "operation": "updated",
+          "reviewUrl": "https://review.aecintegrations.com/products/recdO5uJDgWBpNVmD"
+        },
+        "withheld": [],
+        "skipped": [],
+        "unresolvedLinks": [],
+        "note": "Pushed to the live AECi site. Verify on the public site (aecintegrations.com) that the change propagated as expected."
+      },
+      "job_id": "recdO5uJDgWBpNVmD-mudwbi6t-ec5b7412",
+      "job_created_at": "2026-09-23T09:24:03.034Z",
+      "status": "ok",
+      "operation": "updated",
+      "skipped": [],
+      "withheld": [
+        {
+          "name": "Microsoft Teams (website)",
+          "reason": "the other endpoint product is not promoted yet"
+        },
+        {
+          "name": "Egnyte ↔ Microsoft Teams: Documents",
+          "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+        },
+        {
+          "name": "Jotform → Egnyte",
+          "reason": "the other endpoint product is not promoted yet"
+        },
+        {
+          "name": "Jotform → Egnyte: Documents",
+          "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+        },
+        {
+          "name": "Jotform → Egnyte: Photos",
+          "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+        },
+        {
+          "name": "HubSpot (ipaas)",
+          "reason": "the other endpoint product is not promoted yet"
+        },
+        {
+          "name": "Egnyte ↔ HubSpot: Documents",
+          "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+        }
+      ],
+      "warnings": [],
+      "unresolvedLinks": [],
+      "connectorsParked": [],
+      "connectorsPromoted": [],
+      "retriedAfter": null,
+      "edges_moved": 2,
+      "edges_stuck": [],
+      "finished_at": "2026-09-23T09:24:25.577Z"
+    },
+    {
+      "n": 12,
+      "rec": "recvTtJLtPerJyKVB",
+      "name": "Smartsheet",
+      "started_at": "2026-09-23T09:24:25.578Z",
+      "raw": {
+        "status": "pending",
+        "job_status": "running",
+        "job_id": "recvTtJLtPerJyKVB-mudwcfqq-38b110d8",
+        "withheld": [
+          {
+            "name": "Smartsheet ↔ Zapier",
+            "reason": "no owner recorded, and a new integration cannot be promoted without one. Set built_by to the vendor a customer pays for it or gets it from, not the firm that wrote the code. A third-party owner also needs its connector product set as powered_by. A build for one customer is not a catalogue row: delete it rather than leave the owner blank (AECI-1022)"
+          },
+          {
+            "name": "Smartsheet ↔ Microsoft Teams",
+            "reason": "the other endpoint product is not promoted yet"
+          },
+          {
+            "name": "Smartsheet ↔ OneDrive",
+            "reason": "the other endpoint product is not promoted yet"
+          },
+          {
+            "name": "Smartsheet ↔ OneDrive: Documents",
+            "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+          },
+          {
+            "name": "Smartsheet ↔ Jira",
+            "reason": "the other endpoint product is not promoted yet"
+          },
+          {
+            "name": "Smartsheet (manual)",
+            "reason": "the other endpoint product is not promoted yet"
+          },
+          {
+            "name": "BQE CORE ↔ Smartsheet: Invoices & Payments",
+            "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+          },
+          {
+            "name": "BQE CORE ↔ Smartsheet: Time & Labor",
+            "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+          },
+          {
+            "name": "Smartsheet ↔ Google Drive",
+            "reason": "the other endpoint product is not promoted yet"
+          },
+          {
+            "name": "Smartsheet ↔ Google Drive: Documents",
+            "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+          },
+          {
+            "name": "Smartsheet ↔ Google Drive: Photos",
+            "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+          },
+          {
+            "name": "Smartsheet ↔ Slack",
+            "reason": "the other endpoint product is not promoted yet"
+          }
+        ],
+        "connectorsParked": [
+          {
+            "name": "Smartsheet ↔ Autodesk Build",
+            "connectorRecId": "recwU2Nyq7xxLXyiv",
+            "connector": "Forma Construction Connect (formerly ACC Connect)",
+            "reason": "connector awaits review"
+          }
+        ],
+        "note": "The promote is running on the AECi side and will complete without you. Call get_promote_status job_id:recvTtJLtPerJyKVB-mudwcfqq-38b110d8 in a few seconds to collect its ids. Do NOT call promote_product again — that would just re-poll this same job."
+      },
+      "collected": {
+        "status": "ok",
+        "product": {
+          "recId": "recvTtJLtPerJyKVB",
+          "supabaseId": "4ac7022e-0c9f-4d96-8dfc-44697e3968cc",
+          "slug": "smartsheet",
+          "operation": "updated",
+          "reviewUrl": "https://review.aecintegrations.com/products/recvTtJLtPerJyKVB"
+        },
+        "withheld": [],
+        "skipped": [],
+        "unresolvedLinks": [],
+        "note": "Pushed to the live AECi site. Verify on the public site (aecintegrations.com) that the change propagated as expected."
+      },
+      "job_id": "recvTtJLtPerJyKVB-mudwcfqq-38b110d8",
+      "job_created_at": "2026-09-23T09:24:47.623Z",
+      "status": "ok",
+      "operation": "updated",
+      "skipped": [],
+      "withheld": [
+        {
+          "name": "Smartsheet ↔ Zapier",
+          "reason": "no owner recorded, and a new integration cannot be promoted without one. Set built_by to the vendor a customer pays for it or gets it from, not the firm that wrote the code. A third-party owner also needs its connector product set as powered_by. A build for one customer is not a catalogue row: delete it rather than leave the owner blank (AECI-1022)"
+        },
+        {
+          "name": "Smartsheet ↔ Microsoft Teams",
+          "reason": "the other endpoint product is not promoted yet"
+        },
+        {
+          "name": "Smartsheet ↔ OneDrive",
+          "reason": "the other endpoint product is not promoted yet"
+        },
+        {
+          "name": "Smartsheet ↔ OneDrive: Documents",
+          "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+        },
+        {
+          "name": "Smartsheet ↔ Jira",
+          "reason": "the other endpoint product is not promoted yet"
+        },
+        {
+          "name": "Smartsheet (manual)",
+          "reason": "the other endpoint product is not promoted yet"
+        },
+        {
+          "name": "BQE CORE ↔ Smartsheet: Invoices & Payments",
+          "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+        },
+        {
+          "name": "BQE CORE ↔ Smartsheet: Time & Labor",
+          "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+        },
+        {
+          "name": "Smartsheet ↔ Google Drive",
+          "reason": "the other endpoint product is not promoted yet"
+        },
+        {
+          "name": "Smartsheet ↔ Google Drive: Documents",
+          "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+        },
+        {
+          "name": "Smartsheet ↔ Google Drive: Photos",
+          "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+        },
+        {
+          "name": "Smartsheet ↔ Slack",
+          "reason": "the other endpoint product is not promoted yet"
+        }
+      ],
+      "warnings": [],
+      "unresolvedLinks": [],
+      "connectorsParked": [
+        {
+          "name": "Smartsheet ↔ Autodesk Build",
+          "connectorRecId": "recwU2Nyq7xxLXyiv",
+          "connector": "Forma Construction Connect (formerly ACC Connect)",
+          "reason": "connector awaits review"
+        }
+      ],
+      "connectorsPromoted": [],
+      "retriedAfter": null,
+      "edges_moved": 2,
+      "edges_stuck": [],
+      "finished_at": "2026-09-23T09:25:13.894Z"
+    },
+    {
+      "n": 13,
+      "rec": "rec944YjKNRfRCgAf",
+      "name": "Procore",
+      "started_at": "2026-09-23T09:25:13.895Z",
+      "raw": {
+        "status": "pending",
+        "job_status": "running",
+        "job_id": "rec944YjKNRfRCgAf-mudwdh0p-f826d76b",
+        "withheld": [],
+        "note": "The promote is running on the AECi side and will complete without you. Call get_promote_status job_id:rec944YjKNRfRCgAf-mudwdh0p-f826d76b in a few seconds to collect its ids. Do NOT call promote_product again — that would just re-poll this same job."
+      },
+      "collected": {
+        "status": "ok",
+        "product": {
+          "recId": "rec944YjKNRfRCgAf",
+          "supabaseId": "d88d7357-03d9-4f9a-815d-d15101cf33c4",
+          "slug": "procore",
+          "operation": "updated",
+          "reviewUrl": "https://review.aecintegrations.com/products/rec944YjKNRfRCgAf"
+        },
+        "withheld": [],
+        "skipped": [],
+        "unresolvedLinks": [],
+        "note": "Pushed to the live AECi site. Verify on the public site (aecintegrations.com) that the change propagated as expected."
+      },
+      "job_id": "rec944YjKNRfRCgAf-mudwdh0p-f826d76b",
+      "job_created_at": "2026-09-23T09:25:50.148Z",
+      "status": "ok",
+      "operation": "updated",
+      "skipped": [],
+      "withheld": [],
+      "warnings": [],
+      "unresolvedLinks": [],
+      "connectorsParked": [],
+      "connectorsPromoted": [],
+      "retriedAfter": null,
+      "edges_moved": 3,
+      "edges_stuck": [],
+      "finished_at": "2026-09-23T09:27:16.832Z"
+    },
+    {
+      "n": 14,
+      "rec": "rec2KtJeJUzqih3ad",
+      "name": "Autodesk Forma",
+      "started_at": "2026-09-23T09:27:16.841Z",
+      "raw": {
+        "status": "pending",
+        "job_status": "running",
+        "job_id": "rec2KtJeJUzqih3ad-mudwg9av-55441d73",
+        "withheld": [
+          {
+            "name": "Sensera SiteCloud",
+            "reason": "the other endpoint product is not promoted yet"
+          },
+          {
+            "name": "Autodesk Forma ← Sensera SiteCloud Embedded: Photos",
+            "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+          },
+          {
+            "name": "Autodesk Forma ← Sensera SiteCloud Embedded: Daily Logs",
+            "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+          },
+          {
+            "name": "Sigma Estimating",
+            "reason": "the other endpoint product is not promoted yet"
+          },
+          {
+            "name": "Autodesk Forma → Sigma Estimating: Models",
+            "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+          },
+          {
+            "name": "Google Sheets (via Forma Construction Connect)",
+            "reason": "the other endpoint product is not promoted yet"
+          },
+          {
+            "name": "Amazon S3 (via Forma Construction Connect)",
+            "reason": "the other endpoint product is not promoted yet"
+          },
+          {
+            "name": "Webex (manual)",
+            "reason": "the other endpoint product is not promoted yet"
+          },
+          {
+            "name": "Multivista (Hexagon)",
+            "reason": "the other endpoint product is not promoted yet"
+          },
+          {
+            "name": "Autodesk Forma ← Multivista: Photos",
+            "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+          },
+          {
+            "name": "Cintoo Cloud",
+            "reason": "the other endpoint product is not promoted yet"
+          },
+          {
+            "name": "Autodesk Forma ↔ Cintoo Cloud: Models",
+            "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+          },
+          {
+            "name": "Eptura",
+            "reason": "the other endpoint product is not promoted yet"
+          },
+          {
+            "name": "Asana (via Forma Construction Connect)",
+            "reason": "the other endpoint product is not promoted yet"
+          },
+          {
+            "name": "Trunk Tools",
+            "reason": "the other endpoint product is not promoted yet"
+          },
+          {
+            "name": "Airtable (via Forma Construction Connect)",
+            "reason": "the other endpoint product is not promoted yet"
+          },
+          {
+            "name": "GoCanvas Automations → Autodesk Forma",
+            "reason": "the other endpoint product is not promoted yet"
+          },
+          {
+            "name": "GoCanvas Automations → Autodesk Forma: Documents",
+            "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+          },
+          {
+            "name": "GoCanvas Automations → Autodesk Forma: Inspections",
+            "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+          },
+          {
+            "name": "eSUB",
+            "reason": "the other endpoint product is not promoted yet"
+          },
+          {
+            "name": "Autodesk Forma → eSUB: Drawings",
+            "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+          },
+          {
+            "name": "Autodesk Forma ↔ eSUB: Documents",
+            "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+          },
+          {
+            "name": "Jira (via Forma Construction Connect)",
+            "reason": "the other endpoint product is not promoted yet"
+          },
+          {
+            "name": "FARO Sphere XG",
+            "reason": "the other endpoint product is not promoted yet"
+          },
+          {
+            "name": "Autodesk Forma → Sphere XG/HoloBuilder Site Documentation: Models",
+            "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+          },
+          {
+            "name": "Autodesk Forma ← Sphere XG/HoloBuilder Site Documentation: Inspections",
+            "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+          },
+          {
+            "name": "Bridgit Bench",
+            "reason": "the other endpoint product is not promoted yet"
+          },
+          {
+            "name": "Autodesk Forma → Bridgit Bench: Schedules",
+            "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+          },
+          {
+            "name": "MySQL (via Forma Construction Connect)",
+            "reason": "the other endpoint product is not promoted yet"
+          },
+          {
+            "name": "GTP Stratus",
+            "reason": "the other endpoint product is not promoted yet"
+          },
+          {
+            "name": "Autodesk Forma → GTP Stratus: Models",
+            "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+          },
+          {
+            "name": "BuildingConnected (manual)",
+            "reason": "the other endpoint product is not promoted yet"
+          },
+          {
+            "name": "Autodesk Forma ← BuildingConnected: Commitments & Contracts",
+            "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+          },
+          {
+            "name": "Autodesk Forma ← BuildingConnected: Bids & Tenders",
+            "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+          },
+          {
+            "name": "Google Drive (via Forma Construction Connect)",
+            "reason": "the other endpoint product is not promoted yet"
+          },
+          {
+            "name": "NavVis",
+            "reason": "the other endpoint product is not promoted yet"
+          },
+          {
+            "name": "Finch (manual)",
+            "reason": "the other endpoint product is not promoted yet"
+          },
+          {
+            "name": "Autodesk Forma ↔ Finch: Models",
+            "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+          },
+          {
+            "name": "Aurigo",
+            "reason": "the other endpoint product is not promoted yet"
+          },
+          {
+            "name": "Autodesk Forma ↔ Aurigo: Models",
+            "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+          },
+          {
+            "name": "Autodesk Forma ↔ Aurigo: Drawings",
+            "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+          },
+          {
+            "name": "Autodesk Forma ↔ Aurigo: Documents",
+            "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+          },
+          {
+            "name": "Plannerly",
+            "reason": "the other endpoint product is not promoted yet"
+          },
+          {
+            "name": "Autodesk Forma → Plannerly: Models",
+            "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+          },
+          {
+            "name": "Inventor (manual)",
+            "reason": "the other endpoint product is not promoted yet"
+          },
+          {
+            "name": "Autodesk Forma ↔ Inventor: Models",
+            "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+          },
+          {
+            "name": "Ideate Software",
+            "reason": "the other endpoint product is not promoted yet"
+          },
+          {
+            "name": "Autodesk Forma ↔ Ideate Software: Models",
+            "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+          },
+          {
+            "name": "EarthCam",
+            "reason": "the other endpoint product is not promoted yet"
+          },
+          {
+            "name": "Plex-Earth",
+            "reason": "the other endpoint product is not promoted yet"
+          },
+          {
+            "name": "Autodesk Forma ← Plex-Earth: Models",
+            "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+          },
+          {
+            "name": "Autodesk Forma ← Plex-Earth: Photos",
+            "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+          },
+          {
+            "name": "FME",
+            "reason": "the other endpoint product is not promoted yet"
+          },
+          {
+            "name": "Assemble (manual)",
+            "reason": "the other endpoint product is not promoted yet"
+          },
+          {
+            "name": "Autodesk Forma ↔ Assemble: Models",
+            "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+          },
+          {
+            "name": "Microsoft Teams (via Forma Construction Connect)",
+            "reason": "the other endpoint product is not promoted yet"
+          },
+          {
+            "name": "Pype AutoSpecs (manual)",
+            "reason": "the other endpoint product is not promoted yet"
+          },
+          {
+            "name": "Autodesk Forma ← Pype AutoSpecs: Submittals",
+            "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+          },
+          {
+            "name": "V-Ray (Chaos)",
+            "reason": "the other endpoint product is not promoted yet"
+          },
+          {
+            "name": "Slack (via Forma Construction Connect)",
+            "reason": "the other endpoint product is not promoted yet"
+          },
+          {
+            "name": "OneDrive (via Forma Construction Connect)",
+            "reason": "the other endpoint product is not promoted yet"
+          },
+          {
+            "name": "Gmail (via Forma Construction Connect)",
+            "reason": "the other endpoint product is not promoted yet"
+          },
+          {
+            "name": "Microsoft Word (manual)",
+            "reason": "the other endpoint product is not promoted yet"
+          },
+          {
+            "name": "Sterling",
+            "reason": "the other endpoint product is not promoted yet"
+          },
+          {
+            "name": "Autodesk Forma ← Sterling: Budgets",
+            "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+          },
+          {
+            "name": "Autodesk Forma → Sterling: Models",
+            "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+          },
+          {
+            "name": "Autodesk Forma → Sterling: Drawings",
+            "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+          }
+        ],
+        "connectorsParked": [
+          {
+            "name": "CMiC ↔ Autodesk Forma (via Boomi)",
+            "connectorRecId": "recUmo4xiABxsHctt",
+            "connector": "Boomi",
+            "reason": "connector awaits review"
+          }
+        ],
+        "note": "The promote is running on the AECi side and will complete without you. Call get_promote_status job_id:rec2KtJeJUzqih3ad-mudwg9av-55441d73 in a few seconds to collect its ids. Do NOT call promote_product again — that would just re-poll this same job."
+      },
+      "collected": {
+        "status": "ok",
+        "product": {
+          "recId": "rec2KtJeJUzqih3ad",
+          "supabaseId": "5a6f370e-f306-49b7-b3ed-adf37ab10979",
+          "slug": "autodesk-forma",
+          "operation": "updated",
+          "reviewUrl": "https://review.aecintegrations.com/products/rec2KtJeJUzqih3ad"
+        },
+        "withheld": [],
+        "skipped": [],
+        "unresolvedLinks": [],
+        "note": "Pushed to the live AECi site. Verify on the public site (aecintegrations.com) that the change propagated as expected."
+      },
+      "job_id": "rec2KtJeJUzqih3ad-mudwg9av-55441d73",
+      "job_created_at": "2026-09-23T09:28:06.206Z",
+      "status": "ok",
+      "operation": "updated",
+      "skipped": [],
+      "withheld": [
+        {
+          "name": "Sensera SiteCloud",
+          "reason": "the other endpoint product is not promoted yet"
+        },
+        {
+          "name": "Autodesk Forma ← Sensera SiteCloud Embedded: Photos",
+          "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+        },
+        {
+          "name": "Autodesk Forma ← Sensera SiteCloud Embedded: Daily Logs",
+          "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+        },
+        {
+          "name": "Sigma Estimating",
+          "reason": "the other endpoint product is not promoted yet"
+        },
+        {
+          "name": "Autodesk Forma → Sigma Estimating: Models",
+          "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+        },
+        {
+          "name": "Google Sheets (via Forma Construction Connect)",
+          "reason": "the other endpoint product is not promoted yet"
+        },
+        {
+          "name": "Amazon S3 (via Forma Construction Connect)",
+          "reason": "the other endpoint product is not promoted yet"
+        },
+        {
+          "name": "Webex (manual)",
+          "reason": "the other endpoint product is not promoted yet"
+        },
+        {
+          "name": "Multivista (Hexagon)",
+          "reason": "the other endpoint product is not promoted yet"
+        },
+        {
+          "name": "Autodesk Forma ← Multivista: Photos",
+          "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+        },
+        {
+          "name": "Cintoo Cloud",
+          "reason": "the other endpoint product is not promoted yet"
+        },
+        {
+          "name": "Autodesk Forma ↔ Cintoo Cloud: Models",
+          "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+        },
+        {
+          "name": "Eptura",
+          "reason": "the other endpoint product is not promoted yet"
+        },
+        {
+          "name": "Asana (via Forma Construction Connect)",
+          "reason": "the other endpoint product is not promoted yet"
+        },
+        {
+          "name": "Trunk Tools",
+          "reason": "the other endpoint product is not promoted yet"
+        },
+        {
+          "name": "Airtable (via Forma Construction Connect)",
+          "reason": "the other endpoint product is not promoted yet"
+        },
+        {
+          "name": "GoCanvas Automations → Autodesk Forma",
+          "reason": "the other endpoint product is not promoted yet"
+        },
+        {
+          "name": "GoCanvas Automations → Autodesk Forma: Documents",
+          "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+        },
+        {
+          "name": "GoCanvas Automations → Autodesk Forma: Inspections",
+          "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+        },
+        {
+          "name": "eSUB",
+          "reason": "the other endpoint product is not promoted yet"
+        },
+        {
+          "name": "Autodesk Forma → eSUB: Drawings",
+          "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+        },
+        {
+          "name": "Autodesk Forma ↔ eSUB: Documents",
+          "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+        },
+        {
+          "name": "Jira (via Forma Construction Connect)",
+          "reason": "the other endpoint product is not promoted yet"
+        },
+        {
+          "name": "FARO Sphere XG",
+          "reason": "the other endpoint product is not promoted yet"
+        },
+        {
+          "name": "Autodesk Forma → Sphere XG/HoloBuilder Site Documentation: Models",
+          "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+        },
+        {
+          "name": "Autodesk Forma ← Sphere XG/HoloBuilder Site Documentation: Inspections",
+          "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+        },
+        {
+          "name": "Bridgit Bench",
+          "reason": "the other endpoint product is not promoted yet"
+        },
+        {
+          "name": "Autodesk Forma → Bridgit Bench: Schedules",
+          "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+        },
+        {
+          "name": "MySQL (via Forma Construction Connect)",
+          "reason": "the other endpoint product is not promoted yet"
+        },
+        {
+          "name": "GTP Stratus",
+          "reason": "the other endpoint product is not promoted yet"
+        },
+        {
+          "name": "Autodesk Forma → GTP Stratus: Models",
+          "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+        },
+        {
+          "name": "BuildingConnected (manual)",
+          "reason": "the other endpoint product is not promoted yet"
+        },
+        {
+          "name": "Autodesk Forma ← BuildingConnected: Commitments & Contracts",
+          "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+        },
+        {
+          "name": "Autodesk Forma ← BuildingConnected: Bids & Tenders",
+          "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+        },
+        {
+          "name": "Google Drive (via Forma Construction Connect)",
+          "reason": "the other endpoint product is not promoted yet"
+        },
+        {
+          "name": "NavVis",
+          "reason": "the other endpoint product is not promoted yet"
+        },
+        {
+          "name": "Finch (manual)",
+          "reason": "the other endpoint product is not promoted yet"
+        },
+        {
+          "name": "Autodesk Forma ↔ Finch: Models",
+          "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+        },
+        {
+          "name": "Aurigo",
+          "reason": "the other endpoint product is not promoted yet"
+        },
+        {
+          "name": "Autodesk Forma ↔ Aurigo: Models",
+          "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+        },
+        {
+          "name": "Autodesk Forma ↔ Aurigo: Drawings",
+          "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+        },
+        {
+          "name": "Autodesk Forma ↔ Aurigo: Documents",
+          "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+        },
+        {
+          "name": "Plannerly",
+          "reason": "the other endpoint product is not promoted yet"
+        },
+        {
+          "name": "Autodesk Forma → Plannerly: Models",
+          "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+        },
+        {
+          "name": "Inventor (manual)",
+          "reason": "the other endpoint product is not promoted yet"
+        },
+        {
+          "name": "Autodesk Forma ↔ Inventor: Models",
+          "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+        },
+        {
+          "name": "Ideate Software",
+          "reason": "the other endpoint product is not promoted yet"
+        },
+        {
+          "name": "Autodesk Forma ↔ Ideate Software: Models",
+          "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+        },
+        {
+          "name": "EarthCam",
+          "reason": "the other endpoint product is not promoted yet"
+        },
+        {
+          "name": "Plex-Earth",
+          "reason": "the other endpoint product is not promoted yet"
+        },
+        {
+          "name": "Autodesk Forma ← Plex-Earth: Models",
+          "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+        },
+        {
+          "name": "Autodesk Forma ← Plex-Earth: Photos",
+          "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+        },
+        {
+          "name": "FME",
+          "reason": "the other endpoint product is not promoted yet"
+        },
+        {
+          "name": "Assemble (manual)",
+          "reason": "the other endpoint product is not promoted yet"
+        },
+        {
+          "name": "Autodesk Forma ↔ Assemble: Models",
+          "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+        },
+        {
+          "name": "Microsoft Teams (via Forma Construction Connect)",
+          "reason": "the other endpoint product is not promoted yet"
+        },
+        {
+          "name": "Pype AutoSpecs (manual)",
+          "reason": "the other endpoint product is not promoted yet"
+        },
+        {
+          "name": "Autodesk Forma ← Pype AutoSpecs: Submittals",
+          "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+        },
+        {
+          "name": "V-Ray (Chaos)",
+          "reason": "the other endpoint product is not promoted yet"
+        },
+        {
+          "name": "Slack (via Forma Construction Connect)",
+          "reason": "the other endpoint product is not promoted yet"
+        },
+        {
+          "name": "OneDrive (via Forma Construction Connect)",
+          "reason": "the other endpoint product is not promoted yet"
+        },
+        {
+          "name": "Gmail (via Forma Construction Connect)",
+          "reason": "the other endpoint product is not promoted yet"
+        },
+        {
+          "name": "Microsoft Word (manual)",
+          "reason": "the other endpoint product is not promoted yet"
+        },
+        {
+          "name": "Sterling",
+          "reason": "the other endpoint product is not promoted yet"
+        },
+        {
+          "name": "Autodesk Forma ← Sterling: Budgets",
+          "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+        },
+        {
+          "name": "Autodesk Forma → Sterling: Models",
+          "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+        },
+        {
+          "name": "Autodesk Forma → Sterling: Drawings",
+          "reason": "its integration is not promoted yet (other endpoint product not promoted)"
+        }
+      ],
+      "warnings": [],
+      "unresolvedLinks": [],
+      "connectorsParked": [
+        {
+          "name": "CMiC ↔ Autodesk Forma (via Boomi)",
+          "connectorRecId": "recUmo4xiABxsHctt",
+          "connector": "Boomi",
+          "reason": "connector awaits review"
+        }
+      ],
+      "connectorsPromoted": [],
+      "retriedAfter": null,
+      "edges_moved": 9,
+      "edges_stuck": [],
+      "finished_at": "2026-09-23T09:29:15.804Z"
+    }
+  ]
+}

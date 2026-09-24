@@ -1,8 +1,8 @@
 # 2026-09 connector-attribution re-promote — the AECI-1064 tail
 
-**Status: NOT RUN.** Manifest, preflight and dry run taken read-only against
-`aeci-app-production` on 2026-09-23 (final pass 09:13Z, on the 14-product cover). The apply
-is the operator's, under an AECI-881 writer slot. Issue: AECI-1064.
+**Status: RUN — complete.** 14 serialized re-promotes applied to `aeci-app-production` on
+2026-09-23, 09:17Z–09:28Z, by the operator. Verified 2026-09-24 00:36Z: 39 / 39 clean. Issue:
+AECI-1064. See [The run](#the-run-2026-09-23).
 
 ## What is wrong
 
@@ -95,13 +95,88 @@ parked/unpromoted"), and for the Zapier and Workato rows that reason is now fals
 promote. Re-ruling them is curation follow-up (AECI-1098), listed in `dry-run.json` →
 `no_owner`.
 
+## The run (2026-09-23)
+
+The operator ran `apply --confirm-count 14` from 09:17Z to 09:28Z. Every job returned
+`status: ok`, `operation: updated`, and an empty `skipped[]`, `warnings` and
+`unresolvedLinks`. No connector was published as a side effect. Each job id is the one new
+`promote_jobs` row for its product, minted after the call started, so none is an AECI-1095
+replay.
+
+| # | Product | Job id | Ledger `created_at` | Manifest edges moved | `skipped[]` | Parked |
+|---|---|---|---|---|---|---|
+| 1 | Motion | `recohQSEjZl4EP4zL-mudw35gp-df2db566` | 09:17:25Z | 2 | 0 | 0 |
+| 2 | SumoQuote | `rec6UUp8iEaL1vUpk-mudw46s3-89ad3b95` | 09:18:14Z | 2 | 0 | 0 |
+| 3 | Jobber | `recBec7hSiuPp0YY2-mudw4w59-fa98d57b` | 09:18:50Z | 3 | 0 | 0 |
+| 4 | Xero | `recoiDWUn1VK93IdS-mudw5m5l-3946eea8` | 09:19:23Z | 2 | 0 | 0 |
+| 5 | Roofr | `recRd7g8zjLcaz3yd-mudw6bv3-2ab3756c` | 09:19:58Z | 9 | 0 | 0 |
+| 6 | HOVER | `recE1QYJGBueJQvaL-mudw74e2-de195854` | 09:20:33Z | 4 | 0 | 0 |
+| 7 | Google Calendar | `recEuQ8n9wSqaoEBL-mudw7uk2-0438f899` | 09:21:08Z | 2 | 0 | 0 |
+| 8 | busybusy | `recDzKmObXRE6uHpm-mudw8p61-ccf50ae5` | 09:21:46Z | 1 | 0 | 0 |
+| 9 | Box | `recCOE9Ju0ZRoW8ss-mudw9lpp-40b54967` | 09:22:33Z | 2 | 0 | 0 |
+| 10 | Deltek Vantagepoint | `recvm3gJmUFLMzVIL-mudwaj35-9277f7d2` | 09:23:18Z | 3 | 0 | 0 |
+| 11 | Egnyte | `recdO5uJDgWBpNVmD-mudwbi6t-ec5b7412` | 09:24:03Z | 2 | 0 | 0 |
+| 12 | Smartsheet | `recvTtJLtPerJyKVB-mudwcfqq-38b110d8` | 09:24:47Z | 2 | 0 | 1 |
+| 13 | Procore | `rec944YjKNRfRCgAf-mudwdh0p-f826d76b` | 09:25:50Z | 3 | 0 | 0 |
+| 14 | Autodesk Forma | `rec2KtJeJUzqih3ad-mudwg9av-55441d73` | 09:28:06Z | 9 | 0 | 1 |
+
+"Manifest edges moved" counts the manifest edges on that product found in
+`connector_evidenced_pairs` after its promote. An edge carried by two products counts under both.
+
+### Writer slot
+
+The AECI-881 claim for these 14 promotes was posted at 09:15Z, then withdrawn with "apply not
+run; will re-claim". The apply ran after the withdrawal and **no new claim was posted**. It ran
+concurrently with the `yangon-v2` Pivvot claim. No product overlapped. The record is a reply on
+the withdrawn claim.
+
+### Withheld at kick-off
+
+The `withheld` lists in `promote-jobs.json` are long (0 to 78 per product, 358 in all). 352 are
+the ordinary product-driven rule: the far endpoint is not promoted, so neither the edge nor its
+claims are sent. The other 6 are the owner gate (AECI-1014), exactly the 3 edges the dry run
+predicted, each with its claims:
+
+- Deltek Vantagepoint ↔ Blackbox Connector (and 1 claim)
+- Workday HCM → Deltek Vantagepoint (and 2 claims)
+- Smartsheet ↔ Zapier
+
+`connectorsParked` held the 2 predicted rows: Smartsheet ↔ Autodesk Build (Forma Construction
+Connect) and CMiC ↔ Autodesk Forma (Boomi). Both say "connector awaits review".
+
+The one predicted create landed. QuickBooks Online (Deltek-built) is live as `integrations` row
+`94ab0374-74cf-4107-803d-f5fb53825f1e`, created 09:23:18Z by the Deltek Vantagepoint job, with
+its owner set.
+
+### Verification (2026-09-24 00:36Z, prod)
+
+| Check | Result |
+|---|---|
+| The 39 ids in `connector_evidenced_pairs` | **39** |
+| The 39 ids still in `integrations` | **0** |
+| Wrong `connector_product_id` | **0** |
+| Claims on the pair rows | **63** of 63; 0 left on `integration_id` |
+| Job ids recorded / found in the prod ledger | **14 / 14** |
+| Rows passing every check | **39 / 39** |
+
+Two field changes show in the diff, and both are expected:
+
+- **`direction` flipped on 6 edges.** Each is a pair whose canonical A (`product_a_id`, the
+  lower id) is the original target, so `a_to_b` became `b_to_a` or back. That is the §3.4a
+  re-anchor. The flow is unchanged: 09b38f3a, 0ec2b8bf, a59122dc, a77916a4, bb34ac33, f9f77dc3.
+- **`created_at` is reset on all 39** to the time of the move. The move branch
+  (`apps/api/src/routes/promote.ts`, the `existing?.table === 'integrations'` case) inserts the
+  pair row without the source row's `created_at`, so each edge's original creation date is lost.
+  The preflight snapshot keeps the originals. This is a promote defect, not a run defect, and it
+  is filed as AECI-1113.
+
 ## Runbook
 
 Needs `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID` and `AECI_MCP_TOKEN`. Run from the repo
 root.
 
-The read-only steps, already run on 2026-09-23 (re-run all three if the apply is not the same
-day, because a promote in between changes the set):
+The read-only steps. They ran on 2026-09-23 before the apply. Re-running them now derives an
+empty set, because the 39 edges have moved:
 
 ```
 node scripts/ops/2026-09-connector-attribution-repromote/repromote.mjs manifest
@@ -109,7 +184,7 @@ node scripts/ops/2026-09-connector-attribution-repromote/repromote.mjs preflight
 node scripts/ops/2026-09-connector-attribution-repromote/repromote.mjs dry-run
 ```
 
-The apply. Take the AECI-881 writer slot first:
+The apply. Take the AECI-881 writer slot first. This run did not; see "Writer slot" above:
 
 ```
 node scripts/ops/2026-09-connector-attribution-repromote/repromote.mjs apply --confirm-count 14
@@ -163,5 +238,5 @@ The MCP client's write door never retries. A retried `promote_product` is the AE
 | `manifest.json` | the 14 product record ids, the 39 edge ids, the 7 exclusions, all 36 endpoints for reference |
 | `preflight-rows.json` | the 39 `integrations` rows, their 63 claims, the two connector rows |
 | `dry-run.json` | per-product prediction, the no-owner list, parked connectors |
-| `promote-jobs.json` | written by `apply` |
-| `verify-rows.json` | written by `verify` |
+| `promote-jobs.json` | the 14 job ids, results and per-product move counts, from `apply` |
+| `verify-rows.json` | the 39 rows and 63 claims after the run, per-edge diff, from `verify` |
