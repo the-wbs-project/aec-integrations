@@ -1,9 +1,9 @@
 /**
  * `GET /api/vendor/updates` (AECI-627 / `STAGE_2_REALTIME_SPEC.md` §2).
  *
- * The endpoint is seven cursors over eight SELECTs (six cursors until AECI-1008 added
+ * The endpoint is eight cursors over ten SELECTs (six cursors until AECI-1008 added
  * `contests`, whose parity case lives in `vendor-contests.spec.ts`; `integrations` reads two
- * statements since AECI-992), and it is only useful if each one moves for
+ * statements since AECI-992, three since AECI-1089; `catalogue` since AECI-1083), and it is only useful if each one moves for
  * **exactly** the writes its section's payload would show. So the spec is
  * organised around that property rather than around the response shape:
  *
@@ -36,6 +36,9 @@ import {
   attestations,
   auditLog,
   claims,
+  connectorCatalogs,
+  connectorStubMappings,
+  connectorStubs,
   integrations,
   productVendors,
   products,
@@ -294,6 +297,8 @@ describe('GET /api/vendor/updates — shape and headers', () => {
       notifications: null,
       requests: null,
       contests: null,
+      // AECI-1083: vendor A holds no connector catalogue.
+      catalogue: null,
     });
     expect(() => VendorUpdatesResponseSchema.parse(body)).not.toThrow();
   });
@@ -616,6 +621,117 @@ describe('GET /api/vendor/updates — cross-vendor isolation', () => {
     // A touches only INTEGRATION_AB; B touches both, so B's is the later cursor.
     expect((await revisions()).integrations).toBe(MOVED);
     expect((await revisions({ ...AUTH, vendorId: VENDOR_B })).integrations).toBe(MOVED_LATER);
+  });
+});
+
+describe('GET /api/vendor/updates — `catalogue` (AECI-1083)', () => {
+  const CONNECTOR_A = uuid(13);
+  const CONNECTOR_B = uuid(14);
+
+  /** A connector product per vendor, each with a catalogue, a listing and a mapping.
+   *  `roleA` lets a test give vendor A its product in a non-connector role. */
+  async function seedCatalogues(roleA = 'connector'): Promise<void> {
+    await t.db.insert(products).values([
+      {
+        id: CONNECTOR_A,
+        slug: 'agave',
+        name: 'Agave',
+        productRole: roleA,
+        createdAt: SEEDED,
+        updatedAt: SEEDED,
+      },
+      {
+        id: CONNECTOR_B,
+        slug: 'other-ipaas',
+        name: 'Other iPaaS',
+        productRole: 'connector',
+        createdAt: SEEDED,
+        updatedAt: SEEDED,
+      },
+    ]);
+    await t.db.insert(productVendors).values([
+      { productId: CONNECTOR_A, vendorId: VENDOR_A },
+      { productId: CONNECTOR_B, vendorId: VENDOR_B },
+    ]);
+    for (const [catalogId, productId] of [
+      ['cat-a', CONNECTOR_A],
+      ['cat-b', CONNECTOR_B],
+    ] as const) {
+      await t.db.insert(connectorCatalogs).values({
+        id: catalogId,
+        connectorProductId: productId,
+        managedBy: 'vendor',
+        createdAt: SEEDED,
+        updatedAt: SEEDED,
+      });
+      await t.db.insert(connectorStubs).values({
+        id: `${catalogId}-stub`,
+        catalogId,
+        slug: 'revit',
+        firstSeenAt: SEEDED,
+        lastSeenAt: SEEDED,
+      });
+      await t.db.insert(connectorStubMappings).values({
+        id: `${catalogId}-map`,
+        stubId: `${catalogId}-stub`,
+        catalogId,
+        productId: PRODUCT_A,
+        status: 'mapped',
+        decidedBy: 'auto-name-match',
+        createdAt: SEEDED,
+        updatedAt: SEEDED,
+      });
+    }
+  }
+
+  it('reports the catalogue it may maintain, and null for a vendor with none', async () => {
+    await seedCatalogues();
+    expect((await revisions()).catalogue).toBe(SEEDED);
+  });
+
+  it('moves on a mapping edit on the vendor’s own catalogue, and only that scope', async () => {
+    await seedCatalogues();
+    const before = await revisions();
+    await t.db
+      .update(connectorStubMappings)
+      .set({ confidence: 'high', updatedAt: MOVED })
+      .where(eq(connectorStubMappings.id, 'cat-a-map'));
+    expectOnlyMoved(before, await revisions(), 'catalogue', MOVED);
+  });
+
+  it('moves on the `managed_by` flip, which turns the tab’s edit controls on or off', async () => {
+    await seedCatalogues();
+    const before = await revisions();
+    await t.db
+      .update(connectorCatalogs)
+      .set({ managedBy: 'review', updatedAt: MOVED })
+      .where(eq(connectorCatalogs.id, 'cat-a'));
+    expectOnlyMoved(before, await revisions(), 'catalogue', MOVED);
+  });
+
+  it('does not move on another vendor’s catalogue', async () => {
+    await seedCatalogues();
+    const before = await revisions();
+    await t.db
+      .update(connectorStubMappings)
+      .set({ confidence: 'high', updatedAt: MOVED_LATER })
+      .where(eq(connectorStubMappings.id, 'cat-b-map'));
+    await t.db
+      .update(connectorCatalogs)
+      .set({ managedBy: 'review', updatedAt: MOVED_LATER })
+      .where(eq(connectorCatalogs.id, 'cat-b'));
+    expect(await revisions()).toEqual(before);
+  });
+
+  it('stays null when the vendor holds the catalogue’s product in a non-connector role, as the read and the PATCH 404', async () => {
+    await seedCatalogues('application');
+    const before = await revisions();
+    expect(before.catalogue).toBeNull();
+    await t.db
+      .update(connectorStubMappings)
+      .set({ confidence: 'high', updatedAt: MOVED })
+      .where(eq(connectorStubMappings.id, 'cat-a-map'));
+    expect((await revisions()).catalogue).toBeNull();
   });
 });
 

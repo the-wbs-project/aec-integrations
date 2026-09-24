@@ -1885,8 +1885,14 @@ comes "back on" or point at a renewal path. The rule is one function, `isCatalog
 `apps/web/src/app/vendor/vendor-capabilities.ts`, which the plan panel reads too. An ordinary
 never-arranged or lapsed vendor keeps the paused copy.
 
-**What is still not built.** A vendor-portal **screen** for the seat's mapping edit (AECI-1083); the
-route exists and the seat reaches it through the API. Stub and per-app depth editing beyond the mapping
+**The seat's screen landed (AECI-1083, 2026-09-24).** A Catalogue tab on the connector product in the
+vendor portal lists the catalogue's listings through a new read,
+`GET /api/vendor/products/:id/connector-catalog`, and edits a mapping through the PATCH above. It is
+read-only while the catalogue is `review`-managed, and it sits in the AECI-516 cursor as the
+`catalogue` scope (`STAGE_2_VENDOR_PORTAL_SPEC.md` §6.16).
+
+**What is still not built.** Adding a mapping to a listing that has none: the PATCH edits existing
+rows and there is no create (AECI-1126). Stub and per-app depth editing beyond the mapping
 row (§8.9(1) names "stubs, mappings, and per-app depth"; the stub's action inventory stays
 review-side). And AECI-1065's endpoint-vendor mapping proposals, which were preconditioned on this.
 

@@ -41,6 +41,7 @@
  *   | `notifications`| `vendorNotificationLedgerWhere` (`vendor-notifications.ts`)  |
  *   | `requests`     | `vendorRequestsWhere` (`vendor-shared.ts`)                   |
  *   | `contests`     | `vendorContestsWhere` (`lib/integration-contests.ts`)        |
+ *   | `catalogue`    | `ownedConnectorCatalogIds` (`lib/vendor-connector-catalog.ts`) |
  *
  * `vendorId` comes from `c.get('auth')` and never from the request — the AECI-520
  * invariant; the endpoint takes no parameters at all.
@@ -53,9 +54,10 @@
  * endpoint would degrade the very list it is a cursor for.
  *
  * ── ONE ROUND TRIP ──────────────────────────────────────────────────────────
- * Nine SELECTs in one `db.batch([...])` for seven scopes (six until AECI-1008
- * added `contests`, one per scope until AECI-992 split `integrations` in two, and
- * eight until AECI-1089 added the owned-rows statement). The Worker pays per D1 hop, and this is the most frequently called
+ * Ten SELECTs in one `db.batch([...])` for eight scopes (six until AECI-1008
+ * added `contests`, one per scope until AECI-992 split `integrations` in two,
+ * eight until AECI-1089 added the owned-rows statement, and nine until AECI-1083
+ * added `catalogue`). The Worker pays per D1 hop, and this is the most frequently called
  * endpoint on the surface, so eight sequential reads would multiply the epic's
  * cost by eight for no benefit. Each statement returns a single aggregate row.
  * `integrations` is the one scope fed by several statements: its own rows and the
@@ -80,7 +82,9 @@ import {
   attestations,
   auditLog,
   claims,
+  connectorCatalogs,
   connectorEvidencedPairs,
+  connectorStubMappings,
   integrationFieldChallenges,
   integrations,
   productVendors,
@@ -95,6 +99,7 @@ import { ownedEndpointJoin } from '../lib/attestation-authority';
 import { ONE_ROW } from '../lib/integration-claims';
 import { ownedEvidencedPairsWhere, ownedIntegrationsWhere } from '../lib/owned-integrations';
 import { vendorContestsWhere } from '../lib/integration-contests';
+import { ownedConnectorCatalogIds } from '../lib/vendor-connector-catalog';
 import { validateResponseInDev, type DbFactory } from '../lib/handler-utils';
 import { vendorNotificationLedgerWhere } from './vendor-notifications';
 import {
@@ -183,6 +188,7 @@ export function createVendorUpdatesHandler(
       ledgerRows,
       requestRows,
       contestRows,
+      catalogueRows,
     ] = await db.batch([
       // `profile` — the vendor's own row. Also moves on the `verified` mirror
       // flip, which is the point: that flip is an admin action the vendor must
@@ -302,6 +308,29 @@ export function createVendorUpdatesHandler(
         .select({ value: max(integrationFieldChallenges.updatedAt) })
         .from(integrationFieldChallenges)
         .where(vendorContestsWhere(vendorId)),
+
+      // `catalogue` (AECI-1083) — the connector catalogues this vendor maintains,
+      // under `ownedConnectorCatalogIds`, the SAME predicate
+      // `GET /api/vendor/products/:id/connector-catalog` resolves its catalogue with.
+      // Two terms in one statement: the catalogue row (moves on the `managed_by`
+      // flip, which is what turns the tab's edit controls on or off) and its mapping
+      // rows (a seat edit, an operator edit, a sync page). Stubs are not read: a
+      // stub moves only on a sync page, which also rewrites the mappings it touches.
+      // For a vendor holding no catalogue, both subqueries are empty and it is NULL.
+      db
+        .select({
+          catalogs: sql<string | null>`(${db
+            .select({ value: max(connectorCatalogs.updatedAt) })
+            .from(connectorCatalogs)
+            .where(inArray(connectorCatalogs.id, ownedConnectorCatalogIds(db, vendorId)))})`,
+          mappings: sql<string | null>`(${db
+            .select({ value: max(connectorStubMappings.updatedAt) })
+            .from(connectorStubMappings)
+            .where(
+              inArray(connectorStubMappings.catalogId, ownedConnectorCatalogIds(db, vendorId)),
+            )})`,
+        })
+        .from(ONE_ROW),
     ]);
 
     const integrationRow = integrationRows[0];
@@ -322,6 +351,7 @@ export function createVendorUpdatesHandler(
       notifications: ledgerRows[0]?.value ?? null,
       requests: requestRows[0]?.value ?? null,
       contests: contestRows[0]?.value ?? null,
+      catalogue: latestOf(catalogueRows[0]?.catalogs ?? null, catalogueRows[0]?.mappings ?? null),
     };
 
     const body: VendorUpdatesResponse = {

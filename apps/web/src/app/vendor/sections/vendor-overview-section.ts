@@ -78,6 +78,7 @@ interface NeedsRow {
               [entitlement]="m.entitlement"
               [products]="m.products"
               [compact]="true"
+              [catalogueLinks]="true"
             />
           </div>
         </section>

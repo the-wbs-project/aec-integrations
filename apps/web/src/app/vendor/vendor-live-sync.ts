@@ -106,6 +106,8 @@ const SCOPE_RESOURCE: Readonly<Record<VendorPortalScope, VendorPortalResource>> 
   notifications: 'notifications',
   // AECI-1008: its own resource, `GET /api/vendor/contests`.
   contests: 'contests',
+  // AECI-1083: the Catalogue tab's revision tick.
+  catalogue: 'catalogue',
 };
 
 /**
@@ -349,6 +351,8 @@ export class VendorLiveSync {
         return this.store.notificationsFailed();
       case 'contests':
         return this.store.contestsFailed();
+      case 'catalogue':
+        return this.store.catalogueFailed();
       case 'seats':
         // Not reachable from any scope (no cursor feeds the seat roster), but
         // the exhaustive switch is what makes a future scope→resource addition

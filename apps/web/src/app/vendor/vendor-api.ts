@@ -55,7 +55,19 @@ import type {
   VendorMeResponse,
   VendorProductConnectorsResponse,
   VendorUpdatesResponse,
+  ConnectorStubMappingEditResponse,
+  UpdateConnectorStubMappingInput,
+  VendorConnectorCatalogResponse,
+  AdminConnectorStubState,
 } from '@aeci/shared';
+
+/** The Catalogue tab's filter set for {@link VendorApi.getConnectorCatalog}. */
+export interface VendorConnectorCatalogFilters {
+  readonly page: number;
+  readonly perPage: number;
+  readonly state: AdminConnectorStubState | null;
+  readonly search: string;
+}
 
 /**
  * A complete attestation position, for `PUT /api/vendor/claims/:id/attestation`.
@@ -215,6 +227,44 @@ export class VendorApi {
     return firstValueFrom(
       this.http.get<VendorProductConnectorsResponse>(
         `/api/vendor/products/${encodeURIComponent(productId)}/connectors`,
+      ),
+    );
+  }
+
+  /** `GET /api/vendor/products/:id/connector-catalog` — the connector catalogue
+   *  seat's own catalogue (AECI-1083): one page of listings with their mappings,
+   *  plus the catalogue's summary. Inside the live cursor as the `catalogue` scope,
+   *  so the Catalogue tab re-reads its open page when that scope moves. */
+  getConnectorCatalog(
+    productId: string,
+    filters: VendorConnectorCatalogFilters,
+  ): Promise<VendorConnectorCatalogResponse> {
+    const params = new URLSearchParams({
+      page: String(filters.page),
+      perPage: String(filters.perPage),
+    });
+    if (filters.state) params.set('state', filters.state);
+    const search = filters.search.trim();
+    if (search) params.set('search', search);
+    return firstValueFrom(
+      this.http.get<VendorConnectorCatalogResponse>(
+        `/api/vendor/products/${encodeURIComponent(productId)}/connector-catalog?${params}`,
+      ),
+    );
+  }
+
+  /** `PATCH /api/vendor/connector-stub-mappings/:id` (AECI-724) — the seat's edit of
+   *  one mapping. Answers in the admin mapping shape; convert it with
+   *  `toVendorConnectorMapping` before showing it. `409 CATALOG_REVIEW_MANAGED` when
+   *  AECi took the catalogue back, `409 MAPPING_CONFLICT` on a duplicate. */
+  updateConnectorMapping(
+    mappingId: string,
+    input: UpdateConnectorStubMappingInput,
+  ): Promise<ConnectorStubMappingEditResponse> {
+    return firstValueFrom(
+      this.http.patch<ConnectorStubMappingEditResponse>(
+        `/api/vendor/connector-stub-mappings/${encodeURIComponent(mappingId)}`,
+        input,
       ),
     );
   }

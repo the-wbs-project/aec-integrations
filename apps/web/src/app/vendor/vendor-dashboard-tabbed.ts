@@ -16,7 +16,7 @@ import { RequestDrawer } from '../requests/request-drawer';
 import { ViewPublicLink } from '../shared/view-public-link/view-public-link';
 
 import { VendorPortalAnnouncer } from './vendor-announcer';
-import { VENDOR_NAV_ITEMS, VENDOR_PRODUCT_NAV_ITEMS, type VendorNavItem } from './vendor-nav';
+import { VENDOR_NAV_ITEMS, productNavItemsFor, type VendorNavItem } from './vendor-nav';
 import { VendorPortalNav } from './vendor-portal-nav';
 
 /**
@@ -33,7 +33,8 @@ import { VendorPortalNav } from './vendor-portal-nav';
  *   - product context (`…/products/:productSlug/*`, for a product this vendor
  *     owns): `Vendor › Acme › Products › Revit`, the product as the `h1`, the
  *     product's public page, a "Back to Acme" link, and the product tabs
- *     (Profile / Categories / Trades / Audiences / Phases / Integrations) in place of the vendor tabs.
+ *     (Profile / Categories / Trades / Audiences / Phases / Integrations, and Catalogue on a
+ *     `connector`-role product, AECI-1083) in place of the vendor tabs.
  *
  * It used to render the vendor header and tab row always, and the product page
  * stacked its own `h2`, public link and a segmented second row under them. Two
@@ -232,7 +233,7 @@ export class VendorDashboardTabbed {
   protected readonly navItems = computed<readonly VendorNavItem[]>(() => {
     const p = this.product();
     if (!p) return VENDOR_NAV_ITEMS;
-    return VENDOR_PRODUCT_NAV_ITEMS.map((item) => ({
+    return productNavItemsFor(p.product_role).map((item) => ({
       ...item,
       path: `products/${p.slug}/${item.path}`,
     }));

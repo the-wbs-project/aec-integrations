@@ -105,6 +105,8 @@ const BASE_REVISIONS: VendorRevisions = {
   requests: null,
   // AECI-1008: no contests either. Same steady-state `null`.
   contests: null,
+  // AECI-1083: no connector catalogue. Same steady-state `null`.
+  catalogue: null,
 };
 
 function updates(
@@ -179,7 +181,14 @@ beforeEach(() => {
       .fn()
       .mockResolvedValue({ seats: [], pending_invites: [], can_manage_seats: false }),
   };
-  failed = { me: false, integrations: false, notifications: false, seats: false, contests: false };
+  failed = {
+    me: false,
+    integrations: false,
+    notifications: false,
+    seats: false,
+    contests: false,
+    catalogue: false,
+  };
   store = {
     revalidate: vi.fn().mockResolvedValue(undefined),
     meFailed: () => failed.me,
@@ -187,6 +196,7 @@ beforeEach(() => {
     notificationsFailed: () => failed.notifications,
     seatsFailed: () => failed.seats,
     contestsFailed: () => failed.contests,
+    catalogueFailed: () => failed.catalogue,
   } as unknown as { revalidate: ReturnType<typeof vi.fn> };
 });
 

@@ -5505,7 +5505,7 @@ Errors: none beyond the guard's. An empty ledger is `200 { "notifications": [] }
 
 #### `GET /api/vendor/updates`
 
-The portal's **freshness cursor** (AECI-627 / `STAGE_2_REALTIME_SPEC.md` §2) — seven per-scope `updated_at` high-water marks in one response (six until AECI-1008 added `contests`), so the dashboard can refetch **only** the section that moved instead of reloading. ADR 0023 chose this over Durable-Object WebSockets and SSE: nothing that changes a vendor's portal state is sub-second (two of the seven producers are once-a-day crons), so the house polling pattern — the same one `GET /api/promote/jobs/:id` uses — buys the whole §2.3 outcome without a `durable_objects` binding in four environments, a WebSocket upgrade through the SSR Worker's `/api/*` passthrough, and fan-out coupling on every write.
+The portal's **freshness cursor** (AECI-627 / `STAGE_2_REALTIME_SPEC.md` §2) — eight per-scope `updated_at` high-water marks in one response (six until AECI-1008 added `contests`, seven until AECI-1083 added `catalogue`), so the dashboard can refetch **only** the section that moved instead of reloading. ADR 0023 chose this over Durable-Object WebSockets and SSE: nothing that changes a vendor's portal state is sub-second (two of the seven producers are once-a-day crons), so the house polling pattern — the same one `GET /api/promote/jobs/:id` uses — buys the whole §2.3 outcome without a `durable_objects` binding in four environments, a WebSocket upgrade through the SSR Worker's `/api/*` passthrough, and fan-out coupling on every write.
 
 **Not account-access-gated, and never entitlement-gated.** Polling is not an authoring capability; gating it would leave a vendor's read-only tab unable to notice access becoming active. Same reasoning as the two lists above.
 
@@ -5522,6 +5522,8 @@ export const VendorRevisionsSchema = z.object({
   requests: z.string().nullable(),       // MAX(COALESCE(resolved_at, created_at)) — vendor_requests has no updated_at
   contests: z.string().nullable().default(null), // AECI-1008: MAX(integration_field_challenges.updated_at)
                                          // over submitted ∪ received, under vendorContestsWhere
+  catalogue: z.string().nullable().default(null), // AECI-1083: MAX(updated_at) over the caller's connector
+                                         // catalogues ∪ their mapping rows, under ownedConnectorCatalogIds
 });
 export const VendorUpdatesResponseSchema = z.object({
   revisions: VendorRevisionsSchema,
@@ -5529,7 +5531,7 @@ export const VendorUpdatesResponseSchema = z.object({
 });
 ```
 
-**The invariant that makes it correct: every cursor query reuses the scoping predicate of the handler it is a cursor for.** Not an equivalent predicate — the same one, imported (`ownedProductIds` / `vendorRequestsWhere` in `vendor-shared.ts`, `ownedEndpointJoin` in `lib/attestation-authority.ts`, `ownedIntegrationsWhere` / `ownedEvidencedPairsWhere` in `lib/owned-integrations.ts` (AECI-1089), `vendorNotificationLedgerWhere` in `vendor-notifications.ts`, `vendorContestsWhere` in `lib/integration-contests.ts`). A cursor that scopes **too narrowly** never moves for a change its section would show, so the client stops refetching and the portal goes silently stale; one that scopes **too widely** moves on a row the section will never return, which both amplifies polling and — with no RLS behind `/api/vendor/*` (ADR 0016) — leaks the *existence* of another vendor's write through the timestamp.
+**The invariant that makes it correct: every cursor query reuses the scoping predicate of the handler it is a cursor for.** Not an equivalent predicate — the same one, imported (`ownedProductIds` / `vendorRequestsWhere` in `vendor-shared.ts`, `ownedEndpointJoin` in `lib/attestation-authority.ts`, `ownedIntegrationsWhere` / `ownedEvidencedPairsWhere` in `lib/owned-integrations.ts` (AECI-1089), `vendorNotificationLedgerWhere` in `vendor-notifications.ts`, `vendorContestsWhere` in `lib/integration-contests.ts`, `ownedConnectorCatalogIds` in `lib/vendor-connector-catalog.ts` (AECI-1083)). A cursor that scopes **too narrowly** never moves for a change its section would show, so the client stops refetching and the portal goes silently stale; one that scopes **too widely** moves on a row the section will never return, which both amplifies polling and — with no RLS behind `/api/vendor/*` (ADR 0016) — leaks the *existence* of another vendor's write through the timestamp.
 
 Two consumer rules follow from what a cursor is:
 
@@ -5538,13 +5540,13 @@ Two consumer rules follow from what a cursor is:
 
 `server_time` is stamped **before** the read, so it is never later than the data it describes — a change landing mid-read is reported on the next poll rather than skipped by a client treating it as a high-water mark. It is advisory: do **not** do clock arithmetic against it to decide whether to refetch (browser clocks are wrong often enough to matter).
 
-Scope → refetch map, which is also the client's `VendorPortalScope` vocabulary: `profile` · `entitlement` · `products` · `requests` → `GET /api/vendor/me` (one deduped call); `integrations` → `GET /api/vendor/integrations`; `notifications` → `GET /api/vendor/notifications`; `contests` → `GET /api/vendor/contests` (AECI-1008; its own store resource since the portal half, PR B).
+Scope → refetch map, which is also the client's `VendorPortalScope` vocabulary: `profile` · `entitlement` · `products` · `requests` → `GET /api/vendor/me` (one deduped call); `integrations` → `GET /api/vendor/integrations`; `notifications` → `GET /api/vendor/notifications`; `contests` → `GET /api/vendor/contests` (AECI-1008; its own store resource since the portal half, PR B); `catalogue` → no store fetch, a revision tick the Catalogue tab re-reads its open page of `GET /api/vendor/products/:id/connector-catalog` on (AECI-1083).
 
 Two scoping details worth stating because they look like bugs and are not. The `integrations` cursor **does not filter to live attestations**, unlike the list handler: `retracted_at` is a content filter, and applying it would leave a bare retract (which stamps `retracted_at` and inserts nothing) invisible to the cursor while the lane the vendor is looking at empties. And a **counterparty's** attestation on a shared claim legitimately moves the caller's `integrations` cursor — that is one of the events the transport exists to deliver, not a leak.
 
 Since AECI-992 (2026-09-17) the `integrations` cursor also reads **`MAX(integrations.updated_at)` over the owned rows themselves**, under the same `ownedEndpointJoin`. The list ships row fields (`name`, `mechanism_kind`, `mechanism_name`, and `attestable` from `powered_by_product_id`), and a claims-only cursor missed an edit to any of them. It also missed an owned integration with no claim. The list reads no `connector_evidenced_pairs` row, so the cursor reads none either.
 
-Mechanics: eight SELECTs for seven scopes in one `db.batch([...])` = one D1 round trip (`integrations` is fed by two); `private, no-store` (the `json()` default, load-bearing here — a cached cursor reports "nothing changed" to a portal where something did). Emits `aeci.api.vendor.updates` tagged `changed:none|some`.
+Mechanics: ten SELECTs for eight scopes in one `db.batch([...])` = one D1 round trip (`integrations` is fed by three since AECI-1089; `catalogue` is one statement with two scalar subqueries); `private, no-store` (the `json()` default, load-bearing here — a cached cursor reports "nothing changed" to a portal where something did). Emits `aeci.api.vendor.updates` tagged `changed:none|some`.
 
 Errors: none beyond the guard's. A seat whose vendor row has since been deleted gets `200` with `profile: null` rather than the `404` `GET /api/vendor/me` answers — a cursor that threw would take the poll loop down with it.
 
@@ -5666,6 +5668,48 @@ export const VendorProductConnectorsResponseSchema = z.object({
 
 Errors: `NOT_FOUND` (unknown product, or one owned by another vendor, deliberately indistinguishable), plus the §6.14 guard errors.
 
+#### `GET /api/vendor/products/:id/connector-catalog`
+
+Stage 2.1 (AECI-1083, `STAGE_2_SPEC.md` §8.9(1), `STAGE_2_VENDOR_PORTAL_SPEC.md` §6.16). The connector catalogue seat's own catalogue: the read behind the portal's Catalogue tab, whose edits go through the PATCH below. Zod in `packages/shared/src/api/vendor-connector-catalog.ts`, handler in `apps/api/src/routes/vendor-connector-catalog.ts`.
+
+| Gate | Success |
+|---|---|
+| `requireVendor()` → **ownership** (`requireOwnedProduct`) → the product is **`connector`-role**. Each miss is the same `404`. **No `requireCapability`, no entitlement read** (the §8.9 seat has no entitlement row). **No `rateLimit()`**: reads never are | `200` `VendorConnectorCatalogResponse` |
+
+Query: `page` (default 1), `perPage` (1–50, default 25), `state` (`undecided` or a mapping status, the admin triage's `AdminConnectorStubStateSchema`), `search` (substring over the listing's slug or label, ≤ 200 chars). A bad query is a `400`.
+
+```typescript
+export const VendorConnectorMappingSchema = z.object({
+  id: z.string().min(1).max(64),
+  status: ConnectorMappingStatusSchema,
+  product: LinkRefSchema.nullable(),
+  confidence: ConnectorMappingConfidenceSchema.nullable(),
+  evidence_url: z.string().nullable(),
+  decided_by: z.enum(['vendor', 'aeci', 'automatic']).nullable(), // a KIND, never the raw column
+  decided_at: z.string().nullable(),
+  publishable: z.boolean(),                                       // §9a.4's gate, server-side
+});
+export const VendorConnectorListingSchema = z.object({
+  id, slug, label: nullable, url: nullable, mappings: z.array(VendorConnectorMappingSchema),
+});
+export const VendorConnectorCatalogResponseSchema = paginatedResponseSchema(VendorConnectorListingSchema)
+  .extend({
+    product_id: z.string().uuid(),
+    catalog: z.object({
+      id, managed_by: 'review' | 'vendor', last_ingested_at: nullable,
+      listings, unmatched, publishable,   // live listings; listings with no mapping row; publishable rows
+    }).nullable(),                         // null: AECi holds no catalogue for this connector product
+  });
+```
+
+**Narrower than the admin triage row, on purpose.** No `notes` (review-side curation text), and `decided_by` crosses as a kind: `vendor` for `vendor:{slug}`, `automatic` for `auto-name-match`, `aeci` for anything else, which before AECI-724 was a review-app reviewer's name. Removed listings are not returned, and the action inventory is not on the wire. Ordered by `COALESCE(label, slug)` case-insensitively (`textAsc`), `id` as the tiebreaker. The summary counts describe the whole catalogue, not the filtered page.
+
+**The catalogue is resolved through `ownedConnectorCatalogIds`** (`lib/vendor-connector-catalog.ts`), which is the PATCH's ownership clause as a subquery, and the `catalogue` cursor scope imports the same function. `vendor-connector-catalog.spec.ts` pins that every mapping the read shows is one the PATCH does not 404.
+
+**Inside the AECI-516 cursor** as the `catalogue` scope: the vendor's own seats move this data. A pure read, so no `audit_log` row, and `private, no-store`.
+
+Errors: `NOT_FOUND` (unknown product, another vendor's, or the caller's own non-connector product, deliberately indistinguishable), `VALIDATION_FAILED` (query), plus the §6.14 guard errors.
+
 #### `PATCH /api/vendor/connector-stub-mappings/:id`
 
 Stage 2.1 (AECI-724, `STAGE_2_SPEC.md` §8.9(1)–(2), `STAGE_2_VENDOR_PORTAL_SPEC.md` §5.2). The
@@ -5684,9 +5728,11 @@ whether a catalogue has been handed over. Only then **409 `CATALOG_REVIEW_MANAGE
 own review-managed catalogue.
 
 Audit `metadata.source` is `vendor-portal` and `metadata.vendor_id` is the caller's vendor, which is
-the leg by which `/admin/vendors/:id`'s audit tab reaches a row filed under a catalogue. Not in the
-AECI-516 cursor: no portal screen renders a mapping for editing yet. The portal UI for this
-route is AECI-1083; today the seat reaches it through the API alone.
+the leg by which `/admin/vendors/:id`'s audit tab reaches a row filed under a catalogue. Moves the
+AECI-516 `catalogue` scope (the row's `updated_at`), so another open tab of the same vendor
+re-reads. The portal UI is the Catalogue tab (AECI-1083), which lists rows through
+`GET /api/vendor/products/:id/connector-catalog` above. The response is still the admin mapping
+shape, `notes` included; AECI-1127 tracks a vendor-shaped echo.
 
 Errors: `NOT_FOUND`, `CATALOG_REVIEW_MANAGED`, `MAPPING_CONFLICT`, `VALIDATION_FAILED`, plus the
 §6.14 guard errors and `RATE_LIMITED`.

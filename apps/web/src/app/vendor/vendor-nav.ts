@@ -34,6 +34,13 @@
 export interface VendorNavItem {
   readonly path: string;
   readonly label: string;
+  /**
+   * Product row only: the `product_role`s the tab appears on. Absent means every
+   * product. AECI-1083's Catalogue tab is the one user, because a catalogue exists
+   * only for a `connector`-role product and an always-empty tab on every other
+   * product is the thing §6.13 declined.
+   */
+  readonly roles?: readonly string[];
 }
 
 /**
@@ -77,7 +84,22 @@ export const VENDOR_PRODUCT_NAV_ITEMS: readonly VendorNavItem[] = [
   { path: 'audiences', label: $localize`:@@vendor.productNav.audiences:Audiences` },
   { path: 'phases', label: $localize`:@@vendor.productNav.phases:Phases` },
   { path: 'integrations', label: $localize`:@@vendor.productNav.integrations:Integrations` },
+  {
+    path: 'catalogue',
+    label: $localize`:@@vendor.productNav.catalogue:Catalogue`,
+    roles: ['connector'],
+  },
 ];
+
+/** The product row for one product: {@link VENDOR_PRODUCT_NAV_ITEMS} minus any tab
+ *  whose `roles` exclude the product's `product_role`. */
+export function productNavItemsFor(
+  productRole: string | null | undefined,
+): readonly VendorNavItem[] {
+  return VENDOR_PRODUCT_NAV_ITEMS.filter(
+    (item) => !item.roles || (productRole != null && item.roles.includes(productRole)),
+  );
+}
 
 /**
  * Rest-state classes for one tab in either row.

@@ -877,6 +877,25 @@ Four things the build settled:
    the only author left. It is still a write only an admin can make here. The seat holder's twin
    is `PATCH /api/vendor/connector-stub-mappings/:id` (`STAGE_2_VENDOR_PORTAL_SPEC.md` §5.2).
 
+**How this screen relates to the seat's own (AECI-1083, 2026-09-24).** The seat holder edits the
+same rows from a **Catalogue** tab on its connector product in the vendor portal
+(`STAGE_2_VENDOR_PORTAL_SPEC.md` §6.16). The two screens share the write and its gate, not their
+UI:
+
+| | `/admin/connectors/:id` (this screen) | The portal's Catalogue tab |
+|---|---|---|
+| Who | Any admin, any catalogue | The seat of the vendor holding the catalogue's `connector`-role product |
+| Read | `GET /api/admin/connector-catalogs/:id/stubs` (triage filters, removed stubs, action inventory, raw `decided_by`, `notes`) | `GET /api/vendor/products/:id/connector-catalog` (no removed stubs, no `notes`, `decided_by` as a kind) |
+| Write | `PATCH /api/admin/connector-stub-mappings/:id`, stamps `aeci-operator` | `PATCH /api/vendor/connector-stub-mappings/:id`, stamps `vendor:{slug}` |
+| Review-managed catalogue | No Edit control | Read-only, with a note that the AECi team maintains it |
+| Live | Reads on load | In the AECI-516 cursor as the `catalogue` scope |
+
+So an operator edit here shows up in an open seat tab within one poll, and a seat's edit shows up
+here as a `connector_mapping.updated` audit row with `metadata.vendor_id` and `decided_by =
+vendor:{slug}` on the row. The managed-by flip on this screen is what turns the seat's Edit
+controls on and off; the seat's tab re-reads when it moves. Neither screen can add a mapping to a
+listing that has none (AECI-1126).
+
 **It does not decide publication.** The pairs view renders §13.7's *inputs* — both sides in our
 catalogue, and whether a person rather than the auto pass made the mapping — and carries a
 `publication_gate_inputs_only` advisory saying so. Clause (b) (the pair being undelivered) and
