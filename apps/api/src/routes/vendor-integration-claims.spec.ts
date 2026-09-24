@@ -31,6 +31,7 @@ import { INTEGRATION_CLAIMED_ACTION } from '../lib/integration-claims';
 import { routeContest } from '../lib/integration-contests';
 import { makeTestDb, type TestDb } from '../test/d1';
 import { TEST_ENV, fakeExecutionContext } from '../test/helpers';
+import { racingFactory } from '../test/racing-factory';
 import { createClaimIntegrationHandler } from './vendor-integration-claims';
 import { createListVendorNotificationsHandler } from './vendor-notifications';
 
@@ -402,22 +403,14 @@ describe('POST /api/vendor/integrations/:id/claim — refusals', () => {
   it('refuses the old owner when promote re-pointed the owner before the batch ran', async () => {
     // The guarded UPDATE is also keyed on `built_by_vendor_id`, so a claim planned
     // against a stale owner aborts at the sentinel rather than claiming for them.
-    const factory = t.factory;
-    let flipped = false;
-    const racing = createClaimIntegrationHandler((env, opts) => {
-      const ctx = factory(env, opts);
-      if (!flipped) {
-        const batch = ctx.db.batch.bind(ctx.db);
-        (ctx.db as unknown as { batch: typeof batch }).batch = (async (stmts: never) => {
-          flipped = true;
-          t.raw
-            .prepare(`UPDATE integrations SET built_by_vendor_id = ? WHERE id = ?`)
-            .run(VENDOR_A, I_MAIN);
-          return batch(stmts);
-        }) as typeof batch;
-      }
-      return ctx;
-    });
+    const racing = createClaimIntegrationHandler(
+      racingFactory(t.factory, (attempt) => {
+        if (attempt > 1) return;
+        t.raw
+          .prepare(`UPDATE integrations SET built_by_vendor_id = ? WHERE id = ?`)
+          .run(VENDOR_A, I_MAIN);
+      }),
+    );
     const a = new Hono<{ Bindings: Env; Variables: AuthzVariables }>();
     a.onError(errorHandler());
     a.use('*', async (c, next) => {
@@ -572,22 +565,14 @@ describe('POST /api/vendor/integrations/:id/claim — evidenced pairs (AECI-1089
   });
 
   it('refuses the old owner when promote re-pointed the pair’s owner before the batch ran', async () => {
-    const factory = t.factory;
-    let flipped = false;
-    const racing = createClaimIntegrationHandler((env, opts) => {
-      const ctx = factory(env, opts);
-      if (!flipped) {
-        const batch = ctx.db.batch.bind(ctx.db);
-        (ctx.db as unknown as { batch: typeof batch }).batch = (async (stmts: never) => {
-          flipped = true;
-          t.raw
-            .prepare(`UPDATE connector_evidenced_pairs SET built_by_vendor_id = ? WHERE id = ?`)
-            .run(VENDOR_A, E_THIRD);
-          return batch(stmts);
-        }) as typeof batch;
-      }
-      return ctx;
-    });
+    const racing = createClaimIntegrationHandler(
+      racingFactory(t.factory, (attempt) => {
+        if (attempt > 1) return;
+        t.raw
+          .prepare(`UPDATE connector_evidenced_pairs SET built_by_vendor_id = ? WHERE id = ?`)
+          .run(VENDOR_A, E_THIRD);
+      }),
+    );
     const a = new Hono<{ Bindings: Env; Variables: AuthzVariables }>();
     a.onError(errorHandler());
     a.use('*', async (c, next) => {
@@ -613,26 +598,18 @@ describe('POST /api/vendor/integrations/:id/claim — evidenced pairs (AECI-1089
     // UPDATE aims at the old table and matches nothing. The re-read finds an
     // unclaimed pair the caller owns, so there is nothing to refuse, and it must not
     // answer "already claimed".
-    const factory = t.factory;
-    let moved = false;
-    const racing = createClaimIntegrationHandler((env, opts) => {
-      const ctx = factory(env, opts);
-      if (!moved) {
-        const batch = ctx.db.batch.bind(ctx.db);
-        (ctx.db as unknown as { batch: typeof batch }).batch = (async (stmts: never) => {
-          moved = true;
-          t.raw.prepare(`DELETE FROM integrations WHERE id = ?`).run(I_POWERED);
-          t.raw
-            .prepare(
-              `INSERT INTO connector_evidenced_pairs (id, connector_product_id, product_a_id, product_b_id, built_by_vendor_id, created_at, updated_at)
+    const racing = createClaimIntegrationHandler(
+      racingFactory(t.factory, (attempt) => {
+        if (attempt > 1) return;
+        t.raw.prepare(`DELETE FROM integrations WHERE id = ?`).run(I_POWERED);
+        t.raw
+          .prepare(
+            `INSERT INTO connector_evidenced_pairs (id, connector_product_id, product_a_id, product_b_id, built_by_vendor_id, created_at, updated_at)
                VALUES (?, ?, ?, ?, ?, '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z')`,
-            )
-            .run(I_POWERED, P_BRIDGE, P_SOURCE, P_CONNECTOR, VENDOR_B);
-          return batch(stmts);
-        }) as typeof batch;
-      }
-      return ctx;
-    });
+          )
+          .run(I_POWERED, P_BRIDGE, P_SOURCE, P_CONNECTOR, VENDOR_B);
+      }),
+    );
     const a = new Hono<{ Bindings: Env; Variables: AuthzVariables }>();
     a.onError(errorHandler());
     a.use('*', async (c, next) => {

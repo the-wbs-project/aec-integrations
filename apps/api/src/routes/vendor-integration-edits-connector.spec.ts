@@ -36,6 +36,7 @@ import type { AuthzVariables } from '../lib/authz';
 import { isConnectorPoweredEdge } from '../lib/connector-powered';
 import { makeTestDb, type TestDb } from '../test/d1';
 import { TEST_ENV, fakeExecutionContext } from '../test/helpers';
+import { racingFactory } from '../test/racing-factory';
 import {
   createUpdateVendorIntegrationHandler,
   INTEGRATION_UPDATED_ACTION,
@@ -637,20 +638,11 @@ describe('a connector_evidenced_pairs row — the gate, in order (AECI-1090)', (
 
 describe('a connector_evidenced_pairs row — the race guard (AECI-1090)', () => {
   function racing(statement: string, ...params: unknown[]) {
-    const factory = t.factory;
-    let fired = false;
-    return createUpdateVendorIntegrationHandler((env, opts) => {
-      const ctx = factory(env, opts);
-      if (!fired) {
-        const batch = ctx.db.batch.bind(ctx.db);
-        (ctx.db as unknown as { batch: typeof batch }).batch = (async (stmts: never) => {
-          fired = true;
-          t.raw.prepare(statement).run(...params);
-          return batch(stmts);
-        }) as typeof batch;
-      }
-      return ctx;
-    });
+    return createUpdateVendorIntegrationHandler(
+      racingFactory(t.factory, (attempt) => {
+        if (attempt === 1) t.raw.prepare(statement).run(...params);
+      }),
+    );
   }
 
   it.each([

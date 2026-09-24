@@ -38,6 +38,7 @@ import {
 } from '../lib/integration-retire';
 import { makeTestDb, type TestDb } from '../test/d1';
 import { TEST_ENV, fakeExecutionContext } from '../test/helpers';
+import { racingFactory } from '../test/racing-factory';
 import { createListVendorIntegrationsHandler } from './vendor-attestations';
 import { createSubmitContestHandler } from './vendor-contests';
 import {
@@ -466,19 +467,9 @@ function racingApp(
   auth: AuthzVariables['auth'],
   interleave: () => void | Promise<void>,
 ): Hono<{ Bindings: Env; Variables: AuthzVariables }> {
-  let fired = false;
-  const factory: typeof t.factory = (env, opts) => {
-    const ctx = t.factory(env, opts);
-    if (!fired) {
-      const batch = ctx.db.batch.bind(ctx.db);
-      (ctx.db as unknown as { batch: typeof batch }).batch = (async (stmts: never) => {
-        fired = true;
-        await interleave();
-        return batch(stmts);
-      }) as typeof batch;
-    }
-    return ctx;
-  };
+  const factory = racingFactory(t.factory, async (attempt) => {
+    if (attempt === 1) await interleave();
+  });
   const a = new Hono<{ Bindings: Env; Variables: AuthzVariables }>();
   a.onError(errorHandler());
   a.use('*', async (c, next) => {

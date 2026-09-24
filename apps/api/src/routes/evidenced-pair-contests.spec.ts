@@ -63,6 +63,10 @@ import {
 } from '../lib/integration-contests';
 import { makeTestDb, type TestDb } from '../test/d1';
 import { TEST_ENV, fakeExecutionContext } from '../test/helpers';
+import {
+  racingFactory as sharedRacingFactory,
+  wrappedFactory as sharedWrappedFactory,
+} from '../test/racing-factory';
 import { createModerateContestHandler } from './admin-contests';
 import { createSetVendorEntitlementHandler } from './admin-entitlements';
 import { createFileContestProtestHandler } from './vendor-contest-protests';
@@ -707,34 +711,12 @@ describe('the AECI-1092 batch sentinels', () => {
 
 // ─── Review findings (2026-09-23) ────────────────────────────────────────────
 
-/**
- * A factory whose `db.batch` runs `wrap` around the real batch, as another request
- * would. It returns a NEW db object (prototype-linked to the shared one) so the
- * wrapper never leaks into the shared test client or into a later request.
- */
-function wrappedFactory(
+/** The shared race-window factories (`test/racing-factory.ts`), over this spec's DB. */
+const wrappedFactory = (
   wrap: (attempt: number, run: () => Promise<unknown>) => Promise<unknown>,
-): DbFactory {
-  let attempt = 0;
-  return (env, opts) => {
-    const ctx = t.factory(env, opts);
-    const real = ctx.db.batch.bind(ctx.db);
-    const db = Object.create(ctx.db) as typeof ctx.db;
-    (db as unknown as { batch: typeof real }).batch = ((stmts: never) => {
-      attempt += 1;
-      return wrap(attempt, () => real(stmts));
-    }) as typeof real;
-    return { ...ctx, db };
-  };
-}
-
-/** A factory whose `db.batch` runs `before` first. */
-function racingFactory(before: (attempt: number) => void): DbFactory {
-  return wrappedFactory(async (attempt, run) => {
-    before(attempt);
-    return run();
-  });
-}
+): DbFactory => sharedWrappedFactory(t.factory, wrap);
+const racingFactory = (before: (attempt: number) => void): DbFactory =>
+  sharedRacingFactory(t.factory, before);
 
 const transitionsFor = async (workflowId: string | null) =>
   (await t.db.select().from(workflowTransitions)).filter((r) => r.workflowId === workflowId);

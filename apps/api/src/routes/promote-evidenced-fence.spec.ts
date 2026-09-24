@@ -37,6 +37,7 @@ import type { Env } from '../env';
 import type { DbFactory } from '../lib/handler-utils';
 import { VENDOR_OWNED_TWIN } from '../lib/integration-twins';
 import { makeTestDb, type TestDb } from '../test/d1';
+import { racingFactory, wrappedFactory } from '../test/racing-factory';
 import {
   REFUSED_CLAIMED_INTEGRATION,
   runPromoteIngest,
@@ -86,33 +87,18 @@ const ingest = (body: unknown, opts: { jobId?: string; dbFor?: DbFactory } = {})
 
 /** A DbFactory whose batch runs `before` first: after the plan read, before any
  *  statement. That is the window the in-SQL sentinels exist for. */
-const racing =
-  (before: () => void): DbFactory =>
-  (env, opts) => {
-    const ctx = t.factory(env, opts);
-    const batch = ctx.db.batch.bind(ctx.db);
-    (ctx.db as unknown as { batch: typeof batch }).batch = (async (stmts: never) => {
-      before();
-      return batch(stmts);
-    }) as typeof batch;
-    return ctx;
-  };
+const racing = (before: () => void): DbFactory => racingFactory(t.factory, before);
 
 /** A DbFactory that records the SQL of every statement the promote batch sends, after
  *  running `before` (the mid-promote race window). */
 function capturingBatch(sent: string[], before: () => void = () => {}): DbFactory {
-  return (env, opts) => {
-    const ctx = t.factory(env, opts);
-    const batch = ctx.db.batch.bind(ctx.db);
-    (ctx.db as unknown as { batch: typeof batch }).batch = (async (stmts: never) => {
-      for (const stmt of stmts as unknown as Array<{ toSQL(): { sql: string } }>) {
-        sent.push(stmt.toSQL().sql);
-      }
-      before();
-      return batch(stmts);
-    }) as typeof batch;
-    return ctx;
-  };
+  return wrappedFactory(t.factory, (_attempt, run, stmts) => {
+    for (const stmt of stmts as unknown as Array<{ toSQL(): { sql: string } }>) {
+      sent.push(stmt.toSQL().sql);
+    }
+    before();
+    return run();
+  });
 }
 
 /** The claim-fence sentinels raise this token; the twin sentinels raise another. */
