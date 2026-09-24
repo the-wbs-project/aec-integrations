@@ -982,6 +982,31 @@ the flush never happened — which is exactly what `captureImmediate` /
     casing is wrong would silently zero every counter alert.
 11. **The remote-config gate** — the newest and least-guessable one. See its own
     section below.
+12. **Metric labels are not on `posthog.metrics`. Join `posthog.metric_series`.**
+    PostHog moved the per-point labels to a separate table without notice (found
+    2026-09-24, AECI-1115). A query that reads `m.attributes.outcome` fails with
+    `Field not found: attributes`, and an alert built on it shows `Errored`. The
+    series table is keyed by `series_fingerprint` and can hold several rows per
+    fingerprint, so collapse it before joining. Its `attributes` column is a map,
+    so read a label with `['key']`. Every committed query uses this shape:
+
+    ```sql
+    FROM posthog.metrics AS m
+    LEFT JOIN (
+        SELECT series_fingerprint, any(attributes) AS labels
+        FROM posthog.metric_series
+        WHERE metric_name = 'aeci.auth.signin'
+        GROUP BY series_fingerprint
+    ) AS s ON m.series_fingerprint = s.series_fingerprint
+    WHERE m.timestamp >= now() - INTERVAL 1 HOUR
+      AND m.metric_name = 'aeci.auth.signin'
+      AND s.labels['outcome'] = 'failed'
+    ```
+
+    `LEFT JOIN` keeps a point in the totals even if its series row were missing.
+    Ignore the new `has_labels` column. It reads false on points whose series do
+    carry labels. `apply.sh` refuses to run if any committed query reads
+    `m.attributes.<key>`.
 
 ### The remote-config gate — a server-side switch the client cannot override
 
@@ -1194,7 +1219,7 @@ slowness rather than on a reconstruction defect. The latency itself is AECI-839.
 
 Two alert sets, only one of which is armed on production.
 
-> **12 of the 14 live production alerts are `Errored`, checked read-only on 2026-09-24 (AECI-1115).** PostHog moved metric labels off `posthog.metrics` into `posthog.metric_series`, so every committed query that reads `m.attributes` fails validation. Only `reconcile-persistent-stuck` and `webhook-hmac-failure` still evaluate, because neither reads a label. The AECI-1099 `profile-ensure-failed` query is written against the new table and is the template for the fix.
+> **12 of the 14 live production alerts were `Errored` on 2026-09-24 (AECI-1115).** PostHog moved metric labels off `posthog.metrics` into `posthog.metric_series`, so every query that read `m.attributes` failed validation. AECI-1115 rewrote all 36 affected insights in `observability/posthog/insights.json` to join the series table. Each rewritten query was run read-only against production and compiles. The live alerts leave `Errored` only when `apply.sh` runs against production. See "Gotchas when querying" item 12 for the join.
 
 | | Datadog monitors | PostHog alerts |
 |---|---|---|
