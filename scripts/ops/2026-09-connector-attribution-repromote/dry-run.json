@@ -1,0 +1,4168 @@
+{
+  "issue": "AECI-1064",
+  "generated_at": "2026-09-23T09:13:56.348Z",
+  "target": "aeci-app-production (read-only prediction)",
+  "summary": {
+    "products": 14,
+    "connector_preconditions": "ok",
+    "blockers": [],
+    "manifest_edges_moving": 39,
+    "manifest_edges_not_moving": [],
+    "collateral_moves": 0,
+    "creates": 1,
+    "withheld_no_owner": 3,
+    "sent_without_owner": 0,
+    "connector_parked": 2,
+    "claimed_skip": 0,
+    "integrations_with_no_owner": 180,
+    "no_owner_ruling_cites_aeci_700": 40
+  },
+  "collateral_moves": [],
+  "creates": [
+    {
+      "rec": "recLOKlsKSqqRP2dN",
+      "id": null,
+      "name": "QuickBooks Online (Deltek-built)",
+      "far": "QuickBooks Online",
+      "powered_by": null,
+      "via": "Deltek Vantagepoint"
+    }
+  ],
+  "no_owner": [
+    {
+      "product": "Autodesk Forma",
+      "rec": "rec2zpnzug3k3xzOQ",
+      "id": null,
+      "name": "Sensera SiteCloud",
+      "far": "Sensera SiteCloud Embedded",
+      "live": false,
+      "far_promoted": false,
+      "owner_ruled_empty": null,
+      "powered_by": null
+    },
+    {
+      "product": "Autodesk Forma",
+      "rec": "rec4KnQT0hTuowUxQ",
+      "id": null,
+      "name": "Sigma Estimating",
+      "far": "Sigma Estimating",
+      "live": false,
+      "far_promoted": false,
+      "owner_ruled_empty": null,
+      "powered_by": null
+    },
+    {
+      "product": "Autodesk Forma",
+      "rec": "rec69PwAhX6KQvhfC",
+      "id": null,
+      "name": "Google Sheets (via Forma Construction Connect)",
+      "far": "Google Sheets",
+      "live": false,
+      "far_promoted": false,
+      "owner_ruled_empty": null,
+      "powered_by": "Workato"
+    },
+    {
+      "product": "Autodesk Forma",
+      "rec": "rec7cuzlzzH09fDx3",
+      "id": null,
+      "name": "Amazon S3 (via Forma Construction Connect)",
+      "far": "Amazon S3",
+      "live": false,
+      "far_promoted": false,
+      "owner_ruled_empty": null,
+      "powered_by": "Workato"
+    },
+    {
+      "product": "Autodesk Forma",
+      "rec": "rec9i2oh1hFAkMHcI",
+      "id": null,
+      "name": "Webex (manual)",
+      "far": "Webex",
+      "live": false,
+      "far_promoted": false,
+      "owner_ruled_empty": null,
+      "powered_by": "Forma Construction Connect (formerly ACC Connect)"
+    },
+    {
+      "product": "Autodesk Forma",
+      "rec": "recA18TRIdmMxkWOD",
+      "id": null,
+      "name": "Multivista (Hexagon)",
+      "far": "Multivista",
+      "live": false,
+      "far_promoted": false,
+      "owner_ruled_empty": null,
+      "powered_by": null
+    },
+    {
+      "product": "Autodesk Forma",
+      "rec": "recAOw1kMpA6lhqe4",
+      "id": null,
+      "name": "Cintoo Cloud",
+      "far": "Cintoo Cloud",
+      "live": false,
+      "far_promoted": false,
+      "owner_ruled_empty": null,
+      "powered_by": null
+    },
+    {
+      "product": "Autodesk Forma",
+      "rec": "recCozE95EwLq7wfh",
+      "id": null,
+      "name": "Eptura",
+      "far": "Eptura",
+      "live": false,
+      "far_promoted": false,
+      "owner_ruled_empty": null,
+      "powered_by": null
+    },
+    {
+      "product": "Autodesk Forma",
+      "rec": "recE1Z9XfHegwEVgZ",
+      "id": null,
+      "name": "Asana (via Forma Construction Connect)",
+      "far": "Asana",
+      "live": false,
+      "far_promoted": false,
+      "owner_ruled_empty": null,
+      "powered_by": "Workato"
+    },
+    {
+      "product": "Autodesk Forma",
+      "rec": "recFZPPo73GOHvzon",
+      "id": null,
+      "name": "Trunk Tools",
+      "far": "Trunk Tools",
+      "live": false,
+      "far_promoted": false,
+      "owner_ruled_empty": null,
+      "powered_by": null
+    },
+    {
+      "product": "Autodesk Forma",
+      "rec": "recIQoDsaHzqS3Bgm",
+      "id": null,
+      "name": "Airtable (via Forma Construction Connect)",
+      "far": "Airtable",
+      "live": false,
+      "far_promoted": false,
+      "owner_ruled_empty": null,
+      "powered_by": "Workato"
+    },
+    {
+      "product": "Autodesk Forma",
+      "rec": "recJGLghIv8KnlsXG",
+      "id": "623fc071-3d42-4b10-8870-6a4584ccfb73",
+      "name": "Wrike (manual)",
+      "far": "Wrike",
+      "live": true,
+      "far_promoted": true,
+      "owner_ruled_empty": "connector product is parked/unpromoted (AECI-700); powered_by carries the attribution",
+      "powered_by": "Workato"
+    },
+    {
+      "product": "Autodesk Forma",
+      "rec": "recKow9Go3vC4OZUd",
+      "id": "a4ee6242-d6f0-4191-8aa6-e1ef59fa3603",
+      "name": "Dropbox (via Forma Construction Connect)",
+      "far": "Dropbox",
+      "live": true,
+      "far_promoted": true,
+      "owner_ruled_empty": "connector product is parked/unpromoted (AECI-700); powered_by carries the attribution",
+      "powered_by": "Workato"
+    },
+    {
+      "product": "Autodesk Forma",
+      "rec": "recLoW6P3VuTd8c8t",
+      "id": "20415952-8a1d-410c-9570-8880becb4791",
+      "name": "Salesforce (via Forma Construction Connect)",
+      "far": "Salesforce",
+      "live": true,
+      "far_promoted": true,
+      "owner_ruled_empty": "connector product is parked/unpromoted (AECI-700); powered_by carries the attribution",
+      "powered_by": "Workato"
+    },
+    {
+      "product": "Autodesk Forma",
+      "rec": "recMWcXMQDK4NB2Y9",
+      "id": null,
+      "name": "eSUB",
+      "far": "eSUB",
+      "live": false,
+      "far_promoted": false,
+      "owner_ruled_empty": null,
+      "powered_by": null
+    },
+    {
+      "product": "Autodesk Forma",
+      "rec": "recMoCe4EptgKR2PW",
+      "id": null,
+      "name": "Jira (via Forma Construction Connect)",
+      "far": "Jira",
+      "live": false,
+      "far_promoted": false,
+      "owner_ruled_empty": null,
+      "powered_by": "Workato"
+    },
+    {
+      "product": "Autodesk Forma",
+      "rec": "recOqcM29Oy3n20rM",
+      "id": null,
+      "name": "FARO Sphere XG",
+      "far": "Sphere XG/HoloBuilder Site Documentation",
+      "live": false,
+      "far_promoted": false,
+      "owner_ruled_empty": null,
+      "powered_by": null
+    },
+    {
+      "product": "Autodesk Forma",
+      "rec": "recPmmRKyyttRlWak",
+      "id": null,
+      "name": "Bridgit Bench",
+      "far": "Bridgit Bench",
+      "live": false,
+      "far_promoted": false,
+      "owner_ruled_empty": null,
+      "powered_by": null
+    },
+    {
+      "product": "Autodesk Forma",
+      "rec": "recQtFsthUWy0wrTT",
+      "id": null,
+      "name": "MySQL (via Forma Construction Connect)",
+      "far": "MySQL",
+      "live": false,
+      "far_promoted": false,
+      "owner_ruled_empty": null,
+      "powered_by": "Workato"
+    },
+    {
+      "product": "Autodesk Forma",
+      "rec": "recQvfD31Z46pCSJP",
+      "id": null,
+      "name": "GTP Stratus",
+      "far": "GTP Stratus",
+      "live": false,
+      "far_promoted": false,
+      "owner_ruled_empty": null,
+      "powered_by": null
+    },
+    {
+      "product": "Google Calendar",
+      "rec": "recRvjDXtsP2tCcZ3",
+      "id": "fceb7c5c-0a14-4bb4-806c-e880e8109feb",
+      "name": "Autodesk Forma → Google Calendar (via Forma Construction Connect)",
+      "far": "Autodesk Forma",
+      "live": true,
+      "far_promoted": true,
+      "owner_ruled_empty": "connector product is parked/unpromoted (AECI-700); powered_by carries the attribution",
+      "powered_by": "Workato"
+    },
+    {
+      "product": "Autodesk Forma",
+      "rec": "recT5GfKyjdoWlG3U",
+      "id": null,
+      "name": "BuildingConnected (manual)",
+      "far": "BuildingConnected",
+      "live": false,
+      "far_promoted": false,
+      "owner_ruled_empty": null,
+      "powered_by": null
+    },
+    {
+      "product": "Autodesk Forma",
+      "rec": "recTLkTfSjV1XAui9",
+      "id": null,
+      "name": "Google Drive (via Forma Construction Connect)",
+      "far": "Google Drive",
+      "live": false,
+      "far_promoted": false,
+      "owner_ruled_empty": null,
+      "powered_by": "Workato"
+    },
+    {
+      "product": "Autodesk Forma",
+      "rec": "recTZwkhNzampNeSS",
+      "id": "981daa40-68e6-4bf0-b9b2-66d4955a7a30",
+      "name": "Microsoft SharePoint (via Forma Construction Connect)",
+      "far": "Microsoft SharePoint",
+      "live": true,
+      "far_promoted": true,
+      "owner_ruled_empty": "connector product is parked/unpromoted (AECI-700); powered_by carries the attribution",
+      "powered_by": "Workato"
+    },
+    {
+      "product": "Autodesk Forma",
+      "rec": "recVLREE8IsxzZyD2",
+      "id": null,
+      "name": "NavVis",
+      "far": "NavVis",
+      "live": false,
+      "far_promoted": false,
+      "owner_ruled_empty": null,
+      "powered_by": null
+    },
+    {
+      "product": "Box",
+      "rec": "recWiVmDXrW3hv6wt",
+      "id": "035115f3-793c-4b03-92dc-d660fae4467f",
+      "name": "Box (via Forma Construction Connect)",
+      "far": "Autodesk Forma",
+      "live": true,
+      "far_promoted": true,
+      "owner_ruled_empty": "connector product is parked/unpromoted (AECI-700); powered_by carries the attribution",
+      "powered_by": "Workato"
+    },
+    {
+      "product": "Autodesk Forma",
+      "rec": "recYns7vHz1YEgzfb",
+      "id": "e8e51da5-8460-4950-ae68-18702c995447",
+      "name": "Amazon Redshift (via Forma Construction Connect)",
+      "far": "Amazon Redshift",
+      "live": true,
+      "far_promoted": true,
+      "owner_ruled_empty": "connector product is parked/unpromoted (AECI-700); powered_by carries the attribution",
+      "powered_by": "Workato"
+    },
+    {
+      "product": "Autodesk Forma",
+      "rec": "recaaDpBY3wTqpHIb",
+      "id": null,
+      "name": "Aurigo",
+      "far": "Aurigo",
+      "live": false,
+      "far_promoted": false,
+      "owner_ruled_empty": null,
+      "powered_by": null
+    },
+    {
+      "product": "Autodesk Forma",
+      "rec": "recbooPh0vseFN9HF",
+      "id": null,
+      "name": "Plannerly",
+      "far": "Plannerly",
+      "live": false,
+      "far_promoted": false,
+      "owner_ruled_empty": null,
+      "powered_by": null
+    },
+    {
+      "product": "Autodesk Forma",
+      "rec": "recfKBxq5jfPCNDmd",
+      "id": null,
+      "name": "Ideate Software",
+      "far": "Ideate Software",
+      "live": false,
+      "far_promoted": false,
+      "owner_ruled_empty": null,
+      "powered_by": null
+    },
+    {
+      "product": "Autodesk Forma",
+      "rec": "rechdFaId3ii0NYy6",
+      "id": "416f07bd-b3f7-46b6-8705-7bd1fb3bdcf1",
+      "name": "CMiC ↔ Autodesk Forma (via Boomi)",
+      "far": "CMiC",
+      "live": true,
+      "far_promoted": true,
+      "owner_ruled_empty": "connector product is parked/unpromoted (AECI-700); powered_by carries the attribution",
+      "powered_by": "Boomi"
+    },
+    {
+      "product": "Autodesk Forma",
+      "rec": "recilOqkUxD6miDff",
+      "id": null,
+      "name": "EarthCam",
+      "far": "EarthCam",
+      "live": false,
+      "far_promoted": false,
+      "owner_ruled_empty": null,
+      "powered_by": null
+    },
+    {
+      "product": "Autodesk Forma",
+      "rec": "reckNSATwZfhcXOIG",
+      "id": null,
+      "name": "Plex-Earth",
+      "far": "Plex-Earth",
+      "live": false,
+      "far_promoted": false,
+      "owner_ruled_empty": null,
+      "powered_by": null
+    },
+    {
+      "product": "Autodesk Forma",
+      "rec": "recmBTgTcahPgguyd",
+      "id": null,
+      "name": "FME",
+      "far": "FME",
+      "live": false,
+      "far_promoted": false,
+      "owner_ruled_empty": null,
+      "powered_by": null
+    },
+    {
+      "product": "Autodesk Forma",
+      "rec": "recn46zUt6Yd45aaU",
+      "id": null,
+      "name": "Assemble (manual)",
+      "far": "Assemble",
+      "live": false,
+      "far_promoted": false,
+      "owner_ruled_empty": null,
+      "powered_by": null
+    },
+    {
+      "product": "Autodesk Forma",
+      "rec": "recrVxJTIsASBW3qD",
+      "id": null,
+      "name": "Microsoft Teams (via Forma Construction Connect)",
+      "far": "Microsoft Teams",
+      "live": false,
+      "far_promoted": false,
+      "owner_ruled_empty": null,
+      "powered_by": "Workato"
+    },
+    {
+      "product": "Autodesk Forma",
+      "rec": "recrWpksiF9uQlPUw",
+      "id": null,
+      "name": "Pype AutoSpecs (manual)",
+      "far": "Pype AutoSpecs",
+      "live": false,
+      "far_promoted": false,
+      "owner_ruled_empty": null,
+      "powered_by": null
+    },
+    {
+      "product": "Autodesk Forma",
+      "rec": "recu0VlB9wX8MpLCP",
+      "id": null,
+      "name": "V-Ray (Chaos)",
+      "far": "V-Ray",
+      "live": false,
+      "far_promoted": false,
+      "owner_ruled_empty": null,
+      "powered_by": null
+    },
+    {
+      "product": "Autodesk Forma",
+      "rec": "recvJnmwda1vdeXEG",
+      "id": null,
+      "name": "Slack (via Forma Construction Connect)",
+      "far": "Slack",
+      "live": false,
+      "far_promoted": false,
+      "owner_ruled_empty": null,
+      "powered_by": "Workato"
+    },
+    {
+      "product": "Autodesk Forma",
+      "rec": "recvkBq3lGPbpThDl",
+      "id": null,
+      "name": "OneDrive (via Forma Construction Connect)",
+      "far": "OneDrive",
+      "live": false,
+      "far_promoted": false,
+      "owner_ruled_empty": null,
+      "powered_by": "Workato"
+    },
+    {
+      "product": "Autodesk Forma",
+      "rec": "recwqWF7K8KFuW89X",
+      "id": null,
+      "name": "Gmail (via Forma Construction Connect)",
+      "far": "Gmail",
+      "live": false,
+      "far_promoted": false,
+      "owner_ruled_empty": null,
+      "powered_by": "Workato"
+    },
+    {
+      "product": "Autodesk Forma",
+      "rec": "recyd9xs8aPBuwAbp",
+      "id": null,
+      "name": "Microsoft Word (manual)",
+      "far": "Microsoft Word",
+      "live": false,
+      "far_promoted": false,
+      "owner_ruled_empty": null,
+      "powered_by": null
+    },
+    {
+      "product": "Autodesk Forma",
+      "rec": "recz26St43h2Doxpf",
+      "id": null,
+      "name": "Sterling",
+      "far": "Sterling",
+      "live": false,
+      "far_promoted": false,
+      "owner_ruled_empty": null,
+      "powered_by": null
+    },
+    {
+      "product": "Autodesk Forma",
+      "rec": "recJVCGzeiUl3IViV",
+      "id": null,
+      "name": "GoCanvas Automations → Autodesk Forma",
+      "far": "GoCanvas Automations",
+      "live": false,
+      "far_promoted": false,
+      "owner_ruled_empty": null,
+      "powered_by": null
+    },
+    {
+      "product": "Autodesk Forma",
+      "rec": "recNojqvcP0PCKgHW",
+      "id": "ba09c8e4-e431-48cb-8144-91531c0a1967",
+      "name": "Microsoft Dynamics 365 ↔ Autodesk Forma",
+      "far": "Microsoft Dynamics 365",
+      "live": true,
+      "far_promoted": true,
+      "owner_ruled_empty": "connector product is parked/unpromoted (AECI-700); powered_by carries the attribution",
+      "powered_by": "Workato"
+    },
+    {
+      "product": "Autodesk Forma",
+      "rec": "recsUZnGyaiO6sqEK",
+      "id": "62293162-2ed2-4a64-b248-485aa8fd4fc3",
+      "name": "Oracle NetSuite ↔ Autodesk Forma",
+      "far": "Oracle NetSuite",
+      "live": true,
+      "far_promoted": true,
+      "owner_ruled_empty": "connector product is parked/unpromoted (AECI-700); powered_by carries the attribution",
+      "powered_by": "Workato"
+    },
+    {
+      "product": "Box",
+      "rec": "reci3P0uZ7P8szjag",
+      "id": "9301b03a-ac1c-486a-9e0d-e12249080728",
+      "name": "Box (ipaas)",
+      "far": "Microsoft SharePoint",
+      "live": true,
+      "far_promoted": true,
+      "owner_ruled_empty": "connector product is parked/unpromoted (AECI-700); powered_by carries the attribution",
+      "powered_by": "Zapier"
+    },
+    {
+      "product": "Box",
+      "rec": "recmST04EJZIjRU5q",
+      "id": null,
+      "name": "Jotform → Box",
+      "far": "Jotform",
+      "live": false,
+      "far_promoted": false,
+      "owner_ruled_empty": null,
+      "powered_by": null
+    },
+    {
+      "product": "busybusy",
+      "rec": "recy1LgPZbAWc2VOk",
+      "id": "86b5b572-2c9c-4c2a-bfc1-23df428f5090",
+      "name": "busybusy (manual)",
+      "far": "BambooHR",
+      "live": true,
+      "far_promoted": true,
+      "owner_ruled_empty": "connector product is parked/unpromoted (AECI-700); powered_by carries the attribution",
+      "powered_by": "Zapier"
+    },
+    {
+      "product": "Deltek Vantagepoint",
+      "rec": "rec5SWiexC7fs2nas",
+      "id": null,
+      "name": "Deltek Vantagepoint ↔ Harbor Compliance",
+      "far": "Harbor Compliance",
+      "live": false,
+      "far_promoted": false,
+      "owner_ruled_empty": null,
+      "powered_by": null
+    },
+    {
+      "product": "Deltek Vantagepoint",
+      "rec": "recDH7fyreT2duB29",
+      "id": null,
+      "name": "Deltek Vantagepoint ↔ Blackbox Connector",
+      "far": "Blackbox Connector",
+      "live": false,
+      "far_promoted": true,
+      "owner_ruled_empty": null,
+      "powered_by": "Blackbox Connector"
+    },
+    {
+      "product": "Deltek Vantagepoint",
+      "rec": "recGw89US0TM7cS6y",
+      "id": "f9f77dc3-6cb7-4bc2-a0f4-bdacbc8a65bf",
+      "name": "Deltek Vantagepoint ↔ Power BI",
+      "far": "Power BI",
+      "live": true,
+      "far_promoted": true,
+      "owner_ruled_empty": "connector product is parked/unpromoted (AECI-700); powered_by carries the attribution",
+      "powered_by": "Workato"
+    },
+    {
+      "product": "Deltek Vantagepoint",
+      "rec": "recJ1w0GeNLVjQZnL",
+      "id": null,
+      "name": "Deltek Vantagepoint ↔ LEAF Commercial Capital",
+      "far": "LEAF Commercial Capital",
+      "live": false,
+      "far_promoted": false,
+      "owner_ruled_empty": null,
+      "powered_by": null
+    },
+    {
+      "product": "Deltek Vantagepoint",
+      "rec": "recKVsCdbBwWUx0vF",
+      "id": null,
+      "name": "Deltek Vantagepoint ↔ ClientPay",
+      "far": "ClientPay",
+      "live": false,
+      "far_promoted": false,
+      "owner_ruled_empty": null,
+      "powered_by": null
+    },
+    {
+      "product": "Deltek Vantagepoint",
+      "rec": "recRFNXksEOYoxrRD",
+      "id": null,
+      "name": "Deltek Vantagepoint ↔ Entrinsik Informer",
+      "far": "Entrinsik Informer",
+      "live": false,
+      "far_promoted": false,
+      "owner_ruled_empty": null,
+      "powered_by": "Blackbox Connector"
+    },
+    {
+      "product": "Deltek Vantagepoint",
+      "rec": "recSp4PayEuQgMVdM",
+      "id": null,
+      "name": "Deltek Vantagepoint ↔ HubSpot",
+      "far": "HubSpot",
+      "live": false,
+      "far_promoted": false,
+      "owner_ruled_empty": null,
+      "powered_by": "Blackbox Connector"
+    },
+    {
+      "product": "Deltek Vantagepoint",
+      "rec": "recSuuoWm5l1bydp7",
+      "id": null,
+      "name": "Deltek Vantagepoint ↔ EY eInvoicing",
+      "far": "EY eInvoicing",
+      "live": false,
+      "far_promoted": false,
+      "owner_ruled_empty": null,
+      "powered_by": null
+    },
+    {
+      "product": "Deltek Vantagepoint",
+      "rec": "recUoyLpy2Zs0ekyg",
+      "id": null,
+      "name": "Deltek Vantagepoint ↔ NDS Forms Division",
+      "far": "NDS Forms Division",
+      "live": false,
+      "far_promoted": false,
+      "owner_ruled_empty": null,
+      "powered_by": null
+    },
+    {
+      "product": "Deltek Vantagepoint",
+      "rec": "recXOANbwdQNyrEWv",
+      "id": null,
+      "name": "Deltek Vantagepoint ↔ insightsoftware",
+      "far": "insightsoftware",
+      "live": false,
+      "far_promoted": false,
+      "owner_ruled_empty": null,
+      "powered_by": null
+    },
+    {
+      "product": "Deltek Vantagepoint",
+      "rec": "recYT09p3SXcDfeHd",
+      "id": null,
+      "name": "Deltek Vantagepoint ↔ FMIS",
+      "far": "FMIS",
+      "live": false,
+      "far_promoted": false,
+      "owner_ruled_empty": null,
+      "powered_by": null
+    },
+    {
+      "product": "Deltek Vantagepoint",
+      "rec": "recZaPwdfg3Be8zIP",
+      "id": null,
+      "name": "Deltek Vantagepoint ↔ Thomson Reuters",
+      "far": "Thomson Reuters",
+      "live": false,
+      "far_promoted": false,
+      "owner_ruled_empty": null,
+      "powered_by": null
+    },
+    {
+      "product": "Deltek Vantagepoint",
+      "rec": "recatKjoBL8MTbFlE",
+      "id": null,
+      "name": "Deltek Vantagepoint ↔ EleVia Software",
+      "far": "EleVia Software",
+      "live": false,
+      "far_promoted": false,
+      "owner_ruled_empty": null,
+      "powered_by": null
+    },
+    {
+      "product": "Deltek Vantagepoint",
+      "rec": "recburKTVmRubMTfX",
+      "id": "a3ef77ab-af10-416d-8aa7-56e5c827f7a8",
+      "name": "Docusign (manual)",
+      "far": "Docusign",
+      "live": true,
+      "far_promoted": true,
+      "owner_ruled_empty": "connector product is parked/unpromoted (AECI-700); powered_by carries the attribution",
+      "powered_by": "Workato"
+    },
+    {
+      "product": "Deltek Vantagepoint",
+      "rec": "recfQTIlPYKVR9qBF",
+      "id": null,
+      "name": "Deltek Ajera (manual)",
+      "far": "Deltek Ajera",
+      "live": false,
+      "far_promoted": false,
+      "owner_ruled_empty": null,
+      "powered_by": null
+    },
+    {
+      "product": "Deltek Vantagepoint",
+      "rec": "recj3M1AXEEIpYnHW",
+      "id": null,
+      "name": "Deltek Vantagepoint ↔ Mosaic",
+      "far": "Mosaic",
+      "live": false,
+      "far_promoted": false,
+      "owner_ruled_empty": null,
+      "powered_by": null
+    },
+    {
+      "product": "Deltek Vantagepoint",
+      "rec": "reckZtidmgi34aAtR",
+      "id": null,
+      "name": "Deltek Vantagepoint ↔ R&D Tax Savers",
+      "far": "R&D Tax Savers",
+      "live": false,
+      "far_promoted": false,
+      "owner_ruled_empty": null,
+      "powered_by": null
+    },
+    {
+      "product": "Deltek Vantagepoint",
+      "rec": "recmWG5RjrqAhtUlu",
+      "id": null,
+      "name": "Deltek Vantagepoint ↔ Berkley Design Professional",
+      "far": "Berkley Design Professional",
+      "live": false,
+      "far_promoted": false,
+      "owner_ruled_empty": null,
+      "powered_by": null
+    },
+    {
+      "product": "Deltek Vantagepoint",
+      "rec": "recp4OcuexgTAwcBf",
+      "id": null,
+      "name": "Deltek Maconomy (manual)",
+      "far": "Deltek Maconomy",
+      "live": false,
+      "far_promoted": false,
+      "owner_ruled_empty": null,
+      "powered_by": null
+    },
+    {
+      "product": "Deltek Vantagepoint",
+      "rec": "recq8yccq4IRaYE61",
+      "id": null,
+      "name": "Deltek Vantagepoint ↔ Prophix",
+      "far": "Prophix",
+      "live": false,
+      "far_promoted": false,
+      "owner_ruled_empty": null,
+      "powered_by": null
+    },
+    {
+      "product": "Deltek Vantagepoint",
+      "rec": "recr6qWvHPl2MoKYd",
+      "id": null,
+      "name": "Deltek Vantagepoint ↔ Clarity Benefit Solutions",
+      "far": "Clarity Benefit Solutions",
+      "live": false,
+      "far_promoted": false,
+      "owner_ruled_empty": null,
+      "powered_by": null
+    },
+    {
+      "product": "Deltek Vantagepoint",
+      "rec": "recrixjjFkEv8lhIq",
+      "id": null,
+      "name": "Deltek Vantagepoint ↔ Points North",
+      "far": "Points North",
+      "live": false,
+      "far_promoted": false,
+      "owner_ruled_empty": null,
+      "powered_by": null
+    },
+    {
+      "product": "Deltek Vantagepoint",
+      "rec": "rectJBYDIX29XWHQs",
+      "id": null,
+      "name": "Deltek Vantagepoint ↔ Vena Solutions",
+      "far": "Vena Solutions",
+      "live": false,
+      "far_promoted": false,
+      "owner_ruled_empty": null,
+      "powered_by": null
+    },
+    {
+      "product": "Deltek Vantagepoint",
+      "rec": "recvtYnkMC2XegCwn",
+      "id": null,
+      "name": "Deltek Vantagepoint ↔ UK HMRC",
+      "far": "UK HMRC for Deltek Vantagepoint",
+      "live": false,
+      "far_promoted": false,
+      "owner_ruled_empty": null,
+      "powered_by": null
+    },
+    {
+      "product": "Egnyte",
+      "rec": "rec985mneNvmSoWIS",
+      "id": "7a1d9704-297a-4ed8-a918-9e5fabedb9f1",
+      "name": "Deltek Vantagepoint (ipaas)",
+      "far": "Deltek Vantagepoint",
+      "live": true,
+      "far_promoted": true,
+      "owner_ruled_empty": "connector product is parked/unpromoted (AECI-700); powered_by carries the attribution",
+      "powered_by": "Workato"
+    },
+    {
+      "product": "Deltek Vantagepoint",
+      "rec": "recD0cM64HrOXK1mM",
+      "id": null,
+      "name": "Workday HCM → Deltek Vantagepoint",
+      "far": "Workday HCM",
+      "live": false,
+      "far_promoted": true,
+      "owner_ruled_empty": null,
+      "powered_by": null
+    },
+    {
+      "product": "Deltek Vantagepoint",
+      "rec": "recgkRdgrjtXyKDSQ",
+      "id": null,
+      "name": "GovWin IQ → Deltek Vantagepoint",
+      "far": "Deltek GovWin IQ",
+      "live": false,
+      "far_promoted": false,
+      "owner_ruled_empty": null,
+      "powered_by": null
+    },
+    {
+      "product": "Deltek Vantagepoint",
+      "rec": "recvPMPou3GTT1QQN",
+      "id": null,
+      "name": "Replicon Time Tracking → Deltek Vantagepoint",
+      "far": "Replicon Time Tracking",
+      "live": false,
+      "far_promoted": false,
+      "owner_ruled_empty": null,
+      "powered_by": null
+    },
+    {
+      "product": "Egnyte",
+      "rec": "recH1SzwRGoDddGBF",
+      "id": null,
+      "name": "Microsoft Teams (website)",
+      "far": "Microsoft Teams",
+      "live": false,
+      "far_promoted": false,
+      "owner_ruled_empty": null,
+      "powered_by": null
+    },
+    {
+      "product": "Egnyte",
+      "rec": "recY3YBqRYJH6OAj2",
+      "id": "4b1499f9-902c-4de5-94f1-b387c10fa924",
+      "name": "BIM 360 (ipaas)",
+      "far": "BIM 360",
+      "live": true,
+      "far_promoted": true,
+      "owner_ruled_empty": "connector product is parked/unpromoted (AECI-700); powered_by carries the attribution",
+      "powered_by": "Workato"
+    },
+    {
+      "product": "Egnyte",
+      "rec": "recnnrjeJGr6Ybyl6",
+      "id": null,
+      "name": "HubSpot (ipaas)",
+      "far": "HubSpot",
+      "live": false,
+      "far_promoted": false,
+      "owner_ruled_empty": null,
+      "powered_by": "Zapier"
+    },
+    {
+      "product": "Egnyte",
+      "rec": "reciy9vcuICQfv9PB",
+      "id": null,
+      "name": "Jotform → Egnyte",
+      "far": "Jotform",
+      "live": false,
+      "far_promoted": false,
+      "owner_ruled_empty": null,
+      "powered_by": null
+    },
+    {
+      "product": "Google Calendar",
+      "rec": "rec4PdCfLEzWoJZmq",
+      "id": null,
+      "name": "FieldPulse → Google Calendar",
+      "far": "FieldPulse",
+      "live": false,
+      "far_promoted": false,
+      "owner_ruled_empty": null,
+      "powered_by": null
+    },
+    {
+      "product": "Google Calendar",
+      "rec": "recArgxeWSdAfTh28",
+      "id": null,
+      "name": "Buildertrend → Google Calendar",
+      "far": "Buildertrend",
+      "live": false,
+      "far_promoted": false,
+      "owner_ruled_empty": null,
+      "powered_by": null
+    },
+    {
+      "product": "Google Calendar",
+      "rec": "recGOYXQNOcOqMR7U",
+      "id": null,
+      "name": "Jotform ↔ Google Calendar",
+      "far": "Jotform",
+      "live": false,
+      "far_promoted": false,
+      "owner_ruled_empty": null,
+      "powered_by": null
+    },
+    {
+      "product": "Google Calendar",
+      "rec": "recU8HFoNxhWW58Rm",
+      "id": null,
+      "name": "TrackVia → Google Calendar",
+      "far": "TrackVia",
+      "live": false,
+      "far_promoted": false,
+      "owner_ruled_empty": null,
+      "powered_by": "Zapier"
+    },
+    {
+      "product": "Google Calendar",
+      "rec": "recXsXXPsmzK9Qqwe",
+      "id": null,
+      "name": "Cal.com ↔ Google Calendar",
+      "far": "Cal.com",
+      "live": false,
+      "far_promoted": false,
+      "owner_ruled_empty": null,
+      "powered_by": null
+    },
+    {
+      "product": "Google Calendar",
+      "rec": "reccCVw4EgV41DMW1",
+      "id": "c7010f9b-3693-49cb-a600-a5ed20776ae8",
+      "name": "ServiceTitan ↔ Google Calendar",
+      "far": "ServiceTitan",
+      "live": true,
+      "far_promoted": true,
+      "owner_ruled_empty": "connector product is parked/unpromoted (AECI-700); powered_by carries the attribution",
+      "powered_by": "Zapier"
+    },
+    {
+      "product": "HOVER",
+      "rec": "rec0befSU8LEjpUNE",
+      "id": null,
+      "name": "Roof Hub (manual)",
+      "far": "Roof Hub",
+      "live": false,
+      "far_promoted": false,
+      "owner_ruled_empty": null,
+      "powered_by": null
+    },
+    {
+      "product": "HOVER",
+      "rec": "rec1pJIblX4TOKxxU",
+      "id": null,
+      "name": "HubSpot (manual)",
+      "far": "HubSpot",
+      "live": false,
+      "far_promoted": false,
+      "owner_ruled_empty": null,
+      "powered_by": "Zapier"
+    },
+    {
+      "product": "HOVER",
+      "rec": "rec9x30RAQh56UKjB",
+      "id": null,
+      "name": "Zuper (manual)",
+      "far": "Zuper",
+      "live": false,
+      "far_promoted": false,
+      "owner_ruled_empty": null,
+      "powered_by": null
+    },
+    {
+      "product": "HOVER",
+      "rec": "recGnlgldID3MWq7V",
+      "id": null,
+      "name": "ProLine (manual)",
+      "far": "ProLine",
+      "live": false,
+      "far_promoted": false,
+      "owner_ruled_empty": null,
+      "powered_by": null
+    },
+    {
+      "product": "HOVER",
+      "rec": "recIJWBzlpiKBDBIb",
+      "id": null,
+      "name": "RoofLink (manual)",
+      "far": "RoofLink",
+      "live": false,
+      "far_promoted": false,
+      "owner_ruled_empty": null,
+      "powered_by": null
+    },
+    {
+      "product": "HOVER",
+      "rec": "recLAnybLBig46GhH",
+      "id": null,
+      "name": "ContractorFlow (manual)",
+      "far": "ContractorFlow",
+      "live": false,
+      "far_promoted": false,
+      "owner_ruled_empty": null,
+      "powered_by": null
+    },
+    {
+      "product": "HOVER",
+      "rec": "recMuCdKAaU7gr7W6",
+      "id": null,
+      "name": "ABC Supply (manual)",
+      "far": "ABC Supply",
+      "live": false,
+      "far_promoted": false,
+      "owner_ruled_empty": null,
+      "powered_by": null
+    },
+    {
+      "product": "HOVER",
+      "rec": "recNCRXgPFmkOdNSW",
+      "id": null,
+      "name": "Builder Prime (manual)",
+      "far": "Builder Prime",
+      "live": false,
+      "far_promoted": false,
+      "owner_ruled_empty": null,
+      "powered_by": null
+    },
+    {
+      "product": "HOVER",
+      "rec": "recOhFLWfBNoyDSkQ",
+      "id": null,
+      "name": "Paradigm Vendo (manual)",
+      "far": "Paradigm Vendo",
+      "live": false,
+      "far_promoted": false,
+      "owner_ruled_empty": null,
+      "powered_by": null
+    },
+    {
+      "product": "HOVER",
+      "rec": "recRAvS2Wwz7oZEXw",
+      "id": "d855e70a-ef03-4097-b94a-9f2b4acc6af9",
+      "name": "HOVER → CompanyCam (via Zapier)",
+      "far": "CompanyCam",
+      "live": true,
+      "far_promoted": true,
+      "owner_ruled_empty": "connector product is parked/unpromoted (AECI-700); powered_by carries the attribution",
+      "powered_by": "Zapier"
+    },
+    {
+      "product": "HOVER",
+      "rec": "recS6UmY7RseNxIbe",
+      "id": "0b61941e-8bc6-48d0-991c-c2d75043c59f",
+      "name": "Pipedrive (manual)",
+      "far": "Pipedrive",
+      "live": true,
+      "far_promoted": true,
+      "owner_ruled_empty": "connector product is parked/unpromoted (AECI-700); powered_by carries the attribution",
+      "powered_by": "Zapier"
+    },
+    {
+      "product": "HOVER",
+      "rec": "recSvUFOrxX5qhusq",
+      "id": null,
+      "name": "One Click Contractor (manual)",
+      "far": "One Click Contractor",
+      "live": false,
+      "far_promoted": false,
+      "owner_ruled_empty": null,
+      "powered_by": null
+    },
+    {
+      "product": "HOVER",
+      "rec": "recT4ZyJl2NsqnCs1",
+      "id": null,
+      "name": "Xactimate (manual)",
+      "far": "Xactimate",
+      "live": false,
+      "far_promoted": false,
+      "owner_ruled_empty": null,
+      "powered_by": null
+    },
+    {
+      "product": "HOVER",
+      "rec": "recf5aclLUF4812k1",
+      "id": null,
+      "name": "Bolster (manual)",
+      "far": "Bolster",
+      "live": false,
+      "far_promoted": false,
+      "owner_ruled_empty": null,
+      "powered_by": null
+    },
+    {
+      "product": "HOVER",
+      "rec": "recg5hncUN2f0KM8z",
+      "id": null,
+      "name": "Restoration AI (manual)",
+      "far": "Restoration AI",
+      "live": false,
+      "far_promoted": false,
+      "owner_ruled_empty": null,
+      "powered_by": null
+    },
+    {
+      "product": "HOVER",
+      "rec": "reckI6t4vAOIrTzig",
+      "id": null,
+      "name": "Scopeworx (manual)",
+      "far": "Scopeworx",
+      "live": false,
+      "far_promoted": false,
+      "owner_ruled_empty": null,
+      "powered_by": null
+    },
+    {
+      "product": "HOVER",
+      "rec": "recoYTm9fvnCoqZpZ",
+      "id": null,
+      "name": "Leap SalesPro (manual)",
+      "far": "Leap SalesPro",
+      "live": false,
+      "far_promoted": false,
+      "owner_ruled_empty": null,
+      "powered_by": null
+    },
+    {
+      "product": "Jobber",
+      "rec": "recpQTwRxZAomKyyW",
+      "id": "10b72933-543b-4ab1-b542-bfe465dbe1a4",
+      "name": "HOVER → Jobber (Zapier)",
+      "far": "HOVER",
+      "live": true,
+      "far_promoted": true,
+      "owner_ruled_empty": "connector product is parked/unpromoted (AECI-700); powered_by carries the attribution",
+      "powered_by": "Zapier"
+    },
+    {
+      "product": "Roofr",
+      "rec": "recsbm54PMKMo6HKY",
+      "id": "d254c808-932c-4b0d-b9af-e83afaba3b7d",
+      "name": "HOVER ↔ Roofr (via Zapier)",
+      "far": "HOVER",
+      "live": true,
+      "far_promoted": true,
+      "owner_ruled_empty": "connector product is parked/unpromoted (AECI-700); powered_by carries the attribution",
+      "powered_by": "Zapier"
+    },
+    {
+      "product": "HOVER",
+      "rec": "recy4XbA5XKPHm577",
+      "id": null,
+      "name": "QMax (manual)",
+      "far": "QMax",
+      "live": false,
+      "far_promoted": false,
+      "owner_ruled_empty": null,
+      "powered_by": null
+    },
+    {
+      "product": "HOVER",
+      "rec": "receW63XKohGDT0SX",
+      "id": null,
+      "name": "HOVER ↔ QXO",
+      "far": "QXO",
+      "live": false,
+      "far_promoted": false,
+      "owner_ruled_empty": null,
+      "powered_by": null
+    },
+    {
+      "product": "Jobber",
+      "rec": "recaCgX3N8QJCdivw",
+      "id": null,
+      "name": "Jobber → Paychex",
+      "far": "Paychex",
+      "live": false,
+      "far_promoted": false,
+      "owner_ruled_empty": null,
+      "powered_by": null
+    },
+    {
+      "product": "Jobber",
+      "rec": "recCMgzDGyT8ZcKks",
+      "id": null,
+      "name": "Jobber ↔ Make (community connector)",
+      "far": "Make",
+      "live": false,
+      "far_promoted": false,
+      "owner_ruled_empty": null,
+      "powered_by": "Make"
+    },
+    {
+      "product": "Jobber",
+      "rec": "recVhLHDJ4o9fYI3f",
+      "id": null,
+      "name": "Jobber → Gusto",
+      "far": "Gusto",
+      "live": false,
+      "far_promoted": false,
+      "owner_ruled_empty": null,
+      "powered_by": null
+    },
+    {
+      "product": "Jobber",
+      "rec": "recj3w041hM7TVYbO",
+      "id": null,
+      "name": "Jobber → NiceJob",
+      "far": "NiceJob",
+      "live": false,
+      "far_promoted": false,
+      "owner_ruled_empty": null,
+      "powered_by": null
+    },
+    {
+      "product": "Jobber",
+      "rec": "recpZTa3ZpWudasYa",
+      "id": null,
+      "name": "Jobber → Mailchimp",
+      "far": "Mailchimp",
+      "live": false,
+      "far_promoted": false,
+      "owner_ruled_empty": null,
+      "powered_by": null
+    },
+    {
+      "product": "Jobber",
+      "rec": "recCH0G1gUguBULxq",
+      "id": null,
+      "name": "Geotab → Jobber",
+      "far": "Geotab",
+      "live": false,
+      "far_promoted": false,
+      "owner_ruled_empty": null,
+      "powered_by": null
+    },
+    {
+      "product": "Jobber",
+      "rec": "rec0RJvPgEZFInvq4",
+      "id": "6c86d907-a1b2-4d34-8a16-82c9cff323c7",
+      "name": "Connecteam ↔ Jobber (Zapier)",
+      "far": "Connecteam",
+      "live": true,
+      "far_promoted": true,
+      "owner_ruled_empty": "connector product is parked/unpromoted (AECI-700); powered_by carries the attribution",
+      "powered_by": "Zapier"
+    },
+    {
+      "product": "Jobber",
+      "rec": "receexasXYDsYsUhR",
+      "id": null,
+      "name": "Handoff → Jobber (Zapier)",
+      "far": "Handoff",
+      "live": false,
+      "far_promoted": false,
+      "owner_ruled_empty": null,
+      "powered_by": "Zapier"
+    },
+    {
+      "product": "Roofr",
+      "rec": "reco4gH1gtQy4PLm4",
+      "id": "5fd537dc-6312-4ad6-80c6-903b981a7795",
+      "name": "Roofr → Jobber (Zapier)",
+      "far": "Jobber",
+      "live": true,
+      "far_promoted": true,
+      "owner_ruled_empty": "connector product is parked/unpromoted (AECI-700); powered_by carries the attribution",
+      "powered_by": "Zapier"
+    },
+    {
+      "product": "Jobber",
+      "rec": "recx4jSja132cvbr8",
+      "id": null,
+      "name": "CallCrewAI ↔ Jobber",
+      "far": "CallCrewAI",
+      "live": false,
+      "far_promoted": false,
+      "owner_ruled_empty": null,
+      "powered_by": null
+    },
+    {
+      "product": "Motion",
+      "rec": "rec1CHDLtnFH8GZJX",
+      "id": "bb34ac33-e425-43e8-991d-f40c11c7ae59",
+      "name": "Monday.com (manual)",
+      "far": "monday.com",
+      "live": true,
+      "far_promoted": true,
+      "owner_ruled_empty": "connector product is parked/unpromoted (AECI-700); powered_by carries the attribution",
+      "powered_by": "Zapier"
+    },
+    {
+      "product": "Motion",
+      "rec": "rec1PYBIdOhIMugvS",
+      "id": null,
+      "name": "Microsoft Teams (manual)",
+      "far": "Microsoft Teams",
+      "live": false,
+      "far_promoted": false,
+      "owner_ruled_empty": null,
+      "powered_by": null
+    },
+    {
+      "product": "Motion",
+      "rec": "rec678DIS8FNdqgYt",
+      "id": null,
+      "name": "Gmail (manual)",
+      "far": "Gmail",
+      "live": false,
+      "far_promoted": false,
+      "owner_ruled_empty": null,
+      "powered_by": null
+    },
+    {
+      "product": "Motion",
+      "rec": "rec6VoL5cyyA5roqU",
+      "id": null,
+      "name": "Typeform (manual)",
+      "far": "Typeform",
+      "live": false,
+      "far_promoted": false,
+      "owner_ruled_empty": null,
+      "powered_by": "Zapier"
+    },
+    {
+      "product": "Motion",
+      "rec": "recN6OaogswFJxCVB",
+      "id": null,
+      "name": "Google Meet (manual)",
+      "far": "Google Meet",
+      "live": false,
+      "far_promoted": false,
+      "owner_ruled_empty": null,
+      "powered_by": null
+    },
+    {
+      "product": "Motion",
+      "rec": "recPhjgQIvqc510B5",
+      "id": null,
+      "name": "ClickUp (manual)",
+      "far": "ClickUp",
+      "live": false,
+      "far_promoted": false,
+      "owner_ruled_empty": null,
+      "powered_by": "Zapier"
+    },
+    {
+      "product": "Motion",
+      "rec": "recSpRBCWdrAqW0E6",
+      "id": null,
+      "name": "GitHub (manual)",
+      "far": "GitHub",
+      "live": false,
+      "far_promoted": false,
+      "owner_ruled_empty": null,
+      "powered_by": "Zapier"
+    },
+    {
+      "product": "Motion",
+      "rec": "recYN6kSaCGTBLZvL",
+      "id": null,
+      "name": "Zoom (manual)",
+      "far": "Zoom",
+      "live": false,
+      "far_promoted": false,
+      "owner_ruled_empty": null,
+      "powered_by": null
+    },
+    {
+      "product": "Motion",
+      "rec": "recnc8Y6lGlto28k0",
+      "id": null,
+      "name": "HubSpot (manual)",
+      "far": "HubSpot",
+      "live": false,
+      "far_promoted": false,
+      "owner_ruled_empty": null,
+      "powered_by": "Zapier"
+    },
+    {
+      "product": "Motion",
+      "rec": "recnxiacwVgqY4Afl",
+      "id": "0ec2b8bf-61b6-4a60-b2a0-484e7e7709ae",
+      "name": "Wrike (manual)",
+      "far": "Wrike",
+      "live": true,
+      "far_promoted": true,
+      "owner_ruled_empty": "connector product is parked/unpromoted (AECI-700); powered_by carries the attribution",
+      "powered_by": "Zapier"
+    },
+    {
+      "product": "Motion",
+      "rec": "rec1LgDKhkLv0R9S2",
+      "id": null,
+      "name": "Asana (manual)",
+      "far": "Asana",
+      "live": false,
+      "far_promoted": false,
+      "owner_ruled_empty": null,
+      "powered_by": "Zapier"
+    },
+    {
+      "product": "Motion",
+      "rec": "recKB9Z3bh82MlGdf",
+      "id": null,
+      "name": "Slack (manual)",
+      "far": "Slack",
+      "live": false,
+      "far_promoted": false,
+      "owner_ruled_empty": null,
+      "powered_by": "Zapier"
+    },
+    {
+      "product": "Motion",
+      "rec": "recWJVeSb54BBcxM0",
+      "id": null,
+      "name": "Notion (manual)",
+      "far": "Notion",
+      "live": false,
+      "far_promoted": false,
+      "owner_ruled_empty": null,
+      "powered_by": "Zapier"
+    },
+    {
+      "product": "Procore",
+      "rec": "recHEhBqoVs85Yo95",
+      "id": "b1f4f83a-4b58-450d-812e-95ff271f1045",
+      "name": "Wrike (manual)",
+      "far": "Wrike",
+      "live": true,
+      "far_promoted": true,
+      "owner_ruled_empty": "connector product is parked/unpromoted (AECI-700); powered_by carries the attribution",
+      "powered_by": "Zapier"
+    },
+    {
+      "product": "Procore",
+      "rec": "rec3enWacm5E3eS0q",
+      "id": "8f85c4f5-cfd2-4296-91fd-0657cf874747",
+      "name": "monday.com ↔ Procore (via Zapier)",
+      "far": "monday.com",
+      "live": true,
+      "far_promoted": true,
+      "owner_ruled_empty": "connector product is parked/unpromoted (AECI-700); powered_by carries the attribution",
+      "powered_by": "Zapier"
+    },
+    {
+      "product": "Procore",
+      "rec": "recYZvslJNRwQagoo",
+      "id": "13ff7e8a-3775-4d1d-8075-675640d0c372",
+      "name": "Paylocity ↔ Procore",
+      "far": "Paylocity",
+      "live": true,
+      "far_promoted": true,
+      "owner_ruled_empty": "Chris ruled on 2026-09-15 that the owner stays empty: two connector vendors are named on this pair (Flexspring, HCM TradeSeal). Reaffirmed 2026-09-18 on AECI-1020, amendment 8. powered_by carries the Flexspring attribution.",
+      "powered_by": "Paylocity Payroll Integration by Flexspring"
+    },
+    {
+      "product": "Procore",
+      "rec": "receij2xW1yObLT1B",
+      "id": "1b1953e8-b19b-4e95-8d9d-bd7b538c5140",
+      "name": "Procore (manual)",
+      "far": "Pipedrive",
+      "live": true,
+      "far_promoted": true,
+      "owner_ruled_empty": "connector product is parked/unpromoted (AECI-700); powered_by carries the attribution",
+      "powered_by": "Zapier"
+    },
+    {
+      "product": "Roofr",
+      "rec": "rec5b3g9bNBiGRVOP",
+      "id": null,
+      "name": "Slack (manual)",
+      "far": "Slack",
+      "live": false,
+      "far_promoted": false,
+      "owner_ruled_empty": null,
+      "powered_by": "Zapier"
+    },
+    {
+      "product": "Roofr",
+      "rec": "rec9QcttldFazzaJ1",
+      "id": null,
+      "name": "NiceJob (manual)",
+      "far": "NiceJob",
+      "live": false,
+      "far_promoted": false,
+      "owner_ruled_empty": null,
+      "powered_by": "Zapier"
+    },
+    {
+      "product": "Roofr",
+      "rec": "recA9bojxuWKcfAVW",
+      "id": "fea24c35-c86a-42da-89a2-38cdf138d372",
+      "name": "Salesforce (manual)",
+      "far": "Salesforce",
+      "live": true,
+      "far_promoted": true,
+      "owner_ruled_empty": "connector product is parked/unpromoted (AECI-700); powered_by carries the attribution",
+      "powered_by": "Zapier"
+    },
+    {
+      "product": "Roofr",
+      "rec": "recF5ZooDmazJETTq",
+      "id": null,
+      "name": "Google Drive (manual)",
+      "far": "Google Drive",
+      "live": false,
+      "far_promoted": false,
+      "owner_ruled_empty": null,
+      "powered_by": "Zapier"
+    },
+    {
+      "product": "Roofr",
+      "rec": "recIeD3eK7Q94rXsG",
+      "id": null,
+      "name": "Gmail (manual)",
+      "far": "Gmail",
+      "live": false,
+      "far_promoted": false,
+      "owner_ruled_empty": null,
+      "powered_by": "Zapier"
+    },
+    {
+      "product": "Roofr",
+      "rec": "recK3hq8OIhlgDBcs",
+      "id": null,
+      "name": "Google Sheets (manual)",
+      "far": "Google Sheets",
+      "live": false,
+      "far_promoted": false,
+      "owner_ruled_empty": null,
+      "powered_by": "Zapier"
+    },
+    {
+      "product": "Roofr",
+      "rec": "recN7fpe4NjIOZbtR",
+      "id": null,
+      "name": "Airtable (manual)",
+      "far": "Airtable",
+      "live": false,
+      "far_promoted": false,
+      "owner_ruled_empty": null,
+      "powered_by": "Zapier"
+    },
+    {
+      "product": "Roofr",
+      "rec": "recRN12tAtzk4EAgz",
+      "id": null,
+      "name": "HubSpot (manual)",
+      "far": "HubSpot",
+      "live": false,
+      "far_promoted": false,
+      "owner_ruled_empty": null,
+      "powered_by": "Zapier"
+    },
+    {
+      "product": "SumoQuote",
+      "rec": "recVgPu4D296vMSRo",
+      "id": "45629e89-0e1a-40c4-b7fa-0e26595841d0",
+      "name": "SumoQuote (manual)",
+      "far": "Roofr",
+      "live": true,
+      "far_promoted": true,
+      "owner_ruled_empty": "connector product is parked/unpromoted (AECI-700); powered_by carries the attribution",
+      "powered_by": "Zapier"
+    },
+    {
+      "product": "Roofr",
+      "rec": "reccJN1HCQHgRpxLX",
+      "id": "a77916a4-f701-4f77-986a-b625cc2d7fe9",
+      "name": "AccuLynx (manual)",
+      "far": "AccuLynx",
+      "live": true,
+      "far_promoted": true,
+      "owner_ruled_empty": "connector product is parked/unpromoted (AECI-700); powered_by carries the attribution",
+      "powered_by": "Zapier"
+    },
+    {
+      "product": "Roofr",
+      "rec": "recdrZTmTZ5svPunn",
+      "id": "58886749-6561-4b70-964f-d9ef20e4dcbf",
+      "name": "Monday.com (manual)",
+      "far": "monday.com",
+      "live": true,
+      "far_promoted": true,
+      "owner_ruled_empty": "connector product is parked/unpromoted (AECI-700); powered_by carries the attribution",
+      "powered_by": "Zapier"
+    },
+    {
+      "product": "Roofr",
+      "rec": "recgOcMGip0QN5QLr",
+      "id": "a59122dc-9f40-46ff-b21c-c7e7facdec0e",
+      "name": "Pipedrive (manual)",
+      "far": "Pipedrive",
+      "live": true,
+      "far_promoted": true,
+      "owner_ruled_empty": "connector product is parked/unpromoted (AECI-700); powered_by carries the attribution",
+      "powered_by": "Zapier"
+    },
+    {
+      "product": "Roofr",
+      "rec": "reckCN1Posw6AwyYC",
+      "id": "97c1833b-bdbd-4551-b99a-1ca19eb6160b",
+      "name": "JobNimbus (manual)",
+      "far": "JobNimbus",
+      "live": true,
+      "far_promoted": true,
+      "owner_ruled_empty": "connector product is parked/unpromoted (AECI-700); powered_by carries the attribution",
+      "powered_by": "Zapier"
+    },
+    {
+      "product": "Roofr",
+      "rec": "reclYGPxrgQgbefLB",
+      "id": null,
+      "name": "Calendly (manual)",
+      "far": "Calendly",
+      "live": false,
+      "far_promoted": false,
+      "owner_ruled_empty": null,
+      "powered_by": "Zapier"
+    },
+    {
+      "product": "Roofr",
+      "rec": "recmxa5u1R4bg44ob",
+      "id": null,
+      "name": "Jotform (manual)",
+      "far": "Jotform",
+      "live": false,
+      "far_promoted": false,
+      "owner_ruled_empty": null,
+      "powered_by": "Zapier"
+    },
+    {
+      "product": "Roofr",
+      "rec": "recnGlzzw2PdkrUhX",
+      "id": "09b38f3a-7992-4df9-bf72-bea5b27e26e1",
+      "name": "Roofr ↔ Microsoft Outlook",
+      "far": "Microsoft Outlook",
+      "live": true,
+      "far_promoted": true,
+      "owner_ruled_empty": "connector product is parked/unpromoted (AECI-700); powered_by carries the attribution",
+      "powered_by": "Zapier"
+    },
+    {
+      "product": "Roofr",
+      "rec": "recpyEQ0Un4tA8cQH",
+      "id": null,
+      "name": "ABC Supply (manual)",
+      "far": "ABC Supply",
+      "live": false,
+      "far_promoted": false,
+      "owner_ruled_empty": null,
+      "powered_by": null
+    },
+    {
+      "product": "Roofr",
+      "rec": "recq1SGHipwTTjfIO",
+      "id": null,
+      "name": "Roofr ↔ Roof Hub",
+      "far": "Roof Hub",
+      "live": false,
+      "far_promoted": false,
+      "owner_ruled_empty": null,
+      "powered_by": null
+    },
+    {
+      "product": "Roofr",
+      "rec": "recy2xhr38EASgD2G",
+      "id": null,
+      "name": "Twilio (manual)",
+      "far": "Twilio",
+      "live": false,
+      "far_promoted": false,
+      "owner_ruled_empty": null,
+      "powered_by": "Zapier"
+    },
+    {
+      "product": "Roofr",
+      "rec": "recy4ac50hRQ9eSO7",
+      "id": null,
+      "name": "Roofr ↔ QXO",
+      "far": "QXO",
+      "live": false,
+      "far_promoted": false,
+      "owner_ruled_empty": null,
+      "powered_by": null
+    },
+    {
+      "product": "Smartsheet",
+      "rec": "rec1S4PDtQIi1gZPb",
+      "id": null,
+      "name": "Smartsheet ↔ Zapier",
+      "far": "Zapier",
+      "live": false,
+      "far_promoted": true,
+      "owner_ruled_empty": null,
+      "powered_by": "Zapier"
+    },
+    {
+      "product": "Smartsheet",
+      "rec": "rec5wRu5BAjNw2btm",
+      "id": null,
+      "name": "Smartsheet ↔ Microsoft Teams",
+      "far": "Microsoft Teams",
+      "live": false,
+      "far_promoted": false,
+      "owner_ruled_empty": null,
+      "powered_by": null
+    },
+    {
+      "product": "Smartsheet",
+      "rec": "rec7b2bl0TvdoSLwL",
+      "id": "78101f0f-8a18-4dfc-af62-75dbb3763cdc",
+      "name": "BIM 360 (manual)",
+      "far": "BIM 360",
+      "live": true,
+      "far_promoted": true,
+      "owner_ruled_empty": "connector product is parked/unpromoted (AECI-700); powered_by carries the attribution",
+      "powered_by": "Workato"
+    },
+    {
+      "product": "Smartsheet",
+      "rec": "recPiKyjxgtE7jDSO",
+      "id": null,
+      "name": "Smartsheet ↔ OneDrive",
+      "far": "OneDrive",
+      "live": false,
+      "far_promoted": false,
+      "owner_ruled_empty": null,
+      "powered_by": null
+    },
+    {
+      "product": "Smartsheet",
+      "rec": "recZNuXrpDZkGRZjq",
+      "id": null,
+      "name": "Smartsheet ↔ Jira",
+      "far": "Jira",
+      "live": false,
+      "far_promoted": false,
+      "owner_ruled_empty": null,
+      "powered_by": null
+    },
+    {
+      "product": "Smartsheet",
+      "rec": "recsxLBKeEoXyULRm",
+      "id": null,
+      "name": "Smartsheet ↔ Google Drive",
+      "far": "Google Drive",
+      "live": false,
+      "far_promoted": false,
+      "owner_ruled_empty": null,
+      "powered_by": null
+    },
+    {
+      "product": "Smartsheet",
+      "rec": "recyVX7rpCb0MW5BG",
+      "id": null,
+      "name": "Smartsheet ↔ Slack",
+      "far": "Slack",
+      "live": false,
+      "far_promoted": false,
+      "owner_ruled_empty": null,
+      "powered_by": null
+    },
+    {
+      "product": "Smartsheet",
+      "rec": "rec60E94UuePC6HG0",
+      "id": "dc6c9315-1042-4bf5-b46d-7ea6862d932d",
+      "name": "PlanGrid → Smartsheet",
+      "far": "PlanGrid",
+      "live": true,
+      "far_promoted": true,
+      "owner_ruled_empty": "connector product is parked/unpromoted (AECI-700); powered_by carries the attribution",
+      "powered_by": "Workato"
+    },
+    {
+      "product": "Smartsheet",
+      "rec": "recjrZHJme4NQ59ER",
+      "id": null,
+      "name": "Smartsheet (manual)",
+      "far": "BQE CORE",
+      "live": false,
+      "far_promoted": false,
+      "owner_ruled_empty": null,
+      "powered_by": "Zapier"
+    },
+    {
+      "product": "SumoQuote",
+      "rec": "recg8XEOtG6ACGsrB",
+      "id": "a722998c-1acf-42fb-bf31-2056b1eeb7f8",
+      "name": "SumoQuote (manual)",
+      "far": "AccuLynx",
+      "live": true,
+      "far_promoted": true,
+      "owner_ruled_empty": "connector product is parked/unpromoted (AECI-700); powered_by carries the attribution",
+      "powered_by": "Zapier"
+    },
+    {
+      "product": "Xero",
+      "rec": "rec2tu8FUMd2T11S7",
+      "id": "1fbd35bb-5fa8-4c37-9905-f26870403748",
+      "name": "JobTread ↔ Xero (Zapier)",
+      "far": "JobTread",
+      "live": true,
+      "far_promoted": true,
+      "owner_ruled_empty": "connector product is parked/unpromoted (AECI-700); powered_by carries the attribution",
+      "powered_by": "Zapier"
+    },
+    {
+      "product": "Xero",
+      "rec": "rec8qZ5daJvOZLfnZ",
+      "id": null,
+      "name": "Xero (manual)",
+      "far": "WorkflowMax",
+      "live": false,
+      "far_promoted": false,
+      "owner_ruled_empty": null,
+      "powered_by": null
+    },
+    {
+      "product": "Xero",
+      "rec": "rec9dQz5Zh6Gicjo7",
+      "id": null,
+      "name": "Xero (manual)",
+      "far": "Fergus",
+      "live": false,
+      "far_promoted": false,
+      "owner_ruled_empty": null,
+      "powered_by": null
+    },
+    {
+      "product": "Xero",
+      "rec": "recOyQpX8iB1BgK2W",
+      "id": null,
+      "name": "Xero (manual)",
+      "far": "Buildertrend",
+      "live": false,
+      "far_promoted": false,
+      "owner_ruled_empty": null,
+      "powered_by": null
+    },
+    {
+      "product": "Xero",
+      "rec": "recSGRrQSh4OCopNs",
+      "id": null,
+      "name": "Xero (manual)",
+      "far": "UpKeep",
+      "live": false,
+      "far_promoted": false,
+      "owner_ruled_empty": null,
+      "powered_by": null
+    },
+    {
+      "product": "Xero",
+      "rec": "recY0U0Tn07V4fxGx",
+      "id": null,
+      "name": "Xero (manual)",
+      "far": "BQE CORE",
+      "live": false,
+      "far_promoted": false,
+      "owner_ruled_empty": null,
+      "powered_by": null
+    },
+    {
+      "product": "Xero",
+      "rec": "recZaYVmKMN3352vb",
+      "id": null,
+      "name": "Xero (manual)",
+      "far": "Tradify",
+      "live": false,
+      "far_promoted": false,
+      "owner_ruled_empty": null,
+      "powered_by": null
+    },
+    {
+      "product": "Xero",
+      "rec": "recgMDqG0Ok3KSlEl",
+      "id": null,
+      "name": "Xero (manual)",
+      "far": "Simpro",
+      "live": false,
+      "far_promoted": false,
+      "owner_ruled_empty": null,
+      "powered_by": null
+    },
+    {
+      "product": "Xero",
+      "rec": "rechxuM2J1KgrXoqI",
+      "id": null,
+      "name": "Xero (manual)",
+      "far": "MaintainX",
+      "live": false,
+      "far_promoted": false,
+      "owner_ruled_empty": null,
+      "powered_by": "Zapier"
+    },
+    {
+      "product": "Xero",
+      "rec": "reclrO4YUxAMtOxmx",
+      "id": "aba87b18-d6ca-42d6-8bf8-5ee0809dd884",
+      "name": "ADP Workforce Now ↔ Xero",
+      "far": "ADP Workforce Now",
+      "live": true,
+      "far_promoted": true,
+      "owner_ruled_empty": "connector product is parked/unpromoted (AECI-700); powered_by carries the attribution",
+      "powered_by": "Workato"
+    },
+    {
+      "product": "Xero",
+      "rec": "reclvqZYW6ks09i7c",
+      "id": null,
+      "name": "Xero (manual)",
+      "far": "FieldPulse",
+      "live": false,
+      "far_promoted": false,
+      "owner_ruled_empty": null,
+      "powered_by": null
+    },
+    {
+      "product": "Xero",
+      "rec": "recrLylTjQiiPddNt",
+      "id": null,
+      "name": "Xero (manual)",
+      "far": "NextMinute",
+      "live": false,
+      "far_promoted": false,
+      "owner_ruled_empty": null,
+      "powered_by": null
+    },
+    {
+      "product": "Xero",
+      "rec": "rectoQVS2WRjA29Pk",
+      "id": null,
+      "name": "Xero (manual)",
+      "far": "ServiceM8",
+      "live": false,
+      "far_promoted": false,
+      "owner_ruled_empty": null,
+      "powered_by": null
+    },
+    {
+      "product": "Xero",
+      "rec": "recuRHWbxWslxZD0J",
+      "id": null,
+      "name": "Xero (manual)",
+      "far": "Precoro",
+      "live": false,
+      "far_promoted": false,
+      "owner_ruled_empty": null,
+      "powered_by": null
+    },
+    {
+      "product": "Xero",
+      "rec": "recwgrjYkRiONwuz7",
+      "id": null,
+      "name": "Xero (manual)",
+      "far": "TriNet",
+      "live": false,
+      "far_promoted": false,
+      "owner_ruled_empty": null,
+      "powered_by": null
+    }
+  ],
+  "connector_parked": [
+    {
+      "rec": "rechdFaId3ii0NYy6",
+      "id": "416f07bd-b3f7-46b6-8705-7bd1fb3bdcf1",
+      "name": "CMiC ↔ Autodesk Forma (via Boomi)",
+      "far": "CMiC",
+      "connector": "Boomi"
+    },
+    {
+      "rec": "rec46FNfCHmH0ZGkR",
+      "id": "22fa14dd-fa00-417f-af40-5e1b443a08c8",
+      "name": "Smartsheet ↔ Autodesk Build",
+      "far": "Autodesk Forma Build",
+      "connector": "Forma Construction Connect (formerly ACC Connect)"
+    }
+  ],
+  "claimed_skip": [],
+  "products": [
+    {
+      "rec": "rec2KtJeJUzqih3ad",
+      "name": "Autodesk Forma",
+      "supabase_id": "5a6f370e-f306-49b7-b3ed-adf37ab10979",
+      "research_status": "Researched",
+      "promotion_status": "promoted",
+      "promote_marker": "idle",
+      "manifest_edges": [
+        "035115f3-793c-4b03-92dc-d660fae4467f",
+        "20415952-8a1d-410c-9570-8880becb4791",
+        "62293162-2ed2-4a64-b248-485aa8fd4fc3",
+        "623fc071-3d42-4b10-8870-6a4584ccfb73",
+        "981daa40-68e6-4bf0-b9b2-66d4955a7a30",
+        "a4ee6242-d6f0-4191-8aa6-e1ef59fa3603",
+        "ba09c8e4-e431-48cb-8144-91531c0a1967",
+        "e8e51da5-8460-4950-ae68-18702c995447",
+        "fceb7c5c-0a14-4bb4-806c-e880e8109feb"
+      ],
+      "will_move_to_pairs": [
+        {
+          "rec": "recJGLghIv8KnlsXG",
+          "id": "623fc071-3d42-4b10-8870-6a4584ccfb73",
+          "name": "Wrike (manual)",
+          "far": "Wrike",
+          "connector": "Workato",
+          "in_manifest": true
+        },
+        {
+          "rec": "recKow9Go3vC4OZUd",
+          "id": "a4ee6242-d6f0-4191-8aa6-e1ef59fa3603",
+          "name": "Dropbox (via Forma Construction Connect)",
+          "far": "Dropbox",
+          "connector": "Workato",
+          "in_manifest": true
+        },
+        {
+          "rec": "recLoW6P3VuTd8c8t",
+          "id": "20415952-8a1d-410c-9570-8880becb4791",
+          "name": "Salesforce (via Forma Construction Connect)",
+          "far": "Salesforce",
+          "connector": "Workato",
+          "in_manifest": true
+        },
+        {
+          "rec": "recRvjDXtsP2tCcZ3",
+          "id": "fceb7c5c-0a14-4bb4-806c-e880e8109feb",
+          "name": "Autodesk Forma → Google Calendar (via Forma Construction Connect)",
+          "far": "Google Calendar",
+          "connector": "Workato",
+          "in_manifest": true
+        },
+        {
+          "rec": "recTZwkhNzampNeSS",
+          "id": "981daa40-68e6-4bf0-b9b2-66d4955a7a30",
+          "name": "Microsoft SharePoint (via Forma Construction Connect)",
+          "far": "Microsoft SharePoint",
+          "connector": "Workato",
+          "in_manifest": true
+        },
+        {
+          "rec": "recWiVmDXrW3hv6wt",
+          "id": "035115f3-793c-4b03-92dc-d660fae4467f",
+          "name": "Box (via Forma Construction Connect)",
+          "far": "Box",
+          "connector": "Workato",
+          "in_manifest": true
+        },
+        {
+          "rec": "recYns7vHz1YEgzfb",
+          "id": "e8e51da5-8460-4950-ae68-18702c995447",
+          "name": "Amazon Redshift (via Forma Construction Connect)",
+          "far": "Amazon Redshift",
+          "connector": "Workato",
+          "in_manifest": true
+        },
+        {
+          "rec": "recNojqvcP0PCKgHW",
+          "id": "ba09c8e4-e431-48cb-8144-91531c0a1967",
+          "name": "Microsoft Dynamics 365 ↔ Autodesk Forma",
+          "far": "Microsoft Dynamics 365",
+          "connector": "Workato",
+          "in_manifest": true
+        },
+        {
+          "rec": "recsUZnGyaiO6sqEK",
+          "id": "62293162-2ed2-4a64-b248-485aa8fd4fc3",
+          "name": "Oracle NetSuite ↔ Autodesk Forma",
+          "far": "Oracle NetSuite",
+          "connector": "Workato",
+          "in_manifest": true
+        }
+      ],
+      "will_update_in_place": [
+        {
+          "rec": "recWKTxFQAq0kGDvn",
+          "id": "753bfa04-ce7a-44e8-983d-1a82f0d19b62",
+          "name": "Autodesk Forma → Microsoft Fabric",
+          "far": "Microsoft Fabric",
+          "table": "integrations"
+        },
+        {
+          "rec": "rec6ZalyBC6H6UnRq",
+          "id": "d06dd58a-05be-4226-92c2-87f65ebf2b44",
+          "name": "Autodesk Forma ↔ Procore (ProjectReady WorkBridge)",
+          "far": "Procore Project Management",
+          "table": "connector_evidenced_pairs"
+        },
+        {
+          "rec": "rec0wPtkXCpx9l1Dk",
+          "id": "851d945f-eb2b-4b81-a73c-ce81dcb1d9ac",
+          "name": "DroneDeploy",
+          "far": "DroneDeploy",
+          "table": "integrations"
+        },
+        {
+          "rec": "rec9GnI5wG9hfpewl",
+          "id": "51c0eb62-9743-4b3d-8860-92ef9bd9375d",
+          "name": "CupixWorks",
+          "far": "CupixWorks",
+          "table": "integrations"
+        },
+        {
+          "rec": "recBL85bbICUSkvp7",
+          "id": "a70e2044-1fe6-42e7-9437-b0d25ea6fc9a",
+          "name": "Autodesk Forma ↔ Bluebeam (Be.Smart Connector)",
+          "far": "Bluebeam Revu",
+          "table": "connector_evidenced_pairs"
+        },
+        {
+          "rec": "recCzCbcUsOPrXxSb",
+          "id": "15758879-2d46-4d09-af8f-c93f90c33f74",
+          "name": "SignNow",
+          "far": "airSlate SignNow",
+          "table": "integrations"
+        },
+        {
+          "rec": "recJ52uuel6iE1uv4",
+          "id": "c72dde5b-f869-4f3a-82f8-82fdeaeee54f",
+          "name": "Outbuild",
+          "far": "Outbuild",
+          "table": "integrations"
+        },
+        {
+          "rec": "recL6RkiQhKTk2d9c",
+          "id": "fbb74033-4497-41dd-84d8-e08a24e1f7a1",
+          "name": "InEight (via Utopia Digital CDE Sync)",
+          "far": "InEight",
+          "table": "connector_evidenced_pairs"
+        },
+        {
+          "rec": "recP23dD2zwpm5M0n",
+          "id": "a38302d9-536c-47a9-bf0b-e815b9c4e57b",
+          "name": "Docusign (manual)",
+          "far": "Docusign",
+          "table": "integrations"
+        },
+        {
+          "rec": "recTdbcdkeQx9itcW",
+          "id": "cd3cb788-551f-4c99-8a35-d5ca40fe7d66",
+          "name": "Autodesk Forma ↔ Datagrid",
+          "far": "Datagrid",
+          "table": "integrations"
+        },
+        {
+          "rec": "recTtKgVHbGg2XJvw",
+          "id": "97707f7c-3438-438c-bf85-4499d757ba00",
+          "name": "Autodesk Forma → Power BI",
+          "far": "Power BI",
+          "table": "integrations"
+        },
+        {
+          "rec": "recYMeLoN3COlvLMv",
+          "id": "7befba8f-06f7-4737-a095-8a1a55c8b59f",
+          "name": "ProjectWise (via Utopia Digital CDE Sync)",
+          "far": "ProjectWise",
+          "table": "connector_evidenced_pairs"
+        },
+        {
+          "rec": "recc9nkscoPJ0hu42",
+          "id": "45ca38ae-9a6c-46f8-b906-e85a386ccbac",
+          "name": "Autodesk Forma ↔ Forma Data Management (Forma Board / CDE connection)",
+          "far": "Forma Data Management",
+          "table": "integrations"
+        },
+        {
+          "rec": "recdMVN4cbRr6vb6i",
+          "id": "37e8a9f6-569b-4a23-a55e-8d5584b53586",
+          "name": "Egnyte (from ACC)",
+          "far": "Egnyte",
+          "table": "integrations"
+        },
+        {
+          "rec": "rechKifSPsx6ypQdQ",
+          "id": "f8affbc4-2053-49ce-9214-96a12082fc46",
+          "name": "ArcGIS (manual)",
+          "far": "ArcGIS",
+          "table": "integrations"
+        },
+        {
+          "rec": "rechdFaId3ii0NYy6",
+          "id": "416f07bd-b3f7-46b6-8705-7bd1fb3bdcf1",
+          "name": "CMiC ↔ Autodesk Forma (via Boomi)",
+          "far": "CMiC",
+          "table": "integrations"
+        },
+        {
+          "rec": "recjEd9Fm64uXiQHP",
+          "id": "c9768de9-49a0-4a83-a075-ff57da5601b8",
+          "name": "Autodesk Forma → Revizto",
+          "far": "Revizto",
+          "table": "integrations"
+        },
+        {
+          "rec": "recjRTyFSWShGfhY8",
+          "id": "30cde97a-507c-4dc8-96ee-c387ced9a3db",
+          "name": "Propeller",
+          "far": "Propeller",
+          "table": "integrations"
+        },
+        {
+          "rec": "recjjUEjjyYHAYMkh",
+          "id": "6cbe89a9-82e0-44a9-8220-cfa7c98e9732",
+          "name": "Autodesk Forma ↔ Aquifer",
+          "far": "Aquifer",
+          "table": "integrations"
+        },
+        {
+          "rec": "recl1qCKfohoqLTku",
+          "id": "e973f5d8-cf72-4a94-b710-389f096c6816",
+          "name": "SketchUp (manual)",
+          "far": "SketchUp",
+          "table": "integrations"
+        },
+        {
+          "rec": "recl8nZjwlOLTUTFV",
+          "id": "1aaaaa33-5384-4803-8efa-f4e15a37483b",
+          "name": "HammerTech",
+          "far": "HammerTech",
+          "table": "integrations"
+        },
+        {
+          "rec": "recpJVV7CDTpKFeiQ",
+          "id": "3d5b15ea-86b4-4928-9c4b-65eb2db6520a",
+          "name": "Autodesk Forma ↔ Procore (BIMLauncher Connector)",
+          "far": "Procore Project Management",
+          "table": "connector_evidenced_pairs"
+        },
+        {
+          "rec": "recqCshJ1TeYSv0va",
+          "id": "dc724e83-6f4d-4000-b986-02c4d9c195eb",
+          "name": "OpenSpace",
+          "far": "OpenSpace",
+          "table": "integrations"
+        },
+        {
+          "rec": "rec0RGs3co4Dj2wsu",
+          "id": "9d881f4e-1d87-41a9-83bb-be1eb2bafef6",
+          "name": "Graphisoft Archicad → Autodesk Forma (Forma Connection)",
+          "far": "Graphisoft Archicad",
+          "table": "integrations"
+        },
+        {
+          "rec": "rec4NHH9uiNw6RUxX",
+          "id": "c6a332f5-00dc-43a5-9478-39a0e2b3b2d8",
+          "name": "VIKTOR ↔ Autodesk Forma",
+          "far": "VIKTOR",
+          "table": "integrations"
+        },
+        {
+          "rec": "rec4P98E9wkuSZJiK",
+          "id": "122cd72e-58fd-4ab7-bc68-93d39db49230",
+          "name": "Buildots → Autodesk Forma",
+          "far": "Buildots",
+          "table": "integrations"
+        },
+        {
+          "rec": "rec7IFIFf6SZ6UHzP",
+          "id": "d3c19204-1f59-40ce-b258-975886d40ed7",
+          "name": "Enlaye for Autodesk Forma",
+          "far": "Enlaye",
+          "table": "integrations"
+        },
+        {
+          "rec": "rec8h3cWLV4HkQ6IV",
+          "id": "e4162077-b3cd-4a83-ac8a-413dac21fba2",
+          "name": "GoFormz ↔ Autodesk Forma",
+          "far": "GoFormz",
+          "table": "integrations"
+        },
+        {
+          "rec": "recBtIr9Jff3rtKY8",
+          "id": "df14acf3-9594-40d8-9334-26275d82c29e",
+          "name": "Structured AI → Autodesk Forma",
+          "far": "Structured AI",
+          "table": "integrations"
+        },
+        {
+          "rec": "recG4ICwV01XiOVqY",
+          "id": "0aa79b7f-e697-49b7-90b2-c81e605f1e8d",
+          "name": "Billy Insurance Compliance ↔ Autodesk Forma",
+          "far": "Billy Insurance Compliance",
+          "table": "integrations"
+        },
+        {
+          "rec": "recILMI1KN0Fqqj3A",
+          "id": "15779c38-67be-4b90-aff6-b6fd66ba1cc7",
+          "name": "Autodesk Revit ↔ Autodesk Forma",
+          "far": "Autodesk Revit",
+          "table": "integrations"
+        },
+        {
+          "rec": "recIstIzSe1FaPdvM",
+          "id": "caf8a636-21e9-4c31-a004-f3726c957a89",
+          "name": "Nomic ↔ Autodesk Forma",
+          "far": "Nomic",
+          "table": "integrations"
+        },
+        {
+          "rec": "recJPvCLr4oZovw9N",
+          "id": "64139e51-f300-4053-bc1b-5f7bed923aef",
+          "name": "Raken → Autodesk Forma",
+          "far": "Raken",
+          "table": "integrations"
+        },
+        {
+          "rec": "recVb6N0UZmmSvmVJ",
+          "id": "ccab32e9-68ff-4491-9fcd-d7648837ccc2",
+          "name": "ConCntric → Autodesk Forma (Procurement Sync)",
+          "far": "ConCntric",
+          "table": "integrations"
+        },
+        {
+          "rec": "recbemKul2MNoQaen",
+          "id": "b63c908e-caeb-41cb-90c7-14d379614f8a",
+          "name": "Matterport → Autodesk Forma",
+          "far": "Matterport",
+          "table": "integrations"
+        },
+        {
+          "rec": "reclIfGzzdGdShzlJ",
+          "id": "1eb60d0c-9c3e-45a7-8928-920382a64105",
+          "name": "Navisworks ↔ Autodesk Forma (Model Coordination + Coordination Issues)",
+          "far": "Navisworks",
+          "table": "integrations"
+        },
+        {
+          "rec": "recojzCpvzbQ6wUin",
+          "id": "2dc920d3-013c-4520-8b02-c55ed060b1b6",
+          "name": "DigiBuild → Autodesk Forma",
+          "far": "DigiBuild",
+          "table": "integrations"
+        },
+        {
+          "rec": "recw1PKLxjkZiFcvK",
+          "id": "3de1976c-d184-498a-9b8c-6f75cfe4cd76",
+          "name": "Krane ↔ Autodesk Forma",
+          "far": "Krane",
+          "table": "integrations"
+        }
+      ],
+      "will_create": [],
+      "withheld_no_owner": [],
+      "sent_without_owner": [],
+      "connector_parked": [
+        {
+          "rec": "rechdFaId3ii0NYy6",
+          "id": "416f07bd-b3f7-46b6-8705-7bd1fb3bdcf1",
+          "name": "CMiC ↔ Autodesk Forma (via Boomi)",
+          "far": "CMiC",
+          "connector": "Boomi"
+        }
+      ],
+      "claimed_skip": [],
+      "not_sent_far_endpoint_unpromoted": 38
+    },
+    {
+      "rec": "recCOE9Ju0ZRoW8ss",
+      "name": "Box",
+      "supabase_id": "51921700-ce33-4862-83df-973885a16f95",
+      "research_status": "Researched",
+      "promotion_status": "promoted",
+      "promote_marker": "idle",
+      "manifest_edges": [
+        "035115f3-793c-4b03-92dc-d660fae4467f",
+        "9301b03a-ac1c-486a-9e0d-e12249080728"
+      ],
+      "will_move_to_pairs": [
+        {
+          "rec": "recWiVmDXrW3hv6wt",
+          "id": "035115f3-793c-4b03-92dc-d660fae4467f",
+          "name": "Box (via Forma Construction Connect)",
+          "far": "Autodesk Forma",
+          "connector": "Workato",
+          "in_manifest": true
+        },
+        {
+          "rec": "reci3P0uZ7P8szjag",
+          "id": "9301b03a-ac1c-486a-9e0d-e12249080728",
+          "name": "Box (ipaas)",
+          "far": "Microsoft SharePoint",
+          "connector": "Zapier",
+          "in_manifest": true
+        }
+      ],
+      "will_update_in_place": [
+        {
+          "rec": "recJfrAfwGP27F870",
+          "id": "ede6d901-b7d8-4572-9fc7-e203509a877f",
+          "name": "Box → ChatGPT",
+          "far": "ChatGPT",
+          "table": "integrations"
+        },
+        {
+          "rec": "recMZbwwW3G2pBwd4",
+          "id": "ff810191-7d2f-45d4-a984-77e017c373d4",
+          "name": "SignNow (manual)",
+          "far": "airSlate SignNow",
+          "table": "integrations"
+        },
+        {
+          "rec": "recNJCMsEYp1FkLwT",
+          "id": "ee34de2e-d553-48a1-b052-18a769611f39",
+          "name": "Oracle Aconex (manual)",
+          "far": "Oracle Aconex",
+          "table": "integrations"
+        },
+        {
+          "rec": "recXyNOgIEYvAsRcc",
+          "id": "02f8b281-47fc-4720-ab87-f1d4e0a4fc6c",
+          "name": "Box ↔ Microsoft Entra ID (SSO + SCIM)",
+          "far": "Microsoft Entra ID",
+          "table": "integrations"
+        },
+        {
+          "rec": "recnW07QVRelHDEIp",
+          "id": "94f72990-8db8-47a3-a984-17e7ea7691ef",
+          "name": "Revizto (manual)",
+          "far": "Revizto",
+          "table": "integrations"
+        },
+        {
+          "rec": "rectOtRJjWh9cuvH8",
+          "id": "e17d1dff-4bfa-41e6-985e-66cde0d31e1d",
+          "name": "Raken → Box",
+          "far": "Raken",
+          "table": "integrations"
+        },
+        {
+          "rec": "rec7GCE9kmY4vguaq",
+          "id": "8e6cd45d-c776-4e82-88cb-8207f3ef93da",
+          "name": "Box (manual)",
+          "far": "GoFormz",
+          "table": "integrations"
+        },
+        {
+          "rec": "recNm9E4EBhLfz1WL",
+          "id": "86414eaf-8477-4635-b21e-3e12617e470f",
+          "name": "Box (manual)",
+          "far": "Docusign",
+          "table": "integrations"
+        },
+        {
+          "rec": "recWldJTEm8vCOqS0",
+          "id": "ae8c8925-3c1c-4ccd-a3a6-19d4896f0582",
+          "name": "Box (manual)",
+          "far": "Quickbase",
+          "table": "integrations"
+        },
+        {
+          "rec": "recjyxSXTO7GV7Avs",
+          "id": "c4a02861-4c90-45f6-bde4-1771c9d6ae20",
+          "name": "Box (manual)",
+          "far": "Procore Project Management",
+          "table": "connector_evidenced_pairs"
+        },
+        {
+          "rec": "reclzFB6qtBfb9xo1",
+          "id": "ff42fb79-4422-4f8a-991a-3c638f64aefd",
+          "name": "Box (manual)",
+          "far": "SmartBid",
+          "table": "integrations"
+        },
+        {
+          "rec": "recomPMQPSmiQjhCt",
+          "id": "3dc68304-dae3-49a9-8b85-57cfde2b1743",
+          "name": "monday.com ↔ Box",
+          "far": "monday.com",
+          "table": "integrations"
+        },
+        {
+          "rec": "recqV58Z2Ys6cCJ5K",
+          "id": "953d3186-7679-4567-8743-14fed3f3e95c",
+          "name": "Box (manual)",
+          "far": "Fieldwire",
+          "table": "integrations"
+        },
+        {
+          "rec": "recsTE60R9H73P5hf",
+          "id": "bc09a6da-1f1b-4ef3-bd21-32ab3d6bc42c",
+          "name": "Unanet ERP ↔ Box",
+          "far": "Unanet ERP",
+          "table": "integrations"
+        },
+        {
+          "rec": "recuuCWQy3GEYklIJ",
+          "id": "f5565705-66c6-4a79-a85d-97e29e21cdf5",
+          "name": "Smartsheet ↔ Box",
+          "far": "Smartsheet",
+          "table": "integrations"
+        }
+      ],
+      "will_create": [],
+      "withheld_no_owner": [],
+      "sent_without_owner": [],
+      "connector_parked": [],
+      "claimed_skip": [],
+      "not_sent_far_endpoint_unpromoted": 2
+    },
+    {
+      "rec": "recDzKmObXRE6uHpm",
+      "name": "busybusy",
+      "supabase_id": "2c6d8766-035e-4730-852c-84a3455233da",
+      "research_status": "Researched",
+      "promotion_status": "promoted",
+      "promote_marker": "idle",
+      "manifest_edges": ["86b5b572-2c9c-4c2a-bfc1-23df428f5090"],
+      "will_move_to_pairs": [
+        {
+          "rec": "recy1LgPZbAWc2VOk",
+          "id": "86b5b572-2c9c-4c2a-bfc1-23df428f5090",
+          "name": "busybusy (manual)",
+          "far": "BambooHR",
+          "connector": "Zapier",
+          "in_manifest": true
+        }
+      ],
+      "will_update_in_place": [
+        {
+          "rec": "recl6FfWZRdjG9siE",
+          "id": "2c40dd7a-c9dc-4a89-ac00-1599638bc2ab",
+          "name": "busybusy → Sage 100 Contractor",
+          "far": "Sage 100 Contractor",
+          "table": "integrations"
+        },
+        {
+          "rec": "rec13FVm9GOb5qq1s",
+          "id": "8755cd76-106a-45a7-b2ea-c00426673cc5",
+          "name": "Foundation Software (manual)",
+          "far": "Foundation Software",
+          "table": "integrations"
+        },
+        {
+          "rec": "rec2M3BLP5hbSZh8U",
+          "id": "6e3ea249-d6e0-47e3-9401-b66eac7f9f69",
+          "name": "busybusy → QuickBooks Desktop",
+          "far": "QuickBooks Desktop",
+          "table": "integrations"
+        },
+        {
+          "rec": "rec8Vpjibj6dHyAen",
+          "id": "4c13f8c0-f80f-445b-89bb-e99eb7a3b35d",
+          "name": "Sage 300 CRE (manual)",
+          "far": "Sage 300 CRE",
+          "table": "integrations"
+        },
+        {
+          "rec": "recEgTC0ogbZl18JS",
+          "id": "d8a6e08d-76fe-42cd-a806-4eb135a1af9d",
+          "name": "QuickBooks Online (manual)",
+          "far": "QuickBooks Online",
+          "table": "integrations"
+        },
+        {
+          "rec": "recIssRsH0MwXS1HT",
+          "id": "315c4ddf-d531-47fc-8388-cd929dfef720",
+          "name": "busybusy → Sage Intacct",
+          "far": "Sage Intacct",
+          "table": "integrations"
+        },
+        {
+          "rec": "recJZRBWI6hpv3TrA",
+          "id": "b524800c-ada9-4f95-8b34-f6b23938b77d",
+          "name": "busybusy ↔ CompanyCam",
+          "far": "CompanyCam",
+          "table": "integrations"
+        },
+        {
+          "rec": "recPJeP98SGkXK9XF",
+          "id": "373f3165-d2f8-4b1c-bb98-4cfbb5ab03a7",
+          "name": "Deltek ComputerEase (manual)",
+          "far": "Deltek ComputerEase",
+          "table": "integrations"
+        },
+        {
+          "rec": "recV1i7drdfT6RwhC",
+          "id": "a72d51b6-f967-4f6e-ae6b-af26e2e9f52b",
+          "name": "busybusy → CMiC",
+          "far": "CMiC",
+          "table": "integrations"
+        },
+        {
+          "rec": "reccxj7yJsJxvt0eA",
+          "id": "4bbe48c5-44b9-4aec-9566-e9af626d18c5",
+          "name": "Viewpoint Spectrum (manual)",
+          "far": "Viewpoint Spectrum",
+          "table": "integrations"
+        },
+        {
+          "rec": "recp0OFwrThPUY7Yy",
+          "id": "6a952cc4-670f-47e8-bc50-d501d673f865",
+          "name": "Microsoft Dynamics 365 (manual)",
+          "far": "Microsoft Dynamics 365",
+          "table": "integrations"
+        },
+        {
+          "rec": "recx8vP2x4Tgzj3ye",
+          "id": "8cc3b66f-e0c5-49cb-af4e-255f267668c1",
+          "name": "Viewpoint Vista (manual)",
+          "far": "Viewpoint Vista",
+          "table": "integrations"
+        },
+        {
+          "rec": "recIXg6JhwMuOY4RS",
+          "id": "535ec93b-289a-4c77-b989-cfc1aeb067eb",
+          "name": "BusyBusy (web)",
+          "far": "ADP Workforce Now",
+          "table": "integrations"
+        },
+        {
+          "rec": "recsHiKDpDzdCKKKN",
+          "id": "e1155e9c-c429-4c14-ae0a-e73cab79c6db",
+          "name": "busybusy ↔ Procore (Procore App)",
+          "far": "Procore Project Management",
+          "table": "integrations"
+        }
+      ],
+      "will_create": [],
+      "withheld_no_owner": [],
+      "sent_without_owner": [],
+      "connector_parked": [],
+      "claimed_skip": [],
+      "not_sent_far_endpoint_unpromoted": 7
+    },
+    {
+      "rec": "recvm3gJmUFLMzVIL",
+      "name": "Deltek Vantagepoint",
+      "supabase_id": "d94e6b16-64a4-4d38-bf56-6bd45c75a0e1",
+      "research_status": "Researched",
+      "promotion_status": "promoted",
+      "promote_marker": "idle",
+      "manifest_edges": [
+        "7a1d9704-297a-4ed8-a918-9e5fabedb9f1",
+        "a3ef77ab-af10-416d-8aa7-56e5c827f7a8",
+        "f9f77dc3-6cb7-4bc2-a0f4-bdacbc8a65bf"
+      ],
+      "will_move_to_pairs": [
+        {
+          "rec": "recGw89US0TM7cS6y",
+          "id": "f9f77dc3-6cb7-4bc2-a0f4-bdacbc8a65bf",
+          "name": "Deltek Vantagepoint ↔ Power BI",
+          "far": "Power BI",
+          "connector": "Workato",
+          "in_manifest": true
+        },
+        {
+          "rec": "recburKTVmRubMTfX",
+          "id": "a3ef77ab-af10-416d-8aa7-56e5c827f7a8",
+          "name": "Docusign (manual)",
+          "far": "Docusign",
+          "connector": "Workato",
+          "in_manifest": true
+        },
+        {
+          "rec": "rec985mneNvmSoWIS",
+          "id": "7a1d9704-297a-4ed8-a918-9e5fabedb9f1",
+          "name": "Deltek Vantagepoint (ipaas)",
+          "far": "Egnyte",
+          "connector": "Workato",
+          "in_manifest": true
+        }
+      ],
+      "will_update_in_place": [
+        {
+          "rec": "rec3WCW5flxnE1Pij",
+          "id": "38536dda-d0f9-473a-917c-cdc3133075a7",
+          "name": "Deltek Vantagepoint ↔ SAP Concur",
+          "far": "SAP Concur",
+          "table": "connector_evidenced_pairs"
+        },
+        {
+          "rec": "rec7vpDxZv5tVq37L",
+          "id": "b3787238-2587-4190-8ba6-43c4996f01e1",
+          "name": "Deltek Vantagepoint ↔ Newforma",
+          "far": "Newforma",
+          "table": "integrations"
+        },
+        {
+          "rec": "recB8sv092qnpzsR4",
+          "id": "71dc78e0-1bf0-4f26-8fa4-31606e388c84",
+          "name": "Deltek Vantagepoint ↔ Paylocity",
+          "far": "Paylocity",
+          "table": "connector_evidenced_pairs"
+        },
+        {
+          "rec": "recKV0G3dzob09OcH",
+          "id": "53c13cce-35b6-451e-8024-6407bda77845",
+          "name": "Microsoft Project (manual)",
+          "far": "Microsoft Project",
+          "table": "integrations"
+        },
+        {
+          "rec": "recMq7e55gDsvX6G0",
+          "id": "999c5c1e-b1df-487e-9647-0249fed7667b",
+          "name": "Deltek Vantagepoint ↔ Workato",
+          "far": "Workato",
+          "table": "integrations"
+        },
+        {
+          "rec": "reccqfftdrIwR4JBI",
+          "id": "55b39eb6-6311-4328-be2d-94594f3b168d",
+          "name": "Deltek Vantagepoint ↔ Deltek Core HR",
+          "far": "Deltek Core HR",
+          "table": "integrations"
+        },
+        {
+          "rec": "recd1k3Qpv9v6OMTS",
+          "id": "0e811a75-a04c-4ed6-af83-830684802909",
+          "name": "Deltek Vantagepoint ↔ Salesforce",
+          "far": "Salesforce",
+          "table": "integrations"
+        },
+        {
+          "rec": "recgNWzOaHtXhZpgc",
+          "id": "345f270b-98e6-4d15-b8a0-99645bd1bdc4",
+          "name": "Deltek Vantagepoint ↔ BambooHR",
+          "far": "BambooHR",
+          "table": "connector_evidenced_pairs"
+        },
+        {
+          "rec": "rechMeAiC856bKAjZ",
+          "id": "2ebe8c24-b957-495f-9bff-6ca2e4443d2a",
+          "name": "Deltek Vantagepoint ↔ ADP Workforce Now",
+          "far": "ADP Workforce Now",
+          "table": "connector_evidenced_pairs"
+        },
+        {
+          "rec": "reciklM3Z4V7NuCAx",
+          "id": "8cdb47f0-2976-4a52-bca6-71f489ab0003",
+          "name": "Deltek Vantagepoint ↔ Microsoft Outlook",
+          "far": "Microsoft Outlook",
+          "table": "integrations"
+        },
+        {
+          "rec": "reckTJavvrkyyLpXq",
+          "id": "f50f1d73-96c5-4604-9e7d-ec9bf4df5721",
+          "name": "Xero (manual)",
+          "far": "Xero",
+          "table": "integrations"
+        },
+        {
+          "rec": "recnFWUj5haqDJC8C",
+          "id": "94d613a1-d13e-4bf4-bf11-0e9cd03f3bf2",
+          "name": "Deltek Vantagepoint ↔ PLANIFI",
+          "far": "Planifi",
+          "table": "integrations"
+        },
+        {
+          "rec": "recRU5Ln01I02fUl0",
+          "id": "a365387a-7f75-40e0-8455-1ac22fc60bf7",
+          "name": "Corpay ↔ Deltek Vantagepoint",
+          "far": "Corpay",
+          "table": "integrations"
+        },
+        {
+          "rec": "receZGfROiMmxrSoo",
+          "id": "2c525dc0-861d-4746-b6e5-fbdea404f211",
+          "name": "Deltek Vantagepoint (manual)",
+          "far": "OpenAsset",
+          "table": "integrations"
+        },
+        {
+          "rec": "reczXK7AdZVkagyhM",
+          "id": "846d5b89-df3e-42c5-bca5-9f474c0d0274",
+          "name": "Smartsheet ↔ Deltek Vantagepoint",
+          "far": "Smartsheet",
+          "table": "connector_evidenced_pairs"
+        }
+      ],
+      "will_create": [
+        {
+          "rec": "recLOKlsKSqqRP2dN",
+          "id": null,
+          "name": "QuickBooks Online (Deltek-built)",
+          "far": "QuickBooks Online",
+          "powered_by": null
+        }
+      ],
+      "withheld_no_owner": [
+        {
+          "rec": "recDH7fyreT2duB29",
+          "id": null,
+          "name": "Deltek Vantagepoint ↔ Blackbox Connector",
+          "far": "Blackbox Connector"
+        },
+        {
+          "rec": "recD0cM64HrOXK1mM",
+          "id": null,
+          "name": "Workday HCM → Deltek Vantagepoint",
+          "far": "Workday HCM"
+        }
+      ],
+      "sent_without_owner": [],
+      "connector_parked": [],
+      "claimed_skip": [],
+      "not_sent_far_endpoint_unpromoted": 34
+    },
+    {
+      "rec": "recdO5uJDgWBpNVmD",
+      "name": "Egnyte",
+      "supabase_id": "f673dd7e-c1aa-4ae8-a070-64de11fbb157",
+      "research_status": "Researched",
+      "promotion_status": "promoted",
+      "promote_marker": "idle",
+      "manifest_edges": [
+        "4b1499f9-902c-4de5-94f1-b387c10fa924",
+        "7a1d9704-297a-4ed8-a918-9e5fabedb9f1"
+      ],
+      "will_move_to_pairs": [
+        {
+          "rec": "rec985mneNvmSoWIS",
+          "id": "7a1d9704-297a-4ed8-a918-9e5fabedb9f1",
+          "name": "Deltek Vantagepoint (ipaas)",
+          "far": "Deltek Vantagepoint",
+          "connector": "Workato",
+          "in_manifest": true
+        },
+        {
+          "rec": "recY3YBqRYJH6OAj2",
+          "id": "4b1499f9-902c-4de5-94f1-b387c10fa924",
+          "name": "BIM 360 (ipaas)",
+          "far": "BIM 360",
+          "connector": "Workato",
+          "in_manifest": true
+        }
+      ],
+      "will_update_in_place": [
+        {
+          "rec": "recgbszNk6pUiafSH",
+          "id": "024a5c21-00a6-45af-9037-e3957902c1cd",
+          "name": "Egnyte ↔ Bluebeam Revu (Bluebeam-built)",
+          "far": "Bluebeam Revu",
+          "table": "integrations"
+        },
+        {
+          "rec": "rec59FoeNkBaHah0V",
+          "id": "1011b893-0337-4a27-b18e-216a3922f3e7",
+          "name": "Salesforce (website)",
+          "far": "Salesforce",
+          "table": "integrations"
+        },
+        {
+          "rec": "recMyBCIb9GDoTyDN",
+          "id": "8db0cfda-23e4-47cb-bd99-f13575063221",
+          "name": "Egnyte ↔ Microsoft Entra ID (SSO + SCIM)",
+          "far": "Microsoft Entra ID",
+          "table": "integrations"
+        },
+        {
+          "rec": "recOldLd6CrfB9PIt",
+          "id": "c04591c2-df9c-4966-9b11-bae4fa01e877",
+          "name": "DocuSign (website)",
+          "far": "Docusign",
+          "table": "integrations"
+        },
+        {
+          "rec": "recPsjwG9i8qzJwB4",
+          "id": "8622364b-cae2-477f-b660-b9bcf7365b56",
+          "name": "Egnyte ↔ Aquifer",
+          "far": "Aquifer",
+          "table": "integrations"
+        },
+        {
+          "rec": "reccsu8OTiH7jl7FG",
+          "id": "40c6152c-5dbd-47e5-a1a7-a85d2ce19c5b",
+          "name": "Bluebeam (website)",
+          "far": "Bluebeam Revu",
+          "table": "integrations"
+        },
+        {
+          "rec": "recdk5QWg1ANBlatZ",
+          "id": "b30a4b0f-ff16-40b4-8a33-4d29fad1d807",
+          "name": "Newforma (website)",
+          "far": "Newforma",
+          "table": "integrations"
+        },
+        {
+          "rec": "rec6ZAURRrcbqujqm",
+          "id": "f5ec1cb2-1d9d-4fe1-ba11-a3c142cffcc7",
+          "name": "Egnyte (manual)",
+          "far": "Fieldwire",
+          "table": "integrations"
+        },
+        {
+          "rec": "recFNih4NXFMvlcCv",
+          "id": "668ceceb-aee2-42ed-8831-1979a0f7a126",
+          "name": "Egnyte → Nomic",
+          "far": "Nomic",
+          "table": "integrations"
+        },
+        {
+          "rec": "recHP4yV6aC7Prsuq",
+          "id": "8a952233-326f-48d7-845e-d20c5e06fd86",
+          "name": "Raken → Egnyte",
+          "far": "Raken",
+          "table": "integrations"
+        },
+        {
+          "rec": "recJgGbrElZghTvXV",
+          "id": "d65fd98e-a0f0-4d31-88b6-e4819392b275",
+          "name": "Egnyte (manual)",
+          "far": "GoFormz",
+          "table": "integrations"
+        },
+        {
+          "rec": "recMG3QOI0IK8ByBK",
+          "id": "809ed949-235b-4fc2-9ec8-facaf02499b9",
+          "name": "Smartsheet ↔ Egnyte",
+          "far": "Smartsheet",
+          "table": "integrations"
+        },
+        {
+          "rec": "recPQJKwIEyKtYilN",
+          "id": "4f5225d7-6eeb-4fae-ab98-f560b3db0f9d",
+          "name": "Egnyte (manual)",
+          "far": "SmartBid",
+          "table": "integrations"
+        },
+        {
+          "rec": "recUJ6LEI20TpVOek",
+          "id": "a79d2737-5164-4afe-967c-28ccc89888fd",
+          "name": "Egnyte (web)",
+          "far": "TrebleHook",
+          "table": "integrations"
+        },
+        {
+          "rec": "recXX5gD8Aaxh95Sm",
+          "id": "d88e637e-bef1-46d2-9034-55012c4b8e6d",
+          "name": "",
+          "far": "Procore Project Management",
+          "table": "integrations"
+        },
+        {
+          "rec": "recYhajY2JMRCrwST",
+          "id": "7a6d0233-9db6-4767-a7d6-91c71503cb86",
+          "name": "Egnyte (manual)",
+          "far": "InspectMind AI",
+          "table": "integrations"
+        },
+        {
+          "rec": "recdMVN4cbRr6vb6i",
+          "id": "37e8a9f6-569b-4a23-a55e-8d5584b53586",
+          "name": "Egnyte (from ACC)",
+          "far": "Autodesk Forma",
+          "table": "integrations"
+        },
+        {
+          "rec": "reciam9fWdx7xp8FS",
+          "id": "6358c047-0074-4ac6-8083-07384371ad73",
+          "name": "Join ↔ Egnyte",
+          "far": "Join",
+          "table": "integrations"
+        }
+      ],
+      "will_create": [],
+      "withheld_no_owner": [],
+      "sent_without_owner": [],
+      "connector_parked": [],
+      "claimed_skip": [],
+      "not_sent_far_endpoint_unpromoted": 3
+    },
+    {
+      "rec": "recEuQ8n9wSqaoEBL",
+      "name": "Google Calendar",
+      "supabase_id": "990753bf-c49e-46ac-9b14-70cceb769626",
+      "research_status": "Researched",
+      "promotion_status": "promoted",
+      "promote_marker": "idle",
+      "manifest_edges": [
+        "c7010f9b-3693-49cb-a600-a5ed20776ae8",
+        "fceb7c5c-0a14-4bb4-806c-e880e8109feb"
+      ],
+      "will_move_to_pairs": [
+        {
+          "rec": "recRvjDXtsP2tCcZ3",
+          "id": "fceb7c5c-0a14-4bb4-806c-e880e8109feb",
+          "name": "Autodesk Forma → Google Calendar (via Forma Construction Connect)",
+          "far": "Autodesk Forma",
+          "connector": "Workato",
+          "in_manifest": true
+        },
+        {
+          "rec": "reccCVw4EgV41DMW1",
+          "id": "c7010f9b-3693-49cb-a600-a5ed20776ae8",
+          "name": "ServiceTitan ↔ Google Calendar",
+          "far": "ServiceTitan",
+          "connector": "Zapier",
+          "in_manifest": true
+        }
+      ],
+      "will_update_in_place": [
+        {
+          "rec": "rec82sRvOTZg9JW2w",
+          "id": "32b33725-befe-4483-a7ea-555d6b41b93d",
+          "name": "Google Calendar → ChatGPT",
+          "far": "ChatGPT",
+          "table": "integrations"
+        },
+        {
+          "rec": "recg8U6UJrjZNXGO8",
+          "id": "288fcfbe-df6d-43bc-9d0d-99173a1c3c03",
+          "name": "CompanyCam ↔ Google Calendar",
+          "far": "CompanyCam",
+          "table": "integrations"
+        },
+        {
+          "rec": "recFzuYnUo6RYxryA",
+          "id": "ab99df94-e8d8-4a5f-b1b8-8d29add5dbcd",
+          "name": "Housecall Pro → Google Calendar",
+          "far": "Housecall Pro",
+          "table": "integrations"
+        },
+        {
+          "rec": "rec9mjQxUqdDoWPL8",
+          "id": "786491f9-e79b-47f2-a637-7848e80f0b57",
+          "name": "Superhuman Docs ↔ Google Calendar",
+          "far": "Superhuman Docs",
+          "table": "integrations"
+        },
+        {
+          "rec": "recJwXxZ61TFCkvkW",
+          "id": "d816c44d-8da6-442f-acbe-53ee4fc26abd",
+          "name": "JobNimbus ↔ Google Calendar",
+          "far": "JobNimbus",
+          "table": "integrations"
+        },
+        {
+          "rec": "recJyuq3VT5SAmFdq",
+          "id": "8bea26a1-5f44-4c1d-98d7-593ac7f50629",
+          "name": "Fieldwire → Google Calendar",
+          "far": "Fieldwire",
+          "table": "integrations"
+        },
+        {
+          "rec": "recP33ZTtsA3GsTcR",
+          "id": "3ea49957-46b7-4b35-92ba-c9abf56bd0e8",
+          "name": "Contractor Foreman ↔ Google Calendar",
+          "far": "Contractor Foreman",
+          "table": "integrations"
+        },
+        {
+          "rec": "recQVJFcFNRaYeEGP",
+          "id": "302610ea-28ca-4973-bcdd-db8832db758d",
+          "name": "Jobber → Google Calendar",
+          "far": "Jobber",
+          "table": "integrations"
+        },
+        {
+          "rec": "reciWm41jXlu5s3ur",
+          "id": "84a63ed8-5ab1-44e3-bb5d-fe6e5d3526b8",
+          "name": "Motion ↔ Google Calendar",
+          "far": "Motion",
+          "table": "integrations"
+        },
+        {
+          "rec": "recksewtCiBbt2ERq",
+          "id": "64d8ca2d-edba-4a8e-a88d-07fcb27ed545",
+          "name": "Sage HR → Google Calendar",
+          "far": "Sage HR",
+          "table": "integrations"
+        },
+        {
+          "rec": "recrIMGIzOUz0O0PZ",
+          "id": "e6022880-2fac-4558-a1de-0b1200347b15",
+          "name": "Roofr ↔ Google Calendar",
+          "far": "Roofr",
+          "table": "integrations"
+        },
+        {
+          "rec": "rectGwGjtKNlzqf2v",
+          "id": "8f78cb7c-f267-4307-9aa8-16d8a6614eaf",
+          "name": "monday.com ↔ Google Calendar",
+          "far": "monday.com",
+          "table": "integrations"
+        }
+      ],
+      "will_create": [],
+      "withheld_no_owner": [],
+      "sent_without_owner": [],
+      "connector_parked": [],
+      "claimed_skip": [],
+      "not_sent_far_endpoint_unpromoted": 6
+    },
+    {
+      "rec": "recE1QYJGBueJQvaL",
+      "name": "HOVER",
+      "supabase_id": "30c6153b-f5c8-441d-85f4-6138e2dcc3a9",
+      "research_status": "Researched",
+      "promotion_status": "promoted",
+      "promote_marker": "idle",
+      "manifest_edges": [
+        "0b61941e-8bc6-48d0-991c-c2d75043c59f",
+        "10b72933-543b-4ab1-b542-bfe465dbe1a4",
+        "d254c808-932c-4b0d-b9af-e83afaba3b7d",
+        "d855e70a-ef03-4097-b94a-9f2b4acc6af9"
+      ],
+      "will_move_to_pairs": [
+        {
+          "rec": "recRAvS2Wwz7oZEXw",
+          "id": "d855e70a-ef03-4097-b94a-9f2b4acc6af9",
+          "name": "HOVER → CompanyCam (via Zapier)",
+          "far": "CompanyCam",
+          "connector": "Zapier",
+          "in_manifest": true
+        },
+        {
+          "rec": "recS6UmY7RseNxIbe",
+          "id": "0b61941e-8bc6-48d0-991c-c2d75043c59f",
+          "name": "Pipedrive (manual)",
+          "far": "Pipedrive",
+          "connector": "Zapier",
+          "in_manifest": true
+        },
+        {
+          "rec": "recpQTwRxZAomKyyW",
+          "id": "10b72933-543b-4ab1-b542-bfe465dbe1a4",
+          "name": "HOVER → Jobber (Zapier)",
+          "far": "Jobber",
+          "connector": "Zapier",
+          "in_manifest": true
+        },
+        {
+          "rec": "recsbm54PMKMo6HKY",
+          "id": "d254c808-932c-4b0d-b9af-e83afaba3b7d",
+          "name": "HOVER ↔ Roofr (via Zapier)",
+          "far": "Roofr",
+          "connector": "Zapier",
+          "in_manifest": true
+        }
+      ],
+      "will_update_in_place": [
+        {
+          "rec": "rec3BacaV98TjQCSC",
+          "id": "ea359f67-a229-47c8-b8e9-f572c3e9ae09",
+          "name": "SumoQuote (manual)",
+          "far": "SumoQuote",
+          "table": "integrations"
+        },
+        {
+          "rec": "recC5IGy2f0hXd4hb",
+          "id": "079873e0-f925-4c4b-bd52-4444ec8e9ff4",
+          "name": "Salesforce (manual)",
+          "far": "Salesforce",
+          "table": "integrations"
+        },
+        {
+          "rec": "recTek7ZcrxckGxUG",
+          "id": "567fdaa6-e6d7-4642-aaa7-02c55bcabcf7",
+          "name": "HOVER → JobTread",
+          "far": "JobTread",
+          "table": "integrations"
+        },
+        {
+          "rec": "recTlC8X5aNFwa9mm",
+          "id": "f103e4d5-6507-4947-a7e0-5f21ddb8a856",
+          "name": "SketchUp (manual)",
+          "far": "SketchUp",
+          "table": "integrations"
+        },
+        {
+          "rec": "recULv4eKoxheRg3x",
+          "id": "d8411668-f4a4-4856-86d7-f9ef59f3c3b0",
+          "name": "ServiceTitan (manual)",
+          "far": "ServiceTitan",
+          "table": "integrations"
+        },
+        {
+          "rec": "recgTAqADNwNaSoEk",
+          "id": "72b3ba8b-4e44-4832-baab-c26655e31ecb",
+          "name": "Leap CRM (manual)",
+          "far": "Leap CRM",
+          "table": "integrations"
+        },
+        {
+          "rec": "recwr7rh1oztlAWah",
+          "id": "c9cde2a1-d6a7-43d1-9bfd-e0246fb12337",
+          "name": "Followup CRM (manual)",
+          "far": "Followup CRM",
+          "table": "integrations"
+        },
+        {
+          "rec": "recNdnRdRvkzNUrVt",
+          "id": "2a475b2a-c263-4099-bbda-f6870e5b95a7",
+          "name": "JobNimbus ↔ HOVER",
+          "far": "JobNimbus",
+          "table": "integrations"
+        },
+        {
+          "rec": "recyNOdkd0URN9gYx",
+          "id": "f93816f7-f569-44d6-a5f6-4f428641eaad",
+          "name": "HOVER (manual)",
+          "far": "AccuLynx",
+          "table": "integrations"
+        }
+      ],
+      "will_create": [],
+      "withheld_no_owner": [],
+      "sent_without_owner": [],
+      "connector_parked": [],
+      "claimed_skip": [],
+      "not_sent_far_endpoint_unpromoted": 17
+    },
+    {
+      "rec": "recBec7hSiuPp0YY2",
+      "name": "Jobber",
+      "supabase_id": "f4f5471f-e5ca-4061-9f2d-1e333dc496cf",
+      "research_status": "Researched",
+      "promotion_status": "promoted",
+      "promote_marker": "idle",
+      "manifest_edges": [
+        "10b72933-543b-4ab1-b542-bfe465dbe1a4",
+        "5fd537dc-6312-4ad6-80c6-903b981a7795",
+        "6c86d907-a1b2-4d34-8a16-82c9cff323c7"
+      ],
+      "will_move_to_pairs": [
+        {
+          "rec": "rec0RJvPgEZFInvq4",
+          "id": "6c86d907-a1b2-4d34-8a16-82c9cff323c7",
+          "name": "Connecteam ↔ Jobber (Zapier)",
+          "far": "Connecteam",
+          "connector": "Zapier",
+          "in_manifest": true
+        },
+        {
+          "rec": "reco4gH1gtQy4PLm4",
+          "id": "5fd537dc-6312-4ad6-80c6-903b981a7795",
+          "name": "Roofr → Jobber (Zapier)",
+          "far": "Roofr",
+          "connector": "Zapier",
+          "in_manifest": true
+        },
+        {
+          "rec": "recpQTwRxZAomKyyW",
+          "id": "10b72933-543b-4ab1-b542-bfe465dbe1a4",
+          "name": "HOVER → Jobber (Zapier)",
+          "far": "HOVER",
+          "connector": "Zapier",
+          "in_manifest": true
+        }
+      ],
+      "will_update_in_place": [
+        {
+          "rec": "rechKgCuRzRJibnuG",
+          "id": "522c5456-7619-4190-8185-62888b3e5470",
+          "name": "Jobber ↔ Docusign",
+          "far": "Docusign",
+          "table": "integrations"
+        },
+        {
+          "rec": "recFXBNg6sG8hAYRL",
+          "id": "66a82e32-3a4b-43d7-b697-ee8b5677b9d7",
+          "name": "Jobber → Microsoft Outlook",
+          "far": "Microsoft Outlook",
+          "table": "integrations"
+        },
+        {
+          "rec": "recE16CYtO4DnPtVO",
+          "id": "5e6674ef-ee20-431a-a1b7-c1829121701a",
+          "name": "Jobber → Xero",
+          "far": "Xero",
+          "table": "integrations"
+        },
+        {
+          "rec": "recHAO5JlbVEKpxpU",
+          "id": "b3502995-36a1-40f8-8a0e-5f812d150d8d",
+          "name": "Jobber ↔ CompanyCam",
+          "far": "CompanyCam",
+          "table": "integrations"
+        },
+        {
+          "rec": "recQVJFcFNRaYeEGP",
+          "id": "302610ea-28ca-4973-bcdd-db8832db758d",
+          "name": "Jobber → Google Calendar",
+          "far": "Google Calendar",
+          "table": "integrations"
+        },
+        {
+          "rec": "recmcfIpn8Aj66gRV",
+          "id": "a5383f56-bf61-4347-98ad-6a91d7f6dc1c",
+          "name": "Jobber → QuickBooks Online",
+          "far": "QuickBooks Online",
+          "table": "integrations"
+        }
+      ],
+      "will_create": [],
+      "withheld_no_owner": [],
+      "sent_without_owner": [],
+      "connector_parked": [],
+      "claimed_skip": [],
+      "not_sent_far_endpoint_unpromoted": 13
+    },
+    {
+      "rec": "recohQSEjZl4EP4zL",
+      "name": "Motion",
+      "supabase_id": "e9f11a18-08fd-4b1c-81d6-cedce4771d3f",
+      "research_status": "Researched",
+      "promotion_status": "promoted",
+      "promote_marker": "idle",
+      "manifest_edges": [
+        "0ec2b8bf-61b6-4a60-b2a0-484e7e7709ae",
+        "bb34ac33-e425-43e8-991d-f40c11c7ae59"
+      ],
+      "will_move_to_pairs": [
+        {
+          "rec": "rec1CHDLtnFH8GZJX",
+          "id": "bb34ac33-e425-43e8-991d-f40c11c7ae59",
+          "name": "Monday.com (manual)",
+          "far": "monday.com",
+          "connector": "Zapier",
+          "in_manifest": true
+        },
+        {
+          "rec": "recnxiacwVgqY4Afl",
+          "id": "0ec2b8bf-61b6-4a60-b2a0-484e7e7709ae",
+          "name": "Wrike (manual)",
+          "far": "Wrike",
+          "connector": "Zapier",
+          "in_manifest": true
+        }
+      ],
+      "will_update_in_place": [
+        {
+          "rec": "recRQJ5fQHwx4QZRV",
+          "id": "4e42bf27-c312-4632-86fb-622711410917",
+          "name": "Motion ↔ Microsoft Outlook",
+          "far": "Microsoft Outlook",
+          "table": "integrations"
+        },
+        {
+          "rec": "reciWm41jXlu5s3ur",
+          "id": "84a63ed8-5ab1-44e3-bb5d-fe6e5d3526b8",
+          "name": "Motion ↔ Google Calendar",
+          "far": "Google Calendar",
+          "table": "integrations"
+        }
+      ],
+      "will_create": [],
+      "withheld_no_owner": [],
+      "sent_without_owner": [],
+      "connector_parked": [],
+      "claimed_skip": [],
+      "not_sent_far_endpoint_unpromoted": 11
+    },
+    {
+      "rec": "rec944YjKNRfRCgAf",
+      "name": "Procore",
+      "supabase_id": "d88d7357-03d9-4f9a-815d-d15101cf33c4",
+      "research_status": "Researched",
+      "promotion_status": "promoted",
+      "promote_marker": "idle",
+      "manifest_edges": [
+        "1b1953e8-b19b-4e95-8d9d-bd7b538c5140",
+        "8f85c4f5-cfd2-4296-91fd-0657cf874747",
+        "b1f4f83a-4b58-450d-812e-95ff271f1045"
+      ],
+      "will_move_to_pairs": [
+        {
+          "rec": "recHEhBqoVs85Yo95",
+          "id": "b1f4f83a-4b58-450d-812e-95ff271f1045",
+          "name": "Wrike (manual)",
+          "far": "Wrike",
+          "connector": "Zapier",
+          "in_manifest": true
+        },
+        {
+          "rec": "rec3enWacm5E3eS0q",
+          "id": "8f85c4f5-cfd2-4296-91fd-0657cf874747",
+          "name": "monday.com ↔ Procore (via Zapier)",
+          "far": "monday.com",
+          "connector": "Zapier",
+          "in_manifest": true
+        },
+        {
+          "rec": "receij2xW1yObLT1B",
+          "id": "1b1953e8-b19b-4e95-8d9d-bd7b538c5140",
+          "name": "Procore (manual)",
+          "far": "Pipedrive",
+          "connector": "Zapier",
+          "in_manifest": true
+        }
+      ],
+      "will_update_in_place": [
+        {
+          "rec": "rec01zn9rkCAds5q4",
+          "id": "f7315e2f-f332-43e7-8de9-1602c2a7fe46",
+          "name": "",
+          "far": "Arcoro Onboarding",
+          "table": "integrations"
+        },
+        {
+          "rec": "rec2k9V60oNE3LkZ0",
+          "id": "fe24c729-3320-4ac3-b2b4-822f9c5ff9fa",
+          "name": "",
+          "far": "OpenAsset",
+          "table": "integrations"
+        },
+        {
+          "rec": "rec7Z6R8VkXQj6aaq",
+          "id": "cca67c37-9399-443b-90cc-aa177ee480c6",
+          "name": "Procore → Document Crunch",
+          "far": "Document Crunch",
+          "table": "integrations"
+        },
+        {
+          "rec": "recFR8IS8UcsTYqE9",
+          "id": "306158ac-7146-4a27-ad4d-02119094a340",
+          "name": "",
+          "far": "ExakTime",
+          "table": "integrations"
+        },
+        {
+          "rec": "recIUQA21mNKOzHr8",
+          "id": "01b50144-bde8-4389-a26d-fc2727ac52e8",
+          "name": "Domo ↔ Procore",
+          "far": "Domo",
+          "table": "integrations"
+        },
+        {
+          "rec": "recNIUYGIUwKuFsSD",
+          "id": "abf46434-a1fa-4f91-9c2f-7e1d77ef8830",
+          "name": "Procore ↔ Aquifer",
+          "far": "Aquifer",
+          "table": "integrations"
+        },
+        {
+          "rec": "recOsQN8mke8V0Jps",
+          "id": "c04d4322-3509-418a-84a9-1a77a4a1f90c",
+          "name": "Docusign (manual)",
+          "far": "Docusign",
+          "table": "integrations"
+        },
+        {
+          "rec": "recSmxYFPtPgWDJS9",
+          "id": "0514dc24-75d6-4734-986c-d16678c90255",
+          "name": "",
+          "far": "Quickbase",
+          "table": "integrations"
+        },
+        {
+          "rec": "recZojLWx1dHI97tS",
+          "id": "359eb3bf-cfb2-41d2-b535-595f2f865115",
+          "name": "DroneDeploy for Procore",
+          "far": "DroneDeploy",
+          "table": "integrations"
+        },
+        {
+          "rec": "reca074M3enSh0Z3U",
+          "id": "d4132f25-5811-47ab-9079-36cbb811c434",
+          "name": "",
+          "far": "Miter",
+          "table": "integrations"
+        },
+        {
+          "rec": "recdWbcoIMGZx45dH",
+          "id": "b691fdf1-bd6c-452b-818d-19017b9d6fa1",
+          "name": "Procore → AppFolio",
+          "far": "AppFolio",
+          "table": "integrations"
+        },
+        {
+          "rec": "recgTiJMY6yv5MUoi",
+          "id": "8237b6a9-c856-40bd-9af7-51af0d244ef4",
+          "name": "GCPay ↔ Procore",
+          "far": "GCPay",
+          "table": "integrations"
+        },
+        {
+          "rec": "rechKxfEBw4hmPCbg",
+          "id": "a77f2f20-40e3-43f0-88c0-190a0a0e8429",
+          "name": "Procore ↔ Okta (SSO)",
+          "far": "Okta",
+          "table": "integrations"
+        },
+        {
+          "rec": "reciWzCvQnfI73tAE",
+          "id": "c586f7ba-0e4a-46d6-b8d0-1706a26902b2",
+          "name": "Procore → Kroo Connector",
+          "far": "Kroo Connector",
+          "table": "integrations"
+        },
+        {
+          "rec": "reck4SRzIsvrZ3bKq",
+          "id": "1fb9ff30-6cff-4125-867d-f006f69aeeae",
+          "name": "Touchplan ↔ Procore",
+          "far": "Touchplan",
+          "table": "integrations"
+        },
+        {
+          "rec": "reckwcwZhOhmDSskT",
+          "id": "ccc51874-ddc6-4c88-b8cb-359b1f625649",
+          "name": "Join ↔ Procore",
+          "far": "Join",
+          "table": "integrations"
+        },
+        {
+          "rec": "recl52uMMAcKwzVvW",
+          "id": "1b791599-41cd-4e0e-8ddb-df9dcd8da6ab",
+          "name": "",
+          "far": "Outbuild",
+          "table": "integrations"
+        },
+        {
+          "rec": "recloyDyWuKuRs7Ha",
+          "id": "cb7aab9e-ee04-4658-bc3c-984b3174fde9",
+          "name": "Procore → Precogs",
+          "far": "Precogs",
+          "table": "integrations"
+        },
+        {
+          "rec": "recmdEdkoqAg26Z75",
+          "id": "19bc3d8d-d811-4096-ad92-da065b02b341",
+          "name": "Procore → Matterport",
+          "far": "Matterport",
+          "table": "integrations"
+        },
+        {
+          "rec": "recoNgg2lXTWIIeRs",
+          "id": "bd5fda42-8c37-45d9-b315-2f82c9ed4ec0",
+          "name": "signNow for Procore",
+          "far": "airSlate SignNow",
+          "table": "integrations"
+        },
+        {
+          "rec": "recuhHEAqf2s8jML2",
+          "id": "02f2e104-ce63-4e0d-ba9d-ee059a507dd4",
+          "name": "Salesforce (manual)",
+          "far": "Salesforce",
+          "table": "connector_evidenced_pairs"
+        },
+        {
+          "rec": "recxXDqI8JDk6uEzR",
+          "id": "7d5776aa-e5bc-4b31-b5be-a8878306e4fe",
+          "name": "Procore ↔ Billy Insurance Compliance",
+          "far": "Billy Insurance Compliance",
+          "table": "integrations"
+        },
+        {
+          "rec": "reczcrUWsCIYj5ifa",
+          "id": "c90a6ac4-f52a-4a0c-ac0e-a8dd5ed716aa",
+          "name": "Procore ↔ OpenSpace",
+          "far": "OpenSpace",
+          "table": "integrations"
+        },
+        {
+          "rec": "recCRkAKbgktrTh1a",
+          "id": "ab91e155-cc47-4b7a-a6b0-607bb170ebb5",
+          "name": "Procore connector (PLANNER + SAFETY)",
+          "far": "Smartapp",
+          "table": "integrations"
+        },
+        {
+          "rec": "recF4ULi76R241vHE",
+          "id": "90a9376c-408e-4c15-96ff-fc1f68c9d219",
+          "name": "Buildots → Procore",
+          "far": "Buildots",
+          "table": "integrations"
+        },
+        {
+          "rec": "recGTkNSTBcsorVNF",
+          "id": "2335717e-ce5b-451e-bb91-28e9b5f7423e",
+          "name": "Structured AI → Procore",
+          "far": "Structured AI",
+          "table": "integrations"
+        },
+        {
+          "rec": "recYQdscHNfnpcLWO",
+          "id": "cb75968d-5674-4e79-8163-78c70eda35fc",
+          "name": "CupixWorks ↔ Procore",
+          "far": "CupixWorks",
+          "table": "integrations"
+        },
+        {
+          "rec": "recYZvslJNRwQagoo",
+          "id": "13ff7e8a-3775-4d1d-8075-675640d0c372",
+          "name": "Paylocity ↔ Procore",
+          "far": "Paylocity",
+          "table": "connector_evidenced_pairs"
+        },
+        {
+          "rec": "recZlrFTCk6cdRnEq",
+          "id": "25b90693-ac13-4e26-b364-88d2fd2c2915",
+          "name": "Procore (manual)",
+          "far": "ADP Workforce Now",
+          "table": "connector_evidenced_pairs"
+        },
+        {
+          "rec": "reccW9ns0M1shYu2h",
+          "id": "90a0b9a9-f74f-4b2b-a568-882a19779758",
+          "name": "Propeller → Procore (Procore App)",
+          "far": "Propeller",
+          "table": "integrations"
+        },
+        {
+          "rec": "recfEZE0X12AnmO9w",
+          "id": "eca6c260-adce-41a3-8266-1608b605b77f",
+          "name": "DigiBuild → Procore",
+          "far": "DigiBuild",
+          "table": "integrations"
+        },
+        {
+          "rec": "reckCHjbdJOdIRSza",
+          "id": "91776785-7e01-4c2c-9aab-2d829ca04489",
+          "name": "Procore (manual)",
+          "far": "InspectMind AI",
+          "table": "integrations"
+        },
+        {
+          "rec": "recp4jESaNLEXkS7K",
+          "id": "01aa8eb8-63f2-40f6-9e29-743b2a8f2dda",
+          "name": "Procore (web)",
+          "far": "TrebleHook",
+          "table": "integrations"
+        },
+        {
+          "rec": "recrniTkGFOAXc0hT",
+          "id": "186ae128-b290-475a-ba62-8a6bfd72fe7b",
+          "name": "Procore",
+          "far": "GoFormz",
+          "table": "integrations"
+        },
+        {
+          "rec": "rectnbqtS4V2xexTH",
+          "id": "de146332-2988-4a2c-b4e4-ddb323a0b220",
+          "name": "Smartsheet for Procore",
+          "far": "Smartsheet",
+          "table": "integrations"
+        },
+        {
+          "rec": "recu6sixDSWSEdJ2d",
+          "id": "fcda83e3-d5da-4740-9ef3-429e53d0f41f",
+          "name": "Procore integration",
+          "far": "TeamWeave",
+          "table": "integrations"
+        }
+      ],
+      "will_create": [],
+      "withheld_no_owner": [],
+      "sent_without_owner": [],
+      "connector_parked": [],
+      "claimed_skip": [],
+      "not_sent_far_endpoint_unpromoted": 0
+    },
+    {
+      "rec": "recRd7g8zjLcaz3yd",
+      "name": "Roofr",
+      "supabase_id": "d8f04618-637d-4101-bc6a-af81d6771069",
+      "research_status": "Researched",
+      "promotion_status": "promoted",
+      "promote_marker": "idle",
+      "manifest_edges": [
+        "09b38f3a-7992-4df9-bf72-bea5b27e26e1",
+        "45629e89-0e1a-40c4-b7fa-0e26595841d0",
+        "58886749-6561-4b70-964f-d9ef20e4dcbf",
+        "5fd537dc-6312-4ad6-80c6-903b981a7795",
+        "97c1833b-bdbd-4551-b99a-1ca19eb6160b",
+        "a59122dc-9f40-46ff-b21c-c7e7facdec0e",
+        "a77916a4-f701-4f77-986a-b625cc2d7fe9",
+        "d254c808-932c-4b0d-b9af-e83afaba3b7d",
+        "fea24c35-c86a-42da-89a2-38cdf138d372"
+      ],
+      "will_move_to_pairs": [
+        {
+          "rec": "recA9bojxuWKcfAVW",
+          "id": "fea24c35-c86a-42da-89a2-38cdf138d372",
+          "name": "Salesforce (manual)",
+          "far": "Salesforce",
+          "connector": "Zapier",
+          "in_manifest": true
+        },
+        {
+          "rec": "recVgPu4D296vMSRo",
+          "id": "45629e89-0e1a-40c4-b7fa-0e26595841d0",
+          "name": "SumoQuote (manual)",
+          "far": "SumoQuote",
+          "connector": "Zapier",
+          "in_manifest": true
+        },
+        {
+          "rec": "reccJN1HCQHgRpxLX",
+          "id": "a77916a4-f701-4f77-986a-b625cc2d7fe9",
+          "name": "AccuLynx (manual)",
+          "far": "AccuLynx",
+          "connector": "Zapier",
+          "in_manifest": true
+        },
+        {
+          "rec": "recdrZTmTZ5svPunn",
+          "id": "58886749-6561-4b70-964f-d9ef20e4dcbf",
+          "name": "Monday.com (manual)",
+          "far": "monday.com",
+          "connector": "Zapier",
+          "in_manifest": true
+        },
+        {
+          "rec": "recgOcMGip0QN5QLr",
+          "id": "a59122dc-9f40-46ff-b21c-c7e7facdec0e",
+          "name": "Pipedrive (manual)",
+          "far": "Pipedrive",
+          "connector": "Zapier",
+          "in_manifest": true
+        },
+        {
+          "rec": "reckCN1Posw6AwyYC",
+          "id": "97c1833b-bdbd-4551-b99a-1ca19eb6160b",
+          "name": "JobNimbus (manual)",
+          "far": "JobNimbus",
+          "connector": "Zapier",
+          "in_manifest": true
+        },
+        {
+          "rec": "recnGlzzw2PdkrUhX",
+          "id": "09b38f3a-7992-4df9-bf72-bea5b27e26e1",
+          "name": "Roofr ↔ Microsoft Outlook",
+          "far": "Microsoft Outlook",
+          "connector": "Zapier",
+          "in_manifest": true
+        },
+        {
+          "rec": "reco4gH1gtQy4PLm4",
+          "id": "5fd537dc-6312-4ad6-80c6-903b981a7795",
+          "name": "Roofr → Jobber (Zapier)",
+          "far": "Jobber",
+          "connector": "Zapier",
+          "in_manifest": true
+        },
+        {
+          "rec": "recsbm54PMKMo6HKY",
+          "id": "d254c808-932c-4b0d-b9af-e83afaba3b7d",
+          "name": "HOVER ↔ Roofr (via Zapier)",
+          "far": "HOVER",
+          "connector": "Zapier",
+          "in_manifest": true
+        }
+      ],
+      "will_update_in_place": [
+        {
+          "rec": "recK7kogXnxJGped9",
+          "id": "82f6bff4-3239-4477-9969-7955ca4bf88a",
+          "name": "Roofr ↔ CompanyCam",
+          "far": "CompanyCam",
+          "table": "integrations"
+        },
+        {
+          "rec": "recNI3KUqK81fRMgL",
+          "id": "4943884a-5741-43a7-9d1f-1a335736e18a",
+          "name": "Roofr → QuickBooks Online",
+          "far": "QuickBooks Online",
+          "table": "integrations"
+        },
+        {
+          "rec": "recrIMGIzOUz0O0PZ",
+          "id": "e6022880-2fac-4558-a1de-0b1200347b15",
+          "name": "Roofr ↔ Google Calendar",
+          "far": "Google Calendar",
+          "table": "integrations"
+        }
+      ],
+      "will_create": [],
+      "withheld_no_owner": [],
+      "sent_without_owner": [],
+      "connector_parked": [],
+      "claimed_skip": [],
+      "not_sent_far_endpoint_unpromoted": 13
+    },
+    {
+      "rec": "recvTtJLtPerJyKVB",
+      "name": "Smartsheet",
+      "supabase_id": "4ac7022e-0c9f-4d96-8dfc-44697e3968cc",
+      "research_status": "Researched",
+      "promotion_status": "promoted",
+      "promote_marker": "idle",
+      "manifest_edges": [
+        "78101f0f-8a18-4dfc-af62-75dbb3763cdc",
+        "dc6c9315-1042-4bf5-b46d-7ea6862d932d"
+      ],
+      "will_move_to_pairs": [
+        {
+          "rec": "rec7b2bl0TvdoSLwL",
+          "id": "78101f0f-8a18-4dfc-af62-75dbb3763cdc",
+          "name": "BIM 360 (manual)",
+          "far": "BIM 360",
+          "connector": "Workato",
+          "in_manifest": true
+        },
+        {
+          "rec": "rec60E94UuePC6HG0",
+          "id": "dc6c9315-1042-4bf5-b46d-7ea6862d932d",
+          "name": "PlanGrid → Smartsheet",
+          "far": "PlanGrid",
+          "connector": "Workato",
+          "in_manifest": true
+        }
+      ],
+      "will_update_in_place": [
+        {
+          "rec": "rec05EVatRFIA4FM7",
+          "id": "d6551b2d-35c0-4963-800c-cd6228866040",
+          "name": "Smartsheet ↔ Microsoft Dynamics 365",
+          "far": "Microsoft Dynamics 365",
+          "table": "integrations"
+        },
+        {
+          "rec": "rec46FNfCHmH0ZGkR",
+          "id": "22fa14dd-fa00-417f-af40-5e1b443a08c8",
+          "name": "Smartsheet ↔ Autodesk Build",
+          "far": "Autodesk Forma Build",
+          "table": "integrations"
+        },
+        {
+          "rec": "recFUorTbU5Y0tQNP",
+          "id": "00ffe8c2-b796-4780-bcd9-6a77ae0543e6",
+          "name": "Smartsheet ↔ DocuSign",
+          "far": "Docusign",
+          "table": "integrations"
+        },
+        {
+          "rec": "recGs5us9zRvvpWGq",
+          "id": "283e81fe-1ed4-4faa-a008-c8b5b86042c4",
+          "name": "Smartsheet ↔ Microsoft Entra ID (SCIM)",
+          "far": "Microsoft Entra ID",
+          "table": "integrations"
+        },
+        {
+          "rec": "recLidKj1VUMFR5XT",
+          "id": "39f16fb2-67be-4bee-9095-22ca6f7241fd",
+          "name": "Smartsheet Sync for Procore",
+          "far": "Procore Project Management",
+          "table": "connector_evidenced_pairs"
+        },
+        {
+          "rec": "recMG3QOI0IK8ByBK",
+          "id": "809ed949-235b-4fc2-9ec8-facaf02499b9",
+          "name": "Smartsheet ↔ Egnyte",
+          "far": "Egnyte",
+          "table": "integrations"
+        },
+        {
+          "rec": "recZVTVOAi8HAoPuO",
+          "id": "5ee328c6-22f6-408d-b2e3-af63d6eb12d0",
+          "name": "Smartsheet ↔ ServiceNow",
+          "far": "ServiceNow",
+          "table": "integrations"
+        },
+        {
+          "rec": "recbpaA9ZNYUJ4ueT",
+          "id": "3685f1f0-d6ec-4db1-b70b-3102f58761e5",
+          "name": "Smartsheet ↔ Salesforce",
+          "far": "Salesforce",
+          "table": "integrations"
+        },
+        {
+          "rec": "recihpCWrZ9zESg8y",
+          "id": "3650b567-13a4-40da-a9e8-865a96d4bc76",
+          "name": "Smartsheet ↔ Sage Intacct",
+          "far": "Sage Intacct",
+          "table": "connector_evidenced_pairs"
+        },
+        {
+          "rec": "recl9MJhZhdRYXQpT",
+          "id": "c60f354d-4a87-47ac-a22c-ab41700543a9",
+          "name": "Smartsheet ↔ Microsoft SharePoint",
+          "far": "Microsoft SharePoint",
+          "table": "integrations"
+        },
+        {
+          "rec": "rectnbqtS4V2xexTH",
+          "id": "de146332-2988-4a2c-b4e4-ddb323a0b220",
+          "name": "Smartsheet for Procore",
+          "far": "Procore",
+          "table": "integrations"
+        },
+        {
+          "rec": "rectsaksazydgm7Qm",
+          "id": "aed723a2-76af-47bf-967f-238ef86ee08d",
+          "name": "Smartsheet ↔ Power BI",
+          "far": "Power BI",
+          "table": "integrations"
+        },
+        {
+          "rec": "recuuCWQy3GEYklIJ",
+          "id": "f5565705-66c6-4a79-a85d-97e29e21cdf5",
+          "name": "Smartsheet ↔ Box",
+          "far": "Box",
+          "table": "integrations"
+        },
+        {
+          "rec": "recxsuJmmvlfJsK91",
+          "id": "a478010c-8004-43bb-a82a-e89956d9fed6",
+          "name": "Smartsheet ↔ Dropbox",
+          "far": "Dropbox",
+          "table": "integrations"
+        },
+        {
+          "rec": "reczXK7AdZVkagyhM",
+          "id": "846d5b89-df3e-42c5-bca5-9f474c0d0274",
+          "name": "Smartsheet ↔ Deltek Vantagepoint",
+          "far": "Deltek Vantagepoint",
+          "table": "connector_evidenced_pairs"
+        },
+        {
+          "rec": "recI1yrv2epFcjbsm",
+          "id": "11a67d78-a834-41b7-bbf1-2869c86b7d72",
+          "name": "CompanyCam ↔ Smartsheet",
+          "far": "CompanyCam",
+          "table": "integrations"
+        },
+        {
+          "rec": "recLDzXkNCFLZsK9Y",
+          "id": "b6be419d-6b36-4c28-bb15-4301869674a2",
+          "name": "Smartsheet (manual)",
+          "far": "Microsoft Project",
+          "table": "integrations"
+        },
+        {
+          "rec": "recaMDhI7wQ3HYBMo",
+          "id": "847a7ef3-f6f2-42d6-aab7-5077bba34d47",
+          "name": "BigTime Enterprise PSA ↔ Smartsheet",
+          "far": "BigTime Enterprise PSA",
+          "table": "integrations"
+        },
+        {
+          "rec": "recgzerrLbtpXze1U",
+          "id": "ff28b3b8-b351-43e9-8c9d-284beaccf8bc",
+          "name": "Fieldwire → Smartsheet",
+          "far": "Fieldwire",
+          "table": "integrations"
+        },
+        {
+          "rec": "recld4E1f1wVmBaxO",
+          "id": "dca7b0fc-a5de-4a9e-b9b5-aefc98f7fdfe",
+          "name": "Smartsheet (manual)",
+          "far": "GoFormz",
+          "table": "integrations"
+        }
+      ],
+      "will_create": [],
+      "withheld_no_owner": [
+        {
+          "rec": "rec1S4PDtQIi1gZPb",
+          "id": null,
+          "name": "Smartsheet ↔ Zapier",
+          "far": "Zapier"
+        }
+      ],
+      "sent_without_owner": [],
+      "connector_parked": [
+        {
+          "rec": "rec46FNfCHmH0ZGkR",
+          "id": "22fa14dd-fa00-417f-af40-5e1b443a08c8",
+          "name": "Smartsheet ↔ Autodesk Build",
+          "far": "Autodesk Forma Build",
+          "connector": "Forma Construction Connect (formerly ACC Connect)"
+        }
+      ],
+      "claimed_skip": [],
+      "not_sent_far_endpoint_unpromoted": 6
+    },
+    {
+      "rec": "rec6UUp8iEaL1vUpk",
+      "name": "SumoQuote",
+      "supabase_id": "5f95790a-68ea-42d2-9b54-91be680d49ad",
+      "research_status": "Researched",
+      "promotion_status": "promoted",
+      "promote_marker": "idle",
+      "manifest_edges": [
+        "45629e89-0e1a-40c4-b7fa-0e26595841d0",
+        "a722998c-1acf-42fb-bf31-2056b1eeb7f8"
+      ],
+      "will_move_to_pairs": [
+        {
+          "rec": "recVgPu4D296vMSRo",
+          "id": "45629e89-0e1a-40c4-b7fa-0e26595841d0",
+          "name": "SumoQuote (manual)",
+          "far": "Roofr",
+          "connector": "Zapier",
+          "in_manifest": true
+        },
+        {
+          "rec": "recg8XEOtG6ACGsrB",
+          "id": "a722998c-1acf-42fb-bf31-2056b1eeb7f8",
+          "name": "SumoQuote (manual)",
+          "far": "AccuLynx",
+          "connector": "Zapier",
+          "in_manifest": true
+        }
+      ],
+      "will_update_in_place": [
+        {
+          "rec": "rechQ73O6HCgPF4Yu",
+          "id": "c67306a3-2090-4f3d-8109-002b3f2260b8",
+          "name": "SumoQuote ← CompanyCam",
+          "far": "CompanyCam",
+          "table": "integrations"
+        },
+        {
+          "rec": "rec7RSBY0NbGGWvpa",
+          "id": "955eea0b-3a84-4da6-9cce-6fbef7b7a89c",
+          "name": "Leap CRM (manual)",
+          "far": "Leap CRM",
+          "table": "integrations"
+        },
+        {
+          "rec": "rec3BacaV98TjQCSC",
+          "id": "ea359f67-a229-47c8-b8e9-f572c3e9ae09",
+          "name": "SumoQuote (manual)",
+          "far": "HOVER",
+          "table": "integrations"
+        }
+      ],
+      "will_create": [],
+      "withheld_no_owner": [],
+      "sent_without_owner": [],
+      "connector_parked": [],
+      "claimed_skip": [],
+      "not_sent_far_endpoint_unpromoted": 0
+    },
+    {
+      "rec": "recoiDWUn1VK93IdS",
+      "name": "Xero",
+      "supabase_id": "2aac16bb-3752-44c1-9144-b3eb85dd4587",
+      "research_status": "Researched",
+      "promotion_status": "promoted",
+      "promote_marker": "idle",
+      "manifest_edges": [
+        "1fbd35bb-5fa8-4c37-9905-f26870403748",
+        "aba87b18-d6ca-42d6-8bf8-5ee0809dd884"
+      ],
+      "will_move_to_pairs": [
+        {
+          "rec": "rec2tu8FUMd2T11S7",
+          "id": "1fbd35bb-5fa8-4c37-9905-f26870403748",
+          "name": "JobTread ↔ Xero (Zapier)",
+          "far": "JobTread",
+          "connector": "Zapier",
+          "in_manifest": true
+        },
+        {
+          "rec": "reclrO4YUxAMtOxmx",
+          "id": "aba87b18-d6ca-42d6-8bf8-5ee0809dd884",
+          "name": "ADP Workforce Now ↔ Xero",
+          "far": "ADP Workforce Now",
+          "connector": "Workato",
+          "in_manifest": true
+        }
+      ],
+      "will_update_in_place": [
+        {
+          "rec": "recBtZJ7wYRIkUiJx",
+          "id": "8627015c-366f-4356-adb9-b817b18e7594",
+          "name": "Xero ↔ Aquifer",
+          "far": "Aquifer",
+          "table": "integrations"
+        },
+        {
+          "rec": "rec7EIN25zV5LtHSg",
+          "id": "09007d7c-404a-449a-ad50-f0b83533e624",
+          "name": "Procore Project Financials ↔ Xero",
+          "far": "Procore Project Financials",
+          "table": "integrations"
+        },
+        {
+          "rec": "recE16CYtO4DnPtVO",
+          "id": "5e6674ef-ee20-431a-a1b7-c1829121701a",
+          "name": "Jobber → Xero",
+          "far": "Jobber",
+          "table": "integrations"
+        },
+        {
+          "rec": "recSc79SzFiGaJw9R",
+          "id": "c73b0ca1-8bbb-45d5-8844-330639345261",
+          "name": "Xero (manual)",
+          "far": "ServiceTitan",
+          "table": "integrations"
+        },
+        {
+          "rec": "recT5j7H1CSbgJrWW",
+          "id": "b5a9294c-647f-439e-b6c4-e64323daebd3",
+          "name": "Pipedrive → Xero",
+          "far": "Pipedrive",
+          "table": "connector_evidenced_pairs"
+        },
+        {
+          "rec": "recZzWWCVtgGNwi2V",
+          "id": "f65f0fa1-7932-460c-9931-d9cf58b110ce",
+          "name": "BigTime Enterprise PSA ↔ Xero",
+          "far": "BigTime Enterprise PSA",
+          "table": "integrations"
+        },
+        {
+          "rec": "recamqIUmdaQg22XB",
+          "id": "c3e6fcba-3958-4ef8-b9e8-a7881365526f",
+          "name": "Ramp ↔ Xero",
+          "far": "Ramp",
+          "table": "integrations"
+        },
+        {
+          "rec": "reckTJavvrkyyLpXq",
+          "id": "f50f1d73-96c5-4604-9e7d-ec9bf4df5721",
+          "name": "Xero (manual)",
+          "far": "Deltek Vantagepoint",
+          "table": "integrations"
+        },
+        {
+          "rec": "recoR3iMlpmJReyKZ",
+          "id": "66ccae55-8b4f-47c3-90f4-bc84936168cf",
+          "name": "Connecteam → Xero",
+          "far": "Connecteam",
+          "table": "integrations"
+        }
+      ],
+      "will_create": [],
+      "withheld_no_owner": [],
+      "sent_without_owner": [],
+      "connector_parked": [],
+      "claimed_skip": [],
+      "not_sent_far_endpoint_unpromoted": 13
+    }
+  ]
+}

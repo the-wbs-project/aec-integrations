@@ -359,8 +359,12 @@ endpoints**. The other endpoint must already be promoted (reference it by
 > parked both permanently, so every edge naming them reported an `unresolvedLinks`
 > entry on every push. AECI-1064 reversed that. The admission test is now
 > `product_role: connector`, and Zapier went live at `2026-09-23T05:34Z` and Workato
-> at `07:43Z`. Their edges resolve from now on. The rows already in production still
-> carry a NULL FK until each **endpoint** is re-promoted, per the paragraph above.
+> at `07:43Z`. Their edges resolve from now on. Rows promoted before that kept a NULL
+> FK until an **endpoint** was re-promoted, per the paragraph above. That re-promote
+> ran on 2026-09-23: 14 endpoint products carried all 39 affected
+> edges into `connector_evidenced_pairs`
+> (`scripts/ops/2026-09-connector-attribution-repromote/`). Make, n8n and Boomi are
+> still unpromoted, so their edges keep reporting `unresolvedLinks`.
 >
 > **Your stored value is never clobbered (AECI-730).** On an *update*, a connector
 > that fails to resolve leaves `powered_by_product_id` exactly as it was rather than
@@ -510,9 +514,10 @@ Four consequences worth knowing:
   60 promoted). Routing it would render "Via Aquifer → Aquifer", and the destination table's
   `connector_evidenced_pairs_distinct_connector` CHECK refuses it outright.
 - **The connector must be a promoted product.** `connector_evidenced_pairs.connector_product_id` is
-  NOT NULL, so an edge naming an unpromoted connector cannot be routed. Zapier and Workato are
-  `on_hold` (AECI-700) and stay that way, so those edges remain in `integrations` with a NULL
-  `powered_by` — the population AECI-730 makes observable. **They keep `mechanismKind: "iPaaS"`,
+  NOT NULL, so an edge naming an unpromoted connector cannot be routed. Those edges remain in
+  `integrations` with a NULL `powered_by`, the population AECI-730 makes observable. Zapier and
+  Workato were in that state until 2026-09-23, when AECI-1064 promoted both; Make, n8n and Boomi
+  still are. **They keep `mechanismKind: "iPaaS"`,
   permanently** (AECI-735): it is the only thing marking them as connector-delivered once the FK is
   absent, and both the AECI-705 attestation gate and the product page's "Via" lane read it. Do not
   re-key them to `native` or unset because the connector lane now has its own tables.
@@ -1143,9 +1148,9 @@ your side changes.
   (`builtByVendor`), with the `supabaseId` you sent and an `outcome` of `"unset"`
   (the row was created, so the column is NULL) or `"preserved"` (the row was updated
   and the column was left exactly as it already was — the clobber guard).
-  **Expect a steady, permanent stream of these and do not alert on them:** Zapier and
-  Workato will never be promoted (AECI-700), so their edges report on every push and
-  re-pushing changes nothing. The actionable case is a connector that *is* meant to
+  **Expect a steady stream of these and do not alert on them:** every edge whose
+  connector is unpromoted (Make, n8n, Boomi) reports on every push, and re-pushing
+  changes nothing. Zapier and Workato left that set on 2026-09-23 (AECI-1064). The actionable case is a connector that *is* meant to
   be in the directory — promote it, then re-push the edge. Optional and always
   emitted as `[]` when clean; a job whose result was stored by a pre-AECI-730 build
   omits the key entirely, so tolerate its absence.
