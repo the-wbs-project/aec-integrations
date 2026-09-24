@@ -97,11 +97,11 @@ export class VendorViewsTile {
   protected readonly sentence = computed(() => {
     switch (this.period()) {
       case 'day':
-        return $localize`:@@vendor.overview.views.soon.day:View counts for the last day are on their way.`;
+        return $localize`:@@vendor.overview.views.soon.day:View counts for the last day are coming soon.`;
       case 'month':
-        return $localize`:@@vendor.overview.views.soon.month:View counts for the last 30 days are on their way.`;
+        return $localize`:@@vendor.overview.views.soon.month:View counts for the last 30 days are coming soon.`;
       default:
-        return $localize`:@@vendor.overview.views.soon.week:View counts for the last 7 days are on their way.`;
+        return $localize`:@@vendor.overview.views.soon.week:View counts for the last 7 days are coming soon.`;
     }
   });
 
