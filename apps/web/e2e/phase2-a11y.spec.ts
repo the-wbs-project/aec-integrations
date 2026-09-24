@@ -143,6 +143,28 @@ test.describe('Phase 2 page types — axe (WCAG AA)', () => {
     });
   }
 
+  // AECI-1079 — WCAG 2.2 SC 2.5.8 target size on the integrations table. The
+  // suite above runs the 2.0/2.1 AA tags only, and `target-size` is tagged
+  // wcag22aa, which is how the partner-name link shipped at 20px tall. This case
+  // runs that one rule on the section, at a desktop and a phone width, so the
+  // row cannot regress without the rest of the site taking on WCAG 2.2.
+  for (const width of [1280, 375]) {
+    test(`product detail integration rows meet WCAG 2.2 target size at ${width}px`, async ({
+      page,
+    }) => {
+      test.skip(!fixturesPresent, 'fixtures not seeded — see beforeAll warning');
+      await page.setViewportSize({ width, height: 900 });
+      await page.goto(`/products/${FIXTURE.productSlug}`);
+      await expect(page.locator('#integrations tbody tr').first()).toBeVisible();
+
+      const results = await new AxeBuilder({ page })
+        .include('#integrations')
+        .withRules(['target-size'])
+        .analyze();
+      expect(results.violations, formatViolations(results.violations)).toEqual([]);
+    });
+  }
+
   // AECI-155 flyout nav — validate the OPEN disclosure panel state, which the
   // per-page closed-state scans above never reach. Defensive: skips if the
   // desktop flyout trigger isn't rendered (e.g. a future layout change).

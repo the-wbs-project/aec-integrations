@@ -11,6 +11,10 @@
  * anchor comments control-flow blocks emit (an `@if` that renders nothing still
  * leaves one). Every element, attribute and text node a reader or a screen reader
  * can reach is compared byte for byte.
+ *
+ * One re-record, and it is not a depth-axis change. AECI-1079 (2026-09-24) gave
+ * the row's partner-name link a 24px target (`-my-0.5 min-w-6 py-0.5`). The two
+ * row snapshots changed in that `class` attribute and nowhere else.
  */
 import { provideHttpClient } from '@angular/common/http';
 import { provideHttpClientTesting } from '@angular/common/http/testing';
