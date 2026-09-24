@@ -255,8 +255,8 @@ describe('ProductPoweredHub', () => {
       const el = setupWithObjects([['rfis', 'models'], []]);
       const labels = [...el.querySelectorAll('ul li a')].map((a) => a.getAttribute('aria-label'));
       expect(labels).toEqual([
-        'View the Procore and Partner 0 integration, 2 data objects',
-        'View the Procore and Partner 1 integration',
+        'View the Procore and Partner 0 integration, direction Outbound, API, 2 data objects',
+        'View the Procore and Partner 1 integration, direction Outbound, API',
       ]);
     });
 
@@ -264,6 +264,93 @@ describe('ProductPoweredHub', () => {
       const el = setupWithObjects([[], []]);
       expect(el.querySelector('[data-testid="hub-data-objects"]')).toBeNull();
       expect(el.querySelector('[data-testid="hub-data-objects-sublabel"]')).toBeNull();
+    });
+  });
+
+  // AECI-1117: each row is ONE link whose aria-label replaces its content as the
+  // accessible name, so the sr-only "Direction:" prefix, the direction word and
+  // the mechanism badge inside it were never announced. The name now restates
+  // them, and the trailing affordance is the chevron, not a second arrow.
+  describe('row names and affordance (AECI-1117)', () => {
+    function setupEdges(edges: readonly PoweredIntegrationItem[]) {
+      TestBed.configureTestingModule({
+        providers: [provideZonelessChangeDetection(), provideRouter([])],
+      });
+      const fixture = TestBed.createComponent(Host);
+      fixture.componentInstance.view.set(groupPoweredIntegrations(edges, 'agave-erp-sync'));
+      fixture.detectChanges();
+      return fixture.nativeElement as HTMLElement;
+    }
+    const names = (el: HTMLElement) =>
+      [...el.querySelectorAll('ul li a')].map((a) => a.getAttribute('aria-label'));
+
+    it('says the hub-relative direction in words, in both directions and when unknown', () => {
+      const sage = link('sage', 'Sage');
+      const acumatica = link('acumatica', 'Acumatica');
+      const cmic = link('cmic', 'CMiC');
+      const el = setupEdges([
+        poweredEdge(HUB, sage),
+        poweredEdge(acumatica, HUB),
+        { ...poweredEdge(HUB, cmic), direction: null, mechanism_kind: null },
+      ]);
+      expect(names(el)).toEqual([
+        'View the Procore and Acumatica integration, direction Inbound, API',
+        'View the Procore and CMiC integration, direction not listed',
+        'View the Procore and Sage integration, direction Outbound, API',
+      ]);
+    });
+
+    it('names both ways on a round trip', () => {
+      const el = setupEdges([
+        { ...poweredEdge(HUB, link('sage', 'Sage')), direction: 'both' },
+        poweredEdge(HUB, link('cmic', 'CMiC')),
+      ]);
+      expect(names(el)[1]).toBe('View the Procore and Sage integration, direction Both, API');
+    });
+
+    it('says which way a flat one-way row flows, which its arrow alone carried', () => {
+      const bluebeam = link('bluebeam', 'Bluebeam');
+      const fieldwire = link('fieldwire', 'Fieldwire');
+      const raken = link('raken', 'Raken');
+      const zeta = link('zeta', 'Zeta');
+      const el = setupEdges([
+        poweredEdge(fieldwire, bluebeam),
+        { ...poweredEdge(raken, zeta), direction: 'both' },
+      ]);
+      expect(names(el)).toEqual([
+        'View the Bluebeam and Fieldwire integration, direction One-way from Fieldwire to Bluebeam, API',
+        'View the Raken and Zeta integration, direction Bidirectional, API',
+      ]);
+    });
+
+    it('wraps long product names rather than truncating them, as ProductIntegrationRow does', () => {
+      const el = setupEdges([
+        poweredEdge(HUB, link('sage', 'Sage Intacct Construction Enterprise Edition')),
+        poweredEdge(HUB, link('cmic', 'CMiC')),
+        poweredEdge(link('fieldwire', 'Fieldwire'), link('bluebeam', 'Bluebeam')),
+      ]);
+      const names = [...el.querySelectorAll('ul li a span.font-medium')];
+      expect(names).toHaveLength(4);
+      for (const name of names) {
+        expect(name.classList).not.toContain('truncate');
+        expect(name.classList).toContain('break-words');
+      }
+    });
+
+    it('ends every row in the aria-hidden chevron, never a trailing arrow', () => {
+      const el = setupEdges([
+        poweredEdge(HUB, link('sage', 'Sage')),
+        poweredEdge(HUB, link('cmic', 'CMiC')),
+        poweredEdge(link('fieldwire', 'Fieldwire'), link('bluebeam', 'Bluebeam')),
+      ]);
+      const anchors = [...el.querySelectorAll('ul li a')];
+      expect(anchors).toHaveLength(3);
+      for (const a of anchors) {
+        const last = a.lastElementChild!;
+        expect(last.tagName.toLowerCase()).toBe('svg');
+        expect(last.getAttribute('aria-hidden')).toBe('true');
+        expect(last.querySelector('path')!.getAttribute('d')).toBe('m9 18 6-6-6-6');
+      }
     });
   });
 });
