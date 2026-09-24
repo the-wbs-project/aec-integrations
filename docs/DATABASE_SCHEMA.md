@@ -1636,9 +1636,11 @@ create index integration_field_challenges_submitter_idx on integration_field_cha
   `AUTH_AND_RLS.md` §8 to ten.
 - **A second cascade child of `integrations`.** The next recreate of `integrations` must
   carry this table as well as `claims` and `attestations` (`migrations.md` §3.3a).
-  `apps/api/src/test/d1.spec.ts` pins the list. A promote cross-table move or a retraction
-  deletes the contests on the moved row; that is an accepted risk for unclaimed rows
-  (§11b.9 of the vendor portal spec).
+  `apps/api/src/test/d1.spec.ts` pins the list. A retraction deletes the contests on the
+  deleted row; that is an accepted risk for unclaimed rows (§11b.9 of the vendor portal
+  spec). A promote cross-table move does not: since AECI-1110 it re-anchors every contest
+  onto the destination row, flipping the anchor columns in one UPDATE, before it drops the
+  source. No column was added for this.
 
 **`owner_seat_lapsed_at` (AECI-989, migration `0048_wild_black_queen.sql`, a generated plain
 `ADD COLUMN`, no CHECK).** Set while an open contest sits with AECi **only** because its owner
@@ -2617,6 +2619,9 @@ create unique index connector_catalogs_product_idx on connector_catalogs(connect
   nothing at all, including no `audit_log` row. The check runs *before* the unpromoted-connector
   skip, so a policy refusal never disguises itself as a re-sendable "could not resolve yet".
   Refusing the page is complete cover: every child row binds the page's own catalogue id.
+  The refusal also holds at commit time (AECI-1084): a page that writes carries
+  `catalogNotVendorManagedSentinel` right after its ledger insert, so a flip between plan and
+  commit rolls the whole batch back and the job fails with the same code.
 - **The flag is reversible; the data direction is not.** "One-way forever" governs the data — the
   review app never writes over AECi's copy — and the refusal delivers that unconditionally. The
   flag itself moves both ways, because `STAGE_2_SPEC.md` §8.9(4) makes this cutoff the mechanism
@@ -3373,7 +3378,7 @@ await db.batch([
 ]);
 ```
 
-Each helper returns a Drizzle insert *statement* the caller pushes into its batch array; `db.batch()` commits them as a single unit. The best-effort observability forward (§26.5) is decoupled — call `forwardAuditLog` from `@aeci/shared` **after** the batch commits, via `ctx.waitUntil`. Its *target* moved Datadog → PostHog through the injected-forwarder seam (ADR 0024, completed at AECI-651); the in-batch rule above was unaffected.
+Each helper returns a Drizzle insert *statement* the caller pushes into its batch array; `db.batch()` commits them as a single unit. The best-effort observability forward (§26.5) is decoupled — **after** the batch commits, call `forwardAuditBatch` (`apps/api/src/lib/moderation-forward.ts`) with every audit row and transition the batch wrote. It sends them in one request (AECI-1112). `forwardAuditLog` from `@aeci/shared`, via `ctx.waitUntil`, is only for a path that forwards exactly one entry. Its *target* moved Datadog → PostHog through the injected-forwarder seam (ADR 0024, completed at AECI-651); the in-batch rule above was unaffected.
 
 **Cache invalidation runs after commit.** A state-changing write that affects cached SSR pages purges by **`Cache-Tag`** *after* `db.batch()` resolves, never inside it. On the API Worker (and datatool) that means **enqueuing** a typed `CachePurgeMessage` onto the `aeci-cache-purge-{env}` Cloudflare Queue; the SSR consumer issues the native `ctx.cache.purge()` (the SSR Worker's own `/admin/purge` purges in-process instead). Wrap the enqueue in `ctx.waitUntil()` so the response is not blocked on it:
 

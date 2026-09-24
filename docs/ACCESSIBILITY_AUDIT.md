@@ -111,6 +111,7 @@ One defect class, three instances. Grouped because the remedy is identical.
 | **A8** | Product detail | The "On this page" section nav exposes `aria-current` on **none** of its four links. The nav itself is correctly named. (2.4.8 Location is AAA, so this is an enhancement, not a conformance failure.) |
 | **A9** | Product detail | ~~"Visit website" opens a new tab (`target="_blank"`) with no warning to the user. Home's source links **do** carry an "(opens in a new tab)" hint, so this is an inconsistency within the product rather than a missing capability.~~ **FIXED 2026-09-16 (AECI-980).** The inconsistency ran both ways and was wider than this row recorded: seven new-tab links announced the tab to a screen reader and showed a sighted reader nothing, and eight drew a `↗` text character rather than the one drawn glyph. `aec-new-tab-icon` now carries both halves at every new-tab link in `apps/web`, and `DESIGN.md` → "The Link Treatment Rule" pins it. |
 | **A10** | `/admin/reviews` | `aria-current="page"` is set on both the `<a>` and its parent `<li>`, so the state may be announced twice. |
+| **A11** | Product detail, "Integrations it powers" | ~~Each hub row is one link whose `aria-label` replaced its content, so a screen reader never heard the row's direction or mechanism. The row also ended in a decorative `→` beside a real direction `→`. At 375px the hub card header truncated the hub name to zero width.~~ **FIXED 2026-09-24 (AECI-1117).** Found in a local critique, not by this audit, and no axe rule fails on it. The row name now restates direction, mechanism and object count ("View the Procore and Fieldwire integration, direction Inbound"). The trailing mark is the chevron. The card header wraps on its own width, so the name keeps its space. Measured on local `/products/fx-agave`: the hub name box went from 0px wide to its full 66px ("Procore") at 375px. axe (WCAG 2.0/2.1/2.2 A and AA) reports 0 violations at 375 and 1280, before and after. `STAGE_1_5_SPEC.md` §12.3 carries the rule. |
 
 ### 3.4 Needs a human with a real screen reader
 
@@ -122,6 +123,16 @@ These are the items the machine pass proved the *shape* of but cannot adjudicate
 | **H2** | `home-feedback-form.ts:52-56` and `account.html:91-94` place a `role="status"` region **inside** an `@if`, so it is inserted into the DOM already populated. NVDA generally does not announce a polite region on insertion. Does the message actually speak? |
 | **H3** | Many labels are ALL CAPS (`YOUR EMAIL`, `HEADLINE`, `OVERALL RATING`, `VENDOR`, `CATEGORIES`). Some screen readers spell short all-caps tokens letter by letter. Do these read as words? |
 | **H4** | The search autocomplete announces no result count when its listbox opens; the user gets `aria-activedescendant` on the first option only. Measured: 10 options appeared with no count message. Is arrowing through sufficient in practice? |
+
+### 3.5 Found outside this audit: vendor portal
+
+The vendor portal is outside this audit's scope (AECI-633 owns that pass). Findings from other lanes' axe runs are recorded here so a later pass can tell a regression from a first sighting.
+
+| # | Surface | Finding | SC |
+|---|---|---|---|
+| **V1** | Vendor portal "product not found" state (`vendor-products-page.ts`) | ~~The "See your products" link sat inside a sentence and was told apart by colour alone. axe reported one **serious** `link-in-text-block`.~~ **FIXED 2026-09-24 (AECI-1102, PR #835).** The link is now underlined. A follow-up polish added its hover and focus styles and gave the state an `h2`, so a heading jump reaches it. `preview-vendor-portal-nav.spec.ts` guards the state. A sweep of every `<a>` under `apps/web/src/app/vendor/` found no other in-text link without an underline. | 1.4.1 (A) |
+
+**Watch for this class anywhere.** A bare `<a>` inside running text always fails `link-in-text-block`. The base `a` rule in `styles.css` sets colour only, and Tailwind's preflight removes the underline.
 
 ---
 

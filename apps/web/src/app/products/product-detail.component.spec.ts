@@ -308,8 +308,12 @@ describe('ProductDetailPage powered-integrations hub', () => {
     // Rows link the CANONICAL pair page (context = alphabetically-first slug).
     expect(rows[0]!.getAttribute('href')).toBe('/products/acumatica/integrations/procore');
     expect(rows[1]!.getAttribute('href')).toBe('/products/procore/integrations/sage-intacct');
-    // Each row has a real accessible name naming BOTH endpoints.
-    expect(rows[0]!.getAttribute('aria-label')).toBe('View the Procore and Acumatica integration');
+    // Each row has a real accessible name naming BOTH endpoints, and (AECI-1117)
+    // restating the direction and mechanism the aria-label would otherwise hide.
+    expect(rows[0]!.getAttribute('aria-label')).toBe(
+      'View the Procore and Acumatica integration, direction Outbound, iPaaS',
+    );
+    expect(rows[1]!.getAttribute('aria-label')).toContain('direction Both');
     // Direction is framed relative to the hub, and the mechanism is shown —
     // the same vocabulary the sibling endpoint table uses.
     expect(rows[0]!.textContent).toContain('Outbound');

@@ -68,7 +68,7 @@
       "host",
       "service.name"
     ],
-    "_note": "The shared vocabulary rides as OTLP RESOURCE attributes (spec \u00a72 invariant 4). Per-call tags (`outcome`, `trigger`, `endpoint`, `status_class`, `check`, `severity`, `table`, `index`, `route_class`, `cache_status`, \u2026) ride as POINT attributes and are read as `attributes.<key>` in HogQL. Raw `status` was dropped in \u00a7AW1 for cardinality (\u00a73.5) \u2014 the status code lives on the error log."
+    "_note": "The shared vocabulary rides as OTLP RESOURCE attributes (spec \u00a72 invariant 4). Per-call tags (`outcome`, `trigger`, `endpoint`, `status_class`, `check`, `severity`, `table`, `index`, `route_class`, `cache_status`, \u2026) ride as POINT attributes. PostHog stores them on `posthog.metric_series`, not on `posthog.metrics`, so HogQL joins on `series_fingerprint` and reads `labels['<key>']` (AECI-1115, README 'Migration hazards' item 6). Raw `status` was dropped in \u00a7AW1 for cardinality (\u00a73.5) \u2014 the status code lives on the error log."
   },
   "hogqlTables": {
     "metrics": "posthog.metrics",

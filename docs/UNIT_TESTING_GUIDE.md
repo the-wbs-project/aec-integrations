@@ -150,6 +150,8 @@ Use Miniflare for integration tests. For pure handler logic, extract and test as
 
 Don't mock the Drizzle client deeply. Mock the specific call you're hitting (`db.query.*`, `db.select`, `db.batch`) and assert on the call's input.
 
+**Race windows: use `racingFactory`, never patch the shared client.** A race test lands a concurrent write between a handler's read and its `db.batch`. Build that factory with `racingFactory(t.factory, before)` or `wrappedFactory(t.factory, wrap)` from `apps/api/src/test/racing-factory.ts`. `before(attempt)` runs ahead of each batch; `attempt` counts batches across every request the factory serves, so a one-shot race is `attempt === 1`. Do not write `ctx.db.batch = …` inside a factory. The harness's `t.factory` returns the same `db` on every call, so that assignment patches the shared test client. The wrapper then outlives the request, a second request stacks a second wrapper, and a later plain request runs the race again (AECI-1111). The helpers put the wrapper on a fresh prototype-linked `db` per call. `racing-factory.spec.ts` pins that property. A one-test `vi.spyOn(t.db, 'batch').mockImplementationOnce(…)` is still fine: it fires once and then falls through to the real batch.
+
 ### Workflow state machines
 
 Each transition is a test:

@@ -27,23 +27,16 @@
 import { ApiErrorCode, SubmitReviewSchema } from '@aeci/shared';
 import type { SubmitReviewResponse } from '@aeci/shared';
 import { DEFAULT_LOCALE } from '@aeci/shared/algolia';
-import {
-  forwardAuditLog,
-  type AuditLogEntry,
-  type AuditLogForwarder,
-} from '@aeci/shared/audit-log';
-import {
-  forwardWorkflowTransition,
-  type WorkflowTransitionEntry,
-  type WorkflowTransitionForwarder,
-} from '@aeci/shared/workflow-transition';
+import { type AuditLogEntry } from '@aeci/shared/audit-log';
+import { type WorkflowTransitionEntry } from '@aeci/shared/workflow-transition';
 import { and, count, eq, gte, ne } from 'drizzle-orm';
 import type { Context } from 'hono';
 import type { ZodType } from 'zod';
 
 import { getDb } from '../db/client';
+import { forwardAuditBatch } from '../lib/moderation-forward';
 import { products, reviews, workflowInstances } from '../db/schema';
-import { logToPosthog, submitCount } from '../posthog';
+import { submitCount } from '../posthog';
 import type { Env } from '../env';
 import { ApiError, notFoundError } from '../errors';
 import { json } from '../http';
@@ -81,36 +74,6 @@ const KNOWN_LOCALES: ReadonlySet<string> = new Set([DEFAULT_LOCALE]);
 function resolveLocale(headerValue: string | undefined): string {
   const value = headerValue?.trim();
   return value && KNOWN_LOCALES.has(value) ? value : DEFAULT_LOCALE;
-}
-
-/** Telemetry forwarder (PostHog + the dual-run Datadog leg) for the audit write; each vendor leg no-ops without its own key. */
-function makeForwarder(c: AuthContext): AuditLogForwarder | undefined {
-  if (!c.env.POSTHOG_PROJECT_KEY) return undefined;
-  return (entry) => {
-    logToPosthog(c.executionCtx, c.env, c.req.raw, {
-      level: 'info',
-      message: `audit ${entry.action} ${entry.entityId ?? ''}`.trim(),
-      action: entry.action,
-      entity_type: entry.entityType ?? undefined,
-      entity_id: entry.entityId ?? undefined,
-      source: 'review-form',
-    });
-  };
-}
-
-/** Telemetry forwarder (PostHog + the dual-run Datadog leg) for the workflow-transition write; each vendor leg no-ops without its own key. */
-function makeWorkflowForwarder(c: AuthContext): WorkflowTransitionForwarder | undefined {
-  if (!c.env.POSTHOG_PROJECT_KEY) return undefined;
-  return (entry) => {
-    logToPosthog(c.executionCtx, c.env, c.req.raw, {
-      level: 'info',
-      message: `workflow ${entry.fromState ?? '∅'}→${entry.toState} ${entry.workflowId}`.trim(),
-      from_state: entry.fromState ?? undefined,
-      to_state: entry.toState,
-      workflow_id: entry.workflowId,
-      source: 'review-form',
-    });
-  };
 }
 
 async function parseJsonBody<T>(c: AuthContext, schema: ZodType<T>): Promise<T> {
@@ -291,13 +254,9 @@ export function createSubmitReviewHandler(
     // Best-effort §26.5 forwards + the §11.1 "in moderation" confirmation email,
     // all fire-and-forget AFTER the atomic commit. The email fails open: an absent
     // RESEND_API_KEY or session email is a silent skip and never affects the 201.
-    c.executionCtx.waitUntil(
-      Promise.all([
-        forwardWorkflowTransition(workflowEntry, makeWorkflowForwarder(c)),
-        forwardAuditLog(auditEntry, makeForwarder(c)),
-        sendReviewSubmittedEmail(c, { to: session.email }),
-      ]),
-    );
+    // The audit row and the transition go in ONE request (AECI-1112).
+    forwardAuditBatch(c, [auditEntry], [workflowEntry], 'review-form');
+    c.executionCtx.waitUntil(sendReviewSubmittedEmail(c, { to: session.email }));
 
     emitSubmit(c, 'ok');
 

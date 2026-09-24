@@ -290,6 +290,34 @@ Two more, less dangerous but easy to trip over:
    the **row/event count** as the value. They are summed, not counted.
    `docs/OBSERVABILITY.md` flags each one.
 
+6. **PostHog changed the `posthog.metrics` table shape under us (AECI-1115).** The
+   per-point labels moved to `posthog.metric_series`, keyed by `series_fingerprint`.
+   The `attributes` column is gone from `posthog.metrics`, so `m.attributes.outcome`
+   fails with `Field not found: attributes`. This one failed loudly, not silently: 12 of
+   the 14 production alerts showed `Errored`. The last alert email before the break was
+   2026-09-11, so it may date from then. We do not know the exact date. Every committed
+   query now joins a collapsed copy of the series table and reads labels as a map:
+
+   ```sql
+   FROM posthog.metrics AS m
+   LEFT JOIN (
+       SELECT series_fingerprint, any(attributes) AS labels
+       FROM posthog.metric_series
+       WHERE metric_name = 'aeci.auth.signin'
+       GROUP BY series_fingerprint
+   ) AS s ON m.series_fingerprint = s.series_fingerprint
+   ...
+     AND s.labels['outcome'] = 'failed'
+   ```
+
+   The `GROUP BY` matters. The series table held 3,809 rows for 2,753 fingerprints on
+   2026-09-24, and a raw join would count those points twice. Each fingerprint carries
+   exactly one label set, so `any(attributes)` is exact. The `metric_name` filter inside
+   the subquery repeats the outer one to keep the join small. Do not trust the new
+   `has_labels` column on `posthog.metrics`. It read false for `aeci.algolia.sync` points
+   whose series carry `outcome`, `trigger` and `entity`. `apply.sh` refuses to start if a
+   query still reads `m.attributes.<key>`.
+
 ---
 
 ## What is verified and what is not
@@ -480,6 +508,8 @@ and carries the same 7 dashboards (ids `2033129`–`2033136`) and 43 insights (i
 > out of date on the alert count. The new `profile-ensure-failed` alert and its source
 > insight reach PostHog on the next `apply.sh` run. 12 of the 14 live alerts are
 > `Errored`, because `posthog.metrics` lost its `attributes` column (AECI-1115).
+> AECI-1115 rewrote the 36 affected queries to join `posthog.metric_series` ("Migration
+> hazards" item 6). The live alerts stay `Errored` until `apply.sh` runs on production.
 >
 > **The committed set is now 45 insights and 14 alerts; live is still 43 and 13
 > (AECI-826, 2026-09-09).** The two new insights (`indexnow-submissions`,

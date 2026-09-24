@@ -92,6 +92,10 @@ export const ApiErrorCode = {
   // row, which the re-push writes. A claim on the updated row itself is
   // INTEGRATION_CLAIMED_DURING_PROMOTE.
   VENDOR_OWNED_TWIN_CREATED_DURING_PROMOTE: 'VENDOR_OWNED_TWIN_CREATED_DURING_PROMOTE',
+  // AECI-1110: a contest on an edge this promote moves between `integrations` and
+  // `connector_evidenced_pairs` was filed, withdrawn or decided after the plan read and
+  // before the batch. The batch rolls back; re-push and the move re-anchors the new set.
+  CONTEST_CHANGED_DURING_PROMOTE: 'CONTEST_CHANGED_DURING_PROMOTE',
   RATE_LIMITED: 'RATE_LIMITED',
   // AECI-770: a verified session has no `profiles` row and the self-heal could not
   // create one (503). Retryable. Distinct from UNAUTHENTICATED, which says "sign in

@@ -11,7 +11,7 @@ import { isPublicSite } from '@aeci/shared/deploy-env';
 import type { Context, Env as HonoEnv } from 'hono';
 
 import { getDb, type DbContext, type GetDbOptions } from '../db/client';
-import { logToPosthog, submitCount } from '../posthog';
+import { logBatchToPosthog, submitCount } from '../posthog';
 import type { Env } from '../env';
 
 /**
@@ -90,15 +90,21 @@ export function reportMissingVendors(
   if (missing.length === 0) return;
 
   try {
-    for (const p of missing) {
-      logToPosthog(c.executionCtx, c.env, c.req.raw, {
-        level: 'warn',
+    // One request for every gap on the page, never one per product (AECI-1112). A
+    // public read page can list many vendorless products, and a Worker invocation
+    // holds only about six open connections (AECI-666).
+    logBatchToPosthog(
+      c.executionCtx,
+      c.env,
+      c.req.raw,
+      missing.map((p) => ({
+        level: 'warn' as const,
         message: `Data gap: product ${p.slug} has no primary vendor`,
         data_gap: 'missing_vendor',
         product_id: p.id,
         product_slug: p.slug,
-      });
-    }
+      })),
+    );
     submitCount(c.executionCtx, c.env, c.req.raw, 'aeci.api.data_gap', missing.length, [
       'gap_type:missing_vendor',
     ]);

@@ -183,7 +183,8 @@ describe('planConnectorCatalogPage (AECI-714)', () => {
         ],
       }),
     );
-    expect(plan.statements).toHaveLength(1);
+    // The AECI-1084 `managed_by` sentinel, then the one stub that moved.
+    expect(plan.statements).toHaveLength(2);
     expect(plan.counts.stubs).toMatchObject({ updated: 1, unchanged: 1, created: 0 });
     await commit(t, plan);
     const [row] = await t.db

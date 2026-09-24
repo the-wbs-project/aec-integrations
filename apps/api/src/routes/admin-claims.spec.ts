@@ -78,6 +78,16 @@ function claimModerationActions(): string[][] {
     .map((call) => call[5] as string[]);
 }
 
+/** Audit or workflow forwards sent one row per request through `logToPosthog`. Must
+ *  stay empty: every §26.5 forward goes through the batched sender (AECI-1112). */
+function perRowAuditForwards(): unknown[] {
+  return vi
+    .mocked(logToPosthog)
+    .mock.calls.filter((call) =>
+      /^(audit|workflow) /.test(String((call[3] as { message?: string }).message ?? '')),
+    );
+}
+
 // Valid UUIDs — the response schema validates request/target/resolver + grant ids.
 const ADMIN_ID = '44444444-4444-4444-8444-444444444444';
 const VENDOR_ID = '11111111-1111-4111-8111-111111111111';
@@ -745,6 +755,29 @@ describe('PATCH /api/admin/claims/:id — reject', () => {
     // handed to the claimant email — closes the reviewer-note leak (§9).
     expect(email.mock.calls[0]![1]).not.toHaveProperty('reason');
     expect(claimModerationActions()).toEqual([['action:reject', 'outcome:ok']]);
+  });
+
+  it('forwards the audit row and the transition in ONE batched request (AECI-1112)', async () => {
+    await seedVendor();
+    await seedRequest();
+    await seedWorkflow();
+    vi.mocked(logBatchToPosthog).mockClear();
+    vi.mocked(logToPosthog).mockClear();
+
+    const { status } = await patchClaim(moderateApp(resolveThrows()), { action: 'reject' });
+
+    expect(status).toBe(200);
+    expect(logBatchToPosthog).toHaveBeenCalledTimes(1);
+    const events = vi.mocked(logBatchToPosthog).mock.calls[0]![3] as {
+      message: string;
+      source: string;
+    }[];
+    expect(events.map((e) => e.message)).toEqual([
+      `audit vendor_claim.rejected ${REQUEST_ID}`,
+      expect.stringMatching(/^workflow open→rejected /),
+    ]);
+    expect(events.every((e) => e.source === 'admin-moderation')).toBe(true);
+    expect(perRowAuditForwards()).toEqual([]);
   });
 
   it('returns 422 when rejecting an already-terminal claim', async () => {
@@ -1465,6 +1498,20 @@ describe('PATCH /api/admin/claims/:id/notes — the operator note (AECI-739)', (
     expect(audits[0]!.beforeState).toEqual({ admin_notes: null });
     expect(audits[0]!.afterState).toEqual({ admin_notes: 'Routed to the partnership track.' });
     expect(claimModerationActions()).toContainEqual(['action:note', 'outcome:ok']);
+  });
+
+  it('forwards the note audit row through the batched sender (AECI-1112)', async () => {
+    await seedVendor();
+    await seedRequest();
+    vi.mocked(logBatchToPosthog).mockClear();
+    vi.mocked(logToPosthog).mockClear();
+
+    expect((await patchNotes(REQUEST_ID, { notes: 'Parked.' })).status).toBe(200);
+
+    expect(logBatchToPosthog).toHaveBeenCalledTimes(1);
+    const events = vi.mocked(logBatchToPosthog).mock.calls[0]![3] as { message: string }[];
+    expect(events.map((e) => e.message)).toEqual([`audit vendor_claim.note_updated ${REQUEST_ID}`]);
+    expect(perRowAuditForwards()).toEqual([]);
   });
 
   it('keeps the audit trail as the note HISTORY — an edit records both versions', async () => {

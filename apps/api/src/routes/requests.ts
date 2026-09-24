@@ -31,23 +31,15 @@ import {
   type RequestSubmitResponse,
   type RequestTargetType,
 } from '@aeci/shared';
-import {
-  forwardAuditLog,
-  type AuditLogEntry,
-  type AuditLogForwarder,
-} from '@aeci/shared/audit-log';
-import {
-  forwardWorkflowTransition,
-  type WorkflowTransitionEntry,
-  type WorkflowTransitionForwarder,
-} from '@aeci/shared/workflow-transition';
+import { type AuditLogEntry } from '@aeci/shared/audit-log';
+import { type WorkflowTransitionEntry } from '@aeci/shared/workflow-transition';
 import { and, asc, eq, or } from 'drizzle-orm';
 import type { Context } from 'hono';
 import type { ZodType } from 'zod';
 
 import { getDb, type Db } from '../db/client';
+import { forwardAuditBatch } from '../lib/moderation-forward';
 import { products, vendorRequests, vendors, workflowInstances } from '../db/schema';
-import { logToPosthog } from '../posthog';
 import type { Env } from '../env';
 import { ApiError, notFoundError } from '../errors';
 import { json } from '../http';
@@ -64,40 +56,6 @@ import { createLinearIssueForRequest, drizzleLinearStore } from '../lib/linear';
 import { NOTIFIED_REQUEST_KINDS } from '../lib/request-links';
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
-
-/** Telemetry forwarder (PostHog + the dual-run Datadog leg) for the audit write; each vendor leg no-ops without its own key. Tagged
- *  `source: request-form`. */
-function makeForwarder(c: Context<{ Bindings: Env }>): AuditLogForwarder | undefined {
-  if (!c.env.POSTHOG_PROJECT_KEY) return undefined;
-  return (entry) => {
-    logToPosthog(c.executionCtx, c.env, c.req.raw, {
-      level: 'info',
-      message: `audit ${entry.action} ${entry.entityId ?? ''}`.trim(),
-      action: entry.action,
-      entity_type: entry.entityType ?? undefined,
-      entity_id: entry.entityId ?? undefined,
-      source: 'request-form',
-    });
-  };
-}
-
-/** Telemetry forwarder (PostHog + the dual-run Datadog leg) for the workflow-transition write; no-op without
- *  `POSTHOG_PROJECT_KEY`. Mirrors `makeForwarder`, tagged `source: request-form`. */
-function makeWorkflowForwarder(
-  c: Context<{ Bindings: Env }>,
-): WorkflowTransitionForwarder | undefined {
-  if (!c.env.POSTHOG_PROJECT_KEY) return undefined;
-  return (entry) => {
-    logToPosthog(c.executionCtx, c.env, c.req.raw, {
-      level: 'info',
-      message: `workflow ${entry.fromState ?? '∅'}→${entry.toState} ${entry.workflowId}`.trim(),
-      from_state: entry.fromState ?? undefined,
-      to_state: entry.toState,
-      workflow_id: entry.workflowId,
-      source: 'request-form',
-    });
-  };
-}
 
 async function parseJsonBody<T>(c: Context<{ Bindings: Env }>, schema: ZodType<T>): Promise<T> {
   let raw: unknown;
@@ -284,13 +242,8 @@ async function createRequest(
   ];
   await db.batch(stmts as BatchTuple);
 
-  // Best-effort §26.5 forwards AFTER the atomic commit.
-  c.executionCtx.waitUntil(
-    Promise.all([
-      forwardAuditLog(auditEntry, makeForwarder(c)),
-      forwardWorkflowTransition(workflowEntry, makeWorkflowForwarder(c)),
-    ]),
-  );
+  // Best-effort §26.5 forwards AFTER the atomic commit, in ONE request (AECI-1112).
+  forwardAuditBatch(c, [auditEntry], [workflowEntry], 'request-form');
 
   // Phase 6.4 (AECI-211): create the Linear issue out-of-band so it never blocks
   // the 201. `createLinearIssueForRequest` never throws (it logs + meters every

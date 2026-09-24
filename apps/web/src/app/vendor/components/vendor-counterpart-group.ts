@@ -89,8 +89,10 @@ import type { CounterpartGroup } from './vendor-integration-health';
               </span>
             </span>
             <!-- font-body: the unlayered h2 rule sets the display face, and the
-                 pill and count line inherit it without this. -->
-            <span class="ps-7 font-body sm:ps-0"
+                 pill and count line inherit it without this. flex: an inline
+                 wrapper takes the h2's 30px line box and seats the pill on its
+                 baseline, a few px below the View public page link. -->
+            <span class="flex ps-7 font-body sm:ps-0"
               ><aec-vendor-health-pill [health]="group().health"
             /></span>
           </button>

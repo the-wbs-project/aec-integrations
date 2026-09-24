@@ -73,6 +73,7 @@ Seeded empty **by design** — it is filled by rehearsal findings, parked-claim 
 | **AECI-1106** | 2026-09-23, from AECI-989 | Account erasure of a vendor's last seat hands nothing back. Described in §3.3.1. | Done. PR #823 merged 2026-09-24. |
 | **AECI-1107** | 2026-09-23, writing the AECI-1104 guide | The lapsed-plan panel does not say that attestation writes pause without a plan. `STAGE_2_PAID_TIERS_SPEC.md` §3.1 still said `attestation.author` had no consumer. Fixed 2026-09-24: the panel names confirming, denying and clearing data flows as paused, and §3.1 is corrected. | Done. PR #822 merged 2026-09-24. |
 | **AECI-1109** | 2026-09-23, writing rehearsal step 14b (AECI-1108 row 9) | A `409 GRANT_CONFLICT` on invite accept renders the generic "We couldn't load this invite". The redeemer, an AECi admin or another vendor's seat, never learns why. Fixed 2026-09-24: the page now renders its own conflict state, "This account can't join this team". `STAGE_2_VENDOR_PORTAL_SPEC.md` §11a.7a. | Done. PR #824. |
+| **AECI-1110** | 2026-09-23, AECI-1092 review | A promote cross-table move deleted every contest on the moved edge, because the contest table cascades off both anchor tables. Fixed 2026-09-24: the move re-anchors each contest onto the destination row in its own batch, closes an open `mechanism_kind` contest on a move into the pair table, and rolls back with `CONTEST_CHANGED_DURING_PROMOTE` on a race (`STAGE_2_VENDOR_PORTAL_SPEC.md` §11b.9). | In Review. PR #831. |
 | **AECI-1116** | 2026-09-24, design checks on the AECI-1107 and AECI-1082 PRs | `impeccable detect` reports three findings already on `main`: `nested-cards` and `text-occlusion` on the portal overview, `line-length` on the vendor profile. Each finding's severity is not yet recorded. Any P0 is fixed here, and anything lower is deferred to Stage 2.5 with a reason. | Backlog. |
 
 ### 3.3 Moved-in items and stage placements
@@ -95,7 +96,7 @@ Seeded empty **by design** — it is filled by rehearsal findings, parked-claim 
 
 The AECI-771 gate is met. AECI-885, AECI-636 and AECI-1037 were all Done on 2026-09-22. On 2026-09-23 the epic's children were split between the two stages. The record is the 2026-09-23 comment on AECI-771.
 
-Five items stay here with the epic. Build order is 724, then 769, then 710 and 711. 928 was waiting on the AECI-1064 ruling, which landed on 2026-09-23, so it is unblocked.
+Five items stay here with the epic. Build order is 724, then 769, then 710 and 711. 928 was waiting on the AECI-1064 ruling, which landed on 2026-09-23. All five are Done as of 2026-09-24.
 
 | Issue | What it does | Why it is admitted |
 |---|---|---|
@@ -103,7 +104,7 @@ Five items stay here with the epic. Build order is 724, then 769, then 710 and 7
 | **AECI-769** | Per-product list with `RoleBadge` on `/admin/vendors/:id`. | Polish on the admin identify step that precedes a grant. |
 | **AECI-710** | Surface `extension_of` on product pages. | **A named exception to §1.** Admitted 2026-09-23 by operator decision. It is small rendering over data the catalog already holds, with no new data or route. It ranks behind the seat-granting blockers. Built as `STAGE_1_5_SPEC.md` §13.3b (2026-09-23). |
 | **AECI-711** | Render integration direction and object coverage, only where present. | **A named exception to §1.** Admitted 2026-09-23 by operator decision. It is small rendering over data the catalog already holds, with no new data or route. It ranks behind the seat-granting blockers. |
-| **AECI-928** | Apply I24 to Zapier's 59 powered rows. | Data cleanup on the connector lane. It was blocked on the AECI-1064 ruling. That ruling landed on 2026-09-23: Zapier is promoted and its catalogue is in production, so AECI-928 is unblocked. |
+| **AECI-928** | Apply I24 to Zapier's 59 powered rows. **Done 2026-09-24.** 87 claims moved onto 41 Zapier connector pairs. 59 review rows retired. 16 production rows left `connector_evidenced_pairs`. The I26 overlap query reads 0 powered duplicates in all six catalogues. The run record is in `scripts/ops/2026-09-retraction-consumer/README.md`. | Data cleanup on the connector lane. It was blocked on the AECI-1064 ruling. That ruling landed on 2026-09-23: Zapier is promoted and its catalogue is in production, so AECI-928 is unblocked. |
 
 Two children moved out to Stage 2.5 on 2026-09-23. **AECI-715** is the coverage checker. **AECI-716** is reachable-lane publication. Both are new public catalog surfaces and fail the §1 admission test. They stay children of AECI-771. `STAGE_2_5_SPEC.md` §13 records them.
 
@@ -130,7 +131,7 @@ Everything in `docs/STAGE_2_5_SPEC.md` and `docs/STAGE_3_SPEC.md`. The AECI-636 
 - [x] AECI-623 merged. PR #808, 2026-09-23.
 - [ ] AECI-633 logged green. Todo on 2026-09-24.
 - [x] The pulled-forward seat-gating items (§3.3.1) closed: AECI-770 and AECI-1053. PR #807 and PR #809, both merged 2026-09-23.
-- [ ] The connector-lane epic's Stage 2.1 children (§3.3.2) closed or explicitly deferred with a recorded reason: AECI-724, AECI-769, AECI-710, AECI-711, and AECI-928 (unblocked 2026-09-23 when the AECI-1064 ruling landed). **Status 2026-09-24:** four of five are Done. AECI-724 is PR #800, AECI-769 is PR #803, AECI-710 is PR #802 and AECI-711 is PR #801, all merged 2026-09-23. AECI-928 is still Todo, so this box stays open.
+- [x] The connector-lane epic's Stage 2.1 children (§3.3.2) closed or explicitly deferred with a recorded reason: AECI-724, AECI-769, AECI-710, AECI-711, and AECI-928 (unblocked 2026-09-23 when the AECI-1064 ruling landed). **Status 2026-09-24:** all five are Done. AECI-724 is PR #800, AECI-769 is PR #803, AECI-710 is PR #802 and AECI-711 is PR #801, all merged 2026-09-23. AECI-928 ran in production on 2026-09-24, and its overlap check reads 0 powered duplicates in every catalogue.
 - [x] Vendor guides (§3.5) built and live at v0, noindex. AECI-1104, PR #811, merged 2026-09-23.
 - [ ] Vendor guides indexed, in the sitemap and linked from the footer and portal. This is the literal "published" and it waits on AECI-1105.
 - [ ] Refinement backlog (§3.2) empty, or each remainder explicitly deferred with a recorded reason.

@@ -52,18 +52,15 @@ import {
   type SetVendorEntitlementInput,
   type VendorEntitlementResponse,
 } from '@aeci/shared';
-import {
-  forwardAuditLog,
-  type AuditLogEntry,
-  type AuditLogForwarder,
-} from '@aeci/shared/audit-log';
+import { type AuditLogEntry } from '@aeci/shared/audit-log';
 import { capabilitiesFor } from '@aeci/shared/entitlements';
 import { eq } from 'drizzle-orm';
 import type { Context } from 'hono';
 
 import { getDb } from '../db/client';
+import { forwardAuditBatch } from '../lib/moderation-forward';
 import { vendorEntitlements, vendors } from '../db/schema';
-import { logBatchToPosthog, logToPosthog, submitCount } from '../posthog';
+import { logToPosthog, submitCount } from '../posthog';
 import type { Env } from '../env';
 import { ApiError, notFoundError } from '../errors';
 import { json } from '../http';
@@ -98,22 +95,6 @@ const DEFAULT_TIER = 'verified';
 const CLEAR_TERMINAL = 'revoked';
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
-
-/** Telemetry forwarder (PostHog + the dual-run Datadog leg) for the audit write; each vendor leg no-ops without its own key. Tagged
- *  `source: admin-entitlement`, matching the audit metadata the builders emit. */
-function makeForwarder(c: EntitlementContext): AuditLogForwarder | undefined {
-  if (!c.env.POSTHOG_PROJECT_KEY) return undefined;
-  return (entry) => {
-    logToPosthog(c.executionCtx, c.env, c.req.raw, {
-      level: 'info',
-      message: `audit ${entry.action} ${entry.entityId ?? ''}`.trim(),
-      action: entry.action,
-      entity_type: entry.entityType ?? undefined,
-      entity_id: entry.entityId ?? undefined,
-      source: 'admin-entitlement',
-    });
-  };
-}
 
 /** `aeci.entitlement.action` (§5) — one per attempt, tagged by action + outcome.
  *  Fire-and-forget; each vendor leg no-ops without its own key. */
@@ -410,25 +391,10 @@ export function createSetVendorEntitlementHandler(
       const tags = await vendorPurgeTags(db, vendor);
       c.executionCtx.waitUntil(purgeEntitlementTags(c, tags));
     }
-    c.executionCtx.waitUntil(forwardAuditLog(batch.auditEntry, makeForwarder(c)));
-    // AECI-1092: the re-route rows go in ONE request, never one per contest, so a
-    // clear that moves many contests cannot run past the Worker connection limit
-    // and lose forwards silently (AECI-666). Each leg self-gates on its own key.
-    if (rerouteAudits.length > 0) {
-      logBatchToPosthog(
-        c.executionCtx,
-        c.env,
-        c.req.raw,
-        rerouteAudits.map((entry) => ({
-          level: 'info' as const,
-          message: `audit ${entry.action} ${entry.entityId ?? ''}`.trim(),
-          action: entry.action,
-          entity_type: entry.entityType ?? undefined,
-          entity_id: entry.entityId ?? undefined,
-          source: 'admin-entitlement',
-        })),
-      );
-    }
+    // AECI-1092 / AECI-1112: the entitlement row and every re-route row go in ONE
+    // request, never one per contest, so a clear that moves many contests cannot run
+    // past the Worker connection limit and lose forwards silently (AECI-666).
+    forwardAuditBatch(c, [batch.auditEntry, ...rerouteAudits], [], 'admin-entitlement');
 
     // ── 9. Response ──────────────────────────────────────────────────────────
     const verified = action === 'set' ? true : action === 'clear' ? false : vendor.verified;

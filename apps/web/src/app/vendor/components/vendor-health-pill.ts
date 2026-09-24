@@ -18,29 +18,35 @@ import type { IntegrationHealth } from './vendor-integration-health';
  *
  * Colour is never the only signal: each state has its own visible label, and
  * `conflict` also carries a shape.
+ *
+ * `responded` renders no pill. The vendor has answered every flow and nothing
+ * waits on them, so the absence of a pill says it. The status filter still
+ * offers the state as a chip.
  */
 @Component({
   selector: 'aec-vendor-health-pill',
   host: { class: 'inline-flex shrink-0' },
   template: `
-    <span [class]="toneClass()">
-      @if (health() === 'conflict') {
-        <svg
-          aria-hidden="true"
-          class="h-3 w-3 shrink-0"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          stroke-width="2.5"
-          stroke-linecap="round"
-        >
-          <path d="M7 7l10 10M17 7L7 17" />
-        </svg>
-      } @else {
-        <span aria-hidden="true" class="h-1.5 w-1.5 rounded-full" [class]="dotClass()"></span>
-      }
-      {{ label() }}
-    </span>
+    @if (health() !== 'responded') {
+      <span [class]="toneClass()">
+        @if (health() === 'conflict') {
+          <svg
+            aria-hidden="true"
+            class="h-3 w-3 shrink-0"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2.5"
+            stroke-linecap="round"
+          >
+            <path d="M7 7l10 10M17 7L7 17" />
+          </svg>
+        } @else {
+          <span aria-hidden="true" class="h-1.5 w-1.5 rounded-full" [class]="dotClass()"></span>
+        }
+        {{ label() }}
+      </span>
+    }
   `,
 })
 export class VendorHealthPill {
@@ -69,8 +75,6 @@ export class VendorHealthPill {
         return 'bg-(--accent-secondary-deep)';
       case 'confirmed':
         return 'bg-(--accent-primary)';
-      case 'responded':
-        return 'bg-(--text-secondary)';
       default:
         return 'bg-(--text-tertiary)';
     }

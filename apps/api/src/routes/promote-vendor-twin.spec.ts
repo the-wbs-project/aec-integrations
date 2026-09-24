@@ -35,6 +35,7 @@ import type { Env } from '../env';
 import type { DbFactory } from '../lib/handler-utils';
 import { VENDOR_OWNED_TWIN } from '../lib/integration-twins';
 import { makeTestDb, type TestDb } from '../test/d1';
+import { racingFactory, wrappedFactory } from '../test/racing-factory';
 import {
   REFUSED_CLAIMED_INTEGRATION,
   runPromoteIngest,
@@ -264,23 +265,15 @@ describe('promote still inserts where the guard does not apply', () => {
 describe('the commit-time half', () => {
   it('aborts the whole promote when a vendor creates the twin between plan and commit', async () => {
     await t.db.delete(integrations).where(eq(integrations.id, VENDOR_ROW));
-    let raced = false;
-    const racing: DbFactory = (env, opts) => {
-      const ctx = t.factory(env, opts);
-      const batch = ctx.db.batch.bind(ctx.db);
-      (ctx.db as unknown as { batch: typeof batch }).batch = (async (stmts: never) => {
-        if (raced) return batch(stmts);
-        raced = true;
-        t.raw
-          .prepare(
-            `INSERT INTO integrations (id, source_product_id, target_product_id, mechanism_kind, built_by_vendor_id, origin, claimed_at, maintained_by, created_at, updated_at)
-             VALUES (?, ?, ?, 'native', ?, 'vendor', ?, 'vendor', ?, ?)`,
-          )
-          .run(VENDOR_ROW, NAVIS, REVIT, OWNER, NOW, NOW, NOW);
-        return batch(stmts);
-      }) as typeof batch;
-      return ctx;
-    };
+    const racing = racingFactory(t.factory, (attempt) => {
+      if (attempt > 1) return;
+      t.raw
+        .prepare(
+          `INSERT INTO integrations (id, source_product_id, target_product_id, mechanism_kind, built_by_vendor_id, origin, claimed_at, maintained_by, created_at, updated_at)
+           VALUES (?, ?, ?, 'native', ?, 'vendor', ?, 'vendor', ?, ?)`,
+        )
+        .run(VENDOR_ROW, NAVIS, REVIT, OWNER, NOW, NOW, NOW);
+    });
     await expect(ingest(curatorAdd(), { jobId: 'job-race', dbFor: racing })).rejects.toMatchObject({
       status: 409,
       code: 'VENDOR_OWNED_TWIN_CREATED_DURING_PROMOTE',
@@ -357,18 +350,13 @@ describe('the review probe: the two reported twin paths now skip', () => {
 /** A DbFactory that records the SQL of every statement the promote batch sends, after
  *  running `before` (the mid-promote race window). */
 function capturingBatch(sent: string[], before: () => void = () => {}): DbFactory {
-  return (env, opts) => {
-    const ctx = t.factory(env, opts);
-    const batch = ctx.db.batch.bind(ctx.db);
-    (ctx.db as unknown as { batch: typeof batch }).batch = (async (stmts: never) => {
-      for (const stmt of stmts as unknown as Array<{ toSQL(): { sql: string } }>) {
-        sent.push(stmt.toSQL().sql);
-      }
-      before();
-      return batch(stmts);
-    }) as typeof batch;
-    return ctx;
-  };
+  return wrappedFactory(t.factory, (_attempt, run, stmts) => {
+    for (const stmt of stmts as unknown as Array<{ toSQL(): { sql: string } }>) {
+      sent.push(stmt.toSQL().sql);
+    }
+    before();
+    return run();
+  });
 }
 
 /** The claim-fence sentinels raise this token; the twin sentinels raise another. */
@@ -605,18 +593,10 @@ describe('the UPDATE guard: a kind or owner change is a key change too', () => {
     // itself once it is claimed. The row must never count as its own twin.
     await t.db.delete(integrations).where(eq(integrations.id, VENDOR_ROW));
     await seedCurated({ builtByVendorId: OTHER });
-    let raced = false;
-    const racing: DbFactory = (env, opts) => {
-      const ctx = t.factory(env, opts);
-      const batch = ctx.db.batch.bind(ctx.db);
-      (ctx.db as unknown as { batch: typeof batch }).batch = (async (stmts: never) => {
-        if (raced) return batch(stmts);
-        raced = true;
-        t.raw.prepare(`UPDATE integrations SET claimed_at = ? WHERE id = ?`).run(NOW, CURATED_ROW);
-        return batch(stmts);
-      }) as typeof batch;
-      return ctx;
-    };
+    const racing = racingFactory(t.factory, (attempt) => {
+      if (attempt > 1) return;
+      t.raw.prepare(`UPDATE integrations SET claimed_at = ? WHERE id = ?`).run(NOW, CURATED_ROW);
+    });
     await expect(
       ingest(curatorUpdate(CURATED_ROW, { builtByVendor: null }), {
         jobId: 'job-claim-race',
@@ -632,23 +612,15 @@ describe('the UPDATE guard: a kind or owner change is a key change too', () => {
     // not in the plan-time already-twinned set, so the sentinel fires.
     const V2 = uuid(25);
     await seedCurated({ builtByVendorId: null });
-    let raced = false;
-    const racing: DbFactory = (env, opts) => {
-      const ctx = t.factory(env, opts);
-      const batch = ctx.db.batch.bind(ctx.db);
-      (ctx.db as unknown as { batch: typeof batch }).batch = (async (stmts: never) => {
-        if (raced) return batch(stmts);
-        raced = true;
-        t.raw
-          .prepare(
-            `INSERT INTO integrations (id, source_product_id, target_product_id, mechanism_kind, built_by_vendor_id, origin, claimed_at, maintained_by, created_at, updated_at)
-             VALUES (?, ?, ?, 'native', ?, 'vendor', ?, 'vendor', ?, ?)`,
-          )
-          .run(V2, NAVIS, REVIT, OWNER, NOW, NOW, NOW);
-        return batch(stmts);
-      }) as typeof batch;
-      return ctx;
-    };
+    const racing = racingFactory(t.factory, (attempt) => {
+      if (attempt > 1) return;
+      t.raw
+        .prepare(
+          `INSERT INTO integrations (id, source_product_id, target_product_id, mechanism_kind, built_by_vendor_id, origin, claimed_at, maintained_by, created_at, updated_at)
+           VALUES (?, ?, ?, 'native', ?, 'vendor', ?, 'vendor', ?, ?)`,
+        )
+        .run(V2, NAVIS, REVIT, OWNER, NOW, NOW, NOW);
+    });
     await expect(
       ingest(curatorUpdate(CURATED_ROW, { description: 'after' }), {
         jobId: 'job-new-twin-race',
@@ -696,5 +668,67 @@ describe('the promote fence holds a vendor-created row without a claim', () => {
       reason: REFUSED_CLAIMED_INTEGRATION,
     });
     expect(await integrationRows()).toEqual(before);
+  });
+});
+
+describe('a twin-skipped vendor-maintained edge reports the twin skip alone (AECI-1101)', () => {
+  // The AECI-981 review-signal receipt used to be pushed before the twin guard, so a
+  // skipped edge on a vendor-maintained row reported both `VENDOR_OWNED_TWIN` and a
+  // receipt for a date that was never considered. The skip writes nothing, so the
+  // twin report is its only entry.
+  const REVIEWED = '2026-09-24T00:00:00.000Z';
+
+  async function seedVendorMaintainedCurated() {
+    // Unclaimed and AECi-seeded, so the §4b fence does not hold it, but vendor-maintained.
+    await t.db.insert(integrations).values({
+      id: CURATED_ROW,
+      name: 'Curated Revit to BIM 360',
+      sourceProductId: REVIT,
+      targetProductId: BIM360,
+      mechanismKind: 'native',
+      builtByVendorId: OWNER,
+      maintainedBy: 'vendor',
+      lastReviewedAt: NOW,
+    });
+  }
+
+  it('reports VENDOR_OWNED_TWIN and no review-signal receipt', async () => {
+    await seedVendorMaintainedCurated();
+    // The re-point onto Navisworks twins the vendor row.
+    const { response } = await ingest(curatorUpdate(CURATED_ROW, { lastReviewedAt: REVIEWED }));
+    expect(response.skipped).toEqual([
+      { ref: 'i1', kind: 'integration', reason: VENDOR_OWNED_TWIN, existingId: VENDOR_ROW },
+    ]);
+  });
+
+  it('still reports the receipt on an edge that passes the twin guard', async () => {
+    await seedVendorMaintainedCurated();
+    // Same row, no re-point: it stays on BIM 360, so there is no twin and it writes.
+    const { response } = await ingest(
+      curatorUpdate(CURATED_ROW, {
+        targetProduct: { supabaseId: BIM360 },
+        lastReviewedAt: REVIEWED,
+      }),
+    );
+    expect(response.integrations).toEqual([
+      expect.objectContaining({ id: CURATED_ROW, operation: 'updated' }),
+    ]);
+    expect(response.skipped.filter((s) => s.ref === 'i1')).toEqual([
+      expect.objectContaining({ ref: 'i1', kind: 'review-signal' }),
+    ]);
+    const row = await t.db.query.integrations.findFirst({
+      where: eq(integrations.id, CURATED_ROW),
+    });
+    expect(row!.lastReviewedAt).toBe(NOW);
+  });
+
+  it('a replay returns the recorded twin skip unchanged', async () => {
+    await seedVendorMaintainedCurated();
+    const body = curatorUpdate(CURATED_ROW, { lastReviewedAt: REVIEWED });
+    const first = await ingest(body, { jobId: 'job-1101' });
+    const replay = await ingest(body, { jobId: 'job-1101' });
+    expect(replay.response).toEqual(first.response);
+    expect(replay.response.skipped.map((s) => s.reason)).toEqual([VENDOR_OWNED_TWIN]);
+    expect(await t.db.select().from(promoteJobs)).toHaveLength(1);
   });
 });

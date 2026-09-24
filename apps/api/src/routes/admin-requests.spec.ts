@@ -31,7 +31,7 @@ import {
   workflowInstances,
   workflowTransitions,
 } from '../db/schema';
-import { submitCount } from '../posthog';
+import { logBatchToPosthog, logToPosthog, submitCount } from '../posthog';
 import type { Env } from '../env';
 import { errorHandler } from '../errors';
 import type { AuthzVariables } from '../lib/authz';
@@ -514,6 +514,33 @@ describe('PATCH /api/admin/requests/:id', () => {
       reason: 'Not a real claim',
     });
     expect(requestModerationActions()).toEqual([['action:reject', 'outcome:ok']]);
+  });
+
+  it('forwards the audit row and the transition in ONE batched request (AECI-1112)', async () => {
+    await seed(reqRow());
+    await seedWorkflow('vendor_claim');
+    vi.mocked(logBatchToPosthog).mockClear();
+    vi.mocked(logToPosthog).mockClear();
+
+    expect((await patchReq(moderateApp(), { action: 'resolve' })).status).toBe(200);
+
+    expect(logBatchToPosthog).toHaveBeenCalledTimes(1);
+    const events = vi.mocked(logBatchToPosthog).mock.calls[0]![3] as {
+      message: string;
+      source: string;
+    }[];
+    expect(events.map((e) => e.message)).toEqual([
+      `audit vendor_request.resolved ${REQUEST_ID}`,
+      expect.stringMatching(/^workflow open→resolved /),
+    ]);
+    expect(events.every((e) => e.source === 'admin-moderation')).toBe(true);
+    // No per-row forward is left behind.
+    const perRow = vi
+      .mocked(logToPosthog)
+      .mock.calls.filter((call) =>
+        /^(audit|workflow) /.test(String((call[3] as { message?: string }).message ?? '')),
+      );
+    expect(perRow).toEqual([]);
   });
 
   it('allows reject with no reason (reason optional for requests) → reason null', async () => {

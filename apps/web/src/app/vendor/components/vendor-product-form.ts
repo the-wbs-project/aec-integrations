@@ -77,7 +77,10 @@ interface FieldConfig {
           bodyPrefill: a correction already carries (target_type, slug), so
           there is no context here the request does not already have.
         -->
-        <p class="mt-2 text-xs text-(--text-secondary)" i18n="@@vendor.product.renameHint">
+        <p
+          class="mt-2 max-w-prose text-xs leading-relaxed text-(--text-secondary)"
+          i18n="@@vendor.product.renameHint"
+        >
           To change the product name,
           <a
             aecRequestTrigger
@@ -117,22 +120,30 @@ interface FieldConfig {
         @if (!canEdit()) {
           @if (catalogueSeat()) {
             <!-- AECI-1082: the catalogue seat never had product editing, so it is not paused. -->
-            <p
-              class="rounded-(--radius-md) border border-(--border-default) bg-(--surface-sunken) p-4 text-sm leading-relaxed text-(--text-secondary)"
-              i18n="@@vendor.product.readOnly.catalogue"
+            <div
+              class="rounded-(--radius-md) border border-(--border-default) bg-(--surface-sunken) p-4"
             >
-              Product details stay with the AECi team, so this seat cannot edit them. This product
-              stays published exactly as it is, and everything on record is here to read.
-            </p>
+              <p
+                class="max-w-prose text-sm leading-relaxed text-(--text-secondary)"
+                i18n="@@vendor.product.readOnly.catalogue"
+              >
+                Product details stay with the AECi team, so this seat cannot edit them. This product
+                stays published exactly as it is, and everything on record is here to read.
+              </p>
+            </div>
           } @else {
-            <p
-              class="rounded-(--radius-md) border border-(--border-default) bg-(--surface-sunken) p-4 text-sm leading-relaxed text-(--text-secondary)"
-              i18n="@@vendor.product.readOnly"
+            <div
+              class="rounded-(--radius-md) border border-(--border-default) bg-(--surface-sunken) p-4"
             >
-              Editing is paused while your account access is inactive. This product stays published
-              exactly as it is, and everything on record is here to read. The account panel on
-              Vendor Overview has the renewal path.
-            </p>
+              <p
+                class="max-w-prose text-sm leading-relaxed text-(--text-secondary)"
+                i18n="@@vendor.product.readOnly"
+              >
+                Editing is paused while your account access is inactive. This product stays
+                published exactly as it is, and everything on record is here to read. The account
+                panel on Vendor Overview has the renewal path.
+              </p>
+            </div>
           }
         }
 

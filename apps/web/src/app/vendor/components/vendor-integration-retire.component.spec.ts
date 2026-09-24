@@ -302,6 +302,22 @@ describe('on the card', () => {
     expect(button(fixture, 'Restore integration')).toBeUndefined();
   });
 
+  it('marks waiting flows "Needs your input" on a live row, never on a retired one', async () => {
+    // A retired row is left out of the waiting count (AECI-1010), so its lanes
+    // must not carry the chip that points at that count.
+    const waiting: VendorIntegration = {
+      ...OWNED,
+      attestable: true,
+      claims: OWNED.claims.map((c) => ({ ...c, mine: [] })),
+    };
+    expect(waiting.claims.length).toBeGreaterThan(0);
+    const live = await card(waiting);
+    expect(el(live).querySelector('.aec-pill-attention')).not.toBeNull();
+
+    const retired = await card({ ...waiting, retired_at: RETIRED_AT });
+    expect(el(retired).querySelector('.aec-pill-attention')).toBeNull();
+  });
+
   it('keeps the contest action on a live row the caller does not own', async () => {
     const fixture = await card({ ...RETIRED_BY_OTHER, retired_at: null });
     expect(el(fixture).querySelector('aec-vendor-contest-form')).not.toBeNull();

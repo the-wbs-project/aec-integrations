@@ -26,9 +26,9 @@ import { NOTIFICATION_SENT_ACTION } from '../lib/attestation-notify';
 import { requireAdmin, type AuthzVariables } from '../lib/authz';
 import { makeTestJwks, type TestJwks } from '../test/auth';
 import { readAdminQueueCounts } from '../lib/admin-queue-counts';
-import type { DbFactory } from '../lib/handler-utils';
 import { makeTestDb, type TestDb } from '../test/d1';
 import { TEST_ENV, fakeExecutionContext } from '../test/helpers';
+import { racingFactory } from '../test/racing-factory';
 import { createAdminContestsListHandler, createModerateContestHandler } from './admin-contests';
 import { createSubmitContestHandler } from './vendor-contests';
 
@@ -530,17 +530,11 @@ describe('PATCH /api/admin/contests/:id — accepts on owned rows (AECI-1005)', 
 
   it('aborts the whole decision when the row is claimed between read and commit', async () => {
     const id = await fileContest('name', 'Revit Link');
-    const racing: DbFactory = (env, opts) => {
-      const ctx = t.factory(env, opts);
-      const batch = ctx.db.batch.bind(ctx.db);
-      (ctx.db as unknown as { batch: typeof batch }).batch = (async (stmts: never) => {
-        t.raw
-          .prepare('UPDATE integrations SET claimed_at = ? WHERE id = ?')
-          .run(CLAIMED_AT, I_MAIN);
-        return batch(stmts);
-      }) as typeof batch;
-      return ctx;
-    };
+    let injections = 0;
+    const racing = racingFactory(t.factory, () => {
+      injections += 1;
+      t.raw.prepare('UPDATE integrations SET claimed_at = ? WHERE id = ?').run(CLAIMED_AT, I_MAIN);
+    });
     const a = new Hono<{ Bindings: Env; Variables: AuthzVariables }>();
     a.onError(errorHandler());
     a.use('*', async (c, next) => {
@@ -564,6 +558,16 @@ describe('PATCH /api/admin/contests/:id — accepts on owned rows (AECI-1005)', 
     expect(contest!.status).toBe('open');
     expect(await auditActions()).not.toContain('integration.contest.accepted');
     expect(fileIssue).not.toHaveBeenCalled();
+    expect(injections).toBe(1);
+    // A later plain request must not run the race again (AECI-1111). The old
+    // in-place wrapper stayed on the shared client, so this decline re-ran it.
+    t.raw.prepare('UPDATE integrations SET claimed_at = NULL WHERE id = ?').run(I_MAIN);
+    const decline = await call(ADMIN, 'PATCH', `/api/admin/contests/${id}`, {
+      decision: 'decline',
+    });
+    expect(decline.status).toBe(200);
+    expect(injections).toBe(1);
+    expect((await integrationRow()).claimedAt).toBeNull();
   });
 });
 
@@ -605,22 +609,18 @@ describe('PATCH /api/admin/contests/:id — a stale accept on a claimed row (AEC
   it('refuses in the batch when the owner edits between the pre-read and the batch', async () => {
     const id = await fileContest('name', 'Revit Link');
     await setIntegration({ claimedAt: CLAIMED_AT });
-    const factory = t.factory;
-    let fired = false;
-    const racing = createModerateContestHandler((env, opts) => {
-      const ctx = factory(env, opts);
-      if (!fired) {
-        const batch = ctx.db.batch.bind(ctx.db);
-        (ctx.db as unknown as { batch: typeof batch }).batch = (async (stmts: never) => {
-          fired = true;
+    const injected: number[] = [];
+    const racing = createModerateContestHandler(
+      racingFactory(t.factory, (attempt) => {
+        injected.push(attempt);
+        if (attempt === 1) {
           t.raw
             .prepare(`UPDATE integrations SET name = ? WHERE id = ?`)
             .run('Late owner edit', I_MAIN);
-          return batch(stmts);
-        }) as typeof batch;
-      }
-      return ctx;
-    }, fileIssue);
+        }
+      }),
+      fileIssue,
+    );
     const a = new Hono<{ Bindings: Env; Variables: AuthzVariables }>();
     a.onError(errorHandler());
     a.use('*', async (c, next) => {
@@ -643,6 +643,8 @@ describe('PATCH /api/admin/contests/:id — a stale accept on a claimed row (AEC
     expect((await integrationRow()).name).toBe('Late owner edit');
     const [contest] = await t.db.select().from(integrationFieldChallenges);
     expect(contest!.status).toBe('open');
+    // The handler batched once, and the race ran once.
+    expect(injected).toEqual([1]);
   });
 
   it('shows the live value beside the recorded one, and flags it stale, on the queue', async () => {

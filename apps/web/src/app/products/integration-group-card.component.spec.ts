@@ -53,6 +53,22 @@ describe('IntegrationGroupCard', () => {
     expect(button!.textContent).toContain('12 connections');
   });
 
+  // AECI-1117: at 375px the count and the "View product" link took the whole
+  // bar and the name truncated to zero width. jsdom does no layout, so this pins
+  // the classes that let the bar wrap on its own width and the name wrap in place.
+  it('lets the header wrap and never truncates the group name', () => {
+    const { el } = setup();
+    const bar = el.querySelector('h3#card-heading')!.parentElement!;
+    expect(bar.classList).toContain('flex-wrap');
+    expect(el.querySelector('h3#card-heading')!.classList).toContain('basis-72');
+    const name = [...el.querySelectorAll('h3 button span')].find(
+      (s) => s.textContent?.trim() === 'Agave ERP Sync',
+    )!;
+    expect(name).toBeDefined();
+    expect(name.classList).not.toContain('truncate');
+    expect(name.classList).toContain('break-words');
+  });
+
   it('wires aria-expanded and aria-controls at the panel it controls', () => {
     const { el } = setup();
     const button = el.querySelector('button')!;

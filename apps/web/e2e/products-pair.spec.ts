@@ -214,7 +214,7 @@ test.describe('product-PAIR page — version selection interaction (AECI-303)', 
     await expect(page).not.toHaveURL(/context_version/);
   });
 
-  test('the provenance popover lazily loads the append-only history, once', async ({
+  test('the provenance popover shows provenance only and fetches nothing', async ({
     page,
     request,
   }) => {
@@ -227,20 +227,13 @@ test.describe('product-PAIR page — version selection interaction (AECI-303)', 
     });
 
     await page.goto(`/products/${pair!.context}/integrations/${pair!.other}`);
-    // Never fetched during SSR or hydration: history is the gateable depth (§9.3),
-    // and the page lands in a shared edge-cache entry.
-    expect(timelineCalls).toHaveLength(0);
-
     await page.locator('aec-claim-provenance button').last().click();
-    await expect.poll(() => timelineCalls.length).toBe(1);
-    await expect(page.getByText('History')).toBeVisible();
-
-    // One request serves every popover on the page — that is why the endpoint is
-    // pair-scoped rather than claim-scoped.
-    await page.keyboard.press('Escape');
-    await page.locator('aec-claim-provenance button').first().click();
+    await expect(page.getByText('Provenance', { exact: true })).toBeVisible();
     await page.waitForTimeout(300);
-    expect(timelineCalls).toHaveLength(1);
+    // The pair page no longer renders the History section, so it never calls the
+    // timeline endpoint.
+    expect(timelineCalls).toHaveLength(0);
+    await expect(page.getByText('History', { exact: true })).toHaveCount(0);
   });
 
   test('a version selector is operable by keyboard alone', async ({ page, request }) => {
