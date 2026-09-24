@@ -52,8 +52,11 @@ import { spawnSync } from 'node:child_process';
 import { DEFAULT_LOCALE, type AlgoliaEnv } from '@aeci/shared/algolia';
 import {
   ddlHasRetiredColumn,
+  EVIDENCED_PAIRS_DDL_QUERY,
+  evidencedPairsDdlOrThrow,
   INTEGRATIONS_DDL_QUERY,
   integrationsDdlOrThrow,
+  liveEvidencedPairSqlIf,
   liveIntegrationSqlIf,
 } from '@aeci/shared/live-integration';
 
@@ -90,20 +93,27 @@ export const VENDOR_IDS_SQL = `SELECT "id" AS id FROM "vendors" WHERE "promotion
  * Exported for that spec. The connector's own promotion is deliberately not a
  * condition — see `algolia-sync.ts` for why.
  *
- * The `integrations` arm is LIVE rows only (AECI-1010): a retired row is not a
- * member, so `--apply` removes its record. The evidenced arm has no `retired_at`.
- * The filter is DDL-probed (`liveIntegrationSqlIf`): the CLI reaches deployed tiers
- * whose migrations can lag, and without the column no row is retired.
+ * Both arms are LIVE rows only: a retired `integrations` row (AECI-1010) or a
+ * retired evidenced pair (AECI-1091) is not a member, so `--apply` removes its
+ * record. Each filter is DDL-probed on its own table (`liveIntegrationSqlIf`,
+ * `liveEvidencedPairSqlIf`): the CLI reaches deployed tiers whose migrations can lag,
+ * and without the column no row of that table is retired.
  */
-export function integrationIdsSql(retiredColumn = true): string {
+export function integrationIdsSql(
+  columns: { integrations: boolean; evidencedPairs: boolean } = {
+    integrations: true,
+    evidencedPairs: true,
+  },
+): string {
   return `SELECT i."id" AS id FROM "integrations" i
   WHERE i."source_product_id" IN (SELECT "id" FROM "products" WHERE "promotion_status" = 'promoted')
     AND i."target_product_id" IN (SELECT "id" FROM "products" WHERE "promotion_status" = 'promoted')
-    AND ${liveIntegrationSqlIf('i', retiredColumn)}
+    AND ${liveIntegrationSqlIf('i', columns.integrations)}
 UNION ALL
 SELECT cep."id" AS id FROM "connector_evidenced_pairs" cep
   WHERE cep."product_a_id" IN (SELECT "id" FROM "products" WHERE "promotion_status" = 'promoted')
-    AND cep."product_b_id" IN (SELECT "id" FROM "products" WHERE "promotion_status" = 'promoted');`;
+    AND cep."product_b_id" IN (SELECT "id" FROM "products" WHERE "promotion_status" = 'promoted')
+    AND ${liveEvidencedPairSqlIf('cep', columns.evidencedPairs)};`;
 }
 export const INTEGRATION_IDS_SQL = integrationIdsSql();
 
@@ -208,10 +218,17 @@ function wranglerPromotedIds(target: Target): PromotedIdProvider {
     productIds: async () => queryIds(target, PRODUCT_IDS_SQL),
     vendorIds: async () => queryIds(target, VENDOR_IDS_SQL),
     integrationIds: async () => {
-      // AECI-1010: probe `retired_at` first. An empty read throws ("could not check").
+      // AECI-1010 / AECI-1091: probe `retired_at` on each table first. An empty
+      // read throws ("could not check").
       const ddl = queryRows<{ sql: string }>(target, INTEGRATIONS_DDL_QUERY);
-      const retiredColumn = ddlHasRetiredColumn(integrationsDdlOrThrow(ddl[0]?.sql));
-      return queryIds(target, integrationIdsSql(retiredColumn));
+      const pairsDdl = queryRows<{ sql: string }>(target, EVIDENCED_PAIRS_DDL_QUERY);
+      return queryIds(
+        target,
+        integrationIdsSql({
+          integrations: ddlHasRetiredColumn(integrationsDdlOrThrow(ddl[0]?.sql)),
+          evidencedPairs: ddlHasRetiredColumn(evidencedPairsDdlOrThrow(pairsDdl[0]?.sql)),
+        }),
+      );
     },
   };
 }

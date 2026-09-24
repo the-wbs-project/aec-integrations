@@ -369,6 +369,13 @@ helper enqueues for all of them (`purgeTags` / `afterVendorWrite` in
   and a re-render between purge and recompute cannot cache the old count. The pair and both product URLs are also queued for re-crawl, so a crawler
   learns the pair page went `noindex`. The legacy `/integrations/:id` 301 keeps pointing
   at the pair page (ruled 2026-09-22), so its `integration:{id}` tag needs no purge.
+  **On a `connector_evidenced_pairs` row (AECI-1091), eight tags:** the seven above plus
+  `product:{connectorSlug}`. The connector's page lists the pairs it delivers and its
+  `integration_count` counts them (§12.5 option B), so the pair batch recomputes three
+  stored counts in the batch (both endpoints and the connector) and purges all three
+  product pages. The `pair:` tag uses the pair's two endpoints, as on any row. A
+  connector-powered `integrations` row with a `powered_by` product purges that product's
+  tag too, because its page lists the row (its count does not move).
 
 - **Attestation write** (`POST /api/vendor/claims`, `PUT`/`DELETE
   /api/vendor/claims/:claimId/attestation`, AECI-301) → **`pair:{min}__{max}`
@@ -398,12 +405,17 @@ helper enqueues for all of them (`purgeTags` / `afterVendorWrite` in
   `last_reviewed_at`, which the marker rule above says must purge. From then on
   promote writes nothing to that row, so a promote of the same edge no longer
   purges it either: the pair page changes only through the owner's own writes.
+  **Since AECI-1089 the claim also reaches a `connector_evidenced_pairs` row**,
+  and there it adds a fourth tag, `product:{connector-slug}`: the same set
+  `ops:retract-product` derives for an evidenced pair (§2, the `pair:` row).
 - **An owner's edit of its integration** (`PATCH
   /api/vendor/integrations/:id`, AECI-1006) → the **same three tags**. It writes
   columns the pair page and the product-detail integrations table render (name,
   type, direction, links, pricing, maturity) and transfers `maintained_by`. An
   integration `name` also appears in no `index:*` hub, so no index tag is needed.
-  A body that changes nothing purges nothing.
+  A body that changes nothing purges nothing. On a `connector_evidenced_pairs`
+  row (AECI-1090) the edit also purges the connector's `product:` tag, because
+  the pair is delivered through that product.
 - **An endpoint vendor's own link** (`PUT` / `DELETE
   /api/vendor/integrations/:id/links/:productId/:kind`, AECI-1007) → the **same three
   tags**. The pair page renders the link, and the write transfers `maintained_by`.

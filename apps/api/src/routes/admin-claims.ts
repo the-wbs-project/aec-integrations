@@ -99,6 +99,7 @@ import {
   vendors,
   workflowInstances,
 } from '../db/schema';
+import { forwardAuditBatch } from '../lib/moderation-forward';
 import { logToPosthog, submitCount } from '../posthog';
 import type { Env } from '../env';
 import { ApiError, notFoundError } from '../errors';
@@ -125,7 +126,11 @@ import {
   selectProductRoleGroups,
 } from '../lib/vendor-product-roles';
 import { EMPTY_OWNED_INTEGRATIONS, loadOwnedIntegrations } from '../lib/vendor-owned-integrations';
-import { planSeatGrantReturn } from '../lib/vendor-handback';
+import {
+  isSeatsChangedError,
+  planSeatGrantReturn,
+  seatsChangedError,
+} from '../lib/vendor-handback';
 import {
   activateEntitlementStatements,
   loadEntitlement,
@@ -569,13 +574,25 @@ async function approveClaim(
   // ONE batch. The seat, the request resolve, the workflow, the entitlement row,
   // the mirror flip and both audit rows commit or roll back together (§26.1).
   // AECI-989: a new active seat returns the contests a ban moved to AECi.
+  // The grant activates the entitlement in this same batch, which the return's
+  // pre-batch read cannot see (AECI-1092 reconciliation).
   const returned = await planSeatGrantReturn(
     db,
     { vendorId: vendor.id, actorId, actorType, now: resolvedAt, source: CLAIM_AUDIT_SOURCE },
     userId,
+    { entitledAfterBatch: true },
   );
 
-  await db.batch([...grant.stmts, ...ent.stmts, ...(returned?.stmts ?? [])] as BatchTuple);
+  // AECI-1092 reconciliation: a return of a contest on a connector-powered row carries
+  // `ownerEntitlementActiveSentinel`. An entitlement clear that commits first aborts
+  // the batch: nothing is written and this handler answers `409 VENDOR_SEATS_CHANGED`.
+  // The admin's (or redeemer's) retry then re-plans against the cleared state.
+  try {
+    await db.batch([...grant.stmts, ...ent.stmts, ...(returned?.stmts ?? [])] as BatchTuple);
+  } catch (error) {
+    if (returned && isSeatsChangedError(error)) throw seatsChangedError();
+    throw error;
+  }
   emitClaimModeration(c, 'approve', 'ok');
 
   // Resolve the claimed target's display name up front — reused by the email
@@ -608,18 +625,14 @@ async function approveClaim(
       }
     }),
   );
-  // Both audit rows forward (§26.5). `ent.auditEntry` is null on the second-seat
-  // path, and `forwardAuditLog` is a no-op for it.
-  c.executionCtx.waitUntil(
-    Promise.all([
-      forwardAuditLog(grant.auditEntry, makeForwarder(c)),
-      ent.auditEntry ? forwardAuditLog(ent.auditEntry, makeForwarder(c)) : Promise.resolve(),
-      forwardWorkflowTransition(grant.workflowEntry, makeWorkflowForwarder(c)),
-      ...(returned?.audits ?? []).map((entry) => forwardAuditLog(entry, makeForwarder(c))),
-      ...(returned?.transitions ?? []).map((entry) =>
-        forwardWorkflowTransition(entry, makeWorkflowForwarder(c)),
-      ),
-    ]),
+  // Every audit row and transition forwards (§26.5) in ONE batched request: the
+  // seat return adds a row and a transition per contest, so one `fetch` per row
+  // would run past the connection limit. `ent.auditEntry` is null on the
+  // second-seat path, and the batch skips it.
+  forwardAuditBatch(
+    c,
+    [grant.auditEntry, ent.auditEntry, ...(returned?.audits ?? [])],
+    [grant.workflowEntry, ...(returned?.transitions ?? [])],
   );
 
   const body = claimResponse(

@@ -13,6 +13,13 @@ import {
   SubmitIntegrationContestSchema,
 } from './integration-contests';
 import { IntegrationMechanismKindSchema } from './integrations';
+import {
+  AdminContestSchema as AdminContestAnchorSchema,
+  contestFieldsFor,
+  EVIDENCED_PAIR_CONTEST_FIELDS,
+  INTEGRATION_CONTEST_FIELDS as ALL_FIELDS,
+  VendorContestSchema as VendorContestAnchorSchema,
+} from './integration-contests';
 
 describe('INTEGRATION_CONTEST_FIELDS', () => {
   it('is the eleven content fields plus owner (AECI-1008)', () => {
@@ -178,5 +185,36 @@ describe('protest write shapes', () => {
   it('adds whole 24-hour days with no calendar', () => {
     expect(addContestDays('2026-03-07T12:00:00.000Z', 1)).toBe('2026-03-08T12:00:00.000Z');
     expect(addContestDays('2026-09-22T00:00:00.000Z', -90)).toBe('2026-06-24T00:00:00.000Z');
+  });
+});
+
+describe('the two contest anchors (AECI-1092)', () => {
+  it('an evidenced pair takes every field except mechanism_kind, in the same order', () => {
+    expect(EVIDENCED_PAIR_CONTEST_FIELDS).toEqual(ALL_FIELDS.filter((f) => f !== 'mechanism_kind'));
+    expect(EVIDENCED_PAIR_CONTEST_FIELDS).toHaveLength(11);
+    expect(contestFieldsFor('integration')).toBe(ALL_FIELDS);
+    expect(contestFieldsFor('evidenced_pair')).toBe(EVIDENCED_PAIR_CONTEST_FIELDS);
+  });
+
+  it('defaults the anchor to integration on both read shapes, for deploy skew', () => {
+    expect(VendorContestAnchorSchema.shape.anchor.parse(undefined)).toBe('integration');
+    const integration = AdminContestAnchorSchema.shape.integration.parse({
+      id: '00000000-0000-4000-8000-000000000001',
+      name: null,
+      source_product: {
+        id: '00000000-0000-4000-8000-000000000002',
+        name: 'A',
+        slug: 'a',
+        logo_url: null,
+      },
+      target_product: {
+        id: '00000000-0000-4000-8000-000000000003',
+        name: 'B',
+        slug: 'b',
+        logo_url: null,
+      },
+      pair_path: '/products/a/integrations/b',
+    });
+    expect(integration).toMatchObject({ anchor: 'integration', connector: null });
   });
 });

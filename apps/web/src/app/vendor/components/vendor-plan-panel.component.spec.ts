@@ -164,6 +164,17 @@ describe('VendorPlanPanel — state 3: downgraded', () => {
     expect(text(fixture)).toContain('Renewing turns all of it back on');
   });
 
+  it('names the connector-delivered integrations the owner can no longer manage (AECI-1040)', () => {
+    const fixture = create(REVOKED);
+
+    // Claiming, editing, retiring and restoring a connector-delivered integration,
+    // and deciding contests on one, need an active entitlement
+    // (`requireActiveEntitlement`, AECI-1089 to AECI-1092).
+    expect(text(fixture)).toContain(
+      'managing the integrations you own that are delivered through a connector',
+    );
+  });
+
   it('does not read as an error: no alert role, no error token', () => {
     const fixture = create(REVOKED);
     const host = el(fixture);

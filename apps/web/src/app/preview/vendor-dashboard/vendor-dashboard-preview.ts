@@ -6,6 +6,8 @@ import type { VendorSeat } from '@aeci/shared';
 import { VendorDashboardSingle } from '../../vendor/vendor-dashboard-single';
 import { VendorDashboardTabbed } from '../../vendor/vendor-dashboard-tabbed';
 import { VENDOR_CREATE_FORM_START_OPEN } from '../../vendor/components/vendor-integration-create';
+import { VENDOR_EDIT_FORM_START_OPEN } from '../../vendor/components/vendor-integration-ownership';
+import { VENDOR_RETIRE_CONFIRM_START_OPEN } from '../../vendor/components/vendor-owned-retire';
 import { VendorApi } from '../../vendor/vendor-api';
 import { VendorPortalStore } from '../../vendor/vendor-portal-store';
 import {
@@ -88,6 +90,20 @@ const SINGLE_SEAT_FIXTURE: readonly VendorSeat[] = [
     {
       provide: VENDOR_CREATE_FORM_START_OPEN,
       useFactory: () => inject(ActivatedRoute).snapshot.queryParamMap.get('create') === 'open',
+    },
+    // AECI-1090: `?edit=<integration id>` renders that card's owner edit form open on
+    // first paint, for the same reason. The claimed connector-delivered row is
+    // `00000000-0000-4000-8000-00000000531b`, under summit-model-coordination.
+    {
+      provide: VENDOR_EDIT_FORM_START_OPEN,
+      useFactory: () => inject(ActivatedRoute).snapshot.queryParamMap.get('edit'),
+    },
+    // AECI-1091: `?retire=<integration id>` renders that owned row's retire
+    // confirmation open on first paint. The claimed evidenced pair is
+    // `00000000-0000-4000-8000-00000000531a`, under summit-model-coordination.
+    {
+      provide: VENDOR_RETIRE_CONFIRM_START_OPEN,
+      useFactory: () => inject(ActivatedRoute).snapshot.queryParamMap.get('retire'),
     },
   ],
   template: `

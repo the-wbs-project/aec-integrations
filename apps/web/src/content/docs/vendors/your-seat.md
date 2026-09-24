@@ -51,14 +51,15 @@ With a seat alone, whether or not your company has a plan, you can:
 
 - see everything in the vendor portal,
 - manage seats, if you are an owner,
-- claim, edit, retire and add the integrations your company owns ([Owning an integration](/docs/vendors/owning-an-integration)),
+- claim, edit, retire and add the integrations your company owns, except one delivered through a connector ([Owning an integration](/docs/vendors/owning-an-integration)),
 - add your own links to an integration at either end,
 - contest a detail on an integration your company does not own ([Contests and protests](/docs/vendors/contests-and-protests)).
 
 With an active plan, you can also:
 
 - edit your company profile and product details, including categories, trades, audiences, phases and "How teams use it",
-- confirm or deny data flows ([Attesting an integration](/docs/vendors/attesting-an-integration)).
+- confirm or deny data flows ([Attesting an integration](/docs/vendors/attesting-an-integration)),
+- claim, edit, retire and restore an integration your company owns that is delivered through a connector, and decide contests on it ([Owning an integration](/docs/vendors/owning-an-integration)).
 
 A seat never changes where your company or products appear in search or in any listing. Neither does a plan. See [Plans and the account label](/docs/vendors/plans-and-the-account-label).
 

@@ -12,8 +12,12 @@
  *      (a non-owner must not learn the row exists);
  *   2. an endpoint vendor that is not the owner → 403 `INTEGRATION_NOT_OWNER`,
  *      or 409 `INTEGRATION_OWNER_UNKNOWN` when nobody is on file;
- *   3. the owner of a connector-powered row → 403 `INTEGRATION_CONNECTOR_POWERED`
- *      (decision 9: no vendor write on those rows in v1; AECI-1040 opens them);
+ *   3. the owner of a connector-powered row whose vendor holds no active
+ *      entitlement → 403 `INTEGRATION_ENTITLEMENT_REQUIRED` (AECI-1090, the
+ *      AECI-1040 carve-out to decision 9 and its ruling 2). Until AECI-1090 this
+ *      step refused every connector-powered row with `INTEGRATION_CONNECTOR_POWERED`.
+ *      An entitled owner passes on to the same steps as any other owner, and the
+ *      edit handler then freezes `mechanism_kind` (ruling 5);
  *   4. the owner of an unclaimed row → 409 `INTEGRATION_NOT_CLAIMED`. Claiming is
  *      the act that fences promote, so an unclaimed row is still AECi's to write
  *      and an edit here would be overwritten by the next promote;
@@ -24,24 +28,35 @@
  * (`refusalFor` in `routes/vendor-integration-retire.ts`), because restore is the
  * one owner write that must reach a retired row. So this gate is the edit's.
  *
- * There is no capability or entitlement step. A seat is the whole gate
- * (AECI-1003 decision 15).
+ * There is no capability step. A seat is the whole gate (AECI-1003 decision 15)
+ * except on a connector-powered row, where step 3 is the named entitlement
+ * exception (`lib/integration-entitlement.ts`).
+ *
+ * `connector_evidenced_pairs` rows (AECI-1090) take the same steps through
+ * {@link evidencedOwnerWriteRefusal}: every such row is connector-powered by
+ * construction, so step 3 always applies there.
  */
 
 import { ApiErrorCode, orderedPairSlugs } from '@aeci/shared';
 import type { AuditLogEntry } from '@aeci/shared/audit-log';
-import { and, eq, inArray, isNotNull, or, sql } from 'drizzle-orm';
+import { and, eq, inArray, isNotNull, isNull, or, sql } from 'drizzle-orm';
 
 import type { Db } from '../db/client';
-import { integrations, productVendors, products } from '../db/schema';
+import { connectorEvidencedPairs, integrations, productVendors, products } from '../db/schema';
 import { ApiError, notFoundError } from '../errors';
 
 import { NOTIFICATION_SENT_ACTION } from './attestation-notify';
 import { isConnectorPoweredEdge } from './connector-powered';
 import { isClaimed, ONE_ROW } from './integration-claims';
+import {
+  hasActiveEntitlement,
+  integrationEntitlementRequired,
+  type EntitlementSession,
+} from './integration-entitlement';
 import { assertIntegrationLive, liveIntegrationWhere } from './live-integration';
 
 type IntegrationRow = typeof integrations.$inferSelect;
+export type EvidencedPairRow = typeof connectorEvidencedPairs.$inferSelect;
 
 /** Which of the row's two endpoint products the caller's vendor owns, through
  *  `product_vendors`. Empty when it owns neither. */
@@ -90,6 +105,47 @@ export async function ownerWriteRefusal(
   db: Db,
   vendorId: string,
   row: IntegrationRow,
+  session: EntitlementSession,
+): Promise<ApiError | null> {
+  const ownership = await ownershipRefusal(db, vendorId, row);
+  if (ownership) return ownership;
+  // Step 3, the AECI-1040 carve-out: asked after ownership, so a non-owner still
+  // gets the ownership answer, and only on a connector-powered row, so an ordinary
+  // row keeps the seat as its whole gate.
+  if (isConnectorPoweredEdge(row) && !hasActiveEntitlement(session)) {
+    return integrationEntitlementRequired(session);
+  }
+  return claimedAndLiveRefusal(row);
+}
+
+/**
+ * {@link ownerWriteRefusal} for a `connector_evidenced_pairs` row (AECI-1090). The
+ * same steps in the same order. The pair's two endpoints are `product_a_id` and
+ * `product_b_id`, and the entitlement step always applies, because every row of
+ * that table is connector-powered (ADR 0035 decision 9's predicate).
+ */
+export async function evidencedOwnerWriteRefusal(
+  db: Db,
+  vendorId: string,
+  pair: EvidencedPairRow,
+  session: EntitlementSession,
+): Promise<ApiError | null> {
+  const ownership = await ownershipRefusal(db, vendorId, {
+    id: pair.id,
+    builtByVendorId: pair.builtByVendorId,
+    sourceProductId: pair.productAId,
+    targetProductId: pair.productBId,
+  });
+  if (ownership) return ownership;
+  if (!hasActiveEntitlement(session)) return integrationEntitlementRequired(session);
+  return claimedAndLiveRefusal(pair);
+}
+
+/** Steps 1 and 2: the claim's ownership answers. */
+async function ownershipRefusal(
+  db: Db,
+  vendorId: string,
+  row: Pick<IntegrationRow, 'id' | 'builtByVendorId' | 'sourceProductId' | 'targetProductId'>,
 ): Promise<ApiError | null> {
   if (row.builtByVendorId !== vendorId) {
     if ((await ownedEndpointIds(db, vendorId, row)).length === 0) {
@@ -108,15 +164,15 @@ export async function ownerWriteRefusal(
       'Another company is recorded as the owner of this integration. Contest a field if something on it is wrong.',
     );
   }
-  // Decision 9, v1: asked after ownership, so a non-owner still gets the
-  // ownership answer.
-  if (isConnectorPoweredEdge(row)) {
-    return new ApiError(
-      403,
-      ApiErrorCode.INTEGRATION_CONNECTOR_POWERED,
-      'This integration is delivered through a connector product, and connector-delivered integrations cannot be edited yet.',
-    );
-  }
+  return null;
+}
+
+/** Steps 4 and 5: claimed, then live. Both tables carry `claimed_at` and
+ *  `retired_at` with the same meaning (migrations `0044` and `0049`). */
+function claimedAndLiveRefusal(row: {
+  readonly claimedAt: string | null;
+  readonly retiredAt: string | null;
+}): ApiError | null {
   if (!isClaimed(row)) {
     return new ApiError(
       409,
@@ -150,6 +206,21 @@ export function ownerWriteWhere(integrationId: string, vendorId: string) {
     // AECI-1010: and still live, so a retire that lands between the read and the
     // batch stops the edit at the sentinel.
     liveIntegrationWhere,
+  );
+}
+
+/**
+ * {@link ownerWriteWhere} for a `connector_evidenced_pairs` row (AECI-1090): this
+ * pair, still owned by the caller, still claimed, not retired. The same race it
+ * guards: an AECi `owner` accept, or a retire, landing between the read and the
+ * batch.
+ */
+export function evidencedOwnerWriteWhere(pairId: string, vendorId: string) {
+  return and(
+    eq(connectorEvidencedPairs.id, pairId),
+    eq(connectorEvidencedPairs.builtByVendorId, vendorId),
+    isNotNull(connectorEvidencedPairs.claimedAt),
+    isNull(connectorEvidencedPairs.retiredAt),
   );
 }
 
@@ -208,12 +279,14 @@ export interface UpdateNotificationMetadata {
 /**
  * The `notification.sent` row telling one endpoint vendor that the owner edited an
  * integration on its product. Pushed into the SAME batch as the edit, so a
- * rolled-back edit cannot leave a notification behind. `entity_type` is
- * `integration`, like the claim notification.
+ * rolled-back edit cannot leave a notification behind. `entity_type` follows the
+ * claim notification (`claimNotificationAudit`): `integration`, or
+ * `connector_evidenced_pair` for a pair (AECI-1090).
  */
 export function updateNotificationAudit(
   actor: { actorId: string | null; actorType: AuditLogEntry['actorType'] },
   metadata: Omit<UpdateNotificationMetadata, 'kind'>,
+  anchor: 'integration' | 'evidenced_pair' = 'integration',
 ): AuditLogEntry {
   const full: UpdateNotificationMetadata = {
     kind: UPDATE_NOTIFICATION_KIND,
@@ -224,7 +297,7 @@ export function updateNotificationAudit(
     actorId: actor.actorId,
     actorType: actor.actorType,
     action: NOTIFICATION_SENT_ACTION,
-    entityType: 'integration',
+    entityType: anchor === 'evidenced_pair' ? 'connector_evidenced_pair' : 'integration',
     entityId: metadata.integrationId,
     metadata: full,
   };

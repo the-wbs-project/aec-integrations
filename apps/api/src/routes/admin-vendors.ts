@@ -62,8 +62,6 @@ import {
   type VendorEntitlementResponse,
   type VendorSeatInvite,
 } from '@aeci/shared';
-import { forwardAuditLog, type AuditLogForwarder } from '@aeci/shared/audit-log';
-import { forwardWorkflowTransition } from '@aeci/shared/workflow-transition';
 import { and, asc, count, desc, eq, inArray, or, sql, type SQL } from 'drizzle-orm';
 import { alias } from 'drizzle-orm/sqlite-core';
 import type { Context } from 'hono';
@@ -119,8 +117,8 @@ import {
 } from '../lib/vendor-owned-integrations';
 import { liveInvitesFor } from '../lib/vendor-seat-invites';
 import { resolveClaimantIdentity } from '../lib/claimant-identity';
-import { logToPosthog, submitCount } from '../posthog';
-import { forwarders } from './admin-contests';
+import { forwardAuditBatch } from '../lib/moderation-forward';
+import { submitCount } from '../posthog';
 import { ownedProductIds, purgeTags, seatsOf, vendorRequestsWhere } from './vendor-shared';
 
 type AdminVendorContext = Context<{ Bindings: Env; Variables: AuthzVariables }>;
@@ -142,24 +140,6 @@ function requiredParam(c: AdminVendorContext, name: string): string {
 
 function parseQuery<T>(c: AdminVendorContext, schema: { parse: (input: unknown) => T }): T {
   return schema.parse(Object.fromEntries(new URL(c.req.url).searchParams));
-}
-
-/** Telemetry forwarder for the revoke's audit row. Tagged `admin-moderation`,
- *  matching `admin-claims.ts` — the tag is what separates an AECi-side revoke
- *  from the vendor's own in the trail, since `actor_type` is `'admin'` here but
- *  `'user'` for both a reviewer and a vendor admin elsewhere. */
-function makeForwarder(c: AdminVendorContext): AuditLogForwarder | undefined {
-  if (!c.env.POSTHOG_PROJECT_KEY) return undefined;
-  return (entry) => {
-    logToPosthog(c.executionCtx, c.env, c.req.raw, {
-      level: 'info',
-      message: `audit ${entry.action} ${entry.entityId ?? ''}`.trim(),
-      action: entry.action,
-      entity_type: entry.entityType ?? undefined,
-      entity_id: entry.entityId ?? undefined,
-      source: 'admin-moderation',
-    });
-  };
 }
 
 /** Map a joined `vendor_entitlements` row → the wire readout. Same field-by-field
@@ -903,17 +883,9 @@ export function createAdminRevokeSeatHandler(
       if (isSeatsChangedError(error)) throw seatsChangedError();
       throw error;
     }
-    const forwarder = makeForwarder(c);
-    const workflowForwarder = forwarders(c).workflow;
-    c.executionCtx.waitUntil(
-      Promise.all([
-        forwardAuditLog(batch.auditEntry, forwarder),
-        ...(follow?.audits ?? []).map((entry) => forwardAuditLog(entry, forwarder)),
-        ...(follow?.transitions ?? []).map((entry) =>
-          forwardWorkflowTransition(entry, workflowForwarder),
-        ),
-      ]),
-    );
+    // ONE batched forward: the hand-back adds a row per product, integration and
+    // contest, so one `fetch` per row would run past the connection limit.
+    forwardAuditBatch(c, [batch.auditEntry, ...(follow?.audits ?? [])], follow?.transitions ?? []);
     if (follow?.purgeTags.length) {
       c.executionCtx.waitUntil(purgeTags(c, follow.purgeTags, 'moderation'));
     }
@@ -1140,18 +1112,22 @@ export function createProvisionSeatHandler(
       userId,
     );
 
-    await db.batch([...batch.stmts, ...(returned?.stmts ?? [])] as BatchTuple);
+    // AECI-1092 reconciliation: a return of a contest on a connector-powered row carries
+    // `ownerEntitlementActiveSentinel`. An entitlement clear that commits first aborts
+    // the batch: nothing is written and this handler answers `409 VENDOR_SEATS_CHANGED`.
+    // The admin's (or redeemer's) retry then re-plans against the cleared state.
+    try {
+      await db.batch([...batch.stmts, ...(returned?.stmts ?? [])] as BatchTuple);
+    } catch (error) {
+      if (returned && isSeatsChangedError(error)) throw seatsChangedError();
+      throw error;
+    }
     emitSeatProvision(c, 'ok');
-    const provisionForwarder = makeForwarder(c);
-    const provisionWorkflowForwarder = forwarders(c).workflow;
-    c.executionCtx.waitUntil(
-      Promise.all([
-        forwardAuditLog(batch.auditEntry, provisionForwarder),
-        ...(returned?.audits ?? []).map((entry) => forwardAuditLog(entry, provisionForwarder)),
-        ...(returned?.transitions ?? []).map((entry) =>
-          forwardWorkflowTransition(entry, provisionWorkflowForwarder),
-        ),
-      ]),
+    // ONE batched forward: the return adds a row and a transition per contest.
+    forwardAuditBatch(
+      c,
+      [batch.auditEntry, ...(returned?.audits ?? [])],
+      returned?.transitions ?? [],
     );
 
     const body = readout(false);

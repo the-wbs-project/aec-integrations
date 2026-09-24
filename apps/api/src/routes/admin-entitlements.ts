@@ -52,20 +52,25 @@ import {
   type SetVendorEntitlementInput,
   type VendorEntitlementResponse,
 } from '@aeci/shared';
-import { forwardAuditLog, type AuditLogForwarder } from '@aeci/shared/audit-log';
+import {
+  forwardAuditLog,
+  type AuditLogEntry,
+  type AuditLogForwarder,
+} from '@aeci/shared/audit-log';
 import { capabilitiesFor } from '@aeci/shared/entitlements';
 import { eq } from 'drizzle-orm';
 import type { Context } from 'hono';
 
 import { getDb } from '../db/client';
 import { vendorEntitlements, vendors } from '../db/schema';
-import { logToPosthog, submitCount } from '../posthog';
+import { logBatchToPosthog, logToPosthog, submitCount } from '../posthog';
 import type { Env } from '../env';
 import { ApiError, notFoundError } from '../errors';
 import { json } from '../http';
-import { type BatchTuple } from '../lib/audit';
+import { auditInsert, type BatchTuple } from '../lib/audit';
 import { auditActorType, type AuthzVariables } from '../lib/authz';
 import { validateResponseInDev, writeDb, type DbFactory } from '../lib/handler-utils';
+import { isContestRaceError, planEntitlementClearReroute } from '../lib/integration-contests';
 import { vendorPurgeTags } from '../lib/vendor-cache-tags';
 import {
   activateEntitlementStatements,
@@ -345,7 +350,37 @@ export function createSetVendorEntitlementHandler(
     // The entitlement row, the guarded `vendors.verified` + `updated_at` flip and the
     // `audit_log` row commit or roll back together (§26.1). D1 has no interactive
     // transactions; `db.batch` is the only atomic unit there is.
-    await db.batch(batch.stmts as BatchTuple);
+    //
+    // AECI-1092, ruling B: a `clear` also re-routes the vendor's open owner-routed
+    // contests on connector-powered rows to AECi, in THIS batch, each with its own
+    // `integration.contest.rerouted` audit row and workflow transition. The plan's
+    // guard aborts the batch if those contests changed after the plan read them; the
+    // plan is then re-read and the batch retried once.
+    const rerouteAudits: AuditLogEntry[] = [];
+    for (let attempt = 1; ; attempt++) {
+      const reroute =
+        action === 'clear'
+          ? await planEntitlementClearReroute(db, vendor.id, { actorId, actorType }, now)
+          : null;
+      try {
+        await db.batch([
+          ...batch.stmts,
+          ...(reroute?.stmts ?? []),
+          ...(reroute?.audits ?? []).map((entry) => auditInsert(db, entry)),
+        ] as BatchTuple);
+        rerouteAudits.push(...(reroute?.audits ?? []));
+        break;
+      } catch (error) {
+        if (!reroute || !isContestRaceError(error)) throw error;
+        if (attempt >= 2) {
+          throw new ApiError(
+            409,
+            ApiErrorCode.CONTEST_INTEGRATION_CHANGED,
+            'Field contests on this vendor’s integrations changed while the entitlement was being cleared. Nothing was saved. Try again.',
+          );
+        }
+      }
+    }
 
     // ── 7. Metric ────────────────────────────────────────────────────────────
     emitEntitlementAction(c, action, 'ok');
@@ -376,6 +411,24 @@ export function createSetVendorEntitlementHandler(
       c.executionCtx.waitUntil(purgeEntitlementTags(c, tags));
     }
     c.executionCtx.waitUntil(forwardAuditLog(batch.auditEntry, makeForwarder(c)));
+    // AECI-1092: the re-route rows go in ONE request, never one per contest, so a
+    // clear that moves many contests cannot run past the Worker connection limit
+    // and lose forwards silently (AECI-666). Each leg self-gates on its own key.
+    if (rerouteAudits.length > 0) {
+      logBatchToPosthog(
+        c.executionCtx,
+        c.env,
+        c.req.raw,
+        rerouteAudits.map((entry) => ({
+          level: 'info' as const,
+          message: `audit ${entry.action} ${entry.entityId ?? ''}`.trim(),
+          action: entry.action,
+          entity_type: entry.entityType ?? undefined,
+          entity_id: entry.entityId ?? undefined,
+          source: 'admin-entitlement',
+        })),
+      );
+    }
 
     // ── 9. Response ──────────────────────────────────────────────────────────
     const verified = action === 'set' ? true : action === 'clear' ? false : vendor.verified;

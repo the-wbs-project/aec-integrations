@@ -61,6 +61,8 @@ import { createOrphanPurgeClient, resolveAlgoliaCreds } from '../src/lib/algolia
 import {
   buildCacheTagsForProduct,
   buildDeleteStatements,
+  CONTESTS_DDL_SQL,
+  ddlHasEvidencedContestAnchor,
   buildFootprintSql,
   ddlHasVendorHeldColumns,
   EVIDENCED_PAIRS_DDL_SQL,
@@ -301,6 +303,10 @@ export async function main(argv: string[]): Promise<number> {
   // AECI-1007: the same for migration 0045's per-side links table.
   const vendorLinksTable =
     (runD1<{ name: string }>(target, VENDOR_LINKS_TABLE_SQL)[0]?.results.length ?? 0) > 0;
+  // AECI-1092: the same for migration 0050's evidenced-pair contest anchor.
+  const evidencedContestAnchor = ddlHasEvidencedContestAnchor(
+    runD1<{ sql: string }>(target, CONTESTS_DDL_SQL)[0]?.results[0]?.sql ?? null,
+  );
   const rawFootprint = runD1<RawFootprintRow>(
     target,
     buildFootprintSql(product.id, {
@@ -384,6 +390,7 @@ export async function main(argv: string[]): Promise<number> {
     vendorLinksTable,
     vendorHeldColumns,
     vendorHeldPairColumns,
+    evidencedContestAnchor,
   }).join('\n');
   let results: D1ExecResult<unknown>[];
   try {

@@ -31,7 +31,18 @@
  */
 
 import type { RequestKind, RequestTargetType } from '@aeci/shared';
-import { and, asc, count as countRows, eq, inArray, isNull, lt, or } from 'drizzle-orm';
+import {
+  and,
+  asc,
+  count as countRows,
+  eq,
+  inArray,
+  isNotNull,
+  isNull,
+  lt,
+  or,
+  sql,
+} from 'drizzle-orm';
 import { pairPathFor } from './integration-contests';
 
 import { crossedBand } from './alert-bands';
@@ -53,6 +64,7 @@ import { NOTIFIED_REQUEST_KINDS } from './request-links';
 import type { Db } from '../db/client';
 import {
   auditLog,
+  connectorEvidencedPairs,
   integrationFieldChallenges,
   integrations,
   products,
@@ -488,14 +500,30 @@ export async function runContestIssueReconciliation(
       reason: integrationFieldChallenges.reason,
       decisionNote: integrationFieldChallenges.decisionNote,
       submitterVendorId: integrationFieldChallenges.submitterVendorId,
-      integrationName: integrations.name,
-      sourceProductId: integrations.sourceProductId,
-      targetProductId: integrations.targetProductId,
+      evidencedPairId: integrationFieldChallenges.evidencedPairId,
+      // AECI-1092: a contest sits on an `integrations` row or on an evidenced pair,
+      // so both anchors are LEFT-joined and exactly one matches (the anchor CHECK).
+      integrationName: sql<
+        string | null
+      >`coalesce(${integrations.name}, ${connectorEvidencedPairs.name})`,
+      sourceProductId: sql<
+        string | null
+      >`coalesce(${integrations.sourceProductId}, ${connectorEvidencedPairs.productAId})`,
+      targetProductId: sql<
+        string | null
+      >`coalesce(${integrations.targetProductId}, ${connectorEvidencedPairs.productBId})`,
+      connectorProductId: connectorEvidencedPairs.connectorProductId,
     })
     .from(integrationFieldChallenges)
-    .innerJoin(integrations, eq(integrations.id, integrationFieldChallenges.integrationId))
+    .leftJoin(integrations, eq(integrations.id, integrationFieldChallenges.integrationId))
+    .leftJoin(
+      connectorEvidencedPairs,
+      eq(connectorEvidencedPairs.id, integrationFieldChallenges.evidencedPairId),
+    )
     .where(
       and(
+        // A contest whose anchor row is gone has nothing to file against.
+        or(isNotNull(integrations.id), isNotNull(connectorEvidencedPairs.id)),
         // AECi-decided: AECi-routed, or a stranded owner-routed row (AECI-1005).
         or(
           eq(integrationFieldChallenges.routedTo, 'aeci'),
@@ -514,7 +542,15 @@ export async function runContestIssueReconciliation(
 
   if (rows.length === 0) return { stuck: 0, retried: 0, cleared: 0, stillFailing: 0 };
 
-  const productIds = [...new Set(rows.flatMap((r) => [r.sourceProductId, r.targetProductId]))];
+  const productIds = [
+    ...new Set(
+      rows.flatMap((r) =>
+        [r.sourceProductId, r.targetProductId, r.connectorProductId].filter(
+          (id): id is string => id !== null,
+        ),
+      ),
+    ),
+  ];
   const vendorIds = [
     ...new Set(
       rows.flatMap((r) => [
@@ -566,14 +602,23 @@ export async function runContestIssueReconciliation(
   let retried = 0;
   let cleared = 0;
   for (const row of rows) {
-    const source = productById.get(row.sourceProductId);
-    const target = productById.get(row.targetProductId);
-    if (!source || !target) continue;
+    const source = row.sourceProductId ? productById.get(row.sourceProductId) : undefined;
+    const target = row.targetProductId ? productById.get(row.targetProductId) : undefined;
+    const anchorId = row.evidencedPairId ?? row.integrationId;
+    if (!source || !target || !anchorId) continue;
     retried++;
     try {
       const outcome = await createIssue(c, drizzleContestLinearStore(db), {
         contestId: row.id,
-        integrationId: row.integrationId,
+        integrationId: anchorId,
+        ...(row.evidencedPairId
+          ? {
+              anchor: 'evidenced_pair' as const,
+              connectorProductName: row.connectorProductId
+                ? (productById.get(row.connectorProductId)?.name ?? null)
+                : null,
+            }
+          : {}),
         integrationName: row.integrationName,
         sourceProductName: source.name,
         targetProductName: target.name,

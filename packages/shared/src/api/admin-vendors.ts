@@ -263,7 +263,7 @@ export type VendorProductRoles = z.infer<typeof VendorProductRolesSchema>;
  * most third-party owners.
  *
  * - `integrations`: live rows only (`retired_at IS NULL`, AECI-1010).
- * - `connector_evidenced`: every row. That table has no `retired_at`.
+ * - `connector_evidenced`: live rows only (`retired_at IS NULL`, AECI-1091).
  * - `total`: the sum, and the number the operator reads.
  *
  * It answers only "is it an owner". Whether it wants to manage those integrations
@@ -408,6 +408,12 @@ export type AdminVendorProductsResponse = z.infer<typeof AdminVendorProductsResp
  * origin = 'vendor'`). An AECi-held row is not listed, because the admin retire
  * refuses it: promote and the review app own it. A vendor-held row with no owner on
  * file is not reachable from any vendor page; the API still accepts its id.
+ *
+ * Since AECI-1091 the list spans both anchor tables: the vendor-held
+ * `connector_evidenced_pairs` rows this vendor owns are listed beside its
+ * `integrations` rows, with `anchor: 'evidenced_pair'` and the `connector` they are
+ * delivered through. `source` / `target` on a pair are its canonical A / B. One
+ * order across both tables: name case-insensitively, then id.
  */
 export const AdminVendorIntegrationsQuerySchema = PageQuerySchema;
 export type AdminVendorIntegrationsQuery = z.infer<typeof AdminVendorIntegrationsQuerySchema>;
@@ -418,11 +424,19 @@ const AdminIntegrationEndpointSchema = z.object({
   name: z.string().min(1),
 });
 
+/** Which table the row is in (AECI-1091). The admin retire and restore routes take
+ *  either id; the UI only labels the difference. */
+export const ADMIN_INTEGRATION_ANCHORS = ['integration', 'evidenced_pair'] as const;
+
 export const AdminVendorIntegrationRowSchema = z.object({
   id: z.string().uuid(),
+  anchor: z.enum(ADMIN_INTEGRATION_ANCHORS).default('integration'),
   name: z.string().nullable(),
   source: AdminIntegrationEndpointSchema,
   target: AdminIntegrationEndpointSchema,
+  /** The connector product an evidenced pair is delivered through. `null` on an
+   *  `integrations` row. */
+  connector: AdminIntegrationEndpointSchema.nullable().default(null),
   /** `'aeci'` (seeded by promote, then claimed) or `'vendor'` (created by the vendor). */
   origin: z.enum(['aeci', 'vendor']),
   claimed_at: z.string().nullable(),

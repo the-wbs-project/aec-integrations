@@ -66,7 +66,10 @@ mode.
 > follow, and both are enforced in review: every transport **releases its response
 > body** on every path (`discardResponseBody`), and a caller whose line count scales
 > with its payload uses the **batched** sender (`logBatchToPosthog`, N entries → one
-> request) rather than a loop. Where an upstream has no batch endpoint, bound the
+> request) rather than a loop. Metrics have the same sender since AECI-1092
+> (`submitMetricsBatch`, N points in one OTLP envelope, one request); the request-path
+> Algolia sync (`syncOwnerWriteSearch`) uses it for its per-entity counts and run
+> duration. Where an upstream has no batch endpoint, bound the
 > fan-out with `mapWithConcurrency(items, WORKER_CONNECTION_LIMIT, fn)`. Exceeding
 > the budget is not merely slow — see the troubleshooting section below for why it
 > is silent.

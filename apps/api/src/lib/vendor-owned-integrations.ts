@@ -17,7 +17,8 @@
  *     exactly the vendors step 1a exists for.
  *  3. **Live rows only.** `integrations` takes the AECI-1010 live predicate
  *     through {@link liveIntegrationWhere}, never a restatement of it.
- *     `connector_evidenced_pairs` has no `retired_at`, so every row counts.
+ *     `connector_evidenced_pairs` takes the same rule through
+ *     {@link liveEvidencedPairWhere} since AECI-1091, when pairs became retirable.
  *
  * This is the same vendor rule as `algoliaVendorConfig` and `vendorListConfig`
  * (lockstep sites 6a and 14a). It is lockstep site 14b, and the claim queue reads
@@ -36,7 +37,7 @@ import { and, count, inArray } from 'drizzle-orm';
 
 import type { Db } from '../db/client';
 import { connectorEvidencedPairs, integrations } from '../db/schema';
-import { liveIntegrationWhere } from './live-integration';
+import { liveEvidencedPairWhere, liveIntegrationWhere } from './live-integration';
 
 /** A vendor that owns nothing produces no group rows, so it folds to this. */
 export const EMPTY_OWNED_INTEGRATIONS: VendorOwnedIntegrations = {
@@ -61,7 +62,7 @@ export function selectOwnedIntegrationGroups(db: Db, vendorIds: readonly string[
     db
       .select({ vendorId: connectorEvidencedPairs.builtByVendorId, value: count() })
       .from(connectorEvidencedPairs)
-      .where(inArray(connectorEvidencedPairs.builtByVendorId, ids))
+      .where(and(inArray(connectorEvidencedPairs.builtByVendorId, ids), liveEvidencedPairWhere))
       .groupBy(connectorEvidencedPairs.builtByVendorId),
   ] as const;
 }

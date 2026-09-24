@@ -423,6 +423,24 @@ export class VendorContestsList {
       await this.store.reload('contests');
       return;
     }
+    // AECI-1092 (ruling 2): deciding a contest on an integration delivered through a
+    // connector product is an owner write, so it needs an active plan.
+    if (info?.code === 'INTEGRATION_ENTITLEMENT_REQUIRED') {
+      this.rowError.set({
+        id: contest.id,
+        message: $localize`:@@vendor.contests.error.entitlement:Deciding a contest on an integration delivered through a connector product needs an active plan. Contact AEC Integrations to activate or renew it.`,
+      });
+      return;
+    }
+    // The owner changed, or AEC Integrations now decides it (an entitlement cleared).
+    if (info?.code === 'CONTEST_INTEGRATION_CHANGED') {
+      this.rowError.set({
+        id: contest.id,
+        message: $localize`:@@vendor.contests.error.rerouted:AEC Integrations now decides this contest. The list now shows where it stands.`,
+      });
+      await this.store.reload('contests');
+      return;
+    }
     this.rowError.set({ id: contest.id, message: generic });
   }
 

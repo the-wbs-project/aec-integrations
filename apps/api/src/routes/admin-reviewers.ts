@@ -36,23 +36,16 @@ import {
   type BannedReviewer,
   type ListBannedReviewersResponse,
 } from '@aeci/shared';
-import {
-  forwardAuditLog,
-  type AuditLogEntry,
-  type AuditLogForwarder,
-} from '@aeci/shared/audit-log';
-import {
-  forwardWorkflowTransition,
-  type WorkflowTransitionEntry,
-  type WorkflowTransitionForwarder,
-} from '@aeci/shared/workflow-transition';
+import type { AuditLogEntry } from '@aeci/shared/audit-log';
+import type { WorkflowTransitionEntry } from '@aeci/shared/workflow-transition';
 import { and, asc, count, desc, eq, isNotNull, isNull } from 'drizzle-orm';
 import type { Context } from 'hono';
 import type { ZodType } from 'zod';
 
 import { getDb } from '../db/client';
 import { profiles, workflowInstances } from '../db/schema';
-import { logToPosthog, submitCount } from '../posthog';
+import { forwardAuditBatch } from '../lib/moderation-forward';
+import { submitCount } from '../posthog';
 import type { Env } from '../env';
 import { ApiError, notFoundError } from '../errors';
 import { json } from '../http';
@@ -78,34 +71,6 @@ import type { FetchReviewerEmails } from './admin-reviews';
 type AdminContext = Context<{ Bindings: Env; Variables: AuthzVariables }>;
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
-
-function makeForwarder(c: AdminContext): AuditLogForwarder | undefined {
-  if (!c.env.POSTHOG_PROJECT_KEY) return undefined;
-  return (entry) => {
-    logToPosthog(c.executionCtx, c.env, c.req.raw, {
-      level: 'info',
-      message: `audit ${entry.action} ${entry.entityId ?? ''}`.trim(),
-      action: entry.action,
-      entity_type: entry.entityType ?? undefined,
-      entity_id: entry.entityId ?? undefined,
-      source: 'admin-moderation',
-    });
-  };
-}
-
-function makeWorkflowForwarder(c: AdminContext): WorkflowTransitionForwarder | undefined {
-  if (!c.env.POSTHOG_PROJECT_KEY) return undefined;
-  return (entry) => {
-    logToPosthog(c.executionCtx, c.env, c.req.raw, {
-      level: 'info',
-      message: `workflow ${entry.fromState ?? '∅'}→${entry.toState} ${entry.workflowId}`.trim(),
-      from_state: entry.fromState ?? undefined,
-      to_state: entry.toState,
-      workflow_id: entry.workflowId,
-      source: 'admin-moderation',
-    });
-  };
-}
 
 async function parseJsonBody<T>(c: AdminContext, schema: ZodType<T>): Promise<T> {
   let raw: unknown;
@@ -336,17 +301,12 @@ export function createBanReviewerHandler(
     }
 
     emitBanAction(c, payload.action, seatRole, 'ok');
-    const auditForwarder = makeForwarder(c);
-    const workflowForwarder = makeWorkflowForwarder(c);
-    c.executionCtx.waitUntil(
-      Promise.all([
-        forwardAuditLog(auditEntry, auditForwarder),
-        forwardWorkflowTransition(workflowEntry, workflowForwarder),
-        ...(follow?.audits ?? []).map((entry) => forwardAuditLog(entry, auditForwarder)),
-        ...(follow?.transitions ?? []).map((entry) =>
-          forwardWorkflowTransition(entry, workflowForwarder),
-        ),
-      ]),
+    // ONE batched forward: a ban or unban of a vendor seat adds a row and a
+    // transition per re-routed contest.
+    forwardAuditBatch(
+      c,
+      [auditEntry, ...(follow?.audits ?? [])],
+      [workflowEntry, ...(follow?.transitions ?? [])],
     );
 
     const body: BanReviewerResponse = {

@@ -14,6 +14,7 @@
 import type {
   DataObjectOption,
   ListVendorIntegrationsResponse,
+  OwnedIntegration,
   ProductVersion,
   TaxonomyResponse,
   TaxonomyTermWithCount,
@@ -1100,6 +1101,52 @@ export const INTEGRATION_RETIRED_BY_AECI: VendorIntegration = {
   claims: [],
 };
 
+/**
+ * A connector-delivered row the CALLER owns and has claimed (AECI-1090, the
+ * AECI-1040 owner carve-out). With an active entitlement the owner sees "Edit
+ * details", and the form leaves out the frozen type. The preview's downgraded
+ * persona sees the "needs an active plan" sentence instead. Appended by the
+ * preview API, like {@link INTEGRATION_RETIRED_BY_AECI}, because the drill-down
+ * specs count the shared fixture's groups.
+ */
+export const INTEGRATION_CONNECTOR_OWNED: VendorIntegration = {
+  id: '00000000-0000-4000-8000-00000000531b',
+  name: 'Summit Model Coordination ↔ Acumatica (Agave)',
+  mechanism_kind: 'iPaaS',
+  mechanism_name: 'Agave ERP Sync',
+  attestable: false,
+  ...NOT_OWNER,
+  is_owner: true,
+  owner: SUMMIT_VENDOR,
+  endpoint_vendors: [SUMMIT_VENDOR],
+  claimed_at: '2026-09-23T00:00:00.000Z',
+  contestable_fields: {
+    name: 'Summit Model Coordination ↔ Acumatica (Agave)',
+    mechanism_kind: 'iPaaS',
+    mechanism_name: 'Agave ERP Sync',
+    direction: 'outbound',
+    description: 'Sends model quantities to Acumatica job costing through Agave.',
+    listing_url: null,
+    docs_url: 'https://summitbim.example.com/docs/agave',
+    website: 'https://summitbim.example.com/agave',
+    mechanism_url: null,
+    pricing_model: 'Subscription',
+    maturity: 'Beta',
+    owner: SUMMIT_VENDOR.id,
+  },
+  own_links: EMPTY_SIDE_LINKS,
+  powered_by: {
+    id: '00000000-0000-4000-8000-0000000053a0',
+    slug: 'agave-erp-sync',
+    name: 'Agave ERP Sync',
+    logo_url: null,
+  },
+  context_product: CONTEXT_PRIMARY,
+  other_product: OTHER_ACUMATICA,
+  slots: ['vendor_a'],
+  claims: [],
+};
+
 export const VENDOR_INTEGRATIONS_FIXTURE: ListVendorIntegrationsResponse = {
   integrations: [
     INTEGRATION_PROCORE,
@@ -1110,13 +1157,109 @@ export const VENDOR_INTEGRATIONS_FIXTURE: ListVendorIntegrationsResponse = {
     // Last, so every index-based spec reference to the entries above holds.
     INTEGRATION_PROCORE_VIA_CONNECTOR,
   ],
+  owned: [],
 };
 
 /** A vendor whose products carry no integrations. The API returns exactly this
  *  — a 200 with an empty list, never a 404. */
 export const VENDOR_INTEGRATIONS_EMPTY_FIXTURE: ListVendorIntegrationsResponse = {
   integrations: [],
+  owned: [],
 };
+
+/**
+ * A connector-delivered row the CALLER owns, unclaimed (AECI-1089). It sits on the
+ * attestable list because Summit makes one endpoint, so its card shows Claim when the
+ * vendor holds an active plan and the plan sentence when it does not. Appended by the
+ * preview API, like {@link INTEGRATION_RETIRED_BY_AECI}.
+ */
+export const INTEGRATION_OWNED_VIA_CONNECTOR: VendorIntegration = {
+  id: '00000000-0000-4000-8000-000000005318',
+  name: 'Summit Model Coordination ↔ Sage Intacct (Summit Sync)',
+  mechanism_kind: 'iPaaS',
+  mechanism_name: 'Summit Sync',
+  attestable: false,
+  ...NOT_OWNER,
+  is_owner: true,
+  owner: SUMMIT_VENDOR,
+  endpoint_vendors: [SUMMIT_VENDOR],
+  own_links: EMPTY_SIDE_LINKS,
+  powered_by: null,
+  context_product: CONTEXT_PRIMARY,
+  other_product: {
+    id: '00000000-0000-4000-8000-000000005306',
+    slug: 'sage-intacct',
+    name: 'Sage Intacct',
+    logo_url: null,
+  },
+  slots: ['vendor_a'],
+  claims: [],
+};
+
+/**
+ * The vendor's owned rows outside the attestable list (AECI-1089): two evidenced
+ * pairs on the primary product, one unclaimed and one claimed. `owned` on
+ * `GET /api/vendor/integrations`. Kept out of {@link VENDOR_INTEGRATIONS_FIXTURE} so
+ * the specs that count that list are unaffected; the preview API adds them.
+ */
+export const VENDOR_OWNED_INTEGRATIONS_FIXTURE: readonly OwnedIntegration[] = [
+  {
+    id: '00000000-0000-4000-8000-000000005319',
+    anchor: 'evidenced_pair',
+    name: 'Summit Model Coordination and Procore via Agave',
+    mechanism_kind: null,
+    mechanism_name: null,
+    product_a: CONTEXT_PRIMARY,
+    product_b: OTHER_PROCORE,
+    connector: {
+      id: '00000000-0000-4000-8000-0000000053a0',
+      slug: 'agave-erp-sync',
+      name: 'Agave ERP Sync',
+      logo_url: null,
+    },
+    connector_powered: true,
+    claimed_at: null,
+    retired_at: null,
+    retired_by: null,
+    contestable_fields: {
+      ...EMPTY_CONTESTABLE_FIELDS,
+      name: 'Summit Model Coordination and Procore via Agave',
+      owner: SUMMIT_VENDOR.id,
+    },
+  },
+  {
+    id: '00000000-0000-4000-8000-00000000531a',
+    anchor: 'evidenced_pair',
+    name: null,
+    mechanism_kind: null,
+    mechanism_name: null,
+    product_a: CONTEXT_PRIMARY,
+    product_b: OTHER_AUTODESK_BUILD,
+    connector: {
+      id: '00000000-0000-4000-8000-0000000053a1',
+      slug: 'kroo-connector',
+      name: 'Kroo Connector',
+      logo_url: null,
+    },
+    connector_powered: true,
+    claimed_at: '2026-09-22T00:00:00.000Z',
+    retired_at: null,
+    retired_by: null,
+    // AECI-1090: the values the owner's edit form starts from. A pair has no type,
+    // and `direction` is framed against product_a.
+    contestable_fields: {
+      ...EMPTY_CONTESTABLE_FIELDS,
+      name: 'Summit Model Coordination and Autodesk Build via Kroo',
+      mechanism_name: 'Kroo Connector',
+      direction: 'outbound',
+      description: 'Sends coordination issues to Autodesk Build through Kroo.',
+      website: 'https://summitbim.example.com/kroo',
+      pricing_model: 'Subscription',
+      maturity: 'GA',
+      owner: SUMMIT_VENDOR.id,
+    },
+  },
+];
 
 /**
  * The §7 detector ledger as the in-portal list reads it.
@@ -1185,6 +1328,7 @@ export const VENDOR_CONTESTS_FIXTURE: ListVendorContestsResponse = {
     {
       id: '00000000-0000-4000-8000-000000005c01',
       integration_id: INTEGRATION_VENDOR_B.id,
+      anchor: 'integration',
       integration_name: INTEGRATION_VENDOR_B.name,
       context_product: CONTEXT_SECONDARY,
       other_product: OTHER_AUTODESK_BUILD,
@@ -1211,6 +1355,7 @@ export const VENDOR_CONTESTS_FIXTURE: ListVendorContestsResponse = {
     {
       id: '00000000-0000-4000-8000-000000005c02',
       integration_id: INTEGRATION_VENDOR_B.id,
+      anchor: 'integration',
       integration_name: INTEGRATION_VENDOR_B.name,
       context_product: CONTEXT_SECONDARY,
       other_product: OTHER_AUTODESK_BUILD,
@@ -1252,6 +1397,7 @@ export const VENDOR_CONTESTS_FIXTURE: ListVendorContestsResponse = {
     {
       id: '00000000-0000-4000-8000-000000005c11',
       integration_id: INTEGRATION_PROCORE.id,
+      anchor: 'integration',
       integration_name: INTEGRATION_PROCORE.name,
       context_product: CONTEXT_PRIMARY,
       other_product: OTHER_PROCORE,
@@ -1278,6 +1424,7 @@ export const VENDOR_CONTESTS_FIXTURE: ListVendorContestsResponse = {
     {
       id: '00000000-0000-4000-8000-000000005c12',
       integration_id: INTEGRATION_PROCORE.id,
+      anchor: 'integration',
       integration_name: INTEGRATION_PROCORE.name,
       context_product: CONTEXT_PRIMARY,
       other_product: OTHER_PROCORE,
@@ -1305,6 +1452,7 @@ export const VENDOR_CONTESTS_FIXTURE: ListVendorContestsResponse = {
     {
       id: '00000000-0000-4000-8000-000000005c13',
       integration_id: INTEGRATION_NO_CLAIMS.id,
+      anchor: 'integration',
       integration_name: null,
       context_product: CONTEXT_SECONDARY,
       other_product: OTHER_PROCORE,
@@ -1331,6 +1479,7 @@ export const VENDOR_CONTESTS_FIXTURE: ListVendorContestsResponse = {
     {
       id: '00000000-0000-4000-8000-000000005c14',
       integration_id: INTEGRATION_PROCORE.id,
+      anchor: 'integration',
       integration_name: INTEGRATION_PROCORE.name,
       context_product: CONTEXT_PRIMARY,
       other_product: OTHER_PROCORE,
@@ -1357,6 +1506,7 @@ export const VENDOR_CONTESTS_FIXTURE: ListVendorContestsResponse = {
     {
       id: '00000000-0000-4000-8000-000000005c15',
       integration_id: INTEGRATION_PROCORE.id,
+      anchor: 'integration',
       integration_name: INTEGRATION_PROCORE.name,
       context_product: CONTEXT_PRIMARY,
       other_product: OTHER_PROCORE,
@@ -1500,6 +1650,37 @@ export const VENDOR_PRODUCT_CONNECTORS_FIXTURE: Readonly<
             data_object_slugs: [],
           },
         ],
+        // AECI-1092: the delivered pair can be contested from here. Kroo's vendor
+        // owns it (a third-party owner), so the Summit seat is not the owner.
+        delivered_contest_targets: [
+          {
+            id: '00000000-0000-4000-8000-000000005510',
+            name: 'Summit Model Coordination + Sage Intacct',
+            context_product: {
+              id: PRIMARY_PRODUCT.id,
+              slug: PRIMARY_PRODUCT.slug,
+              name: PRIMARY_PRODUCT.name,
+              logo_url: null,
+            },
+            other_product: link('5520', 'sage-intacct', 'Sage Intacct'),
+            connector: KROO_LINK,
+            contestable_fields: {
+              ...EMPTY_CONTESTABLE_FIELDS,
+              name: 'Summit Model Coordination + Sage Intacct',
+              mechanism_name: 'Kroo Connector',
+              direction: 'outbound',
+              docs_url: 'https://kroo.example/docs/summit-sage',
+              owner: '00000000-0000-4000-8000-000000005540',
+            },
+            endpoint_vendors: [
+              { id: '00000000-0000-4000-8000-000000005541', name: 'Sage' },
+              { id: '00000000-0000-4000-8000-000000005200', name: 'Summit BIM' },
+            ],
+            owner: { id: '00000000-0000-4000-8000-000000005540', name: 'Kroo' },
+            is_owner: false,
+            retired: false,
+          },
+        ],
         reachable: [
           link('5521', 'acumatica', 'Acumatica'),
           link('5522', 'netsuite', 'NetSuite'),
@@ -1510,6 +1691,7 @@ export const VENDOR_PRODUCT_CONNECTORS_FIXTURE: Readonly<
         connector: AQUIFER_LINK,
         catalog_as_of: null,
         delivered: [],
+        delivered_contest_targets: [],
         reachable: [
           link('5524', 'bluebeam-revu', 'Bluebeam Revu'),
           link('5525', 'deltek-vantagepoint', 'Deltek Vantagepoint'),

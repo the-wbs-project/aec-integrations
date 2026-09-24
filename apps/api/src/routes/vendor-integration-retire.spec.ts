@@ -353,10 +353,14 @@ describe('POST /api/vendor/integrations/:id/retire — the owner retires', () =>
     expect(res.body.error.code).toBe('INTEGRATION_NOT_CLAIMED');
   });
 
-  it('refuses a connector-powered row with 403, after ownership', async () => {
+  it('refuses a connector-powered row without an active entitlement with 403, after ownership', async () => {
+    // AECI-1091: the carve-out opens the row to an ENTITLED owner. This seat holds
+    // none, so it gets the entitlement answer, not the old connector-powered one.
+    // `vendor-integration-retire-connector.spec.ts` covers the entitled owner.
     const res = await retire(AUTH_B, I_POWERED);
     expect(res.status).toBe(403);
-    expect(res.body.error.code).toBe('INTEGRATION_CONNECTOR_POWERED');
+    expect(res.body.error.code).toBe('INTEGRATION_ENTITLEMENT_REQUIRED');
+    expect((await row(I_POWERED)).retiredAt).toBeNull();
     // A non-owner still gets the ownership answer.
     expect((await retire(AUTH_A, I_POWERED)).body.error.code).toBe('INTEGRATION_NOT_OWNER');
   });

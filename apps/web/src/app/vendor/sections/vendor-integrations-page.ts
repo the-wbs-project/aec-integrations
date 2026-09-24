@@ -1,6 +1,7 @@
 import { Component, computed, inject } from '@angular/core';
 
 import { VendorIntegrationsSection } from '../components/vendor-integrations-section';
+import { VendorOwnedIntegrations } from '../components/vendor-owned-integrations';
 import { VendorProductConnectors } from '../components/vendor-product-connectors';
 import { vendorCan } from '../vendor-capabilities';
 import { VendorPortalStore } from '../vendor-portal-store';
@@ -27,13 +28,18 @@ import { vendorProductContext } from './vendor-product-context';
  * `vendors.verified` mirror; the client and server halves moved in one change so
  * enabled controls can never collect a 403.
  *
+ * AECI-1089 adds the owner's own rows between the two: its evidenced pairs and any
+ * row on which it holds no endpoint, with a Claim action
+ * (`vendor-owned-integrations.ts`). They ride the same `GET /api/vendor/integrations`
+ * read, so the live cursor covers them.
+ *
  * AECI-1013 adds the read-only Connectors section below the list: the connectors
  * that deliver or reach this product. It is its own per-product read, outside the
  * live cursor, and it renders nothing when no connector reaches the product.
  */
 @Component({
   selector: 'aec-vendor-integrations-page',
-  imports: [VendorIntegrationsSection, VendorProductConnectors],
+  imports: [VendorIntegrationsSection, VendorOwnedIntegrations, VendorProductConnectors],
   template: `
     @if (me(); as m) {
       <div>
@@ -45,6 +51,9 @@ import { vendorProductContext } from './vendor-product-context';
             [urlState]="true"
           />
         </div>
+        <!-- AECI-1089: the owner's rows the list above does not carry. It renders
+             nothing, and so takes no space, when none touch this product. -->
+        <aec-vendor-owned-integrations [contextProductId]="contextProductId()" />
         <div class="mt-10">
           <aec-vendor-product-connectors [productId]="contextProductId()" />
         </div>

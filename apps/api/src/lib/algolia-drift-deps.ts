@@ -32,7 +32,7 @@ import {
   type DriftCount,
 } from './algolia-drift';
 import type { PromotedIdProvider } from './algolia-orphans';
-import { liveIntegrationWhere } from './live-integration';
+import { liveEvidencedPairWhere, liveIntegrationWhere } from './live-integration';
 
 /**
  * The `promotion_status` value that marks a row live on the public site. Same
@@ -105,6 +105,8 @@ export function drizzleDriftCounter(db: Db): DriftCount {
             and(
               inArray(connectorEvidencedPairs.productAId, promoted),
               inArray(connectorEvidencedPairs.productBId, promoted),
+              // AECI-1091: live pairs only, exactly as the sync's upsert arm.
+              liveEvidencedPairWhere,
             ),
           );
         return (direct?.value ?? 0) + (evidenced?.value ?? 0);
@@ -186,6 +188,9 @@ export function drizzlePromotedIds(db: Db): PromotedIdProvider {
           and(
             inArray(connectorEvidencedPairs.productAId, promoted),
             inArray(connectorEvidencedPairs.productBId, promoted),
+            // AECI-1091: the same rule on the evidenced arm. A retired pair is not
+            // a member. Never a predicate on `claimed_at` or `origin`.
+            liveEvidencedPairWhere,
           ),
         );
       return new Set([...direct, ...evidenced].map((r) => r.id));

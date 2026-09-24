@@ -359,8 +359,12 @@ endpoints**. The other endpoint must already be promoted (reference it by
 > parked both permanently, so every edge naming them reported an `unresolvedLinks`
 > entry on every push. AECI-1064 reversed that. The admission test is now
 > `product_role: connector`, and Zapier went live at `2026-09-23T05:34Z` and Workato
-> at `07:43Z`. Their edges resolve from now on. The rows already in production still
-> carry a NULL FK until each **endpoint** is re-promoted, per the paragraph above.
+> at `07:43Z`. Their edges resolve from now on. Rows promoted before that kept a NULL
+> FK until an **endpoint** was re-promoted, per the paragraph above. That re-promote
+> ran on 2026-09-23: 14 endpoint products carried all 39 affected
+> edges into `connector_evidenced_pairs`
+> (`scripts/ops/2026-09-connector-attribution-repromote/`). Make, n8n and Boomi are
+> still unpromoted, so their edges keep reporting `unresolvedLinks`.
 >
 > **Your stored value is never clobbered (AECI-730).** On an *update*, a connector
 > that fails to resolve leaves `powered_by_product_id` exactly as it was rather than
@@ -510,9 +514,10 @@ Four consequences worth knowing:
   60 promoted). Routing it would render "Via Aquifer → Aquifer", and the destination table's
   `connector_evidenced_pairs_distinct_connector` CHECK refuses it outright.
 - **The connector must be a promoted product.** `connector_evidenced_pairs.connector_product_id` is
-  NOT NULL, so an edge naming an unpromoted connector cannot be routed. Zapier and Workato are
-  `on_hold` (AECI-700) and stay that way, so those edges remain in `integrations` with a NULL
-  `powered_by` — the population AECI-730 makes observable. **They keep `mechanismKind: "iPaaS"`,
+  NOT NULL, so an edge naming an unpromoted connector cannot be routed. Those edges remain in
+  `integrations` with a NULL `powered_by`, the population AECI-730 makes observable. Zapier and
+  Workato were in that state until 2026-09-23, when AECI-1064 promoted both; Make, n8n and Boomi
+  still are. **They keep `mechanismKind: "iPaaS"`,
   permanently** (AECI-735): it is the only thing marking them as connector-delivered once the FK is
   absent, and both the AECI-705 attestation gate and the product page's "Via" lane read it. Do not
   re-key them to `native` or unset because the connector lane now has its own tables.
@@ -1130,12 +1135,14 @@ A vendor is **claimed** only while it has at least one **active** portal seat. I
 AECi bans a vendor's only admin, the vendor is no longer claimed and promote can
 write to it again — that is deliberate, so moderation hands control back to AECi
 rather than freezing the record. **Revoking the last seat (AECI-989) goes further:**
-the vendor, its solely-owned products and its live claimed integrations are handed
-back to AECi. The vendor and product rows promote again as above. Each claimed
+the vendor, its solely-owned products and its live claimed integrations and evidenced
+pairs are handed back to AECi. The vendor and product rows promote again as above. Each claimed
 integration loses `claimed_at`, so §4b's fence lifts and your pushes write it again.
 Its `maintained_by` returns to `'aeci'` unless a vendor attestation still stands, so
 your `lastReviewedAt` lands again too (§3.6a). A vendor-created row stays fenced (§4c).
-Nothing on your side changes.
+A claimed evidenced pair (AECI-1089) is handed back the same way, so the §4b fence on
+`connector_evidenced_pairs` lifts and the connector-catalog arm writes it again. Nothing on
+your side changes.
 - **`unresolvedLinks[]` is the other half, and it is NOT `skipped[]` (AECI-730).**
   A `skipped` entry means the row was never written. An entry here means the
   integration **was** written and only one optional link is missing:
@@ -1143,9 +1150,9 @@ Nothing on your side changes.
   (`builtByVendor`), with the `supabaseId` you sent and an `outcome` of `"unset"`
   (the row was created, so the column is NULL) or `"preserved"` (the row was updated
   and the column was left exactly as it already was — the clobber guard).
-  **Expect a steady, permanent stream of these and do not alert on them:** Zapier and
-  Workato will never be promoted (AECI-700), so their edges report on every push and
-  re-pushing changes nothing. The actionable case is a connector that *is* meant to
+  **Expect a steady stream of these and do not alert on them:** every edge whose
+  connector is unpromoted (Make, n8n, Boomi) reports on every push, and re-pushing
+  changes nothing. Zapier and Workato left that set on 2026-09-23 (AECI-1064). The actionable case is a connector that *is* meant to
   be in the directory — promote it, then re-push the edge. Optional and always
   emitted as `[]` when clean; a job whose result was stored by a pre-AECI-730 build
   omits the key entirely, so tolerate its absence.
@@ -1194,7 +1201,8 @@ carry it, and do not re-promote to "apply" it. A reassignment away from the clai
 vendor clears `claimed_at`, so promote writes that row again from then on, **unless the
 row is vendor-created** (`origin = 'vendor'`, §4c). A vendor-created row stays fenced
 with or without a claim. **Revoking the owner's last portal seat clears `claimed_at` the
-same way** on every live row it claimed (AECI-989, §4a's last paragraph). A retired row
+same way** on every live row it claimed, in either table (AECI-989, §4a's last paragraph;
+evidenced pairs since AECI-1089). A retired row
 keeps its claim. No `REVIEW - ` issue is filed, because the owner of record did not change.
 
 **One race is an error, deliberately.** If the owner claims the integration while
@@ -1220,9 +1228,10 @@ writes such a row's content (only its `lastReviewedAt` is refused, §3.6a).
 **The same fence on `connector_evidenced_pairs` (AECI-1088, migration 0049).** The owner
 carve-out (`STAGE_2_SPEC.md` §8.10(8)) lets an owner hold an evidenced pair, so this section
 applies to a vendor-held pair exactly as to a vendor-held integration. Vendor-held means the same
-`claimed_at IS NOT NULL OR origin = 'vendor'` on both tables (`DATABASE_SCHEMA.md` §9a.6). No
-route can claim a pair yet: that is AECI-1089. Until it ships, no production pair is vendor-held
-and nothing changes on your side.
+`claimed_at IS NOT NULL OR origin = 'vendor'` on both tables (`DATABASE_SCHEMA.md` §9a.6). The
+vendor claim route claims a pair since AECI-1089, for an owner with an active entitlement. Until
+that reaches production, and until an owner holds an entitlement (none did on 2026-09-23), no
+production pair is vendor-held and nothing changes on your side.
 
 - `claimFenceRefuses` and the `locateEdge` evidenced read in `apps/api/src/routes/promote.ts`
   cover the second table. The in-batch claim sentinel has an evidenced twin,

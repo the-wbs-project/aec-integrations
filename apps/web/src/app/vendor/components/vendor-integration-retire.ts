@@ -18,6 +18,7 @@ import type { VendorIntegration } from '@aeci/shared';
 import { VendorPortalAnnouncer } from '../vendor-announcer';
 import { VendorApi } from '../vendor-api';
 import { readVendorApiError } from '../vendor-api-error';
+import { vendorHasActiveEntitlement } from '../vendor-capabilities';
 import { VendorPortalStore } from '../vendor-portal-store';
 
 /**
@@ -41,8 +42,14 @@ import { VendorPortalStore } from '../vendor-portal-store';
  *   retire (ruled 2026-09-22).
  * - **Retired, other endpoint vendor** — the status line only, read-only (ruled
  *   2026-09-22). It is what the retire notification lands on.
- * - **Anything else** — nothing. Unclaimed and connector-powered rows cannot be
- *   retired, and saying so on every card would be noise.
+ * - **Anything else** — nothing. An unclaimed row cannot be retired, and saying so
+ *   on every card would be noise.
+ *
+ * A claimed connector-powered row (`attestable` false) is retirable since AECI-1091
+ * (the AECI-1040 carve-out), but only by an owner whose vendor holds an active
+ * entitlement. Without one the Retire button is not offered (the ownership block
+ * above says a plan is needed), and a retired row shows its status line with a
+ * sentence in place of Restore.
  *
  * Writes are pessimistic, like every form here (`STAGE_2_REALTIME_SPEC.md`): the
  * section switches state only once the server has answered, then revalidates the
@@ -74,6 +81,15 @@ import { VendorPortalStore } from '../vendor-portal-store';
             i18n="@@vendor.retire.retired.aeciOwnerHelp"
           >
             Its data flows and confirmations are kept. Only AEC Integrations can restore it.
+          </p>
+        } @else if (isOwner() && !canRestore()) {
+          <p
+            class="mt-1 max-w-prose text-xs text-(--text-secondary)"
+            data-testid="retire-restore-needs-plan"
+            i18n="@@vendor.retire.retired.needsPlan"
+          >
+            Its data flows and confirmations are kept. Restoring an integration delivered through a
+            connector needs an active plan. Contact AEC Integrations to activate or renew it.
           </p>
         } @else if (isOwner()) {
           <p
@@ -204,12 +220,23 @@ export class VendorIntegrationRetire {
 
   protected readonly isOwner = computed(() => this.integration().is_owner);
 
-  /** Owner, claimed, and not connector-powered. `attestable` is the server's
-   *  connector-powered answer, read off the wire and never re-derived. */
+  /** Does the caller's vendor hold an active entitlement? The same test the
+   *  server's `hasActiveEntitlement` makes, so the button and the 403 agree. */
+  private readonly entitled = vendorHasActiveEntitlement(this.store);
+
+  /** Owner and claimed. On a connector-powered row (`attestable` false, the
+   *  server's answer read off the wire), also entitled: the AECI-1040 carve-out
+   *  opens retire there only with an active plan (AECI-1091, ruling 2). Unentitled,
+   *  the ownership block above already says a plan is needed. */
   protected readonly canRetire = computed(() => {
     const integration = this.integration();
-    return integration.is_owner && integration.claimed_at !== null && integration.attestable;
+    if (!integration.is_owner || integration.claimed_at === null) return false;
+    return integration.attestable || this.entitled();
   });
+
+  /** Restore follows the same rule: an unentitled owner of a connector-powered row
+   *  sees the retired line and no button, rather than a button that answers 403. */
+  protected readonly canRestore = computed(() => this.integration().attestable || this.entitled());
 
   protected readonly sectionLabel = $localize`:@@vendor.retire.section:Retire this integration`;
 
@@ -324,6 +351,8 @@ export function retireErrorMessage(err: unknown): string {
       return $localize`:@@vendor.retire.error.notOwner:Only the company that owns this integration can retire or restore it.`;
     case 'INTEGRATION_CONNECTOR_POWERED':
       return $localize`:@@vendor.retire.error.connector:Integrations delivered through a connector cannot be retired yet.`;
+    case 'INTEGRATION_ENTITLEMENT_REQUIRED':
+      return $localize`:@@vendor.retire.error.entitlement:Retiring or restoring an integration delivered through a connector needs an active plan. Contact AEC Integrations to activate or renew it.`;
     case 'RATE_LIMITED':
       return $localize`:@@vendor.retire.error.rate:Too many requests in a short time. Wait a minute and try again.`;
     default:

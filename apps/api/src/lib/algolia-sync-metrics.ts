@@ -37,6 +37,19 @@ export type AlgoliaSyncTrigger = 'cron' | 'promote' | 'vendor';
 export type SyncMetricSink = {
   count(metric: string, value: number, tags: string[]): void;
   distribution(metric: string, value: number, tags: string[]): void;
+  /**
+   * When present, every point of the run goes through ONE call instead (AECI-1092
+   * review): a request-path caller shares its invocation with other outbound work,
+   * and one request per point runs past the Worker connection limit (AECI-666).
+   */
+  batch?(
+    points: Array<{
+      kind: 'count' | 'distribution';
+      metric: string;
+      value: number;
+      tags: string[];
+    }>,
+  ): void;
 };
 
 /**
@@ -49,11 +62,47 @@ export function emitAlgoliaSyncMetrics(
   results: readonly IndexEntityResult[],
   durationMs: number,
 ): void {
+  const points: Array<{
+    kind: 'count' | 'distribution';
+    metric: string;
+    value: number;
+    tags: string[];
+  }> = [];
   for (const result of results) {
     const base = [`trigger:${trigger}`, `entity:${result.entity}`];
-    sink.count('aeci.algolia.sync', 1, [...base, `outcome:${result.ok ? 'ok' : 'failed'}`]);
-    sink.count('aeci.algolia.sync.records', result.saved, [...base, 'op:saved']);
-    sink.count('aeci.algolia.sync.records', result.deleted, [...base, 'op:deleted']);
+    points.push(
+      {
+        kind: 'count',
+        metric: 'aeci.algolia.sync',
+        value: 1,
+        tags: [...base, `outcome:${result.ok ? 'ok' : 'failed'}`],
+      },
+      {
+        kind: 'count',
+        metric: 'aeci.algolia.sync.records',
+        value: result.saved,
+        tags: [...base, 'op:saved'],
+      },
+      {
+        kind: 'count',
+        metric: 'aeci.algolia.sync.records',
+        value: result.deleted,
+        tags: [...base, 'op:deleted'],
+      },
+    );
   }
-  sink.distribution('aeci.algolia.sync.duration_ms', durationMs, [`trigger:${trigger}`]);
+  points.push({
+    kind: 'distribution',
+    metric: 'aeci.algolia.sync.duration_ms',
+    value: durationMs,
+    tags: [`trigger:${trigger}`],
+  });
+  if (sink.batch) {
+    sink.batch(points);
+    return;
+  }
+  for (const point of points) {
+    if (point.kind === 'count') sink.count(point.metric, point.value, point.tags);
+    else sink.distribution(point.metric, point.value, point.tags);
+  }
 }

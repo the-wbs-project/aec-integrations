@@ -101,7 +101,7 @@ import { loadAsnAnnotations } from './asn-registry';
 import { textAsc } from './collation';
 import { resolveRequestTargets } from './drizzle-helpers';
 import { excludeInternalAsns, parseInternalAsns } from './internal-asns';
-import { liveIntegrationWhere } from './live-integration';
+import { liveEvidencedPairWhere, liveIntegrationWhere } from './live-integration';
 import { likeContains } from './sql-like';
 
 const DAY_MS = 86_400_000;
@@ -586,12 +586,15 @@ const CATALOG_NET_SOURCE: Partial<Record<AdminMetricKey, readonly CatalogNetArm[
   // Both delivered-tier tables, as the totals card counts them (AECI-721 lockstep,
   // AECI-1074). Reading `integrations` alone left the column 51 rows short in
   // production and made every cross-table move (AECI-888) read as a removal.
-  // `live` (AECI-1010): a retired integration is still a row but is not in the
-  // catalogue. `connector_evidenced_pairs` has no `retired_at`, so every row in it
-  // is live, exactly as the card treats it.
+  // `live` (AECI-1010, AECI-1091): a retired integration or pair is still a row but
+  // is not in the catalogue, exactly as the card treats it.
   'catalog.integrations_created': [
     { table: integrations, createdAt: integrations.createdAt, live: liveIntegrationWhere },
-    { table: connectorEvidencedPairs, createdAt: connectorEvidencedPairs.createdAt },
+    {
+      table: connectorEvidencedPairs,
+      createdAt: connectorEvidencedPairs.createdAt,
+      live: liveEvidencedPairWhere,
+    },
   ],
   'catalog.vendors_created': [{ table: vendors, createdAt: vendors.createdAt }],
   'catalog.claims_created': [{ table: claims, createdAt: claims.createdAt }],

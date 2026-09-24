@@ -59,6 +59,7 @@ import {
   connectorStubs,
 } from '../db/schema';
 
+import { liveEvidencedPairWhere } from './live-integration';
 import { likeContains } from './sql-like';
 
 /** An empty tally, so a catalogue with no rows reports zeros rather than gaps. */
@@ -276,7 +277,11 @@ export async function collectCounts(
         .from(connectorEvidencedPairs)
         .where(
           productIds.length > 0
-            ? inArray(connectorEvidencedPairs.connectorProductId, productIds)
+            ? // Live pairs only (AECI-1091): the count the public connector page shows.
+              and(
+                inArray(connectorEvidencedPairs.connectorProductId, productIds),
+                liveEvidencedPairWhere,
+              )
             : sql`1 = 0`,
         )
         .groupBy(connectorEvidencedPairs.connectorProductId),

@@ -190,6 +190,22 @@ describe('VendorPortalStore — the refetch map', () => {
     expect(store.seatsLoading()).toBe(false);
   });
 
+  it('refetches loaded contests with the entitlement, never from cold (AECI-1092 ruling B)', async () => {
+    const store = makeStore();
+    await store.revalidate(['entitlement']);
+    // Contests were never loaded, so the entitlement alone does not load them.
+    expect(api.getContests).not.toHaveBeenCalled();
+
+    await store.ensure('contests');
+    api.getContests.mockClear();
+    api.getMe.mockClear();
+    await store.revalidate(['entitlement']);
+    // An admin clear re-routes owner contests to AECi, so the Received list must
+    // refresh even when the contests cursor did not move.
+    expect(api.getMe).toHaveBeenCalledTimes(1);
+    expect(api.getContests).toHaveBeenCalledTimes(1);
+  });
+
   it('keeps the last good value when a refresh fails', async () => {
     const store = makeStore();
     await store.ensure('integrations');

@@ -206,6 +206,8 @@ pnpm --filter @aeci/agent exec wrangler secret put TOOL_TOKEN -c dist/aeci_agent
 pnpm --filter @aeci/agent deploy
 ```
 
+**Do not run `deploy:production` before migration `0049` is applied to production D1.** Since AECI-1091 the agent's queries filter `connector_evidenced_pairs.retired_at` without probing for the column, so on a database without `0049` every catalog query fails.
+
 For production, build the production config first so the secret and the deploy both target `aeci-agent-production`:
 
 ```bash

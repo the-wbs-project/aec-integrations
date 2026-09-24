@@ -52,6 +52,8 @@ export function editSaveErrorMessage(err: unknown): string {
       return $localize`:@@vendor.integrationEdit.save.error.notOwner:Your company is no longer recorded as the owner of this integration, so nothing was saved.`;
     case 'INTEGRATION_CONNECTOR_POWERED':
       return $localize`:@@vendor.integrationEdit.save.error.connector:Connector-delivered integrations cannot be edited yet, so nothing was saved.`;
+    case 'INTEGRATION_ENTITLEMENT_REQUIRED':
+      return $localize`:@@vendor.integrationEdit.save.error.entitlement:Editing an integration delivered through a connector product needs an active plan, so nothing was saved. Contact AEC Integrations to activate or renew it.`;
     case 'INTEGRATION_INVALID_VALUE':
       return $localize`:@@vendor.integrationEdit.save.error.invalid:One of the values is not valid for its field. Check the form and try again.`;
     case 'RATE_LIMITED':
@@ -70,6 +72,10 @@ export function claimErrorMessage(err: unknown): string {
       return $localize`:@@vendor.integrationClaim.error.notOwner:Another company is now recorded as the owner of this integration, so it was not claimed.`;
     case 'INTEGRATION_CONNECTOR_POWERED':
       return $localize`:@@vendor.integrationClaim.error.connector:Connector-delivered integrations cannot be claimed yet.`;
+    case 'INTEGRATION_CHANGED_WHILE_SAVING':
+      return $localize`:@@vendor.integrationClaim.error.changed:This integration changed while you were claiming it, so it was not claimed. Reload and try again.`;
+    case 'INTEGRATION_ENTITLEMENT_REQUIRED':
+      return $localize`:@@vendor.integrationClaim.error.entitlement:Claiming an integration delivered through a connector needs an active plan, so it was not claimed. Contact AEC Integrations to activate or renew it.`;
     case 'RATE_LIMITED':
       return $localize`:@@vendor.integrationClaim.error.rate:Too many requests in a short time. Wait a minute and try again.`;
     default:

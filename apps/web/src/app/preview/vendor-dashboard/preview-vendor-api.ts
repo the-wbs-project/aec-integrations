@@ -2,6 +2,7 @@ import { HttpErrorResponse } from '@angular/common/http';
 import { Injectable } from '@angular/core';
 
 import type {
+  ContestAnchorKind,
   RetireIntegrationResponse,
   ClaimIntegrationResponse,
   CreateVendorIntegrationInput,
@@ -44,6 +45,7 @@ import type {
 } from '@aeci/shared';
 import {
   CreateVendorIntegrationSchema,
+  CONNECTOR_POWERED_FROZEN_EDIT_FIELDS,
   INTEGRATION_EDIT_FIELDS,
   computeAgreement,
   contestValueProblem,
@@ -56,9 +58,12 @@ import {
   VENDOR_CONTEST_NOTIFICATIONS_FIXTURE,
   VENDOR_CONTESTS_FIXTURE,
   VENDOR_DATA_OBJECTS_FIXTURE,
+  INTEGRATION_CONNECTOR_OWNED,
+  INTEGRATION_OWNED_VIA_CONNECTOR,
   INTEGRATION_RETIRED_BY_AECI,
   INTEGRATION_RETIRED_BY_OTHER,
   VENDOR_INTEGRATIONS_FIXTURE,
+  VENDOR_OWNED_INTEGRATIONS_FIXTURE,
   VENDOR_NOTIFICATIONS_FIXTURE,
   VENDOR_PRODUCT_CONNECTORS_FIXTURE,
   VENDOR_PRODUCT_VERSIONS_FIXTURE,
@@ -169,7 +174,15 @@ const PREVIEW_INTEGRATIONS: ListVendorIntegrationsResponse = {
     ...VENDOR_INTEGRATIONS_FIXTURE.integrations,
     INTEGRATION_RETIRED_BY_OTHER,
     INTEGRATION_RETIRED_BY_AECI,
+    // AECI-1089: a connector-delivered row Summit owns, so the card's claim (or the
+    // plan sentence, on the no-access presets) is reviewable.
+    INTEGRATION_OWNED_VIA_CONNECTOR,
+    // AECI-1090: a claimed connector-delivered row the caller owns.
+    INTEGRATION_CONNECTOR_OWNED,
   ],
+  // AECI-1089: the owned evidenced pairs, for the "Integrations your company offers"
+  // section on the primary product's tab.
+  owned: [...VENDOR_OWNED_INTEGRATIONS_FIXTURE],
 };
 
 /**
@@ -461,12 +474,21 @@ export class PreviewVendorApi extends VendorApi {
   override async submitContest(
     integrationId: string,
     body: SubmitIntegrationContestInput,
+    anchor: ContestAnchorKind = 'integration',
   ): Promise<VendorContestResponse> {
-    const integration = this.integrations.integrations.find(
-      (i) =>
-        i.id === integrationId &&
-        (!body.context_product_id || i.context_product.id === body.context_product_id),
+    // AECI-1092: an evidenced pair is looked up among the connectors fixture's
+    // contest targets, which carry the same fields an integration entry does.
+    const pairTargets = Object.values(VENDOR_PRODUCT_CONNECTORS_FIXTURE).flatMap((r) =>
+      r.connectors.flatMap((g) => g.delivered_contest_targets ?? []),
     );
+    const integration =
+      anchor === 'evidenced_pair'
+        ? pairTargets.find((p) => p.id === integrationId)
+        : this.integrations.integrations.find(
+            (i) =>
+              i.id === integrationId &&
+              (!body.context_product_id || i.context_product.id === body.context_product_id),
+          );
     if (!integration) throw apiError(404, 'NOT_FOUND', 'Integration not found');
     if (integration.is_owner) {
       throw apiError(403, 'CONTEST_OWN_INTEGRATION', 'You own this integration');
@@ -483,7 +505,11 @@ export class PreviewVendorApi extends VendorApi {
     }
     if (
       this.contests.submitted.some(
-        (c) => c.integration_id === integrationId && c.field === body.field && c.status === 'open',
+        (c) =>
+          c.integration_id === integrationId &&
+          c.anchor === anchor &&
+          c.field === body.field &&
+          c.status === 'open',
       )
     ) {
       throw apiError(409, 'CONTEST_DUPLICATE', 'You already have an open contest on this field');
@@ -496,6 +522,7 @@ export class PreviewVendorApi extends VendorApi {
     const contest: VendorContest = {
       id: `00000000-0000-4000-8000-${String(0xc100 + ++this.nextContestSeq).padStart(12, '0')}`,
       integration_id: integration.id,
+      anchor,
       integration_name: integration.name,
       context_product: integration.context_product,
       other_product: integration.other_product,
@@ -529,6 +556,30 @@ export class PreviewVendorApi extends VendorApi {
    *  entry for the integration (both frames when the caller owns both sides)
    *  reads as claimed. */
   override async claimIntegration(integrationId: string): Promise<ClaimIntegrationResponse> {
+    const now = '2026-09-22T12:00:00.000Z';
+    // AECI-1089: a connector-delivered row needs an active entitlement, read the
+    // way the server reads it (the resolved tier, fail closed).
+    const entitled = (this.me?.entitlement.tier ?? 'unclaimed') !== 'unclaimed';
+    const needsPlan = () =>
+      apiError(403, 'INTEGRATION_ENTITLEMENT_REQUIRED', 'An active plan is needed');
+
+    // The owned rows outside the attestable list (evidenced pairs and the like).
+    const owned = (this.integrations.owned ?? []).find((row) => row.id === integrationId);
+    if (owned) {
+      if (owned.connector_powered && !entitled) throw needsPlan();
+      if (owned.claimed_at) throw apiError(409, 'INTEGRATION_ALREADY_CLAIMED', 'Already claimed');
+      owned.claimed_at = now;
+      return {
+        integration: {
+          id: integrationId,
+          owner_vendor_id: this.me?.vendor.id ?? '',
+          claimed_at: now,
+          maintained_by: 'vendor',
+          last_reviewed_at: now,
+        },
+      };
+    }
+
     const entries = this.integrations.integrations.filter((i) => i.id === integrationId);
     const integration = entries[0];
     if (!integration) throw apiError(404, 'NOT_FOUND', 'Integration not found');
@@ -537,13 +588,10 @@ export class PreviewVendorApi extends VendorApi {
         ? apiError(403, 'INTEGRATION_NOT_OWNER', 'Another company owns this integration')
         : apiError(409, 'INTEGRATION_OWNER_UNKNOWN', 'No owner is on file');
     }
-    if (!integration.attestable) {
-      throw apiError(403, 'INTEGRATION_CONNECTOR_POWERED', 'Connector-delivered integration');
-    }
+    if (!integration.attestable && !entitled) throw needsPlan();
     if (integration.claimed_at) {
       throw apiError(409, 'INTEGRATION_ALREADY_CLAIMED', 'Already claimed');
     }
-    const now = '2026-09-22T12:00:00.000Z';
     for (const entry of entries) entry.claimed_at = now;
     return {
       integration: {
@@ -563,14 +611,54 @@ export class PreviewVendorApi extends VendorApi {
     integrationId: string,
     body: UpdateVendorIntegrationInput,
   ): Promise<UpdateVendorIntegrationResponse> {
+    // AECI-1090: an owned row outside the attestable list (an evidenced pair). Its
+    // values are framed against product_a, as the form sends them, and a pair has no
+    // type, so a type in the body is refused as the handler refuses it.
+    const owned = (this.integrations.owned ?? []).find((row) => row.id === integrationId);
+    if (owned) {
+      const entitled = (this.me?.entitlement.tier ?? 'unclaimed') !== 'unclaimed';
+      if (owned.connector_powered && !entitled) {
+        throw apiError(403, 'INTEGRATION_ENTITLEMENT_REQUIRED', 'Needs an active plan');
+      }
+      if (!owned.claimed_at) throw apiError(409, 'INTEGRATION_NOT_CLAIMED', 'Claim it first');
+      const changed: (typeof INTEGRATION_EDIT_FIELDS)[number][] = [];
+      for (const field of INTEGRATION_EDIT_FIELDS) {
+        const raw = body[field];
+        if (raw === undefined) continue;
+        const value = raw === null || raw.trim() === '' ? null : raw.trim();
+        if (field === 'mechanism_kind' && owned.anchor === 'evidenced_pair') {
+          throw apiError(422, 'INTEGRATION_INVALID_VALUE', 'No type on this row', { field });
+        }
+        const problem = integrationEditValueProblem(field, value);
+        if (problem) throw apiError(422, 'INTEGRATION_INVALID_VALUE', problem, { field });
+        if (value === (owned.contestable_fields[field] ?? null)) continue;
+        changed.push(field);
+        owned.contestable_fields = { ...owned.contestable_fields, [field]: value };
+        if (field === 'name') owned.name = value;
+        if (field === 'mechanism_name') owned.mechanism_name = value;
+      }
+      const at = '2026-09-23T12:00:00.000Z';
+      return {
+        integration: {
+          id: integrationId,
+          changed,
+          maintained_by: 'vendor',
+          last_reviewed_at: at,
+          updated_at: at,
+        },
+      };
+    }
+
     const entries = this.integrations.integrations.filter((i) => i.id === integrationId);
     const integration = entries[0];
     if (!integration) throw apiError(404, 'NOT_FOUND', 'Integration not found');
     if (!integration.is_owner) {
       throw apiError(403, 'INTEGRATION_NOT_OWNER', 'Another company owns this integration');
     }
-    if (!integration.attestable) {
-      throw apiError(403, 'INTEGRATION_CONNECTOR_POWERED', 'Connector-delivered integration');
+    // AECI-1090: a connector-delivered row takes the edit from an entitled owner,
+    // with its type frozen, as the handler does.
+    if (!integration.attestable && (this.me?.entitlement.tier ?? 'unclaimed') === 'unclaimed') {
+      throw apiError(403, 'INTEGRATION_ENTITLEMENT_REQUIRED', 'Needs an active plan');
     }
     if (!integration.claimed_at) {
       throw apiError(409, 'INTEGRATION_NOT_CLAIMED', 'Claim it first');
@@ -582,6 +670,14 @@ export class PreviewVendorApi extends VendorApi {
       const raw = body[field];
       if (raw === undefined) continue;
       const value = raw === null || raw.trim() === '' ? null : raw.trim();
+      if (
+        !integration.attestable &&
+        CONNECTOR_POWERED_FROZEN_EDIT_FIELDS.has(field) &&
+        value !== (frame.contestable_fields[field] ?? null)
+      ) {
+        throw apiError(422, 'INTEGRATION_INVALID_VALUE', 'Frozen on this row', { field });
+      }
+      if (!integration.attestable && CONNECTOR_POWERED_FROZEN_EDIT_FIELDS.has(field)) continue;
       const problem = integrationEditValueProblem(field, value);
       if (problem) throw apiError(422, 'INTEGRATION_INVALID_VALUE', problem, { field });
       if (value === (frame.contestable_fields[field] ?? null)) continue;
@@ -803,12 +899,17 @@ export class PreviewVendorApi extends VendorApi {
   }
 
   private setRetired(integrationId: string, mode: 'retire' | 'restore'): RetireIntegrationResponse {
+    // AECI-1091: an owned row outside the attestable list (an evidenced pair) takes
+    // the same retire and restore, on the same terms.
+    const owned = (this.integrations.owned ?? []).find((row) => row.id === integrationId);
+    if (owned) return this.setOwnedRetired(owned, mode);
     const entries = this.integrations.integrations.filter((i) => i.id === integrationId);
     const first = entries[0];
     if (!first) throw apiError(404, 'NOT_FOUND', 'Integration not found');
     if (!first.is_owner) throw apiError(403, 'INTEGRATION_NOT_OWNER', 'Not the owner');
-    if (!first.attestable) {
-      throw apiError(403, 'INTEGRATION_CONNECTOR_POWERED', 'Connector-powered');
+    // AECI-1091: a connector-delivered row retires for an entitled owner only.
+    if (!first.attestable && (this.me?.entitlement.tier ?? 'unclaimed') === 'unclaimed') {
+      throw apiError(403, 'INTEGRATION_ENTITLEMENT_REQUIRED', 'Needs an active plan');
     }
     if (first.claimed_at === null) throw apiError(409, 'INTEGRATION_NOT_CLAIMED', 'Not claimed');
     if (mode === 'retire' && first.retired_at !== null) {
@@ -847,6 +948,39 @@ export class PreviewVendorApi extends VendorApi {
         updated_at: now,
       },
       withdrawn_contest_ids: [...new Set(withdrawn)],
+    };
+  }
+
+  /** The owned-row half of {@link setRetired} (AECI-1091), with the server's refusal
+   *  order: the entitlement on a connector-delivered row, then claimed, then state. */
+  private setOwnedRetired(
+    owned: NonNullable<ListVendorIntegrationsResponse['owned']>[number],
+    mode: 'retire' | 'restore',
+  ): RetireIntegrationResponse {
+    if (owned.connector_powered && (this.me?.entitlement.tier ?? 'unclaimed') === 'unclaimed') {
+      throw apiError(403, 'INTEGRATION_ENTITLEMENT_REQUIRED', 'Needs an active plan');
+    }
+    if (owned.claimed_at === null) throw apiError(409, 'INTEGRATION_NOT_CLAIMED', 'Not claimed');
+    if (mode === 'retire' && owned.retired_at !== null) {
+      throw apiError(409, 'INTEGRATION_RETIRED', 'Already retired');
+    }
+    if (mode === 'restore' && owned.retired_at === null) {
+      throw apiError(409, 'INTEGRATION_NOT_RETIRED', 'Not retired');
+    }
+    if (mode === 'restore' && owned.retired_by === 'aeci') {
+      throw apiError(403, 'INTEGRATION_RETIRED_BY_AECI', 'Retired by AEC Integrations');
+    }
+    const now = '2026-09-23T12:00:00.000Z';
+    owned.retired_at = mode === 'retire' ? now : null;
+    owned.retired_by = mode === 'retire' ? 'owner' : null;
+    return {
+      integration: {
+        id: owned.id,
+        retired_at: owned.retired_at,
+        retired_by: owned.retired_by,
+        updated_at: now,
+      },
+      withdrawn_contest_ids: [],
     };
   }
 

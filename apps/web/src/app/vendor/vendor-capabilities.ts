@@ -28,3 +28,22 @@ import type { VendorPortalStore } from './vendor-portal-store';
 export function vendorCan(store: VendorPortalStore, capability: Capability): Signal<boolean> {
   return computed(() => store.me()?.entitlement.capabilities.includes(capability) ?? false);
 }
+
+/**
+ * Does the vendor hold an active entitlement? The client half of the AECI-1089 gate
+ * on owner writes to connector-powered integrations (AECI-1040 ruling 2,
+ * `apps/api/src/lib/integration-entitlement.ts`).
+ *
+ * Not a capability: there is no `integration.edit`, and the server compares no tier.
+ * It reads the RESOLVED tier off `GET /api/vendor/me`, which the server builds from the
+ * same session field the gate reads, so the affordance and the 403 cannot disagree.
+ * `'unclaimed'` is what the server resolves for no row, a non-active row, or a tier
+ * it does not know, so this fails closed exactly where the server does. A `computed`
+ * for the reason {@link vendorCan} is one: the entitlement flip lands without a reload.
+ */
+export function vendorHasActiveEntitlement(store: VendorPortalStore): Signal<boolean> {
+  return computed(() => {
+    const tier = store.me()?.entitlement.tier;
+    return tier !== undefined && tier !== 'unclaimed';
+  });
+}

@@ -16,8 +16,11 @@ import { z } from 'zod';
  * 1. **No body.** The server decides ownership from the session and the row.
  * 2. **Owner only, and only once claimed.** The owner is `built_by_vendor_id` and
  *    the row must carry `claimed_at` (AECI-1005). A seat is the whole gate, with no
- *    capability check (AECI-1003 decision 15). Connector-powered rows are refused
- *    with `403 INTEGRATION_CONNECTOR_POWERED` (decision 9, v1).
+ *    capability check (AECI-1003 decision 15), except on a connector-powered row:
+ *    since AECI-1091 (the AECI-1040 carve-out) the owner retires and restores those
+ *    too, in either anchor table, but only with an active entitlement
+ *    (`403 INTEGRATION_ENTITLEMENT_REQUIRED` otherwise). The `:id` may name an
+ *    `integrations` row or a `connector_evidenced_pairs` row.
  * 3. **Idempotent by refusal.** Retiring a retired row answers
  *    `409 INTEGRATION_RETIRED`; restoring a live row answers
  *    `409 INTEGRATION_NOT_RETIRED`. Neither writes anything.

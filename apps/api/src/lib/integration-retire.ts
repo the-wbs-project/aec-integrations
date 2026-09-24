@@ -18,6 +18,19 @@ import type { Db } from '../db/client';
 import { integrationFieldChallenges } from '../db/schema';
 import { NOTIFICATION_SENT_ACTION } from './attestation-notify';
 import { ONE_ROW } from './integration-claims';
+import {
+  anchorColumnSql,
+  contestAnchorWhere,
+  toContestAnchor,
+  type ContestAnchor,
+} from './integration-contests';
+
+/** `audit_log.entity_type` for every write to a `connector_evidenced_pairs` row
+ *  (AECI-1091), as promote records a pair write (`routes/promote.ts`). */
+export const EVIDENCED_PAIR_ENTITY_TYPE = 'connector_evidenced_pair';
+
+/** `metadata.anchor` on a pair write's audit rows, as the AECI-1089 claim writes it. */
+export const EVIDENCED_PAIR_ANCHOR = 'evidenced_pair';
 
 /** `audit_log.action` for a retire and a restore. */
 export const INTEGRATION_RETIRED_ACTION = 'integration.retired';
@@ -51,12 +64,15 @@ export function retireRaceSentinel(db: Db) {
  * Paired with the contest submit's `integrationLiveSentinel`, which covers the other
  * interleaving. Selects FROM `ONE_ROW`, so it evaluates exactly once.
  */
-export function noOpenContestsSentinel(db: Db, integrationId: string) {
+export function noOpenContestsSentinel(db: Db, anchor: ContestAnchor | string) {
+  // AECI-1091: either anchor column (AECI-1092's `evidenced_pair_id` for a pair).
+  // A bare id means an `integrations` row, the pre-AECI-1092 call form.
+  const { kind, id } = toContestAnchor(anchor);
   return db
     .select({
       guard: sql`CASE WHEN EXISTS (
         SELECT 1 FROM ${integrationFieldChallenges}
-        WHERE ${integrationFieldChallenges.integrationId} = ${integrationId}
+        WHERE ${anchorColumnSql(kind)} = ${id}
           AND ${integrationFieldChallenges.status} = 'open'
       ) THEN json('integration-retire-race') END`,
     })
@@ -78,11 +94,12 @@ export function isRetireRaceError(error: unknown): boolean {
   return false;
 }
 
-/** The open contests on one integration, oldest first. What a retire closes. */
-export function openContestsOn(db: Db, integrationId: string) {
+/** The open contests on one row, oldest first. What a retire closes. Either anchor
+ *  (AECI-1091): a pair's contests sit on `evidenced_pair_id` (AECI-1092). */
+export function openContestsOn(db: Db, anchor: ContestAnchor | string) {
   return db.query.integrationFieldChallenges.findMany({
     where: and(
-      eq(integrationFieldChallenges.integrationId, integrationId),
+      contestAnchorWhere(toContestAnchor(anchor)),
       eq(integrationFieldChallenges.status, 'open'),
     ),
     orderBy: (t, { asc }) => [asc(t.createdAt), asc(t.id)],
@@ -115,6 +132,9 @@ export interface RetireNotificationMetadata {
 export function retireNotificationAudit(
   actor: { actorId: string | null; actorType: AuditLogEntry['actorType'] },
   metadata: Omit<RetireNotificationMetadata, 'kind'>,
+  /** `'connector_evidenced_pair'` for a pair (AECI-1091), as every pair write
+   *  records it. The feed reads `metadata`, never the entity type. */
+  entityType: 'integration' | typeof EVIDENCED_PAIR_ENTITY_TYPE = 'integration',
 ): AuditLogEntry {
   const full: RetireNotificationMetadata = {
     kind: RETIRE_NOTIFICATION_KIND,
@@ -125,7 +145,7 @@ export function retireNotificationAudit(
     actorId: actor.actorId,
     actorType: actor.actorType,
     action: NOTIFICATION_SENT_ACTION,
-    entityType: 'integration',
+    entityType,
     entityId: metadata.integrationId,
     metadata: full,
   };

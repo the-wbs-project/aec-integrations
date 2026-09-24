@@ -22,6 +22,12 @@
  *   `built_by_vendor_id` and `origin` are untouched. A vendor-created row
  *   (`origin = 'vendor'`) therefore stays fenced, which is correct: the review app
  *   has no record to write it from (ruled 2026-09-23).
+ * - The same holds for every live `connector_evidenced_pairs` row it owns and has
+ *   claimed (AECI-1089 made pairs claimable). Same un-claim, same retired-row rule,
+ *   same marker rule over the attestations anchored on the pair. Its audit rows use
+ *   entity type `connector_evidenced_pair` with `metadata.anchor = 'evidenced_pair'`,
+ *   as the claim's do, and a marker flip also purges the connector's `product:` tag,
+ *   because the connector's page lists the pair.
  * - A RETIRED owned row keeps its claim. It is off the public record already, and
  *   a claimed retired row is what lets a re-seated vendor restore its own
  *   withdrawal. Clearing it would also break "retired implies vendor-held" on an
@@ -71,6 +77,7 @@ import { ApiError } from '../errors';
 import {
   attestations,
   claims,
+  connectorEvidencedPairs,
   integrationFieldChallenges,
   integrations,
   products,
@@ -84,7 +91,17 @@ import { auditInsert, workflowTransitionInsert, type BatchStmt } from './audit';
 import { VENDOR_ADMIN_ROLE } from './claimed-vendors';
 import { liveAttestationsWhere } from './drizzle-helpers';
 import { ONE_ROW } from './integration-claims';
-import { CONTEST_ENTITY_TYPE } from './integration-contests';
+import { isConnectorPoweredEdge } from './connector-powered';
+import {
+  anchorMetadata,
+  clearSeatStamp,
+  CONTEST_ENTITY_TYPE,
+  contestAnchorOf,
+  contestRowChangedSentinel,
+  routesAsConnectorPowered,
+  ownerEntitlementActiveSentinel,
+  vendorHoldsActiveEntitlement,
+} from './integration-contests';
 
 /** Who is acting. The admin on the revoke and the ban. */
 export interface HandbackActor {
@@ -106,6 +123,13 @@ export interface HandbackBatch {
   audits: AuditLogEntry[];
   transitions: WorkflowTransitionEntry[];
   purgeTags: string[];
+  /**
+   * True when the batch returns a contest on a connector-powered row, and so carries
+   * `ownerEntitlementActiveSentinel`. A clear that commits first aborts the batch
+   * with the same malformed-JSON error the seat sentinels raise, which the seat
+   * writers answer as `409 VENDOR_SEATS_CHANGED` (AECI-1092 reconciliation).
+   */
+  entitlementGuarded?: boolean;
 }
 
 /** `metadata.reason` on the un-claim row. The marker flips keep
@@ -117,6 +141,11 @@ export const SEAT_LAPSE_REASON = 'owner-seat-lapsed';
 
 /** `metadata.reason` on a contest the unban moves back to its owner. */
 export const SEAT_RETURN_REASON = 'owner-seat-restored';
+
+/** `metadata.reason` on a stamped contest the return keeps at AECi for good,
+ *  because its owner may not decide it on a connector-powered row (AECI-1092
+ *  reconciliation with AECI-989). */
+export const SEAT_RETURN_WITHHELD_REASON = 'owner-may-not-decide';
 
 const MAINTENANCE_REASON = 'maintenance-marker';
 
@@ -317,17 +346,22 @@ export async function planVendorHandback(db: Db, p: HandbackParams): Promise<Han
   // Every live integration it owns and has claimed.
   const source = alias(products, 'handback_source');
   const target = alias(products, 'handback_target');
+  const poweredBy = alias(products, 'handback_powered_by');
   const claimedRows = await db
     .select({
       id: integrations.id,
       claimedAt: integrations.claimedAt,
       maintainedBy: integrations.maintainedBy,
+      poweredByProductId: integrations.poweredByProductId,
+      mechanismKind: integrations.mechanismKind,
       sourceSlug: source.slug,
       targetSlug: target.slug,
+      poweredBySlug: poweredBy.slug,
     })
     .from(integrations)
     .innerJoin(source, eq(source.id, integrations.sourceProductId))
     .innerJoin(target, eq(target.id, integrations.targetProductId))
+    .leftJoin(poweredBy, eq(poweredBy.id, integrations.poweredByProductId))
     .where(
       and(
         eq(integrations.builtByVendorId, p.vendorId),
@@ -341,6 +375,11 @@ export async function planVendorHandback(db: Db, p: HandbackParams): Promise<Han
   );
   for (const row of claimedRows) {
     const guard = and(eq(integrations.id, row.id), eq(integrations.builtByVendorId, p.vendorId));
+    // The carve-out markers the AECI-1089 claim and the AECI-1090 edit write on a
+    // connector-powered row, so one filter finds every owner-side write on them.
+    const markers = isConnectorPoweredEdge(row)
+      ? { connectorPowered: true as const, anchor: 'integration' as const }
+      : {};
     batch.stmts.push(
       db
         .update(integrations)
@@ -354,7 +393,7 @@ export async function planVendorHandback(db: Db, p: HandbackParams): Promise<Han
       entityId: row.id,
       beforeState: { claimed_at: row.claimedAt },
       afterState: { claimed_at: null },
-      metadata: { ...base, integrationId: row.id, reason: HANDBACK_REASON },
+      metadata: { ...base, integrationId: row.id, ...markers, reason: HANDBACK_REASON },
     });
     if (row.maintainedBy === 'vendor' && !attested.has(row.id)) {
       batch.stmts.push(
@@ -373,6 +412,7 @@ export async function planVendorHandback(db: Db, p: HandbackParams): Promise<Han
         metadata: {
           ...base,
           integrationId: row.id,
+          ...markers,
           reason: MAINTENANCE_REASON,
           cause: HANDBACK_REASON,
         },
@@ -381,6 +421,88 @@ export async function planVendorHandback(db: Db, p: HandbackParams): Promise<Han
         pairCacheTag(row.sourceSlug, row.targetSlug),
         `product:${row.sourceSlug}`,
         `product:${row.targetSlug}`,
+        // The `powered_by` product's page lists the row too.
+        ...(row.poweredBySlug ? [`product:${row.poweredBySlug}`] : []),
+      );
+    }
+  }
+
+  // Every live evidenced pair it owns and has claimed (AECI-1089). The same rules as
+  // the integration arm above; only the table, the anchor and the tags differ.
+  const pairA = alias(products, 'handback_pair_a');
+  const pairB = alias(products, 'handback_pair_b');
+  const pairConnector = alias(products, 'handback_pair_connector');
+  const claimedPairs = await db
+    .select({
+      id: connectorEvidencedPairs.id,
+      claimedAt: connectorEvidencedPairs.claimedAt,
+      maintainedBy: connectorEvidencedPairs.maintainedBy,
+      aSlug: pairA.slug,
+      bSlug: pairB.slug,
+      connectorSlug: pairConnector.slug,
+    })
+    .from(connectorEvidencedPairs)
+    .innerJoin(pairA, eq(pairA.id, connectorEvidencedPairs.productAId))
+    .innerJoin(pairB, eq(pairB.id, connectorEvidencedPairs.productBId))
+    .innerJoin(pairConnector, eq(pairConnector.id, connectorEvidencedPairs.connectorProductId))
+    .where(
+      and(
+        eq(connectorEvidencedPairs.builtByVendorId, p.vendorId),
+        isNotNull(connectorEvidencedPairs.claimedAt),
+        isNull(connectorEvidencedPairs.retiredAt),
+      ),
+    );
+  const attestedPairs = await pairsWithLiveVendorAttestation(
+    db,
+    claimedPairs.map((row) => row.id),
+  );
+  for (const row of claimedPairs) {
+    const guard = and(
+      eq(connectorEvidencedPairs.id, row.id),
+      eq(connectorEvidencedPairs.builtByVendorId, p.vendorId),
+    );
+    const pairMeta = {
+      ...base,
+      integrationId: row.id,
+      connectorPowered: true as const,
+      anchor: 'evidenced_pair' as const,
+    };
+    batch.stmts.push(
+      db
+        .update(connectorEvidencedPairs)
+        .set({ claimedAt: null })
+        .where(and(guard, isNotNull(connectorEvidencedPairs.claimedAt))),
+    );
+    batch.audits.push({
+      ...actor,
+      action: 'integration.updated',
+      entityType: 'connector_evidenced_pair',
+      entityId: row.id,
+      beforeState: { claimed_at: row.claimedAt },
+      afterState: { claimed_at: null },
+      metadata: { ...pairMeta, reason: HANDBACK_REASON },
+    });
+    if (row.maintainedBy === 'vendor' && !attestedPairs.has(row.id)) {
+      batch.stmts.push(
+        db
+          .update(connectorEvidencedPairs)
+          .set({ maintainedBy: 'aeci' })
+          .where(and(guard, eq(connectorEvidencedPairs.maintainedBy, 'vendor'))),
+      );
+      batch.audits.push({
+        ...actor,
+        action: 'integration.updated',
+        entityType: 'connector_evidenced_pair',
+        entityId: row.id,
+        beforeState: { maintained_by: 'vendor' },
+        afterState: { maintained_by: 'aeci' },
+        metadata: { ...pairMeta, reason: MAINTENANCE_REASON, cause: HANDBACK_REASON },
+      });
+      batch.purgeTags.push(
+        pairCacheTag(row.aSlug, row.bSlug),
+        `product:${row.aSlug}`,
+        `product:${row.bSlug}`,
+        `product:${row.connectorSlug}`,
       );
     }
   }
@@ -468,6 +590,31 @@ async function integrationsWithLiveVendorAttestation(
   return found;
 }
 
+/** Evidenced pairs in `ids` that still carry a live vendor attestation: the same
+ *  test as {@link integrationsWithLiveVendorAttestation}, over the claims anchored
+ *  on the pair. */
+async function pairsWithLiveVendorAttestation(
+  db: Db,
+  ids: readonly string[],
+): Promise<Set<string>> {
+  const found = new Set<string>();
+  for (const part of chunk(ids, ID_CHUNK)) {
+    const rows = await db
+      .selectDistinct({ pairId: claims.connectorEvidencedPairId })
+      .from(attestations)
+      .innerJoin(claims, eq(claims.id, attestations.claimId))
+      .where(
+        and(
+          inArray(claims.connectorEvidencedPairId, part),
+          inArray(attestations.source, [...ATTESTATION_SLOTS]),
+          liveAttestationsWhere,
+        ),
+      );
+    for (const row of rows) if (row.pairId) found.add(row.pairId);
+  }
+  return found;
+}
+
 // ─── 2. The seat lapse ───────────────────────────────────────────────────────
 
 export async function planOwnerSeatLapse(db: Db, p: HandbackParams): Promise<HandbackBatch> {
@@ -497,34 +644,120 @@ export async function planOwnerSeatLapse(db: Db, p: HandbackParams): Promise<Han
 
 // ─── 3. The seat return ──────────────────────────────────────────────────────
 
-export async function planOwnerSeatReturn(db: Db, p: HandbackParams): Promise<HandbackBatch> {
+export interface SeatReturnOptions {
+  /**
+   * The caller's own batch makes the vendor's entitlement active (the claim grant,
+   * `PATCH /api/admin/claims/:id`, activates it beside the seat). The pre-batch read
+   * cannot see that, so the caller says so.
+   */
+  entitledAfterBatch?: boolean;
+}
+
+/**
+ * Route stamped contests back to the owner, under the AECI-1092 reconciliation
+ * (`STAGE_2_VENDOR_PORTAL_SPEC.md` §11b.13, "Reconciled with AECI-989"): a contest
+ * returns to the owner only when the owner has an unbanned seat (the caller's event)
+ * AND, on a connector-powered row, an active entitlement. A `mechanism_kind`
+ * contest on a connector-powered row never returns (ruling A). A stamped contest
+ * that fails those tests stays with AECi and loses its stamp, so no later seat
+ * event can send it back.
+ *
+ * Both anchors: an `integrations` row, and since AECI-1092 a
+ * `connector_evidenced_pairs` row, which is connector-powered by construction. The
+ * "claimed by this vendor since before the stamp" rule is AECI-989's, on either table.
+ */
+export async function planOwnerSeatReturn(
+  db: Db,
+  p: HandbackParams,
+  opts: SeatReturnOptions = {},
+): Promise<HandbackBatch> {
   const batch = emptyBatch();
   const actor = { actorId: p.actorId, actorType: p.actorType };
-  const stamped = await db
-    .select({ contest: integrationFieldChallenges })
+  const stampedOpen = and(
+    eq(integrationFieldChallenges.ownerVendorId, p.vendorId),
+    eq(integrationFieldChallenges.routedTo, 'aeci'),
+    eq(integrationFieldChallenges.status, 'open'),
+    isNotNull(integrationFieldChallenges.ownerSeatLapsedAt),
+  );
+  const onIntegrations = await db
+    .select({
+      contest: integrationFieldChallenges,
+      poweredByProductId: integrations.poweredByProductId,
+      mechanismKind: integrations.mechanismKind,
+    })
     .from(integrationFieldChallenges)
     .innerJoin(integrations, eq(integrations.id, integrationFieldChallenges.integrationId))
     .where(
       and(
-        eq(integrationFieldChallenges.ownerVendorId, p.vendorId),
-        eq(integrationFieldChallenges.routedTo, 'aeci'),
-        eq(integrationFieldChallenges.status, 'open'),
-        isNotNull(integrationFieldChallenges.ownerSeatLapsedAt),
+        stampedOpen,
         eq(integrations.builtByVendorId, p.vendorId),
         isNotNull(integrations.claimedAt),
         isNull(integrations.retiredAt),
         sql`${integrationFieldChallenges.ownerSeatLapsedAt} >= ${integrations.claimedAt}`,
       ),
     );
-  for (const { contest } of stamped) {
-    rerouteContest(db, batch, actor, contest, p.now, {
-      to: 'owner',
-      stamp: null,
-      reason: SEAT_RETURN_REASON,
-      transitionReason: 'owner seat restored: routed back to the owner',
-      source: p.source,
-    });
+  const onPairs = await db
+    .select({ contest: integrationFieldChallenges })
+    .from(integrationFieldChallenges)
+    .innerJoin(
+      connectorEvidencedPairs,
+      eq(connectorEvidencedPairs.id, integrationFieldChallenges.evidencedPairId),
+    )
+    .where(
+      and(
+        stampedOpen,
+        eq(connectorEvidencedPairs.builtByVendorId, p.vendorId),
+        isNotNull(connectorEvidencedPairs.claimedAt),
+        isNull(connectorEvidencedPairs.retiredAt),
+        sql`${integrationFieldChallenges.ownerSeatLapsedAt} >= ${connectorEvidencedPairs.claimedAt}`,
+      ),
+    );
+  const candidates = [
+    // The submit's test, forward-looking half of ruling A included: a `mechanism_kind`
+    // contest proposing a connector kind is never returned to the owner (review MINOR 5).
+    ...onIntegrations.map((row) => ({
+      contest: row.contest,
+      connectorPowered: routesAsConnectorPowered(
+        {
+          connectorPowered: isConnectorPoweredEdge(row),
+          poweredByProductId: row.poweredByProductId,
+        },
+        row.contest.field,
+        row.contest.proposedValue,
+      ),
+    })),
+    ...onPairs.map((row) => ({ contest: row.contest, connectorPowered: true })),
+  ];
+  const needsEntitlement = candidates.some(
+    (row) => row.connectorPowered && row.contest.field !== 'mechanism_kind',
+  );
+  const entitled =
+    opts.entitledAfterBatch === true ||
+    (needsEntitlement && (await vendorHoldsActiveEntitlement(db, p.vendorId)));
+
+  for (const { contest, connectorPowered } of candidates) {
+    const ownerMayDecide = !connectorPowered || (contest.field !== 'mechanism_kind' && entitled);
+    if (ownerMayDecide) {
+      if (connectorPowered) batch.entitlementGuarded = true;
+      rerouteContest(db, batch, actor, contest, p.now, {
+        to: 'owner',
+        stamp: null,
+        reason: SEAT_RETURN_REASON,
+        transitionReason: 'owner seat restored: routed back to the owner',
+        source: p.source,
+      });
+    } else {
+      const cleared = clearSeatStamp(db, [contest], actor, p.now, {
+        reason: SEAT_RETURN_WITHHELD_REASON,
+        source: p.source,
+      });
+      batch.stmts.push(...cleared.stmts);
+      batch.audits.push(...cleared.audits);
+    }
   }
+  // Ruling B's guard on the return: a clear that commits between the read above and
+  // this batch aborts it, and the retry keeps those contests with AECi.
+  if (batch.entitlementGuarded) batch.stmts.push(ownerEntitlementActiveSentinel(db, p.vendorId));
   return sealed(batch, db);
 }
 
@@ -546,13 +779,14 @@ export async function planSeatGrantReturn(
   db: Db,
   p: HandbackParams,
   seatUserId: string,
+  opts: SeatReturnOptions = {},
 ): Promise<HandbackBatch | null> {
   const seat = await db.query.profiles.findFirst({
     columns: { bannedAt: true },
     where: eq(profiles.id, seatUserId),
   });
   if (seat?.bannedAt) return null;
-  const batch = await planOwnerSeatReturn(db, p);
+  const batch = await planOwnerSeatReturn(db, p, opts);
   return batch.stmts.length > 0 ? batch : null;
 }
 
@@ -583,7 +817,7 @@ function rerouteContest(
   const metadata = {
     source: move.source,
     contestId: contest.id,
-    integrationId: contest.integrationId,
+    ...anchorMetadata(contestAnchorOf(contest)),
     reason: move.reason,
   };
   batch.stmts.push(
@@ -595,9 +829,16 @@ function rerouteContest(
           eq(integrationFieldChallenges.id, contest.id),
           eq(integrationFieldChallenges.status, 'open'),
           eq(integrationFieldChallenges.routedTo, from),
+          // A return needs the stamp still set: an entitlement clear or a
+          // connector-making accept that cleared it made the contest AECi's for good.
+          ...(move.to === 'owner' ? [isNotNull(integrationFieldChallenges.ownerSeatLapsedAt)] : []),
         ),
       ),
   );
+  // The return only (review MINOR 4): a concurrent grant or decision that moved this
+  // contest first leaves the UPDATE matching nothing, and the batch must then abort
+  // rather than commit a `rerouted` row and a transition for a move it did not make.
+  if (move.to === 'owner') batch.stmts.push(contestRowChangedSentinel(db));
   if (contest.workflowId) {
     const transition: WorkflowTransitionEntry = {
       workflowId: contest.workflowId,

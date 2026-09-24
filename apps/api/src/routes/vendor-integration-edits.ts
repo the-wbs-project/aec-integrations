@@ -14,17 +14,29 @@
  *
  * ── 2. ONLY THE CLAIMED OWNER, IN THE CLAIM'S REFUSAL ORDER ─────────────────
  * `ownerWriteRefusal` (`lib/integration-owner-writes.ts`): unknown or invisible
- * row 404, endpoint non-owner 403 / 409, connector-powered 403, unclaimed 409
+ * row 404, endpoint non-owner 403 / 409, connector-powered row without an active
+ * entitlement 403 `INTEGRATION_ENTITLEMENT_REQUIRED` (AECI-1090), unclaimed 409
  * `INTEGRATION_NOT_CLAIMED`, retired 409 `INTEGRATION_RETIRED` (AECI-1010, through
  * `assertIntegrationLive`). An unclaimed row is still promote's to write, so an
  * edit there would be overwritten by the next promote of the edge; claiming first
  * is what makes the edit stick.
  *
+ * ── 2a. CONNECTOR-POWERED ROWS: THE AECI-1040 CARVE-OUT (AECI-1090) ─────────
+ * An entitled, claimed owner edits a connector-powered row too, in either table.
+ * The id is looked up in `integrations` first and then in
+ * `connector_evidenced_pairs` (`vendor-evidenced-pair-edits.ts`), the way promote's
+ * `locateEdge` reads both. On a connector-powered `integrations` row
+ * `mechanism_kind` is FROZEN (ruling 5): a body that changes it is a `422`, and a
+ * body that repeats the stored value drops it. It is the one editable field that
+ * decides a row's lane. The other routing inputs (the endpoints and
+ * `powered_by_product_id`, which promote routes between the two tables on) are not
+ * in the edit set at all.
+ *
  * ── 3. THE ELEVEN CONTESTABLE CONTENT FIELDS, AND NOTHING ELSE ──────────────
  * The field set is AECI-1008's contest set minus `owner`, mapped through the same
  * `CONTEST_FIELD_COLUMNS`, so "what a non-owner may contest" and "what the owner
  * may edit" cannot drift apart. `notes` is AECi's curation column and is not
- * editable. No value may make the row connector-powered (decision 9).
+ * editable. No value may make an ordinary row connector-powered (decision 9).
  *
  * ── 4. ONE BATCH ────────────────────────────────────────────────────────────
  * The guarded `UPDATE … WHERE built_by_vendor_id = <caller> AND claimed_at IS NOT
@@ -54,6 +66,7 @@
 
 import {
   ApiErrorCode,
+  CONNECTOR_POWERED_FROZEN_EDIT_FIELDS,
   INTEGRATION_EDIT_FIELDS,
   UpdateVendorIntegrationResponseSchema,
   UpdateVendorIntegrationSchema,
@@ -67,7 +80,7 @@ import type { AuditLogEntry } from '@aeci/shared/audit-log';
 import { eq } from 'drizzle-orm';
 
 import { getDb } from '../db/client';
-import { integrations, vendors } from '../db/schema';
+import { connectorEvidencedPairs, integrations, vendors } from '../db/schema';
 import { ApiError, notFoundError } from '../errors';
 import { json } from '../http';
 import { vendorsForIntegrationSlots } from '../lib/attestation-authority';
@@ -88,6 +101,7 @@ import {
 import { publicSiteBase } from '../lib/public-urls';
 import { pairCacheTag } from './promote-pair';
 import { dispatchOwnerWriteSearch, syncOwnerWriteSearch } from './integration-retire-write';
+import { editEvidencedPair } from './vendor-evidenced-pair-edits';
 import { attestationEditRecrawl } from './vendor-recrawl';
 import {
   afterVendorWrite,
@@ -117,15 +131,26 @@ export function createUpdateVendorIntegrationHandler(
     const { db } = writeDb(c, dbFor);
 
     // 1. The row, alone in its wave. An unknown id and an invisible one are both 404.
+    //    AECI-1090: an id that is not an `integrations` row may be a
+    //    `connector_evidenced_pairs` row, which has its own edit path. `integrations`
+    //    is asked first, as promote's `locateEdge` does.
     const row = await db.query.integrations.findFirst({
       where: eq(integrations.id, integrationId),
     });
-    if (!row) throw notFoundError('integration', { id: integrationId });
+    if (!row) {
+      const pair = await db.query.connectorEvidencedPairs.findFirst({
+        where: eq(connectorEvidencedPairs.id, integrationId),
+      });
+      if (!pair) throw notFoundError('integration', { id: integrationId });
+      return editEvidencedPair(c, db, pair);
+    }
 
-    // 2. Ownership, connector-powered, claimed, live. Before the body, so a non-owner
-    //    cannot probe the row's rules with crafted bodies.
-    const refusal = await ownerWriteRefusal(db, vendorId, row);
+    // 2. Ownership, the entitlement on a connector-powered row, claimed, live.
+    //    Before the body, so a non-owner cannot probe the row's rules with crafted
+    //    bodies.
+    const refusal = await ownerWriteRefusal(db, vendorId, row, session);
     if (refusal) throw refusal;
+    const connectorPowered = isConnectorPoweredEdge(row);
 
     // 3. Shape: a 400 for an unknown key, a bad length or an empty body.
     const payload = await parseJsonBody(c, UpdateVendorIntegrationSchema);
@@ -152,6 +177,13 @@ export function createUpdateVendorIntegrationHandler(
     for (const field of INTEGRATION_EDIT_FIELDS) {
       const wire = payload[field];
       if (wire === undefined) continue;
+      // AECI-1090 / ruling 5: `mechanism_kind` is frozen on a connector-powered row.
+      // Asked before the value rule, because the stored value (`iPaaS`) is one the
+      // rule refuses, and repeating it must stay a harmless no-op.
+      if (connectorPowered && CONNECTOR_POWERED_FROZEN_EDIT_FIELDS.has(field)) {
+        if (wire === storedFieldValue(row, field)) continue;
+        throw frozenFieldError(field);
+      }
       const problem = integrationEditValueProblem(field, wire);
       if (problem) {
         throw new ApiError(422, ApiErrorCode.INTEGRATION_INVALID_VALUE, problem, { field });
@@ -163,9 +195,12 @@ export function createUpdateVendorIntegrationHandler(
       if (stored !== storedFieldValue(row, field)) changes[field] = stored;
     }
     // Decision 9, belt and braces: the shared rule refuses the connector kinds by
-    // name, and this asks the real predicate about the row as it would be.
+    // name, and this asks the real predicate about the row as it would be. Only for
+    // an ordinary row: a connector-powered row is one already, and its kind cannot
+    // change (above).
     const nextKind = changes.mechanism_kind ?? row.mechanismKind;
     if (
+      !connectorPowered &&
       isConnectorPoweredEdge({
         poweredByProductId: row.poweredByProductId,
         mechanismKind: nextKind,
@@ -241,6 +276,8 @@ export function createUpdateVendorIntegrationHandler(
           fields: changed,
           // Present only on the hand-changing write, never as `false` (§13.9).
           ...(isMaintenanceTransfer(row) ? { maintenanceTransfer: true } : {}),
+          // AECI-1090: present only on the carve-out, the markers the claim writes.
+          ...(connectorPowered ? { connectorPowered: true, anchor: 'integration' } : {}),
         },
       },
       ...recipients.map((recipient) =>
@@ -276,7 +313,7 @@ export function createUpdateVendorIntegrationHandler(
       });
       if (!current) throw notFoundError('integration', { id: integrationId });
       throw (
-        (await ownerWriteRefusal(db, vendorId, current)) ??
+        (await ownerWriteRefusal(db, vendorId, current, session)) ??
         new ApiError(
           409,
           ApiErrorCode.INTEGRATION_CHANGED_WHILE_SAVING,
@@ -322,4 +359,19 @@ export function createUpdateVendorIntegrationHandler(
     validateResponseInDev(c.env, () => UpdateVendorIntegrationResponseSchema.parse(body));
     return json(body);
   };
+}
+
+/**
+ * The `422` for a body that changes a field frozen on a connector-powered row
+ * (AECI-1090 / AECI-1040 ruling 5). The same code and `details.field` as any other
+ * value this route refuses, so a client needs no new branch. A body that repeats
+ * the stored value is not refused.
+ */
+export function frozenFieldError(field: IntegrationEditField): ApiError {
+  return new ApiError(
+    422,
+    ApiErrorCode.INTEGRATION_INVALID_VALUE,
+    'The integration type of a connector-delivered integration is set by AEC Integrations and cannot be changed here',
+    { field },
+  );
 }

@@ -9,7 +9,7 @@
  * `origin = 'vendor'`) with no override, so before this the only way to act on
  * abusive or false vendor content was unaudited SQL. This is the audited path.
  *
- * Five rules of its own. Everything else is the owner retire's batch, shared through
+ * Six rules of its own. Everything else is the owner retire's batch, shared through
  * `integration-retire-write.ts`.
  *
  * 1. **Admin only, rate-limited after the guard.** `requireAdmin()` then
@@ -18,8 +18,7 @@
  * 2. **Vendor-held rows only.** An AECi-held row answers
  *    `409 INTEGRATION_NOT_VENDOR_HELD`: promote, the review app and the retraction
  *    tools own it, and retiring it here would hide a row the next promote still writes.
- *    Connector-powered rows are not refused, because they are never vendor-held in v1
- *    (decision 9 keeps the claim off them) and an admin needs no such fence.
+ *    Connector-powered rows are not refused: an admin needs no such fence.
  * 3. **Only an admin restores an admin retire, and only that** (ruled 2026-09-22).
  *    Retire writes `retired_by = 'aeci'`. Restoring a row the owner retired answers
  *    `409 INTEGRATION_RETIRED_BY_OWNER`: the owner controls its own retire. The owner
@@ -31,6 +30,14 @@
  * 5. **Not a delete.** Claims, attestations, links and contests are kept. A retire
  *    closes the row's open contests as withdrawn, exactly as the owner retire does.
  *    Restore reopens none.
+ * 6. **Both anchor tables (AECI-1091, ruling D).** The `:id` may name a
+ *    `connector_evidenced_pairs` row. The same five rules hold there: vendor-held
+ *    only (`claimed_at` or `origin = 'vendor'` on the pair), the same cross-refusal,
+ *    a soft retire of `retired_at` / `retired_by` and never a delete, because the
+ *    table cascades into `claims` and on into `attestations`
+ *    (`buildPairRetireBatch`). The pair's audit rows use entity type
+ *    `connector_evidenced_pair`, the recount covers the connector too, and the
+ *    connector's `product:` tag is purged.
  */
 
 import {
@@ -40,39 +47,53 @@ import {
   ApiErrorCode,
   effectiveRetiredBy,
   RetireIntegrationResponseSchema,
+  type AdminVendorIntegrationRow,
   type AdminVendorIntegrationsResponse,
   type RetireIntegrationResponse,
 } from '@aeci/shared';
-import { and, asc, count, eq, isNotNull, or } from 'drizzle-orm';
+import { compareText } from '@aeci/shared/text-sort';
+import { and, eq, isNotNull, or } from 'drizzle-orm';
 
-import { getDb } from '../db/client';
-import { integrations, vendors } from '../db/schema';
+import { getDb, type Db } from '../db/client';
+import { connectorEvidencedPairs, integrations, vendors } from '../db/schema';
 import { ApiError, notFoundError } from '../errors';
 import { json } from '../http';
-import { vendorsForIntegrationSlots } from '../lib/attestation-authority';
 import { type BatchTuple } from '../lib/audit';
 import { auditActorType } from '../lib/authz';
 import { validateResponseInDev, writeDb, type DbFactory } from '../lib/handler-utils';
-import { textAsc } from '../lib/collation';
 import { isVendorHeld } from '../lib/integration-claims';
 import { pairPathFor } from '../lib/integration-contests';
-import { vendorHeldIntegrationWhere } from '../lib/integration-twins';
+import { vendorHeldEvidencedPairWhere, vendorHeldIntegrationWhere } from '../lib/integration-twins';
 import { isRetireRaceError, openContestsOn } from '../lib/integration-retire';
 import { integrationRetiredError, isLiveIntegration } from '../lib/live-integration';
-import { afterRetireCommit, buildRetireBatch, type RetireMode } from './integration-retire-write';
-import { endpointSlugs } from './vendor-contests';
+import {
+  endpointVendorIds,
+  locateRetireTarget,
+  relocateRetireTarget,
+  retireSlugs,
+  retireTargetOf,
+  type RetireTarget,
+} from '../lib/retire-target';
+import {
+  afterRetireCommit,
+  buildPairRetireBatch,
+  buildRetireBatch,
+  type RetireBatch,
+  type RetireMode,
+} from './integration-retire-write';
 import { parseJsonBody, type VendorContext } from './vendor-shared';
 
 /** `metadata.source` on the audit rows and the PostHog forward, as every admin write tags it. */
 export const ADMIN_RETIRE_AUDIT_SOURCE = 'admin-moderation';
 
-type IntegrationRow = typeof integrations.$inferSelect;
-
 /**
  * Why an admin cannot retire or restore this row, or `null` when it can. Shared by
- * the pre-check and the lost-race re-read.
+ * the pre-check and the lost-race re-read. One ladder for both anchor tables.
  */
-export function adminRetireRefusal(row: IntegrationRow, mode: RetireMode): ApiError | null {
+export function adminRetireRefusal(
+  row: Pick<RetireTarget, 'claimedAt' | 'origin' | 'retiredAt' | 'retiredBy'>,
+  mode: RetireMode,
+): ApiError | null {
   if (!isVendorHeld(row)) {
     return new ApiError(
       409,
@@ -121,66 +142,74 @@ function handlerFor(mode: RetireMode, dbFor: DbFactory): (c: VendorContext) => P
     const { reason } = await parseJsonBody(c, AdminRetireIntegrationBodySchema);
     const { db } = writeDb(c, dbFor);
 
-    const row = await db.query.integrations.findFirst({
-      where: eq(integrations.id, integrationId),
-    });
-    if (!row) throw notFoundError('integration', { id: integrationId });
-    const refusal = adminRetireRefusal(row, mode);
+    // Either table (AECI-1091): `integrations` first, then the pair table.
+    const located = await locateRetireTarget(db, integrationId);
+    if (!located) throw notFoundError('integration', { id: integrationId });
+    const target = retireTargetOf(located);
+    const refusal = adminRetireRefusal(target, mode);
     if (refusal) throw refusal;
 
-    const [owner, slotVendors, pairSlugs, contests] = await Promise.all([
-      row.builtByVendorId
+    const [owner, endpointVendors, slugs, contests] = await Promise.all([
+      target.builtByVendorId
         ? db.query.vendors.findFirst({
             columns: { id: true, slug: true, companyName: true },
-            where: eq(vendors.id, row.builtByVendorId),
+            where: eq(vendors.id, target.builtByVendorId),
           })
         : Promise.resolve(undefined),
-      vendorsForIntegrationSlots(db, [integrationId]),
-      endpointSlugs(db, row.sourceProductId, row.targetProductId),
-      mode === 'retire' ? openContestsOn(db, integrationId) : Promise.resolve([]),
+      endpointVendorIds(db, located),
+      retireSlugs(db, located),
+      // Either anchor: a pair's contests sit on `evidenced_pair_id` (AECI-1092).
+      mode === 'retire'
+        ? openContestsOn(db, { kind: located.anchor, id: integrationId })
+        : Promise.resolve([]),
     ]);
 
     // The owner and every vendor of either endpoint. The owner did not act, so it is
     // told too.
-    const slots = slotVendors.get(integrationId)?.slots;
-    const recipients = [
-      ...new Set([
-        ...(owner ? [owner.id] : []),
-        ...(slots?.vendor_a ?? []),
-        ...(slots?.vendor_b ?? []),
-      ]),
-    ].sort();
+    const recipients = [...new Set([...(owner ? [owner.id] : []), ...endpointVendors])].sort();
 
     const now = new Date().toISOString();
-    const batch = buildRetireBatch(db, {
+    const common = {
       mode,
-      row,
       now,
       actor: { actorId: session.userId, actorType: auditActorType(session) },
-      retiredBy: 'aeci',
+      retiredBy: 'aeci' as const,
       source: ADMIN_RETIRE_AUDIT_SOURCE,
       metadata: { reason },
-      guard: and(
-        or(isNotNull(integrations.claimedAt), eq(integrations.origin, 'vendor')),
-        mode === 'restore' ? eq(integrations.retiredBy, 'aeci') : undefined,
-      )!,
-      contests,
       actingVendorId: null,
       recipients,
       owner: { id: owner?.id ?? null, name: owner?.companyName ?? null },
-      pairSlugs,
-    });
+      pairSlugs: slugs.pairSlugs,
+    };
+    const batch: RetireBatch =
+      located.anchor === 'integration'
+        ? buildRetireBatch(db, {
+            ...common,
+            row: located.row,
+            guard: and(
+              or(isNotNull(integrations.claimedAt), eq(integrations.origin, 'vendor')),
+              mode === 'restore' ? eq(integrations.retiredBy, 'aeci') : undefined,
+            )!,
+            contests,
+          })
+        : buildPairRetireBatch(db, {
+            ...common,
+            pair: located.pair,
+            contests,
+            guard: and(
+              vendorHeldEvidencedPairWhere,
+              mode === 'restore' ? eq(connectorEvidencedPairs.retiredBy, 'aeci') : undefined,
+            )!,
+          });
 
     try {
       await db.batch(batch.stmts as BatchTuple);
     } catch (error) {
       if (!isRetireRaceError(error)) throw error;
-      const current = await db.query.integrations.findFirst({
-        where: eq(integrations.id, integrationId),
-      });
+      const current = await relocateRetireTarget(db, located);
       if (!current) throw notFoundError('integration', { id: integrationId });
       throw (
-        adminRetireRefusal(current, mode) ??
+        adminRetireRefusal(retireTargetOf(current), mode) ??
         new ApiError(
           409,
           ApiErrorCode.INTEGRATION_CHANGED_WHILE_SAVING,
@@ -194,7 +223,8 @@ function handlerFor(mode: RetireMode, dbFor: DbFactory): (c: VendorContext) => P
       integrationId,
       productIds: batch.productIds,
       owner: owner ? { id: owner.id, slug: owner.slug } : null,
-      pairSlugs,
+      pairSlugs: slugs.pairSlugs,
+      connectorSlug: slugs.connectorSlug,
       audits: batch.audits,
       hookPrefix: 'admin',
       syncFailureMessage: 'aeci.api.admin.retire_algolia_sync_failed',
@@ -217,9 +247,82 @@ function handlerFor(mode: RetireMode, dbFor: DbFactory): (c: VendorContext) => P
 
 // ─── GET /api/admin/vendors/:id/integrations ─────────────────────────────────
 
+/** Vendor-held rows one vendor owns, across both tables, before paging. */
+async function loadVendorHeldRows(db: Db, vendorId: string): Promise<AdminVendorIntegrationRow[]> {
+  const endpoint = { columns: { id: true, slug: true, name: true } } as const;
+  const rowColumns = {
+    id: true,
+    name: true,
+    origin: true,
+    claimedAt: true,
+    retiredAt: true,
+    retiredBy: true,
+    updatedAt: true,
+  } as const;
+  const [rows, pairs] = await Promise.all([
+    db.query.integrations.findMany({
+      columns: rowColumns,
+      with: { sourceProduct: endpoint, targetProduct: endpoint },
+      where: and(eq(integrations.builtByVendorId, vendorId), vendorHeldIntegrationWhere),
+    }),
+    db.query.connectorEvidencedPairs.findMany({
+      columns: rowColumns,
+      with: { productA: endpoint, productB: endpoint, connectorProduct: endpoint },
+      where: and(
+        eq(connectorEvidencedPairs.builtByVendorId, vendorId),
+        vendorHeldEvidencedPairWhere,
+      ),
+    }),
+  ]);
+  const common = (row: (typeof rows)[number] | (typeof pairs)[number]) => ({
+    id: row.id,
+    name: row.name,
+    origin: row.origin === 'vendor' ? ('vendor' as const) : ('aeci' as const),
+    claimed_at: row.claimedAt,
+    retired_at: row.retiredAt,
+    retired_by: effectiveRetiredBy({ retired_at: row.retiredAt, retired_by: row.retiredBy }),
+    updated_at: row.updatedAt,
+  });
+  return [
+    ...rows.map(
+      (row): AdminVendorIntegrationRow => ({
+        ...common(row),
+        anchor: 'integration',
+        source: row.sourceProduct,
+        target: row.targetProduct,
+        connector: null,
+        pair_path: pairPathFor([row.sourceProduct.slug, row.targetProduct.slug]),
+      }),
+    ),
+    ...pairs.map(
+      (pair): AdminVendorIntegrationRow => ({
+        ...common(pair),
+        anchor: 'evidenced_pair',
+        source: pair.productA,
+        target: pair.productB,
+        connector: pair.connectorProduct,
+        pair_path: pairPathFor([pair.productA.slug, pair.productB.slug]),
+      }),
+    ),
+  ];
+}
+
+/** The sort key: the row's name, with an unnamed row first, as the SQL
+ *  `textAsc(name)` this replaced put a NULL first. */
+function sortName(row: AdminVendorIntegrationRow): string {
+  return row.name ?? '';
+}
+
 /**
- * The vendor-held integrations a vendor owns, live and retired: the list the admin
- * retire and restore act from. Read-only, no audit row (§9.3).
+ * The vendor-held integrations a vendor owns, live and retired, in BOTH anchor
+ * tables since AECI-1091: the list the admin retire and restore act from. Read-only,
+ * no audit row (§9.3).
+ *
+ * Paged in memory. The two tables cannot share one SQL `ORDER BY` without a
+ * compound select, and the set is small: a vendor's own vendor-held rows (34 owners
+ * across both tables held 126 rows in production on 2026-09-23). The order is name
+ * case-insensitively (`compareText`, never a bare sort), then id (BINARY), so paging
+ * stays stable and case never decides it.
  */
 export function createAdminVendorIntegrationsHandler(
   dbFor: DbFactory = getDb,
@@ -236,45 +339,16 @@ export function createAdminVendorIntegrationsHandler(
     });
     if (!exists) throw notFoundError('vendor', { id: vendorId });
 
-    const where = and(eq(integrations.builtByVendorId, vendorId), vendorHeldIntegrationWhere);
-    const endpoint = { columns: { id: true, slug: true, name: true } } as const;
-    const [rows, totals] = await Promise.all([
-      db.query.integrations.findMany({
-        columns: {
-          id: true,
-          name: true,
-          origin: true,
-          claimedAt: true,
-          retiredAt: true,
-          retiredBy: true,
-          updatedAt: true,
-        },
-        with: { sourceProduct: endpoint, targetProduct: endpoint },
-        where,
-        // Name case-insensitively, then id: names repeat, and the id keeps paging stable.
-        orderBy: [textAsc(integrations.name), asc(integrations.id)],
-        limit: query.perPage,
-        offset: (query.page - 1) * query.perPage,
-      }),
-      db.select({ value: count() }).from(integrations).where(where),
-    ]);
+    const all = (await loadVendorHeldRows(db, vendorId)).sort(
+      (a, b) => compareText(sortName(a), sortName(b)) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0),
+    );
+    const start = (query.page - 1) * query.perPage;
 
     const body: AdminVendorIntegrationsResponse = {
-      data: rows.map((row) => ({
-        id: row.id,
-        name: row.name,
-        source: row.sourceProduct,
-        target: row.targetProduct,
-        origin: row.origin === 'vendor' ? 'vendor' : 'aeci',
-        claimed_at: row.claimedAt,
-        retired_at: row.retiredAt,
-        retired_by: effectiveRetiredBy({ retired_at: row.retiredAt, retired_by: row.retiredBy }),
-        pair_path: pairPathFor([row.sourceProduct.slug, row.targetProduct.slug]),
-        updated_at: row.updatedAt,
-      })),
+      data: all.slice(start, start + query.perPage),
       page: query.page,
       perPage: query.perPage,
-      total: totals[0]?.value ?? 0,
+      total: all.length,
     };
     validateResponseInDev(c.env, () => AdminVendorIntegrationsResponseSchema.parse(body));
     return json(body);

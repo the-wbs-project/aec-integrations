@@ -25,6 +25,8 @@ const VENDOR_ID = '00000000-0000-4000-8000-000000000010';
 function makeRow(over: Partial<AdminVendorIntegrationRow> = {}): AdminVendorIntegrationRow {
   return {
     id: '00000000-0000-4000-8000-000000000101',
+    anchor: 'integration',
+    connector: null,
     name: 'Revit for MicroStation',
     source: { id: '00000000-0000-4000-8000-000000000201', slug: 'revit', name: 'Revit' },
     target: {
@@ -184,6 +186,50 @@ describe('retire', () => {
     await settle(fixture);
     expect(api.listIntegrations).toHaveBeenCalledTimes(2);
     expect(announced[0]).toContain('already retired');
+  });
+});
+
+describe('an evidenced pair (AECI-1091)', () => {
+  const pairRow = () =>
+    makeRow({
+      id: '00000000-0000-4000-8000-000000000109',
+      anchor: 'evidenced_pair',
+      name: 'Agave: Revit to MicroStation',
+      connector: { id: '00000000-0000-4000-8000-000000000203', slug: 'agave', name: 'Agave Sync' },
+    });
+
+  it('names the connector on the row and in the retire form', async () => {
+    const { fixture, el } = await create([pairRow()]);
+    expect(el.querySelector('[data-testid="admin-integration-via"]')?.textContent).toContain(
+      'Delivered through Agave Sync',
+    );
+    button(el, 'Retire')!.click();
+    await settle(fixture);
+    const body = el.querySelector('[data-testid="admin-retire-body-connector"]');
+    expect(body?.textContent).toContain('stops counting on both products and on');
+    expect(body?.textContent).toContain('Agave Sync');
+    expect(api.setIntegrationRetired).not.toHaveBeenCalled();
+  });
+
+  it('retires a pair through the same route, by its id', async () => {
+    const row = pairRow();
+    api.setIntegrationRetired.mockResolvedValue({
+      integration: {
+        id: row.id,
+        retired_at: '2026-09-23T00:00:00.000Z',
+        retired_by: 'aeci',
+        updated_at: '2026-09-23T00:00:00.000Z',
+      },
+      withdrawn_contest_ids: [],
+    });
+    const { fixture, el } = await create([row]);
+    button(el, 'Retire')!.click();
+    await settle(fixture);
+    typeReason(el, 'False listing.');
+    button(el, 'Retire integration')!.click();
+    await settle(fixture);
+    expect(api.setIntegrationRetired).toHaveBeenCalledWith(row.id, 'retire', 'False listing.');
+    expect(el.textContent).toContain('Retired by AEC Integrations');
   });
 });
 

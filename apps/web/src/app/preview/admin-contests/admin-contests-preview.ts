@@ -42,6 +42,8 @@ function contest(over: Partial<AdminContest> & { id: string }): AdminContest {
       source_product: PROCORE,
       target_product: SUMMIT,
       pair_path: '/products/procore/integrations/summit-estimating',
+      anchor: 'integration',
+      connector: null,
     },
     field: 'docs_url',
     current_value: 'https://support.procore.com/old-guide',
@@ -121,7 +123,28 @@ const PROTESTS: readonly AdminContest[] = [
   }),
 ];
 
-const CONTESTS: readonly AdminContest[] = [contest({ id: uuid(201) })];
+const CONTESTS: readonly AdminContest[] = [
+  contest({ id: uuid(201) }),
+  // AECI-1092: a contest on a connector-evidenced pair, routed to AECi.
+  contest({
+    id: uuid(202),
+    integration: {
+      id: uuid(21),
+      name: 'Procore to Summit via Kroo',
+      source_product: PROCORE,
+      target_product: SUMMIT,
+      pair_path: '/products/procore/integrations/summit-estimating',
+      anchor: 'evidenced_pair',
+      connector: { id: uuid(13), name: 'Kroo Connector', slug: 'kroo-connector', logo_url: null },
+    },
+    field: 'direction',
+    current_value: 'a_to_b',
+    proposed_value: 'both',
+    live_value: 'a_to_b',
+    reason: 'Kroo syncs cost codes back from Summit too.',
+    owner_vendor: { id: uuid(103), name: 'Kroo' },
+  }),
+];
 
 // eslint-disable-next-line @angular-eslint/use-injectable-provided-in -- component-provided preview fake
 @Injectable()
