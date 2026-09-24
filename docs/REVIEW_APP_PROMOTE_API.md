@@ -686,6 +686,11 @@ by default, which §3.6 asks it not to.
 Applies to all four entity types that carry the column: `vendors`, `products`,
 `integrations`, and connector-evidenced pairs.
 
+**It fires only for a record that is written.** An edge promote skips whole earns no
+receipt, because its date was never considered. That covers a claimed or vendor-created
+edge (§4b) and a `VENDOR_OWNED_TWIN` skip (§4c). Each is reported once in `skipped[]`, by
+its own entry (AECI-1101).
+
 ---
 
 ## 3a. Connector-catalogue pages (`POST /api/promote/connector-catalog`, AECI-714)
@@ -1296,6 +1301,9 @@ because the pointer is dead whether or not the insert ran. It is reported once i
 `reason` is the constant `VENDOR_OWNED_TWIN`, not a sentence, so match on it.
 `existingId` is the AECi id of the matching vendor-held row; it is set on this skip and
 on no other. The integration is absent from `integrations[]` in the response. A
+`lastReviewedAt` you sent earns no separate `review-signal` entry (§3.6a), even when the
+row you addressed is vendor-maintained: the twin entry is the edge's only entry
+(AECI-1101). A
 `promote.blocked` audit row names the vendor's row. On a skipped UPDATE or de-route it
 also carries `metadata.write`: `de-route` for a de-route, `re-point` for an UPDATE that
 moves the pair or connector, and `update` for an UPDATE that changes only the kind or
@@ -1333,7 +1341,7 @@ A skipped edge writes nothing: no pair, no claims, and on a move in the `integra
 exactly as it was. The `promote.blocked` audit row has `entityType: 'connector_evidenced_pair'`
 and names the vendor's pair. Its `metadata.write` is `route` for a move in and `re-point` for an
 UPDATE. An insert carries no `write`. A dead `supabaseId` on a skipped insert is still reported
-(§5). If the key's holder is claimed after the plan read and before the batch runs, the promote
+(§5). As above, the skip is the edge's only `skipped[]` entry, with no `review-signal` receipt. If the key's holder is claimed after the plan read and before the batch runs, the promote
 rolls back and ends `errored` with `VENDOR_OWNED_TWIN_CREATED_DURING_PROMOTE` (409), rather than
 failing on the unique index. The functions are `findVendorHeldEvidencedTwin` and
 `vendorOwnedEvidencedTwinSentinel` in `apps/api/src/lib/integration-twins.ts`.

@@ -491,6 +491,25 @@ describe('the evidenced VENDOR_OWNED_TWIN guard (AECI-1088)', () => {
     expect(blocked!.metadata).toMatchObject({ write: 're-point' });
   });
 
+  it('reports only the twin skip for a vendor-maintained pair, never a review-signal receipt (AECI-1101)', async () => {
+    await seedHeldPair();
+    // Unclaimed but vendor-maintained, and the push carries a `lastReviewedAt`.
+    await insertPair(OTHER_PAIR, { connectorProductId: WORKATO, name: 'Curated' });
+    const { response } = await ingest(push({ supabaseId: OTHER_PAIR }));
+    expectTwinSkip(response, PAIR);
+  });
+
+  it('still reports the receipt when a vendor-maintained pair passes the twin guard (AECI-1101)', async () => {
+    await insertPair(PAIR, { claimedAt: null });
+    const { response } = await ingest(push({ supabaseId: PAIR }));
+    expect(response.skipped).toEqual([
+      expect.objectContaining({ ref: 'i1', kind: 'review-signal' }),
+    ]);
+    expect(response.integrations).toEqual([
+      expect.objectContaining({ id: PAIR, operation: 'updated' }),
+    ]);
+  });
+
   it('writes an UPDATE that keeps its own key, and an insert with no vendor-held twin', async () => {
     await insertPair(PAIR, { claimedAt: null });
     const { response } = await ingest(push({ supabaseId: PAIR }));
