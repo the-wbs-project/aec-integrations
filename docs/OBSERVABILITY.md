@@ -68,7 +68,11 @@ mode.
 > with its payload uses the **batched** sender (`logBatchToPosthog`, N entries → one
 > request) rather than a loop. The §26.5 audit forward from a request handler goes
 > through `forwardAuditBatch` (`apps/api/src/lib/moderation-forward.ts`): one request
-> per write, however many audit rows and transitions it committed (AECI-1112). Metrics have the same sender since AECI-1092
+> per write, however many audit rows and transitions it committed (AECI-1112). The
+> same rule covers per-item operational logs and metrics: `reportMissingVendors` on
+> the product read path, the Algolia-sync, home-stats, metrics-snapshot and
+> data-quality crons (`batchedMetricSink` in `scheduled.ts`), and the promote
+> stats refresh each send one logs request and one metrics request per phase. Metrics have the same sender since AECI-1092
 > (`submitMetricsBatch`, N points in one OTLP envelope, one request); the request-path
 > Algolia sync (`syncOwnerWriteSearch`) uses it for its per-entity counts and run
 > duration. Where an upstream has no batch endpoint, bound the

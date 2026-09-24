@@ -22,6 +22,7 @@ vi.mock('./posthog', () => ({
   submitCount: vi.fn(),
   submitDistribution: vi.fn(),
   submitGauge: vi.fn(),
+  submitMetricsBatch: vi.fn(),
 }));
 vi.mock('./lib/algolia-sync', () => ({ runDailySync: vi.fn() }));
 vi.mock('./lib/algolia-drift', () => ({
@@ -84,7 +85,22 @@ vi.mock('./db/client', () => ({ getDb: vi.fn() }));
 import { fetchWafFirewallEvents } from '@aeci/shared/cloudflare-analytics';
 
 import { getDb } from './db/client';
-import { logToPosthog, submitCount, submitDistribution, submitGauge } from './posthog';
+import {
+  logBatchToPosthog,
+  logToPosthog,
+  submitCount,
+  submitGauge,
+  submitMetricsBatch,
+} from './posthog';
+
+/** Every point sent through the batched metrics sender (AECI-1112), flattened. */
+function batchedPoints(): { kind: string; metric: string; value: number; tags?: string[] }[] {
+  return vi
+    .mocked(submitMetricsBatch)
+    .mock.calls.flatMap(
+      (call) => call[3] as { kind: string; metric: string; value: number; tags?: string[] }[],
+    );
+}
 import { reportAlgoliaDrift } from './lib/algolia-drift';
 import { runDailySync } from './lib/algolia-sync';
 import { runAttestationNotifySweep } from './lib/attestation-notify';
@@ -302,14 +318,12 @@ describe('scheduled (cron producer)', () => {
     // fail-open email skips with no RESEND_API_KEY — assert the run heartbeat fired.
     await scheduled(cronController(DATA_QUALITY_CRON), makeEnv(), ctx);
 
-    expect(submitCount).toHaveBeenCalledWith(
-      ctx,
-      expect.anything(),
-      expect.anything(),
-      'aeci.data_quality.job',
-      1,
-      ['trigger:cron', 'outcome:success'],
-    );
+    expect(batchedPoints()).toContainEqual({
+      kind: 'count',
+      metric: 'aeci.data_quality.job',
+      value: 1,
+      tags: ['trigger:cron', 'outcome:success'],
+    });
     expect(submitCount).toHaveBeenCalledWith(
       ctx,
       expect.anything(),
@@ -648,14 +662,12 @@ describe('queue (consumer)', () => {
 
     await queue(batch, makeEnv(), ctx);
 
-    expect(submitCount).toHaveBeenCalledWith(
-      ctx,
-      expect.anything(),
-      expect.anything(),
-      'aeci.data_quality.job',
-      1,
-      ['trigger:cron', 'outcome:success'],
-    );
+    expect(batchedPoints()).toContainEqual({
+      kind: 'count',
+      metric: 'aeci.data_quality.job',
+      value: 1,
+      tags: ['trigger:cron', 'outcome:success'],
+    });
     expect(ack).toHaveBeenCalledTimes(1);
     expect(retry).not.toHaveBeenCalled();
   });
@@ -727,41 +739,45 @@ describe('queue (consumer)', () => {
 
     await queue(batch, makeEnv(), ctx);
 
+    // Every point of the run goes out in ONE batched request (AECI-1112).
+    expect(submitMetricsBatch).toHaveBeenCalledTimes(1);
+    const points = batchedPoints();
     // per-key outcome (names the failing key)
-    expect(submitCount).toHaveBeenCalledWith(
-      ctx,
-      expect.anything(),
-      expect.anything(),
-      'aeci.stats.compute.key',
-      1,
-      ['trigger:cron', 'key:home.trending_products', 'outcome:failed'],
-    );
+    expect(points).toContainEqual({
+      kind: 'count',
+      metric: 'aeci.stats.compute.key',
+      value: 1,
+      tags: ['trigger:cron', 'key:home.trending_products', 'outcome:failed'],
+    });
     // job rollup: one written + one failed → partial
-    expect(submitCount).toHaveBeenCalledWith(
-      ctx,
-      expect.anything(),
-      expect.anything(),
-      'aeci.stats.compute',
-      1,
-      ['trigger:cron', 'outcome:partial'],
-    );
+    expect(points).toContainEqual({
+      kind: 'count',
+      metric: 'aeci.stats.compute',
+      value: 1,
+      tags: ['trigger:cron', 'outcome:partial'],
+    });
     // per-key + job-level duration distributions
-    expect(submitDistribution).toHaveBeenCalledWith(
-      ctx,
-      expect.anything(),
-      expect.anything(),
-      'aeci.stats.compute.key.duration_ms',
-      5,
-      ['trigger:cron', 'key:home.trending_products'],
-    );
-    expect(submitDistribution).toHaveBeenCalledWith(
-      ctx,
-      expect.anything(),
-      expect.anything(),
-      'aeci.stats.compute.duration_ms',
-      expect.any(Number),
-      ['trigger:cron'],
-    );
+    expect(points).toContainEqual({
+      kind: 'distribution',
+      metric: 'aeci.stats.compute.key.duration_ms',
+      value: 5,
+      tags: ['trigger:cron', 'key:home.trending_products'],
+    });
+    expect(points).toContainEqual({
+      kind: 'distribution',
+      metric: 'aeci.stats.compute.duration_ms',
+      value: expect.any(Number),
+      tags: ['trigger:cron'],
+    });
+    // Per-key logs + the summary share ONE logs request, and none goes out singly.
+    expect(logBatchToPosthog).toHaveBeenCalledTimes(1);
+    expect(
+      vi
+        .mocked(logToPosthog)
+        .mock.calls.filter((call) =>
+          String((call[3] as { message?: string }).message).startsWith('aeci.stats.compute'),
+        ),
+    ).toEqual([]);
   });
 });
 
@@ -1081,5 +1097,109 @@ describe('job_runs bookkeeping (§7.2)', () => {
 
     expect(send).toHaveBeenCalledTimes(1);
     expect(await jobRunRows()).toHaveLength(0);
+  });
+});
+
+/**
+ * AECI-1112: a cron job whose telemetry scales with its work (entities, stats keys,
+ * snapshot metrics, data-quality checks) sends it as one metrics request and one logs
+ * request, never one per item. A Worker invocation holds about six open connections,
+ * and a `fetch` cancelled past that never settles (AECI-666). Every case here has
+ * more than six items.
+ */
+describe('cron telemetry is batched, one request per kind per phase (AECI-1112)', () => {
+  /** Log lines sent one at a time through `logToPosthog` whose message starts with `prefix`. */
+  const singleLogs = (prefix: string) =>
+    vi
+      .mocked(logToPosthog)
+      .mock.calls.filter((call) =>
+        String((call[3] as { message?: string }).message).startsWith(prefix),
+      );
+
+  it('algolia-sync: 8 entities → one metrics request and one logs request', async () => {
+    const entities = Array.from({ length: 8 }, (_, i) => ({
+      entity: `entity-${i}`,
+      indexName: `i${i}`,
+      saved: i,
+      deleted: 0,
+      transformErrors: 0,
+      ok: true,
+    }));
+    vi.mocked(runDailySync).mockResolvedValue({
+      cutoff: '2026-08-13T00:00:00.000Z',
+      entities,
+    } as never);
+
+    await scheduled(cronController(SYNC_CRON), makeEnv(), ctx);
+
+    expect(submitMetricsBatch).toHaveBeenCalledTimes(1);
+    // 3 counts per entity + the run duration.
+    expect(batchedPoints()).toHaveLength(8 * 3 + 1);
+    expect(submitCount).not.toHaveBeenCalledWith(
+      expect.anything(),
+      expect.anything(),
+      expect.anything(),
+      'aeci.algolia.sync',
+      expect.anything(),
+      expect.anything(),
+    );
+    expect(logBatchToPosthog).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(logBatchToPosthog).mock.calls[0]![3]).toHaveLength(8);
+    expect(singleLogs('aeci.algolia.sync ')).toEqual([]);
+  });
+
+  it('home-stats: 8 keys → one metrics request and one logs request', async () => {
+    vi.mocked(runHomeStats).mockResolvedValue({
+      keys: Array.from({ length: 8 }, (_, i) => ({
+        key: `home.key_${i}`,
+        status: 'written',
+        durationMs: i,
+      })),
+    } as never);
+
+    await scheduled(cronController(STATS_CRON), makeEnv(), ctx);
+
+    expect(submitMetricsBatch).toHaveBeenCalledTimes(1);
+    // 2 per key + the job count + the job duration.
+    expect(batchedPoints()).toHaveLength(8 * 2 + 2);
+    expect(logBatchToPosthog).toHaveBeenCalledTimes(1);
+    // 8 per-key lines + the summary.
+    expect(vi.mocked(logBatchToPosthog).mock.calls[0]![3]).toHaveLength(9);
+    expect(singleLogs('aeci.stats.comput')).toEqual([]);
+  });
+
+  it(`data-quality: every check → one metrics request and one logs request`, async () => {
+    expect(CHECKS.length).toBeGreaterThan(6);
+
+    await scheduled(cronController(DATA_QUALITY_CRON), makeEnv(), ctx);
+
+    expect(submitMetricsBatch).toHaveBeenCalledTimes(1);
+    const gauges = batchedPoints().filter((p) => p.metric === 'aeci.data_quality.check');
+    expect(gauges).toHaveLength(CHECKS.length);
+    expect(submitGauge).not.toHaveBeenCalled();
+    expect(logBatchToPosthog).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(logBatchToPosthog).mock.calls[0]![3]).toHaveLength(CHECKS.length);
+    expect(singleLogs('aeci.data_quality.check ')).toEqual([]);
+  });
+
+  it('metrics-snapshot: one metrics request per pass, and no per-metric request', async () => {
+    await scheduled(cronController(SNAPSHOT_CRON), makeEnv(), ctx);
+
+    // The primary pass and the trailing re-check flush separately, so a cut-short
+    // invocation keeps the primary pass's telemetry.
+    expect(submitMetricsBatch).toHaveBeenCalledTimes(2);
+    expect((vi.mocked(submitMetricsBatch).mock.calls[0]![3] as unknown[]).length).toBeGreaterThan(
+      6,
+    );
+    expect(submitCount).not.toHaveBeenCalledWith(
+      expect.anything(),
+      expect.anything(),
+      expect.anything(),
+      expect.stringMatching(/^aeci\.metrics_snapshot\./),
+      expect.anything(),
+      expect.anything(),
+    );
+    expect(logBatchToPosthog).toHaveBeenCalledTimes(1);
+    expect(singleLogs('aeci.metrics_snapshot.captured')).toEqual([]);
   });
 });
