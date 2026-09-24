@@ -125,10 +125,17 @@ replay.
 
 ### Writer slot
 
-The AECI-881 claim for these 14 promotes was posted at 09:15Z, then withdrawn with "apply not
-run; will re-claim". The apply ran after the withdrawal and **no new claim was posted**. It ran
-concurrently with the `yangon-v2` Pivvot claim. No product overlapped. The record is a reply on
-the withdrawn claim.
+The run was inside its AECI-881 claim. The claim for these 14 promotes was posted at
+09:15:36Z. The first job was minted at 09:17:25Z and the last at 09:28:06Z. The production
+`promote_jobs` ledger confirms both times (read 2026-09-24).
+
+At 13:52Z the claim was withdrawn with "apply not run; will re-claim". That note was wrong. The
+apply had already finished four and a half hours earlier. The `yangon-v2` Pivvot claim opened
+at 13:53Z, after the run, so the two did not overlap. A reply on the claim records the
+correction.
+
+An earlier draft of this section said the apply ran after the withdrawal and alongside
+`yangon-v2`. The ledger timestamps rule that out.
 
 ### Withheld at kick-off
 
@@ -184,7 +191,7 @@ node scripts/ops/2026-09-connector-attribution-repromote/repromote.mjs preflight
 node scripts/ops/2026-09-connector-attribution-repromote/repromote.mjs dry-run
 ```
 
-The apply. Take the AECI-881 writer slot first. This run did not; see "Writer slot" above:
+The apply. Take the AECI-881 writer slot first, and release it only after `verify`:
 
 ```
 node scripts/ops/2026-09-connector-attribution-repromote/repromote.mjs apply --confirm-count 14
