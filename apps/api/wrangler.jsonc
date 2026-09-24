@@ -400,8 +400,9 @@
         "EMAIL_BCC": "support@aecintegrations.com",
         "PUBLIC_SITE_URL": "https://staging.aecintegrations.com",
         "ADMIN_ALERT_EMAIL": "chrisw@thewbsproject.com",
-        // Operator alert on claim INTAKE (`POST /api/requests/claim`) — the support
-        // inbox, deliberately NOT `ADMIN_ALERT_EMAIL` (which stays the individual
+        // Operator alert on claim INTAKE (`POST /api/requests/claim`), and since
+        // AECI-1132 on an AECi-routed integration contest — the support inbox,
+        // deliberately NOT `ADMIN_ALERT_EMAIL` (which stays the individual
         // operator address for sweep alerts + lead capture). Absent -> the alert is a
         // fail-open `skipped` and the Linear issue is still the durable record.
         "CLAIM_ALERT_EMAIL": "support@aecintegrations.com",
@@ -647,8 +648,9 @@
         "EMAIL_BCC": "support@aecintegrations.com",
         "PUBLIC_SITE_URL": "https://demo.aecintegrations.com",
         "ADMIN_ALERT_EMAIL": "chrisw@thewbsproject.com",
-        // Operator alert on claim INTAKE (`POST /api/requests/claim`) — the support
-        // inbox, deliberately NOT `ADMIN_ALERT_EMAIL` (which stays the individual
+        // Operator alert on claim INTAKE (`POST /api/requests/claim`), and since
+        // AECI-1132 on an AECi-routed integration contest — the support inbox,
+        // deliberately NOT `ADMIN_ALERT_EMAIL` (which stays the individual
         // operator address for sweep alerts + lead capture). Absent -> the alert is a
         // fail-open `skipped` and the Linear issue is still the durable record.
         "CLAIM_ALERT_EMAIL": "support@aecintegrations.com",
@@ -832,8 +834,9 @@
         // Blind copy on every send, so the operator sees what users receive.
         "EMAIL_BCC": "support@aecintegrations.com",
         "ADMIN_ALERT_EMAIL": "chrisw@thewbsproject.com",
-        // Operator alert on claim INTAKE (`POST /api/requests/claim`) — the support
-        // inbox, deliberately NOT `ADMIN_ALERT_EMAIL` (which stays the individual
+        // Operator alert on claim INTAKE (`POST /api/requests/claim`), and since
+        // AECI-1132 on an AECi-routed integration contest — the support inbox,
+        // deliberately NOT `ADMIN_ALERT_EMAIL` (which stays the individual
         // operator address for sweep alerts + lead capture). Absent -> the alert is a
         // fail-open `skipped` and the Linear issue is still the durable record.
         "CLAIM_ALERT_EMAIL": "support@aecintegrations.com",

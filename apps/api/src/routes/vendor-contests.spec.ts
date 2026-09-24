@@ -42,6 +42,7 @@ import {
   createDecideContestHandler,
   createListVendorContestsHandler,
   createSubmitContestHandler,
+  type SendContestAlert,
   createWithdrawContestHandler,
 } from './vendor-contests';
 import { createListVendorNotificationsHandler } from './vendor-notifications';
@@ -82,9 +83,12 @@ const AUTH_C = seat(SEAT_C, VENDOR_C);
 
 let t: TestDb;
 let claimed = false;
+/** AECI-1132: the operator alert seam, captured rather than sent. */
+let alerts = vi.fn<SendContestAlert>();
 
 beforeEach(async () => {
   claimed = false;
+  alerts = vi.fn<SendContestAlert>().mockResolvedValue('sent');
   t = await makeTestDb();
   await t.db.insert(vendors).values([
     { id: VENDOR_A, slug: 'autodesk', companyName: 'Autodesk' },
@@ -134,7 +138,7 @@ function app(auth: AuthzVariables['auth']) {
   });
   a.post(
     '/api/vendor/integrations/:id/contests',
-    createSubmitContestHandler(t.factory, () => claimed),
+    createSubmitContestHandler(t.factory, () => claimed, undefined, alerts),
   );
   a.get('/api/vendor/contests', createListVendorContestsHandler(t.factory));
   a.post('/api/vendor/contests/:id/withdraw', createWithdrawContestHandler(t.factory));
@@ -460,6 +464,73 @@ describe('POST /api/vendor/integrations/:id/contests', () => {
     // The stamp is what lets the unban route it back (`lib/vendor-handback.ts`).
     expect(row!.ownerSeatLapsedAt).not.toBeNull();
     expect(await notificationRows()).toHaveLength(0);
+  });
+
+  it('emails AECi about an owner contest on an unowned row (AECI-1132)', async () => {
+    await t.db
+      .update(integrations)
+      .set({ builtByVendorId: null, claimedAt: null })
+      .where(eq(integrations.id, I_MAIN));
+    const { status, body } = await submit(AUTH_A, I_MAIN, {
+      field: 'owner',
+      proposed_value: VENDOR_A,
+      reason: 'We built it',
+    });
+    expect(status).toBe(201);
+    expect(body.contest.routed_to).toBe('aeci');
+    expect(alerts).toHaveBeenCalledTimes(1);
+    expect(alerts.mock.calls[0]![1]).toEqual({
+      contestId: body.contest.id,
+      integrationName: 'Revit for MicroStation',
+      field: 'owner',
+      currentValue: null,
+      proposedValue: 'Autodesk',
+      reason: 'We built it',
+      submitterVendorName: 'Autodesk',
+      routeReason: 'owner-field',
+      pairSlugs: ['revit', 'microstation'],
+    });
+  });
+
+  it('emails AECi about a content contest on an unclaimed row, with the owner named', async () => {
+    const { body } = await submit(AUTH_A, I_MAIN, NAME_CONTEST);
+    expect(body.contest.routed_to).toBe('aeci');
+    expect(alerts.mock.calls[0]![1]).toMatchObject({
+      field: 'name',
+      currentValue: 'Revit for MicroStation',
+      routeReason: 'unclaimed',
+    });
+  });
+
+  it('emails AECi when a lapsed owner seat re-routes the contest', async () => {
+    claimed = true;
+    await t.db
+      .update(profiles)
+      .set({ bannedAt: '2026-09-23T00:00:00.000Z' })
+      .where(eq(profiles.id, SEAT_B));
+    await submit(AUTH_A, I_MAIN, NAME_CONTEST);
+    expect(alerts.mock.calls[0]![1]).toMatchObject({ routeReason: 'owner-seat-lapsed' });
+  });
+
+  it('sends no email when the contest routes to the owner', async () => {
+    claimed = true;
+    const { body } = await submit(AUTH_A, I_MAIN, NAME_CONTEST);
+    expect(body.contest.routed_to).toBe('owner');
+    expect(alerts).not.toHaveBeenCalled();
+  });
+
+  it('sends no email when the submit is refused', async () => {
+    await submit(AUTH_A, I_MAIN, NAME_CONTEST);
+    alerts.mockClear();
+    const dup = await submit(AUTH_A, I_MAIN, NAME_CONTEST);
+    expect(dup.status).toBe(409);
+    expect(alerts).not.toHaveBeenCalled();
+  });
+
+  it('still answers 201 when the alert throws', async () => {
+    alerts.mockRejectedValue(new Error('resend down'));
+    const { status } = await submit(AUTH_A, I_MAIN, NAME_CONTEST);
+    expect(status).toBe(201);
   });
 
   it('leaves the stamp NULL on every ordinary contest', async () => {
