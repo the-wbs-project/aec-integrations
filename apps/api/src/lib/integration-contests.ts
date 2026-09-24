@@ -603,7 +603,7 @@ export const SEAT_STAMP_CLEARED_ACTION = 'integration.contest.seat_stamp_cleared
 export function clearSeatStamp(
   db: Db,
   contests: readonly ContestRow[],
-  actor: { actorId: string; actorType: AuditLogEntry['actorType'] },
+  actor: { actorId: string | null; actorType: AuditLogEntry['actorType'] },
   now: string,
   extra: { reason: string; source?: string } & Record<string, unknown>,
 ): { stmts: BatchStmt[]; audits: AuditLogEntry[] } {

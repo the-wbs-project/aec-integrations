@@ -8,9 +8,10 @@
  *
  * ── 1. THE HAND-BACK: `planVendorHandback` ──────────────────────────────────
  * Runs when a vendor is left with NO `vendor_admin` profile at all, banned or not.
- * Today the one caller is the admin seat revoke (`routes/admin-vendors.ts`).
- * AECI-1106 wires the account-erasure batch onto the same function, which is why
- * it is exported and takes no Hono context.
+ * Two callers: the admin seat revoke (`routes/admin-vendors.ts`) and the account
+ * erasure of a vendor's last seat (`routes/account.ts`, AECI-1106). That second
+ * caller is why it is exported and takes no Hono context. The erasure passes a
+ * `null` actor, because the actor's own profile is deleted in the same batch.
  *
  * - `vendors.maintained_by` and every owned `products.maintained_by` go back to
  *   `'aeci'`. A product co-owned with a vendor that still holds a seat keeps its
@@ -103,9 +104,11 @@ import {
   vendorHoldsActiveEntitlement,
 } from './integration-contests';
 
-/** Who is acting. The admin on the revoke and the ban. */
+/** Who is acting. The admin on the revoke and the ban. `null` on an account
+ *  erasure (AECI-1106): the erased profile is deleted in the same batch, and
+ *  `audit_log.actor_id` and `workflow_transitions.actor_id` are NO ACTION FKs. */
 export interface HandbackActor {
-  actorId: string;
+  actorId: string | null;
   actorType: AuditLogEntry['actorType'];
 }
 

@@ -283,7 +283,7 @@ Machine-readable codes are stable identifiers. Messages are localized.
 | `INTEGRATION_ALREADY_CLAIMED` | 409 | The integration is already claimed. Also the answer to the loser of two racing claims, whose batch rolls back entirely |
 | `INTEGRATION_RETIRED` | 409 | `POST /api/vendor/integrations/:id/retire` or `POST /api/admin/integrations/:id/retire` (AECI-1046) on a row already retired, and any other vendor write on a retired row: a new data-flow claim, an attestation upsert, a contest submit (including one whose batch lost a race with the retire), the owner edit `PATCH /api/vendor/integrations/:id` (AECI-1006, including one whose batch lost that race), and a per-side link `PUT` or `DELETE` (AECI-1007). Withdrawing an attestation is still allowed (AECI-1010) |
 | `INTEGRATION_NOT_RETIRED` | 409 | `POST /api/vendor/integrations/:id/restore` or `POST /api/admin/integrations/:id/restore` on a live row (AECI-1010, AECI-1046) |
-| `VENDOR_SEATS_CHANGED` | 409 | `DELETE /api/admin/vendors/:id/seats/:userId` or `PATCH /api/admin/reviewers/:id` on a vendor seat whose batch lost a race with another seat write on the same vendor: a double-click, a seat provisioned mid-request, or two seats removed at once. Nothing was written. Reload and try again (AECI-989). Also the claim grant (`PATCH /api/admin/claims/:id`), the admin seat provision (`POST /api/admin/vendors/:id/seats`) and the invite accept (`POST /api/seat-invites/:token/accept`) when the seat grant's batch returned contests a seat lapse had moved to AECi, and an entitlement clear committed between its read and its batch (`ownerEntitlementActiveSentinel`, AECI-1092), or another writer (a second grant, say) moved one of those contests first (`contestRowChangedSentinel`). Nothing was written. Try again |
+| `VENDOR_SEATS_CHANGED` | 409 | `DELETE /api/admin/vendors/:id/seats/:userId`, `PATCH /api/admin/reviewers/:id`, or (after three attempts, AECI-1106) `DELETE /api/account` on a vendor seat whose batch lost a race with another seat write on the same vendor: a double-click, a seat provisioned mid-request, or two seats removed at once. Nothing was written. Reload and try again (AECI-989). Also the claim grant (`PATCH /api/admin/claims/:id`), the admin seat provision (`POST /api/admin/vendors/:id/seats`) and the invite accept (`POST /api/seat-invites/:token/accept`) when the seat grant's batch returned contests a seat lapse had moved to AECi, and an entitlement clear committed between its read and its batch (`ownerEntitlementActiveSentinel`, AECI-1092), or another writer (a second grant, say) moved one of those contests first (`contestRowChangedSentinel`). Nothing was written. Try again |
 | `INTEGRATION_CHANGED_WHILE_SAVING` | 409 | A retire, restore, owner edit or claim (AECI-1089) whose batch lost a race, when the re-read finds no other refusal to give: a contest was filed on the row between the read and the batch, say, or (for a claim) promote moved the row to the other table. Nothing was written. Reload and try again (AECI-1010) |
 | `INTEGRATION_RETIRED_BY_AECI` | 403 | `POST /api/vendor/integrations/:id/restore` on a row an AECi admin retired (`retired_by = 'aeci'`). Only an admin restores an admin retire (AECI-1046, ruled 2026-09-22). Nothing is written |
 | `INTEGRATION_RETIRED_BY_OWNER` | 409 | `POST /api/admin/integrations/:id/restore` on a row its owner retired (`retired_by = 'owner'`, or NULL on a retire from before migration 0046). The owner controls its own retire, so the admin restore never undoes it (AECI-1046) |
@@ -1369,10 +1369,17 @@ Errors: `UNAUTHENTICATED`, `VALIDATION_FAILED`, `RATE_LIMITED` (429 — AECI-773
 #### `DELETE /api/account`
 
 Delete the authenticated user's account (GDPR right-to-erasure, `AUTH_AND_RLS.md`
-§8). In one transaction: anonymizes reviews (sets `reviewer_id = null`), nulls
-every other inbound reference to the profile, deletes the profile, then deletes
-the Supabase `auth.users` row (raw SQL, same transaction — see AUTH_AND_RLS §8 for
-why not the Admin API). Audited `account.deleted` (no PII). A Resend confirmation
+§8). In one D1 batch: anonymizes reviews (sets `reviewer_id = null`), nulls
+every other inbound reference to the profile, and deletes the profile. After the
+batch commits, the Supabase `auth.users` row is deleted over the GoTrue Admin API
+(seam #3, `AUTH_AND_RLS.md` §8 step 4, including the AECI-531 skip when the
+service-role key is absent). Audited `account.deleted` (no PII).
+
+**A vendor seat's erasure is a seat loss (AECI-1106).** When the profile is a
+`vendor_admin` seat, the batch also carries what the admin revoke of that seat would:
+the AECI-989 hand-back when it is the vendor's last seat, or the owner-contest re-route
+when only banned seats remain (`STAGE_2_ATTESTATIONS_SPEC.md` §13.9). A lost seat race
+re-plans and retries, up to three attempts. The wire shape is unchanged. A Resend confirmation
 email is sent fire-and-forget after erasure (AECI-240 / Phase 7.5, fail-open — the
 deletion never depends on it); recipient is captured from the session before the
 `auth.users` row is removed. See `docs/email.md`.
@@ -1383,7 +1390,8 @@ export interface DeleteAccountResponse {
 }
 ```
 
-Errors: `UNAUTHENTICATED`.
+Errors: `UNAUTHENTICATED`. `409 VENDOR_SEATS_CHANGED` only when a vendor seat's erasure
+lost the seat race on all three attempts. Nothing is written then (AECI-1106).
 
 #### `GET /api/account/reviews`
 

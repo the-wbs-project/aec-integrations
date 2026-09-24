@@ -34,6 +34,16 @@
  *
  * The `account.deleted` audit row MUST have `actorId: null` — the profile is
  * deleted in the same batch and `audit_log.actor_id` is NO ACTION.
+ *
+ * ── A vendor's last seat hands the record back (AECI-1106) ─────────────────────
+ * A `vendor_admin` seat IS a `profiles` row, so erasing it is a seat loss, the same
+ * as the admin revoke. When the erased seat is the vendor's last `vendor_admin`,
+ * AECI-989's `planVendorHandback` joins the erasure batch. When only banned seats
+ * remain, `planOwnerSeatLapse` does. The rows, audit set and purge tags are the
+ * revoke's (`STAGE_2_ATTESTATIONS_SPEC.md` §13.9). Their audit and transition
+ * actor is `null`, for the reason above. The race guards sit straight after the
+ * profile delete. A lost race re-plans and retries a bounded number of times
+ * rather than failing the erasure.
  */
 
 import { UpdateAccountSchema } from '@aeci/shared';
@@ -43,6 +53,10 @@ import {
   type AuditLogEntry,
   type AuditLogForwarder,
 } from '@aeci/shared/audit-log';
+import {
+  forwardWorkflowTransition,
+  type WorkflowTransitionForwarder,
+} from '@aeci/shared/workflow-transition';
 import { eq } from 'drizzle-orm';
 import type { Context } from 'hono';
 import type { ZodType } from 'zod';
@@ -66,9 +80,21 @@ import { json } from '../http';
 import { readAdminQueueCounts, type AdminQueueCounts } from '../lib/admin-queue-counts';
 import { auditActorType, type AuthzVariables } from '../lib/authz';
 import { auditInsert, type BatchStmt, type BatchTuple } from '../lib/audit';
+import { VENDOR_ADMIN_ROLE } from '../lib/claimed-vendors';
 import { sendAccountDeletionEmail } from '../lib/email';
 import { writeDb, type DbFactory } from '../lib/handler-utils';
 import { deleteAuthUser as deleteAuthUserDefault } from '../lib/supabase-admin';
+import {
+  isSeatsChangedError,
+  planOwnerSeatLapse,
+  planVendorHandback,
+  seatLossOutcome,
+  seatRaceSentinels,
+  seatsChangedError,
+  type HandbackBatch,
+  type SeatLossOutcome,
+} from '../lib/vendor-handback';
+import { purgeTags } from './vendor-shared';
 
 type AuthContext = Context<{ Bindings: Env; Variables: AuthzVariables }>;
 
@@ -81,6 +107,20 @@ function makeForwarder(c: AuthContext): AuditLogForwarder | undefined {
       action: entry.action,
       entity_type: entry.entityType ?? undefined,
       entity_id: entry.entityId ?? undefined,
+      source: 'account',
+    });
+  };
+}
+
+function makeWorkflowForwarder(c: AuthContext): WorkflowTransitionForwarder | undefined {
+  if (!c.env.POSTHOG_PROJECT_KEY) return undefined;
+  return (entry) => {
+    logToPosthog(c.executionCtx, c.env, c.req.raw, {
+      level: 'info',
+      message: `workflow ${entry.fromState ?? '∅'}→${entry.toState} ${entry.workflowId}`,
+      from_state: entry.fromState ?? undefined,
+      to_state: entry.toState,
+      workflow_id: entry.workflowId,
       source: 'account',
     });
   };
@@ -244,6 +284,53 @@ export function createUpdateAccountHandler(
 
 // ─── DELETE /api/account (GDPR erasure) ────────────────────────────────────────
 
+/** Attempts at the erasure batch when the AECI-989 seat guards abort it. */
+export const ERASURE_SEAT_ATTEMPTS = 3;
+
+/** What the erasure of a `vendor_admin` seat does to its vendor (AECI-1106). */
+interface ErasureSeatPlan {
+  vendorId: string;
+  outcome: SeatLossOutcome;
+  /** The hand-back or the lapse. `null` while an unbanned seat remains. */
+  follow: HandbackBatch | null;
+}
+
+/**
+ * `null` unless the profile being erased is a `vendor_admin` seat on a vendor.
+ * Otherwise the same decision the admin revoke makes (`routes/admin-vendors.ts`):
+ * no seat left hands the record back, only banned seats left moves the owner's
+ * contests to AECi, an unbanned seat left changes nothing. The erased user cannot
+ * be banned, because `requireAuth()` rejects a banned session. Read fresh on every
+ * attempt, so a retry plans against the seats a lost race left behind.
+ */
+async function planErasureSeatLoss(
+  db: DbContext['db'],
+  userId: string,
+  session: AuthzVariables['auth'],
+): Promise<ErasureSeatPlan | null> {
+  const profile = await db.query.profiles.findFirst({
+    columns: { role: true, vendorId: true },
+    where: eq(profiles.id, userId),
+  });
+  if (!profile || profile.role !== VENDOR_ADMIN_ROLE || !profile.vendorId) return null;
+  const vendorId = profile.vendorId;
+  const outcome = await seatLossOutcome(db, vendorId, userId);
+  const params = {
+    vendorId,
+    actorId: null,
+    actorType: auditActorType(session),
+    now: new Date().toISOString(),
+    source: 'account',
+  };
+  const follow =
+    outcome === 'handback'
+      ? await planVendorHandback(db, params)
+      : outcome === 'lapse'
+        ? await planOwnerSeatLapse(db, params)
+        : null;
+  return { vendorId, outcome, follow };
+}
+
 export function createDeleteAccountHandler(
   dbFor: DbFactory = getDb,
   deleteAuthUser: typeof deleteAuthUserDefault = deleteAuthUserDefault,
@@ -276,7 +363,7 @@ export function createDeleteAccountHandler(
     // been dropped along with `session_id` and `profile_role`. That strengthens this
     // handler rather than weakening it: the table can no longer hold user linkage at
     // all, so there is nothing here to erase (`AUTH_AND_RLS.md` §8).
-    const stmts: BatchStmt[] = [
+    const erasureStmts = (): BatchStmt[] => [
       db
         .update(reviews)
         // Stamp `anonymized_at` in the same statement that nulls the reviewer ref
@@ -346,7 +433,29 @@ export function createDeleteAccountHandler(
       auditInsert(db, auditEntry),
       db.delete(profiles).where(eq(profiles.id, userId)),
     ];
-    await db.batch(stmts as BatchTuple);
+
+    // AECI-1106: a vendor seat's erasure is a seat loss. Plan it, then run the batch
+    // with the AECI-989 race guards straight after the profile delete. A lost race
+    // re-plans against the seats that are really there: an erasure must not fail
+    // because a colleague's seat changed at the same moment (§8). Only a race lost
+    // on every attempt answers 409, and nothing is written then.
+    let seat: ErasureSeatPlan | null;
+    for (let attempt = 1; ; attempt += 1) {
+      seat = await planErasureSeatLoss(db, userId, session);
+      const stmts = [
+        ...erasureStmts(),
+        ...(seat
+          ? [...seatRaceSentinels(db, seat.vendorId, seat.outcome), ...(seat.follow?.stmts ?? [])]
+          : []),
+      ];
+      try {
+        await db.batch(stmts as BatchTuple);
+        break;
+      } catch (error) {
+        if (!seat || !isSeatsChangedError(error)) throw error;
+        if (attempt >= ERASURE_SEAT_ATTEMPTS) throw seatsChangedError();
+      }
+    }
 
     // Seam #3: delete the auth.users row over the GoTrue Admin API. The D1 data is
     // already erased (GDPR-met); a failure here is logged, not fatal.
@@ -365,12 +474,24 @@ export function createDeleteAccountHandler(
     // §26.5 forward + the §11.1 deletion confirmation, fire-and-forget after the
     // erasure. The email fails open (absent key/email → silent skip) and never
     // affects the response — the data is already gone.
+    const forwarder = makeForwarder(c);
+    const workflowForwarder = makeWorkflowForwarder(c);
+    const follow = seat?.follow ?? null;
     c.executionCtx.waitUntil(
       Promise.all([
-        forwardAuditLog(auditEntry, makeForwarder(c)),
+        forwardAuditLog(auditEntry, forwarder),
+        ...(follow?.audits ?? []).map((entry) => forwardAuditLog(entry, forwarder)),
+        ...(follow?.transitions ?? []).map((entry) =>
+          forwardWorkflowTransition(entry, workflowForwarder),
+        ),
         sendAccountDeletionEmail(c, { to: recipientEmail }),
       ]),
     );
+    // Only the hand-back returns tags: the pages whose maintenance marker flipped
+    // (`CACHE_STRATEGY.md` (b1a)). A lapse re-routes contests and purges nothing.
+    if (follow?.purgeTags.length) {
+      c.executionCtx.waitUntil(purgeTags(c, follow.purgeTags, 'vendor'));
+    }
 
     const body: DeleteAccountResponse = {
       message: 'Your account and personal data have been deleted.',
