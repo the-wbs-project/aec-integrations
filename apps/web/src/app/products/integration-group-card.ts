@@ -114,10 +114,11 @@ import { NewTabIcon } from '../shared/new-tab-icon/new-tab-icon';
                  §3 "The Unlayered-Heading Rule". -->
             <!-- The name wraps rather than truncates (AECI-1117). A group name is
                  the one thing this header exists to say, so a long one takes a
-                 second line instead of losing its end. The count sits beside it
-                 while both fit and drops under it when they do not, so the count
-                 never squeezes the name. -->
-            <span class="flex min-w-0 flex-1 flex-wrap items-baseline justify-between gap-x-3">
+                 second line instead of losing its end. The count follows the name
+                 directly (no justify-between, which parked it beside the trailing
+                 link at desktop widths) and drops under it when both do not fit,
+                 so the count never squeezes the name. -->
+            <span class="flex min-w-0 flex-1 flex-wrap items-baseline gap-x-3">
               <span class="min-w-0 text-lg break-words">{{ heading() }}</span>
               @if (countLabel(); as count) {
                 <span class="shrink-0 text-xs font-normal text-(--text-secondary)">{{

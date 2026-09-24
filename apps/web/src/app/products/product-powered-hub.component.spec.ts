@@ -323,6 +323,20 @@ describe('ProductPoweredHub', () => {
       ]);
     });
 
+    it('wraps long product names rather than truncating them, as ProductIntegrationRow does', () => {
+      const el = setupEdges([
+        poweredEdge(HUB, link('sage', 'Sage Intacct Construction Enterprise Edition')),
+        poweredEdge(HUB, link('cmic', 'CMiC')),
+        poweredEdge(link('fieldwire', 'Fieldwire'), link('bluebeam', 'Bluebeam')),
+      ]);
+      const names = [...el.querySelectorAll('ul li a span.font-medium')];
+      expect(names).toHaveLength(4);
+      for (const name of names) {
+        expect(name.classList).not.toContain('truncate');
+        expect(name.classList).toContain('break-words');
+      }
+    });
+
     it('ends every row in the aria-hidden chevron, never a trailing arrow', () => {
       const el = setupEdges([
         poweredEdge(HUB, link('sage', 'Sage')),

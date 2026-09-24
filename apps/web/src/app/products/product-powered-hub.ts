@@ -150,8 +150,8 @@ import type { PoweredConnection, PoweredHubPartner, PoweredHubView } from './pow
                 <a
                   [routerLink]="pairLink(partner)"
                   [attr.aria-label]="hubRowAriaLabel(group.hub.name, partner)"
-                  class="flex items-center gap-3 px-4 py-3 text-(--text-primary) no-underline
-                    transition-colors hover:bg-(--surface-muted)
+                  class="group flex items-center gap-3 px-4 py-3 text-sm text-(--text-primary)
+                    no-underline transition-colors hover:bg-(--surface-muted)
                     focus-visible:outline-2 focus-visible:-outline-offset-2
                     focus-visible:outline-(--accent-primary)"
                 >
@@ -161,16 +161,22 @@ import type { PoweredConnection, PoweredHubPartner, PoweredHubView } from './pow
                     size="sm"
                   />
                   <span class="flex min-w-0 flex-1 flex-col">
-                    <span class="truncate font-medium">{{ partner.partner.name }}</span>
+                    <span class="min-w-0 font-medium break-words">{{ partner.partner.name }}</span>
                     <!-- The meta line under the partner name. Direction sits
                          here at every width and the mechanism joins it below md,
                          the same fold ProductIntegrationRow uses (AECI-853).
                          §12.3 pins this row to the endpoint table's breakpoint
                          behaviour, so the two must move together or the same
                          page shows direction as a column in one section and a
-                         sublabel in the other. -->
+                         sublabel in the other. AECI-1117 polish matched the rest
+                         of that row too: text-sm names that wrap rather than
+                         truncate, and a tertiary meta line that steps to secondary
+                         once the row fill goes muted (DESIGN.md "Tertiary": never
+                         on muted). -->
                     <span
-                      class="mt-0.5 flex flex-wrap items-center gap-x-1.5 text-xs text-(--text-secondary)"
+                      class="mt-0.5 flex flex-wrap items-center gap-x-1.5 text-xs text-(--text-tertiary)
+                        transition-colors group-hover:text-(--text-secondary)
+                        group-focus-visible:text-(--text-secondary)"
                     >
                       <!-- Flow relative to the HUB (this card's frame), matching
                            how the endpoint table frames direction relative to
@@ -270,15 +276,15 @@ import type { PoweredConnection, PoweredHubPartner, PoweredHubView } from './pow
                 <a
                   [routerLink]="pairLink(pair)"
                   [attr.aria-label]="flatRowAriaLabel(pair)"
-                  class="flex items-center gap-3 px-4 py-3 text-(--text-primary) no-underline
-                    transition-colors hover:bg-(--surface-muted)
+                  class="group flex items-center gap-3 px-4 py-3 text-sm text-(--text-primary)
+                    no-underline transition-colors hover:bg-(--surface-muted)
                     focus-visible:outline-2 focus-visible:-outline-offset-2
                     focus-visible:outline-(--accent-primary)"
                 >
                   <span class="flex min-w-0 flex-1 flex-wrap items-center gap-x-2 gap-y-1">
                     <span class="inline-flex min-w-0 items-center gap-2">
                       <aec-logo-or-initial [src]="pair.a.logo_url" [name]="pair.a.name" size="sm" />
-                      <span class="truncate font-medium">{{ pair.a.name }}</span>
+                      <span class="min-w-0 font-medium break-words">{{ pair.a.name }}</span>
                     </span>
                     <span
                       class="font-display inline-block text-xl leading-none text-(--accent-primary)
@@ -288,7 +294,7 @@ import type { PoweredConnection, PoweredHubPartner, PoweredHubView } from './pow
                     >
                     <span class="inline-flex min-w-0 items-center gap-2">
                       <aec-logo-or-initial [src]="pair.b.logo_url" [name]="pair.b.name" size="sm" />
-                      <span class="truncate font-medium">{{ pair.b.name }}</span>
+                      <span class="min-w-0 font-medium break-words">{{ pair.b.name }}</span>
                     </span>
                   </span>
                   @if (pairDirectionLabel(pair); as label) {

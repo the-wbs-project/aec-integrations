@@ -852,7 +852,13 @@ and the render condition are unchanged.
    the link. Inside the button, the name wraps instead of truncating, and the count drops under the
    name when both do not fit. No viewport breakpoint is involved, because the card sits in the body
    column, whose width is not the viewport's. This is `IntegrationGroupCard`, so §13.3's endpoint lane
-   cards get the same behaviour.
+   cards get the same behaviour. The count follows the name directly. Before, `justify-between`
+   parked it beside the "View product" link at desktop widths, where it read as that link's caption.
+4. **The hub rows now match `ProductIntegrationRow`** (from the `/impeccable critique` pass on this change).
+   Product names are `text-sm` and wrap rather than truncate, in hub rows and flat rows alike. A long
+   partner name used to end in an ellipsis at 375px. The meta line is tertiary at rest and steps to
+   secondary on hover and focus, when the row fill goes muted. That follows DESIGN.md "Tertiary",
+   which says never on muted.
 
 ### 12.4 Cache-tag composition
 
