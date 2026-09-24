@@ -1,6 +1,6 @@
-# 2026-09 retraction-feed consumer (AECI-882 / AECI-811 / AECI-878 / AECI-889 / AECI-916 / AECI-957 / AECI-1024 / AECI-1020)
+# 2026-09 retraction-feed consumer (AECI-882 / AECI-811 / AECI-878 / AECI-889 / AECI-916 / AECI-957 / AECI-1024 / AECI-1020 / AECI-928)
 
-**Status: RUN — eleven tranches, all complete.** Applied to `aeci-app-production` on
+**Status: RUN — twelve tranches, all complete.** Applied to `aeci-app-production` on
 2026-09-13 (214 rows), 2026-09-14 (the 2 held back), 2026-09-14 again (17 rows, AECI-889
 batch 1), 2026-09-14 a third time (21 rows, AECI-889 batches 2 + 3), 2026-09-14 a
 fourth time (2 rows, **AECI-916 — the first operator-ruling run**), 2026-09-15
@@ -10,14 +10,15 @@ retirement, and the first to cascade claims that no surviving row holds**), and 
 (4 rows, **AECI-1024 — the first cohort removed under the owner ruling's admission test**), and
 2026-09-18 twice more (6 rows then 1, **the AECI-1020 cleanup window**), and 2026-09-21
 (1 row, **the ADP Workforce Now ↔ Sage 100 Contractor leftover of that same AECI-1020
-window, ruled withdrawn**).
-**The feed is at zero pending and no hold is active.** The AECI-1024 vendor half ran the same
+window, ruled withdrawn**), and 2026-09-24 (16 rows, **AECI-928 — Zapier's I24 retire**).
+**The feed holds one pending entry, the AECI-1018 row, which the AECI-928 run held and did
+not rule on.** No hold is active in the file. The AECI-1024 vendor half ran the same
 day through the new `ops:retract-vendor` lane (8 vendor rows), and Nemetschek Group followed on
 the same lane in the AECI-1020 window (1 vendor row). The daily audit is green.
 
 Tranches three and four are the routine upstream batches this lane was built for, rather
-than one-off cleanups. Expect more: AECI-889 has **Kroo** left plus the MindCloud check, with
-Zapier deferred. Kroo's 119 rows are unpromoted and carry zero claims, so that batch may
+than one-off cleanups. AECI-889 had **Kroo** left plus the MindCloud check, and
+Zapier ran on 2026-09-24 under AECI-928. Kroo's 119 rows are unpromoted and carry zero claims, so that batch may
 journal nothing at all and leave this lane with nothing to do.
 
 Consumes the review app's retraction journal: reads `list_retractions`, deletes the live
@@ -1343,6 +1344,117 @@ orphanChildren                0c / 0a
 Every bucket zero, 0 publicly reachable stranded rows, 978/978 edges accounted. The
 `vendorNoLiveProducts` red this run was warned about — BIMLauncher and ProjectReady, whose
 connector products are not promoted yet — **did not appear**. That bucket reads 0.
+
+## What ran — 2026-09-24, 16 rows (AECI-928, Zapier's I24 retire)
+
+**Why.** AECI-928 applied **I24** to Zapier's 59 powered rows once Zapier's catalogue reached
+AECi (AECI-1064). Group 1 re-anchored the 87 claims onto 41 Zapier `connector_pairs` rows and
+sent them with the catalogue. This run is group 2. Chris Walton authorised it on 2026-09-24.
+Upstream ran `delete_integration` on all 59 review rows first: 59 of 59 `deleted: true`, 0
+errors. Only 16 of the 59 had ever been promoted, so the journal named 16. The other 43 have no
+production id.
+
+```
+node scripts/ops/2026-09-retraction-consumer/consume.mjs --env production
+node scripts/ops/2026-09-retraction-consumer/consume.mjs --env production --apply --allow-production --confirm-count 16
+```
+
+| | before | after | delta |
+|---|---|---|---|
+| `integrations` | 911 | 911 | 0 |
+| `connector_evidenced_pairs` | 90 | 74 | −16 |
+| `claims` | 2038 | 2011 | −27 |
+| `attestations` | 2038 | 2011 | −27 |
+| feed, pending | 17 | 1 | −16 |
+
+`resolve: integrations 1, connector_evidenced_pairs 16, already gone 0`. All 16 Zapier rows
+sat in `connector_evidenced_pairs`, because the AECI-1064 batch had moved them there. The
+`integrations` hit is the held AECI-1018 row below, not a Zapier row. Verify read
+`integrations left 0, pairs left 0, orphan claims 0`, and confirm read `requested 16,
+confirmed 16`. The run wrote **16 `integration.deleted` audit rows**. It repaired
+`integration_count` on **20 products**. The AECI-878 sentinel survived.
+`db:reconcile-counts` afterwards reported no drift.
+
+The Time Travel bookmark taken just before the apply expires around **2026-10-24**:
+
+```
+wrangler d1 time-travel restore aeci-app-production --bookmark=000066ef-0000000e-000050f0-d0c33399e6f4aaafbc68505379bf7232
+```
+
+The local rollback is `rollback-2026-09-24T05-47-22-655Z.sql` in the `el-paso-v5` workspace.
+
+### The cascade was 27 / 27, and every claim had a twin first
+
+14 of the 16 rows carried claims. The other 2 carried none. Before `MAX_CASCADE` moved, each
+of the 14 was matched to its Zapier `connector_pairs` twin, per pair and not in aggregate.
+Every data object matched, and every direction matched after orientation.
+
+| Evidenced pair, deleted | Claims | Reach twin, kept | Claims |
+|---|--:|---|--:|
+| `6c86d907` Connecteam ↔ Jobber | 2 | `recB0FltqIqSnj24U` | 2 |
+| `1fbd35bb` JobTread ↔ Xero | 2 | `rec7RFuUjhGBiAztW` | 2 |
+| `8f85c4f5` monday.com ↔ Procore | 6 | `recLodHsWbtWxvhOm` | 6 |
+| `45629e89` SumoQuote | 2 | `recvXeaJp52882hZb` | 2 |
+| `c7010f9b` ServiceTitan ↔ Google Calendar | 1 | `rec14CCDjRrFKfcgA` | 1 |
+| `a77916a4` AccuLynx | 2 | `rec64UzD54KZ5hAoJ` | 2 |
+| `1b1953e8` Procore | 1 | `rechNwqskVsJoQbrO` | 1 |
+| `a722998c` SumoQuote | 1 | `reckXFH1aPbuuHCAH` | 1 |
+| `9301b03a` Box | 1 | `recTN8bYVPtKk1uer` | 1 |
+| `97c1833b` JobNimbus | 2 | `recRUmzuwyvubM09T` | 2 |
+| `0ec2b8bf` Wrike | 1 | `recVGLMDYWsZEuxhY` | 1 |
+| `5fd537dc` Roofr → Jobber | 2 | `rechSU6UJLVIsqXTa` | 2 |
+| `10b72933` HOVER → Jobber | 2 | `recoCCW3Aweb9w72b` | 2 |
+| `d254c808` HOVER ↔ Roofr | 2 | `rec6KguAQaQneaHr2` | 2 |
+| **total** | **27** | 14 pairs, all matched | **27** |
+
+After the apply, the 41 Zapier pairs still held **87 claims and 87 attestations**, the same
+as before. No orphan attestation was left.
+
+**`MAX_CASCADE` is a total ceiling, not a per-pair value.** `consume.mjs` sums the cascade
+over the whole plan and compares that one sum with the ceiling. So pinning it to `27 / 27`
+proves nothing about any single pair. The per-pair proof is the twin table above, and it has
+to be done by hand before the ceiling moves. This is the same rule as "Do not raise
+`MAX_CASCADE` on an aggregate" under AECI-889 batch 1.
+
+### One pending entry was not ours, and it is held
+
+The feed held 17 entries, not 16. The extra one is the AECI-1018 row
+`63312dc1-8b3b-4d18-b014-7863595637d7`, AutoCAD Map 3D ↔ Civil 3D. It is live in
+`integrations` with 2 claims and has been pending since 2026-09-22. This run was not
+authorised to delete it, so it went on `HOLD`. It was not deleted and not confirmed.
+**It is still pending on the journal**, and it needs its own ruling and its own pins.
+
+### The three guards, pinned and reset
+
+| Constant | Pinned for this run | Now, in the file |
+|---|---|---|
+| `EXPECTED` | `{ total: 17, inPairs: 16, inIntegrations: 1 }` | `{ 0, 0, 0 }` |
+| `MAX_CASCADE` | `{ claims: 27, attestations: 27 }` | `{ 0, 0 }` |
+| `HOLD` | `63312dc1-…` (AECI-1018) | `{}` |
+
+The pins were never committed. The file was back at rest before this record was written.
+
+### Algolia
+
+Unlike earlier evidenced-pair tranches, these 16 rows **were** indexed. The drift dry run
+listed exactly the 16 ids as orphans in `production_integrations`. 16 is under the nightly
+sweep's cap of 50, so the sweep was left to remove them. No manual purge was run.
+
+### Cache
+
+Nothing to purge. Production still serves uncached.
+
+### Verification, live (2026-09-24, browser UA)
+
+- `/products/hover/integrations/roofr` and `/products/jobtread/integrations/xero` return
+  **200 + `noindex`**. Neither mentions Zapier. Their claims now render **zero** times, not
+  once. That is by design: a claim anchored to `connector_pairs` renders on no public surface
+  until AECI-716 builds one (`STAGE_1_5_SPEC.md` §13.7).
+- `/products/hover` shows "3 more pairs reachable via connectors". `/products/jobtread` shows
+  "14 more pairs reachable via connectors". The reach line counts the Zapier pairs.
+- The review-side I26 overlap query, re-run the same day, reads **0** powered duplicates for
+  all six catalogues: Zapier, MindCloud, Trimble AppXchange, Aquifer, Kroo Connector and Agave
+  ERP Sync.
 
 ## The second half — `ops:retract-product` for the ACC product row (AECI-809)
 
