@@ -113,7 +113,9 @@ import {
   logToPosthog,
   submitCount,
   submitDistribution,
+  submitMetricsBatch,
   type PosthogLogEvent,
+  type PosthogMetricPoint,
 } from '../posthog';
 import type { Env } from '../env';
 import { ApiError } from '../errors';
@@ -1443,22 +1445,32 @@ export async function refreshHomeStatsAfterPromote(rc: PromoteRunCtx, db: Db): P
     return;
   }
 
+  // One metrics request and one logs request for the whole refresh, never one per
+  // stats key (AECI-1112, the AECI-666 connection limit).
+  const points: PosthogMetricPoint[] = [];
   const sink: StatsMetricSink = {
-    count: (metric, value, tags) => submitCount(rc, rc.env, rc.request, metric, value, tags),
+    count: (metric, value, tags) => void points.push({ kind: 'count', metric, value, tags }),
     distribution: (metric, value, tags) =>
-      submitDistribution(rc, rc.env, rc.request, metric, value, tags),
+      void points.push({ kind: 'distribution', metric, value, tags }),
   };
   emitHomeStatsMetrics(sink, 'promote', result, Date.now() - started);
-  for (const k of result.keys) {
-    if (k.status !== 'failed') continue;
-    logToPosthog(rc, rc.env, rc.request, {
-      level: 'warn',
-      message: `aeci.stats.compute ${k.key} status=failed`,
-      source: 'review-app-promote',
-      key: k.key,
-      ...(k.error ? { reason: k.error } : {}),
-    });
-  }
+  submitMetricsBatch(rc, rc.env, rc.request, points);
+  logBatchToPosthog(
+    rc,
+    rc.env,
+    rc.request,
+    result.keys
+      .filter((k) => k.status === 'failed')
+      .map(
+        (k): PosthogLogEvent => ({
+          level: 'warn',
+          message: `aeci.stats.compute ${k.key} status=failed`,
+          source: 'review-app-promote',
+          key: k.key,
+          ...(k.error ? { reason: k.error } : {}),
+        }),
+      ),
+  );
 
   // Invalidate the home page's edge cache now that `stats_cache` is fresh, so the
   // next render repaints with the new counts. Best-effort, post-refresh; no-ops

@@ -25,6 +25,7 @@ import { auditLog, profiles, vendorEntitlements, vendors } from '../db/schema';
 import type { BatchStmt } from './audit';
 import type { Env } from '../env';
 import { makeTestDb, type TestDb } from '../test/d1';
+import { stubPosthogIntake } from '../test/posthog-intake';
 import {
   daysUntil,
   expiryNoticeStatements,
@@ -658,6 +659,77 @@ describe('the batch cap — never-warned terms are read before the already-warne
     expect(result.warned).toBe(1);
     expect(recorded.admin.map((a) => a.vendorSlug)).toEqual(['bluebeam']);
     expect((await entitlementOf(DUE_ENTITLEMENT))?.expiryNoticeSentAt).toBe(NOW.toISOString());
+  });
+});
+
+describe('the §26.5 forward — one request per sweep, not one per vendor (AECI-1112)', () => {
+  const MANY = 8; // past the Worker's ~6 open connections (AECI-666)
+  const idFor = (prefix: string, i: number) =>
+    `${prefix}${i}${prefix}${i}${prefix}${i}${prefix}${i}-0000-4000-8000-00000000000${i}`;
+
+  async function seedMany() {
+    for (let i = 1; i <= MANY; i++) {
+      const vendorId = idFor('a', i);
+      await seedVendor(vendorId, `vendor-${i}`);
+      await seedSeat(vendorId, idFor('b', i));
+      await seedEntitlement({ id: idFor('c', i), vendorId });
+    }
+  }
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  });
+
+  it(`forwards ${MANY} warned rows' audit entries in ONE logs request`, async () => {
+    await seedMany();
+    const intake = stubPosthogIntake();
+    const { sendVendorEmail, sendAdminEmail } = seams();
+
+    const result = await runEntitlementExpirySweep(ctx({ POSTHOG_PROJECT_KEY: 'phc_test' }), t.db, {
+      now: NOW,
+      fetchSeatEmails: seatEmails,
+      sendVendorEmail,
+      sendAdminEmail,
+    });
+
+    expect(result.warned).toBe(MANY);
+    expect(intake.auditRequests()).toHaveLength(1);
+    const messages = intake.auditRequests()[0]!.messages;
+    expect(messages).toHaveLength(MANY);
+    expect(messages.every((m) => m.startsWith(`audit ${EXPIRY_WARNED_ACTION} `))).toBe(true);
+  });
+
+  it('batches the stamp failures too, and a failed forward never fails the sweep', async () => {
+    await seedMany();
+    const intake = stubPosthogIntake(() => Promise.reject(new Error('network down')));
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const { sendVendorEmail, sendAdminEmail } = seams();
+    // Every stamp batch fails: D1 is down after the emails went out.
+    const failingDb = new Proxy(t.db, {
+      get(target, prop, receiver) {
+        if (prop === 'batch') return () => Promise.reject(new Error('D1 unavailable'));
+        const value = Reflect.get(target, prop, receiver) as unknown;
+        return typeof value === 'function' ? value.bind(target) : value;
+      },
+    });
+
+    const result = await runEntitlementExpirySweep(
+      ctx({ POSTHOG_PROJECT_KEY: 'phc_test' }),
+      failingDb,
+      { now: NOW, fetchSeatEmails: seatEmails, sendVendorEmail, sendAdminEmail },
+    );
+    await Promise.all(waited);
+
+    expect(result.batchFailures).toBe(MANY);
+    expect(result.warned).toBe(0);
+    // No audit row committed, so nothing to forward. The failures share one request.
+    expect(intake.auditRequests()).toHaveLength(0);
+    expect(intake.requests).toHaveLength(1);
+    expect(intake.requests[0]!.messages).toEqual(
+      Array.from({ length: MANY }, () => 'aeci.entitlement.expiry.stamp_failed'),
+    );
+    expect(warn).toHaveBeenCalledWith('logBatchToPosthog: forward failed', expect.any(Error));
   });
 });
 

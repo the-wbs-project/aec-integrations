@@ -9,12 +9,13 @@
 import { createHmac } from 'node:crypto';
 
 import { eq } from 'drizzle-orm';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { auditLog, vendorRequests, workflowInstances, workflowTransitions } from '../db/schema';
 import type { Env } from '../env';
 import { makeTestDb, type TestDb } from '../test/d1';
 import { buildAppWithHandler, fakeExecutionContext, TEST_ENV } from '../test/helpers';
+import { stubPosthogIntake } from '../test/posthog-intake';
 import { createLinearWebhookHandler } from './webhooks';
 
 const SECRET = 'whsec_test_linear_signing_secret';
@@ -165,6 +166,25 @@ describe('POST /api/webhooks/linear — HMAC verification', () => {
 });
 
 describe('POST /api/webhooks/linear — state → status mapping', () => {
+  it('forwards the audit row and the transition in ONE request (AECI-1112)', async () => {
+    await seed();
+    const intake = stubPosthogIntake();
+    try {
+      const res = await post(issuePayload({ stateType: 'completed', stateName: 'Done' }), {
+        environment: { ...env, POSTHOG_PROJECT_KEY: 'phc_test' },
+      });
+      expect(res.status).toBe(200);
+
+      expect(intake.auditRequests()).toHaveLength(1);
+      const messages = intake.auditRequests()[0]!.messages;
+      expect(messages).toHaveLength(2);
+      expect(messages[0]).toMatch(/^audit vendor_request\./);
+      expect(messages[1]).toBe(`workflow open→resolved ${WORKFLOW_ID}`);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it('maps completed → resolved: updates status, mirrors the instance, records transition + audit', async () => {
     await seed();
     const res = await post(issuePayload({ stateType: 'completed', stateName: 'Done' }));

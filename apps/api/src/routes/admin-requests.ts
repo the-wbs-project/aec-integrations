@@ -51,21 +51,14 @@ import {
   type ModerateRequestResponse,
   type RequestKind,
 } from '@aeci/shared';
-import {
-  forwardAuditLog,
-  type AuditLogEntry,
-  type AuditLogForwarder,
-} from '@aeci/shared/audit-log';
-import {
-  forwardWorkflowTransition,
-  type WorkflowTransitionEntry,
-  type WorkflowTransitionForwarder,
-} from '@aeci/shared/workflow-transition';
+import { type AuditLogEntry } from '@aeci/shared/audit-log';
+import { type WorkflowTransitionEntry } from '@aeci/shared/workflow-transition';
 import { and, asc, count, desc, eq, inArray } from 'drizzle-orm';
 import type { Context } from 'hono';
 import type { ZodType } from 'zod';
 
 import { getDb, type Db } from '../db/client';
+import { forwardAuditBatch } from '../lib/moderation-forward';
 import { vendorRequests, workflowInstances } from '../db/schema';
 import { logToPosthog, submitCount } from '../posthog';
 import type { Env } from '../env';
@@ -116,38 +109,6 @@ export type SyncRequestToLinear = (
 const noopSyncToLinear: SyncRequestToLinear = async () => {};
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
-
-/** Telemetry forwarder (PostHog + the dual-run Datadog leg) for the audit write; each vendor leg no-ops without its own key. Mirrors
- *  `routes/admin-reviews.ts`, tagged `source: admin-moderation`. */
-function makeForwarder(c: AdminContext): AuditLogForwarder | undefined {
-  if (!c.env.POSTHOG_PROJECT_KEY) return undefined;
-  return (entry) => {
-    logToPosthog(c.executionCtx, c.env, c.req.raw, {
-      level: 'info',
-      message: `audit ${entry.action} ${entry.entityId ?? ''}`.trim(),
-      action: entry.action,
-      entity_type: entry.entityType ?? undefined,
-      entity_id: entry.entityId ?? undefined,
-      source: 'admin-moderation',
-    });
-  };
-}
-
-/** Telemetry forwarder (PostHog + the dual-run Datadog leg) for the workflow-transition write; no-op without
- *  `POSTHOG_PROJECT_KEY`. Mirrors `makeForwarder`, tagged `source: admin-moderation`. */
-function makeWorkflowForwarder(c: AdminContext): WorkflowTransitionForwarder | undefined {
-  if (!c.env.POSTHOG_PROJECT_KEY) return undefined;
-  return (entry) => {
-    logToPosthog(c.executionCtx, c.env, c.req.raw, {
-      level: 'info',
-      message: `workflow ${entry.fromState ?? '∅'}→${entry.toState} ${entry.workflowId}`.trim(),
-      from_state: entry.fromState ?? undefined,
-      to_state: entry.toState,
-      workflow_id: entry.workflowId,
-      source: 'admin-moderation',
-    });
-  };
-}
 
 async function parseJsonBody<T>(c: AdminContext, schema: ZodType<T>): Promise<T> {
   let raw: unknown;
@@ -438,13 +399,9 @@ export function createModerateRequestHandler(
         }
       }),
     );
-    // Best-effort §26.5 audit + workflow forwards AFTER the atomic commit.
-    c.executionCtx.waitUntil(
-      Promise.all([
-        forwardAuditLog(auditEntry, makeForwarder(c)),
-        forwardWorkflowTransition(workflowEntry, makeWorkflowForwarder(c)),
-      ]),
-    );
+    // Best-effort §26.5 audit + workflow forwards AFTER the atomic commit, in ONE
+    // request (AECI-1112).
+    forwardAuditBatch(c, [auditEntry], [workflowEntry]);
 
     // Build the response from the preloaded row + the values we just committed.
     // `is_duplicate` is `false` on the single-row confirmation (the dashboard

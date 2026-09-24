@@ -2,6 +2,7 @@ import type { Context } from 'hono';
 import { describe, expect, it, vi } from 'vitest';
 
 import type { Env } from '../env';
+import { stubPosthogIntake } from '../test/posthog-intake';
 import { reportMissingVendors, validateResponseInDev } from './handler-utils';
 
 function envWith(env: Env['ENV']): Env {
@@ -74,7 +75,30 @@ describe('reportMissingVendors (AECI-115 — data-gap observability)', () => {
     expect(waitUntil).not.toHaveBeenCalled();
   });
 
-  it('emits one warn log per gap + one count metric when a vendor is missing (DD configured)', () => {
+  it('sends every gap on the page in ONE logs request, past the ~6-connection limit (AECI-1112)', () => {
+    const intake = stubPosthogIntake();
+    try {
+      const { c, waitUntil } = ctxWith({ POSTHOG_PROJECT_KEY: 'phc_test_token' });
+      const gaps = Array.from({ length: 8 }, (_, i) => ({
+        id: `p${i}`,
+        slug: `gap-${i}`,
+        vendor: null,
+      }));
+
+      reportMissingVendors(c, [withVendor, ...gaps]);
+
+      // One log request + one count metric, however many gaps.
+      expect(waitUntil).toHaveBeenCalledTimes(2);
+      expect(intake.requests).toHaveLength(1);
+      expect(intake.requests[0]!.messages).toEqual(
+        gaps.map((g) => `Data gap: product ${g.slug} has no primary vendor`),
+      );
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('emits one batched warn log + one count metric when a vendor is missing', () => {
     const fetchSpy = vi
       .spyOn(globalThis, 'fetch')
       .mockResolvedValue(new Response(null, { status: 202 }));
@@ -82,7 +106,7 @@ describe('reportMissingVendors (AECI-115 — data-gap observability)', () => {
 
     reportMissingVendors(c, [withVendor, noVendor]);
 
-    // 1 missing product → 1 logToPosthog dispatch + 1 submitCount dispatch.
+    // 1 missing product → 1 logBatchToPosthog dispatch + 1 submitCount dispatch.
     expect(waitUntil).toHaveBeenCalledTimes(2);
     fetchSpy.mockRestore();
   });
