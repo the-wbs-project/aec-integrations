@@ -2617,6 +2617,9 @@ create unique index connector_catalogs_product_idx on connector_catalogs(connect
   nothing at all, including no `audit_log` row. The check runs *before* the unpromoted-connector
   skip, so a policy refusal never disguises itself as a re-sendable "could not resolve yet".
   Refusing the page is complete cover: every child row binds the page's own catalogue id.
+  The refusal also holds at commit time (AECI-1084): a page that writes carries
+  `catalogNotVendorManagedSentinel` right after its ledger insert, so a flip between plan and
+  commit rolls the whole batch back and the job fails with the same code.
 - **The flag is reversible; the data direction is not.** "One-way forever" governs the data — the
   review app never writes over AECi's copy — and the refusal delivers that unconditionally. The
   flag itself moves both ways, because `STAGE_2_SPEC.md` §8.9(4) makes this cutoff the mechanism
