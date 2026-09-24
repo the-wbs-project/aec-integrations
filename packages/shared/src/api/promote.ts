@@ -72,7 +72,8 @@ export const PUBLIC_PRIVATE = ['public', 'private'] as const;
 // not yet run) — dropping it here would make the very push that carries the re-key
 // fail validation. `iPaaS` stays PERMANENTLY, not pending anything: AECI-735
 // settled that it is the marker behind the attestation gate, the Via lane and the
-// powered hub, over a population AECI-700 parks indefinitely.
+// powered hub, over edges whose connector is unpromoted. (AECI-700 parked Zapier and
+// Workato until AECI-1064 reversed it on 2026-09-23; Make, n8n and Boomi remain.)
 //
 // One DEPLOYMENT caveat on `integrator`: it reaches
 // `integrations_mechanism_kind_check` in `0027_powerful_killraven.sql`, so a
@@ -697,10 +698,10 @@ export interface PromotePreserved {
  * only signal was the *absence* of `poweredBySlug` from the result.
  *
  * **Expect a steady, non-zero stream of these, and do not treat them as errors.**
- * The commonest cause by far is a connector AECi has deliberately parked and will
- * never promote (Zapier and Workato — AECI-700), so for those edges this is the
- * permanent expected state, not a backlog that drains. Re-pushing will not change
- * it. The actionable case is the other one: a connector that *is* meant to be in
+ * The commonest cause is a connector AECi has not promoted (Make, n8n, Boomi), so
+ * for those edges this is the expected state, not a backlog that drains. Re-pushing
+ * will not change it. Zapier and Workato were the largest source while AECI-700
+ * parked them; AECI-1064 reversed that on 2026-09-23. The actionable case is the other one: a connector that *is* meant to be in
  * the directory but hasn't been promoted yet — promote it, then re-push this edge.
  */
 export interface PromoteUnresolvedLink {

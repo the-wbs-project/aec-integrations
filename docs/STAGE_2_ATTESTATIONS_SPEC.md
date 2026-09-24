@@ -2684,7 +2684,9 @@ the **product**, and `powered_by_product_id` is the only link between them. Meas
   gap is promotion coverage blocked on the `on_hold` connector decision, not a data defect any script
   can repair. An FK-only gate — which is what AECI-705's scope line proposed — would therefore keep
   prompting on exactly the edges where "we didn't build it" is least arguable, and would keep doing
-  it indefinitely.
+  it indefinitely. **Reversed 2026-09-23 (AECI-1064):** Zapier and Workato are promoted, and the
+  endpoint re-promote moved their 39 live edges into `connector_evidenced_pairs` with the FK set.
+  7 NULL-FK `iPaaS` rows remained on 2026-09-24 (Make, n8n, Boomi and others).
 - **18 edges carry the FK but are typed `marketplace-app` (17) or `partner` (1).** All 79 FK targets
   are `product_role` `connector` (77) or `hybrid` (2), so those are provably connector-powered
   whatever the edge is typed. An `iPaaS`-only gate misses every one.

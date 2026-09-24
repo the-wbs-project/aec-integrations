@@ -393,9 +393,11 @@ export const integrations = sqliteTable(
     //   3. `MECHANISM_ORDER` (`apps/web/.../powered-hub-grouping.ts`) — used as a
     //      FILTER, so a missing member drops edges from the hub silently.
     //
-    // And the population is permanent: those edges cannot move to
-    // `connector_evidenced_pairs` (`connector_product_id` is NOT NULL) because
-    // AECI-700 parks Zapier and Workato indefinitely, while ~144 of the 308 upstream
+    // And the population does not drain on its own: those edges cannot move to
+    // `connector_evidenced_pairs` (`connector_product_id` is NOT NULL) while their
+    // connector is unpromoted. AECI-700 parked Zapier and Workato; AECI-1064
+    // reversed that on 2026-09-23 and their edges moved, leaving 7 NULL-FK `iPaaS`
+    // rows (Make, n8n, Boomi and others; 2026-09-24). Meanwhile ~144 of the 308 upstream
     // `iPaaS` rows are Convention-A self-references that stay in `integrations` by
     // design. There is no replacement marker short of a new column, which would buy
     // vocabulary tidiness at the cost of breaking three predicates.

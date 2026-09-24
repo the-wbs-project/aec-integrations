@@ -1068,7 +1068,9 @@ The `result` object in full:
   product's "how teams use it" block, so the column is no longer promote-writable
   and the block you pushed was not written. **This is a permanent steady state for
   that product, not a backlog that drains** — re-pushing will not change it, in the
-  same way Zapier's parked connector permanently produces an unresolved link.
+  same way an unpromoted connector (Make, n8n, Boomi) permanently produces an
+  unresolved link. Zapier was the example here until AECI-1064 promoted it on
+  2026-09-23.
   Surface it to a curator once rather than alerting on it: the useful action is to
   stop maintaining a copy that no longer ships, and there is no "take it back"
   control by design.
@@ -1895,8 +1897,9 @@ minted 11 terms in its whole history, so any non-zero point is worth a look.
 `{ ref, field, supabaseId, outcome }` plus per-field counts) and an
 `aeci.api.promote.unresolved_link` count tagged by `field` (`powered_by` /
 `built_by`). It is **not** a `warn` and it does **not** feed
-`aeci.api.promote.skipped`, because the parked-connector case (AECI-700) makes it
-permanently non-zero — folding it in would leave "something wasn't written" dirty
+`aeci.api.promote.skipped`, because the unpromoted-connector case (Make, n8n, Boomi) makes it
+permanently non-zero. Zapier and Workato were that case under the AECI-700 park until
+AECI-1064 reversed it on 2026-09-23 — folding it in would leave "something wasn't written" dirty
 forever. The actionable read is a **rise** in `field:powered_by`, not its presence.
 No monitor pages on it.
 

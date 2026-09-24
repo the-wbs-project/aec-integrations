@@ -71,8 +71,9 @@ const RecordIdSchema = z.string().min(1).max(64);
  * holds this mapping (`products.supabase_product_id`), so there is no `ref`/
  * `supabaseId` graph on this endpoint at all.
  *
- * Absent means *not promoted* — Zapier and Workato are `promotion_status: on_hold`
- * review-side (AECI-700) — and that is a **skip, never a 400**. The review app is
+ * Absent means *not promoted* — Make, n8n and Boomi today; Zapier and Workato until
+ * AECI-1064 promoted them on 2026-09-23, reversing AECI-700 — and that is a **skip,
+ * never a 400**. The review app is
  * right to keep ingesting a catalogue whose platform AECi has not promoted.
  */
 const PromotedProductIdSchema = z.string().uuid();

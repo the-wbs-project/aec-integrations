@@ -14,6 +14,12 @@ a connector.
 > the silent drop is now reported and a re-push no longer clears a stored FK. And
 > AECI-700 decided Zapier and Workato stay parked **permanently**, so the
 > `connectorUnpromoted` bucket has a permanent non-zero floor rather than draining.
+>
+> **Reversed 2026-09-23 (AECI-1064):** Zapier and Workato are promoted as
+> `connector`-role products. The same day, 14 endpoint re-promotes moved their 39 live
+> edges into `connector_evidenced_pairs` with the connector set
+> (`scripts/ops/2026-09-connector-attribution-repromote/`). The floor below is now Make,
+> n8n, Boomi and the other unpromoted connectors. The sections below are kept as written.
 
 ---
 
@@ -101,7 +107,8 @@ and one each for Box/SyncEzy, Boomi, SharePoint/SyncEzy, Make, ADP/Flexspring.
 AECI-700 parks **Zapier and Workato permanently**: neither will ever be promoted, so
 their 39 edges (63% of this bucket) are a permanent floor, and the ceiling grows as
 more endpoint products are promoted. Treat a non-zero `connectorUnpromoted` as the
-expected state, not as a queue.
+expected state, not as a queue. _Reversed 2026-09-23 (AECI-1064): both are promoted
+and those 39 edges moved; see the status note at the top._
 
 **`edgeUnpromoted` (184)** — the upstream edge has never been promoted at all: Zapier
 86, Workato 29, Make 19, Kroo Connector 15, Aquifer 12, MindCloud 6, Finch 5, Blackbox
@@ -222,7 +229,9 @@ exposes `promote_product` and the `create_*`/`update_*` family.
   connector and then re-promoting the endpoint products does land their edges — but
   **Zapier and Workato are excluded by decision (AECI-700) and will never be promoted**,
   so 39 of the 62 `connectorUnpromoted` and 115 of the 184 `edgeUnpromoted` can never be
-  closed that way. `audit.mjs` will keep exiting `1` permanently, by design.
+  closed that way. `audit.mjs` will keep exiting `1` permanently, by design. _Reversed
+  2026-09-23 (AECI-1064): Zapier and Workato are promoted and the 39 edges closed that
+  way. Make, n8n and Boomi still keep the buckets non-zero._
 - **The cron caveat is now the operative one, not a hypothetical.** If this sweep is
   wired alongside `promote-strand-audit.yml` it **must** carry a `connectorUnpromoted` /
   `edgeUnpromoted` allowance — those buckets have a permanent non-zero floor, so without

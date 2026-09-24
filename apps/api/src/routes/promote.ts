@@ -1552,8 +1552,10 @@ function logPromoteStaleIds(rc: PromoteRunCtx, staleSupabaseIds: PromoteStaleId[
  * found by an offline sweep (`scripts/ops/2026-08-powered-by-backfill/`).
  *
  * **Deliberately `info`, and deliberately NOT folded into {@link logPromoteSkips}.**
- * Zapier and Workato are parked permanently (AECI-700), so every promote of an
- * endpoint carrying one of their edges fires this — forever, by design. A `warn` on
+ * Some connectors stay unpromoted (Make, n8n, Boomi), so every promote of an
+ * endpoint carrying one of their edges fires this, by design. Zapier and Workato
+ * were the largest source while AECI-700 parked them; AECI-1064 reversed that on
+ * 2026-09-23. A `warn` on
  * the expected steady state, or a bump to `aeci.api.promote.skipped` (which means
  * "something wasn't written"), would turn a real signal into noise an operator learns
  * to ignore, which is the exact failure mode this exists to fix. The actionable read
@@ -2870,9 +2872,10 @@ export async function runPromoteIngest(
     // The self-reference exclusion is §13.2(a) Convention A: ~60 production edges
     // name one of their own endpoints as the connector, deliberately, and the
     // destination's `connector_evidenced_pairs_distinct_connector` CHECK would refuse
-    // them. An edge whose connector did not resolve (Zapier, Workato — parked by
-    // AECI-700) also stays, because `connector_product_id` is NOT NULL; that is the
-    // population AECI-730 exists to make observable.
+    // them. An edge whose connector did not resolve (Make, n8n, Boomi; Zapier and
+    // Workato while AECI-700 parked them, until AECI-1064 on 2026-09-23) also stays,
+    // because `connector_product_id` is NOT NULL; that is the population AECI-730
+    // exists to make observable.
     //
     // AECI-750: `resolveLink` is tri-state, so narrow to a RESOLVED id first. Both
     // `null` (explicit clear) and `undefined` (unresolvable) fall through to

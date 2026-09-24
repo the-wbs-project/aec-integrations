@@ -94,8 +94,9 @@ describe('mechanism vocabulary — app-side lockstep (AECI-735)', () => {
   it('keeps `iPaaS` and `partner` — neither retirement has happened (AECI-735)', () => {
     // An INVARIANT assertion, not a behaviour one. `iPaaS` is PERMANENT: it is the
     // marker behind `isConnectorPoweredEdge` (AECI-705's attestation gate),
-    // `routeIntegrationLane` clause (c) (the Via lane) and `MECHANISM_ORDER`, over a
-    // population AECI-700 parks indefinitely. `partner` is pending AECI-712's
+    // `routeIntegrationLane` clause (c) (the Via lane) and `MECHANISM_ORDER`, over
+    // edges whose connector is unpromoted (AECI-700 parked Zapier and Workato until
+    // AECI-1064 reversed it on 2026-09-23; Make, n8n and Boomi remain). `partner` is pending AECI-712's
     // upstream re-key; dropping it before that runs makes `toMechanismKind` throw on
     // every surviving row. Deleting either case means reopening AECI-735.
     expect(KINDS).toContain('iPaaS');

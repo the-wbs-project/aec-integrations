@@ -164,8 +164,9 @@ describe('mechanism vocabulary lockstep', () => {
   // `iPaaS` and `partner` are BOTH still here on purpose, and for different
   // reasons — AECI-735. `iPaaS` is permanent: it is the marker behind
   // `isConnectorPoweredEdge` (AECI-705's attestation gate), `routeIntegrationLane`
-  // clause (c) (the Via lane) and `MECHANISM_ORDER`, over a population AECI-700
-  // parks indefinitely. `partner` is pending AECI-712's upstream re-key.
+  // clause (c) (the Via lane) and `MECHANISM_ORDER`, over edges whose connector is
+  // unpromoted (AECI-700 parked Zapier and Workato until AECI-1064 reversed it on
+  // 2026-09-23; Make, n8n and Boomi remain). `partner` is pending AECI-712's upstream re-key.
   const MECHANISM_VOCABULARY = [
     'native',
     'iPaaS',

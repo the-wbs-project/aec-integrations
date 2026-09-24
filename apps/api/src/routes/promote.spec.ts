@@ -2828,7 +2828,8 @@ describe('runPromoteIngest — claims ingest (AECI-297)', () => {
     });
 
     it('writes the integration but reports the connector, on create', async () => {
-      // uuid(9) is a product that was never promoted — the Zapier/Workato case.
+      // uuid(9) is a product that was never promoted — the unpromoted-connector case
+      // (Make, n8n, Boomi; Zapier and Workato until AECI-1064, 2026-09-23).
       const res = await promote(edge({ poweredByProduct: { supabaseId: uuid(9) } }));
       expect(res.status).toBe(200);
       const b = await body(res);

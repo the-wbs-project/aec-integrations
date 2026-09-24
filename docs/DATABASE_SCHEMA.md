@@ -2596,8 +2596,9 @@ create unique index connector_catalogs_product_idx on connector_catalogs(connect
 ```
 
 - `connector_product_id` is **NOT NULL**. A catalogue whose connector platform is not promoted is
-  reported in the sync's `skipped[]` rather than stored half-formed — the live case, since Zapier
-  and Workato are `promotion_status: on_hold` review-side (AECI-700). **AECI-721 answered the
+  reported in the sync's `skipped[]` rather than stored half-formed. Zapier and Workato were the
+  live case while AECI-700 parked them. **Reversed 2026-09-23 (AECI-1064):** both are promoted,
+  and Zapier's catalogue now lands. Make, n8n and Boomi remain unpromoted. **AECI-721 answered the
   open question as NO** — an evidenced pair may not name an unpromoted connector either (§9a.6
   "As built"), so those edges stay in `integrations` and keep `mechanism_kind = 'iPaaS'`.
 - `connector_authorship` matters because Zapier inverts what the rest of the lane assumes: its app

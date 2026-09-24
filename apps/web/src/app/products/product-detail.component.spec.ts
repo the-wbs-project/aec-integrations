@@ -690,8 +690,9 @@ describe('ProductDetailPage integrations lanes (§13.3)', () => {
   });
 
   it('heads the unnamed group without inventing a connector name (§13.2(c))', () => {
-    // 53 production rows, permanently: `iPaaS` with no `powered_by`, because
-    // AECI-700 parks Zapier and Workato and their platforms have no product row.
+    // `iPaaS` with no `powered_by`, because the connector has no product row. 53
+    // production rows on 2026-08-31 while AECI-700 parked Zapier and Workato; 7 on
+    // 2026-09-24, after AECI-1064 reversed the park (Make, n8n, Boomi and others).
     const { el } = setup(
       buildProduct({
         integrations_as_source: [endpointEdge(procore, sage, { mechanism_kind: 'iPaaS' })],

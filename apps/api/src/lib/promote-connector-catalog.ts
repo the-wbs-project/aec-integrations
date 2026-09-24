@@ -418,7 +418,8 @@ export async function planConnectorCatalogPage(
   //
   // ORDERING IS LOAD-BEARING — this runs BEFORE the unpromoted-connector skip below,
   // not after. A vendor-managed catalogue whose platform happens to be unpromoted
-  // (Zapier and Workato are `on_hold` review-side, AECI-700 — the live case) would
+  // (Make, n8n and Boomi today; Zapier and Workato until AECI-1064 promoted them on
+  // 2026-09-23, reversing AECI-700) would
   // otherwise come back as a re-sendable `skipped[]` entry, telling the caller "try
   // again later" when the answer is permanently no. A policy refusal must not depend on
   // unrelated resolution state.
@@ -444,8 +445,9 @@ export async function planConnectorCatalogPage(
   }
 
   // A catalogue whose connector platform is not promoted cannot be stored at all —
-  // `connector_product_id` is NOT NULL. Zapier and Workato are `on_hold` review-side
-  // (AECI-700), so this is the live case, not a hypothetical. The whole page is
+  // `connector_product_id` is NOT NULL. This is a live case, not a hypothetical:
+  // Zapier's catalogue skipped whole until AECI-1064 promoted Zapier on 2026-09-23
+  // (reversing the AECI-700 park), and Make, n8n and Boomi are still unpromoted. The whole page is
   // reported and dropped: not an error, and nothing is half-written.
   const connectorProductId = page.catalog.connectorProductId;
   if (!connectorProductId || !promotedProducts.has(connectorProductId)) {

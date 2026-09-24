@@ -5087,7 +5087,8 @@ export interface PromoteConnectorPageResponse {
 `connector-mapping`, `connector-pair`. All four mean *"this could not be resolved yet"*, never
 *"policy said no"*, and all four are re-sendable. They exist because pages are not atomic with
 each other, so a page can legitimately reference a stub a later page carries, or a product AECi
-has not promoted (Zapier and Workato are `on_hold` review-side). **A caller must inspect
+has not promoted (Make, n8n and Boomi today; Zapier and Workato until AECI-1064 promoted them
+on 2026-09-23). **A caller must inspect
 `skipped[]` even on a clean `complete`**: a full-mirror sync that dropped 200 mappings looks
 identical to one that dropped none.
 
@@ -5101,7 +5102,8 @@ more than one stub-level decision on the same stub.
 kick-off. On the job, a page addressing a **vendor-managed** catalogue fails with
 `CATALOG_VENDOR_MANAGED` (§4). The refusal is raised from the planner *before* the
 unpromoted-connector skip — ordering that matters, because a vendor-managed catalogue whose
-platform is unpromoted (the live Zapier/Workato case) would otherwise return a re-sendable skip
+platform is unpromoted (Zapier and Workato were the live case until AECI-1064 promoted them on
+2026-09-23) would otherwise return a re-sendable skip
 saying "try again later" when the answer is permanently no. `managedBy` is correspondingly **not
 on the wire**: the flag is held and enforced on this side, so a catalogue starts `review` by
 column default and only `PATCH /api/admin/connector-catalogs/:id` moves it.

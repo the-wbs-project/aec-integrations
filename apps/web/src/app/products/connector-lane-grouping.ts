@@ -68,8 +68,10 @@ export interface ConnectorLaneGroup {
   /**
    * The connector, or `null` when the data names none. §13.2(c): an `iPaaS` edge
    * with no `powered_by` is connector-delivered but its connector has no
-   * `products` row — 53 production rows, permanently, since AECI-700 parks
-   * Zapier and Workato. It groups under an unnamed heading; **never invent a
+   * `products` row — 53 production rows on 2026-08-31, when AECI-700 parked
+   * Zapier and Workato. AECI-1064 reversed that on 2026-09-23 and moved their
+   * edges; 7 rows remained on 2026-09-24 (Make, n8n, Boomi and others). It
+   * groups under an unnamed heading; **never invent a
    * name**. A non-empty unnamed group is a data-integrity signal to watch, not a
    * design state to style.
    */
@@ -124,9 +126,11 @@ export type IntegrationLane =
  * **Clause (c) is PERMANENT (AECI-735).** It is not a bridge waiting for the FK to
  * be backfilled. Its 53 production edges are `iPaaS` with a NULL `powered_by`
  * because their connector is unpromoted, they cannot move to
- * `connector_evidenced_pairs` (`connector_product_id` is NOT NULL), and AECI-700
- * parks Zapier and Workato indefinitely — so the set never drains and clause (c) is
- * the only thing keeping those edges off the "direct, first-party" lane. Its sibling
+ * `connector_evidenced_pairs` (`connector_product_id` is NOT NULL) while their
+ * connector stays unpromoted — so the set does not drain on its own and clause (c) is
+ * the only thing keeping those edges off the "direct, first-party" lane. (AECI-700
+ * parked Zapier and Workato. AECI-1064 reversed that on 2026-09-23 and their edges
+ * moved; Make, n8n and Boomi remain unpromoted.) Its sibling
  * is `isConnectorPoweredEdge` (`apps/api/src/lib/connector-powered.ts`), which reads
  * `iPaaS` for the same population to gate AECI-705's attestation prompts; the two
  * change together or not at all.

@@ -100,8 +100,9 @@ describe('routeIntegrationLane — §13.2', () => {
   });
 
   it('(c) routes an `iPaaS` edge with no connector to the UNNAMED group', () => {
-    // 53 production rows, permanently: their connector (Zapier / Workato) is
-    // parked review-side, so it has no `products` row to name.
+    // The connector is unpromoted, so it has no `products` row to name. 53 production
+    // rows on 2026-08-31 (Zapier / Workato, parked by AECI-700); 7 on 2026-09-24,
+    // after AECI-1064 reversed the park (Make, n8n, Boomi and others).
     const route = routeIntegrationLane(
       edge({ source: procore, target: sage, mechanism_kind: 'iPaaS' }),
     );

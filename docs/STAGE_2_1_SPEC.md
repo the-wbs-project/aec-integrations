@@ -94,7 +94,7 @@ Seeded empty **by design** — it is filled by rehearsal findings, parked-claim 
 
 The AECI-771 gate is met. AECI-885, AECI-636 and AECI-1037 were all Done on 2026-09-22. On 2026-09-23 the epic's children were split between the two stages. The record is the 2026-09-23 comment on AECI-771.
 
-Five items stay here with the epic. Build order is 724, then 769, then 710 and 711. 928 waits on a ruling.
+Five items stay here with the epic. Build order is 724, then 769, then 710 and 711. 928 was waiting on the AECI-1064 ruling, which landed on 2026-09-23, so it is unblocked.
 
 | Issue | What it does | Why it is admitted |
 |---|---|---|
@@ -102,7 +102,7 @@ Five items stay here with the epic. Build order is 724, then 769, then 710 and 7
 | **AECI-769** | Per-product list with `RoleBadge` on `/admin/vendors/:id`. | Polish on the admin identify step that precedes a grant. |
 | **AECI-710** | Surface `extension_of` on product pages. | **A named exception to §1.** Admitted 2026-09-23 by operator decision. It is small rendering over data the catalog already holds, with no new data or route. It ranks behind the seat-granting blockers. Built as `STAGE_1_5_SPEC.md` §13.3b (2026-09-23). |
 | **AECI-711** | Render integration direction and object coverage, only where present. | **A named exception to §1.** Admitted 2026-09-23 by operator decision. It is small rendering over data the catalog already holds, with no new data or route. It ranks behind the seat-granting blockers. |
-| **AECI-928** | Apply I24 to Zapier's 59 powered rows. | Data cleanup on the connector lane. It is blocked on the AECI-1064 ruling. |
+| **AECI-928** | Apply I24 to Zapier's 59 powered rows. | Data cleanup on the connector lane. It was blocked on the AECI-1064 ruling. That ruling landed on 2026-09-23: Zapier is promoted and its catalogue is in production, so AECI-928 is unblocked. |
 
 Two children moved out to Stage 2.5 on 2026-09-23. **AECI-715** is the coverage checker. **AECI-716** is reachable-lane publication. Both are new public catalog surfaces and fail the §1 admission test. They stay children of AECI-771. `STAGE_2_5_SPEC.md` §13 records them.
 
@@ -129,7 +129,7 @@ Everything in `docs/STAGE_2_5_SPEC.md` and `docs/STAGE_3_SPEC.md`. The AECI-636 
 - [x] AECI-623 merged. PR #808, 2026-09-23.
 - [ ] AECI-633 logged green. Todo on 2026-09-24.
 - [x] The pulled-forward seat-gating items (§3.3.1) closed: AECI-770 and AECI-1053. PR #807 and PR #809, both merged 2026-09-23.
-- [ ] The connector-lane epic's Stage 2.1 children (§3.3.2) closed or explicitly deferred with a recorded reason: AECI-724, AECI-769, AECI-710, AECI-711, and AECI-928 (which is held on the AECI-1064 ruling). **Status 2026-09-24:** four of five are Done. AECI-724 is PR #800, AECI-769 is PR #803, AECI-710 is PR #802 and AECI-711 is PR #801, all merged 2026-09-23. AECI-928 is still Todo, so this box stays open.
+- [ ] The connector-lane epic's Stage 2.1 children (§3.3.2) closed or explicitly deferred with a recorded reason: AECI-724, AECI-769, AECI-710, AECI-711, and AECI-928 (unblocked 2026-09-23 when the AECI-1064 ruling landed). **Status 2026-09-24:** four of five are Done. AECI-724 is PR #800, AECI-769 is PR #803, AECI-710 is PR #802 and AECI-711 is PR #801, all merged 2026-09-23. AECI-928 is still Todo, so this box stays open.
 - [x] Vendor guides (§3.5) built and live at v0, noindex. AECI-1104, PR #811, merged 2026-09-23.
 - [ ] Vendor guides indexed, in the sitemap and linked from the footer and portal. This is the literal "published" and it waits on AECI-1105.
 - [ ] Refinement backlog (§3.2) empty, or each remainder explicitly deferred with a recorded reason.

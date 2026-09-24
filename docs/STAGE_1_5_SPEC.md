@@ -2093,7 +2093,8 @@ which is materially larger than the promoted app DB — the *ratios* are the dur
 The prod app-DB subset is gated on **AECI-706** (the `powered_by` backfill) and **AECI-700** (the
 Zapier/Workato `on_hold` decision — 110 and 44 powered edges respectively ride on parked products).
 Until AECI-700 resolves, the "Via" lane reads mostly-Agave; that is expected, not a defect in the
-split. These are **review-catalogue** figures; §12.6 carries the **production app-DB** counterpart
+split. **Resolved 2026-09-23 (AECI-1064):** Zapier and Workato are promoted, so their powered edges
+join the "Via" lane as each endpoint is re-promoted. These are **review-catalogue** figures; §12.6 carries the **production app-DB** counterpart
 (946 integrations, 79 with the FK, as of AECI-706) — different populations, not a supersession. The
 "5 of 421" snapshot §12.6 once carried was itself superseded there by AECI-706.
 
@@ -2187,6 +2188,8 @@ transfer it predicted.
 against 212 machine proposals — the coverage surface is real but thin until somebody confirms.
 And a catalogue whose connector platform is unpromoted cannot land at all (`connector_product_id`
 is NOT NULL): Zapier and Workato are `on_hold` review-side, so their pages report in `skipped[]`.
+**Reversed 2026-09-23 (AECI-1064):** both are promoted, and Zapier's 26-page catalogue now lands
+(§13.9). Make, n8n and Boomi remain unpromoted.
 Whether an evidenced pair may name a connector with no `products` row is AECI-721's question, and
 it now applies to catalogues too.
 
