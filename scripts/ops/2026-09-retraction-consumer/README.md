@@ -1,6 +1,6 @@
-# 2026-09 retraction-feed consumer (AECI-882 / AECI-811 / AECI-878 / AECI-889 / AECI-916 / AECI-957 / AECI-1024 / AECI-1020 / AECI-928)
+# 2026-09 retraction-feed consumer (AECI-882 / AECI-811 / AECI-878 / AECI-889 / AECI-916 / AECI-957 / AECI-1024 / AECI-1020 / AECI-928 / AECI-1018)
 
-**Status: RUN — twelve tranches, all complete.** Applied to `aeci-app-production` on
+**Status: RUN — thirteen tranches, all complete.** Applied to `aeci-app-production` on
 2026-09-13 (214 rows), 2026-09-14 (the 2 held back), 2026-09-14 again (17 rows, AECI-889
 batch 1), 2026-09-14 a third time (21 rows, AECI-889 batches 2 + 3), 2026-09-14 a
 fourth time (2 rows, **AECI-916 — the first operator-ruling run**), 2026-09-15
@@ -10,9 +10,9 @@ retirement, and the first to cascade claims that no surviving row holds**), and 
 (4 rows, **AECI-1024 — the first cohort removed under the owner ruling's admission test**), and
 2026-09-18 twice more (6 rows then 1, **the AECI-1020 cleanup window**), and 2026-09-21
 (1 row, **the ADP Workforce Now ↔ Sage 100 Contractor leftover of that same AECI-1020
-window, ruled withdrawn**), and 2026-09-24 (16 rows, **AECI-928 — Zapier's I24 retire**).
-**The feed holds one pending entry, the AECI-1018 row, which the AECI-928 run held and did
-not rule on.** No hold is active in the file. The AECI-1024 vendor half ran the same
+window, ruled withdrawn**), and 2026-09-24 (16 rows, **AECI-928 — Zapier's I24 retire**),
+and 2026-09-24 again (1 row, **AECI-1018 — the AutoCAD Map 3D ↔ Civil 3D row that AECI-928
+held**). **The feed is empty.** No hold is active in the file. The AECI-1024 vendor half ran the same
 day through the new `ops:retract-vendor` lane (8 vendor rows), and Nemetschek Group followed on
 the same lane in the AECI-1020 window (1 vendor row). The daily audit is green.
 
@@ -1422,7 +1422,7 @@ The feed held 17 entries, not 16. The extra one is the AECI-1018 row
 `63312dc1-8b3b-4d18-b014-7863595637d7`, AutoCAD Map 3D ↔ Civil 3D. It is live in
 `integrations` with 2 claims and has been pending since 2026-09-22. This run was not
 authorised to delete it, so it went on `HOLD`. It was not deleted and not confirmed.
-**It is still pending on the journal**, and it needs its own ruling and its own pins.
+It needed its own ruling and its own pins. Both came the same day: see the AECI-1018 run below.
 
 ### The three guards, pinned and reset
 
@@ -1455,6 +1455,99 @@ Nothing to purge. Production still serves uncached.
 - The review-side I26 overlap query, re-run the same day, reads **0** powered duplicates for
   all six catalogues: Zapier, MindCloud, Trimble AppXchange, Aquifer, Kroo Connector and Agave
   ERP Sync.
+
+## What ran — 2026-09-24, 1 row (AECI-1018, AutoCAD Map 3D ↔ Civil 3D)
+
+**Why.** Chris Walton ruled on 2026-09-22 that AutoCAD Map 3D ↔ Civil 3D has **no product
+boundary**. The Map 3D toolset is "built inside of the Autodesk Civil 3D software" (IMAGINiT)
+and ships with AutoCAD, so nothing crosses between two products. That reversed the 2026-08-26
+keep. Upstream deleted review record `recbbHDRSbF6ppFY3` and journalled it as entry
+`recf5dP66lSltHBC2`. The AECI-928 run held it. Chris authorised this run on AECI-1018 on
+2026-09-24.
+
+```
+node scripts/ops/2026-09-retraction-consumer/consume.mjs --env production
+node scripts/ops/2026-09-retraction-consumer/consume.mjs --env production --apply --allow-production --confirm-count 1
+```
+
+| | before | after | delta |
+|---|---|---|---|
+| `integrations` | 911 | 910 | −1 |
+| `connector_evidenced_pairs` | 74 | 74 | 0 |
+| `claims` | 2011 | 2009 | −2 |
+| `attestations` | 2011 | 2009 | −2 |
+| feed, pending | 1 | 0 | −1 |
+
+`resolve: integrations 1, connector_evidenced_pairs 0, already gone 0`. Verify read
+`integrations left 0, pairs left 0, orphan claims 0`, and confirm read `requested 1,
+confirmed 1`. The run wrote **1 `integration.deleted` audit row**, `33f26aef-…`. **2 products**
+had `integration_count` repaired and `updated_at` bumped: `autocad-map-3d` 2 → 1 and
+`civil-3d` 12 → 11. The AECI-878 sentinel survived. `db:reconcile-counts -- --fix` afterwards
+reported **no drift**, independently.
+
+The Time Travel bookmark taken just before the apply expires around **2026-10-24**:
+
+```
+wrangler d1 time-travel restore aeci-app-production --bookmark=000066f6-00000006-000050f0-fc9e863a290c10b8908adf90b8254823
+```
+
+The local rollback is `rollback-2026-09-24T06-16-06-924Z.sql` in the `el-paso-v5` workspace.
+
+| Journal entry | Row | Edge | Ruled | Claims |
+|---|---|---|---|--:|
+| `recf5dP66lSltHBC2` | `63312dc1-8b3b-4d18-b014-7863595637d7` | AutoCAD Map 3D ↔ Civil 3D | no product boundary: Map 3D is built inside Civil 3D | 2 |
+
+### `MAX_CASCADE` moved on a ruling, and only for AECi-origin claims
+
+Raised to `2 / 2`. No twin-count stands behind it. The edge was ruled out of the catalog, so
+nothing supersedes it by construction. That is the AECI-809 self-edge / AECI-1024 shape. The
+authorisation is Chris Walton's AECI-1018 ruling of 2026-09-24 and nothing else.
+
+Both cascading claims were read out of production before the guard moved. Both read
+`origin = 'aeci'` with an `aeci`-source attestation and a NULL `attested_by_vendor_id`. The
+row read `maintained_by = 'aeci'`, `claimed_at` NULL and 0 open contests.
+
+| Claim | Direction | Origin | Attestation source |
+|---|---|---|---|
+| `0f7c592b` | `both` | `aeci` | `aeci` |
+| `8e9156cc` | `both` | `aeci` | `aeci` |
+
+### The three guards, pinned and reset
+
+| Constant | Pinned for this run | Now, in the file |
+|---|---|---|
+| `EXPECTED` | `{ total: 1, inPairs: 0, inIntegrations: 1 }` | `{ 0, 0, 0 }` |
+| `MAX_CASCADE` | `{ claims: 2, attestations: 2 }` | `{ 0, 0 }` |
+| `HOLD` | `{}` | `{}` |
+
+The pins were never committed.
+
+### Algolia — not removed by this run
+
+The drift dry run listed **17** orphans in `production_integrations`. One is `63312dc1-…`.
+The other 16 are the AECI-928 Zapier rows, which that run left for the nightly sweep.
+`db:reconcile-algolia-drift --apply` has no per-id filter, so it would have removed all 17.
+This run was authorised for one record, so the apply was not run. 17 is under the sweep's cap
+of 50, so the nightly sweep will remove all of them.
+
+```
+products      production_products        indexed 293   promoted 293    orphans 0
+vendors       production_vendors         indexed 193   promoted 193    orphans 0
+integrations  production_integrations    indexed 1001  promoted 984    orphans 17
+```
+
+### Cache
+
+Nothing to purge. `apps/web/wrangler.jsonc` still has `exports` only in the `preview` and
+`staging` blocks, so production serves uncached.
+
+### Verification, live (2026-09-24, browser UA)
+
+- `/products/autocad-map-3d/integrations/civil-3d` → **200 + `noindex`**, no redirect.
+- `/products/civil-3d/integrations/autocad-map-3d` → **200 + `noindex`**, no redirect.
+
+Both are the documented no-edge state, checked in **both** orientations. `list_retractions`
+reads 0 pending entries.
 
 ## The second half — `ops:retract-product` for the ACC product row (AECI-809)
 
