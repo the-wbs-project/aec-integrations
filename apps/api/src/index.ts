@@ -168,6 +168,7 @@ import {
 } from './routes/vendor-attestations';
 import { createListDataObjectsHandler } from './routes/vendor-data-objects';
 import { createListVendorProductConnectorsHandler } from './routes/vendor-connectors';
+import { createVendorConnectorCatalogHandler } from './routes/vendor-connector-catalog';
 import {
   createRemoveSeatHandler,
   createResendSeatInviteHandler,
@@ -934,6 +935,15 @@ authVendor.get(
   '/api/vendor/products/:id/connectors',
   requireVendor(),
   createListVendorProductConnectorsHandler(),
+);
+// AECI-1083 / `STAGE_2_SPEC.md` §8.9(1): the connector seat's own catalogue, the read
+// behind the portal's Catalogue tab. Ownership (404) then `connector` role (404) in
+// the handler; no capability, no entitlement read, and no `rateLimit()` (a read).
+// Inside the AECI-516 cursor as the `catalogue` scope, under the same predicate.
+authVendor.get(
+  '/api/vendor/products/:id/connector-catalog',
+  requireVendor(),
+  createVendorConnectorCatalogHandler(),
 );
 authVendor.post(
   '/api/vendor/products/:id/versions',

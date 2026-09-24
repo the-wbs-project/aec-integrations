@@ -122,6 +122,11 @@ One endpoint, one D1 round trip, no writes. It answers exactly one question: *si
 > `apps/api/src/lib/integration-contests.ts`, which `GET /api/vendor/contests` imports too, so the
 > §2.2 invariant holds. Every "six" below that describes the endpoint today now reads seven; the
 > "as built" sections keep their numbers because they record what shipped on 2026-08-19.
+>
+> **Eight scopes since AECI-1083 (2026-09-24).** `catalogue` covers the connector catalogue seat's
+> Catalogue tab (`STAGE_2_VENDOR_PORTAL_SPEC.md` §6.16) under `ownedConnectorCatalogIds`, the
+> predicate its read uses. It is one more statement, so the batch is ten SELECTs for eight scopes.
+> Every "seven" below that describes the endpoint today reads eight.
 
 **Placement.** Contract in `packages/shared/src/api/vendor-updates.ts` (+ the `index.ts` barrel) per the API-contracts rule — shared TypeScript types validated by Zod, no OpenAPI, no codegen (`API_CONTRACTS.md` §2). Handler in `apps/api/src/routes/vendor-updates.ts`, registered in `apps/api/src/index.ts` alongside the other `/api/vendor/*` routes. Its shape row belongs in `API_CONTRACTS.md` §6.14.
 
@@ -154,7 +159,7 @@ Every value is an **ISO-8601 string or `null`**; `null` means *this scope has no
 
 `server_time` is the server's clock at read, carried so the client never has to compare a server timestamp against `Date.now()`. It exists because the two clocks are not the same clock and the difference between them is not bounded; without it, a modest client skew turns a fresh cursor into a permanently-stale one (or the reverse).
 
-**Nine SELECTs for seven scopes in one `db.batch([...])`** — one D1 round trip, not nine. (Six until AECI-1008 added the `contests` scope, seven until AECI-992 added the `integrations` row term, eight until AECI-1089 added the owned-rows statement; see §2.2.) The batch here is for round-trip economy, not atomicity: this is the one place in the codebase where `db.batch` carries no `audit_log` row, precisely because it carries no write.
+**Ten SELECTs for eight scopes in one `db.batch([...])`** — one D1 round trip, not ten. (Six until AECI-1008 added the `contests` scope, seven until AECI-992 added the `integrations` row term, eight until AECI-1089 added the owned-rows statement, nine until AECI-1083 added `catalogue`; see §2.2.) The batch here is for round-trip economy, not atomicity: this is the one place in the codebase where `db.batch` carries no `audit_log` row, precisely because it carries no write.
 
 ### 2.2 Scope → source of truth
 
@@ -214,6 +219,7 @@ Every value is an **ISO-8601 string or `null`**; `null` means *this scope has no
 | `notifications` | `MAX(audit_log.created_at)` under the **exact** predicate the list endpoint uses — `vendorNotificationLedgerWhere(vendorId)` (`apps/api/src/routes/vendor-notifications.ts:83`): `action = 'notification.sent'` + the 90-day window + `json_extract(metadata, '$.vendorId') = ?` |
 | `requests` | `MAX(COALESCE(resolved_at, created_at))` under the **exact** predicate `GET /api/vendor/me` uses — `vendorRequestsWhere(vendorId, ownedProductIds(...))` (`apps/api/src/routes/vendor-shared.ts:155`): requests targeting the vendor itself, plus those targeting any product it owns. `COALESCE` because **`vendor_requests` has no `updated_at`** — a resolution is the only post-creation mutation that matters here |
 | `contests` (AECI-1008) | `MAX(integration_field_challenges.updated_at)` under the **exact** predicate `GET /api/vendor/contests` uses — `vendorContestsWhere(vendorId)` (`apps/api/src/lib/integration-contests.ts`): contests the vendor submitted, plus owner-routed contests where it is the snapshot owner. `updated_at` moves on submit, withdraw and every decision, and since AECI-1009 on every protest step (file, reply, withdraw, decide), which needed no predicate change. AECI-1092 changed nothing here: a contest on an evidenced pair is scoped by the same two columns, and a ruling-B re-route moves `updated_at` for the submitter's scope (the owner's side refetches through `entitlement`, §2.3). The list caps each side at 100 rows (ordered by `updated_at` since AECI-1009) and the cursor does not, so an edit past the cap costs one wasted refetch and nothing else |
+| `catalogue` (AECI-1083) | `MAX(updated_at)` over the connector catalogues the vendor may maintain and over their `connector_stub_mappings` rows, under the **exact** predicate `GET /api/vendor/products/:id/connector-catalog` resolves its catalogue with — `ownedConnectorCatalogIds(db, vendorId)` (`apps/api/src/lib/vendor-connector-catalog.ts`): the catalogue's `connector_product_id` held through `product_vendors` and `connector`-role, which is also the PATCH's ownership clause. The catalogue row moves on AECI-720's `managed_by` flip, which is what turns the tab's edit controls on or off. A mapping row moves on a seat edit (this vendor's, so the test below says yes), an operator edit, or a sync page. Stubs are not read: a sync page that moves a stub also rewrites its mappings, and the vendor never writes a stub. `null` for every vendor holding no catalogue. The read is paged per product and the cursor is vendor-wide, the `integrations` shape. `vendor-updates.spec.ts` pins the edit, the flip, another vendor's catalogue and a non-connector holding |
 
 > **Invariant (the one to check by hand).** **Every cursor query reuses the scoping predicate of the handler it is a cursor for.** A cursor that scopes *differently* from its payload fails in one of two ways, both silent:
 >
@@ -227,13 +233,15 @@ Every value is an **ISO-8601 string or `null`**; `null` means *this scope has no
 ```ts
 type VendorPortalScope =
   | 'profile' | 'entitlement' | 'products' | 'integrations' | 'notifications' | 'requests'
-  | 'contests'; // AECI-1008
+  | 'contests' // AECI-1008
+  | 'catalogue'; // AECI-1083
 ```
 
 | moved scope(s) | refetch |
 |---|---|
 | `profile` · `entitlement` · `products` · `requests` | `GET /api/vendor/me` — **one call**, deduped when several of the four move together |
 | `integrations` | `GET /api/vendor/integrations` |
+| `catalogue` (AECI-1083) | **No store fetch.** The store bumps `catalogueRevision`, and the Catalogue tab, if mounted, re-reads the page it has open (`GET /api/vendor/products/:id/connector-catalog`) without blanking it. With a mapping form open it defers: "This catalogue changed elsewhere" and a **Reload the list** button, and it catches up when the form closes. The tab's read is paged and filtered per product, so the store cannot hold "the" catalogue |
 | `notifications` | `GET /api/vendor/notifications` |
 | `contests` | `GET /api/vendor/contests` — its own `contests` resource in `VendorPortalStore` since the portal half of AECI-1008 (PR B, 2026-09-18). PR A had mapped it onto `notifications` as a stopgap; that mapping is gone from both the store and `VendorLiveSync`, so a failed contests read holds back the `contests` cursor alone |
 | `integrations`, once `contests` has loaded | **also** `GET /api/vendor/contests` (AECI-1009). A contest's protest window and cooldown depend on the field's live value, and an owner edit moves `integrations`, not `contests`. `VendorPortalStore.revalidate` adds the resource only when contests were already loaded, so it never loads them from cold |
@@ -243,7 +251,7 @@ Four of the seven scopes collapse onto `me` because that is what the payload alr
 
 > **Unchanged by `STAGE_2_VENDOR_PORTAL_SPEC.md` §6.5 (2026-08-27), on purpose.** Integrations became a *per-product* tab, but neither the `integrations` scope nor its refetch is per-product: it is still one vendor-wide `GET /api/vendor/integrations` scoped by `ownedEndpointJoin`, and the tab narrows the result client-side via its `contextProductId` input. Making the fetch per-product would violate §2.2's invariant — the cursor's predicate would no longer match its list's — and would turn one call into one per product for a payload already bounded by the vendor's own catalog. What *did* change is the payload's grain: the handler now emits **one entry per owned endpoint**, so an owns-both integration appears twice and `(id, context_product.id)` is the key. That is invisible to the cursor, which still counts integrations, not listings.
 
-> **Reads that sit outside the cursor, on purpose.** Not every `/api/vendor/*` read has a scope. Two do not. The vendor performance read (`VENDOR_PERFORMANCE_SPEC.md`) is one. The other is **`GET /api/vendor/products/:id/connectors` (AECI-1013, `STAGE_2_VENDOR_PORTAL_SPEC.md` §6.13)**, the read-only Connectors section on a product's Integrations tab. Only an operator's connector-catalogue sync, a promote, or a mapping edit on a vendor-managed catalogue (AECI-724) moves that data. Nothing the reading vendor does moves it: the mapping edit belongs to the connector's seat, a different vendor. A scope for it would poll every 20 s for a value that changes a few times a month. Adding one would also mean a seventh predicate in this handler, and these predicates **are** the authorization (§2.2). So the client fetches it once per product, when the tab mounts, and a stale list lasts until the next visit. The test for adding a future read here is the same: does anything the vendor does in the portal move it? If not, it stays outside.
+> **Reads that sit outside the cursor, on purpose.** Not every `/api/vendor/*` read has a scope. Two do not. The vendor performance read (`VENDOR_PERFORMANCE_SPEC.md`) is one. The other is **`GET /api/vendor/products/:id/connectors` (AECI-1013, `STAGE_2_VENDOR_PORTAL_SPEC.md` §6.13)**, the read-only Connectors section on a product's Integrations tab. Only an operator's connector-catalogue sync, a promote, or a mapping edit on a vendor-managed catalogue (AECI-724) moves that data. Nothing the reading vendor does moves it: the mapping edit belongs to the connector's seat, a different vendor. A scope for it would poll every 20 s for a value that changes a few times a month. Adding one would also mean a seventh predicate in this handler, and these predicates **are** the authorization (§2.2). So the client fetches it once per product, when the tab mounts, and a stale list lasts until the next visit. The test for adding a future read here is the same: does anything the vendor does in the portal move it? If not, it stays outside. **AECI-1083 applied the test the other way:** the connector seat's own catalogue (`GET /api/vendor/products/:id/connector-catalog`) moves when the seat's own colleagues edit it, so it has a scope, `catalogue`, in §2.2.
 
 ### 2.4 Tests the endpoint must carry
 

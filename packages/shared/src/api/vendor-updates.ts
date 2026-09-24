@@ -60,7 +60,8 @@ import { z } from 'zod';
  * `requests` all resolve to `GET /api/vendor/me` (one deduped call),
  * `integrations` to `GET /api/vendor/integrations`, and `notifications` to
  * `GET /api/vendor/notifications`, and `contests` (AECI-1008) to
- * `GET /api/vendor/contests`. Adding a scope here without adding it to that
+ * `GET /api/vendor/contests`, and `catalogue` (AECI-1083) to the portal store's
+ * catalogue tick, which the Catalogue tab re-reads its open page on. Adding a scope here without adding it to that
  * map ships a cursor nothing acts on.
  */
 export const VendorRevisionsSchema = z.object({
@@ -88,6 +89,16 @@ export const VendorRevisionsSchema = z.object({
    * triggers a refetch.
    */
   contests: z.string().nullable().default(null),
+  /**
+   * `MAX(updated_at)` over the connector catalogues whose connector-role product this
+   * vendor holds, and over those catalogues' mapping rows (AECI-1083), under
+   * `ownedConnectorCatalogIds` — the same predicate
+   * `GET /api/vendor/products/:id/connector-catalog` reads with. The catalogue row
+   * moves on the `managed_by` flip; a mapping moves on a seat edit, an operator edit
+   * or a sync page. `null` for every vendor holding no catalogue, which is almost
+   * all of them. `.default(null)` for deploy skew, as `contests`.
+   */
+  catalogue: z.string().nullable().default(null),
 });
 export type VendorRevisions = z.infer<typeof VendorRevisionsSchema>;
 
@@ -109,6 +120,7 @@ const SCOPE_INDEX = {
   notifications: true,
   requests: true,
   contests: true,
+  catalogue: true,
 } satisfies Record<VendorPortalScope, true>;
 
 export const VENDOR_PORTAL_SCOPES = Object.keys(SCOPE_INDEX) as readonly VendorPortalScope[];

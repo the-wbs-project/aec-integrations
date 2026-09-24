@@ -240,6 +240,24 @@ import { isCatalogueSeat } from '../vendor-capabilities';
                 >Your company profile and product details stay with the AECi team.</span
               >
             </p>
+            <!--
+              AECI-1083: where the seat's work is. Navigation to its own screen, not
+              a call to action, so it is a plain link rather than the CTA button
+              §8.9(5) keeps off this state. One per connector product, because each
+              catalogue belongs to one.
+            -->
+            @if (catalogueLinks()) {
+              @for (p of connectorProducts(); track p.slug) {
+                <p class="mt-3 text-sm">
+                  <a
+                    [routerLink]="['..', 'products', p.slug, 'catalogue']"
+                    class="font-medium text-(--accent-primary) underline underline-offset-2 focus-visible:rounded-(--radius-sm) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+                    data-catalogue-link
+                    >{{ catalogueLinkLabel(p.name) }}</a
+                  >
+                </p>
+              }
+            }
           }
           @case ('none') {
             <p class="mt-3 max-w-prose text-sm leading-relaxed text-(--text-secondary)">
@@ -291,7 +309,26 @@ export class VendorPlanPanel {
    * never-arranged vendor (AECI-724). Defaults to none, so a caller that omits it
    * gets the pre-AECI-724 panel rather than a guess.
    */
-  readonly products = input<readonly Pick<VendorProduct, 'product_role'>[]>([]);
+  readonly products = input<
+    readonly (Pick<VendorProduct, 'product_role'> & Partial<Pick<VendorProduct, 'slug' | 'name'>>)[]
+  >([]);
+
+  /**
+   * Render a link to each connector product's Catalogue tab in the `catalogue` state
+   * (AECI-1083). Off by default: the links are relative to the overview route
+   * (`../products/:slug/catalogue`), so only the overview turns them on.
+   */
+  readonly catalogueLinks = input(false);
+
+  protected readonly connectorProducts = computed(() =>
+    this.products().flatMap((p) =>
+      p.product_role === 'connector' && p.slug && p.name ? [{ slug: p.slug, name: p.name }] : [],
+    ),
+  );
+
+  protected catalogueLinkLabel(name: string): string {
+    return $localize`:@@vendor.plan.catalogue.link:Open the ${name}:PRODUCT: catalogue`;
+  }
 
   /**
    * Clock injection point, so the expiring state is testable without freezing

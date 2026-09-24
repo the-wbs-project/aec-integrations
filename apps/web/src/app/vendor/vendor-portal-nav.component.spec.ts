@@ -19,7 +19,7 @@ import { provideRouter } from '@angular/router';
 import { RouterTestingHarness } from '@angular/router/testing';
 import { beforeEach, describe, expect, it } from 'vitest';
 
-import { VENDOR_NAV_ITEMS, VENDOR_PRODUCT_NAV_ITEMS, type VendorNavItem } from './vendor-nav';
+import { VENDOR_NAV_ITEMS, productNavItemsFor, type VendorNavItem } from './vendor-nav';
 import { VendorPortalNav } from './vendor-portal-nav';
 
 const NAV_LABELS = ['Vendor Overview', 'Profile', 'Products', 'Messages', 'Seats'];
@@ -150,7 +150,8 @@ describe('VendorPortalNav', () => {
   });
 
   it('draws a product row from the same component, under the name it is given', async () => {
-    const productItems = VENDOR_PRODUCT_NAV_ITEMS.map((i) => ({
+    // The row the shell draws for an application product: no Catalogue tab (AECI-1083).
+    const productItems = productNavItemsFor('application').map((i) => ({
       ...i,
       path: `products/revit/${i.path}`,
     }));

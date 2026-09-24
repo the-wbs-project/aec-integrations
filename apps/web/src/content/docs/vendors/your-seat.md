@@ -55,7 +55,8 @@ With a seat alone, whether or not your company has a plan, you can:
 - manage seats, if you are an owner,
 - claim, edit, retire and add the integrations your company owns, except one delivered through a connector ([Owning an integration](/docs/vendors/owning-an-integration)),
 - add your own links to an integration at either end,
-- contest a detail on an integration your company does not own ([Contests and protests](/docs/vendors/contests-and-protests)).
+- contest a detail on an integration your company does not own ([Contests and protests](/docs/vendors/contests-and-protests)),
+- maintain the catalogue of a connector product your company makes, on that product's **Catalogue** tab, once we have handed the catalogue to you ([Claiming your vendor listing](/docs/vendors/claiming-your-listing#vendors-whose-products-are-connectors)).
 
 With an active plan, you can also:
 

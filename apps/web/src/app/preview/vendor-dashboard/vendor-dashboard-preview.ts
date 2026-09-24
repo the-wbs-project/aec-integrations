@@ -19,6 +19,7 @@ import {
   VENDOR_ME_UNVERIFIED_FIXTURE,
   VENDOR_SEATS_FIXTURE,
 } from '../../vendor/vendor-fixtures';
+import { VENDOR_ME_CONNECTOR_SEAT_REVIEW_FIXTURE } from '../../vendor/vendor-catalogue-fixtures';
 import { PreviewVendorApi } from './preview-vendor-api';
 
 type Concept = 'a' | 'b';
@@ -28,7 +29,24 @@ type FixtureKey =
   | 'downgraded'
   | 'unverified'
   | 'connector-seat'
+  | 'connector-seat-review'
   | 'large-catalog';
+
+const FIXTURE_KEYS: readonly FixtureKey[] = [
+  'verified',
+  'expiring',
+  'downgraded',
+  'unverified',
+  'connector-seat',
+  'connector-seat-review',
+  'large-catalog',
+];
+
+/** `?fixture=<key>` picks the preset on first paint, so an e2e or the design
+ *  detector (which reads only the first render) can land on it by URL. */
+function fixtureFrom(value: string | null): FixtureKey {
+  return FIXTURE_KEYS.includes(value as FixtureKey) ? (value as FixtureKey) : 'verified';
+}
 
 /** A single-seat roster for the no-access/new-vendor fixture. */
 const SINGLE_SEAT_FIXTURE: readonly VendorSeat[] = [
@@ -168,7 +186,9 @@ export class VendorDashboardPreview {
   protected readonly concept = signal<Concept>(
     inject(ActivatedRoute).snapshot.queryParamMap.get('concept') === 'b' ? 'b' : 'a',
   );
-  protected readonly fixture = signal<FixtureKey>('verified');
+  protected readonly fixture = signal<FixtureKey>(
+    fixtureFrom(inject(ActivatedRoute).snapshot.queryParamMap.get('fixture')),
+  );
 
   /** The four §8 entitlement states, in the order a vendor would meet them. */
   protected readonly fixtures: ReadonlyArray<{ key: FixtureKey; label: string }> = [
@@ -178,7 +198,12 @@ export class VendorDashboardPreview {
     { key: 'unverified', label: 'No access · new' },
     // AECI-724: the §8.9 connector seat. No entitlement row, like the one above,
     // and a different panel on purpose: it is never sold the access that one offers.
+    // AECI-1083: open Products → Agave → Catalogue. This preset's catalogue is
+    // vendor-managed, so every match has Edit.
     { key: 'connector-seat', label: 'Catalogue seat · connector' },
+    // AECI-1083: the same seat on a catalogue the AECi team still maintains, so the
+    // Catalogue tab is read-only. Same product slug, so the URL carries over.
+    { key: 'connector-seat-review', label: 'Catalogue seat · AECi-managed' },
     // Not an entitlement state: a catalog big enough to show how the product
     // list page (§6.11) reads at length. Two products cannot.
     { key: 'large-catalog', label: 'Active · 20 products' },
@@ -196,6 +221,8 @@ export class VendorDashboardPreview {
         return VENDOR_ME_UNVERIFIED_FIXTURE;
       case 'connector-seat':
         return VENDOR_ME_CONNECTOR_SEAT_FIXTURE;
+      case 'connector-seat-review':
+        return VENDOR_ME_CONNECTOR_SEAT_REVIEW_FIXTURE;
       default:
         return VENDOR_ME_FIXTURE;
     }
@@ -204,7 +231,9 @@ export class VendorDashboardPreview {
   /** The downgraded vendor keeps its seats: clearing an entitlement does not
    *  revoke them (§5.2), and the preview has to show that it doesn't. */
   private readonly activeSeats = computed(() =>
-    this.fixture() === 'unverified' || this.fixture() === 'connector-seat'
+    this.fixture() === 'unverified' ||
+    this.fixture() === 'connector-seat' ||
+    this.fixture() === 'connector-seat-review'
       ? SINGLE_SEAT_FIXTURE
       : VENDOR_SEATS_FIXTURE,
   );

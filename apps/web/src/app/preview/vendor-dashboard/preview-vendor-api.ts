@@ -42,8 +42,14 @@ import type {
   VendorProductConnectorsResponse,
   VendorSeat,
   VendorUpdatesResponse,
+  ConnectorStubMappingEditResponse,
+  UpdateConnectorStubMappingInput,
+  VendorConnectorCatalogResponse,
+  VendorConnectorDecider,
 } from '@aeci/shared';
+import { compareText } from '@aeci/shared/text-sort';
 import {
+  CONNECTOR_DECISION_STATUSES,
   CreateVendorIntegrationSchema,
   CONNECTOR_POWERED_FROZEN_EDIT_FIELDS,
   INTEGRATION_EDIT_FIELDS,
@@ -53,7 +59,15 @@ import {
   type ContextDirection,
 } from '@aeci/shared';
 
-import { VendorApi, type VendorAttestationPosition } from '../../vendor/vendor-api';
+import {
+  VendorApi,
+  type VendorAttestationPosition,
+  type VendorConnectorCatalogFilters,
+} from '../../vendor/vendor-api';
+import {
+  VENDOR_CONNECTOR_CATALOG_FIXTURE,
+  type ConnectorCatalogFixture,
+} from '../../vendor/vendor-catalogue-fixtures';
 import {
   VENDOR_CONTEST_NOTIFICATIONS_FIXTURE,
   VENDOR_CONTESTS_FIXTURE,
@@ -98,9 +112,67 @@ const PREVIEW_UPDATES: VendorUpdatesResponse = {
     // AECI-1008. Frozen like the rest: the preview's contest writes revalidate
     // the list directly, so the cursor never needs to move.
     contests: '2026-08-18T12:00:00.000Z',
+    // AECI-1083. Frozen: a preview save splices the PATCH echo in directly.
+    catalogue: '2026-08-18T12:00:00.000Z',
   },
   server_time: '2026-08-18T12:00:00.000Z',
 };
+
+/**
+ * One page of a catalogue fixture, filtered, searched and ordered the way
+ * `GET /api/vendor/products/:id/connector-catalog` does it (AECI-1083): by name,
+ * case-insensitive, the slug standing in for a missing label.
+ */
+function pageCatalogue(
+  productId: string,
+  fixture: ConnectorCatalogFixture,
+  filters: VendorConnectorCatalogFilters,
+): VendorConnectorCatalogResponse {
+  const needle = filters.search.trim().toLowerCase();
+  const matches = fixture.listings
+    .filter((l) => {
+      if (filters.state === 'undecided') {
+        if (l.mappings.length > 0) return false;
+      } else if (filters.state && !l.mappings.some((m) => m.status === filters.state)) {
+        return false;
+      }
+      if (!needle) return true;
+      return (
+        l.slug.toLowerCase().includes(needle) || (l.label ?? '').toLowerCase().includes(needle)
+      );
+    })
+    .sort((a, b) => compareText(a.label ?? a.slug, b.label ?? b.slug) || compareText(a.id, b.id));
+  const start = (filters.page - 1) * filters.perPage;
+  return {
+    data: matches.slice(start, start + filters.perPage),
+    page: filters.page,
+    perPage: filters.perPage,
+    total: matches.length,
+    product_id: productId,
+    catalog: {
+      id: fixture.id,
+      managed_by: fixture.managed_by,
+      last_ingested_at: fixture.last_ingested_at,
+      listings: fixture.listings.length,
+      unmatched: fixture.listings.filter((l) => l.mappings.length === 0).length,
+      publishable: fixture.listings.flatMap((l) => l.mappings).filter((m) => m.publishable).length,
+    },
+  };
+}
+
+/** The vendor-facing decider kind back to a stored `decided_by`, for the PATCH echo. */
+function rawDecider(kind: VendorConnectorDecider | null, vendorSlug: string): string | null {
+  switch (kind) {
+    case 'vendor':
+      return `vendor:${vendorSlug}`;
+    case 'aeci':
+      return 'aeci-operator';
+    case 'automatic':
+      return 'auto-name-match';
+    default:
+      return null;
+  }
+}
 
 /** Build the error body the API Worker actually returns, so the preview
  *  exercises the same `readVendorApiError` branch the live surface does. */
@@ -797,6 +869,126 @@ export class PreviewVendorApi extends VendorApi {
   }
 
   // ─── Vendor create (AECI-1011) ─────────────────────────────────────────────
+
+  // ─── The connector catalogue seat (AECI-1083) ─────────────────────────────
+
+  /** Per-session copies of the catalogue fixtures, so a preview edit sticks until
+   *  the page reloads and never mutates the shared constant. */
+  private catalogues = new Map<string, ConnectorCatalogFixture>(
+    Object.entries(clone(VENDOR_CONNECTOR_CATALOG_FIXTURE)),
+  );
+
+  override async getConnectorCatalog(
+    productId: string,
+    filters: VendorConnectorCatalogFilters,
+  ): Promise<VendorConnectorCatalogResponse> {
+    const own = this.me?.products.find((p) => p.id === productId);
+    if (!own || own.product_role !== 'connector') {
+      throw apiError(404, 'NOT_FOUND', 'Product not found');
+    }
+    const fixture = this.catalogues.get(productId);
+    if (!fixture) {
+      return {
+        data: [],
+        page: filters.page,
+        perPage: filters.perPage,
+        total: 0,
+        product_id: productId,
+        catalog: null,
+      };
+    }
+    return clone(pageCatalogue(productId, fixture, filters));
+  }
+
+  override async updateConnectorMapping(
+    mappingId: string,
+    input: UpdateConnectorStubMappingInput,
+  ): Promise<ConnectorStubMappingEditResponse> {
+    for (const [productId, fixture] of this.catalogues) {
+      const listing = fixture.listings.find((l) => l.mappings.some((m) => m.id === mappingId));
+      if (!listing) continue;
+      if (fixture.managed_by !== 'vendor') {
+        throw apiError(
+          409,
+          'CATALOG_REVIEW_MANAGED',
+          'This catalogue is still maintained through the review app.',
+        );
+      }
+      const current = listing.mappings.find((m) => m.id === mappingId)!;
+      const status = input.status ?? current.status;
+      const productIdNext =
+        input.productId !== undefined ? input.productId : (current.product?.id ?? null);
+      const namesProduct = !(CONNECTOR_DECISION_STATUSES as readonly string[]).includes(status);
+      if (namesProduct !== (productIdNext !== null)) {
+        throw apiError(422, 'VALIDATION_FAILED', 'Two-column invariant', { field: 'productId' });
+      }
+      const product =
+        productIdNext === null
+          ? null
+          : productIdNext === current.product?.id
+            ? current.product
+            : (PREVIEW_CATALOGUE.find((p) => p.id === productIdNext) ?? null);
+      if (productIdNext !== null && product === null) {
+        throw apiError(422, 'VALIDATION_FAILED', 'Not published', { field: 'productId' });
+      }
+      const clash = listing.mappings.some(
+        (m) =>
+          m.id !== mappingId &&
+          (namesProduct
+            ? m.product?.id === productIdNext
+            : (CONNECTOR_DECISION_STATUSES as readonly string[]).includes(m.status)),
+      );
+      if (clash) throw apiError(409, 'MAPPING_CONFLICT', 'Conflict');
+
+      const confidence = input.confidence !== undefined ? input.confidence : current.confidence;
+      const evidenceUrl =
+        input.evidenceUrl !== undefined ? input.evidenceUrl : current.evidence_url;
+      const changed =
+        status !== current.status ||
+        productIdNext !== (current.product?.id ?? null) ||
+        confidence !== current.confidence ||
+        evidenceUrl !== current.evidence_url;
+      const now = new Date().toISOString();
+      const next = changed
+        ? {
+            ...current,
+            status: status as typeof current.status,
+            product: product ? { id: product.id, name: product.name, slug: product.slug } : null,
+            confidence,
+            evidence_url: evidenceUrl,
+            decided_by: 'vendor' as const,
+            decided_at: now,
+            publishable: status === 'mapped' && product !== null,
+          }
+        : current;
+      this.catalogues.set(productId, {
+        ...fixture,
+        listings: fixture.listings.map((l) =>
+          l.id === listing.id
+            ? { ...l, mappings: l.mappings.map((m) => (m.id === mappingId ? next : m)) }
+            : l,
+        ),
+      });
+      return {
+        catalog_id: fixture.id,
+        stub_id: listing.id,
+        changed,
+        mapping: {
+          id: next.id,
+          status: next.status,
+          product: next.product,
+          confidence: next.confidence,
+          evidence_url: next.evidence_url,
+          decided_by: rawDecider(next.decided_by, this.me?.vendor.slug ?? 'preview'),
+          decided_at: next.decided_at,
+          checked_at: next.decided_at,
+          notes: null,
+          publishable: next.publishable,
+        },
+      };
+    }
+    throw apiError(404, 'NOT_FOUND', 'Mapping not found');
+  }
 
   override async searchProducts(query: string, perPage = 8): Promise<ProductsListResponse> {
     const needle = query.trim().toLowerCase();

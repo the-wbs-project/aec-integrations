@@ -98,6 +98,22 @@ beforeEach(() => {
           getDataObjects: vi.fn().mockResolvedValue({ data_objects: [] }),
           listProductVersions: vi.fn().mockResolvedValue({ versions: [] }),
           listProductConnectors: vi.fn().mockResolvedValue({ product_id: '', connectors: [] }),
+          // AECI-1083: the Catalogue tab's read. An empty vendor-managed catalogue.
+          getConnectorCatalog: vi.fn().mockResolvedValue({
+            data: [],
+            page: 1,
+            perPage: 25,
+            total: 0,
+            product_id: '00000000-0000-4000-8000-000000005231',
+            catalog: {
+              id: 'rec-cat',
+              managed_by: 'vendor',
+              last_ingested_at: null,
+              listings: 0,
+              unmatched: 0,
+              publishable: 0,
+            },
+          }),
           getNotifications: vi.fn().mockResolvedValue({ notifications: [] }),
         } as Partial<VendorApi>,
       },
@@ -827,5 +843,72 @@ describe('VendorDashboardTabbed — the one live region (§6.3)', () => {
     // A poll landing mid-interaction must not move the caret off the control the
     // vendor is operating.
     expect(document.activeElement).toBe(link);
+  });
+});
+
+describe('VendorDashboardTabbed — the connector catalogue seat (AECI-1083)', () => {
+  const SEAT = VENDOR_ME_CONNECTOR_SEAT_FIXTURE;
+  const seatSlug = SEAT.vendor.slug;
+
+  it('adds a Catalogue tab to a connector product’s row, last', async () => {
+    const harness = await RouterTestingHarness.create();
+    TestBed.inject(VendorPortalStore).seed(SEAT);
+    await harness.navigateByUrl(`/vendor/${seatSlug}/products/agave/profile`);
+    harness.detectChanges();
+    await flush();
+    harness.detectChanges();
+
+    expect(navLabels(harness)).toEqual([
+      'Profile',
+      'Categories',
+      'Trades',
+      'Audiences',
+      'Phases',
+      'Integrations',
+      'Catalogue',
+    ]);
+    expect(navLink(harness, 'Catalogue').getAttribute('href')).toBe(
+      `/vendor/${seatSlug}/products/agave/catalogue`,
+    );
+  });
+
+  it('never shows the Catalogue tab on an application product', async () => {
+    const harness = await open('products/summit-field-issues/profile');
+    expect(navLabels(harness)).not.toContain('Catalogue');
+  });
+
+  it('renders the catalogue on the tab', async () => {
+    const harness = await RouterTestingHarness.create();
+    TestBed.inject(VendorPortalStore).seed(SEAT);
+    await harness.navigateByUrl(`/vendor/${seatSlug}/products/agave/catalogue`);
+    harness.detectChanges();
+    await flush();
+    harness.detectChanges();
+    await flush();
+    harness.detectChanges();
+
+    expect(navLink(harness, 'Catalogue').getAttribute('aria-current')).toBe('page');
+    expect(root(harness).querySelector('aec-vendor-connector-catalogue')).not.toBeNull();
+  });
+
+  it('says a typed catalogue URL on an application product has no catalogue', async () => {
+    const harness = await open('products/summit-field-issues/catalogue');
+    expect(root(harness).querySelector('[data-catalogue-not-connector]')?.textContent).toContain(
+      'Only connector products have a catalogue.',
+    );
+    expect(root(harness).querySelector('aec-vendor-connector-catalogue')).toBeNull();
+  });
+
+  it('links the overview’s catalogue panel to the tab, as a plain link and not a call to action', async () => {
+    const harness = await RouterTestingHarness.create();
+    TestBed.inject(VendorPortalStore).seed(SEAT);
+    await harness.navigateByUrl(`/vendor/${seatSlug}/overview`);
+    harness.detectChanges();
+    await flush();
+    harness.detectChanges();
+
+    const link = root(harness).querySelector('[data-catalogue-link]');
+    expect(link?.textContent?.trim()).toBe('Open the Agave catalogue');
+    expect(link?.getAttribute('href')).toBe(`/vendor/${seatSlug}/products/agave/catalogue`);
   });
 });

@@ -96,6 +96,15 @@ export const VENDOR_SECTION_ROUTES: Routes = [
         loadComponent: () =>
           import('./sections/vendor-integrations-page').then((m) => m.VendorIntegrationsPage),
       },
+      // AECI-1083: the connector catalogue seat's screen. The product row shows the
+      // tab on `connector`-role products only; the page covers a typed URL.
+      {
+        path: 'catalogue',
+        loadComponent: () =>
+          import('./sections/vendor-product-catalogue-page').then(
+            (m) => m.VendorProductCataloguePage,
+          ),
+      },
     ],
   },
   {
