@@ -47,3 +47,36 @@ export function vendorHasActiveEntitlement(store: VendorPortalStore): Signal<boo
     return tier !== undefined && tier !== 'unclaimed';
   });
 }
+
+/**
+ * Is this the connector catalogue-maintenance seat (`STAGE_2_SPEC.md` §8.9, AECI-724)?
+ *
+ * The signal is data `GET /api/vendor/me` already carries: NO entitlement row at all
+ * (`status: null`, which is not the same as lapsed) on a vendor holding a
+ * `connector`-role product. No tier and no capability, because the seat has
+ * neither. `status: null` on a seat is reachable only through the AECI-740
+ * provision, so this is the §8.9 seat by construction. A connector vendor that
+ * later pays gets a row, leaves `null`, and stops matching.
+ *
+ * The plan panel's `catalogue` state and the read-only notices (AECI-1082) both
+ * read this one rule, so the panel and the forms cannot describe the same vendor
+ * two different ways.
+ */
+export function isCatalogueSeat(
+  status: string | null | undefined,
+  products: readonly { readonly product_role?: string | null }[],
+): boolean {
+  return status === null && products.some((p) => p.product_role === 'connector');
+}
+
+/**
+ * {@link isCatalogueSeat} over the portal store, as a `computed` for the reason
+ * {@link vendorCan} is one. `false` before the store is seeded, so a form rendered
+ * in that window shows the ordinary notice rather than a guess.
+ */
+export function vendorIsCatalogueSeat(store: VendorPortalStore): Signal<boolean> {
+  return computed(() => {
+    const me = store.me();
+    return me ? isCatalogueSeat(me.entitlement.status, me.products) : false;
+  });
+}

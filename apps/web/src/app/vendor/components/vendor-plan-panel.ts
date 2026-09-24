@@ -13,6 +13,7 @@ import type { VendorEntitlementBlock, VendorProduct } from '@aeci/shared';
 import { EXPIRY_WARNING_DAYS } from '@aeci/shared/entitlements';
 
 import { VendorAccountBadge } from '../../shared/vendor-account-badge/vendor-account-badge';
+import { isCatalogueSeat } from '../vendor-capabilities';
 
 /**
  * The vendor-facing entitlement surface (AECI-614 /
@@ -330,17 +331,12 @@ export class VendorPlanPanel {
     const days = this.daysRemaining();
     if (this.isActive()) return days !== null && days <= EXPIRY_SOON_DAYS ? 'expiring' : 'active';
     const status = this.entitlement().status;
-    if (status === null) return this.holdsConnector() ? 'catalogue' : 'none';
+    if (status === null) return isCatalogueSeat(status, this.products()) ? 'catalogue' : 'none';
     if (status === 'pending') return 'pending';
     // `expired`, `revoked`, and the active-status/unknown-tier drift above all
     // land here: a state we cannot name confidently is still a downgraded one.
     return 'lapsed';
   });
-
-  /** §8.9's signal: the vendor holds at least one `connector`-role product. */
-  private readonly holdsConnector = computed(() =>
-    this.products().some((p) => p.product_role === 'connector'),
-  );
 
   /** `compact` honoured, which only the quiet `active` state allows. */
   readonly isCompact = computed(() => this.compact() && this.state() === 'active');

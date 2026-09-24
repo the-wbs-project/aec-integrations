@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { UpdateVendorProductResponse, VendorProduct } from '@aeci/shared';
 
 import { VendorApi } from '../vendor-api';
-import { VENDOR_ME_FIXTURE } from '../vendor-fixtures';
+import { VENDOR_ME_CONNECTOR_SEAT_FIXTURE, VENDOR_ME_FIXTURE } from '../vendor-fixtures';
 import { VendorPortalStore } from '../vendor-portal-store';
 import { VendorProductForm } from './vendor-product-form';
 
@@ -184,6 +184,16 @@ describe('VendorProductForm — read-only when the entitlement lapsed', () => {
 
     expect(saveButton(fixture)).toBeNull();
     expect(fixture.nativeElement.textContent).toContain('Editing is paused');
+  });
+
+  it('tells the connector catalogue seat product details stay with AECi (AECI-1082)', () => {
+    TestBed.inject(VendorPortalStore).seed(VENDOR_ME_CONNECTOR_SEAT_FIXTURE);
+    const fixture = build(false);
+    const text = fixture.nativeElement.textContent as string;
+
+    expect(text).toContain('Product details stay with the AECi team');
+    expect(text).not.toContain('Editing is paused');
+    expect(text).not.toContain('renewal');
   });
 
   it('does not PATCH even if the form is submitted anyway', async () => {

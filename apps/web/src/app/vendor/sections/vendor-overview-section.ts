@@ -17,7 +17,7 @@ import {
   type ProfileGapField,
 } from '../overview/vendor-overview-model';
 import { VendorPortalAnnouncer } from '../vendor-announcer';
-import { vendorCan } from '../vendor-capabilities';
+import { vendorCan, vendorIsCatalogueSeat } from '../vendor-capabilities';
 import { VendorPortalStore } from '../vendor-portal-store';
 
 /** The presentational half of a {@link NeedsItem}: what the row says. */
@@ -108,19 +108,40 @@ interface NeedsRow {
             <div
               class="mt-4 rounded-(--radius-md) border border-(--border-default) bg-(--surface-sunken) px-4 py-4"
             >
-              <p
-                class="text-sm font-semibold text-(--text-primary)"
-                i18n="@@vendor.overview.paused.title"
-              >
-                Editing is paused.
-              </p>
-              <p
-                class="mt-1 max-w-prose text-sm leading-relaxed text-(--text-secondary)"
-                i18n="@@vendor.overview.paused.body"
-              >
-                Everything on record is here to read, and seat invites can still be managed. When
-                your access is back on, this list picks up where it left off.
-              </p>
+              @if (catalogueSeat()) {
+                <!--
+                  AECI-1082. The catalogue seat never had this access and is never
+                  sold it (STAGE_2_SPEC.md section 8.9), so nothing here is paused
+                  and nothing comes "back on". Same box, a different statement.
+                -->
+                <p
+                  class="text-sm font-semibold text-(--text-primary)"
+                  i18n="@@vendor.overview.catalogue.title"
+                >
+                  Your profile and product details stay with the AECi team.
+                </p>
+                <p
+                  class="mt-1 max-w-prose text-sm leading-relaxed text-(--text-secondary)"
+                  i18n="@@vendor.overview.catalogue.body"
+                >
+                  This seat maintains your connector catalogue. Everything else on record is here to
+                  read, and seat invites can still be managed.
+                </p>
+              } @else {
+                <p
+                  class="text-sm font-semibold text-(--text-primary)"
+                  i18n="@@vendor.overview.paused.title"
+                >
+                  Editing is paused.
+                </p>
+                <p
+                  class="mt-1 max-w-prose text-sm leading-relaxed text-(--text-secondary)"
+                  i18n="@@vendor.overview.paused.body"
+                >
+                  Everything on record is here to read, and seat invites can still be managed. When
+                  your access is back on, this list picks up where it left off.
+                </p>
+              }
             </div>
           } @else if (outstanding() === 0 && integrationsReady()) {
             <div
@@ -277,6 +298,8 @@ export class VendorOverviewSection {
   private readonly canEditProfile = vendorCan(this.store, 'profile.edit');
   private readonly canEditProducts = vendorCan(this.store, 'product.edit');
   private readonly canAttest = vendorCan(this.store, 'attestation.author');
+  /** The §8.9 connector seat (AECI-1082): the paused row speaks to it differently. */
+  protected readonly catalogueSeat = vendorIsCatalogueSeat(this.store);
 
   protected readonly conflicts = computed(() => conflictsByProduct(this.store.integrations()));
   protected readonly corrections = computed(() => openCorrections(this.me()?.requests ?? []));

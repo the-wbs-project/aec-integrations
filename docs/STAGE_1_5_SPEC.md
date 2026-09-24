@@ -1802,11 +1802,15 @@ non-owner cannot learn whether a catalogue was handed over. `AUTH_AND_RLS.md` §
 **§8.9(5) is closed.** The vendor plan panel has a `catalogue` state for a seat with no entitlement
 row whose vendor holds a `connector`-role product. It replaces the `none` upsell rather than
 softening it: no call to action, no "not active" chip, no account framing. The signal is data
-`GET /api/vendor/me` already carries.
+`GET /api/vendor/me` already carries. **The read-only notices follow it (AECI-1082, 2026-09-24).**
+For the same seat, the overview's "Editing is paused" row and the profile, product and facet form
+notices say that profile and product details stay with the AECi team. They no longer say access
+comes "back on" or point at a renewal path. The rule is one function, `isCatalogueSeat` in
+`apps/web/src/app/vendor/vendor-capabilities.ts`, which the plan panel reads too. An ordinary
+never-arranged or lapsed vendor keeps the paused copy.
 
 **What is still not built.** A vendor-portal **screen** for the seat's mapping edit (AECI-1083); the
-route exists and the seat reaches it through the API. The overview's "Editing is paused" row and
-the form notices still read as lapsed access to this seat (AECI-1082). Stub and per-app depth editing beyond the mapping
+route exists and the seat reaches it through the API. Stub and per-app depth editing beyond the mapping
 row (§8.9(1) names "stubs, mappings, and per-app depth"; the stub's action inventory stays
 review-side). And AECI-1065's endpoint-vendor mapping proposals, which were preconditioned on this.
 

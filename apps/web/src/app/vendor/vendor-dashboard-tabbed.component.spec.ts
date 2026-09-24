@@ -43,6 +43,7 @@ import type { VendorMeResponse } from '@aeci/shared';
 import { VendorPortalAnnouncer } from './vendor-announcer';
 import { VendorApi } from './vendor-api';
 import {
+  VENDOR_ME_CONNECTOR_SEAT_FIXTURE,
   VENDOR_ME_DOWNGRADED_FIXTURE,
   VENDOR_ME_FIXTURE,
   VENDOR_ME_UNVERIFIED_FIXTURE,
@@ -349,6 +350,24 @@ describe('VendorDashboardTabbed — the overview landing page (AECI-983)', () =>
     const keys = rowHrefs(el).map(([k]) => k);
     expect(keys.some((k) => k?.startsWith('correction:'))).toBe(true);
     expect(keys.some((k) => k?.startsWith('product:') || k === 'profile')).toBe(false);
+  });
+
+  it('tells the connector catalogue seat what stays with AECi, never that access comes back (AECI-1082)', async () => {
+    const el = root(await open('overview', VENDOR_ME_CONNECTOR_SEAT_FIXTURE));
+
+    // STAGE_2_SPEC.md section 8.9: this seat is never sold editing access, so
+    // nothing is "paused" and nothing is "back on".
+    expect(el.textContent).toContain('Your profile and product details stay with the AECi team.');
+    expect(el.textContent).toContain('This seat maintains your connector catalogue.');
+    expect(el.textContent).not.toContain('Editing is paused');
+    expect(el.textContent).not.toContain('back on');
+  });
+
+  it('keeps the paused row for a never-arranged vendor with no connector product', async () => {
+    const el = root(await open('overview', VENDOR_ME_UNVERIFIED_FIXTURE));
+
+    expect(el.textContent).toContain('Editing is paused');
+    expect(el.textContent).not.toContain('stay with the AECi team');
   });
 
   it('re-derives the list when the entitlement flips, without a reload (AECI-631)', async () => {

@@ -13,6 +13,7 @@ import { RequestTrigger } from '../../requests/request-trigger';
 import { NewTabIcon } from '../../shared/new-tab-icon/new-tab-icon';
 import { VendorApi } from '../vendor-api';
 import { VendorPortalStore } from '../vendor-portal-store';
+import { vendorIsCatalogueSeat } from '../vendor-capabilities';
 
 /** The vendor-editable text fields (`founded_year` is the one numeric field;
  *  `public_private` is a discrete choice, handled separately). */
@@ -145,13 +146,25 @@ interface FieldConfig {
       }
 
       @if (!canEdit()) {
-        <p
-          class="rounded-(--radius-md) border border-(--border-default) bg-(--surface-sunken) p-4 text-sm leading-relaxed text-(--text-secondary)"
-          i18n="@@vendor.profile.readOnly"
-        >
-          Editing is paused while your account access is inactive. Everything below stays published
-          and is here to read. The account panel on Vendor Overview has the renewal path.
-        </p>
+        @if (catalogueSeat()) {
+          <!-- AECI-1082: the catalogue seat never had profile editing, so it is not paused. -->
+          <p
+            class="rounded-(--radius-md) border border-(--border-default) bg-(--surface-sunken) p-4 text-sm leading-relaxed text-(--text-secondary)"
+            i18n="@@vendor.profile.readOnly.catalogue"
+          >
+            Your company profile stays with the AECi team, so this seat cannot edit it. Everything
+            below stays published and is here to read.
+          </p>
+        } @else {
+          <p
+            class="rounded-(--radius-md) border border-(--border-default) bg-(--surface-sunken) p-4 text-sm leading-relaxed text-(--text-secondary)"
+            i18n="@@vendor.profile.readOnly"
+          >
+            Editing is paused while your account access is inactive. Everything below stays
+            published and is here to read. The account panel on Vendor Overview has the renewal
+            path.
+          </p>
+        }
       }
 
       <fieldset class="space-y-5 border-0 p-0">
@@ -314,6 +327,8 @@ interface FieldConfig {
 export class VendorProfileForm {
   private readonly api = inject(VendorApi);
   private readonly store = inject(VendorPortalStore);
+  /** The §8.9 connector seat (AECI-1082): its read-only notice is not paused copy. */
+  protected readonly catalogueSeat = vendorIsCatalogueSeat(this.store);
 
   readonly vendor = input.required<VendorAccount>();
 
