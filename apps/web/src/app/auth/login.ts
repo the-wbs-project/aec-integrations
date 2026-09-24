@@ -21,6 +21,26 @@ const MagicLinkSchema = z.object({
 });
 
 /**
+ * Every `?error=` code `/auth/callback` sends back here
+ * (`server/routes/auth-callback.ts`, `failSignin`). Each one gets its own notice
+ * (AECI-1100). Anything else, including a hand-edited URL, maps to `null` and
+ * renders nothing, so a crafted `?error=` can never put text on this page.
+ */
+const CALLBACK_ERROR_CODES = [
+  'link_invalid',
+  'missing_code',
+  'auth_not_configured',
+  'profile_unavailable',
+] as const;
+export type CallbackErrorCode = (typeof CALLBACK_ERROR_CODES)[number];
+
+export function callbackErrorCode(raw: string | null): CallbackErrorCode | null {
+  return (CALLBACK_ERROR_CODES as readonly string[]).includes(raw ?? '')
+    ? (raw as CallbackErrorCode)
+    : null;
+}
+
+/**
  * `/auth/login` (AECI-194 / Phase 5.3) — the first user-facing auth surface:
  * magic-link email (Signal Forms, per ADR 0009) + Google OAuth, both
  * redirecting through `/auth/callback?return=<path>` (the AECI-195 exchange).
@@ -76,13 +96,20 @@ export class LoginPage {
   protected readonly returnPath = safeReturnPath(this.route.snapshot.queryParamMap.get('return'));
 
   /**
-   * True when `/auth/callback` bounced here with `?error=profile_unavailable`
-   * (AECI-770): the sign-in worked but the account's profile could not be
-   * created, so the callback signed the visitor out. The notice tells them it is
-   * safe to try again.
+   * Why `/auth/callback` bounced the visitor here, or `null` for a plain visit.
+   * The template renders one notice per code:
+   * - `link_invalid` (AECI-1100): the magic link expired or was already used,
+   *   or the Google sign-in was cancelled. The common case: links expire, mail
+   *   scanners pre-open them, and people click twice.
+   * - `missing_code` (AECI-1100): the callback arrived without its sign-in code.
+   * - `auth_not_configured` (AECI-1100): the server has no Supabase config. Same
+   *   copy as the browser-side `unavailable()` notice, shown once.
+   * - `profile_unavailable` (AECI-770): sign-in worked but the profile could not
+   *   be created, so the callback signed the visitor out.
    */
-  protected readonly profileUnavailable =
-    this.route.snapshot.queryParamMap.get('error') === 'profile_unavailable';
+  protected readonly callbackError = callbackErrorCode(
+    this.route.snapshot.queryParamMap.get('error'),
+  );
 
   /** Set to the submitted address on success; flips to "Check your email". */
   protected readonly emailSent = signal<string | null>(null);

@@ -87,7 +87,7 @@ Implements `STAGE_1_SPEC.md` §8 and `AUTH_AND_RLS.md` §3–§4.
 
 1. An auth-gated CTA (e.g. "Submit a review") on an unauthenticated session links to `/auth/login?return=<path>`.
 2. `/auth/login` offers **magic link** (email → Supabase sends link) and **Google OAuth** (Supabase OAuth).
-3. Callback returns to `/auth/callback?return=<path>`; the handler exchanges the code for a session (PKCE), sets the session cookie, ensures the D1 `profiles` row exists (no trigger creates it under ADR 0016, so this call is the primary creator; it is retried and fatal, and a failure signs the user out to `/auth/login?error=profile_unavailable` — AECI-770, `AUTH_AND_RLS.md` §3.1a), and redirects to `return` (validated to be a same-origin path — no open redirect).
+3. Callback returns to `/auth/callback?return=<path>`; the handler exchanges the code for a session (PKCE), sets the session cookie, ensures the D1 `profiles` row exists (no trigger creates it under ADR 0016, so this call is the primary creator; it is retried and fatal, and a failure signs the user out to `/auth/login?error=profile_unavailable` — AECI-770, `AUTH_AND_RLS.md` §3.1a), and redirects to `return` (validated to be a same-origin path — no open redirect). Every failure redirects to `/auth/login?error=<code>`, and the login page shows one notice per code (AECI-1100): `link_invalid` (the link expired or was already used, or OAuth was cancelled; request a new one), `missing_code` (try again), `auth_not_configured` (sign-in is temporarily unavailable) and `profile_unavailable` (AECI-770). An unknown code renders nothing.
 4. Session token in an HTTP-only, `Secure`, `SameSite=Lax` cookie (Supabase default).
 
 ### 4.3 Session model & cache-neutrality
