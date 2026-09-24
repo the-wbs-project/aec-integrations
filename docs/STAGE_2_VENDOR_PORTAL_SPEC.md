@@ -167,7 +167,7 @@ Shipped with **no migration**. Contracts: `packages/shared/src/api/admin-claims.
 - **Entitlement shape.** The optional `entitlement` body object (`payer` / `amount` / `terms` / `arranged_by` / `notes`) is recorded verbatim in the grant `audit_log` metadata (§8.3(1)) — no `vendors.admin_notes` mirror, no new column.
 - **Product claims resolve the primary vendor.** A `target_type='product'` claim grants the product's `is_primary` vendor (any `product_vendors` row is the fallback), so `resolveClaimantIdentity` always receives a vendor id (§2).
 - **Purge = vendor + its products.** Post-commit enqueues `{ tags: ['vendor:<slug>', 'product:<slug>'…, 'index:products'], source: 'moderation' }` — the vendor page plus every product page that embeds it.
-- **Revoke is a mechanic, not an endpoint.** `revokeSeatStatements` (in `vendor-grant.ts`, exported + unit-tested) drops a seat to `reviewer` + unlinks `vendor_id`, audited (`vendor_claim.seat_revoked`), and **never touches `vendors.verified`** (§8.3(2)). **Still no HTTP surface:** AECI-524 wired the ban gate only (§7) and deliberately left revoke unwired (its AC scopes un-granting out); self-serve invite/revoke is deferred (§11). The batch shape stays pinned for whichever issue wires it.
+- ~~**Revoke is a mechanic, not an endpoint.**~~ **Corrected 2026-09-23 (AECI-1108): revoke now has two HTTP endpoints.** `DELETE /api/vendor/seats/:userId` (AECI-664, §11a.5) and `DELETE /api/admin/vendors/:id/seats/:userId` (AECI-652, `ADMIN_PANEL_SPEC.md` §5.7) both call `revokeSeatStatements` unchanged. The admin route also hands the vendor's record back to AECi when it revokes the last seat (AECI-989, `ADMIN_PANEL_SPEC.md` §5.7). The original bullet follows as the 2026-07-25 record. `revokeSeatStatements` (in `vendor-grant.ts`, exported + unit-tested) drops a seat to `reviewer` + unlinks `vendor_id`, audited (`vendor_claim.seat_revoked`), and **never touches `vendors.verified`** (§8.3(2)). **Still no HTTP surface:** AECI-524 wired the ban gate only (§7) and deliberately left revoke unwired (its AC scopes un-granting out); self-serve invite/revoke is deferred (§11). The batch shape stays pinned for whichever issue wires it.
 - **503 only where the key is absent (since AECI-530).** `SUPABASE_SERVICE_ROLE_KEY` is CI-pushed to the API Worker on staging, demo and production, so `approve` resolves there. On **PR previews and local dev** the key is absent by design and `approve` reports `DEPENDENCY_FAILURE` (503); the code is fully unit-tested via the injected `resolveClaimantIdentity` seam. `reject` needs no resolution and works regardless.
 
 ---
@@ -773,7 +773,7 @@ Shipped with **no migration**. `POST /api/admin/vendors/:id/seats`, contract in
 
 ## 6. Vendor portal UI (AECI-522)
 
-The signed-in vendor's home, backed by `/api/vendor/*` (§4). **Multi-seat, flat (§8.1(2))** — several `vendor_admin` seats share one `vendor_id`; each was individually granted through §5. **Self-serve invite/revoke and an owner/admin distinction are deferred** (need a small schema add — §11).
+The signed-in vendor's home, backed by `/api/vendor/*` (§4). **Multi-seat, flat (§8.1(2))** — several `vendor_admin` seats share one `vendor_id`; each was individually granted through §5. ~~**Self-serve invite/revoke and an owner/admin distinction are deferred** (need a small schema add — §11).~~ **Corrected 2026-09-23 (AECI-1108):** all three shipped in AECI-664. Self-serve invite, resend, invite-revoke and seat removal are the §11a.5 endpoints. The owner/member distinction is `profiles.seat_owner` (§11a.4).
 
 - **Edit product/vendor content within guard-rails** — name, description, links, and taxonomy **within guard-rails** (the editable field allow-list + which taxonomy edits are vendor-permitted vs admin-only are pinned in `API_CONTRACTS.md` at build). Every save is a `vendor_id`-scoped write with its audit row (§4) and purges the affected `vendor:<slug>` / `product:<slug>` tag (§3, §8).
 - **Claim / correction status** — surface the vendor's `vendor_requests` (claim + correction) states.
@@ -2082,7 +2082,9 @@ What the review WAS protecting is the identity question — "does this person re
 
 ### 11a.3 No domain gate (amended 2026-08-26)
 
-**As shipped**, an invite had to pass `computeDomainMatch(email, vendors.website) === 'match'`; `no_match` and `manual_review` (freemail, or a vendor with no `website` on file) both returned **422 `INVITE_DOMAIN_MISMATCH`** and directed the owner to the §5 claim queue.
+**As shipped**, an invite had to pass `computeDomainMatch(email, vendors.website) === 'match'`; `no_match` and `manual_review` (an unparseable domain, or a vendor with no `website` on file) both returned **422 `INVITE_DOMAIN_MISMATCH`** and directed the owner to the §5 claim queue.
+
+**Corrected 2026-09-23 (AECI-1108):** this paragraph used to say a freemail address gave `manual_review`. It never did. `computeDomainMatch` has no freemail list, so `gmail.com` against a corporate website gives `no_match`. Only an unparseable email or website domain, or a vendor with no `website`, gives `manual_review` (`apps/api/src/lib/domain-match.ts`).
 
 **That gate has been removed, and the error code with it.** It was gatekeeping the wrong party. Whoever holds an owner seat has already been through AECi review, and they are the only person who knows which addresses actually maintain their listing — routinely an agency, a subsidiary, a parent company, or a contractor, none of whom have a corporate address on the vendor's domain. The gate did not make the flow safer; it converted the ordinary case into a refusal the owner could not act on themselves, and pushed a concierge review back onto AECi for a decision the owner had already made.
 

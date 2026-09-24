@@ -212,14 +212,14 @@ import { VendorAccountBadge } from '../../shared/vendor-account-badge/vendor-acc
               class="mt-4 max-w-prose border-s-2 border-(--border-strong) ps-3 text-sm leading-relaxed text-(--text-primary)"
             >
               <span i18n="@@vendor.plan.lapsed.paused"
-                >What is paused: the public account label, and editing your profile and
-                products.</span
+                >What is paused: the public account label, editing your profile and products, and
+                confirming data flows on your integrations.</span
               >
             </p>
             <p class="mt-4 max-w-prose text-sm leading-relaxed text-(--text-secondary)">
               <span i18n="@@vendor.plan.lapsed.renew"
-                >Renewing turns editing and the account label back on, with nothing to re-enter. Get
-                in touch and we will pick it up from there.</span
+                >Renewing turns all of it back on, with nothing to re-enter. Get in touch and we
+                will pick it up from there.</span
               >
             </p>
             <a routerLink="/contact" [class]="primaryCtaClass" i18n="@@vendor.plan.cta.renew"

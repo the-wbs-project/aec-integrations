@@ -338,7 +338,7 @@ export function sendClaimApprovedEmail(
 }
 
 /**
- * §11a "You've been invited to manage <vendor> on AEC Integrations" (AECI-664).
+ * §11a "You're invited to manage <vendor> on AEC Integrations" (AECI-664).
  *
  * The one template on this surface sent on a CUSTOMER's command rather than
  * AECi's, which shapes three things:
@@ -928,8 +928,8 @@ export function sendEntitlementExpiringAdminEmail(
   const phrase = expiryPhrase(opts.daysRemaining);
   const intro =
     opts.daysRemaining < 0
-      ? 'An ACTIVE entitlement is past its term end date. Nothing has been changed — the expiry sweep warns and never lapses (STAGE_2_PAID_TIERS_SPEC.md §7.3). Renew it or clear it deliberately from /admin/claims.'
-      : 'An active entitlement is approaching its term end date. Nothing will change on its own — the expiry sweep warns and never lapses (STAGE_2_PAID_TIERS_SPEC.md §7.3). Renew it or clear it deliberately from /admin/claims.';
+      ? 'An ACTIVE entitlement is past its term end date. Nothing has been changed — the expiry sweep warns and never lapses (STAGE_2_PAID_TIERS_SPEC.md §7.3). Renew it or clear it deliberately from the vendor page under /admin/vendors.'
+      : 'An active entitlement is approaching its term end date. Nothing will change on its own — the expiry sweep warns and never lapses (STAGE_2_PAID_TIERS_SPEC.md §7.3). Renew it or clear it deliberately from the vendor page under /admin/vendors.';
 
   const rows: ReadonlyArray<readonly [string, string]> = [
     ['Vendor', `${name} (${opts.vendorSlug})`],
