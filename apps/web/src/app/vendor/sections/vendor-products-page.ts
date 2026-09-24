@@ -34,7 +34,12 @@ import { vendorProductContext } from './vendor-product-context';
       >
         <span i18n="@@vendor.products.unknown">That product isn't linked to your vendor.</span>
         {{ ' ' }}
-        <a routerLink="../../products" i18n="@@vendor.products.unknownLink">See your products</a>
+        <a
+          routerLink="../../products"
+          class="text-(--accent-primary) underline underline-offset-2"
+          i18n="@@vendor.products.unknownLink"
+          >See your products</a
+        >
       </p>
     } @else if (ctx.product()) {
       <router-outlet />

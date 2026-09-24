@@ -573,7 +573,9 @@ Run axe on:
 - `/preview/vendor-dashboard` — the **portal header, breadcrumb and tab row**, in
   `preview-vendor-portal-nav.spec.ts` (`STAGE_2_VENDOR_PORTAL_SPEC.md` §6.4, §6.11).
   One axe run in **vendor context** and one in **product context**, because §6.11
-  swaps the breadcrumb, the `h1` and the whole tab row when a product opens. It runs
+  swaps the breadcrumb, the `h1` and the whole tab row when a product opens. A third
+  run covers the **product-not-found** state, reached through the "No access · new"
+  preset (AECI-1102: its inline link failed `link-in-text-block`). It runs
   on the PREVIEW route deliberately: that surface mounts the same shell and section
   routes with fixture data and **no session**, so unlike `vendor-dashboard.spec.ts`
   it does not skip-green in CI — and its path contains no `/vendor/` segment, so the
