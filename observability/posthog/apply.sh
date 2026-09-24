@@ -130,6 +130,17 @@ if [ -n "$bad_filters" ]; then
   exit 2
 fi
 
+# AECI-1115: PostHog moved metric labels off posthog.metrics into posthog.metric_series.
+# A query that still reads `m.attributes.<key>` fails validation, and an alert built on
+# it sits in `Errored` without paging anyone. Join the series table instead (README.md
+# "Migration hazards" item 6). Checked here so a dry-run fails, not the live alert.
+old_labels="$(jq -r '(.insights // [])[] | select(.query | test("\\bm\\.attributes\\.[a-z_]")) | .key' "$INSIGHTS")"
+if [ -n "$old_labels" ]; then
+  echo "apply.sh: these insights read m.attributes.<key>, which posthog.metrics no longer has. Join posthog.metric_series and read labels['<key>'] instead:" >&2
+  printf '%s\n' "$old_labels" | sed 's/^/  /' >&2
+  exit 2
+fi
+
 API_KEY="${POSTHOG_PERSONAL_API_KEY:-${POSTHOG_CLI_API_KEY:-}}"
 APP_HOST="$(jq -r '.hosts.management' "$CONFIG")"
 
