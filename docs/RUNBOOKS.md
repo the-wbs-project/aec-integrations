@@ -583,7 +583,8 @@ new and deliberate: at current volume one failed sign-in out of two is 50% and w
 paged. Datadog's shorter window had the same exposure and simply got lucky.
 **Metric:** `aeci.auth.signin{outcome:failed}` / `aeci.auth.signin` (all) — the failed-completion ratio
 over 15m, `service:aeci-web` (AECI-206). `attempts = sum over outcomes`; failure `reason` ∈
-`link_invalid` / `missing_code` / `auth_not_configured`.
+`link_invalid` / `missing_code` / `auth_not_configured`. The user lands on `/auth/login?error=<reason>`,
+which shows a notice for each reason (AECI-1100), so a report of "it said my link expired" is `link_invalid`.
 
 **What it means:** A high share of sign-in *completions* at `/auth/callback` are failing. This is the
 **SSR Worker** (`apps/web`), not the API. It is usually a config/provider problem, not user error:

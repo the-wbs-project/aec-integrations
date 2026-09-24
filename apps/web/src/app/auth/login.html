@@ -95,7 +95,35 @@
   >
     Sign-in is temporarily unavailable. Please try again later.
   </p>
-  } @if (profileUnavailable) {
+  }
+  <!-- Why /auth/callback sent the visitor back here. One notice per code; unknown codes render nothing. -->
+  @switch (callbackError) { @case ('link_invalid') {
+  <p
+    class="mt-8 rounded-(--radius-md) border border-(--border-default) bg-(--surface-raised) px-4 py-3 text-sm font-medium text-(--text-primary)"
+    role="alert"
+    i18n="@@auth.login.linkInvalid"
+  >
+    Sign-in didn't go through. Emailed links work once and expire quickly, so yours may have expired
+    or already been used. Request a new one below.
+  </p>
+  } @case ('missing_code') {
+  <p
+    class="mt-8 rounded-(--radius-md) border border-(--border-default) bg-(--surface-raised) px-4 py-3 text-sm font-medium text-(--text-primary)"
+    role="alert"
+    i18n="@@auth.login.missingCode"
+  >
+    We couldn't finish signing you in. Please try again.
+  </p>
+  } @case ('auth_not_configured') { @if (!unavailable()) {
+  <!-- The server had no sign-in config. Skipped when the browser-side notice above already says the same. -->
+  <p
+    class="mt-8 rounded-(--radius-md) border border-(--border-default) bg-(--surface-raised) px-4 py-3 text-sm font-medium text-(--text-primary)"
+    role="alert"
+    i18n="@@auth.login.notConfigured"
+  >
+    Sign-in is temporarily unavailable. Please try again later.
+  </p>
+  } } @case ('profile_unavailable') {
   <!-- AECI-770: the callback signed the visitor out because their profile could not be created. -->
   <p
     class="mt-8 rounded-(--radius-md) border border-(--border-default) bg-(--surface-raised) px-4 py-3 text-sm font-medium text-(--text-primary)"
@@ -105,7 +133,7 @@
     We couldn't finish setting up your account, so you're not signed in yet. This is on our side.
     Wait a minute, then sign in again.
   </p>
-  }
+  } }
 
   <!-- ── Google ───────────────────────────────────────────────────────── -->
   <div class="mt-10">

@@ -234,6 +234,43 @@ describe('LoginPage', () => {
     expect(el.textContent).not.toContain("couldn't finish setting up your account");
   });
 
+  // AECI-1100: every code `/auth/callback` emits renders its own notice.
+  it('explains an expired or reused link (link_invalid) and invites a new one', async () => {
+    const { el } = await setup({ errorParam: 'link_invalid' });
+    const alerts = el.querySelectorAll('[role="alert"]');
+    expect(alerts).toHaveLength(1);
+    expect(alerts[0].textContent).toContain('may have expired or already been used');
+    expect(alerts[0].textContent).toContain('Request a new one');
+    const submitBtn = el.querySelector('button[type="submit"]') as HTMLButtonElement;
+    expect(submitBtn).not.toBeNull();
+  });
+
+  it('tells the visitor to retry when the callback had no code (missing_code)', async () => {
+    const { el } = await setup({ errorParam: 'missing_code' });
+    const alerts = el.querySelectorAll('[role="alert"]');
+    expect(alerts).toHaveLength(1);
+    expect(alerts[0].textContent).toContain("couldn't finish signing you in");
+  });
+
+  it('says sign-in is unavailable when the server had no config (auth_not_configured)', async () => {
+    const { el } = await setup({ errorParam: 'auth_not_configured' });
+    const alerts = el.querySelectorAll('[role="alert"]');
+    expect(alerts).toHaveLength(1);
+    expect(alerts[0].textContent).toContain('Sign-in is temporarily unavailable');
+  });
+
+  it('shows the unavailable copy once when the browser is also unconfigured', async () => {
+    const { el } = await setup({ errorParam: 'auth_not_configured', configured: false });
+    const matches = (el.textContent ?? '').split('Sign-in is temporarily unavailable').length - 1;
+    expect(matches).toBe(1);
+  });
+
+  it('renders nothing for an unknown ?error= value and never echoes it', async () => {
+    const { el } = await setup({ errorParam: '<b>pwned</b>' });
+    expect(el.querySelectorAll('[role="alert"]')).toHaveLength(0);
+    expect(el.textContent).not.toContain('pwned');
+  });
+
   it('renders the unavailable notice with disabled actions when unconfigured', async () => {
     const { el } = await setup({ configured: false });
     expect(el.textContent).toContain('Sign-in is temporarily unavailable');
