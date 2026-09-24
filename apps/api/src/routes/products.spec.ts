@@ -689,6 +689,49 @@ describe('GET /api/products/:slug', () => {
     expect(body.integrations_as_source[0]?.data_object_slugs).toEqual([]);
   });
 
+  it('carries data_object_slugs on BOTH arms of integrations_as_connector (AECI-1080)', async () => {
+    await seedProduct(u(1), 'procore', 'Procore');
+    await seedProduct(u(2), 'sage-intacct', 'Sage Intacct');
+    await seedProduct(u(3), 'agave-erp-sync', 'Agave ERP Sync', { productRole: 'connector' });
+    await seedProduct(u(4), 'acumatica', 'Acumatica');
+    await seedProduct(u(5), 'fieldwire', 'Fieldwire');
+    // integrations arm: a third-party edge this connector powers.
+    await t.db.insert(integrations).values({
+      id: u(51),
+      sourceProductId: u(1),
+      targetProductId: u(2),
+      mechanismKind: 'iPaaS',
+      poweredByProductId: u(3),
+    });
+    // connector_evidenced_pairs arm, one with claims and one without.
+    const [a, b] = [u(1), u(4)].sort();
+    const [c, d] = [u(1), u(5)].sort();
+    await t.db.insert(connectorEvidencedPairs).values([
+      { id: u(52), connectorProductId: u(3), productAId: a!, productBId: b!, direction: 'b_to_a' },
+      { id: u(53), connectorProductId: u(3), productAId: c!, productBId: d!, direction: null },
+    ]);
+    await t.db.insert(taxonomyDataObjects).values([
+      { id: u(71), slug: 'drawings', name: 'Drawings' },
+      { id: u(72), slug: 'rfis', name: 'RFIs' },
+    ]);
+    await t.db.insert(claims).values([
+      // The same object in two directions counts once (the AECI-1042 rule).
+      { id: u(81), integrationId: u(51), dataObjectId: u(71), direction: 'a_to_b' },
+      { id: u(82), integrationId: u(51), dataObjectId: u(71), direction: 'b_to_a' },
+      { id: u(83), integrationId: u(51), dataObjectId: u(72), direction: 'a_to_b' },
+      { id: u(84), connectorEvidencedPairId: u(52), dataObjectId: u(72), direction: 'a_to_b' },
+    ]);
+
+    const connector = ProductDetailSchema.parse(
+      await (await get(detailApp(), '/api/products/agave-erp-sync')).json(),
+    );
+    const byId = (id: string) => connector.integrations_as_connector.find((i) => i.id === id);
+    expect([...(byId(u(51))?.data_object_slugs ?? [])].sort()).toEqual(['drawings', 'rfis']);
+    // A swapped (b_to_a) pair keeps its objects: an object has no orientation.
+    expect(byId(u(52))?.data_object_slugs).toEqual(['rfis']);
+    expect(byId(u(53))?.data_object_slugs).toEqual([]);
+  });
+
   it('frames a one-way claim relative to the page product (outbound from source, inbound from target)', async () => {
     await seedProduct(u(1), 'egnyte', 'Egnyte');
     await seedProduct(u(2), 'procore', 'Procore');

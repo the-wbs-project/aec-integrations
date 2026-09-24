@@ -6,6 +6,7 @@ import { defaultIntegrationContext } from '@aeci/shared';
 import { RequestTrigger } from '../requests/request-trigger';
 import {
   contextDirectionLabel,
+  dataObjectCountLabel,
   directionLabel,
   mechanismKindLabel,
 } from '../search/mechanism-labels';
@@ -148,7 +149,7 @@ import type { PoweredConnection, PoweredHubView } from './powered-hub-grouping';
               <li>
                 <a
                   [routerLink]="pairLink(partner)"
-                  [attr.aria-label]="pairAriaLabel(group.hub.name, partner.partner.name)"
+                  [attr.aria-label]="pairAriaLabel(group.hub.name, partner.partner.name, partner)"
                   class="flex items-center gap-3 px-4 py-3 text-(--text-primary) no-underline
                     transition-colors hover:bg-(--surface-muted)
                     focus-visible:outline-2 focus-visible:-outline-offset-2
@@ -199,6 +200,15 @@ import type { PoweredConnection, PoweredHubView } from './powered-hub-grouping';
                         <span class="md:hidden" aria-hidden="true">·</span>
                         <span class="md:hidden">{{ summary }}</span>
                       }
+                      <!-- AECI-1080 depth axis, below md: the object count joins
+                           the meta line, as it does on ProductIntegrationRow.
+                           Nothing renders for a pair with no claims. -->
+                      @if (dataObjectLabel(partner); as objects) {
+                        <span class="md:hidden" aria-hidden="true">·</span>
+                        <span class="md:hidden" data-testid="hub-data-objects-sublabel">{{
+                          objects
+                        }}</span>
+                      }
                     </span>
                   </span>
                   @if (mechanismSummary(partner); as summary) {
@@ -207,6 +217,17 @@ import type { PoweredConnection, PoweredHubView } from './powered-hub-grouping';
                         bg-(--surface-raised) px-2.5 py-0.5 text-xs font-bold
                         tracking-[0.01em] text-(--text-secondary) md:inline-flex"
                       >{{ summary }}</span
+                    >
+                  }
+                  @if (dataObjectLabel(partner); as objects) {
+                    <!-- AECI-1080: the depth chip beside the mechanism badge, at
+                         the same weight. Depth is orthogonal to mechanism. -->
+                    <span
+                      class="hidden shrink-0 rounded-(--radius-sm) border border-(--border-default)
+                        bg-(--surface-raised) px-2.5 py-0.5 text-xs font-bold
+                        tracking-[0.01em] text-(--text-secondary) md:inline-flex"
+                      data-testid="hub-data-objects"
+                      >{{ objects }}</span
                     >
                   }
                   <span
@@ -238,7 +259,7 @@ import type { PoweredConnection, PoweredHubView } from './powered-hub-grouping';
               <li>
                 <a
                   [routerLink]="pairLink(pair)"
-                  [attr.aria-label]="pairAriaLabel(pair.a.name, pair.b.name)"
+                  [attr.aria-label]="pairAriaLabel(pair.a.name, pair.b.name, pair)"
                   class="flex items-center gap-3 px-4 py-3 text-(--text-primary) no-underline
                     transition-colors hover:bg-(--surface-muted)
                     focus-visible:outline-2 focus-visible:-outline-offset-2
@@ -271,6 +292,18 @@ import type { PoweredConnection, PoweredHubView } from './powered-hub-grouping';
                         bg-(--surface-raised) px-2.5 py-0.5 text-xs font-bold
                         tracking-[0.01em] text-(--text-secondary) md:inline-flex"
                       >{{ summary }}</span
+                    >
+                  }
+                  @if (dataObjectLabel(pair); as objects) {
+                    <!-- Same md breakpoint as the mechanism badge beside it: a
+                         flat row has no meta line to fold into below md, and the
+                         link's accessible name carries the count at every width. -->
+                    <span
+                      class="hidden shrink-0 rounded-(--radius-sm) border border-(--border-default)
+                        bg-(--surface-raised) px-2.5 py-0.5 text-xs font-bold
+                        tracking-[0.01em] text-(--text-secondary) md:inline-flex"
+                      data-testid="hub-data-objects"
+                      >{{ objects }}</span
                     >
                   }
                   <span
@@ -470,6 +503,16 @@ export class ProductPoweredHub {
     return $localize`:@@products.detail.body.powers.mechanism.multiple:${kinds.length}:count: connection types`;
   }
 
+  /**
+   * AECI-1080 depth axis: "N data objects" over the pair's UNIONED slugs, or `''`,
+   * which the template's `@if`-as-binding treats as absent. The same label helper
+   * and the same counting rule as `ProductIntegrationRow`, so one pair reads the
+   * same count on the connector page and on either endpoint's page.
+   */
+  protected dataObjectLabel(pair: PoweredConnection): string {
+    return dataObjectCountLabel(pair.dataObjectSlugs.length);
+  }
+
   /** Hub-relative direction presentation (arrow glyph + label), or null when unknown. */
   protected hubDirection(partner: {
     readonly hubDirection: Parameters<typeof contextDirectionLabel>[0];
@@ -508,7 +551,15 @@ export class ProductPoweredHub {
    * attribute at all in this app (see the repo note on interpolated i18n attrs),
    * which would silently leave these row links unnamed.
    */
-  protected pairAriaLabel(first: string, second: string): string {
+  protected pairAriaLabel(first: string, second: string, pair: PoweredConnection): string {
+    // AECI-1080: this aria-label replaces the link's content as its accessible
+    // name, so a chip inside the link is never announced. The object count is
+    // appended here instead, and only when present: a pair with no claims keeps
+    // the name it always had (pinned by depth-axis-null.component.spec.ts).
+    const objects = this.dataObjectLabel(pair);
+    if (objects) {
+      return $localize`:@@products.detail.body.powers.row.aria.objects:View the ${first}:FIRST: and ${second}:SECOND: integration, ${objects}:OBJECTS:`;
+    }
     return $localize`:@@products.detail.body.powers.row.aria:View the ${first}:FIRST: and ${second}:SECOND: integration`;
   }
 

@@ -9,7 +9,7 @@ import {
   uuidList,
   VendorLinkSchema,
 } from './common';
-import { IntegrationListItemSchema, ProductIntegrationItemSchema } from './integrations';
+import { PoweredIntegrationItemSchema, ProductIntegrationItemSchema } from './integrations';
 import { PublicReviewSchema } from './reviews';
 
 /**
@@ -125,10 +125,11 @@ export const ProductDetailSchema = ProductListItemSchema.extend({
   // Integrations this product POWERS as the connector/mechanism
   // (`integrations.powered_by_product_id`), not as an endpoint — the edges a
   // connector-role product exists to provide (Stage 1.5 Addendum B). Row shape
-  // is the bare IntegrationListItem: both endpoints are "other" products here,
-  // so there is no `context_direction` — the row's `direction` is between
-  // `source` and `target`, and grouping/presentation is a client concern.
-  integrations_as_connector: z.array(IntegrationListItemSchema),
+  // is the list item plus `data_object_slugs` (AECI-1080, the hub's depth axis):
+  // both endpoints are "other" products here, so there is no
+  // `context_direction` — the row's `direction` is between `source` and
+  // `target`, and grouping/presentation is a client concern.
+  integrations_as_connector: z.array(PoweredIntegrationItemSchema),
   related_products: z.array(ProductListItemSchema),
   // The `product_extensions` relation, both directions (AECI-710 / Stage 1.5
   // §13.3b). `extension_of` is the hosts this product is built WITHIN;

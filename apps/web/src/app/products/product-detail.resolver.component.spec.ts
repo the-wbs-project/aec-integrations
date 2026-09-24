@@ -132,7 +132,7 @@ registerDetailResolverSuite<ProductDetail>({
           updated_at: '2024-01-01T00:00:00.000Z',
         },
       ],
-      // Powered edge (this product is the connector) — bare IntegrationListItem,
+      // Powered edge (this product is the connector) — list item + data_object_slugs,
       // no `context_direction`. Both endpoints render, so both get tagged.
       integrations_as_connector: [
         {
@@ -144,6 +144,7 @@ registerDetailResolverSuite<ProductDetail>({
           source: { id: 's3', name: 'D', slug: 'd', logo_url: null },
           target: { id: 't3', name: 'E', slug: 'e', logo_url: null },
           via: null,
+          data_object_slugs: [],
           created_at: '2024-01-01T00:00:00.000Z',
           updated_at: '2024-01-01T00:00:00.000Z',
         },
@@ -517,6 +518,7 @@ describe('productDetailResolver — title and description (AECI-802)', () => {
           source: { id: 'd', name: 'D', slug: 'd', logo_url: null },
           target: { id: 'e', name: 'E', slug: 'e', logo_url: null },
           via: null,
+          data_object_slugs: [],
           created_at: '2024-01-01T00:00:00.000Z',
           updated_at: '2024-01-01T00:00:00.000Z',
         },

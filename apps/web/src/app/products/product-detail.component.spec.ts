@@ -27,6 +27,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type {
   IntegrationListItem,
+  PoweredIntegrationItem,
   ProductDetail,
   ProductIntegrationItem,
   ProductLink,
@@ -183,7 +184,7 @@ const edge = (
   source: ProductLink,
   target: ProductLink,
   direction: IntegrationListItem['direction'] = null,
-): IntegrationListItem => ({
+): PoweredIntegrationItem => ({
   id: `00000000-0000-4000-8000-${String(++seq).padStart(12, '0')}`,
   name: `${source.name} ↔ ${target.name}`,
   mechanism_kind: 'iPaaS',
@@ -192,6 +193,7 @@ const edge = (
   source,
   target,
   via: null,
+  data_object_slugs: [],
   created_at: '2024-06-01T00:00:00.000Z',
   updated_at: '2024-06-01T00:00:00.000Z',
 });

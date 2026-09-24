@@ -4,6 +4,7 @@ import {
   type ContextDirection,
   type IntegrationListItem,
   type IntegrationMechanismKind,
+  type PoweredIntegrationItem,
   type ProductLink,
 } from '@aeci/shared';
 import { compareText } from '@aeci/shared/text-sort';
@@ -65,6 +66,13 @@ export interface PoweredConnection {
    * to `both` — together they do describe a round trip.
    */
   readonly direction: ContextDirection | null;
+  /**
+   * The distinct `data_object` slugs across every collapsed edge (AECI-1080, the
+   * depth axis). A UNION, not a sum: an object two edges both move counts once,
+   * the same rule `connector-lane-grouping.ts` applies to a collapsed Via row.
+   * Empty when no collapsed edge has claims, and the row then shows no chip.
+   */
+  readonly dataObjectSlugs: readonly string[];
   /** Edges that collapsed into this pair. `> 1` means duplicates or multiple mechanisms. */
   readonly edgeCount: number;
 }
@@ -136,6 +144,7 @@ interface MutableConnection {
   /** Insertion-ordered so `freeze()` needs no sort — see `mechanismNames`. */
   mechanismNames: Set<string>;
   direction: ContextDirection | null;
+  dataObjectSlugs: Set<string>;
   edgeCount: number;
 }
 
@@ -188,6 +197,7 @@ function freeze(c: MutableConnection): PoweredConnection {
     mechanismKinds: MECHANISM_ORDER.filter((k) => c.mechanismKinds.has(k)),
     mechanismNames: [...c.mechanismNames],
     direction: c.direction,
+    dataObjectSlugs: [...c.dataObjectSlugs],
     edgeCount: c.edgeCount,
   };
 }
@@ -243,7 +253,7 @@ function freeze(c: MutableConnection): PoweredConnection {
  * handler rejects them, so one would be corrupt data, not a group.
  */
 export function groupPoweredIntegrations(
-  integrations: readonly IntegrationListItem[],
+  integrations: readonly PoweredIntegrationItem[],
   selfSlug: string,
 ): PoweredHubView {
   // 1 ─ collapse edges into distinct, canonically-oriented pairs.
@@ -268,6 +278,7 @@ export function groupPoweredIntegrations(
       existing.direction = mergeContextDirections(existing.direction, direction);
       if (i.mechanism_kind) existing.mechanismKinds.add(i.mechanism_kind);
       addMechanismName(existing.mechanismNames, i.mechanism_name);
+      for (const slug of i.data_object_slugs) existing.dataObjectSlugs.add(slug);
       continue;
     }
     pairs.set(key, {
@@ -277,6 +288,7 @@ export function groupPoweredIntegrations(
       mechanismKinds: new Set(i.mechanism_kind ? [i.mechanism_kind] : []),
       mechanismNames: newMechanismNames(i.mechanism_name),
       direction,
+      dataObjectSlugs: new Set(i.data_object_slugs),
       edgeCount: 1,
     });
   }

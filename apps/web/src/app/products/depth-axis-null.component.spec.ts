@@ -20,7 +20,12 @@ import { ActivatedRoute, convertToParamMap, provideRouter } from '@angular/route
 import { of } from 'rxjs';
 import { beforeEach, describe, expect, it } from 'vitest';
 
-import type { ProductIntegrationItem, ProductLink, ProductPairResponse } from '@aeci/shared';
+import type {
+  PoweredIntegrationItem,
+  ProductIntegrationItem,
+  ProductLink,
+  ProductPairResponse,
+} from '@aeci/shared';
 
 import { groupPoweredIntegrations, type PoweredHubView } from './powered-hub-grouping';
 import { ProductIntegrationRow } from './product-integration-row';
@@ -174,7 +179,11 @@ const ACUMATICA: ProductLink = { id: 's3', slug: 'acumatica', name: 'Acumatica',
 const BLUEBEAM: ProductLink = { id: 's4', slug: 'bluebeam', name: 'Bluebeam', logo_url: null };
 const FIELDWIRE: ProductLink = { id: 's5', slug: 'fieldwire', name: 'Fieldwire', logo_url: null };
 
-function nullPoweredEdge(n: number, source: ProductLink, target: ProductLink) {
+function nullPoweredEdge(
+  n: number,
+  source: ProductLink,
+  target: ProductLink,
+): PoweredIntegrationItem {
   return {
     id: `00000000-0000-4000-8000-0000001080${String(n).padStart(2, '0')}`,
     name: `${source.name} and ${target.name}`,
@@ -184,6 +193,7 @@ function nullPoweredEdge(n: number, source: ProductLink, target: ProductLink) {
     source,
     target,
     via: null,
+    data_object_slugs: [],
     created_at: '2024-03-01T00:00:00.000Z',
     updated_at: '2024-06-15T00:00:00.000Z',
   };
