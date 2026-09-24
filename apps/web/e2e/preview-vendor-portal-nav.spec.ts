@@ -127,4 +127,20 @@ test.describe('vendor portal nav (preview)', () => {
     await expect(productNav(page, productName)).toHaveCount(0);
     expect(await axeSerious(page), 'vendor context must be axe clean').toEqual([]);
   });
+  // AECI-1102: the "product not found" line's link sat in running text told
+  // apart by colour alone (axe `link-in-text-block`, serious). The "No access ·
+  // new" preset swaps to a vendor that owns no products, so the product route
+  // renders that state.
+  test('the product-not-found state is axe clean', async ({ page }) => {
+    await page.goto(`${PATH}/products/summit-model-coordination/integrations`);
+    const notFound = page.getByText("That product isn't linked to your vendor.");
+    await clickUntil(page.getByRole('button', { name: 'No access · new' }), () =>
+      expect(notFound).toBeVisible({ timeout: 1_000 }),
+    );
+    await expect(page.getByRole('link', { name: 'See your products' })).toHaveCSS(
+      'text-decoration-line',
+      'underline',
+    );
+    expect(await axeSerious(page), 'product-not-found state must be axe clean').toEqual([]);
+  });
 });
