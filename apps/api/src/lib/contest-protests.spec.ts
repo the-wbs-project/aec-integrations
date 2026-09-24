@@ -42,6 +42,7 @@ const TABLE_ALLOWED = new Set([
   'routes/integration-retire-write.ts', // the shared retire batch
   'routes/vendor-updates.ts', // the vendor `contests` freshness cursor, authenticated
   'lib/vendor-handback.ts', // seat loss re-routes owner contests (AECI-989)
+  'routes/promote-contests.ts', // a promote cross-table move re-anchors contests (AECI-1110)
 ]);
 
 const PROTEST_COLUMN =

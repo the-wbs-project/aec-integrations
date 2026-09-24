@@ -549,6 +549,18 @@ Four consequences worth knowing:
   third-party `poweredByProduct` is **moved** by that push — inserted into `connector_evidenced_pairs`
   under its existing id, its claims and their vendor attestations re-homed with it, and the old
   `integrations` row dropped. No payload change and no separate call is needed for either.
+- **Contests move with the edge too (AECI-1110).** A vendor's field contest
+  (`integration_field_challenges`, `STAGE_2_VENDOR_PORTAL_SPEC.md` §11b) is a cascade child of
+  both tables. In both directions the move re-anchors every contest on the edge onto the
+  destination row, open or closed, before it drops the source, in the same batch. Each one writes
+  an `integration.contest.reanchored` audit row. A `direction` contest's two values flip into the
+  new frame by the claims' rule above. One exception, on a move **into**
+  `connector_evidenced_pairs` only: an **open** `mechanism_kind` contest is closed as `withdrawn`
+  (`metadata.reason = 'edge-moved-to-connector-tier'`), because that table has no such column and
+  your push has answered the question. It then moves like the rest, so its history stays. If a
+  contest on the edge is filed, withdrawn or decided after AECi planned the move and before it
+  committed, the promote rolls back and the job ends `errored` with
+  `CONTEST_CHANGED_DURING_PROMOTE` (409). Nothing was written. Re-push under a new job id.
 
 - **Clearing the routing key moves the edge back, and only an EXPLICIT `null` does it
   (AECI-888).** The three carve-outs above are written as *initial routing* rules; these are the
@@ -558,7 +570,7 @@ Four consequences worth knowing:
   | `poweredByProduct` in your payload | what happens to an edge already in `connector_evidenced_pairs` |
   |---|---|
   | a resolved third product | updated in place, as above |
-  | **`null`** | **moved to `integrations`** under its existing id, claims re-homed off `connector_evidenced_pair_id`, the pair row dropped |
+  | **`null`** | **moved to `integrations`** under its existing id, claims re-homed off `connector_evidenced_pair_id`, contests re-anchored (AECI-1110), the pair row dropped |
   | **omitted** | **stays where it is.** "No opinion" is not a de-route — the stored connector still applies |
   | present but **unresolvable** | **stays where it is**, stored connector preserved, reported on `unresolvedLinks` (AECI-730) |
 
@@ -1174,7 +1186,7 @@ is about:
 | Any content field (`name`, `description`, `listingUrl`, `mechanismKind`, …) | Not written. |
 | `builtByVendor` | Not written. A claimed row's owner changes only through AECi's admin path. |
 | A different `sourceProduct` / `targetProduct` (an endpoint re-point) | Not written, and no endpoint-move record is made. |
-| A `poweredByProduct` change that would move the row between `integrations` and `connector_evidenced_pairs` (§3.4a) | Not performed. That move deletes the source row, and the delete would cascade away the vendor's claims, attestations and contests. |
+| A `poweredByProduct` change that would move the row between `integrations` and `connector_evidenced_pairs` (§3.4a) | Not performed. A move re-creates the row in the other table and deletes the source, and promote writes nothing to a vendor-held row. An unclaimed row's claims and contests do survive a move (AECI-1110); the fence is about ownership, not the cascade. |
 | `claims[]`, including AECi-seeded claims and the `aeci` attestation slot | Not written. An empty `claims[]` does not retire AECi's prior claims either. |
 | `lastReviewedAt` | Not written. There is no separate `review-signal` entry for it; the integration entry below covers it. |
 
@@ -1410,7 +1422,7 @@ Two kinds of delete *are* in the contract, and neither of them is retraction.
    `integrations` and `connector_evidenced_pairs`, and `powered_by_product_id` is what
    routes an edge between them. Because identity is table-scoped and that key is mutable,
    a push that flips it **moves** the row — insert under the preserved id, re-home the
-   claims, drop the source, all in the same batch. The old row is deleted because you
+   claims, re-anchor the contests (AECI-1110), drop the source, all in the same batch. The old row is deleted because you
    named it, not because anything was missing from the payload.
 
 What is never removed is an **entity you stopped mentioning**. Products, vendors and
@@ -1720,6 +1732,7 @@ the vendor, and writes one `audit_log` row (`action = 'vendor.deleted'`) in the 
 
 - The edge AECI-798 stranded was Roofr → QuickBooks Online, and it stayed stranded for three days.
 - Both directions of the id-directed cross-table move re-home the claims **before** dropping the source row. The cascade is two levels deep (`integrations` or `connector_evidenced_pairs` → `claims` → `attestations`). Nothing can make `claims_anchor_check` block a delete, so the order is the only protection.
+- The contests follow the same order (AECI-1110, `apps/api/src/routes/promote-contests.ts`): destination INSERT, claim re-home, contest re-anchor, then a sentinel that aborts if any contest is still on the source, then the DELETE. `integration_field_challenges` is `ON DELETE CASCADE` off both tables, so that sentinel is the only thing between a contest filed mid-promote and the cascade.
 
 ### 5.2 `claims[]` replaces AECi curation only (AECI-604)
 
@@ -1800,6 +1813,7 @@ Synchronous rejections use the standard AECi envelope:
 | `VALIDATION_FAILED` | A name that can't be turned into a URL slug (reserved or empty after normalization) — only detectable once AECi tries | Fix the name; re-push with a new `jobId`. |
 | `CATALOG_VENDOR_MANAGED` | Connector arm only (§3a). The catalogue is **vendor-managed** on AECi, so the review lane is frozen for it | **Do not retry — not with this `jobId` and not with a new one.** Stop syncing that catalogue and render it read-only your side. Only an AECi operator can return it to review authorship. |
 | `INTEGRATION_CLAIMED_DURING_PROMOTE` | An integration in the bundle was claimed by its owner after AECi planned the write and before it committed (§4b). The whole batch rolled back | Re-push with a **new `jobId`**. The re-push reports that edge in `skipped[]` and commits the rest. |
+| `CONTEST_CHANGED_DURING_PROMOTE` | A contest on an edge this bundle moves between `integrations` and `connector_evidenced_pairs` was filed, withdrawn or decided after AECi planned the move and before it committed (§3.4a, AECI-1110). The whole batch rolled back | Re-push with a **new `jobId`**. The re-push re-anchors the contests as they now stand. |
 | `VENDOR_OWNED_TWIN_CREATED_DURING_PROMOTE` | A vendor created or claimed a strong-match twin of an integration this bundle was about to insert, de-route or update, after AECi planned the write and before it committed (§4c). The whole batch rolled back | Re-push with a **new `jobId`**. The re-push reports that edge as `VENDOR_OWNED_TWIN` in `skipped[]` and commits the rest, unless the edge is an UPDATE of a row that already matched the new vendor row, which the re-push writes (§4c). |
 | `INTERNAL_ERROR` | Unexpected server fault during the commit | Retry with a **new `jobId`**. The commit is a single atomic batch, so a failed job wrote nothing. Escalate if it repeats. |
 
