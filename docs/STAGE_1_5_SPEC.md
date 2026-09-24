@@ -1818,13 +1818,17 @@ database in both states to pin the pair. The edit's gate is also re-checked **in
 by a `json()` sentinel (the `contestStillOpenSentinel` pattern), so a lane reclaimed between the
 read and the write rolls the batch back with its audit row.
 
-**One residual race, stated.** The promote side reads `managed_by` when it plans a page, not inside
-its batch. A page planned while a catalogue is `review` and committed after an operator flipped it
-to `vendor` and a seat edited a row could overwrite that edit. The window is one page's plan-to-commit
-time, the flip is operator-only, and reclaiming already "reconciles nothing". Not closed here,
-because a sentinel in the promote batch would change the ADR 0021 ledger batch. **Tracked as
-AECI-1084**: give the planner's mapping upsert the same `managed_by = 'vendor'` guard the PATCH
-uses, after the ledger insert, so a page planned before the flip writes nothing after it.
+**The promote side's race is closed too (AECI-1084, 2026-09-24).** The promote side used to read
+`managed_by` only when it planned a page. A page planned while a catalogue was `review` and
+committed after an operator flipped it to `vendor` could overwrite a seat's edit. Now every page
+that writes carries `catalogNotVendorManagedSentinel` (`lib/promote-connector-catalog.ts`) as
+the first planner statement. It aborts the batch if the catalogue is `vendor`-managed at commit
+time. The `promote_jobs` ledger insert stays statement 0, so the ADR 0021 replay guard is
+unchanged. An abort writes nothing: no rows, no ledger row, no `audit_log` row. The ingest then
+re-reads the flag and fails the job with `CATALOG_VENDOR_MANAGED`, the same code as the plan-time
+refusal. It is not a `skipped[]` entry, for the reason `REVIEW_APP_PROMOTE_API.md` §3a gives. A
+page that changes nothing emits no statement, sentinel included. `lib/connector-mapping-lanes.spec.ts`
+pins the race over the seeded fixture.
 
 **The seat authorizes on ownership, never on an entitlement.** `requireVendor()`, then the caller's
 `vendor_id` must hold the catalogue's `connector`-role product through `product_vendors`. No

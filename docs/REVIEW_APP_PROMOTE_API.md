@@ -972,6 +972,11 @@ Three properties worth knowing:
 - **A mid-sync flip does not roll anything back.** Pages committed before the flip stay
   committed; pages after it reject. AECi's copy is current either way — that is the whole reason
   handover is a lane freeze rather than a data migration.
+- **"After the flip" means commit time, not plan time (AECI-1084).** The check runs twice: once
+  when the page is planned, and again inside the page's own batch. A page planned before the
+  flip and committed after it fails the same way, with `CATALOG_VENDOR_MANAGED`, and writes
+  nothing — no rows, no ledger row, no audit row. So a vendor's mapping edit made in that window
+  is never overwritten. Treat this job like any other refusal: do not retry it.
 
 ## 4. Response
 

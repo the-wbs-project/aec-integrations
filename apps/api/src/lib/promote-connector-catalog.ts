@@ -67,7 +67,7 @@ import type {
   PromoteSkipped,
 } from '@aeci/shared';
 import { ApiErrorCode, CONNECTOR_DECISION_STATUSES } from '@aeci/shared';
-import { and, eq, inArray } from 'drizzle-orm';
+import { and, eq, inArray, sql } from 'drizzle-orm';
 
 import type { Db } from '../db/client';
 import { ApiError } from '../errors';
@@ -85,6 +85,7 @@ import { claimProvenance } from './attestation-authority';
 import type { BatchStmt, BatchTuple } from './audit';
 import { loadDataObjectResolver, type DataObjectResolver } from './data-object-vocabulary';
 import { liveAttestationsWhere } from './drizzle-helpers';
+import { ONE_ROW } from './integration-claims';
 import { chunked } from './promote-claims';
 
 /**
@@ -153,6 +154,71 @@ export interface ConnectorPagePlan {
    * and cannot touch the batch.
    */
   purgeProductIds: string[];
+}
+
+// ── the vendor-managed freeze, at plan time and at commit time ──────────────────
+
+/** The one refusal for a vendor-managed catalogue, from either half of the check. */
+export function catalogVendorManagedError(catalogId: string): ApiError {
+  return new ApiError(
+    409,
+    ApiErrorCode.CATALOG_VENDOR_MANAGED,
+    `Connector catalogue "${catalogId}" is vendor-managed on AECi; the review lane is ` +
+      `frozen for it and this page was not written. Re-sending will not help. If the ` +
+      `catalogue should return to review authorship, an AECi operator flips it back ` +
+      `via PATCH /api/admin/connector-catalogs/:id.`,
+  );
+}
+
+/**
+ * The commit-time half of the AECI-720 freeze (AECI-1084). A batch statement that
+ * ABORTS the whole page when the catalogue is `vendor`-managed by the time the batch
+ * runs, so a page planned before an operator's flip writes nothing after it.
+ *
+ * The mirror of `catalogStillVendorManagedSentinel` in `./connector-mapping-edit.ts`,
+ * with the predicate inverted: the edit needs `vendor`, the sync needs anything else. A
+ * catalogue this page is creating has no row yet and passes, which is right, because a
+ * new catalogue starts `review` by column default. Same `json()` abort as every other
+ * sentinel here: SQLite has no `RAISE()` outside triggers. Selected FROM `ONE_ROW`, so it
+ * evaluates exactly once.
+ */
+export function catalogNotVendorManagedSentinel(db: Db, catalogId: string) {
+  return db
+    .select({
+      guard: sql`CASE WHEN EXISTS (SELECT 1 FROM ${connectorCatalogs}
+        WHERE ${connectorCatalogs.id} = ${catalogId} AND ${connectorCatalogs.managedBy} = 'vendor')
+        THEN json('catalog-vendor-managed-during-promote') END`,
+    })
+    .from(ONE_ROW);
+}
+
+/**
+ * True when a failed connector batch is a `json()` sentinel abort. SQLite does not echo
+ * the argument, so the message alone cannot say WHICH sentinel fired. The caller
+ * therefore re-reads the flag ({@link isCatalogVendorManaged}) before it picks
+ * `CATALOG_VENDOR_MANAGED`, the way `anyVendorOwnedTwin` picks between the product
+ * arm's two sentinels. Walks the `cause` chain because D1 wraps the SQLite error.
+ */
+export function isSentinelAbort(error: unknown): boolean {
+  const seen = new Set<unknown>();
+  let current: unknown = error;
+  while (current && !seen.has(current)) {
+    seen.add(current);
+    if (/malformed JSON/i.test(String((current as { message?: unknown }).message ?? current)))
+      return true;
+    current = (current as { cause?: unknown }).cause;
+  }
+  return false;
+}
+
+/** The post-failure re-read for {@link catalogNotVendorManagedSentinel}. */
+export async function isCatalogVendorManaged(db: Db, catalogId: string): Promise<boolean> {
+  const [row] = await db
+    .select({ managedBy: connectorCatalogs.managedBy })
+    .from(connectorCatalogs)
+    .where(eq(connectorCatalogs.id, catalogId))
+    .limit(1);
+  return row?.managedBy === 'vendor';
 }
 
 function emptyCounts(): PromoteConnectorTableCounts {
@@ -370,6 +436,9 @@ async function preread(db: Db, page: PromoteConnectorPagePayload) {
  * Statement ordering is structural rather than something each branch has to
  * remember — the arrays are built separately and concatenated at the end:
  *
+ *   [sentinel]        the AECI-1084 `managed_by` guard, only when the page writes. It
+ *                     reads and writes nothing; it aborts the batch on a vendor-managed
+ *                     catalogue. The caller's ledger insert still precedes it.
  *   deletes           DELETES FIRST, and that is load-bearing rather than tidiness.
  *                     A surface re-roled `apps` → `all` upserted before the old `all`
  *                     row is deleted trips `connector_catalog_surfaces_role_idx`, and
@@ -433,16 +502,12 @@ export async function planConnectorCatalogPage(
   // Refusing the PAGE is complete cover. Every child row below binds the page-level
   // `catalogId` rather than a caller-supplied one (and `mappings[].catalogId` is
   // deliberately not on the wire), so one page can only ever write one catalogue's rows.
-  if (existingCatalog?.['managedBy'] === 'vendor') {
-    throw new ApiError(
-      409,
-      ApiErrorCode.CATALOG_VENDOR_MANAGED,
-      `Connector catalogue "${catalogId}" is vendor-managed on AECi; the review lane is ` +
-        `frozen for it and this page was not written. Re-sending will not help. If the ` +
-        `catalogue should return to review authorship, an AECi operator flips it back ` +
-        `via PATCH /api/admin/connector-catalogs/:id.`,
-    );
-  }
+  //
+  // This is the PLAN-time half. The commit-time half is
+  // {@link catalogNotVendorManagedSentinel}, which the return below puts at the head of
+  // the statements so a flip between this read and the batch still writes nothing
+  // (AECI-1084).
+  if (existingCatalog?.['managedBy'] === 'vendor') throw catalogVendorManagedError(catalogId);
 
   // A catalogue whose connector platform is not promoted cannot be stored at all —
   // `connector_product_id` is NOT NULL. This is a live case, not a hypothetical:
@@ -963,7 +1028,19 @@ export async function planConnectorCatalogPage(
   if (changed) purgeProductIds.add(connectorProductId);
 
   return {
-    statements: [...deletes, ...upserts, ...attestationDeletes, ...attestationWrites],
+    // The AECI-1084 sentinel leads, and only on a page that writes. The caller unshifts
+    // the `promote_jobs` ledger insert ahead of it, so the ledger stays statement 0
+    // (ADR 0021) and the sentinel is statement 1. A page that changes nothing emits no
+    // statement at all, sentinel included, so a no-op re-sync stays free.
+    statements: changed
+      ? [
+          catalogNotVendorManagedSentinel(db, catalogId),
+          ...deletes,
+          ...upserts,
+          ...attestationDeletes,
+          ...attestationWrites,
+        ]
+      : [],
     audits,
     skipped,
     counts,

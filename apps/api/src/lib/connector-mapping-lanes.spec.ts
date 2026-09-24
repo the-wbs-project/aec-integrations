@@ -7,18 +7,22 @@
  * both states of the flag, so the complement is tested as a pair rather than as two
  * unrelated refusals in two files. If either gate moves, one of these cells fails.
  *
- * The last cell is the in-batch sentinel: an edit planned while the catalogue was
- * `vendor`-managed must still refuse, and write nothing, if the flag flipped back to
- * `review` before its batch ran.
+ * The last two cells are the in-batch sentinels, one per lane. An edit planned while the
+ * catalogue was `vendor`-managed must still refuse, and write nothing, if the flag flipped
+ * back to `review` before its batch ran. A sync page planned while the catalogue was
+ * `review`-managed must likewise write nothing if the flag flipped to `vendor` before its
+ * batch ran (AECI-1084).
  */
 
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
+import type { PromoteConnectorPagePayload } from '@aeci/shared';
 import { PromoteConnectorPagePayloadSchema } from '@aeci/shared';
 import { eq } from 'drizzle-orm';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
+import type { Db } from '../db/client';
 import {
   auditLog,
   connectorCatalogs,
@@ -26,7 +30,11 @@ import {
   connectorStubs,
   products,
   profiles,
+  promoteJobs,
 } from '../db/schema';
+import type { Env } from '../env';
+import type { PromoteRunCtx } from '../routes/promote';
+import { runConnectorCatalogIngest } from '../routes/promote-connector';
 import { makeTestDb, type TestDb } from '../test/d1';
 import { auditInsert, type BatchTuple } from './audit';
 import {
@@ -157,6 +165,43 @@ describe('the promote lane and the edit lane are exact complements', () => {
     expect((await t.db.select().from(auditLog)).length).toBe(auditsBefore);
     expect(await t.db.select().from(connectorStubs)).toHaveLength(1);
   });
+
+  it('the in-batch sentinel refuses a sync page whose lane flipped to vendor after the plan (AECI-1084)', async () => {
+    // Planned while the review lane is open, so the plan-time check passes and the page
+    // would re-state the mapping.
+    const plan = await planConnectorCatalogPage(t.db, page('a-reviewer'));
+    expect(plan.wrote).toBe(true);
+
+    // The operator hands the catalogue over, and a seat edits the row, before the page
+    // commits.
+    await setManagedBy('vendor');
+    const target = await loadMappingForEdit(t.db, MAPPING_ID);
+    await applyMappingEdit(t.db, target!, { productId: AUTODESK_ID }, ACTOR);
+    const auditsBefore = (await t.db.select().from(auditLog)).length;
+
+    // Committed exactly the way `runConnectorCatalogIngest` builds it: ledger first,
+    // then the plan, then its audit row.
+    await expect(
+      t.db.batch([
+        t.db.insert(promoteJobs).values({ jobId: 'job-planned-before-flip', result: {} }),
+        ...plan.statements,
+        ...plan.audits.map((e) => auditInsert(t.db, e)),
+      ] as BatchTuple),
+    ).rejects.toThrow(/malformed JSON/i);
+
+    // The seat's edit survives, and nothing claims a write that did not land.
+    const row = await readMapping();
+    expect(row?.productId).toBe(AUTODESK_ID);
+    expect(row?.decidedBy).toBe('aeci-operator');
+    expect(await t.db.select().from(promoteJobs)).toHaveLength(0);
+    expect((await t.db.select().from(auditLog)).length).toBe(auditsBefore);
+  });
+
+  it('a page that changes nothing carries no sentinel, so a no-op re-sync stays free', async () => {
+    const plan = await planConnectorCatalogPage(t.db, page('auto-name-match'));
+    expect(plan.wrote).toBe(false);
+    expect(plan.statements).toHaveLength(0);
+  });
 });
 
 describe('against seed/connector-fixtures.sql (the fx-cat-agave fixture)', () => {
@@ -195,6 +240,145 @@ describe('against seed/connector-fixtures.sql (the fx-cat-agave fixture)', () =>
     expect(() => assertVendorManaged(target!)).toThrow(
       expect.objectContaining({ code: 'CATALOG_REVIEW_MANAGED' }),
     );
+    f.dispose();
+  });
+});
+
+/**
+ * The AECI-1084 guard end to end, through `runConnectorCatalogIngest` and over the seeded
+ * fixture: `fx-cat-mindcloud` is review-managed and `fx-cat-agave` is vendor-managed.
+ */
+describe('the sync page against seed/connector-fixtures.sql (AECI-1084)', () => {
+  const AUTODESK_FX = '00000000-0000-4000-8000-000000000801';
+  const JOB_ID = 'fx-connector-page-0001';
+
+  async function fixtureDb(): Promise<TestDb> {
+    const db = await makeTestDb();
+    db.raw.exec(readFileSync(join(process.cwd(), 'seed', 'connector-fixtures.sql'), 'utf8'));
+    return db;
+  }
+
+  /** One page that re-states one stored mapping with a different decider, so it writes. */
+  const fixturePage = (
+    catalogId: string,
+    connectorProductId: string,
+    mappingId: string,
+    stubId: string,
+  ): PromoteConnectorPagePayload =>
+    PromoteConnectorPagePayloadSchema.parse({
+      catalog: { id: catalogId, connectorProductId },
+      page: { index: 0, of: 1 },
+      mappings: [
+        {
+          id: mappingId,
+          stubId,
+          productId: AUTODESK_FX,
+          status: 'mapped',
+          confidence: 'high',
+          decidedBy: 'a-reviewer',
+        },
+      ],
+    });
+  const mindcloudPage = () =>
+    fixturePage(
+      'fx-cat-mindcloud',
+      '00000000-0000-4000-8000-000000000790',
+      'fx-map-mc-3',
+      'fx-stub-mc-autodesk-build',
+    );
+  const agavePage = () =>
+    fixturePage(
+      'fx-cat-agave',
+      '00000000-0000-4000-8000-000000000791',
+      'fx-map-ag-3',
+      'fx-stub-ag-autodesk-build',
+    );
+
+  const runCtx = (): PromoteRunCtx => ({
+    env: { ENV: 'preview' } as Env,
+    request: new Request('https://api.test/api/promote/connector-catalog'),
+    waitUntil: () => {},
+    bookmark: () => null,
+  });
+
+  const mapping = async (f: TestDb, id: string) =>
+    (await f.db.select().from(connectorStubMappings).where(eq(connectorStubMappings.id, id)))[0];
+  const syncAudits = async (f: TestDb) =>
+    (await f.db.select().from(auditLog)).filter((r) => r.action === 'connector_catalog.synced');
+
+  it('review-managed fx-cat-mindcloud: the upsert writes, with its ledger and audit rows', async () => {
+    const f = await fixtureDb();
+    const before = (await syncAudits(f)).length;
+    const result = await runConnectorCatalogIngest(
+      runCtx(),
+      mindcloudPage(),
+      { dbFor: () => f.dbCtx },
+      { jobId: JOB_ID },
+    );
+    expect(result.wrote).toBe(true);
+    expect(result.response.counts.mappings.updated).toBe(1);
+    expect((await mapping(f, 'fx-map-mc-3'))?.decidedBy).toBe('a-reviewer');
+    expect(await f.db.select().from(promoteJobs)).toHaveLength(1);
+    expect((await syncAudits(f)).length).toBe(before + 1);
+    f.dispose();
+  });
+
+  it('vendor-managed fx-cat-agave: the upsert writes nothing', async () => {
+    const f = await fixtureDb();
+    const before = (await syncAudits(f)).length;
+    await expect(
+      runConnectorCatalogIngest(runCtx(), agavePage(), { dbFor: () => f.dbCtx }, { jobId: JOB_ID }),
+    ).rejects.toMatchObject({ status: 409, code: 'CATALOG_VENDOR_MANAGED' });
+    expect((await mapping(f, 'fx-map-ag-3'))?.decidedBy).toBe('auto-name-match');
+    expect(await f.db.select().from(promoteJobs)).toHaveLength(0);
+    expect((await syncAudits(f)).length).toBe(before);
+    f.dispose();
+  });
+
+  it('a flip to vendor between plan and commit writes nothing and reports CATALOG_VENDOR_MANAGED', async () => {
+    const f = await fixtureDb();
+    const before = (await syncAudits(f)).length;
+
+    // The ingest runs two batches: the planner's pre-read, then the commit. The operator's
+    // flip lands between them, after the plan-time check has already passed.
+    let batches = 0;
+    const racing = new Proxy(f.db, {
+      get(target, prop) {
+        if (prop === 'batch') {
+          return async (stmts: BatchTuple) => {
+            batches += 1;
+            if (batches === 2) {
+              await f.db
+                .update(connectorCatalogs)
+                .set({ managedBy: 'vendor' })
+                .where(eq(connectorCatalogs.id, 'fx-cat-mindcloud'));
+            }
+            return target.batch(stmts);
+          };
+        }
+        const value = Reflect.get(target, prop, target) as unknown;
+        return typeof value === 'function'
+          ? (value as (...a: unknown[]) => unknown).bind(target)
+          : value;
+      },
+    }) as Db;
+
+    await expect(
+      runConnectorCatalogIngest(
+        runCtx(),
+        mindcloudPage(),
+        { dbFor: () => ({ db: racing, getBookmark: () => null }) },
+        { jobId: JOB_ID },
+      ),
+    ).rejects.toMatchObject({ status: 409, code: 'CATALOG_VENDOR_MANAGED' });
+    expect(batches).toBe(2);
+
+    // Zero mapping writes, no ledger row, and no audit row claiming a sync.
+    const row = await mapping(f, 'fx-map-mc-3');
+    expect(row?.decidedBy).toBe('auto-name-match');
+    expect(row?.status).toBe('mapped');
+    expect(await f.db.select().from(promoteJobs)).toHaveLength(0);
+    expect((await syncAudits(f)).length).toBe(before);
     f.dispose();
   });
 });

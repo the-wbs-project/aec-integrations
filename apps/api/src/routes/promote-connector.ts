@@ -35,7 +35,12 @@ import { products, promoteJobs } from '../db/schema';
 import { ApiError } from '../errors';
 import { auditInsert, type BatchStmt, type BatchTuple } from '../lib/audit';
 import { logBatchToPosthog } from '../posthog';
-import { planConnectorCatalogPage } from '../lib/promote-connector-catalog';
+import {
+  catalogVendorManagedError,
+  isCatalogVendorManaged,
+  isSentinelAbort,
+  planConnectorCatalogPage,
+} from '../lib/promote-connector-catalog';
 import {
   AUDIT_META,
   auditLogEvent,
@@ -234,6 +239,14 @@ export async function runConnectorCatalogIngest(
         // through to a re-plan would be safe but would report the wrong counts.
         if (!prior) throw err;
         return replayConnectorJob(dbCtx, opts.jobId, prior.result);
+      }
+      // AECI-1084: the planner's in-batch sentinel fired, so an operator flipped the
+      // catalogue to `vendor` after the plan read. The whole batch rolled back: no rows,
+      // no ledger row, no audit row. Re-read the flag before naming the code, so the job
+      // poll reports the same `CATALOG_VENDOR_MANAGED` a plan-time refusal does and any
+      // other abort keeps its own error.
+      if (isSentinelAbort(err) && (await isCatalogVendorManaged(db, page.catalog.id))) {
+        throw catalogVendorManagedError(page.catalog.id);
       }
       throw err;
     }
