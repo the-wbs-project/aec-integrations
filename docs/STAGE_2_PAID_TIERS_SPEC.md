@@ -210,9 +210,9 @@ export const CAPABILITIES = [
   'product.edit',              // PATCH /api/vendor/products/:id
   'product.taxonomy.edit',     // taxonomy assignment on an owned product
   'product.usefulness.edit',   // AECI-963 — the "how teams use it" narrative
-  'attestation.author',        // AECI-301 — declared, no consumer yet
+  'attestation.author',        // AECI-623 — the attestation + product-version writes
   'analytics.view',            // vendor analytics — declared, no consumer yet
-  'integration.version_diff',  // AECI-304 — declared, no consumer yet
+  'integration.version_diff',  // AECI-304 — consulted by `./version-diff`
 ] as const;
 
 /** The binary ladder at launch (§8.5). Adding a rung = one key here + one row in TIER_CAPABILITIES. */
@@ -230,6 +230,8 @@ export function capabilitiesFor(tier: EntitlementTier): readonly Capability[];
 ```
 
 Three capabilities are **declared with no consumer on purpose**: `attestation.author` (AECI-301), `analytics.view`, and `integration.version_diff` (AECI-304). Minting the ids now means those later issues become pure render-path/handler changes with no registry edit, and it makes the vocabulary auditable in one place today.
+
+> **Corrected 2026-09-24 (AECI-1107).** The registry holds **eight** ids, not seven: AECI-963 added `product.usefulness.edit`. Only `analytics.view` is still declared with no consumer. `integration.version_diff` gained its consumer in AECI-304 (`canViewVersionDiff`, §3.3(c)). `attestation.author` gained its consumers in AECI-623: the three attestation writes and the three product-version writes call `requireCapability(c, 'attestation.author')` (§3.3(a)), and the portal's Integrations tab reads the same capability. So a vendor whose plan lapses loses confirming, denying and clearing data flows along with profile and product editing. The lapsed plan panel (§8) says so.
 
 The ladder is **binary at launch** — `unclaimed` (no active entitlement) vs `verified` (the paid entry fee). `STAGE_2_SPEC.md` §8.2's "tier ladder above the entry Verified fee" stays open as a *pricing* question; this structure makes answering it a data edit.
 
@@ -305,7 +307,7 @@ Shipped as specified. Five source files, no behaviour: nothing consults the regi
 
 | File | What landed |
 |---|---|
-| `packages/shared/src/entitlements.ts` | `CAPABILITIES` (the 7 ids, §3.1 order), `TIERS`, `TIER_CAPABILITIES`, `tierFor`, `hasCapability`, `capabilitiesFor`, `isEntitlementTier`. **Zero imports.** |
+| `packages/shared/src/entitlements.ts` | `CAPABILITIES` (the 7 ids as of AECI-610, §3.1 order; 8 since AECI-963), `TIERS`, `TIER_CAPABILITIES`, `tierFor`, `hasCapability`, `capabilitiesFor`, `isEntitlementTier`. **Zero imports.** |
 | `packages/shared/src/entitlements.spec.ts` | The three-assertion firewall (§3.2) + the fail-closed matrix. 20 cases. |
 | `packages/shared/src/api/admin-entitlements.ts` | `SetVendorEntitlementSchema`, `VendorEntitlementResponseSchema` (+ `EntitlementTierSchema` / `EntitlementStatusSchema` / `EntitlementArrangementSchema`), on the `api/index.ts` barrel. §5 consumes it. |
 | `packages/shared/src/errors/codes.ts` | `ENTITLEMENT_REQUIRED`. No thrower yet — §4 wires it. |
@@ -737,7 +739,7 @@ Replace `apps/web/src/app/vendor/components/vendor-verified-status.ts` — whose
 | `active` | `status: 'active'`, known tier, term far off or absent | Quiet. The real badge, the term, the framing sentence. |
 | `expiring` | as above, `period_end` within `EXPIRY_WARNING_DAYS` | "Ends in N days", a renewal path. **Still verified** — nothing has been taken away yet, and the copy says so. |
 | `pending` | `status: 'pending'` | Arranged, not yet switched on. |
-| `lapsed` | `expired` / `revoked` (and the fail-closed drift case below) | A **loss to acknowledge**. Leads with what the vendor KEEPS, names the one thing that is paused, offers a renewal path. |
+| `lapsed` | `expired` / `revoked` (and the fail-closed drift case below) | A **loss to acknowledge**. Leads with what the vendor KEEPS, names what is paused (the account label, profile and product editing, and confirming, denying or clearing data flows), offers a renewal path. |
 | `none` | `status: null` — no entitlement row at all | An **invitation**, not a loss. |
 
 `null` vs `expired` is the distinction that earned two panels: never-arranged and lapsed are materially different conversations, and rendering a loss-acknowledgement at someone who never bought anything is the wrong message. §4 made that distinction available on the wire.

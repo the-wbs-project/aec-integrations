@@ -159,8 +159,10 @@ describe('VendorPlanPanel — state 3: downgraded', () => {
     const fixture = create(REVOKED);
 
     // `requireCapability('attestation.author')` refuses a lapsed vendor, so the
-    // paused list must say so (AECI-1108).
-    expect(text(fixture)).toContain('confirming data flows on your integrations');
+    // paused list must say so, in the vendor guide's words (AECI-1108, AECI-1107).
+    expect(text(fixture)).toContain(
+      'confirming, denying or clearing data flows on your integrations',
+    );
     expect(text(fixture)).toContain('Renewing turns all of it back on');
   });
 
