@@ -178,6 +178,7 @@ Stated plainly so nobody reads a gap as a pass.
 5. **Three dialogs were never opened.** Production's moderation queue is empty (0 reviews pending), the operator account has no reviews, so no delete-review dialog exists, and the delete-account dialog is destructive so it was deliberately left alone. Dialog focus management — focus entry, bidirectional trap, Escape, focus restore — is **untested on every surface**. It is the single largest remaining gap and is best closed on a local seeded database, not production.
 6. **Desktop viewport only** (1494×1239). The mobile nav (`aec-nav-menu`, `lg:hidden`) was never rendered, so its disclosure and dialog behaviour is untested.
 7. **No product with reviews was available**, so the rating and review summary on product detail could not be exercised.
+8. **WCAG 2.2 is not in the automated gate.** The e2e axe suites run the `wcag2a` / `wcag2aa` / `wcag21a` / `wcag21aa` tags. `target-size` (SC 2.5.8) is tagged `wcag22aa`, so it never ran there. AECI-1079 found it failing on the integration-row partner link (a 20px-tall target) and fixed it on 2026-09-24. One rule-scoped case now guards that section at 1280px and 375px (`phase2-a11y.spec.ts`). A local axe run with `wcag22aa` on product detail, the pair page, `/integrations`, `/products` and a vendor page found no other violation on that date. The rest of the site is not gated on 2.2.
 
 ---
 

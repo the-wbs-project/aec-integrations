@@ -664,7 +664,7 @@ focus or the announcement), not in a new axe rule.
 
 Block PR merge on any `serious` or `critical` violations. Warn (but don't block) on `moderate`. Ignore `minor`.
 
-The Phase 2 success-path suite (AECI-65, above) is stricter: it asserts **zero violations at WCAG-AA** (tags `wcag2a` / `wcag2aa` / `wcag21a` / `wcag21aa`) on every page type — any such violation fails the run.
+The Phase 2 success-path suite (AECI-65, above) is stricter: it asserts **zero violations at WCAG-AA** (tags `wcag2a` / `wcag2aa` / `wcag21a` / `wcag21aa`) on every page type — any such violation fails the run. Those tags do not include WCAG 2.2. The one 2.2 rule gated today is `target-size`, on the product-detail `#integrations` section at 1280px and 375px (AECI-1079). See `ACCESSIBILITY_AUDIT.md` §6.
 
 Some violations are unfixable in third-party code; maintain an explicit allowlist with documented reason for each.
 

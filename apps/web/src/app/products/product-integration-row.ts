@@ -97,10 +97,15 @@ import { routeIntegrationLane } from './connector-lane-grouping';
         <aec-logo-or-initial [src]="other().logo_url" [name]="other().name" size="sm" />
         <span class="flex min-w-0 flex-col">
           <!-- Secondary link to the partner product page. relative + z-10 lifts
-               it above the stretched row overlay so its own click wins. -->
+               it above the stretched row overlay so its own click wins.
+               Target size (AECI-1079, WCAG 2.2 SC 2.5.8): the text-sm line box
+               is 20px tall, under the 24px minimum. py-0.5 grows the hit area
+               to 24px and -my-0.5 gives the 4px back, so the row does not grow
+               and the 34rem table floor (§13.3a) is untouched. min-w-6 covers a
+               very short partner name. -->
           <a
             [routerLink]="['/products', other().slug]"
-            class="relative z-10 w-fit rounded-sm transition-colors hover:text-(--accent-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+            class="relative z-10 -my-0.5 w-fit min-w-6 rounded-sm py-0.5 transition-colors hover:text-(--accent-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
             >{{ other().name }}</a
           >
           <!-- The meta line under the partner name. Direction lives here at
