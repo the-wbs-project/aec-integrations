@@ -1669,7 +1669,9 @@ comment on the listing, so it is never a row here.
 
 - **Views** (`components/vendor-views-tile.ts`) is a **placeholder**. It has a
   working `aria-pressed` toggle (1d / 1w / 1m, default 1w) and a sentence that
-  follows it. It shows no number and makes no server read. AECI-941 binds the
+  follows it ("View counts for the last 7 days are coming soon."). It shows no
+  number and makes no server read. It never shows 0: nothing is counted yet, so
+  a zero would claim a measurement that was never made. AECI-941 binds the
   figure and listens to its `periodChange` output. The windows are complete UTC
   days (`VENDOR_PERFORMANCE_SPEC.md` §5.2).
 - **In conflict** is the deduped conflict total. Its line reads "On {product}" or
