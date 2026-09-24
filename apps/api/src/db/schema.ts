@@ -1567,10 +1567,12 @@ const CONTEST_FIELD_CHECK = sql`"field" IN ('name', 'mechanism_kind', 'mechanism
  * list. A future rebuild must re-check it first (`docs/migrations.md` §3.3a).
  *
  * ── CASCADE ─────────────────────────────────────────────────────────────────
- * Both anchors are `ON DELETE CASCADE`: a promote cross-table move (AECI-888) or a
- * retraction deletes the anchor row and takes its contests with it. Accepted for
- * rows that are not vendor-held, which carry no owner-side state; AECI-1005 and AECI-1088 fence
- * moves on vendor-held ones. `SET NULL` is not an option: it would leave a row with
+ * Both anchors are `ON DELETE CASCADE`: a retraction deletes the anchor row and takes
+ * its contests with it. Accepted for rows that are not vendor-held, which carry no
+ * owner-side state; AECI-1005 and AECI-1088 fence moves and deletes on vendor-held ones.
+ * A promote cross-table move (AECI-888) does NOT lose them: since AECI-1110 it
+ * re-anchors every contest onto the destination row before it drops the source
+ * (`routes/promote-contests.ts`). `SET NULL` is not an option: it would leave a row with
  * no anchor, which the CHECK refuses, so the parent DELETE would fail instead. This
  * table is therefore a cascade child of `integrations` (with `claims` and
  * `integration_vendor_links`) AND of `connector_evidenced_pairs` (with `claims`),

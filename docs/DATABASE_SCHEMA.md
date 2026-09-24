@@ -1636,9 +1636,11 @@ create index integration_field_challenges_submitter_idx on integration_field_cha
   `AUTH_AND_RLS.md` §8 to ten.
 - **A second cascade child of `integrations`.** The next recreate of `integrations` must
   carry this table as well as `claims` and `attestations` (`migrations.md` §3.3a).
-  `apps/api/src/test/d1.spec.ts` pins the list. A promote cross-table move or a retraction
-  deletes the contests on the moved row; that is an accepted risk for unclaimed rows
-  (§11b.9 of the vendor portal spec).
+  `apps/api/src/test/d1.spec.ts` pins the list. A retraction deletes the contests on the
+  deleted row; that is an accepted risk for unclaimed rows (§11b.9 of the vendor portal
+  spec). A promote cross-table move does not: since AECI-1110 it re-anchors every contest
+  onto the destination row, flipping the anchor columns in one UPDATE, before it drops the
+  source. No column was added for this.
 
 **`owner_seat_lapsed_at` (AECI-989, migration `0048_wild_black_queen.sql`, a generated plain
 `ADD COLUMN`, no CHECK).** Set while an open contest sits with AECi **only** because its owner

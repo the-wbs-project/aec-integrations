@@ -126,6 +126,7 @@ import {
   promoteClaimFenceSentinel,
   promoteEvidencedClaimFenceSentinel,
 } from '../lib/integration-claims';
+import { type ContestAnchor } from '../lib/integration-contests';
 import {
   anyVendorOwnedEvidencedTwin,
   anyVendorOwnedTwin,
@@ -160,6 +161,12 @@ import { cacheTagsForPromote, touchedTradeSlugs } from './promote-cache-tags';
 import { gscRecrawlEntriesForPromote } from './promote-gsc-recrawl-entries';
 import { affectedUrlsForPromote, type AffectedUrlOptions } from './promote-indexnow-urls';
 import { resolvePublishedTradeSlugs } from './promote-trade-publication';
+import {
+  anyContestMoveRaced,
+  loadContestsOnAnchor,
+  planContestMove,
+  type PlannedContestMove,
+} from './promote-contests';
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 /**
@@ -210,8 +217,9 @@ function reviewSignalRefused(
  *
  * Once an integration's owner has claimed it (`claimed_at IS NOT NULL`), promote
  * writes NOTHING to it: no content column, no `built_by_vendor_id`, no endpoint
- * re-point, no cross-table move (which would DELETE the row and cascade away its
- * claims, attestations and contests), and no write to its claims or attestations.
+ * re-point, no cross-table move (which DELETEs the row and re-creates it in the other
+ * table; the claims and contests survive that since AECI-1110, but the row is the
+ * vendor's), and no write to its claims or attestations.
  * The whole edge is refused into `skipped[]` with {@link REFUSED_CLAIMED_INTEGRATION},
  * the same way AECI-520 refuses an edge touching a blocked product.
  *
@@ -482,8 +490,13 @@ function planEvidencedPairWrite(args: {
   /** The full {@link LocatedEdge}, not just `{ id, table }` — the move branch needs
    *  the source row's maintenance pair to carry it across (AECI-981). */
   existing: LocatedEdge | null;
+  /** AECI-1110: the contest re-anchor for a move in from `integrations`
+   *  ({@link planContestMove}). Spliced between the claim re-home and the source DELETE.
+   *  Ignored on every other branch. */
+  contestMove?: readonly BatchStmt[];
 }): { id: string; operation: 'created' | 'updated'; statements: BatchStmt[] } {
   const { db, intg, sourceId, targetId, connectorProductId, builtByVendorId, existing } = args;
+  const contestMove = args.contestMove ?? [];
 
   const sourceIsA = sourceId < targetId;
   const productAId = sourceIsA ? sourceId : targetId;
@@ -598,6 +611,9 @@ function planEvidencedPairWrite(args: {
           .update(claims)
           .set({ connectorEvidencedPairId: existing.id, integrationId: null })
           .where(eq(claims.integrationId, existing.id)),
+        // AECI-1110: contests are the other cascade child. Re-anchored here, after the
+        // destination exists (the new anchor is a foreign key) and before the DELETE.
+        ...contestMove,
         db.delete(integrations).where(eq(integrations.id, existing.id)),
       ],
     };
@@ -779,8 +795,13 @@ function planIntegrationWrite(args: {
    *  can still see that `source_product_id` / `target_product_id` are supplied. */
   linkData: { sourceProductId: string; targetProductId: string } & Record<string, unknown>;
   existing: LocatedEdge | null;
+  /** AECI-1110: the contest re-anchor for a move out of `connector_evidenced_pairs`
+   *  ({@link planContestMove}). Spliced between the claim re-home and the source DELETE.
+   *  Ignored on every other branch. */
+  contestMove?: readonly BatchStmt[];
 }): { id: string; operation: 'created' | 'updated'; statements: BatchStmt[] } {
   const { db, intg, linkData, existing } = args;
+  const contestMove = args.contestMove ?? [];
   const editable = integrationEditableData(intg);
 
   if (existing?.table === 'integrations') {
@@ -837,6 +858,8 @@ function planIntegrationWrite(args: {
           .update(claims)
           .set({ integrationId: existing.id, connectorEvidencedPairId: null })
           .where(eq(claims.connectorEvidencedPairId, existing.id)),
+        // AECI-1110: re-anchor the pair's contests before the DELETE cascades them away.
+        ...contestMove,
         db.delete(connectorEvidencedPairs).where(eq(connectorEvidencedPairs.id, existing.id)),
       ],
     };
@@ -2791,6 +2814,22 @@ export async function runPromoteIngest(
   const twinCandidates: TwinCandidate[] = [];
   // AECI-1088: the same, for the evidenced twin guard's writes.
   const evidencedTwinCandidates: EvidencedTwinCandidate[] = [];
+  // AECI-1110: every cross-table move's contest plan, so a failed batch can tell the
+  // contest sentinels from the claim and twin ones (they raise the same SQLite error).
+  const plannedContestMoves: PlannedContestMove[] = [];
+  const planPromoteContestMove = async (
+    from: ContestAnchor,
+    to: ContestAnchor,
+    frameReversed: boolean,
+  ): Promise<BatchStmt[]> => {
+    const contests = await loadContestsOnAnchor(db, from);
+    // No contest, no statement: the move is exactly what it was before AECI-1110.
+    if (contests.length === 0) return [];
+    const plan = planContestMove(db, { contests, from, to, frameReversed, now: promotedAtIso });
+    plannedContestMoves.push(plan.planned);
+    for (const entry of plan.audits) audit(entry);
+    return plan.stmts;
+  };
 
   // An integration touching THIS payload's blocked product is skipped too
   // (AECI-520).
@@ -3060,6 +3099,21 @@ export async function runPromoteIngest(
 
       // Past every skip: this edge will write, so guard its existing row now.
       pushClaimFenceSentinels();
+      // AECI-996 — the pair's A is the LOWER id, the payload's claims speak source →
+      // target. When the source sorts second the frames disagree: payload claims are
+      // flipped on ingest (`frameReversed`), and claims an `integrations` row carries
+      // IN are flipped here, after the re-home above, so both land in the pair's frame.
+      const evidencedFrameReversed = sourceId > targetId;
+      // AECI-1110 — a move in from `integrations` carries the row's contests with it,
+      // rather than letting the source DELETE cascade them away.
+      const evidencedContestMove =
+        located?.table === 'integrations'
+          ? await planPromoteContestMove(
+              { kind: 'integration', id: located.id },
+              { kind: 'evidenced_pair', id: located.id },
+              evidencedFrameReversed,
+            )
+          : [];
       const evidenced = planEvidencedPairWrite({
         db,
         intg,
@@ -3068,13 +3122,9 @@ export async function runPromoteIngest(
         connectorProductId: connectorId,
         builtByVendorId: builtBy.value,
         existing: located,
+        contestMove: evidencedContestMove,
       });
       stmts.push(...evidenced.statements);
-      // AECI-996 — the pair's A is the LOWER id, the payload's claims speak source →
-      // target. When the source sorts second the frames disagree: payload claims are
-      // flipped on ingest (`frameReversed`), and claims an `integrations` row carries
-      // IN are flipped here, after the re-home above, so both land in the pair's frame.
-      const evidencedFrameReversed = sourceId > targetId;
       const evidencedReframe =
         located?.table === 'integrations' && evidencedFrameReversed
           ? planClaimReframe(await loadReframeClaims(db, located.id))
@@ -3335,6 +3385,16 @@ export async function runPromoteIngest(
       movedFromEvidenced && !connectorStated ? movedFromEvidenced.connectorProductId : null;
     // Past every skip: this edge will write, so guard its existing row now.
     pushClaimFenceSentinels();
+    // AECI-1110 — the mirror of the evidenced branch: a move out of the pair carries its
+    // contests into `integrations`, in this row's source → target frame.
+    const integrationContestMove =
+      located?.table === 'evidenced'
+        ? await planPromoteContestMove(
+            { kind: 'evidenced_pair', id: located.id },
+            { kind: 'integration', id: located.id },
+            sourceId > targetId,
+          )
+        : [];
     const written = planIntegrationWrite({
       db,
       intg,
@@ -3342,6 +3402,7 @@ export async function runPromoteIngest(
         ? { ...linkData, poweredByProductId: inheritedConnectorId }
         : linkData,
       existing: located,
+      contestMove: integrationContestMove,
     });
     stmts.push(...written.statements);
     // AECI-996 — the mirror of the evidenced branch. Claims coming OUT of a pair are in
@@ -3625,6 +3686,15 @@ export async function runPromoteIngest(
             409,
             'VENDOR_OWNED_TWIN_CREATED_DURING_PROMOTE',
             'A vendor created an integration that duplicates one in this bundle while the promote was running. Nothing was written; re-push the bundle.',
+          );
+        }
+        // AECI-1110: a contest filed, withdrawn or decided on a moving edge between the
+        // plan read and the batch. The batch rolled back, so the re-read sees the live set.
+        if (await anyContestMoveRaced(db, plannedContestMoves)) {
+          throw new ApiError(
+            409,
+            'CONTEST_CHANGED_DURING_PROMOTE',
+            'A contest on an integration this bundle moves between tables changed while the promote was running. Nothing was written; re-push the bundle.',
           );
         }
         throw new ApiError(

@@ -17,7 +17,9 @@
 >    batch as the insert. That delete is caused by an id you named, never by a record you
 >    omitted. The forward direction already shipped with AECI-721; AECI-888 added the reverse
 >    and the two are now symmetric. Both re-home claims *before* the drop, for the reason
->    §2 below gives.
+>    §2 below gives. Since AECI-1110 (2026-09-24) both also re-anchor the edge's contests
+>    before the drop, for the same reason: `integration_field_challenges` cascades off both
+>    tables.
 > 2. **"classifying it against `list_integrations` would flag every row every run" is wrong**
 >    (see "The detection half"). Measured against production on 2026-09-14: of 62
 >    `connector_evidenced_pairs` rows, **60 were claimed upstream and 2 were not**. It is wrong
