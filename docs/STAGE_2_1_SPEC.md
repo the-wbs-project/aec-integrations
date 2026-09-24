@@ -1,6 +1,6 @@
 # AEC Integrations — Stage 2.1 Specification (Vendor Activation Interlude)
 
-**Version:** 0.1 — **proposal, not yet seeded into Linear**
+**Version:** 0.2. **Seeded and started 2026-09-23** as the Linear project "Stage 2.1 — Vendor Activation". Stage 2.5 opens when §5 here is green.
 **Date:** August 2026
 **Status:** Kickoff draft from the 2026-08-31 go-live planning session. Stage 2.1 is a deliberately narrow interlude between the **Stage 2 dark launch** (`stage-2 → main` merged and deployed with zero vendor seats granted) and **Stage 2.5** (`docs/STAGE_2_5_SPEC.md`). It exists as a **discipline firewall**: the already-built vendor-management surface gets tested, refined, and switched on *before* any new-feature work (the 2.5 ranking overhaul included) is allowed to compete for attention.
 **Inherits from:** Stage 1 / 1.5 / 2 — every constraint carries; this doc adds none.
@@ -62,12 +62,17 @@ Tools that exist for this: `/preview/vendor-dashboard` (persona/entitlement pres
 
 Seeded empty **by design** — it is filled by rehearsal findings, parked-claim observations, and dark-window telemetry. This is the stage's actual work; the admission test in §1 governs what lands here.
 
-**Findings so far:**
+**Findings and stage work so far.** Status is as of 2026-09-24, read from Linear and GitHub.
 
-| Issue | Found | What it fixes |
-|---|---|---|
-| **AECI-954** | 2026-09-14, demo portal | An expired vendor session rendered "Page not found" with no way forward, because the gate mapped a 401 onto the same not-found render as a 403. It now redirects to `/auth/login?return=<url>`, and the browser refreshes the cookie first so a still-valid session never has to re-authenticate. Covers `/admin` too, which carried the identical mapping and is the surface seats are granted from. `STAGE_2_VENDOR_PORTAL_SPEC.md` §6.6. |
-| **AECI-1109** | 2026-09-23, writing rehearsal step 14b (AECI-1108 row 9) | A `409 GRANT_CONFLICT` on invite accept renders the generic "We couldn't load this invite". The redeemer, an AECi admin or another vendor's seat, never learns why. Fix: a distinct, explained page state. `STAGE_2_VENDOR_PORTAL_SPEC.md` §11a. |
+| Issue | Filed | What it covers | Status |
+|---|---|---|---|
+| **AECI-954** | 2026-09-14, demo portal | An expired vendor session rendered "Page not found" with no way forward, because the gate mapped a 401 onto the same not-found render as a 403. It now redirects to `/auth/login?return=<url>`, and the browser refreshes the cookie first so a still-valid session never has to re-authenticate. Covers `/admin` too, which carried the identical mapping and is the surface seats are granted from. `STAGE_2_VENDOR_PORTAL_SPEC.md` §6.6. | Done. PR #719 merged 2026-09-15. |
+| **AECI-1103** | 2026-09-23, project seed | The dress rehearsal of §3.1. The script `docs/STAGE_2_1_REHEARSAL.md` is written. The staging and dark-production sittings have not run. | In Progress. The script merged in PR #810 on 2026-09-23. |
+| **AECI-1104** | 2026-09-23, project seed | The vendor-guide tranche of §3.5: six task pages at `/docs/vendors/*`, live but noindex. | Done. PR #811 merged 2026-09-23. |
+| **AECI-1105** | 2026-09-23, project seed | Seat the first pilot vendors, then process the parked claim queue. It also flips the vendor guides to indexed and linked. This is the last §5 criterion. | Backlog. Blocked until the rehearsal passes on dark production. |
+| **AECI-1106** | 2026-09-23, from AECI-989 | Account erasure of a vendor's last seat hands nothing back. Described in §3.3.1. | Backlog. |
+| **AECI-1107** | 2026-09-23, writing the AECI-1104 guide | The lapsed-plan panel does not say that attestation writes pause without a plan. `STAGE_2_PAID_TIERS_SPEC.md` §3.1 still says `attestation.author` has no consumer. | Backlog. |
+| **AECI-1109** | 2026-09-23, writing rehearsal step 14b (AECI-1108 row 9) | A `409 GRANT_CONFLICT` on invite accept renders the generic "We couldn't load this invite". The redeemer, an AECi admin or another vendor's seat, never learns why. Fix: a distinct, explained page state. `STAGE_2_VENDOR_PORTAL_SPEC.md` §11a. | Todo. |
 
 ### 3.3 Moved-in items and stage placements
 
@@ -95,8 +100,8 @@ Five items stay here with the epic. Build order is 724, then 769, then 710 and 7
 |---|---|---|
 | **AECI-724** | iPaaS vendor seats on the connector admin surface. | It is the connector-vendor seat. It also fixes the one live upsell defect on a zero-entitlement seat. |
 | **AECI-769** | Per-product list with `RoleBadge` on `/admin/vendors/:id`. | Polish on the admin identify step that precedes a grant. |
-| **AECI-710** | Surface `extension_of` on product pages. | It renders data the catalog already holds. It adds no new data or route. Built as `STAGE_1_5_SPEC.md` §13.3b (2026-09-23). |
-| **AECI-711** | Render integration direction and object coverage, only where present. | It renders data the catalog already holds. It adds no new data or route. |
+| **AECI-710** | Surface `extension_of` on product pages. | **A named exception to §1.** Admitted 2026-09-23 by operator decision. It is small rendering over data the catalog already holds, with no new data or route. It ranks behind the seat-granting blockers. Built as `STAGE_1_5_SPEC.md` §13.3b (2026-09-23). |
+| **AECI-711** | Render integration direction and object coverage, only where present. | **A named exception to §1.** Admitted 2026-09-23 by operator decision. It is small rendering over data the catalog already holds, with no new data or route. It ranks behind the seat-granting blockers. |
 | **AECI-928** | Apply I24 to Zapier's 59 powered rows. | Data cleanup on the connector lane. It is blocked on the AECI-1064 ruling. |
 
 Two children moved out to Stage 2.5 on 2026-09-23. **AECI-715** is the coverage checker. **AECI-716** is reachable-lane publication. Both are new public catalog surfaces and fail the §1 admission test. They stay children of AECI-771. `STAGE_2_5_SPEC.md` §13 records them.
@@ -121,10 +126,12 @@ Everything in `docs/STAGE_2_5_SPEC.md` and `docs/STAGE_3_SPEC.md`. The AECI-636 
 ## 5. Exit criteria — the vendor go-live gate
 
 - [ ] Dress rehearsal (§3.1) passes end-to-end on staging **and** dark production with zero manual DB intervention.
-- [ ] AECI-623 merged; AECI-633 logged green.
-- [ ] The pulled-forward seat-gating items (§3.3.1) closed: AECI-770 and AECI-1053.
-- [ ] The connector-lane epic's Stage 2.1 children (§3.3.2) closed or explicitly deferred with a recorded reason: AECI-724, AECI-769, AECI-710, AECI-711, and AECI-928 (which is held on the AECI-1064 ruling).
-- [ ] Vendor guides (§3.5) published.
+- [x] AECI-623 merged. PR #808, 2026-09-23.
+- [ ] AECI-633 logged green. Todo on 2026-09-24.
+- [x] The pulled-forward seat-gating items (§3.3.1) closed: AECI-770 and AECI-1053. PR #807 and PR #809, both merged 2026-09-23.
+- [ ] The connector-lane epic's Stage 2.1 children (§3.3.2) closed or explicitly deferred with a recorded reason: AECI-724, AECI-769, AECI-710, AECI-711, and AECI-928 (which is held on the AECI-1064 ruling). **Status 2026-09-24:** four of five are Done. AECI-724 is PR #800, AECI-769 is PR #803, AECI-710 is PR #802 and AECI-711 is PR #801, all merged 2026-09-23. AECI-928 is still Todo, so this box stays open.
+- [x] Vendor guides (§3.5) built and live at v0, noindex. AECI-1104, PR #811, merged 2026-09-23.
+- [ ] Vendor guides indexed, in the sitemap and linked from the footer and portal. This is the literal "published" and it waits on AECI-1105.
 - [ ] Refinement backlog (§3.2) empty, or each remainder explicitly deferred with a recorded reason.
 - [ ] First pilot vendor(s) invited, claimed, granted, and attesting successfully — then the parked queue is processed and claim approval becomes routine operation.
 
@@ -132,4 +139,4 @@ When these are green, vendors are live — and Stage 2.5 opens.
 
 ---
 
-*This is a living kickoff outline. When seeded into Linear it becomes a "Stage 2.1 Vendor Activation" project; §3.3's moved-in and pulled-forward issues change projects, except the AECI-771 children of §3.3.2, which stay children of the epic; §3.2 issues are created as found.*
+*This is a living outline. It was seeded into Linear on 2026-09-23 as the project "Stage 2.1 — Vendor Activation". The moved-in and pulled-forward issues of §3.3 moved into that project. The AECI-771 children of §3.3.2 stay children of the epic. §3.2 issues are filed in the project as they are found.*

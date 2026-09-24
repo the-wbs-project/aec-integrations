@@ -1,6 +1,6 @@
 # AEC Integrations — Stage 2.5 Specification (Hardening Interlude)
 
-**Version:** 0.1 — **proposal, not yet seeded into Linear**
+**Version:** 0.2. **Seeded into Linear** as the project "Stage 2.5 Hardening", held in Backlog. It opens when `STAGE_2_1_SPEC.md` §5 is green.
 **Date:** August 2026
 **Status:** Kickoff draft from the 2026-08-24 Stage 3 planning session. Stage 2.5 is a deliberately small, **finishable** interlude between **Stage 2.1** (vendor activation — `docs/STAGE_2_1_SPEC.md`, inserted 2026-08-31) and Stage 3 (growth & trust — `docs/STAGE_3_SPEC.md`). Nothing here is a new feature.
 **Precondition:** Stage 2.5 opens when the Stage 2.1 exit criteria (`STAGE_2_1_SPEC.md` §5 — vendors live) are green. The ordering is a deliberate discipline firewall: vendor-management polish finishes before this stage's work may compete for attention. The pull runs one way — a 2.5 item may move *forward* into 2.1 only when it demonstrably blocks seat-granting (recorded in both docs); nothing moves the other way.
