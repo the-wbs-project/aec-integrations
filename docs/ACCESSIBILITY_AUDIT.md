@@ -123,6 +123,16 @@ These are the items the machine pass proved the *shape* of but cannot adjudicate
 | **H3** | Many labels are ALL CAPS (`YOUR EMAIL`, `HEADLINE`, `OVERALL RATING`, `VENDOR`, `CATEGORIES`). Some screen readers spell short all-caps tokens letter by letter. Do these read as words? |
 | **H4** | The search autocomplete announces no result count when its listbox opens; the user gets `aria-activedescendant` on the first option only. Measured: 10 options appeared with no count message. Is arrowing through sufficient in practice? |
 
+### 3.5 Found outside this audit: vendor portal
+
+The vendor portal is outside this audit's scope (AECI-633 owns that pass). Findings from other lanes' axe runs are recorded here so a later pass can tell a regression from a first sighting.
+
+| # | Surface | Finding | SC |
+|---|---|---|---|
+| **V1** | Vendor portal "product not found" state (`vendor-products-page.ts`) | ~~The "See your products" link sat inside a sentence and was told apart by colour alone. axe reported one **serious** `link-in-text-block`.~~ **FIXED 2026-09-24 (AECI-1102, PR #835).** The link is now underlined. A follow-up polish added its hover and focus styles and gave the state an `h2`, so a heading jump reaches it. `preview-vendor-portal-nav.spec.ts` guards the state. A sweep of every `<a>` under `apps/web/src/app/vendor/` found no other in-text link without an underline. | 1.4.1 (A) |
+
+**Watch for this class anywhere.** A bare `<a>` inside running text always fails `link-in-text-block`. The base `a` rule in `styles.css` sets colour only, and Tailwind's preflight removes the underline.
+
 ---
 
 ## 4. Checks that were made and found nothing

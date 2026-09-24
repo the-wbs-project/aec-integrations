@@ -137,6 +137,9 @@ test.describe('vendor portal nav (preview)', () => {
     await clickUntil(page.getByRole('button', { name: 'No access · new' }), () =>
       expect(notFound).toBeVisible({ timeout: 1_000 }),
     );
+    // The state has its own heading, so a screen-reader user jumping by heading
+    // lands on it rather than on the vendor h1 alone.
+    await expect(page.getByRole('heading', { level: 2, name: 'Product not found' })).toBeVisible();
     await expect(page.getByRole('link', { name: 'See your products' })).toHaveCSS(
       'text-decoration-line',
       'underline',

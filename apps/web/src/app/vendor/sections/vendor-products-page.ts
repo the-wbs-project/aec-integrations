@@ -28,15 +28,21 @@ import { vendorProductContext } from './vendor-product-context';
   imports: [RouterLink, RouterOutlet],
   template: `
     @if (ctx.unknownProduct()) {
+      <h2
+        class="font-display text-xl font-semibold text-(--text-primary)"
+        i18n="@@vendor.products.unknownHeading"
+      >
+        Product not found
+      </h2>
       <p
-        class="rounded-(--radius-md) border border-(--border-default)
+        class="mt-4 rounded-(--radius-md) border border-(--border-default)
           bg-(--surface-raised) p-4 text-sm leading-relaxed text-(--text-primary)"
       >
         <span i18n="@@vendor.products.unknown">That product isn't linked to your vendor.</span>
         {{ ' ' }}
         <a
           routerLink="../../products"
-          class="text-(--accent-primary) underline underline-offset-2"
+          [class]="inlineLinkClass"
           i18n="@@vendor.products.unknownLink"
           >See your products</a
         >
@@ -49,4 +55,14 @@ import { vendorProductContext } from './vendor-product-context';
 })
 export class VendorProductsPage {
   protected readonly ctx = vendorProductContext();
+
+  /**
+   * The portal's in-text link spelling, as in `vendor-contest-protest.ts`. The
+   * underline is the non-colour cue axe's `link-in-text-block` needs (AECI-1102).
+   * The hover colour must be restated: a `text-*` utility overrides the base
+   * layer's `a:hover`, so without it the link gives no hover feedback.
+   */
+  protected readonly inlineLinkClass =
+    'text-(--accent-primary) underline underline-offset-2 hover:text-(--accent-primary-hover) ' +
+    'focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)';
 }
