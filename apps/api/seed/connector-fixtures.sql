@@ -282,9 +282,11 @@ ON CONFLICT (id) DO NOTHING;
 --     DIRECT lane is non-empty and the two-lane layout is what renders.
 --   * `fx-int-unnamed` — `iPaaS` with a NULL `powered_by`. Connector-delivered,
 --     but its platform has no `products` row to name, so §13.2(c) groups it
---     under the unnamed "Via a connector" heading. 53 production rows are in
---     exactly this state permanently, because AECI-700 parks Zapier and Workato
---     and `connector_evidenced_pairs.connector_product_id` is NOT NULL.
+--     under the unnamed "Via a connector" heading. 53 production rows were in
+--     this state on 2026-08-31, because AECI-700 parked Zapier and Workato and
+--     `connector_evidenced_pairs.connector_product_id` is NOT NULL. AECI-1064
+--     reversed the park on 2026-09-23 and moved the Zapier and Workato edges.
+--     7 rows remain (Make, n8n, Boomi and others; measured 2026-09-24).
 --   * `fx-int-conv-a`  — Convention A: `powered_by` IS one of the edge's own
 --     endpoints. §13.2(a) keeps it DIRECT; without that clause it renders a
 --     group whose only partner is the connector ("Via Agave → Agave").

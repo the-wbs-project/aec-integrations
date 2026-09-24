@@ -2160,6 +2160,8 @@ transfer it predicted.
 against 212 machine proposals — the coverage surface is real but thin until somebody confirms.
 And a catalogue whose connector platform is unpromoted cannot land at all (`connector_product_id`
 is NOT NULL): Zapier and Workato are `on_hold` review-side, so their pages report in `skipped[]`.
+**Reversed 2026-09-23 (AECI-1064):** both are promoted, and Zapier's 26-page catalogue now lands
+(§13.9). Make, n8n and Boomi remain unpromoted.
 Whether an evidenced pair may name a connector with no `products` row is AECI-721's question, and
 it now applies to catalogues too.
 

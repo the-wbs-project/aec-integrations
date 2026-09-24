@@ -250,8 +250,9 @@ describe('promote stale-supabaseId observability', () => {
  * WITHOUT that column — a partial write that no existing signal covered: it is not a
  * `skipped[]` entry (the row landed), not a stale id, and not an error.
  *
- * The severity split is the contract here, not an implementation detail. Zapier and
- * Workato are parked permanently (AECI-700), so this fires on routine promotes forever;
+ * The severity split is the contract here, not an implementation detail. Some
+ * connectors stay unpromoted (Make, n8n, Boomi; Zapier and Workato were parked by
+ * AECI-700 until AECI-1064 promoted them on 2026-09-23), so this fires on routine promotes;
  * logging it at `warn` or folding it into `aeci.api.promote.skipped` would make the
  * "something wasn't written" signal permanently dirty, which is the noise the issue
  * exists to avoid.

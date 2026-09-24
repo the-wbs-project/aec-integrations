@@ -196,9 +196,9 @@ describe('planConnectorCatalogPage (AECI-714)', () => {
 
   it('skips the whole page when the connector platform is not promoted', async () => {
     const t = await makeTestDb();
-    // Zapier and Workato are `promotion_status: on_hold` review-side (AECI-700), so
-    // their catalogues arrive for a connector with no products row. Reported, never
-    // fatal, and nothing is half-written.
+    // A catalogue can arrive for a connector with no products row. Zapier's did
+    // until AECI-1064 promoted it on 2026-09-23 (reversing the AECI-700 park).
+    // Reported, never fatal, and nothing is half-written.
     const plan = await planConnectorCatalogPage(t.db, makePage());
     expect(plan.statements).toHaveLength(0);
     expect(plan.wrote).toBe(false);
@@ -970,8 +970,9 @@ describe('the per-iPaaS management cutoff (AECI-720)', () => {
   });
 
   it('refuses BEFORE the unpromoted-connector skip, not after', async () => {
-    // The ordering case. Zapier and Workato are `on_hold` review-side (AECI-700), so a
-    // vendor-managed catalogue whose platform is unpromoted is the live combination —
+    // The ordering case. Connectors stay unpromoted in practice (Make, n8n, Boomi; Zapier
+    // and Workato until AECI-1064, 2026-09-23), so a
+    // vendor-managed catalogue whose platform is unpromoted is a live combination —
     // and it must reject rather than come back as a re-sendable skip telling the caller
     // "try again later" when the answer is permanently no.
     const t = await makeTestDb();

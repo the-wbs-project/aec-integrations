@@ -30,7 +30,9 @@
  *     `poweredByProduct` once the connector is itself a promoted product, and
  *     those are not. AECI-706's sweep puts `backfillable` at **0**: this is
  *     promotion coverage blocked on the `on_hold` connector decision, not a data
- *     defect a script can repair. An FK-only gate would keep prompting on exactly
+ *     defect a script can repair. (2026-08-31 figures. AECI-1064 reversed the
+ *     Zapier and Workato park on 2026-09-23 and moved their edges; 7 NULL-FK
+ *     `iPaaS` rows remained on 2026-09-24.) An FK-only gate would keep prompting on exactly
  *     the edges where "we didn't build it" is most obviously true, indefinitely.
  *   - **18 edges carry the FK but are typed `marketplace-app` (17) or `partner`
  *     (1)**. All 79 FK targets are `product_role` `connector` (77) or `hybrid`
@@ -60,8 +62,10 @@
  * AECI-735 asked whether `iPaaS` could be retired from the mechanism vocabulary now
  * that the connector lane has its own tables, and the answer is no. The 53 NULL-FK
  * rows above cannot move to `connector_evidenced_pairs` (`connector_product_id` is
- * NOT NULL) because AECI-700 parks Zapier and Workato indefinitely, so this is the
- * only thing standing between them and an attestation prompt. `iPaaS` is a marker,
+ * NOT NULL) while their connector is unpromoted, so this is the only thing standing
+ * between them and an attestation prompt. AECI-700 parked Zapier and Workato; on
+ * 2026-09-23 AECI-1064 reversed that and their edges moved. Make, n8n and Boomi are
+ * still unpromoted, so the population is smaller but not empty. `iPaaS` is a marker,
  * not a transitional value, and the same is true of `routeIntegrationLane`'s clause
  * (c) in `apps/web/src/app/products/connector-lane-grouping.ts` — the two `iPaaS`
  * predicates are siblings and change together or not at all. `schema.ts`'s CHECK

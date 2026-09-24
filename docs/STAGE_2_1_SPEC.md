@@ -97,7 +97,7 @@ Five items stay here with the epic. Build order is 724, then 769, then 710 and 7
 | **AECI-769** | Per-product list with `RoleBadge` on `/admin/vendors/:id`. | Polish on the admin identify step that precedes a grant. |
 | **AECI-710** | Surface `extension_of` on product pages. | It renders data the catalog already holds. It adds no new data or route. Built as `STAGE_1_5_SPEC.md` §13.3b (2026-09-23). |
 | **AECI-711** | Render integration direction and object coverage, only where present. | It renders data the catalog already holds. It adds no new data or route. |
-| **AECI-928** | Apply I24 to Zapier's 59 powered rows. | Data cleanup on the connector lane. It is blocked on the AECI-1064 ruling. |
+| **AECI-928** | Apply I24 to Zapier's 59 powered rows. | Data cleanup on the connector lane. It was blocked on the AECI-1064 ruling. That ruling landed on 2026-09-23: Zapier is promoted and its catalogue is in production, so AECI-928 is unblocked. |
 
 Two children moved out to Stage 2.5 on 2026-09-23. **AECI-715** is the coverage checker. **AECI-716** is reachable-lane publication. Both are new public catalog surfaces and fail the §1 admission test. They stay children of AECI-771. `STAGE_2_5_SPEC.md` §13 records them.
 

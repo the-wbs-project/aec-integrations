@@ -44,9 +44,10 @@ describe('PromoteConnectorPagePayloadSchema (AECI-714)', () => {
     expect(parsed.catalog).not.toHaveProperty('managedBy');
   });
 
-  it('accepts a catalogue whose connector product is not promoted (Zapier/Workato are on_hold)', () => {
+  it('accepts a catalogue whose connector product is not promoted', () => {
     // The whole page is skipped at ingest, NOT rejected here: the review app is right
-    // to keep ingesting a catalogue whose platform AECi has not promoted (AECI-700).
+    // to keep ingesting a catalogue whose platform AECi has not promoted. Zapier's was
+    // that case until AECI-1064 promoted it on 2026-09-23 (reversing AECI-700).
     const parsed = PromoteConnectorPagePayloadSchema.parse(page({ catalog: { id: CATALOG.id } }));
     expect(parsed.catalog.connectorProductId).toBeUndefined();
   });
