@@ -133,13 +133,19 @@ test.describe('vendor portal nav (preview)', () => {
   // renders that state.
   test('the product-not-found state is axe clean', async ({ page }) => {
     await page.goto(`${PATH}/products/summit-model-coordination/integrations`);
-    const notFound = page.getByText("That product isn't linked to your vendor.");
+    // AECI-1129: the notice echoes the slug the URL asked for.
+    const notFound = page.getByText('The link asks for “summit-model-coordination”', {
+      exact: false,
+    });
     await clickUntil(page.getByRole('button', { name: 'No access · new' }), () =>
       expect(notFound).toBeVisible({ timeout: 1_000 }),
     );
     // The state has its own heading, so a screen-reader user jumping by heading
     // lands on it rather than on the vendor h1 alone.
     await expect(page.getByRole('heading', { level: 2, name: 'Product not found' })).toBeVisible();
+    await expect(
+      page.getByText('It may have been renamed, removed, or moved to another company.'),
+    ).toBeVisible();
     await expect(page.getByRole('link', { name: 'See your products' })).toHaveCSS(
       'text-decoration-line',
       'underline',

@@ -1761,7 +1761,11 @@ read as a button group. It was unclear which header was in charge of the page.
   `NavigationEnd`, so product-to-product navigation, which reuses the shell, still
   updates it.
 - **`VendorProductsPage` is now an outlet plus the unknown-product notice.** Its `h2`,
-  public link and product nav are gone.
+  public link and product nav are gone. The notice has a "Product not found" `h2`
+  (AECI-1102). Since AECI-1129 its sentence echoes the slug the URL asked for and the
+  vendor's company name, names the likely causes (renamed, removed, or moved to another
+  company), and links back to the product list. It offers no correction path and no
+  inline product list, by ruling. The link uses DESIGN.md's in-text link role.
 - **Bare `…/products` is a product list** (`sections/vendor-product-list-page.ts`).
   It used to redirect into the primary product, so a "Products" breadcrumb would have
   bounced the vendor straight back into a product. The page is deliberately basic for
