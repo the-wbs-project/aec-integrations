@@ -3,10 +3,10 @@ title: Plans and the account label
 description: What a vendor plan changes on AEC Integrations, how it is billed and renewed, and the things no plan can ever buy.
 section: vendors
 order: 6
-last_updated: 23 September 2026
+last_updated: 24 September 2026
 ---
 
-A plan is what lets your company edit its own listings and confirm its integrations. It also puts the "Vendor account active" label on your listing. It never changes where anything ranks.
+A plan is what lets your company edit its own listings and confirm its integrations. It also puts the "Active on AECi" label on your vendor page. It never changes where anything ranks.
 
 ## What a plan changes
 
@@ -15,7 +15,7 @@ A vendor plan affects five things, and this is the complete list:
 - what your company may edit about itself and its products: the profile, product details, categories, trades, audiences, phases and "How teams use it",
 - whether your company can confirm or deny data flows on its integrations ([Attesting an integration](/docs/vendors/attesting-an-integration)),
 - whether your company can claim, edit, retire and restore an integration it owns that is delivered through a connector, and decide contests on one ([Owning an integration](/docs/vendors/owning-an-integration)),
-- whether the "Vendor account active" label appears on your listing,
+- whether the "Active on AECi" label appears on your vendor page and in your portal,
 - how far back the version history on an integration page goes. Readers always see the current state in full. The comparison with older versions opens when either vendor at the ends of that integration holds a plan.
 
 Some things need only a seat, not a plan: managing seats, owning your integrations, adding your own links, and contesting a detail. The exception is an integration delivered through a connector: claiming, editing, retiring or restoring one, and deciding contests on one, need a plan. See [Your seat](/docs/vendors/your-seat).
@@ -31,9 +31,9 @@ No plan, at any price, changes:
 
 There is no sponsored placement and no promoted tier. We check this with an automated test: the list of things a plan can unlock is compared with the list of signals that order search results, and the build fails if anything appears in both.
 
-## The "Vendor account active" label
+## The "Active on AECi" label
 
-While your plan is active, your listing carries the label "Vendor account active", or "Account active" where space is short. Its tooltip tells readers what it means: your company has active access to manage its profile on AEC Integrations.
+While your plan is active, your vendor page carries the label "Active on AECi", next to a "What this means" link that points back to this article. Your portal's plan panel shows the same label. Both say the same thing: your company has active access to manage its profile on AEC Integrations.
 
 The label is not a separate purchase. It comes with the plan and goes when the plan ends. It does not say anything about the quality of your products or the accuracy of your integrations, and it does not affect ranking or placement.
 
@@ -49,7 +49,7 @@ The portal shows your plan's status, and the end date where there is one. Before
 
 - Your seats and sign-in stay, and so does the portal, read-only for anything a plan covers.
 - Your listings stay published.
-- The "Vendor account active" label comes off.
+- The "Active on AECi" label comes off.
 - You can no longer edit your profile or products, or confirm, deny or clear a data flow.
 - You can no longer claim, edit, retire or restore an integration delivered through a connector. One you already claimed stays claimed, and one you retired stays retired. Open contests on it move to AEC Integrations.
 - Owning your integrations, your own links and contests keep working, because they need only a seat.

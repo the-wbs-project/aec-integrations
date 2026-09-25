@@ -84,8 +84,7 @@ import { isCatalogueSeat } from '../vendor-capabilities';
  * ── Copy discipline (§8, and this is a trust surface) ───────────────────────
  * The public label reports **active account access** — never an endorsement,
  * ranking, or placement signal. The framing sentence matches the
- * `aec-vendor-account-badge` tooltip
- * and the `claim-approved` email's wording, said once, in every state. There is
+ * `claim-approved` email's wording, said once, in every state. There is
  * **no promise of instant search** (vendor edits reach Algolia on the nightly
  * watermark, ≤24h) and no search claim at all beyond the disclaimer. Arrangement
  * details — amount, terms, PO number, payer — are **admin-side only** (§5.1):
@@ -113,7 +112,7 @@ import { isCatalogueSeat } from '../vendor-capabilities';
         class="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 rounded-(--radius-md) border border-(--border-default) bg-(--surface-raised) px-4 py-3"
       >
         <div class="flex flex-wrap items-center gap-x-3 gap-y-1">
-          <aec-vendor-account-badge [active]="true" />
+          <aec-vendor-account-badge [active]="true" variant="portal" />
           @if (termLine(); as line) {
             <span class="text-sm text-(--text-secondary)">{{ line }}</span>
           }
@@ -134,7 +133,7 @@ import { isCatalogueSeat } from '../vendor-capabilities';
       <div [class]="shellClass()">
         <div class="flex flex-wrap items-center gap-x-3 gap-y-2">
           @if (state() === 'active' || state() === 'expiring') {
-            <aec-vendor-account-badge [active]="true" />
+            <aec-vendor-account-badge [active]="true" variant="portal" />
           } @else {
             <span
               class="inline-flex w-fit items-center rounded-(--radius-sm) border border-(--border-strong) bg-(--surface-base) px-2.5 py-0.5 text-xs font-semibold tracking-[0.01em] text-(--text-secondary)"

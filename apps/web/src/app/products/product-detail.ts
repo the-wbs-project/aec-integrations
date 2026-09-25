@@ -20,7 +20,6 @@ import { MaintenanceMarker } from '../shared/maintenance-marker/maintenance-mark
 import { NewTabIcon } from '../shared/new-tab-icon/new-tab-icon';
 import { SectionNav, type SectionNavItem } from '../shared/section-nav/section-nav';
 import { TaxonomyBadge } from '../shared/taxonomy-badge/taxonomy-badge';
-import { VendorAccountBadge } from '../shared/vendor-account-badge/vendor-account-badge';
 
 import { connectedProductCount, groupPoweredIntegrations } from './powered-hub-grouping';
 import { ProductBuiltWithin, ProductExtensionsSection } from './product-extensions';
@@ -97,7 +96,6 @@ import { RoleBadge } from './role-badge';
     RouterLink,
     SectionNav,
     TaxonomyBadge,
-    VendorAccountBadge,
   ],
   template: `
     @let p = product();
@@ -308,7 +306,6 @@ import { RoleBadge } from './role-badge';
                   <span class="min-w-0 break-words font-medium text-(--text-primary)">{{
                     v.name
                   }}</span>
-                  <aec-vendor-account-badge [active]="v.verified" variant="compact" />
                 </span>
               </a>
             } @else {

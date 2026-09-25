@@ -724,7 +724,7 @@ Replace `apps/web/src/app/vendor/components/vendor-verified-status.ts` — whose
 
 - **Reads the `entitlement` block on `GET /api/vendor/me`** (§4): tier, status, `period_end`, and the resolved capability list. No new endpoint.
 - **States to render:** active with a far term (quiet); active and expiring soon ("expires in N days", renewal CTA); and **downgraded** — `status` not `active`, forms read-only, a clear explanation that portal access remains and how to renew. The downgraded state is the one that must be designed properly: it is shown to a customer AECi wants back.
-- **Copy discipline.** Public copy calls this **active vendor access**, never verification, endorsement, ranking, or placement (reuse the `aec-vendor-account-badge` tooltip's framing and the `claim-approved` email's wording). No promise of instant search (§8.3(5)). Arrangement details (amount, terms, PO) are **admin-side only** — the dashboard shows status and term, never the money.
+- **Copy discipline.** Public copy calls this **active vendor access**, never verification, endorsement, ranking, or placement (reuse the plan panel's framing sentence — `vendor-plan-panel.ts`'s `#framing` template, "An active vendor account means this company can manage its AECi profile..." — and the `claim-approved` email's wording; as of AECI-1131 the badge itself carries no tooltip, having been replaced by a visible "What this means" link on the public variant). No promise of instant search (§8.3(5)). Arrangement details (amount, terms, PO) are **admin-side only** — the dashboard shows status and term, never the money.
 - **Build it preview-first** (`apps/web/src/app/preview/vendor-dashboard/`, the AECI-270 → AECI-522 house pattern) with fixtures for all three states, so the downgraded state gets PO sign-off before the gated route is wired.
 - Run the `CLAUDE.md` design checklist: Anchor-Site Rule (the anchor is the existing `/vendor` dashboard — it must read as a sibling), `impeccable detect` clean, axe pass, i18n `@@` ids on every string. **Light theme only.**
 
@@ -746,7 +746,7 @@ Replace `apps/web/src/app/vendor/components/vendor-verified-status.ts` — whose
 
 Three decisions this section did not pre-specify:
 
-1. **State resolution is fail-closed, mirroring `tierFor`.** `status: 'active'` over an **unknown tier** renders as **lapsed**, not active. `vendor_entitlements.tier` is DB-unconstrained by design (§2.2), so this case is real; an "Account active" label sitting above read-only forms would be the wrong claim, and the panel must never claim more than the gate will honour.
+1. **State resolution is fail-closed, mirroring `tierFor`.** `status: 'active'` over an **unknown tier** renders as **lapsed**, not active. `vendor_entitlements.tier` is DB-unconstrained by design (§2.2), so this case is real; an "Active on AECi" label (AECI-1131 relabeled it from "Account active") sitting above read-only forms would be the wrong claim, and the panel must never claim more than the gate will honour.
 2. **The read-only forms use `readOnly`, not `disabled`.** §5.2's promise is that the data survives a lapse, and `disabled` removes the values from the accessibility tree — a screen-reader user would lose exactly the data the promise is about. `readOnly` keeps them focusable and copyable. Both `onSave` handlers guard independently, because Enter submits a form with no button.
 3. **The active/expiring states render the real `aec-vendor-account-badge`**, not a lookalike — the vendor sees the exact neutral label the public sees, which is the whole point of a status readout.
 

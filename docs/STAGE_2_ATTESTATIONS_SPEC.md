@@ -2286,8 +2286,10 @@ They answer different questions at different grains and both render: the marker 
 attribution ("who is on the hook for this page"), the `Unverified · AECi` pill is **per claim**, on
 the mechanism cards ("do the two vendors agree about this one `data_object`"). `DESIGN.md` already
 keeps their wording and tones distinct. The marker and agreement state are both `rounded.sm`
-chips, while `aec-vendor-account-badge` means a third thing again: active vendor account access.
-Merging them would collapse three separate signals into one.
+chips. Merging them would collapse two separate signals into one. **As revised (AECI-1131,
+2026-09-24):** `aec-vendor-account-badge` no longer renders on the pair page at all — a reader
+comparing products gains nothing from a vendor's plan state — so the badge is no longer a third
+signal to keep distinct here.
 
 ### 13.7 Acceptance
 

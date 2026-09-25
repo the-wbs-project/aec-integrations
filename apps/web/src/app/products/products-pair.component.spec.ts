@@ -544,6 +544,13 @@ describe('ProductsPairPage', () => {
         ),
       ).el;
 
+    it('shows no account label beside an active vendor (AECI-1131)', () => {
+      const el = renderState('unverified', [aeciSeed()]);
+      expect(el.textContent).toContain('Acme Software');
+      expect(el.querySelector('aec-vendor-account-badge')).toBeNull();
+      expect(el.textContent).not.toContain('Account active');
+    });
+
     it('renders 0 voters as the neutral unverified chip', () => {
       expect(renderState('unverified', [aeciSeed()]).textContent).toContain('Unverified · AECi');
     });

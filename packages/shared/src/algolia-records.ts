@@ -168,8 +168,9 @@ export const AlgoliaVendorRecordSchema = z.object({
   objectID: z.string().uuid(),
   company_name: z.string().min(1),
   slug: z.string().min(1),
-  // AECI-529: the owning `vendors.verified` bit, denormalized so the `/search`
-  // Vendors-tab card can render `aec-vendor-account-badge`. Display-only — never a
+  // AECI-529: the owning `vendors.verified` bit, denormalized for the `/search`
+  // Vendors-tab card. AECI-1131 took the account label off that card, so nothing
+  // renders it today; the field stays so dropping it needs no reindex. Never a
   // searchable attribute or custom-ranking signal (no pay-for-placement).
   // `.default(false)` keeps parsing resilient to records indexed before this
   // field existed; they read as the unverified baseline.
