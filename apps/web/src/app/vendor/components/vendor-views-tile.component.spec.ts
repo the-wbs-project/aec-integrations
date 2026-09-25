@@ -33,7 +33,7 @@ describe('VendorViewsTile', () => {
   it('defaults to the 7-day window', () => {
     const fixture = create();
     expect(pressed(fixture)).toEqual(['false', 'true', 'false']);
-    expect(sentence(fixture)).toBe('View counts for the last 7 days are on their way.');
+    expect(sentence(fixture)).toBe('View counts for the last 7 days are coming soon.');
   });
 
   it('names each option with its visible label first (WCAG 2.5.3)', () => {
@@ -55,12 +55,12 @@ describe('VendorViewsTile', () => {
     buttons(fixture)[0]!.click();
     fixture.detectChanges();
     expect(pressed(fixture)).toEqual(['true', 'false', 'false']);
-    expect(sentence(fixture)).toBe('View counts for the last day are on their way.');
+    expect(sentence(fixture)).toBe('View counts for the last day are coming soon.');
 
     buttons(fixture)[2]!.click();
     fixture.detectChanges();
     expect(pressed(fixture)).toEqual(['false', 'false', 'true']);
-    expect(sentence(fixture)).toBe('View counts for the last 30 days are on their way.');
+    expect(sentence(fixture)).toBe('View counts for the last 30 days are coming soon.');
 
     // Re-pressing the current window is not a change.
     buttons(fixture)[2]!.click();

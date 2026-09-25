@@ -21,6 +21,7 @@ import {
 import { LABEL_IDS } from '../lib/linear';
 import { makeTestDb, type TestDb } from '../test/d1';
 import { buildAppWithHandler, fakeExecutionContext, TEST_ENV } from '../test/helpers';
+import { stubPosthogIntake } from '../test/posthog-intake';
 import { createClaimSubmitHandler, createCorrectionSubmitHandler } from './requests';
 
 const VENDOR_ID = '11111111-1111-4111-8111-111111111111';
@@ -178,6 +179,27 @@ describe('POST /api/requests/correction', () => {
       toState: 'open',
     });
     expect((transitions[0]!.metadata as Record<string, unknown>).kind).toBe('correction');
+  });
+
+  it('forwards the audit row and the genesis transition in ONE request (AECI-1112)', async () => {
+    await seedProduct({ slug: 'acme-build' });
+    const intake = stubPosthogIntake();
+    try {
+      const res = await submitCorrection(validBody, {
+        ...TEST_ENV,
+        POSTHOG_PROJECT_KEY: 'phc_test',
+      });
+      expect(res.status).toBe(201);
+      const { request_id } = await createdRow(res);
+
+      expect(intake.auditRequests()).toHaveLength(1);
+      expect(intake.auditRequests()[0]!.messages).toEqual([
+        `audit vendor_request.created ${request_id}`,
+        expect.stringMatching(/^workflow ∅→open /),
+      ]);
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 
   it('stores a provided source URL', async () => {

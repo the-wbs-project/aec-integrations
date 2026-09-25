@@ -48,20 +48,13 @@
 
 import { UpdateAccountSchema } from '@aeci/shared';
 import type { AccountProfileResponse, DeleteAccountResponse } from '@aeci/shared';
-import {
-  forwardAuditLog,
-  type AuditLogEntry,
-  type AuditLogForwarder,
-} from '@aeci/shared/audit-log';
-import {
-  forwardWorkflowTransition,
-  type WorkflowTransitionForwarder,
-} from '@aeci/shared/workflow-transition';
+import { type AuditLogEntry } from '@aeci/shared/audit-log';
 import { eq } from 'drizzle-orm';
 import type { Context } from 'hono';
 import type { ZodType } from 'zod';
 
 import { getDb, type DbContext } from '../db/client';
+import { forwardAuditBatch } from '../lib/moderation-forward';
 import {
   auditLog,
   integrationFieldChallenges,
@@ -97,34 +90,6 @@ import {
 import { purgeTags } from './vendor-shared';
 
 type AuthContext = Context<{ Bindings: Env; Variables: AuthzVariables }>;
-
-function makeForwarder(c: AuthContext): AuditLogForwarder | undefined {
-  if (!c.env.POSTHOG_PROJECT_KEY) return undefined;
-  return (entry) => {
-    logToPosthog(c.executionCtx, c.env, c.req.raw, {
-      level: 'info',
-      message: `audit ${entry.action} ${entry.entityId ?? ''}`.trim(),
-      action: entry.action,
-      entity_type: entry.entityType ?? undefined,
-      entity_id: entry.entityId ?? undefined,
-      source: 'account',
-    });
-  };
-}
-
-function makeWorkflowForwarder(c: AuthContext): WorkflowTransitionForwarder | undefined {
-  if (!c.env.POSTHOG_PROJECT_KEY) return undefined;
-  return (entry) => {
-    logToPosthog(c.executionCtx, c.env, c.req.raw, {
-      level: 'info',
-      message: `workflow ${entry.fromState ?? '∅'}→${entry.toState} ${entry.workflowId}`,
-      from_state: entry.fromState ?? undefined,
-      to_state: entry.toState,
-      workflow_id: entry.workflowId,
-      source: 'account',
-    });
-  };
-}
 
 async function parseJsonBody<T>(c: AuthContext, schema: ZodType<T>): Promise<T> {
   let raw: unknown;
@@ -258,7 +223,7 @@ export function createUpdateAccountHandler(
       auditInsert(db, auditEntry),
     ] as BatchTuple);
 
-    c.executionCtx.waitUntil(forwardAuditLog(auditEntry, makeForwarder(c)));
+    forwardAuditBatch(c, [auditEntry], [], 'account');
 
     const body: AccountProfileResponse = {
       user_id: userId,
@@ -474,19 +439,17 @@ export function createDeleteAccountHandler(
     // §26.5 forward + the §11.1 deletion confirmation, fire-and-forget after the
     // erasure. The email fails open (absent key/email → silent skip) and never
     // affects the response — the data is already gone.
-    const forwarder = makeForwarder(c);
-    const workflowForwarder = makeWorkflowForwarder(c);
+    // The seat hand-back adds an audit row and a transition per contest, so the
+    // forwards go in ONE request. One `fetch` per row ran past the Worker's
+    // connection limit on a vendor with many contests (AECI-666, AECI-1112).
     const follow = seat?.follow ?? null;
-    c.executionCtx.waitUntil(
-      Promise.all([
-        forwardAuditLog(auditEntry, forwarder),
-        ...(follow?.audits ?? []).map((entry) => forwardAuditLog(entry, forwarder)),
-        ...(follow?.transitions ?? []).map((entry) =>
-          forwardWorkflowTransition(entry, workflowForwarder),
-        ),
-        sendAccountDeletionEmail(c, { to: recipientEmail }),
-      ]),
+    forwardAuditBatch(
+      c,
+      [auditEntry, ...(follow?.audits ?? [])],
+      follow?.transitions ?? [],
+      'account',
     );
+    c.executionCtx.waitUntil(sendAccountDeletionEmail(c, { to: recipientEmail }));
     // Only the hand-back returns tags: the pages whose maintenance marker flipped
     // (`CACHE_STRATEGY.md` (b1a)). A lapse re-routes contests and purges nothing.
     if (follow?.purgeTags.length) {

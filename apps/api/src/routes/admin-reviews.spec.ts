@@ -23,6 +23,7 @@ import type { AuthzVariables } from '../lib/authz';
 import { sendReviewApprovedEmail, sendReviewRejectedEmail } from '../lib/email';
 import { makeTestDb, type TestDb } from '../test/d1';
 import { fakeExecutionContext, TEST_ENV } from '../test/helpers';
+import { stubPosthogIntake } from '../test/posthog-intake';
 import { createAdminReviewsListHandler, createModerateReviewHandler } from './admin-reviews';
 
 // The §11.1 reviewer notifications are fire-and-forget; mock them so we can assert
@@ -98,7 +99,7 @@ function moderateApp() {
   a.patch('/api/admin/reviews/:id', createModerateReviewHandler(t.factory, emails));
   return a;
 }
-const patch = (id: string, body: unknown) =>
+const patch = (id: string, body: unknown, env: Env = TEST_ENV) =>
   moderateApp().request(
     `/api/admin/reviews/${id}`,
     {
@@ -106,7 +107,7 @@ const patch = (id: string, body: unknown) =>
       body: JSON.stringify(body),
       headers: { 'content-type': 'application/json' },
     },
-    TEST_ENV,
+    env,
     fakeExecutionContext(),
   );
 
@@ -196,6 +197,27 @@ describe('PATCH /api/admin/reviews/:id', () => {
   it('422s a non-pending review', async () => {
     await seedReview(u(11), 'approved');
     expect((await patch(u(11), { action: 'approve' })).status).toBe(422);
+  });
+
+  it('forwards the audit row and the transition in ONE request (AECI-1112)', async () => {
+    await seedReview(u(11), 'pending');
+    const intake = stubPosthogIntake();
+    try {
+      const res = await patch(
+        u(11),
+        { action: 'approve' },
+        { ...TEST_ENV, POSTHOG_PROJECT_KEY: 'phc_test' },
+      );
+      expect(res.status).toBe(200);
+
+      expect(intake.auditRequests()).toHaveLength(1);
+      const messages = intake.auditRequests()[0]!.messages;
+      expect(messages).toHaveLength(2);
+      expect(messages[0]).toBe(`audit review.approved ${u(11)}`);
+      expect(messages[1]).toMatch(/^workflow pending→approved /);
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 
   it('404s an unknown review', async () => {

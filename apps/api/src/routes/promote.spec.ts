@@ -56,6 +56,7 @@ import {
 } from '../lib/promote-claims';
 import { makeTestDb, recordingFactory, type TestDb } from '../test/d1';
 import { buildAppWithHandler, fakeExecutionContext, TEST_ENV } from '../test/helpers';
+import { stubPosthogIntake } from '../test/posthog-intake';
 import {
   bufferIndexNowAfterPromote,
   dispatchPromoteHooks,
@@ -4161,6 +4162,35 @@ describe('home-stats refresh after promote (AECI-305 → WC-5 / AECI-319)', () =
     await refreshHomeStatsAfterPromote(fakeContext(baseEnv), t.db);
 
     expect((await t.db.select().from(statsCache)).length).toBeGreaterThan(0);
+  });
+
+  it('sends the per-key stats metrics in ONE request, not one per key (AECI-1112)', async () => {
+    await seedProduct(uuid(1), 'revit', 'Revit');
+    const intake = stubPosthogIntake();
+    try {
+      const rc: Parameters<typeof refreshHomeStatsAfterPromote>[0] = {
+        env: { ...baseEnv, POSTHOG_PROJECT_KEY: 'phc_test' },
+        waitUntil: () => {},
+        request: new Request('https://api.local/api/promote', { method: 'POST' }),
+        bookmark: () => null,
+      };
+      await refreshHomeStatsAfterPromote(rc, t.db);
+
+      // Eleven home.* keys, two points each, plus the job count and duration: 24
+      // points that used to be 24 requests, past the ~6-connection limit (AECI-666).
+      const metricsCalls = intake.fetchMock.mock.calls.filter(([input]) =>
+        String(input).includes('/i/v1/metrics'),
+      );
+      expect(metricsCalls).toHaveLength(1);
+      const body = JSON.parse(String(metricsCalls[0]![1]!.body)) as {
+        resourceMetrics: { scopeMetrics: { metrics: unknown[] }[] }[];
+      };
+      expect(body.resourceMetrics[0]!.scopeMetrics[0]!.metrics.length).toBeGreaterThan(6);
+      // A clean run has no failed key, so no log request at all.
+      expect(intake.requests).toHaveLength(0);
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 
   it('recomputes the stats_cache and never throws when the enqueue rejects', async () => {

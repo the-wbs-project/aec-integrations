@@ -66,18 +66,16 @@ const ALL_FACETS: readonly ProductFacetKind[] = ['categories', 'trades', 'audien
           <!--
             No heading of its own: the form opens with its read-only identity
             block (name + slug + the rename-is-a-correction-request hint), so a
-            card header would be the third place the same product name appears on
-            this screen, after the picker's trigger. Same panel treatment as the
-            list mode's <details> so the two renderings sit at the same depth.
+            card header would repeat the product name the page h1 already shows.
+            No panel either (AECI-1116). The form sits flat under the tab row,
+            the same depth as the vendor Profile form. A raised card here put the
+            identity block and the logo drop zone inside a second card, which
+            impeccable detect flags as nested-cards.
           -->
-          <div
-            class="rounded-(--radius-md) border border-(--border-default) bg-(--surface-raised) p-5"
-          >
-            <ng-container
-              [ngTemplateOutlet]="productBody"
-              [ngTemplateOutletContext]="{ $implicit: product }"
-            />
-          </div>
+          <ng-container
+            [ngTemplateOutlet]="productBody"
+            [ngTemplateOutletContext]="{ $implicit: product }"
+          />
         }
       } @else {
         <div class="space-y-4">
@@ -122,6 +120,7 @@ const ALL_FACETS: readonly ProductFacetKind[] = ['categories', 'trades', 'audien
             [canEdit]="canEdit()"
             [canEditTaxonomy]="canEditTaxonomy()"
             [canEditUsefulness]="canEditUsefulness()"
+            [headingLevel]="facetHeadingLevel()"
           />
         }
       </div>
@@ -153,6 +152,13 @@ export class VendorProductsSection {
     if (section === 'all') return ALL_FACETS;
     return section === 'profile' ? [] : [section];
   });
+
+  /** One product under the routed page's product-name `h1` gets `h2` facet
+   *  headings. The stacked list sits under the single page's "Your products"
+   *  `h2`, so its facets stay `h3` (AECI-1122). */
+  protected readonly facetHeadingLevel = computed<2 | 3>(() =>
+    this.selectedSlug() === null ? 3 : 2,
+  );
 
   protected readonly selectedProduct = computed(() => {
     const slug = this.selectedSlug();

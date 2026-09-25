@@ -34,6 +34,7 @@ import type { AuthenticatedSession, AuthzVariables } from '../lib/authz';
 import { HANDBACK_REASON, SEAT_LAPSE_REASON } from '../lib/vendor-handback';
 import { makeTestDb, type TestDb } from '../test/d1';
 import { fakeExecutionContext, TEST_ENV } from '../test/helpers';
+import { logBatchToPosthog, logToPosthog } from '../posthog';
 import { createDeleteAccountHandler, ERASURE_SEAT_ATTEMPTS } from './account';
 
 vi.mock('../posthog', () => ({
@@ -231,6 +232,66 @@ const profileExists = async (id: string) =>
   (await t.db.query.profiles.findFirst({ where: eq(profiles.id, id) })) !== undefined;
 
 describe('DELETE /api/account on a vendor seat (AECI-1106)', () => {
+  it('forwards the erasure and every hand-back row in ONE batched request (AECI-1112)', async () => {
+    // Seven more owner-routed contests, so the hand-back carries eight contest rows
+    // and eight transitions: past the Worker's ~6 open connections (AECI-666). One
+    // open contest per (row, field, submitter), so each takes its own field.
+    const fields = [
+      'mechanism_name',
+      'direction',
+      'description',
+      'listing_url',
+      'docs_url',
+      'website',
+      'maturity',
+    ];
+    for (const [i, field] of fields.entries()) {
+      const workflowId = u(70 + i);
+      await t.db.insert(workflowInstances).values({
+        id: workflowId,
+        workflowType: 'correction_request',
+        entityId: u(80 + i),
+        currentState: 'open',
+      });
+      await t.db.insert(integrationFieldChallenges).values({
+        id: u(80 + i),
+        integrationId: I_OWNED,
+        field,
+        reason: 'r',
+        submitterVendorId: OTHER,
+        routedTo: 'owner',
+        ownerVendorId: VENDOR,
+        workflowId,
+      });
+    }
+    vi.mocked(logBatchToPosthog).mockClear();
+    vi.mocked(logToPosthog).mockClear();
+
+    const { status } = await erase();
+    expect(status).toBe(200);
+
+    expect(logBatchToPosthog).toHaveBeenCalledTimes(1);
+    const events = vi.mocked(logBatchToPosthog).mock.calls[0]![3] as {
+      message: string;
+      source: string;
+    }[];
+    const messages = events.map((e) => e.message);
+    expect(messages.filter((m) => m.startsWith('audit account.deleted'))).toHaveLength(1);
+    expect(
+      messages.filter((m) => m.startsWith('audit integration.contest.rerouted ')),
+    ).toHaveLength(8);
+    expect(messages.filter((m) => m.startsWith('workflow '))).toHaveLength(8);
+    // Every D1 audit row is in the forward, and nothing forwards one row at a time.
+    expect(messages.filter((m) => m.startsWith('audit '))).toHaveLength((await audits()).length);
+    expect(events.every((e) => e.source === 'account')).toBe(true);
+    const perRow = vi
+      .mocked(logToPosthog)
+      .mock.calls.filter((call) =>
+        /^(audit|workflow) /.test(String((call[3] as { message?: string }).message ?? '')),
+      );
+    expect(perRow).toEqual([]);
+  });
+
   it('erasing the last seat hands the record back in the erasure batch', async () => {
     const batchSpy = vi.spyOn(t.db, 'batch');
     const { status, send } = await erase();

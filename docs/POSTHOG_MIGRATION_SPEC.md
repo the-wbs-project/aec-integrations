@@ -245,9 +245,11 @@ variables `POSTHOG_PROJECT_ID_PROD=354071` / `POSTHOG_PROJECT_ID_NONPROD=525793`
 `forwardAuditLog` / `forwardWorkflowTransition` keep the injected-forwarder seam, wired
 to `logToPosthog` (OTLP logs) with the same entry attributes. **A caller emitting N
 entries at once uses `logBatchToPosthog` instead** and drops the forwarder closure
-entirely — one request per vendor rather than N (§8.12 / AECI-666). All three such
-callers (`routes/promote.ts`, `lib/attestation-notify.ts`, `routes/vendor-shared.ts`)
-are batched; the single-entry callers are unchanged. The §26.1
+entirely — one request per vendor rather than N (§8.12 / AECI-666). The promote paths,
+`lib/attestation-notify.ts` and `routes/vendor-shared.ts` build their own batch. Every
+request handler that forwards more than one entry goes through `forwardAuditBatch`
+(`apps/api/src/lib/moderation-forward.ts`), including the two-row audit + transition
+writes (AECI-1112). Only the one-entry paths keep the injected forwarder. The §26.1
 audit-row-in-the-same-batch invariant is untouched — forwarding is post-commit only.
 `STAGE_1_SPEC.md` §26.5, ADR 0022's wording, and CLAUDE.md's constraint bullet update in
 §AW7 under ADR 0024's authority.

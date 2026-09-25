@@ -582,6 +582,11 @@ export type Env = {
    * lead-capture notifications use. Plain wrangler var per env. Absent → the alert is
    * a `skipped` no-op and the submit still returns `201` — the Linear issue
    * (§6.4) stays the durable record either way.
+   *
+   * Since AECI-1132 it is also the `To:` for `contest-submitted-alert`, sent when an
+   * integration field contest routes to AECi at submit (§11b.8). An `owner` contest
+   * is the owner-unknown claim path, so it belongs in the same inbox. Absent → the
+   * contest alert skips too, and the contest row stays the durable record.
    */
   CLAIM_ALERT_EMAIL?: string;
   /**
@@ -604,6 +609,17 @@ export type Env = {
    * Set as a plain wrangler var per env. See `docs/email.md`.
    */
   EMAIL_FROM?: string;
+  /**
+   * Operator blind copy on EVERY email the API Worker sends, both transports in
+   * `lib/email.ts` (transactional templates and the cron digests). A send with a
+   * `List-Unsubscribe` header gets a separate `COPY:` message instead of a bcc,
+   * so the copy cannot opt the recipient out (`sendOperatorCopy`). Lets the
+   * operator see exactly what users receive. Comma/whitespace-separated list,
+   * parsed by `parseRecipients`; an address already in `to` is not repeated.
+   * Plain wrangler var, set on staging, demo and production to
+   * `support@aecintegrations.com`. Absent → no `bcc` field. See `docs/email.md`.
+   */
+  EMAIL_BCC?: string;
   /**
    * Sender + recipient(s) for the data-quality digest (AECI-241). `_FROM` is a
    * single verified Resend sender; `_TO` is a comma/whitespace-separated list

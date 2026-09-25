@@ -34,6 +34,7 @@ import type { AuthzVariables } from '../lib/authz';
 import { isConnectorPoweredEdge } from '../lib/connector-powered';
 import { makeTestDb, type TestDb } from '../test/d1';
 import { TEST_ENV, fakeExecutionContext } from '../test/helpers';
+import { racingFactory } from '../test/racing-factory';
 import {
   createUpdateVendorIntegrationHandler,
   INTEGRATION_UPDATED_ACTION,
@@ -515,20 +516,11 @@ describe('PATCH /api/vendor/integrations/:id — the race guard', () => {
   /** A handler whose batch runs `sql` against the raw DB first, the way a
    *  concurrent write would land between the handler's read and its batch. */
   function racing(statement: string, ...params: unknown[]) {
-    const factory = t.factory;
-    let fired = false;
-    return createUpdateVendorIntegrationHandler((env, opts) => {
-      const ctx = factory(env, opts);
-      if (!fired) {
-        const batch = ctx.db.batch.bind(ctx.db);
-        (ctx.db as unknown as { batch: typeof batch }).batch = (async (stmts: never) => {
-          fired = true;
-          t.raw.prepare(statement).run(...params);
-          return batch(stmts);
-        }) as typeof batch;
-      }
-      return ctx;
-    });
+    return createUpdateVendorIntegrationHandler(
+      racingFactory(t.factory, (attempt) => {
+        if (attempt === 1) t.raw.prepare(statement).run(...params);
+      }),
+    );
   }
 
   it('refuses the old owner when AECi reassigned the row before the batch ran', async () => {

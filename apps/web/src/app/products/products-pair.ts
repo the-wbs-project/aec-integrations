@@ -1,4 +1,3 @@
-import { HttpClient } from '@angular/common/http';
 import { Component, afterNextRender, computed, inject, signal } from '@angular/core';
 import { toSignal } from '@angular/core/rxjs-interop';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
@@ -6,7 +5,6 @@ import { map } from 'rxjs';
 
 import { distinctDataObjectSlugs } from '@aeci/shared';
 import type {
-  ClaimTimeline,
   ContextDirection,
   ProductLink,
   ProductPairClaim,
@@ -17,7 +15,6 @@ import type {
 import { CONTEXT_VERSION_PARAM, OTHER_VERSION_PARAM } from '@aeci/shared/version-diff';
 
 import { ExternalLinkTracker } from '../analytics/external-link-tracker';
-import { fetchPairTimeline } from '../core/api/product-pairs';
 import { NotFound } from '../not-found/not-found';
 import {
   contextDirectionLabel,
@@ -33,6 +30,7 @@ import { VendorAccountBadge } from '../shared/vendor-account-badge/vendor-accoun
 
 import { AgreementBadge } from './agreement-badge';
 import { ClaimProvenance } from './claim-provenance';
+import { ConfirmedRatioInfo } from './confirmed-ratio-info';
 import {
   DIRECTION_ORDER,
   directionAria,
@@ -196,9 +194,13 @@ function syncHeadlineText(total: number): string {
  * added together: folding a lone vendor's affirmation into the "vendor-confirmed"
  * figure is exactly the overstatement `STAGE_2_SPEC.md` §8.1(4) forbids. The
  * second clause is omitted entirely at zero rather than rendered as "0".
+ *
+ * The numerator names who confirms ("both vendors") rather than the bare
+ * "vendor-confirmed": a page showing two vendors read "0 of 1 vendor-confirmed" as
+ * a count of vendors. The unit is data objects, which the headline above names.
  */
 function confirmedRatioText(confirmed: number, total: number, singleSource: number): string {
-  const bilateral = $localize`:@@pair.dataflow.ratio:${confirmed}:confirmed: of ${total}:total: vendor-confirmed`;
+  const bilateral = $localize`:@@pair.dataflow.ratio.bothVendors:${confirmed}:confirmed: of ${total}:total: confirmed by both vendors`;
   if (singleSource === 0) return bilateral;
   const oneSided = $localize`:@@pair.dataflow.ratio.singleSource:${singleSource}:count: confirmed by one vendor only`;
   return `${bilateral} · ${oneSided}`;
@@ -405,6 +407,7 @@ function writePairViewCookie(mode: PairViewMode): void {
   imports: [
     AgreementBadge,
     ClaimProvenance,
+    ConfirmedRatioInfo,
     ExternalLinkTracker,
     LogoOrInitial,
     MailingListSignup,
@@ -654,8 +657,16 @@ function writePairViewCookie(mode: PairViewMode): void {
                 </p>
               }
               <!-- text-secondary (not tertiary): tertiary fails AA contrast on the Bone band. -->
-              <p class="mt-2 text-xs tabular-nums text-(--text-secondary)">
-                {{ v.confirmedRatio }}
+              <p
+                class="mt-2 inline-flex items-center gap-1 text-xs tabular-nums text-(--text-secondary)"
+              >
+                <span>{{ v.confirmedRatio }}</span>
+                <aec-confirmed-ratio-info
+                  [contextVendorName]="v.vendorNames.context"
+                  [otherVendorName]="v.vendorNames.other"
+                  [showSingleSource]="v.pair.sync_headline.single_source > 0"
+                  [aeciOnly]="v.awaitingVendors"
+                />
               </p>
             } @else if (viewMode() === 'detailed' && v.hasLayerADirection) {
               <!-- AECI-919: the band counts Layer-B data-object claims, and the
@@ -916,8 +927,6 @@ function writePairViewCookie(mode: PairViewMode): void {
                                 [claim]="r.claim"
                                 [contextVendorName]="v.vendorNames.context"
                                 [otherVendorName]="v.vendorNames.other"
-                                [timeline]="timelineFor(r.claim.id)"
-                                (historyRequested)="loadTimeline()"
                               />
                             </span>
                           </li>
@@ -977,7 +986,6 @@ function writePairViewCookie(mode: PairViewMode): void {
 export class ProductsPairPage {
   private readonly route = inject(ActivatedRoute);
   private readonly router = inject(Router);
-  private readonly http = inject(HttpClient);
 
   protected readonly breadcrumbAria = $localize`:@@pair.breadcrumb.aria:Breadcrumb`;
 
@@ -1193,48 +1201,6 @@ export class ProductsPairPage {
       queryParams: { [CONTEXT_VERSION_PARAM]: null, [OTHER_VERSION_PARAM]: null },
       queryParamsHandling: 'merge',
     });
-  }
-
-  // ── AECI-303 (§9.1): the lazy per-claim history ────────────────────────────
-
-  /**
-   * Per-claim attestation history, keyed by claim id. Fetched **once, from the
-   * browser only, on the first provenance-popover open** — never during SSR.
-   *
-   * That is not laziness for its own sake: history is the gateable depth (§9.3), and
-   * the pair page is stored in a shared, URL-keyed edge cache. AECI-304 settled the
-   * gate on the PAIR'S vendors rather than the reader, so it stays URL-derived and
-   * §9.1a holds — but the split is still the right one: `/api/*` responses are
-   * `private, no-store`, and this is the only unbounded payload in the system, since
-   * the append-only log grows forever.
-   */
-  private readonly timelines = signal<ReadonlyMap<string, ClaimTimeline> | null>(null);
-  private timelineRequested = false;
-
-  protected timelineFor(claimId: string | undefined): ClaimTimeline | null {
-    if (!claimId) return null;
-    return this.timelines()?.get(claimId) ?? null;
-  }
-
-  /**
-   * Fetch the pair's histories on the first popover open. One request serves every
-   * popover on the page, which is why the endpoint is pair-scoped rather than
-   * claim-scoped.
-   *
-   * Called from a click handler, never an `effect()` — the popover it feeds is a
-   * `BrnPopover`, and opening one from a reactive context throws NG0602.
-   */
-  protected loadTimeline(): void {
-    if (this.timelineRequested) return;
-    const pair = this.pair();
-    if (!pair) return;
-    this.timelineRequested = true;
-    void fetchPairTimeline(this.http, pair.context_product.slug, pair.other_product.slug).then(
-      (response) => {
-        if (!response) return;
-        this.timelines.set(new Map(response.claims.map((c) => [c.claim_id, c])));
-      },
-    );
   }
 }
 

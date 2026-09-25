@@ -9,12 +9,10 @@
  * hydration-miss branch fetches the same endpoint via the same-origin `/api/*`
  * passthrough (`http-get-or-null.ts`), not this client.
  */
-import type { PairTimelineResponse, ProductPairResponse } from '@aeci/shared';
-import type { HttpClient } from '@angular/common/http';
+import type { ProductPairResponse } from '@aeci/shared';
 
 import type { ServerApiClient } from '../../../server-api-client';
 import { fetchOrNull } from './fetch-or-null';
-import { httpGetOrNull } from './http-get-or-null';
 
 /**
  * The reader's version selection, as it arrives from the URL (AECI-303 / §9).
@@ -32,20 +30,19 @@ export interface PairVersionSelectionParams {
  * That is what lets the default render share one API response and one
  * `TransferState` slot with an unparameterised visit, and it mirrors the SSR
  * Worker's `cacheKeyFor`, which drops an absent param rather than encoding an empty
- * one. Exported for the timeline sibling and the resolver's spec.
+ * one. Exported for the resolver and its spec.
  */
 export function pairPath(
   contextSlug: string,
   otherSlug: string,
   selection: PairVersionSelectionParams | undefined,
-  suffix = '',
 ): string {
   // Slugs are `encodeURIComponent`-encoded defensively — real slugs are already
   // URL-safe (lowercase, hyphens), but a leaked malformed param must not produce a
   // broken path.
   const base = `/api/products/${encodeURIComponent(contextSlug)}/integrations/${encodeURIComponent(
     otherSlug,
-  )}${suffix}`;
+  )}`;
   const query = new URLSearchParams();
   if (selection?.contextVersion) query.set('context_version', selection.contextVersion);
   if (selection?.otherVersion) query.set('other_version', selection.otherVersion);
@@ -71,29 +68,4 @@ export async function fetchProductPair(
   selection?: PairVersionSelectionParams,
 ): Promise<ProductPairResponse | null> {
   return fetchOrNull<ProductPairResponse>(client, pairPath(contextSlug, otherSlug, selection));
-}
-
-/**
- * Fetch the pair's per-claim attestation histories (AECI-303 / §9.1).
- *
- * **Browser-only, and deliberately so.** It takes an `HttpClient` rather than the SSR
- * `ServerApiClient` because there is no SSR caller: history is the gateable depth
- * (§9.3) and the pair page lands in a shared, URL-keyed edge cache. AECI-304 kept the
- * gate URL-derived (it reads the PAIR'S vendors, not the reader), so §9.1a holds
- * either way — but the history stays out of the SSR payload because it is also the
- * one unbounded response in the system. It goes through the same-origin `/api/*`
- * passthrough, whose responses are `private, no-store`.
- *
- * Unversioned: the history is the whole append-only log, independent of which version
- * pair is selected.
- */
-export async function fetchPairTimeline(
-  http: HttpClient,
-  contextSlug: string,
-  otherSlug: string,
-): Promise<PairTimelineResponse | null> {
-  return httpGetOrNull<PairTimelineResponse>(
-    http,
-    pairPath(contextSlug, otherSlug, undefined, '/timeline'),
-  );
 }

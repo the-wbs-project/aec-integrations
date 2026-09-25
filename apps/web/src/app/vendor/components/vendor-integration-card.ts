@@ -25,7 +25,7 @@ import { healthCountsLine } from './vendor-attestation-labels';
 import { VendorClaimLane } from './vendor-claim-lane';
 import { VendorContestForm } from './vendor-contest-form';
 import { VendorHealthPill } from './vendor-health-pill';
-import { summarizeIntegration } from './vendor-integration-health';
+import { claimWaitsOnVendor, summarizeIntegration } from './vendor-integration-health';
 import { VendorIntegrationRetire } from './vendor-integration-retire';
 import {
   VENDOR_EDIT_FORM_START_OPEN,
@@ -169,6 +169,7 @@ import { VendorIntegrationLinksForm } from './vendor-integration-links-form';
                 [canWrite]="canAttest()"
                 [versions]="versions()"
                 [highlighted]="highlightClaimId() === claim.id"
+                [awaitingMe]="waitsOnVendor(claim)"
                 (changed)="onClaimChanged($event)"
                 (retracted)="retracted.emit($event)"
               ></li>
@@ -317,6 +318,15 @@ export class VendorIntegrationCard implements OnInit {
   });
 
   /**
+   * Mirrors the "needs your input" count, so the lane chip marks the rows it
+   * counts. A retired row is left out of that count (AECI-1010), so it never
+   * shows the chip either.
+   */
+  protected waitsOnVendor(claim: VendorClaim): boolean {
+    return !this.retired() && claimWaitsOnVendor(this.integration(), claim);
+  }
+
+  /**
    * Whether this card may author at all: the vendor-level Verified capability
    * AND this edge being attestable (AECI-705 / §14).
    *
@@ -325,6 +335,7 @@ export class VendorIntegrationCard implements OnInit {
    * (`apps/api/src/lib/connector-powered.ts`), so a browser-side copy would drift
    * and would show controls that collect a 403.
    */
+
   protected readonly canAttest = computed(
     () => this.canWrite() && this.integration().attestable && !this.retired(),
   );

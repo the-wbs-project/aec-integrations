@@ -78,7 +78,7 @@ import { integrationFieldChallenges, vendors, workflowInstances } from '../db/sc
 import type { Env } from '../env';
 import { ApiError, notFoundError } from '../errors';
 import { json } from '../http';
-import { logBatchToPosthog, logToPosthog, submitCount, type PosthogLogEvent } from '../posthog';
+import { logBatchToPosthog, submitCount, type PosthogLogEvent } from '../posthog';
 import { auditInsert, workflowTransitionInsert, type BatchStmt } from '../lib/audit';
 import { auditActorType, type AuthzVariables } from '../lib/authz';
 import { validateResponseInDev, writeDb, type DbFactory } from '../lib/handler-utils';
@@ -219,7 +219,8 @@ function emitModeration(
 /**
  * The §26.5 forward of a moderation write's audit rows and workflow transitions, as
  * ONE `logBatchToPosthog` call rather than one request per row. The events are the
- * ones {@link forwarders} logs, field for field. Each leg self-gates on its own key.
+ * `audit {action} {id}` / `workflow {from}→{to} {id}` lines every §26.5 forward sends,
+ * field for field. Each leg self-gates on its own key.
  */
 export function forwardModerationBatch(
   c: AdminContext,
@@ -246,32 +247,6 @@ export function forwardModerationBatch(
   ];
   if (events.length === 0) return;
   logBatchToPosthog(c.executionCtx, c.env, c.req.raw, events);
-}
-
-export function forwarders(c: AdminContext) {
-  const log = (message: string, extra: Record<string, unknown>) => {
-    logToPosthog(c.executionCtx, c.env, c.req.raw, {
-      level: 'info',
-      message,
-      source: 'admin-moderation',
-      ...extra,
-    });
-  };
-  if (!c.env.POSTHOG_PROJECT_KEY) return { audit: undefined, workflow: undefined };
-  return {
-    audit: (entry: AuditLogEntry) =>
-      log(`audit ${entry.action} ${entry.entityId ?? ''}`.trim(), {
-        action: entry.action,
-        entity_type: entry.entityType ?? undefined,
-        entity_id: entry.entityId ?? undefined,
-      }),
-    workflow: (entry: WorkflowTransitionEntry) =>
-      log(`workflow ${entry.fromState ?? '∅'}→${entry.toState} ${entry.workflowId}`, {
-        from_state: entry.fromState ?? undefined,
-        to_state: entry.toState,
-        workflow_id: entry.workflowId,
-      }),
-  };
 }
 
 // ─── GET /api/admin/contests ─────────────────────────────────────────────────

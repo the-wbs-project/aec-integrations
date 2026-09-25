@@ -155,9 +155,15 @@ interface PendingRemoval {
   template: `
     <form class="space-y-5" novalidate (submit)="$event.preventDefault(); onSave()">
       <div class="space-y-2">
-        <h3 [id]="headingId()" class="font-display text-lg font-semibold text-(--text-primary)">
-          {{ config().legend }}
-        </h3>
+        @if (headingLevel() === 2) {
+          <h2 [id]="headingId()" class="font-display text-lg font-semibold text-(--text-primary)">
+            {{ config().legend }}
+          </h2>
+        } @else {
+          <h3 [id]="headingId()" class="font-display text-lg font-semibold text-(--text-primary)">
+            {{ config().legend }}
+          </h3>
+        }
         <p class="max-w-prose text-sm leading-relaxed text-(--text-secondary)">
           {{ config().hint }}
         </p>
@@ -401,6 +407,14 @@ export class VendorProductFacetEditor {
   readonly canEdit = input<boolean>(true);
   readonly canEditTaxonomy = input<boolean>(true);
   readonly canEditUsefulness = input<boolean>(true);
+
+  /**
+   * The facet heading's outline level (AECI-1122). A routed facet tab puts it
+   * straight under the product-name `h1`, so it is an `h2` there. The
+   * single-page concept nests it under the "Your products" `h2`, so `h3`.
+   * Only the element changes; the visual size is the same at either level.
+   */
+  readonly headingLevel = input<2 | 3>(3);
 
   protected readonly config = computed(() => FACETS[this.facet()]);
   protected readonly maxPoints = MAX_POINTS_PER_TERM;

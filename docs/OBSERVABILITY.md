@@ -66,7 +66,13 @@ mode.
 > follow, and both are enforced in review: every transport **releases its response
 > body** on every path (`discardResponseBody`), and a caller whose line count scales
 > with its payload uses the **batched** sender (`logBatchToPosthog`, N entries → one
-> request) rather than a loop. Metrics have the same sender since AECI-1092
+> request) rather than a loop. The §26.5 audit forward from a request handler goes
+> through `forwardAuditBatch` (`apps/api/src/lib/moderation-forward.ts`): one request
+> per write, however many audit rows and transitions it committed (AECI-1112). The
+> same rule covers per-item operational logs and metrics: `reportMissingVendors` on
+> the product read path, the Algolia-sync, home-stats, metrics-snapshot and
+> data-quality crons (`batchedMetricSink` in `scheduled.ts`), and the promote
+> stats refresh each send one logs request and one metrics request per phase. Metrics have the same sender since AECI-1092
 > (`submitMetricsBatch`, N points in one OTLP envelope, one request); the request-path
 > Algolia sync (`syncOwnerWriteSearch`) uses it for its per-entity counts and run
 > duration. Where an upstream has no batch endpoint, bound the
@@ -267,7 +273,7 @@ than a Worker metric.
 | `aeci.linear.reconcile.persistent_failure` | count | `apps/api/src/lib/reconciliation-sweep.ts` (`runReconciliationSweep`, AECI-214) | — (count of requests stuck past the persistent threshold AND still failing after a retry; the alert signal — submits the row count, query with `sum:`) |
 | `aeci.linear.reconcile.email` | count | `apps/api/src/lib/admin-alert.ts` (`sendAdminAlert`, AECI-214; transport AECI-240) | `outcome` (sent / failed / skipped) — sends via Resend; `skipped` when `RESEND_API_KEY` / `ADMIN_ALERT_EMAIL` are absent (the seam is fail-open and the **alert** is the backstop) |
 | `aeci.request.moderation.action` | count | `apps/api/src/routes/admin-requests.ts` (`emitRequestModeration`, AECI-216 / Phase 6.9 — the `PATCH /api/admin/requests/:id` resolve/reject handler) | `action` (`resolve` / `reject`), `outcome` (`ok` / `invalid_state`) — one count per moderation attempt; `invalid_state` is the §6.9 preload guard (422 when the target isn't `open`/`in_review`) |
-| `aeci.email.send` | count | `apps/api/src/lib/email.ts` (the Resend transactional client, AECI-240 / Phase 7.5, extended by every epic that added a template) | `outcome` (sent / failed / skipped), `template` — **the tag list is the `EmailTemplate` union in `lib/email.ts`, and `docs/email.md`'s catalogue is its prose mirror; keep all three in step.** Currently: `review-submitted` / `review-approved` / `review-rejected` / `account-deleted` / `mailing-list-welcome` / `stuck-request-alert` / `landing-signup` / `landing-feedback` / `claim-approved` / `claim-rejected` / `attestation-silent-counterparty` / `attestation-open-conflict` / `attestation-stale-version` / `attestation-ops-alert` / `entitlement-expiring` / `entitlement-expiring-admin`. Fail-open; `skipped` when `RESEND_API_KEY` / `EMAIL_FROM` / the recipient are absent (see `docs/email.md`) — for the two vendor-addressed sweeps (`attestation-*`, `entitlement-expiring`) that also covers an absent `SUPABASE_SERVICE_ROLE_KEY`, which is the expected local / PR-preview state |
+| `aeci.email.send` | count | `apps/api/src/lib/email.ts` (the Resend transactional client, AECI-240 / Phase 7.5, extended by every epic that added a template) | `outcome` (sent / failed / skipped), `template` — **the tag list is the `EmailTemplate` union in `lib/email.ts`, and `docs/email.md`'s catalogue is its prose mirror; keep all three in step.** Currently: `review-submitted` / `review-approved` / `review-rejected` / `account-deleted` / `mailing-list-welcome` / `stuck-request-alert` / `landing-signup` / `landing-feedback` / `claim-approved` / `claim-rejected` / `attestation-silent-counterparty` / `attestation-open-conflict` / `attestation-stale-version` / `attestation-ops-alert` / `entitlement-expiring` / `entitlement-expiring-admin`. Fail-open; `skipped` when `RESEND_API_KEY` / `EMAIL_FROM` / the recipient are absent (see `docs/email.md`). One count per recipient send: the `EMAIL_BCC` operator blind copy rides the same send, and the separate `COPY:` of an unsubscribable send is not counted — for the two vendor-addressed sweeps (`attestation-*`, `entitlement-expiring`) that also covers an absent `SUPABASE_SERVICE_ROLE_KEY`, which is the expected local / PR-preview state |
 | `aeci.data_quality.job` | count | `apps/api/src/scheduled.ts` (`runDataQualityJob`, daily 04:00 UTC cron, AECI-241 / Phase 7.6) | `trigger` (cron), `outcome` (success / failed) — one heartbeat per completed run (incl. the pre-run crash path); `outcome:failed` is the failure signal, the always-emitted `{trigger:cron}` series is the liveness signal |
 | `aeci.data_quality.job.duration_ms` | distribution | `apps/api/src/scheduled.ts` (`runDataQualityJob`, daily cron) | `trigger` (cron) |
 | `aeci.data_quality.check` | gauge | `apps/api/src/scheduled.ts` (`runDataQualityJob`, daily cron, AECI-241) | `check` (the check id, e.g. `products_without_vendor` / `promotion_status_invariant` / `reviews_missing_anonymized_at` / `algolia_index_drift` / `entitlement_mirror_drift`), `severity` (error / warn) — **value is the issue count or 0** (emitted every run so a monitor can break down by check and detect no-data); a check that threw emits the sentinel **-1**. **`entitlement_mirror_drift` (severity `error`, AECI-609) is Guard 2 of the `vendors.verified` mirror invariant** (`STAGE_2_PAID_TIERS_SPEC.md` §2.1): it counts vendors where `verified = 1` XOR an `active` `vendor_entitlements` row exists. Non-zero means something wrote the mirror outside `lib/vendor-entitlement.ts` — hand-written D1 SQL, the `apps/datatool` Worker, or (the likely one) a §2.4 backfill that ran on one tier and not another. It rides the existing gauge deliberately, so it needed no new metric and no new monitor. **`arrival_cf_coverage` (severity `error`, AECI-868) is one of the two checks that watch telemetry rather than the catalog**: it fails when full-document `page_views` arrivals exist in the last 24 h and fewer than 95% carry a `cf_asn`, i.e. the SSR arrival write lost `request.cf` (`CACHE_STRATEGY.md` §4a.1). **Its value is 1 when tripped, not a row count** — the finding is a ratio, so a gauge that counted NULL rows would track traffic volume rather than severity. It rides the existing gauge for the same reason `entitlement_mirror_drift` does. **`landing_cf_coverage` (severity `warn`, AECI-876) is the other telemetry check**, watching the second path Cloudflare context reaches D1 by: the lead-capture write into `mailing_list` over `LANDING_CF_HEADERS`. It probes `mailing_list.asn` across a 30-day window, passes below a 10-row minimum, and fails under a 0.90 floor. It is `warn` rather than `error` because that column's only reader is the `/admin/audience` ASN breakdown — a failure is a lost attribute, not an unusable day — so it reaches the dashboard and the digest and never an alert. Its value is 1 when tripped, for the same reason its sibling's is |
@@ -982,6 +988,31 @@ the flush never happened — which is exactly what `captureImmediate` /
     casing is wrong would silently zero every counter alert.
 11. **The remote-config gate** — the newest and least-guessable one. See its own
     section below.
+12. **Metric labels are not on `posthog.metrics`. Join `posthog.metric_series`.**
+    PostHog moved the per-point labels to a separate table without notice (found
+    2026-09-24, AECI-1115). A query that reads `m.attributes.outcome` fails with
+    `Field not found: attributes`, and an alert built on it shows `Errored`. The
+    series table is keyed by `series_fingerprint` and can hold several rows per
+    fingerprint, so collapse it before joining. Its `attributes` column is a map,
+    so read a label with `['key']`. Every committed query uses this shape:
+
+    ```sql
+    FROM posthog.metrics AS m
+    LEFT JOIN (
+        SELECT series_fingerprint, any(attributes) AS labels
+        FROM posthog.metric_series
+        WHERE metric_name = 'aeci.auth.signin'
+        GROUP BY series_fingerprint
+    ) AS s ON m.series_fingerprint = s.series_fingerprint
+    WHERE m.timestamp >= now() - INTERVAL 1 HOUR
+      AND m.metric_name = 'aeci.auth.signin'
+      AND s.labels['outcome'] = 'failed'
+    ```
+
+    `LEFT JOIN` keeps a point in the totals even if its series row were missing.
+    Ignore the new `has_labels` column. It reads false on points whose series do
+    carry labels. `apply.sh` refuses to run if any committed query reads
+    `m.attributes.<key>`.
 
 ### The remote-config gate — a server-side switch the client cannot override
 
@@ -1194,7 +1225,7 @@ slowness rather than on a reconstruction defect. The latency itself is AECI-839.
 
 Two alert sets, only one of which is armed on production.
 
-> **12 of the 14 live production alerts are `Errored`, checked read-only on 2026-09-24 (AECI-1115).** PostHog moved metric labels off `posthog.metrics` into `posthog.metric_series`, so every committed query that reads `m.attributes` fails validation. Only `reconcile-persistent-stuck` and `webhook-hmac-failure` still evaluate, because neither reads a label. The AECI-1099 `profile-ensure-failed` query is written against the new table and is the template for the fix.
+> **12 of the 14 live production alerts were `Errored` on 2026-09-24 (AECI-1115).** PostHog moved metric labels off `posthog.metrics` into `posthog.metric_series`, so every query that read `m.attributes` failed validation. AECI-1115 rewrote all 36 affected insights in `observability/posthog/insights.json` to join the series table. Each rewritten query was run read-only against production and compiles. The live alerts leave `Errored` only when `apply.sh` runs against production. See "Gotchas when querying" item 12 for the join.
 
 | | Datadog monitors | PostHog alerts |
 |---|---|---|

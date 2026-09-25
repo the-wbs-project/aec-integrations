@@ -52,7 +52,6 @@
  */
 
 import type { AuditLogEntry } from '@aeci/shared/audit-log';
-import { forwardAuditLog } from '@aeci/shared';
 import { and, asc, eq, isNotNull, lte, sql } from 'drizzle-orm';
 
 import { auditInsert, type BatchStmt, type BatchTuple } from './audit';
@@ -64,11 +63,12 @@ import {
   type ExpiryNoticeOutcome,
 } from './entitlement-expiry-metrics';
 import { parseRecipients, type EmailContext, type EmailOutcome } from './email';
+import { forwardAuditBatch } from './moderation-forward';
 import { fetchAuthUserEmails } from './supabase-admin';
 import { ENTITLEMENT_ENTITY_TYPE } from './vendor-entitlement';
 import type { Db } from '../db/client';
 import { vendorEntitlements, vendors } from '../db/schema';
-import { logToPosthog } from '../posthog';
+import { logBatchToPosthog, logToPosthog, type PosthogLogEvent } from '../posthog';
 import type { Env } from '../env';
 
 const DAY_MS = 86_400_000;
@@ -525,6 +525,12 @@ export async function runEntitlementExpirySweep(
   );
 
   const outcomes: ExpiryNoticeOutcome[] = [];
+  // Collected per row and sent ONCE after the loop (AECI-1112). One `logToPosthog`
+  // per warned row put one `fetch` per vendor into `waitUntil`, alongside the
+  // email sends, and a Worker invocation holds only about six open connections
+  // (AECI-666). Nothing in the loop throws, so the flush below always runs.
+  const forwarded: AuditLogEntry[] = [];
+  const stampFailures: PosthogLogEvent[] = [];
 
   for (const { row, daysRemaining } of batch) {
     const periodEndDay = row.periodEnd.slice(0, 10);
@@ -589,7 +595,7 @@ export async function runEntitlementExpirySweep(
       // aborting: the cost is one duplicate warning in 24h, which is strictly
       // better than losing every remaining row's notice to one D1 hiccup.
       result.batchFailures++;
-      logToPosthog(c.executionCtx, c.env, c.req.raw, {
+      stampFailures.push({
         level: 'error',
         message: 'aeci.entitlement.expiry.stamp_failed',
         source: EXPIRY_AUDIT_SOURCE,
@@ -600,26 +606,15 @@ export async function runEntitlementExpirySweep(
     }
 
     result.warned++;
-    forwardEntry(c, auditEntry);
+    forwarded.push(auditEntry);
+  }
+
+  // Post-commit §26.5 forward: every stamped row's audit entry in ONE request.
+  forwardAuditBatch(c, forwarded, [], EXPIRY_AUDIT_SOURCE);
+  if (stampFailures.length > 0) {
+    logBatchToPosthog(c.executionCtx, c.env, c.req.raw, stampFailures);
   }
 
   if (deps.metrics) emitExpiryNoticeMetrics(deps.metrics, outcomes);
   return result;
-}
-
-/** Post-commit §26.5 forward. Best-effort and off the critical path. */
-function forwardEntry(c: ExpiryContext, entry: AuditLogEntry): void {
-  const forwarder = c.env.POSTHOG_PROJECT_KEY
-    ? (e: AuditLogEntry) => {
-        logToPosthog(c.executionCtx, c.env, c.req.raw, {
-          level: 'info',
-          message: `audit ${e.action} ${e.entityId ?? ''}`.trim(),
-          action: e.action,
-          entity_type: e.entityType ?? undefined,
-          entity_id: e.entityId ?? undefined,
-          source: EXPIRY_AUDIT_SOURCE,
-        });
-      }
-    : undefined;
-  c.executionCtx.waitUntil(forwardAuditLog(entry, forwarder));
 }

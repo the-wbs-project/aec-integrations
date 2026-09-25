@@ -102,7 +102,16 @@ import { asc, count, eq } from 'drizzle-orm';
 import { getDb } from './db/client';
 import type { Db } from './db/client';
 import { reviews } from './db/schema';
-import { logToPosthog, submitCount, submitDistribution, submitGauge } from './posthog';
+import {
+  logBatchToPosthog,
+  logToPosthog,
+  submitCount,
+  submitDistribution,
+  submitGauge,
+  submitMetricsBatch,
+  type PosthogLogEvent,
+  type PosthogMetricPoint,
+} from './posthog';
 import { forwardAuditLog, type AuditLogForwarder } from '@aeci/shared/audit-log';
 import type { ScheduledJob, ScheduledJobMessage, ScheduledJobMessageInput, Env } from './env';
 import {
@@ -359,6 +368,30 @@ function metricSink(
   };
 }
 
+/**
+ * The {@link metricSink} shape, but collecting: every point waits in `points` until
+ * `flush()` sends them all in ONE `submitMetricsBatch` request (AECI-1112). A job
+ * whose point count scales with its work (one per Algolia entity, stats key, snapshot
+ * metric or data-quality check) must not open one connection per point: a Worker
+ * invocation holds about six, and a `fetch` cancelled past that never settles, so the
+ * points are lost with no error (AECI-666). `flush()` empties the buffer, so a job
+ * can flush once per phase.
+ */
+function batchedMetricSink(ctx: ExecutionContext, env: Env, req: Request) {
+  const points: PosthogMetricPoint[] = [];
+  const sink: ReturnType<typeof metricSink> & Required<Pick<SyncMetricSink, 'batch'>> = {
+    count: (metric, value, tags) => void points.push({ kind: 'count', metric, value, tags }),
+    distribution: (metric, value, tags) =>
+      void points.push({ kind: 'distribution', metric, value, tags }),
+    gauge: (metric, value, tags) => void points.push({ kind: 'gauge', metric, value, tags }),
+    batch: (batch) => void points.push(...batch),
+  };
+  return {
+    sink,
+    flush: () => submitMetricsBatch(ctx, env, req, points.splice(0)),
+  };
+}
+
 async function runAlgoliaSync(env: Env, ctx: ExecutionContext): Promise<JobRunReport> {
   const req = cronRequest('/cron/algolia-sync');
   const creds = { appId: env.ALGOLIA_APP_ID, apiKey: env.ALGOLIA_ADMIN_KEY };
@@ -415,11 +448,18 @@ async function runAlgoliaSync(env: Env, ctx: ExecutionContext): Promise<JobRunRe
 
   // Per-entity outcome + records counts and the run-level duration distribution
   // (AECI-141). Shared with the promote hook so the two writers can't drift.
-  emitAlgoliaSyncMetrics(metricSink(ctx, env, req), 'cron', result.entities, durationMs);
+  // One metrics request and one logs request for the whole run, never one per
+  // entity (AECI-1112).
+  const metrics = batchedMetricSink(ctx, env, req);
+  emitAlgoliaSyncMetrics(metrics.sink, 'cron', result.entities, durationMs);
+  metrics.flush();
 
-  for (const entity of result.entities) {
-    logToPosthog(ctx, env, req, {
-      level: entity.ok ? 'info' : 'error',
+  logBatchToPosthog(
+    ctx,
+    env,
+    req,
+    result.entities.map((entity) => ({
+      level: entity.ok ? ('info' as const) : ('error' as const),
       message: `aeci.algolia.sync ${entity.entity} saved=${entity.saved} deleted=${entity.deleted}`,
       source: 'algolia-sync-cron',
       entity: entity.entity,
@@ -427,8 +467,8 @@ async function runAlgoliaSync(env: Env, ctx: ExecutionContext): Promise<JobRunRe
       deleted: entity.deleted,
       transform_errors: entity.transformErrors,
       ...(entity.ok ? {} : { reason: entity.error }),
-    });
-  }
+    })),
+  );
 
   // `runDailySync` swallows per-entity push failures, so a run where an entity
   // errored still returns normally. Record it as `failed` — `emitAlgoliaSyncMetrics`
@@ -623,30 +663,35 @@ async function runHomeStatsJob(env: Env, ctx: ExecutionContext): Promise<JobRunR
   const failed = result.keys.filter((k) => k.status === 'failed').length;
   const skipped = result.keys.filter((k) => k.status === 'skipped').length;
 
-  for (const k of result.keys) {
-    logToPosthog(ctx, env, req, {
-      level: k.status === 'failed' ? 'error' : 'info',
-      message: `aeci.stats.compute ${k.key} status=${k.status}`,
-      source: 'stats-cron',
-      key: k.key,
-      status: k.status,
-      ...(k.error ? { reason: k.error } : {}),
-    });
-  }
-
   // Job-level + per-key outcome/duration metrics (AECI-180 / 4.5) — the dashboard
   // and the failure + freshness monitors query these. The shared emitter derives
   // the run `outcome` from the per-key statuses so it can't drift from the log.
+  // One metrics request and one logs request for the run, never one per key
+  // (AECI-1112).
   const durationMs = Date.now() - started;
-  emitHomeStatsMetrics(metricSink(ctx, env, req), 'cron', result, durationMs);
-  logToPosthog(ctx, env, req, {
-    level: failed > 0 ? 'warn' : 'info',
-    message: `aeci.stats.computed keys_written=${written} keys_failed=${failed} keys_skipped=${skipped}`,
-    source: 'stats-cron',
-    keys_written: written,
-    keys_failed: failed,
-    keys_skipped: skipped,
-  });
+  const metrics = batchedMetricSink(ctx, env, req);
+  emitHomeStatsMetrics(metrics.sink, 'cron', result, durationMs);
+  metrics.flush();
+  logBatchToPosthog(ctx, env, req, [
+    ...result.keys.map(
+      (k): PosthogLogEvent => ({
+        level: k.status === 'failed' ? 'error' : 'info',
+        message: `aeci.stats.compute ${k.key} status=${k.status}`,
+        source: 'stats-cron',
+        key: k.key,
+        status: k.status,
+        ...(k.error ? { reason: k.error } : {}),
+      }),
+    ),
+    {
+      level: failed > 0 ? 'warn' : 'info',
+      message: `aeci.stats.computed keys_written=${written} keys_failed=${failed} keys_skipped=${skipped}`,
+      source: 'stats-cron',
+      keys_written: written,
+      keys_failed: failed,
+      keys_skipped: skipped,
+    },
+  ]);
 
   // Derived from the SAME `jobOutcome` the Datadog tag uses, so `job_runs` and the
   // metric cannot grow separate opinions of what a partial run is. §7.2's vocabulary
@@ -698,27 +743,33 @@ async function runMetricsSnapshotJob(env: Env, ctx: ExecutionContext): Promise<J
   const written = result.metrics.filter((m) => m.status === 'written').length;
   const failed = result.metrics.filter((m) => m.status === 'failed');
 
-  for (const m of failed) {
-    logToPosthog(ctx, env, req, {
-      level: 'error',
-      message: `aeci.metrics_snapshot.metric ${m.metric} status=failed`,
+  // One metrics request and one logs request for the primary pass, never one per
+  // snapshot metric (AECI-1112). Flushed here, before the re-check, so a cut-short
+  // invocation still keeps the primary pass's telemetry.
+  const durationMs = Date.now() - started;
+  const metrics = batchedMetricSink(ctx, env, req);
+  emitMetricsSnapshotMetrics(metrics.sink, result, durationMs);
+  metrics.flush();
+  logBatchToPosthog(ctx, env, req, [
+    ...failed.map(
+      (m): PosthogLogEvent => ({
+        level: 'error',
+        message: `aeci.metrics_snapshot.metric ${m.metric} status=failed`,
+        source: 'metrics-snapshot-cron',
+        day,
+        metric: m.metric,
+        reason: m.error,
+      }),
+    ),
+    {
+      level: failed.length > 0 ? 'warn' : 'info',
+      message: `aeci.metrics_snapshot.captured day=${day} metrics_written=${written} metrics_failed=${failed.length}`,
       source: 'metrics-snapshot-cron',
       day,
-      metric: m.metric,
-      reason: m.error,
-    });
-  }
-
-  const durationMs = Date.now() - started;
-  emitMetricsSnapshotMetrics(metricSink(ctx, env, req), result, durationMs);
-  logToPosthog(ctx, env, req, {
-    level: failed.length > 0 ? 'warn' : 'info',
-    message: `aeci.metrics_snapshot.captured day=${day} metrics_written=${written} metrics_failed=${failed.length}`,
-    source: 'metrics-snapshot-cron',
-    day,
-    metrics_written: written,
-    metrics_failed: failed.length,
-  });
+      metrics_written: written,
+      metrics_failed: failed.length,
+    },
+  ]);
 
   // ─── The trailing re-check (AECI-827 / ADR 0027) ──────────────────────────
   //
@@ -747,7 +798,9 @@ async function runMetricsSnapshotJob(env: Env, ctx: ExecutionContext): Promise<J
     };
   }
   const recheckMs = Date.now() - recheckStarted;
-  emitMetricsRecheckMetrics(metricSink(ctx, env, req), recheck, recheckMs);
+  const recheckMetrics = batchedMetricSink(ctx, env, req);
+  emitMetricsRecheckMetrics(recheckMetrics.sink, recheck, recheckMs);
+  recheckMetrics.flush();
   const recheckFailed = recheckFailureCount(recheck);
   logToPosthog(ctx, env, req, {
     // A refusal is loud but not a fault: `skipped` means the pass declined to
@@ -1036,25 +1089,42 @@ async function runDataQualityJob(env: Env, ctx: ExecutionContext): Promise<JobRu
 
   // Per-check gauge — always emitted (0 when clean) so a monitor can break down by
   // `check` tag and tell "clean" from "didn't run". An errored check emits -1.
-  for (const r of results) {
-    submitGauge(ctx, env, req, DQ_CHECK_METRIC, r.error ? -1 : r.count, [
-      `check:${r.id}`,
-      `severity:${r.severity}`,
-    ]);
-    logToPosthog(ctx, env, req, {
-      level: r.error ? 'error' : r.count > 0 ? 'warn' : 'info',
-      message: `aeci.data_quality.check ${r.id} count=${r.count}${r.skipped ? ' (skipped)' : ''}`,
-      source: 'data-quality-cron',
-      check: r.id,
-      count: r.count,
-      ...(r.error ? { reason: r.error } : {}),
-    });
-  }
-
+  // Every check's gauge and log go out as ONE metrics request and ONE logs request,
+  // never two per check (AECI-1112).
   const outcome = hasErrors(results) ? 'failed' : 'success';
   const durationMs = Date.now() - started;
-  submitCount(ctx, env, req, DQ_JOB_METRIC, 1, ['trigger:cron', `outcome:${outcome}`]);
-  submitDistribution(ctx, env, req, DQ_DURATION_METRIC, durationMs, ['trigger:cron']);
+  submitMetricsBatch(ctx, env, req, [
+    ...results.map(
+      (r): PosthogMetricPoint => ({
+        kind: 'gauge',
+        metric: DQ_CHECK_METRIC,
+        value: r.error ? -1 : r.count,
+        tags: [`check:${r.id}`, `severity:${r.severity}`],
+      }),
+    ),
+    {
+      kind: 'count',
+      metric: DQ_JOB_METRIC,
+      value: 1,
+      tags: ['trigger:cron', `outcome:${outcome}`],
+    },
+    { kind: 'distribution', metric: DQ_DURATION_METRIC, value: durationMs, tags: ['trigger:cron'] },
+  ]);
+  logBatchToPosthog(
+    ctx,
+    env,
+    req,
+    results.map(
+      (r): PosthogLogEvent => ({
+        level: r.error ? 'error' : r.count > 0 ? 'warn' : 'info',
+        message: `aeci.data_quality.check ${r.id} count=${r.count}${r.skipped ? ' (skipped)' : ''}`,
+        source: 'data-quality-cron',
+        check: r.id,
+        count: r.count,
+        ...(r.error ? { reason: r.error } : {}),
+      }),
+    ),
+  );
 
   // Build + send the digest (always — a clean run still emails so silence means
   // the cron failed). Fail-open: a missing transport returns 'skipped'.

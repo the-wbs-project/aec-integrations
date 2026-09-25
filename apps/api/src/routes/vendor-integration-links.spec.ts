@@ -25,6 +25,7 @@ import { errorHandler } from '../errors';
 import type { AuthzVariables } from '../lib/authz';
 import { makeTestDb, type TestDb } from '../test/d1';
 import { TEST_ENV, fakeExecutionContext } from '../test/helpers';
+import { racingFactory } from '../test/racing-factory';
 import { createListVendorIntegrationsHandler } from './vendor-attestations';
 import {
   createDeleteIntegrationLinkHandler,
@@ -321,15 +322,9 @@ describe('DELETE …/links', () => {
     const auditsBefore = (await auditRows()).length;
     const maintainedBefore = (await row(I_MAIN)).lastReviewedAt;
     // A factory whose batch first lets a "concurrent" request delete the row.
-    const racing: typeof t.factory = (env, opts) => {
-      const ctx = t.factory(env, opts);
-      const batch = ctx.db.batch.bind(ctx.db);
-      (ctx.db as { batch: unknown }).batch = async (stmts: Parameters<typeof batch>[0]) => {
-        t.raw.prepare(`DELETE FROM integration_vendor_links`).run();
-        return batch(stmts);
-      };
-      return ctx;
-    };
+    const racing = racingFactory(t.factory, () => {
+      t.raw.prepare(`DELETE FROM integration_vendor_links`).run();
+    });
     const a = new Hono<{ Bindings: Env; Variables: AuthzVariables }>();
     a.onError(errorHandler());
     a.use('*', async (c, next) => {
@@ -465,19 +460,13 @@ describe('a retired row takes no link write (AECI-1010)', () => {
   });
 
   it('refuses a PUT whose batch meets a retire that landed after the read', async () => {
-    const racing: typeof t.factory = (env, opts) => {
-      const ctx = t.factory(env, opts);
-      const batch = ctx.db.batch.bind(ctx.db);
-      (ctx.db as { batch: unknown }).batch = async (stmts: Parameters<typeof batch>[0]) => {
-        t.raw
-          .prepare(
-            `UPDATE integrations SET built_by_vendor_id = ?, claimed_at = ?, retired_at = ? WHERE id = ?`,
-          )
-          .run(VENDOR_B, OLD, RETIRED_AT, I_MAIN);
-        return batch(stmts);
-      };
-      return ctx;
-    };
+    const racing = racingFactory(t.factory, () => {
+      t.raw
+        .prepare(
+          `UPDATE integrations SET built_by_vendor_id = ?, claimed_at = ?, retired_at = ? WHERE id = ?`,
+        )
+        .run(VENDOR_B, OLD, RETIRED_AT, I_MAIN);
+    });
     const a = new Hono<{ Bindings: Env; Variables: AuthzVariables }>();
     a.onError(errorHandler());
     a.use('*', async (c, next) => {

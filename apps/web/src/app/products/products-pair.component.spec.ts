@@ -597,15 +597,15 @@ describe('ProductsPairPage', () => {
           ),
         ),
       ).el;
-      expect(el.textContent).toContain('1 of 2 vendor-confirmed');
+      expect(el.textContent).toContain('1 of 2 confirmed by both vendors');
       expect(el.textContent).toContain('1 confirmed by one vendor only');
       // The one-sided count must never be folded into the bilateral figure.
-      expect(el.textContent).not.toContain('2 of 2 vendor-confirmed');
+      expect(el.textContent).not.toContain('2 of 2 confirmed by both vendors');
     });
 
     it('omits the one-sided clause entirely when there are none', () => {
       const el = renderState('unverified', [aeciSeed()]);
-      expect(el.textContent).toContain('0 of 1 vendor-confirmed');
+      expect(el.textContent).toContain('0 of 1 confirmed by both vendors');
       expect(el.textContent).not.toContain('confirmed by one vendor only');
     });
 

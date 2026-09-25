@@ -255,13 +255,22 @@ interface NeedsRow {
             }
           }
         </svg>
-        <span class="min-w-0 flex-1">
-          <span class="block text-sm font-semibold text-(--text-primary)">{{ row.title }}</span>
-          <span class="mt-0.5 block text-xs leading-relaxed text-(--text-secondary)">{{
-            row.body
-          }}</span>
+        <!--
+          AECI-1116. Below sm the pill drops under the text instead of taking a
+          column beside it. At 375px a long pill ("Reply by the due date") left
+          the title and body about two words a line.
+        -->
+        <span
+          class="flex min-w-0 flex-1 flex-col items-start gap-2 sm:flex-row sm:items-center sm:gap-3"
+        >
+          <span class="min-w-0 flex-1">
+            <span class="block text-sm font-semibold text-(--text-primary)">{{ row.title }}</span>
+            <span class="mt-0.5 block text-xs leading-relaxed text-(--text-secondary)">{{
+              row.body
+            }}</span>
+          </span>
+          <span [class]="pillClass(row.tone)">{{ row.pill }}</span>
         </span>
-        <span [class]="pillClass(row.tone)">{{ row.pill }}</span>
         <svg
           aria-hidden="true"
           class="h-4 w-4 shrink-0 self-center text-(--text-secondary) rtl:-scale-x-100"
@@ -389,7 +398,7 @@ export class VendorOverviewSection {
 
   protected pillClass(tone: NeedsRow['tone']): string {
     const base =
-      'inline-flex shrink-0 items-center self-center rounded-(--radius-sm) border px-2 py-0.5 text-xs font-semibold tracking-[0.01em]';
+      'inline-flex shrink-0 items-center rounded-(--radius-sm) border px-2 py-0.5 text-xs font-semibold tracking-[0.01em]';
     switch (tone) {
       case 'conflict':
         return `${base} aec-pill-conflict bg-(--surface-raised) text-(--status-error)`;
