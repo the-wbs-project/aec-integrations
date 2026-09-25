@@ -1817,8 +1817,10 @@ row in D1 before touching anything. An erased account is refused on purpose.
 ## IndexNow submissions refused
 
 **Signal:** the PostHog alert *"AECi — Search-engine pings refused (> 90% in 24 h)"*
-(`observability/posthog/alerts.json` → `indexnow-failure-rate`, hourly). Its label column
-names the submission count and how many were refused.
+(`observability/posthog/alerts.json` → `indexnow-failure-rate`, checked **daily**). Its label
+column names the submission count and how many were refused. It was hourly until 2026-09-24.
+An hourly check re-read the same 24 h window and emailed on every firing check, so one
+refusal episode sent dozens of emails. Expect at most one email a day now.
 
 **What it means:** the pages we changed are not reaching Bing or Yandex. IndexNow is the
 **only** automated discovery channel we have on either engine. AECI-747 deleted the Google

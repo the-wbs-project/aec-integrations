@@ -393,7 +393,8 @@
       "name": "AECi \u2014 Search-engine pings refused (> 90% in 24 h)",
       "insightKey": "alert-indexnow-failure-rate",
       "enabled": true,
-      "calculationInterval": "hourly",
+      "calculationInterval": "daily",
+      "_calculationIntervalNote": "Daily, not the hourly default. The window is already 24 h, so an hourly check re-read the same day 24 times and emailed on each firing check. A refusal episode lasts days and nothing is lost while it runs (the buffer retries every 20 min), so one email a day is enough.",
       "condition": {
         "type": "absolute_value"
       },
