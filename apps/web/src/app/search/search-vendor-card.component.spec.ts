@@ -61,22 +61,10 @@ describe('SearchVendorCard', () => {
     expect(el.textContent).not.toContain('2002');
   });
 
-  it('renders the account label when the legacy verified field is true (AECI-529)', () => {
+  it('never renders the account label, even for an active vendor (AECI-1131)', () => {
     const el = setup({ ...baseRecord, verified: true });
-    expect(el.querySelector('aec-vendor-account-badge')).not.toBeNull();
-    expect(el.textContent).toContain('Vendor account active');
-  });
-
-  it('hides the account label when the legacy verified field is false', () => {
-    const el = setup({ ...baseRecord, verified: false });
     expect(el.querySelector('aec-vendor-account-badge')).toBeNull();
-    expect(el.textContent).not.toContain('Vendor account active');
-  });
-
-  it('hides the account label for a stale record missing the field', () => {
-    // Records indexed before AECI-529 carry no `verified` field, so it reads as
-    // `undefined` at runtime — the `@if` guard must treat that as unverified.
-    const el = setup({ ...baseRecord, verified: undefined as unknown as boolean });
-    expect(el.querySelector('aec-vendor-account-badge')).toBeNull();
+    expect(el.textContent).not.toContain('Active on AECi');
+    expect(el.textContent).not.toContain('account active');
   });
 });

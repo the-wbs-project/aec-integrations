@@ -3,7 +3,7 @@ title: Attesting an integration
 description: How to confirm or deny the data flows recorded under an integration, what readers see as a result, and what happens when the two vendors disagree.
 section: vendors
 order: 3
-last_updated: 23 September 2026
+last_updated: 24 September 2026
 ---
 
 An integration page lists the data that moves between two products: a model, a schedule, an RFI, and so on, each in one direction. We call each of those a data flow. Most of them were recorded by AEC Integrations from public sources. Attesting is how the vendor at either end says whether a flow is right.
@@ -61,7 +61,7 @@ The portal tells you, beside each flow, what your answer sets in motion. In shor
 
 "Confirmed by" and "Both vendors confirmed" mean the vendors at the ends of the integration stand behind that data flow. It is a statement by the vendors, not a test by AEC Integrations.
 
-It is a different thing from the "Vendor account active" label on a vendor's listing. That label means the vendor has an active plan. It says nothing about whether its integrations are accurate.
+It is a different thing from the "Active on AECi" label on a vendor's page. That label means the vendor has an active plan. It says nothing about whether its integrations are accurate.
 
 ## Versions
 

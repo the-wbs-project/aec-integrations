@@ -1,6 +1,6 @@
 ---
 title: How we research and verify listings
-last_updated: 22 September 2026
+last_updated: 24 September 2026
 ---
 
 AEC Integrations is an independent directory of the software integrations that architecture, engineering, and construction teams depend on. This page sets out how the catalogue is built: what we list, where the data comes from, what verification does and does not mean here, and how to challenge anything on the site. It describes how the site works today, and the standards we hold ourselves to.
@@ -49,7 +49,7 @@ Two rules govern that table.
 Two other markers appear on listings and are easy to confuse with verification.
 
 - **Who maintains a page.** Product, vendor, and integration pages carry either "Maintained by AEC Integrations" or "Vendor-maintained". "Vendor-maintained" means a vendor has acted on that record through its own account. On a product or vendor page, the company edited it, so the words on the page are theirs rather than ours. On an integration page, a vendor at one end has claimed it, edited it, confirmed one of its claims, or added its own links. The marker does not say which vendor owns the integration. The "Offered by" line does that. A date appears beside the marker only where a person actually touched the record, and the wording says which person: we write "Reviewed" when we re-checked it, and "Updated" when a vendor acted on it. Most records carry no date at all, because nobody has been back to them yet. We will not manufacture one from a bulk update, and a routine catalog sync on our side never stamps a date onto a record a vendor maintains.
-- **The "Vendor account active" label.** It means a company has an active vendor plan and can manage its AECi profile. It does not verify product quality or integration accuracy, and it carries no weight in ranking. The label appears only while that account access is active.
+- **The "Active on AECi" label.** It means a company has an active vendor plan and can manage its AECi profile. It does not verify product quality or integration accuracy, and it carries no weight in ranking. The label appears only while that account access is active, on the vendor's own page.
 
 ## Who owns an integration
 
@@ -85,7 +85,7 @@ A vendor plan affects four things, and this is the complete list:
 
 - what a vendor may edit about its own company and products,
 - whether a vendor can confirm or dispute integration details,
-- whether the "Vendor account active" label appears on its listing,
+- whether the "Active on AECi" label appears on its vendor page,
 - how far back the version history on an integration page goes.
 
 The last of those is the only place a payment changes what a reader sees, so it is worth being exact about the limits. The current state of an integration is always shown in full, to everyone, including whether the two vendors agree or disagree. Only the comparison between older versions is affected, and it opens when either vendor at the ends of that integration holds a plan. Readers are never asked to pay, to sign in, or to be identified.

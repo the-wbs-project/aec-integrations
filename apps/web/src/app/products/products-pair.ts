@@ -26,7 +26,6 @@ import { LogoOrInitial } from '../shared/logo-or-initial/logo-or-initial';
 import { MailingListSignup } from '../shared/mailing-list-signup/mailing-list-signup';
 import { MaintenanceMarker } from '../shared/maintenance-marker/maintenance-marker';
 import { NewTabIcon } from '../shared/new-tab-icon/new-tab-icon';
-import { VendorAccountBadge } from '../shared/vendor-account-badge/vendor-account-badge';
 
 import { AgreementBadge } from './agreement-badge';
 import { ClaimProvenance } from './claim-provenance';
@@ -416,7 +415,6 @@ function writePairViewCookie(mode: PairViewMode): void {
     NotFound,
     PairVersionSelect,
     RouterLink,
-    VendorAccountBadge,
   ],
   template: `
     @let v = view();
@@ -552,7 +550,6 @@ function writePairViewCookie(mode: PairViewMode): void {
                   class="inline-flex flex-wrap items-center justify-center gap-1.5 text-xs text-(--text-tertiary)"
                 >
                   {{ context.vendor.name }}
-                  <aec-vendor-account-badge [active]="context.vendor.verified" variant="compact" />
                 </span>
               }
               @if (context.rating_overall_avg !== null) {
@@ -581,7 +578,6 @@ function writePairViewCookie(mode: PairViewMode): void {
                   class="inline-flex flex-wrap items-center justify-center gap-1.5 text-xs text-(--text-tertiary)"
                 >
                   {{ other.vendor.name }}
-                  <aec-vendor-account-badge [active]="other.vendor.verified" variant="compact" />
                 </span>
               }
               @if (other.rating_overall_avg !== null) {

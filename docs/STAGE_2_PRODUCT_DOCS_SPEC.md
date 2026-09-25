@@ -93,7 +93,7 @@ URL scheme: `/docs/<section>/<slug>`, kebab-case. Roughly 18 pages.
 │  └─ taxonomy                       — mechanisms, data objects, trades (the four facets)
 ├─ trust/
 │  ├─ how-ranking-works              — purely algorithmic; what paid does NOT buy
-│  ├─ the-account-label              — what "Vendor account active" means (AECI-965 retired "Verified badge"), that it is the plan
+│  ├─ the-account-label              — what "Active on AECi" means (AECI-965 retired "Verified badge"; AECI-1131 relabeled it from "Vendor account active"/"Account active"), that it is the plan
 │  └─ agreement-states               — unverified / single-source / confirmed / conflict, plainly
 ├─ vendors/                          — SHIPPED v0 2026-09-23 (AECI-1104), noindex until AECI-1105
 │  ├─ claiming-your-listing          — the claim form, what we check, outcomes, connector-vendor seats (§8.9/§8.10)

@@ -868,6 +868,8 @@ describe('ProductDetailPage claim CTA', () => {
     expect(section.textContent).toContain('Request access to this listing');
     expect(section.textContent).not.toContain('Claim this listing');
     expect(section.textContent).toContain('Already managed through an active vendor account');
+    // AECI-1131: the vendor card no longer carries the account label.
+    expect(el.querySelector('aec-vendor-account-badge')).toBeNull();
 
     // Copy only: the CTA still targets the same claim route/kind.
     const cta = section.querySelector<HTMLAnchorElement>('a[href="/products/procore/claim"]');

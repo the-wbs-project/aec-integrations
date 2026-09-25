@@ -671,8 +671,8 @@ Native inputs driven by Signal Forms today (ADR 0009); richer controls use Angul
 **One chip spec (AECI-841).** The **standalone attribution chip** — the kind that sits in a hero or
 card chip row on its own line of meaning — is `px-2.5 py-1` / `0.75rem` / `font-medium` /
 `tracking-[0.01em]` / `rounded.sm`, which renders **29px tall**. Five components carry it:
-`RoleBadge`, `CategoryChip`, `MaintenanceMarker`, `AgreementBadge`, and the full
-`VendorAccountBadge`.
+`RoleBadge`, `CategoryChip`, `MaintenanceMarker`, `AgreementBadge`, and `VendorAccountBadge`
+(as of AECI-1131 its only remaining variants are `public` and `portal`, both at this spec).
 
 This is a rule because it was broken twice in the same change. `RoleBadge` shipped at `px-2 py-0.5`
 and the product-detail hero put a 22px "Connector" chip next to the 29px maintenance marker in the
@@ -687,9 +687,10 @@ denser and bolder — `px-2.5 py-0.5` / `text-xs` / `font-bold` — because it i
 columns inside a table row or list row, not a standalone statement. It renders in
 `product-integration-row.ts`, `product-powered-hub.ts`, `search-integration-card.ts` and
 `home/integration-tile.ts`. Do not "converge" it onto the 29px spec: at row density the extra 7px
-per badge is what pushes a row off one line. Three badges keep their own documented specs for
-reasons stated below or in their own sections — compact `VendorAccountBadge` (an inline status
-label), `TaxonomyBadge` (a link, `px-3` / 13px), and `ReviewStatusBadge` (a coloured state chip).
+per badge is what pushes a row off one line. Two badges keep their own documented specs for
+reasons stated below or in their own sections — `TaxonomyBadge` (a link, `px-3` / 13px), and
+`ReviewStatusBadge` (a coloured state chip). (As of AECI-1131, `VendorAccountBadge` no longer has
+a dense/compact variant, so it is no longer an exemption here — see the Badges list below.)
 
 **Chips are sentence case**, like everything else — the Sentence-Case Rule's single exception is the
 overline role, and a chip is not an overline. The product-detail "Not yet rated" chip was uppercase
@@ -723,13 +724,14 @@ What actually renders today:
   - It **coexists** with the agreement pill below rather than replacing it, deliberately: the
     marker is page-header attribution ("who is on the hook for this page"), the pill is
     per-claim state on the mechanism cards ("do the two vendors agree about this one data
-    object"). Three distinct signals share this page — marker, agreement chip, and the
-    neutral account-status label — and collapsing any two would lose information.
+    object"). Two distinct signals share the pair page — marker and agreement chip — and
+    collapsing them would lose information. (As of AECI-1131 the account-status label no longer
+    renders on this page; see below.)
 - **Agreement pill** (`products/agreement-badge`): same neutral chip tokens. Renders
   `Unverified · AECi` on every claim on every pair page — the honest posture, not a
   warning. `Vendor-confirmed` / `Needs review` are defined for Stage 2 and unreachable.
 - **Pending** (`badge-pending`): surface-sunken fill, text-secondary text, 0.5px border-default. Indicates "submitted, not yet reviewed" — never confused with confirmed.
-- **Vendor account active** (`aec-vendor-account-badge`, AECI-965): a neutral account-status label driven by the legacy `vendors.verified` mirror. It means the vendor has active access to manage its AECi profile. It does not verify product quality, integration accuracy, or any vendor assertion. The full variant uses the standalone 29px chip metrics and visible text "Vendor account active". The compact variant uses `px-2 py-0.5` and visible text "Account active" in dense product and pair rows. Both use `rounded.sm`, `border-strong`, `surface-base`, and `text-secondary`. Neither uses a glyph, positive status fill, hidden accessible-name substitute, or trust color. The label renders only when the mirror is true. The inactive public baseline remains the label's absence.
+- **Active on AECi** (`aec-vendor-account-badge`, AECI-965, relabeled AECI-1131): a neutral account-status label driven by the legacy `vendors.verified` mirror. It means the vendor has active access to manage its AECi profile. It does not verify product quality, integration accuracy, or any vendor assertion. The label reads "Active on AECi" in both of its variants: `public` (the vendor detail hero, followed by a visible "What this means" link to `/docs/vendors/plans-and-the-account-label`) and `portal` (the vendor's own plan panel, no link). There is no compact variant. Both use the standalone 29px chip metrics, `rounded.sm`, `border-strong`, `surface-base`, and `text-secondary`. Neither uses a glyph, positive status fill, hidden accessible-name substitute, or trust color. The label renders only when the mirror is true. The inactive public baseline remains the label's absence. It no longer renders on the product-pair rails, the product detail vendor card, or the `/search` Vendors-tab card (AECI-1131) — a reader comparing products gains nothing from a vendor's plan state.
 - **Agreement badge** (`aec-agreement-badge`, AECI-300 / AECI-605): the per-claim state on the product-pair page's data-flow lanes — whether the two vendors agree that a `data_object` flows between their products. Its agreement-specific wording and tonal ladder keep it distinct from the neutral account-status label. Four states, and the tonal ladder between them is the point:
 
   | State | Treatment | Label |
