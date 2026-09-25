@@ -5515,7 +5515,7 @@ export const VendorRevisionsSchema = z.object({
   contests: z.string().nullable().default(null), // AECI-1008: MAX(integration_field_challenges.updated_at)
                                          // over submitted ∪ received, under vendorContestsWhere
   catalogue: z.string().nullable().default(null), // AECI-1083: MAX(updated_at) over the caller's connector
-                                         // catalogues ∪ their mapping rows, under ownedConnectorCatalogIds
+                                         // catalogues ∪ their stubs ∪ their mapping rows, under ownedConnectorCatalogIds
 });
 export const VendorUpdatesResponseSchema = z.object({
   revisions: VendorRevisionsSchema,
