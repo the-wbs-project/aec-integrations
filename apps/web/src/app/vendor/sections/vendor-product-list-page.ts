@@ -24,7 +24,7 @@ import { VendorPortalStore } from '../vendor-portal-store';
   selector: 'aec-vendor-product-list-page',
   imports: [RouterLink, LogoOrInitial],
   template: `
-    @if (me()) {
+    @if (me(); as m) {
       <div>
         <h2 class="font-display text-xl font-semibold text-(--text-primary)">
           <span i18n="@@vendor.section.products">Products</span>
@@ -39,7 +39,7 @@ import { VendorPortalStore } from '../vendor-portal-store';
               bg-(--surface-raised) p-4 text-sm leading-relaxed text-(--text-primary)"
             i18n="@@vendor.products.empty"
           >
-            No products are linked to your vendor yet.
+            {{ m.vendor.company_name }} has no products listed yet.
           </p>
         } @else {
           <ul

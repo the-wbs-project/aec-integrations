@@ -294,7 +294,7 @@ A **display name is not exempt.** A mechanism heading, a card title or a badge l
 
 **The Link Treatment Rule** (AECI-980). **A link's styling states its ROLE, and every new tab is both drawn and announced.** Before AECI-980 the app spelled one job four ways, spelled the new-tab cue three ways, and spelled `rel` four ways. None of that was a decision; it was six years of local choices.
 
-There are four roles. Pick by what the link does, never by where it sits.
+There are five roles. Pick by what the link does, never by where it sits.
 
 | Role | Recipe | Where |
 | -- | -- | -- |
@@ -302,8 +302,11 @@ There are four roles. Pick by what the link does, never by where it sits.
 | **Standalone link** | `text-xs font-medium`, `text-(--text-secondary)`, `underline decoration-(--border-strong) underline-offset-4`, `px-3 py-1.5`, `rounded-(--radius-md)`, `hover:text-(--text-primary)` | Every "go look at a page" link. `aec-view-public-link` is the reference spelling. |
 | **Citation** | the standalone recipe minus the padding, on `rounded-(--radius-sm)` | A source hanging off a figure or a stat. The home band's "Source" is the only one. |
 | **Admin metadata chip** | `rounded-full border`, `px-3 py-1`, `text-xs font-medium`, `no-underline` | **Admin console only**, and only inside a `flex flex-wrap` chip row that also holds non-link chips. The pill is load-bearing there: flattening it would break the row's grammar. |
+| **In-text link** | `text-(--accent-primary)`, `underline underline-offset-2` (permanent, not hover-only), `hover:text-(--accent-primary-hover)`, `focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)`. No padding, no size or weight of its own: it inherits the sentence's type. | A link that is a word or phrase inside running text: a notice, a help line, an empty state. `vendor-contest-protest.ts` (`linkClass`) is the reference spelling. The portal's product-not-found notice uses it (AECI-1102, AECI-1129). |
 
 **Accent is spent on the primary action and nowhere else.** A second accent-coloured link on a surface competes with the one thing the reader is meant to do. AECI-980 pulled three links off accent for this: the pair page's "View listing" and "Documentation", and the integration group card's "View product".
+
+**The in-text link is the one exception, and it earns it.** Inside a sentence the link must be told apart from the words around it. The underline is the non-colour cue axe's `link-in-text-block` rule requires, and the accent is the colour cue. Neither alone is enough (AECI-1102). The exception covers a link inside running text only. A link that stands on its own line is a standalone link, whatever surface it sits on. The underline is permanent because the reader must find the link before hovering. The hover colour is restated because a `text-*` utility overrides the base layer's `a:hover`, so without it the link gives no hover feedback.
 
 **When a link opens a new tab.** Two cases, and only two.
 

@@ -42,8 +42,11 @@ const ALL_FACETS: readonly ProductFacetKind[] = ['categories', 'trades', 'audien
   host: { class: 'block' },
   template: `
     @if (products().length === 0) {
-      <p class="text-sm leading-relaxed text-(--text-secondary)" i18n="@@vendor.products.empty">
-        No products are linked to your vendor yet. New products are added by AEC Integrations.
+      <p
+        class="text-sm leading-relaxed text-(--text-secondary)"
+        i18n="@@vendor.products.sectionEmpty"
+      >
+        Your company has no products listed yet. New products are added by AEC Integrations.
       </p>
     } @else {
       @if (taxonomyFailed()) {

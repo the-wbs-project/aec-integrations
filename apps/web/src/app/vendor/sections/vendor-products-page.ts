@@ -1,6 +1,7 @@
-import { Component } from '@angular/core';
+import { Component, computed, inject } from '@angular/core';
 import { RouterLink, RouterOutlet } from '@angular/router';
 
+import { VendorPortalStore } from '../vendor-portal-store';
 import { vendorProductContext } from './vendor-product-context';
 
 /**
@@ -35,10 +36,17 @@ import { vendorProductContext } from './vendor-product-context';
         Product not found
       </h2>
       <p
-        class="mt-4 rounded-(--radius-md) border border-(--border-default)
+        class="mt-4 max-w-prose rounded-(--radius-md) border border-(--border-default)
           bg-(--surface-raised) p-4 text-sm leading-relaxed text-(--text-primary)"
       >
-        <span i18n="@@vendor.products.unknown">That product isn't linked to your vendor.</span>
+        <span i18n="@@vendor.products.unknown"
+          >The link asks for “{{ ctx.routeSlug() }}”, which is not one of {{ companyName() }}'s
+          products.</span
+        >
+        {{ ' ' }}
+        <span i18n="@@vendor.products.unknownCause"
+          >It may have been renamed, removed, or moved to another company.</span
+        >
         {{ ' ' }}
         <a
           routerLink="../../products"
@@ -55,10 +63,20 @@ import { vendorProductContext } from './vendor-product-context';
 })
 export class VendorProductsPage {
   protected readonly ctx = vendorProductContext();
+  private readonly store = inject(VendorPortalStore);
 
   /**
-   * The portal's in-text link spelling, as in `vendor-contest-protest.ts`. The
-   * underline is the non-colour cue axe's `link-in-text-block` needs (AECI-1102).
+   * The notice names the company and echoes the slug the URL asked for, so a
+   * vendor holding a stale bookmark can tell which link was bad (AECI-1129). A
+   * product renamed, retired or moved by promote leaves the old slug in every
+   * saved link, which is why the notice names those causes too.
+   */
+  protected readonly companyName = computed(() => this.store.me()?.vendor.company_name ?? '');
+
+  /**
+   * The in-text link role (DESIGN.md, "The Link Treatment Rule"), spelled as in
+   * `vendor-contest-protest.ts`. The underline is the non-colour cue axe's
+   * `link-in-text-block` needs (AECI-1102).
    * The hover colour must be restated: a `text-*` utility overrides the base
    * layer's `a:hover`, so without it the link gives no hover feedback.
    */

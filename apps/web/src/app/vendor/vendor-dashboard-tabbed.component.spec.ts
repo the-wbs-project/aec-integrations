@@ -584,7 +584,9 @@ describe('VendorProductsPage — which product the URL resolves to', () => {
   it('says so rather than silently substituting when the URL names a product the vendor does not own', async () => {
     const el = root(await open('products/someone-elses-product'));
 
-    expect(el.textContent).toContain("isn't linked to your vendor");
+    expect(el.textContent).toContain(
+      `The link asks for “someone-elses-product”, which is not one of ${VENDOR_ME_FIXTURE.vendor.company_name}'s products.`,
+    );
     expect(el.querySelector('aec-vendor-product-form')).toBeNull();
     expect(el.querySelector('aec-vendor-products-page a')?.getAttribute('href')).toBe(
       `/vendor/${SLUG}/products`,
@@ -595,7 +597,9 @@ describe('VendorProductsPage — which product the URL resolves to', () => {
     const none: VendorMeResponse = { ...VENDOR_ME_FIXTURE, products: [] };
     const harness = await open('products', none);
 
-    expect(root(harness).textContent).toContain('No products are linked to your vendor yet');
+    expect(root(harness).textContent).toContain(
+      `${VENDOR_ME_FIXTURE.vendor.company_name} has no products listed yet.`,
+    );
   });
 });
 
@@ -752,7 +756,7 @@ describe('VendorDashboardTabbed — links out to the public listing (§6.7)', ()
   });
 
   it('points the header link at the vendor when the URL names a product the vendor does not own', async () => {
-    // The page renders its "not linked to your vendor" notice. A product link
+    // The page renders its "Product not found" notice. A product link
     // here would assert a listing the vendor does not have.
     const harness = await open('products/someone-elses-product');
 
