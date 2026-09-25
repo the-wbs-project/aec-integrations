@@ -1158,6 +1158,10 @@ deleted with the rest of the plane at AECI-651.
 > proportion to vendor-portal activity, and read that as the alert finally covering
 > days it used to skip. **AECI-945 added no alert**, and `RUNBOOKS.md` records why the
 > Google worklist deliberately has none.
+>
+> **Since 2026-09-24 the alert is checked daily, not hourly.** Its window was already 24 h,
+> so each hourly check re-read the same day and emailed again while it stayed above 90%.
+> The daily check sends at most one email a day (`alerts.json` → `calculationInterval`).
 
 ### PostHog — 7 dashboards, 43 insights (AECI-647 / §AW6)
 
@@ -1231,9 +1235,9 @@ Two alert sets, only one of which is armed on production.
 |---|---|---|
 | Count | **26**, all applied and live | **15** committed, 14 live: 13 cover 16 of those 26, and 2 are net-new (AECI-826, AECI-1099) |
 | Applied to | production (and `env`-scoped where relevant) | **non-production dashboards only**; alerts are prod-only and unapplied pending the `phx_` key |
-| Cadence | 5 min – 1 day, per monitor | **hourly**, uniformly (`every_15_minutes` needs the Boost add-on; `real_time` needs Scale/Enterprise) |
+| Cadence | 5 min – 1 day, per monitor | **hourly**, except `indexnow-failure-rate`, which is **daily** since 2026-09-24 (`every_15_minutes` needs the Boost add-on; `real_time` needs Scale/Enterprise) |
 | Absence detection | `notify_no_data`, 8 monitors | **none** — moved out of the vendor entirely, to the CI liveness sweep |
-| Delivery | email to `@chrisw@thewbsproject.com` | email `subscribed_users` (no Slack/webhook wired — deliberate; AECi has no Slack) |
+| Delivery | email to `@chrisw@thewbsproject.com` | email `subscribed_users`, today `chrisw@thewbsproject.com`. A recipient must be a PostHog organization member. No Slack/webhook wired — deliberate; AECi has no Slack |
 | Pages today? | **Yes** | No |
 
 The full **26-row disposition** — every Datadog monitor, its old threshold, and
@@ -1530,6 +1534,9 @@ summary), and runs on stock macOS bash 3.2.
 
 **Fix drift in the JSON and re-run — never in the UI**, because the next run will
 not know. `--verify` reports a live query that no longer matches the committed one.
+The one exception is an alert threshold. An existing alert has its subscribers, cadence
+and on/off state reconciled, but not its threshold. Change a threshold in `alerts.json`
+and in the PostHog UI together.
 That is the opposite of the Datadog convention below, and the inversion is
 deliberate: Datadog's objects were authored in the UI and exported for record, which
 is why "the live monitor is source of truth" appears there and not here.

@@ -420,9 +420,12 @@ Every threshold below is a documented **launch placeholder** — set before real
 each weekly. Full rationale per alert is in [`OBSERVABILITY.md`](./OBSERVABILITY.md#alerts); the complete
 26-row disposition with old thresholds is in [`RUNBOOKS.md`](./RUNBOOKS.md).
 
-> **A threshold change is one edit: `observability/posthog/alerts.json`, then re-run `apply.sh`.**
-> Never edit a PostHog alert in the UI — `apply.sh` is idempotent by name and the next run will
-> silently revert you.
+> **A subscriber, cadence or on/off change is one edit, then re-run `apply.sh`.** Subscribers
+> live in `observability/posthog/project-config.json` → `alertSubscribers`, by email. Cadence
+> and on/off live in `alerts.json`. Since 2026-09-25 `apply.sh` PATCHes those three fields on an
+> alert that already exists. Before that it skipped existing alerts, so no edit reached PostHog.
+> **A threshold change is not reconciled.** `apply.sh` writes the threshold only when it creates
+> the alert. Change it in `alerts.json` and in the PostHog UI together.
 
 | Alert | Retired Datadog threshold | PostHog (live) | Retune signal |
 |---|---|---|---|
@@ -441,7 +444,7 @@ each weekly. Full rationale per alert is in [`OBSERVABILITY.md`](./OBSERVABILITY
 | *(new)* Per-cron staleness | n/a | 26 h daily jobs · 90 min the `*/15` reconcile and the `*/20` IndexNow drain · 8 h the `25 */6` claim-staleness check · 180 min the hourly poll (`observability/posthog/project-config.json`) | these are the *sweep's* allowances and already include margin for the sweep's own lateness. Tighten only if a cron's schedule changes |
 | *(new)* Claim ticket un-started | 24 h | AECI-862. The age at which a claim ticket that exists in Linear escalates to `FOUNDER_ALERT_EMAIL`. Set in `STALE_THRESHOLD_HOURS` (`apps/api/src/lib/claim-stale-check.ts`) | this is a **business-response** threshold, not a system one. Lower it if vendors complain about reply latency; raise it if the founders are being paged for tickets they have deliberately parked |
 | *(new, AECI-946)* Google re-crawl worklist depth | n/a | **no alert, declined in writing**. `RUNBOOKS.md` records why | the depth is a nav badge and a daily-checklist row, not a page. An alert here would fire on a normal Saturday, because a healthy queue is a non-empty queue. Revisit only if the badge proves ignorable |
-| *(new, AECI-826)* Search-engine pings refused | n/a — **never alerted on by either plane**, which is the defect | > 90% of `aeci.indexnow.submit` failed over **24 h**, **≥3-submission floor** | the window is 24 h, not 1 h, because coalescing makes submissions sparse on purpose — an empty buffer sends nothing. Raise the floor only if quiet days start paging. **Do not lower the threshold to 100**: a channel that is 19-of-20 broken should still fire |
+| *(new, AECI-826)* Search-engine pings refused | n/a — **never alerted on by either plane**, which is the defect | > 90% of `aeci.indexnow.submit` failed over **24 h**, **≥3-submission floor**, checked **daily** | checked daily, not hourly, since 2026-09-24: an hourly check re-read the same 24 h window and emailed on every firing check. The window is 24 h, not 1 h, because coalescing makes submissions sparse on purpose — an empty buffer sends nothing. Raise the floor only if quiet days start paging. **Do not lower the threshold to 100**: a channel that is 19-of-20 broken should still fire |
 
 ### Home stats-card content tunables (AECI-280 / Phase 8.2)
 
@@ -1233,8 +1236,10 @@ export POSTHOG_PERSONAL_API_KEY=phx_...       # or POSTHOG_CLI_API_KEY
 ```
 
 Dashboards + insights go to **both** projects; **alerts go to production only**. Idempotent by name.
+An existing alert has its subscribers, cadence and on/off state reconciled. Its threshold is not.
 **Fix drift in `observability/posthog/*.json` and re-run — never in the UI**, because the next run
-will not know. `--verify` reports a live query that no longer matches the committed one.
+will not know. The one exception is an alert threshold: change it in `alerts.json` and in the UI
+together. `--verify` reports a live query that no longer matches the committed one.
 
 Two things it deliberately does not manage, each with a printed recreate recipe rather than a guessed
 API call: **dashboard tile layout** (positions carry no contract) and **non-email alert delivery**

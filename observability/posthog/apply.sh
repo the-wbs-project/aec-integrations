@@ -319,6 +319,38 @@ find_object() {
   printf '%s' "$id"
 }
 
+# ── Alert subscribers: committed by EMAIL, resolved to PostHog user ids ──────────
+#
+# PostHog emails an alert only to `subscribed_users`, and those must be members of the
+# organization. project-config.json names each subscriber by email so a mailbox change
+# is a one-line edit. A `posthogUserId`, when present, is used as-is. An email with no
+# matching member is an ERROR, not a silent drop: an alert with no subscribers emails
+# nobody and looks perfectly healthy. Echoes a JSON array of ids, or "__ERROR__<why>".
+resolve_subscribers() {
+  local status emails ids missing
+  ids="$(jq -c '[.alertSubscribers[] | .posthogUserId // empty]' "$CONFIG")"
+  emails="$(jq -c '[.alertSubscribers[] | select(.posthogUserId == null) | .email | ascii_downcase]' "$CONFIG")"
+  if [ "$emails" = "[]" ]; then
+    printf '%s' "$ids"
+    return 0
+  fi
+  status="$(api GET "/api/organizations/@current/members/?limit=500")"
+  if [ "$status" != "200" ]; then
+    printf '__ERROR__organization member list returned HTTP %s (needs organization_member:read)' "$status"
+    return 0
+  fi
+  missing="$(jq -r --argjson want "$emails" '
+      [(.results // [])[] | .user.email // "" | ascii_downcase] as $have
+      | [$want[] | select(. as $e | $have | index($e) | not)] | join(", ")' "$TMPDIR_APPLY/body")"
+  if [ -n "$missing" ]; then
+    printf '__ERROR__not a member of the PostHog organization: %s. Invite it, accept the invite, then re-run' "$missing"
+    return 0
+  fi
+  jq -c --argjson want "$emails" --argjson ids "$ids" '
+      $ids + [(.results // [])[] | select((.user.email // "" | ascii_downcase) as $e | $want | index($e)) | .user.id]
+      | unique' "$TMPDIR_APPLY/body"
+}
+
 # ── Apply one project ───────────────────────────────────────────────────────────
 apply_project() {
   local project_key="$1" project_id="$2" wants_alerts="$3"
@@ -568,7 +600,19 @@ apply_project() {
     echo "  ----  alerts skipped: '${project_key}' is not the production project (by design)."
   else
     local a_count a_i a_name a_insight a_insight_key a_id a_insight_id subscribers
-    subscribers="$(jq -c '[.alertSubscribers[].posthogUserId]' "$CONFIG")"
+    local status a_live_users a_live_interval a_live_enabled a_want_interval a_want_enabled
+    subscribers="[]"
+    if [ "$MODE" != "dry-run" ]; then
+      subscribers="$(resolve_subscribers)"
+      case "$subscribers" in
+        __ERROR__*)
+          record_failure "$project_key" "alerts" "subscribers" "${subscribers#__ERROR__}"
+          echo "  alerts skipped: the subscriber list could not be resolved, and an alert"
+          echo "  written without it would email nobody."
+          echo "  summary [${project_key}]: ${created} written, ${skipped} already present"
+          return 0 ;;
+      esac
+    fi
     a_count="$(jq -r '.alerts | length' "$ALERTS")"
     a_i=0
     while [ "$a_i" -lt "$a_count" ]; do
@@ -592,8 +636,45 @@ apply_project() {
       esac
 
       if [ -n "$a_id" ]; then
-        echo "  skip  alert      '${a_name}' (id ${a_id})"
-        skipped=$((skipped + 1))
+        # Reconcile the fields an operator changes: who is emailed, how often it is
+        # checked, and whether it is on. Until 2026-09-25 an existing alert was skipped
+        # outright, so a committed change to any of these never reached the live project.
+        # The threshold, condition and query config are NOT reconciled here: the threshold
+        # is a nested object PostHog versions separately. Change those in the UI and here.
+        status="$(api GET "/api/projects/${project_id}/alerts/${a_id}/")"
+        if [ "$status" != "200" ]; then
+          record_failure "$project_key" "alert" "$a_name" "GET returned ${status} — $(body_snippet)"
+          continue
+        fi
+        a_live_users="$(jq -c '[(.subscribed_users // [])[] | if type == "object" then .id else . end] | sort' "$TMPDIR_APPLY/body")"
+        a_live_interval="$(jq -r '.calculation_interval // ""' "$TMPDIR_APPLY/body")"
+        a_live_enabled="$(jq -r '.enabled' "$TMPDIR_APPLY/body")"
+        a_want_interval="$(jq -r --arg n "$a_name" '.alerts[] | select(.name == $n) | .calculationInterval' "$ALERTS")"
+        a_want_enabled="$(jq -r --arg n "$a_name" '.alerts[] | select(.name == $n) | .enabled' "$ALERTS")"
+        if [ "$a_live_users" = "$(printf '%s' "$subscribers" | jq -c 'sort')" ] \
+          && [ "$a_live_interval" = "$a_want_interval" ] \
+          && [ "$a_live_enabled" = "$a_want_enabled" ]; then
+          echo "  skip  alert      '${a_name}' (id ${a_id})"
+          skipped=$((skipped + 1))
+          continue
+        fi
+        if [ "$MODE" = "verify" ]; then
+          record_failure "$project_key" "alert" "$a_name" "DRIFT: live subscribers ${a_live_users}, interval '${a_live_interval}', enabled ${a_live_enabled}; committed ${subscribers}, '${a_want_interval}', ${a_want_enabled}. Re-run without --verify to overwrite."
+          continue
+        fi
+        body="$TMPDIR_APPLY/alert.json"
+        jq -n \
+          --argjson users "$subscribers" \
+          --arg interval "$a_want_interval" \
+          --argjson enabled "$a_want_enabled" \
+          '{ subscribed_users: $users, calculation_interval: $interval, enabled: $enabled }' > "$body"
+        status="$(api PATCH "/api/projects/${project_id}/alerts/${a_id}/" "$body")"
+        if [ "$status" = "200" ]; then
+          echo "  updat alert      '${a_name}' (id ${a_id}) — subscribers/interval/enabled reconciled"
+          created=$((created + 1))
+        else
+          record_failure "$project_key" "alert" "$a_name" "PATCH returned ${status} — $(body_snippet)"
+        fi
         continue
       fi
       if [ "$MODE" = "verify" ]; then
@@ -631,7 +712,6 @@ apply_project() {
            config: $spec.config
          }' > "$body"
 
-      local status
       status="$(api POST "/api/projects/${project_id}/alerts/" "$body")"
       if [ "$status" = "201" ] || [ "$status" = "200" ]; then
         echo "  new   alert      '${a_name}' (id $(jq -r '.id' "$TMPDIR_APPLY/body"))"

@@ -64,6 +64,11 @@ AECI-236 and was never alerted on by either plane. That gap is why production sa
 disposition record for the 26 *retired* monitors; a net-new alert belongs beside it, not
 inside it, or the "26 accounted for" arithmetic stops meaning anything.
 
+It is also the one alert **checked daily** rather than at the hourly default
+(`calculationInterval: "daily"`, since 2026-09-24). Its window is already 24 h, so an
+hourly check re-read the same day and emailed on every firing check. A refusal episode
+lasts days and loses nothing while it runs, so one email a day is the right volume.
+
 ---
 
 ## The "AW6 judges" rows — decisions and reasoning
@@ -417,19 +422,29 @@ Nothing below is missing silently — each is a TODO with its recreate recipe.
    Shape: `{"name", "filters": {"severityLevels": ["error"], "serviceNames": ["aeci-api"]},
    "threshold_count", "window_minutes", "cooldown_minutes"}`.
 
-5. **Non-email alert delivery is not wired.** `subscribed_users` (email) is the only
+5. **Alert email goes to PostHog organization members only.** `project-config.json` →
+   `alertSubscribers` names each recipient. An entry with `posthogUserId` is used as-is.
+   An entry with only `email` is resolved to a user id at run time, over
+   `GET /api/organizations/@current/members/`, which needs the `organization_member:read`
+   scope. An email with no matching member fails the alerts step loudly, because an alert
+   with no subscribers emails nobody. A shared mailbox such as `support@` would need its
+   own PostHog seat, which is a paid team plan, so the recipient stays
+   `chrisw@thewbsproject.com` (declined 2026-09-25). Existing alerts have their
+   subscribers, cadence and on/off state PATCHed. Their threshold is not reconciled.
+
+6. **Non-email alert delivery is not wired.** `subscribed_users` (email) is the only
    channel `apply.sh` configures. Slack/Discord/webhook delivery is a separate
    `cdp-functions` object. Deliberately skipped: AECi has no Slack (CLAUDE.md), and email
    to the operator is the established channel. If that changes: look up the channel with
    `integrations-channels-retrieve`, then create a cdp-function filtered on the alert id.
 
-6. **Consider `aeci.ssr.render` for the error-rate numerator.** The alert keeps Datadog's
+7. **Consider `aeci.ssr.render` for the error-rate numerator.** The alert keeps Datadog's
    source (`aeci.page.render.duration_ms`), which is only emitted on the cacheable-render
    branch. `aeci.ssr.render` is a counter emitted on **every** branch the SSR Worker runs
    and would give strictly better coverage. Not changed here because a port should not
    quietly change what a number means; revisit once the dual-run confirms parity.
 
-7. **Land the rename on both projects.** Every dashboard and insight was renamed and
+8. **Land the rename on both projects.** Every dashboard and insight was renamed and
    re-described in this file; 525793 and 354071 both still carry the old text.
    `./observability/posthog/apply.sh` renames all 50 objects **in place** — same ids, same
    tiles, same layout, same alert attachments — and stamps each with its `aeci-key:` tag,
@@ -480,7 +495,7 @@ are outstanding (originally verified 2026-08-24, re-checked 2026-09-04; spec §8
   and `docs/OBSERVABILITY.md` both claimed for over a week that it was still outstanding.
 
 - [ ] **Re-run `apply.sh` against BOTH projects** to land the renamed, re-described
-  dashboards and insights and stamp the `aeci-key:` tags (manual step 7). Renames happen
+  dashboards and insights and stamp the `aeci-key:` tags (manual step 8). Renames happen
   in place — no duplicates, no lost tiles. Until it runs, both projects show the old
   Datadog-derived titles and the tables above describe the committed names, not the live
   ones.
@@ -531,7 +546,7 @@ the obvious follow-up; until then it is the one board a rename pass does not rea
 > **The names below are the committed ones, not yet the live ones.** Every dashboard and
 > insight was renamed in this file (see "Naming and descriptions"); both projects still
 > carry the old names until someone re-runs `apply.sh`, which renames all 50 objects in
-> place — manual step 7. Ids do not change, so these URLs stay correct.
+> place — manual step 8. Ids do not change, so these URLs stay correct.
 
 | Dashboard | non-prod id (525793) | URL |
 |---|---|---|

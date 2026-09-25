@@ -50,7 +50,7 @@
     {
       "posthogUserId": 463028,
       "email": "chrisw@thewbsproject.com",
-      "_note": "PostHog user id, not a Supabase/D1 id. `subscribed_users` is the ONLY delivery channel apply.sh configures; Slack/Discord/webhook delivery needs cdp-functions and is deliberately out of scope (there is no Slack in this project \u2014 see CLAUDE.md)."
+      "_note": "PostHog user id, not a Supabase/D1 id. With `posthogUserId` set, apply.sh uses it as-is. An entry with only `email` is resolved to a user id at run time, so that mailbox must be a member of the PostHog organization. `subscribed_users` is the ONLY delivery channel apply.sh configures; Slack/Discord/webhook delivery needs cdp-functions and is deliberately out of scope (there is no Slack in this project \u2014 see CLAUDE.md)."
     }
   ],
   "alertDefaults": {
