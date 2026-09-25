@@ -377,15 +377,15 @@ group's rows.
   an SSR page — see ADR 0010's deviation (c). **The panel content stays in the DOM when collapsed.**
 - **A link never nests inside the header button.** When the group's subject has its own page, that
   link sits beside the button in the same header bar as a compact "View product" anchor.
-- **That anchor opens in a new tab**, because it is a lookup rather than a destination: the reader
-  has not finished with the page they are on. It is the **standalone-link role** under the Link
-  Treatment Rule above, so: plain `href` (not `routerLink`) + `target="_blank"` + `rel="noopener"`
-  + `aec-new-tab-icon`. The drawn `arrow-up-right` this card used to inline is the one AECI-980
-  made canonical; the SVG now lives in that component and this card consumes it. The new tab is
-  also stated in the accessible name, which it must be — an `aria-label` replaces the anchor's
-  contents, so the icon's own note is suppressed here. **The accessible name begins with the
-  visible text** ("View product: Agave ERP Sync (opens in a new tab)") so WCAG 2.5.3 Label in Name
-  holds and speech input can target it.
+- **That anchor stays in the tab.** It is the **standalone-link role** under the Link Treatment
+  Rule above, and an ordinary in-app link: `routerLink`, no `target`, no `rel`, no
+  `aec-new-tab-icon`. A product page linking to another product page is a destination, so neither
+  new-tab case applies, and Back restores the reader's scroll position. (It opened a new tab until
+  AECI-1125, as "a lookup, not a destination". That was the rule's only exception on a public page,
+  and it is gone.) **The accessible name names the product and begins with the visible text**
+  ("View product: Agave ERP Sync"). The visible "View product" repeats on every card, so the name
+  has to say which product, and starting with the visible text keeps WCAG 2.5.3 Label in Name so
+  speech input can target it. The link keeps a 28px target, over the 24px floor (AECI-1079).
 - **Open by default.** Collapsing is a reader action; nothing is hidden from a crawler or a no-JS
   reader on first paint.
 

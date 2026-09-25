@@ -686,13 +686,11 @@ describe('ProductDetailPage integrations lanes (§13.3)', () => {
     expect(heading.querySelector('a')).toBeNull();
     const linkEl = heading.parentElement!.querySelector('a')!;
     expect(linkEl.getAttribute('href')).toBe('/products/agave-erp-sync');
-    // Opens in a new tab: the connector is a lookup, not a destination, and the
-    // reader has not finished with the page they are on.
-    expect(linkEl.getAttribute('target')).toBe('_blank');
-    expect(linkEl.getAttribute('rel')).toBe('noopener');
-    expect(linkEl.getAttribute('aria-label')).toBe(
-      'View product: Agave ERP Sync (opens in a new tab)',
-    );
+    // AECI-1125: an ordinary in-app link. It stays in the tab, so it carries no
+    // target and its name no longer announces a new tab.
+    expect(linkEl.hasAttribute('target')).toBe(false);
+    expect(linkEl.hasAttribute('rel')).toBe(false);
+    expect(linkEl.getAttribute('aria-label')).toBe('View product: Agave ERP Sync');
   });
 
   it('heads the unnamed group without inventing a connector name (§13.2(c))', () => {

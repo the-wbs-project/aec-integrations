@@ -778,17 +778,23 @@ grouping, counting or render-condition rules.
    header bar. A link cannot nest inside a button, and the header is now the disclosure control.
    This subsection's requirement was the return path into the hub product, not the element carrying
    it, and the return path survives one Tab away with an accessible name that names the hub.
-   **That anchor opens in a new tab** (`target="_blank"` + `rel="noopener"`, a plain `href` rather
-   than a `routerLink`, since a router navigation is pointless once the browser opens a new
-   context). The reasoning is the admin console's "View Page" rule pointed at a reader: someone on a
-   product page who wants to know what Agave ERP Sync _is_ has not finished with the page they are
-   on, so the link is a lookup rather than a destination. The new tab is **announced in the
-   accessible name** ("View product: {name} (opens in a new tab)") rather than left to be
-   discovered, and the name begins with the visible "View product" text so WCAG 2.5.3 Label in Name
-   holds. A drawn `arrow-up-right` glyph carries the same cue for sighted readers, who get no domain
-   change to hint at it. **(AECI-980: that glyph was this card's own inline SVG and is now the shared
-   `aec-new-tab-icon`, which every new-tab link in `apps/web` carries. The anchor also moved off
-   accent onto the standalone-link role — see `DESIGN.md` → "The Link Treatment Rule".)**
+   ~~**That anchor opens in a new tab** (`target="_blank"` + `rel="noopener"`, a plain `href` rather
+   than a `routerLink`), because the link is a lookup rather than a destination, with the new tab
+   announced in the accessible name.~~ **Reversed 2026-09-25 (AECI-1125): the anchor is an ordinary
+   in-app link.** It is a `routerLink` with no `target`, no `rel`, no `aec-new-tab-icon` and no
+   "(opens in a new tab)" in its name. The new tab contradicted `DESIGN.md` → "The Link Treatment
+   Rule", which allows a new tab in two cases only: a third-party destination, or a reader mid-task
+   on an editing surface. A product page is neither. It holds no unsaved state, and it is a
+   read-only public page linking to another public page, which that rule calls a destination. The
+   "has not finished with the page" reasoning did not hold either. Back returns the reader to the
+   same scroll position, because the router's scroll restoration already does that
+   (`withInMemoryScrolling` and `ScrollBehaviorManager`). Checked by hand on the reversal. This was
+   also the only same-site new-tab link on a public page, so the exception cost more than it saved.
+   The accessible name stays, minus the new-tab clause: "View product: {name}"
+   (`@@products.detail.group.link.name`, replacing `@@products.detail.group.link.aria`). It still
+   has to name the product, because the visible "View product" repeats on every card, and it still
+   begins with the visible text so WCAG 2.5.3 Label in Name holds. The anchor keeps the
+   standalone-link role (AECI-980) and its 28px target (AECI-1079).
 4. **The section gains a name filter at ten or more rows** (`INTEGRATION_FILTER_MIN_ROWS`).
    _Superseded by the AECI-848 amendment below: the threshold is gone and the constant is deleted._
    It matches partner names — **and, since AECI-966 (2026-09-15), the pair's `mechanism_name`
@@ -1219,8 +1225,9 @@ count invariant and the one-table-per-lane requirement are all untouched. What c
 - **The `<h3>` is now the disclosure button, so the connector name is no longer the link.** "Via
   {connector}" is built in TS (`@@products.detail.body.integrations.lane.via.named`) rather than as
   a template message wrapping an `<a>`, and the connector link moved to the card's trailing "View
-  product" anchor, **which opens in a new tab** — see §12.3's amendment for why, and for the
-  accessible-name and Label-in-Name rules it carries. This subsection asked for the return path into
+  product" anchor. It is an ordinary in-app link since AECI-1125. See §12.3's amendment for why
+  it once opened a new tab and no longer does, and for the accessible-name and Label-in-Name rules
+  it carries. This subsection asked for the return path into
   Addendum B's hub, and the return path survives; only the element carrying it changed. §13.2(c)'s
   unnamed group still gets no link and no invented name.
 - **Group sub-counts read "2 integrations" rather than "(2)"**, and "3 of 12" while a filter is

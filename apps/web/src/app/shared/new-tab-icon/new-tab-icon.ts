@@ -24,8 +24,9 @@ import { ChangeDetectionStrategy, Component, input } from '@angular/core';
  * than beside it. That is a fix, not an accident. A sibling span is not read in a
  * VoiceOver rotor or an `NVDA+F7` links list, so the old placement disclosed the
  * new tab in browse mode and nowhere else. Inside the anchor it becomes part of
- * the accessible name, which is what `DESIGN.md` §"Disclosure group card" asked
- * for all along.
+ * the accessible name, which is what `DESIGN.md` → "The Link Treatment Rule"
+ * asks for. (The group card that first asked for it no longer opens a new tab,
+ * since AECI-1125.)
  *
  * It also deletes a conditional. A caller-supplied `aria-label` on the anchor
  * REPLACES the anchor's contents for assistive tech, so this span is simply not

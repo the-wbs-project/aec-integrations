@@ -441,13 +441,14 @@ export class ProductIntegrationsSection {
   /**
    * Accessible name for the trailing connector link. Built in TS because an
    * interpolated `i18n-*` attribute emits no attribute at all in this app, and
-   * because the new tab has to be announced rather than discovered. The name
-   * starts with the visible "View product" text, so WCAG 2.5.3 Label in Name
-   * holds and a speech-input user can say what they can read.
+   * because the visible "View product" repeats on every card, so the name has
+   * to say which product. It starts with that visible text, so WCAG 2.5.3
+   * Label in Name holds and a speech-input user can say what they can read.
+   * The link stays in the tab (AECI-1125), so the name no longer announces one.
    */
   protected viaLinkAriaLabel(lane: ConnectorLaneGroup): string {
     const connector = lane.connector;
     if (!connector) return '';
-    return $localize`:@@products.detail.group.link.aria:View product: ${connector.name}:NAME: (opens in a new tab)`;
+    return $localize`:@@products.detail.group.link.name:View product: ${connector.name}:NAME:`;
   }
 }
