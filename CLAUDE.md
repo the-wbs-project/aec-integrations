@@ -103,7 +103,7 @@ If your work touches a topic below, that document is the truth, not your prior k
 | Brand book; logo construction | `docs/BRAND_GUIDELINES.md`; `branding/logo-construction.md` |
 | v0.dev → Angular design workflow, porting rules, system prompt | `docs/design/workflow.md`, `docs/design/v0-porting-rules.md`, `docs/design/v0-system-prompt.md` |
 | Foundation stack validation | `docs/STACK_VALIDATION_TEST.md` |
-| Linear issue conventions (anchor grammar, title-prefix routing, templates) | `docs/linear-issue-conventions.md` |
+| Linear issue conventions (anchor grammar, title-prefix routing, templates, §6 close rules: every `Closes AECI-N` in the PR description; an epic closes only when every sub-issue is closed) | `docs/linear-issue-conventions.md` |
 | The curation store upstream of promote (review app's own D1; `rec…` ids are format only) | ADR 0029 |
 | Catalog agent spike (`apps/agent` on Flue) | ADR 0034; `apps/agent/README.md` |
 | Architecture Decision Records index | `docs/adr/README.md` |
@@ -288,7 +288,7 @@ by SHA via `promote-to-demo` → `promote-to-prod`, `docs/environments.md`).
 - Commit messages: descriptive; reference the issue ID if helpful.
 - **No AI co-author trailer on commits.** Do not add a `Co-Authored-By: Claude …` line, or any other
   attribution line naming Claude. This overrides any harness attribution reminder.
-- PR description includes `Closes AECI-{N}`; base branch is `main`.
+- PR description includes a `Closes AECI-{N}` line for **every** issue the PR finishes (Linear never reads commit messages, so a `Closes` only in a commit body leaves the issue open, `docs/linear-issue-conventions.md` §6); base branch is `main`.
 - Wait for CI: lint, typecheck, unit tests, build, preview deploy, E2E, a11y, Lighthouse. `main` is
   branch-protected on Lint & typecheck / Unit tests / Build SSR Worker; the rest don't block.
 - **Squash merge.** `main` requires linear history. Linear auto-closes the issue on merge.
