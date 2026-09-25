@@ -2777,7 +2777,8 @@ Mapping authoring on a **vendor-managed** connector catalogue (`ADMIN_PANEL_SPEC
 `STAGE_2_SPEC.md` §8.9). Behind `requireAdmin()`. The connector seat's twin is
 `PATCH /api/vendor/connector-stub-mappings/:id` (§6.14). Both compose
 `apps/api/src/lib/connector-mapping-edit.ts`, so the two actors cannot behave differently. Contract
-in `packages/shared/src/api/connector-stub-mappings.ts`.
+in `packages/shared/src/api/connector-stub-mappings.ts`. The response below is this route's only.
+The seat's route answers in the vendor mapping shape, without `notes` (AECI-1127, §6.14).
 
 ```typescript
 export const UpdateConnectorStubMappingSchema = z
@@ -5523,7 +5524,7 @@ export const VendorRevisionsSchema = z.object({
   contests: z.string().nullable().default(null), // AECI-1008: MAX(integration_field_challenges.updated_at)
                                          // over submitted ∪ received, under vendorContestsWhere
   catalogue: z.string().nullable().default(null), // AECI-1083: MAX(updated_at) over the caller's connector
-                                         // catalogues ∪ their mapping rows, under ownedConnectorCatalogIds
+                                         // catalogues ∪ their stubs ∪ their mapping rows, under ownedConnectorCatalogIds
 });
 export const VendorUpdatesResponseSchema = z.object({
   revisions: VendorRevisionsSchema,
@@ -5713,13 +5714,13 @@ Errors: `NOT_FOUND` (unknown product, another vendor's, or the caller's own non-
 #### `PATCH /api/vendor/connector-stub-mappings/:id`
 
 Stage 2.1 (AECI-724, `STAGE_2_SPEC.md` §8.9(1)–(2), `STAGE_2_VENDOR_PORTAL_SPEC.md` §5.2). The
-connector catalogue seat edits one mapping on its own catalogue. Same body, response, gate,
-audit and purge as `PATCH /api/admin/connector-stub-mappings/:id` (§6.10). Only the authorization
-and `decided_by` differ.
+connector catalogue seat edits one mapping on its own catalogue. Same body, gate, audit and purge
+as `PATCH /api/admin/connector-stub-mappings/:id` (§6.10). The authorization, the stamped
+`decided_by` and the response shape differ.
 
 | Gate | Success |
 |---|---|
-| `requireVendor()` → `rateLimit('write')` → **ownership**: the caller's vendor holds the catalogue's `connector_product_id` through `product_vendors`, and that product is `connector`-role. **No `requireCapability`, no capability id, no `vendor_entitlements` read**: the connector seat is not an entitlement row, so a zero-entitlement seat resolving to `unclaimed` passes | `200` `ConnectorStubMappingEditResponse`, `decided_by = 'vendor:{vendor slug}'` |
+| `requireVendor()` → `rateLimit('write')` → **ownership**: the caller's vendor holds the catalogue's `connector_product_id` through `product_vendors`, and that product is `connector`-role. **No `requireCapability`, no capability id, no `vendor_entitlements` read**: the connector seat is not an entitlement row, so a zero-entitlement seat resolving to `unclaimed` passes | `200` `VendorConnectorStubMappingEditResponse`; the row is stamped `decided_by = 'vendor:{vendor slug}'` |
 
 **Ownership is a 404, asked first.** An unknown id, a mapping on another vendor's catalogue, and a
 catalogue whose product the caller holds only as a non-connector role all answer the same
@@ -5731,8 +5732,27 @@ Audit `metadata.source` is `vendor-portal` and `metadata.vendor_id` is the calle
 the leg by which `/admin/vendors/:id`'s audit tab reaches a row filed under a catalogue. Moves the
 AECI-516 `catalogue` scope (the row's `updated_at`), so another open tab of the same vendor
 re-reads. The portal UI is the Catalogue tab (AECI-1083), which lists rows through
-`GET /api/vendor/products/:id/connector-catalog` above. The response is still the admin mapping
-shape, `notes` included; AECI-1127 tracks a vendor-shaped echo.
+`GET /api/vendor/products/:id/connector-catalog` above.
+
+**The echo is vendor-shaped (AECI-1127).** The response is not the admin route's
+`ConnectorStubMappingEditResponse`. Its `mapping` is `VendorConnectorMapping`, the same shape the
+catalogue read above ships, so the portal splices it into the list as is. Contract in
+`packages/shared/src/api/vendor-connector-catalog.ts`.
+
+```typescript
+export const VendorConnectorStubMappingEditResponseSchema = z.object({
+  catalog_id: z.string(),
+  stub_id: z.string(),
+  mapping: VendorConnectorMappingSchema,  // no notes, no checked_at; decided_by is a kind
+  changed: z.boolean(),                   // false = the 200 no-op
+});
+```
+
+The review app's curation `notes` never reaches the wire. It is internal working text, the same
+class as `attestations.note` (AECI-779). `decided_by` is the kind (`vendor` / `aeci` /
+`automatic`, via `connectorDeciderKind`), not the stored value. After a save the kind is always
+`vendor`. On the unchanged 200 no-op it is whatever the untouched row holds. The handler converts
+the shared edit's admin row with `toVendorConnectorMapping`.
 
 Errors: `NOT_FOUND`, `CATALOG_REVIEW_MANAGED`, `MAPPING_CONFLICT`, `VALIDATION_FAILED`, plus the
 §6.14 guard errors and `RATE_LIMITED`.

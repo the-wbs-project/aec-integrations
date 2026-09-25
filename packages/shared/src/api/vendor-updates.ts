@@ -91,11 +91,11 @@ export const VendorRevisionsSchema = z.object({
   contests: z.string().nullable().default(null),
   /**
    * `MAX(updated_at)` over the connector catalogues whose connector-role product this
-   * vendor holds, and over those catalogues' mapping rows (AECI-1083), under
+   * vendor holds, and over those catalogues' stubs and mapping rows (AECI-1083), under
    * `ownedConnectorCatalogIds` — the same predicate
    * `GET /api/vendor/products/:id/connector-catalog` reads with. The catalogue row
    * moves on the `managed_by` flip; a mapping moves on a seat edit, an operator edit
-   * or a sync page. `null` for every vendor holding no catalogue, which is almost
+   * or a sync page; a stub moves on a sync page that adds, renames or removes a listing. `null` for every vendor holding no catalogue, which is almost
    * all of them. `.default(null)` for deploy skew, as `contests`.
    */
   catalogue: z.string().nullable().default(null),

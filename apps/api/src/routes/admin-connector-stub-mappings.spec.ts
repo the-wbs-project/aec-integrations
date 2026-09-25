@@ -178,6 +178,9 @@ describe('PATCH …/connector-stub-mappings/:id — on a vendor-managed catalogu
     expect(body.catalog_id).toBe(CATALOG_ID);
     expect(body.mapping.product.slug).toBe('autodesk-build');
     expect(body.mapping.decided_by).toBe('aeci-operator');
+    // The admin echo keeps the triage row's own shape, curation note included. Only the
+    // seat's route narrows it (AECI-1127).
+    expect(body.mapping).toHaveProperty('notes', 'kept');
     // Provenance, not confidence: an operator standing behind it is what publishes it.
     expect(body.mapping.publishable).toBe(true);
 

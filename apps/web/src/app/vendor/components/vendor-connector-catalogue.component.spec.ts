@@ -18,7 +18,7 @@ import { TestBed, type ComponentFixture } from '@angular/core/testing';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type {
-  ConnectorStubMappingEditResponse,
+  VendorConnectorStubMappingEditResponse,
   VendorConnectorCatalogResponse,
   VendorConnectorListing,
 } from '@aeci/shared';
@@ -106,9 +106,9 @@ const editButtons = (f: ComponentFixture<unknown>) =>
   );
 
 function echo(
-  overrides: Partial<ConnectorStubMappingEditResponse['mapping']> = {},
+  overrides: Partial<VendorConnectorStubMappingEditResponse['mapping']> = {},
   changed = true,
-): ConnectorStubMappingEditResponse {
+): VendorConnectorStubMappingEditResponse {
   return {
     catalog_id: 'rec-cat',
     stub_id: 't-st-00',
@@ -119,10 +119,8 @@ function echo(
       product: { id: '00000000-0000-4000-8000-000000005301', slug: 'procore', name: 'Procore' },
       confidence: 'low',
       evidence_url: null,
-      decided_by: 'vendor:agave-inc',
+      decided_by: 'vendor',
       decided_at: '2026-09-24T00:00:00.000Z',
-      checked_at: '2026-09-24T00:00:00.000Z',
-      notes: 'never shown',
       publishable: true,
       ...overrides,
     },

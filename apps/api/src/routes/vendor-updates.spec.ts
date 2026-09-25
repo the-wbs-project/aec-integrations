@@ -670,6 +670,8 @@ describe('GET /api/vendor/updates — `catalogue` (AECI-1083)', () => {
         slug: 'revit',
         firstSeenAt: SEEDED,
         lastSeenAt: SEEDED,
+        createdAt: SEEDED,
+        updatedAt: SEEDED,
       });
       await t.db.insert(connectorStubMappings).values({
         id: `${catalogId}-map`,
@@ -709,6 +711,31 @@ describe('GET /api/vendor/updates — `catalogue` (AECI-1083)', () => {
     expectOnlyMoved(before, await revisions(), 'catalogue', MOVED);
   });
 
+  it('moves on a sync page that touches only a listing (a removal, no mapping write)', async () => {
+    await seedCatalogues();
+    const before = await revisions();
+    await t.db
+      .update(connectorStubs)
+      .set({ removedAt: MOVED, updatedAt: MOVED })
+      .where(eq(connectorStubs.id, 'cat-a-stub'));
+    expectOnlyMoved(before, await revisions(), 'catalogue', MOVED);
+  });
+
+  it('moves on a new listing, which has no mapping row yet', async () => {
+    await seedCatalogues();
+    const before = await revisions();
+    await t.db.insert(connectorStubs).values({
+      id: 'cat-a-stub-2',
+      catalogId: 'cat-a',
+      slug: 'navisworks',
+      firstSeenAt: MOVED,
+      lastSeenAt: MOVED,
+      createdAt: MOVED,
+      updatedAt: MOVED,
+    });
+    expectOnlyMoved(before, await revisions(), 'catalogue', MOVED);
+  });
+
   it('does not move on another vendor’s catalogue', async () => {
     await seedCatalogues();
     const before = await revisions();
@@ -720,6 +747,10 @@ describe('GET /api/vendor/updates — `catalogue` (AECI-1083)', () => {
       .update(connectorCatalogs)
       .set({ managedBy: 'review', updatedAt: MOVED_LATER })
       .where(eq(connectorCatalogs.id, 'cat-b'));
+    await t.db
+      .update(connectorStubs)
+      .set({ label: 'Revit 2027', updatedAt: MOVED_LATER })
+      .where(eq(connectorStubs.id, 'cat-b-stub'));
     expect(await revisions()).toEqual(before);
   });
 

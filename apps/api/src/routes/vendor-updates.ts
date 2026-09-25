@@ -85,6 +85,7 @@ import {
   connectorCatalogs,
   connectorEvidencedPairs,
   connectorStubMappings,
+  connectorStubs,
   integrationFieldChallenges,
   integrations,
   productVendors,
@@ -312,11 +313,13 @@ export function createVendorUpdatesHandler(
       // `catalogue` (AECI-1083) — the connector catalogues this vendor maintains,
       // under `ownedConnectorCatalogIds`, the SAME predicate
       // `GET /api/vendor/products/:id/connector-catalog` resolves its catalogue with.
-      // Two terms in one statement: the catalogue row (moves on the `managed_by`
-      // flip, which is what turns the tab's edit controls on or off) and its mapping
-      // rows (a seat edit, an operator edit, a sync page). Stubs are not read: a
-      // stub moves only on a sync page, which also rewrites the mappings it touches.
-      // For a vendor holding no catalogue, both subqueries are empty and it is NULL.
+      // Three terms in one statement: the catalogue row (moves on the `managed_by`
+      // flip, which is what turns the tab's edit controls on or off), its mapping
+      // rows (a seat edit, an operator edit, a sync page) and its stubs (a sync page
+      // that adds, renames or removes a listing). The stub term is not redundant:
+      // promote skips each unchanged row per table, so a new listing (no mapping row,
+      // §9a.4's pending) or a removal moves the stub alone.
+      // For a vendor holding no catalogue, every subquery is empty and it is NULL.
       db
         .select({
           catalogs: sql<string | null>`(${db
@@ -329,6 +332,10 @@ export function createVendorUpdatesHandler(
             .where(
               inArray(connectorStubMappings.catalogId, ownedConnectorCatalogIds(db, vendorId)),
             )})`,
+          stubs: sql<string | null>`(${db
+            .select({ value: max(connectorStubs.updatedAt) })
+            .from(connectorStubs)
+            .where(inArray(connectorStubs.catalogId, ownedConnectorCatalogIds(db, vendorId)))})`,
         })
         .from(ONE_ROW),
     ]);
@@ -351,7 +358,11 @@ export function createVendorUpdatesHandler(
       notifications: ledgerRows[0]?.value ?? null,
       requests: requestRows[0]?.value ?? null,
       contests: contestRows[0]?.value ?? null,
-      catalogue: latestOf(catalogueRows[0]?.catalogs ?? null, catalogueRows[0]?.mappings ?? null),
+      catalogue: latestOf(
+        catalogueRows[0]?.catalogs ?? null,
+        catalogueRows[0]?.mappings ?? null,
+        catalogueRows[0]?.stubs ?? null,
+      ),
     };
 
     const body: VendorUpdatesResponse = {

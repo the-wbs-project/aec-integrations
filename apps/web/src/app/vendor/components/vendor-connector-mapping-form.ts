@@ -6,7 +6,6 @@ import {
   CONNECTOR_MAPPING_STATUSES,
   HTTPS_URL_MAX_LENGTH,
   HttpsUrlSchema,
-  toVendorConnectorMapping,
   type LinkRef,
   type UpdateConnectorStubMappingInput,
   type VendorConnectorMapping,
@@ -448,7 +447,7 @@ export class VendorConnectorMappingForm {
           ? $localize`:@@vendor.catalogue.announce.saved:Match for ${listing}:LISTING: saved.`
           : $localize`:@@vendor.catalogue.announce.unchanged:Nothing changed on the match for ${listing}:LISTING:.`,
       );
-      this.saved.emit({ mapping: toVendorConnectorMapping(res.mapping), changed: res.changed });
+      this.saved.emit({ mapping: res.mapping, changed: res.changed });
     } catch (err) {
       if (readVendorApiError(err)?.code === 'CATALOG_REVIEW_MANAGED') {
         this.reclaimed.emit();

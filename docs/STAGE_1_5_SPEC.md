@@ -1828,7 +1828,9 @@ lands at AECI-724 time"; this is that authoring, plus the connector seat it was 
 **Two routes, one module.** `PATCH /api/admin/connector-stub-mappings/:id` (behind
 `requireAdmin()`) and `PATCH /api/vendor/connector-stub-mappings/:id` (behind `requireVendor()` and
 `rateLimit('write')`) both compose `apps/api/src/lib/connector-mapping-edit.ts`. They differ only in
-authorization and in what `decided_by` says. Contracts in `API_CONTRACTS.md` §6.10 and §6.14.
+authorization, in what `decided_by` says, and in the echo: the seat's route answers in the vendor
+mapping shape, without the curation `notes` (AECI-1127). Contracts in `API_CONTRACTS.md` §6.10 and
+§6.14.
 
 **The columns chosen: the product pointer and the depth.** `product_id` + `status` move together
 under §9a.4's two-column invariant. `confidence` and `evidence_url` are the depth of the assertion.
