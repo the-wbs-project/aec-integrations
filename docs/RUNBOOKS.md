@@ -965,7 +965,7 @@ Algolia drift, the AECI-609 `entitlement_mirror_drift` guard, and the two teleme
 AECI-868's `arrival_cf_coverage` and AECI-876's `landing_cf_coverage`). *(The count is deliberately not
 stated here; `ADMIN_PANEL_SPEC.md` §14.1 is the only place that states it. This line read "eleven" for
 two roster additions before AECI-876 corrected it.)* The job **does not auto-repair** — humans
-triage. The email digest to Chris + Bill carries the offending rows.
+triage. The email digest to the support inbox (`support@aecintegrations.com`) carries the offending rows.
 
 > **`promotion_status_invariant` is not a data-repair finding either — it means something wrote a column
 > nothing is supposed to write.** It fails when any `products` or `vendors` row reads a
@@ -1007,7 +1007,7 @@ triage. The email digest to Chris + Bill carries the offending rows.
 3. **No-data (job not running)?** The cron isn't firing. Check the staging/production API Worker's
    scheduled invocation in the Cloudflare dashboard / `wrangler tail` (`source:data-quality-cron`), and
    that the `aeci-data-quality-<env>` queue exists.
-4. **Digest not received?** If the run fired (metrics present) but Chris + Bill got no email, check
+4. **Digest not received?** If the run fired (metrics present) but the support inbox got no email, check
    `aeci.data_quality.email{outcome}`: `skipped` = `RESEND_API_KEY` / `DATA_QUALITY_EMAIL_FROM` /
    `DATA_QUALITY_EMAIL_TO` not set on the Worker (fail-open by design); `failed` = a Resend error — check
    the `source:data-quality-cron` log for the HTTP status and Resend's delivery log.

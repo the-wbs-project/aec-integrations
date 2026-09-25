@@ -623,7 +623,7 @@ export type Env = {
   /**
    * Sender + recipient(s) for the data-quality digest (AECI-241). `_FROM` is a
    * single verified Resend sender; `_TO` is a comma/whitespace-separated list
-   * (Chris + Bill), parsed by `parseRecipients` (`lib/email.ts`). Plain wrangler
+   * (`support@aecintegrations.com` on every tier), parsed by `parseRecipients` (`lib/email.ts`). Plain wrangler
    * vars per env. Either absent → the send is a `skipped` no-op.
    */
   DATA_QUALITY_EMAIL_FROM?: string;

@@ -358,6 +358,8 @@ left unset).
 | `CLAIM_ALERT_EMAIL` | plain `var` | API Worker, per env (`wrangler.jsonc`) | `To:` for `claim-submitted-alert` and, since AECI-1132, `contest-submitted-alert`. **`support@aecintegrations.com` on every tier.** A single address (not a parsed list). Kept separate from `ADMIN_ALERT_EMAIL` so claim intake reaches the shared support inbox while sweep alerts and lead capture keep going to the individual operator. Absent → the alert is a `skipped` no-op. The durable record is the Linear issue for a claim and the `integration_field_challenges` row for a contest, which `/admin/contests` lists either way. |
 | `FOUNDER_ALERT_EMAIL` | plain `var` | API Worker, per env (`wrangler.jsonc`) | `To:` for `stale-claim-ticket-alert`. **`founders@thewbsproject.com` on staging and production; deliberately UNSET on demo** (demo claims are rehearsal rows, so the digest fail-open skips there — the cron still runs and still emits its metrics). A single address, not a parsed list. The third alert recipient, and separate on purpose: `ADMIN_ALERT_EMAIL` means the pipeline broke, `CLAIM_ALERT_EMAIL` means a claim or an AECi-routed contest arrived, this means a vendor has been waiting a day for a human reply. Absent → the digest is a `skipped` no-op and the job still emits its metric and log, so the signal survives an unset var. |
 | `DATA_QUALITY_EMAIL_FROM` | plain `var` | API Worker, staging / demo / production | `from` for the daily data-quality digest (AECI-241). **Same address as `EMAIL_FROM`** — see the note below. |
+| `DATA_QUALITY_EMAIL_TO` | plain `var` | API Worker, staging / demo / production | `To:` for the daily data-quality digest. **`support@aecintegrations.com` on every tier.** Comma/whitespace-separated list (`parseRecipients`). Because it matches `EMAIL_BCC`, the operator copy is dropped rather than duplicated. Absent → the send is a `skipped` no-op. |
+| `ANALYTICS_DIGEST_EMAIL_TO` | plain `var` | API Worker, **production only** | `To:` for the daily operator analytics digest (AECI-526). **`support@aecintegrations.com`.** Comma/whitespace-separated list (`parseRecipients`). Left unset on staging/demo so their sends `skip`. |
 | `PUBLIC_SITE_URL` | plain `var` | API Worker, per env | Builds absolute links in emails; absent → link omitted. |
 | `ADMIN_ALERT_EMAIL` | plain `var` | API Worker, staging + production | `To:` for the stuck-request alert, the landing signup/feedback operator notifications (AECI-247/277), the §7 attestation ops alerts (AECI-302 — one per finding; absent → those findings resolve `skipped` and are retried by the next daily sweep, since no ledger row is written), **and** the `entitlement-expiring-admin` term warnings (AECI-613 — absent → the operator half resolves `skipped`, which leaves `expiry_notice_sent_at` unstamped only if the vendor half also failed, so the term is re-warned tomorrow). |
 
@@ -370,8 +372,7 @@ left unset).
 > divergence is now removed: all four tiers carry the identical address for both vars.
 >
 > `thewbsproject.com` still appears throughout the repo, but **only as a recipient or a published
-> contact** — `ADMIN_ALERT_EMAIL` / `DATA_QUALITY_EMAIL_TO` / `ANALYTICS_DIGEST_EMAIL_TO`
-> (`chrisw@`), and the `founders@` / `reviews@` mailto links on the legal and contact pages, which
+> contact** — `ADMIN_ALERT_EMAIL` (`chrisw@`), and the `founders@` / `reviews@` mailto links on the legal and contact pages, which
 > are Microsoft 365 mailboxes and never Resend senders. Nothing sends **from** it.
 
 **One-time ops step (not in CI):** provision the keys —

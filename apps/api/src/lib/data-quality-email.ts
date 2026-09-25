@@ -1,6 +1,6 @@
 /**
  * Renders the §23.1 daily data-quality results into the email digest sent to
- * Chris + Bill (AECI-241 / Phase 7.6). Pure: takes the check results and run
+ * the support inbox (AECI-241 / Phase 7.6). Pure: takes the check results and run
  * metadata, returns `{ subject, text, html }` — no I/O, so it unit-tests directly.
  *
  * A clean run still emails ("all clear") so silence unambiguously means the cron

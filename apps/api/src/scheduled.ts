@@ -34,7 +34,7 @@
  * AECI-592 promotion-status invariant, anonymized-review integrity, stale
  * `stats_cache`, duplicate candidates, a Brandfetch logo-404 sample, the reused
  * AECI-140 Algolia drift, the AECI-609 entitlement-mirror guard, and the AECI-868
- * arrival-metadata coverage tripwire) → an email digest to Chris + Bill via Resend
+ * arrival-metadata coverage tripwire) → an email digest to the support inbox via Resend
  * (`./lib/email`). Report-only — no auto-remediation; humans triage.
  * 07:00 UTC (= 02:00 EST) — daily home-stats compute (`./lib/home-stats`,
  * AECI-178 / Phase 4.3 / §10): recompute the seven `home.*` `stats_cache` keys
