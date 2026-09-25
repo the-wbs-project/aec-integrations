@@ -34,7 +34,7 @@ These are unset pre-launch by design — the integrations fail-open/no-op until 
 | IndexNow (7.1) | `INDEXNOW_KEY_PRODUCTION` | Pushed to **both** prod Workers by `promote-to-prod.yml`. No manual file hosting: the SSR Worker serves `<key>.txt` at the site root off the same secret (`server/routes/indexnow-key.ts`), so the file appears as soon as the secret lands. |
 | Transactional email (7.5) | `RESEND_API_KEY` (single shared, un-suffixed), `EMAIL_FROM` | Supabase → Resend custom SMTP configured (`docs/email.md`); required for the waitlist broadcast + review/account emails. |
 | Product analytics (7.4) | `POSTHOG_KEY` (+ `POSTHOG_HOST`) | Client-only; CSP `connect-src` already allows PostHog (AECI-89). |
-| Data-quality digest (7.6) | `DATA_QUALITY_EMAIL_FROM`, `DATA_QUALITY_EMAIL_TO` | Chris + Bill; cron already scheduled on prod. |
+| Data-quality digest (7.6) | `DATA_QUALITY_EMAIL_FROM`, `DATA_QUALITY_EMAIL_TO` | `_TO` is `support@aecintegrations.com` on every tier; cron already scheduled on prod. |
 | WAF → Datadog (7.7) | `CF_ANALYTICS_API_TOKEN` | Zone Analytics: Read (AECI-262) — for `aeci.waf.ratelimit.blocked`. |
 | Toxicity (Phase 5/6 dep) | `ANTHROPIC_API_KEY_PRODUCTION` | AECI-258; fail-open null until set. |
 | Search (prod) | `ALGOLIA_APP_ID`, `ALGOLIA_ADMIN_KEY_PRODUCTION` | **Fail-closed** on prod promote — must be set. |

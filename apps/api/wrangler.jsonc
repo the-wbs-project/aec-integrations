@@ -418,9 +418,9 @@
         // docs/email.md §Deliverability). It previously read `thewbsproject.com`
         // here, which was wrong and diverged staging/demo from production
         // until 2026-08-26. `_TO` is comma-separated (read by
-        // parseRecipients). Staging sends to Chris only.
+        // parseRecipients). Every tier sends to the support inbox.
         "DATA_QUALITY_EMAIL_FROM": "AEC Integrations <notifications@aecintegrations.com>",
-        "DATA_QUALITY_EMAIL_TO": "chrisw@thewbsproject.com",
+        "DATA_QUALITY_EMAIL_TO": "support@aecintegrations.com",
         // AECI-526: the daily operator analytics digest is PRODUCTION-ONLY — the cron
         // still runs here (emits its liveness metric) but ANALYTICS_DIGEST_EMAIL_TO is
         // intentionally unset, so the send fail-open skips (staging's D1 is synthetic
@@ -666,7 +666,7 @@
         // production both set it. Same pattern as ANALYTICS_DIGEST_EMAIL_TO
         // below.
         "DATA_QUALITY_EMAIL_FROM": "AEC Integrations <notifications@aecintegrations.com>",
-        "DATA_QUALITY_EMAIL_TO": "chrisw@thewbsproject.com",
+        "DATA_QUALITY_EMAIL_TO": "support@aecintegrations.com",
         // AECI-526: the daily operator analytics digest is PRODUCTION-ONLY — the cron
         // still runs here (emits its liveness metric) but ANALYTICS_DIGEST_EMAIL_TO is
         // intentionally unset, so the send fail-open skips (demo's D1 is not real
@@ -854,16 +854,16 @@
         // docs/email.md §Deliverability). It previously read `thewbsproject.com`
         // here, which was wrong and diverged staging/demo from production
         // until 2026-08-26. `_TO` is comma-separated (read by
-        // parseRecipients). TODO: append Bill's address alongside Chris?
+        // parseRecipients). Every tier sends to the support inbox.
         "DATA_QUALITY_EMAIL_FROM": "AEC Integrations <notifications@aecintegrations.com>",
-        "DATA_QUALITY_EMAIL_TO": "chrisw@thewbsproject.com",
+        "DATA_QUALITY_EMAIL_TO": "support@aecintegrations.com",
         // AECI-526: recipient(s) for the daily operator analytics digest (05:00 UTC
         // = 12:00 WIB, noon Jakarta — page views, top products, new/total sign-ins,
         // pending-moderation depth). Sender is the shared EMAIL_FROM (no separate _FROM). Comma-separated
         // (parseRecipients). PRODUCTION-ONLY on purpose: staging/demo leave this unset
         // so only prod's real numbers get emailed (the cron still runs in every env for
         // liveness, but those sends fail-open skip).
-        "ANALYTICS_DIGEST_EMAIL_TO": "chrisw@thewbsproject.com",
+        "ANALYTICS_DIGEST_EMAIL_TO": "support@aecintegrations.com",
         // PUBLIC_SITE_URL is the canonical launch domain — SHARED by transactional
         // email (absolute links in the approved/rejected emails, AECI-240) AND the
         // post-promote IndexNow submission (the origin its URLs are built against,
