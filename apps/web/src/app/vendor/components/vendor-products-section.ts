@@ -120,6 +120,7 @@ const ALL_FACETS: readonly ProductFacetKind[] = ['categories', 'trades', 'audien
             [canEdit]="canEdit()"
             [canEditTaxonomy]="canEditTaxonomy()"
             [canEditUsefulness]="canEditUsefulness()"
+            [headingLevel]="facetHeadingLevel()"
           />
         }
       </div>
@@ -151,6 +152,13 @@ export class VendorProductsSection {
     if (section === 'all') return ALL_FACETS;
     return section === 'profile' ? [] : [section];
   });
+
+  /** One product under the routed page's product-name `h1` gets `h2` facet
+   *  headings. The stacked list sits under the single page's "Your products"
+   *  `h2`, so its facets stay `h3` (AECI-1122). */
+  protected readonly facetHeadingLevel = computed<2 | 3>(() =>
+    this.selectedSlug() === null ? 3 : 2,
+  );
 
   protected readonly selectedProduct = computed(() => {
     const slug = this.selectedSlug();

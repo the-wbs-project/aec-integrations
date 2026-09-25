@@ -65,6 +65,7 @@ describe('VendorProductFacetEditor', () => {
       canEdit?: boolean;
       canEditTaxonomy?: boolean;
       canEditUsefulness?: boolean;
+      headingLevel?: 2 | 3;
     } = {},
   ): ComponentFixture<VendorProductFacetEditor> {
     const fixture = TestBed.createComponent(VendorProductFacetEditor);
@@ -77,6 +78,9 @@ describe('VendorProductFacetEditor', () => {
     fixture.componentRef.setInput('canEdit', opts.canEdit ?? true);
     fixture.componentRef.setInput('canEditTaxonomy', opts.canEditTaxonomy ?? true);
     fixture.componentRef.setInput('canEditUsefulness', opts.canEditUsefulness ?? true);
+    if (opts.headingLevel !== undefined) {
+      fixture.componentRef.setInput('headingLevel', opts.headingLevel);
+    }
     fixture.detectChanges();
     return fixture;
   }
@@ -124,6 +128,20 @@ describe('VendorProductFacetEditor', () => {
 
   const save = (f: ComponentFixture<VendorProductFacetEditor>) =>
     el(f).querySelector('button[type="submit"]') as HTMLButtonElement | null;
+
+  // ── Heading level (AECI-1122) ────────────────────────────────────────────
+
+  it('renders the facet heading as h3 by default and h2 when asked', () => {
+    const nested = create('categories');
+    expect(el(nested).querySelector('h3')?.textContent?.trim()).toBe('Categories');
+    expect(el(nested).querySelector('form h2')).toBeNull();
+
+    const routed = create('audiences', { headingLevel: 2 });
+    const h2 = el(routed).querySelector('form h2');
+    expect(h2?.textContent?.trim()).toBe('Audiences');
+    expect(h2?.id).toBe(`vendor-product-${PRODUCT.id}-audiences-heading`);
+    expect(el(routed).querySelector('form h3')).toBeNull();
+  });
 
   // ── Simple facets ────────────────────────────────────────────────────────
 

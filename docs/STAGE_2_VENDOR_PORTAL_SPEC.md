@@ -1801,6 +1801,11 @@ bullet.
   full vocabulary inline as a checklist with each term's description beside it. There is no
   modal. The row is still a `<label>` around a real checkbox, and the list still never scrolls
   inside a `<fieldset>` (§6.1 rules 3 and 4).
+- **The facet heading follows the page outline** (AECI-1122). On a routed facet tab it sits
+  directly under the product-name `h1`, so it is an `h2`. In the single-page concept it sits
+  under the "Your products" `h2`, so it is an `h3`. `vendor-products-section.ts` picks the level
+  from its mode through the editor's `headingLevel` input. axe does not flag a skipped level;
+  `npx impeccable detect` does.
 - **Nothing persists until Save.** One `PATCH /api/vendor/products/:id` carries the facet's slug
   array when it changed and the complete `usefulness` value when the points changed. The handler
   writes both in one `db.batch`, so a tag and its points cannot land half-way. This reverses
@@ -1845,7 +1850,7 @@ bullet.
 **Tests.** `vendor-product-facet-editor.component.spec.ts` (inline vocabulary, write-on-Save only,
 the combined PATCH without group names, the other facet carried through, reorder as an edit, the
 removal confirmation and its cancel, untagged points shown, the length cap, both capability axes,
-the store splice), `vendor-bullet-list-editor.component.spec.ts` (add at bottom, cap, remove, move,
+the store splice, the heading level), `vendor-bullet-list-editor.component.spec.ts` (add at bottom, cap, remove, move,
 focus after each, announcements, Enter never submits, read-only), `vendor-portal-nav.component.spec.ts`
 and `vendor-dashboard-tabbed.component.spec.ts` (six product tabs), and `vendor-overview-model.spec.ts` (the categories link).
 
