@@ -273,3 +273,42 @@ line by hand against `spec-anchor` step 1. Count three outcomes separately:
 
 Anything else is a miss. The 2026-09-11 baseline (AECI-601) was 6 correct, 6 resolving to the
 **wrong** doc, 2 partial, 5 `n/a` with no rung-1 hit, and 2 with no line at all.
+
+---
+
+## 6. Closing an issue, and closing an epic
+
+Two rules, both added 2026-09-14 after AECI-882 and AECI-883 were each marked Done with four
+open sub-issues.
+
+### Every issue a PR closes goes in the PR **description**
+
+Linear's PR automation reads the pull request **title, description and branch name**. It does not
+read individual commit messages, and a squash merge does not change that.
+
+PR #699 carried `Closes AECI-811` and `Closes AECI-878` in its commit bodies. Its description named
+only `Closes AECI-882`. Both sub-issues stayed In Progress after the merge, and the epic above them
+was closed by hand on the assumption they had followed. They had not.
+
+So: if a PR finishes an issue, `Closes AECI-N` goes in the description, one line per issue. The
+commit body may repeat it; it may not be the only place it appears.
+
+### An epic closes only when every sub-issue is closed
+
+An epic is the index of its children. Closing it while a child is open does not just mis-report
+status — it **removes the only surface that lists the remaining work**, because a Done epic drops
+out of every default view its children would otherwise be read from.
+
+Before setting an epic to Done, list its sub-issues and check that each is Done or Canceled. For
+each child that is not, do one of three things and say which:
+
+1. **Close it**, if the work shipped and only the status is stale. Cite the merge commit.
+2. **Re-parent it** to an open epic, if it turned out to belong elsewhere. Say why in a comment.
+3. **Leave the epic open.** This is the default. An epic that is 90% done is not Done.
+
+The same rule applies one level down: a parent issue with sub-issues is an epic for this purpose.
+AECI-891 was closed on 2026-09-13 while its own child AECI-907 was still open.
+
+**Do not close an epic on the strength of its Done-when list alone.** Read the list *and* the
+children. AECI-883's first Done-when item was "all 113 remaining I24 duplicates are retired"; zero
+had been retired when it was closed.
