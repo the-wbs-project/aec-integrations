@@ -1,7 +1,7 @@
 import { Component, computed, input, output } from '@angular/core';
+import { RouterLink } from '@angular/router';
 
 import { LogoOrInitial } from '../shared/logo-or-initial/logo-or-initial';
-import { NewTabIcon } from '../shared/new-tab-icon/new-tab-icon';
 
 /**
  * AECI-841 — the collapsible group card both product-detail integration
@@ -43,16 +43,16 @@ import { NewTabIcon } from '../shared/new-tab-icon/new-tab-icon';
  * to a compact trailing anchor in the same bar. Both targets survive; only the
  * one that carries the name changed.
  *
- * **It opens in a new tab, deliberately.** A reader on a product page who wants
- * to know what Agave ERP Sync is has not finished with the page they are on —
- * the link is a lookup, not a destination, and the same reasoning the admin
- * console's "View Page" button records. So: a plain `href` rather than
- * `routerLink` (a router navigation is pointless once the browser is opening a
- * new context), `rel="noopener"` because the new context would otherwise get a
- * handle on this one, and the new tab is **announced in the accessible name**
- * rather than left to be discovered. The name is built to START with the visible
- * "View product" text, so it satisfies WCAG 2.5.3 Label in Name and a speech-input
- * user can say what they can read.
+ * **It stays in the tab (AECI-1125).** It is an ordinary in-app link: a
+ * `routerLink`, no `target`, no `rel`, no new-tab icon. AECI-841 opened it in a
+ * new tab as "a lookup, not a destination", which contradicted DESIGN.md's Link
+ * Treatment Rule: a public page linking to another public page is a destination,
+ * and the reader loses nothing, because Back returns them to the same scroll
+ * position (the router's scroll restoration already handles that). The
+ * accessible name still names the product, because the visible "View product"
+ * repeats on every card. It is built to START with that visible text, so it
+ * satisfies WCAG 2.5.3 Label in Name and a speech-input user can say what they
+ * can read.
  *
  * Fully controlled: the card renders `expanded()` and emits `toggled`. The owning
  * section holds the collapsed set, because an active filter has to be able to
@@ -60,7 +60,7 @@ import { NewTabIcon } from '../shared/new-tab-icon/new-tab-icon';
  */
 @Component({
   selector: 'aec-integration-group-card',
-  imports: [LogoOrInitial, NewTabIcon],
+  imports: [LogoOrInitial, RouterLink],
   // A custom element is `display: inline` by default, so a parent's `space-y-*`
   // margin would land on an inline box and be dropped. Same fix, same reason as
   // `ProductPoweredHub`.
@@ -129,24 +129,22 @@ import { NewTabIcon } from '../shared/new-tab-icon/new-tab-icon';
           </button>
         </h3>
         @if (link(); as target) {
-          <!-- Standalone-link role (DESIGN.md, "The Link Treatment Rule"). This
-               card's own inline arrow-up-right was the drawing AECI-980 made
-               canonical, so the SVG moved out to aec-new-tab-icon and this site
-               now consumes it like every other. Off accent in the same change:
-               accent belongs to the one primary action on a surface, and
-               product-detail already spends it on "Visit website". -->
+          <!-- Standalone-link role (DESIGN.md, "The Link Treatment Rule"): off
+               accent, because accent belongs to the one primary action on a
+               surface, and product-detail already spends it on "Visit website".
+               An ordinary in-app link since AECI-1125: routerLink, same tab, no
+               new-tab icon. px-3 py-1.5 on text-xs keeps the target at 28px,
+               over the 24px WCAG 2.5.8 floor (AECI-1079). -->
           <a
-            [href]="target"
-            target="_blank"
-            rel="noopener"
+            [routerLink]="target"
             [attr.aria-label]="linkAriaLabel()"
-            class="ms-auto inline-flex shrink-0 items-center gap-1.5 rounded-(--radius-md) px-3 py-1.5
+            class="ms-auto inline-flex shrink-0 items-center rounded-(--radius-md) px-3 py-1.5
               text-xs font-medium text-(--text-secondary) underline decoration-(--border-strong)
               underline-offset-4 transition-colors hover:text-(--text-primary)
               focus-visible:outline-2 focus-visible:outline-offset-2
               focus-visible:outline-(--accent-primary)"
-            ><span>{{ linkLabel() }}</span> <aec-new-tab-icon
-          /></a>
+            >{{ linkLabel() }}</a
+          >
         }
       </div>
 
@@ -179,15 +177,14 @@ export class IntegrationGroupCard {
   /** Localized group size, e.g. "12 connections" or "3 of 12" under a filter.
    *  Built by the section so the i18n ids stay where the copy is. */
   readonly countLabel = input<string>('');
-  /** Href for the subject's own page, or `null` for no link. A path, not
-   *  RouterLink commands: the anchor opens a new tab, so there is no in-app
-   *  navigation for the router to take part in. */
+  /** Path to the subject's own page, or `null` for no link. Passed to
+   *  `routerLink`, so the navigation stays in the app and in the tab. */
   readonly link = input<string | null>(null);
   /** Visible link text. */
   readonly linkLabel = input<string>('');
   /** Full accessible name for the link. The visible text repeats on every card,
-   *  and the new tab has to be announced; both are the caller's to phrase, so
-   *  the i18n ids stay with the copy. Must begin with `linkLabel` (WCAG 2.5.3). */
+   *  so the name has to say which product; the caller phrases it, so the i18n
+   *  ids stay with the copy. Must begin with `linkLabel` (WCAG 2.5.3). */
   readonly linkAriaLabel = input<string>('');
   /** Controlled disclosure state. */
   readonly expanded = input<boolean>(true);

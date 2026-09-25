@@ -505,9 +505,8 @@ export class ProductPoweredHub {
    * nothing: the sibling `#integrations` section's `ProductIntegrationRow` is
    * projected into the same `IntegrationGroupCard` panel and keeps `routerLink`
    * too. `routerLink` still serialises a real `href` for crawlers and no-JS
-   * readers, so nothing is lost. The card's own trailing "View product" anchor is
-   * the deliberate exception — it opens a new tab, where a router navigation
-   * would be pointless.
+   * readers, so nothing is lost. The card's own trailing "View product" anchor
+   * uses `routerLink` too (AECI-1125).
    */
   protected pairLink(pair: PoweredConnection): readonly string[] {
     const context = defaultIntegrationContext(pair.a.slug, pair.b.slug);
@@ -643,12 +642,13 @@ export class ProductPoweredHub {
   }
 
   /**
-   * Accessible name for a card's trailing "View product" link. Same reason, plus
-   * the new tab: a link that opens a new browsing context has to say so, and the
-   * name starts with the visible "View product" text so WCAG 2.5.3 Label in Name
-   * holds and speech input can target it.
+   * Accessible name for a card's trailing "View product" link. Same reason: the
+   * visible text repeats on every card, so the name says which product. It
+   * starts with the visible "View product" text so WCAG 2.5.3 Label in Name
+   * holds and speech input can target it. The link stays in the tab
+   * (AECI-1125), so the name no longer announces one.
    */
   protected productLinkAriaLabel(name: string): string {
-    return $localize`:@@products.detail.group.link.aria:View product: ${name}:NAME: (opens in a new tab)`;
+    return $localize`:@@products.detail.group.link.name:View product: ${name}:NAME:`;
   }
 }

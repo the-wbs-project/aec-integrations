@@ -1,6 +1,7 @@
 import { Component, signal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
-import { provideRouter } from '@angular/router';
+import { By } from '@angular/platform-browser';
+import { provideRouter, RouterLink } from '@angular/router';
 import { describe, expect, it } from 'vitest';
 
 import { IntegrationGroupCard } from './integration-group-card';
@@ -23,7 +24,7 @@ import { IntegrationGroupCard } from './integration-group-card';
       countLabel="12 connections"
       [link]="link()"
       linkLabel="View product"
-      linkAriaLabel="View product: Agave ERP Sync (opens in a new tab)"
+      linkAriaLabel="View product: Agave ERP Sync"
       [expanded]="expanded()"
       (toggled)="toggles.set(toggles() + 1)"
     >
@@ -114,17 +115,33 @@ describe('IntegrationGroupCard', () => {
     expect(anchor!.closest('button')).toBeNull();
   });
 
-  it('opens the product page in a new tab, says so, and drops the opener handle', () => {
+  // AECI-1125: the link used to open a new tab as "a lookup, not a
+  // destination", against DESIGN.md's Link Treatment Rule. It is now an ordinary
+  // in-app link, so a later edit that puts the new tab back has to fail here.
+  it('is an ordinary in-app link: routerLink, same tab, no new-tab cue', () => {
+    const { fixture, el } = setup();
+    const anchor = el.querySelector<HTMLAnchorElement>('a[href="/products/agave-erp-sync"]')!;
+    expect(anchor.hasAttribute('target')).toBe(false);
+    expect(anchor.hasAttribute('rel')).toBe(false);
+    expect(anchor.querySelector('aec-new-tab-icon')).toBeNull();
+    expect(anchor.textContent).not.toContain('new tab');
+    // An in-app path, navigated by the router rather than a document load.
+    expect(anchor.getAttribute('href')!.startsWith('/')).toBe(true);
+    const routed = fixture.debugElement
+      .queryAll(By.directive(RouterLink))
+      .map((d) => d.nativeElement as HTMLElement);
+    expect(routed).toContain(anchor);
+  });
+
+  it('names the product in the link and starts the name with the visible text', () => {
     const { el } = setup();
     const anchor = el.querySelector<HTMLAnchorElement>('a[href="/products/agave-erp-sync"]')!;
-    expect(anchor.getAttribute('target')).toBe('_blank');
-    expect(anchor.getAttribute('rel')).toBe('noopener');
     const name = anchor.getAttribute('aria-label')!;
-    expect(name).toContain('opens in a new tab');
+    expect(name).toBe('View product: Agave ERP Sync');
     // WCAG 2.5.3 Label in Name: the accessible name starts with the visible text,
     // so a speech-input user can say what they can read.
-    expect(anchor.textContent!.trim().startsWith('View product')).toBe(true);
-    expect(name.startsWith('View product')).toBe(true);
+    expect(anchor.textContent!.trim()).toBe('View product');
+    expect(name.startsWith(anchor.textContent!.trim())).toBe(true);
   });
 
   it('renders no link at all for a group with no subject page', () => {
