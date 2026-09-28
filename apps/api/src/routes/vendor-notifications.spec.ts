@@ -19,6 +19,7 @@ import type { Env } from '../env';
 import { errorHandler } from '../errors';
 import type { AuthzVariables } from '../lib/authz';
 import { NOTIFICATION_SENT_ACTION } from '../lib/attestation-notify';
+import { claimAddedNotificationAudit } from '../lib/claim-added-notification';
 import { makeTestDb, type TestDb } from '../test/d1';
 import { TEST_ENV, fakeExecutionContext } from '../test/helpers';
 import {
@@ -192,5 +193,67 @@ describe('GET /api/vendor/notifications', () => {
 
     const list = (await get()).body.notifications as Array<Record<string, unknown>>;
     expect(list.map((n) => n.claim_id)).toEqual([uuid(35)]);
+  });
+});
+
+describe('GET /api/vendor/notifications — claim_added rows (AECI-1153 / §7.6)', () => {
+  const claimAdded = (vendorId: string, extra: Record<string, unknown> = {}) =>
+    ledgerRow({
+      metadata: claimAddedNotificationAudit(
+        { actorId: null, actorType: 'user' },
+        {
+          vendorId,
+          addedByVendorId: OTHER_VENDOR,
+          addedByName: 'Bentley',
+          integrationId: uuid(10),
+          integrationName: 'Revit to MicroStation',
+          claimId: CLAIM,
+          dataObject: { slug: 'rfis', name: 'RFIs' },
+          direction: 'inbound',
+          counterpartProduct: { slug: 'microstation', name: 'MicroStation' },
+          pairSlugs: ['revit', 'microstation'],
+          ...extra,
+        },
+      ).metadata,
+    });
+
+  it('maps the ledger row to the claim_added member', async () => {
+    await claimAdded(VENDOR);
+    const { res, body } = await get();
+    expect(res.status).toBe(200);
+    expect(() => ListVendorNotificationsResponseSchema.parse(body)).not.toThrow();
+    const [row] = body.notifications as Record<string, unknown>[];
+    expect(row).toEqual({
+      kind: 'claim_added',
+      id: expect.any(String),
+      claim_id: CLAIM,
+      integration_id: uuid(10),
+      integration_name: 'Revit to MicroStation',
+      data_object: { slug: 'rfis', name: 'RFIs' },
+      direction: 'inbound',
+      added_by_name: 'Bentley',
+      counterpart_product: { slug: 'microstation', name: 'MicroStation' },
+      pair_path: '/products/microstation/integrations/revit',
+      created_at: expect.any(String),
+    });
+  });
+
+  it('is isolated to its recipient', async () => {
+    await claimAdded(OTHER_VENDOR);
+    const { body } = await get();
+    expect(body.notifications).toEqual([]);
+  });
+
+  it('never carries a note, even if one were in the ledger metadata', async () => {
+    await claimAdded(VENDOR, { note: 'private reason' });
+    const { body } = await get();
+    expect(JSON.stringify(body)).not.toContain('private reason');
+  });
+
+  it('skips a claim_added row it cannot read, rather than 500ing the tab', async () => {
+    await ledgerRow({ metadata: { kind: 'claim_added', vendorId: VENDOR, direction: 'sideways' } });
+    const { res, body } = await get();
+    expect(res.status).toBe(200);
+    expect(body.notifications).toEqual([]);
   });
 });

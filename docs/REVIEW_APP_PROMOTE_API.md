@@ -1242,6 +1242,14 @@ promote (AECI-1088 review).
 `retired_at` and `retired_by` (AECI-1046). A row promote creates is `origin = 'aeci'`
 and unclaimed. Promote never un-retires a row.
 
+**Promote never writes `pricing_url` either** (AECI-1154, migration `0052`). It is the
+owner's pricing page link, on `integrations` and `connector_evidenced_pairs`, written only
+by the owner edit and the vendor create (`STAGE_2_VENDOR_PORTAL_SPEC.md` §6.17.11). The
+payload has no field for it, so an ordinary UPDATE leaves it alone. A §3.4a cross-table
+move is an INSERT in the other table, so the move **carries** the stored value across,
+beside the maintenance pair. Otherwise a value set while the row was claimed, then left
+in place by an un-claim, would be lost when a later promote moved the row.
+
 The fence reads `claimed_at IS NOT NULL OR origin = 'vendor'`, never `maintained_by`.
 The `origin` half was added by AECI-1011: an AECi `owner` accept clears `claimed_at`, and
 a vendor-created row has no upstream record for promote to write from. A row can be
@@ -1280,7 +1288,8 @@ production pair is vendor-held and nothing changes on your side.
   prune refuses an id that names one.
 - Promote never writes the four ownership columns on that table: `claimed_at`, `origin`,
   `retired_at` and `retired_by`. A pair promote creates, or moves in from `integrations`, is
-  `origin = 'aeci'` and unclaimed.
+  `origin = 'aeci'` and unclaimed. Nor does it write `pricing_url` (AECI-1154), which a move
+  in from `integrations` carries across unchanged (§4b above).
 
 You see the same `skipped[]` entry for a fenced evidenced pair as for a fenced integration.
 

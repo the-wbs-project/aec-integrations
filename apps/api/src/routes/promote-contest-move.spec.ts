@@ -497,3 +497,37 @@ describe('promote contest move: guards that must still hold (AECI-1110)', () => 
     expect(await auditFor(CONTEST_REANCHORED_ACTION)).toEqual([]);
   });
 });
+
+describe('promote never writes pricing_url, and a move carries it (AECI-1154)', () => {
+  const PRICING = 'https://navisworks.example/pricing';
+
+  it('carries it into connector_evidenced_pairs', async () => {
+    await seedIntegrationEdge();
+    await t.db.update(integrations).set({ pricingUrl: PRICING }).where(eq(integrations.id, EDGE));
+    await ingest(push({ poweredByProduct: { supabaseId: AGAVE } }, true));
+    const pair = await t.db.query.connectorEvidencedPairs.findFirst({
+      where: eq(connectorEvidencedPairs.id, EDGE),
+    });
+    expect(pair?.pricingUrl).toBe(PRICING);
+  });
+
+  it('carries it back into integrations', async () => {
+    await seedEvidencedEdge();
+    await t.db
+      .update(connectorEvidencedPairs)
+      .set({ pricingUrl: PRICING })
+      .where(eq(connectorEvidencedPairs.id, EDGE));
+    await ingest(push({ poweredByProduct: null }));
+    const row = await t.db.query.integrations.findFirst({ where: eq(integrations.id, EDGE) });
+    expect(row?.pricingUrl).toBe(PRICING);
+  });
+
+  it('leaves it alone on an ordinary re-promote, which has no field for it', async () => {
+    await seedIntegrationEdge();
+    await t.db.update(integrations).set({ pricingUrl: PRICING }).where(eq(integrations.id, EDGE));
+    await ingest(push({ name: 'Renamed by curation' }, true));
+    const row = await t.db.query.integrations.findFirst({ where: eq(integrations.id, EDGE) });
+    expect(row?.name).toBe('Renamed by curation');
+    expect(row?.pricingUrl).toBe(PRICING);
+  });
+});

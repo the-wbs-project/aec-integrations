@@ -394,7 +394,7 @@ create table integrations (
   pricing_model text,
   maturity text,
   notes text,
-  -- AECI-1154 (specified 2026-09-28, not yet migrated): the owner's pricing page link.
+  -- AECI-1154 (migration 0052_sticky_gamma_corps): the owner's pricing page link.
   -- A plain ADD COLUMN, nullable, no default, no CHECK. Not contestable. Promote never writes it.
   pricing_url text,
 
@@ -478,7 +478,8 @@ create index integrations_powered_by_idx on integrations(powered_by_product_id) 
 > and since `0045` `integration_vendor_links`) are exactly what a recreate's DROP would have
 > destroyed; `src/test/migration-0044.spec.ts` is the tripwire.
 
-> **`pricing_url` (AECI-1154, specified 2026-09-28; the migration is the build's).** The owner's
+> **`pricing_url` (AECI-1154, specified 2026-09-28; migrated by `0052_sticky_gamma_corps.sql`,
+> tripwire `src/test/migration-0052.spec.ts`).** The owner's
 > link to where customers see the price, shown as the "Price" fact on the public pair card
 > (`STAGE_2_VENDOR_PORTAL_SPEC.md` §6.17.11, `API_CONTRACTS.md` §6.14). The same column goes on
 > `connector_evidenced_pairs` (§9a.6), because an entitled owner edits its rows there too

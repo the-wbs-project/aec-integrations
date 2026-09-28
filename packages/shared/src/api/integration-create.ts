@@ -21,8 +21,9 @@ import { IntegrationMechanismKindSchema } from './integrations';
  * 2. **One endpoint is the caller's.** `product_id` must be a product the caller's
  *    vendor holds through `product_vendors`; `counterpart_product_id` must be a
  *    promoted product. They must differ. Either miss is the same `404`.
- * 3. **The standard fields are the owner edit's eleven** (AECI-1006), with the same
- *    caps and value rules. `name`, `mechanism_kind` and `direction` are required,
+ * 3. **The standard fields are the owner edit's ten** (AECI-1006; since AECI-1154
+ *    and AECI-1155 `pricing_url` in, `website` and `mechanism_url` out), with the
+ *    same caps and value rules. `name`, `mechanism_kind` and `direction` are required,
  *    because a pair page cannot render without them.
  * 4. **Never connector-powered** (AECI-1003 decision 9). There is no `powered_by`
  *    field, and `iPaaS` and `integrator` are refused. A vendor cannot create a row
@@ -40,7 +41,8 @@ import { IntegrationMechanismKindSchema } from './integrations';
  * `POST /api/vendor/integrations`.
  *
  * `.strict()`: an unknown key (`powered_by_product_id`, `built_by_vendor_id`,
- * `origin`, `notes`) is a `400`, never a silently dropped field.
+ * `origin`, `notes`, and since AECI-1155 `website` and `mechanism_url`) is a `400`,
+ * never a silently dropped field.
  */
 export const CreateVendorIntegrationSchema = z
   .object({
@@ -53,10 +55,9 @@ export const CreateVendorIntegrationSchema = z
     description: integrationEditFieldSchema('description'),
     listing_url: integrationEditFieldSchema('listing_url'),
     docs_url: integrationEditFieldSchema('docs_url'),
-    website: integrationEditFieldSchema('website'),
-    mechanism_url: integrationEditFieldSchema('mechanism_url'),
     pricing_model: integrationEditFieldSchema('pricing_model'),
     maturity: integrationEditFieldSchema('maturity'),
+    pricing_url: integrationEditFieldSchema('pricing_url'),
   })
   .strict()
   .superRefine((body, ctx) => {

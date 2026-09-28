@@ -238,6 +238,7 @@ describe('resolveClaimAuthority', () => {
       direction: 'a_to_b',
       origin: 'aeci',
       createdByVendorId: null,
+      createdAt: expect.any(String),
     });
     expect(authority).toEqual({
       integrationId: 'i-main',

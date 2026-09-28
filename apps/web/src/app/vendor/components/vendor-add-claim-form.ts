@@ -580,6 +580,10 @@ export class VendorAddClaimForm {
       origin: 'vendor',
       mine,
       counterparty: null,
+      // AECI-1153: the caller is adding it, and a lone affirm cannot disagree.
+      added_by: 'you',
+      created_at: now,
+      disagreement: null,
     };
   }
 

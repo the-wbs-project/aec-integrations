@@ -14,7 +14,8 @@
  * AECI-1010 the retire and restore (`metadata.kind = 'integration_retire'`), and since
  * AECI-1006 the owner's edit (`metadata.kind = 'integration_update'`), and since
  * AECI-1011 a vendor's create (`metadata.kind = 'integration_create'`), to the same
- * recipients.
+ * recipients, and since AECI-1153 a data row another vendor added
+ * (`metadata.kind = 'claim_added'`), to the vendors of the other endpoint.
  * The list is a union on `kind`; the scoping predicate below is unchanged, so the
  * `notifications` cursor needed no change either.
  *
@@ -54,7 +55,9 @@ import {
   ListVendorNotificationsResponseSchema,
   type AttestationDetector,
   type ContestNotificationEvent,
+  type ContextDirection,
   type ListVendorNotificationsResponse,
+  type VendorClaimAddedNotification,
   type NotificationProductRef,
   type VendorContestNotification,
   type VendorIntegrationClaimNotification,
@@ -74,6 +77,10 @@ import {
   type NotificationLedgerMetadata,
 } from '../lib/attestation-notify';
 import { validateResponseInDev, type DbFactory } from '../lib/handler-utils';
+import {
+  CLAIM_ADDED_NOTIFICATION_KIND,
+  type ClaimAddedNotificationMetadata,
+} from '../lib/claim-added-notification';
 import { CLAIM_NOTIFICATION_KIND, type ClaimNotificationMetadata } from '../lib/integration-claims';
 import {
   CREATE_NOTIFICATION_KIND,
@@ -162,6 +169,8 @@ function toVendorNotification(row: {
   if (kind === UPDATE_NOTIFICATION_KIND) return toUpdateNotification(row);
   // AECI-1011: another vendor created an integration on one of its products.
   if (kind === CREATE_NOTIFICATION_KIND) return toCreateNotification(row);
+  // AECI-1153: another vendor added a data row to an integration on its product.
+  if (kind === CLAIM_ADDED_NOTIFICATION_KIND) return toClaimAddedNotification(row);
   const meta = row.metadata as Partial<NotificationLedgerMetadata> | null;
   if (!meta || !row.entityId) return null;
   if (typeof meta.detector !== 'string' || !DETECTORS.has(meta.detector)) return null;
@@ -349,6 +358,46 @@ function toCreateNotification(row: {
     integration_id: meta.integrationId,
     integration_name: typeof meta.integrationName === 'string' ? meta.integrationName : null,
     owner_name: typeof meta.ownerName === 'string' ? meta.ownerName : null,
+    pair_path: pairPathFor(pairSlugs),
+    created_at: row.createdAt,
+  };
+}
+
+const CONTEXT_DIRECTIONS = new Set<string>(['inbound', 'outbound', 'both']);
+
+/**
+ * Map one `claim_added` ledger row (AECI-1153), or `null` when it is not
+ * recognisable. Same tolerance as the other mappers. The row never carries the
+ * note (§7.6), and nothing here reads one.
+ */
+function toClaimAddedNotification(row: {
+  id: string;
+  entityId: string | null;
+  createdAt: string;
+  metadata: unknown;
+}): VendorClaimAddedNotification | null {
+  const meta = row.metadata as Partial<ClaimAddedNotificationMetadata> | null;
+  if (!meta || typeof meta.integrationId !== 'string' || typeof meta.claimId !== 'string') {
+    return null;
+  }
+  const dataObject = productRef(meta.dataObject);
+  if (!dataObject) return null;
+  if (typeof meta.direction !== 'string' || !CONTEXT_DIRECTIONS.has(meta.direction)) return null;
+  const pair = meta.pairSlugs;
+  const pairSlugs =
+    Array.isArray(pair) && typeof pair[0] === 'string' && typeof pair[1] === 'string'
+      ? ([pair[0], pair[1]] as const)
+      : null;
+  return {
+    kind: 'claim_added',
+    id: row.id,
+    claim_id: meta.claimId,
+    integration_id: meta.integrationId,
+    integration_name: typeof meta.integrationName === 'string' ? meta.integrationName : null,
+    data_object: dataObject,
+    direction: meta.direction as ContextDirection,
+    added_by_name: typeof meta.addedByName === 'string' ? meta.addedByName : null,
+    counterpart_product: productRef(meta.counterpartProduct),
     pair_path: pairPathFor(pairSlugs),
     created_at: row.createdAt,
   };

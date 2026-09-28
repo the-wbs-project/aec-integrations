@@ -2,9 +2,10 @@ import { Component, computed, inject, input, output, signal, type OnInit } from 
 
 import {
   CONNECTOR_POWERED_FROZEN_EDIT_FIELDS,
-  CONTEST_VALUE_MAX_LENGTH,
   INTEGRATION_EDIT_FIELDS,
+  INTEGRATION_EDIT_MAX_LENGTH,
   INTEGRATION_EDIT_REQUIRED_FIELDS,
+  INTEGRATION_EDIT_URL_FIELDS,
   OWNER_EDITABLE_MECHANISM_KINDS,
   UpdateVendorIntegrationSchema,
   type IntegrationEditField,
@@ -17,21 +18,14 @@ import { VendorPortalAnnouncer } from '../vendor-announcer';
 import { VendorApi } from '../vendor-api';
 import { VendorPortalStore } from '../vendor-portal-store';
 
-import { contestFieldLabel } from './vendor-contest-labels';
+import { editFieldLabel } from './vendor-contest-labels';
 import { editSaveErrorMessage, editValueMessage } from './vendor-integration-ownership-labels';
 
 /** How each field is edited. Same split as the contest form. */
 type ControlKind = 'url' | 'text' | 'textarea' | 'mechanism' | 'direction';
 
-const URL_FIELDS: ReadonlySet<IntegrationEditField> = new Set([
-  'listing_url',
-  'docs_url',
-  'website',
-  'mechanism_url',
-]);
-
 function controlFor(field: IntegrationEditField): ControlKind {
-  if (URL_FIELDS.has(field)) return 'url';
+  if (INTEGRATION_EDIT_URL_FIELDS.has(field)) return 'url';
   if (field === 'description') return 'textarea';
   if (field === 'mechanism_kind') return 'mechanism';
   if (field === 'direction') return 'direction';
@@ -50,8 +44,10 @@ export const EDIT_GROUPS: readonly {
     key: 'about',
     fields: ['name', 'description', 'mechanism_kind', 'mechanism_name', 'direction'],
   },
-  { key: 'links', fields: ['website', 'listing_url', 'docs_url', 'mechanism_url'] },
-  { key: 'terms', fields: ['pricing_model', 'maturity'] },
+  // AECI-1155: website and connection link left the portal. AECI-1154: the pricing
+  // page joins the terms group beside the pricing text.
+  { key: 'links', fields: ['listing_url', 'docs_url'] },
+  { key: 'terms', fields: ['pricing_model', 'pricing_url', 'maturity'] },
 ];
 
 type Draft = Record<IntegrationEditField, string>;
@@ -399,7 +395,7 @@ export class VendorIntegrationEditForm implements OnInit {
   }
 
   protected fieldLabel(field: IntegrationEditField): string {
-    return contestFieldLabel(field);
+    return editFieldLabel(field);
   }
 
   protected required(field: IntegrationEditField): boolean {
@@ -411,7 +407,7 @@ export class VendorIntegrationEditForm implements OnInit {
   }
 
   protected maxLength(field: IntegrationEditField): number {
-    return CONTEST_VALUE_MAX_LENGTH[field];
+    return INTEGRATION_EDIT_MAX_LENGTH[field];
   }
 
   protected optionsFor(field: IntegrationEditField): readonly { value: string; label: string }[] {

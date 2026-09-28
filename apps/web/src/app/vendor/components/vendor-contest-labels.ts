@@ -9,6 +9,7 @@ import {
   type ContestStatus,
   type ContextDirection,
   type IntegrationContestField,
+  type IntegrationEditField,
 } from '@aeci/shared';
 
 import { directionHeading } from '../../products/pair-direction-labels';
@@ -57,10 +58,23 @@ export function contestFieldLabel(field: IntegrationContestField): string {
   }
 }
 
+/**
+ * An owner edit field's label (AECI-1154). The edit list is the offered contest
+ * fields minus `owner`, plus the edit-only `pricing_url`, which no contest names.
+ */
+export function editFieldLabel(field: IntegrationEditField): string {
+  if (field === 'pricing_url') {
+    return $localize`:@@vendor.integrationEdit.field.pricingUrl:Pricing page`;
+  }
+  return contestFieldLabel(field);
+}
+
 /** A field name from the notification feed, which types it as a plain string
  *  (a snapshot that may predate a vocabulary change). Unknown names render
  *  as-is rather than blank. */
 export function contestFieldLabelLoose(field: string): string {
+  // AECI-1154: an owner edit's notification may name the edit-only field.
+  if (field === 'pricing_url') return editFieldLabel(field);
   return isContestField(field) ? contestFieldLabel(field) : field;
 }
 

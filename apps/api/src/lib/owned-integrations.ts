@@ -87,6 +87,8 @@ export async function loadOwnedIntegrations(
         mechanismUrl: true,
         pricingModel: true,
         maturity: true,
+        // AECI-1154: the owner's pricing page link, not contestable.
+        pricingUrl: true,
       },
       with: {
         sourceProduct: { columns: productLinkColumns },
@@ -113,6 +115,8 @@ export async function loadOwnedIntegrations(
         mechanismUrl: true,
         pricingModel: true,
         maturity: true,
+        // AECI-1154: the owner's pricing page link, not contestable.
+        pricingUrl: true,
       },
       with: {
         productA: { columns: productLinkColumns },
@@ -140,6 +144,7 @@ export async function loadOwnedIntegrations(
       retired_at: row.retiredAt,
       retired_by: effectiveRetiredBy({ retired_at: row.retiredAt, retired_by: row.retiredBy }),
       contestable_fields: contestableFieldsOnA(row),
+      pricing_url: row.pricingUrl ?? null,
     });
   }
   for (const pair of pairs) {
@@ -159,6 +164,7 @@ export async function loadOwnedIntegrations(
       // A pair has every standard column but `mechanism_kind`, and stores
       // `direction` against the canonical A, the same frame as `product_a` here.
       contestable_fields: contestableFieldsOnA({ ...pair, mechanismKind: null }),
+      pricing_url: pair.pricingUrl ?? null,
     });
   }
   // Case never decides the order (`API_CONTRACTS.md` §3.2). The id is the final,

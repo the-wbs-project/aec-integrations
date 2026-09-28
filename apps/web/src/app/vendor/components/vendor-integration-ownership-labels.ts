@@ -1,6 +1,6 @@
 import {
-  CONTEST_URL_FIELDS,
-  CONTEST_VALUE_MAX_LENGTH,
+  INTEGRATION_EDIT_MAX_LENGTH,
+  INTEGRATION_EDIT_URL_FIELDS,
   integrationEditValueProblem,
   type IntegrationEditField,
 } from '@aeci/shared';
@@ -11,7 +11,7 @@ import { readVendorApiError } from '../vendor-api-error';
  * Vendor-facing copy for integration ownership: the claim (AECI-1005) and the
  * owner's edit (AECI-1006, `STAGE_2_VENDOR_PORTAL_SPEC.md` §4.5.6). Field names
  * come from `vendor-contest-labels.ts`, because the edit form and the contest
- * form name the same eleven fields and two spellings would drift.
+ * form name the same fields and two spellings would drift.
  *
  * The wording is AECI-1023's and matches `/methodology` "Who owns an integration":
  * the owner is the "Offered by" vendor, a claim stops AECi's catalogue updates,
@@ -29,10 +29,10 @@ export function editValueMessage(field: IntegrationEditField, value: string | nu
   if (value === null) {
     return $localize`:@@vendor.integrationEdit.error.required:This field cannot be empty.`;
   }
-  if (value.length > CONTEST_VALUE_MAX_LENGTH[field]) {
+  if (value.length > INTEGRATION_EDIT_MAX_LENGTH[field]) {
     return $localize`:@@vendor.integrationEdit.error.tooLong:That value is too long.`;
   }
-  if (CONTEST_URL_FIELDS.has(field)) {
+  if (INTEGRATION_EDIT_URL_FIELDS.has(field)) {
     return $localize`:@@vendor.integrationEdit.error.url:Enter a full web address that starts with http:// or https://.`;
   }
   return $localize`:@@vendor.integrationEdit.error.invalid:That value is not valid for this field.`;

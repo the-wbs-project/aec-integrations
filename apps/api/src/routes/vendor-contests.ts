@@ -55,6 +55,8 @@ import {
   ApiErrorCode,
   CONTEST_PROTEST_FILING_DAYS,
   contestFieldsFor,
+  PORTAL_WITHDRAWN_FIELDS,
+  ListVendorContestsQuerySchema,
   contestValueProblem,
   DecideContestSchema,
   ListVendorContestsResponseSchema,
@@ -70,7 +72,7 @@ import {
 } from '@aeci/shared';
 import type { AuditLogEntry } from '@aeci/shared/audit-log';
 import type { WorkflowTransitionEntry } from '@aeci/shared/workflow-transition';
-import { and, asc, desc, eq, inArray } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray, or } from 'drizzle-orm';
 
 import { getDb, type Db } from '../db/client';
 import {
@@ -200,6 +202,13 @@ async function ownedProductSet(db: Db, vendorId: string): Promise<Set<string>> {
 function frameIsSource(owned: ReadonlySet<string>, sourceId: string, targetId: string): boolean {
   if (owned.has(sourceId)) return true;
   return !owned.has(targetId);
+}
+
+const WITHDRAWN_FIELDS: ReadonlySet<string> = new Set<string>(PORTAL_WITHDRAWN_FIELDS);
+
+/** A stored field the portal no longer offers (AECI-1155). */
+function isPortalWithdrawnField(field: string): boolean {
+  return WITHDRAWN_FIELDS.has(field);
 }
 
 /** Row → wire, for either side. Returns `null` for a row whose integration is gone
@@ -441,15 +450,20 @@ export function createSubmitContestHandler(
     //     the retire closed every open contest on it as withdrawn.
     assertIntegrationLive(target);
 
-    // 3. Shape. A field the anchor's table does not have is a shape error: an
-    //    evidenced pair has no `mechanism_kind` (§11b.13).
+    // 3. Shape. A field the portal does not offer is a shape error. Two cases:
+    //    `website` and `mechanism_url` are stored but no longer offered anywhere
+    //    (AECI-1155 / §6.17.11), and an evidenced pair has no `mechanism_kind`
+    //    (§11b.13). The schema still parses both, because it is the STORED enum an
+    //    existing contest reads through.
     const payload = await parseJsonBody(c, SubmitIntegrationContestSchema);
     const field = payload.field;
-    if (!contestFieldsFor(anchor.kind).includes(field)) {
+    if (!(contestFieldsFor(anchor.kind) as readonly string[]).includes(field)) {
       throw new ApiError(
         400,
         'VALIDATION_FAILED',
-        `${field} cannot be contested on an integration delivered through a connector product`,
+        isPortalWithdrawnField(field)
+          ? `${field} can no longer be contested. AEC Integrations keeps it up to date.`
+          : `${field} cannot be contested on an integration delivered through a connector product`,
         { field: 'field' },
       );
     }
@@ -828,6 +842,15 @@ function duplicateContest(existingId: string | null): ApiError {
  * the `contests` cursor on `GET /api/vendor/updates` imports. Not rate-limited
  * and not audited: it is a read.
  *
+ * `?integration_id=` (AECI-1153 / `API_CONTRACTS.md` §6.14) narrows both lists to
+ * one anchor row, in either table. It is ANDed onto each side's own vendor
+ * predicate, so it can only NARROW the caller's rows: an unknown or foreign id is
+ * `200 { submitted: [], received: [] }`, never a `404`, and probes nothing. The
+ * cap and the order apply after the filter, so the integration page sees that
+ * integration's whole history. Bounded, not indexed: the vendor predicate runs on
+ * the submitter and owner indexes, and the anchor test is a residual predicate
+ * over that one vendor's contests.
+ *
  * Each list is most recently updated first (AECI-1009), `id` as the tiebreaker, and capped at
  * `VENDOR_CONTEST_LIST_CAP`. The cursor reports on the whole scope, so an edit to
  * a row past the cap moves it without changing what the list shows. That costs
@@ -840,6 +863,16 @@ export function createListVendorContestsHandler(
   return async (c) => {
     const vendorId = sessionVendorId(c);
     const { db } = dbFor(c.env);
+    // Parsed before any read: a bad id is a 400 naming `integration_id`.
+    const query = ListVendorContestsQuerySchema.parse(
+      Object.fromEntries(new URL(c.req.url).searchParams),
+    );
+    const anchorFilter = query.integration_id
+      ? or(
+          eq(integrationFieldChallenges.integrationId, query.integration_id),
+          eq(integrationFieldChallenges.evidencedPairId, query.integration_id),
+        )
+      : undefined;
 
     // AECI-1009: newest ACTIVITY first. A protest can land on a contest filed months
     // ago, and under `created_at` that row could sit past the cap and never show
@@ -849,13 +882,13 @@ export function createListVendorContestsHandler(
       db
         .select()
         .from(integrationFieldChallenges)
-        .where(submittedContestsWhere(vendorId))
+        .where(and(submittedContestsWhere(vendorId), anchorFilter))
         .orderBy(...order)
         .limit(VENDOR_CONTEST_LIST_CAP),
       db
         .select()
         .from(integrationFieldChallenges)
-        .where(receivedContestsWhere(vendorId))
+        .where(and(receivedContestsWhere(vendorId), anchorFilter))
         .orderBy(...order)
         .limit(VENDOR_CONTEST_LIST_CAP),
       ownedProductSet(db, vendorId),

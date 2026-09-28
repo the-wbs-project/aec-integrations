@@ -1563,3 +1563,54 @@ describe('GET /api/products/:slug/integrations/:otherSlug — claims on a connec
     expect(fromRevit.mechanisms[0]?.claims[0]?.attestations[0]?.attestor).toBe('other');
   });
 });
+
+describe('GET /api/products/:slug/integrations/:otherSlug — pricing_url (AECI-1154)', () => {
+  it('carries the owner’s pricing link from integrations, and null when unset', async () => {
+    await seedProducts();
+    await integration(u(70), u(1), u(2), { pricingUrl: 'https://procore.example/pricing' });
+    await integration(u(71), u(2), u(1), { mechanismKind: 'api' });
+    const parsed = ProductPairResponseSchema.parse(
+      await (await get('/api/products/procore/integrations/revit')).json(),
+    );
+    const byId = new Map(parsed.mechanisms.map((m) => [m.id, m]));
+    expect(byId.get(u(70))?.pricing_url).toBe('https://procore.example/pricing');
+    expect(byId.get(u(71))?.pricing_url).toBeNull();
+  });
+
+  it('carries it from connector_evidenced_pairs too', async () => {
+    await seedProducts();
+    await t.db.insert(products).values({
+      id: u(3),
+      slug: 'agave-erp-sync',
+      name: 'Agave ERP Sync',
+      productRole: 'connector',
+      promotionStatus: 'promoted',
+    });
+    const [a, b] = [u(1), u(2)].sort();
+    await t.db.insert(connectorEvidencedPairs).values({
+      id: u(61),
+      connectorProductId: u(3),
+      productAId: a!,
+      productBId: b!,
+      direction: 'a_to_b',
+      pricingUrl: 'https://useagave.com/pricing',
+    });
+    const parsed = ProductPairResponseSchema.parse(
+      await (await get('/api/products/procore/integrations/revit')).json(),
+    );
+    expect(parsed.mechanisms[0]?.pricing_url).toBe('https://useagave.com/pricing');
+  });
+});
+
+describe('GET /api/products/:slug/integrations/:otherSlug — pricing_url is http(s) only (AECI-1154)', () => {
+  it('reads a stored value that is not an http(s) URL as unset', async () => {
+    await seedProducts();
+    // No writer stores this (every one runs `integrationEditValueProblem`); the read
+    // must not hand it to a public href if one ever did.
+    await integration(u(72), u(1), u(2), { pricingUrl: 'javascript:alert(1)' });
+    const parsed = ProductPairResponseSchema.parse(
+      await (await get('/api/products/procore/integrations/revit')).json(),
+    );
+    expect(parsed.mechanisms[0]?.pricing_url).toBeNull();
+  });
+});

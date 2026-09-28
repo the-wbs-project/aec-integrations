@@ -20,7 +20,7 @@ Choose **Send contest**.
 
 Integrations delivered through a connector can be contested too. The ones a connector product delivers to your product are listed in the **Connectors** section of that product's Integrations tab, each one your company does not own with **Contest a field**. Those have no type field, so their type cannot be contested.
 
-The fields you can contest are the integration's name, type, mechanism name, direction, description, website, listing link, documentation link, mechanism link, pricing model, maturity, and owner. You can have one open contest per field on each integration. To send a different value, withdraw the open one first.
+The fields you can contest are the integration's name, type, mechanism name, direction, description, listing link, documentation link, pricing, maturity, and owner. You can have one open contest per field on each integration. To send a different value, withdraw the open one first.
 
 A contest is a request, not a change. While it is open, the public page keeps the value on record and does not show that a contest exists.
 

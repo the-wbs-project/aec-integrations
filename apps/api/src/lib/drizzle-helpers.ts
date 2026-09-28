@@ -30,6 +30,7 @@ import {
   integrationDirectionForContext,
   ProductUsefulnessSchema,
   RATING_VISIBILITY_MIN_REVIEWS,
+  isHttpUrl,
 } from '@aeci/shared';
 import { liveEvidencedPairSql, liveIntegrationSql } from '@aeci/shared/live-integration';
 import { compareText } from '@aeci/shared/text-sort';
@@ -348,6 +349,8 @@ export const connectorEvidencedPairPairConfig = {
     docsUrl: true,
     lastReviewedAt: true,
     maintainedBy: true,
+    // AECI-1154: the owner's pricing page link, for the "Price" fact.
+    pricingUrl: true,
   },
   with: {
     ...connectorEvidencedPairListConfig.with,
@@ -433,6 +436,8 @@ export interface RawConnectorEvidencedPairDetailRow extends RawConnectorEvidence
   builtByVendor: RawVendorLink | null;
   /** Stored in the canonical A/B frame — A is `productA`, never the oriented source. */
   claims: RawPairClaimRow[];
+  /** AECI-1154. Optional so a hand-built fixture without it reads as unset. */
+  pricingUrl?: string | null;
 }
 
 /**
@@ -612,6 +617,8 @@ export const integrationPairConfig = {
     poweredByProductId: true,
     // AECI-1011: who created the row, for the pair card's provenance note.
     origin: true,
+    // AECI-1154: the owner's pricing page link, for the "Price" fact.
+    pricingUrl: true,
   },
   with: {
     sourceProduct: { columns: productLinkColumns },
@@ -1189,6 +1196,8 @@ export interface RawIntegrationPairRow {
   poweredByProductId?: string | null;
   /** AECI-1011. Optional for the same reason: a fixture without it reads as `'aeci'`. */
   origin?: string;
+  /** AECI-1154. Optional for the same reason: a fixture without it reads as unset. */
+  pricingUrl?: string | null;
   // Folded into the page header by `computePairMaintenance`, not surfaced per
   // mechanism (AECI-616).
   maintainedBy: string;
@@ -1689,6 +1698,18 @@ function compareClaims(a: RawPairClaimRow, b: RawPairClaimRow): number {
  *  `mechanism_name` is the mechanism's own label and is never a directional pair
  *  title — see `toMechanismHeading` (AECI-919); source/target are redundant on the
  *  pair page (both are the page's endpoints) so they are not surfaced. */
+/**
+ * The owner's pricing page link as the PUBLIC pair read may carry it (AECI-1154):
+ * an absolute `http(s)` URL, or `null`. Every writer already validates it through
+ * `integrationEditValueProblem`. This is defence in depth for the first
+ * vendor-written URL a cached public page renders as an `href`: a value some
+ * future writer stored without the check reads as unset rather than reaching a
+ * reader as, say, a `javascript:` link.
+ */
+function publicPricingUrl(value: string | null | undefined): string | null {
+  return value && isHttpUrl(value) ? value : null;
+}
+
 function toProductPairMechanism(
   raw: RawIntegrationPairRow,
   contextProductId: string,
@@ -1734,6 +1755,8 @@ function toProductPairMechanism(
     // Always null on an `integrations` row — the evidenced-pair arm of the pair
     // read sets it (`toProductPairMechanismFromEvidencedPair`).
     via: null,
+    // AECI-1154: the owner's pricing page link. Owner-written only; promote never.
+    pricing_url: publicPricingUrl(raw.pricingUrl),
     // Sort FIRST, then drop: ordering stays this mapper's job and is independent
     // of the version selection, so walking the selectors never reshuffles the lanes.
     claims: [...raw.claims]
@@ -1800,6 +1823,8 @@ function toProductPairMechanismFromEvidencedPair(
     // Promote is the only writer of this table (decision 9 keeps vendors off it).
     origin: 'aeci',
     via: toProductLink(raw.connectorProduct),
+    // AECI-1154: an entitled owner edits it here too (AECI-1090). Promote never does.
+    pricing_url: publicPricingUrl(raw.pricingUrl),
     // Same sort-then-drop as `toProductPairMechanism`; only the frame flag differs.
     claims: [...raw.claims]
       .sort(compareClaims)

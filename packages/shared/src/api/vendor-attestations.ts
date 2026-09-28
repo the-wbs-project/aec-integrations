@@ -229,6 +229,26 @@ export const VendorClaimSchema = z.object({
   /** The caller's own live attestations — `[]` when it has not voted. */
   mine: z.array(VendorOwnAttestationSchema),
   counterparty: CounterpartyAttestationSchema.nullable(),
+  // ── AECI-1153 (integration detail page, `STAGE_2_VENDOR_PORTAL_SPEC.md` §6.17) ──
+  // Every field below is defaulted for deploy skew: the SSR and API Workers deploy
+  // per commit but not atomically, so an older API reads as the default.
+  /**
+   * Who added the row, from the CALLER's seat, computed server-side from `origin`
+   * and `created_by_vendor_id`, which never crosses the wire. `'you'`: a vendor row
+   * the caller's vendor created. `'counterpart'`: a vendor row any other vendor
+   * created. `null`: an AECi row, or one whose creating vendor was deleted.
+   */
+  added_by: z.enum(['you', 'counterpart']).nullable().default(null),
+  /** `claims.created_at`, for "Added row · {date}". */
+  created_at: z.string().nullable().default(null),
+  /**
+   * Non-null exactly when `agreement === 'conflict'`. `id` is the claim id: a claim
+   * holds at most one open disagreement at a time. `raised_at` is when the
+   * agreement last became `conflict`, replayed from the attestation history by
+   * `conflictSince` (`../agreement`), never stored. The pair (`id`, `raised_at`)
+   * names one episode.
+   */
+  disagreement: z.object({ id: z.string().uuid(), raised_at: z.string() }).nullable().default(null),
 });
 
 export type VendorClaim = z.infer<typeof VendorClaimSchema>;
@@ -361,6 +381,29 @@ export const VendorIntegrationSchema = z.object({
    * `403 INTEGRATION_CONNECTOR_POWERED` regardless. Defaulted for deploy skew.
    */
   own_links: IntegrationSideLinksSchema.default(EMPTY_SIDE_LINKS),
+  // ── AECI-1150 to AECI-1154 (integration detail page, §6.17) ──────────────────
+  /**
+   * AECI-1152. The links stored for `other_product`'s side, READ-ONLY here. On an
+   * owns-both integration it is the caller's own other side (`slots.length === 2`),
+   * which the page renders as editable through `…/links/:productId/:kind`. Empty on
+   * a connector-powered row (decision 9), like `own_links`, even when a stranded
+   * link is stored. Defaulted for deploy skew.
+   */
+  counterpart_links: IntegrationSideLinksSchema.default(EMPTY_SIDE_LINKS),
+  /** AECI-1150. `integrations.origin`: who added the row. */
+  origin: z.enum(['aeci', 'vendor']).default('aeci'),
+  /** AECI-1150. `integrations.created_at`. */
+  created_at: z.string().nullable().default(null),
+  /** AECI-1150. `integrations.maintained_by`. */
+  maintained_by: z.enum(['aeci', 'vendor']).default('aeci'),
+  /** AECI-1150. `integrations.last_reviewed_at`. */
+  last_reviewed_at: z.string().nullable().default(null),
+  /**
+   * AECI-1154. The owner's pricing page link. Owner-edited through
+   * `PATCH /api/vendor/integrations/:id`, and NOT in `contestable_fields`: nobody
+   * contests it.
+   */
+  pricing_url: z.string().nullable().default(null),
 });
 
 export type VendorIntegration = z.infer<typeof VendorIntegrationSchema>;
@@ -407,6 +450,8 @@ export const OwnedIntegrationSchema = z.object({
    * deploy skew, like `integrations[].contestable_fields`.
    */
   contestable_fields: ContestableFieldsSchema.default(EMPTY_CONTESTABLE_FIELDS),
+  /** AECI-1154. The owner's pricing page link, for §6.15's edit form. Not contestable. */
+  pricing_url: z.string().nullable().default(null),
 });
 
 export type OwnedIntegration = z.infer<typeof OwnedIntegrationSchema>;
@@ -429,6 +474,15 @@ export const ListVendorIntegrationsResponseSchema = z.object({
    * (`STAGE_2_REALTIME_SPEC.md` §2.2). Defaulted to `[]` for deploy skew.
    */
   owned: z.array(OwnedIntegrationSchema).default([]),
+  /**
+   * AECI-1153 / `STAGE_2_ATTESTATIONS_SPEC.md` §7.6. Distinct claim ids, vendor-wide,
+   * that another vendor added and the caller has not answered, on attestable, live
+   * rows: `added_by = 'counterpart'`, `mine = []`, `attestable`, `retired_at` null.
+   * Counted server-side by claim id, so an owns-both integration (listed twice)
+   * counts once (AECI-993). The overview's "What needs you" reads it. Defaulted for
+   * deploy skew.
+   */
+  counterpart_added_unanswered: z.number().int().min(0).default(0),
 });
 
 export type ListVendorIntegrationsResponse = z.infer<typeof ListVendorIntegrationsResponseSchema>;
@@ -498,6 +552,29 @@ export const UpsertVendorAttestationSchema = z.object({
 });
 
 export type UpsertVendorAttestationInput = z.infer<typeof UpsertVendorAttestationSchema>;
+
+/**
+ * Why this position cannot be saved, or `null` when it can (AECI-1151 /
+ * `STAGE_2_ATTESTATIONS_SPEC.md` §5.2). **A deny needs a reason**: `asserted: false`
+ * with a `note` that is missing, `null` or empty after trimming is refused, as
+ * `400 ATTESTATION_NOTE_REQUIRED` with `field: 'note'`. An affirm's note stays
+ * optional.
+ *
+ * One shared pure rule, called by the portal before it sends and by the `PUT`
+ * handler after the capability gate and the body parse. It is deliberately NOT a
+ * refinement on {@link UpsertVendorAttestationSchema}: a refinement would surface
+ * as the generic `VALIDATION_FAILED` before the handler could name the rule, and a
+ * caller who may not write must never learn it. An existing deny with no note is
+ * grandfathered on read; the author's next deny must carry one.
+ */
+export function attestationNoteProblem(
+  asserted: boolean,
+  note: string | null | undefined,
+): string | null {
+  if (asserted) return null;
+  if (typeof note === 'string' && note.trim().length > 0) return null;
+  return 'A No needs a reason. Say what is wrong so the other company and AEC Integrations can act on it.';
+}
 
 /** `POST` and `PUT` both echo the claim's post-write state, agreement included. */
 export const VendorClaimResponseSchema = z.object({ claim: VendorClaimSchema });

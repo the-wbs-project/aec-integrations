@@ -80,8 +80,8 @@ export const ContestAnchorSchema = z.enum(CONTEST_ANCHORS);
 export type ContestAnchorKind = z.infer<typeof ContestAnchorSchema>;
 
 /**
- * The eleven fields a contest on an evidenced pair may name: every field above
- * except `mechanism_kind`, because `connector_evidenced_pairs` has no such column
+ * The eleven STORED fields a contest on an evidenced pair may carry: every field
+ * above except `mechanism_kind`, because `connector_evidenced_pairs` has no such column
  * (`DATABASE_SCHEMA.md` §9a.6). `direction` there is in the pair's canonical A/B
  * frame, which the vendor wire re-frames per caller exactly as it does for an
  * `integrations` row.
@@ -90,9 +90,47 @@ export const EVIDENCED_PAIR_CONTEST_FIELDS = INTEGRATION_CONTEST_FIELDS.filter(
   (field) => field !== 'mechanism_kind',
 ) as readonly Exclude<IntegrationContestField, 'mechanism_kind'>[];
 
-/** The fields a contest on this anchor may name, in the §11b.3 order. */
-export function contestFieldsFor(anchor: ContestAnchorKind): readonly IntegrationContestField[] {
-  return anchor === 'evidenced_pair' ? EVIDENCED_PAIR_CONTEST_FIELDS : INTEGRATION_CONTEST_FIELDS;
+// ─── Stored vs offered (AECI-1155 / §6.17.11) ────────────────────────────────
+
+/**
+ * The stored fields the portal no longer offers (ruled 2026-09-28, AECI-1155):
+ * website and connection link. **The columns stay, promote keeps writing them, and
+ * the CHECK does not change**, so they stay in {@link INTEGRATION_CONTEST_FIELDS}.
+ * An old contest on either still parses, lists, renders and decides. A new contest,
+ * an owner edit and a vendor create refuse them.
+ */
+export const PORTAL_WITHDRAWN_FIELDS = ['website', 'mechanism_url'] as const;
+export type PortalWithdrawnField = (typeof PORTAL_WITHDRAWN_FIELDS)[number];
+const WITHDRAWN: ReadonlySet<string> = new Set<string>(PORTAL_WITHDRAWN_FIELDS);
+
+/** A contest field the portal still offers: the stored twelve minus the withdrawn two. */
+export type OfferedContestField = Exclude<IntegrationContestField, PortalWithdrawnField>;
+
+/**
+ * The ten fields a new contest on an `integrations` row may name, in the §11b.3
+ * order (`STAGE_2_VENDOR_PORTAL_SPEC.md` §6.17.11). Mirrors nothing in the DB: the
+ * CHECK mirrors the STORED list above.
+ */
+export const INTEGRATION_OFFERED_CONTEST_FIELDS = INTEGRATION_CONTEST_FIELDS.filter(
+  (field): field is OfferedContestField => !WITHDRAWN.has(field),
+);
+
+/** The nine fields a new contest on an evidenced pair may name: the offered list
+ *  minus `mechanism_kind`, which that table does not have. */
+export const EVIDENCED_PAIR_OFFERED_CONTEST_FIELDS = INTEGRATION_OFFERED_CONTEST_FIELDS.filter(
+  (field) => field !== 'mechanism_kind',
+) as readonly Exclude<OfferedContestField, 'mechanism_kind'>[];
+
+/**
+ * The fields a NEW contest on this anchor may name, in the §11b.3 order. Since
+ * AECI-1155 this is an OFFERED list: `website` and `mechanism_url` are absent.
+ * Reading an existing contest never consults it; {@link IntegrationContestFieldSchema}
+ * stays the stored twelve.
+ */
+export function contestFieldsFor(anchor: ContestAnchorKind): readonly OfferedContestField[] {
+  return anchor === 'evidenced_pair'
+    ? EVIDENCED_PAIR_OFFERED_CONTEST_FIELDS
+    : INTEGRATION_OFFERED_CONTEST_FIELDS;
 }
 
 /** The four fields that must carry an absolute `http(s)` URL. */
@@ -422,6 +460,17 @@ export const ListVendorContestsResponseSchema = z.object({
   received: z.array(VendorContestSchema),
 });
 export type ListVendorContestsResponse = z.infer<typeof ListVendorContestsResponseSchema>;
+
+/**
+ * `GET /api/vendor/contests` query (AECI-1153 / `API_CONTRACTS.md` §6.14).
+ * `integration_id` narrows both lists to one anchor row, in either table. It is
+ * ANDed onto the caller's own scope, so an unknown or foreign id answers two empty
+ * lists, never a `404`. A value that is not a UUID is `400 VALIDATION_FAILED`.
+ */
+export const ListVendorContestsQuerySchema = z.object({
+  integration_id: z.string().uuid().optional(),
+});
+export type ListVendorContestsQuery = z.infer<typeof ListVendorContestsQuerySchema>;
 
 /** Rows per list on `GET /api/vendor/contests`. A working list, not an archive. */
 export const VENDOR_CONTEST_LIST_CAP = 100;

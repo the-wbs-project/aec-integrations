@@ -17,7 +17,11 @@ import {
   AdminContestSchema as AdminContestAnchorSchema,
   contestFieldsFor,
   EVIDENCED_PAIR_CONTEST_FIELDS,
+  EVIDENCED_PAIR_OFFERED_CONTEST_FIELDS,
   INTEGRATION_CONTEST_FIELDS as ALL_FIELDS,
+  INTEGRATION_OFFERED_CONTEST_FIELDS,
+  IntegrationContestFieldSchema,
+  ListVendorContestsQuerySchema,
   VendorContestSchema as VendorContestAnchorSchema,
 } from './integration-contests';
 
@@ -189,11 +193,36 @@ describe('protest write shapes', () => {
 });
 
 describe('the two contest anchors (AECI-1092)', () => {
-  it('an evidenced pair takes every field except mechanism_kind, in the same order', () => {
+  it('an evidenced pair stores every field except mechanism_kind, in the same order', () => {
     expect(EVIDENCED_PAIR_CONTEST_FIELDS).toEqual(ALL_FIELDS.filter((f) => f !== 'mechanism_kind'));
     expect(EVIDENCED_PAIR_CONTEST_FIELDS).toHaveLength(11);
-    expect(contestFieldsFor('integration')).toBe(ALL_FIELDS);
-    expect(contestFieldsFor('evidenced_pair')).toBe(EVIDENCED_PAIR_CONTEST_FIELDS);
+  });
+
+  it('offers the stored list minus website and mechanism_url (AECI-1155)', () => {
+    expect(INTEGRATION_OFFERED_CONTEST_FIELDS).toEqual(
+      ALL_FIELDS.filter((f) => f !== 'website' && f !== 'mechanism_url'),
+    );
+    expect(INTEGRATION_OFFERED_CONTEST_FIELDS).toHaveLength(10);
+    expect(EVIDENCED_PAIR_OFFERED_CONTEST_FIELDS).toEqual(
+      INTEGRATION_OFFERED_CONTEST_FIELDS.filter((f) => f !== 'mechanism_kind'),
+    );
+    expect(EVIDENCED_PAIR_OFFERED_CONTEST_FIELDS).toHaveLength(9);
+    expect(contestFieldsFor('integration')).toBe(INTEGRATION_OFFERED_CONTEST_FIELDS);
+    expect(contestFieldsFor('evidenced_pair')).toBe(EVIDENCED_PAIR_OFFERED_CONTEST_FIELDS);
+    // The stored list is untouched, so an old contest on either field still parses.
+    expect(ALL_FIELDS).toHaveLength(12);
+    expect(IntegrationContestFieldSchema.parse('website')).toBe('website');
+    expect(IntegrationContestFieldSchema.parse('mechanism_url')).toBe('mechanism_url');
+    expect(ALL_FIELDS as readonly string[]).not.toContain('pricing_url');
+  });
+
+  it('parses the integration_id filter on the contests list (AECI-1153)', () => {
+    expect(ListVendorContestsQuerySchema.parse({})).toEqual({});
+    const id = '00000000-0000-4000-8000-000000000001';
+    expect(ListVendorContestsQuerySchema.parse({ integration_id: id })).toEqual({
+      integration_id: id,
+    });
+    expect(ListVendorContestsQuerySchema.safeParse({ integration_id: 'nope' }).success).toBe(false);
   });
 
   it('defaults the anchor to integration on both read shapes, for deploy skew', () => {

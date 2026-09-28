@@ -18,6 +18,7 @@ import type {
   ProductVersion,
   TaxonomyResponse,
   TaxonomyTermWithCount,
+  VendorClaim,
   VendorIntegration,
   VendorMeResponse,
   VendorAttestationNotification,
@@ -40,6 +41,28 @@ import { EMPTY_CONTESTABLE_FIELDS, EMPTY_SIDE_LINKS } from '@aeci/shared';
  * caller is not the owner and nothing is on file. `INTEGRATION_PROCORE` and
  * `INTEGRATION_VENDOR_B` override them with real values and an owned row.
  */
+
+/**
+ * The integration detail page fields (AECI-1150 to AECI-1154), at the values an
+ * older API reads as. Spread into every fixture so each stays a complete
+ * `VendorIntegration`; a fixture that needs a real value sets it after the spread.
+ */
+const DETAIL_DEFAULTS = {
+  counterpart_links: EMPTY_SIDE_LINKS,
+  origin: 'aeci',
+  created_at: null,
+  maintained_by: 'aeci',
+  last_reviewed_at: null,
+  pricing_url: null,
+} as const satisfies Partial<VendorIntegration>;
+
+/** The same for each claim (AECI-1153): who added it, when, and any disagreement. */
+const CLAIM_DETAIL_DEFAULTS = {
+  added_by: null,
+  created_at: null,
+  disagreement: null,
+} as const satisfies Partial<VendorClaim>;
+
 const NOT_OWNER: Pick<
   VendorIntegration,
   | 'is_owner'
@@ -735,6 +758,7 @@ export const VENDOR_PRODUCT_VERSIONS_FIXTURE: Readonly<Record<string, readonly P
  *  - a connector-powered edge (AECI-705), which is listed but not attestable.
  */
 const INTEGRATION_PROCORE: VendorIntegration = {
+  ...DETAIL_DEFAULTS,
   id: '00000000-0000-4000-8000-000000005310',
   name: 'Summit Model Coordination ↔ Procore',
   mechanism_kind: 'native',
@@ -780,6 +804,7 @@ const INTEGRATION_PROCORE: VendorIntegration = {
       id: '00000000-0000-4000-8000-000000005321',
       integration_id: '00000000-0000-4000-8000-000000005310',
       data_object_slug: 'models',
+      ...CLAIM_DETAIL_DEFAULTS,
       data_object_name: 'Models',
       direction: 'outbound',
       // Nobody has voted, and the claim came from AECi's own curation.
@@ -792,6 +817,7 @@ const INTEGRATION_PROCORE: VendorIntegration = {
       id: '00000000-0000-4000-8000-000000005322',
       integration_id: '00000000-0000-4000-8000-000000005310',
       data_object_slug: 'rfis',
+      ...CLAIM_DETAIL_DEFAULTS,
       data_object_name: 'RFIs',
       direction: 'outbound',
       // One voter. Never `confirmed` — the counterparty's silence is not assent.
@@ -813,6 +839,7 @@ const INTEGRATION_PROCORE: VendorIntegration = {
       id: '00000000-0000-4000-8000-000000005323',
       integration_id: '00000000-0000-4000-8000-000000005310',
       data_object_slug: 'submittals',
+      ...CLAIM_DETAIL_DEFAULTS,
       data_object_name: 'Submittals',
       direction: 'inbound',
       agreement: 'confirmed',
@@ -833,6 +860,7 @@ const INTEGRATION_PROCORE: VendorIntegration = {
       id: '00000000-0000-4000-8000-000000005324',
       integration_id: '00000000-0000-4000-8000-000000005310',
       data_object_slug: 'drawings',
+      ...CLAIM_DETAIL_DEFAULTS,
       data_object_name: 'Drawings',
       direction: 'both',
       agreement: 'conflict',
@@ -853,6 +881,7 @@ const INTEGRATION_PROCORE: VendorIntegration = {
 };
 
 const INTEGRATION_BOTH_ENDPOINTS: VendorIntegration = {
+  ...DETAIL_DEFAULTS,
   id: '00000000-0000-4000-8000-000000005311',
   name: null,
   mechanism_kind: 'api',
@@ -869,6 +898,7 @@ const INTEGRATION_BOTH_ENDPOINTS: VendorIntegration = {
       id: '00000000-0000-4000-8000-000000005331',
       integration_id: '00000000-0000-4000-8000-000000005311',
       data_object_slug: 'punch-lists',
+      ...CLAIM_DETAIL_DEFAULTS,
       data_object_name: 'Punch Lists',
       direction: 'both',
       // TWO attestations, ONE voter: the agreement engine dedupes by attesting
@@ -899,6 +929,7 @@ const INTEGRATION_BOTH_ENDPOINTS: VendorIntegration = {
 };
 
 const INTEGRATION_VENDOR_B: VendorIntegration = {
+  ...DETAIL_DEFAULTS,
   id: '00000000-0000-4000-8000-000000005312',
   name: 'Autodesk Build ↔ Summit Field Issues',
   mechanism_kind: 'marketplace-app',
@@ -941,6 +972,7 @@ const INTEGRATION_VENDOR_B: VendorIntegration = {
       id: '00000000-0000-4000-8000-000000005341',
       integration_id: '00000000-0000-4000-8000-000000005312',
       data_object_slug: 'documents',
+      ...CLAIM_DETAIL_DEFAULTS,
       data_object_name: 'Documents',
       direction: 'inbound',
       agreement: 'unverified',
@@ -952,6 +984,7 @@ const INTEGRATION_VENDOR_B: VendorIntegration = {
 };
 
 const INTEGRATION_NO_CLAIMS: VendorIntegration = {
+  ...DETAIL_DEFAULTS,
   id: '00000000-0000-4000-8000-000000005313',
   name: null,
   mechanism_kind: null,
@@ -976,6 +1009,7 @@ const INTEGRATION_NO_CLAIMS: VendorIntegration = {
  * no promoted connector product to link to) and is covered by the component spec.
  */
 const INTEGRATION_CONNECTOR_POWERED: VendorIntegration = {
+  ...DETAIL_DEFAULTS,
   id: '00000000-0000-4000-8000-000000005314',
   name: 'Summit Model Coordination ↔ Acumatica',
   mechanism_kind: 'iPaaS',
@@ -997,6 +1031,7 @@ const INTEGRATION_CONNECTOR_POWERED: VendorIntegration = {
       id: '00000000-0000-4000-8000-000000005351',
       integration_id: '00000000-0000-4000-8000-000000005314',
       data_object_slug: 'invoices',
+      ...CLAIM_DETAIL_DEFAULTS,
       data_object_name: 'Invoices',
       direction: 'outbound',
       // Stays the AECi-curated state, and structurally cannot leave it: no
@@ -1017,6 +1052,7 @@ const INTEGRATION_CONNECTOR_POWERED: VendorIntegration = {
  * and skips straight to its data flows.
  */
 const INTEGRATION_PROCORE_VIA_CONNECTOR: VendorIntegration = {
+  ...DETAIL_DEFAULTS,
   id: '00000000-0000-4000-8000-000000005315',
   name: 'Summit Model Coordination ↔ Procore (Kroo Connector)',
   mechanism_kind: 'iPaaS',
@@ -1038,6 +1074,7 @@ const INTEGRATION_PROCORE_VIA_CONNECTOR: VendorIntegration = {
       id: '00000000-0000-4000-8000-000000005361',
       integration_id: '00000000-0000-4000-8000-000000005315',
       data_object_slug: 'budgets',
+      ...CLAIM_DETAIL_DEFAULTS,
       data_object_name: 'Budgets',
       direction: 'both',
       agreement: 'unverified',
@@ -1056,6 +1093,7 @@ const INTEGRATION_PROCORE_VIA_CONNECTOR: VendorIntegration = {
  * its groups. The preview API appends it, so `/preview/vendor-dashboard` shows it.
  */
 export const INTEGRATION_RETIRED_BY_OTHER: VendorIntegration = {
+  ...DETAIL_DEFAULTS,
   id: '00000000-0000-4000-8000-000000005316',
   name: 'Summit Field Issues ↔ Procore Quality',
   mechanism_kind: 'api',
@@ -1081,6 +1119,7 @@ export const INTEGRATION_RETIRED_BY_OTHER: VendorIntegration = {
  * retire. Appended by the preview API, like {@link INTEGRATION_RETIRED_BY_OTHER}.
  */
 export const INTEGRATION_RETIRED_BY_AECI: VendorIntegration = {
+  ...DETAIL_DEFAULTS,
   id: '00000000-0000-4000-8000-000000005317',
   name: 'Summit Field Issues ↔ Acumatica Projects',
   mechanism_kind: 'api',
@@ -1110,6 +1149,7 @@ export const INTEGRATION_RETIRED_BY_AECI: VendorIntegration = {
  * specs count the shared fixture's groups.
  */
 export const INTEGRATION_CONNECTOR_OWNED: VendorIntegration = {
+  ...DETAIL_DEFAULTS,
   id: '00000000-0000-4000-8000-00000000531b',
   name: 'Summit Model Coordination ↔ Acumatica (Agave)',
   mechanism_kind: 'iPaaS',
@@ -1158,6 +1198,7 @@ export const VENDOR_INTEGRATIONS_FIXTURE: ListVendorIntegrationsResponse = {
     INTEGRATION_PROCORE_VIA_CONNECTOR,
   ],
   owned: [],
+  counterpart_added_unanswered: 0,
 };
 
 /** A vendor whose products carry no integrations. The API returns exactly this
@@ -1165,6 +1206,7 @@ export const VENDOR_INTEGRATIONS_FIXTURE: ListVendorIntegrationsResponse = {
 export const VENDOR_INTEGRATIONS_EMPTY_FIXTURE: ListVendorIntegrationsResponse = {
   integrations: [],
   owned: [],
+  counterpart_added_unanswered: 0,
 };
 
 /**
@@ -1174,6 +1216,7 @@ export const VENDOR_INTEGRATIONS_EMPTY_FIXTURE: ListVendorIntegrationsResponse =
  * preview API, like {@link INTEGRATION_RETIRED_BY_AECI}.
  */
 export const INTEGRATION_OWNED_VIA_CONNECTOR: VendorIntegration = {
+  ...DETAIL_DEFAULTS,
   id: '00000000-0000-4000-8000-000000005318',
   name: 'Summit Model Coordination ↔ Sage Intacct (Summit Sync)',
   mechanism_kind: 'iPaaS',
@@ -1206,6 +1249,7 @@ export const VENDOR_OWNED_INTEGRATIONS_FIXTURE: readonly OwnedIntegration[] = [
   {
     id: '00000000-0000-4000-8000-000000005319',
     anchor: 'evidenced_pair',
+    pricing_url: null,
     name: 'Summit Model Coordination and Procore via Agave',
     mechanism_kind: null,
     mechanism_name: null,
@@ -1230,6 +1274,7 @@ export const VENDOR_OWNED_INTEGRATIONS_FIXTURE: readonly OwnedIntegration[] = [
   {
     id: '00000000-0000-4000-8000-00000000531a',
     anchor: 'evidenced_pair',
+    pricing_url: null,
     name: null,
     mechanism_kind: null,
     mechanism_name: null,

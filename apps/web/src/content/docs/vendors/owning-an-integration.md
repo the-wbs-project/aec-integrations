@@ -42,7 +42,7 @@ A claim cannot be undone from the portal. The only way an integration leaves its
 
 ## Edit its details
 
-After you claim an integration, choose **Edit details** on the card. You can change its name, description, type, mechanism name, direction, website, listing link, documentation link, mechanism link, pricing model, and maturity. Name, type, and direction cannot be left empty.
+After you claim an integration, choose **Edit details** on the card. You can change its name, description, type, mechanism name, direction, listing link, documentation link, pricing, pricing page, and maturity. Name, type, and direction cannot be left empty.
 
 Changes go live on the public integration page as soon as you save. There is no review step. The vendor of the other product is told which fields you changed.
 

@@ -264,6 +264,21 @@ describe('runAttestationNotifySweep — suppression', () => {
     expect(sentTo()).toEqual(['globex@example.com']);
   });
 
+  it('is not suppressed by a claim_added row on the same claim and vendor (AECI-1153 / §7.6)', async () => {
+    // An event row, not a detector row: it carries no `detector`, so it is no
+    // suppression key and never silences a nudge.
+    await t.db.insert(auditLog).values({
+      id: crypto.randomUUID(),
+      actorType: 'user',
+      action: NOTIFICATION_SENT_ACTION,
+      entityType: 'claim',
+      entityId: u(30),
+      metadata: { kind: 'claim_added', vendorId: GLOBEX, claimId: u(30) },
+    });
+    const result = await sweep([finding()]);
+    expect(result).toMatchObject({ suppressed: 0, sent: 1 });
+  });
+
   it('scopes suppression per detector — a silent-counterparty nudge does not silence a conflict', async () => {
     await sweep([finding()]);
     fetchSpy.mockClear();

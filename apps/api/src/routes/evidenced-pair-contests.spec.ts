@@ -390,7 +390,7 @@ describe('routing on connector-powered rows (rulings A and E)', () => {
     expect(res.body.contest.routed_to).toBe('aeci');
     await entitle(VENDOR_T);
     await t.db.update(vendorEntitlements).set({ status: 'revoked' });
-    const again = await submitPair(AUTH_A, { ...DOCS, field: 'website' });
+    const again = await submitPair(AUTH_A, { ...DOCS, field: 'listing_url' });
     expect(again.body.contest.routed_to).toBe('aeci');
   });
 

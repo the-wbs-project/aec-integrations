@@ -368,12 +368,15 @@ describe('VendorContestForm on a connector-evidenced pair (AECI-1092)', () => {
     return fixture;
   }
 
-  it('offers the eleven fields that table has, and never the integration type', async () => {
+  it('offers the nine fields that table has, and never the integration type', async () => {
     const fixture = await createPairForm();
     const select = (fixture.nativeElement as HTMLElement).querySelector('select')!;
     const values = [...select.options].map((o) => o.value).filter((v) => v !== '');
-    expect(values).toHaveLength(11);
+    // AECI-1155: website and connection link are no longer offered.
+    expect(values).toHaveLength(9);
     expect(values).not.toContain('mechanism_kind');
+    expect(values).not.toContain('website');
+    expect(values).not.toContain('mechanism_url');
   });
 
   it('posts to the pair route', async () => {

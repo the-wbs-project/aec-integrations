@@ -608,6 +608,8 @@ function planEvidencedPairWrite(args: {
           ...editable,
           ...links,
           ...carriedMaintenance(existing.row, intg.lastReviewedAt),
+          // AECI-1154: owner-written, never promote-written; the move keeps it.
+          pricingUrl: existing.row.pricingUrl,
         }),
         db
           .update(claims)
@@ -665,6 +667,13 @@ type LocatedEdge =
 type LocatedMaintenance = {
   maintainedBy: string;
   lastReviewedAt: string | null;
+  /**
+   * AECI-1154. The owner's pricing page link. Promote never WRITES it, so an
+   * ordinary UPDATE leaves it alone. A move is an INSERT in the other table, which
+   * would take the column default (null) and lose a value set while the row was
+   * claimed and later un-claimed. The move therefore carries it across.
+   */
+  pricingUrl: string | null;
 };
 
 type LocatedIntegrationRow = LocatedMaintenance & {
@@ -718,6 +727,7 @@ async function locateEdge(
       poweredByProductId: integrations.poweredByProductId,
       maintainedBy: integrations.maintainedBy,
       lastReviewedAt: integrations.lastReviewedAt,
+      pricingUrl: integrations.pricingUrl,
       claimedAt: integrations.claimedAt,
       origin: integrations.origin,
       builtByVendorId: integrations.builtByVendorId,
@@ -748,6 +758,7 @@ async function locateEdge(
       connectorProductId: true,
       maintainedBy: true,
       lastReviewedAt: true,
+      pricingUrl: true,
       claimedAt: true,
       origin: true,
     },
@@ -855,6 +866,8 @@ function planIntegrationWrite(args: {
           ...editable,
           ...linkData,
           ...carriedMaintenance(existing.row, intg.lastReviewedAt),
+          // AECI-1154: owner-written, never promote-written; the move keeps it.
+          pricingUrl: existing.row.pricingUrl,
         }),
         db
           .update(claims)

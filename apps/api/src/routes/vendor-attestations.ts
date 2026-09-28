@@ -100,16 +100,21 @@
  */
 
 import {
+  ApiErrorCode,
+  attestationNoteProblem,
   computeAgreement,
+  conflictSince,
   claimDirectionForContext,
   claimDirectionFromContext,
   CreateVendorClaimSchema,
+  EMPTY_SIDE_LINKS,
   INTEGRATION_CONTEST_FIELDS,
   ListVendorIntegrationsResponseSchema,
   UpsertVendorAttestationSchema,
   VendorClaimResponseSchema,
   type AgreementAttestation,
   type ClaimDirection,
+  type HistoricalAttestation,
   type ContestableFields,
   type CounterpartyAttestation,
   type ListVendorIntegrationsResponse,
@@ -122,12 +127,13 @@ import {
 } from '@aeci/shared';
 import { type AuditLogEntry } from '@aeci/shared/audit-log';
 import { compareText } from '@aeci/shared/text-sort';
-import { and, eq, inArray, isNull, notInArray, or } from 'drizzle-orm';
+import { and, eq, inArray, isNull, ne, notInArray, or, sql } from 'drizzle-orm';
 
 import { isConnectorPoweredEdge } from '../lib/connector-powered';
 import { loadOwnedIntegrations } from '../lib/owned-integrations';
 import { assertIntegrationLive } from '../lib/live-integration';
 import { toSideLinks } from '../lib/integration-vendor-links';
+import { claimAddedNotificationAudit } from '../lib/claim-added-notification';
 import { storedFieldValue, toWireValue } from '../lib/integration-contests';
 
 import { getDb, type Db } from '../db/client';
@@ -135,6 +141,7 @@ import {
   attestations,
   claims,
   integrations,
+  productVendors,
   productVersions,
   products,
   taxonomyDataObjects,
@@ -321,6 +328,18 @@ interface ClaimShape {
   direction: string;
   origin: string;
   dataObject: { slug: string; name: string };
+  /** AECI-1153. Who created a vendor row; never crosses the wire. */
+  createdByVendorId: string | null;
+  createdAt: string | null;
+}
+
+/**
+ * Who added the row, from the caller's seat (AECI-1153). `created_by_vendor_id`
+ * itself never crosses the wire: only whether it is the caller's vendor.
+ */
+function addedBy(claim: ClaimShape, vendorId: string): VendorClaim['added_by'] {
+  if (claim.origin !== 'vendor' || claim.createdByVendorId === null) return null;
+  return claim.createdByVendorId === vendorId ? 'you' : 'counterpart';
 }
 
 /**
@@ -338,15 +357,19 @@ function toVendorClaim(
   vendorId: string,
   authority: Pick<AttestationAuthority, 'slots'>,
   contextIsSource: boolean,
+  /** AECI-1153. When the claim's agreement last became `conflict`, from
+   *  {@link conflictStarts}. Read only when the agreement is `conflict`. */
+  raisedAt: string | null = null,
 ): VendorClaim {
   const slots = authority.slots;
+  const agreement = computeAgreement(live.map(toAgreementVote));
   return {
     id: claim.id,
     integration_id: integrationId,
     data_object_slug: claim.dataObject.slug,
     data_object_name: claim.dataObject.name,
     direction: claimDirectionForContext(claim.direction as ClaimDirection, contextIsSource),
-    agreement: computeAgreement(live.map(toAgreementVote)),
+    agreement,
     origin: claim.origin === 'vendor' ? 'vendor' : 'aeci',
     mine: live
       .filter((row) => isOwnAttestation(row, vendorId, slots))
@@ -354,7 +377,71 @@ function toVendorClaim(
       // Stable `vendor_a` before `vendor_b`, matching `slotsForOwnership`.
       .sort((a, b) => a.slot.localeCompare(b.slot)),
     counterparty: toCounterparty(live, vendorId, slots),
+    added_by: addedBy(claim, vendorId),
+    created_at: claim.createdAt,
+    // Non-null exactly when the agreement is `conflict`. The id is the claim id: a
+    // claim holds at most one open disagreement at a time.
+    disagreement:
+      agreement === 'conflict'
+        ? { id: claim.id, raised_at: raisedAt ?? new Date().toISOString() }
+        : null,
   };
+}
+
+// ─── Disagreement dates (AECI-1153) ──────────────────────────────────────────
+
+/**
+ * When each claim's current run of `conflict` began: `conflictSince` over the
+ * claim's whole vendor attestation history, live and retracted
+ * (`API_CONTRACTS.md` §6.14). Derived, never stored.
+ *
+ * ONE extra SELECT, for the claims in `conflict` only, and none when there are
+ * none. The ids go in as a single JSON array through `json_each(?)`, never as an
+ * `inArray` list: D1 caps bound parameters per query, and one vendor's conflict
+ * set has no fixed bound.
+ *
+ * The history is read in one statement, so the replay describes one consistent
+ * snapshot. A write racing this read can leave the replay ending outside
+ * `conflict` while the list's own read said `conflict`; then the newest instant in
+ * the history stands in, so `disagreement` is still non-null exactly when the
+ * listed agreement is `conflict`.
+ */
+async function conflictStarts(db: Db, claimIds: readonly string[]): Promise<Map<string, string>> {
+  const out = new Map<string, string>();
+  if (claimIds.length === 0) return out;
+  const rows = await db
+    .select({
+      claimId: attestations.claimId,
+      source: attestations.source,
+      asserted: attestations.asserted,
+      attestedByVendorId: attestations.attestedByVendorId,
+      createdAt: attestations.createdAt,
+      retractedAt: attestations.retractedAt,
+    })
+    .from(attestations)
+    .where(
+      and(
+        sql`${attestations.claimId} IN (SELECT value FROM json_each(${JSON.stringify(claimIds)}))`,
+        ne(attestations.source, 'aeci'),
+      ),
+    );
+  const byClaim = new Map<string, HistoricalAttestation[]>();
+  for (const row of rows) {
+    const list = byClaim.get(row.claimId) ?? [];
+    list.push(row);
+    byClaim.set(row.claimId, list);
+  }
+  for (const [claimId, history] of byClaim) {
+    const since =
+      conflictSince(history) ??
+      history
+        .map((row) => row.retractedAt ?? row.createdAt)
+        .sort()
+        .at(-1) ??
+      null;
+    if (since) out.set(claimId, since);
+  }
+  return out;
 }
 
 // ─── Cache tags ──────────────────────────────────────────────────────────────
@@ -489,6 +576,68 @@ async function liveAttestationsFor(db: Db, claimId: string): Promise<RawAttestat
     columns: attestationColumns,
     where: and(eq(attestations.claimId, claimId), liveAttestationsWhere),
   });
+}
+
+// ─── The claim_added recipients (AECI-1153 / §7.6) ────────────────────────────
+
+interface ClaimAddedTargets {
+  /** Vendors of the OTHER endpoint, minus the adder. Empty when the caller holds
+   *  both endpoints, or when the other product has no `product_vendors` row. */
+  recipients: string[];
+  /** The other endpoint: the recipients' own product, which frames `direction`. */
+  recipientProductIsSource: boolean;
+  /** The adder's product, "the other product" as the recipients see it. */
+  adderProduct: { slug: string; name: string } | null;
+  integrationName: string | null;
+}
+
+/**
+ * Who hears about an added row, and the snapshot the ledger row carries
+ * (`STAGE_2_ATTESTATIONS_SPEC.md` §7.6). Every vendor holding the OTHER endpoint's
+ * product through `product_vendors`, minus the vendor that added the row. A caller
+ * holding both endpoints tells nobody: no other company answers for either side.
+ * Resolved before the batch opens, like everything else this handler writes.
+ */
+async function claimAddedTargets(
+  db: Db,
+  authority: AttestationAuthority,
+  vendorId: string,
+): Promise<ClaimAddedTargets> {
+  const holdsSource = authority.slots.includes('vendor_a');
+  const holdsTarget = authority.slots.includes('vendor_b');
+  if (holdsSource && holdsTarget) {
+    return {
+      recipients: [],
+      recipientProductIsSource: false,
+      adderProduct: null,
+      integrationName: null,
+    };
+  }
+  const recipientProductId = holdsSource ? authority.targetProductId : authority.sourceProductId;
+  const adderProductId = holdsSource ? authority.sourceProductId : authority.targetProductId;
+  const [vendorRows, adder, integration] = await Promise.all([
+    db
+      .select({ vendorId: productVendors.vendorId })
+      .from(productVendors)
+      .where(eq(productVendors.productId, recipientProductId)),
+    db.query.products.findFirst({
+      columns: { slug: true, name: true },
+      where: eq(products.id, adderProductId),
+    }),
+    db.query.integrations.findFirst({
+      columns: { name: true },
+      where: eq(integrations.id, authority.integrationId),
+    }),
+  ]);
+  return {
+    // Sorted by id: an id ordering stays BINARY (`API_CONTRACTS.md` §3.2).
+    recipients: [...new Set(vendorRows.map((row) => row.vendorId))]
+      .filter((id) => id !== vendorId)
+      .sort(),
+    recipientProductIsSource: !holdsSource,
+    adderProduct: adder ? { slug: adder.slug, name: adder.name } : null,
+    integrationName: integration?.name ?? null,
+  };
 }
 
 // ─── Version-stamp authority (§8.2) ──────────────────────────────────────────
@@ -807,6 +956,12 @@ const vendorIntegrationConfig = {
     retiredAt: true,
     // AECI-1046: who retired it, so the owner is offered Restore only on its own retire.
     retiredBy: true,
+    // AECI-1150 / AECI-1154: the detail page's Ownership rows and the pricing link.
+    origin: true,
+    createdAt: true,
+    maintainedBy: true,
+    lastReviewedAt: true,
+    pricingUrl: true,
   },
   with: {
     builtByVendor: { columns: { id: true, companyName: true } },
@@ -814,7 +969,14 @@ const vendorIntegrationConfig = {
     sourceProduct: { columns: productLinkColumns, with: endpointVendorsWith },
     targetProduct: { columns: productLinkColumns, with: endpointVendorsWith },
     claims: {
-      columns: { id: true, direction: true, origin: true },
+      // AECI-1153: `createdByVendorId` feeds `added_by` and never crosses the wire.
+      columns: {
+        id: true,
+        direction: true,
+        origin: true,
+        createdByVendorId: true,
+        createdAt: true,
+      },
       with: {
         dataObject: { columns: { slug: true, name: true, displayOrder: true } },
         attestations: { columns: attestationColumns, where: liveAttestationsWhere },
@@ -871,12 +1033,27 @@ export function createListVendorIntegrationsHandler(
       ),
     });
 
+    // AECI-1153: which listed claims are in `conflict`, so their disagreement date
+    // can be replayed in ONE extra read. Agreement is computed exactly as
+    // `toVendorClaim` computes it, from the same live rows.
+    const conflictIds = new Set<string>();
+    for (const row of rows) {
+      if (!authorities.has(row.id)) continue;
+      for (const claim of row.claims) {
+        if (computeAgreement(claim.attestations.map(toAgreementVote)) === 'conflict') {
+          conflictIds.add(claim.id);
+        }
+      }
+    }
+    const raisedAt = await conflictStarts(db, [...conflictIds]);
+
     const surface: VendorIntegration[] = [];
     for (const row of rows) {
       // The authority map is the authority, not the `where` above — a row it does
       // not know about is not the caller's to see.
       const authority = authorities.get(row.id);
       if (!authority) continue;
+      const attestable = !isConnectorPoweredEdge(row);
 
       // ── ONE ENTRY PER OWNED ENDPOINT, NOT PER INTEGRATION (AECI-666) ───────
       // The portal files integrations under the product they touch, so an
@@ -904,7 +1081,7 @@ export function createListVendorIntegrationsHandler(
           mechanism_name: row.mechanismName,
           // AECI-705 — computed server-side and never re-derived in the browser:
           // the union predicate is non-obvious and a client copy would drift.
-          attestable: !isConnectorPoweredEdge(row),
+          attestable,
           powered_by: row.poweredByProduct ? toProductLink(row.poweredByProduct) : null,
           // AECI-1008. Computed per entry because `direction` is framed against
           // this entry's context product, like every other direction here.
@@ -927,6 +1104,25 @@ export function createListVendorIntegrationsHandler(
                 link.productId === (contextIsSource ? row.sourceProduct.id : row.targetProduct.id),
             ),
           ),
+          // AECI-1152: the OTHER side's stored links, read-only here. They are the
+          // links the public pair page already shows for that product, so nothing
+          // private crosses. Empty on a connector-powered row (decision 9), even
+          // when a stranded link is stored, as the pair read does (§4.5.7).
+          counterpart_links: attestable
+            ? toSideLinks(
+                row.vendorLinks.filter(
+                  (link) =>
+                    link.productId ===
+                    (contextIsSource ? row.targetProduct.id : row.sourceProduct.id),
+                ),
+              )
+            : { ...EMPTY_SIDE_LINKS },
+          // AECI-1150 / AECI-1154: the integration row's own columns.
+          origin: row.origin === 'vendor' ? 'vendor' : 'aeci',
+          created_at: row.createdAt,
+          maintained_by: row.maintainedBy === 'vendor' ? 'vendor' : 'aeci',
+          last_reviewed_at: row.lastReviewedAt ?? null,
+          pricing_url: row.pricingUrl ?? null,
           context_product: toProductLink(contextIsSource ? row.sourceProduct : row.targetProduct),
           other_product: toProductLink(contextIsSource ? row.targetProduct : row.sourceProduct),
           slots: [...authority.slots],
@@ -953,6 +1149,7 @@ export function createListVendorIntegrationsHandler(
                 vendorId,
                 authority,
                 contextIsSource,
+                raisedAt.get(claim.id) ?? null,
               ),
             ),
         });
@@ -972,7 +1169,7 @@ export function createListVendorIntegrationsHandler(
     // freshness cursor imports too (`STAGE_2_REALTIME_SPEC.md` §2.2).
     const ownedRows = await loadOwnedIntegrations(db, vendorId, new Set(authorities.keys()));
 
-    return json(surfaceBody(c, surface, ownedRows));
+    return json(surfaceBody(c, surface, ownedRows, counterpartAddedUnanswered(surface)));
   };
 }
 
@@ -1006,12 +1203,34 @@ function endpointVendorsFor(row: {
     .sort((a, b) => compareText(a.name, b.name) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
 }
 
+/**
+ * AECI-1153 / `STAGE_2_ATTESTATIONS_SPEC.md` §7.6: distinct claim ids another
+ * vendor added and the caller has not answered, on attestable, live rows. Counted
+ * from the very entries the response carries, so it can never disagree with them,
+ * and by claim id, so an owns-both integration (listed twice) counts once.
+ */
+function counterpartAddedUnanswered(surface: readonly VendorIntegration[]): number {
+  const ids = new Set<string>();
+  for (const entry of surface) {
+    if (!entry.attestable || entry.retired_at !== null) continue;
+    for (const claim of entry.claims) {
+      if (claim.added_by === 'counterpart' && claim.mine.length === 0) ids.add(claim.id);
+    }
+  }
+  return ids.size;
+}
+
 function surfaceBody(
   c: VendorContext,
   integrations: VendorIntegration[],
   owned: OwnedIntegration[],
+  counterpartAdded = 0,
 ): ListVendorIntegrationsResponse {
-  const body: ListVendorIntegrationsResponse = { integrations, owned };
+  const body: ListVendorIntegrationsResponse = {
+    integrations,
+    owned,
+    counterpart_added_unanswered: counterpartAdded,
+  };
   validateResponseInDev(c.env, () => ListVendorIntegrationsResponseSchema.parse(body));
   return body;
 }
@@ -1031,7 +1250,7 @@ export function createVendorClaimHandler(
     const payload = await parseJsonBody(c, CreateVendorClaimSchema);
 
     // Step 2 — authority (404) then the capability gate (403), in that order.
-    const { resolved: authority } = await authorityAndVendor(db, vendorId, () =>
+    const { resolved: authority, vendor } = await authorityAndVendor(db, vendorId, () =>
       resolveAttestationSlots(db, vendorId, payload.integration_id),
     );
     assertAttestableEdge(authority);
@@ -1046,10 +1265,11 @@ export function createVendorClaimHandler(
     const contextIsSource = contextIsSourceFor(authority, payload.context_product_id);
     const direction = claimDirectionFromContext(payload.direction, contextIsSource);
 
-    const [resolveDataObject, stampsFor, endpoints] = await Promise.all([
+    const [resolveDataObject, stampsFor, endpoints, added] = await Promise.all([
       loadDataObjectResolver(db),
       resolveVersionStamps(db, authority, payload),
       endpointSlugs(db, authority),
+      claimAddedTargets(db, authority, vendorId),
     ]);
 
     const dataObject: DataObjectTerm | undefined = resolveDataObject(payload.data_object);
@@ -1147,6 +1367,27 @@ export function createVendorClaimHandler(
     // did not merely confirm AECi's curation, they wrote the row.
     const maintenance = vendorMaintainedFlip(c, db, authority, now, { vendorId, claimId });
 
+    // AECI-1153 / §7.6: one `claim_added` ledger row per vendor of the other
+    // endpoint, in THIS batch, so a rolled-back add cannot leave a notification
+    // about a row that never existed. No note: it is private (§5.2).
+    const notificationAudits = added.recipients.map((recipient) =>
+      claimAddedNotificationAudit(
+        { actorId: session.userId, actorType: auditActorType(session) },
+        {
+          vendorId: recipient,
+          addedByVendorId: vendorId,
+          addedByName: vendor.companyName ?? null,
+          integrationId: authority.integrationId,
+          integrationName: added.integrationName,
+          claimId,
+          dataObject: { slug: dataObject.slug, name: dataObject.name },
+          direction: claimDirectionForContext(direction, added.recipientProductIsSource),
+          counterpartProduct: added.adderProduct,
+          pairSlugs: [endpoints.sourceSlug, endpoints.targetSlug],
+        },
+      ),
+    );
+
     const stmts: BatchStmt[] = [
       db.insert(claims).values(claimRow),
       db.insert(attestations).values(attestationRows),
@@ -1154,13 +1395,14 @@ export function createVendorClaimHandler(
       auditInsert(db, claimAudit),
       ...attestationAudits.map((entry) => auditInsert(db, entry)),
       auditInsert(db, maintenance.audit),
+      ...notificationAudits.map((entry) => auditInsert(db, entry)),
     ];
     await db.batch(stmts as BatchTuple);
 
     afterVendorWrite(
       c,
       attestationEditTags(endpoints.sourceSlug, endpoints.targetSlug),
-      [claimAudit, ...attestationAudits, maintenance.audit],
+      [claimAudit, ...attestationAudits, maintenance.audit, ...notificationAudits],
       recrawlFor(c, endpoints),
       db,
     );
@@ -1220,6 +1462,18 @@ export function createUpsertVendorAttestationHandler(
     // field that makes the echoed `direction` disagree with the tab that sent it.
     if (payload.context_product_id) assertContextProduct(authority, payload.context_product_id);
     const contextIsSource = contextIsSourceFor(authority, payload.context_product_id);
+
+    // AECI-1151 / §5.2: a deny needs a reason. After the capability gate and the
+    // body shape, so a caller who may not write never learns the rule, and before
+    // anything is read or written. The rule is the shared `attestationNoteProblem`
+    // the portal runs too. An existing deny with no note is untouched until its
+    // author writes again, and this is that write.
+    const noteProblem = attestationNoteProblem(payload.asserted, payload.note);
+    if (noteProblem) {
+      throw new ApiError(400, ApiErrorCode.ATTESTATION_NOTE_REQUIRED, noteProblem, {
+        field: 'note',
+      });
+    }
 
     const [stampsFor, endpoints, dataObject, liveBefore] = await Promise.all([
       resolveVersionStamps(db, authority, payload),
@@ -1321,6 +1575,19 @@ export function createUpsertVendorAttestationHandler(
       })),
     ];
 
+    // AECI-1153: the echo carries `disagreement` like the list does. Replayed from
+    // the committed history only when the write left the claim in `conflict`. The
+    // write has already committed, so a failed read must not turn it into a 500:
+    // the echo falls back to this write's instant, and the next list read corrects it.
+    let raisedAt: string | null = null;
+    if (computeAgreement(live.map(toAgreementVote)) === 'conflict') {
+      try {
+        raisedAt = (await conflictStarts(db, [claimId])).get(claimId) ?? now;
+      } catch {
+        raisedAt = now;
+      }
+    }
+
     const body: VendorClaimResponse = {
       claim: toVendorClaim(
         { ...claim, dataObject },
@@ -1329,6 +1596,7 @@ export function createUpsertVendorAttestationHandler(
         vendorId,
         authority,
         contextIsSource,
+        raisedAt,
       ),
     };
     validateResponseInDev(c.env, () => VendorClaimResponseSchema.parse(body));

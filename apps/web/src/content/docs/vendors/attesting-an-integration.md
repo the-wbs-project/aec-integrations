@@ -18,7 +18,7 @@ In the vendor portal, open one of your products, then its **Integrations** tab, 
 - **Deny** says it is wrong.
 - **Clear** withdraws your company's position.
 
-You can add a note, and stamp the versions of your own product the flow was introduced or removed in. The note and stamps are saved when you choose Affirm or Deny.
+You can add a note, and stamp the versions of your own product the flow was introduced or removed in. The note and stamps are saved when you choose Affirm or Deny. A Deny needs a note that says what is wrong, so the other vendor and AEC Integrations can act on it. An Affirm does not.
 
 Several people at your company can hold seats, but your company has one position on each flow. The latest answer from anyone at your company is your company's answer.
 

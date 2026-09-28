@@ -35,6 +35,7 @@ import {
   attestations,
   auditLog,
   claims,
+  integrationVendorLinks,
   integrations,
   productVendors,
   productVersions,
@@ -935,14 +936,18 @@ describe('POST /api/vendor/claims', () => {
 
   it('emits claim.created AND attestation.created in the SAME batch', async () => {
     const { body: res } = await sendJson('POST', '/api/vendor/claims', body());
-    const rows = await auditRows();
-    expect(rows.map((r) => r.action).sort()).toEqual([
+    const all = await auditRows();
+    expect(all.map((r) => r.action).sort()).toEqual([
       'attestation.created',
       'claim.created',
       // The maintenance-marker flip (AECI-616): a vendor-authored claim makes the
       // integration vendor-maintained, audited in the same batch.
       'integration.updated',
+      // AECI-1153: the `claim_added` row to the other endpoint's vendor, same batch.
+      'notification.sent',
     ]);
+    // The notification row is addressed to its RECIPIENT; see the §7.6 block.
+    const rows = all.filter((r) => r.action !== 'notification.sent');
     for (const row of rows) {
       expect(row.actorId).toBe(SEAT_A);
       expect(row.actorType).toBe('user');
@@ -1069,7 +1074,12 @@ describe('PUT /api/vendor/claims/:claimId/attestation', () => {
 
   it('reads `conflict` when the two vendors disagree', async () => {
     await sendJson('PUT', attestationUrl(C_MAIN), { asserted: true });
-    const { body } = await sendJson('PUT', attestationUrl(C_MAIN), { asserted: false }, AUTH_B);
+    const { body } = await sendJson(
+      'PUT',
+      attestationUrl(C_MAIN),
+      { asserted: false, note: 'We never send RFIs.' },
+      AUTH_B,
+    );
     expect(body.claim.agreement).toBe('conflict');
   });
 
@@ -1078,7 +1088,7 @@ describe('PUT /api/vendor/claims/:claimId/attestation', () => {
     // insert ever preceded the retract inside the batch, this would blow up on the
     // second call — and take the whole batch with it.
     await sendJson('PUT', attestationUrl(C_MAIN), { asserted: true });
-    await sendJson('PUT', attestationUrl(C_MAIN), { asserted: false });
+    await sendJson('PUT', attestationUrl(C_MAIN), { asserted: false, note: 'second' });
     const { status, body } = await sendJson('PUT', attestationUrl(C_MAIN), {
       asserted: true,
       note: 'third',
@@ -1096,7 +1106,7 @@ describe('PUT /api/vendor/claims/:claimId/attestation', () => {
 
   it('replaces rather than patches — an omitted note clears it', async () => {
     await sendJson('PUT', attestationUrl(C_MAIN), { asserted: true, note: 'first' });
-    const { body } = await sendJson('PUT', attestationUrl(C_MAIN), { asserted: false });
+    const { body } = await sendJson('PUT', attestationUrl(C_MAIN), { asserted: true });
     expect(body.claim.mine[0].note).toBeNull();
   });
 
@@ -1129,7 +1139,10 @@ describe('PUT /api/vendor/claims/:claimId/attestation', () => {
   it('emits attestation.retracted + attestation.created when superseding', async () => {
     await sendJson('PUT', attestationUrl(C_MAIN), { asserted: true });
     const before = (await auditRows()).length;
-    await sendJson('PUT', attestationUrl(C_MAIN), { asserted: false });
+    await sendJson('PUT', attestationUrl(C_MAIN), {
+      asserted: false,
+      note: 'Not in this version.',
+    });
     const added = (await auditRows()).slice(before);
     expect(added.map((r) => r.action).sort()).toEqual([
       'attestation.created',
@@ -1429,5 +1442,406 @@ describe('maintenance marker — integrations.maintained_by (AECI-616)', () => {
     expect(flip?.beforeState).toMatchObject({ maintained_by: 'vendor' });
     expect(flip?.afterState).toMatchObject({ maintained_by: 'aeci' });
     expect(flip?.metadata).toMatchObject({ reason: 'maintenance-marker' });
+  });
+});
+
+// ─── Integration detail page, server side (AECI-1151 to AECI-1154) ───────────
+
+describe('PUT: a deny needs a reason (AECI-1151)', () => {
+  it('400s ATTESTATION_NOTE_REQUIRED on a deny with no note, a null note or a blank note', async () => {
+    for (const payload of [
+      { asserted: false },
+      { asserted: false, note: null },
+      { asserted: false, note: '   ' },
+    ]) {
+      const before = (await auditRows()).length;
+      const { status, body } = await sendJson('PUT', attestationUrl(C_MAIN), payload);
+      expect(status).toBe(400);
+      expect(body.error.code).toBe('ATTESTATION_NOTE_REQUIRED');
+      expect(body.error.field).toBe('note');
+      // Nothing written: no attestation, no audit row.
+      expect((await auditRows()).length).toBe(before);
+      expect((await liveAttestations(C_MAIN)).filter((r) => r.source === 'vendor_a')).toEqual([]);
+    }
+  });
+
+  it('accepts a deny with a reason, and an affirm with no note', async () => {
+    const deny = await sendJson('PUT', attestationUrl(C_MAIN), {
+      asserted: false,
+      note: 'We never send RFIs.',
+    });
+    expect(deny.status).toBe(200);
+    expect(deny.body.claim.mine[0]).toMatchObject({ asserted: false, note: 'We never send RFIs.' });
+    const affirm = await sendJson('PUT', attestationUrl(C_MAIN), { asserted: true });
+    expect(affirm.status).toBe(200);
+  });
+
+  it('answers a caller who may not write before it learns the rule', async () => {
+    // Not an endpoint vendor: the flat 404 wins.
+    await t.db.insert(claims).values({
+      id: uuid(47),
+      integrationId: I_FOREIGN,
+      dataObjectId: DO_RFIS,
+      direction: 'a_to_b',
+    });
+    const foreign = await sendJson('PUT', attestationUrl(uuid(47)), { asserted: false });
+    expect(foreign.status).toBe(404);
+    // An endpoint vendor without `attestation.author`: the capability 403 wins.
+    await t.db.insert(claims).values({
+      id: uuid(48),
+      integrationId: I_UNVERIFIED,
+      dataObjectId: DO_RFIS,
+      direction: 'a_to_b',
+    });
+    const unentitled = await sendJson(
+      'PUT',
+      attestationUrl(uuid(48)),
+      { asserted: false },
+      AUTH_UNVERIFIED,
+    );
+    expect(unentitled.status).toBe(403);
+    expect(unentitled.body.error.code).toBe('ENTITLEMENT_REQUIRED');
+  });
+
+  it('grandfathers an existing deny with no note on read', async () => {
+    await t.db.insert(attestations).values({
+      id: uuid(72),
+      claimId: C_MAIN,
+      source: 'vendor_b',
+      asserted: false,
+      note: null,
+      attestedByVendorId: VENDOR_B,
+    });
+    const { status, body } = await call('/api/vendor/integrations');
+    expect(status).toBe(200);
+    expect(body.integrations[0].claims[0].counterparty).toEqual({ asserted: false, note: null });
+  });
+
+  it('"the direction is wrong" is a deny on the old row plus a new affirmed row, each audited', async () => {
+    const before = (await auditRows()).length;
+    const deny = await sendJson('PUT', attestationUrl(C_MAIN), {
+      asserted: false,
+      note: 'The direction is wrong. RFIs come from MicroStation.',
+    });
+    expect(deny.status).toBe(200);
+    const add = await sendJson('POST', '/api/vendor/claims', {
+      integration_id: I_MAIN,
+      data_object: 'rfis',
+      direction: 'inbound',
+      context_product_id: P_SOURCE,
+    });
+    expect(add.status).toBe(201);
+
+    const live = await t.db
+      .select()
+      .from(attestations)
+      .where(and(eq(attestations.source, 'vendor_a'), isNull(attestations.retractedAt)));
+    expect(live.find((r) => r.claimId === C_MAIN)?.asserted).toBe(false);
+    expect(live.find((r) => r.claimId === add.body.claim.id)?.asserted).toBe(true);
+    const actions = (await auditRows())
+      .slice(before)
+      .map((r) => r.action)
+      .sort();
+    expect(actions).toEqual([
+      'attestation.created',
+      'attestation.created',
+      'claim.created',
+      'integration.updated',
+      'integration.updated',
+      'notification.sent',
+    ]);
+  });
+});
+
+describe('GET /api/vendor/integrations: the other side’s links (AECI-1152)', () => {
+  const links = () =>
+    t.db.insert(integrationVendorLinks).values([
+      {
+        integrationId: I_MAIN,
+        productId: P_SOURCE,
+        kind: 'listing',
+        url: 'https://autodesk.example/listing',
+        vendorId: VENDOR_A,
+      },
+      {
+        integrationId: I_MAIN,
+        productId: P_TARGET,
+        kind: 'docs',
+        url: 'https://bentley.example/docs',
+        vendorId: VENDOR_B,
+      },
+    ]);
+
+  it('gives each endpoint vendor the other side’s links, read-only, beside its own', async () => {
+    await links();
+    const a = (await call('/api/vendor/integrations')).body.integrations[0];
+    expect(a.own_links).toEqual({
+      listing_url: 'https://autodesk.example/listing',
+      docs_url: null,
+    });
+    expect(a.counterpart_links).toEqual({
+      listing_url: null,
+      docs_url: 'https://bentley.example/docs',
+    });
+    const b = (await call('/api/vendor/integrations', {}, AUTH_B)).body.integrations.find(
+      (entry: JsonBody) => entry.id === I_MAIN,
+    );
+    expect(b.own_links).toEqual({ listing_url: null, docs_url: 'https://bentley.example/docs' });
+    expect(b.counterpart_links).toEqual({
+      listing_url: 'https://autodesk.example/listing',
+      docs_url: null,
+    });
+  });
+
+  it('shows the links only to the endpoint vendors', async () => {
+    await links();
+    const foreign = (await call('/api/vendor/integrations', {}, AUTH_UNVERIFIED)).body;
+    expect(foreign.integrations.map((entry: JsonBody) => entry.id)).not.toContain(I_MAIN);
+    expect(JSON.stringify(foreign)).not.toContain('bentley.example');
+  });
+
+  it('gives an owns-both caller its own other side, entry by entry', async () => {
+    await t.db.insert(integrationVendorLinks).values([
+      {
+        integrationId: I_INTRA,
+        productId: P_OWN_A,
+        kind: 'listing',
+        url: 'https://procore.example/a',
+        vendorId: VENDOR_BOTH,
+      },
+      {
+        integrationId: I_INTRA,
+        productId: P_OWN_B,
+        kind: 'listing',
+        url: 'https://procore.example/b',
+        vendorId: VENDOR_BOTH,
+      },
+    ]);
+    const entries = (await call('/api/vendor/integrations', {}, AUTH_BOTH)).body.integrations;
+    const onA = entries.find((e: JsonBody) => e.context_product.id === P_OWN_A);
+    const onB = entries.find((e: JsonBody) => e.context_product.id === P_OWN_B);
+    expect(onA.own_links.listing_url).toBe('https://procore.example/a');
+    expect(onA.counterpart_links.listing_url).toBe('https://procore.example/b');
+    expect(onB.own_links.listing_url).toBe('https://procore.example/b');
+    expect(onB.counterpart_links.listing_url).toBe('https://procore.example/a');
+  });
+
+  it('is empty on a connector-powered row, even with a stranded link stored', async () => {
+    await links();
+    await makePowered('ipaas');
+    const a = (await call('/api/vendor/integrations')).body.integrations[0];
+    expect(a.attestable).toBe(false);
+    expect(a.counterpart_links).toEqual({ listing_url: null, docs_url: null });
+  });
+});
+
+describe('GET /api/vendor/integrations: the detail page fields (AECI-1150, AECI-1153, AECI-1154)', () => {
+  it('carries the integration row’s own columns', async () => {
+    await t.db
+      .update(integrations)
+      .set({ pricingUrl: 'https://autodesk.example/pricing', origin: 'vendor' })
+      .where(eq(integrations.id, I_MAIN));
+    const a = (await call('/api/vendor/integrations')).body.integrations[0];
+    expect(a.pricing_url).toBe('https://autodesk.example/pricing');
+    expect(a.origin).toBe('vendor');
+    expect(a.maintained_by).toBe('aeci');
+    expect(a.created_at).toEqual(expect.any(String));
+    // Not contestable: the prefill map keeps its stored twelve and no pricing_url.
+    expect(Object.keys(a.contestable_fields)).toHaveLength(12);
+    expect(a.contestable_fields).not.toHaveProperty('pricing_url');
+  });
+
+  it('says who added a row from each caller’s seat, and never ships the creating vendor id', async () => {
+    const added = await sendJson('POST', '/api/vendor/claims', {
+      integration_id: I_MAIN,
+      data_object: 'submittals',
+      direction: 'outbound',
+    });
+    const claimFor = async (auth: AuthzVariables['auth']) =>
+      (await call('/api/vendor/integrations', {}, auth)).body.integrations
+        .find((e: JsonBody) => e.id === I_MAIN)
+        .claims.find((c: JsonBody) => c.id === added.body.claim.id);
+    expect((await claimFor(AUTH_A)).added_by).toBe('you');
+    expect((await claimFor(AUTH_B)).added_by).toBe('counterpart');
+    expect((await claimFor(AUTH_B)).created_at).toEqual(expect.any(String));
+    const aeciClaim = (await call('/api/vendor/integrations')).body.integrations[0].claims.find(
+      (c: JsonBody) => c.id === C_MAIN,
+    );
+    expect(aeciClaim.added_by).toBeNull();
+    const raw = JSON.stringify((await call('/api/vendor/integrations', {}, AUTH_B)).body);
+    expect(raw).not.toContain('created_by_vendor_id');
+  });
+
+  it('dates a disagreement from when it was raised, and a note edit does not move it', async () => {
+    await sendJson('PUT', attestationUrl(C_MAIN), { asserted: true });
+    const denied = await sendJson(
+      'PUT',
+      attestationUrl(C_MAIN),
+      { asserted: false, note: 'We never send RFIs.' },
+      AUTH_B,
+    );
+    // The PUT echo carries it too.
+    expect(denied.body.claim.disagreement).toEqual({
+      id: C_MAIN,
+      raised_at: expect.any(String),
+    });
+    const listed = (await call('/api/vendor/integrations')).body.integrations[0].claims[0];
+    expect(listed.agreement).toBe('conflict');
+    expect(listed.disagreement.id).toBe(C_MAIN);
+    const raisedAt = listed.disagreement.raised_at;
+    const bRow = (await liveAttestations(C_MAIN)).find((r) => r.source === 'vendor_b');
+    expect(raisedAt).toBe(bRow?.createdAt);
+
+    // Same stance, new reason: the run of `conflict` is unbroken.
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    await sendJson(
+      'PUT',
+      attestationUrl(C_MAIN),
+      { asserted: false, note: 'Only submittals, never RFIs.' },
+      AUTH_B,
+    );
+    const after = (await call('/api/vendor/integrations')).body.integrations[0].claims[0];
+    expect(after.disagreement.raised_at).toBe(raisedAt);
+
+    // Resolved: no disagreement.
+    await sendJson('PUT', attestationUrl(C_MAIN), { asserted: true }, AUTH_B);
+    const resolved = (await call('/api/vendor/integrations')).body.integrations[0].claims[0];
+    expect(resolved.agreement).toBe('confirmed');
+    expect(resolved.disagreement).toBeNull();
+  });
+
+  it('is null on every claim that is not in conflict', async () => {
+    const body = (await call('/api/vendor/integrations')).body;
+    for (const entry of body.integrations) {
+      for (const claim of entry.claims) expect(claim.disagreement).toBeNull();
+    }
+  });
+});
+
+describe('counterpart_added_unanswered (AECI-1153 / §7.6)', () => {
+  const count = async (auth: AuthzVariables['auth']) =>
+    (await call('/api/vendor/integrations', {}, auth)).body.counterpart_added_unanswered;
+  const addAsA = () =>
+    sendJson('POST', '/api/vendor/claims', {
+      integration_id: I_MAIN,
+      data_object: 'submittals',
+      direction: 'outbound',
+    });
+
+  it('counts a row the other company added until the caller answers it', async () => {
+    const added = await addAsA();
+    expect(await count(AUTH_B)).toBe(1);
+    expect(await count(AUTH_A)).toBe(0);
+    await sendJson('PUT', attestationUrl(added.body.claim.id), { asserted: true }, AUTH_B);
+    expect(await count(AUTH_B)).toBe(0);
+  });
+
+  it('does not count a retired or a connector-powered row', async () => {
+    await addAsA();
+    await t.db
+      .update(integrations)
+      .set({ retiredAt: '2026-09-28T00:00:00.000Z', retiredBy: 'aeci' })
+      .where(eq(integrations.id, I_MAIN));
+    expect(await count(AUTH_B)).toBe(0);
+    await t.db
+      .update(integrations)
+      .set({ retiredAt: null, retiredBy: null })
+      .where(eq(integrations.id, I_MAIN));
+    expect(await count(AUTH_B)).toBe(1);
+    await makePowered('fk');
+    expect(await count(AUTH_B)).toBe(0);
+  });
+
+  it('counts an owns-both integration once, though it is listed twice', async () => {
+    await t.db.insert(claims).values({
+      id: uuid(49),
+      integrationId: I_INTRA,
+      dataObjectId: DO_SUBMITTALS,
+      direction: 'a_to_b',
+      origin: 'vendor',
+      createdByVendorId: VENDOR_A,
+    });
+    const body = (await call('/api/vendor/integrations', {}, AUTH_BOTH)).body;
+    expect(body.integrations.filter((e: JsonBody) => e.id === I_INTRA)).toHaveLength(2);
+    expect(body.counterpart_added_unanswered).toBe(1);
+  });
+});
+
+describe('POST /api/vendor/claims: the claim_added notification (AECI-1153 / §7.6)', () => {
+  const notifications = async () =>
+    (await auditRows()).filter(
+      (r) =>
+        r.action === 'notification.sent' &&
+        (r.metadata as { kind?: string }).kind === 'claim_added',
+    );
+
+  it('writes one row per vendor of the other endpoint, framed for the recipient, with no note', async () => {
+    const res = await sendJson('POST', '/api/vendor/claims', {
+      integration_id: I_MAIN,
+      data_object: 'submittals',
+      direction: 'outbound',
+      note: 'Only approved submittals.',
+    });
+    expect(res.status).toBe(201);
+    const rows = await notifications();
+    expect(rows).toHaveLength(1);
+    const [row] = rows;
+    expect(row.entityType).toBe('claim');
+    expect(row.entityId).toBe(res.body.claim.id);
+    expect(row.actorId).toBe(SEAT_A);
+    expect(row.metadata).toEqual({
+      kind: 'claim_added',
+      vendorId: VENDOR_B,
+      addedByVendorId: VENDOR_A,
+      addedByName: 'Autodesk',
+      integrationId: I_MAIN,
+      integrationName: null,
+      claimId: res.body.claim.id,
+      dataObject: { slug: 'submittals', name: 'Submittals' },
+      // A said "outbound" from Revit, so for MicroStation's vendor it is inbound.
+      direction: 'inbound',
+      counterpartProduct: { slug: 'revit', name: 'Revit' },
+      pairSlugs: ['microstation', 'revit'],
+    });
+    expect(JSON.stringify(row)).not.toContain('Only approved submittals.');
+  });
+
+  it('writes nothing for a caller holding both endpoints', async () => {
+    await sendJson(
+      'POST',
+      '/api/vendor/claims',
+      { integration_id: I_INTRA, data_object: 'submittals', direction: 'outbound' },
+      AUTH_BOTH,
+    );
+    expect(await notifications()).toEqual([]);
+  });
+
+  it('writes nothing when the other product has no vendor', async () => {
+    const P_ORPHAN = uuid(17);
+    const I_ORPHAN = uuid(24);
+    await t.db.insert(products).values({ id: P_ORPHAN, slug: 'bluebeam', name: 'Bluebeam' });
+    await t.db
+      .insert(integrations)
+      .values({ id: I_ORPHAN, sourceProductId: P_SOURCE, targetProductId: P_ORPHAN });
+    const res = await sendJson('POST', '/api/vendor/claims', {
+      integration_id: I_ORPHAN,
+      data_object: 'submittals',
+      direction: 'outbound',
+    });
+    expect(res.status).toBe(201);
+    expect(await notifications()).toEqual([]);
+  });
+
+  it('rolls back with the claim when the batch fails', async () => {
+    const ghost = { ...AUTH_A, userId: uuid(998) };
+    const { status } = await sendJson(
+      'POST',
+      '/api/vendor/claims',
+      { integration_id: I_MAIN, data_object: 'submittals', direction: 'outbound' },
+      ghost,
+    );
+    expect(status).toBe(500);
+    expect(await notifications()).toEqual([]);
+    expect(await claimRows()).toHaveLength(2);
   });
 });

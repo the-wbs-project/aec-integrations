@@ -265,7 +265,11 @@ describe('VendorIntegrationOwnership — the edit form', () => {
     expect(control(fixture, 'name').value).toBe(CLAIMED.contestable_fields.name);
     expect(control(fixture, 'listing_url').value).toBe(CLAIMED.contestable_fields.listing_url);
     expect(control(fixture, 'direction').value).toBe('inbound');
-    expect(control(fixture, 'website').value).toBe('');
+    // AECI-1154: the edit-only pricing page, empty on this fixture.
+    expect(control(fixture, 'pricing_url').value).toBe('');
+    // AECI-1155: website and connection link are no longer offered.
+    expect(control(fixture, 'website')).toBeNull();
+    expect(control(fixture, 'mechanism_url')).toBeNull();
   });
 
   it('offers no connector-delivered integration type', async () => {
@@ -311,9 +315,9 @@ describe('VendorIntegrationOwnership — the edit form', () => {
   it('flags a bad value on the field and does not send', async () => {
     const fixture = await create(CLAIMED);
     await openEdit(fixture);
-    await type(fixture, 'website', 'example.com');
-    expect(control(fixture, 'website').getAttribute('aria-invalid')).toBe('true');
-    expect(q(fixture, '[id$="-website-error"]')!.textContent).toContain('http');
+    await type(fixture, 'pricing_url', 'example.com');
+    expect(control(fixture, 'pricing_url').getAttribute('aria-invalid')).toBe('true');
+    expect(q(fixture, '[id$="-pricing_url-error"]')!.textContent).toContain('http');
     await save(fixture);
     expect(api.updateIntegration).not.toHaveBeenCalled();
   });

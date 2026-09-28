@@ -12,9 +12,10 @@ import {
 } from '@angular/core';
 
 import {
-  CONTEST_VALUE_MAX_LENGTH,
   CreateVendorIntegrationSchema,
+  INTEGRATION_EDIT_MAX_LENGTH,
   INTEGRATION_EDIT_REQUIRED_FIELDS,
+  INTEGRATION_EDIT_URL_FIELDS,
   OWNER_EDITABLE_MECHANISM_KINDS,
   type CreateVendorIntegrationInput,
   type IntegrationEditField,
@@ -29,7 +30,7 @@ import { VendorApi } from '../vendor-api';
 import { readVendorApiError } from '../vendor-api-error';
 import { VendorPortalStore } from '../vendor-portal-store';
 
-import { contestFieldLabel } from './vendor-contest-labels';
+import { editFieldLabel } from './vendor-contest-labels';
 import { EDIT_GROUPS } from './vendor-integration-ownership';
 import { editValueMessage } from './vendor-integration-ownership-labels';
 
@@ -44,12 +45,7 @@ export const VENDOR_CREATE_FORM_START_OPEN = new InjectionToken<boolean>(
 
 type Draft = Record<IntegrationEditField, string>;
 
-const URL_FIELDS: ReadonlySet<IntegrationEditField> = new Set([
-  'listing_url',
-  'docs_url',
-  'website',
-  'mechanism_url',
-]);
+const URL_FIELDS: ReadonlySet<IntegrationEditField> = INTEGRATION_EDIT_URL_FIELDS;
 
 function emptyDraft(): Draft {
   return Object.fromEntries(
@@ -673,7 +669,7 @@ export class VendorIntegrationCreate {
   }
 
   protected fieldLabel(field: IntegrationEditField): string {
-    return contestFieldLabel(field);
+    return editFieldLabel(field);
   }
 
   protected required(field: IntegrationEditField): boolean {
@@ -685,7 +681,7 @@ export class VendorIntegrationCreate {
   }
 
   protected maxLength(field: IntegrationEditField): number {
-    return CONTEST_VALUE_MAX_LENGTH[field];
+    return INTEGRATION_EDIT_MAX_LENGTH[field];
   }
 
   protected optionsFor(field: IntegrationEditField): readonly { value: string; label: string }[] {

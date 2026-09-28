@@ -263,6 +263,12 @@ export class VendorNotificationsList {
         (part): part is string => !!part,
       );
     }
+    // AECI-1153: a row the other company added names the data and its product.
+    if (notification.kind === 'claim_added') {
+      return [notification.integration_name, notification.counterpart_product?.name].filter(
+        (part): part is string => !!part,
+      );
+    }
     // AECI-1046: an AECi retire names AEC Integrations in the title, so the owner name
     // is not repeated as if the owner had acted.
     if (notification.kind === 'integration_retire' && notification.retired_by === 'aeci') {
@@ -329,6 +335,14 @@ function titleOf(notification: VendorNotification): string {
   if (notification.kind === 'integration_create') {
     return $localize`:@@vendor.integrationCreate.notify.created:Another company added an integration with your product`;
   }
+  if (notification.kind === 'claim_added') {
+    // AECI-1153 / `STAGE_2_ATTESTATIONS_SPEC.md` §7.6 archive copy.
+    const company =
+      notification.added_by_name ??
+      $localize`:@@vendor.claimAdded.notify.anotherCompany:Another company`;
+    const data = notification.data_object.name;
+    return $localize`:@@vendor.claimAdded.notify.title:${company}:company: added ${data}:data: to an integration on your product`;
+  }
   return contestNotificationTitle(notification);
 }
 
@@ -360,6 +374,8 @@ function noteOf(
       return $localize`:@@vendor.integrationCreate.notify.note:It is already live on the public site, and the company that added it owns it. If a detail is wrong, contest that field on the integration.`;
     case 'integration_update':
       return $localize`:@@vendor.integrationEdit.notify.note:The changes are already live on the public integration page. If one is wrong, contest that field on the integration.`;
+    case 'claim_added':
+      return $localize`:@@vendor.claimAdded.notify.note:Tell them whether it is right on the integration page.`;
     case 'contest':
       return contestNotificationNote(notification, formatDay);
   }

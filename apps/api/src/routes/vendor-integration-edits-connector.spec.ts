@@ -361,17 +361,17 @@ describe('a connector-powered integrations row (AECI-1090)', () => {
 });
 
 describe('a connector_evidenced_pairs row (AECI-1090)', () => {
-  it('lets the entitled, claimed third-party owner edit its ten fields', async () => {
+  it('lets the entitled, claimed third-party owner edit its nine fields', async () => {
     const res = await edit(AUTH_C, E_OWNED, {
       name: 'Revit ↔ MicroStation (Agave)',
       mechanism_name: 'Agave Sync',
       description: 'Syncs models.',
       listing_url: 'https://cherry.example/listing',
       docs_url: 'https://cherry.example/docs',
-      website: null,
-      mechanism_url: 'https://cherry.example/mechanism',
       pricing_model: 'Subscription',
       maturity: 'GA',
+      // AECI-1154: the edit-only pricing page link, on this table too.
+      pricing_url: 'https://cherry.example/pricing',
       direction: 'both',
     });
     expect(res.status).toBe(200);
@@ -384,10 +384,9 @@ describe('a connector_evidenced_pairs row (AECI-1090)', () => {
       'description',
       'listing_url',
       'docs_url',
-      'website',
-      'mechanism_url',
       'pricing_model',
       'maturity',
+      'pricing_url',
     ]);
     const after = await evPair(E_OWNED);
     expect(after).toMatchObject({
@@ -395,7 +394,9 @@ describe('a connector_evidenced_pairs row (AECI-1090)', () => {
       mechanismName: 'Agave Sync',
       direction: 'both',
       description: 'Syncs models.',
-      website: null,
+      // AECI-1155: the column stays and an edit no longer writes it.
+      website: 'https://cherry.example/agave',
+      pricingUrl: 'https://cherry.example/pricing',
       pricingModel: 'Subscription',
       maturity: 'GA',
       maintainedBy: 'vendor',
@@ -554,9 +555,19 @@ describe('a connector_evidenced_pairs row (AECI-1090)', () => {
   });
 
   it('refuses a value wrong for its field with 422, naming it', async () => {
-    const res = await edit(AUTH_C, E_OWNED, { website: 'ftp://nope' });
+    const res = await edit(AUTH_C, E_OWNED, { pricing_url: 'ftp://nope' });
     expect(res.status).toBe(422);
     expect(res.body.error.code).toBe('INTEGRATION_INVALID_VALUE');
+    expect(res.body.error.field).toBe('pricing_url');
+  });
+
+  it('refuses website and mechanism_url with 400 through the strict schema (AECI-1155)', async () => {
+    for (const key of ['website', 'mechanism_url']) {
+      const res = await edit(AUTH_C, E_OWNED, { [key]: 'https://cherry.example/x' });
+      expect(res.status).toBe(400);
+      expect(res.body.error.field).toBe(key);
+    }
+    expect(await auditRows()).toHaveLength(0);
   });
 
   it('refuses a context_product_id that is not an endpoint (the connector included)', async () => {

@@ -11,6 +11,7 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  attestationNoteProblem,
   CreateVendorClaimSchema,
   DataObjectOptionSchema,
   ListDataObjectsResponseSchema,
@@ -45,6 +46,9 @@ const CLAIM = {
   origin: 'vendor' as const,
   mine: [OWN_ATTESTATION],
   counterparty: null,
+  added_by: 'you' as const,
+  created_at: '2026-08-17T00:00:00.000Z',
+  disagreement: null,
 };
 
 const INTEGRATION = {
@@ -73,6 +77,12 @@ const INTEGRATION = {
     { id: uuid(41), name: 'Autodesk' },
   ],
   own_links: { listing_url: 'https://autodesk.example/listing', docs_url: null },
+  counterpart_links: { listing_url: null, docs_url: 'https://bentley.example/docs' },
+  origin: 'aeci' as const,
+  created_at: '2026-07-01T00:00:00.000Z',
+  maintained_by: 'vendor' as const,
+  last_reviewed_at: '2026-08-17T00:00:00.000Z',
+  pricing_url: 'https://autodesk.example/pricing',
 };
 
 describe('VENDOR_ATTESTATION_SLOTS', () => {
@@ -380,5 +390,76 @@ describe('ListDataObjectsResponseSchema', () => {
 
   it('rejects a bare array — the envelope key is part of the contract', () => {
     expect(ListDataObjectsResponseSchema.safeParse([]).success).toBe(false);
+  });
+});
+
+describe('attestationNoteProblem (AECI-1151: a deny needs a reason)', () => {
+  it('refuses a deny with no note, a null note or a blank note', () => {
+    expect(attestationNoteProblem(false, undefined)).not.toBeNull();
+    expect(attestationNoteProblem(false, null)).not.toBeNull();
+    expect(attestationNoteProblem(false, '')).not.toBeNull();
+    expect(attestationNoteProblem(false, '   ')).not.toBeNull();
+  });
+
+  it('accepts a deny with a reason, and an affirm with or without a note', () => {
+    expect(attestationNoteProblem(false, 'We only send RFIs, never submittals.')).toBeNull();
+    expect(attestationNoteProblem(true, undefined)).toBeNull();
+    expect(attestationNoteProblem(true, null)).toBeNull();
+    expect(attestationNoteProblem(true, 'Since v5')).toBeNull();
+  });
+
+  it('leaves the shape schema alone, so a deny without a note still parses', () => {
+    expect(UpsertVendorAttestationSchema.safeParse({ asserted: false }).success).toBe(true);
+  });
+});
+
+describe('the integration detail page fields default for deploy skew (AECI-1150 to AECI-1154)', () => {
+  const claimBase = {
+    id: uuid(1),
+    integration_id: uuid(2),
+    data_object_slug: 'rfis',
+    data_object_name: 'RFIs',
+    direction: 'outbound' as const,
+    agreement: 'unverified' as const,
+    origin: 'aeci' as const,
+    mine: [],
+    counterparty: null,
+  };
+
+  it('defaults every new claim field', () => {
+    const claim = VendorClaimSchema.parse(claimBase);
+    expect(claim.added_by).toBeNull();
+    expect(claim.created_at).toBeNull();
+    expect(claim.disagreement).toBeNull();
+  });
+
+  it('parses a disagreement and refuses an id that is not a uuid', () => {
+    const conflict = {
+      ...claimBase,
+      agreement: 'conflict' as const,
+      origin: 'vendor' as const,
+      counterparty: { asserted: false, note: 'no' },
+      added_by: 'counterpart' as const,
+    };
+    const raised = { id: uuid(1), raised_at: '2026-09-28T10:00:00.000Z' };
+    expect(VendorClaimSchema.parse({ ...conflict, disagreement: raised }).disagreement).toEqual(
+      raised,
+    );
+    expect(
+      VendorClaimSchema.safeParse({ ...conflict, disagreement: { id: 'x', raised_at: 'y' } })
+        .success,
+    ).toBe(false);
+  });
+
+  it('defaults the new integration fields and the unanswered count', () => {
+    const parsed = ListVendorIntegrationsResponseSchema.parse({ integrations: [] });
+    expect(parsed.counterpart_added_unanswered).toBe(0);
+    const shape = VendorIntegrationSchema.shape;
+    expect(shape.counterpart_links.parse(undefined)).toEqual({ listing_url: null, docs_url: null });
+    expect(shape.origin.parse(undefined)).toBe('aeci');
+    expect(shape.maintained_by.parse(undefined)).toBe('aeci');
+    expect(shape.created_at.parse(undefined)).toBeNull();
+    expect(shape.last_reviewed_at.parse(undefined)).toBeNull();
+    expect(shape.pricing_url.parse(undefined)).toBeNull();
   });
 });

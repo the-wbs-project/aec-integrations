@@ -32,11 +32,12 @@
  * `powered_by_product_id`, which promote routes between the two tables on) are not
  * in the edit set at all.
  *
- * ── 3. THE ELEVEN CONTESTABLE CONTENT FIELDS, AND NOTHING ELSE ──────────────
- * The field set is AECI-1008's contest set minus `owner`, mapped through the same
- * `CONTEST_FIELD_COLUMNS`, so "what a non-owner may contest" and "what the owner
- * may edit" cannot drift apart. `notes` is AECi's curation column and is not
- * editable. No value may make an ordinary row connector-powered (decision 9).
+ * ── 3. THE TEN EDIT FIELDS, AND NOTHING ELSE ────────────────────────────────
+ * The field set is the OFFERED contest set minus `owner`, plus the edit-only
+ * `pricing_url` (AECI-1154, AECI-1155 / §6.17.11), mapped through
+ * `EDIT_FIELD_COLUMNS`. `website` and `mechanism_url` are stored but no longer
+ * offered, so the strict body refuses them. `notes` is AECi's curation column and
+ * is not editable. No value may make an ordinary row connector-powered (decision 9).
  *
  * ── 4. ONE BATCH ────────────────────────────────────────────────────────────
  * The guarded `UPDATE … WHERE built_by_vendor_id = <caller> AND claimed_at IS NOT
@@ -88,7 +89,7 @@ import { auditInsert, type BatchStmt, type BatchTuple } from '../lib/audit';
 import { auditActorType } from '../lib/authz';
 import { isConnectorPoweredEdge } from '../lib/connector-powered';
 import { validateResponseInDev, writeDb, type DbFactory } from '../lib/handler-utils';
-import { CONTEST_FIELD_COLUMNS, storedFieldValue } from '../lib/integration-contests';
+import { EDIT_FIELD_COLUMNS, storedEditValue } from '../lib/integration-contests';
 import {
   endpointSlugs,
   isOwnerWriteRaceError,
@@ -181,7 +182,7 @@ export function createUpdateVendorIntegrationHandler(
       // Asked before the value rule, because the stored value (`iPaaS`) is one the
       // rule refuses, and repeating it must stay a harmless no-op.
       if (connectorPowered && CONNECTOR_POWERED_FROZEN_EDIT_FIELDS.has(field)) {
-        if (wire === storedFieldValue(row, field)) continue;
+        if (wire === storedEditValue(row, field)) continue;
         throw frozenFieldError(field);
       }
       const problem = integrationEditValueProblem(field, wire);
@@ -192,7 +193,7 @@ export function createUpdateVendorIntegrationHandler(
         field === 'direction' && wire !== null
           ? claimDirectionFromContext(wire as ContextDirection, contextIsSource)
           : wire;
-      if (stored !== storedFieldValue(row, field)) changes[field] = stored;
+      if (stored !== storedEditValue(row, field)) changes[field] = stored;
     }
     // Decision 9, belt and braces: the shared rule refuses the connector kinds by
     // name, and this asks the real predicate about the row as it would be. Only for
@@ -252,9 +253,9 @@ export function createUpdateVendorIntegrationHandler(
     const afterState: Record<string, unknown> = {};
     const columns: Record<string, string | null> = {};
     for (const field of changed) {
-      beforeState[field] = storedFieldValue(row, field);
+      beforeState[field] = storedEditValue(row, field);
       afterState[field] = changes[field] ?? null;
-      columns[CONTEST_FIELD_COLUMNS[field]] = changes[field] ?? null;
+      columns[EDIT_FIELD_COLUMNS[field]] = changes[field] ?? null;
     }
     beforeState.maintained_by = row.maintainedBy;
     beforeState.last_reviewed_at = row.lastReviewedAt;

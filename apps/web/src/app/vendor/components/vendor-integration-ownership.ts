@@ -184,7 +184,7 @@ export type OwnershipState =
             [integrationId]="integration().id"
             [contextProductId]="integration().context_product.id"
             [otherProductName]="integration().other_product.name"
-            [values]="integration().contestable_fields"
+            [values]="editValues()"
             [connectorDelivered]="connectorDelivered()"
             [idPrefix]="idPrefix()"
             (closed)="closeEdit()"
@@ -209,6 +209,12 @@ export class VendorIntegrationOwnership implements OnInit {
 
   /** The server's connector-powered verdict (AECI-705), read off the wire. */
   protected readonly connectorDelivered = computed(() => !this.integration().attestable);
+  /** The edit form's values on record: the contest prefill map plus the edit-only
+   *  `pricing_url` (AECI-1154), which no contest names. */
+  protected readonly editValues = computed(() => ({
+    ...this.integration().contestable_fields,
+    pricing_url: this.integration().pricing_url,
+  }));
 
   /** The field-id prefix the form uses, so the trigger's `aria-controls` names it. */
   protected readonly idPrefix = computed(

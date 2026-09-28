@@ -778,7 +778,7 @@ Shapes, Zod schemas and error codes go in `packages/shared/src/api/` and are doc
   a purge failure must never fail a committed write.
 - **No Algolia reindex.** Claims do not feed the index today; vendor edits reach search on the
   nightly watermark sync (`STAGE_2_SPEC.md` §8.3(5)). **UI copy must not promise instant search.**
-- **A deny needs a reason (AECI-1151, specified 2026-09-28).** `PUT
+- **A deny needs a reason (AECI-1151, specified 2026-09-28; server side built).** `PUT
   /api/vendor/claims/:claimId/attestation` with `asserted: false` must carry a non-empty `note`
   after trimming. Otherwise it answers **`400 ATTESTATION_NOTE_REQUIRED`** with `field: 'note'`
   and writes nothing (`API_CONTRACTS.md` §4). A bare No tells the other company nothing it can act
@@ -1648,7 +1648,7 @@ and ops isolation, unreadable-snapshot degradation), plus the new endpoint added
 `scheduled.spec.ts` (27). Suites green: `apps/api` 76 files / 1084 tests, `packages/shared` 25 /
 360.
 
-### 7.6 A row the other company added: the `claim_added` notification and the unanswered count (AECI-1153, specified 2026-09-28)
+### 7.6 A row the other company added: the `claim_added` notification and the unanswered count (AECI-1153, specified 2026-09-28; server side built)
 
 **The gap.** When one endpoint vendor adds a data row (`POST /api/vendor/claims`, §5.1), the other
 endpoint vendor learns of it only if it opens the right lane, or 14 days later through
