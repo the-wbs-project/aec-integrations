@@ -110,6 +110,8 @@ The whole server side is one Hono route (`apps/api/src/routes/vendor-updates.ts`
 
 **One thing the section prose could not fix**, recorded here because it is a code change and not a wording change: the vendor tree ships **four conditional `role="status"` elements** besides the announcement region — `vendor-profile-form.ts:247` and `vendor-product-form.ts:195` (the "Saved" confirmations), `vendor-attestation-control.ts:219` (the divergent-slots notice) and `vendor-add-claim-form.ts:218` (the duplicate-lane notice). Each is inserted rather than persistent, and each is a live region by definition, so §6.3's "never a second" is literally violated whenever one of them is on screen. Two of the four sit on the **Integrations section**, which is also the only section that announces through the channel, so the race §6.3 exists to prevent is reachable there rather than theoretical. The `/vendor` axe pass does not catch it (multiple live regions are valid ARIA). See §6.5 for the shape of the fix and why it was not taken inside the close-out.
 
+> **Resolved by AECI-1156 (2026-09-28), not by the fix this section describes.** `vendor-attestation-control.ts` and `vendor-add-claim-form.ts` are both retired: the integration detail page replaced the Integrations-tab drill-down (`STAGE_2_VENDOR_PORTAL_SPEC.md` §6.17). Their successors, `integration-shared-data.ts` and `integration-answer-form.ts`, carry no local `role="status"` at all — the duplicate-row case announces through `VendorPortalAnnouncer` instead (§6.17.4). Only the two form-save confirmations (`vendor-profile-form.ts`, `vendor-product-form.ts`) remain, so the race this note flags is no longer reachable on the Integrations surface.
+
 ---
 
 ## 2. `GET /api/vendor/updates` — the freshness cursor (AECI-627)
@@ -381,6 +383,12 @@ The three intervals and the backoff cap are **compute constants in the web bundl
 
 Owns `vendor-attestation-control.ts`, `vendor-claim-lane.ts`, `vendor-add-claim-form.ts` (+ specs).
 
+> **Retired by AECI-1156 (2026-09-28), see `STAGE_2_VENDOR_PORTAL_SPEC.md` §6.17.** All three files are
+> gone. The rule this section argues for — toggles optimistic, forms pessimistic, one whole-position
+> build shared between the optimistic render and the `PUT` body — carries over unchanged into
+> `integration-shared-data.ts` (§6.17.4) and `integration-answer-form.ts`. The file names and line
+> numbers below are history, not current locations.
+
 **Toggle-shaped writes are optimistic.** Assert / deny / retract apply **locally first**, then reconcile against the server echo, and **roll back with a visible error** on failure. These are single-bit commands with an unambiguous intended end state, they are already rendered as plain buttons that write on activation (`DESIGN.md` → Vendor portal), and the round trip is the only thing between the click and the answer. A silent rollback is not acceptable: a reverted toggle with no message reads as a UI glitch, and the vendor will click it again.
 
 **Form-shaped writes stay pessimistic, on purpose.** Profile and product edits keep their existing echo-reconcile — submit, wait, then render what the server returned. **Showing "Saved" before it saved is a worse lie than a 300 ms wait**, and a form has a large surface of partially-valid intermediate states that an optimistic render would have to guess at. This is a decision, not an omission; it is written down here so a later reviewer does not "finish the job".
@@ -434,7 +442,7 @@ A **session-scoped "N new" count** on the notifications disclosure. Nothing more
 
 ### 6.3 One live region — hoisted, never duplicated
 
-**Before this issue there was exactly one polite live region on this surface, in the wrong place.** `vendor-integrations-section.ts` shipped `<p class="sr-only" role="status">{{ liveMessage() }}</p>`, and `vendor-integration-card.ts` carried a second `role="status"` of its own; `docs/TESTING_STRATEGY.md` §8.2 named the first as part of the `/vendor` axe contract.
+**Before this issue there was exactly one polite live region on this surface, in the wrong place.** `vendor-integrations-section.ts` shipped `<p class="sr-only" role="status">{{ liveMessage() }}</p>`, and `vendor-integration-card.ts` carried a second `role="status"` of its own (**`vendor-integration-card.ts` retired by AECI-1156, see `STAGE_2_VENDOR_PORTAL_SPEC.md` §6.17**); `docs/TESTING_STRATEGY.md` §8.2 named the first as part of the `/vendor` axe contract.
 
 **Hoist that one region to the dashboard shell. Do not add a second.** Two live regions on one page make announcements **race and duplicate** — the screen reader gets two competing queued utterances for one event and the vendor hears the wrong one, or both. Update `TESTING_STRATEGY.md` §8.2 to match wherever it ends up, in the same change.
 
@@ -464,6 +472,11 @@ A **session-scoped "N new" count** on the notifications disclosure. Nothing more
 > | `vendor-product-form.ts:195` | the vendor's own save succeeded | **keep** — same |
 > | `vendor-add-claim-form.ts:218` | the lane the vendor is composing already exists | **keep** — feedback on the vendor's own input, and the channel never announces this |
 > | `vendor-attestation-control.ts` divergence notice | two owned slots record different details | **REMOVED (2026-08-19)** |
+>
+> **Both `vendor-add-claim-form.ts` and `vendor-attestation-control.ts` were retired by AECI-1156
+> (2026-09-28), see `STAGE_2_VENDOR_PORTAL_SPEC.md` §6.17.** Their successor, `integration-shared-data.ts`,
+> announces the "already exists" case through `VendorPortalAnnouncer` rather than a local `role="status"`
+> (§6.17.4), so the row above no longer has a current equivalent to keep.
 >
 > The last one was a genuine defect and is fixed in code, not in prose. It is not feedback on an action: it describes a **standing condition** of the claim, it is `computed` off store data that a **background revalidation can move**, and it sits on the one tab that announces through the channel. So a poll could flip it at the same moment `announce(...)` fired, queueing two utterances for one event — precisely what the single channel exists to prevent. It is now plain text; `vendor-attestation-control.component.spec.ts` asserts it carries neither `role` nor `aria-live`, so the rule is enforced rather than remembered.
 >
@@ -498,6 +511,9 @@ The entitlement flip, the session count and the hoist all shipped; the three as-
 > | `vendor-product-form.ts:195` | a product save succeeded | Products | **keep** |
 > | `vendor-add-claim-form.ts:218` | the lane being composed already exists | **Integrations** | **keep** |
 > | `vendor-attestation-control.ts` divergence notice | two owned slots record different details | **Integrations** | **role removed 2026-08-19** |
+>
+> **Both Integrations-tab rows are retired by AECI-1156** (2026-09-28, see the note in §6.3 above and
+> `STAGE_2_VENDOR_PORTAL_SPEC.md` §6.17): this finding's file names are history, not current locations.
 >
 > The three kept cases are all **immediate feedback on an action the user just took**, beside the control they took it with, and none of them fires for an event the channel also announces — which is the §6.3 rule as corrected. Forbidding them would forbid the ordinary save confirmation, which was never the intent.
 >

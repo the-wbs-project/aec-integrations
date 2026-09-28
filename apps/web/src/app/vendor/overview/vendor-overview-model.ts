@@ -12,6 +12,10 @@
  * identical claims. A vendor-wide count is therefore the size of a set of CLAIM
  * ids, never a `flatMap(...).length` and never a sum of per-product counts.
  */
+import {
+  integrationStatus,
+  type IntegrationStatusKey,
+} from '../integration-detail/integration-detail-model';
 import type {
   VendorAccount,
   VendorIntegration,
@@ -160,8 +164,17 @@ export type NeedsItemLink =
   | {
       readonly kind: 'integrations';
       readonly productSlug: string;
-      /** Pre-applied status filter on the Integrations tab (AECI-999). */
-      readonly status?: 'conflict' | 'needs_you';
+      /** Pre-applied status filter on the Integrations tab (AECI-999), in the
+       *  §6.17.2 status vocabulary since AECI-1149. */
+      readonly status?: 'disagreement' | 'needs_answer' | 'needs_decision';
+    }
+  | {
+      /** One integration's page (AECI-1149, §6.17.1): used when the count names
+       *  exactly one integration. `fragment` lands on the section that holds it. */
+      readonly kind: 'integration';
+      readonly productSlug: string;
+      readonly integrationId: string;
+      readonly fragment: 'data-shared' | 'change-requests';
     }
   | { readonly kind: 'productProfile'; readonly productSlug: string }
   | { readonly kind: 'productCategories'; readonly productSlug: string }
@@ -198,6 +211,14 @@ export type NeedsItem =
       /** Open protests to AECi on this vendor's decisions, still waiting for its
        *  one reply before the due date (AECI-1009 / §11b.12). One row. */
       readonly type: 'protests';
+      readonly key: string;
+      readonly count: number;
+      readonly link: NeedsItemLink;
+    }
+  | {
+      /** Rows another company added that the caller has not answered (AECI-1153,
+       *  `STAGE_2_ATTESTATIONS_SPEC.md` §7.6). One row, the server's count. */
+      readonly type: 'addedRows';
       readonly key: string;
       readonly count: number;
       readonly link: NeedsItemLink;
@@ -256,6 +277,9 @@ export interface NeedsInput {
   /** Open protests in the Received list with no reply yet and the due date still
    *  ahead (AECI-1009). `0` until the read lands, and when omitted. */
   readonly protestsToReply?: number;
+  /** `counterpart_added_unanswered` off the integrations read (AECI-1153). `0`
+   *  until the read lands, and when omitted. */
+  readonly counterpartAddedUnanswered?: number;
   /** The `attestation.author` capability, the gate the Integrations tab uses
    *  (AECI-623). */
   readonly canAttest: boolean;
@@ -289,7 +313,13 @@ export function buildNeedsItems(input: NeedsInput): NeedsList {
         key: `conflict:${row.product.id}`,
         product: row.product,
         count: row.count,
-        link: { kind: 'integrations', productSlug: row.product.slug, status: 'conflict' },
+        link: linkFor(
+          input.integrations,
+          row.product,
+          (claim) => claim.agreement === 'conflict',
+          'disagreement',
+          'change-requests',
+        ),
       });
     }
   }
@@ -326,6 +356,16 @@ export function buildNeedsItems(input: NeedsInput): NeedsList {
     });
   }
 
+  const added = input.counterpartAddedUnanswered ?? 0;
+  if (input.integrationsReady && added > 0) {
+    now.push({
+      type: 'addedRows',
+      key: 'added-rows',
+      count: added,
+      link: addedRowsLink(input.integrations),
+    });
+  }
+
   const paused = !input.canAttest && !input.canEditProducts && !input.canEditProfile;
 
   if (input.canAttest && input.integrationsReady) {
@@ -338,7 +378,13 @@ export function buildNeedsItems(input: NeedsInput): NeedsList {
         key: `waiting:${row.product.id}`,
         product: row.product,
         count: row.count,
-        link: { kind: 'integrations', productSlug: row.product.slug, status: 'needs_you' },
+        link: linkFor(
+          input.integrations.filter((i) => i.attestable),
+          row.product,
+          (claim) => claim.mine.length === 0,
+          'needs_answer',
+          'data-shared',
+        ),
       });
     }
     if (waiting.length > PRODUCT_ROW_CAP) {
@@ -406,11 +452,88 @@ export function linkQueryParams(link: NeedsItemLink): Readonly<Record<string, st
   return link.kind === 'integrations' && link.status ? { status: link.status } : null;
 }
 
+/** The fragment for an item's link, or `null`. An integration page lands on the
+ *  section that holds what the row counts. */
+export function linkFragment(link: NeedsItemLink): string | null {
+  return link.kind === 'integration' ? link.fragment : null;
+}
+
+type Claim = VendorIntegration['claims'][number];
+
+/**
+ * The link for a per-product row (§6.17.1): the integration page when every
+ * counted row sits on ONE integration. Otherwise the product's tab, filtered to
+ * `status` only when every counted integration is in that status, so the filter
+ * shows exactly what the row counts; else unfiltered, so none is hidden. Retired
+ * rows are skipped, as {@link tally} skips them.
+ */
+function linkFor(
+  integrations: readonly VendorIntegration[],
+  product: ProductClaimCount['product'],
+  match: (claim: Claim) => boolean,
+  status: 'disagreement' | 'needs_answer',
+  fragment: 'data-shared' | 'change-requests',
+): NeedsItemLink {
+  const counted = integrations.filter(
+    (i) => !i.retired_at && i.context_product.id === product.id && i.claims.some(match),
+  );
+  return (
+    pageOrTab(counted, status, fragment) ?? { kind: 'integrations', productSlug: product.slug }
+  );
+}
+
+/** The status the list's chips would give an integration, by the SAME rule. The
+ *  three keys used here come before every contest-dependent key, so no contests
+ *  are needed to decide them. */
+function listStatus(integration: VendorIntegration): IntegrationStatusKey {
+  return integrationStatus(integration, {
+    contests: { submitted: [], received: [] },
+    entitled: true,
+  });
+}
+
+function pageOrTab(
+  counted: readonly VendorIntegration[],
+  status: 'disagreement' | 'needs_answer' | 'needs_decision',
+  fragment: 'data-shared' | 'change-requests',
+): NeedsItemLink | null {
+  const first = counted[0];
+  if (!first) return null;
+  const ids = new Set(counted.map((i) => i.id));
+  if (ids.size === 1) {
+    return {
+      kind: 'integration',
+      productSlug: first.context_product.slug,
+      integrationId: first.id,
+      fragment,
+    };
+  }
+  const products = new Set(counted.map((i) => i.context_product.id));
+  if (products.size !== 1) return null;
+  return counted.every((i) => listStatus(i) === status)
+    ? { kind: 'integrations', productSlug: first.context_product.slug, status }
+    : { kind: 'integrations', productSlug: first.context_product.slug };
+}
+
+/** Where the "rows another company added" row goes: the one integration, the one
+ *  product's tab (filtered when that matches exactly), or the product list. */
+function addedRowsLink(integrations: readonly VendorIntegration[]): NeedsItemLink {
+  const counted = integrations.filter(
+    (i) =>
+      i.attestable &&
+      !i.retired_at &&
+      i.claims.some((c) => c.added_by === 'counterpart' && c.mine.length === 0),
+  );
+  return pageOrTab(counted, 'needs_decision', 'change-requests') ?? { kind: 'products' };
+}
+
 /** The relative `routerLink` commands for an item, from the overview route. */
 export function linkCommands(link: NeedsItemLink): readonly string[] {
   switch (link.kind) {
     case 'integrations':
       return ['..', 'products', link.productSlug, 'integrations'];
+    case 'integration':
+      return ['..', 'products', link.productSlug, 'integrations', link.integrationId];
     case 'productProfile':
       return ['..', 'products', link.productSlug, 'profile'];
     case 'productCategories':

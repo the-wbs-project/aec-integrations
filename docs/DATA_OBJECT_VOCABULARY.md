@@ -158,9 +158,10 @@ lanes** render in, on both the public product-PAIR page and the vendor portal's 
 `apps/api/src/lib/data-object-vocabulary.ts`, whose NULLs-last clause exists to keep the two
 identical.
 
-**The "Add a data flow" picker deliberately diverges and renders the terms alphabetically by
-`name`** (`dataObjectOptions` in
-`apps/web/src/app/vendor/components/vendor-add-claim-form.ts`). The two lists do different jobs:
+**The "Add data that's shared" picker deliberately diverges and renders the terms alphabetically by
+`name`** (`dataOptions` in
+`apps/web/src/app/vendor/integration-detail/integration-shared-data.ts`, since AECI-1156; formerly
+`dataObjectOptions` in the retired `vendor-add-claim-form.ts`). The two lists do different jobs:
 
 - A **lane list is read.** The lifecycle grouping is the information — it says what kind of
   integration this is.

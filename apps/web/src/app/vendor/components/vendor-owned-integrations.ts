@@ -19,7 +19,7 @@ import { vendorHasActiveEntitlement } from '../vendor-capabilities';
 import { VendorPortalStore } from '../vendor-portal-store';
 
 import { VendorIntegrationEditForm, type EditFormValues } from './vendor-integration-edit-form';
-import { VENDOR_EDIT_FORM_START_OPEN } from './vendor-integration-ownership';
+import { VENDOR_EDIT_FORM_START_OPEN } from './vendor-integration-edit-form';
 import { claimErrorMessage } from './vendor-integration-ownership-labels';
 import { VendorOwnedRetire } from './vendor-owned-retire';
 

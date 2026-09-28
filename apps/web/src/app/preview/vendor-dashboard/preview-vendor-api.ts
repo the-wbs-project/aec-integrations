@@ -76,8 +76,12 @@ import {
   VENDOR_CONTEST_NOTIFICATIONS_FIXTURE,
   VENDOR_CONTESTS_FIXTURE,
   VENDOR_DATA_OBJECTS_FIXTURE,
+  CONTEST_RECEIVED_CLOSED_ON_OWNED,
+  CONTEST_RECEIVED_ON_OWNED,
   INTEGRATION_CONNECTOR_OWNED,
+  INTEGRATION_OWNED_CLAIMED,
   INTEGRATION_OWNED_VIA_CONNECTOR,
+  INTEGRATION_PROCORE_DETAIL,
   INTEGRATION_RETIRED_BY_AECI,
   INTEGRATION_RETIRED_BY_OTHER,
   VENDOR_INTEGRATIONS_FIXTURE,
@@ -233,7 +237,16 @@ function recomputeAgreement(claim: VendorClaim): VendorClaim['agreement'] {
  */
 const PREVIEW_INTEGRATIONS: ListVendorIntegrationsResponse = {
   integrations: [
-    ...VENDOR_INTEGRATIONS_FIXTURE.integrations,
+    // AECI-1149 to AECI-1153: the Procore row as the detail page reviews it (a dated
+    // disagreement, a row each side added), in place of the list fixture's.
+    ...VENDOR_INTEGRATIONS_FIXTURE.integrations.map((i) =>
+      i.id === INTEGRATION_PROCORE_DETAIL.id &&
+      i.context_product.id === INTEGRATION_PROCORE_DETAIL.context_product.id
+        ? INTEGRATION_PROCORE_DETAIL
+        : i,
+    ),
+    // A live row Summit owns and has claimed: pencils, a received request, Retire.
+    INTEGRATION_OWNED_CLAIMED,
     INTEGRATION_RETIRED_BY_OTHER,
     INTEGRATION_RETIRED_BY_AECI,
     // AECI-1089: a connector-delivered row Summit owns, so the card's claim (or the
@@ -247,6 +260,17 @@ const PREVIEW_INTEGRATIONS: ListVendorIntegrationsResponse = {
   owned: [...VENDOR_OWNED_INTEGRATIONS_FIXTURE],
   // AECI-1153: recomputed from the list on every read (`getIntegrations`).
   counterpart_added_unanswered: 0,
+};
+
+/** The contests the preview starts from: the shared fixture plus the owned,
+ *  claimed row's received requests (AECI-1153). */
+const PREVIEW_CONTESTS: ListVendorContestsResponse = {
+  submitted: [...VENDOR_CONTESTS_FIXTURE.submitted],
+  received: [
+    CONTEST_RECEIVED_ON_OWNED,
+    ...VENDOR_CONTESTS_FIXTURE.received,
+    CONTEST_RECEIVED_CLOSED_ON_OWNED,
+  ],
 };
 
 /**
@@ -327,7 +351,7 @@ export class PreviewVendorApi extends VendorApi {
   private seats: VendorSeat[] = clone([...VENDOR_SEATS_FIXTURE]);
   private integrations: ListVendorIntegrationsResponse = clone(PREVIEW_INTEGRATIONS);
   private nextClaimSeq = 0;
-  private contests: ListVendorContestsResponse = clone(VENDOR_CONTESTS_FIXTURE);
+  private contests: ListVendorContestsResponse = clone(PREVIEW_CONTESTS);
   private nextContestSeq = 0;
   private nextCreateSeq = 0;
 
@@ -343,7 +367,7 @@ export class PreviewVendorApi extends VendorApi {
     this.seats = clone([...seats]);
     this.integrations = clone(integrations);
     this.nextClaimSeq = 0;
-    this.contests = clone(VENDOR_CONTESTS_FIXTURE);
+    this.contests = clone(PREVIEW_CONTESTS);
     this.nextContestSeq = 0;
   }
 

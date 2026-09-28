@@ -307,6 +307,30 @@ export class VendorPortalStore {
   private readonly owned = signal<readonly OwnedIntegration[]>([]);
   readonly ownedIntegrations: Signal<readonly OwnedIntegration[]> = this.owned.asReadonly();
 
+  /**
+   * `counterpart_added_unanswered` (AECI-1153 / `STAGE_2_ATTESTATIONS_SPEC.md` §7.6):
+   * distinct rows another company added that the caller has not answered, counted
+   * server-side so an owns-both integration counts once (AECI-993). It rides the
+   * same fetch as the list, so it shares its status and cursor scope, like
+   * {@link ownedIntegrations}. The overview's "What needs you" reads it.
+   */
+  private readonly counterpartAdded = signal(0);
+  readonly counterpartAddedUnanswered: Signal<number> = this.counterpartAdded.asReadonly();
+
+  /**
+   * Bumped each time a SERVER read of `integrations` or `contests` lands (a
+   * revalidation from the live cursor, a write's follow-up revalidate, a reload),
+   * and never by a local `apply()`. The integration detail page refetches its own
+   * filtered contests on these, the §2.3 rule of `STAGE_2_REALTIME_SPEC.md`,
+   * without re-reading on every optimistic toggle (§6.17.6).
+   */
+  private readonly serverReads = {
+    integrations: signal(0),
+    contests: signal(0),
+  };
+  readonly integrationsServerRevision: Signal<number> = this.serverReads.integrations.asReadonly();
+  readonly contestsServerRevision: Signal<number> = this.serverReads.contests.asReadonly();
+
   readonly meStatus: Signal<VendorPortalStatus> = this.statuses.me.asReadonly();
   readonly integrationsStatus: Signal<VendorPortalStatus> = this.statuses.integrations.asReadonly();
   readonly notificationsStatus: Signal<VendorPortalStatus> =
@@ -556,6 +580,8 @@ export class VendorPortalStore {
           // Defaulted for deploy skew: an API that predates AECI-1089 sends no
           // `owned`, which reads as "owns nothing outside the list".
           this.owned.set(payload.owned ?? []);
+          // AECI-1153, defaulted for the same deploy-skew reason.
+          this.counterpartAdded.set(payload.counterpart_added_unanswered ?? 0);
           break;
         }
         case 'notifications':
@@ -584,6 +610,9 @@ export class VendorPortalStore {
       }
       this.loadedOnce.add(resource);
       status.set('loaded');
+      if (resource === 'integrations' || resource === 'contests') {
+        this.serverReads[resource].update((n) => n + 1);
+      }
     } catch {
       // Keep whatever we already hold. A failed refresh is a stale surface, not
       // an empty one.

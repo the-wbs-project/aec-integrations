@@ -19,6 +19,7 @@ import type {
   TaxonomyResponse,
   TaxonomyTermWithCount,
   VendorClaim,
+  VendorContest,
   VendorIntegration,
   VendorMeResponse,
   VendorAttestationNotification,
@@ -1747,4 +1748,198 @@ export const VENDOR_PRODUCT_CONNECTORS_FIXTURE: Readonly<
       },
     ],
   },
+};
+
+// ─── Integration detail page (AECI-1149 to AECI-1153, §6.17) ─────────────────
+
+const OTHER_TRIMBLE = {
+  id: '00000000-0000-4000-8000-000000005304',
+  slug: 'trimble-connect',
+  name: 'Trimble Connect',
+  logo_url: null,
+};
+
+const TRIMBLE_VENDOR = { id: '00000000-0000-4000-8000-0000000052f3', name: 'Trimble' };
+
+/**
+ * The Procore integration as the detail page reviews it: its conflict carries the
+ * disagreement's raised-at date, the RFIs row is one the caller added and Procore
+ * has not answered, and Procore added a Documents row the caller has not answered.
+ * Kept apart from `INTEGRATION_PROCORE` because the list specs count its claims.
+ */
+export const INTEGRATION_PROCORE_DETAIL: VendorIntegration = {
+  ...INTEGRATION_PROCORE,
+  created_at: '2026-03-04T00:00:00.000Z',
+  last_reviewed_at: '2026-09-10T09:00:00.000Z',
+  maintained_by: 'vendor',
+  counterpart_links: {
+    listing_url: 'https://marketplace.procore.com/apps/summit-model-coordination',
+    docs_url: null,
+  },
+  claims: [
+    ...INTEGRATION_PROCORE.claims.map((claim): VendorClaim => {
+      if (claim.agreement === 'conflict') {
+        return {
+          ...claim,
+          created_at: '2026-06-01T00:00:00.000Z',
+          disagreement: { id: claim.id, raised_at: '2026-09-12T08:00:00.000Z' },
+        };
+      }
+      if (claim.data_object_slug === 'rfis') {
+        return { ...claim, added_by: 'you', created_at: '2026-08-01T10:00:00.000Z' };
+      }
+      return claim;
+    }),
+    {
+      id: '00000000-0000-4000-8000-000000005325',
+      integration_id: INTEGRATION_PROCORE.id,
+      data_object_slug: 'documents',
+      data_object_name: 'Documents',
+      direction: 'inbound',
+      agreement: 'single_source',
+      origin: 'vendor',
+      mine: [],
+      counterparty: {
+        asserted: true,
+        note: 'Project documents now sync into Summit as of our September release.',
+      },
+      added_by: 'counterpart',
+      created_at: '2026-09-20T11:00:00.000Z',
+      disagreement: null,
+    },
+  ],
+};
+
+/**
+ * A live integration the caller owns and has claimed: the pencils, the received
+ * change request with Accept and Decline, Settings with Retire, and the caller's
+ * own links beside the other company's.
+ */
+export const INTEGRATION_OWNED_CLAIMED: VendorIntegration = {
+  ...DETAIL_DEFAULTS,
+  id: '00000000-0000-4000-8000-00000000531c',
+  name: 'Summit Model Coordination and Trimble Connect',
+  mechanism_kind: 'marketplace-app',
+  mechanism_name: 'Trimble Connect for Summit',
+  attestable: true,
+  powered_by: null,
+  context_product: CONTEXT_PRIMARY,
+  other_product: OTHER_TRIMBLE,
+  slots: ['vendor_a'],
+  is_owner: true,
+  owner: SUMMIT_VENDOR,
+  claimed_at: '2026-09-01T00:00:00.000Z',
+  retired_at: null,
+  retired_by: null,
+  endpoint_vendors: [SUMMIT_VENDOR, TRIMBLE_VENDOR],
+  origin: 'aeci',
+  created_at: '2026-01-15T00:00:00.000Z',
+  maintained_by: 'vendor',
+  last_reviewed_at: '2026-09-21T00:00:00.000Z',
+  pricing_url: 'https://summitbim.example.com/pricing',
+  own_links: {
+    listing_url: 'https://summitbim.example.com/integrations/trimble-connect',
+    docs_url: null,
+  },
+  counterpart_links: {
+    listing_url: null,
+    docs_url: 'https://help.trimble.example.com/connect/summit',
+  },
+  contestable_fields: {
+    ...EMPTY_CONTESTABLE_FIELDS,
+    name: 'Summit Model Coordination and Trimble Connect',
+    mechanism_kind: 'marketplace-app',
+    mechanism_name: 'Trimble Connect for Summit',
+    direction: 'both',
+    description:
+      'Opens Trimble Connect projects inside Summit Model Coordination and publishes coordination issues back. Linked models load as references, so project teams see the latest coordination model without leaving the tool. Issues raised in either product keep their status in step.',
+    listing_url: 'https://apps.trimble.example.com/summit',
+    docs_url: null,
+    pricing_model: 'Included with Summit Pro',
+    maturity: 'Beta',
+    owner: SUMMIT_VENDOR.id,
+  },
+  claims: [
+    {
+      id: '00000000-0000-4000-8000-000000005371',
+      integration_id: '00000000-0000-4000-8000-00000000531c',
+      data_object_slug: 'models',
+      data_object_name: 'Models',
+      direction: 'outbound',
+      agreement: 'confirmed',
+      origin: 'aeci',
+      mine: [
+        {
+          slot: 'vendor_a',
+          asserted: true,
+          note: null,
+          introduced_version_id: null,
+          deprecated_version_id: null,
+          updated_at: '2026-09-02T10:00:00.000Z',
+        },
+      ],
+      counterparty: { asserted: true, note: null },
+      added_by: null,
+      created_at: '2026-01-15T00:00:00.000Z',
+      disagreement: null,
+    },
+    {
+      id: '00000000-0000-4000-8000-000000005372',
+      integration_id: '00000000-0000-4000-8000-00000000531c',
+      data_object_slug: 'rfis',
+      data_object_name: 'RFIs',
+      direction: 'both',
+      agreement: 'unverified',
+      origin: 'aeci',
+      mine: [],
+      counterparty: null,
+      added_by: null,
+      created_at: '2026-01-15T00:00:00.000Z',
+      disagreement: null,
+    },
+  ],
+};
+
+/** A change request Trimble sent the caller about the owned, claimed row. */
+export const CONTEST_RECEIVED_ON_OWNED: VendorContest = {
+  id: '00000000-0000-4000-8000-000000005c31',
+  integration_id: INTEGRATION_OWNED_CLAIMED.id,
+  anchor: 'integration',
+  integration_name: INTEGRATION_OWNED_CLAIMED.name,
+  context_product: CONTEXT_PRIMARY,
+  other_product: OTHER_TRIMBLE,
+  field: 'maturity',
+  current_value: 'Beta',
+  proposed_value: 'Generally available',
+  current_label: null,
+  proposed_label: null,
+  reason: 'The Trimble Connect side left beta in March 2026. Our release notes for 2026.1 say so.',
+  routed_to: 'owner',
+  status: 'open',
+  submitter_vendor: TRIMBLE_VENDOR,
+  owner_vendor: SUMMIT_VENDOR,
+  decision_note: null,
+  decided_at: null,
+  created_at: '2026-09-22T14:10:00.000Z',
+  updated_at: '2026-09-22T14:10:00.000Z',
+  protest: null,
+  protest_opens_at: null,
+  protest_closes_at: null,
+  protest_basis: null,
+  cooldown_until: null,
+};
+
+/** A closed request Trimble sent, for the owned row's history. */
+export const CONTEST_RECEIVED_CLOSED_ON_OWNED: VendorContest = {
+  ...CONTEST_RECEIVED_ON_OWNED,
+  id: '00000000-0000-4000-8000-000000005c32',
+  field: 'description',
+  current_value: 'Opens Trimble Connect projects inside Summit.',
+  proposed_value: 'Opens Trimble Connect projects inside Summit Model Coordination.',
+  reason: 'The product name is Summit Model Coordination.',
+  status: 'accepted',
+  decision_note: 'Agreed, thank you.',
+  decided_at: '2026-08-14T09:00:00.000Z',
+  created_at: '2026-08-12T09:00:00.000Z',
+  updated_at: '2026-08-14T09:00:00.000Z',
 };

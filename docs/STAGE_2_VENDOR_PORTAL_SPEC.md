@@ -430,7 +430,10 @@ The rest of the table above is unchanged. Tests: `vendor-integration-edits-conne
 > **The other side's links are now on the vendor read (specified 2026-09-28, AECI-1152).**
 > `GET /api/vendor/integrations` gains `counterpart_links`, the links stored for `other_product`,
 > read-only, empty on a connector-powered row (`API_CONTRACTS.md` §6.14). The integration page
-> shows them (§6.17.5). The write rules below are unchanged.
+> shows them (§6.17.5). The write rules below are unchanged. **Built 2026-09-28 (AECI-1156):** the
+> "The portal" paragraph below, and `vendor-integration-links-form.ts` it names, describe the card
+> this replaced. The current rendering is the Integration links section (§6.17.5), backed by
+> `integration-links.ts`; the write rules and gates in the table above are what it calls.
 
 **Each endpoint vendor stores its own listing and docs link on an integration** (decision 6), shown on the pair page beside the other side's. They are web links. Nothing routes on them and nothing reads them to grant anything.
 
@@ -489,13 +492,19 @@ Wire shape: `API_CONTRACTS.md` §6.14. Handler: `apps/api/src/routes/vendor-inte
 
 - **Public:** gone from every count, id set and read (`STAGE_1_5_SPEC.md` §13.5 holds the full, asserted list). The pair page renders without it, and with no live mechanism left falls to its existing `noindex` branch. **`/integrations/:id` keeps its 301 to the pair page** (ruled), because `GET /api/integrations/:id` is deliberately unfiltered. For a retired row that route answers only `{ id, retired: true, source: { slug }, target: { slug } }` (ruled): the redirect's needs, and no name or content.
 - **Search:** the Algolia sync's delete arm removes the record. The 09:00 orphan sweep is the backstop only.
-- **Portal:** still listed by `GET /api/vendor/integrations` for both endpoint vendors, with `retired_at` set. **The owner sees it with a Restore action. The other endpoint vendor sees it read-only, marked retired** (ruled), which is what the retire notification lands on. Nobody can add a data flow, attest, contest or (since AECI-1006) edit it: those writes answer `409 INTEGRATION_RETIRED`. Withdrawing an existing attestation stays allowed. **A retired row is listed but never counted:** the Integrations tab's status chips (the "All" count included), each counterpart group's health and counts, and the overview's claim tallies all skip it, and no status chip matches it. Only the unfiltered list shows it (`isRetiredIntegration` in `vendor-integration-health.ts`).
+- **Portal:** still listed by `GET /api/vendor/integrations` for both endpoint vendors, with `retired_at` set. **The owner sees it with a Restore action. The other endpoint vendor sees it read-only, marked retired** (ruled), which is what the retire notification lands on. Nobody can add a data flow, attest, contest or (since AECI-1006) edit it: those writes answer `409 INTEGRATION_RETIRED`. Withdrawing an existing attestation stays allowed. **A retired row is listed but never counted:** the Integrations tab's status chips (the "All" count included), each counterpart group's health and counts, and the overview's claim tallies all skip it, and no status chip matches it. Only the unfiltered list shows it (`isRetiredIntegration` in the retired `vendor-integration-health.ts`; since AECI-1149 the same rule reads `integration.retired_at` directly in `integrationStatus`, §6.17.2).
 - **Freshness cursor:** the `integrations` scope already reads `MAX(integrations.updated_at)` under `ownedEndpointJoin`, unfiltered (AECI-1005), so a retire and a restore move it for both sides with no new statement (`STAGE_2_REALTIME_SPEC.md` §2.2). On a pair (AECI-1091), the owner's owned-rows statement (AECI-1089) moves, also unfiltered on `retired_at`, and the `owned` list keeps listing the retired pair so the owner can restore it. The endpoint vendors' cursor reads no pair, so a pair retire moves it only through their notification.
 - **Invariant on pairs:** retired ⇒ vendor-held there too. The same data-quality check reports a retired pair that is not vendor-held (`retired_integration_unclaimed`, AECI-1091).
 - **Promote:** never writes `retired_at` or `retired_by`, and a retired row is claimed (or vendor-created), so the §4.5.3 fence keeps promote off it entirely. Nothing un-retires a row except a restore: the owner's for an owner retire, an admin's for an AECi retire (§4.6.4).
 - **Invariant:** retired ⇒ vendor-held (claimed, or `origin = 'vendor'`). It was "retired ⇒ claimed" until AECI-1046, because only the claimed owner could retire; the admin retire can also reach a vendor-created row whose claim an `owner` accept cleared. It cannot be a CHECK constraint (a CHECK change recreates `integrations`, which cascades away its claims), so the 04:00 data-quality suite checks it (`retired_integration_unclaimed`, severity `error`, id kept for the metric series).
 
 #### 4.6.3 The portal UI
+
+> **The endpoint-integration card is retired (AECI-1156, 2026-09-28).** For an integration the
+> caller holds an endpoint of, retire and restore now render as the Settings section of its own page
+> (§6.17.7), backed by `integration-settings.ts`. `vendor-integration-retire.ts`, named below, is
+> gone. This subsection's rules and gates are unchanged and still apply; only its owned-rows half,
+> the AECI-1091 paragraph naming `vendor-owned-retire.ts`, still matches a current component.
 
 A separate section at the foot of the integration card (`vendor-integration-retire.ts`), kept apart from the card's other owner writes. Retire needs a second, explicit step: the button opens an inline confirmation that says what will happen, and only its own button sends the request. No browser `confirm()`. Writes are pessimistic, outcomes go through the portal's one live region, and focus follows the change (to the confirm button, back to the trigger on cancel, to the status line after a retire).
 
@@ -1408,7 +1417,7 @@ so that friction was about to land on them.
 | -- | -- | -- |
 | Vendor company name (`<h1>`) | `vendor-dashboard-tabbed.ts` | `/vendors/:vendorSlug` |
 | Selected product name (`<h2>`) | `sections/vendor-products-page.ts` | `/products/:productSlug` |
-| Each integration card (`<h3>`) | `components/vendor-integration-card.ts` | `/products/:contextSlug/integrations/:otherSlug` |
+| Each integration's title block and sticky header (retired 2026-09-28, AECI-1156; was each integration card's `<h3>`) | `integration-detail/vendor-integration-detail-page.ts`'s "View public page" (formerly `components/vendor-integration-card.ts`) | `/products/:contextSlug/integrations/:otherSlug` |
 
 **The card links to the PAIR page, not to the counterpart product**, which is where
 the issue as filed pointed it. What a vendor authors on that card is claims and
@@ -1516,6 +1525,13 @@ which touches the same two components and must carry this pairing through it.
 ---
 
 ### 6.9 As built — the correction sentences get a way to file one (AECI-967 — 2026-09-16)
+
+> **The third link site is retired (AECI-1156, 2026-09-28).** `vendor-claim-lane.ts`, its
+> `correctionPrefill()` and the conflict disclosure it prefilled a correction-request drawer from are
+> gone. A disagreement's "ask for a change" path is now the Change requests section's own structured
+> request form (§6.17.6, `integration-request-form.ts`), not the general free-text correction-request
+> drawer this section describes — the two are different mechanisms, not a relocation. The first two
+> link sites below (product rename, company identity) are unaffected.
 
 Found by the operator on 2026-09-15, one day after §6.7 and from the same family:
 the portal **named an action twice and routed to it neither time**. The product
@@ -1644,6 +1660,7 @@ plain Vitest spec. The section only turns them into copy.
 | Needs you now | One row per product with conflicts | ≥ 1 claim with `agreement = 'conflict'` | `products/:slug/integrations` |
 | Needs you now | One row per open correction | `kind = 'correction'`, status `open` or `in_review` | `messages` |
 | Needs you now | One row for field contests to decide (AECI-1008) | ≥ 1 `received` contest with status `open`. Seat-only, never capability-gated (§11b.2), so it shows while the other rows are paused | `messages` |
+| Needs you now | One row for rows another company added that the caller has not answered (AECI-1153, added 2026-09-28) | `counterpart_added_unanswered` off `GET /api/vendor/integrations` is `> 0` | the one integration's page at `#change-requests` when every such row sits on one integration, because the "{Company} added {data}. Is this right?" item, with the other company's note, lives in Change requests (§6.17.6). Otherwise the product's tab when every such row sits under one product: filtered to `?status=needs_decision` only when every counted integration is in that status, else unfiltered. Otherwise `products` |
 | Worth doing | Top 3 products by waiting count, then "And N more" | `vendor.verified` (the Integrations tab's gate, see `vendor-integrations-page.ts`), claim on an `attestable` edge with `mine = []` | `products/:slug/integrations` |
 | Worth doing | Top 3 incomplete products, then "And N more" | `product.edit` | `products/:slug/categories` if categories are missing, else `products/:slug/profile` (was `…/taxonomy` before §6.12) |
 | Worth doing | Company profile gaps | `profile.edit` | `profile` |
@@ -1697,6 +1714,16 @@ comment on the listing, so it is never a row here.
   `?status=conflict`, so the tab opens filtered to conflicts. The "What needs you"
   conflict and waiting rows do the same with `conflict` and `needs_you`
   (`STAGE_2_ATTESTATIONS_SPEC.md` §6.3).
+
+  > **As built (AECI-1149, 2026-09-28).** The `?status=conflict` / `?status=needs_you` params above
+  > are superseded by the §6.17.2 status keys. The conflicts tile links to the tab with
+  > `?status=disagreement`. The "What needs you" conflict row links to the named integration's page at
+  > `#change-requests`, and the waiting row to its page at `#data-shared`, when the count names exactly
+  > one integration. Otherwise each falls back to the product's tab, filtered
+  > (`?status=disagreement` / `?status=needs_answer`) only when every counted integration is in that
+  > status, so the filter shows exactly what the row counts, and unfiltered otherwise
+  > (`vendor-overview-model.ts`, `linkFor` and `pageOrTab`). `statusFromParam` still maps an old
+  > `conflict` or `needs_you` value to its nearest §6.17.2 key, so an existing bookmark keeps working.
 - **Suggestions about your listing** counts open corrections, shows "Newest filed
   {date}" (UTC), and links to Messages. The body and submitter are off the wire,
   so the copy never implies a reply is possible.
@@ -1910,7 +1937,8 @@ hidden at zero (`STAGE_1_5_SPEC.md` §13.7).
   every product switch. It clears the previous list before each fetch. Nothing polls it
   (`STAGE_2_REALTIME_SPEC.md` §2.3). A failed read shows a retry and does not touch the list above.
 - **Not listed here:** a Convention-A self-reference, and an `iPaaS` edge with no named connector.
-  Both are `integrations` rows, and the list above already shows them as read-only cards.
+  Both are `integrations` rows, and the list above already shows them, each a link to its own read-only
+  page (§6.17.1, §6.17.4 — a connector-powered row's data is read-only there, not the list above).
 
 **Tests.** `vendor-connectors.spec.ts` covers the handler: the 404, both tiers, the canonical-B
 orientation, and the delivered subtraction across both tables. `vendor.authz-matrix.spec.ts` adds
@@ -1992,7 +2020,40 @@ The §8.9 seat maintains its own connector catalogue (`STAGE_2_SPEC.md` §8.9(1)
 
 ### 6.17 Integration detail page (AECI-1147, specified 2026-09-28 by AECI-1148)
 
-**Status: build contract. The server side is built** (the AECI-1154 / AECI-1155 PR: the §6.17.11 field lists and `pricing_url`, the deny-needs-a-reason rule, `counterpart_links`, the contest filter, `disagreement`, `added_by`, `claim_added` and the unanswered count). **The page itself is not built yet.** Each integration a vendor sees on a product's Integrations tab gets its own page. The page replaces the inline integration panel of §6.13 to §6.15, §11b.10 and `STAGE_2_ATTESTATIONS_SPEC.md` §6.3. The design is concept C from the 2026-09-28 exploration.
+**Status: built** (AECI-1149 to AECI-1153, AECI-1156, 2026-09-28). The server side landed first (the AECI-1154 / AECI-1155 PR: the §6.17.11 field lists and `pricing_url`, the deny-needs-a-reason rule, `counterpart_links`, the contest filter, `disagreement`, `added_by`, `claim_added` and the unanswered count), then the page itself. Each integration a vendor sees on a product's Integrations tab gets its own page. The page replaces the inline integration panel of §6.13 to §6.15, §11b.10 and `STAGE_2_ATTESTATIONS_SPEC.md` §6.3. The design is concept C from the 2026-09-28 exploration.
+
+> **As built (AECI-1149 to AECI-1153, AECI-1156, 2026-09-28).** Source:
+> `apps/web/src/app/vendor/integration-detail/` — `vendor-integration-detail-page.ts` (shell, route,
+> title block, sticky header, scroll-spy, "Things that need you"), `integration-overview.ts` (§6.17.3),
+> `integration-shared-data.ts` + `integration-answer-form.ts` (§6.17.4), `integration-links.ts`
+> (§6.17.5), `integration-change-requests.ts` + `integration-request-form.ts` (§6.17.6),
+> `integration-settings.ts` (§6.17.7), `vendor-tip.ts` (the §6.17.9 tooltip), `integration-detail-model.ts`
+> (status, copy and pure functions), `integration-detail-state.ts` (the page-scoped store) and
+> `integration-detail-styles.ts` (`ID_STYLES`, the component-scoped coloured borders `DESIGN.md`
+> "Vendor portal" needs). The list row and its status filter moved into
+> `vendor/components/vendor-integration-list-model.ts`. Five deviations from this section, each ruled
+> during the build rather than reopening it:
+>
+> 1. **`ready_to_claim` also requires that a claim is allowed** (§6.17.2). A connector-powered row with
+>    no active entitlement has no Claim button, so "Ready to claim" would name an action the page
+>    cannot offer. That row falls through to the next status that applies instead.
+> 2. **A change renders "from X to Y" in words, never the arrow glyph.** `DESIGN.md`'s Arrow Rule
+>    reserves `→`/`←`/`⇄` for a data flow's own direction, which this page draws as icons on
+>    Data that's shared (§6.17.4). Rendering a field change the same way would blur the two, so
+>    `contestChange()` (`integration-detail-model.ts`) spells it out.
+> 3. **The preview concepts A, B, D and "current" were never deleted here**, because they were never
+>    merged to `main`: `apps/web/src/app/preview/integration-manager/` does not exist on this branch.
+>    That work sits on `aeci-1147-integration-manager-preview`, which this change does not touch.
+> 4. **The Release stage and Pricing tooltips on Overview name an "At a glance" row** that PR #860
+>    (AECI-1142) adds to the public pair card. That PR had not merged to `main` when this page shipped,
+>    so the tooltips describe a public-page element that does not exist yet. The Pricing page
+>    tooltip is explicit about the other half: "The public page will link the price to it. That part
+>    is not live yet."
+> 5. **The page lands its own `#section` deep link once, on first render of the sections.**
+>    `InitialFragmentScroller` fires on the first `NavigationEnd`, before the sections exist (they
+>    render only once the integration list has loaded client-side), so it cannot land the fragment
+>    itself. The page closes that one gap and defers to the scroller for everything else — it is not a
+>    second scroll model.
 
 **Why.** Chris's four complaints about the inline panel (AECI-1147): non-technical marketing and product users cannot use it; it shows no contest history; it speaks our data model (attestation, claim, provenance, data object); and its layout reads as random. The panel fails the Stage 2.1 admission test (`STAGE_2_1_SPEC.md` §1) as it stands, and AECI-1105 puts it in front of the first real vendor.
 
@@ -2320,7 +2381,7 @@ The page replaces the inline integration panel. AECI-1156 removes it once AECI-1
 
 | Retired | Replaced by |
 | -- | -- |
-| The §6.3 (`STAGE_2_ATTESTATIONS_SPEC.md`) level-2 card and level-3 lanes: `vendor-integration-card.ts`, `vendor-claim-lane.ts`, `vendor-attestation-control.ts`, and the drill-down parts of `vendor-counterpart-group.ts` | The list row (§6.17.1) and Data that's shared (§6.17.4) |
+| The §6.3 (`STAGE_2_ATTESTATIONS_SPEC.md`) level-2 card and level-3 lanes: `vendor-integration-card.ts`, `vendor-claim-lane.ts`, `vendor-attestation-control.ts`, `vendor-health-pill.ts`, `vendor-integration-health.ts`, and the drill-down parts of `vendor-counterpart-group.ts` | The list row and its status pill (§6.17.1, §6.17.2) and Data that's shared (§6.17.4) |
 | `vendor-add-claim-form.ts` | Add a row (§6.17.4) |
 | `vendor-integration-ownership.ts` (§6.14) | The Owner row and pencils (§6.17.3) |
 | `vendor-integration-edit-form.ts` on the card | The Overview and link pencils (§6.17.3, §6.17.5). §6.15's owned rows still use it, so it stays for them. |
@@ -2328,9 +2389,9 @@ The page replaces the inline integration panel. AECI-1156 removes it once AECI-1
 | `vendor-contest-form.ts` on the card (§11b.10) | The request form (§6.17.6) |
 | `vendor-integration-retire.ts` | Settings (§6.17.7) |
 
-Kept: `vendor-owned-integrations.ts` and `vendor-owned-retire.ts` (§6.15), `vendor-product-connectors.ts` (§6.13), `vendor-contests-list.ts` and `vendor-contest-protest.ts` (Messages, §6.5), `vendor-claim-outcome.ts` (its sentences, §6.2), `vendor-integration-create.ts` (§4.7.5). Specs go with their components.
+Kept: `vendor-owned-integrations.ts` and `vendor-owned-retire.ts` (§6.15), `vendor-product-connectors.ts` and `vendor-contest-form.ts` (its "Contest a field" stays on a connector-delivered pair, §6.13), `vendor-contests-list.ts` and `vendor-contest-protest.ts` (Messages, §6.5), `vendor-claim-outcome.ts` (its sentences, §6.2), `vendor-integration-create.ts` and `vendor-integration-edit-form.ts` (§4.7.5, and §6.15's owned rows). Specs go with their components.
 
-Also in AECI-1156: the e2e specs (`vendor-dashboard.spec.ts` and the `preview-vendor-*` specs), the vendor guides in `apps/web/src/content/docs/vendors/` (`attesting-an-integration.md`, `contests-and-protests.md`, `owning-an-integration.md`, and a check of the other three), the rehearsal script where it walks the old panel (`STAGE_2_1_REHEARSAL.md`), and the preview concepts A, B, D and "current" in `apps/web/src/app/preview/integration-manager/`. **Done when no route renders the old panel.**
+Also in AECI-1156: the e2e specs (`vendor-dashboard.spec.ts` and the `preview-vendor-*` specs), the vendor guides in `apps/web/src/content/docs/vendors/` (`attesting-an-integration.md`, `contests-and-protests.md`, `owning-an-integration.md`, and a check of the other three), the rehearsal script where it walks the old panel (`STAGE_2_1_REHEARSAL.md`), and the preview concepts A, B, D and "current" in `apps/web/src/app/preview/integration-manager/`. **As built:** that preview directory was never merged to `main` (it sits on the unmerged `aeci-1147-integration-manager-preview` branch, deviation 3 above), so there was nothing under it to delete here. **Done when no route renders the old panel.**
 
 #### 6.17.11 Fields the portal offers: pricing page added, website and connection link dropped (AECI-1154, AECI-1155)
 

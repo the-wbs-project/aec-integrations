@@ -1278,6 +1278,14 @@ degradation);
 > with" filter, the grouping and the URL state below stay on the list. The status chips move to the
 > page's status set (§6.17.2 there). §6.2's outcome sentences stay the contract for what each
 > position does next, and the page quotes them verbatim.
+>
+> **Built 2026-09-28 (AECI-1149, AECI-1156).** The "Health" subsection and the status-chip table
+> below it are retired along with `vendor-integration-health.ts`, `vendor-claim-lane.ts`,
+> `vendor-integration-card.ts` and `vendor-counterpart-group.ts`'s drill-down. The list's status
+> chips read the §6.17.2 set from `vendor-integration-list-model.ts`, not the `health` values this
+> section describes, and an old `?status=` value (`conflict`, `needs_you`, `confirmed`, `responded`,
+> `empty`) maps to its nearest §6.17.2 key. The body below is history: it describes the drill-down as
+> it shipped on 2026-09-17, eleven days before it was retired.
 
 **No migration, no API change, no new route.** The tab rendered every data flow of every
 integration fully open: direction, provenance, badge, stance, the outcome sentence, the note and
@@ -1648,7 +1656,12 @@ and ops isolation, unreadable-snapshot degradation), plus the new endpoint added
 `scheduled.spec.ts` (27). Suites green: `apps/api` 76 files / 1084 tests, `packages/shared` 25 /
 360.
 
-### 7.6 A row the other company added: the `claim_added` notification and the unanswered count (AECI-1153, specified 2026-09-28; server side built)
+### 7.6 A row the other company added: the `claim_added` notification and the unanswered count (AECI-1153, specified 2026-09-28; built)
+
+> **As built (2026-09-28).** The archive link below is real: `vendor-notifications-list.ts`'s
+> `pageLink()` resolves a `claim_added` row against the caller's own `integrations` list and renders
+> "Answer it on the integration page" to `…/integrations/:integrationId#change-requests` when it is
+> on that list, and nothing when it is not (an owned-only row, or one the read has not settled yet).
 
 **The gap.** When one endpoint vendor adds a data row (`POST /api/vendor/claims`, §5.1), the other
 endpoint vendor learns of it only if it opens the right lane, or 14 days later through

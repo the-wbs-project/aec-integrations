@@ -154,7 +154,7 @@ export class VendorGlanceBand {
   });
 
   /** Lands on the Integrations tab filtered to conflicts (AECI-999). */
-  protected readonly conflictQueryParams = { status: 'conflict' } as const;
+  protected readonly conflictQueryParams = { status: 'disagreement' } as const;
 
   protected readonly conflictLine = computed(() => {
     const rows = this.conflictProducts();

@@ -1,34 +1,41 @@
 ---
 title: Attesting an integration
-description: How to confirm or deny the data flows recorded under an integration, what readers see as a result, and what happens when the two vendors disagree.
+description: How to say whether the data flows recorded under an integration are right, what readers see as a result, and what happens when the two companies disagree.
 section: vendors
 order: 3
-last_updated: 24 September 2026
+last_updated: 28 September 2026
 ---
 
-An integration page lists the data that moves between two products: a model, a schedule, an RFI, and so on, each in one direction. We call each of those a data flow. Most of them were recorded by AEC Integrations from public sources. Attesting is how the vendor at either end says whether a flow is right.
+An integration's own page lists the data that moves between two products: a model, a schedule, an RFI, and so on, each in one direction. We call each of those a data flow. Most of them were recorded by AEC Integrations from public sources. Answering Yes or No on that page is how the company at either end says whether a flow is right.
 
-Attesting needs a seat and an active plan. See [Your seat](/docs/vendors/your-seat) and [Plans and the account label](/docs/vendors/plans-and-the-account-label).
+Answering needs a seat and an active plan. See [Your seat](/docs/vendors/your-seat) and [Plans and the account label](/docs/vendors/plans-and-the-account-label).
 
-## Confirm or deny a data flow
+## Open the integration's page
 
-In the vendor portal, open one of your products, then its **Integrations** tab, and open an integration. Each data flow has three buttons:
+In the vendor portal, open one of your products, choose **Integrations**, then choose the integration from the list. Each integration has its own page, with a **Data that's shared** section listing every flow.
 
-- **Affirm** says the flow is right.
-- **Deny** says it is wrong.
-- **Clear** withdraws your company's position.
+## Say Yes or No to a data flow
 
-You can add a note, and stamp the versions of your own product the flow was introduced or removed in. The note and stamps are saved when you choose Affirm or Deny. A Deny needs a note that says what is wrong, so the other vendor and AEC Integrations can act on it. An Affirm does not.
+Each row of data has two buttons:
+
+- **Yes** says the flow is right.
+- **No** says it is wrong.
+
+Choosing the pressed button again takes back your answer.
+
+**Yes** saves at once. If the other company has already said No, choosing Yes instead opens a short form so you can add a note explaining your side. The note is optional there.
+
+**No** opens a form asking why. Give a reason: it is required, so the other company and AEC Integrations know what to fix. If the direction is wrong, say so there too. Saving records your No and adds a corrected row for you, in one step.
 
 Several people at your company can hold seats, but your company has one position on each flow. The latest answer from anyone at your company is your company's answer.
 
-You can attest to flows on any integration where one of your products is at an end. You cannot attest to an integration that is delivered through a connector product. Those show **Via connector**.
+You can answer on any integration where one of your products is at an end. An integration that runs through a connector product shows its rows as **Not needed**: AEC Integrations keeps those up to date, and neither company answers for them.
 
 ## Add a data flow
 
-If a flow is missing, choose **Add a data flow** on the integration. Pick the data object from the list, set the direction, and add a note if it helps. Adding a flow also records your company's Affirm on it.
+If a flow is missing, choose the **Add data that's shared** button above the table. Pick the data type from the list, set the direction, and add a note if it helps. Adding a flow also records your company's Yes on it.
 
-The data object list is fixed. If what you need is not on it, tell us through the correction route.
+The list of data types is fixed. If what you need is not on it, tell us through the correction route.
 
 ## What readers see
 
@@ -37,12 +44,12 @@ The public integration page shows where each flow stands. Your company counts on
 | Where it stands | What the page says |
 | --- | --- |
 | Nobody has confirmed it | Unverified · AECi |
-| One vendor affirms | Confirmed by (that vendor) |
-| Both vendors affirm | Both vendors confirmed |
-| One affirms and the other denies | Vendors disagree |
-| Only denials | Unverified · AECi |
+| One company confirms | Confirmed by (that company) |
+| Both companies confirm | Both vendors confirmed |
+| One confirms and the other says no | Vendors disagree |
+| Only "no" answers | Unverified · AECi |
 
-Most flows today read "Unverified · AECi", because vendor confirmation has only just opened. AEC Integrations' own record is never counted as a vote, so it cannot create a disagreement.
+Most flows today read "Unverified · AECi", because company confirmation has only just opened. AEC Integrations' own record is never counted as a vote, so it cannot create a disagreement.
 
 If your company makes the products at both ends, it still has one position. That flow can show "Confirmed by" your company, but not "Both vendors confirmed".
 
@@ -50,26 +57,28 @@ The integration page updates shortly after you answer. Search results catch up o
 
 ## What happens next
 
-The portal tells you, beside each flow, what your answer sets in motion. In short:
+The page tells you, on the integration's own page, what your answer sets in motion. In short:
 
-- **When you affirm and the other vendor has not answered,** it is reminded after 14 days.
-- **When you deny,** the other vendor and AEC Integrations are told. A denial does not delete the flow. It stays on the page, shown as the table above describes, until we look at it.
-- **When the two vendors disagree for 7 days,** we email both and review the listing.
-- **A flow both vendors confirmed** asks for confirmation again after 12 months if it has no version stamps.
+- **When you say Yes and the other company has not answered,** it is reminded after 14 days.
+- **When you say No,** the other company and AEC Integrations are told. A No does not delete the flow. It stays on the page, shown as the table above describes, until we look at it.
+- **When the two companies disagree for 7 days,** we email both and review the listing.
+- **A flow both companies confirmed** asks for confirmation again after 12 months if it has no version stamps.
+
+Your reason and any note stay private: only the other company and AEC Integrations see it.
 
 ## What "confirmed" means, and what it does not
 
-"Confirmed by" and "Both vendors confirmed" mean the vendors at the ends of the integration stand behind that data flow. It is a statement by the vendors, not a test by AEC Integrations.
+"Confirmed by" and "Both vendors confirmed" mean the companies at the ends of the integration stand behind that data flow. It is a statement by the companies, not a test by AEC Integrations.
 
-It is a different thing from the "Active on AECi" label on a vendor's page. That label means the vendor has an active plan. It says nothing about whether its integrations are accurate.
+It is a different thing from the "Active on AECi" label on a vendor's page. That label means the company has an active plan. It says nothing about whether its integrations are accurate.
 
 ## Versions
 
-You can stamp a flow with the versions of your own product it was introduced or removed in. The portal lists your product's versions but cannot yet add new ones. If a version you need is missing, contact us.
+Earlier answers could be stamped with the versions of your own product a flow was introduced or removed in. Picking versions is not available on the integration's page yet, and any stamp already on record stays in place. The page marks this "Versions: coming soon". If you need to change an existing stamp, contact us.
 
 ## Related
 
 - Previous: [Your seat](/docs/vendors/your-seat).
 - Next: [Owning an integration](/docs/vendors/owning-an-integration).
-- [Contests and protests](/docs/vendors/contests-and-protests), for challenging an integration's other details.
+- [Contests and protests](/docs/vendors/contests-and-protests), for asking to change an integration's other details.
 - [How we research and verify listings](/methodology).

@@ -1,11 +1,10 @@
 /**
- * AECI-1008 — "Contest a field" on the integration card
- * (`STAGE_2_VENDOR_PORTAL_SPEC.md` §11b).
+ * AECI-1008 — "Contest a field" (`STAGE_2_VENDOR_PORTAL_SPEC.md` §11b). Since
+ * AECI-1156 the form renders only on the Connectors section's delivered pairs
+ * (§6.13); an integration's own requests use the detail page's form (§6.17.6).
  *
  * What these pin, in the order it matters:
- *   1. Visibility is the owner rule and NOTHING else: shown when the caller is
- *      not the owner, hidden when it is, and never gated on `canWrite`
- *      (entitlement) or on the edge being attestable. A seat is the whole gate.
+ *   1. (Retired with the integration card: who sees the form.)
  *   2. The value control follows the field, and every control starts at the
  *      value on record.
  *   3. The shared rule refuses a bad value and an unchanged value before any
@@ -32,16 +31,11 @@ import {
 import { VendorPortalStore } from '../vendor-portal-store';
 
 import { NO_OWNER, VendorContestForm } from './vendor-contest-form';
-import { VendorIntegrationCard } from './vendor-integration-card';
 
 const flush = () => new Promise<void>((resolve) => setTimeout(resolve));
 
 /** The fixture with real contestable values and Procore on record as owner. */
 const PROCORE = VENDOR_INTEGRATIONS_FIXTURE.integrations[0]!;
-/** The fixture the caller owns (`is_owner: true`). */
-const OWNED = VENDOR_INTEGRATIONS_FIXTURE.integrations.find((i) => i.is_owner)!;
-/** A connector-powered edge: not attestable, but still contestable. */
-const POWERED = VENDOR_INTEGRATIONS_FIXTURE.integrations.find((i) => !i.attestable)!;
 
 let api: {
   getContests: ReturnType<typeof vi.fn>;
@@ -90,20 +84,6 @@ async function createForm(
   return fixture;
 }
 
-async function createCard(
-  integration: VendorIntegration,
-  canWrite: boolean,
-): Promise<ComponentFixture<VendorIntegrationCard>> {
-  const fixture = TestBed.createComponent(VendorIntegrationCard);
-  fixture.componentRef.setInput('integration', integration);
-  fixture.componentRef.setInput('vendorName', 'Summit BIM');
-  fixture.componentRef.setInput('canWrite', canWrite);
-  fixture.componentRef.setInput('dataObjects', []);
-  fixture.componentRef.setInput('versions', []);
-  await settle(fixture);
-  return fixture;
-}
-
 const el = (fixture: ComponentFixture<unknown>) => fixture.nativeElement as HTMLElement;
 
 function trigger(fixture: ComponentFixture<unknown>): HTMLButtonElement {
@@ -146,25 +126,6 @@ async function submit(fixture: ComponentFixture<unknown>): Promise<void> {
   el(fixture).querySelector('form')!.dispatchEvent(new Event('submit'));
   await settle(fixture);
 }
-
-describe('VendorContestForm — who sees it', () => {
-  it('shows on a card the caller does not own, even with no write access', async () => {
-    // Seat-only (§11b.2): `canWrite` is the `attestation.author` gate, and a
-    // contest must not be something a vendor buys.
-    const fixture = await createCard(PROCORE, false);
-    expect(el(fixture).querySelector('aec-vendor-contest-form')).not.toBeNull();
-  });
-
-  it('shows on a connector-powered edge that cannot be attested', async () => {
-    const fixture = await createCard(POWERED, true);
-    expect(el(fixture).querySelector('aec-vendor-contest-form')).not.toBeNull();
-  });
-
-  it('is absent on a card the caller owns', async () => {
-    const fixture = await createCard(OWNED, true);
-    expect(el(fixture).querySelector('aec-vendor-contest-form')).toBeNull();
-  });
-});
 
 describe('VendorContestForm — the controls', () => {
   it('is a collapsed disclosure until opened', async () => {

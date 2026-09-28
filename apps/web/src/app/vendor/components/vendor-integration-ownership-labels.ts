@@ -82,3 +82,33 @@ export function claimErrorMessage(err: unknown): string {
       return $localize`:@@vendor.integrationClaim.error.generic:Could not claim this integration. Try again.`;
   }
 }
+
+/**
+ * The refusals `POST /api/vendor/integrations/:id/retire` and `…/restore` can
+ * answer (AECI-1010). Moved here from the retired `vendor-integration-retire.ts` by
+ * AECI-1156: the detail page's Settings (§6.17.7) and §6.15's owned rows share it.
+ */
+export function retireErrorMessage(err: unknown): string {
+  switch (readVendorApiError(err)?.code) {
+    case 'INTEGRATION_RETIRED':
+      return $localize`:@@vendor.retire.error.retired:This integration is already retired. Reload to see its current state.`;
+    case 'INTEGRATION_NOT_RETIRED':
+      return $localize`:@@vendor.retire.error.notRetired:This integration is already live. Reload to see its current state.`;
+    case 'INTEGRATION_CHANGED_WHILE_SAVING':
+      return $localize`:@@vendor.retire.error.changed:This integration changed while you were saving. Reload and try again.`;
+    case 'INTEGRATION_NOT_CLAIMED':
+      return $localize`:@@vendor.retire.error.notClaimed:Claim this integration before retiring it.`;
+    case 'INTEGRATION_RETIRED_BY_AECI':
+      return $localize`:@@vendor.retire.error.retiredByAeci:AEC Integrations retired this integration, so only AEC Integrations can restore it. Reload to see its current state.`;
+    case 'INTEGRATION_NOT_OWNER':
+      return $localize`:@@vendor.retire.error.notOwner:Only the company that owns this integration can retire or restore it.`;
+    case 'INTEGRATION_CONNECTOR_POWERED':
+      return $localize`:@@vendor.retire.error.connector:Integrations delivered through a connector cannot be retired yet.`;
+    case 'INTEGRATION_ENTITLEMENT_REQUIRED':
+      return $localize`:@@vendor.retire.error.entitlement:Retiring or restoring an integration delivered through a connector needs an active plan. Contact AEC Integrations to activate or renew it.`;
+    case 'RATE_LIMITED':
+      return $localize`:@@vendor.retire.error.rate:Too many requests in a short time. Wait a minute and try again.`;
+    default:
+      return $localize`:@@vendor.retire.error.generic:Could not save the change. Try again.`;
+  }
+}

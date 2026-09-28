@@ -1,4 +1,13 @@
-import { Component, computed, inject, input, output, signal, type OnInit } from '@angular/core';
+import {
+  Component,
+  InjectionToken,
+  computed,
+  inject,
+  input,
+  output,
+  signal,
+  type OnInit,
+} from '@angular/core';
 
 import {
   CONNECTOR_POWERED_FROZEN_EDIT_FIELDS,
@@ -32,9 +41,21 @@ function controlFor(field: IntegrationEditField): ControlKind {
   return 'text';
 }
 
+/**
+ * The integration id whose owner edit form starts open. Provided ONLY by the dev
+ * preview (`/preview/vendor-dashboard/products/<slug>/integrations?edit=<integration id>`),
+ * so `npx impeccable detect`, which reads the first render, can see the form.
+ * Nothing in the product provides it. Moved here from the retired
+ * `vendor-integration-ownership.ts` (AECI-1156): §6.15's owned rows are the one
+ * surface that still opens this form.
+ */
+export const VENDOR_EDIT_FORM_START_OPEN = new InjectionToken<string | null>(
+  'VENDOR_EDIT_FORM_START_OPEN',
+);
+
 /** The form's three groups, each a `<fieldset>` so a screen reader hears which
  *  part of the integration a control belongs to. Together they are exactly
- *  `INTEGRATION_EDIT_FIELDS`; `vendor-integration-ownership.component.spec.ts`
+ *  `INTEGRATION_EDIT_FIELDS`; `vendor-integration-edit-form.component.spec.ts`
  *  asserts that. */
 export const EDIT_GROUPS: readonly {
   readonly key: 'about' | 'links' | 'terms';
@@ -262,7 +283,7 @@ export class VendorIntegrationEditForm implements OnInit {
 
   readonly closed = output<EditFormOutcome>();
 
-  /** The fields this row's form edits: all eleven, or on a connector-delivered row
+  /** The fields this row's form edits: all of them, or on a connector-delivered row
    *  all but the frozen type (AECI-1090 / AECI-1040 ruling 5). */
   protected readonly editableFields = computed<readonly IntegrationEditField[]>(() =>
     this.connectorDelivered()

@@ -31,7 +31,7 @@ import { readVendorApiError } from '../vendor-api-error';
 import { VendorPortalStore } from '../vendor-portal-store';
 
 import { editFieldLabel } from './vendor-contest-labels';
-import { EDIT_GROUPS } from './vendor-integration-ownership';
+import { EDIT_GROUPS } from './vendor-integration-edit-form';
 import { editValueMessage } from './vendor-integration-ownership-labels';
 
 /**
