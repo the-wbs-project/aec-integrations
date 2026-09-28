@@ -16,7 +16,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { VendorClaim } from '@aeci/shared';
 
 import { VendorApi } from '../vendor-api';
-import { VENDOR_DATA_OBJECTS_FIXTURE, VENDOR_INTEGRATIONS_FIXTURE } from '../vendor-fixtures';
+import {
+  VENDOR_DATA_OBJECTS_FIXTURE,
+  VENDOR_INTEGRATIONS_FIXTURE,
+  VENDOR_ME_FIXTURE,
+} from '../vendor-fixtures';
 import { VendorPortalStore } from '../vendor-portal-store';
 
 import { VendorAddClaimForm, isProvisionalClaimId } from './vendor-add-claim-form';
@@ -526,5 +530,30 @@ describe('VendorAddClaimForm — the optimistic insert (AECI-630)', () => {
     expect(claimsInStore(store)).toEqual(INTEGRATION.claims);
     expect(duplicate).toHaveBeenCalledWith({ claimId: EXISTING.id, dataObjectName: 'RFIs' });
     expect((fixture.nativeElement as HTMLElement).querySelector('[role="alert"]')).toBeNull();
+  });
+});
+
+// AECI-1139 (ruling 2026-09-28: "No notes at all"). The add form's note field
+// carries the same audience line as the lane editor, from the same helper.
+describe('VendorAddClaimForm — who sees the note (AECI-1139)', () => {
+  function hint(fixture: ComponentFixture<VendorAddClaimForm>): string {
+    const el = fixture.nativeElement as HTMLElement;
+    const textarea = el.querySelector('textarea') as HTMLTextAreaElement;
+    const id = textarea.getAttribute('aria-describedby');
+    expect(id).toBeTruthy();
+    return el.querySelector(`[id="${id}"]`)?.textContent?.trim() ?? '';
+  }
+
+  it('names the other company under the note field', async () => {
+    const store = TestBed.inject(VendorPortalStore);
+    await store.ensure('integrations');
+    store.seed(VENDOR_ME_FIXTURE);
+    expect(hint(create())).toBe('Only Procore Technologies and AEC Integrations see this.');
+  });
+
+  it('names the other product before the integration list loads', () => {
+    expect(hint(create())).toBe(
+      `Only the company behind ${INTEGRATION.other_product.name} and AEC Integrations see this.`,
+    );
   });
 });

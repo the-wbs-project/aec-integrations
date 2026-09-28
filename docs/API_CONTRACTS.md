@@ -867,12 +867,13 @@ export const PairClaimAttestationSchema = z.object({
   source: z.enum(['aeci', 'vendor_a', 'vendor_b']),   // only `aeci` written in 1.5
   attestor: z.enum(['aeci', 'context', 'other']),     // the slot, framed context-relative (§4.3)
   asserted: z.boolean(),
-  // ALWAYS `null` when `source` is `aeci` (AECI-779). The seed note is
-  // curation-internal — stored for curator QA, never reader-facing. A
-  // VENDOR-authored note is the deliberate §6 authoring field and passes through.
-  // Suppressed server-side by `readerFacingNote` (`lib/drizzle-helpers.ts`), so
-  // it is absent from the SSR TransferState blob too, not just from the popover.
-  note: z.string().nullable(),
+  // ALWAYS `null`, whatever the source (AECI-1139, ruling 2026-09-28: "No notes
+  // at all"). The AECi seed note is curation-internal (AECI-779). A vendor note,
+  // affirm or deny, is seen only by the other company and AECi, through the
+  // vendor portal and the audit row. The read config does not select the column
+  // (`lib/drizzle-helpers.ts`), so the note is absent from the SSR TransferState
+  // blob too, not just from the popover. The key stays so the shape does not move.
+  note: z.null(),
   introduced_at: z.string().nullable(),               // coarse ISO date stamps — NOT retraction
   deprecated_at: z.string().nullable(),
   // AECI-303: the PRECISE stamps, as the vendor's own release LABEL — the same value
@@ -1017,8 +1018,8 @@ The pair's **per-claim attestation history** (§9.1), read off the append-only r
 > **As-built (2026-09-24) — no web consumer.** The pair page's `ClaimProvenance` popover dropped
 > its History section, so nothing in `apps/web` calls this endpoint anymore. Everything below is
 > unchanged and still deployed — the route, `integrationTimelineConfig`,
-> `connectorEvidencedPairTimelineConfig`, `toClaimTimelineEntry`, its `readerFacingNote`
-> suppression, and `resolveDiffAccess`'s gating all still run. `STAGE_1_5_SPEC.md` §3.3 and
+> `connectorEvidencedPairTimelineConfig`, `toClaimTimelineEntry` (every `note` is `null` since
+> AECI-1139), and `resolveDiffAccess`'s gating all still run. `STAGE_1_5_SPEC.md` §3.3 and
 > `STAGE_2_ATTESTATIONS_SPEC.md` §9.4 carry the matching note.
 
 ```typescript
@@ -1026,10 +1027,9 @@ The pair's **per-claim attestation history** (§9.1), read off the append-only r
 export const ClaimTimelineEntrySchema = z.object({
   attestor: z.enum(['aeci', 'context', 'other']),   // framed context-relative, as on the pair read
   asserted: z.boolean(),
-  note: z.string().nullable(),                      // `null` when attestor is `aeci` — AECI-779, as
-                                                    // on the pair read. This is the SECOND reader
-                                                    // mapper; both must suppress or the note stays
-                                                    // published in the History section.
+  note: z.null(),                                   // ALWAYS null — AECI-1139, as on the pair read.
+                                                    // This is the SECOND public mapper; both must
+                                                    // withhold or the note stays published here.
   introduced_version: z.string().optional(),        // version labels, omitted when unstamped
   deprecated_version: z.string().optional(),
   created_at: z.string(),                           // the append-only ordering key (oldest first)
@@ -5869,7 +5869,9 @@ export const VendorClaimSchema = z.object({
   agreement: z.enum(AGREEMENT_STATES),      // computed + echoed, never sent
   origin: ClaimOriginSchema,                // 'aeci' | 'vendor'
   mine: z.array(VendorOwnAttestationSchema),        // 0..2 — one per owned slot
-  counterparty: CounterpartyAttestationSchema.nullable(),  // { asserted, note }
+  counterparty: CounterpartyAttestationSchema.nullable(),  // { asserted, note } — the note's
+                                        // intended audience. Not public: the pair read's
+                                        // `note` is always null (AECI-1139).
 });
 
 export const VendorIntegrationSchema = z.object({

@@ -477,9 +477,9 @@ describe('GET /api/products/:slug/integrations/:otherSlug — Layer B claims (§
     // Stage 1.5: every claim is AECi-only, so agreement is always unverified.
     expect(claimsOut.every((c) => c.agreement === 'unverified')).toBe(true);
     // Provenance rides along: the single AECi attestation. The AECi seed is never
-    // attributed to an endpoint — it is not a party to the vote — and since
-    // AECI-779 its `note` is SUPPRESSED: the seed note is curation-internal, so it
-    // arrives as `null` however the row was seeded.
+    // attributed to an endpoint — it is not a party to the vote — and its `note`
+    // is never reader-facing (AECI-779, AECI-1139), so it arrives as `null`
+    // however the row was seeded.
     expect(claimsOut[0]!.attestations).toEqual([
       {
         source: 'aeci',
@@ -747,14 +747,13 @@ describe('GET /api/products/:slug/integrations/:otherSlug — agreement states (
 
   // `attestor` is what lets the pair page render "Confirmed by {vendor}" from
   // the two hydrated `ProductListItem.vendor` links, with no vendors join.
-  // AECI-779. The AECi seed note is curation-internal — the AECI-299 pass wrote
-  // machine-prefixed research annotations there, and §8 (the render contract this
-  // popover was built against) never specified a note render at all. This is the
-  // FIRST half of the lockstep; the second is `routes/pair-timeline.spec.ts`
-  // ("SUPPRESSES the AECi seed note…"), because the History section renders the
-  // same note from a DIFFERENT route and mapper. The rule itself is unit-tested in
-  // `lib/reader-facing-note.spec.ts`.
-  it('SUPPRESSES the AECi seed note but keeps the vendor note, on one claim', async () => {
+  // AECI-779, widened by AECI-1139 (ruling 2026-09-28: "No notes at all"). No
+  // attestation note is reader-facing: not the AECi seed note, and not a vendor's,
+  // affirm or deny. This is the FIRST half of the lockstep; the second is
+  // `routes/pair-timeline.spec.ts`, because the timeline read serves the same rows
+  // from a DIFFERENT route and mapper. That the vendor portal and the audit row
+  // still carry the note is pinned in `routes/vendor-attestations.spec.ts`.
+  it('carries NO note from any source — AECi seed, vendor affirm, vendor deny', async () => {
     await seedClaimWith([
       {
         source: 'aeci',
@@ -762,20 +761,32 @@ describe('GET /api/products/:slug/integrations/:otherSlug — agreement states (
         note: 'ai_seed: scraped from zapier.com — edge marked bidirectional',
       },
       { source: 'vendor_a', asserted: true, by: ACME, note: 'Only RFIs created after 2025.' },
+      {
+        source: 'vendor_b',
+        asserted: false,
+        by: GLOBEX,
+        note: 'We receive RFIs, but nothing is sent back.',
+      },
     ]);
 
-    const { claim: out } = await readClaim();
-    // Both attestations still render and still VOTE — suppression drops the note,
-    // never the assertion. (One vendor + the seed ⇒ single_source, per §4.2.)
-    expect(out.attestations.map((a) => [a.source, a.note])).toEqual([
-      ['aeci', null],
-      ['vendor_a', 'Only RFIs created after 2025.'],
+    const res = await get('/api/products/procore/integrations/revit');
+    const raw = await res.text();
+    const body = ProductPairResponseSchema.parse(JSON.parse(raw));
+    const out = body.mechanisms[0]!.claims[0]!;
+    // Every attestation still renders and still VOTES — the rule drops the note,
+    // never the assertion. (Affirm + deny from two vendors ⇒ conflict, per §4.2.)
+    expect(out.attestations.map((a) => [a.source, a.asserted, a.note])).toEqual([
+      ['aeci', true, null],
+      ['vendor_a', true, null],
+      ['vendor_b', false, null],
     ]);
-    expect(out.agreement).toBe('single_source');
-    // The internal text is absent from the whole payload — this is the blob the
-    // pair resolver puts into TransferState on an indexable, cacheable page, so
-    // "not on the field I asserted" is not a strong enough claim.
-    expect(JSON.stringify(out)).not.toContain('ai_seed');
+    expect(out.agreement).toBe('conflict');
+    // Checked on the RAW response text, not a field: this is the blob the pair
+    // resolver puts into TransferState on an indexable, cacheable page, and any
+    // browser can call `GET /api/*` directly.
+    expect(raw).not.toContain('ai_seed');
+    expect(raw).not.toContain('Only RFIs created after 2025.');
+    expect(raw).not.toContain('nothing is sent back');
   });
 
   it('translates the attestation slot into the context frame, both orientations', async () => {

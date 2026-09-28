@@ -205,7 +205,7 @@ An **attestation** records _who asserts a claim_. Attestations hang off a claim 
 | `asserted`      | boolean                              | `true` = this source affirms the claim; `false` = denies it. AECi seeds `true`.                                                                                                                                                                                                                               |
 | `introduced_at` | date \| null                         | **dormant in 1.5** — a coarse version stamp. AECI-303 ships the §9 diff over the PRECISE `introduced_version_id`/`deprecated_version_id` FKs (Stage 2 migration 2) instead; these dates remain the fallback for the claims promote writes, and a claim with neither is **always present** at every selection. |
 | `deprecated_at` | date \| null                         | **dormant in 1.5** — version stamp.                                                                                                                                                                                                                                                                           |
-| `note`          | string \| null                       | optional provenance/source note. **Audience: curation-internal when `source = 'aeci'`, reader-facing only when a vendor authored it** (AECI-779 — see the note below).                                                                                                                                        |
+| `note`          | string \| null                       | optional provenance/source note. **Audience: never public.** An `aeci` note is curation-internal (AECI-779). A vendor note, affirm or deny, is seen only by the other company and AECi (AECI-1139). See the notes below.                                                                                                                                        |
 
 `vendor_a` / `vendor_b` and the version stamps are **additive and dormant**: present in schema and contract, written by no 1.5 code path.
 
@@ -223,22 +223,24 @@ An **attestation** records _who asserts a claim_. Attestations hang off a claim 
 >
 > The rule, now explicit: **an `aeci`-sourced note is curation-internal.** It is accepted on promote
 > and stored for curator QA (§4.4's Claims tab is a read-only curator view — that is the audience it
-> was always for), and it is suppressed at every reader mapper. A **vendor**-authored note is the
-> opposite: a deliberate authoring field (`STAGE_2_ATTESTATIONS_SPEC.md` §6), written by a named party
-> who is accountable for it, and it renders.
->
-> Enforced in `apps/api/src/lib/drizzle-helpers.ts` by `readerFacingNote`, which **both** reader
-> mappers call — `toPairClaimAttestation` (the popover) and `toClaimTimelineEntry` (the AECI-303
-> History section). They are reached from different routes, so suppressing in one leaves the note
-> published by the other; that lockstep is pinned by a test in each route spec.
+> was always for), and it is suppressed at every reader mapper. AECI-779 let a **vendor**-authored
+> note render. AECI-1139 withdrew that carve-out; see the next note.
 >
 > **As-built (2026-09-24).** The `ClaimProvenance` popover no longer renders the History section:
 > its `timeline` input and `historyRequested` output are gone, and the pair page no longer calls
-> `GET …/integrations/:otherSlug/timeline` from the browser. `toClaimTimelineEntry` and
-> `readerFacingNote`'s enforcement on it are unchanged and still deployed (`API_CONTRACTS.md`
-> §6.3) — there is just no web consumer left to call the endpoint. The lockstep claim above still
-> holds for the endpoint's own reader-facing behavior; it no longer describes anything the pair
-> page renders.
+> `GET …/integrations/:otherSlug/timeline` from the browser. `toClaimTimelineEntry` is unchanged and
+> still deployed (`API_CONTRACTS.md` §6.3) — there is just no web consumer left to call the endpoint.
+
+> **No note is public (AECI-1139, 2026-09-28).** Ruling (Chris): "No notes at all." A vendor note,
+> affirm or deny, is private to the other company and AECi, exactly like the seed note is private to
+> AECi. The public pair read and the timeline read return `note: null` on every attestation, and
+> their read configs in `apps/api/src/lib/drizzle-helpers.ts` do not select the column. Both mappers
+> are covered, `toPairClaimAttestation` (the popover) and `toClaimTimelineEntry` (the timeline). They
+> are reached from different routes, so a rule on one alone would leave the note published by the
+> other. That lockstep is pinned by a test in each route spec. The `readerFacingNote` filter that
+> AECI-779 added is gone, because the ruling left it nothing to decide. The vendor portal still shows
+> the note to the other company and its author, and the audit row keeps it for AECi. The governing
+> rule is `STAGE_2_ATTESTATIONS_SPEC.md` §4.3.
 
 ### 3.4 Computed agreement — `computeAgreement` and the AECi-never-red rule
 

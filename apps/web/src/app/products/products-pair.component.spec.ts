@@ -40,11 +40,11 @@ const productListItem = (slug: string, name: string, overrides = {}) => ({
   ...overrides,
 });
 
-const aeciSeed = (note: string | null = 'Curated by AECi.'): PairClaimAttestation => ({
+const aeciSeed = (): PairClaimAttestation => ({
   source: 'aeci',
   attestor: 'aeci',
   asserted: true,
-  note,
+  note: null,
   introduced_at: null,
   deprecated_at: null,
 });
@@ -59,17 +59,12 @@ const vendorVote = (attestor: 'context' | 'other', asserted: boolean): PairClaim
   deprecated_at: null,
 });
 
-const claim = (
-  slug: string,
-  name: string,
-  direction: ContextDirection,
-  note = 'Curated by AECi.',
-): ProductPairClaim => ({
+const claim = (slug: string, name: string, direction: ContextDirection): ProductPairClaim => ({
   data_object_slug: slug,
   data_object_name: name,
   direction,
   agreement: 'unverified',
-  attestations: [aeciSeed(note)],
+  attestations: [aeciSeed()],
 });
 
 /** A claim in an arbitrary agreement state, for the §4.2 render matrix. */

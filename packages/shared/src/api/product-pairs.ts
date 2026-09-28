@@ -55,7 +55,17 @@ export const PairClaimAttestationSchema = z.object({
   source: z.enum(ATTESTATION_SOURCES),
   attestor: z.enum(['aeci', 'context', 'other']),
   asserted: z.boolean(),
-  note: z.string().nullable(),
+  /**
+   * **Always `null`.** No attestation note is reader-facing, from any source
+   * (AECI-1139, ruling 2026-09-28: "No notes at all"). An `aeci` note is
+   * curation-internal (AECI-779). A vendor note, affirm or deny, is seen only by
+   * the other company and AEC Integrations, through the vendor portal.
+   *
+   * The key stays, typed `z.null()`, so the wire shape does not move and any
+   * mapper that tried to put a string here fails to compile. The public read
+   * configs do not select the column at all (`apps/api/src/lib/drizzle-helpers.ts`).
+   */
+  note: z.null(),
   introduced_at: z.string().nullable(),
   deprecated_at: z.string().nullable(),
   /**
@@ -383,7 +393,9 @@ export type ProductPairResponse = z.infer<typeof ProductPairResponseSchema>;
 export const ClaimTimelineEntrySchema = z.object({
   attestor: z.enum(['aeci', 'context', 'other']),
   asserted: z.boolean(),
-  note: z.string().nullable(),
+  /** Always `null`, as on {@link PairClaimAttestationSchema} (AECI-1139). This is
+   *  the second public route that once carried the note. */
+  note: z.null(),
   /** Version labels, as on {@link PairClaimAttestationSchema}. */
   introduced_version: z.string().optional(),
   deprecated_version: z.string().optional(),

@@ -17,12 +17,11 @@ import { ClaimProvenance } from './claim-provenance';
 const att = (
   attestor: PairClaimAttestation['attestor'],
   asserted: boolean,
-  note: string | null = null,
 ): PairClaimAttestation => ({
   source: attestor === 'aeci' ? 'aeci' : attestor === 'context' ? 'vendor_a' : 'vendor_b',
   attestor,
   asserted,
-  note,
+  note: null,
   introduced_at: null,
   deprecated_at: null,
 });
@@ -69,13 +68,12 @@ describe('ClaimProvenance', () => {
   });
 
   it('attributes the AECi seed and closes on the unconfirmed state', () => {
-    const { popoverText } = open(claim('unverified', [att('aeci', true, 'Curated by AECi.')]), {
+    const { popoverText } = open(claim('unverified', [att('aeci', true)]), {
       context: 'Acme Software',
       other: 'Globex',
     });
     expect(popoverText).toContain('AECi');
     expect(popoverText).toContain('asserts this flow');
-    expect(popoverText).toContain('Curated by AECi.');
     expect(popoverText).toContain('No vendor has confirmed this flow');
     // AECI-781: the vendor portal shipped 2026-09-03, so the closing line must
     // never again describe vendor confirmation as a forthcoming feature.
@@ -131,6 +129,27 @@ describe('ClaimProvenance', () => {
       other: 'Globex',
     });
     expect(popoverText).toContain('Both vendors have confirmed this flow.');
+  });
+
+  // AECI-1139 (ruling 2026-09-28: "No notes at all"). The popover renders
+  // stances only. The API sends `note: null` and the wire type is `z.null()`, but
+  // the template must not render one even if a string arrives: an API Worker
+  // deployed before the fix can still answer an SSR Worker deployed after it.
+  it('renders no note on a disputed row, even if the payload carries one', () => {
+    const withNote = (a: PairClaimAttestation, note: string): PairClaimAttestation =>
+      ({ ...a, note }) as unknown as PairClaimAttestation;
+    const { popoverText } = open(
+      claim('conflict', [
+        withNote(att('context', true), 'RFI responses come back through the sync.'),
+        withNote(att('other', false), 'We receive RFIs, but nothing is sent back.'),
+      ]),
+      { context: 'Acme Software', other: 'Globex' },
+    );
+    expect(popoverText).toContain('Acme Software');
+    expect(popoverText).toContain('Globex');
+    expect(popoverText).toContain('disputes this flow');
+    expect(popoverText).not.toContain('come back through the sync');
+    expect(popoverText).not.toContain('nothing is sent back');
   });
 
   // The pair page dropped the History section: the popover is provenance only,

@@ -3,7 +3,7 @@ title: Attesting an integration
 description: How to confirm or deny the data flows recorded under an integration, what readers see as a result, and what happens when the two vendors disagree.
 section: vendors
 order: 3
-last_updated: 24 September 2026
+last_updated: 28 September 2026
 ---
 
 An integration page lists the data that moves between two products: a model, a schedule, an RFI, and so on, each in one direction. We call each of those a data flow. Most of them were recorded by AEC Integrations from public sources. Attesting is how the vendor at either end says whether a flow is right.
@@ -20,6 +20,8 @@ In the vendor portal, open one of your products, then its **Integrations** tab, 
 
 You can add a note, and stamp the versions of your own product the flow was introduced or removed in. The note and stamps are saved when you choose Affirm or Deny.
 
+Your note is not public. Only the company at the other end of the integration and AEC Integrations see it. If your company makes both products, only AEC Integrations sees it.
+
 Several people at your company can hold seats, but your company has one position on each flow. The latest answer from anyone at your company is your company's answer.
 
 You can attest to flows on any integration where one of your products is at an end. You cannot attest to an integration that is delivered through a connector product. Those show **Via connector**.
@@ -32,7 +34,7 @@ The data object list is fixed. If what you need is not on it, tell us through th
 
 ## What readers see
 
-The public integration page shows where each flow stands. Your company counts once, however many seats it holds.
+The public integration page shows where each flow stands. It shows each company's answer, but never its note. Your company counts once, however many seats it holds.
 
 | Where it stands | What the page says |
 | --- | --- |

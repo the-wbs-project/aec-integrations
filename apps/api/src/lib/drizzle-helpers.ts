@@ -324,7 +324,9 @@ const pairClaimsConfig = {
         asserted: true,
         attestedByVendorId: true,
         retractedAt: true,
-        note: true,
+        // No `note` (AECI-1139). No attestation note is reader-facing, so the
+        // public read does not select it: a value that never leaves D1 cannot be
+        // published by a future mapper. See `PairClaimAttestationSchema.note`.
         introducedAt: true,
         deprecatedAt: true,
         introducedVersionId: true,
@@ -375,7 +377,7 @@ export const connectorEvidencedPairTimelineConfig = {
             id: true,
             source: true,
             asserted: true,
-            note: true,
+            // No `note` (AECI-1139) — see `pairClaimsConfig`.
             retractedAt: true,
             createdAt: true,
             introducedVersionId: true,
@@ -625,8 +627,9 @@ export const integrationPairConfig = {
     // `liveAttestationsWhere` discharges the AECI-603 handoff
     // (STAGE_2_ATTESTATIONS_SPEC.md §2.5): a retracted attestation must neither
     // vote nor render. `attestedByVendorId` feeds the §4.2 distinct-identity
-    // dedupe and is dropped by the mapper; `note` + the version stamps are the
-    // provenance popover's payload.
+    // dedupe and is dropped by the mapper; the version stamps are the
+    // provenance popover's payload. `note` is deliberately NOT selected
+    // (AECI-1139): no attestation note is reader-facing.
     //
     // The two `*VersionId` FKs are AECI-303's presence input (§9.1). Only the ids
     // are selected — NOT the related `product_versions` rows: the pair handler
@@ -674,7 +677,7 @@ export const integrationTimelineConfig = {
             id: true,
             source: true,
             asserted: true,
-            note: true,
+            // No `note` (AECI-1139) — see `pairClaimsConfig`.
             retractedAt: true,
             createdAt: true,
             introducedVersionId: true,
@@ -1099,7 +1102,6 @@ export interface RawAgreementVoteRow {
 /** A pair-page attestation: the vote plus the provenance payload the popover
  *  renders. */
 export interface RawClaimAttestationRow extends RawAgreementVoteRow {
-  note: string | null;
   introducedAt: string | null;
   deprecatedAt: string | null;
   // AECI-303 (§9.1): the PRECISE version stamps. Resolved against the pair's
@@ -1113,7 +1115,6 @@ export interface RawTimelineAttestationRow {
   id: string;
   source: string;
   asserted: boolean;
-  note: string | null;
   retractedAt: string | null;
   createdAt: string;
   introducedVersionId: string | null;
@@ -1524,33 +1525,26 @@ export function toIntegrationDetail(raw: RawIntegrationDetailRow): IntegrationDe
   };
 }
 
-/**
- * The note a READER may see (AECI-779).
+/*
+ * ── NO ATTESTATION NOTE IS READER-FACING (AECI-779, AECI-1139) ──────────────
+ * Both public mappers below emit `note: null` for every attestation, whatever its
+ * source, and the public read configs above do not select the column.
  *
- * `attestations.note` is curation-internal when the source is the AECi seed: the
- * AECI-299 pass wrote machine-prefixed research annotations there (`ai_seed: …`,
- * scrape URLs, notes-to-self about how `direction` was set), and no spec ever
- * assigned that field a reader audience — `STAGE_1_5_SPEC.md` §3.3 defines it as
- * "optional provenance/source note" and §8, the render contract this popover was
- * built against, never mentions a note at all.
+ * - An `aeci` note is curation-internal (AECI-779). The AECI-299 seed pass wrote
+ *   machine-prefixed research annotations there (`ai_seed: …`, scrape URLs).
+ * - A VENDOR note, affirm or deny, is private too (AECI-1139, ruling 2026-09-28:
+ *   "No notes at all"). A "No" reason is one company's free-text objection to
+ *   another company's product, and a lone "Yes" reason on a disputed row reads as
+ *   AECi taking a side. The other company sees it in the vendor portal
+ *   (`toCounterparty`), its author sees it in `mine`, and AECi sees it in the
+ *   audit row (`routes/vendor-attestations.ts`).
  *
- * A VENDOR note is the opposite: a deliberate Stage 2 authoring field
- * (`STAGE_2_ATTESTATIONS_SPEC.md` §6) written by a named party who is on the hook
- * for it. Those pass through untouched.
- *
- * `null` rather than an absent key on purpose — both `PairClaimAttestationSchema`
- * and `ClaimTimelineEntrySchema` declare `note` as `.nullable()` (not
- * `.optional()`), so a suppressed note serialises exactly like an attestation that
- * simply carries none. No contract change, and nothing for a client to special-case.
- *
- * **Call this at EVERY mapper that puts a note on a reader payload.** There are two
- * — `toPairClaimAttestation` (the popover) and `toClaimTimelineEntry` (the AECI-303
- * History section) — and they are reached from different routes, so a fix applied
- * to one leaves the note live on the other.
+ * There are two public mappers, reached from two routes: `toPairClaimAttestation`
+ * (the pair read) and `toClaimTimelineEntry` (the timeline read). Until AECI-1139
+ * both called a `readerFacingNote(source, note)` filter; the ruling left it
+ * nothing to decide, so it is gone. The wire schemas type `note` as `z.null()`, so
+ * a mapper that tried to publish a note would not compile.
  */
-export function readerFacingNote(source: string, note: string | null): string | null {
-  return source === 'aeci' ? null : note;
-}
 
 /** Surface one attestation for the provenance popover, with its slot translated
  *  into the page's context frame (§4.3). `attested_by_vendor_id` stays server-
@@ -1572,7 +1566,7 @@ function toPairClaimAttestation(
     source,
     attestor: attestorForContext(source, contextIsSource),
     asserted: raw.asserted,
-    note: readerFacingNote(source, raw.note),
+    note: null,
     introduced_at: raw.introducedAt,
     deprecated_at: raw.deprecatedAt,
     ...(introducedVersion === undefined ? {} : { introduced_version: introducedVersion }),
@@ -1923,9 +1917,10 @@ export function toPairTimelines(
   return timelines;
 }
 
-/** One history row (AECI-303 / §9.1). Notes go through {@link readerFacingNote} —
- *  the History section renders the same note the popover does, so suppressing the
- *  AECi seed note in only one of the two leaves it published in the other. */
+/** One history row (AECI-303 / §9.1). `note` is always `null`, exactly as on
+ *  the pair read: this route is the second public path to the same rows, so a
+ *  note suppressed on one read alone would stay published on the other
+ *  (AECI-779, AECI-1139). */
 function toClaimTimelineEntry(
   raw: RawTimelineAttestationRow,
   contextIsSource: boolean,
@@ -1937,7 +1932,7 @@ function toClaimTimelineEntry(
   return {
     attestor: attestorForContext(source, contextIsSource),
     asserted: raw.asserted,
-    note: readerFacingNote(source, raw.note),
+    note: null,
     ...(introducedVersion === undefined ? {} : { introduced_version: introducedVersion }),
     ...(deprecatedVersion === undefined ? {} : { deprecated_version: deprecatedVersion }),
     created_at: raw.createdAt,

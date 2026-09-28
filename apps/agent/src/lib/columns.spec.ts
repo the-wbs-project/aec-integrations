@@ -19,10 +19,10 @@ describe('column denylist', () => {
   });
 
   it('does NOT deny the reader-facing keys that sit next to them', () => {
-    // Guards: over-reach. `note` is reader-facing when a VENDOR wrote it —
-    // `readerFacingNote()` suppresses it only for source = 'aeci' — while `notes`
-    // (plural, on integrations) is curation-internal in every row. Denying
-    // `note` would break the legitimate pair payload.
+    // Guards: over-reach. The public pair payload carries an `attestations[].note`
+    // KEY whose value is always null (AECI-779, AECI-1139). This guard matches
+    // keys, so denying `note` would flag the legitimate pair payload. `notes`
+    // (plural, on integrations) is curation-internal in every row.
     expect(isDeniedColumn('note')).toBe(false);
     expect(isDeniedColumn('notes')).toBe(true);
     // `maintenance` is a published block (AECI-981), not an internal one.

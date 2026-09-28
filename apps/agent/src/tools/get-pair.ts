@@ -10,9 +10,9 @@
  *
  * ── WHY IT IS NOT A D1 QUERY ─────────────────────────────────────────────────
  * The pair payload is the most mapper-dense surface in the product, and it is
- * where AECI-779 leaked: `attestations.note` is curation-internal when
- * `source = 'aeci'`, and `readerFacingNote()` is the single rule that suppresses
- * it. Going through the shipped handler is how the agent inherits that rule
+ * where AECI-779 leaked: `attestations.note` is never reader-facing (AECI-779
+ * for the AECi seed, AECI-1139 for vendor notes), and the shipped handler is what
+ * withholds it. Going through that handler is how the agent inherits the rule
  * instead of re-deriving it. See `src/lib/api-client.ts`.
  *
  * A pair with no edge is a 200 with an empty mechanism list, not a 404 — so

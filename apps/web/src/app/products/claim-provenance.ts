@@ -3,22 +3,22 @@ import { BrnPopover, BrnPopoverContent, BrnPopoverTrigger } from '@spartan-ng/br
 
 import type { PairClaimAttestation, ProductPairClaim } from '@aeci/shared';
 
-/** One rendered provenance line: who spoke, what they said, and any note. */
+/** One rendered provenance line: who spoke and what they said. No note: none is
+ *  reader-facing (AECI-779, AECI-1139), so the API never sends one. */
 interface ProvenanceEntry {
   readonly key: string;
   readonly who: string;
   readonly stance: string;
   readonly affirms: boolean;
-  readonly note: string | null;
 }
 
 /**
  * The **provenance affordance** for a claim (Stage 1.5 §8 — AECI-300; widened to
  * the four agreement states by `STAGE_2_ATTESTATIONS_SPEC.md` §4.3 — AECI-605).
  * A small `i` trigger per `data_object` row opens a popover attributing the
- * claim to everyone who has spoken about it, surfacing their notes, and closing
- * with a line that states what is *missing* — the counterparty's silence, or the
- * nature of the disagreement.
+ * claim to everyone who has spoken about it, and closing with a line that states
+ * what is *missing* — the counterparty's silence, or the nature of the
+ * disagreement. It shows stances only: no attestation note is public (AECI-1139).
  *
  * Attribution comes from each attestation's context-relative `attestor`
  * (`'aeci' | 'context' | 'other'`, resolved server-side by
@@ -75,9 +75,6 @@ interface ProvenanceEntry {
                     >{{ e.stance }}</span
                   >
                 </p>
-                @if (e.note) {
-                  <p class="text-sm leading-relaxed text-(--text-secondary)">{{ e.note }}</p>
-                }
               </li>
             }
           </ul>
@@ -120,7 +117,6 @@ export class ClaimProvenance {
         ? $localize`:@@pair.claim.provenance.stance.affirms:asserts this flow`
         : $localize`:@@pair.claim.provenance.stance.denies:disputes this flow`,
       affirms: a.asserted,
-      note: a.note,
     })),
   );
 
