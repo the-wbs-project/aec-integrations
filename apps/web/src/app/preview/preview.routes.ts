@@ -91,6 +91,18 @@ export const previewRoutes: Routes = [
         (m) => m.AdminVendorIntegrationsPreview,
       ),
   },
+  // Design exploration for the vendor portal's per-integration panel: today's
+  // panel ("current") beside four live-toggleable redesigns for a non-technical
+  // audience (tabbed dialog, side panel, detail page, organized inline), so the PO
+  // picks one. Local fixtures and signals only; `?concept=` picks the concept and
+  // `?concept=c&open=<id>` opens C's detail page. Anchor: Shopify admin.
+  {
+    path: 'integration-manager',
+    loadComponent: () =>
+      import('./integration-manager/integration-manager-preview').then(
+        (m) => m.IntegrationManagerPreview,
+      ),
+  },
   // AECI-286 — search relevance lab: compare candidate `customRanking` levers
   // (SEARCH_RANKING.md §7) over curated fixtures while real query data is still
   // too thin to tune against (the real-data run is AECI-283). No Algolia.
