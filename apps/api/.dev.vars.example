@@ -221,11 +221,13 @@ EMAIL_FROM=
 # Optional. Blind copy on EVERY send, both transports in lib/email.ts. Deployed tiers
 # set it to support@aecintegrations.com. Leave it empty locally so test sends stay quiet.
 EMAIL_BCC=
-# Optional. Recipient of the reconcile-sweep stuck-request admin alert (§6.2).
+# Optional. Recipient of the operator alerts: the reconcile-sweep stuck-request alert
+# (§6.2), signup/feedback notifications, attestation ops alerts and the operator copy
+# of entitlement-expiry warnings. Deployed tiers set it to support@aecintegrations.com.
 ADMIN_ALERT_EMAIL=
 # Optional. Recipient of the operator "new vendor claim" alert, sent post-commit
 # from POST /api/requests/claim. Deployed tiers set this to support@aecintegrations.com;
-# it is deliberately NOT ADMIN_ALERT_EMAIL (claim intake goes to the support inbox).
+# it is a separate var from ADMIN_ALERT_EMAIL so the two can be routed apart.
 # A single address. Absent → the alert is a fail-open 'skipped' and the submit still
 # returns 201. Corrections never alert — claims only.
 CLAIM_ALERT_EMAIL=

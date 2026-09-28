@@ -399,11 +399,11 @@
         // Blind copy on every send, so the operator sees what users receive.
         "EMAIL_BCC": "support@aecintegrations.com",
         "PUBLIC_SITE_URL": "https://staging.aecintegrations.com",
-        "ADMIN_ALERT_EMAIL": "chrisw@thewbsproject.com",
+        "ADMIN_ALERT_EMAIL": "support@aecintegrations.com",
         // Operator alert on claim INTAKE (`POST /api/requests/claim`), and since
-        // AECI-1132 on an AECi-routed integration contest — the support inbox,
-        // deliberately NOT `ADMIN_ALERT_EMAIL` (which stays the individual
-        // operator address for sweep alerts + lead capture). Absent -> the alert is a
+        // AECI-1132 on an AECi-routed integration contest. Also the support inbox;
+        // kept a separate var from `ADMIN_ALERT_EMAIL` (sweep alerts + lead capture)
+        // so the two can be routed apart again. Absent -> the alert is a
         // fail-open `skipped`. The durable record is the Linear issue (claim) or the
         // contest row (contest).
         "CLAIM_ALERT_EMAIL": "support@aecintegrations.com",
@@ -648,11 +648,11 @@
         // Blind copy on every send, so the operator sees what users receive.
         "EMAIL_BCC": "support@aecintegrations.com",
         "PUBLIC_SITE_URL": "https://demo.aecintegrations.com",
-        "ADMIN_ALERT_EMAIL": "chrisw@thewbsproject.com",
+        "ADMIN_ALERT_EMAIL": "support@aecintegrations.com",
         // Operator alert on claim INTAKE (`POST /api/requests/claim`), and since
-        // AECI-1132 on an AECi-routed integration contest — the support inbox,
-        // deliberately NOT `ADMIN_ALERT_EMAIL` (which stays the individual
-        // operator address for sweep alerts + lead capture). Absent -> the alert is a
+        // AECI-1132 on an AECi-routed integration contest. Also the support inbox;
+        // kept a separate var from `ADMIN_ALERT_EMAIL` (sweep alerts + lead capture)
+        // so the two can be routed apart again. Absent -> the alert is a
         // fail-open `skipped`. The durable record is the Linear issue (claim) or the
         // contest row (contest).
         "CLAIM_ALERT_EMAIL": "support@aecintegrations.com",
@@ -835,11 +835,11 @@
         "EMAIL_FROM": "AEC Integrations <notifications@aecintegrations.com>",
         // Blind copy on every send, so the operator sees what users receive.
         "EMAIL_BCC": "support@aecintegrations.com",
-        "ADMIN_ALERT_EMAIL": "chrisw@thewbsproject.com",
+        "ADMIN_ALERT_EMAIL": "support@aecintegrations.com",
         // Operator alert on claim INTAKE (`POST /api/requests/claim`), and since
-        // AECI-1132 on an AECi-routed integration contest — the support inbox,
-        // deliberately NOT `ADMIN_ALERT_EMAIL` (which stays the individual
-        // operator address for sweep alerts + lead capture). Absent -> the alert is a
+        // AECI-1132 on an AECi-routed integration contest. Also the support inbox;
+        // kept a separate var from `ADMIN_ALERT_EMAIL` (sweep alerts + lead capture)
+        // so the two can be routed apart again. Absent -> the alert is a
         // fail-open `skipped`. The durable record is the Linear issue (claim) or the
         // contest row (contest).
         "CLAIM_ALERT_EMAIL": "support@aecintegrations.com",
