@@ -1044,7 +1044,8 @@ The Google re-crawl worklist. `STAGE_1_SPEC.md` §20.2 owns the contract and
 IA and the write are this doc's business.
 
 **Why it exists.** Bing and Yandex are fed automatically: a write buffers URLs into
-`indexnow_queue` and a twenty-minute cron submits them in one request. Google
+`indexnow_queue` and a daily cron (00:05 UTC since AECI-1136; every 20 minutes before)
+submits them in one request, highest tier first. Google
 cannot be fed that way. Its Indexing API accepts `JobPosting` and `BroadcastEvent`
 only, which is why AECI-747 deleted the ping we used to make, and nothing has
 replaced it because nothing can. Search Console → URL Inspection → Request Indexing
@@ -1565,7 +1566,7 @@ job_runs
   INDEX (job, started_at)
 ```
 
-Each of the fifteen cron handlers in `scheduled.ts` writes one row (eight at the time this was written; AECI-581 added the 00:15 `snapshot` job, AECI-584 the 03:00 `retention` prune, AECI-302 the 10:00 attestation detector sweep, AECI-613 the 11:00 entitlement term-expiry sweep, AECI-826 the `*/20` IndexNow drain, AECI-862 the `25 */6` claim-staleness check, and AECI-624 the WEEKLY 02:00 Monday `asn-registry` refresh — cron `0 2 * * 2`, because Cloudflare's day-of-week is 1=Sunday, AECI-661 — which met this table at the AECI-750 reconcile). The data-quality run stores its full result set in `detail`, which is what §5.6 renders. Retention: 90 days (§7.4), enforced by the 03:00 prune since AECI-584.
+Each of the fifteen cron handlers in `scheduled.ts` writes one row (eight at the time this was written; AECI-581 added the 00:15 `snapshot` job, AECI-584 the 03:00 `retention` prune, AECI-302 the 10:00 attestation detector sweep, AECI-613 the 11:00 entitlement term-expiry sweep, AECI-826 the IndexNow drain (`*/20`, daily at `5 0` since AECI-1136), AECI-862 the `25 */6` claim-staleness check, and AECI-624 the WEEKLY 02:00 Monday `asn-registry` refresh — cron `0 2 * * 2`, because Cloudflare's day-of-week is 1=Sunday, AECI-661 — which met this table at the AECI-750 reconcile). The data-quality run stores its full result set in `detail`, which is what §5.6 renders. Retention: 90 days (§7.4), enforced by the 03:00 prune since AECI-584.
 
 **SHIPPED (AECI-583, 2026-08-13.)** `job` uses the fifteen `AdminCronJob` ids in `packages/shared/src/api/admin-panel.ts` (AECI-581 added the ninth, `metrics-snapshot`; AECI-584 the tenth, `retention-prune`; AECI-302 the eleventh, `attestation-notify`; AECI-613 the twelfth, `entitlement-expiry`; AECI-624 the thirteenth, `asn-registry`; AECI-826 the fourteenth, `indexnow-drain`; AECI-862 the fifteenth, `claim-stale-check` — no migration needed for any of them, `job` carries no CHECK for exactly this reason); the DDL above is the built shape and `DATABASE_SCHEMA.md` §9.4 is the implementation record. Four things settled during the build are worth carrying forward:
 

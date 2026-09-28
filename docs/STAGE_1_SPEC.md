@@ -1402,13 +1402,13 @@ On any write to products, vendors, or integrations, a Cloudflare Worker submits 
 
 This runs as part of the single write-event pipeline described in Section 20.5. **Since AECI-943 that pipeline has two writers and two queues**, and the four facts a reader needs before touching either are in "Two writers, two queues" below.
 
-> **Implemented (AECI-236), rebuilt as a buffer + drain (AECI-826), given a second appender (AECI-944).** The API Worker's `POST /api/promote` post-commit pipeline computes the affected public URLs (`apps/api/src/routes/promote-indexnow-urls.ts`) and **appends them to the `indexnow_queue` D1 table** right where the Cache-Tag purge fires — best-effort, failures logged, never blocking the write. A separate `*/20 * * * *` cron (`apps/api/src/lib/indexnow-drain.ts`) reads the buffer and submits it to IndexNow (`apps/api/src/lib/indexnow.ts`) in **one** request, then deletes what it sent. The SSR Worker serves the `{key}.txt` verification file at the site root (`apps/web/src/server/routes/indexnow-key.ts`). Gated on `INDEXNOW_KEY` + `PUBLIC_SITE_URL`, provisioned **only at public launch** (alongside `ALLOW_INDEXING="true"`) so a `noindex` site is never pinged — and the same gate governs the buffer, so a pre-launch tier never accumulates rows a later key would suddenly release.
+> **Implemented (AECI-236), rebuilt as a buffer + drain (AECI-826), given a second appender (AECI-944).** The API Worker's `POST /api/promote` post-commit pipeline computes the affected public URLs (`apps/api/src/routes/promote-indexnow-urls.ts`) and **appends them to the `indexnow_queue` D1 table** right where the Cache-Tag purge fires — best-effort, failures logged, never blocking the write. A separate cron (`apps/api/src/lib/indexnow-drain.ts`), **daily at `5 0 * * *` since AECI-1136** (every 20 minutes before), reads the buffer highest tier first and submits up to 10,000 URLs to IndexNow (`apps/api/src/lib/indexnow.ts`) in **one** request, then deletes exactly what it sent. The SSR Worker serves the `{key}.txt` verification file at the site root (`apps/web/src/server/routes/indexnow-key.ts`). Gated on `INDEXNOW_KEY` + `PUBLIC_SITE_URL`, provisioned **only at public launch** (alongside `ALLOW_INDEXING="true"`) so a `noindex` site is never pinged — and the same gate governs the buffer, so a pre-launch tier never accumulates rows a later key would suddenly release.
 
 > **Two writers, two queues (AECI-943: AECI-944 / AECI-945 / AECI-946, 2026-09-14).** Two things changed and they are independent. **(1) The vendor portal now announces its own writes.** `enqueueIndexNowUrls` had exactly one caller, the promote hook. It now has a second: every vendor-portal write that changes a public page, through a `recrawl` parameter on `afterVendorWrite` (`apps/api/src/routes/vendor-shared.ts`), with `source = 'vendor'` on the row. Eight endpoints reach it: `PATCH /api/vendor/profile`, `PATCH /api/vendor/products/:id`, the three `/api/vendor/products/:id/versions` writes, `POST /api/vendor/claims`, and the attestation `PUT` and `DELETE`. The version writes name **pair pages only** — a `product_versions` row renders on the pair page and nowhere else — and they resolve the counterpart slugs with a post-commit read (`apps/api/src/lib/product-pair-slugs.ts`), because a pair-page URL is built from two product slugs and the handler holds one. The hook sits on the shared tail rather than on each handler, so every future vendor write inherits it and a writer that changes no public page opts out by passing nothing. A product edit resolves the trade publication floor post-commit via `resolvePublishedTradeSlugs`, exactly as promote does, so a sub-floor `noindex` trade page is never announced. **(2) Google gets its own queue**, `gsc_recrawl_queue` (`DATABASE_SCHEMA.md` §9.8, migration `0036_youthful_vengeance.sql`), fed by the same two writers. It is a **worklist a human drains**, not a buffer a cron submits, because Search Console's Request Indexing is a browser action and there is no API that accepts our content types. The reasoning, and the two automated alternatives that were declined, are **ADR 0031**.
 >
 > Four facts about the pair, each of which is a live trap if you assume otherwise:
 >
-> - **The two lists are NOT the same set.** IndexNow is free and unranked, so it takes everything the write touched, hub pages included. The Google deriver emits **entity detail pages only**. That is a product, a vendor, a pair, and a trade page at the moment it becomes indexable. A hub is re-crawled constantly anyway, so a Request Indexing slot spent on `/products` is a slot not spent on a page Google has never seen.
+> - **The two lists are NOT the same set.** IndexNow is free, so it takes everything the write touched, hub pages included. The Google deriver emits **entity detail pages only**. That is a product, a vendor, a pair, and a trade page at the moment it becomes indexable. A hub is re-crawled constantly anyway, so a Request Indexing slot spent on `/products` is a slot not spent on a page Google has never seen.
 > - **The Google queue ranks; it never filters.** `apps/api/src/lib/gsc-recrawl-priority.ts` is an exhaustive `reason` → tier map, not a formula. The ranking is a diagonal over page type (product, vendor, pair) and change class (new page, material edit, minor edit). Nothing is dropped, because a filter is silently lossy and an operator cannot audit what they never saw. Tier 4 simply waits and may never be reached.
 >
 >   | Tier | What it is | `reason` |
@@ -1448,7 +1448,8 @@ This runs as part of the single write-event pipeline described in Section 20.5. 
 > largest carried 107). **Request frequency was**: one promote fired one request, and a bulk curation session
 > — which is how the operator actually works, vendor by vendor — burst eleven inside seven minutes on
 > 2026-09-07. The buffer collapses any number of promotes into one submission per twenty minutes, a ceiling of
-> **72 ticks** a day, and far fewer in practice because an empty buffer makes no request at all. It also
+> **72 ticks** a day, and far fewer in practice because an empty buffer makes no request at all. *(One a
+> day since AECI-1136; see the last note in this section.)* It also
 > dedupes: `url` is UNIQUE, so a product promoted twice inside one window is submitted once, which the
 > per-promote design could not do at all.
 >
@@ -1468,6 +1469,23 @@ This runs as part of the single write-event pipeline described in Section 20.5. 
 >   looks identical from our side to a rate limit. Rotation is the only route to a known value
 >   (`docs/launch-cutover-runbook.md` §2a), and until a submission returns 2xx, "Bing discovery is handled" is
 >   still unsupported.
+>
+> **Once a day, highest tier first (AECI-1136, 2026-09-28).** Prod PostHog for 2026-09-22 to 2026-09-28 showed
+> every refusal was a single-attempt HTTP 429, about 60 to 70 a day, and the only accepted submissions were the
+> first tick after 00:00 UTC. A 1,287-URL request was accepted, so Bing throttles request frequency, not size.
+> Ruling 2026-09-28 (Chris): daily send, tiered by the GSC reason-to-tier map, highest tier first with tier 4
+> last, no artificial cap below IndexNow's 10,000-URL limit. So:
+>
+> - The drain runs at **`5 0 * * *`** and sends up to **10,000 URLs in one request**, read from D1 in keyset
+>   pages of 2,000 (D1's ~1 MB response cap).
+> - `indexnow_queue.priority` holds the tier (`DATABASE_SCHEMA.md` §9.6). The tier comes from the Google table
+>   above: `indexNowEntriesByTier` gives each IndexNow URL the tier of the Google entry for the same URL, and 4
+>   when there is none (hub and facet pages). A second event on a queued URL may raise its tier, never lower it,
+>   and never refreshes `queued_at`.
+> - Read order is `priority ASC, queued_at ASC, id ASC`. The drain deletes exactly the ids it read, 100 per
+>   statement, in the same `db.batch` as the summary audit row.
+> - The cost is latency: up to a day instead of up to 20 minutes. The seven-day expiry is unchanged and now
+>   means seven daily attempts. ADR 0025's 2026-09-28 amendment is the record.
 >
 > **The evidence that it is fixed is `aeci.indexnow.submit{source:cron,outcome:ok}` going non-zero in
 > production**, not this paragraph. Three secondary guards ship with it: a bounded retry with backoff in the
@@ -1524,7 +1542,7 @@ A single write to products, vendors, or integrations triggers all downstream con
 1. Database update
 2. Algolia incremental sync (real-time in Stage 2; daily batch in Stage 1)
 3. Cloudflare cache invalidation via `POST /admin/purge` with the relevant `Cache-Tag` list (see `docs/CACHE_STRATEGY.md` §5)
-4. Search-engine re-crawl buffering for affected URLs. **Two arms since AECI-945**: `indexnow_queue` for Bing and Yandex, drained by the `*/20` cron, and `gsc_recrawl_queue` for Google, drained by a person on `/admin/reindex`. The arms take **different URL sets**, because IndexNow is free and unranked while Request Indexing is quota-capped (§20.2)
+4. Search-engine re-crawl buffering for affected URLs. **Two arms since AECI-945**: `indexnow_queue` for Bing and Yandex, drained by the daily `5 0 * * *` cron (AECI-1136; `*/20` before), and `gsc_recrawl_queue` for Google, drained by a person on `/admin/reindex`. The arms take **different URL sets**, because IndexNow is free while Request Indexing is quota-capped (§20.2). Both are tiered by the same map since AECI-1136
 5. `updated_at` bumped → reflected in next sitemap fetch
 
 Built as one function call so adding new consumers later (Slack notifications, vendor email alerts in Stage 2) is trivial.
@@ -1948,7 +1966,7 @@ These are observable through `job_runs` and the emitted metrics instead, not thr
 
 **Exception — scheduled deletion is never exempt.** Any *scheduled* `DELETE` emits exactly one **summary** `audit_log` row per run, in the same batch as the delete: `actor_type='system'`, `action='retention.pruned'`, `metadata={table, cutoff, rowsDeleted}`. One row per run, not per row deleted. Deletion is the one write whose fact cannot be recovered from the data afterwards. (Precedent: the single `catalog.integrations_reset` row standing for the 2026-07-25 bulk removal.)
 
-> **Two writers satisfy this rule, not one.** The 03:00 retention prune is the original. The `*/20` IndexNow drain (§20.2 / AECI-826) is the second: it deletes the `indexnow_queue` rows it has just submitted, and the rows it drops for exceeding the staleness window, each with one summary row carrying `action='indexnow.drained'` and a `metadata.reason` of `submitted` or `expired`. Its delete is queue consumption rather than data retention, and the rule is written without that distinction — following it costs one statement and is wanted anyway, because a bug there silently drops URLs out of the only automated discovery channel we have. **"No change, no row" applies to both**, so an empty drain writes nothing at all.
+> **Two writers satisfy this rule, not one.** The 03:00 retention prune is the original. The daily IndexNow drain (§20.2 / AECI-826; `*/20` until AECI-1136) is the second: it deletes the `indexnow_queue` rows it has just submitted, and the rows it drops for exceeding the staleness window, each with one summary row carrying `action='indexnow.drained'` and a `metadata.reason` of `submitted` or `expired`. Its delete is queue consumption rather than data retention, and the rule is written without that distinction — following it costs one statement and is wanted anyway, because a bug there silently drops URLs out of the only automated discovery channel we have. **"No change, no row" applies to both**, so an empty drain writes nothing at all.
 
 > **A third queue delete exists and this exception does NOT cover it (AECI-946).** `DELETE /api/admin/reindex/:id` removes one `gsc_recrawl_queue` row when the operator clicks Done. It looks like the drain's delete and is governed by the opposite rule, because **it is not scheduled**. The exception above exists to stop a cron erasing its own tracks with one cheap summary row. An operator action on an admin screen has an actor, a request and a single subject, so the ordinary per-write invariant applies unchanged: one `audit_log` row per cleared row, in the same `db.batch`, `actor_type` the admin rather than `'system'`. Reading the exception as "queue deletes get summary rows" is the mistake to avoid. The discriminator is *scheduled*, not *queue*.
 

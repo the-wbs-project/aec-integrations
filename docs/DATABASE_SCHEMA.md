@@ -2222,7 +2222,7 @@ for a stock: an uncaptured day would report zero subscribers rather than unknown
 
 ### 9.4 `job_runs`
 
-One row per execution of one of the fifteen `scheduled.ts` cron jobs (AECI-583; `ADMIN_PANEL_SPEC.md` §7.2 — the twelfth is the 11:00 entitlement term-expiry sweep, AECI-613, the thirteenth is the WEEKLY 02:00 Monday `asn-registry` refresh, AECI-624, which met this table at the AECI-750 reconcile, the fourteenth is the `*/20` IndexNow drain, AECI-826, and the fifteenth is the `25 */6` claim-staleness check, AECI-862). Before it existed a cron's outcome lived **only** as an emitted metric, so nothing in D1 could answer "did the 08:00 Algolia sync run today", and the data-quality findings lived **only** in the 04:00 email — computed, sent, discarded.
+One row per execution of one of the fifteen `scheduled.ts` cron jobs (AECI-583; `ADMIN_PANEL_SPEC.md` §7.2 — the twelfth is the 11:00 entitlement term-expiry sweep, AECI-613, the thirteenth is the WEEKLY 02:00 Monday `asn-registry` refresh, AECI-624, which met this table at the AECI-750 reconcile, the fourteenth is the IndexNow drain, AECI-826, daily at `5 0` since AECI-1136 (`*/20` before), and the fifteenth is the `25 */6` claim-staleness check, AECI-862). Before it existed a cron's outcome lived **only** as an emitted metric, so nothing in D1 could answer "did the 08:00 Algolia sync run today", and the data-quality findings lived **only** in the 04:00 email — computed, sent, discarded.
 
 ```sql
 create table job_runs (
@@ -2290,21 +2290,35 @@ create index asn_registry_fetched_at_idx on asn_registry(fetched_at);
 ### 9.6 `indexnow_queue`
 
 The IndexNow submission buffer (AECI-826; `STAGE_1_SPEC.md` §20.2). Added by migration
-`apps/api/migrations/0029_many_red_shift.sql`. A promote appends the public URLs it
-affected; the `*/20 * * * *` drain cron reads them, submits them to IndexNow in **one**
-request, and deletes what it sent.
+`apps/api/migrations/0029_many_red_shift.sql`; `priority` added by
+`0051_cold_roland_deschain.sql` (AECI-1136). A promote or vendor write appends the public URLs
+it affected, each with a tier; the drain cron, **daily at `5 0 * * *`** since AECI-1136 (every
+20 minutes before), reads them highest tier first, submits up to 10,000 to IndexNow in **one**
+request, and deletes exactly what it sent.
 
 ```sql
 create table indexnow_queue (
-  id integer primary key autoincrement,  -- the drain's delete cursor; see below
-  url text not null,                     -- ABSOLUTE public URL, e.g. https://www.aecintegrations.com/products/revit
-  queued_at text not null,               -- drives the 7-day staleness sweep
-  source text not null default 'promote' -- what appended it; 'promote' or, since AECI-944, 'vendor'
+  id integer primary key autoincrement,   -- the drain's delete handle and final sort key
+  url text not null,                      -- ABSOLUTE public URL, e.g. https://www.aecintegrations.com/products/revit
+  queued_at text not null,                -- drives the 7-day staleness sweep; kept on conflict
+  source text not null default 'promote', -- what appended it; 'promote' or, since AECI-944, 'vendor'
+  priority integer not null default 4     -- tier 1 (most important) .. 4; AECI-1136, no CHECK
 );
 
 create unique index indexnow_queue_url_idx on indexnow_queue(url);
 create index indexnow_queue_queued_at_idx on indexnow_queue(queued_at);
+create index indexnow_queue_priority_queued_at_idx on indexnow_queue(priority, queued_at);
 ```
+
+**`priority` is the Google tier, borrowed (AECI-1136).** The tiers mean what they mean in
+§9.8: 1 is a new product page, 4 is a pair-page edit or a minor edit. `indexNowEntriesByTier`
+(`apps/api/src/lib/indexnow-queue.ts`) gives each IndexNow URL the tier of the Google entry for
+the same URL in the same write, and 4 when there is none, which is every hub and facet page.
+The `GSC_RECRAWL_PRIORITY` map is the only place a tier is decided. The tables stay separate
+(ADR 0031 §1). On conflict the tier may only improve, `min(existing, incoming)`, and the update
+runs only when it does; `queued_at` and `source` keep their first values. The default is 4 so
+rows buffered before the column existed sort last. There is no CHECK, because adding or
+changing one is a D1 table recreate (ADR 0018). The migration is a plain `ADD COLUMN`.
 
 **Why it exists.** Before AECI-826 the promote hook called `api.indexnow.org` directly, once
 per promote, so a bulk curation session produced a burst of requests — eleven inside seven
@@ -2312,17 +2326,19 @@ minutes on 2026-09-07. **Every production submission across 2026-09-07 to 09 ret
 429**, 23 of 23. Payload size was never the constraint (IndexNow accepts 10,000 URLs per
 request; our largest carried 107); request frequency was.
 
-**`id` exists even though `url` is already unique.** The drain deletes with
-`where id <= :maxId` — one bound parameter. Deleting by the submitted URL list instead would
-need one per URL, and **D1 caps a query at 100 bound parameters**, far below the 10,000 URLs
-IndexNow accepts, forcing chunking for no benefit. `id` is monotonic, so a promote that
-buffers between the drain's `SELECT` and its `DELETE` lands above the cursor and survives to
-the next tick.
+**The drain deletes by exact id list (since AECI-1136).** It used to delete with
+`where id <= :maxId`, which was correct only while it read in `id` order. It now reads in
+tier order, so the sent rows are not a contiguous range. It deletes the ids it read, chunked
+at `INDEXNOW_DELETE_IDS_PER_STATEMENT` (100) because **D1 caps a query at 100 bound
+parameters**. A full 10,000-URL day is 100 delete statements plus the audit row in one
+`db.batch`. A tier watermark was rejected: a tier-1 URL buffered while the request is in flight
+sorts before the watermark and would be deleted unsent. Under the id list it was never read, so
+it survives to the next run.
 
-**The write side is chunked at 33 rows per statement.** The same 100-parameter cap applies
-to the append, and each row binds three values (`url`, `queued_at`, `source`), so
-`enqueueIndexNowUrls` emits one `INSERT` per `INDEXNOW_INSERT_ROWS_PER_STATEMENT` (33) URLs
-and sums the `RETURNING` counts. The set is genuinely unbounded — `affectedUrlsForPromote`
+**The write side is chunked at 25 rows per statement.** The same 100-parameter cap applies
+to the append, and each row binds four values (`url`, `queued_at`, `source`, `priority`), so
+`enqueueIndexNowUrls` emits one `INSERT` per `INDEXNOW_INSERT_ROWS_PER_STATEMENT` (25) URLs
+and counts the inserted rows from `RETURNING`. It was 33 while a row bound three values. The set is genuinely unbounded — `affectedUrlsForPromote`
 emits one URL per integration in the promote payload, and the largest production submission
 carried 107 — and an over-cap statement would be rejected by D1 and then swallowed by the
 hook's fail-open catch, buffering nothing at all. The chunks run in sequence rather than in
@@ -2332,21 +2348,21 @@ Same trap `asn-registry.ts` documents — better-sqlite3 binds 32,766 parameters
 only be caught by asserting the emitted parameter count, which
 `apps/api/src/lib/indexnow-drain.spec.ts` does.
 
-**Dedupe is the free win.** Every insert is `on conflict do nothing` against the unique
-`url`, so a product promoted three times inside one drain window occupies one row and is
-submitted once. The per-promote design could not dedupe at all.
+**Dedupe is the free win.** The unique `url` makes a product promoted three times before
+the daily drain one row, submitted once. The conflict clause has been `do update` since
+AECI-1136 only so the tier can rise. The per-promote design could not dedupe at all.
 
-**One drain reads at most 2,000 rows**, a cap set by D1's ~1 MB response limit rather
-than by IndexNow's 10,000-URL request limit. The only scenario deep enough to hit it is
-a prolonged outage during heavy curation — which is precisely when a failed read would
-be worst — and a capped run leaves the remainder for the next tick.
+**One drain reads at most 10,000 rows, in pages of 2,000.** 10,000 is IndexNow's per-request
+limit. 2,000 is set by D1's ~1 MB response limit. Pages are keyset-chained on
+`(priority, queued_at, id)`, so a row buffered mid-read can never appear twice. A day deeper
+than 10,000 leaves its lowest tiers for the next run.
 
 **Bounded by a staleness sweep, not by retention.** Rows older than
 `INDEXNOW_QUEUE_MAX_AGE_DAYS` (7) are dropped by the drain before it reads. That is a
 containment rule rather than a freshness judgement: if IndexNow stays hostile the table
 would otherwise grow without limit, and by then the sitemap's `<lastmod>` has covered the URL
 for six days. Dropped rows are counted and emitted as `aeci.indexnow.expired` — non-zero is
-always a finding. The §7.4 prune deliberately does not touch this table; the drain owns its
+always a finding. With a daily drain, seven days is seven attempts. The §7.4 prune deliberately does not touch this table; the drain owns its
 own bound.
 
 **`audit_log`: the INSERTs are exempt, the DELETEs are not.** Appending is derived, log-class
@@ -2362,7 +2378,7 @@ public page, with `source = 'vendor'`. Eight endpoints reach it: the profile PAT
 PATCH, the three product-version writes, the claim POST, and the attestation PUT and DELETE.
 Nothing else about this table
 changed, because the `url` unique index already dedupes across writers as well as within one.
-A page a vendor edits between two drain ticks is still submitted once.
+A page a vendor edits between two drain runs is still submitted once.
 
 **Written by** `bufferIndexNowAfterPromote` (`apps/api/src/routes/promote.ts`, post-commit),
 `bufferVendorRecrawl` (`apps/api/src/routes/vendor-shared.ts`, post-commit) and the drain
@@ -3054,12 +3070,14 @@ create index gsc_recrawl_queue_priority_queued_at_idx on gsc_recrawl_queue(prior
 ```
 
 **Why it is a separate table rather than a column on `indexnow_queue`.** Two structural
-reasons, and neither is tidiness. First, that table's drain **deletes** with
-`where id <= :maxId`, one bound parameter, chosen because D1 caps a query at 100 of them.
-Retaining rows for a second, slower consumer would break that cursor. Second, the two consumers
-want opposite things. IndexNow is free, batched and unranked, so it takes everything
-indiscriminately. Request Indexing is quota-capped, so this list has to be **ordered**, and a
-row may sit here for weeks without being reached. Those are different lifecycles on one row.
+reasons, and neither is tidiness. First, that table's drain **deletes** what it sends
+(by an `id <= :maxId` range when this was written, by exact id list since AECI-1136).
+Retaining rows for a second, slower consumer would force it to learn a status column. Second,
+the two consumers want opposite things. IndexNow is free and batched, so it takes everything
+indiscriminately and empties daily. Request Indexing is quota-capped, so this list has to be
+**ordered**, and a row may sit here for weeks without being reached. Those are different
+lifecycles on one row. Since AECI-1136 `indexnow_queue` borrows this table's tier map for its
+own daily order (§9.6), but the tables stay separate.
 
 **A person drains this one, and there is no cron.** Google's Indexing API accepts `JobPosting`
 and `BroadcastEvent` only, which is why AECI-747 deleted the ping we used to make. Nothing

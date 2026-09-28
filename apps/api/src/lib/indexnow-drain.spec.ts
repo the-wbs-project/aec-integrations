@@ -15,6 +15,9 @@
  *   - **Dedupe is real.** The same URL buffered twice is submitted once.
  *   - **A row queued past the max age is dropped rather than submitted**, so a
  *     week-long outage cannot grow the table without bound.
+ *   - **Tiers (AECI-1136).** A queued URL's tier only improves, the daily send
+ *     goes tier 1 first and tier 4 last, a deep buffer is paged up to 10,000 URLs
+ *     in one request, and the delete takes exactly the rows that were sent.
  *
  * Row counts are read back with `select`, never from a batch return value: the
  * harness's `db.batch` shim and D1 alike are unreliable about `meta.changes`.
@@ -27,19 +30,26 @@ import { auditLog, indexnowQueue, slugRedirects } from '../db/schema';
 import type { Env } from '../env';
 import { makeTestDb, type TestDb } from '../test/d1';
 
+import { INDEXNOW_MAX_URLS } from './indexnow';
 import {
   drainIndexNowQueue,
   drainMetricOutcome,
   INDEXNOW_DRAINED_ACTION,
   INDEXNOW_EXPIRED_METRIC,
   INDEXNOW_SUBMIT_METRIC,
+  INDEXNOW_SUBMITTED_URLS_METRIC,
   type IndexNowDrainLogSink,
 } from './indexnow-drain';
 import {
+  deleteDrainedIndexNowUrls,
   enqueueIndexNowUrls,
+  INDEXNOW_DELETE_IDS_PER_STATEMENT,
+  INDEXNOW_DRAIN_BATCH_SIZE,
   INDEXNOW_INSERT_ROWS_PER_STATEMENT,
   INDEXNOW_QUEUE_MAX_AGE_DAYS,
+  indexNowEntriesByTier,
   indexNowInsertStatements,
+  readPendingIndexNowUrls,
 } from './indexnow-queue';
 
 const NOW = new Date('2026-09-09T12:00:00.000Z');
@@ -117,8 +127,8 @@ describe('enqueueIndexNowUrls', () => {
   // ── D1's 100-bound-parameter cap ──────────────────────────────────────────
   //
   // The set is unbounded — one URL per integration in the promote payload — and
-  // the largest submission production has made carried 107. Three bound values
-  // per row means an unchunked INSERT of 34 URLs is already over the limit, and
+  // the largest submission production has made carried 107. Four bound values
+  // per row means an unchunked INSERT of 26 URLs is already over the limit, and
   // the promote's fail-open catch would swallow the rejection and buffer NOTHING.
 
   it('keeps every statement under D1s 100-bound-parameter cap', async () => {
@@ -131,6 +141,22 @@ describe('enqueueIndexNowUrls', () => {
     expect(stmts).toHaveLength(Math.ceil(107 / INDEXNOW_INSERT_ROWS_PER_STATEMENT));
     for (const stmt of stmts) {
       expect(stmt.toSQL().params.length).toBeLessThanOrEqual(100);
+    }
+  });
+
+  it('stays under the cap with the priority column bound (AECI-1136)', async () => {
+    // Four bound values per row since `priority` landed. A full chunk must be
+    // exactly at or under 100; 33 rows (the old size) would bind 132.
+    const entries = Array.from({ length: INDEXNOW_INSERT_ROWS_PER_STATEMENT * 2 }, (_, i) => ({
+      url: url(`p-${i}`),
+      priority: (i % 4) + 1,
+    }));
+    const stmts = indexNowInsertStatements(t.db, entries, NOW.toISOString(), 'promote');
+    expect(stmts).toHaveLength(2);
+    for (const stmt of stmts) {
+      const n = stmt.toSQL().params.length;
+      expect(n).toBeLessThanOrEqual(100);
+      expect(n).toBe(INDEXNOW_INSERT_ROWS_PER_STATEMENT * 4);
     }
   });
 
@@ -301,8 +327,8 @@ describe('drainIndexNowQueue', () => {
       now: () => NOW,
       // Instant backoff. Unreachable on this path since AECI-833 gated the bare
       // 429, but kept so the test still passes if the gate is ever loosened —
-      // the real schedule is 1 s + 4 s, fine in a twenty-minute cron and fatal to
-      // a 5 s test timeout.
+      // the real schedule is 1 s + 4 s, fine in a daily cron and fatal to a 5 s
+      // test timeout.
       sleep: async () => {},
     });
 
@@ -322,8 +348,9 @@ describe('drainIndexNowQueue', () => {
   });
 
   it('spends exactly ONE request on a throttled tick (AECI-833)', async () => {
-    // The drain-level statement of the ceiling. `*/20` gives 72 ticks a day, and
-    // this is what makes that 72 REQUESTS a day rather than 216: production
+    // The drain-level statement of the ceiling. The drain runs once a day
+    // (AECI-1136), and this is what makes that one REQUEST a day rather than three:
+    // production
     // measured `attempts: 3` on its first real tick under a sustained throttle,
     // spending three guaranteed-failing requests against the limiter it was
     // waiting on. A bare 429 is not retried (`lib/indexnow.ts` isRetryableStatus).
@@ -440,11 +467,11 @@ describe('drainIndexNowQueue', () => {
     ]);
   });
 
-  it('leaves a URL buffered mid-drain for the next tick', async () => {
+  it('leaves a URL buffered mid-drain for the next run', async () => {
     await enqueueIndexNowUrls(t.db, [url('first')]);
 
-    // A promote that commits while the request is in flight. Its row gets a
-    // higher `id` than the drain's cursor, so `id <= maxId` must not take it.
+    // A promote that commits while the request is in flight. Its id was never
+    // read, so the id-list delete must not take it.
     const fetchImpl = vi.fn(async () => {
       await enqueueIndexNowUrls(t.db, [url('mid-flight')]);
       return new Response('', { status: 200 });
@@ -461,5 +488,294 @@ describe('drainIndexNowQueue', () => {
 
     expect(result).toMatchObject({ submitted: 1, deleted: 1, pending: 1 });
     expect(await queued()).toEqual([url('mid-flight')]);
+  });
+});
+
+// ─── AECI-1136: tiers, ordering, paging, exact deletion ──────────────────────
+
+async function rowsByUrl(): Promise<Map<string, { priority: number; queuedAt: string }>> {
+  const rows = await t.db
+    .select({
+      url: indexnowQueue.url,
+      priority: indexnowQueue.priority,
+      queuedAt: indexnowQueue.queuedAt,
+    })
+    .from(indexnowQueue);
+  return new Map(rows.map((r) => [r.url, { priority: r.priority, queuedAt: r.queuedAt }]));
+}
+
+const at = (iso: string) => () => new Date(iso);
+
+describe('indexNowEntriesByTier', () => {
+  it("takes each URL's tier from the GSC entry for the same URL, and 4 for the rest", () => {
+    const entries = indexNowEntriesByTier(
+      [url('new-one'), url('edited'), 'https://www.aecintegrations.com/products', url('pair-edit')],
+      [
+        { url: url('new-one'), reason: 'product.created' },
+        { url: url('edited'), reason: 'product.updated' },
+        { url: url('pair-edit'), reason: 'pair.updated' },
+        // A GSC entry the IndexNow set does not contain adds nothing.
+        { url: url('not-in-indexnow'), reason: 'product.created' },
+      ],
+    );
+    expect(entries).toEqual([
+      { url: url('new-one'), priority: 1 },
+      { url: url('edited'), priority: 2 },
+      // A hub page: no GSC reason, so the lowest tier.
+      { url: 'https://www.aecintegrations.com/products', priority: 4 },
+      { url: url('pair-edit'), priority: 4 },
+    ]);
+  });
+
+  it('keeps the best tier when one URL has two reasons', () => {
+    expect(
+      indexNowEntriesByTier(
+        [url('x')],
+        [
+          { url: url('x'), reason: 'product.minor' },
+          { url: url('x'), reason: 'product.created' },
+        ],
+      ),
+    ).toEqual([{ url: url('x'), priority: 1 }]);
+  });
+});
+
+describe('enqueueIndexNowUrls — tier only improves (AECI-1136)', () => {
+  it('raises a queued URL to a better tier and keeps its original queued_at', async () => {
+    expect(
+      await enqueueIndexNowUrls(
+        t.db,
+        [{ url: url('a'), priority: 4 }],
+        'promote',
+        at('2026-09-01T00:00:00.000Z'),
+      ),
+    ).toBe(1);
+    // A better tier later: the row rises, but it is an UPDATE, not a new row.
+    expect(
+      await enqueueIndexNowUrls(
+        t.db,
+        [{ url: url('a'), priority: 1 }],
+        'vendor',
+        at('2026-09-02T00:00:00.000Z'),
+      ),
+    ).toBe(0);
+    expect((await rowsByUrl()).get(url('a'))).toEqual({
+      priority: 1,
+      queuedAt: '2026-09-01T00:00:00.000Z',
+    });
+  });
+
+  it('never lowers a tier', async () => {
+    await enqueueIndexNowUrls(
+      t.db,
+      [{ url: url('a'), priority: 2 }],
+      'promote',
+      at('2026-09-01T00:00:00.000Z'),
+    );
+    await enqueueIndexNowUrls(
+      t.db,
+      [{ url: url('a'), priority: 4 }],
+      'promote',
+      at('2026-09-02T00:00:00.000Z'),
+    );
+    await enqueueIndexNowUrls(t.db, [url('a')], 'promote', at('2026-09-03T00:00:00.000Z'));
+    expect((await rowsByUrl()).get(url('a'))).toEqual({
+      priority: 2,
+      queuedAt: '2026-09-01T00:00:00.000Z',
+    });
+  });
+
+  it('buffers a bare string at tier 4 and collapses in-call duplicates to the best tier', async () => {
+    await enqueueIndexNowUrls(t.db, [
+      url('hub'),
+      { url: url('b'), priority: 3 },
+      { url: url('b'), priority: 1 },
+    ]);
+    const rows = await rowsByUrl();
+    expect(rows.get(url('hub'))?.priority).toBe(4);
+    expect(rows.get(url('b'))?.priority).toBe(1);
+  });
+});
+
+describe('drainIndexNowQueue — daily, tiered (AECI-1136)', () => {
+  function sentUrls(fetchImpl: typeof fetch): string[] {
+    return JSON.parse((fetchImpl as ReturnType<typeof vi.fn>).mock.calls[0]![1].body).urlList;
+  }
+
+  it('sends highest tier first, oldest first within a tier, and tier 4 last', async () => {
+    // Inserted in the WRONG order on purpose: the oldest row is tier 4.
+    await enqueueIndexNowUrls(
+      t.db,
+      [{ url: url('t4-old'), priority: 4 }],
+      'promote',
+      at('2026-09-09T01:00:00.000Z'),
+    );
+    await enqueueIndexNowUrls(
+      t.db,
+      [{ url: url('t2'), priority: 2 }],
+      'promote',
+      at('2026-09-09T02:00:00.000Z'),
+    );
+    await enqueueIndexNowUrls(
+      t.db,
+      [{ url: url('t1-new'), priority: 1 }],
+      'promote',
+      at('2026-09-09T04:00:00.000Z'),
+    );
+    await enqueueIndexNowUrls(
+      t.db,
+      [{ url: url('t1-old'), priority: 1 }],
+      'promote',
+      at('2026-09-09T03:00:00.000Z'),
+    );
+    await enqueueIndexNowUrls(
+      t.db,
+      [{ url: url('t3'), priority: 3 }],
+      'promote',
+      at('2026-09-09T05:00:00.000Z'),
+    );
+
+    const fetchImpl = respond(200);
+    const s = sinks();
+    const result = await drainIndexNowQueue({
+      db: t.db,
+      env: ENV,
+      ...s.deps,
+      fetchImpl,
+      now: () => NOW,
+    });
+
+    expect(sentUrls(fetchImpl)).toEqual([
+      url('t1-old'),
+      url('t1-new'),
+      url('t2'),
+      url('t3'),
+      url('t4-old'),
+    ]);
+    expect(result.byTier).toEqual({ 1: 2, 2: 1, 3: 1, 4: 1 });
+    expect(s.metrics.filter((m) => m.metric === INDEXNOW_SUBMITTED_URLS_METRIC)).toEqual([
+      { metric: INDEXNOW_SUBMITTED_URLS_METRIC, value: 2, tags: ['source:cron', 'tier:1'] },
+      { metric: INDEXNOW_SUBMITTED_URLS_METRIC, value: 1, tags: ['source:cron', 'tier:2'] },
+      { metric: INDEXNOW_SUBMITTED_URLS_METRIC, value: 1, tags: ['source:cron', 'tier:3'] },
+      { metric: INDEXNOW_SUBMITTED_URLS_METRIC, value: 1, tags: ['source:cron', 'tier:4'] },
+    ]);
+  });
+
+  it('pages the read and sends up to 10,000 URLs in ONE request, leaving the lowest tier behind', async () => {
+    // 10,050 rows: 10,000 at tier 2 and 50 at tier 4, the tier-4 rows OLDEST.
+    // The day's cap has to cut the tier-4 rows, not the newest tier-2 ones.
+    const low = Array.from({ length: 50 }, (_, i) => ({ url: url(`low-${i}`), priority: 4 }));
+    const high = Array.from({ length: INDEXNOW_MAX_URLS }, (_, i) => ({
+      url: url(`high-${i}`),
+      priority: 2,
+    }));
+    await enqueueIndexNowUrls(t.db, low, 'promote', at('2026-09-09T00:00:00.000Z'));
+    await enqueueIndexNowUrls(t.db, high, 'promote', at('2026-09-09T01:00:00.000Z'));
+
+    const fetchImpl = respond(200);
+    const s = sinks();
+    const result = await drainIndexNowQueue({
+      db: t.db,
+      env: ENV,
+      ...s.deps,
+      fetchImpl,
+      now: () => NOW,
+    });
+
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+    const sent = sentUrls(fetchImpl);
+    expect(sent).toHaveLength(INDEXNOW_MAX_URLS);
+    expect(new Set(sent).size).toBe(INDEXNOW_MAX_URLS);
+    expect(sent.some((u) => u.includes('/low-'))).toBe(false);
+    expect(result).toMatchObject({
+      ok: true,
+      submitted: INDEXNOW_MAX_URLS,
+      deleted: INDEXNOW_MAX_URLS,
+      pending: 50,
+    });
+    expect((await queued()).every((u) => u.includes('/low-'))).toBe(true);
+    // One audit row for the whole day, however many delete statements it took.
+    const audits = await drainAudits();
+    expect(audits).toHaveLength(1);
+    expect(audits[0]!.metadata).toMatchObject({
+      rowsDeleted: INDEXNOW_MAX_URLS,
+      byTier: { 2: INDEXNOW_MAX_URLS },
+    });
+  });
+
+  it('keyset pages never overlap and never skip', async () => {
+    const entries = Array.from({ length: 7 }, (_, i) => ({
+      url: url(`k-${i}`),
+      priority: (i % 3) + 1,
+    }));
+    await enqueueIndexNowUrls(t.db, entries, 'promote', at('2026-09-09T00:00:00.000Z'));
+    const p1 = await readPendingIndexNowUrls(t.db, 3);
+    const p2 = await readPendingIndexNowUrls(t.db, 3, p1[p1.length - 1]);
+    const p3 = await readPendingIndexNowUrls(t.db, 3, p2[p2.length - 1]);
+    const all = [...p1, ...p2, ...p3];
+    expect(all).toHaveLength(7);
+    expect(new Set(all.map((r) => r.id)).size).toBe(7);
+    expect(all.map((r) => r.priority)).toEqual([1, 1, 1, 2, 2, 3, 3]);
+    expect(INDEXNOW_DRAIN_BATCH_SIZE).toBeLessThanOrEqual(2_000);
+  });
+
+  it('deletes exactly the sent rows, even when a better-tier row lands mid-request', async () => {
+    // The hazard that rules out a tier watermark: a tier-1 URL buffered while
+    // the request is in flight sorts BEFORE every sent tier-3 row. A "delete
+    // everything up to the last sent row" would drop it unsent.
+    await enqueueIndexNowUrls(t.db, [
+      { url: url('sent-a'), priority: 3 },
+      { url: url('sent-b'), priority: 3 },
+    ]);
+    const fetchImpl = vi.fn(async () => {
+      await enqueueIndexNowUrls(t.db, [{ url: url('late-tier-1'), priority: 1 }]);
+      return new Response('', { status: 200 });
+    }) as unknown as typeof fetch;
+
+    const s = sinks();
+    const result = await drainIndexNowQueue({
+      db: t.db,
+      env: ENV,
+      ...s.deps,
+      fetchImpl,
+      now: () => NOW,
+    });
+
+    expect(result).toMatchObject({ submitted: 2, deleted: 2, pending: 1 });
+    expect(await queued()).toEqual([url('late-tier-1')]);
+  });
+
+  it('chunks the delete under the 100-bound-parameter cap', () => {
+    const ids = Array.from({ length: 250 }, (_, i) => i + 1);
+    const stmts = deleteDrainedIndexNowUrls(t.db, ids);
+    expect(stmts).toHaveLength(Math.ceil(250 / INDEXNOW_DELETE_IDS_PER_STATEMENT));
+    for (const stmt of stmts) {
+      expect(
+        (stmt as unknown as { toSQL(): { params: unknown[] } }).toSQL().params.length,
+      ).toBeLessThanOrEqual(100);
+    }
+  });
+
+  it('on a 429 keeps every tiered row, writes no audit row and emits no per-tier count', async () => {
+    await enqueueIndexNowUrls(t.db, [
+      { url: url('a'), priority: 1 },
+      { url: url('b'), priority: 4 },
+    ]);
+    const fetchImpl = respond(429, '{"errorCode":"TooManyRequests"}');
+    const s = sinks();
+    const result = await drainIndexNowQueue({
+      db: t.db,
+      env: ENV,
+      ...s.deps,
+      fetchImpl,
+      now: () => NOW,
+    });
+
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+    expect(result).toMatchObject({ ok: false, status: 429, attempts: 1, deleted: 0, pending: 2 });
+    expect(drainMetricOutcome(result)).toBe('refused');
+    expect((await rowsByUrl()).get(url('a'))?.priority).toBe(1);
+    expect(await drainAudits()).toHaveLength(0);
+    expect(s.metrics.filter((m) => m.metric === INDEXNOW_SUBMITTED_URLS_METRIC)).toEqual([]);
   });
 });

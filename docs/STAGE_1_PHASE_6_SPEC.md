@@ -153,8 +153,8 @@ Four decisions are load-bearing:
    same batch (§26.1) and a decision about which side wins. That is its own issue.
 
 Minute 25 is not cosmetic: `scheduled.ts` switches on the raw `controller.cron` string, so two jobs
-cannot share an expression, and minute 0 would collide with the `*/15` sweep, the `*/20` IndexNow
-drain and the hourly WAF poll at once.
+cannot share an expression, and minute 0 would have collided with the `*/15` sweep, the `*/20`
+IndexNow drain (daily at `5 0` since AECI-1136) and the hourly WAF poll at once.
 
 ### 6.5 Site → Linear sync
 

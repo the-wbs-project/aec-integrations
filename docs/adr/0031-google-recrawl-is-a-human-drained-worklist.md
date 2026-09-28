@@ -8,7 +8,8 @@
 ## Context
 
 Bing and Yandex are fed automatically. A write appends the public URLs it affected to
-`indexnow_queue`, and a `*/20` cron submits the buffer in one request (ADR 0025). That channel
+`indexnow_queue`, and a cron submits the buffer in one request (ADR 0025; every 20 minutes when
+this record was written, daily at 00:05 UTC since AECI-1136). That channel
 is a solved problem in shape, whatever its current health.
 
 **Google has no equivalent and cannot be given one.** Its Indexing API is documented for
@@ -59,6 +60,14 @@ status column it has no reason to know about.
 everything indiscriminately. Request Indexing is quota-capped, so this list has to be
 *ordered*, and a row may sit on it for weeks. Those are different lifecycles, and one row
 cannot carry both.
+
+> **Note 2026-09-28 (AECI-1136).** Two things above have moved, and the decision stands. The
+> IndexNow drain no longer deletes by an `id <= :maxId` cursor: it reads in tier order and
+> deletes by exact id list. And IndexNow is no longer unranked: `indexnow_queue` gained a
+> `priority` column that borrows this record's tier map (`GSC_RECRAWL_PRIORITY`, through
+> `indexNowEntriesByTier`), so its daily send goes tier 1 first. The tables stay separate
+> because the second reason still holds: one queue is drained by a cron and emptied daily, the
+> other by a person and may hold a row for weeks. Only the map and its pure helpers are shared.
 
 ### 2. The list is RANKED, never filtered
 
@@ -164,7 +173,9 @@ this record most wants to argue against. It is cheaper, it produces a shorter li
 wrong for one reason: the operator cannot audit a decision they never saw. §2 has the argument.
 
 **Keeping the IndexNow table and adding a `priority` column.** Declined for the two structural
-reasons in §1, not for tidiness.
+reasons in §1, not for tidiness. *(AECI-1136 later added a `priority` column to `indexnow_queue`
+for its own daily ordering. That is not this alternative: the Google worklist is still its own
+table. See the note under §1.)*
 
 ## Consequences
 
@@ -188,7 +199,8 @@ reasons in §1, not for tidiness.
   ambiguous by construction, so the depth on `GET /api/admin/summary` is the reading that
   matters. `docs/OBSERVABILITY.md` has both.
 - **ADR 0025 is untouched in substance.** Its buffer, its cron, its retry gate and its alert
-  are unchanged. The one thing this work did to it is give `indexnow_queue` a second appender
+  are unchanged. *(Until AECI-1136, which made its cron daily and borrowed this record's tier
+  map. See ADR 0025's 2026-09-28 amendment.)* The one thing this work did to it is give `indexnow_queue` a second appender
   (AECI-944), which the `url` unique index already deduped across.
 
 ## References

@@ -11,7 +11,7 @@
  * throws — a network error or non-2xx upstream is returned as a
  * structured `{ ok: false }` outcome so the caller can log it without a try/catch
  * and the write is never blocked (§20.2 acceptance criterion). It lives in the API
- * Worker (not `@aeci/shared`) because both call sites are here: the twenty-minute
+ * Worker (not `@aeci/shared`) because both call sites are here: the daily
  * drain cron (`lib/indexnow-drain.ts`, AECI-826) and the `ops:submit-trade-urls`
  * script. The SSR Worker only *serves* the key-verification file, it never submits.
  *
@@ -30,9 +30,10 @@ import { discardResponseBody } from '@aeci/shared/response-drain';
 export const INDEXNOW_ENDPOINT = 'https://api.indexnow.org/indexnow';
 
 /**
- * IndexNow accepts up to 10,000 URLs per request. A single promote produces a
- * handful, so we never approach this — the array body IS the "batch" (AECI-236).
- * The slice is a defensive guard, never a real truncation.
+ * IndexNow accepts up to 10,000 URLs per request. Since AECI-1136 this is also
+ * the daily drain's read ceiling (`lib/indexnow-drain.ts`), so a day can reach it
+ * and the drain never hands the transport more. The slice here stays a defensive
+ * guard, never a real truncation.
  */
 export const INDEXNOW_MAX_URLS = 10_000;
 
@@ -58,13 +59,13 @@ export const INDEXNOW_MAX_RETRIES = 2;
 const INDEXNOW_RETRY_DELAYS_MS = [1_000, 4_000];
 
 /** Ceiling on an upstream-supplied `Retry-After`. IndexNow may name a window far
- *  longer than a cron tick; waiting it out inside the Worker would burn the
- *  invocation for a submission the next tick retries anyway. Past this we return
+ *  longer than we can wait; waiting it out inside the Worker would burn the
+ *  invocation for a submission the next daily run retries anyway. Past this we return
  *  the failure and let the buffer hold the URLs.
  *
  *  Since AECI-833 this cap is load-bearing on the 429 path rather than merely
  *  protective: an over-cap `Retry-After` makes {@link retryAfterMs} return
- *  `undefined`, which makes the 429 unretryable, so the tick costs one request. */
+ *  `undefined`, which makes the 429 unretryable, so the run costs one request. */
 const INDEXNOW_MAX_RETRY_AFTER_MS = 10_000;
 
 /**
@@ -79,7 +80,7 @@ const INDEXNOW_MAX_RETRY_AFTER_MS = 10_000;
  *   ADR 0025 declined a Cloudflare Queue. So a 429 is retried **only** when the
  *   response carries a usable `Retry-After`, i.e. only when IndexNow itself named
  *   a time to come back. A bare 429 is returned on the first attempt and the next
- *   twenty-minute drain tick is the backoff.
+ *   daily drain run is the backoff.
  * - **any other 4xx** — a bad key, a host mismatch, a malformed body. A defect a
  *   retry cannot fix.
  *

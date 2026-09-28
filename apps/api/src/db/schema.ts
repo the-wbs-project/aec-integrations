@@ -2336,22 +2336,30 @@ export const asnRegistry = sqliteTable(
  * attempt carried 107); request FREQUENCY was.
  *
  * So the promote no longer submits. It appends the affected public URLs here, and
- * the twenty-minute drain cron (`lib/indexnow-drain.ts`) turns any number of
- * buffered promotes into ONE outbound submission — one request under a rate limit,
- * because a bare 429 is not retried (AECI-833). This is the AECI-666 lesson applied
- * to a different transport: batching beats bounding, bounding beats nothing.
+ * the drain cron (`lib/indexnow-drain.ts`) turns any number of buffered promotes
+ * into ONE outbound submission — one request under a rate limit, because a bare
+ * 429 is not retried (AECI-833). This is the AECI-666 lesson applied to a
+ * different transport: batching beats bounding, bounding beats nothing.
  *
- * ─── Why `id` exists when `url` is already unique ─────────────────────────────
+ * ─── Daily and tiered since AECI-1136 ─────────────────────────────────────────
  *
- * The drain deletes what it just submitted with `WHERE id <= :maxId` — one bound
- * parameter. Deleting by the URL list instead would need one bound parameter per
- * URL, and **D1 caps a query at 100 bound parameters**, so that shape would force
- * chunking for no benefit. `id` is monotonic, so a row inserted between the
- * drain's SELECT and its DELETE always lands above `maxId` and survives to the
- * next run.
+ * The drain ran every 20 minutes until 2026-09-28. Bing refused nearly every tick
+ * with a 429 and accepted only the first one after 00:00 UTC, so the drain now
+ * runs once a day at 00:05 UTC and sends up to 10,000 URLs in one request. Each
+ * row carries a `priority` tier and the drain reads `priority ASC, queued_at ASC,
+ * id ASC`, so tier 4 goes last. See ADR 0025's 2026-09-28 amendment.
  *
- * The **write** side does not get out of it. Three columns are bound per row, so
- * `enqueueIndexNowUrls` chunks at `INDEXNOW_INSERT_ROWS_PER_STATEMENT` (33) —
+ * ─── What `id` is for ─────────────────────────────────────────────────────────
+ *
+ * `id` is the drain's delete handle and the final sort tiebreaker. Until
+ * AECI-1136 the drain read in `id` order and deleted with one `WHERE id <= :maxId`.
+ * It now reads in tier order, so the sent rows are not a contiguous id range, and
+ * it deletes by id list in chunks of 100 (`INDEXNOW_DELETE_IDS_PER_STATEMENT`, the
+ * D1 bound-parameter cap). A row buffered while the request is in flight was never
+ * read, so its id is not in the list and it survives to the next run.
+ *
+ * The **write** side chunks too. Four columns are bound per row, so
+ * `enqueueIndexNowUrls` chunks at `INDEXNOW_INSERT_ROWS_PER_STATEMENT` (25) —
  * a promote emits one URL per integration in its payload and the largest
  * production submission carried 107. The in-memory spec harness binds 32,766
  * parameters happily, so `indexnow-drain.spec.ts` asserts the emitted
@@ -2359,9 +2367,10 @@ export const asnRegistry = sqliteTable(
  *
  * ─── Dedupe is the free win ───────────────────────────────────────────────────
  *
- * `url` is UNIQUE and every insert is `ON CONFLICT DO NOTHING`. A product promoted
- * three times inside one drain window is submitted once. The old per-promote call
- * could not dedupe at all.
+ * `url` is UNIQUE. A product promoted three times before the daily drain is
+ * submitted once. The conflict clause is `DO UPDATE` only so the tier can rise
+ * (`min(existing, incoming)`); `queued_at` keeps its first value. The old
+ * per-promote call could not dedupe at all.
  *
  * ─── Audit ────────────────────────────────────────────────────────────────────
  *
@@ -2375,8 +2384,8 @@ export const asnRegistry = sqliteTable(
 export const indexnowQueue = sqliteTable(
   'indexnow_queue',
   {
-    /** Monotonic cursor. See the "why `id` exists" note above — this is what makes
-     *  the drain's delete a single bound parameter rather than a chunked IN list. */
+    /** The drain's delete handle and final sort tiebreaker. See "What `id` is for"
+     *  above. It was a range cursor until AECI-1136; it is now deleted by list. */
     id: integer('id').primaryKey({ autoIncrement: true }),
 
     /** The absolute public URL to announce, e.g.
@@ -2394,15 +2403,34 @@ export const indexnowQueue = sqliteTable(
       .notNull()
       .$defaultFn(() => new Date().toISOString()),
 
-    /** What appended the row. `promote` is the only writer today; present so a
-     *  second one is distinguishable per row rather than only per deploy. */
+    /** What appended the row: `promote` or `vendor`. Present so a second writer is
+     *  distinguishable per row rather than only per deploy. */
     source: text('source').notNull().default('promote'),
+
+    /** 1 (most important) … 4 (least), the SAME tiers as
+     *  `gsc_recrawl_queue.priority` (AECI-1136). Assigned by
+     *  `indexNowEntriesByTier` from the `GSC_RECRAWL_PRIORITY` map in
+     *  `lib/gsc-recrawl-priority.ts`; a URL that map does not rank (a hub page such
+     *  as `/products`) is tier 4. The daily drain reads `priority ASC`, so tier 4
+     *  goes last and is the tier left behind if a day ever exceeds 10,000 URLs.
+     *
+     *  Defaults to 4 so rows buffered before this column existed sort last rather
+     *  than jumping the queue. No CHECK constraint, for the reason
+     *  `gsc_recrawl_queue.priority` gives: a CHECK change is a D1 table recreate
+     *  (ADR 0018). On conflict the value may only improve — see
+     *  `enqueueIndexNowUrls`. */
+    priority: integer('priority').notNull().default(4),
   },
   (t) => [
-    // The dedupe constraint AND the conflict target for `ON CONFLICT DO NOTHING`.
+    // The dedupe constraint AND the conflict target for `ON CONFLICT DO UPDATE`.
     uniqueIndex('indexnow_queue_url_idx').on(t.url),
-    // The staleness sweep's cutoff scan. `id` already serves the FIFO drain read.
+    // The staleness sweep's cutoff scan.
     index('indexnow_queue_queued_at_idx').on(t.queuedAt),
+    // The daily drain read, exactly: `ORDER BY priority ASC, queued_at ASC, id ASC`
+    // with a keyset cursor over the same three columns. `id` is the rowid, which
+    // SQLite appends to every index entry, so this composite already carries the
+    // third sort key (AECI-1136).
+    index('indexnow_queue_priority_queued_at_idx').on(t.priority, t.queuedAt),
   ],
 );
 
@@ -2425,11 +2453,10 @@ export const indexnowQueue = sqliteTable(
  * **Two structural reasons it is a separate table rather than a column on
  * `indexnow_queue`.**
  *
- *  1. **That drain deletes.** `deleteSubmittedThrough` removes rows with
- *     `WHERE id <= :maxId` — one bound parameter, chosen because D1 caps a query
- *     at 100 of them. Retaining rows for a second, slower consumer would break
- *     that cursor, or force the drain to learn a status column it has no reason
- *     to know about.
+ *  1. **That drain deletes.** It removes exactly the rows it submitted, by id
+ *     (an `id <= :maxId` range until AECI-1136). Retaining rows for a second,
+ *     slower consumer would force the drain to learn a status column it has no
+ *     reason to know about.
  *  2. **The two consumers want opposite things.** IndexNow is free, batched and
  *     deduped, so it takes everything indiscriminately. Request Indexing is
  *     quota-capped — the ceiling is real, per-property, and Google does not

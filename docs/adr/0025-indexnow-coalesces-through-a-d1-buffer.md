@@ -1,9 +1,9 @@
 # ADR 0025: IndexNow submissions coalesce through a D1 buffer drained by a cron, not a Cloudflare Queue
 
-**Status:** Accepted (amended 2026-09-10 — the transport no longer retries a bare 429, and the request ceiling stated below was wrong by a factor of three; see the [Amendment](#amendment--2026-09-10-aeci-833-the-retry-now-makes-the-distinction-this-record-only-asserted))
+**Status:** Accepted (amended 2026-09-10 — the transport no longer retries a bare 429, and the request ceiling stated below was wrong by a factor of three; see the [Amendment](#amendment--2026-09-10-aeci-833-the-retry-now-makes-the-distinction-this-record-only-asserted). Amended again 2026-09-28 — the drain runs once a day, highest tier first, instead of every 20 minutes; see the [second Amendment](#amendment--2026-09-28-aeci-1136-send-once-a-day-highest-priority-pages-first))
 **Date:** 2026-09-09
 **Context owner:** chrisw@thewbsproject.com
-**Relates to:** AECI-826 (this record), AECI-833 (the amendment), AECI-236 (the original per-promote ping), AECI-801 (closed affirmatively — the key was always provisioned). Build contract: `docs/STAGE_1_SPEC.md` §20.2. Applies the AECI-666 batching rule to a second transport. Follows ADR 0013's cron→job shape and declines its queue, for a reason ADR 0013 did not have to consider. Builds on ADR 0016 (D1/Drizzle, `db.batch` as the atomic unit) and ADR 0022 (the scheduled-`DELETE` exception it satisfies).
+**Relates to:** AECI-826 (this record), AECI-833 (the first amendment), AECI-1136 (the second amendment), AECI-236 (the original per-promote ping), AECI-801 (closed affirmatively — the key was always provisioned). Build contract: `docs/STAGE_1_SPEC.md` §20.2. Applies the AECI-666 batching rule to a second transport. Follows ADR 0013's cron→job shape and declines its queue, for a reason ADR 0013 did not have to consider. Builds on ADR 0016 (D1/Drizzle, `db.batch` as the atomic unit) and ADR 0022 (the scheduled-`DELETE` exception it satisfies).
 
 ---
 
@@ -51,15 +51,19 @@ equally consistent with the evidence, and this ADR asserts neither.
    changes, because the `url` UNIQUE index dedupes across writers as well as within one call.
    The Google half of that work is a separate table and a separate decision — see ADR 0031.)*
 2. A new `*/20 * * * *` cron (`indexnow-drain`, the fourteenth) reads the buffer, submits it
-   in **one** `callIndexNow` request, and deletes what it sent.
-3. On failure the rows stay. **The next tick is the backoff.**
+   in **one** `callIndexNow` request, and deletes what it sent. *(**Daily at `5 0 * * *` since
+   2026-09-28**, reading highest tier first. See the second Amendment.)*
+3. On failure the rows stay. **The next tick is the backoff.** *(Since 2026-09-28 the next
+   tick is tomorrow.)*
 4. The transport gains a bounded retry — two attempts, honouring a capped `Retry-After` — for
    an *isolated* throttle. **As shipped this retried a bare 429 too, which contradicted this
    record's own reasoning; AECI-833 gated it. See the Amendment.**
 5. A PostHog alert fires on a sustained refusal ratio (> 90% over 24 h, ≥3-submission floor).
+   *(Window widened to 72 h on 2026-09-28: at one submission a day, 24 h can never meet the
+   floor. See the second Amendment.)*
 
 **Ceiling: 72 ticks a day**, and far fewer requests in practice because an empty buffer makes
-no request at all. Against eleven in seven minutes.
+no request at all. Against eleven in seven minutes. *(One tick a day since 2026-09-28.)*
 
 A tick and a request are not the same thing, and this record originally conflated them.
 **Under a sustained throttle a tick costs exactly one request**, because a bare 429 is not
@@ -113,7 +117,8 @@ distinction real; see the Amendment.
 
 - **Discovery latency rises to at most 20 minutes.** Irrelevant: the alternative on Bing is
   ordinary sitemap crawling, measured in days. If it ever matters, the cadence is one constant
-  plus three `triggers.crons` entries.
+  plus three `triggers.crons` entries. *(Up to a day since 2026-09-28. See the second
+  Amendment.)*
 - **A new D1 table and a fourteenth cron.** The cron count is a lockstep number written down
   in roughly twenty places (`AdminCronJobSchema`, `cron-schedules.ts`, `wrangler.jsonc` × 3,
   the liveness registry, `ADMIN_PANEL_SPEC.md`, `POST_LAUNCH_MONITORING.md`, …).
@@ -220,6 +225,60 @@ one-shot operator action. Nothing about the key is settled by this either.
 of the outstanding AECI-826 criterion, which still needs `outcome:ok` and still waits on
 IndexNow's limiter.
 
+## Amendment — 2026-09-28 (AECI-1136): send once a day, highest-priority pages first
+
+**Ruling 2026-09-28 (Chris):** daily send, tiered by the GSC reason-to-tier map, sorted highest
+tier first with tier 4 last, no artificial cap below IndexNow's 10,000-URL limit.
+
+**What the evidence showed.** Production PostHog for 2026-09-22 to 2026-09-28:
+
+| Observation | Value |
+|---|---|
+| Refusals | every one HTTP 429, on one attempt (the AECI-833 gate held) |
+| Refusals per day | about 60 to 70 |
+| Accepted submissions | only the first tick after 00:00 UTC (09-23 00:00, 09-25 00:01, 09-27 00:01) |
+| Largest accepted request | 1,287 URLs |
+| `aeci.indexnow.expired` | 0 |
+
+So Bing throttles request **frequency**, not size, and its allowance appears to reset at
+midnight UTC. The 20-minute cadence spent about 70 refused requests to land one. Re-open
+trigger 1 below ("429s persist after coalescing") had fired. The key was not the problem: the
+midnight submissions were accepted.
+
+**What changed.**
+
+1. **Cadence.** `INDEXNOW_DRAIN_CRON` is `5 0 * * *`, once a day at 00:05 UTC. Five minutes
+   after the reset we observed. `15 0 * * *` is the metrics snapshot and every other daily job
+   sits at minute 0, so minute 5 collides with nothing.
+2. **Tiers.** `indexnow_queue` gains `priority` (migration `0051`, additive, `DEFAULT 4`, no
+   CHECK). The tier comes from the Google worklist's `GSC_RECRAWL_PRIORITY` map through
+   `indexNowEntriesByTier`: a URL that has a GSC entry in the same write takes that entry's tier,
+   and anything else (a hub or facet page) is tier 4. The tables stay separate, as ADR 0031 §1
+   requires. Only the map and its pure helpers are shared.
+3. **Conflict rule.** `ON CONFLICT DO UPDATE SET priority = min(existing, incoming)`, applied only
+   when the tier improves. `queued_at` keeps its first value. This is the GSC queue's rule.
+4. **Read.** `ORDER BY priority ASC, queued_at ASC, id ASC`, up to 10,000 rows (IndexNow's cap),
+   in keyset pages of 2,000 (D1's ~1 MB response cap). All of it goes in one request.
+5. **Delete.** Exactly the ids that were read, 100 per statement (D1's bound-parameter cap), in
+   one `db.batch` with the summary audit row. The old `id <= maxId` range was only correct while
+   the read was in id order. A tier watermark was rejected: a tier-1 URL buffered while the
+   request is in flight sorts before the watermark and would be deleted unsent.
+6. **Alert.** The refusal-ratio alert window widened from 24 h to 72 h. At one submission a day,
+   a 24 h window never meets the ≥3 floor, so the alert could not fire. With three samples, 90%
+   means all three daily sends were refused.
+7. **Liveness.** The sweep's allowance for `aeci.indexnow.drain` moved from 90 minutes to 26 h,
+   the house value for a daily job.
+
+**What was given up.** Latency. A URL now waits up to a day for its announcement instead of up
+to 20 minutes. That is acceptable for the same reason the original 20 minutes was: the
+alternative on Bing is sitemap crawling, measured in days. And the old 20 minutes was nominal,
+because nearly every tick was refused. Measured latency was already about a day.
+
+**What did not change.** The buffer, the queue-less decision, the AECI-833 `Retry-After` gate,
+the seven-day expiry and the audit rule. Seven days now means seven daily attempts before a URL
+is dropped. We kept it: the sitemap covers a dropped URL, and `aeci.indexnow.expired` still
+reports every drop.
+
 ## Re-open trigger
 
 Revisit if any of these becomes true:
@@ -232,4 +291,7 @@ Revisit if any of these becomes true:
    an unfixed problem.
 3. **Discovery latency starts to matter.** If Bing indexation becomes a measured growth
    input rather than a hygiene item, tighten the cadence — but tighten it against evidence,
-   not against a guess about an undocumented limit.
+   not against a guess about an undocumented limit. The 2026-09-28 evidence says one request
+   a day is what Bing accepts. A second daily slot needs its own evidence first.
+4. **A day exceeds 10,000 URLs.** Then tier 4 is being left behind every day and `pending`
+   climbs. Split the day's send only if Bing accepts a second request in the same UTC day.

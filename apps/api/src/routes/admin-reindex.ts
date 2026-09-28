@@ -6,8 +6,8 @@
  * ─── Why a hand-worked queue exists at all ────────────────────────────────────
  *
  * Bing and Yandex are fed automatically: the promote and vendor writes buffer
- * URLs into `indexnow_queue` and a twenty-minute cron submits them in one
- * request.
+ * URLs into `indexnow_queue` and a daily cron (00:05 UTC, AECI-1136) submits
+ * them in one request, highest tier first.
  * Google cannot be fed that way. Its Indexing API accepts `JobPosting` and
  * `BroadcastEvent` only, which is why AECI-747 deleted the ping we used to make,
  * and nothing has replaced it because nothing can. Search Console → URL

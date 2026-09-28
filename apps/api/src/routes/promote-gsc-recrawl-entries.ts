@@ -5,8 +5,10 @@
  * ─── Why this is not `affectedUrlsForPromote` with an extra field ─────────────
  *
  * The IndexNow deriver next door returns a flat `string[]`. It has no reason to
- * carry provenance: IndexNow is free, batched and unranked, so every URL is equal
- * to every other and three specs pin that return shape.
+ * carry provenance: IndexNow is free and batched, and three specs pin that return
+ * shape. Since AECI-1136 the IndexNow buffer is tiered too, but it takes its tiers
+ * from THIS deriver's entries at enqueue time (`indexNowEntriesByTier`), so the
+ * sibling still returns plain URLs.
  *
  * This list is **ranked and quota-bound**, so it needs to know which entity each
  * URL came from and whether that entity is new. Widening the sibling's return

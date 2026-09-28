@@ -385,10 +385,10 @@ export type JobRunDetail =
       vendor: { sent: number; failed: number; skipped: number };
       admin: { sent: number; failed: number; skipped: number };
     }
-  /** The twenty-minute IndexNow drain (AECI-826 / §20.2). `submitted` vs `deleted`
-   *  is the load-bearing pair: they are equal on success and `deleted: 0` with a
-   *  non-zero `submitted` is the throttled case, where the rows deliberately stay
-   *  buffered for the next tick. `pending` is counted after the run, so a number
+  /** The daily IndexNow drain (AECI-826 / §20.2; every 20 minutes until
+   *  AECI-1136). `submitted` vs `deleted` is the load-bearing pair: they are equal
+   *  on success and `deleted: 0` with a non-zero `submitted` is the throttled case,
+   *  where the rows deliberately stay buffered for tomorrow's run. `pending` is counted after the run, so a number
    *  that climbs across rows is a stuck channel rather than a busy one, and
    *  `expired` is non-zero only when the channel has been down for a week. */
   | {

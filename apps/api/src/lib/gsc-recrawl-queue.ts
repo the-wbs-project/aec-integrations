@@ -2,18 +2,18 @@
  * The `gsc_recrawl_queue` worklist — read and write helpers (AECI-945 / §20.2).
  *
  * The sibling of `indexnow-queue.ts`, and deliberately shaped like it so the two
- * read as a pair. The differences are the whole point, and there are three:
+ * read as a pair. Since AECI-1136 both are tiered by the same map
+ * (`GSC_RECRAWL_PRIORITY`) and both let a conflict RAISE a row's tier, never
+ * lower it. The differences that remain are the whole point, and there are two:
  *
  *   1. **A person drains this one.** There is no cron. `POST /api/promote` and the
  *      vendor-portal writes APPEND; the `/admin/reindex` screen (AECI-946) READS,
  *      and its Done button DELETES one row. Google has no API that accepts our
  *      content types (AECI-747), so Search Console → URL Inspection → Request
- *      Indexing, run by hand, is the only channel.
- *   2. **Conflicts RAISE priority.** `indexnow_queue` can use `DO NOTHING`
- *      because every buffered URL is equal to every other. Here they are ranked,
- *      so a second event on an already-queued URL has to be able to promote it.
- *      See {@link enqueueGscRecrawl}.
- *   3. **Nothing ages out.** `indexnow_queue` has a seven-day staleness sweep
+ *      Indexing, run by hand, is the only channel. See {@link enqueueGscRecrawl}
+ *      for the conflict rule, which also carries `reason` and `source` along
+ *      with the tier because an operator reads them.
+ *   2. **Nothing ages out.** `indexnow_queue` has a seven-day staleness sweep
  *      because a missed ping is recoverable — the sitemap covers the URL anyway.
  *      A row dropped from *this* table is work no human ever saw. There is no
  *      `deleteStale*` here and there must not be one.
@@ -44,9 +44,9 @@ import {
  * `reason`, `source`, `queued_at` — so 20 rows is 100 parameters exactly and one
  * more row is a rejected statement.
  *
- * **This is NOT `INDEXNOW_INSERT_ROWS_PER_STATEMENT` (33).** That constant is the
- * same cap divided by *three* columns, because `indexnow_queue` has no `priority`
- * and no `reason`. Copying 33 across would bind 165 parameters and fail — and it
+ * **This is NOT `INDEXNOW_INSERT_ROWS_PER_STATEMENT` (25).** That constant is the
+ * same cap divided by *four* columns, because `indexnow_queue` has a `priority`
+ * (AECI-1136) but no `reason`. Copying 25 across would bind 125 parameters and fail — and it
  * would fail *only in production*, because better-sqlite3's ceiling in the
  * in-memory spec harness is 32,766, so an unchunked insert of any realistic size
  * passes every test in this repo. The specs therefore assert the emitted

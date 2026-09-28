@@ -28,7 +28,7 @@ import type { AuthzVariables } from '../lib/authz';
 import { VENDOR_ADMIN_ROLE } from '../lib/claimed-vendors';
 import type { GscRecrawlEntry } from '../lib/gsc-recrawl-priority';
 import { enqueueGscRecrawl } from '../lib/gsc-recrawl-queue';
-import { enqueueIndexNowUrls } from '../lib/indexnow-queue';
+import { enqueueIndexNowUrls, indexNowEntriesByTier } from '../lib/indexnow-queue';
 import { publicSiteBase } from '../lib/public-urls';
 
 export type VendorContext = Context<{ Bindings: Env; Variables: AuthzVariables }>;
@@ -132,8 +132,9 @@ export function recrawlEnabled(env: Pick<Env, 'INDEXNOW_KEY' | 'PUBLIC_SITE_URL'
  * What a vendor write asks the search engines to re-fetch (AECI-944 / AECI-945).
  *
  * Two lists rather than one, because the two channels have opposite economics.
- * `indexNow` is free, batched and unranked, so it takes everything the edit
- * touched including hub pages. `gsc` is quota-capped and worked by a human, so
+ * `indexNow` is free and batched, so it takes everything the edit touched
+ * including hub pages. Since AECI-1136 it is ranked too, but it borrows its tiers
+ * from `gsc` rather than carrying its own (`indexNowEntriesByTier`). `gsc` is quota-capped and worked by a human, so
  * it takes entity detail pages only, each carrying the reason that ranks it. See
  * `lib/gsc-recrawl-priority.ts` for why the Google list is ordered rather than
  * filtered.
@@ -188,7 +189,13 @@ async function bufferVendorRecrawl(
 
   if (recrawl.indexNow.length > 0) {
     try {
-      const queued = await enqueueIndexNowUrls(db, recrawl.indexNow, 'vendor');
+      // Tiered by the same write's Google entries (AECI-1136), so a vendor edit
+      // ranks in the daily send exactly as it ranks on the `/admin/reindex` list.
+      const queued = await enqueueIndexNowUrls(
+        db,
+        indexNowEntriesByTier(recrawl.indexNow, recrawl.gsc),
+        'vendor',
+      );
       // Tagged `source:vendor` so the series splits by arm. Without this the
       // metric would measure the promote arm alone while the table quietly
       // filled from two writers — a rate that under-reports by an unknown factor

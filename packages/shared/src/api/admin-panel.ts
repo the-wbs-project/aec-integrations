@@ -1308,10 +1308,10 @@ export type AdminTrafficBreakdownResponse = z.infer<typeof AdminTrafficBreakdown
  * read-time ASN classification (AECI-624); it met this vocabulary at the AECI-750
  * reconcile. A weekly series needs a >=2-week absence window — see the liveness
  * registry in `observability/posthog/project-config.json`. `indexnow-drain` is the
- * fourteenth and the most FREQUENT (every 20 minutes), added with AECI-826: it
- * drains the `indexnow_queue` buffer that the promote hook now writes instead of
- * submitting, so a burst of promotes produces one IndexNow request rather than one
- * per promote.
+ * fourteenth, added with AECI-826: it drains the `indexnow_queue` buffer that the
+ * promote hook now writes instead of submitting, so a burst of promotes produces
+ * one IndexNow request rather than one per promote. It ran every 20 minutes until
+ * AECI-1136 made it daily at 00:05 UTC, highest tier first.
  *
  * `claim-stale-check` is the fifteenth (AECI-862): every six hours it asks Linear
  * whether the claim tickets older than 24 hours have been started, and escalates
@@ -1332,7 +1332,7 @@ export const AdminCronJobSchema = z.enum([
   'attestation-notify', // 0 10 * * *
   'entitlement-expiry', // 0 11 * * *
   'asn-registry', // 0 2 * * 2  (weekly; CF day-of-week is 1=Sunday, so 2 = Monday)
-  'indexnow-drain', // */20 * * * *
+  'indexnow-drain', // 5 0 * * *  (daily since AECI-1136; was */20)
   'claim-stale-check', // 25 */6 * * *
 ]);
 export type AdminCronJob = z.infer<typeof AdminCronJobSchema>;

@@ -360,7 +360,7 @@ depend on the catalog rather than on the page. It is therefore listed unconditio
 and never `noindex`, exactly like `/categories`, `/audiences`, and `/phases`.
 
 **Why the indexing pings follow the floor.** Affected URLs are buffered for IndexNow
-(§20.2; since AECI-826 the writer buffers and a `*/20` cron submits — the Google Indexing ping was
+(§20.2; since AECI-826 the writer buffers and a cron submits, daily at 00:05 UTC since AECI-1136 — the Google Indexing ping was
 removed in AECI-747). Pinging an indexing service for a page that serves `noindex` is
 the same correctness bug the "provision `INDEXNOW_KEY` only at launch" rule exists to prevent, so
 only published terms are buffered.

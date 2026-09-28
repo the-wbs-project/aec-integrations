@@ -1,6 +1,6 @@
 /**
- * The IndexNow drain (AECI-826 / §20.2) — the job behind the twenty-minute
- * `INDEXNOW_DRAIN_CRON`.
+ * The IndexNow drain (AECI-826 / §20.2) — the job behind the daily
+ * `INDEXNOW_DRAIN_CRON` (00:05 UTC since AECI-1136).
  *
  * ─── What it replaced, and why ────────────────────────────────────────────────
  *
@@ -15,8 +15,19 @@
  * Payload size was never the constraint. IndexNow accepts 10,000 URLs per request
  * and our largest attempt carried 107. **Request frequency was.** So the promote
  * now writes to `indexnow_queue` and this job turns any number of buffered
- * promotes into ONE submission per tick — the AECI-666 lesson on a different
+ * promotes into ONE submission per run — the AECI-666 lesson on a different
  * transport: batching beats bounding, bounding beats nothing.
+ *
+ * ─── Once a day, tiered (AECI-1136) ───────────────────────────────────────────
+ *
+ * AECI-826 ran this every 20 minutes. Production PostHog for 2026-09-22..28 showed
+ * that Bing refused almost every one of those ticks with a 429, about 60-70 a day,
+ * and that the only accepted submissions were the first tick after 00:00 UTC. A
+ * 1,287-URL request was accepted, so the limit is on request frequency, not size.
+ * So the drain now runs once a day just after midnight UTC and sends everything,
+ * up to IndexNow's 10,000-URL cap, in one request. It sends highest tier first
+ * (`indexnow_queue.priority`), so if a day ever exceeds 10,000 URLs the part left
+ * for tomorrow is tier 4. The cost is latency: a URL now waits up to a day.
  *
  * One submission is one request under a rate limit, because `callIndexNow` does
  * not retry a bare 429 (AECI-833). It was up to three until that gate landed,
@@ -29,12 +40,14 @@
  *      batch, BEFORE reading. Sharing a batch with step 4 would let the two delete
  *      predicates overlap on the same rows, counting a stale row once as expired
  *      and once as submitted.
- *   2. **Read** the oldest `INDEXNOW_DRAIN_BATCH_SIZE` URLs, FIFO by `id`. That cap
- *      is set by D1's response limit, not IndexNow's — see the constant.
+ *   2. **Read** up to `INDEXNOW_MAX_URLS` (10,000) URLs in drain order —
+ *      `priority ASC, queued_at ASC, id ASC` — in keyset pages of
+ *      `INDEXNOW_DRAIN_BATCH_SIZE`. The page size is set by D1's response limit,
+ *      the total by IndexNow's.
  *   3. **Submit** them in one `callIndexNow` call.
- *   4. **Delete** `id <= maxId` and write the §26.1 summary `audit_log` row in the
- *      SAME `db.batch`. On any failure this step does not run, so the rows stay
- *      buffered and the next tick retries them.
+ *   4. **Delete** exactly the ids that were read and write the §26.1 summary
+ *      `audit_log` row in the SAME `db.batch`. On any failure this step does not
+ *      run, so the rows stay buffered and tomorrow's run retries them.
  *
  * ─── Fail-open, and never a throw ─────────────────────────────────────────────
  *
@@ -48,7 +61,7 @@
  * as a quiet no-op. The job is queue-less (`queueForJob` returns `undefined`)
  * **on purpose rather than for cost**: a queue retry re-submits inside the same
  * rate-limit window, which is the burst behaviour this whole job exists to remove.
- * The next tick is the backoff.
+ * Tomorrow's run is the backoff.
  */
 
 import type { Db } from '../db/client';
@@ -56,13 +69,14 @@ import type { Env } from '../env';
 
 import type { BatchStmt, BatchTuple } from './audit';
 import { auditInsert } from './audit';
-import { callIndexNow } from './indexnow';
+import { callIndexNow, INDEXNOW_MAX_URLS } from './indexnow';
 import { isRetiredSlugUrl, listSlugRedirects, retiredSlugPaths } from './slug-redirect';
 import {
   countPendingIndexNowUrls,
   countStaleIndexNowUrls,
   deleteDrainedIndexNowUrls,
   deleteStaleIndexNowUrls,
+  INDEXNOW_DRAIN_BATCH_SIZE,
   readPendingIndexNowUrls,
   staleCutoffIso,
   type PendingIndexNowUrl,
@@ -70,7 +84,9 @@ import {
 
 /** One count per outbound IndexNow submission ATTEMPT. Same name and meaning it
  *  has carried since AECI-236; only the `source` tag changed, `promote` → `cron`,
- *  because the promote no longer submits. */
+ *  because the promote no longer submits. Since AECI-1136 a successful run also
+ *  emits one {@link INDEXNOW_SUBMITTED_URLS_METRIC} count per tier, tagged
+ *  `tier:1` … `tier:4`, so the per-tier split is visible without a second request. */
 export const INDEXNOW_SUBMIT_METRIC = 'aeci.indexnow.submit';
 
 /** One count per drain run, ALWAYS emitted — including the empty and skipped
@@ -88,6 +104,11 @@ export const INDEXNOW_PENDING_METRIC = 'aeci.indexnow.pending';
 /** URLs dropped by the staleness sweep. Non-zero is always a finding — it means
  *  the channel was down for a week. */
 export const INDEXNOW_EXPIRED_METRIC = 'aeci.indexnow.expired';
+
+/** URLs accepted by IndexNow in one run, one data point per tier, tagged
+ *  `tier:1` … `tier:4` (AECI-1136). Emitted only on a successful submission, so
+ *  it counts URLs that actually reached the engines. Four series at most. */
+export const INDEXNOW_SUBMITTED_URLS_METRIC = 'aeci.indexnow.submitted_urls';
 
 /** Where the drain reports its numbers. Injected rather than imported, matching
  *  `RetentionMetricSink` / `ModerationMetricSink`, so this module stays free of
@@ -111,6 +132,9 @@ export type IndexNowDrainLogSink = (event: {
 export interface IndexNowDrainResult {
   /** URLs read from the buffer and handed to the transport. */
   submitted: number;
+  /** How many of the submitted URLs were in each tier, keyed `1`..`4`. Empty
+   *  when nothing was submitted. */
+  byTier?: Record<number, number>;
   /** Rows deleted after a successful submission. Equals `submitted` on success. */
   deleted: number;
   /** Rows dropped by the staleness sweep before the read. */
@@ -123,8 +147,8 @@ export interface IndexNowDrainResult {
    */
   retired: number;
   /** Buffer depth after the run, counted rather than inferred. `0` on a clean
-   *  full drain; non-zero when a promote buffered mid-run or the buffer was
-   *  deeper than one batch. */
+   *  full drain; non-zero when a promote buffered mid-run or the buffer held more
+   *  than one day's 10,000. */
   pending: number;
   /** HTTP status of the submission, or `0` when none was attempted. */
   status: number;
@@ -212,24 +236,60 @@ async function expireStale(db: Db, now: Date): Promise<number> {
  * wanted here, because a bug in this delete silently drops URLs out of the only
  * automated discovery channel we have.
  */
-async function commitDrain(db: Db, rows: PendingIndexNowUrl[], status: number): Promise<void> {
-  const maxId = rows[rows.length - 1]!.id;
+async function commitDrain(
+  db: Db,
+  rows: PendingIndexNowUrl[],
+  status: number,
+  byTier: Record<number, number>,
+): Promise<void> {
   const stmts: BatchStmt[] = [
-    deleteDrainedIndexNowUrls(db, maxId),
+    ...deleteDrainedIndexNowUrls(
+      db,
+      rows.map((r) => r.id),
+    ),
     auditInsert(db, {
       actorType: 'system',
       action: INDEXNOW_DRAINED_ACTION,
       entityType: 'indexnow_queue',
       metadata: {
         table: 'indexnow_queue',
-        cursor: maxId,
         rowsDeleted: rows.length,
+        byTier,
         status,
         reason: 'submitted',
       },
     }),
   ];
   await db.batch(stmts as BatchTuple);
+}
+
+/** Count rows per tier. Keys are the tier numbers present, nothing else. */
+function countByTier(
+  rows: readonly Pick<PendingIndexNowUrl, 'priority'>[],
+): Record<number, number> {
+  const out: Record<number, number> = {};
+  for (const r of rows) out[r.priority] = (out[r.priority] ?? 0) + 1;
+  return out;
+}
+
+/**
+ * Read up to `total` rows in drain order, a page at a time.
+ *
+ * Pages are keyset-chained on `(priority, queued_at, id)`, so a promote that
+ * buffers mid-read can never make a row appear in two pages. The loop stops on
+ * a short page, which is how an exhausted buffer shows itself.
+ */
+async function readDrainSet(db: Db, total: number): Promise<PendingIndexNowUrl[]> {
+  const rows: PendingIndexNowUrl[] = [];
+  let after: PendingIndexNowUrl | undefined;
+  while (rows.length < total) {
+    const limit = Math.min(INDEXNOW_DRAIN_BATCH_SIZE, total - rows.length);
+    const page = await readPendingIndexNowUrls(db, limit, after);
+    rows.push(...page);
+    if (page.length < limit) break;
+    after = page[page.length - 1];
+  }
+  return rows;
 }
 
 /**
@@ -287,7 +347,7 @@ export async function drainIndexNowQueue(deps: DrainDeps): Promise<IndexNowDrain
     });
   }
 
-  const rows = await readPendingIndexNowUrls(db);
+  const rows = await readDrainSet(db, INDEXNOW_MAX_URLS);
   if (rows.length === 0) {
     return { ...empty, expired, pending: 0 };
   }
@@ -312,10 +372,10 @@ export async function drainIndexNowQueue(deps: DrainDeps): Promise<IndexNowDrain
   }
 
   // Everything in the batch was retired. The rows are still CONSUMED — leaving them
-  // buffered would make the same filter run again every twenty minutes forever — so
-  // this takes the ordinary delete path with no submission behind it.
+  // buffered would make the same filter run again every day forever — so this
+  // takes the ordinary delete path with no submission behind it.
   if (sendable.length === 0) {
-    await commitDrain(db, rows, 0);
+    await commitDrain(db, rows, 0, {});
     const pendingAfter = await countPendingIndexNowUrls(db);
     return { ...empty, expired, retired, deleted: rows.length, pending: pendingAfter };
   }
@@ -334,7 +394,7 @@ export async function drainIndexNowQueue(deps: DrainDeps): Promise<IndexNowDrain
   ]);
 
   if (!outcome.ok) {
-    // Leave every row where it is. The next tick is the backoff — re-sending now
+    // Leave every row where it is. Tomorrow's run is the backoff — re-sending now
     // is what produced the 429 storm in the first place.
     const pending = await countPendingIndexNowUrls(db);
     log({
@@ -360,14 +420,19 @@ export async function drainIndexNowQueue(deps: DrainDeps): Promise<IndexNowDrain
     };
   }
 
-  await commitDrain(db, rows, outcome.status);
+  const byTier = countByTier(sendable);
+  await commitDrain(db, rows, outcome.status, byTier);
+  for (const [tier, n] of Object.entries(byTier)) {
+    metrics.count(INDEXNOW_SUBMITTED_URLS_METRIC, n, ['source:cron', `tier:${tier}`]);
+  }
   // Counted rather than assumed zero. Two things legitimately leave rows behind:
-  // a promote that buffered while this ran (its `id > maxId`), and a buffer deeper
-  // than `INDEXNOW_DRAIN_BATCH_SIZE`. Reporting a hard 0 here would make the one
-  // gauge that detects a stuck channel incapable of ever showing one.
+  // a promote that buffered while this ran (its id was never read), and a buffer
+  // deeper than one day's `INDEXNOW_MAX_URLS`. Reporting a hard 0 here would make
+  // the one gauge that detects a stuck channel incapable of ever showing one.
   const pending = await countPendingIndexNowUrls(db);
   return {
     submitted: sendable.length,
+    byTier,
     deleted: rows.length,
     expired,
     retired,

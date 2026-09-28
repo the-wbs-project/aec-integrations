@@ -190,6 +190,8 @@ caching regression — page the on-call engineer (Phase 6 rotation TBD).
 
 **Alert:** `AECi — Detail page render p95, cache MISS (1 h)`, same 1,500 ms threshold, hourly.
 **Metric:** `aeci.page.render.duration_ms{route_class:detail,cache_status:miss}` p95.
+**Sample floor:** an hour with fewer than 40 MISS detail renders reads 0 and cannot fire
+(AECI-1137; the floor was 20 until 2026-09-28). The label column shows the hour's count.
 
 > **How to read the number.** PostHog stores render times as histogram buckets
 > (bounds `5,10,25,50,75,100,250,500,750,1000,1500,2500,5000,7500,10000` ms), so the
@@ -1816,11 +1818,15 @@ row in D1 before touching anything. An erased account is refused on purpose.
 
 ## IndexNow submissions refused
 
-**Signal:** the PostHog alert *"AECi — Search-engine pings refused (> 90% in 24 h)"*
+**Signal:** the PostHog alert *"AECi — Search-engine pings refused (> 90% over 72 h)"*
 (`observability/posthog/alerts.json` → `indexnow-failure-rate`, checked **daily**). Its label
 column names the submission count and how many were refused. It was hourly until 2026-09-24.
 An hourly check re-read the same 24 h window and emailed on every firing check, so one
 refusal episode sent dozens of emails. Expect at most one email a day now.
+
+**The window is 72 h since AECI-1136.** The drain runs once a day at 00:05 UTC, so it submits
+at most once a day. A 24 h window held one submission and never met the ≥3 floor. With three
+daily runs in the window, the alert fires when all three were refused.
 
 **What it means:** the pages we changed are not reaching Bing or Yandex. IndexNow is the
 **only** automated discovery channel we have on either engine. AECI-747 deleted the Google
@@ -1828,8 +1834,8 @@ Indexing ping, and Google discovery is still a manual human step, though since A
 a **recorded** one: the URLs queue themselves into `gsc_recrawl_queue` and an operator works
 `/admin/reindex` (`environments.md` → "Request indexing by hand (Google)"). Discovery falls
 back to ordinary sitemap crawling, which is measured in days rather than minutes. **Nothing is
-lost**: the buffered URLs stay in `indexnow_queue` and the next twenty-minute drain retries
-them, up to a seven-day ceiling.
+lost**: the buffered URLs stay in `indexnow_queue` and the next daily drain (00:05 UTC) retries
+them, highest tier first, up to a seven-day ceiling. Seven days is seven attempts.
 
 **This alert says nothing about the Google side.** The two channels share a gate
 (`INDEXNOW_KEY` + `PUBLIC_SITE_URL`) and nothing else. A 100% IndexNow refusal leaves
@@ -1853,28 +1859,34 @@ by design and the only evidence was a warn log nobody reads (AECI-826).
 
    | Status | Means | Do |
    |---|---|---|
-   | **429** | Rate-limited by the aggregator. The limit is undocumented | **`attempts: 1` is the expected shape here, not a truncated retry** — a bare 429 is deliberately not retried (AECI-833), so a throttled tick costs one request and the next tick is the backoff. Check the drain cadence has not been tightened below `*/20`, and that nothing else is submitting (`ops:submit-trade-urls` run by hand, a second env pointed at the same host). If the cadence is right and it persists, loosen `INDEXNOW_DRAIN_CRON` toward `*/30` — `POST_LAUNCH_MONITORING.md` §3 has the retune procedure |
+   | **429** | Rate-limited by the aggregator. The limit is undocumented | **`attempts: 1` is the expected shape here, not a truncated retry** — a bare 429 is deliberately not retried (AECI-833), so a throttled run costs one request and tomorrow's run is the backoff. Check the drain is still daily (`5 0 * * *`, AECI-1136) and that nothing else is submitting (`ops:submit-trade-urls` run by hand, a second env pointed at the same host). Prod showed Bing accepting the first request after 00:00 UTC, so a manual submit earlier in the UTC day can spend that allowance. If it persists for days at one request a day, the limit is no longer frequency-shaped: suspect the key (below) — `POST_LAUNCH_MONITORING.md` §3 has the retune procedure |
    | **403 / 422** | The key or the payload is rejected | This is the case a 429 has always hidden. Go to "the key is unverified" below |
-   | **5xx** | Aggregator outage | Nothing to do. The transport already retried twice — a 5xx is a fault rather than a rate limit, so it keeps the blind backoff a 429 lost — and the next tick retries again. Watch `aeci.indexnow.pending` and confirm it drains when they recover |
+   | **5xx** | Aggregator outage | Nothing to do. The transport already retried twice — a 5xx is a fault rather than a rate limit, so it keeps the blind backoff a 429 lost — and tomorrow's run retries again. Watch `aeci.indexnow.pending` and confirm it drains when they recover |
    | **0** | Never reached `api.indexnow.org` — DNS, TLS or egress | Check the Worker's outbound health generally; this would not be IndexNow-specific |
 
-2. **Check the buffer is not stranded.** `aeci.indexnow.pending` should return to 0 on a
-   healthy tick. A number that climbs day over day confirms nothing is getting through.
+2. **Check the buffer is not stranded.** `aeci.indexnow.pending` should return to 0 after a
+   healthy daily run (unless a day held more than 10,000 URLs, which leaves tier 4 behind). A number that climbs day over day confirms nothing is getting through.
    `aeci.indexnow.expired` going non-zero means URLs have now been dropped unsent after seven
    days — that is a real loss of announcement, though the sitemap still covers those pages.
 
 3. **Confirm the cron is alive at all.** A refused submission and an absent cron look
-   different: `aeci.indexnow.drain` is emitted on **every** tick, including empty ones. If it
+   different: `aeci.indexnow.drain` is emitted on **every** run, including empty ones. If it
    is missing, this is a cron-liveness problem — see
    [Cron runs missing or stuck](#cron-runs-missing-or-stuck-in-flight-on-adminsystem), and
-   the CI liveness sweep should already be red. A tick that **throws** (a D1 error) also
+   the CI liveness sweep should already be red (its allowance is 26 h since the drain went
+   daily). A run that **throws** (a D1 error) also
    lands here: the heartbeat is emitted after the drain returns, so a throw emits nothing.
    If the heartbeat is present, read its `outcome`. `refused` is the refusal this alert
-   measures, one tick at a time. `failed` is a local fault, today an unparseable
+   measures, one run at a time. `failed` is a local fault, today an unparseable
    `PUBLIC_SITE_URL`, and it also fires the combined "Cron job failed" alert (AECI-864).
    A refused batch does not fire that alert, so this ratio alert is the only page for it.
 
 ### The key is unverified, and a 429 cannot tell you otherwise
+
+> **Update 2026-09-28 (AECI-1136):** prod accepted submissions on 09-23, 09-25 and 09-27, each
+> the first request after 00:00 UTC. An accepted submission means IndexNow fetched and accepted
+> the key, so the key is good as of that date. The section below still applies if a later
+> 403 or 422 appears.
 
 **A 429 proves the transport reached the aggregator and proves nothing about the key.** Bing
 throttles *before* it fetches `<key>.txt`, so a wrong key and a rate limit are
@@ -1900,7 +1912,7 @@ file-serving half independently of any submission.
 
 `aeci.indexnow.submit{source:cron,outcome:ok}` non-zero in production. Nothing else counts —
 not a green deploy, not a merged PR. It needs a real catalogue write to buffer something for
-the drain to send, so after a fix, promote a product and wait one tick.
+the drain to send, so after a fix, promote a product and wait for the next 00:05 UTC run.
 
 ### There is no runbook for an unworked Google queue, and that is a decision
 

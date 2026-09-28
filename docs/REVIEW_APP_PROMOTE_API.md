@@ -1975,7 +1975,8 @@ is required from the review app.
   and buffers the canonical pair URL for both search engines, so the consolidated
   product-pair page refreshes for both orientations. **The two engines are buffered,
   not submitted, and they are buffered differently.** IndexNow gets a row in
-  `indexnow_queue` for a `*/20` cron to submit. Google gets a row in
+  `indexnow_queue` for a daily cron to submit (00:05 UTC, highest tier first, since
+  AECI-1136; `*/20` before). Google gets a row in
   `gsc_recrawl_queue` (AECI-945), which is a worklist a person drains through Search
   Console, tiered `pair.created` or `pair.updated`. Neither arm makes an outbound
   request on the promote. The promote response's
