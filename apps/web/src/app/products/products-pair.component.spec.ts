@@ -291,9 +291,9 @@ describe('ProductsPairPage', () => {
   // IS documented; the records that cross are not, and the copy now says so.
   it('renders the DIRECTIONAL empty band when a Layer-A arrow renders under it', () => {
     const { el } = setup(buildPair());
-    expect(el.textContent).toContain('We haven’t catalogued what syncs yet');
-    expect(el.textContent).toContain('Direction is documented below');
-    expect(el.textContent).not.toContain('Data flows aren’t documented yet');
+    expect(el.textContent).toContain('We haven’t listed the types of data yet');
+    expect(el.textContent).toContain('The direction is shown below');
+    expect(el.textContent).not.toContain('We haven’t listed what’s shared yet');
     // The arrow the subline promises is genuinely on the page.
     expect(el.textContent).toContain('Sends to Revit');
   });
@@ -304,21 +304,21 @@ describe('ProductsPairPage', () => {
       ...base,
       mechanisms: [{ ...base.mechanisms[0]!, direction: null }],
     });
-    expect(el.textContent).toContain('Data flows aren’t documented yet');
-    expect(el.textContent).not.toContain('We haven’t catalogued what syncs yet');
+    expect(el.textContent).toContain('We haven’t listed what’s shared yet');
+    expect(el.textContent).not.toContain('We haven’t listed the types of data yet');
   });
 
   it('keeps the original empty-band copy for an unconnected pair', () => {
     const { el } = setup({ ...buildPair(), mechanisms: [] });
-    expect(el.textContent).toContain('Data flows aren’t documented yet');
+    expect(el.textContent).toContain('We haven’t listed what’s shared yet');
   });
 
   // Basic (Overview) hides the standalone Layer-A arrow, so "documented below"
   // would name nothing there. The gate is on the VIEW as well as the data.
   it('falls back to the original empty-band copy in Basic view', () => {
     const { el } = setup(buildPair(), { view: 'basic' });
-    expect(el.textContent).toContain('Data flows aren’t documented yet');
-    expect(el.textContent).not.toContain('Direction is documented below');
+    expect(el.textContent).toContain('We haven’t listed what’s shared yet');
+    expect(el.textContent).not.toContain('The direction is shown below');
   });
 
   it('renders the sync headline + claim rows grouped by direction (Layer B)', () => {
@@ -330,14 +330,14 @@ describe('ProductsPairPage', () => {
     );
 
     // Sync headline leads with breadth; the empty band is gone.
-    expect(el.textContent).toContain('2 data objects sync');
-    expect(el.textContent).not.toContain('Data flows aren’t documented yet');
+    expect(el.textContent).toContain('2 types of data shared');
+    expect(el.textContent).not.toContain('We haven’t listed what’s shared yet');
     // Data-object rows, one per claim, each with a neutral badge + provenance.
     expect(el.textContent).toContain('Models');
     expect(el.textContent).toContain('RFIs');
     expect(el.querySelectorAll('aec-agreement-badge')).toHaveLength(2);
     expect(el.querySelectorAll('aec-claim-provenance')).toHaveLength(2);
-    expect(el.textContent).toContain('Unverified · AECi');
+    expect(el.textContent).toContain('Listed by AEC Integrations');
     // Grouped into context-relative lanes (headings), not a standalone arrow.
     expect(el.textContent).toContain('Sends to Revit');
     expect(el.textContent).toContain('Receives from Revit');
@@ -349,7 +349,10 @@ describe('ProductsPairPage', () => {
     // duplicate standalone mechanism arrow.
     const occurrences = (el.textContent ?? '').split('Sends to Revit').length - 1;
     expect(occurrences).toBe(1);
-    expect(el.querySelector('h3.aec-overline')?.textContent).toContain('Sends to Revit');
+    const laneHeadings = Array.from(el.querySelectorAll('h3.aec-overline')).map(
+      (h) => h.textContent ?? '',
+    );
+    expect(laneHeadings.some((t) => t.includes('Sends to Revit'))).toBe(true);
   });
 
   describe('depth axis in the mechanism card header (AECI-711)', () => {
@@ -388,7 +391,7 @@ describe('ProductsPairPage', () => {
       );
       expect(header(el).querySelector('[data-testid="pair-depth-direction"]')).not.toBeNull();
       expect(header(el).querySelector('[data-testid="pair-depth-objects"]')?.textContent).toContain(
-        '1 data object',
+        '1 type of data',
       );
     });
 
@@ -404,7 +407,7 @@ describe('ProductsPairPage', () => {
       );
       expect(
         header(el).querySelector('[data-testid="pair-depth-objects"]')?.textContent?.trim(),
-      ).toBe('2 data objects');
+      ).toBe('2 types of data');
     });
 
     it('does not count a removed claim', () => {
@@ -418,7 +421,7 @@ describe('ProductsPairPage', () => {
       );
       expect(
         header(el).querySelector('[data-testid="pair-depth-objects"]')?.textContent?.trim(),
-      ).toBe('1 data object');
+      ).toBe('1 type of data');
     });
 
     it('reads the claims-aware direction, never the stored one', () => {
@@ -481,7 +484,7 @@ describe('ProductsPairPage', () => {
 
     it('hides the object chip when one mechanism and the headline already carry the count', () => {
       const { el } = setup(buildPairWithClaims([claim('models', 'Models', 'outbound')]));
-      expect(el.textContent).toContain('1 data object syncs');
+      expect(el.textContent).toContain('1 type of data shared');
       expect(header(el).querySelector('[data-testid="pair-depth-objects"]')).toBeNull();
       // The direction chip is unaffected: the headline does not state a direction.
       expect(header(el).querySelector('[data-testid="pair-depth-direction"]')).not.toBeNull();
@@ -490,7 +493,7 @@ describe('ProductsPairPage', () => {
 
   it('renders the singular sync headline for one claim', () => {
     const { el } = setup(buildPairWithClaims([claim('models', 'Models', 'outbound')]));
-    expect(el.textContent).toContain('1 data object syncs');
+    expect(el.textContent).toContain('1 type of data shared');
   });
 
   it('keeps a mechanism-card h2 when the mechanism is unnamed but has claims (no h1→h3 skip)', () => {
@@ -552,13 +555,15 @@ describe('ProductsPairPage', () => {
     });
 
     it('renders 0 voters as the neutral unverified chip', () => {
-      expect(renderState('unverified', [aeciSeed()]).textContent).toContain('Unverified · AECi');
+      expect(renderState('unverified', [aeciSeed()]).textContent).toContain(
+        'Listed by AEC Integrations',
+      );
     });
 
     it('renders a denied-only claim as unverified, never as a conflict', () => {
       const el = renderState('unverified', [aeciSeed(), vendorVote('context', false)]);
-      expect(el.textContent).toContain('Unverified · AECi');
-      expect(el.textContent).not.toContain('Vendors disagree');
+      expect(el.textContent).toContain('Listed by AEC Integrations');
+      expect(el.textContent).not.toContain('Companies disagree');
     });
 
     it('renders single_source attributed to the affirming vendor', () => {
@@ -567,7 +572,7 @@ describe('ProductsPairPage', () => {
       });
       expect(el.textContent).toContain('Confirmed by Acme Software');
       // Never the bilateral wording.
-      expect(el.textContent).not.toContain('Both vendors confirmed');
+      expect(el.textContent).not.toContain('Confirmed by both companies');
     });
 
     it('attributes single_source to the other product’s vendor when that side affirmed', () => {
@@ -581,15 +586,17 @@ describe('ProductsPairPage', () => {
         [vendorVote('context', true), vendorVote('other', true)],
         { confirmed: 1 },
       );
-      expect(el.textContent).toContain('Both vendors confirmed');
+      expect(el.textContent).toContain('Confirmed by both companies');
     });
 
     it('renders conflict as a disagreement between vendors', () => {
       const el = renderState('conflict', [vendorVote('context', true), vendorVote('other', false)]);
-      expect(el.textContent).toContain('Vendors disagree');
+      expect(el.textContent).toContain('Companies disagree');
     });
 
-    it('reports one-sided and bilateral verification as separate clauses', () => {
+    // AECI-1142. Ruling 2026-09-28 (Chris): the summary band and ratio line are
+    // replaced by the per-card At a glance row. The per-row badges carry the state.
+    it('renders no ratio line and no summary subline, whatever the counts', () => {
       const el = setup(
         withVendors(
           buildPairWithClaims(
@@ -604,39 +611,17 @@ describe('ProductsPairPage', () => {
           ),
         ),
       ).el;
-      expect(el.textContent).toContain('1 of 2 confirmed by both vendors');
-      expect(el.textContent).toContain('1 confirmed by one vendor only');
-      // The one-sided count must never be folded into the bilateral figure.
-      expect(el.textContent).not.toContain('2 of 2 confirmed by both vendors');
-    });
-
-    it('omits the one-sided clause entirely when there are none', () => {
-      const el = renderState('unverified', [aeciSeed()]);
-      expect(el.textContent).toContain('0 of 1 confirmed by both vendors');
-      expect(el.textContent).not.toContain('confirmed by one vendor only');
-    });
-
-    // The awaiting-vendors subline only renders while no vendor has spoken.
-    // Each case needs its own test — `setup()` instantiates the TestBed, which
-    // can only happen once per spec.
-    const AWAITING = 'These flows are asserted by AECi';
-
-    it('keeps the awaiting-vendors subline while every attestation is AECi’s', () => {
-      const el = renderState('unverified', [aeciSeed()]);
-      expect(el.textContent).toContain(AWAITING);
+      const text = el.textContent ?? '';
+      expect(text).toContain('2 types of data shared');
+      expect(text).not.toContain('of 2 confirmed');
+      expect(text).not.toContain('confirmed by one company only');
+      expect(text).not.toContain('compiled these from public sources');
+      expect(el.querySelector('aec-confirmed-ratio-info')).toBeNull();
+      // The badges still say who confirmed what, row by row.
+      expect(text).toContain('Confirmed by both companies');
       // AECI-781: the vendor portal shipped 2026-09-03. No surface on this page
       // may describe it as forthcoming again.
-      expect(el.textContent).not.toContain('vendor portal');
-    });
-
-    it('retires the awaiting-vendors subline once a vendor has spoken, even to deny', () => {
-      const el = renderState('unverified', [aeciSeed(), vendorVote('context', false)]);
-      expect(el.textContent).not.toContain(AWAITING);
-    });
-
-    it('retires the awaiting-vendors subline once a vendor has affirmed', () => {
-      const el = renderState('single_source', [vendorVote('context', true)], { single_source: 1 });
-      expect(el.textContent).not.toContain(AWAITING);
+      expect(text).not.toContain('vendor portal');
     });
 
     // AC: `?view=basic` still collapses the lanes, whatever state the claims are in.
@@ -656,9 +641,9 @@ describe('ProductsPairPage', () => {
         { view: 'basic' },
       );
       expect(el.querySelectorAll('aec-agreement-badge')).toHaveLength(0);
-      expect(el.textContent).not.toContain('Vendors disagree');
+      expect(el.textContent).not.toContain('Companies disagree');
       // The headline survives — Basic hides granularity, not breadth.
-      expect(el.textContent).toContain('1 data object syncs');
+      expect(el.textContent).toContain('1 type of data shared');
     });
   });
 
@@ -667,7 +652,9 @@ describe('ProductsPairPage', () => {
     expect(el.querySelector('aec-not-found')).toBeTruthy();
   });
 
-  describe('connector byline (Offered by / Powered by)', () => {
+  // AECI-1142 moved the Stage 1 §4.4 byline into the At a glance strip's
+  // "How you get it" fact, worded "Offered by" / "Through".
+  describe('connector byline in At a glance (Offered by / Through)', () => {
     const agaveVendor = {
       id: '00000000-0000-4000-8000-0000000000v1',
       name: 'Agave',
@@ -700,13 +687,13 @@ describe('ProductsPairPage', () => {
     it('links both the vendor and the connector product when both are set', () => {
       const { el } = setup(buildPairWithProvenance(agaveVendor, agaveProduct));
 
-      expect(el.textContent).toContain('Offered by');
-      expect(el.textContent).toContain('Powered by');
-      const vendorLink = el.querySelector('a[href="/vendors/agave"]');
-      const productLink = el.querySelector('a[href="/products/agave-erp-sync"]');
+      const glance = el.querySelector('[data-testid="pair-glance"]')!;
+      expect(glance.textContent).toContain('Offered by');
+      expect(glance.textContent).toContain('through');
+      const vendorLink = glance.querySelector('a[href="/vendors/agave"]');
+      const productLink = glance.querySelector('a[href="/products/agave-erp-sync"]');
       expect(vendorLink?.textContent).toContain('Agave');
       expect(productLink?.textContent).toContain('Agave ERP Sync');
-      expect(el.textContent).toContain('·');
     });
 
     it('keeps a space between the label and its link', () => {
@@ -716,8 +703,7 @@ describe('ProductsPairPage', () => {
       const { el } = setup(buildPairWithProvenance(agaveVendor, agaveProduct));
       const text = el.textContent!.replace(/\s+/g, ' ');
 
-      expect(text).toContain('Offered by Agave');
-      expect(text).toContain('Powered by Agave ERP Sync');
+      expect(text).toContain('Offered by Agave, through Agave ERP Sync');
     });
 
     it('falls back to the vendor-only segment when powered_by_product is null', () => {
@@ -725,7 +711,7 @@ describe('ProductsPairPage', () => {
 
       expect(el.textContent).toContain('Offered by');
       expect(el.querySelector('a[href="/vendors/agave"]')).toBeTruthy();
-      expect(el.textContent).not.toContain('Powered by');
+      expect(el.textContent).not.toContain('through');
       expect(el.querySelector('a[href="/products/agave-erp-sync"]')).toBeNull();
     });
 
@@ -737,7 +723,7 @@ describe('ProductsPairPage', () => {
       // name no connector for an edge that exists ONLY because of one.
       const { el } = setup(buildPairWithProvenance(null, null, agaveProduct));
 
-      expect(el.textContent).toContain('Powered by');
+      expect(el.textContent?.replace(/\s+/g, ' ')).toContain('Through Agave ERP Sync');
       expect(el.querySelector('a[href="/products/agave-erp-sync"]')).toBeTruthy();
       expect(el.textContent).not.toContain('Offered by');
     });
@@ -746,7 +732,7 @@ describe('ProductsPairPage', () => {
       const { el } = setup(buildPair());
 
       expect(el.textContent).not.toContain('Offered by');
-      expect(el.textContent).not.toContain('Powered by');
+      expect(el.textContent).not.toContain('Through');
     });
 
     it('says a vendor-created row was added by the vendor, naming nobody (AECI-1011)', () => {
@@ -802,11 +788,15 @@ describe('ProductsPairPage', () => {
       // The "data transfers" (Layer-B claim rows + lane headings) are gone.
       expect(el.querySelectorAll('aec-agreement-badge')).toHaveLength(0);
       expect(el.querySelectorAll('aec-claim-provenance')).toHaveLength(0);
-      expect(el.querySelector('h3.aec-overline')).toBeNull();
+      // The only overline h3 left is the At a glance strip's, never a lane heading.
+      const h3s = Array.from(el.querySelectorAll('h3.aec-overline')).map((h) =>
+        h.textContent?.trim(),
+      );
+      expect(h3s).toEqual(['At a glance']);
       expect(el.textContent).not.toContain('Sends to Revit');
       expect(el.textContent).not.toContain('Receives from Revit');
       // The Overview essentials remain.
-      expect(el.textContent).toContain('2 data objects sync');
+      expect(el.textContent).toContain('2 types of data shared');
       expect(el.textContent).toContain('The marketplace connector.');
       expect(el.querySelector('a[href="https://example.com/listing"]')).toBeTruthy();
       // Basic is the pressed segment.
@@ -914,6 +904,152 @@ const versionDiff = (
   counts: { added: 0, removed: 0 },
   diff_access: 'full' as const,
   ...overrides,
+});
+
+// ─── AECI-1142: reader wording, the section heading and At a glance ──────────
+//
+// Ruling 2026-09-28 (Chris): the summary band and ratio line are replaced by the
+// per-card At a glance row.
+describe('ProductsPairPage: plain wording and At a glance (AECI-1142)', () => {
+  beforeEach(() => {
+    TestBed.resetTestingModule();
+    clearViewCookie();
+  });
+
+  const withFacts = (overrides: Partial<ProductPairResponse['mechanisms'][number]> = {}) => {
+    const base = buildPairWithClaims(
+      [claim('models', 'Models', 'outbound'), claim('rfis', 'RFIs', 'inbound')],
+      { confirmed: 0 },
+    );
+    return {
+      ...base,
+      maintenance: {
+        maintained_by: 'vendor' as const,
+        last_reviewed_at: '2026-09-20T10:00:00.000Z',
+      },
+      mechanisms: [
+        {
+          ...base.mechanisms[0]!,
+          built_by_vendor: {
+            id: '00000000-0000-4000-8000-000000000b01',
+            slug: 'procore',
+            name: 'Procore Technologies',
+            logo_url: null,
+            verified: false,
+          },
+          pricing_model: 'Free with a Procore subscription',
+          maturity: 'Generally available',
+          last_reviewed_at: '2026-09-20T10:00:00.000Z',
+          ...overrides,
+        },
+      ],
+    };
+  };
+
+  it('uses no data-model jargon anywhere on the rendered page', () => {
+    const { el } = setup(withFacts());
+    const text = el.textContent ?? '';
+    for (const word of [
+      'Provenance',
+      'asserts',
+      'data object',
+      'Unverified',
+      'Vendor-maintained',
+      'a company involved',
+      'Maintained by AEC Integrations',
+      'Kept up to date by',
+    ]) {
+      expect(text).not.toContain(word);
+    }
+  });
+
+  it('states the count as a section heading, with no band, ratio or "i"', () => {
+    const { el } = setup(withFacts());
+    const heading = el.querySelector('[data-testid="pair-data-heading"] h2');
+    expect(heading?.textContent?.trim()).toBe('2 types of data shared');
+    expect(el.textContent).not.toContain('confirmed by both companies ·');
+    expect(el.textContent).not.toContain('of 2 confirmed');
+    expect(el.querySelector('aec-confirmed-ratio-info')).toBeNull();
+  });
+
+  it('carries the empty copy in the heading when nothing is listed', () => {
+    const { el } = setup({ ...buildPair(), mechanisms: [] });
+    expect(el.querySelector('[data-testid="pair-data-heading"] h2')?.textContent?.trim()).toBe(
+      'We haven’t listed what’s shared yet',
+    );
+  });
+
+  it('tints the At a glance strip Bone, with a border and no shadow', () => {
+    const { el } = setup(withFacts());
+    const strip = el.querySelector('[data-testid="pair-glance"]')!;
+    expect(strip.className).toContain('bg-(--accent-warm)');
+    expect(strip.className).toContain('border');
+    expect(strip.className).not.toContain('shadow');
+    // The strip only: the card around it stays on the base surface.
+    expect(strip.closest('article')!.className).toContain('bg-(--surface-base)');
+  });
+
+  it('names no company on the pair header chip, and drops its date', () => {
+    const { el } = setup(withFacts());
+    const chip = el.querySelector('aec-maintenance-marker')?.textContent?.trim();
+    expect(chip).toBe('Vendor maintained');
+  });
+
+  it('renders At a glance on the card with all four facts', () => {
+    const { el } = setup(withFacts());
+    const glance = el.querySelector('[data-testid="pair-glance"]');
+    expect(glance).toBeTruthy();
+    const text = glance!.textContent?.replace(/\s+/g, ' ') ?? '';
+    expect(text).toContain('At a glance');
+    expect(text).toContain('Price Free with a Procore subscription');
+    expect(text).toContain('Release stage Generally available');
+    expect(text).toContain('How you get it Marketplace app');
+    expect(text).toContain('Offered by Procore Technologies');
+    expect(text).toContain('Last checked September 20, 2026');
+    expect(glance!.querySelector('a[href="/vendors/procore"]')).toBeTruthy();
+  });
+
+  it('moves the kind and byline into the facts instead of repeating them', () => {
+    const { el } = setup(withFacts());
+    const text = el.textContent ?? '';
+    expect(text.split('Marketplace app').length - 1).toBe(1);
+    expect(text.split('Offered by').length - 1).toBe(1);
+    // The card states its own date, so the header marker keeps attribution only.
+    expect(el.querySelector('aec-maintenance-marker')?.textContent).not.toMatch(/\d{4}/);
+  });
+
+  it('leaves out a fact with no value, and the strip when none has one', () => {
+    const partial = setup(withFacts({ pricing_model: null, maturity: '  ' }));
+    const text = partial.el.querySelector('[data-testid="pair-glance"]')?.textContent ?? '';
+    expect(text).not.toContain('Price');
+    expect(text).not.toContain('Release stage');
+    expect(text).toContain('How you get it');
+    TestBed.resetTestingModule();
+
+    const empty = setup(
+      withFacts({
+        mechanism_name: null,
+        built_by_vendor: null,
+        pricing_model: undefined,
+        maturity: undefined,
+        last_reviewed_at: undefined,
+      }),
+    );
+    expect(empty.el.querySelector('[data-testid="pair-glance"]')).toBeNull();
+  });
+
+  it('names the connector on a connector-evidenced pair', () => {
+    const { el } = setup(
+      withFacts({
+        mechanism_kind: null,
+        built_by_vendor: null,
+        via: { id: 'c1', slug: 'agave-erp-sync', name: 'Agave ERP Sync', logo_url: null },
+      }),
+    );
+    const glance = el.querySelector('[data-testid="pair-glance"]');
+    expect(glance?.textContent?.replace(/\s+/g, ' ')).toContain('Through Agave ERP Sync');
+    expect(glance?.querySelector('a[href="/products/agave-erp-sync"]')).toBeTruthy();
+  });
 });
 
 describe('ProductsPairPage — version selectors (AECI-303)', () => {

@@ -369,7 +369,7 @@ export interface OwnedProduct {
  * `STAGE_2_ATTESTATIONS_SPEC.md` §13.4 already ships for attestations — *"even a
  * repeat assertion IS a review — that is the event the date records"* — to the
  * rest of the vendor write surface. The vendor branch of the marker renders
- * `Vendor-maintained · Updated <date>`, so "Updated" is exactly what a save is.
+ * `Vendor maintained · Updated <date>`, so "Updated" is exactly what a save is.
  *
  * **Per row, never transitive.** A vendor editing its company profile does not
  * flip its products, and a product edit does not flip the vendor: each row's

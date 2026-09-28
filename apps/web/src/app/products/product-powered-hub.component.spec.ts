@@ -246,7 +246,7 @@ describe('ProductPoweredHub', () => {
       const chips = [...el.querySelectorAll('[data-testid="hub-data-objects"]')].map((c) =>
         c.textContent?.trim(),
       );
-      expect(chips).toEqual(['3 data objects', '1 data object']);
+      expect(chips).toEqual(['3 types of data', '1 type of data']);
       const sublabels = el.querySelectorAll('[data-testid="hub-data-objects-sublabel"]');
       expect(sublabels).toHaveLength(2);
     });
@@ -255,7 +255,7 @@ describe('ProductPoweredHub', () => {
       const el = setupWithObjects([['rfis', 'models'], []]);
       const labels = [...el.querySelectorAll('ul li a')].map((a) => a.getAttribute('aria-label'));
       expect(labels).toEqual([
-        'View the Procore and Partner 0 integration, direction Outbound, API, 2 data objects',
+        'View the Procore and Partner 0 integration, direction Outbound, API, 2 types of data',
         'View the Procore and Partner 1 integration, direction Outbound, API',
       ]);
     });

@@ -1,19 +1,24 @@
 import { ChangeDetectionStrategy, Component, computed, input } from '@angular/core';
 import { BrnPopover, BrnPopoverContent, BrnPopoverTrigger } from '@spartan-ng/brain/popover';
 
-import type { PairClaimAttestation, ProductPairClaim } from '@aeci/shared';
+import type { ProductPairClaim } from '@aeci/shared';
 
-/** One rendered provenance line: who spoke, what they said, and any note. */
+/**
+ * One rendered source line: who spoke, what they said, and any note. `stance` is
+ * `null` when `who` already reads as a whole line ("Listed by AEC Integrations"),
+ * which is how the AECi seed renders (AECI-1142).
+ */
 interface ProvenanceEntry {
   readonly key: string;
   readonly who: string;
-  readonly stance: string;
+  readonly stance: string | null;
   readonly affirms: boolean;
   readonly note: string | null;
 }
 
 /**
- * The **provenance affordance** for a claim (Stage 1.5 §8 — AECI-300; widened to
+ * The **provenance affordance** for a claim, titled "Sources" for readers since
+ * AECI-1142 (Stage 1.5 §8 — AECI-300; widened to
  * the four agreement states by `STAGE_2_ATTESTATIONS_SPEC.md` §4.3 — AECI-605).
  * A small `i` trigger per `data_object` row opens a popover attributing the
  * claim to everyone who has spoken about it, surfacing their notes, and closing
@@ -57,11 +62,11 @@ interface ProvenanceEntry {
           class="w-[min(90vw,20rem)] space-y-3 rounded-(--radius-md) border border-(--border-default)
             bg-(--surface-raised) p-4 text-(--text-primary) shadow-lg"
         >
-          <h3
-            class="text-xs font-semibold uppercase tracking-[0.14em] text-(--text-tertiary)"
-            i18n="@@pair.claim.provenance.title"
-          >
-            Provenance
+          <!-- aec-overline, not text-xs utilities: the unlayered h3 rule in
+               styles.css beats layered utilities and rendered this heading at
+               the 20px serif size. The class is the sanctioned override. -->
+          <h3 class="aec-overline text-(--text-secondary)" i18n="@@pair.claim.provenance.title">
+            Sources
           </h3>
 
           <ul class="space-y-2">
@@ -69,11 +74,13 @@ interface ProvenanceEntry {
               <li class="space-y-1">
                 <p class="text-sm font-medium text-(--text-primary)">
                   {{ e.who }}
-                  <span
-                    class="font-normal"
-                    [class]="e.affirms ? 'text-(--text-secondary)' : 'text-(--status-error)'"
-                    >{{ e.stance }}</span
-                  >
+                  @if (e.stance) {
+                    <span
+                      class="font-normal"
+                      [class]="e.affirms ? 'text-(--text-secondary)' : 'text-(--status-error)'"
+                      >{{ e.stance }}</span
+                    >
+                  }
                 </p>
                 @if (e.note) {
                   <p class="text-sm leading-relaxed text-(--text-secondary)">{{ e.note }}</p>
@@ -98,47 +105,74 @@ export class ClaimProvenance {
   /** The other product's vendor name, for attributing an `other` attestor. */
   readonly otherVendorName = input<string | null>(null);
 
-  /** Resolve one attestation's attributor into display copy. */
-  private who(attestor: PairClaimAttestation['attestor']): string {
-    switch (attestor) {
-      case 'context':
-        return (
-          this.contextVendorName() ?? $localize`:@@pair.claim.provenance.who.context:This vendor`
-        );
-      case 'other':
-        return this.otherVendorName() ?? $localize`:@@pair.claim.provenance.who.other:The partner`;
-      default:
-        return $localize`:@@pair.claim.provenance.who.aeci:AECi`;
-    }
+  /** Resolve a vendor attestation's attributor into display copy. */
+  private who(attestor: 'context' | 'other'): string {
+    return attestor === 'context'
+      ? (this.contextVendorName() ?? $localize`:@@pair.claim.provenance.who.context:This company`)
+      : (this.otherVendorName() ?? $localize`:@@pair.claim.provenance.who.other:The other company`);
   }
 
+  /**
+   * One line per attestation, in plain words (AECI-1142). A vendor line reads
+   * "{Vendor} confirms this" or "{Vendor} says this is not accurate". The AECi seed
+   * reads "Listed by AEC Integrations": AECi never votes (§3.4), so its line says
+   * who listed the item rather than taking a side.
+   */
   protected readonly entries = computed<ProvenanceEntry[]>(() =>
-    this.claim().attestations.map((a) => ({
-      key: a.source,
-      who: this.who(a.attestor),
-      stance: a.asserted
-        ? $localize`:@@pair.claim.provenance.stance.affirms:asserts this flow`
-        : $localize`:@@pair.claim.provenance.stance.denies:disputes this flow`,
-      affirms: a.asserted,
-      note: a.note,
-    })),
+    this.claim().attestations.map((a) => {
+      const denies = $localize`:@@pair.claim.provenance.stance.denies:says this is not accurate`;
+      if (a.attestor === 'aeci') {
+        return a.asserted
+          ? {
+              key: a.source,
+              who: $localize`:@@pair.claim.provenance.aeciListed:Listed by AEC Integrations`,
+              stance: null,
+              affirms: true,
+              note: a.note,
+            }
+          : {
+              key: a.source,
+              who: $localize`:@@pair.claim.provenance.who.aeci:AEC Integrations`,
+              stance: denies,
+              affirms: false,
+              note: a.note,
+            };
+      }
+      return {
+        key: a.source,
+        who: this.who(a.attestor),
+        stance: a.asserted
+          ? $localize`:@@pair.claim.provenance.stance.affirms:confirms this`
+          : denies,
+        affirms: a.asserted,
+        note: a.note,
+      };
+    }),
   );
 
   /** The closing line carries the honest part: what nobody has said yet. */
   protected readonly closing = computed<string>(() => {
     switch (this.claim().agreement) {
       case 'confirmed':
-        return $localize`:@@pair.claim.provenance.closing.confirmed:Both vendors have confirmed this flow.`;
+        return $localize`:@@pair.claim.provenance.closing.confirmed:Both companies confirm this.`;
       case 'single_source': {
         const silent = this.silentVendorName();
         return silent
-          ? $localize`:@@pair.claim.provenance.closing.singleSource:${silent}:vendor: has not responded, so this is one vendor's account rather than an agreed one.`
-          : $localize`:@@pair.claim.provenance.closing.singleSource.unattributed:The other vendor has not responded, so this is one vendor's account rather than an agreed one.`;
+          ? $localize`:@@pair.claim.provenance.closing.singleSource:${silent}:vendor: has not answered yet. Only one company has confirmed this.`
+          : $localize`:@@pair.claim.provenance.closing.singleSource.unattributed:The other company has not answered yet. Only one company has confirmed this.`;
       }
-      case 'conflict':
-        return $localize`:@@pair.claim.provenance.closing.conflict:The two vendors describe this flow differently. We show both accounts rather than pick one.`;
+      case 'conflict': {
+        // Name both companies when there are two distinct names. One company owning
+        // both endpoints, or a missing vendor row, falls back to the generic line
+        // rather than "Autodesk and Autodesk" or an empty name.
+        const a = this.contextVendorName();
+        const b = this.otherVendorName();
+        return a && b && a !== b
+          ? $localize`:@@pair.claim.provenance.closing.conflict.named:${a}:contextVendor: and ${b}:otherVendor: disagree about this. We show both answers and do not take sides.`
+          : $localize`:@@pair.claim.provenance.closing.conflict:The two companies disagree about this. We show both answers and do not take sides.`;
+      }
       default:
-        return $localize`:@@pair.claim.provenance.closing.unverified:No vendor has confirmed this flow.`;
+        return $localize`:@@pair.claim.provenance.closing.unverified:Neither company has confirmed this yet.`;
     }
   });
 
@@ -153,6 +187,6 @@ export class ClaimProvenance {
 
   protected readonly ariaLabel = computed<string>(() => {
     const name = this.claim().data_object_name;
-    return $localize`:@@pair.claim.provenance.aria:Provenance for ${name}:name:`;
+    return $localize`:@@pair.claim.provenance.aria:Sources for ${name}:name:`;
   });
 }

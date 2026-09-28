@@ -676,7 +676,7 @@ export function sendAttestationSilentCounterpartyEmail(
 
 /**
  * `open-conflict` (§7.1): two vendors have taken opposing positions. Copy is
- * deliberately non-accusatory and mirrors the pair page's "Vendors disagree"
+ * deliberately non-accusatory and mirrors the pair page's "Companies disagree" (AECI-1142; was "Vendors disagree")
  * treatment (§4.5) — the disagreement is surfaced as a difference in description,
  * not as a defect in either product.
  */

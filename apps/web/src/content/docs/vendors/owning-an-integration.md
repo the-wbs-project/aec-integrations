@@ -34,7 +34,7 @@ Once you claim it:
 - You can edit its details, and your edits go live.
 - The vendor of the other product is told that you claimed it.
 - Contests sent after the claim about its details come to you, in Messages under Field contests. Contests sent before the claim stay with AEC Integrations. On an integration delivered through a connector, new contests come to you only while your company has an active plan.
-- The public page shows it as vendor-maintained.
+- The public page marks it "Vendor maintained".
 
 A claim cannot be undone from the portal. The only way an integration leaves its owner is an AEC Integrations decision on a contest about who owns it.
 

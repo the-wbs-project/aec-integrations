@@ -448,7 +448,7 @@ describe('PATCH /api/vendor/profile', () => {
   // ── Maintenance transfer (AECI-981 / STAGE_2_ATTESTATIONS_SPEC.md §13.9) ───
   //
   // The defect this closes: a vendor could save its profile and the public
-  // listing still read `Maintained by AEC Integrations`, because NOTHING wrote
+  // listing still read `AEC Integrations maintained`, because NOTHING wrote
   // `vendors.maintained_by` — the §13.4 flip only ever touched `integrations`.
 
   it('puts the record on the vendor’s name and stamps the review date', async () => {

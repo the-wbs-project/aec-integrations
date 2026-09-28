@@ -10,8 +10,10 @@ import type { AgreementState } from '@aeci/shared';
  *
  * - **`unverified`** — the Stage 1.5 baseline, and the state of every claim no
  *   vendor has confirmed. Still the overwhelming majority of the catalog.
- *   Neutral chip, read as *"not vendor-confirmed"*, never a warning or a defect
- *   (the AECi-never-red rule, §3.4).
+ *   Neutral chip reading "Listed by AEC Integrations" (AECI-1142: says who
+ *   listed it, in plain words, instead of the old "Unverified · AECi"). Never a
+ *   warning or a defect (the AECi-never-red rule, §3.4). Its accessible name adds
+ *   that neither company has confirmed it.
  * - **`single_source`** — exactly one vendor affirms and the counterparty is
  *   silent. Deliberately **neutral and attributed**: it names the vendor and
  *   says the other has not responded, so the silence is visible rather than
@@ -77,35 +79,37 @@ export class AgreementBadge {
   protected readonly label = computed<string>(() => {
     switch (this.agreement()) {
       case 'confirmed':
-        return $localize`:@@pair.claim.badge.confirmed:Both vendors confirmed`;
+        return $localize`:@@pair.claim.badge.confirmed:Confirmed by both companies`;
       case 'single_source': {
         const vendor = this.attributedTo();
         return vendor
           ? $localize`:@@pair.claim.badge.singleSource:Confirmed by ${vendor}:vendor:`
-          : $localize`:@@pair.claim.badge.singleSource.unattributed:Confirmed by one vendor`;
+          : $localize`:@@pair.claim.badge.singleSource.unattributed:Confirmed by one company`;
       }
       case 'conflict':
-        return $localize`:@@pair.claim.badge.conflict:Vendors disagree`;
+        return $localize`:@@pair.claim.badge.conflict:Companies disagree`;
       default:
-        return $localize`:@@pair.claim.badge.unverified:Unverified · AECi`;
+        return $localize`:@@pair.claim.badge.unverified:Listed by AEC Integrations`;
     }
   });
 
   protected readonly ariaLabel = computed<string>(() => {
     switch (this.agreement()) {
       case 'confirmed':
-        return $localize`:@@pair.claim.badge.confirmed.aria:Confirmed by both vendors.`;
+        return $localize`:@@pair.claim.badge.confirmed.aria:Confirmed by both companies.`;
       case 'single_source': {
         const vendor = this.attributedTo();
         // The counterparty's silence is stated, never left to be inferred.
         return vendor
-          ? $localize`:@@pair.claim.badge.singleSource.aria:Confirmed by ${vendor}:vendor:. The other vendor has not responded.`
-          : $localize`:@@pair.claim.badge.singleSource.unattributed.aria:Confirmed by one vendor. The other vendor has not responded.`;
+          ? $localize`:@@pair.claim.badge.singleSource.aria:Confirmed by ${vendor}:vendor:. The other company has not answered yet.`
+          : $localize`:@@pair.claim.badge.singleSource.unattributed.aria:Confirmed by one company. The other company has not answered yet.`;
       }
       case 'conflict':
-        return $localize`:@@pair.claim.badge.conflict.aria:The two vendors describe this data flow differently.`;
+        return $localize`:@@pair.claim.badge.conflict.aria:The two companies disagree about this.`;
       default:
-        return $localize`:@@pair.claim.badge.unverified.aria:Unverified. Asserted by AECi, not yet vendor-confirmed.`;
+        // The visible label says who listed it. The accessible name also says what
+        // is missing, so "listed" is never heard as an endorsement.
+        return $localize`:@@pair.claim.badge.unverified.aria:Listed by AEC Integrations from public sources. Neither company has confirmed it yet.`;
     }
   });
 

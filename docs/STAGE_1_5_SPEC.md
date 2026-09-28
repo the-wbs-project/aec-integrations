@@ -261,7 +261,17 @@ Rules:
 
 ### 3.5 The `confirmed / total` sync headline
 
-The pair page leads its data-flow section with a headline of the form **"N data objects sync"** plus a verification ratio **`confirmed / total`**:
+> **Ruling 2026-09-28 (Chris): the summary band and ratio line are replaced by the per-card At a
+> glance row.** (AECI-1142.) The pair page now leads its data section with a plain `h2`, **"N
+> types of data shared"**, built from `total` alone. There is no Bone summary band, no
+> `confirmed / total` ratio line, no "confirmed by one company only" clause, no band subline and no
+> ratio `i` popover: the per-row agreement badges already say who confirmed what, claim by claim.
+> Each mechanism card instead carries an **"At a glance"** strip (see the AECI-1142 note at the end
+> of this section). Everything below that describes the rendered ratio, the subline and the
+> popover is **historical**. The three counts are still computed and still on the wire, and the
+> rules for them below still hold, but the web renders `total` only.
+
+The pair page leads its data-flow section with a headline of the form **"N types of data shared"** (worded "N data objects sync" until AECI-1142, see the note below). Until AECI-1142 it also carried a verification ratio **`confirmed / total`**:
 
 - **`total`** — the number of distinct **data objects** on the pair: distinct `data_object` slugs across every live claim, all directions, all mechanisms, both delivered anchors (`integrations` and `connector_evidenced_pairs`).
 - **`confirmed`** — data objects with at least one claim whose computed agreement is vendor-confirmed.
@@ -269,7 +279,7 @@ The pair page leads its data-flow section with a headline of the form **"N data 
 
 > **Amendment (AECI-1042, 2026-09-22) — the headline counts objects, not claim rows.** Until this change `total` was the distinct **claim** count, so a data_object moving through two mechanisms counted twice (the §3.1 consequence carried straight into the headline). The header reads "N data objects sync", so a pair with a native connector and a Zapier app that both move RFIs over-stated its coverage, and a duplicate integration row doubled it. The count is now taken over distinct `data_object` slugs, in `computeSyncHeadline` (`packages/shared/src/agreement.ts`). §3.1 is unchanged: those remain **two claims**, and both still render under their own mechanism. Only the headline de-duplicates. `removed` claims stay excluded before the count (AECI-303).
 
-`single_source` is reported as its **own clause**, never added into `confirmed` — folding a one-sided assertion into the bilateral figure is the overstatement `STAGE_2_SPEC.md` §8.1(4) forbids. The rendered line reads e.g. "3 of 12 confirmed by both vendors · 4 confirmed by one vendor only", and the second clause is omitted entirely at zero rather than rendered as "0".
+_(Historical: the ratio line was removed by the 2026-09-28 ruling above.)_ `single_source` is reported as its **own clause**, never added into `confirmed` — folding a one-sided assertion into the bilateral figure is the overstatement `STAGE_2_SPEC.md` §8.1(4) forbids. The rendered line reads e.g. "3 of 12 confirmed by both vendors · 4 confirmed by one vendor only", and the second clause is omitted entirely at zero rather than rendered as "0".
 
 > **As-built (2026-09-24).** The numerator clause was reworded from "N of M vendor-confirmed" to
 > "N of M confirmed by both vendors" (`@@pair.dataflow.ratio` → `@@pair.dataflow.ratio.bothVendors`):
@@ -280,9 +290,56 @@ The pair page leads its data-flow section with a headline of the form **"N data 
 > share one vendor. Its "Until then, a flow comes from AECi's own research" line renders only under
 > the same `awaitingVendors` gate as the band subline, so it never credits AECi once a vendor has
 > attested. The "confirmed by one vendor only" clause is unchanged.
+>
+> **Removed by AECI-1142 (2026-09-28).** The ratio line went with the band, so `confirmed-ratio-info.ts`
+> and its spec had no consumer left and were deleted. Its `@@pair.dataflow.ratio.*` and
+> `@@pair.dataflow.subline.aeciAsserted` ids no longer exist in the source.
 
-In Stage 1.5 **both counts are 0** for every pair (no vendor attestations), so the headline communicates breadth ("12 data objects sync") with an honest **"Unverified"** posture, never a fake trust signal. The ratio becomes meaningful in Stage 2.
+In Stage 1.5 **both counts are 0** for every pair (no vendor attestations), so the headline communicates breadth ("12 types of data shared") with an honest **"Listed by AEC Integrations"** posture, never a fake trust signal. _(The ratio these counts fed is no longer rendered; see the ruling at the top of this section.)_
 
+> **As-built (AECI-1142, 2026-09-28) — plain buyer words, and At a glance.** The pair
+> page stopped speaking in the data model's terms. The reader copy now reads:
+>
+> | Surface | Before | Now |
+> |---|---|---|
+> | Headline | N data objects sync | N types of data shared |
+> | Ratio | N of M confirmed by both vendors · N confirmed by one vendor only | removed |
+> | Band subline | These flows are asserted by AECi. | removed |
+> | Header chip, vendor branch | Vendor-maintained · Updated {date} | Vendor maintained (no date on the pair page; each card states its own) |
+> | Header chip, AECi branch | Maintained by AEC Integrations | AEC Integrations maintained |
+> | Popover title | Provenance | Sources |
+> | Popover lines | {Vendor} asserts / disputes this flow; AECi asserts this flow | {Vendor} confirms this; {Vendor} says this is not accurate; Listed by AEC Integrations |
+> | Conflict footer | The two vendors describe this flow differently. We show both accounts rather than pick one. | {A} and {B} disagree about this. We show both answers and do not take sides. |
+> | Badges | Unverified · AECi, Both vendors confirmed, Vendors disagree | Listed by AEC Integrations, Confirmed by both companies, Companies disagree |
+> | Card chip | N data objects | N types of data |
+>
+> The i18n ids are unchanged except where a string gained a placeholder or split
+> (`@@pair.claim.provenance.aeciListed`, `@@pair.claim.provenance.closing.conflict.named`).
+>
+> **Ruling 2026-09-28 (Chris): the summary band and ratio line are replaced by the per-card At a
+> glance row.** Two layouts were compared behind a dev-only `?band=` param, which is now removed
+> (code, cache key and tests). What shipped:
+>
+> - **The heading.** "N types of data shared" is a plain `h2` above the mechanism cards
+>   (`data-testid="pair-data-heading"`). With no claims it carries the AECI-919 empty copy (§8)
+>   instead. The version-diff summary and "Show the latest versions" sit under it.
+> - **At a glance, per card.** Price (`pricing_model`), Release stage (`maturity`), How you get it
+>   (the kind, plus "Offered by {owner}" or "Through {connector}", or both), and Last checked (the
+>   row's own `last_reviewed_at`, UTC, `MMMM d, y`). Per card because each is a column of one
+>   integration row: a pair with a native connector and a Zapier app has two prices. An empty
+>   fact is left out, and the strip is left out when all four are empty. It renders in Basic and
+>   Detailed alike. The contract fields are in `API_CONTRACTS.md` (additive, `.optional()`).
+> - **No repetition.** The kind chip and the "Offered by / Powered by" byline moved into "How you
+>   get it", so the card header shows the mechanism name alone. The header maintenance chip drops
+>   its date, because each card states its own.
+> - **The tint.** The strip takes the removed band's ground, Bone (`--accent-warm`), with a
+>   `border-default` border and no shadow. The strip only, never the whole card: the claim lanes
+>   below are already tinted boxes. Labels stay `text-secondary`; axe reports no contrast issue.
+> - **The header chip (maintenance marker, `STAGE_2_ATTESTATIONS_SPEC.md` §13.5).** **Ruling 2026-09-28 (Chris): the maintenance chip uses exactly two labels everywhere, "AEC Integrations maintained" and "Vendor maintained".**
+>   That covers the pair page, product detail, vendor detail and every other consumer of
+>   `maintenance-marker.ts`. The company is never in the visible label. Where the page can
+>   prove who wrote (product and vendor pages), an sr-only suffix names it: "Vendor maintained:
+>   Procore Technologies keeps this up to date". The pair page passes no name and no date.
 ---
 
 ## 4. Review app (bamako) — authoring & re-curation
@@ -479,17 +536,21 @@ The cause is structural rather than a defect in the promote: an edge's identity 
 
 - **`computeAgreement`** — `packages/shared/src/agreement.ts` (pure; vendor-vs-vendor; AECi excluded → never `conflict` — §3.4), unit-tested against synthetic vendor attestations so the Stage 2 branches are proven now.
 - **Data-flow section.** For the pair, list each claim as a **`data_object` + direction** row, with the direction shown **context-relative** to the page's context product (`outbound` / `inbound` / `both` — §3.2). Group by integration (mechanism) so a pair connected by two connectors reads clearly.
-- **"Unverified" pills.** Every claim shows an **"Unverified"** state in 1.5 (§3.4). The pill styling and copy must read as _"not yet vendor-confirmed"_, not as a warning/defect. _(AECI-605 added the other three states to the same `AgreementBadge`; their tone and copy are specified in `STAGE_2_ATTESTATIONS_SPEC.md` §4.3/§4.5. `unverified` is unchanged and still the only 1.5-reachable one.)_
+- **"Unverified" pills.** Every claim shows the **`unverified`** state in 1.5 (§3.4), labelled **"Listed by AEC Integrations"** since AECI-1142 (the accessible name adds "Neither company has confirmed it yet"). The pill styling and copy must read as _"not yet vendor-confirmed"_, not as a warning/defect. _(AECI-605 added the other three states to the same `AgreementBadge`; their tone and copy are specified in `STAGE_2_ATTESTATIONS_SPEC.md` §4.3/§4.5. `unverified` is unchanged and still the only 1.5-reachable one.)_
 - **The empty band has two copies, and the Layer-A arrow picks between them (AECI-919).** The band
   counts **Layer-B claims**, while the standalone Layer-A direction arrow renders whenever
   `!hasClaims && direction` — so on a mechanism with a stored direction and no claims the band went
   empty _directly above a documented direction_ and read "Data flows aren't documented yet". The
   band was right about the claims and wrong about the page. Copy now forks:
 
-  | Condition                                                                | Headline                             | Subline                                                           |
-  | ------------------------------------------------------------------------ | ------------------------------------ | ----------------------------------------------------------------- |
-  | `viewMode === 'detailed'` **and** some mechanism renders a Layer-A arrow | We haven't catalogued what syncs yet | Direction is documented below; the records that cross aren't yet. |
-  | otherwise (no direction anywhere, an unconnected pair, or Basic view)    | Data flows aren't documented yet     | We're cataloguing what each integration syncs.                    |
+  | Condition                                                                | Headline                                | Subline                                                         |
+  | ------------------------------------------------------------------------ | --------------------------------------- | --------------------------------------------------------------- |
+  | `viewMode === 'detailed'` **and** some mechanism renders a Layer-A arrow | We haven't listed the types of data yet | The direction is shown below. The types of data aren't listed yet. |
+  | otherwise (no direction anywhere, an unconnected pair, or Basic view)    | We haven't listed what's shared yet     | We're listing what each integration shares.                     |
+
+  Worded by AECI-1142. The copy moved from template `i18n` attributes into `emptyBandCopy()` in
+  `products-pair.ts` with the same ids. Since the 2026-09-28 ruling there is no band: the copy is
+  the data section's `h2` and its subline.
 
   The gate is `PairView.hasLayerADirection`, and it applies **the same predicate the per-mechanism
   card gates its arrow on**. If the two drift the band promises a direction "below" that no card
@@ -505,9 +566,9 @@ The cause is structural rather than a defect in the promote: an edge's identity 
   table: an `integrations` row's claims are read against its source, an evidenced pair's against
   canonical endpoint A (`product_a_id`), never the oriented source. The pair timeline reads both
   tables the same way.
-- **Sync headline.** Lead with the `confirmed / total` headline (§3.5) — in 1.5, `confirmed = 0`, so it communicates breadth honestly.
+- **Sync headline.** Lead with the "N types of data shared" heading (§3.5). **Ruling 2026-09-28 (Chris): the summary band and ratio line are replaced by the per-card At a glance row.** The `confirmed / total` ratio is no longer rendered; the per-row badges carry confirmation.
 - API: a pair-page read (extend the integrations read path / a `GET /api/claims` for a pair) returns claims with context-relative direction already translated (§3.2) and the computed agreement state — the browser does not re-derive identity.
-- **Basic / Detailed disclosure toggle.** The consolidated page carries a lot of per-mechanism detail; a segmented **Basic / Detailed** control in the header lets readers collapse it. **Detailed** (the default) is the full page above. **Basic** ("Overview") keeps the rail, the sync headline, and each mechanism's kind/name + description + external links, and hides the granular data transfers — the Layer-B `data_object` claim lanes **and** the standalone Layer-A direction arrow. State is a **content-affecting URL param** `?view=basic|detailed` (absent ⇒ `detailed`), so the page stays deep-linkable, SSR-correct, and visitor-state-neutral; it is **added to the pair route's `cacheKeyParams`** (`CACHE_STRATEGY.md` §4a), mirroring `/products ?view=table` (AECI-190). The default (param-absent) URL renders the full claim set, so the crawler-indexed page and the canonical are unaffected. The toggle is suppressed when no mechanism has a claim lane or a direction arrow (nothing to collapse).
+- **Basic / Detailed disclosure toggle.** The consolidated page carries a lot of per-mechanism detail; a segmented **Basic / Detailed** control in the header lets readers collapse it. **Detailed** (the default) is the full page above. **Basic** ("Overview") keeps the rail, the sync headline, and each mechanism's name + At a glance strip + description + external links (the kind moved into the strip with AECI-1142), and hides the granular data transfers — the Layer-B `data_object` claim lanes **and** the standalone Layer-A direction arrow. State is a **content-affecting URL param** `?view=basic|detailed` (absent ⇒ `detailed`), so the page stays deep-linkable, SSR-correct, and visitor-state-neutral; it is **added to the pair route's `cacheKeyParams`** (`CACHE_STRATEGY.md` §4a), mirroring `/products ?view=table` (AECI-190). The default (param-absent) URL renders the full claim set, so the crawler-indexed page and the canonical are unaffected. The toggle is suppressed when no mechanism has a claim lane or a direction arrow (nothing to collapse).
   - **Remembered default (cookie).** The reader's last explicit choice is persisted in a client-only cookie (`aeci_pair_view`, 1-year) so it becomes the default on the next pair-page visit. **Cache-neutrality is non-negotiable:** the cookie is written only on a toggle click and read only **post-hydration** (`afterNextRender`, browser-only), so SSR never reads it and it is deliberately **not** in `VISITOR_STATE_COOKIES`. The `?view=` URL param stays the source of truth — an explicit param always wins (deep-link + cache-key fork); the cookie only supplies the default when the URL carries no `?view=`, reconciled in the browser after hydration (same pattern as the analytics-consent banner). See `CACHE_STRATEGY.md` §6.1.
 
 ---
@@ -1292,8 +1353,8 @@ objects" chip, at the kind badge's weight, in Basic and Detailed views. The chip
 `effective_direction`, the claims-aware value the row's `context_direction` uses. It never reads the
 stored direction, which this page already hides once claims exist. In Detailed view with no claims
 the chip is omitted, because the Layer-A line states the same direction in that card. Three
-rulings from 2026-09-23 apply. First, on a pair with one mechanism whose band headline already
-reads "N data objects sync", the card's object chip is hidden, because it would repeat the headline.
+rulings from 2026-09-23 apply. First, on a pair with one mechanism whose section heading already
+reads "N types of data shared" (the AECI-1142 wording), the card's object chip is hidden, because it would repeat the headline.
 Second, on a Via-lane row with no mechanism kind, the "–" placeholder is dropped when the object chip
 shows, because the lane heading already names the connector. Third, the card header keeps its chips
 on one line with the heading at 1280px. This section's rows show the

@@ -176,8 +176,8 @@ import {
  *
  * Promote may advance `last_reviewed_at` on a record AECi maintains, and must not
  * on one a vendor maintains. The marker's two branches use different verbs off the
- * SAME column — `Maintained by AEC Integrations · Reviewed <date>` versus
- * `Vendor-maintained · Updated <date>` — so an AECi review date landing on a
+ * SAME column — `AEC Integrations maintained · Reviewed <date>` versus
+ * `Vendor maintained · Updated <date>` — so an AECi review date landing on a
  * vendor-maintained row attributes AECi's work to the vendor. That is exactly the
  * mis-attribution §13.5 branch-scopes `computePairMaintenance` to prevent; this
  * closes the same hole at the row grain, on the write side.

@@ -1312,7 +1312,7 @@ describe('DELETE /api/vendor/claims/:claimId/attestation', () => {
 // ─── The maintenance marker's vendor branch (AECI-616 / §13) ─────────────────
 //
 // `integrations.maintained_by` is what flips the pair-page header from
-// "Maintained by AEC Integrations." to "Vendor-maintained. Updated <date>." This
+// "AEC Integrations maintained" to "Vendor maintained · Updated <date>" This
 // surface is its only writer of `'vendor'`.
 
 describe('maintenance marker — integrations.maintained_by (AECI-616)', () => {

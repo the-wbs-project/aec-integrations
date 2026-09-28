@@ -27,36 +27,46 @@ const chipOf = (el: HTMLElement) => el.querySelector('span[aria-label]')!;
 describe('AgreementBadge', () => {
   beforeEach(() => TestBed.resetTestingModule());
 
-  it('renders the neutral "Unverified · AECi" chip for the Stage 1.5 state', () => {
+  it('renders the neutral "Listed by AEC Integrations" chip for the Stage 1.5 state', () => {
     const el = render('unverified');
-    expect(el.textContent).toContain('Unverified · AECi');
-    expect(ariaOf(el)).toContain('not yet vendor-confirmed');
+    expect(el.textContent).toContain('Listed by AEC Integrations');
+    // "Listed" must never be heard as an endorsement: the name says what is missing.
+    expect(ariaOf(el)).toContain('Neither company has confirmed it yet');
+  });
+
+  // AECI-1142: no data-model jargon in the reader's words.
+  it('uses no model jargon in any state', () => {
+    for (const state of AGREEMENT_STATES) {
+      const el = render(state, 'Acme Software');
+      const text = `${el.textContent} ${ariaOf(el)}`;
+      expect(text).not.toMatch(/Unverified|AECi\b|Asserted|vendor|data flow/);
+    }
   });
 
   it('attributes single_source to the affirming vendor and names the silence', () => {
     const el = render('single_source', 'Acme Software');
     expect(el.textContent).toContain('Confirmed by Acme Software');
     // The counterparty's silence must be stated, not implied (§4.3).
-    expect(ariaOf(el)).toContain('The other vendor has not responded');
+    expect(ariaOf(el)).toContain('The other company has not answered yet');
   });
 
   it('falls back to an unattributed phrasing when the vendor has no record', () => {
     const el = render('single_source', null);
-    expect(el.textContent).toContain('Confirmed by one vendor');
+    expect(el.textContent).toContain('Confirmed by one company');
     expect(el.textContent).not.toContain('null');
-    expect(ariaOf(el)).toContain('has not responded');
+    expect(ariaOf(el)).toContain('has not answered yet');
   });
 
   it('reserves the bilateral wording for confirmed', () => {
     const el = render('confirmed');
-    expect(el.textContent).toContain('Both vendors confirmed');
-    expect(ariaOf(el)).toContain('both vendors');
+    expect(el.textContent).toContain('Confirmed by both companies');
+    expect(ariaOf(el)).toContain('both companies');
   });
 
-  it('reads conflict as a difference between vendors, not a product defect', () => {
+  it('reads conflict as a difference between companies, not a product defect', () => {
     const el = render('conflict');
-    expect(el.textContent).toContain('Vendors disagree');
-    expect(ariaOf(el)).toContain('describe this data flow differently');
+    expect(el.textContent).toContain('Companies disagree');
+    expect(ariaOf(el)).toContain('The two companies disagree about this');
   });
 
   // The §4.3 render contract, asserted structurally rather than by eyeballing

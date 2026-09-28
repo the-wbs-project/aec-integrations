@@ -630,7 +630,7 @@ function attestationAudit(
 // ─── The maintenance marker's vendor branch (AECI-616 / §13) ─────────────────
 //
 // `integrations.maintained_by` is what makes the pair page's header read
-// `Vendor-maintained.` instead of `Maintained by AEC Integrations.`, and
+// `Vendor maintained` instead of `AEC Integrations maintained`, and
 // `last_reviewed_at` is the date beside it. This surface is the ONLY writer of the
 // `'vendor'` value — promote deliberately does not accept the column, so a routine
 // promote push can never flip a record back (the AECI-520 / AECI-604 lesson).

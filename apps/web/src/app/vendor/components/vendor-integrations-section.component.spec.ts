@@ -220,7 +220,7 @@ describe('VendorIntegrationsSection — reconciliation', () => {
     fixture.detectChanges();
 
     expect(api.getIntegrations.mock.calls.length).toBe(before);
-    expect(text(fixture)).toContain('Both vendors confirmed');
+    expect(text(fixture)).toContain('Confirmed by both companies');
   });
 
   it('announces a write through the portal channel, naming the subject', async () => {

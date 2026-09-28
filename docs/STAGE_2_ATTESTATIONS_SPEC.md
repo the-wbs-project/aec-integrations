@@ -595,7 +595,9 @@ two distinct vendors.
 - **`confirmed` earns the positive treatment.** Bilateral only.
 - **`unverified`** keeps its Stage 1.5 neutral "not yet vendor-confirmed" reading (§8) — never a
   warning.
-- **Sync headline** (`STAGE_1_5_SPEC.md` §3.5) widens from `{ total, confirmed }` to
+- **Sync headline** (`STAGE_1_5_SPEC.md` §3.5; **ruling 2026-09-28 (Chris): the summary band and
+  ratio line are replaced by the per-card At a glance row**, so the page renders `total` only and
+  the rest of this bullet is historical) widens from `{ total, confirmed }` to
   `{ total, confirmed, single_source }` — additive on the Zod object. `confirmed` stops being
   structurally 0 for the first time; the headline copy must distinguish the two.
 - Surfaces to update in lockstep: the pair page claim lanes
@@ -680,6 +682,12 @@ migration. Decisions taken at build that §4.1–§4.4 did not pre-specify:
   and `aria-label`, and `single_source`'s aria states the counterparty's silence outright.
   `single_source` shares the neutral chip with `unverified` — by design, so a lone affirmation can
   never borrow the affirmative treatment.
+- **Reworded by AECI-1142 (2026-09-28).** The labels above are superseded for readers:
+  `conflict` → **"Companies disagree"**, `confirmed` → **"Confirmed by both companies"**,
+  `single_source` → "Confirmed by {vendor}" (unattributed: "Confirmed by one company"),
+  `unverified` → **"Listed by AEC Integrations"**. The provenance popover is titled "Sources" and
+  its lines read "{Vendor} confirms this" / "{Vendor} says this is not accurate". The tonal ladder,
+  the glyph and the ids are unchanged. `STAGE_1_5_SPEC.md` §3.5 carries the full before/after table.
 - **The badge stays a `rounded.sm` chip.** Its agreement-specific wording and tonal ladder keep it
   distinct from `VendorAccountBadge`, which describes active account access rather than a claim.
 - **`@@pair.dataflow.subline`** ("Vendor confirmation arrives with the vendor portal") is now
@@ -690,7 +698,8 @@ migration. Decisions taken at build that §4.1–§4.4 did not pre-specify:
   forthcoming were retired and re-keyed —
   `@@pair.claim.provenance.closing` → `@@pair.claim.provenance.closing.unverified`
   ("No vendor has confirmed this flow."),
-  `@@pair.dataflow.subline` → `@@pair.dataflow.subline.aeciAsserted`
+  `@@pair.dataflow.subline` → `@@pair.dataflow.subline.aeciAsserted` (removed with the band by
+  AECI-1142, 2026-09-28)
   ("These flows are asserted by AECi."), and
   `@@pair.dataflow.empty.subline` → `@@pair.dataflow.empty.subline.cataloguing`
   (the trailing sentence dropped — with zero claims there is nothing to be unconfirmed about).
@@ -2186,7 +2195,7 @@ files.*
 Stage 1 shipped the marker component to `main` as **attribution only** — `Maintained by AEC
 Integrations.` on product detail, vendor detail, and the pair page, mounted with no inputs at all.
 The component already contains both dormant branches (the `Reviewed <date>.` clause and the
-`Vendor-maintained.` branch, UTC-pinned). This issue is the **data + plumbing** that reaches them.
+`Vendor maintained` branch, UTC-pinned). This issue is the **data + plumbing** that reaches them.
 
 ### 13.1 Why the date was withheld, and why that reasoning is the spec
 
@@ -2231,7 +2240,7 @@ column is indexed — both are read with the row.
 > path only" for four weeks while the vendor portal shipped a profile editor, a
 > product editor and version authoring — none of which wrote either column. The
 > consequence was the reported defect: a vendor saved its product and the public
-> listing still read `Maintained by AEC Integrations`. §13.9 is the ruling.
+> listing still read `AEC Integrations maintained`. §13.9 is the ruling.
 
 **Absence is the contract.** The promote projections run through `compact()`, which drops
 `undefined`, so omitting `lastReviewedAt` leaves the stored value untouched on both the insert and
@@ -2265,6 +2274,11 @@ audit row (§26.1):
 
 ### 13.5 Read path
 
+> **Ruling 2026-09-28 (Chris): the maintenance chip uses exactly two labels everywhere, "AEC Integrations maintained" and "Vendor maintained".** (AECI-1142.) Visible text is `AEC Integrations maintained` or `Vendor
+> maintained`, each with an optional ` · Reviewed <date>` / ` · Updated <date>` clause. The
+> company name appears only in an sr-only suffix, and only on product and vendor pages. The pair
+> page shows neither a name nor a date. `STAGE_1_5_SPEC.md` §3.5 carries the full note.
+
 `MaintenanceSchema` (`packages/shared/src/api/common.ts`) is `{ maintained_by, last_reviewed_at }`,
 carried as a `maintenance` object on `ProductDetail`, `VendorDetail`, and `ProductPairResponse`.
 Both fields carry `.default(...)` for the **same reason `SyncHeadlineSchema.single_source` does**
@@ -2276,14 +2290,14 @@ The pair page is the interesting one — N mechanisms, one header marker. `compu
 - `maintained_by` is `'vendor'` if **any** mechanism is. A page carrying even one vendor-authored
   mechanism is no longer purely AECi's word.
 - the date is the max **within the winning branch only**. A global max would let an AECi mechanism
-  reviewed in July supply the date for a header reading `Vendor-maintained. Updated <date>.` —
+  reviewed in July supply the date for a header reading `Vendor maintained · Updated <date>` —
   attributing AECi's review to the vendor. Scoping keeps both halves of the sentence about the same
   records.
 
 ### 13.6 The marker and the agreement pill coexist
 
 They answer different questions at different grains and both render: the marker is a **page-header**
-attribution ("who is on the hook for this page"), the `Unverified · AECi` pill is **per claim**, on
+attribution ("who is on the hook for this page"), the `unverified` ("Listed by AEC Integrations") pill is **per claim**, on
 the mechanism cards ("do the two vendors agree about this one `data_object`"). `DESIGN.md` already
 keeps their wording and tones distinct. The marker and agreement state are both `rounded.sm`
 chips. Merging them would collapse two separate signals into one. **As revised (AECI-1131,
@@ -2358,7 +2372,7 @@ alone. The vendor portal then shipped three more write surfaces onto `vendors` a
 structural rather than a bug in any one handler — **nothing in the repo ever wrote
 `vendors.maintained_by`, `vendors.last_reviewed_at`, `products.maintained_by` or
 `products.last_reviewed_at`.** A vendor could save its product and the public
-listing still read `Maintained by AEC Integrations`.
+listing still read `AEC Integrations maintained`.
 
 Everything downstream of that write already worked: the columns, the CHECKs, the
 `MaintenanceSchema` carriers, `toMaintenance`, `computePairMaintenance`, the
@@ -2372,7 +2386,8 @@ index carries neither column.
 `maintained_by = 'vendor'` and stamps `last_reviewed_at = now` on the affected row,
 unconditionally. That is §13.4's own reasoning applied to the rest of the surface —
 *"even a repeat assertion IS a review — that is the event the date records"* — and
-the marker's vendor branch already renders `Vendor-maintained · Updated <date>`, so
+the marker's vendor branch renders `Vendor maintained · Updated <date>` (worded
+`Vendor-maintained · Updated <date>` until AECI-1142), so
 "Updated" is the accurate verb for a save.
 
 The nine write sites are the complete list (five at AECI-981; AECI-1008 added the sixth, AECI-1005 the seventh, AECI-1006 the eighth, AECI-1007 the ninth):

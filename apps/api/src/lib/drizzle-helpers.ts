@@ -346,6 +346,9 @@ export const connectorEvidencedPairPairConfig = {
     description: true,
     listingUrl: true,
     docsUrl: true,
+    // AECI-1142: the same "At a glance" facts `integrationPairConfig` selects.
+    pricingModel: true,
+    maturity: true,
     lastReviewedAt: true,
     maintainedBy: true,
   },
@@ -428,6 +431,10 @@ export interface RawConnectorEvidencedPairDetailRow extends RawConnectorEvidence
   description: string | null;
   listingUrl: string | null;
   docsUrl: string | null;
+  /** AECI-1142: the card's "At a glance" facts. Optional so a hand-built fixture
+   *  without them still type-checks and serialises as `null`. */
+  pricingModel?: string | null;
+  maturity?: string | null;
   lastReviewedAt: string | null;
   maintainedBy: string;
   builtByVendor: RawVendorLink | null;
@@ -589,9 +596,10 @@ export const integrationDetailConfig = {
 
 /**
  * Pair-page mechanism hydration (Stage 1.5 §7 — AECI-294). Like the detail
- * config but drops the redundant `mechanism_url`/`pricing_model`/`maturity`
- * fields (unused by the pair card) while keeping source/target — needed to
- * translate the stored direction into the context product's frame.
+ * config but drops `mechanism_url` (unused by the pair card) while keeping
+ * source/target — needed to translate the stored direction into the context
+ * product's frame. `pricing_model` and `maturity` joined in AECI-1142 for the
+ * card's "At a glance" facts.
  */
 export const integrationPairConfig = {
   columns: {
@@ -603,8 +611,11 @@ export const integrationPairConfig = {
     description: true,
     listingUrl: true,
     docsUrl: true,
-    // Feed the page header's maintenance marker (AECI-616). Not surfaced per
-    // mechanism — `computePairMaintenance` folds them into one header value.
+    // AECI-1142: the card's "At a glance" price and release stage.
+    pricingModel: true,
+    maturity: true,
+    // Feed the page header's maintenance marker (AECI-616), folded by
+    // `computePairMaintenance`. AECI-1142 also returns the date per mechanism.
     lastReviewedAt: true,
     maintainedBy: true,
     // AECI-1007: the connector fence on per-side links reads the raw FK, not the
@@ -1189,8 +1200,12 @@ export interface RawIntegrationPairRow {
   poweredByProductId?: string | null;
   /** AECI-1011. Optional for the same reason: a fixture without it reads as `'aeci'`. */
   origin?: string;
-  // Folded into the page header by `computePairMaintenance`, not surfaced per
-  // mechanism (AECI-616).
+  /** AECI-1142: the card's "At a glance" facts. Optional for hand-built fixtures,
+   *  which serialise them as `null`. */
+  pricingModel?: string | null;
+  maturity?: string | null;
+  // Folded into the page header by `computePairMaintenance` (AECI-616), and since
+  // AECI-1142 also surfaced per mechanism as the card's "Last checked" fact.
   maintainedBy: string;
   lastReviewedAt: string | null;
 }
@@ -1713,6 +1728,11 @@ function toProductPairMechanism(
     description: raw.description,
     listing_url: raw.listingUrl,
     docs_url: raw.docsUrl,
+    // AECI-1142: the card's "At a glance" facts, verbatim (both columns are free
+    // text), plus this row's own review date.
+    pricing_model: raw.pricingModel ?? null,
+    maturity: raw.maturity ?? null,
+    last_reviewed_at: raw.lastReviewedAt,
     // Decision 9: a connector-powered row shows no per-side links. Promote can make
     // an unclaimed row connector-powered IN PLACE (a connector `mechanism_kind`, or
     // a Convention-A self-reference), and the links stored before that stay in the
@@ -1790,6 +1810,10 @@ function toProductPairMechanismFromEvidencedPair(
     description: raw.description,
     listing_url: raw.listingUrl,
     docs_url: raw.docsUrl,
+    // AECI-1142: the same facts as the `integrations` arm.
+    pricing_model: raw.pricingModel ?? null,
+    maturity: raw.maturity ?? null,
+    last_reviewed_at: raw.lastReviewedAt,
     // Connector-powered by construction, so no vendor writes links here (decision 9).
     vendor_links: { context: null, other: null },
     built_by_vendor: raw.builtByVendor ? toVendorLink(raw.builtByVendor) : null,
@@ -1846,7 +1870,7 @@ export function toProductPairResponse(
     other_product: toProductListItem(otherProduct),
     mechanisms,
     // `removed` claims still render (struck through) but must not be counted:
-    // "N data objects sync" may not include a flow that has stopped
+    // "N types of data shared" may not include a flow that has stopped
     // (AECI-303 / §9.1). Filtered HERE, at the single call site, rather than inside
     // `computeSyncHeadline` — the shared engine stays a pure function of
     // `{ agreement }` and owes the diff contract nothing.
@@ -1955,8 +1979,8 @@ function toClaimTimelineEntry(
  *
  * The date is then taken **only over the mechanisms in the winning branch**, which is
  * the part that is easy to get wrong. A global `max()` would let an AECi mechanism
- * reviewed last week supply the date for a header that reads `Vendor-maintained.
- * Updated <date>.` — attributing AECi's review to the vendor. Scoping the max to the
+ * reviewed last week supply the date for a header that reads `Vendor maintained ·
+ * Updated <date>` — attributing AECi's review to the vendor. Scoping the max to the
  * branch keeps the two halves of the sentence about the same records.
  *
  * An empty pair (or one where nothing has been reviewed) yields `null`, which renders

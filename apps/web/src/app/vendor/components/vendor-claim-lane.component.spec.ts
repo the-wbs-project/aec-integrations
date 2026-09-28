@@ -122,7 +122,7 @@ describe('VendorClaimLane — agreement and the counterparty', () => {
       counterparty: { asserted: true, note: null },
     };
     const body = text(create(theirsOnly));
-    expect(body).toContain('Confirmed by one vendor');
+    expect(body).toContain('Confirmed by one company');
     expect(body).not.toContain('Confirmed by Procore');
   });
 

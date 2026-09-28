@@ -632,7 +632,7 @@ integration-only push (send only `integrations[]`) — but note that without a
 Accepted on `vendors[]`, `product`, and `integrations[]`. It is the only way the
 public **maintenance marker** gets a date:
 
-> Maintained by AEC Integrations. **Reviewed March 4, 2026.**
+> AEC Integrations maintained · **Reviewed** March 4, 2026
 
 **The contract is that absence means "untouched."** Omit the field and the stored
 `last_reviewed_at` keeps whatever it had; send an ISO-8601 timestamp and it advances;
@@ -674,8 +674,8 @@ The row still lands; only the date is refused, and you get a receipt:
 
 **Why.** The marker renders this one column with a different verb per branch:
 
-> Maintained by AEC Integrations · **Reviewed** March 4, 2026
-> Vendor-maintained · **Updated** September 16, 2026
+> AEC Integrations maintained · **Reviewed** March 4, 2026
+> Vendor maintained · **Updated** September 16, 2026
 
 So an AECi review date on a vendor-maintained row does not read as "AECi checked
 this" — it reads as "the vendor updated this on that date", crediting AECi's work to

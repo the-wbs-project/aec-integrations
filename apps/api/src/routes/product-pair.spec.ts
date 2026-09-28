@@ -804,11 +804,75 @@ describe('GET /api/products/:slug/integrations/:otherSlug — agreement states (
   });
 });
 
+// ─── The card's "At a glance" facts (AECI-1142) ──────────────────────────────
+//
+// Price, release stage and the row's own review date, from BOTH delivered-tier
+// tables. Additive: an unset column serialises as `null`, never a guess.
+
+describe('GET /api/products/:slug/integrations/:otherSlug: At a glance facts (AECI-1142)', () => {
+  it('returns pricing_model, maturity and last_reviewed_at per integrations row', async () => {
+    await seedProducts();
+    await integration(u(10), u(1), u(2), {
+      pricingModel: 'Free with a Procore subscription',
+      maturity: 'Generally available',
+      lastReviewedAt: '2026-09-20T10:00:00.000Z',
+    });
+    await integration(u(11), u(1), u(2));
+
+    const body = ProductPairResponseSchema.parse(
+      await (await get('/api/products/procore/integrations/revit')).json(),
+    );
+    const byId = new Map(body.mechanisms.map((m) => [m.id, m]));
+    expect(byId.get(u(10))).toMatchObject({
+      pricing_model: 'Free with a Procore subscription',
+      maturity: 'Generally available',
+      last_reviewed_at: '2026-09-20T10:00:00.000Z',
+    });
+    // Unset columns are null, so the card hides the fact rather than inventing one.
+    expect(byId.get(u(11))).toMatchObject({
+      pricing_model: null,
+      maturity: null,
+      last_reviewed_at: null,
+    });
+  });
+
+  it('returns the same facts on a connector-evidenced pair', async () => {
+    await seedProducts();
+    await t.db.insert(products).values({
+      id: u(3),
+      slug: 'agave-erp-sync',
+      name: 'Agave ERP Sync',
+      productRole: 'connector',
+      promotionStatus: 'promoted',
+    });
+    const [a, b] = [u(1), u(2)].sort();
+    await t.db.insert(connectorEvidencedPairs).values({
+      id: u(60),
+      connectorProductId: u(3),
+      productAId: a!,
+      productBId: b!,
+      pricingModel: 'Paid add-on',
+      maturity: 'Beta',
+      lastReviewedAt: '2026-08-30T00:00:00.000Z',
+    });
+
+    const body = ProductPairResponseSchema.parse(
+      await (await get('/api/products/revit/integrations/procore')).json(),
+    );
+    expect(body.mechanisms[0]).toMatchObject({
+      id: u(60),
+      pricing_model: 'Paid add-on',
+      maturity: 'Beta',
+      last_reviewed_at: '2026-08-30T00:00:00.000Z',
+    });
+  });
+});
+
 // ─── The page-header maintenance marker (AECI-616 / §13) ─────────────────────
 //
 // A pair has N mechanisms but ONE header marker, so `computePairMaintenance` folds
 // them. The branch-scoped date is the part worth pinning: a global max would let an
-// AECi review date sit inside a sentence that reads "Vendor-maintained."
+// AECi review date sit inside a sentence that reads "Vendor maintained"
 
 describe('GET /api/products/:slug/integrations/:otherSlug — maintenance marker (AECI-616)', () => {
   const AECI_DATE = '2026-02-01T00:00:00.000Z';
@@ -849,7 +913,7 @@ describe('GET /api/products/:slug/integrations/:otherSlug — maintenance marker
   it('is vendor-maintained when ANY mechanism is, and dates it from the VENDOR mechanisms only', async () => {
     await seedProducts();
     // The vendor's mechanism was reviewed in January; AECi re-checked a different
-    // mechanism in July. The header says "Vendor-maintained", so the date must be
+    // mechanism in July. The header says "Vendor maintained", so the date must be
     // the vendor's — attributing AECi's July review to the vendor would be a lie,
     // and it is exactly what an unscoped max() would produce.
     await integration(u(10), u(1), u(2), {

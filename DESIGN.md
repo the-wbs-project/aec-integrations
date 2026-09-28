@@ -707,8 +707,14 @@ What actually renders today:
   is the only thing separating `unverified` from `single_source`.) On product detail, vendor
   detail, and the pair page. It is a **label, not a sentence, so it carries no terminal
   period**, and the date clause is joined with a middot. Four readings, all **live** since
-  AECI-616: `Maintained by AEC Integrations` · `Maintained by AEC Integrations · Reviewed
-  <date>` · `Vendor-maintained` · `Vendor-maintained · Updated <date>`. The date renders only
+  AECI-616, reworded by AECI-1142. Ruling 2026-09-28 (Chris): the maintenance chip uses exactly two labels everywhere, "AEC Integrations maintained" and "Vendor maintained". The four readings are
+  `AEC Integrations maintained` · `AEC Integrations maintained · Reviewed <date>` · `Vendor
+  maintained` · `Vendor maintained · Updated <date>`. The company is never in the visible label.
+  Where the page can prove who wrote (the vendor page, and the product page's vendor), an sr-only
+  suffix names it for screen readers: "Vendor maintained: Procore Technologies keeps this up to
+  date". The pair page cannot prove it, because any endpoint vendor or the owner can flip a pair
+  row, so it passes no name. The pair page also passes no date: each card's At a glance strip
+  states its own "Last checked". The date renders only
   when `last_reviewed_at` is set, and it is `null` on almost every record because **nothing
   was backfilled** — bare attribution is the honest default, not missing data. Never wire the
   date to `updated_at`: it is `$onUpdate` and promote restamps it, so the date would refresh
@@ -728,18 +734,22 @@ What actually renders today:
     collapsing them would lose information. (As of AECI-1131 the account-status label no longer
     renders on this page; see below.)
 - **Agreement pill** (`products/agreement-badge`): same neutral chip tokens. Renders
-  `Unverified · AECi` on every claim on every pair page — the honest posture, not a
-  warning. `Vendor-confirmed` / `Needs review` are defined for Stage 2 and unreachable.
+  `Listed by AEC Integrations` on most claims (AECI-1142; `Unverified · AECi` before it), the
+  honest posture, not a warning. The other three states are in the Agreement badge table below.
 - **Pending** (`badge-pending`): surface-sunken fill, text-secondary text, 0.5px border-default. Indicates "submitted, not yet reviewed" — never confused with confirmed.
 - **Active on AECi** (`aec-vendor-account-badge`, AECI-965, relabeled AECI-1131): a neutral account-status label driven by the legacy `vendors.verified` mirror. It means the vendor has active access to manage its AECi profile. It does not verify product quality, integration accuracy, or any vendor assertion. The label reads "Active on AECi" in both of its variants: `public` (the vendor detail hero, followed by a visible "What this means" link to `/docs/vendors/plans-and-the-account-label`) and `portal` (the vendor's own plan panel, no link). There is no compact variant. Both use the standalone 29px chip metrics, `rounded.sm`, `border-strong`, `surface-base`, and `text-secondary`. Neither uses a glyph, positive status fill, hidden accessible-name substitute, or trust color. The label renders only when the mirror is true. The inactive public baseline remains the label's absence. It no longer renders on the product-pair rails, the product detail vendor card, or the `/search` Vendors-tab card (AECI-1131) — a reader comparing products gains nothing from a vendor's plan state.
 - **Agreement badge** (`aec-agreement-badge`, AECI-300 / AECI-605): the per-claim state on the product-pair page's data-flow lanes — whether the two vendors agree that a `data_object` flows between their products. Its agreement-specific wording and tonal ladder keep it distinct from the neutral account-status label. Four states, and the tonal ladder between them is the point:
 
   | State | Treatment | Label |
   |---|---|---|
-  | `unverified` | `border-default` / `surface-raised` / `text-secondary`, tertiary dot | "Unverified · AECi" |
+  | `unverified` | `border-default` / `surface-raised` / `text-secondary`, tertiary dot | "Listed by AEC Integrations" |
   | `single_source` | the **same neutral chip**, `text-secondary` dot | "Confirmed by {vendor}" |
-  | `confirmed` | Forest-soft wash + Forest text + Forest border (10.80:1) | "Both vendors confirmed" |
-  | `conflict` | `--status-error` text + border on `surface-base`, `✕` glyph | "Vendors disagree" |
+  | `confirmed` | Forest-soft wash + Forest text + Forest border (10.80:1) | "Confirmed by both companies" |
+  | `conflict` | `--status-error` text + border on `surface-base`, `✕` glyph | "Companies disagree" |
+
+  Labels reworded by AECI-1142 to plain buyer words ("company", not "vendor"; no "Unverified",
+  no "AECi" abbreviation). The `unverified` accessible name adds "Neither company has confirmed it
+  yet", so "Listed" is never heard as an endorsement.
 
   Three rules hold this together. **`single_source` shares the neutral chip with `unverified` on purpose** — one vendor affirming while the counterparty stays silent must never borrow the affirmative Forest treatment, so the only difference is a slightly stronger dot; the badge names the vendor and its `aria-label` states the other's silence outright. **`confirmed` is the only badge that earns the wash**, and only for two *distinct* vendors. **`conflict` is the only red**, and it reports a difference between vendors, not a defect in either product. Colour is never the sole signal (WCAG 1.4.1): every state carries a distinct visible label and accessible name, and the dot/glyph is `aria-hidden`.
 
@@ -759,7 +769,7 @@ What actually renders today:
 
 **Superseded treatment:** the earlier Forest-filled `badge-verified` placeholder must not ship.
 Vendor agreement is represented by the explicit `AgreementBadge` labels above, including
-"Both vendors confirmed" when two distinct vendors affirm the same claim.
+"Confirmed by both companies" when two distinct vendors affirm the same claim.
 
 ### Tags / Taxonomy chips
 

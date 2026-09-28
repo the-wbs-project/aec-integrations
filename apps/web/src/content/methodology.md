@@ -29,26 +29,26 @@ We do not warrant that a listing is complete, current, or free of error. Public 
 
 Verification tells you who has confirmed a specific claim. It does not rate the quality of an integration.
 
-Every claim carries one of four states. "AECi" below is our own short name, and it is what the label shows on the page.
+Every claim carries one of four states. The first column is the label the page shows.
 
 | What you see | What it means |
 | --- | --- |
-| Unverified · AECi | AEC Integrations recorded this from public sources. No vendor has confirmed it. |
-| Confirmed by [vendor name] | One of the two vendors has confirmed this claim. The other has not responded. |
-| Both vendors confirmed | Both vendors have independently confirmed this claim. |
-| Vendors disagree | The two vendors describe this data flow differently. We show both accounts rather than pick one. |
+| Listed by AEC Integrations | AEC Integrations recorded this from public sources. Neither company has confirmed it yet. |
+| Confirmed by [company name] | One of the two companies has confirmed this claim. The other has not answered yet. |
+| Confirmed by both companies | Both companies have independently confirmed this claim. |
+| Companies disagree | The two companies disagree about this. We show both answers and do not take sides. |
 
 Two rules govern that table.
 
 **Our own entry never counts as a confirmation.** We record the claim, and our own record is excluded from the count. We can be the only voice on a claim. We can never produce a disagreement on our own.
 
-**"Both vendors confirmed" means two different companies.** One company sometimes owns the products at both ends of an integration. The state is computed from distinct vendor identities, so a vendor cannot confirm both sides of its own integration and have it read as independent agreement.
+**"Confirmed by both companies" means two different companies.** One company sometimes owns the products at both ends of an integration. The state is computed from distinct vendor identities, so a vendor cannot confirm both sides of its own integration and have it read as independent agreement.
 
-**Where this stands today.** Confirming a claim needs an approved vendor account, and so does owning an integration. Vendor accounts opened in September 2026, so most claims and integrations are still recorded by AEC Integrations, and you will see "Unverified · AECi" nearly everywhere. We would rather label that plainly than imply an endorsement nobody has given.
+**Where this stands today.** Confirming a claim needs an approved vendor account, and so does owning an integration. Vendor accounts opened in September 2026, so most claims and integrations are still recorded by AEC Integrations, and you will see "Listed by AEC Integrations" nearly everywhere. We would rather label that plainly than imply an endorsement nobody has given.
 
 Two other markers appear on listings and are easy to confuse with verification.
 
-- **Who maintains a page.** Product, vendor, and integration pages carry either "Maintained by AEC Integrations" or "Vendor-maintained". "Vendor-maintained" means a vendor has acted on that record through its own account. On a product or vendor page, the company edited it, so the words on the page are theirs rather than ours. On an integration page, a vendor at one end has claimed it, edited it, confirmed one of its claims, or added its own links. The marker does not say which vendor owns the integration. The "Offered by" line does that. A date appears beside the marker only where a person actually touched the record, and the wording says which person: we write "Reviewed" when we re-checked it, and "Updated" when a vendor acted on it. Most records carry no date at all, because nobody has been back to them yet. We will not manufacture one from a bulk update, and a routine catalog sync on our side never stamps a date onto a record a vendor maintains.
+- **Who maintains a page.** Every page carries "AEC Integrations maintained" until a vendor acts on the record through its own account. Then it reads "Vendor maintained". On a product or vendor page, the company edited it, so the words on the page are theirs rather than ours. On an integration page, a vendor at one end has claimed it, edited it, confirmed one of its claims, or added its own links. The marker does not say which vendor owns the integration. The "Offered by" line does that. A date appears beside the marker on product and vendor pages only where a person actually touched the record, and the wording says which person: we write "Reviewed" when we re-checked it, and "Updated" when a vendor acted on it. On an integration page the date sits on each integration instead, as "Last checked". Most records carry no date at all, because nobody has been back to them yet. We will not manufacture one from a bulk update, and a routine catalog sync on our side never stamps a date onto a record a vendor maintains.
 - **The "Active on AECi" label.** It means a company has an active vendor plan and can manage its AECi profile. It does not verify product quality or integration accuracy, and it carries no weight in ranking. The label appears only while that account access is active, on the vendor's own page.
 
 ## Who owns an integration

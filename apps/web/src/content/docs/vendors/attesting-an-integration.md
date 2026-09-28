@@ -36,15 +36,15 @@ The public integration page shows where each flow stands. Your company counts on
 
 | Where it stands | What the page says |
 | --- | --- |
-| Nobody has confirmed it | Unverified · AECi |
-| One vendor affirms | Confirmed by (that vendor) |
-| Both vendors affirm | Both vendors confirmed |
-| One affirms and the other denies | Vendors disagree |
-| Only denials | Unverified · AECi |
+| Nobody has confirmed it | Listed by AEC Integrations |
+| One vendor affirms | Confirmed by (that company) |
+| Both vendors affirm | Confirmed by both companies |
+| One affirms and the other denies | Companies disagree |
+| Only denials | Listed by AEC Integrations |
 
-Most flows today read "Unverified · AECi", because vendor confirmation has only just opened. AEC Integrations' own record is never counted as a vote, so it cannot create a disagreement.
+Most flows today read "Listed by AEC Integrations", because vendor confirmation has only just opened. AEC Integrations' own record is never counted as a vote, so it cannot create a disagreement.
 
-If your company makes the products at both ends, it still has one position. That flow can show "Confirmed by" your company, but not "Both vendors confirmed".
+If your company makes the products at both ends, it still has one position. That flow can show "Confirmed by" your company, but not "Confirmed by both companies".
 
 The integration page updates shortly after you answer. Search results catch up on the next nightly update.
 
@@ -59,7 +59,7 @@ The portal tells you, beside each flow, what your answer sets in motion. In shor
 
 ## What "confirmed" means, and what it does not
 
-"Confirmed by" and "Both vendors confirmed" mean the vendors at the ends of the integration stand behind that data flow. It is a statement by the vendors, not a test by AEC Integrations.
+"Confirmed by" and "Confirmed by both companies" mean the vendors at the ends of the integration stand behind that data flow. It is a statement by the vendors, not a test by AEC Integrations.
 
 It is a different thing from the "Active on AECi" label on a vendor's page. That label means the vendor has an active plan. It says nothing about whether its integrations are accurate.
 

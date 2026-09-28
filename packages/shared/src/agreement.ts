@@ -164,7 +164,7 @@ export function distinctDataObjectSlugs(
  * AECI-1042). `total` is the number of **distinct `data_object` slugs** across the
  * pair's claims — all directions, all mechanisms, both delivered anchors. A
  * data_object moving through two mechanisms, or in both directions, counts once:
- * the header reads "N data objects sync", and before AECI-1042 a second integration
+ * the header reads "N types of data shared", and before AECI-1042 a second integration
  * (or a duplicate row) that moved the same object inflated N.
  *
  * `confirmed` counts data objects with at least one claim two distinct vendors
@@ -177,6 +177,12 @@ export function distinctDataObjectSlugs(
  * headline may never fold a one-sided assertion into the bilateral count. Both
  * are `0` until the Stage 2 portal lands, so the headline still communicates
  * breadth with an honest "Unverified" posture rather than a fake trust signal.
+ *
+ * **No reader renders `confirmed` or `single_source` since AECI-1142.** Ruling
+ * 2026-09-28 (Chris): the summary band and ratio line are replaced by the per-card
+ * At a glance row, so the pair page reads `total` only. The two counts stay on the
+ * wire (dropping them is a breaking contract change for no gain), and the
+ * per-row agreement badges carry the same information claim by claim.
  */
 export function computeSyncHeadline(claims: readonly SyncHeadlineClaim[]): {
   total: number;

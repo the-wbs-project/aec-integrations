@@ -205,7 +205,7 @@ test.describe('vendor dashboard — authed /vendor (AECI-522)', () => {
 
     // Seeded state is an AECi-only claim: `unverified`, because an AECi seed is
     // not a vendor voter.
-    await expect(lane).toContainText('Unverified');
+    await expect(lane).toContainText('Listed by AEC Integrations');
 
     // AECI-999: every level starts collapsed. Open the lane's counterpart group,
     // its integration row when the counterpart has several, then the lane itself.
@@ -234,7 +234,7 @@ test.describe('vendor dashboard — authed /vendor (AECI-522)', () => {
 
     // Clear restores the seeded state, so the spec is re-runnable.
     await lane.getByRole('button', { name: 'Clear' }).click();
-    await expect(lane).toContainText('Unverified');
+    await expect(lane).toContainText('Listed by AEC Integrations');
     await expect(page.locator(ANNOUNCER)).toContainText('Position withdrawn');
   });
 

@@ -625,7 +625,7 @@ export interface PromoteSkipped {
     // A THIRD meaning, and the one closest to `vendor` / `product` above:
     // "policy said no". The row itself WAS written — only the `lastReviewedAt`
     // you sent was refused, because the record is vendor-maintained and the
-    // marker's vendor branch renders `Vendor-maintained · Updated <date>`.
+    // marker's vendor branch renders `Vendor maintained · Updated <date>`.
     // Letting an AECi review date fill that slot would attribute AECi's work to
     // the vendor, which is the mis-attribution `STAGE_2_ATTESTATIONS_SPEC.md`
     // §13.5 branch-scopes the pair page to prevent.

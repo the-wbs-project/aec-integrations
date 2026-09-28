@@ -44,7 +44,7 @@ test.describe('/methodology — AECI-804', () => {
     // GFM tables are off by default in marked; without `gfm: true` this renders
     // as literal pipe characters instead of a <table>.
     expect(html).toContain('<table>');
-    expect(html).toContain('Both vendors confirmed');
+    expect(html).toContain('Confirmed by both companies');
   });
 
   test('is indexable — self-referential canonical, no noindex robots meta', async ({

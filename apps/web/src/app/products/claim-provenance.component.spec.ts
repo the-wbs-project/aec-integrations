@@ -65,7 +65,7 @@ describe('ClaimProvenance', () => {
     const { host } = open(claim('unverified', [att('aeci', true)]));
     const btn = host.querySelector('button');
     expect(btn).toBeTruthy();
-    expect(btn?.getAttribute('aria-label')).toContain('Provenance for RFIs');
+    expect(btn?.getAttribute('aria-label')).toContain('Sources for RFIs');
   });
 
   it('attributes the AECi seed and closes on the unconfirmed state', () => {
@@ -73,10 +73,12 @@ describe('ClaimProvenance', () => {
       context: 'Acme Software',
       other: 'Globex',
     });
-    expect(popoverText).toContain('AECi');
-    expect(popoverText).toContain('asserts this flow');
+    expect(popoverText).toContain('Sources');
+    expect(popoverText).toContain('Listed by AEC Integrations');
     expect(popoverText).toContain('Curated by AECi.');
-    expect(popoverText).toContain('No vendor has confirmed this flow');
+    expect(popoverText).toContain('Neither company has confirmed this yet.');
+    // AECI-1142: no data-model jargon in the popover's own copy.
+    expect(popoverText).not.toMatch(/Provenance|asserts|disputes|this flow/);
     // AECI-781: the vendor portal shipped 2026-09-03, so the closing line must
     // never again describe vendor confirmation as a forthcoming feature.
     expect(popoverText).not.toContain('vendor portal');
@@ -87,21 +89,29 @@ describe('ClaimProvenance', () => {
       context: 'Acme Software',
       other: 'Globex',
     });
-    expect(popoverText).toContain('Acme Software');
-    expect(popoverText).toContain('asserts this flow');
-    expect(popoverText).toContain('Globex');
-    expect(popoverText).toContain('disputes this flow');
+    expect(popoverText).toContain('Acme Software confirms this');
+    expect(popoverText).toContain('Globex says this is not accurate');
   });
 
   // §4.3: a conflict reports a difference between two vendors — it must not
   // read as a defect in either product, and AECi does not pick a side.
-  it('closes a conflict by showing both accounts rather than picking one', () => {
+  it('closes a conflict by naming both companies and taking no side', () => {
     const { popoverText } = open(claim('conflict', [att('context', true), att('other', false)]), {
       context: 'Acme Software',
       other: 'Globex',
     });
-    expect(popoverText).toContain('describe this flow differently');
-    expect(popoverText).toContain('We show both accounts rather than pick one');
+    expect(popoverText).toContain(
+      'Acme Software and Globex disagree about this. We show both answers and do not take sides.',
+    );
+  });
+
+  it('falls back to "the two companies" when both sides share one vendor name', () => {
+    const { popoverText } = open(claim('conflict', [att('context', true), att('other', false)]), {
+      context: 'Acme Software',
+      other: 'Acme Software',
+    });
+    expect(popoverText).toContain('The two companies disagree about this.');
+    expect(popoverText).not.toContain('Acme Software and Acme Software');
   });
 
   it('names the silent counterparty for single_source', () => {
@@ -112,8 +122,8 @@ describe('ClaimProvenance', () => {
         other: 'Globex',
       },
     );
-    expect(popoverText).toContain('Globex has not responded');
-    expect(popoverText).toContain("one vendor's account rather than an agreed one");
+    expect(popoverText).toContain('Globex has not answered yet.');
+    expect(popoverText).toContain('Only one company has confirmed this.');
   });
 
   it('falls back to a generic phrasing when the silent side has no vendor record', () => {
@@ -121,7 +131,7 @@ describe('ClaimProvenance', () => {
       context: 'Acme Software',
       other: null,
     });
-    expect(popoverText).toContain('The other vendor has not responded');
+    expect(popoverText).toContain('The other company has not answered yet.');
     expect(popoverText).not.toContain('null');
   });
 
@@ -130,7 +140,7 @@ describe('ClaimProvenance', () => {
       context: 'Acme Software',
       other: 'Globex',
     });
-    expect(popoverText).toContain('Both vendors have confirmed this flow.');
+    expect(popoverText).toContain('Both companies confirm this.');
   });
 
   // The pair page dropped the History section: the popover is provenance only,

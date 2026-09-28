@@ -228,7 +228,7 @@ test.describe('product-PAIR page — version selection interaction (AECI-303)', 
 
     await page.goto(`/products/${pair!.context}/integrations/${pair!.other}`);
     await page.locator('aec-claim-provenance button').last().click();
-    await expect(page.getByText('Provenance', { exact: true })).toBeVisible();
+    await expect(page.getByText('Sources', { exact: true })).toBeVisible();
     await page.waitForTimeout(300);
     // The pair page no longer renders the History section, so it never calls the
     // timeline endpoint.
