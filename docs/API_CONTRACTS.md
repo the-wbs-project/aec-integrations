@@ -275,6 +275,7 @@ Machine-readable codes are stable identifiers. Messages are localized.
 | `CONTEST_PROTEST_OPEN` | 409 | `POST /api/vendor/integrations/:id/contests` on a field the caller already has an open protest on. `details.contest_id` names it (AECI-1009) |
 | `CONTEST_COOLDOWN` | 409 | `POST /api/vendor/integrations/:id/contests` inside the 90 days after AECi agreed with the owner on a protest of this field by this vendor, while the value on record is unchanged. `details.until` is when it ends (AECI-1009) |
 | `CONTEST_NO_CHANGE` | 422 | The proposed value equals the integration's current value |
+| `ATTESTATION_NOTE_REQUIRED` | 400 | `PUT /api/vendor/claims/:claimId/attestation` with `asserted: false` and a `note` that is missing, `null` or empty after trimming (AECI-1151, `STAGE_2_ATTESTATIONS_SPEC.md` §5.2). `field` is `note`. Message: "A No needs a reason. Say what is wrong so the other company and AEC Integrations can act on it." Checked after the capability gate and the body shape, so a caller who may not write never sees it. Nothing is written. An affirm, a `POST /api/vendor/claims` and a `DELETE` never raise it. An existing deny with no note is not touched until its author writes again |
 | `CONTEST_INVALID_VALUE` | 422 | The proposed value is wrong for its field: not an `http(s)` URL, not a known `mechanism_kind`, not a caller-relative direction, or an owner that is not one of the integration's endpoint vendors. `field` is `proposed_value` |
 | `INTEGRATION_NOT_OWNER` | 403 | `POST /api/vendor/integrations/:id/claim` or `PATCH /api/vendor/integrations/:id` (AECI-1006) by a vendor of one of the endpoints when another vendor is the recorded owner (`built_by_vendor_id`, AECI-1005). Its recourse is an `owner` contest |
 | `INTEGRATION_OWNER_UNKNOWN` | 409 | The same claim or edit when no owner is on file. An owner-unknown claim goes through AECi approval instead (AECI-1003 decision 11) |
@@ -1007,6 +1008,7 @@ export type ProductPairResponse = z.infer<typeof ProductPairResponseSchema>;
 - **`version_diff`** (AECI-303 / §9) is **non-`null` only when a pair has BOTH at least one product release AND at least one live version-stamped attestation.** Both facts are server-side only, which is why the decision is not left to the browser: that one null is the entire suppression rule, and it makes "latest × latest renders identically to today for claims with no version data" structural rather than a rendering discipline. Promote does not ingest versions (§11) and the only writer is the Verified-vendor API, so today this is `null` for the whole catalog.
 - **Presence and the diff apply UNIFORMLY, including at latest × latest.** A claim is present at (vA, vB) when, for each attesting side, `introduced_version <= selected` and (`deprecated_version` is null **or** `selected < deprecated_version`); **a claim with no version stamps is always present.** A claim present at neither the selected nor the previous pair is **dropped from the response entirely** — otherwise a pair with a long release history would render every flow it ever had. Ordering and every comparison key off `sort_key` through `compareProductVersions` (`@aeci/shared/version-diff`), never the label and never the nullable `released_at`; `sort_key` is packed per-product, so comparing it *across* the two products is meaningless.
 - **`moved_to`** (AECI-953 / `STAGE_1_5_SPEC.md` §7.2a) is `{ context_slug, other_slug }` when this pair is **empty AND its edges were re-pointed onto another product**, else `null`. A re-pointed endpoint keeps the edge's id and updates its row in place, but a pair page is keyed by two product slugs — so the URL moves and the old one used to serve 200 + `noindex` forever. The SSR resolver turns a non-null value into a **301**. Four rules: it is set **only** when both anchor tables returned nothing (a pair that lost one edge of two is smaller, not moved, and redirecting it would hide live rows); it is read from the moved edge's **live** row, so it always names a pair that currently holds that edge and a chain of moves resolves to its end; a deleted edge yields `null`, so a retraction still leaves a noindexed empty page; and it is **already oriented** for the requesting URL — the endpoint that did not move stays in the reader's frame, because §7.1's alphabetical rule is a canonical concern the destination page applies itself. It is **not** a slug alias. A retired *endpoint slug* is a different mechanism on a different branch: `slug_redirects` rewrites the pair route's path prefix on its **404**, since AECI-991 (`STAGE_1_5_SPEC.md` §7.2b). `moved_to` can only ride a 200, so it structurally cannot answer a pair URL whose endpoint product has been deleted — which is why both exist.
+- **`pricing_url`** (AECI-1154, specified 2026-09-28) is the mechanism row's pricing page link, read from `integrations` or `connector_evidenced_pairs` alike, `null` when unset. It sits beside the `pricing_model`, `maturity` and `last_reviewed_at` fields that AECI-1142 adds on its own PR, and follows the same rule: additive and `.optional()`, absent meaning `null`. It feeds the "Price" fact in the card's "At a glance" row: the price text links to it when both are set, and "See pricing" links to it when only the URL is. The owner writes it (`PATCH /api/vendor/integrations/:id`). Promote never does. It is an absolute `http(s)` URL, so it renders as an ordinary external link with `rel="noopener"`.
 - **Errors / status:** `NOT_FOUND` when either slug is unknown **or the two slugs are equal**. Since AECI-991 the SSR resolver turns that 404 into a **301** when either slug is mapped in `slug_redirects` — the API itself is unchanged and still answers `NOT_FOUND`. A valid-but-unconnected pair (both products exist, no integration between them) is a **200** with `mechanisms: []` — and, since AECI-953, possibly a non-null `moved_to` the SSR layer renders as a 301. The API itself never redirects. A bad `context_version` / `other_version` is **not** an error — see the degrade rule above.
 - SSR caching (pair page): detail TTL, `Cache-Tag: route:detail,pair:{min}__{max},product:{slug}×2` (see `CACHE_STRATEGY.md`). The selector params are in the route's `cacheKeyParams` (`CACHE_STRATEGY.md` §4a), and a non-default selection is `noindex` with the canonical pointing at the default pair URL (§7.2). A `moved_to` 301 is the one response on this route that carries neither — it sets its own `public, max-age=3600, s-maxage=86400` and the **old** pair's tag, because `withCacheHeaders` applies a route TTL and a path-derived tag to 2xx and 404 only. The AECI-991 retired-endpoint 301 does the same with four tags (both pair tags plus `product:` per changed slug — `CACHE_STRATEGY.md` §3 rule 6).
 
@@ -5996,6 +5998,90 @@ Writes go through one `db.batch([...])` carrying every mutation and its `audit_l
 
 Errors: `NOT_FOUND` (unknown claim/integration, or one whose endpoints the caller does not own — deliberately indistinguishable; also a `DELETE` with nothing to retract), `ENTITLEMENT_REQUIRED` (403 — endpoint owner, but the tier lacks `attestation.author`; `details: { capability, tier }`; copy points at activation and never at ranking, placement, or search. Was `FORBIDDEN` before AECI-623), `FORBIDDEN` (403 — a connector-powered edge on `POST` / `PUT`, AECI-705; checked before the capability, so no tier is promised to unlock it), `VALIDATION_FAILED` (unknown `data_object`, a duplicate claim identity, a version outside the caller's endpoint, a missing stance on `PUT`), `MALFORMED_REQUEST`, `RATE_LIMITED` (429 — AECI-773 `write` burst cap on `POST /api/vendor/claims` and the two attestation writes, `Retry-After: 60`; the two `GET`s are not limited, because reads never are). The attestation `PUT`/`DELETE` are the AECI-516 optimistic toggles, so a 429 needs no new UI — the client already applies locally and rolls back with a visible error.
 
+**Deny needs a reason (AECI-1151, specified 2026-09-28).** A `PUT` with `asserted: false` whose `note` is missing, `null` or empty after trimming answers `400 ATTESTATION_NOTE_REQUIRED`, `field: 'note'` (§4). The rule is the shared pure function `attestationNoteProblem(asserted, note)`, called by the handler after the capability gate and the body parse, and by the portal before it sends. `UpsertVendorAttestationSchema` itself is unchanged, so a client that sends a note keeps working. Existing deny rows with no note still read as they are, and the author's next deny on that claim must carry one (`STAGE_2_ATTESTATIONS_SPEC.md` §5.2). **A note is private** to the other company and AEC Integrations (AECI-1139): `counterparty.note` here is the only vendor read that carries another company's note, and no public read carries any vendor note.
+
+**Integration detail page additions (AECI-1150 to AECI-1154, specified 2026-09-28, `STAGE_2_VENDOR_PORTAL_SPEC.md` §6.17).** Every new field is additive and defaulted, because the SSR and API Workers deploy per commit but not atomically. The web reads this response through `HttpClient` without parsing, so against an older API it sees each field absent, and absent means the default.
+
+```typescript
+export const VendorClaimSchema = z.object({
+  // ...every field above, unchanged...
+  // AECI-1153. Who added the row, from the CALLER's seat, computed server-side from
+  // `origin` + `created_by_vendor_id`. `created_by_vendor_id` itself never crosses the wire.
+  //   'you'         origin 'vendor', created by the caller's vendor
+  //   'counterpart' origin 'vendor', created by any other vendor
+  //   null          origin 'aeci', or the creating vendor row was deleted (SET NULL)
+  added_by: z.enum(['you', 'counterpart']).nullable().default(null),
+  created_at: z.string().nullable().default(null),   // claims.created_at: "Added row · {date}"
+  // AECI-1153. Non-null exactly when `agreement === 'conflict'`.
+  disagreement: z
+    .object({
+      id: z.string().uuid(),        // = the claim id; see below
+      raised_at: z.string(),        // ISO-8601; when the agreement last became 'conflict'
+    })
+    .nullable()
+    .default(null),
+});
+
+export const VendorIntegrationSchema = z.object({
+  // ...every field above, unchanged...
+  // AECI-1152. The links stored for `other_product`'s side, read-only here.
+  // Empty on a connector-powered row (decision 9), like `own_links`.
+  counterpart_links: IntegrationSideLinksSchema.default(EMPTY_SIDE_LINKS),
+  // AECI-1150. The Overview's Ownership rows.
+  origin: z.enum(['aeci', 'vendor']).default('aeci'),
+  created_at: z.string().nullable().default(null),                  // integrations.created_at
+  maintained_by: z.enum(['aeci', 'vendor']).default('aeci'),
+  last_reviewed_at: z.string().nullable().default(null),
+  // AECI-1154. The owner-only pricing page link. Not in `contestable_fields`.
+  pricing_url: z.string().nullable().default(null),
+});
+
+export const OwnedIntegrationSchema = z.object({
+  // ...every field above, unchanged...
+  pricing_url: z.string().nullable().default(null),                 // AECI-1154, §6.15's edit form
+});
+
+export const ListVendorIntegrationsResponseSchema = z.object({
+  integrations: z.array(VendorIntegrationSchema),
+  owned: z.array(OwnedIntegrationSchema).default([]),
+  // AECI-1153. Distinct claim ids, vendor-wide, that another vendor added and the caller
+  // has not answered, on attestable, live rows. Deduped by claim id (AECI-993).
+  counterpart_added_unanswered: z.number().int().min(0).default(0),
+});
+```
+
+- **`added_by`** is from the caller's seat, so the same claim reads `'you'` for its author and `'counterpart'` for the other endpoint vendor. On an owns-both integration both entries carry the same value, because they are one position (§6.5 of the portal spec). A row is **counterpart-added and unanswered** when `added_by = 'counterpart'`, `mine = []`, `attestable` is true and `retired_at` is null. `counterpart_added_unanswered` counts exactly those, by distinct claim id.
+- **`disagreement.id` is the claim id.** A claim holds at most one open disagreement at a time, so the claim id is stable for as long as the disagreement is open, and the page anchors to it. If a claim leaves `conflict` and later returns to it, the id is the same and `raised_at` is new: the pair (`id`, `raised_at`) names one episode.
+- **`disagreement.raised_at` is when the claim's agreement last became `conflict`: the start of the current, unbroken run of `conflict`.** It is **derived, not stored.** The attestation history is append-only (supersession is retract-then-insert, and a retract stamps `retracted_at` rather than deleting), so the agreement at any past instant can be recomputed exactly. The rule, as the shared pure function `conflictSince(rows)` in `packages/shared/src/agreement.ts`, beside `computeAgreement`:
+  1. Take every non-`aeci` attestation row of the claim, live and retracted, with `created_at`, `retracted_at`, `asserted` and `attested_by_vendor_id`.
+  2. Collect the distinct instants in `created_at` and `retracted_at`, ascending.
+  3. At each instant *t*, the live set is the rows with `created_at <= t` and (`retracted_at` null or `retracted_at > t`). Its agreement is `computeAgreement` of that set, with every rule of `STAGE_2_ATTESTATIONS_SPEC.md` §4.5: votes deduped by vendor, null identities folded into one voter, and a self-contradicting voter read as `unverified`.
+  4. `raised_at` is the earliest instant from which the agreement is `conflict` at every later instant up to now.
+
+  Two properties make this exact. A `PUT` retracts and inserts under one `now`, so a same-stance re-write (a note edit) leaves no gap and does not move `raised_at`. And the identities used are today's, so the derived history ends in exactly today's `agreement`, even after a vendor deletion nulled an `attested_by_vendor_id` with no application code. **It is not the `open-conflict` detector's clock.** That detector measures from the newest live vote (`STAGE_2_ATTESTATIONS_SPEC.md` §7.5), which a note edit does move. The page therefore prints "raised {date}" and never "reviewed on {raised_at + 7 days}".
+- **Cost of `raised_at`.** The list handler already holds each claim's live rows and its agreement. For the claims in `conflict` only, it reads their retracted rows in one extra `SELECT`, with the claim ids passed as a single JSON array through `json_each(?)`, never as an `inArray` list, because D1 caps bound parameters per query (§5.4 of the attestations spec). With no claim in conflict it issues no extra statement.
+- **`counterpart_links`** is the stored `integration_vendor_links` pair for `other_product.id` on this integration, `{ listing_url, docs_url }`, each null when unset. On an owns-both integration it is the caller's own other side, which the page renders as editable because `slots.length === 2`. On a connector-powered row both are null, even when a stranded link is stored, as the pair read does (§4.5.7 of the portal spec). It is read with the same query that fills `own_links`, so it costs no extra statement. Nothing about the other side's links is writable through this read.
+- **`origin`, `created_at`, `maintained_by`, `last_reviewed_at` and `pricing_url`** are the integration row's own columns, unchanged in meaning (`DATABASE_SCHEMA.md` §4.3).
+- **The `claim_added` notification (AECI-1153).** `POST /api/vendor/claims` also writes one `notification.sent` row per vendor of the other endpoint, in its batch (`STAGE_2_ATTESTATIONS_SPEC.md` §7.6). `GET /api/vendor/notifications` returns it as a new union member:
+
+```typescript
+export const VendorClaimAddedNotificationSchema = z.object({
+  kind: z.literal('claim_added'),
+  id: z.string().uuid(),                          // the audit_log row id
+  claim_id: z.string().uuid(),
+  integration_id: z.string().uuid(),
+  integration_name: z.string().nullable(),
+  data_object: NotificationProductRefSchema,       // { slug, name } at send time
+  direction: ContextDirectionSchema,               // framed against the recipient's product
+  added_by_name: z.string().nullable(),            // the adding vendor's name at send time
+  counterpart_product: NotificationProductRefSchema.nullable(),
+  pair_path: z.string().nullable(),
+  created_at: z.string(),
+});
+```
+
+  The row never carries the note. `isAttestationNotification` must name `'claim_added'`, or the new rows would be read as attestation rows.
+
 ---
 
 #### Integration field contests — `/api/vendor/integrations/:id/contests` + `/api/vendor/contests`
@@ -6084,6 +6170,8 @@ export const ReplyContestProtestSchema = z.object({ reply: contestText, evidence
 ```
 
 - **`GET /api/vendor/contests`** returns `submitted` (the caller's vendor filed it) and `received` (owner-routed, with the caller as the snapshot owner), each most recently updated first (AECI-1009) with `id` as the tiebreaker and capped at 100. An AECi-routed contest naming the caller as owner is **not** in `received`: the caller is not its decider. Not rate-limited, not audited.
+- **`?integration_id=` narrows `GET /api/vendor/contests` to one integration (AECI-1153, specified 2026-09-28).** Query schema `ListVendorContestsQuerySchema = z.object({ integration_id: z.string().uuid().optional() })`. A value that is not a UUID is `400 VALIDATION_FAILED` naming `integration_id`. The id matches the contest's **anchor row in either table** (`integration_id = ? OR evidenced_pair_id = ?`), the same id the wire already carries as `integration_id` (AECI-1092). The filter is ANDed onto `vendorContestsWhere`, so it only narrows the caller's own rows: an unknown or foreign id answers `200 { submitted: [], received: [] }`, never a `404`, and cannot probe another vendor's contests. The order and the 100-per-side cap are unchanged and apply after the filter, which is the point: the integration page sees that integration's whole history even when the vendor-wide list is past its cap. **Bounded, not indexed:** the vendor predicate already runs on `integration_field_challenges_submitter_idx` and `integration_field_challenges_owner_idx`, and the anchor test is a residual predicate over that one vendor's contests, so no index is added. The `contests` cursor stays vendor-wide (`STAGE_2_REALTIME_SPEC.md` §2.2). A cursor wider than its payload is safe, because every row it counts is the caller's own, and it costs at most one wasted refetch.
+- **The portal offers ten fields, not twelve (AECI-1155, ruled 2026-09-28).** `POST /api/vendor/integrations/:id/contests` refuses `field: 'website'` and `field: 'mechanism_url'` with `400 VALIDATION_FAILED` on `field`, after the authority and owner checks, as it refuses `mechanism_kind` on an evidenced pair. `IntegrationContestFieldSchema` stays the stored twelve, so every existing contest on either field still parses, lists, renders and decides. The offered lists are `INTEGRATION_OFFERED_CONTEST_FIELDS` and `EVIDENCED_PAIR_OFFERED_CONTEST_FIELDS`, and `contestFieldsFor(anchor)` returns them (`STAGE_2_VENDOR_PORTAL_SPEC.md` §6.17.11). `pricing_url` is not contestable.
 - **Withdraw** is the submitter's alone. **Decision** is the owner's alone, and only on an owner-routed row. Everyone else gets `404`. A closed contest is `409 CONTEST_NOT_OPEN`, which is also the answer to the loser of a race. Since AECI-1005 the decision also requires that the integration is **still claimed by the caller**, checked up front and again in the batch; otherwise `409 CONTEST_INTEGRATION_CHANGED` and nothing is written. An AECi owner reassignment moves the row's open owner-routed contests to AECi in the same batch (`integration.contest.rerouted`).
 - **An owner accept writes the catalog** in the same batch: the column, the §13.9 maintenance transfer, and an `integration.updated` audit row. It then purges `pair:{a}__{b}` and both `product:` tags. A decline, a withdraw and a submit purge nothing.
 - **Routing is fixed at submit.** A contest routes to the owner when the integration is claimed (`claimed_at IS NOT NULL`, AECI-1005 replaced the stub) and the field is not `owner`. Otherwise it routes to AECi. The `owner` field routes to AECi even on a claimed row.
@@ -6162,6 +6250,8 @@ export const CreateVendorIntegrationResponseSchema = z.object({
   })),
 });
 ```
+
+**Fields amended (specified 2026-09-28).** The body follows the owner edit's field set (§6.17.11 of the portal spec): `pricing_url` is accepted, and `website` and `mechanism_url` are a `400` under `.strict()`.
 
 **Order: shape → endpoints → values.** A shape error, a missing required field, or equal ids is `400`. A `product_id` that is not a promoted product the caller's vendor holds, or a `counterpart_product_id` that is not a promoted product, is the same `404`. A value wrong for its field is `422 INTEGRATION_INVALID_VALUE` naming it, including a connector-delivered kind (`iPaaS`, `integrator`): a vendor-created row is never connector-powered (decision 9).
 
@@ -6268,6 +6358,8 @@ export const UpdateVendorIntegrationResponseSchema = z.object({
   }),
 });
 ```
+
+**Fields amended (AECI-1154, AECI-1155, specified 2026-09-28).** The body's field set is `INTEGRATION_EDIT_FIELDS`: the offered contest fields minus `owner`, plus the edit-only `pricing_url`. That is `name`, `mechanism_kind`, `mechanism_name`, `direction`, `description`, `listing_url`, `docs_url`, `pricing_model`, `maturity` and `pricing_url`. `website` and `mechanism_url` leave the schema, so sending either is `400` under `.strict()`. `pricing_url` takes an absolute `http(s)` URL of at most 2,048 characters, or `null` / `''` to clear (`integrationEditValueProblem`); a bad value is `422 INTEGRATION_INVALID_VALUE`, `field: 'pricing_url'`. It is in `CONNECTOR_POWERED_EDIT_FIELDS`, so an entitled owner edits it on a connector-powered row and on an evidenced pair. `changed` may name it, and the `integration.updated` audit row and the `integration_update` notification carry it like any other field. It is not contestable and has no entry in `contestable_fields`; the reads carry it as `pricing_url` (the Attestations subsection above). The vendor create (above) takes the same field set.
 
 **`.strict()`, unlike every other vendor PATCH.** The other schemas strip an unknown key silently. This one refuses it, because the two keys a caller is most likely to try (`owner` and `notes`) are exactly the ones this route must never write, and a silent drop would answer `200` to an attempt that did nothing.
 

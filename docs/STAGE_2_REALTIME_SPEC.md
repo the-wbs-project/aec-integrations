@@ -247,6 +247,17 @@ type VendorPortalScope =
 | `integrations`, once `contests` has loaded | **also** `GET /api/vendor/contests` (AECI-1009). A contest's protest window and cooldown depend on the field's live value, and an owner edit moves `integrations`, not `contests`. `VendorPortalStore.revalidate` adds the resource only when contests were already loaded, so it never loads them from cold |
 | `entitlement`, once `contests` has loaded | **also** `GET /api/vendor/contests` (AECI-1092). An admin clearing the vendor's entitlement re-routes its open owner contests on connector-powered rows to AECi in the same batch (`STAGE_2_VENDOR_PORTAL_SPEC.md` §11b.13, ruling B). Each re-routed row leaves the owner's `contests` scope, so that cursor moves only if one was the newest row in scope. The clear always moves `entitlement`, so the store refetches loaded contests with it. Same never-from-cold rule |
 
+> **The integration detail page (specified 2026-09-28, `STAGE_2_VENDOR_PORTAL_SPEC.md` §6.17) adds
+> no scope.** It reads the store's `integrations` resource, so the `integrations` row above keeps it
+> live. Its Change requests section reads `GET /api/vendor/contests?integration_id=` into a
+> page-scoped resource and refetches it on the same two triggers as the store's `contests`
+> resource: a moved `contests` scope, and a moved `integrations` scope once it has loaded. The
+> cursor stays vendor-wide, which is wider than the filtered payload. That is safe for the reason
+> the `integrations` cursor's retracted rows are: every row it counts is the caller's own. A new
+> `claim_added` notification (`STAGE_2_ATTESTATIONS_SPEC.md` §7.6) moves the recipient's
+> `notifications` scope through the unchanged ledger predicate, and its claim moves the recipient's
+> `integrations` scope through `ownedEndpointJoin`.
+
 Four of the seven scopes collapse onto `me` because that is what the payload already is: `GET /api/vendor/me` returns vendor + owned products + claim/correction status + seat count in one shot (`apps/api/src/routes/vendor.ts`). Splitting them at the cursor while collapsing them at the refetch is deliberate — the **cursor** is where per-scope granularity is cheap (one more `MAX` in a batch already being issued) and the **refetch** is where it would cost a round trip.
 
 > **Unchanged by `STAGE_2_VENDOR_PORTAL_SPEC.md` §6.5 (2026-08-27), on purpose.** Integrations became a *per-product* tab, but neither the `integrations` scope nor its refetch is per-product: it is still one vendor-wide `GET /api/vendor/integrations` scoped by `ownedEndpointJoin`, and the tab narrows the result client-side via its `contextProductId` input. Making the fetch per-product would violate §2.2's invariant — the cursor's predicate would no longer match its list's — and would turn one call into one per product for a payload already bounded by the vendor's own catalog. What *did* change is the payload's grain: the handler now emits **one entry per owned endpoint**, so an owns-both integration appears twice and `(id, context_product.id)` is the key. That is invisible to the cursor, which still counts integrations, not listings.

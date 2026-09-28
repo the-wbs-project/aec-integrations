@@ -384,6 +384,13 @@ A retired row is always vendor-held (§4.6: claimed for an owner retire, claimed
 
 #### 4.5.6 Owner edits — `PATCH /api/vendor/integrations/:id` (AECI-1006 — 2026-09-22; connector-powered rows AECI-1090 — 2026-09-23)
 
+> **Fields amended (specified 2026-09-28, AECI-1154 and AECI-1155).** The edit set becomes the
+> offered contest fields minus `owner`, plus the edit-only `pricing_url`: `name`, `mechanism_kind`,
+> `mechanism_name`, `direction`, `description`, `listing_url`, `docs_url`, `pricing_model`,
+> `maturity`, `pricing_url`. `website` and `mechanism_url` leave the body, which is `.strict()`, so
+> sending either is a `400`. `pricing_url` is not contestable. §6.17.11 is the contract, and the
+> integration page (§6.17.3, §6.17.5) is the portal surface.
+
 The claimed owner edits its integration's standard fields, and the edit goes live with no moderation (decision 8). Wire shape and error table: `API_CONTRACTS.md` §6.14. Handler: `apps/api/src/routes/vendor-integration-edits.ts`, and `vendor-evidenced-pair-edits.ts` for a `connector_evidenced_pairs` row. The gate the owner edit uses: `apps/api/src/lib/integration-owner-writes.ts`. AECI-1010's retire and restore keep their own copy of the same order (`refusalFor` in `vendor-integration-retire.ts`).
 
 | Rule | As built |
@@ -419,6 +426,11 @@ Two consequences. First, an owner accept after an edit writes the contest's prop
 The rest of the table above is unchanged. Tests: `vendor-integration-edits-connector.spec.ts`.
 
 #### 4.5.7 Per-side links (AECI-1007 — 2026-09-22)
+
+> **The other side's links are now on the vendor read (specified 2026-09-28, AECI-1152).**
+> `GET /api/vendor/integrations` gains `counterpart_links`, the links stored for `other_product`,
+> read-only, empty on a connector-powered row (`API_CONTRACTS.md` §6.14). The integration page
+> shows them (§6.17.5). The write rules below are unchanged.
 
 **Each endpoint vendor stores its own listing and docs link on an integration** (decision 6), shown on the pair page beside the other side's. They are web links. Nothing routes on them and nothing reads them to grant anything.
 
@@ -1115,6 +1127,10 @@ gains a 20-product entry, because a search box over two options tells you nothin
 ---
 
 ### 6.5 As built — Integrations moves under the product, Messages takes its slot (2026-08-27)
+
+> **Superseded in part by §6.17 (specified 2026-09-28, AECI-1147).** Each integration on the
+> product's Integrations tab now opens its own page. The inline panel under the tab is replaced by
+> §6.17. The per-product filing, the one-entry-per-owned-endpoint list and Messages stand.
 
 > **Superseded in part by §6.11 (2026-09-17):** the product row no longer stacks
 > under the vendor row. It REPLACES it, the shell's header switches to the product,
@@ -1861,6 +1877,9 @@ and `vendor-dashboard-tabbed.component.spec.ts` (six product tabs), and `vendor-
 
 ### 6.13 As built — a read-only Connectors section on the Integrations tab (AECI-1013 — 2026-09-18)
 
+> **Not replaced by §6.17 (2026-09-28).** This section stays on the Integrations tab below the list.
+> §6.17 covers the caller's endpoint integrations only (§6.17, "Scope of v1").
+
 Vendors cannot edit, create or retire connector-powered integrations. They still need to see which
 connectors reach their product. This section shows that, and nothing on it is editable.
 
@@ -1908,6 +1927,10 @@ no links, product switch and retry.
 
 ### 6.14 As built — ownership on the integration card: Claim, Edit, "Offered by" (AECI-1006 — 2026-09-22)
 
+> **Superseded by §6.17.3 (specified 2026-09-28, AECI-1150).** The card's ownership line and its
+> edit form move onto the integration page's Owner row and per-row pencils. AECI-1156 removes this
+> component (§6.17.10). The claim and edit rules below are unchanged.
+
 AECI-1005 shipped the claim with no UI. The card now says who offers each integration and gives the owner the one action its state allows. Component: `components/vendor-integration-ownership.ts`, mounted by `vendor-integration-card.ts` in its own block above the contest form. Copy helpers: `components/vendor-integration-ownership-labels.ts`. Design anchor: the sibling contest form on the same card (§11b.10), whose disclosure trigger, control set and button classes this reuses, so it stays on the vendor portal's existing anchor and adds no new Mobbin reference.
 
 - **One line and at most one action, by state.**
@@ -1927,6 +1950,10 @@ AECI-1005 shipped the claim with no UI. The card now says who offers each integr
 **Tests.** `vendor-integration-edits.spec.ts` (every gate branch, the batch, the race guard, the enum refusals, the connector-kind lockstep), `vendor-integration-edits-connector.spec.ts` (AECI-1090: both tables, the entitlement, the frozen kind, the pair batch and tags, the race guard), `vendor.authz-matrix.spec.ts` (every guard cell, the endpoint 403 and the neither-endpoint 404), `batch-sentinels.spec.ts`, and `vendor-integration-ownership.component.spec.ts` (every state, the claim, the form, each refusal, focus).
 
 ### 6.15 As built — the owner's own rows: "Integrations your company offers" (AECI-1089 — 2026-09-23)
+
+> **Not replaced by §6.17 (2026-09-28).** Owned-only rows have no endpoint on the caller's side, so
+> v1 of the integration page does not cover them and this section keeps its own components
+> (§6.17.10). Its edit form drops `website` and `mechanism_url` and gains `pricing_url` (§6.17.11).
 
 A third-party owner makes neither product of its integrations, so the product-scoped list above never showed them. An endpoint vendor that owns an evidenced pair did not see that pair either, because the list read no `connector_evidenced_pairs` row. This section shows both, with the claim.
 
@@ -1962,6 +1989,374 @@ The §8.9 seat maintains its own connector catalogue (`STAGE_2_SPEC.md` §8.9(1)
 - **Preview.** `/preview/vendor-dashboard/products/agave/catalogue?fixture=connector-seat` (vendor-managed, thirty listings covering every status and decider) and `?fixture=connector-seat-review` (the same seat on an AECi-managed catalogue). `?fixture=` picks any preset on first paint.
 
 **Tests.** `vendor-connector-catalog.spec.ts` (the read: gates, the 404 cells, the dropped fields, filters, order, paging, and a lockstep case that every mapping it shows is one the PATCH does not 404), `vendor-updates.spec.ts` (the `catalogue` scope moves on a mapping edit and on the `managed_by` flip, and never for another vendor or a non-connector holding), `vendor-connector-catalogue.component.spec.ts` (list, both states, edit, save, each error, the lane taken back, the live tick and its deferral), `vendor-dashboard-tabbed.component.spec.ts` (the tab on connector products only, the overview link), and `e2e/preview-vendor-catalogue.spec.ts` (a keyboard-only edit and save, and axe at 1280 and 375).
+
+### 6.17 Integration detail page (AECI-1147, specified 2026-09-28 by AECI-1148)
+
+**Status: build contract. Nothing here is built yet.** Each integration a vendor sees on a product's Integrations tab gets its own page. The page replaces the inline integration panel of §6.13 to §6.15, §11b.10 and `STAGE_2_ATTESTATIONS_SPEC.md` §6.3. The design is concept C from the 2026-09-28 exploration.
+
+**Why.** Chris's four complaints about the inline panel (AECI-1147): non-technical marketing and product users cannot use it; it shows no contest history; it speaks our data model (attestation, claim, provenance, data object); and its layout reads as random. The panel fails the Stage 2.1 admission test (`STAGE_2_1_SPEC.md` §1) as it stands, and AECI-1105 puts it in front of the first real vendor.
+
+**Reference implementation.** The design preview at `/preview/integration-manager?concept=c`, source in `apps/web/src/app/preview/integration-manager/` (`concept-c-page.ts`, `im-sections.ts`, `im-answer-form.ts`, `im-tip.ts`, `integration-manager.fixtures.ts`). It reads fixtures, not the API. **It is design intent, not code to copy.** Where this section and the preview differ, this section wins. The differences are called out where they occur.
+
+**Design anchor (the Anchor-Site Rule, `DESIGN.md`).** Shopify admin, chosen because non-technical merchants and marketers use it daily. Three Mobbin screens, recorded in the preview's header comment:
+
+| Screen | Drives |
+| -- | -- |
+| Settings, Checkout (`mobbin.com/screens/ba4fab9c-c0f1-4d3c-95fc-e3da88b4ee7a`) | The sectioned page with a left nav, bordered section cards, definition-list rows and dated lines |
+| Order #1003 detail (`mobbin.com/screens/c34ee356-bb38-4dac-9a12-a36c5e46194e`) | The title block: title, status pill, one action |
+| Order timeline (`mobbin.com/screens/dbc52bdd-959b-4832-8895-1c9e80e529a6`) | The history rail in Change requests |
+
+The anchor supplies structure only. Tokens, type and colour stay AECi's: light only, borders not shadows, Source Serif headings.
+
+**Rulings this section carries.** All are Chris's, relayed from chat.
+
+| Date | Ruling | Where it lands |
+| -- | -- | -- |
+| 2026-09-28 | "approve, work until completed". Concept C goes in Stage 2.1. The branch split is approved and AECI-1142 gets its own PR. | AECI-1147 |
+| 2026-09-28 | The design points: sticky header, scroll-spy nav, "Things that need you"; label tooltips; owner pencil, "Request a change" for everyone else; open-request flag; "How you get it"; no Direction row; two-line description; compact Yes / No; a reason on every No with a "what's wrong" choice folded into the note for v1; "direction is wrong" means deny and add; a private note on an added row; versions "coming soon"; three link groups, the other company's read-only; search and filters on change requests; Accept / Decline with a note; "Replies coming soon"; retire with a confirm step. | AECI-1147 description, §6.17.1 to §6.17.7 |
+| 2026-09-28 | "The 'No' reason should not be public." Then: "No notes at all." No vendor note is public, Yes or No. Only the other company and AEC Integrations see one. | AECI-1139, §6.17.4 |
+| 2026-09-28 | Website and connection link leave the portal. The DB columns stay. The contest CHECK does not change. | AECI-1155, §6.17.11 |
+| 2026-09-28 | Release stage stays free text. | AECI-1146, §6.17.3 |
+| 2026-09-28 | A private conversation between the two companies goes to Stage 2.5. The page marks where a reply would go with "Replies coming soon". | AECI-1145, §6.17.6 |
+| 2026-09-28 | "NOBODY says provenance." The public labels change, and the maintenance chip uses exactly two labels, "AEC Integrations maintained" and "Vendor maintained". The pair card gains an "At a glance" row: price, release stage, how you get it, last checked. | AECI-1142, §6.17.8 |
+
+**Scope of v1.** The page covers every entry of `integrations[]` on `GET /api/vendor/integrations` (§4.5, `STAGE_2_ATTESTATIONS_SPEC.md` §5.1): the rows where the caller holds an endpoint. Two surfaces stay as they are: the owned-rows section of §6.15, which lists rows the caller owns but holds no endpoint of, and the read-only Connectors section of §6.13. Neither is part of the inline panel, and both keep their own components.
+
+**What is not in v1.** A reply thread (AECI-1145). Version pickers (§6.17.4). A structured "what's wrong" field (§6.17.4). A "Keep my answer" control (§6.17.6). A detail page for §6.15's owned-only rows.
+
+#### 6.17.1 Route and list (AECI-1149)
+
+| Rule | Contract |
+| -- | -- |
+| Route | `/vendor/:vendorSlug/products/:productSlug/integrations/:integrationId`, a child of the product route in `vendor.routes.ts`, beside `integrations`. The preview mirror is `/preview/vendor-dashboard/products/:productSlug/integrations/:integrationId`. |
+| Which entry | The entry of `integrations[]` whose `id` is `:integrationId` **and** whose `context_product` is the product `:productSlug` names. `id` alone is not unique (§6.5, AECI-666). An owns-both integration has a page under each of its two products, each framed against its own product. |
+| Data | No new read. The page reads `VendorPortalStore`'s `integrations` resource, so the `integrations` cursor keeps it live (`STAGE_2_REALTIME_SPEC.md` §2.2). Change requests add one filtered read (§6.17.6). |
+| Not found | An id that is not in the caller's list, or is listed under a different product, renders the portal's not-found state inside the product context: an `h2` "Integration not found", one sentence that echoes nothing from the URL beyond the product name, and a link back to the product's Integrations list. The page makes no request that carries the id, so a foreign id cannot be probed. While the list is still loading the page shows a loading state, and it decides "not found" only once the read has settled, so the notice never flashes. |
+| Retired rows | Listed and reachable, marked retired, read-only except Settings (§6.17.7, §4.6.2). |
+| Deep link, reload, Back | All work. The page state is the route plus the URL fragment (§6.17.2). Nothing is held only in memory. |
+| Session | The portal's own gates apply unchanged: `vendorMeResolver`, the §6.6 login redirect, `noindex`, non-cacheable. |
+
+**The list.** The product's Integrations tab keeps the §6.3 (`STAGE_2_ATTESTATIONS_SPEC.md`) list with its search, "Integrates with" filter, URL state and counterpart grouping, and the "Add an integration" form of §4.7.5. What changes:
+
+- **Each integration row is a link to its page.** The row shows the other product's mark and name, "by {company}", one line saying what is shared (for example "Models and drawings are sent to Navisworks"), and the status pill of §6.17.2. The level-2 card body and the level-3 data-flow lanes are gone. A counterpart with one integration shows that integration's row directly.
+- **The status chips filter on the §6.17.2 status set**, not the §6.3 health set, so the list and the page never name one state two ways. `?status=` keeps working. Its values become the §6.17.2 keys, and an old value (`conflict`, `needs_you`) maps to its nearest key rather than to an empty list.
+- **The overview's "What needs you" links** (§6.10) that pointed at the tab filtered to conflicts now point at the integration page when the count names one integration, and at the filtered tab otherwise.
+
+#### 6.17.2 Page shell: title block, sticky header, section nav, "Things that need you" (AECI-1149)
+
+**Order on the page.** A back link, the title block, "Things that need you", then a two-column body: the section nav on the left and five section cards on the right, in this order: Overview, Data that's shared, Integration links, Change requests, Settings. Below `lg` the nav sits above the cards and is not sticky.
+
+**Headings.** The portal shell keeps its product context (§6.11): the `h1` is the product name and the product tab row shows Integrations as current. The page title is an `h2` ("{your product} and {other product}"). Each section heading is an `h3`. Groups inside a section are `h4`.
+
+**Back link.** "All integrations", a `routerLink` to `…/products/:productSlug/integrations`, inside a `<nav aria-label="Breadcrumb">`.
+
+**Title block.** The two product marks, the title, the status pill with an `i`-style tooltip saying what the status means, and "View public page", which opens `/products/{context}/integrations/{other}` in a new tab and says so to screen readers. Its accessible name names the destination (§6.7's A4 guard).
+
+**Status.** One status per integration, the first that applies:
+
+| Key | Pill | When |
+| -- | -- | -- |
+| `retired` | Retired | `retired_at` is set |
+| `disagreement` | Disagreement open | any claim has `agreement = 'conflict'` |
+| `needs_answer` | Needs your answer | an attestable, live row has a claim with no answer of the caller's (`mine = []`), other than a counterpart-added one |
+| `needs_decision` | Needs your decision | an open received change request, or an unanswered counterpart-added row |
+| `ready_to_claim` | Ready to claim | `is_owner` and `claimed_at` is null |
+| `no_owner` | No owner yet | no owner is recorded and the caller has no open `owner` request |
+| `waiting` | Waiting on {owner} / Waiting on AEC Integrations | the caller has an open submitted change request |
+| `connector` | AEC Integrations maintained | `attestable` is false |
+| `up_to_date` | All up to date | none of the above |
+
+The pill never carries meaning by colour alone. `disagreement` keeps the red tone and the ✕ glyph of the public badge (`STAGE_2_ATTESTATIONS_SPEC.md` §4.5).
+
+**Sticky header.** Once the title block scrolls out of view, a slim bar pins to the top of the viewport: the two marks, the title, the status pill and "View public page". It appears and disappears with an `IntersectionObserver` on the title block. It is browser-only: SSR renders no bar. It must not cover the site header where that is itself sticky.
+
+**Section nav.** A `<nav aria-label="Integration sections">` with one item per section. Each item is a native in-page anchor, `<a href="{path}#{section}">`, per `ANGULAR_STYLE_GUIDE.md`'s scroll rules. The section ids are `overview`, `data-shared`, `links`, `change-requests` and `settings`, so a URL like `…/integrations/:id#change-requests` deep-links, and `InitialFragmentScroller` covers the first load.
+
+- **Scroll-spy.** The item for the section under the sticky bar carries `aria-current="location"`. The spy is an `IntersectionObserver` over the section cards, browser-only. SSR marks Overview current. At the foot of the page the last section counts as current once it is fully in view, because a short last section can never reach the bar. After a nav jump the spy holds the chosen item until the scroll ends (`scrollend`, with a timeout fallback), so the highlight does not flicker through the sections it passes.
+- **Focus.** Choosing a nav item moves keyboard focus to the section's heading (`tabindex="-1"`, no visible outline on programmatic focus). Scroll-spy never moves focus.
+- **Clearance.** Every jump target (section headings, data rows, change request items, Overview rows) declares `scroll-mt-*` equal to the sticky bar's height plus a gap. Never `ViewportScroller.setOffset()`.
+
+**"Things that need you".** A callout under the title block. Each item is one sentence and one link that jumps to its target and focuses it. Before a jump into Change requests the page clears that section's search and sets its filter to All, so the target is on the page. With nothing in either list the heading reads "Nothing needs you right now".
+
+Items, derived from the wire only, never re-derived agreement:
+
+| Item | Shown when | Target |
+| -- | -- | -- |
+| "{Company} disagrees about {data}" | a claim has `agreement = 'conflict'` and the caller's own live answer carries no note | the disagreement item (§6.17.6) |
+| "{Company} added {data}. Is this right?" | a claim with `added_by = 'counterpart'` and `mine = []` on an attestable, live row | the added-row item (§6.17.6) |
+| "{Company} asked to change {field}" | an open received change request on this integration | its item |
+| "{Company} asked AEC Integrations to review your decision. Reply by {date}" | a received request with an open protest, no reply, and `reply_due_at` still ahead (§11b.12.12) | its item |
+| "{N} rows of data need your answer" | claims with `mine = []` on an attestable, live row, not counted above | the first such data row |
+| "You can claim this integration" | `is_owner`, unclaimed, and a claim is allowed (a connector-powered row needs an active entitlement, §4.5.2) | the Owner row |
+| "No owner is recorded. Ask to be recorded as the owner" | no owner on file and no open `owner` request from the caller | the Owner row |
+
+A second list, headed "Waiting on someone else", gives context and never asks for action:
+
+| Item | Shown when |
+| -- | -- |
+| "Your request to change {field} is with {owner} / AEC Integrations" | an open submitted change request (`routed_to`, or AEC Integrations while a protest is open) |
+| "You added {data}. Waiting for {Company}" | a claim with `added_by = 'you'` and no counterparty answer, when the caller does not hold both endpoints |
+| "{Company} disagrees about {data}. You gave your reason" | a disagreement whose own answer already carries a note |
+
+A retired row lists nothing in either. A connector-powered row lists only ownership and change request items, because nothing on it is attestable.
+
+#### 6.17.3 Overview (AECI-1150; the Pricing page row is AECI-1154)
+
+Two groups of rows, "Details" and "Ownership". Each row is a label and one value at one size, in a `<dl>`. Explanations live in the label's tooltip, never under the value.
+
+| Group | Row | Value from | Owner edits? | Contestable? |
+| -- | -- | -- | -- | -- |
+| Details | Name | `contestable_fields.name` | yes | yes |
+| Details | Description | `contestable_fields.description` | yes | yes |
+| Details | How you get it | `mechanism_kind`, as a plain label (§6.17.8) | yes, as a select of `OWNER_EDITABLE_MECHANISM_KINDS`; no pencil on a connector-powered row, where it is frozen (`CONNECTOR_POWERED_FROZEN_EDIT_FIELDS`, §4.5.6) | yes |
+| Details | Connection name | `mechanism_name` | yes | yes |
+| Details | Release stage | `maturity`, free text (ruled 2026-09-28, AECI-1146) | yes | yes |
+| Details | Pricing | `pricing_model`, at most 200 characters | yes | yes |
+| Details | Pricing page | `pricing_url` (new, §6.17.11) | yes | **no** |
+| Ownership | Owner | `owner`, "{Company} (you)" for the caller | no: AEC Integrations decides (§4.5.4) | yes, always to AEC Integrations |
+| Ownership | Kept up to date by | `maintained_by`, as the ruled public label: "AEC Integrations maintained" or "Vendor maintained", with "Reviewed {date}" or "Updated {date}" from `last_reviewed_at` | no | no |
+| Ownership | Added by | `origin` and `created_at`: "AEC Integrations, {date}", or "{Company}, {date}" for a vendor-created row | no | no |
+
+**No Direction row** (ruled 2026-09-28). The data rows in §6.17.4 carry direction. The integration-level `direction` column stays in the DB, the promote wire, the contest CHECK and the owner edit API. The page offers no control for it and the page's request form does not offer it (§6.17.6).
+
+**Tooltips.** Every label has an `i` button with a tooltip of up to three short lines: what the field means, where it shows on the public page, and who changes it. The public-placement line is checked against the rendered pair page at build time, not copied from the preview. The tooltip follows §6.17.9.
+
+**Description clamp.** The value shows two lines. When the text overflows, a "Show more" button follows it (`aria-expanded`, `aria-controls` on the value). "Show less" collapses it. The overflow test runs after render in the browser only. SSR renders the clamped text with no button.
+
+**The one action per row**, by the caller's state:
+
+| Caller | Action | Behaviour |
+| -- | -- | -- |
+| Claimed owner, live row | a pencil button, "Edit {label}" | Opens an inline editor in the row: one control (text, URL, textarea or select), Save and Cancel. Save sends `PATCH /api/vendor/integrations/:id` with that one field and `context_product_id` (§4.5.6). Pessimistic: it waits for the `200`, announces through `VendorPortalAnnouncer`, closes, and returns focus to the pencil. The client runs `integrationEditValueProblem` first. Each refusal code maps to its own sentence in a `role="alert"`. On a connector-powered row the owner also needs an active entitlement (§4.5.6): without one, no pencils, and one sentence in the Owner tooltip says editing needs an active plan. |
+| Recorded owner, unclaimed | "Claim to edit" | Jumps to the Owner row, whose action is Claim. |
+| Anyone else, live row | "Request a change" | Opens the request form in Change requests with that field chosen, jumps there and focuses the form (§6.17.6). Not shown on the Pricing page row, which is not contestable. |
+| Anyone, retired row | none | The row is read-only. |
+
+**The Owner row's action** replaces §6.14's ownership line:
+
+| State | Action |
+| -- | -- |
+| Caller is the recorded owner, unclaimed | "Claim this integration" (`POST …/claim`, §4.5.2). On a connector-powered row with no active entitlement: no button, and the tooltip says claiming needs an active plan. After the `200`, focus moves to the first pencil. |
+| Caller is the claimed owner | none |
+| No owner recorded, no open `owner` request from the caller | "Ask to be recorded as the owner", which opens the request form on the `owner` field with the caller's company proposed (§4.5.4) |
+| No owner recorded, an open `owner` request from the caller | "See your request", which jumps to it. **Never** a prompt to file a second one (AECI-1143). |
+| Another company owns it | none. The tooltip says who decides a request and that the Owner field goes to AEC Integrations (§11b.4). |
+
+**Flags.** A row whose field has an open change request the caller is party to (submitted, or received as owner) shows a flag after the value, in place of "Request a change". The flag is a button. Its tooltip reads "Change requested {date}: {current} → {proposed}. {status}. Select the flag to see the request." Activating it jumps to the request item and focuses it. The flag's tooltip holds no link, because a link inside a portaled overlay cannot be reached with Tab.
+
+#### 6.17.4 Data that's shared (AECI-1151)
+
+One row per claim, in the API's order (the `data_object` vocabulary's `display_order`). The heading is "Data that's shared ({N})" with a tooltip, and an "Add data that's shared" icon button (`aria-expanded`) on an attestable, live row.
+
+**The table.** A real `<table>` with a visually hidden caption ("Data that is shared between {A} and {B}") and four columns, each header with a tooltip: Data, Direction, Your answer, Status. The row header is the data type. Direction is an icon plus "To {other}", "From {other}" or "Both ways", from the claim's caller-relative `direction`. The table sits in a horizontally scrolling container that is keyboard focusable and labelled, so it reflows at 320 px.
+
+**Your answer.** A group (`role="group"`, `aria-label` naming the row's sentence) of two toggle buttons, "Yes" and "No", each `aria-pressed`, with accessible names "Yes, this is right" and "No, this is wrong".
+
+| Press | Effect |
+| -- | -- |
+| Yes, when the other company has not said No | Saves at once: `PUT /api/vendor/claims/:claimId/attestation` with `asserted: true`. Optimistic, rolled back with a visible error on failure (`STAGE_2_REALTIME_SPEC.md` §5: toggles are optimistic). |
+| Yes, when the other company said No | Opens the note form for an optional note, so both sides can explain. Saves on Save only. |
+| No | Opens the reason form (below). The answer changes only on Save. Pessimistic. |
+| The pressed button again | Clears the answer: `DELETE …/attestation`. |
+
+**The reason form** (under the row, in a full-width cell):
+
+- **"What's wrong?"**, three radio buttons: "This data isn't shared at all", "The direction is wrong", "Something else". **For v1 the choice is folded into the note** (ruled 2026-09-28): the attestation model holds a stance and a note only, and nothing structured is stored. The choice decides the flow. The stored note is the vendor's reason text, verbatim.
+- **"The right direction"**, a select of the two other directions, shown only for "The direction is wrong".
+- **"Reason (required)"**, a textarea, at most 2,000 characters (`attestationNote`). The helper text says who sees it: "Only {other company} and AEC Integrations see this.", or "Only AEC Integrations sees this." when the caller holds both endpoints (AECI-1139). The client refuses an empty reason before sending ("Give a reason, so the other company and AEC Integrations know what to fix."). The server refuses it too: `400 ATTESTATION_NOTE_REQUIRED` (`STAGE_2_ATTESTATIONS_SPEC.md` §5.2). Both use the shared rule `attestationNoteProblem`.
+- **"Versions: coming soon"**, a line with a tooltip ("Soon you will be able to say which versions of {product} support this."). No pickers.
+- Save and Cancel. Opening the form focuses the first radio (or the textarea for a Yes note). Closing returns focus to the row's pressed control.
+
+**"The direction is wrong" is two writes, shown as one outcome.** First `PUT …/attestation` with `asserted: false` and the reason on the old claim. Then `POST /api/vendor/claims` with the corrected direction, `context_product_id` and no note. In that order, because the No with its reason is the statement that matters if the second write fails. The announcement is one sentence after both land. If the second write fails, the page announces that the No was saved and the corrected row was not, and offers "Add the corrected row" as a retry. A `400` with `details.claim_id` (the corrected row already exists) is not an error: the page answers Yes on that claim instead, with a `PUT`.
+
+**Version stamps survive an answer.** A `PUT` replaces the whole position, and an omitted stamp lands as `null` (`STAGE_2_ATTESTATIONS_SPEC.md` §5.4). The page has no version pickers, so every `PUT` re-sends `introduced_version_id` and `deprecated_version_id` from the caller's own row for the context product's slot in `mine`. When a caller holding both endpoints carries different stamps on its two slots, the other slot's stamp is lost. That is accepted for v1: no stamps exist in production (§8.4 there).
+
+**Status.** The pill for the row, from the caller's seat (labels in §6.17.8). Its tooltip lists, in order: the caller's reason, the other company's reason, and the §6.2 outcome sentence (`claimOutcomeLine` in `vendor-claim-outcome.ts`), verbatim. The page writes no consequence sentence of its own and no threshold number: §6.2's rule that thresholds are the detector's own applies here. A `conflict` row also carries a flag that jumps to its disagreement item.
+
+**Add a row.** The add button opens a form above the table: "Data", a select over the closed vocabulary (`GET /api/vendor/data-objects`); "Direction", a select of the three caller-relative sentences; and "Note for {other company}" (optional, 2,000 characters, the same audience helper text as the reason). A sentence above the controls says what adding does: the row is recorded as confirmed by the caller, shows publicly as "Confirmed by {caller}" until the other company answers, and the other company is asked to confirm it. When the caller holds both endpoints it says nobody else needs to confirm it. Add sends `POST /api/vendor/claims` with `context_product_id`. Pessimistic. A duplicate (`400` with `details.claim_id`) closes the form, says the row is already listed, and focuses that row's answer group. The other company is told through a `claim_added` notification (`STAGE_2_ATTESTATIONS_SPEC.md` §7.6).
+
+**Access.** Answering and adding need the `attestation.author` capability (`STAGE_2_ATTESTATIONS_SPEC.md` §5.2). Without it the table renders every answer read-only, with the portal's existing access sentence, and no add button. Reading is never gated.
+
+**A connector-powered row** (`attestable: false`, `STAGE_2_ATTESTATIONS_SPEC.md` §14) shows the rows read-only. One sentence above the table: "AEC Integrations keeps these up to date. They run through {connector}, so neither company answers for them." The answer column reads "Not needed". No add button.
+
+**A retired row** shows the rows read-only. Clearing an existing answer stays allowed (§4.6.2), so a pressed button can still be pressed to clear.
+
+#### 6.17.5 Integration links (AECI-1152)
+
+Every link the public page shows for this integration, in three groups. Each link row is a label with a tooltip and the URL (or "Not set" / "Not added yet").
+
+| Group | Rows | Who changes them |
+| -- | -- | -- |
+| "On the integration" | Listing page (`listing_url`), Documentation (`docs_url`) | The claimed owner, with a pencil and an inline URL editor (`PATCH /api/vendor/integrations/:id`, §4.5.6). The recorded owner before its claim: "Claim to edit". Anyone else: "Request a change" (a contest on that field), or the open-request flag of §6.17.3. |
+| One group per product the caller holds, headed by the product name and "Your product" | Where customers get it (`listing`), Setup guide (`docs`) | The caller, with a pencil and an inline URL editor (`PUT` / `DELETE …/links/:productId/:kind`, §4.5.7). An empty value removes the link. |
+| The other product's group, headed by the product name, a lock icon and "Provided by {company}" | Where customers get it, Setup guide | Read-only. The tooltip says only that company can change them. |
+
+- **Website and connection link are not shown** (ruled 2026-09-28, §6.17.11).
+- **Groups are labelled by product, not company** (AECI-1141), so a company that makes both products shows two distinct groups.
+- **A caller holding both endpoints** sees both product groups as "Your product", each editable. The data for the other side is `counterpart_links` (`API_CONTRACTS.md` §6.14, AECI-1152).
+- **A connector-powered row** takes no per-side links (decision 9). The two product groups are replaced by one sentence: "Products cannot add their own links to an integration that runs through {connector}." The "On the integration" group renders the listing link as "View on {connector}" (a new-tab link that says so) and the documentation link as-is, with a line saying the links come from {connector}. No inline edit is offered there except to the claimed owner with an active entitlement, who may edit both fields (§4.5.6, AECI-1090). Anyone else may still request a change, as §11b.13 allows. A per-side link stranded on a connector-powered row (§4.5.7) keeps §4.5.7's read-only Remove, shown in the caller's own group only.
+- **A retired row** shows every link read-only (§4.5.7).
+- **URL editors** accept an absolute `https` URL for per-side links (`HttpsUrlSchema`) and an absolute `http(s)` URL for the two record links (`contestValueProblem`). The client runs the matching shared rule before sending. Saves are pessimistic, announce through the live region and return focus to the pencil.
+
+#### 6.17.6 Change requests (AECI-1153)
+
+One list of everything open between the two companies and AEC Integrations about this integration, and a collapsed history. **It merges three sources on the client:** field contests (`GET /api/vendor/contests?integration_id=`, §11b), disagreements (claims with `agreement = 'conflict'`), and rows the other company added (claims with `added_by = 'counterpart'`). Only the first are contests. The rest come from claims and attestations. Nothing in this section is a message thread.
+
+**Toolbar.** A search input (`type="search"`, visually hidden label "Search change requests", placeholder "Search requests, values or notes"). A group labelled "Show" of three `aria-pressed` buttons: All (default), Open, Closed. For a non-owner on a live row, a primary "Request a correction" button that opens the form. Under the toolbar, one sentence for the claimed owner ("You own this integration. Change requests other companies send about its details come to you here.") or for the unclaimed recorded owner ("Claim the integration to edit its details and decide requests from other companies.").
+
+**Search** matches, case-insensitively, the field label, both values, the reason, decision notes, protest texts, the company names, the data type, and the words "Disagreement" and "Added row". It filters both groups. An empty result says "No open requests match your search." or "No closed requests match your search."
+
+**The request form** (a non-owner filing a contest, §11b.2):
+
+- "What is wrong?", a select over the offered contest fields for this anchor (§6.17.11), in the §11b.3 order, minus `direction` (no Direction row, §6.17.3). A field with an open contest from the caller is disabled, and so is a field with an open protest or inside a cooldown, each with its reason in the option text (§11b.12.12).
+- "On the public page now", the value on record, read-only.
+- "What it should say", the control that follows the field (§11b.10): URL input, textarea for `description`, select for `mechanism_kind` and `owner`, text otherwise. It starts at the value on record.
+- "Why is it wrong?", a textarea. The rule is `SubmitIntegrationContestSchema`'s: 1 to 2,000 characters. **No 20-character minimum**: the preview's floor is not a ruled rule and the API does not enforce it.
+- A line saying where it goes: to the owner, with a protest route if they decline; to AEC Integrations when nobody has claimed the row; always to AEC Integrations for the Owner field (§11b.4).
+- Send and Cancel. The client checks `contestValueProblem` first. On `201` it announces where the request went, closes, and focuses the new item. Refusals map as §11b.10 and §11b.12.12 map them.
+
+**Open**, headed "Open ({N})" as an `h4`. Items start expanded. Each item is focusable (`tabindex="-1"`) and is a jump target. Kinds, in this order, newest first within each kind (`updated_at`, the claim's `created_at`, or `disagreement.raised_at`), `id` as the tiebreaker:
+
+| Kind | Content | Actions |
+| -- | -- | -- |
+| Received request (caller is the owner) | "Change request from {Company} · sent {date}"; "{field}: {current} → {proposed}"; the other company's reason; "Replies coming soon"; "Note to {Company} (optional)" with help text encouraging a note on a decline | Accept and Decline (`POST /api/vendor/contests/:id/decision`, §11b.5), each with the field in its accessible name. A line says accepting changes the public page at once. An open protest shows §11b.12.12's reply form. |
+| Added by the other company | "Added row · {Company} · {date}"; "{Company} added {data}. Is this right?"; "They say {data} {are sent to / come from / are shared both ways}. Until you answer, the public page shows it as "Confirmed by {Company}"."; their note, when there is one; "Replies coming soon" | "Yes, this is right" (the §6.17.4 Yes) and "No, this is wrong" (opens the reason form in the item) |
+| Disagreement | "Disagreement · raised {date}" from `disagreement.raised_at`; a title naming the data and each side's stance; the caller's answer and reason beside the other company's answer and reason ("They have not given a reason." when there is none); "Replies coming soon"; the §6.2 `conflict` sentence verbatim | "Change my answer to {No / Yes}" (opens the form in the item; a No needs a reason) and "Add my reason" or "Edit my reason" (re-sends the same stance with a note) |
+| Added by the caller | "Added row · you · {date}"; "You added {data}. Waiting for {Company}."; the caller's note | none |
+| Submitted request | "Correction · sent {date}"; "{field}: {current} → {proposed}"; the status pill and one sentence on where it stands | "Withdraw request" behind an inline confirmation, never `confirm()`; §11b.12.12's "Ask AEC Integrations to review" when the window is open |
+
+**The disagreement date.** "Raised {date}" is `disagreement.raised_at`: when the claim's agreement last became `conflict` (`API_CONTRACTS.md` §6.14). The page does **not** print "AEC Integrations reviews it on {date}". The `open-conflict` detector measures from a different instant, the newest live vote (`STAGE_2_ATTESTATIONS_SPEC.md` §7.5), so raised-at plus seven days would promise a date the detector does not keep. The preview's dated sentence is replaced by §6.2's.
+
+**No "Keep my answer".** The preview's control stored nothing on the server. A disagreement leaves "Things that need you" for "Waiting on someone else" once the caller's answer carries a reason (§6.17.2), which the server does record.
+
+**"Replies coming soon"** is a plain line of secondary text where a reply would go: on received requests, added rows (both kinds) and disagreements. It is not a control. AECI-1145 holds the conversation feature (Stage 2.5).
+
+**Closed**, headed "Closed ({N})". Closed contests only, received and submitted, newest decision first. Each row is a disclosure button (`aria-expanded`, `aria-controls`) showing the field, "{current} → {proposed}", the outcome pill and the date. It starts collapsed. Open, it shows one sentence on what the outcome means and a dated rail of events built from the contest's own fields: sent, decided (with the decision note), protested, replied, decided by AEC Integrations, withdrawn. Resolved disagreements and answered added rows do not appear in Closed in v1. They leave the list when they resolve. The public pair page's history is where the attestation record lives.
+
+**Filters.** Open hides the Closed group. Closed hides the Open group. All shows both.
+
+**Messages keeps its contests list.** §6.5's vendor-wide Field contests block stays. Every action on this page follows the same rules and endpoints as that block, so the two cannot disagree.
+
+**Data.** The page reads `GET /api/vendor/contests?integration_id={id}` (`API_CONTRACTS.md` §6.14) into a page-scoped resource. It refetches when the `contests` cursor scope moves, and when `integrations` moves after it has loaded, the §2.3 rule of `STAGE_2_REALTIME_SPEC.md`. The cursor stays vendor-wide.
+
+#### 6.17.7 Settings (AECI-1149)
+
+Retire and restore, from §4.6, rendered as one bordered danger area. No new route or rule.
+
+| Caller and row | Content |
+| -- | -- |
+| Claimed owner, live row | "Retire this integration", one sentence on what retiring does (hidden from the public page and search, open correction requests closed, restorable later), and "Retire integration". It opens an inline confirmation, "Retire it now?", with "Yes, retire it" (danger style) and Cancel. Only that button sends. Focus moves to the confirm button, back to the trigger on Cancel, and to the status line after a retire. |
+| Claimed owner, row retired by the owner | "This integration is retired", one sentence, and "Restore integration". |
+| Any caller, row retired by AEC Integrations | "Retired by AEC Integrations on {date}", and that only AEC Integrations can restore it (§4.6.4). |
+| Recorded owner, unclaimed | "Once you claim this integration, you can retire it here if it is no longer offered." |
+| Anyone else | "Only the owner can retire an integration. If it is no longer offered, request a correction and say so." |
+
+A connector-powered row follows §4.6.3: without an active entitlement the owner sees no Retire, and a retired row says restoring needs a plan. Writes are pessimistic and announced through the one live region.
+
+#### 6.17.8 Plain-language copy (all sub-issues)
+
+The page never says attestation, claim, provenance, data object, contest, counterparty, mechanism or iPaaS. It says what the vendor sees and does. Every string is `$localize` or an `i18n` attribute. Sentence case, no em dashes (§6.2 of `STAGE_2_ATTESTATIONS_SPEC.md`). "Company", not "vendor", in every sentence.
+
+| Model term | The page says |
+| -- | -- |
+| data-flow claim, data object | a row of data; a type of data; the section "Data that's shared" |
+| attestation | your answer |
+| affirm (`asserted: true`) | Yes, this is right |
+| deny (`asserted: false`) | No, this is wrong |
+| retract | pressing your answer again clears it |
+| attestation note | reason (on a No); note (on a Yes or an added row) |
+| counterparty | {Company}, or "the other company" |
+| `conflict` | Disagreement (an item); Disputed (a pill) |
+| field contest | change request; "Request a change" on a row; "Request a correction" in the toolbar |
+| received contest | "Change request from {Company}" |
+| protest | "Ask AEC Integrations to review" (§11b.12.12) |
+| `built_by_vendor_id` | Owner, "the company that offers this integration and keeps its details up to date" |
+| ownership claim | Claim this integration |
+| `maintained_by` | Kept up to date by; values "AEC Integrations maintained", "Vendor maintained" (ruled 2026-09-28, AECI-1142) |
+| `origin` | Added by |
+| `mechanism_kind` | How you get it |
+| `mechanism_name` | Connection name |
+| `maturity` | Release stage |
+| `pricing_model` / `pricing_url` | Pricing / Pricing page |
+| `listing_url` / `docs_url` | Listing page / Documentation |
+| per-side `listing` / `docs` | Where customers get it / Setup guide |
+| `inbound` / `outbound` / `both` | From {other} / To {other} / Both ways |
+| version stamps | Versions: coming soon |
+| retire | Retire integration |
+
+**How you get it, by value.** `native` "Built into the product"; `marketplace-app` "Marketplace app"; `api` "Direct connection"; `iPaaS` "Through {connector}", or "Through a connector service" when the connector is not a promoted product. The preview has no wording for `webhook`, `partner` or `integrator`. Until Chris rules, they read "Webhook", "Partner integration" and "Built by a consultancy".
+
+**Row status pills, from the caller's seat.** These are portal labels. They name the caller's position, which the public badge does not.
+
+| Answers (yours, theirs) | Pill |
+| -- | -- |
+| Yes, Yes | Confirmed by both companies |
+| Yes, No; or No, Yes | Disputed |
+| Yes, none | Waiting for {Company} |
+| none, Yes; none, No; none, none | Needs your answer |
+| No, none | You said this is wrong |
+| No, No | Both companies said this is wrong |
+| Yes (caller holds both endpoints) | Confirmed by you |
+| any, on a connector-powered row | Checked by AEC Integrations |
+
+**Public labels quoted in portal copy** use the AECI-1142 wording: "Confirmed by both companies", "Confirmed by {Company}", "Companies disagree", "Listed by AEC Integrations", "AEC Integrations maintained", "Vendor maintained". The preview's older quotes ("Both vendors confirmed", "Unverified", "Vendors disagree") are not used.
+
+**Copy the preview gets wrong, which this contract corrects.** "AEC Integrations takes it off the listing" (on two No answers) breaks §6.2's rule that a denial never promises removal: the page uses §6.2's `denied` sentence instead. "AEC Integrations reviews it after {date}" is replaced as §6.17.6 says.
+
+#### 6.17.9 Accessibility (all sub-issues)
+
+- **Tooltips meet WCAG 1.4.13.** Every `i`, pill and flag tooltip is built the way `shared/info-hint/info-hint.ts` is: a real `<button>` trigger and a `cdkConnectedOverlay` panel that portals out of clipping containers. The panel opens on hover, focus and click. It stays open while the pointer moves onto it, with a short grace period across the gap (hoverable). Escape closes it from anywhere without moving focus or the pointer (dismissible). It stays until the pointer leaves, focus leaves or Escape (persistent). The full text is also the trigger's `aria-describedby` target, always in the DOM and visually hidden, so assistive tech never depends on the overlay. A panel holds no link or control.
+- **Target size.** Every `i`, pencil and flag button is at least 24 by 24 CSS pixels (WCAG 2.5.8).
+- **Focus.** A nav jump focuses the section heading. A flag or "Things that need you" jump focuses the target item. A form focuses its first control when it opens and returns focus to its trigger when it closes. After a save, focus returns to the control that opened the editor. Programmatic focus targets carry `tabindex="-1"`.
+- **Announcements.** Outcomes go through `VendorPortalAnnouncer`, the portal's one live region (`STAGE_2_REALTIME_SPEC.md` §6.3). No second `role="status"`. Errors are `role="alert"` beside their form.
+- **Scroll.** Jump targets clear the sticky bar with `scroll-mt-*`. Never a global `ViewportScroller.setOffset()` (`ANGULAR_STYLE_GUIDE.md`, `CLAUDE.md`). Section jumps are native fragment anchors, so `provideScrollMarginViewportScroller()` and `InitialFragmentScroller` handle them. Programmatic scrolls are instant, so `prefers-reduced-motion` is respected.
+- **Structure.** Headings are `h2` (title), `h3` (sections), `h4` (groups and Open / Closed), under the shell's product `h1`. Rows are `<dl>`. Data is a `<table>` with a caption and `th scope`. Toggles use `aria-pressed`. Disclosures use `aria-expanded` and `aria-controls`.
+- **Colour.** No state is carried by colour alone. Every pill has a text label, and `Disputed` keeps its glyph.
+- **Verification.** axe on the rendered page at 1280 and 375 px wide, every section open and with a form open, zero errors and zero `serious`. `npx impeccable detect` against the rendered page with `pnpm dev:agent` running, zero P0. The `CLAUDE.md` design checklist applies to AECI-1149 to AECI-1153.
+
+#### 6.17.10 What it replaces (AECI-1156)
+
+The page replaces the inline integration panel. AECI-1156 removes it once AECI-1149 to AECI-1153 have shipped, and confirms each file against the page before deleting it.
+
+| Retired | Replaced by |
+| -- | -- |
+| The §6.3 (`STAGE_2_ATTESTATIONS_SPEC.md`) level-2 card and level-3 lanes: `vendor-integration-card.ts`, `vendor-claim-lane.ts`, `vendor-attestation-control.ts`, and the drill-down parts of `vendor-counterpart-group.ts` | The list row (§6.17.1) and Data that's shared (§6.17.4) |
+| `vendor-add-claim-form.ts` | Add a row (§6.17.4) |
+| `vendor-integration-ownership.ts` (§6.14) | The Owner row and pencils (§6.17.3) |
+| `vendor-integration-edit-form.ts` on the card | The Overview and link pencils (§6.17.3, §6.17.5). §6.15's owned rows still use it, so it stays for them. |
+| `vendor-integration-links-form.ts` (§4.5.7's "Your links") | Integration links (§6.17.5) |
+| `vendor-contest-form.ts` on the card (§11b.10) | The request form (§6.17.6) |
+| `vendor-integration-retire.ts` | Settings (§6.17.7) |
+
+Kept: `vendor-owned-integrations.ts` and `vendor-owned-retire.ts` (§6.15), `vendor-product-connectors.ts` (§6.13), `vendor-contests-list.ts` and `vendor-contest-protest.ts` (Messages, §6.5), `vendor-claim-outcome.ts` (its sentences, §6.2), `vendor-integration-create.ts` (§4.7.5). Specs go with their components.
+
+Also in AECI-1156: the e2e specs (`vendor-dashboard.spec.ts` and the `preview-vendor-*` specs), the vendor guides in `apps/web/src/content/docs/vendors/` (`attesting-an-integration.md`, `contests-and-protests.md`, `owning-an-integration.md`, and a check of the other three), the rehearsal script where it walks the old panel (`STAGE_2_1_REHEARSAL.md`), and the preview concepts A, B, D and "current" in `apps/web/src/app/preview/integration-manager/`. **Done when no route renders the old panel.**
+
+#### 6.17.11 Fields the portal offers: pricing page added, website and connection link dropped (AECI-1154, AECI-1155)
+
+Two field changes share one mechanism: the portal's field lists stop being the stored list.
+
+**Two lists, not one** (`packages/shared/src/api/integration-contests.ts`, `integration-edits.ts`):
+
+| List | Members | Mirrors |
+| -- | -- | -- |
+| `INTEGRATION_CONTEST_FIELDS` (stored), unchanged | the twelve of §11b.3 | the D1 CHECK `integration_field_challenges_field_check`, and `integration-contests.spec.ts` keeps asserting that |
+| `INTEGRATION_OFFERED_CONTEST_FIELDS` (new) | the stored list minus `website` and `mechanism_url` | nothing in the DB |
+| `EVIDENCED_PAIR_OFFERED_CONTEST_FIELDS` (new) | the offered list minus `mechanism_kind` | nothing |
+| `INTEGRATION_EDIT_FIELDS` (redefined) | the offered list minus `owner`, plus the edit-only member `pricing_url` | nothing |
+| `CONNECTOR_POWERED_EDIT_FIELDS` | the edit list minus `CONNECTOR_POWERED_FROZEN_EDIT_FIELDS`, so it gains `pricing_url` | nothing |
+
+`contestFieldsFor(anchor)` returns an offered list. `IntegrationContestFieldSchema` stays the stored enum, so an old contest on `website` still parses, lists and renders on both sides and in `/admin/contests`, and its decision still works (an owner accept still writes the column).
+
+**Website and connection link (AECI-1155, ruled 2026-09-28).** The portal stops offering them. **The columns stay, the promote wire keeps writing them, and the CHECK does not change**, because a CHECK change makes drizzle-kit recreate the table, and a recreate's DROP fires `ON DELETE CASCADE` two levels deep (`docs/migrations.md` §0 and §3.3a, ADR 0018). No migration is generated.
+
+- A new contest naming either field is `400 VALIDATION_FAILED` with `field: 'field'`, the same answer `mechanism_kind` gets on an evidenced pair.
+- `UpdateVendorIntegrationSchema` and `CreateVendorIntegrationSchema` drop both keys. Both are `.strict()`, so a body naming either is `400 VALIDATION_FAILED` naming the key.
+- `contestable_fields` on the vendor reads keeps all twelve values, so nothing in the wire is removed.
+
+**Pricing page (AECI-1154).** A new nullable column, `pricing_url`, on `integrations` and `connector_evidenced_pairs` (`DATABASE_SCHEMA.md` §4.3, §9a.6). The claimed owner edits it through `PATCH /api/vendor/integrations/:id`. It is **not contestable**: it is not in the stored list, so the CHECK is untouched. A non-owner sees the value with no "Request a change". The value rule is an absolute `http(s)` URL of at most 2,048 characters, or `null` to clear, in `integrationEditValueProblem`. The public pair page shows it through the "Price" fact of the card's "At a glance" row (AECI-1142): the price text links to the page when both are set, and "See pricing" links to it when only the URL is. Promote never writes the column.
+
+**Vendor create follows the edit list.** `POST /api/vendor/integrations` (§4.7.1) takes the same fields as the edit: `pricing_url` in, `website` and `mechanism_url` out.
 
 ---
 
@@ -2341,6 +2736,11 @@ That last point is a **named exception to §6.14 of `API_CONTRACTS.md`**, which 
 
 ### 11b.3 The fields
 
+> **Offered versus stored (AECI-1155, ruled 2026-09-28).** The twelve below are the STORED set that
+> the D1 CHECK mirrors, and they do not change. The portal OFFERS ten: `website` and
+> `mechanism_url` are dropped, and a new contest naming either is `400 VALIDATION_FAILED` on
+> `field`. Existing contests on them still list, render and decide. §6.17.11 has the two lists.
+
 Twelve: `name`, `mechanism_kind`, `mechanism_name`, `direction`, `description`, `listing_url`, `docs_url`, `website`, `mechanism_url`, `pricing_model`, `maturity`, and `owner`. `owner` names `built_by_vendor_id`. The portal and the admin queue label it **Owner**, and the admin row reads "Offered by", matching the public pair page's byline (AECI-1021). `notes` is AECi's own curation column and is not contestable.
 
 Per-field rules live in `contestValueProblem` in `@aeci/shared`, so the portal form can run the same check.
@@ -2466,6 +2866,11 @@ The table is now the second cascade child of `integrations`. `apps/api/src/test/
 **Since AECI-1092 (migration `0050`) it is a cascade child of `connector_evidenced_pairs` too**, through `evidenced_pair_id`. The same accepted retraction risk applies to a pair that is not vendor-held, and AECI-1088's fence refuses the move and the deletes on a vendor-held pair. `ops:retract-product` deletes a pair's contests explicitly before the pair and counts them on its tombstone. `d1.spec.ts` pins that list as well, and pins that nothing references the contest table, which is what made the `0050` rebuild safe.
 
 ### 11b.10 As built — the portal (PR B, 2026-09-18)
+
+> **"Contest a field" on the card is superseded by §6.17.3 and §6.17.6 (specified 2026-09-28,
+> AECI-1153).** A non-owner requests a change from the integration page's rows or its Change
+> requests form. The Messages block below stays. Since AECI-1155 the portal offers the contest
+> fields in `INTEGRATION_OFFERED_CONTEST_FIELDS`, not the stored twelve (§6.17.11).
 
 Three surfaces, one store resource, one wire addition.
 
