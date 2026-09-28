@@ -226,6 +226,11 @@ is exactly "the Worker ran", so this alert is **unaffected** by the front-of-Wor
 3. Recent deploy to `apps/web`? An Angular SSR regression (heavy resolver, blocking
    work) can inflate render time — correlate with `GET /api/version`.
 4. Is it global or one entity? A single slow slug points at data shape, not the platform.
+5. **Was it a scanner burst?** A few slow renders inside one minute, with no deploy and a
+   normal API, is often a probe burst loading the Worker. On 2026-09-27 a 16:02 UTC burst of
+   secret-file 404s pushed 8 detail renders to about 1.8 s and fired this alert. Check the
+   Worker's invocation graph for a spike at the same minute, then see
+   [Scanner probes reaching the Worker](#scanner-probes-reaching-the-worker).
 
 **Escalation:** Sustained > 1.5s with a slow API → investigate the query/DB. With a fast
 API → investigate the SSR render path. Page on-call if user-facing.
@@ -1321,8 +1326,11 @@ The poll-liveness half moves to the **CI liveness sweep** (`waf-poll`, 180 min u
   **value is the event count → query with `sum:` / `.as_count()`**.
 - `aeci.waf.poll{outcome:ok|failed|skipped_no_creds}` — the hourly poll's heartbeat (`outcome:ok` = liveness).
 
-**What it means:** The §15.1 WAF rules (rate-limit Rule A `/api/requests/*`, Rule B `/api/reviews`, and the
-scraper-UA Managed-Challenge custom rule — `docs/waf-rate-limits.md`) mitigated an unusual volume of requests.
+**What it means:** The §15.1 WAF rules (rate-limit Rule A `/api/requests/*`, Rule B `/api/reviews`, the
+scraper-UA Managed-Challenge custom rule, and the path-only Block rules for scanner probes — `docs/waf-rate-limits.md`
+§2 and §2a) mitigated an unusual volume of requests. **If the `rule` tag is one of the two AECI-1138 probe rules alone,
+it is a scanner burst being blocked as designed.** One burst is several hundred blocks, and two in one clock hour
+can pass 2,000. No action is needed.
 The signal is collected by the API Worker's hourly WAF poll (AECI-262, `scheduled.ts` `runWafMetricsJob`),
 which reads the previous clock hour of the zone's `firewallEventsAdaptiveGroups` over Cloudflare's GraphQL
 Analytics API. **Detection lags up to ~1h** (it's an hourly poll). A spike is normally either a scripted
@@ -1361,6 +1369,48 @@ mind when re-tuning, or the alert will mean something different from what the ru
 **Do not re-tune this layer for an in-Worker complaint.** Since AECI-773 there are two limiting
 layers with different owners, and the whole triage risk is fixing the wrong one — see the sibling
 runbook below before touching a rule here.
+
+---
+
+## Scanner probes reaching the Worker
+
+**No alert of its own.** It shows up as a side effect: a `High p95 detail render` firing with no
+deploy, a spike in `aeci-web-production` invocations, or a column of 404s in Workers Logs.
+Governing doc: `docs/waf-rate-limits.md` §2a (AECI-1138).
+
+**What it means:** An automated scanner is requesting secret files, config files or other
+stacks' endpoints (`/terraform.tfstate`, `/.vite/manifest.json`, `/api/config`, `/inngest`) and
+the WAF did not stop them, so each one costs a full
+SSR render. **It is not a breach.** None of these files exist, and every probe 404s. It is a cost
+and a metrics-noise problem.
+
+**First checks**
+
+1. **Find the paths.** They are **not** in `page_views`, which records 2xx renders only. Open
+   **Workers & Pages → Observability → Investigate**, filter service `aeci-web-production` and
+   `$workers.event.response.status = 404`, and group by `$workers.event.request.url`. Logs are
+   kept 7 days. The API route and the token scope are in `docs/waf-rate-limits.md` §2a.
+2. **Would the rules have caught them?** A probe that reached the Worker is by definition one
+   no Block rule matches. Save the paths in the `observed-404s-2026-09.json` shape and run
+   `check-corpus.mjs`. It prints the coverage and lists the unmatched paths.
+3. **Is it the known scanner?** The 2026-09 scanner is Google Cloud AS396982, `page_views` UA hash
+   `a27d5a1c…`, one-minute bursts, a different country each burst. Its real page views
+   (`/`, `/products`, `/categories/*`) still land in `page_views` and are not blocked.
+
+**Repair**
+
+- **New path family:** add it to the matching §2a ` ```wirefilter ` block first, following the
+  collision rules written there. Re-run `scripts/ops/2026-09-waf-secret-file-block/check-corpus.mjs`,
+  then edit the live rule. Match on path only. **Never add an ASN or country term.** Every scanner
+  seen so far rotates both.
+- **Leave generic names and random strings alone.** `/health`, `/info`, `/docs` and twenty-character
+  random paths are about 6% of the 2026-09 scanner. Blocking them risks real routes, and Pro has
+  no regex for the random ones.
+- **Rule missing or disabled:** re-apply per that directory's README §2.
+- **Confirm:** a `curl` of one probed path returns 403, and Security → Events filtered on the
+  rule id shows Block events at the next burst.
+
+**Do not** raise the p95 threshold to quiet a scanner burst. Block the paths.
 
 ---
 

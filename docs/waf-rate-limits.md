@@ -20,7 +20,7 @@ Rulesets API).
 > They mitigate at different points and neither replaces the other. If you are here to
 > re-tune a limit, work out which layer tripped first — §6 tells you how.
 
-**Referenced by:** [`STAGE_1_SPEC.md`](./STAGE_1_SPEC.md) §15.1; Linear AECI-242 (Phase 7.7), AECI-773 (§6). Companion to [`access.md`](./access.md) (Cloudflare Access on the same zone).
+**Referenced by:** [`STAGE_1_SPEC.md`](./STAGE_1_SPEC.md) §15.1; Linear AECI-242 (Phase 7.7), AECI-773 (§6), AECI-1138 (§2a). Companion to [`access.md`](./access.md) (Cloudflare Access on the same zone).
 
 > **Why not config-as-code in CI?** AECI-242's acceptance criteria asked for
 > config-as-code (Terraform / CF API). For launch the rules were applied directly
@@ -83,6 +83,117 @@ core (paranoia L2/L3 disabled) — active, untouched.
 Live verification at the time (`demo.`): `python-requests` UA on `/products` → **403**
 (challenged); normal browser UA on `/products` → **200**; `python-requests` on `/` →
 **200** (scraper rule correctly scoped to `/products`,`/vendors`).
+
+**The two pre-existing Block rules, recorded 2026-09-28 (AECI-1138).** Until then this doc named
+them but never held their expressions. Both are zone-wide (no host term) and pre-date AECI-242.
+The text below is what the operator read from the dashboard on 2026-09-28. The live rule wins
+if they differ.
+
+- `bc961c9f6c2e4e02ba2429d06f8f1dc2` **"Block scanner probes"**, action Block.
+- `4781ac7e149247baa5b4119274119821` **"Blocker 2"**, action Block.
+
+Their expressions, as pasted from the dashboard on 2026-09-28. `check-corpus.mjs` evaluates
+these blocks directly, so keep them literal. §2a records two weaknesses in them.
+
+```wirefilter title="Block scanner probes"
+(http.request.uri.path contains "/proc/self/environ")
+or (http.request.uri.path contains "/.npmrc")
+or (http.request.uri.path contains "/.yarnrc")
+or (http.request.uri.path contains "/package-lock.json")
+or (http.request.uri.path contains "/yarn.lock")
+or (http.request.uri.path contains "/Gemfile")
+or (http.request.uri.path contains "/.bash_history")
+or (http.request.uri.path contains "/.travis.yml")
+or (http.request.uri.path contains "/.bitbucket")
+or (http.request.uri.path contains "/gcp_credentials")
+or (http.request.uri.path contains "/serviceAccountKey")
+or (http.request.uri.path contains "/credentials.json")
+or (http.request.uri.path contains "/secrets.json")
+or (http.request.uri.path contains "/aws.config")
+or (http.request.uri.path contains "/aws.json")
+or (http.request.uri.path contains "/aws.env")
+or (http.request.uri.path contains "/.kube/")
+or (http.request.uri.path contains "/firebase.json")
+or (http.request.uri.path contains "/supabase/config")
+or (http.request.uri.path contains "/.claude/")
+or (http.request.uri.path contains "/.cline/")
+or (http.request.uri.path contains "/.cursor/")
+or (http.request.uri.path contains "/.cursorrules")
+or (http.request.uri.path contains "/.windsurfrules")
+or (http.request.uri.path contains "/.openclaw")
+or (http.request.uri.path contains "/.moltbot")
+or (http.request.uri.path contains "/.streamlit/")
+or (http.request.uri.path contains "/.huggingface/")
+or (http.request.uri.path contains "/ollama/")
+or (http.request.uri.path contains "/storage/logs/")
+or (http.request.uri.path contains "/debug.log")
+or (http.request.uri.path contains "/error.log")
+or (http.request.uri.path contains "/v1/models")
+or (http.request.uri.path contains "/horizon/api/")
+or (http.request.uri.path contains "/_debugbar")
+or (http.request.uri.path contains "/debugbar/")
+```
+
+```wirefilter title="Blocker 2"
+(http.request.uri.path.extension in {"php" "py" "asp" "aspx" "jsp" "cgi" "sh" "bak" "backup" "old" "sql" "swp" "log" "yml" "yaml" "ini" "conf" "env"}) or
+(http.request.uri.path contains "/wp-") or
+(http.request.uri.path contains "/wordpress") or
+(http.request.uri.path contains "/xmlrpc") or
+(http.request.uri.path contains "/.env") or
+(http.request.uri.path contains "/env.") or
+(http.request.uri.path contains ".env") or
+(http.request.uri.path eq "/env") or
+(http.request.uri.path contains "/.git") or
+(http.request.uri.path contains "/.svn") or
+(http.request.uri.path contains "/.hg") or
+(http.request.uri.path contains "/.idea") or
+(http.request.uri.path contains "/.vscode") or
+(http.request.uri.path contains "/.DS_Store") or
+(http.request.uri.path contains "/.circleci") or
+(http.request.uri.path contains "/.aws") or
+(http.request.uri.path contains "/.ssh") or
+(http.request.uri.path contains "/.s3cfg") or
+(http.request.uri.path contains "/aws/credentials") or
+(http.request.uri.path contains "/aws-credentials") or
+(http.request.uri.path contains "/aws-config") or
+(http.request.uri.path contains "/latest/meta-data") or
+(http.request.uri.path contains "/computeMetadata") or
+(http.request.uri.path contains "/config.json") or
+(http.request.uri.path contains "/appsettings") or
+(http.request.uri.path contains "/web.config") or
+(http.request.uri.path contains "/docker-compose") or
+(http.request.uri.path contains "/Dockerfile") or
+(http.request.uri.path contains "/Procfile") or
+(http.request.uri.path contains "/debug") or
+(http.request.uri.path contains "/_profiler") or
+(http.request.uri.path contains "/actuator") or
+(http.request.uri.path contains "/server-status") or
+(http.request.uri.path contains "/server-info") or
+(http.request.uri.path contains "/phpinfo") or
+(http.request.uri.path contains "/_ignition") or
+(http.request.uri.path contains "/telescope") or
+(http.request.uri.path contains "/@fs/") or
+(http.request.uri.path contains "/composer.") or
+(http.request.uri.path contains "/swagger") or
+(http.request.uri.path contains "/openapi") or
+(http.request.uri.path contains "/api-docs") or
+(http.request.uri.path contains "/graphql") or
+(http.request.uri.path contains "/graphiql") or
+(http.request.uri.path contains "/app/kibana") or
+(http.request.uri.path contains "/_cat/") or
+(http.request.uri.path contains "/lander/")
+```
+
+### Scanner probe block (2026-09, AECI-1138)
+
+**PENDING — drafted 2026-09-28, not yet applied to the zone.** Two new custom rules,
+**"Block secret-file probes (AECI-1138)"** then **"Block framework and endpoint probes
+(AECI-1138)"**, both action Block, placed directly after "Blocker 2". Definition, evidence and
+checked exclusions are [§2a](#2a-scanner-probe-block--security--waf--custom-rules-aeci-1138).
+The rate-limit ruleset is untouched. Custom rules go from 4 (plus any generated `AI Crawl
+Control` rule) to 6, against a Pro cap of 20. Replace this paragraph with the dated apply and
+both rule ids. Apply with
+[`scripts/ops/2026-09-waf-secret-file-block/`](../scripts/ops/2026-09-waf-secret-file-block/README.md).
 
 ### Host-set extension to production (2026-09, AECI-659)
 
@@ -389,6 +500,279 @@ Why it is shaped this way:
 
 ---
 
+## 2a. Scanner probe block — Security → WAF → Custom rules (AECI-1138)
+
+**Status: drafted 2026-09-28, NOT applied.** The two rules below are written ahead of the zone,
+the same direction as AECI-807. Replace this line with the dated apply and both rule ids once
+they are live (see [Deployed state](#deployed-state)).
+
+Two custom rules, both action **Block**, placed directly after "Blocker 2" in this order. They
+are two rules rather than one because together they are about 4,000 characters, and the Ruleset
+Engine caps one expression at 4,096. Splitting also makes Security Events say which family fired.
+
+| Rule | Matches | Length |
+|---|---|---|
+| **Block secret-file probes (AECI-1138)** | dot segments, file types we never serve, key and dump extensions, secret filenames | 1,108 chars |
+| **Block framework and endpoint probes (AECI-1138)** | framework build paths, root-level endpoints of other stacks, config-named `.js`, exact non-routes | 3,272 chars |
+
+For each, in the dashboard: **Create rule** → name it exactly as above → **Edit expression** →
+paste the block → **Then take action = Block**. Line breaks are fine; the dashboard and the API
+both ignore them.
+
+```wirefilter title="Block secret-file probes (AECI-1138)"
+(http.host in {"staging.aecintegrations.com" "demo.aecintegrations.com" "www.aecintegrations.com"}) and ((lower(http.request.uri.path) contains "/." and not starts_with(lower(http.request.uri.path), "/.well-known/"))
+or (http.request.uri.path.extension in {"json" "toml" "properties" "exs" "axd" "ts"} and not starts_with(lower(http.request.uri.path), "/.well-known/"))
+or http.request.uri.path.extension in {"sql" "bak" "backup" "old" "orig" "save" "swp" "dump" "sqlite" "sqlite3" "db" "mdb" "gz" "tgz" "tar" "zip" "rar" "7z" "bz2" "xz" "pem" "key" "p12" "pfx" "jks" "keystore" "ppk"}
+or lower(http.request.uri.path) contains ".env"
+or lower(http.request.uri.path) contains ".tfstate"
+or lower(http.request.uri.path) contains ".tfvars"
+or lower(http.request.uri.path) contains ".astro."
+or lower(http.request.uri.path) contains "id_rsa"
+or lower(http.request.uri.path) contains "id_dsa"
+or lower(http.request.uri.path) contains "id_ecdsa"
+or lower(http.request.uri.path) contains "id_ed25519"
+or lower(http.request.uri.path) contains "service_account"
+or lower(http.request.uri.path) contains "private_key")
+```
+
+```wirefilter title="Block framework and endpoint probes (AECI-1138)"
+(http.host in {"staging.aecintegrations.com" "demo.aecintegrations.com" "www.aecintegrations.com"}) and (lower(http.request.uri.path) contains "/__"
+or lower(http.request.uri.path) contains "/_next/"
+or lower(http.request.uri.path) contains "/_astro/"
+or lower(http.request.uri.path) contains "_environment"
+or lower(http.request.uri.path) contains "_payload"
+or starts_with(lower(http.request.uri.path), "/proc/")
+or starts_with(lower(http.request.uri.path), "/var/run/")
+or starts_with(lower(http.request.uri.path), "/wp/")
+or starts_with(lower(http.request.uri.path), "/wp-")
+or starts_with(lower(http.request.uri.path), "/wordpress")
+or starts_with(lower(http.request.uri.path), "/api/v1/")
+or starts_with(lower(http.request.uri.path), "/api/v2/")
+or starts_with(lower(http.request.uri.path), "/api/4/")
+or starts_with(lower(http.request.uri.path), "/api/fs/")
+or starts_with(lower(http.request.uri.path), "/api/console/")
+or starts_with(lower(http.request.uri.path), "/api/designer/")
+or starts_with(lower(http.request.uri.path), "/api/templates/")
+or starts_with(lower(http.request.uri.path), "/api/sysconfig/")
+or starts_with(lower(http.request.uri.path), "/api/inngest")
+or starts_with(lower(http.request.uri.path), "/api/functionrouter")
+or starts_with(lower(http.request.uri.path), "/inngest")
+or starts_with(lower(http.request.uri.path), "/functionrouter")
+or starts_with(lower(http.request.uri.path), "/read-document")
+or starts_with(lower(http.request.uri.path), "/feast/")
+or starts_with(lower(http.request.uri.path), "/userfiles")
+or starts_with(lower(http.request.uri.path), "/manage/")
+or starts_with(lower(http.request.uri.path), "/webroot/")
+or starts_with(lower(http.request.uri.path), "/getcmd")
+or starts_with(lower(http.request.uri.path), "/console")
+or starts_with(lower(http.request.uri.path), "/nginx_status")
+or starts_with(lower(http.request.uri.path), "/elmah")
+or starts_with(lower(http.request.uri.path), "/phpinfo")
+or starts_with(lower(http.request.uri.path), "/redoc")
+or starts_with(lower(http.request.uri.path), "/z9x8c7v6b5-")
+or starts_with(lower(http.request.uri.path), "/v1/")
+or starts_with(lower(http.request.uri.path), "/v2/")
+or starts_with(lower(http.request.uri.path), "/@vite/")
+or starts_with(lower(http.request.uri.path), "/livewire/")
+or starts_with(lower(http.request.uri.path), "/administrator/")
+or starts_with(lower(http.request.uri.path), "/management/")
+or starts_with(lower(http.request.uri.path), "/magento")
+or (http.request.uri.path.extension eq "js" and (lower(http.request.uri.path) contains "/config"
+or lower(http.request.uri.path) contains "/settings"
+or lower(http.request.uri.path) contains "/constants"
+or lower(http.request.uri.path) contains "/configuration"
+or lower(http.request.uri.path) contains "/environment"
+or lower(http.request.uri.path) contains "/runtime"
+or lower(http.request.uri.path) contains "/aws"
+or lower(http.request.uri.path) contains "/credential"
+or lower(http.request.uri.path) contains "/sw."
+or lower(http.request.uri.path) contains "/service-worker"
+or lower(http.request.uri.path) contains "/buildmanifest"))
+or http.request.uri.path in {"/credentials" "/private-key" "/api/config" "/api/env" "/api/settings" "/api/events" "/api/auth/session" "/api/auth/signin" "/metrics"})
+```
+
+### Why
+
+A scanner on Google Cloud (AS396982) has probed production every day since 2026-09-20. Its
+user-agent hash in `page_views` starts `a27d5a1c`. It arrives in one-minute bursts and rotates
+country each burst (BR, US, DE, and others). On 2026-09-27 it burst at 15:05, 15:38, 16:02 and
+21:10 UTC. Every probe 404s. **Nothing leaked, because none of the files exist.**
+
+The cost is Worker invocations and noisy metrics. Cloudflare counted about 850, 570 and 900
+`aeci-web-production` invocations in three 15-minute windows that day. The 16:02 burst pushed 8
+detail renders to about 1.8 s and tripped the `High p95 detail render` alert (`RUNBOOKS.md`).
+A 404 on production is a full SSR render because production runs uncached, so each probe costs
+as much as a real page.
+
+### What the scanner actually requests
+
+Pulled from Workers Logs on 2026-09-28 (`response.status = 404`, 2026-09-21 to 2026-09-28,
+unsampled per-day queries). Retention is 7 days, so 2026-09-20 was already gone. The full path
+list, with counts and no IPs, is checked in as
+[`observed-404s-2026-09.json`](../scripts/ops/2026-09-waf-secret-file-block/observed-404s-2026-09.json).
+
+| Caller | Logged 404s | Distinct paths |
+|---|---|---|
+| AS396982 (the scanner) | 4,536 | 252 |
+| All callers | 8,452 | 1,575 |
+
+**None of the scanner's 404s match the two pre-existing Block rules.** That is expected, and it
+confirms they work: what they match never reaches the Worker, so it never logs. What gets through
+falls into these families. The split is a rough keyword classification. The totals are exact.
+
+| Family | Examples | Scanner 404s (paths) |
+|---|---|---|
+| Secret files and keys | `/terraform.tfstate`, `/firebase-adminsdk.json`, `/service_account.json`, `/key.pem`, `/server.key`, `/config/master.key`, `/.codex/auth.json`, `/.zshrc`, `/.pypirc` | 1,109 (76) |
+| Cloud and app config | `/amplify_outputs.json`, `/aws-exports.js`, `/__/firebase/init.json`, `/google-services.json`, `/application.properties`, `/config/prod.exs`, `/config.toml` | 826 (31) |
+| Framework build output | `/.vite/manifest.json`, `/__vite_rsc_findSourceMapURL`, `/_next/build-manifest.json`, `/__nuxt_config.json`, `*.astro.mjs.map`, `/_payload.json` | 829 (20) |
+| Endpoints of other stacks | `/api/config`, `/api/v1/keys`, `/inngest`, `/functionRouter`, `/api/fs/exec`, `/console`, `/elmah.axd`, `/proc/self/cgroup` | 1,487 (42) |
+| Random-string soft-404 tests | twenty random characters, one or two hits each | 121 (73) |
+| Generic names | `/health`, `/info`, `/docs`, `/_image`, `/.well-known/jwks.json` | 164 (8) |
+
+The last two rows are deliberately **not** blocked. Random strings cannot be matched without
+regex, which Pro does not have. Generic names are too close to routes we may add.
+
+### Coverage
+
+Measured by `check-corpus.mjs` against the observed list, all four Block rules together:
+
+| Caller | Blocked |
+|---|---|
+| AS396982 scanner | 4,251 of 4,536 logged 404s (93.7%) |
+| All callers | 5,083 of 8,452 (60.1%) |
+
+The all-callers figure is lower because much of the rest is legitimate. Stale build chunks after
+a deploy, retired slugs and crawler conventions all 404, and the rules must let them through.
+
+### How it is shaped
+
+- **Path only. Never ASN or country.** The scanner rotates both every burst. The Azure caller
+  below does the same. A rule keyed on either would chase it forever.
+- **Block, not Managed Challenge.** No human ever requests `/terraform.tfstate`. A challenge
+  would cost the scanner nothing and still leave a 403-class event.
+- **`lower()` on every path test.** `contains` and `starts_with` are case-sensitive.
+  `http.request.uri.path.extension` is already lowercased. Pro has no regex (`matches` is
+  Business+), so every term is a substring, a prefix, an exact path or an extension set.
+- **Every term is built so it cannot collide with a real URL.** This is the design rule to keep
+  when editing:
+  - *Nested substrings* must contain a character a slug cannot hold: `.`, `_`, or `/_`.
+    Slugs are `[a-z0-9-]` only.
+  - *Prefixes* are anchored at the root with `starts_with`, and none begins a real top-level
+    route. `/products/<slug>` can never start with `/inngest`.
+  - *Extensions* only name types we never serve. Our assets are `js`, `css`, `map`, `svg`,
+    `png`, `ico`, `webmanifest` and `txt`.
+  - *Config-named `.js`* terms start with `/`, because our bundles all start `/chunk-`, `/main-`
+    or `/polyfills-`. An unanchored `aws` would sometimes match a random uppercase hash.
+- **One dot-segment term does most of the secret-file work.** `contains "/."` matches any path
+  segment that starts with a dot: `.env`, `.git/`, `.aws/`, `.ssh/`, `.vite/`, `.codex/`. The app
+  serves no dot-segment path. `/.well-known/` is carved out because ACME, security.txt,
+  asset-links and Chrome's `traffic-advice` live there.
+- **All `.json` is blocked outside `/.well-known/`.** We serve none; the API returns JSON at
+  paths with no extension. **A future route ending in `.json`, such as `/openapi.json`, needs this
+  rule edited first.** The same goes for `.toml`, `.properties`, `.exs`, `.axd` and `.ts`.
+- **Host-scoped** to the three app hosts, like every rule in this doc. `review.aecintegrations.com`
+  is on the same zone and is a different app we have not audited, so it is deliberately left out.
+
+### Checked exclusions — paths these rules must never block
+
+Evaluated on 2026-09-28. **Zero matched**, for the two new rules and for both pre-existing rules.
+
+| Family | What was checked |
+|---|---|
+| IndexNow key file | `/{key}.txt` (the `/:file{[^/]+\.txt}` route). Extension `txt` is not in any set |
+| `/.well-known/*` | `security.txt`, `acme-challenge/*`, `assetlinks.json`, `apple-app-site-association`, `cf-custom-hostname-challenge/*`, `traffic-advice` |
+| SEO files | `/robots.txt`, `/sitemap.xml`, plus observed `/llms.txt` and `/ads.txt` 404s |
+| Static assets | `main-*.js`, `chunk-*.js`, `*.js.map`, `styles-*.css`, `favicon.ico`, `favicon.svg`, `apple-touch-icon.png`, `manifest.webmanifest`, `/branding/*` |
+| Stale assets | every observed 404 for an old `chunk-`/`main-`/`polyfills-`/`styles-` hash, at the root or relative to a nested route (`/categories/chunk-*.js`) |
+| Catalog pages | all 294 prod product slugs (plus `/claim`, `/correction`, `/review`, and the pair form `/products/:a/integrations/:b`), all 194 vendor slugs (plus `/claim`, `/correction`, `/vendor/:slug/*`), 107 taxonomy slugs, 2 `slug_redirects` sources, and every observed 404 under a real route prefix, including retired slugs |
+| `/docs` | `/docs` and `/docs/vendors/*`, all six pages |
+| App routes | every static Angular route, `/admin/*`, `/auth/*`, `/_version`, `/preview/*` |
+| API | all 112 API Worker routes, including `/api/logos/:key`. Logo keys are bare hex digests with no extension |
+| Cloudflare | `/cdn-cgi/challenge-platform/*` |
+
+The check is [`scripts/ops/2026-09-waf-secret-file-block/check-corpus.mjs`](../scripts/ops/2026-09-waf-secret-file-block/README.md).
+It reads every ` ```wirefilter ` block in this doc and evaluates the literal text with a small
+Cloudflare-expression evaluator (`cf-expr.mjs`). An expression that uses a construct the
+evaluator does not know fails loudly. The 2026-09-28 run read
+`legit=3779 observed-legit=842 probes=50 slugs=597 failures=0`.
+
+**Two weaknesses in the pre-existing rules, not fixed here.**
+
+- **"Blocker 2" misses mixed case.** Its terms are case-sensitive and it does not lowercase the
+  path. `/Wp-Json/gravitysmtp/…` reached the Worker 10 times in the window. The new framework
+  rule catches it with `starts_with(lower(…), "/wp-")`.
+- **"Blocker 2" can block a future product page.** Its unanchored `contains` on `/debug`,
+  `/swagger`, `/openapi`, `/graphql`, `/telescope`, `/wp-` and `/actuator` matches the start of
+  any path segment. A future slug such as `debugbear` or `swaggerhub` would 403 on its detail
+  page. No current slug matches. Watch for it when onboarding API-tooling vendors.
+
+### Where the probe paths are, and are not
+
+The probed paths are **not** in `page_views`. That table records 2xx renders only (the SSR
+`firePageView` fires on 2xx, `server/request-context.ts`), so a 404 probe never writes a row.
+Querying it for the scanner's hash returns only its real page views: `/`, `/products`,
+`/categories/*`, `/audiences/*`, `/trades`, pair and detail pages.
+
+The 404 list lives in **Cloudflare Workers Logs** for `aeci-web-production`, kept for 7 days.
+In the dashboard: **Workers & Pages → Observability → Investigate**, filter
+`$workers.event.response.status = 404`, group by `$workers.event.request.url`. Through the API:
+`POST /accounts/{account}/workers/observability/telemetry/query`, with an account token that has
+**Workers Observability: Read**. The wrangler OAuth login lacks that scope. An unfiltered
+multi-day query is sampled (`abr_level` above 1), so pull one day at a time to get exact counts.
+
+### Budget and placement
+
+- **Quota.** Pro allows **20** custom rules per zone, no regex. The zone holds 4 of ours, plus an
+  `AI Crawl Control` rule whenever a per-crawler block is set. These two make 6 or 7.
+- **Rate-limit rules are untouched.** They are a separate quota (2 of 2 Pro slots, §1) and a
+  separate phase. Custom rules run first, so a blocked probe never counts toward Rule A or B.
+  Neither rate-limit rule matches these paths anyway.
+- **Order.** Both go after "Blocker 2", secret-file rule first, so their Security Events show
+  only what the old rules missed. Block is terminating, so order among the Block rules changes
+  attribution, not outcome. Both must stay after "Skip WAF for stack-test subdomain" and before
+  the §2 scraper challenge.
+
+### The metric side effect
+
+A blocked probe is a `firewallcustom` mitigation, so the hourly poll counts it in
+`aeci.waf.ratelimit.blocked` (§5). One burst is several hundred requests, and two bursts can land
+in one clock hour. That can pass the **2,000/h** `WAF rate-limit / challenge spike` alert. The
+trade is intended: a WAF event costs nothing, a Worker render does. If the spike alert fires
+and the `rule` tag is one of these two rules alone, it is a scanner. See `RUNBOOKS.md`
+§"Scanner probes reaching the Worker".
+
+### The second caller — Azure, no user agent, homepage only
+
+**Decision: no zone change now.** Azure (AS8075) sends bursts of `GET /` with **no user agent**.
+It is a separate caller from the scanner and does not probe files. `page_views` shows it
+recurring, with a new country each time:
+
+| Day (UTC) | Country | Homepage views |
+|---|---|---|
+| 2026-09-15 | HK | 61 |
+| 2026-09-24 | IN | 85 |
+| 2026-09-25 | IN | 203 |
+| 2026-09-27 | IT | 149 |
+| 2026-09-27 | KR | 207 (22:41 and 23:05 bursts) |
+
+Why nothing now:
+
+- **It cannot be answered in the Worker.** The in-Worker limiter never limits reads (§6.2), so
+  this is a zone question only.
+- **It is cheap.** At most about 350 homepage renders a day. It has not tripped an alert.
+- **The only zone lever is blunt.** Both rate-limit slots are spent. The §2 scraper rule already
+  challenges an empty user agent, but only on `/products*` and `/vendors*`. Widening it to `/`
+  would challenge every empty-UA caller on the homepage, including uptime checkers we do not own.
+
+**Revisit trigger:** a burst from this caller trips any alert, or it passes 1,000 homepage views
+in one day. The prepared change is to add `or http.request.uri.path eq "/"` to the §2 scraper
+rule's path group. Its user-agent group already contains `http.user_agent eq ""`. The change
+also challenges the other scripting user agents (`curl`, `python-requests`, …) on `/`. None of
+our probes fetch `/`: they use `/api/health`, `/api/version` and `/_version`. Apply it as a §2
+edit, with the §4 verification, not as a new rule.
+
+---
+
 ## 3. What these rules intentionally do NOT cover
 
 | Spec §15.1 item | Status here | Where it actually lives |
@@ -398,6 +782,7 @@ Why it is shaped this way:
 | `/api/reviews` 3/**user**/hr | ✅ **delivered** — literally, since AECI-773 | Not here: Rule B is unchanged and stays the per-IP edge burst brake. The spec's actual sentence is honoured in the Worker — `rateLimit('write')` gives the per-**user** half (Enterprise-only on WAF) and a D1 `count()` over `reviews` gives the per-**hour** half (which the native binding also cannot do — its window enum is 10 or 60 s). §6.2, ADR 0026 |
 | magic-link 5/**email**/hr | ❌ not in CF | **Supabase → Authentication → Rate Limits** — the request goes browser→Supabase and never reaches Cloudflare (owner-managed, out of scope for AECI-242) |
 | block known scraper UAs | ✅ §2 custom rule | this runbook |
+| *(not in the spec)* secret-file and framework scanners | ⏳ two §2a custom rules, drafted, not applied (AECI-1138) | Path-only Block. The two pre-existing Block rules cover part of it. §2a closes the gaps: 93.7% of the 2026-09 scanner's logged 404s |
 | the vendor portal's own paths | ✅ clear (was broken by a MANAGED rule) | §3a below — a managed rule 403'd every path containing `/vendor/` zone-wide; **resolved 2026-08-26**, kept as the detection recipe |
 | *(not in the spec)* AI crawlers + agent fetchers | ⚠️ governed **elsewhere** | §3b below — zone-level bot settings, dashboard-only, unreachable from any rule here. AECI-800 |
 | *(not in the spec)* the vendor-portal writes, the two token-presenting paths, the account/identity writes | ✅ **covered in the Worker** (AECI-773) | Not coverable here at all: both Pro slots are spent and there is no third. §6 |
@@ -736,6 +1121,14 @@ Checks (confirm rule attribution in **Security → Events** after each):
    no email. `staging.` needs `CF_ACCESS_CLIENT_ID` + `CF_ACCESS_CLIENT_SECRET` or it
    is skipped. A host reading `200 / 200` is **not covered** by the scraper rule.
 
+6. **Scanner probe block holds, and blocks nothing real (§2a).** `GET /terraform.tfstate`,
+   `/firebase-adminsdk.json`, `/backup.sql.gz`, `/.vite/manifest.json` and `/api/config`
+   → **403** on every app host.
+   `/robots.txt`, `/sitemap.xml` and a live product page → **200**. The exact commands and the
+   Security Events filter are in
+   [`scripts/ops/2026-09-waf-secret-file-block/README.md`](../scripts/ops/2026-09-waf-secret-file-block/README.md) §3.
+   Re-run its `check-corpus.mjs` after any bulk catalog import.
+
 Repeat the legit-flow + exclusion spot-checks on **production** (`www.`) after any
 rule change.
 
@@ -945,8 +1338,14 @@ shared counter — still a limit, but a far blunter one.
 
 This doc is the source of truth for the rule definitions. If you add, remove, or
 re-tune a rule in the dashboard, update the matching section here in the same PR.
-Remember the 2-rule rate-limit cap and keep every expression host-scoped to the **four**
-app hosts in the Scope table above.
+Remember the 2-rule rate-limit cap and keep every expression host-scoped to the **three**
+app hosts in the Scope table above. The two pre-existing Block rules are the exception: they
+were zone-wide before this doc existed and are recorded, not defined, here.
+
+**Before adding any route that ends in a file extension or starts a segment with a dot, run
+`check-corpus.mjs` (§2a).** A new `/openapi.json`, `/export.zip` or `/.well-known`-adjacent
+path is exactly what the §2a rules, and "Blocker 2", would 403. Keep the four
+` ```wirefilter ` blocks literal: the check evaluates them, and `payload.mjs` sends them.
 
 **§3b is the exception to "source of truth".** Those settings are external account state:
 this doc *records* them, it does not define them, and nothing in CI can detect a drift.
