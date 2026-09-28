@@ -553,7 +553,8 @@ export type Env = {
    * wired through Resend (`lib/email.ts`, AECI-240). Absent → the sweep's
    * `sendAdminAlert()` seam returns `'skipped'` and the **PostHog alert**
    * (`aeci.linear.reconcile.persistent_failure` + the `source:reconcile` error log)
-   * is the guaranteed backstop (§6.2). Set as a plain wrangler var per env.
+   * is the guaranteed backstop (§6.2). Set as a plain wrangler var per env:
+   * `support@aecintegrations.com` on staging, demo and production.
    */
   ADMIN_ALERT_EMAIL?: string;
 
@@ -577,10 +578,9 @@ export type Env = {
    * `POST /api/requests/claim` (`routes/requests.ts`). A SINGLE address, like
    * `ADMIN_ALERT_EMAIL` (the transactional transport passes `to` through to Resend
    * verbatim; only the `_TO` digest vars take a parsed list). Separate from
-   * `ADMIN_ALERT_EMAIL` on purpose: claim intake
-   * goes to the support inbox (`support@aecintegrations.com`), while
-   * `ADMIN_ALERT_EMAIL` remains the individual operator address the sweep alerts and
-   * lead-capture notifications use. Plain wrangler var per env. Absent → the alert is
+   * `ADMIN_ALERT_EMAIL` on purpose, so claim intake can be routed apart from the
+   * sweep alerts and lead-capture notifications. Both are the support inbox
+   * (`support@aecintegrations.com`) today. Plain wrangler var per env. Absent → the alert is
    * a `skipped` no-op and the submit still returns `201` — the Linear issue
    * (§6.4) stays the durable record either way.
    *
