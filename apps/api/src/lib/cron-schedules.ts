@@ -161,45 +161,39 @@ export const ATTESTATION_NOTIFY_CRON = '0 10 * * *';
 export const ENTITLEMENT_EXPIRY_CRON = '0 11 * * *';
 
 /**
- * IndexNow submission drain (AECI-826 / §20.2). **Every 20 minutes** — the most
- * frequent trigger here, and the only one whose cadence is a rate limit rather
- * than a freshness target.
+ * IndexNow submission drain (AECI-826 / §20.2). **Daily at 00:05 UTC** since
+ * AECI-1136; every 20 minutes before that.
  *
- * ⚠️ **It cannot be `*` `/15`.** That expression belongs to the reconcile sweep, and
- * `scheduled.ts` `switch`es on the raw `controller.cron` string: two jobs cannot
- * share one expression, because Cloudflare delivers the matched expression and the
- * switch would route both ticks to whichever case appears first. `cron-schedules.spec.ts`
- * enforces the same thing arithmetically — it asserts `CRON_JOBS.length * 3`
- * declared entries — so a shared expression is a red test, not a silent bug.
+ * **Why daily.** Production PostHog for 2026-09-22..28 showed Bing refusing almost
+ * every 20-minute tick with a 429 (about 60-70 a day), and accepting only the first
+ * tick after 00:00 UTC. A 1,287-URL request was accepted, so the limit is on
+ * request frequency, not size. So the drain sends once a day, everything at once,
+ * up to IndexNow's 10,000-URL cap, highest tier first. Latency of up to a day is
+ * the cost, and it is cheap: the alternative on Bing is sitemap crawling, which is
+ * measured in days anyway. Ruling 2026-09-28 (Chris).
  *
- * **Why 20 minutes.** The old design submitted once per promote and a bulk
- * curation session burst eleven requests inside seven minutes, every one of them
- * 429. Twenty minutes puts a hard ceiling of **72 ticks a day** on the whole
- * channel, and the real number of requests is far lower because the drain makes no
- * request at all when the buffer is empty. Discovery latency of up to 20 minutes
- * costs nothing: the alternative on Bing is ordinary sitemap crawling, measured in
- * days.
+ * **Why 00:05.** Just after the 00:00 UTC point where production saw Bing accept,
+ * with five minutes of margin. `15 0 * * *` belongs to the metrics snapshot, and
+ * every other daily job is at minute 0, so minute 5 collides with nothing. Two jobs
+ * can never share an expression: `scheduled.ts` `switch`es on the raw
+ * `controller.cron` string and would route both to whichever case comes first.
+ * `cron-schedules.spec.ts` asserts uniqueness arithmetically.
  *
- * **Ticks and requests are not the same number (AECI-833).** A tick normally costs
- * one request, and under a sustained throttle it costs exactly one, because
- * `lib/indexnow.ts` does not retry a bare 429. A tick can cost up to three only
- * when the aggregator returns a 5xx, the transport itself fails, or a 429 arrives
- * carrying a `Retry-After` inside ten seconds — so 216 a day is the absolute worst
- * case and it is not the case we are in. Before that gate every throttled tick cost
- * three, which is what made the 72 stated here wrong by a factor of three.
+ * **One request a day.** Under a rate limit a run costs exactly one request,
+ * because `lib/indexnow.ts` does not retry a bare 429 (AECI-833). A run can cost up
+ * to three only on a 5xx, a transport failure, or a 429 carrying a `Retry-After`
+ * inside ten seconds.
  *
- * **Queue-less, and that is the point.** Every other sub-hourly job here is
- * queue-backed for native retries. A blind retry is the wrong response to a rate
- * limit — it re-submits inside the same window and 429s again. A failed drain
- * leaves its rows in `indexnow_queue` and the next tick is the backoff. The
- * transport now makes the same distinction rather than only asserting it: a retry
- * it cannot justify is a retry it does not make.
+ * **Queue-less, and that is the point.** A blind retry is the wrong response to a
+ * rate limit — it re-submits inside the same window and 429s again. A failed drain
+ * leaves its rows in `indexnow_queue` and tomorrow's run is the backoff.
  *
  * Retuning it is a config change: move this constant and the three
- * `triggers.crons` entries together (the spec keeps them honest), and record the
- * new cadence in `POST_LAUNCH_MONITORING.md` §3.
+ * `triggers.crons` entries together (the spec keeps them honest), move the
+ * liveness allowance in `observability/posthog/project-config.json`, and record
+ * the new cadence in `POST_LAUNCH_MONITORING.md` §3.
  */
-export const INDEXNOW_DRAIN_CRON = '*/20 * * * *';
+export const INDEXNOW_DRAIN_CRON = '5 0 * * *';
 
 /**
  * Claim-ticket staleness check (AECI-862 / `STAGE_1_PHASE_6_SPEC.md` §6.2).
@@ -207,14 +201,15 @@ export const INDEXNOW_DRAIN_CRON = '*/20 * * * *';
  *
  * ⚠️ **Minute 25 is load-bearing, not arbitrary.** `scheduled.ts` `switch`es on the
  * raw `controller.cron` string, so two jobs cannot share an expression — and an
- * every-6-hours job at minute 0 would collide three ways at once: with the
- * `*` `/15` reconcile sweep (:00/:15/:30/:45), with the `*` `/20` IndexNow drain
- * (:00/:20/:40), and with the hourly WAF poll (:00). Minute 25 is clear of all
- * three and of every daily job (all at minute 0, except the 00:15 snapshot).
- * `cron-schedules.spec.ts` enforces uniqueness arithmetically.
+ * every-6-hours job at minute 0 would have collided three ways at once when it
+ * landed: with the `*` `/15` reconcile sweep (:00/:15/:30/:45), with the IndexNow
+ * drain (then every 20 minutes, :00/:20/:40; daily at 00:05 since AECI-1136), and
+ * with the hourly WAF poll (:00). Minute 25 is clear of all of them and of every
+ * daily job (all at minute 0, except the 00:05 IndexNow drain and the 00:15
+ * snapshot). `cron-schedules.spec.ts` enforces uniqueness arithmetically.
  *
  * (The split backticks above are not a typo — an unescaped `*` followed by `/`
- * closes this very comment. `INDEXNOW_DRAIN_CRON` writes it the same way.)
+ * closes this very comment.)
  *
  * Six hours rather than hourly because the threshold it tests is 24 hours: a
  * finer cadence would not detect anything sooner, it would only re-evaluate the
@@ -283,7 +278,9 @@ export const ADMIN_CRON_JOB: Record<ScheduledJob, AdminCronJob> = {
 };
 
 /** Display/iteration order for the System screen — chronological through the UTC
- *  day, then the three sub-daily jobs. The weekly `asn-registry` sits at its 02:00
+ *  day, then the sub-daily jobs. `indexnow-drain` has been daily (00:05) since
+ *  AECI-1136 but keeps its old slot among the sub-daily jobs, so the screen's
+ *  order did not move. The weekly `asn-registry` sits at its 02:00
  *  slot in that same day-ordering rather than in a section of its own; its row
  *  carries the schedule, so "Mondays" is already visible beside it. Matches
  *  `POST_LAUNCH_MONITORING.md` §1a. */

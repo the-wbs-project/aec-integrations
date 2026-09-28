@@ -273,8 +273,9 @@ re-crawl announcement now rides `afterVendorWrite` rather than each call site, w
 every present and future vendor write inherits it and a writer that changes no public page
 opts out by passing nothing.
 
-The two channels are fed differently, and the difference is the whole design. IndexNow is free
-and unranked, so it takes everything the edit touched. Google is quota-capped and worked by
+The two channels are fed differently, and the difference is the whole design. IndexNow is free,
+so it takes everything the edit touched. Since AECI-1136 it borrows Google's tier for each URL
+so its daily send goes highest tier first, and hub pages are tier 4. Google is quota-capped and worked by
 hand, so it takes entity detail pages only, each ranked by a `reason` (`gsc_recrawl_queue`,
 `DATABASE_SCHEMA.md` §9.8). A product edit still resolves the trade publication floor
 post-commit before announcing anything, exactly as promote does, so a sub-floor `noindex`

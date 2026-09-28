@@ -525,16 +525,16 @@
       // so Monday is "2". "0 2 * * 1" (the value before AECI-661) meant SUNDAY, which
       // is the day production actually ran it. See src/lib/cron-schedules.ts for why
       // this stays numeric rather than "0 2 * * MON".
-      // "*/20 * * * *" is the MOST FREQUENT trigger — the IndexNow submission drain
-      // (AECI-826 / §20.2, queue-less): it reads the indexnow_queue buffer the
-      // promote hook writes and makes ONE outbound IndexNow submission per tick —
+      // "5 0 * * *" is the IndexNow submission drain, daily at 00:05 UTC (AECI-826 /
+      // §20.2, queue-less; every 20 minutes until AECI-1136). It reads the
+      // indexnow_queue buffer the promote hook and vendor writes fill, highest tier
+      // first, and makes ONE outbound IndexNow submission of up to 10,000 URLs —
       // exactly one request under a rate limit, because a bare 429 is not retried
-      // (AECI-833). It exists because submitting per promote rate-limited the channel to
-      // a standstill — every production submission across 2026-09-07..09 returned
-      // HTTP 429. It cannot be "*/15" (that belongs to the reconcile sweep, and
-      // scheduled.ts switches on the exact cron string), and it is queue-less on
-      // purpose: a queue retry re-submits inside the same rate-limit window, so the
-      // NEXT TICK is the backoff.
+      // (AECI-833). Daily because Bing refused nearly every 20-minute tick and
+      // accepted only the first one after 00:00 UTC (prod, 2026-09-22..28). Minute 5
+      // avoids "15 0 * * *" and every minute-0 job, because scheduled.ts switches on
+      // the exact cron string. Queue-less on purpose: a queue retry re-submits
+      // inside the same rate-limit window, so TOMORROW'S RUN is the backoff.
       "triggers": {
         "crons": [
           "15 0 * * *",
@@ -549,10 +549,10 @@
           "0 10 * * *",
           "0 11 * * *",
           "*/15 * * * *",
-          "*/20 * * * *",
+          "5 0 * * *",
           "0 * * * *",
-          // AECI-862 claim-staleness check. Minute 25 avoids the */15, */20 and
-          // hourly expressions above — two jobs cannot share one expression.
+          // AECI-862 claim-staleness check. Minute 25 avoids the */15 and hourly
+          // expressions above — two jobs cannot share one expression.
           "25 */6 * * *",
         ],
       },
@@ -724,8 +724,8 @@
       // §7 attestation detector sweep, AECI-302, and the daily "0 11 * * *"
       // Stage 2 §7 entitlement term-expiry sweep, AECI-613 — which WARNS and never
       // lapses: it never writes status and never writes vendors.verified — and the
-      // "*/20 * * * *" IndexNow submission drain, AECI-826, the most frequent of
-      // the fourteen).
+      // daily "5 0 * * *" IndexNow submission drain, AECI-826, every 20 minutes
+      // until AECI-1136).
       // Dispatched by `controller.cron`.
       // Strings MUST match the constants in `src/lib/cron-schedules.ts`.
       "triggers": {
@@ -742,10 +742,10 @@
           "0 10 * * *",
           "0 11 * * *",
           "*/15 * * * *",
-          "*/20 * * * *",
+          "5 0 * * *",
           "0 * * * *",
-          // AECI-862 claim-staleness check. Minute 25 avoids the */15, */20 and
-          // hourly expressions above — two jobs cannot share one expression.
+          // AECI-862 claim-staleness check. Minute 25 avoids the */15 and hourly
+          // expressions above — two jobs cannot share one expression.
           "25 */6 * * *",
         ],
       },
@@ -941,12 +941,12 @@
       // (AECI-613, queue-less): active terms inside the 30-day horizon get one renewal
       // prompt to the vendor's seats plus an operator copy, fenced by
       // expiry_notice_sent_at. It WARNS and never lapses — never writes status, never
-      // writes vendors.verified (§7.3); "*/20 * * * *" every 20 min — the IndexNow
-      // submission drain (AECI-826 / §20.2, queue-less), which turns any number of
-      // buffered promotes into ONE outbound IndexNow submission — one request under
-      // a rate limit, since AECI-833 gated the bare-429 retry. Submitting per promote
-      // rate-limited the channel to a standstill (23 consecutive HTTP 429s,
-      // 2026-09-07..09).
+      // writes vendors.verified (§7.3); "5 0 * * *" daily at 00:05 UTC — the IndexNow
+      // submission drain (AECI-826 / §20.2, queue-less; every 20 min until
+      // AECI-1136), which turns a day of buffered promotes into ONE outbound
+      // IndexNow submission, highest tier first — one request under a rate limit,
+      // since AECI-833 gated the bare-429 retry. Daily because Bing refused nearly
+      // every 20-minute tick and accepted only the first after 00:00 UTC.
       // Dispatched by `controller.cron`.
       "triggers": {
         "crons": [
@@ -962,10 +962,10 @@
           "0 10 * * *",
           "0 11 * * *",
           "*/15 * * * *",
-          "*/20 * * * *",
+          "5 0 * * *",
           "0 * * * *",
-          // AECI-862 claim-staleness check. Minute 25 avoids the */15, */20 and
-          // hourly expressions above — two jobs cannot share one expression.
+          // AECI-862 claim-staleness check. Minute 25 avoids the */15 and hourly
+          // expressions above — two jobs cannot share one expression.
           "25 */6 * * *",
         ],
       },

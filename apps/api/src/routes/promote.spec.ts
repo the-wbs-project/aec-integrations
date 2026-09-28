@@ -4000,6 +4000,25 @@ describe('IndexNow submission after promote (AECI-236)', () => {
     fetchSpy.mockRestore();
   });
 
+  it('tiers each buffered URL by the Google reason map (AECI-1136)', async () => {
+    // A created product is `product.created`, tier 1. The `/products` hub has no
+    // Google reason, so it is tier 4 and goes out last in the daily send.
+    await bufferIndexNowAfterPromote(
+      runCtx(indexNowEnv),
+      productResponse(),
+      Promise.resolve({} as AffectedUrlOptions),
+      t.db,
+    );
+
+    const rows = await t.db
+      .select({ url: indexnowQueue.url, priority: indexnowQueue.priority })
+      .from(indexnowQueue);
+    expect(Object.fromEntries(rows.map((r) => [r.url, r.priority]))).toEqual({
+      'https://aecintegrations.com/products/revit': 1,
+      'https://aecintegrations.com/products': 4,
+    });
+  });
+
   it('buffers nothing when the creds are absent', async () => {
     await bufferIndexNowAfterPromote(
       runCtx(baseEnv),

@@ -139,8 +139,10 @@ Two guards that are not optional:
   `histogram_counts` has `bounds.length + 1` entries; without the sentinel, a p95 above
   10 s indexes past the end of `bounds`, ClickHouse returns the `0` default, and **the
   worst case would silently fail to fire**.
-- A 20-observation floor. Under WC-8 a cache HIT skips the Worker entirely, so this
-  series is MISS-only and can be very sparse; a p95 built from three samples is noise.
+- A 40-observation floor (AECI-1137, raised from 20 on 2026-09-28). Under WC-8 a cache
+  HIT skips the Worker entirely, so this series is MISS-only and can be very sparse; a p95
+  built from three samples is noise. At 20, the 95th percentile was the 19th observation,
+  so two slow renders could set the bucket. At 40 it is the 38th. Below 40 the query reads 0.
 
 **Verified against live production data on 2026-09-10** (manual step 2, below). Three
 things the live data settled, which the pre-verification text got wrong or left open:

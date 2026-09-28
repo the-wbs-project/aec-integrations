@@ -127,7 +127,7 @@ const ENTITLEMENT_EXPIRY_CRON = '0 11 * * *';
 // literal rather than imported so the dispatcher test still fails if the real
 // constant drifts silently.
 const ASN_REGISTRY_CRON = '0 2 * * 2';
-const INDEXNOW_DRAIN_CRON = '*/20 * * * *';
+const INDEXNOW_DRAIN_CRON = '5 0 * * *';
 const SNAPSHOT_CRON = '15 0 * * *';
 
 const ctx = { waitUntil: vi.fn(), passThroughOnException: vi.fn() } as unknown as ExecutionContext;

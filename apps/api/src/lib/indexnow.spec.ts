@@ -291,7 +291,7 @@ describe('retryAfterMs', () => {
 
   it('ignores a window longer than the cap — the drain cron is the long backoff', () => {
     // Waiting out a minute inside the Worker burns the invocation for a
-    // submission the next twenty-minute tick retries anyway.
+    // submission the next daily drain run retries anyway.
     expect(retryAfterMs('60', now)).toBeUndefined();
   });
 

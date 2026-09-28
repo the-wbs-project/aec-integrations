@@ -5,8 +5,10 @@
  * The vendor-side counterpart to `promote-indexnow-urls.ts` (IndexNow) and
  * `promote-gsc-recrawl-entries.ts` (Google). Same split, same reasons:
  *
- *   - `indexNow` is free, batched and unranked, so it takes everything the edit
- *     touched, hub pages included.
+ *   - `indexNow` is free and batched, so it takes everything the edit touched,
+ *     hub pages included. It borrows its tiers from `gsc` at enqueue time
+ *     (`indexNowEntriesByTier`, AECI-1136), and anything `gsc` does not rank is
+ *     tier 4.
  *   - `gsc` is quota-capped and worked by hand, so it takes entity detail pages
  *     only, each carrying the reason that ranks it.
  *

@@ -1,21 +1,35 @@
 /**
  * The `indexnow_queue` buffer — read and write helpers (AECI-826 / §20.2).
  *
- * Two callers, deliberately kept apart from both of them:
- *   - the promote's post-commit hook (`routes/promote.ts`) APPENDS, and
- *   - the twenty-minute drain cron (`lib/indexnow-drain.ts`) READS and DELETES.
+ * Two kinds of caller, deliberately kept apart:
+ *   - the promote's post-commit hook (`routes/promote.ts`) and the vendor-portal
+ *     writes (`routes/vendor-shared.ts`) APPEND, and
+ *   - the daily drain cron (`lib/indexnow-drain.ts`) READS and DELETES.
  *
- * They meet only here so the delete cursor, the dedupe rule and the staleness
- * window are stated once. See `db/schema.ts` → `indexnowQueue` for why the table
- * carries an `id` at all when `url` is already unique.
+ * They meet only here so the tiering, the dedupe rule, the delete shape and the
+ * staleness window are stated once.
+ *
+ * ─── Tiered since AECI-1136 ───────────────────────────────────────────────────
+ *
+ * Each row carries a `priority`, 1 (most important) … 4 (least), from the SAME
+ * reason → tier map the Google re-crawl worklist uses (`GSC_RECRAWL_PRIORITY`).
+ * The tables stay separate (ADR 0031 §1); only the map and its pure helpers are
+ * shared. The drain reads `priority ASC, queued_at ASC, id ASC`, so a new product
+ * page goes out ahead of a pair-page edit, and tier 4 is last.
  */
 
-import { lte, sql } from 'drizzle-orm';
+import { inArray, lte, sql } from 'drizzle-orm';
 
 import type { Db } from '../db/client';
 import { indexnowQueue } from '../db/schema';
 
 import type { BatchStmt } from './audit';
+import {
+  dedupeByBestPriority,
+  GSC_RECRAWL_MAX_PRIORITY,
+  gscRecrawlPriority,
+  type GscRecrawlEntry,
+} from './gsc-recrawl-priority';
 
 /**
  * How long a buffered URL may wait before the drain drops it instead of
@@ -32,22 +46,30 @@ import type { BatchStmt } from './audit';
 export const INDEXNOW_QUEUE_MAX_AGE_DAYS = 7;
 
 /**
- * Ceiling on one drain's read.
+ * Rows per D1 READ, not per submission.
  *
- * **Deliberately far below IndexNow's own 10,000-URL limit.** The binding
- * constraint is not the aggregator, it is **D1's ~1 MB response cap**: 10,000 rows
- * of `(id, url)` at ~60 bytes each lands within a rounding error of it, and the
- * one scenario that could produce a buffer that deep is exactly the scenario this
- * cap exists for — a week-long outage during heavy curation. A read that fails at
- * the depth that only occurs when something is already wrong is the worst possible
- * place to discover a limit.
+ * Since AECI-1136 the drain runs once a day and sends up to IndexNow's own
+ * 10,000-URL limit (`INDEXNOW_MAX_URLS`) in ONE request. It reaches that by reading
+ * in pages of this size. The page size is set by **D1's ~1 MB response cap**:
+ * 10,000 rows of `(id, url, priority, queued_at)` in one read would land within a
+ * rounding error of it, and the day a buffer is that deep is the day something is
+ * already wrong. 2,000 rows is ~200 KB, comfortably clear.
  *
- * 2,000 URLs is ~150 KB, twenty times the largest submission production has ever
- * made (107), and a run that hits it simply leaves the remainder for the next tick
- * twenty minutes later. `INDEXNOW_MAX_URLS` in the transport stays at IndexNow's
- * real 10,000 so the two constraints are not conflated.
+ * So the two limits stay separate on purpose: this one protects the read, and
+ * `INDEXNOW_MAX_URLS` in the transport caps the submission.
  */
 export const INDEXNOW_DRAIN_BATCH_SIZE = 2_000;
+
+/**
+ * Ids per DELETE statement.
+ *
+ * The drain deletes exactly the rows it sent, by id. D1 caps a query at 100 bound
+ * parameters, and each id is one, so a 10,000-row day is 100 statements, all in
+ * the one `db.batch` that also carries the audit row. See
+ * {@link deleteDrainedIndexNowUrls} for why this is no longer an `id <= maxId`
+ * range.
+ */
+export const INDEXNOW_DELETE_IDS_PER_STATEMENT = 100;
 
 /**
  * URLs per INSERT statement.
@@ -55,8 +77,9 @@ export const INDEXNOW_DRAIN_BATCH_SIZE = 2_000;
  * **D1 caps a query at 100 bound parameters**
  * (developers.cloudflare.com/d1/platform/limits/), the same ceiling
  * `asn-registry.ts` sizes `UPSERT_ROWS_PER_STATEMENT` off. Each buffered row binds
- * three values — `url`, `queued_at`, `source` — so 33 rows is 99 parameters and
- * one more row is a rejected statement.
+ * four values — `url`, `queued_at`, `source`, `priority` — so 25 rows is 100
+ * parameters and one more row is a rejected statement. It was 33 while the row
+ * bound three; AECI-1136 added `priority`. The conflict clause binds nothing.
  *
  * This has to be sized off the documented limit rather than measured locally,
  * because **better-sqlite3's ceiling is 32,766**: a single unchunked INSERT of 107
@@ -65,20 +88,88 @@ export const INDEXNOW_DRAIN_BATCH_SIZE = 2_000;
  * the payload — and the largest submission production has made carried 107, so
  * this is not a theoretical edge.
  */
-export const INDEXNOW_INSERT_ROWS_PER_STATEMENT = 33;
+export const INDEXNOW_INSERT_ROWS_PER_STATEMENT = 25;
 
-/** One buffered URL, as the drain reads it. */
+/** One buffered URL, as the drain reads it. `priority` and `queuedAt` are read
+ *  because they are the keyset cursor for the next page. */
 export interface PendingIndexNowUrl {
   id: number;
   url: string;
+  priority: number;
+  queuedAt: string;
 }
 
-function insertChunk(db: Db, chunk: readonly string[], queuedAt: string, source: string) {
+/** One URL to buffer, with its tier. */
+export interface IndexNowEntry {
+  url: string;
+  priority: number;
+}
+
+/**
+ * What a producer hands {@link enqueueIndexNowUrls}. A bare string is a URL the
+ * tier map does not rank, and it is buffered at tier 4. Production callers go
+ * through {@link indexNowEntriesByTier}, which applies that rule explicitly.
+ */
+export type IndexNowEnqueueInput = string | IndexNowEntry;
+
+/**
+ * Tier the IndexNow URL set by the Google re-crawl entries for the same write.
+ *
+ * Both producers already derive two lists from one write: the IndexNow URL set
+ * (every page the write touched, hubs included) and the ranked GSC entries
+ * (entity detail pages only, each with the reason that tiers it). This takes the
+ * tier for each IndexNow URL from the GSC entry for the same URL, so the reason →
+ * tier map has exactly one home (`GSC_RECRAWL_PRIORITY`). A URL with no GSC entry
+ * is a hub or facet page (`/products`, `/categories/...`, `/`) and gets tier 4.
+ *
+ * The IndexNow list decides MEMBERSHIP. A GSC entry whose URL is not in `urls`
+ * adds nothing, so tiering can never widen what we submit.
+ */
+export function indexNowEntriesByTier(
+  urls: readonly string[],
+  ranked: readonly GscRecrawlEntry[],
+): IndexNowEntry[] {
+  const tierByUrl = new Map<string, number>();
+  for (const entry of dedupeByBestPriority(ranked)) {
+    tierByUrl.set(entry.url, gscRecrawlPriority(entry.reason));
+  }
+  return urls.map((url) => ({ url, priority: tierByUrl.get(url) ?? GSC_RECRAWL_MAX_PRIORITY }));
+}
+
+/** Normalise producer input and collapse duplicate URLs, keeping the best tier.
+ *  A duplicate inside one INSERT would make the statement's own conflict clause
+ *  arbitrate something the caller already knows. */
+function normaliseEntries(input: readonly IndexNowEnqueueInput[]): IndexNowEntry[] {
+  const best = new Map<string, number>();
+  for (const item of input) {
+    const entry =
+      typeof item === 'string' ? { url: item, priority: GSC_RECRAWL_MAX_PRIORITY } : item;
+    const existing = best.get(entry.url);
+    if (existing === undefined || entry.priority < existing) best.set(entry.url, entry.priority);
+  }
+  return [...best].map(([url, priority]) => ({ url, priority }));
+}
+
+function insertChunk(db: Db, chunk: readonly IndexNowEntry[], queuedAt: string, source: string) {
   return db
     .insert(indexnowQueue)
-    .values(chunk.map((url) => ({ url, queuedAt, source })))
-    .onConflictDoNothing({ target: indexnowQueue.url })
-    .returning({ id: indexnowQueue.id });
+    .values(chunk.map((e) => ({ url: e.url, queuedAt, source, priority: e.priority })))
+    .onConflictDoUpdate({
+      target: indexnowQueue.url,
+      // IMPROVE ONLY, the rule `gsc_recrawl_queue` uses. 1 is the most important
+      // tier, so `min(existing, incoming)`: a pair-page edit (4) followed by a new
+      // product on the same URL (1) rises to 1, and the reverse stays at 1.
+      set: { priority: sql`min(${indexnowQueue.priority}, excluded.priority)` },
+      // Only touch the row when the tier actually improves. Without this every
+      // re-buffer of a queued URL would be an UPDATE, and its RETURNING row would
+      // count as "queued" and hide the dedupe rate.
+      //
+      // `queued_at` and `source` are deliberately absent from `set`. Keeping the
+      // original `queued_at` keeps oldest-first ordering inside a tier honest, and
+      // keeps the seven-day expiry measured from the first buffering.
+      setWhere: sql`excluded.priority < ${indexnowQueue.priority}`,
+    })
+    .returning({ id: indexnowQueue.id, queuedAt: indexnowQueue.queuedAt });
 }
 
 /**
@@ -92,26 +183,28 @@ function insertChunk(db: Db, chunk: readonly string[], queuedAt: string, source:
  */
 export function indexNowInsertStatements(
   db: Db,
-  urls: readonly string[],
+  input: readonly IndexNowEnqueueInput[],
   queuedAt: string,
   source: string,
 ): ReturnType<typeof insertChunk>[] {
+  const entries = normaliseEntries(input);
   const stmts: ReturnType<typeof insertChunk>[] = [];
-  for (let i = 0; i < urls.length; i += INDEXNOW_INSERT_ROWS_PER_STATEMENT) {
+  for (let i = 0; i < entries.length; i += INDEXNOW_INSERT_ROWS_PER_STATEMENT) {
     stmts.push(
-      insertChunk(db, urls.slice(i, i + INDEXNOW_INSERT_ROWS_PER_STATEMENT), queuedAt, source),
+      insertChunk(db, entries.slice(i, i + INDEXNOW_INSERT_ROWS_PER_STATEMENT), queuedAt, source),
     );
   }
   return stmts;
 }
 
 /**
- * Append `urls` to the buffer, ignoring any already queued.
+ * Append `input` to the buffer. A URL already queued keeps its row, and its tier
+ * improves if the new one is better (AECI-1136).
  *
- * `ON CONFLICT DO NOTHING` on the unique `url` index is the whole dedupe story: a
- * product promoted three times inside one drain window occupies one row and is
- * submitted once. The pre-AECI-826 design could not dedupe at all — each promote
- * was its own request.
+ * The unique `url` index is the whole dedupe story: a product promoted three times
+ * before the daily drain occupies one row and is submitted once. The conflict
+ * clause is `DO UPDATE` rather than `DO NOTHING` only so the tier can rise; it
+ * never lowers a tier and never refreshes `queued_at`.
  *
  * Written as one statement per {@link INDEXNOW_INSERT_ROWS_PER_STATEMENT} URLs,
  * run in sequence rather than in a `db.batch`. Two reasons, and neither is cost:
@@ -123,43 +216,63 @@ export function indexNowInsertStatements(
  * inserted count silently wrong in every spec. A failing chunk throws to the
  * caller, whose fail-open catch logs it (§20.2).
  *
- * Returns how many rows were actually inserted, counted from `RETURNING` rather
- * than from `meta.changes` — D1 does not report `changes` usefully (the same
- * constraint `retention-prune.ts` works around, and the reason AECI-581 could not
- * count its upserts). `RETURNING` gives an exact number with no second read, and
- * `urls.length - inserted` is the dedupe hit rate.
+ * Returns how many rows were newly INSERTED, counted from `RETURNING` rather than
+ * `meta.changes`, which D1 does not report usefully. A tier-raising update also
+ * returns a row, but it keeps its original `queued_at`, so a returned row whose
+ * `queued_at` is not this call's timestamp is an update and is not counted.
+ * `urls.length - inserted` stays the dedupe hit rate.
  */
 export async function enqueueIndexNowUrls(
   db: Db,
-  urls: readonly string[],
+  input: readonly IndexNowEnqueueInput[],
   source = 'promote',
   now: () => Date = () => new Date(),
 ): Promise<number> {
-  if (urls.length === 0) return 0;
+  if (input.length === 0) return 0;
   const queuedAt = now().toISOString();
   let inserted = 0;
-  for (const stmt of indexNowInsertStatements(db, urls, queuedAt, source)) {
-    inserted += (await stmt).length;
+  for (const stmt of indexNowInsertStatements(db, input, queuedAt, source)) {
+    inserted += (await stmt).filter((row) => row.queuedAt === queuedAt).length;
   }
   return inserted;
 }
 
+/** Where the previous page ended. The next page starts strictly after it. */
+export type IndexNowReadCursor = Pick<PendingIndexNowUrl, 'priority' | 'queuedAt' | 'id'>;
+
 /**
- * The oldest `limit` buffered URLs, in insertion order.
+ * One page of buffered URLs in drain order: `priority ASC, queued_at ASC, id ASC`.
  *
- * Ordered by `id` rather than `queued_at` because `id` is what the delete cursors
- * on, and two rows written in the same millisecond share a `queued_at`. FIFO also
- * means a wedged tail cannot starve: whatever failed last tick is read first this
- * tick.
+ * Tier 1 first, tier 4 last, oldest first inside a tier, and `id` as the
+ * tiebreaker because two rows written in the same millisecond share a
+ * `queued_at`. Oldest-first inside a tier means a wedged tail cannot starve:
+ * whatever failed yesterday is read first today.
+ *
+ * Paged by a keyset `after` cursor rather than `OFFSET`, so a promote that buffers
+ * between two page reads can never shift a row into a page twice. A row inserted
+ * or re-tiered to a position BEFORE the cursor is simply not read this run and
+ * goes out tomorrow.
  */
 export async function readPendingIndexNowUrls(
   db: Db,
   limit: number = INDEXNOW_DRAIN_BATCH_SIZE,
+  after?: IndexNowReadCursor,
 ): Promise<PendingIndexNowUrl[]> {
-  return db
-    .select({ id: indexnowQueue.id, url: indexnowQueue.url })
-    .from(indexnowQueue)
-    .orderBy(indexnowQueue.id)
+  const base = db
+    .select({
+      id: indexnowQueue.id,
+      url: indexnowQueue.url,
+      priority: indexnowQueue.priority,
+      queuedAt: indexnowQueue.queuedAt,
+    })
+    .from(indexnowQueue);
+  const filtered = after
+    ? base.where(
+        sql`(${indexnowQueue.priority}, ${indexnowQueue.queuedAt}, ${indexnowQueue.id}) > (${after.priority}, ${after.queuedAt}, ${after.id})`,
+      )
+    : base;
+  return filtered
+    .orderBy(indexnowQueue.priority, indexnowQueue.queuedAt, indexnowQueue.id)
     .limit(limit);
 }
 
@@ -171,28 +284,39 @@ export async function countPendingIndexNowUrls(db: Db): Promise<number> {
 }
 
 /**
- * Delete every row up to and including `maxId` — the drain's "these are submitted,
- * let them go" statement, returned as a `BatchStmt` so it commits in the SAME
- * `db.batch` as its `audit_log` summary row (§26.1's scheduled-deletion
- * exception).
+ * Delete exactly the rows the drain read — the "these are submitted, let them go"
+ * statements, returned as `BatchStmt`s so they commit in the SAME `db.batch` as
+ * the `audit_log` summary row (§26.1's scheduled-deletion exception).
  *
- * `id <= maxId` is safe against concurrent appends because `id` is monotonic: a
- * promote that buffers a URL between the drain's SELECT and this DELETE always
- * lands above `maxId` and survives to the next tick.
+ * **By id list, chunked to {@link INDEXNOW_DELETE_IDS_PER_STATEMENT}.** Until
+ * AECI-1136 this was one `id <= maxId` statement, which was only correct because
+ * the drain read in `id` order. It now reads in tier order, so the rows it sent
+ * are not a contiguous id range. A tier/`queued_at`/`id` watermark was considered
+ * and rejected: a promote that buffers a tier-1 URL during the request sorts
+ * BEFORE the watermark, and a watermark delete would drop it unsent. An id list
+ * deletes only what went on the wire. A row whose tier improved after the read
+ * keeps its id and is deleted, which is right: its URL was just sent.
+ *
+ * A 10,000-row day is 100 statements. D1 counts each toward the per-invocation
+ * query limit (1,000 on Workers Paid), which leaves ample headroom.
  */
-export function deleteDrainedIndexNowUrls(db: Db, maxId: number): BatchStmt {
-  return db.delete(indexnowQueue).where(lte(indexnowQueue.id, maxId));
+export function deleteDrainedIndexNowUrls(db: Db, ids: readonly number[]): BatchStmt[] {
+  const stmts: BatchStmt[] = [];
+  for (let i = 0; i < ids.length; i += INDEXNOW_DELETE_IDS_PER_STATEMENT) {
+    const chunk = ids.slice(i, i + INDEXNOW_DELETE_IDS_PER_STATEMENT);
+    stmts.push(db.delete(indexnowQueue).where(inArray(indexnowQueue.id, chunk)));
+  }
+  return stmts;
 }
 
 /**
  * Delete rows queued at or before `cutoffIso`. The staleness sweep — see
  * {@link INDEXNOW_QUEUE_MAX_AGE_DAYS}.
  *
- * The drain runs this BEFORE it reads, in its own batch, deliberately. Sharing a
- * batch with the drain's own `id <= maxId` delete would let the two predicates
- * overlap on the same rows — a stale row is by definition among the oldest, so it
- * would be counted once as expired and once as submitted. Sweeping first makes the
- * two sets disjoint by construction.
+ * The drain runs this BEFORE it reads, in its own batch, deliberately. The rows it
+ * removes can then never be among the rows the drain reads, so a stale row cannot
+ * be counted once as expired and once as submitted. Sweeping first makes the two
+ * sets disjoint by construction.
  */
 export function deleteStaleIndexNowUrls(db: Db, cutoffIso: string): BatchStmt {
   return db.delete(indexnowQueue).where(lte(indexnowQueue.queuedAt, cutoffIso));

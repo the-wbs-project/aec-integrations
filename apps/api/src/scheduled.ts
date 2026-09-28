@@ -286,7 +286,7 @@ function jobRunSink(ctx: ExecutionContext, env: Env): JobRunSink {
 // The fifteen cron expressions now live in `./lib/cron-schedules` — hoisted there
 // by AECI-580 (the snapshot cron joined them in AECI-581, the retention prune in
 // AECI-584, the §7 attestation sweep at the AECI-619 reconciliation, and the
-// `*/20` IndexNow drain in AECI-826) so
+// IndexNow drain in AECI-826, daily at 00:05 since AECI-1136) so
 // `GET /api/admin/system`'s liveness rows read the SAME literals this dispatcher
 // `switch`es on rather than a second copy that could drift. Each one MUST still
 // stay byte-equal to its `triggers.crons` entry in `wrangler.jsonc`, or
@@ -1639,7 +1639,8 @@ async function runAsnRegistryJob(env: Env, ctx: ExecutionContext): Promise<JobRu
 }
 
 /**
- * Drain the `indexnow_queue` buffer into ONE IndexNow request (AECI-826 / §20.2).
+ * Drain the `indexnow_queue` buffer into ONE IndexNow request (AECI-826 / §20.2),
+ * once a day at 00:05 UTC, highest tier first (AECI-1136).
  *
  * The whole decision tree lives in `lib/indexnow-drain.ts` and is unit-tested
  * without a controller; this wrapper is the `ctx`/`env`/metric plumbing plus the
@@ -1649,7 +1650,7 @@ async function runAsnRegistryJob(env: Env, ctx: ExecutionContext): Promise<JobRu
  * no outbound request (no key, empty buffer). That is deliberate and load-bearing:
  * it is the cron-liveness heartbeat the external CI sweep reads, and an
  * always-emitted series is the only thing that makes its *absence* meaningful. The
- * submit metric cannot serve that purpose, because a quiet twenty minutes
+ * submit metric cannot serve that purpose, because a day with nothing buffered
  * legitimately produces no submission at all.
  *
  * Metric outcome mapping (`drainMetricOutcome`):
@@ -1657,13 +1658,13 @@ async function runAsnRegistryJob(env: Env, ctx: ExecutionContext): Promise<JobRu
  *     pre-launch and preview posture, not a fault. The buffer is gated on the same
  *     pair, so nothing is accumulating unserved.
  *   - `refused` — IndexNow rejected the batch or was unreachable. The rows stay
- *     buffered; the next tick retries them. Kept out of `failed` so the combined
- *     cron-failure alert does not page on a throttled tick (AECI-864).
+ *     buffered; tomorrow's run retries them. Kept out of `failed` so the combined
+ *     cron-failure alert does not page on a throttled day (AECI-864).
  *   - `failed` — a local fault: `PUBLIC_SITE_URL` is unparseable.
  *   - `ok` — submitted and drained, or there was simply nothing to send.
  *
  * `job_runs` has a closed `ok | failed | skipped` outcome set, so a `refused`
- * tick is still recorded there as `failed`. A thrown tick (a D1 error) emits no
+ * run is still recorded there as `failed`. A thrown run (a D1 error) emits no
  * heartbeat at all, because the count below runs only after the drain returns;
  * the liveness sweep is what catches it.
  */
@@ -1855,8 +1856,8 @@ function queueForJob(env: Env, job: ScheduledJob): Queue<ScheduledJobMessage> | 
       // queue-less because retries would be actively harmful. A queue retry
       // re-submits inside the same IndexNow rate-limit window, which is exactly
       // the burst that produced twenty-three consecutive 429s. The rows stay in
-      // `indexnow_queue` on failure and the next twenty-minute tick IS the
-      // backoff. No `INDEXNOW_DRAIN_QUEUE` binding exists, and adding one would
+      // `indexnow_queue` on failure and tomorrow's run (daily since AECI-1136)
+      // IS the backoff. No `INDEXNOW_DRAIN_QUEUE` binding exists, and adding one would
       // be a regression.
       return undefined;
     case 'claim_stale_check':

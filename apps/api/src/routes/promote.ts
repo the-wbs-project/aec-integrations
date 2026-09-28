@@ -155,7 +155,7 @@ import {
 import { type DbFactory } from '../lib/handler-utils';
 import { runHomeStats, type HomeStatsResult } from '../lib/home-stats';
 import { emitHomeStatsMetrics, type StatsMetricSink } from '../lib/home-stats-metrics';
-import { enqueueIndexNowUrls } from '../lib/indexnow-queue';
+import { enqueueIndexNowUrls, indexNowEntriesByTier } from '../lib/indexnow-queue';
 import { enqueueGscRecrawl } from '../lib/gsc-recrawl-queue';
 import { extensionHostSlugs } from '../lib/product-extensions';
 import { recomputeProductCounts } from '../lib/recompute-counts';
@@ -1235,9 +1235,11 @@ function logAlgoliaSyncFailure(rc: PromoteRunCtx, entity: string, reason: string
  * count per request was never the problem (IndexNow takes 10,000; our largest
  * carried 107). Request frequency was.
  *
- * So the hook buffers and the twenty-minute `indexnow-drain` cron
- * (`lib/indexnow-drain.ts`) submits, collapsing any number of promotes into one
- * request. Three secondary wins fall out of the move: the buffer's unique `url`
+ * So the hook buffers and the daily `indexnow-drain` cron
+ * (`lib/indexnow-drain.ts`, 00:05 UTC since AECI-1136) submits, collapsing any
+ * number of promotes into one request. Each buffered URL carries the tier the
+ * Google worklist would give it (`indexNowEntriesByTier`), so the daily send
+ * goes highest tier first. Three secondary wins fall out of the move: the buffer's unique `url`
  * dedupes a product promoted twice inside one window, which the old design could
  * not do at all; a D1 insert is far more likely to survive than an outbound
  * `fetch`; and the promote's post-commit block gives back a Worker connection,
@@ -1283,13 +1285,19 @@ export async function bufferIndexNowAfterPromote(
   const siteUrl = rc.env.PUBLIC_SITE_URL;
   if (!key || !siteUrl) return;
 
-  const urlList = affectedUrlsForPromote(response, siteUrl, await tradeUrls);
+  const tradeOptions = await tradeUrls;
+  const urlList = affectedUrlsForPromote(response, siteUrl, tradeOptions);
   if (urlList.length === 0) return;
+
+  // One ranked derivation feeds both queues (AECI-1136). The Google worklist takes
+  // these entries as they are; the IndexNow buffer borrows their tiers, so the
+  // reason -> tier map is applied in exactly one place.
+  const gscEntries = gscRecrawlEntriesForPromote(response, siteUrl, tradeOptions);
 
   // Still validated here even though the drain re-derives it: an unparseable
   // PUBLIC_SITE_URL means every URL we are about to buffer is malformed, and
   // catching it at the producer keeps junk out of the table rather than making the
-  // drain discard it twenty minutes later.
+  // drain discard it at the next daily run.
   try {
     new URL(siteUrl);
   } catch {
@@ -1298,7 +1306,7 @@ export async function bufferIndexNowAfterPromote(
   }
 
   try {
-    const queued = await enqueueIndexNowUrls(db, urlList);
+    const queued = await enqueueIndexNowUrls(db, indexNowEntriesByTier(urlList, gscEntries));
     submitCount(rc, rc.env, rc.request, 'aeci.indexnow.queued', queued, ['source:promote']);
   } catch (error) {
     // Fail-open, exactly as the submission did: the promote is committed and a
@@ -1318,13 +1326,14 @@ export async function bufferIndexNowAfterPromote(
   // second `dispatchHook` would double the post-commit fan-out to say the same
   // thing twice. And the trade publication read backing `tradeUrls` has already
   // been awaited above, so sharing the hook means one D1 read rather than two.
+  // The entries themselves were derived above, before the IndexNow half, because
+  // that half borrows their tiers.
   //
   // Its own try/catch, though: a Google-queue failure must not suppress a
   // successful IndexNow buffer or vice versa. They are independent discovery
   // channels and one being broken is not a reason to lose the other.
   try {
-    const entries = gscRecrawlEntriesForPromote(response, siteUrl, await tradeUrls);
-    const touched = await enqueueGscRecrawl(db, entries, 'promote');
+    const touched = await enqueueGscRecrawl(db, gscEntries, 'promote');
     submitCount(rc, rc.env, rc.request, 'aeci.gsc_recrawl.queued', touched, ['source:promote']);
   } catch (error) {
     // Fail-open for the same reason the IndexNow half is: the promote is
@@ -1362,8 +1371,8 @@ function logIndexNowFailure(rc: PromoteRunCtx, urlsCount: number, reason: string
  *   - **Fails to the safe side.** A rejected read resolves to `{}`, which buffers
  *     no trade URLs at all rather than risking a sub-floor (noindex) submission.
  *     That guard matters MORE since AECI-826, not less: a bad trade URL written to
- *     `indexnow_queue` outlives the promote and is submitted up to twenty minutes
- *     later by a job with no way to re-derive whether it should have been.
+ *     `indexnow_queue` outlives the promote and is submitted up to a day later
+ *     by a job with no way to re-derive whether it should have been.
  *
  * Skipped entirely when no key is configured or no trade was touched, so the
  * overwhelming majority of promotes — trades are sparse by design — pay nothing.
@@ -3817,8 +3826,8 @@ export function dispatchPromoteHooks(
     removedTradeSlugs,
   );
 
-  // AECI-236 → AECI-826: BUFFER the affected public URLs for the twenty-minute
-  // IndexNow drain cron (§20.2/§20.5). This used to submit inline, which made one
+  // AECI-236 → AECI-826: BUFFER the affected public URLs for the daily
+  // IndexNow drain cron (§20.2/§20.5; daily since AECI-1136). This used to submit inline, which made one
   // promote one outbound request and rate-limited the channel to a standstill.
   // Best-effort, post-commit; no-ops without INDEXNOW_KEY + PUBLIC_SITE_URL.
   // Those are provisioned ONLY at launch (alongside `ALLOW_INDEXING=true`):
