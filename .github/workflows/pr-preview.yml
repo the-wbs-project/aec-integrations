@@ -93,9 +93,13 @@ jobs:
     name: Deploy PR preview
     # First-party PRs only. Fork PRs don't receive secrets, so the deploy
     # would fail anyway — skip cleanly instead of red-Xing every external PR.
+    # Dependabot-triggered runs are skipped for the same reason: they get
+    # Dependabot secrets, not repo secrets, so CLOUDFLARE_API_TOKEN is empty.
+    # A human push to a Dependabot branch runs as that human and deploys.
     if: |
       github.event.action != 'closed'
         && github.event.pull_request.head.repo.full_name == github.repository
+        && github.actor != 'dependabot[bot]'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
