@@ -1224,10 +1224,9 @@ filed under. Consequences, all deliberate:
   product's tab. On `PUT …/attestation` it only frames the echo. A product the caller
   does not own on that integration is a `400` naming the field, never a silent
   re-frame. Omitted keeps the endpoint-A default, which is unambiguous for the common
-  single-endpoint case. **The portal always sends it:** both write components source it
-  from the listing they render (`vendor-integration-card.ts` passes
-  `integration.context_product.id` into `vendor-add-claim-form.ts` and, via
-  `vendor-claim-lane.ts`, into `vendor-attestation-control.ts`), so the server frames the
+  single-endpoint case. **The portal always sends it:** the integration detail page's
+  write seam (`integration-detail-state.ts`, AECI-1156) sources it from
+  `integration.context_product.id` on both the add-claim and the attestation write, so the server frames the
   write against the endpoint the vendor is authoring from rather than the fallback — the
   fallback is API robustness for a caller that omits it, not the portal's path.
 - **The client mirrors on splice.** Because the write carries `context_product_id`, its
@@ -2119,13 +2118,15 @@ The anchor supplies structure only. Tokens, type and colour stay AECi's: light o
 | -- | -- | -- |
 | `retired` | Retired | `retired_at` is set |
 | `disagreement` | Disagreement open | any claim has `agreement = 'conflict'` |
-| `needs_answer` | Needs your answer | an attestable, live row has a claim with no answer of the caller's (`mine = []`), other than a counterpart-added one |
-| `needs_decision` | Needs your decision | an open received change request, or an unanswered counterpart-added row |
+| `needs_answer` | Needs your answer | the caller holds `attestation.author`, and an attestable, live row has a claim with no answer of the caller's (`mine = []`), other than a counterpart-added one |
+| `needs_decision` | Needs your decision | an open received change request, a received request with a protest reply still due (the same test as the protest item below), or an unanswered counterpart-added row the caller may answer |
 | `ready_to_claim` | Ready to claim | `is_owner` and `claimed_at` is null |
 | `no_owner` | No owner yet | no owner is recorded and the caller has no open `owner` request |
 | `waiting` | Waiting on {owner} / Waiting on AEC Integrations | the caller has an open submitted change request |
 | `connector` | AEC Integrations maintained | `attestable` is false |
 | `up_to_date` | All up to date | none of the above |
+
+**Answer prompts need `attestation.author`** (ruled 2026-09-29, review of AECI-1149). Without it every Yes and No is disabled, so neither the status nor the callout asks for an answer. This matches the overview's `canAttest` gate.
 
 The pill never carries meaning by colour alone. `disagreement` keeps the red tone and the ✕ glyph of the public badge (`STAGE_2_ATTESTATIONS_SPEC.md` §4.5).
 
@@ -2144,10 +2145,10 @@ Items, derived from the wire only, never re-derived agreement:
 | Item | Shown when | Target |
 | -- | -- | -- |
 | "{Company} disagrees about {data}" | a claim has `agreement = 'conflict'` and the caller's own live answer carries no note | the disagreement item (§6.17.6) |
-| "{Company} added {data}. Is this right?" | a claim with `added_by = 'counterpart'` and `mine = []` on an attestable, live row | the added-row item (§6.17.6) |
+| "{Company} added {data}. Is this right?" | a claim with `added_by = 'counterpart'` and `mine = []` on an attestable, live row, and the caller holds `attestation.author` | the added-row item (§6.17.6) |
 | "{Company} asked to change {field}" | an open received change request on this integration | its item |
 | "{Company} asked AEC Integrations to review your decision. Reply by {date}" | a received request with an open protest, no reply, and `reply_due_at` still ahead (§11b.12.12) | its item |
-| "{N} rows of data need your answer" | claims with `mine = []` on an attestable, live row, not counted above | the first such data row |
+| "{N} rows of data need your answer" | claims with `mine = []` on an attestable, live row, not counted above, and the caller holds `attestation.author` | the first such data row |
 | "You can claim this integration" | `is_owner`, unclaimed, and a claim is allowed (a connector-powered row needs an active entitlement, §4.5.2) | the Owner row |
 | "No owner is recorded. Ask to be recorded as the owner" | no owner on file and no open `owner` request from the caller | the Owner row |
 
@@ -2419,7 +2420,7 @@ Two field changes share one mechanism: the portal's field lists stop being the s
 
 **Vendor create follows the edit list.** `POST /api/vendor/integrations` (§4.7.1) takes the same fields as the edit: `pricing_url` in, `website` and `mechanism_url` out.
 
-**As built (AECI-1154, AECI-1155 server side).** Migration `0052_sticky_gamma_corps.sql` is the two plain `ADD COLUMN`s, and `src/test/migration-0052.spec.ts` is its tripwire. The lists are in `packages/shared/src/api/integration-contests.ts` (`INTEGRATION_OFFERED_CONTEST_FIELDS`, `EVIDENCED_PAIR_OFFERED_CONTEST_FIELDS`, `PORTAL_WITHDRAWN_FIELDS`) and `integration-edits.ts` (`INTEGRATION_EDIT_ONLY_FIELDS`, `INTEGRATION_EDIT_MAX_LENGTH`, `INTEGRATION_EDIT_URL_FIELDS`). The API maps edit fields to columns through `EDIT_FIELD_COLUMNS` (`apps/api/src/lib/integration-contests.ts`), not the contest map, so an old contest on `website` still decides through `CONTEST_FIELD_COLUMNS`. A promote cross-table move carries `pricing_url` across (`REVIEW_APP_PROMOTE_API.md` §4b). The pair read returns it as `mechanisms[].pricing_url`. **The "Price" fact is not rendered yet**: the "At a glance" row is AECI-1142's (PR #860), which was not on this branch's base, so the UI follow-up renders it once both are in. The §6.14 and §6.15 edit forms offer the new list and the pricing page, compile-level only; the page's own editors are the UI build's.
+**As built (AECI-1154, AECI-1155 server side).** Migration `0052_sticky_gamma_corps.sql` is the two plain `ADD COLUMN`s, and `src/test/migration-0052.spec.ts` is its tripwire. The lists are in `packages/shared/src/api/integration-contests.ts` (`INTEGRATION_OFFERED_CONTEST_FIELDS`, `EVIDENCED_PAIR_OFFERED_CONTEST_FIELDS`, `PORTAL_WITHDRAWN_FIELDS`) and `integration-edits.ts` (`INTEGRATION_EDIT_ONLY_FIELDS`, `INTEGRATION_EDIT_MAX_LENGTH`, `INTEGRATION_EDIT_URL_FIELDS`). The API maps edit fields to columns through `EDIT_FIELD_COLUMNS` (`apps/api/src/lib/integration-contests.ts`), not the contest map, so an old contest on `website` still decides through `CONTEST_FIELD_COLUMNS`. A promote cross-table move carries `pricing_url` across (`REVIEW_APP_PROMOTE_API.md` §4b). The pair read returns it as `mechanisms[].pricing_url`. **The "Price" fact does not link yet**: AECI-1142's "At a glance" row is now in, and it renders `pricing_model` only. `products-pair.ts` does not read `pricing_url`, and the portal tooltip (`@@vendor.im.tip.pricingUrl.public`) says the link is not live. Rendering it is a UI follow-up. The §6.14 and §6.15 edit forms offer the new list and the pricing page, compile-level only; the page's own editors are the UI build's.
 
 ---
 

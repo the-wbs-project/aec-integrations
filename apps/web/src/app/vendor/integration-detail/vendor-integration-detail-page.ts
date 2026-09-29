@@ -424,7 +424,12 @@ export class VendorIntegrationDetailPage {
   private readonly statusKey = computed(() => {
     const i = this.integration();
     if (!i) return 'up_to_date' as const;
-    return integrationStatus(i, { contests: this.pageContests(), entitled: this.state.entitled() });
+    return integrationStatus(i, {
+      contests: this.pageContests(),
+      entitled: this.state.entitled(),
+      canAuthor: this.state.canAuthor(),
+      now: new Date().toISOString(),
+    });
   });
 
   /** The page's own contest read, narrowed to this row as a guard. */
@@ -448,6 +453,7 @@ export class VendorIntegrationDetailPage {
     return needsItems(i, {
       contests: this.pageContests(),
       entitled: this.state.entitled(),
+      canAuthor: this.state.canAuthor(),
       company: this.state.company(),
       now: new Date().toISOString(),
     });

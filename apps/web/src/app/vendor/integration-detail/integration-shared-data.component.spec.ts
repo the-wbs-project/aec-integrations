@@ -335,6 +335,20 @@ describe('adding a row', () => {
     );
   });
 
+  it('cases the fallback name by its place in the sentence when no company is named', async () => {
+    const unnamed = { ...INTEGRATION_OWNED_CLAIMED, endpoint_vendors: [] };
+    const api = makeApi([unnamed]);
+    await setup(api, unnamed);
+    const fixture = await mount(IntegrationSharedData, unnamed);
+    el(fixture).querySelector<HTMLButtonElement>(testid('add-row'))!.click();
+    await settle(fixture);
+    expect(text(fixture)).toContain(
+      'until the other company answers. The other company is asked to confirm it.',
+    );
+    expect(text(fixture)).toContain('Note for the other company');
+    expect(text(fixture)).not.toContain('until The other company');
+  });
+
   it('closes on a duplicate and says the row is already listed', async () => {
     const api = makeApi([INTEGRATION_OWNED_CLAIMED]);
     api.createClaim.mockRejectedValue(

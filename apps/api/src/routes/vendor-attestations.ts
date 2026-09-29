@@ -1583,7 +1583,11 @@ export function createUpsertVendorAttestationHandler(
     if (computeAgreement(live.map(toAgreementVote)) === 'conflict') {
       try {
         raisedAt = (await conflictStarts(db, [claimId])).get(claimId) ?? now;
-      } catch {
+      } catch (err) {
+        console.warn('conflictStarts read failed after a committed attestation write', {
+          claimId,
+          error: err instanceof Error ? err.message : String(err),
+        });
         raisedAt = now;
       }
     }

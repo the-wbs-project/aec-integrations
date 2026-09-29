@@ -484,11 +484,14 @@ function linkFor(
 
 /** The status the list's chips would give an integration, by the SAME rule. The
  *  three keys used here come before every contest-dependent key, so no contests
- *  are needed to decide them. */
+ *  are needed to decide them. `canAuthor` is true because this only picks a link
+ *  target. Whether an item shows at all is decided from the overview's own inputs. */
 function listStatus(integration: VendorIntegration): IntegrationStatusKey {
   return integrationStatus(integration, {
     contests: { submitted: [], received: [] },
     entitled: true,
+    canAuthor: true,
+    now: new Date().toISOString(),
   });
 }
 

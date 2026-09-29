@@ -35,6 +35,8 @@ const NONE = { submitted: [], received: [] };
 const ctx = (overrides: Partial<Parameters<typeof integrationStatus>[1]> = {}) => ({
   contests: NONE,
   entitled: true,
+  canAuthor: true,
+  now: '2026-09-29T12:00:00Z',
   ...overrides,
 });
 
@@ -99,6 +101,42 @@ describe('integrationStatus — the first that applies (§6.17.2)', () => {
       ),
     ).toBe('needs_decision');
     expect(integrationStatus(answeredOwned, ctx())).toBe('up_to_date');
+  });
+
+  it('a protest reply still due on a declined request needs a decision', () => {
+    const answeredOwned = withClaims(
+      INTEGRATION_OWNED_CLAIMED,
+      INTEGRATION_OWNED_CLAIMED.claims.map(answered),
+    );
+    const protest: NonNullable<VendorContest['protest']> = {
+      status: 'open',
+      basis: 'declined',
+      reason: 'The listing uses the longer name.',
+      evidence_urls: [],
+      protested_at: '2026-09-27T12:00:00Z',
+      reply_due_at: '2026-10-11T12:00:00Z',
+      reply: null,
+      reply_evidence_urls: [],
+      replied_at: null,
+      decision_note: null,
+      decided_at: null,
+    };
+    const declined: VendorContest = { ...CONTEST_RECEIVED_ON_OWNED, status: 'declined', protest };
+    const received = { submitted: [], received: [declined] };
+    expect(integrationStatus(answeredOwned, ctx({ contests: received }))).toBe('needs_decision');
+    // Past its due date the reply is no longer owed.
+    expect(
+      integrationStatus(answeredOwned, ctx({ contests: received, now: '2026-10-12T12:00:00Z' })),
+    ).toBe('up_to_date');
+  });
+
+  it('without attestation.author nothing asks for an answer', () => {
+    expect(integrationStatus(VENDOR_B, ctx({ canAuthor: false }))).not.toBe('needs_answer');
+    const lists = needsItems(VENDOR_B, {
+      ...ctx({ canAuthor: false }),
+      company: 'Procore Technologies',
+    });
+    expect([...lists.yours, ...lists.waiting].map((item) => item.key)).not.toContain('rows');
   });
 
   it('an unclaimed owned row is ready to claim, but only when a claim is allowed', () => {
@@ -232,6 +270,10 @@ describe('row pills and copy (§6.17.8)', () => {
     );
     expect(rowPill(INTEGRATION_PROCORE_DETAIL, byName('Submittals'), co).label).toBe(
       'Confirmed by both companies',
+    );
+    // With no company named, the fallback is lower case mid-sentence.
+    expect(rowPill(INTEGRATION_PROCORE_DETAIL, byName('RFIs'), null).label).toBe(
+      'Waiting for the other company',
     );
     const disputed = rowPill(INTEGRATION_PROCORE_DETAIL, byName('Drawings'), co);
     expect(disputed).toEqual({ label: 'Disputed', tone: 'conflict' });

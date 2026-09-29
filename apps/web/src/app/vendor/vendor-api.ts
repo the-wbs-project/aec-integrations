@@ -86,8 +86,8 @@ export interface VendorConnectorCatalogFilters {
  * required turns the mistake into a compile error instead of a data-loss report.
  * The `satisfies` at the call site keeps it honest against the wire type.
  *
- * Callers should build this through `VendorAttestationControl`'s single
- * `position()` helper rather than by hand.
+ * Callers should build this through `IntegrationDetailState`'s answer methods
+ * (`answerYes` / `answerWithNote`) rather than by hand.
  */
 export interface VendorAttestationPosition {
   readonly asserted: boolean;
@@ -202,7 +202,7 @@ export class VendorApi {
    *  the vocabulary (`display_order`) order the claim lanes use. `data_object`
    *  is find-only server-side, so the picker offers this list rather than a text
    *  input (AECI-606 / §5.2). The picker itself re-sorts alphabetically by label
-   *  — see `dataObjectOptions` in `components/vendor-add-claim-form.ts`. */
+   *  — see `dataOptions` in `integration-detail/integration-shared-data.ts`. */
   getDataObjects(): Promise<ListDataObjectsResponse> {
     return firstValueFrom(this.http.get<ListDataObjectsResponse>('/api/vendor/data-objects'));
   }

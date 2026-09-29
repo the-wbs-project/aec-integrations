@@ -32,6 +32,7 @@ import { VendorPortalStore } from '../vendor-portal-store';
 
 import {
   canClaim,
+  companyMidSentence,
   companyOrFallback,
   contestItemId,
   contestValue,
@@ -513,7 +514,7 @@ export class IntegrationLinksSection {
   });
 
   protected readonly providedBy = computed(() => {
-    const who = companyOrFallback(this.state.company());
+    const who = companyMidSentence(this.state.company());
     return $localize`:@@vendor.im.links.providedBy:Provided by ${who}:company:`;
   });
 
@@ -558,6 +559,7 @@ export class IntegrationLinksSection {
   protected sideKindTip(group: SideGroup, kind: IntegrationLinkKind): string[] {
     const product = group.product.name;
     const company = group.mine ? this.state.myCompany() : companyOrFallback(this.state.company());
+    const companyMid = companyMidSentence(this.state.company());
     const listing = kind === 'listing';
     return [
       listing
@@ -568,7 +570,7 @@ export class IntegrationLinksSection {
         : $localize`:@@vendor.im.links.tip.sideDocsPublic:Shows under the integration's card on the public page as "${company}:company: documentation".`,
       group.mine
         ? $localize`:@@vendor.im.links.tip.sideMine:Your company changes it.`
-        : $localize`:@@vendor.im.links.tip.sideOther:Only ${company}:company: changes it.`,
+        : $localize`:@@vendor.im.links.tip.sideOther:Only ${companyMid}:company: changes it.`,
     ];
   }
 
@@ -577,7 +579,7 @@ export class IntegrationLinksSection {
   }
 
   protected otherTip(): string {
-    const who = companyOrFallback(this.state.company());
+    const who = companyMidSentence(this.state.company());
     return $localize`:@@vendor.im.links.tip.other:Only ${who}:company: can change these. If one is wrong, tell ${who}:company:.`;
   }
 

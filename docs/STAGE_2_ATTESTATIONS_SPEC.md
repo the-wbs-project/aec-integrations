@@ -721,7 +721,9 @@ migration. Decisions taken at build that §4.1–§4.4 did not pre-specify:
   `@@pair.dataflow.empty.subline` → `@@pair.dataflow.empty.subline.cataloguing`
   (the trailing sentence dropped — with zero claims there is nothing to be unconfirmed about).
   The replacement copy states who has and has not spoken without promising a feature or implying a
-  refusal, per §3.4's never-a-warning rule. **The `awaitingVendors` gate above is unchanged**; only its
+  refusal, per §3.4's never-a-warning rule. **The `awaitingVendors` gate above was unchanged here**
+  (both the gate and the `confirmedRatio` line were later removed from the pair page by AECI-1142,
+  2026-09-28; see `STAGE_1_5_SPEC.md` §3.5's before/after table); only its
   justification moves — a vendor that has spoken to deny makes "asserted by AECi" no longer the
   whole provenance of the pair. **The band subline says *who asserted*, never *how many are
   confirmed*:** the `confirmedRatio` line directly beneath it always reads "0 of N
@@ -833,12 +835,13 @@ Shapes, Zod schemas and error codes go in `packages/shared/src/api/` and are doc
   attestation note, affirm or deny, is private to the **other company on the integration** and to
   **AEC Integrations**. The other company reads it through `counterparty.note` on `GET
   /api/vendor/integrations`. AEC Integrations reads it in the `attestation.created` audit row. No
-  public read carries it: AECI-1139 widens `readerFacingNote` so the pair read and the pair
-  timeline return `null` for every vendor note, which also covers notes already written. The note
+  public read carries it: AECI-1139 removed the `readerFacingNote` filter, and the public read
+  configs no longer select `attestations.note`, so the pair read and the pair timeline return
+  `null` for every vendor note (`PairClaimAttestationSchema.note` is `z.null()`). That also covers
+  notes already written. The note
   on an added row (`POST /api/vendor/claims`) follows the same rule. The portal's helper text says
   so: "Only {other company} and AEC Integrations see this.", or "Only AEC Integrations sees this."
-  when the author holds both endpoints. AECI-1139's own PR records the public-read change in §4.3
-  and may land separately from this line.
+  when the author holds both endpoints. The public-read change is recorded in §4.3.
 
 ### 5.3 Acceptance
 
@@ -1246,7 +1249,8 @@ slots are occupied, `unvotedSlots` is empty, `detectSilentCounterparty` skips th
 - **The own-both states exist because the detector has no counterparty to tell.** A write applies one
   position to every slot the caller owns (§5.2), so two own rows mean two owned slots, `unvotedSlots`
   is empty, and no counterparty mail is sent. `mine.length > 1` is how the lane knows, which is the
-  same signal `vendor-attestation-control.ts` reads for `divergentSlots`. **Both** detectors that
+  same signal the retired `vendor-attestation-control.ts` read for `divergentSlots` (AECI-1156 replaced
+  it with the integration detail page; `integration-detail-model.ts` reads `mine.length` directly). **Both** detectors that
   name a counterparty read `unvotedSlots`, so the guard is read on the affirm branch
   (`awaiting-them-own-both`, no `silent-counterparty` mail) as well as the deny branch
   (`denied-own-both`, no `claim-denied` counterparty mail).
@@ -1267,8 +1271,9 @@ slots are occupied, `unvotedSlots` is empty, `detectSilentCounterparty` skips th
 
 - **On the lane, as plain text, in every state.** Not a live region. Standing state on this surface
   is plain text and events go through the shell's one `VendorPortalAnnouncer` channel
-  (`STAGE_2_REALTIME_SPEC.md` §6.3, and the reasoning written out at the `divergentSlots` block in
-  `vendor-attestation-control.ts`). It renders on a read-only lane too: the consequence is not an
+  (`STAGE_2_REALTIME_SPEC.md` §6.3; the reasoning was written out at the `divergentSlots` block in
+  `vendor-attestation-control.ts`, retired by AECI-1156, and the successor announces through
+  `integration-detail-state.ts`). It renders on a read-only lane too: the consequence is not an
   authoring detail.
 - **In the announcement, appended to a stance.** `vendor-integrations-section.ts` replaced
   `@@vendor.attest.live.saved` ("position saved") with `@@vendor.attest.live.affirmed` /

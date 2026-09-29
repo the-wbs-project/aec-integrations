@@ -413,6 +413,7 @@ export class VendorIntegrationsSection implements OnInit {
   private readonly statusInputs = computed(() => ({
     contests: this.store.contests(),
     entitled: this.entitled(),
+    canAuthor: this.canAuthor(),
   }));
 
   protected readonly filter = signal<IntegrationFilter>(EMPTY_FILTER);

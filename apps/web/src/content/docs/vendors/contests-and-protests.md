@@ -22,7 +22,7 @@ Choose **Send request**.
 
 The fields you can ask about this way are the integration's name, description, how you get it, connection name, listing page, documentation, pricing, release stage, and owner. You can have one open request per field on each integration. To send a different value, withdraw the open one first.
 
-Integrations delivered through a connector can be asked about too. The ones a connector product delivers to your product are listed in the **Connectors** section of that product's Integrations tab, each one your company does not own with **Contest a field**. Those have no type field, so their type cannot be changed this way. The fields there are the integration's name, type, mechanism name, direction, description, listing link, documentation link, pricing, maturity, and owner.
+Integrations delivered through a connector can be asked about too. The ones a connector product delivers to your product are listed in the **Connectors** section of that product's Integrations tab, each one your company does not own with **Contest a field**. Those have no type field, so their type cannot be changed this way. The fields there are the integration's name, mechanism name, direction, description, listing link, documentation link, pricing, maturity, and owner.
 
 A change request is a request, not a change. While it is open, the public page keeps the value on record and does not show that one exists.
 

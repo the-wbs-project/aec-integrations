@@ -263,6 +263,11 @@ export interface StatusContext {
   /** Whether the caller may claim a row it owns: an ordinary row always, a
    *  connector-powered one only with an active plan (§4.5.2). */
   readonly entitled: boolean;
+  /** Holds `attestation.author` (AECI-623). Without it every Yes and No is
+   *  disabled, so nothing may ask for an answer (the overview's `canAttest` rule). */
+  readonly canAuthor: boolean;
+  /** ISO now, for a protest reply that is still due. */
+  readonly now: string;
 }
 
 /** Whether a claim is allowed here (§6.17.2, "You can claim this integration"). */
@@ -294,11 +299,13 @@ export function integrationStatus(
 ): IntegrationStatusKey {
   if (integration.retired_at) return 'retired';
   if (integration.claims.some((c) => c.agreement === 'conflict')) return 'disagreement';
-  if (integration.attestable && rowsNeedingAnswer(integration).length > 0) return 'needs_answer';
-  const receivedOpen = ctx.contests.received.some((c) => c.status === 'open');
-  const addedUnanswered = integration.claims.some((c) =>
-    isCounterpartAddedUnanswered(integration, c),
+  const answerable = integration.attestable && ctx.canAuthor;
+  if (answerable && rowsNeedingAnswer(integration).length > 0) return 'needs_answer';
+  const receivedOpen = ctx.contests.received.some(
+    (c) => c.status === 'open' || protestReplyDue(c, ctx.now),
   );
+  const addedUnanswered =
+    answerable && integration.claims.some((c) => isCounterpartAddedUnanswered(integration, c));
   if (receivedOpen || addedUnanswered) return 'needs_decision';
   if (canClaim(integration, ctx.entitled)) return 'ready_to_claim';
   if (integration.owner === null && openOwnerRequest(ctx.contests) === null) return 'no_owner';
@@ -589,7 +596,7 @@ export function rowPill(
     };
   }
   if (mine === 'yes' && theirs === null) {
-    const who = companyOrFallback(company);
+    const who = companyMidSentence(company);
     return {
       label: $localize`:@@vendor.im.row.waitingFor:Waiting for ${who}:company:`,
       tone: 'neutral',
@@ -646,8 +653,18 @@ export interface NeedLists {
 
 export interface NeedsContext extends StatusContext {
   readonly company: string | null;
-  /** ISO now, for a protest reply that is still due. */
-  readonly now: string;
+}
+
+/** A protest on a contest the caller decided, open, unreplied and not yet due:
+ *  the caller owes AEC Integrations a reply (§11b.12). */
+function protestReplyDue(contest: VendorContest, now: string): boolean {
+  const protest = contest.protest;
+  return (
+    !!protest &&
+    protest.status === 'open' &&
+    protest.replied_at === null &&
+    Date.parse(protest.reply_due_at) > Date.parse(now)
+  );
 }
 
 /** The two lists under the title block. A retired row lists nothing; a
@@ -657,6 +674,7 @@ export function needsItems(integration: VendorIntegration, ctx: NeedsContext): N
   const waiting: NeedItem[] = [];
   if (integration.retired_at) return { yours, waiting };
   const company = companyOrFallback(ctx.company);
+  const companyMid = companyMidSentence(ctx.company);
 
   if (integration.attestable) {
     for (const claim of disagreements(integration)) {
@@ -678,7 +696,7 @@ export function needsItems(integration: VendorIntegration, ctx: NeedsContext): N
       }
     }
     for (const claim of integration.claims) {
-      if (!isCounterpartAddedUnanswered(integration, claim)) continue;
+      if (!ctx.canAuthor || !isCounterpartAddedUnanswered(integration, claim)) continue;
       const data = claim.data_object_name;
       yours.push({
         key: `added-${claim.id}`,
@@ -701,12 +719,7 @@ export function needsItems(integration: VendorIntegration, ctx: NeedsContext): N
       });
     }
     const protest = contest.protest;
-    if (
-      protest &&
-      protest.status === 'open' &&
-      protest.replied_at === null &&
-      Date.parse(protest.reply_due_at) > Date.parse(ctx.now)
-    ) {
+    if (protest && protestReplyDue(contest, ctx.now)) {
       const date = formatDay(protest.reply_due_at);
       yours.push({
         key: `protest-${contest.id}`,
@@ -717,7 +730,7 @@ export function needsItems(integration: VendorIntegration, ctx: NeedsContext): N
     }
   }
 
-  if (integration.attestable) {
+  if (integration.attestable && ctx.canAuthor) {
     const rows = rowsNeedingAnswer(integration);
     if (rows.length > 0) {
       const n = rows.length;
@@ -770,7 +783,7 @@ export function needsItems(integration: VendorIntegration, ctx: NeedsContext): N
       const data = claim.data_object_name;
       waiting.push({
         key: `added-you-${claim.id}`,
-        text: $localize`:@@vendor.im.needs.addedYou:You added ${data}:data:. Waiting for ${company}:company:`,
+        text: $localize`:@@vendor.im.needs.addedYou:You added ${data}:data:. Waiting for ${companyMid}:company:`,
         target: addedItemId(claim.id),
         inRequests: true,
       });

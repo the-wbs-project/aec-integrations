@@ -38,11 +38,11 @@ Once you claim it:
 
 A claim cannot be undone from the portal. The only way an integration leaves its owner is an AEC Integrations decision on a request about who owns it.
 
-**If your company offers an integration but is not recorded as the owner,** open the Owner row and choose **Ask to be recorded as the owner**, or **Request a change** on it if someone else already holds that row. AEC Integrations reviews it. If it is accepted, your company is recorded as the owner and the integration is claimed for you in the same step. This works the same way on an integration delivered through a connector.
+**If your company offers an integration but is not recorded as the owner,** open the Owner row and choose **Ask to be recorded as the owner**. If someone else already holds that row, choose **Request a correction** and pick Owner. AEC Integrations reviews it. If it is accepted, your company is recorded as the owner and the integration is claimed for you in the same step. This works the same way on an integration delivered through a connector.
 
 ## Edit its details
 
-Once you have claimed an integration, its page shows a pencil beside every detail you can change: name, description, how you get it, connection name, release stage, pricing, listing page, and documentation. Choose the pencil to edit that one field in place, then save. Name, how you get it, and direction cannot be left empty. The Pricing page field has no pencil: it is set from research, not edited here.
+Once you have claimed an integration, its page shows a pencil beside every detail you can change: name, description, how you get it, connection name, release stage, pricing, pricing page, listing page, and documentation. Choose the pencil to edit that one field in place, then save. Name and how you get it cannot be left empty. AEC Integrations never overwrites the pricing page you set.
 
 Changes go live on the public integration page as soon as you save. There is no review step. The company that makes the other product is told which fields you changed.
 
@@ -91,7 +91,7 @@ A company at either end that does not own the integration can ask to change one 
 
 Where a connector product carries the data and your company holds neither product, the company recorded as the owner can claim the integration, if it has an active plan. That includes a company that sells the connector and makes neither product. Those integrations appear on your Integrations tab under **Integrations your company offers**, as a list of cards rather than a page each, because they have no product of yours at either end. Once you claim one, AEC Integrations stops updating it. With an active plan you can then edit its details and retire or restore it, from the same card. Its type is set by AEC Integrations and cannot be edited. Retiring it also stops it counting on the connector product. No company can add links to one, or add a new one. Other companies can still request a change on one that appears on their Integrations tab.
 
-Where your company does hold a product at one end and the connection later becomes connector-delivered, the integration keeps its own page. Its Integration links section stops offering your product's group, and your existing links no longer show on the public page. They still appear under **Your links** there, and you can remove them.
+Where your company does hold a product at one end and the connection later becomes connector-delivered, the integration keeps its own page. Its Integration links section stops offering your product's group, and your existing links no longer show on the public page. They still appear in your product's group there, and you can remove them.
 
 ## Related
 

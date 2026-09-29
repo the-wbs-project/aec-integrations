@@ -39,6 +39,7 @@ export const EMPTY_FILTER: IntegrationFilter = { query: '', status: 'all', side:
 export interface StatusInputs {
   readonly contests: ListVendorContestsResponse;
   readonly entitled: boolean;
+  readonly canAuthor: boolean;
 }
 
 export function statusOf(
@@ -48,6 +49,8 @@ export function statusOf(
   return integrationStatus(integration, {
     contests: contestsFor(inputs.contests, integration.id),
     entitled: inputs.entitled,
+    canAuthor: inputs.canAuthor,
+    now: new Date().toISOString(),
   });
 }
 

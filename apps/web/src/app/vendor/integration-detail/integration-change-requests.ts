@@ -21,6 +21,7 @@ import { VendorPortalStore } from '../vendor-portal-store';
 import { IntegrationAnswerForm } from './integration-answer-form';
 import {
   addedItemId,
+  companyMidSentence,
   companyOrFallback,
   contestChange,
   contestEvents,
@@ -860,6 +861,10 @@ export class IntegrationChangeRequests {
   private companyName(): string {
     return companyOrFallback(this.state.company());
   }
+  /** The same name, cased for the middle of a sentence. */
+  private companyNameMid(): string {
+    return companyMidSentence(this.state.company());
+  }
   protected addedThemMeta(claim: VendorClaim): string {
     const who = this.companyName();
     const date = formatDay(claim.created_at);
@@ -892,12 +897,12 @@ export class IntegrationChangeRequests {
       : $localize`:@@vendor.im.requests.addedYouMetaNoDate:Added row · you`;
   }
   protected addedYouTitle(claim: VendorClaim): string {
-    const who = this.companyName();
+    const who = this.companyNameMid();
     const data = claim.data_object_name;
     return $localize`:@@vendor.im.requests.addedYouTitle:You added ${data}:data:. Waiting for ${who}:company:.`;
   }
   protected yourNoteFor(): string {
-    const who = this.companyName();
+    const who = this.companyNameMid();
     return $localize`:@@vendor.im.requests.yourNoteFor:Your note for ${who}:company:`;
   }
   protected myNoteOf(claim: VendorClaim): string | null {
@@ -922,7 +927,7 @@ export class IntegrationChangeRequests {
   protected disagreementTitle(claim: VendorClaim): string {
     const data = claim.data_object_name;
     const mine = this.yesNo(myAnswer(claim));
-    const who = this.companyName();
+    const who = this.companyNameMid();
     const theirs = this.yesNo(theirAnswer(claim));
     return $localize`:@@vendor.im.requests.disagreementTitle:${data}:data:: you say ${mine}:mine:, ${who}:company: says ${theirs}:theirs:`;
   }

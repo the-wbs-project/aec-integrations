@@ -25,6 +25,7 @@ import { VendorPortalAnnouncer } from '../vendor-announcer';
 
 import { IntegrationAnswerForm } from './integration-answer-form';
 import {
+  companyMidSentence,
   companyOrFallback,
   dataRowId,
   dataSentence,
@@ -523,14 +524,16 @@ export class IntegrationSharedData {
       return $localize`:@@vendor.im.add.help.self:Both products are yours, so the row is recorded as confirmed by you and nobody else needs to confirm it.`;
     }
     const me = this.state.myCompany();
-    const them = companyOrFallback(this.state.company());
-    return $localize`:@@vendor.im.add.help:The row is recorded as confirmed by you and shows publicly as "Confirmed by ${me}:me:" until ${them}:them: answers. ${them}:them: is asked to confirm it.`;
+    const company = this.state.company();
+    const themMid = companyMidSentence(company);
+    const them = companyOrFallback(company);
+    return $localize`:@@vendor.im.add.help:The row is recorded as confirmed by you and shows publicly as "Confirmed by ${me}:me:" until ${themMid}:themMid: answers. ${them}:them: is asked to confirm it.`;
   });
 
   protected readonly addNoteLabel = computed(() => {
     const i = this.integration();
     if (ownsBoth(i)) return $localize`:@@vendor.im.add.noteSelf:Note for AEC Integrations`;
-    const them = companyOrFallback(this.state.company());
+    const them = companyMidSentence(this.state.company());
     return $localize`:@@vendor.im.add.noteFor:Note for ${them}:company:`;
   });
 

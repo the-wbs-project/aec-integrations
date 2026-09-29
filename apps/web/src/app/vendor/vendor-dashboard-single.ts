@@ -168,8 +168,7 @@ import { VendorSeatRoster } from './components/vendor-seat-roster';
       <!--
         The correction drawer (AECI-967, section 6.9), mirroring the tabbed
         shell's for the same reason the live region above is mirrored: this
-        concept composes vendor-product-form and vendor-claim-lane, both of which
-        now carry an aecRequestTrigger. A trigger with no drawer mounted
+        concept composes vendor-product-form, which carries an aecRequestTrigger. A trigger with no drawer mounted
         preventDefault()s into nothing, so without this line Concept B would
         silently lose an affordance the tabbed one has.
       -->

@@ -201,18 +201,27 @@ test.describe('vendor dashboard — authed /vendor (AECI-522)', () => {
     const rows = page.locator('[data-testid^="integration-row-"]');
     // Fixture-gated, like `phase2-a11y.spec.ts`: skip rather than fail when the
     // environment carries no integrations with rows of data.
-    test.skip((await rows.count()) === 0, 'No integrations on this vendor in this environment.');
-    await rows.first().click();
-    await expect(page).toHaveURL(/\/integrations\/[0-9a-f-]{36}$/);
-    await expect(page.getByTestId('integration-title')).toBeVisible();
+    const rowCount = await rows.count();
+    test.skip(rowCount === 0, 'No integrations on this vendor in this environment.');
 
-    const yes = page.locator('[data-testid^="yes-"]').first();
-    test.skip((await yes.count()) === 0, 'No rows of data on this integration.');
-    if ((await yes.getAttribute('aria-pressed')) === 'true') {
-      // Clear first, so the spec starts from no answer and stays re-runnable.
-      await yes.click();
-      await expect(yes).toHaveAttribute('aria-pressed', 'false');
+    // An answerable Yes: enabled (a live row and a seat with `attestation.author`),
+    // not yet pressed, and not one that opens a note form because the other
+    // company said No. Environment data decides which integration has one, so
+    // look through the first few rather than fail on the first.
+    const answerable =
+      '[data-testid^="yes-"][aria-pressed="false"]:not([disabled]):not([aria-expanded])';
+    let found = false;
+    for (let n = 0; n < Math.min(rowCount, 5) && !found; n++) {
+      if (n > 0) await gotoIntegrations(page);
+      await rows.nth(n).click();
+      await expect(page).toHaveURL(/\/integrations\/[0-9a-f-]{36}$/);
+      await expect(page.getByTestId('integration-title')).toBeVisible();
+      found = (await page.locator(answerable).count()) > 0;
     }
+    test.skip(!found, 'No answerable row of data on the first integrations.');
+
+    const slug = (await page.locator(answerable).first().getAttribute('data-testid'))!;
+    const yes = page.getByTestId(slug);
     await yes.click();
     await expect(yes).toHaveAttribute('aria-pressed', 'true');
     // The write announces through the SHELL's channel (AECI-631).

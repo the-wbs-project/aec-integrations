@@ -53,8 +53,6 @@ const NOTE_MAX = 2000;
   imports: [ImTip],
   styles: [IM_STYLES],
   template: `
-    @let i = integration();
-    @let f = flow();
     <form
       class="im-well space-y-3 p-4 text-sm"
       (submit)="save($event)"

@@ -46,6 +46,7 @@ import {
   submittedOutcome,
   receivedOutcome,
   canClaim,
+  isLive,
 } from './integration-detail-model';
 import { IntegrationDetailState } from './integration-detail-state';
 import {
@@ -624,7 +625,7 @@ export class IntegrationOverview {
       $localize`:@@vendor.im.tip.owner:The company that offers this integration and keeps its details up to date.`,
       $localize`:@@vendor.im.tip.owner.public:Shows as "Offered by" on the public page.`,
     ];
-    if (i.is_owner && !i.claimed_at && !this.claimAllowed()) {
+    if (i.is_owner && !i.claimed_at && this.connector() && isLive(i) && !this.claimAllowed()) {
       lines.push(
         $localize`:@@vendor.im.tip.owner.needsPlan:Claiming an integration that runs through a connector service needs an active plan.`,
       );

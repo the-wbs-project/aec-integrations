@@ -692,7 +692,7 @@ export class ImAbout {
                   >Status<aec-im-tip
                     label="About status"
                     [lines]="[
-                      'Where the row stands. The public page shows a badge: Both vendors confirmed, Confirmed by one company, Unverified, or Vendors disagree.',
+                      'Where the row stands, from your side. The public page shows a badge such as “Confirmed by both companies” or “Companies disagree”.',
                     ]"
                 /></span>
               </th>
