@@ -7,6 +7,7 @@ import {
   VendorIntegrationRetireNotificationSchema,
 } from './integration-retire';
 import { VendorIntegrationUpdateNotificationSchema } from './integration-edits';
+import { ContextDirectionSchema } from './integrations';
 
 /**
  * Vendor notification list (`GET /api/vendor/notifications`, AECI-302 /
@@ -157,25 +158,60 @@ export const VendorContestNotificationSchema = z.object({
 });
 export type VendorContestNotification = z.infer<typeof VendorContestNotificationSchema>;
 
+/**
+ * Another vendor added a data row to an integration on one of this vendor's
+ * products (`kind: 'claim_added'`, AECI-1153 / `STAGE_2_ATTESTATIONS_SPEC.md` §7.6).
+ *
+ * Written by `POST /api/vendor/claims` as a `notification.sent` audit row in the
+ * SAME batch as the claim, one per vendor of the OTHER endpoint. An event, not a
+ * detector: it is not in {@link ATTESTATION_DETECTORS} and suppresses nothing. The
+ * portal feed is the whole delivery; nothing is emailed. Every field is a snapshot
+ * taken at add time. **The row never carries the note**, which is private to the
+ * other company and AEC Integrations (§5.2); the page reads it live from
+ * `counterparty.note`.
+ */
+export const VendorClaimAddedNotificationSchema = z.object({
+  kind: z.literal('claim_added'),
+  /** The `audit_log` row id. */
+  id: z.string().uuid(),
+  claim_id: z.string().uuid(),
+  integration_id: z.string().uuid(),
+  integration_name: z.string().nullable(),
+  data_object: NotificationProductRefSchema,
+  /** Caller-relative, framed against the RECIPIENT's own product. */
+  direction: ContextDirectionSchema,
+  /** The adding vendor's name at add time. */
+  added_by_name: z.string().nullable(),
+  /** The adding vendor's product, as the recipient sees "the other product". */
+  counterpart_product: NotificationProductRefSchema.nullable(),
+  pair_path: z.string().nullable(),
+  created_at: z.string(),
+});
+export type VendorClaimAddedNotification = z.infer<typeof VendorClaimAddedNotificationSchema>;
+
 /** One row of the feed. Discriminated on `kind`; see the attestation member for
  *  why its `kind` may be absent. `integration_claim` joined in AECI-1005
  *  (`VendorIntegrationClaimNotificationSchema` in `./integration-claims`), and
  *  `integration_retire` in AECI-1010 (`./integration-retire`), and
  *  `integration_update` in AECI-1006 (`./integration-edits`), and
- *  `integration_create` in AECI-1011 (`./integration-create`). */
+ *  `integration_create` in AECI-1011 (`./integration-create`), and `claim_added` in
+ *  AECI-1153 (above). */
 export const VendorNotificationSchema = z.union([
   VendorContestNotificationSchema,
   VendorIntegrationClaimNotificationSchema,
   VendorIntegrationRetireNotificationSchema,
   VendorIntegrationUpdateNotificationSchema,
   VendorIntegrationCreateNotificationSchema,
+  VendorClaimAddedNotificationSchema,
   VendorAttestationNotificationSchema,
 ]);
 export type VendorNotification = z.infer<typeof VendorNotificationSchema>;
 
 /** Narrow a feed row to the attestation member. `kind` absent counts as
  *  attestation, which is what every pre-AECI-1008 row is. Every other member
- *  carries an explicit `kind`, so this names them rather than testing for one. */
+ *  carries an explicit `kind`, so this names them rather than testing for one.
+ *  **A new member must be named here**, or its rows read as attestation rows
+ *  (`claim_added` since AECI-1153). */
 export function isAttestationNotification(
   notification: VendorNotification,
 ): notification is VendorAttestationNotification {
@@ -184,7 +220,8 @@ export function isAttestationNotification(
     notification.kind !== 'integration_claim' &&
     notification.kind !== 'integration_retire' &&
     notification.kind !== 'integration_update' &&
-    notification.kind !== 'integration_create'
+    notification.kind !== 'integration_create' &&
+    notification.kind !== 'claim_added'
   );
 }
 

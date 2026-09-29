@@ -125,7 +125,7 @@ import { VendorSeatRoster } from './components/vendor-seat-roster';
               both concepts to prevent. Leaving contextProductId unset likewise
               keeps the vendor-wide list this concept is built around.
             -->
-            <aec-vendor-notifications-list />
+            <aec-vendor-notifications-list [routed]="false" />
             <aec-vendor-integrations-section
               [canAuthor]="canAuthorAttestations()"
               [vendorName]="m.vendor.company_name"

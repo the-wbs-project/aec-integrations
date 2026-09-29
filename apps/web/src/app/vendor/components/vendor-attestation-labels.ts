@@ -1,15 +1,11 @@
-import type {
-  AttestationDetector,
-  CounterpartyAttestation,
-  VendorClaim,
-  VendorIntegration,
-} from '@aeci/shared';
-
-import type { HealthCounts, IntegrationHealth } from './vendor-integration-health';
+import type { AttestationDetector, VendorIntegration } from '@aeci/shared';
 
 /**
- * Vendor-facing copy for the attestation tab (AECI-606 /
- * `STAGE_2_ATTESTATIONS_SPEC.md` §6).
+ * Vendor-facing copy for the attestation notifications (AECI-606 /
+ * `STAGE_2_ATTESTATIONS_SPEC.md` §6), and the note-audience hint every portal
+ * note field renders (AECI-1139). The stance and health labels the inline
+ * panel used were retired with it by AECI-1156; the integration detail page's
+ * copy lives in `integration-detail/integration-detail-model.ts` (§6.17.8).
  *
  * Kept out of the components so the same sentence is not written twice as the
  * tab grows (the `search/mechanism-labels.ts` precedent), and so the copy
@@ -29,43 +25,6 @@ import type { HealthCounts, IntegrationHealth } from './vendor-integration-healt
  * drift into two vocabularies, so the tab renders that component rather than
  * restating it.
  */
-
-/** The caller's own stance on a claim, as a sentence fragment. */
-export function ownStanceLabel(mine: VendorClaim['mine']): string {
-  if (mine.length === 0) return $localize`:@@vendor.attest.stance.none:No position yet`;
-  return mine[0].asserted
-    ? $localize`:@@vendor.attest.stance.affirmed:You confirm this flow`
-    : $localize`:@@vendor.attest.stance.denied:You say this flow does not exist`;
-}
-
-/** The counterparty's stance, framed by what the vendor can act on. All four
- *  cases are distinct: silence is never rendered as agreement (§8.1(4)). */
-export function counterpartyLabel(
-  counterparty: CounterpartyAttestation | null,
-  mine: VendorClaim['mine'],
-  otherProductName: string,
-): string {
-  if (!counterparty) {
-    return mine.length === 0
-      ? $localize`:@@vendor.attest.counterparty.neither:Neither vendor has confirmed this yet.`
-      : $localize`:@@vendor.attest.counterparty.silent:The other vendor has not responded.`;
-  }
-  return counterparty.asserted
-    ? $localize`:@@vendor.attest.counterparty.affirmed:${otherProductName}:other: confirms this flow.`
-    : $localize`:@@vendor.attest.counterparty.denied:${otherProductName}:other: says this flow does not exist.`;
-}
-
-/** Heading for the counterparty column in the conflict disclosure. */
-export function counterpartyColumnLabel(otherProductName: string): string {
-  return $localize`:@@vendor.attest.conflict.theirs:${otherProductName}:other:’s position`;
-}
-
-/** The counterparty's stance as a standalone phrase, for the conflict columns. */
-export function counterpartyStanceLabel(counterparty: CounterpartyAttestation): string {
-  return counterparty.asserted
-    ? $localize`:@@vendor.attest.conflict.theirs.affirmed:Confirms this flow`
-    : $localize`:@@vendor.attest.conflict.theirs.denied:Says this flow does not exist`;
-}
 
 /**
  * Who sees a note the vendor writes on a data flow (AECI-1139).
@@ -108,14 +67,6 @@ export function noteAudienceHint(
     : $localize`:@@vendor.attest.note.audience.generic:Only the other company and AEC Integrations see this.`;
 }
 
-/** The caller's stance as a standalone phrase, for the conflict columns. */
-export function ownStancePhrase(mine: VendorClaim['mine']): string {
-  if (mine.length === 0) return $localize`:@@vendor.attest.conflict.mine.none:No position recorded`;
-  return mine[0].asserted
-    ? $localize`:@@vendor.attest.conflict.mine.affirmed:Confirms this flow`
-    : $localize`:@@vendor.attest.conflict.mine.denied:Says this flow does not exist`;
-}
-
 /**
  * Title for one in-portal notification.
  *
@@ -141,55 +92,4 @@ export function detectorTitle(detector: AttestationDetector): string {
     case 'claim-denied':
       return $localize`:@@vendor.attest.notify.claimDenied:The other vendor says this flow does not exist`;
   }
-}
-
-/**
- * The health pill's label for a counterpart or integration row (AECI-999 /
- * §6.3). Worded as what the vendor needs to know, never as a quality verdict on
- * the integration itself: "Conflict" reports a disagreement between vendors, and
- * "Via connector" is a delivery fact, not a downgrade.
- */
-export function healthLabel(health: IntegrationHealth): string {
-  switch (health) {
-    case 'conflict':
-      return $localize`:@@vendor.attest.health.conflict:Conflict`;
-    case 'needs_you':
-      return $localize`:@@vendor.attest.health.needsYou:Needs your input`;
-    case 'responded':
-      return $localize`:@@vendor.attest.health.responded:You have responded`;
-    case 'confirmed':
-      return $localize`:@@vendor.attest.health.confirmed:Fully confirmed`;
-    case 'connector':
-      return $localize`:@@vendor.attest.health.connector:Via connector`;
-    case 'empty':
-      return $localize`:@@vendor.attest.health.empty:No data flows`;
-  }
-}
-
-/**
- * The compact count line under a row name: total first, then only the non-zero
- * parts, so a healthy row reads short and a row with work on it reads long.
- * "Data flows" rather than "data points" to match every other sentence on the
- * tab ("You confirm this flow", "N data flows on record").
- */
-export function healthCountsLine(counts: HealthCounts): string {
-  const parts = [
-    counts.total === 1
-      ? $localize`:@@vendor.attest.counts.total.one:1 data flow`
-      : $localize`:@@vendor.attest.counts.total:${counts.total}:count: data flows`,
-  ];
-  if (counts.conflict > 0) {
-    parts.push($localize`:@@vendor.attest.counts.conflict:${counts.conflict}:count: in conflict`);
-  }
-  if (counts.waiting === 1) {
-    parts.push($localize`:@@vendor.attest.counts.waiting.one:1 needs your input`);
-  } else if (counts.waiting > 1) {
-    parts.push($localize`:@@vendor.attest.counts.waiting:${counts.waiting}:count: need your input`);
-  }
-  if (counts.confirmed > 0) {
-    parts.push(
-      $localize`:@@vendor.attest.counts.confirmed:${counts.confirmed}:count: confirmed by both vendors`,
-    );
-  }
-  return parts.join(' · ');
 }

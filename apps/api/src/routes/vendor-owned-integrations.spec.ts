@@ -222,6 +222,8 @@ describe('GET /api/vendor/integrations — owned rows (AECI-1089)', () => {
         mechanism_kind: null,
         owner: VENDOR_T,
       }),
+      // AECI-1154: the owner's pricing page link, not contestable.
+      pricing_url: null,
     });
     const row = body.owned.find((r: JsonBody) => r.id === I_T);
     expect(row).toMatchObject({

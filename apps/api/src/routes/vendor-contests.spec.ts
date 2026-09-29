@@ -925,3 +925,117 @@ describe('GET /api/vendor/updates — the `contests` scope', () => {
     expect(after).not.toBe(before);
   });
 });
+
+// ─── The integration detail page's filter and the offered fields ─────────────
+
+describe('GET /api/vendor/contests?integration_id= (AECI-1153)', () => {
+  const list = (auth: AuthzVariables['auth'], integrationId?: string) =>
+    call(
+      auth,
+      integrationId
+        ? `/api/vendor/contests?integration_id=${integrationId}`
+        : '/api/vendor/contests',
+    );
+
+  beforeEach(async () => {
+    claimed = true;
+    // A files an owner-routed contest on I_MAIN (B decides it)…
+    await submit(AUTH_A, I_MAIN, NAME_CONTEST);
+    claimed = false;
+    // …and C files one on I_REVERSE, which A holds an endpoint of but does not own.
+    await submit(AUTH_C, I_REVERSE, NAME_CONTEST);
+    await submit(AUTH_A, I_REVERSE, {
+      field: 'direction',
+      proposed_value: 'outbound',
+      reason: 'x',
+    });
+  });
+
+  it('narrows the submitter’s side to one integration', async () => {
+    const all = await list(AUTH_A);
+    expect(all.body.submitted).toHaveLength(2);
+    const main = await list(AUTH_A, I_MAIN);
+    expect(main.status).toBe(200);
+    expect(() => ListVendorContestsResponseSchema.parse(main.body)).not.toThrow();
+    expect(main.body.submitted.map((c: JsonBody) => c.integration_id)).toEqual([I_MAIN]);
+    expect(main.body.received).toEqual([]);
+    const reverse = await list(AUTH_A, I_REVERSE);
+    expect(reverse.body.submitted.map((c: JsonBody) => c.field)).toEqual(['direction']);
+  });
+
+  it('narrows the owner’s received side, and never widens it', async () => {
+    const main = await list(AUTH_B, I_MAIN);
+    expect(main.body.received).toHaveLength(1);
+    expect(main.body.submitted).toEqual([]);
+    // B holds no endpoint of I_REVERSE and decides nothing there: the filter
+    // cannot surface C's or A's contests on it.
+    expect((await list(AUTH_B, I_REVERSE)).body).toEqual({ submitted: [], received: [] });
+  });
+
+  it('answers 200 with two empty lists for an unknown or foreign id, never 404', async () => {
+    expect((await list(AUTH_C, I_MAIN)).body).toEqual({ submitted: [], received: [] });
+    const unknown = await list(AUTH_A, uuid(999));
+    expect(unknown.status).toBe(200);
+    expect(unknown.body).toEqual({ submitted: [], received: [] });
+  });
+
+  it('400s a value that is not a uuid, naming integration_id', async () => {
+    const res = await list(AUTH_A, 'not-a-uuid');
+    expect(res.status).toBe(400);
+    expect(res.body.error.code).toBe('VALIDATION_FAILED');
+    expect(res.body.error.field).toBe('integration_id');
+  });
+});
+
+describe('the offered contest fields (AECI-1155)', () => {
+  it.each(['website', 'mechanism_url'])(
+    'refuses a new contest on %s with 400 on field, and files nothing',
+    async (field) => {
+      const res = await submit(AUTH_A, I_MAIN, {
+        field,
+        proposed_value: 'https://example.test/other',
+        reason: 'It moved.',
+      });
+      expect(res.status).toBe(400);
+      expect(res.body.error.code).toBe('VALIDATION_FAILED');
+      expect(res.body.error.field).toBe('field');
+      expect(await contestRows()).toEqual([]);
+    },
+  );
+
+  it('still answers the owner-and-authority checks first', async () => {
+    // The owner is refused as the owner, not told the field is withdrawn.
+    const own = await submit(AUTH_B, I_MAIN, {
+      field: 'website',
+      proposed_value: 'https://example.test/other',
+      reason: 'x',
+    });
+    expect(own.status).toBe(403);
+    // A non-endpoint vendor gets the flat 404.
+    const stranger = await submit(AUTH_C, I_MAIN, {
+      field: 'website',
+      proposed_value: 'https://example.test/other',
+      reason: 'x',
+    });
+    expect(stranger.status).toBe(404);
+  });
+
+  it('keeps an existing contest on a withdrawn field listing and rendering', async () => {
+    await t.db.insert(integrationFieldChallenges).values({
+      id: uuid(400),
+      integrationId: I_MAIN,
+      field: 'website',
+      currentValue: null,
+      proposedValue: 'https://example.test/site',
+      reason: 'Filed before AECI-1155.',
+      submitterVendorId: VENDOR_A,
+      routedTo: 'owner',
+      ownerVendorId: VENDOR_B,
+    });
+    const a = await call(AUTH_A, '/api/vendor/contests');
+    expect(() => ListVendorContestsResponseSchema.parse(a.body)).not.toThrow();
+    expect(a.body.submitted.map((c: JsonBody) => c.field)).toContain('website');
+    const b = await call(AUTH_B, `/api/vendor/contests?integration_id=${I_MAIN}`);
+    expect(b.body.received.map((c: JsonBody) => c.field)).toEqual(['website']);
+  });
+});

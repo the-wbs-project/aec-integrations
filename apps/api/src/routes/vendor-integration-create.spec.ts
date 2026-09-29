@@ -383,3 +383,31 @@ describe('POST /api/vendor/integrations — possible duplicates warn, never refu
     });
   });
 });
+
+describe('POST /api/vendor/integrations — the edit field set (AECI-1154, AECI-1155)', () => {
+  it('takes pricing_url and stores it on the new row', async () => {
+    const res = await create(AUTH_A, valid({ pricing_url: 'https://autodesk.example/pricing' }));
+    expect(res.status).toBe(201);
+    expect((await row(res.body.integration.id)).pricingUrl).toBe(
+      'https://autodesk.example/pricing',
+    );
+  });
+
+  it('422s a pricing_url that is not an absolute http(s) URL, naming it', async () => {
+    const res = await create(AUTH_A, valid({ pricing_url: 'autodesk.example/pricing' }));
+    expect(res.status).toBe(422);
+    expect(res.body.error.code).toBe('INTEGRATION_INVALID_VALUE');
+    expect(res.body.error.field).toBe('pricing_url');
+  });
+
+  it.each(['website', 'mechanism_url'])(
+    '400s %s under the strict schema, naming the key, and writes nothing',
+    async (key) => {
+      const res = await create(AUTH_A, valid({ [key]: 'https://autodesk.example/x' }));
+      expect(res.status).toBe(400);
+      expect(res.body.error.code).toBe('VALIDATION_FAILED');
+      expect(res.body.error.field).toBe(key);
+      expect(await t.db.select().from(auditLog)).toHaveLength(0);
+    },
+  );
+});

@@ -42,6 +42,7 @@ import {
   integrations,
   productVendors,
   products,
+  profiles,
   taxonomyDataObjects,
   vendorEntitlements,
   vendorRequests,
@@ -53,6 +54,7 @@ import { NOTIFICATION_SENT_ACTION } from '../lib/attestation-notify';
 import type { AuthzVariables } from '../lib/authz';
 import { makeTestDb, type TestDb } from '../test/d1';
 import { TEST_ENV, fakeExecutionContext } from '../test/helpers';
+import { createVendorClaimHandler } from './vendor-attestations';
 import { createVendorUpdatesHandler } from './vendor-updates';
 
 const uuid = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
@@ -811,5 +813,63 @@ describe('GET /api/vendor/updates — aeci.api.vendor.updates', () => {
 
     await get(AUTH, TELEMETRY_ENV);
     expect(tagsFrom(fetchSpy)).toContain('changed:some');
+  });
+});
+
+describe('a claim_added write moves the recipient’s scopes and no one else’s (AECI-1153 / §7.6)', () => {
+  const VENDOR_C = uuid(3);
+  const SEAT_B = uuid(101);
+  const AUTH_B: AuthzVariables['auth'] = {
+    ...AUTH,
+    userId: SEAT_B,
+    email: 'ops@bentley.test',
+    vendorId: VENDOR_B,
+  };
+  const AUTH_C: AuthzVariables['auth'] = { ...AUTH, userId: uuid(102), vendorId: VENDOR_C };
+
+  it('moves integrations and notifications for the other endpoint’s vendor only', async () => {
+    await t.db.insert(vendors).values({
+      id: VENDOR_C,
+      slug: 'trimble',
+      companyName: 'Trimble',
+      createdAt: SEEDED,
+      updatedAt: SEEDED,
+    });
+    await t.db.insert(profiles).values({ id: SEAT_B, role: 'vendor_admin', vendorId: VENDOR_B });
+    const beforeA = await revisions();
+    const beforeC = await revisions(AUTH_C);
+
+    // B, which holds MicroStation, adds a row to the A ↔ B integration.
+    const writer = new Hono<{ Bindings: Env; Variables: AuthzVariables }>();
+    writer.onError(errorHandler());
+    writer.use('*', async (c, next) => {
+      c.set('auth', AUTH_B);
+      await next();
+    });
+    writer.post('/api/vendor/claims', createVendorClaimHandler(t.factory));
+    const execCtx = fakeExecutionContext();
+    const res = await writer.request(
+      '/api/vendor/claims',
+      {
+        method: 'POST',
+        body: JSON.stringify({
+          integration_id: INTEGRATION_AB,
+          data_object: 'rfis',
+          direction: 'outbound',
+        }),
+        headers: { 'content-type': 'application/json' },
+      },
+      TEST_ENV,
+      execCtx,
+    );
+    await Promise.all(vi.mocked(execCtx.waitUntil).mock.calls.map((c) => c[0]));
+    expect(res.status).toBe(201);
+
+    const afterA = await revisions();
+    expect(afterA.integrations).not.toBe(beforeA.integrations);
+    expect(afterA.notifications).not.toBe(beforeA.notifications);
+    expect(afterA.notifications).not.toBeNull();
+    // A third vendor sees nothing move.
+    expect(await revisions(AUTH_C)).toEqual(beforeC);
   });
 });

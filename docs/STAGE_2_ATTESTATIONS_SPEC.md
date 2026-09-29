@@ -804,6 +804,41 @@ Shapes, Zod schemas and error codes go in `packages/shared/src/api/` and are doc
   a purge failure must never fail a committed write.
 - **No Algolia reindex.** Claims do not feed the index today; vendor edits reach search on the
   nightly watermark sync (`STAGE_2_SPEC.md` §8.3(5)). **UI copy must not promise instant search.**
+- **A deny needs a reason (AECI-1151, specified 2026-09-28; server side built).** `PUT
+  /api/vendor/claims/:claimId/attestation` with `asserted: false` must carry a non-empty `note`
+  after trimming. Otherwise it answers **`400 ATTESTATION_NOTE_REQUIRED`** with `field: 'note'`
+  and writes nothing (`API_CONTRACTS.md` §4). A bare No tells the other company nothing it can act
+  on, and the integration page asks for a reason on every No (`STAGE_2_VENDOR_PORTAL_SPEC.md`
+  §6.17.4). The rule is one shared pure function, `attestationNoteProblem(asserted, note)` in
+  `packages/shared/src/api/vendor-attestations.ts`, which the portal form and the handler both
+  call. It is **not** a Zod refinement on `UpsertVendorAttestationSchema`: a refinement would
+  surface as the generic `VALIDATION_FAILED` before the handler could name the rule. The shape
+  schema is unchanged. Gate order: authority `404` → edge `403 FORBIDDEN` → retired `409` →
+  capability `403 ENTITLEMENT_REQUIRED` → body shape `400` → `context_product_id` `400` → **the
+  note rule** → version stamps. So a caller who may not write never learns the rule. What it does
+  not touch:
+  - **An affirm** (`asserted: true`) still takes an optional note.
+  - **`POST /api/vendor/claims`** always affirms, so its note stays optional.
+  - **`DELETE`** carries no body and clears the position. It needs no note.
+  - **Promote's `aeci` rows** are not vendor writes and are not checked.
+- **Existing deny rows with no note are grandfathered on read and required on the next write.**
+  Nothing is backfilled or rewritten. A live deny with a `null` or empty note keeps rendering: the
+  counterparty sees the stance with "They have not given a reason", and the author sees "You have
+  not given a reason" with an "Add my reason" action. Because a `PUT` replaces the whole position
+  (§5.4), the next deny the author writes on that claim, including a re-send of the same stance,
+  must carry a note. We have not queried production. It holds no seated vendor yet
+  (`STAGE_2_1_SPEC.md` §2), so it likely holds no vendor deny at all. Local, preview and staging
+  fixtures may.
+- **Who reads a note (ruled 2026-09-28 by Chris, AECI-1139: "No notes at all").** A vendor's
+  attestation note, affirm or deny, is private to the **other company on the integration** and to
+  **AEC Integrations**. The other company reads it through `counterparty.note` on `GET
+  /api/vendor/integrations`. AEC Integrations reads it in the `attestation.created` audit row. No
+  public read carries it: AECI-1139 widens `readerFacingNote` so the pair read and the pair
+  timeline return `null` for every vendor note, which also covers notes already written. The note
+  on an added row (`POST /api/vendor/claims`) follows the same rule. The portal's helper text says
+  so: "Only {other company} and AEC Integrations see this.", or "Only AEC Integrations sees this."
+  when the author holds both endpoints. AECI-1139's own PR records the public-read change in §4.3
+  and may land separately from this line.
 
 ### 5.3 Acceptance
 
@@ -1263,6 +1298,21 @@ degradation);
 
 ### 6.3 The tab becomes a three-level drill-down (AECI-999 — 2026-09-17)
 
+> **Levels 2 and 3 are superseded by the integration detail page (specified 2026-09-28,
+> AECI-1147).** Each integration row now links to its own page, where the data rows, answers and
+> the add form live (`STAGE_2_VENDOR_PORTAL_SPEC.md` §6.17.1, §6.17.4). The search, the "Integrates
+> with" filter, the grouping and the URL state below stay on the list. The status chips move to the
+> page's status set (§6.17.2 there). §6.2's outcome sentences stay the contract for what each
+> position does next, and the page quotes them verbatim.
+>
+> **Built 2026-09-28 (AECI-1149, AECI-1156).** The "Health" subsection and the status-chip table
+> below it are retired along with `vendor-integration-health.ts`, `vendor-claim-lane.ts`,
+> `vendor-integration-card.ts` and `vendor-counterpart-group.ts`'s drill-down. The list's status
+> chips read the §6.17.2 set from `vendor-integration-list-model.ts`, not the `health` values this
+> section describes, and an old `?status=` value (`conflict`, `needs_you`, `confirmed`, `responded`,
+> `empty`) maps to its nearest §6.17.2 key. The body below is history: it describes the drill-down as
+> it shipped on 2026-09-17, eleven days before it was retired.
+
 **No migration, no API change, no new route.** The tab rendered every data flow of every
 integration fully open: direction, provenance, badge, stance, the outcome sentence, the note and
 versions disclosure and Affirm/Deny/Clear, once per flow. One pair with six data objects was six
@@ -1632,6 +1682,68 @@ and ops isolation, unreadable-snapshot degradation), plus the new endpoint added
 (25), the four templates in `lib/email.spec.ts` (39), and the cron/queue/ack/retry cells in
 `scheduled.spec.ts` (27). Suites green: `apps/api` 76 files / 1084 tests, `packages/shared` 25 /
 360.
+
+### 7.6 A row the other company added: the `claim_added` notification and the unanswered count (AECI-1153, specified 2026-09-28; built)
+
+> **As built (2026-09-28).** The archive link below is real: `vendor-notifications-list.ts`'s
+> `pageLink()` resolves a `claim_added` row against the caller's own `integrations` list and renders
+> "Answer it on the integration page" to `…/integrations/:integrationId#change-requests` when it is
+> on that list, and nothing when it is not (an owned-only row, or one the read has not settled yet).
+
+**The gap.** When one endpoint vendor adds a data row (`POST /api/vendor/claims`, §5.1), the other
+endpoint vendor learns of it only if it opens the right lane, or 14 days later through
+`silent-counterparty` mail. The integration page (`STAGE_2_VENDOR_PORTAL_SPEC.md` §6.17.2, §6.17.6)
+lists "{Company} added {data}. Is this right?" as something that needs the vendor, so the portal
+needs the event and the count.
+
+**Who added a row is already stored.** `claims.origin = 'vendor'` with `created_by_vendor_id`
+(§2.2). A **counterpart-added row**, from a caller's seat, is a claim with `origin = 'vendor'` and
+a non-null `created_by_vendor_id` that is not the caller's vendor. It is **unanswered** while the
+caller holds no live attestation on it (`mine = []`), the integration is attestable (§14) and not
+retired. No column is added.
+
+**The event: a new notification kind, `claim_added`.** Not a detector, and not in
+`ATTESTATION_DETECTORS`. It is an event row like `integration_create` (`STAGE_2_VENDOR_PORTAL_SPEC.md`
+§4.7.1), because the thing it reports happened at a moment, not a state that ages.
+
+| Rule | Contract |
+| -- | -- |
+| Written by | `POST /api/vendor/claims`, **in the same `db.batch`** as the claim, its attestations and their audit rows |
+| Row | `audit_log` `action = 'notification.sent'`, `entity_type = 'claim'`, `entity_id` = the claim id, `metadata { kind: 'claim_added', vendorId: <recipient>, addedByVendorId, integrationId, claimId, dataObject: { slug, name }, direction, counterpartProduct: { slug, name }, integrationName, pairSlugs }`. Every field is a snapshot, as §7.5 requires of the ledger. `direction` is framed against the recipient's own product. |
+| Recipients | Every vendor holding the **other** endpoint's product through `product_vendors`, minus the vendor that added the row. A caller holding both endpoints tells nobody, the same no-counterparty cases §7.5 lists for `claim-denied`. A product with no `product_vendors` row tells nobody. |
+| Never carried | **The note.** The added row's note is private to the other company and AEC Integrations (§5.2), and `audit_log` rows are forwarded to PostHog Logs (`CLAUDE.md` §"Audit logging"). The page reads the note live from `counterparty.note`. |
+| Connector-powered edges | Nothing to write: `POST` is refused there before the batch (§14). |
+| Email | None. The portal feed is the whole delivery, as for contest rows (§7.5). `silent-counterparty` still emails the silent side after 14 days, unchanged. |
+| The detector sweep | Unaffected. `loadSuppressed` skips any ledger row without a `detector`, so a `claim_added` row neither suppresses a nudge nor is suppressed. `runAttestationDetectors` reads claims, not the ledger, and needs no change. |
+| Feed shape | `GET /api/vendor/notifications` gains a union member `VendorClaimAddedNotificationSchema`: `{ kind: 'claim_added', id, claim_id, integration_id, integration_name, data_object: { slug, name }, direction, added_by_name, counterpart_product, pair_path, created_at }` (`API_CONTRACTS.md` §6.14). **`isAttestationNotification` must name the new kind.** It classifies by naming every non-attestation kind, because a pre-AECI-1008 row carries no `kind`, so a kind it does not name is read as an attestation. |
+| Archive copy | Title "{Company} added {data} to an integration on your product". Note line "Tell them whether it is right on the integration page." The row links to `…/products/:productSlug/integrations/:integrationId#change-requests` when the integration is on the recipient's list. |
+
+**The count: `counterpart_added_unanswered` on `GET /api/vendor/integrations`.** A non-negative
+integer on the response, beside `integrations` and `owned`, `.default(0)` for deploy skew
+(`API_CONTRACTS.md` §6.14). It counts **distinct claim ids** that are counterpart-added and
+unanswered from the caller's seat, across the whole vendor. It is computed server-side from the
+same rows the list returns, so it can never disagree with them. It exists so the overview's "What
+needs you" (`STAGE_2_VENDOR_PORTAL_SPEC.md` §6.10) gets one total without re-deriving the AECI-993
+dedupe: an owns-both integration is listed twice, and a client sum would count its rows twice.
+The integration page derives its per-integration items from each claim's `added_by` instead.
+The overview gains one Needs-you-now row, "{N} rows another company added need your answer",
+shown while the count is above zero.
+
+**Freshness: no new cursor term** (`STAGE_2_REALTIME_SPEC.md` §2.2).
+
+- The recipient's `integrations` scope moves, because the new claim's `updated_at` is under
+  `ownedEndpointJoin` for both endpoint vendors. That refetch carries the new row and the new count.
+- The recipient's `notifications` scope moves, because the ledger row matches
+  `vendorNotificationLedgerWhere` for the recipient's `vendorId`.
+- The adding vendor's own scopes move the same way, and no other vendor's does.
+
+**Tests.** `vendor-attestations.spec.ts`: one `claim_added` row per other-endpoint vendor in the
+batch, none for an owns-both caller, none for an endpoint with no vendor, no note in the metadata,
+and the batch rolled back whole when the audit insert fails. `vendor-notifications.spec.ts`: the
+new member's shape and its isolation from other vendors. `attestation-notify.spec.ts`: a
+`claim_added` row suppresses nothing. `vendor-updates.spec.ts`: both scopes move for the recipient
+and nothing moves for a third vendor. The count: an owns-both integration counted once, a retired
+or connector-powered row not counted, an answered row not counted.
 
 ---
 

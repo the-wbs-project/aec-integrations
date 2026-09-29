@@ -6,6 +6,7 @@ import {
   computed,
   effect,
   inject,
+  input,
   untracked,
 } from '@angular/core';
 import { RouterLink } from '@angular/router';
@@ -141,6 +142,16 @@ import {
                   }
                   <span>{{ notification.created_at | date: 'mediumDate' }}</span>
                 </p>
+                @if (pageLink(notification); as link) {
+                  <a
+                    [routerLink]="link"
+                    fragment="change-requests"
+                    class="mt-1 me-3 inline-block text-xs font-medium text-(--accent-primary) underline"
+                    data-testid="notification-page-link"
+                    i18n="@@vendor.claimAdded.notify.answer"
+                    >Answer it on the integration page</a
+                  >
+                }
                 @if (notification.pair_path; as path) {
                   <a
                     [routerLink]="path"
@@ -229,8 +240,32 @@ export class VendorNotificationsList {
   protected readonly retryClass =
     'rounded-(--radius-sm) border border-(--border-default) px-3 py-1.5 text-sm font-medium text-(--text-primary) transition-colors hover:border-(--border-strong) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)';
 
+  /** `false` where the list renders without a route of its own (the single-page
+   *  concept), so the page link resolves from the portal root. */
+  readonly routed = input(true);
+
+  /**
+   * AECI-1153 (`STAGE_2_ATTESTATIONS_SPEC.md` §7.6): a row the other company added
+   * links to its integration's page, at Change requests, when the integration is
+   * on the caller's list. Relative to the Messages route, or the portal root when
+   * unrouted.
+   */
+  protected pageLink(notification: VendorNotification): readonly string[] | null {
+    if (notification.kind !== 'claim_added') return null;
+    const entry = this.store.integrations().find((i) => i.id === notification.integration_id);
+    if (!entry) return null;
+    const path = ['products', entry.context_product.slug, 'integrations', entry.id];
+    // Routed under Messages, the portal root is one level up. On the single-page
+    // concept the list is not routed, and its route IS the portal root.
+    return this.routed() ? ['..', ...path] : path;
+  }
+
   constructor() {
-    afterNextRender(() => void this.store.ensure('notifications'));
+    afterNextRender(() => {
+      void this.store.ensure('notifications');
+      // For the claim_added row's page link (AECI-1153).
+      void this.store.ensure('integrations');
+    });
 
     // Capture the session baseline the first time a real list lands. Gated on
     // the store's status rather than on the array being non-empty, so a vendor
@@ -260,6 +295,12 @@ export class VendorNotificationsList {
   protected detailParts(notification: VendorNotification): readonly string[] {
     if (isAttestationNotification(notification)) {
       return [notification.data_object?.name, notification.counterpart_product?.name].filter(
+        (part): part is string => !!part,
+      );
+    }
+    // AECI-1153: a row the other company added names the data and its product.
+    if (notification.kind === 'claim_added') {
+      return [notification.integration_name, notification.counterpart_product?.name].filter(
         (part): part is string => !!part,
       );
     }
@@ -329,6 +370,14 @@ function titleOf(notification: VendorNotification): string {
   if (notification.kind === 'integration_create') {
     return $localize`:@@vendor.integrationCreate.notify.created:Another company added an integration with your product`;
   }
+  if (notification.kind === 'claim_added') {
+    // AECI-1153 / `STAGE_2_ATTESTATIONS_SPEC.md` §7.6 archive copy.
+    const company =
+      notification.added_by_name ??
+      $localize`:@@vendor.claimAdded.notify.anotherCompany:Another company`;
+    const data = notification.data_object.name;
+    return $localize`:@@vendor.claimAdded.notify.title:${company}:company: added ${data}:data: to an integration on your product`;
+  }
   return contestNotificationTitle(notification);
 }
 
@@ -360,6 +409,8 @@ function noteOf(
       return $localize`:@@vendor.integrationCreate.notify.note:It is already live on the public site, and the company that added it owns it. If a detail is wrong, contest that field on the integration.`;
     case 'integration_update':
       return $localize`:@@vendor.integrationEdit.notify.note:The changes are already live on the public integration page. If one is wrong, contest that field on the integration.`;
+    case 'claim_added':
+      return $localize`:@@vendor.claimAdded.notify.note:Tell them whether it is right on the integration page.`;
     case 'contest':
       return contestNotificationNote(notification, formatDay);
   }

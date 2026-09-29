@@ -18,8 +18,8 @@ import { VendorApi } from '../vendor-api';
 import { vendorHasActiveEntitlement } from '../vendor-capabilities';
 import { VendorPortalStore } from '../vendor-portal-store';
 
-import { VendorIntegrationEditForm } from './vendor-integration-edit-form';
-import { VENDOR_EDIT_FORM_START_OPEN } from './vendor-integration-ownership';
+import { VendorIntegrationEditForm, type EditFormValues } from './vendor-integration-edit-form';
+import { VENDOR_EDIT_FORM_START_OPEN } from './vendor-integration-edit-form';
 import { claimErrorMessage } from './vendor-integration-ownership-labels';
 import { VendorOwnedRetire } from './vendor-owned-retire';
 
@@ -164,7 +164,7 @@ export function ownedRowsForProduct(
                         [integrationId]="row.id"
                         [contextProductId]="row.product_a.id"
                         [otherProductName]="row.product_b.name"
-                        [values]="row.contestable_fields"
+                        [values]="editValues(row)"
                         [connectorDelivered]="row.connector_powered"
                         [idPrefix]="formPrefix(row)"
                         (closed)="closeEdit(row)"
@@ -277,6 +277,11 @@ export class VendorOwnedIntegrations {
   private readonly vendorProducts = computed(
     () => new Set((this.store.me()?.products ?? []).map((p) => p.id)),
   );
+
+  /** The edit form's values on record, plus the edit-only `pricing_url` (AECI-1154). */
+  protected editValues(row: OwnedIntegration): EditFormValues {
+    return { ...row.contestable_fields, pricing_url: row.pricing_url };
+  }
 
   protected readonly rows = computed(() =>
     ownedRowsForProduct(

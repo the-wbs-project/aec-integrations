@@ -27,6 +27,7 @@ import {
   type ContestRoute,
   type ContextDirection,
   type IntegrationContestField,
+  type IntegrationEditField,
   type IntegrationRetiredBy,
 } from '@aeci/shared';
 import type { AuditLogEntry } from '@aeci/shared/audit-log';
@@ -731,6 +732,36 @@ export const CONTEST_FIELD_COLUMNS = {
 } as const satisfies Record<Exclude<IntegrationContestField, 'owner'>, keyof IntegrationRow>;
 
 export type ContentContestField = keyof typeof CONTEST_FIELD_COLUMNS;
+
+/**
+ * The `integrations` column each OWNER EDIT field names (AECI-1154, AECI-1155 /
+ * `STAGE_2_VENDOR_PORTAL_SPEC.md` §6.17.11). Not the contest map: the edit list is
+ * the offered contest fields minus `owner`, plus the edit-only `pricing_url`, so
+ * `website` and `mechanism_url` are absent here while an old contest on either
+ * still decides through {@link CONTEST_FIELD_COLUMNS}.
+ */
+export const EDIT_FIELD_COLUMNS = {
+  name: 'name',
+  mechanism_kind: 'mechanismKind',
+  mechanism_name: 'mechanismName',
+  direction: 'direction',
+  description: 'description',
+  listing_url: 'listingUrl',
+  docs_url: 'docsUrl',
+  pricing_model: 'pricingModel',
+  maturity: 'maturity',
+  pricing_url: 'pricingUrl',
+} as const satisfies Record<IntegrationEditField, keyof IntegrationRow>;
+
+type EditColumn = (typeof EDIT_FIELD_COLUMNS)[IntegrationEditField];
+
+/** An owner edit field's value on the row, in STORAGE form. */
+export function storedEditValue(
+  row: Pick<IntegrationRow, EditColumn>,
+  field: IntegrationEditField,
+): string | null {
+  return row[EDIT_FIELD_COLUMNS[field]] ?? null;
+}
 
 /** The field's value on the row, in STORAGE form. */
 export function storedFieldValue(

@@ -80,7 +80,7 @@ type Busy = 'file' | 'reply' | 'withdraw' | null;
               >
             } @else {
               <ng-container i18n="@@vendor.protest.basis.declined"
-                >The owner declined the contest</ng-container
+                >The owner declined the request</ng-container
               >
             }
           </dd>
@@ -258,7 +258,7 @@ type Busy = 'file' | 'reply' | 'withdraw' | null;
               class="font-label text-sm font-semibold text-(--text-primary)"
               i18n="@@vendor.protest.form.heading"
             >
-              Ask AEC Integrations to review this contest
+              Ask AEC Integrations to review this request
             </p>
             <p class="text-sm text-(--text-secondary)">
               @if (c.protest_basis === 'silence') {
@@ -268,7 +268,7 @@ type Busy = 'file' | 'reply' | 'withdraw' | null;
                 >
               } @else {
                 <ng-container i18n="@@vendor.protest.form.declined"
-                  >The owner declined this contest.</ng-container
+                  >The owner declined this request.</ng-container
                 >
               }
             </p>
@@ -325,7 +325,7 @@ type Busy = 'file' | 'reply' | 'withdraw' | null;
     @if (side() === 'submitted' && c.cooldown_until; as until) {
       <p class="mt-2 max-w-prose text-xs text-(--text-secondary)">
         <ng-container i18n="@@vendor.protest.cooldown"
-          >You can't contest this field again until {{ until | date: 'medium' }}, unless its value
+          >You can't ask about this field again until {{ until | date: 'medium' }}, unless its value
           changes.</ng-container
         >
       </p>
@@ -444,7 +444,7 @@ export class VendorContestProtest {
     const owner = this.side() === 'received';
     if (p.status === 'upheld') {
       return owner
-        ? $localize`:@@vendor.protest.meaning.upheld.owner:AEC Integrations agrees with the contest. This is advice. The value on record stays unless you change it.`
+        ? $localize`:@@vendor.protest.meaning.upheld.owner:AEC Integrations agrees with the request. This is advice. The value on record stays unless you change it.`
         : $localize`:@@vendor.protest.meaning.upheld.submitter:AEC Integrations agrees with you. The owner has not changed the field. Only the owner can change it, so the value on record stays until it does.`;
     }
     if (p.status === 'rejected') {
@@ -561,7 +561,7 @@ export class VendorContestProtest {
         evidence_urls: body.evidence_urls,
       });
       this.announcer.announce(
-        $localize`:@@vendor.protest.live.replied:Reply sent. AEC Integrations and the vendor that sent the contest can read it.`,
+        $localize`:@@vendor.protest.live.replied:Reply sent. AEC Integrations and the company that sent the request can read it.`,
       );
       this.resetFields();
       await this.store.revalidate(['contests']);

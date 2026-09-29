@@ -104,6 +104,7 @@ beforeEach(async () => {
       mechanismKind: 'native',
       direction: 'a_to_b',
       website: 'https://bentley.example/revit',
+      docsUrl: 'https://bentley.example/revit/docs',
       notes: 'AECi curation note',
       builtByVendorId: VENDOR_B,
       claimedAt: CLAIMED_AT,
@@ -202,20 +203,22 @@ describe('PATCH /api/vendor/integrations/:id — the claimed owner edits', () =>
     const res = await edit(AUTH_B, I_MAIN, {
       name: 'MicroStation Link',
       description: 'Sends models from Revit to MicroStation.',
-      website: null,
+      docs_url: null,
     });
 
     expect(res.status).toBe(200);
     expect(() => UpdateVendorIntegrationResponseSchema.parse(res.body)).not.toThrow();
     expect(res.body.integration).toMatchObject({
       id: I_MAIN,
-      changed: ['name', 'description', 'website'],
+      changed: ['name', 'description', 'docs_url'],
       maintained_by: 'vendor',
     });
     const after = await row(I_MAIN);
     expect(after.name).toBe('MicroStation Link');
     expect(after.description).toBe('Sends models from Revit to MicroStation.');
-    expect(after.website).toBeNull();
+    expect(after.docsUrl).toBeNull();
+    // AECI-1155: the column stays, and an edit no longer touches it.
+    expect(after.website).toBe('https://bentley.example/revit');
     expect(after.lastReviewedAt).toBe(res.body.integration.last_reviewed_at);
     expect(after.updatedAt).toBe(res.body.integration.updated_at);
     expect(after.updatedAt > CLAIMED_AT).toBe(true);
@@ -226,7 +229,7 @@ describe('PATCH /api/vendor/integrations/:id — the claimed owner edits', () =>
   });
 
   it('writes one integration.updated audit row with before and after, in the same batch', async () => {
-    await edit(AUTH_B, I_MAIN, { name: 'MicroStation Link', website: null });
+    await edit(AUTH_B, I_MAIN, { name: 'MicroStation Link', docs_url: null });
     const [audit, ...rest] = await updateAudits();
     expect(rest).toHaveLength(0);
     expect(audit).toMatchObject({
@@ -236,20 +239,20 @@ describe('PATCH /api/vendor/integrations/:id — the claimed owner edits', () =>
     });
     expect(audit!.beforeState).toEqual({
       name: 'Revit for MicroStation',
-      website: 'https://bentley.example/revit',
+      docs_url: 'https://bentley.example/revit/docs',
       maintained_by: 'vendor',
       last_reviewed_at: CLAIMED_AT,
     });
     expect(audit!.afterState).toMatchObject({
       name: 'MicroStation Link',
-      website: null,
+      docs_url: null,
       maintained_by: 'vendor',
     });
     expect(audit!.metadata).toEqual({
       source: 'vendor-portal',
       vendorId: VENDOR_B,
       reason: 'owner-edit',
-      fields: ['name', 'website'],
+      fields: ['name', 'docs_url'],
       // Already vendor-maintained after the claim, so no transfer flag (§13.9).
     });
   });
@@ -370,8 +373,8 @@ describe('PATCH /api/vendor/integrations/:id — the claimed owner edits', () =>
   });
 
   it('treats an empty string as a clear', async () => {
-    await edit(AUTH_B, I_MAIN, { website: '   ' });
-    expect((await row(I_MAIN)).website).toBeNull();
+    await edit(AUTH_B, I_MAIN, { docs_url: '   ' });
+    expect((await row(I_MAIN)).docsUrl).toBeNull();
   });
 
   it('leaves an open contest on the edited field open (§4.5.6)', async () => {
@@ -492,7 +495,8 @@ describe('PATCH /api/vendor/integrations/:id — the body', () => {
     ['mechanism_kind', 'integrator'],
     ['mechanism_kind', 'carrier-pigeon'],
     ['direction', 'a_to_b'],
-    ['website', 'ftp://example.com'],
+    ['pricing_url', 'ftp://example.com'],
+    ['pricing_url', 'example.com/pricing'],
     ['listing_url', 'not a url'],
     ['name', null],
     ['mechanism_kind', null],
@@ -587,5 +591,51 @@ describe('the connector-kind lockstep', () => {
         OWNER_EDITABLE_MECHANISM_KINDS.includes(kind),
       );
     }
+  });
+});
+
+describe('PATCH /api/vendor/integrations/:id — pricing page in, website and connection link out (AECI-1154, AECI-1155)', () => {
+  it('writes pricing_url, audits it and tells the other side, like any edit field', async () => {
+    const res = await edit(AUTH_B, I_MAIN, { pricing_url: 'https://bentley.example/pricing' });
+    expect(res.status).toBe(200);
+    expect(res.body.integration.changed).toEqual(['pricing_url']);
+    expect((await row(I_MAIN)).pricingUrl).toBe('https://bentley.example/pricing');
+    const [audit] = await updateAudits();
+    expect(audit!.beforeState).toMatchObject({ pricing_url: null });
+    expect(audit!.afterState).toMatchObject({ pricing_url: 'https://bentley.example/pricing' });
+    expect(audit!.metadata).toMatchObject({ fields: ['pricing_url'] });
+    const notices = await notificationRows();
+    expect(notices.length).toBeGreaterThan(0);
+    expect(
+      notices.every((n) => (n.metadata as { fields: string[] }).fields[0] === 'pricing_url'),
+    ).toBe(true);
+  });
+
+  it('clears pricing_url with null or an empty string', async () => {
+    await edit(AUTH_B, I_MAIN, { pricing_url: 'https://bentley.example/pricing' });
+    await edit(AUTH_B, I_MAIN, { pricing_url: null });
+    expect((await row(I_MAIN)).pricingUrl).toBeNull();
+    await edit(AUTH_B, I_MAIN, { pricing_url: 'http://bentley.example/pricing' });
+    await edit(AUTH_B, I_MAIN, { pricing_url: '' });
+    expect((await row(I_MAIN)).pricingUrl).toBeNull();
+  });
+
+  it.each(['website', 'mechanism_url'])(
+    'refuses %s with 400 VALIDATION_FAILED naming the key, and writes nothing',
+    async (key) => {
+      const res = await edit(AUTH_B, I_MAIN, { [key]: 'https://bentley.example/other' });
+      expect(res.status).toBe(400);
+      expect(res.body.error.code).toBe('VALIDATION_FAILED');
+      expect(res.body.error.field).toBe(key);
+      expect(await auditRows()).toHaveLength(0);
+      expect((await row(I_MAIN)).website).toBe('https://bentley.example/revit');
+    },
+  );
+
+  it('keeps pricing_url owner-only: a non-owner endpoint vendor is refused before the body', async () => {
+    const res = await edit(AUTH_A, I_MAIN, { pricing_url: 'https://evil.example/pricing' });
+    expect(res.status).toBe(403);
+    expect(res.body.error.code).toBe('INTEGRATION_NOT_OWNER');
+    expect((await row(I_MAIN)).pricingUrl).toBeNull();
   });
 });

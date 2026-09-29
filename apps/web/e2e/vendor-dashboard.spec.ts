@@ -11,8 +11,8 @@
  * round-trip through the real
  * `PATCH /api/vendor/profile` — proving the write path + the optimistic-save UX
  * against a live vendor session — (3) AECI-606's Integrations tab: its live
- * axe pass and an attestation round-trip through `PUT`/`DELETE
- * /api/vendor/claims/:id/attestation` — and (4) AECI-632's live-surface contract:
+ * axe pass, and (AECI-1149) an answer round-trip on an integration's own page
+ * through `PUT`/`DELETE /api/vendor/claims/:id/attestation` — and (4) AECI-632's live-surface contract:
  * the ONE polite announcement region the AECI-631 hoist put in the dashboard
  * shell (`STAGE_2_REALTIME_SPEC.md` §6.3 / §6.6).
  *
@@ -55,10 +55,10 @@ const BASE_URL = process.env['PLAYWRIGHT_BASE_URL'] ?? 'http://localhost:8788';
  * `STAGE_2_REALTIME_SPEC.md` §6.3): an `sr-only` `<p role="status">` in the
  * dashboard shell, fed by `VendorPortalAnnouncer`.
  *
- * `.sr-only` is what distinguishes it from the four CONDITIONAL `role="status"`
- * paragraphs elsewhere in the vendor tree (the two "Saved" confirmations, the
- * attestation control's divergent-slots notice, the add-claim form's
- * duplicate-lane notice — §6.5's open finding). Those are visible copy; the
+ * `.sr-only` is what distinguishes it from the CONDITIONAL `role="status"`
+ * paragraphs elsewhere in the vendor tree (the two "Saved" confirmations; the
+ * attestation control's divergent-slots notice and the add-claim form's
+ * duplicate-lane notice went with the inline panel in AECI-1156). Those are visible copy; the
  * channel is not. Counting `[role="status"]` bare would therefore assert
  * something the shipped tree cannot honour, and counting the `sr-only` one
  * asserts exactly the invariant §6.3 states.
@@ -156,18 +156,20 @@ test.describe('vendor dashboard — authed /vendor (AECI-522)', () => {
     await expect(save).toBeDisabled();
   });
 
-  // ─── AECI-606 — the Integrations / attestations tab ───────────────────────
+  // ─── AECI-606 / AECI-1149 — the Integrations list and the integration page ──
 
   test('the Integrations tab hydrates with no console errors and zero axe violations', async ({
     page,
   }) => {
     const capture = attachConsoleCapture(page);
     await gotoIntegrations(page);
-    // Wait for the list itself, not just the section: the a11y contract under
-    // test (the cards' labelled regions, the lanes' controls, the live region)
-    // does not exist until `GET /api/vendor/integrations` lands.
+    // Wait for the list itself, not just the section: the rows do not exist until
+    // `GET /api/vendor/integrations` lands.
     await expect(
-      page.locator('aec-vendor-counterpart-group').first().or(page.getByText('No integrations')),
+      page
+        .locator('[data-testid^="integration-row-"]')
+        .first()
+        .or(page.getByText('No integrations')),
     ).toBeVisible();
     await waitForHydrationSettle(page);
 
@@ -191,51 +193,35 @@ test.describe('vendor dashboard — authed /vendor (AECI-522)', () => {
     expectConsoleClean(capture, 'GET /vendor (Integrations section)');
   });
 
-  test('affirming and clearing a claim round-trips through /api/vendor/claims', async ({
+  test('a row of data answered Yes and cleared round-trips on the integration page (AECI-1149)', async ({
     page,
   }) => {
     await gotoIntegrations(page);
 
-    const lane = page.locator('[aec-vendor-claim-lane]').first();
+    const rows = page.locator('[data-testid^="integration-row-"]');
     // Fixture-gated, like `phase2-a11y.spec.ts`: skip rather than fail when the
-    // environment carries no claims. `phase2-fixtures.sql` seeds one on the
-    // fixture integration, but a remote tier may have been reset.
-    const laneCount = await page.locator('[aec-vendor-claim-lane]').count();
-    test.skip(laneCount === 0, 'No claims on this vendor’s integrations in this environment.');
+    // environment carries no integrations with rows of data.
+    test.skip((await rows.count()) === 0, 'No integrations on this vendor in this environment.');
+    await rows.first().click();
+    await expect(page).toHaveURL(/\/integrations\/[0-9a-f-]{36}$/);
+    await expect(page.getByTestId('integration-title')).toBeVisible();
 
-    // Seeded state is an AECi-only claim: `unverified`, because an AECi seed is
-    // not a vendor voter.
-    await expect(lane).toContainText('Listed by AEC Integrations');
+    const yes = page.locator('[data-testid^="yes-"]').first();
+    test.skip((await yes.count()) === 0, 'No rows of data on this integration.');
+    if ((await yes.getAttribute('aria-pressed')) === 'true') {
+      // Clear first, so the spec starts from no answer and stays re-runnable.
+      await yes.click();
+      await expect(yes).toHaveAttribute('aria-pressed', 'false');
+    }
+    await yes.click();
+    await expect(yes).toHaveAttribute('aria-pressed', 'true');
+    // The write announces through the SHELL's channel (AECI-631).
+    await expect(page.locator(ANNOUNCER)).toContainText('you said this is right');
 
-    // AECI-999: every level starts collapsed. Open the lane's counterpart group,
-    // its integration row when the counterpart has several, then the lane itself.
-    const group = page.locator('aec-vendor-counterpart-group', { has: lane });
-    await group.locator('h2 button').click();
-    const nested = group.locator('aec-vendor-integration-card', { has: lane }).locator('h3 button');
-    if ((await nested.count()) > 0) await nested.click();
-    await lane.locator(':scope > button').click();
-
-    await lane.getByRole('button', { name: 'Affirm' }).click();
-    // One vendor's word is `single_source`, never `confirmed` — the §8.1(4)
-    // invariant, asserted end to end through the real agreement engine.
-    await expect(lane.getByText(/Confirmed by/)).toBeVisible();
-    // The write announces through the SHELL's channel, not through anything the
-    // lane renders — that is the whole point of the AECI-631 hoist, so asserting
-    // on the announcer is also what proves the channel is wired end to end.
-    //
-    // The expected copy is "you confirmed this flow", not "position saved":
-    // AECI-961 deliberately replaced the latter ("true and useless — it told a
-    // vendor who had just denied a flow that something had been saved") and
-    // updated the component specs but not this one. The string it asserts is the
-    // affirm half of `announceOutcome`
-    // (`vendor-integrations-section.ts` → `@@vendor.attest.live.affirmed`); the
-    // deny half is "you denied this flow".
-    await expect(page.locator(ANNOUNCER)).toContainText('you confirmed this flow');
-
-    // Clear restores the seeded state, so the spec is re-runnable.
-    await lane.getByRole('button', { name: 'Clear' }).click();
-    await expect(lane).toContainText('Listed by AEC Integrations');
-    await expect(page.locator(ANNOUNCER)).toContainText('Position withdrawn');
+    // Pressing the pressed button clears the answer, so the spec is re-runnable.
+    await yes.click();
+    await expect(yes).toHaveAttribute('aria-pressed', 'false');
+    await expect(page.locator(ANNOUNCER)).toContainText('your answer is cleared');
   });
 
   // ─── AECI-632 — the live surface's a11y contract (§6.3 / §6.6) ────────────

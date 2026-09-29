@@ -21,7 +21,7 @@ import { VendorApi } from '../vendor-api';
 import { vendorHasActiveEntitlement } from '../vendor-capabilities';
 import { VendorPortalStore } from '../vendor-portal-store';
 
-import { retireErrorMessage } from './vendor-integration-retire';
+import { retireErrorMessage } from './vendor-integration-ownership-labels';
 
 /**
  * Render one owned row's retire confirmation open on first paint: the id of the row.

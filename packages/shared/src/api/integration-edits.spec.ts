@@ -2,21 +2,51 @@ import { describe, expect, it } from 'vitest';
 
 import {
   CONNECTOR_DELIVERED_MECHANISM_KINDS,
+  CONNECTOR_POWERED_EDIT_FIELDS,
   INTEGRATION_EDIT_FIELDS,
   OWNER_EDITABLE_MECHANISM_KINDS,
   UpdateVendorIntegrationSchema,
   VendorIntegrationUpdateNotificationSchema,
   integrationEditValueProblem,
 } from './integration-edits';
-import { INTEGRATION_CONTEST_FIELDS } from './integration-contests';
+import {
+  INTEGRATION_CONTEST_FIELDS,
+  INTEGRATION_OFFERED_CONTEST_FIELDS,
+} from './integration-contests';
 
-describe('INTEGRATION_EDIT_FIELDS', () => {
-  it('is the contestable set minus owner, in the same order', () => {
-    expect(INTEGRATION_EDIT_FIELDS).toEqual(
-      INTEGRATION_CONTEST_FIELDS.filter((f) => f !== 'owner'),
-    );
-    expect(INTEGRATION_EDIT_FIELDS).toHaveLength(11);
+describe('INTEGRATION_EDIT_FIELDS (AECI-1154, AECI-1155)', () => {
+  it('is the offered contest set minus owner, then the edit-only pricing_url', () => {
+    expect(INTEGRATION_EDIT_FIELDS).toEqual([
+      ...INTEGRATION_OFFERED_CONTEST_FIELDS.filter((f) => f !== 'owner'),
+      'pricing_url',
+    ]);
+    expect(INTEGRATION_EDIT_FIELDS).toEqual([
+      'name',
+      'mechanism_kind',
+      'mechanism_name',
+      'direction',
+      'description',
+      'listing_url',
+      'docs_url',
+      'pricing_model',
+      'maturity',
+      'pricing_url',
+    ]);
     expect(INTEGRATION_EDIT_FIELDS).not.toContain('owner');
+  });
+
+  it('drops website and mechanism_url, and keeps pricing_url out of the stored contest list', () => {
+    expect(INTEGRATION_EDIT_FIELDS).not.toContain('website');
+    expect(INTEGRATION_EDIT_FIELDS).not.toContain('mechanism_url');
+    expect(INTEGRATION_CONTEST_FIELDS as readonly string[]).not.toContain('pricing_url');
+  });
+
+  it('gives a connector-powered row every field but mechanism_kind, pricing_url included', () => {
+    expect(CONNECTOR_POWERED_EDIT_FIELDS).toEqual(
+      INTEGRATION_EDIT_FIELDS.filter((f) => f !== 'mechanism_kind'),
+    );
+    expect(CONNECTOR_POWERED_EDIT_FIELDS).toContain('pricing_url');
+    expect(CONNECTOR_POWERED_EDIT_FIELDS).not.toContain('website');
   });
 });
 
@@ -35,7 +65,8 @@ describe('OWNER_EDITABLE_MECHANISM_KINDS', () => {
 
 describe('integrationEditValueProblem', () => {
   it('lets an optional field be cleared and refuses a clear on name, type and direction', () => {
-    expect(integrationEditValueProblem('website', null)).toBeNull();
+    expect(integrationEditValueProblem('docs_url', null)).toBeNull();
+    expect(integrationEditValueProblem('pricing_url', null)).toBeNull();
     expect(integrationEditValueProblem('description', null)).toBeNull();
     expect(integrationEditValueProblem('name', null)).not.toBeNull();
     expect(integrationEditValueProblem('mechanism_kind', null)).not.toBeNull();
@@ -43,10 +74,20 @@ describe('integrationEditValueProblem', () => {
   });
 
   it('applies the contest rules to a value', () => {
-    expect(integrationEditValueProblem('website', 'https://example.com')).toBeNull();
-    expect(integrationEditValueProblem('website', 'example.com')).not.toBeNull();
+    expect(integrationEditValueProblem('docs_url', 'https://example.com')).toBeNull();
+    expect(integrationEditValueProblem('docs_url', 'example.com')).not.toBeNull();
     expect(integrationEditValueProblem('direction', 'outbound')).toBeNull();
     expect(integrationEditValueProblem('direction', 'a_to_b')).not.toBeNull();
+  });
+
+  it('takes an absolute http(s) pricing_url of at most 2,048 characters (AECI-1154)', () => {
+    expect(integrationEditValueProblem('pricing_url', 'https://example.com/pricing')).toBeNull();
+    expect(integrationEditValueProblem('pricing_url', 'http://example.com/pricing')).toBeNull();
+    expect(integrationEditValueProblem('pricing_url', 'example.com/pricing')).not.toBeNull();
+    expect(integrationEditValueProblem('pricing_url', 'ftp://example.com/p')).not.toBeNull();
+    expect(integrationEditValueProblem('pricing_url', 'javascript:alert(1)')).not.toBeNull();
+    const long = `https://example.com/${'x'.repeat(2048)}`;
+    expect(integrationEditValueProblem('pricing_url', long)).not.toBeNull();
   });
 
   it('refuses the connector-delivered kinds', () => {
@@ -57,12 +98,23 @@ describe('integrationEditValueProblem', () => {
 });
 
 describe('UpdateVendorIntegrationSchema', () => {
-  it('takes any subset of the eleven fields, trimmed', () => {
+  it('takes any subset of the ten fields, trimmed', () => {
     expect(UpdateVendorIntegrationSchema.parse({ name: '  Link  ' })).toEqual({ name: 'Link' });
   });
 
   it('reads an empty string as a clear', () => {
-    expect(UpdateVendorIntegrationSchema.parse({ website: '   ' })).toEqual({ website: null });
+    expect(UpdateVendorIntegrationSchema.parse({ docs_url: '   ' })).toEqual({ docs_url: null });
+    expect(UpdateVendorIntegrationSchema.parse({ pricing_url: '' })).toEqual({ pricing_url: null });
+  });
+
+  it('takes pricing_url and refuses website and mechanism_url (AECI-1154, AECI-1155)', () => {
+    expect(
+      UpdateVendorIntegrationSchema.parse({ pricing_url: 'https://example.com/pricing' }),
+    ).toEqual({ pricing_url: 'https://example.com/pricing' });
+    for (const key of ['website', 'mechanism_url']) {
+      const result = UpdateVendorIntegrationSchema.safeParse({ [key]: 'https://example.com' });
+      expect(result.success).toBe(false);
+    }
   });
 
   it('requires at least one field', () => {

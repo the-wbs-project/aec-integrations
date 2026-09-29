@@ -6,7 +6,7 @@ import type { VendorSeat } from '@aeci/shared';
 import { VendorDashboardSingle } from '../../vendor/vendor-dashboard-single';
 import { VendorDashboardTabbed } from '../../vendor/vendor-dashboard-tabbed';
 import { VENDOR_CREATE_FORM_START_OPEN } from '../../vendor/components/vendor-integration-create';
-import { VENDOR_EDIT_FORM_START_OPEN } from '../../vendor/components/vendor-integration-ownership';
+import { VENDOR_EDIT_FORM_START_OPEN } from '../../vendor/components/vendor-integration-edit-form';
 import { VENDOR_RETIRE_CONFIRM_START_OPEN } from '../../vendor/components/vendor-owned-retire';
 import { VendorApi } from '../../vendor/vendor-api';
 import { VendorPortalStore } from '../../vendor/vendor-portal-store';

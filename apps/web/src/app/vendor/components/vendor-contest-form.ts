@@ -83,11 +83,12 @@ interface SelectOption {
 }
 
 /**
- * "Contest a field" on an integration card (AECI-1008 /
+ * "Contest a field" on a connector-delivered pair in the Connectors section (AECI-1008 /
  * `STAGE_2_VENDOR_PORTAL_SPEC.md` §11b).
  *
  * ── WHO SEES IT ─────────────────────────────────────────────────────────────
- * The card renders this only when `!integration.is_owner`. There is no
+ * The Connectors section renders this only when `!is_owner`. Since AECI-1156 an
+ * integration's own requests use the detail page's form (§6.17.6). There is no
  * entitlement or Verified check, on purpose: a seat is the whole gate (§11b.2),
  * because asking for a public fact to be fixed must not be something a vendor
  * buys. Every portal caller holds a seat, so "has a seat" needs no input here.

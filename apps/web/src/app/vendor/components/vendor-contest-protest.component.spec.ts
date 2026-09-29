@@ -99,7 +99,7 @@ describe('VendorContestProtest — the submitter', () => {
 
     expect(r.textContent).toContain('Its view is advice');
     expect(r.textContent).toContain('Nothing about a review is public');
-    expect(r.textContent).toContain('The owner declined this contest.');
+    expect(r.textContent).toContain('The owner declined this request.');
 
     submit(r);
     await settle(fixture);
@@ -252,7 +252,7 @@ describe('VendorContestProtest — the submitter', () => {
     expect(r.textContent).toContain('AEC Integrations agreed with the owner');
     expect(r.textContent).toContain(REJECTED.protest!.decision_note!);
     expect(r.textContent).toContain(REJECTED.protest!.reply!);
-    expect(r.textContent).toContain("You can't contest this field again until");
+    expect(r.textContent).toContain("You can't ask about this field again until");
   });
 });
 

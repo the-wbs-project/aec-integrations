@@ -327,9 +327,17 @@ export class VendorApi {
   // ─── Field contests (AECI-1008 / §11b) ──────────────────────────────────────
 
   /** `GET /api/vendor/contests` — what this vendor submitted and what routes to
-   *  it as an integration's owner. Newest first, 100 per list. Seat-gated only. */
-  getContests(): Promise<ListVendorContestsResponse> {
-    return firstValueFrom(this.http.get<ListVendorContestsResponse>('/api/vendor/contests'));
+   *  it as an integration's owner. Newest first, 100 per list. Seat-gated only.
+   *
+   *  `integrationId` (AECI-1153) narrows both lists to one anchor row, in either
+   *  table, for the integration detail page's Change requests. An unknown or
+   *  foreign id answers two empty lists, never a 404. Omitted, the list is
+   *  vendor-wide, as the Messages tab reads it. */
+  getContests(integrationId?: string): Promise<ListVendorContestsResponse> {
+    const options = integrationId ? { params: { integration_id: integrationId } } : {};
+    return firstValueFrom(
+      this.http.get<ListVendorContestsResponse>('/api/vendor/contests', options),
+    );
   }
 
   /** `POST /api/vendor/integrations/:id/contests` — contest one field (201).
