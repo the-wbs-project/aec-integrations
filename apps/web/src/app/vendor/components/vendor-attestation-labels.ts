@@ -1,4 +1,9 @@
-import type { AttestationDetector, CounterpartyAttestation, VendorClaim } from '@aeci/shared';
+import type {
+  AttestationDetector,
+  CounterpartyAttestation,
+  VendorClaim,
+  VendorIntegration,
+} from '@aeci/shared';
 
 import type { HealthCounts, IntegrationHealth } from './vendor-integration-health';
 
@@ -60,6 +65,47 @@ export function counterpartyStanceLabel(counterparty: CounterpartyAttestation): 
   return counterparty.asserted
     ? $localize`:@@vendor.attest.conflict.theirs.affirmed:Confirms this flow`
     : $localize`:@@vendor.attest.conflict.theirs.denied:Says this flow does not exist`;
+}
+
+/**
+ * Who sees a note the vendor writes on a data flow (AECI-1139).
+ *
+ * Ruling 2026-09-28: no attestation note is public, affirm or deny. The other
+ * company reads it in its own portal, and AEC Integrations reads it in the audit
+ * record. The public pair page shows stances only. The helper text under every
+ * note field says so, because a vendor writes differently for an audience of two
+ * than for the open web.
+ *
+ * - **The vendor owns both products, and nobody else is on either:** only AEC
+ *   Integrations sees it.
+ * - **Exactly one other company is on the integration:** it is named.
+ * - **Otherwise** (the other product has no company on file, or several): the
+ *   other product names it, or a generic phrase when even that is unknown.
+ *
+ * `endpoint_vendors` is both endpoints' companies, deduped, so "the others" is
+ * that list minus the caller. `slots` is the caller's own endpoints, so two slots
+ * means it owns both products.
+ */
+export function noteAudienceHint(
+  integration: Pick<VendorIntegration, 'slots' | 'endpoint_vendors'> | undefined,
+  ownVendorId: string | null,
+  otherProductName: string | null,
+): string {
+  const vendors = integration?.endpoint_vendors ?? [];
+  const ownsBoth = (integration?.slots.length ?? 0) >= 2;
+  // `null` until the session's own vendor id is known. An owns-both integration
+  // with a single company on file is the caller's alone either way.
+  const others = ownVendorId ? vendors.filter((v) => v.id !== ownVendorId) : null;
+  if (ownsBoth && (others ? others.length === 0 : vendors.length <= 1)) {
+    return $localize`:@@vendor.attest.note.audience.aeciOnly:Only AEC Integrations sees this.`;
+  }
+  if (others?.length === 1) {
+    const company = others[0].name;
+    return $localize`:@@vendor.attest.note.audience.named:Only ${company}:company: and AEC Integrations see this.`;
+  }
+  return otherProductName
+    ? $localize`:@@vendor.attest.note.audience.byProduct:Only the company behind ${otherProductName}:product: and AEC Integrations see this.`
+    : $localize`:@@vendor.attest.note.audience.generic:Only the other company and AEC Integrations see this.`;
 }
 
 /** The caller's stance as a standalone phrase, for the conflict columns. */

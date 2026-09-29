@@ -5,8 +5,9 @@ import { COPY, type ClaimView } from './integration-pair.fixtures';
 
 /**
  * The **AECi-annotated provenance affordance** (spec §8): a small info trigger
- * per claim that opens a popover attributing the claim to AECi and surfacing its
- * curation note, plus the honest "not yet vendor-confirmed" closing line. Sole
+ * per claim that opens a popover attributing the claim to AECi, plus the honest
+ * "not yet vendor-confirmed" closing line. No note: none is public (AECI-779,
+ * AECI-1139), so this sandbox does not model one either. Sole
  * owner of the provenance copy so it can't drift.
  *
  * Structure copied from the working `preview/vendor-detail/vendor-detail.html`
@@ -42,14 +43,6 @@ import { COPY, type ClaimView } from './integration-pair.fixtures';
         >
           <h3 class="aec-overline text-(--text-tertiary)">{{ copy.provenanceTitle }}</h3>
           <p class="text-sm font-medium text-(--text-primary)">{{ copy.provenancePrimary }}</p>
-          <!-- Design sandbox only. The fixtures here are hand-written illustrative
-               prose on an AECi-sourced attestation; the LIVE surface no longer
-               renders an AECi note at all (AECI-779: the seed note is
-               curation-internal and is nulled server-side). Do not treat this
-               preview as evidence that the real popover shows one. -->
-          @if (claim().attestation?.note; as note) {
-            <p class="text-sm leading-relaxed text-(--text-secondary)">{{ note }}</p>
-          }
           <p class="text-xs leading-relaxed text-(--text-tertiary)">{{ copy.provenanceClosing }}</p>
         </div>
       </ng-template>

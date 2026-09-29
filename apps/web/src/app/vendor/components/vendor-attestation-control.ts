@@ -23,7 +23,7 @@ import { VendorApi, type VendorAttestationPosition } from '../vendor-api';
 import { VendorPortalStore } from '../vendor-portal-store';
 
 import { isProvisionalClaimId } from './vendor-add-claim-form';
-import { ownStanceLabel } from './vendor-attestation-labels';
+import { noteAudienceHint, ownStanceLabel } from './vendor-attestation-labels';
 
 /**
  * The Affirm / Deny / Clear control for one claim (AECI-606 / §6).
@@ -144,9 +144,7 @@ import { ownStanceLabel } from './vendor-attestation-labels';
               [attr.aria-describedby]="fieldId('note') + '-hint'"
             ></textarea>
             <p [id]="fieldId('note') + '-hint'" class="text-xs text-(--text-secondary)">
-              <ng-container i18n="@@vendor.attest.note.hint"
-                >A short qualifier, shown alongside your position.</ng-container
-              >
+              {{ noteAudience() }}
             </p>
           </div>
 
@@ -305,10 +303,30 @@ export class VendorAttestationControl {
    * never invented: with nothing to build from, the write is simply not rendered
    * optimistically, which is a slower surface rather than a wrong one.
    */
-  private readonly mySlots = computed<readonly VendorAttestationSlot[]>(() => {
-    const claim = this.claim();
-    const integration = this.store.integrations().find((i) => i.id === claim.integration_id);
-    return integration?.slots ?? claim.mine.map((a) => a.slot);
+  private readonly mySlots = computed<readonly VendorAttestationSlot[]>(
+    () => this.integration()?.slots ?? this.claim().mine.map((a) => a.slot),
+  );
+
+  /** This claim's integration in the store. An owns-both integration is listed
+   *  once per endpoint under one `id`, but both entries carry the same `slots`
+   *  and `endpoint_vendors`, so either serves. */
+  private readonly integration = computed(() =>
+    this.store.integrations().find((i) => i.id === this.claim().integration_id),
+  );
+
+  /**
+   * Who sees the note (AECI-1139). No attestation note is public: the other
+   * company and AEC Integrations read it, and the pair page shows stances only.
+   * `other_product` is only a fallback for naming, when no single other company
+   * is on file.
+   */
+  protected readonly noteAudience = computed(() => {
+    const integration = this.integration();
+    return noteAudienceHint(
+      integration,
+      this.store.me()?.vendor.id ?? null,
+      integration?.other_product.name ?? null,
+    );
   });
 
   // `linkedSignal`, not `signal`: these reset when — and only when — the server

@@ -47,7 +47,8 @@ import type { Env } from '../env';
 import { errorHandler } from '../errors';
 import type { AuthzVariables } from '../lib/authz';
 import { makeTestDb, type TestDb } from '../test/d1';
-import { TEST_ENV, fakeExecutionContext } from '../test/helpers';
+import { TEST_ENV, buildAppWithHandler, fakeExecutionContext } from '../test/helpers';
+import { createPairTimelineHandler, createProductPairHandler } from './integrations';
 import {
   createListVendorIntegrationsHandler,
   createRetractVendorAttestationHandler,
@@ -1429,5 +1430,98 @@ describe('maintenance marker — integrations.maintained_by (AECI-616)', () => {
     expect(flip?.beforeState).toMatchObject({ maintained_by: 'vendor' });
     expect(flip?.afterState).toMatchObject({ maintained_by: 'aeci' });
     expect(flip?.metadata).toMatchObject({ reason: 'maintenance-marker' });
+  });
+});
+
+// ─── Who sees a note (AECI-1139) ─────────────────────────────────────────────
+//
+// Ruling 2026-09-28 (Chris): "No notes at all." No vendor attestation note, affirm
+// or deny, is public. The note's audience is the other company (`counterparty`),
+// its author (`mine`), and AEC Integrations (the audit row). This block drives the
+// real vendor write and then reads the SAME rows through every audience, so the
+// public half and the private half cannot drift apart unnoticed. The public reads'
+// own coverage is in `product-pair.spec.ts` and `pair-timeline.spec.ts`.
+describe('an attestation note reaches the two companies and AECi, never the public (AECI-1139)', () => {
+  const DENY_NOTE = 'We receive RFIs, but nothing is sent back to Revit.';
+  const AFFIRM_NOTE = 'RFI responses come back through the sync.';
+
+  /** The public pair and timeline reads. No session: these are the routes any
+   *  browser can call directly, and the page's TransferState blob is the first. */
+  async function publicRead(path: string): Promise<string> {
+    const handler = path.endsWith('/timeline')
+      ? createPairTimelineHandler(t.factory)
+      : createProductPairHandler(t.factory);
+    const route = path.endsWith('/timeline')
+      ? '/api/products/:slug/integrations/:otherSlug/timeline'
+      : '/api/products/:slug/integrations/:otherSlug';
+    const res = await buildAppWithHandler({ method: 'get', path: route, handler }).request(
+      path,
+      {},
+      TEST_ENV,
+      fakeExecutionContext(),
+    );
+    expect(res.status).toBe(200);
+    return res.text();
+  }
+
+  beforeEach(async () => {
+    // The public reads serve promoted products only.
+    await t.db.update(products).set({ promotionStatus: 'promoted' });
+    // Autodesk affirms with a note, Bentley denies with a note — through the real
+    // PUT, so the rows are exactly what the portal writes.
+    expect(
+      (await sendJson('PUT', attestationUrl(C_MAIN), { asserted: true, note: AFFIRM_NOTE })).status,
+    ).toBe(200);
+    expect(
+      (await sendJson('PUT', attestationUrl(C_MAIN), { asserted: false, note: DENY_NOTE }, AUTH_B))
+        .status,
+    ).toBe(200);
+  });
+
+  it('keeps both notes off the public pair read', async () => {
+    const raw = await publicRead('/api/products/revit/integrations/microstation');
+    const body = JSON.parse(raw);
+    const [claim] = body.mechanisms[0].claims;
+    // The stances still publish — only the notes are withheld.
+    expect(claim.agreement).toBe('conflict');
+    expect(claim.attestations.map((a: JsonBody) => [a.source, a.asserted, a.note]).sort()).toEqual([
+      ['aeci', true, null],
+      ['vendor_a', true, null],
+      ['vendor_b', false, null],
+    ]);
+    expect(raw).not.toContain(DENY_NOTE);
+    expect(raw).not.toContain(AFFIRM_NOTE);
+  });
+
+  it('keeps both notes off the public timeline read', async () => {
+    const raw = await publicRead('/api/products/revit/integrations/microstation/timeline');
+    const body = JSON.parse(raw);
+    expect(body.claims[0].entries.length).toBeGreaterThan(0);
+    expect(body.claims[0].entries.every((e: JsonBody) => e.note === null)).toBe(true);
+    expect(raw).not.toContain(DENY_NOTE);
+    expect(raw).not.toContain(AFFIRM_NOTE);
+  });
+
+  it('shows each company the OTHER company’s note, and its own', async () => {
+    const a = (await call('/api/vendor/integrations', {}, AUTH_A)).body;
+    const aClaim = a.integrations[0].claims[0];
+    expect(aClaim.mine.map((m: JsonBody) => m.note)).toEqual([AFFIRM_NOTE]);
+    expect(aClaim.counterparty).toEqual({ asserted: false, note: DENY_NOTE });
+
+    const b = (await call('/api/vendor/integrations', {}, AUTH_B)).body;
+    const bClaim = b.integrations
+      .find((i: JsonBody) => i.id === I_MAIN)
+      .claims.find((c: JsonBody) => c.id === C_MAIN);
+    expect(bClaim.mine.map((m: JsonBody) => m.note)).toEqual([DENY_NOTE]);
+    expect(bClaim.counterparty).toEqual({ asserted: true, note: AFFIRM_NOTE });
+  });
+
+  it('records both notes in the audit row AECi reads', async () => {
+    const written = (await auditRows()).filter(
+      (r) => r.entityType === 'attestation' && r.action === 'attestation.created',
+    );
+    expect(written.map((r) => (r.afterState as JsonBody).note).sort()).toEqual(
+      [AFFIRM_NOTE, DENY_NOTE].sort(),
+    );
   });
 });

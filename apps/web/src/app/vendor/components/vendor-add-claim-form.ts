@@ -17,6 +17,8 @@ import { readVendorApiError } from '../vendor-api-error';
 import { VendorApi } from '../vendor-api';
 import { VendorPortalStore } from '../vendor-portal-store';
 
+import { noteAudienceHint } from './vendor-attestation-labels';
+
 /** One native `<select>` choice. `null` is the "Not specified" row. */
 interface SelectOption {
   readonly value: string | null;
@@ -223,7 +225,11 @@ export function isProvisionalClaimId(claimId: string): boolean {
               [value]="note()"
               (input)="onNote($event)"
               [class]="inputClass"
+              [attr.aria-describedby]="fieldId('note') + '-hint'"
             ></textarea>
+            <p [id]="fieldId('note') + '-hint'" class="text-xs text-(--text-secondary)">
+              {{ noteAudience() }}
+            </p>
           </div>
 
           @if (versions().length > 0) {
@@ -330,6 +336,19 @@ export class VendorAddClaimForm {
 
   readonly created = output<VendorClaim>();
   readonly duplicate = output<DuplicateClaimHit>();
+
+  /**
+   * Who sees the note (AECI-1139). No attestation note is public: the other
+   * company and AEC Integrations read it, and the pair page shows stances only.
+   * Same sentence as the lane editor's, from the same helper.
+   */
+  protected readonly noteAudience = computed(() =>
+    noteAudienceHint(
+      this.store.integrations().find((i) => i.id === this.integrationId()),
+      this.store.me()?.vendor.id ?? null,
+      this.otherProductName(),
+    ),
+  );
 
   protected readonly expanded = signal(false);
   protected readonly submitting = signal(false);

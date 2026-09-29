@@ -190,13 +190,14 @@ export type VendorOwnAttestation = z.infer<typeof VendorOwnAttestationSchema>;
  * The counterparty vendor's live position on the claim, deliberately reduced to
  * stance + note. §6 requires a conflict to be legible from the vendor's side
  * with the other party's position shown; it does not require — and must not
- * leak — the counterparty's version stamps or its `attested_by_vendor_id`. The
- * note is already public on the pair page's provenance disclosure, so surfacing
- * it here reveals nothing new. That still holds after AECI-779: suppression there
- * applies to `aeci`-sourced notes only, and a counterparty is by definition a
- * VENDOR slot — `toCounterparty` filters `source !== 'aeci'` — so nothing this
- * schema can carry was withheld from the reader. Do not read this sentence as
- * blanket authorization to publish any `attestations.note`.
+ * leak — the counterparty's version stamps or its `attested_by_vendor_id`.
+ *
+ * **This is the note's intended audience, and it is NOT public** (AECI-1139,
+ * ruling 2026-09-28: "No notes at all"). A vendor note, affirm or deny, is seen by
+ * the other company here, by its author in `mine`, and by AEC Integrations in the
+ * audit row. The public pair and timeline reads never carry it: their `note` is
+ * typed `z.null()` (`product-pairs.ts`). So this field must never be copied onto a
+ * reader surface, and a vendor response is not a template for a public one.
  *
  * `null` when the counterparty slot is empty. That silence is the whole point of
  * `single_source`: absence of an attestation is never rendered as agreement

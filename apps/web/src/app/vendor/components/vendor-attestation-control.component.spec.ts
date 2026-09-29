@@ -24,10 +24,15 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ProductVersion, VendorClaim, VendorClaimResponse } from '@aeci/shared';
 
 import { VendorApi } from '../vendor-api';
-import { VENDOR_INTEGRATIONS_FIXTURE, VENDOR_PRODUCT_VERSIONS_FIXTURE } from '../vendor-fixtures';
+import {
+  VENDOR_INTEGRATIONS_FIXTURE,
+  VENDOR_ME_FIXTURE,
+  VENDOR_PRODUCT_VERSIONS_FIXTURE,
+} from '../vendor-fixtures';
 import { VendorPortalStore } from '../vendor-portal-store';
 
 import { VendorAttestationControl } from './vendor-attestation-control';
+import { noteAudienceHint } from './vendor-attestation-labels';
 
 /** The `rfis` lane: affirmed, with a note AND an introduced-version stamp. */
 const STAMPED_CLAIM = VENDOR_INTEGRATIONS_FIXTURE.integrations[0].claims[1];
@@ -598,5 +603,87 @@ describe('VendorAttestationControl — version stamps', () => {
     const el = create().nativeElement as HTMLElement;
     expect(el.querySelector(`#vendor-claim-${STAMPED_CLAIM.id}-introduced`)).not.toBeNull();
     expect(el.querySelector(`#vendor-claim-${STAMPED_CLAIM.id}-deprecated`)).not.toBeNull();
+  });
+});
+
+// AECI-1139 (ruling 2026-09-28: "No notes at all"). No attestation note is public.
+// The helper under the note field names who DOES read it, so a vendor writes for
+// an audience of two companies and AECi rather than for the open web.
+describe('VendorAttestationControl — who sees the note (AECI-1139)', () => {
+  /** The hint the textarea is described by, read through `aria-describedby` so
+   *  the test also proves the association a screen reader relies on. */
+  function hint(fixture: ComponentFixture<VendorAttestationControl>): string {
+    const el = fixture.nativeElement as HTMLElement;
+    const textarea = el.querySelector('textarea') as HTMLTextAreaElement;
+    const id = textarea.getAttribute('aria-describedby');
+    expect(id).toBeTruthy();
+    return el.querySelector(`[id="${id}"]`)?.textContent?.trim() ?? '';
+  }
+
+  it('names the other company when exactly one is on the integration', async () => {
+    const store = await seededStore();
+    store.seed(VENDOR_ME_FIXTURE);
+    const text = hint(create());
+    expect(text).toBe('Only Procore Technologies and AEC Integrations see this.');
+    // It no longer promises the note is "shown alongside your position".
+    expect(text).not.toContain('shown');
+  });
+
+  it('says only AEC Integrations sees it when the vendor owns both products', async () => {
+    const store = await seededStore();
+    store.seed(VENDOR_ME_FIXTURE);
+    expect(hint(create(OWNS_BOTH_CLAIM))).toBe('Only AEC Integrations sees this.');
+  });
+
+  it('never claims the note is public, even before the integration list loads', () => {
+    expect(hint(create())).toBe('Only the other company and AEC Integrations see this.');
+  });
+});
+
+describe('noteAudienceHint', () => {
+  const ME = { id: 'me', name: 'Summit BIM' };
+  const THEM = { id: 'them', name: 'Procore Technologies' };
+  const ALSO = { id: 'also', name: 'Autodesk' };
+
+  it('names the one other company', () => {
+    expect(
+      noteAudienceHint({ slots: ['vendor_a'], endpoint_vendors: [ME, THEM] }, 'me', 'Procore'),
+    ).toBe('Only Procore Technologies and AEC Integrations see this.');
+  });
+
+  it('is AECi-only when the caller owns both products and no one else is on file', () => {
+    expect(
+      noteAudienceHint({ slots: ['vendor_a', 'vendor_b'], endpoint_vendors: [ME] }, 'me', 'X'),
+    ).toBe('Only AEC Integrations sees this.');
+    // …also before the session's own vendor id is known.
+    expect(
+      noteAudienceHint({ slots: ['vendor_a', 'vendor_b'], endpoint_vendors: [ME] }, null, 'X'),
+    ).toBe('Only AEC Integrations sees this.');
+  });
+
+  it('does NOT say AECi-only when a second company co-owns one of the products', () => {
+    // `toCounterparty` shows a co-owner the caller's note, so it is an audience.
+    expect(
+      noteAudienceHint(
+        { slots: ['vendor_a', 'vendor_b'], endpoint_vendors: [ME, ALSO] },
+        'me',
+        'X',
+      ),
+    ).toBe('Only Autodesk and AEC Integrations see this.');
+  });
+
+  it('falls back to the other product when no single company can be named', () => {
+    // The other product has no company on file.
+    expect(noteAudienceHint({ slots: ['vendor_a'], endpoint_vendors: [ME] }, 'me', 'Procore')).toBe(
+      'Only the company behind Procore and AEC Integrations see this.',
+    );
+    // Several companies make the other product.
+    expect(
+      noteAudienceHint(
+        { slots: ['vendor_a'], endpoint_vendors: [ME, THEM, ALSO] },
+        'me',
+        'Procore',
+      ),
+    ).toBe('Only the company behind Procore and AEC Integrations see this.');
   });
 });

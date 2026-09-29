@@ -607,17 +607,34 @@ two distinct vendors.
   direction to the table, or the table and the pair page contradict each other again (the bug
   `STAGE_1_5_SPEC.md` §7.1 already had to fix once).
 
-- **The provenance disclosure renders a note only for a VENDOR-authored attestation** (AECI-779).
-  An `aeci`-sourced note is curation-internal and arrives as `null` — the API suppresses it at both
-  reader mappers, so this is a contract the surface receives rather than a rule it enforces. The
-  reason it needed saying: §4.3 specified every other string on this surface down to the CVD glyph
-  and required all copy through `$localize`, while the note was the one string that was neither
-  localized nor specified — **because it is data occupying a copy slot**, and nobody had assigned it
-  an audience (`STAGE_1_5_SPEC.md` §3.3). Note the History section (§9.1) renders the same note from
-  a **different** route, so both mappers suppress; see `readerFacingNote`. **As-built (2026-09-24):**
-  the History section itself was removed from the `ClaimProvenance` popover (see below); the
-  timeline route and `readerFacingNote`'s suppression on it are unchanged, just unconsumed by the
-  web.
+- **The provenance disclosure renders no note at all** (AECI-1139, superseding AECI-779's
+  vendor-note carve-out). **Ruling 2026-09-28 (Chris): "No notes at all."** No attestation note is
+  public, from any source, affirm or deny. The popover shows who spoke and their stance, then the
+  closing line. The rule is enforced on the read side, so it covers notes already stored:
+  - The public pair read (`GET /api/products/:slug/integrations/:otherSlug`) and the timeline read
+    (`…/timeline`, §9.1) return `note: null` on every attestation. Their read configs
+    (`pairClaimsConfig`, `integrationTimelineConfig`, `connectorEvidencedPairTimelineConfig` in
+    `apps/api/src/lib/drizzle-helpers.ts`) do not select the column, and both wire schemas type
+    the field `z.null()`. The key stays so the wire shape does not move. The note is therefore
+    absent from the SSR TransferState blob too, not just from the popover.
+  - `ClaimProvenance` has no note slot in its template.
+  - **Who still reads a vendor note:** the other company, as `counterparty` on
+    `GET /api/vendor/integrations`. Its author, as `mine` on the same read. AEC Integrations, in the
+    `attestation.*` audit row's `before_state` / `after_state`. None of these changed.
+  - **The portal says so.** Every note field carries helper text naming the audience: "Only
+    {other company} and AEC Integrations see this.", or "Only AEC Integrations sees this." when the
+    vendor owns both products (`noteAudienceHint`, `vendor-attestation-labels.ts`).
+
+  Why: a "No" reason is one company's free-text objection to another company's product, published
+  under its name. Withholding only "No" reasons would leave a disputed row showing one side's reason
+  and not the other's, which reads as AECi taking a side. One rule for both stances avoids that.
+
+  History: AECI-779 first made the `aeci` seed note curation-internal, because it was data occupying
+  a copy slot that nobody had assigned an audience (`STAGE_1_5_SPEC.md` §3.3). Its
+  `readerFacingNote(source, note)` filter let vendor notes through. AECI-1139 removed the filter,
+  because the ruling left it nothing to decide. **As-built (2026-09-24):** the History section was
+  removed from the `ClaimProvenance` popover (see below). The timeline route still runs, with no web
+  consumer, and it carries no note either.
 
 **UI-touching, so the `CLAUDE.md` design checklist applies:** critique → the pair page's existing
 Mobbin anchor site (the anchor-site rule — do not introduce a second site for badge states) →
@@ -1535,9 +1552,10 @@ ADR 0024 it is an **external CI liveness sweep** (AECI-647), because PostHog has
   *(**AECI-961 added a fifth, `attestation-claim-denied`** — the counterparty half of
   `claim-denied`, vendor prose. Non-accusatory on the `open-conflict` precedent, because the
   recipient has not disagreed with anyone, they have said nothing at all. **Stance only, never the
-  denier's note**: the note is public on the pair page, so this is not confidentiality, it is that
-  free text quoted into an email lands as an accusation in a way the same words on a provenance
-  disclosure do not. It states what §6.2's lane copy states — the flow stays on the listing as
+  denier's note**. The reason is confidentiality (AECI-1139): the note is not public, and only the
+  other company and AECi may read it, inside the portal's access control. An email can be
+  forwarded, so quoting the note would take it past that audience. The recipient reads the note in
+  the portal instead. Free text quoted into an email also lands as an accusation. It states what §6.2's lane copy states — the flow stays on the listing as
   unverified until AECi corrects the record.)*
 - **The ledger metadata carries more than `{ detector, vendorId }`** — also `integrationId`,
   `dataObject`, `counterpartProduct` and `pairSlugs`. This is what makes §7.2's "gives the
@@ -1999,8 +2017,8 @@ Decisions taken at build that §9.1–§9.3 did not pre-specify:
 > fetch, and `fetchPairTimeline` was deleted from `apps/web/src/app/core/api/product-pairs.ts`
 > (`pairPath` also lost its `suffix` param). Everything else this section describes is unchanged
 > and still deployed: `GET …/integrations/:otherSlug/timeline`, `integrationTimelineConfig`,
-> `toClaimTimelineEntry`, its `readerFacingNote` suppression, and `resolveDiffAccess`'s gating all
-> still run — the endpoint simply has no web consumer left to call it. The version-diff **markers**
+> `toClaimTimelineEntry` (which since AECI-1139 returns `note: null` for every row, §4.3), and
+> `resolveDiffAccess`'s gating all still run — the endpoint simply has no web consumer left to call it. The version-diff **markers**
 > on the claim rows (added/removed/unchanged, the diff-marker bullet above) are a separate
 > mechanism from the History section and are unaffected. `docs/API_CONTRACTS.md`'s timeline section
 > and `docs/AUTH_AND_RLS.md` §4.4 carry the matching note.
