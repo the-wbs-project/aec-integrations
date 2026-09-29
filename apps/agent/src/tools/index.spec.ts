@@ -31,8 +31,8 @@ import type { ShimHandle } from '../test/d1';
  * WRAPPER adds no denied key; what proves the payload itself is clean is
  * `apps/api`'s own test suite over those handlers.
  *
- * `note` is present on purpose: it IS reader-facing when a vendor wrote it, so
- * it must NOT be on the denylist.
+ * `note` is present on purpose: the public pair payload carries that KEY (its
+ * value is always null, AECI-1139), so the key must NOT be on the denylist.
  */
 /**
  * A stub of the `ai_search_namespaces` binding, returning one passage shaped
@@ -70,9 +70,9 @@ function publicApiStub() {
       slug: 'zoho',
       name: 'Zoho',
       company_name: 'Acme Software',
-      // Deliberately reader-facing — `readerFacingNote()` lets a vendor note
-      // through, so denying the key `note` outright would be wrong.
-      note: 'vendor-authored, reader facing',
+      // The KEY is on the real public pair payload (its value is always null
+      // there, AECI-1139), so denying the key `note` outright would be wrong.
+      note: null,
       maintenance: { maintained_by: 'aeci', last_reviewed_at: null },
     },
   }));

@@ -16,7 +16,7 @@
  *    therefore sorts them last. All 27 seeded terms carry an order, so a
  *    divergence would be invisible until someone hand-inserted a row. This pins
  *    the *wire* order, which the dashboard picker no longer renders directly —
- *    it alphabetizes by label client-side (`vendor-add-claim-form.ts`) — so this
+ *    it alphabetizes by label client-side (`integration-shared-data.ts`) — so this
  *    assertion is what keeps the endpoint's own contract defined.
  *  - **Two vendors get identical bodies.** The one `/api/vendor/*` route with no
  *    `vendor_id` filter, deliberately. Pinning the sameness means a later

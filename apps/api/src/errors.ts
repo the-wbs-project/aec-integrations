@@ -169,6 +169,10 @@ function causeChain(error: unknown): string | undefined {
 function firstFieldFromZodError(error: ZodError): string | undefined {
   for (const issue of error.issues) {
     if (issue.path.length > 0) return issue.path.join('.');
+    // A `.strict()` schema refusing a key reports it on the object itself, with
+    // an empty path. Name the key, so a body sending a field the route no longer
+    // takes (`website` on the owner edit since AECI-1155) is told which one.
+    if (issue.code === 'unrecognized_keys' && issue.keys.length > 0) return issue.keys[0];
   }
   return undefined;
 }

@@ -298,6 +298,14 @@ export const integrations = sqliteTable(
     pricingModel: text('pricing_model'),
     maturity: text('maturity'),
     notes: text('notes'),
+    /**
+     * The owner's pricing page link (AECI-1154 / `STAGE_2_VENDOR_PORTAL_SPEC.md`
+     * §6.17.11). Added by `0052_…` as a plain `ALTER TABLE … ADD COLUMN`: nullable,
+     * no default, and NEVER a CHECK (the URL rule lives in `integrationEditValueProblem`).
+     * Owner-written only. Not contestable, so it is not in `INTEGRATION_CONTEST_FIELDS`
+     * and the contest CHECK does not change. Promote never writes it.
+     */
+    pricingUrl: text('pricing_url'),
 
     lastReviewedAt: lastReviewedAt(),
     maintainedBy: maintainedBy(),
@@ -3031,6 +3039,9 @@ export const connectorEvidencedPairs = sqliteTable(
     pricingModel: text('pricing_model'),
     maturity: text('maturity'),
     notes: text('notes'),
+    /** AECI-1154: the owner's pricing page link, as on `integrations`. A plain
+     *  `ADD COLUMN` in `0052_…`, nullable, no CHECK. Owner-written only. */
+    pricingUrl: text('pricing_url'),
 
     lastReviewedAt: lastReviewedAt(),
     maintainedBy: maintainedBy(),

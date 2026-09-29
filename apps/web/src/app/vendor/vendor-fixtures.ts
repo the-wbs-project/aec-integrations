@@ -18,6 +18,8 @@ import type {
   ProductVersion,
   TaxonomyResponse,
   TaxonomyTermWithCount,
+  VendorClaim,
+  VendorContest,
   VendorIntegration,
   VendorMeResponse,
   VendorAttestationNotification,
@@ -40,6 +42,28 @@ import { EMPTY_CONTESTABLE_FIELDS, EMPTY_SIDE_LINKS } from '@aeci/shared';
  * caller is not the owner and nothing is on file. `INTEGRATION_PROCORE` and
  * `INTEGRATION_VENDOR_B` override them with real values and an owned row.
  */
+
+/**
+ * The integration detail page fields (AECI-1150 to AECI-1154), at the values an
+ * older API reads as. Spread into every fixture so each stays a complete
+ * `VendorIntegration`; a fixture that needs a real value sets it after the spread.
+ */
+const DETAIL_DEFAULTS = {
+  counterpart_links: EMPTY_SIDE_LINKS,
+  origin: 'aeci',
+  created_at: null,
+  maintained_by: 'aeci',
+  last_reviewed_at: null,
+  pricing_url: null,
+} as const satisfies Partial<VendorIntegration>;
+
+/** The same for each claim (AECI-1153): who added it, when, and any disagreement. */
+const CLAIM_DETAIL_DEFAULTS = {
+  added_by: null,
+  created_at: null,
+  disagreement: null,
+} as const satisfies Partial<VendorClaim>;
+
 const NOT_OWNER: Pick<
   VendorIntegration,
   | 'is_owner'
@@ -735,6 +759,7 @@ export const VENDOR_PRODUCT_VERSIONS_FIXTURE: Readonly<Record<string, readonly P
  *  - a connector-powered edge (AECI-705), which is listed but not attestable.
  */
 const INTEGRATION_PROCORE: VendorIntegration = {
+  ...DETAIL_DEFAULTS,
   id: '00000000-0000-4000-8000-000000005310',
   name: 'Summit Model Coordination ↔ Procore',
   mechanism_kind: 'native',
@@ -780,6 +805,7 @@ const INTEGRATION_PROCORE: VendorIntegration = {
       id: '00000000-0000-4000-8000-000000005321',
       integration_id: '00000000-0000-4000-8000-000000005310',
       data_object_slug: 'models',
+      ...CLAIM_DETAIL_DEFAULTS,
       data_object_name: 'Models',
       direction: 'outbound',
       // Nobody has voted, and the claim came from AECi's own curation.
@@ -792,6 +818,7 @@ const INTEGRATION_PROCORE: VendorIntegration = {
       id: '00000000-0000-4000-8000-000000005322',
       integration_id: '00000000-0000-4000-8000-000000005310',
       data_object_slug: 'rfis',
+      ...CLAIM_DETAIL_DEFAULTS,
       data_object_name: 'RFIs',
       direction: 'outbound',
       // One voter. Never `confirmed` — the counterparty's silence is not assent.
@@ -813,6 +840,7 @@ const INTEGRATION_PROCORE: VendorIntegration = {
       id: '00000000-0000-4000-8000-000000005323',
       integration_id: '00000000-0000-4000-8000-000000005310',
       data_object_slug: 'submittals',
+      ...CLAIM_DETAIL_DEFAULTS,
       data_object_name: 'Submittals',
       direction: 'inbound',
       agreement: 'confirmed',
@@ -833,6 +861,7 @@ const INTEGRATION_PROCORE: VendorIntegration = {
       id: '00000000-0000-4000-8000-000000005324',
       integration_id: '00000000-0000-4000-8000-000000005310',
       data_object_slug: 'drawings',
+      ...CLAIM_DETAIL_DEFAULTS,
       data_object_name: 'Drawings',
       direction: 'both',
       agreement: 'conflict',
@@ -853,6 +882,7 @@ const INTEGRATION_PROCORE: VendorIntegration = {
 };
 
 const INTEGRATION_BOTH_ENDPOINTS: VendorIntegration = {
+  ...DETAIL_DEFAULTS,
   id: '00000000-0000-4000-8000-000000005311',
   name: null,
   mechanism_kind: 'api',
@@ -869,6 +899,7 @@ const INTEGRATION_BOTH_ENDPOINTS: VendorIntegration = {
       id: '00000000-0000-4000-8000-000000005331',
       integration_id: '00000000-0000-4000-8000-000000005311',
       data_object_slug: 'punch-lists',
+      ...CLAIM_DETAIL_DEFAULTS,
       data_object_name: 'Punch Lists',
       direction: 'both',
       // TWO attestations, ONE voter: the agreement engine dedupes by attesting
@@ -899,6 +930,7 @@ const INTEGRATION_BOTH_ENDPOINTS: VendorIntegration = {
 };
 
 const INTEGRATION_VENDOR_B: VendorIntegration = {
+  ...DETAIL_DEFAULTS,
   id: '00000000-0000-4000-8000-000000005312',
   name: 'Autodesk Build ↔ Summit Field Issues',
   mechanism_kind: 'marketplace-app',
@@ -941,6 +973,7 @@ const INTEGRATION_VENDOR_B: VendorIntegration = {
       id: '00000000-0000-4000-8000-000000005341',
       integration_id: '00000000-0000-4000-8000-000000005312',
       data_object_slug: 'documents',
+      ...CLAIM_DETAIL_DEFAULTS,
       data_object_name: 'Documents',
       direction: 'inbound',
       agreement: 'unverified',
@@ -952,6 +985,7 @@ const INTEGRATION_VENDOR_B: VendorIntegration = {
 };
 
 const INTEGRATION_NO_CLAIMS: VendorIntegration = {
+  ...DETAIL_DEFAULTS,
   id: '00000000-0000-4000-8000-000000005313',
   name: null,
   mechanism_kind: null,
@@ -976,6 +1010,7 @@ const INTEGRATION_NO_CLAIMS: VendorIntegration = {
  * no promoted connector product to link to) and is covered by the component spec.
  */
 const INTEGRATION_CONNECTOR_POWERED: VendorIntegration = {
+  ...DETAIL_DEFAULTS,
   id: '00000000-0000-4000-8000-000000005314',
   name: 'Summit Model Coordination ↔ Acumatica',
   mechanism_kind: 'iPaaS',
@@ -997,6 +1032,7 @@ const INTEGRATION_CONNECTOR_POWERED: VendorIntegration = {
       id: '00000000-0000-4000-8000-000000005351',
       integration_id: '00000000-0000-4000-8000-000000005314',
       data_object_slug: 'invoices',
+      ...CLAIM_DETAIL_DEFAULTS,
       data_object_name: 'Invoices',
       direction: 'outbound',
       // Stays the AECi-curated state, and structurally cannot leave it: no
@@ -1017,6 +1053,7 @@ const INTEGRATION_CONNECTOR_POWERED: VendorIntegration = {
  * and skips straight to its data flows.
  */
 const INTEGRATION_PROCORE_VIA_CONNECTOR: VendorIntegration = {
+  ...DETAIL_DEFAULTS,
   id: '00000000-0000-4000-8000-000000005315',
   name: 'Summit Model Coordination ↔ Procore (Kroo Connector)',
   mechanism_kind: 'iPaaS',
@@ -1038,6 +1075,7 @@ const INTEGRATION_PROCORE_VIA_CONNECTOR: VendorIntegration = {
       id: '00000000-0000-4000-8000-000000005361',
       integration_id: '00000000-0000-4000-8000-000000005315',
       data_object_slug: 'budgets',
+      ...CLAIM_DETAIL_DEFAULTS,
       data_object_name: 'Budgets',
       direction: 'both',
       agreement: 'unverified',
@@ -1056,6 +1094,7 @@ const INTEGRATION_PROCORE_VIA_CONNECTOR: VendorIntegration = {
  * its groups. The preview API appends it, so `/preview/vendor-dashboard` shows it.
  */
 export const INTEGRATION_RETIRED_BY_OTHER: VendorIntegration = {
+  ...DETAIL_DEFAULTS,
   id: '00000000-0000-4000-8000-000000005316',
   name: 'Summit Field Issues ↔ Procore Quality',
   mechanism_kind: 'api',
@@ -1081,6 +1120,7 @@ export const INTEGRATION_RETIRED_BY_OTHER: VendorIntegration = {
  * retire. Appended by the preview API, like {@link INTEGRATION_RETIRED_BY_OTHER}.
  */
 export const INTEGRATION_RETIRED_BY_AECI: VendorIntegration = {
+  ...DETAIL_DEFAULTS,
   id: '00000000-0000-4000-8000-000000005317',
   name: 'Summit Field Issues ↔ Acumatica Projects',
   mechanism_kind: 'api',
@@ -1110,6 +1150,7 @@ export const INTEGRATION_RETIRED_BY_AECI: VendorIntegration = {
  * specs count the shared fixture's groups.
  */
 export const INTEGRATION_CONNECTOR_OWNED: VendorIntegration = {
+  ...DETAIL_DEFAULTS,
   id: '00000000-0000-4000-8000-00000000531b',
   name: 'Summit Model Coordination ↔ Acumatica (Agave)',
   mechanism_kind: 'iPaaS',
@@ -1158,6 +1199,7 @@ export const VENDOR_INTEGRATIONS_FIXTURE: ListVendorIntegrationsResponse = {
     INTEGRATION_PROCORE_VIA_CONNECTOR,
   ],
   owned: [],
+  counterpart_added_unanswered: 0,
 };
 
 /** A vendor whose products carry no integrations. The API returns exactly this
@@ -1165,6 +1207,7 @@ export const VENDOR_INTEGRATIONS_FIXTURE: ListVendorIntegrationsResponse = {
 export const VENDOR_INTEGRATIONS_EMPTY_FIXTURE: ListVendorIntegrationsResponse = {
   integrations: [],
   owned: [],
+  counterpart_added_unanswered: 0,
 };
 
 /**
@@ -1174,6 +1217,7 @@ export const VENDOR_INTEGRATIONS_EMPTY_FIXTURE: ListVendorIntegrationsResponse =
  * preview API, like {@link INTEGRATION_RETIRED_BY_AECI}.
  */
 export const INTEGRATION_OWNED_VIA_CONNECTOR: VendorIntegration = {
+  ...DETAIL_DEFAULTS,
   id: '00000000-0000-4000-8000-000000005318',
   name: 'Summit Model Coordination ↔ Sage Intacct (Summit Sync)',
   mechanism_kind: 'iPaaS',
@@ -1206,6 +1250,7 @@ export const VENDOR_OWNED_INTEGRATIONS_FIXTURE: readonly OwnedIntegration[] = [
   {
     id: '00000000-0000-4000-8000-000000005319',
     anchor: 'evidenced_pair',
+    pricing_url: null,
     name: 'Summit Model Coordination and Procore via Agave',
     mechanism_kind: null,
     mechanism_name: null,
@@ -1230,6 +1275,7 @@ export const VENDOR_OWNED_INTEGRATIONS_FIXTURE: readonly OwnedIntegration[] = [
   {
     id: '00000000-0000-4000-8000-00000000531a',
     anchor: 'evidenced_pair',
+    pricing_url: null,
     name: null,
     mechanism_kind: null,
     mechanism_name: null,
@@ -1702,4 +1748,198 @@ export const VENDOR_PRODUCT_CONNECTORS_FIXTURE: Readonly<
       },
     ],
   },
+};
+
+// ─── Integration detail page (AECI-1149 to AECI-1153, §6.17) ─────────────────
+
+const OTHER_TRIMBLE = {
+  id: '00000000-0000-4000-8000-000000005304',
+  slug: 'trimble-connect',
+  name: 'Trimble Connect',
+  logo_url: null,
+};
+
+const TRIMBLE_VENDOR = { id: '00000000-0000-4000-8000-0000000052f3', name: 'Trimble' };
+
+/**
+ * The Procore integration as the detail page reviews it: its conflict carries the
+ * disagreement's raised-at date, the RFIs row is one the caller added and Procore
+ * has not answered, and Procore added a Documents row the caller has not answered.
+ * Kept apart from `INTEGRATION_PROCORE` because the list specs count its claims.
+ */
+export const INTEGRATION_PROCORE_DETAIL: VendorIntegration = {
+  ...INTEGRATION_PROCORE,
+  created_at: '2026-03-04T00:00:00.000Z',
+  last_reviewed_at: '2026-09-10T09:00:00.000Z',
+  maintained_by: 'vendor',
+  counterpart_links: {
+    listing_url: 'https://marketplace.procore.com/apps/summit-model-coordination',
+    docs_url: null,
+  },
+  claims: [
+    ...INTEGRATION_PROCORE.claims.map((claim): VendorClaim => {
+      if (claim.agreement === 'conflict') {
+        return {
+          ...claim,
+          created_at: '2026-06-01T00:00:00.000Z',
+          disagreement: { id: claim.id, raised_at: '2026-09-12T08:00:00.000Z' },
+        };
+      }
+      if (claim.data_object_slug === 'rfis') {
+        return { ...claim, added_by: 'you', created_at: '2026-08-01T10:00:00.000Z' };
+      }
+      return claim;
+    }),
+    {
+      id: '00000000-0000-4000-8000-000000005325',
+      integration_id: INTEGRATION_PROCORE.id,
+      data_object_slug: 'documents',
+      data_object_name: 'Documents',
+      direction: 'inbound',
+      agreement: 'single_source',
+      origin: 'vendor',
+      mine: [],
+      counterparty: {
+        asserted: true,
+        note: 'Project documents now sync into Summit as of our September release.',
+      },
+      added_by: 'counterpart',
+      created_at: '2026-09-20T11:00:00.000Z',
+      disagreement: null,
+    },
+  ],
+};
+
+/**
+ * A live integration the caller owns and has claimed: the pencils, the received
+ * change request with Accept and Decline, Settings with Retire, and the caller's
+ * own links beside the other company's.
+ */
+export const INTEGRATION_OWNED_CLAIMED: VendorIntegration = {
+  ...DETAIL_DEFAULTS,
+  id: '00000000-0000-4000-8000-00000000531c',
+  name: 'Summit Model Coordination and Trimble Connect',
+  mechanism_kind: 'marketplace-app',
+  mechanism_name: 'Trimble Connect for Summit',
+  attestable: true,
+  powered_by: null,
+  context_product: CONTEXT_PRIMARY,
+  other_product: OTHER_TRIMBLE,
+  slots: ['vendor_a'],
+  is_owner: true,
+  owner: SUMMIT_VENDOR,
+  claimed_at: '2026-09-01T00:00:00.000Z',
+  retired_at: null,
+  retired_by: null,
+  endpoint_vendors: [SUMMIT_VENDOR, TRIMBLE_VENDOR],
+  origin: 'aeci',
+  created_at: '2026-01-15T00:00:00.000Z',
+  maintained_by: 'vendor',
+  last_reviewed_at: '2026-09-21T00:00:00.000Z',
+  pricing_url: 'https://summitbim.example.com/pricing',
+  own_links: {
+    listing_url: 'https://summitbim.example.com/integrations/trimble-connect',
+    docs_url: null,
+  },
+  counterpart_links: {
+    listing_url: null,
+    docs_url: 'https://help.trimble.example.com/connect/summit',
+  },
+  contestable_fields: {
+    ...EMPTY_CONTESTABLE_FIELDS,
+    name: 'Summit Model Coordination and Trimble Connect',
+    mechanism_kind: 'marketplace-app',
+    mechanism_name: 'Trimble Connect for Summit',
+    direction: 'both',
+    description:
+      'Opens Trimble Connect projects inside Summit Model Coordination and publishes coordination issues back. Linked models load as references, so project teams see the latest coordination model without leaving the tool. Issues raised in either product keep their status in step.',
+    listing_url: 'https://apps.trimble.example.com/summit',
+    docs_url: null,
+    pricing_model: 'Included with Summit Pro',
+    maturity: 'Beta',
+    owner: SUMMIT_VENDOR.id,
+  },
+  claims: [
+    {
+      id: '00000000-0000-4000-8000-000000005371',
+      integration_id: '00000000-0000-4000-8000-00000000531c',
+      data_object_slug: 'models',
+      data_object_name: 'Models',
+      direction: 'outbound',
+      agreement: 'confirmed',
+      origin: 'aeci',
+      mine: [
+        {
+          slot: 'vendor_a',
+          asserted: true,
+          note: null,
+          introduced_version_id: null,
+          deprecated_version_id: null,
+          updated_at: '2026-09-02T10:00:00.000Z',
+        },
+      ],
+      counterparty: { asserted: true, note: null },
+      added_by: null,
+      created_at: '2026-01-15T00:00:00.000Z',
+      disagreement: null,
+    },
+    {
+      id: '00000000-0000-4000-8000-000000005372',
+      integration_id: '00000000-0000-4000-8000-00000000531c',
+      data_object_slug: 'rfis',
+      data_object_name: 'RFIs',
+      direction: 'both',
+      agreement: 'unverified',
+      origin: 'aeci',
+      mine: [],
+      counterparty: null,
+      added_by: null,
+      created_at: '2026-01-15T00:00:00.000Z',
+      disagreement: null,
+    },
+  ],
+};
+
+/** A change request Trimble sent the caller about the owned, claimed row. */
+export const CONTEST_RECEIVED_ON_OWNED: VendorContest = {
+  id: '00000000-0000-4000-8000-000000005c31',
+  integration_id: INTEGRATION_OWNED_CLAIMED.id,
+  anchor: 'integration',
+  integration_name: INTEGRATION_OWNED_CLAIMED.name,
+  context_product: CONTEXT_PRIMARY,
+  other_product: OTHER_TRIMBLE,
+  field: 'maturity',
+  current_value: 'Beta',
+  proposed_value: 'Generally available',
+  current_label: null,
+  proposed_label: null,
+  reason: 'The Trimble Connect side left beta in March 2026. Our release notes for 2026.1 say so.',
+  routed_to: 'owner',
+  status: 'open',
+  submitter_vendor: TRIMBLE_VENDOR,
+  owner_vendor: SUMMIT_VENDOR,
+  decision_note: null,
+  decided_at: null,
+  created_at: '2026-09-22T14:10:00.000Z',
+  updated_at: '2026-09-22T14:10:00.000Z',
+  protest: null,
+  protest_opens_at: null,
+  protest_closes_at: null,
+  protest_basis: null,
+  cooldown_until: null,
+};
+
+/** A closed request Trimble sent, for the owned row's history. */
+export const CONTEST_RECEIVED_CLOSED_ON_OWNED: VendorContest = {
+  ...CONTEST_RECEIVED_ON_OWNED,
+  id: '00000000-0000-4000-8000-000000005c32',
+  field: 'description',
+  current_value: 'Opens Trimble Connect projects inside Summit.',
+  proposed_value: 'Opens Trimble Connect projects inside Summit Model Coordination.',
+  reason: 'The product name is Summit Model Coordination.',
+  status: 'accepted',
+  decision_note: 'Agreed, thank you.',
+  decided_at: '2026-08-14T09:00:00.000Z',
+  created_at: '2026-08-12T09:00:00.000Z',
+  updated_at: '2026-08-14T09:00:00.000Z',
 };

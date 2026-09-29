@@ -96,6 +96,17 @@ export const VENDOR_SECTION_ROUTES: Routes = [
         loadComponent: () =>
           import('./sections/vendor-integrations-page').then((m) => m.VendorIntegrationsPage),
       },
+      // AECI-1149 (§6.17.1): one integration's page, BESIDE the list rather than
+      // under it, so the list stays a leaf route and its query state is its own.
+      // The entry is the one whose id is `:integrationId` and whose context product
+      // is this product: an owns-both integration has a page under each product.
+      {
+        path: 'integrations/:integrationId',
+        loadComponent: () =>
+          import('./integration-detail/vendor-integration-detail-page').then(
+            (m) => m.VendorIntegrationDetailPage,
+          ),
+      },
       // AECI-1083: the connector catalogue seat's screen. The product row shows the
       // tab on `connector`-role products only; the page covers a typed URL.
       {

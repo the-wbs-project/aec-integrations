@@ -126,6 +126,7 @@ type SocialKey = 'linkedin' | 'x' | 'youtube' | 'facebook' | 'instagram';
                 <aec-maintenance-marker
                   [maintainedBy]="v.maintenance.maintained_by"
                   [reviewedAt]="v.maintenance.last_reviewed_at"
+                  [ownerName]="v.company_name"
                 />
               </div>
               <h1

@@ -7,8 +7,9 @@
  * `GET /api/products/:slug/integrations/:otherSlug` over the `API` service
  * binding rather than querying D1 themselves. That is the whole point: those
  * handlers already run the shipped column allowlists and mappers in
- * `apps/api/src/lib/drizzle-helpers.ts`, including `readerFacingNote()`, so the
- * agent cannot surface a field the public site does not. Reimplementing the
+ * `apps/api/src/lib/drizzle-helpers.ts`, including the rule that no attestation
+ * note is reader-facing (AECI-779, AECI-1139), so the agent cannot surface a
+ * field the public site does not. Reimplementing the
  * mappers here would mean maintaining a second copy of a rule that has already
  * leaked once (AECI-779, `attestations.note`, from two mappers at once).
  *

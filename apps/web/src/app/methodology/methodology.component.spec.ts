@@ -69,10 +69,10 @@ describe('MethodologyPage', () => {
     // These four strings are the visible labels in products/agreement-badge.ts.
     // If that component's copy changes, this page has to change with it, which
     // is the drift this assertion exists to catch.
-    expect(text).toContain('Unverified · AECi');
+    expect(text).toContain('Listed by AEC Integrations');
     expect(text).toContain('Confirmed by');
-    expect(text).toContain('Both vendors confirmed');
-    expect(text).toContain('Vendors disagree');
+    expect(text).toContain('Confirmed by both companies');
+    expect(text).toContain('Companies disagree');
   });
 
   it('qualifies the agreement ladder as not yet reachable (AC2: no aspirational claims)', () => {

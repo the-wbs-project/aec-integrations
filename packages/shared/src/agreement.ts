@@ -115,6 +115,86 @@ export function computeAgreement(attestations: readonly AgreementAttestation[]):
 }
 
 /**
+ * One attestation row as {@link conflictSince} replays it: the vote, plus the two
+ * instants that bound its life. Live AND retracted rows, because the history is
+ * append-only (supersession is retract-then-insert, and a retract stamps
+ * `retracted_at` rather than deleting).
+ */
+export interface HistoricalAttestation extends AgreementAttestation {
+  /** ISO-8601. When the row was written. */
+  readonly createdAt: string;
+}
+
+/** An ISO instant as epoch ms, tolerating the SQLite `YYYY-MM-DD HH:MM:SS` form a
+ *  hand-written seed may use. `NaN` when it cannot be read. */
+function instantMs(value: string): number {
+  // `Date.parse` reads a zone-less `YYYY-MM-DD HH:MM:SS` as LOCAL time. SQLite's
+  // `CURRENT_TIMESTAMP` is UTC, so pin that form to UTC before parsing.
+  if (/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}(:\d{2}(\.\d+)?)?$/.test(value)) {
+    return Date.parse(`${value.replace(' ', 'T')}Z`);
+  }
+  return Date.parse(value);
+}
+
+/**
+ * When the claim's agreement last became `conflict`: the start of the current,
+ * unbroken run of `conflict`, or `null` when the claim is not in `conflict` now
+ * (AECI-1153 / `API_CONTRACTS.md` §6.14, the `disagreement.raised_at` rule).
+ *
+ * Derived, never stored. The rule:
+ *
+ * 1. Take every vendor attestation row of the claim, live and retracted.
+ * 2. Collect the distinct instants in `createdAt` and `retractedAt`, ascending.
+ * 3. At each instant *t* the live set is the rows with `createdAt <= t` and
+ *    (`retractedAt` null or `retractedAt > t`). Its agreement is
+ *    {@link computeAgreement} of that set, so every §4.5 rule applies unchanged:
+ *    votes deduped by vendor, null identities folded into one voter, and a
+ *    self-contradicting voter read as `unverified`.
+ * 4. The answer is the earliest instant from which the agreement is `conflict` at
+ *    every later instant.
+ *
+ * A `PUT` retracts and inserts under one `now`, so a same-stance re-write (a note
+ * edit) leaves no gap and does not move the answer. The identities are today's, so
+ * the replay ends in exactly today's agreement. **It is not the `open-conflict`
+ * detector's clock**, which measures from the newest live vote.
+ *
+ * Returns an ISO-8601 string. Rows whose instants cannot be read are ignored.
+ */
+export function conflictSince(rows: readonly HistoricalAttestation[]): string | null {
+  const vendorRows = rows.filter(
+    (row) => row.source !== 'aeci' && !Number.isNaN(instantMs(row.createdAt)),
+  );
+  const instants = new Set<number>();
+  for (const row of vendorRows) {
+    instants.add(instantMs(row.createdAt));
+    if (row.retractedAt !== null) {
+      const retracted = instantMs(row.retractedAt);
+      if (!Number.isNaN(retracted)) instants.add(retracted);
+    }
+  }
+  const ordered = [...instants].sort((a, b) => a - b);
+  let since: number | null = null;
+  for (const t of ordered) {
+    const live = vendorRows
+      .filter((row) => {
+        if (instantMs(row.createdAt) > t) return false;
+        if (row.retractedAt === null) return true;
+        const retracted = instantMs(row.retractedAt);
+        return Number.isNaN(retracted) || retracted > t;
+      })
+      // `computeAgreement` re-checks `retractedAt`. The replay has already decided
+      // liveness at `t`, so each row enters as live.
+      .map((row) => ({ ...row, retractedAt: null }));
+    if (computeAgreement(live) === 'conflict') {
+      since ??= t;
+    } else {
+      since = null;
+    }
+  }
+  return since === null ? null : new Date(since).toISOString();
+}
+
+/**
  * Whether a claim's live vendor votes are **unanimously denials** — at least
  * one distinct voter, none affirming.
  *
@@ -164,7 +244,7 @@ export function distinctDataObjectSlugs(
  * AECI-1042). `total` is the number of **distinct `data_object` slugs** across the
  * pair's claims — all directions, all mechanisms, both delivered anchors. A
  * data_object moving through two mechanisms, or in both directions, counts once:
- * the header reads "N data objects sync", and before AECI-1042 a second integration
+ * the header reads "N types of data shared", and before AECI-1042 a second integration
  * (or a duplicate row) that moved the same object inflated N.
  *
  * `confirmed` counts data objects with at least one claim two distinct vendors
@@ -177,6 +257,12 @@ export function distinctDataObjectSlugs(
  * headline may never fold a one-sided assertion into the bilateral count. Both
  * are `0` until the Stage 2 portal lands, so the headline still communicates
  * breadth with an honest "Unverified" posture rather than a fake trust signal.
+ *
+ * **No reader renders `confirmed` or `single_source` since AECI-1142.** Ruling
+ * 2026-09-28 (Chris): the summary band and ratio line are replaced by the per-card
+ * At a glance row, so the pair page reads `total` only. The two counts stay on the
+ * wire (dropping them is a breaking contract change for no gain), and the
+ * per-row agreement badges carry the same information claim by claim.
  */
 export function computeSyncHeadline(claims: readonly SyncHeadlineClaim[]): {
   total: number;

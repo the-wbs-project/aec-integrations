@@ -2,9 +2,10 @@ import { z } from 'zod';
 
 import {
   CONTEST_VALUE_MAX_LENGTH,
-  INTEGRATION_CONTEST_FIELDS,
+  INTEGRATION_OFFERED_CONTEST_FIELDS,
   contestValueProblem,
-  type IntegrationContestField,
+  isHttpUrl,
+  type OfferedContestField,
 } from './integration-contests';
 import { IntegrationMechanismKindSchema, type IntegrationMechanismKind } from './integrations';
 
@@ -16,11 +17,13 @@ import { IntegrationMechanismKindSchema, type IntegrationMechanismKind } from '.
  *
  * Five rules the shapes encode:
  *
- * 1. **The standard fields are the contestable content fields.** AECI-1008 named
- *    them: the eleven `integrations` columns a non-owner may contest. The owner
- *    edits exactly those. `owner` is not here (reassigning the owner is AECi's
- *    decision, through an `owner` contest), and neither is `notes`, which is
- *    AECi's own curation column and is not contestable either (§11b.3).
+ * 1. **The standard fields are the OFFERED contest fields, plus one edit-only
+ *    field** (AECI-1154, AECI-1155 / §6.17.11). The owner edits every field a
+ *    non-owner may contest, minus `owner` (reassigning the owner is AECi's
+ *    decision, through an `owner` contest), plus `pricing_url`, which the owner
+ *    edits but nobody contests. `website` and `mechanism_url` are stored but no
+ *    longer offered (ruled 2026-09-28). `notes` is AECi's own curation column and
+ *    is in neither list (§11b.3).
  * 2. **Only a claimed owner edits.** The server compares the session's vendor with
  *    `built_by_vendor_id` and requires `claimed_at`. An owner that has not claimed
  *    gets `409 INTEGRATION_NOT_CLAIMED`. Nothing in the body says who owns what.
@@ -38,17 +41,47 @@ import { IntegrationMechanismKindSchema, type IntegrationMechanismKind } from '.
  *    (AECI-1090, AECI-1040 ruling 5). On a connector-powered row the owner edits
  *    {@link CONNECTOR_POWERED_EDIT_FIELDS}: every field but `mechanism_kind`,
  *    which decides the row's lane. A `connector_evidenced_pairs` row has no such
- *    column at all, so the same ten fields are its whole edit set.
+ *    column at all, so the same nine fields are its whole edit set.
  *
  * i18n note: framework-agnostic package (no `$localize`). The messages below are
  * for API consumers and logs; the portal renders its own copy.
  */
 
-/** The eleven fields an owner edits: every contestable field except `owner`. */
-export const INTEGRATION_EDIT_FIELDS = INTEGRATION_CONTEST_FIELDS.filter(
-  (field): field is Exclude<IntegrationContestField, 'owner'> => field !== 'owner',
-);
-export type IntegrationEditField = Exclude<IntegrationContestField, 'owner'>;
+/**
+ * The edit-only fields: an owner edits them, nobody contests them (§6.17.11). Not
+ * in `INTEGRATION_CONTEST_FIELDS`, so the contest CHECK is untouched. Making one
+ * contestable later changes that CHECK and rebuilds `integration_field_challenges`
+ * (`DATABASE_SCHEMA.md` §8.7), which is a data-loss hazard on D1.
+ */
+export const INTEGRATION_EDIT_ONLY_FIELDS = ['pricing_url'] as const;
+export type IntegrationEditOnlyField = (typeof INTEGRATION_EDIT_ONLY_FIELDS)[number];
+
+export type IntegrationEditField = Exclude<OfferedContestField, 'owner'> | IntegrationEditOnlyField;
+
+/**
+ * The ten fields an owner edits, in this order: every OFFERED contest field
+ * except `owner`, then the edit-only `pricing_url` (AECI-1154, AECI-1155).
+ */
+export const INTEGRATION_EDIT_FIELDS: readonly IntegrationEditField[] = [
+  ...INTEGRATION_OFFERED_CONTEST_FIELDS.filter(
+    (field): field is Exclude<OfferedContestField, 'owner'> => field !== 'owner',
+  ),
+  ...INTEGRATION_EDIT_ONLY_FIELDS,
+];
+
+/** Per-field length ceilings for an edit: the contest ceilings, plus the practical
+ *  URL ceiling for `pricing_url`. */
+export const INTEGRATION_EDIT_MAX_LENGTH: Readonly<Record<IntegrationEditField, number>> =
+  Object.fromEntries(
+    INTEGRATION_EDIT_FIELDS.map((field) => [
+      field,
+      field === 'pricing_url' ? 2048 : CONTEST_VALUE_MAX_LENGTH[field],
+    ]),
+  ) as Record<IntegrationEditField, number>;
+
+/** The edit fields that must carry an absolute `http(s)` URL. */
+export const INTEGRATION_EDIT_URL_FIELDS: ReadonlySet<IntegrationEditField> =
+  new Set<IntegrationEditField>(['listing_url', 'docs_url', 'pricing_url']);
 
 /**
  * The fields an owner edits on a connector-powered row (AECI-1090 / AECI-1040
@@ -90,8 +123,9 @@ export const OWNER_EDITABLE_MECHANISM_KINDS: readonly IntegrationMechanismKind[]
  *
  * `value` is the WIRE form (`direction` caller-relative). It reuses the contest
  * rule for everything a contest also checks (lengths, `http(s)` URLs, the two
- * enums) and adds the two rules only an edit has: clearing a required field, and
- * choosing a connector-delivered kind.
+ * enums) and adds the rules only an edit has: clearing a required field, choosing
+ * a connector-delivered kind, and the edit-only `pricing_url` (an absolute
+ * `http(s)` URL of at most 2,048 characters, or `null` to clear).
  */
 export function integrationEditValueProblem(
   field: IntegrationEditField,
@@ -99,6 +133,14 @@ export function integrationEditValueProblem(
 ): string | null {
   if (value === null) {
     return INTEGRATION_EDIT_REQUIRED_FIELDS.has(field) ? 'This field cannot be cleared' : null;
+  }
+  // AECI-1154. The edit-only field has no contest rule to borrow.
+  if (field === 'pricing_url') {
+    if (value.length === 0) return null;
+    if (value.length > INTEGRATION_EDIT_MAX_LENGTH.pricing_url) {
+      return `The value is longer than ${INTEGRATION_EDIT_MAX_LENGTH.pricing_url} characters`;
+    }
+    return isHttpUrl(value) ? null : 'The value must be an absolute http(s) URL';
   }
   const problem = contestValueProblem(field, value);
   if (problem) return problem;
@@ -113,12 +155,12 @@ export function integrationEditValueProblem(
 
 /** One field on the PATCH: trimmed, capped, `null` to clear, omitted to leave. An
  *  empty string after trimming means "clear", like `null`. Exported for the
- *  AECI-1011 create body, which takes the same eleven fields with the same caps. */
+ *  AECI-1011 create body, which takes the same ten fields with the same caps. */
 export function integrationEditFieldSchema(field: IntegrationEditField) {
   return z
     .string()
     .trim()
-    .max(CONTEST_VALUE_MAX_LENGTH[field])
+    .max(INTEGRATION_EDIT_MAX_LENGTH[field])
     .transform((value) => (value === '' ? null : value))
     .nullable()
     .optional();
@@ -128,7 +170,9 @@ export function integrationEditFieldSchema(field: IntegrationEditField) {
  * `PATCH /api/vendor/integrations/:id`.
  *
  * `.strict()`: an unknown key, `owner`, `notes` and `built_by_vendor_id` included,
- * is a `400` rather than a silently dropped field. At least one field is required.
+ * is a `400` rather than a silently dropped field. So are `website` and
+ * `mechanism_url` since AECI-1155: the portal no longer offers them, and a body
+ * naming either is refused rather than dropped. At least one field is required.
  * `context_product_id` frames `direction`; it must be one of the integration's two
  * endpoint products, and omitted means the caller's own endpoint (source first).
  */
@@ -141,10 +185,9 @@ export const UpdateVendorIntegrationSchema = z
     description: integrationEditFieldSchema('description'),
     listing_url: integrationEditFieldSchema('listing_url'),
     docs_url: integrationEditFieldSchema('docs_url'),
-    website: integrationEditFieldSchema('website'),
-    mechanism_url: integrationEditFieldSchema('mechanism_url'),
     pricing_model: integrationEditFieldSchema('pricing_model'),
     maturity: integrationEditFieldSchema('maturity'),
+    pricing_url: integrationEditFieldSchema('pricing_url'),
     context_product_id: z.string().uuid().nullable().optional(),
   })
   .strict()

@@ -3,9 +3,11 @@ import { describe, expect, it } from 'vitest';
 import {
   computeAgreement,
   computeSyncHeadline,
+  conflictSince,
   distinctDataObjectSlugs,
   isClaimRefuted,
   type AgreementAttestation,
+  type HistoricalAttestation,
   type SyncHeadlineClaim,
 } from './agreement';
 
@@ -281,5 +283,79 @@ describe('distinctDataObjectSlugs (AECI-711)', () => {
       { agreement: 'unverified' as const, data_object_slug: 'models' },
     ];
     expect(computeSyncHeadline(claims).total).toBe(distinctDataObjectSlugs(claims).length);
+  });
+});
+
+describe('conflictSince (AECI-1153, the disagreement.raised_at rule)', () => {
+  const T = (minute: number) => `2026-09-28T10:${String(minute).padStart(2, '0')}:00.000Z`;
+  const row = (
+    vendor: string | null,
+    asserted: boolean,
+    createdAt: string,
+    retractedAt: string | null = null,
+    source = 'vendor_a',
+  ): HistoricalAttestation => ({
+    source,
+    asserted,
+    attestedByVendorId: vendor,
+    createdAt,
+    retractedAt,
+  });
+
+  it('is null when the claim is not in conflict now', () => {
+    expect(conflictSince([])).toBeNull();
+    expect(conflictSince([row(ACME, true, T(0))])).toBeNull();
+    expect(
+      conflictSince([row(ACME, true, T(0)), row(GLOBEX, true, T(1), null, 'vendor_b')]),
+    ).toBeNull();
+  });
+
+  it('is the instant the second, opposing vote landed', () => {
+    const rows = [row(ACME, true, T(0)), row(GLOBEX, false, T(5), null, 'vendor_b')];
+    expect(computeAgreement(rows)).toBe('conflict');
+    expect(conflictSince(rows)).toBe(T(5));
+  });
+
+  it('does not move on a same-stance re-write, which retracts and inserts under one now', () => {
+    const rows = [
+      row(ACME, true, T(0)),
+      row(GLOBEX, false, T(5), T(9), 'vendor_b'),
+      row(GLOBEX, false, T(9), null, 'vendor_b'),
+    ];
+    expect(conflictSince(rows)).toBe(T(5));
+  });
+
+  it('restarts after the conflict was resolved and raised again', () => {
+    const rows = [
+      row(ACME, true, T(0)),
+      row(GLOBEX, false, T(5), T(10), 'vendor_b'),
+      row(GLOBEX, true, T(10), T(20), 'vendor_b'),
+      row(GLOBEX, false, T(20), null, 'vendor_b'),
+    ];
+    expect(conflictSince(rows)).toBe(T(20));
+  });
+
+  it('ignores the AECi seed, which never votes', () => {
+    const rows = [
+      row(null, false, T(0), null, 'aeci'),
+      row(ACME, true, T(3)),
+      row(GLOBEX, false, T(7), null, 'vendor_b'),
+    ];
+    expect(conflictSince(rows)).toBe(T(7));
+  });
+
+  it('ends in the agreement of today when a deleted vendor nulled an identity', () => {
+    // Two orphaned votes fold into one voter, so this is not a conflict today.
+    const rows = [row(null, true, T(0)), row(null, false, T(4), null, 'vendor_b')];
+    expect(computeAgreement(rows)).not.toBe('conflict');
+    expect(conflictSince(rows)).toBeNull();
+  });
+
+  it('reads the SQLite timestamp form a seed may use', () => {
+    const rows = [
+      row(ACME, true, '2026-09-28 10:00:00'),
+      row(GLOBEX, false, '2026-09-28 10:05:00', null, 'vendor_b'),
+    ];
+    expect(conflictSince(rows)).toBe(T(5));
   });
 });

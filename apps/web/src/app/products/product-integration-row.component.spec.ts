@@ -212,7 +212,7 @@ describe('ProductIntegrationRow', () => {
         integration: signal({ ...baseIntegration, data_object_slugs: ['rfis', 'models'] }),
       });
       const chip = el.querySelector('[data-testid="row-data-objects"]');
-      expect(chip?.textContent?.trim()).toBe('2 data objects');
+      expect(chip?.textContent?.trim()).toBe('2 types of data');
       // Same cell, same wrapper as the mechanism badge: the same visual weight.
       expect(chip?.parentElement?.textContent).toContain('API');
     });
@@ -222,7 +222,7 @@ describe('ProductIntegrationRow', () => {
         integration: signal({ ...baseIntegration, data_object_slugs: ['rfis'] }),
       });
       expect(el.querySelector('[data-testid="row-data-objects"]')?.textContent?.trim()).toBe(
-        '1 data object',
+        '1 type of data',
       );
     });
 
@@ -231,7 +231,7 @@ describe('ProductIntegrationRow', () => {
         integration: signal({ ...baseIntegration, data_object_slugs: ['rfis', 'models'] }),
       });
       const sub = el.querySelector('[data-testid="row-data-objects-sublabel"]');
-      expect(sub?.textContent?.trim()).toBe('2 data objects');
+      expect(sub?.textContent?.trim()).toBe('2 types of data');
       expect(sub?.classList).toContain('md:hidden');
     });
 
@@ -258,7 +258,7 @@ describe('ProductIntegrationRow', () => {
       });
       expect(el.querySelector('span[aria-label="Mechanism not listed"]')).toBeNull();
       expect(el.querySelector('[data-testid="row-data-objects"]')?.textContent?.trim()).toBe(
-        '2 data objects',
+        '2 types of data',
       );
     });
 

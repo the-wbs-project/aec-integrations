@@ -409,6 +409,14 @@ and each lane's two version pickers (`vendor/components/vendor-attestation-contr
 trigger read as a custom widget in the middle of a plain form, and a native select gives the same
 closed-list guarantee with platform keyboard and type-to-find behaviour.
 
+> **Both files named above were retired by AECI-1156 (2026-09-28).** The integration detail page
+> (`STAGE_2_VENDOR_PORTAL_SPEC.md` §6.17) replaced the Integrations-tab drill-down. The same native
+> `<select>` exception now applies in its place: the data and direction pickers in
+> `vendor/integration-detail/integration-shared-data.ts`, and the right-direction picker in
+> `vendor/integration-detail/integration-answer-form.ts`. Version pickers are not offered on the new
+> page in v1 (`STAGE_2_VENDOR_PORTAL_SPEC.md` §6.17, "What is not in v1"), so that half of the original
+> reference has no current equivalent.
+
 The exception is narrow. A native `<select>` is allowed when **all** of these hold:
 
 - the field takes **one** value from a **closed** list, so there is no free text to reject;

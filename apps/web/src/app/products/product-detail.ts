@@ -164,6 +164,7 @@ import { RoleBadge } from './role-badge';
                 <aec-maintenance-marker
                   [maintainedBy]="p.maintenance.maintained_by"
                   [reviewedAt]="p.maintenance.last_reviewed_at"
+                  [ownerName]="p.vendor?.name ?? null"
                 />
               </div>
               <h1

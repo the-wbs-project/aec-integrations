@@ -365,6 +365,13 @@
       "when": 1790563161044,
       "tag": "0051_cold_roland_deschain",
       "breakpoints": true
+    },
+    {
+      "idx": 52,
+      "version": "6",
+      "when": 1790584697027,
+      "tag": "0052_sticky_gamma_corps",
+      "breakpoints": true
     }
   ]
 }

@@ -483,7 +483,7 @@ Every page sets:
     integrations across its products, and it is zero for almost every vendor.
   - **The trust line must not claim verification.** `/methodology` states that vendor accounts opened in
     September 2026, that most claims and integrations are still recorded by AEC Integrations, and
-    that readers will see "Unverified · AECi" nearly everywhere (wording since AECI-1023) (`STAGE_2_5_SPEC.md` §7.1). A snippet saying
+    that readers will see "Listed by AEC Integrations" nearly everywhere (wording since AECI-1142; "Unverified · AECi" from AECI-1023) (`STAGE_2_5_SPEC.md` §7.1). A snippet saying
     "vendor-verified" would contradict our own trust page on every indexed URL. When the first seat
     is granted this line becomes revisable, alongside the other edits §7.1 records as owed.
 

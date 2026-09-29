@@ -140,7 +140,7 @@ export interface DataObjectListing {
  * Note that **today's only consumer does not observe this order.** The vendor
  * dashboard's picker re-sorts alphabetically by label client-side, on the
  * argument that finding a known term is a different job from reading a lane list
- * (`vendor-add-claim-form.ts`, `dataObjectOptions`). The wire order stays
+ * (`integration-shared-data.ts`, `dataOptions`). The wire order stays
  * lifecycle-ordered anyway, and is pinned by a spec: an endpoint returning a
  * documented list should have one defined order rather than whatever the planner
  * picks, and the next consumer that renders these rows *as lanes* — where the

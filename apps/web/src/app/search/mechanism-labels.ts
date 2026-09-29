@@ -147,8 +147,9 @@ export function contextDirectionLabel(direction: ContextDirection | null): Conte
 }
 
 /**
- * The depth axis's object-coverage label (AECI-711): "1 data object" /
- * "N data objects", for an integration row and a pair-page mechanism card alike,
+ * The depth axis's object-coverage label (AECI-711): "1 type of data" /
+ * "N types of data" (reader wording since AECI-1142; the model still calls them
+ * data objects), for an integration row and a pair-page mechanism card alike,
  * so the two surfaces cannot word the same count two ways. `''` for `0`, which
  * the caller renders as nothing at all — the 2026-09-22 ruling forbids a
  * "not specified" marker. Singular and plural are separate ids rather than an ICU
@@ -157,6 +158,6 @@ export function contextDirectionLabel(direction: ContextDirection | null): Conte
 export function dataObjectCountLabel(count: number): string {
   if (count <= 0) return '';
   return count === 1
-    ? $localize`:@@integrations.dataObjects.one:1 data object`
-    : $localize`:@@integrations.dataObjects.other:${count}:count: data objects`;
+    ? $localize`:@@integrations.dataObjects.one:1 type of data`
+    : $localize`:@@integrations.dataObjects.other:${count}:count: types of data`;
 }

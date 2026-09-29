@@ -98,8 +98,8 @@ export type ClaimOutcome =
  * `mine.length > 1` means the caller owns **both** endpoints of the integration.
  *
  * A write applies one position to every slot the caller owns (`§5.2`, and the
- * `divergentSlots` computation in `vendor-attestation-control.ts` reads the same
- * signal), so two own rows can only mean two owned slots. It matters here because
+ * integration detail page's `integration-detail-model.ts` reads the same
+ * `mine.length` signal), so two own rows can only mean two owned slots. It matters here because
  * **both** §7 detectors that name a counterparty resolve it from `unvotedSlots`
  * — the slots with no live vendor attestation — and when the caller holds both,
  * that set is empty. So neither `detectClaimDenied`'s counterparty finding nor

@@ -100,7 +100,8 @@ const INTEGRATION_UPDATED_ACTION = 'integration.updated';
 type EvidencedEditField = Exclude<IntegrationEditField, 'mechanism_kind'>;
 
 /** Wire field → `connector_evidenced_pairs` column. The table has every standard
- *  column `integrations` has except `mechanism_kind` (`schema.ts`). */
+ *  column `integrations` has except `mechanism_kind` (`schema.ts`). Since AECI-1155
+ *  `website` and `mechanism_url` are not edit fields; their columns stay. */
 export const EVIDENCED_EDIT_COLUMNS = {
   name: 'name',
   mechanism_name: 'mechanismName',
@@ -108,10 +109,10 @@ export const EVIDENCED_EDIT_COLUMNS = {
   description: 'description',
   listing_url: 'listingUrl',
   docs_url: 'docsUrl',
-  website: 'website',
-  mechanism_url: 'mechanismUrl',
   pricing_model: 'pricingModel',
   maturity: 'maturity',
+  // AECI-1154: the owner's pricing page link, edit-only (§6.17.11).
+  pricing_url: 'pricingUrl',
 } as const satisfies Record<EvidencedEditField, keyof EvidencedPairRow>;
 
 const EDIT_FIELDS = CONNECTOR_POWERED_EDIT_FIELDS as readonly EvidencedEditField[];

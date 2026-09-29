@@ -335,7 +335,7 @@ create index products_updated_at_idx on products(updated_at desc);
 
 It buys nothing *today*, and that is expected: `products.created_at` already answers the same question exactly, because promote is D1's only INSERT path into `products` and retraction is a hard delete (`ADMIN_PANEL_SPEC.md` §4's correction — the "a row sits at `'ready'` before going live" claim describes the **review app's** lifecycle, not AECi's). The column is future-proofing: the moment a Tier-1 retract endpoint introduces a real un-promote → re-promote cycle, `created_at` stops tracking go-live and the history cannot be reconstructed retroactively. Backfilled `:= created_at` — **exact**, no approximation — by `scripts/ops/backfill-products-promoted-at.sql`, run once per environment. Not indexed: nothing filters or sorts on it yet.
 
-`last_reviewed_at` / `maintained_by` (AECI-616 / `STAGE_2_ATTESTATIONS_SPEC.md` §13) feed the **maintenance marker** — the `Maintained by AEC Integrations. Reviewed <date>.` chip on product detail, vendor detail, and the pair page. They exist on `vendors`, `products`, `integrations`, and `connector_evidenced_pairs` alike. Three rules, all load-bearing:
+`last_reviewed_at` / `maintained_by` (AECI-616 / `STAGE_2_ATTESTATIONS_SPEC.md` §13) feed the **maintenance marker** — the `AEC Integrations maintained · Reviewed <date>` chip on product detail, vendor detail, and the pair page. They exist on `vendors`, `products`, `integrations`, and `connector_evidenced_pairs` alike. Three rules, all load-bearing:
 
 1. **`last_reviewed_at` is a plain column.** It is deliberately NOT `.$onUpdate(...)` (unlike `updated_at`) and has no default. It is written by exactly three paths: an explicit `lastReviewedAt` in the promote payload (`REVIEW_APP_PROMOTE_API.md` §3.2/§3.3/§3.4), a vendor attestation (`STAGE_2_ATTESTATIONS_SPEC.md` §5), and — since AECI-981 — **any vendor-authorized catalog write** (`STAGE_2_ATTESTATIONS_SPEC.md` §13.9: the vendor profile PATCH, the vendor product PATCH, and the three product-version writes). **Omitting the promote field leaves it untouched** — that absence is the "no review happened" signal, and it is what stops a bulk re-promote re-advertising the whole catalog as freshly checked. The promote path additionally **refuses** a supplied value on a row where `maintained_by = 'vendor'`, reporting it as a `kind: 'review-signal'` entry in `skipped[]`: the marker renders this one column as `Reviewed <date>` in the AECi branch and `Updated <date>` in the vendor branch, so an AECi review date on a vendor-maintained row credits AECi's work to the vendor.
 2. **Never source it from `updated_at`, `created_at`, or `promoted_at`, and never backfill it.** `updated_at` restamps on any write and promote re-asserts `promotion_status` on every push, so in production 60 products share a single `updated_at` day and 40 share another: it is a bulk-sweep timestamp, not a review timestamp. Migration `0018` adds the column with **no backfill statement**, permanently — every pre-existing row stays `NULL` and renders bare attribution with no date, which is the honest reading rather than missing data.
@@ -394,6 +394,9 @@ create table integrations (
   pricing_model text,
   maturity text,
   notes text,
+  -- AECI-1154 (migration 0052_sticky_gamma_corps): the owner's pricing page link.
+  -- A plain ADD COLUMN, nullable, no default, no CHECK. Not contestable. Promote never writes it.
+  pricing_url text,
 
   -- Maintenance marker (AECI-616). `last_reviewed_at` is a PLAIN column — never
   -- `$onUpdate`, never backfilled from created_at/updated_at/promoted_at.
@@ -474,6 +477,32 @@ create index integrations_powered_by_idx on integrations(powered_by_product_id) 
 > recreated. Its cascade children (`claims` → `attestations`, `integration_field_challenges`,
 > and since `0045` `integration_vendor_links`) are exactly what a recreate's DROP would have
 > destroyed; `src/test/migration-0044.spec.ts` is the tripwire.
+
+> **`pricing_url` (AECI-1154, specified 2026-09-28; migrated by `0052_sticky_gamma_corps.sql`,
+> tripwire `src/test/migration-0052.spec.ts`).** The owner's
+> link to where customers see the price, shown as the "Price" fact on the public pair card
+> (`STAGE_2_VENDOR_PORTAL_SPEC.md` §6.17.11, `API_CONTRACTS.md` §6.14). The same column goes on
+> `connector_evidenced_pairs` (§9a.6), because an entitled owner edits its rows there too
+> (AECI-1090). Four rules, each a data-loss control:
+>
+> - **A plain `ALTER TABLE … ADD COLUMN pricing_url text`, nullable, with no default and no
+>   CHECK**, on each table. Read the SQL drizzle-kit generates before merging: any CHECK or
+>   constraint change on either table renders as a DROP and recreate, and on D1 a recreate's DROP
+>   fires `ON DELETE CASCADE` two levels deep into `claims`, `attestations`,
+>   `integration_field_challenges` and `integration_vendor_links`. `PRAGMA defer_foreign_keys`
+>   does not stop it (`docs/migrations.md` §0 and §3.3a, ADR 0018). The URL rule lives in
+>   `integrationEditValueProblem`, in the app layer only.
+> - **Not contestable, so the contest CHECK does not change.** `pricing_url` is not in
+>   `INTEGRATION_CONTEST_FIELDS`, which `integration_field_challenges_field_check` mirrors (§8.7).
+>   The owner edit list gains it as an edit-only member instead. Making it contestable later would
+>   change that CHECK and rebuild `integration_field_challenges`, which is only safe while nothing
+>   references that table (§8.7's 0050 note).
+> - **Promote never writes it**, so the review app has nothing to send and nothing can overwrite
+>   an owner's value. A promote cross-table move (`REVIEW_APP_PROMOTE_API.md` §3.4a) copies the
+>   row's columns into the other table; the move must carry `pricing_url` with them, or a value set
+>   while the row was claimed would be lost when a later un-claim lets the row move.
+> - **An un-claimed row keeps its value.** A cleared claim (§11b.6 of the portal spec, AECI-989)
+>   leaves `pricing_url` in place, because promote cannot curate it. The next owner edits it.
 
 **Inverse relation on `products` (Stage 1.5 Addendum B — no schema change).** The
 Drizzle relations file declares
@@ -846,7 +875,8 @@ create index attestations_active_idx on attestations(claim_id) where retracted_a
 - **`attested_by_vendor_id` records which identity filled the slot**, because `confirmed` requires **two distinct** identities: one company owning both endpoints of an integration can affirm both slots and must still render as one-sided (`STAGE_2_ATTESTATIONS_SPEC.md` §4). Deleting the vendor nulls the column and keeps the historical assertion — and because that leaves a **live row with no identity**, `computeAgreement` folds every null-identity vote into a single voter bucket so orphans can never add up to `confirmed`.
 - **Who reads `retracted_at`.** Both claim-loading read configs — `integrationPairConfig` (the pair page) and `productDetailIntegrationConfig` (the product-detail direction readout) — filter `retracted_at is null` via the shared `liveAttestationsWhere` in `apps/api/src/lib/drizzle-helpers.ts` (AECI-605). `computeAgreement` re-checks the column itself, so the shared engine stays safe for callers that assemble attestations another way. Nothing reads `deprecated_at` as a gate.
 - **Agreement is computed, never stored** (§3.4, ADR 0018; `packages/shared/src/agreement.ts`) — four states, `unverified | single_source | confirmed | conflict`.
-- **`note` has an audience, and it depends on `source`** (AECI-779, `STAGE_1_5_SPEC.md` §3.3). An `aeci`-sourced note is **curation-internal** — the AECI-299 seed pass wrote machine-prefixed research annotations there — and is nulled at every reader mapper by `readerFacingNote` (`apps/api/src/lib/drizzle-helpers.ts`), which both `toPairClaimAttestation` and `toClaimTimelineEntry` call. A **vendor**-authored note is a deliberate authoring field (`STAGE_2_ATTESTATIONS_SPEC.md` §6) and renders. The column stores both unchanged; the distinction is a read rule, not a constraint.
+- **When a disagreement was raised is computed too, and needs no column** (AECI-1153, specified 2026-09-28). The vendor read's `disagreement.raised_at` is the start of the claim's current unbroken run of `conflict` (`API_CONTRACTS.md` §6.14). Because supersession is retract-then-insert under one timestamp and nothing deletes a vendor row short of a cascade, `created_at` and `retracted_at` on this table replay every past agreement exactly. A stored `conflict_since` was rejected for three reasons: agreement is never stored (ADR 0018), so a stored start would be derived state that every attestation writer must keep in step; an `ON DELETE SET NULL` on `attested_by_vendor_id` can end a conflict with no application code to update it; and the replay costs one extra read, for conflict claims only.
+- **`note` is never public** (AECI-779, AECI-1139; `STAGE_1_5_SPEC.md` §3.3, `STAGE_2_ATTESTATIONS_SPEC.md` §4.3). An `aeci`-sourced note is **curation-internal**: the AECI-299 seed pass wrote machine-prefixed research annotations there. A **vendor**-authored note, affirm or deny, is seen only by the other company (the portal's `counterparty`), its author (`mine`) and AECi (the `attestation.*` audit row). The public pair and timeline read configs in `apps/api/src/lib/drizzle-helpers.ts` do not select the column, and both mappers return `note: null`. The column stores every note unchanged; the rule is a read rule, not a constraint, so it covers rows written before it.
 - **Ingest** replaces a claim's attestations to exactly match the promote payload, inside the same `db.batch([...])` as the rest of the transaction (§6.2, the §26.1 audit-in-tx invariant). AECI-604 scopes that replacement to `source = 'aeci'` so vendor rows survive a re-promote.
 - **The version FKs are the precise form of the date stamps, not a replacement** (migration 2, AECI-607 — §5a.3 below). `introduced_version_id` / `deprecated_version_id` point at a row on the **attesting side's own endpoint product** — a `vendor_a` attestation stamps versions of product A — which keeps versioning inside the same authority boundary as the slot rule. The FK cannot express that on its own; the write path enforces it through `resolveAttestationSlots`. `introduced_at` / `deprecated_at` stay as the **coarse fallback** for every claim carrying no version data, which today is all of them: promote does not ingest versions (`STAGE_2_ATTESTATIONS_SPEC.md` §8.3 / §11). `on delete set null` means removing a version degrades a stamp to "no version data" — it never deletes the vendor's assertion, and it is not a back door to erasing one.
 
@@ -1623,6 +1653,15 @@ create index integration_field_challenges_queue_idx on integration_field_challen
 create index integration_field_challenges_submitter_idx on integration_field_challenges(submitter_vendor_id, updated_at);
 ```
 
+- **The CHECK is the STORED field set, not the OFFERED one (AECI-1155, ruled 2026-09-28).**
+  `integration_field_challenges_field_check` keeps all twelve fields, mirrored by
+  `INTEGRATION_CONTEST_FIELDS`, and does not change. The portal offers ten: a separate list,
+  `INTEGRATION_OFFERED_CONTEST_FIELDS`, drops `website` and `mechanism_url`, and the submit route
+  refuses them. The columns stay on `integrations` and `connector_evidenced_pairs`, and promote
+  keeps writing them. Splitting the lists is what keeps the CHECK still: removing the two fields
+  from the mirrored list would fail `integration-contests.spec.ts` or invite a CHECK change, and a
+  CHECK change rebuilds this table (`migrations.md` §0). Old contests on either field keep
+  reading and deciding. `pricing_url` (§4.3) is in neither list: it is not contestable.
 - **Values are in storage form.** `direction` is `a_to_b | b_to_a | both`, anchored like
   `integrations.direction`. `owner` values are vendor ids. The vendor wire re-frames
   `direction` per caller; the admin wire does not.
@@ -2932,6 +2971,7 @@ create table connector_evidenced_pairs (
   pricing_model text,
   maturity text,
   notes text,
+  pricing_url text,   -- AECI-1154: plain ADD COLUMN, nullable, no CHECK; owner-written only (§4.3)
   last_reviewed_at timestamptz,
   maintained_by text not null default 'aeci' check (maintained_by in ('aeci', 'vendor')),
   created_at timestamptz not null default now(),

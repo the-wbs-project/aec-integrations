@@ -353,6 +353,8 @@ export interface ClaimAuthority {
     direction: string;
     origin: string;
     createdByVendorId: string | null;
+    /** AECI-1153: `claims.created_at`, for the echo's `created_at`. */
+    createdAt: string;
   };
   authority: AttestationAuthority;
 }
@@ -388,6 +390,7 @@ export async function resolveClaimAuthority(
       direction: claims.direction,
       origin: claims.origin,
       createdByVendorId: claims.createdByVendorId,
+      createdAt: claims.createdAt,
       sourceProductId: integrations.sourceProductId,
       targetProductId: integrations.targetProductId,
       maintainedBy: integrations.maintainedBy,
@@ -426,6 +429,7 @@ export async function resolveClaimAuthority(
       direction: first.direction,
       origin: first.origin,
       createdByVendorId: first.createdByVendorId,
+      createdAt: first.createdAt,
     },
     authority: {
       integrationId,

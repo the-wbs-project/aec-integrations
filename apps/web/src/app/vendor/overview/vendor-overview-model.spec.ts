@@ -18,6 +18,7 @@ import {
   buildNeedsItems,
   conflictsByProduct,
   linkCommands,
+  linkFragment,
   linkQueryParams,
   openCorrections,
   productGaps,
@@ -319,30 +320,101 @@ describe('buildNeedsItems — protests to reply to (AECI-1009)', () => {
   });
 });
 
-describe('linkQueryParams (AECI-999)', () => {
-  it('pre-filters integrations links to the state they count', () => {
-    expect(linkQueryParams({ kind: 'integrations', productSlug: 'x', status: 'conflict' })).toEqual(
-      { status: 'conflict' },
-    );
+describe('linkQueryParams and linkFragment (AECI-999, AECI-1149)', () => {
+  it('pre-filters integrations links to the §6.17.2 status they count', () => {
+    expect(
+      linkQueryParams({ kind: 'integrations', productSlug: 'x', status: 'disagreement' }),
+    ).toEqual({ status: 'disagreement' });
     expect(linkQueryParams({ kind: 'integrations', productSlug: 'x' })).toBeNull();
     expect(linkQueryParams({ kind: 'messages' })).toBeNull();
   });
 
-  it('files conflict rows under the conflict filter and waiting rows under needs_you', () => {
-    const { now, worthDoing } = buildNeedsItems({
-      me: VENDOR_ME_FIXTURE,
-      integrations: VENDOR_INTEGRATIONS_FIXTURE.integrations,
-      integrationsReady: true,
-      canAttest: true,
-      canEditProducts: false,
-      canEditProfile: false,
-      canManageSeats: false,
-      seatInviteCount: 0,
-      contestsToDecide: 0,
+  const input = (integrations: readonly VendorIntegration[]) => ({
+    me: VENDOR_ME_FIXTURE,
+    integrations,
+    integrationsReady: true,
+    canAttest: true,
+    canEditProducts: false,
+    canEditProfile: false,
+    canManageSeats: false,
+    seatInviteCount: 0,
+    contestsToDecide: 0,
+  });
+
+  it('points a count that names ONE integration at its page and section (§6.17.1)', () => {
+    const { now, worthDoing } = buildNeedsItems(input(VENDOR_INTEGRATIONS_FIXTURE.integrations));
+    const conflict = now.find((i) => i.type === 'conflict')!;
+    expect(conflict.link).toEqual({
+      kind: 'integration',
+      productSlug: 'summit-model-coordination',
+      integrationId: VENDOR_INTEGRATIONS_FIXTURE.integrations[0]!.id,
+      fragment: 'change-requests',
     });
-    const conflict = now.find((i) => i.type === 'conflict');
-    const waiting = worthDoing.find((i) => i.type === 'waiting');
-    expect(conflict && linkQueryParams(conflict.link)).toEqual({ status: 'conflict' });
-    expect(waiting && linkQueryParams(waiting.link)).toEqual({ status: 'needs_you' });
+    expect(linkCommands(conflict.link)).toEqual([
+      '..',
+      'products',
+      'summit-model-coordination',
+      'integrations',
+      VENDOR_INTEGRATIONS_FIXTURE.integrations[0]!.id,
+    ]);
+    expect(linkFragment(conflict.link)).toBe('change-requests');
+    const waiting = worthDoing.find((i) => i.type === 'waiting')!;
+    expect(waiting.link.kind).toBe('integration');
+    expect(linkFragment(waiting.link)).toBe('data-shared');
+  });
+
+  it('points a count spread over several integrations at the filtered tab', () => {
+    const procore = VENDOR_INTEGRATIONS_FIXTURE.integrations[0]!;
+    const twin = { ...procore, id: '00000000-0000-4000-8000-0000000059aa' };
+    const { now } = buildNeedsItems(input([procore, twin]));
+    const conflict = now.find((i) => i.type === 'conflict')!;
+    expect(conflict.link).toEqual({
+      kind: 'integrations',
+      productSlug: 'summit-model-coordination',
+      status: 'disagreement',
+    });
+    expect(linkQueryParams(conflict.link)).toEqual({ status: 'disagreement' });
+  });
+
+  it('leaves the tab unfiltered when the counted integrations are not all in that status', () => {
+    const procore = VENDOR_INTEGRATIONS_FIXTURE.integrations[0]!;
+    // Two integrations with a row waiting on the caller; one is also in a
+    // disagreement, so the needs_answer chip would hide it.
+    const withoutConflict = {
+      ...procore,
+      id: '00000000-0000-4000-8000-0000000059ab',
+      claims: procore.claims.filter((c) => c.agreement !== 'conflict'),
+    };
+    const { worthDoing } = buildNeedsItems(input([procore, withoutConflict]));
+    const waiting = worthDoing.find((i) => i.type === 'waiting')!;
+    expect(waiting.link).toEqual({
+      kind: 'integrations',
+      productSlug: 'summit-model-coordination',
+    });
+    expect(linkQueryParams(waiting.link)).toBeNull();
+  });
+
+  it('adds one row for rows another company added, from the server count (§7.6)', () => {
+    const procore = VENDOR_INTEGRATIONS_FIXTURE.integrations[0]!;
+    const added = {
+      ...procore,
+      claims: [
+        {
+          ...procore.claims[0]!,
+          added_by: 'counterpart' as const,
+          mine: [],
+        },
+      ],
+    };
+    const { now } = buildNeedsItems({ ...input([added]), counterpartAddedUnanswered: 1 });
+    const row = now.find((i) => i.type === 'addedRows');
+    expect(row).toBeDefined();
+    expect(row!.link).toEqual({
+      kind: 'integration',
+      productSlug: 'summit-model-coordination',
+      integrationId: procore.id,
+      fragment: 'change-requests',
+    });
+    expect(buildNeedsItems(input([added])).now.some((i) => i.type === 'addedRows')).toBe(false);
   });
 });

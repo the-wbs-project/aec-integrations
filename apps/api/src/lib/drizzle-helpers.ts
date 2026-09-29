@@ -30,6 +30,7 @@ import {
   integrationDirectionForContext,
   ProductUsefulnessSchema,
   RATING_VISIBILITY_MIN_REVIEWS,
+  isHttpUrl,
 } from '@aeci/shared';
 import { liveEvidencedPairSql, liveIntegrationSql } from '@aeci/shared/live-integration';
 import { compareText } from '@aeci/shared/text-sort';
@@ -324,7 +325,9 @@ const pairClaimsConfig = {
         asserted: true,
         attestedByVendorId: true,
         retractedAt: true,
-        note: true,
+        // No `note` (AECI-1139). No attestation note is reader-facing, so the
+        // public read does not select it: a value that never leaves D1 cannot be
+        // published by a future mapper. See `PairClaimAttestationSchema.note`.
         introducedAt: true,
         deprecatedAt: true,
         introducedVersionId: true,
@@ -346,8 +349,13 @@ export const connectorEvidencedPairPairConfig = {
     description: true,
     listingUrl: true,
     docsUrl: true,
+    // AECI-1142: the same "At a glance" facts `integrationPairConfig` selects.
+    pricingModel: true,
+    maturity: true,
     lastReviewedAt: true,
     maintainedBy: true,
+    // AECI-1154: the owner's pricing page link, for the "Price" fact.
+    pricingUrl: true,
   },
   with: {
     ...connectorEvidencedPairListConfig.with,
@@ -375,7 +383,7 @@ export const connectorEvidencedPairTimelineConfig = {
             id: true,
             source: true,
             asserted: true,
-            note: true,
+            // No `note` (AECI-1139) — see `pairClaimsConfig`.
             retractedAt: true,
             createdAt: true,
             introducedVersionId: true,
@@ -428,11 +436,17 @@ export interface RawConnectorEvidencedPairDetailRow extends RawConnectorEvidence
   description: string | null;
   listingUrl: string | null;
   docsUrl: string | null;
+  /** AECI-1142: the card's "At a glance" facts. Optional so a hand-built fixture
+   *  without them still type-checks and serialises as `null`. */
+  pricingModel?: string | null;
+  maturity?: string | null;
   lastReviewedAt: string | null;
   maintainedBy: string;
   builtByVendor: RawVendorLink | null;
   /** Stored in the canonical A/B frame — A is `productA`, never the oriented source. */
   claims: RawPairClaimRow[];
+  /** AECI-1154. Optional so a hand-built fixture without it reads as unset. */
+  pricingUrl?: string | null;
 }
 
 /**
@@ -589,9 +603,10 @@ export const integrationDetailConfig = {
 
 /**
  * Pair-page mechanism hydration (Stage 1.5 §7 — AECI-294). Like the detail
- * config but drops the redundant `mechanism_url`/`pricing_model`/`maturity`
- * fields (unused by the pair card) while keeping source/target — needed to
- * translate the stored direction into the context product's frame.
+ * config but drops `mechanism_url` (unused by the pair card) while keeping
+ * source/target — needed to translate the stored direction into the context
+ * product's frame. `pricing_model` and `maturity` joined in AECI-1142 for the
+ * card's "At a glance" facts.
  */
 export const integrationPairConfig = {
   columns: {
@@ -603,8 +618,11 @@ export const integrationPairConfig = {
     description: true,
     listingUrl: true,
     docsUrl: true,
-    // Feed the page header's maintenance marker (AECI-616). Not surfaced per
-    // mechanism — `computePairMaintenance` folds them into one header value.
+    // AECI-1142: the card's "At a glance" price and release stage.
+    pricingModel: true,
+    maturity: true,
+    // Feed the page header's maintenance marker (AECI-616), folded by
+    // `computePairMaintenance`. AECI-1142 also returns the date per mechanism.
     lastReviewedAt: true,
     maintainedBy: true,
     // AECI-1007: the connector fence on per-side links reads the raw FK, not the
@@ -612,6 +630,8 @@ export const integrationPairConfig = {
     poweredByProductId: true,
     // AECI-1011: who created the row, for the pair card's provenance note.
     origin: true,
+    // AECI-1154: the owner's pricing page link, for the "Price" fact.
+    pricingUrl: true,
   },
   with: {
     sourceProduct: { columns: productLinkColumns },
@@ -625,8 +645,9 @@ export const integrationPairConfig = {
     // `liveAttestationsWhere` discharges the AECI-603 handoff
     // (STAGE_2_ATTESTATIONS_SPEC.md §2.5): a retracted attestation must neither
     // vote nor render. `attestedByVendorId` feeds the §4.2 distinct-identity
-    // dedupe and is dropped by the mapper; `note` + the version stamps are the
-    // provenance popover's payload.
+    // dedupe and is dropped by the mapper; the version stamps are the
+    // provenance popover's payload. `note` is deliberately NOT selected
+    // (AECI-1139): no attestation note is reader-facing.
     //
     // The two `*VersionId` FKs are AECI-303's presence input (§9.1). Only the ids
     // are selected — NOT the related `product_versions` rows: the pair handler
@@ -674,7 +695,7 @@ export const integrationTimelineConfig = {
             id: true,
             source: true,
             asserted: true,
-            note: true,
+            // No `note` (AECI-1139) — see `pairClaimsConfig`.
             retractedAt: true,
             createdAt: true,
             introducedVersionId: true,
@@ -1099,7 +1120,6 @@ export interface RawAgreementVoteRow {
 /** A pair-page attestation: the vote plus the provenance payload the popover
  *  renders. */
 export interface RawClaimAttestationRow extends RawAgreementVoteRow {
-  note: string | null;
   introducedAt: string | null;
   deprecatedAt: string | null;
   // AECI-303 (§9.1): the PRECISE version stamps. Resolved against the pair's
@@ -1113,7 +1133,6 @@ export interface RawTimelineAttestationRow {
   id: string;
   source: string;
   asserted: boolean;
-  note: string | null;
   retractedAt: string | null;
   createdAt: string;
   introducedVersionId: string | null;
@@ -1189,8 +1208,14 @@ export interface RawIntegrationPairRow {
   poweredByProductId?: string | null;
   /** AECI-1011. Optional for the same reason: a fixture without it reads as `'aeci'`. */
   origin?: string;
-  // Folded into the page header by `computePairMaintenance`, not surfaced per
-  // mechanism (AECI-616).
+  /** AECI-1142: the card's "At a glance" facts. Optional for hand-built fixtures,
+   *  which serialise them as `null`. */
+  pricingModel?: string | null;
+  maturity?: string | null;
+  /** AECI-1154. Optional for the same reason: a fixture without it reads as unset. */
+  pricingUrl?: string | null;
+  // Folded into the page header by `computePairMaintenance` (AECI-616), and since
+  // AECI-1142 also surfaced per mechanism as the card's "Last checked" fact.
   maintainedBy: string;
   lastReviewedAt: string | null;
 }
@@ -1524,33 +1549,26 @@ export function toIntegrationDetail(raw: RawIntegrationDetailRow): IntegrationDe
   };
 }
 
-/**
- * The note a READER may see (AECI-779).
+/*
+ * ── NO ATTESTATION NOTE IS READER-FACING (AECI-779, AECI-1139) ──────────────
+ * Both public mappers below emit `note: null` for every attestation, whatever its
+ * source, and the public read configs above do not select the column.
  *
- * `attestations.note` is curation-internal when the source is the AECi seed: the
- * AECI-299 pass wrote machine-prefixed research annotations there (`ai_seed: …`,
- * scrape URLs, notes-to-self about how `direction` was set), and no spec ever
- * assigned that field a reader audience — `STAGE_1_5_SPEC.md` §3.3 defines it as
- * "optional provenance/source note" and §8, the render contract this popover was
- * built against, never mentions a note at all.
+ * - An `aeci` note is curation-internal (AECI-779). The AECI-299 seed pass wrote
+ *   machine-prefixed research annotations there (`ai_seed: …`, scrape URLs).
+ * - A VENDOR note, affirm or deny, is private too (AECI-1139, ruling 2026-09-28:
+ *   "No notes at all"). A "No" reason is one company's free-text objection to
+ *   another company's product, and a lone "Yes" reason on a disputed row reads as
+ *   AECi taking a side. The other company sees it in the vendor portal
+ *   (`toCounterparty`), its author sees it in `mine`, and AECi sees it in the
+ *   audit row (`routes/vendor-attestations.ts`).
  *
- * A VENDOR note is the opposite: a deliberate Stage 2 authoring field
- * (`STAGE_2_ATTESTATIONS_SPEC.md` §6) written by a named party who is on the hook
- * for it. Those pass through untouched.
- *
- * `null` rather than an absent key on purpose — both `PairClaimAttestationSchema`
- * and `ClaimTimelineEntrySchema` declare `note` as `.nullable()` (not
- * `.optional()`), so a suppressed note serialises exactly like an attestation that
- * simply carries none. No contract change, and nothing for a client to special-case.
- *
- * **Call this at EVERY mapper that puts a note on a reader payload.** There are two
- * — `toPairClaimAttestation` (the popover) and `toClaimTimelineEntry` (the AECI-303
- * History section) — and they are reached from different routes, so a fix applied
- * to one leaves the note live on the other.
+ * There are two public mappers, reached from two routes: `toPairClaimAttestation`
+ * (the pair read) and `toClaimTimelineEntry` (the timeline read). Until AECI-1139
+ * both called a `readerFacingNote(source, note)` filter; the ruling left it
+ * nothing to decide, so it is gone. The wire schemas type `note` as `z.null()`, so
+ * a mapper that tried to publish a note would not compile.
  */
-export function readerFacingNote(source: string, note: string | null): string | null {
-  return source === 'aeci' ? null : note;
-}
 
 /** Surface one attestation for the provenance popover, with its slot translated
  *  into the page's context frame (§4.3). `attested_by_vendor_id` stays server-
@@ -1572,7 +1590,7 @@ function toPairClaimAttestation(
     source,
     attestor: attestorForContext(source, contextIsSource),
     asserted: raw.asserted,
-    note: readerFacingNote(source, raw.note),
+    note: null,
     introduced_at: raw.introducedAt,
     deprecated_at: raw.deprecatedAt,
     ...(introducedVersion === undefined ? {} : { introduced_version: introducedVersion }),
@@ -1689,6 +1707,18 @@ function compareClaims(a: RawPairClaimRow, b: RawPairClaimRow): number {
  *  `mechanism_name` is the mechanism's own label and is never a directional pair
  *  title — see `toMechanismHeading` (AECI-919); source/target are redundant on the
  *  pair page (both are the page's endpoints) so they are not surfaced. */
+/**
+ * The owner's pricing page link as the PUBLIC pair read may carry it (AECI-1154):
+ * an absolute `http(s)` URL, or `null`. Every writer already validates it through
+ * `integrationEditValueProblem`. This is defence in depth for the first
+ * vendor-written URL a cached public page renders as an `href`: a value some
+ * future writer stored without the check reads as unset rather than reaching a
+ * reader as, say, a `javascript:` link.
+ */
+function publicPricingUrl(value: string | null | undefined): string | null {
+  return value && isHttpUrl(value) ? value : null;
+}
+
 function toProductPairMechanism(
   raw: RawIntegrationPairRow,
   contextProductId: string,
@@ -1713,6 +1743,11 @@ function toProductPairMechanism(
     description: raw.description,
     listing_url: raw.listingUrl,
     docs_url: raw.docsUrl,
+    // AECI-1142: the card's "At a glance" facts, verbatim (both columns are free
+    // text), plus this row's own review date.
+    pricing_model: raw.pricingModel ?? null,
+    maturity: raw.maturity ?? null,
+    last_reviewed_at: raw.lastReviewedAt,
     // Decision 9: a connector-powered row shows no per-side links. Promote can make
     // an unclaimed row connector-powered IN PLACE (a connector `mechanism_kind`, or
     // a Convention-A self-reference), and the links stored before that stay in the
@@ -1734,6 +1769,8 @@ function toProductPairMechanism(
     // Always null on an `integrations` row — the evidenced-pair arm of the pair
     // read sets it (`toProductPairMechanismFromEvidencedPair`).
     via: null,
+    // AECI-1154: the owner's pricing page link. Owner-written only; promote never.
+    pricing_url: publicPricingUrl(raw.pricingUrl),
     // Sort FIRST, then drop: ordering stays this mapper's job and is independent
     // of the version selection, so walking the selectors never reshuffles the lanes.
     claims: [...raw.claims]
@@ -1790,6 +1827,10 @@ function toProductPairMechanismFromEvidencedPair(
     description: raw.description,
     listing_url: raw.listingUrl,
     docs_url: raw.docsUrl,
+    // AECI-1142: the same facts as the `integrations` arm.
+    pricing_model: raw.pricingModel ?? null,
+    maturity: raw.maturity ?? null,
+    last_reviewed_at: raw.lastReviewedAt,
     // Connector-powered by construction, so no vendor writes links here (decision 9).
     vendor_links: { context: null, other: null },
     built_by_vendor: raw.builtByVendor ? toVendorLink(raw.builtByVendor) : null,
@@ -1800,6 +1841,8 @@ function toProductPairMechanismFromEvidencedPair(
     // Promote is the only writer of this table (decision 9 keeps vendors off it).
     origin: 'aeci',
     via: toProductLink(raw.connectorProduct),
+    // AECI-1154: an entitled owner edits it here too (AECI-1090). Promote never does.
+    pricing_url: publicPricingUrl(raw.pricingUrl),
     // Same sort-then-drop as `toProductPairMechanism`; only the frame flag differs.
     claims: [...raw.claims]
       .sort(compareClaims)
@@ -1846,7 +1889,7 @@ export function toProductPairResponse(
     other_product: toProductListItem(otherProduct),
     mechanisms,
     // `removed` claims still render (struck through) but must not be counted:
-    // "N data objects sync" may not include a flow that has stopped
+    // "N types of data shared" may not include a flow that has stopped
     // (AECI-303 / §9.1). Filtered HERE, at the single call site, rather than inside
     // `computeSyncHeadline` — the shared engine stays a pure function of
     // `{ agreement }` and owes the diff contract nothing.
@@ -1923,9 +1966,10 @@ export function toPairTimelines(
   return timelines;
 }
 
-/** One history row (AECI-303 / §9.1). Notes go through {@link readerFacingNote} —
- *  the History section renders the same note the popover does, so suppressing the
- *  AECi seed note in only one of the two leaves it published in the other. */
+/** One history row (AECI-303 / §9.1). `note` is always `null`, exactly as on
+ *  the pair read: this route is the second public path to the same rows, so a
+ *  note suppressed on one read alone would stay published on the other
+ *  (AECI-779, AECI-1139). */
 function toClaimTimelineEntry(
   raw: RawTimelineAttestationRow,
   contextIsSource: boolean,
@@ -1937,7 +1981,7 @@ function toClaimTimelineEntry(
   return {
     attestor: attestorForContext(source, contextIsSource),
     asserted: raw.asserted,
-    note: readerFacingNote(source, raw.note),
+    note: null,
     ...(introducedVersion === undefined ? {} : { introduced_version: introducedVersion }),
     ...(deprecatedVersion === undefined ? {} : { deprecated_version: deprecatedVersion }),
     created_at: raw.createdAt,
@@ -1955,8 +1999,8 @@ function toClaimTimelineEntry(
  *
  * The date is then taken **only over the mechanisms in the winning branch**, which is
  * the part that is easy to get wrong. A global `max()` would let an AECi mechanism
- * reviewed last week supply the date for a header that reads `Vendor-maintained.
- * Updated <date>.` — attributing AECi's review to the vendor. Scoping the max to the
+ * reviewed last week supply the date for a header that reads `Vendor maintained ·
+ * Updated <date>` — attributing AECi's review to the vendor. Scoping the max to the
  * branch keeps the two halves of the sentence about the same records.
  *
  * An empty pair (or one where nothing has been reviewed) yields `null`, which renders

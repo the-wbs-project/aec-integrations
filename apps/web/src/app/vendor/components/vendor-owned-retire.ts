@@ -21,7 +21,7 @@ import { VendorApi } from '../vendor-api';
 import { vendorHasActiveEntitlement } from '../vendor-capabilities';
 import { VendorPortalStore } from '../vendor-portal-store';
 
-import { retireErrorMessage } from './vendor-integration-retire';
+import { retireErrorMessage } from './vendor-integration-ownership-labels';
 
 /**
  * Render one owned row's retire confirmation open on first paint: the id of the row.
@@ -40,7 +40,7 @@ export const VENDOR_RETIRE_CONFIRM_START_OPEN = new InjectionToken<string | null
  * The owned list (`vendor-owned-integrations.ts`, AECI-1089) is where a third-party
  * owner sees its rows at all: every such row is a `connector_evidenced_pairs` row, and
  * the card list never reads that table. So the owner's retire has to live here too,
- * beside the card's own section (`vendor-integration-retire.ts`). Same route, same
+ * beside the integration detail page's Settings section (`integration-detail/integration-settings.ts`). Same route, same
  * rules, same copy where the facts are the same.
  *
  * Four states, decided from the wire:

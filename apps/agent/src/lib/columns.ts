@@ -28,12 +28,13 @@
  *      denied name is enforced against every existing tool for free.
  *
  * ── WHY `note` IS NOT ON THE LIST, AND `notes` IS ────────────────────────────
- * `attestations.note` IS reader-facing when a VENDOR wrote it; the API Worker's
- * `readerFacingNote()` suppresses it only for `source = 'aeci'`. The entity tools
- * go through the shipped public endpoints precisely so that rule keeps applying,
- * so denying the output key `note` outright would be wrong. `integrations.notes`
- * (plural) has no such carve-out — it is curation-internal in every row — and it
- * is denied.
+ * The public pair payload keeps an `attestations[].note` KEY, but its value is
+ * always `null`: no attestation note is reader-facing (AECI-779, AECI-1139), and
+ * the API Worker's public reads do not even select the column. The entity tools
+ * go through those shipped endpoints precisely so that rule keeps applying. This
+ * guard matches KEYS, not values, so denying `note` would flag every legitimate
+ * pair payload. `integrations.notes` (plural) is curation-internal in every row
+ * and has no such key on a public payload, so it is denied.
  */
 
 /**

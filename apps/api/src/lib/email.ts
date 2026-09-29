@@ -676,7 +676,7 @@ export function sendAttestationSilentCounterpartyEmail(
 
 /**
  * `open-conflict` (§7.1): two vendors have taken opposing positions. Copy is
- * deliberately non-accusatory and mirrors the pair page's "Vendors disagree"
+ * deliberately non-accusatory and mirrors the pair page's "Companies disagree" (AECI-1142; was "Vendors disagree")
  * treatment (§4.5) — the disagreement is surfaced as a difference in description,
  * not as a defect in either product.
  */
@@ -750,10 +750,11 @@ export function sendAttestationStaleVersionEmail(
  *   disagreed with anyone: they have said nothing at all. The mail informs and
  *   invites a position, it does not ask them to defend one.
  * - **Stance only, never the denier's note.** `attestation-open-conflict` does
- *   not carry notes either. The note is visible on the public pair page, so this
- *   is not a confidentiality rule; it is that a free-text note quoted into an
- *   email lands as an accusation in a way the same words on a provenance
- *   disclosure do not.
+ *   not carry notes either. This is a confidentiality rule (AECI-1139): no
+ *   attestation note is public, and only the other company and AECi may read it,
+ *   inside the vendor portal. An email can be forwarded, so no email carries a
+ *   note. The recipient reads it in the portal. A free-text note quoted into an
+ *   email would also land as an accusation.
  *
  * It also states what a reader would otherwise have to guess: the flow stays on
  * the listing as unverified until AECi corrects the record. Nothing here may

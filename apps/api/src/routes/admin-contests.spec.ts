@@ -595,8 +595,10 @@ describe('PATCH /api/admin/contests/:id — a stale accept on a claimed row (AEC
   });
 
   it('treats a recorded null as a value: a null that became set is stale', async () => {
-    const id = await fileContest('website', 'https://revit.example/link');
-    await setIntegration({ claimedAt: CLAIMED_AT, website: 'https://owner.example' });
+    // `pricing_model`: a nullable field the portal still offers (AECI-1155 withdrew
+    // `website`, the field this case used before).
+    const id = await fileContest('pricing_model', 'Free');
+    await setIntegration({ claimedAt: CLAIMED_AT, pricingModel: 'Subscription' });
     expect((await accept(id)).body.error.code).toBe('CONTEST_VALUE_STALE');
   });
 

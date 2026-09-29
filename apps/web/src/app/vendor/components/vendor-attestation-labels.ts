@@ -1,10 +1,11 @@
-import type { AttestationDetector, CounterpartyAttestation, VendorClaim } from '@aeci/shared';
-
-import type { HealthCounts, IntegrationHealth } from './vendor-integration-health';
+import type { AttestationDetector, VendorIntegration } from '@aeci/shared';
 
 /**
- * Vendor-facing copy for the attestation tab (AECI-606 /
- * `STAGE_2_ATTESTATIONS_SPEC.md` §6).
+ * Vendor-facing copy for the attestation notifications (AECI-606 /
+ * `STAGE_2_ATTESTATIONS_SPEC.md` §6), and the note-audience hint every portal
+ * note field renders (AECI-1139). The stance and health labels the inline
+ * panel used were retired with it by AECI-1156; the integration detail page's
+ * copy lives in `integration-detail/integration-detail-model.ts` (§6.17.8).
  *
  * Kept out of the components so the same sentence is not written twice as the
  * tab grows (the `search/mechanism-labels.ts` precedent), and so the copy
@@ -25,49 +26,45 @@ import type { HealthCounts, IntegrationHealth } from './vendor-integration-healt
  * restating it.
  */
 
-/** The caller's own stance on a claim, as a sentence fragment. */
-export function ownStanceLabel(mine: VendorClaim['mine']): string {
-  if (mine.length === 0) return $localize`:@@vendor.attest.stance.none:No position yet`;
-  return mine[0].asserted
-    ? $localize`:@@vendor.attest.stance.affirmed:You confirm this flow`
-    : $localize`:@@vendor.attest.stance.denied:You say this flow does not exist`;
-}
-
-/** The counterparty's stance, framed by what the vendor can act on. All four
- *  cases are distinct: silence is never rendered as agreement (§8.1(4)). */
-export function counterpartyLabel(
-  counterparty: CounterpartyAttestation | null,
-  mine: VendorClaim['mine'],
-  otherProductName: string,
+/**
+ * Who sees a note the vendor writes on a data flow (AECI-1139).
+ *
+ * Ruling 2026-09-28: no attestation note is public, affirm or deny. The other
+ * company reads it in its own portal, and AEC Integrations reads it in the audit
+ * record. The public pair page shows stances only. The helper text under every
+ * note field says so, because a vendor writes differently for an audience of two
+ * than for the open web.
+ *
+ * - **The vendor owns both products, and nobody else is on either:** only AEC
+ *   Integrations sees it.
+ * - **Exactly one other company is on the integration:** it is named.
+ * - **Otherwise** (the other product has no company on file, or several): the
+ *   other product names it, or a generic phrase when even that is unknown.
+ *
+ * `endpoint_vendors` is both endpoints' companies, deduped, so "the others" is
+ * that list minus the caller. `slots` is the caller's own endpoints, so two slots
+ * means it owns both products.
+ */
+export function noteAudienceHint(
+  integration: Pick<VendorIntegration, 'slots' | 'endpoint_vendors'> | undefined,
+  ownVendorId: string | null,
+  otherProductName: string | null,
 ): string {
-  if (!counterparty) {
-    return mine.length === 0
-      ? $localize`:@@vendor.attest.counterparty.neither:Neither vendor has confirmed this yet.`
-      : $localize`:@@vendor.attest.counterparty.silent:The other vendor has not responded.`;
+  const vendors = integration?.endpoint_vendors ?? [];
+  const ownsBoth = (integration?.slots.length ?? 0) >= 2;
+  // `null` until the session's own vendor id is known. An owns-both integration
+  // with a single company on file is the caller's alone either way.
+  const others = ownVendorId ? vendors.filter((v) => v.id !== ownVendorId) : null;
+  if (ownsBoth && (others ? others.length === 0 : vendors.length <= 1)) {
+    return $localize`:@@vendor.attest.note.audience.aeciOnly:Only AEC Integrations sees this.`;
   }
-  return counterparty.asserted
-    ? $localize`:@@vendor.attest.counterparty.affirmed:${otherProductName}:other: confirms this flow.`
-    : $localize`:@@vendor.attest.counterparty.denied:${otherProductName}:other: says this flow does not exist.`;
-}
-
-/** Heading for the counterparty column in the conflict disclosure. */
-export function counterpartyColumnLabel(otherProductName: string): string {
-  return $localize`:@@vendor.attest.conflict.theirs:${otherProductName}:other:’s position`;
-}
-
-/** The counterparty's stance as a standalone phrase, for the conflict columns. */
-export function counterpartyStanceLabel(counterparty: CounterpartyAttestation): string {
-  return counterparty.asserted
-    ? $localize`:@@vendor.attest.conflict.theirs.affirmed:Confirms this flow`
-    : $localize`:@@vendor.attest.conflict.theirs.denied:Says this flow does not exist`;
-}
-
-/** The caller's stance as a standalone phrase, for the conflict columns. */
-export function ownStancePhrase(mine: VendorClaim['mine']): string {
-  if (mine.length === 0) return $localize`:@@vendor.attest.conflict.mine.none:No position recorded`;
-  return mine[0].asserted
-    ? $localize`:@@vendor.attest.conflict.mine.affirmed:Confirms this flow`
-    : $localize`:@@vendor.attest.conflict.mine.denied:Says this flow does not exist`;
+  if (others?.length === 1) {
+    const company = others[0].name;
+    return $localize`:@@vendor.attest.note.audience.named:Only ${company}:company: and AEC Integrations see this.`;
+  }
+  return otherProductName
+    ? $localize`:@@vendor.attest.note.audience.byProduct:Only the company behind ${otherProductName}:product: and AEC Integrations see this.`
+    : $localize`:@@vendor.attest.note.audience.generic:Only the other company and AEC Integrations see this.`;
 }
 
 /**
@@ -95,55 +92,4 @@ export function detectorTitle(detector: AttestationDetector): string {
     case 'claim-denied':
       return $localize`:@@vendor.attest.notify.claimDenied:The other vendor says this flow does not exist`;
   }
-}
-
-/**
- * The health pill's label for a counterpart or integration row (AECI-999 /
- * §6.3). Worded as what the vendor needs to know, never as a quality verdict on
- * the integration itself: "Conflict" reports a disagreement between vendors, and
- * "Via connector" is a delivery fact, not a downgrade.
- */
-export function healthLabel(health: IntegrationHealth): string {
-  switch (health) {
-    case 'conflict':
-      return $localize`:@@vendor.attest.health.conflict:Conflict`;
-    case 'needs_you':
-      return $localize`:@@vendor.attest.health.needsYou:Needs your input`;
-    case 'responded':
-      return $localize`:@@vendor.attest.health.responded:You have responded`;
-    case 'confirmed':
-      return $localize`:@@vendor.attest.health.confirmed:Fully confirmed`;
-    case 'connector':
-      return $localize`:@@vendor.attest.health.connector:Via connector`;
-    case 'empty':
-      return $localize`:@@vendor.attest.health.empty:No data flows`;
-  }
-}
-
-/**
- * The compact count line under a row name: total first, then only the non-zero
- * parts, so a healthy row reads short and a row with work on it reads long.
- * "Data flows" rather than "data points" to match every other sentence on the
- * tab ("You confirm this flow", "N data flows on record").
- */
-export function healthCountsLine(counts: HealthCounts): string {
-  const parts = [
-    counts.total === 1
-      ? $localize`:@@vendor.attest.counts.total.one:1 data flow`
-      : $localize`:@@vendor.attest.counts.total:${counts.total}:count: data flows`,
-  ];
-  if (counts.conflict > 0) {
-    parts.push($localize`:@@vendor.attest.counts.conflict:${counts.conflict}:count: in conflict`);
-  }
-  if (counts.waiting === 1) {
-    parts.push($localize`:@@vendor.attest.counts.waiting.one:1 needs your input`);
-  } else if (counts.waiting > 1) {
-    parts.push($localize`:@@vendor.attest.counts.waiting:${counts.waiting}:count: need your input`);
-  }
-  if (counts.confirmed > 0) {
-    parts.push(
-      $localize`:@@vendor.attest.counts.confirmed:${counts.confirmed}:count: confirmed by both vendors`,
-    );
-  }
-  return parts.join(' · ');
 }

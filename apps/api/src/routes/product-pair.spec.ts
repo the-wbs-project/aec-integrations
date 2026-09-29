@@ -477,9 +477,9 @@ describe('GET /api/products/:slug/integrations/:otherSlug — Layer B claims (§
     // Stage 1.5: every claim is AECi-only, so agreement is always unverified.
     expect(claimsOut.every((c) => c.agreement === 'unverified')).toBe(true);
     // Provenance rides along: the single AECi attestation. The AECi seed is never
-    // attributed to an endpoint — it is not a party to the vote — and since
-    // AECI-779 its `note` is SUPPRESSED: the seed note is curation-internal, so it
-    // arrives as `null` however the row was seeded.
+    // attributed to an endpoint — it is not a party to the vote — and its `note`
+    // is never reader-facing (AECI-779, AECI-1139), so it arrives as `null`
+    // however the row was seeded.
     expect(claimsOut[0]!.attestations).toEqual([
       {
         source: 'aeci',
@@ -747,14 +747,13 @@ describe('GET /api/products/:slug/integrations/:otherSlug — agreement states (
 
   // `attestor` is what lets the pair page render "Confirmed by {vendor}" from
   // the two hydrated `ProductListItem.vendor` links, with no vendors join.
-  // AECI-779. The AECi seed note is curation-internal — the AECI-299 pass wrote
-  // machine-prefixed research annotations there, and §8 (the render contract this
-  // popover was built against) never specified a note render at all. This is the
-  // FIRST half of the lockstep; the second is `routes/pair-timeline.spec.ts`
-  // ("SUPPRESSES the AECi seed note…"), because the History section renders the
-  // same note from a DIFFERENT route and mapper. The rule itself is unit-tested in
-  // `lib/reader-facing-note.spec.ts`.
-  it('SUPPRESSES the AECi seed note but keeps the vendor note, on one claim', async () => {
+  // AECI-779, widened by AECI-1139 (ruling 2026-09-28: "No notes at all"). No
+  // attestation note is reader-facing: not the AECi seed note, and not a vendor's,
+  // affirm or deny. This is the FIRST half of the lockstep; the second is
+  // `routes/pair-timeline.spec.ts`, because the timeline read serves the same rows
+  // from a DIFFERENT route and mapper. That the vendor portal and the audit row
+  // still carry the note is pinned in `routes/vendor-attestations.spec.ts`.
+  it('carries NO note from any source — AECi seed, vendor affirm, vendor deny', async () => {
     await seedClaimWith([
       {
         source: 'aeci',
@@ -762,20 +761,32 @@ describe('GET /api/products/:slug/integrations/:otherSlug — agreement states (
         note: 'ai_seed: scraped from zapier.com — edge marked bidirectional',
       },
       { source: 'vendor_a', asserted: true, by: ACME, note: 'Only RFIs created after 2025.' },
+      {
+        source: 'vendor_b',
+        asserted: false,
+        by: GLOBEX,
+        note: 'We receive RFIs, but nothing is sent back.',
+      },
     ]);
 
-    const { claim: out } = await readClaim();
-    // Both attestations still render and still VOTE — suppression drops the note,
-    // never the assertion. (One vendor + the seed ⇒ single_source, per §4.2.)
-    expect(out.attestations.map((a) => [a.source, a.note])).toEqual([
-      ['aeci', null],
-      ['vendor_a', 'Only RFIs created after 2025.'],
+    const res = await get('/api/products/procore/integrations/revit');
+    const raw = await res.text();
+    const body = ProductPairResponseSchema.parse(JSON.parse(raw));
+    const out = body.mechanisms[0]!.claims[0]!;
+    // Every attestation still renders and still VOTES — the rule drops the note,
+    // never the assertion. (Affirm + deny from two vendors ⇒ conflict, per §4.2.)
+    expect(out.attestations.map((a) => [a.source, a.asserted, a.note])).toEqual([
+      ['aeci', true, null],
+      ['vendor_a', true, null],
+      ['vendor_b', false, null],
     ]);
-    expect(out.agreement).toBe('single_source');
-    // The internal text is absent from the whole payload — this is the blob the
-    // pair resolver puts into TransferState on an indexable, cacheable page, so
-    // "not on the field I asserted" is not a strong enough claim.
-    expect(JSON.stringify(out)).not.toContain('ai_seed');
+    expect(out.agreement).toBe('conflict');
+    // Checked on the RAW response text, not a field: this is the blob the pair
+    // resolver puts into TransferState on an indexable, cacheable page, and any
+    // browser can call `GET /api/*` directly.
+    expect(raw).not.toContain('ai_seed');
+    expect(raw).not.toContain('Only RFIs created after 2025.');
+    expect(raw).not.toContain('nothing is sent back');
   });
 
   it('translates the attestation slot into the context frame, both orientations', async () => {
@@ -804,11 +815,75 @@ describe('GET /api/products/:slug/integrations/:otherSlug — agreement states (
   });
 });
 
+// ─── The card's "At a glance" facts (AECI-1142) ──────────────────────────────
+//
+// Price, release stage and the row's own review date, from BOTH delivered-tier
+// tables. Additive: an unset column serialises as `null`, never a guess.
+
+describe('GET /api/products/:slug/integrations/:otherSlug: At a glance facts (AECI-1142)', () => {
+  it('returns pricing_model, maturity and last_reviewed_at per integrations row', async () => {
+    await seedProducts();
+    await integration(u(10), u(1), u(2), {
+      pricingModel: 'Free with a Procore subscription',
+      maturity: 'Generally available',
+      lastReviewedAt: '2026-09-20T10:00:00.000Z',
+    });
+    await integration(u(11), u(1), u(2));
+
+    const body = ProductPairResponseSchema.parse(
+      await (await get('/api/products/procore/integrations/revit')).json(),
+    );
+    const byId = new Map(body.mechanisms.map((m) => [m.id, m]));
+    expect(byId.get(u(10))).toMatchObject({
+      pricing_model: 'Free with a Procore subscription',
+      maturity: 'Generally available',
+      last_reviewed_at: '2026-09-20T10:00:00.000Z',
+    });
+    // Unset columns are null, so the card hides the fact rather than inventing one.
+    expect(byId.get(u(11))).toMatchObject({
+      pricing_model: null,
+      maturity: null,
+      last_reviewed_at: null,
+    });
+  });
+
+  it('returns the same facts on a connector-evidenced pair', async () => {
+    await seedProducts();
+    await t.db.insert(products).values({
+      id: u(3),
+      slug: 'agave-erp-sync',
+      name: 'Agave ERP Sync',
+      productRole: 'connector',
+      promotionStatus: 'promoted',
+    });
+    const [a, b] = [u(1), u(2)].sort();
+    await t.db.insert(connectorEvidencedPairs).values({
+      id: u(60),
+      connectorProductId: u(3),
+      productAId: a!,
+      productBId: b!,
+      pricingModel: 'Paid add-on',
+      maturity: 'Beta',
+      lastReviewedAt: '2026-08-30T00:00:00.000Z',
+    });
+
+    const body = ProductPairResponseSchema.parse(
+      await (await get('/api/products/revit/integrations/procore')).json(),
+    );
+    expect(body.mechanisms[0]).toMatchObject({
+      id: u(60),
+      pricing_model: 'Paid add-on',
+      maturity: 'Beta',
+      last_reviewed_at: '2026-08-30T00:00:00.000Z',
+    });
+  });
+});
+
 // ─── The page-header maintenance marker (AECI-616 / §13) ─────────────────────
 //
 // A pair has N mechanisms but ONE header marker, so `computePairMaintenance` folds
 // them. The branch-scoped date is the part worth pinning: a global max would let an
-// AECi review date sit inside a sentence that reads "Vendor-maintained."
+// AECi review date sit inside a sentence that reads "Vendor maintained"
 
 describe('GET /api/products/:slug/integrations/:otherSlug — maintenance marker (AECI-616)', () => {
   const AECI_DATE = '2026-02-01T00:00:00.000Z';
@@ -849,7 +924,7 @@ describe('GET /api/products/:slug/integrations/:otherSlug — maintenance marker
   it('is vendor-maintained when ANY mechanism is, and dates it from the VENDOR mechanisms only', async () => {
     await seedProducts();
     // The vendor's mechanism was reviewed in January; AECi re-checked a different
-    // mechanism in July. The header says "Vendor-maintained", so the date must be
+    // mechanism in July. The header says "Vendor maintained", so the date must be
     // the vendor's — attributing AECi's July review to the vendor would be a lie,
     // and it is exactly what an unscoped max() would produce.
     await integration(u(10), u(1), u(2), {
@@ -1561,5 +1636,56 @@ describe('GET /api/products/:slug/integrations/:otherSlug — claims on a connec
     // `vendor_a` is Procore's slot, whichever product is the oriented source.
     expect(fromProcore.mechanisms[0]?.claims[0]?.attestations[0]?.attestor).toBe('context');
     expect(fromRevit.mechanisms[0]?.claims[0]?.attestations[0]?.attestor).toBe('other');
+  });
+});
+
+describe('GET /api/products/:slug/integrations/:otherSlug — pricing_url (AECI-1154)', () => {
+  it('carries the owner’s pricing link from integrations, and null when unset', async () => {
+    await seedProducts();
+    await integration(u(70), u(1), u(2), { pricingUrl: 'https://procore.example/pricing' });
+    await integration(u(71), u(2), u(1), { mechanismKind: 'api' });
+    const parsed = ProductPairResponseSchema.parse(
+      await (await get('/api/products/procore/integrations/revit')).json(),
+    );
+    const byId = new Map(parsed.mechanisms.map((m) => [m.id, m]));
+    expect(byId.get(u(70))?.pricing_url).toBe('https://procore.example/pricing');
+    expect(byId.get(u(71))?.pricing_url).toBeNull();
+  });
+
+  it('carries it from connector_evidenced_pairs too', async () => {
+    await seedProducts();
+    await t.db.insert(products).values({
+      id: u(3),
+      slug: 'agave-erp-sync',
+      name: 'Agave ERP Sync',
+      productRole: 'connector',
+      promotionStatus: 'promoted',
+    });
+    const [a, b] = [u(1), u(2)].sort();
+    await t.db.insert(connectorEvidencedPairs).values({
+      id: u(61),
+      connectorProductId: u(3),
+      productAId: a!,
+      productBId: b!,
+      direction: 'a_to_b',
+      pricingUrl: 'https://useagave.com/pricing',
+    });
+    const parsed = ProductPairResponseSchema.parse(
+      await (await get('/api/products/procore/integrations/revit')).json(),
+    );
+    expect(parsed.mechanisms[0]?.pricing_url).toBe('https://useagave.com/pricing');
+  });
+});
+
+describe('GET /api/products/:slug/integrations/:otherSlug — pricing_url is http(s) only (AECI-1154)', () => {
+  it('reads a stored value that is not an http(s) URL as unset', async () => {
+    await seedProducts();
+    // No writer stores this (every one runs `integrationEditValueProblem`); the read
+    // must not hand it to a public href if one ever did.
+    await integration(u(72), u(1), u(2), { pricingUrl: 'javascript:alert(1)' });
+    const parsed = ProductPairResponseSchema.parse(
+      await (await get('/api/products/procore/integrations/revit')).json(),
+    );
+    expect(parsed.mechanisms[0]?.pricing_url).toBeNull();
   });
 });

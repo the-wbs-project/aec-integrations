@@ -1,4 +1,5 @@
-import { Component, afterNextRender, computed, inject, signal } from '@angular/core';
+import { formatDate } from '@angular/common';
+import { Component, LOCALE_ID, afterNextRender, computed, inject, signal } from '@angular/core';
 import { toSignal } from '@angular/core/rxjs-interop';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { map } from 'rxjs';
@@ -29,7 +30,6 @@ import { NewTabIcon } from '../shared/new-tab-icon/new-tab-icon';
 
 import { AgreementBadge } from './agreement-badge';
 import { ClaimProvenance } from './claim-provenance';
-import { ConfirmedRatioInfo } from './confirmed-ratio-info';
 import {
   DIRECTION_ORDER,
   directionAria,
@@ -180,29 +180,59 @@ function buildClaimRow(
   };
 }
 
-/** Sync-headline breadth line (§3.5), pluralised. */
+/** Sync-headline breadth line (§3.5), pluralised. Reader wording since
+ *  AECI-1142: "types of data shared", not the model's "data objects sync". */
 function syncHeadlineText(total: number): string {
   return total === 1
-    ? $localize`:@@pair.dataflow.headline.one:1 data object syncs`
-    : $localize`:@@pair.dataflow.headline.other:${total}:count: data objects sync`;
+    ? $localize`:@@pair.dataflow.headline.one:1 type of data shared`
+    : $localize`:@@pair.dataflow.headline.other:${total}:count: types of data shared`;
 }
 
 /**
- * The muted verification ratio (§3.5, widened by §4.3) — never a hero trust
- * stat. Two clauses, because bilateral and one-sided verification must not be
- * added together: folding a lone vendor's affirmation into the "vendor-confirmed"
- * figure is exactly the overstatement `STAGE_2_SPEC.md` §8.1(4) forbids. The
- * second clause is omitted entirely at zero rather than rendered as "0".
- *
- * The numerator names who confirms ("both vendors") rather than the bare
- * "vendor-confirmed": a page showing two vendors read "0 of 1 vendor-confirmed" as
- * a count of vendors. The unit is data objects, which the headline above names.
+ * The data section heading and subline when the pair has no claims yet (AECI-919
+ * picks between the two forks). Resolved in TypeScript so the template holds one
+ * heading element for both the counted and the empty state.
  */
-function confirmedRatioText(confirmed: number, total: number, singleSource: number): string {
-  const bilateral = $localize`:@@pair.dataflow.ratio.bothVendors:${confirmed}:confirmed: of ${total}:total: confirmed by both vendors`;
-  if (singleSource === 0) return bilateral;
-  const oneSided = $localize`:@@pair.dataflow.ratio.singleSource:${singleSource}:count: confirmed by one vendor only`;
-  return `${bilateral} · ${oneSided}`;
+function emptyBandCopy(directional: boolean): { headline: string; subline: string } {
+  return directional
+    ? {
+        headline: $localize`:@@pair.dataflow.empty.directional:We haven’t listed the types of data yet`,
+        subline: $localize`:@@pair.dataflow.empty.subline.directional:The direction is shown below. The types of data aren’t listed yet.`,
+      }
+    : {
+        headline: $localize`:@@pair.dataflow.empty:We haven’t listed what’s shared yet`,
+        subline: $localize`:@@pair.dataflow.empty.subline.cataloguing:We’re listing what each integration shares.`,
+      };
+}
+
+/** "How you get it": the delivery kind, and who offers it or which connector
+ *  carries it. Links stay links, so this is structured rather than one string. */
+interface GlanceHow {
+  /** `''` when the kind is absent, or already the card's h2 (no mechanism name). */
+  readonly kind: string;
+  /** Stage 1 §4.4 "Offered by": the vendor that OWNS the integration (the one a
+   *  customer pays for it or gets it from), not whoever wrote the code. The
+   *  `built_by_vendor_id` column name predates that ruling (AECI-1021). */
+  readonly offeredBy: VendorLink | null;
+  /** The connector that carries it: the UNION of `via` and `powered_by_product`
+   *  (AECI-721), the same fact on rows in the two delivered-tier tables, never
+   *  both set. Linked so the reader can reach the connector's own page. */
+  readonly through: ProductLink | null;
+  /** AECI-1011: a vendor created this row in its portal (`origin: 'vendor'`). */
+  readonly vendorAdded: boolean;
+}
+
+/**
+ * One card's "At a glance" facts (AECI-1142). Per card, not per
+ * page: price, release stage, delivery and review date are columns of ONE
+ * integration row, so a pair with a native connector and a Zapier app has two
+ * of each. A fact is `null` when its source is empty; the row hides when all are.
+ */
+interface GlanceFacts {
+  readonly price: string | null;
+  readonly stage: string | null;
+  readonly how: GlanceHow | null;
+  readonly lastChecked: string | null;
 }
 
 /** One external link on a mechanism card, label already localized. */
@@ -281,36 +311,16 @@ interface MechanismView {
   /** Data-object claim lanes (§8). Empty when the mechanism has no claims yet. */
   readonly claimGroups: readonly ClaimGroup[];
   readonly hasClaims: boolean;
-  /** Stage 1 §4.4 "Offered by (vendor) / Powered by (product)" — rendered as a
-   *  linked byline. "Offered by" is the vendor that OWNS the integration (the one a
-   *  customer pays for it or gets it from), not whoever wrote the code — the
-   *  `built_by_vendor_id` column name predates that ruling (AECI-1021). Linked so a
-   *  via-connector mechanism (e.g. "via Agave ERP Sync") navigates to the connector's
-   *  own pages instead of being dead text.
-   *
-   *  `poweredByProduct` is the UNION of the payload's `powered_by_product` and
-   *  `via` (AECI-721) — the same fact carried by rows in the two delivered-tier
-   *  tables. The view model deliberately collapses them: which table an edge
-   *  lives in is a storage question the reader has no stake in. */
-  readonly builtByVendor: VendorLink | null;
-  readonly poweredByProduct: ProductLink | null;
-  /** AECI-1011: a vendor created this row in its portal (`origin: 'vendor'`), so the
-   *  byline carries a small provenance note, worded by AECI-1023 to match
-   *  `/methodology` ("its page says it was added by the vendor"). */
-  readonly vendorAdded: boolean;
+  /** AECI-1142 "At a glance" facts, or `null` when every fact is empty. */
+  readonly glance: GlanceFacts | null;
 }
 
 interface PairView {
   readonly pair: ProductPairResponse;
   readonly mechanisms: readonly MechanismView[];
-  /** Distinct claims across the pair (§3.5) — drives the data-flow band. */
+  /** Distinct data objects across the pair (§3.5). Drives the section heading. */
   readonly syncTotal: number;
   readonly syncHeadline: string;
-  readonly confirmedRatio: string;
-  /** True while no vendor has said anything about any claim on this pair — the
-   *  Stage 1.5 posture, and the only time every attestation on the pair is
-   *  AECi's, which is exactly what the "asserted by AECi" subline claims. */
-  readonly awaitingVendors: boolean;
   /** The two vendor names attestations are attributed to (§4.3). */
   readonly vendorNames: PairVendorNames;
   /** True when some mechanism carries a Layer-B claim lane or a Layer-A direction
@@ -321,11 +331,11 @@ interface PairView {
    *  the `!hasClaims && direction` condition the per-mechanism card applies. The
    *  narrower sibling of `hasDetail`, which also counts Layer-B claim lanes.
    *
-   *  It exists to pick the empty data-flow band's copy (AECI-919): the band counts
-   *  Layer-B claims, so it goes empty while a direction is plainly documented just
-   *  below it, and the original "Data flows aren't documented yet" contradicted the
-   *  arrow it sat above. Keep it distinct from `hasDetail` — a pair whose only
-   *  detail is claim lanes never shows an empty band at all (`syncTotal > 0`). */
+   *  It exists to pick the empty section heading's copy (AECI-919): the heading
+   *  counts Layer-B claims, so it goes empty while a direction is plainly
+   *  documented just below it, and the original "Data flows aren't documented yet"
+   *  contradicted the arrow it sat above. Keep it distinct from `hasDetail`: a pair
+   *  whose only detail is claim lanes never shows the empty copy (`syncTotal > 0`). */
   readonly hasLayerADirection: boolean;
 }
 
@@ -380,9 +390,10 @@ function writePairViewCookie(mode: PairViewMode): void {
  * integration (mechanism) is a card. **Layer A** (AECI-294) is the shell +
  * mechanisms with a context-relative direction arrow; **Layer B** (AECI-300)
  * adds the data-flow section — the `data_object` claim rows grouped into
- * direction lanes with neutral "Unverified · AECi" badges + AECi provenance, and
- * the `confirmed/total` sync headline (§3.5). A mechanism with no claims yet (or
- * a pair with none) falls back to the Layer-A arrow + empty data-flow band.
+ * direction lanes with neutral "Listed by AEC Integrations" badges + a "Sources"
+ * popover, under an "N types of data shared" heading (§3.5 as amended by
+ * AECI-1142). Each card carries an "At a glance" strip. A mechanism with no claims
+ * yet (or a pair with none) falls back to the Layer-A arrow + the empty heading.
  *
  * A **Basic/Detailed** disclosure toggle sits in the header (URL `?view=`, default
  * `detailed`). Basic (Overview) keeps the rail, sync headline, and each
@@ -394,7 +405,7 @@ function writePairViewCookie(mode: PairViewMode): void {
  * Data comes from `productsPairResolver` via `route.data['pair']`:
  *   - `null` → the global `aec-not-found` shell (the resolver set
  *     `RESPONSE_INIT.status = 404` + `setNotFoundMeta`).
- *   - set → the rail + sync band + mechanism cards.
+ *   - set → the rail + section heading + mechanism cards.
  *
  * No JSON-LD (§9.2 defers integration structured data to Stage 2). Cache tags
  * are written by the SSR runtime (the path matcher emits `route:detail` +
@@ -406,7 +417,6 @@ function writePairViewCookie(mode: PairViewMode): void {
   imports: [
     AgreementBadge,
     ClaimProvenance,
-    ConfirmedRatioInfo,
     ExternalLinkTracker,
     LogoOrInitial,
     MailingListSignup,
@@ -480,9 +490,13 @@ function writePairViewCookie(mode: PairViewMode): void {
                      per-claim agreement badge on the mechanism cards below: this says
                      who is on the hook for the page, that says whether the two vendors
                      agree about one data object. -->
+                <!-- Each card states its own "Last checked" date (AECI-1142), so
+                     the header keeps only the attribution. No ownerName: the pair
+                     payload does not say which company flipped a row, so no
+                     screen-reader suffix names one. -->
                 <aec-maintenance-marker
                   [maintainedBy]="v.pair.maintenance.maintained_by"
-                  [reviewedAt]="v.pair.maintenance.last_reviewed_at"
+                  [reviewedAt]="null"
                 />
               </div>
               <h1
@@ -631,82 +645,33 @@ function writePairViewCookie(mode: PairViewMode): void {
             }
           </div>
 
-          <!-- Data-flow band (§3.5). Leads with the sync headline once claims are
-               seeded (Layer B, AECI-300); otherwise reads the empty state
-               (Layer A / pre-seeding). -->
-          <div
-            class="mt-6 rounded-(--radius-xl) border border-(--border-default) bg-(--accent-warm) p-6 text-center"
-          >
+          <!-- The data section heading (§3.5 as amended by AECI-1142). Ruling
+               2026-09-28 (Chris): the summary band and ratio line are replaced by
+               the per-card At a glance row. The count is a plain h2 for the cards
+               below; the per-row badges already say who confirmed what. -->
+          <div class="mt-8" data-testid="pair-data-heading">
             @if (v.syncTotal > 0) {
-              <p class="font-display text-2xl leading-tight text-(--text-primary)">
+              <h2 class="font-display text-2xl leading-tight text-(--text-primary)">
                 {{ v.syncHeadline }}
-              </p>
-              <!-- Attribution, not a count: the ratio line below already says how
-                   many are vendor-confirmed, so this line says who asserted them.
-                   Only true while every attestation on the pair is AECi's. -->
-              @if (v.awaitingVendors) {
-                <p
-                  class="mt-2 text-sm text-(--text-secondary)"
-                  i18n="@@pair.dataflow.subline.aeciAsserted"
-                >
-                  These flows are asserted by AECi.
-                </p>
-              }
-              <!-- text-secondary (not tertiary): tertiary fails AA contrast on the Bone band. -->
-              <p
-                class="mt-2 inline-flex items-center gap-1 text-xs tabular-nums text-(--text-secondary)"
-              >
-                <span>{{ v.confirmedRatio }}</span>
-                <aec-confirmed-ratio-info
-                  [contextVendorName]="v.vendorNames.context"
-                  [otherVendorName]="v.vendorNames.other"
-                  [showSingleSource]="v.pair.sync_headline.single_source > 0"
-                  [aeciOnly]="v.awaitingVendors"
-                />
-              </p>
-            } @else if (viewMode() === 'detailed' && v.hasLayerADirection) {
-              <!-- AECI-919: the band counts Layer-B data-object claims, and the
-                   standalone Layer-A arrow renders right under it. "Data flows
-                   aren't documented yet" therefore sat directly above a documented
-                   direction and read as a contradiction. The direction IS known;
-                   the records that cross are not. This variant says that, and the
-                   subline points at the arrow rather than denying it. Gated on
-                   the Detailed view too: Basic hides the arrow, so "below" would
-                   name nothing there and the original copy is the honest one. -->
-              <p
-                class="font-display text-2xl leading-tight text-(--text-primary)"
-                i18n="@@pair.dataflow.empty.directional"
-              >
-                We haven’t catalogued what syncs yet
-              </p>
-              <p
-                class="mt-2 text-sm text-(--text-secondary)"
-                i18n="@@pair.dataflow.empty.subline.directional"
-              >
-                Direction is documented below; the records that cross aren’t yet.
-              </p>
+              </h2>
             } @else {
-              <p
-                class="font-display text-2xl leading-tight text-(--text-primary)"
-                i18n="@@pair.dataflow.empty"
-              >
-                Data flows aren’t documented yet
-              </p>
-              <p
-                class="mt-2 text-sm text-(--text-secondary)"
-                i18n="@@pair.dataflow.empty.subline.cataloguing"
-              >
-                We’re cataloguing what each integration syncs.
-              </p>
+              <!-- AECI-919: two copies, picked by emptyCopy(). The directional one
+                   applies when a Layer-A arrow renders under this heading (Detailed
+                   view only), so the page never denies a direction it documents. -->
+              <h2 class="font-display text-2xl leading-tight text-(--text-primary)">
+                {{ emptyCopy().headline }}
+              </h2>
+              <p class="mt-1 text-sm text-(--text-secondary)">{{ emptyCopy().subline }}</p>
             }
 
-            <!-- AECI-303 (§9.1): what the selected version pair changed. Lives in the
-                 band because the band already owns "what syncs"; the per-row markers
-                 below say which flows. Only rendered when there IS a previous pair
-                 to compare against; the earliest pair is a baseline, not a diff. -->
+            <!-- AECI-303 (§9.1): what the selected version pair changed. Lives
+                 under the heading because the heading owns "what is shared"; the
+                 per-row markers below say which types of data. Only rendered when
+                 there IS a previous pair to compare against; the earliest pair is
+                 a baseline, not a diff. -->
             @if (versionView(); as vv) {
               @if (vv.previousSummary) {
-                <p class="mt-4 text-xs text-(--text-secondary)">
+                <p class="mt-2 text-xs text-(--text-secondary)">
                   <span>{{ vv.previousSummary }}</span>
                   @if (vv.changeSummary) {
                     <span class="tabular-nums"> · {{ vv.changeSummary }}</span>
@@ -729,7 +694,6 @@ function writePairViewCookie(mode: PairViewMode): void {
               }
             }
           </div>
-
           <!-- Per-mechanism cards with the context-relative direction arrow. -->
           <div class="mt-8 space-y-6">
             @for (m of v.mechanisms; track m.id) {
@@ -738,7 +702,9 @@ function writePairViewCookie(mode: PairViewMode): void {
               >
                 <header class="flex flex-wrap items-center gap-3">
                   @if (m.name) {
-                    @if (m.kindLabel) {
+                    <!-- AECI-1142: the kind lives in "How you get it" when a name
+                         heads the card, so it is not stated twice. -->
+                    @if (m.kindLabel && !m.glance?.how?.kind) {
                       <span
                         class="inline-flex items-center rounded-(--radius-sm) border border-(--border-default) bg-(--surface-raised) px-3 py-1 text-[0.8125rem] font-bold tracking-[0.01em] text-(--text-secondary)"
                         >{{ m.kindLabel }}</span
@@ -785,9 +751,9 @@ function writePairViewCookie(mode: PairViewMode): void {
                       <span>{{ m.depthDirection.label }}</span>
                     </span>
                   }
-                  <!-- Ruled 2026-09-23: with one mechanism the band headline
-                       already says "N data objects sync", so the card chip would
-                       only repeat it. -->
+                  <!-- Ruled 2026-09-23: with one mechanism the section heading
+                       already says "N types of data shared", so the card chip
+                       would only repeat it. -->
                   @if (m.dataObjectLabel && !(v.mechanisms.length === 1 && v.syncTotal > 0)) {
                     <span
                       class="inline-flex items-center rounded-(--radius-sm) border border-(--border-default) bg-(--surface-raised) px-3 py-1 text-[0.8125rem] font-bold tracking-[0.01em] text-(--text-secondary)"
@@ -797,51 +763,9 @@ function writePairViewCookie(mode: PairViewMode): void {
                   }
                 </header>
 
-                <!-- Linked provenance byline (Stage 1 §4.4: "Offered by" / "Powered
-                     by"). Mechanism identity, not detail, so it renders in Basic too.
-                     Until the connector FK is backfilled, via-connector rows fall
-                     back to the vendor-only "Offered by" segment. The i18n id keeps
-                     its historical "builtBy" name (AECI-1021). -->
-                @if (m.builtByVendor || m.poweredByProduct) {
-                  <p
-                    class="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-(--text-secondary)"
-                  >
-                    @if (m.builtByVendor; as bv) {
-                      <span>
-                        <ng-container i18n="@@pair.mechanism.builtBy">Offered by</ng-container
-                        >&ngsp;
-                        <a
-                          [routerLink]="['/vendors', bv.slug]"
-                          class="text-(--accent-primary) underline underline-offset-2"
-                          >{{ bv.name }}</a
-                        >
-                      </span>
-                    }
-                    <!-- AECI-1011: a vendor-created row says so. Name-free on purpose:
-                         an AECi owner reassignment can change "Offered by" after the
-                         create, so naming the current owner here could be false. -->
-                    @if (m.builtByVendor && m.vendorAdded) {
-                      <span aria-hidden="true" class="text-(--text-tertiary)">·</span>
-                      <span data-testid="pair-vendor-added" i18n="@@pair.mechanism.vendorAdded"
-                        >Added by the vendor</span
-                      >
-                    }
-                    @if (m.builtByVendor && m.poweredByProduct) {
-                      <span aria-hidden="true" class="text-(--text-tertiary)">·</span>
-                    }
-                    @if (m.poweredByProduct; as pb) {
-                      <span>
-                        <ng-container i18n="@@pair.mechanism.poweredBy">Powered by</ng-container
-                        >&ngsp;
-                        <a
-                          [routerLink]="['/products', pb.slug]"
-                          class="text-(--accent-primary) underline underline-offset-2"
-                          >{{ pb.name }}</a
-                        >
-                      </span>
-                    }
-                  </p>
-                }
+                <!-- The Stage 1 §4.4 "Offered by" / "Powered by" byline lives in the
+                     At a glance strip's "How you get it" since AECI-1142, so the
+                     card states delivery once. -->
 
                 <!-- Layer-A mechanism arrow: a Detailed-view detail, shown only when
                      this mechanism has no claims. When claims exist the per-lane
@@ -862,6 +786,118 @@ function writePairViewCookie(mode: PairViewMode): void {
                   <p class="max-w-3xl text-sm leading-relaxed text-(--text-secondary)">
                     {{ m.description }}
                   </p>
+                }
+
+                <!-- AECI-1142 "At a glance". Per card: each fact is a column of this
+                     one integration row. A fact with no value is left out, and the
+                     whole strip is left out when none has a value. Identity rather
+                     than detail, so it renders in Basic view too.
+
+                     Tinted Bone (--accent-warm), the ground of the summary band it
+                     replaced (ruled 2026-09-28). The strip only, never the whole
+                     card: the claim lanes below are already tinted boxes. Border,
+                     no shadow. Labels stay text-secondary: tertiary fails AA on Bone. -->
+                @if (m.glance; as g) {
+                  <div
+                    class="rounded-(--radius-lg) border border-(--border-default) bg-(--accent-warm) px-4 py-3"
+                    data-testid="pair-glance"
+                  >
+                    <h3 class="aec-overline text-(--text-secondary)" i18n="@@pair.glance.title">
+                      At a glance
+                    </h3>
+                    <!-- auto-fit, not a fixed 4 columns: a card with one or two facts
+                         gives them the full width instead of a quarter. -->
+                    <dl
+                      class="mt-2 grid gap-x-8 gap-y-3 sm:grid-cols-[repeat(auto-fit,minmax(12rem,1fr))]"
+                    >
+                      @if (g.price) {
+                        <div>
+                          <dt class="text-xs text-(--text-secondary)" i18n="@@pair.glance.price">
+                            Price
+                          </dt>
+                          <dd class="mt-0.5 text-sm text-(--text-primary)">{{ g.price }}</dd>
+                        </div>
+                      }
+                      @if (g.stage) {
+                        <div>
+                          <dt class="text-xs text-(--text-secondary)" i18n="@@pair.glance.stage">
+                            Release stage
+                          </dt>
+                          <dd class="mt-0.5 text-sm text-(--text-primary)">{{ g.stage }}</dd>
+                        </div>
+                      }
+                      @if (g.how; as how) {
+                        <div>
+                          <dt class="text-xs text-(--text-secondary)" i18n="@@pair.glance.how">
+                            How you get it
+                          </dt>
+                          <dd class="mt-0.5 text-sm text-(--text-primary)">
+                            @if (how.kind) {
+                              <span class="block">{{ how.kind }}</span>
+                            }
+                            @if (how.offeredBy || how.through) {
+                              <span class="block text-(--text-secondary)">
+                                @if (how.offeredBy; as bv) {
+                                  <ng-container i18n="@@pair.mechanism.builtBy"
+                                    >Offered by</ng-container
+                                  >&ngsp;<a
+                                    [routerLink]="['/vendors', bv.slug]"
+                                    class="text-(--accent-primary) underline underline-offset-2"
+                                    >{{ bv.name }}</a
+                                  >
+                                }
+                                <!-- The link sits inside each branch, right after
+                                     &ngsp;: a space placed after the control-flow
+                                     block is stripped as inter-block whitespace. -->
+                                @if (how.through; as pb) {
+                                  @if (how.offeredBy) {
+                                    <ng-container i18n="@@pair.glance.throughJoin"
+                                      >, through</ng-container
+                                    >&ngsp;<a
+                                      [routerLink]="['/products', pb.slug]"
+                                      class="text-(--accent-primary) underline underline-offset-2"
+                                      >{{ pb.name }}</a
+                                    >
+                                  } @else {
+                                    <ng-container i18n="@@pair.glance.through">Through</ng-container
+                                    >&ngsp;<a
+                                      [routerLink]="['/products', pb.slug]"
+                                      class="text-(--accent-primary) underline underline-offset-2"
+                                      >{{ pb.name }}</a
+                                    >
+                                  }
+                                }
+                              </span>
+                            }
+                            <!-- AECI-1011: a vendor-created row says so. Name-free on
+                                 purpose: an AECi owner reassignment can change "Offered
+                                 by" after the create, so naming the owner could be false. -->
+                            @if (how.vendorAdded) {
+                              <span
+                                class="block text-xs text-(--text-secondary)"
+                                data-testid="pair-vendor-added"
+                                i18n="@@pair.mechanism.vendorAdded"
+                                >Added by the vendor</span
+                              >
+                            }
+                          </dd>
+                        </div>
+                      }
+                      @if (g.lastChecked) {
+                        <div>
+                          <dt
+                            class="text-xs text-(--text-secondary)"
+                            i18n="@@pair.glance.lastChecked"
+                          >
+                            Last checked
+                          </dt>
+                          <dd class="mt-0.5 text-sm tabular-nums text-(--text-primary)">
+                            {{ g.lastChecked }}
+                          </dd>
+                        </div>
+                      }
+                    </dl>
+                  </div>
                 }
 
                 <!-- Layer B (§8): data_object claim rows, grouped into direction
@@ -982,6 +1018,7 @@ function writePairViewCookie(mode: PairViewMode): void {
 export class ProductsPairPage {
   private readonly route = inject(ActivatedRoute);
   private readonly router = inject(Router);
+  private readonly locale = inject(LOCALE_ID);
 
   protected readonly breadcrumbAria = $localize`:@@pair.breadcrumb.aria:Breadcrumb`;
 
@@ -1018,6 +1055,12 @@ export class ProductsPairPage {
     return this.cookieView() ?? 'detailed';
   });
 
+  /** The empty heading's copy (AECI-919). The directional fork needs a Layer-A arrow
+   *  to point at, and Basic hides that arrow, so it applies in Detailed only. */
+  protected readonly emptyCopy = computed(() =>
+    emptyBandCopy(this.viewMode() === 'detailed' && (this.view()?.hasLayerADirection ?? false)),
+  );
+
   /** Reflect the toggle into the URL (preserving other params) AND remember the
    *  choice in a client-only cookie so it becomes the default on the next visit. */
   protected setView(mode: PairViewMode): void {
@@ -1045,7 +1088,9 @@ export class ProductsPairPage {
     const pair = this.pair();
     if (!pair) return null;
     const otherName = pair.other_product.name;
-    const { total, confirmed, single_source: singleSource } = pair.sync_headline;
+    // Only `total` renders since AECI-1142 (ruling 2026-09-28): the ratio line that
+    // read `confirmed` and `single_source` was removed with the summary band.
+    const { total } = pair.sync_headline;
     const vendorNames: PairVendorNames = {
       context: pair.context_product.vendor?.name ?? null,
       other: pair.other_product.vendor?.name ?? null,
@@ -1062,21 +1107,12 @@ export class ProductsPairPage {
       mechanisms,
       syncTotal: total,
       syncHeadline: syncHeadlineText(total),
-      confirmedRatio: confirmedRatioText(confirmed, total, singleSource),
-      // Keyed off the presence of a vendor attestation, not off the agreement
-      // state: a claim every vendor *denied* is still `unverified`, but a vendor
-      // HAS spoken, so "these flows are asserted by AECi" would no longer be the
-      // whole provenance of the pair.
-      // (AECI-781 replaced the copy; the gate it justifies is unchanged.)
-      awaitingVendors: pair.mechanisms.every((m) =>
-        m.claims.every((c) => c.attestations.every((a) => a.attestor === 'aeci')),
-      ),
       vendorNames,
       hasDetail: mechanisms.some(
         (m) => m.claimGroups.length > 0 || (m.direction !== null && !m.hasClaims),
       ),
       // Deliberately the SAME predicate the per-mechanism card gates its
-      // standalone arrow on (see the template). If the two drift, the band
+      // standalone arrow on (see the template). If the two drift, the heading
       // promises a direction "below" that no card renders — which is the defect
       // AECI-919 fixed, just inverted.
       hasLayerADirection: mechanisms.some((m) => m.direction !== null && !m.hasClaims),
@@ -1116,16 +1152,40 @@ export class ProductsPairPage {
         this.pair()?.version_diff?.selected ?? null,
       ),
       hasClaims: m.claims.length > 0,
-      builtByVendor: m.built_by_vendor,
-      vendorAdded: m.origin === 'vendor',
-      // `via` first (AECI-721). The two fields are the same fact about rows in
-      // different tables — `powered_by_product` for an `integrations` row that
-      // still carries the FK, `via` for a connector-evidenced pair — and they are
-      // never both set, so the coalesce is a union, not a precedence rule. Reading
-      // only `powered_by_product` would leave the 19 migrated pairs naming no
-      // connector at all, on the one surface whose whole subject is the connector.
-      poweredByProduct: m.via ?? m.powered_by_product,
+      glance: this.glanceFacts(m),
     };
+  }
+
+  /**
+   * The card's "At a glance" facts (AECI-1142). `pricing_model` and `maturity` are
+   * free text and render verbatim. `?? null` because the web never Zod-parses the
+   * pair response, so an older API Worker leaves the fields absent.
+   */
+  private glanceFacts(m: ProductPairMechanism): GlanceFacts | null {
+    const offeredBy = m.built_by_vendor;
+    const through = m.via ?? m.powered_by_product;
+    // With no mechanism name the kind label is already the card's h2.
+    const kind = m.mechanism_name ? mechanismKindLabel(m.mechanism_kind) : '';
+    const how: GlanceHow | null =
+      kind || offeredBy || through
+        ? { kind, offeredBy, through, vendorAdded: m.origin === 'vendor' && offeredBy !== null }
+        : null;
+    const facts: GlanceFacts = {
+      price: m.pricing_model?.trim() || null,
+      stage: m.maturity?.trim() || null,
+      how,
+      lastChecked: this.formatReviewDate(m.last_reviewed_at ?? null),
+    };
+    return facts.price || facts.stage || facts.how || facts.lastChecked ? facts : null;
+  }
+
+  /** Same format and zone as `MaintenanceMarker`: UTC, so SSR (UTC) and the
+   *  browser agree either side of midnight and hydration does not mismatch. */
+  private formatReviewDate(at: string | null): string | null {
+    if (!at) return null;
+    const parsed = new Date(at);
+    if (Number.isNaN(parsed.getTime())) return null;
+    return formatDate(parsed, 'MMMM d, y', this.locale, 'UTC');
   }
 
   protected ratingAria(product: ProductPairResponse['context_product']): string {

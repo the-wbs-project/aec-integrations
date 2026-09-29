@@ -33,15 +33,19 @@ export function directionHeading(direction: ContextDirection, otherName: string)
   }
 }
 
-/** Screen-reader label for a direction (the glyph is `aria-hidden`). */
+/**
+ * Screen-reader label for a direction glyph. Matches the visible heading's plain
+ * words (AECI-1142) instead of the old "Outbound to / Inbound from /
+ * Bidirectional", so a screen-reader user hears what a sighted reader reads.
+ */
 export function directionAria(direction: ContextDirection, otherName: string): string {
   switch (direction) {
     case 'outbound':
-      return $localize`:@@pair.direction.outbound.aria:Outbound to ${otherName}:other:`;
+      return $localize`:@@pair.direction.outbound.aria:Sends to ${otherName}:other:`;
     case 'inbound':
-      return $localize`:@@pair.direction.inbound.aria:Inbound from ${otherName}:other:`;
+      return $localize`:@@pair.direction.inbound.aria:Receives from ${otherName}:other:`;
     case 'both':
-      return $localize`:@@pair.direction.both.aria:Bidirectional`;
+      return $localize`:@@pair.direction.both.aria:Both ways`;
   }
 }
 

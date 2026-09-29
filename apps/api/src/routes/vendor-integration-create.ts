@@ -72,7 +72,7 @@ import { auditActorType } from '../lib/authz';
 import { isConnectorPoweredEdge } from '../lib/connector-powered';
 import { validateResponseInDev, writeDb, type DbFactory } from '../lib/handler-utils';
 import { claimColumns } from '../lib/integration-claims';
-import { CONTEST_FIELD_COLUMNS } from '../lib/integration-contests';
+import { EDIT_FIELD_COLUMNS } from '../lib/integration-contests';
 import { createNotificationAudit, INTEGRATION_CREATED_ACTION } from '../lib/integration-create';
 import { endpointSlugs } from '../lib/integration-owner-writes';
 import { findStrongMatches, type StrongMatchRow } from '../lib/integration-twins';
@@ -211,7 +211,7 @@ export function createCreateVendorIntegrationHandler(
     const now = new Date().toISOString();
     const columns: Record<string, string> = {};
     for (const [field, value] of Object.entries(values) as [IntegrationEditField, string][]) {
-      columns[CONTEST_FIELD_COLUMNS[field]] = value;
+      columns[EDIT_FIELD_COLUMNS[field]] = value;
     }
     const actor = { actorId: session.userId, actorType: auditActorType(session) };
     const audits: AuditLogEntry[] = [

@@ -57,11 +57,22 @@ export type MaintainedBy = 'aeci' | 'vendor';
 @Component({
   selector: 'aec-maintenance-marker',
   template: `
+    <!-- Two visible labels everywhere (ruling 2026-09-28): "AEC Integrations
+         maintained" and "Vendor maintained". Where the page can prove which
+         company wrote, an sr-only suffix names it, so a screen reader hears
+         "Vendor maintained: Procore Technologies keeps this up to date". Plain
+         sr-only text, not an aria-label: a span has no role to label. No
+         control flow inside the chip: a block adds whitespace between parts.
+         The inner span keeps the parts one flex item, so the leading space of
+         " · Updated" is not trimmed as a flex boundary. -->
     <span
       class="inline-flex items-center rounded-(--radius-sm) border border-(--border-default)
         bg-(--surface-raised) px-2.5 py-1 text-[0.75rem] font-medium tracking-[0.01em]
         text-(--text-secondary)"
-      >{{ label() }}</span
+      ><span
+        >{{ lead() }}<span class="sr-only">{{ ownerSuffix() }}</span
+        >{{ dateClause() }}</span
+      ></span
     >
   `,
 })
@@ -76,6 +87,17 @@ export class MaintenanceMarker {
    * renders bare attribution with no date clause.
    */
   readonly reviewedAt = input<string | null>(null);
+
+  /**
+   * The company behind the vendor branch, for SCREEN READERS ONLY (AECI-1142,
+   * ruling 2026-09-28). The visible label is always "Vendor maintained"; this adds
+   * an sr-only ": {owner} keeps this up to date". Pass it only where the name is
+   * provably the company that wrote: the vendor page (the vendor itself) and the
+   * product page (the product's vendor, the only party that can edit the product
+   * row). The pair page passes `null`: any endpoint vendor or the integration's
+   * owner can flip a pair row to `'vendor'`, and the payload does not say which.
+   */
+  readonly ownerName = input<string | null>(null);
 
   private readonly locale = inject(LOCALE_ID);
 
@@ -92,15 +114,28 @@ export class MaintenanceMarker {
     return formatDate(parsed, 'MMMM d, y', this.locale, 'UTC');
   });
 
-  protected readonly label = computed<string>(() => {
+  /** The visible attribution: exactly one of two labels. */
+  protected readonly lead = computed<string>(() =>
+    this.maintainedBy() === 'vendor'
+      ? $localize`:@@maintenance.vendor:Vendor maintained`
+      : $localize`:@@maintenance.aeci:AEC Integrations maintained`,
+  );
+
+  /** Screen-reader-only naming of the company, vendor branch only. */
+  protected readonly ownerSuffix = computed<string>(() => {
+    const owner = this.ownerName();
+    if (this.maintainedBy() !== 'vendor' || !owner) return '';
+    return $localize`:@@maintenance.vendor.owner.sr:: ${owner}:OWNER: keeps this up to date`;
+  });
+
+  /** " · Updated {date}" (vendor) or " · Reviewed {date}" (AECi), or `''`. The verb
+   *  differs by branch off the SAME column: a vendor save is an update, an AECi
+   *  re-check is a review, and swapping them would misattribute the act. */
+  protected readonly dateClause = computed<string>(() => {
     const date = this.formattedDate();
-    if (this.maintainedBy() === 'vendor') {
-      return date === null
-        ? $localize`:@@maintenance.vendor:Vendor-maintained`
-        : $localize`:@@maintenance.vendor.dated:Vendor-maintained · Updated ${date}:DATE:`;
-    }
-    return date === null
-      ? $localize`:@@maintenance.aeci:Maintained by AEC Integrations`
-      : $localize`:@@maintenance.aeci.dated:Maintained by AEC Integrations · Reviewed ${date}:DATE:`;
+    if (date === null) return '';
+    return this.maintainedBy() === 'vendor'
+      ? $localize`:@@maintenance.vendor.dated.clause: · Updated ${date}:DATE:`
+      : $localize`:@@maintenance.aeci.dated.clause: · Reviewed ${date}:DATE:`;
   });
 }

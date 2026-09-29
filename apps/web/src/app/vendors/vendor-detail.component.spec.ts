@@ -131,7 +131,7 @@ describe('VendorDetailPage maintenance marker', () => {
     const { el } = setup(buildVendor());
     const marker = el.querySelector('aec-maintenance-marker');
     expect(marker).toBeTruthy();
-    expect(marker!.textContent).toContain('Maintained by AEC Integrations');
+    expect(marker!.textContent).toContain('AEC Integrations maintained');
     expect(marker!.textContent).not.toMatch(/\d{4}/);
   });
 
@@ -145,8 +145,10 @@ describe('VendorDetailPage maintenance marker', () => {
     // The verb differs by branch off the SAME column: "Updated" for a vendor,
     // "Reviewed" for AECi. Asserting the whole string is what catches a mis-bind
     // that passes the right date into the wrong branch.
-    expect(marker!.textContent).toContain('Vendor-maintained · Updated September 16, 2026');
-    expect(marker!.textContent).not.toContain('Maintained by AEC Integrations');
+    expect(marker!.textContent).toContain(
+      'Vendor maintained: Procore Technologies keeps this up to date · Updated September 16, 2026',
+    );
+    expect(marker!.textContent).not.toContain('AEC Integrations maintained');
   });
 
   it('carries the date through to the AECi branch too', () => {
@@ -156,7 +158,7 @@ describe('VendorDetailPage maintenance marker', () => {
       }),
     );
     expect(el.querySelector('aec-maintenance-marker')!.textContent).toContain(
-      'Maintained by AEC Integrations · Reviewed March 4, 2026',
+      'AEC Integrations maintained · Reviewed March 4, 2026',
     );
   });
 });

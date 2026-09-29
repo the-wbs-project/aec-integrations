@@ -10,6 +10,7 @@ import {
   buildNeedsItems,
   conflictsByProduct,
   linkCommands,
+  linkFragment,
   linkQueryParams,
   openCorrections,
   type NeedsItem,
@@ -25,6 +26,8 @@ interface NeedsRow {
   readonly key: string;
   readonly commands: readonly string[];
   readonly queryParams: Readonly<Record<string, string>> | null;
+  /** The section an integration page link lands on (AECI-1149). */
+  readonly fragment: string | null;
   readonly icon: 'alert' | 'clock' | 'pencil' | 'users';
   readonly tone: 'conflict' | 'attention' | 'quiet';
   readonly pill: string;
@@ -216,6 +219,7 @@ interface NeedsRow {
       <a
         [routerLink]="row.commands"
         [queryParams]="row.queryParams"
+        [fragment]="row.fragment ?? undefined"
         class="flex items-start gap-3 rounded-(--radius-md) border border-(--border-default) bg-(--surface-raised) px-4 py-3 no-underline transition-colors hover:bg-(--surface-sunken) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
         [attr.data-item]="row.key"
       >
@@ -331,6 +335,7 @@ export class VendorOverviewSection {
             c.protest.reply === null &&
             Date.parse(c.protest.reply_due_at) > Date.now(),
         ).length,
+      counterpartAddedUnanswered: this.store.counterpartAddedUnanswered(),
       canManageSeats: this.store.canManageSeats(),
       // The same capability the Integrations tab gates on (AECI-623).
       canAttest: this.canAttest(),
@@ -412,6 +417,7 @@ export class VendorOverviewSection {
   private row(item: NeedsItem): NeedsRow {
     const commands = linkCommands(item.link);
     const queryParams = linkQueryParams(item.link);
+    const fragment = linkFragment(item.link);
     switch (item.type) {
       case 'conflict': {
         const name = item.product.name;
@@ -419,6 +425,7 @@ export class VendorOverviewSection {
           key: item.key,
           commands,
           queryParams,
+          fragment,
           icon: 'alert',
           tone: 'conflict',
           pill: $localize`:@@vendor.overview.item.conflict.pill:In conflict`,
@@ -436,6 +443,7 @@ export class VendorOverviewSection {
           key: item.key,
           commands,
           queryParams,
+          fragment,
           icon: 'clock',
           tone: 'attention',
           pill:
@@ -454,6 +462,7 @@ export class VendorOverviewSection {
           key: item.key,
           commands,
           queryParams,
+          fragment,
           icon: 'clock',
           tone: 'attention',
           pill: $localize`:@@vendor.overview.item.protests.pill:Reply by the due date`,
@@ -468,6 +477,7 @@ export class VendorOverviewSection {
           key: item.key,
           commands,
           queryParams,
+          fragment,
           icon: 'clock',
           tone: 'attention',
           pill: $localize`:@@vendor.overview.item.contests.pill:To decide`,
@@ -477,12 +487,28 @@ export class VendorOverviewSection {
               : $localize`:@@vendor.overview.item.contests.title.many:${item.count}:COUNT: field contests are waiting for your decision`,
           body: $localize`:@@vendor.overview.item.contests.body:Accept or decline them in Messages. An accepted contest changes the public integration page.`,
         };
+      case 'addedRows':
+        return {
+          key: item.key,
+          commands,
+          queryParams,
+          fragment,
+          icon: 'clock',
+          tone: 'attention',
+          pill: $localize`:@@vendor.overview.item.addedRows.pill:To answer`,
+          title:
+            item.count === 1
+              ? $localize`:@@vendor.overview.item.addedRows.title.one:1 row another company added needs your answer`
+              : $localize`:@@vendor.overview.item.addedRows.title.many:${item.count}:COUNT: rows another company added need your answer`,
+          body: $localize`:@@vendor.overview.item.addedRows.body:Until you answer, the public page shows each one as confirmed by the company that added it.`,
+        };
       case 'waiting': {
         const name = item.product.name;
         return {
           key: item.key,
           commands,
           queryParams,
+          fragment,
           icon: 'clock',
           tone: 'attention',
           pill: $localize`:@@vendor.overview.item.waiting.pill:${item.count}:COUNT: waiting`,
@@ -498,6 +524,7 @@ export class VendorOverviewSection {
           key: item.key,
           commands,
           queryParams,
+          fragment,
           icon: 'clock',
           tone: 'quiet',
           pill: $localize`:@@vendor.overview.item.more.pill:More`,
@@ -514,6 +541,7 @@ export class VendorOverviewSection {
           key: item.key,
           commands,
           queryParams,
+          fragment,
           icon: 'pencil',
           tone: 'quiet',
           pill: this.fieldCount(item.fields.length),
@@ -526,6 +554,7 @@ export class VendorOverviewSection {
           key: item.key,
           commands,
           queryParams,
+          fragment,
           icon: 'pencil',
           tone: 'quiet',
           pill: $localize`:@@vendor.overview.item.more.pill:More`,
@@ -541,6 +570,7 @@ export class VendorOverviewSection {
           key: item.key,
           commands,
           queryParams,
+          fragment,
           icon: 'pencil',
           tone: 'quiet',
           pill: this.fieldCount(item.fields.length),
@@ -553,6 +583,7 @@ export class VendorOverviewSection {
           key: item.key,
           commands,
           queryParams,
+          fragment,
           icon: 'users',
           tone: 'quiet',
           pill: $localize`:@@vendor.overview.item.seats.pill:Not accepted`,

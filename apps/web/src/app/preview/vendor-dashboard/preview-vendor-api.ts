@@ -51,11 +51,16 @@ import {
   CONNECTOR_DECISION_STATUSES,
   CreateVendorIntegrationSchema,
   CONNECTOR_POWERED_FROZEN_EDIT_FIELDS,
+  EMPTY_CONTESTABLE_FIELDS,
   INTEGRATION_EDIT_FIELDS,
+  attestationNoteProblem,
   computeAgreement,
+  contestFieldsFor,
   contestValueProblem,
   integrationEditValueProblem,
+  type ContestableFields,
   type ContextDirection,
+  type IntegrationEditField,
 } from '@aeci/shared';
 
 import {
@@ -71,8 +76,12 @@ import {
   VENDOR_CONTEST_NOTIFICATIONS_FIXTURE,
   VENDOR_CONTESTS_FIXTURE,
   VENDOR_DATA_OBJECTS_FIXTURE,
+  CONTEST_RECEIVED_CLOSED_ON_OWNED,
+  CONTEST_RECEIVED_ON_OWNED,
   INTEGRATION_CONNECTOR_OWNED,
+  INTEGRATION_OWNED_CLAIMED,
   INTEGRATION_OWNED_VIA_CONNECTOR,
+  INTEGRATION_PROCORE_DETAIL,
   INTEGRATION_RETIRED_BY_AECI,
   INTEGRATION_RETIRED_BY_OTHER,
   VENDOR_INTEGRATIONS_FIXTURE,
@@ -228,7 +237,16 @@ function recomputeAgreement(claim: VendorClaim): VendorClaim['agreement'] {
  */
 const PREVIEW_INTEGRATIONS: ListVendorIntegrationsResponse = {
   integrations: [
-    ...VENDOR_INTEGRATIONS_FIXTURE.integrations,
+    // AECI-1149 to AECI-1153: the Procore row as the detail page reviews it (a dated
+    // disagreement, a row each side added), in place of the list fixture's.
+    ...VENDOR_INTEGRATIONS_FIXTURE.integrations.map((i) =>
+      i.id === INTEGRATION_PROCORE_DETAIL.id &&
+      i.context_product.id === INTEGRATION_PROCORE_DETAIL.context_product.id
+        ? INTEGRATION_PROCORE_DETAIL
+        : i,
+    ),
+    // A live row Summit owns and has claimed: pencils, a received request, Retire.
+    INTEGRATION_OWNED_CLAIMED,
     INTEGRATION_RETIRED_BY_OTHER,
     INTEGRATION_RETIRED_BY_AECI,
     // AECI-1089: a connector-delivered row Summit owns, so the card's claim (or the
@@ -240,7 +258,54 @@ const PREVIEW_INTEGRATIONS: ListVendorIntegrationsResponse = {
   // AECI-1089: the owned evidenced pairs, for the "Integrations your company offers"
   // section on the primary product's tab.
   owned: [...VENDOR_OWNED_INTEGRATIONS_FIXTURE],
+  // AECI-1153: recomputed from the list on every read (`getIntegrations`).
+  counterpart_added_unanswered: 0,
 };
+
+/** The contests the preview starts from: the shared fixture plus the owned,
+ *  claimed row's received requests (AECI-1153). */
+const PREVIEW_CONTESTS: ListVendorContestsResponse = {
+  submitted: [...VENDOR_CONTESTS_FIXTURE.submitted],
+  received: [
+    CONTEST_RECEIVED_ON_OWNED,
+    ...VENDOR_CONTESTS_FIXTURE.received,
+    CONTEST_RECEIVED_CLOSED_ON_OWNED,
+  ],
+};
+
+/**
+ * An owner edit field's value on record in the fake. `pricing_url` (AECI-1154) is
+ * its own field, not in the contest prefill map, exactly as on the wire.
+ */
+function editValueOf(
+  row: { contestable_fields: ContestableFields; pricing_url: string | null },
+  field: IntegrationEditField,
+): string | null {
+  return field === 'pricing_url' ? row.pricing_url : (row.contestable_fields[field] ?? null);
+}
+
+/** Write an owner edit field back into the fake's row. */
+function setEditValue(
+  row: { contestable_fields: ContestableFields; pricing_url: string | null },
+  field: IntegrationEditField,
+  value: string | null,
+): void {
+  if (field === 'pricing_url') row.pricing_url = value;
+  else row.contestable_fields = { ...row.contestable_fields, [field]: value };
+}
+
+/** `counterpart_added_unanswered` as the server counts it (§7.6): distinct claim
+ *  ids another company added, unanswered, on attestable live rows. */
+function countCounterpartAdded(list: ListVendorIntegrationsResponse): number {
+  const ids = new Set<string>();
+  for (const entry of list.integrations) {
+    if (!entry.attestable || entry.retired_at !== null) continue;
+    for (const claim of entry.claims) {
+      if (claim.added_by === 'counterpart' && claim.mine.length === 0) ids.add(claim.id);
+    }
+  }
+  return ids.size;
+}
 
 /**
  * The public catalogue the preview's counterpart search answers from (AECI-1011).
@@ -286,7 +351,7 @@ export class PreviewVendorApi extends VendorApi {
   private seats: VendorSeat[] = clone([...VENDOR_SEATS_FIXTURE]);
   private integrations: ListVendorIntegrationsResponse = clone(PREVIEW_INTEGRATIONS);
   private nextClaimSeq = 0;
-  private contests: ListVendorContestsResponse = clone(VENDOR_CONTESTS_FIXTURE);
+  private contests: ListVendorContestsResponse = clone(PREVIEW_CONTESTS);
   private nextContestSeq = 0;
   private nextCreateSeq = 0;
 
@@ -302,7 +367,7 @@ export class PreviewVendorApi extends VendorApi {
     this.seats = clone([...seats]);
     this.integrations = clone(integrations);
     this.nextClaimSeq = 0;
-    this.contests = clone(VENDOR_CONTESTS_FIXTURE);
+    this.contests = clone(PREVIEW_CONTESTS);
     this.nextContestSeq = 0;
   }
 
@@ -397,7 +462,10 @@ export class PreviewVendorApi extends VendorApi {
   // ─── Attestations (AECI-606) ───────────────────────────────────────────────
 
   override async getIntegrations(): Promise<ListVendorIntegrationsResponse> {
-    return clone(this.integrations);
+    return clone({
+      ...this.integrations,
+      counterpart_added_unanswered: countCounterpartAdded(this.integrations),
+    });
   }
 
   override async getDataObjects(): Promise<ListDataObjectsResponse> {
@@ -466,6 +534,10 @@ export class PreviewVendorApi extends VendorApi {
         updated_at: now,
       })),
       counterparty: null,
+      // AECI-1153: the caller added it, so it reads `you`, and nothing disagrees yet.
+      added_by: 'you',
+      created_at: now,
+      disagreement: null,
     };
     claim.agreement = recomputeAgreement(claim);
     integration.claims.push(claim);
@@ -479,6 +551,11 @@ export class PreviewVendorApi extends VendorApi {
     const found = this.findClaim(claimId);
     if (!found) throw apiError(404, 'NOT_FOUND', 'Claim not found');
     const { integration, claim } = found;
+    // AECI-1151: a No needs a reason, as the handler refuses it.
+    const noteProblem = attestationNoteProblem(position.asserted, position.note);
+    if (noteProblem) {
+      throw apiError(400, 'ATTESTATION_NOTE_REQUIRED', noteProblem, { field: 'note' });
+    }
 
     const now = new Date('2026-08-18T12:00:00.000Z').toISOString();
     // REPLACE, never merge. Faking a merge here would make a genuine
@@ -491,7 +568,15 @@ export class PreviewVendorApi extends VendorApi {
       deprecated_version_id: position.deprecated_version_id,
       updated_at: now,
     }));
+    const wasConflict = claim.agreement === 'conflict';
     claim.agreement = recomputeAgreement(claim);
+    // AECI-1153: a new run of `conflict` starts now; an unbroken one keeps its date.
+    claim.disagreement =
+      claim.agreement === 'conflict'
+        ? wasConflict && claim.disagreement
+          ? claim.disagreement
+          : { id: claim.id, raised_at: now }
+        : null;
     return { claim: clone(claim) };
   }
 
@@ -518,8 +603,13 @@ export class PreviewVendorApi extends VendorApi {
 
   // ─── Field contests (AECI-1008) ────────────────────────────────────────────
 
-  override async getContests(): Promise<ListVendorContestsResponse> {
-    return clone(this.contests);
+  override async getContests(integrationId?: string): Promise<ListVendorContestsResponse> {
+    if (!integrationId) return clone(this.contests);
+    // AECI-1153: narrow both lists to one anchor row; a foreign id reads empty.
+    return clone({
+      submitted: this.contests.submitted.filter((c) => c.integration_id === integrationId),
+      received: this.contests.received.filter((c) => c.integration_id === integrationId),
+    });
   }
 
   /**
@@ -549,6 +639,12 @@ export class PreviewVendorApi extends VendorApi {
     if (!integration) throw apiError(404, 'NOT_FOUND', 'Integration not found');
     if (integration.is_owner) {
       throw apiError(403, 'CONTEST_OWN_INTEGRATION', 'You own this integration');
+    }
+    // AECI-1155: website and connection link are no longer offered.
+    if (!(contestFieldsFor(anchor) as readonly string[]).includes(body.field)) {
+      throw apiError(400, 'VALIDATION_FAILED', `${body.field} cannot be contested`, {
+        field: 'field',
+      });
     }
     const problem = contestValueProblem(body.field, body.proposed_value);
     if (problem) {
@@ -688,9 +784,9 @@ export class PreviewVendorApi extends VendorApi {
         }
         const problem = integrationEditValueProblem(field, value);
         if (problem) throw apiError(422, 'INTEGRATION_INVALID_VALUE', problem, { field });
-        if (value === (owned.contestable_fields[field] ?? null)) continue;
+        if (value === editValueOf(owned, field)) continue;
         changed.push(field);
-        owned.contestable_fields = { ...owned.contestable_fields, [field]: value };
+        setEditValue(owned, field, value);
         if (field === 'name') owned.name = value;
         if (field === 'mechanism_name') owned.mechanism_name = value;
       }
@@ -730,14 +826,14 @@ export class PreviewVendorApi extends VendorApi {
       if (
         !integration.attestable &&
         CONNECTOR_POWERED_FROZEN_EDIT_FIELDS.has(field) &&
-        value !== (frame.contestable_fields[field] ?? null)
+        value !== editValueOf(frame, field)
       ) {
         throw apiError(422, 'INTEGRATION_INVALID_VALUE', 'Frozen on this row', { field });
       }
       if (!integration.attestable && CONNECTOR_POWERED_FROZEN_EDIT_FIELDS.has(field)) continue;
       const problem = integrationEditValueProblem(field, value);
       if (problem) throw apiError(422, 'INTEGRATION_INVALID_VALUE', problem, { field });
-      if (value === (frame.contestable_fields[field] ?? null)) continue;
+      if (value === editValueOf(frame, field)) continue;
       changed.push(field);
       for (const entry of entries) {
         const sameFrame = entry.context_product.id === frame.context_product.id;
@@ -746,7 +842,7 @@ export class PreviewVendorApi extends VendorApi {
           field === 'direction' && value !== null && !sameFrame
             ? mirrorDirection(value as ContextDirection)
             : value;
-        entry.contestable_fields = { ...entry.contestable_fields, [field]: framed };
+        setEditValue(entry, field, framed);
         if (field === 'name') entry.name = value;
         if (field === 'mechanism_name') entry.mechanism_name = value;
         if (field === 'mechanism_kind' && value !== null) {
@@ -1022,9 +1118,12 @@ export class PreviewVendorApi extends VendorApi {
 
     const now = '2026-09-22T12:00:00.000Z';
     const id = `00000000-0000-4000-8000-${String(900000000000 + this.nextCreateSeq++)}`;
-    const fields = Object.fromEntries(
-      INTEGRATION_EDIT_FIELDS.map((field) => [field, parsed.data[field] ?? null]),
-    ) as VendorIntegration['contestable_fields'];
+    // The prefill map keeps its stored twelve (AECI-1155); `pricing_url` is its own
+    // field (AECI-1154), and `owner` is the caller.
+    const fields: ContestableFields = { ...EMPTY_CONTESTABLE_FIELDS, owner: me.vendor.id };
+    for (const field of INTEGRATION_EDIT_FIELDS) {
+      if (field !== 'pricing_url') fields[field] = parsed.data[field] ?? null;
+    }
     const entry: VendorIntegration = {
       id,
       name: parsed.data.name ?? null,
@@ -1044,6 +1143,12 @@ export class PreviewVendorApi extends VendorApi {
       contestable_fields: fields,
       endpoint_vendors: [{ id: me.vendor.id, name: me.vendor.company_name }],
       own_links: { listing_url: null, docs_url: null },
+      counterpart_links: { listing_url: null, docs_url: null },
+      origin: 'vendor',
+      created_at: now,
+      maintained_by: 'vendor',
+      last_reviewed_at: now,
+      pricing_url: parsed.data.pricing_url ?? null,
     };
     this.integrations.integrations.push(entry);
     return {
@@ -1220,6 +1325,13 @@ export class PreviewVendorApi extends VendorApi {
     }
     const links = { ...entry.own_links, [kind === 'listing' ? 'listing_url' : 'docs_url']: url };
     entry.own_links = links;
+    // AECI-1152: an owns-both row lists the same side as the other entry's
+    // `counterpart_links`, so keep the two in step.
+    for (const other of this.integrations.integrations) {
+      if (other.id === integrationId && other.other_product.id === productId) {
+        other.counterpart_links = { ...links };
+      }
+    }
     return clone({ integration_id: integrationId, product_id: productId, links });
   }
 }

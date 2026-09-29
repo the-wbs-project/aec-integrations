@@ -949,7 +949,7 @@ describe('GET /api/products/:slug — maintenance marker (AECI-616)', () => {
 
   it('reports the VENDOR branch once a vendor save has taken the record (AECI-981)', async () => {
     // The state `PATCH /api/vendor/products/:id` now writes. This is the read half
-    // of the defect: the marker rendered `Maintained by AEC Integrations` after a
+    // of the defect: the marker rendered `AEC Integrations maintained` after a
     // vendor save, because nothing ever set this column on `products`.
     const updated = '2026-09-16T00:00:00.000Z';
     await seedProduct(u(1), 'revit', 'Revit', {

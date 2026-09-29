@@ -595,7 +595,9 @@ two distinct vendors.
 - **`confirmed` earns the positive treatment.** Bilateral only.
 - **`unverified`** keeps its Stage 1.5 neutral "not yet vendor-confirmed" reading (§8) — never a
   warning.
-- **Sync headline** (`STAGE_1_5_SPEC.md` §3.5) widens from `{ total, confirmed }` to
+- **Sync headline** (`STAGE_1_5_SPEC.md` §3.5; **ruling 2026-09-28 (Chris): the summary band and
+  ratio line are replaced by the per-card At a glance row**, so the page renders `total` only and
+  the rest of this bullet is historical) widens from `{ total, confirmed }` to
   `{ total, confirmed, single_source }` — additive on the Zod object. `confirmed` stops being
   structurally 0 for the first time; the headline copy must distinguish the two.
 - Surfaces to update in lockstep: the pair page claim lanes
@@ -605,17 +607,34 @@ two distinct vendors.
   direction to the table, or the table and the pair page contradict each other again (the bug
   `STAGE_1_5_SPEC.md` §7.1 already had to fix once).
 
-- **The provenance disclosure renders a note only for a VENDOR-authored attestation** (AECI-779).
-  An `aeci`-sourced note is curation-internal and arrives as `null` — the API suppresses it at both
-  reader mappers, so this is a contract the surface receives rather than a rule it enforces. The
-  reason it needed saying: §4.3 specified every other string on this surface down to the CVD glyph
-  and required all copy through `$localize`, while the note was the one string that was neither
-  localized nor specified — **because it is data occupying a copy slot**, and nobody had assigned it
-  an audience (`STAGE_1_5_SPEC.md` §3.3). Note the History section (§9.1) renders the same note from
-  a **different** route, so both mappers suppress; see `readerFacingNote`. **As-built (2026-09-24):**
-  the History section itself was removed from the `ClaimProvenance` popover (see below); the
-  timeline route and `readerFacingNote`'s suppression on it are unchanged, just unconsumed by the
-  web.
+- **The provenance disclosure renders no note at all** (AECI-1139, superseding AECI-779's
+  vendor-note carve-out). **Ruling 2026-09-28 (Chris): "No notes at all."** No attestation note is
+  public, from any source, affirm or deny. The popover shows who spoke and their stance, then the
+  closing line. The rule is enforced on the read side, so it covers notes already stored:
+  - The public pair read (`GET /api/products/:slug/integrations/:otherSlug`) and the timeline read
+    (`…/timeline`, §9.1) return `note: null` on every attestation. Their read configs
+    (`pairClaimsConfig`, `integrationTimelineConfig`, `connectorEvidencedPairTimelineConfig` in
+    `apps/api/src/lib/drizzle-helpers.ts`) do not select the column, and both wire schemas type
+    the field `z.null()`. The key stays so the wire shape does not move. The note is therefore
+    absent from the SSR TransferState blob too, not just from the popover.
+  - `ClaimProvenance` has no note slot in its template.
+  - **Who still reads a vendor note:** the other company, as `counterparty` on
+    `GET /api/vendor/integrations`. Its author, as `mine` on the same read. AEC Integrations, in the
+    `attestation.*` audit row's `before_state` / `after_state`. None of these changed.
+  - **The portal says so.** Every note field carries helper text naming the audience: "Only
+    {other company} and AEC Integrations see this.", or "Only AEC Integrations sees this." when the
+    vendor owns both products (`noteAudienceHint`, `vendor-attestation-labels.ts`).
+
+  Why: a "No" reason is one company's free-text objection to another company's product, published
+  under its name. Withholding only "No" reasons would leave a disputed row showing one side's reason
+  and not the other's, which reads as AECi taking a side. One rule for both stances avoids that.
+
+  History: AECI-779 first made the `aeci` seed note curation-internal, because it was data occupying
+  a copy slot that nobody had assigned an audience (`STAGE_1_5_SPEC.md` §3.3). Its
+  `readerFacingNote(source, note)` filter let vendor notes through. AECI-1139 removed the filter,
+  because the ruling left it nothing to decide. **As-built (2026-09-24):** the History section was
+  removed from the `ClaimProvenance` popover (see below). The timeline route still runs, with no web
+  consumer, and it carries no note either.
 
 **UI-touching, so the `CLAUDE.md` design checklist applies:** critique → the pair page's existing
 Mobbin anchor site (the anchor-site rule — do not introduce a second site for badge states) →
@@ -680,6 +699,12 @@ migration. Decisions taken at build that §4.1–§4.4 did not pre-specify:
   and `aria-label`, and `single_source`'s aria states the counterparty's silence outright.
   `single_source` shares the neutral chip with `unverified` — by design, so a lone affirmation can
   never borrow the affirmative treatment.
+- **Reworded by AECI-1142 (2026-09-28).** The labels above are superseded for readers:
+  `conflict` → **"Companies disagree"**, `confirmed` → **"Confirmed by both companies"**,
+  `single_source` → "Confirmed by {vendor}" (unattributed: "Confirmed by one company"),
+  `unverified` → **"Listed by AEC Integrations"**. The provenance popover is titled "Sources" and
+  its lines read "{Vendor} confirms this" / "{Vendor} says this is not accurate". The tonal ladder,
+  the glyph and the ids are unchanged. `STAGE_1_5_SPEC.md` §3.5 carries the full before/after table.
 - **The badge stays a `rounded.sm` chip.** Its agreement-specific wording and tonal ladder keep it
   distinct from `VendorAccountBadge`, which describes active account access rather than a claim.
 - **`@@pair.dataflow.subline`** ("Vendor confirmation arrives with the vendor portal") is now
@@ -690,12 +715,15 @@ migration. Decisions taken at build that §4.1–§4.4 did not pre-specify:
   forthcoming were retired and re-keyed —
   `@@pair.claim.provenance.closing` → `@@pair.claim.provenance.closing.unverified`
   ("No vendor has confirmed this flow."),
-  `@@pair.dataflow.subline` → `@@pair.dataflow.subline.aeciAsserted`
+  `@@pair.dataflow.subline` → `@@pair.dataflow.subline.aeciAsserted` (removed with the band by
+  AECI-1142, 2026-09-28)
   ("These flows are asserted by AECi."), and
   `@@pair.dataflow.empty.subline` → `@@pair.dataflow.empty.subline.cataloguing`
   (the trailing sentence dropped — with zero claims there is nothing to be unconfirmed about).
   The replacement copy states who has and has not spoken without promising a feature or implying a
-  refusal, per §3.4's never-a-warning rule. **The `awaitingVendors` gate above is unchanged**; only its
+  refusal, per §3.4's never-a-warning rule. **The `awaitingVendors` gate above was unchanged here**
+  (both the gate and the `confirmedRatio` line were later removed from the pair page by AECI-1142,
+  2026-09-28; see `STAGE_1_5_SPEC.md` §3.5's before/after table); only its
   justification moves — a vendor that has spoken to deny makes "asserted by AECi" no longer the
   whole provenance of the pair. **The band subline says *who asserted*, never *how many are
   confirmed*:** the `confirmedRatio` line directly beneath it always reads "0 of N
@@ -778,6 +806,42 @@ Shapes, Zod schemas and error codes go in `packages/shared/src/api/` and are doc
   a purge failure must never fail a committed write.
 - **No Algolia reindex.** Claims do not feed the index today; vendor edits reach search on the
   nightly watermark sync (`STAGE_2_SPEC.md` §8.3(5)). **UI copy must not promise instant search.**
+- **A deny needs a reason (AECI-1151, specified 2026-09-28; server side built).** `PUT
+  /api/vendor/claims/:claimId/attestation` with `asserted: false` must carry a non-empty `note`
+  after trimming. Otherwise it answers **`400 ATTESTATION_NOTE_REQUIRED`** with `field: 'note'`
+  and writes nothing (`API_CONTRACTS.md` §4). A bare No tells the other company nothing it can act
+  on, and the integration page asks for a reason on every No (`STAGE_2_VENDOR_PORTAL_SPEC.md`
+  §6.17.4). The rule is one shared pure function, `attestationNoteProblem(asserted, note)` in
+  `packages/shared/src/api/vendor-attestations.ts`, which the portal form and the handler both
+  call. It is **not** a Zod refinement on `UpsertVendorAttestationSchema`: a refinement would
+  surface as the generic `VALIDATION_FAILED` before the handler could name the rule. The shape
+  schema is unchanged. Gate order: authority `404` → edge `403 FORBIDDEN` → retired `409` →
+  capability `403 ENTITLEMENT_REQUIRED` → body shape `400` → `context_product_id` `400` → **the
+  note rule** → version stamps. So a caller who may not write never learns the rule. What it does
+  not touch:
+  - **An affirm** (`asserted: true`) still takes an optional note.
+  - **`POST /api/vendor/claims`** always affirms, so its note stays optional.
+  - **`DELETE`** carries no body and clears the position. It needs no note.
+  - **Promote's `aeci` rows** are not vendor writes and are not checked.
+- **Existing deny rows with no note are grandfathered on read and required on the next write.**
+  Nothing is backfilled or rewritten. A live deny with a `null` or empty note keeps rendering: the
+  counterparty sees the stance with "They have not given a reason", and the author sees "You have
+  not given a reason" with an "Add my reason" action. Because a `PUT` replaces the whole position
+  (§5.4), the next deny the author writes on that claim, including a re-send of the same stance,
+  must carry a note. We have not queried production. It holds no seated vendor yet
+  (`STAGE_2_1_SPEC.md` §2), so it likely holds no vendor deny at all. Local, preview and staging
+  fixtures may.
+- **Who reads a note (ruled 2026-09-28 by Chris, AECI-1139: "No notes at all").** A vendor's
+  attestation note, affirm or deny, is private to the **other company on the integration** and to
+  **AEC Integrations**. The other company reads it through `counterparty.note` on `GET
+  /api/vendor/integrations`. AEC Integrations reads it in the `attestation.created` audit row. No
+  public read carries it: AECI-1139 removed the `readerFacingNote` filter, and the public read
+  configs no longer select `attestations.note`, so the pair read and the pair timeline return
+  `null` for every vendor note (`PairClaimAttestationSchema.note` is `z.null()`). That also covers
+  notes already written. The note
+  on an added row (`POST /api/vendor/claims`) follows the same rule. The portal's helper text says
+  so: "Only {other company} and AEC Integrations see this.", or "Only AEC Integrations sees this."
+  when the author holds both endpoints. The public-read change is recorded in §4.3.
 
 ### 5.3 Acceptance
 
@@ -1185,7 +1249,8 @@ slots are occupied, `unvotedSlots` is empty, `detectSilentCounterparty` skips th
 - **The own-both states exist because the detector has no counterparty to tell.** A write applies one
   position to every slot the caller owns (§5.2), so two own rows mean two owned slots, `unvotedSlots`
   is empty, and no counterparty mail is sent. `mine.length > 1` is how the lane knows, which is the
-  same signal `vendor-attestation-control.ts` reads for `divergentSlots`. **Both** detectors that
+  same signal the retired `vendor-attestation-control.ts` read for `divergentSlots` (AECI-1156 replaced
+  it with the integration detail page; `integration-detail-model.ts` reads `mine.length` directly). **Both** detectors that
   name a counterparty read `unvotedSlots`, so the guard is read on the affirm branch
   (`awaiting-them-own-both`, no `silent-counterparty` mail) as well as the deny branch
   (`denied-own-both`, no `claim-denied` counterparty mail).
@@ -1206,8 +1271,9 @@ slots are occupied, `unvotedSlots` is empty, `detectSilentCounterparty` skips th
 
 - **On the lane, as plain text, in every state.** Not a live region. Standing state on this surface
   is plain text and events go through the shell's one `VendorPortalAnnouncer` channel
-  (`STAGE_2_REALTIME_SPEC.md` §6.3, and the reasoning written out at the `divergentSlots` block in
-  `vendor-attestation-control.ts`). It renders on a read-only lane too: the consequence is not an
+  (`STAGE_2_REALTIME_SPEC.md` §6.3; the reasoning was written out at the `divergentSlots` block in
+  `vendor-attestation-control.ts`, retired by AECI-1156, and the successor announces through
+  `integration-detail-state.ts`). It renders on a read-only lane too: the consequence is not an
   authoring detail.
 - **In the announcement, appended to a stance.** `vendor-integrations-section.ts` replaced
   `@@vendor.attest.live.saved` ("position saved") with `@@vendor.attest.live.affirmed` /
@@ -1236,6 +1302,21 @@ degradation);
 "renders and counts a `claim-denied` row". API side in §7.5.
 
 ### 6.3 The tab becomes a three-level drill-down (AECI-999 — 2026-09-17)
+
+> **Levels 2 and 3 are superseded by the integration detail page (specified 2026-09-28,
+> AECI-1147).** Each integration row now links to its own page, where the data rows, answers and
+> the add form live (`STAGE_2_VENDOR_PORTAL_SPEC.md` §6.17.1, §6.17.4). The search, the "Integrates
+> with" filter, the grouping and the URL state below stay on the list. The status chips move to the
+> page's status set (§6.17.2 there). §6.2's outcome sentences stay the contract for what each
+> position does next, and the page quotes them verbatim.
+>
+> **Built 2026-09-28 (AECI-1149, AECI-1156).** The "Health" subsection and the status-chip table
+> below it are retired along with `vendor-integration-health.ts`, `vendor-claim-lane.ts`,
+> `vendor-integration-card.ts` and `vendor-counterpart-group.ts`'s drill-down. The list's status
+> chips read the §6.17.2 set from `vendor-integration-list-model.ts`, not the `health` values this
+> section describes, and an old `?status=` value (`conflict`, `needs_you`, `confirmed`, `responded`,
+> `empty`) maps to its nearest §6.17.2 key. The body below is history: it describes the drill-down as
+> it shipped on 2026-09-17, eleven days before it was retired.
 
 **No migration, no API change, no new route.** The tab rendered every data flow of every
 integration fully open: direction, provenance, badge, stance, the outcome sentence, the note and
@@ -1526,9 +1607,10 @@ ADR 0024 it is an **external CI liveness sweep** (AECI-647), because PostHog has
   *(**AECI-961 added a fifth, `attestation-claim-denied`** — the counterparty half of
   `claim-denied`, vendor prose. Non-accusatory on the `open-conflict` precedent, because the
   recipient has not disagreed with anyone, they have said nothing at all. **Stance only, never the
-  denier's note**: the note is public on the pair page, so this is not confidentiality, it is that
-  free text quoted into an email lands as an accusation in a way the same words on a provenance
-  disclosure do not. It states what §6.2's lane copy states — the flow stays on the listing as
+  denier's note**. The reason is confidentiality (AECI-1139): the note is not public, and only the
+  other company and AECi may read it, inside the portal's access control. An email can be
+  forwarded, so quoting the note would take it past that audience. The recipient reads the note in
+  the portal instead. Free text quoted into an email also lands as an accusation. It states what §6.2's lane copy states — the flow stays on the listing as
   unverified until AECi corrects the record.)*
 - **The ledger metadata carries more than `{ detector, vendorId }`** — also `integrationId`,
   `dataObject`, `counterpartProduct` and `pairSlugs`. This is what makes §7.2's "gives the
@@ -1605,6 +1687,68 @@ and ops isolation, unreadable-snapshot degradation), plus the new endpoint added
 (25), the four templates in `lib/email.spec.ts` (39), and the cron/queue/ack/retry cells in
 `scheduled.spec.ts` (27). Suites green: `apps/api` 76 files / 1084 tests, `packages/shared` 25 /
 360.
+
+### 7.6 A row the other company added: the `claim_added` notification and the unanswered count (AECI-1153, specified 2026-09-28; built)
+
+> **As built (2026-09-28).** The archive link below is real: `vendor-notifications-list.ts`'s
+> `pageLink()` resolves a `claim_added` row against the caller's own `integrations` list and renders
+> "Answer it on the integration page" to `…/integrations/:integrationId#change-requests` when it is
+> on that list, and nothing when it is not (an owned-only row, or one the read has not settled yet).
+
+**The gap.** When one endpoint vendor adds a data row (`POST /api/vendor/claims`, §5.1), the other
+endpoint vendor learns of it only if it opens the right lane, or 14 days later through
+`silent-counterparty` mail. The integration page (`STAGE_2_VENDOR_PORTAL_SPEC.md` §6.17.2, §6.17.6)
+lists "{Company} added {data}. Is this right?" as something that needs the vendor, so the portal
+needs the event and the count.
+
+**Who added a row is already stored.** `claims.origin = 'vendor'` with `created_by_vendor_id`
+(§2.2). A **counterpart-added row**, from a caller's seat, is a claim with `origin = 'vendor'` and
+a non-null `created_by_vendor_id` that is not the caller's vendor. It is **unanswered** while the
+caller holds no live attestation on it (`mine = []`), the integration is attestable (§14) and not
+retired. No column is added.
+
+**The event: a new notification kind, `claim_added`.** Not a detector, and not in
+`ATTESTATION_DETECTORS`. It is an event row like `integration_create` (`STAGE_2_VENDOR_PORTAL_SPEC.md`
+§4.7.1), because the thing it reports happened at a moment, not a state that ages.
+
+| Rule | Contract |
+| -- | -- |
+| Written by | `POST /api/vendor/claims`, **in the same `db.batch`** as the claim, its attestations and their audit rows |
+| Row | `audit_log` `action = 'notification.sent'`, `entity_type = 'claim'`, `entity_id` = the claim id, `metadata { kind: 'claim_added', vendorId: <recipient>, addedByVendorId, integrationId, claimId, dataObject: { slug, name }, direction, counterpartProduct: { slug, name }, integrationName, pairSlugs }`. Every field is a snapshot, as §7.5 requires of the ledger. `direction` is framed against the recipient's own product. |
+| Recipients | Every vendor holding the **other** endpoint's product through `product_vendors`, minus the vendor that added the row. A caller holding both endpoints tells nobody, the same no-counterparty cases §7.5 lists for `claim-denied`. A product with no `product_vendors` row tells nobody. |
+| Never carried | **The note.** The added row's note is private to the other company and AEC Integrations (§5.2), and `audit_log` rows are forwarded to PostHog Logs (`CLAUDE.md` §"Audit logging"). The page reads the note live from `counterparty.note`. |
+| Connector-powered edges | Nothing to write: `POST` is refused there before the batch (§14). |
+| Email | None. The portal feed is the whole delivery, as for contest rows (§7.5). `silent-counterparty` still emails the silent side after 14 days, unchanged. |
+| The detector sweep | Unaffected. `loadSuppressed` skips any ledger row without a `detector`, so a `claim_added` row neither suppresses a nudge nor is suppressed. `runAttestationDetectors` reads claims, not the ledger, and needs no change. |
+| Feed shape | `GET /api/vendor/notifications` gains a union member `VendorClaimAddedNotificationSchema`: `{ kind: 'claim_added', id, claim_id, integration_id, integration_name, data_object: { slug, name }, direction, added_by_name, counterpart_product, pair_path, created_at }` (`API_CONTRACTS.md` §6.14). **`isAttestationNotification` must name the new kind.** It classifies by naming every non-attestation kind, because a pre-AECI-1008 row carries no `kind`, so a kind it does not name is read as an attestation. |
+| Archive copy | Title "{Company} added {data} to an integration on your product". Note line "Tell them whether it is right on the integration page." The row links to `…/products/:productSlug/integrations/:integrationId#change-requests` when the integration is on the recipient's list. |
+
+**The count: `counterpart_added_unanswered` on `GET /api/vendor/integrations`.** A non-negative
+integer on the response, beside `integrations` and `owned`, `.default(0)` for deploy skew
+(`API_CONTRACTS.md` §6.14). It counts **distinct claim ids** that are counterpart-added and
+unanswered from the caller's seat, across the whole vendor. It is computed server-side from the
+same rows the list returns, so it can never disagree with them. It exists so the overview's "What
+needs you" (`STAGE_2_VENDOR_PORTAL_SPEC.md` §6.10) gets one total without re-deriving the AECI-993
+dedupe: an owns-both integration is listed twice, and a client sum would count its rows twice.
+The integration page derives its per-integration items from each claim's `added_by` instead.
+The overview gains one Needs-you-now row, "{N} rows another company added need your answer",
+shown while the count is above zero.
+
+**Freshness: no new cursor term** (`STAGE_2_REALTIME_SPEC.md` §2.2).
+
+- The recipient's `integrations` scope moves, because the new claim's `updated_at` is under
+  `ownedEndpointJoin` for both endpoint vendors. That refetch carries the new row and the new count.
+- The recipient's `notifications` scope moves, because the ledger row matches
+  `vendorNotificationLedgerWhere` for the recipient's `vendorId`.
+- The adding vendor's own scopes move the same way, and no other vendor's does.
+
+**Tests.** `vendor-attestations.spec.ts`: one `claim_added` row per other-endpoint vendor in the
+batch, none for an owns-both caller, none for an endpoint with no vendor, no note in the metadata,
+and the batch rolled back whole when the audit insert fails. `vendor-notifications.spec.ts`: the
+new member's shape and its isolation from other vendors. `attestation-notify.spec.ts`: a
+`claim_added` row suppresses nothing. `vendor-updates.spec.ts`: both scopes move for the recipient
+and nothing moves for a third vendor. The count: an owns-both integration counted once, a retired
+or connector-powered row not counted, an answered row not counted.
 
 ---
 
@@ -1990,8 +2134,8 @@ Decisions taken at build that §9.1–§9.3 did not pre-specify:
 > fetch, and `fetchPairTimeline` was deleted from `apps/web/src/app/core/api/product-pairs.ts`
 > (`pairPath` also lost its `suffix` param). Everything else this section describes is unchanged
 > and still deployed: `GET …/integrations/:otherSlug/timeline`, `integrationTimelineConfig`,
-> `toClaimTimelineEntry`, its `readerFacingNote` suppression, and `resolveDiffAccess`'s gating all
-> still run — the endpoint simply has no web consumer left to call it. The version-diff **markers**
+> `toClaimTimelineEntry` (which since AECI-1139 returns `note: null` for every row, §4.3), and
+> `resolveDiffAccess`'s gating all still run — the endpoint simply has no web consumer left to call it. The version-diff **markers**
 > on the claim rows (added/removed/unchanged, the diff-marker bullet above) are a separate
 > mechanism from the History section and are unaffected. `docs/API_CONTRACTS.md`'s timeline section
 > and `docs/AUTH_AND_RLS.md` §4.4 carry the matching note.
@@ -2186,7 +2330,7 @@ files.*
 Stage 1 shipped the marker component to `main` as **attribution only** — `Maintained by AEC
 Integrations.` on product detail, vendor detail, and the pair page, mounted with no inputs at all.
 The component already contains both dormant branches (the `Reviewed <date>.` clause and the
-`Vendor-maintained.` branch, UTC-pinned). This issue is the **data + plumbing** that reaches them.
+`Vendor maintained` branch, UTC-pinned). This issue is the **data + plumbing** that reaches them.
 
 ### 13.1 Why the date was withheld, and why that reasoning is the spec
 
@@ -2231,7 +2375,7 @@ column is indexed — both are read with the row.
 > path only" for four weeks while the vendor portal shipped a profile editor, a
 > product editor and version authoring — none of which wrote either column. The
 > consequence was the reported defect: a vendor saved its product and the public
-> listing still read `Maintained by AEC Integrations`. §13.9 is the ruling.
+> listing still read `AEC Integrations maintained`. §13.9 is the ruling.
 
 **Absence is the contract.** The promote projections run through `compact()`, which drops
 `undefined`, so omitting `lastReviewedAt` leaves the stored value untouched on both the insert and
@@ -2265,6 +2409,11 @@ audit row (§26.1):
 
 ### 13.5 Read path
 
+> **Ruling 2026-09-28 (Chris): the maintenance chip uses exactly two labels everywhere, "AEC Integrations maintained" and "Vendor maintained".** (AECI-1142.) Visible text is `AEC Integrations maintained` or `Vendor
+> maintained`, each with an optional ` · Reviewed <date>` / ` · Updated <date>` clause. The
+> company name appears only in an sr-only suffix, and only on product and vendor pages. The pair
+> page shows neither a name nor a date. `STAGE_1_5_SPEC.md` §3.5 carries the full note.
+
 `MaintenanceSchema` (`packages/shared/src/api/common.ts`) is `{ maintained_by, last_reviewed_at }`,
 carried as a `maintenance` object on `ProductDetail`, `VendorDetail`, and `ProductPairResponse`.
 Both fields carry `.default(...)` for the **same reason `SyncHeadlineSchema.single_source` does**
@@ -2276,14 +2425,14 @@ The pair page is the interesting one — N mechanisms, one header marker. `compu
 - `maintained_by` is `'vendor'` if **any** mechanism is. A page carrying even one vendor-authored
   mechanism is no longer purely AECi's word.
 - the date is the max **within the winning branch only**. A global max would let an AECi mechanism
-  reviewed in July supply the date for a header reading `Vendor-maintained. Updated <date>.` —
+  reviewed in July supply the date for a header reading `Vendor maintained · Updated <date>` —
   attributing AECi's review to the vendor. Scoping keeps both halves of the sentence about the same
   records.
 
 ### 13.6 The marker and the agreement pill coexist
 
 They answer different questions at different grains and both render: the marker is a **page-header**
-attribution ("who is on the hook for this page"), the `Unverified · AECi` pill is **per claim**, on
+attribution ("who is on the hook for this page"), the `unverified` ("Listed by AEC Integrations") pill is **per claim**, on
 the mechanism cards ("do the two vendors agree about this one `data_object`"). `DESIGN.md` already
 keeps their wording and tones distinct. The marker and agreement state are both `rounded.sm`
 chips. Merging them would collapse two separate signals into one. **As revised (AECI-1131,
@@ -2358,7 +2507,7 @@ alone. The vendor portal then shipped three more write surfaces onto `vendors` a
 structural rather than a bug in any one handler — **nothing in the repo ever wrote
 `vendors.maintained_by`, `vendors.last_reviewed_at`, `products.maintained_by` or
 `products.last_reviewed_at`.** A vendor could save its product and the public
-listing still read `Maintained by AEC Integrations`.
+listing still read `AEC Integrations maintained`.
 
 Everything downstream of that write already worked: the columns, the CHECKs, the
 `MaintenanceSchema` carriers, `toMaintenance`, `computePairMaintenance`, the
@@ -2372,7 +2521,8 @@ index carries neither column.
 `maintained_by = 'vendor'` and stamps `last_reviewed_at = now` on the affected row,
 unconditionally. That is §13.4's own reasoning applied to the rest of the surface —
 *"even a repeat assertion IS a review — that is the event the date records"* — and
-the marker's vendor branch already renders `Vendor-maintained · Updated <date>`, so
+the marker's vendor branch renders `Vendor maintained · Updated <date>` (worded
+`Vendor-maintained · Updated <date>` until AECI-1142), so
 "Updated" is the accurate verb for a save.
 
 The nine write sites are the complete list (five at AECI-981; AECI-1008 added the sixth, AECI-1005 the seventh, AECI-1006 the eighth, AECI-1007 the ninth):

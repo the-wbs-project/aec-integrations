@@ -1,6 +1,6 @@
 import {
-  CONTEST_URL_FIELDS,
-  CONTEST_VALUE_MAX_LENGTH,
+  INTEGRATION_EDIT_MAX_LENGTH,
+  INTEGRATION_EDIT_URL_FIELDS,
   integrationEditValueProblem,
   type IntegrationEditField,
 } from '@aeci/shared';
@@ -11,7 +11,7 @@ import { readVendorApiError } from '../vendor-api-error';
  * Vendor-facing copy for integration ownership: the claim (AECI-1005) and the
  * owner's edit (AECI-1006, `STAGE_2_VENDOR_PORTAL_SPEC.md` §4.5.6). Field names
  * come from `vendor-contest-labels.ts`, because the edit form and the contest
- * form name the same eleven fields and two spellings would drift.
+ * form name the same fields and two spellings would drift.
  *
  * The wording is AECI-1023's and matches `/methodology` "Who owns an integration":
  * the owner is the "Offered by" vendor, a claim stops AECi's catalogue updates,
@@ -29,10 +29,10 @@ export function editValueMessage(field: IntegrationEditField, value: string | nu
   if (value === null) {
     return $localize`:@@vendor.integrationEdit.error.required:This field cannot be empty.`;
   }
-  if (value.length > CONTEST_VALUE_MAX_LENGTH[field]) {
+  if (value.length > INTEGRATION_EDIT_MAX_LENGTH[field]) {
     return $localize`:@@vendor.integrationEdit.error.tooLong:That value is too long.`;
   }
-  if (CONTEST_URL_FIELDS.has(field)) {
+  if (INTEGRATION_EDIT_URL_FIELDS.has(field)) {
     return $localize`:@@vendor.integrationEdit.error.url:Enter a full web address that starts with http:// or https://.`;
   }
   return $localize`:@@vendor.integrationEdit.error.invalid:That value is not valid for this field.`;
@@ -80,5 +80,35 @@ export function claimErrorMessage(err: unknown): string {
       return $localize`:@@vendor.integrationClaim.error.rate:Too many requests in a short time. Wait a minute and try again.`;
     default:
       return $localize`:@@vendor.integrationClaim.error.generic:Could not claim this integration. Try again.`;
+  }
+}
+
+/**
+ * The refusals `POST /api/vendor/integrations/:id/retire` and `…/restore` can
+ * answer (AECI-1010). Moved here from the retired `vendor-integration-retire.ts` by
+ * AECI-1156: the detail page's Settings (§6.17.7) and §6.15's owned rows share it.
+ */
+export function retireErrorMessage(err: unknown): string {
+  switch (readVendorApiError(err)?.code) {
+    case 'INTEGRATION_RETIRED':
+      return $localize`:@@vendor.retire.error.retired:This integration is already retired. Reload to see its current state.`;
+    case 'INTEGRATION_NOT_RETIRED':
+      return $localize`:@@vendor.retire.error.notRetired:This integration is already live. Reload to see its current state.`;
+    case 'INTEGRATION_CHANGED_WHILE_SAVING':
+      return $localize`:@@vendor.retire.error.changed:This integration changed while you were saving. Reload and try again.`;
+    case 'INTEGRATION_NOT_CLAIMED':
+      return $localize`:@@vendor.retire.error.notClaimed:Claim this integration before retiring it.`;
+    case 'INTEGRATION_RETIRED_BY_AECI':
+      return $localize`:@@vendor.retire.error.retiredByAeci:AEC Integrations retired this integration, so only AEC Integrations can restore it. Reload to see its current state.`;
+    case 'INTEGRATION_NOT_OWNER':
+      return $localize`:@@vendor.retire.error.notOwner:Only the company that owns this integration can retire or restore it.`;
+    case 'INTEGRATION_CONNECTOR_POWERED':
+      return $localize`:@@vendor.retire.error.connector:Integrations delivered through a connector cannot be retired yet.`;
+    case 'INTEGRATION_ENTITLEMENT_REQUIRED':
+      return $localize`:@@vendor.retire.error.entitlement:Retiring or restoring an integration delivered through a connector needs an active plan. Contact AEC Integrations to activate or renew it.`;
+    case 'RATE_LIMITED':
+      return $localize`:@@vendor.retire.error.rate:Too many requests in a short time. Wait a minute and try again.`;
+    default:
+      return $localize`:@@vendor.retire.error.generic:Could not save the change. Try again.`;
   }
 }

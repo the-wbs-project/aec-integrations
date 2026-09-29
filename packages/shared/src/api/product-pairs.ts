@@ -55,7 +55,17 @@ export const PairClaimAttestationSchema = z.object({
   source: z.enum(ATTESTATION_SOURCES),
   attestor: z.enum(['aeci', 'context', 'other']),
   asserted: z.boolean(),
-  note: z.string().nullable(),
+  /**
+   * **Always `null`.** No attestation note is reader-facing, from any source
+   * (AECI-1139, ruling 2026-09-28: "No notes at all"). An `aeci` note is
+   * curation-internal (AECI-779). A vendor note, affirm or deny, is seen only by
+   * the other company and AEC Integrations, through the vendor portal.
+   *
+   * The key stays, typed `z.null()`, so the wire shape does not move and any
+   * mapper that tried to put a string here fails to compile. The public read
+   * configs do not select the column at all (`apps/api/src/lib/drizzle-helpers.ts`).
+   */
+  note: z.null(),
   introduced_at: z.string().nullable(),
   deprecated_at: z.string().nullable(),
   /**
@@ -210,7 +220,7 @@ export const ProductPairClaimSchema = z.object({
    *
    * A `removed` claim IS in `claims[]` — it is absent at the selection but present
    * at the previous pair, so the reader needs to see it struck through. It is
-   * excluded from `sync_headline` (see that schema), because "N data objects sync"
+   * excluded from `sync_headline` (see that schema), because "N types of data shared"
    * must not count a flow that no longer does. A claim present at NEITHER pair
    * belongs to an earlier era and is dropped from the response entirely.
    */
@@ -249,6 +259,20 @@ export const ProductPairMechanismSchema = z.object({
   listing_url: z.string().url().nullable(),
   docs_url: z.string().url().nullable(),
   /**
+   * The card's "At a glance" facts (AECI-1142), read from the same columns on both
+   * delivered-tier tables. `pricing_model` and `maturity` are free text, rendered
+   * verbatim. `last_reviewed_at` is THIS row's review date; the page header's
+   * `maintenance` object still folds all rows into one value.
+   *
+   * **`.optional()`, not `.default(null)`.** The web never Zod-parses this response
+   * (see the pair resolver), so against an API Worker that predates the fields the
+   * browser really does see them absent. The type says so, and every hand-built
+   * fixture stays valid. Absent and `null` mean the same thing: hide the fact.
+   */
+  pricing_model: z.string().nullable().optional(),
+  maturity: z.string().nullable().optional(),
+  last_reviewed_at: z.string().nullable().optional(),
+  /**
    * Each endpoint vendor's own listing and docs links (AECI-1007), framed to the
    * context product. Always `{ context: null, other: null }` on a connector-evidenced
    * pair, which takes no vendor writes (decision 9). A link is only returned for a
@@ -276,6 +300,16 @@ export const ProductPairMechanismSchema = z.object({
    * two are the same fact about rows in different tables, and never both set.
    */
   via: ProductLinkSchema.nullable().default(null),
+  /**
+   * The owner's pricing page link (AECI-1154 / `STAGE_2_VENDOR_PORTAL_SPEC.md`
+   * §6.17.11), from `integrations` or `connector_evidenced_pairs` alike. It feeds
+   * the "Price" fact of the card's "At a glance" row (AECI-1142): the price text
+   * links to it when both are set, and "See pricing" links to it when only the URL
+   * is. The owner writes it; promote never does. An absolute `http(s)` URL, so it
+   * renders as an ordinary external link with `rel="noopener"`. Additive and
+   * `.optional()` for SSR/API deploy skew: absent means `null`.
+   */
+  pricing_url: z.string().nullable().optional(),
   // Data-object claims on this mechanism (§8). `[]` for a mechanism with no
   // claims yet (Layer A / pre-AECI-299 seeding); `.default([])` keeps parsing
   // lenient for callers that predate Layer B while the output type carries it.
@@ -301,10 +335,14 @@ export type ProductPairMechanism = z.infer<typeof ProductPairMechanismSchema>;
  *
  * **Claims whose `version_status` is `removed` are excluded from all three counts**
  * (AECI-303 / §9.1). They still render — struck through, as "no longer flows" — but
- * a headline reading "N data objects sync" must not count a flow that has stopped.
+ * a headline reading "N types of data shared" must not count a flow that has stopped.
  * The filter lives at the single `computeSyncHeadline` call site in
  * `toProductPairResponse`, not inside the shared engine, which stays a pure
  * function of `{ agreement }` and owes the diff contract nothing.
+ *
+ * **Only `total` renders since AECI-1142** (ruling 2026-09-28: the summary band
+ * and ratio line are replaced by the per-card At a glance row). `confirmed` and
+ * `single_source` stay on the wire, unread by the web.
  */
 export const SyncHeadlineSchema = z.object({
   total: z.number().int().min(0),
@@ -333,7 +371,9 @@ export const ProductPairResponseSchema = z.object({
    * Deliberately NOT per-mechanism on {@link ProductPairMechanismSchema}: the marker
    * answers "who is on the hook for this page", which is a page-level question, and a
    * chip on every mechanism card would compete with the per-claim agreement badge
-   * that already lives there.
+   * that already lives there. The marker CHIP stays page-level. AECI-1142 added the
+   * per-row date as plain data (`ProductPairMechanismSchema.last_reviewed_at`) for
+   * the card's "At a glance" facts, which is text, not a second chip.
    */
   maintenance: MaintenanceSchema.default({ maintained_by: 'aeci', last_reviewed_at: null }),
   /**
@@ -383,7 +423,9 @@ export type ProductPairResponse = z.infer<typeof ProductPairResponseSchema>;
 export const ClaimTimelineEntrySchema = z.object({
   attestor: z.enum(['aeci', 'context', 'other']),
   asserted: z.boolean(),
-  note: z.string().nullable(),
+  /** Always `null`, as on {@link PairClaimAttestationSchema} (AECI-1139). This is
+   *  the second public route that once carried the note. */
+  note: z.null(),
   /** Version labels, as on {@link PairClaimAttestationSchema}. */
   introduced_version: z.string().optional(),
   deprecated_version: z.string().optional(),
