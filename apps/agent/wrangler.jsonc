@@ -64,7 +64,7 @@
     // skips JWT verification and every signed-in request is a 403. Values are
     // the `AECi Non-Prod` app (docs/access.md §1), same as apps/datatool.
     "ACCESS_AUD": "6d89b8089d435389e9d1bdcc5bdb5a85e7b6938aa155d411fe1729d53dd98643",
-    "ACCESS_TEAM_DOMAIN": "aecintegrations.cloudflareaccess.com",
+    "ACCESS_TEAM_DOMAIN": "the-wbs-project.cloudflareaccess.com",
     // AECI-74 convention: overridden at dev/deploy time via
     // `wrangler --var COMMIT_SHA:<sha> --var DEPLOYED_AT:<iso>`.
     "COMMIT_SHA": "unknown",
@@ -114,7 +114,7 @@
         // skips JWT verification and every signed-in request is a 403. Values are
         // the `AECi Non-Prod` app (docs/access.md §1), same as apps/datatool.
         "ACCESS_AUD": "15a26a295f44bb640bcd6e52a19b49196162d3615d095d53f61d8baa853541ae",
-        "ACCESS_TEAM_DOMAIN": "aecintegrations.cloudflareaccess.com",
+        "ACCESS_TEAM_DOMAIN": "the-wbs-project.cloudflareaccess.com",
         // AECI-74: overridden at deploy time via
         // `wrangler --var COMMIT_SHA:<sha> --var DEPLOYED_AT:<iso>`.
         "COMMIT_SHA": "unknown",

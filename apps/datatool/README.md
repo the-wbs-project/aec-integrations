@@ -206,7 +206,7 @@ Needs `CLOUDFLARE_API_TOKEN` (Workers Scripts: Edit + D1: Edit on all three DBs)
 ### One-time config
 
 1. **`ACCESS_TEAM_DOMAIN`** in `wrangler.jsonc` — set to
-   `aecintegrations.cloudflareaccess.com` (the `AEC Integrations` Zero Trust org,
+   `the-wbs-project.cloudflareaccess.com` (The WBS Project Zero Trust org,
    `docs/access.md` §1). This enables the in-Worker Access-JWT path, so an
    allowlisted operator hitting the browser UI can run the `/api/*` routes with no
    `TOOL_TOKEN`. ✅ Done.
