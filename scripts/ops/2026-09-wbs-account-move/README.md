@@ -20,6 +20,7 @@ The domain is registered at Cloudflare Registrar. It moves between accounts with
 | Resources created on WBS | Done 2026-09-30. The ids are in `ids.json` and wired into the api, agent, datatool and web wrangler files on this branch |
 | Config PR (branch `aeci-1163-wbs-account-move`) | Open, not merged. It merges at the cutover, not before |
 | Zone staged on WBS | Added as Enterprise (Pending). DNS imported and trimmed. The three M365 CNAMEs must be DNS only |
+| WAF on WBS | Done 2026-09-30 through the dashboard. 3 custom rules, 2 rate-limit rules, Managed + OWASP are active. The Pending zone accepted them. See "WAF rule map" |
 | Old zone Pro plan removed | Not started. It sets the cutover date. See Phase 4 step 0 |
 | Rehearsal | Not started |
 | Cutover | Not scheduled |
@@ -96,6 +97,25 @@ The custom domains therefore bind at the cutover, after the zone activates. That
    - Any Search Console TXT record
 6. Rebuild the WAF custom rules and the two rate-limit rules. The expressions are in `docs/waf-rate-limits.md`. Port them 1:1. Enterprise lifts the Pro limit of two rate-limit rules, but redesigning them is separate work.
 7. Put the new ruleset and rule ids into `scripts/ops/2026-09-waf-host-scope/rules.mjs` and `docs/waf-rate-limits.md`.
+
+## WAF rule map (copied 2026-09-30)
+
+The source rules are in `waf-export.json`, read from the old zone's dashboard. Each re-typed expression matched the original's character count.
+
+| Rule | Old id | WBS id |
+|---|---|---|
+| Blocker Rule 1 (Block) | `bc961c9f6c2e4e02ba2429d06f8f1dc2` | `b154c36f480f4f639cb6e614cf75de69` |
+| Blocker Rule 2 (Block, 403) | `4781ac7e149247baa5b4119274119821` | `2e2e7ae15d69446a872dcb142e7ed82c` |
+| Scraper-UA (Managed Challenge) | `319173bafcf749fdbf9b739480d71ded` | `44749706cd6540d686ba27122176d0cc` |
+| Rate limit A: requests, subscribe, feedback (5/60 s per IP, 429, 1 h) | `d5ed0440ab64408d881d890bf10767a5` | `826151ccbc464f4095f7dfedfa8f51ac` |
+| Rate limit B: reviews (5/60 s per IP, 429, 1 h) | `45a1fd5d771a4b96bc204012f5965b5d` | `0ec84d97047740beb3ee1e6035301491` |
+| Cloudflare Managed Ruleset | default config | default config |
+| OWASP Core (Medium 40+, PL1, Block) | same | same |
+
+- Not copied: "Skip WAF for stack-test subdomain". `stack-test` is retired and is not in the WBS DNS.
+- Carried over as-is: the host lists still name `prod.aecintegrations.com`, which is retired (AECI-807). Narrowing them is separate work.
+- Not yet recorded: the ruleset ids that `scripts/ops/2026-09-waf-host-scope/rules.mjs` pins. The dashboard does not show them. Read them through the API once the zone token exists, then update `rules.mjs` and `docs/waf-rate-limits.md`.
+- Bot settings are separate and still to do: SBFM, AI bot policies, JS detections, AI Labyrinth. The target state is `docs/waf-rate-limits.md` "Recorded state".
 
 ## Phase 3: rehearsal (AECI-1165)
 
