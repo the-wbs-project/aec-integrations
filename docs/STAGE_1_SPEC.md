@@ -892,9 +892,10 @@ Page reads from `stats_cache` via API endpoint `/api/stats/home`. No live aggreg
 
 Transactional emails sent via Resend (`apps/api/src/lib/email.ts`, fire-and-forget
 via `ctx.waitUntil`, fail-open):
-- Review submission confirmation: "Thanks — your review is in moderation"
+- Review submission confirmation: "Your review of {product} is in moderation", repeating what was submitted
+- Review moderation alert to the support inbox (`ADMIN_ALERT_EMAIL`): "New review to moderate: {product}"
 - Review approved: "Your review of {product} is now live"
-- Review rejected: "Your review needs revision — {reason}"
+- Review rejected: "Your review of {product} needs revision", with the moderator's reason in the body
 - Account deletion confirmation
 - Request-pipeline-failure admin alert (the §6.2 stuck-request email)
 - Magic link emails (via Supabase Auth — Resend is the SMTP sender; dashboard config)

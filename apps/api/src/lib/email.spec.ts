@@ -38,7 +38,9 @@ import {
   sendMailingListWelcomeEmail,
   sendReviewApprovedEmail,
   sendReviewRejectedEmail,
+  sendReviewSubmittedAlert,
   sendReviewSubmittedEmail,
+  type SubmittedReviewSummary,
   sendStaleClaimTicketAlert,
   sendStuckRequestAdminAlert,
   sendTransactionalEmail,
@@ -217,21 +219,114 @@ describe('sendTransactionalEmail (low-level)', () => {
   });
 });
 
+const REVIEW: SubmittedReviewSummary = {
+  reviewId: 'rev-1',
+  productName: 'Procore',
+  productSlug: 'procore',
+  ratingOverall: 4,
+  ratingOnboarding: 3,
+  title: 'Solid field tool',
+  body: 'x'.repeat(500),
+  roleAtCompany: 'IT',
+  reviewerFirm: 'CADs are us',
+  yearsUsing: 3,
+  wouldRecommend: null,
+};
+
 describe('sendReviewSubmittedEmail', () => {
-  it('sends the "in moderation" confirmation to the reviewer', async () => {
+  it('names the product and repeats what the reviewer submitted', async () => {
     const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
-    const outcome = await sendReviewSubmittedEmail(fakeContext(), { to: 'rev@example.com' });
+    const outcome = await sendReviewSubmittedEmail(
+      fakeContext({ PUBLIC_SITE_URL: 'https://aecintegrations.com' }),
+      { to: 'rev@example.com', review: REVIEW },
+    );
 
     expect(outcome).toBe('sent');
     const body = lastBody(fetchSpy);
     expect(body.to).toBe('rev@example.com');
-    expect(body.subject).toBe('Thanks — your review is in moderation');
-    expect(String(body.text)).toContain('in moderation');
+    expect(body.subject).toBe('Your review of Procore is in moderation');
+    const text = String(body.text);
+    expect(text).toContain('Overall rating: 4 of 5');
+    expect(text).toContain('Onboarding rating: 3 of 5');
+    expect(text).toContain('Headline: Solid field tool');
+    expect(text).toContain('Role: IT');
+    expect(text).toContain('Firm: CADs are us');
+    expect(text).toContain('Years using: 3');
+    // Unanswered optional fields are left out, not shown as blanks.
+    expect(text).not.toContain('Would recommend');
+    // The body is an excerpt in the reviewer's copy.
+    expect(text).not.toContain('x'.repeat(500));
+    expect(text).toContain('View Procore: https://aecintegrations.com/products/procore');
+    // House layout, no em dash in the subject.
+    expect(String(body.html)).toContain('AEC Integrations</td>');
+    expect(String(body.subject)).not.toContain('—');
+  });
+
+  it('escapes reviewer-supplied text in the HTML part', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
+    await sendReviewSubmittedEmail(fakeContext(), {
+      to: 'rev@example.com',
+      review: { ...REVIEW, title: '<script>x</script>' },
+    });
+    expect(String(lastBody(fetchSpy).html)).not.toContain('<script>');
   });
 
   it('skips when the reviewer email is undefined', async () => {
     const fetchSpy = vi.spyOn(globalThis, 'fetch');
-    expect(await sendReviewSubmittedEmail(fakeContext(), { to: undefined })).toBe('skipped');
+    expect(await sendReviewSubmittedEmail(fakeContext(), { to: undefined, review: REVIEW })).toBe(
+      'skipped',
+    );
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+});
+
+describe('sendReviewSubmittedAlert', () => {
+  it('sends the whole review to ADMIN_ALERT_EMAIL with a moderation-queue CTA', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
+    const outcome = await sendReviewSubmittedAlert(
+      fakeContext({
+        ADMIN_ALERT_EMAIL: 'support@aecintegrations.com',
+        PUBLIC_SITE_URL: 'https://staging.aecintegrations.com',
+      }),
+      { review: REVIEW, reviewerEmail: 'rev@example.com', toxicityScore: 0.02 },
+    );
+
+    expect(outcome).toBe('sent');
+    const body = lastBody(fetchSpy);
+    expect(body.to).toBe('support@aecintegrations.com');
+    expect(body.subject).toBe('[AECi] New review to moderate: Procore');
+    const text = String(body.text);
+    expect(text).toContain('Reviewer: rev@example.com');
+    expect(text).toContain('x'.repeat(500));
+    expect(text).toContain('Toxicity score: 0.02');
+    expect(text).toContain('Environment: staging.aecintegrations.com');
+    expect(text).toContain(
+      'Open the moderation queue: https://staging.aecintegrations.com/admin/reviews',
+    );
+    expect(sendTags()).toEqual([['outcome:sent', 'template:review-submitted-alert']]);
+  });
+
+  it('reports an unscored review rather than a blank', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
+    await sendReviewSubmittedAlert(fakeContext({ ADMIN_ALERT_EMAIL: 'ops@example.com' }), {
+      review: REVIEW,
+      reviewerEmail: undefined,
+      toxicityScore: null,
+    });
+    const text = String(lastBody(fetchSpy).text);
+    expect(text).toContain('Toxicity score: not scored');
+    expect(text).toContain('Reviewer: unknown');
+  });
+
+  it('skips when ADMIN_ALERT_EMAIL is unset', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch');
+    expect(
+      await sendReviewSubmittedAlert(fakeContext(), {
+        review: REVIEW,
+        reviewerEmail: 'rev@example.com',
+        toxicityScore: null,
+      }),
+    ).toBe('skipped');
     expect(fetchSpy).not.toHaveBeenCalled();
   });
 });

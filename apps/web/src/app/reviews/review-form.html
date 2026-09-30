@@ -290,7 +290,9 @@
         class="block text-xs font-bold uppercase tracking-[0.08em] text-(--text-secondary)"
       >
         <ng-container i18n="@@reviews.role.label">Your role</ng-container>
-        <span class="font-normal normal-case text-(--text-secondary)" i18n="@@reviews.optional"
+        <span
+          class="ms-1 font-normal tracking-normal normal-case text-(--text-secondary)"
+          i18n="@@reviews.optional"
           >(optional)</span
         >
       </label>
@@ -307,7 +309,19 @@
           <span [style.color]="roleSel().length === 0 ? 'var(--text-secondary)' : null"
             >{{ roleTriggerLabel() }}</span
           >
-          <span aria-hidden="true" class="ms-2 text-(--text-tertiary)">▾</span>
+          <svg
+            class="ms-2 h-4 w-4 shrink-0 text-(--text-secondary) transition-transform"
+            [class.rotate-180]="roleExpanded()"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            aria-hidden="true"
+          >
+            <path d="m6 9 6 6 6-6" />
+          </svg>
         </button>
 
         <!--
@@ -315,10 +329,12 @@
           (in-flow) — it is NOT itself a floating layer. An outer cdkConnectedOverlay
           (usePopover:'inline' → browser top layer) supplies positioning, flip, and
           overflow-escape, per ADR 0010 ("Aria supplies behavior, not the floating
-          layer"). matchWidth pins the panel to the trigger width; the <ul> only styles.
+          layer"). matchWidth sizes the overlay pane to the trigger, but the pane is a
+          flex container, so the <ul> needs w-full to fill it rather than shrink to its
+          longest option.
         -->
         <ng-template
-          [cdkConnectedOverlay]="{ origin: roleOrigin, usePopover: 'inline', matchWidth: true }"
+          [cdkConnectedOverlay]="{ origin: roleOrigin, usePopover: 'inline', matchWidth: true, offsetY: 4 }"
           [cdkConnectedOverlayOpen]="roleExpanded()"
         >
           <ng-template ngComboboxPopup [combobox]="roleCb" popupType="listbox">
@@ -333,7 +349,7 @@
               selectionMode="explicit"
               i18n-aria-label="@@reviews.role.listbox.aria"
               aria-label="Roles"
-              class="flex max-h-72 list-none flex-col gap-0.5 overflow-y-auto rounded-(--radius-md) border border-(--border-default) bg-(--surface-raised) p-1.5 shadow-lg"
+              class="m-0 flex max-h-72 w-full list-none flex-col gap-0.5 overflow-y-auto rounded-(--radius-md) border border-(--border-default) bg-(--surface-raised) p-1 shadow-lg"
             >
               @for (opt of roleOptions; track opt.value) {
               <li
@@ -361,7 +377,9 @@
         class="block text-xs font-bold uppercase tracking-[0.08em] text-(--text-secondary)"
       >
         <ng-container i18n="@@reviews.firm.label">Your firm</ng-container>
-        <span class="font-normal normal-case text-(--text-secondary)" i18n="@@reviews.optional"
+        <span
+          class="ms-1 font-normal tracking-normal normal-case text-(--text-secondary)"
+          i18n="@@reviews.optional"
           >(optional)</span
         >
       </label>
@@ -383,7 +401,9 @@
         class="block text-xs font-bold uppercase tracking-[0.08em] text-(--text-secondary)"
       >
         <ng-container i18n="@@reviews.years.label">Years using this product</ng-container>
-        <span class="font-normal normal-case text-(--text-secondary)" i18n="@@reviews.optional"
+        <span
+          class="ms-1 font-normal tracking-normal normal-case text-(--text-secondary)"
+          i18n="@@reviews.optional"
           >(optional)</span
         >
       </label>
@@ -417,7 +437,9 @@
         class="block text-xs font-bold uppercase tracking-[0.08em] text-(--text-secondary)"
       >
         <ng-container i18n="@@reviews.recommend.label">Would you recommend it?</ng-container>
-        <span class="font-normal normal-case text-(--text-secondary)" i18n="@@reviews.optional"
+        <span
+          class="ms-1 font-normal tracking-normal normal-case text-(--text-secondary)"
+          i18n="@@reviews.optional"
           >(optional)</span
         >
       </span>
