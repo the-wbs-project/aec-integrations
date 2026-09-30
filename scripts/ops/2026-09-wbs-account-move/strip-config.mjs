@@ -11,7 +11,9 @@ import { readFileSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 
-const require = createRequire(fileURLToPath(new URL('../../../apps/api/package.json', import.meta.url)));
+const require = createRequire(
+  fileURLToPath(new URL('../../../apps/api/package.json', import.meta.url)),
+);
 const ts = require('typescript');
 
 const [input, output, flag] = process.argv.slice(2);
