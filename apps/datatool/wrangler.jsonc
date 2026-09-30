@@ -4,9 +4,9 @@
   "account_id": "004dc1af737b22a8aa83b3550fa9b9d3",
   "main": "src/index.ts",
   "compatibility_date": "2026-07-10",
-  // INTERNAL ADMIN TOOL. Publishes to `aeci-datatool.aec-integrations.workers.dev`,
+  // INTERNAL ADMIN TOOL. Publishes to `aeci-datatool.thewbsproject.workers.dev`,
   // which is already inside the single `AECi Non-Prod` Cloudflare Access app's
-  // `*.aec-integrations.workers.dev` destination (docs/access.md §1) — so it is
+  // `aeci-*.thewbsproject.workers.dev` destination (docs/access.md §1) — so it is
   // OTP-gated to the chrisw/billh allowlist with no new Access app/policy. The
   // Worker ALSO verifies the Access JWT in-process (src/access.ts) so a direct
   // origin hit can't bypass the edge gate. workers_dev:true is required for that

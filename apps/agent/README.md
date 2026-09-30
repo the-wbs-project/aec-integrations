@@ -216,14 +216,14 @@ pnpm --filter @aeci/agent exec wrangler secret put TOOL_TOKEN -c dist/aeci_agent
 pnpm --filter @aeci/agent deploy:production
 ```
 
-The deployed hostnames are `https://aeci-agent.aec-integrations.workers.dev` and `https://aeci-agent-production.aec-integrations.workers.dev`. Both already sit behind the existing `AECi Non-Prod` Access app, which lists `*.aec-integrations.workers.dev` as a destination. No new Access app is needed, and per `docs/access.md` a second overlapping app has been observed to break Worker requests.
+The deployed hostnames are `https://aeci-agent.thewbsproject.workers.dev` and `https://aeci-agent-production.thewbsproject.workers.dev`. Both already sit behind the existing `AECi Non-Prod` Access app, which lists `aeci-*.thewbsproject.workers.dev` as a destination. No new Access app is needed, and per `docs/access.md` a second overlapping app has been observed to break Worker requests.
 
 ### 6. Build the corpus and index it
 
 A `curl` has to clear **two** gates: Cloudflare Access at the edge, and `requireAccess()` in the Worker. A browser behind Access clears the first for free; a script needs the `aeci-gh-actions` service token.
 
 ```bash
-curl -sS -X POST https://aeci-agent.aec-integrations.workers.dev/admin/reindex \
+curl -sS -X POST https://aeci-agent.thewbsproject.workers.dev/admin/reindex \
   -H "CF-Access-Client-Id: $CF_ACCESS_CLIENT_ID" \
   -H "CF-Access-Client-Secret: $CF_ACCESS_CLIENT_SECRET" \
   -H "Authorization: Bearer $TOOL_TOKEN"
@@ -239,7 +239,7 @@ pnpm --filter @aeci/agent exec wrangler ai-search get aeci-catalog-preview
 
 ### 7. Open the chat page
 
-Open `https://aeci-agent.aec-integrations.workers.dev/` in a browser on the Access allowlist. Leave the token box empty; the edge injects the Access assertion.
+Open `https://aeci-agent.thewbsproject.workers.dev/` in a browser on the Access allowlist. Leave the token box empty; the edge injects the Access assertion.
 
 ---
 

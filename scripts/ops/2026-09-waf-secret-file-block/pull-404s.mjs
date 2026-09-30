@@ -15,7 +15,7 @@
 //
 //   node pull-404s.mjs [days=7] [scannerAsn=396982] > observed-404s-YYYY-MM.json
 
-const ACCOUNT = 'e62ec9d8012c3e0c225f8e4dbab76b79';
+const ACCOUNT = '004dc1af737b22a8aa83b3550fa9b9d3';
 const SERVICE = 'aeci-web-production';
 const DAY = 86_400_000;
 

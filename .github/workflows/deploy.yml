@@ -77,7 +77,7 @@
 #
 # Required repo secrets:
 #   CLOUDFLARE_API_TOKEN     — scoped narrowly per CICD_PLAN §7.1
-#   CLOUDFLARE_ACCOUNT_ID    — e62ec9d8012c3e0c225f8e4dbab76b79
+#   CLOUDFLARE_ACCOUNT_ID    — 004dc1af737b22a8aa83b3550fa9b9d3
 #   CF_ACCESS_CLIENT_ID      — service-token client id (docs/access.md §1)
 #   CF_ACCESS_CLIENT_SECRET  — service-token client secret (docs/access.md §1)
 #   REVIEW_APP_TOKEN         — bearer gating the API Worker's POST /api/promote.

@@ -120,7 +120,7 @@ function localeFromRoute(_route: string): string {
  *  navigation, not an external traffic source. Derived from `PUBLIC_SITE_URL` plus the
  *  known apex + workers.dev preview suffix. */
 function selfHosts(env: Env): string[] {
-  const hosts = ['aecintegrations.com', 'aec-integrations.workers.dev'];
+  const hosts = ['aecintegrations.com', 'thewbsproject.workers.dev'];
   try {
     if (env.PUBLIC_SITE_URL) hosts.push(new URL(env.PUBLIC_SITE_URL).hostname.toLowerCase());
   } catch {

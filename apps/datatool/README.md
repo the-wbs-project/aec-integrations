@@ -201,7 +201,7 @@ pnpm --filter @aeci/datatool deploy   # wrangler deploy + COMMIT_SHA/DEPLOYED_AT
 
 Needs `CLOUDFLARE_API_TOKEN` (Workers Scripts: Edit + D1: Edit on all three DBs) +
 `CLOUDFLARE_ACCOUNT_ID`, or `wrangler login`. Publishes to
-`https://aeci-datatool.aec-integrations.workers.dev`.
+`https://aeci-datatool.thewbsproject.workers.dev`.
 
 ### One-time config
 
@@ -227,16 +227,16 @@ Needs `CLOUDFLARE_API_TOKEN` (Workers Scripts: Edit + D1: Edit on all three DBs)
    **Deploy prerequisite:** the three `aeci-cache-purge-{staging,demo,production}`
    queues must already exist (provisioned by the WC-5 SSR/API deploy workflows). If
    they don't yet, `wrangler queues create aeci-cache-purge-<tier>` before deploying.
-3. **Access** — the `*.aec-integrations.workers.dev` host is already covered by the
+3. **Access** — the `aeci-*.thewbsproject.workers.dev` host is already covered by the
    single `AECi Non-Prod` app (`docs/access.md`); **no new Access app/policy**.
-   Verify: `curl -I https://aeci-datatool.aec-integrations.workers.dev` → `302` to
+   Verify: `curl -I https://aeci-datatool.thewbsproject.workers.dev` → `302` to
    `cloudflareaccess.com`; a browser hit prompts the OTP for the allowlist.
 
 ## Verify (preview → staging; never test against production)
 
 ```bash
 H=(-H "CF-Access-Client-Id: $CF_ACCESS_CLIENT_ID" -H "CF-Access-Client-Secret: $CF_ACCESS_CLIENT_SECRET" -H 'content-type: application/json')
-U=https://aeci-datatool.aec-integrations.workers.dev
+U=https://aeci-datatool.thewbsproject.workers.dev
 
 # Copy dry-run → execute
 curl -s "${H[@]}" -d '{"source":"preview","dest":"staging","dryRun":true}'  $U/api/copy   # per-table counts

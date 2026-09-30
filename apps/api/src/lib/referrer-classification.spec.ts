@@ -7,7 +7,7 @@ import { describe, expect, it } from 'vitest';
 
 import { classifyReferrer, NAMED_REFERRER_SOURCES } from './referrer-classification';
 
-const SELF = ['aecintegrations.com', 'aec-integrations.workers.dev'];
+const SELF = ['aecintegrations.com', 'thewbsproject.workers.dev'];
 
 describe('classifyReferrer', () => {
   it('names common social + search referrers by host', () => {
@@ -49,7 +49,7 @@ describe('classifyReferrer', () => {
       source: 'Direct',
       host: null,
     });
-    expect(classifyReferrer('https://aeci-web.aec-integrations.workers.dev/', SELF)).toEqual({
+    expect(classifyReferrer('https://aeci-web.thewbsproject.workers.dev/', SELF)).toEqual({
       source: 'Direct',
       host: null,
     });
