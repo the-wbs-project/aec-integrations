@@ -138,6 +138,33 @@ The source rules are in `waf-export.json`, read from the old zone's dashboard. E
 
 ## Phase 3: rehearsal (AECI-1165)
 
+### Access, before anything is deployed
+
+There is one self-hosted Access app on the WBS Zero Trust org (`the-wbs-project.cloudflareaccess.com`):
+
+| Setting | Value |
+|---|---|
+| Name | `AECi Non-Prod` |
+| Destinations | `aeci-*.thewbsproject.workers.dev` and `staging.aecintegrations.com` |
+| Allow policy | One-time PIN for chrisw@ and billh@ |
+| Service Auth policy | Service token `aeci-gh-actions` |
+
+The `aeci-*` wildcard covers every AECi Worker and every PR preview, and none of the other WBS apps. Its AUD goes into `ACCESS_AUD` in both blocks of `apps/agent/wrangler.jsonc` and in `apps/datatool/wrangler.jsonc`. Until then they carry the old AUDs and fail closed (403).
+
+### Rehearsal deploy
+
+`deploy-rehearsal.sh` deploys the api and web Workers for one environment to WBS:
+- `strip-config.mjs` removes every cron trigger and route, so there are no duplicate jobs and no domain conflict.
+- The web Worker is served on workers.dev.
+- `ALLOW_INDEXING` is forced to `false`, so a production copy can never be indexed.
+
+Worker secrets are **on hold** (Chris, 2026-09-30). Until they are set, anything that needs Algolia, Resend or Supabase admin runs in its warn-and-skip mode.
+
+```bash
+scripts/ops/2026-09-wbs-account-move/deploy-rehearsal.sh production
+```
+
+
 Deploy the whole stack to WBS with the custom-domain routes removed, and serve it on `thewbsproject.workers.dev`. Load it with a copy of production data. Time every step.
 
 Export the production D1 from the old account:
