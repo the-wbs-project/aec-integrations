@@ -21,7 +21,9 @@ The domain is registered at Cloudflare Registrar. It moves between accounts with
 | Config PR (branch `aeci-1163-wbs-account-move`) | Open, not merged. It merges at the cutover, not before |
 | Zone staged on WBS | Added as Enterprise (Pending). DNS imported and trimmed. The three M365 CNAMEs must be DNS only |
 | WAF on WBS | Done 2026-09-30 through the dashboard. 3 custom rules, 2 rate-limit rules, Managed + OWASP are active. The Pending zone accepted them. See "WAF rule map" |
-| Old zone Pro plan removed | Not started. It sets the cutover date. See Phase 4 step 0 |
+| Old zone Pro plan removed | Not started. Pro **and** the "Smart Shield Argo Zone Level Plan - Basic" add-on both renew **Thu 2026-10-08**. Cancel both before Wed 2026-10-07 (24 h before, UTC). If missed, they renew to 2026-11-08 |
+| Review app service binding | None (review agent, 2026-09-30). The review app calls AECi over the public URL, so the two apps don't have to deploy in lockstep |
+| Bot settings on WBS | Done 2026-09-30, except two items that won't save on a Pending zone. See "Bot settings" |
 | Rehearsal | Not started |
 | Cutover | Not scheduled |
 
@@ -115,7 +117,24 @@ The source rules are in `waf-export.json`, read from the old zone's dashboard. E
 - Not copied: "Skip WAF for stack-test subdomain". `stack-test` is retired and is not in the WBS DNS.
 - Carried over as-is: the host lists still name `prod.aecintegrations.com`, which is retired (AECI-807). Narrowing them is separate work.
 - Not yet recorded: the ruleset ids that `scripts/ops/2026-09-waf-host-scope/rules.mjs` pins. The dashboard does not show them. Read them through the API once the zone token exists, then update `rules.mjs` and `docs/waf-rate-limits.md`.
-- Bot settings are separate and still to do: SBFM, AI bot policies, JS detections, AI Labyrinth. The target state is `docs/waf-rate-limits.md` "Recorded state".
+
+## Bot settings (compared 2026-09-30)
+
+| Setting | Old zone | WBS | Action |
+|---|---|---|---|
+| SBFM: JavaScript Detections | On | Was off | **Turned on** |
+| SBFM: WordPress / static resource protection | Off / Off | Off / Off | Match |
+| SBFM: definitely automated | Allow | Allow | Match |
+| SBFM: likely automated | Not on Pro | Allow | Allow does nothing |
+| SBFM: verified bots | On | On | Match |
+| AI bot policies: Search / Agent / Training | Allow / Allow / Allow | Allow / Allow / Allow | Match |
+| AI Crawl Control: per-crawler blocks | None of 32 | Not enabled, so none | Match |
+| AI Labyrinth | Off | Off | Match |
+| Challenge passage | 30 min | 30 min | Match |
+| Browser integrity check | On | On | Match |
+| Email obfuscation / hotlink / leaked-credentials | On / Off / Off | On / Off / Off | Match |
+| **Continuous script monitoring** | On | Off | **Cutover step.** The toggle does not save on a Pending zone |
+| **Bot Preference Sync** (prepends robots.txt) | Off | On | **Cutover step.** Turning it off does not save on a Pending zone. It must go off, or Cloudflare rewrites our robots.txt |
 
 ## Phase 3: rehearsal (AECI-1165)
 
@@ -156,7 +175,7 @@ Open question for the WBS account team: once a zone is Moved, does the old accou
 
 ## Phase 4: cutover (AECI-1166)
 
-0. Before the window, the old zone must have no plan or add-on subscriptions left. Look up the Pro billing date in the old account under Billing → Subscriptions. Cancel Pro at least 24 hours before that date. Book the cutover for the day Pro ends.
+0. Before the window, the old zone must have no plan or add-on subscriptions left. Both the Pro plan and the Smart Shield Argo add-on renew 2026-10-08. Look up the Pro billing date in the old account under Billing → Subscriptions. Cancel Pro at least 24 hours before that date. Book the cutover for the day Pro ends.
 
    We do not know whether Cloudflare accepts the move while a cancellation is only scheduled. If it does, the cutover can come earlier. Ask Cloudflare support, or try the registrar move once the cancellation is scheduled.
 1. Freeze writes. Stop promotes in the review app and stop admin edits.
@@ -165,6 +184,7 @@ Open question for the WBS account team: once a zone is Moved, does the old accou
 4. Export and import all four D1 databases, and copy R2. Use the rehearsal commands with the matching database names.
 5. Submit the registrar move from the old account: Domain Registration → Manage → Configuration. Approve it in the WBS account.
 6. Point the domain at the WBS nameservers. Confirm the WBS zone shows Active.
+6a. On the now-Active WBS zone, turn on continuous script monitoring and turn off Bot Preference Sync.
 7. Merge the config PR. Deploy staging, demo and production. `wrangler deploy` binds the custom domains.
 8. Verify each of these:
    - `/api/version`
