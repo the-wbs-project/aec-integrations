@@ -175,9 +175,11 @@ Open question for the WBS account team: once a zone is Moved, does the old accou
 
 ## Phase 4: cutover (AECI-1166)
 
-0. Before the window, the old zone must have no plan or add-on subscriptions left. Both the Pro plan and the Smart Shield Argo add-on renew 2026-10-08. Look up the Pro billing date in the old account under Billing → Subscriptions. Cancel Pro at least 24 hours before that date. Book the cutover for the day Pro ends.
+0. Cancel Pro and the Smart Shield Argo add-on on the old zone before 2026-10-07. Cancelling only stops the 2026-10-08 renewal, and Pro keeps working until then. Per Cloudflare's docs, a Pro plan does not block the move:
+   - "Remove a domain" requires a Free downgrade for Enterprise only.
+   - The Registrar inter-account move lists DNSSEC, lock state and a target plan as prerequisites, not the source plan.
 
-   We do not know whether Cloudflare accepts the move while a cancellation is only scheduled. If it does, the cutover can come earlier. Ask Cloudflare support, or try the registrar move once the cancellation is scheduled.
+   So the cutover can happen before Pro ends, and the unused Pro days are forfeited. Confirm this when submitting the registrar move. If it is refused, the fallback is the first Saturday after 2026-10-08.
 1. Freeze writes. Stop promotes in the review app and stop admin edits.
 2. Deploy the old API with its cron triggers removed. Crons on the old account keep firing until the old Workers are gone.
 3. Drain the old queues and Workflows.
