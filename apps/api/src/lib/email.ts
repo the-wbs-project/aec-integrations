@@ -66,6 +66,10 @@ export type EmailTemplate =
   | 'review-submitted'
   | 'review-approved'
   | 'review-rejected'
+  // Operator alert: a review is waiting for moderation. Recipient is
+  // `ADMIN_ALERT_EMAIL` (the support inbox); sent by `POST /api/reviews` beside
+  // the reviewer's `review-submitted` confirmation.
+  | 'review-submitted-alert'
   | 'account-deleted'
   // Mailing-list welcome — the subscriber's first touch (AECI-327). Recipient is
   // the new subscriber; sent by `POST /api/subscribe` on a real insert.
@@ -269,78 +273,203 @@ async function sendOperatorCopy(
 // for rendered `apps/web` templates). Each builds subject/text/html and returns the
 // `EmailOutcome` from the low-level send.
 
-/** §11.1 "Review submission confirmation". `to` is the reviewer's verified email
- *  (`session.email`); absent → silent skip. */
+/**
+ * What the reviewer submitted, as the submit route holds it after the commit. Feeds both
+ * the reviewer's confirmation and the operator's moderation alert, so the two can never
+ * describe different reviews.
+ */
+export interface SubmittedReviewSummary {
+  reviewId: string;
+  productName: string;
+  productSlug: string;
+  ratingOverall: number;
+  ratingOnboarding: number;
+  title: string;
+  body: string;
+  roleAtCompany: string | null;
+  reviewerFirm: string | null;
+  yearsUsing: number | null;
+  wouldRecommend: 'yes' | 'no' | 'maybe' | null;
+}
+
+const REVIEW_ROLE_LABELS: Record<string, string> = {
+  practitioner: 'Practitioner',
+  manager: 'Manager',
+  IT: 'IT',
+  exec: 'Executive',
+  other: 'Other',
+};
+
+const RECOMMEND_LABELS: Record<'yes' | 'no' | 'maybe', string> = {
+  yes: 'Yes',
+  no: 'No',
+  maybe: 'Maybe',
+};
+
+/** A review body is up to a few thousand characters. The reviewer's copy shows the
+ *  opening so they can recognise it. The operator alert carries it whole. */
+const REVIEW_EXCERPT_CHARS = 400;
+
+function excerpt(text: string, max: number): string {
+  const trimmed = text.trim();
+  return trimmed.length <= max ? trimmed : `${trimmed.slice(0, max).trimEnd()}…`;
+}
+
+/** The labelled facts of a submitted review. Optional fields appear only when given. */
+function reviewRows(review: SubmittedReviewSummary, bodyMax: number): Array<[string, string]> {
+  const rows: Array<[string, string]> = [
+    ['Product', review.productName],
+    ['Overall rating', `${review.ratingOverall} of 5`],
+    ['Onboarding rating', `${review.ratingOnboarding} of 5`],
+    ['Headline', review.title],
+    ['Review', excerpt(review.body, bodyMax)],
+  ];
+  if (review.roleAtCompany) {
+    rows.push(['Role', REVIEW_ROLE_LABELS[review.roleAtCompany] ?? review.roleAtCompany]);
+  }
+  if (review.reviewerFirm) rows.push(['Firm', review.reviewerFirm]);
+  if (review.yearsUsing !== null) rows.push(['Years using', String(review.yearsUsing)]);
+  if (review.wouldRecommend)
+    rows.push(['Would recommend', RECOMMEND_LABELS[review.wouldRecommend]]);
+  return rows;
+}
+
+/**
+ * §11.1 "Review submission confirmation". `to` is the reviewer's verified email
+ * (`session.email`); absent → silent skip.
+ *
+ * On the house layout. It names the product in the subject and heading, and repeats
+ * what the reviewer submitted as a detail table, because a reviewer who writes several
+ * reviews cannot otherwise tell the confirmations apart. The body is an excerpt here.
+ * The CTA is the product page when `PUBLIC_SITE_URL` is set.
+ */
 export function sendReviewSubmittedEmail(
   c: EmailContext,
-  opts: { to: string | undefined },
+  opts: { to: string | undefined; review: SubmittedReviewSummary },
 ): Promise<EmailOutcome> {
-  const paragraphs = [
-    'Thanks for reviewing software on AEC Integrations.',
-    'Your review has been submitted and is now in moderation. We check every review by hand to keep the directory trustworthy.',
-    "You'll hear from us again once it's approved and live.",
-  ];
+  const { review } = opts;
+  const url = productUrl(c.env, review.productSlug);
+  const opening = `Thanks for reviewing ${review.productName} on AEC Integrations. Your review is now in moderation.`;
+  const openingHtml = `Thanks for reviewing <strong>${escapeHtml(review.productName)}</strong> on AEC Integrations. Your review is now in moderation.`;
+  const process =
+    "We check every review by hand to keep the directory trustworthy. You'll hear from us again once it's approved and live.";
+  const shared = {
+    preheader: `We received your review of ${review.productName}.`,
+    heading: `Your review of ${review.productName} is in moderation`,
+    table: reviewRows(review, REVIEW_EXCERPT_CHARS),
+    ...(url ? { cta: { label: `View ${review.productName}`, url } } : {}),
+  };
   return sendTransactionalEmail(c, {
     to: opts.to ?? '',
     template: 'review-submitted',
-    subject: 'Thanks — your review is in moderation',
-    text: toText(paragraphs),
-    html: toHtml(paragraphs),
+    subject: `Your review of ${review.productName} is in moderation`,
+    text: renderEmailText({ ...shared, blocks: [opening, process] }),
+    html: renderEmailHtml({ ...shared, blocks: [openingHtml, process] }),
   });
 }
 
-/** §11.1 "Review approved". Links to the product page when `siteUrl` is configured. */
+/**
+ * Operator alert: a review is waiting in the moderation queue. Sent post-commit from
+ * `POST /api/reviews`, beside the reviewer's confirmation. Recipient is
+ * `ADMIN_ALERT_EMAIL` (the support inbox); absent → `'skipped'`, and the queue at
+ * `/admin/reviews` stays the durable record.
+ *
+ * Carries the whole review and the toxicity score, so the operator can triage from the
+ * inbox. The single CTA opens the moderation queue.
+ */
+export function sendReviewSubmittedAlert(
+  c: EmailContext,
+  opts: {
+    review: SubmittedReviewSummary;
+    reviewerEmail: string | undefined;
+    /** `null` when the classifier was absent or failed open. */
+    toxicityScore: number | null;
+  },
+): Promise<EmailOutcome> {
+  const { review } = opts;
+  const base = siteUrl(c.env);
+  const host = environmentHost(c.env);
+  const reviewer = opts.reviewerEmail?.trim() || 'unknown';
+  const rows = reviewRows(review, Number.POSITIVE_INFINITY);
+  rows.splice(1, 0, ['Reviewer', reviewer]);
+  rows.push([
+    'Toxicity score',
+    opts.toxicityScore === null ? 'not scored' : String(opts.toxicityScore),
+  ]);
+  rows.push(['Review id', review.reviewId]);
+  if (host) rows.push(['Environment', host]);
+  const listing = productUrl(c.env, review.productSlug);
+  if (listing) rows.push(['Listing', listing]);
+
+  const intro = `${reviewer} submitted a review of ${review.productName}. It is waiting for moderation.`;
+  const introHtml = `${escapeHtml(reviewer)} submitted a review of <strong>${escapeHtml(review.productName)}</strong>. It is waiting for moderation.`;
+  const shared = {
+    preheader: intro,
+    heading: `New review of ${review.productName}`,
+    table: rows,
+    ...(base ? { cta: { label: 'Open the moderation queue', url: `${base}/admin/reviews` } } : {}),
+  };
+  return sendTransactionalEmail(c, {
+    to: c.env.ADMIN_ALERT_EMAIL ?? '',
+    template: 'review-submitted-alert',
+    subject: `[AECi] New review to moderate: ${review.productName}`,
+    text: renderEmailText({ ...shared, blocks: [intro] }),
+    html: renderEmailHtml({ ...shared, blocks: [introHtml] }),
+  });
+}
+
+/**
+ * §11.1 "Review approved". On the house layout; the CTA is the product page when
+ * `PUBLIC_SITE_URL` is configured.
+ */
 export function sendReviewApprovedEmail(
   c: EmailContext,
   opts: { to: string | undefined; productName: string; productSlug: string },
 ): Promise<EmailOutcome> {
   const url = productUrl(c.env, opts.productSlug);
-  const textParagraphs = [
-    `Good news — your review of ${opts.productName} is now published on AEC Integrations.`,
-    url ? `View it here: ${url}` : 'Thanks for helping the AEC community choose better software.',
-  ];
-  const htmlParagraphs = [
-    `Good news — your review of <strong>${escapeHtml(opts.productName)}</strong> is now published on AEC Integrations.`,
-    url
-      ? `<a href="${escapeHtml(url)}">View your review</a>`
-      : 'Thanks for helping the AEC community choose better software.',
-  ];
+  const opening = `Your review of ${opts.productName} is now published on AEC Integrations.`;
+  const openingHtml = `Your review of <strong>${escapeHtml(opts.productName)}</strong> is now published on AEC Integrations.`;
+  const thanks = 'Thanks for helping the AEC community choose better software.';
+  const shared = {
+    preheader: `Your review of ${opts.productName} is live.`,
+    heading: `Your review of ${opts.productName} is live`,
+    ...(url ? { cta: { label: 'View your review', url } } : {}),
+  };
   return sendTransactionalEmail(c, {
     to: opts.to ?? '',
     template: 'review-approved',
     subject: `Your review of ${opts.productName} is now live`,
-    text: toText(textParagraphs),
-    html: toHtml(htmlParagraphs),
+    text: renderEmailText({ ...shared, blocks: [opening, thanks] }),
+    html: renderEmailHtml({ ...shared, blocks: [openingHtml, thanks] }),
   });
 }
 
-/** §11.1 "Review rejected — {reason}". Includes the moderator's reason + a pointer
- *  to the review guidelines when `siteUrl` is configured. */
+/**
+ * §11.1 "Review rejected — {reason}". On the house layout. Carries the moderator's
+ * reason, and the review guidelines become the CTA when `PUBLIC_SITE_URL` is set.
+ */
 export function sendReviewRejectedEmail(
   c: EmailContext,
   opts: { to: string | undefined; productName: string; reason: string },
 ): Promise<EmailOutcome> {
-  const guidelines = siteUrl(c.env) ? `${siteUrl(c.env)}/legal/review-guidelines` : null;
-  const textParagraphs = [
-    `Thanks for your review of ${opts.productName}. Before it can go live it needs a revision:`,
-    opts.reason,
-    guidelines
-      ? `You're welcome to submit an updated review that follows our review guidelines: ${guidelines}`
-      : "You're welcome to submit an updated review that follows our review guidelines.",
-  ];
-  const htmlParagraphs = [
-    `Thanks for your review of <strong>${escapeHtml(opts.productName)}</strong>. Before it can go live it needs a revision:`,
-    `<em>${escapeHtml(opts.reason)}</em>`,
-    guidelines
-      ? `You're welcome to submit an updated review that follows our <a href="${escapeHtml(guidelines)}">review guidelines</a>.`
-      : "You're welcome to submit an updated review that follows our review guidelines.",
-  ];
+  const base = siteUrl(c.env);
+  const guidelines = base ? `${base}/legal/review-guidelines` : null;
+  const opening = `Thanks for your review of ${opts.productName}. Before it can go live it needs a revision.`;
+  const openingHtml = `Thanks for your review of <strong>${escapeHtml(opts.productName)}</strong>. Before it can go live it needs a revision.`;
+  const reasonText = `Moderator note: ${opts.reason}`;
+  const reasonHtml = `<em>${escapeHtml(opts.reason)}</em>`;
+  const next = "You're welcome to submit an updated review that follows our review guidelines.";
+  const shared = {
+    preheader: `Your review of ${opts.productName} needs a revision.`,
+    heading: `Your review of ${opts.productName} needs revision`,
+    ...(guidelines ? { cta: { label: 'Read the review guidelines', url: guidelines } } : {}),
+  };
   return sendTransactionalEmail(c, {
     to: opts.to ?? '',
     template: 'review-rejected',
     subject: `Your review of ${opts.productName} needs revision`,
-    text: toText(textParagraphs),
-    html: toHtml(htmlParagraphs),
+    text: renderEmailText({ ...shared, blocks: [opening, reasonText, next] }),
+    html: renderEmailHtml({ ...shared, blocks: [openingHtml, reasonHtml, next] }),
   });
 }
 

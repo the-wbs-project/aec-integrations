@@ -18,7 +18,7 @@ import {
 import type { Env } from '../env';
 import { errorHandler } from '../errors';
 import type { AuthzVariables } from '../lib/authz';
-import { sendReviewSubmittedEmail } from '../lib/email';
+import { sendReviewSubmittedAlert, sendReviewSubmittedEmail } from '../lib/email';
 import { makeTestDb, type TestDb } from '../test/d1';
 import { fakeExecutionContext, TEST_ENV } from '../test/helpers';
 import { stubPosthogIntake } from '../test/posthog-intake';
@@ -28,6 +28,7 @@ import { createSubmitReviewHandler, REVIEW_HOURLY_LIMIT } from './reviews';
 // assert it fires with the reviewer's email without a real Resend call.
 vi.mock('../lib/email', () => ({
   sendReviewSubmittedEmail: vi.fn(() => Promise.resolve('sent')),
+  sendReviewSubmittedAlert: vi.fn(() => Promise.resolve('sent')),
 }));
 
 const u = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
@@ -37,6 +38,7 @@ const USER_EMAIL = 'reviewer@example.com';
 let t: TestDb;
 beforeEach(async () => {
   vi.mocked(sendReviewSubmittedEmail).mockClear();
+  vi.mocked(sendReviewSubmittedAlert).mockClear();
   t = await makeTestDb();
   await t.db.insert(profiles).values({ id: USER });
   await t.db
@@ -113,9 +115,25 @@ describe('POST /api/reviews', () => {
     expect(audit[0]!.entityId).toBe(body.id);
 
     // §11.1: the "in moderation" confirmation fires to the reviewer (fire-and-forget).
+    // It names the product and carries what the reviewer submitted.
     expect(sendReviewSubmittedEmail).toHaveBeenCalledWith(
       expect.anything(),
-      expect.objectContaining({ to: USER_EMAIL }),
+      expect.objectContaining({
+        to: USER_EMAIL,
+        review: expect.objectContaining({
+          reviewId: body.id,
+          productName: 'Revit',
+          productSlug: 'revit',
+        }),
+      }),
+    );
+    // And the support inbox is told a review is waiting for moderation.
+    expect(sendReviewSubmittedAlert).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        reviewerEmail: USER_EMAIL,
+        review: expect.objectContaining({ reviewId: body.id, productName: 'Revit' }),
+      }),
     );
   });
 

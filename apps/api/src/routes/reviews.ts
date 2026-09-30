@@ -47,7 +47,11 @@ import {
   type BatchStmt,
   type BatchTuple,
 } from '../lib/audit';
-import { sendReviewSubmittedEmail } from '../lib/email';
+import {
+  sendReviewSubmittedAlert,
+  sendReviewSubmittedEmail,
+  type SubmittedReviewSummary,
+} from '../lib/email';
 import { writeDb, type DbFactory } from '../lib/handler-utils';
 import { scoreToxicity } from '../lib/toxicity';
 
@@ -124,7 +128,7 @@ export function createSubmitReviewHandler(
 
     // Product must exist — a loose insert would FK-fail as a 500.
     const product = await db.query.products.findFirst({
-      columns: { id: true },
+      columns: { id: true, name: true, slug: true },
       where: eq(products.id, payload.product_id),
     });
     if (!product) {
@@ -186,6 +190,10 @@ export function createSubmitReviewHandler(
     // Toxicity scoring BEFORE the batch — fail-open to null (never auto-reject).
     const toxicityScore = await score(c, payload.body);
 
+    // Trim free-text firm; a blank/whitespace-only value stores null so it
+    // never inflates the distinct contributing-firms count (AECI-284).
+    const reviewerFirm = payload.reviewer_firm?.trim() || null;
+
     // Ids generated up front so the batch needs no return values.
     const reviewId = crypto.randomUUID();
     const workflowId = crypto.randomUUID();
@@ -223,9 +231,7 @@ export function createSubmitReviewHandler(
         roleAtCompany: payload.role_at_company ?? null,
         yearsUsing: payload.years_using ?? null,
         wouldRecommend: payload.would_recommend ?? null,
-        // Trim free-text firm; a blank/whitespace-only value stores null so it
-        // never inflates the distinct contributing-firms count (AECI-284).
-        reviewerFirm: payload.reviewer_firm?.trim() || null,
+        reviewerFirm,
         toxicityScore,
         locale,
       }),
@@ -251,12 +257,29 @@ export function createSubmitReviewHandler(
       throw err;
     }
 
-    // Best-effort §26.5 forwards + the §11.1 "in moderation" confirmation email,
-    // all fire-and-forget AFTER the atomic commit. The email fails open: an absent
-    // RESEND_API_KEY or session email is a silent skip and never affects the 201.
+    // Best-effort §26.5 forwards, the §11.1 "in moderation" confirmation to the
+    // reviewer, and the moderation alert to the support inbox, all fire-and-forget
+    // AFTER the atomic commit. Both emails fail open: an absent RESEND_API_KEY,
+    // session email or ADMIN_ALERT_EMAIL is a silent skip and never affects the 201.
     // The audit row and the transition go in ONE request (AECI-1112).
     forwardAuditBatch(c, [auditEntry], [workflowEntry], 'review-form');
-    c.executionCtx.waitUntil(sendReviewSubmittedEmail(c, { to: session.email }));
+    const summary: SubmittedReviewSummary = {
+      reviewId,
+      productName: product.name,
+      productSlug: product.slug,
+      ratingOverall: payload.rating_overall,
+      ratingOnboarding: payload.rating_onboarding,
+      title: payload.title,
+      body: payload.body,
+      roleAtCompany: payload.role_at_company ?? null,
+      reviewerFirm,
+      yearsUsing: payload.years_using ?? null,
+      wouldRecommend: payload.would_recommend ?? null,
+    };
+    c.executionCtx.waitUntil(sendReviewSubmittedEmail(c, { to: session.email, review: summary }));
+    c.executionCtx.waitUntil(
+      sendReviewSubmittedAlert(c, { review: summary, reviewerEmail: session.email, toxicityScore }),
+    );
 
     emitSubmit(c, 'ok');
 
