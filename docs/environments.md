@@ -731,7 +731,7 @@ Secrets are stored in three places:
 | `SUPABASE_ACCESS_TOKEN` — **orphaned** | ❌ | ❌ | ⚠️ orphaned | Was for the `supabase` CLI in CI (`deploy.yml` db-migrate-dev + `refresh-staging.yml`). Those Postgres steps were removed (AECI-278); the only CLI use left is the manual auth-baseline `supabase migration repair` decommission step. |
 | `SUPABASE_MANAGEMENT_API_TOKEN` | ❌ | ❌ | ✅ | For PR-preview branch lifecycle (AECI-79). |
 | `CLOUDFLARE_API_TOKEN` | ❌ | ❌ | ✅ | Scoped narrowly per CICD_PLAN §7.1. |
-| `CLOUDFLARE_ACCOUNT_ID` | ❌ | ❌ | ✅ | `e62ec9d8012c3e0c225f8e4dbab76b79` |
+| `CLOUDFLARE_ACCOUNT_ID` | ❌ | ❌ | ✅ | `004dc1af737b22a8aa83b3550fa9b9d3` |
 | `CF_ACCESS_CLIENT_ID` + `CF_ACCESS_CLIENT_SECRET` | ❌ | ❌ | ✅ | Service token for non-prod smoke tests (`docs/access.md` §1). |
 | `R2_ACCESS_KEY_ID` + `R2_SECRET_ACCESS_KEY` + `R2_ENDPOINT` | ❌ | ❌ | ⚠️ orphaned | Formerly the prod pre-promote `pg_dump` → R2 snapshot (AECI-78; bucket `aeci-prod-snapshots`, object key `prod-pre-<short-sha>.dump`). **Retired with the Postgres steps (AECI-256)** — no workflow writes the bucket now; the app DB is D1 with 30-day time-travel for rollback. Safe to delete the GH secrets once the bucket's retained dumps age out. |
 | ~~`DATADOG_API_KEY`~~ | ❌ | ❌ | ❌ | **Retired at AECI-651.** No workflow reads it. Delete it from the GH secret store by hand (the WC-10 / `CF_PURGE_API_TOKEN` precedent — removing the reference does not remove the secret). |
@@ -923,10 +923,10 @@ Since AECI-714 that binding carries **two job kinds**, not one: the product bund
 
   | Namespace | Id |
   |---|---|
-  | `aeci-api-promote-preview` | `30d6ca5b9f9e444ea97362e9757b21c3` |
-  | `aeci-api-promote-staging` | `eee38f83e62f473d8d589e08b2a99c07` |
-  | `aeci-api-promote-demo` | `bda4c6f152384073861d5ff218e0d7da` |
-  | `aeci-api-promote-production` | `9f0ce48f3a6b46f98458907baec65bf3` |
+  | `aeci-api-promote-preview` | `48be5fd8a6284d6bb7b43b2f3aac323d` |
+  | `aeci-api-promote-staging` | `0b8d4cba2df94a5eacb402693a8c76f4` |
+  | `aeci-api-promote-demo` | `a43e06984ae0428a915bbeb3a78860b6` |
+  | `aeci-api-promote-production` | `55f2cc73eaed406fa29726099280bb90` |
 
   To recreate from scratch (KV ids must be literal in the config at deploy time, so this can never be a CI step), from `apps/api`:
   ```bash

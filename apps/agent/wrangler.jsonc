@@ -1,7 +1,7 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "aeci-agent",
-  "account_id": "e62ec9d8012c3e0c225f8e4dbab76b79",
+  "account_id": "004dc1af737b22a8aa83b3550fa9b9d3",
   // SPIKE WORKER. Built on Flue (the Astro team's agent framework). Deployed BY
   // HAND, like apps/datatool — deliberately not deployed by CI (the root
   // `pnpm -r` lint/typecheck/test:unit lanes still run this package on every PR).
@@ -74,7 +74,7 @@
     {
       "binding": "DB",
       "database_name": "aeci-app-preview",
-      "database_id": "05618c5a-929d-404d-8204-1e565c52b9c2",
+      "database_id": "40b2021f-9023-4f4a-affb-9d2c657bb7e3",
     },
   ],
   "ai": {
@@ -130,7 +130,7 @@
         {
           "binding": "DB",
           "database_name": "aeci-app-production",
-          "database_id": "74dedcd8-99ff-4033-b28d-4d918e4ecd00",
+          "database_id": "3bbbd4ca-4907-41c1-9f76-7d7241ca2b8f",
         },
       ],
       "ai": {

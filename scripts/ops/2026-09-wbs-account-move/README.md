@@ -17,9 +17,9 @@ The domain is registered at Cloudflare Registrar. It moves between accounts with
 |---|---|
 | DNSSEC off on `aecintegrations.com` | Done 2026-09-30. 1.1.1.1 no longer returns a DS record |
 | Rate-limit `namespace_id` collision check | Clear. None of the local WBS configs declares `ratelimits` |
-| Resources created on WBS | Not started. Run `create-resources.sh` |
+| Resources created on WBS | Done 2026-09-30. The ids are in `ids.json` and wired into the api, agent, datatool and web wrangler files on this branch |
 | Config PR (branch `aeci-1163-wbs-account-move`) | Open, not merged. It merges at the cutover, not before |
-| Zone staged on WBS | Not started |
+| Zone staged on WBS | Added as Enterprise (Pending). DNS imported and trimmed. The three M365 CNAMEs must be DNS only |
 | Old zone Pro plan removed | Not started. It sets the cutover date. See Phase 4 step 0 |
 | Rehearsal | Not started |
 | Cutover | Not scheduled |

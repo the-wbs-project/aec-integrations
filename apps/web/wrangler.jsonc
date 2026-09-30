@@ -64,7 +64,7 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "aeci-web",
-  "account_id": "e62ec9d8012c3e0c225f8e4dbab76b79",
+  "account_id": "004dc1af737b22a8aa83b3550fa9b9d3",
   "main": "./dist/server/server.mjs",
   "compatibility_date": "2026-07-10",
   // `nodejs_compat` — @angular/ssr Node polyfills (see the header note).

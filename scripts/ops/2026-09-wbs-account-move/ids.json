@@ -1,0 +1,19 @@
+{
+  "account_id": "004dc1af737b22a8aa83b3550fa9b9d3",
+  "d1": {
+    "aeci-app-production": "3bbbd4ca-4907-41c1-9f76-7d7241ca2b8f",
+    "aeci-app-demo": "3600401b-0414-40f6-9c86-5cf4dfd8469d",
+    "aeci-app-staging": "f4f80b55-d8e0-47fd-8277-e1879fe56a44",
+    "aeci-app-preview": "40b2021f-9023-4f4a-affb-9d2c657bb7e3"
+  },
+  "kv": {
+    "aeci-api-promote-demo": "a43e06984ae0428a915bbeb3a78860b6",
+    "aeci-api-promote-preview": "48be5fd8a6284d6bb7b43b2f3aac323d",
+    "aeci-api-promote-production": "55f2cc73eaed406fa29726099280bb90",
+    "aeci-api-promote-staging": "0b8d4cba2df94a5eacb402693a8c76f4",
+    "aeci-api-taxonomy-demo": "516d3441c4e5478a8d1c10b0c8290ef3",
+    "aeci-api-taxonomy-preview": "9acd62934424496da76de31aa761255f",
+    "aeci-api-taxonomy-production": "f07a90c7f67540879fe0b3a29cee82fd",
+    "aeci-api-taxonomy-staging": "36ffebd88b6343e9ae9698620e30a1f2"
+  }
+}
