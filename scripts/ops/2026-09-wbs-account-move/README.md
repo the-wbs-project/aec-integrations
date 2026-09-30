@@ -54,6 +54,17 @@ Workflows, Durable Objects and custom domains are created by `wrangler deploy`, 
 
 Do these steps by hand in the dashboard:
 
+What a Pending zone accepts, per Cloudflare's docs (checked 2026-09-30):
+
+| Change | On a Pending zone? | Source |
+|---|---|---|
+| DNS records | Yes | Standard onboarding. Cloudflare answers DNS for Pending zones on the assigned nameservers |
+| Enterprise plan | Yes | Required first. The registrar move needs the domain added with a plan selected |
+| WAF rules, rate-limit rules, bot settings | Not confirmed | Test it: create one rule on the Pending zone |
+| Worker custom domains | **No** | "To add a Custom Domain, you must have an active Cloudflare zone" |
+
+The custom domains therefore bind at the cutover, after the zone activates. That bind is the only real gap in service. It is kept to minutes by pre-deploying everything else (see the weekend schedule).
+
 1. Export DNS from the old zone: DNS → Records → Import and Export → Export.
 2. Record every dashboard-only setting. There is no API export for these:
    - Security → Bots (Super Bot Fight Mode, AI bots, JavaScript detections)
@@ -107,6 +118,21 @@ Check the import:
 - The export includes the `d1_migrations` table, so the imported database starts at the same migration level.
 
 Copy the R2 uploads bucket-to-bucket with rclone, using an S3 API token on each account.
+
+## Weekend schedule
+
+Visitors only lose service between two moments: the WBS zone going Active, and the three `aeci-web-*` Workers binding their custom domains. Everything else moves while the old site keeps serving.
+
+| When | Work | Visitor impact |
+|---|---|---|
+| Weekdays before | Resources, secrets and the pending zone are staged. The rehearsal has passed. All Workers are deployed on WBS **with crons removed and without routes**, so there is no duplicate cron email and no route conflict | None |
+| Friday | Confirm the Pro plan state (Phase 4 step 0). Deploy the old API with crons removed | None |
+| Saturday early (low traffic) | Freeze writes. Run the final D1 export/import and R2 copy (minutes, the data is small). Submit the registrar move, approve it, confirm the nameservers, then press Re-check now until Active | None. The old site still serves, read-only |
+| Saturday, right after Active | Deploy the three web Workers with routes (about 1 min each). Put the crons back on the WBS API. Verify | **A few minutes** on the apex, www, demo and staging |
+| Saturday to Monday | Resolver caches drain to the new nameservers | Unknown until the account team answers the question below |
+| Monday | Swap the GitHub secrets. Merge the config PR. Normal CI resumes | None |
+
+Open question for the WBS account team: once a zone is Moved, does the old account keep answering DNS for it? If yes, cached visitors read the old, frozen site until their cache expires. If no, they get errors until then. Most resolvers cap nameserver caching well below the `.com` 48 h maximum.
 
 ## Phase 4: cutover (AECI-1166)
 
