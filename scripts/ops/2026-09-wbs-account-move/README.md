@@ -20,6 +20,7 @@ The domain is registered at Cloudflare Registrar. It moves between accounts with
 | Resources created on WBS | Not started. Run `create-resources.sh` |
 | Config PR (branch `aeci-1163-wbs-account-move`) | Open, not merged. It merges at the cutover, not before |
 | Zone staged on WBS | Not started |
+| Old zone Pro plan removed | Not started. It sets the cutover date. See Phase 4 step 0 |
 | Rehearsal | Not started |
 | Cutover | Not scheduled |
 
@@ -61,7 +62,14 @@ Do these steps by hand in the dashboard:
    - Web Analytics
    - Email Routing (`unsubscribe@`)
    - SSL/TLS mode
-3. In the WBS account, add `aecintegrations.com` as a website and assign the Enterprise plan. It stays Pending until the nameservers change.
+3. In the WBS account, add `aecintegrations.com` as a website and assign the Enterprise plan. It stays Pending until the nameservers change. Adding the domain here is safe while it is still live on the old account. It is the documented first step of a move.
+
+   The old zone's **Pro plan is a separate matter**, and so is any other zone add-on. Cloudflare requires both to be gone before the move. Do not cancel Pro in this phase:
+   - A Pro cancellation only takes effect at the end of the billing period.
+   - While Pro is still active, the old zone keeps its WAF managed rules, both rate-limit rules and Super Bot Fight Mode.
+   - Once it lapses, the site has none of those.
+
+   Time the cancellation so Pro ends on the cutover day (Phase 4, step 0).
 4. Import the DNS file. Before importing, delete these hostnames from the file:
    - `aecintegrations.com`
    - `www`
@@ -102,6 +110,9 @@ Copy the R2 uploads bucket-to-bucket with rclone, using an S3 API token on each 
 
 ## Phase 4: cutover (AECI-1166)
 
+0. Before the window, the old zone must have no plan or add-on subscriptions left. Look up the Pro billing date in the old account under Billing → Subscriptions. Cancel Pro at least 24 hours before that date. Book the cutover for the day Pro ends.
+
+   We do not know whether Cloudflare accepts the move while a cancellation is only scheduled. If it does, the cutover can come earlier. Ask Cloudflare support, or try the registrar move once the cancellation is scheduled.
 1. Freeze writes. Stop promotes in the review app and stop admin edits.
 2. Deploy the old API with its cron triggers removed. Crons on the old account keep firing until the old Workers are gone.
 3. Drain the old queues and Workflows.
