@@ -67,9 +67,10 @@ const CHANNEL_BLURBS: Record<NotificationChannel, string> = {
     'on success (AECI-1202, `docs/DATABASE_SCHEMA.md` §9.9).',
   ].join('\n'),
   'email+portal': [
-    "One notification on two surfaces: the attestation sweep's email, plus a",
-    `${SENT_ROW} row the vendor portal shows. The portal row is written only when the`,
-    'email was sent, and it is the ledger the 30-day dedupe reads.',
+    "One notification on two surfaces: the attestation sweep's daily digest email, plus a",
+    `${SENT_ROW} row per finding that the vendor portal shows. Since AECI-1204 the portal`,
+    'row is written whether or not any seat was emailed (a seat may have muted the digest),',
+    'and it is the ledger the 30-day dedupe reads.',
   ].join('\n'),
   'supabase-email': [
     'Supabase Auth sends this itself, over the Resend SMTP relay. No app code sends it, so the',

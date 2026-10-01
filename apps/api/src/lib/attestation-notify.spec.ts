@@ -1,9 +1,14 @@
 /**
- * The §7.2/§7.3 notification sweep (AECI-302) against the in-memory D1 harness.
+ * The §7.2/§7.3 notification sweep (AECI-302, digest since AECI-1204) against the
+ * in-memory D1 harness.
  *
  * The detectors have their own suite, so this one injects synthetic findings and
  * concentrates on the parts only the sweep owns: the suppression window (§7 AC
- * #2), fail-open sends (AC #4), recipient resolution, and the ledger contract.
+ * #2), fail-open sends (AC #4), recipient resolution, the one-digest-per-seat
+ * grouping, the per-seat mute, and the ledger contract.
+ *
+ * `ledgerDb` is mocked to hand the transport the same in-memory DB, so the digest
+ * dedupe key is real SQLite (`notification_sends`).
  *
  * The Resend transport is exercised through a mocked global `fetch` rather than a
  * stubbed send helper, so the real `sendTransactionalEmail` path — template ids,
@@ -14,18 +19,38 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { DetectorFinding, DetectorResult } from './attestation-detectors';
 import {
+  decideDelivery,
+  digestDay,
+  groupFindings,
   NOTIFICATION_SENT_ACTION,
   NOTIFICATION_SUPPRESSION_DAYS,
   NOTIFY_BATCH_CAP,
   runAttestationNotifySweep,
+  vendorDigestKey,
   type NotificationLedgerMetadata,
   type NotifyContext,
 } from './attestation-notify';
-import { auditLog, profiles, vendors } from '../db/schema';
+import { eq } from 'drizzle-orm';
+
+import type { Db } from '../db/client';
+import {
+  auditLog,
+  notificationPreferences,
+  notificationSends,
+  profiles,
+  vendors,
+} from '../db/schema';
 import type { Env } from '../env';
 import { makeTestDb, type TestDb } from '../test/d1';
 import { logBatchToPosthog } from '../posthog';
 import { fakeExecutionContext } from '../test/helpers';
+import { PREFERENCES_CREATED_ACTION } from './notification-preferences';
+import { ledgerDb } from './notifications/send-ledger';
+
+vi.mock('./notifications/send-ledger', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('./notifications/send-ledger')>();
+  return { ...actual, ledgerDb: vi.fn(() => null) };
+});
 
 vi.mock('../posthog', () => ({
   logToPosthog: vi.fn(),
@@ -72,6 +97,7 @@ beforeEach(async () => {
     { id: u(804), role: 'reviewer', vendorId: ACME },
   ]);
   fetchSpy = spyFetch();
+  vi.mocked(ledgerDb).mockReturnValue(t.db as Db);
 });
 afterEach(() => {
   t.dispose();
@@ -142,8 +168,18 @@ function sweep(findings: DetectorFinding[], over: { env?: Partial<Env> } = {}) {
   });
 }
 
+/** The §7.3 `notification.sent` rows only. The lazy preference create writes its
+ *  own `notification_preferences.created` audit rows, which are not ledger rows. */
 async function ledgerRows() {
-  return t.db.select().from(auditLog);
+  return t.db.select().from(auditLog).where(eq(auditLog.action, NOTIFICATION_SENT_ACTION));
+}
+
+const meta = (row: { metadata: unknown }) => row.metadata as NotificationLedgerMetadata;
+
+async function mute(profileId: string) {
+  await t.db
+    .insert(notificationPreferences)
+    .values({ profileId, nudgesMutedAt: daysAgo(1), muteToken: `tok-${profileId}` });
 }
 
 /** Recipients of every Resend call this run, in order. */
@@ -169,7 +205,7 @@ describe('runAttestationNotifySweep — delivery', () => {
     expect(await ledgerRows()).toHaveLength(0);
   });
 
-  it('emails the vendor’s unbanned seats and writes one ledger row', async () => {
+  it('emails the vendor’s unbanned seats one digest and writes one ledger row', async () => {
     const result = await sweep([finding()]);
 
     expect(sentTo()).toEqual(['globex@example.com']);
@@ -186,7 +222,8 @@ describe('runAttestationNotifySweep — delivery', () => {
     });
     expect(rows[0].metadata as NotificationLedgerMetadata).toMatchObject({
       // AECI-1199: the ledger row names the registry entry of the email it records.
-      notificationId: 'attestation-silent-counterparty',
+      notificationId: 'attestation-digest',
+      emailedSeats: 1,
       detector: 'silent-counterparty',
       vendorId: GLOBEX,
       integrationId: u(10),
@@ -208,7 +245,7 @@ describe('runAttestationNotifySweep — delivery', () => {
     const rows = await ledgerRows();
     expect((rows[0].metadata as NotificationLedgerMetadata).vendorId).toBeNull();
     expect((rows[0].metadata as NotificationLedgerMetadata).notificationId).toBe(
-      'attestation-ops-alert',
+      'attestation-ops-digest',
     );
   });
 
@@ -432,7 +469,11 @@ describe('runAttestationNotifySweep — audit forwarding', () => {
     ]);
     expect(found.sent).toBeGreaterThan(0);
 
-    const calls = vi.mocked(logBatchToPosthog).mock.calls;
+    // The ledger forward. The lazy preference create forwards its own rows in a
+    // separate single call (AECI-1204).
+    const calls = vi
+      .mocked(logBatchToPosthog)
+      .mock.calls.filter((call) => call[3][0]?.action === NOTIFICATION_SENT_ACTION);
     expect(calls).toHaveLength(1);
     expect(calls[0][3]).toHaveLength((await ledgerRows()).length);
     expect(calls[0][3][0]).toMatchObject({
@@ -449,22 +490,28 @@ describe('runAttestationNotifySweep — audit forwarding', () => {
       env: { POSTHOG_PROJECT_KEY: undefined },
     });
 
-    expect(logBatchToPosthog).toHaveBeenCalledTimes(1);
+    const ledgerForwards = vi
+      .mocked(logBatchToPosthog)
+      .mock.calls.filter((call) => call[3][0]?.action === NOTIFICATION_SENT_ACTION);
+    expect(ledgerForwards).toHaveLength(1);
   });
 });
 
 // ─── AECI-1198: outside recipients get mail from production only ─────────────
 
 describe('runAttestationNotifySweep — tier delivery policy (AECI-1198)', () => {
-  it('on staging, sends nothing to a vendor seat and writes no ledger row', async () => {
+  it('on staging, sends nothing to a vendor seat but records the portal rows (AECI-1204)', async () => {
     const result = await sweep([finding(), finding({ vendorId: ACME, claimId: u(31) })], {
       env: { ENV: 'staging' },
     });
 
     expect(fetchSpy).not.toHaveBeenCalled();
-    // Nothing reached a vendor, so tomorrow's sweep still owes the nudge.
-    expect(result).toMatchObject({ found: 2, sent: 0, failed: 0, skipped: 2 });
-    expect(await ledgerRows()).toHaveLength(0);
+    // The tier policy refuses on purpose, which is a final answer like a mute: the
+    // vendor sees the finding in its portal, with emailedSeats 0.
+    expect(result).toMatchObject({ found: 2, sent: 0, portalOnly: 2, failed: 0, skipped: 0 });
+    const rows = await ledgerRows();
+    expect(rows).toHaveLength(2);
+    expect(rows.map((r) => meta(r).emailedSeats)).toEqual([0, 0]);
   });
 
   it('treats a missing ENV as non-production', async () => {
@@ -480,5 +527,254 @@ describe('runAttestationNotifySweep — tier delivery policy (AECI-1198)', () =>
     expect(sentTo()).toEqual(['ops@aecintegrations.com']);
     expect(sentTemplatesBySubject()[0]!.startsWith('[staging] ')).toBe(true);
     expect(result.sent).toBe(1);
+  });
+});
+
+// ─── AECI-1204: one digest per seat, the mute, and the ledger rule ───────────
+
+describe('groupFindings / decideDelivery (pure)', () => {
+  it('groups vendor findings by vendor in order, and splits off the ops findings', () => {
+    const a1 = finding({ vendorId: ACME, claimId: u(1) });
+    const g1 = finding({ vendorId: GLOBEX, claimId: u(2) });
+    const a2 = finding({ vendorId: ACME, claimId: u(3) });
+    const ops = finding({ vendorId: null, detector: 'claim-denied', claimId: u(4) });
+
+    const { byVendor, ops: opsList } = groupFindings([a1, g1, ops, a2]);
+    expect([...byVendor.keys()]).toEqual([ACME, GLOBEX]);
+    expect(byVendor.get(ACME)).toEqual([a1, a2]);
+    expect(byVendor.get(GLOBEX)).toEqual([g1]);
+    expect(opsList).toEqual([ops]);
+  });
+
+  it('records when any seat got it, counting sent and duplicate as emailed', () => {
+    expect(decideDelivery(['sent', 'failed', 'muted'])).toEqual({
+      outcome: 'sent',
+      record: true,
+      emailedSeats: 1,
+    });
+    expect(decideDelivery(['duplicate', 'sent'])).toMatchObject({
+      outcome: 'sent',
+      emailedSeats: 2,
+    });
+  });
+
+  it('records with emailedSeats 0 when every seat is muted or tier-suppressed', () => {
+    expect(decideDelivery(['muted', 'muted'])).toEqual({
+      outcome: 'portal-only',
+      record: true,
+      emailedSeats: 0,
+    });
+    expect(decideDelivery(['muted', 'suppressed'])).toMatchObject({ outcome: 'portal-only' });
+  });
+
+  it('does NOT record a Resend failure, so tomorrow retries', () => {
+    expect(decideDelivery(['failed', 'muted'])).toEqual({
+      outcome: 'failed',
+      record: false,
+      emailedSeats: 0,
+    });
+  });
+
+  it('does NOT record when nothing could be attempted, including no seat at all', () => {
+    expect(decideDelivery([])).toMatchObject({ outcome: 'skipped', record: false });
+    expect(decideDelivery(['no-address'])).toMatchObject({ outcome: 'skipped', record: false });
+    expect(decideDelivery(['skipped', 'muted'])).toMatchObject({
+      outcome: 'skipped',
+      record: false,
+    });
+  });
+
+  it('keys the digest per vendor, seat and UTC day', () => {
+    expect(digestDay(new Date('2026-10-01T23:59:59.000Z'))).toBe('2026-10-01');
+    expect(vendorDigestKey('v', 'p', '2026-10-01')).toBe('attestation-digest:v:p:2026-10-01');
+  });
+});
+
+describe('runAttestationNotifySweep — digest per seat (AECI-1204)', () => {
+  const SEAT_2 = u(805);
+  const SEAT_3 = u(806);
+  const threeSeatEmails = async () =>
+    new Map([
+      [GLOBEX_SEAT, 'globex@example.com'],
+      [SEAT_2, 'globex2@example.com'],
+      [SEAT_3, 'globex3@example.com'],
+    ]);
+  const forty = () =>
+    Array.from({ length: 40 }, (_, i) =>
+      finding({ detector: 'stale-version', claimId: u(5000 + i), vendorId: GLOBEX }),
+    );
+  const run = (findings: DetectorFinding[], now: Date = NOW) =>
+    runAttestationNotifySweep(ctx(), t.db, {
+      now,
+      runDetectors: detectors(findings) as never,
+      fetchSeatEmails: threeSeatEmails,
+    });
+
+  beforeEach(async () => {
+    await t.db.insert(profiles).values([
+      { id: SEAT_2, role: 'vendor_admin', vendorId: GLOBEX },
+      { id: SEAT_3, role: 'vendor_admin', vendorId: GLOBEX },
+    ]);
+  });
+
+  it('40 findings, 1 vendor, 3 seats: 3 emails and 40 ledger rows', async () => {
+    const result = await run(forty());
+
+    expect(fetchSpy).toHaveBeenCalledTimes(3);
+    expect(sentTo().sort()).toEqual([
+      'globex2@example.com',
+      'globex3@example.com',
+      'globex@example.com',
+    ]);
+    expect(result).toMatchObject({ found: 40, sent: 40, digestsSent: 3, failed: 0, skipped: 0 });
+    const rows = await ledgerRows();
+    expect(rows).toHaveLength(40);
+    expect(new Set(rows.map((r) => meta(r).emailedSeats))).toEqual(new Set([3]));
+    expect(new Set(rows.map((r) => meta(r).notificationId))).toEqual(
+      new Set(['attestation-digest']),
+    );
+  });
+
+  it('mute one seat: 2 emails and still 40 ledger rows', async () => {
+    await mute(SEAT_2);
+
+    const result = await run(forty());
+
+    expect(fetchSpy).toHaveBeenCalledTimes(2);
+    expect(sentTo()).not.toContain('globex2@example.com');
+    expect(result.digestsSent).toBe(2);
+    const rows = await ledgerRows();
+    expect(rows).toHaveLength(40);
+    expect(new Set(rows.map((r) => meta(r).emailedSeats))).toEqual(new Set([2]));
+  });
+
+  it('every seat muted: no email, and the vendor still gets every portal row', async () => {
+    await mute(GLOBEX_SEAT);
+    await mute(SEAT_2);
+    await mute(SEAT_3);
+
+    const result = await run(forty());
+
+    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(result).toMatchObject({ sent: 0, portalOnly: 40, digestsSent: 0 });
+    const rows = await ledgerRows();
+    expect(rows).toHaveLength(40);
+    expect(new Set(rows.map((r) => meta(r).emailedSeats))).toEqual(new Set([0]));
+    expect(new Set(rows.map((r) => meta(r).vendorId))).toEqual(new Set([GLOBEX]));
+  });
+
+  it('a muted seat is not looked up and gets no token minted', async () => {
+    await mute(SEAT_2);
+    const lookups: string[][] = [];
+    await runAttestationNotifySweep(ctx(), t.db, {
+      now: NOW,
+      runDetectors: detectors([finding()]) as never,
+      fetchSeatEmails: async (_env, ids) => {
+        lookups.push([...ids]);
+        return threeSeatEmails();
+      },
+    });
+    expect(lookups).toEqual([[GLOBEX_SEAT, SEAT_3].sort()]);
+  });
+
+  it('mints a mute token per emailed seat, audited, and puts it in the headers', async () => {
+    await run([finding()]);
+
+    const prefs = await t.db.select().from(notificationPreferences);
+    expect(prefs.map((p) => p.profileId).sort()).toEqual([GLOBEX_SEAT, SEAT_2, SEAT_3].sort());
+    expect(prefs.every((p) => p.nudgesMutedAt === null)).toBe(true);
+    const created = await t.db
+      .select()
+      .from(auditLog)
+      .where(eq(auditLog.action, PREFERENCES_CREATED_ACTION));
+    expect(created).toHaveLength(3);
+    // The token is a capability: never in an audit row.
+    for (const row of created) {
+      expect(JSON.stringify(row)).not.toContain(prefs[0]!.muteToken);
+    }
+
+    const tokenFor = new Map(prefs.map((p) => [p.profileId, p.muteToken]));
+    const headersByTo = new Map(
+      fetchSpy.mock.calls.map((call) => {
+        const body = JSON.parse(String((call[1] as RequestInit).body));
+        return [body.to as string, body.headers as Record<string, string>];
+      }),
+    );
+    expect(headersByTo.get('globex@example.com')?.['List-Unsubscribe']).toBe(
+      `<https://www.aecintegrations.com/api/notifications/nudges/mute?token=${tokenFor.get(GLOBEX_SEAT)}>`,
+    );
+  });
+
+  it('a same-day replay after a lost ledger is a duplicate: no second email', async () => {
+    await run([finding()]);
+    expect(fetchSpy).toHaveBeenCalledTimes(3);
+
+    // Simulate the ledger chunk that failed to commit: the digests went out, the
+    // notification.sent rows did not land.
+    await t.db.delete(auditLog).where(eq(auditLog.action, NOTIFICATION_SENT_ACTION));
+    fetchSpy.mockClear();
+
+    const replay = await run([finding()], new Date(NOW.getTime() + 3_600_000));
+
+    expect(fetchSpy).not.toHaveBeenCalled();
+    // `duplicate` counts as emailed: today's digest was delivered by the first run.
+    expect(replay).toMatchObject({ sent: 1, digestsSent: 0 });
+    expect(await ledgerRows()).toHaveLength(1);
+    const dupes = await t.db
+      .select()
+      .from(notificationSends)
+      .where(eq(notificationSends.outcome, 'duplicate'));
+    expect(dupes).toHaveLength(3);
+  });
+
+  it('the next day is a new digest key', async () => {
+    await run([finding({ claimId: u(1) })]);
+    fetchSpy.mockClear();
+    await run([finding({ claimId: u(2) })], new Date(NOW.getTime() + 86_400_000));
+    expect(fetchSpy).toHaveBeenCalledTimes(3);
+  });
+
+  it('a Resend outage writes no ledger row and releases the key for tomorrow', async () => {
+    fetchSpy.mockResolvedValue(new Response('nope', { status: 502 }));
+    const result = await run(forty());
+    expect(result).toMatchObject({ failed: 40, sent: 0 });
+    expect(await ledgerRows()).toHaveLength(0);
+  });
+});
+
+describe('runAttestationNotifySweep — ops digest (AECI-1204)', () => {
+  const opsFinding = (n: number, detector: 'claim-denied' | 'open-conflict' = 'claim-denied') =>
+    finding({ detector, vendorId: null, claimId: u(7000 + n) });
+
+  it('sends ONE ops digest for every ops finding of the day', async () => {
+    const result = await sweep([opsFinding(1), opsFinding(2, 'open-conflict'), opsFinding(3)]);
+
+    expect(sentTo()).toEqual(['ops@aecintegrations.com']);
+    expect(sentTemplatesBySubject()[0]).toBe(
+      '[AECi] Attestation findings: 2 denied, 1 in conflict',
+    );
+    expect(result).toMatchObject({ sent: 3, digestsSent: 1 });
+    const rows = await ledgerRows();
+    expect(rows).toHaveLength(3);
+    expect(new Set(rows.map((r) => meta(r).notificationId))).toEqual(
+      new Set(['attestation-ops-digest']),
+    );
+    expect(new Set(rows.map((r) => meta(r).vendorId))).toEqual(new Set([null]));
+  });
+
+  it('sends one per ADMIN_ALERT_EMAIL address, each with its own dedupe key', async () => {
+    await sweep([opsFinding(1)], {
+      env: { ADMIN_ALERT_EMAIL: 'ops@aecintegrations.com, chris@thewbsproject.com' },
+    });
+    expect(sentTo()).toEqual(['ops@aecintegrations.com', 'chris@thewbsproject.com']);
+  });
+
+  it('a same-day replay sends no second ops digest', async () => {
+    await sweep([opsFinding(1)]);
+    await t.db.delete(auditLog).where(eq(auditLog.action, NOTIFICATION_SENT_ACTION));
+    fetchSpy.mockClear();
+
+    await sweep([opsFinding(1)]);
+    expect(fetchSpy).not.toHaveBeenCalled();
   });
 });

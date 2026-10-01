@@ -57,7 +57,12 @@
  * the separate operator copy does.
  */
 
-import { orderedPairSlugs, type RequestKind, type RequestTargetType } from '@aeci/shared';
+import {
+  orderedPairSlugs,
+  type AttestationDetector,
+  type RequestKind,
+  type RequestTargetType,
+} from '@aeci/shared';
 import { discardResponseBody } from '@aeci/shared/response-drain';
 
 import { logToPosthog, submitCount } from '../posthog';
@@ -778,19 +783,25 @@ export async function sendClaimDecisionEmail(
   }
 }
 
-// ─── Attestation detector nudges (§7.2 — AECI-302) ────────────────────────────
-// One email per (finding, recipient address), sent by `lib/attestation-notify.ts`
-// after the daily sweep. Copy discipline (§6): never imply that attesting affects
-// ranking or placement, never promise how fast a change appears, and treat
-// "Verified" strictly as an account status.
+// ─── Attestation digests (§7.2 — AECI-302, digest since AECI-1204) ────────────
+// Sent by `lib/attestation-notify.ts` after the daily sweep. ONE email per unmuted
+// vendor seat per day, listing every due finding for that seat's vendor, and ONE
+// ops digest per day to `ADMIN_ALERT_EMAIL`. Before AECI-1204 each finding was its
+// own email to every seat, so 40 findings meant 40 emails per seat in one morning,
+// on the same Resend account that sends sign-in links.
+//
+// Copy discipline (§6): never imply that attesting affects ranking or placement,
+// never promise how fast a change appears, treat "Verified" strictly as an account
+// status, and never quote an attestation note (AECI-1139: an email can be
+// forwarded, and no note is public).
 
-/** What every attestation nudge needs to describe the flow it is about. Product
- *  names/slugs are the snapshot the detector captured, not a live read. */
-export interface AttestationEmailSubject {
-  to: string;
+/** One due finding as the vendor digest describes it. Product names and slugs are
+ *  the snapshot the detector captured, not a live read. */
+export interface AttestationDigestFinding {
+  detector: AttestationDetector;
   /** The `data_object` name, e.g. "RFIs". */
   dataObject: string;
-  /** The endpoint the recipient owns. */
+  /** The endpoint the recipient's vendor owns. */
   product: string;
   /** The other endpoint. */
   counterpart: string;
@@ -800,264 +811,217 @@ export interface AttestationEmailSubject {
   pairSlugs: readonly [string, string];
 }
 
-/** " through Procore Connector" — or nothing when the mechanism is unnamed. */
+/** Most findings the vendor digest lists. The rest are counted and left to the
+ *  portal's Messages list, which holds every one of them. */
+export const DIGEST_LIST_LIMIT = 25;
+
+/** " through Procore Connector", or nothing when the mechanism is unnamed. */
 function viaMechanism(name: string | null): string {
   const trimmed = name?.trim();
   return trimmed ? ` through ${trimmed}` : '';
 }
 
-/** The two closing lines every vendor nudge shares: where to look, where to act.
- *  Each is omitted (not faked) when `PUBLIC_SITE_URL` is unset. */
-function attestationLinks(
-  c: EmailContext,
-  pairSlugs: readonly [string, string],
-): { text: string[]; html: string[] } {
-  const pair = pairUrl(c.env, pairSlugs[0], pairSlugs[1]);
-  const portal = portalUrl(c.env);
-  const text: string[] = [];
-  const html: string[] = [];
-  if (pair) {
-    text.push(`See how it currently reads: ${pair}`);
-    html.push(`<a href="${escapeHtml(pair)}">See how it currently reads</a>.`);
+/**
+ * The per-detector title and ask. These carry the substance of the four retired
+ * per-finding templates (`attestation-silent-counterparty`, `-open-conflict`,
+ * `-stale-version`, `-claim-denied`), cut to one line each:
+ *
+ * - silent-counterparty says plainly that silence renders as silence
+ *   (`STAGE_2_SPEC.md` §8.1(4)), so the nudge informs rather than coerces.
+ * - open-conflict is non-accusatory: a difference in description, not a defect.
+ * - stale-version asks three ways, because "withdraw" is a legitimate answer.
+ * - claim-denied states that the flow stays listed as unverified until AECi acts.
+ */
+function digestItem(f: AttestationDigestFinding): { title: string; ask: string } {
+  switch (f.detector) {
+    case 'silent-counterparty':
+      return {
+        title: `${f.counterpart} confirmed ${f.dataObject} with ${f.product}`,
+        ask: 'Confirm it if it is accurate, or record your own position. Until both sides confirm, we show it as reported by one company only.',
+      };
+    case 'open-conflict':
+      return {
+        title: `You and ${f.counterpart} describe ${f.dataObject} differently`,
+        ask: 'If your position has changed, update it. If not, no action is needed. We show the difference rather than picking a side.',
+      };
+    case 'stale-version':
+      return {
+        title: `Re-confirm your ${f.dataObject} record for ${f.product}`,
+        ask: 'Re-confirm it, add the product versions it applies to, or withdraw it if it no longer holds. Any of the three is a good answer.',
+      };
+    case 'claim-denied':
+      return {
+        title: `${f.counterpart} says ${f.dataObject} does not move to ${f.product}`,
+        ask: 'If you disagree, record your own position. If you agree, no action is needed. Until we act, the flow stays listed as unverified.',
+      };
   }
-  if (portal) {
-    text.push(`Update it from your vendor portal: ${portal}`);
-    html.push(`<a href="${escapeHtml(portal)}">Update it from your vendor portal</a>.`);
-  }
-  return { text, html };
 }
 
 /**
- * `silent-counterparty` (§7.1): the counterparty affirmed a flow and this vendor
- * has not answered. The second paragraph is the point of the whole epic — it says
- * plainly that silence is rendered as silence (`STAGE_2_SPEC.md` §8.1(4)), so the
- * nudge is informative rather than coercive.
+ * The vendor nudge digest (`attestation-digest`, AECI-1204): every due finding for
+ * one vendor, to one seat, once a day.
+ *
+ * - **House layout.** One section per finding (title, the integration, what to do,
+ *   the pair page), up to {@link DIGEST_LIST_LIMIT}, then a count of the rest. The
+ *   single Forest CTA is the vendor portal, where every finding is listed.
+ * - **One-click mute.** With a token and `PUBLIC_SITE_URL`, the footer links to the
+ *   `/notifications/mute` confirm page, and the headers carry an RFC 8058 one-click
+ *   `List-Unsubscribe` that POSTs `/api/notifications/nudges/mute?token=`. A send
+ *   with that header never blind-copies the operator (see `sendTransactionalEmail`),
+ *   and this template passes no `operatorCopy`, so the operator gets no copy.
+ * - **Dedupe.** The caller passes `attestation-digest:{vendorId}:{profileId}:{day}`,
+ *   so a same-day replay is a `duplicate` with no Resend call.
  */
-export function sendAttestationSilentCounterpartyEmail(
-  c: EmailContext,
-  opts: AttestationEmailSubject,
-): Promise<EmailOutcome> {
-  const via = viaMechanism(opts.mechanismName);
-  const links = attestationLinks(c, opts.pairSlugs);
-  const lead = `${opts.counterpart} has confirmed that ${opts.dataObject} moves between ${opts.product} and ${opts.counterpart}${via}. We have not heard from your side yet.`;
-  const stance =
-    "Until both vendors confirm it, we show this flow as reported by one vendor only. We never present one vendor's word as agreement.";
-  const ask =
-    'If it is accurate, confirm it. If it is wrong or has changed, say so, and we will show your position alongside theirs.';
-
-  return sendTransactionalEmail(c, {
-    to: opts.to,
-    template: 'attestation-silent-counterparty',
-    subject: `Confirm how ${opts.dataObject} flows between ${opts.product} and ${opts.counterpart}`,
-    text: toText([lead, stance, ask, ...links.text]),
-    html: toHtml([
-      `<strong>${escapeHtml(opts.counterpart)}</strong> has confirmed that ${escapeHtml(opts.dataObject)} moves between ${escapeHtml(opts.product)} and ${escapeHtml(opts.counterpart)}${escapeHtml(via)}. We have not heard from your side yet.`,
-      stance,
-      ask,
-      ...links.html,
-    ]),
-  });
-}
-
-/**
- * `open-conflict` (§7.1): two vendors have taken opposing positions. Copy is
- * deliberately non-accusatory and mirrors the pair page's "Companies disagree" (AECI-1142; was "Vendors disagree")
- * treatment (§4.5) — the disagreement is surfaced as a difference in description,
- * not as a defect in either product.
- */
-export function sendAttestationOpenConflictEmail(
-  c: EmailContext,
-  opts: AttestationEmailSubject,
-): Promise<EmailOutcome> {
-  const via = viaMechanism(opts.mechanismName);
-  const links = attestationLinks(c, opts.pairSlugs);
-  const lead = `Your account and ${opts.counterpart} have recorded different answers about whether ${opts.dataObject} moves between ${opts.product} and ${opts.counterpart}${via}.`;
-  const stance =
-    'While the two positions differ, we show the disagreement itself rather than picking a side.';
-  const ask =
-    'If your position has changed, update it. If it has not, no action is needed and we will keep showing both.';
-
-  return sendTransactionalEmail(c, {
-    to: opts.to,
-    template: 'attestation-open-conflict',
-    subject: `You and ${opts.counterpart} describe ${opts.dataObject} differently`,
-    text: toText([lead, stance, ask, ...links.text]),
-    html: toHtml([
-      `Your account and <strong>${escapeHtml(opts.counterpart)}</strong> have recorded different answers about whether ${escapeHtml(opts.dataObject)} moves between ${escapeHtml(opts.product)} and ${escapeHtml(opts.counterpart)}${escapeHtml(via)}.`,
-      stance,
-      ask,
-      ...links.html,
-    ]),
-  });
-}
-
-/**
- * `stale-version` (§7.1): an assertion has aged past a year with no version data,
- * or names a version that has since been retired. The ask is explicitly
- * three-way — re-confirm, add versions, or withdraw — because "withdraw" is a
- * legitimate answer and an email that only asks for confirmation biases the data.
- */
-export function sendAttestationStaleVersionEmail(
-  c: EmailContext,
-  opts: AttestationEmailSubject,
-): Promise<EmailOutcome> {
-  const via = viaMechanism(opts.mechanismName);
-  const links = attestationLinks(c, opts.pairSlugs);
-  const lead = `Your record that ${opts.dataObject} moves between ${opts.product} and ${opts.counterpart}${via} has not been updated in a while, or names a version that has since been retired.`;
-  const ask =
-    'Re-confirm it, add the product versions it applies to, or withdraw it if it no longer holds. Any of the three is a good answer.';
-
-  return sendTransactionalEmail(c, {
-    to: opts.to,
-    template: 'attestation-stale-version',
-    subject: `Re-confirm your ${opts.dataObject} record for ${opts.product}`,
-    text: toText([lead, ask, ...links.text]),
-    html: toHtml([
-      `Your record that ${escapeHtml(opts.dataObject)} moves between <strong>${escapeHtml(opts.product)}</strong> and ${escapeHtml(opts.counterpart)}${escapeHtml(via)} has not been updated in a while, or names a version that has since been retired.`,
-      ask,
-      ...links.html,
-    ]),
-  });
-}
-
-/**
- * `claim-denied` (§7.1), vendor half: the counterparty has recorded that this
- * flow does not exist.
- *
- * AECI-961 added this. Before it, a denial reached AECi ops and nobody else, so
- * the vendor portal could not honestly tell a denying vendor what their Deny
- * does — see `STAGE_2_ATTESTATIONS_SPEC.md` §6.2 for the lane copy this email is
- * the other end of.
- *
- * Two copy rules, both load-bearing:
- *
- * - **Non-accusatory**, on the `open-conflict` precedent. The recipient has not
- *   disagreed with anyone: they have said nothing at all. The mail informs and
- *   invites a position, it does not ask them to defend one.
- * - **Stance only, never the denier's note.** `attestation-open-conflict` does
- *   not carry notes either. This is a confidentiality rule (AECI-1139): no
- *   attestation note is public, and only the other company and AECi may read it,
- *   inside the vendor portal. An email can be forwarded, so no email carries a
- *   note. The recipient reads it in the portal. A free-text note quoted into an
- *   email would also land as an accusation.
- *
- * It also states what a reader would otherwise have to guess: the flow stays on
- * the listing as unverified until AECi corrects the record. Nothing here may
- * imply the denial changes ranking, placement, or search.
- *
- * **On the house layout.** The pair-page reference link stays as a block (it is
- * informational, not the action), and the vendor portal becomes the single Forest
- * CTA, because recording a position is the one action this email exists to prompt.
- * No `PUBLIC_SITE_URL` means no CTA and no pair-page block, exactly as it
- * previously meant no link lines. The three sibling nudges (`silent-counterparty`,
- * `open-conflict`, `stale-version`) remain on the legacy formatters for now.
- */
-export function sendAttestationClaimDeniedEmail(
-  c: EmailContext,
-  opts: AttestationEmailSubject,
-): Promise<EmailOutcome> {
-  const via = viaMechanism(opts.mechanismName);
-  const pair = pairUrl(c.env, opts.pairSlugs[0], opts.pairSlugs[1]);
-  const portal = portalUrl(c.env);
-  const lead = `${opts.counterpart} has recorded that ${opts.dataObject} does not move between ${opts.product} and ${opts.counterpart}${via}.`;
-  const stance =
-    'AEC Integrations is reviewing the record. Until we act, the flow stays on the listing as unverified.';
-  const ask = 'If you disagree, record your own position. If you agree, no action is needed.';
-
-  const blocks: string[] = [lead, stance, ask];
-  const blocksHtml: string[] = [
-    `<strong>${escapeHtml(opts.counterpart)}</strong> has recorded that ${escapeHtml(opts.dataObject)} does not move between ${escapeHtml(opts.product)} and ${escapeHtml(opts.counterpart)}${escapeHtml(via)}.`,
-    stance,
-    ask,
-  ];
-  if (pair) {
-    blocks.push(`See how it currently reads: ${pair}`);
-    blocksHtml.push(`<a href="${escapeHtml(pair)}">See how it currently reads</a>.`);
-  }
-
-  const heading = `${opts.counterpart} says ${opts.dataObject} does not move to ${opts.product}`;
-  const shared = {
-    preheader: lead,
-    heading,
-    ...(portal ? { cta: { label: 'Record your position', url: portal } } : {}),
-  };
-
-  return sendTransactionalEmail(c, {
-    to: opts.to,
-    template: 'attestation-claim-denied',
-    subject: heading,
-    text: renderEmailText({ ...shared, blocks }),
-    html: renderEmailHtml({ ...shared, blocks: blocksHtml }),
-  });
-}
-
-/**
- * The AECi-facing half of the sweep, one email per finding. Two detectors route
- * here and the body names which:
- *
- * - `claim-denied` — every voting vendor denies a claim. The claim then computes
- *   `unverified` (§4.2), which is indistinguishable from "nobody voted" on every
- *   surface, so without this mail the correction is simply lost. Since AECI-961
- *   the same detector also mails the counterparty
- *   ({@link sendAttestationClaimDeniedEmail}); this row is the ops copy, and it
- *   no longer asserts the claim was AECi-seeded, because the origin gate is gone.
- * - `open-conflict` — the §7.1 escalation that accompanies the two vendor nudges.
- *
- * **On the house layout.** The facts ride the layout's `table` (hairline-separated,
- * not the unbranded `border="1"` grid), and a value that is a bare URL auto-links.
- * There is no CTA: the pair page is informational reference, and the action this
- * email prompts — correcting the curation — happens in the review app, not on a
- * page this email can link to. The plain-text part is unchanged, because
- * `renderEmailText` emits the same `Key: value` block `opsText` did.
- */
-export function sendAttestationOpsAlertEmail(
+export function sendAttestationDigestEmail(
   c: EmailContext,
   opts: {
     to: string;
-    detector: 'claim-denied' | 'open-conflict';
-    dataObject: string;
-    productA: string;
-    productB: string;
-    mechanismName: string | null;
-    claimId: string;
-    integrationId: string;
-    pairSlugs: readonly [string, string];
+    vendorId: string;
+    vendorName: string | null;
+    findings: readonly AttestationDigestFinding[];
+    muteToken: string | null;
+    dedupeKey: string;
   },
 ): Promise<EmailOutcome> {
-  const denied = opts.detector === 'claim-denied';
-  const intro = denied
-    ? 'Every vendor voting on this claim has denied it. A denial-only claim renders as unverified, so it is invisible on the site until someone corrects the curation. The counterparty has been told separately.'
-    : 'Two vendors have been in unresolved disagreement about a claim past the notification threshold. Both have been nudged; this is the ops copy.';
+  const company = opts.vendorName?.trim() || 'your company';
+  const total = opts.findings.length;
+  const listed = opts.findings.slice(0, DIGEST_LIST_LIMIT);
+  const rest = total - listed.length;
+  const portal = portalUrl(c.env);
+  const base = siteUrl(c.env);
+  const token = opts.muteToken;
+  const mutePage =
+    base && token ? `${base}/notifications/mute?token=${encodeURIComponent(token)}` : null;
+  const oneClick =
+    base && token
+      ? `${base}/api/notifications/nudges/mute?token=${encodeURIComponent(token)}`
+      : null;
 
-  const rows: ReadonlyArray<readonly [string, string]> = [
-    ['Detector', opts.detector],
-    ['Data object', opts.dataObject],
-    ['Products', `${opts.productA} / ${opts.productB}`],
-    ['Mechanism', opts.mechanismName?.trim() || '(unnamed)'],
-    ['Claim', opts.claimId],
-    ['Integration', opts.integrationId],
-    ['Pair page', pairUrl(c.env, opts.pairSlugs[0], opts.pairSlugs[1]) ?? '(no PUBLIC_SITE_URL)'],
-  ];
+  const first = listed[0] ? digestItem(listed[0]) : null;
+  const subject =
+    total === 1 && first ? first.title : `${total} integration records for ${company} need a look`;
+  const heading =
+    total === 1
+      ? 'One integration record needs a look'
+      : `${total} integration records need a look`;
+  const lead = `Here is what we noticed on the integrations listed for ${company}. Each item says what we saw and what you can do about it.`;
 
-  const heading = denied
-    ? `Vendor denied a claim: ${opts.dataObject} (${opts.productA} / ${opts.productB})`
-    : `Unresolved vendor conflict: ${opts.dataObject} (${opts.productA} / ${opts.productB})`;
+  const sections = listed.map((f) => {
+    const item = digestItem(f);
+    const pair = pairUrl(c.env, f.pairSlugs[0], f.pairSlugs[1]);
+    const rows: Array<readonly [string, string]> = [
+      ['Integration', `${f.product} and ${f.counterpart}${viaMechanism(f.mechanismName)}`],
+      ['What to do', item.ask],
+    ];
+    if (pair) rows.push(['How it reads now', pair]);
+    return { heading: item.title, rows };
+  });
+
+  const restText =
+    rest > 0
+      ? `And ${rest} more ${rest === 1 ? 'record' : 'records'}. Your vendor portal lists every one.`
+      : null;
+  const note = `You get this daily reminder email because you hold a seat for ${company} on AEC Integrations. Muting it affects your seat only. Seat invites, claim decisions and plan notices still arrive.`;
+
   const shared = {
-    preheader: denied
-      ? 'Every vendor denied a claim. It renders as unverified and is invisible until corrected.'
-      : 'Two vendors remain in disagreement past the notification threshold.',
+    preheader: first && total === 1 ? first.title : lead,
     heading,
-    table: rows,
+    sections,
+    ...(portal ? { cta: { label: 'Open your vendor portal', url: portal } } : {}),
+    note,
+    ...(mutePage ? { noteLink: { label: 'Mute the daily reminder email', url: mutePage } } : {}),
+  };
+
+  const headers: Record<string, string> = {};
+  if (oneClick) {
+    headers['List-Unsubscribe'] = `<${oneClick}>`;
+    headers['List-Unsubscribe-Post'] = 'List-Unsubscribe=One-Click';
+  }
+
+  return sendTransactionalEmail(c, {
+    to: opts.to,
+    template: 'attestation-digest',
+    subject,
+    text: renderEmailText({ ...shared, blocks: [lead, ...(restText ? [restText] : [])] }),
+    html: renderEmailHtml({
+      ...shared,
+      blocks: [escapeHtml(lead), ...(restText ? [escapeHtml(restText)] : [])],
+    }),
+    ...(oneClick ? { headers } : {}),
+    dedupeKey: opts.dedupeKey,
+    entity: { type: 'vendor', id: opts.vendorId },
+  });
+}
+
+/** One ops-routed finding as the ops digest lists it. */
+export interface AttestationOpsDigestFinding {
+  detector: 'claim-denied' | 'open-conflict';
+  dataObject: string;
+  productA: string;
+  productB: string;
+  mechanismName: string | null;
+  claimId: string;
+  integrationId: string;
+  pairSlugs: readonly [string, string];
+}
+
+/**
+ * The AECi-facing half of the sweep (`attestation-ops-digest`, AECI-1204): every
+ * ops-routed finding of the day, in ONE email per `ADMIN_ALERT_EMAIL` address. It
+ * replaced `attestation-ops-alert`, which sent one email per finding.
+ *
+ * Two detectors route here, and each section names its own:
+ *
+ * - `claim-denied`: every voting vendor denies a claim. It then computes
+ *   `unverified`, which looks the same as "nobody voted" on every surface, so
+ *   without this mail the correction is lost. The counterparty vendor is told in its
+ *   own digest.
+ * - `open-conflict`: two vendors have disagreed past the threshold. Both are told
+ *   in their own digests.
+ *
+ * No CTA, and no display cap: the action happens in the review app, and an ops row
+ * that is not listed here is seen nowhere else. The caller passes
+ * `attestation-ops-digest:{day}:{recipient hash}`.
+ */
+export function sendAttestationOpsDigestEmail(
+  c: EmailContext,
+  opts: {
+    to: string;
+    findings: readonly AttestationOpsDigestFinding[];
+    dedupeKey: string;
+  },
+): Promise<EmailOutcome> {
+  const total = opts.findings.length;
+  const denied = opts.findings.filter((f) => f.detector === 'claim-denied').length;
+  const conflicts = total - denied;
+  const intro =
+    'Today’s attestation findings that need AECi. A denied claim renders as unverified and is invisible on the site until someone corrects the curation. A standing conflict means two vendors still disagree past the notification threshold. Each vendor involved was told in its own digest.';
+
+  const sections = opts.findings.map((f) => ({
+    heading: `${f.detector === 'claim-denied' ? 'Vendor denied a claim' : 'Unresolved vendor conflict'}: ${f.dataObject} (${f.productA} / ${f.productB})`,
+    rows: [
+      ['Detector', f.detector],
+      ['Mechanism', f.mechanismName?.trim() || '(unnamed)'],
+      ['Claim', f.claimId],
+      ['Integration', f.integrationId],
+      ['Pair page', pairUrl(c.env, f.pairSlugs[0], f.pairSlugs[1]) ?? '(no PUBLIC_SITE_URL)'],
+    ] as const,
+  }));
+
+  const heading = `Attestation findings: ${denied} denied, ${conflicts} in conflict`;
+  const shared = {
+    preheader: `${total} attestation ${total === 1 ? 'finding needs' : 'findings need'} AECi.`,
+    heading,
+    sections,
   };
 
   return sendTransactionalEmail(c, {
     to: opts.to,
-    template: 'attestation-ops-alert',
-    subject: denied
-      ? `[AECi] Vendor denied a claim: ${opts.dataObject} (${opts.productA} / ${opts.productB})`
-      : `[AECi] Unresolved vendor conflict: ${opts.dataObject} (${opts.productA} / ${opts.productB})`,
+    template: 'attestation-ops-digest',
+    subject: `[AECi] ${heading}`,
     text: renderEmailText({ ...shared, blocks: [intro] }),
     html: renderEmailHtml({ ...shared, blocks: [escapeHtml(intro)] }),
+    dedupeKey: opts.dedupeKey,
   });
 }
 

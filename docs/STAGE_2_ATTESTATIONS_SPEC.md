@@ -1496,14 +1496,34 @@ means editing a number and deploying; it now also edits what the vendor portal s
 
 ### 7.2 Delivery
 
-- **Resend**, through `apps/api/src/lib/email.ts`, fail-open like every other send. New
-  `EmailTemplate` ids (`attestation-silent-counterparty`, `attestation-open-conflict`,
-  `attestation-stale-version`) added to the union **and** to the `docs/email.md` catalogue.
-  **Since AECI-1199 there is no hand-written union.** A new id is an entry in
+**As amended by AECI-1204 (2026-10-01):** the sweep sends a daily digest, not one email per
+finding. The first draft of this section (three per-detector email ids, one email per finding per
+seat) is history. See the as-built note at the end of §7.3.
+
+- **Resend**, through `apps/api/src/lib/email.ts`, fail-open like every other send. Two registry
+  ids carry the mail: **`attestation-digest`** (vendor seats) and **`attestation-ops-digest`**
+  (AECi operators). **Since AECI-1199 there is no hand-written union.** A new id is an entry in
   `apps/api/src/lib/notifications/registry.ts`, and `EmailTemplate` is derived from it. The
-  `notification.sent` ledger row records the email's registry id as `metadata.notificationId`.
+  `notification.sent` ledger row records the digest's registry id as `metadata.notificationId`.
+- **One digest per seat per day.** The sweep groups the due vendor findings by vendor, then sends
+  one `attestation-digest` to each unmuted `vendor_admin` seat. The email lists up to 25 findings
+  (`DIGEST_LIST_LIMIT`), counts the rest, and links to the vendor portal. It carries no operator
+  copy. The send's dedupe key is `attestation-digest:{vendorId}:{profileId}:{YYYY-MM-DD}` (UTC),
+  so a queue retry cannot send a second digest to a seat the same day.
+- **Ops findings** go out as one `attestation-ops-digest` per `ADMIN_ALERT_EMAIL` address per day.
+  The key is `attestation-ops-digest:{YYYY-MM-DD}:{first 16 hex of the recipient hash}`. It is per
+  address because several addresses would otherwise collide on one key.
+- **Unsubscribe.** The digest carries `List-Unsubscribe` (RFC 8058 one-click, pointing at
+  `POST /api/notifications/nudges/mute?token=`) and `List-Unsubscribe-Post`. Its footer links to
+  the `/notifications/mute?token=` confirm page. The mute covers this digest only. Seat invites,
+  claim decisions and entitlement-expiry mail still send. The preference lives in
+  `notification_preferences` (`DATABASE_SCHEMA.md` §9.10). The contract is in `API_CONTRACTS.md`
+  (`/api/vendor/notification-preferences` and `/api/notifications/nudges/mute`). A muted seat is
+  not looked up in `auth.users` and gets no token minted.
 - **In-portal list** — `GET /api/vendor/notifications`, scoped to the caller's vendor, surfaced on
-  the §6 tab. Reads the same ledger as §7.3; no separate store.
+  the §6 tab. Reads the same ledger as §7.3; no separate store. The Messages page puts a "Daily
+  reminder email" switch above the list. ON means email me. It is optimistic with a visible
+  rollback. The list's framing copy says the digest is the email and this list is the full record.
 - Recipient is the vendor's seats (`profiles` with `role='vendor_admin'` + `vendor_id`), emails via
   the existing `fetchAuthUserEmails` seam (degrades to no-send without
   `SUPABASE_SERVICE_ROLE_KEY`).
@@ -1517,9 +1537,48 @@ means editing a number and deploying; it now also edits what the vendor portal s
 
 A daily sweep must not re-nag daily. Suppression uses the existing `audit_log`:
 `action: 'notification.sent'`, `entity_type: 'claim'`, `entity_id: <claim id>`,
-`metadata: { detector, vendorId }`. Before sending, query the ledger for a matching row inside the
-detector's suppression window; after a successful send, write one. This keeps the epic to two
-migrations and gives the in-portal list its backing query for free.
+`metadata: { detector, vendorId, emailedSeats, … }`. Before sending, query the ledger for a
+matching row inside the detector's suppression window (30 days per claim, detector and vendor,
+unchanged). Rows are written after delivery, by the rule below. This keeps the epic to two
+migrations and gives the in-portal list its backing query for free. The same row is the portal
+row, so "recorded" and "shown in the portal" mean one thing.
+
+**When a row is written (decided AECI-1204, 2026-10-01).** One row per due finding, decided from
+the seat outcomes for that finding's vendor (or the ops addresses):
+
+| Seat outcomes                                              | Row | Finding outcome |
+| ---------------------------------------------------------- | --- | --------------- |
+| At least one seat `sent` or `duplicate`                    | yes | `sent`          |
+| Every seat muted, or the tier policy suppressed every send | yes | `portal-only`   |
+| Otherwise, and any send `failed`                           | no  | `failed`        |
+| Otherwise (no seat, no address, no `RESEND_API_KEY`)       | no  | `skipped`       |
+
+Why. A mute is the seat's final answer, and the tier policy refuses on purpose. In both cases the
+vendor still sees the finding in the portal, so it is recorded. A Resend failure or a missing key is
+not an answer. Writing the row would use up the nudge for 30 days without anyone being told, so
+nothing is written and tomorrow retries. A failed send releases its dedupe key.
+
+- `metadata.emailedSeats` counts the seats with `sent` or `duplicate`. Zero means portal only. It
+  is not on the wire for `GET /api/vendor/notifications`.
+- `duplicate` counts as emailed. The key is held by an earlier send of today's digest, which is the
+  replay after a ledger write failed. The edge cost is a finding that first appears in a same-day
+  re-run. It is recorded as emailed though the earlier digest did not list it. The sweep runs once a
+  day, so only a queue retry reaches that window.
+- Nothing is recorded if the run aborts before the first send. Every read, and the lazy creation of
+  preference rows, happens before it.
+- Staging now writes `portal-only` rows with `emailedSeats: 0`, because the tier policy suppresses
+  outside seats there. Before AECI-1204 it wrote none.
+- `NOTIFY_BATCH_CAP = 200` stays, and so does the per-detector gauge including zero.
+
+**As built (AECI-1204, 2026-10-01).** Before this change each finding was its own email to every
+seat. Forty findings meant forty emails per seat in one morning, on the Resend account that also
+sends sign-in links, so a complaint spike could have blocked sign-in. The digest and the mute
+replace that. Retired ids: `attestation-silent-counterparty`, `attestation-open-conflict`,
+`attestation-stale-version`, `attestation-claim-denied`, `attestation-ops-alert`. Added:
+`attestation-digest`, `attestation-ops-digest`. The registry now holds 43 entries. The new metric
+outcome is `portal-only` (`OBSERVABILITY.md`). The job-run detail for `attestation-notify` gains
+optional `portalOnly` and `digestsSent`. A future drizzle-kit recreate of `profiles` would cascade
+into `notification_preferences` and wipe every mute (`docs/migrations.md` §0).
 
 ### 7.4 Cron wiring
 
@@ -1603,35 +1662,31 @@ ADR 0024 it is an **external CI liveness sweep** (AECI-647), because PostHog has
 - **`liveAttestationsWhere` is now exported** from `lib/drizzle-helpers.ts` rather than restated —
   the detector read builds its own config (it does not want the pair page's render payload) but
   must apply the identical `retracted_at IS NULL` predicate.
-- **Per-item ops emails, and a FOURTH template id.** §7.2 named three vendor ids; AECi-facing mail
-  needs its own because the id *is* the `template:` metric tag and the `docs/email.md` catalogue
-  key, and an ops alert is a different message to a different audience. So:
-  `attestation-silent-counterparty`, `attestation-open-conflict`, `attestation-stale-version`
-  (vendor prose, with the pair + portal links) plus **`attestation-ops-alert`** (operator
-  `opsText`/`opsTable` format, naming the detector, one email per finding to `ADMIN_ALERT_EMAIL`).
-  *(**AECI-961 added a fifth, `attestation-claim-denied`** — the counterparty half of
-  `claim-denied`, vendor prose. Non-accusatory on the `open-conflict` precedent, because the
-  recipient has not disagreed with anyone, they have said nothing at all. **Stance only, never the
-  denier's note**. The reason is confidentiality (AECI-1139): the note is not public, and only the
-  other company and AECi may read it, inside the portal's access control. An email can be
-  forwarded, so quoting the note would take it past that audience. The recipient reads the note in
-  the portal instead. Free text quoted into an email also lands as an accusation. It states what §6.2's lane copy states — the flow stays on the listing as
-  unverified until AECi corrects the record.)*
+- ~~**Per-item ops emails, and a FOURTH template id.**~~ **Superseded by AECI-1204 (2026-10-01).**
+  Struck text is history. The five per-finding ids (`attestation-silent-counterparty`,
+  `attestation-open-conflict`, `attestation-stale-version`, `attestation-claim-denied`,
+  `attestation-ops-alert`) are retired. Vendor findings now ride `attestation-digest` and ops
+  findings ride `attestation-ops-digest`, one email per recipient per day (§7.2). What survives from
+  the original decision: the id is the metric tag and the catalogue key, so ops mail keeps its own
+  id. What survives from AECI-961: `claim-denied` has a counterparty half and an ops half, and the
+  counterparty half still quotes the stance and never the denier's note (AECI-1139). The digest
+  lists a `claim-denied` finding with the same rule.
 - **The ledger metadata carries more than `{ detector, vendorId }`** — also `integrationId`,
   `dataObject`, `counterpartProduct` and `pairSlugs`. This is what makes §7.2's "gives the
   in-portal list its backing query for free" literally true: `GET /api/vendor/notifications`
   renders from the snapshot with **zero joins**, and a year-old notification stays legible after
   the claim it names has been re-curated or deleted.
-- **A ledger row is written only after a successful send**, in `db.batch` chunks of 25. Chunked so
-  a batch failure costs at most 25 suppressions (which re-send tomorrow) instead of the run's; and
-  written *after*, never on attempt, because writing on attempt silently consumes a nudge — the
-  failure nobody notices for a month. A missing `SUPABASE_SERVICE_ROLE_KEY` (so no resolvable seat
-  address) is therefore `skipped` **with no ledger row**, not a silent success on a preview.
+- ~~**A ledger row is written only after a successful send**~~ **Amended by AECI-1204
+  (2026-10-01).** The row is still written after delivery and never on attempt, and it is still
+  written in `db.batch` chunks of 25. The condition changed. A row is now also written when every
+  seat was deliberately not emailed (muted, or tier-suppressed). The full rule is the table in
+  §7.3. A missing `SUPABASE_SERVICE_ROLE_KEY` (so no resolvable seat address) is still `skipped`
+  **with no ledger row**.
 - **Banned seats are excluded** — `role='vendor_admin' AND vendor_id=? AND banned_at IS NULL`.
   Deliberately unlike `seatsOf` in `routes/vendor.ts`, which keeps banned seats on the roster so
   co-admins can see a colleague is locked out; a banned seat fails every `/api/vendor/*` call and
   so cannot act on a nudge.
-- **`NOTIFY_BATCH_CAP = 200` sends per run**, ordered most-signal-first (open-conflict →
+- **`NOTIFY_BATCH_CAP = 200` findings per run** (sends before AECI-1204), ordered most-signal-first (open-conflict →
   claim-denied → silent-counterparty → stale-version) so the cap drops the least urgent work, and
   **logging the dropped count** — no silent truncation. Suppression is applied *before*
   the cap so a suppressed backlog cannot starve findings that need sending.

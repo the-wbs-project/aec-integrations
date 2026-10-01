@@ -502,6 +502,15 @@ export const routes: Routes = [
     path: 'unsubscribe',
     loadComponent: () => import('./unsubscribe/unsubscribe').then((m) => m.UnsubscribePage),
   },
+  // AECI-1204 — the confirm page for the "Mute the daily reminder email" link in the daily
+  // attestation digest (`/notifications/mute?token=…`). Same rules as
+  // `/unsubscribe`: NOT cacheable (absent from `ROUTE_CACHE_PATTERNS`, fail-closed
+  // `private, no-store`), noindex, no resolver, and it POSTs to
+  // `/api/notifications/nudges/mute` only on the confirm click. Not linked from nav.
+  {
+    path: 'notifications/mute',
+    loadComponent: () => import('./notifications/nudge-mute').then((m) => m.NudgeMutePage),
+  },
   // AECI-1104 — the product docs (`/docs/<section>/<slug>`,
   // `docs/STAGE_2_PRODUCT_DOCS_SPEC.md`). Only the vendor guide exists so far.
   // Lazy children generated from the docs manifest, so the Markdown ships only

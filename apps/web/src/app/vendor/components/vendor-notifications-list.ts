@@ -31,9 +31,11 @@ import {
  *
  * ── WHY IT IS A COLLAPSED DISCLOSURE ────────────────────────────────────────
  * These rows are not live state. The endpoint reads the §7.3 `audit_log` ledger
- * of nudges that were **emailed**, over a 90-day window — "a historical record
- * of a nudge, and it stays accurate even after the underlying claim is
- * re-curated". Rendered prominently, a three-week-old "Vendors disagree" row
+ * of nudges the sweep **recorded**, over a 90-day window. Since AECI-1204 a row is
+ * recorded whether or not any seat was emailed (a seat may have muted the daily
+ * digest), so the framing copy no longer says every reminder was emailed. Each row is
+ * "a historical record of a nudge, and it stays accurate even after the underlying
+ * claim is re-curated". Rendered prominently, a three-week-old "Vendors disagree" row
  * would sit above a lane whose badge now reads `confirmed`, and the surface
  * would visibly contradict itself. Collapsed, with the framing sentence inside,
  * it is a mail archive — which is what it is. Promoting this to a banner
@@ -91,11 +93,12 @@ import {
       <div class="mt-3 space-y-3" [attr.aria-busy]="loading() ? 'true' : null">
         <p
           class="max-w-prose text-xs text-(--text-secondary)"
-          i18n="@@vendor.attest.notify.framing.contests"
+          i18n="@@vendor.attest.notify.framing.digest"
         >
-          What we sent you about these integrations in the last 90 days: the reminders we emailed,
-          updates on field contests, and what owners changed on integrations with your products.
-          Only the reminders were emailed. Each note reflects the state at the time it was sent.
+          What we noted about these integrations in the last 90 days: our reminders, updates on
+          field contests, and what owners changed on integrations with your products. Reminders also
+          go out in the daily reminder email, unless your seat muted it, so a reminder here may not
+          have reached your inbox. Each note reflects the state at the time it was recorded.
         </p>
 
         @if (loading()) {

@@ -22,11 +22,10 @@ import {
   parseRecipients,
   recordEmailSend,
   sendAccountDeletionEmail,
-  sendAttestationClaimDeniedEmail,
-  sendAttestationOpenConflictEmail,
-  sendAttestationOpsAlertEmail,
-  sendAttestationSilentCounterpartyEmail,
-  sendAttestationStaleVersionEmail,
+  DIGEST_LIST_LIMIT,
+  sendAttestationDigestEmail,
+  sendAttestationOpsDigestEmail,
+  type AttestationDigestFinding,
   sendClaimApprovedEmail,
   sendClaimRejectedEmail,
   sendClaimSubmittedNotification,
@@ -1632,156 +1631,180 @@ describe('parseRecipients', () => {
   });
 });
 
-// ─── Attestation detector nudges (§7.2 — AECI-302) ────────────────────────────
+// ─── Attestation digests (§7.2 — AECI-302, digest since AECI-1204) ────────────
 
-describe('attestation nudge templates', () => {
-  const SUBJECT = {
-    to: 'ops@vendor.test',
+describe('attestation digest templates (AECI-1204)', () => {
+  const SITE = { PUBLIC_SITE_URL: 'https://www.aecintegrations.com' };
+  const finding = (over: Partial<AttestationDigestFinding> = {}): AttestationDigestFinding => ({
+    detector: 'silent-counterparty',
     dataObject: 'RFIs',
     product: 'Revit',
     counterpart: 'Procore',
     mechanismName: 'Procore Connector',
     pairSlugs: ['revit', 'procore'] as const,
-  };
-
-  it('sends the silent-counterparty nudge under its own template id', async () => {
-    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
-    const c = fakeContext({ PUBLIC_SITE_URL: 'https://www.aecintegrations.com' });
-
-    expect(await sendAttestationSilentCounterpartyEmail(c, SUBJECT)).toBe('sent');
-    expect(sendTags()).toEqual([['outcome:sent', 'template:attestation-silent-counterparty']]);
-
-    const body = lastBody(fetchSpy);
-    expect(body.to).toBe('ops@vendor.test');
-    expect(body.subject).toContain('RFIs');
-    // The canonical pair URL: alphabetically-first slug is the context.
-    expect(String(body.text)).toContain(
-      'https://www.aecintegrations.com/products/procore/integrations/revit',
-    );
-    // The §8.1(4) promise, stated in the copy rather than merely implied.
-    expect(String(body.text)).toContain('reported by one vendor only');
+    ...over,
+  });
+  const ALL_FOUR: AttestationDigestFinding[] = [
+    finding({ detector: 'open-conflict' }),
+    finding({ detector: 'claim-denied' }),
+    finding({ detector: 'silent-counterparty' }),
+    finding({ detector: 'stale-version' }),
+  ];
+  const digest = (over: Partial<Parameters<typeof sendAttestationDigestEmail>[1]> = {}) => ({
+    to: 'seat@vendor.test',
+    vendorId: 'v-1',
+    vendorName: 'Acme',
+    findings: ALL_FOUR,
+    muteToken: 'tok-1',
+    dedupeKey: 'attestation-digest:v-1:p-1:2026-10-01',
+    ...over,
   });
 
-  it('omits the links entirely when PUBLIC_SITE_URL is unset', async () => {
+  it('sends one digest listing every finding, under attestation-digest', async () => {
     const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
 
-    await sendAttestationSilentCounterpartyEmail(fakeContext(), SUBJECT);
+    expect(await sendAttestationDigestEmail(fakeContext(SITE), digest())).toBe('sent');
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    expect(sendTags()).toEqual([['outcome:sent', 'template:attestation-digest']]);
+
+    const body = lastBody(fetchSpy);
+    expect(body.subject).toBe('4 integration records for Acme need a look');
+    const text = String(body.text);
+    // Each detector keeps the substance of its retired per-finding template.
+    expect(text).toContain('reported by one company only');
+    expect(text).toContain('rather than picking a side');
+    expect(text).toContain('withdraw it');
+    expect(text).toContain('stays listed as unverified');
+    // The canonical pair URL: the alphabetically-first slug is the context.
+    expect(text).toContain('https://www.aecintegrations.com/products/procore/integrations/revit');
+    expect(text).toContain('Open your vendor portal: https://www.aecintegrations.com/vendor');
+    // The house shell.
+    expect(String(body.html)).toContain(EMAIL_LOGO_URL);
+  });
+
+  it('carries an RFC 8058 one-click mute and a footer link to the confirm page', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
+
+    await sendAttestationDigestEmail(fakeContext(SITE), digest());
+
+    const body = lastBody(fetchSpy);
+    expect(body.headers).toEqual({
+      'List-Unsubscribe':
+        '<https://www.aecintegrations.com/api/notifications/nudges/mute?token=tok-1>',
+      'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click',
+    });
+    expect(String(body.text)).toContain(
+      'Mute the daily reminder email: https://www.aecintegrations.com/notifications/mute?token=tok-1',
+    );
+    expect(String(body.html)).toContain(
+      'href="https://www.aecintegrations.com/notifications/mute?token=tok-1"',
+    );
+    // An unsubscribable send never blind-copies: the operator would get the opt-out.
+    expect(body.bcc).toBeUndefined();
+    // The mute covers nudges only, and the footer says so.
+    expect(String(body.text)).toContain(
+      'Seat invites, claim decisions and plan notices still arrive',
+    );
+  });
+
+  it('omits every link and the mute headers when PUBLIC_SITE_URL is unset', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
+
+    await sendAttestationDigestEmail(fakeContext(), digest());
+
+    const body = lastBody(fetchSpy);
+    expect(String(body.text)).not.toContain('http');
+    expect(String(body.text)).not.toContain('undefined');
+    expect(body.headers).toBeUndefined();
+  });
+
+  it('lists at most DIGEST_LIST_LIMIT findings and counts the rest', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
+    const many = Array.from({ length: DIGEST_LIST_LIMIT + 3 }, (_, i) =>
+      finding({ dataObject: `Object ${i}` }),
+    );
+
+    await sendAttestationDigestEmail(fakeContext(SITE), digest({ findings: many }));
 
     const text = String(lastBody(fetchSpy).text);
-    expect(text).not.toContain('http');
-    expect(text).not.toContain('undefined');
+    expect(text).toContain(`Object ${DIGEST_LIST_LIMIT - 1}`);
+    expect(text).not.toContain(`Object ${DIGEST_LIST_LIMIT}`);
+    expect(text).toContain('And 3 more records. Your vendor portal lists every one.');
+  });
+
+  it('uses the finding as the subject when there is only one', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
+    await sendAttestationDigestEmail(fakeContext(), digest({ findings: [finding()] }));
+    expect(lastBody(fetchSpy).subject).toBe('Procore confirmed RFIs with Revit');
   });
 
   it('drops the mechanism clause when the row has no mechanism name', async () => {
     const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
-
-    await sendAttestationOpenConflictEmail(fakeContext(), { ...SUBJECT, mechanismName: null });
-
+    await sendAttestationDigestEmail(
+      fakeContext(),
+      digest({ findings: [finding({ mechanismName: null })] }),
+    );
     expect(String(lastBody(fetchSpy).text)).not.toContain('through');
-  });
-
-  it('sends the open-conflict nudge without blaming either side', async () => {
-    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
-
-    expect(await sendAttestationOpenConflictEmail(fakeContext(), SUBJECT)).toBe('sent');
-    expect(sendTags()).toEqual([['outcome:sent', 'template:attestation-open-conflict']]);
-    expect(String(lastBody(fetchSpy).text)).toContain('rather than picking a side');
-  });
-
-  it('tells the counterparty what was denied, without quoting the denier (AECI-961)', async () => {
-    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
-    const c = fakeContext({ PUBLIC_SITE_URL: 'https://www.aecintegrations.com' });
-
-    expect(await sendAttestationClaimDeniedEmail(c, SUBJECT)).toBe('sent');
-    expect(sendTags()).toEqual([['outcome:sent', 'template:attestation-claim-denied']]);
-
-    const body = lastBody(fetchSpy);
-    const text = String(body.text);
-    // The fact the lane promises: the flow is NOT removed, it stays unverified
-    // until AECi corrects the record (`STAGE_2_ATTESTATIONS_SPEC.md` §6.2).
-    expect(text).toContain('stays on the listing as unverified');
-    expect(text).toContain('record your own position');
-    // Non-accusatory: the recipient has said nothing, so nothing asks them to
-    // defend a position they never took.
-    expect(text.toLowerCase()).not.toContain('dispute');
-    // The portal is the single CTA, not an inline link.
-    expect(text).toContain('Record your position: https://www.aecintegrations.com/vendor');
-    // The house shell, not the legacy formatter.
-    const html = String(body.html);
-    expect(html).toContain(EMAIL_LOGO_URL);
-    expect(html).not.toContain('#27272a');
-    expect(html).not.toContain('The AEC Integrations team');
-  });
-
-  it('omits the claim-denied links when PUBLIC_SITE_URL is unset', async () => {
-    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
-
-    await sendAttestationClaimDeniedEmail(fakeContext(), SUBJECT);
-
-    const text = String(lastBody(fetchSpy).text);
-    expect(text).not.toContain('http');
-    expect(text).not.toContain('undefined');
-  });
-
-  it('offers withdraw as an equal option on the stale-version nudge', async () => {
-    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
-
-    expect(await sendAttestationStaleVersionEmail(fakeContext(), SUBJECT)).toBe('sent');
-    expect(sendTags()).toEqual([['outcome:sent', 'template:attestation-stale-version']]);
-    expect(String(lastBody(fetchSpy).text)).toContain('withdraw it');
   });
 
   it('never implies attesting affects ranking or placement', async () => {
     const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
-
-    for (const send of [
-      sendAttestationSilentCounterpartyEmail,
-      sendAttestationOpenConflictEmail,
-      sendAttestationStaleVersionEmail,
-      sendAttestationClaimDeniedEmail,
-    ]) {
-      await send(fakeContext({ PUBLIC_SITE_URL: 'https://www.aecintegrations.com' }), SUBJECT);
-      const text = String(lastBody(fetchSpy).text).toLowerCase();
-      expect(text).not.toContain('ranking');
-      expect(text).not.toContain('placement');
-      expect(text).not.toContain('search results');
-    }
+    await sendAttestationDigestEmail(fakeContext(SITE), digest());
+    const text = String(lastBody(fetchSpy).text).toLowerCase();
+    expect(text).not.toContain('ranking');
+    expect(text).not.toContain('placement');
+    expect(text).not.toContain('search results');
   });
 
-  it('renders the ops alert on the house shell, naming the detector', async () => {
+  it('renders the ops digest on the house shell, one section per finding', async () => {
     const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
-    const c = fakeContext({ PUBLIC_SITE_URL: 'https://www.aecintegrations.com' });
 
     expect(
-      await sendAttestationOpsAlertEmail(c, {
+      await sendAttestationOpsDigestEmail(fakeContext(SITE), {
         to: 'ops@aecintegrations.com',
-        detector: 'claim-denied',
-        dataObject: 'RFIs',
-        productA: 'Revit',
-        productB: 'Procore',
-        mechanismName: null,
-        claimId: 'claim-1',
-        integrationId: 'intg-1',
-        pairSlugs: ['revit', 'procore'],
+        dedupeKey: 'attestation-ops-digest:2026-10-01:abc',
+        findings: [
+          {
+            detector: 'claim-denied',
+            dataObject: 'RFIs',
+            productA: 'Revit',
+            productB: 'Procore',
+            mechanismName: null,
+            claimId: 'claim-1',
+            integrationId: 'intg-1',
+            pairSlugs: ['revit', 'procore'],
+          },
+          {
+            detector: 'open-conflict',
+            dataObject: 'Submittals',
+            productA: 'Revit',
+            productB: 'Procore',
+            mechanismName: 'Bridge',
+            claimId: 'claim-2',
+            integrationId: 'intg-2',
+            pairSlugs: ['revit', 'procore'],
+          },
+        ],
       }),
     ).toBe('sent');
-    expect(sendTags()).toEqual([['outcome:sent', 'template:attestation-ops-alert']]);
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    expect(sendTags()).toEqual([['outcome:sent', 'template:attestation-ops-digest']]);
 
     const body = lastBody(fetchSpy);
-    expect(body.subject).toContain('[AECi]');
-    expect(String(body.text)).toContain('Detector: claim-denied');
-    expect(String(body.text)).toContain('Claim: claim-1');
-    expect(String(body.text)).toContain('Mechanism: (unnamed)');
-    // The house shell, not the unbranded ops table.
+    expect(body.subject).toBe('[AECi] Attestation findings: 1 denied, 1 in conflict');
+    const text = String(body.text);
+    expect(text).toContain('Vendor denied a claim: RFIs (Revit / Procore)');
+    expect(text).toContain('Unresolved vendor conflict: Submittals (Revit / Procore)');
+    expect(text).toContain('Claim: claim-1');
+    expect(text).toContain('Mechanism: (unnamed)');
     const html = String(body.html);
     expect(html).toContain(EMAIL_LOGO_URL);
     expect(html).not.toContain('border="1"');
-    expect(html).not.toContain('#27272a');
   });
 
-  it('skips every nudge when the transport is unconfigured', async () => {
+  it('skips the digest when the transport is unconfigured', async () => {
     const c = fakeContext({ RESEND_API_KEY: undefined });
-    expect(await sendAttestationSilentCounterpartyEmail(c, SUBJECT)).toBe('skipped');
+    expect(await sendAttestationDigestEmail(c, digest())).toBe('skipped');
   });
 });
 

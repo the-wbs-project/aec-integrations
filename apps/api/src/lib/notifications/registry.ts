@@ -31,8 +31,9 @@
  * This module is pure data with no imports, so anything can depend on it.
  */
 
-/** Where the notification lands. `email+portal` is one notification on both: the
- *  portal row is written only when the email went out. */
+/** Where the notification lands. `email+portal` is one notification on both. Since
+ *  AECI-1204 the portal row is written whether or not the email went out, so a muted
+ *  seat's vendor still sees it. */
 export type NotificationChannel = 'email' | 'portal' | 'email+portal' | 'linear' | 'supabase-email';
 
 /** `external` is a person outside AECi. `operator` is an AECi inbox or the AECi team. */
@@ -68,7 +69,11 @@ export type NotificationLedger =
   | 'linear-issue-id'
   | 'none';
 
-export type NotificationOptOut = 'none' | 'mailing-list-unsubscribe';
+/**
+ * `nudge-mute` is the per-seat mute of the attestation digest (AECI-1204): a portal
+ * toggle and a one-click footer link, stored in `notification_preferences`.
+ */
+export type NotificationOptOut = 'none' | 'mailing-list-unsubscribe' | 'nudge-mute';
 
 export interface NotificationEntry {
   channel: NotificationChannel;
@@ -311,65 +316,33 @@ export const NOTIFICATIONS = {
     summary: 'Tells FOUNDER_ALERT_EMAIL which claim tickets nobody has started after 24 hours.',
     note: 'Production only in practice. Staging and demo create no Linear issues, and FOUNDER_ALERT_EMAIL is unset on demo.',
   },
-  'attestation-silent-counterparty': {
+  'attestation-digest': {
     channel: 'email+portal',
     audience: 'external',
     trigger: { kind: 'cron', ref: '0 10 attestation sweep (lib/attestation-notify.ts)' },
     envRule: 'production-external',
-    dedupe: '30 days per (claim, detector, vendor), read from the notification.sent rows.',
+    dedupe:
+      'One per seat per day: attestation-digest:{vendorId}:{profileId}:{YYYY-MM-DD}. Each finding is listed once per 30 days per (claim, detector, vendor), read from the notification.sent rows.',
     ledger: ['notification_sends', 'audit_log'],
-    optOut: 'none',
+    optOut: 'nudge-mute',
     doc: 'docs/STAGE_2_ATTESTATIONS_SPEC.md §7.2',
-    summary: 'Nudges a vendor whose counterparty affirmed a flow it has not answered.',
-    note: 'The portal row is written only when the email was sent. Never sent on a connector-powered edge (AECI-705).',
+    summary:
+      'Sends each unmuted vendor seat one daily digest of every due attestation finding for its vendor.',
+    note: 'Replaced four per-finding templates in AECI-1204. Every due finding gets its portal row, emailed or not; metadata.emailedSeats says how many seats got it. Never lists a vendor finding on a connector-powered edge (AECI-705).',
   },
-  'attestation-open-conflict': {
-    channel: 'email+portal',
-    audience: 'external',
-    trigger: { kind: 'cron', ref: '0 10 attestation sweep (lib/attestation-notify.ts)' },
-    envRule: 'production-external',
-    dedupe: '30 days per (claim, detector, vendor), read from the notification.sent rows.',
-    ledger: ['notification_sends', 'audit_log'],
-    optOut: 'none',
-    doc: 'docs/STAGE_2_ATTESTATIONS_SPEC.md §7.2',
-    summary: 'Tells both disputing vendors their positions on a flow conflict.',
-    note: 'The portal row is written only when the email was sent. Never sent on a connector-powered edge (AECI-705).',
-  },
-  'attestation-stale-version': {
-    channel: 'email+portal',
-    audience: 'external',
-    trigger: { kind: 'cron', ref: '0 10 attestation sweep (lib/attestation-notify.ts)' },
-    envRule: 'production-external',
-    dedupe: '30 days per (claim, detector, vendor), read from the notification.sent rows.',
-    ledger: ['notification_sends', 'audit_log'],
-    optOut: 'none',
-    doc: 'docs/STAGE_2_ATTESTATIONS_SPEC.md §7.2',
-    summary: 'Asks a vendor to re-confirm, version or withdraw an aged attestation.',
-    note: 'The portal row is written only when the email was sent. Never sent on a connector-powered edge (AECI-705).',
-  },
-  'attestation-claim-denied': {
-    channel: 'email+portal',
-    audience: 'external',
-    trigger: { kind: 'cron', ref: '0 10 attestation sweep (lib/attestation-notify.ts)' },
-    envRule: 'production-external',
-    dedupe: '30 days per (claim, detector, vendor). No age threshold.',
-    ledger: ['notification_sends', 'audit_log'],
-    optOut: 'none',
-    doc: 'docs/STAGE_2_ATTESTATIONS_SPEC.md §7.2',
-    summary: 'Tells the silent counterparty that every voter denied a flow on its product.',
-    note: 'The portal row is written only when the email was sent. Never sent on a connector-powered edge (AECI-705).',
-  },
-  'attestation-ops-alert': {
+  'attestation-ops-digest': {
     channel: 'email',
     audience: 'operator',
     trigger: { kind: 'cron', ref: '0 10 attestation sweep (lib/attestation-notify.ts)' },
     envRule: 'any-tier',
-    dedupe: '30 days per (claim, detector, ~ops).',
+    dedupe:
+      'One per address per day: attestation-ops-digest:{YYYY-MM-DD}:{recipient hash}. Each finding is listed once per 30 days per (claim, detector, ~ops).',
     ledger: ['notification_sends', 'audit_log'],
     optOut: 'none',
     doc: 'docs/STAGE_2_ATTESTATIONS_SPEC.md §7.2',
-    summary: 'Tells ADMIN_ALERT_EMAIL about a denied claim or a standing conflict, per finding.',
-    note: 'Its notification.sent row carries vendorId null, so no vendor portal shows it.',
+    summary:
+      'Tells ADMIN_ALERT_EMAIL about every denied claim and standing conflict of the day, in one email.',
+    note: 'Replaced attestation-ops-alert, one email per finding, in AECI-1204. Its notification.sent rows carry vendorId null, so no vendor portal shows them.',
   },
   'entitlement-expiring': {
     channel: 'email',

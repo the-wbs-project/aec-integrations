@@ -1376,7 +1376,7 @@ async function runAttestationNotifyJob(env: Env, ctx: ExecutionContext): Promise
     ]);
     logToPosthog(ctx, env, req, {
       level: result.failed > 0 ? 'warn' : 'info',
-      message: `aeci.attestation.notify found=${result.found} sent=${result.sent} suppressed=${result.suppressed} failed=${result.failed} skipped=${result.skipped} capped=${result.capped}`,
+      message: `aeci.attestation.notify found=${result.found} sent=${result.sent} portal_only=${result.portalOnly} suppressed=${result.suppressed} failed=${result.failed} skipped=${result.skipped} capped=${result.capped} digests=${result.digestsSent}`,
       source: 'attestation-notify-cron',
     });
     // §7.2 liveness (AECI-583): the sweep became a first-class cron at the
@@ -1394,6 +1394,8 @@ async function runAttestationNotifyJob(env: Env, ctx: ExecutionContext): Promise
         failed: result.failed,
         skipped: result.skipped,
         capped: result.capped,
+        portalOnly: result.portalOnly,
+        digestsSent: result.digestsSent,
       },
     };
   } catch (error) {

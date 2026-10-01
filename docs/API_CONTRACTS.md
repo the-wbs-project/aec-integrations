@@ -5226,6 +5226,26 @@ export const UnsubscribeSubmitSchema = z.object({ token: z.string().trim().min(1
 
 **One non-200: `RATE_LIMITED` (429).** Since AECI-773 the route carries the `token` burst bucket — 10 per client IP per 10 s, `Retry-After: 10` (§4.1a) — because it is the only anonymous write on this router with no WAF rule behind it, and every request is an unbounded D1 `UPDATE` keyed on a caller-supplied token. The middleware runs before the handler, so a limited request never reads the token. The RFC 8058 one-click path is POSTed automatically by mail security appliances and a 429 there reads to the mail client as a broken unsubscribe, so the ceiling sits far above any appliance's cadence.
 
+#### `POST /api/notifications/nudges/mute` (AECI-1204)
+
+The one-click mute from the attestation digest email (`STAGE_2_ATTESTATIONS_SPEC.md` §7.2). It is public and keyed on the seat's opaque `notification_preferences.mute_token`, so it needs no session. Same shape as `POST /api/unsubscribe` above. It mutes only. There is no unmute here, because unmuting is a signed-in action on the Messages page.
+
+**Two callers, one handler.** The token is read from the **`?token=` query first, then the JSON body**:
+
+- the `/notifications/mute` confirm page POSTs `{ token }` as JSON after the visitor clicks. The page never mutates on `GET`.
+- the RFC 8058 one-click header (`List-Unsubscribe-Post: List-Unsubscribe=One-Click`) makes the mail client POST a form body to `…/api/notifications/nudges/mute?token=…`. We read the query token and ignore the body.
+
+```typescript
+export const NudgeMuteSubmitSchema = z.object({ token: z.string().trim().min(1).max(100) });
+export const NudgeMuteResultSchema = z.object({ ok: z.boolean() });
+```
+
+**Response:** `{ ok: boolean }`, HTTP `200` on every outcome the handler reaches. `ok: true` means the token matched a seat, which is now muted. A repeat also returns `true`. `ok: false` means the token matched nothing. Tokens are unguessable, so `false` leaks nothing.
+
+**Audit.** A change writes `notification_preferences.updated` with `metadata.source: 'one-click'` in the same batch. The actor is the seat that owns the token. A repeat writes nothing. The token is a bearer capability and is never logged, audited or returned.
+
+**One non-200: `RATE_LIMITED` (429).** The route carries the `token` bucket, 10 per client IP per 10 s (§4.1a), for the same reason as `/api/unsubscribe`. Other errors: `VALIDATION_FAILED` (400, token missing or over 100 characters) · `MALFORMED_REQUEST` (400, body not JSON). No new codes.
+
 ---
 
 ### 6.14 Vendor portal endpoints
@@ -5431,7 +5451,7 @@ Errors: `FORBIDDEN` (422, wrong signed-in address) · `INVALID_STATE_TRANSITION`
 
 The in-portal notification list (AECI-302 / `STAGE_2_ATTESTATIONS_SPEC.md` §7.2) — the daily §7 detector sweep's nudges to this vendor, and since AECI-1008 the contest events addressed to it. **Not account-access-gated**: the legacy `vendors.verified` mirror gates authoring, not reading, so a vendor without active access sees its own (probably empty) list rather than a `403` it cannot act on — the same reasoning as the version list.
 
-**There is no notifications table.** The sweep records every successful send in `audit_log` (`action: 'notification.sent'`, `entity_type: 'claim'`, `entity_id: <claim id>`) as its anti-nag suppression ledger, and this endpoint reads those same rows (§7.3 — "no separate store"). Two consequences for consumers:
+**There is no notifications table.** The sweep records every due finding in `audit_log` (`action: 'notification.sent'`, `entity_type: 'claim'`, `entity_id: <claim id>`) as its anti-nag suppression ledger, and this endpoint reads those same rows (§7.3 — "no separate store"). Since AECI-1204 a row is written whether or not the vendor was emailed. The email is one daily digest per seat, and a muted or tier-suppressed seat still gets the row, so it still sees the finding here (`STAGE_2_ATTESTATIONS_SPEC.md` §7.3). `metadata.emailedSeats` records how many seats were emailed. It is not on the wire. Two consequences for consumers:
 
 1. **Every field is a snapshot taken at send time**, not a live read. Nothing is re-joined, which is what makes the list cheap — and what keeps a year-old notification legible after the claim it names has been re-curated or deleted.
 2. **Ops-routed rows are invisible here.** The ops halves of `claim-denied` and `open-conflict` are written with `metadata.vendorId = null`, which can never equal a caller's vendor id. The isolation is structural, not a clause a handler must remember. Note that since AECI-961 `claim-denied` writes **two** rows for one denial — an ops row and a counterparty row — and only the second is addressed to a vendor, so it is the only one this endpoint returns.
@@ -5509,6 +5529,27 @@ export const ListVendorNotificationsResponseSchema = z.object({
 `pair_path` is rebuilt from the stored slugs through the same alphabetical rule the pair route canonicalises to (`orderedPairSlugs`), so it always matches the indexable URL. A row whose stored snapshot cannot be read (a future detector id, a later schema) is **skipped rather than surfaced or thrown** — these rows outlive the code that wrote them.
 
 Errors: none beyond the guard's. An empty ledger is `200 { "notifications": [] }`.
+
+#### `GET /api/vendor/notification-preferences` and `PUT /api/vendor/notification-preferences` (AECI-1204)
+
+The caller's own seat setting for the daily attestation reminder email (`STAGE_2_ATTESTATIONS_SPEC.md` §7.2). One setting today: whether the seat is muted. The mute covers the attestation digest only. Seat invites, claim decisions and entitlement-expiry mail still send, and a muted seat still sees every finding in `GET /api/vendor/notifications`.
+
+**Scoping.** Both routes sit behind `requireVendor` and act on `auth.userId`, the seat's `profiles.id`. No profile id is read from the request, so a seat can only change its own preference. The setting is per seat, so one colleague muting does not silence the others.
+
+```typescript
+export const NotificationPreferencesResponseSchema = z.object({
+  nudges_muted: z.boolean(),
+  nudges_muted_at: z.string().nullable(), // ISO-8601; null when not muted
+});
+export const UpdateNotificationPreferencesSchema = z.object({ nudges_muted: z.boolean() }).strict();
+```
+
+- **`GET`** returns `NotificationPreferencesResponse`. A seat with no preference row reads as `{ nudges_muted: false, nudges_muted_at: null }`. It is a read, so it creates nothing and has no `rateLimit()` (reads are never rate-limited, `waf-rate-limits.md` §6.3).
+- **`PUT`** sets the mute and returns the same shape. It is behind `rateLimit('write')`. Unknown body keys are refused. It is idempotent: setting the state the seat already has writes nothing and emits no audit row.
+
+**Audit.** A change is domain state. It writes `notification_preferences.updated` (`entity_type: 'profile'`, `entity_id` the profile id, `before_state` and `after_state` `{ nudgesMuted }`, `metadata.source: 'vendor-portal'`) in the same `db.batch` as the write. The mute token is never returned, logged or audited.
+
+Errors: `VALIDATION_FAILED` (400, bad or unknown body key) · `MALFORMED_REQUEST` (400, body not JSON) · `RATE_LIMITED` (429, `PUT` only) · plus the guard's `401` and `403`. No new codes.
 
 #### `GET /api/vendor/updates`
 

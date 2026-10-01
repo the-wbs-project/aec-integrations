@@ -1000,7 +1000,7 @@ What changed (copy only — no route, no payload, no behaviour):
 - **Admin copy.** The claim queue's clear-entitlement warning says the vendor's
   team keeps "their logins and their portal, read-only".
 - **Transactional email.** `claim-approved`, the attestation nudges' shared
-  closing lines, and `entitlement-expiring` all say "your vendor portal".
+  closing lines (now `attestation-digest`, AECI-1204), and `entitlement-expiring` all say "your vendor portal".
 
 **Not renamed: internal identifiers.** `vendor-dashboard-tabbed.ts`,
 `vendor-dashboard-single.ts`, `VendorDashboardTabbed` / `VendorDashboardSingle`,
@@ -1268,6 +1268,29 @@ same reason requests sit above it: each contest carries a status the vendor acts
 two lists, Received and Submitted, off `GET /api/vendor/contests` (§11b.10). Contest
 events also land in the archive below as history. That is not a duplicate: the archive
 says what happened when, and the contests block says where each one stands now.
+
+**The "Daily reminder email" switch sits above the archive (AECI-1204, 2026-10-01).** The
+reminders in the archive reach a seat as one daily digest email
+(`STAGE_2_ATTESTATIONS_SPEC.md` §7.2), and the switch is how a seat opts out of that email.
+It is a `role="switch"` where ON means "email me". It reads `GET /api/vendor/notification-preferences`
+and writes `PUT` on the same path. The write is optimistic, with a visible rollback and an error
+line if it fails. It acts on the caller's own seat only, so muting does not silence a colleague.
+The mute covers the digest only: seat invites, claim decisions and plan-expiry mail still send.
+The archive below it keeps every reminder either way, because a row is recorded whether or not
+any seat was emailed (§7.3).
+
+The archive's framing copy changed with it. It used to say "Only the reminders were emailed".
+It now says reminders are also emailed in one daily summary to each seat that has not muted it,
+so a reminder listed here may not have reached an inbox. The i18n id is
+`@@vendor.attest.notify.framing.digest`.
+
+Mobbin anchor for the switch: Shopify admin settings cards
+(https://mobbin.com/screens/e53a5210-9e2c-405c-ab2d-87de1432dd5e and
+https://mobbin.com/screens/f6ea66fe-de5c-4239-aaf8-30d7bb3f85f2).
+
+The mail's footer link opens `/notifications/mute?token=`, a public noindex page that confirms
+on click and never mutates on `GET`. It is not cached (absent from `ROUTE_CACHE_PATTERNS`). It
+lives outside the portal because the person clicking may not be signed in.
 
 #### Taxonomy is a projection, not a second form
 

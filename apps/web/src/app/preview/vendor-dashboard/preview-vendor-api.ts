@@ -29,6 +29,7 @@ import type {
   ListProductVersionsResponse,
   ListVendorIntegrationsResponse,
   ListVendorNotificationsResponse,
+  NotificationPreferencesResponse,
   ListVendorSeatsResponse,
   ProductUsefulness,
   TaxonomyResponse,
@@ -599,6 +600,29 @@ export class PreviewVendorApi extends VendorApi {
       (a, b) => (a.created_at < b.created_at ? 1 : a.created_at > b.created_at ? -1 : 0),
     );
     return { notifications: clone(rows) };
+  }
+
+  // ─── Nudge mute (AECI-1204) ────────────────────────────────────────────────
+
+  private nudgePrefs: NotificationPreferencesResponse = {
+    nudges_muted: false,
+    nudges_muted_at: null,
+  };
+
+  override async getNotificationPreferences(): Promise<NotificationPreferencesResponse> {
+    return clone(this.nudgePrefs);
+  }
+
+  override async updateNotificationPreferences(
+    nudgesMuted: boolean,
+  ): Promise<NotificationPreferencesResponse> {
+    if (nudgesMuted !== this.nudgePrefs.nudges_muted) {
+      this.nudgePrefs = {
+        nudges_muted: nudgesMuted,
+        nudges_muted_at: nudgesMuted ? new Date().toISOString() : null,
+      };
+    }
+    return clone(this.nudgePrefs);
   }
 
   // ─── Field contests (AECI-1008) ────────────────────────────────────────────

@@ -19,8 +19,12 @@ const REPO_ROOT = join(process.cwd(), '..', '..');
 
 const ENTRIES = Object.entries(NOTIFICATIONS) as Array<[string, NotificationEntry]>;
 
-/** The 2026-10-01 inventory (45 rows) plus L4, `pushRequestResolutionToLinear`. */
-const EXPECTED_COUNT = 46;
+/**
+ * The 2026-10-01 inventory (45 rows) plus L4, `pushRequestResolutionToLinear`, was 46.
+ * AECI-1204 retired the four per-finding attestation nudges and `attestation-ops-alert`
+ * (5 ids) and added `attestation-digest` and `attestation-ops-digest` (2 ids): 43.
+ */
+const EXPECTED_COUNT = 43;
 
 const sendsEmail = (e: NotificationEntry) => e.channel === 'email' || e.channel === 'email+portal';
 
@@ -48,10 +52,11 @@ describe('notification registry shape', () => {
       return acc;
     }, {});
     expect(byChannel).toEqual({
-      // 22 template ids, the claim-alert retry, the invite re-send, the operator copy
-      // and the two digests, less the four attestation nudges, which are `email+portal`.
+      // Was 23 + 4. AECI-1204 swapped `attestation-ops-alert` for
+      // `attestation-ops-digest` (email, net 0) and the four `email+portal` nudges for
+      // the one `attestation-digest`.
       email: 23,
-      'email+portal': 4,
+      'email+portal': 1,
       'supabase-email': 1,
       portal: 14,
       linear: 4,
@@ -146,6 +151,9 @@ describe('notification registry shape', () => {
 
     it('offers an opt-out only where one exists', () => {
       expect(entry.optOut === 'mailing-list-unsubscribe').toBe(id === 'mailing-list-welcome');
+      // AECI-1204: the per-seat nudge mute covers the attestation digest and nothing
+      // else. Seat invites, claim decisions and plan-expiry notices still send.
+      expect(entry.optOut === 'nudge-mute').toBe(id === 'attestation-digest');
     });
   });
 });

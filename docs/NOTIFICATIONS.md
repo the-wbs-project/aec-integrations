@@ -61,11 +61,11 @@ run `pnpm docs:notifications` and commit this file.
 | Channel | Entries |
 |---|---|
 | `email` | 23 |
-| `email+portal` | 4 |
+| `email+portal` | 1 |
 | `supabase-email` | 1 |
 | `portal` | 14 |
 | `linear` | 4 |
-| **Total** | **46** |
+| **Total** | **43** |
 
 ## Email (Resend) (`email`, 23)
 
@@ -79,7 +79,7 @@ on success (AECI-1202, `docs/DATABASE_SCHEMA.md` §9.9).
 | Id | Summary | Audience | Trigger | Tier rule | Dedupe | Ledger | Opt-out | Doc | Note |
 |---|---|---|---|---|---|---|---|---|---|
 | `account-deleted` | Confirms to a user that their account was deleted. | external | route: DELETE /api/account (routes/account.ts) | `production-external` | None. | `notification_sends` | `none` | docs/email.md §Template content notes |  |
-| `attestation-ops-alert` | Tells ADMIN_ALERT_EMAIL about a denied claim or a standing conflict, per finding. | operator | cron: 0 10 attestation sweep (lib/attestation-notify.ts) | `any-tier` | 30 days per (claim, detector, ~ops). | `notification_sends`, `audit_log` | `none` | docs/STAGE_2_ATTESTATIONS_SPEC.md §7.2 | Its notification.sent row carries vendorId null, so no vendor portal shows it. |
+| `attestation-ops-digest` | Tells ADMIN_ALERT_EMAIL about every denied claim and standing conflict of the day, in one email. | operator | cron: 0 10 attestation sweep (lib/attestation-notify.ts) | `any-tier` | One per address per day: attestation-ops-digest:{YYYY-MM-DD}:{recipient hash}. Each finding is listed once per 30 days per (claim, detector, ~ops). | `notification_sends`, `audit_log` | `none` | docs/STAGE_2_ATTESTATIONS_SPEC.md §7.2 | Replaced attestation-ops-alert, one email per finding, in AECI-1204. Its notification.sent rows carry vendorId null, so no vendor portal shows them. |
 | `claim-approved` | Tells a claimant their claim was approved. | external | route: PATCH /api/admin/claims/:id (routes/admin-claims.ts) | `production-external` | Re-approving an already-seated claim is a no-op and sends nothing. | `notification_sends` | `none` | docs/STAGE_2_VENDOR_PORTAL_SPEC.md §9 |  |
 | `claim-rejected` | Tells a claimant their claim was not approved, without the reviewer reason. | external | route: PATCH /api/admin/claims/:id (routes/admin-claims.ts) | `production-external` | Status guard: open or in-review claims only. | `notification_sends` | `none` | docs/STAGE_2_VENDOR_PORTAL_SPEC.md §9 |  |
 | `claim-submitted-alert` | Tells CLAIM_ALERT_EMAIL a vendor claimed a listing, after the Linear attempt. | operator | route: POST /api/requests/claim (routes/requests.ts) | `any-tier` | Claims only, not corrections. None on the send. | `notification_sends` | `none` | docs/email.md §Template content notes | LINEAR_API_KEY is set on production only. On staging and demo no issue is created, so the Linear row reads "not created, Linear is not configured on this tier" (AECI-1198). |
@@ -102,18 +102,16 @@ on success (AECI-1202, `docs/DATABASE_SCHEMA.md` §9.9).
 | `vendor-seat-invite` | Invites a colleague, typed by a vendor owner, to take a seat. | external | route: POST /api/vendor/seats/invites (routes/vendor-seat-invites.ts) | `production-external` | 10 per vendor per day, plus a per-vendor burst bucket. | `notification_sends`, `invite-row` | `none` | docs/STAGE_2_VENDOR_PORTAL_SPEC.md §11a.5 |  |
 | `vendor-seat-invite-resend` | Re-sends a pending seat invite. | external | route: POST /api/vendor/seats/invites/:id/resend (routes/vendor-seat-invites.ts) | `production-external` | 5-minute cooldown on last_sent_at, 4 sends per invite on send_count. | `notification_sends`, `invite-row` | `none` | docs/STAGE_2_VENDOR_PORTAL_SPEC.md §11a.9 | Same template as vendor-seat-invite. |
 
-## Email plus vendor portal row (`email+portal`, 4)
+## Email plus vendor portal row (`email+portal`, 1)
 
-One notification on two surfaces: the attestation sweep's email, plus a
-`notification.sent` row the vendor portal shows. The portal row is written only when the
-email was sent, and it is the ledger the 30-day dedupe reads.
+One notification on two surfaces: the attestation sweep's daily digest email, plus a
+`notification.sent` row per finding that the vendor portal shows. Since AECI-1204 the portal
+row is written whether or not any seat was emailed (a seat may have muted the digest),
+and it is the ledger the 30-day dedupe reads.
 
 | Id | Summary | Audience | Trigger | Tier rule | Dedupe | Ledger | Opt-out | Doc | Note |
 |---|---|---|---|---|---|---|---|---|---|
-| `attestation-claim-denied` | Tells the silent counterparty that every voter denied a flow on its product. | external | cron: 0 10 attestation sweep (lib/attestation-notify.ts) | `production-external` | 30 days per (claim, detector, vendor). No age threshold. | `notification_sends`, `audit_log` | `none` | docs/STAGE_2_ATTESTATIONS_SPEC.md §7.2 | The portal row is written only when the email was sent. Never sent on a connector-powered edge (AECI-705). |
-| `attestation-open-conflict` | Tells both disputing vendors their positions on a flow conflict. | external | cron: 0 10 attestation sweep (lib/attestation-notify.ts) | `production-external` | 30 days per (claim, detector, vendor), read from the notification.sent rows. | `notification_sends`, `audit_log` | `none` | docs/STAGE_2_ATTESTATIONS_SPEC.md §7.2 | The portal row is written only when the email was sent. Never sent on a connector-powered edge (AECI-705). |
-| `attestation-silent-counterparty` | Nudges a vendor whose counterparty affirmed a flow it has not answered. | external | cron: 0 10 attestation sweep (lib/attestation-notify.ts) | `production-external` | 30 days per (claim, detector, vendor), read from the notification.sent rows. | `notification_sends`, `audit_log` | `none` | docs/STAGE_2_ATTESTATIONS_SPEC.md §7.2 | The portal row is written only when the email was sent. Never sent on a connector-powered edge (AECI-705). |
-| `attestation-stale-version` | Asks a vendor to re-confirm, version or withdraw an aged attestation. | external | cron: 0 10 attestation sweep (lib/attestation-notify.ts) | `production-external` | 30 days per (claim, detector, vendor), read from the notification.sent rows. | `notification_sends`, `audit_log` | `none` | docs/STAGE_2_ATTESTATIONS_SPEC.md §7.2 | The portal row is written only when the email was sent. Never sent on a connector-powered edge (AECI-705). |
+| `attestation-digest` | Sends each unmuted vendor seat one daily digest of every due attestation finding for its vendor. | external | cron: 0 10 attestation sweep (lib/attestation-notify.ts) | `production-external` | One per seat per day: attestation-digest:{vendorId}:{profileId}:{YYYY-MM-DD}. Each finding is listed once per 30 days per (claim, detector, vendor), read from the notification.sent rows. | `notification_sends`, `audit_log` | `nudge-mute` | docs/STAGE_2_ATTESTATIONS_SPEC.md §7.2 | Replaced four per-finding templates in AECI-1204. Every due finding gets its portal row, emailed or not; metadata.emailedSeats says how many seats got it. Never lists a vendor finding on a connector-powered edge (AECI-705). |
 
 ## Supabase Auth email (`supabase-email`, 1)
 

@@ -2,6 +2,7 @@ import { Component, inject } from '@angular/core';
 
 import { VendorContestsList } from '../components/vendor-contests-list';
 import { VendorNotificationsList } from '../components/vendor-notifications-list';
+import { VendorNudgeMuteToggle } from '../components/vendor-nudge-mute-toggle';
 import { VendorRequestStatus } from '../components/vendor-request-status';
 import { VendorPortalStore } from '../vendor-portal-store';
 
@@ -22,7 +23,7 @@ import { VendorPortalStore } from '../vendor-portal-store';
  * ── WHAT THIS IS DELIBERATELY NOT ───────────────────────────────────────────
  * Not an inbox. `STAGE_2_REALTIME_SPEC.md` §6.2's substantive rule is unchanged
  * and is the reason: **these rows are historical, not live state.** The
- * notification rows are a 90-day archive of what was *emailed*
+ * notification rows are a 90-day archive of what was *recorded*, emailed or not
  * (`GET /api/vendor/notifications` reads `audit_log` `action='notification.sent'`
  * — decision §1.3(6), there is no notifications table), so a three-week-old
  * "Vendors disagree" row can sit above a claim whose badge now reads `confirmed`.
@@ -38,6 +39,11 @@ import { VendorPortalStore } from '../vendor-portal-store';
  * current state, they come down on `GET /api/vendor/me`, and they carry a
  * resolved/unresolved status the vendor can act on.
  *
+ * The daily reminder email switch (AECI-1204) sits directly above the archive it
+ * governs, because the two answer one question: "how do these reminders reach me".
+ * It mutes the caller's own seat's digest email; the archive below keeps every
+ * reminder either way.
+ *
  * Field contests (AECI-1008) sit between the two for the same reason: each row
  * carries a status the vendor acts on (accept, decline, withdraw), so they are
  * current state and render open, not inside the archive's disclosure. Their
@@ -47,7 +53,12 @@ import { VendorPortalStore } from '../vendor-portal-store';
  */
 @Component({
   selector: 'aec-vendor-messages-page',
-  imports: [VendorContestsList, VendorNotificationsList, VendorRequestStatus],
+  imports: [
+    VendorContestsList,
+    VendorNotificationsList,
+    VendorNudgeMuteToggle,
+    VendorRequestStatus,
+  ],
   template: `
     @if (me(); as m) {
       <div class="space-y-8">
@@ -82,7 +93,10 @@ import { VendorPortalStore } from '../vendor-portal-store';
 
         <aec-vendor-contests-list />
 
-        <aec-vendor-notifications-list />
+        <div class="space-y-4">
+          <aec-vendor-nudge-mute-toggle />
+          <aec-vendor-notifications-list />
+        </div>
       </div>
     }
   `,

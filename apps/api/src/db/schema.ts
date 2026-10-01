@@ -2347,6 +2347,48 @@ export const notificationSends = sqliteTable(
   ],
 );
 
+// ===========================================================================
+// Per-seat notification preferences (AECI-1204, DATABASE_SCHEMA.md §9.10)
+//
+// DOMAIN state: a mute is a choice a person made, so every change to it writes
+// its `audit_log` row in the same `db.batch` (`lib/notification-preferences.ts`).
+// A new table rather than a column on `profiles`, because `profiles` carries
+// CHECKs and any change to it risks a drizzle-kit recreate (`docs/migrations.md`
+// §0). The reverse hazard is real too: a future recreate of `profiles` fires this
+// table's ON DELETE CASCADE and wipes every mute. Statement order in such a
+// migration is the control.
+// ===========================================================================
+
+/**
+ * One row per seat that has ever been emailed a nudge digest or touched the
+ * toggle. No row means "not muted, no token yet". The row is created lazily, with
+ * its token, by the first digest send or the first toggle.
+ */
+export const notificationPreferences = sqliteTable(
+  'notification_preferences',
+  {
+    /** The seat's `profiles.id` (the Supabase auth uid). */
+    profileId: text('profile_id')
+      .primaryKey()
+      .references(() => profiles.id, { onDelete: 'cascade' }),
+
+    /** When the seat muted the attestation nudge digest. Null = not muted. The
+     *  mute covers nudges only: seat invites, claim decisions and plan-expiry
+     *  notices still send. */
+    nudgesMutedAt: text('nudges_muted_at'),
+
+    /** Opaque bearer token for the one-click mute link in the digest footer
+     *  (`crypto.randomUUID()`). A capability: never logged, never audited. */
+    muteToken: text('mute_token')
+      .notNull()
+      .$defaultFn(() => crypto.randomUUID()),
+
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [uniqueIndex('notification_preferences_mute_token_key').on(t.muteToken)],
+);
+
 /**
  * External classification of the ASNs we have actually seen (AECI-624).
  *

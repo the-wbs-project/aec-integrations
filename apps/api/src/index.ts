@@ -123,6 +123,11 @@ import {
 } from './routes/vendor';
 import { createListVendorNotificationsHandler } from './routes/vendor-notifications';
 import {
+  createGetNotificationPreferencesHandler,
+  createNudgeMuteHandler,
+  createUpdateNotificationPreferencesHandler,
+} from './routes/notification-preferences';
+import {
   createDecideContestHandler,
   createListVendorContestsHandler,
   createSubmitContestHandler,
@@ -324,6 +329,16 @@ phase28.post('/api/subscribe', createSubscribeHandler());
 // security appliances, and a 429 there reads to the mail client as a broken
 // unsubscribe. 10 per 10 s per IP sits far above any appliance's cadence.
 phase28.post('/api/unsubscribe', rateLimit('token', { by: 'ip' }), createUnsubscribeHandler());
+// AECI-1204: the one-click mute for the attestation nudge digest. Same shape and
+// the same reasoning as the mailing-list opt-out above: an anonymous, token-keyed
+// write reached through the SSR `/api/*` passthrough, POSTed by the digest's RFC
+// 8058 `List-Unsubscribe` header (`?token=`) and by the `/notifications/mute` page
+// (JSON body). The `token` bucket, keyed by IP, never by the token.
+phase28.post(
+  '/api/notifications/nudges/mute',
+  rateLimit('token', { by: 'ip' }),
+  createNudgeMuteHandler(),
+);
 
 // Inbound Linear webhook (AECI-212 / Phase 6.5) — the Linear → Site half of the
 // moderation sync. Public URL; auth is the `Linear-Signature` HMAC verified
@@ -915,6 +930,20 @@ authVendor.get(
   '/api/vendor/notifications',
   requireVendor(),
   createListVendorNotificationsHandler(),
+);
+// AECI-1204: the caller's own seat's nudge mute. The GET is a read (no limiter);
+// the PUT is a write and carries `rateLimit('write')` after the guard. Both act on
+// `auth.userId`, never on an id from the request.
+authVendor.get(
+  '/api/vendor/notification-preferences',
+  requireVendor(),
+  createGetNotificationPreferencesHandler(),
+);
+authVendor.put(
+  '/api/vendor/notification-preferences',
+  requireVendor(),
+  rateLimit('write'),
+  createUpdateNotificationPreferencesHandler(),
 );
 authVendor.patch(
   '/api/vendor/profile',

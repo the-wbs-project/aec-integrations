@@ -423,8 +423,9 @@ describe('every sender names a notification registry entry', () => {
 
   it('scans a non-trivial tree and finds the known senders (the scan is not vacuous)', () => {
     expect(files.length).toBeGreaterThan(100);
-    // The 22 per-template calls in lib/email.ts.
-    expect(counts.transactional).toBeGreaterThanOrEqual(22);
+    // The 19 per-template calls in lib/email.ts. Was 22: AECI-1204 replaced the five
+    // per-finding attestation senders with the two digests.
+    expect(counts.transactional).toBeGreaterThanOrEqual(19);
     // The two cron digests in scheduled.ts.
     expect(counts.digest).toBeGreaterThanOrEqual(2);
     // Seven builders: the attestation ledger, claim, contest, claim_added, update,

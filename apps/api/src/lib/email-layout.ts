@@ -115,6 +115,12 @@ export interface EmailLayout {
   cta?: EmailCta;
   /** Small print below the hairline rule. */
   note?: string;
+  /**
+   * A link appended to the small print, e.g. the one-click mute in a digest footer
+   * (AECI-1204). Needs `note`. Rendered as an underlined link in the HTML part and as
+   * `label: url` in the text part. The label is escaped like the note.
+   */
+  noteLink?: EmailCta;
 }
 
 /**
@@ -149,7 +155,13 @@ export function renderEmailText(layout: EmailLayout): string {
     parts.push(`${section.heading}\n${section.rows.map(([k, v]) => `  ${k}: ${v}`).join('\n')}`);
   }
   if (layout.cta) parts.push(`${layout.cta.label}: ${layout.cta.url}`);
-  if (layout.note) parts.push(layout.note);
+  if (layout.note) {
+    parts.push(
+      layout.noteLink
+        ? `${layout.note}\n${layout.noteLink.label}: ${layout.noteLink.url}`
+        : layout.note,
+    );
+  }
   return parts.join('\n\n');
 }
 
@@ -169,7 +181,7 @@ export function renderEmailHtml(layout: EmailLayout): string {
     ...(layout.table?.length ? [tableRow(layout.table)] : []),
     ...(layout.sections ?? []).map(sectionRow),
     ...(layout.cta ? [ctaRow(layout.cta), pasteableUrlRow(layout.cta.url)] : []),
-    ...(layout.note ? [hairlineRow(), noteRow(layout.note)] : [spacerRow()]),
+    ...(layout.note ? [hairlineRow(), noteRow(layout.note, layout.noteLink)] : [spacerRow()]),
   ].join('');
 
   return (
@@ -352,10 +364,13 @@ function hairlineRow(): string {
   );
 }
 
-function noteRow(note: string): string {
+function noteRow(note: string, link?: EmailCta): string {
+  const linkHtml = link
+    ? ` <a href="${escapeHtml(link.url)}" style="color:#1e3a2f;text-decoration:underline">${escapeHtml(link.label)}</a>.`
+    : '';
   return (
     `<tr><td style="padding:20px 32px 32px 32px;font-family:${FONT};font-size:13px;line-height:1.6;color:#71717a">` +
-    `${escapeHtml(note)}</td></tr>`
+    `${escapeHtml(note)}${linkHtml}</td></tr>`
   );
 }
 

@@ -365,6 +365,11 @@ export type JobRunDetail =
       failed: number;
       skipped: number;
       capped: number;
+      /** AECI-1204: findings recorded for the portal with no email (every seat
+       *  muted, or the tier policy). Absent on rows written before it. */
+      portalOnly?: number;
+      /** AECI-1204: digest emails Resend accepted (vendor seats and ops). */
+      digestsSent?: number;
     }
   /** The Stage 2 §7 term-expiry warning sweep (AECI-613). `due` is terms inside
    *  the horizon BEFORE the `expiry_notice_sent_at` fence and `suppressed` is what

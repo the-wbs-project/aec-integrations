@@ -181,8 +181,10 @@ beforeEach(async () => {
     suppressed: 0,
     capped: 0,
     sent: 0,
+    portalOnly: 0,
     failed: 0,
     skipped: 0,
+    digestsSent: 0,
   });
   t = await makeTestDb();
   vi.mocked(getDb).mockReturnValue(t.dbCtx);

@@ -1372,7 +1372,9 @@ is invisible rather than a constraint violation:
 | `attestation.retracted` | `attestation` | AECI-301 — `routes/vendor-attestations.ts` | Supersession, one row per retracted attestation. Pairs with the existing `attestation.created`, which a PUT re-emits for each owned slot. `metadata.source = 'vendor-portal'`. |
 | `claim.converted` | `claim` | AECI-604 — `lib/promote-claims.ts` | The **only** action that changes provenance rather than creating or deleting: AECi withdraws curation from a claim a vendor has attested, so `origin` flips `aeci` → `vendor` instead of the row being dropped. Carries `before_state`/`after_state`; the wholesale delete it replaced emitted nothing at all. |
 | `product_version.created` / `.updated` / `.deleted` | `product_version` | AECI-607 — `routes/vendor-product-versions.ts` | `metadata.source = 'vendor-portal'` plus `vendorId` / `productId`. The `entity_type` is the only new value this epic introduced. |
-| `notification.sent` | **`claim`** | AECI-302 — `lib/attestation-notify.ts` | Note the `entity_type`: this is the §7.3 anti-nag **dedupe ledger**, deliberately keyed to the claim it concerns rather than to a notification entity, because decision §1.3(6) ships no notifications table. `GET /api/vendor/notifications` reads these same rows. Written only after a *successful* send, so a failed or skipped one is retried by the next sweep. |
+| `notification.sent` | **`claim`** | AECI-302 — `lib/attestation-notify.ts` | Note the `entity_type`: this is the §7.3 anti-nag **dedupe ledger**, deliberately keyed to the claim it concerns rather than to a notification entity, because decision §1.3(6) ships no notifications table. `GET /api/vendor/notifications` reads these same rows. Written after delivery, one row per due finding. Since AECI-1204 (2026-10-01) the email is one daily digest per seat, and the row is written when at least one seat got the digest, **or** when every seat was deliberately not emailed (muted, or tier-suppressed). It is not written when no seat got it and a send failed, nor when nothing could be attempted, so the next sweep retries. Metadata: `detector`, `vendorId` (null for ops), `emailedSeats` (seats with `sent` or `duplicate`, 0 means portal only), `notificationId` (`attestation-digest` or `attestation-ops-digest`), plus the send-time snapshot. Rule: `STAGE_2_ATTESTATIONS_SPEC.md` §7.3. |
+| `notification_preferences.created` | `profile` | AECI-1204 — `lib/notification-preferences.ts` | Actor `system`. The attestation sweep creates a seat's row lazily, only for seats it is about to email, in the same batch. `metadata` holds no token. |
+| `notification_preferences.updated` | `profile` | AECI-1204 — `routes/notification-preferences.ts` | Every mute or unmute. `entity_id` is the profile id. `before_state` and `after_state` are `{ nudgesMuted }`. `metadata.source` is `vendor-portal` or `one-click`. A no-op writes nothing. The mute token is never audited. |
 
 **Actions AECI-1008 added** (integration field contests, `STAGE_2_VENDOR_PORTAL_SPEC.md` §11b):
 
@@ -3242,7 +3244,7 @@ hash is unsalted. An empty string marks a `skipped` send that had no recipient.
 A send with no dedupe key stores NULL, and SQLite treats NULLs as distinct under a UNIQUE
 index, so it never conflicts. The index is not partial because an upsert conflict target
 cannot be partial, the same trade as `page_views.dedupe_key` (§9.1). Senders do not pass keys
-yet. AECI-1203, AECI-1204 and AECI-1205 add them.
+yet. AECI-1203, AECI-1204 and AECI-1205 add them. **AECI-1204 added its keys for the two attestation digests** (`attestation-digest:{vendorId}:{profileId}:{YYYY-MM-DD}` and `attestation-ops-digest:{YYYY-MM-DD}:{first 16 hex of the recipient hash}`, `STAGE_2_ATTESTATIONS_SPEC.md` §7.2).
 
 The digests make one Resend call for several recipients, with no dedupe key. They write one
 settled row per recipient after the call, all sharing the Resend id. Each recipient refused
@@ -3268,6 +3270,52 @@ against the recipient or notification index.
 on the same whole-UTC-day, chunked-by-`id` mechanism as `page_views` §9.1. A snapshot gap stops
 it too, because the prune aborts the whole run. Window: `NOTIFICATION_SENDS_RETENTION_DAYS` in
 `@aeci/shared`, overridable per tier by the like-named env var. `ADMIN_PANEL_SPEC.md` §7.4.
+
+### 9.10 `notification_preferences`
+
+Per-seat email preferences (AECI-1204, migration `0054_boring_hardball.sql`). One setting today:
+whether a `vendor_admin` seat has muted the daily attestation digest. It is per seat, so one
+colleague muting does not silence the others. The mute covers the `attestation-digest` only.
+Seat invites, claim decisions and entitlement-expiry mail still send.
+
+```sql
+create table notification_preferences (
+  profile_id text primary key references profiles(id) on delete cascade,
+  nudges_muted_at text,            -- ISO-8601 when muted; null = not muted
+  mute_token text not null,        -- opaque randomUUID(); bearer capability for the one-click mute
+  created_at text not null,
+  updated_at text not null
+);
+
+create unique index notification_preferences_mute_token_key on notification_preferences(mute_token);
+```
+
+**A row exists only for a seat the sweep was about to email, or that has muted.** The attestation
+sweep creates the row lazily, so most profiles have none. No row means not muted. The
+`GET /api/vendor/notification-preferences` read never creates one. A muted seat is not looked up
+in `auth.users` and gets no token minted.
+
+**`mute_token` is a bearer capability**, the same class as `mailing_list.unsubscribe_token` (§2a and
+`AUTH_AND_RLS.md`). Whoever presents it mutes that seat with no other credential. It is generated
+with `crypto.randomUUID()`, never logged, never audited and never returned by any read. It rides
+only in the digest's `List-Unsubscribe` header and footer link. The unique index is the lookup
+path for `POST /api/notifications/nudges/mute`.
+
+**Domain state, so every write audits** (`notification_preferences.created` and
+`notification_preferences.updated`, listed in §8.4) in the same `db.batch`. The one-click route
+acts as the seat that owns the token.
+
+**Cascade hazard.** `profile_id` is `ON DELETE CASCADE`. A drizzle-kit table recreate of `profiles`
+fires that cascade into this table and wipes every mute, and a wiped mute silently starts emailing
+seats that opted out. Treat `profiles` recreates as in `docs/migrations.md` §0. Erasing an account
+deletes the row with the profile, which is intended.
+
+**Migration `0054`** is a plain `CREATE TABLE` plus `CREATE UNIQUE INDEX`. It is not a recreate and
+cannot cascade.
+
+**Read and written by** `apps/api/src/lib/notification-preferences.ts`, called from
+`routes/notification-preferences.ts` and the sweep in `lib/attestation-notify.ts`. Contract:
+`API_CONTRACTS.md` §6.14 and the public route beside `POST /api/unsubscribe`.
 
 ---
 
