@@ -2505,7 +2505,7 @@ Claim approved / rejected notifications over **Resend** (`apps/api/src/lib/email
 - Add `'claim-approved'` and `'claim-rejected'` to the `EmailTemplate` union (~:60-72) — the id is also the `template:` metric tag on `aeci.email.send`. Since AECI-1199 the union is gone: an id is an entry in `apps/api/src/lib/notifications/registry.ts`, and `EmailTemplate` is derived from it.
 - Add `sendClaimApprovedEmail` / `sendClaimRejectedEmail` helpers modeled on `sendReviewApprovedEmail` / `sendReviewRejectedEmail` (~:168-220): build `text`/`html` via `toText()`/`toHtml()`, call `sendTransactionalEmail` (never throws; absent key/sender/recipient → `'skipped'`).
 - Fire from the §3 grant/reject handler via `c.executionCtx.waitUntil(...)`, to the claim's `submitter_email`.
-- Update the template catalogue in `docs/email.md`.
+- Update the template catalogue in `docs/email.md`. Since AECI-1200 the catalogue is `docs/NOTIFICATIONS.md`, generated from the notification registry.
 
 Billing/invoice notices are a Paid-Tiers concern (`STAGE_2_SPEC.md` §2.2 / AECI-515), not this issue — **now owned by AECI-613** (`entitlement-expiring` / `entitlement-expiring-admin`, `docs/STAGE_2_PAID_TIERS_SPEC.md` §7).
 

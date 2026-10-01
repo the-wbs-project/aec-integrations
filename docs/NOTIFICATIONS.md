@@ -1,0 +1,185 @@
+# Notifications
+
+<!-- Generated from apps/api/src/lib/notifications/registry.ts. Do not edit by hand; run `pnpm docs:notifications`. -->
+
+> Generated from `apps/api/src/lib/notifications/registry.ts`. Do not edit by hand; run `pnpm docs:notifications`.
+
+## What this is
+
+This is the list of every notification AECi sends: email, vendor portal rows and Linear
+writes. It is rendered from the notification registry,
+`apps/api/src/lib/notifications/registry.ts` (AECI-1199). The registry is the source of
+truth. To change a row here, change the registry entry and run
+`pnpm docs:notifications`. Root `pnpm lint` fails when this file is stale.
+
+Each entry records today's behaviour, including known gaps. Change an entry in the same
+commit that changes the behaviour it describes.
+
+**Every sender must name an entry.** The types enforce it, and
+`apps/api/src/lib/notifications/registry-coverage.spec.ts` scans `apps/api/src` and fails
+on a sender that names no registry id, or on an entry that no code sends.
+`registry.spec.ts` checks each entry's shape and that its doc section exists.
+
+| Sender | Takes |
+|---|---|
+| `sendTransactionalEmail` | `template`, typed as `EmailTemplate`, derived from the email entries |
+| `sendEmail` (cron digests) | a required `notification` digest id |
+| Every `notification.sent` audit builder | a `notification` id, recorded as `metadata.notificationId` |
+| `createLinearIssueForRequest`, `createLinearIssueForContest`, `pushRequestResolutionToLinear` | a `notification` field on the input, carried on their logs |
+
+**The tier rule (AECI-1198).** Email to an outside recipient sends from production only.
+Every other tier sends only to the internal allowlist, `thewbsproject.com` and `aecintegrations.com`, matched exactly on the
+domain. Anything else is suppressed and counted as `outcome:suppressed`. A missing or
+unknown `ENV` counts as non-production. The policy is
+`apps/api/src/lib/notifications/delivery-policy.ts`, and `docs/email.md` §Tier delivery
+policy is its governing doc.
+
+- `production-external`: email to an outside person. Sent from production only.
+- `any-tier`: no gate of its own. For email this is operator mail to internal inboxes. A
+  portal row or a Linear write has no outbound message to gate.
+
+**Id scheme.** An email id is its `template:` metric tag. A template sent from a second
+trigger gets a suffixed id: `-retry` for the sweep re-send, `-resend` for an owner re-send.
+The operator `COPY:` of an unsubscribable send is `<template>-operator-copy`. Digests are
+`digest-<name>`, portal rows `portal-<kind>[-<event>]`, Linear writes
+`linear-<subject>-<what>`.
+
+**Ledger** is the durable record that proves a send happened: `audit_log` (a
+`notification.sent` row), `fence-column` (a sent-at column on the entity), `invite-row` (the
+seat invite row), `job_runs` (the cron run record), `linear-issue-id` (the issue id stored
+on the request or contest), or `none`.
+
+**To add a notification,** add its registry entry first, name the id at the sender, then
+run `pnpm docs:notifications` and commit this file.
+
+## Counts
+
+| Channel | Entries |
+|---|---|
+| `email` | 23 |
+| `email+portal` | 4 |
+| `supabase-email` | 1 |
+| `portal` | 14 |
+| `linear` | 4 |
+| **Total** | **46** |
+
+## Email (Resend) (`email`, 23)
+
+Resend email from the API Worker. Transactional sends go through `sendTransactionalEmail`,
+and the id is the `template:` tag on the `aeci.email.send` metric. The cron digests
+(`digest-*`) go through the low-level `sendEmail` transport and count on the same metric.
+Transport, house layout, per-template copy notes and secrets are in `docs/email.md`.
+
+| Id | Summary | Audience | Trigger | Tier rule | Dedupe | Ledger | Opt-out | Doc | Note |
+|---|---|---|---|---|---|---|---|---|---|
+| `account-deleted` | Confirms to a user that their account was deleted. | external | route: DELETE /api/account (routes/account.ts) | `production-external` | None. | `none` | `none` | docs/email.md §Template content notes |  |
+| `attestation-ops-alert` | Tells ADMIN_ALERT_EMAIL about a denied claim or a standing conflict, per finding. | operator | cron: 0 10 attestation sweep (lib/attestation-notify.ts) | `any-tier` | 30 days per (claim, detector, ~ops). | `audit_log` | `none` | docs/STAGE_2_ATTESTATIONS_SPEC.md §7.2 | Its notification.sent row carries vendorId null, so no vendor portal shows it. |
+| `claim-approved` | Tells a claimant their claim was approved. | external | route: PATCH /api/admin/claims/:id (routes/admin-claims.ts) | `production-external` | Re-approving an already-seated claim is a no-op and sends nothing. | `none` | `none` | docs/STAGE_2_VENDOR_PORTAL_SPEC.md §9 |  |
+| `claim-rejected` | Tells a claimant their claim was not approved, without the reviewer reason. | external | route: PATCH /api/admin/claims/:id (routes/admin-claims.ts) | `production-external` | Status guard: open or in-review claims only. | `none` | `none` | docs/STAGE_2_VENDOR_PORTAL_SPEC.md §9 |  |
+| `claim-submitted-alert` | Tells CLAIM_ALERT_EMAIL a vendor claimed a listing, after the Linear attempt. | operator | route: POST /api/requests/claim (routes/requests.ts) | `any-tier` | Claims only, not corrections. None on the send. | `none` | `none` | docs/email.md §Template content notes | LINEAR_API_KEY is set on production only. On staging and demo no issue is created, so the Linear row reads "not created, Linear is not configured on this tier" (AECI-1198). |
+| `claim-submitted-alert-retry` | Re-sends the claim alert when the sweep finally creates the Linear issue. | operator | sweep: */15 reconciliation sweep (lib/reconciliation-sweep.ts) | `any-tier` | Linear compare-and-set makes it once per request. It is a second email when claim-submitted-alert already went out. | `none` | `none` | docs/email.md §Template content notes | Same template as claim-submitted-alert. Needs LINEAR_API_KEY, so production only in practice. |
+| `contest-submitted-alert` | Tells CLAIM_ALERT_EMAIL a vendor filed a contest that AECi must decide. | operator | route: POST /api/vendor/integrations/:id/contests (routes/vendor-contests.ts) | `any-tier` | None. Sent only when the contest routes to AECi. | `none` | `none` | docs/STAGE_2_VENDOR_PORTAL_SPEC.md §11b.8 |  |
+| `digest-analytics` | Sends ANALYTICS_DIGEST_EMAIL_TO the prior day's traffic digest. | operator | cron: 0 5 analytics digest (scheduled.ts runAnalyticsDigestJob) | `any-tier` | None. | `job_runs` | `none` | docs/email.md §Cron digests | ANALYTICS_DIGEST_EMAIL_TO is set on production only. |
+| `digest-data-quality` | Sends DATA_QUALITY_EMAIL_TO the daily data-quality check results. | operator | cron: 0 4 data-quality job (scheduled.ts runDataQualityJob) | `any-tier` | None. Sends on a clean run too, so silence means the cron failed. | `job_runs` | `none` | docs/email.md §Cron digests | DATA_QUALITY_EMAIL_TO is set on staging, demo and production, so the support inbox gets one a day from each. |
+| `entitlement-expiring` | Warns a vendor's seats that their plan term ends soon. | external | cron: 0 11 entitlement-expiry sweep (lib/entitlement-expiry.ts) | `production-external` | expiry_notice_sent_at fence: one notice per term, 30 days out. | `fence-column` | `none` | docs/STAGE_2_PAID_TIERS_SPEC.md §7.2 |  |
+| `entitlement-expiring-admin` | Tells ADMIN_ALERT_EMAIL a vendor term ends soon, with payer and invoice ref. | operator | cron: 0 11 entitlement-expiry sweep (lib/entitlement-expiry.ts) | `any-tier` | Same fence as entitlement-expiring. | `fence-column` | `none` | docs/STAGE_2_PAID_TIERS_SPEC.md §7.2 |  |
+| `landing-feedback` | Tells ADMIN_ALERT_EMAIL someone submitted feedback. | operator | route: POST /api/feedback (routes/landing-forms.ts) | `any-tier` | None. Every submit sends. | `none` | `none` | docs/email.md §Template content notes | The feedback row records the submission, not the send. |
+| `landing-signup` | Tells ADMIN_ALERT_EMAIL someone joined the mailing list. | operator | route: POST /api/subscribe (routes/landing-forms.ts) | `any-tier` | Same as mailing-list-welcome. | `none` | `none` | docs/email.md §Template content notes |  |
+| `mailing-list-welcome` | Welcomes a new mailing-list subscriber. | external | route: POST /api/subscribe (routes/landing-forms.ts) | `production-external` | Not sent to an address that is already active. Sent again on every unsubscribe then resubscribe. | `none` | `mailing-list-unsubscribe` | docs/email.md §Template content notes | The mailing_list row is a log-class record of the subscription, not of the send. |
+| `mailing-list-welcome-operator-copy` | Sends the EMAIL_BCC list a COPY: of the welcome, with an inert unsubscribe link. | operator | route: POST /api/subscribe (routes/landing-forms.ts) | `any-tier` | Sent only after mailing-list-welcome was sent. | `none` | `none` | docs/email.md §Architecture | Not counted in aeci.email.send. A failed copy only warns. |
+| `review-approved` | Tells a reviewer their review was approved. | external | route: PATCH /api/admin/reviews/:id (routes/admin-reviews.ts) | `production-external` | Pending-only pre-check. Two admins racing can both pass it. | `none` | `none` | docs/email.md §Template content notes |  |
+| `review-rejected` | Tells a reviewer their review needs revision, with the moderator's reason. | external | route: PATCH /api/admin/reviews/:id (routes/admin-reviews.ts) | `production-external` | Pending-only pre-check. Two admins racing can both pass it. | `none` | `none` | docs/email.md §Template content notes |  |
+| `review-submitted` | Tells a reviewer their review is in moderation. | external | route: POST /api/reviews (routes/reviews.ts) | `production-external` | None on the send. A partial-unique index blocks a duplicate review. | `none` | `none` | docs/email.md §Template content notes |  |
+| `review-submitted-alert` | Tells ADMIN_ALERT_EMAIL a review is waiting for moderation. | operator | route: POST /api/reviews (routes/reviews.ts) | `any-tier` | None. | `none` | `none` | docs/email.md §Template content notes |  |
+| `stale-claim-ticket-alert` | Tells FOUNDER_ALERT_EMAIL which claim tickets nobody has started after 24 hours. | operator | cron: 25 */6 claim-stale-check (lib/claim-stale-check.ts) | `any-tier` | Stateless bands: 24 hours, then daily. | `none` | `none` | docs/STAGE_1_PHASE_6_SPEC.md §6.4a | Production only in practice. Staging and demo create no Linear issues, and FOUNDER_ALERT_EMAIL is unset on demo. |
+| `stuck-request-alert` | Tells ADMIN_ALERT_EMAIL which requests are stuck in the Linear pipeline. | operator | sweep: */15 reconciliation sweep (lib/reconciliation-sweep.ts, lib/admin-alert.ts) | `any-tier` | Stateless age bands: 60 minutes, 6 hours, then daily (lib/alert-bands.ts). | `none` | `none` | docs/STAGE_1_PHASE_6_SPEC.md §6.4 | LINEAR_API_KEY is set on production only, so every staging and demo request stays unlinked. The sweep skips this email there. The metric and error log still fire (AECI-1198). |
+| `vendor-seat-invite` | Invites a colleague, typed by a vendor owner, to take a seat. | external | route: POST /api/vendor/seats/invites (routes/vendor-seat-invites.ts) | `production-external` | 10 per vendor per day, plus a per-vendor burst bucket. | `invite-row` | `none` | docs/STAGE_2_VENDOR_PORTAL_SPEC.md §11a.5 |  |
+| `vendor-seat-invite-resend` | Re-sends a pending seat invite. | external | route: POST /api/vendor/seats/invites/:id/resend (routes/vendor-seat-invites.ts) | `production-external` | 5-minute cooldown on last_sent_at, 4 sends per invite on send_count. | `invite-row` | `none` | docs/STAGE_2_VENDOR_PORTAL_SPEC.md §11a.9 | Same template as vendor-seat-invite. |
+
+## Email plus vendor portal row (`email+portal`, 4)
+
+One notification on two surfaces: the attestation sweep's email, plus a
+`notification.sent` row the vendor portal shows. The portal row is written only when the
+email was sent, and it is the ledger the 30-day dedupe reads.
+
+| Id | Summary | Audience | Trigger | Tier rule | Dedupe | Ledger | Opt-out | Doc | Note |
+|---|---|---|---|---|---|---|---|---|---|
+| `attestation-claim-denied` | Tells the silent counterparty that every voter denied a flow on its product. | external | cron: 0 10 attestation sweep (lib/attestation-notify.ts) | `production-external` | 30 days per (claim, detector, vendor). No age threshold. | `audit_log` | `none` | docs/STAGE_2_ATTESTATIONS_SPEC.md §7.2 | The portal row is written only when the email was sent. Never sent on a connector-powered edge (AECI-705). |
+| `attestation-open-conflict` | Tells both disputing vendors their positions on a flow conflict. | external | cron: 0 10 attestation sweep (lib/attestation-notify.ts) | `production-external` | 30 days per (claim, detector, vendor), read from the notification.sent rows. | `audit_log` | `none` | docs/STAGE_2_ATTESTATIONS_SPEC.md §7.2 | The portal row is written only when the email was sent. Never sent on a connector-powered edge (AECI-705). |
+| `attestation-silent-counterparty` | Nudges a vendor whose counterparty affirmed a flow it has not answered. | external | cron: 0 10 attestation sweep (lib/attestation-notify.ts) | `production-external` | 30 days per (claim, detector, vendor), read from the notification.sent rows. | `audit_log` | `none` | docs/STAGE_2_ATTESTATIONS_SPEC.md §7.2 | The portal row is written only when the email was sent. Never sent on a connector-powered edge (AECI-705). |
+| `attestation-stale-version` | Asks a vendor to re-confirm, version or withdraw an aged attestation. | external | cron: 0 10 attestation sweep (lib/attestation-notify.ts) | `production-external` | 30 days per (claim, detector, vendor), read from the notification.sent rows. | `audit_log` | `none` | docs/STAGE_2_ATTESTATIONS_SPEC.md §7.2 | The portal row is written only when the email was sent. Never sent on a connector-powered edge (AECI-705). |
+
+## Supabase Auth email (`supabase-email`, 1)
+
+Supabase Auth sends this itself, over the Resend SMTP relay. No app code sends it, so the
+tier rule cannot stop it and no metric counts it. The template is
+`docs/email-templates/magic-link.html`.
+
+| Id | Summary | Audience | Trigger | Tier rule | Dedupe | Ledger | Opt-out | Doc | Note |
+|---|---|---|---|---|---|---|---|---|---|
+| `supabase-sign-in` | The magic-link or confirm-signup email for anyone who signs in. | external | supabase: signInWithOtp (apps/web/src/app/auth/auth.service.ts) | `any-tier` | GoTrue's own rate limits. | `none` | `none` | docs/email.md §Magic-link sender | Supabase sends it over the Resend SMTP relay. No app code sends it, so the tier gate cannot stop it. |
+
+## Vendor portal feed only (`portal`, 14)
+
+Delivered only as `notification.sent` audit rows, written in the same `db.batch` as the
+change that caused them. The row is its own ledger. The vendor portal reads them through
+`GET /api/vendor/notifications`, and revalidates on the `GET /api/vendor/updates` cursor.
+None of these sends email and none has an opt-out, so a vendor learns of one only by
+opening the portal. The portal copy lives in `vendor-notifications-list.ts` and
+`vendor-contest-labels.ts` in `apps/web`. Per-side link writes (AECI-1007) send no
+notification at all.
+
+| Id | Summary | Audience | Trigger | Tier rule | Dedupe | Ledger | Opt-out | Doc | Note |
+|---|---|---|---|---|---|---|---|---|---|
+| `portal-claim-added` | Tells a vendor another vendor added a data row to an integration on its product. | external | route: PUT /api/vendor/claims/:claimId/attestation (routes/vendor-attestations.ts) | `any-tier` | One row per recipient, in the attestation batch. | `audit_log` | `none` | docs/STAGE_2_ATTESTATIONS_SPEC.md §7.6 |  |
+| `portal-contest-closed-by-retire` | Tells the other side of an open contest that a retire closed it. | external | route: POST /api/{vendor,admin}/integrations/:id/retire (routes/integration-retire-write.ts) | `any-tier` | One row per closed contest, in the retire batch. | `audit_log` | `none` | docs/STAGE_2_VENDOR_PORTAL_SPEC.md §11b.8 |  |
+| `portal-contest-decided-by-aeci` | Tells the submitter AECi accepted or declined its contest. | external | route: PATCH /api/admin/contests/:id (routes/admin-contests.ts) | `any-tier` | One row per transition, in the transition batch. | `audit_log` | `none` | docs/STAGE_2_VENDOR_PORTAL_SPEC.md §11b.8 |  |
+| `portal-contest-decided-by-owner` | Tells the submitter the owner accepted or declined its contest. | external | route: POST /api/vendor/contests/:id/decision (routes/vendor-contests.ts) | `any-tier` | One row per transition, in the transition batch. | `audit_log` | `none` | docs/STAGE_2_VENDOR_PORTAL_SPEC.md §11b.8 | A decline carries the 30-day protest deadline, which reaches the vendor only here. |
+| `portal-contest-protest-decided` | Tells both vendors whether AECi upheld or rejected a protest. | external | route: PATCH /api/admin/contests/:id/protest (routes/admin-contest-protests.ts) | `any-tier` | One row per side, in the decision batch. | `audit_log` | `none` | docs/STAGE_2_VENDOR_PORTAL_SPEC.md §11b.12.10 |  |
+| `portal-contest-protest-replied` | Tells the submitter the owner replied to its protest. | external | route: POST /api/vendor/contests/:id/protest/reply (routes/vendor-contest-protests.ts) | `any-tier` | One row per protest step, in the step batch. | `audit_log` | `none` | docs/STAGE_2_VENDOR_PORTAL_SPEC.md §11b.12.10 |  |
+| `portal-contest-protest-withdrawn` | Tells the owner a protest on its integration was withdrawn. | external | route: POST /api/vendor/contests/:id/protest/withdraw (routes/vendor-contest-protests.ts) | `any-tier` | One row per protest step, in the step batch. | `audit_log` | `none` | docs/STAGE_2_VENDOR_PORTAL_SPEC.md §11b.12.10 |  |
+| `portal-contest-protested` | Tells the owner a submitter asked AECi to review a contest. | external | route: POST /api/vendor/contests/:id/protest (routes/vendor-contest-protests.ts) | `any-tier` | One row per protest step, in the step batch. | `audit_log` | `none` | docs/STAGE_2_VENDOR_PORTAL_SPEC.md §11b.12.10 | Carries the 14-day reply deadline, which reaches the owner only here. |
+| `portal-contest-submitted` | Tells the owner a vendor contested a field on its integration. | external | route: POST /api/vendor/integrations/:id/contests (routes/vendor-contests.ts) | `any-tier` | One row per transition, in the transition batch. | `audit_log` | `none` | docs/STAGE_2_VENDOR_PORTAL_SPEC.md §11b.8 |  |
+| `portal-contest-withdrawn` | Tells the owner a contest on its integration was withdrawn. | external | route: POST /api/vendor/contests/:id/withdraw (routes/vendor-contests.ts) | `any-tier` | One row per transition, in the transition batch. | `audit_log` | `none` | docs/STAGE_2_VENDOR_PORTAL_SPEC.md §11b.8 |  |
+| `portal-integration-claim` | Tells the other endpoint vendors that a vendor now owns an integration. | external | route: POST /api/vendor/integrations/:id/claim (routes/vendor-integration-claims.ts); owner accept in routes/admin-contests.ts | `any-tier` | One row per recipient, in the claim batch. | `audit_log` | `none` | docs/STAGE_2_VENDOR_PORTAL_SPEC.md §4.5 |  |
+| `portal-integration-create` | Tells the other endpoint vendors a vendor created an integration on their product. | external | route: POST /api/vendor/integrations (routes/vendor-integration-create.ts) | `any-tier` | One row per recipient, in the create batch. | `audit_log` | `none` | docs/STAGE_2_VENDOR_PORTAL_SPEC.md §4.7 |  |
+| `portal-integration-retire` | Tells the endpoint vendors an integration was retired or restored. | external | route: POST /api/{vendor,admin}/integrations/:id/{retire,restore} (routes/integration-retire-write.ts) | `any-tier` | One row per recipient, in the write batch. | `audit_log` | `none` | docs/STAGE_2_VENDOR_PORTAL_SPEC.md §4.6 |  |
+| `portal-integration-update` | Tells the other endpoint vendors the owner edited an integration. | external | route: PATCH /api/vendor/integrations/:id (routes/vendor-integration-edits.ts, routes/vendor-evidenced-pair-edits.ts) | `any-tier` | One row per recipient, in the edit batch. | `audit_log` | `none` | docs/STAGE_2_VENDOR_PORTAL_SPEC.md §4.5.6 |  |
+
+## Linear (`linear`, 4)
+
+Writes to Linear. Linear then emails or pings whoever is subscribed there, and AECi does
+not control that fan-out.
+
+| Id | Summary | Audience | Trigger | Tier rule | Dedupe | Ledger | Opt-out | Doc | Note |
+|---|---|---|---|---|---|---|---|---|---|
+| `linear-contest-issue` | Files the REVIEW - issue that carries an accepted contest to the review lane. | operator | route: PATCH /api/admin/contests/:id accept (routes/admin-contests.ts); retried by lib/reconciliation-sweep.ts | `any-tier` | Read-guard on the linked issue id, then a compare-and-set persist. | `linear-issue-id` | `none` | docs/STAGE_2_VENDOR_PORTAL_SPEC.md §11b.6 | LINEAR_API_KEY is set on production only, so staging and demo file no issues. |
+| `linear-request-duplicate-comment` | Comments on a new request issue that it may duplicate an open request. | operator | route: POST /api/requests/{claim,correction} (routes/requests.ts) | `any-tier` | Once per issue create. | `none` | `none` | docs/STAGE_1_PHASE_6_SPEC.md §7.2 | Production only: it needs the issue that linear-request-issue creates. |
+| `linear-request-issue` | Files a Linear issue for a vendor claim or correction. | operator | route: POST /api/requests/{claim,correction} (routes/requests.ts); retried by lib/reconciliation-sweep.ts | `any-tier` | Read-guard on the linked issue id, then a compare-and-set persist. | `linear-issue-id` | `none` | docs/STAGE_1_PHASE_6_SPEC.md §6.1 | LINEAR_API_KEY is set on production only, so staging and demo file no issues. |
+| `linear-request-resolution` | Moves a request's Linear issue to Done or Canceled and comments the reason. | operator | route: PATCH /api/admin/requests/:id (routes/admin-requests.ts) | `any-tier` | None. Each resolve or reject pushes once. | `none` | `none` | docs/STAGE_1_PHASE_6_SPEC.md §6.5 | The site-linear-sync workflow_transitions row records the sync, not a send. Production only: other tiers have no linked issue to move. |
+
+## Monitoring alerts (not product notifications, 15)
+
+These PostHog alerts tell the operator about the system, not a person about an event in
+the product, so they are not registry entries. They are defined in
+`observability/posthog/alerts.json`. They apply to `prod`. The subscribers are `chrisw@thewbsproject.com`, from
+`observability/posthog/project-config.json` (`alertSubscribers`). `docs/OBSERVABILITY.md`
+governs them.
+
+| Key | Name | Interval |
+|---|---|---|
+| `algolia-orphan-cap` | AECi — Algolia orphan sweep capped | hourly |
+| `auth-error-rate` | AECi — Auth sign-in error rate > 30% (1 h) | hourly |
+| `cron-job-failed` | AECi — Cron job failed (any daily/hourly job) | hourly |
+| `data-quality-error` | AECi — Data quality check found ERROR-severity issues | hourly |
+| `detail-render-p95` | AECi — p95 detail page render > 1.5 s (1 h) | hourly |
+| `indexnow-failure-rate` | AECi — Search-engine pings refused (> 90% over 72 h) | daily |
+| `linear-pipeline-failure` | AECi — Linear pipeline failure rate > 50% (1 h) | hourly |
+| `pageviews-write-errors` | AECi — page_views write error rate > 10% (1 h) | hourly |
+| `profile-ensure-failed` | AECi — Account record could not be created (any, 1 h) | hourly |
+| `reconcile-persistent-stuck` | AECi — Linear reconciliation: persistent stuck requests | hourly |
+| `retention-runaway` | AECi — Retention prune runaway (> 5,000 rows/table/day) | hourly |
+| `toxicity-outage` | AECi — Toxicity scoring outage (> 50% errors, 1 h) | hourly |
+| `waf-ratelimit-spike` | AECi — WAF rate-limit / challenge spike (> 2,000 / 1 h) | hourly |
+| `webhook-hmac-failure` | AECi — Linear webhook HMAC failures > 3 (1 h) | hourly |
+| `worker-error-rate` | AECi — Worker error rate > 1% (1 h) | hourly |

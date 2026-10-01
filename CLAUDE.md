@@ -91,7 +91,8 @@ If your work touches a topic below, that document is the truth, not your prior k
 | Search ranking: Algolia settings and signals | `docs/SEARCH_RANKING.md` |
 | Observability (PostHog only): metrics, dashboards, alerts | `docs/OBSERVABILITY.md`; migration record `docs/POSTHOG_MIGRATION_SPEC.md`, ADR 0024 |
 | Analytics: baseline snapshot; product event catalogue | `docs/ANALYTICS_BASELINE.md`; `docs/ANALYTICS.md` |
-| Transactional email, magic-link SMTP, deliverability | `docs/email.md` |
+| Transactional email transport, house layout, magic-link SMTP, deliverability | `docs/email.md` |
+| Every notification we send: channels, audience, tier rule, dedupe, ledger, opt-out | `docs/NOTIFICATIONS.md` (generated from `apps/api/src/lib/notifications/registry.ts`; `pnpm docs:notifications`) |
 | Incident runbooks; post-launch monitoring and health log | `docs/RUNBOOKS.md`; `docs/POST_LAUNCH_MONITORING.md`; `docs/POST_LAUNCH_HEALTH_REPORT.md` |
 | Admin panel / operator console | `docs/ADMIN_PANEL_SPEC.md` |
 | Launch / DNS cutover runbook | `docs/launch-cutover-runbook.md` |

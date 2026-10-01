@@ -231,7 +231,7 @@ guarantees: check before editing.
 - **Resend client** — `apps/api/src/lib/email.ts`, fail-open, `EmailTemplate` +
   `docs/email.md` catalogue. §7 adds template ids here. Since AECI-1199 a template id is an entry in
   the notification registry, `apps/api/src/lib/notifications/registry.ts`, and `EmailTemplate` is
-  derived from it.
+  derived from it. The catalogue is `docs/NOTIFICATIONS.md`, generated from the registry (AECI-1200).
 - **`data_object` vocabulary** — frozen and closed (`docs/DATA_OBJECT_VOCABULARY.md`).
   Find-only resolution; **a vendor cannot mint a term** any more than promote can.
 

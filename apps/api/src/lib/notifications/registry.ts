@@ -79,7 +79,8 @@ export interface NotificationEntry {
   note?: string;
 }
 
-const CATALOGUE = 'docs/email.md §Template catalogue';
+/** Per-template subject, layout and copy notes. */
+const CATALOGUE = 'docs/email.md §Template content notes';
 
 export const NOTIFICATIONS = {
   // ─── Email: transactional (`sendTransactionalEmail`) ──────────────────────
@@ -196,6 +197,7 @@ export const NOTIFICATIONS = {
     optOut: 'none',
     doc: CATALOGUE,
     summary: 'Tells CLAIM_ALERT_EMAIL a vendor claimed a listing, after the Linear attempt.',
+    note: 'LINEAR_API_KEY is set on production only. On staging and demo no issue is created, so the Linear row reads "not created, Linear is not configured on this tier" (AECI-1198).',
   },
   'claim-submitted-alert-retry': {
     channel: 'email',
@@ -288,7 +290,7 @@ export const NOTIFICATIONS = {
     optOut: 'none',
     doc: 'docs/STAGE_1_PHASE_6_SPEC.md §6.4',
     summary: 'Tells ADMIN_ALERT_EMAIL which requests are stuck in the Linear pipeline.',
-    note: 'Skipped on a non-production tier with no LINEAR_API_KEY (AECI-1198).',
+    note: 'LINEAR_API_KEY is set on production only, so every staging and demo request stays unlinked. The sweep skips this email there. The metric and error log still fire (AECI-1198).',
   },
   'stale-claim-ticket-alert': {
     channel: 'email',
@@ -300,6 +302,7 @@ export const NOTIFICATIONS = {
     optOut: 'none',
     doc: 'docs/STAGE_1_PHASE_6_SPEC.md §6.4a',
     summary: 'Tells FOUNDER_ALERT_EMAIL which claim tickets nobody has started after 24 hours.',
+    note: 'Production only in practice. Staging and demo create no Linear issues, and FOUNDER_ALERT_EMAIL is unset on demo.',
   },
   'attestation-silent-counterparty': {
     channel: 'email+portal',
@@ -311,7 +314,7 @@ export const NOTIFICATIONS = {
     optOut: 'none',
     doc: 'docs/STAGE_2_ATTESTATIONS_SPEC.md §7.2',
     summary: 'Nudges a vendor whose counterparty affirmed a flow it has not answered.',
-    note: 'The portal row is written only when the email was sent.',
+    note: 'The portal row is written only when the email was sent. Never sent on a connector-powered edge (AECI-705).',
   },
   'attestation-open-conflict': {
     channel: 'email+portal',
@@ -323,7 +326,7 @@ export const NOTIFICATIONS = {
     optOut: 'none',
     doc: 'docs/STAGE_2_ATTESTATIONS_SPEC.md §7.2',
     summary: 'Tells both disputing vendors their positions on a flow conflict.',
-    note: 'The portal row is written only when the email was sent.',
+    note: 'The portal row is written only when the email was sent. Never sent on a connector-powered edge (AECI-705).',
   },
   'attestation-stale-version': {
     channel: 'email+portal',
@@ -335,7 +338,7 @@ export const NOTIFICATIONS = {
     optOut: 'none',
     doc: 'docs/STAGE_2_ATTESTATIONS_SPEC.md §7.2',
     summary: 'Asks a vendor to re-confirm, version or withdraw an aged attestation.',
-    note: 'The portal row is written only when the email was sent.',
+    note: 'The portal row is written only when the email was sent. Never sent on a connector-powered edge (AECI-705).',
   },
   'attestation-claim-denied': {
     channel: 'email+portal',
@@ -347,7 +350,7 @@ export const NOTIFICATIONS = {
     optOut: 'none',
     doc: 'docs/STAGE_2_ATTESTATIONS_SPEC.md §7.2',
     summary: 'Tells the silent counterparty that every voter denied a flow on its product.',
-    note: 'The portal row is written only when the email was sent.',
+    note: 'The portal row is written only when the email was sent. Never sent on a connector-powered edge (AECI-705).',
   },
   'attestation-ops-alert': {
     channel: 'email',
@@ -395,6 +398,7 @@ export const NOTIFICATIONS = {
     optOut: 'none',
     doc: 'docs/email.md §Cron digests',
     summary: 'Sends DATA_QUALITY_EMAIL_TO the daily data-quality check results.',
+    note: 'DATA_QUALITY_EMAIL_TO is set on staging, demo and production, so the support inbox gets one a day from each.',
   },
   'digest-analytics': {
     channel: 'email',
@@ -637,7 +641,7 @@ export const NOTIFICATIONS = {
     optOut: 'none',
     doc: 'docs/STAGE_1_PHASE_6_SPEC.md §6.1',
     summary: 'Files a Linear issue for a vendor claim or correction.',
-    note: 'LINEAR_API_KEY is set on production only, so no other tier files issues.',
+    note: 'LINEAR_API_KEY is set on production only, so staging and demo file no issues.',
   },
   'linear-request-duplicate-comment': {
     channel: 'linear',
@@ -649,6 +653,7 @@ export const NOTIFICATIONS = {
     optOut: 'none',
     doc: 'docs/STAGE_1_PHASE_6_SPEC.md §7.2',
     summary: 'Comments on a new request issue that it may duplicate an open request.',
+    note: 'Production only: it needs the issue that linear-request-issue creates.',
   },
   'linear-contest-issue': {
     channel: 'linear',
@@ -663,6 +668,7 @@ export const NOTIFICATIONS = {
     optOut: 'none',
     doc: 'docs/STAGE_2_VENDOR_PORTAL_SPEC.md §11b.6',
     summary: 'Files the REVIEW - issue that carries an accepted contest to the review lane.',
+    note: 'LINEAR_API_KEY is set on production only, so staging and demo file no issues.',
   },
   'linear-request-resolution': {
     channel: 'linear',
@@ -674,7 +680,7 @@ export const NOTIFICATIONS = {
     optOut: 'none',
     doc: 'docs/STAGE_1_PHASE_6_SPEC.md §6.5',
     summary: "Moves a request's Linear issue to Done or Canceled and comments the reason.",
-    note: 'The site-linear-sync workflow_transitions row records the sync, not a send.',
+    note: 'The site-linear-sync workflow_transitions row records the sync, not a send. Production only: other tiers have no linked issue to move.',
   },
 } as const satisfies Record<string, NotificationEntry>;
 
