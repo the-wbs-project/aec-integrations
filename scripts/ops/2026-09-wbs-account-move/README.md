@@ -173,7 +173,7 @@ Export the production D1 from the old account:
 cd "$(mktemp -d)" && CLOUDFLARE_ACCOUNT_ID=e62ec9d8012c3e0c225f8e4dbab76b79 npx -y wrangler@4.123.0 d1 export aeci-app-production --remote --output prod.sql && pwd
 ```
 
-Import it into the WBS staging D1, from the same directory:
+Reorder it so every table exists before any rows go in. A raw export fails with `no such table: main.profiles`, because `audit_log` rows reference `profiles`. Then import the ordered file:
 
 ```bash
 CLOUDFLARE_ACCOUNT_ID=004dc1af737b22a8aa83b3550fa9b9d3 npx -y wrangler@4.123.0 d1 execute aeci-app-staging --remote --file prod.sql
