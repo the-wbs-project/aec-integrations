@@ -133,7 +133,7 @@ export function buildRetireBatch(db: Db, input: RetireBatchInput): RetireBatch {
     },
   };
   const notices = input.recipients.map((recipient) =>
-    retireNotificationAudit(actor, {
+    retireNotificationAudit('portal-integration-retire', actor, {
       event,
       retiredBy: input.retiredBy,
       vendorId: recipient,
@@ -232,7 +232,7 @@ function contestCloseStatements(
     // `closed_by_retire` event, addressed to the submitter vendor, in the same batch.
     const submitterNotice =
       contest.submitterVendorId !== input.actingVendorId
-        ? contestNotificationAudit(actor, {
+        ? contestNotificationAudit('portal-contest-closed-by-retire', actor, {
             vendorId: contest.submitterVendorId,
             contestId: contest.id,
             integrationId: anchor.id,
@@ -328,6 +328,7 @@ export function buildPairRetireBatch(db: Db, input: PairRetireBatchInput): Retir
   };
   const notices = input.recipients.map((recipient) =>
     retireNotificationAudit(
+      'portal-integration-retire',
       actor,
       {
         event,

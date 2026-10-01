@@ -29,8 +29,13 @@
  *   - **Sane timeout** via `AbortSignal.timeout` so a slow provider never hangs the
  *     `waitUntil` budget (transactional layer).
  *
+ * **Every send names a registry entry (AECI-1199).** `lib/notifications/registry.ts` is
+ * the list of everything AECi sends. `template` and `EmailMessage.notification` are typed
+ * from it, and `registry-coverage.spec.ts` fails on a sender that names no entry.
+ *
  * Observability: every transactional attempt emits the `aeci.email.send` count tagged
- * `outcome:sent|failed|skipped|suppressed` + `template:<id>`; failures also `warn` to the
+ * `outcome:sent|failed|skipped|suppressed` + `template:<id>`, where the id is the registry
+ * id. The digests are counted the same way by their cron jobs. Failures also `warn` to the
  * observability plane (`source: 'email'`). Telemetry is wrapped so it can never turn a send
  * into a throw.
  *
@@ -58,6 +63,12 @@ import {
   tierSubject,
   type DeliveryPolicyEnv,
 } from './notifications/delivery-policy';
+import {
+  getNotification,
+  type DigestNotificationId,
+  type EmailNotificationId,
+  type TransactionalEmailId,
+} from './notifications/registry';
 import { adminRequestUrl, environmentHost } from './request-links';
 
 /**
@@ -86,83 +97,15 @@ export type EmailContext = {
  */
 export type EmailOutcome = 'sent' | 'failed' | 'skipped' | 'suppressed';
 
-/** Stable template ids — the `template:` metric tag and the `docs/email.md` catalogue. */
-export type EmailTemplate =
-  | 'review-submitted'
-  | 'review-approved'
-  | 'review-rejected'
-  // Operator alert: a review is waiting for moderation. Recipient is
-  // `ADMIN_ALERT_EMAIL` (the support inbox); sent by `POST /api/reviews` beside
-  // the reviewer's `review-submitted` confirmation.
-  | 'review-submitted-alert'
-  | 'account-deleted'
-  // Mailing-list welcome — the subscriber's first touch (AECI-327). Recipient is
-  // the new subscriber; sent by `POST /api/subscribe` on a real insert.
-  | 'mailing-list-welcome'
-  | 'stuck-request-alert'
-  // Operator lead-capture notifications — retire the `apps/landing` Worker's own
-  // Resend send (AECI-247/277). Recipient is `ADMIN_ALERT_EMAIL`.
-  | 'landing-signup'
-  | 'landing-feedback'
-  // Stage 2 vendor-portal claim decisions (AECI-528 /
-  // `STAGE_2_VENDOR_PORTAL_SPEC.md` §9). Recipient is the claim's `submitter_email`;
-  // sent post-commit from `PATCH /api/admin/claims/:id` (approve → approved,
-  // reject → rejected).
-  | 'claim-approved'
-  | 'claim-rejected'
-  // Stage 2 vendor seat invite (AECI-664 / `STAGE_2_VENDOR_PORTAL_SPEC.md` §11a).
-  // Sent by `POST /api/vendor/seats/invites` on a VENDOR's command, not AECi's —
-  // the only customer-triggered send on the surface, which is why that endpoint
-  // is the only one carrying a rate limit. Carries the redeem link; see
-  // `sendVendorSeatInviteEmail` for why the token is safe in a URL.
-  | 'vendor-seat-invite'
-  // Operator alert on claim INTAKE (not decision): a vendor submitted "claim this
-  // listing" via `POST /api/requests/claim`. Recipient is `CLAIM_ALERT_EMAIL` (the
-  // support inbox), NOT `ADMIN_ALERT_EMAIL`. The claimant gets nothing at submit
-  // time by design — the only claimant-facing mail is the decision pair above.
-  | 'claim-submitted-alert'
-  // Operator alert on a field contest that routes to AECi at submit (AECI-1132 /
-  // `STAGE_2_VENDOR_PORTAL_SPEC.md` §11b.8). An AECi-routed contest has no vendor on
-  // the other side, so it writes no notification row, and without this nobody learns
-  // of it until someone opens `/admin/contests`. Recipient is `CLAIM_ALERT_EMAIL`,
-  // because an `owner` contest is the owner-unknown claim path (§4.5).
-  | 'contest-submitted-alert'
-  // Founder escalation: a claim ticket that EXISTS in Linear and that nobody has
-  // started after 24h (AECI-862). Recipient is `FOUNDER_ALERT_EMAIL`, a third
-  // address on purpose — `stuck-request-alert` means the pipeline is broken and
-  // goes to whoever fixes it, this means the pipeline worked and the humans did
-  // not. Sent by the 6-hourly `claim-stale-check` cron.
-  | 'stale-claim-ticket-alert'
-  // Stage 2 attestation detector nudges (AECI-302 /
-  // `STAGE_2_ATTESTATIONS_SPEC.md` §7.2). Sent by the daily detector sweep
-  // (`lib/attestation-notify.ts`); recipients are the vendor's unbanned
-  // `vendor_admin` seats, resolved through `fetchAuthUserEmails`.
-  | 'attestation-silent-counterparty'
-  | 'attestation-open-conflict'
-  | 'attestation-stale-version'
-  // AECI-961: the counterparty half of `claim-denied`. §7.2 named three vendor
-  // ids; this is the fourth, and it exists because the denial nudge is a
-  // different message to a different party than the three above — it tells a
-  // vendor what someone ELSE recorded about their product.
-  | 'attestation-claim-denied'
-  // The AECi-facing half of the same sweep: the `claim-denied` correction signal
-  // and the ops escalation of an unresolved `open-conflict`. §7.2 named only the
-  // three vendor ids above; ops mail needs its own id because the id IS the
-  // `template:` metric tag and the `docs/email.md` catalogue key, and an ops
-  // alert is a different message to a different audience. Recipient is
-  // `ADMIN_ALERT_EMAIL`, one email per finding.
-  | 'attestation-ops-alert'
-  // Stage 2 entitlement term-expiry WARNINGS (AECI-613 /
-  // `STAGE_2_PAID_TIERS_SPEC.md` §7.2). Sent by the daily 11:00 UTC sweep
-  // (`lib/entitlement-expiry.ts`). Two ids for one event because the two
-  // recipients have different reachability: the vendor copy needs seat addresses
-  // from `fetchAuthUserEmails` and therefore `SUPABASE_SERVICE_ROLE_KEY` — present
-  // on staging/demo/prod, ABSENT locally and on PR previews, so it degrades to
-  // `skipped` — while the operator copy only needs `ADMIN_ALERT_EMAIL` and always
-  // lands. Nothing either template describes ever changes on its own: the sweep
-  // warns and never lapses (§7.3).
-  | 'entitlement-expiring'
-  | 'entitlement-expiring-admin';
+/**
+ * Stable template ids: the `template:` metric tag and the `docs/email.md` catalogue key.
+ *
+ * Derived from the notification registry (AECI-1199), so a template id cannot exist
+ * without an entry there. To add a template, add its entry to
+ * `lib/notifications/registry.ts` with channel `email` (or `email+portal`). The
+ * name stays exported so existing callers compile.
+ */
+export type EmailTemplate = TransactionalEmailId;
 
 const RESEND_URL = 'https://api.resend.com/emails';
 
@@ -183,9 +126,10 @@ interface SendInput {
   /**
    * Body for the separate operator copy of a send that carries `List-Unsubscribe`.
    * Same layout as the recipient's body, but rendered with a dud unsubscribe token.
-   * Absent on such a send → no operator copy at all. See `sendOperatorCopy`.
+   * Absent on such a send → no operator copy at all. See `sendOperatorCopy`. The copy
+   * is its own registry entry, so it names its own id.
    */
-  operatorCopy?: { text: string; html?: string };
+  operatorCopy?: { notification: TransactionalEmailId; text: string; html?: string };
 }
 
 /**
@@ -207,8 +151,16 @@ export async function sendTransactionalEmail(
 
   // The tier delivery policy (AECI-1198): outside production, an outside recipient
   // gets nothing. No fetch, so no operator copy either.
+  //
+  // The rule comes from the registry entry (AECI-1199). Both rules run the same
+  // allowlist, on purpose. `production-external` is what the allowlist is for.
+  // `any-tier` is operator mail, whose recipients are internal inboxes, so the
+  // allowlist passes them on every tier and the result is the same. Keeping one
+  // policy means a misconfigured operator var that points outside is still caught.
+  // `registry.spec.ts` asserts that every `any-tier` email entry is operator mail.
+  const { envRule } = getNotification(input.template);
   if (partitionRecipients(c.env, [input.to]).suppressed.length > 0) {
-    await logSuppressed(console, input.template, c.env, [input.to]);
+    await logSuppressed(console, input.template, envRule, c.env, [input.to]);
     emit(c, 'suppressed', input.template);
     return 'suppressed';
   }
@@ -294,11 +246,11 @@ async function sendOperatorCopy(
       signal: AbortSignal.timeout(TIMEOUT_MS),
     });
     discardResponseBody(res);
-    if (!res.ok) warn(c, `Resend ${input.template} operator copy returned ${res.status}`);
+    if (!res.ok) warn(c, `Resend ${input.operatorCopy.notification} returned ${res.status}`);
   } catch (err) {
     warn(
       c,
-      `Resend ${input.template} operator copy failed: ${err instanceof Error ? err.message : String(err)}`,
+      `Resend ${input.operatorCopy.notification} failed: ${err instanceof Error ? err.message : String(err)}`,
     );
   }
 }
@@ -611,6 +563,8 @@ export function sendVendorSeatInviteEmail(
     invitedByName: string | null;
     token: string;
     expiresAt: string;
+    /** The first send or an owner's re-send (AECI-927). Same template, two entries. */
+    notification?: 'vendor-seat-invite' | 'vendor-seat-invite-resend';
   },
 ): Promise<EmailOutcome> {
   const name = opts.vendorName.trim() || 'a vendor';
@@ -644,7 +598,7 @@ export function sendVendorSeatInviteEmail(
 
   return sendTransactionalEmail(c, {
     to: opts.to ?? '',
-    template: 'vendor-seat-invite',
+    template: opts.notification ?? 'vendor-seat-invite',
     subject: `You're invited to manage ${name} on AEC Integrations`,
     text: renderEmailText({ ...shared, blocks: [opening, capabilities, binding] }),
     html: renderEmailHtml({
@@ -672,6 +626,7 @@ export async function sendSeatInvite(
     invitedByName: string | null;
     token: string;
     expiresAt: string;
+    notification: 'vendor-seat-invite' | 'vendor-seat-invite-resend';
   },
 ): Promise<void> {
   await sendVendorSeatInviteEmail(c, opts);
@@ -1295,7 +1250,10 @@ export function sendMailingListWelcomeEmail(
     subject: 'Welcome to AEC Integrations',
     ...render(token),
     ...(Object.keys(unsubHeaders).length ? { headers: unsubHeaders } : {}),
-    operatorCopy: render(token ? OPERATOR_COPY_TOKEN : null),
+    operatorCopy: {
+      notification: 'mailing-list-welcome-operator-copy',
+      ...render(token ? OPERATOR_COPY_TOKEN : null),
+    },
   });
 }
 
@@ -1637,6 +1595,9 @@ export function sendClaimSubmittedNotification(
      *  and the §6.7 sweep still owes a retry. Never omitted — "not created yet" is
      *  itself the thing the operator needs to know. */
     linearIssueUrl?: string | null;
+    /** The submit-time send, or the sweep's re-send once it created the issue
+     *  (AECI-861). Same template, two registry entries. */
+    notification?: 'claim-submitted-alert' | 'claim-submitted-alert-retry';
   },
 ): Promise<EmailOutcome> {
   const base = siteUrl(c.env);
@@ -1680,7 +1641,7 @@ export function sendClaimSubmittedNotification(
 
   return sendTransactionalEmail(c, {
     to: c.env.CLAIM_ALERT_EMAIL ?? '',
-    template: 'claim-submitted-alert',
+    template: opts.notification ?? 'claim-submitted-alert',
     subject: `[AECi] New vendor claim: ${opts.targetName}`,
     text: renderEmailText({ ...shared, blocks: [intro] }),
     html: renderEmailHtml({ ...shared, blocks: [introHtml] }),
@@ -1827,10 +1788,14 @@ export function sendLandingFeedbackNotification(
 }
 
 // ─── Low-level transport (AECI-241 / Phase 7.6) ─────────────────────────────────
-// Used by the daily data-quality digest cron (`scheduled.ts`). Dependency-free with
-// an injectable fetch/logger; no Datadog metric here (the cron emits its own).
+// Used by the two cron digests (`scheduled.ts`). Dependency-free with an injectable
+// fetch/logger. It holds no ExecutionContext, so it emits no metric itself: each digest
+// job counts `aeci.email.send` through `recordEmailSend`, tagged with its registry id.
 
 export interface EmailMessage {
+  /** The digest's registry entry (AECI-1199). Labels the suppression log, and the
+   *  caller tags `aeci.email.send` with it through {@link recordEmailSend}. */
+  notification: DigestNotificationId;
   from: string;
   /** One or more recipients. */
   to: string[];
@@ -1872,7 +1837,10 @@ export async function sendEmail(
   }
 
   const { allowed: to, suppressed } = partitionRecipients(env, message.to);
-  if (suppressed.length > 0) await logSuppressed(logger, 'digest', env, suppressed);
+  if (suppressed.length > 0) {
+    const { envRule } = getNotification(message.notification);
+    await logSuppressed(logger, message.notification, envRule, env, suppressed);
+  }
   if (to.length === 0) return 'suppressed';
 
   try {
@@ -1936,7 +1904,8 @@ function bccField(
  */
 async function logSuppressed(
   logger: Pick<Console, 'warn'>,
-  template: EmailTemplate | 'digest',
+  template: EmailNotificationId,
+  envRule: string,
   env: DeliveryPolicyEnv,
   recipients: readonly string[],
 ): Promise<void> {
@@ -1945,6 +1914,7 @@ async function logSuppressed(
     try {
       logger.warn('email: suppressed — recipient outside the internal allowlist on this tier', {
         template,
+        envRule,
         tier,
         recipientHash: await recipientHash(bareAddress(address)),
       });
@@ -2068,7 +2038,7 @@ function opsTable(intro: string, rows: ReadonlyArray<readonly [string, string]>)
 
 /** Emit the `aeci.email.send` outcome count. Wrapped so a missing `POSTHOG_PROJECT_KEY` /
  *  ExecutionContext can never turn a send into a throw. */
-function emit(c: EmailContext, outcome: EmailOutcome, template: EmailTemplate): void {
+function emit(c: EmailContext, outcome: EmailOutcome, template: EmailNotificationId): void {
   try {
     submitCount(c.executionCtx, c.env, c.req.raw, 'aeci.email.send', 1, [
       `outcome:${outcome}`,
@@ -2077,6 +2047,19 @@ function emit(c: EmailContext, outcome: EmailOutcome, template: EmailTemplate): 
   } catch {
     // Telemetry must never break a send.
   }
+}
+
+/**
+ * Count one cron digest send on `aeci.email.send`, tagged with its registry id
+ * (AECI-1199). `sendEmail` holds no `ExecutionContext`, so the digest jobs in
+ * `scheduled.ts` call this beside their own `aeci.*.email` metric. Never throws.
+ */
+export function recordEmailSend(
+  c: EmailContext,
+  outcome: EmailOutcome,
+  notification: DigestNotificationId,
+): void {
+  emit(c, outcome, notification);
 }
 
 /** Best-effort `warn` to the observability plane; wrapped like `emit`. */

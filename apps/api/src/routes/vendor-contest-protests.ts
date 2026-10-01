@@ -72,6 +72,7 @@ import {
   type ContestNotificationMetadata,
   type ContestRow,
 } from '../lib/integration-contests';
+import type { ContestPortalNotificationId } from '../lib/notifications/registry';
 import { closeWorkflow, CONTEST_WORKFLOW_TYPE, echo, endpointSlugs } from './vendor-contests';
 import {
   afterVendorWrite,
@@ -128,6 +129,7 @@ function replyClosed(): ApiError {
  * from a single integration read so both sides of a decision get the same snapshot.
  */
 export async function protestNotifications(
+  notification: ContestPortalNotificationId,
   db: Db,
   row: ContestRow,
   actor: { actorId: string | null; actorType: AuditLogEntry['actorType'] },
@@ -149,7 +151,7 @@ export async function protestNotifications(
     ? await endpointSlugs(db, integration.sourceProductId, integration.targetProductId)
     : null;
   return targets.map((target) =>
-    contestNotificationAudit(actor, {
+    contestNotificationAudit(notification, actor, {
       vendorId: target.vendorId,
       contestId: row.id,
       integrationId: anchor.id,
@@ -329,7 +331,7 @@ export function createFileContestProtestHandler(
       metadata,
     });
     audits.push(
-      ...(await protestNotifications(db, row, actor, 'protested', [
+      ...(await protestNotifications('portal-contest-protested', db, row, actor, 'protested', [
         { vendorId: row.ownerVendorId, extra: { basis, replyDueAt } },
       ])),
     );
@@ -402,9 +404,14 @@ export function createReplyContestProtestHandler(
         afterState: { protest_reply: payload.reply, protest_reply_evidence: evidence },
         metadata,
       },
-      ...(await protestNotifications(db, row, actor, 'protest_replied', [
-        { vendorId: row.submitterVendorId },
-      ])),
+      ...(await protestNotifications(
+        'portal-contest-protest-replied',
+        db,
+        row,
+        actor,
+        'protest_replied',
+        [{ vendorId: row.submitterVendorId }],
+      )),
     ];
     const stmts: BatchStmt[] = [
       db
@@ -494,9 +501,14 @@ export function createWithdrawContestProtestHandler(
         afterState: { protest_status: 'withdrawn' },
         metadata,
       },
-      ...(await protestNotifications(db, row, actor, 'protest_withdrawn', [
-        { vendorId: row.ownerVendorId },
-      ])),
+      ...(await protestNotifications(
+        'portal-contest-protest-withdrawn',
+        db,
+        row,
+        actor,
+        'protest_withdrawn',
+        [{ vendorId: row.ownerVendorId }],
+      )),
     ];
     const stmts: BatchStmt[] = [
       db

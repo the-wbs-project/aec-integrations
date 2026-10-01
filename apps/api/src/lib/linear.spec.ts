@@ -35,6 +35,7 @@ const REQUEST_ID = '11111111-1111-4111-8111-111111111111';
 const WORKFLOW_ID = '22222222-2222-4222-8222-222222222222';
 
 const INPUT: LinearIssueInput = {
+  notification: 'linear-request-issue',
   requestId: REQUEST_ID,
   workflowId: WORKFLOW_ID,
   kind: 'correction',
@@ -421,11 +422,12 @@ describe('createLinearIssueForRequest — duplicate note', () => {
 
     expect(links).toHaveLength(1);
     expect(lastOutcome()).toBe('outcome:ok');
+    // AECI-1199: the duplicate comment is its own registry entry, named on the log.
     expect(logToPosthog).toHaveBeenCalledWith(
       expect.anything(),
       expect.anything(),
       expect.anything(),
-      expect.objectContaining({ level: 'warn' }),
+      expect.objectContaining({ level: 'warn', notification: 'linear-request-duplicate-comment' }),
     );
   });
 });
@@ -458,11 +460,12 @@ describe('createLinearIssueForRequest — failure handling', () => {
 
     expect(links).toHaveLength(0);
     expect(lastTags()).toEqual(expect.arrayContaining(['outcome:failed', 'reason:graphql_error']));
+    // AECI-1199: the caller's registry id rides the failure log end to end.
     expect(logToPosthog).toHaveBeenCalledWith(
       expect.anything(),
       expect.anything(),
       expect.anything(),
-      expect.objectContaining({ level: 'error' }),
+      expect.objectContaining({ level: 'error', notification: 'linear-request-issue' }),
     );
   });
 
@@ -659,6 +662,7 @@ const STATE_DONE = { id: WORKFLOW_STATE_IDS.resolved, name: 'Done', type: 'compl
 const STATE_CANCELED = { id: WORKFLOW_STATE_IDS.rejected, name: 'Canceled', type: 'canceled' };
 
 const RESOLUTION_INPUT: LinearResolutionInput = {
+  notification: 'linear-request-resolution',
   requestId: REQUEST_ID,
   workflowId: WORKFLOW_ID,
   linearIssueId: 'iss_1',

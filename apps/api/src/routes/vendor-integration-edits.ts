@@ -282,7 +282,7 @@ export function createUpdateVendorIntegrationHandler(
         },
       },
       ...recipients.map((recipient) =>
-        updateNotificationAudit(actor, {
+        updateNotificationAudit('portal-integration-update', actor, {
           vendorId: recipient,
           integrationId,
           integrationName: (changes.name as string | undefined) ?? row.name,

@@ -155,6 +155,8 @@ describe('runReconciliationSweep', () => {
       { requestId: string; linearIssueUrl: string | null; targetName: string },
     ];
     expect(payload).toMatchObject({
+      // AECI-1199: the sweep re-send is its own registry entry.
+      notification: 'claim-submitted-alert-retry',
       requestId: 'req-1',
       targetName: 'Procore',
       linearIssueUrl: 'https://linear.app/aec/issue/AECI-901/claim',

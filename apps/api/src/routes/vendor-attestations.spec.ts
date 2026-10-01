@@ -1885,6 +1885,8 @@ describe('POST /api/vendor/claims: the claim_added notification (AECI-1153 / §7
     expect(row.actorId).toBe(SEAT_A);
     expect(row.metadata).toEqual({
       kind: 'claim_added',
+      // AECI-1199: the row names its notification registry entry.
+      notificationId: 'portal-claim-added',
       vendorId: VENDOR_B,
       addedByVendorId: VENDOR_A,
       addedByName: 'Autodesk',

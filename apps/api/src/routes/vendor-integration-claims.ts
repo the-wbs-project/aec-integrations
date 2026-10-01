@@ -353,6 +353,7 @@ export function createClaimIntegrationHandler(
       },
       ...recipients.map((recipient) =>
         claimNotificationAudit(
+          'portal-integration-claim',
           actor,
           {
             vendorId: recipient,

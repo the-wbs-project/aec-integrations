@@ -686,7 +686,7 @@ The cron string **must stay byte-equal** to its constant, because `scheduled.ts`
 
 ### 7.2 Templates, recipients, and the idempotency fence
 
-Two new `EmailTemplate` ids (the id doubles as the `template:` tag on `aeci.email.send`), added to the union in `apps/api/src/lib/email.ts` **and** the catalogue table in `docs/email.md`:
+Two new `EmailTemplate` ids (the id doubles as the `template:` tag on `aeci.email.send`), added to the union in `apps/api/src/lib/email.ts` **and** the catalogue table in `docs/email.md`. Since AECI-1199 there is no hand-written union: an id is an entry in `apps/api/src/lib/notifications/registry.ts`, and `EmailTemplate` is derived from it.
 
 | id | Recipient | Why both |
 |---|---|---|

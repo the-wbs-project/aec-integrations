@@ -228,8 +228,10 @@ guarantees: check before editing.
 - **Cron → queue → consumer** — `apps/api/src/scheduled.ts` (ADR 0013): the cron enqueues, the
   queue consumer runs the job. Cron strings must stay **byte-equal** to `apps/api/wrangler.jsonc`
   `triggers.crons`. §7's detector sweep is a new entry in this pattern.
-- **Resend client** — `apps/api/src/lib/email.ts`, fail-open, `EmailTemplate` union +
-  `docs/email.md` catalogue. §7 adds template ids here.
+- **Resend client** — `apps/api/src/lib/email.ts`, fail-open, `EmailTemplate` +
+  `docs/email.md` catalogue. §7 adds template ids here. Since AECI-1199 a template id is an entry in
+  the notification registry, `apps/api/src/lib/notifications/registry.ts`, and `EmailTemplate` is
+  derived from it.
 - **`data_object` vocabulary** — frozen and closed (`docs/DATA_OBJECT_VOCABULARY.md`).
   Find-only resolution; **a vendor cannot mint a term** any more than promote can.
 
@@ -1497,6 +1499,9 @@ means editing a number and deploying; it now also edits what the vendor portal s
 - **Resend**, through `apps/api/src/lib/email.ts`, fail-open like every other send. New
   `EmailTemplate` ids (`attestation-silent-counterparty`, `attestation-open-conflict`,
   `attestation-stale-version`) added to the union **and** to the `docs/email.md` catalogue.
+  **Since AECI-1199 there is no hand-written union.** A new id is an entry in
+  `apps/api/src/lib/notifications/registry.ts`, and `EmailTemplate` is derived from it. The
+  `notification.sent` ledger row records the email's registry id as `metadata.notificationId`.
 - **In-portal list** — `GET /api/vendor/notifications`, scoped to the caller's vendor, surfaced on
   the §6 tab. Reads the same ledger as §7.3; no separate store.
 - Recipient is the vendor's seats (`profiles` with `role='vendor_admin'` + `vendor_id`), emails via

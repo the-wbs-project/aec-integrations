@@ -51,6 +51,7 @@ import { integrationFieldChallenges, vendorRequests, workflowInstances } from '.
 import { logToPosthog, submitCount, submitDistribution } from '../posthog';
 import type { Env } from '../env';
 import { workflowTransitionInsert } from './audit';
+import type { LinearNotificationId } from './notifications/registry';
 import { adminContestUrl, adminRequestUrl, environmentHost, publicPairUrl } from './request-links';
 
 // ─── Verified Linear board constants ─────────────────────────────────────────
@@ -285,6 +286,26 @@ export async function linearGraphql<T>(
   return { ok: true, data: body.data };
 }
 
+/**
+ * {@link linearGraphql} for a write that notifies people: an issue, a comment, or a
+ * state change Linear fans out to its subscribers (AECI-1199).
+ *
+ * The first argument names the write's notification registry entry. The type forces
+ * it to be a Linear registry id, and `registry-coverage.spec.ts` fails on any use of
+ * `ISSUE_CREATE_MUTATION`, `COMMENT_CREATE_MUTATION` or `ISSUE_UPDATE_MUTATION`
+ * outside this call. The id is a call-site label: the caller passes the same id to its
+ * own failure logs, which carry it as `notification`.
+ */
+function linearNotificationWrite<T>(
+  _notification: LinearNotificationId,
+  apiKey: string,
+  mutation: string,
+  variables: Record<string, unknown>,
+  fetchImpl: typeof fetch,
+): Promise<LinearGraphqlResult<T>> {
+  return linearGraphql<T>(apiKey, mutation, variables, fetchImpl);
+}
+
 function extractErrors(body: { errors?: Array<{ message?: string }> } | null): string | null {
   if (!body?.errors?.length) return null;
   return (
@@ -380,6 +401,8 @@ type LinearContext = {
 };
 
 export interface LinearIssueInput {
+  /** The registry entry this issue sends (AECI-1199). Labels the logs. */
+  notification: 'linear-request-issue';
   requestId: string;
   /** The request's `workflow_instance.id` — the PK the persist compare-and-sets. */
   workflowId: string;
@@ -405,6 +428,8 @@ export interface LinearIssueInput {
 }
 
 export interface LinearResolutionInput {
+  /** The registry entry this push sends (AECI-1199). Labels the logs. */
+  notification: 'linear-request-resolution';
   requestId: string;
   /** The request's `workflow_instance.id` — the transition's parent. */
   workflowId: string;
@@ -465,7 +490,8 @@ export async function createLinearIssueForRequest(
 
   const started = Date.now();
   const assigneeId = pickAssignee(input.requestId);
-  const createRes = await linearGraphql<IssueCreatePayload>(
+  const createRes = await linearNotificationWrite<IssueCreatePayload>(
+    input.notification,
     apiKey,
     ISSUE_CREATE_MUTATION,
     {
@@ -487,7 +513,7 @@ export async function createLinearIssueForRequest(
   if (!createRes.ok || !createRes.data.issueCreate.success || !issue) {
     const reason: LinearIssueFailureReason = createRes.ok ? 'graphql_error' : createRes.reason;
     const message = createRes.ok ? 'issueCreate success=false' : createRes.message;
-    error(c, `linear issueCreate failed (${reason}): ${message}`);
+    error(c, `linear issueCreate failed (${reason}): ${message}`, input.notification);
     emit(c, 'failed', input.kind, reason, Date.now() - started);
     return { status: 'failed', reason, message };
   }
@@ -512,7 +538,8 @@ export async function createLinearIssueForRequest(
   // Duplicate note (§7.2). Best-effort like the attachment — informational only, a
   // failure must not undo the issue or block linking.
   if (input.duplicateOfRequestId) {
-    const noteRes = await linearGraphql<CommentCreatePayload>(
+    const noteRes = await linearNotificationWrite<CommentCreatePayload>(
+      'linear-request-duplicate-comment',
       apiKey,
       COMMENT_CREATE_MUTATION,
       { input: { issueId: issue.id, body: buildDuplicateNote(input) } },
@@ -522,6 +549,7 @@ export async function createLinearIssueForRequest(
       warn(
         c,
         `linear duplicate commentCreate failed: ${noteRes.ok ? 'success=false' : noteRes.message}`,
+        'linear-request-duplicate-comment',
       );
     }
   }
@@ -535,7 +563,7 @@ export async function createLinearIssueForRequest(
     // The issue exists but we couldn't link it — row stays open; §6.7 reconciles
     // via the embedded `Request: <id>` marker. Reported as a pipeline failure.
     const message = errMsg(err);
-    error(c, `linear id persist failed (issue ${issue.id}): ${message}`);
+    error(c, `linear id persist failed (issue ${issue.id}): ${message}`, input.notification);
     emit(c, 'failed', input.kind, 'db_error', Date.now() - started);
     return { status: 'failed', reason: 'db_error', message };
   }
@@ -590,6 +618,8 @@ export function drizzleContestLinearStore(db: Db): LinearContestStore {
 /** What the `REVIEW - ` issue needs. Values are in STORAGE form; `direction`
  *  therefore reads `a_to_b | b_to_a | both` against the two product names. */
 export interface LinearContestIssueInput {
+  /** The registry entry this issue sends (AECI-1199). Labels the logs. */
+  notification: 'linear-contest-issue';
   contestId: string;
   /** The anchor row's id. On an evidenced pair it is a `connector_evidenced_pairs` id. */
   integrationId: string;
@@ -678,7 +708,8 @@ export async function createLinearIssueForContest(
 
   const started = Date.now();
   const assigneeId = pickAssignee(input.contestId);
-  const createRes = await linearGraphql<IssueCreatePayload>(
+  const createRes = await linearNotificationWrite<IssueCreatePayload>(
+    input.notification,
     apiKey,
     ISSUE_CREATE_MUTATION,
     {
@@ -696,7 +727,7 @@ export async function createLinearIssueForContest(
   if (!createRes.ok || !createRes.data.issueCreate.success || !issue) {
     const reason: LinearIssueFailureReason = createRes.ok ? 'graphql_error' : createRes.reason;
     const message = createRes.ok ? 'issueCreate success=false' : createRes.message;
-    error(c, `linear contest issueCreate failed (${reason}): ${message}`);
+    error(c, `linear contest issueCreate failed (${reason}): ${message}`, input.notification);
     emit(c, 'failed', 'contest', reason, Date.now() - started);
     return { status: 'failed', reason, message };
   }
@@ -705,7 +736,11 @@ export async function createLinearIssueForContest(
     await store.linkIssue(input.contestId, issue.id, issue.url);
   } catch (err) {
     const message = errMsg(err);
-    error(c, `linear contest id persist failed (issue ${issue.id}): ${message}`);
+    error(
+      c,
+      `linear contest id persist failed (issue ${issue.id}): ${message}`,
+      input.notification,
+    );
     emit(c, 'failed', 'contest', 'db_error', Date.now() - started);
     return { status: 'failed', reason: 'db_error', message };
   }
@@ -827,14 +862,19 @@ export async function pushRequestResolutionToLinear(
   // Skip + log (not an error) and don't record a transition — there is no issue
   // the admin's resolution could have been pushed to.
   if (!input.linearIssueId) {
-    info(c, `linear sync skipped: request ${input.requestId} has no linear_issue_id`);
+    info(
+      c,
+      `linear sync skipped: request ${input.requestId} has no linear_issue_id`,
+      input.notification,
+    );
     emitSync(c, 'skipped_no_issue', input.kind, input.toStatus);
     return;
   }
 
   const started = Date.now();
   const stateId = WORKFLOW_STATE_IDS[input.toStatus];
-  const updateRes = await linearGraphql<IssueUpdatePayload>(
+  const updateRes = await linearNotificationWrite<IssueUpdatePayload>(
+    input.notification,
     apiKey,
     ISSUE_UPDATE_MUTATION,
     { id: input.linearIssueId, input: { stateId } },
@@ -847,21 +887,26 @@ export async function pushRequestResolutionToLinear(
   if (!updateRes.ok || !updateRes.data.issueUpdate.success || !issue) {
     const reason = updateRes.ok ? 'graphql_error' : updateRes.reason;
     const message = updateRes.ok ? 'issueUpdate success=false' : updateRes.message;
-    error(c, `linear issueUpdate failed (${reason}): ${message}`);
+    error(c, `linear issueUpdate failed (${reason}): ${message}`, input.notification);
     emitSync(c, 'failed', input.kind, input.toStatus, reason, Date.now() - started);
     return;
   }
 
   // Comment — best-effort (a failed comment must not undo the state change or
   // block the transition record), mirroring the create path's attachment step.
-  const commentRes = await linearGraphql<CommentCreatePayload>(
+  const commentRes = await linearNotificationWrite<CommentCreatePayload>(
+    input.notification,
     apiKey,
     COMMENT_CREATE_MUTATION,
     { input: { issueId: input.linearIssueId, body: buildResolutionComment(input) } },
     fetchImpl,
   );
   if (!commentRes.ok || !commentRes.data.commentCreate.success) {
-    warn(c, `linear commentCreate failed: ${commentRes.ok ? 'success=false' : commentRes.message}`);
+    warn(
+      c,
+      `linear commentCreate failed: ${commentRes.ok ? 'success=false' : commentRes.message}`,
+      input.notification,
+    );
   }
 
   // Record the site-originated transition (§6.5, AECI-213 AC2). Append-only,
@@ -1103,18 +1148,29 @@ function makeSyncForwarder(c: LinearContext): WorkflowTransitionForwarder | unde
   };
 }
 
-function info(c: LinearContext, message: string): void {
-  log(c, 'info', message);
+function info(c: LinearContext, message: string, notification?: LinearNotificationId): void {
+  log(c, 'info', message, notification);
 }
-function warn(c: LinearContext, message: string): void {
-  log(c, 'warn', message);
+function warn(c: LinearContext, message: string, notification?: LinearNotificationId): void {
+  log(c, 'warn', message, notification);
 }
-function error(c: LinearContext, message: string): void {
-  log(c, 'error', message);
+function error(c: LinearContext, message: string, notification?: LinearNotificationId): void {
+  log(c, 'error', message, notification);
 }
-function log(c: LinearContext, level: 'info' | 'warn' | 'error', message: string): void {
+/** `notification` labels a log about a write that notifies people (AECI-1199). */
+function log(
+  c: LinearContext,
+  level: 'info' | 'warn' | 'error',
+  message: string,
+  notification?: LinearNotificationId,
+): void {
   try {
-    logToPosthog(c.executionCtx, c.env, c.req.raw, { level, message, source: 'linear' });
+    logToPosthog(c.executionCtx, c.env, c.req.raw, {
+      level,
+      message,
+      source: 'linear',
+      ...(notification ? { notification } : {}),
+    });
   } catch {
     const sink = level === 'error' ? 'error' : level === 'warn' ? 'warn' : 'info';
     console[sink](`linear: ${message}`);

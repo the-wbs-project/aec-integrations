@@ -313,6 +313,7 @@ export async function runReconciliationSweep(
       // `drizzleLinearStore` adapts the Drizzle `db` to the ORM-neutral
       // `LinearRequestStore` seam `createLinearIssueForRequest` persists through.
       const outcome = await createIssue(c, drizzleLinearStore(db), {
+        notification: 'linear-request-issue',
         requestId: row.id,
         workflowId: workflow.id,
         kind: row.kind,
@@ -341,6 +342,7 @@ export async function runReconciliationSweep(
       // the batch.
       if (outcome?.status === 'created' && NOTIFIED_REQUEST_KINDS.has(row.kind)) {
         await sendClaimAlert(c, {
+          notification: 'claim-submitted-alert-retry',
           requestId: row.id,
           targetName: target.name,
           targetType: row.targetType,
@@ -618,6 +620,7 @@ export async function runContestIssueReconciliation(
     retried++;
     try {
       const outcome = await createIssue(c, drizzleContestLinearStore(db), {
+        notification: 'linear-contest-issue',
         contestId: row.id,
         integrationId: anchorId,
         ...(row.evidencedPairId

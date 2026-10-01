@@ -20,6 +20,7 @@ import { EMAIL_LOGO_URL } from './email-layout';
 import type { Env } from '../env';
 import {
   parseRecipients,
+  recordEmailSend,
   sendAccountDeletionEmail,
   sendAttestationClaimDeniedEmail,
   sendAttestationOpenConflictEmail,
@@ -43,6 +44,7 @@ import {
   type SubmittedReviewSummary,
   sendStaleClaimTicketAlert,
   sendStuckRequestAdminAlert,
+  sendSeatInvite,
   sendTransactionalEmail,
   sendVendorSeatInviteEmail,
   type EmailContext,
@@ -693,6 +695,38 @@ describe('sendMailingListWelcomeEmail', () => {
     const fetchSpy = vi.spyOn(globalThis, 'fetch');
     expect(await sendMailingListWelcomeEmail(fakeContext(), { to: undefined })).toBe('skipped');
     expect(fetchSpy).not.toHaveBeenCalled();
+  });
+});
+
+// AECI-1199: the id a sender names is the registry entry, and it reaches the metric.
+describe('notification registry ids on the aeci.email.send metric', () => {
+  const invite = {
+    to: 'colleague@globex.com',
+    vendorName: 'Globex Inc',
+    invitedByName: 'Dana Ortiz',
+    token: 'tok_abc123',
+    expiresAt: '2026-10-01T12:00:00.000Z',
+  };
+  const env = { PUBLIC_SITE_URL: 'https://www.aecintegrations.com' };
+
+  it('tags a seat-invite re-send with its own registry id, end to end through the seam', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
+    await sendSeatInvite(fakeContext(env), {
+      ...invite,
+      notification: 'vendor-seat-invite-resend',
+    });
+    expect(sendTags()).toEqual([['outcome:sent', 'template:vendor-seat-invite-resend']]);
+  });
+
+  it('tags a first seat invite with the base id', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
+    await sendSeatInvite(fakeContext(env), { ...invite, notification: 'vendor-seat-invite' });
+    expect(sendTags()).toEqual([['outcome:sent', 'template:vendor-seat-invite']]);
+  });
+
+  it('tags a cron digest with its registry id through recordEmailSend', () => {
+    recordEmailSend(fakeContext(), 'suppressed', 'digest-analytics');
+    expect(sendTags()).toEqual([['outcome:suppressed', 'template:digest-analytics']]);
   });
 });
 
@@ -1388,6 +1422,7 @@ describe('sendClaimSubmittedNotification', () => {
 // ─── Low-level transport (AECI-241) ─────────────────────────────────────────────
 
 const MSG = {
+  notification: 'digest-data-quality' as const,
   from: 'AECi <dq@aecintegrations.com>',
   to: ['a@x.com', 'b@x.com'],
   subject: 'subj',
@@ -2190,6 +2225,12 @@ describe('sendEmail tier delivery policy (AECI-1198)', () => {
     expect(body.subject).toBe('[staging] subj');
     expect(warn).toHaveBeenCalledTimes(1);
     expect(JSON.stringify(warn.mock.calls)).not.toContain('a@x.com');
+    // AECI-1199: the log names the digest's registry entry and its rule, not 'digest'.
+    expect(warn.mock.calls[0]![1]).toMatchObject({
+      template: 'digest-data-quality',
+      envRule: 'any-tier',
+      tier: 'staging',
+    });
   });
 
   it('returns suppressed with no fetch when every recipient is outside', async () => {

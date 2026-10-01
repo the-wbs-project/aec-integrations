@@ -42,6 +42,7 @@ const uuid = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, '0
 const CONTEST = uuid(50);
 
 const INPUT: LinearContestIssueInput = {
+  notification: 'linear-contest-issue',
   contestId: CONTEST,
   integrationId: uuid(20),
   integrationName: 'Revit for MicroStation',

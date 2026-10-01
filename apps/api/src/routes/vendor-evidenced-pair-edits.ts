@@ -271,6 +271,7 @@ export async function editEvidencedPair(
     },
     ...recipients.map((recipient) =>
       updateNotificationAudit(
+        'portal-integration-update',
         actor,
         {
           vendorId: recipient,

@@ -184,6 +184,7 @@ import { hasErrors, runDataQualityChecks, type DataQualityCheckResult } from './
 import { buildDataQualityDigest } from './lib/data-quality-email';
 import {
   parseRecipients,
+  recordEmailSend,
   sendEmail,
   sendEntitlementExpiringAdminEmail,
   sendEntitlementExpiringEmail,
@@ -1134,6 +1135,7 @@ async function runDataQualityJob(env: Env, ctx: ExecutionContext): Promise<JobRu
   });
   const recipients = parseRecipients(env.DATA_QUALITY_EMAIL_TO);
   const emailOutcome = await sendEmail(env, {
+    notification: 'digest-data-quality',
     from: env.DATA_QUALITY_EMAIL_FROM ?? '',
     to: recipients,
     subject: digest.subject,
@@ -1141,6 +1143,12 @@ async function runDataQualityJob(env: Env, ctx: ExecutionContext): Promise<JobRu
     html: digest.html,
   });
   submitCount(ctx, env, req, DQ_EMAIL_METRIC, 1, [`outcome:${emailOutcome}`]);
+  // The shared email metric, tagged with the digest's registry id (AECI-1199).
+  recordEmailSend(
+    { env, executionCtx: ctx, req: { raw: req } },
+    emailOutcome,
+    'digest-data-quality',
+  );
   logToPosthog(ctx, env, req, {
     level: emailOutcome === 'failed' ? 'error' : 'info',
     message: `aeci.data_quality.email outcome=${emailOutcome} recipients=${recipients.length}: ${digest.subject}`,
@@ -1235,6 +1243,7 @@ async function runAnalyticsDigestJob(env: Env, ctx: ExecutionContext): Promise<J
     });
     const recipients = parseRecipients(env.ANALYTICS_DIGEST_EMAIL_TO);
     const outcome = await sendEmail(env, {
+      notification: 'digest-analytics',
       // Shares the transactional sender (`EMAIL_FROM`) — one verified Resend sender,
       // no separate `_FROM` var. Absent → `sendEmail` skips (fail-open).
       from: env.EMAIL_FROM ?? '',
@@ -1244,6 +1253,7 @@ async function runAnalyticsDigestJob(env: Env, ctx: ExecutionContext): Promise<J
       html: digest.html,
     });
     submitCount(ctx, env, req, ANALYTICS_EMAIL_METRIC, 1, [`outcome:${outcome}`]);
+    recordEmailSend({ env, executionCtx: ctx, req: { raw: req } }, outcome, 'digest-analytics');
     logToPosthog(ctx, env, req, {
       level: outcome === 'failed' ? 'error' : 'info',
       message: `aeci.analytics_digest.email outcome=${outcome} recipients=${recipients.length}: ${digest.subject}`,

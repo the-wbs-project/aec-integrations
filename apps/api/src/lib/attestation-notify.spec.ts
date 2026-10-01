@@ -185,6 +185,8 @@ describe('runAttestationNotifySweep — delivery', () => {
       entityId: u(30),
     });
     expect(rows[0].metadata as NotificationLedgerMetadata).toMatchObject({
+      // AECI-1199: the ledger row names the registry entry of the email it records.
+      notificationId: 'attestation-silent-counterparty',
       detector: 'silent-counterparty',
       vendorId: GLOBEX,
       integrationId: u(10),
@@ -205,6 +207,9 @@ describe('runAttestationNotifySweep — delivery', () => {
     expect(sentTo()).toEqual(['ops@aecintegrations.com']);
     const rows = await ledgerRows();
     expect((rows[0].metadata as NotificationLedgerMetadata).vendorId).toBeNull();
+    expect((rows[0].metadata as NotificationLedgerMetadata).notificationId).toBe(
+      'attestation-ops-alert',
+    );
   });
 
   it('sends the vendor nudges AND the ops copy for one open conflict', async () => {

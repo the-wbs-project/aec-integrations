@@ -139,6 +139,7 @@ import {
   contestStillOpenSentinel,
   isContestRaceError,
 } from '../lib/integration-contests';
+import type { ContestPortalNotificationId } from '../lib/notifications/registry';
 import { isConnectorPoweredEdge } from '../lib/connector-powered';
 import { isClaimed } from '../lib/integration-claims';
 import { requireActiveEntitlement } from '../lib/integration-entitlement';
@@ -767,6 +768,7 @@ async function planSubmit(
   if (routedTo === 'owner' && ownerVendorId) {
     audits.push(
       contestNotificationAudit(
+        'portal-contest-submitted',
         { actorId: session.userId, actorType: auditActorType(session) },
         {
           vendorId: ownerVendorId,
@@ -951,7 +953,7 @@ export function createWithdrawContestHandler(
         metadata,
       },
     ];
-    const notify = await notificationFor(db, row, session, 'withdrawn');
+    const notify = await notificationFor('portal-contest-withdrawn', db, row, session, 'withdrawn');
     if (notify) audits.push(notify);
     const workflow = closeWorkflow(
       db,
@@ -985,6 +987,7 @@ export function createWithdrawContestHandler(
  * vendor decider to tell). `accepted` / `declined` always go to the submitter.
  */
 export async function notificationFor(
+  notification: ContestPortalNotificationId,
   db: Db,
   row: ContestRow,
   actor: { userId: string; role: string },
@@ -1004,6 +1007,7 @@ export async function notificationFor(
     ? await endpointSlugs(db, integration.sourceProductId, integration.targetProductId)
     : null;
   return contestNotificationAudit(
+    notification,
     { actorId: actor.userId, actorType: auditActorType(actor) },
     {
       vendorId: recipient,
@@ -1191,6 +1195,7 @@ export function createDecideContestHandler(
     // notification says until when. This is the owner's decision route, so it is
     // always an owner decision; an AECi decline never carries the date.
     const notify = await notificationFor(
+      'portal-contest-decided-by-owner',
       db,
       row,
       session,

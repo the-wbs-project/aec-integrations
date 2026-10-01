@@ -48,6 +48,7 @@ import { NOTIFICATION_SENT_ACTION } from './attestation-notify';
 import { isConnectorPoweredEdge } from './connector-powered';
 import { isClaimed, ONE_ROW } from './integration-claims';
 import { integrationLiveSentinel } from './live-integration';
+import type { ContestPortalNotificationId } from './notifications/registry';
 import { chunked } from './promote-claims';
 
 type IntegrationRow = typeof integrations.$inferSelect;
@@ -835,6 +836,8 @@ export function vendorContestsWhere(vendorId: string): SQL {
  *  the feed's `json_extract(metadata, '$.vendorId')` filter matches. */
 export interface ContestNotificationMetadata {
   kind: 'contest';
+  /** The registry entry (AECI-1199). Absent on rows written before it. */
+  notificationId: ContestPortalNotificationId;
   vendorId: string;
   contestId: string;
   /** The anchor row's id, in whichever table `anchor` names. */
@@ -869,13 +872,15 @@ export interface ContestNotificationMetadata {
  * `entity_type` distinguishes it from the §7 detector rows, whose entity is a claim.
  */
 export function contestNotificationAudit(
+  notification: ContestPortalNotificationId,
   actor: { actorId: string | null; actorType: AuditLogEntry['actorType'] },
-  metadata: Omit<ContestNotificationMetadata, 'kind' | 'pairSlugs'> & {
+  metadata: Omit<ContestNotificationMetadata, 'kind' | 'pairSlugs' | 'notificationId'> & {
     pairSlugs: readonly [string, string] | null;
   },
 ): AuditLogEntry {
   const full: ContestNotificationMetadata = {
     kind: 'contest',
+    notificationId: notification,
     ...metadata,
     pairSlugs: metadata.pairSlugs ? orderedPairSlugs(...metadata.pairSlugs) : null,
   };

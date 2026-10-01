@@ -200,6 +200,7 @@ describe('GET /api/vendor/notifications — claim_added rows (AECI-1153 / §7.6)
   const claimAdded = (vendorId: string, extra: Record<string, unknown> = {}) =>
     ledgerRow({
       metadata: claimAddedNotificationAudit(
+        'portal-claim-added',
         { actorId: null, actorType: 'user' },
         {
           vendorId,

@@ -69,6 +69,7 @@ import { VENDOR_ADMIN_ROLE } from './claimed-vendors';
 import { fetchAuthUserEmails } from './supabase-admin';
 import type { Db } from '../db/client';
 import { auditLog } from '../db/schema';
+import type { AttestationNotificationId } from './notifications/registry';
 import { logBatchToPosthog, logToPosthog } from '../posthog';
 import type { Env } from '../env';
 
@@ -160,6 +161,9 @@ export interface NotifyResult {
  * after the claim it names has been re-curated or deleted.
  */
 export interface NotificationLedgerMetadata {
+  /** The registry entry of the email this row records (AECI-1199). Absent on rows
+   *  written before it. */
+  notificationId: AttestationNotificationId;
   detector: AttestationDetector;
   /** `null` = AECi ops. Never matches a vendor caller. */
   vendorId: string | null;
@@ -169,8 +173,12 @@ export interface NotificationLedgerMetadata {
   pairSlugs: readonly [string, string];
 }
 
-function ledgerEntry(finding: DetectorFinding): AuditLogEntry {
+function ledgerEntry(
+  notification: AttestationNotificationId,
+  finding: DetectorFinding,
+): AuditLogEntry {
   const metadata: NotificationLedgerMetadata = {
+    notificationId: notification,
     detector: finding.detector,
     vendorId: finding.vendorId,
     integrationId: finding.integrationId,
@@ -310,6 +318,22 @@ function sendForFinding(
   }
 }
 
+/** The registry entry a finding's email sends: the detector's vendor nudge, or the
+ *  ops alert for a finding addressed to AECi (`vendorId` null). */
+function notificationIdFor(finding: DetectorFinding): AttestationNotificationId {
+  if (!finding.vendorId) return 'attestation-ops-alert';
+  switch (finding.detector) {
+    case 'silent-counterparty':
+      return 'attestation-silent-counterparty';
+    case 'open-conflict':
+      return 'attestation-open-conflict';
+    case 'stale-version':
+      return 'attestation-stale-version';
+    case 'claim-denied':
+      return 'attestation-claim-denied';
+  }
+}
+
 function sendOpsForFinding(
   c: NotifyContext,
   finding: DetectorFinding,
@@ -440,7 +464,7 @@ export async function runAttestationNotifySweep(
     result[outcome === 'sent' ? 'sent' : outcome === 'failed' ? 'failed' : 'skipped']++;
 
     if (outcome !== 'sent') continue;
-    const entry = ledgerEntry(finding);
+    const entry = ledgerEntry(notificationIdFor(finding), finding);
     pendingLedger.push(auditInsert(db, entry));
     pendingForward.push(entry);
     if (pendingLedger.length >= LEDGER_CHUNK) {

@@ -256,6 +256,7 @@ async function createRequest(
   // nothing — both already ran off-request — and buys the operator a working link.
   // One `waitUntil`, so the two together stay inside a single extension window.
   const linearDone = createLinearIssueForRequest(c, drizzleLinearStore(db), {
+    notification: 'linear-request-issue',
     requestId,
     workflowId,
     kind,
@@ -287,6 +288,7 @@ async function createRequest(
     linearDone.then((outcome) => {
       if (!NOTIFIED_REQUEST_KINDS.has(kind)) return;
       return sendClaimSubmittedNotification(c, {
+        notification: 'claim-submitted-alert',
         requestId,
         targetName,
         targetType: insert.targetType,
