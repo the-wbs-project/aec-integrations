@@ -2253,6 +2253,100 @@ export const jobRuns = sqliteTable(
   ],
 );
 
+// ===========================================================================
+// Notification send ledger (AECI-1202, DATABASE_SCHEMA.md §9.9)
+//
+// Log-class and **exempt from the §26.1 audit-in-batch invariant under ADR
+// 0022**, like `page_views` and `job_runs`: the row IS the record of the send,
+// so an `audit_log` row about it would audit the audit. Written per row,
+// OUTSIDE any `db.batch`, each inside its own try/catch
+// (`lib/notifications/send-ledger.ts`): a ledger write must never stop or fail
+// the send it records. A ledger DB error fails OPEN — the mail still goes.
+// ===========================================================================
+
+/**
+ * What happened to one send attempt to one recipient.
+ *
+ * - `sending`: reserved, and the Resend call has not come back. A row that stays
+ *   here means the isolate died mid-send. It keeps its dedupe key, so it blocks a
+ *   resend: at-most-once by design.
+ * - `sent`: Resend accepted it. `provider_message_id` holds the Resend id.
+ * - `failed`: Resend refused it or the call threw. The dedupe key is released.
+ * - `skipped`: nothing to send with (no key, sender or recipient).
+ * - `suppressed`: the tier delivery policy refused the recipient (AECI-1198).
+ * - `duplicate`: the dedupe key was already held, so nothing was sent.
+ */
+export type NotificationSendOutcome =
+  | 'sending'
+  | 'sent'
+  | 'failed'
+  | 'skipped'
+  | 'suppressed'
+  | 'duplicate';
+
+/**
+ * One row per send attempt per recipient, for every Resend email (AECI-1202).
+ * Answers "what did we send to this person, and did Resend take it" from our own
+ * data. A one-call send to several recipients (the cron digests) writes one row
+ * per recipient, all sharing the Resend id.
+ */
+export const notificationSends = sqliteTable(
+  'notification_sends',
+  {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+
+    /** The registry id (`lib/notifications/registry.ts`). No FK and no CHECK: the
+     *  registry is code, and the type system enforces the vocabulary. */
+    notificationId: text('notification_id').notNull(),
+
+    /** Unsalted SHA-256 hex of the trimmed, lowercased bare address
+     *  (`lib/hash.ts` `recipientHash`). Pseudonymous, not anonymous: support
+     *  answers "what did we send to X" by hashing X. The address is never stored. */
+    recipientHash: text('recipient_hash').notNull(),
+
+    /** `tierLabel(env)`: `production`, `staging`, … or `non-production`. */
+    tier: text('tier').notNull(),
+
+    /**
+     * Deliberately CHECK-free, following `job_runs.job` and `audit_log.action`: the
+     * vocabulary is young and will grow, and SQLite cannot ALTER a CHECK, so a new
+     * member would need a table-recreate migration. The TypeScript union is the
+     * enforcement; this column is the storage.
+     */
+    outcome: text('outcome').notNull().$type<NotificationSendOutcome>(),
+
+    /** The Resend message id on `sent`. Null on every other outcome, and on a
+     *  2xx whose body did not parse. */
+    providerMessageId: text('provider_message_id'),
+
+    /**
+     * The sender's idempotency key, e.g. `attestation-digest:{vendor}:{seat}:{day}`.
+     * NULLABLE on purpose, exactly as `page_views.dedupe_key`: SQLite treats NULLs as
+     * distinct under a UNIQUE index, so a send with no key never conflicts. Released
+     * (set NULL) when the send fails, so a retry can claim it. A `duplicate` row
+     * always stores NULL here, or it would collide with the row that holds the key.
+     */
+    dedupeKey: text('dedupe_key'),
+
+    /** The thing the mail is about (`claim`, `vendor_seat_invite`, …), when the
+     *  sender names one. Free text, no FK: a log row must outlive its entity. */
+    entityType: text('entity_type'),
+    entityId: text('entity_id'),
+
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [
+    // `INSERT … ON CONFLICT(dedupe_key) DO NOTHING` needs a plain (non-partial)
+    // UNIQUE index as its conflict target — same constraint as page_views.
+    uniqueIndex('notification_sends_dedupe_key_idx').on(t.dedupeKey),
+    // "What did we send to this person": equality on the hash, newest first.
+    index('notification_sends_recipient_idx').on(t.recipientHash, t.createdAt),
+    // "Every send of this notification in a window". The §7.4 prune pages the PK.
+    index('notification_sends_notification_idx').on(t.notificationId, t.createdAt),
+  ],
+);
+
 /**
  * External classification of the ASNs we have actually seen (AECI-624).
  *
@@ -3611,6 +3705,7 @@ export const schema = {
   pageViews,
   statsCache,
   jobRuns,
+  notificationSends,
   translations,
   connectorCatalogs,
   connectorCatalogSurfaces,

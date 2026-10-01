@@ -24,8 +24,8 @@ decision record; no separate ADR.
 - **Transport:** `apps/api/src/lib/email.ts` — a single Resend client in the API
   Worker. Modeled on `lib/toxicity.ts` (the canonical third-party-client posture):
   - **Never throws.** Every failure mode resolves to an `EmailOutcome`
-    (`'sent' | 'failed' | 'skipped' | 'suppressed'`). `suppressed` is the tier
-    delivery policy below.
+    (`'sent' | 'failed' | 'skipped' | 'suppressed' | 'duplicate'`). `suppressed` is the
+    tier delivery policy below. `duplicate` is the send ledger's dedupe refusal, below.
   - **Fire-and-forget.** Every call site dispatches via `ctx.waitUntil` so a send
     never blocks (or fails) the action that triggered it (§11.1).
   - **Fail-open / absent-key → `'skipped'`.** No `RESEND_API_KEY` (or no
@@ -50,11 +50,34 @@ decision record; no separate ADR.
     token `operator-copy`, which matches no subscriber, so the link is inert. The copy
     is not counted in `aeci.email.send`, and a failed copy only warns. No copy goes
     out when the subscriber's send fails.
+  - **Send ledger (AECI-1202).** Every send writes `notification_sends` rows
+    (`DATABASE_SCHEMA.md` §9.9), one per addressed recipient, through
+    `lib/notifications/send-ledger.ts`. The Resend response body is now read on a 2xx:
+    its `{ "id": … }` is stored as `provider_message_id`. A body that does not parse
+    still counts as `sent`, with a null id. Every non-2xx body is still drained or read,
+    so no connection is held (AECI-666).
+    - `sendTransactionalEmail` reserves a `sending` row before the Resend call and
+      settles it to `sent` or `failed` after. A `skipped` or `suppressed` send gets one
+      settled row. The registry id is `notification_id`.
+    - `SendInput.dedupeKey` (optional) is the at-most-once guard. A key already held
+      returns `'duplicate'` with no Resend call and no operator copy, and writes a
+      `duplicate` row. A failed send releases its key. A crash mid-send keeps it, which
+      blocks a resend. No sender passes a key yet. AECI-1203, AECI-1204 and AECI-1205
+      add them.
+    - The digest `sendEmail` makes one Resend call and writes one row per recipient,
+      sharing the id. It reads `DB` from its env. The cron passes its whole `Env`.
+    - The operator copy gets one row per operator address under its own registry id.
+      A BCC copy gets no row.
+    - A ledger DB error logs a warning and the mail still goes. Every caller sends inside
+      `waitUntil` or a cron, so the ledger adds no latency to a route response.
+    - The address is never stored. `recipient_hash` is the same unsalted SHA-256 the
+      suppression log uses, so "what did we send to X" is a hash of X and an index seek.
 - **Observability:** every attempt emits `aeci.email.send` (count) tagged
-  `outcome:sent|failed|skipped|suppressed` + `template:<id>`; failures also `warn` with
-  `source: 'email'`. Telemetry is wrapped so it can never turn a send into a throw.
-  **Every send is fail-open, so the telemetry is the only evidence a send was
-  attempted at all** — a `'skipped'` outcome leaves no other trace. That backstop is
+  `outcome:sent|failed|skipped|suppressed|duplicate` + `template:<id>`; failures also
+  `warn` with `source: 'email'`. Telemetry is wrapped so it can never turn a send into a
+  throw. Since AECI-1202 the send ledger above is the durable per-send record, and the
+  telemetry is the aggregate view. The ledger fails open too, so on a D1 outage the
+  telemetry is again the only evidence a send was attempted. That backstop is
   **PostHog** (ADR 0024; the Datadog leg was removed at AECI-651). Whichever
   console you are in, the query is the same shape: the `aeci.email.send` count broken
   down by `outcome` and `template`.
@@ -628,7 +651,12 @@ The https target is the public SSR host, which forwards `POST /api/unsubscribe` 
   VML twin, the paste-able URL, escaping, and that the text half carries no sign-off.
 - `apps/api/src/lib/email.spec.ts` — mocks `fetch`; asserts each template's POST
   payload + the `sent` / `failed` / `skipped` / `suppressed` outcomes (fail-open, never
-  throws). Its fixture defaults `ENV` to `production`; the AECI-1198 suites override it.
+  throws).
+- `apps/api/src/lib/email-ledger.spec.ts` and
+  `apps/api/src/lib/notifications/send-ledger.spec.ts` — the send ledger against the
+  in-memory D1 harness: the Resend id stored, the dedupe refusal with no fetch, a failed
+  send releasing its key, suppressed and skipped rows, one digest row per recipient, and
+  the fail-open path. Its fixture defaults `ENV` to `production`; the AECI-1198 suites override it.
 - `apps/api/src/lib/notifications/delivery-policy.spec.ts` — the tier policy on every
   tier, against internal, outside, mixed-case and lookalike addresses. The
   `claim-approved` suite additionally asserts the layout markup, so a regression back to

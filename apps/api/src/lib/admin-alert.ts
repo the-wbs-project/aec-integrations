@@ -72,8 +72,10 @@ export interface AdminAlert {
   rows: StuckRequestSummary[];
 }
 
-/** `suppressed`: the tier delivery policy refused `ADMIN_ALERT_EMAIL` (AECI-1198). */
-export type AdminAlertOutcome = 'sent' | 'failed' | 'skipped' | 'suppressed';
+/** `suppressed`: the tier delivery policy refused `ADMIN_ALERT_EMAIL` (AECI-1198).
+ *  `duplicate`: the send ledger already holds the alert's dedupe key (AECI-1202), so
+ *  an earlier send owns it. Not a failure. The alert sends no key today. */
+export type AdminAlertOutcome = 'sent' | 'failed' | 'skipped' | 'suppressed' | 'duplicate';
 
 /**
  * Deliver the admin alert via Resend (`lib/email.ts`). **Never throws** (mirrors

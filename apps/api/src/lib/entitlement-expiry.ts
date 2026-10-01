@@ -437,13 +437,16 @@ async function loadVendorSeatEmails(
  *
  * `sent` if ANY address was delivered — the notice reached the vendor, so the
  * fence is earned even if a second seat's address bounced. Otherwise `failed`
- * beats `suppressed` beats `skipped`: a failure is the more actionable signal, and
- * `suppressed` (AECI-1198, an outside address on a non-production tier) says there
- * WAS an address. Neither `suppressed` nor `skipped` stamps the fence.
+ * beats `duplicate` beats `suppressed` beats `skipped`: a failure is the more
+ * actionable signal, and `suppressed` (AECI-1198, an outside address on a
+ * non-production tier) says there WAS an address. `duplicate` (AECI-1202) means an
+ * earlier send holds the ledger key, so this run delivered nothing but nothing
+ * failed either. None of `duplicate`, `suppressed` or `skipped` stamps the fence.
  */
 function collapse(outcomes: readonly EmailOutcome[]): EmailOutcome {
   if (outcomes.includes('sent')) return 'sent';
   if (outcomes.includes('failed')) return 'failed';
+  if (outcomes.includes('duplicate')) return 'duplicate';
   if (outcomes.includes('suppressed')) return 'suppressed';
   return 'skipped';
 }
@@ -479,8 +482,8 @@ export async function runEntitlementExpirySweep(
     capped: 0,
     malformed: 0,
     warned: 0,
-    vendor: { sent: 0, failed: 0, skipped: 0, suppressed: 0 },
-    admin: { sent: 0, failed: 0, skipped: 0, suppressed: 0 },
+    vendor: { sent: 0, failed: 0, skipped: 0, suppressed: 0, duplicate: 0 },
+    admin: { sent: 0, failed: 0, skipped: 0, suppressed: 0, duplicate: 0 },
     batchFailures: 0,
   };
 

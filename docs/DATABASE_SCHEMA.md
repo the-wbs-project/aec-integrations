@@ -3192,6 +3192,83 @@ indexable" signal. **Read by** `GET /api/admin/reindex` (the worklist) and
 `readAdminQueueCounts` (`apps/api/src/lib/admin-queue-counts.ts`), which counts it with no
 predicate because every row is pending by construction.
 
+### 9.9 `notification_sends`
+
+The email send ledger (AECI-1202). One row per send attempt per recipient, for every email
+the API Worker sends through Resend: both `sendTransactionalEmail` and the digest `sendEmail`
+in `apps/api/src/lib/email.ts`. Before it existed, 16 of the 25 email types left no record of
+the send, and the Resend message id was drained unread. Nothing in D1 could answer "what did
+we send to this person". The writer is `apps/api/src/lib/notifications/send-ledger.ts`.
+
+```sql
+create table notification_sends (
+  id integer primary key autoincrement,
+  notification_id text not null,   -- the registry id (apps/api/src/lib/notifications/registry.ts)
+  recipient_hash text not null,    -- sha256 hex of the trimmed, lowercased bare address; '' = no recipient
+  tier text not null,              -- tierLabel(env): production | staging | demo | preview | development | non-production
+  outcome text not null,           -- sending | sent | failed | skipped | suppressed | duplicate
+  provider_message_id text,        -- the Resend id on 'sent'; null otherwise
+  dedupe_key text,                 -- the sender's idempotency key; null = never deduplicated
+  entity_type text,                -- what the mail is about, when the sender names it
+  entity_id text,
+  created_at text not null,
+  updated_at text not null
+);
+
+create unique index notification_sends_dedupe_key_idx on notification_sends(dedupe_key);
+create index notification_sends_recipient_idx on notification_sends(recipient_hash, created_at);
+create index notification_sends_notification_idx on notification_sends(notification_id, created_at);
+```
+
+**`recipient_hash` is pseudonymous, not anonymous.** It is the unsalted SHA-256 of the
+trimmed, lowercased bare address (`recipientHash` in `apps/api/src/lib/hash.ts`), the same
+hash the tier-policy suppression log uses. The address itself is never stored. Support
+answers "what did we send to X" by hashing X and seeking on the recipient index. Anyone who
+already holds an address can test it against the table. That is the point, and it is why the
+hash is unsalted. An empty string marks a `skipped` send that had no recipient.
+
+**At-most-once.** A transactional send runs reserve, send, finalize:
+
+1. Reserve: `INSERT … ON CONFLICT(dedupe_key) DO NOTHING RETURNING id`, as a `sending` row.
+2. No id back means another row holds the key. Nothing goes to Resend. A `duplicate` row with
+   a NULL key records the refusal, and the send returns `'duplicate'`.
+3. Send, then update the row to `sent` with the Resend id, or to `failed`.
+4. `failed` sets `dedupe_key` NULL, which releases the key so a retry can send.
+5. A crash between reserve and finalize leaves a `sending` row that still holds its key. It
+   blocks a resend, and it is visible. A missed mail can be sent by hand. A double mail cannot
+   be taken back.
+6. A ledger DB error fails open. The writer logs a warning and the mail still goes.
+
+A send with no dedupe key stores NULL, and SQLite treats NULLs as distinct under a UNIQUE
+index, so it never conflicts. The index is not partial because an upsert conflict target
+cannot be partial, the same trade as `page_views.dedupe_key` (§9.1). Senders do not pass keys
+yet. AECI-1203, AECI-1204 and AECI-1205 add them.
+
+The digests make one Resend call for several recipients, with no dedupe key. They write one
+settled row per recipient after the call, all sharing the Resend id. Each recipient refused
+by the tier policy gets a `suppressed` row. BCC copies get no row of their own. The separate
+operator copy of an unsubscribable send gets one row per operator address, under its own
+registry id.
+
+**`outcome` carries no CHECK**, following `job_runs.job` and `audit_log.action`. The
+vocabulary is young, and SQLite cannot ALTER a CHECK, so a new member would need a
+table-recreate migration. The `NotificationSendOutcome` union in `apps/api/src/db/schema.ts`
+is the enforcement.
+
+**No `audit_log` row.** Log-class, exempt under ADR 0022 / `ADMIN_PANEL_SPEC.md` §13 D11, like
+`page_views` and `job_runs`. The row is the record of the send, so an audit row about it would
+audit the audit. Every write is a single statement outside any `db.batch`, inside its own
+try/catch. Every caller already sends inside `waitUntil` or a cron, so the ledger adds no
+latency to a route response.
+
+**Read by** nothing in the app yet. It is an operator query surface: `wrangler d1 execute`
+against the recipient or notification index.
+
+**Retention: 400 days, enforced by retention-prune** (`apps/api/src/lib/retention-prune.ts`),
+on the same whole-UTC-day, chunked-by-`id` mechanism as `page_views` §9.1. A snapshot gap stops
+it too, because the prune aborts the whole run. Window: `NOTIFICATION_SENDS_RETENTION_DAYS` in
+`@aeci/shared`, overridable per tier by the like-named env var. `ADMIN_PANEL_SPEC.md` §7.4.
+
 ---
 
 ## 10. Future-ready tables

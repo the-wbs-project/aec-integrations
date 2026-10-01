@@ -63,6 +63,8 @@ const CHANNEL_BLURBS: Record<NotificationChannel, string> = {
     'and the id is the `template:` tag on the `aeci.email.send` metric. The cron digests',
     '(`digest-*`) go through the low-level `sendEmail` transport and count on the same metric.',
     'Transport, house layout, per-template copy notes and secrets are in `docs/email.md`.',
+    'Every send writes one `notification_sends` row per recipient, with the Resend message id',
+    'on success (AECI-1202, `docs/DATABASE_SCHEMA.md` §9.9).',
   ].join('\n'),
   'email+portal': [
     "One notification on two surfaces: the attestation sweep's email, plus a",
@@ -121,7 +123,7 @@ function entryRow(id: string, e: NotificationEntry): string {
     `${e.trigger.kind}: ${e.trigger.ref}`,
     `\`${e.envRule}\``,
     e.dedupe,
-    `\`${e.ledger}\``,
+    e.ledger.map((l) => `\`${l}\``).join(', '),
     `\`${e.optOut}\``,
     e.doc,
     e.note ?? '',

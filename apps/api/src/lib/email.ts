@@ -34,8 +34,8 @@
  * from it, and `registry-coverage.spec.ts` fails on a sender that names no entry.
  *
  * Observability: every transactional attempt emits the `aeci.email.send` count tagged
- * `outcome:sent|failed|skipped|suppressed` + `template:<id>`, where the id is the registry
- * id. The digests are counted the same way by their cron jobs. Failures also `warn` to the
+ * `outcome:sent|failed|skipped|suppressed|duplicate` + `template:<id>`, where the id is the
+ * registry id. The digests are counted the same way by their cron jobs. Failures also `warn` to the
  * observability plane (`source: 'email'`). Telemetry is wrapped so it can never turn a send
  * into a throw.
  *
@@ -46,12 +46,22 @@
  * the tier (`[staging] …`). A send whose recipient is outside resolves to `'suppressed'`
  * with no fetch, and logs a recipient hash, never the address. BCC addresses go through
  * the same filter.
+ *
+ * **Send ledger (AECI-1202).** Both layers write one `notification_sends` row per
+ * addressed recipient (`lib/notifications/send-ledger.ts`): `skipped`, `suppressed`,
+ * `sent` with the Resend message id read from the 2xx body, `failed`, or `duplicate`
+ * when a `dedupeKey` is already held. A transactional send reserves its row before the
+ * Resend call and settles it after. Every caller already runs the send inside
+ * `waitUntil` or a cron, so the ledger writes add no latency to a route response. A
+ * ledger DB error warns and the send goes ahead. BCC copies get no row of their own;
+ * the separate operator copy does.
  */
 
 import { orderedPairSlugs, type RequestKind, type RequestTargetType } from '@aeci/shared';
 import { discardResponseBody } from '@aeci/shared/response-drain';
 
 import { logToPosthog, submitCount } from '../posthog';
+import type { Db } from '../db/client';
 import type { Env } from '../env';
 import type { StuckRequestSummary } from './admin-alert';
 import { escapeHtml, renderEmailHtml, renderEmailText } from './email-layout';
@@ -69,6 +79,14 @@ import {
   type EmailNotificationId,
   type TransactionalEmailId,
 } from './notifications/registry';
+import {
+  finalizeSend,
+  ledgerDb,
+  readProviderMessageId,
+  recordSend,
+  reserveSend,
+  type LedgerEntity,
+} from './notifications/send-ledger';
 import { adminRequestUrl, environmentHost } from './request-links';
 
 /**
@@ -94,8 +112,12 @@ export type EmailContext = {
  * - `suppressed`: the tier delivery policy refused the recipient (AECI-1198). Only a
  *   non-production tier produces it. Like `skipped`, nothing was sent, so a caller
  *   that records delivery must not count it as delivered.
+ * - `duplicate`: the send's `dedupeKey` is already held in `notification_sends`
+ *   (AECI-1202), so this send made no Resend call. The earlier send owns delivery.
+ *   Not a failure, and not delivered by this call: a caller must not count it as
+ *   either. Only a send that passes a `dedupeKey` can produce it.
  */
-export type EmailOutcome = 'sent' | 'failed' | 'skipped' | 'suppressed';
+export type EmailOutcome = 'sent' | 'failed' | 'skipped' | 'suppressed' | 'duplicate';
 
 /**
  * Stable template ids: the `template:` metric tag and the `docs/email.md` catalogue key.
@@ -130,6 +152,14 @@ interface SendInput {
    * is its own registry entry, so it names its own id.
    */
   operatorCopy?: { notification: TransactionalEmailId; text: string; html?: string };
+  /**
+   * Idempotency key for the send ledger (AECI-1202), e.g. `{template}:{entity}:{day}`.
+   * A second send with a key that is already held resolves to `'duplicate'` with no
+   * Resend call. A failed send releases its key. Absent → never deduplicated.
+   */
+  dedupeKey?: string;
+  /** What the mail is about, stored on the ledger row. */
+  entity?: LedgerEntity;
 }
 
 /**
@@ -144,8 +174,16 @@ export async function sendTransactionalEmail(
 ): Promise<EmailOutcome> {
   const apiKey = c.env.RESEND_API_KEY;
   const from = c.env.EMAIL_FROM;
+  const db = ledgerDb(c.env);
+  const row = {
+    notificationId: input.template,
+    recipientHash: await hashRecipient(input.to),
+    tier: tierLabel(c.env),
+    entity: input.entity,
+  };
   if (!apiKey || !from || !input.to) {
     emit(c, 'skipped', input.template);
+    await recordSend(db, { ...row, outcome: 'skipped' });
     return 'skipped';
   }
 
@@ -162,7 +200,16 @@ export async function sendTransactionalEmail(
   if (partitionRecipients(c.env, [input.to]).suppressed.length > 0) {
     await logSuppressed(console, input.template, envRule, c.env, [input.to]);
     emit(c, 'suppressed', input.template);
+    await recordSend(db, { ...row, outcome: 'suppressed' });
     return 'suppressed';
+  }
+
+  // Reserve before the Resend call (AECI-1202). A held dedupe key means an earlier
+  // send owns this mail: no fetch, no operator copy.
+  const reservation = await reserveSend(db, { ...row, dedupeKey: input.dedupeKey });
+  if (reservation.duplicate) {
+    emit(c, 'duplicate', input.template);
+    return 'duplicate';
   }
   const subject = tierSubject(c.env, input.subject);
 
@@ -171,6 +218,7 @@ export async function sendTransactionalEmail(
   // The operator gets a separate copy instead, after the recipient's send lands.
   const unsubscribable = Boolean(input.headers?.['List-Unsubscribe']);
 
+  let providerMessageId: string | null;
   try {
     const res = await fetch(RESEND_URL, {
       method: 'POST',
@@ -190,14 +238,17 @@ export async function sendTransactionalEmail(
       signal: AbortSignal.timeout(TIMEOUT_MS),
     });
 
-    // Neither branch reads the body, and an unread body holds its connection —
-    // which deadlocks a cron that sends a run of emails (AECI-666).
-    discardResponseBody(res);
+    // An unread body holds its connection, which deadlocks a cron that sends a run
+    // of emails (AECI-666). The 2xx branch reads it for the Resend id, to the end.
+    // The failure branch does not read it, so it drains.
     if (!res.ok) {
+      discardResponseBody(res);
       warn(c, `Resend ${input.template} returned ${res.status}`);
       emit(c, 'failed', input.template);
+      await finalizeSend(db, reservation.rowId, { outcome: 'failed' });
       return 'failed';
     }
+    providerMessageId = await readProviderMessageId(res);
     emit(c, 'sent', input.template);
   } catch (err) {
     // Timeout (AbortError), network failure, or a malformed body — all non-fatal.
@@ -206,8 +257,10 @@ export async function sendTransactionalEmail(
       `Resend ${input.template} call failed: ${err instanceof Error ? err.message : String(err)}`,
     );
     emit(c, 'failed', input.template);
+    await finalizeSend(db, reservation.rowId, { outcome: 'failed' });
     return 'failed';
   }
+  await finalizeSend(db, reservation.rowId, { outcome: 'sent', providerMessageId });
   if (unsubscribable) await sendOperatorCopy(c, apiKey, from, input);
   return 'sent';
 }
@@ -219,6 +272,7 @@ export async function sendTransactionalEmail(
  * so nothing in the operator's inbox can opt the real recipient out. Sent only after
  * the recipient's send succeeded. Never throws, and a failure only warns: the copy
  * is not counted in `aeci.email.send`, which stays one count per recipient send.
+ * It does get ledger rows, one per operator address, under its own registry id.
  */
 async function sendOperatorCopy(
   c: EmailContext,
@@ -229,6 +283,9 @@ async function sendOperatorCopy(
   // `bccField` already drops any address the tier policy refuses (AECI-1198).
   const to = bccField(c.env, [input.to]).bcc;
   if (!to || !input.operatorCopy) return;
+  const notification = input.operatorCopy.notification;
+  let outcome: 'sent' | 'failed' = 'failed';
+  let providerMessageId: string | null = null;
   try {
     const res = await fetch(RESEND_URL, {
       method: 'POST',
@@ -245,14 +302,23 @@ async function sendOperatorCopy(
       }),
       signal: AbortSignal.timeout(TIMEOUT_MS),
     });
-    discardResponseBody(res);
-    if (!res.ok) warn(c, `Resend ${input.operatorCopy.notification} returned ${res.status}`);
+    if (res.ok) {
+      providerMessageId = await readProviderMessageId(res);
+      outcome = 'sent';
+    } else {
+      discardResponseBody(res);
+      warn(c, `Resend ${notification} returned ${res.status}`);
+    }
   } catch (err) {
-    warn(
-      c,
-      `Resend ${input.operatorCopy.notification} failed: ${err instanceof Error ? err.message : String(err)}`,
-    );
+    warn(c, `Resend ${notification} failed: ${err instanceof Error ? err.message : String(err)}`);
   }
+  await recordRecipients(ledgerDb(c.env), to, {
+    notificationId: notification,
+    tier: tierLabel(c.env),
+    entity: input.entity,
+    outcome,
+    providerMessageId,
+  });
 }
 
 // ─── Per-template helpers ──────────────────────────────────────────────────────
@@ -1809,6 +1875,9 @@ export interface EmailEnv extends DeliveryPolicyEnv {
   RESEND_API_KEY?: string;
   /** Operator copy on every send; see `bccField`. */
   EMAIL_BCC?: string;
+  /** The app D1 binding, for the send ledger (AECI-1202). Optional so a bare test env
+   *  still sends. The cron passes its whole `Env`, which carries it. */
+  DB?: D1Database;
 }
 
 /**
@@ -1817,6 +1886,10 @@ export interface EmailEnv extends DeliveryPolicyEnv {
  *   - `'failed'`  — Resend returned non-2xx or the request threw.
  *   - `'sent'`    — accepted by Resend.
  *   - `'suppressed'` — the tier delivery policy refused every recipient (AECI-1198).
+ * It never returns `'duplicate'`: a digest takes no dedupe key.
+ * When `env.DB` is present it writes one `notification_sends` row per recipient
+ * (AECI-1202): `suppressed` for each refused address, and `sent` (sharing the one
+ * Resend id) or `failed` for the rest. One Resend call, so no reservation step.
  * Outside production, `to` is filtered to internal addresses and the subject gets the
  * tier prefix. A partly suppressed list still sends to the allowed addresses.
  * The optional `logger` records the reason on skip/fail/suppress (defaults to `console`).
@@ -1827,12 +1900,16 @@ export async function sendEmail(
   fetchImpl: typeof fetch = fetch,
   logger: Pick<Console, 'warn' | 'error'> = console,
 ): Promise<EmailOutcome> {
+  const db = ledgerDb(env);
+  const row = { notificationId: message.notification, tier: tierLabel(env) };
   if (!env.RESEND_API_KEY) {
     logger.warn('email: skipped — RESEND_API_KEY not configured');
+    await recordRecipients(db, message.to, { ...row, outcome: 'skipped' }, logger);
     return 'skipped';
   }
   if (!message.from || message.to.length === 0) {
     logger.warn('email: skipped — from/to not configured');
+    await recordRecipients(db, message.to, { ...row, outcome: 'skipped' }, logger);
     return 'skipped';
   }
 
@@ -1840,6 +1917,7 @@ export async function sendEmail(
   if (suppressed.length > 0) {
     const { envRule } = getNotification(message.notification);
     await logSuppressed(logger, message.notification, envRule, env, suppressed);
+    await recordRecipients(db, suppressed, { ...row, outcome: 'suppressed' }, logger);
   }
   if (to.length === 0) return 'suppressed';
 
@@ -1864,17 +1942,57 @@ export async function sendEmail(
       logger.error(
         `email: Resend error ${res.status}${detail ? ` — ${detail.slice(0, 200)}` : ''}`,
       );
+      await recordRecipients(db, to, { ...row, outcome: 'failed' }, logger);
       return 'failed';
     }
-    // Only the success path drains: the `!res.ok` branch above reads the body
-    // for the error detail, and cancelling first would throw that away. An
-    // unread body holds its connection, which is what deadlocks a cron sending
-    // a run of emails (AECI-666).
-    discardResponseBody(res);
+    // Both branches read the body to the end: this one for the Resend id, the one
+    // above for the error detail. An unread body holds its connection, which is
+    // what deadlocks a cron sending a run of emails (AECI-666).
+    const providerMessageId = await readProviderMessageId(res);
+    await recordRecipients(db, to, { ...row, outcome: 'sent', providerMessageId }, logger);
     return 'sent';
   } catch (error) {
     logger.error(`email: send threw — ${error instanceof Error ? error.message : String(error)}`);
+    await recordRecipients(db, to, { ...row, outcome: 'failed' }, logger);
     return 'failed';
+  }
+}
+
+/**
+ * Write one settled ledger row per recipient (AECI-1202), hashing each bare address.
+ * An empty list writes one row with an empty hash, so a send that had nobody to go
+ * to still leaves a trace. Never throws.
+ */
+async function recordRecipients(
+  db: Db | null,
+  recipients: readonly string[],
+  row: {
+    notificationId: EmailNotificationId;
+    tier: string;
+    entity?: LedgerEntity;
+    outcome: 'sent' | 'failed' | 'skipped' | 'suppressed';
+    providerMessageId?: string | null;
+  },
+  logger: Pick<Console, 'warn'> = console,
+): Promise<void> {
+  if (!db) return;
+  const targets = recipients.length > 0 ? recipients : [''];
+  for (const address of targets) {
+    await recordSend(db, { ...row, recipientHash: await hashRecipient(address) }, logger);
+  }
+}
+
+/**
+ * The ledger's `recipient_hash` for one address: `recipientHash` of the bare address,
+ * or an empty string when there is no address. Never throws: a hashing failure
+ * stores an empty string rather than breaking the send.
+ */
+async function hashRecipient(address: string): Promise<string> {
+  if (!address) return '';
+  try {
+    return await recipientHash(bareAddress(address));
+  } catch {
+    return '';
   }
 }
 

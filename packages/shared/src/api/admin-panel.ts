@@ -1041,10 +1041,16 @@ export type AdminSnapshotSource = (typeof ADMIN_SNAPSHOT_SOURCES)[number];
  */
 export const PAGE_VIEWS_RETENTION_DAYS = 400;
 export const JOB_RUNS_RETENTION_DAYS = 90;
+/**
+ * The email send ledger (AECI-1202). 400 to match `page_views`: "what did we send this
+ * person last year" is the support question, and it needs the same year-over-year reach.
+ * The rows are small and the volume is tens a day.
+ */
+export const NOTIFICATION_SENDS_RETENTION_DAYS = 400;
 
 /**
- * Floor for the `PAGE_VIEWS_RETENTION_DAYS` / `JOB_RUNS_RETENTION_DAYS` env
- * overrides (`apps/api/src/env.ts`). D1 Time Travel recovers roughly 30 days, so
+ * Floor for the `PAGE_VIEWS_RETENTION_DAYS` / `JOB_RUNS_RETENTION_DAYS` /
+ * `NOTIFICATION_SENDS_RETENTION_DAYS` env overrides (`apps/api/src/env.ts`). D1 Time Travel recovers roughly 30 days, so
  * a window shorter than that would delete rows past the point of any recovery
  * the moment it took effect. An override below this floor is ignored, not
  * clamped — a typo'd `4` should fall back to the reviewed default, not quietly

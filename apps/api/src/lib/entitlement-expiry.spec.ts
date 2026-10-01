@@ -40,7 +40,11 @@ import {
   type SendEntitlementExpiringEmail,
 } from './entitlement-expiry';
 import { EXPIRY_DUE_METRIC, EXPIRY_NOTICE_METRIC } from './entitlement-expiry-metrics';
-import { sendEntitlementExpiringAdminEmail, sendEntitlementExpiringEmail } from './email';
+import {
+  sendEntitlementExpiringAdminEmail,
+  sendEntitlementExpiringEmail,
+  type EmailOutcome,
+} from './email';
 
 const VENDOR_ID = '11111111-1111-4111-8111-111111111111';
 const VENDOR_B_ID = '33333333-3333-4333-8333-333333333333';
@@ -110,9 +114,7 @@ interface Recorded {
 /** Stubbed seams. `vendorOutcome: 'skipped'` is not enough on its own to simulate
  *  a missing service-role key — that is done by returning an empty seat map, so no
  *  address ever reaches the sender at all. */
-function seams(
-  outcomes: { vendor?: 'sent' | 'failed' | 'skipped'; admin?: 'sent' | 'failed' | 'skipped' } = {},
-) {
+function seams(outcomes: { vendor?: EmailOutcome; admin?: EmailOutcome } = {}) {
   const recorded: Recorded = { vendor: [], admin: [] };
   const sendVendorEmail = vi.fn(async (_c, o) => {
     recorded.vendor.push({
@@ -442,6 +444,25 @@ describe('the `expiry_notice_sent_at` fence — one notice per term, not one per
     expect(result.admin.failed).toBe(1);
     expect((await entitlementOf())?.expiryNoticeSentAt).toBeNull();
     expect(await auditRows()).toHaveLength(0);
+  });
+
+  it('counts a ledger duplicate as duplicate, not failed, and does not stamp (AECI-1202)', async () => {
+    await seedVendor();
+    await seedSeat();
+    await seedEntitlement();
+    const { sendVendorEmail, sendAdminEmail } = seams({ vendor: 'duplicate', admin: 'duplicate' });
+
+    const result = await runEntitlementExpirySweep(ctx(), t.db, {
+      now: NOW,
+      fetchSeatEmails: seatEmails,
+      sendVendorEmail,
+      sendAdminEmail,
+    });
+
+    expect(result.warned).toBe(0);
+    expect(result.vendor).toMatchObject({ duplicate: 1, failed: 0, sent: 0 });
+    expect(result.admin).toMatchObject({ duplicate: 1, failed: 0, sent: 0 });
+    expect((await entitlementOf())?.expiryNoticeSentAt).toBeNull();
   });
 });
 
@@ -800,7 +821,7 @@ describe('tier delivery policy — the real senders on a staging config (AECI-11
     expect(bodies).toHaveLength(1);
     expect(bodies[0]!.to).toBe('ops@aecintegrations.com');
     expect(String(bodies[0]!.subject).startsWith('[staging] ')).toBe(true);
-    expect(result.vendor).toEqual({ sent: 0, failed: 0, skipped: 0, suppressed: 1 });
+    expect(result.vendor).toEqual({ sent: 0, failed: 0, skipped: 0, suppressed: 1, duplicate: 0 });
     expect(result.admin.sent).toBe(1);
   });
 

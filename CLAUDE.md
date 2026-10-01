@@ -323,7 +323,7 @@ post-commit via `ctx.waitUntil` to PostHog Logs through the seam in
 transactional failure. Domain state = catalog, users/profiles, reviews/moderation,
 claims/attestations, requests/workflows. Derived and log-class writes are exempt (`page_views`,
 `mailing_list`, `feedback`, `stats_cache`, Algolia watermark, `recompute-counts`, `metrics_daily`,
-`job_runs`). The test is entity class, not actor class; scheduled `DELETE`s are never exempt.
+`job_runs`, `notification_sends`). The test is entity class, not actor class; scheduled `DELETE`s are never exempt.
 `docs/STAGE_1_SPEC.md` §26, ADR 0022.
 
 ## Cache invalidation

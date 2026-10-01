@@ -372,6 +372,13 @@
       "when": 1790584697027,
       "tag": "0052_sticky_gamma_corps",
       "breakpoints": true
+    },
+    {
+      "idx": 53,
+      "version": "6",
+      "when": 1790851638358,
+      "tag": "0053_smooth_black_panther",
+      "breakpoints": true
     }
   ]
 }

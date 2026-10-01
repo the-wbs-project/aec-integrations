@@ -320,7 +320,7 @@ export type JobRunDetail =
       job: 'retention-prune';
       durationMs: number;
       rowsDeleted: number;
-      /** One entry per prunable table, ALWAYS both, zeros included — "the prune
+      /** One entry per prunable table, ALWAYS all of them, zeros included — "the prune
        *  ran and removed nothing" and "the prune did not consider this table"
        *  are different facts and this row has to distinguish them. */
       tables: RetentionPrunedTableDetail[];

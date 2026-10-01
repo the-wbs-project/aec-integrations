@@ -19,7 +19,7 @@ const FIXTURE: Record<string, NotificationEntry> = {
     trigger: { kind: 'route', ref: 'POST /b' },
     envRule: 'any-tier',
     dedupe: 'One row per write.',
-    ledger: 'audit_log',
+    ledger: ['audit_log'],
     optOut: 'none',
     doc: 'docs/x.md §1',
     summary: 'Tells a vendor about b.',
@@ -30,7 +30,7 @@ const FIXTURE: Record<string, NotificationEntry> = {
     trigger: { kind: 'cron', ref: '0 1 * * *' },
     envRule: 'production-external',
     dedupe: 'None.',
-    ledger: 'none',
+    ledger: ['notification_sends'],
     optOut: 'none',
     doc: 'docs/x.md §2',
     summary: 'Sends zeta | with a pipe.',
@@ -42,7 +42,7 @@ const FIXTURE: Record<string, NotificationEntry> = {
     trigger: { kind: 'route', ref: 'POST /a' },
     envRule: 'any-tier',
     dedupe: 'None.',
-    ledger: 'none',
+    ledger: ['notification_sends'],
     optOut: 'none',
     doc: 'docs/x.md §3',
     summary: 'Sends alpha.',
@@ -73,11 +73,13 @@ Resend email from the API Worker. Transactional sends go through \`sendTransacti
 and the id is the \`template:\` tag on the \`aeci.email.send\` metric. The cron digests
 (\`digest-*\`) go through the low-level \`sendEmail\` transport and count on the same metric.
 Transport, house layout, per-template copy notes and secrets are in \`docs/email.md\`.
+Every send writes one \`notification_sends\` row per recipient, with the Resend message id
+on success (AECI-1202, \`docs/DATABASE_SCHEMA.md\` §9.9).
 
 | Id | Summary | Audience | Trigger | Tier rule | Dedupe | Ledger | Opt-out | Doc | Note |
 |---|---|---|---|---|---|---|---|---|---|
-| \`Alpha-mail\` | Sends alpha. | operator | route: POST /a | \`any-tier\` | None. | \`none\` | \`none\` | docs/x.md §3 |  |
-| \`zeta-mail\` | Sends zeta \\| with a pipe. | external | cron: 0 1 * * * | \`production-external\` | None. | \`none\` | \`none\` | docs/x.md §2 | Production only. |
+| \`Alpha-mail\` | Sends alpha. | operator | route: POST /a | \`any-tier\` | None. | \`notification_sends\` | \`none\` | docs/x.md §3 |  |
+| \`zeta-mail\` | Sends zeta \\| with a pipe. | external | cron: 0 1 * * * | \`production-external\` | None. | \`notification_sends\` | \`none\` | docs/x.md §2 | Production only. |
 
 ## Vendor portal feed only (\`portal\`, 1)
 

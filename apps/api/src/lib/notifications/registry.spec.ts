@@ -73,7 +73,10 @@ describe('notification registry shape', () => {
   });
 
   it('getNotification returns the entry', () => {
-    expect(getNotification('vendor-seat-invite').ledger).toBe('invite-row');
+    expect(getNotification('vendor-seat-invite').ledger).toEqual([
+      'notification_sends',
+      'invite-row',
+    ]);
   });
 
   describe.each(ENTRIES)('%s', (id, entry) => {
@@ -97,18 +100,30 @@ describe('notification registry shape', () => {
     it('pairs its channel, trigger and ledger legally', () => {
       // Supabase sends it, so nothing in the app can record it.
       expect(entry.channel === 'supabase-email').toBe(entry.trigger.kind === 'supabase');
-      if (entry.channel === 'supabase-email') expect(entry.ledger).toBe('none');
+      if (entry.channel === 'supabase-email') expect(entry.ledger).toEqual(['none']);
+
+      // A ledger list names each record once, and `none` stands alone.
+      expect(new Set(entry.ledger).size).toBe(entry.ledger.length);
+      if (entry.ledger.includes('none')) expect(entry.ledger).toEqual(['none']);
+
+      // Every Resend email writes a send-ledger row, listed first (AECI-1202). Nothing
+      // else writes one.
+      expect(entry.ledger[0] === 'notification_sends').toBe(sendsEmail(entry));
+      expect(entry.ledger.includes('notification_sends')).toBe(sendsEmail(entry));
 
       // A portal row is its own ledger: the feed reads the `notification.sent` row.
       if (entry.channel === 'portal' || entry.channel === 'email+portal') {
-        expect(entry.ledger).toBe('audit_log');
+        expect(entry.ledger).toContain('audit_log');
       }
-      if (entry.channel === 'linear') expect(['linear-issue-id', 'none']).toContain(entry.ledger);
-      if (entry.ledger === 'linear-issue-id') expect(entry.channel).toBe('linear');
-      if (entry.ledger === 'invite-row' || entry.ledger === 'fence-column') {
+      if (entry.channel === 'portal') expect(entry.ledger).toEqual(['audit_log']);
+      if (entry.channel === 'linear') {
+        expect([['linear-issue-id'], ['none']]).toContainEqual([...entry.ledger]);
+      }
+      if (entry.ledger.includes('linear-issue-id')) expect(entry.channel).toBe('linear');
+      if (entry.ledger.includes('invite-row') || entry.ledger.includes('fence-column')) {
         expect(entry.channel).toBe('email');
       }
-      if (entry.ledger === 'job_runs') expect(entry.trigger.kind).toBe('cron');
+      if (entry.ledger.includes('job_runs')) expect(entry.trigger.kind).toBe('cron');
 
       // Linear and the AECi inboxes are operator audiences. Portal rows go to vendors.
       if (entry.channel === 'linear') expect(entry.audience).toBe('operator');

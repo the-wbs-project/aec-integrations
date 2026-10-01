@@ -1551,8 +1551,8 @@ function trackedResponse(status: number, body = '{}'): { res: Response; drained:
 const settled = () => new Promise((r) => setTimeout(r, 0));
 
 describe('Resend transports release the response body', () => {
-  it('sendTransactionalEmail drains on 2xx', async () => {
-    const { res, drained } = trackedResponse(200);
+  it('sendTransactionalEmail reads the 2xx body to the end, for the Resend id (AECI-1202)', async () => {
+    const res = new Response('{"id":"re_1"}', { status: 200 });
     vi.spyOn(globalThis, 'fetch').mockResolvedValue(res);
 
     await sendTransactionalEmail(fakeContext(), {
@@ -1561,12 +1561,11 @@ describe('Resend transports release the response body', () => {
       text: 'Body',
       template: 'review-submitted',
     });
-    await settled();
 
-    expect(drained()).toBe(true);
+    expect(res.bodyUsed).toBe(true);
   });
 
-  it('sendTransactionalEmail drains on a non-2xx too (neither branch reads it)', async () => {
+  it('sendTransactionalEmail drains on a non-2xx (that branch does not read it)', async () => {
     const { res, drained } = trackedResponse(422, 'rejected');
     vi.spyOn(globalThis, 'fetch').mockResolvedValue(res);
 
@@ -1581,8 +1580,8 @@ describe('Resend transports release the response body', () => {
     expect(drained()).toBe(true);
   });
 
-  it('sendEmail drains on 2xx', async () => {
-    const { res, drained } = trackedResponse(200);
+  it('sendEmail reads the 2xx body to the end, for the Resend id (AECI-1202)', async () => {
+    const res = new Response('{"id":"re_1"}', { status: 200 });
     const fetchImpl = vi.fn(async () => res);
 
     const out = await sendEmail(
@@ -1591,10 +1590,9 @@ describe('Resend transports release the response body', () => {
       fetchImpl as unknown as typeof fetch,
       silent,
     );
-    await settled();
 
     expect(out).toBe('sent');
-    expect(drained()).toBe(true);
+    expect(res.bodyUsed).toBe(true);
   });
 
   it('sendEmail still reads the error body on a non-2xx (drain must not steal it)', async () => {
