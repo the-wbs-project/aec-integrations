@@ -176,7 +176,7 @@ relocated.
 ## Reproducing the reads
 
 ```
-export CLOUDFLARE_ACCOUNT_ID=e62ec9d8012c3e0c225f8e4dbab76b79
+export CLOUDFLARE_ACCOUNT_ID=004dc1af737b22a8aa83b3550fa9b9d3
 apps/api/node_modules/.bin/wrangler d1 execute aeci-app-production --remote --json --command \
   "SELECT id, COALESCE(mechanism_kind,'(NULL)') k FROM integrations WHERE mechanism_kind='api'"
 ```

@@ -3380,7 +3380,7 @@ Production starts empty at launch. The initial bulk load happens once during Pha
 
 Backup policy is deferred to a dedicated operational document — `docs/RUNBOOKS.md`, which is what the formerly-planned `OPERATIONAL_RUNBOOKS.md` shipped as. Defaults:
 
-- D1 Time Travel for the application database (point-in-time recovery within D1's retention window; ADR 0016); Supabase automated backups cover the auth-only project
+- D1 Time Travel for the application database (point-in-time recovery within D1's retention window; ADR 0016; the history restarted at the 2026-10-03 move to The WBS Project account, ADR 0036); Supabase automated backups cover the auth-only project
 - Audit log retention: indefinite for Stage 1 (see `STAGE_1_SPEC.md` §26.6 and §14.2)
 - `page_views` retention: **400 days**, settled by `ADMIN_PANEL_SPEC.md` §13 D5 and **enforced since AECI-584** by the daily 03:00 UTC pruning cron — not indefinite, though it deletes nothing until ~2027-07 given the 2026-06-23 data start. 400 rather than 180 because D1 Time Travel gives only ~30 days of point-in-time recovery, so a prune is effectively permanent, and 400 is the first window that keeps year-over-year comparison possible
 - `metrics_daily` retention: **indefinite** — it is the long memory that survives the `page_views` prune (AECI-581 / §7.1). The pruning cron never touches it, and never prunes a `page_views` day it has not captured; both are asserted by test (§9.3)

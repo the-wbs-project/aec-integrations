@@ -1,7 +1,7 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "aeci-api",
-  "account_id": "e62ec9d8012c3e0c225f8e4dbab76b79",
+  "account_id": "004dc1af737b22a8aa83b3550fa9b9d3",
   "main": "src/index.ts",
   "compatibility_date": "2026-07-10",
   // The API Worker is PRIVATE. It is reachable only via the SSR Worker's
@@ -206,13 +206,13 @@
   "kv_namespaces": [
     {
       "binding": "TAXONOMY_KV",
-      "id": "331fc1cfc6e0421b985442ac934748fa",
-      "preview_id": "331fc1cfc6e0421b985442ac934748fa",
+      "id": "9acd62934424496da76de31aa761255f",
+      "preview_id": "9acd62934424496da76de31aa761255f",
     },
     {
       "binding": "PROMOTE_KV",
-      "id": "30d6ca5b9f9e444ea97362e9757b21c3",
-      "preview_id": "30d6ca5b9f9e444ea97362e9757b21c3",
+      "id": "48be5fd8a6284d6bb7b43b2f3aac323d",
+      "preview_id": "48be5fd8a6284d6bb7b43b2f3aac323d",
     },
   ],
   // AECI-773 / ADR 0026: native Workers Rate Limiting — the in-Worker layer
@@ -271,7 +271,7 @@
     {
       "binding": "DB",
       "database_name": "aeci-app-preview",
-      "database_id": "05618c5a-929d-404d-8204-1e565c52b9c2",
+      "database_id": "40b2021f-9023-4f4a-affb-9d2c657bb7e3",
       "migrations_dir": "migrations",
     },
   ],
@@ -318,14 +318,14 @@
       "kv_namespaces": [
         {
           "binding": "TAXONOMY_KV",
-          "id": "331fc1cfc6e0421b985442ac934748fa",
-          "preview_id": "331fc1cfc6e0421b985442ac934748fa",
+          "id": "9acd62934424496da76de31aa761255f",
+          "preview_id": "9acd62934424496da76de31aa761255f",
         },
         // AECI-563 / ADR 0021: promote job payload staging + result mirror.
         {
           "binding": "PROMOTE_KV",
-          "id": "30d6ca5b9f9e444ea97362e9757b21c3",
-          "preview_id": "30d6ca5b9f9e444ea97362e9757b21c3",
+          "id": "48be5fd8a6284d6bb7b43b2f3aac323d",
+          "preview_id": "48be5fd8a6284d6bb7b43b2f3aac323d",
         },
       ],
       // AECI-773 / ADR 0026: native Workers Rate Limiting (see the base-config note).
@@ -360,7 +360,7 @@
         {
           "binding": "DB",
           "database_name": "aeci-app-preview",
-          "database_id": "05618c5a-929d-404d-8204-1e565c52b9c2",
+          "database_id": "40b2021f-9023-4f4a-affb-9d2c657bb7e3",
           "migrations_dir": "migrations",
         },
       ],
@@ -429,12 +429,12 @@
       "kv_namespaces": [
         {
           "binding": "TAXONOMY_KV",
-          "id": "dcc927dc53be4fdb9b7c5279e4803539",
+          "id": "36ffebd88b6343e9ae9698620e30a1f2",
         },
         // AECI-563 / ADR 0021: promote job payload staging + result mirror.
         {
           "binding": "PROMOTE_KV",
-          "id": "eee38f83e62f473d8d589e08b2a99c07",
+          "id": "0b8d4cba2df94a5eacb402693a8c76f4",
         },
       ],
       // AECI-773 / ADR 0026: native Workers Rate Limiting (see the base-config note).
@@ -467,7 +467,7 @@
         {
           "binding": "DB",
           "database_name": "aeci-app-staging",
-          "database_id": "6cd91530-20f3-4264-b6ba-3b2bf611c2aa",
+          "database_id": "f4f80b55-d8e0-47fd-8277-e1879fe56a44",
           "migrations_dir": "migrations",
         },
       ],
@@ -675,12 +675,12 @@
       "kv_namespaces": [
         {
           "binding": "TAXONOMY_KV",
-          "id": "b05173e9891e4b93948f55b62c4dac84",
+          "id": "516d3441c4e5478a8d1c10b0c8290ef3",
         },
         // AECI-563 / ADR 0021: promote job payload staging + result mirror.
         {
           "binding": "PROMOTE_KV",
-          "id": "bda4c6f152384073861d5ff218e0d7da",
+          "id": "a43e06984ae0428a915bbeb3a78860b6",
         },
       ],
       // AECI-773 / ADR 0026: native Workers Rate Limiting (see the base-config note).
@@ -712,7 +712,7 @@
         {
           "binding": "DB",
           "database_name": "aeci-app-demo",
-          "database_id": "a2c7d838-66da-484c-bbfb-80688aac888e",
+          "database_id": "3600401b-0414-40f6-9c86-5cf4dfd8469d",
           "migrations_dir": "migrations",
         },
       ],
@@ -882,12 +882,12 @@
       "kv_namespaces": [
         {
           "binding": "TAXONOMY_KV",
-          "id": "35d63b5b3c4b492c9d4e6f2041d60136",
+          "id": "f07a90c7f67540879fe0b3a29cee82fd",
         },
         // AECI-563 / ADR 0021: promote job payload staging + result mirror.
         {
           "binding": "PROMOTE_KV",
-          "id": "9f0ce48f3a6b46f98458907baec65bf3",
+          "id": "55f2cc73eaed406fa29726099280bb90",
         },
       ],
       // AECI-773 / ADR 0026: native Workers Rate Limiting (see the base-config note).
@@ -920,7 +920,7 @@
         {
           "binding": "DB",
           "database_name": "aeci-app-production",
-          "database_id": "74dedcd8-99ff-4033-b28d-4d918e4ecd00",
+          "database_id": "3bbbd4ca-4907-41c1-9f76-7d7241ca2b8f",
           "migrations_dir": "migrations",
         },
       ],

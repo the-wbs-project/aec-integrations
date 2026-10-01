@@ -64,7 +64,7 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "aeci-web",
-  "account_id": "e62ec9d8012c3e0c225f8e4dbab76b79",
+  "account_id": "004dc1af737b22a8aa83b3550fa9b9d3",
   "main": "./dist/server/server.mjs",
   "compatibility_date": "2026-07-10",
   // `nodejs_compat` — @angular/ssr Node polyfills (see the header note).
@@ -177,12 +177,17 @@
         "default": { "type": "worker", "cache": { "enabled": false } },
         "Renderer": { "type": "worker", "cache": { "enabled": true } },
       },
-      "routes": [
-        {
-          "pattern": "staging.aecintegrations.com",
-          "custom_domain": true,
-        },
-      ],
+      // WBS-INTERIM (AECI-1166): until the zone moves to the WBS account, staging
+      // cannot bind its custom domain, so it serves on
+      // aeci-web-staging.thewbsproject.workers.dev (Access-gated by `aeci-*`).
+      // At cutover: delete `workers_dev` and restore the `routes` block.
+      "workers_dev": true,
+      // "routes": [
+      //   {
+      //     "pattern": "staging.aecintegrations.com",
+      //     "custom_domain": true,
+      //   },
+      // ],
       "services": [{ "binding": "API", "service": "aeci-api-staging" }],
       // WC-5 (AECI-319): consume the cross-Worker cache-purge queue. The API Worker
       // (producer) enqueues on promote/moderation; this Worker issues `ctx.cache.purge()`

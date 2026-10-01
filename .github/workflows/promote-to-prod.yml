@@ -67,7 +67,7 @@
 #                            Worker each promote; absent → promote is 401
 #                            fail-closed. Worker RUNTIME path. Shared across envs.
 #   CLOUDFLARE_API_TOKEN     Scoped per docs/CICD_PLAN.md §7.1 (Workers + D1 + Queues edit).
-#   CLOUDFLARE_ACCOUNT_ID    e62ec9d8012c3e0c225f8e4dbab76b79.
+#   CLOUDFLARE_ACCOUNT_ID    004dc1af737b22a8aa83b3550fa9b9d3.
 #   CF_ACCESS_CLIENT_ID      Cloudflare Access service token (`aeci-gh-actions`,
 #                            docs/access.md §1) — used for the demo `/api/version`
 #                            probe in pre-promotion-checks AND the production smoke

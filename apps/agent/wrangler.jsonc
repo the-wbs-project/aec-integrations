@@ -1,7 +1,7 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "aeci-agent",
-  "account_id": "e62ec9d8012c3e0c225f8e4dbab76b79",
+  "account_id": "004dc1af737b22a8aa83b3550fa9b9d3",
   // SPIKE WORKER. Built on Flue (the Astro team's agent framework). Deployed BY
   // HAND, like apps/datatool — deliberately not deployed by CI (the root
   // `pnpm -r` lint/typecheck/test:unit lanes still run this package on every PR).
@@ -63,8 +63,8 @@
     // Cloudflare Access, read by src/access.ts. Without BOTH, the middleware
     // skips JWT verification and every signed-in request is a 403. Values are
     // the `AECi Non-Prod` app (docs/access.md §1), same as apps/datatool.
-    "ACCESS_AUD": "6d89b8089d435389e9d1bdcc5bdb5a85e7b6938aa155d411fe1729d53dd98643",
-    "ACCESS_TEAM_DOMAIN": "aecintegrations.cloudflareaccess.com",
+    "ACCESS_AUD": "cccc1e20ad7d9da26dd5a7fe67716b39102bc74e4eceb9eab66afb5786d7b632",
+    "ACCESS_TEAM_DOMAIN": "the-wbs-project.cloudflareaccess.com",
     // AECI-74 convention: overridden at dev/deploy time via
     // `wrangler --var COMMIT_SHA:<sha> --var DEPLOYED_AT:<iso>`.
     "COMMIT_SHA": "unknown",
@@ -74,7 +74,7 @@
     {
       "binding": "DB",
       "database_name": "aeci-app-preview",
-      "database_id": "05618c5a-929d-404d-8204-1e565c52b9c2",
+      "database_id": "40b2021f-9023-4f4a-affb-9d2c657bb7e3",
     },
   ],
   "ai": {
@@ -113,8 +113,8 @@
         // Cloudflare Access, read by src/access.ts. Without BOTH, the middleware
         // skips JWT verification and every signed-in request is a 403. Values are
         // the `AECi Non-Prod` app (docs/access.md §1), same as apps/datatool.
-        "ACCESS_AUD": "15a26a295f44bb640bcd6e52a19b49196162d3615d095d53f61d8baa853541ae",
-        "ACCESS_TEAM_DOMAIN": "aecintegrations.cloudflareaccess.com",
+        "ACCESS_AUD": "cccc1e20ad7d9da26dd5a7fe67716b39102bc74e4eceb9eab66afb5786d7b632",
+        "ACCESS_TEAM_DOMAIN": "the-wbs-project.cloudflareaccess.com",
         // AECI-74: overridden at deploy time via
         // `wrangler --var COMMIT_SHA:<sha> --var DEPLOYED_AT:<iso>`.
         "COMMIT_SHA": "unknown",
@@ -130,7 +130,7 @@
         {
           "binding": "DB",
           "database_name": "aeci-app-production",
-          "database_id": "74dedcd8-99ff-4033-b28d-4d918e4ecd00",
+          "database_id": "3bbbd4ca-4907-41c1-9f76-7d7241ca2b8f",
         },
       ],
       "ai": {

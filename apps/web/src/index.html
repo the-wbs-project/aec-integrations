@@ -10,7 +10,7 @@
     <link rel="apple-touch-icon" href="apple-touch-icon.png" />
     <!--
       crossorigin="use-credentials" is required because non-prod hostnames
-      (staging + *.aec-integrations.workers.dev) sit behind Cloudflare Access.
+      (staging + aeci-*.thewbsproject.workers.dev) sit behind Cloudflare Access.
       Manifest fetches omit credentials by default even same-origin, so without
       this the Access cookie isn't sent, Access 302s the fetch to its login
       origin, and the cross-origin redirect fails CORS. Harmless in prod (no

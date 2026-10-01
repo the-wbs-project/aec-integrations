@@ -37,7 +37,7 @@
 # Required GH Actions secrets:
 #   CLOUDFLARE_API_TOKEN       Scoped per docs/CICD_PLAN.md §7.1 (Workers + D1 +
 #                              Queues edit).
-#   CLOUDFLARE_ACCOUNT_ID      e62ec9d8012c3e0c225f8e4dbab76b79.
+#   CLOUDFLARE_ACCOUNT_ID      004dc1af737b22a8aa83b3550fa9b9d3.
 #   (No DATABASE_URL_PRODUCTION — the demo app DB is Cloudflare D1 `aeci-app-demo`
 #    (ADR 0016); /api/health's db:ok check runs over the `DB` binding. The Prisma
 #    Accelerate runtime path is retired, AECI-253.)
@@ -193,7 +193,7 @@ jobs:
       # service-token headers when CF_ACCESS_* are set.
       - name: Verify staging is at inputs.commit_sha (API + SSR)
         env:
-          HOST: https://staging.aecintegrations.com
+          HOST: https://aeci-web-staging.thewbsproject.workers.dev # WBS-INTERIM (AECI-1166): staging.aecintegrations.com at cutover
           EXPECTED_SHA: ${{ inputs.commit_sha }}
           CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
           CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}

@@ -45,6 +45,32 @@ Rulesets API).
 Applied to zone `aecintegrations.com` via the CF Rulesets API (token scoped to
 `Zone WAF: Edit`).
 
+### As-built: the zone moves to The WBS Project, Enterprise (2026-10-03, AECI-1161)
+
+**Effective at the cutover, the zone lives in The WBS Project account on the Enterprise
+plan.** Every rule id and both ruleset ids recorded in the sections below are the **old
+zone's** ids. They are history. The rules were re-typed by hand in the WBS dashboard on
+2026-09-30 and ported 1:1, with each expression matching the original's character count.
+Enterprise lifts the Pro limits recorded under "Plan constraints", but no rule was
+redesigned. The source export is `scripts/ops/2026-09-wbs-account-move/waf-export.json`.
+
+| Rule | Old zone id | WBS zone id |
+|---|---|---|
+| Blocker Rule 1 ("Block scanner probes", Block) | `bc961c9f6c2e4e02ba2429d06f8f1dc2` | `b154c36f480f4f639cb6e614cf75de69` |
+| Blocker Rule 2 ("Blocker 2", Block, 403) | `4781ac7e149247baa5b4119274119821` | `2e2e7ae15d69446a872dcb142e7ed82c` |
+| Scraper-UA (Managed Challenge) | `319173bafcf749fdbf9b739480d71ded` | `44749706cd6540d686ba27122176d0cc` |
+| Rule A: requests, subscribe, feedback (5 per 60 s per IP, 429, 1 h) | `d5ed0440ab64408d881d890bf10767a5` | `826151ccbc464f4095f7dfedfa8f51ac` |
+| Rule B: reviews (5 per 60 s per IP, 429, 1 h) | `45a1fd5d771a4b96bc204012f5965b5d` | `0ec84d97047740beb3ee1e6035301491` |
+| Cloudflare Managed Ruleset | default config | default config |
+| OWASP Core (Medium 40+, PL1, Block) | same | same |
+
+- **Not copied:** "Skip WAF for stack-test subdomain". `stack-test` is retired and is not in the WBS DNS.
+- **Carried over as-is:** the host lists still name `prod.aecintegrations.com`, which was retired in AECI-807. Narrowing them is separate work.
+- **The AECI-1138 probe-block rules** (below) were still pending on the old zone, so they were not part of the copy.
+- **Ruleset ids on the WBS zone are not recorded yet.** The dashboard does not show them. They must be read through the API once the WBS zone token exists, then written into `scripts/ops/2026-09-waf-host-scope/rules.mjs` and here. Until then every script under `scripts/ops/2026-09-waf-*` pins the old ruleset ids and must not be run against the WBS zone.
+- **Bot settings** were compared on 2026-09-30 and match, with two cutover steps: turn continuous script monitoring on and turn Bot Preference Sync off once the zone is Active. Bot Preference Sync prepends to `robots.txt` if left on. The comparison table is in the runbook, `scripts/ops/2026-09-wbs-account-move/README.md`.
+- **Zone analytics history stays on the old zone.** The `aeci.waf.ratelimit.blocked` poll starts from zero at the cutover. It needs the swapped `CF_ZONE_ID` and `CF_ANALYTICS_API_TOKEN` (§5).
+
 ### Original apply (2026-06-23, AECI-242)
 
 **Rate-limiting (`http_ratelimit`, ruleset `6ba381516e4c4c37af85631a68b04ef6`) — 2 of 2 Pro slots:**
@@ -293,7 +319,7 @@ flipped — here a row that flips to `200 / 200` means the narrowing overshot. A
 | `demo.aecintegrations.com` (SSR Worker, the public **showcase** tier — no-index, *not* production) | yes | **yes** (host-scoped) |
 | `staging.aecintegrations.com` (SSR Worker, staging) | yes | **yes** (host-scoped) |
 | `aecintegrations.com` (bare apex) | yes | **no** — 301s to `www.` at the edge, so no request under this host reaches a matched path |
-| `*.aec-integrations.workers.dev` (PR previews) | no (workers.dev, not a zone) | n/a — WAF rules require a zone; previews are gated by [Cloudflare Access](./access.md) instead |
+| `aeci-*.thewbsproject.workers.dev` (PR previews) | no (workers.dev, not a zone) | n/a — WAF rules require a zone; previews are gated by [Cloudflare Access](./access.md) instead |
 
 > Until 2026-09 this table said `www.` was "the landing site, deliberately excluded" and
 > called `demo.` production. Both statements went stale at the apex cutover and together
@@ -315,9 +341,11 @@ cannot be reached directly.
 
 ---
 
-## Plan constraints (Cloudflare **Pro**) — read before editing
+## Plan constraints (the old zone's Cloudflare **Pro** plan) — read before editing
 
-These shape every threshold below; they are not tunable without a plan upgrade:
+> **Enterprise lifts these from the 2026-10-03 cutover** (AECI-1161). The two rate-limit rules were ported 1:1, so the thresholds below are still what is deployed. Treat each limit here as the reason the rule has its current shape, not as a ceiling on the WBS zone. Redesigning a rule to use longer counting periods, more slots or per-user counting is separate work.
+
+These shaped every threshold below on Pro; they were not tunable without a plan upgrade:
 
 - **Rate-limiting rules count by client IP only.** Per-user / per-JWT / per-header
   counting is an Enterprise ("Advanced Rate Limiting") feature. We cannot express
@@ -347,8 +375,9 @@ These shape every threshold below; they are not tunable without a plan upgrade:
 
 ## 0. Preconditions
 
-1. Sign in to Cloudflare → select the **AEC Integrations** account
-   (`e62ec9d8012c3e0c225f8e4dbab76b79`) → zone **`aecintegrations.com`**.
+1. Sign in to Cloudflare → select **The WBS Project** account
+   (`004dc1af737b22a8aa83b3550fa9b9d3`; before 2026-10-03 this read the **AEC Integrations**
+   account, `e62ec9d8012c3e0c225f8e4dbab76b79`) → zone **`aecintegrations.com`**.
 2. **Review existing rules first.** `STAGE_1_SPEC.md` §15.1 notes "existing WAF
    rules in place." Go to **Security → WAF → Rate limiting rules** and confirm how
    many of the 2 Pro slots are already used, and **Security → WAF → Custom rules**
@@ -866,6 +895,8 @@ with the three curls above (expect `404 / 200-or-303 / 200`).
 
 ## 3b. Zone-level bot settings — dashboard-only, and **not** covered by anything above (AECI-800)
 
+> **As-built (2026-10-03, AECI-1161).** The zone is on The WBS Project's Enterprise plan, and this section describes the Pro-era setup that was copied across. The settings were compared item by item on 2026-09-30 and match the old zone, except two that cannot be saved on a Pending zone and are cutover steps: **continuous script monitoring** goes on, and **Bot Preference Sync** goes off (on, it rewrites our `robots.txt`). "Bot Fight Mode is absent" and the Pro-only remarks below describe the old zone. Enterprise zones may expose more bot features, so check the dashboard before relying on those remarks. The comparison table is in `scripts/ops/2026-09-wbs-account-move/README.md`.
+
 > *External account state — re-verify on audit; settings last checked 2026-09-09, crawler traffic last read 2026-09-17 (AECI-815).*
 > Nothing in this repo reads, writes, or tests these. No CI check catches them when
 > they drift. They are the reason §2 is **not** the whole bot story.
@@ -1142,15 +1173,16 @@ rule change.
 
 ## 5. Observability
 
-- **CF Security Events (free on Pro):** every Block / Managed Challenge appears in
+- **CF Security Events (free on Pro, and on the WBS Enterprise zone):** every Block / Managed Challenge appears in
   **Security → Events**, filterable by rule, action, host, and IP. This is the
   operator surface for live triage — the per-IP / per-request detail the metrics plane does
   **not** carry. That is true of PostHog: the
   aggregation below is a count per mitigation group, not per request.
 - **The metrics plane (AECI-262):** a scheduled **CF GraphQL Analytics → `submitCount`** shim
   surfaces the same events as a metric so they sit alongside the `aeci.*` catalog
-  and can drive an alert (Enterprise Logpush — the "push" alternative — is not on
-  our Pro plan, so we poll). The API Worker's hourly cron
+  and can drive an alert (Enterprise Logpush — the "push" alternative — was not on
+  our Pro plan, so we poll. The WBS zone is Enterprise, so Logpush is now available; moving
+  off the poll is separate work, AECI-1169). The API Worker's hourly cron
   (`apps/api/src/scheduled.ts` `runWafMetricsJob`, the `'0 * * * *'` trigger) reads
   the **previous clock hour** of the zone's `firewallEventsAdaptiveGroups` over the
   GraphQL Analytics API (`packages/shared/src/cloudflare-analytics.ts`) and emits:

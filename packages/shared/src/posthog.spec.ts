@@ -469,7 +469,7 @@ describe('createPosthogClient — submitCount', () => {
       ctx as never,
       makeEnv(),
       // A per-PR preview Worker hostname: unbounded cardinality, one per PR forever.
-      makeRequest('https://aeci-web-pr-123.aec-integrations.workers.dev/x'),
+      makeRequest('https://aeci-web-pr-123.thewbsproject.workers.dev/x'),
       'aeci.metric',
       1,
     );
@@ -482,12 +482,12 @@ describe('createPosthogClient — submitCount', () => {
     client.logToPosthog(
       ctx2 as never,
       makeEnv(),
-      makeRequest('https://aeci-web-pr-123.aec-integrations.workers.dev/x'),
+      makeRequest('https://aeci-web-pr-123.thewbsproject.workers.dev/x'),
       { message: 'x' },
     );
     await Promise.all(p2);
     expect(attributeMap(logResource().attributes).host).toBe(
-      'aeci-web-pr-123.aec-integrations.workers.dev',
+      'aeci-web-pr-123.thewbsproject.workers.dev',
     );
   });
 

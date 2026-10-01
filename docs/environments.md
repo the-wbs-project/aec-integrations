@@ -6,12 +6,14 @@
 
 ## Topology
 
+> **Cloudflare account (effective at the 2026-10-03 cutover, AECI-1161).** Every Cloudflare resource lives in **The WBS Project** account (`004dc1af737b22a8aa83b3550fa9b9d3`, workers.dev subdomain `thewbsproject.workers.dev`, Zero Trust org `the-wbs-project.cloudflareaccess.com`) on the Enterprise plan. Before that it lived in the **AEC Integrations** account (`e62ec9d8012c3e0c225f8e4dbab76b79`, subdomain `aec-integrations.workers.dev`, Pro plan). Workers, D1, KV, R2, Queues and Workflows were redeployed fresh and the data copied; nothing moved in place. The new D1 and KV ids are in the wrangler files and in `scripts/ops/2026-09-wbs-account-move/ids.json`. Rationale and what was lost: [ADR 0036](./adr/0036-move-to-the-wbs-project-cloudflare-account.md). Step-by-step: `scripts/ops/2026-09-wbs-account-move/README.md`. Other WBS apps share the `thewbsproject.workers.dev` subdomain, so a `*.thewbsproject.workers.dev` pattern is wider than AECi. Match `aeci-*.` instead.
+
 AECi runs four tiers of environment plus local. Worker and Supabase project naming is rigid — workflows, smoke tests, and docs assume these exact names.
 
 | Tier | Cloudflare Workers | Supabase Auth | Public URL | Access control |
 | --- | --- | --- | --- | --- |
 | **Local** | `wrangler dev` / `pnpm dev:bound` | Shared auth project (or local `supabase start`) | `http://localhost:8788` | None (loopback) |
-| **PR preview** | `aeci-{api,web}-pr-<N>` (`*.aec-integrations.workers.dev`) | Shared auth project | `*.workers.dev` (PR-specific) | Cloudflare Access — service token for CI, OTP-to-email for humans |
+| **PR preview** | `aeci-{api,web}-pr-<N>` (`aeci-*.thewbsproject.workers.dev`) | Shared auth project | `*.workers.dev` (PR-specific) | Cloudflare Access — service token for CI, OTP-to-email for humans |
 | **Staging** | `aeci-{api,web}-staging` | Shared auth project | `https://staging.aecintegrations.com` | Cloudflare Access — same allowlist as previews |
 | **Demo** | `aeci-{api,web}-demo` | Shared auth project | `https://demo.aecintegrations.com` | Public (showcase) |
 | **Production** | `aeci-{api,web}-production` | Shared auth project | `https://www.aecintegrations.com` (+ the apex, which 301s to it) | Public |
@@ -34,7 +36,7 @@ Worker `name` (deployed) values in `apps/{web,api}/wrangler.jsonc`:
 
 The SSR Worker (`apps/web`) is the only public ingress. The API Worker (`apps/api`) is reachable only via the SSR Worker's `services.API` binding. This is enforced per environment by matching `services.binding.service` to the API Worker's deployed `name` in the same tier.
 
-> **`apps/agent` is a spike and has only two tiers**, the default wrangler block (preview) and `env.production` — no staging and no demo. It is **hand-deployed, not deployed by CI** (like `apps/datatool`; the PR suite still lints, typechecks and unit-tests it), and it is **not an ingress**: it holds D1 read-only, calls the API Worker over the same `services.API` binding pattern, and writes only its own R2 corpus bucket. It has no custom domain; both tiers run on `workers_dev`, so they answer on `aeci-agent.aec-integrations.workers.dev` and `aeci-agent-production.aec-integrations.workers.dev` and are covered by the existing `AECi Non-Prod` Access app's `*.aec-integrations.workers.dev` destination (`docs/access.md` §1). Its build is Vite, so the deploy reads the **emitted** `dist/aeci_agent/wrangler.json` with `-c` and the tier is chosen by `CLOUDFLARE_ENV` at build time, **not** by `--env`. See `apps/agent/README.md` and ADR 0034.
+> **`apps/agent` is a spike and has only two tiers**, the default wrangler block (preview) and `env.production` — no staging and no demo. It is **hand-deployed, not deployed by CI** (like `apps/datatool`; the PR suite still lints, typechecks and unit-tests it), and it is **not an ingress**: it holds D1 read-only, calls the API Worker over the same `services.API` binding pattern, and writes only its own R2 corpus bucket. It has no custom domain; both tiers run on `workers_dev`, so they answer on `aeci-agent.thewbsproject.workers.dev` and `aeci-agent-production.thewbsproject.workers.dev` and are covered by the existing `AECi Non-Prod` Access app's `aeci-*.thewbsproject.workers.dev` destination (`docs/access.md` §1). Its build is Vite, so the deploy reads the **emitted** `dist/aeci_agent/wrangler.json` with `-c` and the tier is chosen by `CLOUDFLARE_ENV` at build time, **not** by `--env`. See `apps/agent/README.md` and ADR 0034.
 
 ## Promotion model
 
@@ -58,7 +60,7 @@ There is intentionally **no auto-deploy to demo or production** — both are del
 
 ## PR previews
 
-Every PR against `main` gets a pair of ephemeral preview Workers — `aeci-api-pr-<N>` (private; bound to via service binding) and `aeci-web-pr-<N>` (public on the `*.aec-integrations.workers.dev` wildcard) — deployed by [`pr-preview.yml`](../.github/workflows/pr-preview.yml) on `pull_request` `opened` / `synchronize` / `reopened` and torn down on `closed`. First-party PRs only — fork PRs skip cleanly since they receive no secrets. Dependabot-triggered runs skip for the same reason (they get Dependabot secrets, not repo secrets); a human push to a Dependabot branch deploys normally.
+Every PR against `main` gets a pair of ephemeral preview Workers — `aeci-api-pr-<N>` (private; bound to via service binding) and `aeci-web-pr-<N>` (public on the `aeci-*.thewbsproject.workers.dev` wildcard) — deployed by [`pr-preview.yml`](../.github/workflows/pr-preview.yml) on `pull_request` `opened` / `synchronize` / `reopened` and torn down on `closed`. First-party PRs only — fork PRs skip cleanly since they receive no secrets. Dependabot-triggered runs skip for the same reason (they get Dependabot secrets, not repo secrets); a human push to a Dependabot branch deploys normally.
 
 ### DB strategy: Cloudflare D1 (ADR 0016)
 
@@ -80,14 +82,14 @@ This is the simplest of three options the AECI-79 issue body enumerated:
 
 ### Hitting a preview manually
 
-Cloudflare Access fronts the `*.aec-integrations.workers.dev` wildcard via the "AECi Non-Prod" app (see [`docs/access.md`](./access.md) §2). Use the `aeci-gh-actions` service token from a shell:
+Cloudflare Access fronts the `aeci-*.thewbsproject.workers.dev` wildcard via the "AECi Non-Prod" app (see [`docs/access.md`](./access.md) §2). Use the `aeci-gh-actions` service token from a shell:
 
 ```bash
 export N=123  # PR number
 curl \
   -H "CF-Access-Client-Id: $CF_ACCESS_CLIENT_ID" \
   -H "CF-Access-Client-Secret: $CF_ACCESS_CLIENT_SECRET" \
-  "https://aeci-web-pr-${N}.aec-integrations.workers.dev/api/version"
+  "https://aeci-web-pr-${N}.thewbsproject.workers.dev/api/version"
 ```
 
 For browser access, the same Access app accepts OTP-to-email for the allowlisted human identities listed in `docs/access.md` §1.
@@ -232,6 +234,8 @@ cd apps/api
 pnpm exec wrangler d1 time-travel info aeci-app-production --env production
 pnpm exec wrangler d1 time-travel restore aeci-app-production --env production --timestamp=<ISO8601-before-promote>
 ```
+
+> **As-built note (2026-10-03, AECI-1161).** The databases on The WBS Project account are new, imported from a dump. Their time-travel history starts at the import, so a restore point earlier than the cutover does not exist. The pre-move history stays on the old account until it is deleted (30 days after the cutover). Time-travel is the last-resort rollback for the first 30 days.
 
 Auth lives in the single shared Supabase project (ADR 0017) and is **not** touched by the promote — recover it via a Supabase point-in-time restore only if ever needed.
 
@@ -607,7 +611,7 @@ magic link **point at localhost** — even though the request came from staging.
 - **Redirect URLs** (wildcards allowed; `/**` covers `/auth/callback?…`):
   - `https://demo.aecintegrations.com/**` — production
   - `https://staging.aecintegrations.com/**` — staging
-  - `https://*.aec-integrations.workers.dev/**` — PR-preview SSR origins
+  - `https://*.thewbsproject.workers.dev/**` — PR-preview SSR origins (since the 2026-10-03 account move; see [ADR 0036](./adr/0036-move-to-the-wbs-project-cloudflare-account.md). The old `https://*.aec-integrations.workers.dev/**` entry can go once the old account is deleted)
   - `http://localhost:8788/**` and `http://localhost:8790/**` — local dev (primary + agent workspaces; `globalThis.location.origin` is the SSR port)
   - `https://aecintegrations.com/**` — the public launch domain, when it lands
 - **Site URL**: `https://demo.aecintegrations.com` — the deployed fallback (only used when a request omits/​mismatches `emailRedirectTo`).
@@ -731,7 +735,7 @@ Secrets are stored in three places:
 | `SUPABASE_ACCESS_TOKEN` — **orphaned** | ❌ | ❌ | ⚠️ orphaned | Was for the `supabase` CLI in CI (`deploy.yml` db-migrate-dev + `refresh-staging.yml`). Those Postgres steps were removed (AECI-278); the only CLI use left is the manual auth-baseline `supabase migration repair` decommission step. |
 | `SUPABASE_MANAGEMENT_API_TOKEN` | ❌ | ❌ | ✅ | For PR-preview branch lifecycle (AECI-79). |
 | `CLOUDFLARE_API_TOKEN` | ❌ | ❌ | ✅ | Scoped narrowly per CICD_PLAN §7.1. |
-| `CLOUDFLARE_ACCOUNT_ID` | ❌ | ❌ | ✅ | `e62ec9d8012c3e0c225f8e4dbab76b79` |
+| `CLOUDFLARE_ACCOUNT_ID` | ❌ | ❌ | ✅ | `004dc1af737b22a8aa83b3550fa9b9d3` |
 | `CF_ACCESS_CLIENT_ID` + `CF_ACCESS_CLIENT_SECRET` | ❌ | ❌ | ✅ | Service token for non-prod smoke tests (`docs/access.md` §1). |
 | `R2_ACCESS_KEY_ID` + `R2_SECRET_ACCESS_KEY` + `R2_ENDPOINT` | ❌ | ❌ | ⚠️ orphaned | Formerly the prod pre-promote `pg_dump` → R2 snapshot (AECI-78; bucket `aeci-prod-snapshots`, object key `prod-pre-<short-sha>.dump`). **Retired with the Postgres steps (AECI-256)** — no workflow writes the bucket now; the app DB is D1 with 30-day time-travel for rollback. Safe to delete the GH secrets once the bucket's retained dumps age out. |
 | ~~`DATADOG_API_KEY`~~ | ❌ | ❌ | ❌ | **Retired at AECI-651.** No workflow reads it. Delete it from the GH secret store by hand (the WC-10 / `CF_PURGE_API_TOKEN` precedent — removing the reference does not remove the secret). |
@@ -891,7 +895,7 @@ production* and provisioning a fresh empty project for development:
 
 ### 2. Cloudflare DNS
 
-- [ ] Confirm `aecintegrations.com` is on Cloudflare with the AEC account and a Pro plan.
+- [ ] Confirm `aecintegrations.com` is on Cloudflare in **The WBS Project** account on the Enterprise plan. _(Before the 2026-10-03 move this read "the AEC account and a Pro plan"; see [ADR 0036](./adr/0036-move-to-the-wbs-project-cloudflare-account.md).)_
 - [ ] Add a custom hostname for `staging.aecintegrations.com` pointing at the Workers zone (Cloudflare Dashboard → Workers & Pages → `aeci-web-staging` → Settings → Triggers → Custom Domains → Add). Wrangler will reconcile the route on first deploy.
 - [ ] `demo.aecintegrations.com`, the apex (`aecintegrations.com`) and `www` need **no manual zone edits** — `custom_domain: true` in each web env block makes wrangler provision the DNS record + cert on deploy. The apex + `www` are on `aeci-web-production` (AECI-247/277); their reassignment off the retired landing Worker was the apex-cutover DNS flip. **The reverse is not symmetric: removing a route from a Worker that still exists does NOT reap the Custom Domain** — that is a dashboard action (Worker → Settings → Domains & Routes), which is what AECI-807 hit retiring `prod.aecintegrations.com`.
 
@@ -923,10 +927,10 @@ Since AECI-714 that binding carries **two job kinds**, not one: the product bund
 
   | Namespace | Id |
   |---|---|
-  | `aeci-api-promote-preview` | `30d6ca5b9f9e444ea97362e9757b21c3` |
-  | `aeci-api-promote-staging` | `eee38f83e62f473d8d589e08b2a99c07` |
-  | `aeci-api-promote-demo` | `bda4c6f152384073861d5ff218e0d7da` |
-  | `aeci-api-promote-production` | `9f0ce48f3a6b46f98458907baec65bf3` |
+  | `aeci-api-promote-preview` | `48be5fd8a6284d6bb7b43b2f3aac323d` |
+  | `aeci-api-promote-staging` | `0b8d4cba2df94a5eacb402693a8c76f4` |
+  | `aeci-api-promote-demo` | `a43e06984ae0428a915bbeb3a78860b6` |
+  | `aeci-api-promote-production` | `55f2cc73eaed406fa29726099280bb90` |
 
   To recreate from scratch (KV ids must be literal in the config at deploy time, so this can never be a CI step), from `apps/api`:
   ```bash
@@ -1365,7 +1369,7 @@ Three diagnostic facts worth carrying forward:
   Browser verification needs *two* independent sessions (Access + app sign-in), both of
   which expire within hours.
 - **A lapsed Access session is misleading** — everything redirects to
-  `aecintegrations.cloudflareaccess.com` and page-text tools return "no text content" or
+  `the-wbs-project.cloudflareaccess.com` and page-text tools return "no text content" or
   hang. Useful trick: the `kid` query param on an Access redirect **is** the app's AUD tag,
   so one unauthenticated `curl -I` identifies which Access app guards a hostname, with no
   Access API permission needed.

@@ -57,7 +57,7 @@ on:
       target_url:
         description: 'Target URL (default: staging)'
         required: false
-        default: 'https://staging.aecintegrations.com'
+        default: 'https://aeci-web-staging.thewbsproject.workers.dev' # WBS-INTERIM (AECI-1166): staging.aecintegrations.com at cutover
   # Weekly real-device drift sweep against staging — cheap insurance the device
   # matrix still passes even with no merges.
   schedule:
@@ -134,7 +134,7 @@ jobs:
           CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
           CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
           # Deployed target. Manual runs may override; default is staging.
-          BROWSERSTACK_TARGET_URL: ${{ github.event.inputs.target_url || 'https://staging.aecintegrations.com' }}
+          BROWSERSTACK_TARGET_URL: ${{ github.event.inputs.target_url || 'https://aeci-web-staging.thewbsproject.workers.dev' }}
           # Maps into browserstack.yml's buildIdentifier '${BUILD_NUMBER}'.
           BUILD_NUMBER: ${{ github.run_id }}
         run: pnpm run test:e2e:browserstack

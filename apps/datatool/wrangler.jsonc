@@ -1,12 +1,12 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "aeci-datatool",
-  "account_id": "e62ec9d8012c3e0c225f8e4dbab76b79",
+  "account_id": "004dc1af737b22a8aa83b3550fa9b9d3",
   "main": "src/index.ts",
   "compatibility_date": "2026-07-10",
-  // INTERNAL ADMIN TOOL. Publishes to `aeci-datatool.aec-integrations.workers.dev`,
+  // INTERNAL ADMIN TOOL. Publishes to `aeci-datatool.thewbsproject.workers.dev`,
   // which is already inside the single `AECi Non-Prod` Cloudflare Access app's
-  // `*.aec-integrations.workers.dev` destination (docs/access.md §1) — so it is
+  // `aeci-*.thewbsproject.workers.dev` destination (docs/access.md §1) — so it is
   // OTP-gated to the chrisw/billh allowlist with no new Access app/policy. The
   // Worker ALSO verifies the Access JWT in-process (src/access.ts) so a direct
   // origin hit can't bypass the edge gate. workers_dev:true is required for that
@@ -50,34 +50,34 @@
     // Cloudflare Access application AUD (docs/access.md §1 — `AECi Non-Prod`).
     // Public value; the in-Worker JWT check verifies the Cf-Access-Jwt-Assertion
     // header carries this `aud`.
-    "ACCESS_AUD": "6d89b8089d435389e9d1bdcc5bdb5a85e7b6938aa155d411fe1729d53dd98643",
+    "ACCESS_AUD": "cccc1e20ad7d9da26dd5a7fe67716b39102bc74e4eceb9eab66afb5786d7b632",
     // Cloudflare Zero-Trust team domain that issues/serves the Access JWKS at
     // `https://<team>.cloudflareaccess.com/cdn-cgi/access/certs`. This is the
     // `AEC Integrations` Zero Trust org (docs/access.md §1); the in-Worker
     // Access-JWT check (src/access.ts) verifies the Cf-Access-Jwt-Assertion
     // header's `iss` against `https://<this>` and its `aud` against ACCESS_AUD.
-    "ACCESS_TEAM_DOMAIN": "aecintegrations.cloudflareaccess.com",
+    "ACCESS_TEAM_DOMAIN": "the-wbs-project.cloudflareaccess.com",
   },
   "d1_databases": [
     {
       "binding": "DB_PREVIEW",
       "database_name": "aeci-app-preview",
-      "database_id": "05618c5a-929d-404d-8204-1e565c52b9c2",
+      "database_id": "40b2021f-9023-4f4a-affb-9d2c657bb7e3",
     },
     {
       "binding": "DB_STAGING",
       "database_name": "aeci-app-staging",
-      "database_id": "6cd91530-20f3-4264-b6ba-3b2bf611c2aa",
+      "database_id": "f4f80b55-d8e0-47fd-8277-e1879fe56a44",
     },
     {
       "binding": "DB_DEMO",
       "database_name": "aeci-app-demo",
-      "database_id": "a2c7d838-66da-484c-bbfb-80688aac888e",
+      "database_id": "3600401b-0414-40f6-9c86-5cf4dfd8469d",
     },
     {
       "binding": "DB_PRODUCTION",
       "database_name": "aeci-app-production",
-      "database_id": "74dedcd8-99ff-4033-b28d-4d918e4ecd00",
+      "database_id": "3bbbd4ca-4907-41c1-9f76-7d7241ca2b8f",
     },
   ],
   // WC-7 (AECI-321): cross-Worker cache-purge producers. Producer-only — after a

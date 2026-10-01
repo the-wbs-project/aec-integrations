@@ -89,6 +89,8 @@ Access** at the network edge — not by Supabase project separation.
 
 ## Implementation (summary; full runbook in `docs/environments.md`)
 
+> **Note 2026-10-03 (AECI-1161, [ADR 0036](0036-move-to-the-wbs-project-cloudflare-account.md)):** the preview origin below moved with the Cloudflare account. It is now `*.thewbsproject.workers.dev`. The list below is the 2026-08 record.
+
 1. Provision `ktuhnlypztujpsseujzx` on a paid tier; configure redirect URLs for **all** origins
    (staging, demo/prod, future apex, `*.aec-integrations.workers.dev`, localhost:8788/8790),
    Site URL → demo, Resend SMTP, Google OAuth.

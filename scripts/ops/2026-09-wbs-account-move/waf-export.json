@@ -1,0 +1,43 @@
+{
+  "source": "AEC Integrations zone aecintegrations.com, read 2026-09-30 via dashboard",
+  "custom": [
+    {
+      "name": "Blocker Rule 1",
+      "action": "block",
+      "expr": "(http.request.uri.path contains \"/proc/self/environ\") or (http.request.uri.path contains \"/.npmrc\") or (http.request.uri.path contains \"/.yarnrc\") or (http.request.uri.path contains \"/package-lock.json\") or (http.request.uri.path contains \"/yarn.lock\") or (http.request.uri.path contains \"/Gemfile\") or (http.request.uri.path contains \"/.bash_history\") or (http.request.uri.path contains \"/.travis.yml\") or (http.request.uri.path contains \"/.bitbucket\") or (http.request.uri.path contains \"/gcp_credentials\") or (http.request.uri.path contains \"/serviceAccountKey\") or (http.request.uri.path contains \"/credentials.json\") or (http.request.uri.path contains \"/secrets.json\") or (http.request.uri.path contains \"/aws.config\") or (http.request.uri.path contains \"/aws.json\") or (http.request.uri.path contains \"/aws.env\") or (http.request.uri.path contains \"/.kube/\") or (http.request.uri.path contains \"/firebase.json\") or (http.request.uri.path contains \"/supabase/config\") or (http.request.uri.path contains \"/.claude/\") or (http.request.uri.path contains \"/.cline/\") or (http.request.uri.path contains \"/.cursor/\") or (http.request.uri.path contains \"/.cursorrules\") or (http.request.uri.path contains \"/.windsurfrules\") or (http.request.uri.path contains \"/.openclaw\") or (http.request.uri.path contains \"/.moltbot\") or (http.request.uri.path contains \"/.streamlit/\") or (http.request.uri.path contains \"/.huggingface/\") or (http.request.uri.path contains \"/ollama/\") or (http.request.uri.path contains \"/storage/logs/\") or (http.request.uri.path contains \"/debug.log\") or (http.request.uri.path contains \"/error.log\") or (http.request.uri.path contains \"/v1/models\") or (http.request.uri.path contains \"/horizon/api/\") or (http.request.uri.path contains \"/_debugbar\") or (http.request.uri.path contains \"/debugbar/\")"
+    },
+    {
+      "name": "Blocker Rule 2",
+      "action": "block (default page, 403)",
+      "expr": "(http.request.uri.path.extension in {\"php\" \"py\" \"asp\" \"aspx\" \"jsp\" \"cgi\" \"sh\" \"bak\" \"backup\" \"old\" \"sql\" \"swp\" \"log\" \"yml\" \"yaml\" \"ini\" \"conf\" \"env\"}) or (http.request.uri.path contains \"/wp-\") or (http.request.uri.path contains \"/wordpress\") or (http.request.uri.path contains \"/xmlrpc\") or (http.request.uri.path contains \"/.env\") or (http.request.uri.path contains \"/env.\") or (http.request.uri.path contains \".env\") or (http.request.uri.path eq \"/env\") or (http.request.uri.path contains \"/.git\") or (http.request.uri.path contains \"/.svn\") or (http.request.uri.path contains \"/.hg\") or (http.request.uri.path contains \"/.idea\") or (http.request.uri.path contains \"/.vscode\") or (http.request.uri.path contains \"/.DS_Store\") or (http.request.uri.path contains \"/.circleci\") or (http.request.uri.path contains \"/.aws\") or (http.request.uri.path contains \"/.ssh\") or (http.request.uri.path contains \"/.s3cfg\") or (http.request.uri.path contains \"/aws/credentials\") or (http.request.uri.path contains \"/aws-credentials\") or (http.request.uri.path contains \"/aws-config\") or (http.request.uri.path contains \"/latest/meta-data\") or (http.request.uri.path contains \"/computeMetadata\") or (http.request.uri.path contains \"/config.json\") or (http.request.uri.path contains \"/appsettings\") or (http.request.uri.path contains \"/web.config\") or (http.request.uri.path contains \"/docker-compose\") or (http.request.uri.path contains \"/Dockerfile\") or (http.request.uri.path contains \"/Procfile\") or (http.request.uri.path contains \"/debug\") or (http.request.uri.path contains \"/_profiler\") or (http.request.uri.path contains \"/actuator\") or (http.request.uri.path contains \"/server-status\") or (http.request.uri.path contains \"/server-info\") or (http.request.uri.path contains \"/phpinfo\") or (http.request.uri.path contains \"/_ignition\") or (http.request.uri.path contains \"/telescope\") or (http.request.uri.path contains \"/@fs/\") or (http.request.uri.path contains \"/composer.\") or (http.request.uri.path contains \"/swagger\") or (http.request.uri.path contains \"/openapi\") or (http.request.uri.path contains \"/api-docs\") or (http.request.uri.path contains \"/graphql\") or (http.request.uri.path contains \"/graphiql\") or (http.request.uri.path contains \"/app/kibana\") or (http.request.uri.path contains \"/_cat/\") or (http.request.uri.path contains \"/lander/\")"
+    },
+    {
+      "name": "Block known scraper user-agents on browse/detail + JSON APIs — AECI-242 §15.1",
+      "action": "managed_challenge",
+      "expr": "(http.host in {\"staging.aecintegrations.com\" \"demo.aecintegrations.com\" \"www.aecintegrations.com\" \"prod.aecintegrations.com\"}) and (not cf.client.bot) and (starts_with(http.request.uri.path, \"/products\") or starts_with(http.request.uri.path, \"/vendors\") or http.request.uri.path eq \"/api/products\" or http.request.uri.path eq \"/api/vendors\") and (lower(http.user_agent) contains \"scrapy\" or lower(http.user_agent) contains \"python-requests\" or lower(http.user_agent) contains \"httpx\" or lower(http.user_agent) contains \"curl\" or lower(http.user_agent) contains \"wget\" or lower(http.user_agent) contains \"go-http-client\" or lower(http.user_agent) contains \"java/\" or lower(http.user_agent) contains \"okhttp\" or lower(http.user_agent) contains \"node-fetch\" or lower(http.user_agent) contains \"scraper\" or http.user_agent eq \"\")"
+    }
+  ],
+  "skipped": [
+    "Skip WAF for stack-test subdomain (hostname == stack-test.aecintegrations.com): stack-test is retired and not in the WBS DNS"
+  ],
+  "ratelimit": [
+    {
+      "name": "/api/requests/* + /api/subscribe + /api/feedback submissions (per IP) — spec §15.1 plus the two lead-capture endpoints (AECI-659)",
+      "expr": "(http.host in {\"staging.aecintegrations.com\" \"demo.aecintegrations.com\" \"www.aecintegrations.com\" \"prod.aecintegrations.com\"}) and (http.request.method eq \"POST\") and (starts_with(http.request.uri.path, \"/api/requests/\") or http.request.uri.path eq \"/api/subscribe\" or http.request.uri.path eq \"/api/feedback\")",
+      "chars": "IP",
+      "requests": 5,
+      "period": 60,
+      "action": "block, default response, 429",
+      "mitigation": 3600
+    },
+    {
+      "name": "/api/reviews submissions (per IP) — AECI-242 §15.1 (per-IP proxy for the spec's per-user limit)",
+      "expr": "(http.host in {\"staging.aecintegrations.com\" \"demo.aecintegrations.com\" \"www.aecintegrations.com\" \"prod.aecintegrations.com\"}) and (http.request.method eq \"POST\") and (http.request.uri.path eq \"/api/reviews\")",
+      "chars": "IP",
+      "requests": 5,
+      "period": 60,
+      "action": "block, default response, 429",
+      "mitigation": 3600
+    }
+  ]
+}

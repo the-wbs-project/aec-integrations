@@ -21,7 +21,7 @@
 #      runner).
 #   5. `wrangler deploy --env preview --name aeci-web-pr-<N>` with the same
 #      COMMIT_SHA + DEPLOYED_AT vars, giving the SSR Worker its own URL on
-#      the `*.aec-integrations.workers.dev` wildcard.
+#      the `aeci-*.thewbsproject.workers.dev` wildcard.
 #   6. Smoke-test via /api/version with Cloudflare Access headers; assert the
 #      reported `sha` matches the PR head SHA. The endpoint proxies through
 #      the service binding so this implicitly validates both the SSR Worker
@@ -44,7 +44,7 @@
 #
 # Required GH Actions secrets (all already configured):
 #   CLOUDFLARE_API_TOKEN     Scoped per `docs/CICD_PLAN.md` §7.1.
-#   CLOUDFLARE_ACCOUNT_ID    e62ec9d8012c3e0c225f8e4dbab76b79.
+#   CLOUDFLARE_ACCOUNT_ID    004dc1af737b22a8aa83b3550fa9b9d3.
 #   CF_ACCESS_CLIENT_ID      Cloudflare Access service token (`aeci-gh-actions`).
 #   CF_ACCESS_CLIENT_SECRET  Same token's secret.
 #
@@ -86,7 +86,7 @@ env:
   # naming consistency and as the smoke-test hostname.
   API_WORKER_NAME: aeci-api-pr-${{ github.event.pull_request.number }}
   PREVIEW_WORKER_NAME: aeci-web-pr-${{ github.event.pull_request.number }}
-  PREVIEW_URL: https://aeci-web-pr-${{ github.event.pull_request.number }}.aec-integrations.workers.dev
+  PREVIEW_URL: https://aeci-web-pr-${{ github.event.pull_request.number }}.thewbsproject.workers.dev
 
 jobs:
   deploy:
@@ -330,7 +330,7 @@ jobs:
       #   Worker's own signal, AECI-92). /api/version alone can't catch a stale
       #   SSR deploy because the SSR Worker forwards it untouched to the API
       #   Worker. Cloudflare Access fronts the wildcard
-      #   *.aec-integrations.workers.dev (docs/access.md :42), so
+      #   aeci-*.thewbsproject.workers.dev (docs/access.md :42), so
       #   verify-version.sh sends the service-token headers (CF_ACCESS_* below).
       # ---------------------------------------------------------------------
       - name: Verify preview (API + SSR at PR head SHA)
@@ -410,7 +410,7 @@ jobs:
             - **Commit:** `${{ github.event.pull_request.head.sha }}`
             - **Deployed at:** `${{ steps.ts.outputs.deployed_at }}`
 
-            Hit it directly (Cloudflare Access fronts the `*.aec-integrations.workers.dev` wildcard):
+            Hit it directly (Cloudflare Access fronts the `aeci-*.thewbsproject.workers.dev` wildcard):
 
             ```bash
             curl \
