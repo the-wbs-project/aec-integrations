@@ -24,12 +24,7 @@
 
 import { timingSafeEqual } from '@aeci/shared';
 
-/** Hex-encode an ArrayBuffer. Matches `routes/page-views.ts:sha256Hex`. */
-function toHex(buffer: ArrayBuffer): string {
-  return Array.from(new Uint8Array(buffer))
-    .map((b) => b.toString(16).padStart(2, '0'))
-    .join('');
-}
+import { bytesToHex } from './hash';
 
 /**
  * Recompute the HMAC-SHA256 of `rawBody` under `secret` and constant-time
@@ -53,5 +48,5 @@ export async function verifyLinearSignature(
   );
   const digest = await crypto.subtle.sign('HMAC', key, encoder.encode(rawBody));
 
-  return timingSafeEqual(toHex(digest), signature);
+  return timingSafeEqual(bytesToHex(digest), signature);
 }

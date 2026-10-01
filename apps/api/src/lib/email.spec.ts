@@ -78,10 +78,13 @@ function lastBody(fetchSpy: MockInstance): Record<string, unknown> {
 }
 
 /** Minimal context the client reads: env (key/sender/site) + the telemetry triple.
- *  `RESEND_API_KEY` + `EMAIL_FROM` are set by default so sends go out. */
+ *  `RESEND_API_KEY` + `EMAIL_FROM` are set by default so sends go out. `ENV` defaults
+ *  to `production` so outside test addresses pass the AECI-1198 tier policy; the
+ *  policy suite overrides it. */
 function fakeContext(env: Partial<Env> = {}): EmailContext {
   return {
     env: {
+      ENV: 'production',
       POSTHOG_PROJECT_KEY: undefined,
       RESEND_API_KEY: 'rk_test',
       EMAIL_FROM: 'AEC Integrations <notifications@aecintegrations.com>',
@@ -1405,7 +1408,7 @@ describe('sendEmail', () => {
     const fetchImpl = vi.fn();
     expect(
       await sendEmail(
-        { RESEND_API_KEY: 'k' },
+        { ENV: 'production', RESEND_API_KEY: 'k' },
         { ...MSG, to: [] },
         fetchImpl as unknown as typeof fetch,
         silent,
@@ -1413,7 +1416,7 @@ describe('sendEmail', () => {
     ).toBe('skipped');
     expect(
       await sendEmail(
-        { RESEND_API_KEY: 'k' },
+        { ENV: 'production', RESEND_API_KEY: 'k' },
         { ...MSG, from: '' },
         fetchImpl as unknown as typeof fetch,
         silent,
@@ -1427,7 +1430,7 @@ describe('sendEmail', () => {
       async (_url: string | URL, _init?: RequestInit) => new Response('{}', { status: 200 }),
     );
     const out = await sendEmail(
-      { RESEND_API_KEY: 'secret' },
+      { ENV: 'production', RESEND_API_KEY: 'secret' },
       MSG,
       fetchImpl as unknown as typeof fetch,
       silent,
@@ -1450,7 +1453,11 @@ describe('sendEmail', () => {
       async (_url: string | URL, _init?: RequestInit) => new Response('{}', { status: 200 }),
     );
     await sendEmail(
-      { RESEND_API_KEY: 'secret', EMAIL_BCC: 'support@aecintegrations.com, A@x.com' },
+      {
+        ENV: 'production',
+        RESEND_API_KEY: 'secret',
+        EMAIL_BCC: 'support@aecintegrations.com, A@x.com',
+      },
       MSG,
       fetchImpl as unknown as typeof fetch,
       silent,
@@ -1462,7 +1469,12 @@ describe('sendEmail', () => {
   it('returns failed on a non-2xx response', async () => {
     const fetchImpl = vi.fn(async () => new Response('bad', { status: 422 }));
     expect(
-      await sendEmail({ RESEND_API_KEY: 'k' }, MSG, fetchImpl as unknown as typeof fetch, silent),
+      await sendEmail(
+        { ENV: 'production', RESEND_API_KEY: 'k' },
+        MSG,
+        fetchImpl as unknown as typeof fetch,
+        silent,
+      ),
     ).toBe('failed');
   });
 
@@ -1471,7 +1483,12 @@ describe('sendEmail', () => {
       throw new Error('network');
     });
     expect(
-      await sendEmail({ RESEND_API_KEY: 'k' }, MSG, fetchImpl as unknown as typeof fetch, silent),
+      await sendEmail(
+        { ENV: 'production', RESEND_API_KEY: 'k' },
+        MSG,
+        fetchImpl as unknown as typeof fetch,
+        silent,
+      ),
     ).toBe('failed');
   });
 });
@@ -1534,7 +1551,7 @@ describe('Resend transports release the response body', () => {
     const fetchImpl = vi.fn(async () => res);
 
     const out = await sendEmail(
-      { RESEND_API_KEY: 'k' },
+      { ENV: 'production', RESEND_API_KEY: 'k' },
       MSG,
       fetchImpl as unknown as typeof fetch,
       silent,
@@ -1552,7 +1569,7 @@ describe('Resend transports release the response body', () => {
     const fetchImpl = vi.fn(async () => new Response('domain not verified', { status: 403 }));
 
     const out = await sendEmail(
-      { RESEND_API_KEY: 'k' },
+      { ENV: 'production', RESEND_API_KEY: 'k' },
       MSG,
       fetchImpl as unknown as typeof fetch,
       {
@@ -2014,5 +2031,201 @@ describe('sendLandingSignupNotification', () => {
     expect(
       await sendLandingSignupNotification(fakeContext({ ADMIN_ALERT_EMAIL: undefined }), SIGNUP),
     ).toBe('skipped');
+  });
+});
+
+// ─── AECI-1198: outside recipients get mail from production only ─────────────
+
+describe('tier delivery policy (AECI-1198)', () => {
+  const INPUT = {
+    to: 'seat@vendor.example',
+    subject: 'Hi',
+    text: 'Body',
+    template: 'claim-approved' as const,
+  };
+
+  it('suppresses an outside recipient on staging: no fetch, outcome + metric tag, hashed log', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    const outcome = await sendTransactionalEmail(fakeContext({ ENV: 'staging' }), INPUT);
+
+    expect(outcome).toBe('suppressed');
+    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(sendTags()).toEqual([['outcome:suppressed', 'template:claim-approved']]);
+    expect(warnSpy).toHaveBeenCalledTimes(1);
+    const [, fields] = warnSpy.mock.calls[0]! as [string, Record<string, string>];
+    expect(fields).toMatchObject({ template: 'claim-approved', tier: 'staging' });
+    expect(fields.recipientHash).toMatch(/^[0-9a-f]{64}$/);
+    // The raw address never reaches the log.
+    expect(JSON.stringify(warnSpy.mock.calls)).not.toContain('vendor.example');
+  });
+
+  it('suppresses on every non-production tier, and on a missing ENV', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    for (const ENV of ['development', 'preview', 'staging', 'demo', undefined] as const) {
+      expect(await sendTransactionalEmail(fakeContext({ ENV }), INPUT)).toBe('suppressed');
+    }
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it('suppresses a subdomain lookalike', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const outcome = await sendTransactionalEmail(fakeContext({ ENV: 'demo' }), {
+      ...INPUT,
+      to: 'x@thewbsproject.com.evil.io',
+    });
+    expect(outcome).toBe('suppressed');
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it('still sends to an internal address on staging, with a [staging] subject', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
+    const outcome = await sendTransactionalEmail(fakeContext({ ENV: 'staging' }), {
+      ...INPUT,
+      to: 'Chris@TheWBSProject.com',
+    });
+    expect(outcome).toBe('sent');
+    expect(lastBody(fetchSpy)).toMatchObject({
+      to: 'Chris@TheWBSProject.com',
+      subject: '[staging] Hi',
+    });
+    expect(sendTags()).toEqual([['outcome:sent', 'template:claim-approved']]);
+  });
+
+  it('leaves production unchanged: outside recipient sent, subject unprefixed', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
+    const outcome = await sendTransactionalEmail(fakeContext({ ENV: 'production' }), INPUT);
+    expect(outcome).toBe('sent');
+    expect(lastBody(fetchSpy)).toMatchObject({ to: 'seat@vendor.example', subject: 'Hi' });
+  });
+
+  it('drops outside BCC addresses on staging and keeps internal ones', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
+    await sendTransactionalEmail(
+      fakeContext({
+        ENV: 'staging',
+        EMAIL_BCC: 'support@aecintegrations.com, someone@gmail.com',
+      }),
+      { ...INPUT, to: 'chris@thewbsproject.com' },
+    );
+    expect(lastBody(fetchSpy).bcc).toEqual(['support@aecintegrations.com']);
+  });
+
+  it('omits bcc entirely on staging when every BCC address is outside', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
+    await sendTransactionalEmail(fakeContext({ ENV: 'staging', EMAIL_BCC: 'someone@gmail.com' }), {
+      ...INPUT,
+      to: 'chris@thewbsproject.com',
+    });
+    expect(lastBody(fetchSpy)).not.toHaveProperty('bcc');
+  });
+
+  it('keeps an outside BCC on production', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
+    await sendTransactionalEmail(
+      fakeContext({ ENV: 'production', EMAIL_BCC: 'someone@gmail.com' }),
+      INPUT,
+    );
+    expect(lastBody(fetchSpy).bcc).toEqual(['someone@gmail.com']);
+  });
+
+  it('filters and prefixes the operator copy of an unsubscribable send', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
+    await sendMailingListWelcomeEmail(
+      fakeContext({
+        ENV: 'staging',
+        PUBLIC_SITE_URL: 'https://staging.aecintegrations.com',
+        EMAIL_BCC: 'support@aecintegrations.com, someone@gmail.com',
+      }),
+      { to: 'sub@thewbsproject.com', token: 'tok-123' },
+    );
+    expect(fetchSpy).toHaveBeenCalledTimes(2);
+    const copy = lastBody(fetchSpy);
+    expect(copy.to).toEqual(['support@aecintegrations.com']);
+    expect(String(copy.subject).startsWith('[staging] COPY: ')).toBe(true);
+  });
+
+  it('makes no operator copy when the recipient itself is suppressed', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const outcome = await sendMailingListWelcomeEmail(
+      fakeContext({ ENV: 'staging', EMAIL_BCC: 'support@aecintegrations.com' }),
+      { to: 'sub@example.com', token: 'tok-123' },
+    );
+    expect(outcome).toBe('suppressed');
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+});
+
+describe('sendEmail tier delivery policy (AECI-1198)', () => {
+  const okFetch = () =>
+    vi.fn(async (_url: string | URL, _init?: RequestInit) => new Response('{}', { status: 200 }));
+  const bodyOf = (fetchImpl: ReturnType<typeof okFetch>) =>
+    JSON.parse(fetchImpl.mock.calls[0]![1]!.body as string) as {
+      to: string[];
+      bcc?: string[];
+      subject: string;
+    };
+
+  it('filters `to` to internal addresses on staging and prefixes the subject', async () => {
+    const fetchImpl = okFetch();
+    const warn = vi.fn();
+    const out = await sendEmail(
+      {
+        ENV: 'staging',
+        RESEND_API_KEY: 'k',
+        EMAIL_BCC: 'ops@aecintegrations.com, someone@gmail.com',
+      },
+      { ...MSG, to: ['chris@thewbsproject.com', 'a@x.com'] },
+      fetchImpl as unknown as typeof fetch,
+      { warn, error: () => {} },
+    );
+    expect(out).toBe('sent');
+    const body = bodyOf(fetchImpl);
+    expect(body.to).toEqual(['chris@thewbsproject.com']);
+    expect(body.bcc).toEqual(['ops@aecintegrations.com']);
+    expect(body.subject).toBe('[staging] subj');
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(JSON.stringify(warn.mock.calls)).not.toContain('a@x.com');
+  });
+
+  it('returns suppressed with no fetch when every recipient is outside', async () => {
+    const fetchImpl = okFetch();
+    const out = await sendEmail(
+      { ENV: 'demo', RESEND_API_KEY: 'k' },
+      MSG,
+      fetchImpl as unknown as typeof fetch,
+      silent,
+    );
+    expect(out).toBe('suppressed');
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it('treats a missing ENV as non-production', async () => {
+    const fetchImpl = okFetch();
+    const out = await sendEmail(
+      { RESEND_API_KEY: 'k' },
+      MSG,
+      fetchImpl as unknown as typeof fetch,
+      silent,
+    );
+    expect(out).toBe('suppressed');
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it('leaves production unchanged', async () => {
+    const fetchImpl = okFetch();
+    await sendEmail(
+      { ENV: 'production', RESEND_API_KEY: 'k' },
+      MSG,
+      fetchImpl as unknown as typeof fetch,
+      silent,
+    );
+    const body = bodyOf(fetchImpl);
+    expect(body.to).toEqual(['a@x.com', 'b@x.com']);
+    expect(body.subject).toBe('subj');
   });
 });

@@ -30,8 +30,17 @@
  *     `waitUntil` budget (transactional layer).
  *
  * Observability: every transactional attempt emits the `aeci.email.send` count tagged
- * `outcome:sent|failed|skipped` + `template:<id>`; failures also `warn` to the observability plane
- * (`source: 'email'`). Telemetry is wrapped so it can never turn a send into a throw.
+ * `outcome:sent|failed|skipped|suppressed` + `template:<id>`; failures also `warn` to the
+ * observability plane (`source: 'email'`). Telemetry is wrapped so it can never turn a send
+ * into a throw.
+ *
+ * **Tier delivery policy (AECI-1198).** Both layers run every recipient through
+ * `lib/notifications/delivery-policy.ts` before calling Resend. Production sends to
+ * anyone. Every other tier, including a missing or unknown `ENV`, sends only to
+ * `@thewbsproject.com` and `@aecintegrations.com` addresses and prefixes the subject with
+ * the tier (`[staging] …`). A send whose recipient is outside resolves to `'suppressed'`
+ * with no fetch, and logs a recipient hash, never the address. BCC addresses go through
+ * the same filter.
  */
 
 import { orderedPairSlugs, type RequestKind, type RequestTargetType } from '@aeci/shared';
@@ -41,6 +50,14 @@ import { logToPosthog, submitCount } from '../posthog';
 import type { Env } from '../env';
 import type { StuckRequestSummary } from './admin-alert';
 import { escapeHtml, renderEmailHtml, renderEmailText } from './email-layout';
+import { recipientHash } from './hash';
+import {
+  isProductionTier,
+  partitionRecipients,
+  tierLabel,
+  tierSubject,
+  type DeliveryPolicyEnv,
+} from './notifications/delivery-policy';
 import { adminRequestUrl, environmentHost } from './request-links';
 
 /**
@@ -59,7 +76,15 @@ export type EmailContext = {
   req: { raw: Request };
 };
 
-export type EmailOutcome = 'sent' | 'failed' | 'skipped';
+/**
+ * - `sent`: Resend accepted it.
+ * - `failed`: Resend refused it, or the call threw or timed out.
+ * - `skipped`: nothing to send with (no key, sender or recipient).
+ * - `suppressed`: the tier delivery policy refused the recipient (AECI-1198). Only a
+ *   non-production tier produces it. Like `skipped`, nothing was sent, so a caller
+ *   that records delivery must not count it as delivered.
+ */
+export type EmailOutcome = 'sent' | 'failed' | 'skipped' | 'suppressed';
 
 /** Stable template ids — the `template:` metric tag and the `docs/email.md` catalogue. */
 export type EmailTemplate =
@@ -180,6 +205,15 @@ export async function sendTransactionalEmail(
     return 'skipped';
   }
 
+  // The tier delivery policy (AECI-1198): outside production, an outside recipient
+  // gets nothing. No fetch, so no operator copy either.
+  if (partitionRecipients(c.env, [input.to]).suppressed.length > 0) {
+    await logSuppressed(console, input.template, c.env, [input.to]);
+    emit(c, 'suppressed', input.template);
+    return 'suppressed';
+  }
+  const subject = tierSubject(c.env, input.subject);
+
   // A send with an unsubscribe header never blind-copies: a bcc is the same
   // message, so the operator's copy would carry the recipient's one-click opt-out.
   // The operator gets a separate copy instead, after the recipient's send lands.
@@ -195,8 +229,8 @@ export async function sendTransactionalEmail(
       body: JSON.stringify({
         from,
         to: input.to,
-        ...(unsubscribable ? {} : bccField(c.env.EMAIL_BCC, [input.to])),
-        subject: input.subject,
+        ...(unsubscribable ? {} : bccField(c.env, [input.to])),
+        subject,
         text: input.text,
         ...(input.html ? { html: input.html } : {}),
         ...(input.headers ? { headers: input.headers } : {}),
@@ -240,7 +274,8 @@ async function sendOperatorCopy(
   from: string,
   input: SendInput,
 ): Promise<void> {
-  const to = bccField(c.env.EMAIL_BCC, [input.to]).bcc;
+  // `bccField` already drops any address the tier policy refuses (AECI-1198).
+  const to = bccField(c.env, [input.to]).bcc;
   if (!to || !input.operatorCopy) return;
   try {
     const res = await fetch(RESEND_URL, {
@@ -252,7 +287,7 @@ async function sendOperatorCopy(
       body: JSON.stringify({
         from,
         to,
-        subject: `COPY: ${input.subject}`,
+        subject: tierSubject(c.env, `COPY: ${input.subject}`),
         text: input.operatorCopy.text,
         ...(input.operatorCopy.html ? { html: input.operatorCopy.html } : {}),
       }),
@@ -1618,9 +1653,15 @@ export function sendClaimSubmittedNotification(
     ['Request id', opts.requestId],
   ];
   if (host) rows.push(['Environment', host]);
+  // `LINEAR_API_KEY` is set on production only. On any other tier without it, no
+  // retry will ever link the request, so promising one would be false (AECI-1198).
+  const linearUnconfigured = !isProductionTier(c.env) && !c.env.LINEAR_API_KEY;
   rows.push([
     'Linear issue',
-    opts.linearIssueUrl ?? 'not created yet, the reconciliation sweep will retry',
+    opts.linearIssueUrl ??
+      (linearUnconfigured
+        ? 'not created, Linear is not configured on this tier'
+        : 'not created yet, the reconciliation sweep will retry'),
   ]);
   if (base) {
     rows.push(['Review queue', `${base}/admin/claims`]);
@@ -1799,7 +1840,7 @@ export interface EmailMessage {
 }
 
 /** The env slice the transport reads. `RESEND_API_KEY` is a per-env Wrangler secret. */
-export interface EmailEnv {
+export interface EmailEnv extends DeliveryPolicyEnv {
   RESEND_API_KEY?: string;
   /** Operator copy on every send; see `bccField`. */
   EMAIL_BCC?: string;
@@ -1810,7 +1851,10 @@ export interface EmailEnv {
  *   - `'skipped'` — no API key, or no recipients (fail-open no-op).
  *   - `'failed'`  — Resend returned non-2xx or the request threw.
  *   - `'sent'`    — accepted by Resend.
- * The optional `logger` records the reason on skip/fail (defaults to `console`).
+ *   - `'suppressed'` — the tier delivery policy refused every recipient (AECI-1198).
+ * Outside production, `to` is filtered to internal addresses and the subject gets the
+ * tier prefix. A partly suppressed list still sends to the allowed addresses.
+ * The optional `logger` records the reason on skip/fail/suppress (defaults to `console`).
  */
 export async function sendEmail(
   env: EmailEnv,
@@ -1827,6 +1871,10 @@ export async function sendEmail(
     return 'skipped';
   }
 
+  const { allowed: to, suppressed } = partitionRecipients(env, message.to);
+  if (suppressed.length > 0) await logSuppressed(logger, 'digest', env, suppressed);
+  if (to.length === 0) return 'suppressed';
+
   try {
     const res = await fetchImpl(RESEND_URL, {
       method: 'POST',
@@ -1836,9 +1884,9 @@ export async function sendEmail(
       },
       body: JSON.stringify({
         from: message.from,
-        to: message.to,
-        ...bccField(env.EMAIL_BCC, message.to),
-        subject: message.subject,
+        to,
+        ...bccField(env, to),
+        subject: tierSubject(env, message.subject),
         text: message.text,
         ...(message.html ? { html: message.html } : {}),
       }),
@@ -1866,13 +1914,44 @@ export async function sendEmail(
  * The Resend `bcc` field for one send, from the `EMAIL_BCC` var. Every email AECi
  * sends, through either transport above, blind-copies the operator so they see
  * exactly what users receive. An address already in `to` is dropped, so an
- * operator alert never lands twice. Absent or empty → no `bcc` field at all.
+ * operator alert never lands twice. So is any address the tier delivery policy
+ * refuses (AECI-1198). Absent or empty → no `bcc` field at all.
  * `sendOperatorCopy` reuses it as the `to` list of its separate copy.
  */
-function bccField(raw: string | undefined, to: readonly string[]): { bcc?: string[] } {
+function bccField(
+  env: DeliveryPolicyEnv & { EMAIL_BCC?: string },
+  to: readonly string[],
+): { bcc?: string[] } {
   const addressed = new Set(to.map((t) => bareAddress(t)));
-  const bcc = parseRecipients(raw).filter((b) => !addressed.has(bareAddress(b)));
+  const candidates = parseRecipients(env.EMAIL_BCC).filter((b) => !addressed.has(bareAddress(b)));
+  const bcc = partitionRecipients(env, candidates).allowed;
   return bcc.length > 0 ? { bcc } : {};
+}
+
+/**
+ * Log each recipient the tier delivery policy refused (AECI-1198). The record carries
+ * the template, the tier and an unsalted hash of the address, never the address
+ * itself. Never throws: a hashing failure must not turn a suppression into a send
+ * error.
+ */
+async function logSuppressed(
+  logger: Pick<Console, 'warn'>,
+  template: EmailTemplate | 'digest',
+  env: DeliveryPolicyEnv,
+  recipients: readonly string[],
+): Promise<void> {
+  const tier = tierLabel(env);
+  for (const address of recipients) {
+    try {
+      logger.warn('email: suppressed — recipient outside the internal allowlist on this tier', {
+        template,
+        tier,
+        recipientHash: await recipientHash(bareAddress(address)),
+      });
+    } catch {
+      // Logging must never break a send.
+    }
+  }
 }
 
 /** `Name <a@b.com>` or `a@b.com` → `a@b.com`, lowercased for comparison. */

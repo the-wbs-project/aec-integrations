@@ -382,8 +382,8 @@ export type JobRunDetail =
       capped: number;
       warned: number;
       batchFailures: number;
-      vendor: { sent: number; failed: number; skipped: number };
-      admin: { sent: number; failed: number; skipped: number };
+      vendor: Record<EmailOutcome, number>;
+      admin: Record<EmailOutcome, number>;
     }
   /** The daily IndexNow drain (AECI-826 / §20.2; every 20 minutes until
    *  AECI-1136). `submitted` vs `deleted` is the load-bearing pair: they are equal

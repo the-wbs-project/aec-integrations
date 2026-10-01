@@ -336,6 +336,10 @@ function sendOpsForFinding(
  * suppressing the next 30 days is right even if a second seat's address bounced.
  * Otherwise `failed` beats `skipped`, because a failure is the more actionable
  * signal on the dashboard.
+ *
+ * An email `suppressed` by the tier delivery policy (AECI-1198) collapses to
+ * `skipped`: nothing reached the vendor, so no ledger row is written. It must not
+ * become `NotifyOutcome`'s `suppressed`, which means the 30-day ledger window.
  */
 function collapseOutcomes(outcomes: readonly EmailOutcome[]): NotifyOutcome {
   if (outcomes.includes('sent')) return 'sent';

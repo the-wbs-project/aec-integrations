@@ -51,9 +51,11 @@ beforeEach(async () => {
 });
 afterEach(() => t.dispose());
 
-function makeCtx() {
+/** Production by default: the stuck-request email is production-shaped behaviour.
+ *  The AECI-1198 suite below overrides `ENV` / `LINEAR_API_KEY`. */
+function makeCtx(env: Partial<typeof TEST_ENV> = {}) {
   return {
-    env: { ...TEST_ENV },
+    env: { ...TEST_ENV, ENV: 'production' as const, ...env },
     executionCtx: fakeExecutionContext(),
     req: { raw: new Request('https://api.test/cron/reconcile') },
   };
@@ -610,5 +612,85 @@ describe('runReconciliationSweep — AECI-854 alert throttle and cause reporting
         rows: [expect.objectContaining({ retried: false, reason: 'workflow_missing' })],
       }),
     );
+  });
+});
+
+// ─── AECI-1198: no stuck-request email where Linear cannot be configured ─────
+
+describe('runReconciliationSweep — non-production tier without LINEAR_API_KEY (AECI-1198)', () => {
+  async function seedBandCrossingRow() {
+    await seedProductTarget('tgt-1', 'Acme Build', 'acme-build');
+    await seedWorkflow('wf-1', 'req-1');
+    // 65 minutes old: crosses the 60m band on this sweep.
+    await seedStuckRequest({ id: 'req-1', targetId: 'tgt-1', createdAt: minsAgo(65) });
+  }
+
+  it('on staging without a key, skips the email but keeps the metric and the error log', async () => {
+    await seedBandCrossingRow();
+    const sendAlert = vi.fn(async () => 'sent' as const);
+
+    const result = await runReconciliationSweep(
+      makeCtx({ ENV: 'staging', LINEAR_API_KEY: undefined }),
+      t.db,
+      { createIssue: failingCreateIssue() as never, sendAlert: sendAlert as never, now: NOW },
+    );
+
+    expect(sendAlert).not.toHaveBeenCalled();
+    expect(result).toMatchObject({ persistent: 1, alerted: false });
+    expect(submitCount).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.anything(),
+      expect.anything(),
+      'aeci.linear.reconcile.persistent_failure',
+      1,
+      [],
+    );
+    expect(logToPosthog).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.anything(),
+      expect.anything(),
+      expect.objectContaining({ level: 'error', request_ids: ['req-1'] }),
+    );
+  });
+
+  it('treats a missing ENV as non-production', async () => {
+    await seedBandCrossingRow();
+    const sendAlert = vi.fn(async () => 'sent' as const);
+
+    await runReconciliationSweep(makeCtx({ ENV: undefined, LINEAR_API_KEY: undefined }), t.db, {
+      createIssue: failingCreateIssue() as never,
+      sendAlert: sendAlert as never,
+      now: NOW,
+    });
+
+    expect(sendAlert).not.toHaveBeenCalled();
+  });
+
+  it('on staging WITH a key, still emails: a stuck row there is a real failure', async () => {
+    await seedBandCrossingRow();
+    const sendAlert = vi.fn(async () => 'sent' as const);
+
+    const result = await runReconciliationSweep(
+      makeCtx({ ENV: 'staging', LINEAR_API_KEY: 'lin_test' }),
+      t.db,
+      { createIssue: failingCreateIssue() as never, sendAlert: sendAlert as never, now: NOW },
+    );
+
+    expect(sendAlert).toHaveBeenCalledTimes(1);
+    expect(result.alerted).toBe(true);
+  });
+
+  it('on production without a key, emails exactly as before', async () => {
+    await seedBandCrossingRow();
+    const sendAlert = vi.fn(async () => 'sent' as const);
+
+    const result = await runReconciliationSweep(
+      makeCtx({ ENV: 'production', LINEAR_API_KEY: undefined }),
+      t.db,
+      { createIssue: failingCreateIssue() as never, sendAlert: sendAlert as never, now: NOW },
+    );
+
+    expect(sendAlert).toHaveBeenCalledTimes(1);
+    expect(result.alerted).toBe(true);
   });
 });

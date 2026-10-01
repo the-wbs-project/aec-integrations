@@ -72,7 +72,8 @@ export interface AdminAlert {
   rows: StuckRequestSummary[];
 }
 
-export type AdminAlertOutcome = 'sent' | 'failed' | 'skipped';
+/** `suppressed`: the tier delivery policy refused `ADMIN_ALERT_EMAIL` (AECI-1198). */
+export type AdminAlertOutcome = 'sent' | 'failed' | 'skipped' | 'suppressed';
 
 /**
  * Deliver the admin alert via Resend (`lib/email.ts`). **Never throws** (mirrors

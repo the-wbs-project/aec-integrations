@@ -604,11 +604,12 @@ describe('POST /api/requests/* → claim-intake operator alert (background)', ()
     await seedVendor({ slug: 'acme-co' });
     const execCtx = fakeExecutionContext();
 
-    // No LINEAR_API_KEY → `createLinearIssueForRequest` returns `no_api_key`.
+    // No LINEAR_API_KEY → `createLinearIssueForRequest` returns `no_api_key`. On
+    // production that is an outage the sweep retries.
     const res = await claimApp().request(
       '/api/requests/claim',
       postInit(claimBody),
-      ENV_WITH_ALERT,
+      { ...ENV_WITH_ALERT, ENV: 'production' },
       execCtx,
     );
     expect(res.status).toBe(201);
@@ -617,7 +618,30 @@ describe('POST /api/requests/* → claim-intake operator alert (background)', ()
     const sent = JSON.parse(String(vi.mocked(fetchMock).mock.calls[0]![1]!.body)) as {
       text: string;
     };
-    expect(sent.text).toContain('not created yet');
+    expect(sent.text).toContain('not created yet, the reconciliation sweep will retry');
+  });
+
+  it('says Linear is not configured, not "the sweep will retry", on a non-production tier without a key (AECI-1198)', async () => {
+    const fetchMock = resendOkFetch();
+    await seedVendor({ slug: 'acme-co' });
+    const execCtx = fakeExecutionContext();
+
+    const res = await claimApp().request(
+      '/api/requests/claim',
+      postInit(claimBody),
+      { ...ENV_WITH_ALERT, ENV: 'staging' },
+      execCtx,
+    );
+    expect(res.status).toBe(201);
+    await drain(execCtx);
+
+    const sent = JSON.parse(String(vi.mocked(fetchMock).mock.calls[0]![1]!.body)) as {
+      text: string;
+      subject: string;
+    };
+    expect(sent.text).toContain('not created, Linear is not configured on this tier');
+    expect(sent.text).not.toContain('sweep will retry');
+    expect(sent.subject.startsWith('[staging] ')).toBe(true);
   });
 
   it('does NOT alert on a correction — claims only', async () => {

@@ -15,7 +15,9 @@
  * The rest is asserted by OBSERVED EFFECT (run the sweep against the real
  * migrations in the in-memory harness, read the rows back), the way
  * `vendor-entitlement.spec.ts` does. Both email seams are stubbed — no spec here
- * may reach the Resend transport.
+ * may reach the Resend transport. The one exception is the AECI-1198 tier-policy
+ * suite, which wires the REAL senders behind a stubbed global `fetch`, because the
+ * policy lives in the transport and a stubbed seam would never reach it.
  */
 
 import { eq } from 'drizzle-orm';
@@ -38,6 +40,7 @@ import {
   type SendEntitlementExpiringEmail,
 } from './entitlement-expiry';
 import { EXPIRY_DUE_METRIC, EXPIRY_NOTICE_METRIC } from './entitlement-expiry-metrics';
+import { sendEntitlementExpiringAdminEmail, sendEntitlementExpiringEmail } from './email';
 
 const VENDOR_ID = '11111111-1111-4111-8111-111111111111';
 const VENDOR_B_ID = '33333333-3333-4333-8333-333333333333';
@@ -753,5 +756,75 @@ describe('pure helpers', () => {
 
   it('noticeIsDue suppresses an unparseable stamp rather than re-nagging nightly', () => {
     expect(noticeIsDue('not-a-date', Date.parse(SOON), 30)).toBe(false);
+  });
+});
+
+// ─── AECI-1198: outside recipients get mail from production only ─────────────
+
+describe('tier delivery policy — the real senders on a staging config (AECI-1198)', () => {
+  const RESEND_URL = 'https://api.resend.com/emails';
+  const STAGING: Partial<Env> = {
+    ENV: 'staging',
+    RESEND_API_KEY: 'rk_test',
+    EMAIL_FROM: 'AEC Integrations <notifications@aecintegrations.com>',
+    POSTHOG_PROJECT_KEY: undefined,
+  };
+
+  afterEach(() => vi.restoreAllMocks());
+
+  /** Parsed bodies of every Resend call. Other `fetch` traffic is ignored. */
+  function resendBodies(spy: { mock: { calls: ReadonlyArray<ReadonlyArray<unknown>> } }) {
+    return spy.mock.calls
+      .filter((call) => String(call[0]) === RESEND_URL)
+      .map((call) => JSON.parse(String((call[1] as RequestInit).body)) as Record<string, unknown>);
+  }
+
+  it('sends nothing to a vendor seat, and still sends the internal operator copy', async () => {
+    await seedVendor();
+    await seedSeat();
+    await seedEntitlement();
+    const fetchSpy = vi
+      .spyOn(globalThis, 'fetch')
+      .mockImplementation(async () => new Response('{"id":"re_1"}', { status: 200 }));
+
+    const result = await runEntitlementExpirySweep(ctx(STAGING), t.db, {
+      now: NOW,
+      fetchSeatEmails: seatEmails,
+      sendVendorEmail: sendEntitlementExpiringEmail,
+      sendAdminEmail: sendEntitlementExpiringAdminEmail,
+    });
+
+    const bodies = resendBodies(fetchSpy);
+    // Zero Resend calls to the seat. The one call is the operator copy.
+    expect(bodies.some((b) => JSON.stringify(b).includes('vendor.example'))).toBe(false);
+    expect(bodies).toHaveLength(1);
+    expect(bodies[0]!.to).toBe('ops@aecintegrations.com');
+    expect(String(bodies[0]!.subject).startsWith('[staging] ')).toBe(true);
+    expect(result.vendor).toEqual({ sent: 0, failed: 0, skipped: 0, suppressed: 1 });
+    expect(result.admin.sent).toBe(1);
+  });
+
+  it('with an outside operator address too, makes no Resend call at all and stamps nothing', async () => {
+    await seedVendor();
+    await seedSeat();
+    await seedEntitlement();
+    const fetchSpy = vi
+      .spyOn(globalThis, 'fetch')
+      .mockImplementation(async () => new Response('{"id":"re_1"}', { status: 200 }));
+
+    const result = await runEntitlementExpirySweep(
+      ctx({ ...STAGING, ADMIN_ALERT_EMAIL: 'ops@vendor.example' }),
+      t.db,
+      {
+        now: NOW,
+        fetchSeatEmails: seatEmails,
+        sendVendorEmail: sendEntitlementExpiringEmail,
+        sendAdminEmail: sendEntitlementExpiringAdminEmail,
+      },
+    );
+
+    expect(resendBodies(fetchSpy)).toHaveLength(0);
+    expect(result.warned).toBe(0);
+    expect((await entitlementOf())?.expiryNoticeSentAt).toBeNull();
   });
 });

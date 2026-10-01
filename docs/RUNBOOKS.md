@@ -933,9 +933,11 @@ product/vendor was deleted, or it has no workflow instance — logged `cannot re
 resolve it manually in `/admin/requests`.
 
 **Escalation:** the admin email seam (`lib/admin-alert.ts`) now sends via Resend (AECI-240 / Phase 7.5)
-to `ADMIN_ALERT_EMAIL` (`aeci.linear.reconcile.email{outcome:sent|failed|skipped}`), but it is fail-open:
+to `ADMIN_ALERT_EMAIL` (`aeci.linear.reconcile.email{outcome:sent|failed|skipped|suppressed}`), but it is fail-open:
 when `RESEND_API_KEY` / `ADMIN_ALERT_EMAIL` are absent the outcome is `skipped`, so **this alert +
-the `/admin/requests` queue remain the guaranteed notification** (§6.2). Make sure on-call routes a
+the `/admin/requests` queue remain the guaranteed notification** (§6.2). On a non-production tier
+with no `LINEAR_API_KEY`, the sweep sends no email at all (AECI-1198). The key is production-only,
+so a stuck row there is expected and not paged by mail. Make sure on-call routes a
 persistent failure to whoever owns the Linear pipeline. (The 15-min cadence + ~60m persistent threshold are launch-tunable —
 see `docs/OBSERVABILITY.md` and the constants in `lib/reconciliation-sweep.ts`.)
 
@@ -964,7 +966,7 @@ see `docs/OBSERVABILITY.md` and the constants in `lib/reconciliation-sweep.ts`.)
 - `aeci.data_quality.check{check:<id>}` — per-check issue count (0 = clean; **-1** = the check threw).
 - `aeci.data_quality.job{outcome:failed}` — run-level failure heartbeat.
 - `aeci.data_quality.job{trigger:cron}` — liveness heartbeat (one per completed run).
-- `aeci.data_quality.email{outcome:…}` — digest delivery (sent / failed / skipped).
+- `aeci.data_quality.email{outcome:…}` — digest delivery (sent / failed / skipped / suppressed).
 
 **What it means:** The daily 04:00 UTC §23.1 data-quality job (AECI-241 / Phase 7.6) ran the
 read-only integrity checks (orphan products/vendors, the AECI-592 `promotion_status_invariant` guard,

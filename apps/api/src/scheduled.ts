@@ -1254,7 +1254,9 @@ async function runAnalyticsDigestJob(env: Env, ctx: ExecutionContext): Promise<J
     // misconfiguration the operator should see as not-ok; on local/preview it is
     // the expected state.
     return {
-      outcome: outcome === 'sent' ? 'ok' : outcome === 'skipped' ? 'skipped' : 'failed',
+      // A tier-policy `suppressed` (AECI-1198) is a deliberate no-send, so it
+      // records as `skipped`, not `failed`.
+      outcome: outcome === 'sent' ? 'ok' : outcome === 'failed' ? 'failed' : 'skipped',
       detail: {
         job: 'analytics-digest',
         dayLabel: window.dayLabel,

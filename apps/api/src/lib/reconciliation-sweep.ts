@@ -53,6 +53,7 @@ import {
   type StuckRequestSummary,
 } from './admin-alert';
 import { sendClaimSubmittedNotification } from './email';
+import { isProductionTier } from './notifications/delivery-policy';
 import {
   createLinearIssueForContest,
   createLinearIssueForRequest,
@@ -420,7 +421,15 @@ export async function runReconciliationSweep(
     const emailRows = persistentRows.filter((r) =>
       crossedAlertBand(r.ageMinutes, RECONCILE_SWEEP_INTERVAL_MINUTES),
     );
-    if (emailRows.length > 0) {
+    if (emailRows.length > 0 && !isProductionTier(c.env) && !c.env.LINEAR_API_KEY) {
+      // AECI-1198: `LINEAR_API_KEY` is production-only, so on any other tier every
+      // request is stuck by design and the email is daily noise to the support
+      // inbox. The metric and error log above still fire.
+      log(c, {
+        level: 'info',
+        message: `aeci.linear.reconcile: ${emailRows.length} row(s) crossed an alert band, email skipped — Linear is not configured on this tier`,
+      });
+    } else if (emailRows.length > 0) {
       const alert: AdminAlert = { kind: 'stuck_requests', rows: emailRows };
       await sendAlert(c, alert);
       alerted = true;

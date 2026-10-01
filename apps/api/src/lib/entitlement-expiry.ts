@@ -186,8 +186,10 @@ export interface ExpiryResult {
   malformed: number;
   /** Terms that got at least one delivered notice AND a stamped fence. */
   warned: number;
-  vendor: { sent: number; failed: number; skipped: number };
-  admin: { sent: number; failed: number; skipped: number };
+  /** Per-channel send outcomes. `suppressed` here is the tier delivery policy
+   *  (AECI-1198), not the fence: an outside seat on a non-production tier. */
+  vendor: Record<EmailOutcome, number>;
+  admin: Record<EmailOutcome, number>;
   /** Fence/audit batches that failed to commit (emails already went out). */
   batchFailures: number;
 }
@@ -435,11 +437,14 @@ async function loadVendorSeatEmails(
  *
  * `sent` if ANY address was delivered — the notice reached the vendor, so the
  * fence is earned even if a second seat's address bounced. Otherwise `failed`
- * beats `skipped`, because a failure is the more actionable signal.
+ * beats `suppressed` beats `skipped`: a failure is the more actionable signal, and
+ * `suppressed` (AECI-1198, an outside address on a non-production tier) says there
+ * WAS an address. Neither `suppressed` nor `skipped` stamps the fence.
  */
 function collapse(outcomes: readonly EmailOutcome[]): EmailOutcome {
   if (outcomes.includes('sent')) return 'sent';
   if (outcomes.includes('failed')) return 'failed';
+  if (outcomes.includes('suppressed')) return 'suppressed';
   return 'skipped';
 }
 
@@ -474,8 +479,8 @@ export async function runEntitlementExpirySweep(
     capped: 0,
     malformed: 0,
     warned: 0,
-    vendor: { sent: 0, failed: 0, skipped: 0 },
-    admin: { sent: 0, failed: 0, skipped: 0 },
+    vendor: { sent: 0, failed: 0, skipped: 0, suppressed: 0 },
+    admin: { sent: 0, failed: 0, skipped: 0, suppressed: 0 },
     batchFailures: 0,
   };
 

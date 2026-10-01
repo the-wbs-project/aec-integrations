@@ -78,8 +78,10 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
+// Production, because these suites assert delivery to outside seat addresses. The
+// AECI-1198 suite covers the non-production tiers.
 const ENV: Env = {
-  ENV: 'preview',
+  ENV: 'production',
   RESEND_API_KEY: 'rk_test',
   EMAIL_FROM: 'AEC Integrations <notifications@aecintegrations.com>',
   ADMIN_ALERT_EMAIL: 'ops@aecintegrations.com',
@@ -443,5 +445,35 @@ describe('runAttestationNotifySweep — audit forwarding', () => {
     });
 
     expect(logBatchToPosthog).toHaveBeenCalledTimes(1);
+  });
+});
+
+// ─── AECI-1198: outside recipients get mail from production only ─────────────
+
+describe('runAttestationNotifySweep — tier delivery policy (AECI-1198)', () => {
+  it('on staging, sends nothing to a vendor seat and writes no ledger row', async () => {
+    const result = await sweep([finding(), finding({ vendorId: ACME, claimId: u(31) })], {
+      env: { ENV: 'staging' },
+    });
+
+    expect(fetchSpy).not.toHaveBeenCalled();
+    // Nothing reached a vendor, so tomorrow's sweep still owes the nudge.
+    expect(result).toMatchObject({ found: 2, sent: 0, failed: 0, skipped: 2 });
+    expect(await ledgerRows()).toHaveLength(0);
+  });
+
+  it('treats a missing ENV as non-production', async () => {
+    await sweep([finding()], { env: { ENV: undefined } });
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it('on staging, still sends the ops alert to an internal address, tier-prefixed', async () => {
+    const result = await sweep([finding({ detector: 'claim-denied', vendorId: null })], {
+      env: { ENV: 'staging' },
+    });
+
+    expect(sentTo()).toEqual(['ops@aecintegrations.com']);
+    expect(sentTemplatesBySubject()[0]!.startsWith('[staging] ')).toBe(true);
+    expect(result.sent).toBe(1);
   });
 });
