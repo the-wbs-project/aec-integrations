@@ -35,7 +35,7 @@ decision record; no separate ADR.
     local `dev:bound` / PR-preview state, mirroring `ANTHROPIC_API_KEY` /
     `LINEAR_API_KEY`.
   - `POST https://api.resend.com/emails` (Bearer auth, `from/to/subject/text/html`,
-    `AbortSignal.timeout`). A keyed send adds Resend's `Idempotency-Key` header, below.
+    `AbortSignal.timeout`). A keyed send adds Resend's `Idempotency-Key` header only while the ledger is down, below.
   - **Operator blind copy.** Both transports (`sendTransactionalEmail` and the cron
     `sendEmail`) add a Resend `bcc` from the `EMAIL_BCC` var, so every email the API
     Worker sends also reaches `support@aecintegrations.com`. The point is to see exactly
@@ -91,10 +91,10 @@ decision record; no separate ADR.
       SHA-256 hex. Resend's own docs
       (`https://resend.com/docs/dashboard/emails/idempotency-keys`, read 2026-10-01): up to
       256 characters, kept 24 hours, a repeat with the same body returns the first id
-      without mailing, a repeat with a different body is a 409. It backs up the ledger when
-      the ledger fails open. The docs do not say whether a refused request keeps its key.
-      If it does, a retry with a changed body inside 24 hours gets a 409 and records
-      `failed`. The claim alert's sweep send is the one retry with a changed body.
+      without mailing, a repeat with a different body is a 409. The header is sent ONLY when
+      the ledger failed open (no reserved row). While the ledger is up it owns dedupe, so a
+      re-send after a refused send (the key was released, the body may differ, as with the
+      claim alert's sweep send) never meets a 409.
     - The digest `sendEmail` makes one Resend call and writes one row per recipient,
       sharing the id. A thrown call writes `unknown` rows. It reads `DB` from its env. The cron passes its whole `Env`.
     - The operator copy gets one row per operator address under its own registry id.

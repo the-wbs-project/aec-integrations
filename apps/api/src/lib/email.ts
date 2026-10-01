@@ -237,9 +237,13 @@ export async function sendTransactionalEmail(
   // The operator gets a separate copy instead, after the recipient's send lands.
   const unsubscribable = Boolean(input.headers?.['List-Unsubscribe']);
 
-  const idempotencyKey = input.dedupeKey
-    ? await resendIdempotencyKey(c.env, input.dedupeKey)
-    : null;
+  // The header only backs up a ledger that failed open (no reserved row). While the
+  // ledger is up it already owns dedupe, and a header there would turn a legitimate
+  // re-send after a refused send (a released key, new body) into a Resend 409.
+  const idempotencyKey =
+    input.dedupeKey && reservation.rowId === null
+      ? await resendIdempotencyKey(c.env, input.dedupeKey)
+      : null;
   let providerMessageId: string | null;
   try {
     const res = await fetch(RESEND_URL, {
@@ -2305,8 +2309,9 @@ const IDEMPOTENCY_KEY_MAX = 256;
  * with the same day key would collide. A key longer than 256 characters, or with
  * anything outside printable ASCII, is sent as its SHA-256 hex instead.
  *
- * It backs up the ledger. The ledger already stops a second send while it is up. The
- * header also stops one when the ledger failed open, inside Resend's 24 hours.
+ * It backs up the ledger and is sent ONLY when the ledger failed open (no reserved
+ * row). While the ledger is up it owns dedupe. Sending the header there too would make
+ * a legitimate re-send after a refused send (released key, different body) a 409.
  */
 export async function resendIdempotencyKey(
   env: DeliveryPolicyEnv,

@@ -243,7 +243,7 @@ describe('sendTransactionalEmail (low-level)', () => {
     ).resolves.toBe('unknown');
   });
 
-  it('sends a tier-scoped Idempotency-Key on a keyed send, and none on an unkeyed one', async () => {
+  it('sends a tier-scoped Idempotency-Key on a keyed send when the ledger is down, and none unkeyed', async () => {
     const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(async () => ok());
     await sendTransactionalEmail(fakeContext(), {
       to: 'r@example.com',

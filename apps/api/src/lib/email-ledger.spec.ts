@@ -97,6 +97,22 @@ describe('sendTransactionalEmail writes the send ledger', () => {
     ]);
   });
 
+  it('sends no Idempotency-Key while the ledger is up, so a re-send after a refusal is not a 409', async () => {
+    const fetchSpy = vi
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(new Response('nope', { status: 422 }))
+      .mockResolvedValueOnce(new Response('{"id":"re_2"}'));
+
+    expect(await sendTransactionalEmail(ctx(), { ...INPUT, dedupeKey: 'k' })).toBe('failed');
+    expect(await sendTransactionalEmail(ctx(), { ...INPUT, dedupeKey: 'k' })).toBe('sent');
+
+    const headers = fetchSpy.mock.calls.map(
+      (call) => (call[1] as RequestInit).headers as Record<string, string>,
+    );
+    expect(headers).toHaveLength(2);
+    for (const h of headers) expect(h).not.toHaveProperty('Idempotency-Key');
+  });
+
   it('a second send with the same key is a duplicate: no fetch, a duplicate row', async () => {
     const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('{"id":"re_1"}'));
     await sendTransactionalEmail(ctx(), { ...INPUT, dedupeKey: 'k' });

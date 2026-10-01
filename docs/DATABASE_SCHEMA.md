@@ -3247,7 +3247,7 @@ marks a `skipped` send that had no recipient.
    be taken back.
 7. A ledger DB error fails open. The writer logs a warning and the mail still goes.
 
-A keyed send also carries Resend's `Idempotency-Key` header, `{tier}:{dedupe_key}` (ADR 0037
+A keyed send whose ledger write failed open carries Resend's `Idempotency-Key` header, `{tier}:{dedupe_key}` (ADR 0037
 §3, `docs/email.md` §Send ledger).
 
 A send with no dedupe key stores NULL, and SQLite treats NULLs as distinct under a UNIQUE
