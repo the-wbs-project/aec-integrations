@@ -220,7 +220,7 @@ data today, with the PostHog successor in brackets.
 > from **before** AECI-640 carry mixed tiers (demo was pointed at the prod key), so filter by `$host`
 > when reading history that far back.
 
-### 1a. The 14 scheduled crons (row 6 detail)
+### 1a. The 16 scheduled crons (row 6 detail)
 
 Each cron emits an always-on heartbeat; **absence** of that heartbeat is the liveness signal. A green
 board here means all sixteen fired on schedule. Since AECI-583 each run **also** writes a `job_runs`

@@ -3243,8 +3243,9 @@ hash is unsalted. An empty string marks a `skipped` send that had no recipient.
 
 A send with no dedupe key stores NULL, and SQLite treats NULLs as distinct under a UNIQUE
 index, so it never conflicts. The index is not partial because an upsert conflict target
-cannot be partial, the same trade as `page_views.dedupe_key` (§9.1). Senders do not pass keys
-yet. AECI-1203, AECI-1204 and AECI-1205 add them. **AECI-1204 added its keys for the two attestation digests** (`attestation-digest:{vendorId}:{profileId}:{YYYY-MM-DD}` and `attestation-ops-digest:{YYYY-MM-DD}:{first 16 hex of the recipient hash}`, `STAGE_2_ATTESTATIONS_SPEC.md` §7.2).
+cannot be partial, the same trade as `page_views.dedupe_key` (§9.1). Senders pass keys since
+AECI-1203, AECI-1204 and AECI-1205. Each registry entry's key is in `docs/NOTIFICATIONS.md`, and
+ADR 0037 records why the protocol is at-most-once. **AECI-1204 added its keys for the two attestation digests** (`attestation-digest:{vendorId}:{profileId}:{YYYY-MM-DD}` and `attestation-ops-digest:{YYYY-MM-DD}:{first 16 hex of the recipient hash}`, `STAGE_2_ATTESTATIONS_SPEC.md` §7.2).
 
 The digests make one Resend call for several recipients, with no dedupe key. They write one
 settled row per recipient after the call, all sharing the Resend id. Each recipient refused

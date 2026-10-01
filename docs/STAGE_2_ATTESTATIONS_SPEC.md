@@ -146,6 +146,9 @@ Promoted into `STAGE_2_SPEC.md` §8.4; restated here because they are the contra
 5. **`confirmed` requires two *distinct vendor identities*** — a `single_source` state is added so
    one vendor's affirmation is never rendered as bilateral agreement (§4).
 6. **Notification dedupe uses `audit_log` as the ledger** — no notifications table (§7.3).
+   *(As built, 2026-10-01 (AECI-1202, AECI-1204; ADR 0037): `audit_log` is still the portal ledger.
+   Email dedupe is now the separate `notification_sends` send ledger, and the per-seat mute is
+   `notification_preferences` (`DATABASE_SCHEMA.md` §9.9 and §9.10).)*
 
 ### 1.4 Branch model
 
@@ -1132,7 +1135,8 @@ Decisions taken at build that §6 did not pre-specify:
   `VendorPortalAnnouncer` — the wording still originates here, only the channel moved.
   `STAGE_2_REALTIME_SPEC.md` §6.3.)*
 - **§7.2's in-portal notification list now has its first UI consumer**, rendered as a **collapsed**
-  disclosure. These rows are a 90-day archive of what was *emailed*, not live state, so rendered
+  disclosure. These rows are a 90-day archive of what was *emailed* (since AECI-1204, 2026-10-01, of what
+  the sweep recorded, emailed or not, §7.3), not live state, so rendered
   prominently a stale "Vendors disagree" nudge would sit above a lane whose badge reads `confirmed`.
   The ops-only `aeci-denied` detector is filtered defensively even though its ledger rows carry
   `vendorId: null` and can never match a caller.
@@ -1575,7 +1579,8 @@ seat. Forty findings meant forty emails per seat in one morning, on the Resend a
 sends sign-in links, so a complaint spike could have blocked sign-in. The digest and the mute
 replace that. Retired ids: `attestation-silent-counterparty`, `attestation-open-conflict`,
 `attestation-stale-version`, `attestation-claim-denied`, `attestation-ops-alert`. Added:
-`attestation-digest`, `attestation-ops-digest`. The registry now holds 43 entries. The new metric
+`attestation-digest`, `attestation-ops-digest`. The registry held 43 entries after this change. AECI-1203 and AECI-1205 took it to 46, and
+`docs/NOTIFICATIONS.md` has the live count. The new metric
 outcome is `portal-only` (`OBSERVABILITY.md`). The job-run detail for `attestation-notify` gains
 optional `portalOnly` and `digestsSent`. A future drizzle-kit recreate of `profiles` would cascade
 into `notification_preferences` and wipe every mute (`docs/migrations.md` §0).

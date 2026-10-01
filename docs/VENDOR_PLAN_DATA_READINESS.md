@@ -127,6 +127,15 @@ Tiers: **F** = Free listing and seat, **M** = Managed, **I** = Insights, **E** =
 | 28  | R    | Structured two-product question, triage, routing, separate vendor-contact consent | Missing (not specified)                          | `vendor_requests` is claim/correction on a product or vendor only. `/contact` is a `mailto:` link. Contests' `routed_to` / `owner_vendor_id` is a pattern to copy                                                                                                                                                                                                                                                                  | New `compatibility_questions` table with consent columns. Sketch in section 7                                                                                                                                                                                                       |
 | 29  | R    | Lead to vendor link, qualification, invoicing in arrears                       | Missing (not specified)                             | Nothing                                                                                                                                                                                                                                                                                                                                                                                                                           | New `leads` table plus the billing tables from section 4                                                                                                                                                                                                                            |
 
+> **Item 9, updated 2026-10-01 (epic AECI-1197, ADR 0037).** The audit row above describes `main`
+> at `2380b367`. Epic AECI-1197 changes three of its facts. Each email send now writes a
+> `notification_sends` row with the Resend message id (AECI-1202). The `?n=` link and portal open
+> or click recording are AECI-1209, not built. No bounce or delivery webhook exists. The vendor nudge is one daily digest per
+> seat, and a `notification.sent` row is written whether or not a seat was emailed, with
+> `metadata.emailedSeats` (AECI-1204). Staging and demo no longer email vendors at all, because
+> non-production email goes only to `thewbsproject.com` and `aecintegrations.com` (AECI-1198). The
+> `attestation-notify.ts` line range in the row is out of date.
+
 ## 3. Gaps to close before the pilot starts on 2026-10-14
 
 These are cheap, and every day without them is history we cannot rebuild. Ordered by how much

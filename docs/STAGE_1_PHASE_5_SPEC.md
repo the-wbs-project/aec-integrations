@@ -188,6 +188,12 @@ Per `API_CONTRACTS.md` §6.10:
 - `GET /api/admin/reviews` — `ListPendingReviewsQuerySchema` (status `pending|approved|rejected`, sort `queue_age|created_at`, paginated). `AdminReview` includes `toxicity_score` and `reviewer_email` (admin-only).
 - `PATCH /api/admin/reviews/:id` — `ModerateReviewSchema` (`approve`/`reject` + optional `rejection_reason`). `INVALID_STATE_TRANSITION` if not `pending`. On **approve**: set `status='approved'`, `moderated_by/at`, recompute the product's denormalized `review_count` + rating averages, purge the product Cache-Tag. On **reject**: `status='rejected'` + required reason. `appendAuditLog()` on every transition. (Slack/Linear/FSM → Phase 6.)
 
+> **As built, 2026-10-01 (AECI-1203).** Two moderators could both pass the `pending` check and both
+> commit, and each sent the reviewer a decision email. A `changes() = 0` sentinel after the guarded
+> UPDATE now rolls the losing batch back. The loser answers `409 REVIEW_ALREADY_MODERATED` and sends
+> nothing. Both decision emails share the send-ledger key `review-decision:{reviewId}`, so a review
+> gets one decision email. `API_CONTRACTS.md` §6.10, ADR 0037.
+
 ### 7.3 `/admin/reviews` queue UI (Phase 5.14)
 
 Per `STAGE_1_SPEC.md` §22.1: pending list (product, reviewer email, timestamp, queue age, full content, toxicity score), one-click approve/reject, **required** rejection-reason field, sortable by queue age/product/reviewer, pending-count badge. No Slack (Phase 6). Signal Forms + Aria; the sole light theme (AECI-226 — this read "both themes" until AECI-600); axe-clean.
