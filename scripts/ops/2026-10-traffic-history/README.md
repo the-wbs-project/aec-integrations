@@ -1,12 +1,15 @@
 # 2026-10 traffic history backfill (AECI-1169)
 
+> **The data files are in R2 only.** They were removed from the tree on 2026-10-01, after every file
+> in R2 was downloaded and matched by SHA-256. They remain in this branch's git history up to commit
+> `fe0055a6`. See "Copy in R2" below for the bucket and a download command.
+
 Everything Cloudflare still held about traffic to the `aecintegrations.com` zone on
 2026-10-01, saved before its retention window drops it. Logpush only captures traffic from the
 day it is switched on, so these files are the only source for anything earlier.
 
 **This is staging, not a home.** The plan is to parse these files into the R2 Iceberg table
-AECI-1169 builds, then delete them from the tree. Deleting them will not shrink the repo: once on
-`main`, they stay in git history. That is why every file is gzipped.
+AECI-1169 builds, then delete the temporary bucket.
 
 No client IP addresses were requested. User agents, networks (ASN) and countries are kept.
 
@@ -24,10 +27,10 @@ only hold what the beacon recorded, and it covers all hosts in the account.
 
 ## File layout
 
-`<dataset>/<YYYY-MM>.csv.gz`, one file per UTC month. Read one with:
+`<dataset>/<YYYY-MM>.csv.gz`, one file per UTC month. Download one (see "Copy in R2"), then read it with:
 
 ```bash
-gzcat scripts/ops/2026-10-traffic-history/http-requests/2026-09.csv.gz | head
+gzcat http-requests-2026-09.csv.gz | head
 ```
 
 Columns are the GraphQL field paths joined with `_`, such as `dimensions_clientRequestPath` or

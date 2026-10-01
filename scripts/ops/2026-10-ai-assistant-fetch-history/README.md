@@ -1,5 +1,9 @@
 # 2026-10 AI-assistant fetch history (AECI-1169)
 
+> **The data files are in R2 only.** They were removed from the tree on 2026-10-01, after every file
+> in R2 was downloaded and matched by SHA-256. They remain in this branch's git history up to commit
+> `fe0055a6`. See "Copy in R2" below for the bucket and a download command.
+
 Saved history of on-demand AI-assistant requests to the `aecintegrations.com` zone, pulled from
 Cloudflare. An on-demand fetch (`ChatGPT-User`, `Claude-User`, `Perplexity-User` and similar)
 means a person asked an assistant a question and the assistant fetched one of our pages.
