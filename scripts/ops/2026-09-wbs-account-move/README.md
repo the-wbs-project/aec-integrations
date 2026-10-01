@@ -210,7 +210,8 @@ Open question for the WBS account team: once a zone is Moved, does the old accou
 1. Freeze writes. Stop promotes in the review app and stop admin edits.
 2. Deploy the old API with its cron triggers removed. Crons on the old account keep firing until the old Workers are gone.
 3. Drain the old queues and Workflows.
-4. Export and import all four D1 databases, and copy R2. Use the rehearsal commands with the matching database names.
+4. Reset each WBS D1 database to empty, then import. The rehearsal already filled `aeci-app-production`, and a dump cannot import over existing tables. Before the rehearsal import, record the empty bookmark with `wrangler d1 time-travel info`. At cutover, run `wrangler d1 time-travel restore` to that bookmark, then import the fresh export. Do the same for each database. Then copy R2.
+   Old step text: Use the rehearsal commands with the matching database names.
 5. Submit the registrar move from the old account: Domain Registration → Manage → Configuration. Approve it in the WBS account.
 6. Point the domain at the WBS nameservers. Confirm the WBS zone shows Active.
 6a. On the now-Active WBS zone, turn on continuous script monitoring and turn off Bot Preference Sync.
