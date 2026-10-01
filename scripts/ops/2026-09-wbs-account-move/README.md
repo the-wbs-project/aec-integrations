@@ -200,6 +200,16 @@ Visitors only lose service between two moments: the WBS zone going Active, and t
 
 Open question for the WBS account team: once a zone is Moved, does the old account keep answering DNS for it? If yes, cached visitors read the old, frozen site until their cache expires. If no, they get errors until then. Most resolvers cap nameserver caching well below the `.com` 48 h maximum.
 
+### Rehearsal result (2026-10-01)
+
+- D1 import into `aeci-app-production` matched production on every counted table: page_views 123070, audit_log 78889, products 334, vendors 221, integrations 1108, claims 2397, migrations 53. It took three passes; see the three prep scripts.
+- Smoke test through Access, all 200:
+  - `/_version`, `/api/version`, `/api/products`, `/api/vendors`, `/api/integrations`
+  - `/`, `/products`, a product page, a vendor page
+  - `/vendors` and `/integrations` 301 to `/products`, the same as live
+  - Every page sent `x-robots-tag: noindex, nofollow`
+- Not tested: search (Algolia), email (Resend), Supabase admin, R2 logos. The secrets are on hold and R2 is not copied yet.
+
 ## Phase 4: cutover (AECI-1166)
 
 0. Cancel Pro and the Smart Shield Argo add-on on the old zone before 2026-10-07. Cancelling only stops the 2026-10-08 renewal, and Pro keeps working until then. Per Cloudflare's docs, a Pro plan does not block the move:
@@ -214,7 +224,8 @@ Open question for the WBS account team: once a zone is Moved, does the old accou
    Use the rehearsal commands with the matching database names.
 5. Submit the registrar move from the old account: Domain Registration → Manage → Configuration. Approve it in the WBS account.
 6. Point the domain at the WBS nameservers. Confirm the WBS zone shows Active.
-6a. On the now-Active WBS zone, turn on continuous script monitoring and turn off Bot Preference Sync.
+6a. **Before binding the production and demo custom domains,** check Worker Access on `aeci-web-production` (Workers → aeci-web-production → Access). On 2026-10-01 it was set to "All traffic: require login on every URL". That was a workaround, because the `aeci-*` hostname app sent no login code. If it is still on "All traffic", `www.aecintegrations.com` will demand a login. Scope it to workers.dev and previews only, or turn it off.
+6b. On the now-Active WBS zone, turn on continuous script monitoring and turn off Bot Preference Sync.
 7. Merge the config PR. Deploy staging, demo and production. `wrangler deploy` binds the custom domains.
 8. Verify each of these:
    - `/api/version`
