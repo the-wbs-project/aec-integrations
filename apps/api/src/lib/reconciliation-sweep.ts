@@ -23,6 +23,10 @@
  * EMAIL fires only when a row crosses an age band (`crossedAlertBand`) — 60 min,
  * 6 h, then daily. Unthrottled it sent 96 identical messages a day per stuck row,
  * against a Resend account shared with the Supabase magic-link sender.
+ * Since AECI-1203 the email also carries a send-ledger key naming each row's band,
+ * so a queue retry or a double tick inside one window cannot send it twice. A
+ * request the sweep rescues sends no email at all: the claim alert went out once,
+ * at submit.
  *
  * Stateless + age-based — no attempt-counter column, no migration (consistent with
  * ADR 0013's "no DLQ; the cadence re-runs"). The two thresholds separate "retry
@@ -45,14 +49,13 @@ import {
 } from 'drizzle-orm';
 import { pairPathFor } from './integration-contests';
 
-import { crossedBand } from './alert-bands';
+import { bandDigestKey, bandIndex, crossedBand } from './alert-bands';
 import {
   sendAdminAlert,
   type AdminAlert,
   type AlertContext,
   type StuckRequestSummary,
 } from './admin-alert';
-import { sendClaimSubmittedNotification } from './email';
 import { isProductionTier } from './notifications/delivery-policy';
 import {
   createLinearIssueForContest,
@@ -61,7 +64,6 @@ import {
   drizzleContestLinearStore,
   drizzleLinearStore,
 } from './linear';
-import { NOTIFIED_REQUEST_KINDS } from './request-links';
 import type { Db } from '../db/client';
 import {
   auditLog,
@@ -147,17 +149,13 @@ type StuckRow = {
   submitterEmail: string;
   submitterName: string | null;
   submitterRole: string | null;
-  /** AECI-861: needed by the recovery email, and by the rebuilt §6.4 issue, which
-   *  silently dropped the AECI-847 LinkedIn row when the sweep created it rather
-   *  than the request handler. */
+  /** AECI-861: needed by the rebuilt §6.4 issue, which silently dropped the
+   *  AECI-847 LinkedIn row when the sweep created it rather than the request
+   *  handler. */
   submitterLinkedinUrl: string | null;
   body: string;
   sourceUrl: string | null;
   domainMatch: string;
-  /** AECI-861: read for the recovery email only. Passing it to `createIssue` would
-   *  also post the §7.2 duplicate note, which is a separate decision — the email
-   *  merely must not claim "no duplicate" about a row that has one. */
-  duplicateOfRequestId: string | null;
   createdAt: string;
 };
 
@@ -170,9 +168,6 @@ export interface ReconcileDeps {
   /** The §6.2 admin-alert email seam. Injected so tests can assert it fires on a
    *  persistent failure (the issue's "persistent failure emails" criterion). */
   sendAlert?: typeof sendAdminAlert;
-  /** AECI-861: the claim-intake operator alert, re-sent when this sweep is what
-   *  finally created the issue. Injected for the same reason as `sendAlert`. */
-  sendClaimAlert?: typeof sendClaimSubmittedNotification;
   /** `now` for deterministic age math (mirrors `runDailySync(…, new Date())`). */
   now?: Date;
 }
@@ -219,7 +214,6 @@ export async function runReconciliationSweep(
 ): Promise<ReconcileResult> {
   const createIssue = deps.createIssue ?? createLinearIssueForRequest;
   const sendAlert = deps.sendAlert ?? sendAdminAlert;
-  const sendClaimAlert = deps.sendClaimAlert ?? sendClaimSubmittedNotification;
   const now = deps.now ?? new Date();
   const nowMs = now.getTime();
   // `created_at` is ISO-8601 TEXT, which sorts/compares lexically, so the cutoff is
@@ -245,7 +239,6 @@ export async function runReconciliationSweep(
       body: true,
       sourceUrl: true,
       domainMatch: true,
-      duplicateOfRequestId: true,
       createdAt: true,
     },
     where: stuckWhere,
@@ -333,29 +326,12 @@ export async function runReconciliationSweep(
       // anywhere, in the email OR in PostHog (AECI-851).
       if (outcome?.status === 'failed') reasons.set(row.id, outcome.reason);
 
-      // AECI-861: a claim RESCUED here notified nobody. The submit-time operator
-      // alert fires off the handler's create; when that create failed, the alert
-      // carried no issue link, and the successful retry minutes later was silent.
-      // So the sweep sends the same mail on the late success — the operator learns
-      // about the claim exactly once either way. Fail-open and awaited inside the
-      // per-row `try`, so a mail error is caught like any other and never aborts
-      // the batch.
-      if (outcome?.status === 'created' && NOTIFIED_REQUEST_KINDS.has(row.kind)) {
-        await sendClaimAlert(c, {
-          notification: 'claim-submitted-alert-retry',
-          requestId: row.id,
-          targetName: target.name,
-          targetType: row.targetType,
-          slug: target.slug,
-          submitterEmail: row.submitterEmail,
-          submitterName: row.submitterName,
-          submitterRole: row.submitterRole,
-          submitterLinkedinUrl: row.submitterLinkedinUrl,
-          domainMatch: row.domainMatch,
-          duplicateOfRequestId: row.duplicateOfRequestId,
-          linearIssueUrl: outcome.issueUrl,
-        });
-      }
+      // A claim rescued here sends NO email (AECI-1203). The claim alert went out
+      // once, at submit, saying the issue was not created yet. AECI-861 had the sweep
+      // re-send it with the link, which meant every rescued claim mailed the support
+      // inbox twice. Support now finds the link on the request in Linear and the
+      // admin console. If the retry never succeeds, the stuck-request alert below
+      // reports it.
     } catch (error) {
       // A per-row read error must not abort the rest of the batch.
       if (!targetNames.has(row.id)) targetNames.set(row.id, null);
@@ -423,6 +399,16 @@ export async function runReconciliationSweep(
     const emailRows = persistentRows.filter((r) =>
       crossedAlertBand(r.ageMinutes, RECONCILE_SWEEP_INTERVAL_MINUTES),
     );
+    // The bands are stateless, so a queue retry or a second cron tick in the same
+    // window crosses the same band again. The key names each row's band (AECI-1203),
+    // so the send ledger refuses the repeat.
+    const dedupeKey = bandDigestKey(
+      'stuck-request-alert',
+      emailRows.map((r) => ({
+        requestId: r.requestId,
+        band: bandIndex(r.ageMinutes, ALERT_BANDS_MINUTES, ALERT_REPEAT_MINUTES) ?? 0,
+      })),
+    );
     if (emailRows.length > 0 && !isProductionTier(c.env) && !c.env.LINEAR_API_KEY) {
       // AECI-1198: `LINEAR_API_KEY` is production-only, so on any other tier every
       // request is stuck by design and the email is daily noise to the support
@@ -432,7 +418,7 @@ export async function runReconciliationSweep(
         message: `aeci.linear.reconcile: ${emailRows.length} row(s) crossed an alert band, email skipped — Linear is not configured on this tier`,
       });
     } else if (emailRows.length > 0) {
-      const alert: AdminAlert = { kind: 'stuck_requests', rows: emailRows };
+      const alert: AdminAlert = { kind: 'stuck_requests', rows: emailRows, dedupeKey };
       await sendAlert(c, alert);
       alerted = true;
     } else {

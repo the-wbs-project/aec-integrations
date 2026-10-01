@@ -849,6 +849,7 @@ action is to triage the ticket, not to restart a job.
 | `read_failure` with a transport reason in production | Linear was unreachable this run. **No warning was sent, and `stale` is 0 because nothing was asserted** — not because nothing is stale | Check Linear's status. The next run re-derives everything; no state is lost |
 | `webhook_drift` sustained non-zero | Linear reports the ticket started or closed, but `vendor_requests.status` is still `open`. The §6.3 inbound webhook is not delivering | Check `LINEAR_WEBHOOK_SIGNING_SECRET` on the production API Worker and whether a webhook is registered in Linear at `POST /api/webhooks/linear` — still the open operator action on AECI-851. **This job never repairs the row**, by design |
 | `stale > 0` but no email arrived | Band throttling, working as intended: one email as the ticket crosses 24 h, then one a day | None. Unthrottled this would send four a day per ticket, against the Resend account that also carries Supabase magic links |
+| `outcome:duplicate` on `stale-claim-ticket-alert` | A second run in the same window (a double cron tick) rebuilt the same `stale-claim-ticket-alert:{requestId}:{bandIndex}` key, so the send ledger refused it (AECI-1203) | None. The first run's email is the one that counts |
 | A ticket you already closed is still listed | The digest was composed from the state at run time | It drops out of the next run |
 
 ### Tuning
@@ -890,6 +891,13 @@ parallel `reasons` array** — read that first, it usually ends the investigatio
 > account the Supabase magic-link sender uses (`docs/email.md`) — a long outage could have burned the
 > allowance and stopped sign-in. The trade: a skipped sweep can defer a row's email to the next band,
 > which is why only the email is throttled and never the metric.
+>
+> **AECI-1203: a replay in one band is a `duplicate`, not a second email.** The email carries the
+> send-ledger key `stuck-request-alert:{requestId}:{bandIndex}`. A queue retry or a double cron tick
+> rebuilds the same key, so `notification_sends` gets a `duplicate` row and Resend gets no call.
+> `aeci.email.send{template:stuck-request-alert,outcome:duplicate}` is that refusal, not a fault.
+> The sweep no longer re-sends `claim-submitted-alert` when its retry creates the issue. A rescued
+> claim sends no email: find the link on the request in Linear or `/admin/claims/:id`.
 
 **What it means:** A claim/correction was submitted but its Linear issue was never created — the §6.4
 on-submit `createLinearIssueForRequest()` failed, and the §6.7 sweep has retried it for >~1h without

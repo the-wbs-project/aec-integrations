@@ -168,6 +168,13 @@ interface SendInput {
 }
 
 /**
+ * The ledger fields a per-template helper forwards to {@link sendTransactionalEmail}
+ * (AECI-1203). The caller owns the key, because only the caller knows what "the same
+ * event" means for its trigger.
+ */
+export type SendDedupe = Pick<SendInput, 'dedupeKey' | 'entity'>;
+
+/**
  * Low-level Resend send for the transactional templates. Returns an `EmailOutcome`;
  * **never throws**. An absent `RESEND_API_KEY` / `EMAIL_FROM`, or an empty recipient
  * (an address we couldn't resolve), is a silent `'skipped'`. POST shape matches the
@@ -482,7 +489,7 @@ export function sendReviewSubmittedAlert(
  */
 export function sendReviewApprovedEmail(
   c: EmailContext,
-  opts: { to: string | undefined; productName: string; productSlug: string },
+  opts: { to: string | undefined; productName: string; productSlug: string } & SendDedupe,
 ): Promise<EmailOutcome> {
   const url = productUrl(c.env, opts.productSlug);
   const opening = `Your review of ${opts.productName} is now published on AEC Integrations.`;
@@ -499,6 +506,8 @@ export function sendReviewApprovedEmail(
     subject: `Your review of ${opts.productName} is now live`,
     text: renderEmailText({ ...shared, blocks: [opening, thanks] }),
     html: renderEmailHtml({ ...shared, blocks: [openingHtml, thanks] }),
+    dedupeKey: opts.dedupeKey,
+    entity: opts.entity,
   });
 }
 
@@ -508,7 +517,7 @@ export function sendReviewApprovedEmail(
  */
 export function sendReviewRejectedEmail(
   c: EmailContext,
-  opts: { to: string | undefined; productName: string; reason: string },
+  opts: { to: string | undefined; productName: string; reason: string } & SendDedupe,
 ): Promise<EmailOutcome> {
   const base = siteUrl(c.env);
   const guidelines = base ? `${base}/legal/review-guidelines` : null;
@@ -528,6 +537,8 @@ export function sendReviewRejectedEmail(
     subject: `Your review of ${opts.productName} needs revision`,
     text: renderEmailText({ ...shared, blocks: [opening, reasonText, next] }),
     html: renderEmailHtml({ ...shared, blocks: [openingHtml, reasonHtml, next] }),
+    dedupeKey: opts.dedupeKey,
+    entity: opts.entity,
   });
 }
 
@@ -1212,7 +1223,7 @@ function unsubscribeMailto(env: Env): string | null {
  *  claim, no pricing. Draft copy — marketing owns final wording. */
 export function sendMailingListWelcomeEmail(
   c: EmailContext,
-  opts: { to: string | undefined; token?: string | null },
+  opts: { to: string | undefined; token?: string | null } & SendDedupe,
 ): Promise<EmailOutcome> {
   const base = siteUrl(c.env);
   const browseUrl = base ? `${base}/products` : null;
@@ -1284,6 +1295,9 @@ export function sendMailingListWelcomeEmail(
       notification: 'mailing-list-welcome-operator-copy',
       ...render(token ? OPERATOR_COPY_TOKEN : null),
     },
+    // A duplicate makes no Resend call, so it sends no operator copy either.
+    dedupeKey: opts.dedupeKey,
+    entity: opts.entity,
   });
 }
 
@@ -1332,7 +1346,7 @@ const STUCK_REASON_HELP: Record<string, string> = {
  */
 export function sendStuckRequestAdminAlert(
   c: EmailContext,
-  opts: { to: string | undefined; rows: readonly StuckRequestSummary[] },
+  opts: { to: string | undefined; rows: readonly StuckRequestSummary[] } & SendDedupe,
 ): Promise<EmailOutcome> {
   const { rows } = opts;
   const plural = rows.length === 1 ? '' : 's';
@@ -1376,6 +1390,8 @@ export function sendStuckRequestAdminAlert(
     subject: `[AECi] ${rows.length} request${plural} stuck in the Linear pipeline${subjectReasonSuffix(rows)}`,
     text: renderEmailText({ ...shared, blocks: [intro] }),
     html: renderEmailHtml({ ...shared, blocks: [escapeHtml(intro)] }),
+    dedupeKey: opts.dedupeKey,
+    entity: opts.entity,
   });
 }
 
@@ -1439,7 +1455,7 @@ export interface StaleClaimSummary {
  */
 export function sendStaleClaimTicketAlert(
   c: EmailContext,
-  opts: { to: string | undefined; rows: readonly StaleClaimSummary[] },
+  opts: { to: string | undefined; rows: readonly StaleClaimSummary[] } & SendDedupe,
 ): Promise<EmailOutcome> {
   const { rows } = opts;
   const plural = rows.length === 1 ? '' : 's';
@@ -1483,6 +1499,8 @@ export function sendStaleClaimTicketAlert(
     subject: `[AECi] ${rows.length} claim ticket${plural} un-started after 24h`,
     text: renderEmailText({ ...shared, blocks: [intro] }),
     html: renderEmailHtml({ ...shared, blocks: [escapeHtml(intro)] }),
+    dedupeKey: opts.dedupeKey,
+    entity: opts.entity,
   });
 }
 
@@ -1530,7 +1548,7 @@ export function sendLandingSignupNotification(
     utmSource: string | null;
     utmCampaign: string | null;
     referrer: string | null;
-  },
+  } & SendDedupe,
 ): Promise<EmailOutcome> {
   const rows: Array<[string, string]> = [
     ['Email', opts.email],
@@ -1555,6 +1573,8 @@ export function sendLandingSignupNotification(
     subject: '[AECi] New mailing list signup',
     text: renderEmailText({ ...shared, blocks: [intro] }),
     html: renderEmailHtml({ ...shared, blocks: [escapeHtml(intro)] }),
+    dedupeKey: opts.dedupeKey,
+    entity: opts.entity,
   });
 }
 
@@ -1625,10 +1645,7 @@ export function sendClaimSubmittedNotification(
      *  and the §6.7 sweep still owes a retry. Never omitted — "not created yet" is
      *  itself the thing the operator needs to know. */
     linearIssueUrl?: string | null;
-    /** The submit-time send, or the sweep's re-send once it created the issue
-     *  (AECI-861). Same template, two registry entries. */
-    notification?: 'claim-submitted-alert' | 'claim-submitted-alert-retry';
-  },
+  } & SendDedupe,
 ): Promise<EmailOutcome> {
   const base = siteUrl(c.env);
   const host = environmentHost(c.env);
@@ -1652,7 +1669,7 @@ export function sendClaimSubmittedNotification(
     opts.linearIssueUrl ??
       (linearUnconfigured
         ? 'not created, Linear is not configured on this tier'
-        : 'not created yet, the reconciliation sweep will retry'),
+        : 'not created yet. The reconciliation sweep retries it, and the link appears on the request in the admin console. No second email is sent.'),
   ]);
   if (base) {
     rows.push(['Review queue', `${base}/admin/claims`]);
@@ -1671,10 +1688,12 @@ export function sendClaimSubmittedNotification(
 
   return sendTransactionalEmail(c, {
     to: c.env.CLAIM_ALERT_EMAIL ?? '',
-    template: opts.notification ?? 'claim-submitted-alert',
+    template: 'claim-submitted-alert',
     subject: `[AECi] New vendor claim: ${opts.targetName}`,
     text: renderEmailText({ ...shared, blocks: [intro] }),
     html: renderEmailHtml({ ...shared, blocks: [introHtml] }),
+    dedupeKey: opts.dedupeKey,
+    entity: opts.entity,
   });
 }
 

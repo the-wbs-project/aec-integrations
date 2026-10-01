@@ -284,11 +284,17 @@ async function createRequest(
   // `CLAIM_ALERT_EMAIL`/`RESEND_API_KEY` → `'skipped'`), so it can never delay or
   // fail the 201. The claimant still gets no submit-time mail by design; their only
   // mail is the decision pair from `PATCH /api/admin/claims/:id`.
+  //
+  // This is the ONLY claim alert (AECI-1203). When the create fails, the §6.7 sweep
+  // retries it silently: support finds the link in Linear and the admin console, and
+  // the stuck-request alert covers a create that never succeeds. The key makes a
+  // replayed `waitUntil` a ledger `duplicate`, not a second email.
   c.executionCtx.waitUntil(
     linearDone.then((outcome) => {
       if (!NOTIFIED_REQUEST_KINDS.has(kind)) return;
       return sendClaimSubmittedNotification(c, {
-        notification: 'claim-submitted-alert',
+        dedupeKey: `claim-submitted-alert:${requestId}`,
+        entity: { type: 'vendor_request', id: requestId },
         requestId,
         targetName,
         targetType: insert.targetType,

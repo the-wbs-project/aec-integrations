@@ -1413,7 +1413,7 @@ describe('sendClaimSubmittedNotification', () => {
       { ...CLAIM, linearIssueUrl: null },
     );
     const text = String(lastBody(fetchSpy).text);
-    expect(text).toContain('Linear issue: not created yet, the reconciliation sweep will retry');
+    expect(text).toContain('Linear issue: not created yet. The reconciliation sweep retries it');
     expect(text).not.toContain('—');
   });
 });

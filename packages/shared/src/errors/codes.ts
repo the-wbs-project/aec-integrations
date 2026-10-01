@@ -23,6 +23,10 @@ export const ApiErrorCode = {
   // product twice, or a second stub-level decision (409).
   MAPPING_CONFLICT: 'MAPPING_CONFLICT',
   INVALID_STATE_TRANSITION: 'INVALID_STATE_TRANSITION',
+  // AECI-1203: `PATCH /api/admin/reviews/:id` lost a race with another moderator.
+  // Both passed the pending check, the other batch committed first, and this one
+  // rolled back (409). Nothing was written and no email was sent.
+  REVIEW_ALREADY_MODERATED: 'REVIEW_ALREADY_MODERATED',
   // AECI-1008 integration field contests (`API_CONTRACTS.md` §4).
   CONTEST_OWN_INTEGRATION: 'CONTEST_OWN_INTEGRATION',
   CONTEST_DUPLICATE: 'CONTEST_DUPLICATE',

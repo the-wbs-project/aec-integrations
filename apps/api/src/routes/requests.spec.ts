@@ -618,10 +618,10 @@ describe('POST /api/requests/* → claim-intake operator alert (background)', ()
     const sent = JSON.parse(String(vi.mocked(fetchMock).mock.calls[0]![1]!.body)) as {
       text: string;
     };
-    expect(sent.text).toContain('not created yet, the reconciliation sweep will retry');
+    expect(sent.text).toContain('not created yet. The reconciliation sweep retries it');
   });
 
-  it('says Linear is not configured, not "the sweep will retry", on a non-production tier without a key (AECI-1198)', async () => {
+  it('says Linear is not configured, not "the sweep retries it", on a non-production tier without a key (AECI-1198)', async () => {
     const fetchMock = resendOkFetch();
     await seedVendor({ slug: 'acme-co' });
     const execCtx = fakeExecutionContext();
@@ -640,7 +640,7 @@ describe('POST /api/requests/* → claim-intake operator alert (background)', ()
       subject: string;
     };
     expect(sent.text).toContain('not created, Linear is not configured on this tier');
-    expect(sent.text).not.toContain('sweep will retry');
+    expect(sent.text).not.toContain('sweep retries it');
     expect(sent.subject.startsWith('[staging] ')).toBe(true);
   });
 

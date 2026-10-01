@@ -83,9 +83,15 @@ Extend the AECI-128 request handler: after the `vendor_requests` insert, create 
 > **The `claim-submitted-alert` email is now sequenced AFTER this call, not fired beside it.** Both
 > used to be independent `ctx.waitUntil` calls, so the mail was composed while the issue was still
 > being created and could not name it. It now chains off the returned `LinearIssueOutcome` and
-> carries the permalink. The §6.4 sweep sends the same mail when IT is what finally created the
-> issue — otherwise a rescued claim notifies nobody, which is the same silent gap AECI-851 fixed one
-> layer down. Scope is `NOTIFIED_REQUEST_KINDS` (claims only, today).
+> carries the permalink. Scope is `NOTIFIED_REQUEST_KINDS` (claims only, today).
+>
+> **AECI-1203: it is the only claim alert.** AECI-861 also had the §6.4 sweep re-send the mail
+> when the sweep was what finally created the issue. That mailed the support inbox twice for every
+> rescued claim, because the submit-time mail had already gone out saying "not created yet". The
+> re-send is removed. A rescued claim sends nothing: support finds the link in Linear and on
+> `/admin/claims/:id`, and the §6.4 stuck-request email covers a create that never succeeds. The
+> submit-time send carries the send-ledger key `claim-submitted-alert:{requestId}`
+> (`docs/email.md`), so a replayed send is refused.
 
 ### 6.2 Failure handling
 
@@ -109,6 +115,12 @@ A scheduled job (extend the existing scheduled Worker — the AECI-139 cron→qu
 > `graphql_error` and the rest reach the operator instead of "still failing after retries". That
 > wording was additionally false for a row the sweep could not rebuild, which is skipped and never
 > retried. Constants and the band predicate live in `apps/api/src/lib/reconciliation-sweep.ts`.
+>
+> **AECI-1203 amendment — one email per band, even on a replay.** The bands are stateless, so a
+> queue retry or a double cron tick in one 15-minute window crossed the same band twice and sent
+> twice. The email now carries the send-ledger key `stuck-request-alert:{requestId}:{bandIndex}`
+> (one pair per row of the digest; `bandIndex` in `lib/alert-bands.ts`), and the ledger refuses
+> the repeat. The sweep sends no other email: its old re-send of the claim alert is gone (§6.1).
 
 > **AECI-1008 amendment — the sweep also retries contest issues.** An AECi accept of an
 > integration field contest files a `REVIEW - Apply contested field: …` issue (or, since AECI-1005,
@@ -146,7 +158,8 @@ Four decisions are load-bearing:
    anything, and neither is an issue Linear did not return. Both are reported, never warned on.
 3. **The email is band-throttled, the metric and log are not** — 24 h, then daily, via
    `lib/alert-bands.ts` (the AECI-854 arithmetic, generalised). Unthrottled a single stale ticket
-   would email four times a day forever.
+   would email four times a day forever. Since AECI-1203 the email also carries the key
+   `stale-claim-ticket-alert:{requestId}:{bandIndex}`, so a double tick in one window sends once.
 4. **Webhook drift is reported, never repaired.** Holding both answers makes this the only
    instrument that can see §6.3 failure at all (`aeci.linear.claim_stale.webhook_drift`). Writing
    `vendor_requests.status` from here would be a domain write needing its own `audit_log` row in the

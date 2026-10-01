@@ -70,11 +70,17 @@ export interface StuckRequestSummary {
 export interface AdminAlert {
   kind: 'stuck_requests';
   rows: StuckRequestSummary[];
+  /**
+   * The send-ledger key (AECI-1203): `stuck-request-alert:{requestId}:{bandIndex}`,
+   * built by `bandDigestKey` in `lib/alert-bands.ts`. A queue retry or a double cron
+   * tick in one band rebuilds the same key and resolves to `'duplicate'`.
+   */
+  dedupeKey?: string;
 }
 
 /** `suppressed`: the tier delivery policy refused `ADMIN_ALERT_EMAIL` (AECI-1198).
  *  `duplicate`: the send ledger already holds the alert's dedupe key (AECI-1202), so
- *  an earlier send owns it. Not a failure. The alert sends no key today. */
+ *  an earlier send in the same band owns it (AECI-1203). Not a failure. */
 export type AdminAlertOutcome = 'sent' | 'failed' | 'skipped' | 'suppressed' | 'duplicate';
 
 /**
@@ -95,6 +101,11 @@ export async function sendAdminAlert(
   const outcome: AdminAlertOutcome = await sendStuckRequestAdminAlert(c, {
     to: c.env.ADMIN_ALERT_EMAIL,
     rows: alert.rows,
+    dedupeKey: alert.dedupeKey,
+    // One request is the entity. A digest of several names none: the key lists them.
+    ...(alert.rows.length === 1
+      ? { entity: { type: 'vendor_request', id: alert.rows[0]!.requestId } }
+      : {}),
   });
   emitEmailMetric(c, outcome);
   log(c, {

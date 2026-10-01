@@ -23,8 +23,9 @@ const ENTRIES = Object.entries(NOTIFICATIONS) as Array<[string, NotificationEntr
  * The 2026-10-01 inventory (45 rows) plus L4, `pushRequestResolutionToLinear`, was 46.
  * AECI-1204 retired the four per-finding attestation nudges and `attestation-ops-alert`
  * (5 ids) and added `attestation-digest` and `attestation-ops-digest` (2 ids): 43.
+ * AECI-1203 removed the sweep's re-send of the claim alert, `claim-submitted-alert-retry`: 42.
  */
-const EXPECTED_COUNT = 43;
+const EXPECTED_COUNT = 42;
 
 const sendsEmail = (e: NotificationEntry) => e.channel === 'email' || e.channel === 'email+portal';
 
@@ -54,8 +55,8 @@ describe('notification registry shape', () => {
     expect(byChannel).toEqual({
       // Was 23 + 4. AECI-1204 swapped `attestation-ops-alert` for
       // `attestation-ops-digest` (email, net 0) and the four `email+portal` nudges for
-      // the one `attestation-digest`.
-      email: 23,
+      // the one `attestation-digest`. AECI-1203 removed `claim-submitted-alert-retry`.
+      email: 22,
       'email+portal': 1,
       'supabase-email': 1,
       portal: 14,
