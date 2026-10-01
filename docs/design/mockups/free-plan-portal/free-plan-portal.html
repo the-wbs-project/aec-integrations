@@ -1,0 +1,2697 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Vendor portal, free plan concept | AEC Integrations</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible+Next:ital,wght@0,400..700;1,400..700&family=Source+Serif+4:opsz,wght@8..60,400;8..60,600&display=swap"
+      rel="stylesheet"
+    />
+    <style>
+      :root {
+        --surface-base: oklch(100% 0 0);
+        --surface-raised: oklch(98.43% 0 0);
+        --surface-sunken: oklch(96.78% 0.0019 286.38);
+        --border-default: oklch(91.97% 0.0036 286.32);
+        --border-strong: oklch(87.2% 0.0055 286.32);
+        --text-primary: oklch(14.48% 0 0);
+        --text-secondary: oklch(43.86% 0.0145 285.94);
+        --text-tertiary: oklch(55.17% 0.0138 285.94);
+        --accent-primary: oklch(31.92% 0.0436 152.32);
+        --accent-primary-hover: oklch(43.83% 0.0658 152.61);
+        --accent-primary-soft: oklch(95.35% 0.0066 160.07);
+        --accent-secondary: oklch(76.1% 0.1144 47.1);
+        --accent-secondary-deep: oklch(51.86% 0.1245 45.13);
+        --accent-warm: oklch(95.62% 0.0149 95.45);
+        --status-error: oklch(50.13% 0.1783 28.7);
+        --font-display: 'Source Serif 4', Georgia, 'Times New Roman', serif;
+        --font-body: 'Atkinson Hyperlegible Next', system-ui, -apple-system, 'Segoe UI', sans-serif;
+        --radius-sm: 0.375rem;
+        --radius-md: 0.5rem;
+        --radius-lg: 0.75rem;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      html,
+      body {
+        margin: 0;
+      }
+      body {
+        font-family: var(--font-body);
+        font-size: 1rem;
+        line-height: 1.6;
+        color: var(--text-primary);
+        background: var(--surface-base);
+      }
+      h1,
+      h2,
+      h3 {
+        font-family: var(--font-display);
+        font-weight: 600;
+        margin: 0;
+        letter-spacing: -0.005em;
+      }
+      p {
+        margin: 0;
+      }
+      ul {
+        margin: 0;
+        padding: 0;
+      }
+      a {
+        color: var(--accent-primary);
+      }
+      :focus-visible {
+        outline: 2px solid var(--accent-primary);
+        outline-offset: 2px;
+        border-radius: var(--radius-sm);
+      }
+      .sr-only {
+        position: absolute;
+        width: 1px;
+        height: 1px;
+        padding: 0;
+        margin: -1px;
+        overflow: hidden;
+        clip: rect(0, 0, 0, 0);
+        white-space: nowrap;
+        border: 0;
+      }
+      .muted {
+        color: var(--text-secondary);
+      }
+      .small {
+        font-size: 0.875rem;
+      }
+      .xs {
+        font-size: 0.75rem;
+      }
+      .prose {
+        max-width: 62ch;
+      }
+
+      /* ---------- Demo control bar (not part of the product) ---------- */
+      .demo {
+        position: sticky;
+        top: 0;
+        z-index: 50;
+        background: repeating-linear-gradient(135deg, #2b2b30 0 14px, #26262a 14px 28px);
+        color: #f4f4f5;
+        font-size: 0.875rem;
+        border-bottom: 3px dashed #e89668;
+      }
+      .demo-inner {
+        max-width: 80rem;
+        margin: 0 auto;
+        padding: 0.625rem 2rem;
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 0.75rem 1.5rem;
+      }
+      .demo-tag {
+        font-weight: 700;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+        font-size: 0.6875rem;
+        color: #e89668;
+        border: 1px solid #e89668;
+        padding: 0.125rem 0.5rem;
+        border-radius: 4px;
+      }
+      .demo fieldset {
+        border: 0;
+        padding: 0;
+        margin: 0;
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+      }
+      .demo legend {
+        float: left;
+        margin-right: 0.5rem;
+        color: #d4d4d8;
+      }
+      .demo-seg {
+        display: inline-flex;
+        background: #18181b;
+        border: 1px solid #52525b;
+        border-radius: 6px;
+        padding: 2px;
+      }
+      .demo-seg button {
+        font: inherit;
+        color: #e4e4e7;
+        background: transparent;
+        border: 0;
+        padding: 0.3rem 0.75rem;
+        border-radius: 4px;
+        cursor: pointer;
+      }
+      .demo-seg button[aria-pressed='true'] {
+        background: #f4f4f5;
+        color: #0a0a0a;
+        font-weight: 600;
+      }
+      .demo button:focus-visible,
+      .demo input:focus-visible + .demo-switch {
+        outline: 2px solid #e89668;
+        outline-offset: 2px;
+      }
+      .demo-check {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.5rem;
+        cursor: pointer;
+      }
+      .demo-check input {
+        position: absolute;
+        opacity: 0;
+        width: 1px;
+        height: 1px;
+      }
+      .demo-switch {
+        width: 2.25rem;
+        height: 1.25rem;
+        border-radius: 999px;
+        background: #52525b;
+        position: relative;
+        transition: background 0.15s;
+        flex: none;
+      }
+      .demo-switch::after {
+        content: '';
+        position: absolute;
+        top: 2px;
+        left: 2px;
+        width: 1rem;
+        height: 1rem;
+        border-radius: 50%;
+        background: #fff;
+        transition: transform 0.15s;
+      }
+      .demo-check input:checked + .demo-switch {
+        background: #e89668;
+      }
+      .demo-check input:checked + .demo-switch::after {
+        transform: translateX(1rem);
+      }
+      .demo-note {
+        color: #a1a1aa;
+        font-size: 0.75rem;
+      }
+      .demo-reset {
+        font: inherit;
+        font-size: 0.8125rem;
+        background: transparent;
+        color: #e4e4e7;
+        border: 1px solid #71717a;
+        border-radius: 6px;
+        padding: 0.25rem 0.625rem;
+        cursor: pointer;
+        margin-left: auto;
+      }
+
+      /* ---------- Site header ---------- */
+      .site-header {
+        border-bottom: 1px solid var(--border-default);
+        background: var(--surface-base);
+      }
+      .site-header-inner {
+        max-width: 80rem;
+        margin: 0 auto;
+        padding: 0.875rem 2rem;
+        display: flex;
+        align-items: center;
+        gap: 2rem;
+      }
+      .wordmark {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.5rem;
+        font-family: var(--font-display);
+        font-weight: 600;
+        font-size: 1.125rem;
+        color: var(--accent-primary);
+        text-decoration: none;
+      }
+      .wordmark-mark {
+        width: 1.75rem;
+        height: 1.75rem;
+        border-radius: 6px;
+        background: var(--accent-primary);
+        display: grid;
+        place-items: center;
+      }
+      .site-nav {
+        display: flex;
+        gap: 1.5rem;
+        font-size: 0.9375rem;
+      }
+      .site-nav a {
+        color: var(--text-secondary);
+        text-decoration: none;
+      }
+      .site-nav a:hover {
+        color: var(--accent-primary);
+      }
+      .acct {
+        margin-left: auto;
+        display: flex;
+        align-items: center;
+        gap: 0.625rem;
+        font-size: 0.875rem;
+        color: var(--text-secondary);
+      }
+      .avatar {
+        width: 2rem;
+        height: 2rem;
+        border-radius: 50%;
+        background: var(--accent-primary-soft);
+        color: var(--accent-primary);
+        display: grid;
+        place-items: center;
+        font-weight: 700;
+        font-size: 0.75rem;
+        border: 1px solid var(--border-default);
+        flex: none;
+      }
+
+      /* ---------- Portal shell ---------- */
+      .shell {
+        max-width: 80rem;
+        margin: 0 auto;
+        padding: 2.5rem 2rem 4rem;
+      }
+      .crumbs {
+        display: flex;
+        flex-wrap: wrap;
+        justify-content: space-between;
+        gap: 0.5rem 1.5rem;
+        font-size: 0.875rem;
+      }
+      .crumbs ol {
+        list-style: none;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.5rem;
+        padding: 0;
+        margin: 0;
+      }
+      .crumbs .sep {
+        color: var(--text-tertiary);
+      }
+      .crumb-link {
+        color: var(--text-secondary);
+        text-decoration: none;
+        background: none;
+        border: 0;
+        font: inherit;
+        padding: 0;
+        cursor: pointer;
+      }
+      .crumb-link:hover {
+        color: var(--accent-primary);
+      }
+      .title-row {
+        margin-top: 0.75rem;
+        display: flex;
+        flex-wrap: wrap;
+        align-items: baseline;
+        gap: 0.5rem 1rem;
+      }
+      .title-row h1 {
+        font-size: 2.25rem;
+        letter-spacing: -0.015em;
+      }
+      .public-link {
+        font-size: 0.875rem;
+        color: var(--accent-primary);
+      }
+      .tabs {
+        display: flex;
+        gap: 1.5rem;
+        border-bottom: 1px solid var(--border-default);
+        margin-top: 1rem;
+        overflow-x: auto;
+        overflow-y: hidden;
+      }
+      .tab {
+        font: inherit;
+        font-size: 0.9375rem;
+        background: none;
+        border: 0;
+        border-bottom: 2px solid transparent;
+        margin-bottom: -1px;
+        padding: 0.625rem 0.125rem;
+        color: var(--text-secondary);
+        cursor: pointer;
+        white-space: nowrap;
+        display: inline-flex;
+        align-items: center;
+        gap: 0.375rem;
+      }
+      .tab:hover {
+        color: var(--text-primary);
+      }
+      .tab[aria-current='page'] {
+        color: var(--text-primary);
+        border-bottom-color: var(--accent-primary);
+        font-weight: 600;
+      }
+      .tab .lock {
+        color: var(--text-tertiary);
+      }
+      .panel {
+        padding-top: 2rem;
+      }
+
+      /* ---------- Generic pieces ---------- */
+      .card {
+        border: 1px solid var(--border-default);
+        background: var(--surface-raised);
+        border-radius: var(--radius-lg);
+        padding: 1.5rem;
+      }
+      .card + .card {
+        margin-top: 1.5rem;
+      }
+      .card h2 {
+        font-size: 1.375rem;
+      }
+      .card h3 {
+        font-size: 1.0625rem;
+      }
+      .btn {
+        font: inherit;
+        font-size: 0.875rem;
+        font-weight: 600;
+        border-radius: var(--radius-md);
+        padding: 0.5rem 0.875rem;
+        cursor: pointer;
+        border: 1px solid transparent;
+        display: inline-flex;
+        align-items: center;
+        gap: 0.375rem;
+        text-decoration: none;
+        line-height: 1.3;
+      }
+      .btn-primary {
+        background: var(--accent-primary);
+        color: #fff;
+      }
+      .btn-primary:hover {
+        background: var(--accent-primary-hover);
+      }
+      .btn-secondary {
+        background: var(--surface-base);
+        color: var(--accent-primary);
+        border-color: var(--border-strong);
+      }
+      .btn-secondary:hover {
+        background: var(--accent-primary-soft);
+      }
+      .btn-quiet {
+        background: transparent;
+        color: var(--text-secondary);
+        border-color: var(--border-default);
+        font-weight: 500;
+      }
+      .btn-quiet:hover {
+        background: var(--surface-sunken);
+        color: var(--text-primary);
+      }
+      .btn:disabled {
+        background: var(--surface-sunken);
+        color: var(--text-tertiary);
+        border-color: var(--border-default);
+        cursor: not-allowed;
+      }
+      .btn-sm {
+        padding: 0.3125rem 0.625rem;
+        font-size: 0.8125rem;
+      }
+      .linkbtn {
+        font: inherit;
+        background: none;
+        border: 0;
+        padding: 0;
+        color: var(--accent-primary);
+        text-decoration: underline;
+        text-underline-offset: 2px;
+        cursor: pointer;
+      }
+      .chip {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.3rem;
+        white-space: nowrap;
+        border: 1px solid var(--border-strong);
+        background: var(--surface-base);
+        color: var(--text-secondary);
+        border-radius: var(--radius-sm);
+        padding: 0.25rem 0.625rem;
+        font-size: 0.75rem;
+        font-weight: 600;
+        letter-spacing: 0.01em;
+      }
+      .chip-managed {
+        color: var(--accent-primary);
+        border-color: var(--accent-primary);
+        background: var(--accent-primary-soft);
+      }
+      .pill {
+        display: inline-flex;
+        align-items: center;
+        white-space: nowrap;
+        border-radius: 999px;
+        padding: 0.125rem 0.625rem;
+        font-size: 0.75rem;
+        font-weight: 600;
+        border: 1px solid var(--border-strong);
+        color: var(--text-secondary);
+        background: var(--surface-base);
+      }
+      .pill-ok {
+        color: var(--accent-primary);
+        border-color: var(--accent-primary);
+        background: var(--accent-primary-soft);
+      }
+      .pill-warm {
+        color: var(--accent-secondary-deep);
+        border-color: var(--accent-secondary);
+        background: var(--accent-warm);
+      }
+      .lock-tag {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.25rem;
+        white-space: nowrap;
+        font-size: 0.75rem;
+        font-weight: 600;
+        color: var(--text-secondary);
+        background: var(--surface-sunken);
+        border: 1px solid var(--border-default);
+        border-radius: var(--radius-sm);
+        padding: 0.125rem 0.5rem;
+      }
+      .lock {
+        display: inline-block;
+        vertical-align: -2px;
+        flex: none;
+      }
+      .lock-note {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 0.375rem 0.625rem;
+        font-size: 0.8125rem;
+        color: var(--text-secondary);
+      }
+      .confirm-row {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 0.5rem 1rem;
+        padding-top: 1.25rem;
+        margin-top: 1.25rem;
+        border-top: 1px solid var(--border-default);
+      }
+      .confirmed {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.5rem;
+        font-size: 0.875rem;
+        color: var(--accent-primary);
+        font-weight: 600;
+      }
+      .confirmed .dot {
+        width: 0.5rem;
+        height: 0.5rem;
+        border-radius: 50%;
+        background: var(--accent-primary);
+      }
+      .help {
+        font-size: 0.8125rem;
+        color: var(--text-secondary);
+      }
+      .grid-ov {
+        display: grid;
+        grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr);
+        gap: 1.5rem;
+        align-items: start;
+        margin-top: 1.5rem;
+      }
+      .grid-ov > .card {
+        margin-top: 0;
+      }
+      .flash {
+        font-size: 0.8125rem;
+        color: var(--accent-primary);
+        font-weight: 600;
+      }
+
+      /* ---------- Glance band ---------- */
+      .glance {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 1rem;
+      }
+      .glance .card {
+        padding: 1.25rem 1.5rem;
+        margin: 0;
+      }
+      .glance .card + .card {
+        margin: 0;
+      }
+      .fig {
+        font-family: var(--font-display);
+        font-size: 2.75rem;
+        line-height: 1.1;
+        color: var(--accent-primary);
+        font-variant-numeric: tabular-nums;
+      }
+      .fig-sentence {
+        font-family: var(--font-display);
+        font-size: 1.375rem;
+        line-height: 1.6;
+        color: var(--text-primary);
+        padding: 0.5rem 0;
+      }
+
+      /* ---------- Pilot ended banner ---------- */
+      .banner {
+        background: var(--accent-warm);
+        border: 1px solid var(--border-strong);
+        border-radius: var(--radius-lg);
+        padding: 1.5rem;
+        margin-top: 1.5rem;
+      }
+      .banner h2 {
+        font-size: 1.375rem;
+      }
+      .banner-cols {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 1.5rem;
+        margin-top: 1rem;
+      }
+      .banner-cols h3 {
+        font-family: var(--font-body);
+        font-size: 0.875rem;
+        font-weight: 700;
+        margin-bottom: 0.375rem;
+      }
+      .banner ul,
+      .plan ul {
+        list-style: disc;
+        padding-inline-start: 1.25rem;
+        font-size: 0.875rem;
+        color: var(--text-secondary);
+      }
+      .banner li + li,
+      .plan li + li {
+        margin-top: 0.25rem;
+      }
+      .readonly-col {
+        border-inline-start: 2px solid var(--border-strong);
+        padding-inline-start: 1rem;
+      }
+
+      /* ---------- Plan panel ---------- */
+      .plan h3 {
+        font-family: var(--font-body);
+        font-size: 0.875rem;
+        font-weight: 700;
+        margin: 1.25rem 0 0.375rem;
+      }
+      .plan .price {
+        font-size: 0.875rem;
+        margin-top: 1rem;
+        padding: 0.75rem;
+        border-radius: var(--radius-md);
+        background: var(--surface-base);
+        border: 1px dashed var(--border-strong);
+      }
+      .plan .trust {
+        margin-top: 1rem;
+        font-size: 0.8125rem;
+        color: var(--text-secondary);
+        border-inline-start: 2px solid var(--accent-primary);
+        padding-inline-start: 0.75rem;
+      }
+      .plan-table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 0.875rem;
+        margin-top: 0.75rem;
+      }
+      .plan-table th,
+      .plan-table td {
+        text-align: left;
+        padding: 0.5rem 0;
+        border-bottom: 1px solid var(--border-default);
+      }
+      .plan-table th {
+        font-size: 0.75rem;
+        color: var(--text-secondary);
+        font-weight: 600;
+      }
+      .draft {
+        font-size: 0.6875rem;
+        font-weight: 700;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+        color: var(--accent-secondary-deep);
+        border: 1px solid var(--accent-secondary);
+        border-radius: 4px;
+        padding: 0 0.3rem;
+        margin-left: 0.375rem;
+        vertical-align: 1px;
+      }
+
+      /* ---------- Checklist ---------- */
+      .progress {
+        display: grid;
+        grid-template-columns: repeat(5, 1fr);
+        gap: 4px;
+        margin: 0.75rem 0 0.25rem;
+      }
+      .progress span {
+        height: 6px;
+        border-radius: 3px;
+        background: var(--border-default);
+      }
+      .progress span.done {
+        background: var(--accent-primary);
+      }
+      .progress span.locked {
+        background: repeating-linear-gradient(
+          135deg,
+          var(--border-strong) 0 4px,
+          var(--surface-sunken) 4px 8px
+        );
+      }
+      .steps {
+        list-style: none;
+        margin: 1rem 0 0;
+        padding: 0;
+      }
+      .step {
+        display: grid;
+        grid-template-columns: 2rem 1fr auto;
+        gap: 0.75rem;
+        align-items: start;
+        padding: 1rem 0;
+        border-top: 1px solid var(--border-default);
+      }
+      .step-mark {
+        width: 1.75rem;
+        height: 1.75rem;
+        border-radius: 50%;
+        border: 1.5px solid var(--border-strong);
+        display: grid;
+        place-items: center;
+        font-size: 0.8125rem;
+        font-weight: 700;
+        color: var(--text-secondary);
+        background: var(--surface-base);
+      }
+      .step.is-done .step-mark {
+        background: var(--accent-primary);
+        border-color: var(--accent-primary);
+        color: #fff;
+      }
+      .step.is-locked .step-mark {
+        background: var(--surface-sunken);
+      }
+      .step-title {
+        font-weight: 600;
+      }
+      .step.is-done .step-title {
+        color: var(--text-secondary);
+      }
+      .step-sub {
+        font-size: 0.8125rem;
+        color: var(--text-secondary);
+        margin-top: 0.125rem;
+      }
+
+      /* ---------- Forms ---------- */
+      .fields {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 1.125rem 1.5rem;
+        margin-top: 1.25rem;
+      }
+      .field.full {
+        grid-column: 1 / -1;
+      }
+      .field label {
+        display: flex;
+        align-items: center;
+        gap: 0.375rem;
+        font-size: 0.8125rem;
+        font-weight: 600;
+        color: var(--text-primary);
+        margin-bottom: 0.375rem;
+      }
+      .input {
+        width: 100%;
+        font: inherit;
+        font-size: 0.9375rem;
+        color: var(--text-primary);
+        background: var(--surface-base);
+        border: 1px solid var(--border-strong);
+        border-radius: var(--radius-md);
+        padding: 0.5rem 0.75rem;
+      }
+      textarea.input {
+        min-height: 5.5rem;
+        resize: vertical;
+      }
+      .input[readonly] {
+        background: var(--surface-sunken);
+        color: var(--text-secondary);
+        border-color: var(--border-default);
+      }
+      .section-lock {
+        margin-top: 1rem;
+        display: flex;
+        align-items: flex-start;
+        gap: 0.75rem;
+        padding: 0.875rem 1rem;
+        border-radius: var(--radius-md);
+        background: var(--surface-base);
+        border: 1px solid var(--border-default);
+      }
+      .section-lock > .lock {
+        margin-top: 3px;
+        color: var(--text-secondary);
+      }
+      .section-head {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        justify-content: space-between;
+        gap: 0.5rem 1rem;
+      }
+      .facet-list {
+        list-style: none;
+        margin-top: 1rem;
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 0.5rem 1.5rem;
+      }
+      .facet-list label {
+        display: flex;
+        gap: 0.625rem;
+        align-items: flex-start;
+        font-size: 0.9375rem;
+        padding: 0.5rem 0.625rem;
+        border-radius: var(--radius-md);
+      }
+      .facet-list input {
+        margin-top: 0.3rem;
+        accent-color: var(--accent-primary);
+      }
+      .facet-list .desc {
+        display: block;
+        font-size: 0.8125rem;
+        color: var(--text-secondary);
+      }
+
+      /* ---------- Integrations ---------- */
+      .int {
+        border: 1px solid var(--border-default);
+        background: var(--surface-raised);
+        border-radius: var(--radius-lg);
+      }
+      .int + .int {
+        margin-top: 1rem;
+      }
+      .int-head {
+        display: grid;
+        grid-template-columns: 2.5rem 1fr auto;
+        gap: 1rem;
+        align-items: start;
+        padding: 1.25rem 1.5rem;
+      }
+      .mark {
+        width: 2.5rem;
+        height: 2.5rem;
+        border-radius: var(--radius-md);
+        display: grid;
+        place-items: center;
+        font-weight: 700;
+        color: #fff;
+        font-size: 0.875rem;
+        flex: none;
+      }
+      .int-name {
+        font-family: var(--font-body);
+        font-weight: 700;
+        font-size: 1.0625rem;
+      }
+      .int-meta {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.375rem 0.625rem;
+        align-items: center;
+        margin-top: 0.25rem;
+        font-size: 0.8125rem;
+        color: var(--text-secondary);
+      }
+      .int-actions {
+        display: flex;
+        flex-wrap: wrap;
+        justify-content: flex-end;
+        gap: 0.5rem;
+        max-width: 28rem;
+      }
+      .int-inline {
+        padding: 0 1.5rem 1.25rem 5rem;
+      }
+      .int-inline .box {
+        background: var(--surface-base);
+        border: 1px solid var(--border-default);
+        border-radius: var(--radius-md);
+        padding: 1rem;
+        display: grid;
+        gap: 0.625rem;
+        max-width: 40rem;
+      }
+      .flows {
+        border-top: 1px solid var(--border-default);
+        padding: 1rem 1.5rem 1.25rem 5rem;
+      }
+      .flows-head {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        justify-content: space-between;
+        gap: 0.5rem 1rem;
+        margin-bottom: 0.5rem;
+      }
+      .flows-head h4 {
+        margin: 0;
+        font-size: 0.875rem;
+        font-weight: 700;
+      }
+      .flow {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        justify-content: space-between;
+        gap: 0.5rem 1rem;
+        padding: 0.625rem 0;
+        border-top: 1px dashed var(--border-default);
+        font-size: 0.9375rem;
+      }
+      .flows-head + .flow {
+        border-top: 0;
+      }
+      .flow-dir {
+        color: var(--text-secondary);
+        font-size: 0.8125rem;
+      }
+      .seg {
+        display: inline-flex;
+        border: 1px solid var(--border-strong);
+        border-radius: var(--radius-md);
+        overflow: hidden;
+      }
+      .seg button {
+        font: inherit;
+        font-size: 0.8125rem;
+        font-weight: 600;
+        padding: 0.3rem 0.875rem;
+        border: 0;
+        background: var(--surface-base);
+        color: var(--text-secondary);
+        cursor: pointer;
+      }
+      .seg button + button {
+        border-inline-start: 1px solid var(--border-strong);
+      }
+      .seg button[aria-pressed='true'] {
+        background: var(--accent-primary);
+        color: #fff;
+      }
+      .seg button[aria-pressed='true'].no {
+        background: var(--text-primary);
+      }
+      .seg button:disabled {
+        background: var(--surface-sunken);
+        color: var(--text-tertiary);
+        cursor: not-allowed;
+      }
+      .seg button:disabled[aria-pressed='true'] {
+        background: var(--border-strong);
+        color: var(--text-primary);
+      }
+      .answer {
+        font-size: 0.8125rem;
+        color: var(--text-secondary);
+      }
+      .list-card {
+        border: 1px solid var(--border-default);
+        background: var(--surface-raised);
+        border-radius: var(--radius-lg);
+        overflow: hidden;
+      }
+      .list-row {
+        display: flex;
+        align-items: center;
+        gap: 1rem;
+        padding: 1rem 1.25rem;
+        width: 100%;
+        font: inherit;
+        text-align: left;
+        background: none;
+        border: 0;
+        border-top: 1px solid var(--border-default);
+        cursor: pointer;
+        color: inherit;
+      }
+      .list-row:first-child {
+        border-top: 0;
+      }
+      button.list-row:hover {
+        background: var(--surface-sunken);
+      }
+      div.list-row {
+        cursor: default;
+      }
+      .chev {
+        margin-left: auto;
+        color: var(--text-tertiary);
+      }
+      .toolbar {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        justify-content: space-between;
+        gap: 0.75rem 1rem;
+        margin-bottom: 1.25rem;
+      }
+      .toolbar h2 {
+        font-size: 1.5rem;
+      }
+      .fresh {
+        font-size: 0.75rem;
+        color: var(--text-secondary);
+        flex-basis: 100%;
+      }
+      .fresh q {
+        font-weight: 600;
+        color: var(--text-primary);
+      }
+      .opt {
+        font-size: 0.6875rem;
+        font-weight: 700;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+        color: var(--text-secondary);
+        border: 1px solid var(--border-strong);
+        border-radius: 4px;
+        padding: 0 0.3rem;
+        margin-left: 0.375rem;
+        vertical-align: 1px;
+      }
+      .list-row.dense {
+        padding: 0.625rem 1.25rem;
+      }
+      .list-row .mark.sm {
+        width: 2rem;
+        height: 2rem;
+        font-size: 0.75rem;
+      }
+      .ck {
+        font-size: 0.8125rem;
+        font-variant-numeric: tabular-nums;
+        color: var(--text-secondary);
+        min-width: 6.5rem;
+        text-align: right;
+      }
+      .ck strong {
+        color: var(--text-primary);
+      }
+      .ck.full strong {
+        color: var(--accent-primary);
+      }
+      .plan-sum {
+        font-family: var(--font-display);
+        font-size: 1.25rem;
+        margin-top: 0.75rem;
+      }
+      .step-note {
+        font-size: 0.75rem;
+        color: var(--text-secondary);
+        display: inline-flex;
+        align-items: center;
+        gap: 0.25rem;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="demo" role="region" aria-label="Concept demo controls">
+      <div class="demo-inner">
+        <span class="demo-tag">Concept demo</span>
+        <fieldset>
+          <legend>Account state</legend>
+          <div class="demo-seg" id="demo-state">
+            <button type="button" data-demo-state="free" aria-pressed="true">Free plan</button>
+            <button type="button" data-demo-state="managed" aria-pressed="false">Managed</button>
+            <button type="button" data-demo-state="ended" aria-pressed="false">Pilot ended</button>
+          </div>
+        </fieldset>
+        <label class="demo-check">
+          <input type="checkbox" id="demo-mixed" />
+          <span class="demo-switch" aria-hidden="true"></span>
+          <span
+            >Mixed plans <span class="demo-note">(12 products: 5 on Managed, 7 on Free)</span></span
+          >
+        </label>
+        <button type="button" class="demo-reset" id="demo-reset">Reset clicks</button>
+      </div>
+    </div>
+
+    <header class="site-header">
+      <div class="site-header-inner">
+        <a class="wordmark" href="#" onclick="return false;">
+          <span class="wordmark-mark" aria-hidden="true">
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+              <circle cx="4.5" cy="8" r="3" stroke="#fff" stroke-width="1.6" />
+              <circle cx="11.5" cy="8" r="3" stroke="#E89668" stroke-width="1.6" />
+            </svg>
+          </span>
+          AEC Integrations
+        </a>
+        <nav class="site-nav" aria-label="Main">
+          <a href="#" onclick="return false;">Browse</a>
+          <a href="#" onclick="return false;">Integrations</a>
+          <a href="#" onclick="return false;">Docs</a>
+        </nav>
+        <div class="acct">
+          <span>Dana Levi, Buildots</span><span class="avatar" aria-hidden="true">DL</span>
+        </div>
+      </div>
+    </header>
+
+    <main id="app" class="shell"></main>
+    <p class="sr-only" role="status" id="live"></p>
+
+    <script>
+      (function () {
+        'use strict';
+
+        var PILOT_END = '14 December 2026';
+        function today() {
+          return S.plan === 'ended' ? '15 December 2026' : '1 October 2026';
+        }
+        var LAST_REVIEWED = '12 August 2026';
+        var MANAGED_PRICE = '$25 a month per product';
+
+        // ---------------- Sample data ----------------
+        var VENDOR = {
+          description:
+            'Buildots compares 360 degree site capture against the BIM model and the schedule, so project teams see real progress by trade, floor and activity.',
+          website: 'https://buildots.com',
+          hq: 'London, United Kingdom',
+          founded: '2018',
+          parent: '',
+          email: 'partners@buildots.com',
+          phone: '+44 20 3807 1940',
+          linkedin: 'https://www.linkedin.com/company/buildots',
+        };
+
+        var ALL_PRODUCTS = [
+          {
+            id: 'progress',
+            name: 'Buildots Progress',
+            primary: true,
+            mixedPlan: 'managed',
+            description:
+              'Automated progress tracking from weekly 360 degree captures, compared against the model and the schedule.',
+            website: 'https://buildots.com/progress',
+            intUrl: 'https://buildots.com/integrations',
+            apiUrl: 'https://developers.buildots.com',
+            usefulness:
+              'General contractors use it to replace manual walk-throughs on large commercial jobs. Trade managers check percent complete by floor before the weekly coordination meeting.',
+          },
+          {
+            id: 'forecast',
+            name: 'Buildots Delay Forecasting',
+            primary: false,
+            mixedPlan: 'free',
+            description: 'Forecasts schedule slippage by activity from measured progress rates.',
+            website: 'https://buildots.com/delay-forecasting',
+            intUrl: 'https://buildots.com/integrations',
+            apiUrl: 'https://developers.buildots.com',
+            usefulness:
+              'Project controls teams use it to flag at-risk activities two to four weeks ahead.',
+          },
+        ];
+
+        var INTEGRATIONS = {
+          progress: [
+            {
+              id: 'p-procore',
+              other: 'Procore',
+              color: '#C2410C',
+              initials: 'P',
+              owner: 'you',
+              connector: null,
+              flows: [
+                { id: 'f1', label: 'Schedule activities', dir: 'From Procore', seed: 'yes' },
+                { id: 'f2', label: 'Progress percentages', dir: 'To Procore', seed: 'yes' },
+                { id: 'f3', label: 'Site photos', dir: 'To Procore', seed: null },
+              ],
+            },
+            {
+              id: 'p-acc',
+              other: 'Autodesk Construction Cloud',
+              color: '#0A0A0A',
+              initials: 'A',
+              owner: 'none',
+              connector: null,
+              flows: [
+                {
+                  id: 'f4',
+                  label: 'BIM models',
+                  dir: 'From Autodesk Construction Cloud',
+                  seed: 'yes',
+                },
+                { id: 'f5', label: 'Issues', dir: 'Both ways', seed: 'no' },
+              ],
+            },
+            {
+              id: 'p-p6',
+              other: 'Oracle Primavera P6',
+              color: '#B3261E',
+              initials: 'P6',
+              owner: 'other',
+              ownerName: 'Oracle',
+              connector: null,
+              flows: [
+                { id: 'f6', label: 'Schedule activities', dir: 'From Primavera P6', seed: null },
+              ],
+            },
+            {
+              id: 'p-pbi',
+              other: 'Microsoft Power BI',
+              color: '#52525B',
+              initials: 'BI',
+              owner: 'none',
+              connector: 'Workato',
+              flows: [
+                {
+                  id: 'f7',
+                  label: 'Progress percentages',
+                  dir: 'To Microsoft Power BI',
+                  seed: null,
+                },
+              ],
+            },
+          ],
+          forecast: [
+            {
+              id: 'd-procore',
+              other: 'Procore',
+              color: '#C2410C',
+              initials: 'P',
+              owner: 'none',
+              connector: null,
+              flows: [
+                { id: 'f8', label: 'Schedule activities', dir: 'From Procore', seed: 'yes' },
+                { id: 'f9', label: 'Delay forecasts', dir: 'To Procore', seed: null },
+              ],
+            },
+            {
+              id: 'd-p6',
+              other: 'Oracle Primavera P6',
+              color: '#B3261E',
+              initials: 'P6',
+              owner: 'you',
+              connector: null,
+              flows: [
+                { id: 'f10', label: 'Forecast finish dates', dir: 'To Primavera P6', seed: null },
+              ],
+            },
+          ],
+        };
+
+        // Ten more products, used only when "Mixed plans" is on, so density can be judged at 12.
+        var EXTRA = [
+          ['quality', 'Buildots Quality', 'managed'],
+          ['capture', 'Buildots Site Capture', 'free'],
+          ['tradedash', 'Buildots Trade Dashboards', 'free'],
+          ['owner', 'Buildots Owner Reports', 'managed'],
+          ['bim', 'Buildots BIM Compare', 'managed'],
+          ['schedule', 'Buildots Schedule Sync', 'managed'],
+          ['mobile', 'Buildots Mobile', 'free'],
+          ['handover', 'Buildots Handover', 'free'],
+          ['safety', 'Buildots Safety Walk', 'free'],
+          ['api', 'Buildots Open API', 'free'],
+        ];
+        var COUNTERPARTS = [
+          ['Procore', '#C2410C', 'P'],
+          ['Autodesk Construction Cloud', '#0A0A0A', 'A'],
+          ['Oracle Primavera P6', '#B3261E', 'P6'],
+          ['Bluebeam Revu', '#1D4ED8', 'BR'],
+          ['Microsoft Project', '#166534', 'MP'],
+          ['Microsoft Power BI', '#52525B', 'BI'],
+        ];
+        EXTRA.forEach(function (e, i) {
+          var short = e[1].replace('Buildots ', '');
+          ALL_PRODUCTS.push({
+            id: e[0],
+            name: e[1],
+            primary: false,
+            mixedPlan: e[2],
+            description: 'Buildots ' + short.toLowerCase() + ' for general contractors and owners.',
+            website: 'https://buildots.com/' + e[0],
+            intUrl: 'https://buildots.com/integrations',
+            apiUrl: 'https://developers.buildots.com',
+            usefulness: 'Placeholder text for ' + e[1] + '.',
+            seedDetails: i % 4 !== 3,
+            seedList: i % 3 !== 2,
+          });
+          var a = COUNTERPARTS[i % 6],
+            b = COUNTERPARTS[(i + 2) % 6];
+          INTEGRATIONS[e[0]] = [
+            {
+              id: e[0] + '-1',
+              other: a[0],
+              color: a[1],
+              initials: a[2],
+              owner: 'you',
+              connector: null,
+              flows: [
+                {
+                  id: e[0] + '-f1',
+                  label: 'Progress percentages',
+                  dir: 'To ' + a[0],
+                  seed: e[2] === 'managed' ? 'yes' : null,
+                },
+              ],
+            },
+            {
+              id: e[0] + '-2',
+              other: b[0],
+              color: b[1],
+              initials: b[2],
+              owner: i % 2 === 0 ? 'you' : 'none',
+              connector: null,
+              flows: [
+                {
+                  id: e[0] + '-f2',
+                  label: 'Schedule activities',
+                  dir: 'From ' + b[0],
+                  seed: e[2] === 'managed' && i % 3 !== 1 ? 'yes' : null,
+                },
+              ],
+            },
+          ];
+        });
+
+        var FACETS = {
+          categories: {
+            title: 'Categories',
+            terms: [
+              ['Progress tracking', 'Measuring work in place against plan.', true],
+              [
+                'Reality capture',
+                'Photo, video, scan and 360 degree capture of site conditions.',
+                true,
+              ],
+              ['Scheduling', 'Planning and sequencing construction activities.', false],
+              ['Quality management', 'Inspections, punch lists and defects.', false],
+            ],
+          },
+          trades: {
+            title: 'Trades',
+            terms: [
+              ['General contracting', 'Overall delivery of the works.', true],
+              ['Mechanical', 'HVAC and plumbing.', true],
+              ['Electrical', 'Power, lighting and low voltage.', true],
+              ['Drywall and finishes', 'Interior partitions and finishes.', false],
+            ],
+          },
+          audiences: {
+            title: 'Audiences',
+            terms: [
+              ['Project managers', 'Run delivery day to day.', true],
+              ['Owners', 'Commission and fund the project.', true],
+              ['Superintendents', 'Lead the work on site.', false],
+              ['Project controls', 'Cost and schedule analysis.', true],
+            ],
+          },
+          phases: {
+            title: 'Phases',
+            terms: [
+              ['Preconstruction', 'Estimating, planning and procurement.', false],
+              ['Construction', 'Work on site.', true],
+              ['Closeout', 'Handover and commissioning.', true],
+              ['Operations', 'Running the finished asset.', false],
+            ],
+          },
+        };
+
+        // ---------------- State ----------------
+        function initialState() {
+          return {
+            plan: 'free',
+            mixed: false,
+            view: { level: 'vendor', tab: 'overview', product: null },
+            confirmed: { company: null, product: {}, list: {} },
+            owner: {},
+            flows: {},
+            added: {},
+            inline: null,
+            flash: {},
+            bannerHidden: false,
+            seats: [{ name: 'Dana Levi', email: 'dana@buildots.com', role: 'You' }],
+            draft: {},
+          };
+        }
+        var S = initialState();
+
+        // ---------------- Plan and progress logic ----------------
+        function products() {
+          return S.mixed ? ALL_PRODUCTS : ALL_PRODUCTS.slice(0, 2);
+        }
+        function product(pid) {
+          return ALL_PRODUCTS.filter(function (p) {
+            return p.id === pid;
+          })[0];
+        }
+        function productPlan(pid) {
+          if (S.mixed) return product(pid).mixedPlan;
+          return S.plan === 'managed' ? 'managed' : 'free';
+        }
+        function isManaged(pid) {
+          return productPlan(pid) === 'managed';
+        }
+        function managedCount() {
+          return products().filter(function (p) {
+            return isManaged(p.id);
+          }).length;
+        }
+        function hadPilot() {
+          return S.plan === 'ended';
+        }
+        function ownerOf(row) {
+          return S.owner[row.id] || row.owner;
+        }
+        function rowsFor(pid) {
+          return (INTEGRATIONS[pid] || []).concat(S.added[pid] || []);
+        }
+        function flowAnswer(pid, f) {
+          if (f.id in S.flows) return S.flows[f.id];
+          if (isManaged(pid) || hadPilot()) return f.seed;
+          return null;
+        }
+        function prodConfirmed(pid) {
+          if (pid in S.confirmed.product) return S.confirmed.product[pid];
+          return product(pid).seedDetails ? '8 September 2026' : null;
+        }
+        function listConfirmed(pid) {
+          if (pid in S.confirmed.list) return S.confirmed.list[pid];
+          return product(pid).seedList ? '8 September 2026' : null;
+        }
+
+        function productSteps(pid) {
+          var rows = rowsFor(pid);
+          var unowned = rows.filter(function (r) {
+            return r.owner === 'none';
+          });
+          var decided = unowned.filter(function (r) {
+            return S.owner[r.id];
+          }).length;
+          var total = 0,
+            answered = 0;
+          rows.forEach(function (r) {
+            (r.flows || []).forEach(function (f) {
+              total++;
+              if (flowAnswer(pid, f)) answered++;
+            });
+          });
+          var m = isManaged(pid);
+          var flowSub = m
+            ? answered + ' of ' + total + ' data flows answered.'
+            : 'Optional on Free. Available on Managed.' +
+              (hadPilot() ? ' Your ' + answered + ' pilot answers stay as they are.' : '');
+          return [
+            {
+              key: 'details',
+              title: 'Check product details',
+              sub: prodConfirmed(pid)
+                ? 'Checked on ' + prodConfirmed(pid) + '.'
+                : 'Press Looks right on the product details, or edit them.',
+              done: !!prodConfirmed(pid),
+              go: 'product:' + pid + ':profile',
+              cta: 'Review details',
+            },
+            {
+              key: 'list',
+              title: 'Check the integration list',
+              sub: listConfirmed(pid)
+                ? 'Checked on ' + listConfirmed(pid) + '.'
+                : 'Is every integration listed, and nothing extra?',
+              done: !!listConfirmed(pid),
+              go: 'product:' + pid + ':integrations',
+              cta: 'Review list',
+            },
+            {
+              key: 'owner',
+              title: 'Claim your integrations, or say which are not yours',
+              sub: unowned.length
+                ? decided + ' of ' + unowned.length + ' integrations with no owner decided.'
+                : 'Every integration has an owner.',
+              done: decided === unowned.length,
+              go: 'product:' + pid + ':integrations',
+              cta: 'Go to integrations',
+            },
+            {
+              key: 'flows',
+              title: 'Confirm data flows',
+              sub: flowSub,
+              done: m && answered === total,
+              locked: !m,
+              optional: !m,
+              go: 'product:' + pid + ':integrations',
+              cta: 'Confirm data flows',
+            },
+          ];
+        }
+        function productProgress(pid) {
+          var st = productSteps(pid);
+          var counted = st.filter(function (s) {
+            return !s.optional;
+          });
+          var done = counted.filter(function (s) {
+            return s.done;
+          }).length;
+          return {
+            done: done,
+            total: counted.length,
+            locked: st.some(function (s) {
+              return s.locked;
+            }),
+          };
+        }
+
+        // ---------------- Helpers ----------------
+        function esc(s) {
+          return String(s).replace(/[&<>"']/g, function (c) {
+            return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+          });
+        }
+        function lock(size) {
+          size = size || 13;
+          return (
+            '<svg class="lock" width="' +
+            size +
+            '" height="' +
+            size +
+            '" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>'
+          );
+        }
+        function check() {
+          return '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>';
+        }
+        function chev() {
+          return '<svg class="chev" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg>';
+        }
+        function lockTag() {
+          return '<span class="lock-tag">' + lock(11) + ' Available on Managed</span>';
+        }
+        function planChip(pid) {
+          return isManaged(pid)
+            ? '<span class="chip chip-managed">Managed</span>'
+            : '<span class="chip">Free plan</span>';
+        }
+        function announce(msg) {
+          var el = document.getElementById('live');
+          el.textContent = '';
+          setTimeout(function () {
+            el.textContent = msg;
+          }, 30);
+        }
+        function initialsOf(name) {
+          return name
+            .split(/\s+/)
+            .filter(Boolean)
+            .slice(0, 2)
+            .map(function (x) {
+              return x[0].toUpperCase();
+            })
+            .join('');
+        }
+        var TRUST =
+          '<p class="trust">No plan changes where you rank or appear, whether a review is published, or what we verify.</p>';
+
+        function confirmBlock(kind, key, what) {
+          var at =
+            kind === 'company'
+              ? S.confirmed.company
+              : kind === 'product'
+                ? prodConfirmed(key)
+                : listConfirmed(key);
+          var k = kind + ':' + (key || '');
+          var fresh =
+            '<p class="fresh">Readers see <q>Vendor maintained, updated ' +
+            (at || LAST_REVIEWED) +
+            '</q> on your public page.</p>';
+          if (at) {
+            return (
+              '<div class="confirm-row"><span class="confirmed"><span class="dot" aria-hidden="true"></span>Confirmed by you on ' +
+              at +
+              '</span>' +
+              '<button type="button" class="linkbtn small" data-act="unconfirm" data-k="' +
+              k +
+              '" data-focus="unconfirm-' +
+              k +
+              '">Undo</button>' +
+              fresh +
+              '</div>'
+            );
+          }
+          return (
+            '<div class="confirm-row"><button type="button" class="btn btn-secondary" data-act="confirm" data-k="' +
+            k +
+            '" data-focus="confirm-' +
+            k +
+            '">Looks right</button>' +
+            '<span class="help">Tell us you checked ' +
+            what +
+            '. Free on every plan.</span>' +
+            fresh +
+            '</div>'
+          );
+        }
+
+        function stepList(steps, opts) {
+          return (
+            '<ol class="steps">' +
+            steps
+              .map(function (s, i) {
+                var cls = 'step' + (s.done ? ' is-done' : '') + (s.locked ? ' is-locked' : '');
+                var mark = s.done ? check() : s.locked ? lock(12) : i + 1;
+                var right;
+                if (s.done) right = '<span class="pill pill-ok">Done</span>';
+                else if (s.locked) right = lockTag();
+                else
+                  right =
+                    '<button type="button" class="btn btn-secondary btn-sm" data-act="go" data-go="' +
+                    s.go +
+                    '" data-focus="step-' +
+                    (opts.prefix || '') +
+                    i +
+                    '">' +
+                    s.cta +
+                    '</button>';
+                return (
+                  '<li class="' +
+                  cls +
+                  '"><span class="step-mark" aria-hidden="true">' +
+                  mark +
+                  '</span><div><p class="step-title">' +
+                  s.title +
+                  (s.optional && !s.locked ? '<span class="opt">Optional</span>' : '') +
+                  '<span class="sr-only">' +
+                  (s.done
+                    ? ', done'
+                    : s.locked
+                      ? ', optional on Free, available on Managed'
+                      : ', not done') +
+                  '</span></p><p class="step-sub">' +
+                  esc(s.sub) +
+                  '</p></div><div>' +
+                  right +
+                  '</div></li>'
+                );
+              })
+              .join('') +
+            '</ol>'
+          );
+        }
+        function bar(steps) {
+          return (
+            '<div class="progress" style="grid-template-columns:repeat(' +
+            steps.length +
+            ',1fr)" aria-hidden="true">' +
+            steps
+              .map(function (s) {
+                return '<span class="' + (s.done ? 'done' : s.locked ? 'locked' : '') + '"></span>';
+              })
+              .join('') +
+            '</div>'
+          );
+        }
+
+        // ---------------- Vendor checklist ----------------
+        function renderVendorChecklist() {
+          var ps = products();
+          var prog = ps.map(function (p) {
+            return productProgress(p.id);
+          });
+          var full = prog.filter(function (x) {
+            return x.done === x.total;
+          }).length;
+          var prodSub = full + ' of ' + ps.length + ' product checklists done.';
+          var steps = [
+            {
+              title: 'Check your company details',
+              sub: S.confirmed.company
+                ? 'Checked on ' + S.confirmed.company + '.'
+                : 'Press Looks right, or edit anything that is out of date.',
+              done: !!S.confirmed.company,
+              go: 'vendor:profile',
+              cta: 'Review company',
+            },
+            {
+              title: 'Finish each product checklist',
+              sub: prodSub,
+              done: full === ps.length,
+              go: 'vendor:products',
+              cta: 'Go to products',
+            },
+            {
+              title: 'Invite a colleague',
+              sub:
+                S.seats.length > 1
+                  ? 'Someone else can keep the listing current.'
+                  : 'Someone else can keep the listing current when you are away.',
+              done: S.seats.length > 1,
+              go: 'vendor:seats',
+              cta: 'Invite',
+              optional: true,
+            },
+          ];
+          var required = steps.slice(0, 2);
+          var done = required.filter(function (s) {
+            return s.done;
+          }).length;
+          return (
+            '<section class="card" aria-labelledby="gs-h"><div class="section-head"><h2 id="gs-h">Getting started</h2><span class="small muted">' +
+            done +
+            ' of 2 done</span></div>' +
+            '<p class="small muted prose" style="margin-top:.25rem">Your company, then each product. Each step finishes when you take the action.</p>' +
+            bar(required) +
+            stepList(steps, { prefix: 'v' }) +
+            '</section>'
+          );
+        }
+
+        // ---------------- Vendor plan summary ----------------
+        function renderVendorPlan() {
+          var ps = products(),
+            m = managedCount(),
+            f = ps.length - m;
+          var parts = [];
+          if (m) parts.push(m + ' on Managed');
+          if (f) parts.push(f + ' on Free');
+          var sum = ps.length + ' products: ' + parts.join(', ');
+          var label = m
+            ? '<span class="chip">Active on AECi</span>'
+            : '<span class="chip">' + (f === ps.length ? 'Free plan' : 'Managed') + '</span>';
+          var note = hadPilot()
+            ? '<p class="small muted" style="margin-top:.5rem">Your pilot ended on ' +
+              PILOT_END +
+              '. Everything you set up stays in place.</p>'
+            : '<p class="small muted" style="margin-top:.5rem">Plans are per product. Each product page shows what its plan includes.</p>';
+          return (
+            '<section class="card plan" aria-labelledby="plan-h"><div class="section-head"><h2 id="plan-h">Your plan</h2>' +
+            label +
+            '</div>' +
+            '<p class="plan-sum">' +
+            sum +
+            '</p>' +
+            note +
+            '<p class="small" style="margin-top:.75rem">Company details, product basics, seats and Looks right are free on every plan.</p>' +
+            '<p style="margin-top:1rem;display:flex;gap:.75rem;flex-wrap:wrap;align-items:center"><button type="button" class="btn btn-secondary" data-act="go" data-go="vendor:products">See plans by product</button>' +
+            (f ? '<a class="small" href="#" onclick="return false">Ask about Managed</a>' : '') +
+            '</p>' +
+            TRUST +
+            '</section>'
+          );
+        }
+
+        // ---------------- Pilot ended banner ----------------
+        function renderBanner() {
+          if (S.plan !== 'ended' || S.bannerHidden) return '';
+          var m = managedCount(),
+            f = products().length - m;
+          var intro =
+            'Your complimentary Managed access ended on ' +
+            PILOT_END +
+            '. ' +
+            (m
+              ? m +
+                ' of your products ' +
+                (m === 1 ? 'is' : 'are') +
+                ' back on Managed, and ' +
+                f +
+                (f === 1 ? ' is' : ' are') +
+                ' on Free.'
+              : 'Your products are now on the Free plan.') +
+            ' Nothing you entered was removed.';
+          return (
+            '<section class="banner" aria-labelledby="banner-h">' +
+            '<div class="section-head"><h2 id="banner-h">Your pilot has ended</h2><button type="button" class="btn btn-quiet btn-sm" data-act="hide-banner">Hide this</button></div>' +
+            '<p class="small prose" style="margin-top:.5rem">Thank you for helping shape the portal. ' +
+            intro +
+            '</p>' +
+            '<div class="banner-cols">' +
+            '<div><h3>Still works</h3><ul><li>Your listings stay published, exactly as they are</li><li>Editing your company details</li><li>Editing product description, website, logo and categories</li><li>Seats and sign-in for you and your colleagues</li><li>Looks right confirmations</li><li>Claiming integrations, adding links, requesting corrections</li><li>Adding a new integration</li></ul></div>' +
+            '<div class="readonly-col"><h3>Now read-only on Free products</h3><ul><li>"How teams use it", integrations page and API docs links</li><li>Trades, audiences and phases</li><li>Your data flow answers. They stay as you left them, and readers still see them.</li><li>Integrations delivered through a connector</li></ul></div>' +
+            '</div>' +
+            '<p style="margin-top:1rem;display:flex;gap:.75rem;align-items:center;flex-wrap:wrap"><a class="btn btn-primary" href="#" onclick="return false">Talk to us about Managed</a><span class="small muted">Turning it back on needs nothing re-entered.</span></p>' +
+            '</section>'
+          );
+        }
+
+        // ---------------- Vendor overview ----------------
+        function renderOverview() {
+          var total = 0;
+          products().forEach(function (p) {
+            total += rowsFor(p.id).length;
+          });
+          var glance =
+            '<div class="glance">' +
+            '<div class="card"><p class="small muted">Integrations listed</p><p class="fig">' +
+            total +
+            '</p><p class="xs muted">Across ' +
+            products().length +
+            ' products</p></div>' +
+            '<div class="card"><p class="small muted">Disagreements</p><p class="fig-sentence">No disagreements</p><p class="xs muted">Where you and the other company differ</p></div>' +
+            '<div class="card"><p class="small muted">Open requests</p><p class="fig-sentence">None open</p><p class="xs muted">Corrections you sent or received</p></div></div>';
+          return (
+            '<h2 class="sr-only">Vendor overview</h2>' +
+            glance +
+            '<div class="grid-ov">' +
+            renderVendorChecklist() +
+            renderVendorPlan() +
+            '</div>'
+          );
+        }
+
+        // ---------------- Forms ----------------
+        function field(label, key, value, editable, opts) {
+          opts = opts || {};
+          var id = 'fld-' + key;
+          var v = S.draft[key] != null ? S.draft[key] : value;
+          var ro = editable ? '' : ' readonly aria-describedby="lock-explain"';
+          var control = opts.area
+            ? '<textarea class="input" id="' +
+              id +
+              '" data-draft="' +
+              key +
+              '"' +
+              ro +
+              '>' +
+              esc(v) +
+              '</textarea>'
+            : '<input class="input" id="' +
+              id +
+              '" data-draft="' +
+              key +
+              '" value="' +
+              esc(v) +
+              '"' +
+              (v ? '' : ' placeholder="Not specified"') +
+              ro +
+              '>';
+          return (
+            '<div class="field' +
+            (opts.full ? ' full' : '') +
+            '"><label for="' +
+            id +
+            '">' +
+            label +
+            (editable
+              ? ''
+              : ' <span style="color:var(--text-tertiary);display:inline-flex">' +
+                lock(12) +
+                '</span><span class="sr-only">, locked</span>') +
+            '</label>' +
+            control +
+            '</div>'
+          );
+        }
+        function sectionLock(text) {
+          return (
+            '<div class="section-lock" id="lock-explain">' +
+            lock(16) +
+            '<div><p class="small" style="display:flex;flex-wrap:wrap;gap:.5rem;align-items:center"><strong>' +
+            text +
+            '</strong> ' +
+            lockTag() +
+            '</p>' +
+            '<p class="help" style="margin-top:.25rem">Spot something wrong? <button type="button" class="linkbtn" data-act="flash" data-k="correction" data-msg="Correction form opened. The AECi team fixes it, usually within two working days.">Request a correction</button> and the AECi team fixes it.' +
+            (S.flash.correction ? ' <span class="flash">' + S.flash.correction + '</span>' : '') +
+            '</p></div></div>'
+          );
+        }
+        function saveRow(k) {
+          return (
+            '<p style="margin-top:1.25rem"><button type="button" class="btn btn-primary" data-act="save" data-k="' +
+            k +
+            '" data-focus="save-' +
+            k +
+            '">Save changes</button> ' +
+            (S.flash['save:' + k]
+              ? '<span class="flash">' + S.flash['save:' + k] + '</span>'
+              : '') +
+            '</p>'
+          );
+        }
+
+        function renderProfile() {
+          var body =
+            '<div class="fields">' +
+            field('Description', 'v_desc', VENDOR.description, true, { area: true, full: true }) +
+            field('Website', 'v_web', VENDOR.website, true) +
+            field('Headquarters', 'v_hq', VENDOR.hq, true) +
+            field('Founded year', 'v_founded', VENDOR.founded, true) +
+            field('Parent company', 'v_parent', VENDOR.parent, true) +
+            field('Contact email', 'v_email', VENDOR.email, true) +
+            field('Phone number', 'v_phone', VENDOR.phone, true) +
+            field('LinkedIn', 'v_li', VENDOR.linkedin, true, { full: true }) +
+            '</div>';
+          return (
+            '<section class="card" aria-labelledby="prof-h"><div class="section-head"><h2 id="prof-h">Company details</h2><span class="small muted">Editable on every plan</span></div>' +
+            '<p class="small muted" style="margin-top:.25rem">What readers see on your vendor page. Saving an edit also counts as checking these details.</p>' +
+            body +
+            saveRow('company:') +
+            confirmBlock('company', '', 'your company details') +
+            '</section>'
+          );
+        }
+
+        // ---------------- Products list ----------------
+        function renderProductList() {
+          var ps = products(),
+            m = managedCount(),
+            f = ps.length - m;
+          var parts = [];
+          if (m) parts.push(m + ' on Managed');
+          if (f) parts.push(f + ' on Free');
+          var rows = ps
+            .map(function (p) {
+              var pr = productProgress(p.id);
+              var full = pr.done === pr.total;
+              var ckNote = full ? 'Checklist done' : 'Checklist';
+              return (
+                '<button type="button" class="list-row dense" data-act="go" data-go="product:' +
+                p.id +
+                ':overview" data-focus="prod-' +
+                p.id +
+                '">' +
+                '<span class="mark sm" style="background:var(--accent-primary)" aria-hidden="true">B</span>' +
+                '<span style="font-weight:600">' +
+                esc(p.name) +
+                '</span>' +
+                (p.primary ? ' <span class="pill">Primary</span>' : '') +
+                '<span style="margin-left:auto;display:flex;gap:1rem;align-items:center">' +
+                '<span class="ck' +
+                (full ? ' full' : '') +
+                '"><span class="xs" style="display:block">' +
+                ckNote +
+                '</span><strong>' +
+                pr.done +
+                '/' +
+                pr.total +
+                '</strong><span class="sr-only"> steps done</span></span>' +
+                '<span style="min-width:6rem;display:inline-flex;justify-content:flex-end">' +
+                planChip(p.id) +
+                '</span>' +
+                chev() +
+                '</span></button>'
+              );
+            })
+            .join('');
+          return (
+            '<div class="toolbar"><div><h2>Products</h2><p class="small muted">' +
+            ps.length +
+            ' products: ' +
+            parts.join(', ') +
+            '. Plans and checklists are per product.</p></div></div><div class="list-card">' +
+            rows +
+            '</div>'
+          );
+        }
+
+        // ---------------- Product overview ----------------
+        function renderProductPlan(pid) {
+          var m = isManaged(pid);
+          var managedAdds =
+            '<ul><li>Edit "How teams use it", the integrations page and API docs links</li><li>Edit trades, audiences and phases</li><li>Confirm or deny the data flows on its integrations</li><li>Manage its integrations delivered through a connector</li><li>Counts toward the "Active on AECi" label on your vendor page</li></ul>';
+          var freeIncl =
+            '<ul><li>The product listing, published as it is</li><li>Edit its description, website, logo and categories</li><li>Looks right on its details and its integration list</li><li>Claim its integrations, add links, request corrections</li><li>Add a new integration</li></ul>';
+          var body;
+          if (m) {
+            body =
+              '<p class="small" style="margin-top:.75rem">This product is on Managed. ' +
+              (S.mixed ? '' : 'Renews 1 January 2027.') +
+              '</p>' +
+              '<h3>Managed covers</h3>' +
+              managedAdds +
+              '<h3>Also included, as on Free</h3>' +
+              freeIncl +
+              '<div class="price">' +
+              MANAGED_PRICE +
+              '.<span class="draft">Draft</span></div>';
+          } else {
+            body =
+              '<p class="small" style="margin-top:.75rem">' +
+              (hadPilot()
+                ? 'The pilot for this product ended on ' +
+                  PILOT_END +
+                  '. Everything you set up stays in place.'
+                : 'This listing is published and stays published.') +
+              '</p>' +
+              '<h3>Free includes</h3>' +
+              freeIncl +
+              '<h3>Managed adds, for this product</h3>' +
+              managedAdds +
+              '<div class="price"><strong>Managed</strong> is ' +
+              MANAGED_PRICE +
+              '.<span class="draft">Draft</span></div>' +
+              '<p style="margin-top:1rem"><a class="btn btn-secondary" href="#" onclick="return false">Ask about Managed for this product</a></p>';
+          }
+          return (
+            '<section class="card plan" aria-labelledby="pplan-h"><div class="section-head"><h2 id="pplan-h">This product\'s plan</h2>' +
+            planChip(pid) +
+            '</div>' +
+            body +
+            TRUST +
+            '</section>'
+          );
+        }
+        function renderProductChecklist(pid) {
+          var st = productSteps(pid),
+            pr = productProgress(pid);
+          var head = pr.done + ' of ' + pr.total + ' done';
+          return (
+            '<section class="card" aria-labelledby="pck-h"><div class="section-head"><h2 id="pck-h">Product checklist</h2><span class="small muted">' +
+            head +
+            '</span></div>' +
+            '<p class="small muted prose" style="margin-top:.25rem">' +
+            (pr.locked
+              ? 'Three checks finish this product on Free. Data flows are optional until Managed.'
+              : 'Four checks for this product. All four count toward completion.') +
+            '</p>' +
+            bar(
+              st.filter(function (s) {
+                return !s.optional;
+              }),
+            ) +
+            stepList(st, { prefix: 'p' }) +
+            '</section>'
+          );
+        }
+        function renderProductOverview(pid) {
+          return (
+            '<div class="grid-ov" style="margin-top:0">' +
+            renderProductChecklist(pid) +
+            renderProductPlan(pid) +
+            '</div>'
+          );
+        }
+
+        function renderProductProfile(pid) {
+          var p = product(pid),
+            ed = isManaged(pid);
+          var body =
+            '<div class="fields">' +
+            field('Description', pid + '_desc', p.description, true, { area: true, full: true }) +
+            field('Website', pid + '_web', p.website, true) +
+            field(
+              'Logo URL',
+              pid + '_logo',
+              'https://buildots.com/brand/' + pid + '-logo.svg',
+              true,
+            ) +
+            field('Integrations page URL', pid + '_int', p.intUrl, ed) +
+            field('API documentation URL', pid + '_api', p.apiUrl, ed) +
+            field('How teams use it', pid + '_use', p.usefulness, ed, { area: true, full: true }) +
+            '</div>';
+          return (
+            '<section class="card" aria-labelledby="pp-h"><div class="section-head"><h2 id="pp-h">Product details</h2>' +
+            planChip(pid) +
+            '</div>' +
+            '<p class="small muted" style="margin-top:.25rem">What readers see on the ' +
+            esc(p.name) +
+            ' page. ' +
+            (ed ? '' : 'Description, website and logo are editable on every plan. ') +
+            'Saving an edit also counts as checking these details.</p>' +
+            (ed
+              ? ''
+              : sectionLock(
+                  'Editing "How teams use it", the integrations page URL and the API documentation URL needs Managed for this product.',
+                )) +
+            body +
+            saveRow('product:' + pid) +
+            confirmBlock('product', pid, 'the details for ' + p.name) +
+            '</section>'
+          );
+        }
+
+        function renderFacet(pid, key) {
+          var f = FACETS[key],
+            ed = isManaged(pid) || key === 'categories';
+          var items = f.terms
+            .map(function (t) {
+              return (
+                '<li><label><input type="checkbox"' +
+                (t[2] ? ' checked' : '') +
+                (ed ? '' : ' disabled') +
+                '><span>' +
+                t[0] +
+                '<span class="desc">' +
+                t[1] +
+                '</span></span></label></li>'
+              );
+            })
+            .join('');
+          return (
+            '<section class="card" aria-labelledby="fc-h"><div class="section-head"><h2 id="fc-h">' +
+            f.title +
+            '</h2>' +
+            planChip(pid) +
+            '</div>' +
+            (ed
+              ? key === 'categories' && !isManaged(pid)
+                ? '<p class="small muted" style="margin-top:.25rem">Categories are editable on every plan.</p>'
+                : ''
+              : sectionLock(
+                  'Changing ' + f.title.toLowerCase() + ' needs the Managed plan for this product.',
+                )) +
+            '<ul class="facet-list">' +
+            items +
+            '</ul>' +
+            (ed
+              ? '<p style="margin-top:1.25rem"><button type="button" class="btn btn-primary">Save</button></p>'
+              : '') +
+            '</section>'
+          );
+        }
+
+        // ---------------- Integrations ----------------
+        function ownerPill(row) {
+          var o = ownerOf(row);
+          if (o === 'you') return '<span class="pill pill-ok">Owned by you</span>';
+          if (o === 'claimed') return '<span class="pill pill-ok">Claimed by you today</span>';
+          if (o === 'notours') return '<span class="pill">You said this is not yours</span>';
+          if (o === 'other') return '<span class="pill">Owned by ' + esc(row.ownerName) + '</span>';
+          return '<span class="pill pill-warm">No owner yet</span>';
+        }
+
+        function renderIntRow(pid, row) {
+          var managed = isManaged(pid),
+            o = ownerOf(row);
+          var open = function (mode) {
+            return !!(S.inline && S.inline.id === row.id && S.inline.mode === mode);
+          };
+          var actions = [];
+          if (o === 'none') {
+            if (row.connector && !managed)
+              actions.push(
+                '<button type="button" class="btn btn-secondary btn-sm" disabled aria-describedby="cn-' +
+                  row.id +
+                  '">' +
+                  lock(11) +
+                  ' Claim as ours</button>',
+              );
+            else
+              actions.push(
+                '<button type="button" class="btn btn-secondary btn-sm" data-act="claim" data-id="' +
+                  row.id +
+                  '" data-focus="claim-' +
+                  row.id +
+                  '">Claim as ours</button>',
+              );
+            actions.push(
+              '<button type="button" class="btn btn-quiet btn-sm" data-act="notours" data-id="' +
+                row.id +
+                '" data-focus="notours-' +
+                row.id +
+                '">Not ours</button>',
+            );
+          } else if (o === 'claimed' || o === 'notours') {
+            actions.push(
+              '<button type="button" class="btn btn-quiet btn-sm" data-act="unowner" data-id="' +
+                row.id +
+                '" data-focus="unowner-' +
+                row.id +
+                '">Undo</button>',
+            );
+          }
+          actions.push(
+            '<button type="button" class="btn btn-quiet btn-sm" data-act="inline" data-mode="link" data-id="' +
+              row.id +
+              '" aria-expanded="' +
+              open('link') +
+              '" data-focus="link-' +
+              row.id +
+              '">Add a link</button>',
+          );
+          actions.push(
+            '<button type="button" class="btn btn-quiet btn-sm" data-act="inline" data-mode="fix" data-id="' +
+              row.id +
+              '" aria-expanded="' +
+              open('fix') +
+              '" data-focus="fix-' +
+              row.id +
+              '">Request a correction</button>',
+          );
+
+          var nFlows = (row.flows || []).length;
+          var meta = [];
+          if (row.connector) meta.push('Delivered through ' + esc(row.connector));
+          meta.push(
+            nFlows ? nFlows + ' data flow' + (nFlows === 1 ? '' : 's') : 'Waiting for AECi review',
+          );
+          var connNote =
+            row.connector && !managed && o === 'none'
+              ? '<p class="lock-note" id="cn-' +
+                row.id +
+                '" style="margin-top:.5rem">' +
+                lock(12) +
+                ' Claiming an integration delivered through a connector needs Managed. ' +
+                lockTag() +
+                '</p>'
+              : '';
+
+          var inline = '';
+          if (S.inline && S.inline.id === row.id) {
+            if (S.inline.sent)
+              inline =
+                '<div class="int-inline"><p class="flash">' + esc(S.inline.sent) + '</p></div>';
+            else if (S.inline.mode === 'link') {
+              inline =
+                '<div class="int-inline"><div class="box"><label class="small" style="font-weight:600" for="lnk-' +
+                row.id +
+                '">Your page about this integration</label><input class="input" id="lnk-' +
+                row.id +
+                '" placeholder="https://buildots.com/integrations/' +
+                esc(row.other.toLowerCase().replace(/[^a-z0-9]+/g, '-')) +
+                '"><p><button type="button" class="btn btn-primary btn-sm" data-act="send" data-msg="Link added. It shows on the integration page.">Add link</button> <button type="button" class="btn btn-quiet btn-sm" data-act="close-inline">Cancel</button></p></div></div>';
+            } else {
+              var to = o === 'other' ? row.ownerName : 'the AECi team';
+              inline =
+                '<div class="int-inline"><div class="box"><label class="small" style="font-weight:600" for="fx-' +
+                row.id +
+                '">What is wrong?</label><textarea class="input" id="fx-' +
+                row.id +
+                '" placeholder="For example: issues sync both ways since our March release."></textarea><p class="help">This goes to ' +
+                esc(to) +
+                '. You see their answer under Messages.</p><p><button type="button" class="btn btn-primary btn-sm" data-act="send" data-msg="Sent to ' +
+                esc(to) +
+                '. You will see their answer under Messages.">Send</button> <button type="button" class="btn btn-quiet btn-sm" data-act="close-inline">Cancel</button></p></div></div>';
+            }
+          }
+
+          var flows = '';
+          if (nFlows) {
+            var fl = row.flows
+              .map(function (f) {
+                var a = flowAnswer(pid, f),
+                  ctrl;
+                if (managed) {
+                  ctrl =
+                    '<div class="seg" role="group" aria-label="Does ' +
+                    esc(f.label) +
+                    ' flow ' +
+                    esc(f.dir.toLowerCase()) +
+                    '?">' +
+                    '<button type="button" aria-pressed="' +
+                    (a === 'yes') +
+                    '" data-act="flow" data-id="' +
+                    f.id +
+                    '" data-v="yes" data-focus="fy-' +
+                    f.id +
+                    '">Yes</button>' +
+                    '<button type="button" class="no" aria-pressed="' +
+                    (a === 'no') +
+                    '" data-act="flow" data-id="' +
+                    f.id +
+                    '" data-v="no" data-focus="fn-' +
+                    f.id +
+                    '">No</button></div>';
+                } else {
+                  ctrl =
+                    '<span style="display:inline-flex;align-items:center;gap:.75rem"><span class="answer">' +
+                    (a
+                      ? 'Your answer: ' +
+                        (a === 'yes' ? 'Yes' : 'No') +
+                        (hadPilot() ? ', kept from your pilot' : '')
+                      : 'Not answered') +
+                    '</span>' +
+                    '<span class="seg" aria-hidden="true"><button type="button" disabled tabindex="-1" aria-pressed="' +
+                    (a === 'yes') +
+                    '">Yes</button><button type="button" disabled tabindex="-1" aria-pressed="' +
+                    (a === 'no') +
+                    '">No</button></span></span>';
+                }
+                return (
+                  '<div class="flow"><span><span>' +
+                  esc(f.label) +
+                  '</span> <span class="flow-dir">' +
+                  esc(f.dir) +
+                  '</span></span>' +
+                  ctrl +
+                  '</div>'
+                );
+              })
+              .join('');
+            flows =
+              '<div class="flows"><div class="flows-head"><h4>Data that is shared</h4>' +
+              (managed
+                ? '<span class="help">Does this flow happen? Your answer shows to readers beside the other company\'s.</span>'
+                : '<span class="lock-note">' +
+                  lock(12) +
+                  ' Confirming or denying data flows needs Managed. ' +
+                  lockTag() +
+                  '</span>') +
+              '</div>' +
+              fl +
+              '</div>';
+          }
+
+          return (
+            '<article class="int" aria-labelledby="int-' +
+            row.id +
+            '"><div class="int-head">' +
+            '<span class="mark" style="background:' +
+            row.color +
+            '" aria-hidden="true">' +
+            esc(row.initials) +
+            '</span>' +
+            '<div><h3 class="int-name" id="int-' +
+            row.id +
+            '">' +
+            esc(row.other) +
+            '</h3><div class="int-meta">' +
+            ownerPill(row) +
+            '<span>' +
+            meta.join('. ') +
+            '</span></div>' +
+            connNote +
+            '</div>' +
+            '<div class="int-actions">' +
+            actions.join('') +
+            '</div></div>' +
+            inline +
+            flows +
+            '</article>'
+          );
+        }
+
+        function renderIntegrations(pid) {
+          var p = product(pid),
+            add = '';
+          if (S.inline && S.inline.id === 'add-' + pid) {
+            add = S.inline.sent
+              ? '<p class="flash" style="margin-bottom:1rem">' + esc(S.inline.sent) + '</p>'
+              : '<div class="card" style="margin-bottom:1rem"><label class="small" style="font-weight:600" for="add-in">Which product does ' +
+                esc(p.name) +
+                ' connect to?</label><div style="display:flex;gap:.5rem;margin-top:.375rem;max-width:36rem"><input class="input" id="add-in" data-draft="add_' +
+                pid +
+                '" placeholder="For example: Bluebeam Revu"><button type="button" class="btn btn-primary" data-act="add-int" data-pid="' +
+                pid +
+                '">Add</button><button type="button" class="btn btn-quiet" data-act="close-inline">Cancel</button></div><p class="help" style="margin-top:.375rem">You own what you add. The AECi team reviews it before it shows publicly.</p></div>';
+          }
+          var rows = rowsFor(pid)
+            .map(function (r) {
+              return renderIntRow(pid, r);
+            })
+            .join('');
+          return (
+            '<div class="toolbar"><div><h2>Integrations</h2><p class="small muted" style="display:flex;gap:.5rem;align-items:center;flex-wrap:wrap">' +
+            rowsFor(pid).length +
+            ' integrations listed for ' +
+            esc(p.name) +
+            '. ' +
+            planChip(pid) +
+            '</p></div>' +
+            '<button type="button" class="btn btn-secondary" data-act="inline" data-mode="add" data-id="add-' +
+            pid +
+            '" data-focus="add-btn">Add an integration</button></div>' +
+            add +
+            rows +
+            '<section class="card" style="margin-top:1.5rem" aria-label="Confirm this list"><p class="small"><strong>Is this the full list?</strong> Missing one? Add it above. Listed one you do not have? Request a correction on it.</p>' +
+            confirmBlock('list', pid, 'this integration list') +
+            '</section>'
+          );
+        }
+
+        // ---------------- Messages and seats ----------------
+        function renderMessages() {
+          return (
+            '<div class="toolbar"><h2>Messages</h2></div><div class="list-card">' +
+            '<div class="list-row"><span><strong>Oracle replied about Primavera P6</strong><span class="xs muted" style="display:block">"Schedule activities sync both ways from P6 23.12." 28 September 2026</span></span></div>' +
+            '<div class="list-row"><span><strong>Your seat was set up</strong><span class="xs muted" style="display:block">Welcome to the Buildots portal. 14 September 2026</span></span></div></div>'
+          );
+        }
+        function renderSeats() {
+          var rows = S.seats
+            .map(function (s) {
+              return (
+                '<div class="list-row"><span class="avatar" aria-hidden="true">' +
+                esc(initialsOf(s.name)) +
+                '</span><span><strong>' +
+                esc(s.name) +
+                '</strong><span class="xs muted" style="display:block">' +
+                esc(s.email) +
+                '</span></span><span class="pill" style="margin-left:auto">' +
+                esc(s.role) +
+                '</span></div>'
+              );
+            })
+            .join('');
+          return (
+            '<div class="toolbar"><div><h2>Seats</h2><p class="small muted">Seats are free on every plan.</p></div></div><div class="list-card">' +
+            rows +
+            '</div>' +
+            '<div class="card" style="margin-top:1.5rem"><label class="small" style="font-weight:600" for="inv">Invite a colleague</label><div style="display:flex;gap:.5rem;margin-top:.375rem;max-width:32rem"><input class="input" id="inv" type="email" data-draft="invite" placeholder="name@buildots.com"><button type="button" class="btn btn-primary" data-act="invite" data-focus="invite-btn">Send invite</button></div></div>'
+          );
+        }
+
+        // ---------------- Shell ----------------
+        function renderShell() {
+          var v = S.view,
+            crumbs,
+            h1,
+            tabs;
+          if (v.level === 'vendor') {
+            crumbs =
+              '<li><button class="crumb-link" data-act="go" data-go="vendor:overview">Vendor</button></li><li class="sep" aria-hidden="true">›</li><li aria-current="page">Buildots</li>';
+            h1 = 'Buildots';
+            tabs = [
+              ['overview', 'Vendor Overview'],
+              ['profile', 'Profile'],
+              ['products', 'Products'],
+              ['messages', 'Messages'],
+              ['seats', 'Seats'],
+            ]
+              .map(function (t) {
+                return (
+                  '<button type="button" class="tab" data-act="go" data-go="vendor:' +
+                  t[0] +
+                  '"' +
+                  (v.tab === t[0] ? ' aria-current="page"' : '') +
+                  ' data-focus="tab-' +
+                  t[0] +
+                  '">' +
+                  t[1] +
+                  '</button>'
+                );
+              })
+              .join('');
+          } else {
+            var p = product(v.product);
+            crumbs =
+              '<li><button class="crumb-link" data-act="go" data-go="vendor:overview">Vendor</button></li><li class="sep" aria-hidden="true">›</li><li><button class="crumb-link" data-act="go" data-go="vendor:overview">Buildots</button></li><li class="sep" aria-hidden="true">›</li><li><button class="crumb-link" data-act="go" data-go="vendor:products">Products</button></li><li class="sep" aria-hidden="true">›</li><li aria-current="page">' +
+              esc(p.name) +
+              '</li>';
+            h1 = p.name;
+            var free = !isManaged(p.id);
+            tabs = [
+              ['overview', 'Product Overview'],
+              ['profile', 'Profile'],
+              ['categories', 'Categories'],
+              ['trades', 'Trades'],
+              ['audiences', 'Audiences'],
+              ['phases', 'Phases'],
+              ['integrations', 'Integrations'],
+            ]
+              .map(function (t) {
+                var locked = free && ['trades', 'audiences', 'phases'].indexOf(t[0]) >= 0;
+                return (
+                  '<button type="button" class="tab" data-act="go" data-go="product:' +
+                  p.id +
+                  ':' +
+                  t[0] +
+                  '"' +
+                  (v.tab === t[0] ? ' aria-current="page"' : '') +
+                  ' data-focus="ptab-' +
+                  t[0] +
+                  '">' +
+                  t[1] +
+                  (locked ? lock(11) + '<span class="sr-only">, read-only on Free</span>' : '') +
+                  '</button>'
+                );
+              })
+              .join('');
+          }
+          var back =
+            v.level === 'product'
+              ? '<button class="crumb-link" data-act="go" data-go="vendor:products">← Back to products</button>'
+              : '';
+          var panel;
+          if (v.level === 'vendor')
+            panel = {
+              overview: renderOverview,
+              profile: renderProfile,
+              products: renderProductList,
+              messages: renderMessages,
+              seats: renderSeats,
+            }[v.tab]();
+          else if (v.tab === 'overview') panel = renderProductOverview(v.product);
+          else if (v.tab === 'profile') panel = renderProductProfile(v.product);
+          else if (v.tab === 'integrations') panel = renderIntegrations(v.product);
+          else panel = renderFacet(v.product, v.tab);
+
+          return (
+            '<header><div class="crumbs"><nav aria-label="Breadcrumb"><ol>' +
+            crumbs +
+            '</ol></nav>' +
+            back +
+            '</div>' +
+            '<div class="title-row"><h1>' +
+            esc(h1) +
+            '</h1><a class="public-link" href="#" onclick="return false">View public page</a>' +
+            (v.level === 'product' ? planChip(v.product) : '') +
+            '</div></header>' +
+            renderBanner() +
+            '<nav class="tabs" aria-label="' +
+            (v.level === 'vendor' ? 'Vendor sections' : 'Product sections') +
+            '">' +
+            tabs +
+            '</nav>' +
+            '<div class="panel">' +
+            panel +
+            '</div>'
+          );
+        }
+
+        var app = document.getElementById('app');
+        function render() {
+          if (S.view.level === 'product' && products().indexOf(product(S.view.product)) < 0)
+            S.view = { level: 'vendor', tab: 'products', product: null };
+          var active = document.activeElement && document.activeElement.getAttribute('data-focus');
+          // Every user-typed value passes through esc() above; parse and swap nodes.
+          var doc = new DOMParser().parseFromString(
+            '<div>' + renderShell() + '</div>',
+            'text/html',
+          );
+          app.replaceChildren.apply(
+            app,
+            Array.prototype.slice.call(doc.body.firstChild.childNodes),
+          );
+          document.querySelectorAll('#demo-state button').forEach(function (b) {
+            b.setAttribute('aria-pressed', String(b.getAttribute('data-demo-state') === S.plan));
+          });
+          document.getElementById('demo-mixed').checked = S.mixed;
+          if (active) focusSel(active);
+        }
+        function focusSel(k) {
+          var el = document.querySelector('[data-focus="' + k + '"]');
+          if (el) el.focus();
+        }
+        function setConfirmed(kind, key, val) {
+          if (kind === 'company') S.confirmed.company = val;
+          else S.confirmed[kind][key] = val;
+        }
+
+        // ---------------- Events ----------------
+        app.addEventListener('input', function (e) {
+          var k = e.target.getAttribute('data-draft');
+          if (k) S.draft[k] = e.target.value;
+        });
+
+        app.addEventListener('click', function (e) {
+          var t = e.target.closest('[data-act]');
+          if (!t) return;
+          var act = t.getAttribute('data-act'),
+            id = t.getAttribute('data-id');
+          if (act === 'go') {
+            var parts = t.getAttribute('data-go').split(':');
+            S.inline = null;
+            S.flash = {};
+            S.view =
+              parts[0] === 'vendor'
+                ? { level: 'vendor', tab: parts[1], product: null }
+                : { level: 'product', product: parts[1], tab: parts[2] };
+            render();
+            window.scrollTo(0, 0);
+            var h = document.querySelector('.tab[aria-current="page"]');
+            if (h) h.focus();
+            return;
+          }
+          if (act === 'confirm' || act === 'unconfirm') {
+            var kk = t.getAttribute('data-k').split(':');
+            setConfirmed(kk[0], kk[1], act === 'confirm' ? today() : null);
+            render();
+            announce(act === 'confirm' ? 'Confirmed by you on ' + today() : 'Confirmation removed');
+            focusSel((act === 'confirm' ? 'unconfirm-' : 'confirm-') + t.getAttribute('data-k'));
+            return;
+          }
+          if (act === 'save') {
+            var sk = t.getAttribute('data-k').split(':');
+            setConfirmed(sk[0], sk[1], today());
+            S.flash['save:' + t.getAttribute('data-k')] =
+              'Saved. This counts as checked. Search picks it up within a day.';
+            render();
+            announce('Saved');
+            return;
+          }
+          if (act === 'claim') {
+            S.owner[id] = 'claimed';
+            render();
+            announce('Claimed. The integration now shows your company as owner.');
+            focusSel('unowner-' + id);
+            return;
+          }
+          if (act === 'notours') {
+            S.owner[id] = 'notours';
+            render();
+            announce('Noted. The AECi team will check who owns it.');
+            focusSel('unowner-' + id);
+            return;
+          }
+          if (act === 'unowner') {
+            delete S.owner[id];
+            render();
+            focusSel('claim-' + id);
+            return;
+          }
+          if (act === 'flow') {
+            var v = t.getAttribute('data-v'),
+              pid = S.view.product,
+              f = null;
+            rowsFor(pid).forEach(function (r) {
+              (r.flows || []).forEach(function (x) {
+                if (x.id === id) f = x;
+              });
+            });
+            S.flows[id] = flowAnswer(pid, f) === v ? null : v;
+            render();
+            announce(S.flows[id] ? 'Answer saved: ' + v : 'Answer cleared');
+            return;
+          }
+          if (act === 'inline') {
+            var same =
+              S.inline && S.inline.id === id && S.inline.mode === t.getAttribute('data-mode');
+            S.inline = same ? null : { id: id, mode: t.getAttribute('data-mode') };
+            render();
+            if (S.inline) {
+              var inp = document.querySelector('.int-inline .input, #add-in');
+              if (inp) inp.focus();
+            }
+            return;
+          }
+          if (act === 'close-inline') {
+            var was = S.inline;
+            S.inline = null;
+            render();
+            if (was) focusSel(was.mode === 'add' ? 'add-btn' : was.mode + '-' + was.id);
+            return;
+          }
+          if (act === 'send') {
+            S.inline.sent = t.getAttribute('data-msg');
+            render();
+            announce(S.inline.sent);
+            return;
+          }
+          if (act === 'add-int') {
+            var pid2 = t.getAttribute('data-pid'),
+              name = (S.draft['add_' + pid2] || '').trim() || 'Bluebeam Revu';
+            (S.added[pid2] = S.added[pid2] || []).push({
+              id: 'new-' + Date.now(),
+              other: name,
+              color: '#2E5C45',
+              initials: initialsOf(name),
+              owner: 'you',
+              connector: null,
+              flows: [],
+            });
+            S.draft['add_' + pid2] = '';
+            S.inline = {
+              id: 'add-' + pid2,
+              mode: 'add',
+              sent: name + ' added. You own it. The AECi team reviews it before it shows publicly.',
+            };
+            render();
+            announce(name + ' added');
+            return;
+          }
+          if (act === 'invite') {
+            var em = (S.draft.invite || '').trim() || 'site.lead@buildots.com';
+            S.seats.push({ name: em.split('@')[0], email: em, role: 'Invited' });
+            S.draft.invite = '';
+            render();
+            announce('Invite sent to ' + em);
+            return;
+          }
+          if (act === 'flash') {
+            S.flash[t.getAttribute('data-k')] = t.getAttribute('data-msg');
+            render();
+            announce(t.getAttribute('data-msg'));
+            return;
+          }
+          if (act === 'hide-banner') {
+            S.bannerHidden = true;
+            render();
+            var tb = document.querySelector('.tab[aria-current="page"]');
+            if (tb) tb.focus();
+            return;
+          }
+        });
+
+        document.getElementById('demo-state').addEventListener('click', function (e) {
+          var b = e.target.closest('[data-demo-state]');
+          if (!b) return;
+          S.plan = b.getAttribute('data-demo-state');
+          S.bannerHidden = false;
+          S.flows = {};
+          render();
+        });
+        document.getElementById('demo-mixed').addEventListener('change', function (e) {
+          S.mixed = e.target.checked;
+          S.flows = {};
+          render();
+        });
+        document.getElementById('demo-reset').addEventListener('click', function () {
+          var keep = { plan: S.plan, mixed: S.mixed, view: S.view };
+          S = initialState();
+          S.plan = keep.plan;
+          S.mixed = keep.mixed;
+          S.view = keep.view;
+          render();
+        });
+
+        render();
+      })();
+    </script>
+  </body>
+</html>
