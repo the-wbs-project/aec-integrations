@@ -93,6 +93,29 @@ describe('NudgeMutePage', () => {
     expect(el(fixture).querySelector('button')).not.toBeNull();
   });
 
+  it('drops the token from the address bar but still POSTs it', async () => {
+    window.history.replaceState({}, '', '/notifications/mute?utm_source=email&token=tok-1#x');
+    const { fixture, httpMock } = setup('tok-1');
+    await fixture.whenStable();
+
+    expect(window.location.pathname).toBe('/notifications/mute');
+    expect(window.location.search).toBe('?utm_source=email');
+    expect(window.location.hash).toBe('#x');
+
+    confirm(fixture);
+    const req = httpMock.expectOne(URL);
+    expect(req.request.body).toEqual({ token: 'tok-1' });
+    req.flush({ ok: true });
+    await settle();
+  });
+
+  it('leaves the address bar alone when there is no token', async () => {
+    window.history.replaceState({}, '', '/notifications/mute?utm_source=email');
+    const { fixture } = setup(null);
+    await fixture.whenStable();
+    expect(window.location.search).toBe('?utm_source=email');
+  });
+
   it('explains where the link lives when there is no token, with no button', () => {
     const { fixture } = setup(null);
     expect(el(fixture).querySelector('h1')?.textContent).toContain('Mute the daily reminder email');

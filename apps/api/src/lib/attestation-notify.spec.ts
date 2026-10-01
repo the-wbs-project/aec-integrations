@@ -343,12 +343,20 @@ describe('runAttestationNotifySweep — fail-open', () => {
     expect(await ledgerRows()).toHaveLength(0);
   });
 
-  it('survives a network throw', async () => {
+  it('survives a network throw, and records it as probably sent: the key stays held (AECI-1197 review)', async () => {
+    // A throw may come after Resend took the mail. The send is `unknown`, which keeps
+    // the digest key held and counts as emailed, so the portal row is written and a
+    // same-day retry sends nothing.
     fetchSpy.mockRejectedValue(new Error('ECONNRESET'));
 
     const result = await sweep([finding()]);
-    expect(result).toMatchObject({ failed: 1, sent: 0 });
-    expect(await ledgerRows()).toHaveLength(0);
+    expect(result).toMatchObject({ failed: 0, sent: 1 });
+    expect(await ledgerRows()).toHaveLength(1);
+
+    fetchSpy.mockClear();
+    fetchSpy.mockResolvedValue(new Response('{"id":"re_2"}', { status: 200 }));
+    await sweep([finding()]);
+    expect(fetchSpy).not.toHaveBeenCalled();
   });
 
   it('skips (never marks delivered) when RESEND_API_KEY is absent', async () => {
@@ -558,6 +566,15 @@ describe('groupFindings / decideDelivery (pure)', () => {
     });
   });
 
+  it('counts an unknown send as emailed and records it, because its key stays held (AECI-1197 review)', () => {
+    expect(decideDelivery(['unknown'])).toEqual({ outcome: 'sent', record: true, emailedSeats: 1 });
+    expect(decideDelivery(['unknown', 'failed', 'muted'])).toEqual({
+      outcome: 'sent',
+      record: true,
+      emailedSeats: 1,
+    });
+  });
+
   it('records with emailedSeats 0 when every seat is muted or tier-suppressed', () => {
     expect(decideDelivery(['muted', 'muted'])).toEqual({
       outcome: 'portal-only',
@@ -565,6 +582,19 @@ describe('groupFindings / decideDelivery (pure)', () => {
       emailedSeats: 0,
     });
     expect(decideDelivery(['muted', 'suppressed'])).toMatchObject({ outcome: 'portal-only' });
+  });
+
+  it('records portal-only when a muted or suppressed seat sits beside a seat with no address (AECI-1197 review)', () => {
+    expect(decideDelivery(['muted', 'no-address'])).toEqual({
+      outcome: 'portal-only',
+      record: true,
+      emailedSeats: 0,
+    });
+    expect(decideDelivery(['no-address', 'suppressed'])).toEqual({
+      outcome: 'portal-only',
+      record: true,
+      emailedSeats: 0,
+    });
   });
 
   it('does NOT record a Resend failure, so tomorrow retries', () => {
@@ -577,7 +607,12 @@ describe('groupFindings / decideDelivery (pure)', () => {
 
   it('does NOT record when nothing could be attempted, including no seat at all', () => {
     expect(decideDelivery([])).toMatchObject({ outcome: 'skipped', record: false });
-    expect(decideDelivery(['no-address'])).toMatchObject({ outcome: 'skipped', record: false });
+    expect(decideDelivery(['no-address'])).toEqual({
+      outcome: 'skipped',
+      record: false,
+      emailedSeats: 0,
+    });
+    expect(decideDelivery(['no-address', 'no-address'])).toMatchObject({ outcome: 'skipped' });
     expect(decideDelivery(['skipped', 'muted'])).toMatchObject({
       outcome: 'skipped',
       record: false,

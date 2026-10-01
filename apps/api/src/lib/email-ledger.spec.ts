@@ -146,10 +146,34 @@ describe('sendTransactionalEmail writes the send ledger', () => {
     expect(await sendTransactionalEmail(ctx(), { ...INPUT, dedupeKey: 'k' })).toBe('sent');
   });
 
-  it('a thrown fetch is a failed row', async () => {
-    vi.spyOn(globalThis, 'fetch').mockRejectedValue(new TypeError('network down'));
-    expect(await sendTransactionalEmail(ctx(), INPUT)).toBe('failed');
-    expect((await rows()).map((r) => r.outcome)).toEqual(['failed']);
+  it('a thrown fetch is an unknown row that keeps its key: a retry is a duplicate (AECI-1197 review)', async () => {
+    const fetchSpy = vi
+      .spyOn(globalThis, 'fetch')
+      .mockRejectedValueOnce(new TypeError('network down'));
+    const keyed = { ...INPUT, dedupeKey: 'review-decision:rev-9' };
+    expect(await sendTransactionalEmail(ctx(), keyed)).toBe('unknown');
+    expect((await rows()).map((r) => [r.outcome, r.dedupeKey])).toEqual([
+      ['unknown', 'review-decision:rev-9'],
+    ]);
+
+    fetchSpy.mockResolvedValue(new Response('{"id":"re_2"}', { status: 200 }));
+    expect(await sendTransactionalEmail(ctx(), keyed)).toBe('duplicate');
+    expect(fetchSpy).toHaveBeenCalledOnce();
+  });
+
+  it('a non-2xx is a failed row that releases its key: a retry sends', async () => {
+    const fetchSpy = vi
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(new Response('busy', { status: 503 }));
+    const keyed = { ...INPUT, dedupeKey: 'review-decision:rev-10' };
+    expect(await sendTransactionalEmail(ctx(), keyed)).toBe('failed');
+
+    fetchSpy.mockResolvedValue(new Response('{"id":"re_3"}', { status: 200 }));
+    expect(await sendTransactionalEmail(ctx(), keyed)).toBe('sent');
+    expect((await rows()).map((r) => [r.outcome, r.dedupeKey])).toEqual([
+      ['failed', null],
+      ['sent', 'review-decision:rev-10'],
+    ]);
   });
 
   it('a 2xx with an unreadable body is still sent, with no id', async () => {

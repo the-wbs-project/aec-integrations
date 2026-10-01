@@ -85,13 +85,20 @@ Extend the AECI-128 request handler: after the `vendor_requests` insert, create 
 > being created and could not name it. It now chains off the returned `LinearIssueOutcome` and
 > carries the permalink. Scope is `NOTIFIED_REQUEST_KINDS` (claims only, today).
 >
-> **AECI-1203: it is the only claim alert.** AECI-861 also had the §6.4 sweep re-send the mail
-> when the sweep was what finally created the issue. That mailed the support inbox twice for every
-> rescued claim, because the submit-time mail had already gone out saying "not created yet". The
-> re-send is removed. A rescued claim sends nothing: support finds the link in Linear and on
-> `/admin/claims/:id`, and the §6.4 stuck-request email covers a create that never succeeds. The
-> submit-time send carries the send-ledger key `claim-submitted-alert:{requestId}`
-> (`docs/email.md`), so a replayed send is refused.
+> **AECI-1203, amended by the AECI-1197 review: at most one claim alert per request.** AECI-861
+> had the §6.4 sweep re-send the mail when the sweep was what finally created the issue. Unkeyed,
+> that mailed the support inbox twice for every rescued claim. AECI-1203 removed the re-send, which
+> lost the only alert whenever the submit-time send failed. The review restored it under the
+> submit's own send-ledger key, `claim-submitted-alert:{requestId}` (`docs/email.md`), and the same
+> registry id. The ledger now decides:
+>
+> | Submit-time send | Sweep send after its retry creates the issue |
+> |---|---|
+> | `sent` | `duplicate`, no mail. Support finds the link in Linear and on `/admin/claims/:id` |
+> | `unknown` (timeout or thrown call) | `duplicate`, no mail. The submit mail may be out |
+> | `failed` (Resend refused it, key released) | Sent, with the issue link |
+>
+> The §6.4 stuck-request email covers a create that never succeeds.
 
 ### 6.2 Failure handling
 
@@ -120,7 +127,8 @@ A scheduled job (extend the existing scheduled Worker — the AECI-139 cron→qu
 > queue retry or a double cron tick in one 15-minute window crossed the same band twice and sent
 > twice. The email now carries the send-ledger key `stuck-request-alert:{requestId}:{bandIndex}`
 > (one pair per row of the digest; `bandIndex` in `lib/alert-bands.ts`), and the ledger refuses
-> the repeat. The sweep sends no other email: its old re-send of the claim alert is gone (§6.1).
+> the repeat. The sweep's only other email is the claim alert under the submit's key, which the
+> ledger lets through only when the submit-time send failed (§6.1).
 
 > **AECI-1008 amendment — the sweep also retries contest issues.** An AECi accept of an
 > integration field contest files a `REVIEW - Apply contested field: …` issue (or, since AECI-1005,
@@ -139,7 +147,9 @@ A scheduled job (extend the existing scheduled Worker — the AECI-139 cron→qu
 
 ### 6.4a Claim-ticket staleness check (AECI-862)
 
-The §6.4 sweep covers exactly one failure: an issue that was **never created**. Once the issue
+The §6.4 sweep covers exactly one failure: an issue that was **never created**. (When its retry
+does create one, it sends the claim alert under the submit's key, §6.1. That alert is not a
+staleness signal, and this check does not send it.) Once the issue
 exists the pipeline considers itself finished, so a ticket can sit in Backlog indefinitely with no
 signal to anyone. A scheduled job closes that gap: every six hours (`25 */6 * * *`), read the
 `claim` rows older than **24 hours** that already carry a `linear_issue_id`, ask Linear what state

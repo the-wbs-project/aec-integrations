@@ -24,9 +24,15 @@
  * 6 h, then daily. Unthrottled it sent 96 identical messages a day per stuck row,
  * against a Resend account shared with the Supabase magic-link sender.
  * Since AECI-1203 the email also carries a send-ledger key naming each row's band,
- * so a queue retry or a double tick inside one window cannot send it twice. A
- * request the sweep rescues sends no email at all: the claim alert went out once,
- * at submit.
+ * so a queue retry or a double tick inside one window cannot send it twice.
+ *
+ * A CLAIM the sweep rescues sends `claim-submitted-alert` again, with the issue link,
+ * under the SAME key as the submit-time send, `claim-submitted-alert:{requestId}`
+ * (AECI-861, restored in the AECI-1197 review). The send ledger decides whether it
+ * goes. A submit alert that was delivered, or whose outcome is `unknown`, still holds
+ * the key, so this send is a `duplicate` and mails nobody. A submit alert Resend
+ * refused released the key, so this send goes out and is the operator's first word
+ * of the claim. At most one claim alert per request either way.
  *
  * Stateless + age-based — no attempt-counter column, no migration (consistent with
  * ADR 0013's "no DLQ; the cadence re-runs"). The two thresholds separate "retry
@@ -56,6 +62,7 @@ import {
   type AlertContext,
   type StuckRequestSummary,
 } from './admin-alert';
+import { sendClaimSubmittedNotification } from './email';
 import { isProductionTier } from './notifications/delivery-policy';
 import {
   createLinearIssueForContest,
@@ -64,6 +71,7 @@ import {
   drizzleContestLinearStore,
   drizzleLinearStore,
 } from './linear';
+import { NOTIFIED_REQUEST_KINDS } from './request-links';
 import type { Db } from '../db/client';
 import {
   auditLog,
@@ -156,6 +164,10 @@ type StuckRow = {
   body: string;
   sourceUrl: string | null;
   domainMatch: string;
+  /** Read for the recovery claim alert only. Passing it to `createIssue` would also
+   *  post the §7.2 duplicate note, which is a separate decision. The email merely must
+   *  not claim "no duplicate" about a row that has one. */
+  duplicateOfRequestId: string | null;
   createdAt: string;
 };
 
@@ -168,6 +180,9 @@ export interface ReconcileDeps {
   /** The §6.2 admin-alert email seam. Injected so tests can assert it fires on a
    *  persistent failure (the issue's "persistent failure emails" criterion). */
   sendAlert?: typeof sendAdminAlert;
+  /** The claim-intake operator alert, re-sent under the submit's key when this sweep
+   *  is what created the issue. Injected for the same reason as `sendAlert`. */
+  sendClaimAlert?: typeof sendClaimSubmittedNotification;
   /** `now` for deterministic age math (mirrors `runDailySync(…, new Date())`). */
   now?: Date;
 }
@@ -214,6 +229,7 @@ export async function runReconciliationSweep(
 ): Promise<ReconcileResult> {
   const createIssue = deps.createIssue ?? createLinearIssueForRequest;
   const sendAlert = deps.sendAlert ?? sendAdminAlert;
+  const sendClaimAlert = deps.sendClaimAlert ?? sendClaimSubmittedNotification;
   const now = deps.now ?? new Date();
   const nowMs = now.getTime();
   // `created_at` is ISO-8601 TEXT, which sorts/compares lexically, so the cutoff is
@@ -239,6 +255,7 @@ export async function runReconciliationSweep(
       body: true,
       sourceUrl: true,
       domainMatch: true,
+      duplicateOfRequestId: true,
       createdAt: true,
     },
     where: stuckWhere,
@@ -326,12 +343,29 @@ export async function runReconciliationSweep(
       // anywhere, in the email OR in PostHog (AECI-851).
       if (outcome?.status === 'failed') reasons.set(row.id, outcome.reason);
 
-      // A claim rescued here sends NO email (AECI-1203). The claim alert went out
-      // once, at submit, saying the issue was not created yet. AECI-861 had the sweep
-      // re-send it with the link, which meant every rescued claim mailed the support
-      // inbox twice. Support now finds the link on the request in Linear and the
-      // admin console. If the retry never succeeds, the stuck-request alert below
-      // reports it.
+      // A claim rescued here sends the claim alert under the submit's own key (see
+      // the header). The ledger turns it into a `duplicate` when the submit alert was
+      // delivered or its outcome is unknown, and lets it through when Resend refused
+      // the submit alert. AECI-1203 had removed this send outright, which lost the
+      // only claim alert whenever the submit-time one failed. Fail-open and awaited
+      // inside the per-row `try`, so a mail error never aborts the batch.
+      if (outcome?.status === 'created' && NOTIFIED_REQUEST_KINDS.has(row.kind)) {
+        await sendClaimAlert(c, {
+          dedupeKey: `claim-submitted-alert:${row.id}`,
+          entity: { type: 'vendor_request', id: row.id },
+          requestId: row.id,
+          targetName: target.name,
+          targetType: row.targetType,
+          slug: target.slug,
+          submitterEmail: row.submitterEmail,
+          submitterName: row.submitterName,
+          submitterRole: row.submitterRole,
+          submitterLinkedinUrl: row.submitterLinkedinUrl,
+          domainMatch: row.domainMatch,
+          duplicateOfRequestId: row.duplicateOfRequestId,
+          linearIssueUrl: outcome.issueUrl,
+        });
+      }
     } catch (error) {
       // A per-row read error must not abort the rest of the batch.
       if (!targetNames.has(row.id)) targetNames.set(row.id, null);

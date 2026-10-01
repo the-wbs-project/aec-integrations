@@ -821,7 +821,14 @@ describe('tier delivery policy — the real senders on a staging config (AECI-11
     expect(bodies).toHaveLength(1);
     expect(bodies[0]!.to).toBe('ops@aecintegrations.com');
     expect(String(bodies[0]!.subject).startsWith('[staging] ')).toBe(true);
-    expect(result.vendor).toEqual({ sent: 0, failed: 0, skipped: 0, suppressed: 1, duplicate: 0 });
+    expect(result.vendor).toEqual({
+      sent: 0,
+      failed: 0,
+      unknown: 0,
+      skipped: 0,
+      suppressed: 1,
+      duplicate: 0,
+    });
     expect(result.admin.sent).toBe(1);
   });
 

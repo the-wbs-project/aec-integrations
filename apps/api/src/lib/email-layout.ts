@@ -77,8 +77,20 @@ export interface EmailCta {
  *
  * Both halves are plain strings and both are escaped by the renderer, because every
  * operator alert that uses this carries submitter-supplied text (name, role, email).
+ *
+ * A value that is a whole `https://` URL renders as a link. Pass `{ plain: true }` as
+ * the third element for any value a vendor wrote that reaches another vendor: a
+ * protest reason, a decline note, a proposed value. AECi must not hand one vendor a
+ * clickable link that another vendor chose (AECI-1197 review). The escaped text still
+ * shows, and a mail client may still auto-link it, but AECi's own markup never does.
  */
-export type EmailTableRow = readonly [label: string, value: string];
+export type EmailTableRow = readonly [label: string, value: string, options?: EmailTableRowOptions];
+
+/** Per-row rendering options for an {@link EmailTableRow}. */
+export interface EmailTableRowOptions {
+  /** Never render the value as a link, even when it is a whole URL. */
+  plain?: true;
+}
 
 /** One headed group of rows, for an alert that is about N things rather than one. */
 export interface EmailSection {
@@ -281,7 +293,7 @@ function tableRow(rows: readonly EmailTableRow[]): string {
 /** The two-column grid itself, shared by the flat `table` and each `sections` group. */
 function detailTable(rows: readonly EmailTableRow[]): string {
   const cells = rows
-    .map(([label, value], i) => {
+    .map(([label, value, options], i) => {
       const top = i === 0 ? '' : 'border-top:1px solid #d4d4d8;';
       const pad = i === 0 ? 0 : 10;
       return (
@@ -289,7 +301,7 @@ function detailTable(rows: readonly EmailTableRow[]): string {
         `<td valign="top" width="35%" style="padding:${pad}px 12px 10px 0;${top}font-family:${FONT};font-size:13px;line-height:1.5;color:#71717a">` +
         `${escapeHtml(label)}</td>` +
         `<td valign="top" style="padding:${pad}px 0 10px 0;${top}font-family:${FONT};font-size:14px;line-height:1.5;color:#0a0a0a;word-break:break-word">` +
-        `${tableValue(value)}</td>` +
+        `${options?.plain ? escapeHtml(value) : tableValue(value)}</td>` +
         `</tr>`
       );
     })
@@ -316,7 +328,8 @@ function sectionRow(section: EmailSection, i: number): string {
 }
 
 /** Escaped always; linked only when the whole value is an absolute `https://` URL, so
- *  a sentence that merely mentions one is never half-linked. */
+ *  a sentence that merely mentions one is never half-linked. A row marked
+ *  `{ plain: true }` skips this and is never linked. */
 function tableValue(value: string): string {
   const safe = escapeHtml(value);
   if (!/^https:\/\/\S+$/.test(value)) return safe;

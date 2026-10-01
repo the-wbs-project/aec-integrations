@@ -4,8 +4,8 @@
  * Two layers, two suites:
  *   - Transactional templates (AECI-240): every send NEVER throws and resolves to
  *     an `EmailOutcome`. Absent `RESEND_API_KEY`/`EMAIL_FROM` or empty recipient →
- *     silent `'skipped'` (no fetch); 2xx → `'sent'`; non-2xx/network/timeout →
- *     `'failed'` (logged, never thrown). Each template helper POSTs the right
+ *     silent `'skipped'` (no fetch); 2xx → `'sent'`; non-2xx → `'failed'`; a
+ *     network error or timeout → `'unknown'` (logged, never thrown). Each template helper POSTs the right
  *     `to`/subject/body. Global `fetch` is stubbed; `POSTHOG_PROJECT_KEY` is unset so the
  *     `warn`/metric paths are no-ops. Mirrors `toxicity.spec.ts`.
  *   - Low-level transport (AECI-241): `sendEmail` + `parseRecipients` with a faked
@@ -20,6 +20,7 @@ import { EMAIL_LOGO_URL } from './email-layout';
 import type { Env } from '../env';
 import {
   parseRecipients,
+  resendIdempotencyKey,
   recordEmailSend,
   sendAccountDeletionEmail,
   DIGEST_LIST_LIMIT,
@@ -215,7 +216,7 @@ describe('sendTransactionalEmail (low-level)', () => {
     expect(sendTags()).toEqual([['outcome:failed', 'template:account-deleted']]);
   });
 
-  it('returns failed (never throws) on a network error', async () => {
+  it('returns unknown (never throws) on a network error: the mail may be out (AECI-1197 review)', async () => {
     vi.spyOn(globalThis, 'fetch').mockRejectedValue(new TypeError('network down'));
     await expect(
       sendTransactionalEmail(fakeContext(), {
@@ -224,7 +225,58 @@ describe('sendTransactionalEmail (low-level)', () => {
         text: 'Body',
         template: 'account-deleted',
       }),
-    ).resolves.toBe('failed');
+    ).resolves.toBe('unknown');
+    expect(sendTags()).toEqual([['outcome:unknown', 'template:account-deleted']]);
+  });
+
+  it('returns unknown on a timeout (AbortError), not failed (AECI-1197 review)', async () => {
+    vi.spyOn(globalThis, 'fetch').mockRejectedValue(
+      new DOMException('The operation was aborted due to timeout', 'TimeoutError'),
+    );
+    await expect(
+      sendTransactionalEmail(fakeContext(), {
+        to: 'r@example.com',
+        subject: 'Hi',
+        text: 'Body',
+        template: 'account-deleted',
+      }),
+    ).resolves.toBe('unknown');
+  });
+
+  it('sends a tier-scoped Idempotency-Key on a keyed send, and none on an unkeyed one', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(async () => ok());
+    await sendTransactionalEmail(fakeContext(), {
+      to: 'r@example.com',
+      subject: 'Hi',
+      text: 'Body',
+      template: 'account-deleted',
+      dedupeKey: 'review-decision:rev-1',
+    });
+    await sendTransactionalEmail(fakeContext(), {
+      to: 'r@example.com',
+      subject: 'Hi',
+      text: 'Body',
+      template: 'account-deleted',
+    });
+    const headers = fetchSpy.mock.calls.map(
+      (call) => (call[1] as RequestInit).headers as Record<string, string>,
+    );
+    expect(headers[0]!['Idempotency-Key']).toBe('production:review-decision:rev-1');
+    expect(headers[1]).not.toHaveProperty('Idempotency-Key');
+  });
+});
+
+describe('resendIdempotencyKey', () => {
+  it('prefixes the tier, because every tier shares one Resend account', async () => {
+    expect(await resendIdempotencyKey({ ENV: 'staging' }, 'k:1')).toBe('staging:k:1');
+    expect(await resendIdempotencyKey({}, 'k:1')).toBe('non-production:k:1');
+  });
+
+  it('hashes a key over 256 characters or outside printable ASCII to SHA-256 hex', async () => {
+    const long = await resendIdempotencyKey({ ENV: 'production' }, 'x'.repeat(300));
+    expect(long).toMatch(/^[0-9a-f]{64}$/);
+    expect(await resendIdempotencyKey({ ENV: 'production' }, 'café')).toMatch(/^[0-9a-f]{64}$/);
+    expect(await resendIdempotencyKey({ ENV: 'production' }, 'a b')).toMatch(/^[0-9a-f]{64}$/);
   });
 });
 
@@ -1543,7 +1595,7 @@ describe('sendEmail', () => {
     ).toBe('failed');
   });
 
-  it('returns failed (never throws) when fetch rejects', async () => {
+  it('returns unknown (never throws) when fetch rejects: the digest may be out (AECI-1197 review)', async () => {
     const fetchImpl = vi.fn(async () => {
       throw new Error('network');
     });
@@ -1554,7 +1606,7 @@ describe('sendEmail', () => {
         fetchImpl as unknown as typeof fetch,
         silent,
       ),
-    ).toBe('failed');
+    ).toBe('unknown');
   });
 });
 
@@ -2512,5 +2564,65 @@ describe('protest and decline emails (AECI-1205)', () => {
       'Open Messages: https://www.aecintegrations.com/vendor/autodesk/messages',
     );
     expect(sendTags()).toContainEqual(['outcome:sent', 'template:contest-declined-protest-window']);
+  });
+  describe('vendor-written values never render as links (AECI-1197 review)', () => {
+    const EVIL = 'https://evil.example/login?next=/vendor';
+    /** Every `<a href>` in the html part. */
+    const hrefs = (html: string) => [...html.matchAll(/<a href="([^"]+)"/g)].map((m) => m[1]);
+
+    it('contest-protest-opened: a URL-only reason, proposed value and current value stay text', async () => {
+      const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
+      await sendContestProtestOpenedEmail(fakeContext(SITE), {
+        ...FACTS,
+        ...OWNER_SEAT,
+        integrationName: EVIL,
+        currentValue: EVIL,
+        proposedValue: EVIL,
+        submitterVendorName: 'Autodesk',
+        basis: 'declined',
+        protestReason: EVIL,
+        replyDueAt: DUE,
+        dedupeKey: 'k-evil-1',
+      });
+      const html = String(lastBody(fetchSpy).html);
+      expect(hrefs(html)).not.toContain(EVIL.replace(/&/g, '&amp;'));
+      expect(html).not.toContain('href="https://evil.example');
+      expect(html).toContain('https://evil.example/login?next=/vendor');
+      // The AECi-built pair page still links.
+      expect(html).toContain(
+        'href="https://www.aecintegrations.com/products/microstation/integrations/revit"',
+      );
+    });
+
+    it('contest-protest-reply-reminder: a URL-only proposed value stays text', async () => {
+      const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
+      await sendContestProtestReplyReminderEmail(fakeContext(SITE), {
+        ...FACTS,
+        ...OWNER_SEAT,
+        proposedValue: EVIL,
+        submitterVendorName: 'Autodesk',
+        replyDueAt: DUE,
+        dedupeKey: 'k-evil-2',
+      });
+      expect(String(lastBody(fetchSpy).html)).not.toContain('href="https://evil.example');
+    });
+
+    it('contest-declined-protest-window: a URL-only decline note stays text', async () => {
+      const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
+      await sendContestDeclinedProtestWindowEmail(fakeContext(SITE), {
+        ...FACTS,
+        to: 'dana@autodesk.com',
+        vendorId: 'v-a',
+        vendorSlug: 'autodesk',
+        vendorName: 'Autodesk',
+        ownerVendorName: 'Bentley',
+        decisionNote: EVIL,
+        protestClosesAt: DUE,
+        dedupeKey: 'k-evil-3',
+      });
+      const html = String(lastBody(fetchSpy).html);
+      expect(html).not.toContain('href="https://evil.example');
+      expect(html).toContain('https://evil.example/login?next=/vendor');
+    });
   });
 });

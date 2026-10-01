@@ -27,17 +27,28 @@
  *
  * **When a ledger row is written** (one per due finding, per vendor or ops):
  *
- * | Seat outcomes for the vendor                       | Row? | Finding outcome |
- * |----------------------------------------------------|------|-----------------|
- * | at least one seat `sent` or `duplicate`            | yes  | `sent`          |
- * | every seat muted or tier-suppressed (none emailed) | yes  | `portal-only`   |
- * | otherwise, and any seat `failed`                   | no   | `failed`        |
- * | otherwise (no seat, no address, no key)            | no   | `skipped`       |
+ * | Seat outcomes for the vendor                                | Row? | Finding outcome |
+ * |-------------------------------------------------------------|------|-----------------|
+ * | at least one seat `sent`, `duplicate` or `unknown`          | yes  | `sent`          |
+ * | otherwise, and any seat `failed`                            | no   | `failed`        |
+ * | otherwise, no seat `skipped`, and at least one seat muted   |      |                 |
+ * |   or tier-suppressed                                        | yes  | `portal-only`   |
+ * | otherwise (no seat, no address, no key)                     | no   | `skipped`       |
  *
  * A muted seat chose not to get email, and the tier policy refuses on purpose. Both
  * are final answers, so the finding is recorded and the vendor sees it in the
- * portal. A Resend failure or a missing key is not an answer: writing the row would
- * consume the nudge silently for 30 days, so no row is written and tomorrow retries.
+ * portal. That holds when the other seats had no address, too: `['muted',
+ * 'no-address']` is `portal-only`, because no retry can email the muted seat and the
+ * seat with no address will not grow one by tomorrow (AECI-1197 review). A Resend
+ * failure or a missing key (`skipped`) is not an answer, even beside a muted seat: writing the row would consume the nudge
+ * silently for 30 days, so no row is written and tomorrow retries.
+ *
+ * `unknown` (AECI-1197 review) counts as emailed. The call timed out or threw after
+ * the request may have reached Resend, so the seat most likely got the digest. Its
+ * dedupe key stays held, so a same-day retry would be a `duplicate` anyway. Writing
+ * the row is the honest reading of "probably sent". Not writing it would re-list the
+ * finding tomorrow under a new day key, which is the double nudge the key exists to
+ * stop.
  * `duplicate` counts as emailed because the digest key is held by an earlier send of
  * today's digest. That is the replay after a ledger flush failed. The cost is a
  * finding that first appeared in a same-day re-run: it is recorded as emailed though
@@ -322,12 +333,16 @@ export function decideDelivery(seats: readonly SeatOutcome[]): {
   record: boolean;
   emailedSeats: number;
 } {
-  const emailedSeats = seats.filter((s) => s === 'sent' || s === 'duplicate').length;
+  const emailedSeats = seats.filter(
+    (s) => s === 'sent' || s === 'duplicate' || s === 'unknown',
+  ).length;
   if (emailedSeats > 0) return { outcome: 'sent', record: true, emailedSeats };
-  if (seats.length > 0 && seats.every((s) => s === 'muted' || s === 'suppressed')) {
+  if (seats.includes('failed')) return { outcome: 'failed', record: false, emailedSeats: 0 };
+  // `skipped` (no Resend key or sender) is a config gap that a retry can close, so it
+  // blocks the portal-only answer exactly as `failed` does. `no-address` does not.
+  if (!seats.includes('skipped') && seats.some((s) => s === 'muted' || s === 'suppressed')) {
     return { outcome: 'portal-only', record: true, emailedSeats: 0 };
   }
-  if (seats.includes('failed')) return { outcome: 'failed', record: false, emailedSeats: 0 };
   return { outcome: 'skipped', record: false, emailedSeats: 0 };
 }
 

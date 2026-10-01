@@ -122,7 +122,15 @@
       "",
       "AECI-1205 added protest-reply-reminder, the sixteenth cron, daily at 12:00 UTC. Its",
       "heartbeat is emitted on EVERY run, including the many with no protest due. The",
-      "aeci.contest.protest_reminder.due gauge could not serve alone: zero is its normal value."
+      "aeci.contest.protest_reminder.due gauge could not serve alone: zero is its normal value.",
+      "",
+      "PENDING: protest-reply-reminder is NOT in `crons` yet. The sweep reads production, and",
+      "production has never run that cron, so the entry would report MISSING on every sweep",
+      "until the first production deploy and fail the scheduled job red. Its entry waits in",
+      "`pendingFirstHeartbeat` below. Move it back into `crons` after the first production",
+      "heartbeat (aeci.contest.protest_reminder.job) appears. A follow-up issue tracks the",
+      "move. The heartbeat and the combined cron-failure alert are wired and unchanged.",
+      "cron-schedules.spec.ts asserts every cron is in `crons` or in this pending list."
     ],
     "project": "prod",
     "lookbackHours": 360,
@@ -252,7 +260,9 @@
         "datadogMonitor": null,
         "datadogNoDataTimeframeMinutes": null,
         "_note": "AECI-862. Never had a Datadog monitor \u2014 the cron did not exist. 480 min = one 6-hour cadence plus two hours of margin for the SWEEP's own lateness, the same reasoning as request-reconcile's 90 over a 15-minute job. The heartbeat is emitted on EVERY run, including the ones that find nothing stale and the ones where the Linear read failed \u2014 aeci.linear.claim_stale.stale could never serve, because a clean board legitimately reports 0 and a failed read is forced to 0."
-      },
+      }
+    ],
+    "pendingFirstHeartbeat": [
       {
         "job": "protest-reply-reminder",
         "cron": "0 12 * * *",
@@ -260,7 +270,7 @@
         "maxAgeMinutes": 1560,
         "datadogMonitor": null,
         "datadogNoDataTimeframeMinutes": null,
-        "_note": "AECI-1205. Never had a Datadog monitor \u2014 the cron did not exist. 1560 min (26 h) is the house allowance for a daily job."
+        "_note": "AECI-1205. Never had a Datadog monitor \u2014 the cron did not exist. 1560 min (26 h) is the house allowance for a daily job. Held out of `crons` until its first production heartbeat appears, or the sweep false-alarms MISSING. Move this object back into `crons` then; a follow-up issue tracks it. The sweep never reads this list."
       }
     ]
   }

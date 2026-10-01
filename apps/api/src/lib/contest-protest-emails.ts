@@ -264,6 +264,7 @@ export interface ProtestReminderResult {
 const emptyOutcomes = (): Record<EmailOutcome, number> => ({
   sent: 0,
   failed: 0,
+  unknown: 0,
   skipped: 0,
   suppressed: 0,
   duplicate: 0,

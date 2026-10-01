@@ -3,7 +3,8 @@
 - Status: Accepted
 - Date: 2026-10-01
 - Issue: AECI-1197 (sub-issues AECI-1198 to AECI-1206)
-- Supersedes: nothing. It amends `STAGE_2_ATTESTATIONS_SPEC.md` §7.2 and §7.3 (one email per finding becomes one digest per seat) and `STAGE_1_PHASE_6_SPEC.md` §6.1 (the sweep no longer re-sends the claim alert).
+- Supersedes: nothing. It amends `STAGE_2_ATTESTATIONS_SPEC.md` §7.2 and §7.3 (one email per finding becomes one digest per seat) and `STAGE_1_PHASE_6_SPEC.md` §6.1 (the sweep's claim alert re-send shares the submit's dedupe key).
+- Amended: 2026-10-01, the branch review. Recorded inline below and listed under "Review amendments".
 
 ## Context
 
@@ -34,6 +35,9 @@ Nothing listed them. The inventory found six problems.
   `aecintegrations.com`, matched exactly on the domain.
 - The allowlist is a code constant in `apps/api/src/lib/notifications/delivery-policy.ts`, not an
   env var, so a misconfigured var cannot widen it.
+- **One address per value.** Resend reads a `to` string as a list. So a value with a `,` or `;`,
+  whitespace inside the address, more than one `@`, more than one `<` or `>`, or an `@` outside
+  the angle brackets counts as outside. `x@gmail.com,support@aecintegrations.com` is refused.
 - **Fail closed.** A missing or unknown `ENV` counts as non-production.
 - A refused recipient makes no Resend call. The send returns the new `suppressed` outcome and logs
   a recipient hash, never the address. BCC lists are filtered the same way.
@@ -60,21 +64,33 @@ Nothing listed them. The inventory found six problems.
   `docs/DATABASE_SCHEMA.md` §9.9 is the schema.
 - **Log-class.** It is exempt from the audit-in-batch invariant under ADR 0022, like `page_views`
   and `job_runs`. Each write is its own statement in its own try/catch.
-- **The recipient hash is unsalted.** It is SHA-256 of the trimmed, lowercased address. Support
-  answers "what did we send to X" by hashing X. A salt would defeat that lookup.
+- **The recipient hash is unsalted, so it is a linkable pseudonymous identifier.** It is SHA-256
+  of the trimmed, lowercased address. Support answers "what did we send to X" by hashing X. A salt
+  would defeat that lookup. The same property means anyone holding a candidate address can link
+  it to its rows. Treat the hash as personal data, not as anonymous. It is kept 400 days. The
+  suppressed-send log line carries the same hash into Workers Logs.
 - **Retention is 400 days**, enforced by the retention prune, the same window as `page_views`.
 - **The protocol is reserve, send, finalize.**
   1. Reserve a `sending` row with `INSERT … ON CONFLICT(dedupe_key) DO NOTHING`.
   2. A held key returns `duplicate` and makes no Resend call.
-  3. Send, then settle the row to `sent` with the Resend id, or to `failed`.
-  4. `failed` releases the key so a retry can send.
-  5. A crash between reserve and finalize leaves a `sending` row that still holds the key. It
+  3. Send, then settle the row to `sent` with the Resend id, to `failed`, or to `unknown`.
+  4. `failed` means Resend answered with a non-2xx status. It releases the key so a retry can
+     send.
+  5. `unknown` means the call timed out or threw after the request may have reached Resend. It
+     keeps the key, exactly like a stuck `sending` row, so a retry cannot send a second copy.
+  6. A crash between reserve and finalize leaves a `sending` row that still holds the key. It
      blocks a resend.
-  6. A ledger DB error fails open. The mail still goes.
+  7. A ledger DB error fails open. The mail still goes.
+- **A keyed send also carries Resend's `Idempotency-Key` header.** Resend documents it on
+  `POST /emails`: up to 256 characters, kept 24 hours, and a repeat with the same body returns the
+  first send's id without mailing. The value is `{tier}:{dedupeKey}`, because every tier shares one
+  Resend account. A longer or non-ASCII value is sent as its SHA-256 hex. It backs up the ledger
+  during a ledger outage, inside Resend's 24 hours.
 - **Why at-most-once and not at-least-once.** A missed email can be sent by hand, and the portal
   row still records the finding. A double email cannot be taken back, and on the shared Resend
-  account a complaint spike can put sign-in links at risk. So a crash mid-send loses the mail rather
-  than repeating it. The fail-open rule is the one exception: a ledger outage must never stop mail.
+  account a complaint spike can put sign-in links at risk. So a crash or a timeout mid-send loses
+  the mail rather than repeating it. The fail-open rule is the one exception: a ledger outage must
+  never stop mail.
 
 ### 4. Attestation nudges become one daily digest per seat (AECI-1204)
 
@@ -89,16 +105,26 @@ Nothing listed them. The inventory found six problems.
   opaque `mute_token`. The mute covers the digest only. Every change is audited in the same batch.
 - **The portal row is written for every due finding whether or not anyone was emailed.** That covers
   a seat that got the digest, and every seat muted or suppressed by the tier policy. The row carries
-  `emailedSeats`, and 0 means portal only. **The one exception:** no row is written when no seat got
-  the digest and a send failed, or when nothing could be attempted. Then tomorrow's sweep retries.
+  `emailedSeats`, and 0 means portal only. A seat whose send is `unknown` counts as emailed: its
+  key stays held, so a retry would be a `duplicate` anyway, and it most likely got the mail.
+  **The exception:** no row is written when no seat got the digest and a send failed, or no seat
+  got it and a seat was `skipped` (no Resend key), or nothing could be attempted at all. Then
+  tomorrow's sweep retries. A muted or suppressed seat beside a seat with no address is still
+  portal only.
 
 ### 5. The remaining double-send paths close (AECI-1203)
 
 - **Review moderation.** A `changes() = 0` sentinel after the guarded UPDATE rolls the losing batch
   back. The loser answers `409 REVIEW_ALREADY_MODERATED` and sends nothing. Both decision emails
   share the key `review-decision:{reviewId}`.
-- **Claim alert.** It is sent once, at submit, keyed `claim-submitted-alert:{requestId}`. The sweep's
-  re-send and its `claim-submitted-alert-retry` registry entry are removed.
+- **Claim alert.** Two senders share one key, `claim-submitted-alert:{requestId}`, and one registry
+  id, `claim-submitted-alert`. The submit sends it after the Linear attempt. The reconcile sweep
+  sends it again, with the issue link, when its retry creates the issue. The ledger lets at most
+  one through. A delivered or `unknown` submit alert holds the key, so the sweep's send is a
+  `duplicate`. A submit alert Resend refused released the key, so the sweep's send is the first
+  alert. AECI-1203 first removed the sweep send outright. The review restored it under the shared
+  key, because removing it lost the only alert whenever the submit send failed.
+  `claim-submitted-alert-retry` stays retired.
 - **Stuck and stale alerts** are keyed by the sorted set of `{requestId}:{bandIndex}` pairs in the
   digest (`bandDigestKey` in `lib/alert-bands.ts`).
 - **Mailing list.** The welcome and the signup alert are keyed per address hash per UTC month.
@@ -106,7 +132,24 @@ Nothing listed them. The inventory found six problems.
 AECI-1205 then added four emails for the portal-only deadlines, each with its own key:
 `contest-protest-opened`, `protest-submitted-alert`, `contest-protest-reply-reminder` and
 `contest-declined-protest-window`. The reminder runs on a new daily cron, `protest-reply-reminder`,
-the sixteenth. AECI-1206 added three PostHog alerts on `aeci.email.send`, for 18 in total.
+the sixteenth. AECI-1206 added three PostHog alerts on `aeci.email.send`, for 18 in total. The
+email failure-rate alert counts `unknown` as failed.
+
+### 6. Review amendments (2026-10-01)
+
+The branch review changed these, each recorded where it applies above or below.
+
+- The ledger gained the `unknown` outcome and the `Idempotency-Key` header (§3).
+- The allowlist refuses a value with more than one address (§1).
+- The claim alert's sweep send is back, under the submit's key (§5).
+- A muted or suppressed seat beside a seat with no address is portal only (§4).
+- A vendor-written value never renders as a link in another vendor's email. The house layout's
+  table takes a `plain` row option (`lib/email-layout.ts`), and the contest emails use it.
+- The mute token rotates when a seat unmutes, in the same batch as the update and its audit
+  row. The web client strips `token` query parameters from PostHog URLs, and the mute page clears
+  the token from the address bar.
+- `protest-reply-reminder` is out of the liveness sweep until its first production heartbeat
+  (`observability/posthog/README.md` §Pending liveness entries). A follow-up issue tracks it.
 
 ## Consequences
 
@@ -119,8 +162,14 @@ the sixteenth. AECI-1206 added three PostHog alerts on `aeci.email.send`, for 18
 - **A multi-request alert can send one extra email, never lose one.** The key covers the sorted row
   set. If a row clears between a send and its retry inside one window, the retry builds a different
   key and sends the smaller digest.
-- **A crashed send is lost.** It shows as a stuck `sending` row in `notification_sends`. Nothing
-  re-sends it automatically.
+- **A crashed or timed-out send may be lost.** It shows as a stuck `sending` row or an `unknown`
+  row in `notification_sends`. Nothing re-sends it automatically.
+- **A retry whose body changed can get a Resend 409.** Resend refuses a reused `Idempotency-Key`
+  with a different body. Its docs do not say whether a key is kept after a refused request. If it
+  is, the sweep's claim alert inside 24 hours of a refused submit alert gets a 409 and records
+  `failed`. Support still sees the claim in `/admin/claims` and Linear.
+- **`profiles` has a cascade-child pin.** `apps/api/src/test/d1.spec.ts` fails if the set of
+  `ON DELETE CASCADE` children of `profiles` changes, so a recreate plan sees the mutes.
 - **Non-production testing needs an internal address.** A tester who wants to see a mail on staging
   must use a seat on one of the two allowlisted domains.
 - **The registry must change with the code.** Adding, retiring or re-keying a notification is a

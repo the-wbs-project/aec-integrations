@@ -140,6 +140,13 @@ export interface SetNudgesMutedResult {
  *
  * The preference write and its audit row go in ONE `db.batch`. When the row does
  * not exist yet, the insert is that write, and it mints the token.
+ *
+ * **Unmuting rotates the token.** Every digest already sent carries the old token
+ * in its footer link and `List-Unsubscribe` header. Without a rotation, any one of
+ * those old emails, or a mail scanner replaying its one-click POST, would silently
+ * re-mute a seat that just chose to hear from us again. The new token is set in the
+ * same `UPDATE`, so it commits with the audit row. Muting keeps the token: the link
+ * the seat just used stays the valid one, and a repeat stays idempotent.
  */
 export async function setNudgesMuted(
   db: Db,
@@ -172,7 +179,11 @@ export async function setNudgesMuted(
   const write = existing
     ? db
         .update(notificationPreferences)
-        .set({ nudgesMutedAt, updatedAt: nowIso })
+        .set(
+          input.muted
+            ? { nudgesMutedAt, updatedAt: nowIso }
+            : { nudgesMutedAt, updatedAt: nowIso, muteToken: crypto.randomUUID() },
+        )
         .where(eq(notificationPreferences.profileId, input.profileId))
     : db
         .insert(notificationPreferences)

@@ -983,6 +983,31 @@ describe('connector lane (AECI-714)', () => {
     t.dispose();
   });
 
+  it('pins the tables that cascade INTO profiles — the next recreate depends on it', async () => {
+    // `notification_preferences.profile_id` (AECI-1204, migration 0054) is the only
+    // `ON DELETE CASCADE` child of `profiles`. A recreate of `profiles` in drizzle-kit's
+    // generated order would fire that cascade and wipe every mute, and a wiped mute
+    // silently starts emailing seats that opted out (`DATABASE_SCHEMA.md` §9.10). SQLite's
+    // `DROP TABLE` fires foreign-key ACTIONS and `PRAGMA defer_foreign_keys` does not stop
+    // them (`docs/migrations.md` §0). When this list grows, plan the carry tables first.
+    //
+    // Only CASCADE is pinned here. The SET NULL children (reviewer and actor columns) are
+    // a separate loss on the same recreate: they lose attribution, not rows.
+    const t = await makeTestDb();
+    const inbound = t.raw
+      .prepare(
+        `SELECT m.name, f."from" AS col FROM sqlite_master m, pragma_foreign_key_list(m.name) f
+          WHERE m.type = 'table'
+            AND m.name NOT LIKE 'sqlite_%'
+            AND f."table" = 'profiles'
+            AND f.on_delete = 'CASCADE'
+          ORDER BY m.name, f."from"`,
+      )
+      .all();
+    expect(inbound).toEqual([{ name: 'notification_preferences', col: 'profile_id' }]);
+    t.dispose();
+  });
+
   it('keeps `integration_endpoint_moves` free of foreign keys — AECI-991', async () => {
     // The redirect is keyed on the pair the edge moved AWAY from, so a foreign key to
     // either endpoint is a delete of the redirect whenever that endpoint retires. Both

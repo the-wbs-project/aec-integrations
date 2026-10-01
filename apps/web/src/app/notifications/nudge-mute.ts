@@ -19,9 +19,19 @@
  * Mute only. Turning reminders back on is the Messages page switch, behind a
  * vendor session. Light theme only; every string is `i18n` or `$localize`.
  */
-import { Component, ElementRef, effect, inject, signal, viewChild } from '@angular/core';
+import { DOCUMENT } from '@angular/common';
+import {
+  Component,
+  ElementRef,
+  afterNextRender,
+  effect,
+  inject,
+  signal,
+  viewChild,
+} from '@angular/core';
 import { ActivatedRoute, RouterLink } from '@angular/router';
 
+import { stripTokenParam } from '../analytics/posthog-url-sanitizer';
 import { canonicalUrl } from '../core/canonical';
 import { MetaService } from '../core/meta.service';
 import { NudgeMuteApi } from './nudge-mute-api';
@@ -159,6 +169,7 @@ export class NudgeMutePage {
   private readonly meta = inject(MetaService);
   private readonly api = inject(NudgeMuteApi);
   private readonly route = inject(ActivatedRoute);
+  private readonly document = inject(DOCUMENT);
 
   protected readonly btn = BTN;
   protected readonly headline = HEADLINE;
@@ -177,6 +188,19 @@ export class NudgeMutePage {
       description: $localize`:@@meta.nudgeMuteDescription:Mute the AEC Integrations daily reminder email for your vendor seat.`,
       canonical: canonicalUrl('/notifications/mute'),
       noindex: true,
+    });
+
+    // Drop the token from the address bar once it is in component state, so it
+    // does not linger in history, a shared screenshot, or a copied URL. The POST
+    // still sends the copy held in `token`. `afterNextRender` never runs during
+    // SSR, so this is browser-only.
+    afterNextRender(() => {
+      if (!this.token) return;
+      const win = this.document.defaultView;
+      if (!win) return;
+      const { href } = win.location;
+      const clean = stripTokenParam(href);
+      if (clean !== href) win.history.replaceState(win.history.state, '', clean);
     });
 
     effect(() => {

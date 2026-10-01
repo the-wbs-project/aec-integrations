@@ -902,8 +902,10 @@ parallel `reasons` array** — read that first, it usually ends the investigatio
 > send-ledger key `stuck-request-alert:{requestId}:{bandIndex}`. A queue retry or a double cron tick
 > rebuilds the same key, so `notification_sends` gets a `duplicate` row and Resend gets no call.
 > `aeci.email.send{template:stuck-request-alert,outcome:duplicate}` is that refusal, not a fault.
-> The sweep no longer re-sends `claim-submitted-alert` when its retry creates the issue. A rescued
-> claim sends no email: find the link on the request in Linear or `/admin/claims/:id`.
+> When its retry creates the issue, the sweep sends `claim-submitted-alert` under the submit's own
+> key, `claim-submitted-alert:{requestId}`. If the submit-time alert went out, or its outcome is
+> `unknown`, this is a `duplicate` and no mail: find the link in Linear or `/admin/claims/:id`. If
+> Resend refused the submit-time alert, this send is the first alert, with the link.
 
 **What it means:** A claim/correction was submitted but its Linear issue was never created — the §6.4
 on-submit `createLinearIssueForRequest()` failed, and the §6.7 sweep has retried it for >~1h without

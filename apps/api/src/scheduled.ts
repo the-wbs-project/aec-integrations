@@ -1159,7 +1159,8 @@ async function runDataQualityJob(env: Env, ctx: ExecutionContext): Promise<JobRu
     'digest-data-quality',
   );
   logToPosthog(ctx, env, req, {
-    level: emailOutcome === 'failed' ? 'error' : 'info',
+    // `unknown` (the call threw) is as worth a look as `failed`.
+    level: emailOutcome === 'failed' || emailOutcome === 'unknown' ? 'error' : 'info',
     message: `aeci.data_quality.email outcome=${emailOutcome} recipients=${recipients.length}: ${digest.subject}`,
     source: 'data-quality-cron',
   });
@@ -1264,7 +1265,7 @@ async function runAnalyticsDigestJob(env: Env, ctx: ExecutionContext): Promise<J
     submitCount(ctx, env, req, ANALYTICS_EMAIL_METRIC, 1, [`outcome:${outcome}`]);
     recordEmailSend({ env, executionCtx: ctx, req: { raw: req } }, outcome, 'digest-analytics');
     logToPosthog(ctx, env, req, {
-      level: outcome === 'failed' ? 'error' : 'info',
+      level: outcome === 'failed' || outcome === 'unknown' ? 'error' : 'info',
       message: `aeci.analytics_digest.email outcome=${outcome} recipients=${recipients.length}: ${digest.subject}`,
       source: 'analytics-digest-cron',
     });
@@ -1274,8 +1275,14 @@ async function runAnalyticsDigestJob(env: Env, ctx: ExecutionContext): Promise<J
     // the expected state.
     return {
       // A tier-policy `suppressed` (AECI-1198) is a deliberate no-send, so it
-      // records as `skipped`, not `failed`.
-      outcome: outcome === 'sent' ? 'ok' : outcome === 'failed' ? 'failed' : 'skipped',
+      // records as `skipped`, not `failed`. An `unknown` send (it threw, so it may
+      // or may not have gone) records as `failed`, so the operator checks the inbox.
+      outcome:
+        outcome === 'sent'
+          ? 'ok'
+          : outcome === 'failed' || outcome === 'unknown'
+            ? 'failed'
+            : 'skipped',
       detail: {
         job: 'analytics-digest',
         dayLabel: window.dayLabel,

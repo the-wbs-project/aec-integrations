@@ -192,6 +192,46 @@ describe('PUT /api/vendor/notification-preferences', () => {
     expect(await updates()).toHaveLength(2);
   });
 
+  it('rotates the mute token on unmute, in the same batch as the audit row', async () => {
+    await put({ nudges_muted: true });
+    const mutedToken = (await prefRows())[0]!.muteToken;
+
+    const batch = vi.spyOn(t.db, 'batch');
+    await put({ nudges_muted: false });
+    expect(batch).toHaveBeenCalledTimes(1);
+    expect(batch.mock.calls[0]![0]).toHaveLength(2);
+
+    const [row] = await prefRows();
+    expect(row!.muteToken).toMatch(/^[0-9a-f-]{36}$/);
+    expect(row!.muteToken).not.toBe(mutedToken);
+    // The new token is a capability too: never in the audit row.
+    const audit = await updates();
+    expect(JSON.stringify(audit)).not.toContain(row!.muteToken);
+  });
+
+  it('keeps the mute token on mute', async () => {
+    const TOKEN = '6f1c2f7e-4c0b-4b8e-9d0a-0f0e0d0c0b0a';
+    await t.db.insert(notificationPreferences).values({ profileId: SEAT, muteToken: TOKEN });
+    await put({ nudges_muted: true });
+    const [row] = await prefRows();
+    expect(row!.nudgesMutedAt).not.toBeNull();
+    expect(row!.muteToken).toBe(TOKEN);
+  });
+
+  it('an old mute link no longer re-mutes a seat that unmuted', async () => {
+    await put({ nudges_muted: true });
+    const oldToken = (await prefRows())[0]!.muteToken;
+    await put({ nudges_muted: false });
+
+    const res = await call(`/api/notifications/nudges/mute?token=${oldToken}`, {
+      method: 'POST',
+      body: 'List-Unsubscribe=One-Click',
+      headers: { 'content-type': 'application/x-www-form-urlencoded' },
+    });
+    expect(res.body).toEqual({ ok: false });
+    expect((await prefRows())[0]!.nudgesMutedAt).toBeNull();
+  });
+
   it('acts only on the session seat: a colleague and another vendor are untouched', async () => {
     await put({ nudges_muted: true });
     await put(

@@ -2271,7 +2271,11 @@ export const jobRuns = sqliteTable(
  *   here means the isolate died mid-send. It keeps its dedupe key, so it blocks a
  *   resend: at-most-once by design.
  * - `sent`: Resend accepted it. `provider_message_id` holds the Resend id.
- * - `failed`: Resend refused it or the call threw. The dedupe key is released.
+ * - `failed`: Resend answered with a non-2xx status, so it did not take the mail.
+ *   The dedupe key is released, so a retry can send.
+ * - `unknown`: the call timed out or threw after the request may have reached
+ *   Resend. The mail may or may not have gone. The dedupe key stays held, exactly as
+ *   for a stuck `sending` row, so a retry cannot send it twice (at-most-once).
  * - `skipped`: nothing to send with (no key, sender or recipient).
  * - `suppressed`: the tier delivery policy refused the recipient (AECI-1198).
  * - `duplicate`: the dedupe key was already held, so nothing was sent.
@@ -2280,6 +2284,7 @@ export type NotificationSendOutcome =
   | 'sending'
   | 'sent'
   | 'failed'
+  | 'unknown'
   | 'skipped'
   | 'suppressed'
   | 'duplicate';
@@ -2323,7 +2328,8 @@ export const notificationSends = sqliteTable(
      * The sender's idempotency key, e.g. `attestation-digest:{vendor}:{seat}:{day}`.
      * NULLABLE on purpose, exactly as `page_views.dedupe_key`: SQLite treats NULLs as
      * distinct under a UNIQUE index, so a send with no key never conflicts. Released
-     * (set NULL) when the send fails, so a retry can claim it. A `duplicate` row
+     * (set NULL) when Resend refuses the send (`failed`), so a retry can claim it.
+     * Kept on `unknown`, because the mail may already be out. A `duplicate` row
      * always stores NULL here, or it would collide with the row that holds the key.
      */
     dedupeKey: text('dedupe_key'),

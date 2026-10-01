@@ -476,7 +476,7 @@
       "replaces": {
         "datadogMonitor": null,
         "datadogQuery": null,
-        "_note": "NEW with AECI-1206, no Datadog predecessor. aeci.email.send shipped with AECI-240 and was never alerted on. Threshold basis, production project 354071, 30 days to 2026-10-01: 6 sends, 0 failed, daily max 2, hourly max 1. Rate = failed / (sent + failed); skipped, duplicate and suppressed made no Resend call and count on neither side. Two failures are needed before a rate is reported, so one failed send on a quiet day reads 0. A total outage still fires the same day: the two operator digests fail, 2 of 2 = 100%."
+        "_note": "NEW with AECI-1206, no Datadog predecessor. aeci.email.send shipped with AECI-240 and was never alerted on. Threshold basis, production project 354071, 30 days to 2026-10-01: 6 sends, 0 failed, daily max 2, hourly max 1. Rate = (failed + unknown) / (sent + failed + unknown). unknown (AECI-1197 review) is a timeout or thrown call, so the mail may or may not have gone; it counts as failed in the numerator because the call did not complete. skipped, duplicate and suppressed made no Resend call and count on neither side. Two failures are needed before a rate is reported, so one failed send on a quiet day reads 0. A total outage still fires the same day: the two operator digests fail, 2 of 2 = 100%."
       },
       "runbook": "docs/email.md (Resend transport, domain verification, secrets); docs/NOTIFICATIONS.md for what each template is."
     },

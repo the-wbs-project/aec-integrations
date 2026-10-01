@@ -8,13 +8,17 @@
  *      `INSERT … ON CONFLICT(dedupe_key) DO NOTHING RETURNING id`.
  *   2. No row back means another send holds the key. The caller writes nothing to
  *      Resend, and a `duplicate` row (key NULL) records the refusal.
- *   3. The caller sends, then {@link finalizeSend} sets `sent` plus the Resend id, or
- *      `failed`.
- *   4. `failed` NULLs the key, so a later retry can claim it.
- *   5. A crash between reserve and finalize leaves a `sending` row that still holds
+ *   3. The caller sends, then {@link finalizeSend} sets `sent` plus the Resend id,
+ *      `failed`, or `unknown`.
+ *   4. `failed` NULLs the key, so a later retry can claim it. It means Resend
+ *      answered with a non-2xx status, so the mail did not go.
+ *   5. `unknown` KEEPS the key. It means the call timed out or threw after the
+ *      request may have reached Resend, so the mail may have gone. Releasing the key
+ *      there would let a retry send it twice.
+ *   6. A crash between reserve and finalize leaves a `sending` row that still holds
  *      the key. It blocks a resend. That is the at-most-once choice: a missed mail is
  *      recoverable by hand, a double mail is not.
- *   6. **Fails open.** Every function here catches its own DB error, logs a warning
+ *   7. **Fails open.** Every function here catches its own DB error, logs a warning
  *      and returns as if there were no ledger. A ledger outage must never stop a mail.
  *
  * A send with no `dedupeKey` stores NULL, and SQLite treats NULLs as distinct under
@@ -109,12 +113,13 @@ export async function reserveSend(
 
 /**
  * Settle a reserved row. `failed` also NULLs the dedupe key, releasing it for a
- * retry. A null `rowId` (the reserve failed open) is a no-op. Never throws.
+ * retry. `sent` and `unknown` keep it held. A null `rowId` (the reserve failed open)
+ * is a no-op. Never throws.
  */
 export async function finalizeSend(
   db: Db | null,
   rowId: number | null,
-  result: { outcome: 'sent' | 'failed'; providerMessageId?: string | null },
+  result: { outcome: 'sent' | 'failed' | 'unknown'; providerMessageId?: string | null },
   logger: Logger = console,
 ): Promise<void> {
   if (!db || rowId === null) return;
@@ -134,7 +139,7 @@ export async function finalizeSend(
 
 /**
  * Write one settled row with no reservation: `skipped`, `suppressed`, `duplicate`,
- * or a `sent`/`failed` send that took no dedupe key (the digests, the operator copy).
+ * or a `sent`/`failed`/`unknown` send that took no dedupe key (the digests, the operator copy).
  * Never stores a dedupe key. Returns the row id, or null on a DB error. Never throws.
  */
 export async function recordSend(

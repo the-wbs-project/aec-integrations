@@ -130,6 +130,15 @@ describe('finalizeSend', () => {
     ]);
   });
 
+  it('marks unknown and KEEPS the key, so a retry after a timeout cannot send twice', async () => {
+    const { rowId } = await reserveSend(t.db, { ...BASE, dedupeKey: 'k' });
+    await finalizeSend(t.db, rowId, { outcome: 'unknown' });
+
+    const [row] = await rows();
+    expect(row).toMatchObject({ outcome: 'unknown', dedupeKey: 'k', providerMessageId: null });
+    expect((await reserveSend(t.db, { ...BASE, dedupeKey: 'k' })).duplicate).toBe(true);
+  });
+
   it('is a no-op for a null row id, and never throws on a DB error', async () => {
     await expect(finalizeSend(t.db, null, { outcome: 'sent' })).resolves.toBeUndefined();
     const logger = { warn: vi.fn() };
@@ -139,7 +148,7 @@ describe('finalizeSend', () => {
 });
 
 describe('recordSend', () => {
-  it.each(['skipped', 'suppressed', 'sent', 'failed', 'duplicate'] as const)(
+  it.each(['skipped', 'suppressed', 'sent', 'failed', 'unknown', 'duplicate'] as const)(
     'writes one settled %s row with no dedupe key',
     async (outcome) => {
       const id = await recordSend(t.db, { ...BASE, outcome, providerMessageId: null }, silent);

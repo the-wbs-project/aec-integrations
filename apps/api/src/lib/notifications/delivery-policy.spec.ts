@@ -60,9 +60,22 @@ describe('isInternalRecipient', () => {
     expect(isInternalRecipient(SUBDOMAIN)).toBe(false);
   });
 
-  it('reads the domain after the LAST @', () => {
+  it('rejects a bare address with more than one @', () => {
     expect(isInternalRecipient('a@thewbsproject.com@vendor.example')).toBe(false);
-    expect(isInternalRecipient('"a@vendor.example"@thewbsproject.com')).toBe(true);
+    expect(isInternalRecipient('"a@vendor.example"@thewbsproject.com')).toBe(false);
+    expect(isInternalRecipient('"a@x.com"@aecintegrations.com')).toBe(false);
+  });
+
+  it('rejects a value that carries more than one address', () => {
+    // Resend reads `to` as a list, so each of these would mail the outside inbox.
+    expect(isInternalRecipient('x@gmail.com,support@aecintegrations.com')).toBe(false);
+    expect(isInternalRecipient('support@aecintegrations.com,x@gmail.com')).toBe(false);
+    expect(isInternalRecipient('a@aecintegrations.com; b@gmail.com')).toBe(false);
+    expect(isInternalRecipient('a@aecintegrations.com b@gmail.com')).toBe(false);
+    expect(isInternalRecipient('x@gmail.com <a@aecintegrations.com>')).toBe(false);
+    expect(isInternalRecipient('Evil <a@aecintegrations.com>, x@gmail.com')).toBe(false);
+    expect(isInternalRecipient('<x@gmail.com> <a@aecintegrations.com>')).toBe(false);
+    expect(isInternalRecipient('Name <a @aecintegrations.com>')).toBe(false);
   });
 
   it('rejects malformed input', () => {

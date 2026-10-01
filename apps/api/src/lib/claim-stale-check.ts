@@ -296,7 +296,7 @@ export async function runClaimStaleCheck(
       alerted = true;
       count(c, 'aeci.linear.claim_stale.email', 1, [`outcome:${outcome}`]);
       log(c, {
-        level: outcome === 'failed' ? 'warn' : 'info',
+        level: outcome === 'failed' || outcome === 'unknown' ? 'warn' : 'info',
         message: `aeci.linear.claim_stale.email outcome=${outcome} rows=${emailRows.length}${
           c.env.FOUNDER_ALERT_EMAIL ? ` recipient=${c.env.FOUNDER_ALERT_EMAIL}` : ' recipient=unset'
         }`,

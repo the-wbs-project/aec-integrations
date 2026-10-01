@@ -3208,7 +3208,7 @@ create table notification_sends (
   notification_id text not null,   -- the registry id (apps/api/src/lib/notifications/registry.ts)
   recipient_hash text not null,    -- sha256 hex of the trimmed, lowercased bare address; '' = no recipient
   tier text not null,              -- tierLabel(env): production | staging | demo | preview | development | non-production
-  outcome text not null,           -- sending | sent | failed | skipped | suppressed | duplicate
+  outcome text not null,           -- sending | sent | failed | unknown | skipped | suppressed | duplicate
   provider_message_id text,        -- the Resend id on 'sent'; null otherwise
   dedupe_key text,                 -- the sender's idempotency key; null = never deduplicated
   entity_type text,                -- what the mail is about, when the sender names it
@@ -3222,24 +3222,33 @@ create index notification_sends_recipient_idx on notification_sends(recipient_ha
 create index notification_sends_notification_idx on notification_sends(notification_id, created_at);
 ```
 
-**`recipient_hash` is pseudonymous, not anonymous.** It is the unsalted SHA-256 of the
-trimmed, lowercased bare address (`recipientHash` in `apps/api/src/lib/hash.ts`), the same
-hash the tier-policy suppression log uses. The address itself is never stored. Support
-answers "what did we send to X" by hashing X and seeking on the recipient index. Anyone who
-already holds an address can test it against the table. That is the point, and it is why the
-hash is unsalted. An empty string marks a `skipped` send that had no recipient.
+**`recipient_hash` is a linkable pseudonymous identifier. It is personal data, not anonymous
+data.** It is the unsalted SHA-256 of the trimmed, lowercased bare address (`recipientHash` in
+`apps/api/src/lib/hash.ts`). The address itself is never stored. Support answers "what did we
+send to X" by hashing X and seeking on the recipient index. Anyone who already holds an address
+can test it against the table, and every row for one person carries the same value, so the rows
+link to each other and to that person. That is the point, and it is why the hash is unsalted.
+Handle it as personal data. It is kept 400 days (the retention prune). The same hash leaves D1:
+the tier-policy log line for a suppressed send carries it into Workers Logs. An empty string
+marks a `skipped` send that had no recipient.
 
 **At-most-once.** A transactional send runs reserve, send, finalize:
 
 1. Reserve: `INSERT … ON CONFLICT(dedupe_key) DO NOTHING RETURNING id`, as a `sending` row.
 2. No id back means another row holds the key. Nothing goes to Resend. A `duplicate` row with
    a NULL key records the refusal, and the send returns `'duplicate'`.
-3. Send, then update the row to `sent` with the Resend id, or to `failed`.
-4. `failed` sets `dedupe_key` NULL, which releases the key so a retry can send.
-5. A crash between reserve and finalize leaves a `sending` row that still holds its key. It
+3. Send, then update the row to `sent` with the Resend id, to `failed`, or to `unknown`.
+4. `failed` means Resend answered with a non-2xx status. It sets `dedupe_key` NULL, which
+   releases the key so a retry can send.
+5. `unknown` means the call timed out or threw after the request may have reached Resend. It
+   keeps `dedupe_key`, so a retry is a `duplicate`, never a second mail.
+6. A crash between reserve and finalize leaves a `sending` row that still holds its key. It
    blocks a resend, and it is visible. A missed mail can be sent by hand. A double mail cannot
    be taken back.
-6. A ledger DB error fails open. The writer logs a warning and the mail still goes.
+7. A ledger DB error fails open. The writer logs a warning and the mail still goes.
+
+A keyed send also carries Resend's `Idempotency-Key` header, `{tier}:{dedupe_key}` (ADR 0037
+§3, `docs/email.md` §Send ledger).
 
 A send with no dedupe key stores NULL, and SQLite treats NULLs as distinct under a UNIQUE
 index, so it never conflicts. The index is not partial because an upsert conflict target
@@ -3248,7 +3257,8 @@ AECI-1203, AECI-1204 and AECI-1205. Each registry entry's key is in `docs/NOTIFI
 ADR 0037 records why the protocol is at-most-once. **AECI-1204 added its keys for the two attestation digests** (`attestation-digest:{vendorId}:{profileId}:{YYYY-MM-DD}` and `attestation-ops-digest:{YYYY-MM-DD}:{first 16 hex of the recipient hash}`, `STAGE_2_ATTESTATIONS_SPEC.md` §7.2).
 
 The digests make one Resend call for several recipients, with no dedupe key. They write one
-settled row per recipient after the call, all sharing the Resend id. Each recipient refused
+settled row per recipient after the call, all sharing the Resend id, or all `unknown` when the
+call threw. Each recipient refused
 by the tier policy gets a `suppressed` row. BCC copies get no row of their own. The separate
 operator copy of an unsubscribable send gets one row per operator address, under its own
 registry id.
@@ -3301,6 +3311,14 @@ in `auth.users` and gets no token minted.
 with `crypto.randomUUID()`, never logged, never audited and never returned by any read. It rides
 only in the digest's `List-Unsubscribe` header and footer link. The unique index is the lookup
 path for `POST /api/notifications/nudges/mute`.
+
+**Unmuting rotates `mute_token`.** When a seat unmutes through
+`PUT /api/vendor/notification-preferences`, the `UPDATE` sets a fresh `crypto.randomUUID()` in the
+same `db.batch` as its audit row (`setNudgesMuted` in `apps/api/src/lib/notification-preferences.ts`).
+Every digest already sent carries the old token. Without the rotation, one old email or a mail
+scanner replaying its one-click POST would silently re-mute a seat that chose to hear from us
+again. Muting keeps the token, so the link the seat just used stays valid and a repeat stays
+idempotent.
 
 **Domain state, so every write audits** (`notification_preferences.created` and
 `notification_preferences.updated`, listed in §8.4) in the same `db.batch`. The one-click route

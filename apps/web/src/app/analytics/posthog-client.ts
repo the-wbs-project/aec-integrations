@@ -136,6 +136,7 @@ import { InjectionToken } from '@angular/core';
 
 import { analyticsDimensions } from './analytics-dimensions';
 import { readPostHogConfig } from './posthog-config';
+import { sanitizePostHogEvent } from './posthog-url-sanitizer';
 
 /**
  * The minimal structural surface `Analytics` uses. The real `posthog`
@@ -256,6 +257,8 @@ export async function createPostHogClient(): Promise<PostHogClient | null> {
     posthog.init(cfg.key, {
       api_host: cfg.host,
       ...TIER_2_OPERATIONAL_CONFIG,
+      // Strips `?token=` from URL properties before any event leaves the browser.
+      before_send: sanitizePostHogEvent,
       loaded: (ph) => ph.register(analyticsDimensions()),
     });
     return posthog;

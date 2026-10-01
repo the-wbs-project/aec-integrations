@@ -94,6 +94,13 @@ describe('observability/posthog alerts.json ↔ insights.json', () => {
       expect(alert?.calculationInterval).toBe(interval);
       expect(alert?.threshold.configuration.bounds.upper).toBe(upper);
     }
+    // AECI-1197 review: an `unknown` send (timeout or thrown call) counts as failed.
+    const failureRate = insights.find((i) => i.key === 'alert-email-failure-rate')?.query ?? '';
+    expect(failureRate).toContain("s.labels['outcome'] IN ('failed', 'unknown')");
+    expect(failureRate).toContain("s.labels['outcome'] IN ('sent', 'failed', 'unknown')");
+    expect(failureRate).not.toContain("s.labels['outcome'] = 'failed'");
+    const volume = insights.find((i) => i.key === 'alert-email-volume-spike')?.query ?? '';
+    expect(volume).toContain("s.labels['outcome'] IN ('sent', 'failed', 'unknown')");
     const board = insights.find((i) => i.key === 'email-sends-by-template');
     expect(board?.dashboardKey).not.toBe('alert-sources');
     expect(board?.query).toContain("metric_name = 'aeci.email.send'");

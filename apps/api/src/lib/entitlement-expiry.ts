@@ -396,11 +396,17 @@ async function loadVendorSeatEmails(
  * actionable signal, and `suppressed` (AECI-1198, an outside address on a
  * non-production tier) says there WAS an address. `duplicate` (AECI-1202) means an
  * earlier send holds the ledger key, so this run delivered nothing but nothing
- * failed either. None of `duplicate`, `suppressed` or `skipped` stamps the fence.
+ * failed either. `unknown` (AECI-1197 review) means a send timed out or threw, so
+ * it may or may not have gone. It is neither delivered nor failed: it ranks below
+ * `failed` and does not stamp the fence. These sends take no dedupe key, so tomorrow's
+ * run may warn again. A possible second warning beats a lost one here, because the
+ * warning protects the vendor's paid term. None of `unknown`, `duplicate`,
+ * `suppressed` or `skipped` stamps the fence.
  */
 function collapse(outcomes: readonly EmailOutcome[]): EmailOutcome {
   if (outcomes.includes('sent')) return 'sent';
   if (outcomes.includes('failed')) return 'failed';
+  if (outcomes.includes('unknown')) return 'unknown';
   if (outcomes.includes('duplicate')) return 'duplicate';
   if (outcomes.includes('suppressed')) return 'suppressed';
   return 'skipped';
@@ -437,8 +443,8 @@ export async function runEntitlementExpirySweep(
     capped: 0,
     malformed: 0,
     warned: 0,
-    vendor: { sent: 0, failed: 0, skipped: 0, suppressed: 0, duplicate: 0 },
-    admin: { sent: 0, failed: 0, skipped: 0, suppressed: 0, duplicate: 0 },
+    vendor: { sent: 0, failed: 0, unknown: 0, skipped: 0, suppressed: 0, duplicate: 0 },
+    admin: { sent: 0, failed: 0, unknown: 0, skipped: 0, suppressed: 0, duplicate: 0 },
     batchFailures: 0,
   };
 

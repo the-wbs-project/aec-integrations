@@ -34,7 +34,7 @@
  * from it, and `registry-coverage.spec.ts` fails on a sender that names no entry.
  *
  * Observability: every transactional attempt emits the `aeci.email.send` count tagged
- * `outcome:sent|failed|skipped|suppressed|duplicate` + `template:<id>`, where the id is the
+ * `outcome:sent|failed|unknown|skipped|suppressed|duplicate` + `template:<id>`, where the id is the
  * registry id. The digests are counted the same way by their cron jobs. Failures also `warn` to the
  * observability plane (`source: 'email'`). Telemetry is wrapped so it can never turn a send
  * into a throw.
@@ -49,8 +49,9 @@
  *
  * **Send ledger (AECI-1202).** Both layers write one `notification_sends` row per
  * addressed recipient (`lib/notifications/send-ledger.ts`): `skipped`, `suppressed`,
- * `sent` with the Resend message id read from the 2xx body, `failed`, or `duplicate`
- * when a `dedupeKey` is already held. A transactional send reserves its row before the
+ * `sent` with the Resend message id read from the 2xx body, `failed` on a non-2xx,
+ * `unknown` on a timeout or thrown call, or `duplicate` when a `dedupeKey` is already
+ * held. A keyed send also carries Resend's `Idempotency-Key` header. A transactional send reserves its row before the
  * Resend call and settles it after. Every caller already runs the send inside
  * `waitUntil` or a cron, so the ledger writes add no latency to a route response. A
  * ledger DB error warns and the send goes ahead. BCC copies get no row of their own;
@@ -69,8 +70,8 @@ import { logToPosthog, submitCount } from '../posthog';
 import type { Db } from '../db/client';
 import type { Env } from '../env';
 import type { StuckRequestSummary } from './admin-alert';
-import { escapeHtml, renderEmailHtml, renderEmailText } from './email-layout';
-import { recipientHash } from './hash';
+import { escapeHtml, renderEmailHtml, renderEmailText, type EmailTableRow } from './email-layout';
+import { recipientHash, sha256Hex } from './hash';
 import {
   isProductionTier,
   partitionRecipients,
@@ -112,7 +113,13 @@ export type EmailContext = {
 
 /**
  * - `sent`: Resend accepted it.
- * - `failed`: Resend refused it, or the call threw or timed out.
+ * - `failed`: Resend answered with a non-2xx status, so it did not take the mail. A
+ *   keyed send releases its dedupe key, so a retry can send.
+ * - `unknown`: the call timed out or threw after the request may have reached Resend
+ *   (AECI-1197 review). The mail may or may not have gone. A keyed send KEEPS its
+ *   dedupe key, like a stuck `sending` row, so a retry is a `duplicate` and the
+ *   recipient never gets two. Not a delivery a caller can count on, and not a failure
+ *   a caller may retry. Each caller documents which way it leans.
  * - `skipped`: nothing to send with (no key, sender or recipient).
  * - `suppressed`: the tier delivery policy refused the recipient (AECI-1198). Only a
  *   non-production tier produces it. Like `skipped`, nothing was sent, so a caller
@@ -122,7 +129,7 @@ export type EmailContext = {
  *   Not a failure, and not delivered by this call: a caller must not count it as
  *   either. Only a send that passes a `dedupeKey` can produce it.
  */
-export type EmailOutcome = 'sent' | 'failed' | 'skipped' | 'suppressed' | 'duplicate';
+export type EmailOutcome = 'sent' | 'failed' | 'unknown' | 'skipped' | 'suppressed' | 'duplicate';
 
 /**
  * Stable template ids: the `template:` metric tag and the `docs/email.md` catalogue key.
@@ -139,7 +146,7 @@ const RESEND_URL = 'https://api.resend.com/emails';
 /** The dud unsubscribe token in an operator copy's body. Matches no subscriber. */
 const OPERATOR_COPY_TOKEN = 'operator-copy';
 
-/** Cap on how long we wait for Resend before giving up (fail-open to `'failed'`). */
+/** Cap on how long we wait for Resend before giving up (resolves to `'unknown'`). */
 const TIMEOUT_MS = 5000;
 
 interface SendInput {
@@ -230,6 +237,9 @@ export async function sendTransactionalEmail(
   // The operator gets a separate copy instead, after the recipient's send lands.
   const unsubscribable = Boolean(input.headers?.['List-Unsubscribe']);
 
+  const idempotencyKey = input.dedupeKey
+    ? await resendIdempotencyKey(c.env, input.dedupeKey)
+    : null;
   let providerMessageId: string | null;
   try {
     const res = await fetch(RESEND_URL, {
@@ -237,6 +247,7 @@ export async function sendTransactionalEmail(
       headers: {
         Authorization: `Bearer ${apiKey}`,
         'Content-Type': 'application/json',
+        ...(idempotencyKey ? { 'Idempotency-Key': idempotencyKey } : {}),
       },
       body: JSON.stringify({
         from,
@@ -263,14 +274,18 @@ export async function sendTransactionalEmail(
     providerMessageId = await readProviderMessageId(res);
     emit(c, 'sent', input.template);
   } catch (err) {
-    // Timeout (AbortError), network failure, or a malformed body — all non-fatal.
+    // A timeout (AbortError) or a network error. The request may already have reached
+    // Resend, so the mail may be out. `unknown` keeps the dedupe key held, so a retry
+    // is a `duplicate`, never a second mail (AECI-1197 review). Non-fatal either way.
     warn(
       c,
-      `Resend ${input.template} call failed: ${err instanceof Error ? err.message : String(err)}`,
+      `Resend ${input.template} call did not complete, outcome unknown: ${
+        err instanceof Error ? err.message : String(err)
+      }`,
     );
-    emit(c, 'failed', input.template);
-    await finalizeSend(db, reservation.rowId, { outcome: 'failed' });
-    return 'failed';
+    emit(c, 'unknown', input.template);
+    await finalizeSend(db, reservation.rowId, { outcome: 'unknown' });
+    return 'unknown';
   }
   await finalizeSend(db, reservation.rowId, { outcome: 'sent', providerMessageId });
   if (unsubscribable) await sendOperatorCopy(c, apiKey, from, input);
@@ -296,7 +311,7 @@ async function sendOperatorCopy(
   const to = bccField(c.env, [input.to]).bcc;
   if (!to || !input.operatorCopy) return;
   const notification = input.operatorCopy.notification;
-  let outcome: 'sent' | 'failed' = 'failed';
+  let outcome: 'sent' | 'failed' | 'unknown' = 'failed';
   let providerMessageId: string | null = null;
   try {
     const res = await fetch(RESEND_URL, {
@@ -322,7 +337,13 @@ async function sendOperatorCopy(
       warn(c, `Resend ${notification} returned ${res.status}`);
     }
   } catch (err) {
-    warn(c, `Resend ${notification} failed: ${err instanceof Error ? err.message : String(err)}`);
+    outcome = 'unknown';
+    warn(
+      c,
+      `Resend ${notification} did not complete, outcome unknown: ${
+        err instanceof Error ? err.message : String(err)
+      }`,
+    );
   }
   await recordRecipients(ledgerDb(c.env), to, {
     notificationId: notification,
@@ -1858,17 +1879,27 @@ function vendorMessagesUrl(env: Env, vendorSlug: string | null): string | null {
   return base && vendorSlug ? `${base}/vendor/${encodeURIComponent(vendorSlug)}/messages` : null;
 }
 
-function contestFactRows(env: Env, facts: ContestEmailFacts): Array<readonly [string, string]> {
-  const rows: Array<readonly [string, string]> = [
-    ['Integration', facts.integrationName],
+/**
+ * The facts table of a vendor-facing contest email. Every value a vendor could have
+ * written is `{ plain: true }`, so it never renders as a link (AECI-1197 review). The
+ * proposed value is the other vendor's text. The value on record and the integration
+ * name can be vendor-edited too, on a vendor-owned row. Only the pair-page URL, which
+ * AECi builds, links.
+ */
+function contestFactRows(env: Env, facts: ContestEmailFacts): EmailTableRow[] {
+  const rows: EmailTableRow[] = [
+    ['Integration', facts.integrationName, PLAIN],
     ['Field', contestFieldLabel(facts.field)],
-    ['Value on record', facts.currentValue ?? 'none'],
-    ['Proposed value', facts.proposedValue ?? 'none'],
+    ['Value on record', facts.currentValue ?? 'none', PLAIN],
+    ['Proposed value', facts.proposedValue ?? 'none', PLAIN],
   ];
   const pair = facts.pairSlugs ? pairUrl(env, facts.pairSlugs[0], facts.pairSlugs[1]) : null;
   if (pair) rows.push(['Pair page', pair]);
   return rows;
 }
+
+/** Row option for a vendor-written value: render it as text, never as a link. */
+const PLAIN = { plain: true } as const;
 
 const PROTEST_IS_ADVICE =
   'AEC Integrations reads both sides and gives its view. Its view is advice: the value on record stays unless you change it. Nothing about the review is public.';
@@ -1904,7 +1935,7 @@ export function sendContestProtestOpenedEmail(
   const reply = `You can reply once, by ${due}. Reply under Field contests in Messages on your vendor portal.`;
   const rows = [
     ...contestFactRows(c.env, opts),
-    ['Their reason', opts.protestReason] as const,
+    ['Their reason', opts.protestReason, PLAIN] as const,
     ['Reply by', due] as const,
   ];
   const shared = {
@@ -2055,7 +2086,7 @@ export function sendContestDeclinedProtestWindowEmail(
   const window = `If you disagree, you can ask AEC Integrations to review it until ${closes}, from Field contests in Messages on your vendor portal. Its view is advice, and nothing about the review is public.`;
   const rows = [
     ...contestFactRows(c.env, opts),
-    ['Their note', opts.decisionNote?.trim() || 'none'] as const,
+    ['Their note', opts.decisionNote?.trim() || 'none', PLAIN] as const,
     ['Review request closes', closes] as const,
   ];
   const shared = {
@@ -2157,13 +2188,14 @@ export interface EmailEnv extends DeliveryPolicyEnv {
 /**
  * Send one email via Resend. Returns the outcome instead of throwing:
  *   - `'skipped'` — no API key, or no recipients (fail-open no-op).
- *   - `'failed'`  — Resend returned non-2xx or the request threw.
+ *   - `'failed'`  — Resend returned non-2xx, so it did not take the mail.
+ *   - `'unknown'` — the request threw, so the mail may or may not have gone.
  *   - `'sent'`    — accepted by Resend.
  *   - `'suppressed'` — the tier delivery policy refused every recipient (AECI-1198).
  * It never returns `'duplicate'`: a digest takes no dedupe key.
  * When `env.DB` is present it writes one `notification_sends` row per recipient
  * (AECI-1202): `suppressed` for each refused address, and `sent` (sharing the one
- * Resend id) or `failed` for the rest. One Resend call, so no reservation step.
+ * Resend id), `failed` or `unknown` for the rest. One Resend call, so no reservation step.
  * Outside production, `to` is filtered to internal addresses and the subject gets the
  * tier prefix. A partly suppressed list still sends to the allowed addresses.
  * The optional `logger` records the reason on skip/fail/suppress (defaults to `console`).
@@ -2226,9 +2258,12 @@ export async function sendEmail(
     await recordRecipients(db, to, { ...row, outcome: 'sent', providerMessageId }, logger);
     return 'sent';
   } catch (error) {
-    logger.error(`email: send threw — ${error instanceof Error ? error.message : String(error)}`);
-    await recordRecipients(db, to, { ...row, outcome: 'failed' }, logger);
-    return 'failed';
+    // The request may have reached Resend before it threw, so the mail may be out.
+    logger.error(
+      `email: send threw, outcome unknown — ${error instanceof Error ? error.message : String(error)}`,
+    );
+    await recordRecipients(db, to, { ...row, outcome: 'unknown' }, logger);
+    return 'unknown';
   }
 }
 
@@ -2244,7 +2279,7 @@ async function recordRecipients(
     notificationId: EmailNotificationId;
     tier: string;
     entity?: LedgerEntity;
-    outcome: 'sent' | 'failed' | 'skipped' | 'suppressed';
+    outcome: 'sent' | 'failed' | 'unknown' | 'skipped' | 'suppressed';
     providerMessageId?: string | null;
   },
   logger: Pick<Console, 'warn'> = console,
@@ -2254,6 +2289,32 @@ async function recordRecipients(
   for (const address of targets) {
     await recordSend(db, { ...row, recipientHash: await hashRecipient(address) }, logger);
   }
+}
+
+/** Resend's documented cap on an `Idempotency-Key`. */
+const IDEMPOTENCY_KEY_MAX = 256;
+
+/**
+ * The `Idempotency-Key` header for a keyed send (AECI-1197 review). Resend documents
+ * the header on `POST /emails`: up to 256 characters, kept for 24 hours. A repeat with
+ * the same key and the same body returns the first send's id and mails nobody. A
+ * repeat with a different body is a 409. See `docs/email.md` §Send ledger.
+ *
+ * The key is `{tier}:{dedupeKey}`. Every tier sends from one Resend account and keys
+ * are account-wide, so without the tier a staging digest and the production digest
+ * with the same day key would collide. A key longer than 256 characters, or with
+ * anything outside printable ASCII, is sent as its SHA-256 hex instead.
+ *
+ * It backs up the ledger. The ledger already stops a second send while it is up. The
+ * header also stops one when the ledger failed open, inside Resend's 24 hours.
+ */
+export async function resendIdempotencyKey(
+  env: DeliveryPolicyEnv,
+  dedupeKey: string,
+): Promise<string> {
+  const key = `${tierLabel(env)}:${dedupeKey}`;
+  if (key.length <= IDEMPOTENCY_KEY_MAX && /^[\x21-\x7e]+$/.test(key)) return key;
+  return sha256Hex(key);
 }
 
 /**

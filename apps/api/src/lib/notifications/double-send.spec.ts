@@ -113,7 +113,8 @@ function alertCtx(env: Partial<Env> = {}) {
 // ─── 1. Claim intake alert ───────────────────────────────────────────────────
 
 describe('claim intake alert', () => {
-  it('a claim the sweep rescues sends one alert, at submit, not a second one (AECI-1203)', async () => {
+  /** Submit one claim through the real handler and drain its `waitUntil`s. */
+  async function submitClaim(): Promise<string> {
     await t.db.insert(vendors).values({ id: u(1), slug: 'acme-co', companyName: 'Acme' });
     const app = buildAppWithHandler({
       method: 'post',
@@ -140,32 +141,74 @@ describe('claim intake alert', () => {
     );
     expect(res.status).toBe(201);
     await drain(ctx);
-    expect(resendCalls()).toHaveLength(1);
-    const { request_id: requestId } = (await res.json()) as { request_id: string };
+    return ((await res.json()) as { request_id: string }).request_id;
+  }
 
-    // 20 minutes later the sweep creates the Linear issue the submit could not.
+  /** 20 minutes later the sweep creates the Linear issue the submit could not. */
+  async function sweepCreatesIssue() {
     const createIssue = vi.fn(async (_c: unknown, _s: unknown, input: { requestId: string }) => {
       await t.db
         .update(vendorRequests)
         .set({ linearIssueId: 'iss-1' })
         .where(eq(vendorRequests.id, input.requestId));
-      return { status: 'created' as const, issueId: 'iss-1', issueUrl: 'https://linear.app/x' };
+      return {
+        status: 'created' as const,
+        issueId: 'iss-1',
+        issueUrl: 'https://linear.app/aec/issue/AECI-901/claim',
+      };
     });
-    const result = await runReconciliationSweep(alertCtx(), t.db, {
+    return runReconciliationSweep(alertCtx(), t.db, {
       createIssue: createIssue as never,
       now: new Date(Date.now() + 20 * MINUTE),
     });
+  }
+
+  it('a delivered submit alert holds the key: the sweep send is a duplicate, one email in all', async () => {
+    const requestId = await submitClaim();
+    expect(resendCalls()).toHaveLength(1);
+
+    const result = await sweepCreatesIssue();
 
     expect(result).toMatchObject({ retried: 1, cleared: 1 });
     expect(resendCalls()).toHaveLength(1);
     const rows = await ledger('claim-submitted-alert');
-    expect(rows).toEqual([
-      expect.objectContaining({
-        outcome: 'sent',
-        dedupeKey: `claim-submitted-alert:${requestId}`,
-        entityType: 'vendor_request',
-        entityId: requestId,
-      }),
+    expect(rows.map((r) => [r.outcome, r.dedupeKey])).toEqual([
+      ['sent', `claim-submitted-alert:${requestId}`],
+      ['duplicate', null],
+    ]);
+    expect(rows[0]).toMatchObject({ entityType: 'vendor_request', entityId: requestId });
+  });
+
+  it('a submit alert Resend refused released the key: the sweep sends it, with the link (AECI-1197 review)', async () => {
+    fetchSpy.mockImplementationOnce(async () => new Response('busy', { status: 503 }));
+    const requestId = await submitClaim();
+    expect(resendCalls()).toHaveLength(1);
+
+    await sweepCreatesIssue();
+
+    expect(resendCalls()).toHaveLength(2);
+    const second = JSON.parse(String(fetchSpy.mock.calls.at(-1)?.[1]?.body)) as { text: string };
+    expect(second.text).toContain('https://linear.app/aec/issue/AECI-901/claim');
+    const rows = await ledger('claim-submitted-alert');
+    expect(rows.map((r) => [r.outcome, r.dedupeKey])).toEqual([
+      ['failed', null],
+      ['sent', `claim-submitted-alert:${requestId}`],
+    ]);
+  });
+
+  it('a submit alert with an unknown outcome holds the key: the sweep sends nothing (AECI-1197 review)', async () => {
+    fetchSpy.mockImplementationOnce(async () => {
+      throw new DOMException('The operation was aborted due to timeout', 'TimeoutError');
+    });
+    const requestId = await submitClaim();
+
+    await sweepCreatesIssue();
+
+    expect(resendCalls()).toHaveLength(1);
+    const rows = await ledger('claim-submitted-alert');
+    expect(rows.map((r) => [r.outcome, r.dedupeKey])).toEqual([
+      ['unknown', `claim-submitted-alert:${requestId}`],
+      ['duplicate', null],
     ]);
   });
 });

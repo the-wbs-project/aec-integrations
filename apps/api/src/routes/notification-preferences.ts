@@ -65,7 +65,11 @@ export function createGetNotificationPreferencesHandler(
   };
 }
 
-/** `PUT /api/vendor/notification-preferences`. Body `{ nudges_muted: boolean }`. */
+/**
+ * `PUT /api/vendor/notification-preferences`. Body `{ nudges_muted: boolean }`.
+ * An unmute rotates the seat's mute token (`setNudgesMuted`), so a mute link in an
+ * earlier digest cannot re-mute it. A mute keeps the token.
+ */
 export function createUpdateNotificationPreferencesHandler(
   dbFor: DbFactory = getDb,
 ): (c: VendorContext) => Promise<Response> {

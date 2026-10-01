@@ -670,7 +670,8 @@ token, with no session. It is the RFC 8058 one-click target of the attestation d
 never returned by any read, including `GET /api/vendor/notification-preferences`. It rides only in
 the digest's header and footer link. The route is rate-limited by IP on the `token` bucket, never
 by the token. An unknown token answers `200 { ok: false }`, because a mail appliance reads any
-non-2xx as a broken link.
+non-2xx as a broken link. An unmute through `PUT /api/vendor/notification-preferences` rotates the
+token, so a mute link in an earlier digest stops working and cannot re-mute the seat.
 
 **The `/api/vendor/*` rows carry two extra obligations** (AECI-520,
 `STAGE_2_VENDOR_PORTAL_SPEC.md` §4). They are the D1/Drizzle replacement for the

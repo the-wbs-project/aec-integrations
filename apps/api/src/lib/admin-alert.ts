@@ -80,8 +80,16 @@ export interface AdminAlert {
 
 /** `suppressed`: the tier delivery policy refused `ADMIN_ALERT_EMAIL` (AECI-1198).
  *  `duplicate`: the send ledger already holds the alert's dedupe key (AECI-1202), so
- *  an earlier send in the same band owns it (AECI-1203). Not a failure. */
-export type AdminAlertOutcome = 'sent' | 'failed' | 'skipped' | 'suppressed' | 'duplicate';
+ *  an earlier send in the same band owns it (AECI-1203). Not a failure.
+ *  `unknown`: the Resend call timed out or threw, so the alert may or may not have
+ *  gone. Its key stays held. Logged at `warn`, like `failed`. */
+export type AdminAlertOutcome =
+  | 'sent'
+  | 'failed'
+  | 'unknown'
+  | 'skipped'
+  | 'suppressed'
+  | 'duplicate';
 
 /**
  * Deliver the admin alert via Resend (`lib/email.ts`). **Never throws** (mirrors
@@ -109,7 +117,7 @@ export async function sendAdminAlert(
   });
   emitEmailMetric(c, outcome);
   log(c, {
-    level: outcome === 'failed' ? 'warn' : 'info',
+    level: outcome === 'failed' || outcome === 'unknown' ? 'warn' : 'info',
     message: `aeci.linear.reconcile.email outcome=${outcome} rows=${alert.rows.length}${
       c.env.ADMIN_ALERT_EMAIL ? ` recipient=${c.env.ADMIN_ALERT_EMAIL}` : ' recipient=unset'
     }`,

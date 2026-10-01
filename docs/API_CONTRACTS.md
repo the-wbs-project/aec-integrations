@@ -5547,6 +5547,7 @@ export const UpdateNotificationPreferencesSchema = z.object({ nudges_muted: z.bo
 
 - **`GET`** returns `NotificationPreferencesResponse`. A seat with no preference row reads as `{ nudges_muted: false, nudges_muted_at: null }`. It is a read, so it creates nothing and has no `rateLimit()` (reads are never rate-limited, `waf-rate-limits.md` §6.3).
 - **`PUT`** sets the mute and returns the same shape. It is behind `rateLimit('write')`. Unknown body keys are refused. It is idempotent: setting the state the seat already has writes nothing and emits no audit row.
+- **An unmute rotates the seat's mute token.** The `UPDATE` that clears `nudges_muted_at` also sets a new `notification_preferences.mute_token`, in the same `db.batch` as the audit row. Every mute link in an earlier digest then answers `POST /api/notifications/nudges/mute` with `200 { ok: false }`, so an old email cannot re-mute the seat. A mute keeps the token. The response shape does not change, and the token is still never returned.
 
 **Audit.** A change is domain state. It writes `notification_preferences.updated` (`entity_type: 'profile'`, `entity_id` the profile id, `before_state` and `after_state` `{ nudgesMuted }`, `metadata.source: 'vendor-portal'`) in the same `db.batch` as the write. The mute token is never returned, logged or audited.
 

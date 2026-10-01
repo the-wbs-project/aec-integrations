@@ -1523,7 +1523,9 @@ seat) is history. See the as-built note at the end of §7.3.
   claim decisions and entitlement-expiry mail still send. The preference lives in
   `notification_preferences` (`DATABASE_SCHEMA.md` §9.10). The contract is in `API_CONTRACTS.md`
   (`/api/vendor/notification-preferences` and `/api/notifications/nudges/mute`). A muted seat is
-  not looked up in `auth.users` and gets no token minted.
+  not looked up in `auth.users` and gets no token minted. Unmuting in the portal rotates the
+  seat's mute token, in the same batch as the update and its audit row, so a mute link in an
+  earlier digest stops working and cannot re-mute the seat (AECI-1197 review).
 - **In-portal list** — `GET /api/vendor/notifications`, scoped to the caller's vendor, surfaced on
   the §6 tab. Reads the same ledger as §7.3; no separate store. The Messages page puts a "Daily
   reminder email" switch above the list. ON means email me. It is optimistic with a visible
@@ -1550,20 +1552,27 @@ row, so "recorded" and "shown in the portal" mean one thing.
 **When a row is written (decided AECI-1204, 2026-10-01).** One row per due finding, decided from
 the seat outcomes for that finding's vendor (or the ops addresses):
 
-| Seat outcomes                                              | Row | Finding outcome |
-| ---------------------------------------------------------- | --- | --------------- |
-| At least one seat `sent` or `duplicate`                    | yes | `sent`          |
-| Every seat muted, or the tier policy suppressed every send | yes | `portal-only`   |
-| Otherwise, and any send `failed`                           | no  | `failed`        |
-| Otherwise (no seat, no address, no `RESEND_API_KEY`)       | no  | `skipped`       |
+| Seat outcomes                                                                   | Row | Finding outcome |
+| ------------------------------------------------------------------------------- | --- | --------------- |
+| At least one seat `sent`, `duplicate` or `unknown`                              | yes | `sent`          |
+| Otherwise, and any send `failed`                                                | no  | `failed`        |
+| Otherwise, no send `skipped`, and at least one seat muted or tier-suppressed    | yes | `portal-only`   |
+| Otherwise (no seat, no address, no `RESEND_API_KEY`)                            | no  | `skipped`       |
 
 Why. A mute is the seat's final answer, and the tier policy refuses on purpose. In both cases the
 vendor still sees the finding in the portal, so it is recorded. A Resend failure or a missing key is
-not an answer. Writing the row would use up the nudge for 30 days without anyone being told, so
-nothing is written and tomorrow retries. A failed send releases its dedupe key.
+not an answer, even beside a muted seat. Writing the row would use up the nudge for 30 days without
+anyone being told, so nothing is written and tomorrow retries. A failed send releases its dedupe
+key. A seat with no address is not a retry case: it will not have one tomorrow either. So a muted
+or suppressed seat beside seats with no address is `portal-only`, and `no-address` alone stays
+`skipped` (AECI-1197 review).
 
-- `metadata.emailedSeats` counts the seats with `sent` or `duplicate`. Zero means portal only. It
-  is not on the wire for `GET /api/vendor/notifications`.
+- `metadata.emailedSeats` counts the seats with `sent`, `duplicate` or `unknown`. Zero means portal
+  only. It is not on the wire for `GET /api/vendor/notifications`.
+- `unknown` counts as emailed (AECI-1197 review). The Resend call timed out or threw after the
+  request may have reached Resend, so the seat most likely got the digest. Its dedupe key stays
+  held, so a same-day retry would be a `duplicate` anyway. Not writing the row would re-list the
+  finding tomorrow under a new day key, which is the double nudge the key exists to stop.
 - `duplicate` counts as emailed. The key is held by an earlier send of today's digest, which is the
   replay after a ledger write failed. The edge cost is a finding that first appears in a same-day
   re-run. It is recorded as emailed though the earlier digest did not list it. The sweep runs once a

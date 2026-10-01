@@ -512,7 +512,7 @@ describe('runProtestReplyReminderSweep (AECI-1205)', () => {
     expect(result).toEqual({
       due: 0,
       capped: 0,
-      emails: { sent: 0, failed: 0, skipped: 0, suppressed: 0, duplicate: 0 },
+      emails: { sent: 0, failed: 0, unknown: 0, skipped: 0, suppressed: 0, duplicate: 0 },
     });
     expect(fetchSeatEmails).not.toHaveBeenCalled();
   });

@@ -12,8 +12,10 @@
  *
  *   - Email rows keep their existing `template` ids. The id is the `template:` tag on
  *     the `aeci.email.send` metric. Two triggers that send the same template from a
- *     different trigger get their own id with a suffix: `-retry` (the sweep re-send)
- *     and `-resend` (an owner's re-send). The operator `COPY:` of an unsubscribable
+ *     different trigger get their own id with a suffix, for example `-resend` (an
+ *     owner's re-send). The exception is a second trigger that shares the first one's
+ *     dedupe key, so that at most one of the two ever sends: it keeps the same id.
+ *     `claim-submitted-alert` is the one case (the submit and the reconcile sweep). The operator `COPY:` of an unsubscribable
  *     send is `<template>-operator-copy`.
  *   - Cron digests on the low-level `sendEmail` transport are `digest-<name>`.
  *   - Portal-only `notification.sent` rows are `portal-<kind>[-<event>]`.
@@ -205,10 +207,13 @@ export const NOTIFICATIONS = {
   'claim-submitted-alert': {
     channel: 'email',
     audience: 'operator',
-    trigger: { kind: 'route', ref: 'POST /api/requests/claim (routes/requests.ts)' },
+    trigger: {
+      kind: 'route',
+      ref: 'POST /api/requests/claim (routes/requests.ts); and the */15 request-reconcile sweep (lib/reconciliation-sweep.ts) when its retry creates the issue',
+    },
     envRule: 'any-tier',
     dedupe:
-      'Claims only, not corrections. Key claim-submitted-alert:{requestId}. The only claim alert: the sweep does not re-send it.',
+      'Claims only, not corrections. Both senders use key claim-submitted-alert:{requestId}, so at most one alert per request. A delivered or unknown submit alert holds the key and the sweep send is a duplicate. A submit alert Resend refused released it, so the sweep send goes out with the issue link.',
     ledger: ['notification_sends'],
     optOut: 'none',
     doc: CATALOGUE,

@@ -876,8 +876,8 @@ describe('job_runs bookkeeping (§7.2)', () => {
       capped: 0,
       malformed: 0,
       warned: 0,
-      vendor: { sent: 0, failed: 0, skipped: 0, suppressed: 0, duplicate: 0 },
-      admin: { sent: 0, failed: 0, skipped: 0, suppressed: 0, duplicate: 0 },
+      vendor: { sent: 0, failed: 0, unknown: 0, skipped: 0, suppressed: 0, duplicate: 0 },
+      admin: { sent: 0, failed: 0, unknown: 0, skipped: 0, suppressed: 0, duplicate: 0 },
       batchFailures: 0,
     });
   });
