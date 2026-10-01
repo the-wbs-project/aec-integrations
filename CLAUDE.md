@@ -77,7 +77,7 @@ If your work touches a topic below, that document is the truth, not your prior k
 | API endpoint shapes, validation, errors, sort collation | `docs/API_CONTRACTS.md` |
 | Review-app → app-DB promote (async kick-off/poll/collect, idempotency keys, connector-catalog arm §3a, retraction consumer §5.1, cross-table moves) | `docs/REVIEW_APP_PROMOTE_API.md`; ADR 0021, ADR 0030 |
 | Database schema (§12 is the app-layer authorization model; no RLS on app tables) | `docs/DATABASE_SCHEMA.md` |
-| Migration workflow, D1 recreate hazards, cascade data-loss controls | `docs/migrations.md` §0; ADR 0018 |
+| Migration workflow, D1 recreate hazards, cascade data-loss controls | `docs/migrations.md` §0 |
 | Local dev: ports, Conductor workspaces, service binding, version reporting | `docs/local-dev.md` |
 | Local dev tracing (OTel traces over a SQL endpoint in `wrangler dev`) | `docs/local-tracing.md` |
 | Drizzle/D1 data layer (client, schema, `db.batch()` audit/workflow builders) | `apps/api/src/db/`, `apps/api/src/lib/{audit,drizzle-helpers,recompute-counts}.ts`; ADR 0016 |
@@ -150,7 +150,7 @@ These recur in tasks and are tempting to violate. Don't. Several are enforced by
 - **drizzle-kit + `wrangler d1` own migrations.** Edit `schema.ts`, `pnpm db:generate`,
   `pnpm db:migrate:local`, `pnpm db:seed:local`. A drizzle-kit table recreate on D1 fires
   `ON DELETE CASCADE` two levels deep and `PRAGMA defer_foreign_keys` does not stop it; statement
-  order in a recreate migration is a data-loss control. `docs/migrations.md` §0, ADR 0018.
+  order in a recreate migration is a data-loss control. `docs/migrations.md` §0.
 - **Release every `fetch` body you don't read, and batch fan-out.** `Lint: 🟡`. A Worker holds
   about six pending connections; a cancelled `fetch` returns a promise that never settles, so the
   loss is silent. Call `discardResponseBody(res)` on every unread path, prefer one batched request,
