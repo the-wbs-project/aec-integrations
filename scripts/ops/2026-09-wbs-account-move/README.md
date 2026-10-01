@@ -212,6 +212,21 @@ Open question for the WBS account team: once a zone is Moved, does the old accou
 
 ## Phase 4: cutover (AECI-1166)
 
+`cutover.sh` runs the scripted steps one at a time. Each step pins its account, so a token for the wrong account fails instead of writing anywhere. Commands, in order, per environment. Do production last, because it is the one with live traffic.
+
+| # | Token | Command | What it does |
+|---|---|---|---|
+| a | old | `cutover.sh stop-old-crons production` | Empties the old API's cron triggers. No code is redeployed and the web Worker is untouched |
+| b | old | `cutover.sh export production` | Exports, runs the three prep scripts, proves the prepared file loads with strict foreign keys and is identical to the raw export, and writes expected row counts. About 4 min |
+| c | WBS | `cutover.sh reset production` | Restores the WBS database to empty, or skips if already empty |
+| d | WBS | `cutover.sh import production` | Imports, then compares every table's row count against the export. Exits non-zero on any mismatch |
+| e | | (dashboard) | Registrar move, approve, wait for Active. Then the Worker Access check (step 6a) and the dashboard toggles (6b) |
+| f | WBS | `cutover.sh bind production` | Full deploy of api and web: crons back on, custom domains bound |
+| g | | `cutover.sh verify` | www 200 on the new sha, apex 301, demo 200, staging 302 to WBS Access |
+
+Repeat a–d and f for `staging` and `demo`. Not scripted yet: Worker secrets (on hold) and the R2 copy (waiting for S3 keys).
+
+
 0. Cancel Pro and the Smart Shield Argo add-on on the old zone before 2026-10-07. Cancelling only stops the 2026-10-08 renewal, and Pro keeps working until then. Per Cloudflare's docs, a Pro plan does not block the move:
    - "Remove a domain" requires a Free downgrade for Enterprise only.
    - The Registrar inter-account move lists DNSSEC, lock state and a target plan as prerequisites, not the source plan.
