@@ -63,3 +63,14 @@ newer file for any day both contain. Windows that return the 10,000-row page lim
 until they don't.
 
 The AI-assistant subset from the same day is in `../2026-10-ai-assistant-fetch-history/`.
+
+## Copy in R2
+
+Uploaded on 2026-10-01 to the temporary bucket `aeci-views-temp` on **The WBS Project** account
+(`004dc1af737b22a8aa83b3550fa9b9d3`), under the prefix `cloudflare-backfill-2026-10-01/<this directory>/`.
+Download with your wrangler OAuth login and the target account set, run from a directory with no
+`wrangler.jsonc` (the repo's configs pin the AEC Integrations account and override the variable):
+
+```bash
+cd /tmp && env -u CLOUDFLARE_API_TOKEN CLOUDFLARE_ACCOUNT_ID=004dc1af737b22a8aa83b3550fa9b9d3 npx wrangler r2 object get aeci-views-temp/cloudflare-backfill-2026-10-01/2026-10-traffic-history/daily-rollup/2026-09.csv.gz --remote --file daily-rollup-2026-09.csv.gz
+```
