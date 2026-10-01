@@ -12,6 +12,10 @@ writes. It is rendered from the notification registry,
 truth. To change a row here, change the registry entry and run
 `pnpm docs:notifications`. Root `pnpm lint` fails when this file is stale.
 
+Every merge to `main` that changes this file mirrors it into a Linear Document, through
+`.github/workflows/mirror-notifications-doc.yml` (AECI-1201). The Linear copy is read-only
+in practice: edits made there are overwritten on the next merge.
+
 Each entry records today's behaviour, including known gaps. Change an entry in the same
 commit that changes the behaviour it describes.
 

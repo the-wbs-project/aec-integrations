@@ -1,0 +1,63 @@
+# AEC Integrations — mirror docs/NOTIFICATIONS.md into a Linear Document (AECI-1201).
+#
+# docs/NOTIFICATIONS.md is generated from the notification registry
+# (apps/api/src/lib/notifications/registry.ts, `pnpm docs:notifications`). This job copies it
+# into one Linear Document so the list is readable outside the repo. The repo file is the
+# source of truth. Every run overwrites the Linear Document whole, so edits made in Linear
+# are lost on the next merge, and the mirrored header says so.
+#
+# Logic: scripts/mirror-notifications-doc.mjs (no dependencies, so no `pnpm install`).
+# Setup and operator commands: docs/CICD_PLAN.md §7.1.
+#
+# Triggers are push-to-main (only when the doc changed) and workflow_dispatch. The job
+# reads no event payload, so no issue, PR or commit text reaches a `run:` block. The only
+# inputs are one secret and one repository variable, both passed via `env:`.
+#
+# A failed mirror turns this run RED, and that is the alert. Do not add
+# continue-on-error. It is NOT a required check and cannot be one: it runs only after the
+# merge, so it never blocks a merge.
+
+name: mirror-notifications-doc
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'docs/NOTIFICATIONS.md'
+  workflow_dispatch: {}
+
+# Two merges in quick succession must not race. With cancel-in-progress false, a running
+# mirror finishes, and GitHub keeps only the newest pending run, so the latest commit wins.
+concurrency:
+  group: mirror-notifications-doc
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  NODE_VERSION: '24'
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
+
+jobs:
+  mirror:
+    name: Mirror notifications doc to Linear
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Update the Linear Document
+        env:
+          # Linear API key, sent as a bare `Authorization` header. Owner and scope:
+          # docs/CICD_PLAN.md §7.1. Separate from the production Worker's LINEAR_API_KEY.
+          LINEAR_DOCS_MIRROR_API_KEY: ${{ secrets.LINEAR_DOCS_MIRROR_API_KEY }}
+          # The id of the one Linear Document this job overwrites.
+          LINEAR_NOTIFICATIONS_DOC_ID: ${{ vars.LINEAR_NOTIFICATIONS_DOC_ID }}
+        # Unset secret or variable: the script exits 2 with a ::error:: naming which one.
+        # GITHUB_SHA and the run URL come from the default Actions environment.
+        run: node scripts/mirror-notifications-doc.mjs

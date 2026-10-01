@@ -125,6 +125,12 @@ describe('renderNotificationsDoc', () => {
     expect(doc).toContain('registry-coverage.spec.ts');
   });
 
+  it('says the doc is mirrored to Linear and that Linear edits are overwritten', () => {
+    expect(doc).toContain('mirrors it into a Linear Document');
+    expect(doc).toContain('.github/workflows/mirror-notifications-doc.yml');
+    expect(doc).toContain('overwritten on the next merge');
+  });
+
   it('falls back to a pointer when the subscribers are unknown', () => {
     const out = renderNotificationsDoc(FIXTURE, { ...MONITORING, subscribers: [] });
     expect(out).toContain(
