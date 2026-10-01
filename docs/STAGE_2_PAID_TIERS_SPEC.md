@@ -219,7 +219,7 @@ export const CAPABILITIES = [
 export const TIERS = ['unclaimed', 'verified'] as const;
 
 export const TIER_CAPABILITIES = {
-  unclaimed: [],
+  unclaimed: [],                 // amended by §13.3, AECI-1214
   verified: [...CAPABILITIES],   // Verified unlocks everything §8.1(3) lists
 };
 
@@ -229,9 +229,11 @@ export function hasCapability(tier: EntitlementTier, cap: Capability): boolean;
 export function capabilitiesFor(tier: EntitlementTier): readonly Capability[];
 ```
 
+> **Amended 2026-10-01 by §13.3 (AECI-1212).** The registry gains `product.listing.edit` and `product.categories.edit`. `unclaimed` gains `profile.edit` and both new ids. That is the Free plan. AECI-1214 changes the code.
+
 Three capabilities are **declared with no consumer on purpose**: `attestation.author` (AECI-301), `analytics.view`, and `integration.version_diff` (AECI-304). Minting the ids now means those later issues become pure render-path/handler changes with no registry edit, and it makes the vocabulary auditable in one place today.
 
-> **Corrected 2026-09-24 (AECI-1107).** The registry holds **eight** ids, not seven: AECI-963 added `product.usefulness.edit`. Only `analytics.view` is still declared with no consumer. `integration.version_diff` gained its consumer in AECI-304 (`canViewVersionDiff`, §3.3(c)). `attestation.author` gained its consumers in AECI-623: the three attestation writes and the three product-version writes call `requireCapability(c, 'attestation.author')` (§3.3(a)), and the portal's Integrations tab reads the same capability. So a vendor whose plan lapses loses confirming, denying and clearing data flows along with profile and product editing. The lapsed plan panel (§8) says so.
+> **Corrected 2026-09-24 (AECI-1107).** The registry holds **eight** ids, not seven: AECI-963 added `product.usefulness.edit`. Only `analytics.view` is still declared with no consumer. `integration.version_diff` gained its consumer in AECI-304 (`canViewVersionDiff`, §3.3(c)). `attestation.author` gained its consumers in AECI-623: the three attestation writes and the three product-version writes call `requireCapability(c, 'attestation.author')` (§3.3(a)), and the portal's Integrations tab reads the same capability. So a vendor whose plan lapses loses confirming, denying and clearing data flows along with profile and product editing (amended by §13.3, AECI-1214). The lapsed plan panel (§8) says so.
 
 The ladder is **binary at launch** — `unclaimed` (no active entitlement) vs `verified` (the paid entry fee). `STAGE_2_SPEC.md` §8.2's "tier ladder above the entry Verified fee" stays open as a *pricing* question; this structure makes answering it a data edit.
 
@@ -242,6 +244,8 @@ The ladder is **binary at launch** — `unclaimed` (no active entitlement) vs `v
 > **How that squares with an owner paying.** Decision 14 (§8.10(1)) says an owner pays, and a third-party owner holds a `verified` row (§8.10(2)). The payment is enforced at the **seat grant**, not at the route: who gets a seat is the commercial control, applied by the operator in `STAGE_2_VENDOR_PORTAL_SPEC.md` §5.2. The capabilities a `verified` row does gate are the ones in the list above. Two of them name integrations, and neither is an ownership action: `attestation.author` belongs to endpoint vendors (a third-party owner has no attestation seat on its own rows, `STAGE_2_SPEC.md` §8.4(2)), and `integration.version_diff` gates a read keyed on the pair's endpoint vendors (AECI-304). No capability gates claim, edit, retire, create, per-side links or contest.
 >
 > **Revisit trigger: when tiers differentiate.** While the ladder is binary (`unclaimed` / `verified`), a capability on integration routes would separate nothing a seat does not already separate. If a rung is added above `verified`, or a seated vendor can exist without a paid row and still own integrations it manages, reopen this. §8.10(6) names the second case: once AECI-1040 lifts decision 9, a free §8.9 seat could act on owned connector-powered rows, and closing that may need the first entitlement check on an integration ownership route.
+>
+> **Answered 2026-10-01 (AECI-1212):** see §13.5.
 >
 > **Reopened and ruled 2026-09-23 (AECI-1040, `STAGE_2_SPEC.md` §8.10(8)). Built for the claim (AECI-1089), the edit (AECI-1090), retire and restore (AECI-1091) and the contest decision (AECI-1092), all on the same helper.** The shared gate is `apps/api/src/lib/integration-entitlement.ts`: `requireActiveEntitlement(c)`, `hasActiveEntitlement(session)`, and `integrationEntitlementRequired(session)`, the one constructor of `403 INTEGRATION_ENTITLEMENT_REQUIRED` (`details: { tier, status }`, `API_CONTRACTS.md` §4). It reads the session's resolved `entitlementTier`, which `tierFor` makes paid only for a `status = 'active'` row, so it costs no read and fails closed on an unknown tier. It has its own code rather than `ENTITLEMENT_REQUIRED` because that code promises a `details.capability` this gate does not have. The first entitlement check on an integration ownership route is decided. An owner's claim, edit, retire and restore of a connector-powered row need an active entitlement: a `vendor_entitlements` row with `status = 'active'`. It is a named exception to decision 15. It is not a capability. There is still no `integration.edit`, and no tier is compared. Any active row passes. It covers those owner writes on connector-powered rows only, plus one more: an owner's **decision on a contest** over a connector-powered row, accept or decline, because that too is an owner write (`STAGE_2_VENDOR_PORTAL_SPEC.md` §11b.13, follow-up ruling 2). When an admin clears the entitlement through §5.1's `clear`, that vendor's open owner-routed contests on those rows fall back to the AECi admin queue; term expiry never clears it (§7). *Built for contests by AECI-1092:* the decision gate, and the fallback as a re-route inside the clear's own batch (§5 below, `STAGE_2_VENDOR_PORTAL_SPEC.md` §11b.13). Every other integration route, and every contest on a row that is not connector-powered, keeps the seat as its whole gate. A §8.9 seat has no entitlement row, so it fails the check. That closes §8.10(6) at write time, which an operator rule at seat grant could not do once ownership moves after the grant. No owner holds an active entitlement today (2026-09-23), so nobody can use these writes until one is opened.
 
@@ -280,6 +284,8 @@ for (const banned of ['verified', 'tier', 'entitlement', 'status', 'paid', 'plan
 
    Adding a plan-shaped input, or reading one without declaring it, fails the build. It is an invariant test like the other three.
 
+5. **No `listing_tier` input may need a plan to edit (added 2026-10-01, AECI-1212).** See §13.4. AECI-1214 adds the assertion.
+
 The other half of the firewall **already exists and must stay untouched**: `algolia.spec.ts` ~:242/:262/:274 freeze each entity's `customRanking` to its exact Stage-1 value, so any attempt to add a ranking signal fails there first. **`packages/shared/src/algolia.ts` `INDEX_SETTINGS` and those three assertions are out of bounds for this epic** — see `SEARCH_RANKING.md`.
 
 *(AECI-636 PR-B, 2026-09-22: the freeze was scoped to the AECI-515 epic. AECI-636 reopened it as a decision on 2026-08-23, not as test churn. `customRanking` is now `desc(listing_tier)`, `desc(review_count)` on products and `desc(listing_tier)` on vendors. The firewall also grew: `entitlements.spec.ts` now asserts that no entity's `customRanking` names a plan, entitlement or verified attribute. `listing_tier` is the one allowed name containing "tier", because the same spec proves its inputs are content only. See `SEARCH_RANKING.md` §1.)*
@@ -292,7 +298,7 @@ The other half of the firewall **already exists and must stay untouched**: `algo
 
 > **As built (AECI-623 — 2026-09-23).** `attestation.author` now has its consumers. The three attestation writes (`POST /api/vendor/claims`, `PUT` and `DELETE /api/vendor/claims/:claimId/attestation`) and the three product-version writes (`POST`, `PATCH`, `DELETE` under `/api/vendor/products/:id/versions`) call `requireCapability(c, 'attestation.author')` after authority or ownership settles. They answer `403 ENTITLEMENT_REQUIRED` where they used to answer `403 FORBIDDEN`. The placeholder they replaced, `assertVerifiedVendor`, read the `vendors.verified` mirror and is deleted. No authorization decision reads the mirror any more. On an attestation write the connector-powered edge check still runs first and still answers `FORBIDDEN` (`STAGE_2_ATTESTATIONS_SPEC.md` §5.2). The portal's Integrations write gate reads the same capability (§8.1).
 
-**(b) The vendor-editable column allow-list** — `VENDOR_COLUMN_MAP` / `PRODUCT_COLUMN_MAP` (`apps/api/src/routes/vendor.ts` ~:525-543, ~:605-611) go from `Record<string, string>` to `Record<string, { column: string; capability: Capability }>`, and `splitPatch` (~:390-403) gains the caller's tier. This extends the header invariant in `packages/shared/src/api/vendor.ts` from one axis to two: **Zod is the parse allow-list, the column map is the entitlement allow-list, and both must agree.** At launch every field maps to a capability `verified` holds, so behaviour is unchanged; adding a rung later is a data edit in two tables.
+**(b) The vendor-editable column allow-list** — `VENDOR_COLUMN_MAP` / `PRODUCT_COLUMN_MAP` (`apps/api/src/routes/vendor.ts` ~:525-543, ~:605-611) go from `Record<string, string>` to `Record<string, { column: string; capability: Capability }>`, and `splitPatch` (~:390-403) gains the caller's tier. This extends the header invariant in `packages/shared/src/api/vendor.ts` from one axis to two: **Zod is the parse allow-list, the column map is the entitlement allow-list, and both must agree.** At launch every field maps to a capability `verified` holds (amended by §13.3, AECI-1214), so behaviour is unchanged; adding a rung later is a data edit in two tables.
 
 **(c) The render path — deliberately asymmetric.**
 
@@ -657,6 +663,8 @@ The trick that keeps the shipped tests green: **the audit shape does not change 
 7. **`ClaimGrantSummarySchema`** gains `tier` and `entitlement_created: boolean`, both **required** so `validateResponseInDev` catches a construction site that forgets one (the web `ClaimQueue` ignores unknown keys).
 8. **New regression guard:** assert `grantSeatStatements` emits no statement touching `vendors`, so the sole-writer invariant cannot silently regress.
 
+> **Amended 2026-10-01 by §13.6 (AECI-1212).** `approveClaim` will take an explicit Free or Managed choice, and Free grants the seat with no entitlement row. AECI-1215 changes the code.
+
 
 ### 6.1 As built (AECI-612 — 2026-08-18)
 
@@ -728,6 +736,8 @@ Replace `apps/web/src/app/vendor/components/vendor-verified-status.ts` — whose
 - **Build it preview-first** (`apps/web/src/app/preview/vendor-dashboard/`, the AECI-270 → AECI-522 house pattern) with fixtures for all three states, so the downgraded state gets PO sign-off before the gated route is wired.
 - Run the `CLAUDE.md` design checklist: Anchor-Site Rule (the anchor is the existing `/vendor` dashboard — it must read as a sibling), `impeccable detect` clean, axe pass, i18n `@@` ids on every string. **Light theme only.**
 
+> **Extended 2026-10-01 (AECI-1212).** The Free plan, the per-product plan panel and the pilot-ended banner are governed by §13 here and `STAGE_2_VENDOR_PORTAL_SPEC.md` §6.18.
+
 ### 8.1 As built (AECI-614 — 2026-08-19)
 
 `vendor-plan-panel.ts` replaces `vendor-verified-status.ts`, which is **deleted** — resolving the `STAGE_2_VENDOR_PORTAL_SPEC.md` §6.1 hand-off that named this issue. It reads the `entitlement` block on `GET /api/vendor/me`; no new endpoint, no new query.
@@ -739,7 +749,7 @@ Replace `apps/web/src/app/vendor/components/vendor-verified-status.ts` — whose
 | `active` | `status: 'active'`, known tier, term far off or absent | Quiet. The real badge, the term, the framing sentence. |
 | `expiring` | as above, `period_end` within `EXPIRY_WARNING_DAYS` | "Ends in N days", a renewal path. **Still verified** — nothing has been taken away yet, and the copy says so. |
 | `pending` | `status: 'pending'` | Arranged, not yet switched on. |
-| `lapsed` | `expired` / `revoked` (and the fail-closed drift case below) | A **loss to acknowledge**. Leads with what the vendor KEEPS, names what is paused (the account label, profile and product editing, and confirming, denying or clearing data flows), offers a renewal path. |
+| `lapsed` | `expired` / `revoked` (and the fail-closed drift case below) | A **loss to acknowledge**. Leads with what the vendor KEEPS, names what is paused (the account label, profile and product editing, and confirming, denying or clearing data flows), offers a renewal path (amended by §13.3, AECI-1214). |
 | `none` | `status: null` — no entitlement row at all | An **invitation**, not a loss. |
 
 `null` vs `expired` is the distinction that earned two panels: never-arranged and lapsed are materially different conversations, and rendering a loss-acknowledgement at someone who never bought anything is the wrong message. §4 made that distinction available on the wire.
@@ -850,6 +860,182 @@ Plus, per issue: the second-seat no-op matrix (§2.3) against the in-memory D1 h
 | Invariant tests, and what makes one | `TESTING_STRATEGY.md` §3.6 (§10) |
 | The operator console the §5.6 surface joins (IA, nav, the no-live-updates rule) | `ADMIN_PANEL_SPEC.md` §5, §9 (§5.6) |
 | `audit_log` shape + the indexes the §5.6 viewer reads | `DATABASE_SCHEMA.md` §8.4 — **unchanged by AECI-652**; every read is served by an existing index |
+
+---
+
+## 13. Free plan (AECI-1212)
+
+**Status: specified 2026-10-01 by AECI-1213. Not built.** The sub-issues in §13.12 build it. Older text in §3 to §8 still describes the code until each sub-issue ships. Where that text will become false, it carries an "amended by §13.x" marker.
+
+The portal surfaces are in `STAGE_2_VENDOR_PORTAL_SPEC.md` §6.18. The decision record is ADR 0037. The Stage 2.1 admission is `STAGE_2_1_SPEC.md` §3.3.3.
+
+### 13.1 Decisions 2026-10-01
+
+Chris made these ten decisions on 2026-10-01 in epic AECI-1212. They are quoted from the epic.
+
+1. There is a deliberate **Free plan** state of the existing portal. It is not a separate portal.
+2. **Plans and checklists live at the product level.** The vendor dashboard shows only a one-line plan summary. The Products list shows a plan badge and a checklist score on each row. Each product page has its own plan panel and checklist.
+3. **Company details are editable on every plan.**
+4. **Product description, website, logo and categories are editable on every plan.** They feed `listing_tier`, so keeping them paid let payment raise ranking. These stay Managed-only: "How teams use it", the integrations page URL, the API docs URL, trades, audiences, phases, data-flow confirm or deny, integrations delivered through a connector, and the "Active on AECi" label.
+5. **The checklist has two levels.** Vendor level: check company details, finish each product checklist, and invite a colleague. The invite step is optional. Product level: check product details, check the integration list, claim integrations or say which are not yours, and confirm data flows.
+6. **The checklist is finishable on Free.** On a Free product the data-flows step is visible but optional. A Free product therefore reads "3 of 3". On Managed the step counts, so it reads "x of 4".
+7. **"Looks right" is a free action on every plan.** It applies to company details, each product, and each product's integration list. It writes an audit row and stamps `last_reviewed_at`. That column already drives the public "Vendor maintained · Updated <date>" chip in `maintenance-marker.ts`. Edit schemas reject an empty save today. So "Looks right" is the only way to record "checked, nothing to change".
+8. **Pilot end lands the vendor on the Free plan.** A calm banner lists what still works and what went read-only. Nothing the vendor entered is removed.
+9. **The portal shows nothing beyond Managed for now.** Managed shows a draft price label.
+10. **Each plan panel says:** "No plan changes where you rank or appear, whether a review is published, or what we verify."
+
+Two later rulings closed the epic's open questions. Both are comments on AECI-1212.
+
+- **Ruled 2026-10-01: data-flow confirmation stays a Managed feature.** "It is not planned to become free. A Free plan includes only the most basic product information."
+- **Ruled 2026-10-01: screens first (option A).** "The per-product screens ship before per-product plans exist in the database." Every product-scoped response carries "this product's plan". Until per-product plans land, the server fills it with the vendor's plan for every product. §13.7 governs.
+
+### 13.2 Plan model
+
+- "Free" is the existing `unclaimed` tier. It is renamed in copy only.
+- `TIERS` stays `['unclaimed', 'verified']`. There is no `free` tier id. So there is no migration and no change to the §3.2 firewall vocabulary.
+- "Managed" is the copy name for the `verified` tier.
+- A lapsed plan resolves to Free. `tierFor` already maps `expired` and `revoked` to `unclaimed`. That is decision 8.
+- Free is never a `vendor_entitlements` row. A seat with no row is on Free. `PAID_TIERS` stays `['verified']`.
+
+### 13.3 Registry split
+
+Two capability ids are added. `unclaimed` stops being empty.
+
+| Capability | Fields | Tier |
+|---|---|---|
+| `profile.edit` | all company details | moves to `unclaimed`, so every seat holds it |
+| `product.listing.edit`, new | description, website, logo | `unclaimed`, so every seat holds it |
+| `product.categories.edit`, new | `category_slugs` | `unclaimed`, so every seat holds it |
+| `product.edit` | integrations page URL, API docs URL | `verified` |
+| `product.taxonomy.edit` | trades, audiences, phases | `verified` |
+| `product.usefulness.edit`, `attestation.author`, and the rest | unchanged | `verified` |
+
+`verified` keeps every capability. Existing ids keep their names, so audit rows and the shipped UI keep their meaning. Neither new id contains a word from `PLAN_SHAPED` in `entitlements.spec.ts`.
+
+What changes in code, all in AECI-1214:
+
+- `PATCH /api/vendor/products/:id` drops its route-level `requireCapability(c, 'product.edit')`. Each field is gated through `PRODUCT_COLUMN_MAP` and `splitPatch()`. A request naming any field the caller cannot edit is still refused whole.
+- The facet gate splits. `category_slugs` checks `product.categories.edit`. Trades, audiences and phases keep `product.taxonomy.edit`.
+- The logo upload route gates on `product.listing.edit` or `profile.edit`. Today it checks `product.edit` and falls back to `profile.edit`.
+- The frozen-vocabulary test grows from eight ids to ten.
+- The `PAID_TIERS` test derives "tiers that hold a capability" today. With `unclaimed` non-empty that derivation would include it. The test must exclude `unclaimed` by name instead.
+
+### 13.4 Firewall rule
+
+**No `listing_tier` input may need a plan to edit.** This joins §3.2 as a fifth assertion in `entitlements.spec.ts`. The test maps each `listing_tier` input to the capability its column map names. It then checks that capability is in `TIER_CAPABILITIES.unclaimed`.
+
+| Input list | Input | Capability |
+|---|---|---|
+| `PRODUCT_LISTING_TIER_INPUTS` | `name` | not vendor-editable, listed as such |
+| | `description`, `website`, `logo_url` | `product.listing.edit` |
+| | `categories` | `product.categories.edit` |
+| `VENDOR_LISTING_TIER_INPUTS` | `company_name` | not vendor-editable, listed as such |
+| | `description`, `headquarters`, `website`, `logo_url` | `profile.edit` |
+
+Payment can then no longer raise a product's rank through the edit path. That is the leak decision 4 closes.
+
+### 13.5 The §3.1 revisit trigger, answered
+
+§3.1 said to reopen the integration-capability question if "a seated vendor can exist without a paid row and still own integrations it manages". That now exists by design. A seat with no plan owns integrations through the seat-gated routes. Connector-powered rows keep their named entitlement exception from AECI-1040. No integration capability is added.
+
+### 13.6 Claim approval with no plan
+
+This amends §6. AECI-1215 builds it.
+
+- The operator must choose Free or Managed. There is no default. The approve button stays disabled until a choice is made.
+- The approve request gains a required `plan: 'free' | 'managed'`.
+- **Free** writes the seat only. It reuses `grantSeatStatements` alone. No entitlement row is written. `vendors.verified` stays false. The audit row is `vendor_claim.granted` with `metadata.plan = 'free'`.
+- **Managed** is today's path, with `metadata.plan = 'managed'`.
+- The approval email has a Free variant and a Managed variant.
+
+Today `approveClaim` hardcodes `GRANT_TIER = 'verified'` at `apps/api/src/routes/admin-claims.ts:178`. The provision-seat path already writes a seat with no plan. That is `provisionSeatStatements` at `apps/api/src/lib/vendor-grant.ts:493`.
+
+### 13.7 Per-product plan field
+
+This implements the option A ruling. AECI-1214 builds it, because it already changes `vendorCan`.
+
+- `VendorProductSchema` gains `plan: VendorEntitlementBlock`.
+- Until a `product_plans` table exists, the server copies the vendor's block into every product.
+- The web gets `productCan(product, cap)`. Product screens use it. They never read `me().entitlement` directly.
+- Server enforcement stays vendor-wide. The field and the gate read the same block, so they cannot disagree.
+
+When per-product plans land, only the server's source for this field changes. `VENDOR_PLAN_DATA_READINESS.md` §4 holds that schema work.
+
+### 13.8 "Looks right"
+
+Three routes. Each is seat-only. Each registers `requireVendor()` then `rateLimit('write')`. The `write` binding already exists in all five env blocks. AECI-1216 builds them.
+
+| Route | Stamps | Audit action | Purge tags |
+|---|---|---|---|
+| `POST /api/vendor/profile/review` | `vendors.last_reviewed_at`, `maintained_by = 'vendor'` | `vendor.reviewed` | `vendor:{slug}` |
+| `POST /api/vendor/products/:id/review` | the same columns on `products` | `product.reviewed` | `productEditTags()` |
+| `POST /api/vendor/products/:id/integrations/review` | see §13.9 | `product.integrations_reviewed` | `product:{slug}` and each stamped `integration:` tag |
+
+- Company and product transfer maintenance exactly as an edit does. That is `STAGE_2_ATTESTATIONS_SPEC.md` §13.9.
+- Each audit row goes in the same `db.batch` as the stamp, built with `auditInsert`.
+- The post-commit forward goes through `afterVendorWrite`.
+- There is no IndexNow recrawl, because no content changed. That keeps these routes clear of AECI-1186.
+- The two product routes check ownership first. A product the vendor does not own answers 404.
+
+Every pair page embeds both of its products, so the `product:{slug}` tag also purges the pair pages that show a stamped integration's chip.
+
+### 13.9 Integration-list stamp scope
+
+The third route stamps only rows this vendor already maintains.
+
+- It stamps `integrations` and `connector_evidenced_pairs` rows touching the product where `maintained_by = 'vendor'` and `built_by_vendor_id` is the session vendor.
+- It never stamps a row AECi maintains or another vendor's row. So maintenance never moves through this route. `STAGE_2_ATTESTATIONS_SPEC.md` §13.9 is the rule it keeps.
+- It runs one set-based `UPDATE` per table and writes one audit row keyed to the product. The stamped ids go in the audit metadata.
+- It also stamps a new `products.integrations_reviewed_at` column. So the checklist step completes even when the vendor maintains zero rows.
+
+That column is the epic's only migration. It is an additive `ADD COLUMN` with no table recreate. `docs/migrations.md` §0 says why a recreate is unsafe.
+
+### 13.10 Checklist steps
+
+Every step derives from existing records plus the §13.9 column. There is no progress table. AECI-1217 serves them.
+
+| Level | Step | Done when | Counts on |
+|---|---|---|---|
+| Vendor | Check company details | `vendors.maintained_by = 'vendor'` and `last_reviewed_at` is set | all plans |
+| Vendor | Finish each product checklist | every owned product is complete | all plans |
+| Vendor | Invite a colleague | a second seat exists, or any `vendor_seat_invites` row | optional |
+| Product | Check product details | `products.maintained_by = 'vendor'` and `last_reviewed_at` is set | all plans |
+| Product | Check the integration list | `products.integrations_reviewed_at` is set | all plans |
+| Product | Claim or say "not ours" | no seeded row naming this vendor as builder is unclaimed without an owner contest | all plans |
+| Product | Confirm data flows | every claim on the product's integrations has a non-retracted attestation by this vendor | counts on Managed, optional on Free |
+
+The score rule:
+
+- A Free product reads "3 of 3". The data-flows step shows but does not count.
+- A Managed product reads "x of 4".
+- A step with nothing to do counts as done.
+- "Ever checked" is enough. Staleness is out of scope.
+
+The two reads are `GET /api/vendor/checklist` and `GET /api/vendor/products/:id/checklist`. They are batched, with no per-product round trip. They are reads, so they are never rate-limited.
+
+### 13.11 Pilot-ended banner
+
+The banner shows when the vendor's entitlement `status` is `expired` or `revoked`. It never shows when the entitlement is `null`.
+
+That is how the portal tells "pilot ended" from "never had a plan". The session already keeps the two apart. `entitlement: null` means no row. `{ status: 'expired' | 'revoked' }` means a row that ended. On the wire, `VendorEntitlementBlock.status` is `null` for no row. §8.1's `lapsed` and `none` panel states use the same split.
+
+- `VendorEntitlementBlockSchema` gains `ended_at` for the banner's date line.
+- The banner is not dismissible, because it states the current state.
+- It lists what still works and what went read-only. It says "nothing you entered was removed".
+
+Today only an admin Clear ends a plan, and it records `revoked`. `VENDOR_PLAN_DATA_READINESS.md` §2 item 21 records that. The banner shows for `expired` too, so a later expiry path needs no copy change.
+
+### 13.12 Sub-issue map
+
+| Issue | Scope | Governed by |
+|---|---|---|
+| AECI-1213 | This section, `STAGE_2_VENDOR_PORTAL_SPEC.md` §6.18, ADR 0037, `STAGE_2_1_SPEC.md` §3.3.3 | §13.1 |
+| AECI-1214 | Seat-level edit of company details and the four `listing_tier` fields, plus the per-product `plan` field | §13.3, §13.4, §13.5, §13.7 |
+| AECI-1215 | Claim approval with no plan | §13.6 |
+| AECI-1216 | The three "Looks right" routes and the one migration | §13.8, §13.9 |
+| AECI-1217 | The checklist API | §13.10 |
+| AECI-1218 | The portal UI | §13.11 and `STAGE_2_VENDOR_PORTAL_SPEC.md` §6.18 |
+| AECI-1219 | The vendor help center page | §13.1, §13.2 and `STAGE_2_VENDOR_PORTAL_SPEC.md` §6.18 |
 
 ---
 
