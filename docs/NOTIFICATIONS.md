@@ -165,7 +165,7 @@ not control that fan-out.
 | `linear-request-issue` | Files a Linear issue for a vendor claim or correction. | operator | route: POST /api/requests/{claim,correction} (routes/requests.ts); retried by lib/reconciliation-sweep.ts | `any-tier` | Read-guard on the linked issue id, then a compare-and-set persist. | `linear-issue-id` | `none` | docs/STAGE_1_PHASE_6_SPEC.md §6.1 | LINEAR_API_KEY is set on production only, so staging and demo file no issues. |
 | `linear-request-resolution` | Moves a request's Linear issue to Done or Canceled and comments the reason. | operator | route: PATCH /api/admin/requests/:id (routes/admin-requests.ts) | `any-tier` | None. Each resolve or reject pushes once. | `none` | `none` | docs/STAGE_1_PHASE_6_SPEC.md §6.5 | The site-linear-sync workflow_transitions row records the sync, not a send. Production only: other tiers have no linked issue to move. |
 
-## Monitoring alerts (not product notifications, 15)
+## Monitoring alerts (not product notifications, 18)
 
 These PostHog alerts tell the operator about the system, not a person about an event in
 the product, so they are not registry entries. They are defined in
@@ -180,6 +180,9 @@ governs them.
 | `cron-job-failed` | AECi — Cron job failed (any daily/hourly job) | hourly |
 | `data-quality-error` | AECi — Data quality check found ERROR-severity issues | hourly |
 | `detail-render-p95` | AECi — p95 detail page render > 1.5 s (1 h) | hourly |
+| `email-failure-rate` | AECi — Emails failing to send (> 20% over 24 h, at least 2 failed) | daily |
+| `email-suppressed-in-production` | AECi — Live site held back an email (any, 1 h) | hourly |
+| `email-volume-spike` | AECi — Far more emails than usual (> 50 in 24 h) | daily |
 | `indexnow-failure-rate` | AECi — Search-engine pings refused (> 90% over 72 h) | daily |
 | `linear-pipeline-failure` | AECi — Linear pipeline failure rate > 50% (1 h) | hourly |
 | `pageviews-write-errors` | AECi — page_views write error rate > 10% (1 h) | hourly |

@@ -97,6 +97,9 @@ decision record; no separate ADR.
   **PostHog** (ADR 0024; the Datadog leg was removed at AECI-651). Whichever
   console you are in, the query is the same shape: the `aeci.email.send` count broken
   down by `outcome` and `template`.
+  **Alerts (AECI-1206):** `email-failure-rate`, `email-volume-spike` and
+  `email-suppressed-in-production` watch this metric in production. Thresholds and their
+  basis are in `docs/OBSERVABILITY.md` §Alerts.
 - **Recipient emails** for reviewers come from `fetchAuthUserEmails()`
   (`lib/supabase-admin.ts`, the GoTrue Admin API) — D1 has no `auth.users` (ADR
   0016). The submission email uses the verified `session.email` directly; the

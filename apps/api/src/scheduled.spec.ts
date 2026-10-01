@@ -334,6 +334,16 @@ describe('scheduled (cron producer)', () => {
       1,
       ['outcome:skipped'],
     );
+    // The shared email metric carries the digest's registry id as its template tag, so
+    // the AECI-1206 email insight and alerts see the digest like any other send.
+    expect(submitCount).toHaveBeenCalledWith(
+      ctx,
+      expect.anything(),
+      expect.anything(),
+      'aeci.email.send',
+      1,
+      ['outcome:skipped', 'template:digest-data-quality'],
+    );
   });
 
   it('enqueues the attestation-notify job onto its own queue (AECI-302)', async () => {
@@ -593,6 +603,15 @@ describe('scheduled (cron producer)', () => {
       'aeci.analytics_digest.email',
       1,
       ['outcome:skipped'],
+    );
+    // Same template tag contract as the data-quality digest (AECI-1206).
+    expect(submitCount).toHaveBeenCalledWith(
+      ctx,
+      expect.anything(),
+      expect.anything(),
+      'aeci.email.send',
+      1,
+      ['outcome:skipped', 'template:digest-analytics'],
     );
   });
 });

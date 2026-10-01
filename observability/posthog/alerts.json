@@ -1,7 +1,7 @@
 {
   "_readme": [
     "AECI-647 / PH-6 — docs/POSTHOG_MIGRATION_SPEC.md §AW6 + §5.",
-    "The 15 PostHog alerts, as data. Each carries the RETIRED DATADOG QUERY VERBATIM in",
+    "The 18 PostHog alerts, as data. Each carries the RETIRED DATADOG QUERY VERBATIM in",
     "`replaces`, so re-promoting or re-tuning one is a config change and not archaeology.",
     "",
     "`insightKey` names the source insight by its STABLE KEY in insights.json, never by its",
@@ -448,6 +448,98 @@
         "_note": "NEW with AECI-1099, no Datadog predecessor. aeci.auth.profile_ensure shipped in AECI-770. Any outcome:failed is a user left with no profiles row, and a vendor with no profiles row cannot be seated."
       },
       "runbook": "docs/RUNBOOKS.md — 'Account record could not be created at sign-in'."
+    },
+    {
+      "key": "email-failure-rate",
+      "name": "AECi — Emails failing to send (> 20% over 24 h, at least 2 failed)",
+      "insightKey": "alert-email-failure-rate",
+      "enabled": true,
+      "calculationInterval": "daily",
+      "_calculationIntervalNote": "Daily, not the hourly default. The window is 24 h, so an hourly check would re-read the same day 24 times and email on each firing check. Mail volume is two to four a day, so a shorter window would hold nothing to judge.",
+      "condition": {
+        "type": "absolute_value"
+      },
+      "threshold": {
+        "configuration": {
+          "type": "absolute",
+          "bounds": {
+            "upper": 20
+          }
+        }
+      },
+      "config": {
+        "type": "HogQLAlertConfig",
+        "evaluation": "last_row",
+        "column": "failure_rate_pct",
+        "label_column": "sample"
+      },
+      "replaces": {
+        "datadogMonitor": null,
+        "datadogQuery": null,
+        "_note": "NEW with AECI-1206, no Datadog predecessor. aeci.email.send shipped with AECI-240 and was never alerted on. Threshold basis, production project 354071, 30 days to 2026-10-01: 6 sends, 0 failed, daily max 2, hourly max 1. Rate = failed / (sent + failed); skipped, duplicate and suppressed made no Resend call and count on neither side. Two failures are needed before a rate is reported, so one failed send on a quiet day reads 0. A total outage still fires the same day: the two operator digests fail, 2 of 2 = 100%."
+      },
+      "runbook": "docs/email.md (Resend transport, domain verification, secrets); docs/NOTIFICATIONS.md for what each template is."
+    },
+    {
+      "key": "email-volume-spike",
+      "name": "AECi — Far more emails than usual (> 50 in 24 h)",
+      "insightKey": "alert-email-volume-spike",
+      "enabled": true,
+      "calculationInterval": "daily",
+      "_calculationIntervalNote": "Daily, matching the 24 h window, for the same reason as email-failure-rate.",
+      "condition": {
+        "type": "absolute_value"
+      },
+      "threshold": {
+        "configuration": {
+          "type": "absolute",
+          "bounds": {
+            "upper": 50
+          }
+        }
+      },
+      "config": {
+        "type": "HogQLAlertConfig",
+        "evaluation": "last_row",
+        "column": "emails_24h",
+        "label_column": "sample"
+      },
+      "replaces": {
+        "datadogMonitor": null,
+        "datadogQuery": null,
+        "_note": "NEW with AECI-1206, no Datadog predecessor. Counts sent + failed, the sends that reached Resend. Threshold basis, production 30 days to 2026-10-01: 6 sends in total, daily p50 0, p95 2, max 2. The AECI-1199 digest tags add about 2 a day, so an expected day is 2 to 4. attestation-digest adds one per unmuted vendor_admin seat per day and no seats are granted yet. 50 is over ten times the busiest expected day and leaves room for about 40 seats. Revisit when seats are granted."
+      },
+      "runbook": "docs/NOTIFICATIONS.md names each template's sender; the email-sends-by-template tile shows which one burst."
+    },
+    {
+      "key": "email-suppressed-in-production",
+      "name": "AECi — Live site held back an email (any, 1 h)",
+      "insightKey": "alert-email-suppressed",
+      "enabled": true,
+      "calculationInterval": "hourly",
+      "condition": {
+        "type": "absolute_value"
+      },
+      "threshold": {
+        "configuration": {
+          "type": "absolute",
+          "bounds": {
+            "upper": 0
+          }
+        }
+      },
+      "config": {
+        "type": "HogQLAlertConfig",
+        "evaluation": "last_row",
+        "column": "suppressed_sends",
+        "label_column": "templates"
+      },
+      "replaces": {
+        "datadogMonitor": null,
+        "datadogQuery": null,
+        "_note": "NEW with AECI-1206, no Datadog predecessor. outcome:suppressed is the AECI-1198 tier delivery gate refusing an outside recipient. The gate applies to non-production tiers only, and only production reports to this project, so any count means the gate misread the tier and a real recipient got nothing. Production had never emitted the outcome as of 2026-10-01; it did not exist before this epic."
+      },
+      "runbook": "docs/email.md §Tier delivery policy."
     }
   ]
 }

@@ -106,6 +106,11 @@ inside it. Runbook: [IndexNow submissions refused](#indexnow-submissions-refused
 same reason.** It watches `aeci.auth.profile_ensure` failures, a metric AECI-770 added.
 Runbook: [Account record could not be created at sign-in](#account-record-could-not-be-created-at-sign-in).
 
+**Three email alerts (AECI-1206) sit outside the table too**: `email-failure-rate`,
+`email-volume-spike` and `email-suppressed-in-production`. They watch `aeci.email.send`.
+Thresholds and their basis: `observability/posthog/README.md`. First look:
+`docs/email.md` for the transport, `docs/NOTIFICATIONS.md` for what each template is.
+
 ### The combined cron-failure alert — where the detail is
 
 Rows 2, 3, 4 and 6 above are **one** PostHog alert:
