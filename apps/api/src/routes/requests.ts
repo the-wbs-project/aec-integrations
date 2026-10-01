@@ -315,7 +315,8 @@ async function createRequest(
     message:
       kind === 'claim'
         ? 'Your claim has been received. We will review it and follow up by email.'
-        : 'Your correction has been received. We will review it and follow up by email.',
+        : // AECI-1205: no correction email exists, so this no longer promises one.
+          'Your correction has been received. We will review it and update the listing if it needs a change.',
   };
   return json(body, { status: 201 });
 }

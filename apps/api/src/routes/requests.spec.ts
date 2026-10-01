@@ -140,6 +140,12 @@ describe('POST /api/requests/correction', () => {
     expect(res.status).toBe(201);
     const { request_id, row } = await createdRow(res);
     expect(request_id).toMatch(/^[0-9a-f-]{36}$/i);
+    // AECI-1205: no correction email exists, so the message must not promise one.
+    const { message } = (await res.clone().json()) as { message: string };
+    expect(message).toBe(
+      'Your correction has been received. We will review it and update the listing if it needs a change.',
+    );
+    expect(message).not.toMatch(/email/i);
 
     expect(row).toMatchObject({
       kind: 'correction',

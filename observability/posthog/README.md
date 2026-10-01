@@ -9,7 +9,7 @@ change it here first and carry the edit across; keep the table clean and liftabl
 
 | File | What it is |
 |---|---|
-| `project-config.json` | Topology (both projects, hosts, alert subscribers) + the fifteen-cron **liveness registry** the CI sweep reads. |
+| `project-config.json` | Topology (both projects, hosts, alert subscribers) + the sixteen-cron **liveness registry** the CI sweep reads. |
 | `insights.json` | 7 dashboards, 46 insights (31 board + 15 alert-source), as data. Names and descriptions are written for a **reader**, not for an archaeologist — see "Naming and descriptions". |
 | `alerts.json` | 15 PostHog alerts. Each names its source insight by **stable key** (`insightKey`, never by title) and carries the **retired Datadog query verbatim**. |
 | `apply.sh` | Thin applier over the three JSON files. Dashboards + insights to both projects, alerts to prod only. |
@@ -94,7 +94,8 @@ Two deliberate widenings ride along:
    entitlement-expiry, indexnow-drain, claim-stale-check, waf-poll and the per-key half of
    home-stats were previously unwatched — several shipped after the Datadog monitors were
    written, and `indexnow-drain` and `claim-stale-check` did not exist until AECI-826 and
-   AECI-862). Three of the fifteen crons are absent from that query on purpose:
+   AECI-862). AECI-1205 added `protest-reply-reminder`, so the query now sums fourteen
+   metrics. Three of the sixteen crons are absent from that query on purpose:
    `moderation-snapshot`, `algolia-drift` and `request-reconcile` heartbeat on a GAUGE with no
    `outcome` tag, so there is nothing to sum. `indexnow-drain` was missing until AECI-864 —
    AECI-826 wired its liveness heartbeat but not its failure half. Only its local faults

@@ -101,10 +101,10 @@ const cron = (body: AdminSystemResponse, job: string) =>
   body.crons.find((r) => r.job === job) ?? expect.fail(`no cron row for ${job}`);
 
 describe('GET /api/admin/system — cron liveness never reports a passing state', () => {
-  it('returns all fifteen crons as `unknown` on an empty database', async () => {
+  it('returns all sixteen crons as `unknown` on an empty database', async () => {
     const body = await system();
 
-    expect(body.crons).toHaveLength(15);
+    expect(body.crons).toHaveLength(16);
     expect(body.crons.map((r) => r.job)).toEqual([
       'metrics-snapshot',
       'asn-registry',
@@ -117,6 +117,7 @@ describe('GET /api/admin/system — cron liveness never reports a passing state'
       'algolia-drift',
       'attestation-notify',
       'entitlement-expiry',
+      'protest-reply-reminder',
       'request-reconcile',
       'waf-poll',
       'indexnow-drain',
@@ -155,7 +156,7 @@ describe('GET /api/admin/system — cron liveness never reports a passing state'
     const note = body.notes.find((n) => n.code === 'cron_liveness_unavailable');
     expect(note).toBeDefined();
     expect(note?.severity).toBe('warn');
-    expect(note?.params).toEqual({ unknown: 15, total: 15 });
+    expect(note?.params).toEqual({ unknown: 16, total: 16 });
   });
 
   it('derives home-stats + algolia-sync from D1 once their artifacts exist, and leaves the other thirteen unknown', async () => {
@@ -197,14 +198,15 @@ describe('GET /api/admin/system — cron liveness never reports a passing state'
       'algolia-drift',
       'attestation-notify',
       'entitlement-expiry',
+      'protest-reply-reminder',
       'request-reconcile',
       'waf-poll',
       'indexnow-drain',
       'claim-stale-check',
     ]);
     expect(body.notes.find((n) => n.code === 'cron_liveness_unavailable')?.params).toEqual({
-      unknown: 13,
-      total: 15,
+      unknown: 14,
+      total: 16,
     });
   });
 

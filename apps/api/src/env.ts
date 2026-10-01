@@ -76,7 +76,10 @@ export type ScheduledJob =
   | 'entitlement_expiry'
   | 'asn_registry'
   | 'indexnow_drain'
-  | 'claim_stale_check';
+  | 'claim_stale_check'
+  // AECI-1205: the daily 12:00 UTC protest reply reminder. Queue-less, like
+  // `entitlement_expiry`: the `notification_sends` dedupe key is its fence.
+  | 'protest_reply_reminder';
 
 /**
  * Body of a message on a scheduled-job queue. Producer: the cron `scheduled()`

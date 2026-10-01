@@ -30,6 +30,11 @@ import {
   sendClaimRejectedEmail,
   sendClaimSubmittedNotification,
   sendContestSubmittedNotification,
+  sendContestDeclinedProtestWindowEmail,
+  sendContestProtestOpenedEmail,
+  sendContestProtestReplyReminderEmail,
+  sendProtestSubmittedAlert,
+  formatDeadline,
   sendEmail,
   sendEntitlementExpiringAdminEmail,
   sendEntitlementExpiringEmail,
@@ -570,6 +575,32 @@ describe('sendAccountDeletionEmail', () => {
 });
 
 describe('sendMailingListWelcomeEmail', () => {
+  it('promises no future mail: no new-tools line, and the footer names the list (AECI-1205)', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
+    await sendMailingListWelcomeEmail(fakeContext(), { to: 'sub@example.com' });
+    const text = String(lastBody(fetchSpy).text);
+    // No PUBLIC_SITE_URL: the fallback used to read "We'll also email you as new
+    // tools and reviews land in the directory." No newsletter sender exists.
+    expect(text).not.toContain('new tools and reviews land');
+    expect(text).not.toContain('stop these updates');
+    expect(text).toContain('The best next step is to browse the directory');
+    expect(text).toContain(
+      'You are on the AEC Integrations mailing list. To leave it, email unsubscribe@aecintegrations.com with the subject unsubscribe.',
+    );
+
+    await sendMailingListWelcomeEmail(
+      fakeContext({ PUBLIC_SITE_URL: 'https://aecintegrations.com' }),
+      { to: 'sub@example.com', token: 'tok-123' },
+    );
+    const body = lastBody(fetchSpy);
+    expect(String(body.text)).toContain(
+      'You are on the AEC Integrations mailing list. To leave it, unsubscribe here: https://aecintegrations.com/unsubscribe?token=tok-123',
+    );
+    expect(String(body.html)).toContain(
+      'You are on the AEC Integrations mailing list. To leave it,',
+    );
+  });
+
   it('welcomes the subscriber, links the directory, and carries the tokenized one-click unsubscribe (AECI-537)', async () => {
     const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
     const outcome = await sendMailingListWelcomeEmail(
@@ -2289,5 +2320,197 @@ describe('sendEmail tier delivery policy (AECI-1198)', () => {
     const body = bodyOf(fetchImpl);
     expect(body.to).toEqual(['a@x.com', 'b@x.com']);
     expect(body.subject).toBe('subj');
+  });
+});
+
+describe('protest and decline emails (AECI-1205)', () => {
+  const SITE = {
+    CLAIM_ALERT_EMAIL: 'support@aecintegrations.com',
+    PUBLIC_SITE_URL: 'https://www.aecintegrations.com',
+  };
+  const FACTS = {
+    contestId: 'contest-9',
+    integrationName: 'Revit for MicroStation',
+    field: 'mechanism_kind',
+    currentValue: 'native',
+    proposedValue: 'plugin',
+    pairSlugs: ['revit', 'microstation'] as const,
+  };
+  const OWNER_SEAT = {
+    to: 'sam@bentley.com',
+    vendorId: 'v-b',
+    vendorSlug: 'bentley',
+    vendorName: 'Bentley',
+  };
+  const DUE = '2026-09-03T14:30:00.000Z';
+
+  it('formats a deadline with its time of day in UTC', () => {
+    expect(formatDeadline(DUE)).toBe('Sep 3, 2026, 2:30 PM UTC');
+    expect(formatDeadline('not a date')).toBe('not a date');
+  });
+
+  it('contest-protest-opened tells the owner what was protested and when the reply closes', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
+    const outcome = await sendContestProtestOpenedEmail(fakeContext(SITE), {
+      ...FACTS,
+      ...OWNER_SEAT,
+      submitterVendorName: 'Autodesk <Inc>',
+      basis: 'declined',
+      protestReason: 'The docs say plugin.',
+      replyDueAt: DUE,
+      dedupeKey: 'k1',
+    });
+    expect(outcome).toBe('sent');
+    const body = lastBody(fetchSpy);
+    expect(body.to).toBe('sam@bentley.com');
+    expect(body.subject).toBe(
+      'Reply by Sep 3, 2026, 2:30 PM UTC: review requested on Revit for MicroStation',
+    );
+    const text = String(body.text);
+    expect(text).toContain('Field: integration type');
+    expect(text).toContain('Value on record: native');
+    expect(text).toContain('Proposed value: plugin');
+    expect(text).toContain('Their reason: The docs say plugin.');
+    expect(text).toContain('Reply by: Sep 3, 2026, 2:30 PM UTC');
+    expect(text).toContain('Its view is advice');
+    expect(text).toContain(
+      'Reply in Messages: https://www.aecintegrations.com/vendor/bentley/messages',
+    );
+    expect(text).toContain(
+      'Pair page: https://www.aecintegrations.com/products/microstation/integrations/revit',
+    );
+    expect(String(body.html)).toContain('Autodesk &lt;Inc&gt;');
+    expect(String(body.html)).not.toContain('Autodesk <Inc>');
+    expect(text).not.toContain('—');
+    expect(sendTags()).toContainEqual(['outcome:sent', 'template:contest-protest-opened']);
+  });
+
+  it('contest-protest-opened names the silence basis', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
+    await sendContestProtestOpenedEmail(fakeContext(SITE), {
+      ...FACTS,
+      ...OWNER_SEAT,
+      submitterVendorName: 'Autodesk',
+      basis: 'silence',
+      protestReason: 'No answer.',
+      replyDueAt: DUE,
+      dedupeKey: 'k2',
+    });
+    expect(String(lastBody(fetchSpy).text)).toContain('Bentley did not answer within 30 days');
+  });
+
+  it('drops the button, not the email, when the vendor slug or site URL is missing', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
+    await sendContestProtestOpenedEmail(fakeContext(), {
+      ...FACTS,
+      ...OWNER_SEAT,
+      submitterVendorName: 'Autodesk',
+      basis: 'declined',
+      protestReason: 'r',
+      replyDueAt: DUE,
+      dedupeKey: 'k3',
+    });
+    expect(String(lastBody(fetchSpy).text)).not.toContain('/vendor/');
+  });
+
+  it('contest-protest-reply-reminder says the owner has not replied and when the reply closes', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
+    await sendContestProtestReplyReminderEmail(fakeContext(SITE), {
+      ...FACTS,
+      ...OWNER_SEAT,
+      submitterVendorName: 'Autodesk',
+      replyDueAt: DUE,
+      dedupeKey: 'k4',
+    });
+    const body = lastBody(fetchSpy);
+    expect(body.subject).toBe(
+      'Reminder: reply by Sep 3, 2026, 2:30 PM UTC on Revit for MicroStation',
+    );
+    const text = String(body.text);
+    expect(text).toContain('Bentley has not replied yet.');
+    expect(text).toContain('You can reply once, until Sep 3, 2026, 2:30 PM UTC.');
+    expect(text).toContain(
+      'Reply in Messages: https://www.aecintegrations.com/vendor/bentley/messages',
+    );
+    expect(sendTags()).toContainEqual(['outcome:sent', 'template:contest-protest-reply-reminder']);
+  });
+
+  it('protest-submitted-alert gives support the protest facts and the queue link', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
+    await sendProtestSubmittedAlert(fakeContext(SITE), {
+      ...FACTS,
+      submitterVendorName: 'Autodesk',
+      ownerVendorName: 'Bentley',
+      basis: 'declined',
+      protestReason: 'The docs say plugin.',
+      evidenceCount: 2,
+      replyDueAt: DUE,
+      dedupeKey: 'k5',
+    });
+    const body = lastBody(fetchSpy);
+    expect(body.to).toBe('support@aecintegrations.com');
+    expect(body.subject).toBe('[AECi] Protest: mechanism_kind on Revit for MicroStation');
+    const text = String(body.text);
+    for (const line of [
+      'Field: mechanism_kind',
+      'Current value: native',
+      'Proposed value: plugin',
+      'Filed by: Autodesk',
+      'Owner: Bentley',
+      'Basis: The owner declined the contest',
+      'Reason given: The docs say plugin.',
+      'Evidence links: 2',
+      'Owner reply due: Sep 3, 2026, 2:30 PM UTC',
+      'Contest id: contest-9',
+      'Open the contest queue: https://www.aecintegrations.com/admin/contests',
+    ]) {
+      expect(text).toContain(line);
+    }
+    expect(sendTags()).toContainEqual(['outcome:sent', 'template:protest-submitted-alert']);
+  });
+
+  it('protest-submitted-alert skips without CLAIM_ALERT_EMAIL', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
+    const outcome = await sendProtestSubmittedAlert(fakeContext(), {
+      ...FACTS,
+      submitterVendorName: 'Autodesk',
+      ownerVendorName: 'Bentley',
+      basis: 'silence',
+      protestReason: 'r',
+      evidenceCount: 0,
+      replyDueAt: DUE,
+      dedupeKey: 'k6',
+    });
+    expect(outcome).toBe('skipped');
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it('contest-declined-protest-window tells the submitter the value stays and until when to protest', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
+    await sendContestDeclinedProtestWindowEmail(fakeContext(SITE), {
+      ...FACTS,
+      to: 'dana@autodesk.com',
+      vendorId: 'v-a',
+      vendorSlug: 'autodesk',
+      vendorName: 'Autodesk',
+      ownerVendorName: 'Bentley',
+      decisionNote: null,
+      protestClosesAt: DUE,
+      dedupeKey: 'k7',
+    });
+    const body = lastBody(fetchSpy);
+    expect(body.to).toBe('dana@autodesk.com');
+    expect(body.subject).toBe('Bentley declined your change request on Revit for MicroStation');
+    const text = String(body.text);
+    expect(text).toContain('The value on record stays as it is.');
+    expect(text).toContain(
+      'you can ask AEC Integrations to review it until Sep 3, 2026, 2:30 PM UTC',
+    );
+    expect(text).toContain('Their note: none');
+    expect(text).toContain('Review request closes: Sep 3, 2026, 2:30 PM UTC');
+    expect(text).toContain(
+      'Open Messages: https://www.aecintegrations.com/vendor/autodesk/messages',
+    );
+    expect(sendTags()).toContainEqual(['outcome:sent', 'template:contest-declined-protest-window']);
   });
 });

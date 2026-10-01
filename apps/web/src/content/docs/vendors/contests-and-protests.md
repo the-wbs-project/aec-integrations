@@ -3,7 +3,7 @@ title: Contests and protests
 description: How to ask for a change to a detail on an integration your company does not own, what to do when one of yours is asked about, and how to ask AEC Integrations to review an owner's decision.
 section: vendors
 order: 5
-last_updated: 28 September 2026
+last_updated: 1 October 2026
 ---
 
 A change request is how a company asks to change one detail of an integration it does not own. A protest is how it asks AEC Integrations to look again when the owner turns a request down. Both need a seat on your vendor account. Neither needs a plan. An owner deciding a request on an integration delivered through a connector does need one.
@@ -36,7 +36,11 @@ A change request is a request, not a change. While it is open, the public page k
 
 A request stays with whoever was deciding when you sent it, with two exceptions. If we end the owner's plan, its open requests on integrations delivered through a connector move to AEC Integrations. Open requests can also move to us when an accepted change makes an integration delivered through a connector. You can follow yours on the integration's own page, under Change requests, or across every product in **Messages**, under **Field contests** and then **Submitted**. While it is open it shows "With the owner" or "With AEC Integrations".
 
-Updates about requests appear in the portal. We do not email them, so check the integration's page or **Messages**.
+Updates about requests appear in the portal, so check the integration's page or **Messages**. Three also come by email to every seat on your vendor account, because each carries a deadline:
+
+- an owner's decline of your request, with the date your time to ask for a review ends,
+- a review request on an integration you own, with the date your reply is due, and
+- a reminder three days before that date, if you have not replied.
 
 ## How a request ends
 
@@ -75,7 +79,7 @@ Nothing about a request or a review is public. Replies between the two companies
 
 ## If you are the owner and a review is requested
 
-You see the request in **Messages** under **Field contests**, and on the integration's own page under Change requests. You can reply once, within 14 days. Our view is advice to you both. We do not change your integration.
+You see the request in **Messages** under **Field contests**, and on the integration's own page under Change requests. Every seat on your vendor account also gets an email with the date your reply is due, and a reminder three days before it if you have not replied. You can reply once, within 14 days. Our view is advice to you both. We do not change your integration.
 
 ## Related
 

@@ -1233,7 +1233,9 @@ export function sendMailingListWelcomeEmail(
     'We organize tools by workflow stage and discipline, the way AEC actually works, not by generic software categories. And we keep product quality separate from onboarding experience, so you can judge software on what matters to your projects.';
   const browseLead =
     "The best next step is to browse the directory: see how tools connect, and where they don't, before you commit.";
-  const fallback = "We'll also email you as new tools and reviews land in the directory.";
+  // AECI-1205: this used to promise "We'll also email you as new tools and reviews land
+  // in the directory." No newsletter sender exists, so the fallback promises nothing.
+  const fallback = browseLead;
 
   // Tokenized page link + one-click endpoint (preferred), else the mailto opt-out.
   const mailto = unsubscribeMailto(c.env);
@@ -1259,14 +1261,14 @@ export function sendMailingListWelcomeEmail(
   const render = (tok: string | null): { text: string; html: string } => {
     const pageUrl = base && tok ? `${base}/unsubscribe?token=${encodeURIComponent(tok)}` : null;
     const unsubText = pageUrl
-      ? `To stop these updates, unsubscribe here: ${pageUrl}`
+      ? `You are on the AEC Integrations mailing list. To leave it, unsubscribe here: ${pageUrl}`
       : mailto
-        ? `To stop these updates, email ${mailto} with the subject unsubscribe.`
+        ? `You are on the AEC Integrations mailing list. To leave it, email ${mailto} with the subject unsubscribe.`
         : null;
     const unsubHtml = pageUrl
-      ? `To stop these updates, <a href="${escapeHtml(pageUrl)}">unsubscribe</a>.`
+      ? `You are on the AEC Integrations mailing list. To leave it, <a href="${escapeHtml(pageUrl)}">unsubscribe</a>.`
       : mailto
-        ? `To stop these updates, <a href="mailto:${escapeHtml(mailto)}?subject=unsubscribe">unsubscribe</a>.`
+        ? `You are on the AEC Integrations mailing list. To leave it, <a href="mailto:${escapeHtml(mailto)}?subject=unsubscribe">unsubscribe</a>.`
         : null;
     const textParagraphs = [
       intro,
@@ -1782,6 +1784,295 @@ export function sendContestSubmittedNotification(
     subject,
     text: renderEmailText({ ...shared, blocks: [intro] }),
     html: renderEmailHtml({ ...shared, blocks: [introHtml] }),
+  });
+}
+
+// ─── Protest and decline emails (AECI-1205, §11b.12.10) ──────────────────────
+//
+// Four templates. Before AECI-1205 every protest event reached a vendor only as a
+// portal row, so an owner who did not log in lost its one chance to reply, and AECi
+// learned of a protest only by opening `/admin/contests`. The vendor-facing three go
+// to every unbanned `vendor_admin` seat of the vendor, one send per seat, and are not
+// covered by the attestation nudge mute: each carries a deadline the vendor loses a
+// right by missing. Every deadline renders with its time of day in UTC (§11b.12.10).
+
+/** Vendor-facing names for the contestable fields. Raw ids stay in the operator alert. */
+const CONTEST_FIELD_LABELS: Record<string, string> = {
+  name: 'name',
+  mechanism_kind: 'integration type',
+  mechanism_name: 'connector name',
+  direction: 'data direction',
+  description: 'description',
+  listing_url: 'listing page',
+  docs_url: 'documentation link',
+  website: 'website',
+  mechanism_url: 'connector link',
+  pricing_model: 'pricing model',
+  maturity: 'maturity',
+  owner: 'owner',
+};
+
+function contestFieldLabel(field: string): string {
+  return CONTEST_FIELD_LABELS[field] ?? field.replace(/_/g, ' ');
+}
+
+const DEADLINE_FORMAT = new Intl.DateTimeFormat('en-US', {
+  timeZone: 'UTC',
+  dateStyle: 'medium',
+  timeStyle: 'short',
+});
+
+/** An ISO instant as `Oct 15, 2026, 2:30 PM UTC`. A deadline falls at an instant, so
+ *  the date alone could be read as the whole day (§11b.12.10). */
+export function formatDeadline(iso: string): string {
+  const at = new Date(iso);
+  if (Number.isNaN(at.getTime())) return iso;
+  // Newer ICU puts a narrow no-break space before AM/PM. Plain spaces read the same
+  // everywhere, and keep the subject line greppable.
+  return `${DEADLINE_FORMAT.format(at).replace(/\s/g, ' ')} UTC`;
+}
+
+/** The contest a protest or decline email is about, as the caller resolved it. */
+export interface ContestEmailFacts {
+  contestId: string;
+  integrationName: string;
+  field: string;
+  currentValue: string | null;
+  proposedValue: string | null;
+  /** Both endpoint slugs, for the pair-page link, or `null` when unresolved. */
+  pairSlugs: readonly [string, string] | null;
+}
+
+/** One seat of the vendor a vendor-facing protest email goes to. */
+export interface ContestSeatRecipient {
+  to: string;
+  vendorId: string;
+  /** For the `/vendor/{slug}/messages` link. `null` drops the button. */
+  vendorSlug: string | null;
+  vendorName: string | null;
+}
+
+/** The portal page that lists a vendor's field contests (§6.5 Messages), or `null`. */
+function vendorMessagesUrl(env: Env, vendorSlug: string | null): string | null {
+  const base = siteUrl(env);
+  return base && vendorSlug ? `${base}/vendor/${encodeURIComponent(vendorSlug)}/messages` : null;
+}
+
+function contestFactRows(env: Env, facts: ContestEmailFacts): Array<readonly [string, string]> {
+  const rows: Array<readonly [string, string]> = [
+    ['Integration', facts.integrationName],
+    ['Field', contestFieldLabel(facts.field)],
+    ['Value on record', facts.currentValue ?? 'none'],
+    ['Proposed value', facts.proposedValue ?? 'none'],
+  ];
+  const pair = facts.pairSlugs ? pairUrl(env, facts.pairSlugs[0], facts.pairSlugs[1]) : null;
+  if (pair) rows.push(['Pair page', pair]);
+  return rows;
+}
+
+const PROTEST_IS_ADVICE =
+  'AEC Integrations reads both sides and gives its view. Its view is advice: the value on record stays unless you change it. Nothing about the review is public.';
+
+/**
+ * `contest-protest-opened`: the owner's seats learn that the submitter asked AECi to
+ * review a contest the owner declined, or did not answer for 30 days, and that they
+ * can reply once before `replyDueAt` (14 days, §11b.12.8).
+ *
+ * Sent from the protest file route after its batch commits, inside `waitUntil`. The
+ * caller's key is `contest-protest-opened:{contestId}:{protestedAt}:{profileId}`, so a
+ * replay is a `duplicate`, and a later protest on the same contest is a new send.
+ */
+export function sendContestProtestOpenedEmail(
+  c: EmailContext,
+  opts: ContestEmailFacts &
+    ContestSeatRecipient & {
+      submitterVendorName: string;
+      basis: 'declined' | 'silence';
+      protestReason: string;
+      replyDueAt: string;
+      dedupeKey: string;
+    },
+): Promise<EmailOutcome> {
+  const company = opts.vendorName?.trim() || 'your company';
+  const field = contestFieldLabel(opts.field);
+  const due = formatDeadline(opts.replyDueAt);
+  const messages = vendorMessagesUrl(c.env, opts.vendorSlug);
+  const why =
+    opts.basis === 'silence'
+      ? `${opts.submitterVendorName} asked to change the ${field} of ${opts.integrationName}, and ${company} did not answer within 30 days. They have now asked AEC Integrations to review it.`
+      : `${opts.submitterVendorName} disagrees with the decision ${company} made on their request to change the ${field} of ${opts.integrationName}. They have asked AEC Integrations to review it.`;
+  const reply = `You can reply once, by ${due}. Reply under Field contests in Messages on your vendor portal.`;
+  const rows = [
+    ...contestFactRows(c.env, opts),
+    ['Their reason', opts.protestReason] as const,
+    ['Reply by', due] as const,
+  ];
+  const shared = {
+    preheader: `Reply by ${due}.`,
+    heading: `Review requested on ${opts.integrationName}`,
+    table: rows,
+    ...(messages ? { cta: { label: 'Reply in Messages', url: messages } } : {}),
+    note: `You get this email because you hold a seat for ${company} on AEC Integrations.`,
+  };
+  return sendTransactionalEmail(c, {
+    to: opts.to,
+    template: 'contest-protest-opened',
+    subject: `Reply by ${due}: review requested on ${opts.integrationName}`,
+    text: renderEmailText({ ...shared, blocks: [why, reply, PROTEST_IS_ADVICE] }),
+    html: renderEmailHtml({
+      ...shared,
+      blocks: [escapeHtml(why), escapeHtml(reply), escapeHtml(PROTEST_IS_ADVICE)],
+    }),
+    dedupeKey: opts.dedupeKey,
+    entity: { type: 'integration_field_challenge', id: opts.contestId },
+  });
+}
+
+/**
+ * `contest-protest-reply-reminder`: the owner has not replied and the reply closes
+ * within three days. Sent by the daily `protest_reply_reminder` cron. The caller's key
+ * is `contest-protest-reply-reminder:{contestId}:{protestedAt}:{profileId}`, so the
+ * three daily runs inside the window send it once per seat.
+ */
+export function sendContestProtestReplyReminderEmail(
+  c: EmailContext,
+  opts: ContestEmailFacts &
+    ContestSeatRecipient & {
+      submitterVendorName: string;
+      replyDueAt: string;
+      dedupeKey: string;
+    },
+): Promise<EmailOutcome> {
+  const company = opts.vendorName?.trim() || 'your company';
+  const field = contestFieldLabel(opts.field);
+  const due = formatDeadline(opts.replyDueAt);
+  const messages = vendorMessagesUrl(c.env, opts.vendorSlug);
+  const lead = `${opts.submitterVendorName} asked AEC Integrations to review a contest on the ${field} of ${opts.integrationName}. ${company} has not replied yet.`;
+  const reply = `You can reply once, until ${due}. After that the reply closes, and AEC Integrations decides on what it has.`;
+  const rows = [...contestFactRows(c.env, opts), ['Reply by', due] as const];
+  const shared = {
+    preheader: `The reply closes ${due}.`,
+    heading: `Your reply closes soon`,
+    table: rows,
+    ...(messages ? { cta: { label: 'Reply in Messages', url: messages } } : {}),
+    note: `You get this email because you hold a seat for ${company} on AEC Integrations.`,
+  };
+  return sendTransactionalEmail(c, {
+    to: opts.to,
+    template: 'contest-protest-reply-reminder',
+    subject: `Reminder: reply by ${due} on ${opts.integrationName}`,
+    text: renderEmailText({ ...shared, blocks: [lead, reply] }),
+    html: renderEmailHtml({ ...shared, blocks: [escapeHtml(lead), escapeHtml(reply)] }),
+    dedupeKey: opts.dedupeKey,
+    entity: { type: 'integration_field_challenge', id: opts.contestId },
+  });
+}
+
+/**
+ * `protest-submitted-alert`: AECi learns a vendor filed a protest, which it must
+ * decide in `/admin/contests` (§11b.12.11). Modelled on `contest-submitted-alert`:
+ * house layout, a facts table, one CTA to the queue, to `CLAIM_ALERT_EMAIL`. The
+ * caller's key is `protest-submitted-alert:{contestId}:{protestedAt}`.
+ */
+export function sendProtestSubmittedAlert(
+  c: EmailContext,
+  opts: ContestEmailFacts & {
+    submitterVendorName: string;
+    ownerVendorName: string;
+    basis: 'declined' | 'silence';
+    protestReason: string;
+    evidenceCount: number;
+    replyDueAt: string;
+    dedupeKey: string;
+  },
+): Promise<EmailOutcome> {
+  const base = siteUrl(c.env);
+  const host = environmentHost(c.env);
+  const rows: Array<[string, string]> = [
+    ['Integration', opts.integrationName],
+    ['Field', opts.field],
+    ['Current value', opts.currentValue ?? 'none'],
+    ['Proposed value', opts.proposedValue ?? 'none'],
+    ['Filed by', opts.submitterVendorName],
+    ['Owner', opts.ownerVendorName],
+    [
+      'Basis',
+      opts.basis === 'silence'
+        ? 'The owner did not answer the contest within 30 days'
+        : 'The owner declined the contest',
+    ],
+    ['Reason given', opts.protestReason],
+    ['Evidence links', String(opts.evidenceCount)],
+    ['Owner reply due', formatDeadline(opts.replyDueAt)],
+    ['Contest id', opts.contestId],
+  ];
+  if (host) rows.push(['Environment', host]);
+  const pair = opts.pairSlugs ? pairUrl(c.env, opts.pairSlugs[0], opts.pairSlugs[1]) : null;
+  if (pair) rows.push(['Pair page', pair]);
+
+  const intro = `${opts.submitterVendorName} asked AECi to review the ${opts.field} of ${opts.integrationName}. The owner, ${opts.ownerVendorName}, can reply until the due date. AECi decides it.`;
+  const introHtml = `${escapeHtml(opts.submitterVendorName)} asked AECi to review the ${escapeHtml(opts.field)} of <strong>${escapeHtml(opts.integrationName)}</strong>. The owner, ${escapeHtml(opts.ownerVendorName)}, can reply until the due date. AECi decides it.`;
+  const shared = {
+    preheader: intro,
+    heading: `Protest on ${opts.integrationName}`,
+    table: rows,
+    ...(base ? { cta: { label: 'Open the contest queue', url: `${base}/admin/contests` } } : {}),
+  };
+  return sendTransactionalEmail(c, {
+    to: c.env.CLAIM_ALERT_EMAIL ?? '',
+    template: 'protest-submitted-alert',
+    subject: `[AECi] Protest: ${opts.field} on ${opts.integrationName}`,
+    text: renderEmailText({ ...shared, blocks: [intro] }),
+    html: renderEmailHtml({ ...shared, blocks: [introHtml] }),
+    dedupeKey: opts.dedupeKey,
+    entity: { type: 'integration_field_challenge', id: opts.contestId },
+  });
+}
+
+/**
+ * `contest-declined-protest-window`: the submitter's seats learn the owner declined
+ * their contest, and that they can ask AECi to review it until `protestClosesAt`
+ * (30 days, §11b.12.8). Only an OWNER decline sends it: an AECi decline cannot be
+ * protested. The caller's key is
+ * `contest-declined-protest-window:{contestId}:{profileId}`. A contest is declined at
+ * most once, so the contest id is the event.
+ */
+export function sendContestDeclinedProtestWindowEmail(
+  c: EmailContext,
+  opts: ContestEmailFacts &
+    ContestSeatRecipient & {
+      ownerVendorName: string;
+      decisionNote: string | null;
+      protestClosesAt: string;
+      dedupeKey: string;
+    },
+): Promise<EmailOutcome> {
+  const company = opts.vendorName?.trim() || 'your company';
+  const field = contestFieldLabel(opts.field);
+  const closes = formatDeadline(opts.protestClosesAt);
+  const messages = vendorMessagesUrl(c.env, opts.vendorSlug);
+  const lead = `${opts.ownerVendorName} declined the request from ${company} to change the ${field} of ${opts.integrationName}. The value on record stays as it is.`;
+  const window = `If you disagree, you can ask AEC Integrations to review it until ${closes}, from Field contests in Messages on your vendor portal. Its view is advice, and nothing about the review is public.`;
+  const rows = [
+    ...contestFactRows(c.env, opts),
+    ['Their note', opts.decisionNote?.trim() || 'none'] as const,
+    ['Review request closes', closes] as const,
+  ];
+  const shared = {
+    preheader: `You can ask for a review until ${closes}.`,
+    heading: `${opts.ownerVendorName} declined your change request`,
+    table: rows,
+    ...(messages ? { cta: { label: 'Open Messages', url: messages } } : {}),
+    note: `You get this email because you hold a seat for ${company} on AEC Integrations.`,
+  };
+  return sendTransactionalEmail(c, {
+    to: opts.to,
+    template: 'contest-declined-protest-window',
+    subject: `${opts.ownerVendorName} declined your change request on ${opts.integrationName}`,
+    text: renderEmailText({ ...shared, blocks: [lead, window] }),
+    html: renderEmailHtml({ ...shared, blocks: [escapeHtml(lead), escapeHtml(window)] }),
+    dedupeKey: opts.dedupeKey,
+    entity: { type: 'integration_field_challenge', id: opts.contestId },
   });
 }
 

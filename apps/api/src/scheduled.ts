@@ -160,6 +160,7 @@ import {
   ENTITLEMENT_EXPIRY_CRON,
   CLAIM_STALE_CRON,
   INDEXNOW_DRAIN_CRON,
+  PROTEST_REMINDER_CRON,
   MODERATION_CRON,
   RECONCILE_CRON,
   RETENTION_CRON,
@@ -168,6 +169,7 @@ import {
   WAF_CRON,
 } from './lib/cron-schedules';
 import { runClaimStaleCheck } from './lib/claim-stale-check';
+import { runProtestReplyReminderSweep } from './lib/contest-protest-emails';
 import { runEntitlementExpirySweep } from './lib/entitlement-expiry';
 import {
   drainIndexNowQueue,
@@ -284,7 +286,7 @@ function jobRunSink(ctx: ExecutionContext, env: Env): JobRunSink {
   };
 }
 
-// The fifteen cron expressions now live in `./lib/cron-schedules` — hoisted there
+// The sixteen cron expressions now live in `./lib/cron-schedules` — hoisted there
 // by AECI-580 (the snapshot cron joined them in AECI-581, the retention prune in
 // AECI-584, the §7 attestation sweep at the AECI-619 reconciliation, and the
 // IndexNow drain in AECI-826, daily at 00:05 since AECI-1136) so
@@ -335,6 +337,13 @@ const ASN_REGISTRY_COVERAGE_METRIC = 'aeci.asn_registry.coverage';
  *  verdict — a run that finds stale tickets is a SUCCESSFUL run. */
 const CLAIM_STALE_JOB_METRIC = 'aeci.linear.claim_stale.job';
 const CLAIM_STALE_DURATION_METRIC = 'aeci.linear.claim_stale.job.duration_ms';
+
+/** AECI-1205 protest reply reminder. `…job` is the run heartbeat, emitted on every
+ *  run (`outcome:ok|failed`). `…due` is the open, unreplied protests inside the
+ *  3-day window, emitted on every ok run including zero. */
+const PROTEST_REMINDER_JOB_METRIC = 'aeci.contest.protest_reminder.job';
+const PROTEST_REMINDER_DURATION_METRIC = 'aeci.contest.protest_reminder.job.duration_ms';
+const PROTEST_REMINDER_DUE_METRIC = 'aeci.contest.protest_reminder.due';
 
 const JOB_RUN_WRITE_METRIC = 'aeci.job_runs.write';
 
@@ -1552,6 +1561,62 @@ async function runClaimStaleCheckJob(env: Env, ctx: ExecutionContext): Promise<J
 }
 
 /**
+ * Daily protest reply reminder (AECI-1205 / `STAGE_2_VENDOR_PORTAL_SPEC.md`
+ * §11b.12.10). Everything load-bearing is in `./lib/contest-protest-emails`; this
+ * shell supplies the DB and the PostHog sink.
+ *
+ * Fail-safe like the entitlement sweep rather than rethrowing: a reminder delayed a
+ * day still lands inside the 3-day window, and the ledger key stops a re-send. Per-seat
+ * send failures are an `ok` run with the counts in `detail`. Only a crash is `failed`.
+ */
+async function runProtestReplyReminderJob(env: Env, ctx: ExecutionContext): Promise<JobRunReport> {
+  const req = cronRequest('/cron/protest-reply-reminder');
+  const started = Date.now();
+
+  try {
+    const { db } = cronDb(env);
+    const result = await runProtestReplyReminderSweep(
+      { env, executionCtx: ctx, req: { raw: req } },
+      db,
+    );
+    submitCount(ctx, env, req, PROTEST_REMINDER_JOB_METRIC, 1, ['trigger:cron', 'outcome:ok']);
+    submitGauge(ctx, env, req, PROTEST_REMINDER_DUE_METRIC, result.due, []);
+    submitDistribution(ctx, env, req, PROTEST_REMINDER_DURATION_METRIC, Date.now() - started, [
+      'trigger:cron',
+    ]);
+    logToPosthog(ctx, env, req, {
+      level: result.emails.failed > 0 ? 'warn' : 'info',
+      message: `aeci.contest.protest_reminder due=${result.due} capped=${result.capped} sent=${result.emails.sent} duplicate=${result.emails.duplicate} failed=${result.emails.failed} skipped=${result.emails.skipped} suppressed=${result.emails.suppressed}`,
+      source: 'protest-reply-reminder-cron',
+    });
+    return {
+      outcome: 'ok',
+      detail: {
+        job: 'protest-reply-reminder',
+        due: result.due,
+        capped: result.capped,
+        emails: result.emails,
+      },
+    };
+  } catch (error) {
+    submitCount(ctx, env, req, PROTEST_REMINDER_JOB_METRIC, 1, ['trigger:cron', 'outcome:failed']);
+    logToPosthog(ctx, env, req, {
+      level: 'error',
+      message: 'aeci.contest.protest_reminder.crashed',
+      source: 'protest-reply-reminder-cron',
+      reason: error instanceof Error ? error.message : String(error),
+    });
+    return {
+      outcome: 'failed',
+      detail: {
+        job: 'protest-reply-reminder',
+        reason: error instanceof Error ? error.message : String(error),
+      },
+    };
+  }
+}
+
+/**
  * Refresh `asn_registry` from PeeringDB (AECI-624 / §7.6) — the weekly job, and
  * the only one here whose output is *annotation* rather than measurement.
  *
@@ -1881,6 +1946,12 @@ function queueForJob(env: Env, job: ScheduledJob): Queue<ScheduledJobMessage> | 
       // `created_at`, so a retry buys nothing a re-run does not. No
       // `CLAIM_STALE_QUEUE` binding exists.
       return undefined;
+    case 'protest_reply_reminder':
+      // Queue-less like `entitlement_expiry` (AECI-1205): one indexed read and a
+      // handful of fail-open emails. A missed day is caught by the next run inside the
+      // 3-day window, and the ledger key stops a re-send. No
+      // `PROTEST_REMINDER_QUEUE` binding exists.
+      return undefined;
   }
 }
 
@@ -1992,6 +2063,15 @@ function enqueueFailureLog(job: ScheduledJob): { path: string; message: string; 
       source: 'claim-stale-check-cron',
     };
   }
+  if (job === 'protest_reply_reminder') {
+    // Unreachable for the same reason as `claim_stale_check` above — queue-less, so
+    // `queue.send` is never called. Kept so the mapping stays total.
+    return {
+      path: '/cron/protest-reply-reminder',
+      message: 'aeci.contest.protest_reminder.enqueue_failed',
+      source: 'protest-reply-reminder-cron',
+    };
+  }
   return {
     path: `/cron/algolia-${job}`,
     message: `aeci.algolia.${job}.enqueue_failed`,
@@ -2038,7 +2118,7 @@ async function enqueueOrRun(env: Env, ctx: ExecutionContext, job: ScheduledJob):
  *  {@link JobRunReport} rather than `void`, because the impls swallow their own
  *  operational errors — a wrapper that only watched for a throw would record `ok`
  *  for a run that failed. `Promise<JobRunReport>` also makes the type checker
- *  enumerate every exit path in all fourteen, which is what makes "each of the fourteen
+ *  enumerate every exit path in all sixteen, which is what makes "each of the sixteen
  *  writes a row, on every path" verifiable rather than a review checklist. */
 async function dispatchScheduledJob(
   env: Env,
@@ -2076,6 +2156,8 @@ async function dispatchScheduledJob(
       return runIndexNowDrainJob(env, ctx);
     case 'claim_stale_check':
       return runClaimStaleCheckJob(env, ctx);
+    case 'protest_reply_reminder':
+      return runProtestReplyReminderJob(env, ctx);
   }
 }
 
@@ -2155,6 +2237,9 @@ export const scheduled: ExportedHandlerScheduledHandler<Env> = async (controller
       return;
     case CLAIM_STALE_CRON:
       await enqueueOrRun(env, ctx, 'claim_stale_check');
+      return;
+    case PROTEST_REMINDER_CRON:
+      await enqueueOrRun(env, ctx, 'protest_reply_reminder');
       return;
     default:
       // A trigger fired with no matching case. This used to be a bare

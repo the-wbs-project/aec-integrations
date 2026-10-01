@@ -1,5 +1,5 @@
 /**
- * The fifteen cron expressions the API Worker is triggered on, in one place.
+ * The sixteen cron expressions the API Worker is triggered on, in one place.
  *
  * They used to live as module-private constants in `scheduled.ts`, which was fine
  * while `scheduled.ts` was the only reader. `GET /api/admin/system` (AECI-580 /
@@ -11,7 +11,7 @@
  *
  * **Every value MUST stay byte-equal to the matching `triggers.crons` entry in
  * `apps/api/wrangler.jsonc`** (staging, demo and production each declare the same
- * fifteen, and `cron-schedules.spec.ts` asserts it). `scheduled.ts` `switch`es on
+ * sixteen, and `cron-schedules.spec.ts` asserts it). `scheduled.ts` `switch`es on
  * `controller.cron`, so a mismatch silently stops dispatching the job — the
  * failure mode these comments have always warned about.
  *
@@ -227,6 +227,26 @@ export const INDEXNOW_DRAIN_CRON = '5 0 * * *';
 export const CLAIM_STALE_CRON = '25 */6 * * *';
 
 /**
+ * Daily protest reply reminder (AECI-1205 / `STAGE_2_VENDOR_PORTAL_SPEC.md`
+ * §11b.12.10). **12:00 UTC**, the next free daily slot after the 11:00 entitlement
+ * sweep. It is also 08:00 in US Eastern summer time, so the owner reads the reminder
+ * at the start of a working day rather than overnight. The hourly WAF poll fires at
+ * 12:00 too, but under its own expression, so the two never share a `switch` case.
+ *
+ * It emails the owner's seats of every open protest with no reply whose 14-day
+ * deadline falls within the next three days. A daily run over a 3-day window sees a
+ * protest up to three times. The `notification_sends` dedupe key
+ * `contest-protest-reply-reminder:{contestId}:{protestedAt}:{profileId}` makes it one
+ * send per seat, so the job needs no fence column and no migration.
+ *
+ * Queue-less and inline, following the `entitlement_expiry` precedent: one indexed
+ * read over `integration_field_challenges_protest_idx` and a handful of fail-open
+ * emails. A missed day costs one day of lead time, and the next run inside the window
+ * sends what this one missed.
+ */
+export const PROTEST_REMINDER_CRON = '0 12 * * *';
+
+/**
  * Every cron, in schedule order, keyed by the `AdminCronJob` id. `Record<…>` so
  * adding a member to the shared enum without adding a schedule here is a type
  * error rather than a row that quietly vanishes from the System screen.
@@ -247,6 +267,7 @@ export const CRON_SCHEDULES: Record<AdminCronJob, string> = {
   'entitlement-expiry': ENTITLEMENT_EXPIRY_CRON,
   'indexnow-drain': INDEXNOW_DRAIN_CRON,
   'claim-stale-check': CLAIM_STALE_CRON,
+  'protest-reply-reminder': PROTEST_REMINDER_CRON,
 };
 
 /**
@@ -275,6 +296,7 @@ export const ADMIN_CRON_JOB: Record<ScheduledJob, AdminCronJob> = {
   entitlement_expiry: 'entitlement-expiry',
   indexnow_drain: 'indexnow-drain',
   claim_stale_check: 'claim-stale-check',
+  protest_reply_reminder: 'protest-reply-reminder',
 };
 
 /** Display/iteration order for the System screen — chronological through the UTC
@@ -296,6 +318,7 @@ export const CRON_JOBS: readonly AdminCronJob[] = [
   'algolia-drift',
   'attestation-notify',
   'entitlement-expiry',
+  'protest-reply-reminder',
   'request-reconcile',
   'waf-poll',
   'indexnow-drain',

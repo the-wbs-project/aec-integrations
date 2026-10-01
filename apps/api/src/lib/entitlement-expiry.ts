@@ -55,7 +55,6 @@ import type { AuditLogEntry } from '@aeci/shared/audit-log';
 import { and, asc, eq, isNotNull, lte, sql } from 'drizzle-orm';
 
 import { auditInsert, type BatchStmt, type BatchTuple } from './audit';
-import { VENDOR_ADMIN_ROLE } from './claimed-vendors';
 import {
   emitExpiryDueMetric,
   emitExpiryNoticeMetrics,
@@ -65,6 +64,7 @@ import {
 import { parseRecipients, type EmailContext, type EmailOutcome } from './email';
 import { forwardAuditBatch } from './moderation-forward';
 import { fetchAuthUserEmails } from './supabase-admin';
+import { loadVendorSeatRecipients, type FetchSeatEmails } from './vendor-seat-recipients';
 import { ENTITLEMENT_ENTITY_TYPE } from './vendor-entitlement';
 import type { Db } from '../db/client';
 import { vendorEntitlements, vendors } from '../db/schema';
@@ -153,10 +153,7 @@ export type SendEntitlementExpiringAdminEmail = (
 const noopSendExpiryEmail: SendEntitlementExpiringEmail = async () => 'skipped';
 const noopSendExpiryAdminEmail: SendEntitlementExpiringAdminEmail = async () => 'skipped';
 
-export type FetchSeatEmails = (
-  env: Env,
-  userIds: readonly string[],
-) => Promise<Map<string, string>>;
+export type { FetchSeatEmails };
 
 export interface ExpiryDeps {
   /** Deterministic clock for the horizon + fence math. */
@@ -371,21 +368,10 @@ export function expiryNoticeStatements(
 
 // ─── Recipients ──────────────────────────────────────────────────────────────
 
-function chunk<T>(items: readonly T[], size: number): T[][] {
-  const out: T[][] = [];
-  for (let i = 0; i < items.length; i += size) out.push(items.slice(i, i + size));
-  return out;
-}
-
-/** Vendor ids per seat lookup. D1 caps bound parameters per query, so an
- *  `inArray` over an unbounded id list is a latent failure once adoption grows. */
-const SEAT_LOOKUP_CHUNK = 50;
-
 /**
  * Email addresses per vendor for the seats to warn — unbanned `vendor_admin`
- * profiles only, matching `lib/attestation-notify.ts`. A banned seat cannot act on
- * a renewal prompt (every `/api/vendor/*` call fails the ban check), so mailing it
- * is noise.
+ * profiles only, matching `lib/attestation-notify.ts`. The read is the shared
+ * `loadVendorSeatRecipients` (AECI-1205), which the protest emails use too.
  *
  * Degrades to an empty map without `SUPABASE_SERVICE_ROLE_KEY`: `profiles` holds
  * no email column, addresses live in Supabase `auth.users`, and local dev / PR
@@ -397,39 +383,8 @@ async function loadVendorSeatEmails(
   vendorIds: readonly string[],
   fetchSeatEmails: FetchSeatEmails,
 ): Promise<Map<string, string[]>> {
-  const unique = [...new Set(vendorIds)];
-  if (unique.length === 0) return new Map();
-
-  const seats: Array<{ id: string; vendorId: string | null }> = [];
-  for (const batch of chunk(unique, SEAT_LOOKUP_CHUNK)) {
-    seats.push(
-      ...(await db.query.profiles.findMany({
-        columns: { id: true, vendorId: true },
-        where: (p, { and: andOp, eq: eqOp, inArray: inArrayOp, isNull: isNullOp }) =>
-          andOp(
-            inArrayOp(p.vendorId, batch),
-            eqOp(p.role, VENDOR_ADMIN_ROLE),
-            isNullOp(p.bannedAt),
-          ),
-      })),
-    );
-  }
-  if (seats.length === 0) return new Map();
-
-  const emails = await fetchSeatEmails(
-    env,
-    seats.map((s) => s.id),
-  );
-
-  const byVendor = new Map<string, string[]>();
-  for (const seat of seats) {
-    const address = emails.get(seat.id);
-    if (!seat.vendorId || !address) continue;
-    const list = byVendor.get(seat.vendorId);
-    if (list) list.push(address);
-    else byVendor.set(seat.vendorId, [address]);
-  }
-  return byVendor;
+  const recipients = await loadVendorSeatRecipients(db, env, vendorIds, fetchSeatEmails);
+  return new Map([...recipients].map(([vendorId, seats]) => [vendorId, seats.map((s) => s.email)]));
 }
 
 /**

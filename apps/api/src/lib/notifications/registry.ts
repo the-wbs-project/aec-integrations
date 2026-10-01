@@ -229,6 +229,72 @@ export const NOTIFICATIONS = {
     doc: 'docs/STAGE_2_VENDOR_PORTAL_SPEC.md §11b.8',
     summary: 'Tells CLAIM_ALERT_EMAIL a vendor filed a contest that AECi must decide.',
   },
+  'protest-submitted-alert': {
+    channel: 'email',
+    audience: 'operator',
+    trigger: {
+      kind: 'route',
+      ref: 'POST /api/vendor/contests/:id/protest (routes/vendor-contest-protests.ts)',
+    },
+    envRule: 'any-tier',
+    dedupe:
+      'Key protest-submitted-alert:{contestId}:{protestedAt}. A replay of the same protest is a duplicate. A later protest on the same contest is a new send.',
+    ledger: ['notification_sends'],
+    optOut: 'none',
+    doc: 'docs/STAGE_2_VENDOR_PORTAL_SPEC.md §11b.12.10',
+    summary: 'Tells CLAIM_ALERT_EMAIL a vendor filed a protest that AECi must decide.',
+  },
+  'contest-protest-opened': {
+    channel: 'email',
+    audience: 'external',
+    trigger: {
+      kind: 'route',
+      ref: 'POST /api/vendor/contests/:id/protest (routes/vendor-contest-protests.ts)',
+    },
+    envRule: 'production-external',
+    dedupe:
+      'One per seat per protest: key contest-protest-opened:{contestId}:{protestedAt}:{profileId}.',
+    ledger: ['notification_sends'],
+    optOut: 'none',
+    doc: 'docs/STAGE_2_VENDOR_PORTAL_SPEC.md §11b.12.10',
+    summary:
+      "Tells the owner's seats a submitter asked AECi to review a contest, with the 14-day reply deadline.",
+    note: 'Sent beside the portal-contest-protested row. The attestation nudge mute does not cover it: missing it costs the owner its reply.',
+  },
+  'contest-protest-reply-reminder': {
+    channel: 'email',
+    audience: 'external',
+    trigger: {
+      kind: 'cron',
+      ref: '0 12 protest reply reminder (lib/contest-protest-emails.ts runProtestReplyReminderSweep)',
+    },
+    envRule: 'production-external',
+    dedupe:
+      'One per seat per protest: key contest-protest-reply-reminder:{contestId}:{protestedAt}:{profileId}. The daily runs inside the 3-day window send it once.',
+    ledger: ['notification_sends'],
+    optOut: 'none',
+    doc: 'docs/STAGE_2_VENDOR_PORTAL_SPEC.md §11b.12.10',
+    summary:
+      "Reminds the owner's seats, 3 days before the deadline, that they have not replied to a protest.",
+    note: 'Skips a protest that has a reply, is no longer open, or is past its deadline.',
+  },
+  'contest-declined-protest-window': {
+    channel: 'email',
+    audience: 'external',
+    trigger: {
+      kind: 'route',
+      ref: 'POST /api/vendor/contests/:id/decision (routes/vendor-contests.ts)',
+    },
+    envRule: 'production-external',
+    dedupe:
+      'One per seat per contest: key contest-declined-protest-window:{contestId}:{profileId}. A contest is declined once.',
+    ledger: ['notification_sends'],
+    optOut: 'none',
+    doc: 'docs/STAGE_2_VENDOR_PORTAL_SPEC.md §11b.12.10',
+    summary:
+      "Tells the submitter's seats the owner declined its contest, and until when it can ask AECi to review it.",
+    note: 'Owner declines only. An AECi decline cannot be protested and sends nothing.',
+  },
   'claim-approved': {
     channel: 'email',
     audience: 'external',
@@ -445,7 +511,7 @@ export const NOTIFICATIONS = {
     optOut: 'none',
     doc: 'docs/STAGE_2_VENDOR_PORTAL_SPEC.md §11b.8',
     summary: 'Tells the submitter the owner accepted or declined its contest.',
-    note: 'A decline carries the 30-day protest deadline, which reaches the vendor only here.',
+    note: 'A decline carries the 30-day protest deadline. Since AECI-1205 the contest-declined-protest-window email carries it too.',
   },
   'portal-contest-decided-by-aeci': {
     channel: 'portal',
@@ -485,7 +551,7 @@ export const NOTIFICATIONS = {
     optOut: 'none',
     doc: 'docs/STAGE_2_VENDOR_PORTAL_SPEC.md §11b.12.10',
     summary: 'Tells the owner a submitter asked AECi to review a contest.',
-    note: 'Carries the 14-day reply deadline, which reaches the owner only here.',
+    note: 'Carries the 14-day reply deadline. Since AECI-1205 the contest-protest-opened email carries it too.',
   },
   'portal-contest-protest-replied': {
     channel: 'portal',

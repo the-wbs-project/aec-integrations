@@ -548,6 +548,8 @@
           "0 9 * * *",
           "0 10 * * *",
           "0 11 * * *",
+          // AECI-1205 protest reply reminder. The next free daily slot after 11:00.
+          "0 12 * * *",
           "*/15 * * * *",
           "5 0 * * *",
           "0 * * * *",
@@ -716,7 +718,7 @@
           "migrations_dir": "migrations",
         },
       ],
-      // Same fifteen crons as staging/production (see staging note — incl. the hourly
+      // Same sixteen crons as staging/production (see staging note — incl. the hourly
       // "0 * * * *" WAF firewall-event poll, AECI-262, the daily "0 5 * * *"
       // operator analytics digest, AECI-526, at 05:00 UTC = noon Jakarta, the
       // daily "15 0 * * *" metrics_daily snapshot, AECI-581, the daily
@@ -741,6 +743,8 @@
           "0 9 * * *",
           "0 10 * * *",
           "0 11 * * *",
+          // AECI-1205 protest reply reminder. The next free daily slot after 11:00.
+          "0 12 * * *",
           "*/15 * * * *",
           "5 0 * * *",
           "0 * * * *",
@@ -961,6 +965,8 @@
           "0 9 * * *",
           "0 10 * * *",
           "0 11 * * *",
+          // AECI-1205 protest reply reminder. The next free daily slot after 11:00.
+          "0 12 * * *",
           "*/15 * * * *",
           "5 0 * * *",
           "0 * * * *",

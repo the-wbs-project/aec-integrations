@@ -288,6 +288,15 @@ export type JobRunDetail =
    *  read itself failed, in which case `stale` is 0 because nothing was asserted,
    *  not because nothing is stale — the §5.6 System screen needs that distinction
    *  to avoid reporting an unreadable board as a clean one. */
+  /** The daily AECI-1205 protest reply reminder. `due` is the open, unreplied
+   *  protests whose deadline falls in the next 3 days. `emails` counts per-seat sends;
+   *  a seat already reminded on an earlier run is a `duplicate`, not a failure. */
+  | {
+      job: 'protest-reply-reminder';
+      due: number;
+      capped: number;
+      emails: Record<EmailOutcome, number>;
+    }
   | {
       job: 'claim-stale-check';
       checked: number;

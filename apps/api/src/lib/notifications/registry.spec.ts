@@ -24,8 +24,9 @@ const ENTRIES = Object.entries(NOTIFICATIONS) as Array<[string, NotificationEntr
  * AECI-1204 retired the four per-finding attestation nudges and `attestation-ops-alert`
  * (5 ids) and added `attestation-digest` and `attestation-ops-digest` (2 ids): 43.
  * AECI-1203 removed the sweep's re-send of the claim alert, `claim-submitted-alert-retry`: 42.
+ * AECI-1205 added the four protest and decline emails: 46.
  */
-const EXPECTED_COUNT = 42;
+const EXPECTED_COUNT = 46;
 
 const sendsEmail = (e: NotificationEntry) => e.channel === 'email' || e.channel === 'email+portal';
 
@@ -56,7 +57,9 @@ describe('notification registry shape', () => {
       // Was 23 + 4. AECI-1204 swapped `attestation-ops-alert` for
       // `attestation-ops-digest` (email, net 0) and the four `email+portal` nudges for
       // the one `attestation-digest`. AECI-1203 removed `claim-submitted-alert-retry`.
-      email: 22,
+      // AECI-1205 added `protest-submitted-alert`, `contest-protest-opened`,
+      // `contest-protest-reply-reminder` and `contest-declined-protest-window`.
+      email: 26,
       'email+portal': 1,
       'supabase-email': 1,
       portal: 14,

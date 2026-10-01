@@ -45,6 +45,7 @@ import { ApiError, notFoundError } from '../errors';
 import { resolveAttestationSlots, resolveEvidencedPairSlots } from '../lib/attestation-authority';
 import { auditInsert, workflowTransitionInsert, type BatchStmt } from '../lib/audit';
 import { auditActorType } from '../lib/authz';
+import { emailProtestFiled, type ProtestEmailDeps } from '../lib/contest-protest-emails';
 import {
   assertProtestable,
   dedupeEvidence,
@@ -185,6 +186,7 @@ async function assertStillEndpointVendor(db: Db, vendorId: string, row: ContestR
 export function createFileContestProtestHandler(
   dbFor: DbFactory = getDb,
   clock: Clock = systemClock,
+  emailDeps: ProtestEmailDeps = {},
 ): (c: VendorContext) => Promise<Response> {
   return async (c) => {
     const session = c.get('auth');
@@ -353,6 +355,23 @@ export function createFileContestProtestHandler(
 
     // Nothing public changed: no purge, no re-crawl. The forward still runs.
     afterVendorWrite(c, [], audits);
+    // AECI-1205 (§11b.12.10): the owner's seats get the reply deadline by email, and
+    // AECi gets the protest alert. After the commit, so a lost race sends nothing.
+    c.executionCtx.waitUntil(
+      emailProtestFiled(
+        c,
+        db,
+        row,
+        {
+          basis,
+          reason: payload.reason,
+          evidenceCount: evidence.length,
+          protestedAt: now,
+          replyDueAt,
+        },
+        emailDeps,
+      ),
+    );
     return echo(c, db, vendorId, after);
   };
 }

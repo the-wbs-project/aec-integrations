@@ -92,7 +92,8 @@ analytics-digest, attestation-notify, entitlement-expiry, indexnow-drain,
 claim-stale-check, waf-poll, and the per-key half of home-stats — several shipped after
 the Datadog monitors were written; `indexnow-drain` did not exist until AECI-826 and only
 joined the failure alert in AECI-864, and `claim-stale-check` did not exist until
-AECI-862), and the liveness sweep watches **fifteen** crons where Datadog watched six.
+AECI-862; AECI-1205 added `protest-reply-reminder` to both the failure alert and the sweep),
+and the liveness sweep watches **sixteen** crons where Datadog watched six.
 
 **A fourteenth alert exists and is deliberately outside the table above.**
 `indexnow-failure-rate` (AECI-826) has **no Datadog predecessor** — `aeci.indexnow.submit`
@@ -1099,7 +1100,7 @@ prune skipping because of the gap.
 > **The PostHog port closes this gap without anyone filing an issue for it.** `metrics-snapshot`
 > is one of the six previously-unwatched crons picked up by the combined
 > `AECi — Cron job failed (any daily/hourly job)` alert (its `aeci.metrics_snapshot.run{outcome:failed}`
-> heartbeat is in the query, and the `label_column` names it), **and** it is one of the fifteen crons
+> heartbeat is in the query, and the `label_column` names it), **and** it is one of the sixteen crons
 > in the CI liveness sweep's registry (`observability/posthog/project-config.json`, 26 h window).
 > So after AECI-651 both halves — "it failed" and "it never ran" — are covered. Until then,
 > `/admin/system` and the `aeci.metrics_snapshot.run` series remain the only signals, and the
