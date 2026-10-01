@@ -53,7 +53,7 @@ jobs:
     timeout-minutes: 15
     environment:
       name: staging-refresh
-      url: https://staging.aecintegrations.com
+      url: https://aeci-web-staging.thewbsproject.workers.dev # WBS-INTERIM (AECI-1166): staging.aecintegrations.com at cutover
     permissions:
       contents: read
     steps:
@@ -102,14 +102,14 @@ jobs:
       #       deploy. Mirrors the loop in deploy.yml.
       - name: Smoke test /api/health
         env:
-          HOST: https://staging.aecintegrations.com
+          HOST: https://aeci-web-staging.thewbsproject.workers.dev # WBS-INTERIM (AECI-1166): staging.aecintegrations.com at cutover
           CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
           CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
         run: ./scripts/smoke-test.sh
 
       - name: Verify staging (API + SSR at SHA)
         env:
-          HOST: https://staging.aecintegrations.com
+          HOST: https://aeci-web-staging.thewbsproject.workers.dev # WBS-INTERIM (AECI-1166): staging.aecintegrations.com at cutover
           EXPECTED_SHA: ${{ github.sha }}
           CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
           CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}

@@ -210,6 +210,14 @@ Open question for the WBS account team: once a zone is Moved, does the old accou
   - Every page sent `x-robots-tag: noindex, nofollow`
 - Not tested: search (Algolia), email (Resend), Supabase admin, R2 logos. The secrets are on hold and R2 is not copied yet.
 
+## CI on WBS before cutover (from 2026-10-01)
+
+CI deploys to WBS once the GitHub secrets are swapped and this branch is on `main`. Until the zone moves:
+- **Staging** serves on `aeci-web-staging.thewbsproject.workers.dev`. Its custom-domain route is commented out, and the staging smoke and health checks point there. All of it is tagged `WBS-INTERIM`.
+- **PR previews and the preview env** work unchanged, on workers.dev.
+- **Do not run promote-to-demo or promote-to-prod.** Demo and production cannot bind their domains on WBS yet. Production stays on the old account at `2380b367`.
+- `CF_ZONE_ID` and `CF_ANALYTICS_API_TOKEN` keep their old-zone values until the zone moves.
+
 ## Phase 4: cutover (AECI-1166)
 
 `cutover.sh` runs the scripted steps one at a time. Each step pins its account, so a token for the wrong account fails instead of writing anywhere. Commands, in order, per environment. Do production last, because it is the one with live traffic.
@@ -223,6 +231,8 @@ Open question for the WBS account team: once a zone is Moved, does the old accou
 | e | | (dashboard) | Registrar move, approve, wait for Active. Then the Worker Access check (step 6a) and the dashboard toggles (6b) |
 | f | WBS | `cutover.sh bind production` | Full deploy of api and web: crons back on, custom domains bound |
 | g | | `cutover.sh verify` | www 200 on the new sha, apex 301, demo 200, staging 302 to WBS Access |
+
+**Before step f for staging:** revert the interim staging change. Every line is tagged `WBS-INTERIM`: `git grep -n WBS-INTERIM`. Restore the `routes` block in `apps/web/wrangler.jsonc`, drop its `workers_dev: true`, and put `https://staging.aecintegrations.com` back in deploy, refresh-staging, promote-to-demo and browserstack.
 
 Repeat a–d and f for `staging` and `demo`. Not scripted yet: Worker secrets (on hold) and the R2 copy (waiting for S3 keys).
 
