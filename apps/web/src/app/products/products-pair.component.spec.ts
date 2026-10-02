@@ -1033,6 +1033,54 @@ describe('ProductsPairPage: plain wording and At a glance (AECI-1142)', () => {
     expect(empty.el.querySelector('[data-testid="pair-glance"]')).toBeNull();
   });
 
+  // AECI-1158 (STAGE_2_VENDOR_PORTAL_SPEC.md §6.17.11): the Price fact links to the
+  // owner's pricing page.
+  const PRICING = 'https://procore.example/pricing';
+  const priceFact = (el: HTMLElement) =>
+    [...el.querySelectorAll('[data-testid="pair-glance"] dt')]
+      .find((dt) => dt.textContent?.trim() === 'Price')
+      ?.parentElement?.querySelector('dd') ?? null;
+
+  it('links the price text to the pricing page when both are set', () => {
+    const { el } = setup(withFacts({ pricing_url: PRICING }));
+    const link = priceFact(el)?.querySelector<HTMLAnchorElement>('a');
+    expect(link?.getAttribute('href')).toBe(PRICING);
+    expect(link?.textContent).toContain('Free with a Procore subscription');
+    expect(link?.getAttribute('target')).toBe('_blank');
+    expect(link?.getAttribute('rel')).toBe('noopener noreferrer nofollow');
+    expect(link?.querySelector('aec-new-tab-icon')).toBeTruthy();
+  });
+
+  it('shows "See pricing" when only the pricing page is set', () => {
+    const { el } = setup(withFacts({ pricing_model: null, pricing_url: PRICING }));
+    const link = priceFact(el)?.querySelector<HTMLAnchorElement>('a');
+    expect(link?.getAttribute('href')).toBe(PRICING);
+    expect(link?.textContent).toContain('See pricing');
+  });
+
+  it('keeps a price with no pricing page as plain text', () => {
+    const { el } = setup(withFacts({ pricing_url: null }));
+    const dd = priceFact(el);
+    expect(dd?.textContent?.trim()).toBe('Free with a Procore subscription');
+    expect(dd?.querySelector('a')).toBeNull();
+  });
+
+  it('hides the Price fact when neither the price nor the page is set', () => {
+    const { el } = setup(withFacts({ pricing_model: null, pricing_url: undefined }));
+    expect(priceFact(el)).toBeNull();
+    expect(el.querySelector('[data-testid="pair-glance-price-link"]')).toBeNull();
+  });
+
+  it('never links a pricing page that is not http(s)', () => {
+    const withPrice = setup(withFacts({ pricing_url: 'javascript:alert(1)' }));
+    expect(priceFact(withPrice.el)?.querySelector('a')).toBeNull();
+    expect(priceFact(withPrice.el)?.textContent?.trim()).toBe('Free with a Procore subscription');
+    TestBed.resetTestingModule();
+
+    const noPrice = setup(withFacts({ pricing_model: null, pricing_url: 'javascript:alert(1)' }));
+    expect(priceFact(noPrice.el)).toBeNull();
+  });
+
   it('names the connector on a connector-evidenced pair', () => {
     const { el } = setup(
       withFacts({

@@ -306,8 +306,9 @@ export const ProductPairMechanismSchema = z.object({
    * the "Price" fact of the card's "At a glance" row (AECI-1142): the price text
    * links to it when both are set, and "See pricing" links to it when only the URL
    * is. The owner writes it; promote never does. An absolute `http(s)` URL, so it
-   * renders as an ordinary external link with `rel="noopener"`. Additive and
-   * `.optional()` for SSR/API deploy skew: absent means `null`.
+   * renders as an ordinary external link with `rel="noopener noreferrer nofollow"`
+   * (AECI-1158). Additive and `.optional()` for SSR/API deploy skew: absent
+   * means `null`.
    */
   pricing_url: z.string().nullable().optional(),
   // Data-object claims on this mechanism (§8). `[]` for a mechanism with no

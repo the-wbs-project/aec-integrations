@@ -42,7 +42,7 @@ A claim cannot be undone from the portal. The only way an integration leaves its
 
 ## Edit its details
 
-Once you have claimed an integration, its page shows a pencil beside every detail you can change: name, description, how you get it, connection name, release stage, pricing, pricing page, listing page, and documentation. Choose the pencil to edit that one field in place, then save. Name and how you get it cannot be left empty. AEC Integrations never overwrites the pricing page you set.
+Once you have claimed an integration, its page shows a pencil beside every detail you can change: name, description, how you get it, connection name, release stage, pricing, pricing page, listing page, and documentation. Choose the pencil to edit that one field in place, then save. Name and how you get it cannot be left empty. AEC Integrations never overwrites the pricing page you set. On the public integration page, the price links to your pricing page, or reads "See pricing" when no price is listed.
 
 Changes go live on the public integration page as soon as you save. There is no review step. The company that makes the other product is told which fields you changed.
 

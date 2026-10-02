@@ -4,7 +4,7 @@ import { toSignal } from '@angular/core/rxjs-interop';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { map } from 'rxjs';
 
-import { distinctDataObjectSlugs } from '@aeci/shared';
+import { distinctDataObjectSlugs, isHttpUrl } from '@aeci/shared';
 import type {
   ContextDirection,
   ProductLink,
@@ -230,6 +230,9 @@ interface GlanceHow {
  */
 interface GlanceFacts {
   readonly price: string | null;
+  /** AECI-1158: the owner's pricing page (`pricing_url`), http(s) only. It links
+   *  the price text, or stands alone as "See pricing" when there is no price. */
+  readonly priceUrl: string | null;
   readonly stage: string | null;
   readonly how: GlanceHow | null;
   readonly lastChecked: string | null;
@@ -810,12 +813,35 @@ function writePairViewCookie(mode: PairViewMode): void {
                     <dl
                       class="mt-2 grid gap-x-8 gap-y-3 sm:grid-cols-[repeat(auto-fit,minmax(12rem,1fr))]"
                     >
-                      @if (g.price) {
+                      @if (g.price || g.priceUrl) {
                         <div>
                           <dt class="text-xs text-(--text-secondary)" i18n="@@pair.glance.price">
                             Price
                           </dt>
-                          <dd class="mt-0.5 text-sm text-(--text-primary)">{{ g.price }}</dd>
+                          <dd class="mt-0.5 text-sm text-(--text-primary)">
+                            <!-- AECI-1158 (§6.17.11): the owner's pricing page links the
+                                 price, or reads "See pricing" when there is no price. A
+                                 vendor-controlled destination, so the card links' rel. -->
+                            @if (g.priceUrl; as href) {
+                              <a
+                                [href]="href"
+                                target="_blank"
+                                rel="noopener noreferrer nofollow"
+                                aecTrackExternalLink="pair_detail"
+                                class="inline-flex items-center gap-1 text-(--accent-primary) underline underline-offset-2"
+                                data-testid="pair-glance-price-link"
+                              >
+                                @if (g.price) {
+                                  <span>{{ g.price }}</span>
+                                } @else {
+                                  <span i18n="@@pair.glance.seePricing">See pricing</span>
+                                }
+                                <aec-new-tab-icon />
+                              </a>
+                            } @else {
+                              {{ g.price }}
+                            }
+                          </dd>
                         </div>
                       }
                       @if (g.stage) {
@@ -1158,7 +1184,8 @@ export class ProductsPairPage {
 
   /**
    * The card's "At a glance" facts (AECI-1142). `pricing_model` and `maturity` are
-   * free text and render verbatim. `?? null` because the web never Zod-parses the
+   * free text and render verbatim. `pricing_url` (AECI-1158) is re-checked for an
+   * http(s) scheme behind the API's own check, so no other scheme reaches `href`. `?? null` because the web never Zod-parses the
    * pair response, so an older API Worker leaves the fields absent.
    */
   private glanceFacts(m: ProductPairMechanism): GlanceFacts | null {
@@ -1172,11 +1199,19 @@ export class ProductsPairPage {
         : null;
     const facts: GlanceFacts = {
       price: m.pricing_model?.trim() || null,
+      priceUrl: this.pricingHref(m.pricing_url),
       stage: m.maturity?.trim() || null,
       how,
       lastChecked: this.formatReviewDate(m.last_reviewed_at ?? null),
     };
-    return facts.price || facts.stage || facts.how || facts.lastChecked ? facts : null;
+    return facts.price || facts.priceUrl || facts.stage || facts.how || facts.lastChecked
+      ? facts
+      : null;
+  }
+
+  private pricingHref(url: string | null | undefined): string | null {
+    const trimmed = url?.trim();
+    return trimmed && isHttpUrl(trimmed) ? trimmed : null;
   }
 
   /** Same format and zone as `MaintenanceMarker`: UTC, so SSR (UTC) and the
