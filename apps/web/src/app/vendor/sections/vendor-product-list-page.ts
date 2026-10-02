@@ -86,7 +86,8 @@ import { VendorPortalStore } from '../vendor-portal-store';
                         }}</span>
                       </span>
                     }
-                    <aec-vendor-plan-badge [plan]="p.plan" />
+                    <!-- A fixed column, so Free and Managed line up down a long list. -->
+                    <span class="flex w-20"><aec-vendor-plan-badge [plan]="p.plan" /></span>
                     <svg
                       aria-hidden="true"
                       class="h-4 w-4 text-(--text-secondary) rtl:-scale-x-100"

@@ -56,7 +56,7 @@ import { parseDate, planHasEnded } from '../vendor-plan';
         <div class="mt-4 grid gap-x-8 gap-y-4 md:grid-cols-2">
           <div>
             <h3
-              class="text-sm font-semibold text-(--text-primary)"
+              class="aec-overline text-(--text-secondary)"
               i18n="@@vendor.planEnded.works.heading"
             >
               Still works
@@ -83,7 +83,7 @@ import { parseDate, planHasEnded } from '../vendor-plan';
           </div>
           <div>
             <h3
-              class="text-sm font-semibold text-(--text-primary)"
+              class="aec-overline text-(--text-secondary)"
               i18n="@@vendor.planEnded.readOnly.heading"
             >
               Now read-only

@@ -122,7 +122,7 @@ export interface ChecklistRow {
                   <span>{{ row.title }}</span>
                   @if (!row.counts) {
                     <span
-                      class="rounded-(--radius-sm) border border-(--border-default) px-1.5 py-px text-[0.6875rem] font-semibold tracking-[0.04em] text-(--text-secondary) uppercase"
+                      class="rounded-(--radius-sm) bg-(--surface-sunken) px-1.5 py-px text-[0.6875rem] font-semibold tracking-[0.04em] text-(--text-secondary) uppercase"
                       i18n="@@vendor.checklist.optional"
                       >Optional</span
                     >
@@ -151,7 +151,7 @@ export interface ChecklistRow {
                   }
                   @case ('note') {
                     <span
-                      class="inline-flex items-center rounded-(--radius-sm) border border-(--border-default) bg-(--surface-sunken) px-2 py-1 text-xs font-medium text-(--text-secondary)"
+                      class="inline-flex items-center rounded-(--radius-sm) bg-(--surface-sunken) px-2 py-1 text-xs font-medium text-(--text-secondary)"
                       >{{ a.label }}</span
                     >
                   }

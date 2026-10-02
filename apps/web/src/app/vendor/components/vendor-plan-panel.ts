@@ -103,12 +103,12 @@ import { VendorPlanBadge } from './vendor-plan-badge';
 
       @if (state() !== 'catalogue') {
         <p
-          class="mt-5 flex flex-wrap items-center gap-2 rounded-(--radius-md) border border-dashed border-(--border-strong) px-3 py-2.5 text-sm text-(--text-primary)"
+          class="mt-5 flex flex-wrap items-center gap-2 text-sm text-(--text-primary)"
           data-testid="plan-price"
         >
           <span i18n="@@vendor.plan.price">Managed is $25 a month per product.</span>
           <span
-            class="rounded-(--radius-sm) border border-(--border-strong) px-1.5 py-px text-[0.6875rem] font-semibold tracking-[0.04em] text-(--text-secondary) uppercase"
+            class="rounded-(--radius-sm) bg-(--surface-sunken) px-1.5 py-px text-[0.6875rem] font-semibold tracking-[0.04em] text-(--text-secondary) uppercase"
             i18n="@@vendor.plan.price.draft"
             >Draft price</span
           >
@@ -258,7 +258,8 @@ export class VendorPlanPanel {
       : `${base} border-(--border-default) bg-(--surface-raised)`;
   });
 
-  protected readonly listHeadingClass = 'mt-5 text-sm font-semibold text-(--text-primary)';
+  // `aec-overline` beats the unlayered h3 rule in styles.css; a size utility does not.
+  protected readonly listHeadingClass = 'aec-overline mt-5 text-(--text-secondary)';
   protected readonly listClass =
     'mt-2 list-disc space-y-1.5 ps-5 text-sm leading-relaxed text-(--text-secondary)';
   protected readonly ctaClass =
