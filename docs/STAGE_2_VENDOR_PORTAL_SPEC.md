@@ -1775,6 +1775,7 @@ heading outline is unchanged.
 | Conflicts and waiting | `integrations` scope | Yes, including integration-row edits once AECI-992 lands |
 | Seat invites | `seats`, which has no cursor | Loads on entry only, the same accepted posture as the Seats tab |
 | Contests to decide | `contests` scope (AECI-1008) | Yes |
+| Reviews with no reply | `reviews` scope (AECI-1179, §11c.16). One `reply_status=none&perPage=1` read per product whose plan holds `review.reply` | Yes |
 | Views | none | Placeholder |
 
 **The single-page concept (`vendor-dashboard-single.ts`) is unchanged, on purpose.** It
@@ -2032,7 +2033,7 @@ A third-party owner makes neither product of its integrations, so the product-sc
 
 The §8.9 seat maintains its own connector catalogue (`STAGE_2_SPEC.md` §8.9(1)). AECI-724 shipped the write, `PATCH /api/vendor/connector-stub-mappings/:id`, but no screen. This tab is the screen.
 
-- **Where it lives.** A **Catalogue** tab in the product row, after Integrations, shown only on a `connector`-role product (`VENDOR_PRODUCT_NAV_ITEMS`' `roles`, read by `productNavItemsFor`). A catalogue belongs to one connector product (`connector_catalogs` is unique on `connector_product_id`), and a vendor can hold more than one, so it is a product tab rather than a vendor section. On every other product the tab does not exist, which is the empty-tab cost §6.13 declined. A typed `…/catalogue` URL on another product says it has no catalogue. Route: `…/products/:productSlug/catalogue`, `sections/vendor-product-catalogue-page.ts`.
+- **Where it lives.** A **Catalogue** tab in the product row, after Integrations (after Reviews since AECI-1179, §11c.16), shown only on a `connector`-role product (`VENDOR_PRODUCT_NAV_ITEMS`' `roles`, read by `productNavItemsFor`). A catalogue belongs to one connector product (`connector_catalogs` is unique on `connector_product_id`), and a vendor can hold more than one, so it is a product tab rather than a vendor section. On every other product the tab does not exist, which is the empty-tab cost §6.13 declined. A typed `…/catalogue` URL on another product says it has no catalogue. Route: `…/products/:productSlug/catalogue`, `sections/vendor-product-catalogue-page.ts`.
 - **The way in.** On the overview, the plan panel's `catalogue` state now links to each connector product's tab ("Open the Agave catalogue"). A plain link, not a button: it is navigation to the seat's own work, not the call to action §8.9(5) keeps off this state.
 - **Read.** `GET /api/vendor/products/:id/connector-catalog` (`API_CONTRACTS.md` §6.14), new in this issue. Ownership, then `connector` role, each a 404. No capability and no entitlement read. It returns the catalogue's summary (`managed_by`, the "as of" stamp, listing, unmatched and publishable counts) and one page of listings with their mappings. The wire drops the mapping's `notes` and replaces the raw `decided_by` (a review-app reviewer's name, before AECI-724) with a kind: `vendor`, `aeci` or `automatic`.
 - **The list** (`components/vendor-connector-catalogue.ts`). One bordered `--surface-raised` card of rows, 25 a page, ordered by name. Each row: the listing name, **View listing** (new tab, said to screen readers), and each mapping as a phrase ("Matched to Procore", "Not Procore", "Outside AECi's scope"), who stands behind it ("Confirmed by your company", "Decided by AECi", "Suggested by name, not confirmed"), the confidence, the evidence link, and a quiet **Counts toward reach** tag on a row that clears §9a.4's gate. A search box and a "Show" filter (`<aec-select>`: all, no match yet, or one status) sit above. The status words are the vendor's, not the console's (`components/vendor-catalogue-labels.ts`).
@@ -3446,7 +3447,7 @@ A vendor that owns a product answers one approved review of that product in publ
 
 | # | Decision | Ruling |
 |---|---|---|
-| 1 | Moderation timing | **Pre-moderation.** A reply is hidden until AECi approves it. The cache purges only when public visibility changes (§11c.6). |
+| 1 | Moderation timing | **Pre-moderation.** A reply is hidden until AECi approves it. The cache purges only when public visibility changes (§11c.6). The ruling's words were "purges only on admin decisions". An edit under ruling 5 and a withdraw also take a live reply off the page, so a vendor edit or withdraw of a `published` reply purges too. Nothing a vendor does makes a reply appear. |
 | 2 | Plan gate | **A new capability, `review.reply`, held by `verified` only.** "Verified" is the tier the portal calls Managed (`STAGE_2_PAID_TIERS_SPEC.md` §13.2). A vendor on Free (`unclaimed`) cannot reply. Flipping it is a one-line registry change (§11c.9). |
 | 3 | Reviewer notice | **None in this version.** Recorded as open, with options (§11c.12). |
 | 4 | Co-owned products | **Each owning vendor may post one reply per review.** Primary or not. `unique(review_id, vendor_id)`. |
@@ -3641,16 +3642,18 @@ Shapes and error codes are in `API_CONTRACTS.md` §6.6, §6.10 and §6.14.
 
 ### 11c.17 Build order
 
-| Order | Issue | Delivers | Governing subsections |
-|---|---|---|---|
-| 1 | AECI-1174 | This section and its companion edits | all |
-| 2 | AECI-1175 | The `review_responses` table, migration, seed, cascade-children pin | §11c.6, §11c.11; `DATABASE_SCHEMA.md` §7.3 |
-| 3 | AECI-1176 | The four vendor routes, the capability, the shared schemas, the `reviews` cursor scope | §11c.3 to §11c.10, §11c.13, §11c.14 |
-| 4 | AECI-1177 | The two admin routes, the queue, the badge | §11c.6, §11c.7, §11c.8; `ADMIN_PANEL_SPEC.md` §5.13 |
-| 5 | AECI-1178 | `vendor_responses` on both public reads, and the product-page render | §11c.11, §11c.14, §11c.15 |
-| 6 | AECI-1179 | The portal Reviews tab | §11c.16 |
-| 7 | AECI-1180 | The review-approved feed row and email, the decision feed rows | §11c.12 |
-| 8 | AECI-1181 | The vendor help page, the firewall assertion, and one sentence in `/methodology` saying vendor replies never affect ranking | §11c.10 |
+| Order | Issue | Delivers | Governing subsections | Status |
+|---|---|---|---|---|
+| 1 | AECI-1174 | This section and its companion edits | all | Written 2026-10-02 |
+| 2 | AECI-1175 | The `review_responses` table, migration, seed, cascade-children pin | §11c.6, §11c.11; `DATABASE_SCHEMA.md` §7.3 | Built 2026-10-02, migration `0058` |
+| 3 | AECI-1176 | The four vendor routes, the capability, the shared schemas, the `reviews` cursor scope | §11c.3 to §11c.10, §11c.13, §11c.14 | Built 2026-10-02 |
+| 4 | AECI-1177 | The two admin routes, the queue, the badge | §11c.6, §11c.7, §11c.8; `ADMIN_PANEL_SPEC.md` §5.13 | Built 2026-10-02 |
+| 5 | AECI-1178 | `vendor_responses` on both public reads, and the product-page render | §11c.11, §11c.14, §11c.15 | Built 2026-10-02 |
+| 6 | AECI-1179 | The portal Reviews tab | §11c.16 | Built 2026-10-02 |
+| 7 | AECI-1180 | The review-approved feed row and email, the decision feed rows | §11c.12 | Built 2026-10-02 |
+| 8 | AECI-1181 | The vendor help page, the firewall assertion, and one sentence in `/methodology` saying vendor replies never affect ranking | §11c.10 | Built 2026-10-02 |
+
+All eight are on the epic branch `chris/aeci-1173-epic-vendors-reply-to-reviews-of-their-products`, one commit each. "Built" means committed there. Each issue closes when that branch merges to `main`.
 
 ### 11c.18 Out of scope
 

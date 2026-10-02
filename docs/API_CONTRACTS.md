@@ -1340,7 +1340,7 @@ An erased account (an `account.deleted` audit row exists) is not re-created and 
 401. If the insert fails the answer is **503 `PROFILE_UNAVAILABLE`**. `PATCH` and
 `DELETE` stay strict.
 
-The four counts (AECI-617, widened from one to three by **AECI-922** and to four by
+The six counts (AECI-617, widened from one to three by **AECI-922** and to four by
 **AECI-946**, then to six by AECI-1008 and AECI-1177) are the Operations queue aggregates — the same ones `GET /api/admin/summary` serves,
 through the same server-side implementation — and are non-null **only** for `role
 === 'admin'`; a non-admin gets `null` on every count and no table is counted.
@@ -1367,7 +1367,7 @@ deliberately excluded: both queue screens default to `open`, and the
 `status.moderation` depths on `GET /api/admin/overview` are already `open`-only,
 so counting it here would make the badge and the dashboard disagree. Those depths
 are split on the same `kind` boundary (`open_requests` + `open_claims`) for the
-same reason. All five are `null` together or numbers together — a `0` means an empty queue,
+same reason. All six are `null` together or numbers together — a `0` means an empty queue,
 never "not allowed to know".
 
 **`pending_reindex` needs no predicate, and that is the design rather than an

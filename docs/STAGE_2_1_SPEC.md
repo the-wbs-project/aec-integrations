@@ -145,6 +145,8 @@ Chris directed the epic into Stage 2.1 on 2026-10-01. He ruled its open decision
 | **AECI-1180** | Tells the vendor when a review of its product is approved. | It refines the built notification feed for the seated pilot. The new-review notice is useful whether or not a vendor can reply. |
 | **AECI-1181** | Writes the vendor help page and the ranking-firewall assertion. | §3.5 makes the vendor guides a §5 exit gate, and the firewall is the stage's named guard. |
 
+**Status 2026-10-02.** All eight are built on the epic branch, one commit each, and not yet merged. `STAGE_2_VENDOR_PORTAL_SPEC.md` §11c.17 tracks each one.
+
 ### 3.4 Dark-window operations
 
 - Monitor the parked claim queue; decide and (if needed) implement the acknowledgement posture for parked claimants ("received, under review" — nothing that promises a timeline).
@@ -156,7 +158,7 @@ Chris directed the epic into Stage 2.1 on 2026-10-01. He ruled its open decision
 
 The Product Docs / Help Center epic remains Stage 2 scope (`STAGE_2_SPEC.md` §2.6, `STAGE_2_PRODUCT_DOCS_SPEC.md`), but its deferred **vendor-guide tranche** was always triggered by "vendor-portal testing settles" — which is this stage. Publication of the vendor guides is a §5 exit gate: vendors are not asked to do the work (and later pay) without support content in place.
 
-**Built 2026-09-23 (AECI-1104).** Six task pages render at `/docs/vendors/*` (`STAGE_2_PRODUCT_DOCS_SPEC.md` §5). They are live but noindex, out of the sitemap, and not yet linked from the footer or the portal. AECI-1105 flips all three when the first pilot vendor is seated, which is the moment §5's "published" becomes literal. The rehearsal script (`STAGE_2_1_REHEARSAL.md`, AECI-1103) links each lifecycle step to its page in its "Vendor-guide mapping" table.
+**Built 2026-09-23 (AECI-1104).** Six task pages render at `/docs/vendors/*` (`STAGE_2_PRODUCT_DOCS_SPEC.md` §5). They are live but noindex, out of the sitemap, and not yet linked from the footer or the portal. AECI-1105 flips all three when the first pilot vendor is seated, which is the moment §5's "published" becomes literal. The rehearsal script (`STAGE_2_1_REHEARSAL.md`, AECI-1103) links each lifecycle step to its page in its "Vendor-guide mapping" table. AECI-1181 added a seventh page on 2026-10-02, `/docs/vendors/replying-to-reviews`, under the same noindex rule.
 
 ## 4. Out of scope
 

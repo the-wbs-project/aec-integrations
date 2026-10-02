@@ -234,7 +234,7 @@ export function capabilitiesFor(tier: EntitlementTier): readonly Capability[];
 
 > **Amended 2026-10-01 by §13.3 (AECI-1212), built by AECI-1214 (2026-10-02).** The registry holds ten ids: `product.listing.edit` and `product.categories.edit` are new. `unclaimed` holds `profile.edit` and both new ids. That is the Free plan. Every field's capability is in `VENDOR_FIELD_CAPABILITIES` / `PRODUCT_FIELD_CAPABILITIES` in the same module.
 
-> **Amended 2026-10-02 by `STAGE_2_VENDOR_PORTAL_SPEC.md` §11c.9 (AECI-1174).** The registry gains `review.reply`, the gate on a vendor's public reply to a review. It is held by `verified` only. `unclaimed` must not hold it. Opening it to Free is a one-line move into `TIER_CAPABILITIES.unclaimed`. AECI-1176 changes the code. This supersedes the AECI-313 flag-only ruling of 2026-07-02. Reporting a review stays the `reviews@thewbsproject.com` email.
+> **Amended 2026-10-02 by `STAGE_2_VENDOR_PORTAL_SPEC.md` §11c.9 (AECI-1174).** The registry gains `review.reply`, the gate on a vendor's public reply to a review. It is held by `verified` only. `unclaimed` must not hold it. Opening it to Free is a one-line move into `TIER_CAPABILITIES.unclaimed`. AECI-1176 changes the code. **Built by AECI-1176 (2026-10-02).** The registry holds eleven ids. This supersedes the AECI-313 flag-only ruling of 2026-07-02. Reporting a review stays the `reviews@thewbsproject.com` email.
 
 Three capabilities are **declared with no consumer on purpose**: `attestation.author` (AECI-301), `analytics.view`, and `integration.version_diff` (AECI-304). Minting the ids now means those later issues become pure render-path/handler changes with no registry edit, and it makes the vocabulary auditable in one place today.
 

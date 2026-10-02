@@ -258,7 +258,7 @@ Callers of `/admin/purge`:
 - CI (`promote-to-prod.yml` purges `taxonomy` + `route:browse` after the reference-data seed) — inherits the native backend automatically (it only checks the HTTP status)
 - Future admin tooling (Phase 6) — direct call from admin Workers, not n8n
 
-**(b) `POST /api/promote` + review moderation on the API Worker** — since WC-5, these **enqueue** onto `aeci-cache-purge-{env}` (producer binding `CACHE_PURGE_QUEUE`) after the write commits — for promote, from `dispatchPromoteHooks` *after* the Workflow commit step resolves rather than from the request (AECI-563 / ADR 0021), so a step replay cannot double-enqueue; the SSR consumer issues the `ctx.cache.purge()`. Best-effort, post-commit (`ctx.waitUntil`), a graceful no-op when the queue binding is unset (local dev, PR previews), and never fails the committed write (a `queue.send` rejection is logged and swallowed). The promote's entity/index/pair/taxonomy tags are derived by `cacheTagsForPromote` (`promote-cache-tags.ts`); review moderation enqueues `product:{slug}`; the **vendor-claim grant** (`PATCH /api/admin/claims/:id`, AECI-519) enqueues the vendor **and its products** — `{ tags: ['vendor:{slug}', 'product:{slug}'…, 'index:products'], source: 'moderation' }` — because it flips `vendors.verified` (unlike plain request-moderation, which purges nothing). One message per ≤1000-tag batch (`CACHE_PURGE_QUEUE_MAX_TAGS`, vs. the HTTP transport's 30), and every batch goes in **one `queue.sendBatch()`** rather than a concurrent `send()` per batch — a Queue producer call counts against the same per-invocation connection budget as `fetch` (AECI-666 / ADR 0020 §3). This supersedes the ADR-0028 direct HTTP purge (which is inert against Workers Cache); the message is async, so there is still no api→web service binding.
+**(b) `POST /api/promote` + review moderation on the API Worker** — since WC-5, these **enqueue** onto `aeci-cache-purge-{env}` (producer binding `CACHE_PURGE_QUEUE`) after the write commits — for promote, from `dispatchPromoteHooks` *after* the Workflow commit step resolves rather than from the request (AECI-563 / ADR 0021), so a step replay cannot double-enqueue; the SSR consumer issues the `ctx.cache.purge()`. Best-effort, post-commit (`ctx.waitUntil`), a graceful no-op when the queue binding is unset (local dev, PR previews), and never fails the committed write (a `queue.send` rejection is logged and swallowed). The promote's entity/index/pair/taxonomy tags are derived by `cacheTagsForPromote` (`promote-cache-tags.ts`); review moderation enqueues `product:{slug}`; so does an admin approve or remove of a vendor's reply to a review (`PATCH /api/admin/review-responses/:id`, AECI-1177, `source: 'moderation'`), while a reject purges nothing because a pending reply was never on the page; the **vendor-claim grant** (`PATCH /api/admin/claims/:id`, AECI-519) enqueues the vendor **and its products** — `{ tags: ['vendor:{slug}', 'product:{slug}'…, 'index:products'], source: 'moderation' }` — because it flips `vendors.verified` (unlike plain request-moderation, which purges nothing). One message per ≤1000-tag batch (`CACHE_PURGE_QUEUE_MAX_TAGS`, vs. the HTTP transport's 30), and every batch goes in **one `queue.sendBatch()`** rather than a concurrent `send()` per batch — a Queue producer call counts against the same per-invocation connection budget as `fetch` (AECI-666 / ADR 0020 §3). This supersedes the ADR-0028 direct HTTP purge (which is inert against Workers Cache); the message is async, so there is still no api→web service binding.
 
 **(b1) entitlement set / clear (Stage 2 paid tiers, AECI-532)** — `PATCH
 /api/admin/vendors/:id/entitlement` enqueues **the same tag set as the claim grant
@@ -439,6 +439,15 @@ helper enqueues for all of them (`purgeTags` / `afterVendorWrite` in
   reach the counterpart products' pages, whose integration lists embed each row
   (`product-detail.resolver.ts`). None of the three queues a re-crawl: no content
   changed.
+
+- **A vendor's reply to a review** (`POST` / `PATCH /api/vendor/reviews/:reviewId/response`
+  and `…/response/withdraw`, AECI-1176, `STAGE_2_VENDOR_PORTAL_SPEC.md` §11c.6) →
+  **`product:{slug}` alone, and only when the reply was `published`.** Replies are
+  pre-moderated, so a submit, a resubmit, or an edit or withdraw of a pending reply
+  changes nothing a visitor sees and purges nothing. An edit or withdraw of a published
+  reply takes it off the product page, so that purges. Replies render only on the product
+  page (§11c.15), so no pair, vendor, index or taxonomy tag is owed. No reply write queues
+  a re-crawl, an IndexNow ping or an Algolia sync.
 
 Same best-effort contract — no-op without the binding, `queue.send` rejection
 logged and swallowed, never fails the committed edit. Note the asymmetry with

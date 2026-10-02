@@ -570,7 +570,7 @@ Phase 8.3 (`docs/ADMIN_PANEL_SPEC.md`, epic AECI-572) turns the moderation area 
 
 The signed-in vendor's portal (`apps/web/src/app/vendor/`): the vendor-level row
 (Vendor Overview / Profile / Products / Messages / Seats) or, once a product is open,
-the product-level row (Profile / the four facet tabs / Integrations, plus Catalogue on a `connector`-role product), plus the AECI-606
+the product-level row (Profile / the four facet tabs / Integrations / Reviews, plus Catalogue on a `connector`-role product; Reviews since AECI-1179), plus the AECI-606
 Integrations section. Gated by
 `vendorMeResolver`, `noindex`, non-cacheable.
 
