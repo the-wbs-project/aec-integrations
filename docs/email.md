@@ -651,8 +651,16 @@ send ledger, which fails open, because here the retry is the only copy of the ev
 never changes the response.
 
 **Not built here.** Resend already keeps a suppression list for hard bounces and complaints,
-so AECi keeps no second one. Nothing reads the table in the app yet. It is an operator query
-surface, like the ledger.
+so AECi keeps no second one.
+
+**Where to look now (AECI-1223).** `/admin/email` (Operations → Email, `ADMIN_PANEL_SPEC.md`
+§5.14) reads both tables. It shows a per-template summary for 7 and 30 days, every send newest
+first with its latest delivery report, and on production the sign-in stream's counts. To answer
+"did this person get our email", type their full address into the search: the API hashes it
+and matches the ledger. A partial address finds nothing, by design (ADR 0038). The address
+search also lists the person's delivery reports with no ledger row, which is where a sign-in
+link or a blind copy shows. Each row links to the message in the Resend dashboard. Open Resend
+only for what our tables do not hold: the rendered message and Resend's own suppression list.
 
 **Operator steps per tier** (`environments.md` has the per-tier table):
 

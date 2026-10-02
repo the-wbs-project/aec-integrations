@@ -3345,9 +3345,12 @@ try/catch. Every caller already sends inside `waitUntil` or a cron, so the ledge
 latency to a route response.
 
 **Read by** the Resend delivery webhook since AECI-1222, which looks each event's id up on
-`provider_message_id` (that index was added in migration `0059` for it) to join §9.9a. It is
-otherwise an operator query surface: `wrangler d1 execute` against the recipient or
-notification index.
+`provider_message_id` (that index was added in migration `0059` for it) to join §9.9a, and
+since AECI-1223 by the `/admin/email` screen (`ADMIN_PANEL_SPEC.md` §5.14): `GET
+/api/admin/email/summary`, `GET /api/admin/email/sends` and the address search `POST
+/api/admin/email/sends/search`, which hashes the typed address with `recipientHash` and seeks
+on the recipient index. The screen shows `entity_type` / `entity_id` and an 8-character hash
+prefix, never an address (§13 D23 of that doc).
 
 **Retention: 400 days, enforced by retention-prune** (`apps/api/src/lib/retention-prune.ts`),
 on the same whole-UTC-day, chunked-by-`id` mechanism as `page_views` §9.1. A snapshot gap stops
@@ -3411,7 +3414,9 @@ the ledger and to a person.
 **No `audit_log` row.** Log-class under ADR 0022, like `notification_sends`. Unlike the
 ledger, a write error is not swallowed: the route answers 500 and Resend retries.
 
-**Read by** nothing in the app yet. Operator query surface, like the ledger.
+**Read by** the `/admin/email` screen since AECI-1223 (`ADMIN_PANEL_SPEC.md` §5.14): the summary
+counts by `created_at`, the list picks each ledger row's newest event by `occurred_at`, and the
+address search returns the recipient's events with a NULL `notification_send_id`.
 
 **Retention: 400 days, the ledger's rule**, enforced by retention-prune on the same mechanism.
 Window: `NOTIFICATION_DELIVERY_EVENTS_RETENTION_DAYS` in `@aeci/shared`, overridable per tier

@@ -164,6 +164,10 @@ export const ADMIN_NAV_GROUPS: readonly AdminNavGroup[] = [
       // rationale survives intact: claims → vendors → people is the escalation
       // order an operator actually walks.
       { path: '/admin/users', label: $localize`:@@admin.shell.nav.users:Users` },
+      // AECI-1223. Not a queue, so no badge and no part of the Operations sum. It sits
+      // in Operations rather than Insights because the question it answers is a support
+      // case about one person ("did they get our email?"), not a trend.
+      { path: '/admin/email', label: $localize`:@@admin.shell.nav.email:Email` },
       { path: '/admin/system', label: $localize`:@@admin.shell.nav.system:System status` },
     ],
   },

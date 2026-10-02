@@ -69,6 +69,11 @@ import { createAdminCatalogCoverageHandler } from './routes/admin-catalog';
 import { createAdminFeedbackHandler } from './routes/admin-feedback';
 import { createAdminSubscribersHandler } from './routes/admin-subscribers';
 import {
+  createAdminEmailSearchHandler,
+  createAdminEmailSendsHandler,
+  createAdminEmailSummaryHandler,
+} from './routes/admin-email';
+import {
   createAdminReindexListHandler,
   createClearReindexRowHandler,
 } from './routes/admin-reindex';
@@ -904,6 +909,13 @@ authAdmin.get('/api/admin/subscribers', requireAdmin(), createAdminSubscribersHa
 // 429-ing the burst this screen exists to support).
 authAdmin.get('/api/admin/reindex', requireAdmin(), createAdminReindexListHandler());
 authAdmin.delete('/api/admin/reindex/:id', requireAdmin(), createClearReindexRowHandler());
+// §5.14 / AECI-1223 — the email screen. Three READS over `notification_sends` and
+// `notification_delivery_events`; no audit row, no `rateLimit()` (reads are never
+// limited). The address search is a POST so the address rides the body and never a
+// logged URL; the GET list refuses an `address` parameter (`ADDRESS_NOT_ALLOWED_IN_URL`).
+authAdmin.get('/api/admin/email/summary', requireAdmin(), createAdminEmailSummaryHandler());
+authAdmin.get('/api/admin/email/sends', requireAdmin(), createAdminEmailSendsHandler());
+authAdmin.post('/api/admin/email/sends/search', requireAdmin(), createAdminEmailSearchHandler());
 app.route('/', authAdmin);
 
 // Stage 2 vendor-portal sub-router (AECI-520, `STAGE_2_VENDOR_PORTAL_SPEC.md` §4).

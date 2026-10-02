@@ -90,6 +90,13 @@ export const previewRoutes: Routes = [
         (m) => m.AdminReviewResponsesPreview,
       ),
   },
+  // AECI-1223 — `/admin/email` over a fake API, so the summary, the sign-in panel and
+  // the sends list render without an admin session.
+  {
+    path: 'admin-email',
+    loadComponent: () =>
+      import('./admin-email/admin-email-preview').then((m) => m.AdminEmailPreview),
+  },
   // AECI-1091 — the Integrations tab of `/admin/vendors/:id` over a fake API, so the
   // evidenced-pair rows and the retire form render without an admin session.
   // `?retire=<row id>` opens that row's form.

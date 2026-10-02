@@ -112,6 +112,9 @@ export const ApiErrorCode = {
   // `connector_evidenced_pairs` was filed, withdrawn or decided after the plan read and
   // before the batch. The batch rolls back; re-push and the move re-anchors the new set.
   CONTEST_CHANGED_DURING_PROMOTE: 'CONTEST_CHANGED_DURING_PROMOTE',
+  // AECI-1223: `GET /api/admin/email/sends` was given an `address`. An address must never
+  // reach a request URL, which both Workers log; the search is a POST body (400).
+  ADDRESS_NOT_ALLOWED_IN_URL: 'ADDRESS_NOT_ALLOWED_IN_URL',
   RATE_LIMITED: 'RATE_LIMITED',
   // AECI-770: a verified session has no `profiles` row and the self-heal could not
   // create one (503). Retryable. Distinct from UNAUTHENTICATED, which says "sign in

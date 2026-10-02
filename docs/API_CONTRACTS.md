@@ -301,6 +301,7 @@ Machine-readable codes are stable identifiers. Messages are localized.
 | `CONTEST_CHANGED_DURING_PROMOTE` | 409 | Promote job error only. A contest on an edge the bundle moves between `integrations` and `connector_evidenced_pairs` was filed, withdrawn or decided after the promote planned the move and before it committed. Nothing was written; re-push with a new `jobId`, and the re-push re-anchors the contests as they now stand (AECI-1110, `REVIEW_APP_PROMOTE_API.md` §3.4a) |
 | `VENDOR_OWNED_TWIN_CREATED_DURING_PROMOTE` | 409 | Promote job error only. A vendor created (or claimed) a strong-match twin of an integration the bundle was about to insert, de-route or update, after the promote planned the write and before it committed. Nothing was written; re-push with a new `jobId`, and the re-push reports `skipped[] { reason: 'VENDOR_OWNED_TWIN' }`, unless the edge is an UPDATE of a row that already matched the new vendor row, which the re-push writes (AECI-1011, `REVIEW_APP_PROMOTE_API.md` §4c) |
 | `PROFILE_UNAVAILABLE` | 503 | A verified session has no `profiles` row and the `GET /api/account` self-heal could not create one (AECI-770, `AUTH_AND_RLS.md` §3.1a). Retryable: the client offers "try again", never "sign in again", because a new sign-in does not help. Only `GET /api/account` raises it |
+| `ADDRESS_NOT_ALLOWED_IN_URL` | 400 | `GET /api/admin/email/sends` was given an `address` parameter (AECI-1223). An address must never be in a URL, because both Workers log request URLs. Search with `POST /api/admin/email/sends/search` and the address in the body. `field: 'address'` |
 | `RATE_LIMITED` | 429 | Rate limit exceeded. Two mechanisms raise it, both in the API Worker and both carrying `Retry-After` (§4.1a): the **`rateLimit()` middleware** (`apps/api/src/rate-limit-middleware.ts`, AECI-773) for burst caps, and a **D1 `count()`** in the handler for the two windows no binding can express — `INVITE_DAILY_LIMIT` (10 per vendor per rolling 24 h) and the review cap (3 per user per rolling hour). The Cloudflare WAF rate-limit rules are a **separate layer** that never produces this code: they mitigate at the edge and return Cloudflare's own 403 block page, not a §3.3 envelope (`docs/waf-rate-limits.md` §6.4). **Reads are never rate-limited**, so no `GET` returns this |
 | `DEPENDENCY_FAILURE` | 503 | Upstream dependency (Supabase, Algolia, Linear) failed |
 | `INTERNAL_ERROR` | 500 | Unexpected server error |
@@ -4884,6 +4885,69 @@ export const AdminPageViewClassificationSchema = z.object({
 filter needs its counts computed both ways or the operator gets a smaller number with nothing to
 compare it against — and that is a decision for whoever builds the screen, not one to settle in a
 spec draft.
+
+#### `GET /api/admin/email/summary`, `GET /api/admin/email/sends`, `POST /api/admin/email/sends/search` (AECI-1223)
+
+The `/admin/email` screen (`ADMIN_PANEL_SPEC.md` §5.14): what we sent, and whether it arrived.
+Reads over `notification_sends` (`DATABASE_SCHEMA.md` §9.9) and `notification_delivery_events`
+(§9.9a). `requireAdmin()`, no `rateLimit()`, no `audit_log` row, `private, no-store`. Contract in
+`packages/shared/src/api/admin-email.ts`.
+
+```typescript
+// GET /api/admin/email/summary — no parameters.
+export const AdminEmailSummaryResponseSchema = z.object({
+  generated_at: z.string().datetime(),
+  environment: z.string(),                 // tierLabel(env)
+  templates: z.array(AdminEmailTemplateSchema),   // every email / email+portal registry entry
+  rows: z.array(AdminEmailSummaryRowSchema),      // templates with activity in 30 days
+  sign_in: z.object({ d7, d30 }).nullable(),      // tier `auth`; production only, else null
+});
+// A row: { notification_id, summary|null, audience|null, registered, d7, d30 }, each window
+// { outcomes: { sent, failed, unknown, skipped, suppressed, duplicate },
+//   delivery: { delivered, bounced, complained, delivery_delayed } }.
+
+// GET /api/admin/email/sends
+export const AdminEmailSendsQuerySchema = PageQuerySchema.extend({
+  perPage: …default(25),
+  template: z.string().optional(),                 // notification_id =
+  outcome: AdminEmailSendOutcomeSchema.optional(), // the seven ledger outcomes, `sending` included
+  delivery: z.enum([...events, 'none']).optional(),// the row's LATEST event type, or no event
+  from: utcDate.optional(), to: utcDate.optional(),// inclusive UTC days on created_at; from <= to
+});
+
+// POST /api/admin/email/sends/search — JSON body: the same fields plus
+  address: z.string().trim().min(3).max(320)       // must contain '@'; never echoed
+
+export const AdminEmailSendRowSchema = z.object({
+  id, notification_id, summary: z.string().nullable(), outcome, created_at,
+  provider_message_id: z.string().nullable(),
+  recipient_hash_prefix: z.string(),               // first 8 hex chars, cut in SQL
+  entity: z.object({ type, id, admin_path: z.string().nullable() }).nullable(),
+  latest_delivery: z.object({ event_type, occurred_at, bounce_type, bounce_subtype }).nullable(),
+});
+// sends: paginatedResponseSchema(row).extend({ generated_at })
+// search: the same plus unmatched_events (≤ 25): events for the hash with no ledger row.
+```
+
+**The address is a body field, never a query parameter.** Both Workers record request URLs in
+Workers Logs, so the GET answers `400 ADDRESS_NOT_ALLOWED_IN_URL` to an `address` parameter rather
+than ignore it. The search strips a `Name <…>` wrapper and hashes with `recipientHash`
+(`apps/api/src/lib/hash.ts`), the ledger's own normalization, then filters `recipient_hash =` on
+the `(recipient_hash, created_at)` index. No response carries an address or a full hash, and a
+validation error names the field without quoting it (`admin-email.spec.ts` asserts both on the
+serialized body).
+
+**Ordering** is `created_at DESC, id DESC`, fixed. The latest event per row is the newest by
+`occurred_at`, then `id`, among events with that row's `notification_send_id`, narrowed by
+`provider_message_id` so it rides the message index. `entity.admin_path` is resolved server-side
+(`vendor_request` needs its `kind`: a claim links `/admin/claims/:id`, a correction `/admin/requests`).
+
+**Windows** count a ledger row by its `created_at` and an event by its own `created_at` (when the
+webhook landed), not by Resend's verbatim `occurred_at` string.
+
+Errors: `VALIDATION_FAILED` (400) for a bad page, an unknown outcome or delivery value, a
+malformed date, `from` after `to`, or a missing / addressless `address`; `MALFORMED_REQUEST` (400)
+for a non-JSON search body; `ADDRESS_NOT_ALLOWED_IN_URL` (400).
 
 #### `POST /api/admin/integrations/:id/retire`, `/restore` and `GET /api/admin/vendors/:id/integrations` (AECI-1046)
 

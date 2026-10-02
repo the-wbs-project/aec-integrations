@@ -344,6 +344,13 @@ export const routes: Routes = [
         path: 'reindex',
         loadComponent: () => import('./admin/reindex/reindex-list').then((m) => m.ReindexList),
       },
+      // AECI-1223 — the email screen (`ADMIN_PANEL_SPEC.md` §5.14): what we sent and
+      // whether it arrived, from the send ledger and Resend's delivery reports. One
+      // flat child, no resolver; the parent's `adminSummaryResolver` is the gate.
+      {
+        path: 'email',
+        loadComponent: () => import('./admin/email/email-activity').then((m) => m.EmailActivity),
+      },
       // AECI-652 — the §5.6 vendor surface. The list is the way into a vendor that
       // never filed a claim (which the claim queue structurally cannot reach), and
       // the detail page is where the entitlement control now lives. Two flat

@@ -4,6 +4,7 @@ export * from './admin';
 export * from './admin-claims';
 export * from './admin-connector-catalogs';
 export * from './admin-connectors';
+export * from './admin-email';
 export * from './admin-entitlements';
 export * from './admin-panel';
 export * from './admin-reason';
