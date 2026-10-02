@@ -75,7 +75,12 @@ function requireLogoOrigin(c: LogoContext): void {
 
 export function createUploadLogoHandler(actor: 'vendor' | 'admin') {
   return async (c: LogoContext): Promise<Response> => {
-    if (actor === 'vendor' && !hasCapability(c.get('auth').entitlementTier, 'product.edit'))
+    // One upload route serves the company logo and every product logo, so a seat
+    // that can edit EITHER may upload. AECI-1214 (§13.3): product logos are
+    // `product.listing.edit` and the company logo `profile.edit`, and every seat
+    // holds both, so a seat with no plan can upload. The save is gated again by
+    // the PATCH that stores the returned URL.
+    if (actor === 'vendor' && !hasCapability(c.get('auth').entitlementTier, 'product.listing.edit'))
       requireCapability(c, 'profile.edit');
     requireLogoOrigin(c);
     const uploads = bucket(c.env);

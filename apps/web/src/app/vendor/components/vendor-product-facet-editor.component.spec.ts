@@ -4,6 +4,7 @@ import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { TaxonomyResponse, UpdateVendorProductResponse, VendorProduct } from '@aeci/shared';
+import { capabilitiesFor, type Capability } from '@aeci/shared/entitlements';
 
 import { VendorApi } from '../vendor-api';
 import {
@@ -62,22 +63,25 @@ describe('VendorProductFacetEditor', () => {
     opts: {
       product?: VendorProduct;
       taxonomy?: TaxonomyResponse | null;
-      canEdit?: boolean;
-      canEditTaxonomy?: boolean;
-      canEditUsefulness?: boolean;
+      /** The product's plan capabilities (AECI-1214). Defaults to the fixture's
+       *  Managed plan, which holds every one. */
+      capabilities?: readonly Capability[];
       headingLevel?: 2 | 3;
     } = {},
   ): ComponentFixture<VendorProductFacetEditor> {
     const fixture = TestBed.createComponent(VendorProductFacetEditor);
-    fixture.componentRef.setInput('product', opts.product ?? PRODUCT);
+    const product = opts.product ?? PRODUCT;
+    fixture.componentRef.setInput(
+      'product',
+      opts.capabilities === undefined
+        ? product
+        : { ...product, plan: { ...product.plan, capabilities: [...opts.capabilities] } },
+    );
     fixture.componentRef.setInput('facet', facet);
     fixture.componentRef.setInput(
       'taxonomy',
       opts.taxonomy === undefined ? VENDOR_TAXONOMY_FIXTURE : opts.taxonomy,
     );
-    fixture.componentRef.setInput('canEdit', opts.canEdit ?? true);
-    fixture.componentRef.setInput('canEditTaxonomy', opts.canEditTaxonomy ?? true);
-    fixture.componentRef.setInput('canEditUsefulness', opts.canEditUsefulness ?? true);
     if (opts.headingLevel !== undefined) {
       fixture.componentRef.setInput('headingLevel', opts.headingLevel);
     }
@@ -378,15 +382,16 @@ describe('VendorProductFacetEditor', () => {
 
   it('tells the connector catalogue seat product details stay with AECi (AECI-1082)', () => {
     TestBed.inject(VendorPortalStore).seed(VENDOR_ME_CONNECTOR_SEAT_FIXTURE);
-    const f = create('audiences', { canEdit: false });
+    const f = create('audiences', { capabilities: capabilitiesFor('unclaimed') });
 
     expect(el(f).textContent).toContain('Product details stay with the AECi team');
     expect(el(f).textContent).not.toContain('Editing is paused');
     expect(save(f)).toBeNull();
   });
 
-  it('is read-only with Save withheld when account access lapsed', async () => {
-    const f = create('audiences', { canEdit: false });
+  it('is read-only with Save withheld when the plan cannot edit this facet', async () => {
+    // A lapsed plan resolves to Free, and Free does not edit audiences (§13.3).
+    const f = create('audiences', { capabilities: capabilitiesFor('unclaimed') });
     expect(save(f)).toBeNull();
     expect(el(f).textContent).toContain('Editing is paused');
     expect(checkbox(f, 'Architects').disabled).toBe(true);
@@ -401,12 +406,46 @@ describe('VendorProductFacetEditor', () => {
   });
 
   it('gates tags and points on their OWN capabilities', () => {
-    const tagsLocked = create('audiences', { canEditTaxonomy: false });
+    const all = capabilitiesFor('verified');
+    const tagsLocked = create('audiences', {
+      capabilities: all.filter((c) => c !== 'product.taxonomy.edit'),
+    });
     expect(checkbox(tagsLocked, 'Architects').disabled).toBe(true);
     expect(pointInputs(tagsLocked, 'Architects').some((i) => i.readOnly)).toBe(false);
 
-    const pointsLocked = create('audiences', { canEditUsefulness: false });
+    const pointsLocked = create('audiences', {
+      capabilities: all.filter((c) => c !== 'product.usefulness.edit'),
+    });
     expect(checkbox(pointsLocked, 'Architects').disabled).toBe(false);
     expect(pointInputs(pointsLocked, 'Architects').every((i) => i.readOnly)).toBe(true);
+  });
+
+  // AECI-1214 (§13.3): categories are Free, the other three facets Managed.
+  it('lets a Free product edit its categories', () => {
+    const f = create('categories', { capabilities: capabilitiesFor('unclaimed') });
+    expect(save(f)).not.toBeNull();
+    expect(el(f).textContent).not.toContain('Editing is paused');
+    const box = el(f).querySelector('fieldset input[type="checkbox"]') as HTMLInputElement;
+    expect(box.disabled).toBe(false);
+  });
+
+  it.each(['trades', 'audiences', 'phases'] as const)(
+    'keeps %s read-only on a Free product',
+    (facet) => {
+      const f = create(facet, { capabilities: capabilitiesFor('unclaimed') });
+      expect(save(f)).toBeNull();
+      const boxes = Array.from(
+        el(f).querySelectorAll('fieldset input[type="checkbox"]'),
+      ) as HTMLInputElement[];
+      expect(boxes.length).toBeGreaterThan(0);
+      expect(boxes.every((b) => b.disabled)).toBe(true);
+    },
+  );
+
+  it('does not let Managed facets ride on product.categories.edit', () => {
+    // Categories editable, taxonomy not: the categories tab opens, trades stays shut.
+    const caps: Capability[] = ['product.categories.edit'];
+    expect(save(create('categories', { capabilities: caps }))).not.toBeNull();
+    expect(save(create('trades', { capabilities: caps }))).toBeNull();
   });
 });

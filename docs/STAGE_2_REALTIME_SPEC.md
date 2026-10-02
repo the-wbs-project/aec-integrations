@@ -420,8 +420,8 @@ The concierge toggle is the one event with a real deadline (§1). When `entitlem
 
 | Section | API gate | Client reads |
 |---|---|---|
-| Profile edit | `requireCapability(c, 'profile.edit')` — `routes/vendor.ts:582` | `me.entitlement.capabilities` |
-| Product edit / taxonomy | `requireCapability(c, 'product.edit' \| 'product.taxonomy.edit')` — `routes/vendor.ts:668,673` | `me.entitlement.capabilities` |
+| Profile edit | `requireCapability(c, 'profile.edit')` — `routes/vendor.ts`, `createUpdateVendorProfileHandler` | `me.entitlement.capabilities` |
+| Product edit / taxonomy | per field, `assertFieldsEntitled` over `PRODUCT_FIELD_CAPABILITIES` — `routes/vendor.ts`, `createUpdateVendorProductHandler` (AECI-1214) | each `me.products[].plan.capabilities`, read through `productCan` |
 | Attestation authoring, product versions | `requireCapability(c, 'attestation.author')` — `routes/vendor-attestations.ts`, `routes/vendor-product-versions.ts` | `me.entitlement.capabilities` |
 
 > **As built (AECI-623).** The attestation row used to read `vendors.verified` on both sides: the API through `assertVerifiedVendor`, the client through `[verified]="m.vendor.verified"`. Both halves moved in one change, as this section required. The API calls `requireCapability(c, 'attestation.author')` on the three `/api/vendor/claims*` writes and the three version writes, and answers `403 ENTITLEMENT_REQUIRED`. The client passes `[canAuthor]` from `attestation.author` in **both** dashboard shells: `vendorCan(...)` on the tabbed Integrations page and a `canAuthorAttestations()` computed on `vendor-dashboard-single.ts`. The overview's `canAttest` reads the same capability. It still flips live without a reload: the admin action moves the entitlement row, the `profile`/`entitlement` cursor moves, and `me` refetches.

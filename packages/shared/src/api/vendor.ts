@@ -189,6 +189,12 @@ export const VendorProductSchema = z.object({
   integration_count: z.number().int().min(0),
   review_count: z.number().int().min(0),
   updated_at: z.string().datetime(),
+
+  // AECI-1214 (`STAGE_2_PAID_TIERS_SPEC.md` §13.7). This product's plan. Product
+  // screens gate on it through `productCan`, never on `me.entitlement`. Until a
+  // per-product plan table exists, the server copies the vendor's block into
+  // every product, so this and the server gate read the same block.
+  plan: VendorEntitlementBlockSchema,
 });
 export type VendorProduct = z.infer<typeof VendorProductSchema>;
 

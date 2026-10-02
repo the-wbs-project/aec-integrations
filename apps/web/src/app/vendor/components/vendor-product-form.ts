@@ -7,12 +7,13 @@ import {
   type UpdateVendorProductInput,
   type VendorProduct,
 } from '@aeci/shared';
+import { PRODUCT_FIELD_CAPABILITIES } from '@aeci/shared/entitlements';
 
 import { NewTabIcon } from '../../shared/new-tab-icon/new-tab-icon';
 import { RequestTrigger } from '../../requests/request-trigger';
 import { VendorApi } from '../vendor-api';
 import { VendorPortalStore } from '../vendor-portal-store';
-import { vendorIsCatalogueSeat } from '../vendor-capabilities';
+import { productCan, vendorIsCatalogueSeat } from '../vendor-capabilities';
 
 type ProductTextKey =
   | 'description'
@@ -45,6 +46,14 @@ interface FieldConfig {
  * This form is the product Profile tab only. Each taxonomy facet, and the "How
  * teams use it" points that hang off Audiences and Phases, is edited on its own
  * tab by `vendor-product-facet-editor.ts`, which owns its own dirty-diff and Save.
+ *
+ * ── PER-FIELD GATES (AECI-1214) ─────────────────────────────────────────────
+ * Each field is gated by its own capability on THIS product's plan, read with
+ * `productCan` from `PRODUCT_FIELD_CAPABILITIES` — the same table the server's
+ * field gate reads. On the Free plan description, website and logo are editable
+ * and the two doc URLs are `readonly` (never `disabled`, so the value stays in
+ * the accessibility tree). A locked field is never sent: the server refuses a
+ * request naming one WHOLE. The visible reason on a locked field is AECI-1218.
  *
  * ── UNSAVED EDITS vs. REVALIDATION (AECI-628) ───────────────────────────────
  * Same contract as `vendor-profile-form.ts`: the baseline re-seeds from the input so a clean form tracks the server,
@@ -153,7 +162,7 @@ interface FieldConfig {
               <aec-logo-input
                 [inputId]="fieldId(cfg.key)"
                 [value]="model()['logo_url'] ?? ''"
-                [readOnly]="!canEdit()"
+                [readOnly]="!editable()['logo_url']"
                 [disabled]="saving()"
                 (valueChange)="onLogoChange($event)"
                 (pendingChange)="logoPending.set($event)"
@@ -166,26 +175,26 @@ interface FieldConfig {
                   [id]="fieldId(cfg.key)"
                   rows="4"
                   [value]="model()[cfg.key]"
-                  [readOnly]="!canEdit()"
+                  [readOnly]="!editable()[cfg.key]"
                   (input)="onInput(cfg.key, $event)"
                   [attr.aria-invalid]="fieldErrors()[cfg.key] ? 'true' : null"
                   [attr.aria-describedby]="
                     fieldErrors()[cfg.key] ? fieldId(cfg.key) + '-error' : null
                   "
-                  [class]="controlClass()"
+                  [class]="controlClass(cfg.key)"
                 ></textarea>
               } @else {
                 <input
                   [id]="fieldId(cfg.key)"
                   type="url"
                   [value]="model()[cfg.key]"
-                  [readOnly]="!canEdit()"
+                  [readOnly]="!editable()[cfg.key]"
                   (input)="onInput(cfg.key, $event)"
                   [attr.aria-invalid]="fieldErrors()[cfg.key] ? 'true' : null"
                   [attr.aria-describedby]="
                     fieldErrors()[cfg.key] ? fieldId(cfg.key) + '-error' : null
                   "
-                  [class]="controlClass()"
+                  [class]="controlClass(cfg.key)"
                 />
               }
             }
@@ -242,8 +251,18 @@ export class VendorProductForm {
   protected readonly catalogueSeat = vendorIsCatalogueSeat(this.store);
 
   readonly product = input.required<VendorProduct>();
-  /** The §8 entitlement gate (AECI-614): `product.edit`. Defaults open. */
-  readonly canEdit = input<boolean>(true);
+
+  /** Field → may this product's plan edit it (AECI-1214, §13.3). */
+  protected readonly editable = computed<Record<ProductTextKey, boolean>>(() => {
+    const product = this.product();
+    const out = {} as Record<ProductTextKey, boolean>;
+    for (const cfg of this.textFields) {
+      out[cfg.key] = productCan(product, PRODUCT_FIELD_CAPABILITIES[cfg.key]);
+    }
+    return out;
+  });
+  /** Any field editable: drives the Save button and the read-only notice. */
+  protected readonly canEdit = computed(() => Object.values(this.editable()).some(Boolean));
 
   protected readonly textFields: readonly FieldConfig[] = [
     {
@@ -280,11 +299,11 @@ export class VendorProductForm {
    *  utilities on one element would race on stylesheet order. */
   private readonly inputBase =
     'w-full rounded-(--radius-md) border border-(--border-default) px-3 py-2 text-sm text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)';
-  protected readonly controlClass = computed(() =>
-    this.canEdit()
+  protected controlClass(key: ProductTextKey): string {
+    return this.editable()[key]
       ? `${this.inputBase} bg-(--surface-base)`
-      : `${this.inputBase} bg-(--surface-sunken)`,
-  );
+      : `${this.inputBase} bg-(--surface-sunken)`;
+  }
   protected readonly saveButtonClass =
     'inline-flex items-center justify-center rounded-(--radius-md) border border-(--border-strong) bg-(--accent-primary) px-5 py-2.5 text-sm font-bold text-(--surface-base) transition-colors hover:bg-(--accent-primary-hover) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) disabled:cursor-not-allowed disabled:opacity-50';
   protected readonly reloadButtonClass =
@@ -319,7 +338,11 @@ export class VendorProductForm {
     const out: Record<string, unknown> = {};
     if (!base) return out as UpdateVendorProductInput;
     const m = this.model();
+    const editable = this.editable();
     for (const cfg of this.textFields) {
+      // A locked field is never sent, even if trimming made it look changed: the
+      // server refuses the whole request when it names one.
+      if (!editable[cfg.key]) continue;
       const raw = (m[cfg.key] ?? '').trim();
       const next = raw === '' ? null : raw;
       if (next !== ((base[cfg.key] as string | null) ?? null)) out[cfg.key] = next;

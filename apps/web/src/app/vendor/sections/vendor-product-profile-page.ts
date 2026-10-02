@@ -1,7 +1,6 @@
 import { Component, computed, inject } from '@angular/core';
 
 import { VendorProductsSection } from '../components/vendor-products-section';
-import { vendorCan } from '../vendor-capabilities';
 import { VendorPortalStore } from '../vendor-portal-store';
 
 import { vendorProductContext } from './vendor-product-context';
@@ -12,6 +11,10 @@ import { vendorProductContext } from './vendor-product-context';
  *
  * Its body is `vendor-product-form.ts`. The taxonomy facets and "How teams use
  * it" are on their own tabs since AECI-994 (`vendor-product-facet-page.ts`).
+ *
+ * No page-level gate (AECI-1214): the form gates each field on THIS product's
+ * plan with `productCan` (§13.7), because the fields split across Free and
+ * Managed. It never reads `me().entitlement`.
  */
 @Component({
   selector: 'aec-vendor-product-profile-page',
@@ -21,7 +24,6 @@ import { vendorProductContext } from './vendor-product-context';
       <aec-vendor-products-section
         [products]="m.products"
         [selectedSlug]="selectedSlug()"
-        [canEdit]="canEdit()"
         section="profile"
       />
     }
@@ -33,6 +35,5 @@ export class VendorProductProfilePage {
   private readonly ctx = vendorProductContext();
 
   protected readonly me = this.store.me;
-  protected readonly canEdit = vendorCan(this.store, 'product.edit');
   protected readonly selectedSlug = computed(() => this.ctx.product()?.slug ?? null);
 }

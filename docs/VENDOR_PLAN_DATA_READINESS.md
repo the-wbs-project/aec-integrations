@@ -70,6 +70,7 @@ support **per-product plans, billing, Insights reporting, Enhanced content or le
   `audit_log` row with actor, time, and before/after state in the same batch as the change.
 - **Plans are per vendor, with one paid tier.** `vendor_entitlements` is unique on `vendor_id`.
   The only paid tier is `verified`, and it holds all eight capabilities, including `analytics.view`.
+  (Ten since AECI-1214, which also gave `unclaimed` the three Free capabilities.)
   There is no billing identity, no discount field and no automatic lapse.
 - **Insights has no data path.** `integration_viewed` has not fired since 2026-07-02. No event
   carries a vendor id. No vendor self-visit flag exists. The performance endpoint is not built.

@@ -4,6 +4,7 @@ import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { UpdateVendorProductResponse, VendorProduct } from '@aeci/shared';
+import { capabilitiesFor, type Capability } from '@aeci/shared/entitlements';
 
 import { VendorApi } from '../vendor-api';
 import { VENDOR_ME_CONNECTOR_SEAT_FIXTURE, VENDOR_ME_FIXTURE } from '../vendor-fixtures';
@@ -138,8 +139,80 @@ describe('VendorProductForm', () => {
   });
 });
 
-/** The read-only state (AECI-614 / `STAGE_2_PAID_TIERS_SPEC.md` §8). */
-describe('VendorProductForm — read-only when the entitlement lapsed', () => {
+/** `PRODUCT` on a plan holding exactly `capabilities`. */
+function onPlan(capabilities: readonly Capability[]): VendorProduct {
+  return { ...PRODUCT, plan: { ...PRODUCT.plan, capabilities: [...capabilities] } };
+}
+
+/**
+ * The per-field gates (AECI-1214 / `STAGE_2_PAID_TIERS_SPEC.md` §13.3). The form
+ * reads THIS product's plan through `productCan`, never `me().entitlement`.
+ */
+describe('VendorProductForm — the Free plan', () => {
+  let updateProduct: ReturnType<typeof vi.fn>;
+
+  beforeEach(() => {
+    updateProduct = vi.fn();
+    TestBed.resetTestingModule();
+    TestBed.configureTestingModule({
+      providers: [
+        provideZonelessChangeDetection(),
+        provideHttpClient(),
+        { provide: VendorApi, useValue: { updateProduct } as Partial<VendorApi> },
+        VendorPortalStore,
+      ],
+    });
+  });
+
+  function build(): ComponentFixture<VendorProductForm> {
+    const fixture = TestBed.createComponent(VendorProductForm);
+    fixture.componentRef.setInput('product', onPlan(capabilitiesFor('unclaimed')));
+    fixture.detectChanges();
+    return fixture;
+  }
+
+  const field = (fixture: ComponentFixture<VendorProductForm>, key: string) =>
+    fixture.nativeElement.querySelector(`#vendor-product-${PRODUCT.id}-${key}`) as
+      | HTMLInputElement
+      | HTMLTextAreaElement;
+
+  it('opens description and website, and keeps the two doc URLs readonly', () => {
+    const fixture = build();
+    expect(field(fixture, 'description').readOnly).toBe(false);
+    expect(field(fixture, 'website').readOnly).toBe(false);
+    // readonly, not disabled: the Managed value stays readable (§6.18).
+    expect(field(fixture, 'tool-integrations-url').readOnly).toBe(true);
+    expect(field(fixture, 'api-docs-url').readOnly).toBe(true);
+    expect(field(fixture, 'api-docs-url').disabled).toBe(false);
+    expect(field(fixture, 'api-docs-url').value).toBe(PRODUCT.api_docs_url ?? '');
+  });
+
+  it('offers Save and no paused notice', () => {
+    const fixture = build();
+    expect(saveButton(fixture)).not.toBeNull();
+    expect(fixture.nativeElement.textContent).not.toContain('Editing is paused');
+  });
+
+  it('sends only the Free field it changed', async () => {
+    updateProduct.mockResolvedValue({
+      product: onPlan(capabilitiesFor('unclaimed')),
+    } as UpdateVendorProductResponse);
+    const fixture = build();
+
+    setInput(fixture, DESCRIPTION_ID, 'A Free-plan description.');
+    saveButton(fixture)!.click();
+    await flush();
+
+    expect(updateProduct).toHaveBeenCalledWith(PRODUCT.id, {
+      description: 'A Free-plan description.',
+    });
+  });
+});
+
+/** The read-only state (AECI-614 / `STAGE_2_PAID_TIERS_SPEC.md` §8): a plan with
+ *  no product capability at all. No real tier serves this since AECI-1214, but
+ *  the form must still close cleanly on it, because an unknown tier fails closed. */
+describe('VendorProductForm — read-only when the plan holds no product edit', () => {
   let updateProduct: ReturnType<typeof vi.fn>;
 
   beforeEach(() => {
@@ -159,10 +232,9 @@ describe('VendorProductForm — read-only when the entitlement lapsed', () => {
     vi.restoreAllMocks();
   });
 
-  function build(canEdit: boolean): ComponentFixture<VendorProductForm> {
+  function build(): ComponentFixture<VendorProductForm> {
     const fixture = TestBed.createComponent(VendorProductForm);
-    fixture.componentRef.setInput('product', PRODUCT);
-    fixture.componentRef.setInput('canEdit', canEdit);
+    fixture.componentRef.setInput('product', onPlan([]));
     fixture.detectChanges();
     return fixture;
   }
@@ -171,7 +243,7 @@ describe('VendorProductForm — read-only when the entitlement lapsed', () => {
     Array.from(fixture.nativeElement.querySelectorAll('input, textarea'));
 
   it('keeps every value readable, marked readonly rather than disabled', () => {
-    const fixture = build(false);
+    const fixture = build();
 
     expect(fields(fixture).every((f) => f.readOnly)).toBe(true);
     expect(
@@ -180,7 +252,7 @@ describe('VendorProductForm — read-only when the entitlement lapsed', () => {
   });
 
   it('withholds Save and explains why', () => {
-    const fixture = build(false);
+    const fixture = build();
 
     expect(saveButton(fixture)).toBeNull();
     expect(fixture.nativeElement.textContent).toContain('Editing is paused');
@@ -188,7 +260,7 @@ describe('VendorProductForm — read-only when the entitlement lapsed', () => {
 
   it('tells the connector catalogue seat product details stay with AECi (AECI-1082)', () => {
     TestBed.inject(VendorPortalStore).seed(VENDOR_ME_CONNECTOR_SEAT_FIXTURE);
-    const fixture = build(false);
+    const fixture = build();
     const text = fixture.nativeElement.textContent as string;
 
     expect(text).toContain('Product details stay with the AECi team');
@@ -197,7 +269,7 @@ describe('VendorProductForm — read-only when the entitlement lapsed', () => {
   });
 
   it('does not PATCH even if the form is submitted anyway', async () => {
-    const fixture = build(false);
+    const fixture = build();
     (fixture.nativeElement.querySelector('form') as HTMLFormElement).dispatchEvent(
       new Event('submit', { bubbles: true, cancelable: true }),
     );
