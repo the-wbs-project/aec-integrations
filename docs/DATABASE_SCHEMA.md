@@ -3369,7 +3369,7 @@ it too, because the prune aborts the whole run. Window: `NOTIFICATION_SENDS_RETE
 What happened to a send after Resend took it (AECI-1222, migration
 `0059_faithful_shriek.sql`: a pure CREATE TABLE plus three indexes, and one plain CREATE INDEX on
 `notification_sends`. Nothing is recreated). One row per Resend
-delivery event per impacted recipient. The writer is
+delivery event. The writer is
 `apps/api/src/lib/notifications/delivery-events.ts`, called by `POST /api/webhooks/resend`.
 `docs/email.md` §Delivery webhooks is the governing doc.
 
@@ -3382,7 +3382,7 @@ create table notification_delivery_events (
   notification_send_id integer,       -- the joined notification_sends.id; null = no ledger row
   notification_id text not null,      -- registry id; 'supabase-sign-in' for tier auth; 'unknown' when unnamed
   tier text not null,                 -- the receiving tier's tierLabel(env), or 'auth'
-  recipient_hash text not null,       -- recipientHash() of the impacted address; '' = none named
+  recipient_hash text not null,       -- recipientHash() of the one address named; '' = unattributed
   bounce_type text,                   -- data.bounce.type on a bounce (Permanent, Temporary)
   bounce_subtype text,                -- data.bounce.subType (Suppressed, MessageRejected, …)
   occurred_at text not null,          -- Resend's created_at for the event
@@ -3395,16 +3395,21 @@ create index notification_delivery_events_message_idx on notification_delivery_e
 create index notification_delivery_events_recipient_idx on notification_delivery_events(recipient_hash, created_at);
 ```
 
-**One row per impacted recipient.** Resend's `data.to` lists the recipients an event is about,
-so one event can write several rows. The idempotency index is therefore
-`(svix_id, recipient_hash)`, not `svix_id` alone. A Resend retry repeats the svix id, so its
-`INSERT … ON CONFLICT DO NOTHING` writes nothing.
+**One row per event.** Resend documents `data.to` as the "impacted" recipients but never says an
+event is per recipient, or whether a BCC address appears. So an event naming exactly one address
+stores that address's hash and joins the ledger. An event naming several addresses, or none, is
+stored once **unattributed**: `recipient_hash = ''`, `notification_send_id` NULL, no ledger
+join. The idempotency index is `(svix_id, recipient_hash)`. A Resend retry repeats the svix id
+and the body, so its `INSERT … ON CONFLICT DO NOTHING` writes nothing, `''` included.
+`docs/email.md` §Delivery webhooks has the Resend quote.
 
-**The join.** Each row picks the earliest `notification_sends` row with the same
-`provider_message_id` and the same `recipient_hash`. That handles a digest (one Resend id, one
-row per recipient), the operator `COPY:` (one row per operator address) and a retried keyed
-send that got the first send's id back. A recipient with no ledger row, such as a BCC copy, is
-stored with `notification_send_id` NULL. No ledger row is invented.
+**The join.** A single-address row picks the earliest `notification_sends` row with the same
+`provider_message_id` and the same `recipient_hash`. That handles a digest reported per
+recipient (one Resend id, one ledger row per recipient), the operator `COPY:` (one row per
+operator address) and a retried keyed send that got the first send's id back. A recipient with
+no ledger row, such as a BCC copy named alone, is stored with `notification_send_id` NULL. So is
+an event that lands before the ledger row has its `provider_message_id`. No ledger row is
+invented.
 
 **No foreign key** to `notification_sends`, on purpose. A log row must outlive its parent, and
 an FK would put this table on the `ON DELETE` path of any future recreate of the ledger
@@ -3422,8 +3427,9 @@ the ledger and to a person.
 ledger, a write error is not swallowed: the route answers 500 and Resend retries.
 
 **Read by** the `/admin/email` screen since AECI-1223 (`ADMIN_PANEL_SPEC.md` §5.14): the summary
-counts by `created_at`, the list picks each ledger row's newest event by `occurred_at`, and the
-address search returns the recipient's events with a NULL `notification_send_id`.
+counts events by `created_at`, the list picks each ledger row's newest joined event by
+`occurred_at`, and the address search returns the recipient's events with a NULL
+`notification_send_id`. An unattributed event shows in the summary only.
 
 **Retention: 400 days, the ledger's rule**, enforced by retention-prune on the same mechanism.
 Window: `NOTIFICATION_DELIVERY_EVENTS_RETENTION_DAYS` in `@aeci/shared`, overridable per tier

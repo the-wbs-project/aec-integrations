@@ -69,6 +69,14 @@ Nothing listed them. The inventory found six problems.
   would defeat that lookup. The same property means anyone holding a candidate address can link
   it to its rows. Treat the hash as personal data, not as anonymous. It is kept 400 days. The
   suppressed-send log line carries the same hash into Workers Logs.
+- **`/admin/email` shows an 8-character prefix of this unsalted hash (accepted 2026-10-02,
+  AECI-1223).** Each Sends row carries the first 8 hex characters, cut in SQL, so an operator
+  can tell that two rows went to the same person. The prefix is linkable to an address in the
+  same way as the full hash, at lower precision. We accept that. The screen is admin-only, and an
+  admin can already search any address and read every `auth.users` email. The prefix shows an
+  admin nothing they could not already get. A keyed HMAC per screen, which would make the prefix
+  unlinkable outside the Worker, was considered and not taken: it adds a secret to manage and
+  protects nothing from the only people who can see the screen. `ADMIN_PANEL_SPEC.md` §13 D23.
 - **Retention is 400 days**, enforced by the retention prune, the same window as `page_views`.
 - **The protocol is reserve, send, finalize.**
   1. Reserve a `sending` row with `INSERT … ON CONFLICT(dedupe_key) DO NOTHING`.

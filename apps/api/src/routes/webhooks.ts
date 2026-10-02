@@ -241,8 +241,61 @@ export function createLinearWebhookHandler(
 
 // ─── Resend delivery webhook (AECI-1222) ─────────────────────────────────────
 
-/** The delivery metric. One count per impacted recipient, never an address or a hash. */
+/** The delivery metric. One count per event, never an address or a hash. */
 export const EMAIL_DELIVERY_METRIC = 'aeci.email.delivery';
+
+/** The largest Resend webhook body read. A delivery event is about 1 KB; Svix caps a message
+ *  far below this. Anything larger is refused 413 before the signature is checked. */
+export const RESEND_WEBHOOK_MAX_BYTES = 256 * 1024;
+
+/** Set once this isolate has warned about an unusable `RESEND_WEBHOOK_SECRET`. The metric
+ *  still counts every rejected request; the log line is once per isolate, so a missing
+ *  secret cannot turn every retried delivery into a log line. */
+let warnedAboutSecret = false;
+
+/** Test seam: forget the once-per-isolate warn. */
+export function resetResendSecretWarning(): void {
+  warnedAboutSecret = false;
+}
+
+function payloadTooLarge(): ApiError {
+  return new ApiError(413, ApiErrorCode.PAYLOAD_TOO_LARGE, 'Resend webhook body is too large');
+}
+
+/**
+ * Read the raw body as text, refusing more than {@link RESEND_WEBHOOK_MAX_BYTES}. A declared
+ * `Content-Length` over the cap is refused before any byte is read. A body with no declared
+ * length (chunked) is read up to the cap and then cancelled, so the limit holds either way.
+ */
+export async function readResendBody(request: Request): Promise<string> {
+  const declared = request.headers.get('content-length');
+  if (declared !== null && Number(declared) > RESEND_WEBHOOK_MAX_BYTES) throw payloadTooLarge();
+  if (!request.body) return '';
+  const reader = request.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let size = 0;
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      size += value.byteLength;
+      if (size > RESEND_WEBHOOK_MAX_BYTES) {
+        await reader.cancel();
+        throw payloadTooLarge();
+      }
+      chunks.push(value);
+    }
+  } finally {
+    reader.releaseLock();
+  }
+  const bytes = new Uint8Array(size);
+  let offset = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return new TextDecoder().decode(bytes);
+}
 
 /** A rejected signature, tagged with the reason. */
 export const RESEND_SIGNATURE_FAILURE_METRIC = 'aeci.webhooks.resend.signature_failure';
@@ -253,16 +306,18 @@ type DeliveryOutcome = 'recorded' | 'replay' | 'other_tier' | 'untagged' | 'igno
  * `POST /api/webhooks/resend`: record Resend's delivery events (`docs/email.md` §Delivery
  * webhooks, `API_CONTRACTS.md` §6.11).
  *
- * 1. Read the raw body once and verify the Svix signature (`lib/resend-webhook-auth.ts`).
- *    Any failure, including an unset `RESEND_WEBHOOK_SECRET`, is a 401 before the body is
- *    parsed, and counts `aeci.webhooks.resend.signature_failure{reason}`. An unset secret
- *    also warns, because it rejects every delivery.
+ * 1. Read the raw body once, capped at {@link RESEND_WEBHOOK_MAX_BYTES} (413 above it), and
+ *    verify the Svix signature (`lib/resend-webhook-auth.ts`). Any failure, including an
+ *    unset `RESEND_WEBHOOK_SECRET`, is a 401 before the body is parsed, and counts
+ *    `aeci.webhooks.resend.signature_failure{reason}` per request. An unset secret also
+ *    warns, once per isolate, because it rejects every delivery.
  * 2. Parse and validate. Malformed JSON or a schema miss is a 400.
  * 3. Only the five delivery types are recorded. Any other type, opens and clicks included,
  *    is a 200 with nothing stored.
- * 4. Keep only this tier's events (`classifyEvent`), then join and insert
- *    (`recordDeliveryEvent`). A replayed `svix-id` inserts nothing and answers 200.
- * 5. Count `aeci.email.delivery` tagged `event`, `template`, `tier`, `outcome`.
+ * 4. Keep only this tier's events (`classifyEvent`), then join and insert ONE row
+ *    (`recordDeliveryEvent`; an event naming several addresses is stored unattributed). A
+ *    replayed `svix-id` inserts nothing and answers 200.
+ * 5. Count `aeci.email.delivery` once per event, tagged `event`, `template`, `tier`, `outcome`.
  *
  * Log-class: no `audit_log` row, no cache purge (nothing it writes renders on a page), and no
  * in-Worker rate limit (no actor to key on, and Resend retries a 429).
@@ -271,7 +326,7 @@ export function createResendWebhookHandler(
   dbFor: DbFactory = getDb,
 ): (c: Context<{ Bindings: Env }>) => Promise<Response> {
   return async (c) => {
-    const rawBody = await c.req.text();
+    const rawBody = await readResendBody(c.req.raw);
 
     const verified = await verifySvixSignature({
       id: c.req.header('svix-id'),
@@ -282,7 +337,11 @@ export function createResendWebhookHandler(
     });
     if (!verified.ok) {
       count(c, RESEND_SIGNATURE_FAILURE_METRIC, 1, [`reason:${verified.reason}`]);
-      if (verified.reason === 'missing_secret' || verified.reason === 'bad_secret') {
+      if (
+        !warnedAboutSecret &&
+        (verified.reason === 'missing_secret' || verified.reason === 'bad_secret')
+      ) {
+        warnedAboutSecret = true;
         try {
           logToPosthog(c.executionCtx, c.env, c.req.raw, {
             level: 'warn',
@@ -312,14 +371,13 @@ export function createResendWebhookHandler(
       return resendAck(0, `ignored event type: ${payload.type}`);
     }
     const event = shortEventType(payload.type);
-    const recipients = Math.max(payload.data.to?.length ?? 0, 1);
 
     const classification = classifyEvent(c.env, payload.data);
     if (classification.kind === 'drop') {
       // The template stays `unknown` on a drop, so a foreign tag can never add a series.
       delivery(
         c,
-        recipients,
+        1,
         event,
         UNKNOWN_NOTIFICATION,
         metricTier(classification.tier),
@@ -337,15 +395,16 @@ export function createResendWebhookHandler(
       classification,
     });
 
-    const tier = metricTier(classification.tier);
-    for (const [notificationId, n] of result.insertedByNotification) {
-      delivery(c, n, event, templateTag(notificationId), tier, 'recorded');
-    }
-    const replayed = result.attempted - result.inserted;
-    if (replayed > 0) {
-      delivery(c, replayed, event, templateTag(result.firstNotificationId), tier, 'replay');
-    }
-    return resendAck(result.inserted, result.inserted === 0 ? 'replay' : 'recorded');
+    const outcome = result.inserted ? 'recorded' : 'replay';
+    delivery(
+      c,
+      1,
+      event,
+      templateTag(result.notificationId),
+      metricTier(classification.tier),
+      outcome,
+    );
+    return resendAck(result.inserted ? 1 : 0, outcome);
   };
 }
 

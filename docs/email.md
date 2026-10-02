@@ -612,8 +612,11 @@ once and verifies it before parsing (`lib/resend-webhook-auth.ts`, WebCrypto, no
 - `svix-signature` holds space-separated `v1,<base64>` entries. Any match passes, which is how
   Svix rotates a secret. The compare is constant-time.
 - A `svix-timestamp` more than 5 minutes from the Worker clock is rejected.
+- A body over 256 KB is a 413 before the signature is checked. A declared `Content-Length`
+  over the cap is refused unread. A body with no declared length is read up to the cap, then
+  cancelled.
 - A missing header, a bad signature or a stale timestamp is a 401. An unset or malformed
-  secret is a 401 for every request plus a `warn` log. Each 401 counts
+  secret is a 401 for every request plus a `warn` log, once per isolate. Each 401 counts
   `aeci.webhooks.resend.signature_failure{reason}`.
 
 **The shared-account trap.** One Resend account and one key serve every tier, and a webhook
@@ -633,21 +636,40 @@ it. The subject is the one both GoTrue slots carry (§Magic-link sender). Change
 there and `SIGN_IN_SUBJECT` in `lib/notifications/delivery-events.ts` in the same PR, or
 sign-in events start dropping as `untagged`.
 
-**The join.** `data.email_id` is the ledger's `provider_message_id`. Resend's `data.to` lists
-the impacted recipients, so the handler writes one row per recipient. Each row picks its
-ledger row by `recipientHash`, and the earliest matching row wins:
+**One row per event.** Resend's docs describe `data.to` on every email event, `email.sent`
+included, as the "Array of impacted recipient email addresses"
+(https://resend.com/docs/webhooks/emails/bounced). They do not say an event is sent per
+recipient, and they say nothing about BCC. So an event that names more than one address cannot
+be pinned on any one of them. The handler stores every event as exactly one row and counts the
+metric once:
 
-- A digest makes one Resend call for several recipients. Each recipient finds its own row.
+- **One address named:** the row carries that address's `recipientHash` and joins the ledger.
+- **Several addresses, or none:** the row is unattributed. `recipient_hash` is `''`,
+  `notification_send_id` is NULL, and there is no ledger join. The `notification_id` comes from
+  the message's tag. An address search never finds it.
+
+**The join.** `data.email_id` is the ledger's `provider_message_id`. A single-address event picks
+its ledger row by `recipientHash`, and the earliest matching row wins:
+
+- A digest makes one Resend call for several recipients. If Resend reports per recipient, each
+  recipient finds its own row. If it reports one event naming all of them, the event is
+  unattributed.
 - The operator `COPY:` writes one row per operator address. Same rule.
 - A retried keyed send can get the first send's id back through `Idempotency-Key`. The
   earliest row is the send that went.
-- **A BCC copy has no ledger row. Its event is stored with `notification_send_id` NULL**,
-  under the message's `notification_id` tag. No ledger row is invented. A ledger outage
-  leaves the same NULL.
-- Only `sent` rows carry an id, so `failed`, `unknown` and unparsed sends never get events.
+- **A BCC copy has no ledger row.** Resend's docs do not say whether a BCC address appears in
+  `data.to`. If an event names the BCC address alone, it is stored with `notification_send_id`
+  NULL under the message's `notification_id` tag. If it names the BCC address beside the `to`
+  address, the whole event is unattributed. No ledger row is invented either way.
+- **An event that lands before `finalizeSend` stores the message id stays unjoined.** The ledger
+  row gets `provider_message_id` only after Resend's send call returns. An event that arrives
+  first, in practice only `email.sent`, finds no row and is stored with `notification_send_id`
+  NULL. Nothing re-joins it later.
+- A ledger outage leaves the same NULL. Only `sent` rows carry an id, so `failed`, `unknown`
+  and unparsed sends never get events.
 
 **Idempotent.** The UNIQUE `(svix_id, recipient_hash)` index makes a Resend retry insert
-nothing. The handler still answers 200 and counts `outcome:replay`.
+nothing. A retry carries the same body, so an unattributed event lands on `(svix_id, '')` again. The handler still answers 200 and counts `outcome:replay`.
 
 **Failure.** A D1 error is a 500, so Resend retries the delivery. This is the opposite of the
 send ledger, which fails open, because here the retry is the only copy of the event. Telemetry
@@ -662,7 +684,8 @@ first with its latest delivery report, and on production the sign-in stream's co
 "did this person get our email", type their full address into the search: the API hashes it
 and matches the ledger. A partial address finds nothing, by design (ADR 0038). The address
 search also lists the person's delivery reports with no ledger row, which is where a sign-in
-link or a blind copy shows. Each row links to the message in the Resend dashboard. Open Resend
+link or a blind copy shows when Resend's event names that address alone. The summary's delivery
+columns count events, so a multi-address event counts once. Each row links to the message in the Resend dashboard. Open Resend
 only for what our tables do not hold: the rendered message and Resend's own suppression list.
 
 **Operator steps per tier** (`environments.md` has the per-tier table):

@@ -1370,7 +1370,8 @@ not a trend. It has no detail route, so §5.0b derives its trail as
    labelled groups. Send outcomes from the ledger: `sent`, `failed`, `unknown`, `skipped`,
    `suppressed`, `duplicate`, `paused` (AECI-1224, its own column at the end of the group, so
    a pause shows as a count that rises while the template is off). Delivery events: delivered,
-   bounced, complained, delayed. A
+   bounced, complained, delayed. These count events, not recipients: an event that names
+   several addresses counts once. A
    `sending` row is counted in neither group, because it is an attempt still in flight or an
    isolate that died. The row's label is the registry id and the registry `summary`. A
    template id the registry no longer knows renders its raw id with a "Not in the registry"
@@ -1423,7 +1424,10 @@ says so beside the field.
   list. The search does return the address's **unmatched delivery events**: events whose
   `notification_send_id` is NULL. On production that includes the sign-in stream, which is
   the most common support question ("I never got the link"). It also includes a BCC copy
-  whose own event names the BCC address. Capped at the 25 newest.
+  whose own event names the BCC address and no other. An event that names several addresses
+  is stored unattributed, with an empty `recipient_hash`, so no search finds it and no Sends
+  row shows it. It counts in the summary only (`email.md` §Delivery webhooks, AECI-1222).
+  Capped at the 25 newest.
 
 **The ADR 0038 ruling: the ledger stays hash-only (§13 D23).** The screen cannot show who
 each email went to. Each row shows its **related entity** instead: the ledger's

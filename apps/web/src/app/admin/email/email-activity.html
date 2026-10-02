@@ -417,8 +417,8 @@
         >Exact match on the whole address.</strong
       >
       <span i18n="@@admin.email.search.hint">
-        Part of an address finds nothing. A blind copy has no send record, so it is listed under
-        delivery reports instead.</span
+        Part of an address finds nothing. A blind copy has no send record. Its report is listed
+        under delivery reports when Resend names that address alone.</span
       >
     </p>
 
@@ -702,7 +702,8 @@
     </h3>
     <p class="max-w-[60ch] text-sm text-(--text-secondary)" i18n="@@admin.email.unmatched.intro">
       Sign-in emails and blind copies reach Resend without a send record here. These are the newest
-      reports Resend sent back for this address.
+      reports Resend sent back that name this address and no other. A report that names several
+      addresses is kept, but under none of them.
     </p>
     @if (unmatched().length === 0) {
     <p class="text-sm text-(--text-secondary)" i18n="@@admin.email.unmatched.empty">

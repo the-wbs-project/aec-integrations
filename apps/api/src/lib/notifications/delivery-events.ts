@@ -20,17 +20,29 @@
  * `data.email_id` is `notification_sends.provider_message_id`. Several ledger rows can share
  * one id: a digest is one Resend call for several recipients, the operator `COPY:` writes one
  * row per operator address, and a retried send can get the first send's id back through the
- * `Idempotency-Key`. So each impacted recipient picks its row by `recipientHash`, the ledger's
- * own normalization, and the earliest such row wins (the send that actually went). A recipient
- * with no row (a BCC copy, a ledger outage) is stored with `notification_send_id` NULL. No
- * ledger row is ever invented.
+ * `Idempotency-Key`. So the recipient picks its row by `recipientHash`, the ledger's own
+ * normalization, and the earliest such row wins (the send that actually went). A recipient
+ * with no row (a BCC copy, a ledger outage, an event that beat `finalizeSend`) is stored with
+ * `notification_send_id` NULL. No ledger row is ever invented.
+ *
+ * ─── One row per event ────────────────────────────────────────────────────────
+ *
+ * Resend documents `data.to` as the "Array of impacted recipient email addresses" on every
+ * email event, `email.sent` included, and never says an event is sent per recipient or
+ * whether a BCC address appears. So an event that names more than one address cannot be
+ * pinned on any one of them: a bounce on a three-address digest may concern one address.
+ * Such an event is stored ONCE, unattributed: `recipient_hash` `''`, no ledger join,
+ * `notification_send_id` NULL. An event naming one address keeps the join. An event naming
+ * nobody is stored the same unattributed way. Either way the event writes exactly one row and
+ * counts the metric once.
  *
  * ─── Log-class ────────────────────────────────────────────────────────────────
  *
  * No `audit_log` row (ADR 0022), like `notification_sends`. Unlike the ledger it does NOT
  * fail open: a D1 error propagates, the route answers 500, and Resend retries the delivery.
  * The retry is the durability. The `(svix_id, recipient_hash)` UNIQUE index makes the retry
- * of an already-stored event insert nothing.
+ * of an already-stored event insert nothing: a retry carries the same body, so it lands on
+ * the same hash, `''` for an unattributed event.
  */
 
 import {
@@ -38,7 +50,7 @@ import {
   type ResendDeliveryEventType,
   type ResendWebhook,
 } from '@aeci/shared';
-import { asc, eq } from 'drizzle-orm';
+import { and, asc, eq } from 'drizzle-orm';
 
 import type { Db } from '../../db/client';
 import {
@@ -79,8 +91,9 @@ const METRIC_TIERS = new Set([
   AUTH_TIER,
 ]);
 
-/** Rows per INSERT. 11 bound parameters a row keeps a statement under D1's 100. */
-const INSERT_CHUNK_ROWS = 8;
+/** The `recipient_hash` of an event attributed to nobody: it named no address, or more
+ *  than one. */
+export const UNATTRIBUTED_RECIPIENT_HASH = '';
 
 export type DropReason = 'other_tier' | 'untagged';
 
@@ -169,85 +182,68 @@ export interface RecordInput {
 }
 
 export interface RecordResult {
-  /** Rows the event addresses (one per impacted recipient, at least one). */
-  attempted: number;
-  /** Rows actually inserted. Fewer than `attempted` means a replay. */
-  inserted: number;
-  /** Inserted rows per registry id, for the metric. */
-  insertedByNotification: Map<string, number>;
-  /** The registry id of the first row, for a replay's metric. */
-  firstNotificationId: string;
+  /** False on a replay: the `(svix_id, recipient_hash)` row already existed. */
+  inserted: boolean;
+  /** The stored row's `notification_id`, for the metric. */
+  notificationId: string;
+  /** True when the event named exactly one address and was joined by it. */
+  attributed: boolean;
 }
 
 /**
- * Join each impacted recipient to its ledger row and insert one row per recipient. A DB
- * error propagates (see the header).
+ * Store one row for the event. A single-address event joins its ledger row by recipient
+ * hash. Any other event is stored unattributed (see the header). A DB error propagates.
  */
 export async function recordDeliveryEvent(db: Db, input: RecordInput): Promise<RecordResult> {
   const { data, classification } = input;
   const hashes = await recipientHashes(data.to ?? []);
-
-  const ledger = await db
-    .select({
-      id: notificationSends.id,
-      recipientHash: notificationSends.recipientHash,
-      notificationId: notificationSends.notificationId,
-    })
-    .from(notificationSends)
-    .where(eq(notificationSends.providerMessageId, data.email_id))
-    .orderBy(asc(notificationSends.id));
+  const hash = hashes.length === 1 ? hashes[0]! : null;
 
   const fallbackId = classification.signIn
     ? SIGN_IN_NOTIFICATION_ID
     : (classification.taggedNotificationId ?? UNKNOWN_NOTIFICATION);
-  const bounce = input.eventType === 'email.bounced' ? data.bounce : undefined;
 
-  const rows = hashes.map((hash) => {
-    // Rows are ordered by id, so `find` returns the earliest send to this recipient.
-    const match = ledger.find((row) => row.recipientHash === hash);
-    return {
+  let match: { id: number; notificationId: string } | undefined;
+  if (hash !== null) {
+    // Ordered by id, so the first row is the earliest send to this recipient.
+    [match] = await db
+      .select({ id: notificationSends.id, notificationId: notificationSends.notificationId })
+      .from(notificationSends)
+      .where(
+        and(
+          eq(notificationSends.providerMessageId, data.email_id),
+          eq(notificationSends.recipientHash, hash),
+        ),
+      )
+      .orderBy(asc(notificationSends.id))
+      .limit(1);
+  }
+
+  const bounce = input.eventType === 'email.bounced' ? data.bounce : undefined;
+  const notificationId = match?.notificationId ?? fallbackId;
+  const back = await db
+    .insert(notificationDeliveryEvents)
+    .values({
       svixId: input.svixId,
       providerMessageId: data.email_id,
       eventType: shortEventType(input.eventType),
       notificationSendId: match?.id ?? null,
-      notificationId: match?.notificationId ?? fallbackId,
+      notificationId,
       tier: classification.tier,
-      recipientHash: hash,
+      recipientHash: hash ?? UNATTRIBUTED_RECIPIENT_HASH,
       bounceType: bounce?.type ?? null,
       bounceSubtype: bounce?.subType ?? null,
       occurredAt: input.occurredAt,
-    };
-  });
+    })
+    .onConflictDoNothing({
+      target: [notificationDeliveryEvents.svixId, notificationDeliveryEvents.recipientHash],
+    })
+    .returning({ id: notificationDeliveryEvents.id });
 
-  const insertedByNotification = new Map<string, number>();
-  let inserted = 0;
-  for (let i = 0; i < rows.length; i += INSERT_CHUNK_ROWS) {
-    const back = await db
-      .insert(notificationDeliveryEvents)
-      .values(rows.slice(i, i + INSERT_CHUNK_ROWS))
-      .onConflictDoNothing({
-        target: [notificationDeliveryEvents.svixId, notificationDeliveryEvents.recipientHash],
-      })
-      .returning({ notificationId: notificationDeliveryEvents.notificationId });
-    for (const row of back) {
-      inserted += 1;
-      insertedByNotification.set(
-        row.notificationId,
-        (insertedByNotification.get(row.notificationId) ?? 0) + 1,
-      );
-    }
-  }
-
-  return {
-    attempted: rows.length,
-    inserted,
-    insertedByNotification,
-    firstNotificationId: rows[0]?.notificationId ?? fallbackId,
-  };
+  return { inserted: back.length > 0, notificationId, attributed: hash !== null };
 }
 
-/** One hash per distinct impacted address, in order. An event that names nobody gets one
- *  row with an empty hash, so it still leaves a trace. */
+/** One hash per distinct named address, in order. Empty when the event names nobody. */
 async function recipientHashes(addresses: readonly string[]): Promise<string[]> {
   const out: string[] = [];
   for (const address of addresses) {
@@ -256,7 +252,7 @@ async function recipientHashes(addresses: readonly string[]): Promise<string[]> 
     const hash = await recipientHash(bare);
     if (!out.includes(hash)) out.push(hash);
   }
-  return out.length > 0 ? out : [''];
+  return out;
 }
 
 /** `Name <a@b.com>` or `a@b.com` → `a@b.com`, trimmed and lowercased. The same rule the

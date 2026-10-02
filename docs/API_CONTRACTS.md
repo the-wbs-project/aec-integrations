@@ -5062,7 +5062,7 @@ export const ResendWebhookSchema = z.object({
   data: z.object({
     email_id: z.string().min(1),         // = notification_sends.provider_message_id
     from: z.string().optional(),
-    to: z.array(z.string()).optional(),  // the impacted recipients
+    to: z.array(z.string()).optional(),  // the impacted recipients; >1 = stored unattributed
     subject: z.string().optional(),
     tags: z.union([
       z.record(z.string(), z.string()),  // documented shape: { tier, notification_id }
@@ -5075,11 +5075,12 @@ export const ResendWebhookSchema = z.object({
 
 | Case | Status | Body |
 |---|---|---|
-| Missing or bad signature, stale timestamp, unset secret | `401 UNAUTHENTICATED` | error envelope |
+| `Content-Length` over 256 KB, or an undeclared body that passes 256 KB while read | `413 PAYLOAD_TOO_LARGE` | error envelope. Checked before the signature |
+| Missing or bad signature, stale timestamp, unset secret | `401 UNAUTHENTICATED` | error envelope. An unusable secret also warns, once per isolate |
 | Signed body that is not JSON, or fails the schema | `400 MALFORMED_REQUEST` / `VALIDATION_FAILED` | error envelope |
 | Type other than `email.sent` / `delivered` / `delivery_delayed` / `bounced` / `complained` | `200` | `{ ok: true, recorded: 0, reason: 'ignored event type: …' }` |
 | Tagged for another tier, or untagged and not this tier's to record | `200` | `{ ok: true, recorded: 0, reason: 'other_tier' \| 'untagged' }` |
-| Recorded | `200` | `{ ok: true, recorded: <rows>, reason: 'recorded' }` |
+| Recorded | `200` | `{ ok: true, recorded: 1, reason: 'recorded' }`. Always one row per event |
 | Replayed `svix-id` | `200` | `{ ok: true, recorded: 0, reason: 'replay' }` |
 | D1 error | `500` | error envelope. Resend retries |
 

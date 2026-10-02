@@ -15,7 +15,13 @@ import { recipientHash } from '../lib/hash';
 import { logToPosthog, submitCount } from '../posthog';
 import { makeTestDb, type TestDb } from '../test/d1';
 import { buildAppWithHandler, fakeExecutionContext } from '../test/helpers';
-import { createResendWebhookHandler, EMAIL_DELIVERY_METRIC } from './webhooks';
+import {
+  createResendWebhookHandler,
+  EMAIL_DELIVERY_METRIC,
+  RESEND_WEBHOOK_MAX_BYTES,
+  readResendBody,
+  resetResendSecretWarning,
+} from './webhooks';
 
 vi.mock('../posthog', () => ({
   logToPosthog: vi.fn(),
@@ -37,6 +43,7 @@ beforeEach(async () => {
   t = await makeTestDb();
   vi.mocked(submitCount).mockClear();
   vi.mocked(logToPosthog).mockClear();
+  resetResendSecretWarning();
 });
 afterEach(() => t.dispose());
 
@@ -148,6 +155,18 @@ describe('POST /api/webhooks/resend — signature', () => {
     expect(vi.mocked(logToPosthog).mock.calls[0]?.[3]).toMatchObject({ level: 'warn' });
   });
 
+  it('warns about the unset secret once per isolate, but counts every rejection', async () => {
+    for (const id of ['msg_1', 'msg_2', 'msg_3']) {
+      const res = await post(event('email.delivered'), { env: { ENV: 'production' }, id });
+      expect(res.status).toBe(401);
+    }
+    expect(vi.mocked(logToPosthog)).toHaveBeenCalledTimes(1);
+    const failures = vi
+      .mocked(submitCount)
+      .mock.calls.filter((call) => call[3] === 'aeci.webhooks.resend.signature_failure');
+    expect(failures).toHaveLength(3);
+  });
+
   it('answers 400 to a signed body that is not JSON', async () => {
     const raw = 'not json';
     const res = await app().request(
@@ -222,27 +241,61 @@ describe('POST /api/webhooks/resend — recording', () => {
     expect((await events())[0]?.notificationSendId).toBe(first);
   });
 
-  it('writes one row per impacted recipient and stores a BCC recipient unjoined', async () => {
-    const sendId = await ledgerRow('r@example.com');
-    await post(event('email.delivered', { to: ['r@example.com', 'support@aecintegrations.com'] }));
-    const rows = await events();
-    expect(rows).toHaveLength(2);
-    expect(rows[0]?.notificationSendId).toBe(sendId);
-    expect(rows[1]).toMatchObject({
-      notificationSendId: null,
-      notificationId: 'review-submitted',
-      recipientHash: await recipientHash('support@aecintegrations.com'),
-    });
+  it('stores a multi-address event once, unattributed, and counts it once', async () => {
+    // Resend's docs do not say an event is per recipient, so no address gets the blame.
+    await ledgerRow('r@example.com');
+    await ledgerRow('support@aecintegrations.com');
+    const res = await post(
+      event('email.bounced', {
+        to: ['r@example.com', 'support@aecintegrations.com'],
+        bounce: { type: 'Permanent', subType: 'General', message: 'no such user' },
+      }),
+    );
+    expect(await res.json()).toEqual({ ok: true, recorded: 1, reason: 'recorded' });
+    expect(await events()).toEqual([
+      expect.objectContaining({
+        notificationSendId: null,
+        notificationId: 'review-submitted',
+        recipientHash: '',
+        eventType: 'bounced',
+        bounceType: 'Permanent',
+      }),
+    ]);
     expect(deliveryTags()).toEqual([
       {
-        value: 2,
-        tags: [
-          'event:delivered',
-          'template:review-submitted',
-          'tier:production',
-          'outcome:recorded',
-        ],
+        value: 1,
+        tags: ['event:bounced', 'template:review-submitted', 'tier:production', 'outcome:recorded'],
       },
+    ]);
+  });
+
+  it('dedupes a replay of an unattributed multi-address event', async () => {
+    const body = event('email.delivered', { to: ['a@example.com', 'b@example.com'] });
+    await post(body);
+    const replay = await post(body);
+    expect(await replay.json()).toEqual({ ok: true, recorded: 0, reason: 'replay' });
+    expect(await events()).toHaveLength(1);
+    expect(deliveryTags().map((d) => [d.value, d.tags.at(-1)])).toEqual([
+      [1, 'outcome:recorded'],
+      [1, 'outcome:replay'],
+    ]);
+  });
+
+  it('keeps the join for one address named twice', async () => {
+    const sendId = await ledgerRow('r@example.com');
+    await post(event('email.delivered', { to: ['r@example.com', 'R <R@Example.com>'] }));
+    const rows = await events();
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({
+      notificationSendId: sendId,
+      recipientHash: await recipientHash('r@example.com'),
+    });
+  });
+
+  it('stores an event that names nobody once, unattributed', async () => {
+    await post(event('email.delivered', { to: [] }));
+    expect(await events()).toEqual([
+      expect.objectContaining({ notificationSendId: null, recipientHash: '' }),
     ]);
   });
 
@@ -326,6 +379,56 @@ describe('POST /api/webhooks/resend — tier filter', () => {
     }
     expect(await events()).toHaveLength(0);
     expect(deliveryTags().every((d) => d.tags.includes('outcome:ignored'))).toBe(true);
+  });
+});
+
+describe('POST /api/webhooks/resend — body cap', () => {
+  it('refuses a declared Content-Length over the cap with 413 before reading', async () => {
+    const raw = JSON.stringify(event('email.delivered'));
+    const res = await app().request(
+      '/api/webhooks/resend',
+      {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          'content-length': String(RESEND_WEBHOOK_MAX_BYTES + 1),
+          ...signed(raw, 'msg_1'),
+        },
+        body: raw,
+      },
+      PROD,
+      fakeExecutionContext(),
+    );
+    expect(res.status).toBe(413);
+    expect(await events()).toHaveLength(0);
+  });
+
+  it('refuses an oversize body with no Content-Length, reading only up to the cap', async () => {
+    const chunk = new Uint8Array(64 * 1024).fill(0x20);
+    let pulled = 0;
+    const body = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        pulled += 1;
+        if (pulled > 100) controller.close();
+        else controller.enqueue(chunk);
+      },
+    });
+    const req = new Request('https://x.test/api/webhooks/resend', {
+      method: 'POST',
+      body,
+      // @ts-expect-error -- `duplex` is required by undici for a stream body.
+      duplex: 'half',
+    });
+    expect(req.headers.get('content-length')).toBeNull();
+    await expect(readResendBody(req)).rejects.toMatchObject({ status: 413 });
+    // 256 KB is 4 chunks; the 5th crosses the cap and the stream is cancelled.
+    expect(pulled).toBeLessThan(10);
+  });
+
+  it('reads a body at the cap', async () => {
+    const text = 'a'.repeat(RESEND_WEBHOOK_MAX_BYTES);
+    const req = new Request('https://x.test/', { method: 'POST', body: text });
+    expect(await readResendBody(req)).toHaveLength(RESEND_WEBHOOK_MAX_BYTES);
   });
 });
 
