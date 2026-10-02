@@ -215,6 +215,7 @@ export const CAPABILITIES = [
   'attestation.author',        // AECI-623 — the attestation + product-version writes
   'analytics.view',            // vendor analytics — declared, no consumer yet
   'integration.version_diff',  // AECI-304 — consulted by `./version-diff`
+  'review.reply',              // AECI-1176 — a public reply to a review, verified only
 ] as const;
 
 /** The binary ladder at launch (§8.5). Adding a rung = one key here + one row in TIER_CAPABILITIES. */

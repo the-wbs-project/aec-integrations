@@ -5756,7 +5756,7 @@ Errors: `VALIDATION_FAILED` (400, bad or unknown body key) · `MALFORMED_REQUEST
 
 #### `GET /api/vendor/updates`
 
-The portal's **freshness cursor** (AECI-627 / `STAGE_2_REALTIME_SPEC.md` §2) — eight per-scope `updated_at` high-water marks in one response (six until AECI-1008 added `contests`, seven until AECI-1083 added `catalogue`), so the dashboard can refetch **only** the section that moved instead of reloading. ADR 0023 chose this over Durable-Object WebSockets and SSE: nothing that changes a vendor's portal state is sub-second (two of the seven producers are once-a-day crons), so the house polling pattern — the same one `GET /api/promote/jobs/:id` uses — buys the whole §2.3 outcome without a `durable_objects` binding in four environments, a WebSocket upgrade through the SSR Worker's `/api/*` passthrough, and fan-out coupling on every write.
+The portal's **freshness cursor** (AECI-627 / `STAGE_2_REALTIME_SPEC.md` §2) — nine per-scope `updated_at` high-water marks in one response (six until AECI-1008 added `contests`, seven until AECI-1083 added `catalogue`, eight until AECI-1176 added `reviews`), so the dashboard can refetch **only** the section that moved instead of reloading. ADR 0023 chose this over Durable-Object WebSockets and SSE: nothing that changes a vendor's portal state is sub-second (two of the seven producers are once-a-day crons), so the house polling pattern — the same one `GET /api/promote/jobs/:id` uses — buys the whole §2.3 outcome without a `durable_objects` binding in four environments, a WebSocket upgrade through the SSR Worker's `/api/*` passthrough, and fan-out coupling on every write.
 
 **Not account-access-gated, and never entitlement-gated.** Polling is not an authoring capability; gating it would leave a vendor's read-only tab unable to notice access becoming active. Same reasoning as the two lists above.
 
@@ -5775,6 +5775,8 @@ export const VendorRevisionsSchema = z.object({
                                          // over submitted ∪ received, under vendorContestsWhere
   catalogue: z.string().nullable().default(null), // AECI-1083: MAX(updated_at) over the caller's connector
                                          // catalogues ∪ their stubs ∪ their mapping rows, under ownedConnectorCatalogIds
+  reviews: z.string().nullable().default(null), // AECI-1176: MAX(reviews.updated_at) under vendorReviewsWhere
+                                         // ∪ MAX(review_responses.updated_at) over the caller's own replies
 });
 export const VendorUpdatesResponseSchema = z.object({
   revisions: VendorRevisionsSchema,
@@ -5782,7 +5784,7 @@ export const VendorUpdatesResponseSchema = z.object({
 });
 ```
 
-**The invariant that makes it correct: every cursor query reuses the scoping predicate of the handler it is a cursor for.** Not an equivalent predicate — the same one, imported (`ownedProductIds` / `vendorRequestsWhere` in `vendor-shared.ts`, `ownedEndpointJoin` in `lib/attestation-authority.ts`, `ownedIntegrationsWhere` / `ownedEvidencedPairsWhere` in `lib/owned-integrations.ts` (AECI-1089), `vendorNotificationLedgerWhere` in `vendor-notifications.ts`, `vendorContestsWhere` in `lib/integration-contests.ts`, `ownedConnectorCatalogIds` in `lib/vendor-connector-catalog.ts` (AECI-1083)). A cursor that scopes **too narrowly** never moves for a change its section would show, so the client stops refetching and the portal goes silently stale; one that scopes **too widely** moves on a row the section will never return, which both amplifies polling and — with no RLS behind `/api/vendor/*` (ADR 0016) — leaks the *existence* of another vendor's write through the timestamp.
+**The invariant that makes it correct: every cursor query reuses the scoping predicate of the handler it is a cursor for.** Not an equivalent predicate — the same one, imported (`ownedProductIds` / `vendorRequestsWhere` in `vendor-shared.ts`, `ownedEndpointJoin` in `lib/attestation-authority.ts`, `ownedIntegrationsWhere` / `ownedEvidencedPairsWhere` in `lib/owned-integrations.ts` (AECI-1089), `vendorNotificationLedgerWhere` in `vendor-notifications.ts`, `vendorContestsWhere` in `lib/integration-contests.ts`, `ownedConnectorCatalogIds` in `lib/vendor-connector-catalog.ts` (AECI-1083), `vendorReviewsWhere` in `lib/review-responses.ts` (AECI-1176)). A cursor that scopes **too narrowly** never moves for a change its section would show, so the client stops refetching and the portal goes silently stale; one that scopes **too widely** moves on a row the section will never return, which both amplifies polling and — with no RLS behind `/api/vendor/*` (ADR 0016) — leaks the *existence* of another vendor's write through the timestamp.
 
 Two consumer rules follow from what a cursor is:
 
@@ -5791,17 +5793,17 @@ Two consumer rules follow from what a cursor is:
 
 `server_time` is stamped **before** the read, so it is never later than the data it describes — a change landing mid-read is reported on the next poll rather than skipped by a client treating it as a high-water mark. It is advisory: do **not** do clock arithmetic against it to decide whether to refetch (browser clocks are wrong often enough to matter).
 
-Scope → refetch map, which is also the client's `VendorPortalScope` vocabulary: `profile` · `entitlement` · `products` · `requests` → `GET /api/vendor/me` (one deduped call); `integrations` → `GET /api/vendor/integrations`; `notifications` → `GET /api/vendor/notifications`; `contests` → `GET /api/vendor/contests` (AECI-1008; its own store resource since the portal half, PR B); `catalogue` → no store fetch, a revision tick the Catalogue tab re-reads its open page of `GET /api/vendor/products/:id/connector-catalog` on (AECI-1083).
+Scope → refetch map, which is also the client's `VendorPortalScope` vocabulary: `profile` · `entitlement` · `products` · `requests` → `GET /api/vendor/me` (one deduped call); `integrations` → `GET /api/vendor/integrations`; `notifications` → `GET /api/vendor/notifications`; `contests` → `GET /api/vendor/contests` (AECI-1008; its own store resource since the portal half, PR B); `catalogue` → no store fetch, a revision tick the Catalogue tab re-reads its open page of `GET /api/vendor/products/:id/connector-catalog` on (AECI-1083); `reviews` → no store fetch either, a revision tick (`reviewsRevision`) the Reviews tab re-reads its open page of `GET /api/vendor/reviews` on (AECI-1176; the tab is AECI-1179).
 
 Two scoping details worth stating because they look like bugs and are not. The `integrations` cursor **does not filter to live attestations**, unlike the list handler: `retracted_at` is a content filter, and applying it would leave a bare retract (which stamps `retracted_at` and inserts nothing) invisible to the cursor while the lane the vendor is looking at empties. And a **counterparty's** attestation on a shared claim legitimately moves the caller's `integrations` cursor — that is one of the events the transport exists to deliver, not a leak.
 
 Since AECI-992 (2026-09-17) the `integrations` cursor also reads **`MAX(integrations.updated_at)` over the owned rows themselves**, under the same `ownedEndpointJoin`. The list ships row fields (`name`, `mechanism_kind`, `mechanism_name`, and `attestable` from `powered_by_product_id`), and a claims-only cursor missed an edit to any of them. It also missed an owned integration with no claim. The list reads no `connector_evidenced_pairs` row, so the cursor reads none either.
 
-Mechanics: ten SELECTs for eight scopes in one `db.batch([...])` = one D1 round trip (`integrations` is fed by three since AECI-1089; `catalogue` is one statement with two scalar subqueries); `private, no-store` (the `json()` default, load-bearing here — a cached cursor reports "nothing changed" to a portal where something did). Emits `aeci.api.vendor.updates` tagged `changed:none|some`.
+Mechanics: eleven SELECTs for nine scopes in one `db.batch([...])` = one D1 round trip (`integrations` is fed by three since AECI-1089; `catalogue` is one statement with three scalar subqueries; `reviews` is one statement with two); `private, no-store` (the `json()` default, load-bearing here — a cached cursor reports "nothing changed" to a portal where something did). Emits `aeci.api.vendor.updates` tagged `changed:none|some`.
 
 Errors: none beyond the guard's. A seat whose vendor row has since been deleted gets `200` with `profile: null` rather than the `404` `GET /api/vendor/me` answers — a cursor that threw would take the poll loop down with it.
 
-**A ninth scope, `reviews`, specified by AECI-1174 and built by AECI-1176** (`STAGE_2_VENDOR_PORTAL_SPEC.md` §11c.13). It reports the larger of `MAX(reviews.updated_at)` over approved reviews of the caller's owned products and `MAX(review_responses.updated_at)` over the caller's replies, under `vendorReviewsWhere`. `.default(null)` for deploy skew. It maps to a refetch of `GET /api/vendor/reviews`.
+**The ninth scope, `reviews`, specified by AECI-1174 and built by AECI-1176** (`STAGE_2_VENDOR_PORTAL_SPEC.md` §11c.13). It reports the larger of `MAX(reviews.updated_at)` over approved reviews of the caller's owned products, under `vendorReviewsWhere`, and `MAX(review_responses.updated_at)` over the caller's own replies. `.default(null)` for deploy skew. It maps to the store's `reviews` revision tick. **Co-owners' replies are not a term.** A co-owner's pending write must not move this vendor's cursor, because the timestamp would leak that it happened. The cost: a co-owner's reply being published or withdrawn does not, by itself, refresh this vendor's `other_responses`. The next own write or newly approved review does.
 
 #### `PATCH /api/vendor/profile`
 
@@ -6560,9 +6562,11 @@ export const ListVendorReviewsQuerySchema = PageQuerySchema.extend({
   reply_status: z.enum(['none', 'pending', 'published', 'rejected', 'withdrawn', 'removed']).optional(),
 });
 
+export const VendorReviewResponseResultSchema = z.object({ response: VendorReviewResponseSchema });
+
 export const VendorReviewItemSchema = z.object({
-  review: PublicReviewSchema.omit({ vendor_responses: true }),
-  product: ProductLinkSchema,                          // { id, slug, name }
+  review: PublicReviewSchema,                          // .omit({ vendor_responses: true }) once AECI-1178 adds that field
+  product: ProductLinkSchema,                          // { id, slug, name, logo_url }
   response: VendorReviewResponseSchema.nullable(),     // the caller's own reply, any status
   other_responses: z.array(PublicVendorResponseSchema), // co-owners' published replies
   can_reply: z.boolean(),                              // the caller's plan holds review.reply for this product
@@ -6576,6 +6580,13 @@ export const ListVendorReviewsResponseSchema = paginatedResponseSchema(VendorRev
 - **`PATCH`** edits a `pending` or `published` reply and sets it `pending`. Editing a published reply takes it off the page. `422 REVIEW_RESPONSE_NO_CHANGE` for an identical body. `409 REVIEW_RESPONSE_WRONG_STATE` on any other status, `409 REVIEW_RESPONSE_REMOVED` on a removed one. `404` when the caller has no reply to this review.
 - **Withdraw** moves a `pending` or `published` reply to `withdrawn`. It takes no body and is not capability-gated, so a vendor on Free can still take its own words down.
 - **Every write** carries its `audit_log` row (`review_response.submitted | edited | withdrawn`, `entity_type: 'review_response'`, `metadata.source: 'vendor-portal'`) in the same batch, behind the `changes()` sentinel. Only an edit or withdraw of a `published` reply purges `product:{slug}`, through `afterVendorWrite` with no re-crawl. No write touches `reviews`, a count or a ranking column.
+
+**As built (AECI-1176).** Handlers in `apps/api/src/routes/vendor-review-responses.ts`, shared server pieces in `apps/api/src/lib/review-responses.ts`.
+
+- **The review `404` is one statement and one body:** `details: { resource: 'review', id }`, with the path id and nothing else. The `PATCH` and withdraw with no reply of the caller's answer `details.resource = 'review_response'`. That `404` comes after ownership, so it discloses nothing.
+- **The guarded write matches the exact status the handler read**, not the whole allowed set. An admin approve landing between an edit's read and its batch would otherwise let the edit commit with no `wasPublished` and no purge, leaving a cached page showing a reply that is no longer published. The loser answers `409`, with `details.status` from a re-read: `REVIEW_RESPONSE_REMOVED` when the re-read finds `removed`, `REVIEW_RESPONSE_EXISTS` when a first submit lost the unique index, `REVIEW_RESPONSE_WRONG_STATE` otherwise.
+- **Audit metadata:** `{ source, vendorId, reviewId, productId }`, plus `resubmit: true` or `wasPublished: true` only when true. `beforeState` carries the old body (and the old reason on a resubmit), `afterState` the new one. Withdraw carries status only.
+- **`can_reply`** is `hasCapability(session tier, 'review.reply')` for every item until per-product plans land.
 
 #### Integration ownership claim — `POST /api/vendor/integrations/:id/claim`
 

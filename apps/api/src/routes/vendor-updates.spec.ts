@@ -301,6 +301,8 @@ describe('GET /api/vendor/updates — shape and headers', () => {
       contests: null,
       // AECI-1083: vendor A holds no connector catalogue.
       catalogue: null,
+      // AECI-1176: no reviews and no replies.
+      reviews: null,
     });
     expect(() => VendorUpdatesResponseSchema.parse(body)).not.toThrow();
   });

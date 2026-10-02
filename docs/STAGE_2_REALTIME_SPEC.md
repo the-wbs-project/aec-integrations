@@ -129,6 +129,10 @@ One endpoint, one D1 round trip, no writes. It answers exactly one question: *si
 > Catalogue tab (`STAGE_2_VENDOR_PORTAL_SPEC.md` §6.16) under `ownedConnectorCatalogIds`, the
 > predicate its read uses. It is one more statement, so the batch is ten SELECTs for eight scopes.
 > Every "seven" below that describes the endpoint today reads eight.
+>
+> **Nine scopes since AECI-1176 (2026-10-02).** `reviews` covers the vendor's reviews and its
+> own replies to them (`STAGE_2_VENDOR_PORTAL_SPEC.md` §11c.13). One more statement, so the batch is
+> eleven SELECTs for nine scopes. Every "eight" below that describes the endpoint today reads nine.
 
 **Placement.** Contract in `packages/shared/src/api/vendor-updates.ts` (+ the `index.ts` barrel) per the API-contracts rule — shared TypeScript types validated by Zod, no OpenAPI, no codegen (`API_CONTRACTS.md` §2). Handler in `apps/api/src/routes/vendor-updates.ts`, registered in `apps/api/src/index.ts` alongside the other `/api/vendor/*` routes. Its shape row belongs in `API_CONTRACTS.md` §6.14.
 
@@ -221,6 +225,7 @@ Every value is an **ISO-8601 string or `null`**; `null` means *this scope has no
 | `notifications` | `MAX(audit_log.created_at)` under the **exact** predicate the list endpoint uses — `vendorNotificationLedgerWhere(vendorId)` (`apps/api/src/routes/vendor-notifications.ts:83`): `action = 'notification.sent'` + the 90-day window + `json_extract(metadata, '$.vendorId') = ?` |
 | `requests` | `MAX(COALESCE(resolved_at, created_at))` under the **exact** predicate `GET /api/vendor/me` uses — `vendorRequestsWhere(vendorId, ownedProductIds(...))` (`apps/api/src/routes/vendor-shared.ts:155`): requests targeting the vendor itself, plus those targeting any product it owns. `COALESCE` because **`vendor_requests` has no `updated_at`** — a resolution is the only post-creation mutation that matters here |
 | `contests` (AECI-1008) | `MAX(integration_field_challenges.updated_at)` under the **exact** predicate `GET /api/vendor/contests` uses — `vendorContestsWhere(vendorId)` (`apps/api/src/lib/integration-contests.ts`): contests the vendor submitted, plus owner-routed contests where it is the snapshot owner. `updated_at` moves on submit, withdraw and every decision, and since AECI-1009 on every protest step (file, reply, withdraw, decide), which needed no predicate change. AECI-1092 changed nothing here: a contest on an evidenced pair is scoped by the same two columns, and a ruling-B re-route moves `updated_at` for the submitter's scope (the owner's side refetches through `entitlement`, §2.3). The list caps each side at 100 rows (ordered by `updated_at` since AECI-1009) and the cursor does not, so an edit past the cap costs one wasted refetch and nothing else |
+| `reviews` (AECI-1176) | The later of `MAX(reviews.updated_at)` over approved reviews of the caller's owned products, under the **exact** predicate `GET /api/vendor/reviews` lists with — `vendorReviewsWhere(db, vendorId)` (`apps/api/src/lib/review-responses.ts`) — and `MAX(review_responses.updated_at)` over the caller's own replies, any status (`review_responses_vendor_updated_idx`). A newly approved review moves the first term. Every vendor write and every admin decision on the caller's reply moves the second. A co-owner's reply is **not** a term: its pending write would otherwise leak through the timestamp. So a co-owner's publish or withdraw refreshes this vendor's `other_responses` only on the next own move. `vendor-review-responses.spec.ts` pins the move, a pending review, and another vendor's reply |
 | `catalogue` (AECI-1083) | `MAX(updated_at)` over the connector catalogues the vendor may maintain and over their `connector_stubs` and `connector_stub_mappings` rows, under the **exact** predicate `GET /api/vendor/products/:id/connector-catalog` resolves its catalogue with — `ownedConnectorCatalogIds(db, vendorId)` (`apps/api/src/lib/vendor-connector-catalog.ts`): the catalogue's `connector_product_id` held through `product_vendors` and `connector`-role, which is also the PATCH's ownership clause. The catalogue row moves on AECI-720's `managed_by` flip, which is what turns the tab's edit controls on or off. A mapping row moves on a seat edit (this vendor's, so the test below says yes), an operator edit, or a sync page. A stub row moves on a sync page that adds, renames or removes a listing. That term is not redundant with the mappings: promote skips each unchanged row per table, so a new listing (no mapping row yet, §9a.4's pending) or a removal moves the stub alone. The vendor never writes a stub. `null` for every vendor holding no catalogue. The read is paged per product and the cursor is vendor-wide, the `integrations` shape. `vendor-updates.spec.ts` pins the edit, the flip, a listing-only sync (a removal and a new listing), another vendor's catalogue and a non-connector holding |
 
 > **Invariant (the one to check by hand).** **Every cursor query reuses the scoping predicate of the handler it is a cursor for.** A cursor that scopes *differently* from its payload fails in one of two ways, both silent:
@@ -236,7 +241,8 @@ Every value is an **ISO-8601 string or `null`**; `null` means *this scope has no
 type VendorPortalScope =
   | 'profile' | 'entitlement' | 'products' | 'integrations' | 'notifications' | 'requests'
   | 'contests' // AECI-1008
-  | 'catalogue'; // AECI-1083
+  | 'catalogue' // AECI-1083
+  | 'reviews'; // AECI-1176
 ```
 
 | moved scope(s) | refetch |
@@ -244,6 +250,7 @@ type VendorPortalScope =
 | `profile` · `entitlement` · `products` · `requests` | `GET /api/vendor/me` — **one call**, deduped when several of the four move together |
 | `integrations` | `GET /api/vendor/integrations` |
 | `catalogue` (AECI-1083) | **No store fetch.** The store bumps `catalogueRevision`, and the Catalogue tab, if mounted, re-reads the page it has open (`GET /api/vendor/products/:id/connector-catalog`) without blanking it. With a mapping form open it defers: "This catalogue changed elsewhere" and a **Reload the list** button, and it catches up when the form closes. The tab's read is paged and filtered per product, so the store cannot hold "the" catalogue |
+| `reviews` (AECI-1176) | **No store fetch**, as `catalogue`. The store bumps `reviewsRevision`, and the Reviews tab (AECI-1179), if mounted, re-reads the page it has open (`GET /api/vendor/reviews`). The read is paged and filtered per product, so the store cannot hold "the" review list |
 | `notifications` | `GET /api/vendor/notifications` |
 | `contests` | `GET /api/vendor/contests` — its own `contests` resource in `VendorPortalStore` since the portal half of AECI-1008 (PR B, 2026-09-18). PR A had mapped it onto `notifications` as a stopgap; that mapping is gone from both the store and `VendorLiveSync`, so a failed contests read holds back the `contests` cursor alone |
 | `integrations`, once `contests` has loaded | **also** `GET /api/vendor/contests` (AECI-1009). A contest's protest window and cooldown depend on the field's live value, and an owner edit moves `integrations`, not `contests`. `VendorPortalStore.revalidate` adds the resource only when contests were already loaded, so it never loads them from cold |

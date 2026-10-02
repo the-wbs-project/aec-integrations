@@ -144,6 +144,12 @@ import {
   createSubmitContestHandler,
   createWithdrawContestHandler,
 } from './routes/vendor-contests';
+import {
+  createEditReviewResponseHandler,
+  createListVendorReviewsHandler,
+  createSubmitReviewResponseHandler,
+  createWithdrawReviewResponseHandler,
+} from './routes/vendor-review-responses';
 import { createClaimIntegrationHandler } from './routes/vendor-integration-claims';
 import { createUpdateVendorIntegrationHandler } from './routes/vendor-integration-edits';
 import {
@@ -1150,6 +1156,30 @@ authVendor.post(
   requireVendor(),
   rateLimit('write'),
   createWithdrawContestProtestHandler(),
+);
+// AECI-1176: vendor replies to reviews (`STAGE_2_VENDOR_PORTAL_SPEC.md` §11c.14).
+// Gate order: `requireVendor()` → `rateLimit('write')` → in the handler, the review
+// (unknown, unowned and unapproved are one 404) → `requireCapability('review.reply')`
+// on create and edit only → body → state. Withdraw is not capability-gated (§11c.9).
+// The GET carries no capability and no `rateLimit()`: reads are never limited.
+authVendor.get('/api/vendor/reviews', requireVendor(), createListVendorReviewsHandler());
+authVendor.post(
+  '/api/vendor/reviews/:reviewId/response',
+  requireVendor(),
+  rateLimit('write'),
+  createSubmitReviewResponseHandler(),
+);
+authVendor.patch(
+  '/api/vendor/reviews/:reviewId/response',
+  requireVendor(),
+  rateLimit('write'),
+  createEditReviewResponseHandler(),
+);
+authVendor.post(
+  '/api/vendor/reviews/:reviewId/response/withdraw',
+  requireVendor(),
+  rateLimit('write'),
+  createWithdrawReviewResponseHandler(),
 );
 // AECI-1005 / ADR 0035: the recorded owner (`built_by_vendor_id`) claims its
 // integration, with no approval. A SEAT IS THE WHOLE GATE (decision 15), exactly as

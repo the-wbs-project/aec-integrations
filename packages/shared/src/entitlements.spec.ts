@@ -50,7 +50,7 @@ import {
 // ---------------------------------------------------------------------------
 
 describe('the entitlement vocabulary is frozen (§3.1) [invariant]', () => {
-  it('declares exactly the ten capability ids, in spec order', () => {
+  it('declares exactly the eleven capability ids, in spec order', () => {
     expect(CAPABILITIES).toEqual([
       'profile.edit',
       'profile.rich_fields',
@@ -62,7 +62,16 @@ describe('the entitlement vocabulary is frozen (§3.1) [invariant]', () => {
       'attestation.author',
       'analytics.view',
       'integration.version_diff',
+      'review.reply',
     ]);
+  });
+
+  it('keeps review.reply off the Free plan (STAGE_2_VENDOR_PORTAL_SPEC.md §11c.9)', () => {
+    // Opening replies to Free is a deliberate one-line move into
+    // TIER_CAPABILITIES.unclaimed, recorded as an amendment to §11c.9. This
+    // assertion makes that move a visible test change too.
+    expect(TIER_CAPABILITIES.unclaimed).not.toContain('review.reply');
+    expect(TIER_CAPABILITIES.verified).toContain('review.reply');
   });
 
   it('is a binary ladder at launch (§8.4)', () => {

@@ -107,6 +107,8 @@ const BASE_REVISIONS: VendorRevisions = {
   contests: null,
   // AECI-1083: no connector catalogue. Same steady-state `null`.
   catalogue: null,
+  // AECI-1176: no reviews. Same steady-state `null`.
+  reviews: null,
 };
 
 function updates(
@@ -188,6 +190,7 @@ beforeEach(() => {
     seats: false,
     contests: false,
     catalogue: false,
+    reviews: false,
   };
   store = {
     revalidate: vi.fn().mockResolvedValue(undefined),
@@ -197,6 +200,7 @@ beforeEach(() => {
     seatsFailed: () => failed.seats,
     contestsFailed: () => failed.contests,
     catalogueFailed: () => failed.catalogue,
+    reviewsFailed: () => failed.reviews,
   } as unknown as { revalidate: ReturnType<typeof vi.fn> };
 });
 

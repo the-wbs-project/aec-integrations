@@ -133,6 +133,8 @@ const PREVIEW_UPDATES: VendorUpdatesResponse = {
     contests: '2026-08-18T12:00:00.000Z',
     // AECI-1083. Frozen: a preview save splices the PATCH echo in directly.
     catalogue: '2026-08-18T12:00:00.000Z',
+    // AECI-1176. Frozen: no preview surface reads reviews yet (AECI-1179).
+    reviews: '2026-08-18T12:00:00.000Z',
   },
   server_time: '2026-08-18T12:00:00.000Z',
 };

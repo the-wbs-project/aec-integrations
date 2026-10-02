@@ -3434,7 +3434,7 @@ A read-time rule would also hand the contest back to the owner when the entitlem
 
 ## 11c. Vendor replies to reviews (AECI-1173)
 
-**Status: specified 2026-10-02 by AECI-1174. The table is built (AECI-1175, migration `0058`); the routes are not.** Sub-issues AECI-1175 to AECI-1181 build it (§11c.17). Chris ruled the open decisions on 2026-10-01 and 2026-10-02. This section is the build contract. The table is in `DATABASE_SCHEMA.md` §7.3. The wire shapes are in `API_CONTRACTS.md` §6.6 and §6.14. The admin queue is `ADMIN_PANEL_SPEC.md` §5.13. The Stage 2.1 admission is `STAGE_2_1_SPEC.md` §3.3.4.
+**Status: specified 2026-10-02 by AECI-1174. Built so far: the table (AECI-1175, migration `0058`), and the four vendor routes, the `review.reply` capability and the `reviews` cursor scope (AECI-1176). The admin queue, the public render, the portal tab and the notifications are not built.** Sub-issues AECI-1175 to AECI-1181 build it (§11c.17). Chris ruled the open decisions on 2026-10-01 and 2026-10-02. This section is the build contract. The table is in `DATABASE_SCHEMA.md` §7.3. The wire shapes are in `API_CONTRACTS.md` §6.6 and §6.14. The admin queue is `ADMIN_PANEL_SPEC.md` §5.13. The Stage 2.1 admission is `STAGE_2_1_SPEC.md` §3.3.4.
 
 **This section supersedes the AECI-313 ruling of 2026-07-02.** That ruling made launch flag-only. A vendor could report a review by email and nothing else, and public replies were held back for a later paid listing. This is that feature. Reporting a review is unchanged. It stays an email to `reviews@thewbsproject.com` under the Review Guidelines (`apps/web/src/content/legal/review-guidelines.md`). A reply never removes, hides or flags a review.
 
