@@ -29,6 +29,7 @@ import { VENDOR_ADMIN_ROLE } from '../lib/claimed-vendors';
 import type { GscRecrawlEntry } from '../lib/gsc-recrawl-priority';
 import { enqueueGscRecrawl } from '../lib/gsc-recrawl-queue';
 import { enqueueIndexNowUrls, indexNowEntriesByTier } from '../lib/indexnow-queue';
+import { hasActiveEntitlement } from '../lib/integration-entitlement';
 import { publicSiteBase } from '../lib/public-urls';
 
 export type VendorContext = Context<{ Bindings: Env; Variables: AuthzVariables }>;
@@ -128,6 +129,36 @@ export function recrawlEnabled(env: Pick<Env, 'INDEXNOW_KEY' | 'PUBLIC_SITE_URL'
   return Boolean(env.INDEXNOW_KEY) && publicSiteBase(env) !== null;
 }
 
+/** The write origin {@link afterVendorWrite} labels its tail with. */
+export type VendorWriteOrigin = { auditSource: string; purgeSource: CachePurgeSource };
+
+const VENDOR_ORIGIN: VendorWriteOrigin = { auditSource: AUDIT_SOURCE, purgeSource: 'vendor' };
+
+/**
+ * Whether a vendor-sourced write may buffer re-crawl URLs (AECI-1186): the
+ * environment gate AND an active entitlement. Search-engine submission is a
+ * Managed-only benefit — IndexNow by Chris's 2026-09-29 ruling (AECI-1160), the
+ * Google worklist by decision 4 of AECI-1182 (2026-10-02). A Free seat's write
+ * changes the page and repaints the edge exactly as before; it simply asks no
+ * search engine to re-fetch it. The sitemap `<lastmod>` stays the passive path.
+ *
+ * Gated on an active entitlement, not a tier name or a capability. It is the
+ * second named exception to decision 15, after AECI-1040's connector carve-out
+ * (`lib/integration-entitlement.ts`), and for the same reason: any active row
+ * passes, so a renamed or added tier cannot silently drop the benefit.
+ *
+ * External discovery, not a ranking input. Nothing here reaches Algolia, and
+ * the §3.2 firewall (`STAGE_2_PAID_TIERS_SPEC.md`) is untouched.
+ *
+ * For vendor-only call sites, so a Free write skips the URL derivation too. A
+ * tail shared with an AECi admin write (`integration-retire-write.ts`) keeps
+ * {@link recrawlEnabled}: the admin session carries no entitlement, and
+ * {@link bufferVendorRecrawl} gates on the write's origin instead.
+ */
+export function vendorRecrawlEnabled(c: VendorContext): boolean {
+  return recrawlEnabled(c.env) && hasActiveEntitlement(c.get('auth'));
+}
+
 /**
  * What a vendor write asks the search engines to re-fetch (AECI-944 / AECI-945).
  *
@@ -154,7 +185,8 @@ export interface VendorRecrawl {
  * Buffer a vendor write's affected URLs into the two re-crawl queues.
  *
  * Gated by {@link recrawlEnabled} — see there for why a Google queue keys off an
- * IndexNow secret.
+ * IndexNow secret — and, for a vendor-sourced write, by an active entitlement
+ * (AECI-1186, see {@link vendorRecrawlEnabled}).
  *
  * Best-effort in both halves, and independently so: these are post-commit hooks
  * on an already-committed edit, and a missed buffer costs discovery latency
@@ -174,12 +206,23 @@ async function bufferVendorRecrawl(
   c: VendorContext,
   db: Db,
   pending: VendorRecrawl | Promise<VendorRecrawl>,
+  origin: VendorWriteOrigin,
 ): Promise<void> {
   // Re-checked here as well as at the call site. The call-site check exists so a
   // handler never does the WORK of deriving URLs on a gated environment; this one
   // is the actual guard, so a future caller that forgets the first check still
   // cannot write rows on a `noindex` tier.
   if (!recrawlEnabled(c.env)) return;
+
+  // AECI-1186: a vendor-sourced write buffers only on an active entitlement, both
+  // legs (see `vendorRecrawlEnabled`). Keyed off the ORIGIN, not the session
+  // alone: the admin retire shares this tail with a `NO_ENTITLEMENT` session
+  // (`lib/authz.ts`), and AECi's own writes stay ungated, as promote's do.
+  if (origin.purgeSource === 'vendor' && !hasActiveEntitlement(c.get('auth'))) {
+    // Settle a handed-over promise so a rejected derivation is not left unhandled.
+    if (pending instanceof Promise) pending.catch(() => undefined);
+    return;
+  }
 
   // Awaited HERE rather than at the call site. A caller whose URL set depends on
   // a post-commit read (the product handler's trade publication floor) hands the
@@ -248,6 +291,10 @@ async function bufferVendorRecrawl(
  * promote will touch again for weeks. Putting it HERE rather than at each call
  * site means every present and future vendor write inherits it by default, and a
  * writer that genuinely changes no public page opts out by passing nothing.
+ *
+ * Since AECI-1186 a vendor-origin write buffers only when the vendor holds an
+ * active entitlement. The gate lives in `bufferVendorRecrawl`, so every writer
+ * inherits it the same way it inherits the buffer.
  */
 export function afterVendorWrite(
   c: VendorContext,
@@ -257,10 +304,7 @@ export function afterVendorWrite(
   db?: Db,
   // AECI-1046: an AECi admin write that shares a vendor write's tail (the admin
   // retire) labels its forward and its purge as AECi-initiated.
-  origin: { auditSource: string; purgeSource: CachePurgeSource } = {
-    auditSource: AUDIT_SOURCE,
-    purgeSource: 'vendor',
-  },
+  origin: VendorWriteOrigin = VENDOR_ORIGIN,
 ): void {
   const list = Array.isArray(entries) ? entries : [entries as AuditLogEntry];
   // ONE request per vendor for the whole entry set, not one per entry
@@ -278,7 +322,7 @@ export function afterVendorWrite(
     list.map((entry) => vendorAuditLogEvent(entry, origin.auditSource)),
   );
   c.executionCtx.waitUntil(purgeTags(c, tags, origin.purgeSource));
-  if (recrawl && db) c.executionCtx.waitUntil(bufferVendorRecrawl(c, db, recrawl));
+  if (recrawl && db) c.executionCtx.waitUntil(bufferVendorRecrawl(c, db, recrawl, origin));
 }
 
 // ─── Scoping predicates shared by a handler and its freshness cursor ─────────

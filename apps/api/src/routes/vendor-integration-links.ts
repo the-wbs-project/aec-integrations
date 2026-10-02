@@ -97,7 +97,7 @@ import {
   isMaintenanceTransfer,
   maintenanceTransferColumns,
   parseJsonBody,
-  recrawlEnabled,
+  vendorRecrawlEnabled,
   sessionVendorId,
   type VendorContext,
 } from './vendor-shared';
@@ -283,7 +283,7 @@ async function commit(
     : [];
   const base = publicSiteBase(c.env);
   const recrawl =
-    pairSlugs && recrawlEnabled(c.env) && base
+    pairSlugs && vendorRecrawlEnabled(c) && base
       ? attestationEditRecrawl(base, pairSlugs[0], pairSlugs[1])
       : undefined;
   afterVendorWrite(c, tags, audit, recrawl, db);

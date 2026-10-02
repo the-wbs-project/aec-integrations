@@ -282,7 +282,7 @@ invisible part is fixed; the other two are not, and are not going to be.
 
 | Engine | Channel | Automated? |
 |---|---|---|
-| Bing / Yandex | IndexNow, buffered into `indexnow_queue` and drained by a daily `5 0 * * *` cron, highest tier first (AECI-236, rebuilt in AECI-826, second writer added in AECI-944, daily since AECI-1136; `*/20` before) | **Yes, once a day.** Every submission the old per-promote design made across 2026-09-07..09 returned HTTP 429 — 23 of 23. On the 20-minute drain, prod for 2026-09-22..28 showed `aeci.indexnow.submit{outcome:ok}` only on the first tick after 00:00 UTC, which is why the drain is now daily |
+| Bing / Yandex | IndexNow, buffered into `indexnow_queue` and drained by a daily `5 0 * * *` cron, highest tier first (AECI-236, rebuilt in AECI-826, second writer added in AECI-944 and plan-gated in AECI-1186, daily since AECI-1136; `*/20` before) | **Yes, once a day.** Every submission the old per-promote design made across 2026-09-07..09 returned HTTP 429 — 23 of 23. On the 20-minute drain, prod for 2026-09-22..28 showed `aeci.indexnow.submit{outcome:ok}` only on the first tick after 00:00 UTC, which is why the drain is now daily |
 | Google | Queued into `gsc_recrawl_queue`, then Search Console → **URL Inspection → Request Indexing** | **Half.** The machine knows what needs doing. A person does it |
 
 Google's Indexing API is documented for `JobPosting` and `BroadcastEvent` only, so the AECI-263

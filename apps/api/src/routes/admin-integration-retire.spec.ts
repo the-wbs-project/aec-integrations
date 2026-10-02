@@ -19,6 +19,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
   auditLog,
+  gscRecrawlQueue,
+  indexnowQueue,
   integrationFieldChallenges,
   integrations,
   productVendors,
@@ -82,8 +84,11 @@ const AUTH_A = seat(1, VENDOR_A);
 const AUTH_B = seat(2, VENDOR_B);
 
 let t: TestDb;
+/** Spread over `TEST_ENV` in `call()`; the re-crawl plan gate sets it (AECI-1186). */
+let callEnv: Partial<Env> = {};
 
 beforeEach(async () => {
+  callEnv = {};
   t = await makeTestDb();
   await t.db.insert(vendors).values([
     { id: VENDOR_A, slug: 'autodesk', companyName: 'Autodesk' },
@@ -165,6 +170,7 @@ async function call(
   const send = vi.fn().mockResolvedValue(undefined);
   const env: Env = {
     ...TEST_ENV,
+    ...callEnv,
     CACHE_PURGE_QUEUE: { send } as unknown as Env['CACHE_PURGE_QUEUE'],
   };
   const execCtx = fakeExecutionContext();
@@ -409,5 +415,22 @@ describe('GET /api/admin/vendors/:id/integrations', () => {
     expect((await call(ADMIN, `/api/admin/vendors/${uuid(98)}/integrations`, 'GET')).status).toBe(
       404,
     );
+  });
+});
+
+// AECI-1186 gates only a vendor-sourced write on an active entitlement. An AECi
+// retire shares the owner retire's tail with an `unclaimed` admin session, and is
+// gated on its origin instead, so it still buffers, as promote's writes do.
+describe('re-crawl plan gate (AECI-1186)', () => {
+  beforeEach(() => {
+    callEnv = { INDEXNOW_KEY: 'test-key', PUBLIC_SITE_URL: 'https://www.aecintegrations.com' };
+  });
+
+  it('buffers an AECi retire into both queues, with no entitlement on the session', async () => {
+    expect(ADMIN.entitlementTier).toBe('unclaimed');
+    const res = await adminRetire(I_MAIN);
+    expect(res.status).toBe(200);
+    expect((await t.db.select().from(indexnowQueue)).length).toBeGreaterThan(0);
+    expect((await t.db.select().from(gscRecrawlQueue)).length).toBeGreaterThan(0);
   });
 });

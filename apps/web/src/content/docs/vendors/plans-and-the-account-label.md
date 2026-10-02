@@ -33,7 +33,10 @@ These stay part of Managed:
 - a product's trades, audiences and phases,
 - confirming or denying data flows on your integrations ([Attesting an integration](/docs/vendors/attesting-an-integration)),
 - claiming, editing, retiring and restoring an integration delivered through a connector, and deciding change requests on one ([Owning an integration](/docs/vendors/owning-an-integration)),
-- the "Active on AECi" label on your vendor page.
+- the "Active on AECi" label on your vendor page,
+- telling search engines about your changes.
+
+When your company edits a public page on Managed, we tell search engines that the page changed. We send it to Bing and Yandex through IndexNow, and we add it to our own list for asking Google to look again. On Free, your edits still go live straight away. Search engines find them on their own schedule, through our sitemap. Telling a search engine about a page does not decide whether it crawls, indexes or ranks that page. The search engine decides that.
 
 One more thing depends on Managed. On an integration page, readers always see the current state in full. The comparison with older versions opens when either company at the ends of that integration is on Managed.
 
@@ -115,6 +118,7 @@ This applies to a pilot too.
 - Everything in "What every plan includes" keeps working. That includes editing your company details and product basics, "Looks right" and the checklists.
 - Everything in "What needs Managed" becomes read-only.
 - The "Active on AECi" label comes off.
+- We stop telling search engines about your changes. Your edits still go live.
 - An integration delivered through a connector that you already claimed stays claimed. One you retired stays retired. Open change requests on one move to AEC Integrations.
 - Each product's checklist counts three steps again, as on Free.
 

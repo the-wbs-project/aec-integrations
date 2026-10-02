@@ -39,6 +39,7 @@ import { makeTestDb, type TestDb } from '../test/d1';
 import { submitCount } from '../posthog';
 import { fakeExecutionContext, TEST_ENV } from '../test/helpers';
 
+import { createUpdateVendorIntegrationHandler } from './vendor-integration-edits';
 import { createProductVersionHandler } from './vendor-product-versions';
 import { createUpdateVendorProductHandler, createUpdateVendorProfileHandler } from './vendor';
 
@@ -70,6 +71,12 @@ const AUTH: AuthzVariables['auth'] = {
   entitlementTier: 'verified',
   entitlement: null,
 };
+/** A seat with no active entitlement: the Free plan (AECI-1186). */
+const FREE_AUTH: AuthzVariables['auth'] = { ...AUTH, entitlementTier: 'unclaimed' };
+/** The integration the vendor owns and has claimed, PRODUCT → PAIRED. */
+const OWNED_INTEGRATION = u(24);
+
+let auth = AUTH;
 
 /** `INDEXNOW_KEY` is the API Worker's only signal for "this environment is
  *  public and indexable" — there is no `ALLOW_INDEXING` here. See
@@ -83,6 +90,7 @@ const PUBLIC_ENV = {
 let t: TestDb;
 beforeEach(async () => {
   vi.mocked(submitCount).mockClear();
+  auth = AUTH;
   t = await makeTestDb();
   await t.db
     .insert(vendors)
@@ -97,6 +105,15 @@ beforeEach(async () => {
     .insert(productVendors)
     .values({ productId: PRODUCT, vendorId: VENDOR, isPrimary: true });
   await t.db.insert(profiles).values({ id: SEAT, role: 'vendor_admin', vendorId: VENDOR });
+  await t.db.insert(integrations).values({
+    id: OWNED_INTEGRATION,
+    name: 'Procore for Autodesk Build',
+    sourceProductId: PRODUCT,
+    targetProductId: PAIRED,
+    mechanismKind: 'native',
+    builtByVendorId: VENDOR,
+    claimedAt: '2026-09-01T00:00:00.000Z',
+  });
   await t.db.insert(taxonomyTrades).values({
     id: u(40),
     slug: 'roofing',
@@ -111,12 +128,13 @@ function app() {
   const a = new Hono<{ Bindings: Env; Variables: AuthzVariables }>();
   a.onError(errorHandler());
   a.use('*', async (c, next) => {
-    c.set('auth', AUTH);
+    c.set('auth', auth);
     await next();
   });
   a.patch('/api/vendor/profile', createUpdateVendorProfileHandler(t.factory));
   a.patch('/api/vendor/products/:id', createUpdateVendorProductHandler(t.factory));
   a.post('/api/vendor/products/:id/versions', createProductVersionHandler(t.factory));
+  a.patch('/api/vendor/integrations/:id', createUpdateVendorIntegrationHandler(t.factory));
   return a;
 }
 
@@ -359,6 +377,51 @@ describe('the environment gate', () => {
       PUBLIC_SITE_URL: 'not a url',
     } as Env);
     expect(res.status).toBe(200);
+    expect(await gscRows()).toHaveLength(0);
+  });
+});
+
+// ─── The plan gate (AECI-1186) ───────────────────────────────────────────────
+//
+// Search-engine submission is a Managed-only benefit: IndexNow by the 2026-09-29
+// ruling (AECI-1160), the Google worklist by decision 4 of AECI-1182. A Free
+// seat's write still commits and purges; it buffers nothing into either queue.
+
+describe('the plan gate', () => {
+  it("leaves no row in either queue after a Free seat's integration edit", async () => {
+    auth = FREE_AUTH;
+    const res = await patchJson(`/api/vendor/integrations/${OWNED_INTEGRATION}`, {
+      name: 'Procore Build Sync',
+    });
+    expect(res.status).toBe(200);
+    expect(await indexNowRows()).toHaveLength(0);
+    expect(await gscRows()).toHaveLength(0);
+  });
+
+  it("buffers a Managed seat's integration edit into both queues", async () => {
+    const res = await patchJson(`/api/vendor/integrations/${OWNED_INTEGRATION}`, {
+      name: 'Procore Build Sync',
+    });
+    expect(res.status).toBe(200);
+    const indexNow = await indexNowRows();
+    expect(indexNow.length).toBeGreaterThan(0);
+    expect(indexNow.every((r) => r.source === 'vendor')).toBe(true);
+    expect((await gscRows()).length).toBeGreaterThan(0);
+  });
+
+  it("leaves no row after a Free seat's profile edit", async () => {
+    auth = FREE_AUTH;
+    const res = await patchJson('/api/vendor/profile', { headquarters: 'Carpinteria, CA' });
+    expect(res.status).toBe(200);
+    expect(await indexNowRows()).toHaveLength(0);
+    expect(await gscRows()).toHaveLength(0);
+  });
+
+  it("leaves no row after a Free seat's product listing edit", async () => {
+    auth = FREE_AUTH;
+    const res = await patchJson(`/api/vendor/products/${PRODUCT}`, { description: 'x' });
+    expect(res.status).toBe(200);
+    expect(await indexNowRows()).toHaveLength(0);
     expect(await gscRows()).toHaveLength(0);
   });
 });

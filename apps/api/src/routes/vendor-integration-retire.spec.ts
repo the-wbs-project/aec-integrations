@@ -18,6 +18,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
   auditLog,
+  gscRecrawlQueue,
+  indexnowQueue,
   integrationFieldChallenges,
   integrations,
   productVendors,
@@ -80,8 +82,11 @@ const AUTH_B = seat(2, VENDOR_B);
 const AUTH_C = seat(3, VENDOR_C);
 
 let t: TestDb;
+/** Spread over `TEST_ENV` in `call()`; the re-crawl plan gate sets it (AECI-1186). */
+let callEnv: Partial<Env> = {};
 
 beforeEach(async () => {
+  callEnv = {};
   t = await makeTestDb();
   await t.db.insert(vendors).values([
     { id: VENDOR_A, slug: 'autodesk', companyName: 'Autodesk' },
@@ -166,6 +171,7 @@ async function call(
   const send = vi.fn().mockResolvedValue(undefined);
   const env: Env = {
     ...TEST_ENV,
+    ...callEnv,
     CACHE_PURGE_QUEUE: { send } as unknown as Env['CACHE_PURGE_QUEUE'],
   };
   const execCtx = fakeExecutionContext();
@@ -549,5 +555,35 @@ describe('retire and contest races (AECI-1010)', () => {
     expect(res.body.error.code).toBe('INTEGRATION_RETIRED');
     expect(await t.db.select().from(integrationFieldChallenges)).toHaveLength(0);
     expect(await auditsFor('integration.contest.submitted')).toHaveLength(0);
+  });
+});
+
+// AECI-1186: search-engine submission is a Managed-only benefit. A Free owner's
+// retire still commits; it buffers nothing into either re-crawl queue. I_MAIN is
+// not connector-powered, so a Free seat may retire it at all.
+describe('re-crawl plan gate (AECI-1186)', () => {
+  beforeEach(() => {
+    callEnv = { INDEXNOW_KEY: 'test-key', PUBLIC_SITE_URL: 'https://www.aecintegrations.com' };
+  });
+
+  it("leaves no row in either queue after a Free owner's retire", async () => {
+    const res = await retire(AUTH_B, I_MAIN);
+    expect(res.status).toBe(200);
+    expect(await t.db.select().from(indexnowQueue)).toHaveLength(0);
+    expect(await t.db.select().from(gscRecrawlQueue)).toHaveLength(0);
+  });
+
+  it("buffers an entitled owner's retire into both queues", async () => {
+    const res = await retire(
+      {
+        ...AUTH_B,
+        entitlementTier: 'verified',
+        entitlement: { status: 'active', periodEnd: null },
+      },
+      I_MAIN,
+    );
+    expect(res.status).toBe(200);
+    expect((await t.db.select().from(indexnowQueue)).length).toBeGreaterThan(0);
+    expect((await t.db.select().from(gscRecrawlQueue)).length).toBeGreaterThan(0);
   });
 });

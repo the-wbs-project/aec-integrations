@@ -2420,8 +2420,12 @@ removes nothing writes no row.
 
 **There are two appenders since AECI-944, not one.** `bufferVendorRecrawl`
 (`apps/api/src/routes/vendor-shared.ts`) appends on every vendor-portal write that changes a
-public page, with `source = 'vendor'`. Eight endpoints reach it: the profile PATCH, the product
-PATCH, the three product-version writes, the claim POST, and the attestation PUT and DELETE.
+public page, with `source = 'vendor'`. Eight endpoints reached it at AECI-944: the profile PATCH,
+the product PATCH, the three product-version writes, the claim POST, and the attestation PUT and
+DELETE. The integration-ownership writes added since reach it too. **Since AECI-1186 a vendor
+write appends only when the vendor holds an active entitlement**: search-engine submission is
+Managed-only (`STAGE_2_PAID_TIERS_SPEC.md` §13.1a). A Free seat's write appends nothing.
+Promote and the admin retire are not plan-gated.
 Nothing else about this table
 changed, because the `url` unique index already dedupes across writers as well as within one.
 A page a vendor edits between two drain runs is still submitted once.
@@ -3191,7 +3195,9 @@ relational-query registration.
 **Written by** `bufferIndexNowAfterPromote` (`apps/api/src/routes/promote.ts`, post-commit) and
 `bufferVendorRecrawl` (`apps/api/src/routes/vendor-shared.ts`, post-commit), both through
 `enqueueGscRecrawl` (`apps/api/src/lib/gsc-recrawl-queue.ts`), and cleared one row at a time by
-`DELETE /api/admin/reindex/:id`. Both appenders gate on `INDEXNOW_KEY` **and**
+`DELETE /api/admin/reindex/:id`. The vendor appender also gates on an active entitlement since
+AECI-1186 (decision 4 of epic AECI-1182): a Free seat's write queues nothing here, exactly as
+for `indexnow_queue`. Both appenders gate on `INDEXNOW_KEY` **and**
 `PUBLIC_SITE_URL`, which looks wrong for a table that has nothing to do with IndexNow and is
 deliberate: the API Worker has no `ALLOW_INDEXING` var, and `INDEXNOW_KEY` is provisioned only
 where `ALLOW_INDEXING="true"`, so it is the only available "this environment is public and

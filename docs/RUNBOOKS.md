@@ -1913,7 +1913,8 @@ them, highest tier first, up to a seven-day ceiling. Seven days is seven attempt
 leaves this alert silent. Do not treat one as evidence about the other.
 
 **Since AECI-944 this alert has a second input.** Every vendor-portal write now appends to
-`indexnow_queue`, so the buffer is non-empty on days it used to be empty. The ≥3-submission
+`indexnow_queue`, so the buffer is non-empty on days it used to be empty. Since AECI-1186 only a
+vendor with an active entitlement appends, so a Free seat's write adds nothing here. The ≥3-submission
 floor therefore clears more often and the alert evaluates more often. The threshold has not
 moved (`OBSERVABILITY.md`).
 
