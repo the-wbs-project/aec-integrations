@@ -255,7 +255,7 @@ Machine-readable codes are stable identifiers. Messages are localized.
 | `NOT_FOUND` | 404 | Resource does not exist |
 | `REVIEW_DUPLICATE` | 409 | User already reviewed this product |
 | `REVIEW_BANNED` | 403 | User is banned and cannot submit reviews |
-| `ENTITLEMENT_REQUIRED` | 403 | The vendor's entitlement tier does not hold the capability this write requires (code minted AECI-610, thrown since AECI-611; `details: { capability, tier, fields? }` — `fields` is present only on the field-level rejection in `splitPatch`). **403, not 402** — 402 Payment Required would leak a billing model into a contract that must stay payer-model-agnostic, and this table has no 402 row. **Reads are never gated**, and the gate never fires before ownership settles on a product write (a 403 there would confirm a foreign product exists). Raised only from `entitlementRequired()` in `apps/api/src/lib/authz.ts`, so the status, copy and `details` shape cannot diverge between the two call sites |
+| `ENTITLEMENT_REQUIRED` | 403 | The vendor's entitlement tier does not hold the capability this write requires (code minted AECI-610, thrown since AECI-611; `details: { capability, tier, fields? }` — `fields` is present only on a field-level rejection, `splitPatch` / `assertFieldsEntitled`, and since AECI-1214 that is every refusal on `PATCH /api/vendor/products/:id`). **403, not 402** — 402 Payment Required would leak a billing model into a contract that must stay payer-model-agnostic, and this table has no 402 row. **Reads are never gated**, and the gate never fires before ownership settles on a product write (a 403 there would confirm a foreign product exists). Raised only from `entitlementRequired()` in `apps/api/src/lib/authz.ts`, so the status, copy and `details` shape cannot diverge between the route-level and field-level call sites |
 | `SLUG_CONFLICT` | 409 | Slug collision detected on entity creation |
 | `GRANT_CONFLICT` | 409 | Vendor-claim grant would violate role/vendor exclusivity — the claimant account is a site `admin`, or is already linked to a different vendor (AECI-519; `details.reason` ∈ `already_admin` \| `other_vendor`). Also returned by `POST /api/vendor/seats/invites` when the address already holds a live invite, and by the invite accept when the redeemer is a site admin or belongs to another vendor (AECI-664) |
 | `CATALOG_REVIEW_MANAGED` | 409 | The inverse of `CATALOG_VENDOR_MANAGED` (AECI-724). A mapping edit (`PATCH /api/admin/connector-stub-mappings/:id` or `PATCH /api/vendor/connector-stub-mappings/:id`) addressed a catalogue whose `managed_by` is still `review`, so the review-app sync authors it and its next page would overwrite the edit. Nothing is written. Re-checked inside the batch by a sentinel, so a lane reclaimed mid-request also answers this. Resolved only by an operator handing the catalogue over through `PATCH /api/admin/connector-catalogs/:id` |
@@ -2590,9 +2590,10 @@ where the mirror landed.
 **Two tier vocabularies, on purpose.** `EntitlementTierSchema` is the **read** shape and
 includes `unclaimed`, because the session block (§6.14) and the grant summary must be able to
 *report* that a vendor has no entitlement. A `set` request uses `PaidEntitlementTierSchema` —
-`TIERS` minus every tier holding zero capabilities. The distinction is not tidiness: an
-`active` row at `unclaimed` would flip the mirror and show the public account label while resolving
-to **no** capabilities, i.e. a vendor billed for an account status that unlocks nothing.
+`TIERS` minus `unclaimed`. The distinction is not tidiness: an `active` row at `unclaimed`
+would flip the mirror and show the public account label while resolving to only the Free
+capabilities every seat already holds (AECI-1214), i.e. a vendor billed for an account status
+that unlocks nothing. Free is never a `vendor_entitlements` row (`STAGE_2_PAID_TIERS_SPEC.md` §13.2).
 
 The three actions:
 
@@ -5237,7 +5238,7 @@ Source of truth: `packages/shared/src/api/vendor.ts` + `product-versions.ts` + `
 **Two invariants govern this whole surface.**
 
 1. **Scoping.** There is no RLS on app tables (ADR 0016), so the guard plus a `WHERE vendor_id = <session vendor>` filter in every query *is* the authorization. No vendor id crosses the wire; every client-supplied id — the product on `PATCH /api/vendor/products/:id` and its versions, the integration or claim on the attestation routes — has its ownership proven against `product_vendors` **before** anything is read or written, and a miss returns **`404`, not `403`** — a non-owner must not learn the resource exists.
-2. **The allow-list is the guard-rail — and since AECI-611 it has two axes.** Zod strips unknown keys, so any column absent from an `Update*Schema` is unwritable by a vendor: `slug`, `name` / `company_name`, `verified`, `promotion_status`, `admin_notes`, `research_*`, `priority_*`, `score_*`, the VQS fields, `source_url`, and every denormalized count/average stay AECi-owned. **`usefulness` was on that list until AECI-963 and is now vendor-writable** — it is narrative copy about the vendor's own product, gated on its own `product.usefulness.edit` capability, and a vendor write fences promote off the column permanently via `products.usefulness_source` (ADR 0033, `STAGE_2_5_SPEC.md` §12). It is the first entry in `PRODUCT_COLUMN_MAP` whose capability is not `product.edit`, which makes it the only field where the entitlement axis is separately observable. `verified` is doubly unwritable: it is not in the schema, **and** it is a mirror of `vendor_entitlements` whose only writer is `apps/api/src/lib/vendor-entitlement.ts` — an admin moves it through `PATCH /api/admin/vendors/:id/entitlement` (§6.10), never a vendor. On top of the parse allow-list, each vendor-editable column now maps to a **capability**, and `splitPatch` rejects any provided field whose capability the caller's tier lacks. **Zod is the parse allow-list, the column map is the entitlement allow-list, and both must agree.** At launch every field maps to a capability `verified` holds, so behaviour is unchanged; adding a rung later is a data edit in two tables.
+2. **The allow-list is the guard-rail — and since AECI-611 it has two axes.** Zod strips unknown keys, so any column absent from an `Update*Schema` is unwritable by a vendor: `slug`, `name` / `company_name`, `verified`, `promotion_status`, `admin_notes`, `research_*`, `priority_*`, `score_*`, the VQS fields, `source_url`, and every denormalized count/average stay AECi-owned. **`usefulness` was on that list until AECI-963 and is now vendor-writable** — it is narrative copy about the vendor's own product, gated on its own `product.usefulness.edit` capability, and a vendor write fences promote off the column permanently via `products.usefulness_source` (ADR 0033, `STAGE_2_5_SPEC.md` §12). It is the first entry in `PRODUCT_COLUMN_MAP` whose capability is not `product.edit`, which makes it the only field where the entitlement axis is separately observable. `verified` is doubly unwritable: it is not in the schema, **and** it is a mirror of `vendor_entitlements` whose only writer is `apps/api/src/lib/vendor-entitlement.ts` — an admin moves it through `PATCH /api/admin/vendors/:id/entitlement` (§6.10), never a vendor. On top of the parse allow-list, each vendor-editable field now maps to a **capability**, and the route rejects any provided field whose capability the caller's tier lacks. **Zod is the parse allow-list, the column map is the entitlement allow-list, and both must agree.** Since AECI-1214 the capabilities live in `VENDOR_FIELD_CAPABILITIES` / `PRODUCT_FIELD_CAPABILITIES` (`@aeci/shared/entitlements`), and the API's column maps are built from them. `verified` holds every capability. `unclaimed` (Free) holds company details and the four `listing_tier` product fields, so no plan is needed to raise a listing's rank (`STAGE_2_PAID_TIERS_SPEC.md` §13.4).
 
 3. **Writes are entitlement-gated; reads never are.** Every write handler calls `requireCapability(c, …)` and answers **403 `ENTITLEMENT_REQUIRED`** without it (`details: { capability, tier, fields? }`). The gate is a DB-free assertion over `c.get('auth').entitlementTier`, which the guard loaded in the same round-trip as the profile. Two ordering rules: on `/profile` it runs immediately after the session's vendor is known, but on any **product**-scoped write it runs **after ownership settles**, because a 403 raised first would confirm a foreign product exists and 404-never-403 is the harder invariant. And the field-level rejection **throws rather than silently dropping** — the dirty-diff forms re-seed their baseline from the echo and would settle *clean* on a value that never landed.
 
@@ -5272,11 +5273,16 @@ export const VendorEntitlementBlockSchema = z.object({
   period_end: z.string().nullable(),            // null = perpetual, or no term on record
   capabilities: z.array(CapabilitySchema),      // the expansion of `tier` through TIER_CAPABILITIES
 });
+
+// Each VendorProductSchema entry also carries (AECI-1214):
+//   plan: VendorEntitlementBlockSchema,  // THIS product's plan — today a copy of `entitlement`
 ```
 
 `VendorRequestSummary` deliberately omits `submitter_email` and the free-text `body` — a correction may be filed by a member of the public.
 
-**The `entitlement` block costs no query.** It is built from the same `AuthenticatedSession` the write gate asserts on, so the dashboard's readout and the 403 a write would get **cannot disagree**. `capabilities` ships expanded so the dashboard disables controls off one field instead of re-deriving the ladder in the browser. It is **required**, not optional (R10).
+**The `entitlement` block costs no query.** It is built from the same `AuthenticatedSession` the write gate asserts on, so the dashboard's readout and the 403 a write would get **cannot disagree**. `capabilities` ships expanded so the dashboard disables controls off one field instead of re-deriving the ladder in the browser. It is **required**, not optional (R10). For `unclaimed` (the Free plan, which a lapsed row also resolves to) it is `['profile.edit', 'product.listing.edit', 'product.categories.edit']`, never empty (AECI-1214).
+
+**Each product carries `plan` (AECI-1214, `STAGE_2_PAID_TIERS_SPEC.md` §13.7).** Plans live at the product level, so product screens gate on `product.plan` through `productCan` and never on `entitlement`. Until a per-product plan table exists, the server copies the vendor's block into every product. Server enforcement stays vendor-wide, and the field and the gate read the same block. `PATCH /api/vendor/products/:id` echoes the product with its `plan` too.
 
 **`status: null` is materially different from a lapsed status**, and the dashboard renders them differently: `null` means there is no `vendor_entitlements` row at all (never arranged), which is an invitation; `expired` / `revoked` mean a term ended, which is a loss to acknowledge. Never read `null` as "unknown".
 
@@ -5585,7 +5591,7 @@ export const UpdateVendorProfileResponseSchema = z.object({ vendor: VendorAccoun
 
 `source_url` is excluded on purpose: it records where AECi's own research came from, so letting the subject of that research rewrite it would defeat it.
 
-Errors: `VALIDATION_FAILED` (empty body, or a body whose only keys are non-allow-listed — Zod strips them, so the vendor gets a clear 400 rather than a silent no-op 200), `MALFORMED_REQUEST`, `NOT_FOUND`, `ENTITLEMENT_REQUIRED` (403 — the tier lacks `profile.edit`, or lacks the capability a **specific** provided field requires, in which case `details.fields` names them), `RATE_LIMITED` (429 — AECI-773 burst cap, `Retry-After: 60`).
+Errors: `VALIDATION_FAILED` (empty body, or a body whose only keys are non-allow-listed — Zod strips them, so the vendor gets a clear 400 rather than a silent no-op 200), `MALFORMED_REQUEST`, `NOT_FOUND`, `ENTITLEMENT_REQUIRED` (403 — the tier lacks `profile.edit`, or lacks the capability a **specific** provided field requires, in which case `details.fields` names them; since AECI-1214 every real tier holds `profile.edit`, so a seat with no plan edits company details), `RATE_LIMITED` (429 — AECI-773 burst cap, `Retry-After: 60`).
 
 #### `PATCH /api/vendor/products/:id`
 
@@ -5628,7 +5634,19 @@ export const UpdateVendorProductResponseSchema = z.object({ product: VendorProdu
 - **Find-only resolution, and an unknown slug is a `400`, not a silent drop.** This is stricter than promote, which drops unresolvable groups into `skipped[]` — a bulk machine push must not fail whole over one stale term, whereas a vendor picked the term from a list we rendered. Two groups resolving to the same term MERGE, matching promote, so both writers agree on the stored shape.
 - **Writing it is one-way.** A vendor save sets `products.usefulness_source = 'vendor'`, after which promote stops writing the column for that product and reports the refusal in `preserved[]`. Nothing clears it back. See ADR 0033 and `STAGE_2_5_SPEC.md` §12.
 
-It is gated on its own **`product.usefulness.edit`** capability rather than `product.edit`. At launch the ladder is binary so `verified` holds both, and the base `product.edit` check runs first — a lapsed vendor sending only `usefulness` gets `ENTITLEMENT_REQUIRED` naming `product.edit`, exactly as a taxonomy-only edit does.
+It is gated on its own **`product.usefulness.edit`** capability rather than `product.edit`. It is Managed-only: a seat with no plan sending `usefulness` gets `ENTITLEMENT_REQUIRED` naming `product.usefulness.edit` and `details.fields: ["usefulness"]`.
+
+**Per-field gate (AECI-1214, `STAGE_2_PAID_TIERS_SPEC.md` §13.3).** There is no route-level capability. Each sent field is checked against `PRODUCT_FIELD_CAPABILITIES` (`@aeci/shared/entitlements`), after ownership and before any taxonomy read:
+
+| Field | Capability | Plan |
+|---|---|---|
+| `description`, `website`, `logo_url` | `product.listing.edit` | every plan |
+| `category_slugs` | `product.categories.edit` | every plan |
+| `tool_integrations_url`, `api_docs_url` | `product.edit` | Managed |
+| `trade_slugs`, `audience_slugs`, `phase_slugs` | `product.taxonomy.edit` | Managed |
+| `usefulness` | `product.usefulness.edit` | Managed |
+
+A body naming any field the tier lacks is refused **whole** — the allowed fields are not applied either. `details.fields` lists every denied field, sorted, and `details.capability` is the first one's.
 
 **Taxonomy guard-rail:** a vendor may only **assign terms that already exist**. Minting a term is an AECi curation act, so an unknown slug is a `VALIDATION_FAILED` keyed to the field rather than a silent drop — and nothing is partially applied, because terms are resolved before the batch opens.
 
@@ -5639,7 +5657,7 @@ Two consequences that do **not** follow the sibling pattern:
 - **Cache purge is asymmetric.** A trade change also purges `index:trades`, `taxonomy`, and `sitemap`, because the trade facet is publication-gated — see `CACHE_STRATEGY.md` §2 (`trade:{slug}`) and `STAGE_2_VENDOR_PORTAL_SPEC.md` §4. The three sibling facets purge only their own browse pages.
 - **The picker is unfiltered by the publication floor.** `GET /api/taxonomy → trades` returns every seeded term; the floor gates the SEO surfaces, not tagging. Hiding a sub-floor trade from the picker would make it permanently unreachable, since a vendor tagging it is precisely how it reaches the floor.
 
-Errors: `NOT_FOUND` (unknown id **or** a product owned by another vendor — deliberately indistinguishable), `VALIDATION_FAILED` (empty body, unknown taxonomy slug, malformed URL/slug), `MALFORMED_REQUEST`, `ENTITLEMENT_REQUIRED` (403 — the tier lacks `product.edit`, or lacks `product.taxonomy.edit` when the body carries any facet array, or lacks a specific field's capability via `details.fields`), `RATE_LIMITED` (429 — AECI-773 `write` burst cap, `Retry-After: 60`; this write purges cache tags post-commit, so an unbounded loop here is an edge-cache purge loop). **`ENTITLEMENT_REQUIRED` is raised only after ownership settles**, so a non-owner still gets the flat 404.
+Errors: `NOT_FOUND` (unknown id **or** a product owned by another vendor — deliberately indistinguishable), `VALIDATION_FAILED` (empty body, unknown taxonomy slug, malformed URL/slug), `MALFORMED_REQUEST`, `ENTITLEMENT_REQUIRED` (403 — the tier lacks the capability of at least one sent field, per the table above; `details.fields` names every denied field and nothing is written; a denied facet carrying an unknown slug still answers 403, not 400), `RATE_LIMITED` (429 — AECI-773 `write` burst cap, `Retry-After: 60`; this write purges cache tags post-commit, so an unbounded loop here is an edge-cache purge loop). **`ENTITLEMENT_REQUIRED` is raised only after ownership settles**, so a non-owner still gets the flat 404.
 
 #### "Looks right": `POST /api/vendor/profile/review`, `POST /api/vendor/products/:id/review`, `POST /api/vendor/products/:id/integrations/review`
 
@@ -6568,7 +6586,7 @@ Source: `packages/shared/src/api/logos.ts`, STAGE_2_5_SPEC.md §11, ADR 0032. `L
 
 | Endpoint | Auth | Input | Response |
 |---|---|---|---|
-| `POST /api/vendor/logo` | Vendor seat + profile.edit or product.edit | Exactly one multipart `file` | `200 {logo_url: "/api/logos/<sha256>"}` |
+| `POST /api/vendor/logo` | Vendor seat + product.listing.edit or profile.edit (every seat holds both since AECI-1214) | Exactly one multipart `file` | `200 {logo_url: "/api/logos/<sha256>"}` |
 | `POST /api/admin/logo` | Admin | Same | Same |
 | `GET /api/logos/:key` | Public | Lowercase SHA-256 key | Validated image bytes |
 | `PATCH /api/admin/vendors/:id/logo` | Admin | Strict `{logo_url: string | null}` | `200 {logo_url}` |

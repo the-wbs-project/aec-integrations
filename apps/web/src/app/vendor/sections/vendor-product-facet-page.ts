@@ -3,7 +3,6 @@ import { ActivatedRoute } from '@angular/router';
 
 import type { ProductFacetKind } from '../components/vendor-product-facet-editor';
 import { VendorProductsSection } from '../components/vendor-products-section';
-import { vendorCan } from '../vendor-capabilities';
 import { VendorPortalStore } from '../vendor-portal-store';
 
 import { vendorProductContext } from './vendor-product-context';
@@ -17,9 +16,12 @@ import { vendorProductContext } from './vendor-product-context';
  * the four tabs cannot drift apart in gating or layout.
  *
  * The entitlement axis stays FIELD-granular, not route-granular: the page does
- * not gate itself on `product.taxonomy.edit` or `product.usefulness.edit`. A
- * vendor without them sees its own data read-only, per the ownership-reads /
- * capability-writes split the rest of `/api/vendor/*` uses.
+ * not gate itself. The facet editor reads THIS product's plan with `productCan`
+ * (AECI-1214, §13.7): categories need `product.categories.edit` (Free), trades,
+ * audiences and phases `product.taxonomy.edit`, and the points
+ * `product.usefulness.edit` (both Managed). A product without them shows its own
+ * data read-only, per the ownership-reads / capability-writes split the rest of
+ * `/api/vendor/*` uses.
  */
 @Component({
   selector: 'aec-vendor-product-facet-page',
@@ -29,9 +31,6 @@ import { vendorProductContext } from './vendor-product-context';
       <aec-vendor-products-section
         [products]="m.products"
         [selectedSlug]="selectedSlug()"
-        [canEdit]="canEdit()"
-        [canEditTaxonomy]="canEditTaxonomy()"
-        [canEditUsefulness]="canEditUsefulness()"
         [section]="facet"
       />
     }
@@ -44,8 +43,5 @@ export class VendorProductFacetPage {
 
   protected readonly facet = inject(ActivatedRoute).snapshot.data['facet'] as ProductFacetKind;
   protected readonly me = this.store.me;
-  protected readonly canEdit = vendorCan(this.store, 'product.edit');
-  protected readonly canEditTaxonomy = vendorCan(this.store, 'product.taxonomy.edit');
-  protected readonly canEditUsefulness = vendorCan(this.store, 'product.usefulness.edit');
   protected readonly selectedSlug = computed(() => this.ctx.product()?.slug ?? null);
 }

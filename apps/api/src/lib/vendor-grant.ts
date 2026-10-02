@@ -434,7 +434,7 @@ export function revokeSeatStatements(db: Db, p: RevokeSeatParams): RevokeBatch {
  * expressible through the entitlement table. The seat is therefore not an
  * entitlement row at all. `findVendorProfile` (`lib/authz.ts`) uses a `leftJoin`
  * precisely so this shape authenticates: the holder passes `requireVendor()` and
- * resolves to `unclaimed` with zero capabilities.
+ * resolves to `unclaimed`, the Free capabilities only (AECI-1214).
  *
  * **No `workflow_instances` / `workflow_transitions` row.** `workflow_instances_type_check`
  * is a closed CHECK whose widening is a full SQLite table rebuild, and a seat is

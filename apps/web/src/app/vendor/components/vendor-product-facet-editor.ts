@@ -28,7 +28,9 @@ import {
 
 import { VendorApi } from '../vendor-api';
 import { VendorPortalStore } from '../vendor-portal-store';
-import { vendorIsCatalogueSeat } from '../vendor-capabilities';
+import { PRODUCT_FIELD_CAPABILITIES } from '@aeci/shared/entitlements';
+
+import { productCan, vendorIsCatalogueSeat } from '../vendor-capabilities';
 import { VendorBulletListEditor, newBullet, type BulletDraft } from './vendor-bullet-list-editor';
 
 /** The four taxonomy facets, each its own product tab (AECI-994). */
@@ -400,13 +402,23 @@ export class VendorProductFacetEditor {
   readonly taxonomy = input<TaxonomyResponse | null>(null);
 
   /**
-   * The §8 gates, kept field-granular: the PATCH asserts `product.edit` first,
-   * then `product.taxonomy.edit` when a slug array rides along and
-   * `product.usefulness.edit` when `usefulness` does. All default open.
+   * The gates, field-granular and read off THIS product's plan with `productCan`
+   * (AECI-1214, §13.3 / §13.7). The tags use the facet's own entry in
+   * `PRODUCT_FIELD_CAPABILITIES`, the table the server's field gate reads:
+   * `product.categories.edit` for categories (Free), `product.taxonomy.edit` for
+   * trades, audiences and phases (Managed). The points use
+   * `product.usefulness.edit` (Managed). There is no base product right any more.
    */
-  readonly canEdit = input<boolean>(true);
-  readonly canEditTaxonomy = input<boolean>(true);
-  readonly canEditUsefulness = input<boolean>(true);
+  protected readonly tagsEditable = computed(() =>
+    productCan(this.product(), PRODUCT_FIELD_CAPABILITIES[this.config().slugKey]),
+  );
+  protected readonly narrativeEditable = computed(
+    () =>
+      this.config().narrative !== null &&
+      productCan(this.product(), PRODUCT_FIELD_CAPABILITIES.usefulness),
+  );
+  /** Anything on this tab editable: drives Save and the read-only notice. */
+  protected readonly canEdit = computed(() => this.tagsEditable() || this.narrativeEditable());
 
   /**
    * The facet heading's outline level (AECI-1122). A routed facet tab puts it
@@ -442,9 +454,6 @@ export class VendorProductFacetEditor {
 
   protected readonly idBase = computed(() => `vendor-product-${this.product().id}-${this.facet()}`);
   protected readonly headingId = computed(() => `${this.idBase()}-heading`);
-
-  protected readonly tagsEditable = computed(() => this.canEdit() && this.canEditTaxonomy());
-  protected readonly narrativeEditable = computed(() => this.canEdit() && this.canEditUsefulness());
 
   private readonly vocabulary = computed<readonly TaxonomyTermWithCount[]>(() => {
     const t = this.taxonomy();

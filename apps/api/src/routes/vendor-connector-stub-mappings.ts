@@ -15,7 +15,7 @@
  * establishes `profiles.role = 'vendor_admin'` + `profiles.vendor_id`, and the handler
  * proves that vendor holds the catalogue's connector product through `product_vendors`,
  * and that the product is `connector`-role. A zero-entitlement seat resolves to
- * `unclaimed` with zero capabilities and still passes, which is the point.
+ * `unclaimed` (the Free capabilities only, AECI-1214) and still passes, which is the point.
  *
  * ── ORDER ───────────────────────────────────────────────────────────────────
  * 404 first, in its own wave, for an unknown id AND for a mapping on a catalogue the

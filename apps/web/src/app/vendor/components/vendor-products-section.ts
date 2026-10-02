@@ -113,16 +113,13 @@ const ALL_FACETS: readonly ProductFacetKind[] = ['categories', 'trades', 'audien
     <ng-template #productBody let-product>
       <div class="space-y-10">
         @if (section() === 'all' || section() === 'profile') {
-          <aec-vendor-product-form [product]="product" [canEdit]="canEdit()" />
+          <aec-vendor-product-form [product]="product" />
         }
         @for (facet of facets(); track facet) {
           <aec-vendor-product-facet-editor
             [product]="product"
             [facet]="facet"
             [taxonomy]="taxonomy()"
-            [canEdit]="canEdit()"
-            [canEditTaxonomy]="canEditTaxonomy()"
-            [canEditUsefulness]="canEditUsefulness()"
             [headingLevel]="facetHeadingLevel()"
           />
         }
@@ -139,12 +136,10 @@ export class VendorProductsSection {
    *  see the mode note in the class doc. */
   readonly selectedSlug = input<string | null>(null);
 
-  /** Pass-through of the §8 entitlement gate to every product form (AECI-614).
-   *  The section itself renders identically either way: a downgraded vendor still
-   *  sees every product and every value, just not the controls to change them. */
-  readonly canEdit = input<boolean>(true);
-  readonly canEditTaxonomy = input<boolean>(true);
-  readonly canEditUsefulness = input<boolean>(true);
+  // No entitlement inputs (AECI-1214): each product form and facet editor gates
+  // itself on its own product's `plan` through `productCan` (§13.7). The section
+  // renders identically on every plan: every product and every value shows, and
+  // only the controls a plan cannot use are read-only.
 
   /** Which product tab to render (AECI-994): the Profile form, one facet editor,
    *  or (`'all'`, the single-page concept) the form and all four editors. */

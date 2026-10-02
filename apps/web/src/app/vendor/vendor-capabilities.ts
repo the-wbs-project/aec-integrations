@@ -30,6 +30,27 @@ export function vendorCan(store: VendorPortalStore, capability: Capability): Sig
 }
 
 /**
+ * Does THIS product's plan hold a capability? (AECI-1214, `STAGE_2_PAID_TIERS_SPEC.md`
+ * §13.7, `STAGE_2_VENDOR_PORTAL_SPEC.md` §6.18.)
+ *
+ * Product screens gate through this and never through `me().entitlement`. Plans
+ * live at the product level (decision 2). Until per-product plans exist the
+ * server copies the vendor's block into every product's `plan`, so this agrees
+ * with {@link vendorCan} today, and no screen changes when they land.
+ *
+ * A plain boolean rather than a `Signal`: the product is already a signal value
+ * at every call site, so the caller wraps this in its own `computed` and the
+ * live entitlement flip still re-derives in place. `null` / `undefined` (no
+ * product resolved yet) is `false`, the closed answer.
+ */
+export function productCan(
+  product: { readonly plan: { readonly capabilities: readonly Capability[] } } | null | undefined,
+  capability: Capability,
+): boolean {
+  return product?.plan.capabilities.includes(capability) ?? false;
+}
+
+/**
  * Does the vendor hold an active entitlement? The client half of the AECI-1089 gate
  * on owner writes to connector-powered integrations (AECI-1040 ruling 2,
  * `apps/api/src/lib/integration-entitlement.ts`).

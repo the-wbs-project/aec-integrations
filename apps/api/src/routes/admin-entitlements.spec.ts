@@ -230,13 +230,14 @@ describe('PATCH …/entitlement — set', () => {
     // `TIERS`, so Zod refuses it before the handler runs. The guard-rail belongs in the
     // allow-list (`api/vendor.ts`'s header invariant) because a future consumer of this
     // schema — a datatool surface, a back-office script — inherits the schema, not the
-    // handler. The handler keeps a semantic zero-capability guard behind it.
+    // handler. The handler keeps a semantic "nothing beyond Free" guard behind it.
     expect(res.status).toBe(400);
     expect(((await res.json()) as { error: { code: string } }).error.code).toBe(
       'VALIDATION_FAILED',
     );
     // The badge would have lit (status `active` mirrors) while `tierFor` resolved the
-    // row to ZERO capabilities — a vendor billed for a badge that unlocks nothing.
+    // row to the Free capabilities every seat already holds (AECI-1214) — a vendor
+    // billed for a badge that unlocks nothing.
     expect((await readVendor()).verified).toBe(false);
     expect(await t.db.select().from(vendorEntitlements)).toHaveLength(0);
     // No metric: rejected before the handler, so nothing counts it as an attempt.

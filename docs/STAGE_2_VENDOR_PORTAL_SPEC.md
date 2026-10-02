@@ -199,7 +199,7 @@ Guard-rails, exact field allow-lists, and the taxonomy-edit constraints are defi
 
 All four endpoints shipped with pinned Zod, **no migration**. Contracts live in `packages/shared/src/api/vendor.ts`, handlers in `apps/api/src/routes/vendor.ts`, full documentation in `API_CONTRACTS.md` §6.14. Decisions taken at build that this section did not pre-specify:
 
-- **Logo editing amendment (AECI-955, AECI-968):** the profile and product logo controls accept HTTPS URLs or uploaded PNG/JPEG/static WebP files via `POST /api/vendor/logo`. Upload requires a seat plus profile.edit or product.edit and does not publish a change. The editable control has separate URL and uploaded-image modes: a stored `/api/logos/<hash>` draft renders as the preview, "Uploaded image" and Remove, never as an editable backend path. Existing PATCH routes accept exact local logo paths, require the referenced object to exist and validate, and set logo_source=vendor only when logo_url is present, including null. Save remains disabled during uploads. See STAGE_2_5_SPEC.md §11.
+- **Logo editing amendment (AECI-955, AECI-968):** the profile and product logo controls accept HTTPS URLs or uploaded PNG/JPEG/static WebP files via `POST /api/vendor/logo`. Upload requires a seat plus product.listing.edit or profile.edit (every seat holds both since AECI-1214) and does not publish a change. The editable control has separate URL and uploaded-image modes: a stored `/api/logos/<hash>` draft renders as the preview, "Uploaded image" and Remove, never as an editable backend path. Existing PATCH routes accept exact local logo paths, require the referenced object to exist and validate, and set logo_source=vendor only when logo_url is present, including null. Save remains disabled during uploads. See STAGE_2_5_SPEC.md §11.
 - **Usefulness amendment (AECI-963):** the "how teams use it" narrative is vendor-written — see §4.4.
 - **Integration ownership amendment (AECI-1005, ADR 0035):** integrations are vendor-owned and AECi seeds them. The owner claims its row and promote stops writing it — see §4.5. This reverses the launch-era rule that integrations are AECi-curated and not vendor-editable, which is why no route on this surface wrote integration content before 1005. Since AECI-1006 the claimed owner edits the integration's standard fields through `PATCH /api/vendor/integrations/:id` (§4.5.6). The product/vendor allow-list below is unchanged by that: the integration field set is its own, and an integration `name` is editable because nothing routes on it.
 - **Editable allow-list = content + links + taxonomy.** Product: `description`, `website`, `tool_integrations_url`, `api_docs_url`, `logo_url`, **`usefulness`** (added by AECI-963 — see §4.4), plus category/audience/phase/**trade** assignment (trade added by AECI-665 — see §4.3). Vendor: `description`, `website`, `headquarters`, `founded_year`, `public_private`, `parent_company`, `contact_email`, `phone_number`, `logo_url`, profile URLs. **Vendors assign existing taxonomy terms only** — minting a term stays an AECi curation act, so an unknown slug is a `400`, not a silent drop. `name`/`slug` are not vendor-editable (a rename breaks the URL, the Algolia record, and every inbound link — it stays a correction request).
@@ -297,7 +297,7 @@ more tags is simply more accurate.
 The full contract is `STAGE_2_5_SPEC.md` §12 and ADR 0033. What matters for this surface:
 
 - **It is the one field whose OWNERSHIP moves on first write.** A vendor save sets `products.usefulness_source = 'vendor'`, after which promote stops writing the column for that product and reports the refusal to the review app in `preserved[]`. Nothing clears it back. That is the `logo_source` mechanism from §11 of the 2.5 spec, applied to narrative copy.
-- **It has its own capability, `product.usefulness.edit`** — the first entry in `PRODUCT_COLUMN_MAP` not gated on `product.edit`. Inert under the binary ladder; it exists so a future rung can withhold narrative authorship without a handler change. The base `product.edit` check still runs first, so a lapsed vendor sending only `usefulness` gets `ENTITLEMENT_REQUIRED` naming `product.edit`, exactly as a taxonomy-only edit does.
+- **It has its own capability, `product.usefulness.edit`** — the first entry in `PRODUCT_COLUMN_MAP` not gated on `product.edit`. It is Managed-only. Since AECI-1214 there is no base `product.edit` check, so a seat with no plan sending `usefulness` gets `ENTITLEMENT_REQUIRED` naming `product.usefulness.edit` (`STAGE_2_PAID_TIERS_SPEC.md` §13.3).
 - **Full replacement, `null` clears, absent leaves alone.** A group has no stable id, so a partial patch is not expressible.
 - **The wire carries the term slug and never the display name.** The stored group has a `name` the public page interpolates verbatim; the server resolves it from the taxonomy row so a vendor cannot write free text into a slot readers parse as an AECi taxonomy label.
 - **An unknown slug is a `400`**, matching §4.1's rule for taxonomy and deliberately unlike promote, which drops unresolvable groups silently. The vendor picked the term from a list we rendered, and the form re-seeds from the PATCH echo — a silent drop would settle the form clean on content that never landed.
@@ -1661,7 +1661,7 @@ plain Vitest spec. The section only turns them into copy.
 | Needs you now | One row for field contests to decide (AECI-1008) | ≥ 1 `received` contest with status `open`. Seat-only, never capability-gated (§11b.2), so it shows while the other rows are paused | `messages` |
 | Needs you now | One row for rows another company added that the caller has not answered (AECI-1153, added 2026-09-28) | `counterpart_added_unanswered` off `GET /api/vendor/integrations` is `> 0` | the one integration's page at `#change-requests` when every such row sits on one integration, because the "{Company} added {data}. Is this right?" item, with the other company's note, lives in Change requests (§6.17.6). Otherwise the product's tab when every such row sits under one product: filtered to `?status=needs_decision` only when every counted integration is in that status, else unfiltered. Otherwise `products` |
 | Worth doing | Top 3 products by waiting count, then "And N more" | `vendor.verified` (the Integrations tab's gate, see `vendor-integrations-page.ts`), claim on an `attestable` edge with `mine = []` | `products/:slug/integrations` |
-| Worth doing | Top 3 incomplete products, then "And N more" | `product.edit` | `products/:slug/categories` if categories are missing, else `products/:slug/profile` (was `…/taxonomy` before §6.12) |
+| Worth doing | Top 3 incomplete products, then "And N more" | `product.listing.edit` (was `product.edit` before AECI-1214; the gaps are the four Free fields) | `products/:slug/categories` if categories are missing, else `products/:slug/profile` (was `…/taxonomy` before §6.12) |
 | Worth doing | Company profile gaps | `profile.edit` | `profile` |
 | Worth doing | Unaccepted seat invites | `can_manage_seats` | `seats` |
 
@@ -1879,9 +1879,10 @@ bullet.
   they are published but untagged, and a "Remove these points" action. Showing them is not an
   edit. Server-side enforcement waits on a read-only production check of how many such groups
   exist.
-- **Gates stay field-granular.** Ticks need `product.edit` + `product.taxonomy.edit`; points need
-  `product.edit` + `product.usefulness.edit`. A lapsed vendor sees everything read-only with Save
-  withheld. No tab is route-gated.
+- **Gates stay field-granular.** Since AECI-1214 they read the product's own `plan` through
+  `productCan`. Category ticks need `product.categories.edit` (Free). Trade, audience and phase ticks
+  need `product.taxonomy.edit`, and points need `product.usefulness.edit` (both Managed). A tab with
+  nothing editable on the product's plan is read-only with Save withheld. No tab is route-gated.
 - **Group order is preserved.** Stored groups keep their order and new groups append, and stored
   points are compared after trimming, so a promoted value is never dirty on seed. Reordering points
   is an edit.

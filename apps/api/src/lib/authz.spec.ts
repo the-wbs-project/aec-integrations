@@ -15,7 +15,7 @@
  */
 
 import { ApiErrorCode } from '@aeci/shared';
-import { CAPABILITIES } from '@aeci/shared/entitlements';
+import { CAPABILITIES, capabilitiesFor } from '@aeci/shared/entitlements';
 import { Hono } from 'hono';
 import {
   SignJWT,
@@ -700,7 +700,7 @@ describe('requireCapability', () => {
   it('throws 403 ENTITLEMENT_REQUIRED — not 402, not 404 — when it does not', () => {
     let thrown: unknown;
     try {
-      requireCapability(ctxFor({ entitlementTier: 'unclaimed' }), 'profile.edit');
+      requireCapability(ctxFor({ entitlementTier: 'unclaimed' }), 'product.edit');
     } catch (e) {
       thrown = e;
     }
@@ -711,7 +711,7 @@ describe('requireCapability', () => {
     // (§8.1(4)), and API_CONTRACTS.md §4.1 has no 402 row.
     expect(err.status).toBe(403);
     expect(err.code).toBe(ApiErrorCode.ENTITLEMENT_REQUIRED);
-    expect(err.details).toEqual({ capability: 'profile.edit', tier: 'unclaimed' });
+    expect(err.details).toEqual({ capability: 'product.edit', tier: 'unclaimed' });
   });
 
   it('never mentions ranking or placement — an entitlement buys capability, not position', () => {
@@ -724,13 +724,21 @@ describe('requireCapability', () => {
     expect(message).not.toMatch(/rank|placement|position|boost|sponsor|priorit|top of/i);
   });
 
-  it('gates every capability the unclaimed tier lacks', () => {
+  it('gates every capability the unclaimed tier lacks, and passes the Free ones (AECI-1214)', () => {
     for (const capability of CAPABILITIES) {
-      expect(() => requireCapability(ctxFor({}), capability)).toThrow(ApiError);
+      const free = capabilitiesFor('unclaimed').includes(capability);
+      if (free) expect(() => requireCapability(ctxFor({}), capability)).not.toThrow();
+      else expect(() => requireCapability(ctxFor({}), capability)).toThrow(ApiError);
       expect(() =>
         requireCapability(ctxFor({ entitlementTier: 'verified' }), capability),
       ).not.toThrow();
     }
+    // Not vacuous: the Free set is the three §13.3 ids, and the rest are gated.
+    expect(capabilitiesFor('unclaimed')).toEqual([
+      'profile.edit',
+      'product.listing.edit',
+      'product.categories.edit',
+    ]);
   });
 });
 

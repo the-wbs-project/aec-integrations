@@ -4,8 +4,10 @@ import { INDEX_ENTITIES, indexSettingsFor } from './algolia';
 import {
   CAPABILITIES,
   ENTITLEMENT_STATUSES,
+  PRODUCT_FIELD_CAPABILITIES,
   TIERS,
   TIER_CAPABILITIES,
+  VENDOR_FIELD_CAPABILITIES,
   capabilitiesFor,
   hasCapability,
   isEntitlementTier,
@@ -48,11 +50,13 @@ import {
 // ---------------------------------------------------------------------------
 
 describe('the entitlement vocabulary is frozen (§3.1) [invariant]', () => {
-  it('declares exactly the eight capability ids, in spec order', () => {
+  it('declares exactly the ten capability ids, in spec order', () => {
     expect(CAPABILITIES).toEqual([
       'profile.edit',
       'profile.rich_fields',
       'product.edit',
+      'product.listing.edit',
+      'product.categories.edit',
       'product.taxonomy.edit',
       'product.usefulness.edit',
       'attestation.author',
@@ -69,8 +73,12 @@ describe('the entitlement vocabulary is frozen (§3.1) [invariant]', () => {
     expect(ENTITLEMENT_STATUSES).toEqual(['pending', 'active', 'expired', 'revoked']);
   });
 
-  it('grants everything to verified and nothing to unclaimed', () => {
-    expect(TIER_CAPABILITIES.unclaimed).toEqual([]);
+  it('grants everything to verified and only the Free edits to unclaimed (§13.3)', () => {
+    expect(TIER_CAPABILITIES.unclaimed).toEqual([
+      'profile.edit',
+      'product.listing.edit',
+      'product.categories.edit',
+    ]);
     expect(TIER_CAPABILITIES.verified).toEqual([...CAPABILITIES]);
   });
 
@@ -393,6 +401,117 @@ describe('listing_tier reads content only (AECI-636) [invariant]', () => {
 });
 
 // ---------------------------------------------------------------------------
+// 5. No listing_tier input may need a plan to edit (AECI-1214, §13.4).
+// ---------------------------------------------------------------------------
+
+/**
+ * Block 4 proves `listing_tier` reads content only. That leaves one leak: if the
+ * content fields it reads are editable only on a paid plan, payment still raises
+ * a rank, one step removed. This block closes it. Every `listing_tier` input maps
+ * to the vendor-editable wire field that writes it, and that field's capability
+ * must be one the Free tier (`unclaimed`) holds.
+ *
+ * The capability comes from `PRODUCT_FIELD_CAPABILITIES` / `VENDOR_FIELD_CAPABILITIES`,
+ * which the API builds its column maps and facet gate from. So this checks the
+ * gate the route enforces, not a copy of it.
+ *
+ * The two maps below are typed as total records over the input lists, so a new
+ * `listing_tier` input fails the typecheck until someone says how it is written.
+ * `null` means "not vendor-editable at all", which is also plan-free.
+ */
+const PRODUCT_INPUT_FIELD: Record<
+  (typeof PRODUCT_LISTING_TIER_INPUTS)[number],
+  keyof typeof PRODUCT_FIELD_CAPABILITIES | null
+> = {
+  name: null, // a rename stays a correction request
+  description: 'description',
+  categories: 'category_slugs',
+  website: 'website',
+  logo_url: 'logo_url',
+};
+const VENDOR_INPUT_FIELD: Record<
+  (typeof VENDOR_LISTING_TIER_INPUTS)[number],
+  keyof typeof VENDOR_FIELD_CAPABILITIES | null
+> = {
+  company_name: null, // a rename stays a correction request
+  description: 'description',
+  headquarters: 'headquarters',
+  website: 'website',
+  logo_url: 'logo_url',
+};
+
+describe('no listing_tier input needs a plan to edit (§13.4) [invariant]', () => {
+  it.each([
+    ['product', PRODUCT_LISTING_TIER_INPUTS, PRODUCT_INPUT_FIELD, PRODUCT_FIELD_CAPABILITIES],
+    ['vendor', VENDOR_LISTING_TIER_INPUTS, VENDOR_INPUT_FIELD, VENDOR_FIELD_CAPABILITIES],
+  ] as const)(
+    'every %s listing_tier input is plan-free',
+    (_entity, inputs, inputField, fieldCapabilities) => {
+      // Runtime half of the total-record guarantee: no input slipped past the map.
+      expect(Object.keys(inputField).sort()).toEqual([...inputs].sort());
+      const table: Readonly<Record<string, string>> = fieldCapabilities;
+      for (const input of inputs) {
+        const field = (inputField as Readonly<Record<string, string | null>>)[input] ?? null;
+        if (field === null) {
+          // Listed as not vendor-editable. Prove it: no edit route can write it.
+          expect(table, `"${input}" is said to be read-only but is editable`).not.toHaveProperty(
+            input,
+          );
+          continue;
+        }
+        const capability = table[field];
+        expect(capability, `"${input}" → "${field}" has no capability`).toBeDefined();
+        expect(
+          TIER_CAPABILITIES.unclaimed as readonly string[],
+          `"${input}" → "${field}" needs "${capability}", which the Free tier lacks`,
+        ).toContain(capability);
+      }
+    },
+  );
+
+  it('names the capabilities the spec table names', () => {
+    // §13.4's table, verbatim. A change here is a spec change.
+    expect(PRODUCT_FIELD_CAPABILITIES.description).toBe('product.listing.edit');
+    expect(PRODUCT_FIELD_CAPABILITIES.website).toBe('product.listing.edit');
+    expect(PRODUCT_FIELD_CAPABILITIES.logo_url).toBe('product.listing.edit');
+    expect(PRODUCT_FIELD_CAPABILITIES.category_slugs).toBe('product.categories.edit');
+    for (const field of ['description', 'headquarters', 'website', 'logo_url'] as const) {
+      expect(VENDOR_FIELD_CAPABILITIES[field]).toBe('profile.edit');
+    }
+  });
+
+  it('keeps the Managed-only product fields off the Free tier (decision 4)', () => {
+    // The other side of the split. If one of these became Free, that is a pricing
+    // decision, and this is where it gets noticed.
+    const managedOnly = [
+      'tool_integrations_url',
+      'api_docs_url',
+      'usefulness',
+      'audience_slugs',
+      'phase_slugs',
+      'trade_slugs',
+    ] as const;
+    for (const field of managedOnly) {
+      expect(
+        hasCapability('unclaimed', PRODUCT_FIELD_CAPABILITIES[field]),
+        `"${field}" is Managed-only`,
+      ).toBe(false);
+      expect(hasCapability('verified', PRODUCT_FIELD_CAPABILITIES[field])).toBe(true);
+    }
+  });
+
+  it('every field capability is in the frozen registry', () => {
+    // A typo'd id would fail closed and lock the field for every tier.
+    for (const capability of [
+      ...Object.values(PRODUCT_FIELD_CAPABILITIES),
+      ...Object.values(VENDOR_FIELD_CAPABILITIES),
+    ]) {
+      expect(CAPABILITIES as readonly string[]).toContain(capability);
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Fail-closed resolution (§3.1). Ordinary behaviour coverage.
 // ---------------------------------------------------------------------------
 
@@ -441,10 +560,11 @@ describe('capabilitiesFor / hasCapability', () => {
     for (const capability of CAPABILITIES) expect(hasCapability('verified', capability)).toBe(true);
   });
 
-  it('gives unclaimed none', () => {
-    expect(capabilitiesFor('unclaimed')).toEqual([]);
+  it('gives unclaimed the Free edits and nothing else', () => {
+    const free = ['profile.edit', 'product.listing.edit', 'product.categories.edit'];
+    expect(capabilitiesFor('unclaimed')).toEqual(free);
     for (const capability of CAPABILITIES) {
-      expect(hasCapability('unclaimed', capability)).toBe(false);
+      expect(hasCapability('unclaimed', capability)).toBe(free.includes(capability));
     }
   });
 
@@ -470,9 +590,13 @@ describe('PAID_TIERS — what an admin may actually grant [invariant]', () => {
   //
   // PAID_TIERS is an explicit literal (z.enum needs a const tuple at the type level),
   // so this test is what stops it going stale when a rung is added.
+  //
+  // It used to derive "tiers that hold a capability". AECI-1214 gave `unclaimed`
+  // the Free capabilities, so that derivation would now include it. Free is never
+  // a `vendor_entitlements` row (§13.2), so `unclaimed` is excluded BY NAME.
 
-  it('is exactly the tiers that hold at least one capability', () => {
-    const derived = TIERS.filter((tier) => capabilitiesFor(tier).length > 0);
+  it('is exactly TIERS minus unclaimed', () => {
+    const derived = TIERS.filter((tier) => tier !== 'unclaimed');
     expect([...PAID_TIERS]).toEqual(derived);
   });
 

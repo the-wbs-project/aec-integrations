@@ -21,6 +21,7 @@ import type {
   VendorClaim,
   VendorContest,
   VendorIntegration,
+  VendorEntitlementBlock,
   VendorMeResponse,
   VendorAttestationNotification,
   VendorContestNotification,
@@ -253,6 +254,32 @@ export const VENDOR_TAXONOMY_FIXTURE: TaxonomyResponse = {
   ],
 };
 
+/** The Managed block, as the server serves it for an active `verified` row. */
+const MANAGED_PLAN: VendorEntitlementBlock = {
+  tier: 'verified',
+  status: 'active',
+  period_end: '2027-07-01T00:00:00.000Z',
+  capabilities: [...capabilitiesFor('verified')],
+};
+
+/** The Free block for a seat with no entitlement row (`status: null`). */
+const FREE_PLAN: VendorEntitlementBlock = {
+  tier: 'unclaimed',
+  status: null,
+  period_end: null,
+  capabilities: [...capabilitiesFor('unclaimed')],
+};
+
+/**
+ * Copy the vendor's entitlement block into every product's `plan`, exactly as
+ * `GET /api/vendor/me` does until per-product plans exist (AECI-1214, §13.7). A
+ * fixture that changed `entitlement` without this would describe a payload the
+ * server cannot produce: a product screen gated one way and the vendor another.
+ */
+export function withProductPlans(me: VendorMeResponse): VendorMeResponse {
+  return { ...me, products: me.products.map((p) => ({ ...p, plan: me.entitlement })) };
+}
+
 const PRIMARY_PRODUCT: VendorProduct = {
   id: '00000000-0000-4000-8000-000000005201',
   slug: 'summit-model-coordination',
@@ -298,6 +325,7 @@ const PRIMARY_PRODUCT: VendorProduct = {
   integration_count: 14,
   review_count: 6,
   updated_at: '2026-07-18T12:00:00.000Z',
+  plan: MANAGED_PLAN,
 };
 
 const SECONDARY_PRODUCT: VendorProduct = {
@@ -321,6 +349,7 @@ const SECONDARY_PRODUCT: VendorProduct = {
   integration_count: 3,
   review_count: 0,
   updated_at: '2026-07-02T09:30:00.000Z',
+  plan: MANAGED_PLAN,
 };
 
 /** A verified, multi-seat vendor with two products and two open corrections. Its
@@ -394,12 +423,7 @@ export const VENDOR_ME_FIXTURE: VendorMeResponse = {
   // ACTIVE entitlement (`STAGE_2_PAID_TIERS_SPEC.md` §2.1), so a fixture with
   // `verified: true` must carry an active row or it describes a drifted state
   // the daily `entitlement_mirror_drift` check would flag as an error.
-  entitlement: {
-    tier: 'verified',
-    status: 'active',
-    period_end: '2027-07-01T00:00:00.000Z',
-    capabilities: [...capabilitiesFor('verified')],
-  },
+  entitlement: MANAGED_PLAN,
 };
 
 /** An unverified single-seat vendor with no products or requests yet — the
@@ -418,10 +442,10 @@ export const VENDOR_ME_UNVERIFIED_FIXTURE: VendorMeResponse = {
   products: [],
   requests: [],
   seat_count: 1,
-  // The mirror's other side: no active entitlement → `unclaimed` → zero
-  // capabilities, and `verified: false` above. `status: null` = no
+  // The mirror's other side: no active entitlement → `unclaimed` → the Free
+  // capabilities (AECI-1214), and `verified: false` above. `status: null` = no
   // `vendor_entitlements` row at all, as opposed to a lapsed one.
-  entitlement: { tier: 'unclaimed', status: null, period_end: null, capabilities: [] },
+  entitlement: FREE_PLAN,
 };
 
 /**
@@ -430,7 +454,7 @@ export const VENDOR_ME_UNVERIFIED_FIXTURE: VendorMeResponse = {
  * (`status: null`) and one `connector`-role product. The plan panel renders its
  * `catalogue` state for this, never the `none` upsell.
  */
-export const VENDOR_ME_CONNECTOR_SEAT_FIXTURE: VendorMeResponse = {
+export const VENDOR_ME_CONNECTOR_SEAT_FIXTURE: VendorMeResponse = withProductPlans({
   vendor: {
     ...VENDOR_ME_UNVERIFIED_FIXTURE.vendor,
     id: '00000000-0000-4000-8000-000000005230',
@@ -450,8 +474,9 @@ export const VENDOR_ME_CONNECTOR_SEAT_FIXTURE: VendorMeResponse = {
   ],
   requests: [],
   seat_count: 1,
-  entitlement: { tier: 'unclaimed', status: null, period_end: null, capabilities: [] },
-};
+  // Ruling 2026-10-02: the catalogue seat holds the Free edits too (§13.3).
+  entitlement: FREE_PLAN,
+});
 
 // ─── The §8 entitlement states (AECI-614) ────────────────────────────────────
 //
@@ -473,7 +498,7 @@ function inDays(days: number): string {
  * State 2: verified, term inside the panel's warning window. Still fully
  * capable, because §7.3 is that the system WARNS and never auto-lapses.
  */
-export const VENDOR_ME_EXPIRING_FIXTURE: VendorMeResponse = {
+export const VENDOR_ME_EXPIRING_FIXTURE: VendorMeResponse = withProductPlans({
   ...VENDOR_ME_FIXTURE,
   entitlement: {
     tier: 'verified',
@@ -481,30 +506,32 @@ export const VENDOR_ME_EXPIRING_FIXTURE: VendorMeResponse = {
     period_end: inDays(12),
     capabilities: [...capabilitiesFor('verified')],
   },
-};
+});
 
 /**
  * State 3: DOWNGRADED. A vendor who had an entitlement and no longer does, which
  * `status: 'revoked'` distinguishes from the `status: null` never-arranged case
  * above. `vendor.verified` is false because the mirror follows the row (§2.1),
- * `tier` is `unclaimed` and the capability list is empty, so every form on the
- * dashboard renders read-only.
+ * `tier` is `unclaimed`, so it lands on the Free plan (AECI-1214): company
+ * details and the four `listing_tier` product fields stay editable, and every
+ * Managed-only field renders read-only.
  *
  * The seats, the products, the requests and the integrations are all untouched
  * on purpose: §5.2 is that clearing an entitlement does NOT revoke seats, and
  * this fixture is what proves the dashboard keeps its promise that nothing was
- * taken away except the badge and the ability to edit.
+ * taken away except the badge and the Managed edits.
  */
-export const VENDOR_ME_DOWNGRADED_FIXTURE: VendorMeResponse = {
+export const VENDOR_ME_DOWNGRADED_FIXTURE: VendorMeResponse = withProductPlans({
   ...VENDOR_ME_FIXTURE,
   vendor: { ...VENDOR_ME_FIXTURE.vendor, verified: false },
+  // A lapsed row resolves to the Free plan (§13.2), so the Free capabilities.
   entitlement: {
     tier: 'unclaimed',
     status: 'revoked',
     period_end: inDays(-45),
-    capabilities: [],
+    capabilities: [...capabilitiesFor('unclaimed')],
   },
-};
+});
 
 /**
  * A vendor whose catalog is big enough to test the product list (§6.11) at length.

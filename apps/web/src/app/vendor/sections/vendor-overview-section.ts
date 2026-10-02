@@ -310,7 +310,9 @@ export class VendorOverviewSection {
   );
 
   private readonly canEditProfile = vendorCan(this.store, 'profile.edit');
-  private readonly canEditProducts = vendorCan(this.store, 'product.edit');
+  // The product gaps are the four `listing_tier` fields, so the Free capability
+  // that edits them decides whether the rows are worth showing (AECI-1214).
+  private readonly canEditProducts = vendorCan(this.store, 'product.listing.edit');
   private readonly canAttest = vendorCan(this.store, 'attestation.author');
   /** The §8.9 connector seat (AECI-1082): the paused row speaks to it differently. */
   protected readonly catalogueSeat = vendorIsCatalogueSeat(this.store);

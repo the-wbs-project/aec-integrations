@@ -53,7 +53,7 @@ import {
   type VendorEntitlementResponse,
 } from '@aeci/shared';
 import { type AuditLogEntry } from '@aeci/shared/audit-log';
-import { capabilitiesFor } from '@aeci/shared/entitlements';
+import { capabilitiesFor, hasCapability } from '@aeci/shared/entitlements';
 import { eq } from 'drizzle-orm';
 import type { Context } from 'hono';
 
@@ -211,23 +211,30 @@ export function createSetVendorEntitlementHandler(
     const existing = await loadEntitlement(db, vendor.id);
 
     // ── 2. Guardrails ────────────────────────────────────────────────────────
-    // Never sell a tier that unlocks nothing. An `active` row at a zero-capability
-    // tier flips the `vendors.verified` mirror and lights the badge (§2.1) while
-    // `tierFor` resolves it to no capabilities at all — a vendor billed for a badge
-    // that unlocks nothing.
+    // Never sell a tier that unlocks nothing. An `active` row flips the
+    // `vendors.verified` mirror and lights the badge (§2.1), so a row at a tier that
+    // grants nothing beyond what every seat already holds is a vendor billed for a
+    // badge that unlocks nothing.
+    //
+    // "Nothing beyond what every seat holds", not "no capabilities": since AECI-1214
+    // the Free plan (`unclaimed`) holds company details and the four `listing_tier`
+    // product fields, so a rung that only repeated those would still sell nothing.
     //
     // `unclaimed` — the ABSENCE of an entitlement (§3.1) — is the case that made this
-    // concrete, and it is now unreachable here: `SetVendorEntitlementSchema.tier`
+    // concrete, and it is unreachable here: `SetVendorEntitlementSchema.tier`
     // derives from `PAID_TIERS`, not `TIERS`, so Zod rejects it with a 400 first (the
     // allow-list IS the guard-rail — `api/vendor.ts`'s header invariant). This stays
     // as the semantic rule rather than a restatement of that one tier id, so it keeps
     // biting if a future rung is added to `PAID_TIERS` before its capabilities are.
-    if (payload.tier && capabilitiesFor(payload.tier).length === 0) {
+    if (
+      payload.tier &&
+      capabilitiesFor(payload.tier).every((capability) => hasCapability('unclaimed', capability))
+    ) {
       emitEntitlementAction(c, action, 'forbidden');
       throw new ApiError(
         403,
         ApiErrorCode.FORBIDDEN,
-        `The ${payload.tier} tier grants no capabilities; clear the entitlement instead of granting it.`,
+        `The ${payload.tier} tier grants nothing beyond the Free plan; clear the entitlement instead of granting it.`,
         { field: 'tier' },
       );
     }
