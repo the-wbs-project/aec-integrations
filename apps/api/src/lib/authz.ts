@@ -123,7 +123,14 @@ export type AuthenticatedSession = {
    * thing `requireCapability` consults; this exists so the dashboard can say
    * "expires 2027-01-01" or "arrangement pending" rather than only "locked".
    */
-  entitlement: { status: EntitlementStatus; periodEnd: string | null } | null;
+  entitlement: {
+    status: EntitlementStatus;
+    periodEnd: string | null;
+    /** `vendor_entitlements.ended_at`: when the row last left `active`
+     *  (AECI-1218, the pilot-ended banner's date line). `null` while active.
+     *  Optional so a hand-built test session may omit it; absent reads as `null`. */
+    endedAt?: string | null;
+  } | null;
 };
 
 /** Non-vendor sessions (`requireAuth()` / `requireAdmin()`) carry the
@@ -255,6 +262,7 @@ type VendorProfileAuthz = ProfileAuthz & {
   entTier: string | null;
   entStatus: string | null;
   entPeriodEnd: string | null;
+  entEndedAt: string | null;
 };
 
 /**
@@ -279,6 +287,7 @@ async function findVendorProfile(db: Db, userId: string): Promise<VendorProfileA
       entTier: vendorEntitlements.tier,
       entStatus: vendorEntitlements.status,
       entPeriodEnd: vendorEntitlements.periodEnd,
+      entEndedAt: vendorEntitlements.endedAt,
     })
     .from(profiles)
     .leftJoin(vendorEntitlements, eq(vendorEntitlements.vendorId, profiles.vendorId))
@@ -297,7 +306,7 @@ async function findVendorProfile(db: Db, userId: string): Promise<VendorProfileA
  * to the dashboard as if it meant something.
  */
 function entitlementFor(
-  row: Pick<VendorProfileAuthz, 'entTier' | 'entStatus' | 'entPeriodEnd'>,
+  row: Pick<VendorProfileAuthz, 'entTier' | 'entStatus' | 'entPeriodEnd' | 'entEndedAt'>,
 ): Pick<AuthenticatedSession, 'entitlementTier' | 'entitlement'> {
   if (row.entTier === null || row.entStatus === null) return NO_ENTITLEMENT;
   const status = row.entStatus;
@@ -307,7 +316,9 @@ function entitlementFor(
     // holds, and is kept anyway: it is what makes the session type honest
     // instead of a cast, and it is the behaviour we want if that CHECK is ever
     // widened — degrade to "no term on record", never echo an unknown status.
-    entitlement: isEntitlementStatus(status) ? { status, periodEnd: row.entPeriodEnd } : null,
+    entitlement: isEntitlementStatus(status)
+      ? { status, periodEnd: row.entPeriodEnd, endedAt: row.entEndedAt }
+      : null,
   };
 }
 

@@ -23,6 +23,7 @@ function plan(tier: EntitlementTier): VendorEntitlementBlock {
     tier,
     status: tier === 'verified' ? 'active' : null,
     period_end: null,
+    ended_at: null,
     capabilities: [...capabilitiesFor(tier)],
   };
 }

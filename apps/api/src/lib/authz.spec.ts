@@ -122,7 +122,7 @@ let entitlementSeq = 0;
  *  the paid entry rung, active, perpetual. */
 async function seedEntitlement(
   vendorId: string,
-  seed: { tier?: string; status?: string; periodEnd?: string | null } = {},
+  seed: { tier?: string; status?: string; periodEnd?: string | null; endedAt?: string | null } = {},
 ): Promise<void> {
   await t.db.insert(vendorEntitlements).values({
     id: `77777777-7777-4777-8777-${String(++entitlementSeq).padStart(12, '0')}`,
@@ -130,6 +130,7 @@ async function seedEntitlement(
     tier: seed.tier ?? 'verified',
     status: seed.status ?? 'active',
     periodEnd: seed.periodEnd ?? null,
+    endedAt: seed.endedAt ?? null,
   });
 }
 
@@ -190,7 +191,7 @@ type CallResult = {
       role: string;
       vendorId: string | null;
       entitlementTier?: string;
-      entitlement?: { status: string; periodEnd: string | null } | null;
+      entitlement?: { status: string; periodEnd: string | null; endedAt?: string | null } | null;
     };
     reviewerId?: string;
     clientSent?: unknown;
@@ -511,6 +512,7 @@ describe('requireVendor — the entitlement join', () => {
     expect(auth?.entitlement).toEqual({
       status: 'active',
       periodEnd: '2027-01-01T00:00:00.000Z',
+      endedAt: null,
     });
   });
 
@@ -530,12 +532,21 @@ describe('requireVendor — the entitlement join', () => {
     'resolves a %s entitlement to unclaimed while still reporting its status',
     async (status) => {
       await seedSeat();
-      await seedEntitlement(VENDOR_ID, { status, periodEnd: '2026-01-01T00:00:00.000Z' });
+      await seedEntitlement(VENDOR_ID, {
+        status,
+        periodEnd: '2026-01-01T00:00:00.000Z',
+        endedAt: status === 'pending' ? null : '2026-01-02T00:00:00.000Z',
+      });
       const { auth } = await sessionFor('user-vendor');
       expect(auth?.entitlementTier).toBe('unclaimed');
       // The term readout survives the downgrade on purpose: the §8 dashboard
       // needs to say "expired on …", not merely "locked".
-      expect(auth?.entitlement).toEqual({ status, periodEnd: '2026-01-01T00:00:00.000Z' });
+      // `endedAt` rides along for the pilot-ended banner (AECI-1218, §13.11).
+      expect(auth?.entitlement).toEqual({
+        status,
+        periodEnd: '2026-01-01T00:00:00.000Z',
+        endedAt: status === 'pending' ? null : '2026-01-02T00:00:00.000Z',
+      });
     },
   );
 
