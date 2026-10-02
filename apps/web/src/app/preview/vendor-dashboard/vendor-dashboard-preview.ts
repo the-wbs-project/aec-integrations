@@ -18,6 +18,14 @@ import {
   VENDOR_ME_FIXTURE,
   VENDOR_ME_UNVERIFIED_FIXTURE,
   VENDOR_SEATS_FIXTURE,
+  VENDOR_ME_FREE_FIXTURE,
+  VENDOR_ME_PILOT_ENDED_FIXTURE,
+  VENDOR_ME_MIXED_FIXTURE,
+  CHECKLIST_MANAGED_STATE,
+  CHECKLIST_MIXED_STATE,
+  CHECKLIST_PILOT_ENDED_STATE,
+  NOTHING_CHECKED,
+  type ChecklistFixtureState,
 } from '../../vendor/vendor-fixtures';
 import { VENDOR_ME_CONNECTOR_SEAT_REVIEW_FIXTURE } from '../../vendor/vendor-catalogue-fixtures';
 import { PreviewVendorApi } from './preview-vendor-api';
@@ -30,7 +38,10 @@ type FixtureKey =
   | 'unverified'
   | 'connector-seat'
   | 'connector-seat-review'
-  | 'large-catalog';
+  | 'large-catalog'
+  | 'free'
+  | 'pilot-ended'
+  | 'mixed';
 
 const FIXTURE_KEYS: readonly FixtureKey[] = [
   'verified',
@@ -40,6 +51,9 @@ const FIXTURE_KEYS: readonly FixtureKey[] = [
   'connector-seat',
   'connector-seat-review',
   'large-catalog',
+  'free',
+  'pilot-ended',
+  'mixed',
 ];
 
 /** `?fixture=<key>` picks the preset on first paint, so an e2e or the design
@@ -207,6 +221,13 @@ export class VendorDashboardPreview {
     // Not an entitlement state: a catalog big enough to show how the product
     // list page (§6.11) reads at length. Two products cannot.
     { key: 'large-catalog', label: 'Active · 20 products' },
+    // AECI-1218 (STAGE_2_PAID_TIERS_SPEC.md section 13): the Free plan states.
+    // Free never had a plan (no banner). Pilot ended is a revoked row with
+    // ended_at set (the banner). Mixed is 12 products, 5 Managed and 7 Free,
+    // which only per-product plans can produce: the server copies one block today.
+    { key: 'free', label: 'Free · never had a plan' },
+    { key: 'pilot-ended', label: 'Free · pilot ended' },
+    { key: 'mixed', label: 'Mixed · 12 products' },
   ];
 
   protected readonly activeMe = computed(() => {
@@ -223,8 +244,31 @@ export class VendorDashboardPreview {
         return VENDOR_ME_CONNECTOR_SEAT_FIXTURE;
       case 'connector-seat-review':
         return VENDOR_ME_CONNECTOR_SEAT_REVIEW_FIXTURE;
+      case 'free':
+        return VENDOR_ME_FREE_FIXTURE;
+      case 'pilot-ended':
+        return VENDOR_ME_PILOT_ENDED_FIXTURE;
+      case 'mixed':
+        return VENDOR_ME_MIXED_FIXTURE;
       default:
         return VENDOR_ME_FIXTURE;
+    }
+  });
+
+  /** Which checklist steps the fixture starts with done (AECI-1218). */
+  private readonly activeChecklist = computed<ChecklistFixtureState>(() => {
+    switch (this.fixture()) {
+      case 'verified':
+      case 'expiring':
+      case 'large-catalog':
+        return CHECKLIST_MANAGED_STATE;
+      case 'pilot-ended':
+      case 'downgraded':
+        return CHECKLIST_PILOT_ENDED_STATE;
+      case 'mixed':
+        return CHECKLIST_MIXED_STATE;
+      default:
+        return NOTHING_CHECKED;
     }
   });
 
@@ -255,9 +299,12 @@ export class VendorDashboardPreview {
     effect(() => {
       const me = this.activeMe();
       const seats = this.activeSeats();
+      const checklist = this.activeChecklist();
       untracked(() => {
-        this.previewApi.setFixture(me, seats);
+        this.previewApi.setFixture(me, seats, undefined, checklist);
         this.store.seed(me);
+        // A new fixture is a different vendor: re-read any checklist on screen.
+        void this.store.refreshChecklists();
       });
     });
   }

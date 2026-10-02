@@ -9,289 +9,177 @@ import {
 import { NgTemplateOutlet, formatDate } from '@angular/common';
 import { RouterLink } from '@angular/router';
 
-import type { VendorEntitlementBlock, VendorProduct } from '@aeci/shared';
-import { EXPIRY_WARNING_DAYS } from '@aeci/shared/entitlements';
+import type { VendorEntitlementBlock } from '@aeci/shared';
 
-import { VendorAccountBadge } from '../../shared/vendor-account-badge/vendor-account-badge';
 import { isCatalogueSeat } from '../vendor-capabilities';
+import {
+  daysRemaining,
+  noPlanChangesLine,
+  parseDate,
+  planState,
+  type PlanState,
+} from '../vendor-plan';
+
+import { VendorPlanBadge } from './vendor-plan-badge';
 
 /**
- * The vendor-facing entitlement surface (AECI-614 /
- * `docs/STAGE_2_PAID_TIERS_SPEC.md` §8) — the Overview panel that replaces the
- * launch-minimum `vendor-verified-status.ts` chip.
+ * One product's plan panel (AECI-1218, `STAGE_2_VENDOR_PORTAL_SPEC.md` §6.18,
+ * `STAGE_2_PAID_TIERS_SPEC.md` §13). It sits on each product's overview, beside
+ * that product's checklist. Plans live at the product level (decision 2), so the
+ * vendor overview carries only a one-line summary (`vendor-plan-summary.ts`).
  *
- * It reads the `entitlement` block on `GET /api/vendor/me` (§4): `tier`,
- * `status`, `period_end`, and the resolved `capabilities`. **No new endpoint and
- * no new query** — the block is built from the session the guard already loaded,
- * so this panel and the 403 a write would get cannot disagree.
+ * It reads `product.plan`, never `me().entitlement` (§13.7). Until per-product
+ * plans exist, every product carries the vendor's block, so this panel says the
+ * same thing on every product of one vendor today, and nothing here changes when
+ * per-product plans land.
  *
- * ── IT MOVES WITHOUT A RELOAD (AECI-631 / `STAGE_2_REALTIME_SPEC.md` §6.1) ──
- * The concierge flip is the one event on this surface with a real deadline: an
- * operator toggles verification while on the phone with the vendor, and until
- * AECI-516 the vendor had to hard-reload `/vendor` to see it. They no longer do.
- * `entitlement` is bound from `VendorPortalStore.me` through the dashboard shell,
- * so when the §4 poll sees the `entitlement` cursor move and refetches
- * `GET /api/vendor/me`, a new block arrives in this input and every `computed`
- * below re-derives: the chip becomes the badge, the term line changes, the CTA
- * disappears.
+ * ── The states (`vendor-plan.ts`) ───────────────────────────────────────────
+ *  - `managed`: what Managed covers for this product, then what Free also gives.
+ *  - `expiring`: the same, led by the end date and a renewal path. Nothing has
+ *    been taken away yet, and the copy says so.
+ *  - `pending`: Managed is arranged and not switched on, so the product is on
+ *    Free until it is.
+ *  - `ended`: the plan ended, the product is on Free, and nothing entered was
+ *    removed (decision 8). The vendor-wide banner says the same at the top of
+ *    every portal page (§13.11). This panel says it for the product.
+ *  - `free`: never had Managed. What Free includes, what Managed adds.
+ *  - `catalogue`: the connector catalogue seat (`STAGE_2_SPEC.md` §8.9). It is
+ *    never sold Managed, so it gets no offer, no price and no call to action. It
+ *    holds the Free edits like any seat with no plan (ruling 2026-10-02, §13.3).
  *
- * That is only true because nothing here copies the input into local state. Every
- * value below is a `computed` over `entitlement()`; the single exception is
- * {@link now}, which is a CLOCK rather than entitlement data and is read at day
- * granularity. Do not "optimise" any of these into a constructor assignment or a
- * `signal` seeded from the input: the panel would then be a snapshot of the
- * entitlement as it stood when the tab first rendered, and the deadline this
- * whole epic exists for would be quietly missed.
+ * ── Copy discipline ─────────────────────────────────────────────────────────
+ * Every state carries decision 10's line word for word (§13.1). Managed shows a
+ * draft price label, and nothing beyond Managed is offered (decision 9). No
+ * promise of search placement or instant search. The vendor's own arrangement
+ * (amount paid, terms, PO) is never shown: the price is the list price, marked
+ * as a draft. Renewal is a conversation (`/contact`), not a checkout.
  *
- * ── The states ──────────────────────────────────────────────────────────────
- * `status` is `null` when there is no `vendor_entitlements` row AT ALL, which
- * deliberately distinguishes *never arranged* from *lapsed* — two different
- * conversations, so they get two different panels:
- *
- *  - **`active`** (term far off, or no end date) — quiet. The badge the public
- *    sees, the term, and the framing sentence. Nothing shouty.
- *  - **`expiring`** (`active`, `period_end` within {@link EXPIRY_SOON_DAYS}) —
- *    warm Bone wash, "ends in N days", a renewal path. Still verified: nothing
- *    has been taken away yet, and the copy says so.
- *  - **`pending`** — arranged, not yet switched on.
- *  - **`lapsed`** (`expired` / `revoked`) — the state that had to be DESIGNED,
- *    not merely handled: it is shown to a customer AECi wants back. It is
- *    **not an error**, so it borrows nothing from the error vocabulary — no
- *    `--status-error`, no alert role, no warning glyph. It leads with what the
- *    vendor KEEPS (dashboard, listing, reviews, seats, everything readable),
- *    names what is paused, and offers a renewal path.
- *  - **`none`** (`status: null`) — never arranged. An invitation, not a loss.
- *  - **`catalogue`** (`status: null` on a vendor holding a `connector`-role
- *    product) — the connector catalogue-maintenance seat (AECI-724,
- *    `STAGE_2_SPEC.md` §8.9). NOT a variant of `none`. `none` invites the vendor
- *    to arrange access; this seat is never sold that access (§8.8/§8.9), so it
- *    gets no CTA, no "not active" chip and no account framing. It says what the
- *    seat is and stops. §8.9(5) is explicit that softening `none`'s copy is not
- *    the fix.
- *
- *    The signal is data the dashboard already holds: `entitlement.status` and
- *    `products[].product_role` on `GET /api/vendor/me`. No tier, no capability.
- *    `status: null` on a seat is reachable only through the AECI-740 provision
- *    (every claim grant opens a row), which is the §8.9 seat by construction, so
- *    "holds a connector-role product" is enough to tell it from an ordinary
- *    never-arranged vendor. A connector vendor that later pays gets a row, leaves
- *    `null`, and the ordinary states take over with nothing to reconcile.
- *
- * The `active` arm resolves fail-closed, the same way `tierFor` does: a row that
- * says `active` but carries a tier this build does not know grants nothing, so
- * it must not render as verified. Anything unrecognized falls to `lapsed`.
- *
- * ── Copy discipline (§8, and this is a trust surface) ───────────────────────
- * The public label reports **active account access** — never an endorsement,
- * ranking, or placement signal. The framing sentence matches the
- * `claim-approved` email's wording, said once, in every state. There is
- * **no promise of instant search** (vendor edits reach Algolia on the nightly
- * watermark, ≤24h) and no search claim at all beyond the disclaimer. Arrangement
- * details — amount, terms, PO number, payer — are **admin-side only** (§5.1):
- * this panel shows status and term, never the money. Renewal is a conversation
- * (`/contact`), not a checkout.
- *
- * Anchor-Site Rule: the anchor is the existing `/vendor` dashboard. Bordered
- * surfaces over fills, the same `--surface-raised` card + `--radius-md` as the
- * Overview's "What needs you" rows, the same button classes as the profile form.
- * Light theme only (Stage 1 / AECI-226).
+ * Not an error surface in any state: no status colour, no alert role. Light
+ * theme only.
  */
 @Component({
   selector: 'aec-vendor-plan-panel',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [NgTemplateOutlet, RouterLink, VendorAccountBadge],
+  imports: [NgTemplateOutlet, RouterLink, VendorPlanBadge],
   template: `
-    @if (isCompact()) {
-      <!--
-        The compact strip (AECI-983): active and not expiring, on the overview.
-        Nothing is asked of the vendor in this state, so it gives up the top of
-        the landing page. The framing sentence is the same string as the full
-        panel's, behind a disclosure, so the trust copy is never forked.
-      -->
-      <div
-        class="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 rounded-(--radius-md) border border-(--border-default) bg-(--surface-raised) px-4 py-3"
-      >
-        <div class="flex flex-wrap items-center gap-x-3 gap-y-1">
-          <aec-vendor-account-badge [active]="true" variant="portal" />
-          @if (termLine(); as line) {
-            <span class="text-sm text-(--text-secondary)">{{ line }}</span>
-          }
-        </div>
-        <details class="min-w-0">
-          <summary
-            class="cursor-pointer rounded-(--radius-sm) px-1 text-xs font-medium text-(--text-secondary) transition-colors hover:text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
-            i18n="@@vendor.plan.compact.disclosure"
-          >
-            What an active account covers
-          </summary>
-          <p class="mt-2 max-w-prose text-xs leading-relaxed text-(--text-secondary)">
-            <ng-container [ngTemplateOutlet]="framing" />
+    <section
+      [attr.aria-labelledby]="headingId()"
+      [class]="shellClass()"
+      [attr.data-plan-state]="state()"
+    >
+      <div class="flex flex-wrap items-start justify-between gap-3">
+        <h2 [id]="headingId()" class="font-display text-xl font-semibold text-(--text-primary)">
+          <span i18n="@@vendor.plan.panel.heading">This product's plan</span>
+        </h2>
+        <aec-vendor-plan-badge [plan]="plan()" />
+      </div>
+
+      <p class="mt-3 max-w-prose text-sm leading-relaxed text-(--text-primary)">{{ lede() }}</p>
+
+      @switch (state()) {
+        @case ('catalogue') {
+          <p class="mt-2 max-w-prose text-sm leading-relaxed text-(--text-secondary)">
+            <span i18n="@@vendor.plan.catalogue.scope"
+              >Its description, website, logo and categories are yours to edit, like any listing on
+              Free. Catalogue maintenance carries no public account label.</span
+            >
           </p>
-        </details>
-      </div>
-    } @else {
-      <div [class]="shellClass()">
-        <div class="flex flex-wrap items-center gap-x-3 gap-y-2">
-          @if (state() === 'active' || state() === 'expiring') {
-            <aec-vendor-account-badge [active]="true" variant="portal" />
-          } @else {
-            <span
-              class="inline-flex w-fit items-center rounded-(--radius-sm) border border-(--border-strong) bg-(--surface-base) px-2.5 py-0.5 text-xs font-semibold tracking-[0.01em] text-(--text-secondary)"
-              >{{ chipLabel() }}</span
-            >
-          }
-          @if (termLine(); as line) {
-            <span class="text-sm text-(--text-secondary)">{{ line }}</span>
-          }
-        </div>
-
-        @switch (state()) {
-          @case ('active') {
-            <p class="mt-3 max-w-prose text-sm leading-relaxed text-(--text-secondary)">
-              <span i18n="@@vendor.plan.active.body"
-                >Your profile, products and integration attestations are yours to edit.</span
-              >
-            </p>
-          }
-          @case ('expiring') {
-            @let days = daysRemaining() ?? 0;
-            <p class="mt-3 max-w-prose text-sm font-semibold text-(--accent-secondary-deep)">
-              @if (days === 0) {
-                <span i18n="@@vendor.plan.expiring.lede.today"
-                  >Your editing access ends today.</span
-                >
-              } @else {
-                <ng-container i18n="@@vendor.plan.expiring.lede"
-                  >Your editing access ends in
-                  {days, plural, =1 {1 day} other {{{ days }} days}}.</ng-container
-                >
-              }
-            </p>
-            <p class="mt-2 max-w-prose text-sm leading-relaxed text-(--text-secondary)">
-              <span i18n="@@vendor.plan.expiring.body"
-                >Nothing changes before then. Get in touch to renew and your account label, editing
-                access and attestations carry on without a break.</span
-              >
-            </p>
-            <a routerLink="/contact" [class]="secondaryCtaClass" i18n="@@vendor.plan.cta.renew"
-              >Renew access</a
-            >
-          }
-          @case ('pending') {
-            <p class="mt-3 max-w-prose text-sm leading-relaxed text-(--text-secondary)">
-              <span i18n="@@vendor.plan.pending.body"
-                >Your editing access is arranged and switches on shortly. Until it does, everything
-                on record is here to read, and editing stays closed.</span
-              >
-            </p>
-          }
-          @case ('lapsed') {
-            <p class="mt-3 max-w-prose text-sm leading-relaxed text-(--text-primary)">
-              <span i18n="@@vendor.plan.lapsed.body"
-                >Your editing access is no longer active. You are still signed in, and you and your
-                colleagues keep the portal.</span
-              >
-            </p>
-            <!--
-            What you keep, then what is paused. Two blocks, not one list: the
-            single negative must not sit in an undifferentiated stack with the
-            reassurances, where it reads as an afterthought rather than the one
-            thing the vendor actually needs to know.
-          -->
-            <ul
-              class="mt-3 max-w-prose list-disc space-y-1.5 ps-5 text-sm leading-relaxed text-(--text-secondary)"
-            >
-              <li i18n="@@vendor.plan.lapsed.keep.listing">
-                Your listing, your reviews and your integrations stay published exactly as they are.
-              </li>
-              <li i18n="@@vendor.plan.lapsed.keep.readable">
-                Everything on record is still here to read: profile, products and integrations.
-              </li>
-            </ul>
-            <p
-              class="mt-4 max-w-prose border-s-2 border-(--border-strong) ps-3 text-sm leading-relaxed text-(--text-primary)"
-            >
-              <span i18n="@@vendor.plan.lapsed.paused"
-                >What is paused: the public account label, editing your profile and products,
-                confirming, denying or clearing data flows on your integrations, and managing the
-                integrations you own that are delivered through a connector.</span
-              >
-            </p>
-            <p class="mt-4 max-w-prose text-sm leading-relaxed text-(--text-secondary)">
-              <span i18n="@@vendor.plan.lapsed.renew"
-                >Renewing turns all of it back on, with nothing to re-enter. Get in touch and we
-                will pick it up from there.</span
-              >
-            </p>
-            <a routerLink="/contact" [class]="primaryCtaClass" i18n="@@vendor.plan.cta.renew"
-              >Renew access</a
-            >
-          }
-          @case ('catalogue') {
-            <p class="mt-3 max-w-prose text-sm leading-relaxed text-(--text-primary)">
-              <span i18n="@@vendor.plan.catalogue.body"
-                >This seat maintains your connector catalogue on AECi: your listings, the products
-                each one maps to, and the evidence behind each mapping.</span
-              >
-            </p>
-            <p class="mt-2 max-w-prose text-sm leading-relaxed text-(--text-secondary)">
-              <span i18n="@@vendor.plan.catalogue.scope"
-                >Your company profile and product details stay with the AECi team.</span
-              >
-            </p>
-            <!--
-              AECI-1083: where the seat's work is. Navigation to its own screen, not
-              a call to action, so it is a plain link rather than the CTA button
-              §8.9(5) keeps off this state. One per connector product, because each
-              catalogue belongs to one.
-            -->
-            @if (catalogueLinks()) {
-              @for (p of connectorProducts(); track p.slug) {
-                <p class="mt-3 text-sm">
-                  <a
-                    [routerLink]="['..', 'products', p.slug, 'catalogue']"
-                    class="font-medium text-(--accent-primary) underline underline-offset-2 focus-visible:rounded-(--radius-sm) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
-                    data-catalogue-link
-                    >{{ catalogueLinkLabel(p.name) }}</a
-                  >
-                </p>
-              }
-            }
-          }
-          @case ('none') {
-            <p class="mt-3 max-w-prose text-sm leading-relaxed text-(--text-secondary)">
-              <span i18n="@@vendor.plan.none.body"
-                >Editing access is not active yet. Everything on record is here to read. Editing
-                your profile and products, and confirming what your integrations move, opens up with
-                an active vendor account.</span
-              >
-            </p>
-            <a routerLink="/contact" [class]="primaryCtaClass" i18n="@@vendor.plan.cta.ask"
-              >Ask about vendor access</a
-            >
-          }
         }
+        @case ('managed') {
+          <ng-container [ngTemplateOutlet]="managedLists" />
+        }
+        @case ('expiring') {
+          <ng-container [ngTemplateOutlet]="managedLists" />
+        }
+        @default {
+          <h3 [class]="listHeadingClass" i18n="@@vendor.plan.free.includes">Free includes</h3>
+          <ng-container [ngTemplateOutlet]="freeList" />
+          <h3 [class]="listHeadingClass" i18n="@@vendor.plan.managed.adds">
+            Managed adds, for this product
+          </h3>
+          <ng-container [ngTemplateOutlet]="managedList" />
+        }
+      }
 
-        <p class="mt-4 max-w-prose text-xs leading-relaxed text-(--text-secondary)">
-          @if (state() === 'catalogue') {
-            <!-- The account framing describes an account this seat does not hold. -->
-            <span i18n="@@vendor.plan.catalogue.framing"
-              >Catalogue maintenance carries no public account label, and it does not affect search
-              ranking or placement.</span
-            >
-          } @else {
-            <ng-container [ngTemplateOutlet]="framing" />
-          }
+      @if (state() !== 'catalogue') {
+        <p
+          class="mt-5 flex flex-wrap items-center gap-2 text-sm text-(--text-primary)"
+          data-testid="plan-price"
+        >
+          <span i18n="@@vendor.plan.price">Managed is $25 a month per product.</span>
+          <span
+            class="rounded-(--radius-sm) bg-(--surface-sunken) px-1.5 py-px text-[0.6875rem] font-semibold tracking-[0.04em] text-(--text-secondary) uppercase"
+            i18n="@@vendor.plan.price.draft"
+            >Draft price</span
+          >
         </p>
-      </div>
-    }
+      }
 
-    <ng-template #framing>
-      <span i18n="@@vendor.plan.framing"
-        >An active vendor account means this company can manage its AECi profile. It does not verify
-        product quality or integration accuracy, and it does not affect search ranking or
-        placement.</span
+      @switch (state()) {
+        @case ('free') {
+          <a routerLink="/contact" [class]="ctaClass" i18n="@@vendor.plan.cta.askProduct"
+            >Ask about Managed for this product</a
+          >
+        }
+        @case ('ended') {
+          <a routerLink="/contact" [class]="ctaClass" i18n="@@vendor.plan.cta.askProduct"
+            >Ask about Managed for this product</a
+          >
+        }
+        @case ('expiring') {
+          <a routerLink="/contact" [class]="ctaClass" i18n="@@vendor.plan.cta.renew"
+            >Renew Managed</a
+          >
+        }
+      }
+
+      <p
+        class="mt-5 border-t border-(--border-default) pt-3 text-xs leading-relaxed text-(--text-secondary)"
+        data-testid="plan-decision10"
       >
+        {{ decision10 }}
+      </p>
+    </section>
+
+    <ng-template #managedLists>
+      <h3 [class]="listHeadingClass" i18n="@@vendor.plan.managed.covers">Managed covers</h3>
+      <ng-container [ngTemplateOutlet]="managedList" />
+      <h3 [class]="listHeadingClass" i18n="@@vendor.plan.managed.alsoFree">
+        Also included, as on Free
+      </h3>
+      <ng-container [ngTemplateOutlet]="freeList" />
+    </ng-template>
+
+    <ng-template #freeList>
+      <ul [class]="listClass" data-testid="plan-free-list">
+        <li i18n="@@vendor.plan.free.listing">The product listing, published as it is</li>
+        <li i18n="@@vendor.plan.free.basics">Edit its description, website, logo and categories</li>
+        <li i18n="@@vendor.plan.free.looksRight">
+          Mark its details and its integration list as checked
+        </li>
+        <li i18n="@@vendor.plan.free.claims">
+          Claim its integrations, add links and request corrections
+        </li>
+        <li i18n="@@vendor.plan.free.create">Add a new integration</li>
+      </ul>
+    </ng-template>
+
+    <ng-template #managedList>
+      <ul [class]="listClass" data-testid="plan-managed-list">
+        <li i18n="@@vendor.plan.managed.narrative">
+          Edit "How teams use it", the integrations page URL and the API documentation URL
+        </li>
+        <li i18n="@@vendor.plan.managed.taxonomy">Edit trades, audiences and phases</li>
+        <li i18n="@@vendor.plan.managed.flows">
+          Confirm or deny the data flows on its integrations
+        </li>
+        <li i18n="@@vendor.plan.managed.connector">
+          Manage its integrations delivered through a connector
+        </li>
+        <li i18n="@@vendor.plan.managed.label">
+          Counts toward the "Active on AECi" label on your vendor page
+        </li>
+      </ul>
     </ng-template>
   `,
   styles: [':host { display: block; }'],
@@ -299,172 +187,81 @@ import { isCatalogueSeat } from '../vendor-capabilities';
 export class VendorPlanPanel {
   private readonly locale = inject(LOCALE_ID);
 
-  /** The `entitlement` block from `GET /api/vendor/me`. */
-  readonly entitlement = input.required<VendorEntitlementBlock>();
+  /** THIS product's plan (`VendorProduct.plan`, §13.7). */
+  readonly plan = input.required<VendorEntitlementBlock>();
+  /** The product's `product_role`: a `connector` with no plan row is the §8.9 seat. */
+  readonly productRole = input<string | null>(null);
+  /** Unique per page, so two panels never share a heading id. */
+  readonly headingId = input('vendor-plan-panel-h');
 
   /**
-   * The `products` array from `GET /api/vendor/me`, read for `product_role`
-   * alone: it is what separates the connector catalogue seat from an ordinary
-   * never-arranged vendor (AECI-724). Defaults to none, so a caller that omits it
-   * gets the pre-AECI-724 panel rather than a guess.
-   */
-  readonly products = input<
-    readonly (Pick<VendorProduct, 'product_role'> & Partial<Pick<VendorProduct, 'slug' | 'name'>>)[]
-  >([]);
-
-  /**
-   * Render a link to each connector product's Catalogue tab in the `catalogue` state
-   * (AECI-1083). Off by default: the links are relative to the overview route
-   * (`../products/:slug/catalogue`), so only the overview turns them on.
-   */
-  readonly catalogueLinks = input(false);
-
-  protected readonly connectorProducts = computed(() =>
-    this.products().flatMap((p) =>
-      p.product_role === 'connector' && p.slug && p.name ? [{ slug: p.slug, name: p.name }] : [],
-    ),
-  );
-
-  protected catalogueLinkLabel(name: string): string {
-    return $localize`:@@vendor.plan.catalogue.link:Open the ${name}:PRODUCT: catalogue`;
-  }
-
-  /**
-   * Clock injection point, so the expiring state is testable without freezing
-   * global time. Defaults to construction time, and is read at DAY granularity —
-   * which is also what keeps the SSR render and the hydration render agreeing on
-   * `/vendor` (a non-cacheable, cookie-forwarded surface rendered twice, ~ms
-   * apart; only a render that straddles a midnight-relative day boundary could
-   * differ, and the value is presentational).
+   * Clock injection point, read at day granularity, so the expiring state is
+   * testable and the SSR and hydration renders agree.
    */
   readonly now = input<number>(Date.now());
 
-  /**
-   * Collapse to a one-line strip (AECI-983, the overview). Applies to the
-   * `active` state ONLY: `expiring`, `pending`, `lapsed` and `none` each carry a
-   * conversation, so they render in full whatever this says.
-   */
-  readonly compact = input(false);
+  protected readonly decision10 = noPlanChangesLine();
 
-  /**
-   * Fail-closed, exactly as `tierFor` does (§3.1): `active` alone is not enough,
-   * because `vendor_entitlements.tier` is deliberately unconstrained at the DB
-   * layer and an unknown tier resolves to `unclaimed` → the Free capabilities only. A
-   * panel that said "active" over read-only forms would be the wrong lie.
-   */
-  protected readonly isActive = computed(
-    () => this.entitlement().status === 'active' && this.entitlement().tier !== 'unclaimed',
-  );
-
-  /** Whole days from `now` to `period_end`; `null` when there is no term. */
-  protected readonly daysRemaining = computed<number | null>(() => {
-    const end = this.periodEnd();
-    if (end === null) return null;
-    return Math.max(0, Math.ceil((end.getTime() - this.now()) / DAY_MS));
-  });
-
-  protected readonly state = computed<PlanState>(() => {
-    const days = this.daysRemaining();
-    if (this.isActive()) return days !== null && days <= EXPIRY_SOON_DAYS ? 'expiring' : 'active';
-    const status = this.entitlement().status;
-    if (status === null) return isCatalogueSeat(status, this.products()) ? 'catalogue' : 'none';
-    if (status === 'pending') return 'pending';
-    // `expired`, `revoked`, and the active-status/unknown-tier drift above all
-    // land here: a state we cannot name confidently is still a downgraded one.
-    return 'lapsed';
-  });
-
-  /** `compact` honoured, which only the quiet `active` state allows. */
-  readonly isCompact = computed(() => this.compact() && this.state() === 'active');
-
-  private readonly periodEnd = computed<Date | null>(() => {
-    const raw = this.entitlement().period_end;
-    if (!raw) return null;
-    const parsed = new Date(raw);
-    return Number.isNaN(parsed.getTime()) ? null : parsed;
+  protected readonly state = computed<PlanState | 'catalogue'>(() => {
+    const plan = this.plan();
+    if (isCatalogueSeat(plan.status, [{ product_role: this.productRole() }])) return 'catalogue';
+    return planState(plan, this.now());
   });
 
   /**
-   * Formatted in UTC, not the ambient zone — the SSR Worker runs in UTC and the
-   * browser does not, so a zone-local format renders two different dates either
-   * side of midnight and trips a hydration mismatch (the `maintenance-marker`
-   * precedent).
+   * Formatted in UTC, not the ambient zone: the SSR Worker runs in UTC and the
+   * browser does not, so a zone-local date could differ across hydration.
    */
-  private readonly termDate = computed<string | null>(() => {
-    const end = this.periodEnd();
-    return end === null ? null : formatDate(end, 'MMMM d, y', this.locale, 'UTC');
-  });
+  private format(raw: string | null): string | null {
+    const d = parseDate(raw);
+    return d === null ? null : formatDate(d, 'MMMM d, y', this.locale, 'UTC');
+  }
 
-  /** The term read-out beside the chip. Status and term only — never the money. */
-  protected readonly termLine = computed<string | null>(() => {
-    const date = this.termDate();
+  protected readonly lede = computed<string>(() => {
+    const plan = this.plan();
     switch (this.state()) {
-      case 'active':
-      case 'expiring':
+      case 'managed': {
+        const date = this.format(plan.period_end);
         return date === null
-          ? $localize`:@@vendor.plan.term.noEnd:No end date on record`
-          : $localize`:@@vendor.plan.term.through:Active through ${date}:DATE:`;
-      case 'lapsed':
-        return date === null ? null : $localize`:@@vendor.plan.term.ended:Ended ${date}:DATE:`;
+          ? $localize`:@@vendor.plan.lede.managed.noEnd:This product is on Managed, with no end date on record.`
+          : $localize`:@@vendor.plan.lede.managed:This product is on Managed, through ${date}:DATE:.`;
+      }
+      case 'expiring': {
+        const days = daysRemaining(plan, this.now()) ?? 0;
+        return days === 0
+          ? $localize`:@@vendor.plan.lede.expiring.today:Managed ends today for this product. Nothing changes before then.`
+          : days === 1
+            ? $localize`:@@vendor.plan.lede.expiring.one:Managed ends in 1 day for this product. Nothing changes before then.`
+            : $localize`:@@vendor.plan.lede.expiring:Managed ends in ${days}:DAYS: days for this product. Nothing changes before then.`;
+      }
       case 'pending':
-        return date === null ? null : $localize`:@@vendor.plan.term.until:Term to ${date}:DATE:`;
-      default:
-        return null;
-    }
-  });
-
-  protected readonly chipLabel = computed<string>(() => {
-    switch (this.state()) {
-      case 'pending':
-        return $localize`:@@vendor.plan.chip.pending:Editing access pending`;
+        return $localize`:@@vendor.plan.lede.pending:Managed is arranged for this product and switches on shortly. Until it does, the product is on Free.`;
+      case 'ended': {
+        const date = this.format(plan.ended_at);
+        return date === null
+          ? $localize`:@@vendor.plan.lede.ended.noDate:Managed has ended for this product, so it is on Free. Nothing you entered was removed.`
+          : $localize`:@@vendor.plan.lede.ended:Managed ended for this product on ${date}:DATE:, so it is on Free. Nothing you entered was removed.`;
+      }
       case 'catalogue':
-        return $localize`:@@vendor.plan.chip.catalogue:Catalogue maintenance seat`;
-      case 'lapsed':
-        return $localize`:@@vendor.plan.chip.ended:Editing access ended`;
+        return $localize`:@@vendor.plan.lede.catalogue:This seat maintains your connector catalogue on AECi: your listings, the products each one maps to, and the evidence behind each mapping.`;
       default:
-        return $localize`:@@vendor.plan.chip.none:Editing not active`;
+        return $localize`:@@vendor.plan.lede.free:This product is on Free. Its listing is published and stays published.`;
     }
   });
 
-  /**
-   * Bordered surfaces, never fills (`DESIGN.md` "Borders-Not-Shadows"). The
-   * expiring state is the only one that changes the wash — warm Bone, the
-   * `/contact` hero's token, deliberately NOT `--status-error`: a term running
-   * out is a calendar fact, not a failure. `lapsed` sits on `--surface-sunken`
-   * so it reads as quiet and settled rather than alarmed.
-   */
-  protected readonly shellClass = computed<string>(() => {
-    const base = 'rounded-(--radius-md) border p-5';
-    switch (this.state()) {
-      case 'expiring':
-        return `${base} border-(--border-strong) bg-(--accent-warm)`;
-      case 'lapsed':
-      case 'none':
-      case 'pending':
-        return `${base} border-(--border-default) bg-(--surface-sunken)`;
-      default:
-        return `${base} border-(--border-default) bg-(--surface-raised)`;
-    }
+  /** Bordered, never a fill. `expiring` takes the warm Bone wash because a term
+   *  running out is a calendar fact, not a failure. */
+  protected readonly shellClass = computed(() => {
+    const base = 'block rounded-(--radius-md) border p-5 md:p-6';
+    return this.state() === 'expiring'
+      ? `${base} border-(--border-strong) bg-(--accent-warm)`
+      : `${base} border-(--border-default) bg-(--surface-raised)`;
   });
 
-  protected readonly primaryCtaClass =
-    'mt-4 inline-flex items-center justify-center rounded-(--radius-md) border border-(--border-strong) bg-(--accent-primary) px-5 py-2.5 text-sm font-bold text-(--surface-base) no-underline transition-colors hover:bg-(--accent-primary-hover) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)';
-
-  protected readonly secondaryCtaClass =
-    'mt-4 inline-flex items-center justify-center rounded-(--radius-md) border border-(--border-strong) bg-(--surface-base) px-5 py-2.5 text-sm font-bold text-(--text-primary) no-underline transition-colors hover:bg-(--surface-raised) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)';
+  // `aec-overline` beats the unlayered h3 rule in styles.css; a size utility does not.
+  protected readonly listHeadingClass = 'aec-overline mt-5 text-(--text-secondary)';
+  protected readonly listClass =
+    'mt-2 list-disc space-y-1.5 ps-5 text-sm leading-relaxed text-(--text-secondary)';
+  protected readonly ctaClass =
+    'mt-5 inline-flex items-center justify-center rounded-(--radius-md) border border-(--border-strong) bg-(--surface-base) px-4 py-2 text-sm font-semibold text-(--text-primary) no-underline transition-colors hover:bg-(--surface-sunken) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)';
 }
-
-/** The six rendered panels. `none` and `lapsed` are both downgraded — and are
- *  deliberately different conversations (never arranged vs. lost it). */
-type PlanState = 'active' | 'expiring' | 'pending' | 'lapsed' | 'none' | 'catalogue';
-
-const DAY_MS = 86_400_000;
-
-/**
- * How close to `period_end` the panel starts leaning in.
- *
- * The SAME constant the §7 expiry cron warns on (`@aeci/shared/entitlements`),
- * not a presentational copy: a vendor must never receive the renewal email while
- * this panel still shows everything as fine.
- */
-const EXPIRY_SOON_DAYS = EXPIRY_WARNING_DAYS;

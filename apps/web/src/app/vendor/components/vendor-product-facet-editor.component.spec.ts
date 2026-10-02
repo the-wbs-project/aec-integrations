@@ -380,11 +380,11 @@ describe('VendorProductFacetEditor', () => {
 
   // ── Gates ────────────────────────────────────────────────────────────────
 
-  it('tells the connector catalogue seat product details stay with AECi (AECI-1082)', () => {
+  it('gives the connector catalogue seat the Free reason, not a "stays with AECi" line', () => {
     TestBed.inject(VendorPortalStore).seed(VENDOR_ME_CONNECTOR_SEAT_FIXTURE);
     const f = create('audiences', { capabilities: capabilitiesFor('unclaimed') });
 
-    expect(el(f).textContent).toContain('Product details stay with the AECi team');
+    expect(el(f).textContent).not.toContain('stay with the AECi team');
     expect(el(f).textContent).not.toContain('Editing is paused');
     expect(save(f)).toBeNull();
   });
@@ -393,7 +393,13 @@ describe('VendorProductFacetEditor', () => {
     // A lapsed plan resolves to Free, and Free does not edit audiences (§13.3).
     const f = create('audiences', { capabilities: capabilitiesFor('unclaimed') });
     expect(save(f)).toBeNull();
-    expect(el(f).textContent).toContain('Editing is paused');
+    // AECI-1218 (§6.18): a visible reason, tied to the term list for a screen reader.
+    const reason = el(f).querySelector('[data-testid="locked-reason"]') as HTMLElement;
+    expect(reason.textContent).toContain(
+      'Audiences and "How teams use it" are part of Managed for this product.',
+    );
+    expect(el(f).querySelector('fieldset')?.getAttribute('aria-describedby')).toBe(reason.id);
+    expect(el(f).textContent).not.toContain('Editing is paused');
     expect(checkbox(f, 'Architects').disabled).toBe(true);
     expect(pointInputs(f, 'Architects').every((i) => i.readOnly)).toBe(true);
     expect(el(f).querySelector('[data-action="add"]')).toBeNull();
@@ -424,7 +430,8 @@ describe('VendorProductFacetEditor', () => {
   it('lets a Free product edit its categories', () => {
     const f = create('categories', { capabilities: capabilitiesFor('unclaimed') });
     expect(save(f)).not.toBeNull();
-    expect(el(f).textContent).not.toContain('Editing is paused');
+    expect(el(f).querySelector('[data-testid="locked-reason"]')).toBeNull();
+    expect(el(f).querySelector('fieldset')?.getAttribute('aria-describedby')).toBeNull();
     const box = el(f).querySelector('fieldset input[type="checkbox"]') as HTMLInputElement;
     expect(box.disabled).toBe(false);
   });

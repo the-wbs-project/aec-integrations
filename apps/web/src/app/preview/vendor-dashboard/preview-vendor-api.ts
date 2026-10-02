@@ -45,6 +45,11 @@ import type {
   VendorConnectorStubMappingEditResponse,
   UpdateConnectorStubMappingInput,
   VendorConnectorCatalogResponse,
+  VendorChecklistResponse,
+  VendorProductChecklistResponse,
+  ReviewVendorProfileResponse,
+  ReviewVendorProductResponse,
+  ReviewVendorProductIntegrationsResponse,
 } from '@aeci/shared';
 import { compareText } from '@aeci/shared/text-sort';
 import {
@@ -92,6 +97,11 @@ import {
   VENDOR_SEATS_FIXTURE,
   VENDOR_TAXONOMY_FIXTURE,
   VENDOR_SEAT_INVITES_FIXTURE,
+  NOTHING_CHECKED,
+  productChecklistFixture,
+  vendorChecklistFixture,
+  type ChecklistFixtureState,
+  type ProductChecklistFixtureState,
 } from '../../vendor/vendor-fixtures';
 
 function clone<T>(value: T): T {
@@ -354,6 +364,7 @@ export class PreviewVendorApi extends VendorApi {
   private contests: ListVendorContestsResponse = clone(PREVIEW_CONTESTS);
   private nextContestSeq = 0;
   private nextCreateSeq = 0;
+  private checklistState: ChecklistFixtureState = NOTHING_CHECKED;
 
   /** Point the fake at the fixture the preview is currently showing, so writes
    *  merge onto the matching vendor/products. Clones so the shared fixture
@@ -362,8 +373,10 @@ export class PreviewVendorApi extends VendorApi {
     me: VendorMeResponse,
     seats: readonly VendorSeat[],
     integrations: ListVendorIntegrationsResponse = PREVIEW_INTEGRATIONS,
+    checklist: ChecklistFixtureState = NOTHING_CHECKED,
   ): void {
     this.me = clone(me);
+    this.checklistState = clone(checklist);
     this.seats = clone([...seats]);
     this.integrations = clone(integrations);
     this.nextClaimSeq = 0;
@@ -453,6 +466,58 @@ export class PreviewVendorApi extends VendorApi {
       }
     }
     return { product: clone(product!) };
+  }
+
+  // ─── Checklist and "Looks right" (AECI-1218) ────────────────────────────────
+  //
+  // The fake scores the fixture with the same rules AECI-1217 serves
+  // (`vendorChecklistFixture`), and each "Looks right" ticks the step it stamps,
+  // so the preview shows a checklist moving when the vendor acts.
+
+  override async getChecklist(): Promise<VendorChecklistResponse> {
+    return vendorChecklistFixture(this.me!, this.checklistState);
+  }
+
+  override async getProductChecklist(productId: string): Promise<VendorProductChecklistResponse> {
+    const product = this.me?.products.find((p) => p.id === productId);
+    if (!product) throw apiError(404, 'NOT_FOUND', 'Product not found');
+    return productChecklistFixture(product, this.checklistState);
+  }
+
+  override async reviewProfile(): Promise<ReviewVendorProfileResponse> {
+    this.checklistState = { ...this.checklistState, company: true };
+    return { last_reviewed_at: new Date().toISOString() };
+  }
+
+  override async reviewProduct(productId: string): Promise<ReviewVendorProductResponse> {
+    this.tickProductStep(productId, 'details');
+    return { product_id: productId, last_reviewed_at: new Date().toISOString() };
+  }
+
+  override async reviewProductIntegrations(
+    productId: string,
+  ): Promise<ReviewVendorProductIntegrationsResponse> {
+    this.tickProductStep(productId, 'list');
+    return {
+      product_id: productId,
+      integrations_reviewed_at: new Date().toISOString(),
+      stamped_count: 0,
+    };
+  }
+
+  private tickProductStep(productId: string, step: keyof ProductChecklistFixtureState): void {
+    if (!this.me?.products.some((p) => p.id === productId))
+      throw apiError(404, 'NOT_FOUND', 'Product not found');
+    const current = this.checklistState.products[productId] ?? {
+      details: false,
+      list: false,
+      claims: false,
+      flows: false,
+    };
+    this.checklistState = {
+      ...this.checklistState,
+      products: { ...this.checklistState.products, [productId]: { ...current, [step]: true } },
+    };
   }
 
   override async getTaxonomy(): Promise<TaxonomyResponse> {

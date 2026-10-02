@@ -5310,6 +5310,7 @@ export const VendorEntitlementBlockSchema = z.object({
   tier: EntitlementTierSchema,                  // always present; 'unclaimed' when there is no active entitlement
   status: EntitlementStatusSchema.nullable(),   // null = NO entitlement row at all
   period_end: z.string().nullable(),            // null = perpetual, or no term on record
+  ended_at: z.string().nullable(),              // AECI-1218: vendor_entitlements.ended_at; null for no row or a row that has not ended
   capabilities: z.array(CapabilitySchema),      // the expansion of `tier` through TIER_CAPABILITIES
 });
 
@@ -5322,6 +5323,8 @@ export const VendorEntitlementBlockSchema = z.object({
 **The `entitlement` block costs no query.** It is built from the same `AuthenticatedSession` the write gate asserts on, so the dashboard's readout and the 403 a write would get **cannot disagree**. `capabilities` ships expanded so the dashboard disables controls off one field instead of re-deriving the ladder in the browser. It is **required**, not optional (R10). For `unclaimed` (the Free plan, which a lapsed row also resolves to) it is `['profile.edit', 'product.listing.edit', 'product.categories.edit']`, never empty (AECI-1214).
 
 **Each product carries `plan` (AECI-1214, `STAGE_2_PAID_TIERS_SPEC.md` §13.7).** Plans live at the product level, so product screens gate on `product.plan` through `productCan` and never on `entitlement`. Until a per-product plan table exists, the server copies the vendor's block into every product. Server enforcement stays vendor-wide, and the field and the gate read the same block. `PATCH /api/vendor/products/:id` echoes the product with its `plan` too.
+
+**`ended_at` (AECI-1218, `STAGE_2_PAID_TIERS_SPEC.md` §13.11)** is the date the row left `active`, read from `vendor_entitlements.ended_at` through the session. It is the pilot-ended banner's date line. It is required on the wire and `null` for no row or a row that has not ended. Every product's `plan` carries the same value, because `plan` is a copy of the block.
 
 **`status: null` is materially different from a lapsed status**, and the dashboard renders them differently: `null` means there is no `vendor_entitlements` row at all (never arranged), which is an invitation; `expired` / `revoked` mean a term ended, which is a loss to acknowledge. Never read `null` as "unknown".
 

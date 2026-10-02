@@ -2425,7 +2425,7 @@ Two field changes share one mechanism: the portal's field lists stop being the s
 
 ### 6.18 Free plan surfaces (AECI-1212)
 
-**Status: specified 2026-10-01 by AECI-1213. Not built.** AECI-1218 builds the portal UI. AECI-1219 writes the help page. The rules behind every surface below are in `STAGE_2_PAID_TIERS_SPEC.md` §13. This section names what the portal shows. It does not restate those rules.
+**Status: specified 2026-10-01 by AECI-1213. Portal UI built by AECI-1218 (2026-10-02), as-built note at the end of this section.** AECI-1219 writes the help page. The rules behind every surface below are in `STAGE_2_PAID_TIERS_SPEC.md` §13. This section names what the portal shows. It does not restate those rules.
 
 **Design reference.** The mockup is `docs/design/mockups/free-plan-portal/`. Open `free-plan-portal.html` in a browser. The numbered screenshots beside it show Free, Managed, Pilot ended and Mixed. It is a design reference, not a contract. Where it and this section disagree, this section wins.
 
@@ -2472,6 +2472,34 @@ Every plan panel carries decision 10's line, word for word:
 
 - Managed shows a draft price label.
 - Nothing beyond Managed is shown. That is decision 9.
+
+#### As built (AECI-1218 — 2026-10-02)
+
+**Anchor.** The in-repo mockup, plus DoorDash Merchant's "Get ready to go live" setup list on Mobbin (numbered steps, one action each, the optional step marked in words). `DESIGN.md` "Vendor portal" records the patterns.
+
+**Where each surface lives.**
+
+| Surface | File | Reads |
+|---|---|---|
+| Vendor overview: "Getting started" checklist beside "Your plan" one-line summary | `sections/vendor-overview-section.ts`, `components/vendor-plan-summary.ts` | `GET /api/vendor/checklist`, each product's `plan` |
+| Products list: score and plan badge per row | `sections/vendor-product-list-page.ts`, `components/vendor-plan-badge.ts` | the checklist summary, `product.plan` |
+| Product overview (new route `…/products/:slug/overview`, now the product default and the first product tab, "Product Overview") | `sections/vendor-product-overview-page.ts`, `components/vendor-checklist.ts`, `components/vendor-plan-panel.ts` | `GET /api/vendor/products/:id/checklist`, `product.plan` |
+| "Looks right" | `components/vendor-looks-right.ts`, `components/vendor-review-strip.ts` | the three §13.8 routes |
+| Plan-ended banner | `components/vendor-plan-ended-banner.ts`, in the shell above the tabs | `me().entitlement` (a vendor surface) |
+| Locked fields | `components/vendor-product-form.ts`, `components/vendor-product-facet-editor.ts` | `productCan(product, cap)` |
+| "Not ours?" | `components/vendor-not-ours-link.ts` | none: opens the correction drawer |
+
+Decisions taken at build that this section did not fix:
+
+- **"Looks right" sits in two places per target.** On the product checklist's two rows, and as a strip at the head of the page that holds the thing being confirmed: company Profile, product Profile, product Integrations. The vendor checklist's company step links to Profile rather than confirming from the overview, so the vendor sees what they confirm. After a success the button revalidates the scopes the write moved, which refetches `/me` and every loaded checklist, and announces through the shell's live region. A failure stays beside the button as `role="alert"`.
+- **The checklists live in `VendorPortalStore`, outside its resource machinery.** They map to no scope and no form holds them dirty, so a failed checklist read never holds back a cursor. `revalidate` refetches the vendor checklist, and each product checklist a page has opened, when `profile`, `entitlement`, `products` or `integrations` moves (`STAGE_2_REALTIME_SPEC.md` §2.3). Never from cold.
+- **The banner says "Your Managed plan has ended", not "your pilot".** §13.11 says a later expiry path needs no copy change, so the copy cannot name a pilot. It is not dismissible, unlike the mockup's "Hide this": this section wins.
+- **The overview's full plan panel is gone.** Decision 2 allows one line at vendor level, so the summary reads "2 products, all on Free" or "12 products: 5 on Managed, 7 on Free", adds "Managed ends in N days" when a plan is expiring, and carries the "Active on AECi" label for an active Managed vendor. The connector catalogue seat keeps its links to each Catalogue tab there.
+- **An active row over a tier this build does not know reads as Free, not as ended.** Nothing ended, and the banner never shows for it.
+- **"Not ours?" opens the existing correction form on the page's product**, pre-filled to name the integration (`POST /api/requests/correction`). The owner cannot contest its own row (§11b.2), so this is the stopgap until AECI-1225. It sits beside "Claim this integration" on the integration page and on the owned-integrations list.
+- **The Integrations tab's attestation gate reads `productCan(product, 'attestation.author')`.** It used to read the vendor block. The integration detail page and the connector-powered gates (`vendorHasActiveEntitlement`) still read the vendor block, because their server gates are vendor-wide.
+- **Copy that §13 made false is gone.** The panel's lapsed, none and catalogue states, and the profile, product and facet read-only notices, said a seat with no plan, a lapsed plan or the catalogue seat could not edit its profile or products. The facet tabs now give a Managed-only reason tied to the term list, and the generic notices remain only for a plan block with no edit capability at all, which no known tier serves.
+- **Preview presets.** `/preview/vendor-dashboard?fixture=free` (never had a plan), `pilot-ended` (revoked, `ended_at` 14 days ago) and `mixed` (12 products, 5 Managed and 7 Free, which only per-product plans can produce). The preview fake serves both checklist reads, scored by `vendorChecklistFixture` / `productChecklistFixture`, and its "Looks right" ticks the step. `e2e/preview-vendor-free-plan.spec.ts` drives the three presets with axe.
 
 ---
 

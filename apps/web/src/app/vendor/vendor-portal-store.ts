@@ -66,6 +66,8 @@ import type {
   VendorNotification,
   VendorSeat,
   ManageableSeatInvite,
+  VendorChecklistResponse,
+  VendorProductChecklistResponse,
 } from '@aeci/shared';
 
 import { VendorApi } from './vendor-api';
@@ -191,6 +193,19 @@ const SECTION_RESOURCE: Readonly<Record<VendorPortalSection, VendorPortalResourc
 
 const SECTIONS = Object.keys(SECTION_RESOURCE) as readonly VendorPortalSection[];
 
+/**
+ * The scopes whose movement refetches the checklists (AECI-1218,
+ * `STAGE_2_REALTIME_SPEC.md` §2.3). "Looks right" and every edit move `profile` or
+ * `products`, a claim or an attestation moves `integrations`, a plan change moves
+ * `entitlement`. `requests`, `notifications`, `contests` and `catalogue` feed no step.
+ */
+const CHECKLIST_SCOPES: ReadonlySet<VendorPortalScope> = new Set<VendorPortalScope>([
+  'profile',
+  'entitlement',
+  'products',
+  'integrations',
+]);
+
 // Intentionally NOT `providedIn: 'root'`: see the "WHY IT IS NOT root" note in
 // the header. The store is provided by `VendorPage` and `VendorDashboardPreview`
 // so it resolves the same `VendorApi` binding its surface does.
@@ -304,6 +319,39 @@ export class VendorPortalStore {
    * that cannot load separately. No form edits these rows, so no dirty section can
    * be holding them.
    */
+  // ── The checklists (AECI-1218, `STAGE_2_PAID_TIERS_SPEC.md` §13.10) ──────
+  //
+  // Kept OUTSIDE the resource machinery on purpose. No scope maps to them (they
+  // add no cursor, §2.3), no form edits them so nothing can hold them dirty, and a
+  // failed read must not hold back any cursor in `VendorLiveSync`. They refetch on
+  // the back of a moved `profile`, `entitlement`, `products` or `integrations`
+  // scope, and only once loaded: the never-from-cold rule `contests` follows.
+
+  private readonly checklistData = signal<VendorChecklistResponse | null>(null);
+  private readonly checklistStatusSig = signal<VendorPortalStatus>('idle');
+  private checklistInFlight: Promise<void> | null = null;
+  /** `GET /api/vendor/checklist`: the vendor steps plus one score per product. */
+  readonly checklist: Signal<VendorChecklistResponse | null> = this.checklistData.asReadonly();
+  readonly checklistStatus: Signal<VendorPortalStatus> = this.checklistStatusSig.asReadonly();
+  readonly checklistLoading = computed(() => isPending(this.checklistStatus()));
+  readonly checklistFailed = computed(() => this.checklistStatus() === 'failed');
+
+  /** `GET /api/vendor/products/:id/checklist`, keyed by product id. Only the
+   *  products whose page has been opened are here. */
+  private readonly productChecklistData = signal<
+    ReadonlyMap<string, VendorProductChecklistResponse>
+  >(new Map());
+  private readonly productChecklistStatus = signal<ReadonlyMap<string, VendorPortalStatus>>(
+    new Map(),
+  );
+  private readonly productChecklistInFlight = new Map<string, Promise<void>>();
+  readonly productChecklists: Signal<ReadonlyMap<string, VendorProductChecklistResponse>> =
+    this.productChecklistData.asReadonly();
+  /** One product's checklist read state. `idle` until its page asks. */
+  productChecklistStatusOf(productId: string): VendorPortalStatus {
+    return this.productChecklistStatus().get(productId) ?? 'idle';
+  }
+
   private readonly owned = signal<readonly OwnedIntegration[]>([]);
   readonly ownedIntegrations: Signal<readonly OwnedIntegration[]> = this.owned.asReadonly();
 
@@ -416,9 +464,94 @@ export class VendorPortalStore {
     if (scopes.includes('entitlement') && this.statuses.contests() !== 'idle') {
       resources.add('contests');
     }
-    return Promise.all([...resources].map((resource) => this.fetch(resource))).then(
-      () => undefined,
-    );
+    const checklists = scopes.some((scope) => CHECKLIST_SCOPES.has(scope))
+      ? [this.refreshChecklists()]
+      : [];
+    return Promise.all([
+      ...[...resources].map((resource) => this.fetch(resource)),
+      ...checklists,
+    ]).then(() => undefined);
+  }
+
+  // ── Checklists (AECI-1218) ───────────────────────────────────────────────
+
+  /** Load the vendor checklist if it has never been asked for. */
+  ensureChecklist(): Promise<void> {
+    if (this.checklistStatusSig() !== 'idle') return this.checklistInFlight ?? Promise.resolve();
+    return this.fetchChecklist();
+  }
+
+  /** The retry beside a failed checklist read. */
+  reloadChecklist(): Promise<void> {
+    return this.fetchChecklist();
+  }
+
+  /** Load one product's checklist if its page has never asked for it. */
+  ensureProductChecklist(productId: string): Promise<void> {
+    if (this.productChecklistStatusOf(productId) !== 'idle') {
+      return this.productChecklistInFlight.get(productId) ?? Promise.resolve();
+    }
+    return this.fetchProductChecklist(productId);
+  }
+
+  /** The retry beside a failed product checklist read. */
+  reloadProductChecklist(productId: string): Promise<void> {
+    return this.fetchProductChecklist(productId);
+  }
+
+  /**
+   * Refetch every checklist already loaded: the vendor one, and each product one
+   * a page has opened. Never loads one from cold. Never rejects.
+   */
+  refreshChecklists(): Promise<void> {
+    const work: Promise<void>[] = [];
+    if (this.checklistStatusSig() !== 'idle') work.push(this.fetchChecklist());
+    for (const id of this.productChecklistStatus().keys()) {
+      work.push(this.fetchProductChecklist(id));
+    }
+    return Promise.all(work).then(() => undefined);
+  }
+
+  private fetchChecklist(): Promise<void> {
+    if (this.checklistInFlight) return this.checklistInFlight;
+    const run = (async () => {
+      this.checklistStatusSig.set(this.checklistData() ? 'refreshing' : 'loading');
+      try {
+        this.checklistData.set(await this.api.getChecklist());
+        this.checklistStatusSig.set('loaded');
+      } catch {
+        this.checklistStatusSig.set('failed');
+      }
+    })();
+    this.checklistInFlight = run;
+    void run.finally(() => {
+      if (this.checklistInFlight === run) this.checklistInFlight = null;
+    });
+    return run;
+  }
+
+  private fetchProductChecklist(productId: string): Promise<void> {
+    const existing = this.productChecklistInFlight.get(productId);
+    if (existing) return existing;
+    const setStatus = (status: VendorPortalStatus) =>
+      this.productChecklistStatus.update((m) => new Map(m).set(productId, status));
+    const run = (async () => {
+      setStatus(this.productChecklistData().has(productId) ? 'refreshing' : 'loading');
+      try {
+        const next = await this.api.getProductChecklist(productId);
+        this.productChecklistData.update((m) => new Map(m).set(productId, next));
+        setStatus('loaded');
+      } catch {
+        setStatus('failed');
+      }
+    })();
+    this.productChecklistInFlight.set(productId, run);
+    void run.finally(() => {
+      if (this.productChecklistInFlight.get(productId) === run) {
+        this.productChecklistInFlight.delete(productId);
+      }
+    });
+    return run;
   }
 
   /**

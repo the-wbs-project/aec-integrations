@@ -260,6 +260,16 @@ describe('reads are NEVER gated (§4.3 / R13 — invariant)', () => {
     expect(body.entitlement.period_end).toBe('2026-01-01T00:00:00.000Z');
   });
 
+  it('GET /api/vendor/me carries ended_at for the pilot-ended banner (§13.11), on every product too', async () => {
+    const { body } = await call('/api/vendor/me', 'GET', SEAT_LAPSED);
+    expect(() => VendorMeResponseSchema.parse(body)).not.toThrow();
+    expect(body.entitlement.ended_at).toBe('2026-01-02T00:00:00.000Z');
+    // The per-product plan copy carries the same date (§13.7).
+    for (const product of body.products) {
+      expect(product.plan.ended_at).toBe('2026-01-02T00:00:00.000Z');
+    }
+  });
+
   it('GET /api/vendor/me distinguishes "never had one" from "lost it"', async () => {
     const { body } = await call('/api/vendor/me', 'GET', SEAT_UNCLAIMED);
     // `null` status = no row at all. A vendor that never bought is a different
@@ -267,6 +277,7 @@ describe('reads are NEVER gated (§4.3 / R13 — invariant)', () => {
     // them apart from this payload alone.
     expect(body.entitlement.status).toBeNull();
     expect(body.entitlement.period_end).toBeNull();
+    expect(body.entitlement.ended_at).toBeNull();
   });
 
   it.each(LOCKED_OUT)('GET /api/vendor/seats returns 200 for a $label vendor', async ({ sub }) => {
@@ -311,6 +322,7 @@ describe('reads are NEVER gated (§4.3 / R13 — invariant)', () => {
       tier: 'verified',
       status: 'active',
       period_end: '2027-01-01T00:00:00.000Z',
+      ended_at: null,
       capabilities: [...CAPABILITIES],
     });
     for (const product of body.products) expect(product.plan).toEqual(body.entitlement);
@@ -525,6 +537,7 @@ describe('a Managed seat edits every field', () => {
       tier: 'verified',
       status: 'active',
       period_end: '2027-01-01T00:00:00.000Z',
+      ended_at: null,
       capabilities: [...CAPABILITIES],
     });
   });

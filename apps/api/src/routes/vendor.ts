@@ -303,6 +303,7 @@ export function entitlementBlock(session: AuthenticatedSession): VendorEntitleme
     tier: session.entitlementTier,
     status: session.entitlement?.status ?? null,
     period_end: session.entitlement?.periodEnd ?? null,
+    ended_at: session.entitlement?.endedAt ?? null,
     capabilities: [...capabilitiesFor(session.entitlementTier)],
   };
 }

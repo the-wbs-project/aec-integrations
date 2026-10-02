@@ -57,6 +57,7 @@ import {
   ID_STYLES,
   ROW_ACTION,
 } from './integration-detail-styles';
+import { VendorNotOursLink } from '../components/vendor-not-ours-link';
 import { VendorTip } from './vendor-tip';
 
 type RowKey = IntegrationEditField | 'owner' | 'maintained' | 'added';
@@ -107,7 +108,7 @@ const PENCIL =
  */
 @Component({
   selector: 'aec-integration-overview',
-  imports: [VendorTip],
+  imports: [VendorTip, VendorNotOursLink],
   styles: [ID_STYLES],
   template: `
     <div class="space-y-6">
@@ -266,6 +267,14 @@ const PENCIL =
                               >
                                 Claim this integration
                               </button>
+                              <!-- AECI-1218: the checklist's "say not ours", via a correction. -->
+                              <span class="ms-3">
+                                <aec-vendor-not-ours-link
+                                  [productSlug]="integration().context_product.slug"
+                                  [productA]="integration().context_product.name"
+                                  [productB]="integration().other_product.name"
+                                />
+                              </span>
                             }
                             @case ('ask') {
                               <button

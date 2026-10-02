@@ -46,7 +46,13 @@ import {
   VENDOR_ME_CONNECTOR_SEAT_FIXTURE,
   VENDOR_ME_DOWNGRADED_FIXTURE,
   VENDOR_ME_FIXTURE,
+  VENDOR_ME_FREE_FIXTURE,
+  VENDOR_ME_PILOT_ENDED_FIXTURE,
   VENDOR_ME_UNVERIFIED_FIXTURE,
+  NOTHING_CHECKED,
+  productChecklistFixture,
+  vendorChecklistFixture,
+  withProductPlans,
 } from './vendor-fixtures';
 import { VendorDashboardTabbed } from './vendor-dashboard-tabbed';
 import { VendorPortalStore } from './vendor-portal-store';
@@ -115,6 +121,21 @@ beforeEach(() => {
             },
           }),
           getNotifications: vi.fn().mockResolvedValue({ notifications: [] }),
+          // AECI-1218: the checklist reads, scored by the fixture rules.
+          getChecklist: vi
+            .fn()
+            .mockResolvedValue(vendorChecklistFixture(VENDOR_ME_FIXTURE, NOTHING_CHECKED)),
+          getProductChecklist: vi
+            .fn()
+            .mockImplementation((id: string) =>
+              Promise.resolve(
+                productChecklistFixture(
+                  VENDOR_ME_FIXTURE.products.find((p) => p.id === id) ??
+                    VENDOR_ME_FIXTURE.products[0]!,
+                  NOTHING_CHECKED,
+                ),
+              ),
+            ),
         } as Partial<VendorApi>,
       },
       // Root-provided here where the real surface scopes it to `VendorPage`; the
@@ -216,6 +237,7 @@ describe('VendorDashboardTabbed — the routed section nav', () => {
     expect(el.querySelector('aec-vendor-integrations-section')).not.toBeNull();
     // The product row replaced the vendor row (§6.11).
     expect(navLabels(harness)).toEqual([
+      'Product Overview',
       'Profile',
       'Categories',
       'Trades',
@@ -239,10 +261,11 @@ describe('VendorDashboardTabbed — the routed section nav', () => {
     // now lives under a product (AECI-666) — so it is given one here. The claim
     // under test is about the read-only copy a vendor without active access sees, not about
     // having no products.
-    const unverifiedWithProduct = {
+    // Each product carries the vendor's plan, as the server serves it (§13.7).
+    const unverifiedWithProduct = withProductPlans({
       ...VENDOR_ME_UNVERIFIED_FIXTURE,
       products: VENDOR_ME_FIXTURE.products,
-    };
+    });
     const el = root(await open('products/summit-field-issues/integrations', unverifiedWithProduct));
 
     // The shell stays presentational: the section renders either way and
@@ -272,17 +295,22 @@ describe('VendorDashboardTabbed — the downgraded entitlement (§4.3 / §8)', (
     expect(el.querySelector('h1')?.textContent?.trim()).toBe(
       VENDOR_ME_DOWNGRADED_FIXTURE.vendor.company_name,
     );
-    // §5.2: clearing an entitlement does not revoke seats, and the panel says so.
-    // (The overview dropped its bare seat-count tile in AECI-983.)
-    expect(el.textContent).toContain('you and your colleagues keep the portal');
+    // §5.2 and decision 8: seats and sign-in survive, and the banner says so.
+    expect(el.textContent).toContain('Seats and sign-in for you and your colleagues');
   });
 
-  it('shows the plan panel with a renewal path on the overview section', async () => {
+  it('heads the page with the plan-ended banner and a path back to Managed (§13.11)', async () => {
     const el = root(await open('overview', VENDOR_ME_DOWNGRADED_FIXTURE));
+    const banner = el.querySelector('[data-testid="plan-ended-banner"]');
 
-    expect(el.querySelector('aec-vendor-plan-panel')).not.toBeNull();
-    expect(el.querySelector('a[href="/contact"]')?.textContent?.trim()).toBe('Renew access');
-    expect(el.textContent).toContain('no longer active');
+    expect(banner).not.toBeNull();
+    expect(banner?.textContent).toContain('Nothing you entered was removed');
+    expect(banner?.querySelector('a[href="/contact"]')?.textContent?.trim()).toBe(
+      'Talk to us about Managed',
+    );
+    // Not dismissible: it states the current state.
+    expect(banner?.querySelector('button')).toBeNull();
+    expect(el.querySelector('aec-vendor-plan-summary')).not.toBeNull();
   });
 
   it('keeps company details editable for a revoked vendor, off CAPABILITIES (AECI-1214)', async () => {
@@ -332,24 +360,36 @@ describe('VendorDashboardTabbed — the overview landing page (AECI-983)', () =>
       a.getAttribute('href'),
     ]);
 
-  it('collapses the plan panel for an active vendor, keeping the heading for assistive tech', async () => {
-    const el = root(await open('overview'));
+  // AECI-1218 (§6.18, decision 2): one line of plan at vendor level, beside the
+  // vendor checklist. The full plan panel moved to each product's overview.
+  it('summarises the plan in one line beside the vendor checklist', async () => {
+    const harness = await open('overview');
+    await flush();
+    harness.detectChanges();
+    const el = root(harness);
 
-    const heading = [...el.querySelectorAll('h2')].find((h) =>
-      h.textContent?.includes('Account access'),
+    expect(el.querySelector('[data-testid="plan-summary-line"]')?.textContent?.trim()).toBe(
+      '2 products, all on Managed',
     );
-    expect(heading?.classList.contains('sr-only')).toBe(true);
-    expect(el.querySelector('aec-vendor-plan-panel details')).not.toBeNull();
+    expect(el.querySelector('aec-vendor-plan-panel')).toBeNull();
+    expect(el.querySelector('aec-vendor-checklist')?.textContent).toContain(
+      'Check your company details',
+    );
   });
 
-  it('keeps the full panel, and a visible heading, for a lapsed vendor', async () => {
-    const el = root(await open('overview', VENDOR_ME_DOWNGRADED_FIXTURE));
+  it('shows no plan-ended banner to a vendor that never had a plan (status null)', async () => {
+    const el = root(await open('overview', VENDOR_ME_FREE_FIXTURE));
+    expect(el.querySelector('[data-testid="plan-ended-banner"]')).toBeNull();
+  });
 
-    const heading = [...el.querySelectorAll('h2')].find((h) =>
-      h.textContent?.includes('Account access'),
-    );
-    expect(heading?.classList.contains('sr-only')).toBe(false);
-    expect(el.querySelector('aec-vendor-plan-panel details')).toBeNull();
+  it('shows no plan-ended banner to an active Managed vendor', async () => {
+    const el = root(await open('overview'));
+    expect(el.querySelector('[data-testid="plan-ended-banner"]')).toBeNull();
+  });
+
+  it('shows the plan-ended banner on every section, not only the overview', async () => {
+    const el = root(await open('profile', VENDOR_ME_PILOT_ENDED_FIXTURE));
+    expect(el.querySelector('[data-testid="plan-ended-banner"]')).not.toBeNull();
   });
 
   it('links each row to the portal route where the work is done', async () => {
@@ -542,17 +582,17 @@ describe('VendorDashboardTabbed — a refetched `me` (§6.1)', () => {
     expect(el.querySelector('aec-vendor-product-form button[type="submit"]')).not.toBeNull();
   });
 
-  it('moves the plan panel from lapsed to active on the overview section', async () => {
+  it('drops the plan-ended banner and shows the account label when the plan returns', async () => {
     const harness = await open('overview', VENDOR_ME_DOWNGRADED_FIXTURE);
     const el = root(harness);
 
-    expect(el.textContent).toContain('no longer active');
+    expect(el.querySelector('[data-testid="plan-ended-banner"]')).not.toBeNull();
     expect(el.querySelector('aec-vendor-account-badge')).toBeNull();
 
     TestBed.inject(VendorPortalStore).seed(VENDOR_ME_FIXTURE);
     harness.detectChanges();
 
-    expect(el.textContent).not.toContain('no longer active');
+    expect(el.querySelector('[data-testid="plan-ended-banner"]')).toBeNull();
     expect(el.querySelector('aec-vendor-account-badge')).not.toBeNull();
   });
 
@@ -585,7 +625,7 @@ describe('VendorDashboardTabbed — a refetched `me` (§6.1)', () => {
       }),
     );
 
-    expect(el.textContent).toContain('Editing is paused');
+    expect(el.textContent).toContain('This seat cannot edit the company profile');
   });
 });
 
@@ -611,7 +651,7 @@ describe('VendorProductsPage — which product the URL resolves to', () => {
   });
 
   it('renders the product the URL names', async () => {
-    expect(editing(await open('products/summit-field-issues'))).toBe('Summit Field Issues');
+    expect(editing(await open('products/summit-field-issues/profile'))).toBe('Summit Field Issues');
   });
 
   it('says so rather than silently substituting when the URL names a product the vendor does not own', async () => {
@@ -667,6 +707,7 @@ describe('VendorDashboardTabbed — the context-aware header (§6.11)', () => {
       'Summit Field Issues sections',
     );
     expect(navLabels(harness)).toEqual([
+      'Product Overview',
       'Profile',
       'Categories',
       'Trades',
@@ -896,6 +937,7 @@ describe('VendorDashboardTabbed — the connector catalogue seat (AECI-1083)', (
     harness.detectChanges();
 
     expect(navLabels(harness)).toEqual([
+      'Product Overview',
       'Profile',
       'Categories',
       'Trades',

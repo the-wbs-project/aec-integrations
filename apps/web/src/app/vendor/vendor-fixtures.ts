@@ -30,6 +30,9 @@ import type {
   VendorProductConnectorsResponse,
   VendorSeat,
   ManageableSeatInvite,
+  VendorChecklistResponse,
+  VendorProductChecklistResponse,
+  VendorProductChecklistSummary,
 } from '@aeci/shared';
 // Subpath import, deliberately: the capability registry is zod-free and kept off
 // the root barrel so it cannot drag the schema set into a lazy route's graph
@@ -259,6 +262,7 @@ const MANAGED_PLAN: VendorEntitlementBlock = {
   tier: 'verified',
   status: 'active',
   period_end: '2027-07-01T00:00:00.000Z',
+  ended_at: null,
   capabilities: [...capabilitiesFor('verified')],
 };
 
@@ -267,6 +271,7 @@ const FREE_PLAN: VendorEntitlementBlock = {
   tier: 'unclaimed',
   status: null,
   period_end: null,
+  ended_at: null,
   capabilities: [...capabilitiesFor('unclaimed')],
 };
 
@@ -504,6 +509,7 @@ export const VENDOR_ME_EXPIRING_FIXTURE: VendorMeResponse = withProductPlans({
     tier: 'verified',
     status: 'active',
     period_end: inDays(12),
+    ended_at: null,
     capabilities: [...capabilitiesFor('verified')],
   },
 });
@@ -529,6 +535,37 @@ export const VENDOR_ME_DOWNGRADED_FIXTURE: VendorMeResponse = withProductPlans({
     tier: 'unclaimed',
     status: 'revoked',
     period_end: inDays(-45),
+    ended_at: inDays(-45),
+    capabilities: [...capabilitiesFor('unclaimed')],
+  },
+});
+
+// ─── The Free plan presets (AECI-1218, `STAGE_2_PAID_TIERS_SPEC.md` §13) ─────
+
+/**
+ * Free, never had a plan: the same two products as the default fixture, on a seat
+ * with NO entitlement row (`status: null`). Not a connector vendor, so it is not
+ * the §8.9 catalogue seat. The pilot-ended banner must not show here (§13.11).
+ */
+export const VENDOR_ME_FREE_FIXTURE: VendorMeResponse = withProductPlans({
+  ...VENDOR_ME_FIXTURE,
+  vendor: { ...VENDOR_ME_FIXTURE.vendor, verified: false },
+  entitlement: FREE_PLAN,
+});
+
+/**
+ * Pilot ended: a Managed row an admin cleared two weeks ago (`revoked`, with
+ * `ended_at` set). Lands on the Free plan (§13.1 decision 8), so the banner shows
+ * and the Managed-only fields render locked.
+ */
+export const VENDOR_ME_PILOT_ENDED_FIXTURE: VendorMeResponse = withProductPlans({
+  ...VENDOR_ME_FIXTURE,
+  vendor: { ...VENDOR_ME_FIXTURE.vendor, verified: false },
+  entitlement: {
+    tier: 'unclaimed',
+    status: 'revoked',
+    period_end: inDays(-14),
+    ended_at: inDays(-14),
     capabilities: [...capabilitiesFor('unclaimed')],
   },
 });
@@ -576,6 +613,151 @@ export const VENDOR_ME_LARGE_CATALOG_FIXTURE: VendorMeResponse = {
     name,
     is_primary: i === 0,
   })),
+};
+
+/**
+ * Mixed plans: 12 products, five on Managed and seven on Free.
+ *
+ * PREVIEW ONLY. The server cannot produce this payload yet: until per-product
+ * plans exist it copies the vendor's block into every product (§13.7), so every
+ * product carries the same plan. The portal reads `product.plan` through
+ * `productCan`, so this fixture is how the per-product screens are reviewed before
+ * the `product_plans` table lands. The vendor-level block is Managed, which is
+ * what the server would serve for a vendor holding any Managed product.
+ */
+const MIXED_MANAGED_INDEXES: ReadonlySet<number> = new Set([0, 2, 5, 6, 7]);
+
+export const VENDOR_ME_MIXED_FIXTURE: VendorMeResponse = {
+  ...VENDOR_ME_FIXTURE,
+  products: LARGE_CATALOG_NAMES.slice(0, 12).map((name, i) => ({
+    ...(i === 0 ? PRIMARY_PRODUCT : SECONDARY_PRODUCT),
+    id: `00000000-0000-4000-8000-0000000054${String(i).padStart(2, '0')}`,
+    slug: name.toLowerCase().replace(/[^a-z0-9]+/g, '-'),
+    name,
+    is_primary: i === 0,
+    plan: MIXED_MANAGED_INDEXES.has(i) ? MANAGED_PLAN : FREE_PLAN,
+  })),
+  entitlement: MANAGED_PLAN,
+};
+
+// ─── Checklist fixtures (AECI-1218, `STAGE_2_PAID_TIERS_SPEC.md` §13.10) ─────
+
+/** Which product steps a fixture product has finished. */
+export interface ProductChecklistFixtureState {
+  readonly details: boolean;
+  readonly list: boolean;
+  readonly claims: boolean;
+  readonly flows: boolean;
+}
+
+/** Which checklist steps a fixture vendor has finished. A product missing from
+ *  `products` has finished nothing. */
+export interface ChecklistFixtureState {
+  readonly company: boolean;
+  readonly invited: boolean;
+  readonly products: Readonly<Record<string, ProductChecklistFixtureState>>;
+}
+
+export const NOTHING_CHECKED: ChecklistFixtureState = {
+  company: false,
+  invited: false,
+  products: {},
+};
+
+const NO_PRODUCT_STEPS: ProductChecklistFixtureState = {
+  details: false,
+  list: false,
+  claims: false,
+  flows: false,
+};
+
+/**
+ * One product's checklist, scored the way AECI-1217 scores it: "Confirm data
+ * flows" counts only when the product's plan holds `attestation.author`, and a
+ * finished step reads `done` whether or not it counts.
+ */
+export function productChecklistFixture(
+  product: VendorProduct,
+  state: ChecklistFixtureState,
+): VendorProductChecklistResponse {
+  const p = state.products[product.id] ?? NO_PRODUCT_STEPS;
+  const flowsCount = product.plan.capabilities.includes('attestation.author');
+  const steps: VendorProductChecklistResponse['steps'] = [
+    { key: 'product_details', status: p.details ? 'done' : 'todo', counts: true },
+    { key: 'integration_list', status: p.list ? 'done' : 'todo', counts: true },
+    { key: 'claim_integrations', status: p.claims ? 'done' : 'todo', counts: true },
+    {
+      key: 'confirm_data_flows',
+      status: p.flows ? 'done' : flowsCount ? 'todo' : 'optional',
+      counts: flowsCount,
+    },
+  ];
+  const counted = steps.filter((s) => s.counts);
+  const done = counted.filter((s) => s.status === 'done').length;
+  return {
+    product_id: product.id,
+    product_slug: product.slug,
+    plan: product.plan,
+    done,
+    total: counted.length,
+    complete: done === counted.length,
+    steps,
+  };
+}
+
+/** The vendor checklist over a fixture's products. */
+export function vendorChecklistFixture(
+  me: VendorMeResponse,
+  state: ChecklistFixtureState,
+): VendorChecklistResponse {
+  const products: VendorProductChecklistSummary[] = me.products.map((product) => {
+    const { steps: _steps, ...summary } = productChecklistFixture(product, state);
+    return summary;
+  });
+  const allProducts = products.every((p) => p.complete);
+  const steps: VendorChecklistResponse['steps'] = [
+    { key: 'company_details', status: state.company ? 'done' : 'todo', counts: true },
+    { key: 'finish_products', status: allProducts ? 'done' : 'todo', counts: true },
+    { key: 'invite_colleague', status: state.invited ? 'done' : 'optional', counts: false },
+  ];
+  const done = steps.filter((s) => s.counts && s.status === 'done').length;
+  return { steps, done, total: 2, complete: done === 2, products };
+}
+
+/** The default Managed vendor: company checked, the primary product most of the
+ *  way, the secondary untouched, a colleague invited. */
+export const CHECKLIST_MANAGED_STATE: ChecklistFixtureState = {
+  company: true,
+  invited: true,
+  products: {
+    [PRIMARY_PRODUCT.id]: { details: true, list: true, claims: true, flows: false },
+  },
+};
+
+/** Pilot ended: the vendor had started before its plan ended. */
+export const CHECKLIST_PILOT_ENDED_STATE: ChecklistFixtureState = {
+  company: true,
+  invited: false,
+  products: {
+    [PRIMARY_PRODUCT.id]: { details: true, list: false, claims: false, flows: false },
+  },
+};
+
+/** Mixed: a spread of scores, so the Products list shows every shape at once. */
+export const CHECKLIST_MIXED_STATE: ChecklistFixtureState = {
+  company: true,
+  invited: false,
+  products: Object.fromEntries(
+    VENDOR_ME_MIXED_FIXTURE.products.map((p, i) => [
+      p.id,
+      {
+        details: i % 4 !== 1,
+        list: i % 3 === 2 || i === 8,
+        claims: i % 2 === 0 || i === 8,
+        flows: i === 2,
+      },
+    ]),
+  ),
 };
 
 /** The seat roster for the active vendor account: the viewer (an OWNER, so the preview

@@ -261,6 +261,9 @@ type VendorPortalScope =
 > the change after its own write. An `owner` contest another vendor files on the caller's row is
 > AECi-routed, so it is outside the caller's `contests` predicate. The claim step catches up on the
 > next refetch. Widening a cursor for either would cross the §2.2 invariant for a cosmetic gain.
+> **As built (AECI-1218):** `VendorPortalStore.revalidate` calls `refreshChecklists()` when any of the
+> four scopes moved. The checklists sit outside the store's resource map, so a failed checklist read
+> holds back no cursor in `VendorLiveSync`.
 >
 > **The integration detail page (specified 2026-09-28, `STAGE_2_VENDOR_PORTAL_SPEC.md` §6.17) adds
 > no scope.** It reads the store's `integrations` resource, so the `integrations` row above keeps it

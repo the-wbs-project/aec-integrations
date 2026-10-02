@@ -87,6 +87,7 @@ const ME: VendorMeResponse = {
     tier: 'verified',
     status: 'active',
     period_end: null,
+    ended_at: null,
     capabilities: ['profile.edit'],
   },
 };

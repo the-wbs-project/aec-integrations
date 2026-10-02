@@ -2,10 +2,10 @@ import { NgTemplateOutlet, formatDate } from '@angular/common';
 import { Component, LOCALE_ID, afterNextRender, computed, inject } from '@angular/core';
 import { RouterLink } from '@angular/router';
 
-import { EXPIRY_WARNING_DAYS } from '@aeci/shared/entitlements';
-
 import { VendorGlanceBand } from '../components/vendor-glance-band';
-import { VendorPlanPanel } from '../components/vendor-plan-panel';
+import { VendorChecklist } from '../components/vendor-checklist';
+import { VendorPlanSummary } from '../components/vendor-plan-summary';
+import { vendorChecklistRows } from '../checklist-rows';
 import {
   buildNeedsItems,
   conflictsByProduct,
@@ -40,11 +40,12 @@ interface NeedsRow {
  * `docs/STAGE_2_VENDOR_PORTAL_SPEC.md` §6.10).
  *
  * Three blocks, top to bottom:
- *  1. **Account access.** The plan panel, collapsed to one line when access is
- *     active and not expiring. Every other state is a conversation and keeps the
- *     full panel.
- *  2. **The glance band.** Views (a placeholder until AECI-941), In conflict, and
+ *  1. **The glance band.** Views (a placeholder until AECI-941), In conflict, and
  *     Suggestions about your listing.
+ *  2. **Getting started and Your plan** (AECI-1218, §6.18). The vendor checklist
+ *     (`GET /api/vendor/checklist`) beside the one-line plan summary. Plans live
+ *     per product (decision 2), so the full plan panel is on each product's
+ *     overview. A plan that ended is the shell's banner, above the tabs.
  *  3. **What needs you.** One prioritised list, each row a link to where the work
  *     is done. "Needs you now" is conflicts and open corrections. "Worth doing" is
  *     waiting positions, incomplete products, the company profile and unaccepted
@@ -64,28 +65,10 @@ interface NeedsRow {
  */
 @Component({
   selector: 'aec-vendor-overview-section',
-  imports: [NgTemplateOutlet, RouterLink, VendorGlanceBand, VendorPlanPanel],
+  imports: [NgTemplateOutlet, RouterLink, VendorGlanceBand, VendorChecklist, VendorPlanSummary],
   template: `
     @if (me(); as m) {
       <div class="space-y-8">
-        <section aria-labelledby="vendor-overview-access-h">
-          <h2
-            id="vendor-overview-access-h"
-            [class]="accessHeadingClass()"
-            i18n="@@vendor.section.accountAccess"
-          >
-            Account access
-          </h2>
-          <div [class]="compactAccess() ? '' : 'mt-4'">
-            <aec-vendor-plan-panel
-              [entitlement]="m.entitlement"
-              [products]="m.products"
-              [compact]="true"
-              [catalogueLinks]="true"
-            />
-          </div>
-        </section>
-
         <aec-vendor-glance-band
           [conflictTotal]="conflicts().total"
           [conflictProducts]="conflicts().byProduct"
@@ -95,6 +78,56 @@ interface NeedsRow {
           [newestCorrectionAt]="corrections().newestCreatedAt"
           (retry)="retryIntegrations()"
         />
+
+        <!--
+          AECI-1218 (STAGE_2_VENDOR_PORTAL_SPEC.md section 6.18). The vendor
+          checklist beside the one-line plan summary. Plans live per product, so
+          the summary links to the Products list rather than describing a plan.
+        -->
+        <div class="grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,24rem)]">
+          <div>
+            @if (checklist(); as c) {
+              <aec-vendor-checklist
+                [heading]="checklistHeading"
+                headingId="vendor-overview-checklist-h"
+                [lede]="checklistLede"
+                [rows]="checklistRows()"
+                [done]="c.done"
+                [total]="c.total"
+              />
+            } @else if (checklistFailed()) {
+              <div
+                class="rounded-(--radius-md) border border-(--border-default) bg-(--surface-raised) p-5"
+              >
+                <p
+                  class="text-sm text-(--text-primary)"
+                  role="alert"
+                  i18n="@@vendor.checklist.failed"
+                >
+                  The checklist could not be loaded.
+                </p>
+                <button
+                  type="button"
+                  [class]="retryClass"
+                  (click)="retryChecklist()"
+                  i18n="@@vendor.checklist.retry"
+                >
+                  Try again
+                </button>
+              </div>
+            } @else {
+              <div
+                class="rounded-(--radius-md) border border-(--border-default) bg-(--surface-raised) p-5"
+                aria-busy="true"
+              >
+                <p class="text-sm text-(--text-secondary)" i18n="@@vendor.checklist.loading">
+                  Loading the checklist…
+                </p>
+              </div>
+            }
+          </div>
+          <aec-vendor-plan-summary [entitlement]="m.entitlement" [products]="m.products" />
+        </div>
 
         <section aria-labelledby="vendor-overview-needs-h">
           <h2
@@ -122,14 +155,13 @@ interface NeedsRow {
                   class="text-sm font-semibold text-(--text-primary)"
                   i18n="@@vendor.overview.catalogue.title"
                 >
-                  Your profile and product details stay with the AECi team.
+                  This seat maintains your connector catalogue.
                 </p>
                 <p
                   class="mt-1 max-w-prose text-sm leading-relaxed text-(--text-secondary)"
                   i18n="@@vendor.overview.catalogue.body"
                 >
-                  This seat maintains your connector catalogue. Everything else on record is here to
-                  read, and seat invites can still be managed.
+                  Everything on record is here to read, and seat invites can still be managed.
                 </p>
               } @else {
                 <p
@@ -142,8 +174,8 @@ interface NeedsRow {
                   class="mt-1 max-w-prose text-sm leading-relaxed text-(--text-secondary)"
                   i18n="@@vendor.overview.paused.body"
                 >
-                  Everything on record is here to read, and seat invites can still be managed. When
-                  your access is back on, this list picks up where it left off.
+                  Everything on record is here to read, and seat invites can still be managed. Ask
+                  AEC Integrations if this looks wrong.
                 </p>
               }
             </div>
@@ -352,24 +384,16 @@ export class VendorOverviewSection {
     () => this.needs().now.length + this.needs().worthDoing.length,
   );
 
-  /**
-   * The plan panel's `isCompact` rule, restated so the heading can hide exactly
-   * when the panel collapses (it stays in the outline either way). Same inputs:
-   * active, a known tier, and more than `EXPIRY_WARNING_DAYS` left. The dashboard
-   * spec pins the two together.
-   */
-  protected readonly compactAccess = computed(() => {
-    const e = this.me()?.entitlement;
-    if (!e || e.status !== 'active' || e.tier === 'unclaimed') return false;
-    if (!e.period_end) return true;
-    const end = new Date(e.period_end).getTime();
-    if (Number.isNaN(end)) return true;
-    return Math.ceil((end - Date.now()) / 86_400_000) > EXPIRY_WARNING_DAYS;
+  protected readonly checklist = this.store.checklist;
+  protected readonly checklistFailed = this.store.checklistFailed;
+  protected readonly checklistRows = computed(() => {
+    const c = this.checklist();
+    return c ? vendorChecklistRows(c) : [];
   });
-
-  protected readonly accessHeadingClass = computed(() =>
-    this.compactAccess() ? 'sr-only' : 'font-display text-xl font-semibold text-(--text-primary)',
-  );
+  protected readonly checklistHeading = $localize`:@@vendor.checklist.vendor.heading:Getting started`;
+  protected readonly checklistLede = $localize`:@@vendor.checklist.vendor.lede:Your company, then each product. Each step finishes when you take the action.`;
+  protected readonly retryClass =
+    'mt-3 inline-flex items-center justify-center rounded-(--radius-md) border border-(--border-strong) bg-(--surface-base) px-3 py-1.5 text-sm font-semibold text-(--text-primary) transition-colors hover:bg-(--surface-sunken) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)';
 
   protected readonly lede = computed(() => {
     const n = this.outstanding();
@@ -390,6 +414,17 @@ export class VendorOverviewSection {
       void this.store.ensure('integrations');
       void this.store.ensure('seats');
       void this.store.ensure('contests');
+      void this.store.ensureChecklist();
+    });
+  }
+
+  protected retryChecklist(): void {
+    void this.store.reloadChecklist().then(() => {
+      if (!this.store.checklistFailed()) {
+        this.announcer.announce(
+          $localize`:@@vendor.checklist.reloaded:The checklist is up to date.`,
+        );
+      }
     });
   }
 

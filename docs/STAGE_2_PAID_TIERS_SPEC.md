@@ -755,6 +755,8 @@ Replace `apps/web/src/app/vendor/components/vendor-verified-status.ts` — whose
 | `lapsed` | `expired` / `revoked` (and the fail-closed drift case below) | A **loss to acknowledge**. Leads with what the vendor KEEPS, names what is paused, offers a renewal path. Since AECI-1214 what is paused is the account label, the Managed product fields, and confirming, denying or clearing data flows. The panel copy still says "editing your profile and products" until AECI-1218 rewrites the panels (§13.11). |
 | `none` | `status: null` — no entitlement row at all | An **invitation**, not a loss. |
 
+> **As revised (AECI-1218, 2026-10-02).** The panel is now per product and reads `product.plan` (§13.7). Its states are `managed` (was `active`), `expiring`, `pending`, `ended` (was `lapsed`; now also the plan-ended banner's job vendor-wide), `free` (was `none`; also the unknown-tier drift case, which no longer reads as ended), and `catalogue`. Every state carries decision 10's line. Every state but `catalogue` shows "Managed is $25 a month per product" with a "Draft price" tag (decision 9). The framing sentence below and the compact strip are gone. The vendor overview carries a one-line summary instead (`vendor-plan-summary.ts`).
+
 `null` vs `expired` is the distinction that earned two panels: never-arranged and lapsed are materially different conversations, and rendering a loss-acknowledgement at someone who never bought anything is the wrong message. §4 made that distinction available on the wire.
 
 Three decisions this section did not pre-specify:
@@ -868,7 +870,7 @@ Plus, per issue: the second-seat no-op matrix (§2.3) against the in-memory D1 h
 
 ## 13. Free plan (AECI-1212)
 
-**Status: specified 2026-10-01 by AECI-1213. Partly built.** The sub-issues in §13.12 build it. AECI-1214 (§13.3, §13.4, §13.5, §13.7) is built; §3 to §8 describe its result. AECI-1216 (§13.8, §13.9) and AECI-1217 (§13.10) are built; each section carries an as-built note. The rest is not built yet.
+**Status: specified 2026-10-01 by AECI-1213. Partly built.** The sub-issues in §13.12 build it. AECI-1214 (§13.3, §13.4, §13.5, §13.7) is built; §3 to §8 describe its result. AECI-1216 (§13.8, §13.9), AECI-1217 (§13.10) and AECI-1218 (§13.11 and the portal UI) are built; each section carries an as-built note. AECI-1219, the help page, is not built yet.
 
 The portal surfaces are in `STAGE_2_VENDOR_PORTAL_SPEC.md` §6.18. The decision record is ADR 0037. The Stage 2.1 admission is `STAGE_2_1_SPEC.md` §3.3.3.
 
@@ -1078,6 +1080,8 @@ That is how the portal tells "pilot ended" from "never had a plan". The session 
 - It lists what still works and what went read-only. It says "nothing you entered was removed".
 
 Today only an admin Clear ends a plan, and it records `revoked`. `VENDOR_PLAN_DATA_READINESS.md` §2 item 21 records that. The banner shows for `expired` too, so a later expiry path needs no copy change.
+
+> **As built (AECI-1218 — 2026-10-02).** `VendorEntitlementBlockSchema` gained a required `ended_at`. The session reads `vendor_entitlements.ended_at` in the guard's one entitlement join (`apps/api/src/lib/authz.ts`), and `entitlementBlock` fills it, so every product's `plan` copy carries it too. The banner is `apps/web/src/app/vendor/components/vendor-plan-ended-banner.ts`, rendered by the shell above the tabs on every portal page. Its rule is `planHasEnded` in `vendor-plan.ts`. Its heading is "Your Managed plan has ended", so an expiry needs no copy change. The portal surfaces are recorded in `STAGE_2_VENDOR_PORTAL_SPEC.md` §6.18's as-built note.
 
 ### 13.12 Sub-issue map
 

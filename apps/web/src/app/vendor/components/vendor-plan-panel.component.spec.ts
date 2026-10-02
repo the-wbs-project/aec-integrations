@@ -1,23 +1,21 @@
 /**
- * `VendorPlanPanel` (AECI-614 / `docs/STAGE_2_PAID_TIERS_SPEC.md` §8) — the
- * vendor-facing entitlement surface.
+ * `VendorPlanPanel`: one product's plan panel (AECI-1218,
+ * `docs/STAGE_2_VENDOR_PORTAL_SPEC.md` §6.18, `docs/STAGE_2_PAID_TIERS_SPEC.md`
+ * §13). It replaced the AECI-614 vendor-level panel, whose states it keeps.
  *
- * Named `.component.spec.ts` so it runs under `ng test`: the panel injects
- * `LOCALE_ID` and renders a `routerLink`, so it needs `TestBed` DI, and the plain
- * vitest lane deliberately excludes this suffix.
+ * Named `.component.spec.ts` so it runs under `ng test` (TestBed DI for
+ * `LOCALE_ID` and `routerLink`).
  *
- * These specs pin the things §8 actually decides, rather than the markup:
- *
- *  1. the THREE states each render, and each renders the right one;
- *  2. `status: null` and `status: 'revoked'` are DIFFERENT panels — the spec is
- *     explicit that never-arranged and lost-it are different conversations, and
- *     a `?? 'lapsed'` collapse would silently pass a smoke test;
- *  3. the downgraded panel offers a renewal path and does not read as an error;
- *  4. the copy discipline: no arrangement/pricing detail, no ranking claim, no
- *     instant-search promise — asserted as a scan over the rendered text, so a
- *     future copy edit that reintroduces one fails here;
- *  5. the fail-closed resolution `tierFor` uses: `status: 'active'` over a tier
- *     this build does not know must NOT render as active.
+ * Pinned here:
+ *  1. each state renders, and the right one: Managed, expiring, pending, ended,
+ *     Free, and the connector catalogue seat;
+ *  2. `status: null` and `status: 'revoked'` are different panels (never had a
+ *     plan vs. a plan that ended);
+ *  3. decision 10's line, word for word, in every state;
+ *  4. the draft price label on every state that offers Managed, and none on the
+ *     catalogue seat (decision 9);
+ *  5. fail closed: `active` over an unknown tier is not Managed;
+ *  6. copy discipline: no arrangement detail, no ranking claim, no instant search.
  */
 import { provideZonelessChangeDetection } from '@angular/core';
 import { TestBed, type ComponentFixture } from '@angular/core/testing';
@@ -25,19 +23,14 @@ import { provideRouter } from '@angular/router';
 import { beforeEach, describe, expect, it } from 'vitest';
 
 import type { VendorEntitlementBlock } from '@aeci/shared';
-
-import {
-  VENDOR_ME_DOWNGRADED_FIXTURE,
-  VENDOR_ME_EXPIRING_FIXTURE,
-  VENDOR_ME_FIXTURE,
-  VENDOR_ME_UNVERIFIED_FIXTURE,
-} from '../vendor-fixtures';
+import { capabilitiesFor } from '@aeci/shared/entitlements';
 
 import { VendorPlanPanel } from './vendor-plan-panel';
 
 const DAY_MS = 86_400_000;
-/** A fixed clock, so "expires in N days" is arithmetic and not a race. */
-const NOW = Date.parse('2026-08-19T12:00:00.000Z');
+const NOW = Date.parse('2026-10-02T12:00:00.000Z');
+const DECISION_10 =
+  'No plan changes where you rank or appear, whether a review is published, or what we verify.';
 
 beforeEach(() => {
   TestBed.resetTestingModule();
@@ -46,10 +39,14 @@ beforeEach(() => {
   });
 });
 
-function create(entitlement: VendorEntitlementBlock, now = NOW): ComponentFixture<VendorPlanPanel> {
+function create(
+  plan: VendorEntitlementBlock,
+  productRole: string | null = 'product',
+): ComponentFixture<VendorPlanPanel> {
   const fixture = TestBed.createComponent(VendorPlanPanel);
-  fixture.componentRef.setInput('entitlement', entitlement);
-  fixture.componentRef.setInput('now', now);
+  fixture.componentRef.setInput('plan', plan);
+  fixture.componentRef.setInput('productRole', productRole);
+  fixture.componentRef.setInput('now', NOW);
   fixture.detectChanges();
   return fixture;
 }
@@ -57,376 +54,164 @@ function create(entitlement: VendorEntitlementBlock, now = NOW): ComponentFixtur
 const el = (f: ComponentFixture<VendorPlanPanel>) => f.nativeElement as HTMLElement;
 const text = (f: ComponentFixture<VendorPlanPanel>) =>
   (el(f).textContent ?? '').replace(/\s+/g, ' ').trim();
-const renewLink = (f: ComponentFixture<VendorPlanPanel>) =>
+const state = (f: ComponentFixture<VendorPlanPanel>) =>
+  el(f).querySelector('[data-plan-state]')?.getAttribute('data-plan-state');
+const cta = (f: ComponentFixture<VendorPlanPanel>) =>
   el(f).querySelector<HTMLAnchorElement>('a[href="/contact"]');
 
-/** An active entitlement whose term ends `days` from the frozen clock. */
-function activeIn(days: number): VendorEntitlementBlock {
+const MANAGED_CAPS = [...capabilitiesFor('verified')];
+const FREE_CAPS = [...capabilitiesFor('unclaimed')];
+
+function managedIn(days: number | null): VendorEntitlementBlock {
   return {
     tier: 'verified',
     status: 'active',
-    period_end: new Date(NOW + days * DAY_MS).toISOString(),
-    // Read off the shipped fixture rather than re-deriving the ladder here, so
-    // the spec cannot drift from what the API actually sends.
-    capabilities: VENDOR_ME_FIXTURE.entitlement.capabilities,
+    period_end: days === null ? null : new Date(NOW + days * DAY_MS).toISOString(),
+    ended_at: null,
+    capabilities: MANAGED_CAPS,
   };
 }
+const FREE: VendorEntitlementBlock = {
+  tier: 'unclaimed',
+  status: null,
+  period_end: null,
+  ended_at: null,
+  capabilities: FREE_CAPS,
+};
+const ENDED: VendorEntitlementBlock = {
+  tier: 'unclaimed',
+  status: 'revoked',
+  period_end: '2026-09-18T00:00:00.000Z',
+  ended_at: '2026-09-18T00:00:00.000Z',
+  capabilities: FREE_CAPS,
+};
+const PENDING: VendorEntitlementBlock = {
+  tier: 'unclaimed',
+  status: 'pending',
+  period_end: null,
+  ended_at: null,
+  capabilities: FREE_CAPS,
+};
 
-describe('VendorPlanPanel — state 1: active, far term', () => {
-  it('is quiet: the public badge, the term, and no call to action', () => {
-    const fixture = create(activeIn(300));
+const ALL: ReadonlyArray<[string, VendorEntitlementBlock, string | null]> = [
+  ['managed', managedIn(300), 'product'],
+  ['expiring', managedIn(12), 'product'],
+  ['pending', PENDING, 'product'],
+  ['ended', ENDED, 'product'],
+  ['free', FREE, 'product'],
+  ['catalogue', FREE, 'connector'],
+];
 
-    expect(el(fixture).querySelector('aec-vendor-account-badge')).not.toBeNull();
-    expect(text(fixture)).toContain('Active through');
-    // Nothing shouty: no renewal CTA, and no countdown.
-    expect(renewLink(fixture)).toBeNull();
-    expect(text(fixture)).not.toContain('ends in');
+describe('VendorPlanPanel: the states', () => {
+  it('Managed: says so, lists what Managed covers, then what Free also gives', () => {
+    const f = create(managedIn(300));
+    expect(state(f)).toBe('managed');
+    expect(text(f)).toContain('This product is on Managed, through');
+    expect(text(f)).toContain('Managed covers');
+    expect(text(f)).toContain('Also included, as on Free');
+    expect(el(f).querySelector('aec-vendor-plan-badge')?.textContent?.trim()).toBe('Managed');
+    expect(cta(f)).toBeNull();
   });
 
-  it('handles a perpetual term (the §2.4 backfilled rows) without inventing a date', () => {
-    const fixture = create({ ...activeIn(300), period_end: null });
-
-    expect(el(fixture).querySelector('aec-vendor-account-badge')).not.toBeNull();
-    expect(text(fixture)).toContain('No end date on record');
+  it('Managed with no term says so rather than inventing a date', () => {
+    expect(text(create(managedIn(null)))).toContain('with no end date on record');
   });
 
-  it('renders from the shipped fixture the dashboard specs use', () => {
-    const fixture = create(VENDOR_ME_FIXTURE.entitlement);
-    expect(el(fixture).querySelector('aec-vendor-account-badge')).not.toBeNull();
-    expect(renewLink(fixture)).toBeNull();
-  });
-});
-
-describe('VendorPlanPanel — state 2: active, expiring soon', () => {
-  it('counts the days down and offers a renewal path', () => {
-    const fixture = create(activeIn(12));
-
-    expect(text(fixture)).toContain('Your editing access ends in 12 days');
-    expect(renewLink(fixture)?.textContent?.trim()).toBe('Renew access');
+  it('expiring: counts the days and offers a renewal path, still Managed', () => {
+    const f = create(managedIn(12));
+    expect(state(f)).toBe('expiring');
+    expect(text(f)).toContain('Managed ends in 12 days for this product');
+    expect(text(f)).toContain('Nothing changes before then');
+    expect(cta(f)?.textContent?.trim()).toBe('Renew Managed');
   });
 
-  it('still shows the badge: warning is not lapsing (§7.3)', () => {
-    const fixture = create(activeIn(3));
-    expect(el(fixture).querySelector('aec-vendor-account-badge')).not.toBeNull();
-    expect(text(fixture)).toContain('Nothing changes before then');
+  it('expiring: "1 day" and "today", never "1 days" or "in 0 days"', () => {
+    expect(text(create(managedIn(1)))).toContain('ends in 1 day for');
+    expect(text(create(managedIn(0)))).toContain('Managed ends today');
   });
 
-  it('says "1 day", not "1 days"', () => {
-    // Half a day out, so the ceil lands on exactly one.
-    const fixture = create(activeIn(0.5));
-    expect(text(fixture)).toContain('ends in 1 day.');
-    expect(text(fixture)).not.toContain('1 days');
+  it('pending: Free until it switches on, with no call to action', () => {
+    const f = create(PENDING);
+    expect(state(f)).toBe('pending');
+    expect(text(f)).toContain('Until it does, the product is on Free');
+    expect(cta(f)).toBeNull();
   });
 
-  it('says "today" rather than "in 0 days" on the last day', () => {
-    const fixture = create(activeIn(-0.5));
-    expect(text(fixture)).toContain('Your editing access ends today');
+  it('ended: on Free, dated from ended_at, and nothing entered was removed', () => {
+    const f = create(ENDED);
+    expect(state(f)).toBe('ended');
+    expect(text(f)).toContain('Managed ended for this product on September 18, 2026');
+    expect(text(f)).toContain('Nothing you entered was removed');
+    expect(el(f).querySelector('aec-vendor-plan-badge')?.textContent?.trim()).toBe('Free');
+    expect(cta(f)?.textContent?.trim()).toBe('Ask about Managed for this product');
   });
 
-  it('renders from the shipped expiring fixture', () => {
-    // The fixture is relative to real load time, so let it use the real clock.
-    const fixture = TestBed.createComponent(VendorPlanPanel);
-    fixture.componentRef.setInput('entitlement', VENDOR_ME_EXPIRING_FIXTURE.entitlement);
-    fixture.detectChanges();
-    expect((fixture.nativeElement as HTMLElement).textContent).toContain(
-      'Your editing access ends in',
-    );
-  });
-});
-
-describe('VendorPlanPanel — state 3: downgraded', () => {
-  const REVOKED = VENDOR_ME_DOWNGRADED_FIXTURE.entitlement;
-  const NEVER = VENDOR_ME_UNVERIFIED_FIXTURE.entitlement;
-
-  it('drops the badge and leads with what the vendor KEEPS', () => {
-    const fixture = create(REVOKED);
-
-    expect(el(fixture).querySelector('aec-vendor-account-badge')).toBeNull();
-    const body = text(fixture);
-    expect(body).toContain('You are still signed in');
-    expect(body).toContain('stay published');
-    expect(body).toContain('here to read');
+  it('Free (never had a plan) is a different panel from a plan that ended', () => {
+    const free = create(FREE);
+    expect(state(free)).toBe('free');
+    expect(text(free)).toContain('This product is on Free');
+    expect(text(free)).toContain('Free includes');
+    expect(text(free)).toContain('Managed adds, for this product');
+    expect(text(free)).not.toContain('ended');
   });
 
-  it('names the one thing that is paused, and how to undo it', () => {
-    const fixture = create(REVOKED);
-
-    expect(text(fixture)).toContain('What is paused: the public account label');
-    expect(renewLink(fixture)?.textContent?.trim()).toBe('Renew access');
+  it('fails closed: active over a tier this build does not know is not Managed', () => {
+    const drift = { ...managedIn(300), tier: 'unclaimed' } as VendorEntitlementBlock;
+    const f = create(drift);
+    // Free, and not "ended": nothing ended, the build just cannot name the tier.
+    expect(state(f)).toBe('free');
+    expect(el(f).querySelector('aec-vendor-plan-badge')?.textContent?.trim()).toBe('Free');
   });
 
-  it('names attestation authoring as paused, since it is gated on the entitlement (AECI-623)', () => {
-    const fixture = create(REVOKED);
-
-    // `requireCapability('attestation.author')` refuses a lapsed vendor, so the
-    // paused list must say so, in the vendor guide's words (AECI-1108, AECI-1107).
-    expect(text(fixture)).toContain(
-      'confirming, denying or clearing data flows on your integrations',
-    );
-    expect(text(fixture)).toContain('Renewing turns all of it back on');
+  it('the connector catalogue seat gets no offer, no price and no call to action', () => {
+    const f = create(FREE, 'connector');
+    expect(state(f)).toBe('catalogue');
+    expect(text(f)).toContain('This seat maintains your connector catalogue');
+    expect(text(f)).toContain('Its description, website, logo and categories are yours to edit');
+    expect(el(f).querySelector('[data-testid="plan-price"]')).toBeNull();
+    expect(cta(f)).toBeNull();
   });
 
-  it('names the connector-delivered integrations the owner can no longer manage (AECI-1040)', () => {
-    const fixture = create(REVOKED);
-
-    // Claiming, editing, retiring and restoring a connector-delivered integration,
-    // and deciding contests on one, need an active entitlement
-    // (`requireActiveEntitlement`, AECI-1089 to AECI-1092).
-    expect(text(fixture)).toContain(
-      'managing the integrations you own that are delivered through a connector',
-    );
-  });
-
-  it('does not read as an error: no alert role, no error token', () => {
-    const fixture = create(REVOKED);
-    const host = el(fixture);
-
-    expect(host.querySelector('[role="alert"]')).toBeNull();
-    expect(host.innerHTML).not.toContain('--status-error');
-    expect(text(fixture)).not.toMatch(/error|problem|failed|sorry|denied|suspend/i);
-  });
-
-  it('shows the term that ended, so the vendor can date it', () => {
-    const fixture = create({ ...REVOKED, period_end: '2026-07-05T00:00:00.000Z' });
-    expect(text(fixture)).toContain('Ended July 5, 2026');
-  });
-
-  it('tells a NEVER-arranged vendor something different from a revoked one', () => {
-    const never = text(create(NEVER));
-    const revoked = text(create(REVOKED));
-
-    expect(never).toContain('Editing access is not active yet');
-    expect(never).toContain('Ask about vendor access');
-    // The lapsed reassurance is about something you lost. Don't say it to someone
-    // who never had it.
-    expect(never).not.toContain('no longer active');
-    expect(revoked).toContain('no longer active');
-    expect(revoked).not.toContain('Editing access is not active yet');
-  });
-
-  it('treats a PENDING arrangement as its own state, not as lapsed', () => {
-    const fixture = create({
-      tier: 'verified',
-      status: 'pending',
-      period_end: null,
-      capabilities: [],
-    });
-    expect(text(fixture)).toContain('Editing access pending');
-    expect(text(fixture)).toContain('switches on shortly');
-  });
-
-  it('fails CLOSED: an active row on a tier this build does not know is downgraded', () => {
-    // `vendor_entitlements.tier` is deliberately unconstrained at the DB layer
-    // (§2.2), so this row is reachable. `tierFor` resolves it to `unclaimed`, the
-    // capability list is empty, and the forms go read-only — so a panel that said
-    // "Verified" would be lying about a surface the vendor can see is locked.
-    const fixture = create({
-      tier: 'unclaimed',
-      status: 'active',
-      period_end: null,
-      capabilities: [],
-    });
-
-    expect(el(fixture).querySelector('aec-vendor-account-badge')).toBeNull();
-    expect(text(fixture)).toContain('Editing access ended');
+  it('re-derives when the plan input changes, with no reload', () => {
+    const f = create(FREE);
+    f.componentRef.setInput('plan', managedIn(300));
+    f.detectChanges();
+    expect(state(f)).toBe('managed');
   });
 });
 
-/**
- * AECI-631 / `STAGE_2_REALTIME_SPEC.md` §6.1 — the concierge flip lands without a
- * reload.
- *
- * `entitlement` is bound from `VendorPortalStore.me`, so a refetch reaches this
- * panel as a new input value on the SAME component instance. `setInput` without a
- * re-create is precisely that event, and it is what fails if anyone ever copies
- * the block into constructor-time state.
- */
-describe('VendorPlanPanel — a refetched entitlement (§6.1)', () => {
-  it('goes from lapsed to active in place, label, term and CTA together', () => {
-    const fixture = create(VENDOR_ME_DOWNGRADED_FIXTURE.entitlement);
-    expect(el(fixture).querySelector('aec-vendor-account-badge')).toBeNull();
-    expect(text(fixture)).toContain('no longer active');
-
-    fixture.componentRef.setInput('entitlement', activeIn(300));
-    fixture.detectChanges();
-
-    expect(el(fixture).querySelector('aec-vendor-account-badge')).not.toBeNull();
-    expect(text(fixture)).toContain('Active through');
-    expect(text(fixture)).not.toContain('no longer active');
-    expect(renewLink(fixture)).toBeNull();
+describe('VendorPlanPanel: copy every panel carries', () => {
+  it.each(ALL)('carries decision 10 word for word (%s)', (_name, plan, role) => {
+    const line = el(create(plan, role)).querySelector('[data-testid="plan-decision10"]');
+    expect(line?.textContent?.trim()).toBe(DECISION_10);
   });
 
-  it('goes the other way too: a revoke lands without a reload', () => {
-    const fixture = create(activeIn(300));
-    expect(el(fixture).querySelector('aec-vendor-account-badge')).not.toBeNull();
+  it.each(ALL.filter(([name]) => name !== 'catalogue'))(
+    'shows the Managed price as a draft (%s)',
+    (_name, plan, role) => {
+      const price = el(create(plan, role)).querySelector('[data-testid="plan-price"]');
+      expect(price?.textContent).toContain('Managed is $25 a month per product.');
+      expect(price?.textContent).toContain('Draft price');
+    },
+  );
 
-    fixture.componentRef.setInput('entitlement', VENDOR_ME_DOWNGRADED_FIXTURE.entitlement);
-    fixture.detectChanges();
-
-    expect(el(fixture).querySelector('aec-vendor-account-badge')).toBeNull();
-    expect(text(fixture)).toContain('What is paused: the public account label');
+  it.each(ALL)('offers nothing beyond Managed (%s)', (_name, plan, role) => {
+    expect(text(create(plan, role))).not.toMatch(/enterprise|premium|pro plan|upgrade to/i);
   });
 
-  it('still fails closed on the refetched value, never re-deriving the ladder', () => {
-    const fixture = create(VENDOR_ME_DOWNGRADED_FIXTURE.entitlement);
-
-    // An `active` row on a tier this build does not know. Re-deriving would have
-    // to guess; reading the resolved block cannot.
-    fixture.componentRef.setInput('entitlement', {
-      tier: 'unclaimed',
-      status: 'active',
-      period_end: null,
-      capabilities: [],
-    } satisfies VendorEntitlementBlock);
-    fixture.detectChanges();
-
-    expect(el(fixture).querySelector('aec-vendor-account-badge')).toBeNull();
-    expect(text(fixture)).toContain('Editing access ended');
-  });
-});
-
-describe('VendorPlanPanel — copy discipline (§8, an account-status surface)', () => {
-  const ALL: ReadonlyArray<[string, VendorEntitlementBlock]> = [
-    ['active', activeIn(300)],
-    ['expiring', activeIn(12)],
-    ['pending', { tier: 'verified', status: 'pending', period_end: null, capabilities: [] }],
-    ['revoked', VENDOR_ME_DOWNGRADED_FIXTURE.entitlement],
-    ['never', VENDOR_ME_UNVERIFIED_FIXTURE.entitlement],
-  ];
-
-  it.each(ALL)('scopes the status to account access without an endorsement (%s)', (_name, e) => {
-    const body = text(create(e));
-    expect(body).toContain(
-      'An active vendor account means this company can manage its AECi profile',
-    );
-    expect(body).toContain('It does not verify product quality or integration accuracy');
-    expect(body).toContain('does not affect search ranking or placement');
-  });
-
-  it.each(ALL)('leaks no arrangement or pricing detail (%s)', (_name, e) => {
-    // Amount, terms, payer, PO number are admin-side only (§5.1). The panel shows
-    // status and term, never the money.
-    expect(text(create(e))).not.toMatch(
-      /\$|USD|EUR|price|pricing|invoice|purchase order|\bPO\b|payment|billing|per year|\/yr|subscription|plan tier|upgrade to/i,
+  it.each(ALL)('leaks no arrangement detail (%s)', (_name, plan, role) => {
+    expect(text(create(plan, role))).not.toMatch(
+      /invoice|purchase order|\bPO\b|payment|billing|per year|\/yr/i,
     );
   });
 
-  it.each(ALL)('promises nothing about search freshness (%s)', (_name, e) => {
-    // Vendor edits reach Algolia on the nightly watermark (≤24h), so no state may
-    // imply an immediate search effect (§8.3(5)).
-    expect(text(create(e))).not.toMatch(/immediately|right away|instantly|search results now/i);
-  });
-});
-
-/**
- * AECI-983 — the compact strip on the overview. Compact is a request, not a
- * state: only the quiet `active` panel honours it, because every other state is
- * a conversation the vendor has to read.
- */
-describe('VendorPlanPanel — compact (AECI-983)', () => {
-  function createCompact(entitlement: VendorEntitlementBlock): ComponentFixture<VendorPlanPanel> {
-    const fixture = TestBed.createComponent(VendorPlanPanel);
-    fixture.componentRef.setInput('entitlement', entitlement);
-    fixture.componentRef.setInput('now', NOW);
-    fixture.componentRef.setInput('compact', true);
-    fixture.detectChanges();
-    return fixture;
-  }
-
-  it('collapses an active, far-term panel to one row with the framing behind a disclosure', () => {
-    const fixture = createCompact(activeIn(300));
-
-    expect(fixture.componentInstance.isCompact()).toBe(true);
-    expect(el(fixture).querySelector('aec-vendor-account-badge')).not.toBeNull();
-    expect(text(fixture)).toContain('Active through');
-    const details = el(fixture).querySelector('details');
-    expect(details?.querySelector('summary')?.textContent?.trim()).toBe(
-      'What an active account covers',
-    );
-    // The same trust sentence, not a fork of it.
-    expect(details?.textContent).toContain('does not affect search ranking or placement');
-    expect(text(fixture)).not.toContain('are yours to edit');
+  it.each(ALL)('promises nothing about search freshness (%s)', (_name, plan, role) => {
+    expect(text(create(plan, role))).not.toMatch(/immediately|right away|instantly/i);
   });
 
-  it.each([
-    ['expiring', () => activeIn(5)],
-    [
-      'pending',
-      () => ({ ...VENDOR_ME_UNVERIFIED_FIXTURE.entitlement, status: 'pending' as const }),
-    ],
-    ['lapsed', () => VENDOR_ME_DOWNGRADED_FIXTURE.entitlement],
-    ['none', () => VENDOR_ME_UNVERIFIED_FIXTURE.entitlement],
-  ])('ignores compact in the %s state', (_state, entitlement) => {
-    const fixture = createCompact(entitlement());
-
-    expect(fixture.componentInstance.isCompact()).toBe(false);
-    expect(el(fixture).querySelector('details')).toBeNull();
-    expect(text(fixture)).toContain('does not affect search ranking or placement');
-  });
-});
-
-describe('VendorPlanPanel — the connector catalogue seat (AECI-724, §8.9(5))', () => {
-  /** The AECI-740 provisioned shape: a seat and no `vendor_entitlements` row. */
-  const NO_ROW: VendorEntitlementBlock = {
-    tier: 'unclaimed',
-    status: null,
-    period_end: null,
-    capabilities: [],
-  };
-
-  function createWith(
-    entitlement: VendorEntitlementBlock,
-    roles: readonly string[],
-    compact = false,
-  ): ComponentFixture<VendorPlanPanel> {
-    const fixture = TestBed.createComponent(VendorPlanPanel);
-    fixture.componentRef.setInput('entitlement', entitlement);
-    fixture.componentRef.setInput(
-      'products',
-      roles.map((product_role) => ({ product_role })),
-    );
-    fixture.componentRef.setInput('compact', compact);
-    fixture.componentRef.setInput('now', NOW);
-    fixture.detectChanges();
-    return fixture;
-  }
-
-  it('replaces the upsell: no CTA, no "not active" chip, no account framing', () => {
-    const fixture = createWith(NO_ROW, ['connector']);
-    const copy = text(fixture);
-
-    expect(copy).toContain('Catalogue maintenance seat');
-    expect(copy).toContain('maintains your connector catalogue');
-    // Replaced, not softened: none of the `none` state's upsell survives.
-    expect(renewLink(fixture)).toBeNull();
-    expect(el(fixture).querySelector('a')).toBeNull();
-    expect(copy).not.toContain('Ask about vendor access');
-    expect(copy).not.toContain('not active');
-    expect(copy).not.toContain('An active vendor account means');
-    // The trust line survives in the seat's own words.
-    expect(copy).toContain('does not affect search ranking or placement');
-  });
-
-  it('keeps the ordinary upsell for a never-arranged vendor with no connector product', () => {
-    const copy = text(createWith(NO_ROW, ['application', 'hybrid']));
-    expect(copy).toContain('Editing access is not active yet');
-    expect(copy).toContain('Ask about vendor access');
-    expect(copy).not.toContain('Catalogue maintenance seat');
-  });
-
-  it('defaults to the ordinary panel when no products are passed', () => {
-    expect(text(create(NO_ROW))).toContain('Ask about vendor access');
-  });
-
-  it('yields to a real entitlement: a paying connector vendor sees its account', () => {
-    const copy = text(createWith(activeIn(200), ['connector']));
-    expect(copy).not.toContain('Catalogue maintenance seat');
-    expect(copy).toContain('yours to edit');
-  });
-
-  it('renders in full on the overview, where compact is set', () => {
-    const fixture = createWith(NO_ROW, ['connector'], true);
-    expect(fixture.componentInstance.isCompact()).toBe(false);
-    expect(text(fixture)).toContain('Catalogue maintenance seat');
+  it.each(ALL)('is not an error surface (%s)', (_name, plan, role) => {
+    const f = create(plan, role);
+    expect(el(f).querySelector('[role="alert"]')).toBeNull();
+    expect(el(f).innerHTML).not.toContain('--status-error');
   });
 });

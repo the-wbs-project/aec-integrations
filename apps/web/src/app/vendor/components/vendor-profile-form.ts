@@ -13,7 +13,6 @@ import { RequestTrigger } from '../../requests/request-trigger';
 import { NewTabIcon } from '../../shared/new-tab-icon/new-tab-icon';
 import { VendorApi } from '../vendor-api';
 import { VendorPortalStore } from '../vendor-portal-store';
-import { vendorIsCatalogueSeat } from '../vendor-capabilities';
 
 /** The vendor-editable text fields (`founded_year` is the one numeric field;
  *  `public_private` is a discrete choice, handled separately). */
@@ -152,33 +151,23 @@ interface FieldConfig {
       }
 
       @if (!canEdit()) {
-        @if (catalogueSeat()) {
-          <!-- AECI-1082: the catalogue seat never had profile editing, so it is not paused. -->
-          <div
-            class="rounded-(--radius-md) border border-(--border-default) bg-(--surface-sunken) p-4"
+        <!--
+          AECI-1218. Company details are editable on every plan (section 13.1,
+          decision 3), so this shows only for a session that lacks profile.edit,
+          which no tier the server knows serves today. It used to say editing was
+          paused while access was inactive, which stopped being true with AECI-1214.
+        -->
+        <div
+          class="rounded-(--radius-md) border border-(--border-default) bg-(--surface-sunken) p-4"
+        >
+          <p
+            class="max-w-prose text-sm leading-relaxed text-(--text-secondary)"
+            i18n="@@vendor.profile.readOnly"
           >
-            <p
-              class="max-w-prose text-sm leading-relaxed text-(--text-secondary)"
-              i18n="@@vendor.profile.readOnly.catalogue"
-            >
-              Your company profile stays with the AECi team, so this seat cannot edit it. Everything
-              below stays published and is here to read.
-            </p>
-          </div>
-        } @else {
-          <div
-            class="rounded-(--radius-md) border border-(--border-default) bg-(--surface-sunken) p-4"
-          >
-            <p
-              class="max-w-prose text-sm leading-relaxed text-(--text-secondary)"
-              i18n="@@vendor.profile.readOnly"
-            >
-              Editing is paused while your account access is inactive. Everything below stays
-              published and is here to read. The account panel on Vendor Overview has the renewal
-              path.
-            </p>
-          </div>
-        }
+            This seat cannot edit the company profile right now. Everything below stays published
+            and is here to read.
+          </p>
+        </div>
       }
 
       <fieldset class="space-y-5 border-0 p-0">
@@ -341,8 +330,6 @@ interface FieldConfig {
 export class VendorProfileForm {
   private readonly api = inject(VendorApi);
   private readonly store = inject(VendorPortalStore);
-  /** The §8.9 connector seat (AECI-1082): its read-only notice is not paused copy. */
-  protected readonly catalogueSeat = vendorIsCatalogueSeat(this.store);
 
   readonly vendor = input.required<VendorAccount>();
 

@@ -7,7 +7,8 @@ import { RequestDrawer } from '../requests/request-drawer';
 
 import { VendorPortalAnnouncer } from './vendor-announcer';
 import { VendorIntegrationsSection } from './components/vendor-integrations-section';
-import { VendorPlanPanel } from './components/vendor-plan-panel';
+import { VendorPlanSummary } from './components/vendor-plan-summary';
+import { VendorPlanEndedBanner } from './components/vendor-plan-ended-banner';
 import { VendorProfileForm } from './components/vendor-profile-form';
 import { VendorProductsSection } from './components/vendor-products-section';
 import { VendorNotificationsList } from './components/vendor-notifications-list';
@@ -27,7 +28,8 @@ import { VendorSeatRoster } from './components/vendor-seat-roster';
 @Component({
   selector: 'aec-vendor-dashboard-single',
   imports: [
-    VendorPlanPanel,
+    VendorPlanSummary,
+    VendorPlanEndedBanner,
     VendorNotificationsList,
     VendorRequestStatus,
     VendorProfileForm,
@@ -50,18 +52,13 @@ import { VendorSeatRoster } from './components/vendor-seat-roster';
       </header>
 
       <div class="mt-10 space-y-14">
-        <section aria-labelledby="vendor-account-access-heading">
-          <h2
-            id="vendor-account-access-heading"
-            class="font-display text-xl font-semibold text-(--text-primary)"
-            i18n="@@vendor.section.accountAccess"
-          >
-            Account access
-          </h2>
-          <div class="mt-4">
-            <aec-vendor-plan-panel [entitlement]="m.entitlement" [products]="m.products" />
-          </div>
-        </section>
+        <!-- AECI-1218: the plan-ended banner (section 13.11) and the one-line plan
+             summary (section 6.18). Each product's plan panel is on the tabbed
+             concept's product overview. -->
+        <div>
+          <aec-vendor-plan-ended-banner [entitlement]="m.entitlement" />
+          <aec-vendor-plan-summary [entitlement]="m.entitlement" [products]="m.products" />
+        </div>
 
         <section aria-labelledby="vendor-requests-heading">
           <h2

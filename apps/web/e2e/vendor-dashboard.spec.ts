@@ -88,7 +88,7 @@ async function gotoIntegrations(page: Page) {
   await page.goto(`${page.url().replace(/\/overview.*$/, '')}/products`);
   await page.locator('aec-vendor-product-list-page a').first().click();
   // `…/products/:slug` redirects to its default section.
-  await expect(page).toHaveURL(/\/products\/[a-z0-9-]+\/profile$/);
+  await expect(page).toHaveURL(/\/products\/[a-z0-9-]+\/overview$/);
   await page.getByRole('link', { name: 'Integrations', exact: true }).click();
   await expect(page).toHaveURL(/\/products\/[a-z0-9-]+\/integrations$/);
   await expect(page.locator('aec-vendor-integrations-section')).toBeAttached();

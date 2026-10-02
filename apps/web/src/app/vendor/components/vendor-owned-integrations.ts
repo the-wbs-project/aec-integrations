@@ -21,6 +21,7 @@ import { VendorPortalStore } from '../vendor-portal-store';
 import { VendorIntegrationEditForm, type EditFormValues } from './vendor-integration-edit-form';
 import { VENDOR_EDIT_FORM_START_OPEN } from './vendor-integration-edit-form';
 import { claimErrorMessage } from './vendor-integration-ownership-labels';
+import { VendorNotOursLink } from './vendor-not-ours-link';
 import { VendorOwnedRetire } from './vendor-owned-retire';
 
 /** Where the owner stands on one owned row. `claimed-needs-plan` is a claimed
@@ -86,7 +87,7 @@ export function ownedRowsForProduct(
  */
 @Component({
   selector: 'aec-vendor-owned-integrations',
-  imports: [VendorIntegrationEditForm, VendorOwnedRetire],
+  imports: [VendorIntegrationEditForm, VendorOwnedRetire, VendorNotOursLink],
   changeDetection: ChangeDetectionStrategy.OnPush,
   host: { class: 'block' },
   template: `
@@ -231,6 +232,14 @@ export function ownedRowsForProduct(
                           >
                         }
                       </button>
+                      <!-- AECI-1218: the checklist's "say not ours", via a correction. -->
+                      @if (contextSlug(); as slug) {
+                        <aec-vendor-not-ours-link
+                          [productSlug]="slug"
+                          [productA]="row.product_a.name"
+                          [productB]="row.product_b.name"
+                        />
+                      }
                     </div>
                   }
                 }
@@ -289,6 +298,11 @@ export class VendorOwnedIntegrations {
       this.contextProductId(),
       this.vendorProducts(),
     ),
+  );
+
+  /** The page's product slug, which a "Not ours?" correction is filed against. */
+  protected readonly contextSlug = computed(
+    () => this.store.me()?.products.find((p) => p.id === this.contextProductId())?.slug ?? null,
   );
 
   /** Does the caller make one of the two products? Then the claim notifies only the

@@ -87,6 +87,12 @@ export const VendorEntitlementBlockSchema = z.object({
   status: EntitlementStatusSchema.nullable(),
   /** `null` = perpetual or no term on record, not "unknown". */
   period_end: z.string().nullable(),
+  /**
+   * `vendor_entitlements.ended_at`: when the row left `active` (AECI-1218,
+   * `STAGE_2_PAID_TIERS_SPEC.md` §13.11). The pilot-ended banner's date line.
+   * `null` for no row, and for a row that has not ended.
+   */
+  ended_at: z.string().nullable(),
   capabilities: z.array(CapabilitySchema),
 });
 export type VendorEntitlementBlock = z.infer<typeof VendorEntitlementBlockSchema>;

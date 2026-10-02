@@ -93,7 +93,7 @@ test.describe('vendor portal nav (preview)', () => {
 
     const productName = 'Summit Field Issues';
     await clickUntil(page.getByRole('link', { name: productName }), () =>
-      expect(page).toHaveURL(new RegExp(`${PATH}/products/summit-field-issues/profile$`), {
+      expect(page).toHaveURL(new RegExp(`${PATH}/products/summit-field-issues/overview$`), {
         timeout: 1_000,
       }),
     );
