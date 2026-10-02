@@ -152,6 +152,9 @@ export interface ActivateEntitlementParams {
   /** Override `metadata.source`. */
   source?: string;
   reason?: string | null;
+  /** Extra audit metadata, merged after the built-in keys. The claim path passes
+   *  `{ plan: 'managed' }` so both of its audit rows carry the plan (AECI-1215). */
+  extraMetadata?: Record<string, unknown>;
 }
 
 export interface RenewEntitlementParams {
@@ -299,6 +302,7 @@ export function activateEntitlementStatements(
       ...(Object.keys(a).length > 0 ? { arrangement: a } : {}),
       ...(p.sourceRequestId ? { source_request_id: p.sourceRequestId } : {}),
       ...(p.reason ? { reason: p.reason } : {}),
+      ...p.extraMetadata,
     },
   };
 

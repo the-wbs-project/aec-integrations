@@ -560,31 +560,82 @@
           </button>
         </div>
 
-        <!-- Approve form: free-text arrangement notes (the offline PO/invoice record) -->
+        <!-- Approve form: the required plan choice (AECI-1215 / STAGE_2_PAID_TIERS_SPEC.md 13.6),
+             then, on Managed only, the free-text arrangement notes (the offline PO/invoice record) -->
         @if (formOpenId() === r.id && formMode() === 'approve') {
         <form
           novalidate
           (submit)="$event.preventDefault(); confirmApprove(r.id)"
-          class="mt-4 space-y-2 border-t border-(--border-default) pt-4"
+          class="mt-4 space-y-3 border-t border-(--border-default) pt-4"
         >
-          <label
-            [attr.for]="'claim-notes-' + r.id"
-            class="block text-xs font-bold uppercase tracking-[0.08em] text-(--text-secondary)"
-            i18n="@@admin.claims.approve.label"
-          >
-            Payment / arrangement notes (optional)
-          </label>
-          <textarea
-            [id]="'claim-notes-' + r.id"
-            rows="3"
-            [value]="formText()"
-            (input)="onFormInput($event)"
-            class="w-full rounded-(--radius-md) border border-(--border-default) bg-(--surface-base) px-3 py-2 text-sm text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
-          ></textarea>
+          <fieldset class="space-y-2" [attr.aria-describedby]="'claim-plan-help-' + r.id">
+            <legend
+              class="block text-xs font-bold uppercase tracking-[0.08em] text-(--text-secondary)"
+              i18n="@@admin.claims.approve.plan.legend"
+            >
+              Plan (required)
+            </legend>
+            <p
+              [id]="'claim-plan-help-' + r.id"
+              class="text-xs text-(--text-secondary)"
+              i18n="@@admin.claims.approve.plan.help"
+            >
+              Free grants the seat only. Managed also opens the paid entitlement and the verified
+              badge.
+            </p>
+            <div class="flex flex-wrap gap-x-6 gap-y-2">
+              <label
+                class="inline-flex cursor-pointer items-center gap-2 text-sm text-(--text-primary)"
+              >
+                <input
+                  type="radio"
+                  [name]="'claim-plan-' + r.id"
+                  value="free"
+                  required
+                  [checked]="grantPlan() === 'free'"
+                  (change)="onPlanChange('free')"
+                  class="accent-(--accent-primary)"
+                />
+                <span i18n="@@admin.claims.approve.plan.free">Free</span>
+              </label>
+              <label
+                class="inline-flex cursor-pointer items-center gap-2 text-sm text-(--text-primary)"
+              >
+                <input
+                  type="radio"
+                  [name]="'claim-plan-' + r.id"
+                  value="managed"
+                  required
+                  [checked]="grantPlan() === 'managed'"
+                  (change)="onPlanChange('managed')"
+                  class="accent-(--accent-primary)"
+                />
+                <span i18n="@@admin.claims.approve.plan.managed">Managed</span>
+              </label>
+            </div>
+          </fieldset>
+          @if (grantPlan() === 'managed') {
+          <div class="space-y-2">
+            <label
+              [attr.for]="'claim-notes-' + r.id"
+              class="block text-xs font-bold uppercase tracking-[0.08em] text-(--text-secondary)"
+              i18n="@@admin.claims.approve.label"
+            >
+              Payment / arrangement notes (optional)
+            </label>
+            <textarea
+              [id]="'claim-notes-' + r.id"
+              rows="3"
+              [value]="formText()"
+              (input)="onFormInput($event)"
+              class="w-full rounded-(--radius-md) border border-(--border-default) bg-(--surface-base) px-3 py-2 text-sm text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+            ></textarea>
+          </div>
+          }
           <div class="flex flex-wrap gap-3 pt-1">
             <button
               type="submit"
-              [disabled]="pendingActionId() === r.id"
+              [disabled]="pendingActionId() === r.id || grantPlan() === null"
               class="inline-flex items-center justify-center rounded-(--radius-md) border border-(--accent-primary) bg-(--accent-primary) px-5 py-2 text-sm font-bold text-(--surface-base) transition-colors hover:bg-(--accent-primary-hover) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) disabled:cursor-not-allowed disabled:opacity-50"
             >
               @if (pendingActionId() === r.id) {
