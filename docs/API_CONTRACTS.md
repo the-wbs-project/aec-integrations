@@ -5734,6 +5734,52 @@ export const ReviewVendorProductIntegrationsResponseSchema = z.object({
 
 Errors: `NOT_FOUND` (the two product routes: unknown product, or another vendor's, deliberately indistinguishable, and raised before the body is read), `VALIDATION_FAILED` (a body carrying any key), `MALFORMED_REQUEST` (a body that is not JSON), `RATE_LIMITED` (429, the `write` bucket, `Retry-After: 60`), plus the §6.14 guard errors.
 
+#### Checklist: `GET /api/vendor/checklist`, `GET /api/vendor/products/:id/checklist`
+
+Stage 2.1 (AECI-1217, `STAGE_2_PAID_TIERS_SPEC.md` §13.10). The Free plan checklist, at vendor level and per product. Every step derives from existing records plus `products.integrations_reviewed_at`. There is no progress table. Zod in `packages/shared/src/api/vendor-checklist.ts`. Handlers in `apps/api/src/routes/vendor-checklist.ts`. Step rules in `apps/api/src/lib/vendor-checklist.ts`.
+
+| Route | Gate | Success |
+|---|---|---|
+| `GET /api/vendor/checklist` | `requireVendor()` only. No capability, no rate limit | `200` vendor steps, score, and one summary per owned product. `Cache-Control: private, no-store` |
+| `GET /api/vendor/products/:id/checklist` | `requireVendor()`, then ownership (`requireOwnedProduct`) | `200` one product's steps and score. `Cache-Control: private, no-store` |
+
+```typescript
+export const ChecklistStepStatusSchema = z.enum(['done', 'todo', 'optional']);
+
+// Product steps, in display order.
+//   product_details · integration_list · claim_integrations · confirm_data_flows
+// Vendor steps, in display order.
+//   company_details · finish_products · invite_colleague
+const step = { key, status: ChecklistStepStatusSchema, counts: z.boolean() };
+
+export const VendorProductChecklistSummarySchema = z.object({
+  product_id: z.string().uuid(),
+  product_slug: z.string(),
+  plan: VendorEntitlementBlockSchema, // this product's plan, the value GET /api/vendor/me carries (§13.7)
+  done: z.number().int().min(0),      // counted steps done
+  total: z.number().int().min(0),     // counted steps
+  complete: z.boolean(),              // done === total
+});
+export const VendorProductChecklistResponseSchema = VendorProductChecklistSummarySchema.extend({
+  steps: z.array(ProductChecklistStepSchema),
+});
+export const VendorChecklistResponseSchema = z.object({
+  steps: z.array(VendorChecklistStepSchema),
+  done, total, complete,                               // over the two counted vendor steps
+  products: z.array(VendorProductChecklistSummarySchema), // GET /api/vendor/me order: name, then id
+});
+```
+
+- **`status`.** `done` when the step is finished, whether or not it counts. `todo` when it is unfinished and counts. `optional` when it is unfinished and does not count.
+- **`counts`.** "Invite a colleague" never counts. "Confirm data flows" counts when the product's `plan.capabilities` holds `attestation.author`. So a finished Free product reads `done: 3, total: 3` and a Managed product reads `x` of `4`.
+- **A step with nothing to do is `done`.** A vendor with no products has "Finish each product checklist" done.
+- **Step rules.** §13.10 and its as-built note define each one. Two readings matter to a caller. A connector-powered row counts toward "Claim or say not ours" only on a plan that can claim it. Claims on connector-powered rows never count toward "Confirm data flows", because nobody may attest them.
+- **Batched.** The vendor read is seven SELECTs in one wave for any number of products. The product read is the three-read ownership wave plus three fact reads.
+- **Never rate-limited.** These are reads (`waf-rate-limits.md` §6.3).
+- **Cursor.** No new scope. The portal refetches on the `profile`, `entitlement`, `products` and `integrations` scopes of `GET /api/vendor/updates` (`STAGE_2_REALTIME_SPEC.md` §2.3).
+
+Errors: `NOT_FOUND` (the product route: an unknown product, or another vendor's, deliberately indistinguishable; the vendor route: a seat whose vendor row was deleted), plus the §6.14 guard errors.
+
 #### `GET /api/vendor/products/:id/connectors`
 
 Stage 2.1 (AECI-1013, `STAGE_2_VENDOR_PORTAL_SPEC.md` §6.13). The connectors that deliver or reach one owned product, for the read-only Connectors section at the bottom of the product's Integrations tab. Zod in `packages/shared/src/api/vendor-connectors.ts`, handler in `apps/api/src/routes/vendor-connectors.ts`.

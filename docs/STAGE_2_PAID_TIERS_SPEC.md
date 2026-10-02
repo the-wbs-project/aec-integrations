@@ -868,7 +868,7 @@ Plus, per issue: the second-seat no-op matrix (§2.3) against the in-memory D1 h
 
 ## 13. Free plan (AECI-1212)
 
-**Status: specified 2026-10-01 by AECI-1213. Partly built.** The sub-issues in §13.12 build it. AECI-1214 (§13.3, §13.4, §13.5, §13.7) is built; §3 to §8 describe its result. The rest is not built yet.
+**Status: specified 2026-10-01 by AECI-1213. Partly built.** The sub-issues in §13.12 build it. AECI-1214 (§13.3, §13.4, §13.5, §13.7) is built; §3 to §8 describe its result. AECI-1216 (§13.8, §13.9) and AECI-1217 (§13.10) are built; each section carries an as-built note. The rest is not built yet.
 
 The portal surfaces are in `STAGE_2_VENDOR_PORTAL_SPEC.md` §6.18. The decision record is ADR 0037. The Stage 2.1 admission is `STAGE_2_1_SPEC.md` §3.3.3.
 
@@ -1051,6 +1051,21 @@ The score rule:
 - "Ever checked" is enough. Staleness is out of scope.
 
 The two reads are `GET /api/vendor/checklist` and `GET /api/vendor/products/:id/checklist`. They are batched, with no per-product round trip. They are reads, so they are never rate-limited.
+
+#### As built (AECI-1217 — 2026-10-02)
+
+The handlers are in `apps/api/src/routes/vendor-checklist.ts`. The step rules are pure functions in `apps/api/src/lib/vendor-checklist.ts`. The wire contract is `API_CONTRACTS.md` §6.14, "Checklist". Decisions taken at build that the table above did not fix:
+
+- **Each step carries `status` and `counts`.** `status` is `done`, `todo` or `optional`. A finished step reads `done` even when it does not count. So a Free product with no claims shows "Confirm data flows" as done, and still scores 3 of 3.
+- **"Confirm data flows" counts when the product's `plan.capabilities` holds `attestation.author`.** It reads the product's plan block, never the vendor's. Today both are the same block (§13.7).
+- **"Claim or say not ours", row by row.** A row counts against a product when it is in either table, is live, has `origin = 'aeci'`, names the vendor in `built_by_vendor_id`, has no `claimed_at`, and touches the product. "Touches" is the §13.9 arm: either endpoint, or the connector that powers it.
+- **"Without an owner contest" means an OPEN `owner` contest.** A declined contest leaves the row on the vendor, so the row counts again. The owner itself cannot file an `owner` contest (`STAGE_2_VENDOR_PORTAL_SPEC.md` §11b.2, `CONTEST_OWN_INTEGRATION`). So today the only "not ours" that clears a row is another endpoint vendor's owner contest. **This is a gap in the spec.** The step names a "say not ours" action the owner has no route for. The portal UI (AECI-1218) needs a ruling before it offers one.
+- **A connector-powered row counts only on a plan that can claim it.** The claim route refuses such a row without an active entitlement (AECI-1089). On Free the step would then be unfinishable, which decision 6 forbids. The test is `plan.tier !== 'unclaimed'`, the same test as `hasActiveEntitlement`. Every evidenced pair is connector-powered.
+- **"Confirm data flows", claim by claim.** It reads claims on live `integrations` rows where the product is an endpoint. The answer must be a live attestation whose `attested_by_vendor_id` is the vendor. A denial is an answer, so it counts. Claims on connector-powered rows are skipped, because nobody may attest them (AECI-705). Evidenced-pair and reach-anchored claims are skipped for the same reason.
+- **"Invite a colleague"** is done at two or more `vendor_admin` seats (the `seatsOf` predicate), or at any `vendor_seat_invites` row, revoked and expired ones included.
+- **Batching.** The vendor read is seven SELECTs in one `Promise.all` wave. The three per-product fact reads scope by the `ownedProductIds` subquery, not a bound id list. A bound list would meet D1's 100-parameter cap near 33 products. `vendor-checklist.spec.ts` asserts the statement count is the same for 2 and 12 products. The product read is the ownership wave plus the same three reads scoped to one id.
+- **The §13.9 predicates are not reused.** `ownedMaintainedIntegrationsWhere` selects rows the vendor already maintains. The claim step needs the opposite set, rows not yet claimed. Only the "touches the product" arm is shared, and it is restated for a product set.
+- **No new cursor scope.** `STAGE_2_REALTIME_SPEC.md` §2.3 records which scopes the checklist refetches on.
 
 ### 13.11 Pilot-ended banner
 

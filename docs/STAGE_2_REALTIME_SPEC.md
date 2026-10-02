@@ -249,6 +249,19 @@ type VendorPortalScope =
 | `integrations`, once `contests` has loaded | **also** `GET /api/vendor/contests` (AECI-1009). A contest's protest window and cooldown depend on the field's live value, and an owner edit moves `integrations`, not `contests`. `VendorPortalStore.revalidate` adds the resource only when contests were already loaded, so it never loads them from cold |
 | `entitlement`, once `contests` has loaded | **also** `GET /api/vendor/contests` (AECI-1092). An admin clearing the vendor's entitlement re-routes its open owner contests on connector-powered rows to AECi in the same batch (`STAGE_2_VENDOR_PORTAL_SPEC.md` §11b.13, ruling B). Each re-routed row leaves the owner's `contests` scope, so that cursor moves only if one was the newest row in scope. The clear always moves `entitlement`, so the store refetches loaded contests with it. Same never-from-cold rule |
 
+> **The checklist reads (AECI-1217, `STAGE_2_PAID_TIERS_SPEC.md` §13.10) add no scope.** Their
+> inputs already move existing cursors. "Looks right" and every edit move `profile` (company details)
+> and `products` (product details, the integration list). A claim and an attestation move
+> `integrations`, through the row term, the owned-rows statement and the claim and attestation
+> terms. A plan change moves `entitlement`. So the portal (AECI-1218) refetches
+> `GET /api/vendor/checklist`, and any open `GET /api/vendor/products/:id/checklist`, when any of
+> `profile`, `entitlement`, `products` or `integrations` moves. Same never-from-cold rule as
+> `contests`. Two inputs move no scope, and that is accepted. A seat or invite change moves nothing,
+> because there is no seats scope. "Invite a colleague" is optional and the inviter's own tab sees
+> the change after its own write. An `owner` contest another vendor files on the caller's row is
+> AECi-routed, so it is outside the caller's `contests` predicate. The claim step catches up on the
+> next refetch. Widening a cursor for either would cross the §2.2 invariant for a cosmetic gain.
+>
 > **The integration detail page (specified 2026-09-28, `STAGE_2_VENDOR_PORTAL_SPEC.md` §6.17) adds
 > no scope.** It reads the store's `integrations` resource, so the `integrations` row above keeps it
 > live. Its Change requests section reads `GET /api/vendor/contests?integration_id=` into a

@@ -298,7 +298,7 @@ export type TaxonomySlugs = {
  * same `entitlementTier` the write gates assert, so a screen's enabled state and
  * the 403 its write would get cannot disagree.
  */
-function entitlementBlock(session: AuthenticatedSession): VendorEntitlementBlock {
+export function entitlementBlock(session: AuthenticatedSession): VendorEntitlementBlock {
   return {
     tier: session.entitlementTier,
     status: session.entitlement?.status ?? null,
