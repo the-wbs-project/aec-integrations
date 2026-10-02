@@ -14,6 +14,7 @@ import {
   integrations,
   products,
   profiles,
+  reviewResponses,
   reviews,
   userActivityDaily,
   vendorEntitlements,
@@ -388,7 +389,7 @@ describe('DELETE /api/account', () => {
   });
 
   it('declares vendor_entitlements.granted_by ON DELETE SET NULL (AECI-609 / R6)', () => {
-    // This is what actually keeps erasure working. `granted_by` is one of the ten
+    // This is what actually keeps erasure working. `granted_by` is one of the sixteen
     // inbound FKs to `profiles(id)` (`AUTH_AND_RLS.md` §8 is the live register); the
     // five NO ACTION refs are each nulled by hand in the
     // batch, and if this one were left at the house default it would join them — except
@@ -443,7 +444,7 @@ describe('DELETE /api/account', () => {
   });
 
   it('nulls the contest submitted_by / decided_by without deleting the contest (AECI-1008)', async () => {
-    // Two more of the ten inbound FKs. The contest is the VENDOR's record, so it
+    // Two more of the sixteen inbound FKs. The contest is the VENDOR's record, so it
     // survives; only the person who filed or decided it is severed.
     await t.db.insert(profiles).values({ id: USER, displayName: 'Ada', role: 'vendor_admin' });
     await t.db.insert(vendors).values({ id: u(2), slug: 'autodesk', companyName: 'Autodesk' });
@@ -478,6 +479,86 @@ describe('DELETE /api/account', () => {
     expect(await t.db.select().from(profiles)).toHaveLength(0);
     const [contest] = await t.db.select().from(integrationFieldChallenges);
     expect(contest).toMatchObject({ submittedBy: null, decidedBy: null, status: 'declined' });
+  });
+
+  it('nulls review_responses.author_profile_id / moderated_by and keeps the reply (AECI-1175)', async () => {
+    // Two more inbound FKs (sixteen in all). The reply is the VENDOR's record, so it
+    // survives; only the seat that wrote it and the admin who decided it are severed.
+    // `updated_at` must not move: on a pending reply it is the queue age.
+    await t.db.insert(profiles).values({ id: USER, displayName: 'Ada', role: 'vendor_admin' });
+    await t.db.insert(vendors).values({ id: u(2), slug: 'autodesk', companyName: 'Autodesk' });
+    await t.db.insert(products).values({ id: u(3), slug: 'a', name: 'A' });
+    await t.db.insert(reviews).values({
+      id: u(4),
+      productId: u(3),
+      ratingOverall: 4,
+      ratingOnboarding: 4,
+      title: 't',
+      body: 'b',
+      status: 'approved',
+    });
+    const STAMP = '2026-09-01T00:00:00.000Z';
+    await t.db.insert(reviewResponses).values({
+      id: u(5),
+      reviewId: u(4),
+      vendorId: u(2),
+      authorProfileId: USER,
+      moderatedBy: USER,
+      body: 'Thanks',
+      status: 'published',
+      createdAt: STAMP,
+      updatedAt: STAMP,
+    });
+
+    const res = await run(
+      createDeleteAccountHandler(
+        t.factory,
+        vi.fn(async () => ({ ok: true })),
+      ),
+      'delete',
+    );
+    expect(res.status).toBe(200);
+    expect(await t.db.select().from(profiles)).toHaveLength(0);
+    const [reply] = await t.db.select().from(reviewResponses);
+    expect(reply).toMatchObject({
+      authorProfileId: null,
+      moderatedBy: null,
+      status: 'published',
+      body: 'Thanks',
+      updatedAt: STAMP,
+    });
+  });
+
+  it('pins the inbound FKs to profiles(id) at sixteen — AUTH_AND_RLS.md §8 is the register', () => {
+    // A new FK to `profiles` must be nulled in the erasure batch (or be SET NULL and
+    // nulled explicitly) and added to the §8 table. This count fails first, so the
+    // person adding the column is sent to both places.
+    const rows = t.raw
+      .prepare(
+        `SELECT m.name AS tbl, f."from" AS col FROM sqlite_master m,
+                pragma_foreign_key_list(m.name) f
+          WHERE m.type = 'table' AND f."table" = 'profiles'
+          ORDER BY m.name, f."from"`,
+      )
+      .all() as Array<{ tbl: string; col: string }>;
+    expect(rows.map((r) => `${r.tbl}.${r.col}`)).toEqual([
+      'audit_log.actor_id',
+      'integration_field_challenges.decided_by',
+      'integration_field_challenges.protest_decided_by',
+      'integration_field_challenges.protest_replied_by',
+      'integration_field_challenges.protested_by',
+      'integration_field_challenges.submitted_by',
+      'notification_preferences.profile_id',
+      'review_responses.author_profile_id',
+      'review_responses.moderated_by',
+      'reviews.moderated_by',
+      'reviews.reviewer_id',
+      'vendor_entitlements.granted_by',
+      'vendor_requests.resolved_by',
+      'vendor_seat_invites.invited_by_id',
+      'workflow_instances.initiated_by',
+      'workflow_transitions.actor_id',
+    ]);
   });
 
   it('still succeeds (data erased) when the auth-user delete fails', async () => {

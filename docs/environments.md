@@ -1328,7 +1328,7 @@ Worker; it does not apply when the whole Worker goes.
 #### 10.6 Seeding, if you build one again
 
 `pnpm db:seed:<tier>` chaining `catalog` → `phase2-fixtures` → `auth-fixtures` →
-`version-diff-fixtures` → `connector-fixtures` → `extension-fixtures` is the pattern. `seed/catalog.sql` and
+`version-diff-fixtures` → `connector-fixtures` → `extension-fixtures` → `review-response-fixtures` is the pattern. `seed/catalog.sql` and
 `seed/phase2-fixtures.sql` carry a "dev / CI only — never staging/production" warning;
 applying them to a throwaway tier is a deliberate exception. Four things they give you
 that a bare catalog does not:
@@ -1340,10 +1340,11 @@ that a bare catalog does not:
 | `auth-fixtures.sql` `vendor_admin` profile | `requireVendor()` authorizes the `/vendor` portal. Pair with `SUPABASE_VENDOR_TEST_USER_*`. |
 | `version-diff-fixtures.sql` | Product versions + version-stamped attestations, so the version-diff selectors render. |
 | `extension-fixtures.sql` | Two Revit extensions in `product_extensions` (AECI-710), so "Built within" and "Extensions built within Revit" render (`STAGE_1_5_SPEC.md` §13.3b). Idempotent (`INSERT OR IGNORE`). |
+| `review-response-fixtures.sql` | Seven reviews on Dynamo for Revit (six approved, one pending) and five Autodesk replies, one per status (AECI-1175, `STAGE_2_VENDOR_PORTAL_SPEC.md` §11c). Recomputes Dynamo's `review_count` and averages. Idempotent (`INSERT OR IGNORE`). Ids `d0000000-…-0000000011xx`, outside the review seeder's `aeceed00-` prefix. |
 
 Four things they do **not** cover, all of which had to be applied by hand:
 
-- **Reviews.** None are seeded, so review sections and the moderation queue render empty.
+- **Reviews.** Only the seven on Dynamo for Revit are seeded, so most review sections and the moderation queue render empty.
   `db:seed-reviews -- --remote --env <tier> --apply` writes a deterministic set; every row
   carries the `aeceed00-…` id prefix so `--teardown --apply` removes exactly those.
 - **An operator profile.** The fixture profiles are the two e2e personas; your own account

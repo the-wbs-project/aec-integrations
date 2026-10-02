@@ -23,9 +23,11 @@
  * affordances the header carries.
  *
  * ── Erasure (DELETE), split across the identity seam ────────────────────────────
- * `profiles(id)` has ten inbound FKs; five are NO ACTION, so they must be nulled
- * before the profile delete. Under D1 that erasure is ONE atomic `db.batch([...])`
- * (null the 10 refs + the PII-free `account.deleted` audit + delete the profile).
+ * `profiles(id)` has sixteen inbound FKs (`AUTH_AND_RLS.md` §8); five are NO ACTION,
+ * so they must be nulled before the profile delete. One (`notification_preferences`)
+ * cascades, so the batch nulls the other fifteen. Under D1 that erasure is ONE
+ * atomic `db.batch([...])` (null all 15 refs + the PII-free `account.deleted` audit
+ * + delete the profile).
  * The `auth.users` row then goes via the GoTrue Admin API (seam #3,
  * `lib/supabase-admin.ts`) AFTER the batch commits — an HTTP call can't join the
  * D1 transaction. The D1 data erasure is the GDPR-load-bearing step; if the auth
@@ -49,7 +51,7 @@
 import { UpdateAccountSchema } from '@aeci/shared';
 import type { AccountProfileResponse, DeleteAccountResponse } from '@aeci/shared';
 import { type AuditLogEntry } from '@aeci/shared/audit-log';
-import { eq } from 'drizzle-orm';
+import { eq, sql } from 'drizzle-orm';
 import type { Context } from 'hono';
 import type { ZodType } from 'zod';
 
@@ -59,6 +61,7 @@ import {
   auditLog,
   integrationFieldChallenges,
   profiles,
+  reviewResponses,
   reviews,
   userActivityDaily,
   vendorEntitlements,
@@ -319,10 +322,10 @@ export function createDeleteAccountHandler(
       metadata: { source: 'account', initiated_by_self: true },
     };
 
-    // One atomic unit: null every inbound reference (five NO ACTION + the five SET NULL
+    // One atomic unit: null every inbound reference (five NO ACTION + the ten SET NULL
     // refs — `reviews.reviewer_id`, `vendor_entitlements.granted_by`,
-    // `vendor_seat_invites.invited_by_id` and the two contest columns — made explicit) → PII-free audit → delete
-    // the profile.
+    // `vendor_seat_invites.invited_by_id`, the five contest/protest columns and the two
+    // reply columns — made explicit) → PII-free audit → delete the profile.
     //
     // `page_views` is deliberately absent (AECI-585 / §13 D7). It used to be nulled
     // here, but `page_views.user_id` was never written by any code path and has now
@@ -354,7 +357,7 @@ export function createDeleteAccountHandler(
         .set({ actorId: null })
         .where(eq(workflowTransitions.actorId, userId)),
       db.update(auditLog).set({ actorId: null }).where(eq(auditLog.actorId, userId)),
-      // AECI-609 / R6: one of the ten inbound FKs to `profiles.id`
+      // AECI-609 / R6: one of the sixteen inbound FKs to `profiles.id`
       // (`AUTH_AND_RLS.md` §8). It is `ON DELETE SET NULL`, so SQLite would cover it,
       // but it is nulled explicitly like `reviews.reviewer_id` so the erasure test
       // asserts it directly rather than trusting the cascade. The entitlement ROW
@@ -363,7 +366,7 @@ export function createDeleteAccountHandler(
         .update(vendorEntitlements)
         .set({ grantedBy: null })
         .where(eq(vendorEntitlements.grantedBy, userId)),
-      // AECI-664: another of the ten (`AUTH_AND_RLS.md` §8), same treatment and same
+      // AECI-664: another of the sixteen (`AUTH_AND_RLS.md` §8), same treatment and same
       // reason. The INVITE survives its sender's erasure — a pending invite is the
       // invitee's to redeem, and deleting it would silently break a colleague's link
       // because someone else closed their account. Only the sender's link is severed.
@@ -371,7 +374,7 @@ export function createDeleteAccountHandler(
         .update(vendorSeatInvites)
         .set({ invitedById: null })
         .where(eq(vendorSeatInvites.invitedById, userId)),
-      // AECI-1008: two more of the ten, both `ON DELETE SET NULL` and nulled
+      // AECI-1008: two more of the sixteen, both `ON DELETE SET NULL` and nulled
       // explicitly for the same reason. The CONTEST survives: it is a vendor's
       // record, not the person's. Only who filed or decided it is severed.
       db
@@ -396,6 +399,19 @@ export function createDeleteAccountHandler(
         .update(integrationFieldChallenges)
         .set({ protestDecidedBy: null })
         .where(eq(integrationFieldChallenges.protestDecidedBy, userId)),
+      // AECI-1175: two more, `ON DELETE SET NULL` and nulled explicitly under the
+      // same rule. The REPLY survives: it is the vendor's record, not the person's
+      // (`STAGE_2_VENDOR_PORTAL_SPEC.md` §11c.11). `updated_at` is pinned to itself
+      // so `$onUpdate` does not restamp it. On a pending reply it is the queue age
+      // (`review_responses_status_updated_idx`), and an erasure must not reorder it.
+      db
+        .update(reviewResponses)
+        .set({ authorProfileId: null, updatedAt: sql`${reviewResponses.updatedAt}` })
+        .where(eq(reviewResponses.authorProfileId, userId)),
+      db
+        .update(reviewResponses)
+        .set({ moderatedBy: null, updatedAt: sql`${reviewResponses.updatedAt}` })
+        .where(eq(reviewResponses.moderatedBy, userId)),
       // AECI-1208: the per-user service log is erased with the account
       // (`AUTH_AND_RLS.md` §8). It has no FK, so it is deleted explicitly. The
       // activity middleware never writes on this request, and both of its writers

@@ -29,6 +29,7 @@
  *   connector_evidenced_pairs  product_a_id           cascade     --delete-evidenced-pairs; deleted + tombstoned
  *   connector_evidenced_pairs  product_b_id           cascade     --delete-evidenced-pairs; deleted + tombstoned
  *   reviews                    product_id             cascade     --force; deleted + tombstoned
+ *                                                                 (with their vendor replies)
  *   product_versions           product_id             cascade     --force; deleted + tombstoned
  *   product_vendors / _categories / _audiences / _phases / _trades,
  *   product_extensions (product_id AND host_product_id)
@@ -38,7 +39,7 @@
  *
  * The rows this lane deletes have children of their own, and those are covered the
  * same way by `CASCADE_CHILD_HANDLING` (claims → attestations, field contests, the
- * two attestation version refs).
+ * two attestation version refs, and since AECI-1175 the vendor replies on reviews).
  *
  * A THIRD REFUSAL, also under --force: a vendor-held integration (AECI-1005 / ADR 0035).
  * An endpoint integration its owner has CLAIMED (`claimed_at` set) or a vendor CREATED
@@ -169,6 +170,10 @@ export const CASCADE_CHILD_HANDLING: Readonly<Record<string, FkOutcome>> = {
   // where the table exists (`vendorLinksTable`): migration 0045 reaches each tier at
   // its next deploy, and naming a missing table would fail the whole batch.
   'integration_vendor_links.integration_id': 'cascade-child',
+  // AECI-1175 (0058): vendor replies to the reviews this lane deletes. Deleted
+  // explicitly before the reviews and counted on each review's tombstone, only where
+  // the table exists (`reviewResponsesTable`), for the same deploy-skew reason.
+  'review_responses.review_id': 'cascade-child',
   'attestations.introduced_version_id': 'detach',
   'attestations.deprecated_version_id': 'detach',
 };
@@ -268,6 +273,10 @@ export const EVIDENCED_PAIRS_DDL_SQL = `SELECT "sql" FROM "sqlite_master" WHERE 
  *  does, none when migration 0045 has not reached it. */
 export const VENDOR_LINKS_TABLE_SQL = `SELECT "name" FROM "sqlite_master" WHERE "type" = 'table' AND "name" = 'integration_vendor_links';`;
 
+/** AECI-1175: does the vendor-reply table exist on this tier yet? One row when it
+ *  does, none when migration 0058 has not reached it. */
+export const REVIEW_RESPONSES_TABLE_SQL = `SELECT "name" FROM "sqlite_master" WHERE "type" = 'table' AND "name" = 'review_responses';`;
+
 /** AECI-1092: the contest table's DDL. It carries `evidenced_pair_id` on a tier
  *  migration 0050 has reached, and not before. */
 export const CONTESTS_DDL_SQL = `SELECT "sql" FROM "sqlite_master" WHERE "type" = 'table' AND "name" = 'integration_field_challenges';`;
@@ -284,6 +293,8 @@ export function buildFootprintSql(
     /** AECI-1088: `connector_evidenced_pairs` has migration 0049's columns. */
     vendorHeldPairColumns?: boolean;
     vendorLinksTable?: boolean;
+    /** AECI-1175: `review_responses` exists (migration 0058). */
+    reviewResponsesTable?: boolean;
   } = {},
 ): string {
   const p = `'${escapeSqlLiteral(id)}'`;
@@ -296,6 +307,11 @@ export function buildFootprintSql(
   const vendorLinks =
     (opts.vendorLinksTable ?? true)
       ? `(SELECT count(*) FROM "integration_vendor_links" WHERE "integration_id" IN (${s.integrations}) OR "product_id" = ${p})`
+      : '0';
+  // AECI-1175: vendor replies on the reviews the delete removes.
+  const reviewResponses =
+    (opts.reviewResponsesTable ?? true)
+      ? `(SELECT count(*) FROM "review_responses" WHERE "review_id" IN (SELECT "id" FROM "reviews" WHERE "product_id" = ${p}))`
       : '0';
   // AECI-1005: endpoint integrations the delete would cascade that are vendor-held,
   // plus `powered_by` rows it would detach. NULL-safe 0 when the columns are absent.
@@ -324,6 +340,7 @@ export function buildFootprintSql(
     (SELECT count(*) FROM "integration_field_challenges" WHERE "integration_id" IN (${s.integrations})) AS field_challenges,
     ${vendorLinks} AS vendor_links,
     (SELECT count(*) FROM "reviews" WHERE "product_id" = ${p}) AS reviews,
+    ${reviewResponses} AS review_responses,
     (SELECT count(*) FROM "product_versions" WHERE "product_id" = ${p}) AS product_versions,
     (SELECT count(*) FROM "page_views" WHERE "product_id" = ${p}) AS page_views,
     (SELECT count(*) FROM "product_vendors" WHERE "product_id" = ${p}) AS product_vendors,
@@ -359,6 +376,8 @@ export interface RawFootprintRow {
   /** AECI-1007. Optional so a row built before it still parses. */
   vendor_links?: number;
   reviews: number;
+  /** AECI-1175. Optional so a row built before it still parses. */
+  review_responses?: number;
   product_versions: number;
   page_views: number;
   product_vendors: number;
@@ -396,6 +415,8 @@ export interface RetractFootprint {
   fieldChallenges: number;
   vendorLinks: number;
   reviews: number;
+  /** Vendor replies on those reviews (AECI-1175). */
+  reviewResponses: number;
   productVersions: number;
   pageViews: number;
   productVendors: number;
@@ -433,6 +454,7 @@ export function parseFootprint(row: RawFootprintRow): RetractFootprint {
     fieldChallenges: row.field_challenges,
     vendorLinks: row.vendor_links ?? 0,
     reviews: row.reviews,
+    reviewResponses: row.review_responses ?? 0,
     productVersions: row.product_versions,
     pageViews: row.page_views,
     productVendors: row.product_vendors,
@@ -551,6 +573,9 @@ export interface ProductDeleteArgs {
    *  to true, the schema at HEAD; the CLI passes its {@link VENDOR_LINKS_TABLE_SQL}
    *  probe so a tier without migration 0045 gets a plan that never names the table. */
   vendorLinksTable?: boolean;
+  /** AECI-1175: whether `review_responses` exists on the target tier (migration
+   *  0058). Defaults to true; the CLI passes its {@link REVIEW_RESPONSES_TABLE_SQL}. */
+  reviewResponsesTable?: boolean;
   /** AECI-1088 review: whether `integrations` has migration 0044's vendor-held columns.
    *  Defaults to true, the schema at HEAD; the CLI passes its probe. */
   vendorHeldColumns?: boolean;
@@ -659,6 +684,8 @@ function productTombstone(args: ProductDeleteArgs, guard: string): string {
         product_b: f.evidencedPairsAsB,
       },
       reviews: f.reviews,
+      // AECI-1175: vendor replies on those reviews.
+      review_responses: f.reviewResponses,
       product_versions: f.productVersions,
       // AECI-1007: every per-side link the plan deletes, on endpoint rows and on
       // rows the product no longer sits on.
@@ -703,6 +730,7 @@ export function buildDeleteStatements(args: ProductDeleteArgs): string[] {
   const attestationCount = (col: string) =>
     `(SELECT count(*) FROM "attestations" a JOIN "claims" c ON c."id" = a."claim_id" WHERE c."${col}" = t."id")`;
   const vendorLinksTable = args.vendorLinksTable ?? true;
+  const reviewResponsesTable = args.reviewResponsesTable ?? true;
   // AECI-1088 review: the vendor-held refusal, re-checked at write time. The CLI
   // refused on the footprint, but a claim can land between that read and `--apply`.
   // Every edge the plan deletes (or detaches, for `powered_by`) is in scope, pairs
@@ -788,8 +816,15 @@ export function buildDeleteStatements(args: ProductDeleteArgs): string[] {
       reason: 'product retracted',
       // Deliberately not the body or the reviewer's firm: `audit_log` is kept
       // indefinitely (§26.6) and survives erasure (§26.7).
-      beforeState: `json_object('table', 'reviews', 'row', ${rowJson(['id', 'product_id', 'reviewer_id', 'status', 'rating_overall', 'rating_onboarding', 'created_at'])})`,
-      from: `FROM "reviews" WHERE "product_id" = ${p}`,
+      // AECI-1175: the reply count rides on the review's tombstone, as the contests
+      // do on an integration's. No reply body: the same retention reason.
+      beforeState:
+        `json_object('table', 'reviews', 'row', ${rowJson(['id', 'product_id', 'reviewer_id', 'status', 'rating_overall', 'rating_onboarding', 'created_at'])}` +
+        (reviewResponsesTable
+          ? `, 'cascade', json_object('review_responses', (SELECT count(*) FROM "review_responses" r WHERE r."review_id" = t."id"))`
+          : '') +
+        `)`,
+      from: `FROM "reviews" t WHERE t."product_id" = ${p}`,
     }),
     tombstoneSelect({
       args,
@@ -827,6 +862,12 @@ export function buildDeleteStatements(args: ProductDeleteArgs): string[] {
     `UPDATE "attestations" SET "introduced_version_id" = NULL WHERE "introduced_version_id" IN (${s.versions});`,
     `UPDATE "attestations" SET "deprecated_version_id" = NULL WHERE "deprecated_version_id" IN (${s.versions});`,
     `DELETE FROM "product_versions" WHERE "product_id" = ${p};`,
+    // AECI-1175: vendor replies before their reviews, explicitly, never by cascade.
+    ...(reviewResponsesTable
+      ? [
+          `DELETE FROM "review_responses" WHERE "review_id" IN (SELECT "id" FROM "reviews" WHERE "product_id" = ${p});`,
+        ]
+      : []),
     `DELETE FROM "reviews" WHERE "product_id" = ${p};`,
     // page_views is log-class traffic history: detach, never delete (the no-action FK
     // would otherwise block the product DELETE).
@@ -891,6 +932,7 @@ export function formatFootprintReport(product: ProductRow, footprint: RetractFoo
     ['field contests', footprint.fieldChallenges],
     ['per-side vendor links', footprint.vendorLinks],
     ['reviews', footprint.reviews],
+    ['  vendor replies on them', footprint.reviewResponses],
     ['product_versions', footprint.productVersions],
     ['page_views (NULLed, kept)', footprint.pageViews],
     ['product_vendors', footprint.productVendors],

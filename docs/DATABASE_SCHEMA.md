@@ -1185,8 +1185,8 @@ create unique index reviews_unique_per_user_product
 
 A vendor's public reply to one approved review of a product it owns. **Pre-moderated:** a row
 shows on the product page only when it is `published`, its review is `approved`, and its vendor
-still owns the product. Contract: `STAGE_2_VENDOR_PORTAL_SPEC.md` §11c. Migration: the next free
-number when AECI-1175 merges (`0053` at the time of writing; AECI-1216 may take it first). It is
+still owns the product. Contract: `STAGE_2_VENDOR_PORTAL_SPEC.md` §11c. Migration:
+`0058_last_typhoid_mary.sql` (AECI-1216 took `0053`, AECI-1202 and AECI-1204 took `0054` and `0055`, AECI-1208 took `0056`, AECI-1210 took `0057`). It is
 purely additive: one `CREATE TABLE` and its indexes, no rebuild.
 
 ```sql

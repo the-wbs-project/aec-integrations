@@ -24,6 +24,7 @@ import {
   formatFootprintReport,
   parseFootprint,
   VENDOR_LINKS_TABLE_SQL,
+  REVIEW_RESPONSES_TABLE_SQL,
   type ProductRow,
   type RawFootprintRow,
   type RetractFootprint,
@@ -100,6 +101,7 @@ describe('buildFootprintSql', () => {
       '"connector_catalogs"',
       '"connector_stub_mappings"',
       '"integration_field_challenges"',
+      '"review_responses"',
       '"attestations"',
       'powered_by_product_id',
       'host_product_id',
@@ -366,6 +368,13 @@ function seed(t: TestDb): void {
   run(
     `INSERT INTO reviews (id, product_id, rating_overall, rating_onboarding, title, body, created_at, updated_at) VALUES ('rv1', '${P}', 4, 4, 't', 'private body text', ${TS}, ${TS});`,
   );
+  // AECI-1175: a vendor reply on rv1, where the table exists (older-schema cases
+  // below seed a database without migration 0058).
+  if (t.raw.prepare(REVIEW_RESPONSES_TABLE_SQL).get()) {
+    run(
+      `INSERT INTO review_responses (id, review_id, vendor_id, body, status, created_at, updated_at) VALUES ('rr1', 'rv1', 'v1', 'private reply text', 'published', ${TS}, ${TS});`,
+    );
+  }
   run(
     `INSERT INTO product_versions (id, product_id, label, sort_key, created_at, updated_at) VALUES ('pv1', '${P}', 'v1', 1, ${TS}, ${TS});`,
   );
@@ -420,6 +429,31 @@ describe('a tier without migration 0045 (AECI-1007)', () => {
   });
 });
 
+describe('a tier without migration 0058 (AECI-1175)', () => {
+  it('never names review_responses when the probe says the table is absent', () => {
+    const product = { id: P, slug: 'retract-me', name: 'retract-me', promotion_status: 'promoted' };
+    const footprint = parseFootprint(RAW_EMPTY);
+    const without = buildDeleteStatements({
+      product,
+      footprint,
+      auditId: 'a',
+      now: NOW,
+      reviewResponsesTable: false,
+    }).join('\n');
+    // As a table: the product tombstone's JSON still carries a `review_responses: 0` key.
+    expect(without).not.toContain('FROM "review_responses"');
+    expect(buildFootprintSql(P, { reviewResponsesTable: false })).not.toContain(
+      'FROM "review_responses"',
+    );
+    // HEAD's schema has the table, so the default plan deletes from it, before reviews.
+    const plan = buildDeleteStatements({ product, footprint, auditId: 'a', now: NOW });
+    const replies = plan.findIndex((x) => x.startsWith('DELETE FROM "review_responses"'));
+    const reviewsDel = plan.findIndex((x) => x.startsWith('DELETE FROM "reviews"'));
+    expect(replies).toBeGreaterThan(-1);
+    expect(replies).toBeLessThan(reviewsDel);
+  });
+});
+
 describe('buildDeleteStatements against the migrated schema', () => {
   it('reads a footprint that counts every relation it will touch', async () => {
     const t = await makeTestDb();
@@ -438,6 +472,7 @@ describe('buildDeleteStatements against the migrated schema', () => {
       // vl1 on the endpoint row i1, plus vl2 naming P on i2.
       vendorLinks: 2,
       reviews: 1,
+      reviewResponses: 1,
       productVersions: 1,
       pageViews: 1,
       productCategories: 1,
@@ -474,6 +509,7 @@ describe('buildDeleteStatements against the migrated schema', () => {
     // Both: vl1 went with i1, and vl2 (naming P on the surviving i2) by product_id.
     expect(count(`SELECT count(*) AS n FROM integration_vendor_links`)).toBe(0);
     expect(count(`SELECT count(*) AS n FROM reviews`)).toBe(0);
+    expect(count(`SELECT count(*) AS n FROM review_responses`)).toBe(0);
     expect(count(`SELECT count(*) AS n FROM product_versions`)).toBe(0);
     // Survivors: the powered_by edge (detached) and the page view (detached).
     expect(
@@ -523,6 +559,12 @@ describe('buildDeleteStatements against the migrated schema', () => {
     });
     expect(JSON.parse(byEntity.i2!.before_state)).toEqual({ powered_by_product_id: P });
     expect(byEntity.rv1!.before_state).not.toContain('private body text');
+    expect(byEntity.rv1!.before_state).not.toContain('private reply text');
+    expect(JSON.parse(byEntity.rv1!.before_state)).toMatchObject({
+      table: 'reviews',
+      row: { id: 'rv1', product_id: P },
+      cascade: { review_responses: 1 },
+    });
     expect(JSON.parse(byEntity[P]!.before_state)).toMatchObject({
       table: 'products',
       removed: {
@@ -530,6 +572,7 @@ describe('buildDeleteStatements against the migrated schema', () => {
         integrations: 1,
         evidenced_pairs: 1,
         reviews: 1,
+        review_responses: 1,
         product_versions: 1,
         vendor_links: 2,
       },
@@ -609,6 +652,7 @@ describe('vendor-held integrations are refused, --force or not (AECI-1005)', () 
           buildFootprintSql(id, {
             vendorHeldColumns: ddlHasVendorHeldColumns(ddl),
             vendorLinksTable: Boolean(t.raw.prepare(VENDOR_LINKS_TABLE_SQL).get()),
+            reviewResponsesTable: Boolean(t.raw.prepare(REVIEW_RESPONSES_TABLE_SQL).get()),
           }),
         )
         .get() as RawFootprintRow,
@@ -679,6 +723,7 @@ describe('vendor-held evidenced pairs are refused, whatever the flags (AECI-1088
             vendorHeldColumns: ddlHasVendorHeldColumns(ddl(INTEGRATIONS_DDL_SQL)),
             vendorHeldPairColumns: ddlHasVendorHeldColumns(ddl(EVIDENCED_PAIRS_DDL_SQL)),
             vendorLinksTable: Boolean(t.raw.prepare(VENDOR_LINKS_TABLE_SQL).get()),
+            reviewResponsesTable: Boolean(t.raw.prepare(REVIEW_RESPONSES_TABLE_SQL).get()),
           }),
         )
         .get() as RawFootprintRow,
@@ -803,7 +848,9 @@ describe('the delete plan re-checks vendor-held at write time (AECI-1088 review)
     const t = await makeTestDb({ upToExclusive: '0044_slippery_edwin_jarvis.sql' });
     seed(t);
     const footprint = parseFootprint(
-      t.raw.prepare(buildFootprintSql(P, { vendorLinksTable: false })).get() as RawFootprintRow,
+      t.raw
+        .prepare(buildFootprintSql(P, { vendorLinksTable: false, reviewResponsesTable: false }))
+        .get() as RawFootprintRow,
     );
     const statements = buildDeleteStatements({
       product: productRow(t, P),
@@ -813,6 +860,7 @@ describe('the delete plan re-checks vendor-held at write time (AECI-1088 review)
       deleteEvidencedPairs: true,
       footprint,
       vendorLinksTable: false,
+      reviewResponsesTable: false,
       vendorHeldColumns: false,
       vendorHeldPairColumns: false,
       // AECI-1092: nor 0050's evidenced contest anchor.
