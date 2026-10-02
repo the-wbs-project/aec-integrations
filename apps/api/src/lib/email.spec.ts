@@ -812,7 +812,16 @@ describe('sendMailingListWelcomeEmail', () => {
     expect(String(copy.text)).not.toContain('tok-123');
     expect(String(copy.html)).not.toContain('tok-123');
     expect(String(copy.text)).toContain('/unsubscribe?token=operator-copy');
-    expect(String(copy.text)).toBe(String(user.text).replace('tok-123', 'operator-copy'));
+    // Same body, except the token and the link tag's campaign, which names the copy
+    // (AECI-1209). Neither send here has a ledger, so neither link carries `n`.
+    expect(String(copy.text)).toBe(
+      String(user.text)
+        .replace('tok-123', 'operator-copy')
+        .replace(
+          'utm_campaign=mailing-list-welcome',
+          'utm_campaign=mailing-list-welcome-operator-copy',
+        ),
+    );
     // One count per recipient send; the copy is not counted.
     expect(sendTags()).toEqual([['outcome:sent', 'template:mailing-list-welcome']]);
   });
@@ -2659,7 +2668,7 @@ describe('protest and decline emails (AECI-1205)', () => {
       expect(html).toContain('https://evil.example/login?next=/vendor');
       // The AECi-built pair page still links.
       expect(html).toContain(
-        'href="https://www.aecintegrations.com/products/microstation/integrations/revit"',
+        'href="https://www.aecintegrations.com/products/microstation/integrations/revit?utm_source=email&amp;utm_campaign=contest-protest-opened"',
       );
     });
 

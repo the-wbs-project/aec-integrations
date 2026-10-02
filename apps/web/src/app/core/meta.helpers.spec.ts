@@ -180,6 +180,17 @@ describe('stripQueryParamsExcept', () => {
       'https://aecintegrations.com/products?page=2',
     ],
     ['https://aecintegrations.com/products?utm_source=x', 'https://aecintegrations.com/products'],
+    // The email link tag (AECI-1209): `n` is unique per send, and it shares an edge
+    // entry with the untagged URL, so the canonical must drop it with both utm params.
+    [
+      'https://aecintegrations.com/products?page=2&utm_source=email&utm_campaign=claim-approved&n=42',
+      'https://aecintegrations.com/products?page=2',
+    ],
+    [
+      'https://aecintegrations.com/products/foo/integrations/bar?utm_source=email&utm_campaign=attestation-digest&n=42',
+      'https://aecintegrations.com/products/foo/integrations/bar',
+    ],
+    ['https://aecintegrations.com/vendor?n=42', 'https://aecintegrations.com/vendor'],
     // Fragments always go, allowed param or not.
     [
       'https://aecintegrations.com/categories/structural?page=3#grid',

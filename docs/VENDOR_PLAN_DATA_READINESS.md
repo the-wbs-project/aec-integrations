@@ -172,6 +172,15 @@ each loses per day. G0 comes first because it covers every visitor, not only the
 > (`DATABASE_SCHEMA.md` §9.12). These stock numbers overwrite themselves, so a trend starts on
 > the first 00:30 UTC run after deploy and cannot be backfilled.
 
+> **G7, updated 2026-10-02.** The Resend message id is stored by AECI-1202
+> (`notification_sends.provider_message_id`). The notification id in email links is AECI-1209:
+> every site link in a transactional email carries `utm_source=email`,
+> `utm_campaign=<template id>` and `n=<notification_sends.id>`, and a signed-in landing records
+> them on `user_activity_daily` (`docs/email.md` §Link tagging). Still open: the cron digests and
+> the Supabase sign-in email are not tagged, by decision, and a signed-out click that never signs
+> in records nothing. Portal opens are counted by `user_activity_daily` surfaces. A per-link
+> click record does not exist.
+
 Also worth doing before the pilot, but not history-critical:
 
 - Tag the operator's pre-2026-09-24 PostHog identity as internal, or exclude it at query time.
