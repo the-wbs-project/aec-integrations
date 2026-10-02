@@ -947,7 +947,7 @@ the Anthropic org behind `ANTHROPIC_API_KEY` **must** have zero data retention
 window (~30 days) outside this boundary. Confirm ZDR before provisioning a real
 key; the absent-key path (a silent no-op) sends nothing.
 
-**The FK trap (AECI-202).** There are **ten** inbound FKs to `profiles(id)` in D1 (eight until AECI-1008 added the two contest columns).
+**The FK trap (AECI-202).** There are **thirteen** inbound FKs to `profiles(id)` in D1 today. It was eight until AECI-1008 added the two contest columns, and ten until AECI-1009 added the three protest columns. This line said "ten" after AECI-1009 by mistake, corrected 2026-10-02. **AECI-1175 adds two more, for fifteen**: `review_responses.author_profile_id` and `review_responses.moderated_by` (`STAGE_2_VENDOR_PORTAL_SPEC.md` §11c).
 Five are `ON DELETE NO ACTION`, so any `DELETE FROM profiles` **FK-fails**
 unless every one of them is nulled first. A real reviewer always trips at least
 `audit_log.actor_id` (every `review.submitted` writes an `audit_log` row). The
@@ -968,6 +968,8 @@ full list:
 | `integration_field_challenges.protested_by` | SET NULL | nulled (explicit too; the **protest survives**, only the filing person's link is severed) — AECI-1009 |
 | `integration_field_challenges.protest_replied_by` | SET NULL | nulled (explicit too; the owner's reply survives, only the replying person's link is severed) — AECI-1009 |
 | `integration_field_challenges.protest_decided_by` | SET NULL | nulled (explicit too; AECi's view survives, only the deciding admin's link is severed) — AECI-1009 |
+| `review_responses.author_profile_id` | SET NULL | nulled (explicit too; the **reply survives** its author's erasure, because it is the vendor's record, so only the writing seat's link is severed) — added by AECI-1175 |
+| `review_responses.moderated_by` | SET NULL | nulled (explicit too; the decision survives, only the deciding admin's link is severed) — added by AECI-1175 |
 
 There used to be one more — `page_views.user_id`, nulled in the same batch.
 AECI-585 **dropped that column** (`ADMIN_PANEL_SPEC.md` §13 D7): it was never
@@ -993,9 +995,9 @@ and no `apps/api/src/prisma.ts`:
 
 1. User confirms Delete in `/account` → `DELETE /api/account`.
 2. **D1 erasure — one atomic `db.batch([...])`** (`apps/api/src/routes/account.ts`):
-   in order, null all ten inbound references above, delete the user's
-   `user_activity_daily` rows, write the `account.deleted` audit row, then delete the
-   `profiles` row. All commit or roll back as a unit.
+   in order, null every inbound reference above (thirteen today, fifteen once AECI-1175 ships),
+   delete the user's `user_activity_daily` rows, write the `account.deleted` audit row, then
+   delete the `profiles` row. All commit or roll back as a unit.
    **When the profile is a `vendor_admin` seat (AECI-1106)**, the AECI-989 seat-loss
    rows join the same batch after the delete. The vendor's last seat hands its record
    back to AECi. A seat whose colleagues are all banned moves the owner's contests to

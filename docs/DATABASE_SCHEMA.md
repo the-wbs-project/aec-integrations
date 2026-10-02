@@ -122,6 +122,7 @@ Tables grouped by domain:
 **User and content**:
 - `profiles` — extends `auth.users` with role and metadata
 - `reviews` — user-submitted product reviews
+- `review_responses` — a vendor's pre-moderated public reply to a review (§7.3, AECI-1175)
 
 **Operations and workflow**:
 - `vendor_requests` — incoming claim and correction requests
@@ -1179,6 +1180,62 @@ create unique index reviews_unique_per_user_product
   on reviews(product_id, reviewer_id)
   where reviewer_id is not null and status <> 'archived';
 ```
+
+### 7.3 `review_responses` (Stage 2.1 — AECI-1175)
+
+A vendor's public reply to one approved review of a product it owns. **Pre-moderated:** a row
+shows on the product page only when it is `published`, its review is `approved`, and its vendor
+still owns the product. Contract: `STAGE_2_VENDOR_PORTAL_SPEC.md` §11c. Migration: the next free
+number when AECI-1175 merges (`0053` at the time of writing; AECI-1216 may take it first). It is
+purely additive: one `CREATE TABLE` and its indexes, no rebuild.
+
+```sql
+create table review_responses (
+  id text primary key not null,
+  review_id text not null references reviews(id) on delete cascade,
+  vendor_id text not null references vendors(id) on delete cascade,
+  author_profile_id text references profiles(id) on delete set null,  -- the seat that last wrote the body
+
+  body text not null,                    -- plain text, 1..2000 chars after trim (API-validated)
+  status text not null default 'pending'
+    check (status in ('pending', 'published', 'rejected', 'withdrawn', 'removed')),
+  rejection_reason text,                 -- set on reject and remove; shown to the vendor
+  moderated_by text references profiles(id) on delete set null,
+  moderated_at text,
+  published_at text,                     -- set on approve; cleared on edit, withdraw and remove
+
+  created_at text not null,
+  updated_at text not null               -- on a pending row: when it entered the queue
+);
+
+create unique index review_responses_review_vendor_key on review_responses(review_id, vendor_id);
+create index review_responses_status_updated_idx on review_responses(status, updated_at);
+create index review_responses_vendor_updated_idx on review_responses(vendor_id, updated_at);
+```
+
+- **One reply per (review, vendor).** The unique index is ruling 4. A co-owned product can carry
+  one reply per owning vendor under the same review. A resubmit reuses the row.
+- **The status CHECK is written once, here.** Adding a value later rebuilds the table on D1
+  (`migrations.md` §3.3a). The five values are final for this feature.
+- **The queue index is `(status, updated_at)`, not `(status, created_at)`.** An edit and a resubmit
+  put an old row back into `pending`. Its queue age starts then, and `updated_at` records it.
+  `created_at` would sort a re-edited reply as if it had waited since its first submit.
+- **The vendor index serves the portal list and the `reviews` cursor scope**
+  (`STAGE_2_REALTIME_SPEC.md` §2.2).
+- **No workflow columns.** The state machine lives in `status`. No `workflow_instances` row is
+  written, so the closed `workflow_instances_type_check` stays closed.
+- **Cascades.** `review_id` cascades, so deleting a review deletes its replies. `vendor_id` cascades,
+  so deleting a vendor deletes its replies. Deleting a product reaches replies two levels down
+  (`products` → `reviews` → `review_responses`). **This is the first cascade child of `reviews`.** A
+  future rebuild of `reviews` would delete every reply, and `reviews` was rebuilt once already
+  (`0027`). AECI-1175 adds the table to the cascade-children assertion in
+  `apps/api/src/test/d1.spec.ts`.
+- **Two more inbound FKs to `profiles`.** `author_profile_id` and `moderated_by` are both
+  `ON DELETE SET NULL` and are also nulled explicitly in the erasure batch
+  (`AUTH_AND_RLS.md` §8). The reply survives its author's erasure. It is the vendor's record, not
+  the person's.
+- **Nothing ranks on this table.** No count, aggregate, Algolia attribute, sort key or
+  `listing_tier` input reads it (`STAGE_2_PAID_TIERS_SPEC.md` §3.2).
 
 ---
 

@@ -44,7 +44,7 @@ That last point is the immediate trigger for this work. On 2026-08-10 the digest
 **In scope**
 
 - A `/admin` console covering traffic, audience, catalog, moderation, and system health (§5).
-- API endpoints behind `requireAdmin()` (§6), **read-only with nine named exceptions**: §5.7's seat revoke (`DELETE /api/admin/vendors/:id/seats/:userId`, AECI-652) and its **seat provision** (`POST /api/admin/vendors/:id/seats`, AECI-740), §5.8's ban/reinstate, which reuses the pre-existing `PATCH /api/admin/reviewers/:id` (AECI-218) rather than adding a writer, §5.9's `managed_by` flip (`PATCH /api/admin/connector-catalogs/:id`, AECI-720), §5.10's operator note (`PATCH /api/admin/claims/:id/notes`, AECI-739), and §5.11's worklist clear (`DELETE /api/admin/reindex/:id`, AECI-946). The first three are *account* writes (since AECI-989 the revoke of a vendor's **last** seat also hands its record back to AECi, and a ban of its last active seat moves its open owner contests to AECi's queue. Neither edits catalog content: see §5.7), the fourth is a **governance** write — it decides which system may author a catalogue and changes no catalogue content — the fifth is an **annotation**: it changes no claim status and grants nothing — and the sixth is **queue consumption**: it clears one row of the operator's own worklist and touches nothing any visitor can see. See the catalog-editing bullet below. *(This bullet read "two named exceptions" until AECI-722: AECI-720 added its endpoint to §6's table without amending the count here. Kept at "three" through AECI-722, raised to "four" by AECI-739, to "five" by AECI-740, to "six" by AECI-946, to "seven" by AECI-955, to "eight" by AECI-1008 and to "nine" by AECI-1046 — the drift is this line's known failure mode, so amend it in the same PR as the endpoint.)* The seventh is the **logo-only catalog write** introduced by AECI-955: vendor and product logo PATCHes plus their upload endpoint, governed by STAGE_2_5_SPEC.md §11. It writes no other catalog field. The eighth is the **contest decision** introduced by AECI-1008: `PATCH /api/admin/contests/:id` accepts or declines an integration field contest routed to AECi (`STAGE_2_VENDOR_PORTAL_SPEC.md` §11b). It is a **decision** write. An accept writes no catalog data: it records the decision and files a `REVIEW - ` Linear issue so the review lane applies the value upstream, which keeps the §2 catalog lockout intact. The ninth is the **admin retire and restore** introduced by AECI-1046: `POST /api/admin/integrations/:id/retire` and `/restore`, from the Integrations tab on `/admin/vendors/:id` (§5.7). It is a **moderation** write on a vendor-held listing: it hides or restores the row with a required reason and writes no catalog content (`STAGE_2_VENDOR_PORTAL_SPEC.md` §4.6.4). **Reasons on admin overwrites (AECI-1191).** Three of these writes now take a reason that lands in the audit row's `metadata.reason`: the seat revoke (required `{ reason }` body), the logo PATCHes (required `reason` beside `logo_url`) and the contest accept (a required `note` when the accept changes a vendor-held value; see §5.12). The seat revoke and logo reasons use the shared `AdminReasonSchema` (trimmed, 1 to 1000 characters). The contest note keeps `DecideContestSchema`'s limit (trimmed, 1 to 2000 characters). The retire reason (the ninth) was already required.
+- API endpoints behind `requireAdmin()` (§6), **read-only with nine named exceptions**: §5.7's seat revoke (`DELETE /api/admin/vendors/:id/seats/:userId`, AECI-652) and its **seat provision** (`POST /api/admin/vendors/:id/seats`, AECI-740), §5.8's ban/reinstate, which reuses the pre-existing `PATCH /api/admin/reviewers/:id` (AECI-218) rather than adding a writer, §5.9's `managed_by` flip (`PATCH /api/admin/connector-catalogs/:id`, AECI-720), §5.10's operator note (`PATCH /api/admin/claims/:id/notes`, AECI-739), and §5.11's worklist clear (`DELETE /api/admin/reindex/:id`, AECI-946). The first three are *account* writes (since AECI-989 the revoke of a vendor's **last** seat also hands its record back to AECi, and a ban of its last active seat moves its open owner contests to AECi's queue. Neither edits catalog content: see §5.7), the fourth is a **governance** write — it decides which system may author a catalogue and changes no catalogue content — the fifth is an **annotation**: it changes no claim status and grants nothing — and the sixth is **queue consumption**: it clears one row of the operator's own worklist and touches nothing any visitor can see. See the catalog-editing bullet below. *(This bullet read "two named exceptions" until AECI-722: AECI-720 added its endpoint to §6's table without amending the count here. Kept at "three" through AECI-722, raised to "four" by AECI-739, to "five" by AECI-740, to "six" by AECI-946, to "seven" by AECI-955, to "eight" by AECI-1008 and to "nine" by AECI-1046 — the drift is this line's known failure mode, so amend it in the same PR as the endpoint.)* The seventh is the **logo-only catalog write** introduced by AECI-955: vendor and product logo PATCHes plus their upload endpoint, governed by STAGE_2_5_SPEC.md §11. It writes no other catalog field. The eighth is the **contest decision** introduced by AECI-1008: `PATCH /api/admin/contests/:id` accepts or declines an integration field contest routed to AECi (`STAGE_2_VENDOR_PORTAL_SPEC.md` §11b). It is a **decision** write. An accept writes no catalog data: it records the decision and files a `REVIEW - ` Linear issue so the review lane applies the value upstream, which keeps the §2 catalog lockout intact. The ninth is the **admin retire and restore** introduced by AECI-1046: `POST /api/admin/integrations/:id/retire` and `/restore`, from the Integrations tab on `/admin/vendors/:id` (§5.7). It is a **moderation** write on a vendor-held listing: it hides or restores the row with a required reason and writes no catalog content (`STAGE_2_VENDOR_PORTAL_SPEC.md` §4.6.4). **Reasons on admin overwrites (AECI-1191).** Three of these writes now take a reason that lands in the audit row's `metadata.reason`: the seat revoke (required `{ reason }` body), the logo PATCHes (required `reason` beside `logo_url`) and the contest accept (a required `note` when the accept changes a vendor-held value; see §5.12). The seat revoke and logo reasons use the shared `AdminReasonSchema` (trimmed, 1 to 1000 characters). The contest note keeps `DecideContestSchema`'s limit (trimmed, 1 to 2000 characters). The retire reason (the ninth) was already required. **A tenth is specified (AECI-1174) and built by AECI-1177:** `PATCH /api/admin/review-responses/:id` approves, rejects or removes a vendor's reply to a review (§5.13). It is a **moderation** write on vendor-authored content. It writes no catalog data and never touches the review. AECI-1177 raises this bullet's count to ten in its own PR.
 - A daily metrics-snapshot table so counts-over-time become answerable (§7.1).
 - Persisting cron and data-quality results so "current status" is inspectable (§7.2) — **shipped, AECI-583**.
 - Hand-rolled SVG charts, no new client dependency (§8).
@@ -143,6 +143,7 @@ Twenty-one routes under the existing `AdminShell` (`app/admin/admin-shell.ts`): 
     /admin/connectors/:id  §5.9  (detail — nav links the list only)
   Operations
     /admin/reviews         existing (Phase 5.13)
+    /admin/review-responses §5.13 (vendor replies to reviews — AECI-1177, specified)
     /admin/requests        existing (Phase 6.10)
     /admin/claims          existing (Stage 2, AECI-521 — see the connector note below)
     /admin/claims/:id      §5.10 (detail — nav links the list only)
@@ -236,6 +237,7 @@ the **Operations trigger renders their SUM**.
 | Requests | `pending_requests` | `vendor_requests.status = 'open' AND kind = 'correction'` |
 | Vendor claims | `pending_claims` | `vendor_requests.status = 'open' AND kind = 'claim'` |
 | Field contests | `pending_contests` | open AECi-routed or stranded contests (`status = 'open'`, AECI-1008 / AECI-1005), plus open protests (`protest_status = 'open'`, AECI-1009) |
+| Review replies (AECI-1177, specified) | `pending_review_responses` | `review_responses.status = 'pending'` (`STAGE_2_VENDOR_PORTAL_SPEC.md` §11c) |
 | Re-index queue | `pending_reindex` | none. Every `gsc_recrawl_queue` row is pending (AECI-946) |
 
 **The fifth count is field contests (AECI-1008).** `pending_contests` counts open
@@ -1233,6 +1235,65 @@ still reply. Pessimistic like the contest decision: a success drops the row and 
 the badge, and `409 PROTEST_NOT_OPEN` announces and reloads. The contract is
 `STAGE_2_VENDOR_PORTAL_SPEC.md` §11b.12.
 
+### 5.13 Vendor review replies — SPECIFIED (AECI-1174, 2026-10-02; built by AECI-1177)
+
+The queue where AECi approves, rejects or removes a vendor's public reply to a review.
+`STAGE_2_VENDOR_PORTAL_SPEC.md` §11c owns the contract. `API_CONTRACTS.md` §6.10 has the two
+endpoint shapes. Recorded here because the route, the IA, the badge and the write are this
+doc's business.
+
+**What a row is.** A seat on a vendor that owns a product has written a reply to one approved
+review of it. Nothing shows on the product page until an admin approves it.
+
+- **`/admin/review-responses`**, nav label "Review replies". One list, oldest first, so the
+  longest wait is on top. Each card shows the product (linked to its public page), the review
+  in full with its ratings and status, the reply, the vendor, the author seat's email, and the
+  date it entered the queue. A decided row adds the decision date and reason.
+- **One filter.** Status tabs: Pending (the default), Published, Rejected, Withdrawn, Removed.
+  They map one-to-one onto `ListAdminReviewResponsesQuerySchema`.
+- **Two warnings on a card.** When the review is no longer `approved`, or the vendor no longer
+  owns the product, the card says the reply will not show even if approved. Approve stays
+  available. The public render rules in §11c.11 decide what shows, not this screen.
+
+Three IA notes, in §5.10's voice:
+
+- **Operations, right after Review queue.** Both moderate user-facing review content, and an
+  operator working one queue should find the other beside it.
+- **A nav badge, and the sixth one.** `pending_review_responses` counts
+  `review_responses.status = 'pending'`. The client key in `AdminQueueKey` is
+  `reviewResponses`. It is a different table, so it is disjoint from the other five by
+  construction, and it joins the Operations SUM and the header badge. The wire field is optional
+  on the type for deploy skew, and `seed()` leaves an absent key alone, as with
+  `pending_contests`. `GET /api/admin/summary` and `GET /api/account` carry it.
+- **No detail route.** A card already carries everything a decision needs.
+
+**This section is not read-only, and it is the tenth §2 exception.** The write is
+`PATCH /api/admin/review-responses/:id`. It is a **moderation** write on vendor-authored
+content. It writes no catalog data and never touches the review.
+
+- **Approve, reject, remove.** Approve moves `pending` to `published`. Reject moves `pending`
+  to `rejected`. Remove moves `published` to `removed`, which is final for that vendor and
+  review. A row in any other state shows no buttons.
+- **A reason is required for reject and remove.** The form says the reason is shown to the
+  vendor. The API refuses a missing reason with `400`, so the form requires it too.
+- **Audit in the same batch.** The guarded `UPDATE`, the `changes()` sentinel, the
+  `review_response.approved | rejected | removed` audit row and the vendor's
+  `notification.sent` row are one `db.batch`. No `workflow_instances` row.
+- **Purge on visibility only.** Approve and remove purge `product:{slug}` after commit, source
+  `moderation`. Reject purges nothing, because a pending reply was never on the page.
+- **Pessimistic, with a reload on a lost race.** A success drops the row and decrements the
+  badge. `409 REVIEW_RESPONSE_WRONG_STATE` (another admin decided it, or the vendor edited or
+  withdrew it) announces "Already changed" and reloads, without decrementing.
+- **Carries `rateLimit('write')`,** like the contest decision (`waf-rate-limits.md` §6.2).
+
+**What this screen deliberately cannot do:**
+
+- **Change the review.** No status, text or rating. Review moderation stays on
+  `/admin/reviews`.
+- **Edit the reply.** AECi approves or refuses the vendor's words. It never rewrites them.
+- **Restore a removed reply.** A removal is final. A mistaken removal needs a data fix with its
+  own audit row, which is a deliberate speed bump.
+
 ---
 
 ---
@@ -1277,6 +1338,8 @@ All endpoints are admin-gated and register on the existing `authAdmin` sub-route
 | `DELETE /api/admin/reindex/:id` | §5.11 Done — **SHIPPED (AECI-946)** | **The fifth write in this table**, and *queue consumption* — no catalog row, no account row, nothing a visitor can see. Audit row in the same `db.batch` as the delete, `action='reindex.cleared'`, attributed to the admin rather than `'system'`. This is **not** §26.1's scheduled-deletion case, so it audits per row rather than one summary row per run. Carries **no** `rateLimit()` — true of every admin write **except** the three AECI-955 logo routes below, the AECI-1008 contest decision and the two AECI-1046 integration retire routes (`waf-rate-limits.md` §6.2). A row another tab already cleared is a flat 404 |
 | `GET /api/admin/contests` | §5.12 queue — **SHIPPED (AECI-1008)** | `PageQuerySchema` + `?status=` (default `open`) + `?routed_to=` (default `aeci`; `owner` is the read-only view). Ordered `created_at DESC, id ASC`. Bare `paginatedResponseSchema`, same reasoning as §5.11. Contract in `packages/shared/src/api/integration-contests.ts` |
 | `PATCH /api/admin/contests/:id` | §5.12 accept / decline — **SHIPPED (AECI-1008)** | **A decision write, not a catalog write** (the eighth §2 exception). Accept files a `REVIEW - ` Linear issue after commit. It writes catalog data only on a claimed row, where promote no longer can (AECI-1005, `STAGE_2_VENDOR_PORTAL_SPEC.md` §11b.6). **Since AECI-1191 an accept that changes a vendor-held value requires `note`** (`400 VALIDATION_FAILED`, `error.field = 'note'`, nothing written), recorded in the decision audit row's `metadata.reason`; the list read carries `accept_note_required`. Audit row, workflow transition and the submitter's `notification.sent` ride one `db.batch` behind a race sentinel. Carries `rateLimit('write')`. `409 CONTEST_NOT_OPEN` / `CONTEST_ROUTED_TO_OWNER` |
+| `GET /api/admin/review-responses` | §5.13 queue — **SPECIFIED (AECI-1174), built by AECI-1177** | `PageQuerySchema` + `?status=` (default `pending`). Ordered `updated_at ASC, id ASC`, oldest first. Bare `paginatedResponseSchema`. Contract in `packages/shared/src/api/review-responses.ts` |
+| `PATCH /api/admin/review-responses/:id` | §5.13 approve / reject / remove — **SPECIFIED (AECI-1174), built by AECI-1177** | **A moderation write on vendor-authored content** (the tenth §2 exception). Reason required for reject and remove. Audit row and the vendor's `notification.sent` ride one `db.batch` behind a `changes()` sentinel. Approve and remove purge `product:{slug}`. Carries `rateLimit('write')`. `409 REVIEW_RESPONSE_WRONG_STATE` |
 | `GET /api/admin/vendors/:id/integrations` | §5.7 Integrations tab — **AECI-1046**, both tables since **AECI-1091** | The vendor-held integrations the vendor owns (`built_by_vendor_id = :id` and claimed or `origin = 'vendor'`), live and retired, from `integrations` and `connector_evidenced_pairs` (each row carries `anchor` and, on a pair, `connector`), ordered by name case-insensitively then id, paged in memory. `PageQuerySchema`, bare `paginatedResponseSchema`. No audit row |
 | `POST /api/admin/integrations/:id/retire` · `/restore` | §5.7 Integrations tab — **AECI-1046** | **A moderation write** (the ninth §2 exception). Body `{ reason }`, required. The owner retire's batch: guarded UPDATE of `retired_at` / `retired_by` / `updated_at`, contest closes on retire, the audit row with the admin and the reason, a `notification.sent` to the owner and every endpoint vendor, both count recomputes. Since AECI-1091 the id may name a vendor-held evidenced pair: a soft retire of the pair's `retired_at` / `retired_by`, never a delete, with the connector's count recomputed too. Carries `rateLimit('write')`. `409 INTEGRATION_NOT_VENDOR_HELD` / `INTEGRATION_RETIRED` / `INTEGRATION_NOT_RETIRED` / `INTEGRATION_RETIRED_BY_OWNER` |
 | `POST /api/admin/logo` | Logo upload — **SHIPPED (AECI-955)** | Not a write *in D1*: one bounded multipart `file` to the private `UPLOADS` R2 bucket, keyed by its SHA-256, returning `{logo_url: "/api/logos/<hash>"}`. No `audit_log` row, because no domain state moved — an upload is not a catalog edit until a parent form saves. Carries `rateLimit('write')` and a same-origin check (`requireLogoOrigin`), both exceptions to the conventions above; the limiter is here because this route is the only admin write that consumes unbounded external storage. Contract in `packages/shared/src/api/logos.ts` |

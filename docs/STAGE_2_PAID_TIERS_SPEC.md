@@ -233,6 +233,8 @@ export function capabilitiesFor(tier: EntitlementTier): readonly Capability[];
 
 > **Amended 2026-10-01 by §13.3 (AECI-1212), built by AECI-1214 (2026-10-02).** The registry holds ten ids: `product.listing.edit` and `product.categories.edit` are new. `unclaimed` holds `profile.edit` and both new ids. That is the Free plan. Every field's capability is in `VENDOR_FIELD_CAPABILITIES` / `PRODUCT_FIELD_CAPABILITIES` in the same module.
 
+> **Amended 2026-10-02 by `STAGE_2_VENDOR_PORTAL_SPEC.md` §11c.9 (AECI-1174).** The registry gains `review.reply`, the gate on a vendor's public reply to a review. It is held by `verified` only. `unclaimed` must not hold it. Opening it to Free is a one-line move into `TIER_CAPABILITIES.unclaimed`. AECI-1176 changes the code. This supersedes the AECI-313 flag-only ruling of 2026-07-02. Reporting a review stays the `reviews@thewbsproject.com` email.
+
 Three capabilities are **declared with no consumer on purpose**: `attestation.author` (AECI-301), `analytics.view`, and `integration.version_diff` (AECI-304). Minting the ids now means those later issues become pure render-path/handler changes with no registry edit, and it makes the vocabulary auditable in one place today.
 
 > **Corrected 2026-09-24 (AECI-1107).** The registry holds **eight** ids, not seven: AECI-963 added `product.usefulness.edit`. Only `analytics.view` is still declared with no consumer. `integration.version_diff` gained its consumer in AECI-304 (`canViewVersionDiff`, §3.3(c)). `attestation.author` gained its consumers in AECI-623: the three attestation writes and the three product-version writes call `requireCapability(c, 'attestation.author')` (§3.3(a)), and the portal's Integrations tab reads the same capability. So a vendor whose plan lapses loses confirming, denying and clearing data flows. Since AECI-1214 it keeps company details and the four `listing_tier` product fields, and loses only the Managed product fields (§13.3). The lapsed plan panel (§8) names what is paused.
@@ -931,6 +933,7 @@ Two capability ids are added. `unclaimed` stops being empty.
 | `product.edit` | integrations page URL, API docs URL | `verified` |
 | `product.taxonomy.edit` | trades, audiences, phases | `verified` |
 | `product.usefulness.edit`, `attestation.author`, and the rest | unchanged | `verified` |
+| `review.reply`, new (AECI-1174) | a public reply to a review, `STAGE_2_VENDOR_PORTAL_SPEC.md` §11c | `verified` only |
 
 `verified` keeps every capability. Existing ids keep their names, so audit rows and the shipped UI keep their meaning. Neither new id contains a word from `PLAN_SHAPED` in `entitlements.spec.ts`.
 
