@@ -3,12 +3,12 @@ title: Attesting an integration
 description: How to say whether the data flows recorded under an integration are right, what readers see as a result, and what happens when the two companies disagree.
 section: vendors
 order: 3
-last_updated: 28 September 2026
+last_updated: 2 October 2026
 ---
 
 An integration's own page lists the data that moves between two products: a model, a schedule, an RFI, and so on, each in one direction. We call each of those a data flow. Most of them were recorded by AEC Integrations from public sources. Answering Yes or No on that page is how the company at either end says whether a flow is right.
 
-Answering needs a seat and an active plan. See [Your seat](/docs/vendors/your-seat) and [Plans and the account label](/docs/vendors/plans-and-the-account-label).
+Answering needs a seat and the Managed plan. A company on Free can see every flow and every answer, but cannot answer. See [Your seat](/docs/vendors/your-seat) and [Plans and the account label](/docs/vendors/plans-and-the-account-label).
 
 ## Open the integration's page
 
@@ -41,7 +41,7 @@ The list of data types is fixed. If what you need is not on it, tell us through 
 
 ## What readers see
 
-The public integration page shows where each flow stands. It shows each company's answer, but never its note. Your company counts once, however many seats it holds.
+The public integration page shows where each flow stands. It shows each company's answer, but never its note. Your company counts once, however many seats it holds. What readers see does not depend on either company's plan. An answer already on record shows the same way whether its company is on Free or Managed.
 
 | Where it stands | What the page says |
 | --- | --- |
@@ -70,7 +70,7 @@ The page tells you, on the integration's own page, what your answer sets in moti
 
 "Confirmed by" and "Confirmed by both companies" mean the companies at the ends of the integration stand behind that data flow. It is a statement by the companies, not a test by AEC Integrations.
 
-It is a different thing from the "Active on AECi" label on a vendor's page. That label means the company has an active plan. It says nothing about whether its integrations are accurate.
+It is a different thing from the "Active on AECi" label on a vendor's page. That label means the company is on the Managed plan. It says nothing about whether its integrations are accurate.
 
 ## Versions
 

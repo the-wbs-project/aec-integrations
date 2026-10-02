@@ -1,12 +1,12 @@
 ---
 title: Your seat
-description: Signing in to the vendor portal, inviting and removing colleagues, and what a seat lets you do with and without a plan.
+description: Signing in to the vendor portal, inviting and removing colleagues, and what a seat lets you do on the Free and Managed plans.
 section: vendors
 order: 2
-last_updated: 24 September 2026
+last_updated: 2 October 2026
 ---
 
-A seat is one person's access to one vendor's account on AEC Integrations. Seats have no price and no limit on how many your company holds. What a seat can change depends partly on whether your company has an active plan, set out below.
+A seat is one person's access to one vendor's account on AEC Integrations. Seats have no price and no limit on how many your company holds. What a seat can change depends partly on your company's plan, Free or Managed, set out below.
 
 ## Sign in
 
@@ -49,26 +49,28 @@ If AEC Integrations removes the last seat on your company's account, your listin
 
 ## What a seat can do
 
-With a seat alone, whether or not your company has a plan, you can:
+On every plan, including Free, you can:
 
 - see everything in the vendor portal,
+- edit your company details, and each product's description, website, logo and categories,
+- mark your company details, a product, or a product's integration list as "Looks right", and work through the checklists ([Plans and the account label](/docs/vendors/plans-and-the-account-label)),
 - manage seats, if you are an owner,
 - claim, edit, retire and add the integrations your company owns, except one delivered through a connector ([Owning an integration](/docs/vendors/owning-an-integration)),
 - add your own links to an integration at either end,
 - contest a detail on an integration your company does not own ([Contests and protests](/docs/vendors/contests-and-protests)),
 - maintain the catalogue of a connector product your company makes, on that product's **Catalogue** tab, once we have handed the catalogue to you ([Claiming your vendor listing](/docs/vendors/claiming-your-listing#vendors-whose-products-are-connectors)).
 
-With an active plan, you can also:
+On Managed, you can also:
 
-- edit your company profile and product details, including categories, trades, audiences, phases and "How teams use it",
+- edit a product's integrations page URL, API docs URL, trades, audiences, phases and "How teams use it",
 - confirm or deny data flows ([Attesting an integration](/docs/vendors/attesting-an-integration)),
 - claim, edit, retire and restore an integration your company owns that is delivered through a connector, and decide contests on it ([Owning an integration](/docs/vendors/owning-an-integration)).
 
 A seat never changes where your company or products appear in search or in any listing. Neither does a plan. See [Plans and the account label](/docs/vendors/plans-and-the-account-label).
 
-## If your plan ends
+## If a Managed plan ends
 
-Your seats stay, and so does sign-in. The portal becomes read-only for anything that needs a plan. Your listings stay published, and the seat-only actions above keep working.
+Your company moves to Free. Your seats stay, and so does sign-in. The portal becomes read-only for anything that needs Managed. Nothing you entered is removed. Your listings stay published, and everything Free allows keeps working.
 
 ## Related
 

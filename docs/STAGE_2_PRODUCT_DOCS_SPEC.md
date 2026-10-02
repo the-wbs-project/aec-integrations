@@ -101,7 +101,7 @@ URL scheme: `/docs/<section>/<slug>`, kebab-case. Roughly 18 pages.
 │  ├─ attesting-an-integration       — Affirm/Deny/Clear, add a data flow, agreement states, what happens next
 │  ├─ owning-an-integration          — claim, edit, per-side links, retire/restore, create (AECI-1023, ADR 0035)
 │  ├─ contests-and-protests          — sending and receiving contests, the protest to AECi (§11b)
-│  └─ plans-and-the-account-label    — the four things a plan changes, what it never changes, billing, expiry
+│  └─ plans-and-the-account-label    — Free vs Managed, checklists, "Looks right", what no plan changes, billing, plan end (AECI-1219)
 │     (not yet written: your-dashboard, editing-profile-and-products, product-versions)
 ├─ reviewers/
 │  ├─ writing-a-review               — dual reviews: product quality vs onboarding experience
