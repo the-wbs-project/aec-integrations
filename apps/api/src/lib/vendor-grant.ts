@@ -33,7 +33,7 @@
  * statement here names `vendors` at all — the invariant cannot silently regress.
  */
 
-import type { ClaimEntitlement } from '@aeci/shared';
+import type { ClaimEntitlement, ClaimGrantPlan } from '@aeci/shared';
 import type { AuditLogEntry } from '@aeci/shared/audit-log';
 import type { WorkflowTransitionEntry } from '@aeci/shared/workflow-transition';
 import { and, eq, inArray } from 'drizzle-orm';
@@ -111,6 +111,13 @@ export interface GrantSeatParams {
   profileBefore: SeatProfileBefore | null;
   /** The offline PO/invoice arrangement — the launch entitlement record (§3). */
   entitlement?: ClaimEntitlement;
+  /**
+   * The plan the operator chose (AECI-1215 / `STAGE_2_PAID_TIERS_SPEC.md` §13.6).
+   * Lands as `metadata.plan`. On `free` no entitlement is activated beside this
+   * batch, so the audit row must not claim a verified flip: `verified_flipped` is
+   * `false` and `afterState.vendor_verified` repeats the before value.
+   */
+  plan: ClaimGrantPlan;
   reason: string | null;
   targetType: string;
   targetId: string;
@@ -191,13 +198,18 @@ function claimMetadata(
  * redundant flip and no `updated_at` churn, while the seat + audit still land.
  */
 export function grantSeatStatements(db: Db, p: GrantSeatParams): ClaimBatch {
-  const verifiedFlipped = !p.vendorWasVerified;
+  // Only a Managed grant activates the entitlement that moves the mirror. A Free
+  // grant leaves `vendors.verified` where it was, and the audit says so (§13.6).
+  const managed = p.plan === 'managed';
+  const verifiedFlipped = managed && !p.vendorWasVerified;
+  const verifiedAfter = managed || p.vendorWasVerified;
   const hasEntitlement = p.entitlement && Object.keys(p.entitlement).length > 0;
   const metadata = claimMetadata(p, {
     vendor_id: p.vendorId,
     seat_user_id: p.userId,
     identity_outcome: p.identityOutcome,
     seat_created: p.seatCreated,
+    plan: p.plan,
     verified_flipped: verifiedFlipped,
     ...(hasEntitlement ? { entitlement: p.entitlement } : {}),
   });
@@ -216,7 +228,7 @@ export function grantSeatStatements(db: Db, p: GrantSeatParams): ClaimBatch {
     },
     afterState: {
       status: 'resolved',
-      vendor_verified: true,
+      vendor_verified: verifiedAfter,
       seat_role: VENDOR_ADMIN_ROLE,
       seat_vendor_id: p.vendorId,
     },

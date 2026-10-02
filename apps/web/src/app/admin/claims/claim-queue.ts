@@ -7,6 +7,7 @@ import { NewTabIcon } from '../../shared/new-tab-icon/new-tab-icon';
 
 import type {
   AdminClaim,
+  ClaimGrantPlan,
   ListVendorClaimsQuery,
   ModerateClaimInput,
   VendorEntitlementResponse,
@@ -52,9 +53,12 @@ type FormMode = 'approve' | 'reject';
  * deferred DPA/GDPR decision, §8.3(4)). A signal that couldn't be computed
  * (`null`) renders "unavailable" and the review still proceeds.
  *
- * Approve triggers the AECI-519 grant (`PATCH …/:id {action:'approve'}`) and
- * captures a free-text arrangement note (the offline PO/invoice record, §8.1(5) —
- * recorded verbatim in the grant's audit metadata as `entitlement.notes`); reject
+ * Approve triggers the AECI-519 grant (`PATCH …/:id {action:'approve', plan}`).
+ * Since AECI-1215 (`STAGE_2_PAID_TIERS_SPEC.md` §13.6) the form asks for the plan,
+ * Free or Managed, with nothing preselected, and "Confirm grant" stays disabled
+ * until one is picked. Only Managed shows the free-text arrangement note (the
+ * offline PO/invoice record, §8.1(5) — recorded verbatim in the grant's audit
+ * metadata as `entitlement.notes`), because Free writes no entitlement; reject
  * runs the reject path. A successful action drops the row. **Approve returns 503
  * wherever `SUPABASE_SERVICE_ROLE_KEY` is absent — local dev and PR previews, since
  * AECI-530 CI-pushes it on staging/demo/production** — surfaced as an inline
@@ -126,6 +130,9 @@ export class ClaimQueue {
    *  decision note (recorded in the audit log, never emailed — the claimant email
    *  is neutral, §9). */
   protected readonly formText = signal('');
+  /** The plan picked in the approve form (AECI-1215 / §13.6). `null` until the
+   *  operator chooses: there is no default, so the confirm button waits on it. */
+  protected readonly grantPlan = signal<ClaimGrantPlan | null>(null);
   /** Id + message of the claim whose last action failed (inline alert). */
   protected readonly failedActionId = signal<string | null>(null);
   protected readonly failedActionMessage = signal('');
@@ -290,6 +297,7 @@ export class ClaimQueue {
   protected openApprove(id: string): void {
     this.failedActionId.set(null);
     this.formText.set('');
+    this.grantPlan.set(null);
     this.formMode.set('approve');
     this.formOpenId.set(id);
   }
@@ -306,6 +314,11 @@ export class ClaimQueue {
     this.formOpenId.set(null);
     this.formMode.set(null);
     this.formText.set('');
+    this.grantPlan.set(null);
+  }
+
+  protected onPlanChange(plan: ClaimGrantPlan): void {
+    this.grantPlan.set(plan);
   }
 
   protected onFormInput(event: Event): void {
@@ -313,11 +326,24 @@ export class ClaimQueue {
   }
 
   protected async confirmApprove(id: string): Promise<void> {
+    const plan = this.grantPlan();
+    // The button is disabled until a plan is picked. This guards Enter-to-submit.
+    if (!plan) return;
+    if (plan === 'free') {
+      await this.moderate(
+        id,
+        { action: 'approve', plan },
+        $localize`:@@admin.claims.announce.approvedFree:Claim approved on the Free plan: vendor access was activated.`,
+      );
+      return;
+    }
+    // Notes are a Managed-only field: Free writes no entitlement row to hold them,
+    // and the API refuses `entitlement` with `plan: 'free'`.
     const notes = this.formText().trim();
     await this.moderate(
       id,
-      { action: 'approve', ...(notes ? { entitlement: { notes } } : {}) },
-      $localize`:@@admin.claims.announce.approved:Claim approved: vendor access was activated.`,
+      { action: 'approve', plan, ...(notes ? { entitlement: { notes } } : {}) },
+      $localize`:@@admin.claims.announce.approvedManaged:Claim approved on the Managed plan: vendor access was activated.`,
     );
   }
 

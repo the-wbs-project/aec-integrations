@@ -276,6 +276,7 @@ describe('PATCH /api/admin/claims/:id — grant', () => {
 
     const { status, body, send } = await patchClaim(moderateApp(resolveLinked(null), email), {
       action: 'approve',
+      plan: 'managed',
       entitlement: { payer: 'Autodesk AP', amount: 'USD 5,000/yr' },
     });
 
@@ -289,6 +290,7 @@ describe('PATCH /api/admin/claims/:id — grant', () => {
       // AECI-612: the grant opened the entitlement row that `verified` mirrors.
       tier: 'verified',
       entitlement_created: true,
+      plan: 'managed',
     });
     expect(body.request.status).toBe('resolved');
     expect(body.request.resolved_by).toBe(ADMIN_ID);
@@ -334,6 +336,8 @@ describe('PATCH /api/admin/claims/:id — grant', () => {
       identity_outcome: 'linked',
       verified_flipped: true,
       entitlement: { payer: 'Autodesk AP', amount: 'USD 5,000/yr' },
+      // AECI-1215: both rows of a Managed grant carry the operator's choice.
+      plan: 'managed',
     });
     const entAudit = audits.find((a) => a.action === 'vendor_entitlement.granted')!;
     expect(entAudit.entityType).toBe('vendor_entitlement');
@@ -345,6 +349,7 @@ describe('PATCH /api/admin/claims/:id — grant', () => {
       verified_flipped: true,
       entitlement_created: true,
       source_request_id: REQUEST_ID,
+      plan: 'managed',
     });
 
     // Workflow completed + transition.
@@ -368,6 +373,7 @@ describe('PATCH /api/admin/claims/:id — grant', () => {
       to: CLAIMANT_EMAIL,
       targetName: 'Autodesk, Inc.',
       identityOutcome: 'linked',
+      plan: 'managed',
     });
 
     expect(claimModerationActions()).toEqual([['action:approve', 'outcome:ok']]);
@@ -378,7 +384,10 @@ describe('PATCH /api/admin/claims/:id — grant', () => {
     await seedRequest();
     vi.mocked(logBatchToPosthog).mockClear();
     vi.mocked(logToPosthog).mockClear();
-    const { status } = await patchClaim(moderateApp(resolveInvited()), { action: 'approve' });
+    const { status } = await patchClaim(moderateApp(resolveInvited()), {
+      action: 'approve',
+      plan: 'managed',
+    });
     expect(status).toBe(200);
     expect(logBatchToPosthog).toHaveBeenCalledTimes(1);
     const events = vi.mocked(logBatchToPosthog).mock.calls[0]![3] as { message: string }[];
@@ -400,7 +409,10 @@ describe('PATCH /api/admin/claims/:id — grant', () => {
     await seedVendor();
     await seedRequest();
     const resolve = resolveInvited();
-    const { status, body } = await patchClaim(moderateApp(resolve), { action: 'approve' });
+    const { status, body } = await patchClaim(moderateApp(resolve), {
+      action: 'approve',
+      plan: 'managed',
+    });
 
     expect(status).toBe(200);
     expect(body.grant).toMatchObject({ identity_outcome: 'invited', seat_created: true });
@@ -428,6 +440,7 @@ describe('PATCH /api/admin/claims/:id — grant', () => {
     const snapshot = { id: CLAIMANT_ID, role: 'reviewer', vendorId: null, bannedAt: null };
     const { status, body } = await patchClaim(moderateApp(resolveLinked(snapshot)), {
       action: 'approve',
+      plan: 'managed',
     });
 
     expect(status).toBe(200);
@@ -453,7 +466,7 @@ describe('PATCH /api/admin/claims/:id — grant', () => {
 
     const { status, body } = await patchClaim(
       moderateApp(resolveLinked(null, CLAIMANT2_ID)),
-      { action: 'approve' },
+      { action: 'approve', plan: 'managed' },
       REQUEST2_ID,
     );
 
@@ -487,6 +500,7 @@ describe('PATCH /api/admin/claims/:id — grant', () => {
 
     const { status, body } = await patchClaim(moderateApp(resolveLinked(null)), {
       action: 'approve',
+      plan: 'managed',
       entitlement: { invoice_ref: 'PO-4471', period_end: '2031-01-01' },
     });
 
@@ -523,7 +537,10 @@ describe('PATCH /api/admin/claims/:id — grant', () => {
     await seedRequest();
     const batchSpy = vi.spyOn(t.db, 'batch');
 
-    const { status } = await patchClaim(moderateApp(resolveLinked(null)), { action: 'approve' });
+    const { status } = await patchClaim(moderateApp(resolveLinked(null)), {
+      action: 'approve',
+      plan: 'managed',
+    });
 
     expect(status).toBe(200);
     expect(batchSpy).toHaveBeenCalledTimes(1);
@@ -544,6 +561,7 @@ describe('PATCH /api/admin/claims/:id — grant', () => {
     const snapshot = { id: CLAIMANT_ID, role: 'vendor_admin', vendorId: VENDOR_ID, bannedAt: null };
     const { status, body, send } = await patchClaim(moderateApp(resolveLinked(snapshot), email), {
       action: 'approve',
+      plan: 'managed',
     });
 
     expect(status).toBe(200);
@@ -575,7 +593,10 @@ describe('PATCH /api/admin/claims/:id — grant', () => {
     await seedRequest({ targetType: 'product', targetId: PRODUCT_ID });
     const resolve = resolveLinked(null);
 
-    const { status, body, send } = await patchClaim(moderateApp(resolve), { action: 'approve' });
+    const { status, body, send } = await patchClaim(moderateApp(resolve), {
+      action: 'approve',
+      plan: 'managed',
+    });
 
     expect(status).toBe(200);
     expect(body.grant.vendor_id).toBe(VENDOR_ID);
@@ -591,6 +612,212 @@ describe('PATCH /api/admin/claims/:id — grant', () => {
   });
 });
 
+// ─── The plan choice (AECI-1215 / STAGE_2_PAID_TIERS_SPEC.md §13.6) ──────────
+
+describe('PATCH /api/admin/claims/:id — plan choice', () => {
+  it('refuses an approve with no plan as 400 VALIDATION_FAILED, writing nothing', async () => {
+    await seedVendor();
+    await seedRequest();
+    const resolve = resolveThrows();
+
+    const { status, body } = await patchClaim(moderateApp(resolve), { action: 'approve' });
+
+    expect(status).toBe(400);
+    expect(body.error.code).toBe(ApiErrorCode.VALIDATION_FAILED);
+    expect(body.error.field).toBe('plan');
+    expect(resolve).not.toHaveBeenCalled();
+    expect(await t.db.select().from(auditLog)).toHaveLength(0);
+    expect((await requestOf(REQUEST_ID))!.status).toBe('open');
+  });
+
+  it('refuses entitlement details on a Free approve', async () => {
+    await seedVendor();
+    await seedRequest();
+    const { status, body } = await patchClaim(moderateApp(resolveThrows()), {
+      action: 'approve',
+      plan: 'free',
+      entitlement: { notes: 'PO 4417' },
+    });
+    expect(status).toBe(400);
+    expect(body.error.field).toBe('entitlement');
+  });
+
+  it('Free writes the seat only: no entitlement row, verified untouched, no purge', async () => {
+    await seedVendor();
+    await seedRequest();
+    await seedWorkflow();
+    const email = vi.fn<SendClaimDecisionEmail>(async () => {});
+    const batchSpy = vi.spyOn(t.db, 'batch');
+
+    const { status, body, send } = await patchClaim(moderateApp(resolveLinked(null), email), {
+      action: 'approve',
+      plan: 'free',
+    });
+
+    expect(status).toBe(200);
+    expect(body.grant).toMatchObject({
+      user_id: CLAIMANT_ID,
+      vendor_id: VENDOR_ID,
+      verified: false,
+      seat_created: true,
+      tier: 'unclaimed',
+      entitlement_created: false,
+      plan: 'free',
+    });
+    expect(body.request.status).toBe('resolved');
+
+    // The seat landed.
+    const seat = await profileOf(CLAIMANT_ID);
+    expect(seat!.role).toBe('vendor_admin');
+    expect(seat!.vendorId).toBe(VENDOR_ID);
+
+    // No entitlement row, and the vendor row is exactly as seeded.
+    expect(await t.db.select().from(vendorEntitlements)).toHaveLength(0);
+    const vendor = await vendorOf(VENDOR_ID);
+    expect(vendor!.verified).toBe(false);
+    expect(vendor!.updatedAt).toBe(OLD_TS);
+
+    // Only `grantSeatStatements`' five statements went into the one batch.
+    expect(batchSpy).toHaveBeenCalledTimes(1);
+    expect(batchSpy.mock.calls[0]![0]).toHaveLength(5);
+    batchSpy.mockRestore();
+
+    // ONE audit row, the claim decision, carrying the plan and no verified flip.
+    const audits = await t.db.select().from(auditLog);
+    expect(audits).toHaveLength(1);
+    expect(audits[0]!.action).toBe('vendor_claim.granted');
+    expect(audits[0]!.metadata).toMatchObject({ plan: 'free', verified_flipped: false });
+    expect(audits[0]!.afterState).toMatchObject({ vendor_verified: false });
+
+    // The request resolved through its workflow, as on Managed.
+    const transitions = await t.db.select().from(workflowTransitions);
+    expect(transitions).toHaveLength(1);
+
+    // No cacheable page renders a seat, and no verified flip happened: no purge.
+    expect(send).not.toHaveBeenCalled();
+
+    // The Free variant of the approved email.
+    expect(email).toHaveBeenCalledTimes(1);
+    expect(email.mock.calls[0]![1]).toMatchObject({
+      decision: 'approved',
+      to: CLAIMANT_EMAIL,
+      plan: 'free',
+    });
+    expect(claimModerationActions()).toEqual([['action:approve', 'outcome:ok']]);
+  });
+
+  it('Free does not purge even when the vendor owns products', async () => {
+    await seedVendor();
+    await t.db.insert(products).values({ id: PRODUCT_ID, slug: 'revit', name: 'Revit' });
+    await t.db
+      .insert(productVendors)
+      .values({ productId: PRODUCT_ID, vendorId: VENDOR_ID, isPrimary: true });
+    await seedRequest();
+
+    const { status, send } = await patchClaim(moderateApp(resolveLinked(null)), {
+      action: 'approve',
+      plan: 'free',
+    });
+
+    expect(status).toBe(200);
+    expect(send).not.toHaveBeenCalled();
+  });
+
+  it('Free leaves an ended entitlement ended rather than reactivating it', async () => {
+    await seedVendor();
+    await seedEntitlement('revoked');
+    await seedRequest();
+
+    const { status, body } = await patchClaim(moderateApp(resolveLinked(null)), {
+      action: 'approve',
+      plan: 'free',
+    });
+
+    expect(status).toBe(200);
+    const ents = await t.db.select().from(vendorEntitlements);
+    expect(ents).toHaveLength(1);
+    expect(ents[0]).toMatchObject({ status: 'revoked', updatedAt: OLD_TS });
+    expect((await vendorOf(VENDOR_ID))!.verified).toBe(false);
+    expect(body.grant).toMatchObject({ tier: 'unclaimed', entitlement_created: false });
+  });
+
+  it('a Free second seat on a Managed vendor keeps the vendor Managed and reports it', async () => {
+    await seedVendor({ verified: true });
+    await seedEntitlement('active');
+    await t.db
+      .insert(profiles)
+      .values({ id: CLAIMANT_ID, role: 'vendor_admin', vendorId: VENDOR_ID });
+    await seedRequest({ id: REQUEST2_ID, submitterEmail: 'second@vendor.com' });
+
+    const { status, body } = await patchClaim(
+      moderateApp(resolveLinked(null, CLAIMANT2_ID)),
+      { action: 'approve', plan: 'free' },
+      REQUEST2_ID,
+    );
+
+    expect(status).toBe(200);
+    expect((await profileOf(CLAIMANT2_ID))!.role).toBe('vendor_admin');
+    expect((await vendorOf(VENDOR_ID))!.verified).toBe(true);
+    expect((await t.db.select().from(vendorEntitlements))[0]!.status).toBe('active');
+    // The choice and the resulting tier are reported separately.
+    expect(body.grant).toMatchObject({
+      plan: 'free',
+      tier: 'verified',
+      verified: true,
+      entitlement_created: false,
+    });
+    const audits = await t.db.select().from(auditLog);
+    expect(audits).toHaveLength(1);
+    expect(audits[0]!.afterState).toMatchObject({ vendor_verified: true });
+  });
+
+  it('Managed writes the entitlement row, flips verified, purges and sends the Managed email', async () => {
+    await seedVendor();
+    await seedRequest();
+    const email = vi.fn<SendClaimDecisionEmail>(async () => {});
+
+    const { status, body, send } = await patchClaim(moderateApp(resolveLinked(null), email), {
+      action: 'approve',
+      plan: 'managed',
+    });
+
+    expect(status).toBe(200);
+    expect(body.grant).toMatchObject({
+      plan: 'managed',
+      tier: 'verified',
+      verified: true,
+      entitlement_created: true,
+    });
+    expect(await t.db.select().from(vendorEntitlements)).toHaveLength(1);
+    expect((await vendorOf(VENDOR_ID))!.verified).toBe(true);
+    const audits = await t.db.select().from(auditLog);
+    expect(audits.map((a) => a.metadata)).toEqual([
+      expect.objectContaining({ plan: 'managed' }),
+      expect.objectContaining({ plan: 'managed' }),
+    ]);
+    expect(send).toHaveBeenCalledWith({ tags: ['vendor:autodesk'], source: 'moderation' });
+    expect(email.mock.calls[0]![1]).toMatchObject({ plan: 'managed' });
+  });
+
+  it('the idempotent re-grant echoes the requested plan', async () => {
+    await seedVendor();
+    await t.db
+      .insert(profiles)
+      .values({ id: CLAIMANT_ID, role: 'vendor_admin', vendorId: VENDOR_ID });
+    await seedRequest({ status: 'resolved', resolvedById: ADMIN_ID, resolvedAt: OLD_TS });
+    const snapshot = { id: CLAIMANT_ID, role: 'vendor_admin', vendorId: VENDOR_ID, bannedAt: null };
+
+    const { status, body } = await patchClaim(moderateApp(resolveLinked(snapshot)), {
+      action: 'approve',
+      plan: 'free',
+    });
+
+    expect(status).toBe(200);
+    expect(body.grant).toMatchObject({ plan: 'free', tier: 'unclaimed' });
+    expect(await t.db.select().from(auditLog)).toHaveLength(0);
+  });
+});
+
 // ─── Conflicts & dependency failures (nothing written) ───────────────────────
 
 describe('PATCH /api/admin/claims/:id — conflicts', () => {
@@ -603,6 +830,7 @@ describe('PATCH /api/admin/claims/:id — conflicts', () => {
 
       const { status, body, send } = await patchClaim(moderateApp(resolveConflict(reason), email), {
         action: 'approve',
+        plan: 'managed',
       });
 
       expect(status).toBe(409);
@@ -626,7 +854,10 @@ describe('PATCH /api/admin/claims/:id — conflicts', () => {
     await seedVendor();
     await seedRequest();
 
-    const { status, body } = await patchClaim(moderateApp(resolver()), { action: 'approve' });
+    const { status, body } = await patchClaim(moderateApp(resolver()), {
+      action: 'approve',
+      plan: 'managed',
+    });
 
     expect(status).toBe(503);
     expect(body.error.code).toBe(ApiErrorCode.DEPENDENCY_FAILURE);
@@ -644,6 +875,7 @@ describe('PATCH /api/admin/claims/:id — conflicts', () => {
     const snapshot = { id: CLAIMANT_ID, role: 'reviewer', vendorId: null, bannedAt: null };
     const { status, body } = await patchClaim(moderateApp(resolveLinked(snapshot)), {
       action: 'approve',
+      plan: 'managed',
     });
     expect(status).toBe(422);
     expect(body.error.code).toBe(ApiErrorCode.INVALID_STATE_TRANSITION);
@@ -659,7 +891,10 @@ describe('PATCH /api/admin/claims/:id — conflicts', () => {
     // `not_found` and nothing is created.
     const resolve = resolveNotFound();
 
-    const { status, body } = await patchClaim(moderateApp(resolve), { action: 'approve' });
+    const { status, body } = await patchClaim(moderateApp(resolve), {
+      action: 'approve',
+      plan: 'managed',
+    });
 
     expect(status).toBe(422);
     expect(body.error.code).toBe(ApiErrorCode.INVALID_STATE_TRANSITION);
@@ -680,7 +915,10 @@ describe('PATCH /api/admin/claims/:id — conflicts', () => {
     await seedRequest({ status: 'rejected' });
     const resolve = resolveThrows();
 
-    const { status, body } = await patchClaim(moderateApp(resolve), { action: 'approve' });
+    const { status, body } = await patchClaim(moderateApp(resolve), {
+      action: 'approve',
+      plan: 'managed',
+    });
 
     expect(status).toBe(422);
     expect(body.error.code).toBe(ApiErrorCode.INVALID_STATE_TRANSITION);
@@ -694,7 +932,10 @@ describe('PATCH /api/admin/claims/:id — conflicts', () => {
     await seedRequest({ kind: 'correction' });
     const resolve = resolveThrows();
 
-    const { status, body } = await patchClaim(moderateApp(resolve), { action: 'approve' });
+    const { status, body } = await patchClaim(moderateApp(resolve), {
+      action: 'approve',
+      plan: 'managed',
+    });
 
     expect(status).toBe(422);
     expect(body.error.code).toBe(ApiErrorCode.INVALID_STATE_TRANSITION);
@@ -702,7 +943,10 @@ describe('PATCH /api/admin/claims/:id — conflicts', () => {
   });
 
   it('returns the canonical 404 for an unknown claim id', async () => {
-    const { status, body } = await patchClaim(moderateApp(resolveThrows()), { action: 'approve' });
+    const { status, body } = await patchClaim(moderateApp(resolveThrows()), {
+      action: 'approve',
+      plan: 'managed',
+    });
     expect(status).toBe(404);
     expect(body.error.code).toBe('NOT_FOUND');
     expect(body.error.details).toEqual({ resource: 'vendor_request', id: REQUEST_ID });

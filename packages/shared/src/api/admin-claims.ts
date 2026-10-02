@@ -24,10 +24,11 @@ import { LinkRefSchema, PageQuerySchema, paginatedResponseSchema } from './commo
  * `/admin/claims` LIST + reviewer UI is AECI-521; the claim-decision emails are
  * AECI-528; this issue is the grant mechanics.
  *
- * Since AECI-612 (`STAGE_2_PAID_TIERS_SPEC.md` §6) the grant also opens the
+ * Since AECI-612 (`STAGE_2_PAID_TIERS_SPEC.md` §6) a Managed grant also opens the
  * `vendor_entitlements` row that `vendors.verified` now MIRRORS, in the same
  * `db.batch` — which is why `ClaimGrantSummary` reports a `tier` and whether the
- * row was created.
+ * row was created. Since AECI-1215 (§13.6) the operator picks Free or Managed on
+ * every approve, and Free writes the seat alone.
  */
 
 /**
@@ -64,18 +65,59 @@ export const ClaimEntitlementSchema = z.object({
 export type ClaimEntitlement = z.infer<typeof ClaimEntitlementSchema>;
 
 /**
- * Body for `PATCH /api/admin/claims/:id`. `reason` is optional for both actions
- * (recorded in the workflow transition + audit metadata, not stored on the row —
- * `vendor_requests` has no reason column, matching `ModerateRequestSchema`). It is
- * an INTERNAL decision note: admin-visible in the audit log and NEVER emailed to the
- * claimant (the claim-rejected email is neutral by design, §9). `entitlement` is
- * only meaningful on `approve`.
+ * The plan a claim approval puts the vendor on (AECI-1215 /
+ * `STAGE_2_PAID_TIERS_SPEC.md` §13.6). The operator must choose. There is no default.
+ *
+ *  - `free`: the seat only. No `vendor_entitlements` row is written and
+ *    `vendors.verified` is untouched. "Free" is the copy name for the `unclaimed`
+ *    tier (§13.2), so a seat with no row IS the Free plan.
+ *  - `managed`: the seat plus the `verified` entitlement row, the AECI-612 path.
+ *
+ * Deliberately not an `EntitlementTier`. `free` is not a tier id (§13.2 keeps `TIERS`
+ * at `['unclaimed', 'verified']`), and this names the operator's choice, not the
+ * resulting tier. A second seat on an already-Managed vendor approved as `free`
+ * leaves the vendor Managed, and `ClaimGrantSummary.tier` reports that honestly.
  */
-export const ModerateClaimSchema = z.object({
-  action: z.enum(['approve', 'reject']),
+export const CLAIM_GRANT_PLANS = ['free', 'managed'] as const;
+export const ClaimGrantPlanSchema = z.enum(CLAIM_GRANT_PLANS);
+export type ClaimGrantPlan = z.infer<typeof ClaimGrantPlanSchema>;
+
+/**
+ * Body for `PATCH /api/admin/claims/:id`, discriminated on `action`. `reason` is
+ * optional for both actions (recorded in the workflow transition + audit metadata,
+ * not stored on the row — `vendor_requests` has no reason column, matching
+ * `ModerateRequestSchema`). It is an INTERNAL decision note: admin-visible in the
+ * audit log and NEVER emailed to the claimant (the claim-rejected email is neutral
+ * by design, §9).
+ *
+ * `approve` REQUIRES `plan` (AECI-1215 / §13.6). A body without it is a 400
+ * `VALIDATION_FAILED` on field `plan`. `entitlement` (the offline arrangement) is
+ * only valid with `plan: 'managed'`, because Free writes no row for it to land in.
+ * `reject` carries neither. Unknown keys are stripped, as everywhere.
+ */
+const ModerateClaimApproveSchema = z.object({
+  action: z.literal('approve'),
+  plan: ClaimGrantPlanSchema,
   reason: z.string().max(500).optional(),
   entitlement: ClaimEntitlementSchema.optional(),
 });
+
+const ModerateClaimRejectSchema = z.object({
+  action: z.literal('reject'),
+  reason: z.string().max(500).optional(),
+});
+
+export const ModerateClaimSchema = z
+  .discriminatedUnion('action', [ModerateClaimApproveSchema, ModerateClaimRejectSchema])
+  .superRefine((value, ctx) => {
+    if (value.action === 'approve' && value.plan !== 'managed' && value.entitlement) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['entitlement'],
+        message: "entitlement details are only valid with plan 'managed'",
+      });
+    }
+  });
 export type ModerateClaimInput = z.infer<typeof ModerateClaimSchema>;
 
 /**
@@ -91,7 +133,12 @@ export type ModerateClaimInput = z.infer<typeof ModerateClaimSchema>;
  *    `tierFor` (`@aeci/shared/entitlements`): `unclaimed` when no `active` row backs
  *    the seat, which is the honest readout for a drifted vendor.
  *  - `entitlement_created` — a `vendor_entitlements` row was INSERTed by this grant,
- *    vs one that already existed (the second-seat no-op, or a reactivation).
+ *    vs one that already existed (the second-seat no-op, or a reactivation). Always
+ *    `false` for a Free grant, which writes no row.
+ *  - `plan` — the plan the operator CHOSE (AECI-1215 / §13.6). It is not `tier`: a
+ *    Free grant on a vendor that is already Managed reports `plan: 'free'` and
+ *    `tier: 'verified'`. The idempotent re-grant echoes the request's `plan`, since
+ *    it writes nothing.
  *
  * `tier` and `entitlement_created` are REQUIRED, not optional (AECI-612 / §6.7, R10):
  * the `/admin/claims` `ClaimQueue` ignores unknown keys, so a construction site that
@@ -106,6 +153,7 @@ export const ClaimGrantSummarySchema = z.object({
   seat_created: z.boolean(),
   tier: EntitlementTierSchema,
   entitlement_created: z.boolean(),
+  plan: ClaimGrantPlanSchema,
 });
 export type ClaimGrantSummary = z.infer<typeof ClaimGrantSummarySchema>;
 

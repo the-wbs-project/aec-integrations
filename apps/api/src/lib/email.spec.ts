@@ -27,6 +27,7 @@ import {
   sendAttestationSilentCounterpartyEmail,
   sendAttestationStaleVersionEmail,
   sendClaimApprovedEmail,
+  sendClaimDecisionEmail,
   sendClaimRejectedEmail,
   sendClaimSubmittedNotification,
   sendContestSubmittedNotification,
@@ -377,7 +378,7 @@ describe('sendClaimApprovedEmail', () => {
     const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
     const outcome = await sendClaimApprovedEmail(
       fakeContext({ PUBLIC_SITE_URL: 'https://aecintegrations.com' }),
-      { to: 'owner@vendor.com', vendorName: 'Autodesk, Inc.', invited: false },
+      { to: 'owner@vendor.com', vendorName: 'Autodesk, Inc.', invited: false, plan: 'managed' },
     );
 
     expect(outcome).toBe('sent');
@@ -404,6 +405,7 @@ describe('sendClaimApprovedEmail', () => {
       to: 'owner@vendor.com',
       vendorName: 'Autodesk, Inc.',
       invited: false,
+      plan: 'managed',
     });
 
     const html = String(lastBody(fetchSpy).html);
@@ -422,6 +424,7 @@ describe('sendClaimApprovedEmail', () => {
       to: 'owner@vendor.com',
       vendorName: 'Globex',
       invited: false,
+      plan: 'managed',
     });
 
     const text = String(lastBody(fetchSpy).text);
@@ -434,6 +437,7 @@ describe('sendClaimApprovedEmail', () => {
       to: 'owner@vendor.com',
       vendorName: 'Globex',
       invited: true,
+      plan: 'managed',
     });
     expect(String(lastBody(fetchSpy).text)).toContain('We created an account');
   });
@@ -444,6 +448,7 @@ describe('sendClaimApprovedEmail', () => {
       to: 'owner@vendor.com',
       vendorName: 'Globex',
       invited: false,
+      plan: 'managed',
     });
     const text = String(lastBody(fetchSpy).text);
     expect(text).toContain('existing account');
@@ -456,6 +461,7 @@ describe('sendClaimApprovedEmail', () => {
       to: 'owner@vendor.com',
       vendorName: 'Globex',
       invited: true,
+      plan: 'managed',
     });
     expect(String(lastBody(fetchSpy).text)).not.toContain('/vendor');
   });
@@ -467,9 +473,56 @@ describe('sendClaimApprovedEmail', () => {
         to: undefined,
         vendorName: 'Globex',
         invited: false,
+        plan: 'managed',
       }),
     ).toBe('skipped');
     expect(fetchSpy).not.toHaveBeenCalled();
+  });
+  // AECI-1215 / `STAGE_2_PAID_TIERS_SPEC.md` §13.6: the approved email has a variant
+  // per plan. Only the capabilities block differs.
+  it('names the Free plan and lists only what a Free seat can edit', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
+    await sendClaimApprovedEmail(fakeContext({ PUBLIC_SITE_URL: 'https://aecintegrations.com' }), {
+      to: 'owner@vendor.com',
+      vendorName: 'Globex',
+      invited: false,
+      plan: 'free',
+    });
+    const body = lastBody(fetchSpy);
+    const text = String(body.text);
+    expect(text).toContain('Free plan');
+    expect(text).toContain('edit your company details and your product listing');
+    // No promise of a Managed capability.
+    expect(text).not.toContain('attestations');
+    expect(String(body.html)).toContain('Free plan');
+    expect(body.subject).toBe('Your claim for Globex is approved');
+    expect(sendTags()).toEqual([['outcome:sent', 'template:claim-approved']]);
+    expect(text).not.toContain('—');
+  });
+
+  it('keeps the Managed copy for a Managed approval', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
+    await sendClaimApprovedEmail(fakeContext(), {
+      to: 'owner@vendor.com',
+      vendorName: 'Globex',
+      invited: false,
+      plan: 'managed',
+    });
+    const text = String(lastBody(fetchSpy).text);
+    expect(text).toContain('add integration attestations');
+    expect(text).not.toContain('Free plan');
+  });
+
+  it('routes the decision seam to the variant for the chosen plan', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
+    await sendClaimDecisionEmail(fakeContext(), {
+      decision: 'approved',
+      to: 'owner@vendor.com',
+      targetName: 'Globex',
+      identityOutcome: 'linked',
+      plan: 'free',
+    });
+    expect(String(lastBody(fetchSpy).text)).toContain('Free plan');
   });
 });
 
