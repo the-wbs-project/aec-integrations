@@ -416,6 +416,12 @@ export function isMaintenanceTransfer(before: { maintainedBy: string }): boolean
  * is `.$onUpdate(...)` and this is an UPDATE — see the note in
  * `vendor-product-versions.ts` for why that redundant Algolia resync is accepted
  * rather than suppressed.
+ *
+ * `labels` lets the product "Looks right" route (AECI-1216) reuse the same statement
+ * under its own audit action, `product.reviewed`, and its own `reason`. That route
+ * has no other write, so the transfer IS the event and earns a distinct action
+ * (`STAGE_2_PAID_TIERS_SPEC.md` §13.8). The defaults keep the version handlers'
+ * rows byte-identical.
  */
 export function productMaintenanceTransfer(
   db: Db,
@@ -424,6 +430,10 @@ export function productMaintenanceTransfer(
   before: ProductRow,
   now: string,
   context: { vendorId: string },
+  labels: { action: string; reason: string } = {
+    action: 'product.updated',
+    reason: 'maintenance-marker',
+  },
 ): { stmt: BatchStmt; audit: AuditLogEntry } {
   return {
     stmt: db
@@ -433,7 +443,7 @@ export function productMaintenanceTransfer(
     audit: {
       actorId: session.userId,
       actorType,
-      action: 'product.updated',
+      action: labels.action,
       entityType: 'product',
       entityId: before.id,
       beforeState: {
@@ -444,7 +454,7 @@ export function productMaintenanceTransfer(
       metadata: {
         source: AUDIT_SOURCE,
         vendorId: context.vendorId,
-        reason: 'maintenance-marker',
+        reason: labels.reason,
         // Present ONLY on the transition, never as `false`. Same encoding as the
         // two PATCH handlers in `vendor.ts`, so one key-presence query over
         // `audit_log.metadata` finds the hand-changing saves on every surface.

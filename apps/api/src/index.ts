@@ -121,6 +121,11 @@ import {
   createVendorMeHandler,
   createVendorSeatsHandler,
 } from './routes/vendor';
+import {
+  createReviewVendorProductHandler,
+  createReviewVendorProductIntegrationsHandler,
+  createReviewVendorProfileHandler,
+} from './routes/vendor-review';
 import { createListVendorNotificationsHandler } from './routes/vendor-notifications';
 import {
   createDecideContestHandler,
@@ -842,6 +847,8 @@ app.route('/', authAdmin);
 //   - GET   /api/vendor/seats        — the vendor's seat roster (read-only).
 //   - PATCH /api/vendor/profile      — edit the caller's own vendor row.
 //   - PATCH /api/vendor/products/:id — edit an owned product (cross-vendor → 404).
+//   - POST  /api/vendor/profile/review, /api/vendor/products/:id/review and
+//     /api/vendor/products/:id/integrations/review — "Looks right" (AECI-1216).
 //
 // Stage 2 / AECI-607 adds the product-version CRUD on the same sub-router. Two
 // gates, in this order: ownership → 404 (as above), then
@@ -921,6 +928,28 @@ authVendor.patch(
   requireVendor(),
   rateLimit('write'),
   createUpdateVendorProfileHandler(),
+);
+// AECI-1216 / `STAGE_2_PAID_TIERS_SPEC.md` §13.8: "Looks right". Each stamps a review
+// with no content edit. Seat-only on every plan: no `requireCapability`. The two
+// product routes prove ownership in the handler (foreign → 404). Each purges, so each
+// carries the write limiter for the same reason as the edits they stand beside.
+authVendor.post(
+  '/api/vendor/profile/review',
+  requireVendor(),
+  rateLimit('write'),
+  createReviewVendorProfileHandler(),
+);
+authVendor.post(
+  '/api/vendor/products/:id/review',
+  requireVendor(),
+  rateLimit('write'),
+  createReviewVendorProductHandler(),
+);
+authVendor.post(
+  '/api/vendor/products/:id/integrations/review',
+  requireVendor(),
+  rateLimit('write'),
+  createReviewVendorProductIntegrationsHandler(),
 );
 // Registered BEFORE `/api/vendor/products/:id` so the more specific version
 // paths are not shadowed by the product PATCH's parameterised route.

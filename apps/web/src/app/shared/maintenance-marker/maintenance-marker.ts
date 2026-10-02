@@ -29,8 +29,11 @@ export type MaintainedBy = 'aeci' | 'vendor';
  * Both inputs are fed by the `maintenance` object on `ProductDetail`,
  * `VendorDetail`, and `ProductPairResponse`, backed by the `last_reviewed_at` /
  * `maintained_by` columns added in AECI-616 (`STAGE_2_ATTESTATIONS_SPEC.md` §13).
- * `last_reviewed_at` is written by exactly two paths — an explicit
- * `lastReviewedAt` in the promote payload, and a vendor attestation.
+ * `last_reviewed_at` is written by exactly four paths: an explicit
+ * `lastReviewedAt` in the promote payload, a vendor attestation, any
+ * vendor-authorized catalog write in the portal (AECI-981, §13.9), and the three
+ * "Looks right" routes (AECI-1216, `STAGE_2_PAID_TIERS_SPEC.md` §13.8), which
+ * record "checked, nothing to change" with no content edit.
  *
  * **`reviewedAt` is still `null` for the overwhelming majority of records, and the
  * bare attribution that produces is correct rather than missing data.** Nothing was

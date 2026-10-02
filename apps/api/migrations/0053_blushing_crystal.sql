@@ -1,0 +1,1 @@
+ALTER TABLE `products` ADD `integrations_reviewed_at` text;
