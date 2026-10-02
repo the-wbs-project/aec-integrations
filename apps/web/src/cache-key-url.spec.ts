@@ -226,6 +226,45 @@ describe('cacheKeyFor — tracking/marketing params are stripped', () => {
   });
 });
 
+describe('cacheKeyFor — the email link tag never forks a key (AECI-1209)', () => {
+  // Every site link in a transactional email carries `utm_source=email`,
+  // `utm_campaign=<template id>` and `n=<send ledger id>`. `n` is unique per send, so
+  // if it reached the key every email click would mint its own edge entry. The
+  // allowlist drops all three. Miniflare has no front cache, so this unit test is the
+  // check for the issue's "one cache entry" E2E.
+  const TAG = `utm_source=email&utm_campaign=claim-approved&n=${'4'.repeat(15)}`;
+
+  // One path per kind of route pattern: no params, the pair allowlist, the listing
+  // allowlist, an unmatched path, and a locale prefix.
+  it.each([
+    ['/', ''],
+    ['/about', ''],
+    ['/vendor', ''],
+    ['/admin/claims/req-1', ''],
+    ['/products/revit', ''],
+    ['/vendors/bentley', ''],
+    ['/products/microstation/integrations/revit', 'view=table'],
+    ['/products', 'page=2&category_id=a,b'],
+    ['/categories/structural', 'page=3'],
+    ['/audiences', ''],
+    ['/phases/design', ''],
+    ['/trades', 'trade_id=t1'],
+    ['/fr/products', 'page=2'],
+  ])('%s?%s keys the same with and without the tag', (path, query) => {
+    const plain = query ? `${path}?${query}` : path;
+    const tagged = `${path}?${query ? `${query}&` : ''}${TAG}`;
+    expect(key(tagged)).toBe(key(plain));
+  });
+
+  it('no route keeps n, utm_source or utm_campaign in its key', () => {
+    for (const param of ['n', 'utm_source', 'utm_campaign']) {
+      for (const path of ['/', '/products', '/products/a/integrations/b', '/categories/x']) {
+        expect(key(`${path}?${param}=1`)).toBe(key(path));
+      }
+    }
+  });
+});
+
 describe('cacheKeyFor — index/browse routes keep only content-affecting params', () => {
   it('keeps page/perPage and drops tracking on /products', () => {
     // AC #2 — distinct content keyed; tracking noise dropped.
