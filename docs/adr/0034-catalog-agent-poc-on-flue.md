@@ -78,3 +78,24 @@ It is not deployed by CI and deploys by hand, like `apps/datatool`. The root `pn
 Two new Cloudflare resource classes enter the account: R2 corpus buckets and AI Search instances, one of each per tier. Provisioning is manual and recorded in `apps/agent/README.md`.
 
 Revisit the whole record if the spike graduates. A shipped surface would need CI, a version gate, rate limiting, a conversation-ownership check on the caller-chosen conversation id, and a measured answer on Jev.
+
+## Amendment (2026-10-02): AI Search GA re-checked, site search stays on Algolia
+
+Cloudflare announced AI Search general availability on 2026-10-01. We re-checked the site-search half against the current docs. The decision holds. GA added image embeddings, OCR for scanned PDFs, larger file limits and billing. It added nothing that `/search` needs.
+
+Each row below is a blocker on its own:
+
+| `/search` depends on | AI Search at GA |
+|---|---|
+| Disjunctive facet counts on about nine attributes | No faceting. Filters narrow results but return no counts. |
+| Filtering on string arrays (`categories`, `audiences`, `phases`, `trades`) | String arrays are stored but not indexed or filterable. |
+| Seven or more filterable product fields | Five custom metadata fields per instance. |
+| A deterministic `customRanking` tie-break (the no-pay-for-placement contract in `SEARCH_RANKING.md`) | At most three `boost_by` fields, which nudge a fused score. |
+| Name A–Z sort | No sort. |
+| Pages of 12 with a total hit count | `max_num_results` is 1 to 50, with no offset and no total. |
+| One hit per record | Results are chunks, not records. |
+| Typo-tolerant prefix autocomplete | BM25 keyword match. The docs name neither typo tolerance nor prefix matching. |
+
+GA also starts billing for this spike on **2026-11-01**. The rates are $0.75 per 1k semantic queries and $0.10 per 1k keyword queries, after 1,000 free of each per month. Ingestion is $0.75 per 1M tokens after 5M free, and storage is $2.00 per GB-month after 10 GB free. Spike volume should stay near the free tier. Nobody has measured it.
+
+The re-open trigger is unchanged: faceted browse itself starts failing. A second trigger is now named. Re-check if AI Search ships facet counts and filterable string arrays, because those two rows are the hard blockers. A natural-language search box beside Algolia remains possible under ADR 0006's own revisit line. It would be a separate decision, not a migration.
