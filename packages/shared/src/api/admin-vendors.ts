@@ -11,6 +11,7 @@ import {
   paginatedResponseSchema,
   type SortOrder,
 } from './common';
+import { AdminReasonSchema } from './admin-reason';
 import { IntegrationRetiredBySchema } from './integration-retire';
 import { ProductRoleSchema } from './products';
 import { VendorSeatInviteSchema, VendorSeatSchema } from './vendor';
@@ -24,7 +25,7 @@ import { VendorSeatInviteSchema, VendorSeatSchema } from './vendor';
  *   GET    /api/admin/vendors/:id                — basics, entitlement, seats, counts
  *   GET    /api/admin/vendors/:id/products       — the vendor's product roster
  *   GET    /api/admin/vendors/:id/audit          — the `audit_log` viewer
- *   DELETE /api/admin/vendors/:id/seats/:userId  — revoke one seat
+ *   DELETE /api/admin/vendors/:id/seats/:userId  — revoke one seat; body `{ reason }` (AECI-1191)
  *
  * Before this, the only vendor-management surface in the panel was the
  * entitlement control embedded in a `/admin/claims` card — so a vendor with no
@@ -563,6 +564,14 @@ export const ProvisionVendorSeatSchema = z.object({
   reason: z.string().max(500).optional(),
 });
 export type ProvisionVendorSeat = z.infer<typeof ProvisionVendorSeatSchema>;
+
+/**
+ * `DELETE /api/admin/vendors/:id/seats/:userId` body (AECI-1191). The reason is
+ * required and lands in the `vendor_claim.seat_revoked` audit row. The portal's
+ * owner-only `DELETE /api/vendor/seats/:userId` takes no body.
+ */
+export const AdminRevokeSeatSchema = z.object({ reason: AdminReasonSchema }).strict();
+export type AdminRevokeSeat = z.infer<typeof AdminRevokeSeatSchema>;
 
 /**
  * What a provision reports back.

@@ -112,6 +112,7 @@ import {
   CONTEST_FIELD_COLUMNS,
   contestIntegrationStateSentinel,
   contestValueUnchangedSentinel,
+  acceptOverwritesVendorField,
   isContestValueStale,
   storedFieldValue,
   type ContentContestField,
@@ -182,6 +183,7 @@ export function toAdminContest(row: ContestRow, hydration: ContestHydration): Ad
     live_value: liveValue,
     live_label: contestValueLabel(row.field, liveValue, hydration.vendorNames),
     value_stale: row.status === 'open' && isContestValueStale(row, integration),
+    accept_note_required: row.status === 'open' && acceptOverwritesVendorField(row, integration),
     reason: row.reason,
     routed_to: row.routedTo as AdminContest['routed_to'],
     status: row.status as AdminContest['status'],
@@ -383,12 +385,24 @@ export function createModerateContestHandler(
             now,
           )
         : null;
+    if (accept?.overwritesVendorField && !note) {
+      // AECI-1191: an accept that changes a vendor-held value says why. Checked
+      // after the stale and routing refusals, before anything is written.
+      throw new ApiError(
+        400,
+        'VALIDATION_FAILED',
+        'Add a note. This accept changes a value the integration’s owner holds.',
+        { field: 'note' },
+      );
+    }
     if (accept) {
       // `appliedMode` is also what the §6.7 sweep reads back to re-file the issue.
+      // AECI-1191: the admin's note is the reason, on the decision's own row.
       audit.metadata = {
         ...metadata,
         appliedMode: accept.appliedMode,
         ...(stranded ? { stranded: true } : {}),
+        ...(note ? { reason: note } : {}),
       };
     }
     const audits = [audit, ...(accept?.audits ?? []), ...(notify ? [notify] : [])];
@@ -703,6 +717,8 @@ export async function planAcceptWrites(
   audits: AuditLogEntry[];
   tags: string[];
   appliedMode: ContestAppliedMode;
+  /** AECI-1191: the accept changes a vendor-held value, so it requires a note. */
+  overwritesVendorField: boolean;
 }> {
   const anchor = contestAnchorOf(row);
   const integration = await loadContestTarget(db, anchor);
@@ -860,7 +876,13 @@ export async function planAcceptWrites(
   if (appliedMode !== 'upstream-only') {
     tags = (await anchorPurgeTags(db, integration, pairCacheTag)).tags;
   }
-  return { stmts, audits, tags, appliedMode };
+  return {
+    stmts,
+    audits,
+    tags,
+    appliedMode,
+    overwritesVendorField: acceptOverwritesVendorField(row, integration),
+  };
 }
 
 export async function readJson(c: AdminContext): Promise<unknown> {

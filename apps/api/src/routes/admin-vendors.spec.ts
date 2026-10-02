@@ -1220,7 +1220,8 @@ describe('DELETE /api/admin/vendors/:id/seats/:userId', () => {
       .values({ id: SEAT_A, role: 'vendor_admin', vendorId: VENDOR, seatOwner: true });
   });
 
-  const revoke = (vendorId: string, userId: string) =>
+  const REVOKE_REASON = 'The seat holder left the company.';
+  const revoke = (vendorId: string, userId: string, payload: unknown = { reason: REVOKE_REASON }) =>
     send(
       mount(
         'delete',
@@ -1229,6 +1230,7 @@ describe('DELETE /api/admin/vendors/:id/seats/:userId', () => {
       ),
       `/api/admin/vendors/${vendorId}/seats/${userId}`,
       'DELETE',
+      payload,
     );
 
   it('un-grants the seat and returns 204', async () => {
@@ -1252,6 +1254,33 @@ describe('DELETE /api/admin/vendors/:id/seats/:userId', () => {
     // the ONLY way the row is reachable once `profiles.vendor_id` is null.
     expect((rows[0].metadata as { vendor_id?: string }).vendor_id).toBe(VENDOR);
     expect(rows[0].actorType).toBe('admin');
+    // AECI-1191: the admin's reason rides the same row.
+    expect(rows[0].metadata).toMatchObject({ reason: REVOKE_REASON });
+  });
+
+  it.each([
+    ['no body', null],
+    ['no reason', {}],
+    ['a blank reason', { reason: '   ' }],
+  ])('refuses %s with 400 and writes nothing (AECI-1191)', async (_label, payload) => {
+    // `null` stands for "no body": `send` omits the body only for `undefined`,
+    // which the helper's default would replace with a valid reason.
+    const res =
+      payload === null
+        ? await send(
+            mount(
+              'delete',
+              '/api/admin/vendors/:id/seats/:userId',
+              createAdminRevokeSeatHandler(t.factory),
+            ),
+            `/api/admin/vendors/${VENDOR}/seats/${SEAT_A}`,
+            'DELETE',
+          )
+        : await revoke(VENDOR, SEAT_A, payload);
+    expect(res.status).toBe(400);
+    const [seat] = await t.db.select().from(profiles).where(eq(profiles.id, SEAT_A));
+    expect(seat.role).toBe('vendor_admin');
+    expect(await t.db.select().from(auditLog)).toHaveLength(0);
   });
 
   it('leaves the entitlement, the mirror and vendors.updated_at alone', async () => {

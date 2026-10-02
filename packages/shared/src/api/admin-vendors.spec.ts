@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  AdminRevokeSeatSchema,
   AdminAuditRowSchema,
   AdminVendorAuditQuerySchema,
   AdminVendorDetailSchema,
@@ -406,4 +407,19 @@ describe('AdminVendorProductRowSchema', () => {
       AdminVendorProductRowSchema.safeParse({ ...row, promotion_status: 'something_new' }).success,
     ).toBe(true);
   });
+});
+
+describe('AdminRevokeSeatSchema (AECI-1191)', () => {
+  it('takes a trimmed reason', () => {
+    expect(AdminRevokeSeatSchema.parse({ reason: ' Left the company ' })).toEqual({
+      reason: 'Left the company',
+    });
+  });
+
+  it.each([{}, { reason: '' }, { reason: '  ' }, { reason: 'ok', extra: 1 }])(
+    'refuses %j',
+    (body) => {
+      expect(AdminRevokeSeatSchema.safeParse(body).success).toBe(false);
+    },
+  );
 });

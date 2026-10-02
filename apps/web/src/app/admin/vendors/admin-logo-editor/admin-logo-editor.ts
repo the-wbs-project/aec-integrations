@@ -4,13 +4,15 @@ import {
   Component,
   computed,
   effect,
+  ElementRef,
   inject,
   input,
   output,
   signal,
   untracked,
+  viewChild,
 } from '@angular/core';
-import { UpdateLogoSchema } from '@aeci/shared';
+import { ADMIN_REASON_MAX, AdminReasonSchema, UpdateLogoSchema } from '@aeci/shared';
 import { firstValueFrom } from 'rxjs';
 
 import { LogoInput } from '../../../shared/logo-input/logo-input';
@@ -20,7 +22,7 @@ import { LogoInput } from '../../../shared/logo-input/logo-input';
   imports: [LogoInput],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <form class="max-w-xl space-y-4" (submit)="$event.preventDefault(); save()">
+    <form class="max-w-xl space-y-4" novalidate (submit)="$event.preventDefault(); save()">
       <aec-logo-input
         [inputId]="'admin-logo-' + kind() + '-' + recordId()"
         [value]="draft()"
@@ -30,6 +32,49 @@ import { LogoInput } from '../../../shared/logo-input/logo-input';
         (pendingChange)="uploading.set($event)"
         (announce)="announce.emit($event)"
       />
+      <div>
+        <label
+          [attr.for]="fieldId('reason')"
+          class="block text-xs font-bold uppercase tracking-[0.08em] text-(--text-secondary)"
+          i18n="@@admin.logo.reason.label"
+        >
+          Reason (required)
+        </label>
+        <p
+          [id]="fieldId('reason-help')"
+          class="mt-1 text-xs text-(--text-secondary)"
+          i18n="@@admin.logo.reason.help"
+        >
+          Recorded in the audit trail with your name. Write it so the vendor can read it.
+        </p>
+        <textarea
+          #reasonInput
+          [id]="fieldId('reason')"
+          rows="2"
+          [attr.maxlength]="reasonMax"
+          required
+          [disabled]="saving()"
+          [attr.aria-describedby]="
+            reasonError()
+              ? fieldId('reason-help') + ' ' + fieldId('reason-error')
+              : fieldId('reason-help')
+          "
+          [attr.aria-invalid]="reasonError() ? 'true' : null"
+          [value]="reason()"
+          (input)="onReasonInput($event)"
+          class="mt-2 w-full rounded-(--radius-md) border border-(--border-default) bg-(--surface-base) px-3 py-2 text-sm text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+        ></textarea>
+        @if (reasonError()) {
+          <p
+            [id]="fieldId('reason-error')"
+            role="alert"
+            class="mt-2 text-sm font-medium text-(--text-primary)"
+            i18n="@@admin.logo.reason.required"
+          >
+            Enter a reason. It is recorded in the audit trail.
+          </p>
+        }
+      </div>
       <button
         type="submit"
         [disabled]="saveDisabled()"
@@ -65,6 +110,11 @@ export class AdminLogoEditor {
   protected readonly uploading = signal(false);
   protected readonly saved = signal(false);
   protected readonly failed = signal(false);
+  /** AECI-1191: the overwrite's reason, required by the API and kept in the audit row. */
+  protected readonly reason = signal('');
+  protected readonly reasonError = signal(false);
+  protected readonly reasonMax = ADMIN_REASON_MAX;
+  private readonly reasonInput = viewChild<ElementRef<HTMLTextAreaElement>>('reasonInput');
   private readonly baseline = signal('');
   private seededId = '';
   private readonly http = inject(HttpClient);
@@ -85,11 +135,28 @@ export class AdminLogoEditor {
         this.baseline.set(value);
         this.draft.set(value);
         this.saved.set(false);
+        this.reason.set('');
+        this.reasonError.set(false);
       }
     });
   }
+  protected fieldId(part: string): string {
+    return `admin-logo-${this.kind()}-${this.recordId()}-${part}`;
+  }
+
+  protected onReasonInput(event: Event): void {
+    this.reason.set((event.target as HTMLTextAreaElement).value);
+    if (this.reasonError()) this.reasonError.set(false);
+  }
+
   protected async save(): Promise<void> {
     if (this.saveDisabled()) return;
+    const parsedReason = AdminReasonSchema.safeParse(this.reason());
+    if (!parsedReason.success) {
+      this.reasonError.set(true);
+      this.reasonInput()?.nativeElement.focus();
+      return;
+    }
     const recordId = this.recordId();
     const logoUrl = this.draft().trim() || null;
     this.saving.set(true);
@@ -99,11 +166,12 @@ export class AdminLogoEditor {
       await firstValueFrom(
         this.http.patch(
           `/api/admin/${this.kind() === 'vendor' ? 'vendors' : 'products'}/${recordId}/logo`,
-          { logo_url: logoUrl },
+          { logo_url: logoUrl, reason: parsedReason.data },
         ),
       );
       if (recordId !== this.recordId()) return;
       this.baseline.set(logoUrl ?? '');
+      this.reason.set('');
       this.saved.set(true);
       this.logoSaved.emit(logoUrl);
       this.announce.emit($localize`:@@admin.logo.confirmation:Logo saved.`);

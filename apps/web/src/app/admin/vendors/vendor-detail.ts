@@ -1,6 +1,16 @@
 import { AdminLogoEditor } from './admin-logo-editor/admin-logo-editor';
 import { DatePipe } from '@angular/common';
-import { Component, afterNextRender, computed, effect, inject, signal } from '@angular/core';
+import {
+  Component,
+  ElementRef,
+  Injector,
+  afterNextRender,
+  computed,
+  effect,
+  inject,
+  signal,
+  viewChild,
+} from '@angular/core';
 import { toSignal } from '@angular/core/rxjs-interop';
 import { ActivatedRoute, RouterLink } from '@angular/router';
 
@@ -12,6 +22,7 @@ import type {
   AdminVendorSeatRow,
   VendorEntitlementResponse,
 } from '@aeci/shared';
+import { ADMIN_REASON_MAX } from '@aeci/shared';
 
 import { NewTabIcon } from '../../shared/new-tab-icon/new-tab-icon';
 import { AdminBreadcrumbStore } from '../admin-breadcrumb.store';
@@ -167,6 +178,13 @@ export class VendorDetail {
   protected readonly revokePendingId = signal<string | null>(null);
   protected readonly revokeConfirmId = signal<string | null>(null);
   protected readonly revokeFailedMessage = signal('');
+  /** AECI-1191: the revoke's required reason, recorded in its audit row. */
+  protected readonly revokeReason = signal('');
+  protected readonly revokeReasonError = signal(false);
+  protected readonly reasonMax = ADMIN_REASON_MAX;
+  private readonly injector = inject(Injector);
+  private readonly revokeReasonInput =
+    viewChild<ElementRef<HTMLTextAreaElement>>('revokeReasonInput');
 
   // ── Products ───────────────────────────────────────────────────────────────
   protected readonly productRows = signal<readonly AdminVendorProductRow[]>([]);
@@ -284,11 +302,22 @@ export class VendorDetail {
 
   protected askRevoke(userId: string): void {
     this.revokeFailedMessage.set('');
+    this.revokeReason.set('');
+    this.revokeReasonError.set(false);
     this.revokeConfirmId.set(userId);
+    // The confirm row renders on the next pass; the reason is its first field.
+    afterNextRender(() => this.revokeReasonInput()?.nativeElement.focus(), {
+      injector: this.injector,
+    });
   }
 
   protected cancelRevoke(): void {
     this.revokeConfirmId.set(null);
+  }
+
+  protected onRevokeReasonInput(event: Event): void {
+    this.revokeReason.set((event.target as HTMLTextAreaElement).value);
+    if (this.revokeReasonError()) this.revokeReasonError.set(false);
   }
 
   /**
@@ -301,10 +330,16 @@ export class VendorDetail {
   protected async confirmRevoke(seat: AdminVendorSeatRow): Promise<void> {
     const id = this.vendorId();
     if (!id || this.revokePendingId()) return;
+    const reason = this.revokeReason().trim();
+    if (!reason) {
+      this.revokeReasonError.set(true);
+      this.revokeReasonInput()?.nativeElement.focus();
+      return;
+    }
     this.revokePendingId.set(seat.user_id);
     this.revokeFailedMessage.set('');
     try {
-      await this.api.revokeSeat(id, seat.user_id);
+      await this.api.revokeSeat(id, seat.user_id, reason);
       this.vendor.update((v) =>
         v && v.seats ? { ...v, seats: v.seats.filter((s) => s.user_id !== seat.user_id) } : v,
       );

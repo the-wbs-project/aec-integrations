@@ -1,5 +1,6 @@
 import { z } from 'zod';
 
+import { AdminReasonSchema } from './admin-reason';
 import { HTTPS_URL_MAX_LENGTH, isHttpsUrl } from './https-url';
 import { LogoPathSchema } from './logo-read';
 
@@ -30,6 +31,15 @@ export const LogoUrlSchema = z.union([
 ]);
 
 export const UpdateLogoSchema = z.object({ logo_url: LogoUrlSchema.nullable() }).strict();
+/**
+ * `PATCH /api/admin/vendors/:id/logo` and `/api/admin/products/:id/logo`
+ * (AECI-1191): the logo plus a required `reason`, recorded in the audit row. An
+ * admin overwrite replaces a logo the vendor may have chosen, so it says why.
+ */
+export const AdminUpdateLogoSchema = z
+  .object({ logo_url: LogoUrlSchema.nullable(), reason: AdminReasonSchema })
+  .strict();
 export const UploadLogoResponseSchema = z.object({ logo_url: LogoPathSchema });
 export type UploadLogoResponse = z.infer<typeof UploadLogoResponseSchema>;
 export type UpdateLogoInput = z.infer<typeof UpdateLogoSchema>;
+export type AdminUpdateLogoInput = z.infer<typeof AdminUpdateLogoSchema>;

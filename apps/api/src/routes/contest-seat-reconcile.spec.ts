@@ -495,7 +495,7 @@ describe('an accept that makes a row connector-powered handles stamped contests 
     const res = await call(
       AUTH_ADMIN,
       `/api/admin/contests/${toIpaas.body.contest.id}`,
-      { decision: 'accept' },
+      { decision: 'accept', note: 'Applied for the owner (AECI-1191).' },
       'PATCH',
     );
     expect(res.status).toBe(200);

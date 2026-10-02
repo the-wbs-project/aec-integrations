@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { LogoReadUrlSchema, LogoUrlSchema, UpdateLogoSchema } from './logos';
+import { AdminUpdateLogoSchema, LogoReadUrlSchema, LogoUrlSchema, UpdateLogoSchema } from './logos';
 import { ProductLinkSchema, VendorLinkSchema } from './common';
 
 describe('logo contracts', () => {
@@ -24,6 +24,19 @@ describe('logo contracts', () => {
     expect(UpdateLogoSchema.parse({ logo_url: null })).toEqual({ logo_url: null });
     for (const data of [{}, { logo_url: '' }, { logo_url: path, logo_source: 'admin' }])
       expect(UpdateLogoSchema.safeParse(data).success).toBe(false);
+  });
+  it('requires a reason on the admin logo write (AECI-1191)', () => {
+    expect(AdminUpdateLogoSchema.parse({ logo_url: null, reason: ' Outdated ' })).toEqual({
+      logo_url: null,
+      reason: 'Outdated',
+    });
+    for (const data of [
+      { logo_url: path },
+      { logo_url: path, reason: '' },
+      { logo_url: path, reason: '   ' },
+      { logo_url: path, reason: 'ok', logo_source: 'admin' },
+    ])
+      expect(AdminUpdateLogoSchema.safeParse(data).success).toBe(false);
   });
   it('preserves legacy reads and accepts uploaded paths on nested links', () => {
     expect(LogoReadUrlSchema.parse('http://example.com/old.png')).toContain('http:');

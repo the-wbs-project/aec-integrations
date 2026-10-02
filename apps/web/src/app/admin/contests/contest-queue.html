@@ -665,26 +665,49 @@
           <label
             [attr.for]="'contest-note-' + c.id"
             class="block text-xs font-bold uppercase tracking-[0.08em] text-(--text-secondary)"
-            i18n="@@admin.contests.accept.label"
           >
-            Note for the review issue (optional)
+            @if (acceptNoteRequired(c)) {
+            <span i18n="@@admin.contests.accept.labelRequired"
+              >Why you are changing the owner's value (required)</span
+            >
+            } @else {
+            <span i18n="@@admin.contests.accept.label">Note for the review issue (optional)</span>
+            }
           </label>
-          <p
-            [id]="'contest-note-' + c.id + '-help'"
-            class="text-xs text-(--text-secondary)"
-            i18n="@@admin.contests.accept.noteHelp"
-          >
-            Copied into the Linear issue and shown to the vendor that filed the contest.
+          <p [id]="'contest-note-' + c.id + '-help'" class="text-xs text-(--text-secondary)">
+            @if (acceptNoteRequired(c)) {
+            <span i18n="@@admin.contests.accept.noteHelpRequired"
+              >The owner holds this integration, so accepting changes their listing. Your note is
+              recorded in the audit trail, copied into the Linear issue and shown to the vendor that
+              filed the contest.</span
+            >
+            } @else {
+            <span i18n="@@admin.contests.accept.noteHelp"
+              >Copied into the Linear issue and shown to the vendor that filed the contest.</span
+            >
+            }
           </p>
           <textarea
             [id]="'contest-note-' + c.id"
             rows="3"
             maxlength="2000"
-            [attr.aria-describedby]="'contest-note-' + c.id + '-help'"
+            [required]="acceptNoteRequired(c)"
+            [attr.aria-invalid]="noteMissing() ? 'true' : null"
+            [attr.aria-describedby]="'contest-note-' + c.id + '-help' + (noteMissing() ? ' contest-note-' + c.id + '-error' : '')"
             [value]="formText()"
             (input)="onFormInput($event)"
             class="w-full rounded-(--radius-md) border border-(--border-default) bg-(--surface-base) px-3 py-2 text-sm text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
           ></textarea>
+          @if (noteMissing()) {
+          <p
+            [id]="'contest-note-' + c.id + '-error'"
+            role="alert"
+            class="text-sm font-medium text-(--text-primary)"
+            i18n="@@admin.contests.accept.noteMissing"
+          >
+            Write a note before you accept. The owner holds this integration.
+          </p>
+          }
           <div class="flex flex-wrap gap-3 pt-1">
             <button
               type="submit"

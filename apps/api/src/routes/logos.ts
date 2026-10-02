@@ -1,9 +1,9 @@
 import {
+  AdminUpdateLogoSchema,
   LOGO_MAX_BYTES,
   LogoKeySchema,
   LogoPathSchema,
   UploadLogoResponseSchema,
-  UpdateLogoSchema,
   type AuditLogEntry,
 } from '@aeci/shared';
 import { hasCapability } from '@aeci/shared/entitlements';
@@ -167,7 +167,7 @@ export function createUpdateAdminLogoHandler(kind: 'vendor' | 'product', dbFor: 
     const id = c.req.param('id');
     if (!id) throw new ApiError(400, 'VALIDATION_FAILED', 'Missing record id.');
     requireLogoOrigin(c);
-    const payload = await parseJsonBody(c, UpdateLogoSchema);
+    const payload = await parseJsonBody(c, AdminUpdateLogoSchema);
     const { db } = writeDb(c, dbFor);
     const table = kind === 'vendor' ? vendors : products;
     const [before] = await db
@@ -190,7 +190,8 @@ export function createUpdateAdminLogoHandler(kind: 'vendor' | 'product', dbFor: 
       entityId: id,
       beforeState: { logoUrl: before.logoUrl, logoSource: before.logoSource },
       afterState: { logoUrl: columns.logoUrl, logoSource: columns.logoSource },
-      metadata: { source: 'admin-panel', fields: ['logo_url'] },
+      // AECI-1191: the admin's reason rides the same row, in the same batch.
+      metadata: { source: 'admin-panel', fields: ['logo_url'], reason: payload.reason },
     };
     await db.batch([
       db.update(table).set(columns).where(eq(table.id, id)),

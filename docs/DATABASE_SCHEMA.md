@@ -1386,7 +1386,7 @@ is invisible rather than a constraint violation:
 | Action | `entity_type` | Written by | Notes |
 |---|---|---|---|
 | `integration.contest.submitted` / `.withdrawn` | `integration_field_challenge` | `routes/vendor-contests.ts` | `metadata.source = 'vendor-portal'`, plus `vendorId`, `contestId`, `integrationId`, `field` |
-| `integration.contest.accepted` / `.declined` | `integration_field_challenge` | `routes/vendor-contests.ts` (owner) and `routes/admin-contests.ts` (AECi) | `actor_type` tells the two apart; the admin rows carry `metadata.source = 'admin-moderation'` |
+| `integration.contest.accepted` / `.declined` | `integration_field_challenge` | `routes/vendor-contests.ts` (owner) and `routes/admin-contests.ts` (AECi) | `actor_type` tells the two apart; the admin rows carry `metadata.source = 'admin-moderation'`, and, since AECI-1191, `metadata.reason` = the note on an accept (required when the accept changes a vendor-held value) |
 | `integration.updated` with `metadata.reason = 'contest-accepted'` | `integration` | `routes/vendor-contests.ts` | Only on an owner accept. Before/after of the contested column plus the maintenance pair; `maintenanceTransfer: true` only when the row changes hands |
 | `notification.sent` | **`integration_field_challenge`** | both contest route modules | A second writer of the §7.3 ledger. `metadata.kind = 'contest'` and **no `detector`**, so the sweep's suppression read skips it. `metadata.vendorId` is the recipient, which is what the vendor feed filters on |
 

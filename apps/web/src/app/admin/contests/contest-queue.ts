@@ -1,4 +1,4 @@
-import { DatePipe } from '@angular/common';
+import { DOCUMENT, DatePipe } from '@angular/common';
 import { HttpErrorResponse } from '@angular/common/http';
 import { Component, afterNextRender, computed, inject, signal } from '@angular/core';
 import { RouterLink } from '@angular/router';
@@ -74,6 +74,7 @@ const QUEUE_PAGE_SIZE = 100;
 export class ContestQueue {
   private readonly api = inject(AdminContestsApi);
   private readonly summaryStore = inject(AdminSummaryStore);
+  private readonly document = inject(DOCUMENT);
 
   /** The loaded contests, in server order (newest first). */
   private readonly contests = signal<readonly AdminContest[]>([]);
@@ -91,6 +92,13 @@ export class ContestQueue {
   /** The decision note. Shown to the submitting vendor, and on accept also copied
    *  into the Linear issue. */
   protected readonly formText = signal('');
+  /**
+   * AECI-1191: an accept that changes a vendor-held value needs a note. The list
+   * says so per row (`accept_note_required`); `noteForcedId` covers a row that
+   * became claimed after the list loaded, which the API answers with a 400.
+   */
+  protected readonly noteForcedId = signal<string | null>(null);
+  protected readonly noteMissing = signal(false);
   /** Id and message of the contest whose last decision failed (inline alert). */
   protected readonly failedActionId = signal<string | null>(null);
   protected readonly failedActionMessage = signal('');
@@ -291,8 +299,13 @@ export class ContestQueue {
 
   // ── Decisions ────────────────────────────────────────────────────────────
 
+  protected acceptNoteRequired(c: AdminContest): boolean {
+    return c.accept_note_required || this.noteForcedId() === c.id;
+  }
+
   protected openForm(id: string, mode: ContestDecision): void {
     this.failedActionId.set(null);
+    this.noteMissing.set(false);
     this.formText.set('');
     this.formMode.set(mode);
     this.formOpenId.set(id);
@@ -302,18 +315,24 @@ export class ContestQueue {
     this.formOpenId.set(null);
     this.formMode.set(null);
     this.formText.set('');
+    this.noteMissing.set(false);
   }
 
   protected onFormInput(event: Event): void {
     this.formText.set((event.target as HTMLTextAreaElement).value);
+    if (this.noteMissing()) this.noteMissing.set(false);
   }
 
   protected async confirm(id: string, decision: ContestDecision): Promise<void> {
     if (this.pendingActionId()) return;
     const note = this.formText().trim();
-    const input: DecideContestInput = { decision, ...(note ? { note } : {}) };
     // Read before the row is dropped: only an open AECi row is in the count.
     const row = this.contests().find((c) => c.id === id);
+    if (decision === 'accept' && !note && row && this.acceptNoteRequired(row)) {
+      this.showNoteMissing(id);
+      return;
+    }
+    const input: DecideContestInput = { decision, ...(note ? { note } : {}) };
     const wasCounted = !!row && this.isActionable(row);
     this.failedActionId.set(null);
     this.pendingActionId.set(id);
@@ -341,6 +360,17 @@ export class ContestQueue {
    */
   private handleDecisionError(id: string, err: unknown): void {
     const code = apiErrorCode(err);
+    if (
+      code === 'VALIDATION_FAILED' &&
+      apiErrorField(err) === 'note' &&
+      this.formMode() === 'accept'
+    ) {
+      // AECI-1191: the row was claimed after the list loaded, so the accept now
+      // changes a vendor-held value. Keep the form open and ask for the note.
+      this.noteForcedId.set(id);
+      this.showNoteMissing(id);
+      return;
+    }
     if (code === 'CONTEST_NOT_OPEN') {
       this.closeForm();
       this.liveMessage.set(
@@ -369,6 +399,11 @@ export class ContestQueue {
     this.failedActionMessage.set(
       $localize`:@@admin.contests.action.failed:Something went wrong. Please try again.`,
     );
+  }
+
+  private showNoteMissing(id: string): void {
+    this.noteMissing.set(true);
+    this.document.getElementById(`contest-note-${id}`)?.focus();
   }
 
   // ── Protests (AECI-1009) ─────────────────────────────────────────────────
@@ -451,6 +486,13 @@ export class ContestQueue {
     this.contests.update((list) => list.filter((c) => c.id !== id));
     this.total.update((n) => Math.max(0, n - 1));
   }
+}
+
+/** The `field` from the API's `{ error: { field } }` envelope, or `null`. */
+function apiErrorField(err: unknown): string | null {
+  if (!(err instanceof HttpErrorResponse)) return null;
+  const inner = (err.error as { error?: { field?: unknown } } | null | undefined)?.error;
+  return typeof inner?.field === 'string' ? inner.field : null;
 }
 
 /** The `code` from the API's `{ error: { code } }` envelope, or `null`. */
