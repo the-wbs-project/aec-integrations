@@ -35,6 +35,7 @@ import {
   notificationSends,
   pageViews,
   userActivityDaily,
+  vendorActivityDaily,
   workflowInstances,
   workflowTransitions,
 } from '../db/schema';
@@ -488,6 +489,31 @@ describe('runRetentionPrune', () => {
     const audits = await t.db.select().from(auditLog);
     expect(audits).toHaveLength(2);
     expect(audits.filter((a) => a.action === 'seed.old')).toHaveLength(1);
+  });
+
+  it('keeps vendor_activity_daily indefinitely — it is not prunable (AECI-1210)', async () => {
+    expect(PRUNABLE as readonly string[]).not.toContain('vendor_activity_daily');
+    await seedSnapshots(daysBetween(shiftDay(PV_LAST_PRUNED_DAY, -1), PV_LAST_PRUNED_DAY));
+    await t.db.insert(vendorActivityDaily).values({
+      day: '2025-01-01',
+      vendorId: 'v-acme',
+      seats: 1,
+      pendingInvites: 0,
+      activeUsers1d: 0,
+      activeUsers7d: 0,
+      activeUsers30d: 0,
+      effectiveTier: 'unclaimed',
+      openContestsOwned: 0,
+      openContestsFiled: 0,
+      dataFlowsConfirmed: 0,
+      productsTotal: 0,
+      productsConfirmed: 0,
+      computedAt: at('2025-01-02'),
+    });
+
+    await runRetentionPrune(t.db, NOW, WINDOWS);
+
+    expect(await t.db.select().from(vendorActivityDaily)).toHaveLength(1);
   });
 
   // ── §7.4 rule 4: exactly one summary audit row ───────────────────────────
