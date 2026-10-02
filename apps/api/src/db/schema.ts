@@ -2472,6 +2472,81 @@ export const userActivityDaily = sqliteTable(
   ],
 );
 
+// ===========================================================================
+// Per-vendor daily snapshot (AECI-1210, DATABASE_SCHEMA.md §9.12)
+//
+// Derived and log-class: every column is computed from rows already in the
+// database by the 00:30 UTC `vendor_snapshot` job (`lib/vendor-snapshot.ts`), and
+// re-running the job for a day replaces that day's rows. It passes the §26.1
+// three-part test as `metrics_daily` does, so it writes no `audit_log` row.
+//
+// Retention is indefinite (`ADMIN_PANEL_SPEC.md` §7.4): it is NOT in the prune's
+// `PRUNABLE` list. It holds no user id, so account erasure never touches it.
+//
+// Operator-only. Nothing in search, Algolia, ranking, home stats or a public
+// listing may read it (`lib/ranking-firewall.spec.ts`).
+//
+// No FK to `vendors` on purpose: a vendor delete must not cascade away its
+// history, and a FK would add a recreate-cascade hazard (`docs/migrations.md` §0).
+// ===========================================================================
+
+/**
+ * One row per ACTIVATED vendor per UTC day: a vendor with at least one unbanned
+ * seat, an entitlement row, or a live invite. A catalog vendor with none of these
+ * gets no row.
+ *
+ * `day` is the snapshot day, yesterday at run time. The activity counts cover
+ * whole days ending on `day`. Every other count is a stock read at
+ * `computed_at`, about 30 minutes after `day` ended.
+ */
+export const vendorActivityDaily = sqliteTable(
+  'vendor_activity_daily',
+  {
+    /** `YYYY-MM-DD`, UTC. Same format as `metrics_daily.day`. */
+    day: text('day').notNull(),
+    vendorId: text('vendor_id').notNull(),
+    /** `profiles` with `role = 'vendor_admin'`, this `vendor_id`, and
+     *  `banned_at IS NULL`. Unlike `seatsOf`, banned seats are excluded. */
+    seats: integer('seats').notNull(),
+    /** `vendor_seat_invites` not accepted, not revoked, and unexpired at
+     *  `computed_at` (`liveInvites`). */
+    pendingInvites: integer('pending_invites').notNull(),
+    /** Distinct `user_activity_daily.user_id` with `role = 'vendor_admin'` and this
+     *  `vendor_id`, on `day` only. */
+    activeUsers1d: integer('active_users_1d').notNull(),
+    /** The same, over the 7 days ending on `day`. */
+    activeUsers7d: integer('active_users_7d').notNull(),
+    /** The same, over the 30 days ending on `day`. */
+    activeUsers30d: integer('active_users_30d').notNull(),
+    /** The raw `vendor_entitlements.tier`. NULL = no row, which is the Free plan. */
+    entitlementTier: text('entitlement_tier'),
+    /** The raw `vendor_entitlements.status`. NULL = no row. */
+    entitlementStatus: text('entitlement_status'),
+    /** `tierFor()` over the row: `unclaimed` (Free) unless the row is active. */
+    effectiveTier: text('effective_tier').notNull(),
+    /** Open `integration_field_challenges` this vendor must answer. */
+    openContestsOwned: integer('open_contests_owned').notNull(),
+    /** Open `integration_field_challenges` this vendor filed. */
+    openContestsFiled: integer('open_contests_filed').notNull(),
+    /** Live `attestations` (`retracted_at IS NULL`) by this vendor. */
+    dataFlowsConfirmed: integer('data_flows_confirmed').notNull(),
+    /** `product_vendors` rows for this vendor. */
+    productsTotal: integer('products_total').notNull(),
+    /** Owned products the checklist calls checked: `maintained_by = 'vendor'` and
+     *  `last_reviewed_at` set (`lib/vendor-checklist.ts`). Any vendor edit also
+     *  sets `last_reviewed_at`, not only "Looks right". */
+    productsConfirmed: integer('products_confirmed').notNull(),
+    /** When the job computed this row. */
+    computedAt: text('computed_at').notNull(),
+  },
+  (t) => [
+    // The upsert target: a same-day rerun replaces the row.
+    primaryKey({ columns: [t.day, t.vendorId] }),
+    // One vendor's trend over a day range.
+    index('vendor_activity_daily_vendor_day_idx').on(t.vendorId, t.day),
+  ],
+);
+
 /**
  * External classification of the ASNs we have actually seen (AECI-624).
  *

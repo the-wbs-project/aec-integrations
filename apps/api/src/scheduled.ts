@@ -166,6 +166,7 @@ import {
   RETENTION_CRON,
   SNAPSHOT_CRON,
   STATS_CRON,
+  VENDOR_SNAPSHOT_CRON,
   WAF_CRON,
 } from './lib/cron-schedules';
 import { runClaimStaleCheck } from './lib/claim-stale-check';
@@ -228,6 +229,11 @@ import {
   type RetentionMetricSink,
 } from './lib/retention-prune';
 import { emitWafEventMetrics, previousHourWindow } from './lib/waf-metrics';
+import {
+  runVendorSnapshot,
+  snapshotDayFor,
+  VENDOR_SNAPSHOT_RUN_METRIC,
+} from './lib/vendor-snapshot';
 
 /**
  * D1 client for cron/queue jobs (AECI-250). Background jobs have no user latency
@@ -286,7 +292,7 @@ function jobRunSink(ctx: ExecutionContext, env: Env): JobRunSink {
   };
 }
 
-// The sixteen cron expressions now live in `./lib/cron-schedules` — hoisted there
+// The seventeen cron expressions now live in `./lib/cron-schedules` — hoisted there
 // by AECI-580 (the snapshot cron joined them in AECI-581, the retention prune in
 // AECI-584, the §7 attestation sweep at the AECI-619 reconciliation, and the
 // IndexNow drain in AECI-826, daily at 00:05 since AECI-1136) so
@@ -851,6 +857,56 @@ async function runMetricsSnapshotJob(env: Env, ctx: ExecutionContext): Promise<J
       recheck: summarizeRecheck(recheck),
     },
   };
+}
+
+/**
+ * The daily per-vendor snapshot (AECI-1210, `DATABASE_SCHEMA.md` §9.12): one
+ * `vendor_activity_daily` row per activated vendor for the prior UTC day.
+ *
+ * Everything load-bearing lives in `./lib/vendor-snapshot`; this is the shell that
+ * supplies the clock and the PostHog sink. `aeci.vendor_snapshot.run` is emitted on
+ * every run, `outcome:ok` or `outcome:failed`, so it doubles as the cron-liveness
+ * heartbeat.
+ *
+ * A crash rethrows, like the attestation sweep and unlike the read-only gauges. The
+ * job is queue-backed and its write is an idempotent `(day, vendor_id)` upsert, so a
+ * queue retry after a transient D1 failure is exactly the recovery we want, and it
+ * cannot double-count. `withJobRun` still records the run as `failed` first.
+ */
+async function runVendorSnapshotJob(env: Env, ctx: ExecutionContext): Promise<JobRunReport> {
+  const req = cronRequest('/cron/vendor-snapshot');
+  const now = new Date();
+  const day = snapshotDayFor(now);
+  const started = Date.now();
+
+  try {
+    const { db } = cronDb(env);
+    const result = await runVendorSnapshot(db, now);
+    const durationMs = Date.now() - started;
+    submitCount(ctx, env, req, VENDOR_SNAPSHOT_RUN_METRIC, 1, ['trigger:cron', 'outcome:ok']);
+    logToPosthog(ctx, env, req, {
+      level: 'info',
+      message: `aeci.vendor_snapshot.captured day=${result.day} vendors=${result.vendors}`,
+      source: 'vendor-snapshot-cron',
+      day: result.day,
+      vendors: result.vendors,
+    });
+    return {
+      outcome: 'ok',
+      detail: { job: 'vendor-snapshot', day: result.day, vendors: result.vendors, durationMs },
+    };
+  } catch (error) {
+    submitCount(ctx, env, req, VENDOR_SNAPSHOT_RUN_METRIC, 1, ['trigger:cron', 'outcome:failed']);
+    logToPosthog(ctx, env, req, {
+      level: 'error',
+      message: 'aeci.vendor_snapshot.crashed',
+      source: 'vendor-snapshot-cron',
+      day,
+      reason: error instanceof Error ? error.message : String(error),
+    });
+    // Rethrow so the queue consumer retries. The upsert makes a retry safe.
+    throw error;
+  }
 }
 
 /**
@@ -1890,6 +1946,8 @@ function queueForJob(env: Env, job: ScheduledJob): Queue<ScheduledJobMessage> | 
       return env.DATA_QUALITY_QUEUE;
     case 'attestation_notify':
       return env.ATTESTATION_NOTIFY_QUEUE;
+    case 'vendor_snapshot':
+      return env.VENDOR_SNAPSHOT_QUEUE;
     case 'moderation':
       // Queue-less by design: a cheap read-only gauge needs no retry/queue, so it
       // always runs inline (AECI-206). No `MODERATION_QUEUE` binding exists.
@@ -2070,6 +2128,13 @@ function enqueueFailureLog(job: ScheduledJob): { path: string; message: string; 
       source: 'claim-stale-check-cron',
     };
   }
+  if (job === 'vendor_snapshot') {
+    return {
+      path: '/cron/vendor-snapshot',
+      message: 'aeci.vendor_snapshot.enqueue_failed',
+      source: 'vendor-snapshot-cron',
+    };
+  }
   if (job === 'protest_reply_reminder') {
     // Unreachable for the same reason as `claim_stale_check` above — queue-less, so
     // `queue.send` is never called. Kept so the mapping stays total.
@@ -2125,7 +2190,7 @@ async function enqueueOrRun(env: Env, ctx: ExecutionContext, job: ScheduledJob):
  *  {@link JobRunReport} rather than `void`, because the impls swallow their own
  *  operational errors — a wrapper that only watched for a throw would record `ok`
  *  for a run that failed. `Promise<JobRunReport>` also makes the type checker
- *  enumerate every exit path in all sixteen, which is what makes "each of the sixteen
+ *  enumerate every exit path in all seventeen, which is what makes "each of the seventeen
  *  writes a row, on every path" verifiable rather than a review checklist. */
 async function dispatchScheduledJob(
   env: Env,
@@ -2165,6 +2230,8 @@ async function dispatchScheduledJob(
       return runClaimStaleCheckJob(env, ctx);
     case 'protest_reply_reminder':
       return runProtestReplyReminderJob(env, ctx);
+    case 'vendor_snapshot':
+      return runVendorSnapshotJob(env, ctx);
   }
 }
 
@@ -2247,6 +2314,9 @@ export const scheduled: ExportedHandlerScheduledHandler<Env> = async (controller
       return;
     case PROTEST_REMINDER_CRON:
       await enqueueOrRun(env, ctx, 'protest_reply_reminder');
+      return;
+    case VENDOR_SNAPSHOT_CRON:
+      await enqueueOrRun(env, ctx, 'vendor_snapshot');
       return;
     default:
       // A trigger fired with no matching case. This used to be a bare

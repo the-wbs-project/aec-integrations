@@ -165,6 +165,12 @@ each loses per day. G0 comes first because it covers every visitor, not only the
 > filter operator traffic out. **G3 is closed by AECI-1216**, which shipped "Looks right" on the
 > vendor profile, each product, and each product's integrations, stamping `last_reviewed_at`
 > with an audit row.
+>
+> **The per-vendor daily snapshot now exists (AECI-1210).** `vendor_activity_daily` keeps one
+> row per activated vendor per UTC day: seats, live invites, active users over 1, 7 and 30 days,
+> the plan, open contests owned and filed, live attestations, and products total and confirmed
+> (`DATABASE_SCHEMA.md` §9.12). These stock numbers overwrite themselves, so a trend starts on
+> the first 00:30 UTC run after deploy and cannot be backfilled.
 
 Also worth doing before the pilot, but not history-critical:
 

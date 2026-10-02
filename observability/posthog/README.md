@@ -9,7 +9,7 @@ change it here first and carry the edit across; keep the table clean and liftabl
 
 | File | What it is |
 |---|---|
-| `project-config.json` | Topology (both projects, hosts, alert subscribers) + the **liveness registry** the CI sweep reads: fifteen of the sixteen crons. `protest-reply-reminder` waits in `liveness.pendingFirstHeartbeat` (see Pending liveness entries). |
+| `project-config.json` | Topology (both projects, hosts, alert subscribers) + the **liveness registry** the CI sweep reads: fifteen of the seventeen crons. `protest-reply-reminder` and `vendor-snapshot` wait in `liveness.pendingFirstHeartbeat` (see Pending liveness entries). |
 | `insights.json` | 7 dashboards, 50 insights (32 board + 18 alert-source), as data. Names and descriptions are written for a **reader**, not for an archaeologist — see "Naming and descriptions". |
 | `alerts.json` | 18 PostHog alerts. Each names its source insight by **stable key** (`insightKey`, never by title) and carries the **retired Datadog query verbatim**. |
 | `apply.sh` | Thin applier over the three JSON files. Dashboards + insights to both projects, alerts to prod only. |
@@ -112,9 +112,10 @@ Two deliberate widenings ride along:
    entitlement-expiry, indexnow-drain, claim-stale-check, waf-poll and the per-key half of
    home-stats were previously unwatched — several shipped after the Datadog monitors were
    written, and `indexnow-drain` and `claim-stale-check` did not exist until AECI-826 and
-   AECI-862). AECI-1205 added `protest-reply-reminder`, so the query now sums fourteen
-   metrics. Its failure half is live, but its liveness row waits outside the sweep (see
-   "Pending liveness entries" below). Three of the sixteen crons are absent from that query on purpose:
+   AECI-862). AECI-1205 added `protest-reply-reminder` and AECI-1210 added
+   `vendor-snapshot`, so the query now sums fifteen metrics. Their failure halves are live,
+   but their liveness rows wait outside the sweep (see "Pending liveness entries" below).
+   Three of the seventeen crons are absent from that query on purpose:
    `moderation-snapshot`, `algolia-drift` and `request-reconcile` heartbeat on a GAUGE with no
    `outcome` tag, so there is nothing to sum. `indexnow-drain` was missing until AECI-864 —
    AECI-826 wired its liveness heartbeat but not its failure half. Only its local faults
@@ -398,6 +399,7 @@ first production heartbeat appears. The sweep never reads that list.
 | Cron | Heartbeat to wait for | Then |
 |---|---|---|
 | `protest-reply-reminder` (AECI-1205) | `aeci.contest.protest_reminder.job` in production | Move its object into `liveness.crons` and drop it from `LIVENESS_PENDING`. A follow-up issue tracks this. |
+| `vendor-snapshot` (AECI-1210) | `aeci.vendor_snapshot.run` in production | Move its object into `liveness.crons` and drop it from `LIVENESS_PENDING`. |
 
 ## The liveness sweep drill
 

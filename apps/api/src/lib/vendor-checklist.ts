@@ -68,8 +68,10 @@ function statusOf(isDone: boolean, counts: boolean): ChecklistStepStatus {
   return counts ? 'todo' : 'optional';
 }
 
-/** "Checked" for a vendor or product row: maintained by the vendor and reviewed. */
-function isChecked(row: { maintainedBy: string; lastReviewedAt: string | null }): boolean {
+/** "Checked" for a vendor or product row: maintained by the vendor and reviewed.
+ *  Exported for the daily vendor snapshot's `products_confirmed` (AECI-1210), so
+ *  the trend and the checklist can never disagree about what "confirmed" means. */
+export function isChecked(row: { maintainedBy: string; lastReviewedAt: string | null }): boolean {
   return row.maintainedBy === 'vendor' && row.lastReviewedAt !== null;
 }
 

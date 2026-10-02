@@ -125,8 +125,9 @@
   // scheduled-job queues (`aeci-algolia-{sync,drift}-{env}` for AECI-139/140,
   // `aeci-stats-{env}` for the AECI-178 home-stats job, `aeci-reconcile-{env}` for the
   // AECI-214 request→Linear reconciliation sweep, `aeci-data-quality-{env}` for the
-  // AECI-241 §23.1 suite, and `aeci-attestation-notify-{env}` for the AECI-302 §7
-  // attestation detector sweep — six per env across staging/demo/production) are
+  // AECI-241 §23.1 suite, `aeci-attestation-notify-{env}` for the AECI-302 §7
+  // attestation detector sweep, and `aeci-vendor-snapshot-{env}` for the AECI-1210
+  // per-vendor snapshot — seven per env across staging/demo/production) are
   // provisioned by an idempotent `wrangler queues create`
   // step in deploy.yml / promote-to-prod.yml before the Worker deploy. PREREQS:
   // Workers Paid plan, and the CI CLOUDFLARE_API_TOKEN must carry the Queues edit
@@ -556,6 +557,9 @@
           // AECI-862 claim-staleness check. Minute 25 avoids the */15 and hourly
           // expressions above — two jobs cannot share one expression.
           "25 */6 * * *",
+          // AECI-1210 per-vendor snapshot of the prior UTC day. Minute 30 is clear of
+          // 00:05, 00:15 and 00:25; the */15 sweep is a different expression.
+          "30 0 * * *",
         ],
       },
       // ADR 0013: the cron `scheduled` handler enqueues onto these queues; the
@@ -573,6 +577,8 @@
           { "queue": "aeci-reconcile-staging", "binding": "RECONCILE_QUEUE" },
           { "queue": "aeci-data-quality-staging", "binding": "DATA_QUALITY_QUEUE" },
           { "queue": "aeci-attestation-notify-staging", "binding": "ATTESTATION_NOTIFY_QUEUE" },
+          // AECI-1210: the daily per-vendor snapshot.
+          { "queue": "aeci-vendor-snapshot-staging", "binding": "VENDOR_SNAPSHOT_QUEUE" },
           // WC-5 (AECI-319): cross-Worker cache-purge. Producer only — the SSR Worker
           // consumes `aeci-cache-purge-staging` (apps/web/wrangler.jsonc).
           { "queue": "aeci-cache-purge-staging", "binding": "CACHE_PURGE_QUEUE" },
@@ -610,6 +616,12 @@
           },
           {
             "queue": "aeci-attestation-notify-staging",
+            "max_batch_size": 1,
+            "max_retries": 3,
+            "max_concurrency": 1,
+          },
+          {
+            "queue": "aeci-vendor-snapshot-staging",
             "max_batch_size": 1,
             "max_retries": 3,
             "max_concurrency": 1,
@@ -718,7 +730,7 @@
           "migrations_dir": "migrations",
         },
       ],
-      // Same sixteen crons as staging/production (see staging note — incl. the hourly
+      // Same seventeen crons as staging/production (see staging note — incl. the hourly
       // "0 * * * *" WAF firewall-event poll, AECI-262, the daily "0 5 * * *"
       // operator analytics digest, AECI-526, at 05:00 UTC = noon Jakarta, the
       // daily "15 0 * * *" metrics_daily snapshot, AECI-581, the daily
@@ -751,6 +763,9 @@
           // AECI-862 claim-staleness check. Minute 25 avoids the */15 and hourly
           // expressions above — two jobs cannot share one expression.
           "25 */6 * * *",
+          // AECI-1210 per-vendor snapshot of the prior UTC day. Minute 30 is clear of
+          // 00:05, 00:15 and 00:25; the */15 sweep is a different expression.
+          "30 0 * * *",
         ],
       },
       // ADR 0013 (see staging note): cron enqueues → `queue` consumer runs the job.
@@ -762,6 +777,8 @@
           { "queue": "aeci-reconcile-demo", "binding": "RECONCILE_QUEUE" },
           { "queue": "aeci-data-quality-demo", "binding": "DATA_QUALITY_QUEUE" },
           { "queue": "aeci-attestation-notify-demo", "binding": "ATTESTATION_NOTIFY_QUEUE" },
+          // AECI-1210: the daily per-vendor snapshot.
+          { "queue": "aeci-vendor-snapshot-demo", "binding": "VENDOR_SNAPSHOT_QUEUE" },
           // WC-5 (AECI-319): cross-Worker cache-purge. Producer only — the SSR Worker
           // consumes `aeci-cache-purge-demo` (apps/web/wrangler.jsonc).
           { "queue": "aeci-cache-purge-demo", "binding": "CACHE_PURGE_QUEUE" },
@@ -799,6 +816,12 @@
           },
           {
             "queue": "aeci-attestation-notify-demo",
+            "max_batch_size": 1,
+            "max_retries": 3,
+            "max_concurrency": 1,
+          },
+          {
+            "queue": "aeci-vendor-snapshot-demo",
             "max_batch_size": 1,
             "max_retries": 3,
             "max_concurrency": 1,
@@ -973,6 +996,9 @@
           // AECI-862 claim-staleness check. Minute 25 avoids the */15 and hourly
           // expressions above — two jobs cannot share one expression.
           "25 */6 * * *",
+          // AECI-1210 per-vendor snapshot of the prior UTC day. Minute 30 is clear of
+          // 00:05, 00:15 and 00:25; the */15 sweep is a different expression.
+          "30 0 * * *",
         ],
       },
       // ADR 0013 (see staging note): cron enqueues → `queue` consumer runs the job.
@@ -984,6 +1010,8 @@
           { "queue": "aeci-reconcile-production", "binding": "RECONCILE_QUEUE" },
           { "queue": "aeci-data-quality-production", "binding": "DATA_QUALITY_QUEUE" },
           { "queue": "aeci-attestation-notify-production", "binding": "ATTESTATION_NOTIFY_QUEUE" },
+          // AECI-1210: the daily per-vendor snapshot.
+          { "queue": "aeci-vendor-snapshot-production", "binding": "VENDOR_SNAPSHOT_QUEUE" },
           // WC-5 (AECI-319): cross-Worker cache-purge. Producer only — the SSR Worker
           // consumes `aeci-cache-purge-production` (apps/web/wrangler.jsonc).
           { "queue": "aeci-cache-purge-production", "binding": "CACHE_PURGE_QUEUE" },
@@ -1021,6 +1049,12 @@
           },
           {
             "queue": "aeci-attestation-notify-production",
+            "max_batch_size": 1,
+            "max_retries": 3,
+            "max_concurrency": 1,
+          },
+          {
+            "queue": "aeci-vendor-snapshot-production",
             "max_batch_size": 1,
             "max_retries": 3,
             "max_concurrency": 1,

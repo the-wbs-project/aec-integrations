@@ -24,7 +24,7 @@ into a health report, or the report will silently mix a census with a funnel.
 |---|---|---|
 | **PostHog** (`aec-integrations`, **354071**, production only) | Person-linked logs (`posthogDistinctId`), `$exception` grouping, deploy `deployment` events, and the product funnels in `ANALYTICS.md` | **Alerts — none are applied to production yet.** Dashboards are applied to the **non-production** project (525793) only. Do not read a prod number off a 525793 board |
 | **`/admin/*`** (`job_runs`, `page_views`, `metrics_daily`) | Cron run records, the consent-independent traffic count, D1 footprint | Absence ("it never ran" writes no row, by construction) |
-| **The CI liveness sweep** (`posthog-liveness-sweep.yml`, every 3 h) | Cron **absence**, across all sixteen crons — **already running** and worth reading during the dual-run | Anything about *why* a cron failed |
+| **The CI liveness sweep** (`posthog-liveness-sweep.yml`, every 3 h) | Cron **absence**, across fifteen of the seventeen crons (two wait for a first production heartbeat, `observability/posthog/README.md`) — **already running** and worth reading during the dual-run | Anything about *why* a cron failed |
 | **Cloudflare** (Workers observability, Security → Events) | Edge cache HIT-rate, absolute request volume, per-IP WAF detail | Application-level anything |
 
 The rule for this pass: **read PostHog for production numbers, read the liveness sweep
@@ -220,10 +220,10 @@ data today, with the PostHog successor in brackets.
 > from **before** AECI-640 carry mixed tiers (demo was pointed at the prod key), so filter by `$host`
 > when reading history that far back.
 
-### 1a. The 16 scheduled crons (row 6 detail)
+### 1a. The 17 scheduled crons (row 6 detail)
 
 Each cron emits an always-on heartbeat; **absence** of that heartbeat is the liveness signal. A green
-board here means all sixteen fired on schedule. Since AECI-583 each run **also** writes a `job_runs`
+board here means all seventeen fired on schedule. Since AECI-583 each run **also** writes a `job_runs`
 row that `/admin/system` renders (see the split below).
 
 > **Read the record off `/admin/system`; read absence off something outside the Worker.** AECI-583
@@ -239,7 +239,7 @@ row that `/admin/system` renders (see the split below).
 > it **succeeded**. Full reconciliation in `OBSERVABILITY.md`.
 >
 > **What owns absence.** Formerly Datadog's six `notify_no_data` monitors; since AECI-651,
-> AECI-651 — and **already running now** — the CI liveness sweep, which watches all **sixteen**. It
+> AECI-651 — and **already running now** — the CI liveness sweep, which watches **fifteen of the seventeen** (two are pending a first production heartbeat). It
 > runs outside the Worker on purpose; a liveness check hosted inside the API Worker cannot detect
 > the API Worker being dead. **PostHog alerts are explicitly not the answer:** no PostHog tier has
 > `notify_no_data`, and a "count < 1" alert over an empty window returns no rows rather than
@@ -254,6 +254,7 @@ job in its label column; "sweep" means the CI liveness sweep, with its staleness
 | Cron (UTC) | Job | `job_runs.job` | Failure / liveness coverage |
 |---|---|---|---|
 | `15 0 * * *` | `metrics_daily` snapshot of the prior complete UTC day (AECI-581 / `ADMIN_PANEL_SPEC.md` §7.1) — 21 metrics, the admin panel's long memory (20 until AECI-869 added `quality.arrival_cf_coverage`). **Since AECI-827 it also re-checks the trailing ~33 days** and rewrites the `traffic.*` days the operator retro-join moved (ADR 0027), emitting the separate `aeci.metrics_snapshot.recheck.*` family | `metrics-snapshot` | **today: nothing.** A known gap, and the worst one to have — queue-less, so a failed run is not retried, and the *stock* metrics of a missed day are unrecoverable (flow metrics recover via `pnpm --filter @aeci/api ops:backfill-metrics-daily`). → **combined + sweep (26 h)** — the port closes it |
+| `30 0 * * *` | Per-vendor daily snapshot (AECI-1210 / `DATABASE_SCHEMA.md` §9.12) — one `vendor_activity_daily` row per activated vendor (a seat, a plan row or a live invite) for the prior UTC day: seats, live invites, active users over 1/7/30 days, raw and effective plan, open contests owned and filed, live attestations, products total and confirmed. Queue-backed (`aeci-vendor-snapshot-{env}`); the `(day, vendor_id)` upsert makes a retry or a rerun replace rows, never add them. Sends nothing | `vendor-snapshot` | **new with AECI-1210.** `aeci.vendor_snapshot.run{outcome}`, emitted on every run including failures → **combined** now, **+ sweep** (26 h) after the first production heartbeat. Until then its liveness row waits in `pendingFirstHeartbeat`. A new cron can miss its first 00:30 tick after deploy while the trigger propagates; that is not a bug. There is no backfill: a missed day stays missing, because the stock columns can only be read at run time |
 | `0 2 * * 2` | **WEEKLY** (Mondays — Cloudflare's day-of-week is 1=Sunday, so Monday is `2`; this read `0 2 * * 1` and therefore fired on SUNDAY until AECI-661) — `asn_registry` refresh from PeeringDB (AECI-624 / `ADMIN_PANEL_SPEC.md` §7.6): the read-time network annotation behind the Activity feed | `asn-registry` | **today: nothing on this line.** It arrived with the AECI-750 reconcile, and its Datadog no-data monitor had already been deleted by AECI-651, so it landed with no absence signal at all. → **combined + sweep**, and the sweep's `lookbackHours` widened 72 → 360 for it: a WEEKLY heartbeat is absent from a 72 h window six days in seven, which would have read MISSING every day. A `failed` run is not urgent — nothing is ever deleted, so the panel keeps annotating from the last good rows and `/admin/system` marks the registry stale after two missed Mondays. Watch **coverage**, not freshness: it decays silently as new networks arrive |
 | `0 3 * * *` | §7.4 retention prune (AECI-584 / `ADMIN_PANEL_SPEC.md` §7.4) — the system's only scheduled `DELETE`: `page_views` past 400 days, `job_runs` past 90, in bounded chunks, with one `retention.pruned` audit row per run. **Deletes nothing until ~2026-11 (`job_runs`) / ~2027-07 (`page_views`)**, so for now a healthy run is a zero-row run | `retention-prune` | prune-skipped / prune-runaway / prune-failed / prune-not-running (AECI-584) → **runaway stays its own alert** (unchanged 5,000 rows/table/day), failed → combined, not-running → sweep (26 h), **skipped → dashboard + digest, no alert** |
 | `0 4 * * *` | Data-quality suite (the §23.1 checks) + email digest | `data-quality` | check-error / check-warn / failed / not-running → **ERROR stays its own alert** (and now catches a check that *threw*), **WARN → dashboard + digest, no alert**, failed → combined, not-running → sweep (26 h) |

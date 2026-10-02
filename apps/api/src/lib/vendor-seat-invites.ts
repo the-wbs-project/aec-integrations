@@ -583,5 +583,18 @@ export function pendingInvitesFor(vendorId: string) {
  * request compare against the same instant, and so tests need no fake timers.
  */
 export function liveInvitesFor(vendorId: string, now: string) {
-  return and(pendingInvitesFor(vendorId), gt(vendorSeatInvites.expiresAt, now));
+  return and(eq(vendorSeatInvites.vendorId, vendorId), liveInvites(now));
+}
+
+/**
+ * {@link liveInvitesFor} without the vendor scope: every live invite on the
+ * platform. The daily vendor snapshot (AECI-1210) groups it by `vendor_id`, so it
+ * shares the one definition rather than retyping the expiry term.
+ */
+export function liveInvites(now: string) {
+  return and(
+    isNull(vendorSeatInvites.acceptedAt),
+    isNull(vendorSeatInvites.revokedAt),
+    gt(vendorSeatInvites.expiresAt, now),
+  );
 }

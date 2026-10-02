@@ -2268,12 +2268,12 @@ for a stock: an uncaptured day would report zero subscribers rather than unknown
 
 ### 9.4 `job_runs`
 
-One row per execution of one of the sixteen `scheduled.ts` cron jobs (AECI-583; `ADMIN_PANEL_SPEC.md` §7.2 — the twelfth is the 11:00 entitlement term-expiry sweep, AECI-613, the thirteenth is the WEEKLY 02:00 Monday `asn-registry` refresh, AECI-624, which met this table at the AECI-750 reconcile, the fourteenth is the IndexNow drain, AECI-826, daily at `5 0` since AECI-1136 (`*/20` before), the fifteenth is the `25 */6` claim-staleness check, AECI-862, and the sixteenth is the 12:00 protest reply reminder, AECI-1205). Before it existed a cron's outcome lived **only** as an emitted metric, so nothing in D1 could answer "did the 08:00 Algolia sync run today", and the data-quality findings lived **only** in the 04:00 email — computed, sent, discarded.
+One row per execution of one of the seventeen `scheduled.ts` cron jobs (AECI-583; `ADMIN_PANEL_SPEC.md` §7.2 — the twelfth is the 11:00 entitlement term-expiry sweep, AECI-613, the thirteenth is the WEEKLY 02:00 Monday `asn-registry` refresh, AECI-624, which met this table at the AECI-750 reconcile, the fourteenth is the IndexNow drain, AECI-826, daily at `5 0` since AECI-1136 (`*/20` before), the fifteenth is the `25 */6` claim-staleness check, AECI-862, the sixteenth is the 12:00 protest reply reminder, AECI-1205, and the seventeenth is the 00:30 vendor snapshot, AECI-1210). Before it existed a cron's outcome lived **only** as an emitted metric, so nothing in D1 could answer "did the 08:00 Algolia sync run today", and the data-quality findings lived **only** in the 04:00 email — computed, sent, discarded.
 
 ```sql
 create table job_runs (
   id bigserial primary key,
-  job text not null,                -- one of the sixteen AdminCronJob ids (packages/shared/src/api/admin-panel.ts)
+  job text not null,                -- one of the seventeen AdminCronJob ids (packages/shared/src/api/admin-panel.ts)
   started_at timestamptz not null,  -- written on ENTRY: the row exists before the job finishes
   finished_at timestamptz,          -- null = in flight, or the isolate never came back
   outcome text,                     -- 'ok' | 'failed' | 'skipped'; null while finished_at is null
@@ -3420,8 +3420,8 @@ user or the public, it is erased with the account, and it is pruned on a fixed w
 it. `apps/api/src/lib/ranking-firewall.spec.ts` fails the build if one of those modules names the
 table. It is never joined to `page_views` (`ADMIN_PANEL_SPEC.md` §13 D7).
 
-**Read by** nothing in the app yet. The vendor snapshot (AECI-1210) will read it through the
-`(vendor_id, day)` index.
+**Read by** the daily vendor snapshot (AECI-1210, §9.12), through the `(vendor_id, day)`
+index. Nothing else in the app reads it yet.
 
 **Retention: 400 days, enforced by retention-prune** (`apps/api/src/lib/retention-prune.ts`). The
 table has no integer id, so the prune pages the implicit `rowid` under the same chunk caps, with
@@ -3431,6 +3431,91 @@ env var with the 30-day floor. `ADMIN_PANEL_SPEC.md` §7.4.
 
 **Migration `0056`** is a plain `CREATE TABLE` plus two `CREATE INDEX`. It is not a recreate and
 cannot cascade. `apps/api/src/test/migration-0056.spec.ts` pins that.
+
+### 9.12 `vendor_activity_daily`
+
+One row per **activated** vendor per UTC day (AECI-1210, migration
+`0057_even_stark_industries.sql`). Most vendor numbers are a current state that overwrites
+itself. This table is the daily copy that makes a trend possible. It is written by the
+`vendor-snapshot` cron (00:30 UTC, `apps/api/src/lib/vendor-snapshot.ts`) and read by nothing in
+the app yet.
+
+```sql
+create table vendor_activity_daily (
+  day text not null,                 -- YYYY-MM-DD, UTC: the snapshot day (yesterday at run time)
+  vendor_id text not null,           -- vendors.id; no FK, see below
+  seats integer not null,
+  pending_invites integer not null,
+  active_users_1d integer not null,
+  active_users_7d integer not null,
+  active_users_30d integer not null,
+  entitlement_tier text,             -- raw vendor_entitlements.tier; null = no row (Free)
+  entitlement_status text,           -- raw vendor_entitlements.status; null = no row
+  effective_tier text not null,      -- tierFor(row): 'unclaimed' (Free) unless the row is active
+  open_contests_owned integer not null,
+  open_contests_filed integer not null,
+  data_flows_confirmed integer not null,
+  products_total integer not null,
+  products_confirmed integer not null,
+  computed_at text not null,         -- ISO-8601, the run instant
+  primary key (day, vendor_id)
+);
+
+create index vendor_activity_daily_vendor_day_idx on vendor_activity_daily(vendor_id, day);
+```
+
+**Which vendors get a row.** A vendor with at least one unbanned seat, an entitlement row in any
+status, or a live invite. A catalog vendor with none of these has nothing to trend and gets no
+row. A vendor whose only seat is banned, with no plan row and no live invite, gets none either.
+
+**What each column counts.**
+
+| Column | Source |
+|---|---|
+| `seats` | `profiles` with `role = 'vendor_admin'`, this `vendor_id`, and `banned_at IS NULL`. `seatsOf` (`routes/vendor-shared.ts`) counts banned seats for the roster. This column does not, because a banned seat cannot be used |
+| `pending_invites` | `vendor_seat_invites` not accepted, not revoked, and with `expires_at` after the run instant. The predicate is `liveInvites` (`lib/vendor-seat-invites.ts`), the same one the roster uses |
+| `active_users_1d` / `_7d` / `_30d` | Distinct `user_activity_daily.user_id` with `role = 'vendor_admin'` and this `vendor_id`, over the 1, 7 and 30 days ending on `day`, inclusive. An admin or reviewer row carrying the vendor id does not count |
+| `entitlement_tier`, `entitlement_status` | The raw `vendor_entitlements` row. Both null when there is no row, which is the Free plan |
+| `effective_tier` | `tierFor()` from `@aeci/shared/entitlements`. `unclaimed` is Free. A row that is not `active` is Free too |
+| `open_contests_owned` | `integration_field_challenges` with `status = 'open'` and `owner_vendor_id` = this vendor |
+| `open_contests_filed` | The same, with `submitter_vendor_id` = this vendor |
+| `data_flows_confirmed` | Live `attestations` (`retracted_at IS NULL`) with `attested_by_vendor_id` = this vendor |
+| `products_total` | `product_vendors` rows for this vendor |
+| `products_confirmed` | Of those, products the checklist calls checked: `maintained_by = 'vendor'` and `last_reviewed_at` set. The job reuses `isChecked` from `lib/vendor-checklist.ts`, so this number and the checklist always agree. "Looks right" (AECI-1216) sets `last_reviewed_at`, but so does any vendor edit. The column means "checked", not "clicked Looks right" |
+
+**Day semantics.** The job runs at 00:30 UTC and snapshots **yesterday**. The three activity
+columns cover whole days ending on `day`. Every other column is a stock read at `computed_at`,
+about 30 minutes after `day` ended. So there is no backfill: re-running a past day would record
+today's stocks under that day's label.
+
+**One query per count, not per vendor.** The job runs eight grouped `SELECT … GROUP BY vendor_id`
+reads in one `db.batch`, then upserts 6 rows per statement (16 bound columns × 6 = 96, under
+D1's 100-parameter cap) in one atomic `db.batch`.
+
+**Rerun semantics.** The upsert is `ON CONFLICT(day, vendor_id) DO UPDATE` over every value
+column. A same-day rerun, or a queue retry, replaces the rows and adds none. It never deletes: a
+vendor that leaves the activated set between two same-day runs keeps the first run's row,
+because a scheduled `DELETE` would not be audit-exempt.
+
+**No FK to `vendors`, on purpose.** A vendor delete must not cascade the history away, and a FK
+would add this table to the `vendors` recreate-cascade hazard (`docs/migrations.md` §0).
+
+**No user id, so erasure does not touch it.** Every column is a count or a plan value. Account
+deletion (`AUTH_AND_RLS.md` §8) has nothing to remove here.
+
+**No `audit_log` row.** Derived and log-class under ADR 0022: computed entirely from rows already
+in D1, invisible on every public surface, and reproduced by re-running the job.
+`STAGE_1_SPEC.md` §26.1.
+
+**Operator-only.** Nothing in search, Algolia, ranking, home stats or a public listing may read
+it. `apps/api/src/lib/ranking-firewall.spec.ts` fails the build if one of those modules names the
+table.
+
+**Retention: indefinite**, like `metrics_daily`. It is small: tens of activated vendors times
+days. It is not in the prune's `PRUNABLE` list. `ADMIN_PANEL_SPEC.md` §7.4.
+
+**Migration `0057`** is a plain `CREATE TABLE` plus one `CREATE INDEX`. It is not a recreate and
+cannot cascade. `apps/api/src/test/migration-0057.spec.ts` pins that.
 
 ---
 
@@ -3626,6 +3711,7 @@ Backup policy is deferred to a dedicated operational document — `docs/RUNBOOKS
 - `metrics_daily` retention: **indefinite** — it is the long memory that survives the `page_views` prune (AECI-581 / §7.1). The pruning cron never touches it, and never prunes a `page_views` day it has not captured; both are asserted by test (§9.3)
 - `job_runs` retention: 90 days per `ADMIN_PANEL_SPEC.md` §7.4 — **enforced since AECI-584** (§9.4). This is the window that bites first, around 2026-11-11
 - `user_activity_daily` retention: **400 days**, enforced by the same 03:00 prune since AECI-1208 (§9.11). It pages `rowid` because the table has no integer id. Erasure deletes a user's rows sooner. The privacy policy promises "about 13 months"
+- `vendor_activity_daily` retention: **indefinite**, like `metrics_daily` (AECI-1210, §9.12). It is small, holds no user id, and is not in the prune's `PRUNABLE` list
 - `promote_jobs`: indefinite for Stage 1 (see §8.5). The row is a duplicate **guard**, not a log — pruning it below a 90-day floor re-opens the AECI-571 replay window. At a handful of promotes a day and ~10 KB a row this is ~100 MB per 10,000 promotes, so there is no pressure to prune; the `created_at` index is there so a future sweep is a cheap range delete
 - Every prune run that deletes anything writes exactly **one** `retention.pruned` `audit_log` row, in the same atomic batch as its deletes (`STAGE_1_SPEC.md` §26.1's scheduled-deletion exception / ADR 0022). A run that deletes nothing writes none. That row is the only durable record that the rows ever existed
 - Reviews and core entities: no retention policy — preserve everything
@@ -3663,7 +3749,7 @@ Migrations are generated by **drizzle-kit** from the Drizzle schema and applied 
 
 Every write that changes **domain state** must emit its `audit_log` (+ `workflow_transitions` where applicable) row (`STAGE_1_SPEC.md` §26.1, `CLAUDE.md` §"Audit logging and the observability forward"). Failure to log is a transactional failure — the mutation must not commit without its audit entry.
 
-**Scope (ADR 0022).** "Domain state" is the catalog, users and profiles, reviews and moderation, claims and attestations, requests and workflows. **Derived and log-class writes are exempt**: `page_views`, `mailing_list`, `feedback` (`API_CONTRACTS.md` §6.9/§6.13), `stats_cache`, the Algolia watermark, the denormalized product counters (§14.2), and the cron-written `metrics_daily` (§9.3 — **shipped**, AECI-581) and `job_runs` (§9.4 — **shipped**, AECI-583) tables (`ADMIN_PANEL_SPEC.md` §7.1/§7.2). `notification_sends` (§9.9) and the per-user service log `user_activity_daily` (§9.11, ADR 0022's 2026-10-02 amendment) are exempt too. The test is **entity class, not actor class** — a `system`/cron actor writing domain state still audits — and **scheduled `DELETE`s are never exempt**: they emit one summary row per run (`action='retention.pruned'`). That exception is live as of AECI-584 (§9.1/§9.4): the 03:00 retention prune is the only cron that writes an `audit_log` row, and it writes exactly one per run — `actor_type='system'`, `entity_type='retention'`, `metadata={rowsDeleted, tables:[{table, cutoff, rowsDeleted}]}` — inside the same atomic `db.batch` as every chunked `DELETE`. A run that deletes nothing writes none: the exception exists because a deletion's fact is unrecoverable afterwards, and a non-deletion has no such fact.
+**Scope (ADR 0022).** "Domain state" is the catalog, users and profiles, reviews and moderation, claims and attestations, requests and workflows. **Derived and log-class writes are exempt**: `page_views`, `mailing_list`, `feedback` (`API_CONTRACTS.md` §6.9/§6.13), `stats_cache`, the Algolia watermark, the denormalized product counters (§14.2), and the cron-written `metrics_daily` (§9.3 — **shipped**, AECI-581) and `job_runs` (§9.4 — **shipped**, AECI-583) tables (`ADMIN_PANEL_SPEC.md` §7.1/§7.2). `notification_sends` (§9.9), the daily per-vendor snapshot `vendor_activity_daily` (§9.12), and the per-user service log `user_activity_daily` (§9.11, ADR 0022's 2026-10-02 amendment) are exempt too. The test is **entity class, not actor class** — a `system`/cron actor writing domain state still audits — and **scheduled `DELETE`s are never exempt**: they emit one summary row per run (`action='retention.pruned'`). That exception is live as of AECI-584 (§9.1/§9.4): the 03:00 retention prune is the only cron that writes an `audit_log` row, and it writes exactly one per run — `actor_type='system'`, `entity_type='retention'`, `metadata={rowsDeleted, tables:[{table, cutoff, rowsDeleted}]}` — inside the same atomic `db.batch` as every chunked `DELETE`. A run that deletes nothing writes none: the exception exists because a deletion's fact is unrecoverable afterwards, and a non-deletion has no such fact.
 
 **The 11:00 entitlement-expiry sweep is a second auditing cron, and for the same "entity class, not actor class" reason** (AECI-613): it writes `expiry_notice_sent_at` on a domain row and emits one `vendor_entitlement.expiry_warned` row (`actor_type='system'`) per warned term, in the same batch. "We warned them on date X" is precisely the fact an offline-invoice dispute needs, so exempting it would lose the one record that matters. Note what that means for the exempt lists: `entitlement-expiry` is **not** ADR-0022-exempt in the way `retention-prune` is — where a cron-level test carves it out, the carve-out is a mocking artifact, and the real obligation is asserted in `entitlement-expiry.spec.ts`.
 

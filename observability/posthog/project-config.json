@@ -86,7 +86,7 @@
       "replacement for all eight Datadog `notify_no_data` monitors (spec \u00a73.4 / \u00a7AW6).",
       "",
       "MUST STAY IN SYNC WITH apps/api/src/lib/cron-schedules.ts. That file is the source of",
-      "truth for the sixteen cron expressions and is asserted byte-equal to",
+      "truth for the seventeen cron expressions and is asserted byte-equal to",
       "apps/api/wrangler.jsonc `triggers.crons` by cron-schedules.spec.ts. The `cron` field",
       "below is a COPY for documentation; the sweep only reads `metric` and `maxAgeMinutes`.",
       "A cron whose schedule changes without `maxAgeMinutes` changing here will either",
@@ -130,7 +130,12 @@
       "`pendingFirstHeartbeat` below. Move it back into `crons` after the first production",
       "heartbeat (aeci.contest.protest_reminder.job) appears. A follow-up issue tracks the",
       "move. The heartbeat and the combined cron-failure alert are wired and unchanged.",
-      "cron-schedules.spec.ts asserts every cron is in `crons` or in this pending list."
+      "cron-schedules.spec.ts asserts every cron is in `crons` or in this pending list.",
+      "",
+      "AECI-1210 added vendor-snapshot, the seventeenth cron, daily at 00:30 UTC. Its",
+      "heartbeat aeci.vendor_snapshot.run is emitted on EVERY run, outcome ok or failed.",
+      "It is PENDING for the same reason as protest-reply-reminder: move it into `crons`",
+      "after its first production heartbeat appears."
     ],
     "project": "prod",
     "lookbackHours": 360,
@@ -271,6 +276,15 @@
         "datadogMonitor": null,
         "datadogNoDataTimeframeMinutes": null,
         "_note": "AECI-1205. Never had a Datadog monitor \u2014 the cron did not exist. 1560 min (26 h) is the house allowance for a daily job. Held out of `crons` until its first production heartbeat appears, or the sweep false-alarms MISSING. Move this object back into `crons` then; a follow-up issue tracks it. The sweep never reads this list."
+      },
+      {
+        "job": "vendor-snapshot",
+        "cron": "30 0 * * *",
+        "metric": "aeci.vendor_snapshot.run",
+        "maxAgeMinutes": 1560,
+        "datadogMonitor": null,
+        "datadogNoDataTimeframeMinutes": null,
+        "_note": "AECI-1210. Never had a Datadog monitor \u2014 the cron did not exist. 1560 min (26 h) is the house allowance for a daily job, copied from metrics-snapshot. Held out of `crons` until its first production heartbeat appears, or the sweep false-alarms MISSING. A new cron can miss its first 00:30 tick after deploy while the trigger propagates; that is not a bug. Once a heartbeat appears, move this object into `crons` and drop it from LIVENESS_PENDING in cron-schedules.spec.ts. The sweep never reads this list."
       }
     ]
   }

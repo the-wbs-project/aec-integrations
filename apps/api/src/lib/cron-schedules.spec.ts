@@ -81,8 +81,10 @@ describe('CRON_JOBS ↔ the PostHog liveness registry', () => {
    * - `protest-reply-reminder` (AECI-1205): re-add it to `liveness.crons` once
    *   `aeci.contest.protest_reminder.job` appears in production. A follow-up issue
    *   tracks the move. Delete it from this list in the same commit.
+   * - `vendor-snapshot` (AECI-1210): the same, once `aeci.vendor_snapshot.run`
+   *   appears in production.
    */
-  const LIVENESS_PENDING: readonly string[] = ['protest-reply-reminder'];
+  const LIVENESS_PENDING: readonly string[] = ['protest-reply-reminder', 'vendor-snapshot'];
 
   const config = JSON.parse(
     readFileSync(

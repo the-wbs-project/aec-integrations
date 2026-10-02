@@ -79,7 +79,10 @@ export type ScheduledJob =
   | 'claim_stale_check'
   // AECI-1205: the daily 12:00 UTC protest reply reminder. Queue-less, like
   // `entitlement_expiry`: the `notification_sends` dedupe key is its fence.
-  | 'protest_reply_reminder';
+  | 'protest_reply_reminder'
+  // AECI-1210: the daily 00:30 UTC per-vendor snapshot. Queue-backed
+  // (`VENDOR_SNAPSHOT_QUEUE`): an idempotent upsert, so a retry is safe.
+  | 'vendor_snapshot';
 
 /**
  * Body of a message on a scheduled-job queue. Producer: the cron `scheduled()`
@@ -419,6 +422,14 @@ export type Env = {
    * (`enqueueOrRun`).
    */
   ATTESTATION_NOTIFY_QUEUE?: Queue<ScheduledJobMessage>;
+  /**
+   * Queue carrying the daily per-vendor snapshot (AECI-1210,
+   * `DATABASE_SCHEMA.md` §9.12). Queue-backed so a transient D1 failure gets the
+   * consumer's native retries: the write is an idempotent upsert on
+   * `(day, vendor_id)`, so a retry cannot double-count. Absent on local/preview →
+   * the cron runs the job inline (`enqueueOrRun`).
+   */
+  VENDOR_SNAPSHOT_QUEUE?: Queue<ScheduledJobMessage>;
   /**
    * Cloudflare Queue **producer** binding for cross-Worker cache-purge (WC-5 /
    * AECI-319 / ADR 0020 §3). The post-promote purge (`purgeAfterPromote`, the ordered

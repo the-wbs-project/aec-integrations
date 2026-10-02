@@ -25,7 +25,7 @@ browser RUM SDK, the `observability/datadog/` monitor + dashboard JSON, every
 | Question | Where to look |
 |---|---|
 | "My phone buzzed — what fired?" | One of the 14 PostHog alerts live in production (hourly cadence, production project only, verified 2026-09-24). **18 are committed**: the AECI-1099 `profile-ensure-failed` alert and the three AECI-1206 email alerts reach PostHog only when `apply.sh` is re-run. **12 of the 14 live alerts are `Errored` today (AECI-1115)**, see Alerts below |
-| "Did the 08:00 cron actually run?" | The **CI liveness sweep** (`.github/workflows/posthog-liveness-sweep.yml`), every 3 h, **fifteen** of the sixteen crons watched. `protest-reply-reminder` joins after its first production heartbeat. It runs OUTSIDE the Worker, which is what lets it detect a dead Worker |
+| "Did the 08:00 cron actually run?" | The **CI liveness sweep** (`.github/workflows/posthog-liveness-sweep.yml`), every 3 h, **fifteen** of the seventeen crons watched. `protest-reply-reminder` and `vendor-snapshot` join after their first production heartbeat. It runs OUTSIDE the Worker, which is what lets it detect a dead Worker |
 | "What does this metric mean?" | This document |
 | "Show me the graph" | PostHog — 7 dashboards, 50 committed insights, applied from `observability/posthog/insights.json` |
 | "Read the error log for this request" | The PostHog Logs explorer |
@@ -250,6 +250,7 @@ than a Worker metric.
 | `aeci.stats.compute.key` | count | `apps/api/src/lib/home-stats-metrics.ts` (`emitHomeStatsMetrics`, from the cron + promote hook) | `trigger` (cron / promote), `key` (the `home.*` stats_cache key), `outcome` (written / skipped / failed) |
 | `aeci.stats.compute.key.duration_ms` | distribution | `apps/api/src/lib/home-stats-metrics.ts` (`emitHomeStatsMetrics`, from the cron + promote hook) | `trigger` (cron / promote), `key` (the `home.*` stats_cache key) |
 | `aeci.metrics_snapshot.run` | count | `apps/api/src/lib/metrics-snapshot.ts` (`emitMetricsSnapshotMetrics`, from the daily 00:15 UTC snapshot cron) + an inline pre-compute-crash count in `apps/api/src/scheduled.ts` | `trigger` (cron), `outcome` (ok / partial / failed) — always emitted, so this doubles as the cron-liveness heartbeat |
+| `aeci.vendor_snapshot.run` | count | `apps/api/src/scheduled.ts` (`runVendorSnapshotJob`, from the daily 00:30 UTC per-vendor snapshot cron — **AECI-1210**, `DATABASE_SCHEMA.md` §9.12) | `trigger` (cron), `outcome` (ok / failed) — **always emitted, so this doubles as the cron-liveness heartbeat.** `ok` means the rows for the prior UTC day were written, one per activated vendor; the count is in `job_runs.detail.vendors`. `failed` means the run threw; the queue consumer retries it, and the `(day, vendor_id)` upsert makes a retry replace rows rather than add them. The job sends nothing. Two series |
 | `aeci.metrics_snapshot.run.duration_ms` | distribution | `apps/api/src/lib/metrics-snapshot.ts` (`emitMetricsSnapshotMetrics`) | `trigger` (cron) |
 | `aeci.metrics_snapshot.metric` | count | `apps/api/src/lib/metrics-snapshot.ts` (`emitMetricsSnapshotMetrics`) | `trigger` (cron), `metric` (the `metrics_daily` key — one of the 21 in `ADMIN_SNAPSHOT_METRIC_KEYS`), `outcome` (written / failed) |
 | `aeci.metrics_snapshot.recheck.run` | count | `apps/api/src/lib/metrics-snapshot.ts` (`emitMetricsRecheckMetrics`, the AECI-827 trailing pass) | `trigger` (cron), `outcome` (ok / skipped / failed) — a **separate family** from the primary counters on purpose: the two halves of this cron fail for different reasons and a monitor must be able to say which one broke without reading `job_runs.detail`. Always emitted, including on a quiet night, so "the pass stopped correcting" is distinguishable from "there was nothing to correct". `skipped` is a deliberate refusal (see ADR 0027), not a fault |
@@ -478,17 +479,20 @@ no matching heartbeat, or a heartbeat with no row, is a bug in the instrumentati
 — not a discrepancy to reconcile by hand.
 
 **Coverage widened in the port.** Datadog watched **six** of these crons for
-absence; the CI sweep watches **fifteen** of the sixteen (`observability/posthog/project-config.json`
+absence; the CI sweep watches **fifteen** of the seventeen (`observability/posthog/project-config.json`
 holds the registry, one row per cron with its own staleness allowance). **`protest-reply-reminder`
-is held out until its first production heartbeat.** The sweep reads production, where that cron
-has never run, so its row would report MISSING on every sweep and fail the job red. Its entry is
-parked in `liveness.pendingFirstHeartbeat`. Move it into `liveness.crons` once
-`aeci.contest.protest_reminder.job` appears in production. A follow-up issue tracks the move.
+and `vendor-snapshot` are held out until their first production heartbeat.** The sweep reads
+production, where those crons have never run, so their rows would report MISSING on every sweep
+and fail the job red. Their entries are parked in `liveness.pendingFirstHeartbeat`. Move each
+into `liveness.crons` once its heartbeat (`aeci.contest.protest_reminder.job`,
+`aeci.vendor_snapshot.run`) appears in production. A follow-up issue tracks the
+protest-reminder move.
 `cron-schedules.spec.ts` fails if a cron is in neither list.
 
 | Cron | `job_runs.job` | Its liveness signal |
 |---|---|---|
 | 00:15 metrics snapshot | `metrics-snapshot` | `aeci.metrics_snapshot.run` (`outcome:success\|partial\|failed`) |
+| 00:30 vendor snapshot | `vendor-snapshot` | `aeci.vendor_snapshot.run` (`outcome:ok\|failed`), emitted on every run including failures. Staleness allowance 26 h once it joins the sweep. **Not swept yet:** held in `pendingFirstHeartbeat` until the first production heartbeat. Added by AECI-1210 |
 | Mondays 02:00 ASN registry (`0 2 * * 2` — CF day-of-week is 1=Sunday) | `asn-registry` | `aeci.asn_registry.refresh` (`outcome:ok\|partial\|failed\|skipped`) |
 | 03:00 retention prune | `retention-prune` | `aeci.retention.prune` (`outcome:ok\|skipped\|failed`) |
 | 04:00 data quality | `data-quality` | `aeci.data_quality.job` (`outcome:success\|failed`) |
@@ -645,7 +649,7 @@ is `pnpm --filter @aeci/api ops:backfill-metrics-daily`, which is the same idemp
 metrics are unrecoverable. AECI-583's `job_runs` row plus the always-emitted
 `aeci.metrics_snapshot.run{trigger:cron}` series are the only signals today. **The PostHog port
 closes it from both sides without anyone filing an issue:** `metrics-snapshot` is one of the six
-previously-unwatched crons picked up by the combined cron-failure alert, and one of the sixteen in
+previously-unwatched crons picked up by the combined cron-failure alert, and one of the crons in
 the CI liveness sweep's registry (26 h window). The sweep is **already running**, so its red is
 worth reading even during the dual-run.
 

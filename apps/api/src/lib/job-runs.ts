@@ -291,6 +291,10 @@ export type JobRunDetail =
   /** The daily AECI-1205 protest reply reminder. `due` is the open, unreplied
    *  protests whose deadline falls in the next 3 days. `emails` counts per-seat sends;
    *  a seat already reminded on an earlier run is a `duplicate`, not a failure. */
+  /** The daily AECI-1210 per-vendor snapshot. `day` is the snapshot day (the
+   *  prior UTC day at run time) and `vendors` is the rows written, one per
+   *  activated vendor. */
+  | { job: 'vendor-snapshot'; day: string; vendors: number; durationMs: number }
   | {
       job: 'protest-reply-reminder';
       due: number;
