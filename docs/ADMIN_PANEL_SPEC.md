@@ -1644,12 +1644,20 @@ The one code change riding along: `apps/api/src/routes/account.ts`'s `db.update(
 | `page_views` | 400 days | `PAGE_VIEWS_RETENTION_DAYS` | AECI-584 |
 | `job_runs` | 90 days | `JOB_RUNS_RETENTION_DAYS` | AECI-584 |
 | `notification_sends` | 400 days | `NOTIFICATION_SENDS_RETENTION_DAYS` | AECI-1202 |
+| `user_activity_daily` | 400 days | `USER_ACTIVITY_RETENTION_DAYS` | AECI-1208 |
 | `metrics_daily` | indefinite | none | AECI-581 |
 
 `notification_sends` is the email send ledger (`DATABASE_SCHEMA.md` §9.9). It keeps 400 days to
 match `page_views`: "what did we send this person last year" is a support question that needs the
 same year-over-year reach. Its rows are small and number tens a day. It is pruned by the same cron,
 under the same four rules, and a snapshot gap stops it with the rest of the run.
+
+`user_activity_daily` is the per-user daily activity log (`DATABASE_SCHEMA.md` §9.11). It keeps
+400 days, about 13 months, which is what the privacy policy promises. Erasure deletes a user's
+rows sooner (`AUTH_AND_RLS.md` §8). It is pruned by the same cron under the same four rules, and a
+snapshot gap stops it with the rest of the run. It has no integer id, so its chunks page the
+implicit `rowid`, with `day < cutoff day` as the authoritative predicate. The chunk cap, the
+exact count and the single summary row are unchanged.
 
 **Why 400 and not 180.** Storage is not the binding constraint at either figure — 180 d ≈ 125 MB and 400 d ≈ 280 MB against D1's 10 GB per-database limit (1.2% vs 2.8%). Irreversibility is: **D1 Time Travel gives only ~30 days** of point-in-time recovery, so anything pruned beyond that is permanently gone. 400 days is the first window that keeps **year-over-year** comparison possible, with ~5 weeks of overlap so a YoY chart never has a ragged edge.
 
@@ -1670,9 +1678,9 @@ The window lives in a **config constant**, not a literal, so it can be shortened
 4. **The cutoff is always a UTC midnight.** Whole-day boundaries make the cut window a set of *complete* days, which is what lets rule 2's per-day check be exact and keeps the row counts aligned with the day series §7.1 stores.
 5. **Chunking pages the `id` column, not `created_at`.** `page_views` has no leading-`created_at` index (all five are `(dimension, created_at)`), so a bare `DELETE … WHERE created_at < ?` is a full scan. `id` is `AUTOINCREMENT` and co-monotonic with `created_at`, so each chunk reads ≤500 ids in PK order and emits a `DELETE` bounded by that id range — with `created_at < cutoff` repeated in every statement, so the predicate stays authoritative and a monotonicity violation can only under-delete. The cursor is also the only source of `rowsDeleted`: D1 does not report `meta.changes` usefully for batched writes, and the test harness's `db.batch` shim returns `[]`, so a `DELETE … LIMIT n` chunk could not produce the number rule 4 requires. `DELETE … LIMIT` and long `id IN (…)` lists are avoided for portability rather than because D1 rejects them — local D1 accepts both — and the module header says so explicitly rather than leaving a false claim behind.
 
-The window is `PAGE_VIEWS_RETENTION_DAYS` / `JOB_RUNS_RETENTION_DAYS` / `NOTIFICATION_SENDS_RETENTION_DAYS` in `@aeci/shared`, with like-named optional env overrides per tier (shipped UNSET). An override below **30 days** — D1 Time Travel's horizon — is ignored rather than clamped and logged as `aeci.retention.invalid_window_override`: a typo'd `4` must fall back to the reviewed default, not quietly become the shortest legal window.
+The window is `PAGE_VIEWS_RETENTION_DAYS` / `JOB_RUNS_RETENTION_DAYS` / `NOTIFICATION_SENDS_RETENTION_DAYS` / `USER_ACTIVITY_RETENTION_DAYS` in `@aeci/shared`, with like-named optional env overrides per tier (shipped UNSET). An override below **30 days** — D1 Time Travel's horizon — is ignored rather than clamped and logged as `aeci.retention.invalid_window_override`: a typo'd `4` must fall back to the reviewed default, not quietly become the shortest legal window.
 
-This does **not** contradict `STAGE_1_SPEC.md` §26.6 ("no archiving or pruning at launch"), which is scoped to the audit and workflow tables; §7.4 governs `page_views`, `metrics_daily`, `job_runs`, and `notification_sends` only. The two are cross-referenced so a future reader does not have to re-derive that.
+This does **not** contradict `STAGE_1_SPEC.md` §26.6 ("no archiving or pruning at launch"), which is scoped to the audit and workflow tables; §7.4 governs `page_views`, `metrics_daily`, `job_runs`, `notification_sends`, and `user_activity_daily` only. The two are cross-referenced so a future reader does not have to re-derive that.
 
 ### 7.5 Lead-capture indexes — SHIPPED (AECI-586, migration `0014`)
 
@@ -2131,6 +2139,8 @@ D1–D4 were settled when this document was drafted. **D5–D11 were settled by 
   Two corrections ride along. The former claim that this **"fixes `data-quality.ts` check #2"** is **withdrawn**: check #2 filters `promotion_status='ready'`, which is unreachable in D1, so that check is *structurally dead* rather than merely proxied — spun out as its own issue, **closed 2026-09-13 by AECI-592**, which replaced it with the `promotion_status_invariant` guard that now monitors the very assumption this decision rests on. And the reviewer objection to anticipate: ADR 0021 vetoed `airtable_record_id` on `products` as "no curation-tool key in the public schema". `promoted_at` is app-owned catalog state, not a foreign curation key — a different category.
 
 - **D7 — Drop `user_id`, `session_id`, `profile_role`; introduce no session identifier** (was Q3; §7.3, §9.8). The §9.8 `(user_agent_hash, cf_asn)` visitor definition stands, with its over- and under-counting stated next to the number. `session_id` has no source — `PageViewTracker` sends `{ route }` and there is no client-side session id anywhere in `apps/web` — and inventing one would create a durable first-party identifier, which is exactly what makes the current `page_views` write defensible as **consent-independent**. `user_id` is technically reachable on the browser POST but never on the SSR arrival path, so it would be right half the time. The three columns differ in migration cost; §7.3 has the per-column table.
+
+  **The per-user activity log does not reopen D7 (AECI-1208, 2026-10-02).** `user_activity_daily` (`DATABASE_SCHEMA.md` §9.11) is a separate, operator-only table keyed by the signed-in user. It is written by the API on authenticated requests, never by the page-view path, and it is never joined to `page_views`. `page_views` still holds no user id and no session id.
 
 - **D8 — Manual job triggers: split on side effects, not on manual-ness** (was Q4; §6). This resolved a live self-contradiction — §6 deferred `POST /api/admin/jobs/:job/run` while §5.1 required a "recompute today's digest" action and §5.6 required "DQ on demand". **Recomputation is in scope as a `GET`** (`?recompute=1`): both the DQ job and the digest's metric collection are already pure reads, so they write nothing, send nothing, and carry no audit obligation — §6's "read-only" framing and §9.3 stay unconditionally true. **Running a job for real stays deferred** — anything that writes, emails, purges, or calls an external API. Owner **@chrisw**; revisit when an operator first needs to force a job outside its window during an incident.
 

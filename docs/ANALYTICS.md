@@ -170,6 +170,14 @@ Consequences you must hold in your head when reading a number:
   is the accepted price of running ops telemetry without asking permission.
 - **Session replay is off** (D5). Enabling it is a separate privacy review, not
   a config toggle.
+- **Who uses the product, per signed-in user per day, is first-party D1, not
+  PostHog** (AECI-1208). `user_activity_daily` (`DATABASE_SCHEMA.md` §9.11) records
+  each signed-in user's days, surfaces and arrival `utm_source` / `utm_campaign` /
+  `n`. It is **consent-independent**: it is part of running a signed-in account, so
+  neither the cookie choice nor DNT/GPC affects it, and the privacy policy says so
+  (AECI-1211). The browser side, `ArrivalCaptureService`, writes no localStorage,
+  no sessionStorage and no cookie, so it stays inside the tier 2 storage rule
+  above. The table is operator-only and is never joined to `page_views`.
 
 ## 6. The activation funnel
 

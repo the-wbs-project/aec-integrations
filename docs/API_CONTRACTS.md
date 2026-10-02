@@ -1576,6 +1576,51 @@ That split is exactly what `navigation` records, and each writer states its own 
 
 **No audit log.** §26.1 scopes the audit obligation (`auditInsert` in `apps/api/src/lib/audit.ts`) to *state-changing* domain writes; `page_views` is a read-analytics log, so no audit row is written. (`appendAuditLog()` was never built — the name survives in older docs only.)
 
+#### `POST /api/activity/arrival`
+
+The arrival beacon for the per-user daily activity log (AECI-1208, `DATABASE_SCHEMA.md` §9.11).
+The browser's `ArrivalCaptureService` sends it once per app instance, after hydration, when the
+visitor is signed in and the landing URL carried `utm_source`, `utm_campaign` or `n`. The API
+never sees the landing URL otherwise: an SSR landing makes its calls from the resolver, and a
+later load replays them from TransferState.
+
+**Guard:** `requireAuth()`, then `rateLimit('write')` (`docs/waf-rate-limits.md` §6.2).
+
+**Request** (`ActivityArrivalRequestSchema`, `packages/shared/src/api/activity-arrival.ts`):
+
+```typescript
+export const ActivityArrivalRequestSchema = z
+  .object({
+    utm_source: z.string().trim().min(1).max(100).optional(),
+    utm_campaign: z.string().trim().min(1).max(100).optional(),
+    n: z.string().regex(/^[1-9][0-9]{0,14}$/).optional(), // a notification_sends.id
+  })
+  .strict()
+  .refine((b) => b.utm_source !== undefined || b.utm_campaign !== undefined || b.n !== undefined);
+```
+
+At least one param is required, and unknown keys are refused.
+
+**Response:** `204`, no body.
+
+**Errors:** `400 MALFORMED_REQUEST` (not JSON), `400 VALIDATION_FAILED` (schema), `401
+UNAUTHENTICATED`, `403 FORBIDDEN` (banned), `429` (the write bucket).
+
+**Behaviour.** One statement, inline: the same profile-gated upsert the activity middleware
+runs. It creates the day's row if this is the first request of the day, sets no surface bit,
+and fills the arrival group only while the row has none. The first arrival of the day wins, so a
+reload that resends is harmless. If the profile no longer exists it writes nothing and still
+returns `204`. The arrival is recorded on whoever is signed in: an operator who clicks a link
+in a vendor's email lands it on the operator's own admin row.
+
+**No audit log.** A per-user service log under the ADR 0022 amendment of 2026-10-02
+(`STAGE_1_SPEC.md` §26.1).
+
+**The params survive sign-in.** A signed-out click on a `/vendor*`, `/admin*`, `/account` or
+review link is 303'd to `/auth/login?return=…`. The SSR Worker carries the three params, and no
+other query param, into `return` (`signInReturnPath`, `apps/web/src/server/routes/auth-callback.ts`).
+The login page and `/auth/callback` keep that query string through to the final redirect.
+
 ### 6.10 Admin endpoints
 
 All require `role === 'admin'`, enforced by the `requireAdmin()` Worker middleware (`apps/api/src/lib/authz.ts`, Phase 5.5) — verifies the JWT, loads `profiles.role`, rejects non-admins (`403`) and missing token/profile (`401`) before the handler. RLS is defense-in-depth for the PostgREST surface.
