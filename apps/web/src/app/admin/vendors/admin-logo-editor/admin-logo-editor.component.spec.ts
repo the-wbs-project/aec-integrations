@@ -58,6 +58,13 @@ describe('AdminLogoEditor', () => {
     input.dispatchEvent(new Event('input'));
     fixture.detectChanges();
   }
+  const REASON = 'The vendor sent a new brand mark.';
+  function typeReason(fixture: ReturnType<typeof mount>, value = REASON): void {
+    const area = fixture.nativeElement.querySelector('textarea') as HTMLTextAreaElement;
+    area.value = value;
+    area.dispatchEvent(new Event('input'));
+    fixture.detectChanges();
+  }
 
   it('disables Save until the draft differs from the seeded logo', () => {
     const fixture = mount();
@@ -69,11 +76,12 @@ describe('AdminLogoEditor', () => {
   it('PATCHes the vendor logo route and reports the saved value', async () => {
     const fixture = mount();
     typeUrl(fixture, UPLOADED);
+    typeReason(fixture);
     saveButton(fixture).click();
 
     const request = http.expectOne(`/api/admin/vendors/00000000-0000-4000-8000-000000000001/logo`);
     expect(request.request.method).toBe('PATCH');
-    expect(request.request.body).toEqual({ logo_url: UPLOADED });
+    expect(request.request.body).toEqual({ logo_url: UPLOADED, reason: REASON });
     request.flush({ logo_url: UPLOADED });
     await fixture.whenStable();
     fixture.detectChanges();
@@ -89,6 +97,7 @@ describe('AdminLogoEditor', () => {
     fixture.componentInstance.kind.set('product');
     fixture.detectChanges();
     typeUrl(fixture, UPLOADED);
+    typeReason(fixture);
     saveButton(fixture).click();
 
     http
@@ -102,10 +111,11 @@ describe('AdminLogoEditor', () => {
   it('sends null to clear a logo', async () => {
     const fixture = mount();
     typeUrl(fixture, '');
+    typeReason(fixture);
     saveButton(fixture).click();
 
     const request = http.expectOne(`/api/admin/vendors/00000000-0000-4000-8000-000000000001/logo`);
-    expect(request.request.body).toEqual({ logo_url: null });
+    expect(request.request.body).toEqual({ logo_url: null, reason: REASON });
     request.flush({ logo_url: null });
     await fixture.whenStable();
     fixture.detectChanges();
@@ -123,6 +133,7 @@ describe('AdminLogoEditor', () => {
   it('surfaces a failed save and keeps the draft editable', async () => {
     const fixture = mount();
     typeUrl(fixture, UPLOADED);
+    typeReason(fixture);
     saveButton(fixture).click();
     http
       .expectOne(`/api/admin/vendors/00000000-0000-4000-8000-000000000001/logo`)
@@ -133,6 +144,50 @@ describe('AdminLogoEditor', () => {
     expect(fixture.nativeElement.querySelector('[role=alert]')).toBeTruthy();
     expect(fixture.componentInstance.saved()).toBeUndefined();
     expect(saveButton(fixture).disabled).toBe(false);
+  });
+
+  it('labels the required reason and ties its help text to the field (AECI-1191)', () => {
+    const fixture = mount();
+    const area = fixture.nativeElement.querySelector('textarea') as HTMLTextAreaElement;
+    const label = fixture.nativeElement.querySelector(
+      `label[for="${area.id}"]`,
+    ) as HTMLLabelElement;
+    expect(label.textContent).toContain('Reason (required)');
+    expect(area.required).toBe(true);
+    expect(
+      fixture.nativeElement.querySelector(`#${area.getAttribute('aria-describedby')}`),
+    ).toBeTruthy();
+  });
+
+  it.each([
+    ['empty', ''],
+    ['blank', '   '],
+  ])('refuses to save with an %s reason, and moves focus to it (AECI-1191)', (_label, value) => {
+    const fixture = mount();
+    typeUrl(fixture, UPLOADED);
+    typeReason(fixture, value);
+    saveButton(fixture).click();
+    fixture.detectChanges();
+    http.expectNone(`/api/admin/vendors/00000000-0000-4000-8000-000000000001/logo`);
+    const area = fixture.nativeElement.querySelector('textarea') as HTMLTextAreaElement;
+    expect(area.getAttribute('aria-invalid')).toBe('true');
+    expect(fixture.nativeElement.querySelector('[role=alert]')?.textContent).toContain(
+      'Enter a reason',
+    );
+    expect(document.activeElement).toBe(area);
+  });
+
+  it('clears the reason after a save', async () => {
+    const fixture = mount();
+    typeUrl(fixture, UPLOADED);
+    typeReason(fixture);
+    saveButton(fixture).click();
+    http
+      .expectOne(`/api/admin/vendors/00000000-0000-4000-8000-000000000001/logo`)
+      .flush({ logo_url: UPLOADED });
+    await fixture.whenStable();
+    fixture.detectChanges();
+    expect((fixture.nativeElement.querySelector('textarea') as HTMLTextAreaElement).value).toBe('');
   });
 
   it('re-seeds from the input when the record changes', () => {

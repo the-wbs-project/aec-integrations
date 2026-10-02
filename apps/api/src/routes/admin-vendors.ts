@@ -6,7 +6,7 @@
  *   GET    /api/admin/vendors/:id                — basics, entitlement, seats, counts
  *   GET    /api/admin/vendors/:id/products       — the vendor's product roster
  *   GET    /api/admin/vendors/:id/audit          — the `audit_log` viewer
- *   DELETE /api/admin/vendors/:id/seats/:userId  — revoke one seat
+ *   DELETE /api/admin/vendors/:id/seats/:userId  — revoke one seat; body `{ reason }` (AECI-1191)
  *
  * Until this shipped, the only vendor-management surface in the panel was the
  * entitlement control embedded in a `/admin/claims` card — so a vendor that never
@@ -44,6 +44,7 @@ import {
   AdminVendorProductsResponseSchema,
   AdminVendorsListQuerySchema,
   AdminVendorsListResponseSchema,
+  AdminRevokeSeatSchema,
   ApiErrorCode,
   ProvisionVendorSeatResponseSchema,
   ProvisionVendorSeatSchema,
@@ -835,6 +836,16 @@ export function createAdminRevokeSeatHandler(
     const auth = c.get('auth');
     const { db } = writeDb(c, dbFor);
 
+    // AECI-1191: the reason is required and rides the `vendor_claim.seat_revoked`
+    // audit row. Parsed before any read, so a missing one writes nothing.
+    let raw: unknown;
+    try {
+      raw = await c.req.json();
+    } catch {
+      throw new ApiError(400, ApiErrorCode.MALFORMED_REQUEST, 'Request body is not valid JSON');
+    }
+    const { reason } = AdminRevokeSeatSchema.parse(raw);
+
     const vendor = await db.query.vendors.findFirst({
       columns: { id: true },
       where: eq(vendors.id, vendorId),
@@ -855,6 +866,7 @@ export function createAdminRevokeSeatHandler(
       ...actor,
       now,
       profileBefore: { role: target.role, vendorId: target.vendorId },
+      reason,
     });
 
     // AECI-989: what the vendor is left with decides what else rides this batch.

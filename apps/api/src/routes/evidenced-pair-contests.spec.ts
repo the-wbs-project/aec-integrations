@@ -506,7 +506,7 @@ describe('PATCH /api/admin/contests/:id on a pair', () => {
     const res = await call(
       AUTH_ADMIN,
       `/api/admin/contests/${body.contest.id}`,
-      { decision: 'accept' },
+      { decision: 'accept', note: 'Applied for the owner (AECI-1191).' },
       'PATCH',
     );
     expect(res.status).toBe(200);
@@ -528,7 +528,7 @@ describe('PATCH /api/admin/contests/:id on a pair', () => {
     await call(
       AUTH_ADMIN,
       `/api/admin/contests/${body.contest.id}`,
-      { decision: 'accept' },
+      { decision: 'accept', note: 'Applied for the owner (AECI-1191).' },
       'PATCH',
     );
     expect((await pairRow()).docsUrl).toBe('https://example.test/docs');
@@ -544,7 +544,7 @@ describe('PATCH /api/admin/contests/:id on a pair', () => {
     const res = await call(
       AUTH_ADMIN,
       `/api/admin/contests/${body.contest.id}`,
-      { decision: 'accept' },
+      { decision: 'accept', note: 'Applied for the owner (AECI-1191).' },
       'PATCH',
     );
     expect(res.status).toBe(200);
@@ -760,7 +760,7 @@ describe('a row that BECOMES connector-powered (review MAJOR 1)', () => {
     const res = await call(
       AUTH_ADMIN,
       `/api/admin/contests/${ids.toIpaas}`,
-      { decision: 'accept' },
+      { decision: 'accept', note: 'Applied for the owner (AECI-1191).' },
       'PATCH',
     );
     expect(res.status).toBe(200);
@@ -787,7 +787,7 @@ describe('a row that BECOMES connector-powered (review MAJOR 1)', () => {
     const res = await call(
       AUTH_ADMIN,
       `/api/admin/contests/${ids.toIpaas}`,
-      { decision: 'accept' },
+      { decision: 'accept', note: 'Applied for the owner (AECI-1191).' },
       'PATCH',
     );
     expect(res.status).toBe(200);
@@ -842,7 +842,7 @@ describe('batched telemetry on the admin tail (review MAJOR 2)', () => {
     const res = await call(
       AUTH_ADMIN,
       `/api/admin/contests/${body.contest.id}`,
-      { decision: 'accept' },
+      { decision: 'accept', note: 'Applied for the owner (AECI-1191).' },
       'PATCH',
     );
     expect(res.status).toBe(200);
@@ -1070,7 +1070,7 @@ describe('the entitled-owner branch of a row becoming connector-powered (re-revi
     const res = await call(
       AUTH_ADMIN,
       `/api/admin/contests/${toIpaas}`,
-      { decision: 'accept' },
+      { decision: 'accept', note: 'Applied for the owner (AECI-1191).' },
       'PATCH',
     );
     expect(res.status).toBe(409);
@@ -1097,7 +1097,7 @@ describe('the entitled-owner branch of a row becoming connector-powered (re-revi
     const res = await call(
       AUTH_ADMIN,
       `/api/admin/contests/${toIpaas}`,
-      { decision: 'accept' },
+      { decision: 'accept', note: 'Applied for the owner (AECI-1191).' },
       'PATCH',
     );
     expect(res.status).toBe(200);

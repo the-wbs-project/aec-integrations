@@ -2454,6 +2454,15 @@ Revoke one seat, AECi-side. `204 No Content`. Behind `requireAdmin()`. The admin
 sibling of the portal's owner-only `DELETE /api/vendor/seats/:userId` (AECI-664), which
 cannot help here: it is scoped to the caller's own session vendor.
 
+**Body: `AdminRevokeSeatSchema`, strict `{ reason }` (AECI-1191).** `reason` is `AdminReasonSchema`
+(`z.string().trim().min(1).max(1000)`, shared with the logo writes; the contest accept note keeps
+`DecideContestSchema`'s own 1 to 2000 characters). The
+body is parsed before any read. A missing or non-JSON body is `400 MALFORMED_REQUEST`. A missing,
+blank or over-long `reason`, or an unknown key, is `400 VALIDATION_FAILED`. Either way nothing is
+written. The reason lands in the `vendor_claim.seat_revoked` row's `metadata.reason`, in the same
+batch. The hand-back and lapse audit rows below do not repeat it. The portal's owner-only
+`DELETE /api/vendor/seats/:userId` is unchanged and takes no body.
+
 Composes `revokeSeatStatements` (`apps/api/src/lib/vendor-grant.ts`) **unchanged**, so:
 the `vendor_claim.seat_revoked` row lands in the SAME `db.batch` as the profile write
 (§26.1), its metadata carries `vendor_id` (which is what makes the row reachable from
@@ -3186,6 +3195,9 @@ export const AdminContestSchema = z.object({
   updated_at: z.string(),
   protest: ContestProtestSchema.nullable().default(null),  // AECI-1009, see below
   owner_changed: z.boolean().default(false),               // no longer claimed by owner_vendor
+  // AECI-1191 (default false for deploy skew): an accept now would change a value the vendor holds,
+  // so PATCH requires a `note`. True only on an open row. Same helper as the handler.
+  accept_note_required: z.boolean().default(false),
 });
 export const ListAdminContestsResponseSchema = paginatedResponseSchema(AdminContestSchema);
 ```
@@ -3195,6 +3207,8 @@ Ordered `created_at DESC, id ASC`, served by `integration_field_challenges_queue
 #### `PATCH /api/admin/contests/:id` (AECI-1008)
 
 Accept or decline an **AECi-routed** contest, or a **stranded** owner-routed one (its owner vendor was deleted, so `owner_vendor_id` is NULL; AECI-1005). Body: `DecideContestSchema` (`{ decision: 'accept' | 'decline', note? }`). Carries `rateLimit('write')`. Returns the updated `AdminContest`.
+
+**An accept that changes a vendor-held value requires the `note` (AECI-1191).** The rule is `acceptOverwritesVendorField` (`apps/api/src/lib/integration-contests.ts`): the integration is claimed at decision time AND the accept changes the claim or a column, mirroring the branches of `planAcceptWrites`. That is a content field (`applied-here`), an `owner` contest whose proposed owner is not the submitter (`owner-reassigned`, which clears `claimed_at` even when the proposed owner already holds the claim), and an `owner` contest proposing the submitter while another vendor holds the claim (`owner-approved`). An unclaimed row, a holder proposing itself, and any decline keep the note optional. Without the note the answer is `400 VALIDATION_FAILED` with `error.field = 'note'`. The check runs after the 409 routing, not-open and stale refusals and before the batch (`CONTEST_INTEGRATION_CHANGED` comes from the in-batch sentinel, so it is never reached), so nothing is written. `DecideContestSchema` is unchanged. The handler enforces the rule, and the list read reports it as `accept_note_required`. When an accept carries a note, the `integration.contest.accepted` row gets `metadata.reason` = the note. `decision_note`, `afterState.decision_note` and the transition reason are unchanged.
 
 **What an accept writes depends on the integration (AECI-1005, ADR 0035).** Every accept files a Linear issue after commit in `ctx.waitUntil` (`createLinearIssueForContest`; AECi team, no project; playbook AECI-1025), and the §6.7 sweep retries it. A decline files nothing and writes nothing. On an **unclaimed** row the accept writes no catalog data: the review app applies the value and re-promotes. A **claimed** row is not written by promote, so there the accept writes it:
 
@@ -3215,7 +3229,7 @@ One batch: the guarded contest UPDATE (`WHERE status = 'open'`), the contest sen
 
 **On an evidenced pair (AECI-1092)** every case above applies to `connector_evidenced_pairs`: the write goes to the pair, and its audit row is `integration.updated` or `integration.claimed` with entity type `connector_evidenced_pair`. Every write on a connector-powered row (either table) carries `metadata { connectorPowered: true, anchor }`, as the AECI-1089 claim and the AECI-1090 owner edit write them. The purge adds the connector's `product:` tag. An accept that wrote the row here (`applied-here`, `owner-recorded`) also runs the owner edit's by-id Algolia sync behind `dispatchHook`, with failures logged as `aeci.api.admin.contest_algolia_sync_failed`. The Linear issue names the evidenced pair id and the connector. `AdminContestSchema.integration` gains `anchor` (default `'integration'`) and `connector` (`ProductLink | null`, default `null`).
 
-Errors: `NOT_FOUND`; `409 CONTEST_ROUTED_TO_OWNER` when the owner decides this row; `409 CONTEST_NOT_OPEN` when it is already closed or another admin won the race; `409 CONTEST_INTEGRATION_CHANGED` when the integration was claimed or re-owned while deciding (nothing written); `409 CONTEST_VALUE_STALE` when a content accept on a claimed row would overwrite a value that changed since submit (nothing written); `400 VALIDATION_FAILED` for a bad body.
+Errors: `NOT_FOUND`; `409 CONTEST_ROUTED_TO_OWNER` when the owner decides this row; `409 CONTEST_NOT_OPEN` when it is already closed or another admin won the race; `409 CONTEST_INTEGRATION_CHANGED` when the integration was claimed or re-owned while deciding (nothing written); `409 CONTEST_VALUE_STALE` when a content accept on a claimed row would overwrite a value that changed since submit (nothing written); `400 VALIDATION_FAILED` for a bad body, or for an accept with no `note` where one is required (`error.field = 'note'`, AECI-1191, nothing written).
 
 #### `PATCH /api/admin/contests/:id/protest` (AECI-1009)
 
@@ -6358,6 +6372,9 @@ export const DecideContestSchema = z.object({
   decision: z.enum(['accept', 'decline']),
   note: z.string().trim().min(1).max(2000).nullable().optional(),
 });
+// AECI-1191: the schema stays optional-note. `PATCH /api/admin/contests/:id` makes the note
+// REQUIRED on an accept that changes a vendor-held value (`acceptOverwritesVendorField`: claimed
+// row, and a content field or an owner change). A decline and an unclaimed accept keep it optional.
 
 export const VendorContestSchema = z.object({
   id: z.string().uuid(),
@@ -6765,11 +6782,13 @@ Source: `packages/shared/src/api/logos.ts`, STAGE_2_5_SPEC.md §11, ADR 0032. `L
 | `POST /api/vendor/logo` | Vendor seat + product.listing.edit or profile.edit (every seat holds both since AECI-1214) | Exactly one multipart `file` | `200 {logo_url: "/api/logos/<sha256>"}` |
 | `POST /api/admin/logo` | Admin | Same | Same |
 | `GET /api/logos/:key` | Public | Lowercase SHA-256 key | Validated image bytes |
-| `PATCH /api/admin/vendors/:id/logo` | Admin | Strict `{logo_url: string | null}` | `200 {logo_url}` |
+| `PATCH /api/admin/vendors/:id/logo` | Admin | Strict `{logo_url: string | null, reason: string}` (`AdminUpdateLogoSchema`, AECI-1191) | `200 {logo_url}` |
 | `PATCH /api/admin/products/:id/logo` | Admin | Same | Same |
 
 Uploads accept PNG/JPEG/static WebP, at most 2 MiB and 2048 pixels per dimension. Request bytes are bounded at 2 MiB + 16 KiB before parsing multipart, including requests without Content-Length. File MIME and filename are ignored. No upload writes D1. JSON success uses private, no-store. Logo GET returns hard-coded detected image MIME, nosniff, sandbox CSP and one-year immutable caching. Errors are private, no-store.
 
 Existing error codes are reused: `MALFORMED_REQUEST` 400 for multipart errors, `VALIDATION_FAILED` 400 for format/dimension/field/path errors, `PAYLOAD_TOO_LARGE` 413 for byte limits, `UNAUTHENTICATED` 401, `FORBIDDEN` 403 for role/origin, `ENTITLEMENT_REQUIRED` 403 for vendor capability, `RATE_LIMITED` 429, `NOT_FOUND` 404, and `DEPENDENCY_FAILURE` 503 when storage is unbound. Auth precedes write limiting and parsing. Reads are never rate-limited.
+
+**Admin logo writes require a reason (AECI-1191).** `reason` is `AdminReasonSchema` (trimmed, 1 to 1000 characters). A missing or blank reason is `400 VALIDATION_FAILED` and nothing is written. It lands in the `vendor.updated` or `product.updated` audit row's `metadata.reason`, in the same `db.batch`. `UpdateLogoSchema` (`{logo_url}` only) still exists, and the vendor-portal logo paths are unchanged.
 
 Vendor profile/product PATCHes use LogoUrlSchema for logo_url, check local object existence/validation, and set logo_source=vendor only for explicitly supplied logo_url. Admin PATCHes set admin ownership. All catalog saves audit atomically and enqueue page purges after commit. Intentional clears retain ownership. Admin product roster rows now include nullable logo_url. Neither provenance nor protected catalog columns are client-writable.

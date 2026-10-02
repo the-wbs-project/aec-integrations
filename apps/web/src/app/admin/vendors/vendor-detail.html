@@ -490,41 +490,83 @@
           @if (revokeConfirmId() === seat.user_id) {
           <tr class="border-b border-(--border-default)">
             <td colspan="5" class="bg-(--surface-sunken) px-3 py-3">
-              <p
-                class="text-sm text-(--text-primary)"
-                i18n="@@admin.vendors.detail.seats.confirmCopy"
-              >
-                Remove this seat? They lose portal access immediately and keep their AECi account.
-                Only a fresh grant restores it — there is no undo on this screen.
-              </p>
-              <div class="mt-3 flex flex-wrap gap-3">
-                <button
-                  type="button"
-                  (click)="confirmRevoke(seat)"
-                  [disabled]="revokePendingId() === seat.user_id"
-                  class="inline-flex items-center justify-center rounded-(--radius-md) border border-(--text-primary) bg-(--text-primary) px-5 py-2 text-sm font-bold text-(--surface-base) transition-opacity hover:opacity-90 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) disabled:cursor-not-allowed disabled:opacity-50"
+              <form novalidate (submit)="$event.preventDefault(); confirmRevoke(seat)">
+                <p
+                  class="text-sm text-(--text-primary)"
+                  i18n="@@admin.vendors.detail.seats.confirmCopy"
                 >
-                  @if (revokePendingId() === seat.user_id) {
-                  <span i18n="@@admin.vendors.detail.seats.working">Working…</span>
-                  } @else {
-                  <span i18n="@@admin.vendors.detail.seats.confirm">Confirm removal</span>
-                  }
-                </button>
-                <button
-                  type="button"
-                  (click)="cancelRevoke()"
-                  [disabled]="revokePendingId() === seat.user_id"
-                  class="inline-flex items-center justify-center rounded-(--radius-md) border border-(--border-strong) bg-(--surface-base) px-5 py-2 text-sm font-medium text-(--text-primary) transition-colors hover:bg-(--surface-sunken) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) disabled:cursor-not-allowed disabled:opacity-50"
-                  i18n="@@admin.vendors.detail.seats.cancel"
+                  Remove this seat? They lose portal access immediately and keep their AECi account.
+                  Only a fresh grant restores it — there is no undo on this screen.
+                </p>
+                <label
+                  [attr.for]="'seat-revoke-reason-' + seat.user_id"
+                  class="mt-3 block text-xs font-bold uppercase tracking-[0.08em] text-(--text-secondary)"
+                  i18n="@@admin.vendors.detail.seats.reason.label"
                 >
-                  Cancel
-                </button>
-              </div>
-              @if (revokeFailedMessage()) {
-              <p class="mt-3 text-sm font-medium text-(--text-primary)" role="alert">
-                {{ revokeFailedMessage() }}
-              </p>
-              }
+                  Reason (required)
+                </label>
+                <p
+                  [id]="'seat-revoke-reason-help-' + seat.user_id"
+                  class="mt-1 text-xs text-(--text-secondary)"
+                  i18n="@@admin.vendors.detail.seats.reason.help"
+                >
+                  Recorded in the audit trail with your name. Write it so the vendor can read it.
+                </p>
+                <textarea
+                  #revokeReasonInput
+                  [id]="'seat-revoke-reason-' + seat.user_id"
+                  rows="2"
+                  [attr.maxlength]="reasonMax"
+                  required
+                  [disabled]="revokePendingId() === seat.user_id"
+                  [attr.aria-describedby]="
+                  revokeReasonError()
+                    ? 'seat-revoke-reason-help-' + seat.user_id + ' seat-revoke-reason-error-' + seat.user_id
+                    : 'seat-revoke-reason-help-' + seat.user_id
+                "
+                  [attr.aria-invalid]="revokeReasonError() ? 'true' : null"
+                  [value]="revokeReason()"
+                  (input)="onRevokeReasonInput($event)"
+                  class="mt-2 w-full max-w-xl rounded-(--radius-md) border border-(--border-default) bg-(--surface-base) px-3 py-2 text-sm text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+                ></textarea>
+                @if (revokeReasonError()) {
+                <p
+                  [id]="'seat-revoke-reason-error-' + seat.user_id"
+                  role="alert"
+                  class="mt-2 text-sm font-medium text-(--text-primary)"
+                  i18n="@@admin.vendors.detail.seats.reason.required"
+                >
+                  Enter a reason. It is recorded in the audit trail.
+                </p>
+                }
+                <div class="mt-3 flex flex-wrap gap-3">
+                  <button
+                    type="submit"
+                    [disabled]="revokePendingId() === seat.user_id"
+                    class="inline-flex items-center justify-center rounded-(--radius-md) border border-(--text-primary) bg-(--text-primary) px-5 py-2 text-sm font-bold text-(--surface-base) transition-opacity hover:opacity-90 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    @if (revokePendingId() === seat.user_id) {
+                    <span i18n="@@admin.vendors.detail.seats.working">Working…</span>
+                    } @else {
+                    <span i18n="@@admin.vendors.detail.seats.confirm">Confirm removal</span>
+                    }
+                  </button>
+                  <button
+                    type="button"
+                    (click)="cancelRevoke()"
+                    [disabled]="revokePendingId() === seat.user_id"
+                    class="inline-flex items-center justify-center rounded-(--radius-md) border border-(--border-strong) bg-(--surface-base) px-5 py-2 text-sm font-medium text-(--text-primary) transition-colors hover:bg-(--surface-sunken) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) disabled:cursor-not-allowed disabled:opacity-50"
+                    i18n="@@admin.vendors.detail.seats.cancel"
+                  >
+                    Cancel
+                  </button>
+                </div>
+                @if (revokeFailedMessage()) {
+                <p class="mt-3 text-sm font-medium text-(--text-primary)" role="alert">
+                  {{ revokeFailedMessage() }}
+                </p>
+                }
+              </form>
             </td>
           </tr>
           } }

@@ -389,9 +389,89 @@ async function setIntegration(values: Partial<typeof integrations.$inferInsert>)
 }
 const integrationRow = async () =>
   (await t.db.query.integrations.findFirst({ where: eq(integrations.id, I_MAIN) }))!;
-const accept = (id: string) =>
-  call(ADMIN, 'PATCH', `/api/admin/contests/${id}`, { decision: 'accept' });
+// AECI-1191: an accept that changes a vendor-held value requires a note, so the
+// owned-row helper always sends one. The no-note cases are pinned explicitly below.
+const ACCEPT_NOTE = 'The vendor showed the listing is wrong.';
+const accept = (id: string, note: string | null = ACCEPT_NOTE) =>
+  call(ADMIN, 'PATCH', `/api/admin/contests/${id}`, {
+    decision: 'accept',
+    ...(note === null ? {} : { note }),
+  });
 const auditActions = async () => (await t.db.select().from(auditLog)).map((r) => r.action);
+
+describe('PATCH /api/admin/contests/:id — the note on a vendor-held overwrite (AECI-1191)', () => {
+  const contestRow = async (id: string) =>
+    (await t.db.query.integrationFieldChallenges.findFirst({
+      where: eq(integrationFieldChallenges.id, id),
+    }))!;
+
+  it.each([
+    ['no note', null],
+    ['a blank note', '   '],
+  ])('refuses a claimed content accept with %s, and writes nothing', async (_label, note) => {
+    const id = await fileContest('name', 'Revit Link');
+    await setIntegration({ claimedAt: CLAIMED_AT, maintainedBy: 'vendor' });
+    const res = await accept(id, note);
+    expect(res.status).toBe(400);
+    expect(res.body).toMatchObject({ error: { code: 'VALIDATION_FAILED' } });
+    expect((await integrationRow()).name).toBe('Revit for MicroStation');
+    expect((await contestRow(id)).status).toBe('open');
+    // Only the submit's own row: the refused accept wrote nothing.
+    expect(await auditActions()).toEqual(['integration.contest.submitted']);
+    expect(fileIssue).not.toHaveBeenCalled();
+  });
+
+  it('refuses an owner reassign off a claimed row with no note', async () => {
+    await setIntegration({ claimedAt: CLAIMED_AT });
+    const id = await fileContest('owner', null);
+    expect((await accept(id, null)).status).toBe(400);
+    expect((await integrationRow()).builtByVendorId).toBe(VENDOR_B);
+    // Only the submit's own row: the refused accept wrote nothing.
+    expect(await auditActions()).toEqual(['integration.contest.submitted']);
+  });
+
+  it('refuses with no note when the proposed owner already holds the claim but did not file', async () => {
+    // Code review finding: the reassign branch runs (proposed != submitter) and
+    // clears claimed_at, so the holder loses its claim. That is vendor-held.
+    await setIntegration({ builtByVendorId: null });
+    const id = await fileContest('owner', VENDOR_B);
+    await setIntegration({ builtByVendorId: VENDOR_B, claimedAt: CLAIMED_AT });
+    expect((await accept(id, null)).status).toBe(400);
+    expect((await integrationRow()).claimedAt).toBe(CLAIMED_AT);
+    expect(await auditActions()).toEqual(['integration.contest.submitted']);
+  });
+
+  it('writes the note into the decision audit row as metadata.reason, and keeps decision_note', async () => {
+    const id = await fileContest('name', 'Revit Link');
+    await setIntegration({ claimedAt: CLAIMED_AT, maintainedBy: 'vendor' });
+    expect((await accept(id)).status).toBe(200);
+    const decision = (await t.db.select().from(auditLog)).find(
+      (r) => r.action === 'integration.contest.accepted',
+    );
+    expect(decision!.metadata).toMatchObject({ appliedMode: 'applied-here', reason: ACCEPT_NOTE });
+    expect((await contestRow(id)).decisionNote).toBe(ACCEPT_NOTE);
+  });
+
+  it('still accepts an unclaimed row with no note', async () => {
+    const id = await fileContest('name', 'Revit Link');
+    expect((await accept(id, null)).status).toBe(200);
+    const decision = (await t.db.select().from(auditLog)).find(
+      (r) => r.action === 'integration.contest.accepted',
+    );
+    expect(decision!.metadata).not.toHaveProperty('reason');
+  });
+
+  it('reports accept_note_required on the list with the same rule', async () => {
+    await fileContest('name', 'Revit Link');
+    expect((await call(ADMIN, 'GET', '/api/admin/contests')).body.data[0]).toMatchObject({
+      accept_note_required: false,
+    });
+    await setIntegration({ claimedAt: CLAIMED_AT });
+    expect((await call(ADMIN, 'GET', '/api/admin/contests')).body.data[0]).toMatchObject({
+      accept_note_required: true,
+    });
+  });
+});
 
 describe('PATCH /api/admin/contests/:id — accepts on owned rows (AECI-1005)', () => {
   it('applies a content value here when the row is claimed, and says so on the issue', async () => {
@@ -546,7 +626,7 @@ describe('PATCH /api/admin/contests/:id — accepts on owned rows (AECI-1005)', 
       `/api/admin/contests/${id}`,
       {
         method: 'PATCH',
-        body: JSON.stringify({ decision: 'accept' }),
+        body: JSON.stringify({ decision: 'accept', note: ACCEPT_NOTE }),
         headers: { 'content-type': 'application/json' },
       },
       TEST_ENV as Env,
@@ -634,7 +714,7 @@ describe('PATCH /api/admin/contests/:id — a stale accept on a claimed row (AEC
       `/api/admin/contests/${id}`,
       {
         method: 'PATCH',
-        body: JSON.stringify({ decision: 'accept' }),
+        body: JSON.stringify({ decision: 'accept', note: ACCEPT_NOTE }),
         headers: { 'content-type': 'application/json' },
       },
       TEST_ENV as Env,

@@ -328,7 +328,13 @@ export const SubmitIntegrationContestSchema = z.object({
 });
 export type SubmitIntegrationContestInput = z.infer<typeof SubmitIntegrationContestSchema>;
 
-/** `POST /api/vendor/contests/:id/decision` and `PATCH /api/admin/contests/:id`. */
+/**
+ * `POST /api/vendor/contests/:id/decision` and `PATCH /api/admin/contests/:id`.
+ *
+ * `note` is optional in the schema. The admin accept requires it when the accept
+ * changes a vendor-held value (`AdminContest.accept_note_required`, AECI-1191).
+ * That depends on the row's state, so the handler enforces it, not Zod.
+ */
 export const DecideContestSchema = z.object({
   decision: ContestDecisionSchema,
   note: contestText.nullable().optional(),
@@ -579,6 +585,14 @@ export const AdminContestSchema = z.object({
    * server computes it with the same rule the accept enforces.
    */
   value_stale: z.boolean().default(false),
+  /**
+   * True when an accept would change a value a vendor holds (AECI-1191): a content
+   * field on a claimed row, or an `owner` contest that moves the claim off the
+   * vendor holding it. The accept then requires `note`, and answers `400
+   * VALIDATION_FAILED` without one. The server computes it with the same rule the
+   * accept enforces. Defaulted for deploy skew.
+   */
+  accept_note_required: z.boolean().default(false),
   reason: z.string(),
   routed_to: ContestRouteSchema,
   status: ContestStatusSchema,

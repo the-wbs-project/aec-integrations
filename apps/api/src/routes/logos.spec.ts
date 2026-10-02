@@ -27,6 +27,7 @@ vi.mock('../posthog', () => ({
 }));
 const image = new Uint8Array(readFileSync(join(__dirname, '../test/fixtures/logos/valid.png')));
 const uuid = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
+const REASON = 'The vendor asked us to restore their brand mark.';
 const AUTH: AuthzVariables['auth'] = {
   userId: uuid(1),
   email: 'admin@example.com',
@@ -212,13 +213,19 @@ describe('logo routes', () => {
       const id = kind === 'vendors' ? uuid(2) : uuid(3);
       const table = kind === 'vendors' ? vendors : products;
       for (const value of ['https://example.com/logo.png', null]) {
-        expect((await patch(`/api/admin/${kind}/${id}/logo`, { logo_url: value })).status).toBe(
-          200,
-        );
+        expect(
+          (await patch(`/api/admin/${kind}/${id}/logo`, { logo_url: value, reason: REASON }))
+            .status,
+        ).toBe(200);
         const [row] = await t.db.select().from(table).where(eq(table.id, id));
         expect(row).toMatchObject({ logoUrl: value, logoSource: 'admin' });
       }
-      expect(await t.db.select().from(auditLog)).toHaveLength(2);
+      const audits = await t.db.select().from(auditLog);
+      expect(audits).toHaveLength(2);
+      // AECI-1191: the reason lands in the audit row of the same batch.
+      for (const audit of audits) {
+        expect(audit.metadata).toMatchObject({ source: 'admin-panel', reason: REASON });
+      }
       expect(env.CACHE_PURGE_QUEUE?.send).toHaveBeenCalledWith({
         tags: kind === 'vendors' ? ['vendor:vendor'] : ['product:product', 'index:products'],
         source: 'moderation',
@@ -233,6 +240,7 @@ describe('logo routes', () => {
       (
         await patch(`/api/admin/vendors/${uuid(2)}/logo`, {
           logo_url: 'https://example.com/new.png',
+          reason: REASON,
         })
       ).status,
     ).toBe(500);
@@ -243,13 +251,23 @@ describe('logo routes', () => {
   });
   it('rejects extra admin fields and nonexistent local paths', async () => {
     for (const payload of [
-      { logo_url: null, company_name: 'attack' },
-      { logo_url: `/api/logos/${'c'.repeat(64)}` },
-      { logo_url: 'javascript:alert(1)' },
-      { logo_url: '//evil.example/logo' },
+      { logo_url: null, reason: REASON, company_name: 'attack' },
+      { logo_url: `/api/logos/${'c'.repeat(64)}`, reason: REASON },
+      { logo_url: 'javascript:alert(1)', reason: REASON },
+      { logo_url: '//evil.example/logo', reason: REASON },
     ]) {
       expect((await patch(`/api/admin/vendors/${uuid(2)}/logo`, payload)).status).toBe(400);
     }
+    expect(await t.db.select().from(auditLog)).toHaveLength(0);
+  });
+  it.each([
+    ['missing', { logo_url: 'https://example.com/logo.png' }],
+    ['blank', { logo_url: 'https://example.com/logo.png', reason: '   ' }],
+  ])('refuses an admin logo save whose reason is %s (AECI-1191)', async (_label, payload) => {
+    const response = await patch(`/api/admin/vendors/${uuid(2)}/logo`, payload);
+    expect(response.status).toBe(400);
+    expect(await response.json()).toMatchObject({ error: { code: 'VALIDATION_FAILED' } });
+    expect((await t.db.select().from(vendors))[0]).toMatchObject({ logoUrl: null });
     expect(await t.db.select().from(auditLog)).toHaveLength(0);
   });
   it('rejects nonexistent local paths on vendor profile and product saves', async () => {

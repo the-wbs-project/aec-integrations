@@ -233,7 +233,8 @@ async function call(
   return { status: res.status, send };
 }
 
-const revoke = (userId: string) => call(`/api/admin/vendors/${VENDOR}/seats/${userId}`, 'DELETE');
+const revoke = (userId: string) =>
+  call(`/api/admin/vendors/${VENDOR}/seats/${userId}`, 'DELETE', { reason: 'Left the company' });
 const ban = (userId: string) =>
   call(`/api/admin/reviewers/${userId}`, 'PATCH', { action: 'ban', reason: 'abuse' });
 const unban = (userId: string) =>

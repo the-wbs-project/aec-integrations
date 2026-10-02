@@ -20,6 +20,7 @@ import { Injectable, inject } from '@angular/core';
 import { firstValueFrom } from 'rxjs';
 
 import type {
+  AdminRevokeSeat,
   AdminVendorIntegrationsQuery,
   AdminVendorIntegrationsResponse,
   AdminVendorAuditQuery,
@@ -123,11 +124,15 @@ export class AdminVendorsApi {
    * A seat revoke is NOT an entitlement change and NOT a ban (§5.2): the badge,
    * the entitlement row and `vendors.verified` are all untouched, and banning a
    * person is `/admin/users/:id`. It only un-grants this one person's access.
+   *
+   * AECI-1191: the body carries the admin's required `reason`, which the API
+   * records in the `vendor_claim.seat_revoked` audit row.
    */
-  revokeSeat(vendorId: string, userId: string): Promise<void> {
+  revokeSeat(vendorId: string, userId: string, reason: string): Promise<void> {
     return firstValueFrom(
       this.http.delete<void>(
         `/api/admin/vendors/${encodeURIComponent(vendorId)}/seats/${encodeURIComponent(userId)}`,
+        { body: { reason } satisfies AdminRevokeSeat },
       ),
     );
   }

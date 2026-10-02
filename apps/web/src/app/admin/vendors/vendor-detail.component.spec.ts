@@ -224,6 +224,13 @@ function expectNamedTables(root: HTMLElement, atLeast: number): void {
   }
 }
 
+const REVOKE_REASON = 'Left the company.';
+function typeRevokeReason(root: HTMLElement, value = REVOKE_REASON): void {
+  const area = root.querySelector('textarea[id^="seat-revoke-reason-"]') as HTMLTextAreaElement;
+  area.value = value;
+  area.dispatchEvent(new Event('input'));
+}
+
 function buttonByText(root: HTMLElement, text: string): HTMLButtonElement | undefined {
   return [...root.querySelectorAll('button')].find((b) => b.textContent?.trim() === text) as
     | HTMLButtonElement
@@ -564,17 +571,45 @@ describe('VendorDetail', () => {
       expect(el.textContent).toContain('there is no undo on this screen');
       expect(api.revokeSeat).not.toHaveBeenCalled();
 
+      typeRevokeReason(el);
+      fixture.detectChanges();
       buttonByText(el, 'Confirm removal')!.click();
       await settle();
       fixture.detectChanges();
 
-      expect(api.revokeSeat).toHaveBeenCalledWith(VENDOR_ID, SEAT_ID);
+      expect(api.revokeSeat).toHaveBeenCalledWith(VENDOR_ID, SEAT_ID, REVOKE_REASON);
       expect(el.textContent).toContain('No one has portal access');
+    });
+
+    it('labels the required reason and refuses an empty one without a request (AECI-1191)', async () => {
+      const { el, fixture, api } = await setup(makeApiMock(makeVendor()));
+      buttonByText(el, 'Remove seat')!.click();
+      fixture.detectChanges();
+      await settle();
+
+      const area = el.querySelector('textarea[id^="seat-revoke-reason-"]') as HTMLTextAreaElement;
+      const label = el.querySelector(`label[for="${area.id}"]`) as HTMLLabelElement;
+      expect(label.textContent).toContain('Reason (required)');
+      expect(area.required).toBe(true);
+      expect(document.activeElement).toBe(area);
+
+      typeRevokeReason(el, '   ');
+      fixture.detectChanges();
+      buttonByText(el, 'Confirm removal')!.click();
+      await settle();
+      fixture.detectChanges();
+
+      expect(api.revokeSeat).not.toHaveBeenCalled();
+      expect(area.getAttribute('aria-invalid')).toBe('true');
+      expect(el.textContent).toContain('Enter a reason');
+      expect(el.textContent).toContain('Ada Lovelace');
     });
 
     it('announces that the revoke left the entitlement and badge alone', async () => {
       const { el, fixture } = await setup(makeApiMock(makeVendor()));
       buttonByText(el, 'Remove seat')!.click();
+      fixture.detectChanges();
+      typeRevokeReason(el);
       fixture.detectChanges();
       buttonByText(el, 'Confirm removal')!.click();
       await settle();
@@ -591,6 +626,8 @@ describe('VendorDetail', () => {
       const { el, fixture } = await setup(api);
 
       buttonByText(el, 'Remove seat')!.click();
+      fixture.detectChanges();
+      typeRevokeReason(el);
       fixture.detectChanges();
       buttonByText(el, 'Confirm removal')!.click();
       await settle();

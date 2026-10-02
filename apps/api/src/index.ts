@@ -592,7 +592,8 @@ app.route('/', authActivity);
 //     seat, AECi-side. Composes `revokeSeatStatements` unchanged, so the
 //     `vendor_claim.seat_revoked` row rides the same `db.batch` and NO statement
 //     names `vendors`: revoking a seat is orthogonal to the entitlement and never
-//     moves the mirror (§5.2). Ban/unban stays on `/api/admin/reviewers/:id`.
+//     moves the mirror (§5.2). Requires a `{ reason }` body (AECI-1191), recorded
+//     in that row's `metadata.reason`. Ban/unban stays on `/api/admin/reviewers/:id`.
 //   - GET    /api/admin/users                     (AP §5.8, AECI-692) — paginated
 //     PROFILES-first user list; filters `role` / `banned` / `has_seat`, search by
 //     display name and (only when the term contains `@`) by exact email.

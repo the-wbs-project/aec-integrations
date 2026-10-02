@@ -1168,6 +1168,31 @@ export function isContestValueStale(
 }
 
 /**
+ * Does an AECi accept of this contest change a value a vendor holds (AECI-1191)?
+ * Mirrors the branches of `planAcceptWrites` (`routes/admin-contests.ts`) on a
+ * CLAIMED row. An unclaimed row is curated upstream, so nothing vendor-held changes.
+ *
+ * - A content field writes the column (§11b.6 `applied-here`): true.
+ * - `owner` with proposed = the submitter takes the `owner-approved` branch, which
+ *   changes the claim only when another vendor holds it.
+ * - `owner` with proposed = anyone else takes the `owner-reassigned` branch, which
+ *   always clears `claimed_at`: true, even when the proposed owner is the holder.
+ *
+ * When true the accept requires a `note`, which lands in the decision audit row's
+ * `metadata.reason`. The list read reports the same value as
+ * `accept_note_required`, so the queue and the handler cannot disagree.
+ */
+export function acceptOverwritesVendorField(
+  row: Pick<ContestRow, 'field' | 'proposedValue' | 'submitterVendorId'>,
+  integration: Pick<IntegrationRow, 'builtByVendorId' | 'claimedAt'>,
+): boolean {
+  if (!isClaimed(integration)) return false;
+  if (row.field !== 'owner') return true;
+  if (row.proposedValue !== row.submitterVendorId) return true;
+  return integration.builtByVendorId !== row.proposedValue;
+}
+
+/**
  * A batch statement that ABORTS an AECi accept when the contested column no longer
  * holds the value recorded at submit (AECI-1006). The in-batch half of
  * {@link isContestValueStale}: the handler's pre-read refuses the common case, and

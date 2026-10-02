@@ -53,6 +53,7 @@ function contest(over: Partial<AdminContest> & { id: string }): AdminContest {
     live_value: 'https://support.procore.com/old-guide',
     live_label: null,
     value_stale: false,
+    accept_note_required: false,
     reason: 'The old guide was retired in August and now redirects to a blank page.',
     routed_to: 'aeci',
     status: 'open',
@@ -125,6 +126,17 @@ const PROTESTS: readonly AdminContest[] = [
 
 const CONTESTS: readonly AdminContest[] = [
   contest({ id: uuid(201) }),
+  // AECI-1191: the owner claimed this row, so an accept changes their listing and
+  // the form requires a note.
+  contest({
+    id: uuid(203),
+    field: 'name',
+    current_value: 'Procore Sync',
+    proposed_value: 'Procore Sync for Summit Estimating',
+    live_value: 'Procore Sync',
+    reason: 'Customers search for the integration by its full name.',
+    accept_note_required: true,
+  }),
   // AECI-1092: a contest on a connector-evidenced pair, routed to AECi.
   contest({
     id: uuid(202),

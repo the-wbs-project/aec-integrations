@@ -50,6 +50,7 @@ function makeContest(over: Partial<AdminContest> & { id: string }): AdminContest
           : 'https://old.example.com',
     live_label: over.live_label ?? over.current_label ?? null,
     value_stale: over.value_stale ?? false,
+    accept_note_required: over.accept_note_required ?? false,
     reason: over.reason ?? 'The old link 404s.',
     routed_to: over.routed_to ?? 'aeci',
     status: over.status ?? 'open',
@@ -83,8 +84,8 @@ function makeApiMock(rows: AdminContest[], total = rows.length): ApiMock {
   };
 }
 
-function apiError(status: number, code: string): HttpErrorResponse {
-  return new HttpErrorResponse({ status, error: { error: { code, message: code } } });
+function apiError(status: number, code: string, field?: string): HttpErrorResponse {
+  return new HttpErrorResponse({ status, error: { error: { code, message: code, field } } });
 }
 
 function settle(): Promise<void> {
@@ -403,6 +404,82 @@ describe('ContestQueue', () => {
     await flush(fixture);
     expect(el.querySelector('[role="status"]')?.textContent).toContain('Not accepted');
     expect(api.listContests).toHaveBeenCalledTimes(2);
+  });
+
+  describe('the note on a vendor-held overwrite (AECI-1191)', () => {
+    it('keeps the accept note optional on an unclaimed row', async () => {
+      const { fixture, el, api } = await setup(makeApiMock([makeContest({ id: 'k1' })]));
+      buttonByText(el, 'Accept').click();
+      fixture.detectChanges();
+      const area = el.querySelector('#contest-note-k1') as HTMLTextAreaElement;
+      expect(el.querySelector('label[for="contest-note-k1"]')?.textContent).toContain('(optional)');
+      expect(area.required).toBe(false);
+      submitForm(el);
+      await flush(fixture);
+      expect(api.decide).toHaveBeenCalledWith('k1', { decision: 'accept' });
+    });
+
+    it('labels the note required and refuses an empty accept without a request', async () => {
+      const { fixture, el, api } = await setup(
+        makeApiMock([makeContest({ id: 'k1', accept_note_required: true })]),
+      );
+      buttonByText(el, 'Accept').click();
+      fixture.detectChanges();
+      const area = el.querySelector('#contest-note-k1') as HTMLTextAreaElement;
+      expect(el.querySelector('label[for="contest-note-k1"]')?.textContent).toContain('(required)');
+      expect(area.required).toBe(true);
+
+      typeNote(fixture, el, '   ');
+      submitForm(el);
+      await flush(fixture);
+
+      expect(api.decide).not.toHaveBeenCalled();
+      expect(area.getAttribute('aria-invalid')).toBe('true');
+      expect(el.querySelector('#contest-note-k1-error')?.textContent).toContain('Write a note');
+      expect(area.getAttribute('aria-describedby')).toContain('contest-note-k1-error');
+      expect(document.activeElement).toBe(area);
+    });
+
+    it('sends the note once it is written', async () => {
+      const { fixture, el, api } = await setup(
+        makeApiMock([makeContest({ id: 'k1', accept_note_required: true })]),
+      );
+      buttonByText(el, 'Accept').click();
+      fixture.detectChanges();
+      typeNote(fixture, el, 'Their docs show the new link.');
+      submitForm(el);
+      await flush(fixture);
+      expect(api.decide).toHaveBeenCalledWith('k1', {
+        decision: 'accept',
+        note: 'Their docs show the new link.',
+      });
+    });
+
+    it('asks for the note when the API says the row was claimed after load', async () => {
+      const api = makeApiMock([makeContest({ id: 'k1' })]);
+      const { fixture, el } = await setup(api);
+      api.decide.mockRejectedValueOnce(apiError(400, 'VALIDATION_FAILED', 'note'));
+      buttonByText(el, 'Accept').click();
+      fixture.detectChanges();
+      submitForm(el);
+      await flush(fixture);
+
+      expect(el.querySelector('#contest-note-k1-error')?.textContent).toContain('Write a note');
+      expect(el.querySelector('label[for="contest-note-k1"]')?.textContent).toContain('(required)');
+      expect(el.querySelector('article')).not.toBeNull();
+    });
+  });
+
+  it('treats a validation error on another field as a plain failure (AECI-1191)', async () => {
+    const api = makeApiMock([makeContest({ id: 'k1' })]);
+    const { fixture, el } = await setup(api);
+    api.decide.mockRejectedValueOnce(apiError(400, 'VALIDATION_FAILED', 'decision'));
+    buttonByText(el, 'Accept').click();
+    fixture.detectChanges();
+    submitForm(el);
+    await flush(fixture);
+    expect(el.querySelector('#contest-note-k1-error')).toBeNull();
+    expect(el.querySelector('article [role="alert"]')?.textContent).toContain('try again');
   });
 
   it('shows a generic retryable error on any other failure', async () => {
