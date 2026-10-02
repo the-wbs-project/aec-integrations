@@ -3342,6 +3342,96 @@ cannot cascade.
 `routes/notification-preferences.ts` and the sweep in `lib/attestation-notify.ts`. Contract:
 `API_CONTRACTS.md` §6.14 and the public route beside `POST /api/unsubscribe`.
 
+### 9.11 `user_activity_daily`
+
+One row per signed-in user per UTC day (AECI-1208, migration `0056_hard_moondragon.sql`). It
+covers vendors, reviewers and admins. It answers "who really uses the product, on which days,
+on which surfaces, and how they arrived". Admin rows are kept so reports can filter operator
+traffic out.
+
+```sql
+create table user_activity_daily (
+  user_id text not null,             -- profiles.id (the Supabase auth uid); no FK, see below
+  day text not null,                 -- YYYY-MM-DD, UTC; same format as metrics_daily.day
+  role text not null,                -- profiles.role at first sight that day
+  vendor_id text,                    -- profiles.vendor_id at first sight that day
+  first_seen_at text not null,       -- ISO-8601
+  last_seen_at text not null,        -- ISO-8601, throttled (see the writer)
+  surfaces integer not null default 0, -- bitmask, see below
+  arrival_utm_source text,           -- first arrival of the day
+  arrival_utm_campaign text,         -- first arrival of the day
+  arrival_notification_id text,      -- the n param: a notification_sends.id (AECI-1209)
+  arrival_at text,                   -- when the arrival was recorded; non-null fixes the group
+  primary key (user_id, day)
+);
+
+create index user_activity_daily_vendor_day_idx on user_activity_daily(vendor_id, day);
+create index user_activity_daily_day_idx on user_activity_daily(day);
+```
+
+**Surfaces are a bitmask.** The set is closed and lives in `@aeci/shared`
+(`USER_ACTIVITY_SURFACE_BITS`). Read it through `decodeUserActivitySurfaces`, never as a raw
+integer. Never renumber a bit.
+
+| Bit | Surface | API path |
+|---|---|---|
+| 1 | `vendor_portal` | `/api/vendor/…` |
+| 2 | `admin` | `/api/admin/…` |
+| 4 | `account` | `/api/account/…`, `/api/seat-invites/…` |
+| 8 | `reviews` | `/api/reviews`, `/api/reviews/…` |
+
+Exact `/api/account` sets no bit. The site header probes `GET /api/account` once per signed-in
+tab, and the catalog's listing-view toggle `PATCH`es it. Counting either would set the account
+bit for nearly every user every day. The `/account` page itself loads `/api/account/reviews`,
+which does count. Any other authenticated path records the day and sets no bit.
+
+**Two writers, one statement** (`apps/api/src/lib/user-activity.ts`):
+
+- `activityMiddleware()` (`apps/api/src/activity-middleware.ts`), a root `app.use('*')` that runs
+  after the handler and reads `c.get('auth')`. It writes when a guard set `auth` and the status
+  is below 500. It never writes on `DELETE /api/account` or on the arrival beacon. It writes in
+  `ctx.waitUntil`, never throws, and counts `aeci.user_activity.write{outcome}` only when it
+  writes. A per-isolate throttle allows one write per `user|day` per 5 minutes, or sooner when a
+  new surface bit appears. The map is capped at 5,000 keys and cleared when full. Forgetting a
+  key costs one extra write, never a lost row, because the SQL is idempotent.
+- `POST /api/activity/arrival` (`apps/api/src/routes/activity-arrival.ts`), the browser's arrival
+  beacon. It writes inline and sets no surface bit (`API_CONTRACTS.md`).
+
+The statement is `INSERT … SELECT … WHERE EXISTS (SELECT 1 FROM profiles WHERE id = ?) ON
+CONFLICT(user_id, day) DO UPDATE`. On conflict it changes only `last_seen_at` (the later of the
+two) and `surfaces` (bitwise OR). The arrival group is written as a unit, only while
+`arrival_at` is null, so the first arrival of the day wins and a later one never mixes in.
+`first_seen_at`, `role` and `vendor_id` are fixed at first sight.
+
+**The profile gate is the erasure guard.** Erasure deletes the user's rows in its batch
+(`AUTH_AND_RLS.md` §8). A write landing after that batch, from another tab or a slow
+`waitUntil`, inserts nothing, because the profile is gone. Without the gate the row would come
+back and nothing would ever delete it.
+
+**No FK to `profiles`, on purpose.** Erasure deletes the rows explicitly. A FK would add this
+table to the `profiles` recreate-cascade hazard (`docs/migrations.md` §0) for no gain.
+
+**No `audit_log` row.** A per-user service log under the ADR 0022 amendment of 2026-10-02. It
+records that a user used the service, never what they own or decided. It is never shown to the
+user or the public, it is erased with the account, and it is pruned on a fixed window.
+`STAGE_1_SPEC.md` §26.1.
+
+**Operator-only.** Nothing in search, Algolia, ranking, home stats or a public listing may read
+it. `apps/api/src/lib/ranking-firewall.spec.ts` fails the build if one of those modules names the
+table. It is never joined to `page_views` (`ADMIN_PANEL_SPEC.md` §13 D7).
+
+**Read by** nothing in the app yet. The vendor snapshot (AECI-1210) will read it through the
+`(vendor_id, day)` index.
+
+**Retention: 400 days, enforced by retention-prune** (`apps/api/src/lib/retention-prune.ts`). The
+table has no integer id, so the prune pages the implicit `rowid` under the same chunk caps, with
+`day < cutoff day` as the authoritative predicate. A `metrics_daily` snapshot gap stops it too.
+Window: `USER_ACTIVITY_RETENTION_DAYS` in `@aeci/shared`, overridable per tier by the like-named
+env var with the 30-day floor. `ADMIN_PANEL_SPEC.md` §7.4.
+
+**Migration `0056`** is a plain `CREATE TABLE` plus two `CREATE INDEX`. It is not a recreate and
+cannot cascade. `apps/api/src/test/migration-0056.spec.ts` pins that.
+
 ---
 
 ## 10. Future-ready tables
@@ -3535,6 +3625,7 @@ Backup policy is deferred to a dedicated operational document — `docs/RUNBOOKS
 - `page_views` retention: **400 days**, settled by `ADMIN_PANEL_SPEC.md` §13 D5 and **enforced since AECI-584** by the daily 03:00 UTC pruning cron — not indefinite, though it deletes nothing until ~2027-07 given the 2026-06-23 data start. 400 rather than 180 because D1 Time Travel gives only ~30 days of point-in-time recovery, so a prune is effectively permanent, and 400 is the first window that keeps year-over-year comparison possible
 - `metrics_daily` retention: **indefinite** — it is the long memory that survives the `page_views` prune (AECI-581 / §7.1). The pruning cron never touches it, and never prunes a `page_views` day it has not captured; both are asserted by test (§9.3)
 - `job_runs` retention: 90 days per `ADMIN_PANEL_SPEC.md` §7.4 — **enforced since AECI-584** (§9.4). This is the window that bites first, around 2026-11-11
+- `user_activity_daily` retention: **400 days**, enforced by the same 03:00 prune since AECI-1208 (§9.11). It pages `rowid` because the table has no integer id. Erasure deletes a user's rows sooner. The privacy policy promises "about 13 months"
 - `promote_jobs`: indefinite for Stage 1 (see §8.5). The row is a duplicate **guard**, not a log — pruning it below a 90-day floor re-opens the AECI-571 replay window. At a handful of promotes a day and ~10 KB a row this is ~100 MB per 10,000 promotes, so there is no pressure to prune; the `created_at` index is there so a future sweep is a cheap range delete
 - Every prune run that deletes anything writes exactly **one** `retention.pruned` `audit_log` row, in the same atomic batch as its deletes (`STAGE_1_SPEC.md` §26.1's scheduled-deletion exception / ADR 0022). A run that deletes nothing writes none. That row is the only durable record that the rows ever existed
 - Reviews and core entities: no retention policy — preserve everything
@@ -3572,7 +3663,7 @@ Migrations are generated by **drizzle-kit** from the Drizzle schema and applied 
 
 Every write that changes **domain state** must emit its `audit_log` (+ `workflow_transitions` where applicable) row (`STAGE_1_SPEC.md` §26.1, `CLAUDE.md` §"Audit logging and the observability forward"). Failure to log is a transactional failure — the mutation must not commit without its audit entry.
 
-**Scope (ADR 0022).** "Domain state" is the catalog, users and profiles, reviews and moderation, claims and attestations, requests and workflows. **Derived and log-class writes are exempt**: `page_views`, `mailing_list`, `feedback` (`API_CONTRACTS.md` §6.9/§6.13), `stats_cache`, the Algolia watermark, the denormalized product counters (§14.2), and the cron-written `metrics_daily` (§9.3 — **shipped**, AECI-581) and `job_runs` (§9.4 — **shipped**, AECI-583) tables (`ADMIN_PANEL_SPEC.md` §7.1/§7.2). The test is **entity class, not actor class** — a `system`/cron actor writing domain state still audits — and **scheduled `DELETE`s are never exempt**: they emit one summary row per run (`action='retention.pruned'`). That exception is live as of AECI-584 (§9.1/§9.4): the 03:00 retention prune is the only cron that writes an `audit_log` row, and it writes exactly one per run — `actor_type='system'`, `entity_type='retention'`, `metadata={rowsDeleted, tables:[{table, cutoff, rowsDeleted}]}` — inside the same atomic `db.batch` as every chunked `DELETE`. A run that deletes nothing writes none: the exception exists because a deletion's fact is unrecoverable afterwards, and a non-deletion has no such fact.
+**Scope (ADR 0022).** "Domain state" is the catalog, users and profiles, reviews and moderation, claims and attestations, requests and workflows. **Derived and log-class writes are exempt**: `page_views`, `mailing_list`, `feedback` (`API_CONTRACTS.md` §6.9/§6.13), `stats_cache`, the Algolia watermark, the denormalized product counters (§14.2), and the cron-written `metrics_daily` (§9.3 — **shipped**, AECI-581) and `job_runs` (§9.4 — **shipped**, AECI-583) tables (`ADMIN_PANEL_SPEC.md` §7.1/§7.2). `notification_sends` (§9.9) and the per-user service log `user_activity_daily` (§9.11, ADR 0022's 2026-10-02 amendment) are exempt too. The test is **entity class, not actor class** — a `system`/cron actor writing domain state still audits — and **scheduled `DELETE`s are never exempt**: they emit one summary row per run (`action='retention.pruned'`). That exception is live as of AECI-584 (§9.1/§9.4): the 03:00 retention prune is the only cron that writes an `audit_log` row, and it writes exactly one per run — `actor_type='system'`, `entity_type='retention'`, `metadata={rowsDeleted, tables:[{table, cutoff, rowsDeleted}]}` — inside the same atomic `db.batch` as every chunked `DELETE`. A run that deletes nothing writes none: the exception exists because a deletion's fact is unrecoverable afterwards, and a non-deletion has no such fact.
 
 **The 11:00 entitlement-expiry sweep is a second auditing cron, and for the same "entity class, not actor class" reason** (AECI-613): it writes `expiry_notice_sent_at` on a domain row and emits one `vendor_entitlement.expiry_warned` row (`actor_type='system'`) per warned term, in the same batch. "We warned them on date X" is precisely the fact an offline-invoice dispute needs, so exempting it would lose the one record that matters. Note what that means for the exempt lists: `entitlement-expiry` is **not** ADR-0022-exempt in the way `retention-prune` is — where a cron-level test carves it out, the carve-out is a mocking artifact, and the real obligation is asserted in `entitlement-expiry.spec.ts`.
 

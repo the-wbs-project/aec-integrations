@@ -96,7 +96,7 @@ import { buildRobotsTxt } from './server/robots';
 import { NOINDEX_DIRECTIVE, indexingAllowed, pathForcesNoindex } from './server/robots-policy';
 import { applySeoHeaders } from './server/seo-headers';
 import { createAdminPurgeHandler } from './server/routes/admin-purge';
-import { createAuthCallbackHandler, sanitizeReturnPath } from './server/routes/auth-callback';
+import { createAuthCallbackHandler, signInReturnPath } from './server/routes/auth-callback';
 import { refreshSessionCookies, withRefreshedCookies } from './server/auth/session-refresh';
 import { createAuthWhoamiHandler } from './server/routes/auth-whoami';
 import { createIndexNowKeyHandler } from './server/routes/indexnow-key';
@@ -1571,13 +1571,14 @@ export function createApp(options: {
     // otherwise SSR. A logged-out visitor (no session cookie) is 303-redirected
     // to `/auth/login?return=<path>` so they bounce straight back after signing
     // in; the `return` value is narrowed by `sanitizeReturnPath` (same-origin
-    // only). The redirect is `no-store`. With a cookie present the request falls
+    // only) and carries the arrival params and no other query (`signInReturnPath`,
+    // AECI-1208). The redirect is `no-store`. With a cookie present the request falls
     // through to the normal SSR render (the API verifies the token on writes).
     {
       const url = new URL(c.req.url);
       const { path } = stripLocalePrefix(url.pathname);
       if ((isReviewPath(path) || isAccountPath(path)) && !hasSessionCookie(c.req.raw)) {
-        const returnPath = sanitizeReturnPath(url.pathname);
+        const returnPath = signInReturnPath(url);
         const query = returnPath === '/' ? '' : `?return=${encodeURIComponent(returnPath)}`;
         return new Response(null, {
           status: 303,
@@ -1613,7 +1614,7 @@ export function createApp(options: {
       const url = new URL(c.req.url);
       const { path } = stripLocalePrefix(url.pathname);
       if ((isAdminPath(path) || isVendorPath(path)) && !hasSessionCookie(c.req.raw)) {
-        const returnPath = sanitizeReturnPath(url.pathname);
+        const returnPath = signInReturnPath(url);
         const query = returnPath === '/' ? '' : `?return=${encodeURIComponent(returnPath)}`;
         return new Response(null, {
           status: 303,

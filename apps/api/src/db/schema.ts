@@ -2410,6 +2410,68 @@ export const notificationPreferences = sqliteTable(
   (t) => [uniqueIndex('notification_preferences_mute_token_key').on(t.muteToken)],
 );
 
+// ===========================================================================
+// Per-user daily activity (AECI-1208, DATABASE_SCHEMA.md §9.11)
+//
+// A PER-USER SERVICE LOG (ADR 0022, 2026-10-02 amendment): it records that a
+// signed-in user used the service on a day, never what they own or decided. It
+// is exempt from the §26.1 audit-in-batch invariant, never shown to the user or
+// the public, erased with the account (`routes/account.ts`), and pruned at 400
+// days (`lib/retention-prune.ts`, `ADMIN_PANEL_SPEC.md` §7.4).
+//
+// Operator-only. Nothing in search, Algolia, ranking, home stats or a public
+// listing may read it (`lib/ranking-firewall.spec.ts`). Never joined to
+// `page_views` (`ADMIN_PANEL_SPEC.md` §13 D7).
+//
+// No FK to `profiles` on purpose: erasure deletes the rows explicitly, a FK
+// would add a recreate-cascade hazard (`docs/migrations.md` §0), and both
+// writers gate their upsert on the profile still existing
+// (`lib/user-activity.ts`).
+// ===========================================================================
+
+/**
+ * One row per signed-in user per UTC day. The first authenticated request of the
+ * day inserts it; later requests advance `last_seen_at` and OR new bits into
+ * `surfaces`. `role`, `vendor_id` and `first_seen_at` are fixed at first sight.
+ * The arrival columns are written once, by the first `POST /api/activity/arrival`
+ * of the day.
+ */
+export const userActivityDaily = sqliteTable(
+  'user_activity_daily',
+  {
+    /** `profiles.id`, the Supabase auth uid. */
+    userId: text('user_id').notNull(),
+    /** `YYYY-MM-DD`, UTC. Same format as `metrics_daily.day`. */
+    day: text('day').notNull(),
+    /** `profiles.role` at first sight that day. */
+    role: text('role').notNull(),
+    /** `profiles.vendor_id` at first sight that day. */
+    vendorId: text('vendor_id'),
+    firstSeenAt: text('first_seen_at').notNull(),
+    /** Advanced at most once per 5 minutes per isolate, unless a new surface
+     *  appears (`lib/user-activity.ts`). */
+    lastSeenAt: text('last_seen_at').notNull(),
+    /** Bitmask of `USER_ACTIVITY_SURFACE_BITS` (`@aeci/shared`). Read it through
+     *  `decodeUserActivitySurfaces`, never as a raw integer. */
+    surfaces: integer('surfaces').notNull().default(0),
+    /** The landing URL's `utm_source`, first arrival of the day. */
+    arrivalUtmSource: text('arrival_utm_source'),
+    /** The landing URL's `utm_campaign`, first arrival of the day. */
+    arrivalUtmCampaign: text('arrival_utm_campaign'),
+    /** The landing URL's `n`: a `notification_sends.id` (AECI-1209). */
+    arrivalNotificationId: text('arrival_notification_id'),
+    /** When the arrival was recorded. Non-null = the arrival group is fixed. */
+    arrivalAt: text('arrival_at'),
+  },
+  (t) => [
+    primaryKey({ columns: [t.userId, t.day] }),
+    // The vendor snapshot (AECI-1210): distinct users per vendor over a day window.
+    index('user_activity_daily_vendor_day_idx').on(t.vendorId, t.day),
+    // The §7.4 prune: `day < cutoff`.
+    index('user_activity_daily_day_idx').on(t.day),
+  ],
+);
+
 /**
  * External classification of the ASNs we have actually seen (AECI-624).
  *
@@ -3769,6 +3831,7 @@ export const schema = {
   statsCache,
   jobRuns,
   notificationSends,
+  userActivityDaily,
   translations,
   connectorCatalogs,
   connectorCatalogSurfaces,

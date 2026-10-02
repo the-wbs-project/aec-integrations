@@ -976,6 +976,16 @@ would have meant inventing a durable first-party identifier. This **strengthens*
 erasure rather than weakening it — `page_views` can no longer hold user linkage at
 all, so there is nothing left in that table to erase, for this user or any other.
 
+**`user_activity_daily` rows are deleted, not nulled (AECI-1208).** The per-user daily
+activity log (`DATABASE_SCHEMA.md` §9.11) has no FK to `profiles`, so the table above does not
+list it. The erasure batch runs `DELETE FROM user_activity_daily WHERE user_id = ?` before the
+profile delete. Two more guards stop a row coming back after the batch. The activity
+middleware never writes on `DELETE /api/account` itself. Both of its writers, the middleware and
+`POST /api/activity/arrival`, insert through `… WHERE EXISTS (SELECT 1 FROM profiles WHERE id =
+?)`, so a request from another tab whose write lands after the erasure inserts nothing.
+`apps/api/src/activity-middleware.spec.ts` drains `waitUntil` after a delete, and after a racing
+request, and asserts zero rows. The privacy policy promises this deletion (AECI-1211).
+
 **Flow (`DELETE /api/account`, `requireAuth`, AECI-202; D1 re-platform AECI-254/278).**
 Because the app store (D1) and Supabase Auth are now **separate systems** (ADR 0016),
 erasure is a **two-system** operation — there is no single cross-system transaction
@@ -983,8 +993,9 @@ and no `apps/api/src/prisma.ts`:
 
 1. User confirms Delete in `/account` → `DELETE /api/account`.
 2. **D1 erasure — one atomic `db.batch([...])`** (`apps/api/src/routes/account.ts`):
-   in order, null all ten inbound references above, write the `account.deleted`
-   audit row, then delete the `profiles` row. All commit or roll back as a unit.
+   in order, null all ten inbound references above, delete the user's
+   `user_activity_daily` rows, write the `account.deleted` audit row, then delete the
+   `profiles` row. All commit or roll back as a unit.
    **When the profile is a `vendor_admin` seat (AECI-1106)**, the AECI-989 seat-loss
    rows join the same batch after the delete. The vendor's last seat hands its record
    back to AECi. A seat whose colleagues are all banned moves the owner's contests to

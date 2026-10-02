@@ -150,3 +150,46 @@ forward and open backwards, and `ADMIN_PANEL_SPEC.md` §4 and §5.5 say so. AECI
 `vendor.retracted` where every other vendor removal writes `vendor.deleted`. It is recorded
 in §26.1 rather than renamed, because rewriting an existing audit row would make the log
 say something that did not happen when it was written.
+
+## Amendment 2026-10-02 — the per-user service log (AECI-1208)
+
+Nothing above is reversed. This adds a class of log the three-part test does not reach.
+
+**The problem.** `user_activity_daily` (`DATABASE_SCHEMA.md` §9.11) keeps one row per
+signed-in user per UTC day: first and last seen, the surfaces used, and how the user arrived.
+It fails the original test on all three counts. It is updated in place during the day, so it is
+not an append-only log. It cannot be reproduced by re-running a job. It is keyed by user, and
+§26.1 lists "users and profiles" as domain state. Listing it as exempt without a rule would
+leave §26.1 contradicting itself, and the next reviewer would flag every write.
+
+**The class.** A **per-user service log** is a table that meets all four of these rules:
+
+1. **It records use, never ownership or decisions.** A row says that a user used the service on
+   a day, and how. It never records what the user owns, chose, changed, or was granted.
+2. **It is never shown to the user or the public.** It is an operator surface only. Nothing in
+   search, Algolia, ranking, home stats or a public listing reads it, and a source-scan test
+   (`apps/api/src/lib/ranking-firewall.spec.ts`) enforces that.
+3. **It is erased with the account.** The account-deletion batch deletes the user's rows, and
+   every writer gates its write on the profile still existing, so a racing request cannot bring
+   a row back (`AUTH_AND_RLS.md` §8).
+4. **It is pruned on a fixed window.** `user_activity_daily` keeps 400 days
+   (`ADMIN_PANEL_SPEC.md` §7.4). The prune's scheduled `DELETE` is not exempt: it writes the usual
+   one summary row per run.
+
+A table in this class is exempt from the `audit_log` obligation. A table that fails any rule is
+domain state and audits.
+
+**Why the row is not user state.** "Users and profiles" are domain state because a person
+changed them, or because they change what the person or a visitor sees. This row is neither. No
+product behaviour reads it: no permission, no page, no ranking and no email depends on it.
+Losing a row, or the whole table, changes nothing any user sees. It is a log about the user, in
+the way `page_views` is a log about the site. An `audit_log` row about it would record that we
+recorded a visit, which audits the log.
+
+**What it does not do.** It does not reopen `ADMIN_PANEL_SPEC.md` §13 D7. `page_views` still holds
+no user id and no session id. The activity log is a separate operator-only table, written by
+the API on authenticated requests, and never joined to `page_views`.
+
+**Where it is recorded.** `STAGE_1_SPEC.md` §26.1 lists `user_activity_daily` beside the other
+exempt tables and names this class. `CODE_REVIEW_EXEMPTIONS.md` EX-002 covers its two writers.
+The privacy policy discloses the record, because it does not depend on cookie consent (AECI-1211).

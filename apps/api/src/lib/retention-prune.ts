@@ -3,8 +3,9 @@
  * `ADMIN_PANEL_SPEC.md` §7.4 enforcer).
  *
  * A scheduled job (`../scheduled.ts`, cron `0 3 * * *`) deletes `page_views`
- * older than 400 days, `job_runs` older than 90, and `notification_sends` older
- * than 400 (AECI-1202). It is the **first scheduled
+ * older than 400 days, `job_runs` older than 90, `notification_sends` older
+ * than 400 (AECI-1202), and `user_activity_daily` days older than 400
+ * (AECI-1208). It is the **first scheduled
  * `DELETE` in the system's history**, which is why so much of this file is about
  * refusing to delete rather than deleting.
  *
@@ -73,6 +74,13 @@
  *     {@link PRUNE_CHUNK_ROWS}. Every statement below binds three regardless of
  *     chunk size, so the limit is simply not reachable.
  *
+ * **`user_activity_daily` has no integer id** (AECI-1208): its key is
+ * `(user_id, day)`. It pages the implicit `rowid` instead, with the same shape:
+ * read up to {@link PRUNE_CHUNK_ROWS} rowids with `day < cutoff`, then delete
+ * `day < cutoff AND rowid > cursor AND rowid <= last`. The day predicate is the
+ * authority and the rowid range only paginates, exactly as for the id tables,
+ * and the count still comes from the rowids read. Three binds per statement.
+ *
  * The general hazard is real even if these two instances are not: the harness is
  * better-sqlite3, not workerd, so a divergence in SQLite build options passes
  * every spec and fails in production — see the `SQLITE_MAX_COMPOUND_SELECT = 5`
@@ -84,14 +92,21 @@ import {
   MIN_RETENTION_DAYS,
   NOTIFICATION_SENDS_RETENTION_DAYS,
   PAGE_VIEWS_RETENTION_DAYS,
+  USER_ACTIVITY_RETENTION_DAYS,
 } from '@aeci/shared';
 import type { AuditLogEntry } from '@aeci/shared/audit-log';
-import { and, asc, gt, gte, lt, lte } from 'drizzle-orm';
+import { and, asc, gt, gte, lt, lte, min, sql } from 'drizzle-orm';
 
 import type { SQLiteColumn, SQLiteTable } from 'drizzle-orm/sqlite-core';
 
 import type { Db } from '../db/client';
-import { jobRuns, metricsDaily, notificationSends, pageViews } from '../db/schema';
+import {
+  jobRuns,
+  metricsDaily,
+  notificationSends,
+  pageViews,
+  userActivityDaily,
+} from '../db/schema';
 import { shiftDay } from './admin-analytics';
 import { auditInsert, type BatchStmt, type BatchTuple } from './audit';
 
@@ -129,29 +144,47 @@ const MAX_REPORTED_MISSING_DAYS = 10;
  * `metrics_daily` are absent, and `retention-prune.spec.ts` asserts a real run
  * leaves all four untouched.
  */
-export const PRUNABLE = ['page_views', 'job_runs', 'notification_sends'] as const;
+export const PRUNABLE = [
+  'page_views',
+  'job_runs',
+  'notification_sends',
+  'user_activity_daily',
+] as const;
 export type PrunableTable = (typeof PRUNABLE)[number];
 
 /**
- * Where each prunable table keeps its AUTOINCREMENT id and its age column. The
- * cursor pages `id`; the age column is the authoritative predicate (see header).
- * Widened to the base Drizzle types so one code path serves every table.
+ * Where each prunable table keeps its age column and its pagination cursor.
+ *
+ * - `kind: 'id'`: an AUTOINCREMENT `id` cursor, with an ISO-timestamp age column
+ *   compared against the cutoff instant.
+ * - `kind: 'day'`: no integer id (a composite key), so the cursor is the implicit
+ *   `rowid`, and the age column is a `YYYY-MM-DD` day compared against the cutoff
+ *   day. See the header.
+ *
+ * The age column is the authoritative predicate either way. Widened to the base
+ * Drizzle types so one code path serves every table.
  */
-interface PruneSource {
-  table: SQLiteTable;
-  id: SQLiteColumn;
-  age: SQLiteColumn;
-}
+type PruneSource =
+  | { kind: 'id'; table: SQLiteTable; id: SQLiteColumn; age: SQLiteColumn }
+  | { kind: 'day'; table: SQLiteTable; age: SQLiteColumn };
 
 const SOURCES: Record<PrunableTable, PruneSource> = {
-  page_views: { table: pageViews, id: pageViews.id, age: pageViews.createdAt },
-  job_runs: { table: jobRuns, id: jobRuns.id, age: jobRuns.startedAt },
+  page_views: { kind: 'id', table: pageViews, id: pageViews.id, age: pageViews.createdAt },
+  job_runs: { kind: 'id', table: jobRuns, id: jobRuns.id, age: jobRuns.startedAt },
   notification_sends: {
+    kind: 'id',
     table: notificationSends,
     id: notificationSends.id,
     age: notificationSends.createdAt,
   },
+  user_activity_daily: { kind: 'day', table: userActivityDaily, age: userActivityDaily.day },
 };
+
+/** The value a table's age column is compared against: the cutoff instant for a
+ *  timestamp column, the cutoff day for a day column. */
+function ageCutoff(table: PrunableTable, cutoff: { day: string; iso: string }): string {
+  return SOURCES[table].kind === 'day' ? cutoff.day : cutoff.iso;
+}
 
 /**
  * Resolve a retention window: the reviewed `@aeci/shared` default unless a valid
@@ -188,6 +221,7 @@ export function resolveRetentionWindows(
     PAGE_VIEWS_RETENTION_DAYS?: string;
     JOB_RUNS_RETENTION_DAYS?: string;
     NOTIFICATION_SENDS_RETENTION_DAYS?: string;
+    USER_ACTIVITY_RETENTION_DAYS?: string;
   },
   onInvalid?: (table: PrunableTable, reason: string) => void,
 ): Record<PrunableTable, number> {
@@ -204,6 +238,11 @@ export function resolveRetentionWindows(
       env.NOTIFICATION_SENDS_RETENTION_DAYS,
       NOTIFICATION_SENDS_RETENTION_DAYS,
       (reason) => onInvalid?.('notification_sends', reason),
+    ),
+    user_activity_daily: resolveRetentionDays(
+      env.USER_ACTIVITY_RETENTION_DAYS,
+      USER_ACTIVITY_RETENTION_DAYS,
+      (reason) => onInvalid?.('user_activity_daily', reason),
     ),
   };
 }
@@ -260,11 +299,16 @@ export function cutoffFor(now: Date, retentionDays: number): { day: string; iso:
   return { day, iso: `${day}T00:00:00.000Z` };
 }
 
-/** The oldest surviving row's `created_at`, or null on an empty table. Reads ONE
+/** The oldest surviving row's age value, or null on an empty table. Reads ONE
  *  row off the PK index — this is the probe that makes the whole "deletes
- *  nothing until ~2027-07" era cost a single row read per table per night. */
+ *  nothing until ~2027-07" era cost a single row read per table per night. A day
+ *  table reads `min(day)` off its `(day)` index instead. */
 async function oldestCreatedAt(db: Db, table: PrunableTable): Promise<string | null> {
   const src = SOURCES[table];
+  if (src.kind === 'day') {
+    const [row] = await db.select({ age: min(src.age) }).from(src.table);
+    return (row?.age as string | null | undefined) ?? null;
+  }
   const [row] = await db.select({ age: src.age }).from(src.table).orderBy(asc(src.id)).limit(1);
   return (row?.age as string | undefined) ?? null;
 }
@@ -336,6 +380,7 @@ async function planChunks(db: Db, table: PrunableTable, cutoffIso: string): Prom
   let cursor = 0;
 
   const src = SOURCES[table];
+  if (src.kind === 'day') return planDayChunks(db, src, cutoffIso);
 
   for (let chunk = 0; chunk < MAX_CHUNKS_PER_TABLE; chunk += 1) {
     const ids = (
@@ -366,6 +411,47 @@ async function planChunks(db: Db, table: PrunableTable, cutoffIso: string): Prom
   return { statements, rowsDeleted, truncated: true };
 }
 
+/**
+ * {@link planChunks} for a table with no integer id (AECI-1208). Pages the
+ * implicit `rowid` under the same caps, so the chunk size, the per-table ceiling,
+ * the exact count and the "predicate is the authority" rule are all unchanged.
+ * `cutoffDay` is a `YYYY-MM-DD` compared against the table's day column.
+ */
+async function planDayChunks(
+  db: Db,
+  src: Extract<PruneSource, { kind: 'day' }>,
+  cutoffDay: string,
+): Promise<ChunkPlan> {
+  const statements: BatchStmt[] = [];
+  let rowsDeleted = 0;
+  let cursor = 0;
+  const rowid = sql<number>`rowid`;
+
+  for (let chunk = 0; chunk < MAX_CHUNKS_PER_TABLE; chunk += 1) {
+    const rowids = (
+      await db
+        .select({ rowid })
+        .from(src.table)
+        .where(and(lt(src.age, cutoffDay), gt(rowid, cursor)))
+        .orderBy(asc(rowid))
+        .limit(PRUNE_CHUNK_ROWS)
+    ).map((r) => Number(r.rowid));
+
+    if (rowids.length === 0) return { statements, rowsDeleted, truncated: false };
+
+    const last = rowids[rowids.length - 1] as number;
+    statements.push(
+      db.delete(src.table).where(and(lt(src.age, cutoffDay), gt(rowid, cursor), lte(rowid, last))),
+    );
+    rowsDeleted += rowids.length;
+    cursor = last;
+
+    if (rowids.length < PRUNE_CHUNK_ROWS) return { statements, rowsDeleted, truncated: false };
+  }
+
+  return { statements, rowsDeleted, truncated: true };
+}
+
 // ---------------------------------------------------------------------------
 // The run
 // ---------------------------------------------------------------------------
@@ -387,6 +473,7 @@ export async function runRetentionPrune(
     page_views: cutoffFor(now, windows.page_views),
     job_runs: cutoffFor(now, windows.job_runs),
     notification_sends: cutoffFor(now, windows.notification_sends),
+    user_activity_daily: cutoffFor(now, windows.user_activity_daily),
   } as const;
 
   const oldestPageView = await oldestCreatedAt(db, 'page_views');
@@ -427,11 +514,12 @@ export async function runRetentionPrune(
     const cutoff = cutoffs[table];
     // `page_views` already has its probe; re-probing each other table is one row.
     const oldest = table === 'page_views' ? oldestPageView : await oldestCreatedAt(db, table);
-    if (oldest === null || oldest >= cutoff.iso) {
+    const limit = ageCutoff(table, cutoff);
+    if (oldest === null || oldest >= limit) {
       tables.push({ table, cutoff: cutoff.iso, rowsDeleted: 0, truncated: false });
       continue;
     }
-    const plan = await planChunks(db, table, cutoff.iso);
+    const plan = await planChunks(db, table, limit);
     statements.push(...plan.statements);
     tables.push({
       table,

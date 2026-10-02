@@ -29,6 +29,7 @@ import {
   createUpdateAccountHandler,
 } from './routes/account';
 import { createGetAccountReviewsHandler } from './routes/account-reviews';
+import { createActivityArrivalHandler } from './routes/activity-arrival';
 import {
   createAdminClaimDetailHandler,
   createAdminClaimsListHandler,
@@ -79,6 +80,7 @@ import { createAdminSummaryHandler } from './routes/admin-summary';
 import { createAdminSystemHandler } from './routes/admin-system';
 import { createEnsureProfileHandler } from './routes/auth-profile';
 import { createAuthWhoamiHandler } from './routes/auth-whoami';
+import { activityMiddleware } from './activity-middleware';
 import { bookmarkMiddleware } from './bookmark-middleware';
 import { metricsMiddleware } from './metrics-middleware';
 import { rateLimit } from './rate-limit-middleware';
@@ -212,6 +214,12 @@ app.use('*', metricsMiddleware());
 // so this is a no-op on the read path. Registered after metrics so it shares the
 // same post-`next()` `finally` shape.
 app.use('*', bookmarkMiddleware());
+
+// AECI-1208 — one `user_activity_daily` row per signed-in user per UTC day. Same
+// post-`next()` shape: it reads the `auth` session a sub-router's guard set, and
+// writes in `waitUntil`, throttled per isolate, never on `DELETE /api/account`.
+// A per-user service log (ADR 0022, 2026-10-02 amendment), so no audit row.
+app.use('*', activityMiddleware());
 
 // AECI-101 — the root app gets the same `errorHandler()` as the Phase 2.8
 // sub-router, so the legacy routes below and the `*` fall-throughs emit the
@@ -485,6 +493,19 @@ authAccount.patch('/api/account', requireAuth(), rateLimit('write'), createUpdat
 // GoTrue seam and a `reviews`-touching batch; the control is `requireAuth()`.
 authAccount.delete('/api/account', requireAuth(), createDeleteAccountHandler());
 app.route('/', authAccount);
+
+// AECI-1208 arrival beacon. `requireAuth()` then `rateLimit('write')`, the write
+// convention (`docs/waf-rate-limits.md` §6.2): a once-per-landing D1 upsert keyed on
+// the verified user. It writes the caller's own activity row and nothing else.
+const authActivity = new Hono<{ Bindings: Env; Variables: AuthzVariables }>();
+authActivity.onError(errorHandler());
+authActivity.post(
+  '/api/activity/arrival',
+  requireAuth(),
+  rateLimit('write'),
+  createActivityArrivalHandler(),
+);
+app.route('/', authActivity);
 
 // Phase 5.12 + 5.13 admin sub-router (AECI-203 + AECI-204). Every route is
 // `requireAdmin()`-gated: it sets `c.get('auth')` (`AuthzVariables`, same shape

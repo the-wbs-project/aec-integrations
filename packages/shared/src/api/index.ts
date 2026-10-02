@@ -1,4 +1,5 @@
 export * from './account';
+export * from './activity-arrival';
 export * from './admin';
 export * from './admin-claims';
 export * from './admin-connector-catalogs';
@@ -33,6 +34,7 @@ export * from './requests';
 export * from './reviews';
 export * from './slug-redirects';
 export * from './stats';
+export * from './user-activity';
 export * from './taxonomy';
 export * from './vendor';
 export * from './vendor-attestations';

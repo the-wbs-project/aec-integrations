@@ -459,7 +459,7 @@ export type Env = {
    * Retention-window overrides for the §7.4 pruning cron (AECI-584), in whole
    * days. UNSET on every tier — the reviewed defaults live in `@aeci/shared`
    * (`PAGE_VIEWS_RETENTION_DAYS` 400, `JOB_RUNS_RETENTION_DAYS` 90,
-   * `NOTIFICATION_SENDS_RETENTION_DAYS` 400), and these
+   * `NOTIFICATION_SENDS_RETENTION_DAYS` 400, `USER_ACTIVITY_RETENTION_DAYS` 400), and these
    * exist so §13 D5's figure can be **shortened** on one tier without a deploy.
    * Same declare-the-seam posture as `PAGE_VIEWS_MIN_BOT_SCORE` above.
    *
@@ -476,6 +476,7 @@ export type Env = {
   PAGE_VIEWS_RETENTION_DAYS?: string;
   JOB_RUNS_RETENTION_DAYS?: string;
   NOTIFICATION_SENDS_RETENTION_DAYS?: string;
+  USER_ACTIVITY_RETENTION_DAYS?: string;
   /**
    * Internal-traffic ASN list for the admin panel's read-time filter (AECI-574 /
    * `ADMIN_PANEL_SPEC.md` §13 **D10**). On 2026-08-10, 67 of the digest's 92

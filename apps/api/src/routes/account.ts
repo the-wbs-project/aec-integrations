@@ -60,6 +60,7 @@ import {
   integrationFieldChallenges,
   profiles,
   reviews,
+  userActivityDaily,
   vendorEntitlements,
   vendorRequests,
   vendorSeatInvites,
@@ -395,6 +396,11 @@ export function createDeleteAccountHandler(
         .update(integrationFieldChallenges)
         .set({ protestDecidedBy: null })
         .where(eq(integrationFieldChallenges.protestDecidedBy, userId)),
+      // AECI-1208: the per-user service log is erased with the account
+      // (`AUTH_AND_RLS.md` §8). It has no FK, so it is deleted explicitly. The
+      // activity middleware never writes on this request, and both of its writers
+      // gate on the profile existing, so a racing request cannot bring a row back.
+      db.delete(userActivityDaily).where(eq(userActivityDaily.userId, userId)),
       auditInsert(db, auditEntry),
       db.delete(profiles).where(eq(profiles.id, userId)),
     ];

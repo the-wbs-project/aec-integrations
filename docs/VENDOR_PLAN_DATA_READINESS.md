@@ -158,6 +158,14 @@ each loses per day. G0 comes first because it covers every visitor, not only the
 | G11 | Record each 2026-11-14 warning send as a dated audit row per vendor, and make `period_end` required on pilot grants  | AECI-1157 asks for delivery evidence. A null end never warns                                     | Small        | AECI-1157 (exists)             |
 | G12 | Promote production to at least `2380b367`                                                                            | Pilot vendors would otherwise see the pre-AECI-1147 integration panel                            | Operator     | n/a                            |
 
+> **G2 and G3, updated 2026-10-02.** **G2 is superseded by AECI-1208.** The shipped design is
+> wider than the gap: `user_activity_daily` keeps one row per signed-in user per UTC day for
+> every role, not vendors only, with first and last seen, the surfaces used, and the arrival
+> `utm_source`, `utm_campaign` and `n` (`DATABASE_SCHEMA.md` §9.11). Admin rows let reports
+> filter operator traffic out. **G3 is closed by AECI-1216**, which shipped "Looks right" on the
+> vendor profile, each product, and each product's integrations, stamping `last_reviewed_at`
+> with an audit row.
+
 Also worth doing before the pilot, but not history-critical:
 
 - Tag the operator's pre-2026-09-24 PostHog identity as internal, or exclude it at query time.
