@@ -5,6 +5,7 @@ import {
   PLATFORM_ID,
   effect,
   inject,
+  linkedSignal,
   viewChild,
 } from '@angular/core';
 import {
@@ -60,6 +61,14 @@ export class RequestDrawer {
   protected readonly drawer = inject(RequestDrawerService);
   private readonly isBrowser = isPlatformBrowser(inject(PLATFORM_ID));
   private readonly dialog = viewChild(BrnDialog);
+
+  /** The email the answer goes to, once the body reports a successful submit;
+   *  `null` while the form is showing. Swaps the header to the "sent" title. Reset
+   *  whenever the target changes, so a reopened drawer starts on the form. */
+  protected readonly sentTo = linkedSignal<unknown, string | null>({
+    source: () => this.drawer.target(),
+    computation: () => null,
+  });
 
   constructor() {
     // Browser-only: open/close the CDK overlay imperatively when the shared

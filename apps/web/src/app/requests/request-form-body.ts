@@ -1,5 +1,6 @@
 import {
   Component,
+  type ElementRef,
   Injector,
   type OnInit,
   computed,
@@ -7,9 +8,11 @@ import {
   inject,
   input,
   output,
+  afterNextRender,
   runInInjectionContext,
   signal,
   untracked,
+  viewChild,
 } from '@angular/core';
 import {
   type FieldTree,
@@ -32,7 +35,8 @@ type Kind = 'claim' | 'correction';
 
 /** Where the body is rendered. `page` keeps the full header + "Back" link (the
  *  routed `/…/{claim,correction}` fallback); `drawer` drops the header (the
- *  overlay panel supplies the title) and swaps "Back" for a "Close" button. */
+ *  overlay panel supplies the title, and swaps it to the "sent" copy on `sent`)
+ *  and swaps "Back" for a "Done" button. */
 type Variant = 'page' | 'drawer';
 
 /**
@@ -97,6 +101,11 @@ export class RequestFormBody implements OnInit {
   readonly slug = input.required<string>();
   readonly variant = input<Variant>('page');
 
+  /** Copy-only, mirrors `RequestDrawerTarget.claimed`: picks the access-request
+   *  steps over the first-claim steps on the confirmation. The routed page never
+   *  passes it and keeps the first-claim wording. */
+  readonly claimed = input(false);
+
   /**
    * Seed text for `body` (AECI-967), supplied by the surface that opened the
    * drawer. Read ONCE in `ngOnInit`, before `form()` is built, and then never
@@ -111,9 +120,21 @@ export class RequestFormBody implements OnInit {
    */
   readonly bodyPrefill = input<string | null>(null);
 
-  /** Emitted from the drawer-variant dismiss actions (success "Close" button). The
+  /** Emitted from the drawer-variant dismiss actions ("Done", the help link). The
    *  drawer listens to close the overlay; the routed page ignores it. */
   readonly done = output<void>();
+
+  /** Emitted once on a successful submit with the email the answer goes to (both
+   *  forms require one). The drawer swaps its header to the
+   *  "sent" title and email line on it; the routed page renders its own. */
+  readonly sent = output<string>();
+
+  /** The submitted email, for the routed page's confirmation line. */
+  protected readonly sentTo = signal('');
+
+  /** The drawer's "Done" button or the routed page's confirmation heading. Focus
+   *  moves here on success, because the submit button that held it is gone. */
+  private readonly confirmFocus = viewChild<ElementRef<HTMLElement>>('confirmFocus');
 
   /** Set to the API response on a successful submit; flips to the confirmation. */
   protected readonly submitted = signal<RequestSubmitResponse | null>(null);
@@ -208,7 +229,12 @@ export class RequestFormBody implements OnInit {
                 source_url: v.source_url,
                 submitter_email: v.submitter_email,
               });
+        this.sentTo.set(v.submitter_email.trim());
         this.submitted.set(res);
+        this.sent.emit(this.sentTo());
+        afterNextRender(() => this.confirmFocus()?.nativeElement.focus(), {
+          injector: this.injector,
+        });
         // §14.1: the form holds only (target_type, slug) — never a UUID — so the
         // event records that + the returned request_id (consent-gated, no-throw).
         const payload = {

@@ -1,26 +1,90 @@
 @if (submitted()) {
-<!-- ── Confirmation ──────────────────────────────────────────────────── -->
-<p
-  class="text-xs uppercase tracking-[0.14em] text-(--text-tertiary)"
-  i18n="@@requests.success.eyebrow"
+<!--
+  ── Confirmation ──────────────────────────────────────────────────────
+  In the drawer, the panel header swaps to the "sent" title and the email line
+  (request-drawer.html), so this block renders only the next steps and the
+  dismiss action. The routed page has no panel header and renders its own.
+-->
+@if (variant() === 'page') {
+<span
+  aria-hidden="true"
+  class="inline-flex h-9 w-9 items-center justify-center rounded-full bg-(--accent-primary-soft) text-(--accent-primary)"
 >
-  Thank you
-</p>
+  <svg
+    class="h-[18px] w-[18px]"
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    stroke-width="2.5"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+  >
+    <path d="M20 6 9 17l-5-5" />
+  </svg>
+</span>
 <h1
+  #confirmFocus
   id="request-title"
-  class="mt-3 font-display text-3xl font-semibold tracking-tight md:text-4xl"
-  i18n="@@requests.success.title"
+  tabindex="-1"
+  class="mt-3 font-display text-3xl font-semibold tracking-tight focus:outline-none md:text-4xl"
 >
-  Submission received
+  @switch (kind()) { @case ('claim') {
+  <ng-container i18n="@@requests.sent.claim.title">Claim sent</ng-container>
+  } @case ('correction') {
+  <ng-container i18n="@@requests.sent.correction.title">Correction sent</ng-container>
+  } }
 </h1>
-<p
-  class="mt-4 max-w-prose text-base leading-relaxed text-(--text-secondary)"
-  i18n="@@requests.success.body"
->
-  We've received your submission and will review it. We'll follow up by email if we need anything
-  else.
+<p class="mt-4 max-w-prose text-base leading-relaxed text-(--text-secondary)">
+  @switch (kind()) { @case ('claim') {
+  <ng-container i18n="@@requests.sent.claim.subtitle"
+    >We'll email
+    <strong class="font-bold break-all text-(--text-primary)">{{ sentTo() }}</strong> with our
+    decision.</ng-container
+  >
+  } @case ('correction') {
+  <ng-container i18n="@@requests.sent.correction.subtitle"
+    >Thanks. We'll check it against the source. If we have questions, we'll email
+    <strong class="font-bold break-all text-(--text-primary)">{{ sentTo() }}</strong>.</ng-container
+  >
+  } }
 </p>
-<div class="mt-8" [class.pb-6]="variant() === 'drawer'">
+} @if (kind() === 'claim') {
+<div
+  class="rounded-(--radius-md) border border-(--border-default) bg-(--surface-base) p-4"
+  [class.mt-6]="variant() === 'page'"
+>
+  <p class="text-sm font-bold text-(--text-primary)" i18n="@@requests.sent.next.heading">
+    What happens next
+  </p>
+  <ol class="mt-2 list-decimal space-y-1 ps-5 text-sm leading-relaxed text-(--text-secondary)">
+    @if (claimed()) {
+    <li i18n="@@requests.sent.access.step1">A person at AEC Integrations reviews every request.</li>
+    <li i18n="@@requests.sent.access.step2">
+      We check your email domain and who already holds a seat on the account.
+    </li>
+    } @else {
+    <li i18n="@@requests.sent.claim.step1">
+      A person at AEC Integrations reviews every claim. Nothing is granted automatically.
+    </li>
+    <li i18n="@@requests.sent.claim.step2">
+      We check your email domain against your company's website, and your LinkedIn if you added it.
+    </li>
+    }
+    <li i18n="@@requests.sent.claim.step3">
+      If we approve it, we email you a link to your vendor portal.
+    </li>
+  </ol>
+</div>
+<a
+  routerLink="/docs/vendors/claiming-your-listing"
+  (click)="done.emit()"
+  class="mt-3 inline-block text-sm font-bold text-(--accent-primary) underline-offset-4 hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+  i18n="@@requests.sent.docsLink"
+  >How claims work</a
+>
+}
+
+<div class="mt-6" [class.pb-6]="variant() === 'drawer'">
   @if (variant() === 'page') {
   <a
     [routerLink]="backRouterLink()"
@@ -35,12 +99,13 @@
   </a>
   } @else {
   <button
+    #confirmFocus
     type="button"
     (click)="done.emit()"
-    class="inline-flex min-h-11 items-center rounded-(--radius-md) border border-(--border-default) bg-(--surface-raised) px-5 py-3 text-sm font-bold text-(--text-primary) transition-colors hover:border-(--border-strong) hover:text-(--accent-primary) focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-(--accent-primary) focus-visible:ring-offset-2 focus-visible:ring-offset-(--surface-base)"
-    i18n="@@requests.success.close"
+    class="inline-flex min-h-11 items-center justify-center rounded-(--radius-md) border border-(--border-strong) bg-(--accent-primary) px-5 py-2.5 text-sm font-bold text-(--surface-base) transition-colors hover:bg-(--accent-primary-hover) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+    i18n="@@requests.sent.done"
   >
-    Close
+    Done
   </button>
   }
 </div>
