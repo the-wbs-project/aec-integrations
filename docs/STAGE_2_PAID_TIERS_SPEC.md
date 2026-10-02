@@ -508,9 +508,10 @@ flips on `status = 'active'` and not on `tier`, so *any* entitlement row would l
 "a seat but no badge" is not expressible through the entitlement table at all. It exists because
 `STAGE_2_SPEC.md` §8.9(1) gives a pure **connector** vendor a catalogue-maintenance seat and never
 sells it verification, while every prior path to a seat opened an entitlement on the way (`approveClaim`
-composes `grantSeatStatements` with `activateEntitlementStatements` at `GRANT_TIER = 'verified'`) —
+composed `grantSeatStatements` with `activateEntitlementStatements` at `GRANT_TIER = 'verified'`) —
 which is why `STAGE_2_VENDOR_PORTAL_SPEC.md` §5.2 told operators to park such a claim rather than
-grant it.
+grant it. Since AECI-1215 (§13.6) a claim approval can also choose Free, which writes the seat
+alone.
 
 Three consequences for this section specifically:
 
@@ -665,7 +666,7 @@ The trick that keeps the shipped tests green: **the audit shape does not change 
 7. **`ClaimGrantSummarySchema`** gains `tier` and `entitlement_created: boolean`, both **required** so `validateResponseInDev` catches a construction site that forgets one (the web `ClaimQueue` ignores unknown keys).
 8. **New regression guard:** assert `grantSeatStatements` emits no statement touching `vendors`, so the sole-writer invariant cannot silently regress.
 
-> **Amended 2026-10-01 by §13.6 (AECI-1212).** `approveClaim` will take an explicit Free or Managed choice, and Free grants the seat with no entitlement row. AECI-1215 changes the code.
+> **Amended 2026-10-01 by §13.6 (AECI-1212), built 2026-10-02 by AECI-1215.** `approveClaim` takes an explicit `plan: 'free' | 'managed'` on every approve, with no default. Managed is the composition above, unchanged. Free runs `grantSeatStatements` alone: no entitlement row, no `vendors.verified` flip, one audit row, no purge. Steps 3 and 7 above describe the Managed arm only. §13.6 has the as-built detail.
 
 
 ### 6.1 As built (AECI-612 — 2026-08-18)
@@ -961,7 +962,18 @@ This amends §6. AECI-1215 builds it.
 - **Managed** is today's path, with `metadata.plan = 'managed'`.
 - The approval email has a Free variant and a Managed variant.
 
-Today `approveClaim` hardcodes `GRANT_TIER = 'verified'` at `apps/api/src/routes/admin-claims.ts:178`. The provision-seat path already writes a seat with no plan. That is `provisionSeatStatements` at `apps/api/src/lib/vendor-grant.ts:493`.
+Before AECI-1215, `approveClaim` hardcoded `GRANT_TIER = 'verified'` at `apps/api/src/routes/admin-claims.ts:178`. The provision-seat path already writes a seat with no plan. That is `provisionSeatStatements` in `apps/api/src/lib/vendor-grant.ts`.
+
+#### 13.6.1 As built (AECI-1215 — 2026-10-02)
+
+- **Wire.** `ModerateClaimSchema` is a discriminated union on `action`. The approve arm requires `plan`. A missing plan is a 400 `VALIDATION_FAILED` on `field: 'plan'`. `entitlement` with `plan: 'free'` is a 400 on `field: 'entitlement'`. `ClaimGrantSummary` gains a required `plan`, which reports the choice. `tier` still reports the result. `API_CONTRACTS.md` has the table.
+- **`GRANT_TIER` has two uses, and both now sit behind Managed.** The constant is passed to `activateEntitlementStatements`, which Free never calls. The response's `tier` uses it only when that call wrote statements. Otherwise it reads `tierFor` on the preloaded row, which on Free is the vendor's existing state.
+- **A third coupling the issue did not name: the AECI-989 seat return.** `planSeatGrantReturn` was told `entitledAfterBatch: true` unconditionally. On Free that would have returned connector-powered contests to an owner with no active plan. It now passes `entitledAfterBatch: managed`, so Free reads the vendor's real entitlement, as the provision-seat route does.
+- **Audit.** `grantSeatStatements` takes `plan`. It writes `metadata.plan`. On Free `verified_flipped` is `false` and `afterState.vendor_verified` repeats the before value, because no statement moves the mirror. `activateEntitlementStatements` gained `extraMetadata`, so `vendor_entitlement.granted` carries `plan: 'managed'` too.
+- **Purge.** Free purges nothing. The seat is the only thing it writes, and no cacheable page renders a seat. That matches the provision-seat route. Managed keeps its purge, second seat included.
+- **Free on a vendor that already has a row.** An `active` row stays active, so a Free second seat on a Managed vendor leaves it Managed and answers `plan: 'free'`, `tier: 'verified'`. An ended row stays ended. Free never reactivates.
+- **Email.** One template id, `claim-approved`, with a Free and a Managed capabilities line. `email.md` has the copy.
+- **Admin UI.** `/admin/claims` asks for the plan in a `fieldset` with two native radios and nothing preselected. "Confirm grant" is disabled until one is picked. The arrangement notes field renders for Managed only. A note typed under Managed is not sent if the operator then switches to Free.
 
 ### 13.7 Per-product plan field
 

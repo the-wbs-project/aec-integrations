@@ -1913,11 +1913,28 @@ export const ClaimEntitlementSchema = z.object({
   period_end: EntitlementTermDateSchema.optional(),
 });
 
-export const ModerateClaimSchema = z.object({
-  action: z.enum(['approve', 'reject']),
-  reason: z.string().max(500).optional(),     // internal transition + audit note only; never emailed to the claimant (the claim-rejected email is deliberately neutral, AECI-528)
-  entitlement: ClaimEntitlementSchema.optional(), // approve only
-});
+// AECI-1215 (STAGE_2_PAID_TIERS_SPEC.md §13.6). Free is the seat alone; Managed is
+// the seat plus the `verified` entitlement row. Not an EntitlementTier: `free` is
+// not a tier id (§13.2).
+export const ClaimGrantPlanSchema = z.enum(['free', 'managed']);
+
+// Discriminated on `action`. `reason` is an internal transition + audit note only;
+// never emailed to the claimant (the claim-rejected email is deliberately neutral,
+// AECI-528).
+export const ModerateClaimSchema = z
+  .discriminatedUnion('action', [
+    z.object({
+      action: z.literal('approve'),
+      plan: ClaimGrantPlanSchema,                       // AECI-1215 — REQUIRED, no default
+      reason: z.string().max(500).optional(),
+      entitlement: ClaimEntitlementSchema.optional(),   // valid with plan 'managed' only
+    }),
+    z.object({
+      action: z.literal('reject'),
+      reason: z.string().max(500).optional(),
+    }),
+  ])
+  .superRefine(/* entitlement with plan 'free' → issue on path ['entitlement'] */);
 
 export const ClaimGrantSummarySchema = z.object({
   user_id: z.string().uuid(),
@@ -1926,7 +1943,8 @@ export const ClaimGrantSummarySchema = z.object({
   identity_outcome: z.enum(['linked', 'invited']), // linked existing vs provisioned
   seat_created: z.boolean(),                // a new profiles row was written
   tier: EntitlementTierSchema,              // AECI-612 — REQUIRED
-  entitlement_created: z.boolean(),         // AECI-612 — REQUIRED; false on a second seat
+  entitlement_created: z.boolean(),         // AECI-612 — REQUIRED; false on a second seat and on every Free grant
+  plan: ClaimGrantPlanSchema,               // AECI-1215 — REQUIRED; the plan the operator chose, not the resulting tier
 });
 
 export const ModerateClaimResponseSchema = z.object({
@@ -1935,22 +1953,42 @@ export const ModerateClaimResponseSchema = z.object({
 });
 ```
 
-`tier` and `entitlement_created` are **required, not optional** (R10), so
+`tier`, `entitlement_created` and `plan` are **required, not optional** (R10), so
 `validateResponseInDev` catches a construction site that forgets one; the web `ClaimQueue`
 ignores unknown keys, which would otherwise hide it.
 
-`approve`: resolve the claimant's auth-user id (link or provision — AECI-527), then
-in one atomic `db.batch` upsert the `profiles` seat (`role='vendor_admin'`,
-`vendor_id`; no-clobber), **open the `vendor_entitlements` row and flip
-`vendors.verified=true`** (+ `updated_at`; guarded so a second seat doesn't re-flip),
-resolve the request, advance the `vendor_claim` workflow, and audit.
+**The plan choice (AECI-1215, `STAGE_2_PAID_TIERS_SPEC.md` §13.6).** Every approve names a
+`plan`. There is no default. An approve without one is a **400 `VALIDATION_FAILED`** with
+`field: 'plan'`, and nothing is resolved or written. `entitlement` with `plan: 'free'` is a
+400 on `field: 'entitlement'`, because Free writes no row for it to land in.
+
+| | `plan: 'free'` | `plan: 'managed'` |
+|---|---|---|
+| Seat, request resolve, workflow | yes | yes |
+| `vendor_entitlements` row | none written; an existing row, active or ended, is left alone | opened or reactivated (none on a second seat) |
+| `vendors.verified` | untouched | flipped by the guarded mirror UPDATE |
+| Audit rows | `vendor_claim.granted` only | `vendor_claim.granted` + `vendor_entitlement.granted` |
+| `metadata.plan` | `'free'` | `'managed'` on both rows |
+| Cache purge | none (no cacheable page renders a seat) | vendor + its products, as below |
+| Approved email | Free variant | Managed variant |
+
+`plan` reports the choice, and `tier` reports the result. A Free second seat on a vendor that
+already holds an active entitlement answers `plan: 'free'`, `tier: 'verified'`. The
+idempotent re-grant echoes the requested `plan`, since it writes nothing.
+
+`approve` with `plan: 'managed'`: resolve the claimant's auth-user id (link or provision
+— AECI-527), then in one atomic `db.batch` upsert the `profiles` seat
+(`role='vendor_admin'`, `vendor_id`; no-clobber), **open the `vendor_entitlements` row
+and flip `vendors.verified=true`** (+ `updated_at`; guarded so a second seat doesn't
+re-flip), resolve the request, advance the `vendor_claim` workflow, and audit.
 Post-commit (best-effort): enqueue a Cache-Tag purge for the vendor **and its
 products** (`{ tags: ['vendor:<slug>', 'product:<slug>'…, 'index:products'], source:
-'moderation' }`) and fire the claim-approved email. A `target_type='product'` claim
+'moderation' }`) and fire the claim-approved email. `plan: 'free'` runs the same steps
+without the entitlement row, the mirror flip, the second audit row and the purge. A `target_type='product'` claim
 grants the product's **primary** vendor. Re-granting an already-granted claim is a
 **200 no-op** (no duplicate audit).
 
-**Since AECI-612 a first grant writes TWO audit rows, not one:** `vendor_claim.granted`
+**Since AECI-612 a first Managed grant writes TWO audit rows, not one:** `vendor_claim.granted`
 (the seat) and `vendor_entitlement.granted` (the entitlement + the mirror), both in the
 same batch and sharing `metadata.source: 'admin-moderation'`. The second row is not
 optional bookkeeping — `audit_log` **is** the entitlement ledger, so suppressing it would
@@ -2454,14 +2492,15 @@ export const ProvisionVendorSeatResponseSchema = z.object({
 **This is the only route that writes `role = 'vendor_admin'` on its own, and it opens
 no `vendor_entitlements` row.** (The role is also written by `PATCH /api/admin/claims/:id` as
 part of a claim grant, and by `POST /api/seat-invites/:token/accept` on invite redeem; both of
-those need a claim or an existing owner seat behind them, and the first opens an entitlement.) That combination is the entire point. §8.9(1) settled that a
+those need a claim or an existing owner seat behind them. The first opens an entitlement on a Managed approve only. Since AECI-1215 a Free approve opens none.) That combination is the entire point. §8.9(1) settled that a
 pure connector vendor is never sold verification and receives a catalogue-maintenance seat
 instead; §8.9(2) showed the seat cannot BE an entitlement row, because `vendors.verified`
 mirrors off `status = 'active'` rather than `tier` — so any active row lights the badge, and
 "a seat but no badge" is not expressible through that table. Every prior path to a seat opened
-one on the way (`approveClaim` composes `grantSeatStatements` with
+one on the way (`approveClaim` composed `grantSeatStatements` with
 `activateEntitlementStatements` at `GRANT_TIER = 'verified'`), which is why §5.2 had to tell
-operators not to press Grant and to park the claim instead. `POST` here is how a parked claim
+operators not to press Grant and to park the claim instead. AECI-1215 since gave the claim
+grant a Free choice that writes the seat alone. `POST` here is how a parked claim
 finally resolves.
 
 **`entitlement_granted` is `z.literal(false)`, not `z.boolean()`.** The fence expressed as a
