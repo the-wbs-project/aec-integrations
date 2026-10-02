@@ -49,6 +49,7 @@ const TABLE_ALLOWED = new Set([
   'routes/vendor-updates.ts', // the vendor `contests` freshness cursor, authenticated
   'lib/vendor-handback.ts', // seat loss re-routes owner contests (AECI-989)
   'routes/promote-contests.ts', // a promote cross-table move re-anchors contests (AECI-1110)
+  'routes/vendor-checklist.ts', // the checklist's open-owner-contest test, authenticated, existence only (AECI-1217)
 ]);
 
 // `protest_reply_reminder` is the AECI-1205 cron job id, not a column.

@@ -61,6 +61,7 @@ If your work touches a topic below, that document is the truth, not your prior k
 | Vendor-authored "How teams use it" narrative (`product.usefulness.edit`, `usefulness_source` fence) | `docs/STAGE_2_5_SPEC.md` §12, ADR 0033 |
 | Integration ownership: vendor-owned, AECi seeds; claim, retire/restore, vendor create, promote fence and twin guard | `docs/STAGE_2_VENDOR_PORTAL_SPEC.md` §4.5–§4.7, ADR 0035; promote side `docs/REVIEW_APP_PROMOTE_API.md` §4b–§4c |
 | Integration field contests and the protest to AECi | `docs/STAGE_2_VENDOR_PORTAL_SPEC.md` §11b (protest §11b.12); queue `docs/ADMIN_PANEL_SPEC.md` §5.12 |
+| Free plan, product checklists, "Looks right" | `docs/STAGE_2_PAID_TIERS_SPEC.md` §13, `docs/STAGE_2_VENDOR_PORTAL_SPEC.md` §6.18, ADR 0037 |
 | Stage 2 scope outline (kickoff draft, not a build contract) | `docs/STAGE_2_SPEC.md` |
 | Stage 2 Vendor Portal build spec (claims, vendor authz seam, portal, verified badge) | `docs/STAGE_2_VENDOR_PORTAL_SPEC.md` |
 | Stage 2 Paid Tiers & Entitlements (`vendor_entitlements`, capability registry, ranking firewall) | `docs/STAGE_2_PAID_TIERS_SPEC.md` |
@@ -92,7 +93,7 @@ If your work touches a topic below, that document is the truth, not your prior k
 | Observability (PostHog only): metrics, dashboards, alerts | `docs/OBSERVABILITY.md`; migration record `docs/POSTHOG_MIGRATION_SPEC.md`, ADR 0024 |
 | Analytics: baseline snapshot; product event catalogue | `docs/ANALYTICS_BASELINE.md`; `docs/ANALYTICS.md` |
 | Transactional email transport, house layout, magic-link SMTP, deliverability | `docs/email.md` |
-| Every notification we send: channels, audience, tier rule, dedupe, ledger, opt-out | `docs/NOTIFICATIONS.md` (generated from `apps/api/src/lib/notifications/registry.ts`; `pnpm docs:notifications`); ADR 0037 |
+| Every notification we send: channels, audience, tier rule, dedupe, ledger, opt-out | `docs/NOTIFICATIONS.md` (generated from `apps/api/src/lib/notifications/registry.ts`; `pnpm docs:notifications`); ADR 0038 |
 | Incident runbooks; post-launch monitoring and health log | `docs/RUNBOOKS.md`; `docs/POST_LAUNCH_MONITORING.md`; `docs/POST_LAUNCH_HEALTH_REPORT.md` |
 | Admin panel / operator console | `docs/ADMIN_PANEL_SPEC.md` |
 | Launch / DNS cutover runbook | `docs/launch-cutover-runbook.md` |

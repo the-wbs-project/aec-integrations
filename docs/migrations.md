@@ -468,12 +468,12 @@ SELECT m.name FROM sqlite_master m WHERE m.type = 'table'
 
 **And a third on 2026-09-22.** AECI-1007's `0045_ambitious_carlie_cooper.sql` added `integration_vendor_links.integration_id`, also `ON DELETE CASCADE`: each endpoint vendor's own listing and docs links. A recreate of `integrations` in drizzle-kit's generated order would delete every one of them, so it needs a carry table like the contests do. The same `d1.spec.ts` list now names three children.
 
-**`profiles` gained a cascade child on 2026-10-01.** AECI-1204's `0054_boring_hardball.sql` added
+**`profiles` gained a cascade child on 2026-10-01.** AECI-1204's `0055_boring_hardball.sql` added
 `notification_preferences.profile_id` with `ON DELETE CASCADE`. A recreate of `profiles` in
 drizzle-kit's generated order deletes every row there, which wipes every seat's nudge mute. A
 wiped mute does not fail loudly. It starts emailing seats that opted out. Carry the table through
 the recreate. `d1.spec.ts` does not pin the children of `profiles`, so run the query above.
-`DATABASE_SCHEMA.md` §9.10, ADR 0037.
+`DATABASE_SCHEMA.md` §9.10, ADR 0038.
 
 **The contest table itself was rebuilt on 2026-09-23, safely.** AECI-1092's `0050_rainy_puma.sql` rebuilt `integration_field_challenges` to give it a second, nullable anchor (`evidenced_pair_id`) and a sum-form exactly-one CHECK. That is `0032`'s safe case: nothing holds an FK into the contest table, so its DROP fires nothing. The generated file still needed four hand edits: the D1 pragma, an explicit-column copy (the generated `INSERT … SELECT` read the new column from the old table), and the two column-level protest CHECKs from `0047`, which drizzle-kit cannot see and dropped. The copy also carries AECI-989's `owner_seat_lapsed_at` (main's `0048`) on both sides, so a stamped contest keeps its stamp. `src/test/migration-0050.spec.ts` guards all of it, and `d1.spec.ts` now pins the contest table's empty child list. The rebuild also made the contest table a leaf cascade child of `connector_evidenced_pairs`, so the next recreate of that table must carry contests as well as `claims` → `attestations`. `d1.spec.ts` pins that list too.
 

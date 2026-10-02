@@ -199,7 +199,7 @@ Guard-rails, exact field allow-lists, and the taxonomy-edit constraints are defi
 
 All four endpoints shipped with pinned Zod, **no migration**. Contracts live in `packages/shared/src/api/vendor.ts`, handlers in `apps/api/src/routes/vendor.ts`, full documentation in `API_CONTRACTS.md` §6.14. Decisions taken at build that this section did not pre-specify:
 
-- **Logo editing amendment (AECI-955, AECI-968):** the profile and product logo controls accept HTTPS URLs or uploaded PNG/JPEG/static WebP files via `POST /api/vendor/logo`. Upload requires a seat plus profile.edit or product.edit and does not publish a change. The editable control has separate URL and uploaded-image modes: a stored `/api/logos/<hash>` draft renders as the preview, "Uploaded image" and Remove, never as an editable backend path. Existing PATCH routes accept exact local logo paths, require the referenced object to exist and validate, and set logo_source=vendor only when logo_url is present, including null. Save remains disabled during uploads. See STAGE_2_5_SPEC.md §11.
+- **Logo editing amendment (AECI-955, AECI-968):** the profile and product logo controls accept HTTPS URLs or uploaded PNG/JPEG/static WebP files via `POST /api/vendor/logo`. Upload requires a seat plus product.listing.edit or profile.edit (every seat holds both since AECI-1214) and does not publish a change. The editable control has separate URL and uploaded-image modes: a stored `/api/logos/<hash>` draft renders as the preview, "Uploaded image" and Remove, never as an editable backend path. Existing PATCH routes accept exact local logo paths, require the referenced object to exist and validate, and set logo_source=vendor only when logo_url is present, including null. Save remains disabled during uploads. See STAGE_2_5_SPEC.md §11.
 - **Usefulness amendment (AECI-963):** the "how teams use it" narrative is vendor-written — see §4.4.
 - **Integration ownership amendment (AECI-1005, ADR 0035):** integrations are vendor-owned and AECi seeds them. The owner claims its row and promote stops writing it — see §4.5. This reverses the launch-era rule that integrations are AECi-curated and not vendor-editable, which is why no route on this surface wrote integration content before 1005. Since AECI-1006 the claimed owner edits the integration's standard fields through `PATCH /api/vendor/integrations/:id` (§4.5.6). The product/vendor allow-list below is unchanged by that: the integration field set is its own, and an integration `name` is editable because nothing routes on it.
 - **Editable allow-list = content + links + taxonomy.** Product: `description`, `website`, `tool_integrations_url`, `api_docs_url`, `logo_url`, **`usefulness`** (added by AECI-963 — see §4.4), plus category/audience/phase/**trade** assignment (trade added by AECI-665 — see §4.3). Vendor: `description`, `website`, `headquarters`, `founded_year`, `public_private`, `parent_company`, `contact_email`, `phone_number`, `logo_url`, profile URLs. **Vendors assign existing taxonomy terms only** — minting a term stays an AECi curation act, so an unknown slug is a `400`, not a silent drop. `name`/`slug` are not vendor-editable (a rename breaks the URL, the Algolia record, and every inbound link — it stays a correction request).
@@ -297,7 +297,7 @@ more tags is simply more accurate.
 The full contract is `STAGE_2_5_SPEC.md` §12 and ADR 0033. What matters for this surface:
 
 - **It is the one field whose OWNERSHIP moves on first write.** A vendor save sets `products.usefulness_source = 'vendor'`, after which promote stops writing the column for that product and reports the refusal to the review app in `preserved[]`. Nothing clears it back. That is the `logo_source` mechanism from §11 of the 2.5 spec, applied to narrative copy.
-- **It has its own capability, `product.usefulness.edit`** — the first entry in `PRODUCT_COLUMN_MAP` not gated on `product.edit`. Inert under the binary ladder; it exists so a future rung can withhold narrative authorship without a handler change. The base `product.edit` check still runs first, so a lapsed vendor sending only `usefulness` gets `ENTITLEMENT_REQUIRED` naming `product.edit`, exactly as a taxonomy-only edit does.
+- **It has its own capability, `product.usefulness.edit`** — the first entry in `PRODUCT_COLUMN_MAP` not gated on `product.edit`. It is Managed-only. Since AECI-1214 there is no base `product.edit` check, so a seat with no plan sending `usefulness` gets `ENTITLEMENT_REQUIRED` naming `product.usefulness.edit` (`STAGE_2_PAID_TIERS_SPEC.md` §13.3).
 - **Full replacement, `null` clears, absent leaves alone.** A group has no stable id, so a partial patch is not expressible.
 - **The wire carries the term slug and never the display name.** The stored group has a `name` the public page interpolates verbatim; the server resolves it from the taxonomy row so a vendor cannot write free text into a slot readers parse as an AECi taxonomy label.
 - **An unknown slug is a `400`**, matching §4.1's rule for taxonomy and deliberately unlike promote, which drops unresolvable groups silently. The vendor picked the term from a list we rendered, and the form re-seeds from the PATCH echo — a silent drop would settle the form clean on content that never landed.
@@ -641,7 +641,7 @@ Shipped with **no migration**. The AECI-519 `PATCH /api/admin/claims/:id` alread
 - **`null` = unavailable, `[]` = empty.** `existing_seats` / `related_requests` are **nullable**: `null` means the enrichment query failed and the UI renders "unavailable" (AC: graceful degrade); `[]` means computed-and-empty (a genuine first claim / no priors). Both enrichment queries run `.catch(() => null)`, so a signal failure never fails the list.
 - **Existing seats = one grouped `profiles` scan.** Per-claim target vendor is resolved first (a `product` claim → its primary vendor, a batched clone of `resolveTargetVendor`), then one `profiles` query over the page's vendor ids (`role='vendor_admin' AND banned_at IS NULL`) — no per-row N+1. Each seat carries `display_name` + `work_email_verified` + `created_at` (no email — a seat belongs to the vendor). This covers the issue's `work_email_verified` bullet for seats; the **claimant's own** `work_email_verified`/profile-history is **omitted** — `profiles` is keyed by auth-user UUID, not email, so it isn't cheap on the read path.
 - **LinkedIn link is client-built, a link only.** `linkedInSearchUrl()` builds `…/search/results/people/?keywords=<name||email>` in the component — no claimant data leaves AECi at render time (§8.3(4)). Real person-lookup/enrichment providers stay a deferred DPA/GDPR decision (§11). **Superseded in part by AECI-847** (see §5.0a above): the built search is now the fallback behind the claimant's own supplied profile.
-- **Approve captures a free-text note only.** The reviewer surface exposes a single optional "arrangement notes" field on Grant, submitted as `entitlement.notes` (the offline PO/invoice record, §8.1(5) → grant audit metadata). The structured `payer`/`amount`/`terms`/`arranged_by` fields stay accepted by the AECI-519 API but are hidden at launch.
+- **Approve captures a free-text note only.** The reviewer surface exposes a single optional "arrangement notes" field on Grant, submitted as `entitlement.notes` (the offline PO/invoice record, §8.1(5) → grant audit metadata). The structured `payer`/`amount`/`terms`/`arranged_by` fields stay accepted by the AECI-519 API but are hidden at launch. **Since AECI-1215** the Grant form first asks for a plan, Free or Managed, in a required radio group with nothing preselected. "Confirm grant" stays disabled until one is picked, and the notes field shows for Managed only (`STAGE_2_PAID_TIERS_SPEC.md` §13.6).
 - **The surface is a `/admin/requests` clone.** New `/admin/claims` child route + a no-badge nav `<li>` in `AdminShell` (the requests precedent — *superseded by AECI-922, see below*), `AdminClaimsApi` mirroring `AdminRequestsApi`, `ClaimQueue` cloning `RequestQueue` (SSR shell + `afterNextRender` client fetch behind the shared `/admin` gate). Error handling: **409 `GRANT_CONFLICT`** and **503 `DEPENDENCY_FAILURE`** keep the row with an inline explanation; **422** drops it as already-moderated.
 - **503 only where the key is absent (since AECI-530).** `SUPABASE_SERVICE_ROLE_KEY` is CI-pushed to the API Worker on staging, demo and production, so the AECI-519 grant resolves there. Wherever the key is absent — PR previews and local dev — the grant reports `DEPENDENCY_FAILURE` (503) and the surface renders that as "Grant unavailable — the identity service isn't configured. Reject still works." Reject needs no resolution and works everywhere.
 - **Design anchor.** Internal surface → the binding anchor is the existing `/admin/requests` queue (Anchor-Site Rule — it must read as a sibling); externally validated against the Reddit mod-queue pattern (card-per-item list + status badge + inline approve/reject). `impeccable detect` clean; structural a11y covered by `claim-queue.component.spec.ts`.
@@ -702,7 +702,7 @@ If either answer is no, it is still a pure connector vendor in §8.9's sense, an
 >
 > **AECI-722 deliberately did not close this** — the gap was on `/admin/claims` and `/admin/vendors/:id`, not on the connector screen, and folding it in would have coupled an unrelated payload change to the connector lane's merge. AECI-738 needed nothing from that lane. The *other* gap named in step 6 — no claim detail route, no operator-note field — is still open as **AECI-739**.
 
-**2. Do not press Grant.** Approve is **unconditional**: `approveClaim` composes `grantSeatStatements` with `activateEntitlementStatements` in one batch at `GRANT_TIER = 'verified'` (`apps/api/src/routes/admin-claims.ts`), which opens a `vendor_entitlements` row, flips the legacy `vendors.verified` mirror, and hands the seat **every** capability in `TIER_CAPABILITIES.verified`. There is no partial grant, and approve-then-clear is not a workaround — it shows the public account label, bumps `vendors.updated_at` in both directions so the nightly Algolia push can carry the changed account status in between, and leaves an audit trail that reads as a customer granted and then revoked.
+**2. Do not press Grant.** *(AECI-1215 note: since 2026-10-02 Grant asks for a plan. Managed is what this step describes. Free writes the seat with no entitlement, no badge and no capability beyond `TIER_CAPABILITIES.unclaimed`, but it still resolves the claim and sends the claim-approved email. Whether Free replaces parking for a pure connector vendor has not been ruled, so this step still says park it. `STAGE_2_PAID_TIERS_SPEC.md` §13.6.)* Approve **with Managed** is **unconditional**: `approveClaim` composes `grantSeatStatements` with `activateEntitlementStatements` in one batch at `GRANT_TIER = 'verified'` (`apps/api/src/routes/admin-claims.ts`), which opens a `vendor_entitlements` row, flips the legacy `vendors.verified` mirror, and hands the seat **every** capability in `TIER_CAPABILITIES.verified`. There is no partial grant, and approve-then-clear is not a workaround — it shows the public account label, bumps `vendors.updated_at` in both directions so the nightly Algolia push can carry the changed account status in between, and leaves an audit trail that reads as a customer granted and then revoked.
 
 **3. Do not press Reject either.** `sendClaimRejectedEmail` (`apps/api/src/lib/email.ts`) sends subject *"Your claim for {name} was not approved"* over body *"After review, we weren't able to approve it."* That is an explicit decline, not merely a neutral one, and the reviewer's `reason` is an **internal audit note that is never emailed** (§9), so nothing in-product softens it. A decline is the one-way door §8.8(2) refused for the badge — the reasoning applies harder to an email aimed at exactly the party we want a relationship with.
 
@@ -1684,7 +1684,7 @@ plain Vitest spec. The section only turns them into copy.
 | Needs you now | One row for field contests to decide (AECI-1008) | ≥ 1 `received` contest with status `open`. Seat-only, never capability-gated (§11b.2), so it shows while the other rows are paused | `messages` |
 | Needs you now | One row for rows another company added that the caller has not answered (AECI-1153, added 2026-09-28) | `counterpart_added_unanswered` off `GET /api/vendor/integrations` is `> 0` | the one integration's page at `#change-requests` when every such row sits on one integration, because the "{Company} added {data}. Is this right?" item, with the other company's note, lives in Change requests (§6.17.6). Otherwise the product's tab when every such row sits under one product: filtered to `?status=needs_decision` only when every counted integration is in that status, else unfiltered. Otherwise `products` |
 | Worth doing | Top 3 products by waiting count, then "And N more" | `vendor.verified` (the Integrations tab's gate, see `vendor-integrations-page.ts`), claim on an `attestable` edge with `mine = []` | `products/:slug/integrations` |
-| Worth doing | Top 3 incomplete products, then "And N more" | `product.edit` | `products/:slug/categories` if categories are missing, else `products/:slug/profile` (was `…/taxonomy` before §6.12) |
+| Worth doing | Top 3 incomplete products, then "And N more" | `product.listing.edit` (was `product.edit` before AECI-1214; the gaps are the four Free fields) | `products/:slug/categories` if categories are missing, else `products/:slug/profile` (was `…/taxonomy` before §6.12) |
 | Worth doing | Company profile gaps | `profile.edit` | `profile` |
 | Worth doing | Unaccepted seat invites | `can_manage_seats` | `seats` |
 
@@ -1902,9 +1902,10 @@ bullet.
   they are published but untagged, and a "Remove these points" action. Showing them is not an
   edit. Server-side enforcement waits on a read-only production check of how many such groups
   exist.
-- **Gates stay field-granular.** Ticks need `product.edit` + `product.taxonomy.edit`; points need
-  `product.edit` + `product.usefulness.edit`. A lapsed vendor sees everything read-only with Save
-  withheld. No tab is route-gated.
+- **Gates stay field-granular.** Since AECI-1214 they read the product's own `plan` through
+  `productCan`. Category ticks need `product.categories.edit` (Free). Trade, audience and phase ticks
+  need `product.taxonomy.edit`, and points need `product.usefulness.edit` (both Managed). A tab with
+  nothing editable on the product's plan is read-only with Save withheld. No tab is route-gated.
 - **Group order is preserved.** Stored groups keep their order and new groups append, and stored
   points are compared after trimming, so a promoted value is never dirty on seed. Reordering points
   is an edit.
@@ -2445,6 +2446,56 @@ Two field changes share one mechanism: the portal's field lists stop being the s
 
 **As built (AECI-1154, AECI-1155 server side).** Migration `0052_sticky_gamma_corps.sql` is the two plain `ADD COLUMN`s, and `src/test/migration-0052.spec.ts` is its tripwire. The lists are in `packages/shared/src/api/integration-contests.ts` (`INTEGRATION_OFFERED_CONTEST_FIELDS`, `EVIDENCED_PAIR_OFFERED_CONTEST_FIELDS`, `PORTAL_WITHDRAWN_FIELDS`) and `integration-edits.ts` (`INTEGRATION_EDIT_ONLY_FIELDS`, `INTEGRATION_EDIT_MAX_LENGTH`, `INTEGRATION_EDIT_URL_FIELDS`). The API maps edit fields to columns through `EDIT_FIELD_COLUMNS` (`apps/api/src/lib/integration-contests.ts`), not the contest map, so an old contest on `website` still decides through `CONTEST_FIELD_COLUMNS`. A promote cross-table move carries `pricing_url` across (`REVIEW_APP_PROMOTE_API.md` §4b). The pair read returns it as `mechanisms[].pricing_url`. **The "Price" fact does not link yet**: AECI-1142's "At a glance" row is now in, and it renders `pricing_model` only. `products-pair.ts` does not read `pricing_url`, and the portal tooltip (`@@vendor.im.tip.pricingUrl.public`) says the link is not live. Rendering it is a UI follow-up. The §6.14 and §6.15 edit forms offer the new list and the pricing page, compile-level only; the page's own editors are the UI build's.
 
+### 6.18 Free plan surfaces (AECI-1212)
+
+**Status: specified 2026-10-01 by AECI-1213. Not built.** AECI-1218 builds the portal UI. AECI-1219 writes the help page. The rules behind every surface below are in `STAGE_2_PAID_TIERS_SPEC.md` §13. This section names what the portal shows. It does not restate those rules.
+
+**Design reference.** The mockup is `docs/design/mockups/free-plan-portal/`. Open `free-plan-portal.html` in a browser. The numbered screenshots beside it show Free, Managed, Pilot ended and Mixed. It is a design reference, not a contract. Where it and this section disagree, this section wins.
+
+**Where product screens read the plan.** Product screens read `product.plan` through `productCan(product, cap)`. They never read `me().entitlement`. `STAGE_2_PAID_TIERS_SPEC.md` §13.7 defines the field and the helper. Until per-product plans exist, every product carries the vendor's plan. So no screen changes when they land.
+
+#### Vendor overview
+
+- One line summarizes the plan. Decision 2 allows nothing more at vendor level.
+- The vendor checklist sits below it. Its three steps are in `STAGE_2_PAID_TIERS_SPEC.md` §13.10. "Invite a colleague" is marked optional.
+
+#### Products list
+
+- Each row shows a plan badge and a checklist score.
+- A Free product reads "3 of 3" when done. A Managed product reads "x of 4".
+
+#### Product overview and profile
+
+- Each product page has its own plan panel and its own checklist.
+- The checklist offers "Looks right" on product details and on the integration list. The vendor's company details carry their own "Looks right". The routes are in `STAGE_2_PAID_TIERS_SPEC.md` §13.8.
+- On a Free product the "Confirm data flows" step shows but is marked optional. It does not count toward the score.
+
+#### Locked Managed-only fields
+
+Decision 4 names the fields that stay Managed-only. On a Free product they stay visible.
+
+- Each locked field is `readonly`, not `disabled`. `disabled` drops the value from the accessibility tree. `STAGE_2_PAID_TIERS_SPEC.md` §8.1 made the same choice for the lapsed forms.
+- Each locked field shows a visible reason, for example that it is part of Managed.
+- The reason is tied to the field with `aria-describedby`, so a screen reader reads it.
+- The server refuses a locked field whatever the markup does. `STAGE_2_PAID_TIERS_SPEC.md` §13.3 gives the gate.
+
+#### Pilot-ended banner
+
+- The banner shows when the entitlement `status` is `expired` or `revoked`. It never shows for a vendor that never had a plan. `STAGE_2_PAID_TIERS_SPEC.md` §13.11 gives the rule.
+- It is calm and not dismissible. It gives the end date from `ended_at`.
+- It lists what still works and what went read-only. It says "nothing you entered was removed".
+
+#### Copy every plan panel carries
+
+Every plan panel carries decision 10's line, word for word:
+
+> "No plan changes where you rank or appear, whether a review is published, or what we verify."
+
+#### What the portal offers
+
+- Managed shows a draft price label.
+- Nothing beyond Managed is shown. That is decision 9.
+
 ---
 
 ## 7. Moderation escalation — ban gate (AECI-524)
@@ -2536,7 +2587,7 @@ Billing/invoice notices are a Paid-Tiers concern (`STAGE_2_SPEC.md` §2.2 / AECI
 
 - `EmailTemplate` gained `'claim-approved'` / `'claim-rejected'`; `sendClaimApprovedEmail` / `sendClaimRejectedEmail` land in `apps/api/src/lib/email.ts` next to the review helpers (same fail-open transport + `template:` metric tag), plus a `portalUrl(env)` = `${PUBLIC_SITE_URL}/vendor` link builder.
 - The §3 handler's `SendClaimDecisionEmail` seam was **widened** to carry `targetName` (the claimed vendor's `companyName` or the product's `name`, resolved via `resolveRequestTargets`) and — on approve — the `identityOutcome` (`invited` vs `linked`). The real sender (`lib/email.ts` `sendClaimDecisionEmail` adapter) is injected at the route registration in `index.ts`; the in-handler default stays a no-op for standalone tests.
-- **Approved copy** names the vendor, lists the account's new capabilities (edit profile, submit data corrections, add integration attestations), links to `/vendor` when `PUBLIC_SITE_URL` is set, and tailors sign-in guidance: `invited` explains the just-provisioned account + one-time sign-in link (no GoTrue invite email is sent, §2); `linked` points at the existing account. Vendor access is framed as an **account status**, never product or integration verification, ranking, or placement, and with no instant-search promise.
+- **Approved copy** names the vendor, lists the account's new capabilities (edit profile, submit data corrections, add integration attestations; since AECI-1215 that is the Managed line, and a Free approval says the account is on the Free plan and can edit company details and the product listing), links to `/vendor` when `PUBLIC_SITE_URL` is set, and tailors sign-in guidance: `invited` explains the just-provisioned account + one-time sign-in link (no GoTrue invite email is sent, §2); `linked` points at the existing account. Vendor access is framed as an **account status**, never product or integration verification, ranking, or placement, and with no instant-search promise.
 - **Rejected copy** is **neutral by design** (this §9 AC): it names the vendor, states the claim wasn't approved, and invites a fresh claim. The reviewer's decision `reason` is an **internal audit note** — recorded in `audit_log` (admin-visible) and **never emailed** — so nothing a reviewer types can leak to the claimant. `ModerateClaimSchema` keeps its single `reason` field, but it no longer reaches the email path (the `SendClaimDecisionEmail` seam carries no `reason`), and the `/admin/claims` reject form labels it "Internal reason … not shared with the claimant." *(Review-pass hardening, 2026-08-14: the initial AECI-528 build echoed `reason` to the claimant — a reviewer-note leak vector — which contradicted this AC; it was neutralized. Splitting `reason` into distinct claimant-facing vs internal fields remains a possible future enhancement.)*
 
 ### As built — the copy moves onto the house email layout (2026-09-14)

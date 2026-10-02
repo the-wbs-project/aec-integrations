@@ -70,6 +70,7 @@ support **per-product plans, billing, Insights reporting, Enhanced content or le
   `audit_log` row with actor, time, and before/after state in the same batch as the change.
 - **Plans are per vendor, with one paid tier.** `vendor_entitlements` is unique on `vendor_id`.
   The only paid tier is `verified`, and it holds all eight capabilities, including `analytics.view`.
+  (Ten since AECI-1214, which also gave `unclaimed` the three Free capabilities.)
   There is no billing identity, no discount field and no automatic lapse.
 - **Insights has no data path.** `integration_viewed` has not fired since 2026-07-02. No event
   carries a vendor id. No vendor self-visit flag exists. The performance endpoint is not built.
@@ -127,7 +128,7 @@ Tiers: **F** = Free listing and seat, **M** = Managed, **I** = Insights, **E** =
 | 28  | R    | Structured two-product question, triage, routing, separate vendor-contact consent | Missing (not specified)                          | `vendor_requests` is claim/correction on a product or vendor only. `/contact` is a `mailto:` link. Contests' `routed_to` / `owner_vendor_id` is a pattern to copy                                                                                                                                                                                                                                                                  | New `compatibility_questions` table with consent columns. Sketch in section 7                                                                                                                                                                                                       |
 | 29  | R    | Lead to vendor link, qualification, invoicing in arrears                       | Missing (not specified)                             | Nothing                                                                                                                                                                                                                                                                                                                                                                                                                           | New `leads` table plus the billing tables from section 4                                                                                                                                                                                                                            |
 
-> **Item 9, updated 2026-10-01 (epic AECI-1197, ADR 0037).** The audit row above describes `main`
+> **Item 9, updated 2026-10-01 (epic AECI-1197, ADR 0038).** The audit row above describes `main`
 > at `2380b367`. Epic AECI-1197 changes three of its facts. Each email send now writes a
 > `notification_sends` row with the Resend message id (AECI-1202). The `?n=` link and portal open
 > or click recording are AECI-1209, not built. No bounce or delivery webhook exists. The vendor nudge is one daily digest per
@@ -204,11 +205,12 @@ Four indirect couplings need a ruling:
 
 1. **Paid vendors can raise their own ranking input.** `listing_tier` ranks on description,
    website, logo and categories. Only plan holders can edit those themselves today. A free vendor
-   must file a correction and wait. **Resolved by ruling 2026-10-01:** these four fields become
-   editable on every plan (AECI-1214).
+   must file a correction and wait. **Resolved 2026-10-01 by AECI-1212, built in AECI-1214:** these
+   four fields become editable on every plan. Spec: `STAGE_2_PAID_TIERS_SPEC.md` §13.4.
 2. **Only paid vendors can create vendor agreement.** Attestation needs `attestation.author`. The
    public pair page shows whether both vendors agree. So the "both vendors agree" trust state is
-   reachable only by paying vendors. **Ruled 2026-10-01:** this stays a Managed feature.
+   reachable only by paying vendors. **Ruled 2026-10-01 in AECI-1212:** this stays a Managed
+   feature. Spec: `STAGE_2_PAID_TIERS_SPEC.md` §13.1.
 3. **Public version-diff depth depends on payment.** It opens when either endpoint vendor holds a
    plan (`lib/pair-version-diff.ts:76-114`). It is disclosed on `/methodology`. Per-product plans
    must re-key it to the endpoint product.

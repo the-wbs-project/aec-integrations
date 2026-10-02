@@ -285,14 +285,29 @@ describe('VendorDashboardTabbed — the downgraded entitlement (§4.3 / §8)', (
     expect(el.textContent).toContain('no longer active');
   });
 
-  it('drives the profile form read-only off CAPABILITIES, not vendor.verified', async () => {
+  it('keeps company details editable for a revoked vendor, off CAPABILITIES (AECI-1214)', async () => {
+    // A lapsed row resolves to the Free plan, and company details are editable
+    // on every plan (§13.1 decision 3). `vendor.verified` is false here, so this
+    // also proves the gate reads the capability list and not the mirror.
     const el = root(await open('profile', VENDOR_ME_DOWNGRADED_FIXTURE));
 
-    expect(el.textContent).toContain('Editing is paused');
-    expect(el.querySelector('form button[type="submit"]')).toBeNull();
-    expect(
-      [...el.querySelectorAll<HTMLInputElement>('input, textarea')].every((f) => f.readOnly),
-    ).toBe(true);
+    expect(el.textContent).not.toContain('Editing is paused');
+    expect(el.querySelector('form button[type="submit"]')).not.toBeNull();
+  });
+
+  it('opens the Free product fields and locks the Managed ones for a revoked vendor', async () => {
+    const el = root(
+      await open('products/summit-model-coordination/profile', VENDOR_ME_DOWNGRADED_FIXTURE),
+    );
+    const id = VENDOR_ME_FIXTURE.products[0]!.id;
+    const field = (key: string) =>
+      el.querySelector<HTMLInputElement>(`#vendor-product-${id}-${key}`)!;
+
+    expect(field('description').readOnly).toBe(false);
+    expect(field('website').readOnly).toBe(false);
+    expect(field('tool-integrations-url').readOnly).toBe(true);
+    expect(field('api-docs-url').readOnly).toBe(true);
+    expect(el.querySelector('aec-vendor-product-form button[type="submit"]')).not.toBeNull();
   });
 
   it('leaves the paid vendor forms editable — the launch behaviour is unchanged', async () => {
@@ -359,35 +374,45 @@ describe('VendorDashboardTabbed — the overview landing page (AECI-983)', () =>
     expect(hrefs['profile']).toBe(`/vendor/${SLUG}/profile`);
   });
 
-  it('pauses Worth doing for a lapsed vendor but still lists open corrections', async () => {
+  it('keeps the Free gap rows for a lapsed vendor, beside its open corrections (AECI-1214)', async () => {
+    // A lapsed plan lands on Free, which still edits company details and the four
+    // listing fields, so nothing is "paused" and the gap rows stay worth doing.
     const el = root(await open('overview', VENDOR_ME_DOWNGRADED_FIXTURE));
 
-    expect(el.textContent).toContain('Editing is paused');
+    expect(el.textContent).not.toContain('Editing is paused');
     const keys = rowHrefs(el).map(([k]) => k);
     expect(keys.some((k) => k?.startsWith('correction:'))).toBe(true);
-    expect(keys.some((k) => k?.startsWith('product:') || k === 'profile')).toBe(false);
+    expect(keys.some((k) => k?.startsWith('product:'))).toBe(true);
+    expect(keys).toContain('profile');
   });
 
-  it('tells the connector catalogue seat what stays with AECi, never that access comes back (AECI-1082)', async () => {
+  it('gives the connector catalogue seat the Free edits, with no paused row (ruling 2026-10-02)', async () => {
     const el = root(await open('overview', VENDOR_ME_CONNECTOR_SEAT_FIXTURE));
 
-    // STAGE_2_SPEC.md section 8.9: this seat is never sold editing access, so
-    // nothing is "paused" and nothing is "back on".
-    expect(el.textContent).toContain('Your profile and product details stay with the AECi team.');
-    expect(el.textContent).toContain('This seat maintains your connector catalogue.');
     expect(el.textContent).not.toContain('Editing is paused');
+    expect(el.textContent).not.toContain(
+      'Your profile and product details stay with the AECi team.',
+    );
     expect(el.textContent).not.toContain('back on');
   });
 
-  it('keeps the paused row for a never-arranged vendor with no connector product', async () => {
+  it('shows no paused row for a never-arranged vendor either', async () => {
     const el = root(await open('overview', VENDOR_ME_UNVERIFIED_FIXTURE));
 
-    expect(el.textContent).toContain('Editing is paused');
-    expect(el.textContent).not.toContain('stay with the AECi team');
+    expect(el.textContent).not.toContain('Editing is paused');
   });
 
   it('re-derives the list when the entitlement flips, without a reload (AECI-631)', async () => {
-    const harness = await open('overview', VENDOR_ME_DOWNGRADED_FIXTURE);
+    // A plan this build cannot read holds no capability, so the overview pauses.
+    const unknown: VendorMeResponse = {
+      ...VENDOR_ME_FIXTURE,
+      entitlement: {
+        ...VENDOR_ME_FIXTURE.entitlement,
+        tier: 'some-future-tier' as VendorMeResponse['entitlement']['tier'],
+        capabilities: [],
+      },
+    };
+    const harness = await open('overview', unknown);
     const el = root(harness);
     expect(el.textContent).toContain('Editing is paused');
 
@@ -484,29 +509,37 @@ describe('VendorDashboardTabbed — the overview landing page (AECI-983)', () =>
  * entitlement at construction would pass a fresh-render test and fail these.
  */
 describe('VendorDashboardTabbed — a refetched `me` (§6.1)', () => {
-  it('re-derives the capability gate, so the profile form unlocks in place', async () => {
-    const harness = await open('profile', VENDOR_ME_DOWNGRADED_FIXTURE);
+  // The product profile tab, because since AECI-1214 that is where a revoke
+  // visibly changes something: company details stay editable on every plan.
+  const PRODUCT_PROFILE = 'products/summit-model-coordination/profile';
+  const apiDocs = (el: HTMLElement) =>
+    el.querySelector<HTMLInputElement>(
+      `#vendor-product-${VENDOR_ME_FIXTURE.products[0]!.id}-api-docs-url`,
+    )!;
+
+  it('re-derives the product plan gate, so a Managed field unlocks in place', async () => {
+    const harness = await open(PRODUCT_PROFILE, VENDOR_ME_DOWNGRADED_FIXTURE);
     const el = root(harness);
-    expect(el.textContent).toContain('Editing is paused');
+    expect(apiDocs(el).readOnly).toBe(true);
 
     // The operator granted the entitlement while the vendor sat on this section.
     TestBed.inject(VendorPortalStore).seed(VENDOR_ME_FIXTURE);
     harness.detectChanges();
 
-    expect(el.textContent).not.toContain('Editing is paused');
-    expect(el.querySelector('form button[type="submit"]')).not.toBeNull();
+    expect(apiDocs(el).readOnly).toBe(false);
   });
 
-  it('re-derives it in the other direction too, so a revoke closes the forms', async () => {
-    const harness = await open('profile');
+  it('re-derives it in the other direction too, so a revoke locks the Managed fields', async () => {
+    const harness = await open(PRODUCT_PROFILE);
     const el = root(harness);
-    expect(el.querySelector('form button[type="submit"]')).not.toBeNull();
+    expect(apiDocs(el).readOnly).toBe(false);
 
     TestBed.inject(VendorPortalStore).seed(VENDOR_ME_DOWNGRADED_FIXTURE);
     harness.detectChanges();
 
-    expect(el.textContent).toContain('Editing is paused');
-    expect(el.querySelector('form button[type="submit"]')).toBeNull();
+    expect(apiDocs(el).readOnly).toBe(true);
+    // The Free fields stay open, so Save stays.
+    expect(el.querySelector('aec-vendor-product-form button[type="submit"]')).not.toBeNull();
   });
 
   it('moves the plan panel from lapsed to active on the overview section', async () => {

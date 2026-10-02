@@ -1,8 +1,8 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "40887258-4760-4215-ac39-dd85a0661d09",
-  "prevId": "5f353621-9799-4727-95eb-325d800744d6",
+  "id": "3c061c83-3cc2-4e78-9039-b76cd3779b6f",
+  "prevId": "490198a0-f929-478d-ba1a-d1873b55b7f5",
   "tables": {
     "asn_registry": {
       "name": "asn_registry",
@@ -3048,73 +3048,6 @@
         }
       }
     },
-    "notification_preferences": {
-      "name": "notification_preferences",
-      "columns": {
-        "profile_id": {
-          "name": "profile_id",
-          "type": "text",
-          "primaryKey": true,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "nudges_muted_at": {
-          "name": "nudges_muted_at",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "mute_token": {
-          "name": "mute_token",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "updated_at": {
-          "name": "updated_at",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        }
-      },
-      "indexes": {
-        "notification_preferences_mute_token_key": {
-          "name": "notification_preferences_mute_token_key",
-          "columns": [
-            "mute_token"
-          ],
-          "isUnique": true
-        }
-      },
-      "foreignKeys": {
-        "notification_preferences_profile_id_profiles_id_fk": {
-          "name": "notification_preferences_profile_id_profiles_id_fk",
-          "tableFrom": "notification_preferences",
-          "tableTo": "profiles",
-          "columnsFrom": [
-            "profile_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "checkConstraints": {}
-    },
     "notification_sends": {
       "name": "notification_sends",
       "columns": {
@@ -4325,6 +4258,13 @@
           "notNull": true,
           "autoincrement": false,
           "default": "'aeci'"
+        },
+        "integrations_reviewed_at": {
+          "name": "integrations_reviewed_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
         },
         "created_at": {
           "name": "created_at",

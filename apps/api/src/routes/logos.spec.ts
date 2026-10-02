@@ -149,11 +149,39 @@ describe('logo routes', () => {
   it('denies cross-origin, missing origin with cookies, and unentitled uploads before storage', async () => {
     expect((await upload(form(), 'https://attacker.example')).status).toBe(403);
     expect((await request('/api/vendor/logo', { method: 'POST', body: form() })).status).toBe(403);
+    // Every real tier may upload since AECI-1214, so the only unentitled caller
+    // left is a tier this build does not know, which resolves to no capabilities.
     expect(
-      (await upload(form(), 'https://example.com', { ...AUTH, entitlementTier: 'unclaimed' }))
-        .status,
+      (
+        await upload(form(), 'https://example.com', {
+          ...AUTH,
+          entitlementTier: 'enterprise' as AuthzVariables['auth']['entitlementTier'],
+        })
+      ).status,
     ).toBe(403);
     expect(put).not.toHaveBeenCalled();
+  });
+  it.each([
+    ['a seat with no plan', { ...AUTH, entitlementTier: 'unclaimed' as const, entitlement: null }],
+    ['a Managed seat', AUTH],
+  ])('lets %s upload and save both logos (AECI-1214)', async (_label, auth) => {
+    const res = await upload(form(), 'https://example.com', auth);
+    expect(res.status).toBe(200);
+    const { logo_url } = (await res.json()) as { logo_url: string };
+    for (const path of ['/api/vendor/profile', `/api/vendor/products/${uuid(3)}`]) {
+      const saved = await request(
+        path,
+        {
+          method: 'PATCH',
+          headers: { origin: 'https://example.com', 'content-type': 'application/json' },
+          body: JSON.stringify({ logo_url }),
+        },
+        auth,
+      );
+      expect(saved.status).toBe(200);
+    }
+    expect((await t.db.select().from(vendors))[0]?.logoUrl).toBe(logo_url);
+    expect((await t.db.select().from(products))[0]?.logoUrl).toBe(logo_url);
   });
   it('bounds actual streamed bytes without relying on Content-Length', async () => {
     const cancel = vi.fn();

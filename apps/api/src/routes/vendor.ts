@@ -24,12 +24,15 @@ import { assertStoredLogo } from './logos';
  * ── The entitlement gate (AECI-611) ─────────────────────────────────────────
  * `STAGE_2_PAID_TIERS_SPEC.md` §4. Two axes, both enforced here:
  *
- *   - **Route-level**: `requireCapability(c, …)` in each WRITE handler — a
- *     DB-free assertion over the tier `requireVendor()` already joined onto the
- *     session. 403 `ENTITLEMENT_REQUIRED` (never 402: the wire contract stays
- *     payer-model-agnostic).
- *   - **Field-level**: `splitPatch` takes the caller's tier and THROWS on any
- *     provided field whose capability the tier lacks. It never silently drops.
+ *   - **Route-level**: `requireCapability(c, 'profile.edit')` on the profile
+ *     PATCH — a DB-free assertion over the tier `requireVendor()` already joined
+ *     onto the session. 403 `ENTITLEMENT_REQUIRED` (never 402: the wire contract
+ *     stays payer-model-agnostic). Since AECI-1214 every seat holds it (§13.3).
+ *     The product PATCH has no route-level gate: its fields split across the
+ *     Free and Managed capabilities, so it is gated per field only.
+ *   - **Field-level**: `assertFieldsEntitled` / `splitPatch` take the caller's
+ *     tier and THROW on any provided field whose capability the tier lacks,
+ *     naming every denied field. They never silently drop one.
  *
  * **The two GETs are never gated** — see the comment on `createVendorMeHandler`.
  *
@@ -54,6 +57,7 @@ import { assertStoredLogo } from './logos';
  */
 
 import {
+  type VendorEntitlementBlock,
   ListVendorSeatsResponseSchema,
   UpdateVendorProductResponseSchema,
   UpdateVendorProductSchema,
@@ -75,10 +79,14 @@ import {
 } from '@aeci/shared';
 import { type AuditLogEntry } from '@aeci/shared/audit-log';
 import {
+  PRODUCT_FIELD_CAPABILITIES,
+  VENDOR_FIELD_CAPABILITIES,
   capabilitiesFor,
   hasCapability,
   type Capability,
   type EntitlementTier,
+  type ProductEditableField,
+  type VendorEditableField,
 } from '@aeci/shared/entitlements';
 import { asc, count, eq, inArray } from 'drizzle-orm';
 import { alias } from 'drizzle-orm/sqlite-core';
@@ -104,7 +112,12 @@ import type { Env } from '../env';
 import { ApiError, notFoundError } from '../errors';
 import { json } from '../http';
 import { auditInsert, type BatchStmt, type BatchTuple } from '../lib/audit';
-import { auditActorType, entitlementRequired, requireCapability } from '../lib/authz';
+import {
+  auditActorType,
+  entitlementRequired,
+  requireCapability,
+  type AuthenticatedSession,
+} from '../lib/authz';
 import { textAsc } from '../lib/collation';
 import { toUsefulness } from '../lib/drizzle-helpers';
 import { validateResponseInDev, writeDb, type DbFactory } from '../lib/handler-utils';
@@ -188,7 +201,11 @@ export type FetchSeatEmails = (
  * purpose: a page that is purged but not announced, or announced but not purged,
  * is the drift this keeps out.
  */
-function productEditTags(slug: string, before: TaxonomySlugs, after: TaxonomySlugs): string[] {
+export function productEditTags(
+  slug: string,
+  before: TaxonomySlugs,
+  after: TaxonomySlugs,
+): string[] {
   const tags = new Set<string>([`product:${slug}`, 'index:products']);
   const facets: ReadonlyArray<[string, keyof TaxonomySlugs]> = [
     ['category', 'categories'],
@@ -267,14 +284,40 @@ function toVendorAccount(row: VendorRow): VendorAccount {
   };
 }
 
-type TaxonomySlugs = {
+export type TaxonomySlugs = {
   categories: string[];
   audiences: string[];
   phases: string[];
   trades: string[];
 };
 
-function toVendorProduct(row: ProductRow, isPrimary: boolean, tax: TaxonomySlugs): VendorProduct {
+/**
+ * The caller's entitlement block, built from the session the guard already
+ * loaded — zero extra queries. `GET /api/vendor/me` serves it as `entitlement`,
+ * and every `VendorProduct` carries it as `plan` (AECI-1214, §13.7). Both read the
+ * same `entitlementTier` the write gates assert, so a screen's enabled state and
+ * the 403 its write would get cannot disagree.
+ */
+export function entitlementBlock(session: AuthenticatedSession): VendorEntitlementBlock {
+  return {
+    tier: session.entitlementTier,
+    status: session.entitlement?.status ?? null,
+    period_end: session.entitlement?.periodEnd ?? null,
+    capabilities: [...capabilitiesFor(session.entitlementTier)],
+  };
+}
+
+/**
+ * `plan` is this product's plan (§13.7). Until a per-product plan table exists it
+ * is the vendor's block, copied into every product by the caller. When that table
+ * lands, only the caller's source for `plan` changes.
+ */
+function toVendorProduct(
+  row: ProductRow,
+  isPrimary: boolean,
+  tax: TaxonomySlugs,
+  plan: VendorEntitlementBlock,
+): VendorProduct {
   return {
     id: row.id,
     slug: row.slug,
@@ -297,6 +340,7 @@ function toVendorProduct(row: ProductRow, isPrimary: boolean, tax: TaxonomySlugs
     integration_count: row.integrationCount,
     review_count: row.reviewCount,
     updated_at: row.updatedAt,
+    plan,
   };
 }
 
@@ -349,7 +393,7 @@ async function loadTaxonomySlugs(
 }
 
 /** Empty-set fallback so a product with no taxonomy still maps cleanly. */
-const NO_TAXONOMY: TaxonomySlugs = { categories: [], audiences: [], phases: [], trades: [] };
+export const NO_TAXONOMY: TaxonomySlugs = { categories: [], audiences: [], phases: [], trades: [] };
 
 /**
  * The four taxonomy facets, as data.
@@ -553,12 +597,52 @@ async function resolveUsefulness(
  *   - **The column map is the ENTITLEMENT allow-list.** A field present in both
  *     is written only if the caller's tier holds its capability.
  *
- * Both must agree. At launch every field maps to a capability the `verified`
- * tier holds, so an entitled vendor sees byte-identical behaviour; adding a
- * middle rung later is a data edit in two tables (here and `TIER_CAPABILITIES`)
- * with no handler change.
+ * Both must agree. Every field maps to a capability the `verified` tier holds.
+ * The capability half is NOT written here: it comes from
+ * `VENDOR_FIELD_CAPABILITIES` / `PRODUCT_FIELD_CAPABILITIES` in
+ * `@aeci/shared/entitlements` (AECI-1214), so the §13.4 firewall test there
+ * checks the same table these routes enforce. Moving a field between plans is
+ * a data edit in that table and `TIER_CAPABILITIES`, with no handler change.
  */
 type VendorColumnMap = Record<string, { column: string; capability: Capability }>;
+
+/** Join a field → column table to its shared field → capability table. Typed so
+ *  a column entry the capability table lacks is a typecheck failure. */
+function columnMap<F extends string>(
+  columns: Readonly<Record<F, string>>,
+  capabilities: Readonly<Record<F, Capability>>,
+): VendorColumnMap {
+  return Object.fromEntries(
+    (Object.keys(columns) as F[]).map((field) => [
+      field,
+      { column: columns[field], capability: capabilities[field] },
+    ]),
+  );
+}
+
+/**
+ * Throw `ENTITLEMENT_REQUIRED` if the body names ANY field the tier cannot edit.
+ *
+ * A mixed request (some allowed fields, some denied) is refused WHOLE, never
+ * half-applied, and the 403 names every denied field so the client can mark all
+ * of them at once. `details.capability` is the first denied field's, after a
+ * sort, so the body is deterministic. Keys the table does not know are skipped:
+ * Zod has already stripped anything that is not a vendor-editable field.
+ */
+export function assertFieldsEntitled(
+  body: Readonly<Record<string, unknown>>,
+  capabilityOf: (field: string) => Capability | undefined,
+  tier: EntitlementTier,
+): void {
+  const denied = Object.keys(body)
+    .filter((field) => {
+      const capability = capabilityOf(field);
+      return capability !== undefined && !hasCapability(tier, capability);
+    })
+    .sort();
+  if (denied.length === 0) return;
+  throw entitlementRequired(capabilityOf(denied[0] as string) as Capability, tier, denied);
+}
 
 /**
  * Split a validated PATCH body into the column patch and the taxonomy patch,
@@ -583,28 +667,17 @@ type VendorColumnMap = Record<string, { column: string; capability: Capability }
  */
 export function splitPatch<T extends Record<string, unknown>>(
   body: T,
-  columnMap: VendorColumnMap,
+  map: VendorColumnMap,
   tier: EntitlementTier,
 ): { columns: Record<string, unknown>; provided: string[] } {
+  assertFieldsEntitled(body, (field) => map[field]?.capability, tier);
   const columns: Record<string, unknown> = {};
   const provided: string[] = [];
-  const denied: string[] = [];
   for (const [key, value] of Object.entries(body)) {
-    const entry = columnMap[key];
+    const entry = map[key];
     if (entry === undefined) continue; // taxonomy keys, handled separately
-    if (!hasCapability(tier, entry.capability)) {
-      denied.push(key);
-      continue;
-    }
     columns[entry.column] = value;
     provided.push(key);
-  }
-  if (denied.length > 0) {
-    // Sorted so the 403 body is deterministic, and the reported `capability` is
-    // the first denied field's — `details.fields` carries the complete set.
-    denied.sort();
-    const capability = (columnMap[denied[0] as string] as VendorColumnMap[string]).capability;
-    throw entitlementRequired(capability, tier, denied);
   }
   return { columns, provided };
 }
@@ -663,10 +736,18 @@ export function createVendorMeHandler(
       }),
     ]);
 
+    // One block for the vendor and, until per-product plans exist, for every
+    // product too (§13.7).
+    const plan = entitlementBlock(session);
     const body: VendorMeResponse = {
       vendor: toVendorAccount(vendor),
       products: productRows.map((row) =>
-        toVendorProduct(row, primaryById.get(row.id) ?? false, taxonomy.get(row.id) ?? NO_TAXONOMY),
+        toVendorProduct(
+          row,
+          primaryById.get(row.id) ?? false,
+          taxonomy.get(row.id) ?? NO_TAXONOMY,
+          plan,
+        ),
       ),
       requests: requestRows.map(
         (row): VendorRequestSummary => ({
@@ -684,12 +765,7 @@ export function createVendorMeHandler(
       // Built from the session the guard already loaded — zero extra queries,
       // and the dashboard's readout therefore cannot disagree with the 403 a
       // write would get, because both read the same `entitlementTier`.
-      entitlement: {
-        tier: session.entitlementTier,
-        status: session.entitlement?.status ?? null,
-        period_end: session.entitlement?.periodEnd ?? null,
-        capabilities: [...capabilitiesFor(session.entitlementTier)],
-      },
+      entitlement: plan,
     };
 
     validateResponseInDev(c.env, () => VendorMeResponseSchema.parse(body));
@@ -805,32 +881,35 @@ export function createVendorSeatsHandler(
  * Wire field → `vendors` column + the capability that unlocks it (see
  * `VendorColumnMap`).
  *
- * Every field here is `profile.edit` at launch, so the `verified` tier writes
- * all of them and `unclaimed` writes none. `profile.rich_fields` is declared in
- * the registry and deliberately unused HERE: which fields become "rich" is the
- * open pricing question (§8.2 / §3.1), and guessing it now would ship a split
- * that the first paid rung has to undo. Moving a row to `profile.rich_fields` is
- * a one-word edit when that decision lands.
+ * Every field is `profile.edit`, which every seat holds since AECI-1214: company
+ * details are editable on every plan (§13.1 decision 3). `profile.rich_fields`
+ * is declared in the registry and deliberately unused HERE: which fields become
+ * "rich" is the open pricing question (§8.2 / §3.1). Moving a field there is a
+ * one-word edit in `VENDOR_FIELD_CAPABILITIES`, and must keep the four
+ * `listing_tier` inputs Free (§13.4).
  */
-export const VENDOR_COLUMN_MAP: VendorColumnMap = {
-  description: { column: 'description', capability: 'profile.edit' },
-  website: { column: 'website', capability: 'profile.edit' },
-  headquarters: { column: 'headquarters', capability: 'profile.edit' },
-  founded_year: { column: 'foundedYear', capability: 'profile.edit' },
-  public_private: { column: 'publicPrivate', capability: 'profile.edit' },
-  parent_company: { column: 'parentCompany', capability: 'profile.edit' },
-  contact_email: { column: 'contactEmail', capability: 'profile.edit' },
-  phone_number: { column: 'phoneNumber', capability: 'profile.edit' },
-  logo_url: { column: 'logoUrl', capability: 'profile.edit' },
-  linkedin_url: { column: 'linkedinUrl', capability: 'profile.edit' },
-  x_url: { column: 'xUrl', capability: 'profile.edit' },
-  facebook_url: { column: 'facebookUrl', capability: 'profile.edit' },
-  instagram_url: { column: 'instagramUrl', capability: 'profile.edit' },
-  youtube_url: { column: 'youtubeUrl', capability: 'profile.edit' },
-  crunchbase_url: { column: 'crunchbaseUrl', capability: 'profile.edit' },
-  wiki_url: { column: 'wikiUrl', capability: 'profile.edit' },
-  github_org: { column: 'githubOrg', capability: 'profile.edit' },
-};
+export const VENDOR_COLUMN_MAP: VendorColumnMap = columnMap<VendorEditableField>(
+  {
+    description: 'description',
+    website: 'website',
+    headquarters: 'headquarters',
+    founded_year: 'foundedYear',
+    public_private: 'publicPrivate',
+    parent_company: 'parentCompany',
+    contact_email: 'contactEmail',
+    phone_number: 'phoneNumber',
+    logo_url: 'logoUrl',
+    linkedin_url: 'linkedinUrl',
+    x_url: 'xUrl',
+    facebook_url: 'facebookUrl',
+    instagram_url: 'instagramUrl',
+    youtube_url: 'youtubeUrl',
+    crunchbase_url: 'crunchbaseUrl',
+    wiki_url: 'wikiUrl',
+    github_org: 'githubOrg',
+  },
+  VENDOR_FIELD_CAPABILITIES,
+);
 
 export function createUpdateVendorProfileHandler(
   dbFor: DbFactory = getDb,
@@ -842,7 +921,9 @@ export function createUpdateVendorProfileHandler(
     // loaded. It runs BEFORE the body is parsed so an unentitled vendor gets a
     // consistent 403 rather than a 400 about a field it could not have written
     // anyway. There is no ownership question on this route (the session names
-    // the vendor), so nothing has to settle first.
+    // the vendor), so nothing has to settle first. Since AECI-1214 every seat
+    // holds `profile.edit` (§13.3), so a seat with no plan passes. The gate stays
+    // so a future rung that withholds company details needs no handler edit.
     requireCapability(c, 'profile.edit');
     const payload = await parseJsonBody(c, UpdateVendorProfileSchema);
 
@@ -919,19 +1000,24 @@ export function createUpdateVendorProfileHandler(
 // ─── PATCH /api/vendor/products/:id ──────────────────────────────────────────
 
 /** Wire field → `products` column + capability (the two-axis write allow-list).
- *  The taxonomy arrays are NOT here — they are handled by `FACETS` and gated as
- *  a unit by `product.taxonomy.edit` in the handler. */
-export const PRODUCT_COLUMN_MAP: VendorColumnMap = {
-  description: { column: 'description', capability: 'product.edit' },
-  website: { column: 'website', capability: 'product.edit' },
-  tool_integrations_url: { column: 'toolIntegrationsUrl', capability: 'product.edit' },
-  api_docs_url: { column: 'apiDocsUrl', capability: 'product.edit' },
-  logo_url: { column: 'logoUrl', capability: 'product.edit' },
-  // AECI-963. Its own capability rather than riding `product.edit`, so a future
-  // middle tier can withhold narrative authorship without touching a handler.
-  // Inert today: the ladder is binary and `verified` holds every capability.
-  usefulness: { column: 'usefulness', capability: 'product.usefulness.edit' },
-};
+ *  The capabilities come from `PRODUCT_FIELD_CAPABILITIES` (AECI-1214):
+ *  description, website and logo are `product.listing.edit` (Free), the two
+ *  doc URLs `product.edit` and `usefulness` `product.usefulness.edit` (Managed).
+ *  The taxonomy arrays are NOT here — they are join rewrites handled by
+ *  `FACETS`, and gated per field in the handler from the same shared table. */
+export const PRODUCT_COLUMN_MAP: VendorColumnMap = columnMap<
+  Exclude<ProductEditableField, (typeof FACETS)[number]['field']>
+>(
+  {
+    description: 'description',
+    website: 'website',
+    tool_integrations_url: 'toolIntegrationsUrl',
+    api_docs_url: 'apiDocsUrl',
+    logo_url: 'logoUrl',
+    usefulness: 'usefulness',
+  },
+  PRODUCT_FIELD_CAPABILITIES,
+);
 
 export function createUpdateVendorProductHandler(
   dbFor: DbFactory = getDb,
@@ -959,22 +1045,19 @@ export function createUpdateVendorProductHandler(
     // `sessionVendorId`" as on `/profile`: a 403 here would confirm to a
     // non-owner that the product exists, and 404-never-403 is the harder
     // invariant of this surface. Same ordering as the AECI-607 version routes.
-    requireCapability(c, 'product.edit');
-    // Taxonomy assignment is its own capability, gated as a unit — the facet
-    // arrays never enter `PRODUCT_COLUMN_MAP` (they are set-replacement joins,
-    // not columns), so `splitPatch`'s second axis cannot see them.
-    if (FACETS.some((facet) => payload[facet.field] !== undefined)) {
-      requireCapability(c, 'product.taxonomy.edit');
-    }
-    // AECI-963. `usefulness` IS in `PRODUCT_COLUMN_MAP`, so `splitPatch` would
-    // gate it anyway — but `splitPatch` runs AFTER the resolution wave below.
-    // Without this, an unentitled caller sending a bad slug would get the 400
-    // from that read instead of the 403 they are owed, having spent two D1 reads
-    // they were never allowed to make. Same placement and same reason as the
-    // facet gate directly above.
-    if (payload.usefulness !== undefined) {
-      requireCapability(c, 'product.usefulness.edit');
-    }
+    //
+    // AECI-1214 (§13.3): there is no route-level capability. The fields split
+    // across the Free and Managed plans, so every sent field — columns AND the
+    // four facet arrays — is gated by its own entry in
+    // `PRODUCT_FIELD_CAPABILITIES`. A request naming any field the caller cannot
+    // edit is refused whole. It runs BEFORE the resolution wave below, so an
+    // unentitled caller sending a bad slug gets the 403 it is owed rather than
+    // the 400 from a read it was never allowed to make.
+    assertFieldsEntitled(
+      payload,
+      (field) => PRODUCT_FIELD_CAPABILITIES[field as ProductEditableField],
+      session.entitlementTier,
+    );
 
     // Now that the caller is known to own the row, the rest goes in one wave.
     // Term resolution happens BEFORE the batch opens, so an unknown slug is a
@@ -1118,7 +1201,7 @@ export function createUpdateVendorProductHandler(
     );
 
     const body: UpdateVendorProductResponse = {
-      product: toVendorProduct(after, isPrimary, afterTaxonomy),
+      product: toVendorProduct(after, isPrimary, afterTaxonomy, entitlementBlock(session)),
     };
     validateResponseInDev(c.env, () => UpdateVendorProductResponseSchema.parse(body));
     return json(body);

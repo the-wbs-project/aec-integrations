@@ -23,7 +23,8 @@
  *     shapes live in `./api/admin-entitlements`, which imports FROM here — the
  *     dependency is one-way and must stay that way.
  *  2. **Fail closed.** No row, a non-`active` status, or an unknown tier all
- *     resolve to `unclaimed` → zero capabilities. Never default to `verified`.
+ *     resolve to `unclaimed` → the Free capabilities only (AECI-1214). Never
+ *     default to `verified`.
  *  3. **Reachable only as `@aeci/shared/entitlements`.** Deliberately NOT
  *     re-exported from the root `src/index.ts` barrel, which carries zod via
  *     `export * from './api'` — the same reason `algolia.ts` is kept out. The
@@ -61,10 +62,12 @@
  * `/methodology` has to disclose it (`STAGE_2_5_SPEC.md` §7.1).
  */
 export const CAPABILITIES = [
-  'profile.edit', // PATCH /api/vendor/profile
+  'profile.edit', // PATCH /api/vendor/profile — every company detail, held on every plan (§13.3)
   'profile.rich_fields', // the extended vendor field set
-  'product.edit', // PATCH /api/vendor/products/:id
-  'product.taxonomy.edit', // taxonomy assignment on an owned product
+  'product.edit', // AECI-1214 — the integrations page URL and the API docs URL on an owned product
+  'product.listing.edit', // AECI-1214 — description, website and logo on an owned product
+  'product.categories.edit', // AECI-1214 — `category_slugs` on an owned product
+  'product.taxonomy.edit', // trades, audiences and phases on an owned product
   'product.usefulness.edit', // AECI-963 — the "how teams use it" narrative on an owned product
   'attestation.author', // AECI-623 — the attestation + product-version writes
   'analytics.view', // vendor analytics — declared, no consumer yet
@@ -76,7 +79,8 @@ export type Capability = (typeof CAPABILITIES)[number];
 
 /**
  * The tier ladder. **Binary at launch** (`STAGE_2_SPEC.md` §8.5): `unclaimed` (no active
- * entitlement) vs `verified` (the paid entry fee). Adding a rung = one entry
+ * entitlement, shown as "Free" in copy) vs `verified` (the paid entry fee, shown as
+ * "Managed"). `STAGE_2_PAID_TIERS_SPEC.md` §13.2: there is no `free` id. Adding a rung = one entry
  * here plus one row in `TIER_CAPABILITIES`, and nothing else.
  */
 export const TIERS = ['unclaimed', 'verified'] as const;
@@ -89,17 +93,27 @@ export type EntitlementTier = (typeof TIERS)[number];
  * `EntitlementTier` on purpose: adding a rung to `TIERS` without a row here is
  * a typecheck failure, which is what keeps "exactly two objects" honest.
  *
+ * `unclaimed` is the Free plan (AECI-1214, `STAGE_2_PAID_TIERS_SPEC.md` §13.3).
+ * Every seat holds it, whatever its entitlement row says, because a lapsed or
+ * absent row resolves here. It carries company details and the four product
+ * fields that feed `listing_tier`, so payment can never raise a rank through the
+ * edit path (§13.4, asserted by `entitlements.spec.ts`). The connector catalogue
+ * seat holds it too (ruling 2026-10-02).
+ *
  * `verified` unlocks everything §8.1(3) lists. A future middle rung is a subset
  * literal, not a new branch anywhere else in the codebase.
  */
 export const TIER_CAPABILITIES: Readonly<Record<EntitlementTier, readonly Capability[]>> = {
-  unclaimed: [],
+  unclaimed: ['profile.edit', 'product.listing.edit', 'product.categories.edit'],
   verified: [...CAPABILITIES],
 };
 
 /**
- * The tiers an admin may actually **grant** — i.e. `TIERS` minus every tier that
- * holds no capabilities.
+ * The tiers an admin may actually **grant** — i.e. `TIERS` minus `unclaimed`.
+ *
+ * Until AECI-1214 this was "every tier that holds a capability". `unclaimed` now
+ * holds the Free capabilities, so that derivation would wrongly include it. Free
+ * is never a `vendor_entitlements` row (§13.2): it is what a seat has with no row.
  *
  * This exists because `TIERS` and "what you can sell someone" are not the same
  * list, and conflating them is a live incoherence rather than a tidiness point.
@@ -116,12 +130,72 @@ export const TIER_CAPABILITIES: Readonly<Record<EntitlementTier, readonly Capabi
  *
  * Kept as an explicit literal rather than a computed filter because `z.enum`
  * needs a const tuple at the type level; `entitlements.spec.ts` asserts it equals
- * the derived set, so adding a zero-capability rung cannot silently make it stale.
+ * `TIERS` minus `unclaimed`, so adding a rung cannot silently make it stale.
  */
 export const PAID_TIERS = ['verified'] as const;
 
 /** A tier that can be granted. Always a subset of {@link EntitlementTier}. */
 export type PaidEntitlementTier = (typeof PAID_TIERS)[number];
+
+/**
+ * Vendor-editable wire field → the capability that unlocks it (AECI-1214).
+ *
+ * These two tables are the single source for the entitlement axis of the vendor
+ * edit routes. `apps/api/src/routes/vendor.ts` builds `VENDOR_COLUMN_MAP` and
+ * `PRODUCT_COLUMN_MAP` from them, and the product route's facet gate reads
+ * `PRODUCT_FIELD_CAPABILITIES` too. They live here, not in the API, so the
+ * §13.4 firewall in `entitlements.spec.ts` can check every `listing_tier` input
+ * against the capability the route actually enforces.
+ *
+ * A field absent from a table is not vendor-editable. `name` and `company_name`
+ * are absent on purpose: a rename stays a correction request.
+ *
+ * Keys match `UpdateVendorProfileSchema` and `UpdateVendorProductSchema` exactly.
+ * `vendor.entitlement.spec.ts` asserts that, because this module may not import
+ * the zod schemas (rule 1 above).
+ */
+export const VENDOR_FIELD_CAPABILITIES = {
+  description: 'profile.edit',
+  website: 'profile.edit',
+  headquarters: 'profile.edit',
+  founded_year: 'profile.edit',
+  public_private: 'profile.edit',
+  parent_company: 'profile.edit',
+  contact_email: 'profile.edit',
+  phone_number: 'profile.edit',
+  logo_url: 'profile.edit',
+  linkedin_url: 'profile.edit',
+  x_url: 'profile.edit',
+  facebook_url: 'profile.edit',
+  instagram_url: 'profile.edit',
+  youtube_url: 'profile.edit',
+  crunchbase_url: 'profile.edit',
+  wiki_url: 'profile.edit',
+  github_org: 'profile.edit',
+} as const satisfies Record<string, Capability>;
+
+/** One vendor-editable company field. */
+export type VendorEditableField = keyof typeof VENDOR_FIELD_CAPABILITIES;
+
+/** See {@link VENDOR_FIELD_CAPABILITIES}. The four `*_slugs` facets are join
+ *  rewrites rather than columns, but they are gated per field like the rest. */
+export const PRODUCT_FIELD_CAPABILITIES = {
+  description: 'product.listing.edit',
+  website: 'product.listing.edit',
+  logo_url: 'product.listing.edit',
+  tool_integrations_url: 'product.edit',
+  api_docs_url: 'product.edit',
+  // AECI-963. Its own capability, so a future middle tier can withhold narrative
+  // authorship without touching a handler.
+  usefulness: 'product.usefulness.edit',
+  category_slugs: 'product.categories.edit',
+  audience_slugs: 'product.taxonomy.edit',
+  phase_slugs: 'product.taxonomy.edit',
+  trade_slugs: 'product.taxonomy.edit',
+} as const satisfies Record<string, Capability>;
+
+/** One vendor-editable product field. */
+export type ProductEditableField = keyof typeof PRODUCT_FIELD_CAPABILITIES;
 
 /**
  * How close to `period_end` the system starts warning — the §7 expiry horizon.
@@ -172,7 +246,7 @@ const ACTIVE_STATUS: EntitlementStatus = 'active';
  * `unclaimed` for: no row at all (never claimed, or the entitlement was
  * cleared), a `pending` / `expired` / `revoked` status, and a tier this build
  * does not know (the DB column is unconstrained by design, §2.2 — an unknown
- * tier resolving to zero capabilities is strictly safer than a write-time CHECK
+ * tier resolving to the Free capabilities is strictly safer than a write-time CHECK
  * failure).
  *
  * Structurally typed so callers can pass a Drizzle row, a joined projection, or

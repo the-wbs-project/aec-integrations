@@ -70,7 +70,8 @@ function vendorsStatements(stmts: BatchStmt[]): string[] {
   return stmts.map(sqlOf).filter((sql) => /"vendors"/.test(sql));
 }
 
-const grantArgs = (vendorWasVerified: boolean) => ({
+const grantArgs = (vendorWasVerified: boolean, plan: 'free' | 'managed' = 'managed') => ({
+  plan,
   userId: CLAIMANT_ID,
   vendorId: VENDOR_ID,
   requestId: REQUEST_ID,
@@ -208,6 +209,28 @@ describe('the claim audit row still records the verification outcome', () => {
     const { auditEntry } = grantSeatStatements(t.db, grantArgs(true));
     expect(auditEntry.metadata).toMatchObject({ verified_flipped: false });
     expect(auditEntry.beforeState).toMatchObject({ vendor_verified: true });
+  });
+
+  // AECI-1215 / §13.6: a Free grant activates no entitlement, so nothing moves the
+  // mirror and the audit row must not say it did.
+  it('records plan: managed on a Managed grant', () => {
+    const { auditEntry } = grantSeatStatements(t.db, grantArgs(false, 'managed'));
+    expect(auditEntry.metadata).toMatchObject({ plan: 'managed', verified_flipped: true });
+  });
+
+  it('records plan: free and no verified flip on a Free grant', () => {
+    const { auditEntry, stmts } = grantSeatStatements(t.db, grantArgs(false, 'free'));
+    expect(auditEntry.metadata).toMatchObject({ plan: 'free', verified_flipped: false });
+    expect(auditEntry.afterState).toMatchObject({ vendor_verified: false });
+    // Same five statements as Managed; the plan changes only what is composed beside it.
+    expect(stmts).toHaveLength(5);
+    expect(vendorsStatements(stmts)).toEqual([]);
+  });
+
+  it('keeps vendor_verified: true after a Free grant on an already-verified vendor', () => {
+    const { auditEntry } = grantSeatStatements(t.db, grantArgs(true, 'free'));
+    expect(auditEntry.afterState).toMatchObject({ vendor_verified: true });
+    expect(auditEntry.metadata).toMatchObject({ verified_flipped: false });
   });
 });
 

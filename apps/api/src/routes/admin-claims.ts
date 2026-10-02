@@ -33,7 +33,10 @@
  * the post-commit cache purge + claim-decision email seam.
  *
  * ── THE GRANT IS TWO COMPOSED BUILDERS (AECI-612 / §6) ────────────────────────
- * `approveClaim` concatenates `grantSeatStatements(...)` (seat, request resolve,
+ * Since AECI-1215 (`STAGE_2_PAID_TIERS_SPEC.md` §13.6) the operator picks a plan on
+ * every approve. `plan: 'free'` runs `grantSeatStatements` ALONE: no entitlement
+ * row, no `vendors.verified` flip, no cache purge. `plan: 'managed'` is the
+ * composition described here. `approveClaim` concatenates `grantSeatStatements(...)` (seat, request resolve,
  * workflow, claim audit) with `activateEntitlementStatements(...)` (the
  * `vendor_entitlements` row, the guarded `vendors.verified` flip, the entitlement
  * audit) into ONE `db.batch([...grant.stmts, ...ent.stmts])`. D1 has no
@@ -56,8 +59,10 @@
  * are injected at the route registration in `index.ts`.
  *
  * Cache: unlike request-moderation (which purges nothing — a `vendor_request`
- * renders on no cacheable page), a grant flips `vendors.verified` and creates a
- * seat, so it purges the vendor + its products' `Cache-Tag`s post-commit (§3).
+ * renders on no cacheable page), a Managed grant flips `vendors.verified`, so it
+ * purges the vendor + its products' `Cache-Tag`s post-commit (§3). A Free grant
+ * writes only the seat, which no cacheable page renders (the provision-seat route
+ * in `admin-vendors.ts` purges nothing for the same reason), so it purges nothing.
  */
 
 import {
@@ -71,6 +76,8 @@ import {
   type AdminClaimDetail,
   type AdminVendorSeat,
   type ClaimDuplicateSibling,
+  type ClaimEntitlement,
+  type ClaimGrantPlan,
   type ClaimGrantSummary,
   type LinkRef,
   type ListVendorClaimsResponse,
@@ -163,17 +170,21 @@ export type SendClaimDecisionEmail = (
     vendorSlug: string;
     targetName: string;
     identityOutcome?: 'linked' | 'invited';
+    /** Set only on approve (AECI-1215): the approved email has a Free and a Managed
+     *  variant, because the two plans unlock different things. */
+    plan?: ClaimGrantPlan;
   },
 ) => Promise<void>;
 
 const noopSendClaimEmail: SendClaimDecisionEmail = async () => {};
 
 /**
- * The tier a claim approval grants (AECI-612 / §6.3). `verified` is the paid ENTRY
- * rung (§3.1) and the only one this flow mints — moving a vendor up a future ladder
- * is the admin `PATCH /api/admin/vendors/:id/entitlement` action (§5), not a claim
- * decision. Typed as `EntitlementTier`, so adding a rung to `TIERS` cannot silently
- * turn this into a free-form string.
+ * The tier a MANAGED claim approval grants (AECI-612 / §6.3). `verified` is the paid
+ * ENTRY rung (§3.1) and the only one this flow mints — moving a vendor up a future
+ * ladder is the admin `PATCH /api/admin/vendors/:id/entitlement` action (§5), not a
+ * claim decision. Typed as `EntitlementTier`, so adding a rung to `TIERS` cannot
+ * silently turn this into a free-form string. A FREE approval (AECI-1215 / §13.6)
+ * mints no tier at all: Free is a seat with no row (§13.2).
  */
 const GRANT_TIER: EntitlementTier = 'verified';
 
@@ -366,6 +377,7 @@ export function createModerateClaimHandler(
       ? approveClaim(c, db, resolveIdentity, sendClaimDecisionEmail, {
           existing,
           reason,
+          plan: payload.plan,
           entitlement: payload.entitlement,
           actorId,
           actorType,
@@ -377,7 +389,10 @@ export function createModerateClaimHandler(
 interface ApproveArgs {
   existing: RawAdminVendorRequestRow;
   reason: string | null;
-  entitlement: ReturnType<typeof ModerateClaimSchema.parse>['entitlement'];
+  /** The operator's choice (AECI-1215 / §13.6). Required by the schema, no default. */
+  plan: ClaimGrantPlan;
+  /** Only ever set with `plan: 'managed'`; the schema refuses it on Free. */
+  entitlement: ClaimEntitlement | undefined;
   actorId: string;
   actorType: ReturnType<typeof auditActorType>;
 }
@@ -387,7 +402,7 @@ async function approveClaim(
   db: Db,
   resolveIdentity: typeof resolveClaimantIdentity,
   sendClaimDecisionEmail: SendClaimDecisionEmail,
-  { existing, reason, entitlement, actorId, actorType }: ApproveArgs,
+  { existing, reason, plan, entitlement, actorId, actorType }: ApproveArgs,
 ): Promise<Response> {
   // A `rejected` claim was never granted, so it can never be a valid re-grant or an
   // idempotent no-op — refuse it up front, BEFORE `resolveIdentity`, whose provision
@@ -480,6 +495,7 @@ async function approveClaim(
         seat_created: false,
         tier: tierFor(entitlementBefore),
         entitlement_created: false,
+        plan,
       });
       validateResponseInDev(c.env, () => ModerateClaimResponseSchema.parse(body));
       return json(body);
@@ -510,45 +526,56 @@ async function approveClaim(
     seatCreated,
     profileBefore,
     entitlement,
+    plan,
     reason,
     targetType: existing.targetType,
     targetId: existing.targetId,
   });
 
-  // The entitlement half of the same grant (§6.3). `tier: 'verified'` is the paid
-  // entry rung (§3.1) — the claim flow grants no other. The claim body's
+  // The entitlement half of the same grant (§6.3), on Managed only. `tier: 'verified'`
+  // is the paid entry rung (§3.1) — the claim flow grants no other. The claim body's
   // arrangement blob lands in BOTH places on purpose (§6.6): verbatim in the claim
   // audit metadata (the history ledger) and as columns on the row (the state).
   //
   // Per the §2.3 matrix this returns the frozen no-op — zero statements, `null`
   // audit entry — whenever the vendor already has an `active` row, which is the
   // second-seat case.
-  const ent = activateEntitlementStatements(db, {
-    vendorId: vendor.id,
-    tier: GRANT_TIER,
-    now: resolvedAt,
-    actorId,
-    actorType,
-    existing: entitlementBefore,
-    vendorWasVerified: vendor.verified,
-    grantedBy: actorId,
-    sourceRequestId: existing.id,
-    arrangement: entitlement,
-    action: ENTITLEMENT_GRANT_ACTION,
-    source: CLAIM_AUDIT_SOURCE,
-    reason,
-  });
+  //
+  // Free (AECI-1215 / §13.6) skips this call entirely: no row, no mirror flip, no
+  // second audit row. An existing entitlement, active or ended, is left alone.
+  const managed = plan === 'managed';
+  const ent = !managed
+    ? null
+    : activateEntitlementStatements(db, {
+        vendorId: vendor.id,
+        tier: GRANT_TIER,
+        now: resolvedAt,
+        actorId,
+        actorType,
+        existing: entitlementBefore,
+        vendorWasVerified: vendor.verified,
+        grantedBy: actorId,
+        sourceRequestId: existing.id,
+        arrangement: entitlement,
+        action: ENTITLEMENT_GRANT_ACTION,
+        source: CLAIM_AUDIT_SOURCE,
+        reason,
+        extraMetadata: { plan },
+      });
 
   // ONE batch. The seat, the request resolve, the workflow, the entitlement row,
   // the mirror flip and both audit rows commit or roll back together (§26.1).
   // AECI-989: a new active seat returns the contests a ban moved to AECi.
-  // The grant activates the entitlement in this same batch, which the return's
-  // pre-batch read cannot see (AECI-1092 reconciliation).
+  // A Managed grant activates the entitlement in this same batch, which the return's
+  // pre-batch read cannot see (AECI-1092 reconciliation), so it says so. A Free grant
+  // activates nothing, so the return reads the vendor's real entitlement instead, the
+  // same as the provision-seat route: a contest on a connector-powered row only
+  // returns to an owner that already holds an active plan.
   const returned = await planSeatGrantReturn(
     db,
     { vendorId: vendor.id, actorId, actorType, now: resolvedAt, source: CLAIM_AUDIT_SOURCE },
     userId,
-    { entitledAfterBatch: true },
+    { entitledAfterBatch: managed },
   );
 
   // AECI-1092 reconciliation: a return of a contest on a connector-powered row carries
@@ -556,7 +583,11 @@ async function approveClaim(
   // the batch: nothing is written and this handler answers `409 VENDOR_SEATS_CHANGED`.
   // The admin's (or redeemer's) retry then re-plans against the cleared state.
   try {
-    await db.batch([...grant.stmts, ...ent.stmts, ...(returned?.stmts ?? [])] as BatchTuple);
+    await db.batch([
+      ...grant.stmts,
+      ...(ent?.stmts ?? []),
+      ...(returned?.stmts ?? []),
+    ] as BatchTuple);
   } catch (error) {
     if (returned && isSeatsChangedError(error)) throw seatsChangedError();
     throw error;
@@ -570,8 +601,15 @@ async function approveClaim(
 
   // Post-commit, best-effort (§3): purge the vendor + its products, send the
   // claim-approved email (AECI-528 seam), forward audit + workflow to PostHog.
-  const purgeTags = await vendorPurgeTags(db, vendor);
-  c.executionCtx.waitUntil(purgeGrantTags(c, purgeTags));
+  //
+  // Managed keeps the purge it always had, second seat included. Free purges
+  // nothing: the seat is the only thing it wrote, and no cacheable page renders a
+  // seat. A purge there would invalidate pages for a verified flip that did not
+  // happen (AECI-1215).
+  if (managed) {
+    const purgeTags = await vendorPurgeTags(db, vendor);
+    c.executionCtx.waitUntil(purgeGrantTags(c, purgeTags));
+  }
   c.executionCtx.waitUntil(
     sendClaimDecisionEmail(c, {
       decision: 'approved',
@@ -581,6 +619,7 @@ async function approveClaim(
       vendorSlug: vendor.slug,
       targetName,
       identityOutcome,
+      plan,
     }).catch((error) => {
       try {
         logToPosthog(c.executionCtx, c.env, c.req.raw, {
@@ -596,10 +635,10 @@ async function approveClaim(
   // Every audit row and transition forwards (§26.5) in ONE batched request: the
   // seat return adds a row and a transition per contest, so one `fetch` per row
   // would run past the connection limit. `ent.auditEntry` is null on the
-  // second-seat path, and the batch skips it.
+  // second-seat path, and `ent` itself is null on Free. The batch skips both.
   forwardAuditBatch(
     c,
-    [grant.auditEntry, ent.auditEntry, ...(returned?.audits ?? [])],
+    [grant.auditEntry, ent?.auditEntry ?? null, ...(returned?.audits ?? [])],
     [grant.workflowEntry, ...(returned?.transitions ?? [])],
   );
 
@@ -610,12 +649,13 @@ async function approveClaim(
     {
       user_id: userId,
       vendor_id: vendor.id,
-      // Where the MIRROR actually landed, not an assumption. True on a first grant
-      // (the guarded flip fired) and on a second seat (already true). It is only
-      // false in the one drifted state this grant cannot repair — an `active`
-      // entitlement row over `verified = 0`, where the §2.3 matrix emits nothing
-      // and `ops:backfill-entitlements` (Guard 2's remedy) owns the fix.
-      verified: vendor.verified || ent.verifiedFlipped,
+      // Where the MIRROR actually landed, not an assumption. On Managed it is true
+      // on a first grant (the guarded flip fired) and on a second seat (already
+      // true). It is only false in the one drifted state this grant cannot repair —
+      // an `active` entitlement row over `verified = 0`, where the §2.3 matrix emits
+      // nothing and `ops:backfill-entitlements` (Guard 2's remedy) owns the fix.
+      // On Free it is whatever the vendor already had (§13.6).
+      verified: vendor.verified || (ent?.verifiedFlipped ?? false),
       identity_outcome: identityOutcome,
       seat_created: seatCreated,
       // The tier this grant WROTE, or — on the second-seat no-op, where nothing was
@@ -623,8 +663,10 @@ async function approveClaim(
       // fail-closed. Today `TIERS` is binary so both arms say `verified`; the
       // distinction is what keeps the readout honest once a rung is added (§3.1
       // makes that a data-only edit).
-      tier: ent.stmts.length > 0 ? GRANT_TIER : tierFor(entitlementBefore),
-      entitlement_created: ent.entitlementCreated,
+      // On Free nothing was written, so this is the pre-existing readout too.
+      tier: ent && ent.stmts.length > 0 ? GRANT_TIER : tierFor(entitlementBefore),
+      entitlement_created: ent?.entitlementCreated ?? false,
+      plan,
     },
   );
   validateResponseInDev(c.env, () => ModerateClaimResponseSchema.parse(body));

@@ -60,6 +60,10 @@ const EMITTED_ACTIONS = [
   'product_version.created',
   'product_version.updated',
   'product_version.deleted',
+  // AECI-1216, the three "Looks right" routes.
+  'vendor.reviewed',
+  'product.reviewed',
+  'product.integrations_reviewed',
   'review.submitted',
   'review.approved',
   'review.rejected',

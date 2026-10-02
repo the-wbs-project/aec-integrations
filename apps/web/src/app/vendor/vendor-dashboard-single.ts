@@ -98,12 +98,7 @@ import { VendorSeatRoster } from './components/vendor-seat-roster';
             Your products
           </h2>
           <div class="mt-4">
-            <aec-vendor-products-section
-              [products]="m.products"
-              [canEdit]="canEditProducts()"
-              [canEditTaxonomy]="canEditTaxonomy()"
-              [canEditUsefulness]="canEditUsefulness()"
-            />
+            <aec-vendor-products-section [products]="m.products" />
           </div>
         </section>
 
@@ -191,13 +186,8 @@ export class VendorDashboardSingle {
     () => this.me().entitlement.capabilities,
   );
   protected readonly canEditProfile = computed(() => this.capabilities().includes('profile.edit'));
-  protected readonly canEditProducts = computed(() => this.capabilities().includes('product.edit'));
-  protected readonly canEditTaxonomy = computed(() =>
-    this.capabilities().includes('product.taxonomy.edit'),
-  );
-  protected readonly canEditUsefulness = computed(() =>
-    this.capabilities().includes('product.usefulness.edit'),
-  );
+  // Product gates live on each product's `plan` (AECI-1214, §13.7): the product
+  // form and facet editors read it through `productCan`, so none are passed here.
   /** AECI-623: the same capability the six attestation and version writes assert. */
   protected readonly canAuthorAttestations = computed(() =>
     this.capabilities().includes('attestation.author'),

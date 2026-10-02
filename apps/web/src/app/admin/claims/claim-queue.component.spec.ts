@@ -139,6 +139,7 @@ function makeApiMock(rows: AdminClaim[], total = rows.length): ApiMock {
                 // same batch, and reports the tier it landed on.
                 tier: 'verified',
                 entitlement_created: true,
+                plan: 'managed',
               }
             : null,
       }),
@@ -182,14 +183,36 @@ function buttonByText(root: HTMLElement, text: string): HTMLButtonElement {
   return btn as HTMLButtonElement;
 }
 
-/** Open the approve form and type the arrangement note, then return the card. */
+/** Pick a plan radio in the open approve form (AECI-1215). */
+function pickPlan(
+  fixture: { detectChanges(): void },
+  card: HTMLElement,
+  plan: 'free' | 'managed',
+): void {
+  const radio = card.querySelector(`input[type="radio"][value="${plan}"]`) as HTMLInputElement;
+  radio.checked = true;
+  radio.dispatchEvent(new Event('change'));
+  fixture.detectChanges();
+}
+
+/** Open the approve form and pick a plan, Managed unless told otherwise. */
+function openApproveWithPlan(
+  fixture: { detectChanges(): void },
+  card: HTMLElement,
+  plan: 'free' | 'managed' = 'managed',
+): void {
+  buttonByText(card, 'Grant vendor account').click();
+  fixture.detectChanges();
+  pickPlan(fixture, card, plan);
+}
+
+/** Open the approve form, pick Managed and type the arrangement note. */
 function typeApproveNote(
   fixture: { detectChanges(): void },
   card: HTMLElement,
   note: string,
 ): void {
-  buttonByText(card, 'Grant vendor account').click();
-  fixture.detectChanges();
+  openApproveWithPlan(fixture, card, 'managed');
   const textarea = card.querySelector('textarea') as HTMLTextAreaElement;
   textarea.value = note;
   textarea.dispatchEvent(new Event('input'));
@@ -492,22 +515,103 @@ describe('ClaimQueue', () => {
     fixture.detectChanges();
     expect(api.moderate).toHaveBeenCalledWith('c1', {
       action: 'approve',
+      plan: 'managed',
       entitlement: { notes: 'PO #4471, USD 5k/yr' },
     });
     expect(el.querySelectorAll('article')).toHaveLength(1);
     expect(el.textContent).toContain('Bluebeam');
   });
 
-  it('approves without a note: omits entitlement', async () => {
+  it('approves Managed without a note: omits entitlement', async () => {
     const api = makeApiMock([makeClaim({ id: 'c1' })]);
     const { el, fixture } = await setup(api);
-    buttonByText(cardFor(el, 'Procore'), 'Grant vendor account').click();
-    fixture.detectChanges();
+    openApproveWithPlan(fixture, cardFor(el, 'Procore'), 'managed');
     buttonByText(cardFor(el, 'Procore'), 'Confirm grant').click();
     await settle();
     fixture.detectChanges();
-    expect(api.moderate).toHaveBeenCalledWith('c1', { action: 'approve' });
+    expect(api.moderate).toHaveBeenCalledWith('c1', { action: 'approve', plan: 'managed' });
     expect(el.querySelector('article')).toBeNull();
+  });
+
+  // ── The plan choice (AECI-1215 / STAGE_2_PAID_TIERS_SPEC.md §13.6) ─────────
+
+  it('asks for a plan in a labelled radio group with nothing preselected', async () => {
+    const { el, fixture } = await setup(makeApiMock([makeClaim({ id: 'c1' })]));
+    const card = cardFor(el, 'Procore');
+    buttonByText(card, 'Grant vendor account').click();
+    fixture.detectChanges();
+
+    const fieldset = card.querySelector('fieldset') as HTMLFieldSetElement;
+    expect(fieldset.querySelector('legend')?.textContent).toContain('Plan');
+    const radios = [...fieldset.querySelectorAll('input[type="radio"]')] as HTMLInputElement[];
+    expect(radios.map((r) => r.value)).toEqual(['free', 'managed']);
+    expect(radios.every((r) => !r.checked)).toBe(true);
+    // One group: both radios share a name.
+    expect(new Set(radios.map((r) => r.name)).size).toBe(1);
+    expect(fieldset.textContent).toContain('Free');
+    expect(fieldset.textContent).toContain('Managed');
+  });
+
+  it('keeps Confirm grant disabled until a plan is picked', async () => {
+    const api = makeApiMock([makeClaim({ id: 'c1' })]);
+    const { el, fixture } = await setup(api);
+    const card = cardFor(el, 'Procore');
+    buttonByText(card, 'Grant vendor account').click();
+    fixture.detectChanges();
+
+    const confirm = buttonByText(card, 'Confirm grant');
+    expect(confirm.disabled).toBe(true);
+    // Enter-to-submit with no plan sends nothing.
+    (card.querySelector('form') as HTMLFormElement).dispatchEvent(
+      new Event('submit', { cancelable: true }),
+    );
+    await settle();
+    expect(api.moderate).not.toHaveBeenCalled();
+
+    pickPlan(fixture, card, 'free');
+    expect(buttonByText(card, 'Confirm grant').disabled).toBe(false);
+  });
+
+  it('shows the arrangement notes only for Managed', async () => {
+    const { el, fixture } = await setup(makeApiMock([makeClaim({ id: 'c1' })]));
+    const card = cardFor(el, 'Procore');
+    buttonByText(card, 'Grant vendor account').click();
+    fixture.detectChanges();
+    expect(card.querySelector('textarea')).toBeNull();
+
+    pickPlan(fixture, card, 'free');
+    expect(card.querySelector('textarea')).toBeNull();
+
+    pickPlan(fixture, card, 'managed');
+    expect(card.querySelector('textarea')).not.toBeNull();
+    expect(card.textContent).toContain('Payment / arrangement notes');
+  });
+
+  it('approves Free with plan free and never sends a typed note', async () => {
+    const api = makeApiMock([makeClaim({ id: 'c1' })]);
+    const { el, fixture } = await setup(api);
+    const card = cardFor(el, 'Procore');
+    // Type a note under Managed, then switch to Free: the note must not travel.
+    typeApproveNote(fixture, card, 'PO #4471');
+    pickPlan(fixture, card, 'free');
+    buttonByText(card, 'Confirm grant').click();
+    await settle();
+    fixture.detectChanges();
+    expect(api.moderate).toHaveBeenCalledWith('c1', { action: 'approve', plan: 'free' });
+    expect(el.querySelector('[role="status"]')?.textContent).toContain('Free plan');
+  });
+
+  it('clears the plan when the form is reopened', async () => {
+    const { el, fixture } = await setup(makeApiMock([makeClaim({ id: 'c1' })]));
+    const card = cardFor(el, 'Procore');
+    openApproveWithPlan(fixture, card, 'managed');
+    buttonByText(card, 'Cancel').click();
+    fixture.detectChanges();
+    buttonByText(card, 'Grant vendor account').click();
+    fixture.detectChanges();
+    expect(buttonByText(card, 'Confirm grant').disabled).toBe(true);
+    const radios = [...card.querySelectorAll('input[type="radio"]')] as HTMLInputElement[];
+    expect(radios.every((r) => !r.checked)).toBe(true);
   });
 
   // ── The nav badge (AECI-922) ───────────────────────────────────────────────
@@ -518,8 +622,7 @@ describe('ClaimQueue', () => {
     const api = makeApiMock([makeClaim({ id: 'c1' })]);
     const { el, fixture, store } = await setup(api);
     store.seed({ reviews: 5, requests: 2, claims: 3 });
-    buttonByText(cardFor(el, 'Procore'), 'Grant vendor account').click();
-    fixture.detectChanges();
+    openApproveWithPlan(fixture, cardFor(el, 'Procore'));
     buttonByText(cardFor(el, 'Procore'), 'Confirm grant').click();
     await settle();
     fixture.detectChanges();
@@ -568,8 +671,7 @@ describe('ClaimQueue', () => {
     const api = makeApiMock([makeClaim({ id: 'c1' })]);
     api.moderate.mockRejectedValueOnce(new HttpErrorResponse({ status: 409 }));
     const { el, fixture } = await setup(api);
-    buttonByText(cardFor(el, 'Procore'), 'Grant vendor account').click();
-    fixture.detectChanges();
+    openApproveWithPlan(fixture, cardFor(el, 'Procore'));
     buttonByText(cardFor(el, 'Procore'), 'Confirm grant').click();
     await settle();
     fixture.detectChanges();
@@ -583,8 +685,7 @@ describe('ClaimQueue', () => {
     const api = makeApiMock([makeClaim({ id: 'c1' })]);
     api.moderate.mockRejectedValueOnce(new HttpErrorResponse({ status: 503 }));
     const { el, fixture } = await setup(api);
-    buttonByText(cardFor(el, 'Procore'), 'Grant vendor account').click();
-    fixture.detectChanges();
+    openApproveWithPlan(fixture, cardFor(el, 'Procore'));
     buttonByText(cardFor(el, 'Procore'), 'Confirm grant').click();
     await settle();
     fixture.detectChanges();

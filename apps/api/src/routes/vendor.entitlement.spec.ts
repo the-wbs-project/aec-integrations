@@ -12,11 +12,13 @@
  *
  * Three personas, one per entitlement state that behaves differently:
  *
- *   PAID      — an `active` entitlement. Writes work; nothing about the surface
- *               changed for this vendor, which is the whole launch AC.
- *   LAPSED    — `revoked` / `expired` / `pending`. Reads 200, writes 403.
+ *   PAID      — an `active` entitlement (Managed). Every write works.
+ *   LAPSED    — `revoked` / `expired` / `pending`. Resolves to the Free plan:
+ *               reads 200, company details and the four `listing_tier` product
+ *               fields write, every Managed-only field 403s (AECI-1214, §13.3).
  *   UNCLAIMED — no `vendor_entitlements` row at all. Same as LAPSED, but with a
- *               null term readout rather than a lapsed one.
+ *               null term readout rather than a lapsed one. The connector
+ *               catalogue seat is this persona.
  *
  * ── The invariant this file exists for ──────────────────────────────────────
  * **Reads are NEVER gated** (§4.3 / §10 R13). `/vendor` is gated by
@@ -29,8 +31,22 @@
  * reopening §4.3.
  */
 
-import { ApiErrorCode, VendorMeResponseSchema } from '@aeci/shared';
-import { CAPABILITIES, capabilitiesFor, hasCapability } from '@aeci/shared/entitlements';
+import {
+  ApiErrorCode,
+  UpdateVendorProductSchema,
+  UpdateVendorProfileSchema,
+  VendorMeResponseSchema,
+} from '@aeci/shared';
+import {
+  CAPABILITIES,
+  PRODUCT_FIELD_CAPABILITIES,
+  TIERS,
+  VENDOR_FIELD_CAPABILITIES,
+  capabilitiesFor,
+  hasCapability,
+  type Capability,
+  type EntitlementTier,
+} from '@aeci/shared/entitlements';
 import { eq } from 'drizzle-orm';
 import { Hono } from 'hono';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -54,6 +70,7 @@ import { fakeExecutionContext } from '../test/helpers';
 import {
   PRODUCT_COLUMN_MAP,
   VENDOR_COLUMN_MAP,
+  assertFieldsEntitled,
   createUpdateVendorProductHandler,
   createUpdateVendorProfileHandler,
   createVendorMeHandler,
@@ -223,10 +240,14 @@ describe('reads are NEVER gated (§4.3 / R13 — invariant)', () => {
       expect(() => VendorMeResponseSchema.parse(body)).not.toThrow();
       expect(body.vendor.slug).toBe(slug);
 
-      // The block is present and honestly downgraded: no capabilities, so the
-      // dashboard can disable its forms off one field instead of guessing.
+      // The block is present and honestly downgraded to the Free capabilities,
+      // so the dashboard can gate its forms off one field instead of guessing.
       expect(body.entitlement.tier).toBe('unclaimed');
-      expect(body.entitlement.capabilities).toEqual([]);
+      expect(body.entitlement.capabilities).toEqual([...capabilitiesFor('unclaimed')]);
+      // Every product carries the vendor's block as its plan until per-product
+      // plans exist (§13.7).
+      expect(body.products.length).toBeGreaterThan(0);
+      for (const product of body.products) expect(product.plan).toEqual(body.entitlement);
     },
   );
 
@@ -273,9 +294,11 @@ describe('reads are NEVER gated (§4.3 / R13 — invariant)', () => {
       expect(read.body.entitlement.tier).toBe('unclaimed');
       expect(read.body.entitlement.status).toBe(status);
 
-      // …and the write is still refused, so "reads open, writes closed" holds
-      // for every non-granting status, not just the one seeded above.
-      const write = await call('/api/vendor/profile', 'PATCH', SEAT_LAPSED, { description: 'no' });
+      // …and a Managed-only write is still refused, so every non-granting
+      // status lands on the Free plan, not just the one seeded above.
+      const write = await call(`/api/vendor/products/${PRODUCT_LAPSED}`, 'PATCH', SEAT_LAPSED, {
+        api_docs_url: 'https://x.test/api',
+      });
       expect(write.status).toBe(403);
       expect(write.body.error.code).toBe(ApiErrorCode.ENTITLEMENT_REQUIRED);
     },
@@ -290,6 +313,7 @@ describe('reads are NEVER gated (§4.3 / R13 — invariant)', () => {
       period_end: '2027-01-01T00:00:00.000Z',
       capabilities: [...CAPABILITIES],
     });
+    for (const product of body.products) expect(product.plan).toEqual(body.entitlement);
   });
 
   it('builds the block from the SESSION — no extra query, and it cannot disagree', async () => {
@@ -301,82 +325,185 @@ describe('reads are NEVER gated (§4.3 / R13 — invariant)', () => {
     expect(write.status).toBe(200);
 
     const lapsedRead = await call('/api/vendor/me', 'GET', SEAT_LAPSED);
-    const lapsedWrite = await call('/api/vendor/profile', 'PATCH', SEAT_LAPSED, {
-      description: 'no',
+    const lapsedWrite = await call(`/api/vendor/products/${PRODUCT_LAPSED}`, 'PATCH', SEAT_LAPSED, {
+      tool_integrations_url: 'https://x.test/int',
     });
-    expect(lapsedRead.body.entitlement.capabilities).not.toContain('profile.edit');
+    expect(lapsedRead.body.products[0].plan.capabilities).not.toContain('product.edit');
     expect(lapsedWrite.status).toBe(403);
   });
 });
 
-// ─── Writes ARE gated ────────────────────────────────────────────────────────
+// ─── The Free / Managed split on writes (AECI-1214) ──────────────────────────
 
-describe('writes require an active entitlement', () => {
-  const WRITES: ReadonlyArray<{
-    label: string;
-    path: (productId: string) => string;
-    body: unknown;
-    capability: string;
-  }> = [
+/**
+ * `STAGE_2_PAID_TIERS_SPEC.md` §13.3. A seat with no plan (`unclaimed`, which a
+ * lapsed row also resolves to) edits company details and the four product fields
+ * that feed `listing_tier`. Everything else on the product stays Managed-only.
+ * The connector catalogue seat is a "no entitlement row" seat, so it is covered
+ * by the same persona (ruling 2026-10-02).
+ */
+const NO_PLAN: ReadonlyArray<{ label: string; sub: string; productId: string; vendorId: string }> =
+  [
+    { label: 'revoked', sub: SEAT_LAPSED, productId: PRODUCT_LAPSED, vendorId: VENDOR_LAPSED },
     {
-      label: 'PATCH /api/vendor/profile',
-      path: () => '/api/vendor/profile',
-      body: { description: 'hijacked' },
-      capability: 'profile.edit',
-    },
-    {
-      label: 'PATCH /api/vendor/products/:id',
-      path: (productId) => `/api/vendor/products/${productId}`,
-      body: { description: 'hijacked' },
-      capability: 'product.edit',
+      label: 'no entitlement row',
+      sub: SEAT_UNCLAIMED,
+      productId: PRODUCT_UNCLAIMED,
+      vendorId: VENDOR_UNCLAIMED,
     },
   ];
 
-  const LOCKED_OUT: ReadonlyArray<{ label: string; sub: string; productId: string }> = [
-    { label: 'revoked', sub: SEAT_LAPSED, productId: PRODUCT_LAPSED },
-    { label: 'no entitlement row', sub: SEAT_UNCLAIMED, productId: PRODUCT_UNCLAIMED },
-  ];
+/** Each Managed-only product field, sent alone, and the capability its 403 names. */
+const MANAGED_ONLY: ReadonlyArray<{ field: string; value: unknown; capability: string }> = [
+  { field: 'tool_integrations_url', value: 'https://x.test/int', capability: 'product.edit' },
+  { field: 'api_docs_url', value: 'https://x.test/api', capability: 'product.edit' },
+  {
+    field: 'usefulness',
+    value: { audiences: [{ slug: 'architects', points: ['x'] }], phases: [] },
+    capability: 'product.usefulness.edit',
+  },
+  { field: 'audience_slugs', value: ['architects'], capability: 'product.taxonomy.edit' },
+  { field: 'phase_slugs', value: ['design'], capability: 'product.taxonomy.edit' },
+  { field: 'trade_slugs', value: ['electrical'], capability: 'product.taxonomy.edit' },
+];
 
-  for (const write of WRITES) {
-    for (const persona of LOCKED_OUT) {
-      it(`${write.label} → 403 ENTITLEMENT_REQUIRED for a ${persona.label} vendor`, async () => {
+describe('a seat with no plan edits the Free fields (§13.3)', () => {
+  for (const persona of NO_PLAN) {
+    it(`PATCH /api/vendor/profile → 200 for a ${persona.label} vendor`, async () => {
+      const { status, body } = await call('/api/vendor/profile', 'PATCH', persona.sub, {
+        description: 'Free blurb',
+        headquarters: 'Denver, CO',
+        website: 'https://free.example',
+      });
+      expect(status).toBe(200);
+      expect(body.vendor.description).toBe('Free blurb');
+
+      const [row] = await t.db.select().from(vendors).where(eq(vendors.id, persona.vendorId));
+      expect(row?.headquarters).toBe('Denver, CO');
+      const audits = await auditRows();
+      expect(audits).toHaveLength(1);
+      expect(audits[0]?.action).toBe('vendor.updated');
+    });
+
+    it(`PATCH /api/vendor/products/:id → 200 for the Free fields, ${persona.label}`, async () => {
+      const { status, body } = await call(
+        `/api/vendor/products/${persona.productId}`,
+        'PATCH',
+        persona.sub,
+        {
+          description: 'Free product blurb',
+          website: 'https://p.example',
+          category_slugs: ['bim'],
+        },
+      );
+      expect(status).toBe(200);
+      expect(body.product.description).toBe('Free product blurb');
+      expect(body.product.website).toBe('https://p.example');
+      expect(body.product.category_slugs).toEqual(['bim']);
+      // The echo carries this product's plan, so the form's gates re-derive from
+      // the same block the write was checked against (§13.7).
+      expect(body.product.plan.tier).toBe('unclaimed');
+      expect(body.product.plan.capabilities).toEqual([...capabilitiesFor('unclaimed')]);
+
+      const cats = await t.db
+        .select()
+        .from(productCategories)
+        .where(eq(productCategories.productId, persona.productId));
+      expect(cats).toHaveLength(1);
+    });
+
+    for (const managed of MANAGED_ONLY) {
+      it(`refuses ${managed.field} alone with 403 naming it, ${persona.label}`, async () => {
         const { status, body } = await call(
-          write.path(persona.productId),
+          `/api/vendor/products/${persona.productId}`,
           'PATCH',
           persona.sub,
-          write.body,
+          { [managed.field]: managed.value },
         );
-
-        // 403 — not 402 (leaks a billing model into a payer-agnostic contract,
-        // and API_CONTRACTS.md §4.1 has no 402 row) and not 404 (this vendor
-        // demonstrably exists and owns the row; a 404 would be a lie that also
-        // breaks the dashboard).
         expect(status).toBe(403);
         expect(body.error.code).toBe(ApiErrorCode.ENTITLEMENT_REQUIRED);
         expect(body.error.details).toEqual({
-          capability: write.capability,
+          capability: managed.capability,
           tier: 'unclaimed',
+          fields: [managed.field],
         });
       });
     }
   }
 
-  it('writes NOTHING and audits nothing when it rejects', async () => {
-    await call('/api/vendor/profile', 'PATCH', SEAT_LAPSED, { description: 'hijacked' });
-    await call(`/api/vendor/products/${PRODUCT_LAPSED}`, 'PATCH', SEAT_LAPSED, {
-      description: 'hijacked',
+  it('refuses a mixed Free + Managed request WHOLE, naming every denied field', async () => {
+    const { status, body } = await call(
+      `/api/vendor/products/${PRODUCT_UNCLAIMED}`,
+      'PATCH',
+      SEAT_UNCLAIMED,
+      {
+        description: 'would be allowed',
+        category_slugs: ['bim'],
+        trade_slugs: ['electrical'],
+        api_docs_url: 'https://x.test/api',
+      },
+    );
+    expect(status).toBe(403);
+    expect(body.error.code).toBe(ApiErrorCode.ENTITLEMENT_REQUIRED);
+    // Sorted, so the body is deterministic; the capability is the first one's.
+    expect(body.error.details).toEqual({
+      capability: 'product.edit',
+      tier: 'unclaimed',
+      fields: ['api_docs_url', 'trade_slugs'],
     });
 
-    const [vendor] = await t.db.select().from(vendors).where(eq(vendors.id, VENDOR_LAPSED));
-    const [product] = await t.db.select().from(products).where(eq(products.id, PRODUCT_LAPSED));
-    expect(vendor?.description).toBe('Lapsed blurb');
-    expect(product?.description).toBe('Lapsed');
-    // The gate runs before the batch opens, so there is no half-applied edit and
-    // no audit row for a write that never happened.
+    // Nothing half-applied: not the allowed column, not the allowed facet.
+    const [product] = await t.db.select().from(products).where(eq(products.id, PRODUCT_UNCLAIMED));
+    expect(product?.description).toBe('Unclaimed');
+    const cats = await t.db
+      .select()
+      .from(productCategories)
+      .where(eq(productCategories.productId, PRODUCT_UNCLAIMED));
+    expect(cats).toHaveLength(0);
     expect(await auditRows()).toHaveLength(0);
   });
 
-  it('lets the PAID vendor through unchanged — the launch AC', async () => {
+  it('answers 403, not 400, for a denied facet carrying an unknown slug', async () => {
+    // The field gate runs before term resolution, so an unentitled caller never
+    // spends the read and never learns which slugs exist.
+    const { status, body } = await call(
+      `/api/vendor/products/${PRODUCT_UNCLAIMED}`,
+      'PATCH',
+      SEAT_UNCLAIMED,
+      { trade_slugs: ['no-such-trade'] },
+    );
+    expect(status).toBe(403);
+    expect(body.error.code).toBe(ApiErrorCode.ENTITLEMENT_REQUIRED);
+  });
+
+  it('still rejects an empty request as a validation failure', async () => {
+    const { status, body } = await call(
+      `/api/vendor/products/${PRODUCT_UNCLAIMED}`,
+      'PATCH',
+      SEAT_UNCLAIMED,
+      {},
+    );
+    expect(status).toBe(400);
+    expect(body.error.code).toBe(ApiErrorCode.VALIDATION_FAILED);
+    const profile = await call('/api/vendor/profile', 'PATCH', SEAT_UNCLAIMED, {});
+    expect(profile.status).toBe(400);
+  });
+
+  it('answers 404 — NOT 403 — when a no-plan vendor targets a product it does not own', async () => {
+    // Ownership settles BEFORE the field gate, so a 403 can never confirm that
+    // another vendor's product exists. Both a Free and a Managed field are tried.
+    for (const body of [{ description: 'hijacked' }, { api_docs_url: 'https://x.test/api' }]) {
+      const res = await call(`/api/vendor/products/${PRODUCT_PAID}`, 'PATCH', SEAT_UNCLAIMED, body);
+      expect(res.status).toBe(404);
+      expect(res.body.error.code).toBe(ApiErrorCode.NOT_FOUND);
+    }
+    const [product] = await t.db.select().from(products).where(eq(products.id, PRODUCT_PAID));
+    expect(product?.description).toBe('Paid product');
+  });
+});
+
+describe('a Managed seat edits every field', () => {
+  it('writes the Free and the Managed fields together', async () => {
     const profile = await call('/api/vendor/profile', 'PATCH', SEAT_PAID, {
       description: 'New blurb',
     });
@@ -385,105 +512,21 @@ describe('writes require an active entitlement', () => {
 
     const product = await call(`/api/vendor/products/${PRODUCT_PAID}`, 'PATCH', SEAT_PAID, {
       description: 'New product blurb',
+      api_docs_url: 'https://x.test/api',
+      tool_integrations_url: 'https://x.test/int',
       category_slugs: ['bim'],
+      trade_slugs: [],
     });
     expect(product.status).toBe(200);
     expect(product.body.product.description).toBe('New product blurb');
+    expect(product.body.product.api_docs_url).toBe('https://x.test/api');
     expect(product.body.product.category_slugs).toEqual(['bim']);
-  });
-
-  it('gates a trade-only edit the same as any other facet', async () => {
-    // Worth pinning separately: trades are the highest-leverage discovery facet
-    // (a trade tag can publish a whole browse page and a sitemap entry), so it
-    // is the one a lapsed vendor has the most reason to try. It is gated because
-    // `trade_slugs` is in FACETS, not because anything names it — this test is
-    // what would catch a future facet added to the schema but not to that table.
-    const { status, body } = await call(
-      `/api/vendor/products/${PRODUCT_LAPSED}`,
-      'PATCH',
-      SEAT_LAPSED,
-      { trade_slugs: ['electrical'] },
-    );
-    expect(status).toBe(403);
-    expect(body.error.code).toBe(ApiErrorCode.ENTITLEMENT_REQUIRED);
-  });
-
-  it('gates a usefulness-ONLY edit', async () => {
-    // Reports the BASE `product.edit` right for the same reason the taxonomy case
-    // below does: any PATCH here writes the `products` row, so the base right is
-    // checked first and `product.usefulness.edit` layers on top.
-    const { status, body } = await call(
-      `/api/vendor/products/${PRODUCT_LAPSED}`,
-      'PATCH',
-      SEAT_LAPSED,
-      { usefulness: { audiences: [{ slug: 'architects', points: ['x'] }], phases: [] } },
-    );
-    expect(status).toBe(403);
-    expect(body.error.code).toBe(ApiErrorCode.ENTITLEMENT_REQUIRED);
-  });
-
-  it('gates a taxonomy-ONLY edit, which writes no product column at all', async () => {
-    // The facet arrays are join rewrites, not columns, so `splitPatch`'s field
-    // axis cannot see them — without an explicit check a lapsed vendor could
-    // re-file its products across the browse pages while "editing nothing".
-    //
-    // The reported capability is the BASE `product.edit` right, not
-    // `product.taxonomy.edit`: any PATCH on this route writes the `products`
-    // row (`updated_at` at minimum, which is what feeds the nightly Algolia
-    // sync), so the base right is checked first and taxonomy assignment is an
-    // ADDITIONAL capability layered on top. The two only become distinguishable
-    // once a middle rung exists that holds one without the other — at launch the
-    // binary ladder grants both together.
-    const { status, body } = await call(
-      `/api/vendor/products/${PRODUCT_LAPSED}`,
-      'PATCH',
-      SEAT_LAPSED,
-      { category_slugs: ['bim'] },
-    );
-    expect(status).toBe(403);
-    expect(body.error.code).toBe(ApiErrorCode.ENTITLEMENT_REQUIRED);
-    expect(body.error.details.capability).toBe('product.edit');
-
-    // The assignment is untouched and `updated_at` did not move.
-    const cats = await t.db
-      .select()
-      .from(productCategories)
-      .where(eq(productCategories.productId, PRODUCT_LAPSED));
-    expect(cats).toHaveLength(0);
-  });
-
-  it('requires BOTH capabilities when facets ride along, and grants both at launch', async () => {
-    // `verified` holds `product.edit` AND `product.taxonomy.edit`, so the two
-    // checks in the handler are transparent today. This pins that the second
-    // check does not reject an entitled vendor — the failure mode of adding a
-    // gate whose capability nobody actually holds.
-    expect(hasCapability('verified', 'product.edit')).toBe(true);
-    expect(hasCapability('verified', 'product.taxonomy.edit')).toBe(true);
-
-    const { status, body } = await call(
-      `/api/vendor/products/${PRODUCT_PAID}`,
-      'PATCH',
-      SEAT_PAID,
-      {
-        category_slugs: ['bim'],
-      },
-    );
-    expect(status).toBe(200);
-    expect(body.product.category_slugs).toEqual(['bim']);
-  });
-
-  it('answers 404 — NOT 403 — when a locked-out vendor targets a product it does not own', async () => {
-    // Ownership settles BEFORE the capability gate on the product route, so a
-    // 403 can never confirm that another vendor's product exists. 404-never-403
-    // is the harder invariant of this surface.
-    const { status, body } = await call(
-      `/api/vendor/products/${PRODUCT_PAID}`,
-      'PATCH',
-      SEAT_UNCLAIMED,
-      { description: 'hijacked' },
-    );
-    expect(status).toBe(404);
-    expect(body.error.code).toBe(ApiErrorCode.NOT_FOUND);
+    expect(product.body.product.plan).toEqual({
+      tier: 'verified',
+      status: 'active',
+      period_end: '2027-01-01T00:00:00.000Z',
+      capabilities: [...CAPABILITIES],
+    });
   });
 
   it('rejects a BANNED seat before any entitlement question (AECI-524 ordering)', async () => {
@@ -497,9 +540,8 @@ describe('writes require an active entitlement', () => {
     const { status, body } = await call('/api/vendor/profile', 'PATCH', uuid(103), {
       description: 'x',
     });
-    // A fully paid-up vendor, so the ONLY thing that can reject this is the ban —
-    // and it must be the plain FORBIDDEN with the ban reason, not an
-    // ENTITLEMENT_REQUIRED that would tell a banned user to go buy something.
+    // The ONLY thing that can reject this is the ban — and it must be the plain
+    // FORBIDDEN with the ban reason, not an ENTITLEMENT_REQUIRED.
     expect(status).toBe(403);
     expect(body.error.code).toBe(ApiErrorCode.FORBIDDEN);
     expect(body.error.message).toBe('Portal abuse');
@@ -508,26 +550,39 @@ describe('writes require an active entitlement', () => {
 
 // ─── The second axis: the field-granular allow-list ──────────────────────────
 
+/** A tier this build does not know. `capabilitiesFor` gives it nothing, which is
+ *  the only way left to exercise a denial on `VENDOR_COLUMN_MAP`. */
+const UNKNOWN_TIER = 'enterprise' as EntitlementTier;
+
+/**
+ * §13.3's table, written out by hand rather than read from the maps, so this
+ * checks the maps against the spec and not against themselves.
+ */
+const SPEC_PRODUCT_FIELDS: Readonly<Record<string, Capability>> = {
+  description: 'product.listing.edit',
+  website: 'product.listing.edit',
+  logo_url: 'product.listing.edit',
+  tool_integrations_url: 'product.edit',
+  api_docs_url: 'product.edit',
+  usefulness: 'product.usefulness.edit',
+};
+
 describe('splitPatch — the entitlement allow-list (§3.3b)', () => {
   it('THROWS on an unentitled field and never silently drops it', () => {
     // The bug class this prevents: `vendor-profile-form.ts` runs a dirty-diff
     // and re-seeds its baseline from the response echo. A dropped field makes
-    // the form settle CLEAN on a value that never reached the database — the
-    // vendor is told their edit landed and it simply is not there.
+    // the form settle CLEAN on a value that never reached the database.
     let thrown: unknown;
     try {
-      splitPatch({ description: 'x', website: 'https://y.test' }, VENDOR_COLUMN_MAP, 'unclaimed');
+      splitPatch({ description: 'x', website: 'https://y.test' }, VENDOR_COLUMN_MAP, UNKNOWN_TIER);
     } catch (e) {
       thrown = e;
     }
-    expect(thrown).toBeDefined();
     const err = thrown as { status: number; code: string; details: JsonBody };
     expect(err.status).toBe(403);
     expect(err.code).toBe(ApiErrorCode.ENTITLEMENT_REQUIRED);
-    // EVERY denied field is named, so the client can highlight all of them
-    // rather than discovering them one failed save at a time.
+    // EVERY denied field is named.
     expect(err.details.fields).toEqual(['description', 'website']);
-    expect(err.details.tier).toBe('unclaimed');
   });
 
   it('passes the whole patch through for an entitled tier', () => {
@@ -550,31 +605,9 @@ describe('splitPatch — the entitlement allow-list (§3.3b)', () => {
     expect(provided).toEqual(['description']);
   });
 
-  it('maps usefulness to its OWN capability, not to product.edit', () => {
-    // AECI-963 made `usefulness` the FIRST `PRODUCT_COLUMN_MAP` entry whose
-    // capability is not `product.edit`, so this is the one place the second axis
-    // is separately observable. Sending it ALONE is what makes the assertion
-    // meaningful: `splitPatch` reports `denied.sort()[0]`'s capability, so a mixed
-    // patch would report `description`'s instead and prove nothing.
-    //
-    // A tier holding `product.edit` WITHOUT this one is unreachable at launch —
-    // the ladder is binary — which is why the gate is asserted here rather than
-    // through the route.
-    let thrown: unknown;
-    try {
-      splitPatch({ usefulness: { audiences: [], phases: [] } }, PRODUCT_COLUMN_MAP, 'unclaimed');
-    } catch (e) {
-      thrown = e;
-    }
-    const err = thrown as { status: number; code: string; details: JsonBody };
-    expect(err.status).toBe(403);
-    expect(err.code).toBe(ApiErrorCode.ENTITLEMENT_REQUIRED);
-    expect(err.details.capability).toBe('product.usefulness.edit');
-    expect(err.details.fields).toEqual(['usefulness']);
-  });
-
-  it('reports the denied field’s capability, deterministically', () => {
-    // Sorted, so the 403 body does not depend on JS key-enumeration order.
+  it('refuses a mixed patch whole and reports the denied field’s capability', () => {
+    // `website` is Free and `api_docs_url` is Managed. The Free one does not
+    // slip through: the whole patch is refused, naming only the denied field.
     let details: JsonBody = {};
     try {
       splitPatch(
@@ -585,22 +618,97 @@ describe('splitPatch — the entitlement allow-list (§3.3b)', () => {
     } catch (e) {
       details = (e as { details: JsonBody }).details;
     }
-    expect(details.fields).toEqual(['api_docs_url', 'website']);
+    expect(details.fields).toEqual(['api_docs_url']);
     expect(details.capability).toBe('product.edit');
+  });
+
+  // Per field, per tier: the column maps against §13.3.
+  for (const tier of TIERS) {
+    for (const [field, capability] of Object.entries(SPEC_PRODUCT_FIELDS)) {
+      const allowed = hasCapability(tier, capability);
+      it(`product ${field} is ${allowed ? 'allowed' : 'denied'} for ${tier}`, () => {
+        const run = () => splitPatch({ [field]: null }, PRODUCT_COLUMN_MAP, tier);
+        if (allowed) {
+          expect(run().provided).toEqual([field]);
+        } else {
+          expect(run).toThrow(expect.objectContaining({ status: 403 }));
+        }
+      });
+    }
+    for (const field of Object.keys(UpdateVendorProfileSchema.shape)) {
+      it(`company ${field} is allowed for ${tier} (decision 3)`, () => {
+        expect(splitPatch({ [field]: null }, VENDOR_COLUMN_MAP, tier).provided).toEqual([field]);
+      });
+    }
+  }
+
+  it('maps each product column to exactly the §13.3 capability', () => {
+    expect(
+      Object.fromEntries(Object.entries(PRODUCT_COLUMN_MAP).map(([f, e]) => [f, e.capability])),
+    ).toEqual(SPEC_PRODUCT_FIELDS);
+  });
+});
+
+describe('assertFieldsEntitled — the facet axis (§13.3)', () => {
+  const facetCapability = (field: string) =>
+    PRODUCT_FIELD_CAPABILITIES[field as keyof typeof PRODUCT_FIELD_CAPABILITIES];
+
+  it('gates categories on product.categories.edit and the rest on product.taxonomy.edit', () => {
+    expect(facetCapability('category_slugs')).toBe('product.categories.edit');
+    for (const field of ['audience_slugs', 'phase_slugs', 'trade_slugs']) {
+      expect(facetCapability(field)).toBe('product.taxonomy.edit');
+    }
+  });
+
+  it('lets unclaimed send categories and refuses the other three facets', () => {
+    expect(() =>
+      assertFieldsEntitled({ category_slugs: ['bim'] }, facetCapability, 'unclaimed'),
+    ).not.toThrow();
+    for (const field of ['audience_slugs', 'phase_slugs', 'trade_slugs']) {
+      expect(() => assertFieldsEntitled({ [field]: [] }, facetCapability, 'unclaimed')).toThrow(
+        expect.objectContaining({ status: 403 }),
+      );
+      expect(() =>
+        assertFieldsEntitled({ [field]: [] }, facetCapability, 'verified'),
+      ).not.toThrow();
+    }
+  });
+
+  it('skips keys the table does not know', () => {
+    expect(() => assertFieldsEntitled({ name: 'x' }, facetCapability, UNKNOWN_TIER)).not.toThrow();
+  });
+});
+
+// ─── The shared tables match the wire schemas ────────────────────────────────
+
+describe('the field → capability tables match the edit schemas', () => {
+  // `@aeci/shared/entitlements` may not import zod (its rule 1), so the tables
+  // there cannot be typed against the schemas. This is what keeps them in step:
+  // a field added to a schema but not to its table would be written with no gate.
+  it('VENDOR_FIELD_CAPABILITIES covers UpdateVendorProfileSchema exactly', () => {
+    expect(Object.keys(VENDOR_FIELD_CAPABILITIES).sort()).toEqual(
+      Object.keys(UpdateVendorProfileSchema.shape).sort(),
+    );
+    expect(Object.keys(VENDOR_COLUMN_MAP).sort()).toEqual(
+      Object.keys(UpdateVendorProfileSchema.shape).sort(),
+    );
+  });
+
+  it('PRODUCT_FIELD_CAPABILITIES covers UpdateVendorProductSchema exactly', () => {
+    expect(Object.keys(PRODUCT_FIELD_CAPABILITIES).sort()).toEqual(
+      Object.keys(UpdateVendorProductSchema.shape).sort(),
+    );
   });
 });
 
 // ─── The launch guarantee ────────────────────────────────────────────────────
 
-describe('the two allow-list axes agree at launch', () => {
+describe('the two allow-list axes agree', () => {
   it.each([
     ['VENDOR_COLUMN_MAP', VENDOR_COLUMN_MAP],
     ['PRODUCT_COLUMN_MAP', PRODUCT_COLUMN_MAP],
   ])('every field in %s maps to a capability the verified tier holds', (_label, map) => {
-    // This is what makes "behaviour is unchanged for an entitled vendor" true
-    // rather than hoped-for. If a future rung moves a field to a capability
-    // `verified` lacks, that is a deliberate product decision and this test is
-    // where it gets noticed.
+    // What makes "a Managed vendor can edit everything" true rather than hoped-for.
     const entries = Object.entries(map);
     expect(entries.length).toBeGreaterThan(0);
     for (const [field, { capability }] of entries) {
@@ -612,14 +720,17 @@ describe('the two allow-list axes agree at launch', () => {
     ['VENDOR_COLUMN_MAP', VENDOR_COLUMN_MAP],
     ['PRODUCT_COLUMN_MAP', PRODUCT_COLUMN_MAP],
   ])('every capability named in %s is in the frozen registry', (_label, map) => {
-    // Guards against a typo'd capability id, which would otherwise fail closed
-    // and silently lock a field for EVERY tier including `verified`.
+    // A typo'd id would fail closed and lock a field for EVERY tier.
     for (const [, { capability }] of Object.entries(map)) {
       expect(CAPABILITIES).toContain(capability);
     }
   });
 
-  it('the unclaimed tier holds nothing at all', () => {
-    expect(capabilitiesFor('unclaimed')).toEqual([]);
+  it('the unclaimed tier holds exactly the Free capabilities', () => {
+    expect(capabilitiesFor('unclaimed')).toEqual([
+      'profile.edit',
+      'product.listing.edit',
+      'product.categories.edit',
+    ]);
   });
 });

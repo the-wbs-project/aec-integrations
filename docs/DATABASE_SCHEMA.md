@@ -317,6 +317,9 @@ create table products (
   last_reviewed_at text,
   maintained_by text not null default 'aeci'
     check (maintained_by in ('aeci', 'vendor')),
+  -- AECI-1216 (migration 0053_blushing_crystal): the integration-list "Looks right"
+  -- stamp. Plain column, no default, no backfill, no CHECK.
+  integrations_reviewed_at text,
 
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
@@ -337,11 +340,13 @@ It buys nothing *today*, and that is expected: `products.created_at` already ans
 
 `last_reviewed_at` / `maintained_by` (AECI-616 / `STAGE_2_ATTESTATIONS_SPEC.md` §13) feed the **maintenance marker** — the `AEC Integrations maintained · Reviewed <date>` chip on product detail, vendor detail, and the pair page. They exist on `vendors`, `products`, `integrations`, and `connector_evidenced_pairs` alike. Three rules, all load-bearing:
 
-1. **`last_reviewed_at` is a plain column.** It is deliberately NOT `.$onUpdate(...)` (unlike `updated_at`) and has no default. It is written by exactly three paths: an explicit `lastReviewedAt` in the promote payload (`REVIEW_APP_PROMOTE_API.md` §3.2/§3.3/§3.4), a vendor attestation (`STAGE_2_ATTESTATIONS_SPEC.md` §5), and — since AECI-981 — **any vendor-authorized catalog write** (`STAGE_2_ATTESTATIONS_SPEC.md` §13.9: the vendor profile PATCH, the vendor product PATCH, and the three product-version writes). **Omitting the promote field leaves it untouched** — that absence is the "no review happened" signal, and it is what stops a bulk re-promote re-advertising the whole catalog as freshly checked. The promote path additionally **refuses** a supplied value on a row where `maintained_by = 'vendor'`, reporting it as a `kind: 'review-signal'` entry in `skipped[]`: the marker renders this one column as `Reviewed <date>` in the AECi branch and `Updated <date>` in the vendor branch, so an AECi review date on a vendor-maintained row credits AECi's work to the vendor.
+1. **`last_reviewed_at` is a plain column.** It is deliberately NOT `.$onUpdate(...)` (unlike `updated_at`) and has no default. It is written by exactly four paths: an explicit `lastReviewedAt` in the promote payload (`REVIEW_APP_PROMOTE_API.md` §3.2/§3.3/§3.4), a vendor attestation (`STAGE_2_ATTESTATIONS_SPEC.md` §5), **any vendor-authorized catalog write** since AECI-981 (`STAGE_2_ATTESTATIONS_SPEC.md` §13.9: the vendor profile PATCH, the vendor product PATCH, and the three product-version writes), and since AECI-1216 the three **"Looks right"** routes (`STAGE_2_PAID_TIERS_SPEC.md` §13.8). The company and product routes stamp their own row. The integration-list route stamps only `integrations` / `connector_evidenced_pairs` rows touching the product that the caller built and already maintains (§13.9 there). **Omitting the promote field leaves it untouched** — that absence is the "no review happened" signal, and it is what stops a bulk re-promote re-advertising the whole catalog as freshly checked. The promote path additionally **refuses** a supplied value on a row where `maintained_by = 'vendor'`, reporting it as a `kind: 'review-signal'` entry in `skipped[]`: the marker renders this one column as `Reviewed <date>` in the AECi branch and `Updated <date>` in the vendor branch, so an AECi review date on a vendor-maintained row credits AECi's work to the vendor.
 2. **Never source it from `updated_at`, `created_at`, or `promoted_at`, and never backfill it.** `updated_at` restamps on any write and promote re-asserts `promotion_status` on every push, so in production 60 products share a single `updated_at` day and 40 share another: it is a bulk-sweep timestamp, not a review timestamp. Migration `0018` adds the column with **no backfill statement**, permanently — every pre-existing row stays `NULL` and renders bare attribution with no date, which is the honest reading rather than missing data.
-3. **`maintained_by` is not accepted by promote.** Accepting it on the promote payload would let a routine promote push silently un-vendor a record — the same failure `vendors.verified` had before AECI-520. It flips to `'vendor'` two ways: a live vendor attestation on an `integrations` row (`apps/api/src/routes/vendor-attestations.ts`), and — since AECI-981 — **any vendor-authorized catalog write**, on the row it writes (`apps/api/src/routes/vendor.ts`, `vendor-product-versions.ts`). The transfer is per row and never transitive: a vendor editing its company profile does not flip its products, and a product edit does not flip the vendor. It flips **back** to `'aeci'` two ways. One is an attestation retract, only when no live vendor attestation survives anywhere on that integration. The other, since AECI-989, is the **last-seat hand-back**: revoking a vendor's last `vendor_admin` seat, or erasing that seat's account (AECI-1106), returns the vendor row, each product it owns alone, and each live integration it claimed (the same attestation test applies) to `'aeci'` in the revoke's or the erasure's batch (`STAGE_2_ATTESTATIONS_SPEC.md` §13.9, `apps/api/src/lib/vendor-handback.ts`). A ban does not. Because the flip happens inside an UPDATE, the SQL fence in rule 1 is not enough for a **cross-table move**: a `powered_by` re-route re-INSERTs the edge under its existing id, so `promote.ts` carries both columns onto the destination row explicitly.
+3. **`maintained_by` is not accepted by promote.** Accepting it on the promote payload would let a routine promote push silently un-vendor a record — the same failure `vendors.verified` had before AECI-520. It flips to `'vendor'` two ways: a live vendor attestation on an `integrations` row (`apps/api/src/routes/vendor-attestations.ts`), and — since AECI-981 — **any vendor-authorized catalog write**, on the row it writes (`apps/api/src/routes/vendor.ts`, `vendor-product-versions.ts`, and since AECI-1216 the company and product "Looks right" routes in `vendor-review.ts`). The integration-list "Looks right" never writes it. The transfer is per row and never transitive: a vendor editing its company profile does not flip its products, and a product edit does not flip the vendor. It flips **back** to `'aeci'` two ways. One is an attestation retract, only when no live vendor attestation survives anywhere on that integration. The other, since AECI-989, is the **last-seat hand-back**: revoking a vendor's last `vendor_admin` seat, or erasing that seat's account (AECI-1106), returns the vendor row, each product it owns alone, and each live integration it claimed (the same attestation test applies) to `'aeci'` in the revoke's or the erasure's batch (`STAGE_2_ATTESTATIONS_SPEC.md` §13.9, `apps/api/src/lib/vendor-handback.ts`). A ban does not. Because the flip happens inside an UPDATE, the SQL fence in rule 1 is not enough for a **cross-table move**: a `powered_by` re-route re-INSERTs the edge under its existing id, so `promote.ts` carries both columns onto the destination row explicitly.
 
 Neither column is indexed: both are read with the row and never filtered or sorted on.
+
+`integrations_reviewed_at` (AECI-1216, migration `0053_blushing_crystal.sql`, tripwire `src/test/migration-0053.spec.ts`) is when a seat last confirmed this product's integration list with "Looks right" (`STAGE_2_PAID_TIERS_SPEC.md` §13.9). Its only writer is `POST /api/vendor/products/:id/integrations/review`. It exists so the checklist's "Check the integration list" step can complete when the vendor maintains zero rows on the product, which the rows' own `last_reviewed_at` cannot express. Same rules as `last_reviewed_at`: plain column, no default, never backfilled. It was added by a bare `ADD COLUMN`; `products` is the widest cascade parent in the schema, so it must never gain a table-level CHECK (`docs/migrations.md` §0). Not indexed and not rendered publicly.
 
 `usefulness` is a nullable JSON column holding narrative "how teams use it" value, grouped by audience and by project phase. Its stored shape mirrors the public `ProductUsefulness` contract (`API_CONTRACTS.md` §5.1) — `{ audiences: [{ slug, name, points[] }], phases: [{ slug, name, points[] }] }` — where each `slug` references a `taxonomy_audiences` / `taxonomy_phases` slug. It is `null` when the source has no usefulness for either facet; otherwise either facet array may be empty. Both writers resolve each group to an existing taxonomy term and store the canonical `{ slug, name }` denormalized — so a later taxonomy rename leaves already-stored labels stale until the record is written again.
 
@@ -3247,14 +3252,14 @@ marks a `skipped` send that had no recipient.
    be taken back.
 7. A ledger DB error fails open. The writer logs a warning and the mail still goes.
 
-Every keyed send also carries Resend's `Idempotency-Key` header, `{tier}:{dedupe_key}:{body hash}` (ADR 0037
+Every keyed send also carries Resend's `Idempotency-Key` header, `{tier}:{dedupe_key}:{body hash}` (ADR 0038
 §3, `docs/email.md` §Send ledger).
 
 A send with no dedupe key stores NULL, and SQLite treats NULLs as distinct under a UNIQUE
 index, so it never conflicts. The index is not partial because an upsert conflict target
 cannot be partial, the same trade as `page_views.dedupe_key` (§9.1). Senders pass keys since
 AECI-1203, AECI-1204 and AECI-1205. Each registry entry's key is in `docs/NOTIFICATIONS.md`, and
-ADR 0037 records why the protocol is at-most-once. **AECI-1204 added its keys for the two attestation digests** (`attestation-digest:{vendorId}:{profileId}:{YYYY-MM-DD}` and `attestation-ops-digest:{YYYY-MM-DD}:{first 16 hex of the recipient hash}`, `STAGE_2_ATTESTATIONS_SPEC.md` §7.2).
+ADR 0038 records why the protocol is at-most-once. **AECI-1204 added its keys for the two attestation digests** (`attestation-digest:{vendorId}:{profileId}:{YYYY-MM-DD}` and `attestation-ops-digest:{YYYY-MM-DD}:{first 16 hex of the recipient hash}`, `STAGE_2_ATTESTATIONS_SPEC.md` §7.2).
 
 The cron digests sent through `sendEmail` (data quality and the other unkeyed digests) make
 one Resend call for several recipients, with no dedupe key. They write one
@@ -3285,7 +3290,7 @@ it too, because the prune aborts the whole run. Window: `NOTIFICATION_SENDS_RETE
 
 ### 9.10 `notification_preferences`
 
-Per-seat email preferences (AECI-1204, migration `0054_boring_hardball.sql`). One setting today:
+Per-seat email preferences (AECI-1204, migration `0055_boring_hardball.sql`). One setting today:
 whether a `vendor_admin` seat has muted the daily attestation digest. It is per seat, so one
 colleague muting does not silence the others. The mute covers the `attestation-digest` only.
 Seat invites, claim decisions and entitlement-expiry mail still send.
@@ -3330,7 +3335,7 @@ fires that cascade into this table and wipes every mute, and a wiped mute silent
 seats that opted out. Treat `profiles` recreates as in `docs/migrations.md` §0. Erasing an account
 deletes the row with the profile, which is intended.
 
-**Migration `0054`** is a plain `CREATE TABLE` plus `CREATE UNIQUE INDEX`. It is not a recreate and
+**Migration `0055`** is a plain `CREATE TABLE` plus `CREATE UNIQUE INDEX`. It is not a recreate and
 cannot cascade.
 
 **Read and written by** `apps/api/src/lib/notification-preferences.ts`, called from

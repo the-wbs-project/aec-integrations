@@ -588,10 +588,22 @@ export function sendReviewRejectedEmail(
  * is unchanged — the vendor is named, capabilities are listed, the link appears only
  * when configured, the sign-in line still branches on the identity outcome, and the
  * account-status framing stays aligned with the public label.
+ *
+ * **Two variants since AECI-1215** (`STAGE_2_PAID_TIERS_SPEC.md` §13.6), one per plan
+ * the operator chose. Only the capabilities block differs. Managed keeps the copy
+ * above. Free says what a Free seat can do, which is edit company details and the
+ * product listing, and names the plan so the claimant is not promised attestations
+ * it cannot author. Both share the `claim-approved` template id: it is one event,
+ * and the plan is in the audit row.
  */
 export function sendClaimApprovedEmail(
   c: EmailContext,
-  opts: { to: string | undefined; vendorName: string; invited: boolean },
+  opts: {
+    to: string | undefined;
+    vendorName: string;
+    invited: boolean;
+    plan: 'free' | 'managed';
+  },
 ): Promise<EmailOutcome> {
   const name = opts.vendorName.trim() || 'this vendor';
   const portal = portalUrl(c.env);
@@ -607,7 +619,9 @@ export function sendClaimApprovedEmail(
   const accountStatus =
     "An active vendor account means this company can manage its AECi profile. It does not verify product quality or integration accuracy, and it doesn't affect search ranking or placement.";
   const capabilities =
-    'From your vendor portal you can edit the company profile, submit data corrections, and add integration attestations.';
+    opts.plan === 'free'
+      ? 'Your account is on the Free plan. From your vendor portal you can edit your company details and your product listing.'
+      : 'From your vendor portal you can edit the company profile, submit data corrections, and add integration attestations.';
 
   const opening = `Your vendor account is now active on AEC Integrations and can manage the ${name} listing.`;
   const openingHtml = `Your vendor account is now active on AEC Integrations and can manage the <strong>${escapeHtml(name)}</strong> listing.`;
@@ -805,6 +819,7 @@ export async function sendClaimDecisionEmail(
     to: string;
     targetName: string;
     identityOutcome?: 'linked' | 'invited';
+    plan?: 'free' | 'managed';
   },
 ): Promise<void> {
   if (input.decision === 'approved') {
@@ -812,6 +827,9 @@ export async function sendClaimDecisionEmail(
       to: input.to,
       vendorName: input.targetName,
       invited: input.identityOutcome === 'invited',
+      // The route always sets `plan` on approve. Managed is the fallback only so a
+      // caller that predates AECI-1215 keeps today's copy.
+      plan: input.plan ?? 'managed',
     });
   } else {
     // Neutral by design — the reviewer's `reason` is an internal audit note and is

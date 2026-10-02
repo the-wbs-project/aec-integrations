@@ -1,4 +1,4 @@
-# ADR 0037: A notification registry, production-only email and an at-most-once send ledger
+# ADR 0038: A notification registry, production-only email and an at-most-once send ledger
 
 - Status: Accepted
 - Date: 2026-10-01

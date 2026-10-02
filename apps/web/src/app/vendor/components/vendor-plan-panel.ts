@@ -349,7 +349,7 @@ export class VendorPlanPanel {
   /**
    * Fail-closed, exactly as `tierFor` does (§3.1): `active` alone is not enough,
    * because `vendor_entitlements.tier` is deliberately unconstrained at the DB
-   * layer and an unknown tier resolves to `unclaimed` → zero capabilities. A
+   * layer and an unknown tier resolves to `unclaimed` → the Free capabilities only. A
    * panel that said "active" over read-only forms would be the wrong lie.
    */
   protected readonly isActive = computed(

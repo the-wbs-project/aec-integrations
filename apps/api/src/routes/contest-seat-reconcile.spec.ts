@@ -35,6 +35,7 @@ import {
   products,
   profiles,
   vendorEntitlements,
+  vendorRequests,
   vendors,
 } from '../db/schema';
 import type { Env } from '../env';
@@ -47,6 +48,7 @@ import { planSeatGrantReturn } from '../lib/vendor-handback';
 import { logBatchToPosthog } from '../posthog';
 import { makeTestDb, type TestDb } from '../test/d1';
 import { TEST_ENV, fakeExecutionContext } from '../test/helpers';
+import { createModerateClaimHandler } from './admin-claims';
 import { createModerateContestHandler } from './admin-contests';
 import { createSetVendorEntitlementHandler } from './admin-entitlements';
 import { createBanReviewerHandler } from './admin-reviewers';
@@ -211,6 +213,15 @@ function app(auth: Auth) {
   a.patch('/api/admin/contests/:id', createModerateContestHandler(t.factory, fileIssue));
   a.patch('/api/admin/vendors/:id/entitlement', createSetVendorEntitlementHandler(t.factory));
   a.patch('/api/admin/reviewers/:id', createBanReviewerHandler(t.factory));
+  a.patch(
+    '/api/admin/claims/:id',
+    createModerateClaimHandler(t.factory, (async () => ({
+      outcome: 'linked',
+      userId: SEAT_NEW,
+      email: 'new-seat@example.test',
+      profile: null,
+    })) as unknown as typeof resolveClaimantIdentity),
+  );
   a.post(
     '/api/admin/vendors/:id/seats',
     createProvisionSeatHandler(t.factory, (async () => ({
@@ -356,6 +367,41 @@ describe('the seat return withholds what the owner may not decide', () => {
     const id = await stampedContest({ evidencedPairId: PAIR, owner: VENDOR_T });
     expect((await provisionSeat(VENDOR_T)).status).toBe(201);
     expect(await contest(id)).toMatchObject({ routedTo: 'aeci', ownerSeatLapsedAt: null });
+  });
+
+  // AECI-1215 / STAGE_2_PAID_TIERS_SPEC.md §13.6: only a MANAGED claim approval
+  // activates an entitlement in its batch. A Free one must not tell the return it did.
+  describe('through a claim approval (AECI-1215)', () => {
+    const CLAIM = uuid(40);
+    const approve = (plan: 'free' | 'managed') =>
+      call(AUTH_ADMIN, `/api/admin/claims/${CLAIM}`, { action: 'approve', plan }, 'PATCH');
+
+    beforeEach(() =>
+      t.db.insert(vendorRequests).values({
+        id: CLAIM,
+        kind: 'claim',
+        status: 'open',
+        targetType: 'vendor',
+        targetId: VENDOR_B,
+        submitterEmail: 'new-seat@example.test',
+        body: 'We build this and would like to claim the listing.',
+      }),
+    );
+
+    it('Free keeps a connector-row contest with AECi when the owner holds no entitlement', async () => {
+      const powered = await stampedContest({ integrationId: I_POWERED });
+      const plain = await stampedContest({ integrationId: I_PLAIN });
+      expect((await approve('free')).status).toBe(200);
+      expect(await contest(powered)).toMatchObject({ routedTo: 'aeci', ownerSeatLapsedAt: null });
+      expect(await contest(plain)).toMatchObject({ routedTo: 'owner', ownerSeatLapsedAt: null });
+      expect(await t.db.select().from(vendorEntitlements)).toHaveLength(0);
+    });
+
+    it('Managed returns it, because the same batch activates the entitlement', async () => {
+      const powered = await stampedContest({ integrationId: I_POWERED });
+      expect((await approve('managed')).status).toBe(200);
+      expect(await contest(powered)).toMatchObject({ routedTo: 'owner', ownerSeatLapsedAt: null });
+    });
   });
 
   it('counts an entitlement the grant itself activates (the claim grant)', async () => {

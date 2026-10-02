@@ -311,6 +311,7 @@ export const NOTIFICATIONS = {
     optOut: 'none',
     doc: 'docs/STAGE_2_VENDOR_PORTAL_SPEC.md §9',
     summary: 'Tells a claimant their claim was approved.',
+    note: 'Two variants by the plan the operator chose (AECI-1215): Managed lists attestations, Free says the account is on the Free plan. One id, because it is one event.',
   },
   'claim-rejected': {
     channel: 'email',

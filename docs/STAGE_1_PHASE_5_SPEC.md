@@ -192,7 +192,7 @@ Per `API_CONTRACTS.md` §6.10:
 > commit, and each sent the reviewer a decision email. A `changes() = 0` sentinel after the guarded
 > UPDATE now rolls the losing batch back. The loser answers `409 REVIEW_ALREADY_MODERATED` and sends
 > nothing. Both decision emails share the send-ledger key `review-decision:{reviewId}`, so a review
-> gets one decision email. `API_CONTRACTS.md` §6.10, ADR 0037.
+> gets one decision email. `API_CONTRACTS.md` §6.10, ADR 0038.
 
 ### 7.3 `/admin/reviews` queue UI (Phase 5.14)
 

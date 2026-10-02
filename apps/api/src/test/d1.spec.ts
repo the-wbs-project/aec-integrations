@@ -984,7 +984,7 @@ describe('connector lane (AECI-714)', () => {
   });
 
   it('pins the tables that cascade INTO profiles — the next recreate depends on it', async () => {
-    // `notification_preferences.profile_id` (AECI-1204, migration 0054) is the only
+    // `notification_preferences.profile_id` (AECI-1204, migration 0055) is the only
     // `ON DELETE CASCADE` child of `profiles`. A recreate of `profiles` in drizzle-kit's
     // generated order would fire that cascade and wipe every mute, and a wiped mute
     // silently starts emailing seats that opted out (`DATABASE_SCHEMA.md` §9.10). SQLite's

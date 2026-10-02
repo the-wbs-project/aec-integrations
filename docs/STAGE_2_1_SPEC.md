@@ -108,6 +108,24 @@ Five items stay here with the epic. Build order is 724, then 769, then 710 and 7
 
 Two children moved out to Stage 2.5 on 2026-09-23. **AECI-715** is the coverage checker. **AECI-716** is reachable-lane publication. Both are new public catalog surfaces and fail the §1 admission test. They stay children of AECI-771. `STAGE_2_5_SPEC.md` §13 records them.
 
+#### 3.3.3 Free plan epic AECI-1212 (admitted 2026-10-01)
+
+Chris ruled the epic's ten decisions on 2026-10-01. `STAGE_2_PAID_TIERS_SPEC.md` §13 records them. The portal surfaces are `STAGE_2_VENDOR_PORTAL_SPEC.md` §6.18.
+
+**Why it passes §1.** It refines the built seat and entitlement surface. A seat with no plan can already use the portal, but no one has designed that state. It also gates the pilot end on 2026-12-14. `VENDOR_PLAN_DATA_READINESS.md` §2 item 21 sets that date. Without a Free state, a lapsed pilot vendor loses every edit.
+
+**A named exception to §4.** §4 says "no portal surface additions". The product checklists and "Looks right" are portal surface additions. They are admitted by operator decision on 2026-10-01, in the way AECI-710 and AECI-711 are admitted in §3.3.2. They rank behind the seat-granting blockers. Nothing else in the epic is a new surface. The plan panel, the badge and the banner restate plan state the portal already holds.
+
+| Issue | What it does | Why it is admitted |
+|---|---|---|
+| **AECI-1213** | Writes the spec section, the portal section and ADR 0037. | It is the contract the other six build to. |
+| **AECI-1214** | Lets a seat with no plan edit company details and the four `listing_tier` product fields. Adds the per-product `plan` field. | It refines the built seat surface. It also closes the ranking leak in `VENDOR_PLAN_DATA_READINESS.md` §5 coupling 1. |
+| **AECI-1215** | Lets an operator approve a claim with no plan. | It changes how seats are granted, which is this stage's admission test. |
+| **AECI-1216** | Adds the three "Looks right" routes and the one migration. | **A named exception to §4.** |
+| **AECI-1217** | Serves the checklist from the server. | **A named exception to §4.** |
+| **AECI-1218** | Builds the portal UI: plan panels, badges, scores, locked fields, the checklist and the pilot-ended banner. | It refines the built portal for the Free state. The checklist and "Looks right" parts are **a named exception to §4.** |
+| **AECI-1219** | Updates the vendor help page to match what ships. | §3.5 makes the vendor guides a §5 exit gate. |
+
 ### 3.4 Dark-window operations
 
 - Monitor the parked claim queue; decide and (if needed) implement the acknowledgement posture for parked claimants ("received, under review" — nothing that promises a timeline).

@@ -425,6 +425,19 @@ helper enqueues for all of them (`purgeTags` / `afterVendorWrite` in
   product-detail page does not render links today; its `product:` tag is purged
   because the maintenance marker moved, matching the claim.
 
+- **"Looks right"** (AECI-1216, `STAGE_2_PAID_TIERS_SPEC.md` §13.8). Three writes
+  that change no content but stamp the maintenance marker, which the rule above says
+  must purge. **Company** (`POST /api/vendor/profile/review`) → `vendor:{slug}`, the
+  profile edit's set. **Product** (`POST /api/vendor/products/:id/review`) →
+  `productEditTags()` with no facet change, so `product:{slug}` and `index:products`.
+  No facet moved, so no browse page gains or loses the product. **Integration list**
+  (`POST /api/vendor/products/:id/integrations/review`) → `product:{slug}` plus
+  `integration:{id}` for each stamped row in either table. Every pair page embeds both
+  of its products, so `product:{slug}` reaches the pair pages. The `integration:` tags
+  reach the counterpart products' pages, whose integration lists embed each row
+  (`product-detail.resolver.ts`). None of the three queues a re-crawl: no content
+  changed.
+
 Same best-effort contract — no-op without the binding, `queue.send` rejection
 logged and swallowed, never fails the committed edit. Note the asymmetry with
 search: the purge makes SSR immediate, while Algolia only catches up on the
