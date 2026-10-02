@@ -136,6 +136,85 @@ decision record; no separate ADR.
   `null` on **PR previews and local dev**, where the key is absent by design
   (`AUTH_AND_RLS.md` §3.1).
 
+## Link tagging (AECI-1209)
+
+Every link in a transactional email that points at our own site carries three params:
+
+| Param | Value | Read by |
+|---|---|---|
+| `utm_source` | `email` | the arrival beacon |
+| `utm_campaign` | the registry id of the template, for example `claim-approved` | the arrival beacon |
+| `n` | the `notification_sends.id` of this one send (§Send ledger above) | the arrival beacon |
+
+A signed-in user who lands on a tagged link sends `POST /api/activity/arrival` once the app
+hydrates. The beacon writes the three values onto that day's `user_activity_daily` row
+(AECI-1208, `DATABASE_SCHEMA.md` §9.11). A signed-out click on a portal, admin or account link
+is bounced through sign-in, and the bounce carries the three params through, and nothing
+else. The first arrival of the day wins.
+
+**How it works.** `lib/notifications/link-tag.ts` holds the one tagger, `tagLink(url)`.
+
+1. `sendTransactionalEmail` reserves the ledger row first. A duplicate stops here, with no
+   render and no fetch.
+2. It builds a tagger from the template id and the reserved row id, and calls the
+   template's `render(link)` callback with it.
+3. Each template passes every site URL it builds through `link(...)`: the CTA, linked table
+   values, the pair-page rows, and the inline links of the legacy layout.
+4. The layout then escapes each URL once. So the button, its Outlook VML twin, the
+   pasteable URL row and the text part all show the same tagged URL.
+
+Tagging at render time is deliberate. A rewrite of the finished HTML would meet escaped
+`&amp;` hrefs, two copies of each CTA, and URLs shown as visible text.
+
+**Rules.**
+
+- Only URLs on the `PUBLIC_SITE_URL` origin are tagged. Without `PUBLIC_SITE_URL` nothing is.
+- Tagging is idempotent. A second pass gives the same URL. Other query params and the
+  fragment are kept.
+- A recorded URL that we did not build stays as it came. That is the `Referrer` row of the
+  `landing-signup` and `landing-feedback` alerts, which reports where a visitor came from.
+
+**Never tagged.** The tagger refuses these whoever calls it:
+
+- `/api/*`. This covers `/api/unsubscribe` and `/api/notifications/nudges/mute`, the
+  `List-Unsubscribe` one-click targets. Headers are never passed through the tagger anyway.
+- The opt-out pages: `/unsubscribe?token=` in the mailing-list welcome, and
+  `/notifications/mute?token=` in the attestation digest footer. An opt-out click is not an
+  arrival.
+- `mailto:` links, and every other off-origin URL. That includes the Linear permalinks and
+  the claimant's LinkedIn URL in operator alerts.
+- Image sources. The logo is on the production origin, but it is an `<img src>`, never a link.
+
+**When there is no `n`.**
+
+- The ledger write failed open. The links keep `utm_source` and `utm_campaign` and omit
+  `n`. The send is never blocked.
+- The operator copy of `mailing-list-welcome` (`sendOperatorCopy`). It is one Resend call
+  to the whole `EMAIL_BCC` list, and its ledger rows are written after the send. Its links
+  carry `utm_campaign=mailing-list-welcome-operator-copy` and no `n`.
+
+**`Idempotency-Key` ignores `n`.** Each attempt reserves its own row, so each attempt's `n`
+differs. An attempt during a ledger outage has none. So the key hashes the body rendered
+without `n`. An identical retry across a ledger outage still dedupes at Resend.
+
+**BCC copies carry the recipient's tag.** A `bcc` is the same message as the recipient's.
+So when the operator clicks a link in the support inbox copy, the beacon records the
+recipient's `n` on **the operator's own** activity row. That row has role `admin`, and
+reports filter admin rows out. The vendor's numbers stay clean. AECI-1220 may remove the BCC.
+
+**Out of scope.**
+
+- The two cron digests (§Cron digests). They go through `sendEmail`, with several recipients
+  per Resend call, and contain no site links today. A link added to one later would need a
+  per-recipient send before it could carry `n`.
+- The Supabase sign-in email (§Magic-link sender). It is a sign-in step, not a notification,
+  and its link is a Supabase verify URL. Decision 6 of the AECI-1207 plan, 2026-10-02.
+
+**Tests.** `lib/email-link-tags.spec.ts` renders every `EmailTemplate` id from a fixture.
+It checks every URL in the HTML, the VML and the text part, and fails on a template that has
+no fixture. `lib/notifications/link-tag.spec.ts` covers `tagLink` itself. The cache side,
+where `n` must not fork an edge entry, is in `docs/CACHE_STRATEGY.md` §4a.
+
 ## Tier delivery policy (AECI-1198)
 
 **The rule: an email to an outside recipient sends from production only.** Every other
@@ -395,7 +474,8 @@ low-level `sendEmail` transport (`lib/email.ts`, AECI-241) instead, multi-recipi
 with their own metric. Since AECI-1199 each also counts on `aeci.email.send`, tagged
 `template:digest-data-quality` or `template:digest-analytics`. `sendEmail` holds no
 ExecutionContext, so the digest job emits that count beside its own. Their crons and
-recipient vars are in [`docs/NOTIFICATIONS.md`](./NOTIFICATIONS.md).
+recipient vars are in [`docs/NOTIFICATIONS.md`](./NOTIFICATIONS.md). Their links are not
+tagged, and today they hold none (§Link tagging).
 
 | Registry id | Builder | Metric | Screen equivalent |
 |---|---|---|---|
@@ -532,6 +612,10 @@ real sends (see `.dev.vars.example`). Local runs as a non-production tier, so ma
 reaches internal addresses only (§Tier delivery policy).
 
 ## Magic-link sender (Supabase Auth → Resend SMTP) — ops, no app code
+
+**Not link-tagged (AECI-1209).** The sign-in email carries no `utm_*` or `n`. It is a
+sign-in step, not a notification, its one link is a Supabase verify URL, and no ledger row
+exists for it. See §Link tagging.
 
 Supabase Auth sends magic links itself; to send them **from Resend** (rather than
 Supabase's rate-limited built-in sender, which 429s `over_email_send_rate_limit`),

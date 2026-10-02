@@ -178,6 +178,15 @@ Consequences you must hold in your head when reading a number:
   (AECI-1211). The browser side, `ArrivalCaptureService`, writes no localStorage,
   no sessionStorage and no cookie, so it stays inside the tier 2 storage rule
   above. The table is operator-only and is never joined to `page_views`.
+- **The email link params (AECI-1209).** Every site link in a transactional email
+  carries three query params. `utm_source=email`. `utm_campaign` is the template's
+  registry id, for example `claim-approved` (`docs/NOTIFICATIONS.md`). `n` is the
+  `notification_sends.id` of that one send, so a landing joins back to the exact email
+  and recipient hash. Only the signed-in arrival beacon reads them, into
+  `user_activity_daily`. PostHog does not get `n` as a property, and `page_views`
+  gets `utm_source` only through AECI-762. Opt-out links, `mailto:` and off-site links
+  are never tagged. The edge cache key and the canonical drop all three. The rules are
+  in `docs/email.md` §Link tagging.
 
 ## 6. The activation funnel
 
