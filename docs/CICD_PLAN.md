@@ -562,7 +562,7 @@ Stored in GitHub Settings → Secrets and Variables → Actions. Scoped per envi
 | `PREVIEW_URL` | Base URL for the preview-URL E2E and edge-cache runner jobs. Both jobs are parked (`if: false`), so nothing reads it today. | `deploy.yml` |
 | `POSTHOG_PROJECT_ID_NONPROD` | PostHog non-prod project id for source maps and deploy markers. Optional: the workflows fall back to `525793`. | `deploy.yml`, `pr-preview.yml`, `promote-to-demo.yml` |
 | `POSTHOG_PROJECT_ID_PROD` | PostHog prod project id for source maps, deploy markers and the liveness sweep. Optional: the workflows fall back to `354071`. | `promote-to-prod.yml`, `posthog-liveness-sweep.yml` |
-| `LINEAR_NOTIFICATIONS_DOC_ID` | The id of the one Linear Document that `docs/NOTIFICATIONS.md` is mirrored into (AECI-1201, §11b). Required: absent, the mirror exits 2 and the run goes red. | `mirror-notifications-doc.yml` |
+| `LINEAR_NOTIFICATIONS_DOC_ID` | The id of the one Linear Document that `docs/NOTIFICATIONS.md` is mirrored into (AECI-1201, §11b). While it is unset, a push to `main` skips the mirror job cleanly (the job's `if:` guard, on hold since 2026-10-02 until the Linear Document exists). A `workflow_dispatch` always runs, and with it unset the mirror exits 2 and the run goes red. | `mirror-notifications-doc.yml` |
 
 **Setting up the notifications mirror (AECI-1201).** This is a one-time operator task. Until it is done, every merge that changes `docs/NOTIFICATIONS.md` turns the mirror run red. It does not block merges.
 
