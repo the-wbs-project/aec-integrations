@@ -191,6 +191,8 @@ export class AdminShell {
       // the two counts it does not yet send during a rolling deploy.
       this.summaryStore.seed({
         reviews: s.pending_reviews,
+        // Optional on the wire (AECI-1177 deploy skew): `undefined` is left alone.
+        reviewResponses: s.pending_review_responses,
         requests: s.pending_requests,
         claims: s.pending_claims,
         // Optional on the wire (AECI-1008 deploy skew): `undefined` is left alone.

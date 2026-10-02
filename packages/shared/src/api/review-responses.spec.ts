@@ -3,6 +3,10 @@ import { describe, expect, it } from 'vitest';
 import { ApiErrorCode } from '../errors/codes';
 import { VendorRevisionsSchema, VENDOR_PORTAL_SCOPES } from './vendor-updates';
 import {
+  DecideReviewResponseSchema,
+  ListAdminReviewResponsesQuerySchema,
+  REVIEW_RESPONSE_DECISIONS,
+  reviewResponseDecisionsFor,
   ListVendorReviewsQuerySchema,
   PublicVendorResponseSchema,
   REVIEW_REPLY_STATUS_FILTERS,
@@ -211,5 +215,91 @@ describe('the reviews cursor scope (§11c.13)', () => {
       requests: null,
     };
     expect(VendorRevisionsSchema.parse(old).reviews).toBeNull();
+  });
+});
+
+/** AECI-1177 — the admin half of the §11c.6 state machine. */
+describe('the admin decision state machine (§11c.6)', () => {
+  it('has exactly three decisions, each with one from-state and one to-state', () => {
+    expect(REVIEW_RESPONSE_DECISIONS).toEqual({
+      approve: { from: 'pending', to: 'published', purges: true },
+      reject: { from: 'pending', to: 'rejected', purges: false },
+      remove: { from: 'published', to: 'removed', purges: true },
+    });
+  });
+
+  it('offers approve and reject on pending, remove on published, and nothing else', () => {
+    expect(reviewResponseDecisionsFor('pending')).toEqual(['approve', 'reject']);
+    expect(reviewResponseDecisionsFor('published')).toEqual(['remove']);
+    expect(reviewResponseDecisionsFor('rejected')).toEqual([]);
+    expect(reviewResponseDecisionsFor('withdrawn')).toEqual([]);
+    expect(reviewResponseDecisionsFor('removed')).toEqual([]);
+  });
+
+  it('purges exactly when public visibility changes', () => {
+    // A pending reply was never on the page, so rejecting it changes nothing a
+    // visitor sees. Approve makes it appear; remove takes it down.
+    for (const plan of Object.values(REVIEW_RESPONSE_DECISIONS)) {
+      expect(plan.purges).toBe(plan.from === 'published' || plan.to === 'published');
+    }
+  });
+
+  it('never moves a reply out of removed', () => {
+    for (const plan of Object.values(REVIEW_RESPONSE_DECISIONS)) {
+      expect(plan.from).not.toBe('removed');
+    }
+  });
+});
+
+describe('DecideReviewResponseSchema', () => {
+  const v = { expected_updated_at: '2026-09-01T10:00:00.000Z' };
+
+  it('takes approve with no reason', () => {
+    expect(DecideReviewResponseSchema.parse({ decision: 'approve', ...v })).toEqual({
+      decision: 'approve',
+      ...v,
+    });
+  });
+
+  it.each(['reject', 'remove'] as const)('requires a trimmed reason on %s', (decision) => {
+    expect(DecideReviewResponseSchema.safeParse({ decision, ...v }).success).toBe(false);
+    expect(DecideReviewResponseSchema.safeParse({ decision, reason: '  ', ...v }).success).toBe(
+      false,
+    );
+    expect(DecideReviewResponseSchema.parse({ decision, reason: ' Why. ', ...v })).toEqual({
+      decision,
+      reason: 'Why.',
+      ...v,
+    });
+    expect(
+      DecideReviewResponseSchema.safeParse({ decision, reason: 'x'.repeat(1001), ...v }).success,
+    ).toBe(false);
+  });
+
+  it.each([
+    { decision: 'approve' },
+    { decision: 'reject', reason: 'Why.' },
+    { decision: 'remove', reason: 'Why.' },
+  ])('requires expected_updated_at on $decision (§11c.7)', (body) => {
+    expect(DecideReviewResponseSchema.safeParse(body).success).toBe(false);
+    expect(DecideReviewResponseSchema.safeParse({ ...body, expected_updated_at: '' }).success).toBe(
+      false,
+    );
+  });
+
+  it('refuses any other decision', () => {
+    expect(DecideReviewResponseSchema.safeParse({ decision: 'withdraw', ...v }).success).toBe(
+      false,
+    );
+  });
+
+  it('registers REVIEW_RESPONSE_CHANGED', () => {
+    expect(ApiErrorCode.REVIEW_RESPONSE_CHANGED).toBe('REVIEW_RESPONSE_CHANGED');
+  });
+});
+
+describe('ListAdminReviewResponsesQuerySchema', () => {
+  it('defaults to the pending tab', () => {
+    expect(ListAdminReviewResponsesQuerySchema.parse({}).status).toBe('pending');
   });
 });

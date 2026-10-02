@@ -13,13 +13,15 @@
 --   reviews come from reviewers; real replies from vendor seats.
 --
 -- WHAT
---   * Six APPROVED reviews and one PENDING review on Dynamo for Revit
+--   * Eight APPROVED reviews and one PENDING review on Dynamo for Revit
 --     (c…710, extension-fixtures.sql), which Autodesk (a…001, catalog.sql,
 --     `verified` with an active entitlement) owns. Autodesk is the default
 --     `LOCAL_VENDOR_SLUG`, so a locally seated vendor account sees them.
 --     Dynamo is chosen because no e2e or Lighthouse target reads it.
 --   * Five Autodesk replies, one per status: pending, published, rejected,
---     withdrawn, removed. The sixth approved review has no reply (the
+--     withdrawn, removed. Two more pending replies (…1158, …1159) belong to the
+--     admin-queue e2e spec and are reset to pending on every run (AECI-1177).
+--     The sixth approved review has no reply (the
 --     "needs a reply" row). The pending review has none, and the vendor list
 --     must never show it.
 --   * Reviews are anonymous (`reviewer_id` NULL, `anonymized_at` NULL), like
@@ -71,6 +73,26 @@ It now checks versions before it installs.','published',NULL,
     'A reply may not attack or guess at the reviewer.',
     (SELECT "id" FROM "profiles" WHERE "id" = '519f1e77-6e60-440e-81a9-3354d06be0b6'),'2026-09-15T10:00:00.000Z',NULL,
     '2026-09-14T09:00:00.000Z','2026-09-15T10:00:00.000Z');
+
+-- AECI-1177 — two more approved reviews, each with a PENDING Autodesk reply, for
+-- `apps/web/e2e/admin-review-responses.spec.ts` to approve and reject through the
+-- real queue. `INSERT OR REPLACE` on the replies, not `OR IGNORE`, so every
+-- `db:seed:local` puts them back to `pending` and the spec can run again. Nothing
+-- references `review_responses`, so the REPLACE's delete cascades nowhere. The
+-- five rows above stay `OR IGNORE`, one per status, for development.
+INSERT OR IGNORE INTO "reviews"
+  ("id","product_id","rating_overall","rating_onboarding","title","body","role_at_company","years_using","would_recommend","status","moderated_at","created_at","updated_at") VALUES
+  ('d0000000-0000-4000-8000-000000001108','c0000000-0000-4000-8000-000000000710',4,3,'Fast once the graphs are set up','Setup took a sprint. After that our tagging runs in minutes.','practitioner',2,'yes','approved','2026-09-08T10:00:00.000Z','2026-09-08T09:00:00.000Z','2026-09-08T10:00:00.000Z'),
+  ('d0000000-0000-4000-8000-000000001109','c0000000-0000-4000-8000-000000000710',3,2,'Training was the hard part','The tool is fine. Getting the team trained took longer than we planned.','manager',1,'maybe','approved','2026-09-09T10:00:00.000Z','2026-09-09T09:00:00.000Z','2026-09-09T10:00:00.000Z');
+
+INSERT OR REPLACE INTO "review_responses"
+  ("id","review_id","vendor_id","author_profile_id","body","status","rejection_reason","moderated_by","moderated_at","published_at","created_at","updated_at") VALUES
+  ('d0000000-0000-4000-8000-000000001158','d0000000-0000-4000-8000-000000001108','a0000000-0000-4000-8000-000000000001',NULL,
+    'Thanks. The 3.2 templates cut setup to a day for most teams.','pending',NULL,NULL,NULL,NULL,
+    '2026-09-16T09:00:00.000Z','2026-09-16T09:00:00.000Z'),
+  ('d0000000-0000-4000-8000-000000001159','d0000000-0000-4000-8000-000000001109','a0000000-0000-4000-8000-000000000001',NULL,
+    'Call our sales line on 555 0100 for a training bundle at half price.','pending',NULL,NULL,NULL,NULL,
+    '2026-09-17T09:00:00.000Z','2026-09-17T09:00:00.000Z');
 
 UPDATE "products" SET
   "review_count" = (SELECT COUNT(*) FROM "reviews" r WHERE r."product_id" = "products"."id" AND r."status" = 'approved'),

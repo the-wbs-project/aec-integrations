@@ -81,6 +81,15 @@ export const previewRoutes: Routes = [
     loadComponent: () =>
       import('./admin-contests/admin-contests-preview').then((m) => m.AdminContestsPreview),
   },
+  // AECI-1177 — the `/admin/review-responses` queue over a fixture-backed fake API,
+  // so every card state and the reason form render without an admin session.
+  {
+    path: 'admin-review-responses',
+    loadComponent: () =>
+      import('./admin-review-responses/admin-review-responses-preview').then(
+        (m) => m.AdminReviewResponsesPreview,
+      ),
+  },
   // AECI-1091 — the Integrations tab of `/admin/vendors/:id` over a fake API, so the
   // evidenced-pair rows and the retire form render without an admin session.
   // `?retire=<row id>` opens that row's form.

@@ -22,6 +22,7 @@
 import type {
   PublicReview,
   PublicVendorResponse,
+  ReviewResponseDecision,
   ReviewResponseStatus,
   VendorReviewResponse,
 } from '@aeci/shared';
@@ -47,6 +48,13 @@ export const REVIEW_RESPONSE_ACTIONS = {
   rejected: 'review_response.rejected',
   removed: 'review_response.removed',
 } as const;
+
+/** The audit action each admin decision writes (AECI-1177, §11c.6). */
+export const REVIEW_RESPONSE_DECISION_ACTIONS = {
+  approve: REVIEW_RESPONSE_ACTIONS.approved,
+  reject: REVIEW_RESPONSE_ACTIONS.rejected,
+  remove: REVIEW_RESPONSE_ACTIONS.removed,
+} as const satisfies Record<ReviewResponseDecision, string>;
 
 /** The token {@link reviewResponseChangedSentinel} raises on. */
 export const REVIEW_RESPONSE_CHANGED_TOKEN = 'review-response-changed';

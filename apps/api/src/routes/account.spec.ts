@@ -150,6 +150,7 @@ describe('GET /api/account', () => {
       pending_claims: null,
       pending_reindex: null,
       pending_contests: null,
+      pending_review_responses: null,
     });
   });
 
@@ -202,6 +203,7 @@ describe('GET /api/account', () => {
       pending_claims: 0,
       pending_reindex: 0,
       pending_contests: 0,
+      pending_review_responses: 0,
     });
   });
 });

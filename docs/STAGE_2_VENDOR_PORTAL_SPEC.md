@@ -3434,7 +3434,7 @@ A read-time rule would also hand the contest back to the owner when the entitlem
 
 ## 11c. Vendor replies to reviews (AECI-1173)
 
-**Status: specified 2026-10-02 by AECI-1174. Built so far: the table (AECI-1175, migration `0058`), the four vendor routes, the `review.reply` capability and the `reviews` cursor scope (AECI-1176), and `vendor_responses` on both public reads with the product-page render (AECI-1178). The admin queue, the portal tab and the notifications are not built.** Sub-issues AECI-1175 to AECI-1181 build it (§11c.17). Chris ruled the open decisions on 2026-10-01 and 2026-10-02. This section is the build contract. The table is in `DATABASE_SCHEMA.md` §7.3. The wire shapes are in `API_CONTRACTS.md` §6.6 and §6.14. The admin queue is `ADMIN_PANEL_SPEC.md` §5.13. The Stage 2.1 admission is `STAGE_2_1_SPEC.md` §3.3.4.
+**Status: specified 2026-10-02 by AECI-1174. Built so far: the table (AECI-1175, migration `0058`), the four vendor routes, the `review.reply` capability and the `reviews` cursor scope (AECI-1176), the admin queue with its two routes and badge (AECI-1177), and `vendor_responses` on both public reads with the product-page render (AECI-1178). The portal tab and the notifications are not built. The admin decision batch carries an empty notification slot until AECI-1180 fills it (§11c.12).** Sub-issues AECI-1175 to AECI-1181 build it (§11c.17). Chris ruled the open decisions on 2026-10-01 and 2026-10-02. This section is the build contract. The table is in `DATABASE_SCHEMA.md` §7.3. The wire shapes are in `API_CONTRACTS.md` §6.6 and §6.14. The admin queue is `ADMIN_PANEL_SPEC.md` §5.13. The Stage 2.1 admission is `STAGE_2_1_SPEC.md` §3.3.4.
 
 **This section supersedes the AECI-313 ruling of 2026-07-02.** That ruling made launch flag-only. A vendor could report a review by email and nothing else, and public replies were held back for a later paid listing. This is that feature. Reporting a review is unchanged. It stays an email to `reviews@thewbsproject.com` under the Review Guidelines (`apps/web/src/content/legal/review-guidelines.md`). A reply never removes, hides or flags a review.
 
@@ -3490,7 +3490,7 @@ Five statuses: `pending`, `published`, `rejected`, `withdrawn` and `removed`. `r
 | `pending` | `rejected` | AECi admin | the same `PATCH`, `reject` + reason | `review_response.rejected` | no |
 | `published` | `removed` | AECi admin | the same `PATCH`, `remove` + reason | `review_response.removed` | **yes**, the reply leaves the page |
 
-Every other move is refused with `409 REVIEW_RESPONSE_WRONG_STATE` and writes nothing. Three are worth naming:
+Every other move is refused with `409 REVIEW_RESPONSE_WRONG_STATE` and writes nothing. An admin decision on the right status but a version the vendor has since replaced is refused with `409 REVIEW_RESPONSE_CHANGED` (§11c.7). Three moves are worth naming:
 
 - **A vendor cannot edit a rejected or withdrawn reply.** It resubmits through the `POST`. The `PATCH` is for `pending` and `published` only.
 - **AECi cannot remove a pending reply.** It rejects it. Remove is for a reply that is live.
@@ -3512,12 +3512,16 @@ Every other move is refused with `409 REVIEW_RESPONSE_WRONG_STATE` and writes no
 
 Every transition writes, in one `db.batch`:
 
-1. the guarded `UPDATE … WHERE id = ? AND status IN (…allowed from-states)`, or the `INSERT` for a first submit;
+1. the guarded `UPDATE … WHERE id = ? AND status IN (…allowed from-states)`, or the `INSERT` for a first submit. An admin decision also guards on `updated_at = <expected_updated_at>` (below);
 2. a sentinel that aborts the batch when that statement changed no row;
 3. the `audit_log` row (`entity_type = 'review_response'`), through `apps/api/src/lib/audit.ts`;
 4. on an admin decision, the vendor's `notification.sent` row (§11c.12).
 
 The sentinel is the contest pattern (`contestStillOpenSentinel`, §11b.7). It reads `changes()`. When the guarded statement matched nothing it evaluates `json('review-response-changed')`, which raises and rolls the whole batch back. Every other statement sits after it. The handler maps that one error to `409 REVIEW_RESPONSE_WRONG_STATE`, with `details.status` from a re-read. A first submit that loses a race to another seat of the same vendor trips the unique index instead, and answers `409 REVIEW_RESPONSE_EXISTS`. So a lost race commits no audit row, no notification and no purge.
+
+**An admin decision guards on status plus version.** Status alone is not enough. A vendor edit of a pending reply is `pending` to `pending` with a new body. A withdraw then resubmit also ends `pending`. Either can land between the admin loading the queue and deciding. A status-only guard would then approve text the admin never read. So `PATCH /api/admin/review-responses/:id` requires `expected_updated_at`, the `updated_at` of the row the admin saw, echoed verbatim. The handler compares it before the batch and answers `409 REVIEW_RESPONSE_CHANGED` with `details.status` and `details.updated_at` on a mismatch. The guarded `UPDATE` also carries `AND updated_at = ?`, so an edit inside the batch window trips the sentinel and rolls back. The re-read then answers `REVIEW_RESPONSE_CHANGED` when the status still matches and `REVIEW_RESPONSE_WRONG_STATE` when it moved. A wrong status wins over a stale version. Every vendor write sets `updated_at` (§11c.6), so every vendor change is visible to this guard. The web queue sends the card's `updated_at`, and on this `409` says "The vendor changed this reply. Read the new version before deciding." and reloads.
+
+The vendor routes need no version. Each guards on the exact status it read, so an admin decision landing first trips their sentinel instead.
 
 **No workflow type.** Nothing writes `workflow_instances` or `workflow_transitions`. The state lives in `review_responses.status`. Opening `workflow_instances_type_check` would rebuild that table on D1, and a rebuild fires `ON DELETE CASCADE` two levels down (`docs/migrations.md` §0). Reusing `review_moderation` or `correction_request` was rejected too. A reply is not a review and not a request, and the Linear webhook and the request sweep key off those types. The audit rows are the history.
 

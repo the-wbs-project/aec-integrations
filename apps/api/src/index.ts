@@ -172,6 +172,10 @@ import {
 } from './routes/admin-contests';
 import { createDecideContestProtestHandler } from './routes/admin-contest-protests';
 import {
+  createAdminReviewResponsesListHandler,
+  createDecideReviewResponseHandler,
+} from './routes/admin-review-responses';
+import {
   createFileContestProtestHandler,
   createReplyContestProtestHandler,
   createWithdrawContestProtestHandler,
@@ -720,6 +724,21 @@ authAdmin.patch(
   requireAdmin(),
   rateLimit('write'),
   createDecideContestProtestHandler(),
+);
+// AECI-1177: vendor replies to reviews, the pre-moderation queue
+// (`STAGE_2_VENDOR_PORTAL_SPEC.md` §11c). The PATCH is the tenth named write
+// exception in `ADMIN_PANEL_SPEC.md`: a MODERATION write on vendor-authored content
+// that never touches the review. The read is never rate-limited; the write is.
+authAdmin.get(
+  '/api/admin/review-responses',
+  requireAdmin(),
+  createAdminReviewResponsesListHandler(),
+);
+authAdmin.patch(
+  '/api/admin/review-responses/:id',
+  requireAdmin(),
+  rateLimit('write'),
+  createDecideReviewResponseHandler(),
 );
 authAdmin.get('/api/admin/reviewers', requireAdmin(), createBannedReviewersListHandler());
 authAdmin.patch('/api/admin/reviewers/:id', requireAdmin(), createBanReviewerHandler());

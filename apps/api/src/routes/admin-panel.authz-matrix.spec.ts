@@ -13,7 +13,8 @@
  * the Audience pair, by AECI-652 with the three `/api/admin/vendors` reads, by
  * AECI-722 with the five `/api/admin/connector-catalogs` reads, by AECI-739 with
  * `GET /api/admin/claims/:id`, by AECI-859 with `GET /api/admin/subscribers`, and
- * by AECI-1008 with `GET /api/admin/contests`.
+ * by AECI-1008 with `GET /api/admin/contests`, and by AECI-1177 with
+ * `GET /api/admin/review-responses`.
  * Every read endpoint the epic adds belongs in {@link ROUTES} — that is the point
  * of the file.
  *
@@ -40,6 +41,7 @@ import { createAdminAudienceHandler } from './admin-audience';
 import { createAdminCatalogCoverageHandler } from './admin-catalog';
 import { createAdminClaimDetailHandler } from './admin-claims';
 import { createAdminContestsListHandler } from './admin-contests';
+import { createAdminReviewResponsesListHandler } from './admin-review-responses';
 import { createAdminReindexListHandler } from './admin-reindex';
 import { createAdminFeedbackHandler } from './admin-feedback';
 import { createAdminTimeseriesHandler } from './admin-metrics';
@@ -166,6 +168,11 @@ const ROUTES = [
   // here, for the same reason as the reindex DELETE: this file is `get()`-shaped,
   // and `admin-contests.spec.ts` runs the same deny matrix against both verbs.
   { name: 'GET /api/admin/contests', url: '/api/admin/contests' },
+  // AECI-1177 — the §5.13 vendor review-reply queue. ONE read; the decision PATCH
+  // is not here, for the same reason as the contest PATCH: this file is
+  // `get()`-shaped, and `admin-review-responses.spec.ts` runs the same deny matrix
+  // against both verbs.
+  { name: 'GET /api/admin/review-responses', url: '/api/admin/review-responses' },
 ] as const;
 
 let jwks: TestJwks;
@@ -319,6 +326,13 @@ function makeApp() {
   );
   app.get('/api/admin/reindex', requireAdmin(guard), createAdminReindexListHandler(t.factory));
   app.get('/api/admin/contests', requireAdmin(guard), createAdminContestsListHandler(t.factory));
+  // AECI-1177. The second argument is the author-email seam, whose default would
+  // reach GoTrue; an empty map is the cheapest branch that still 200s.
+  app.get(
+    '/api/admin/review-responses',
+    requireAdmin(guard),
+    createAdminReviewResponsesListHandler(t.factory, async () => new Map<string, string>()),
+  );
   return app;
 }
 

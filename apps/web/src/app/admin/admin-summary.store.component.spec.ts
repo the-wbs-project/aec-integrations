@@ -100,6 +100,21 @@ describe('AdminSummaryStore', () => {
     expect(store.operationsTotal()).toBe(19);
   });
 
+  // AECI-1177. Vendor review replies are the sixth key, on `review_responses`.
+  it('carries review replies as a sixth queue in the sum and decrements it', () => {
+    expect(store.pendingReviewResponses()).toBeNull();
+    store.seed({ reviews: 5, reviewResponses: 3, requests: 2 });
+    expect(store.pendingReviewResponses()).toBe(3);
+    expect(store.operationsTotal()).toBe(10);
+    store.decrement('reviewResponses');
+    expect(store.count('reviewResponses')()).toBe(2);
+    expect(store.pendingReviews()).toBe(5);
+    expect(store.operationsTotal()).toBe(9);
+    // An older API shape omits it: the count is left alone.
+    store.seed({ reviews: 1, reviewResponses: undefined });
+    expect(store.pendingReviewResponses()).toBe(2);
+  });
+
   it('leaves the contest count alone when an older API shape omits it', () => {
     store.seed({ contests: 2 });
     store.seed({ reviews: 1, contests: undefined });

@@ -12,7 +12,7 @@
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
-import { products, reviews, vendorRequests } from '../db/schema';
+import { products, reviewResponses, reviews, vendorRequests, vendors } from '../db/schema';
 import { makeTestDb, type TestDb } from '../test/d1';
 import { buildAppWithHandler, fakeExecutionContext, TEST_ENV } from '../test/helpers';
 import { createAdminSummaryHandler } from './admin-summary';
@@ -75,6 +75,7 @@ describe('GET /api/admin/summary', () => {
       pending_claims: 0,
       pending_reindex: 0,
       pending_contests: 0,
+      pending_review_responses: 0,
     });
   });
 
@@ -85,6 +86,7 @@ describe('GET /api/admin/summary', () => {
       pending_claims: 0,
       pending_reindex: 0,
       pending_contests: 0,
+      pending_review_responses: 0,
     });
   });
 
@@ -109,6 +111,38 @@ describe('GET /api/admin/summary', () => {
       pending_claims: 1,
       pending_reindex: 0,
       pending_contests: 0,
+      pending_review_responses: 0,
+    });
+  });
+
+  // AECI-1177: the sixth queue. Only `pending` replies wait on an operator.
+  it('counts pending vendor review replies, and only pending ones', async () => {
+    await t.db
+      .insert(products)
+      .values({ id: u(1), slug: 'p', name: 'P', promotionStatus: 'promoted' });
+    await t.db.insert(vendors).values([
+      { id: u(41), slug: 'v1', companyName: 'V1' },
+      { id: u(42), slug: 'v2', companyName: 'V2' },
+      { id: u(43), slug: 'v3', companyName: 'V3' },
+    ]);
+    await t.db.insert(reviews).values({
+      id: u(11),
+      productId: u(1),
+      ratingOverall: 5,
+      ratingOnboarding: 4,
+      title: 'a',
+      body: 'b',
+      status: 'approved',
+    });
+    await t.db.insert(reviewResponses).values([
+      { id: u(51), reviewId: u(11), vendorId: u(41), body: 'r', status: 'pending' },
+      { id: u(52), reviewId: u(11), vendorId: u(42), body: 'r', status: 'pending' },
+      { id: u(53), reviewId: u(11), vendorId: u(43), body: 'r', status: 'published' },
+    ]);
+
+    expect(await (await get()).json()).toMatchObject({
+      pending_reviews: 0,
+      pending_review_responses: 2,
     });
   });
 });

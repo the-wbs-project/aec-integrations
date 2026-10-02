@@ -94,6 +94,9 @@ export interface AccountProfileResponse {
    *  same skew reason as `AdminSummaryResponse.pending_contests`; the server
    *  always sends it, `null` for a non-admin like the others. */
   pending_contests?: number | null;
+  /** Pending vendor replies to reviews (AECI-1177). Optional for the same skew
+   *  reason; `null` for a non-admin. */
+  pending_review_responses?: number | null;
 }
 
 // ─── Delete (GDPR erasure) ──────────────────────────────────────────────────
