@@ -10,6 +10,8 @@
  *   - every other from-state is `409 REVIEW_RESPONSE_WRONG_STATE` and writes nothing;
  *   - reject and remove require a reason;
  *   - the purge directive is queued on approve and remove only;
+ *   - each decision writes one `review_response` feed row to the reply's vendor,
+ *     in the same batch, and only that vendor reads it (AECI-1180, §11c.12);
  *   - a lost race writes nothing (§11c.7);
  *   - the guard is status PLUS version: a decision naming an `updated_at` the vendor
  *     has since replaced (an edit, or a withdraw-and-resubmit) is
@@ -54,6 +56,7 @@ import {
   reviewResponseDecisionNotifications,
   type FetchAuthorEmails,
 } from './admin-review-responses';
+import { createListVendorNotificationsHandler } from './vendor-notifications';
 
 const uuid = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
 
@@ -196,6 +199,11 @@ const decide = (id: string, body: unknown, factory?: DbFactory) =>
 const replyRow = async (id: string) =>
   (await t.db.select().from(reviewResponses).where(eq(reviewResponses.id, id)))[0]!;
 const auditRows = () => t.db.select().from(auditLog);
+/** The decision's own audit rows, without the vendor's feed row (AECI-1180). */
+const decisionAudits = async () =>
+  (await auditRows()).filter((r) => r.action !== 'notification.sent');
+/** The vendor feed rows a decision wrote (AECI-1180, §11c.12). */
+const feedRows = async () => (await auditRows()).filter((r) => r.action === 'notification.sent');
 
 /** `reviews`, the product's count columns and the workflow tables. */
 async function firewallSnapshot() {
@@ -320,7 +328,7 @@ describe('PATCH /api/admin/review-responses/:id — the transitions', () => {
     expect(row.publishedAt).toBe(row.moderatedAt);
     expect(row.updatedAt).toBe(row.moderatedAt);
 
-    const audits = await auditRows();
+    const audits = await decisionAudits();
     expect(audits).toHaveLength(1);
     expect(audits[0]).toMatchObject({
       action: 'review_response.approved',
@@ -366,7 +374,7 @@ describe('PATCH /api/admin/review-responses/:id — the transitions', () => {
       moderatedBy: ADMIN,
       publishedAt: null,
     });
-    const [audit] = await auditRows();
+    const [audit] = await decisionAudits();
     expect(audit).toMatchObject({
       action: 'review_response.rejected',
       beforeState: { status: 'pending' },
@@ -396,7 +404,7 @@ describe('PATCH /api/admin/review-responses/:id — the transitions', () => {
       publishedAt: null,
       moderatedBy: ADMIN,
     });
-    const [audit] = await auditRows();
+    const [audit] = await decisionAudits();
     expect(audit).toMatchObject({
       action: 'review_response.removed',
       beforeState: { status: 'published' },
@@ -406,21 +414,114 @@ describe('PATCH /api/admin/review-responses/:id — the transitions', () => {
     expect(await firewallSnapshot()).toEqual(before);
   });
 
-  it('never writes `notification.sent` rows until AECI-1180 fills the hook', async () => {
-    const id = await seedReply(R1, 'pending');
-    await decide(id, { decision: 'approve' });
-    expect((await auditRows()).map((r) => r.action)).toEqual(['review_response.approved']);
-    expect(
-      reviewResponseDecisionNotifications({
-        responseId: id,
-        decision: 'approve',
+  it('builds one `review_response` feed row for the reply’s vendor (AECI-1180)', () => {
+    const entries = reviewResponseDecisionNotifications({
+      responseId: uuid(700),
+      decision: 'remove',
+      vendorId: VENDOR_A,
+      reviewId: R1,
+      product: { id: P_A, slug: 'revit', name: 'Revit' },
+      reason: 'It is a sales pitch.',
+      actor: { actorId: ADMIN, actorType: 'admin' },
+    });
+    expect(entries).toEqual([
+      {
+        actorId: ADMIN,
+        actorType: 'admin',
+        action: 'notification.sent',
+        entityType: 'review_response',
+        entityId: uuid(700),
+        metadata: {
+          kind: 'review_response',
+          notificationId: 'portal-review-response',
+          vendorId: VENDOR_A,
+          event: 'removed',
+          responseId: uuid(700),
+          reviewId: R1,
+          productId: P_A,
+          product: { slug: 'revit', name: 'Revit' },
+          reason: 'It is a sales pitch.',
+        },
+      },
+    ]);
+  });
+
+  it.each([
+    { decision: 'approve' as const, from: 'pending', event: 'approved', reason: undefined },
+    {
+      decision: 'reject' as const,
+      from: 'pending',
+      event: 'rejected',
+      reason: 'It names the reviewer.',
+    },
+    {
+      decision: 'remove' as const,
+      from: 'published',
+      event: 'removed',
+      reason: 'It is a sales pitch.',
+    },
+  ])(
+    '$decision writes one feed row to the reply’s vendor in the decision batch',
+    async ({ decision, from, event, reason }) => {
+      const id = await seedReply(R1, from);
+      expect((await decide(id, REASONED[decision])).status).toBe(200);
+
+      const feed = await feedRows();
+      expect(feed).toHaveLength(1);
+      expect(feed[0]).toMatchObject({
+        actorId: ADMIN,
+        entityType: 'review_response',
+        entityId: id,
+      });
+      expect(feed[0]!.metadata).toEqual({
+        kind: 'review_response',
+        notificationId: 'portal-review-response',
         vendorId: VENDOR_A,
+        event,
+        responseId: id,
         reviewId: R1,
         productId: P_A,
-        reason: null,
-        actor: { actorId: ADMIN, actorType: 'admin' },
-      }),
-    ).toEqual([]);
+        product: { slug: 'revit', name: 'Revit' },
+        ...(reason ? { reason } : {}),
+      });
+    },
+  );
+
+  it('the decision row reaches the reply’s vendor feed, and no other vendor’s', async () => {
+    const id = await seedReply(R1, 'pending');
+    expect((await decide(id, REASONED.reject)).status).toBe(200);
+
+    const read = async (vendorId: string) => {
+      const a = new Hono<{ Bindings: Env; Variables: AuthzVariables }>();
+      a.onError(errorHandler());
+      a.use('*', async (c, next) => {
+        c.set('auth', { ...ADMIN_AUTH, role: 'vendor_admin', vendorId } as Auth);
+        await next();
+      });
+      a.get('/api/vendor/notifications', createListVendorNotificationsHandler(t.factory));
+      const res = await a.request(
+        '/api/vendor/notifications',
+        {},
+        TEST_ENV,
+        fakeExecutionContext(),
+      );
+      expect(res.status).toBe(200);
+      return ((await res.json()) as JsonBody).notifications as JsonBody[];
+    };
+
+    expect(await read(VENDOR_A)).toEqual([
+      {
+        kind: 'review_response',
+        id: expect.any(String),
+        event: 'rejected',
+        response_id: id,
+        review_id: R1,
+        product: { slug: 'revit', name: 'Revit' },
+        reason: 'It names the reviewer.',
+        created_at: expect.any(String),
+      },
+    ]);
+    expect(await read(VENDOR_B)).toEqual([]);
   });
 });
 
@@ -508,7 +609,7 @@ describe('PATCH /api/admin/review-responses/:id — the refusals', () => {
     const again = await decide(id, { decision: 'approve', ...V0 });
     expect(again.status).toBe(409);
     expect(again.body.error.details).toEqual({ status: 'published' });
-    expect(await auditRows()).toHaveLength(1);
+    expect(await decisionAudits()).toHaveLength(1);
   });
 
   it('refuses a decision without expected_updated_at with a 400 (§11c.7)', async () => {

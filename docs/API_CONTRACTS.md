@@ -1728,6 +1728,8 @@ export const ModerateReviewResponseSchema = z.object({
 export type ModerateReviewResponse = z.infer<typeof ModerateReviewResponseSchema>;
 ```
 
+**Owning-vendor notice (AECI-1180, `STAGE_2_VENDOR_PORTAL_SPEC.md` §11c.12).** An approve also writes one `notification.sent` row per owning vendor in `product_vendors`, primary or not, in the same batch (`entity_type: 'review'`, `metadata.kind = 'review'`, `metadata.vendorId` the recipient, `reviewId`, `productId`, the product's slug and name, and the review title). Each row records `metadata.notificationId = 'portal-review'` (the notification registry, `docs/NOTIFICATIONS.md`). Post-commit, each owner's unbanned `vendor_admin` seats get the `vendor-review-published` email (`docs/email.md`), one per seat under the send-ledger key `vendor-review-published:{reviewId}:{profileId}`. The loser of a moderation race writes no row and sends nothing. A reject writes no row and sends no vendor email. The response shape is unchanged.
+
 Errors: `NOT_FOUND`, `INVALID_STATE_TRANSITION` (422) if review is not in `pending` status when the handler reads it; `409 REVIEW_ALREADY_MODERATED` if another moderator decided it between that read and this batch, which then rolls back entirely (AECI-1203). The reviewer's decision email (`review-approved` or `review-rejected`) carries the send-ledger key `review-decision:{reviewId}`, so a review gets one decision email.
 
 #### `GET /api/admin/requests`
@@ -3342,7 +3344,7 @@ export const DecideReviewResponseSchema = z.discriminatedUnion('decision', [
 | `reject` | `pending` | `rejected` | `review_response.rejected` | no |
 | `remove` | `published` | `removed` | `review_response.removed` | yes |
 
-One batch: the guarded `UPDATE … WHERE id = ? AND status = <from>`, the `changes()` sentinel, the `audit_log` row (`entity_type: 'review_response'`, `actor_type: 'admin'`, the reason in `metadata.reason`), and a `notification.sent` row to the reply's vendor (`metadata.kind = 'review_response'`, `metadata.event`). **As built by AECI-1177 the notification row is not written yet.** AECI-1180 adds it through `reviewResponseDecisionNotifications()`, the slot the handler already inserts after the audit row. The table above is data in `@aeci/shared` (`REVIEW_RESPONSE_DECISIONS`), which the API enforces and the web queue reads to choose its buttons. The audit row's `metadata` is `{ source: 'admin-moderation', vendorId, reviewId, productId, reason? }`; `before_state` / `after_state` carry the two statuses, and `after_state.rejection_reason` on reject and remove. No `reviews` statement, no count recompute, no Algolia write, no re-crawl, no workflow row. The purge source is `moderation`. The reason is shown to the vendor.
+One batch: the guarded `UPDATE … WHERE id = ? AND status = <from>`, the `changes()` sentinel, the `audit_log` row (`entity_type: 'review_response'`, `actor_type: 'admin'`, the reason in `metadata.reason`), and a `notification.sent` row to the reply's vendor (`metadata.kind = 'review_response'`, `metadata.event`, `metadata.reason` on reject and remove). AECI-1180 writes that row through `reviewResponseDecisionNotifications()`, after the audit row. The vendor reads it on `GET /api/vendor/notifications` (§6.10). No email follows a decision. The table above is data in `@aeci/shared` (`REVIEW_RESPONSE_DECISIONS`), which the API enforces and the web queue reads to choose its buttons. The audit row's `metadata` is `{ source: 'admin-moderation', vendorId, reviewId, productId, reason? }`; `before_state` / `after_state` carry the two statuses, and `after_state.rejection_reason` on reject and remove. No `reviews` statement, no count recompute, no Algolia write, no re-crawl, no workflow row. The purge source is `moderation`. The reason is shown to the vendor.
 
 **Version guard.** The guarded `UPDATE` also carries `AND updated_at = <expected_updated_at>`. A mismatch found before the batch answers `409 REVIEW_RESPONSE_CHANGED`. A vendor write that lands inside the batch window trips the sentinel instead. The re-read then answers `REVIEW_RESPONSE_CHANGED` when the status still matches and `REVIEW_RESPONSE_WRONG_STATE` when it moved.
 
@@ -5749,7 +5751,30 @@ export const ListVendorNotificationsResponseSchema = z.object({
 
 Errors: none beyond the guard's. An empty ledger is `200 { "notifications": [] }`.
 
-**Two more members, specified by AECI-1174 (`STAGE_2_VENDOR_PORTAL_SPEC.md` §11c.12).** AECI-1180 adds `kind: 'review'`, written per owning vendor in the batch that approves a review of its product (`review_id`, `product`, `review_title`, `created_at`). AECI-1177 adds `kind: 'review_response'`, written to the reply's vendor in the batch of each admin decision (`event: 'approved' | 'rejected' | 'removed'`, `response_id`, `review_id`, `product`, `reason` on reject and remove). `isAttestationNotification` names every non-attestation kind, so it must name both.
+**The review members (AECI-1180, `STAGE_2_VENDOR_PORTAL_SPEC.md` §11c.12).** `kind: 'review'` is written per owning vendor, primary or not and on every plan, in the batch that approves a review of its product. `kind: 'review_response'` is written to the reply's vendor in the batch of each admin decision on its reply. `reason` is set on `rejected` and `removed` and `null` on `approved`. Neither row carries reviewer data. `isAttestationNotification` names both. Each row records its notification registry id as `metadata.notificationId`: `portal-review` and `portal-review-response` (`docs/NOTIFICATIONS.md`). The wire shape does not carry it.
+
+```typescript
+export const VendorReviewNotificationSchema = z.object({          // AECI-1180
+  kind: z.literal('review'),
+  id: z.string().uuid(),
+  review_id: z.string().uuid(),
+  product: NotificationProductRefSchema,  // { slug, name } at approval time
+  review_title: z.string(),
+  created_at: z.string(),
+});
+export const VendorReviewResponseNotificationSchema = z.object({  // AECI-1180
+  kind: z.literal('review_response'),
+  id: z.string().uuid(),
+  event: z.enum(['approved', 'rejected', 'removed']),
+  response_id: z.string().uuid(),
+  review_id: z.string().uuid(),
+  product: NotificationProductRefSchema,
+  reason: z.string().nullable(),
+  created_at: z.string(),
+});
+```
+
+Both join `VendorNotificationSchema` ahead of the attestation member, beside `integration_create` and `claim_added`, which the union block above predates.
 
 #### `GET /api/vendor/notification-preferences` and `PUT /api/vendor/notification-preferences` (AECI-1204)
 

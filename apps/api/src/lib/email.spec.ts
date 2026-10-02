@@ -52,6 +52,7 @@ import {
   sendStuckRequestAdminAlert,
   sendSeatInvite,
   sendTransactionalEmail,
+  sendVendorReviewPublishedEmail,
   sendVendorSeatInviteEmail,
   type EmailContext,
 } from './email';
@@ -432,6 +433,52 @@ describe('sendReviewApprovedEmail', () => {
       productSlug: 'procore',
     });
     expect(String(lastBody(fetchSpy).text)).not.toContain('/products/');
+  });
+});
+
+describe('sendVendorReviewPublishedEmail (AECI-1180)', () => {
+  const REVIEW = {
+    to: 'seat@autodesk.test',
+    vendorSlug: 'autodesk',
+    reviewId: 'rev-1',
+    dedupeKey: 'vendor-review-published:rev-1:p-1',
+    productName: 'Revit',
+    productSlug: 'revit',
+    title: 'Solid <for> coordination',
+    ratingOverall: 4,
+    ratingOnboarding: 3,
+  };
+
+  it('names the product, quotes the headline and ratings, and links to the portal Reviews tab', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
+    const outcome = await sendVendorReviewPublishedEmail(
+      fakeContext({ PUBLIC_SITE_URL: 'https://aecintegrations.com/' }),
+      REVIEW,
+    );
+    expect(outcome).toBe('sent');
+    const body = lastBody(fetchSpy);
+    expect(body.to).toBe('seat@autodesk.test');
+    expect(body.subject).toBe('New review of Revit on AEC Integrations');
+    const text = String(body.text);
+    expect(text).toContain('“Solid <for> coordination”');
+    expect(text).toContain('4 of 5');
+    expect(text).toContain('3 of 5');
+    expect(text).toContain('https://aecintegrations.com/vendor/autodesk/products/revit/reviews');
+    // The headline is reviewer text: escaped in the HTML part.
+    expect(String(body.html)).toContain('Solid &lt;for&gt; coordination');
+    expect(String(body.html)).not.toContain('<for>');
+    expect(sendTags()).toEqual([['outcome:sent', 'template:vendor-review-published']]);
+    // AECI-1202: the per-seat key rides to Resend, so a replay cannot send twice.
+    const headers = (fetchSpy.mock.calls[0]![1] as RequestInit).headers as Record<string, string>;
+    expect(headers['Idempotency-Key']).toMatch(
+      /^production:vendor-review-published:rev-1:p-1:[0-9a-f]{16}$/,
+    );
+  });
+
+  it('omits the CTA when PUBLIC_SITE_URL is absent', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
+    await sendVendorReviewPublishedEmail(fakeContext(), REVIEW);
+    expect(String(lastBody(fetchSpy).text)).not.toContain('/vendor/');
   });
 });
 

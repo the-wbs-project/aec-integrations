@@ -145,6 +145,20 @@ export const NOTIFICATIONS = {
     doc: CATALOGUE,
     summary: "Tells a reviewer their review needs revision, with the moderator's reason.",
   },
+  'vendor-review-published': {
+    channel: 'email',
+    audience: 'external',
+    trigger: { kind: 'route', ref: 'PATCH /api/admin/reviews/:id (routes/admin-reviews.ts)' },
+    envRule: 'production-external',
+    dedupe:
+      'Key vendor-review-published:{reviewId}:{profileId}, one per seat. A losing concurrent moderation gets 409 REVIEW_ALREADY_MODERATED and sends nothing.',
+    ledger: ['notification_sends'],
+    optOut: 'none',
+    doc: 'docs/STAGE_2_VENDOR_PORTAL_SPEC.md §11c.12',
+    summary:
+      'Tells every unbanned seat of each owning vendor that a review of its product was approved.',
+    note: 'Sent beside the portal-review row, on every plan. The attestation nudge mute does not cover it.',
+  },
   'account-deleted': {
     channel: 'email',
     audience: 'external',
@@ -671,6 +685,33 @@ export const NOTIFICATIONS = {
     optOut: 'none',
     doc: 'docs/STAGE_2_ATTESTATIONS_SPEC.md §7.6',
     summary: 'Tells a vendor another vendor added a data row to an integration on its product.',
+  },
+  'portal-review': {
+    channel: 'portal',
+    audience: 'external',
+    trigger: { kind: 'route', ref: 'PATCH /api/admin/reviews/:id (routes/admin-reviews.ts)' },
+    envRule: 'any-tier',
+    dedupe: 'One row per owning vendor, in the approve batch.',
+    ledger: ['audit_log'],
+    optOut: 'none',
+    doc: 'docs/STAGE_2_VENDOR_PORTAL_SPEC.md §11c.12',
+    summary: 'Tells each owning vendor that a review of its product was approved.',
+    note: 'Written for a vendor with no seat too, so the feed is complete once it is seated. A reject writes none.',
+  },
+  'portal-review-response': {
+    channel: 'portal',
+    audience: 'external',
+    trigger: {
+      kind: 'route',
+      ref: 'PATCH /api/admin/review-responses/:id (routes/admin-review-responses.ts)',
+    },
+    envRule: 'any-tier',
+    dedupe: 'One row per decision, in the decision batch.',
+    ledger: ['audit_log'],
+    optOut: 'none',
+    doc: 'docs/STAGE_2_VENDOR_PORTAL_SPEC.md §11c.12',
+    summary: 'Tells a vendor that AECi approved, rejected or removed its reply to a review.',
+    note: 'metadata.event names the decision. Reject and remove carry the reason. No email, as for contests.',
   },
 
   // ─── Linear (Linear then notifies its own subscribers) ────────────────────

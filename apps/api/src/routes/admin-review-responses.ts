@@ -72,6 +72,7 @@ import {
   isReviewResponseRaceError,
   reviewResponseChangedSentinel,
 } from '../lib/review-responses';
+import { reviewResponseDecisionNotification } from '../lib/review-notifications';
 import { fetchAuthUserEmails } from '../lib/supabase-admin';
 import { parseJsonBody, purgeTags } from './vendor-shared';
 
@@ -231,28 +232,35 @@ export interface ReviewResponseDecisionContext {
   /** The reply's vendor: the recipient of the decision notice. */
   vendorId: string;
   reviewId: string;
-  productId: string;
+  /** The reviewed product, snapshotted onto the feed row. */
+  product: { id: string; slug: string; name: string };
   /** The reason on a reject or remove; `null` on approve. */
   reason: string | null;
   actor: { actorId: string; actorType: AuditLogEntry['actorType'] };
 }
 
 /**
- * The vendor's `notification.sent` rows for one decision (§11c.12). They ride the
- * decision batch AFTER the sentinel and the audit row, so a lost race commits none.
+ * The vendor's `notification.sent` rows for one decision (§11c.12, AECI-1180). They
+ * ride the decision batch AFTER the sentinel and the audit row, so a lost race
+ * commits none.
  *
- * TODO(AECI-1180): return one `notification.sent` entry with `metadata.kind =
- * 'review_response'`, `metadata.event` (`approved | rejected | removed`),
- * `metadata.vendorId = ctx.vendorId`, and `metadata.reason` on reject and remove.
- * The handler already inserts every entry returned here into the batch and
- * forwards it with the audit row. Until then it returns none, by design: AECI-1177
- * ships the queue, and AECI-1180 owns the feed rows and the `kind` union.
+ * Exactly one row, to the reply's vendor: `metadata.kind = 'review_response'`,
+ * `metadata.event` (`approved | rejected | removed`), and `metadata.reason` on
+ * reject and remove. No email follows a decision, as for contests (§11b.8).
  */
 export function reviewResponseDecisionNotifications(
   ctx: ReviewResponseDecisionContext,
 ): AuditLogEntry[] {
-  void ctx;
-  return [];
+  return [
+    reviewResponseDecisionNotification('portal-review-response', ctx.actor, {
+      responseId: ctx.responseId,
+      decision: ctx.decision,
+      vendorId: ctx.vendorId,
+      reviewId: ctx.reviewId,
+      product: ctx.product,
+      reason: ctx.reason,
+    }),
+  ];
 }
 
 /** The columns one decision writes (§11c.6 "Columns per transition"). */
@@ -336,7 +344,7 @@ export function createDecideReviewResponseHandler(
       decision: payload.decision,
       vendorId: row.vendorId,
       reviewId: row.reviewId,
-      productId: row.productId,
+      product: { id: row.productId, slug: row.productSlug, name: row.productName },
       reason,
       actor,
     });

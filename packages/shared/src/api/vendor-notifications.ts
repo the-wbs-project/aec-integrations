@@ -189,13 +189,62 @@ export const VendorClaimAddedNotificationSchema = z.object({
 });
 export type VendorClaimAddedNotification = z.infer<typeof VendorClaimAddedNotificationSchema>;
 
+/**
+ * A review of one of this vendor's products was approved (`kind: 'review'`,
+ * AECI-1180 / `STAGE_2_VENDOR_PORTAL_SPEC.md` §11c.12).
+ *
+ * Written by `PATCH /api/admin/reviews/:id` with `approve`, one row per owning
+ * vendor of the product (primary or not), in the SAME batch as the approval. Every
+ * owner gets it on every plan: knowing what is said about your product is not a
+ * paid feature. The seats are also emailed (`vendor-review-published`). Every
+ * field is a snapshot taken at approval time. No reviewer data is on the row.
+ */
+export const VendorReviewNotificationSchema = z.object({
+  kind: z.literal('review'),
+  /** The `audit_log` row id. */
+  id: z.string().uuid(),
+  review_id: z.string().uuid(),
+  product: NotificationProductRefSchema,
+  review_title: z.string(),
+  created_at: z.string(),
+});
+export type VendorReviewNotification = z.infer<typeof VendorReviewNotificationSchema>;
+
+/** What AECi decided about the vendor's reply (§11c.6). */
+export const REVIEW_RESPONSE_NOTIFICATION_EVENTS = ['approved', 'rejected', 'removed'] as const;
+export type ReviewResponseNotificationEvent = (typeof REVIEW_RESPONSE_NOTIFICATION_EVENTS)[number];
+
+/**
+ * AECi decided this vendor's reply to a review (`kind: 'review_response'`,
+ * AECI-1180 / §11c.12).
+ *
+ * Written by `PATCH /api/admin/review-responses/:id` in the decision batch, to the
+ * reply's vendor. `reason` is the moderator's reason on `rejected` and `removed`,
+ * which the vendor is shown (ruling 7), and `null` on `approved`. No email: the
+ * portal feed is the whole delivery, as for contests.
+ */
+export const VendorReviewResponseNotificationSchema = z.object({
+  kind: z.literal('review_response'),
+  /** The `audit_log` row id. */
+  id: z.string().uuid(),
+  event: z.enum(REVIEW_RESPONSE_NOTIFICATION_EVENTS),
+  response_id: z.string().uuid(),
+  review_id: z.string().uuid(),
+  product: NotificationProductRefSchema,
+  reason: z.string().nullable(),
+  created_at: z.string(),
+});
+export type VendorReviewResponseNotification = z.infer<
+  typeof VendorReviewResponseNotificationSchema
+>;
+
 /** One row of the feed. Discriminated on `kind`; see the attestation member for
  *  why its `kind` may be absent. `integration_claim` joined in AECI-1005
  *  (`VendorIntegrationClaimNotificationSchema` in `./integration-claims`), and
  *  `integration_retire` in AECI-1010 (`./integration-retire`), and
  *  `integration_update` in AECI-1006 (`./integration-edits`), and
  *  `integration_create` in AECI-1011 (`./integration-create`), and `claim_added` in
- *  AECI-1153 (above). */
+ *  AECI-1153 (above), and `review` and `review_response` in AECI-1180 (above). */
 export const VendorNotificationSchema = z.union([
   VendorContestNotificationSchema,
   VendorIntegrationClaimNotificationSchema,
@@ -203,6 +252,8 @@ export const VendorNotificationSchema = z.union([
   VendorIntegrationUpdateNotificationSchema,
   VendorIntegrationCreateNotificationSchema,
   VendorClaimAddedNotificationSchema,
+  VendorReviewNotificationSchema,
+  VendorReviewResponseNotificationSchema,
   VendorAttestationNotificationSchema,
 ]);
 export type VendorNotification = z.infer<typeof VendorNotificationSchema>;
@@ -211,7 +262,8 @@ export type VendorNotification = z.infer<typeof VendorNotificationSchema>;
  *  attestation, which is what every pre-AECI-1008 row is. Every other member
  *  carries an explicit `kind`, so this names them rather than testing for one.
  *  **A new member must be named here**, or its rows read as attestation rows
- *  (`claim_added` since AECI-1153). */
+ *  (`claim_added` since AECI-1153, `review` and `review_response` since
+ *  AECI-1180). */
 export function isAttestationNotification(
   notification: VendorNotification,
 ): notification is VendorAttestationNotification {
@@ -221,7 +273,9 @@ export function isAttestationNotification(
     notification.kind !== 'integration_retire' &&
     notification.kind !== 'integration_update' &&
     notification.kind !== 'integration_create' &&
-    notification.kind !== 'claim_added'
+    notification.kind !== 'claim_added' &&
+    notification.kind !== 'review' &&
+    notification.kind !== 'review_response'
   );
 }
 

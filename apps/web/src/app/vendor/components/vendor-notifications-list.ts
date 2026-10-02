@@ -94,10 +94,11 @@ import {
           class="max-w-prose text-xs text-(--text-secondary)"
           i18n="@@vendor.attest.notify.framing.digest"
         >
-          What we noted about these integrations in the last 90 days: our reminders, updates on
-          field contests, and what owners changed on integrations with your products. Reminders also
-          go out in the daily reminder email, unless your seat muted it, so a reminder here may not
-          have reached your inbox. Each note reflects the state at the time it was recorded.
+          What we noted in the last 90 days: our reminders, updates on field contests, what owners
+          changed on integrations with your products, new reviews of your products, and our
+          decisions on your replies. Reminders also go out in the daily reminder email, unless your
+          seat muted it, so a reminder here may not have reached your inbox. New reviews are emailed
+          to every seat. Each note reflects the state at the time it was recorded.
         </p>
 
         @if (loading()) {
@@ -154,7 +155,16 @@ import {
                     >Answer it on the integration page</a
                   >
                 }
-                @if (notification.pair_path; as path) {
+                @if (reviewsLink(notification); as link) {
+                  <a
+                    [routerLink]="link"
+                    class="mt-1 me-3 inline-block text-xs font-medium text-(--accent-primary) underline"
+                    data-testid="notification-reviews-link"
+                    i18n="@@vendor.reviews.notify.open"
+                    >Open the product's reviews</a
+                  >
+                }
+                @if (pairPath(notification); as path) {
                   <a
                     [routerLink]="path"
                     class="mt-1 inline-block text-xs font-medium text-(--accent-primary) underline"
@@ -262,6 +272,23 @@ export class VendorNotificationsList {
     return this.routed() ? ['..', ...path] : path;
   }
 
+  /**
+   * AECI-1180 (`STAGE_2_VENDOR_PORTAL_SPEC.md` §11c.12, §11c.16): a review row and
+   * a reply-decision row link to the product's Reviews tab, built from the slug
+   * snapshotted on the row. Relative like {@link pageLink}.
+   */
+  protected reviewsLink(notification: VendorNotification): readonly string[] | null {
+    if (notification.kind !== 'review' && notification.kind !== 'review_response') return null;
+    const path = ['products', notification.product.slug, 'reviews'];
+    return this.routed() ? ['..', ...path] : path;
+  }
+
+  /** The pair page, on every member that carries one. The review members
+   *  (AECI-1180) are about a product, not a pair, so they have none. */
+  protected pairPath(notification: VendorNotification): string | null {
+    return 'pair_path' in notification ? notification.pair_path : null;
+  }
+
   constructor() {
     afterNextRender(() => {
       void this.store.ensure('notifications');
@@ -306,6 +333,16 @@ export class VendorNotificationsList {
         (part): part is string => !!part,
       );
     }
+    // AECI-1180: a review row names the product and quotes the headline. A
+    // reply-decision row names the product; its reason is the note.
+    if (notification.kind === 'review') {
+      const title = notification.review_title;
+      return [
+        notification.product.name,
+        $localize`:@@vendor.reviews.notify.quotedTitle:“${title}:title:”`,
+      ];
+    }
+    if (notification.kind === 'review_response') return [notification.product.name];
     // AECI-1046: an AECi retire names AEC Integrations in the title, so the owner name
     // is not repeated as if the owner had acted.
     if (notification.kind === 'integration_retire' && notification.retired_by === 'aeci') {
@@ -380,6 +417,20 @@ function titleOf(notification: VendorNotification): string {
     const data = notification.data_object.name;
     return $localize`:@@vendor.claimAdded.notify.title:${company}:company: added ${data}:data: to an integration on your product`;
   }
+  if (notification.kind === 'review') {
+    // AECI-1180 / `STAGE_2_VENDOR_PORTAL_SPEC.md` §11c.12.
+    return $localize`:@@vendor.reviews.notify.title:A new review of your product was published`;
+  }
+  if (notification.kind === 'review_response') {
+    switch (notification.event) {
+      case 'approved':
+        return $localize`:@@vendor.reviews.notify.reply.approved:Your reply to a review was published`;
+      case 'rejected':
+        return $localize`:@@vendor.reviews.notify.reply.rejected:Your reply to a review was not approved`;
+      case 'removed':
+        return $localize`:@@vendor.reviews.notify.reply.removed:Your reply to a review was removed`;
+    }
+  }
   return contestNotificationTitle(notification);
 }
 
@@ -413,6 +464,18 @@ function noteOf(
       return $localize`:@@vendor.integrationEdit.notify.note:The changes are already live on the public integration page. If one is wrong, contest that field on the integration.`;
     case 'claim_added':
       return $localize`:@@vendor.claimAdded.notify.note:Tell them whether it is right on the integration page.`;
+    case 'review':
+      return $localize`:@@vendor.reviews.notify.note:It is live on your product's public page.`;
+    case 'review_response': {
+      if (notification.event === 'approved') {
+        return $localize`:@@vendor.reviews.notify.reply.note.approved:It now shows under the review on your product's public page.`;
+      }
+      const reason = notification.reason;
+      if (!reason) return null;
+      return notification.event === 'removed'
+        ? $localize`:@@vendor.reviews.notify.reply.note.removed:It no longer shows on the public page. Reason: ${reason}:reason:`
+        : $localize`:@@vendor.reviews.notify.reply.note.rejected:It was not published. Reason: ${reason}:reason:`;
+    }
     case 'contest':
       return contestNotificationNote(notification, formatDay);
   }

@@ -13,6 +13,8 @@ import {
   ListVendorNotificationsResponseSchema,
   VendorClaimAddedNotificationSchema,
   VendorNotificationSchema,
+  VendorReviewNotificationSchema,
+  VendorReviewResponseNotificationSchema,
 } from './vendor-notifications';
 
 const uuid = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
@@ -53,9 +55,50 @@ describe('VendorClaimAddedNotificationSchema', () => {
   });
 });
 
+const REVIEW = {
+  kind: 'review' as const,
+  id: uuid(7),
+  review_id: uuid(8),
+  product: { slug: 'revit', name: 'Revit' },
+  review_title: 'Solid for coordination',
+  created_at: '2026-10-02T10:00:00.000Z',
+};
+
+const REVIEW_RESPONSE = {
+  kind: 'review_response' as const,
+  id: uuid(9),
+  event: 'rejected' as const,
+  response_id: uuid(10),
+  review_id: uuid(8),
+  product: { slug: 'revit', name: 'Revit' },
+  reason: 'It is a sales pitch.',
+  created_at: '2026-10-02T11:00:00.000Z',
+};
+
+describe('the review feed members (AECI-1180 / §11c.12)', () => {
+  it('parses both and keeps their kind through the union', () => {
+    expect(VendorReviewNotificationSchema.parse(REVIEW)).toEqual(REVIEW);
+    expect(VendorReviewResponseNotificationSchema.parse(REVIEW_RESPONSE)).toEqual(REVIEW_RESPONSE);
+    expect(VendorNotificationSchema.parse(REVIEW).kind).toBe('review');
+    expect(VendorNotificationSchema.parse(REVIEW_RESPONSE).kind).toBe('review_response');
+  });
+
+  it('refuses a decision event the state machine does not have', () => {
+    expect(
+      VendorReviewResponseNotificationSchema.safeParse({ ...REVIEW_RESPONSE, event: 'withdrawn' })
+        .success,
+    ).toBe(false);
+  });
+});
+
 describe('isAttestationNotification', () => {
   it('does not read a claim_added row as an attestation row', () => {
     expect(isAttestationNotification(VendorNotificationSchema.parse(CLAIM_ADDED))).toBe(false);
+  });
+
+  it('does not read a review or review_response row as an attestation row (AECI-1180)', () => {
+    expect(isAttestationNotification(VendorNotificationSchema.parse(REVIEW))).toBe(false);
+    expect(isAttestationNotification(VendorNotificationSchema.parse(REVIEW_RESPONSE))).toBe(false);
   });
 
   it('still reads a row with no kind as an attestation row', () => {

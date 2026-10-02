@@ -25,8 +25,9 @@ const ENTRIES = Object.entries(NOTIFICATIONS) as Array<[string, NotificationEntr
  * (5 ids) and added `attestation-digest` and `attestation-ops-digest` (2 ids): 43.
  * AECI-1203 removed the sweep's re-send of the claim alert, `claim-submitted-alert-retry`: 42.
  * AECI-1205 added the four protest and decline emails: 46.
+ * AECI-1180 added the vendor review email and the two review feed rows: 49.
  */
-const EXPECTED_COUNT = 46;
+const EXPECTED_COUNT = 49;
 
 const sendsEmail = (e: NotificationEntry) => e.channel === 'email' || e.channel === 'email+portal';
 
@@ -59,10 +60,12 @@ describe('notification registry shape', () => {
       // the one `attestation-digest`. AECI-1203 removed `claim-submitted-alert-retry`.
       // AECI-1205 added `protest-submitted-alert`, `contest-protest-opened`,
       // `contest-protest-reply-reminder` and `contest-declined-protest-window`.
-      email: 26,
+      // AECI-1180 added `vendor-review-published`, `portal-review` and
+      // `portal-review-response`.
+      email: 27,
       'email+portal': 1,
       'supabase-email': 1,
-      portal: 14,
+      portal: 16,
       linear: 4,
     });
   });

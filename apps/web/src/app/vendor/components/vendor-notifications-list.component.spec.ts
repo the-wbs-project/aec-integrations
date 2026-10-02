@@ -393,6 +393,74 @@ describe('VendorNotificationsList', () => {
     expect(body).toContain('Summit Software');
   });
 
+  it('renders a new-review row with the product, the quoted headline and a Reviews link (AECI-1180)', async () => {
+    getNotifications.mockResolvedValue({
+      notifications: [
+        {
+          kind: 'review',
+          id: '00000000-0000-4000-8000-00000000d1a1',
+          review_id: '00000000-0000-4000-8000-00000000d1a2',
+          product: { slug: 'revit', name: 'Revit' },
+          review_title: 'Solid for coordination',
+          created_at: '2026-10-02T12:00:00.000Z',
+        },
+      ],
+    });
+    const fixture = await create();
+    const row = el(fixture).querySelector('li')!;
+    expect(row.textContent).toContain('A new review of your product was published');
+    expect(row.textContent).toContain('Revit');
+    expect(row.textContent).toContain('“Solid for coordination”');
+    expect(row.textContent).toContain("It is live on your product's public page.");
+    const link = row.querySelector('[data-testid="notification-reviews-link"]');
+    expect(link?.textContent).toContain("Open the product's reviews");
+    expect(link?.getAttribute('href')).toMatch(/\/products\/revit\/reviews$/);
+    // Not an attestation row: it is counted and never filtered out.
+    expect(el(fixture).querySelector('summary')?.textContent).toContain('(1)');
+  });
+
+  it.each([
+    ['approved', null, 'Your reply to a review was published', 'It now shows under the review'],
+    [
+      'rejected',
+      'It names the reviewer.',
+      'Your reply to a review was not approved',
+      'It was not published. Reason: It names the reviewer.',
+    ],
+    [
+      'removed',
+      'It is a sales pitch.',
+      'Your reply to a review was removed',
+      'It no longer shows on the public page. Reason: It is a sales pitch.',
+    ],
+  ] as const)(
+    'renders a reply `%s` decision row with its title and note (AECI-1180)',
+    async (event, reason, title, note) => {
+      getNotifications.mockResolvedValue({
+        notifications: [
+          {
+            kind: 'review_response',
+            id: '00000000-0000-4000-8000-00000000d1b1',
+            event,
+            response_id: '00000000-0000-4000-8000-00000000d1b2',
+            review_id: '00000000-0000-4000-8000-00000000d1a2',
+            product: { slug: 'revit', name: 'Revit' },
+            reason,
+            created_at: '2026-10-02T12:00:00.000Z',
+          },
+        ],
+      });
+      const fixture = await create();
+      const row = el(fixture).querySelector('li')!;
+      expect(row.textContent).toContain(title);
+      expect(row.textContent).toContain(note);
+      expect(row.textContent).toContain('Revit');
+      expect(
+        row.querySelector('[data-testid="notification-reviews-link"]')?.getAttribute('href'),
+      ).toMatch(/\/products\/revit\/reviews$/);
+    },
+  );
+
   it('renders and counts a `claim-denied` row (AECI-961)', async () => {
     // It used to be filtered out: the detector was ops-only, so a row reaching a
     // vendor would have had no title. It now carries a counterparty finding, and
