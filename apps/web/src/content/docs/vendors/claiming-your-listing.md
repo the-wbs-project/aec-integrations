@@ -3,7 +3,7 @@ title: Claiming your vendor listing
 description: How to ask for a seat on your company's vendor account, what we check before we grant one, and what happens next.
 section: vendors
 order: 1
-last_updated: 24 September 2026
+last_updated: 2 October 2026
 ---
 
 AEC Integrations compiles its listings from public sources. A claim is how someone who works at a listed vendor asks for a seat on that vendor's account, so they can keep the listing accurate. You do not need an account to send one, and it costs nothing.
@@ -19,7 +19,7 @@ The form asks for:
 - **LinkedIn profile (optional).** Adding it is the fastest way for us to confirm you work there.
 - **Anything we should know?** A short note on your connection to the listing, between 20 and 2,000 characters.
 
-Choose **Send claim**. You will see that we have received it.
+Choose **Send claim**. The form confirms the claim was sent, shows the address we will answer at, and lists what happens next.
 
 A claim on a product page is a claim on the vendor that makes the product. The seat you get covers the whole vendor account, not one product.
 

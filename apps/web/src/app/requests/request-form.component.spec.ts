@@ -186,7 +186,35 @@ describe('RequestForm', () => {
     expect(api.submitCorrection).toHaveBeenCalledTimes(1);
     const [, formValue] = api.submitCorrection.mock.calls[0];
     expect(formValue).toMatchObject({ submitter_email: 'reporter@example.com' });
-    expect(el.textContent).toContain('Submission received');
+    expect(el.querySelector('h1')?.textContent).toContain('Correction sent');
+    expect(el.textContent).toContain('reporter@example.com');
+    // A correction has no claim steps.
+    expect(el.textContent).not.toContain('What happens next');
+    httpMock.verify();
+  });
+
+  it('confirms a claim with the email, the next steps and the help link', async () => {
+    const { fixture, el, httpMock } = setup('vendor', 'claim', 'acme-co');
+
+    type(fixture, '#claim-name', 'Dana Reyes');
+    type(fixture, '#claim-role', 'Head of Partnerships');
+    type(fixture, '#claim-email', 'dana@acme.example');
+    type(fixture, '#claim-body', 'I run the integrations program at Acme and own this listing.');
+    await settle();
+    fixture.detectChanges();
+
+    (el.querySelector('form') as HTMLFormElement).dispatchEvent(new Event('submit'));
+    await settle();
+    fixture.detectChanges();
+
+    expect(el.querySelector('h1')?.textContent).toContain('Claim sent');
+    expect(el.querySelector('strong')?.textContent).toBe('dana@acme.example');
+    expect(el.textContent).toContain('What happens next');
+    expect(el.textContent).toContain('Nothing is granted automatically');
+    expect(el.querySelector('a[href="/docs/vendors/claiming-your-listing"]')).not.toBeNull();
+    // Focus leaves the removed submit button for the confirmation heading.
+    await settle();
+    expect(document.activeElement).toBe(el.querySelector('h1'));
     httpMock.verify();
   });
 
@@ -398,6 +426,78 @@ describe('RequestFormBody bodyPrefill (AECI-967)', () => {
   it('leaves the body empty when no prefill is supplied', () => {
     const { el, httpMock } = setupBody(null);
     expect((el.querySelector('#correction-body') as HTMLTextAreaElement).value).toBe('');
+    httpMock.verify();
+  });
+});
+
+// The drawer variant renders no header of its own on success: the drawer panel
+// swaps its title and subtitle (request-drawer.html), so nothing stacks.
+describe('RequestFormBody drawer confirmation', () => {
+  beforeEach(() => TestBed.resetTestingModule());
+
+  function setupDrawerClaim(claimed: boolean) {
+    const api = makeApiMock();
+    const session = makeSessionStub(null);
+    TestBed.configureTestingModule({
+      providers: [
+        provideZonelessChangeDetection(),
+        provideHttpClient(),
+        provideHttpClientTesting(),
+        provideRouter([]),
+        { provide: RequestsApi, useValue: api },
+        { provide: SessionStatus, useValue: session.stub },
+      ],
+    });
+    const fixture = TestBed.createComponent(RequestFormBody);
+    fixture.componentRef.setInput('entity', 'vendor');
+    fixture.componentRef.setInput('kind', 'claim');
+    fixture.componentRef.setInput('slug', 'acme');
+    fixture.componentRef.setInput('variant', 'drawer');
+    fixture.componentRef.setInput('claimed', claimed);
+    const sent: string[] = [];
+    fixture.componentInstance.sent.subscribe((email) => sent.push(email));
+    fixture.detectChanges();
+    return {
+      fixture,
+      sent,
+      httpMock: TestBed.inject(HttpTestingController),
+      el: fixture.nativeElement as HTMLElement,
+    };
+  }
+
+  async function submitClaim(fixture: ComponentFixture<RequestFormBody>, el: HTMLElement) {
+    type(fixture, '#claim-name', 'Dana Reyes');
+    type(fixture, '#claim-role', 'Head of Partnerships');
+    type(fixture, '#claim-email', '  dana@acme.example ');
+    type(fixture, '#claim-body', 'I run the integrations program at Acme and own this listing.');
+    await settle();
+    fixture.detectChanges();
+    (el.querySelector('form') as HTMLFormElement).dispatchEvent(new Event('submit'));
+    await settle();
+    fixture.detectChanges();
+  }
+
+  it('emits the trimmed email and renders steps without a heading of its own', async () => {
+    const { fixture, sent, el, httpMock } = setupDrawerClaim(false);
+    await submitClaim(fixture, el);
+
+    expect(sent).toEqual(['dana@acme.example']);
+    expect(el.querySelector('h1')).toBeNull();
+    expect(el.textContent).not.toContain('Submission received');
+    expect(el.textContent).toContain('Nothing is granted automatically');
+    const done = el.querySelector('button') as HTMLButtonElement;
+    expect(done.textContent).toContain('Done');
+    await settle();
+    expect(document.activeElement).toBe(done);
+    httpMock.verify();
+  });
+
+  it('uses the access-request steps when the listing is already claimed', async () => {
+    const { fixture, el, httpMock } = setupDrawerClaim(true);
+    await submitClaim(fixture, el);
+
+    expect(el.textContent).toContain('who already holds a seat on the account');
+    expect(el.textContent).not.toContain('Nothing is granted automatically');
     httpMock.verify();
   });
 });
