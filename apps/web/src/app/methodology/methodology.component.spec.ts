@@ -169,12 +169,13 @@ describe('MethodologyPage', () => {
     it('does not add ownership to the paid-plan list (decision 15: a seat is the gate)', () => {
       const { host } = setup();
       const text = host.textContent ?? '';
-      // The plan list is exactly four items, and claiming, editing and
+      // The Managed list is exactly four items (the Free edits sit in the
+      // sentence before it, AECI-1219), and claiming, editing and
       // contesting are seat-gated, so none of them may appear in it.
       const planList = Array.from(host.querySelectorAll('li'))
         .map((li) => li.textContent?.trim() ?? '')
         .filter((line) =>
-          /^(what a vendor may edit|whether (a vendor|the)|how far back)/.test(line),
+          /^(which other product details a vendor may edit|whether (a vendor|the)|how far back)/.test(line),
         );
       expect(planList).toHaveLength(4);
       expect(planList.join(' ')).not.toMatch(/claim an integration|contest/i);
