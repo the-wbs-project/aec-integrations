@@ -24,6 +24,12 @@ const PROTEST_ALLOWED = new Set([
   'db/schema.ts',
   'lib/contest-protests.ts',
   'lib/admin-queue-counts.ts',
+  // AECI-1205: the protest emails and the reply reminder. Mail to the two parties
+  // and the support inbox, never a public page.
+  'lib/contest-protest-emails.ts',
+  'lib/email.ts', // the protest email templates, private mail to the two parties
+  'lib/notifications/registry.ts', // names `protestedAt` in the protest emails' dedupe keys
+  'lib/cron-schedules.ts', // the same key, in the reminder cron's comment
   'routes/account.ts',
   'routes/admin-contests.ts',
   'routes/admin-contest-protests.ts',
@@ -46,8 +52,9 @@ const TABLE_ALLOWED = new Set([
   'routes/vendor-checklist.ts', // the checklist's open-owner-contest test, authenticated, existence only (AECI-1217)
 ]);
 
+// `protest_reply_reminder` is the AECI-1205 cron job id, not a column.
 const PROTEST_COLUMN =
-  /\bprotest(Status|Basis|Reason|Evidence|edBy|edAt|ReplyDueAt|Reply|ReplyEvidence|RepliedBy|RepliedAt|DecisionNote|DecidedBy|DecidedAt|WorkflowId)\b|\bprotest_(status|basis|reason|evidence|reply|decision|decided|workflow)|\bprotested_(by|at)\b/;
+  /\bprotest(Status|Basis|Reason|Evidence|edBy|edAt|ReplyDueAt|Reply|ReplyEvidence|RepliedBy|RepliedAt|DecisionNote|DecidedBy|DecidedAt|WorkflowId)\b|\bprotest_(status|basis|reason|evidence|reply(?!_reminder)|decision|decided|workflow)|\bprotested_(by|at)\b/;
 const CONTEST_TABLE = /\bintegrationFieldChallenges\b|\bintegration_field_challenges\b/;
 
 function sourceFiles(dir: string): string[] {

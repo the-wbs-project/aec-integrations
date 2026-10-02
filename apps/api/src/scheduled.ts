@@ -24,8 +24,8 @@
  * `page_views.is_bot` and never deletes a row, so a failed week leaves the last
  * good registry in place (visibly stale via `fetched_at`).
  * 03:00 UTC — daily §7.4 retention prune (`./lib/retention-prune`, AECI-584 /
- * Phase 8.3 P3.2): delete `page_views` older than 400 days and `job_runs` older
- * than 90, in bounded chunks, committing every chunk together with ONE summary
+ * Phase 8.3 P3.2): delete `page_views` older than 400 days, `job_runs` older
+ * than 90 and `notification_sends` older than 400 (AECI-1202), in bounded chunks, committing every chunk together with ONE summary
  * `audit_log` row (the ADR 0022 exception — the only cron here that audits).
  * Runs after the 00:15 snapshot, and *verifies* rather than assumes it landed:
  * a day inside the cut window with no `metrics_daily` row aborts the whole run.
@@ -160,6 +160,7 @@ import {
   ENTITLEMENT_EXPIRY_CRON,
   CLAIM_STALE_CRON,
   INDEXNOW_DRAIN_CRON,
+  PROTEST_REMINDER_CRON,
   MODERATION_CRON,
   RECONCILE_CRON,
   RETENTION_CRON,
@@ -168,6 +169,7 @@ import {
   WAF_CRON,
 } from './lib/cron-schedules';
 import { runClaimStaleCheck } from './lib/claim-stale-check';
+import { runProtestReplyReminderSweep } from './lib/contest-protest-emails';
 import { runEntitlementExpirySweep } from './lib/entitlement-expiry';
 import {
   drainIndexNowQueue,
@@ -184,6 +186,7 @@ import { hasErrors, runDataQualityChecks, type DataQualityCheckResult } from './
 import { buildDataQualityDigest } from './lib/data-quality-email';
 import {
   parseRecipients,
+  recordEmailSend,
   sendEmail,
   sendEntitlementExpiringAdminEmail,
   sendEntitlementExpiringEmail,
@@ -283,7 +286,7 @@ function jobRunSink(ctx: ExecutionContext, env: Env): JobRunSink {
   };
 }
 
-// The fifteen cron expressions now live in `./lib/cron-schedules` — hoisted there
+// The sixteen cron expressions now live in `./lib/cron-schedules` — hoisted there
 // by AECI-580 (the snapshot cron joined them in AECI-581, the retention prune in
 // AECI-584, the §7 attestation sweep at the AECI-619 reconciliation, and the
 // IndexNow drain in AECI-826, daily at 00:05 since AECI-1136) so
@@ -334,6 +337,13 @@ const ASN_REGISTRY_COVERAGE_METRIC = 'aeci.asn_registry.coverage';
  *  verdict — a run that finds stale tickets is a SUCCESSFUL run. */
 const CLAIM_STALE_JOB_METRIC = 'aeci.linear.claim_stale.job';
 const CLAIM_STALE_DURATION_METRIC = 'aeci.linear.claim_stale.job.duration_ms';
+
+/** AECI-1205 protest reply reminder. `…job` is the run heartbeat, emitted on every
+ *  run (`outcome:ok|failed`). `…due` is the open, unreplied protests inside the
+ *  3-day window, emitted on every ok run including zero. */
+const PROTEST_REMINDER_JOB_METRIC = 'aeci.contest.protest_reminder.job';
+const PROTEST_REMINDER_DURATION_METRIC = 'aeci.contest.protest_reminder.job.duration_ms';
+const PROTEST_REMINDER_DUE_METRIC = 'aeci.contest.protest_reminder.due';
 
 const JOB_RUN_WRITE_METRIC = 'aeci.job_runs.write';
 
@@ -1134,6 +1144,7 @@ async function runDataQualityJob(env: Env, ctx: ExecutionContext): Promise<JobRu
   });
   const recipients = parseRecipients(env.DATA_QUALITY_EMAIL_TO);
   const emailOutcome = await sendEmail(env, {
+    notification: 'digest-data-quality',
     from: env.DATA_QUALITY_EMAIL_FROM ?? '',
     to: recipients,
     subject: digest.subject,
@@ -1141,8 +1152,15 @@ async function runDataQualityJob(env: Env, ctx: ExecutionContext): Promise<JobRu
     html: digest.html,
   });
   submitCount(ctx, env, req, DQ_EMAIL_METRIC, 1, [`outcome:${emailOutcome}`]);
+  // The shared email metric, tagged with the digest's registry id (AECI-1199).
+  recordEmailSend(
+    { env, executionCtx: ctx, req: { raw: req } },
+    emailOutcome,
+    'digest-data-quality',
+  );
   logToPosthog(ctx, env, req, {
-    level: emailOutcome === 'failed' ? 'error' : 'info',
+    // `unknown` (the call threw) is as worth a look as `failed`.
+    level: emailOutcome === 'failed' || emailOutcome === 'unknown' ? 'error' : 'info',
     message: `aeci.data_quality.email outcome=${emailOutcome} recipients=${recipients.length}: ${digest.subject}`,
     source: 'data-quality-cron',
   });
@@ -1235,6 +1253,7 @@ async function runAnalyticsDigestJob(env: Env, ctx: ExecutionContext): Promise<J
     });
     const recipients = parseRecipients(env.ANALYTICS_DIGEST_EMAIL_TO);
     const outcome = await sendEmail(env, {
+      notification: 'digest-analytics',
       // Shares the transactional sender (`EMAIL_FROM`) — one verified Resend sender,
       // no separate `_FROM` var. Absent → `sendEmail` skips (fail-open).
       from: env.EMAIL_FROM ?? '',
@@ -1244,8 +1263,9 @@ async function runAnalyticsDigestJob(env: Env, ctx: ExecutionContext): Promise<J
       html: digest.html,
     });
     submitCount(ctx, env, req, ANALYTICS_EMAIL_METRIC, 1, [`outcome:${outcome}`]);
+    recordEmailSend({ env, executionCtx: ctx, req: { raw: req } }, outcome, 'digest-analytics');
     logToPosthog(ctx, env, req, {
-      level: outcome === 'failed' ? 'error' : 'info',
+      level: outcome === 'failed' || outcome === 'unknown' ? 'error' : 'info',
       message: `aeci.analytics_digest.email outcome=${outcome} recipients=${recipients.length}: ${digest.subject}`,
       source: 'analytics-digest-cron',
     });
@@ -1254,7 +1274,15 @@ async function runAnalyticsDigestJob(env: Env, ctx: ExecutionContext): Promise<J
     // misconfiguration the operator should see as not-ok; on local/preview it is
     // the expected state.
     return {
-      outcome: outcome === 'sent' ? 'ok' : outcome === 'skipped' ? 'skipped' : 'failed',
+      // A tier-policy `suppressed` (AECI-1198) is a deliberate no-send, so it
+      // records as `skipped`, not `failed`. An `unknown` send (it threw, so it may
+      // or may not have gone) records as `failed`, so the operator checks the inbox.
+      outcome:
+        outcome === 'sent'
+          ? 'ok'
+          : outcome === 'failed' || outcome === 'unknown'
+            ? 'failed'
+            : 'skipped',
       detail: {
         job: 'analytics-digest',
         dayLabel: window.dayLabel,
@@ -1364,7 +1392,7 @@ async function runAttestationNotifyJob(env: Env, ctx: ExecutionContext): Promise
     ]);
     logToPosthog(ctx, env, req, {
       level: result.failed > 0 ? 'warn' : 'info',
-      message: `aeci.attestation.notify found=${result.found} sent=${result.sent} suppressed=${result.suppressed} failed=${result.failed} skipped=${result.skipped} capped=${result.capped}`,
+      message: `aeci.attestation.notify found=${result.found} sent=${result.sent} portal_only=${result.portalOnly} suppressed=${result.suppressed} failed=${result.failed} skipped=${result.skipped} capped=${result.capped} digests=${result.digestsSent}`,
       source: 'attestation-notify-cron',
     });
     // §7.2 liveness (AECI-583): the sweep became a first-class cron at the
@@ -1382,6 +1410,8 @@ async function runAttestationNotifyJob(env: Env, ctx: ExecutionContext): Promise
         failed: result.failed,
         skipped: result.skipped,
         capped: result.capped,
+        portalOnly: result.portalOnly,
+        digestsSent: result.digestsSent,
       },
     };
   } catch (error) {
@@ -1531,6 +1561,62 @@ async function runClaimStaleCheckJob(env: Env, ctx: ExecutionContext): Promise<J
       outcome: 'failed',
       detail: {
         job: 'claim-stale-check',
+        reason: error instanceof Error ? error.message : String(error),
+      },
+    };
+  }
+}
+
+/**
+ * Daily protest reply reminder (AECI-1205 / `STAGE_2_VENDOR_PORTAL_SPEC.md`
+ * §11b.12.10). Everything load-bearing is in `./lib/contest-protest-emails`; this
+ * shell supplies the DB and the PostHog sink.
+ *
+ * Fail-safe like the entitlement sweep rather than rethrowing: a reminder delayed a
+ * day still lands inside the 3-day window, and the ledger key stops a re-send. Per-seat
+ * send failures are an `ok` run with the counts in `detail`. Only a crash is `failed`.
+ */
+async function runProtestReplyReminderJob(env: Env, ctx: ExecutionContext): Promise<JobRunReport> {
+  const req = cronRequest('/cron/protest-reply-reminder');
+  const started = Date.now();
+
+  try {
+    const { db } = cronDb(env);
+    const result = await runProtestReplyReminderSweep(
+      { env, executionCtx: ctx, req: { raw: req } },
+      db,
+    );
+    submitCount(ctx, env, req, PROTEST_REMINDER_JOB_METRIC, 1, ['trigger:cron', 'outcome:ok']);
+    submitGauge(ctx, env, req, PROTEST_REMINDER_DUE_METRIC, result.due, []);
+    submitDistribution(ctx, env, req, PROTEST_REMINDER_DURATION_METRIC, Date.now() - started, [
+      'trigger:cron',
+    ]);
+    logToPosthog(ctx, env, req, {
+      level: result.emails.failed > 0 ? 'warn' : 'info',
+      message: `aeci.contest.protest_reminder due=${result.due} capped=${result.capped} sent=${result.emails.sent} duplicate=${result.emails.duplicate} failed=${result.emails.failed} skipped=${result.emails.skipped} suppressed=${result.emails.suppressed}`,
+      source: 'protest-reply-reminder-cron',
+    });
+    return {
+      outcome: 'ok',
+      detail: {
+        job: 'protest-reply-reminder',
+        due: result.due,
+        capped: result.capped,
+        emails: result.emails,
+      },
+    };
+  } catch (error) {
+    submitCount(ctx, env, req, PROTEST_REMINDER_JOB_METRIC, 1, ['trigger:cron', 'outcome:failed']);
+    logToPosthog(ctx, env, req, {
+      level: 'error',
+      message: 'aeci.contest.protest_reminder.crashed',
+      source: 'protest-reply-reminder-cron',
+      reason: error instanceof Error ? error.message : String(error),
+    });
+    return {
+      outcome: 'failed',
+      detail: {
+        job: 'protest-reply-reminder',
         reason: error instanceof Error ? error.message : String(error),
       },
     };
@@ -1867,6 +1953,12 @@ function queueForJob(env: Env, job: ScheduledJob): Queue<ScheduledJobMessage> | 
       // `created_at`, so a retry buys nothing a re-run does not. No
       // `CLAIM_STALE_QUEUE` binding exists.
       return undefined;
+    case 'protest_reply_reminder':
+      // Queue-less like `entitlement_expiry` (AECI-1205): one indexed read and a
+      // handful of fail-open emails. A missed day is caught by the next run inside the
+      // 3-day window, and the ledger key stops a re-send. No
+      // `PROTEST_REMINDER_QUEUE` binding exists.
+      return undefined;
   }
 }
 
@@ -1978,6 +2070,15 @@ function enqueueFailureLog(job: ScheduledJob): { path: string; message: string; 
       source: 'claim-stale-check-cron',
     };
   }
+  if (job === 'protest_reply_reminder') {
+    // Unreachable for the same reason as `claim_stale_check` above — queue-less, so
+    // `queue.send` is never called. Kept so the mapping stays total.
+    return {
+      path: '/cron/protest-reply-reminder',
+      message: 'aeci.contest.protest_reminder.enqueue_failed',
+      source: 'protest-reply-reminder-cron',
+    };
+  }
   return {
     path: `/cron/algolia-${job}`,
     message: `aeci.algolia.${job}.enqueue_failed`,
@@ -2024,7 +2125,7 @@ async function enqueueOrRun(env: Env, ctx: ExecutionContext, job: ScheduledJob):
  *  {@link JobRunReport} rather than `void`, because the impls swallow their own
  *  operational errors — a wrapper that only watched for a throw would record `ok`
  *  for a run that failed. `Promise<JobRunReport>` also makes the type checker
- *  enumerate every exit path in all fourteen, which is what makes "each of the fourteen
+ *  enumerate every exit path in all sixteen, which is what makes "each of the sixteen
  *  writes a row, on every path" verifiable rather than a review checklist. */
 async function dispatchScheduledJob(
   env: Env,
@@ -2062,6 +2163,8 @@ async function dispatchScheduledJob(
       return runIndexNowDrainJob(env, ctx);
     case 'claim_stale_check':
       return runClaimStaleCheckJob(env, ctx);
+    case 'protest_reply_reminder':
+      return runProtestReplyReminderJob(env, ctx);
   }
 }
 
@@ -2141,6 +2244,9 @@ export const scheduled: ExportedHandlerScheduledHandler<Env> = async (controller
       return;
     case CLAIM_STALE_CRON:
       await enqueueOrRun(env, ctx, 'claim_stale_check');
+      return;
+    case PROTEST_REMINDER_CRON:
+      await enqueueOrRun(env, ctx, 'protest_reply_reminder');
       return;
     default:
       // A trigger fired with no matching case. This used to be a bare

@@ -3,7 +3,8 @@
  * `ADMIN_PANEL_SPEC.md` §7.4 enforcer).
  *
  * A scheduled job (`../scheduled.ts`, cron `0 3 * * *`) deletes `page_views`
- * older than 400 days and `job_runs` older than 90. It is the **first scheduled
+ * older than 400 days, `job_runs` older than 90, and `notification_sends` older
+ * than 400 (AECI-1202). It is the **first scheduled
  * `DELETE` in the system's history**, which is why so much of this file is about
  * refusing to delete rather than deleting.
  *
@@ -23,8 +24,8 @@
  *      run. Every statement this module emits provably touches at most
  *      {@link PRUNE_CHUNK_ROWS} rows.
  *   2. **Never prune a day the snapshot has not captured** — see
- *      {@link findSnapshotGap}. A gap aborts the WHOLE run (both tables), not
- *      just the `page_views` half: a gap means the §7.1 pipeline is unhealthy,
+ *      {@link findSnapshotGap}. A gap aborts the WHOLE run (every table), not
+ *      just the `page_views` part: a gap means the §7.1 pipeline is unhealthy,
  *      and the right posture for a destructive job with a failed precondition is
  *      to do nothing and alert. Deferring a day of `job_runs` pruning costs ~120
  *      rows.
@@ -81,13 +82,16 @@
 import {
   JOB_RUNS_RETENTION_DAYS,
   MIN_RETENTION_DAYS,
+  NOTIFICATION_SENDS_RETENTION_DAYS,
   PAGE_VIEWS_RETENTION_DAYS,
 } from '@aeci/shared';
 import type { AuditLogEntry } from '@aeci/shared/audit-log';
 import { and, asc, gt, gte, lt, lte } from 'drizzle-orm';
 
+import type { SQLiteColumn, SQLiteTable } from 'drizzle-orm/sqlite-core';
+
 import type { Db } from '../db/client';
-import { jobRuns, metricsDaily, pageViews } from '../db/schema';
+import { jobRuns, metricsDaily, notificationSends, pageViews } from '../db/schema';
 import { shiftDay } from './admin-analytics';
 import { auditInsert, type BatchStmt, type BatchTuple } from './audit';
 
@@ -125,8 +129,29 @@ const MAX_REPORTED_MISSING_DAYS = 10;
  * `metrics_daily` are absent, and `retention-prune.spec.ts` asserts a real run
  * leaves all four untouched.
  */
-export const PRUNABLE = ['page_views', 'job_runs'] as const;
+export const PRUNABLE = ['page_views', 'job_runs', 'notification_sends'] as const;
 export type PrunableTable = (typeof PRUNABLE)[number];
+
+/**
+ * Where each prunable table keeps its AUTOINCREMENT id and its age column. The
+ * cursor pages `id`; the age column is the authoritative predicate (see header).
+ * Widened to the base Drizzle types so one code path serves every table.
+ */
+interface PruneSource {
+  table: SQLiteTable;
+  id: SQLiteColumn;
+  age: SQLiteColumn;
+}
+
+const SOURCES: Record<PrunableTable, PruneSource> = {
+  page_views: { table: pageViews, id: pageViews.id, age: pageViews.createdAt },
+  job_runs: { table: jobRuns, id: jobRuns.id, age: jobRuns.startedAt },
+  notification_sends: {
+    table: notificationSends,
+    id: notificationSends.id,
+    age: notificationSends.createdAt,
+  },
+};
 
 /**
  * Resolve a retention window: the reviewed `@aeci/shared` default unless a valid
@@ -157,9 +182,13 @@ export function resolveRetentionDays(
   return parsed;
 }
 
-/** Both windows, resolved from the two optional overrides. */
+/** Every window, each resolved from its optional override. */
 export function resolveRetentionWindows(
-  env: { PAGE_VIEWS_RETENTION_DAYS?: string; JOB_RUNS_RETENTION_DAYS?: string },
+  env: {
+    PAGE_VIEWS_RETENTION_DAYS?: string;
+    JOB_RUNS_RETENTION_DAYS?: string;
+    NOTIFICATION_SENDS_RETENTION_DAYS?: string;
+  },
   onInvalid?: (table: PrunableTable, reason: string) => void,
 ): Record<PrunableTable, number> {
   return {
@@ -170,6 +199,11 @@ export function resolveRetentionWindows(
     ),
     job_runs: resolveRetentionDays(env.JOB_RUNS_RETENTION_DAYS, JOB_RUNS_RETENTION_DAYS, (reason) =>
       onInvalid?.('job_runs', reason),
+    ),
+    notification_sends: resolveRetentionDays(
+      env.NOTIFICATION_SENDS_RETENTION_DAYS,
+      NOTIFICATION_SENDS_RETENTION_DAYS,
+      (reason) => onInvalid?.('notification_sends', reason),
     ),
   };
 }
@@ -230,20 +264,9 @@ export function cutoffFor(now: Date, retentionDays: number): { day: string; iso:
  *  row off the PK index — this is the probe that makes the whole "deletes
  *  nothing until ~2027-07" era cost a single row read per table per night. */
 async function oldestCreatedAt(db: Db, table: PrunableTable): Promise<string | null> {
-  if (table === 'page_views') {
-    const [row] = await db
-      .select({ createdAt: pageViews.createdAt })
-      .from(pageViews)
-      .orderBy(asc(pageViews.id))
-      .limit(1);
-    return row?.createdAt ?? null;
-  }
-  const [row] = await db
-    .select({ startedAt: jobRuns.startedAt })
-    .from(jobRuns)
-    .orderBy(asc(jobRuns.id))
-    .limit(1);
-  return row?.startedAt ?? null;
+  const src = SOURCES[table];
+  const [row] = await db.select({ age: src.age }).from(src.table).orderBy(asc(src.id)).limit(1);
+  return (row?.age as string | undefined) ?? null;
 }
 
 /**
@@ -312,25 +335,17 @@ async function planChunks(db: Db, table: PrunableTable, cutoffIso: string): Prom
   let rowsDeleted = 0;
   let cursor = 0;
 
+  const src = SOURCES[table];
+
   for (let chunk = 0; chunk < MAX_CHUNKS_PER_TABLE; chunk += 1) {
-    const ids =
-      table === 'page_views'
-        ? (
-            await db
-              .select({ id: pageViews.id })
-              .from(pageViews)
-              .where(and(lt(pageViews.createdAt, cutoffIso), gt(pageViews.id, cursor)))
-              .orderBy(asc(pageViews.id))
-              .limit(PRUNE_CHUNK_ROWS)
-          ).map((r) => r.id)
-        : (
-            await db
-              .select({ id: jobRuns.id })
-              .from(jobRuns)
-              .where(and(lt(jobRuns.startedAt, cutoffIso), gt(jobRuns.id, cursor)))
-              .orderBy(asc(jobRuns.id))
-              .limit(PRUNE_CHUNK_ROWS)
-          ).map((r) => r.id);
+    const ids = (
+      await db
+        .select({ id: src.id })
+        .from(src.table)
+        .where(and(lt(src.age, cutoffIso), gt(src.id, cursor)))
+        .orderBy(asc(src.id))
+        .limit(PRUNE_CHUNK_ROWS)
+    ).map((r) => r.id as number);
 
     if (ids.length === 0) return { statements, rowsDeleted, truncated: false };
 
@@ -338,25 +353,9 @@ async function planChunks(db: Db, table: PrunableTable, cutoffIso: string): Prom
     // The date predicate is repeated on purpose: the id range is pagination, the
     // predicate is the authority. See the header note on monotonicity.
     statements.push(
-      table === 'page_views'
-        ? db
-            .delete(pageViews)
-            .where(
-              and(
-                lt(pageViews.createdAt, cutoffIso),
-                gt(pageViews.id, cursor),
-                lte(pageViews.id, lastId),
-              ),
-            )
-        : db
-            .delete(jobRuns)
-            .where(
-              and(
-                lt(jobRuns.startedAt, cutoffIso),
-                gt(jobRuns.id, cursor),
-                lte(jobRuns.id, lastId),
-              ),
-            ),
+      db
+        .delete(src.table)
+        .where(and(lt(src.age, cutoffIso), gt(src.id, cursor), lte(src.id, lastId))),
     );
     rowsDeleted += ids.length;
     cursor = lastId;
@@ -372,7 +371,7 @@ async function planChunks(db: Db, table: PrunableTable, cutoffIso: string): Prom
 // ---------------------------------------------------------------------------
 
 /**
- * Prune both tables, or refuse to.
+ * Prune every table in {@link PRUNABLE}, or refuse to.
  *
  * Never throws for an operational reason — a snapshot gap is reported as
  * `status: 'skipped'`, not raised. A genuine D1 failure DOES propagate: the
@@ -387,6 +386,7 @@ export async function runRetentionPrune(
   const cutoffs = {
     page_views: cutoffFor(now, windows.page_views),
     job_runs: cutoffFor(now, windows.job_runs),
+    notification_sends: cutoffFor(now, windows.notification_sends),
   } as const;
 
   const oldestPageView = await oldestCreatedAt(db, 'page_views');
@@ -406,7 +406,7 @@ export async function runRetentionPrune(
         window: { fromDay, toDay },
         missingCount: missing.length,
         missingDays: missing.slice(0, MAX_REPORTED_MISSING_DAYS),
-        // Both tables reported at zero rather than omitted, so the
+        // Every table reported at zero rather than omitted, so the
         // `rows_deleted` series stays continuous and a threshold monitor can be
         // written against it. A skip is a run, not an absence.
         tables: PRUNABLE.map((table) => ({
@@ -425,7 +425,7 @@ export async function runRetentionPrune(
 
   for (const table of PRUNABLE) {
     const cutoff = cutoffs[table];
-    // `page_views` already has its probe; re-probing `job_runs` is one row.
+    // `page_views` already has its probe; re-probing each other table is one row.
     const oldest = table === 'page_views' ? oldestPageView : await oldestCreatedAt(db, table);
     if (oldest === null || oldest >= cutoff.iso) {
       tables.push({ table, cutoff: cutoff.iso, rowsDeleted: 0, truncated: false });

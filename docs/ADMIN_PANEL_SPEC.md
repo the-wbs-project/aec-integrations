@@ -648,7 +648,7 @@ series' first tombstone, since those dates differ per series.
 ### 5.6 System — SHIPPED (AECI-580, 2026-08-13; completed by AECI-583, 2026-08-13)
 
 - SSR + API `sha` / `deployedAt` / `environment` from the two existing endpoints (`/api/version` and the SSR Worker's own `/_version` — they differ precisely so a stale SSR deploy is detectable). The UI reads both and flags a mismatch as a `role="alert"` band; an unknown SHA (the `wrangler --var` injection missing) reads as *unknown*, not as a difference. The bundle carries the **API** Worker's half — nothing reachable from the API Worker knows the SSR Worker's SHA.
-- **Cron liveness** — last run, duration, outcome per job, for all fifteen crons (§7.2).
+- **Cron liveness** — last run, duration, outcome per job, for all sixteen crons (§7.2).
 - **The data-quality checks** rendered with severity and sample rows — formerly visible only in an email. **Delivered as specified:** since AECI-583 the default view reads the last persisted `job_runs` result (labelled with the run's own `computed_at`) and `?recompute=1` is the refresh. Both are pure reads, so neither writes anything or needs an `audit_log` row (§13 **D8**).
 - Algolia sync watermark, index drift, orphan-sweep results.
 - D1 size and per-table row counts.
@@ -1566,9 +1566,9 @@ job_runs
   INDEX (job, started_at)
 ```
 
-Each of the fifteen cron handlers in `scheduled.ts` writes one row (eight at the time this was written; AECI-581 added the 00:15 `snapshot` job, AECI-584 the 03:00 `retention` prune, AECI-302 the 10:00 attestation detector sweep, AECI-613 the 11:00 entitlement term-expiry sweep, AECI-826 the IndexNow drain (`*/20`, daily at `5 0` since AECI-1136), AECI-862 the `25 */6` claim-staleness check, and AECI-624 the WEEKLY 02:00 Monday `asn-registry` refresh — cron `0 2 * * 2`, because Cloudflare's day-of-week is 1=Sunday, AECI-661 — which met this table at the AECI-750 reconcile). The data-quality run stores its full result set in `detail`, which is what §5.6 renders. Retention: 90 days (§7.4), enforced by the 03:00 prune since AECI-584.
+Each of the sixteen cron handlers in `scheduled.ts` writes one row (eight at the time this was written; AECI-581 added the 00:15 `snapshot` job, AECI-584 the 03:00 `retention` prune, AECI-302 the 10:00 attestation detector sweep, AECI-613 the 11:00 entitlement term-expiry sweep, AECI-826 the IndexNow drain (`*/20`, daily at `5 0` since AECI-1136), AECI-862 the `25 */6` claim-staleness check, AECI-1205 the 12:00 protest reply reminder, and AECI-624 the WEEKLY 02:00 Monday `asn-registry` refresh — cron `0 2 * * 2`, because Cloudflare's day-of-week is 1=Sunday, AECI-661 — which met this table at the AECI-750 reconcile). The data-quality run stores its full result set in `detail`, which is what §5.6 renders. Retention: 90 days (§7.4), enforced by the 03:00 prune since AECI-584.
 
-**SHIPPED (AECI-583, 2026-08-13.)** `job` uses the fifteen `AdminCronJob` ids in `packages/shared/src/api/admin-panel.ts` (AECI-581 added the ninth, `metrics-snapshot`; AECI-584 the tenth, `retention-prune`; AECI-302 the eleventh, `attestation-notify`; AECI-613 the twelfth, `entitlement-expiry`; AECI-624 the thirteenth, `asn-registry`; AECI-826 the fourteenth, `indexnow-drain`; AECI-862 the fifteenth, `claim-stale-check` — no migration needed for any of them, `job` carries no CHECK for exactly this reason); the DDL above is the built shape and `DATABASE_SCHEMA.md` §9.4 is the implementation record. Four things settled during the build are worth carrying forward:
+**SHIPPED (AECI-583, 2026-08-13.)** `job` uses the sixteen `AdminCronJob` ids in `packages/shared/src/api/admin-panel.ts` (AECI-581 added the ninth, `metrics-snapshot`; AECI-584 the tenth, `retention-prune`; AECI-302 the eleventh, `attestation-notify`; AECI-613 the twelfth, `entitlement-expiry`; AECI-624 the thirteenth, `asn-registry`; AECI-826 the fourteenth, `indexnow-drain`; AECI-862 the fifteenth, `claim-stale-check`; AECI-1205 the sixteenth, `protest-reply-reminder` — no migration needed for any of them, `job` carries no CHECK for exactly this reason); the DDL above is the built shape and `DATABASE_SCHEMA.md` §9.4 is the implementation record. Four things settled during the build are worth carrying forward:
 
 - **Written on entry, completed on exit.** `withJobRun` (`apps/api/src/lib/job-runs.ts`) awaits the entry insert *before* invoking the job, so a run the isolate never returns from leaves `finished_at IS NULL` — the unfinished row is the signal. The finish write is awaited too, never `ctx.waitUntil`: on the queue path `ack()` fires the instant the job returns, and a deferred write would race it and manufacture false timeouts.
 - **All ten impls return a `JobRunReport` rather than `void`.** They swallow their own operational errors, so a wrapper that only watched for a throw would record `ok` for a failed run. A *thrown* handler is recorded `failed` **and rethrown**, preserving the reconcile job's deliberate queue retry; a *reported* failure does not throw, so instrumenting did not widen the retry surface to the other nine.
@@ -1639,6 +1639,18 @@ The one code change riding along: `apps/api/src/routes/account.ts`'s `db.update(
 
 `page_views` grows ~1,000 rows/day (18.15 MB total today, ~700 B/row). Settled by §13 **D5**: raw `page_views` kept **400 days**, `metrics_daily` kept **indefinitely**, `job_runs` kept **90 days**. **SHIPPED (AECI-584, 2026-08-13)** — the daily **03:00 UTC** pruning cron, `apps/api/src/lib/retention-prune.ts`.
 
+| Table | Window | Constant | Since |
+|---|---|---|---|
+| `page_views` | 400 days | `PAGE_VIEWS_RETENTION_DAYS` | AECI-584 |
+| `job_runs` | 90 days | `JOB_RUNS_RETENTION_DAYS` | AECI-584 |
+| `notification_sends` | 400 days | `NOTIFICATION_SENDS_RETENTION_DAYS` | AECI-1202 |
+| `metrics_daily` | indefinite | none | AECI-581 |
+
+`notification_sends` is the email send ledger (`DATABASE_SCHEMA.md` §9.9). It keeps 400 days to
+match `page_views`: "what did we send this person last year" is a support question that needs the
+same year-over-year reach. Its rows are small and number tens a day. It is pruned by the same cron,
+under the same four rules, and a snapshot gap stops it with the rest of the run.
+
 **Why 400 and not 180.** Storage is not the binding constraint at either figure — 180 d ≈ 125 MB and 400 d ≈ 280 MB against D1's 10 GB per-database limit (1.2% vs 2.8%). Irreversibility is: **D1 Time Travel gives only ~30 days** of point-in-time recovery, so anything pruned beyond that is permanently gone. 400 days is the first window that keeps **year-over-year** comparison possible, with ~5 weeks of overlap so a YoY chart never has a ragged edge.
 
 Four binding rules on the cron:
@@ -1658,9 +1670,9 @@ The window lives in a **config constant**, not a literal, so it can be shortened
 4. **The cutoff is always a UTC midnight.** Whole-day boundaries make the cut window a set of *complete* days, which is what lets rule 2's per-day check be exact and keeps the row counts aligned with the day series §7.1 stores.
 5. **Chunking pages the `id` column, not `created_at`.** `page_views` has no leading-`created_at` index (all five are `(dimension, created_at)`), so a bare `DELETE … WHERE created_at < ?` is a full scan. `id` is `AUTOINCREMENT` and co-monotonic with `created_at`, so each chunk reads ≤500 ids in PK order and emits a `DELETE` bounded by that id range — with `created_at < cutoff` repeated in every statement, so the predicate stays authoritative and a monotonicity violation can only under-delete. The cursor is also the only source of `rowsDeleted`: D1 does not report `meta.changes` usefully for batched writes, and the test harness's `db.batch` shim returns `[]`, so a `DELETE … LIMIT n` chunk could not produce the number rule 4 requires. `DELETE … LIMIT` and long `id IN (…)` lists are avoided for portability rather than because D1 rejects them — local D1 accepts both — and the module header says so explicitly rather than leaving a false claim behind.
 
-The window is `PAGE_VIEWS_RETENTION_DAYS` / `JOB_RUNS_RETENTION_DAYS` in `@aeci/shared`, with like-named optional env overrides per tier (shipped UNSET). An override below **30 days** — D1 Time Travel's horizon — is ignored rather than clamped and logged as `aeci.retention.invalid_window_override`: a typo'd `4` must fall back to the reviewed default, not quietly become the shortest legal window.
+The window is `PAGE_VIEWS_RETENTION_DAYS` / `JOB_RUNS_RETENTION_DAYS` / `NOTIFICATION_SENDS_RETENTION_DAYS` in `@aeci/shared`, with like-named optional env overrides per tier (shipped UNSET). An override below **30 days** — D1 Time Travel's horizon — is ignored rather than clamped and logged as `aeci.retention.invalid_window_override`: a typo'd `4` must fall back to the reviewed default, not quietly become the shortest legal window.
 
-This does **not** contradict `STAGE_1_SPEC.md` §26.6 ("no archiving or pruning at launch"), which is scoped to the audit and workflow tables; §7.4 governs `page_views`, `metrics_daily`, and `job_runs` only. The two are cross-referenced so a future reader does not have to re-derive that.
+This does **not** contradict `STAGE_1_SPEC.md` §26.6 ("no archiving or pruning at launch"), which is scoped to the audit and workflow tables; §7.4 governs `page_views`, `metrics_daily`, `job_runs`, and `notification_sends` only. The two are cross-referenced so a future reader does not have to re-derive that.
 
 ### 7.5 Lead-capture indexes — SHIPPED (AECI-586, migration `0014`)
 

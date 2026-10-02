@@ -9,9 +9,9 @@ change it here first and carry the edit across; keep the table clean and liftabl
 
 | File | What it is |
 |---|---|
-| `project-config.json` | Topology (both projects, hosts, alert subscribers) + the fifteen-cron **liveness registry** the CI sweep reads. |
-| `insights.json` | 7 dashboards, 46 insights (31 board + 15 alert-source), as data. Names and descriptions are written for a **reader**, not for an archaeologist — see "Naming and descriptions". |
-| `alerts.json` | 15 PostHog alerts. Each names its source insight by **stable key** (`insightKey`, never by title) and carries the **retired Datadog query verbatim**. |
+| `project-config.json` | Topology (both projects, hosts, alert subscribers) + the **liveness registry** the CI sweep reads: fifteen of the sixteen crons. `protest-reply-reminder` waits in `liveness.pendingFirstHeartbeat` (see Pending liveness entries). |
+| `insights.json` | 7 dashboards, 50 insights (32 board + 18 alert-source), as data. Names and descriptions are written for a **reader**, not for an archaeologist — see "Naming and descriptions". |
+| `alerts.json` | 18 PostHog alerts. Each names its source insight by **stable key** (`insightKey`, never by title) and carries the **retired Datadog query verbatim**. |
 | `apply.sh` | Thin applier over the three JSON files. Dashboards + insights to both projects, alerts to prod only. |
 | `../../scripts/ci/posthog-liveness-sweep.sh` | The absence detector. Replaces all eight `notify_no_data` monitors. |
 | `../../.github/workflows/posthog-liveness-sweep.yml` | Runs it every 3 hours, outside the Worker, and **fails red**. |
@@ -69,6 +69,24 @@ It is also the one alert **checked daily** rather than at the hourly default
 hourly check re-read the same day and emailed on every firing check. A refusal episode
 lasts days and loses nothing while it runs, so one email a day is the right volume.
 
+**Three more net-new alerts read `aeci.email.send` (AECI-1206).** No plane ever alerted on
+email. Like `indexnow-failure-rate` they sit beside the table, not inside it.
+
+| Alert | Source insight | Threshold | Cadence |
+|---|---|---|---|
+| `email-failure-rate` | `alert-email-failure-rate` | (failed + unknown) / (sent + failed + unknown) > 20% over 24 h, reported only once 2 or more failed or unknown | daily |
+| `email-volume-spike` | `alert-email-volume-spike` | sent + failed + unknown > 50 in 24 h | daily |
+| `email-suppressed-in-production` | `alert-email-suppressed` | any `outcome:suppressed` in 1 h | hourly |
+
+Basis: production 354071, 30 days to 2026-10-01, read-only. 6 sends, 0 failed, daily p50 0,
+p95 2, max 2, hourly max 1. The two operator digests were untagged until AECI-1199, and
+their own metrics show about one send each a day, so an expected day after this epic is 2
+to 4. The failure floor is on failures, not attempts, because an attempts floor that means
+anything would never be met at this volume. `skipped` and `duplicate` count toward none of
+the three. The board tile `email-sends-by-template` sits on "Scheduled jobs and data
+cleanup", because most mail after this epic is cron-sent and that board already carries
+the IndexNow delivery tile.
+
 ---
 
 ## The "AW6 judges" rows — decisions and reasoning
@@ -94,7 +112,9 @@ Two deliberate widenings ride along:
    entitlement-expiry, indexnow-drain, claim-stale-check, waf-poll and the per-key half of
    home-stats were previously unwatched — several shipped after the Datadog monitors were
    written, and `indexnow-drain` and `claim-stale-check` did not exist until AECI-826 and
-   AECI-862). Three of the fifteen crons are absent from that query on purpose:
+   AECI-862). AECI-1205 added `protest-reply-reminder`, so the query now sums fourteen
+   metrics. Its failure half is live, but its liveness row waits outside the sweep (see
+   "Pending liveness entries" below). Three of the sixteen crons are absent from that query on purpose:
    `moderation-snapshot`, `algolia-drift` and `request-reconcile` heartbeat on a GAUGE with no
    `outcome` tag, so there is nothing to sum. `indexnow-drain` was missing until AECI-864 —
    AECI-826 wired its liveness heartbeat but not its failure half. Only its local faults
@@ -364,6 +384,21 @@ items settled since then are marked ✅ with their date:
 
 ---
 
+## Pending liveness entries
+
+The sweep reads the production project. A cron that has never run in production has no
+heartbeat there, so its row reports `MISSING` on every sweep and turns the scheduled job red.
+That is a false alarm, not a dead cron.
+
+So a new cron waits in `liveness.pendingFirstHeartbeat` in `project-config.json` until its
+first production heartbeat appears. The sweep never reads that list.
+`apps/api/src/lib/cron-schedules.spec.ts` fails if a cron is in neither list, and its
+`LIVENESS_PENDING` constant names each one on purpose.
+
+| Cron | Heartbeat to wait for | Then |
+|---|---|---|
+| `protest-reply-reminder` (AECI-1205) | `aeci.contest.protest_reminder.job` in production | Move its object into `liveness.crons` and drop it from `LIVENESS_PENDING`. A follow-up issue tracks this. |
+
 ## The liveness sweep drill
 
 `docs/POSTHOG_MIGRATION_SPEC.md` §6 item 8 requires proving the failure path fires. A real
@@ -520,6 +555,10 @@ Non-production 525793 was created 2026-08-24; **production 354071 was applied 20
 and carries the same 7 dashboards (ids `2033129`–`2033136`) and 43 insights (ids
 `11342302`–`11342372`), verified 2026-09-04.
 
+> **Update 2026-10-01 (AECI-1206):** the committed set is now 50 insights and 18 alerts.
+> The email board tile, three email alert sources and three email alerts reach PostHog on
+> the next `apply.sh` run.
+>
 > **Update 2026-09-24 (AECI-1099):** the committed set is now 46 insights and 15 alerts.
 > Production carries 14 alerts, checked read-only that day, so the paragraph below is
 > out of date on the alert count. The new `profile-ensure-failed` alert and its source

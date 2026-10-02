@@ -21,6 +21,7 @@ export * from './integration-create';
 export * from './integration-vendor-links';
 export * from './https-url';
 export * from './landing';
+export * from './notification-preferences';
 export * from './page-views';
 export * from './product-facets';
 export * from './product-pairs';

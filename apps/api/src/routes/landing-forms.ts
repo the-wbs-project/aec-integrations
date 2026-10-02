@@ -50,6 +50,7 @@ import {
   sendMailingListWelcomeEmail,
 } from '../lib/email';
 import { writeDb, type DbFactory } from '../lib/handler-utils';
+import { recipientHash } from '../lib/hash';
 
 async function parseJsonBody<T>(c: Context<{ Bindings: Env }>, schema: ZodType<T>): Promise<T> {
   let raw: unknown;
@@ -201,6 +202,7 @@ export function createSubscribeHandler(
     // Token threaded into the welcome email below (the new row's, or — on a
     // reactivation — the existing row's, so the link stays valid).
     let welcomeToken: string | null = inserted.length > 0 ? newToken : null;
+    let rowId: string | null = inserted.length > 0 ? String(inserted[0]!.id) : null;
 
     // Soft-delete reactivation (AECI-537): if the email is already on the list
     // AND currently unsubscribed, clear `unsubscribed_at` back to active and
@@ -212,10 +214,11 @@ export function createSubscribeHandler(
         .update(mailingList)
         .set({ unsubscribedAt: null })
         .where(and(eq(mailingList.email, payload.email), isNotNull(mailingList.unsubscribedAt)))
-        .returning({ token: mailingList.unsubscribeToken });
+        .returning({ id: mailingList.id, token: mailingList.unsubscribeToken });
       if (revived.length > 0) {
         reactivated = true;
         welcomeToken = revived[0].token;
+        rowId = String(revived[0].id);
       }
     }
 
@@ -230,9 +233,19 @@ export function createSubscribeHandler(
     //      `apps/landing` Worker's own Resend send, AECI-247/277);
     //   2. the subscriber's welcome email — their first touch (AECI-327), now
     //      carrying the tokenized unsubscribe link (AECI-537).
+    //
+    // Both are keyed per address per UTC calendar month (AECI-1203). Before that, an
+    // unsubscribe then resubscribe re-sent both every time, limited only by the zone
+    // WAF rule. The key holds the address's hash, never the address. A duplicate
+    // welcome makes no Resend call, so it sends no operator copy either.
     if (created) {
+      const subscriberHash = await recipientHash(payload.email);
+      const month = new Date().toISOString().slice(0, 7);
+      const entity = rowId ? { type: 'mailing_list', id: rowId } : undefined;
       c.executionCtx.waitUntil(
         sendLandingSignupNotification(c, {
+          dedupeKey: `landing-signup:${subscriberHash}:${month}`,
+          entity,
           email: payload.email,
           city,
           region,
@@ -244,7 +257,12 @@ export function createSubscribeHandler(
         }),
       );
       c.executionCtx.waitUntil(
-        sendMailingListWelcomeEmail(c, { to: payload.email, token: welcomeToken }),
+        sendMailingListWelcomeEmail(c, {
+          to: payload.email,
+          token: welcomeToken,
+          dedupeKey: `mailing-list-welcome:${subscriberHash}:${month}`,
+          entity,
+        }),
       );
     }
 

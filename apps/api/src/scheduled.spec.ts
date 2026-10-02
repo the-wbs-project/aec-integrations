@@ -181,8 +181,10 @@ beforeEach(async () => {
     suppressed: 0,
     capped: 0,
     sent: 0,
+    portalOnly: 0,
     failed: 0,
     skipped: 0,
+    digestsSent: 0,
   });
   t = await makeTestDb();
   vi.mocked(getDb).mockReturnValue(t.dbCtx);
@@ -331,6 +333,16 @@ describe('scheduled (cron producer)', () => {
       'aeci.data_quality.email',
       1,
       ['outcome:skipped'],
+    );
+    // The shared email metric carries the digest's registry id as its template tag, so
+    // the AECI-1206 email insight and alerts see the digest like any other send.
+    expect(submitCount).toHaveBeenCalledWith(
+      ctx,
+      expect.anything(),
+      expect.anything(),
+      'aeci.email.send',
+      1,
+      ['outcome:skipped', 'template:digest-data-quality'],
     );
   });
 
@@ -591,6 +603,15 @@ describe('scheduled (cron producer)', () => {
       'aeci.analytics_digest.email',
       1,
       ['outcome:skipped'],
+    );
+    // Same template tag contract as the data-quality digest (AECI-1206).
+    expect(submitCount).toHaveBeenCalledWith(
+      ctx,
+      expect.anything(),
+      expect.anything(),
+      'aeci.email.send',
+      1,
+      ['outcome:skipped', 'template:digest-analytics'],
     );
   });
 });
@@ -855,8 +876,8 @@ describe('job_runs bookkeeping (§7.2)', () => {
       capped: 0,
       malformed: 0,
       warned: 0,
-      vendor: { sent: 0, failed: 0, skipped: 0 },
-      admin: { sent: 0, failed: 0, skipped: 0 },
+      vendor: { sent: 0, failed: 0, unknown: 0, skipped: 0, suppressed: 0, duplicate: 0 },
+      admin: { sent: 0, failed: 0, unknown: 0, skipped: 0, suppressed: 0, duplicate: 0 },
       batchFailures: 0,
     });
   });

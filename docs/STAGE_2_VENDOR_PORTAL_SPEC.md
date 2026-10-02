@@ -1000,7 +1000,7 @@ What changed (copy only — no route, no payload, no behaviour):
 - **Admin copy.** The claim queue's clear-entitlement warning says the vendor's
   team keeps "their logins and their portal, read-only".
 - **Transactional email.** `claim-approved`, the attestation nudges' shared
-  closing lines, and `entitlement-expiring` all say "your vendor portal".
+  closing lines (now `attestation-digest`, AECI-1204), and `entitlement-expiring` all say "your vendor portal".
 
 **Not renamed: internal identifiers.** `vendor-dashboard-tabbed.ts`,
 `vendor-dashboard-single.ts`, `VendorDashboardTabbed` / `VendorDashboardSingle`,
@@ -1268,6 +1268,29 @@ same reason requests sit above it: each contest carries a status the vendor acts
 two lists, Received and Submitted, off `GET /api/vendor/contests` (§11b.10). Contest
 events also land in the archive below as history. That is not a duplicate: the archive
 says what happened when, and the contests block says where each one stands now.
+
+**The "Daily reminder email" switch sits above the archive (AECI-1204, 2026-10-01).** The
+reminders in the archive reach a seat as one daily digest email
+(`STAGE_2_ATTESTATIONS_SPEC.md` §7.2), and the switch is how a seat opts out of that email.
+It is a `role="switch"` where ON means "email me". It reads `GET /api/vendor/notification-preferences`
+and writes `PUT` on the same path. The write is optimistic, with a visible rollback and an error
+line if it fails. It acts on the caller's own seat only, so muting does not silence a colleague.
+The mute covers the digest only: seat invites, claim decisions and plan-expiry mail still send.
+The archive below it keeps every reminder either way, because a row is recorded whether or not
+any seat was emailed (§7.3).
+
+The archive's framing copy changed with it. It used to say "Only the reminders were emailed".
+It now says reminders are also emailed in one daily summary to each seat that has not muted it,
+so a reminder listed here may not have reached an inbox. The i18n id is
+`@@vendor.attest.notify.framing.digest`.
+
+Mobbin anchor for the switch: Shopify admin settings cards
+(https://mobbin.com/screens/e53a5210-9e2c-405c-ab2d-87de1432dd5e and
+https://mobbin.com/screens/f6ea66fe-de5c-4239-aaf8-30d7bb3f85f2).
+
+The mail's footer link opens `/notifications/mute?token=`, a public noindex page that confirms
+on click and never mutates on `GET`. It is not cached (absent from `ROUTE_CACHE_PATTERNS`). It
+lives outside the portal because the person clicking may not be signed in.
 
 #### Taxonomy is a projection, not a second form
 
@@ -2581,10 +2604,10 @@ Thread the existing `vendors.verified` column into the Algolia vendor record. Fo
 
 Claim approved / rejected notifications over **Resend** (`apps/api/src/lib/email.ts`; `docs/email.md`), fail-open — runs alongside the rest.
 
-- Add `'claim-approved'` and `'claim-rejected'` to the `EmailTemplate` union (~:60-72) — the id is also the `template:` metric tag on `aeci.email.send`.
+- Add `'claim-approved'` and `'claim-rejected'` to the `EmailTemplate` union (~:60-72) — the id is also the `template:` metric tag on `aeci.email.send`. Since AECI-1199 the union is gone: an id is an entry in `apps/api/src/lib/notifications/registry.ts`, and `EmailTemplate` is derived from it.
 - Add `sendClaimApprovedEmail` / `sendClaimRejectedEmail` helpers modeled on `sendReviewApprovedEmail` / `sendReviewRejectedEmail` (~:168-220): build `text`/`html` via `toText()`/`toHtml()`, call `sendTransactionalEmail` (never throws; absent key/sender/recipient → `'skipped'`).
 - Fire from the §3 grant/reject handler via `c.executionCtx.waitUntil(...)`, to the claim's `submitter_email`.
-- Update the template catalogue in `docs/email.md`.
+- Update the template catalogue in `docs/email.md`. Since AECI-1200 the catalogue is `docs/NOTIFICATIONS.md`, generated from the notification registry.
 
 Billing/invoice notices are a Paid-Tiers concern (`STAGE_2_SPEC.md` §2.2 / AECI-515), not this issue — **now owned by AECI-613** (`entitlement-expiring` / `entitlement-expiring-admin`, `docs/STAGE_2_PAID_TIERS_SPEC.md` §7).
 
@@ -2979,14 +3002,14 @@ Every transition writes, in one `db.batch`:
 
 ### 11b.8 Notifications and freshness
 
-**Notifications are audit rows.** A contest event writes `notification.sent` with `metadata.kind = 'contest'` and `metadata.vendorId` set to the recipient. `submitted` and `withdrawn` go to the owner, and only on an owner-routed row. `accepted` and `declined` go to the submitter. Since AECI-1010 a retire that closes an open contest also sends the submitter a `closed_by_retire` event (§4.6). No vendor gets an email about a contest. `GET /api/vendor/notifications` returns them as a union member on `kind` (`STAGE_2_ATTESTATIONS_SPEC.md` §7.5). The feed's scoping predicate is unchanged, so the `notifications` cursor needed no change.
+**Notifications are audit rows.** A contest event writes `notification.sent` with `metadata.kind = 'contest'` and `metadata.vendorId` set to the recipient. `submitted` and `withdrawn` go to the owner, and only on an owner-routed row. `accepted` and `declined` go to the submitter. Since AECI-1010 a retire that closes an open contest also sends the submitter a `closed_by_retire` event (§4.6). A contest submit, accept, withdraw or retire emails no vendor. Since AECI-1205 an owner **decline** also emails the submitter's seats its protest window, and the protest steps email the owner (§11b.12.10). `GET /api/vendor/notifications` returns them as a union member on `kind` (`STAGE_2_ATTESTATIONS_SPEC.md` §7.5). The feed's scoping predicate is unchanged, so the `notifications` cursor needed no change.
 
 **AECi gets an email when a contest routes to it at submit (AECI-1132, ruled 2026-09-24).** An AECi-routed contest has no vendor on the other side, so it writes no `notification.sent` row. Before AECI-1132 nobody learned of it until someone opened `/admin/contests`. Now a successful submit whose frozen route is `aeci` sends the `contest-submitted-alert` email to `CLAIM_ALERT_EMAIL`, the support inbox. That is the inbox claim intake uses, because an `owner` contest is the owner-unknown claim path (§4.5).
 
 - **When.** After the submit batch commits, through `ctx.waitUntil`, from `createSubmitContestHandler` in `routes/vendor-contests.ts`. A refused or lost submit sends nothing. A failed send never changes the `201`.
 - **Which contests.** Every AECi-routed submit. The body names the reason: an `owner` contest, an unclaimed row, an owner with no active seat (AECI-989), or a connector-powered row whose owner cannot decide (AECI-1092). An owner-routed submit sends no email, because the owner gets its portal notification.
 - **What it carries.** The integration, the field, the current and proposed values (an `owner` value as a vendor name, `none` for no owner), the submitting vendor, its reason, the contest id, the deployment host and the pair page. The one call to action opens `/admin/contests`.
-- **Not covered.** A contest that moves to AECi later (seat loss, an owner reassignment, §11b.4) and a protest filed to AECi (§11b.12) send no email yet.
+- **Not covered.** A contest that moves to AECi later (seat loss, an owner reassignment, §11b.4) sends no email yet. A protest filed to AECi does, since AECI-1205: `protest-submitted-alert` goes to the same inbox (§11b.12.10).
 
 **`contests` is the seventh cursor scope** on `GET /api/vendor/updates`. It reports `MAX(updated_at)` under `vendorContestsWhere`, which is the same predicate `GET /api/vendor/contests` imports (`STAGE_2_REALTIME_SPEC.md` §2.2). The list is capped at 100 rows per side; the cursor covers the whole scope, so an edit past the cap costs one wasted refetch and nothing else.
 
@@ -3246,7 +3269,7 @@ Both vendors see the whole record, including the other side's text, evidence and
 
 #### 11b.12.10 Notifications
 
-Five events joined `CONTEST_NOTIFICATION_EVENTS`. Each is a `notification.sent` audit row in its step's batch (§11b.8's mechanism). There is no email.
+Five events joined `CONTEST_NOTIFICATION_EVENTS`. Each is a `notification.sent` audit row in its step's batch (§11b.8's mechanism). Four emails ride beside them since AECI-1205 (see **Emails** below).
 
 | Event | Recipient | Title, written from the recipient's seat | Note line |
 |---|---|---|---|
@@ -3261,6 +3284,22 @@ Five events joined `CONTEST_NOTIFICATION_EVENTS`. Each is a `notification.sent` 
 The two decision events carry `metadata.recipientRole` (`submitter` or `owner`), because the same event reads differently from each seat. `protested` carries `metadata.basis` and `metadata.replyDueAt`. `protest_rejected` to the submitter carries `metadata.cooldownUntil`. The feed exposes `recipient_role`, `reply_due_at` and `cooldown_until`, each defaulting to `null` on older rows.
 
 **The `declined` event carries `metadata.protestClosesAt`** when the owner declined through the owner decision route. The feed exposes it as `protest_closes_at`. The `declined` note line then reads "The value on record stays as it is. If you disagree, you can ask AEC Integrations to review it until {date}, from Field contests in Messages." An AECi decline, and every row written before this build, carries no date and says only that the value stays.
+
+**Emails (AECI-1205, ruled 2026-10-01).** Before this, every deadline above reached a vendor only as a portal row. An owner who did not log in lost its one reply, and AECi learned of a protest only by opening `/admin/contests`. Four emails now go out. Each is a registry entry in `docs/NOTIFICATIONS.md`, and `docs/email.md` (§Template content notes) carries the subjects and copy.
+
+| Email | To | When | Dedupe key |
+|---|---|---|---|
+| `contest-protest-opened` | every unbanned `vendor_admin` seat of the owner vendor | the protest file batch commits | `contest-protest-opened:{contestId}:{protestedAt}:{profileId}` |
+| `protest-submitted-alert` | `CLAIM_ALERT_EMAIL` (the support inbox) | the protest file batch commits | `protest-submitted-alert:{contestId}:{protestedAt}` |
+| `contest-protest-reply-reminder` | the owner vendor's seats | the daily 12:00 UTC `protest-reply-reminder` cron, when the protest is `open`, has no reply, and `now < protest_reply_due_at <= now + 3d` | `contest-protest-reply-reminder:{contestId}:{protestedAt}:{profileId}` |
+| `contest-declined-protest-window` | every unbanned `vendor_admin` seat of the submitting vendor | an OWNER decline commits (`POST /api/vendor/contests/:id/decision`) | `contest-declined-protest-window:{contestId}:{profileId}` |
+
+- **After the commit, never on the request.** The two route senders run in `ctx.waitUntil` after the batch. A refused or lost step sends nothing, and a failed send never changes the response.
+- **At most once.** Each key is held in `notification_sends` (AECI-1202). A replay is a `duplicate` with no Resend call. A protest's key carries `protestedAt`, so a later protest on the same contest is a new send. A failed send releases its key.
+- **The reminder.** The reply window is 14 days, so the reminder goes out on the first daily 12:00 UTC run inside the 3-day window. That is 2 to 3 days before the deadline, on day 11 or 12 after filing. The next runs inside the window are duplicates. A replied, withdrawn, decided or past-due protest is never selected. The job needs no column: the ledger key is its fence. It is queue-less, like `entitlement-expiry`.
+- **Only an owner decline sends the window email.** An AECi decline cannot be protested (§11b.12.2), and an accept has nothing to protest.
+- **No mute.** These emails carry a deadline the vendor loses a right by missing. The per-seat attestation nudge mute (AECI-1204) does not apply to them.
+- **Tier policy.** The three vendor emails are `production-external`: off production they reach only internal addresses (AECI-1198). The alert is operator mail.
 
 **Every deadline shows its time of day**, not only the date: the filing window's close, the silence-decline date, the reply due date and the cooldown end render with Angular's `medium` format in the viewer's time zone, in the portal, the admin card, the contest form and the notification notes. Each falls at an instant, so a date alone could be read as the whole day.
 

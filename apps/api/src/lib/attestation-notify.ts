@@ -1,10 +1,21 @@
 /**
- * The §7.2/§7.3 notification sweep (AECI-302 / `STAGE_2_ATTESTATIONS_SPEC.md` §7).
+ * The §7.2/§7.3 notification sweep (AECI-302, digest since AECI-1204 /
+ * `STAGE_2_ATTESTATIONS_SPEC.md` §7).
  *
  * Takes the findings `lib/attestation-detectors.ts` produced, decides which are
- * new, resolves who to email, sends through Resend, and records each successful
- * send in `audit_log`. **Email-only** at launch (epic decision §1.3(4)); the
- * real-time channel is AECI-516 and nothing here assumes it.
+ * due, and then:
+ *
+ *   1. groups the due vendor findings by vendor, then by seat;
+ *   2. sends ONE `attestation-digest` per unmuted seat per day, listing every due
+ *      finding for that seat's vendor;
+ *   3. sends ONE `attestation-ops-digest` per `ADMIN_ALERT_EMAIL` address per day,
+ *      listing every due ops finding;
+ *   4. records every due finding in `audit_log` (the ledger that is also the portal
+ *      row), unless delivery failed or could not be attempted.
+ *
+ * Before AECI-1204 each finding was its own email to every seat: 40 findings meant
+ * 40 emails per seat in one morning, on the Resend account that also sends sign-in
+ * links. A complaint spike there could block sign-in for everyone.
  *
  * ## The ledger is the whole design (§7.3)
  *
@@ -12,35 +23,63 @@
  * in-portal list all read one `audit_log` shape:
  *
  *   action: 'notification.sent'   entity_type: 'claim'   entity_id: <claim id>
- *   metadata: { detector, vendorId, … the send-time snapshot }
+ *   metadata: { detector, vendorId, emailedSeats, … the send-time snapshot }
  *
- * Consequences worth stating, because they are easy to get wrong later:
+ * **When a ledger row is written** (one per due finding, per vendor or ops):
  *
- * - **Write only after a successful send.** A `failed` or `skipped` send leaves no
- *   row, so tomorrow's sweep retries it. Writing on attempt would silently consume
- *   the nudge — the failure mode nobody notices for a month.
- * - **`actor_type` is `'system'`** (the `audit_log_actor_type_check` value for a
- *   cron) and `actor_id` stays null, because it is an FK to `profiles` and no
- *   profile did this.
+ * | Seat outcomes for the vendor                                | Row? | Finding outcome |
+ * |-------------------------------------------------------------|------|-----------------|
+ * | at least one seat `sent`, `duplicate` or `unknown`          | yes  | `sent`          |
+ * | otherwise, and any seat `failed`                            | no   | `failed`        |
+ * | otherwise, no seat `skipped`, and at least one seat muted   |      |                 |
+ * |   or tier-suppressed                                        | yes  | `portal-only`   |
+ * | otherwise (no seat, no address, no key)                     | no   | `skipped`       |
+ *
+ * A muted seat chose not to get email, and the tier policy refuses on purpose. Both
+ * are final answers, so the finding is recorded and the vendor sees it in the
+ * portal. That holds when the other seats had no address, too: `['muted',
+ * 'no-address']` is `portal-only`, because no retry can email the muted seat and the
+ * seat with no address will not grow one by tomorrow (AECI-1197 review). A Resend
+ * failure or a missing key (`skipped`) is not an answer, even beside a muted seat: writing the row would consume the nudge
+ * silently for 30 days, so no row is written and tomorrow retries.
+ *
+ * `unknown` (AECI-1197 review) counts as emailed. The call timed out or threw after
+ * the request may have reached Resend, so the seat most likely got the digest. Its
+ * dedupe key stays held, so a same-day retry would be a `duplicate` anyway. Writing
+ * the row is the honest reading of "probably sent". Not writing it would re-list the
+ * finding tomorrow under a new day key, which is the double nudge the key exists to
+ * stop.
+ * `duplicate` counts as emailed because the digest key is held by an earlier send of
+ * today's digest. That is a same-day re-run, after a killed run or a manual re-trigger.
+ * A failed ledger flush is swallowed, not retried, so its findings are re-listed in
+ * tomorrow's digest under a new day key. The cost is a
+ * finding that first appeared in a same-day re-run: it is recorded as emailed though
+ * the earlier digest did not list it. The sweep runs once a day, so that window is a
+ * queue retry.
+ *
+ * Other rules, easy to get wrong later:
+ *
+ * - **`actor_type` is `'system'`** and `actor_id` stays null: it is an FK to
+ *   `profiles` and no profile did this.
  * - **`vendorId: null` means AECi ops**, so an ops row can never match a vendor
- *   caller's `GET /api/vendor/notifications` filter. That is the isolation, and it
- *   is structural rather than a `WHERE` clause someone must remember.
+ *   caller's `GET /api/vendor/notifications` filter.
+ * - **Nothing is recorded if the run aborts before sending.** Every read and the
+ *   lazy preference create happen before the first send, and they throw.
  *
  * ## Fail-open, everywhere
  *
  * `sendTransactionalEmail` never throws: no `RESEND_API_KEY` is `'skipped'`, a
- * Resend outage is `'failed'`. Neither aborts the sweep (§7 AC #4). Likewise a
- * missing `SUPABASE_SERVICE_ROLE_KEY` yields an empty email map, which is
- * `'skipped'` and *not* a ledger row — the nudge survives to be sent once the key
- * exists, instead of being marked delivered on a preview.
+ * Resend outage is `'failed'`. Neither aborts the sweep (§7 AC #4). A missing
+ * `SUPABASE_SERVICE_ROLE_KEY` yields no seat addresses, which is `skipped` with no
+ * ledger row, so the nudge survives to be sent once the key exists.
  *
- * Only genuinely unexpected throws (a D1 read failure) propagate, so the queue
- * consumer retries; that is safe because detection is pure and the ledger makes a
- * re-run idempotent for everything already delivered.
+ * Only genuinely unexpected throws (a D1 failure) propagate, so the queue consumer
+ * retries. That is safe: detection is pure, the ledger suppresses what was recorded,
+ * and the digest dedupe key stops a second send to a seat the same day.
  */
 
 import type { AttestationDetector, AuditLogEntry, NotificationProductRef } from '@aeci/shared';
-import { and, eq, gte } from 'drizzle-orm';
+import { and, eq, gte, inArray } from 'drizzle-orm';
 
 import { auditInsert, type BatchStmt, type BatchTuple } from './audit';
 import {
@@ -57,24 +96,30 @@ import {
 } from './attestation-notify-metrics';
 import {
   parseRecipients,
-  sendAttestationClaimDeniedEmail,
-  sendAttestationOpenConflictEmail,
-  sendAttestationOpsAlertEmail,
-  sendAttestationSilentCounterpartyEmail,
-  sendAttestationStaleVersionEmail,
+  sendAttestationDigestEmail,
+  sendAttestationOpsDigestEmail,
+  type AttestationDigestFinding,
+  type AttestationOpsDigestFinding,
   type EmailContext,
   type EmailOutcome,
 } from './email';
 import { VENDOR_ADMIN_ROLE } from './claimed-vendors';
+import { recipientHash } from './hash';
+import {
+  ensureNudgePreferences,
+  isNudgeMuted,
+  loadNudgePreferences,
+} from './notification-preferences';
 import { fetchAuthUserEmails } from './supabase-admin';
 import type { Db } from '../db/client';
-import { auditLog } from '../db/schema';
+import { auditLog, vendors } from '../db/schema';
+import type { AttestationNotificationId } from './notifications/registry';
 import { logBatchToPosthog, logToPosthog } from '../posthog';
 import type { Env } from '../env';
 
 const DAY_MS = 86_400_000;
 
-/** `audit_log.action` for a delivered notification — the §7.3 ledger key. Shared
+/** `audit_log.action` for a recorded notification — the §7.3 ledger key. Shared
  *  with `routes/vendor-notifications.ts`, which reads the same rows. */
 export const NOTIFICATION_SENT_ACTION = 'notification.sent';
 
@@ -82,29 +127,26 @@ export const NOTIFICATION_SENT_ACTION = 'notification.sent';
  *  unconstrained in the schema, so this needs no migration. */
 export const NOTIFICATION_ENTITY_TYPE = 'claim';
 
-/** How long a delivered notification suppresses the same (claim, detector,
- *  recipient) triple. The anti-nag control: a daily sweep must not re-send daily,
- *  so at most one nudge per claim per detector per month. Launch-tunable —
- *  `docs/POST_LAUNCH_MONITORING.md` §3. */
+/** How long a recorded finding suppresses the same (claim, detector, recipient)
+ *  triple. The anti-nag control: at most one listing per claim per detector per
+ *  month. Launch-tunable — `docs/POST_LAUNCH_MONITORING.md` §3. */
 export const NOTIFICATION_SUPPRESSION_DAYS = 30;
 
-/** Most notifications delivered per run. A backstop against a first-adoption
- *  spike, not a design limit: the next daily sweep continues the backlog, and the
- *  sweep logs the dropped count rather than truncating silently. */
+/** Most findings handled per run. A backstop against a first-adoption spike, not a
+ *  design limit: the next daily sweep continues the backlog, and the sweep logs the
+ *  dropped count rather than truncating silently. */
 export const NOTIFY_BATCH_CAP = 200;
 
-/** Ledger rows per `db.batch`. Chunked rather than one batch at the end so a batch
- *  failure costs at most this many suppressions (which would re-send tomorrow)
- *  instead of the whole run's. */
+/** Ledger rows per `db.batch`. Chunked so a batch failure costs at most this many
+ *  suppressions instead of the whole run's. */
 const LEDGER_CHUNK = 25;
 
-/** Vendor ids per seat lookup. D1 caps bound parameters per query, so an
- *  `inArray` over an unbounded id list is a latent failure once adoption grows. */
+/** Vendor ids per seat lookup. D1 caps bound parameters per query. */
 const SEAT_LOOKUP_CHUNK = 50;
 
 /**
  * Most-signal-first, so the {@link NOTIFY_BATCH_CAP} drops the least urgent work
- * if it ever bites — and so the cap is deterministic enough to test.
+ * if it ever bites, and so the digest lists the most urgent findings first.
  */
 const DETECTOR_PRIORITY: readonly AttestationDetector[] = [
   'open-conflict',
@@ -115,8 +157,8 @@ const DETECTOR_PRIORITY: readonly AttestationDetector[] = [
 
 // ─── Context + deps ──────────────────────────────────────────────────────────
 
-/** Same structural context the email + Datadog seams take, so the cron can build
- *  one from a synthetic `Request` (`scheduled.ts`'s `cronRequest`). */
+/** Same structural context the email seams take, so the cron can build one from a
+ *  synthetic `Request` (`scheduled.ts`'s `cronRequest`). */
 export type NotifyContext = EmailContext;
 
 export type FetchSeatEmails = (
@@ -125,12 +167,11 @@ export type FetchSeatEmails = (
 ) => Promise<Map<string, string>>;
 
 export interface NotifyDeps {
-  /** Deterministic clock for the threshold + suppression math. */
+  /** Deterministic clock for the threshold, suppression and digest-day math. */
   now?: Date;
   /** The privileged `auth.users` email seam. Injected so specs never touch it. */
   fetchSeatEmails?: FetchSeatEmails;
-  /** Detector pass. Injected so the sweep's own specs can drive synthetic findings
-   *  without seeding a full claim graph (the detectors have their own suite). */
+  /** Detector pass. Injected so the sweep's own specs can drive synthetic findings. */
   runDetectors?: typeof runAttestationDetectors;
   /** Metric sink. Absent → metrics are simply not emitted (local/preview). */
   metrics?: AttestationNotifyMetricSink;
@@ -144,9 +185,16 @@ export interface NotifyResult {
   suppressed: number;
   /** Findings dropped by {@link NOTIFY_BATCH_CAP} this run. */
   capped: number;
+  /** Findings emailed to at least one seat or ops address. */
   sent: number;
+  /** Findings recorded for the portal with no email, on purpose (muted, tier policy). */
+  portalOnly: number;
+  /** Findings with no delivery and at least one failed send. Not recorded. */
   failed: number;
+  /** Findings with no delivery that could not be attempted. Not recorded. */
   skipped: number;
+  /** Digest emails Resend accepted this run, vendor and ops together. */
+  digestsSent: number;
 }
 
 // ─── Ledger metadata ─────────────────────────────────────────────────────────
@@ -154,12 +202,13 @@ export interface NotifyResult {
 /**
  * What a ledger row records beyond §7.3's required `{ detector, vendorId }`.
  *
- * The extra keys are a deliberate extension: they are what make §7.2's "gives the
- * in-portal list its backing query for free" literally true. The list renders from
- * this snapshot with **zero joins**, and a year-old notification stays legible
- * after the claim it names has been re-curated or deleted.
+ * The snapshot is what makes the in-portal list a zero-join read, and keeps a
+ * year-old row legible after the claim it names has been re-curated or deleted.
  */
 export interface NotificationLedgerMetadata {
+  /** The registry entry of the digest that carries this finding (AECI-1199). Rows
+   *  written before AECI-1204 name the retired per-finding template. */
+  notificationId: AttestationNotificationId;
   detector: AttestationDetector;
   /** `null` = AECi ops. Never matches a vendor caller. */
   vendorId: string | null;
@@ -167,16 +216,26 @@ export interface NotificationLedgerMetadata {
   dataObject: NotificationProductRef;
   counterpartProduct: NotificationProductRef | null;
   pairSlugs: readonly [string, string];
+  /** AECI-1204: how many seats (or ops addresses) the day's digest reached. `0`
+   *  means recorded for the portal only. Absent on rows written before AECI-1204,
+   *  which were all emailed. */
+  emailedSeats: number;
 }
 
-function ledgerEntry(finding: DetectorFinding): AuditLogEntry {
+function ledgerEntry(
+  notification: AttestationNotificationId,
+  finding: DetectorFinding,
+  emailedSeats: number,
+): AuditLogEntry {
   const metadata: NotificationLedgerMetadata = {
+    notificationId: notification,
     detector: finding.detector,
     vendorId: finding.vendorId,
     integrationId: finding.integrationId,
     dataObject: finding.context.dataObject,
     counterpartProduct: finding.context.counterpartProduct,
     pairSlugs: finding.context.pairSlugs,
+    emailedSeats,
   };
   return {
     actorId: null,
@@ -195,12 +254,9 @@ function suppressionKey(claimId: string, detector: string, vendorId: string | nu
 }
 
 /**
- * Ledger rows inside the suppression window, as a key set.
- *
- * One query per sweep rather than one per finding — served by
- * `audit_log_action_idx (action, created_at)`, which is exactly this shape. The
- * `metadata` match happens in memory because it is unindexed JSON; the window
- * bounds how much there is to match against.
+ * Ledger rows inside the suppression window, as a key set. One query per sweep,
+ * served by `audit_log_action_idx (action, created_at)`. The `metadata` match
+ * happens in memory because it is unindexed JSON.
  */
 async function loadSuppressed(db: Db, windowStartIso: string): Promise<Set<string>> {
   const rows = await db
@@ -219,7 +275,7 @@ async function loadSuppressed(db: Db, windowStartIso: string): Promise<Set<strin
   return keys;
 }
 
-// ─── Recipients ──────────────────────────────────────────────────────────────
+// ─── Grouping + the delivery decision (pure, exported for the unit specs) ────
 
 function chunk<T>(items: readonly T[], size: number): T[][] {
   const out: T[][] = [];
@@ -227,128 +283,145 @@ function chunk<T>(items: readonly T[], size: number): T[][] {
   return out;
 }
 
+/** The digest's UTC day, `YYYY-MM-DD`. Part of every digest dedupe key. */
+export function digestDay(now: Date): string {
+  return now.toISOString().slice(0, 10);
+}
+
+/** `attestation-digest:{vendorId}:{profileId}:{YYYY-MM-DD}`. */
+export function vendorDigestKey(vendorId: string, profileId: string, day: string): string {
+  return `attestation-digest:${vendorId}:${profileId}:${day}`;
+}
+
+/** `attestation-ops-digest:{YYYY-MM-DD}:{recipient hash prefix}`. Per address,
+ *  because `ADMIN_ALERT_EMAIL` may list several and one key would make the second
+ *  a duplicate of the first. */
+export function opsDigestKey(day: string, addressHash: string): string {
+  return `attestation-ops-digest:${day}:${addressHash.slice(0, 16)}`;
+}
+
 /**
- * Email addresses per vendor for the seats we may nudge.
- *
- * **Banned seats are excluded** — unlike `seatsOf` in `routes/vendor.ts`, which
- * deliberately keeps them on the roster so co-admins can see a colleague is locked
- * out. A banned seat cannot act on a nudge (every `/api/vendor/*` call fails the
- * §4.2 ban check), so emailing it is noise at best.
- *
- * Degrades to an empty map without `SUPABASE_SERVICE_ROLE_KEY`: `profiles` holds
- * no email column, addresses live in Supabase `auth.users`, and local dev / PR
- * previews legitimately lack the key.
+ * Split findings into vendor groups (in first-seen order, which is priority order
+ * because the caller sorts first) and the ops list.
  */
-async function loadVendorSeatEmails(
+export function groupFindings(findings: readonly DetectorFinding[]): {
+  byVendor: Map<string, DetectorFinding[]>;
+  ops: DetectorFinding[];
+} {
+  const byVendor = new Map<string, DetectorFinding[]>();
+  const ops: DetectorFinding[] = [];
+  for (const f of findings) {
+    if (!f.vendorId) {
+      ops.push(f);
+      continue;
+    }
+    const list = byVendor.get(f.vendorId);
+    if (list) list.push(f);
+    else byVendor.set(f.vendorId, [f]);
+  }
+  return { byVendor, ops };
+}
+
+/** What happened at one seat (or ops address): an email outcome, or a reason no
+ *  email was attempted. */
+export type SeatOutcome = EmailOutcome | 'muted' | 'no-address';
+
+/**
+ * The delivery decision for one recipient group (a vendor's seats, or the ops
+ * addresses). See the table in the module header.
+ */
+export function decideDelivery(seats: readonly SeatOutcome[]): {
+  outcome: Exclude<NotifyOutcome, 'suppressed'>;
+  record: boolean;
+  emailedSeats: number;
+} {
+  const emailedSeats = seats.filter(
+    (s) => s === 'sent' || s === 'duplicate' || s === 'unknown',
+  ).length;
+  if (emailedSeats > 0) return { outcome: 'sent', record: true, emailedSeats };
+  if (seats.includes('failed')) return { outcome: 'failed', record: false, emailedSeats: 0 };
+  // `skipped` (no Resend key or sender) is a config gap that a retry can close, so it
+  // blocks the portal-only answer exactly as `failed` does. `no-address` does not.
+  if (!seats.includes('skipped') && seats.some((s) => s === 'muted' || s === 'suppressed')) {
+    return { outcome: 'portal-only', record: true, emailedSeats: 0 };
+  }
+  return { outcome: 'skipped', record: false, emailedSeats: 0 };
+}
+
+// ─── Recipients ──────────────────────────────────────────────────────────────
+
+/**
+ * The seats we may nudge, per vendor, as profile ids.
+ *
+ * **Banned seats are excluded**, unlike `seatsOf` in `routes/vendor.ts`, which keeps
+ * them on the roster so co-admins can see a colleague is locked out. A banned seat
+ * cannot act on a nudge (every `/api/vendor/*` call fails the §4.2 ban check).
+ */
+async function loadVendorSeats(
   db: Db,
-  env: Env,
   vendorIds: readonly string[],
-  fetchSeatEmails: FetchSeatEmails,
 ): Promise<Map<string, string[]>> {
-  const unique = [...new Set(vendorIds)];
-  if (unique.length === 0) return new Map();
-
-  const seats: Array<{ id: string; vendorId: string | null }> = [];
-  for (const batch of chunk(unique, SEAT_LOOKUP_CHUNK)) {
-    seats.push(
-      ...(await db.query.profiles.findMany({
-        columns: { id: true, vendorId: true },
-        where: (p, { and: andOp, eq: eqOp, inArray: inArrayOp, isNull: isNullOp }) =>
-          andOp(
-            inArrayOp(p.vendorId, batch),
-            eqOp(p.role, VENDOR_ADMIN_ROLE),
-            isNullOp(p.bannedAt),
-          ),
-      })),
-    );
-  }
-  if (seats.length === 0) return new Map();
-
-  const emails = await fetchSeatEmails(
-    env,
-    seats.map((s) => s.id),
-  );
-
   const byVendor = new Map<string, string[]>();
-  for (const seat of seats) {
-    const address = emails.get(seat.id);
-    if (!seat.vendorId || !address) continue;
-    const list = byVendor.get(seat.vendorId);
-    if (list) list.push(address);
-    else byVendor.set(seat.vendorId, [address]);
+  for (const batch of chunk([...new Set(vendorIds)], SEAT_LOOKUP_CHUNK)) {
+    const seats = await db.query.profiles.findMany({
+      columns: { id: true, vendorId: true },
+      where: (p, { and: andOp, eq: eqOp, inArray: inArrayOp, isNull: isNullOp }) =>
+        andOp(inArrayOp(p.vendorId, batch), eqOp(p.role, VENDOR_ADMIN_ROLE), isNullOp(p.bannedAt)),
+    });
+    for (const seat of seats) {
+      if (!seat.vendorId) continue;
+      const list = byVendor.get(seat.vendorId);
+      if (list) list.push(seat.id);
+      else byVendor.set(seat.vendorId, [seat.id]);
+    }
   }
+  // A stable seat order, so the send order (and a spec reading it) is deterministic.
+  for (const list of byVendor.values()) list.sort();
   return byVendor;
 }
 
-// ─── Sending ─────────────────────────────────────────────────────────────────
-
-function sendForFinding(
-  c: NotifyContext,
-  finding: DetectorFinding,
-  to: string,
-): Promise<EmailOutcome> {
-  const shared = {
-    to,
-    dataObject: finding.context.dataObject.name,
-    product: finding.context.subjectProduct.name,
-    counterpart: finding.context.counterpartProduct.name,
-    mechanismName: finding.context.mechanismName,
-    pairSlugs: finding.context.pairSlugs,
-  };
-  switch (finding.detector) {
-    case 'silent-counterparty':
-      return sendAttestationSilentCounterpartyEmail(c, shared);
-    case 'open-conflict':
-      return sendAttestationOpenConflictEmail(c, shared);
-    case 'stale-version':
-      return sendAttestationStaleVersionEmail(c, shared);
-    case 'claim-denied':
-      // Reachable with a real vendor since AECI-961: `claim-denied` emits an ops
-      // finding AND a counterparty finding, and the call site routes on
-      // `finding.vendorId`, so an ops row never lands here.
-      return sendAttestationClaimDeniedEmail(c, shared);
+async function loadVendorNames(db: Db, vendorIds: readonly string[]): Promise<Map<string, string>> {
+  const names = new Map<string, string>();
+  for (const batch of chunk([...new Set(vendorIds)], SEAT_LOOKUP_CHUNK)) {
+    const rows = await db
+      .select({ id: vendors.id, name: vendors.companyName })
+      .from(vendors)
+      .where(inArray(vendors.id, batch));
+    for (const row of rows) names.set(row.id, row.name);
   }
+  return names;
 }
 
-function sendOpsForFinding(
-  c: NotifyContext,
-  finding: DetectorFinding,
-  to: string,
-): Promise<EmailOutcome> {
-  return sendAttestationOpsAlertEmail(c, {
-    to,
-    detector: finding.detector === 'claim-denied' ? 'claim-denied' : 'open-conflict',
-    dataObject: finding.context.dataObject.name,
-    productA: finding.context.subjectProduct.name,
-    productB: finding.context.counterpartProduct.name,
-    mechanismName: finding.context.mechanismName,
-    claimId: finding.claimId,
-    integrationId: finding.integrationId,
-    pairSlugs: finding.context.pairSlugs,
-  });
+function digestFinding(f: DetectorFinding): AttestationDigestFinding {
+  return {
+    detector: f.detector,
+    dataObject: f.context.dataObject.name,
+    product: f.context.subjectProduct.name,
+    counterpart: f.context.counterpartProduct.name,
+    mechanismName: f.context.mechanismName,
+    pairSlugs: f.context.pairSlugs,
+  };
 }
 
-/**
- * Collapse the per-address outcomes for one finding into the one that decides
- * whether a ledger row is written.
- *
- * `sent` if **any** address was delivered: the notification reached the vendor, so
- * suppressing the next 30 days is right even if a second seat's address bounced.
- * Otherwise `failed` beats `skipped`, because a failure is the more actionable
- * signal on the dashboard.
- */
-function collapseOutcomes(outcomes: readonly EmailOutcome[]): NotifyOutcome {
-  if (outcomes.includes('sent')) return 'sent';
-  if (outcomes.includes('failed')) return 'failed';
-  return 'skipped';
+function opsDigestFinding(f: DetectorFinding): AttestationOpsDigestFinding {
+  return {
+    detector: f.detector === 'claim-denied' ? 'claim-denied' : 'open-conflict',
+    dataObject: f.context.dataObject.name,
+    productA: f.context.subjectProduct.name,
+    productB: f.context.counterpartProduct.name,
+    mechanismName: f.context.mechanismName,
+    claimId: f.claimId,
+    integrationId: f.integrationId,
+    pairSlugs: f.context.pairSlugs,
+  };
 }
 
 // ─── The sweep ───────────────────────────────────────────────────────────────
 
 /**
- * Run one notification pass: detect, suppress, send, record.
+ * Run one notification pass: detect, suppress, group, send digests, record.
  *
- * Returns counts for the caller to log; metrics go through the injected sink so
+ * Returns counts for the caller to log. Metrics go through the injected sink so
  * this module stays free of `ctx`/`env` plumbing.
  */
 export async function runAttestationNotifySweep(
@@ -370,24 +443,26 @@ export async function runAttestationNotifySweep(
     suppressed: 0,
     capped: 0,
     sent: 0,
+    portalOnly: 0,
     failed: 0,
     skipped: 0,
+    digestsSent: 0,
   };
   if (found.length === 0) return result;
 
-  // Suppression first, then the cap — a suppressed backlog must not starve the
-  // findings that actually need sending.
+  // Suppression first, then the cap, so a suppressed backlog cannot starve the
+  // findings that are actually due.
   const windowStartIso = new Date(
     now.getTime() - NOTIFICATION_SUPPRESSION_DAYS * DAY_MS,
   ).toISOString();
   const suppressed = await loadSuppressed(db, windowStartIso);
-  const fresh = found.filter((f) => {
+  const due = found.filter((f) => {
     if (!suppressed.has(suppressionKey(f.claimId, f.detector, f.vendorId))) return true;
     result.suppressed++;
     return false;
   });
 
-  const ordered = [...fresh].sort(
+  const ordered = [...due].sort(
     (a, b) =>
       DETECTOR_PRIORITY.indexOf(a.detector) - DETECTOR_PRIORITY.indexOf(b.detector) ||
       a.claimId.localeCompare(b.claimId) ||
@@ -396,8 +471,6 @@ export async function runAttestationNotifySweep(
   const batch = ordered.slice(0, NOTIFY_BATCH_CAP);
   result.capped = ordered.length - batch.length;
   if (result.capped > 0) {
-    // Never truncate silently — an operator reading the dashboard must be able to
-    // tell "nothing to send" from "we stopped early".
     logToPosthog(c.executionCtx, c.env, c.req.raw, {
       level: 'warn',
       message: `aeci.attestation.notify.capped dropped=${result.capped} cap=${NOTIFY_BATCH_CAP}`,
@@ -406,56 +479,128 @@ export async function runAttestationNotifySweep(
     });
   }
 
-  const opsRecipients = parseRecipients(c.env.ADMIN_ALERT_EMAIL);
-  const vendorEmails = await loadVendorSeatEmails(
+  const { byVendor, ops } = groupFindings(batch);
+  const day = digestDay(now);
+
+  // ── Every read, and the lazy token create, BEFORE the first send. A throw here
+  //    aborts the run with nothing sent and nothing recorded.
+  const vendorIds = [...byVendor.keys()];
+  const seatsByVendor = await loadVendorSeats(db, vendorIds);
+  const vendorNames = await loadVendorNames(db, vendorIds);
+  const allSeats = [...seatsByVendor.values()].flat();
+  const existing = await loadNudgePreferences(db, allSeats);
+  const unmuted = allSeats.filter((id) => !isNudgeMuted(existing.get(id)));
+  const emails = unmuted.length > 0 ? await fetchSeatEmails(c.env, unmuted) : new Map();
+  const { prefs, created } = await ensureNudgePreferences(
     db,
-    c.env,
-    batch.flatMap((f) => (f.vendorId ? [f.vendorId] : [])),
-    fetchSeatEmails,
+    unmuted.filter((id) => emails.has(id)),
+    'attestation-digest',
   );
+  forwardEntries(c, created, 'attestation-notify-cron');
+  for (const [id, pref] of existing) if (!prefs.has(id)) prefs.set(id, pref);
 
   const outcomes: Array<{ detector: AttestationDetector; outcome: NotifyOutcome }> = [];
   const pendingLedger: BatchStmt[] = [];
   const pendingForward: AuditLogEntry[] = [];
 
-  for (const finding of batch) {
-    const addresses = finding.vendorId ? (vendorEmails.get(finding.vendorId) ?? []) : opsRecipients;
+  const record = async (
+    findings: readonly DetectorFinding[],
+    notification: AttestationNotificationId,
+    seatOutcomes: readonly SeatOutcome[],
+  ): Promise<void> => {
+    const decision = decideDelivery(seatOutcomes);
+    result.digestsSent += seatOutcomes.filter((s) => s === 'sent').length;
+    for (const finding of findings) {
+      outcomes.push({ detector: finding.detector, outcome: decision.outcome });
+      if (decision.outcome === 'portal-only') result.portalOnly++;
+      else result[decision.outcome]++;
+      if (!decision.record) continue;
+      const entry = ledgerEntry(notification, finding, decision.emailedSeats);
+      pendingLedger.push(auditInsert(db, entry));
+      pendingForward.push(entry);
+      if (pendingLedger.length >= LEDGER_CHUNK) {
+        await flushLedger(c, db, pendingLedger.splice(0), pendingForward.splice(0));
+      }
+    }
+  };
 
-    // No resolvable address is `skipped`, NOT a silent success — no ledger row, so
-    // tomorrow's sweep tries again once the key / recipient exists.
-    const sends: EmailOutcome[] = [];
-    for (const to of addresses) {
-      sends.push(
-        finding.vendorId
-          ? await sendForFinding(c, finding, to)
-          : await sendOpsForFinding(c, finding, to),
+  // ── Vendor digests: one per seat. Sends are sequential, one connection at a time.
+  for (const [vendorId, findings] of byVendor) {
+    const digest = findings.map(digestFinding);
+    const seatOutcomes: SeatOutcome[] = [];
+    for (const profileId of seatsByVendor.get(vendorId) ?? []) {
+      const pref = prefs.get(profileId);
+      if (isNudgeMuted(pref)) {
+        seatOutcomes.push('muted');
+        continue;
+      }
+      const to = emails.get(profileId);
+      if (!to) {
+        seatOutcomes.push('no-address');
+        continue;
+      }
+      seatOutcomes.push(
+        await sendAttestationDigestEmail(c, {
+          to,
+          vendorId,
+          vendorName: vendorNames.get(vendorId) ?? null,
+          findings: digest,
+          muteToken: pref?.muteToken ?? null,
+          dedupeKey: vendorDigestKey(vendorId, profileId, day),
+        }),
       );
     }
-    const outcome = collapseOutcomes(sends);
-    outcomes.push({ detector: finding.detector, outcome });
-    result[outcome === 'sent' ? 'sent' : outcome === 'failed' ? 'failed' : 'skipped']++;
-
-    if (outcome !== 'sent') continue;
-    const entry = ledgerEntry(finding);
-    pendingLedger.push(auditInsert(db, entry));
-    pendingForward.push(entry);
-    if (pendingLedger.length >= LEDGER_CHUNK) {
-      await flushLedger(c, db, pendingLedger.splice(0), pendingForward.splice(0));
-    }
+    await record(findings, 'attestation-digest', seatOutcomes);
   }
+
+  // ── The ops digest: one per ADMIN_ALERT_EMAIL address.
+  if (ops.length > 0) {
+    const opsFindings = ops.map(opsDigestFinding);
+    const seatOutcomes: SeatOutcome[] = [];
+    for (const to of parseRecipients(c.env.ADMIN_ALERT_EMAIL)) {
+      seatOutcomes.push(
+        await sendAttestationOpsDigestEmail(c, {
+          to,
+          findings: opsFindings,
+          dedupeKey: opsDigestKey(day, await recipientHash(to)),
+        }),
+      );
+    }
+    await record(ops, 'attestation-ops-digest', seatOutcomes);
+  }
+
   await flushLedger(c, db, pendingLedger, pendingForward);
 
   if (deps.metrics) emitNotifyOutcomeMetrics(deps.metrics, outcomes);
   return result;
 }
 
+/** Forward audit entries post-commit, in ONE batched request (AECI-666): one
+ *  request per entry opened 2N connections and lost the forwards silently. */
+function forwardEntries(c: NotifyContext, entries: readonly AuditLogEntry[], source: string): void {
+  if (entries.length === 0) return;
+  logBatchToPosthog(
+    c.executionCtx,
+    c.env,
+    c.req.raw,
+    entries.map((entry) => ({
+      level: 'info' as const,
+      message: `audit ${entry.action} ${entry.entityId ?? ''}`.trim(),
+      action: entry.action,
+      entity_type: entry.entityType ?? undefined,
+      entity_id: entry.entityId ?? undefined,
+      source,
+    })),
+  );
+}
+
 /**
  * Commit one chunk of ledger rows, then forward them post-commit (§26.5).
  *
- * A batch failure is logged and swallowed rather than thrown: the emails in this
- * chunk are already delivered, and losing the sweep to a D1 hiccup would re-send
- * everything after it. The cost of the swallow is a duplicate nudge in 24 hours,
- * which is strictly better than aborting mid-run.
+ * A batch failure is logged and swallowed rather than thrown: the digests are
+ * already delivered, and losing the sweep to a D1 hiccup would abandon the rest.
+ * The findings in a lost chunk are due again tomorrow. Their seats' digest keys
+ * for today are held, so a same-day queue retry sends no second email.
  */
 async function flushLedger(
   c: NotifyContext,
@@ -476,30 +621,5 @@ async function flushLedger(
     });
     return;
   }
-  // ONE request per vendor for the whole chunk, not one per entry (AECI-666).
-  // This was `Promise.all(entries.map(forwardAuditLog))`, and because the §3.1
-  // dual-run fires both legs from the same call site a `LEDGER_CHUNK`-sized
-  // flush opened 2N simultaneous connections from a single cron invocation.
-  // Past the per-invocation limit the runtime cancels the stalled responses into
-  // `fetch` promises that never settle, so the forwards vanish with no error and
-  // the invocation is eventually killed as hung — taking the rest of the sweep
-  // with it.
-  //
-  // The old `DD_API_KEY` gate is gone with it, and that fixes a second defect:
-  // it gated BOTH legs on the Datadog key, so on a tier with no Datadog key
-  // (which is every tier after PH-final, AECI-651) this forwarded nothing at
-  // all. `logBatchToPosthog` self-gates per leg.
-  logBatchToPosthog(
-    c.executionCtx,
-    c.env,
-    c.req.raw,
-    entries.map((entry) => ({
-      level: 'info' as const,
-      message: `audit ${entry.action} ${entry.entityId ?? ''}`.trim(),
-      action: entry.action,
-      entity_type: entry.entityType ?? undefined,
-      entity_id: entry.entityId ?? undefined,
-      source: 'attestation-notify-cron',
-    })),
-  );
+  forwardEntries(c, entries, 'attestation-notify-cron');
 }

@@ -90,7 +90,7 @@ export function createDecideContestProtestHandler(
         metadata,
       },
       // Both sides hear the outcome. A deleted owner (`owner_vendor_id` NULL) is skipped.
-      ...(await protestNotifications(db, row, actor, event, [
+      ...(await protestNotifications('portal-contest-protest-decided', db, row, actor, event, [
         {
           vendorId: row.submitterVendorId,
           extra: { recipientRole: 'submitter', ...(cooldownUntil ? { cooldownUntil } : {}) },

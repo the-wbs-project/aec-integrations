@@ -1372,6 +1372,7 @@ export function createVendorClaimHandler(
     // about a row that never existed. No note: it is private (§5.2).
     const notificationAudits = added.recipients.map((recipient) =>
       claimAddedNotificationAudit(
+        'portal-claim-added',
         { actorId: session.userId, actorType: auditActorType(session) },
         {
           vendorId: recipient,

@@ -238,7 +238,7 @@ export function createCreateVendorIntegrationHandler(
         },
       },
       ...recipients.map((recipient) =>
-        createNotificationAudit(actor, {
+        createNotificationAudit('portal-integration-create', actor, {
           vendorId: recipient,
           integrationId: id,
           integrationName: values.name ?? null,

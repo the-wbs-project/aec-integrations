@@ -389,11 +389,13 @@ export class ReviewQueue {
     this.liveMessage.set(announcement);
   }
 
-  /** A 422 means the row is no longer pending (raced by another admin): drop it
-   *  without decrementing (the count resyncs on the next full visit). Anything
-   *  else is a retryable failure surfaced inline on the row. */
+  /** The row is no longer pending, so drop it without decrementing (the count
+   *  resyncs on the next full visit). A 422 means it was already decided when we
+   *  read it. A `409 REVIEW_ALREADY_MODERATED` means another admin's decision
+   *  landed first while ours was in flight, and ours wrote nothing (AECI-1203).
+   *  Anything else is a retryable failure surfaced inline on the row. */
   private onModerateError(id: string, err: unknown): void {
-    if (err instanceof HttpErrorResponse && err.status === 422) {
+    if (isAlreadyModerated(err)) {
       this.removeRow(id);
       this.rejectingId.set(null);
       this.failedAction.set(null);
@@ -485,4 +487,12 @@ function byReviewerNullsLast(a: AdminReview, b: AdminReview): number {
   if (ea === null) return 1;
   if (eb === null) return -1;
   return compareText(ea, eb) || byCreatedAtAsc(a, b);
+}
+
+/** A 422, or the `409 REVIEW_ALREADY_MODERATED` a lost moderation race answers. */
+function isAlreadyModerated(err: unknown): boolean {
+  if (!(err instanceof HttpErrorResponse)) return false;
+  if (err.status === 422) return true;
+  const inner = (err.error as { error?: { code?: unknown } } | null | undefined)?.error;
+  return err.status === 409 && inner?.code === 'REVIEW_ALREADY_MODERATED';
 }

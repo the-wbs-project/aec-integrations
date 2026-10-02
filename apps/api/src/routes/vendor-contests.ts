@@ -99,6 +99,7 @@ import {
   type BatchTuple,
 } from '../lib/audit';
 import { auditActorType } from '../lib/authz';
+import { emailOwnerDecline, type ProtestEmailDeps } from '../lib/contest-protest-emails';
 import { sendContestSubmittedNotification, type ContestAlertRouteReason } from '../lib/email';
 import { validateResponseInDev, writeDb, type DbFactory } from '../lib/handler-utils';
 import {
@@ -139,6 +140,7 @@ import {
   contestStillOpenSentinel,
   isContestRaceError,
 } from '../lib/integration-contests';
+import type { ContestPortalNotificationId } from '../lib/notifications/registry';
 import { isConnectorPoweredEdge } from '../lib/connector-powered';
 import { isClaimed } from '../lib/integration-claims';
 import { requireActiveEntitlement } from '../lib/integration-entitlement';
@@ -767,6 +769,7 @@ async function planSubmit(
   if (routedTo === 'owner' && ownerVendorId) {
     audits.push(
       contestNotificationAudit(
+        'portal-contest-submitted',
         { actorId: session.userId, actorType: auditActorType(session) },
         {
           vendorId: ownerVendorId,
@@ -951,7 +954,7 @@ export function createWithdrawContestHandler(
         metadata,
       },
     ];
-    const notify = await notificationFor(db, row, session, 'withdrawn');
+    const notify = await notificationFor('portal-contest-withdrawn', db, row, session, 'withdrawn');
     if (notify) audits.push(notify);
     const workflow = closeWorkflow(
       db,
@@ -985,6 +988,7 @@ export function createWithdrawContestHandler(
  * vendor decider to tell). `accepted` / `declined` always go to the submitter.
  */
 export async function notificationFor(
+  notification: ContestPortalNotificationId,
   db: Db,
   row: ContestRow,
   actor: { userId: string; role: string },
@@ -1004,6 +1008,7 @@ export async function notificationFor(
     ? await endpointSlugs(db, integration.sourceProductId, integration.targetProductId)
     : null;
   return contestNotificationAudit(
+    notification,
     { actorId: actor.userId, actorType: auditActorType(actor) },
     {
       vendorId: recipient,
@@ -1023,6 +1028,7 @@ export async function notificationFor(
 
 export function createDecideContestHandler(
   dbFor: DbFactory = getDb,
+  emailDeps: ProtestEmailDeps = {},
 ): (c: VendorContext) => Promise<Response> {
   return async (c) => {
     const session = c.get('auth');
@@ -1190,14 +1196,15 @@ export function createDecideContestHandler(
     // AECI-1009: an OWNER decline can be protested to AECi for 30 days, and the
     // notification says until when. This is the owner's decision route, so it is
     // always an owner decision; an AECi decline never carries the date.
+    const protestClosesAt =
+      status === 'declined' ? addContestDays(now, CONTEST_PROTEST_FILING_DAYS) : null;
     const notify = await notificationFor(
+      'portal-contest-decided-by-owner',
       db,
       row,
       session,
       status,
-      status === 'declined'
-        ? { protestClosesAt: addContestDays(now, CONTEST_PROTEST_FILING_DAYS) }
-        : {},
+      protestClosesAt ? { protestClosesAt } : {},
     );
     if (notify) audits.push(notify);
     const workflow = closeWorkflow(
@@ -1232,6 +1239,13 @@ export function createDecideContestHandler(
         ? attestationEditRecrawl(base, pairSlugs[0], pairSlugs[1])
         : undefined;
     afterVendorWrite(c, tags, audits, recrawl, db);
+    // AECI-1205 (§11b.12.10): the submitter's seats get the 30-day protest window by
+    // email too. After the commit, so a lost race sends nothing.
+    if (protestClosesAt) {
+      c.executionCtx.waitUntil(
+        emailOwnerDecline(c, db, row, { decisionNote: note, protestClosesAt }, emailDeps),
+      );
+    }
     return echo(c, db, vendorId, after);
   };
 }

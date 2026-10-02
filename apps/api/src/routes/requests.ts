@@ -256,6 +256,7 @@ async function createRequest(
   // nothing — both already ran off-request — and buys the operator a working link.
   // One `waitUntil`, so the two together stay inside a single extension window.
   const linearDone = createLinearIssueForRequest(c, drizzleLinearStore(db), {
+    notification: 'linear-request-issue',
     requestId,
     workflowId,
     kind,
@@ -283,10 +284,17 @@ async function createRequest(
   // `CLAIM_ALERT_EMAIL`/`RESEND_API_KEY` → `'skipped'`), so it can never delay or
   // fail the 201. The claimant still gets no submit-time mail by design; their only
   // mail is the decision pair from `PATCH /api/admin/claims/:id`.
+  //
+  // The §6.7 sweep re-sends this alert under the same key when its retry creates the
+  // issue (AECI-1203). The ledger makes that send a `duplicate` unless Resend refused
+  // this one. The stuck-request alert covers a create that never succeeds. The key makes a
+  // replayed `waitUntil` a ledger `duplicate`, not a second email.
   c.executionCtx.waitUntil(
     linearDone.then((outcome) => {
       if (!NOTIFIED_REQUEST_KINDS.has(kind)) return;
       return sendClaimSubmittedNotification(c, {
+        dedupeKey: `claim-submitted-alert:${requestId}`,
+        entity: { type: 'vendor_request', id: requestId },
         requestId,
         targetName,
         targetType: insert.targetType,
@@ -307,7 +315,8 @@ async function createRequest(
     message:
       kind === 'claim'
         ? 'Your claim has been received. We will review it and follow up by email.'
-        : 'Your correction has been received. We will review it and follow up by email.',
+        : // AECI-1205: no correction email exists, so this no longer promises one.
+          'Your correction has been received. We will review it and update the listing if it needs a change.',
   };
   return json(body, { status: 201 });
 }

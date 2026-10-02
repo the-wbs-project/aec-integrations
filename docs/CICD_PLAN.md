@@ -548,10 +548,54 @@ Stored in GitHub Settings → Secrets and Variables → Actions. Scoped per envi
 | `RESEND_API_KEY` | Resend key for transactional email (AECI-240, §11.1). **Single shared, un-suffixed key** — one Resend account/key spans every env (like `SUPABASE_ANON_KEY`); pushed to the API Worker as `RESEND_API_KEY` by `deploy.yml` (staging), `promote-to-demo.yml` (demo), and `promote-to-prod.yml` (production). **Optional + fail-open on every env** (warn-and-skip): a missing key makes every send a silent `'skipped'` and the triggering action still succeeds. Pairs with the `EMAIL_FROM` var (sender). See `docs/email.md`. | staging, demo, production |
 | `LINEAR_API_KEY` | Linear personal API key for the form→Linear pipeline (AECI-211, §6.4); pushed to the API Worker as `LINEAR_API_KEY` by `promote-to-prod.yml` **only** (AECI-851). **Single shared, un-suffixed key.** **REQUIRED + fail-closed on production** — the one runtime-fail-open key that still blocks a promote, because the absent-key path emits **no metric and no log**: `createLinearIssueForRequest()` returns before its first emission, so a vendor claim routes to nobody and the only signal is the 60-minute reconciliation-sweep email. Preflighted in `REQUIRED_SECRETS`, then re-asserted on the live Worker in `REQUIRED_WORKER_SECRETS`. **Production only, deliberately** — the board constants in `apps/api/src/lib/linear.ts` are hardcoded to the one live "Vendor Requests" project, so a staging/demo/preview Worker files fixture claims as real issues (`AECI-638` "Claim: Fixture Procore" is what that looks like). `apps/api/src/linear-secrets-ci.spec.ts` asserts both halves. ⚠️ **This row previously read `LINEAR_API_TOKEN` / "All", a name that exists nowhere in the code** — which is part of why prod ran with no key from the 2026-07 apex cutover to 2026-09-10. | production |
 | `LINEAR_WEBHOOK_SIGNING_SECRET` | HMAC-SHA256 signing secret for the inbound Linear webhook (AECI-212, §6.5, `POST /api/webhooks/linear`); pushed to the API Worker by `promote-to-prod.yml` **only** (AECI-851). **Single shared, un-suffixed.** **Recommended + warn-and-skip**, the opposite call from the row above: this one **fails closed** (every delivery rejected 401 before any write) and emits `aeci.webhooks.linear.hmac_failure`, which has its own alert — so its absence is loud, not silent. A prod webhook may not be registered in Linear at all, in which case the secret is moot and must not block a promote. Previously named `LINEAR_WEBHOOK_SECRET` here, which matches nothing in the code. | production |
+| `LINEAR_DOCS_MIRROR_API_KEY` | Linear API key for [`mirror-notifications-doc.yml`](../.github/workflows/mirror-notifications-doc.yml) (AECI-1201, §11b). It overwrites one Linear Document with `docs/NOTIFICATIONS.md` through the GraphQL `documentUpdate` mutation, sent as a bare `Authorization` header. **CI-only, never pushed to a Worker.** **Separate from `LINEAR_API_KEY` above** so the production Worker's key and this one rotate and revoke independently. **Owner: chrisw@thewbsproject.com.** **Do not use a personal API key.** A personal key acts as Chris with every team he can see, and it dies or changes owner when his account does. Use a non-human identity limited to the AECi team instead, as in setup step 3 below. Scope: the narrowest Linear offers that can still update a document. Read access alone is not enough. Record the identity and scope chosen here when the key is created. **Required + fail-closed:** absent, the mirror exits 2 and the run goes red. It never blocks a merge, because the workflow runs only after one. | CI (mirror-notifications-doc.yml) |
 | `ANTHROPIC_API_KEY_STAGING` / `_PRODUCTION` | Anthropic key for review toxicity scoring (Claude Haiku, AECI-258); pushed to the API Worker as `ANTHROPIC_API_KEY`. **Optional + fail-open on every env** (prod included — warn-and-skip, NOT fail-closed): a missing key stores `toxicity_score=null` and the review still enters the moderation queue. Previews reuse the `_STAGING` value. Supersedes the sunsetting `PERSPECTIVE_API_KEY`. **GDPR:** confirm zero-data-retention (ZDR) is enabled on the Anthropic org before provisioning a real key — the Messages API has no per-request no-store control, so otherwise scored review bodies are retained ~30 days outside the §8 erasure boundary. | staging, production |
 | `BRANDFETCH_CLIENT_ID` | Logo CDN | All |
 | ~~`AIRTABLE_TOKEN`~~ | **RETIRED 2026-09-08 (AECI-796). Do not mint this PAT.** It was a read-only Airtable PAT for the curation base `appy81IdGJY6Fngf9`, consumed only by [`promote-strand-audit.yml`](../.github/workflows/promote-strand-audit.yml). It was **never provisioned**, and the workflow skipped green without it, so all 25 scheduled runs between 2026-08-13 and 2026-09-06 reported success having audited nothing. The secret was also not the fix: the review app moved off Airtable onto its own D1, so the base is decommissioned and there is nothing to authenticate against. The reading script was deleted; the successor transport is `AECI_MCP_TOKEN` below. | — (retired) |
 | `AECI_MCP_TOKEN` | **Single shared** bearer for the review app's MCP endpoint (`https://review.aecintegrations.com/mcp`) — the same credential `.mcp.json` uses for the `aeci-review` server, and the successor to `AIRTABLE_TOKEN` above. Consumed by [`promote-strand-audit.yml`](../.github/workflows/promote-strand-audit.yml) (§11a) to read the curation catalog, and by the operator-run retraction consumer `scripts/ops/2026-09-retraction-consumer/consume.mjs` (AECI-882). **Never pushed to a Worker** — no runtime code in this repo talks to the review app; both consumers are ops scripts, which is why the retraction consumer lives under `scripts/ops/` rather than becoming a `pnpm ops:*` CLI in `apps/api`. **No longer read-only on our side, and the difference is deliberate:** the audit's client refuses every tool outside a read-only allow-list, while the consumer's client carries **two** allow-lists behind two separate methods — `callTool` serves reads (`list_retractions`) and `callWriteTool` serves exactly one write (`confirm_retractions`). A typo on the read path cannot reach the write, and neither path can reach `promote_product` or the `create_*`/`update_*` family. The write itself is gated again in the caller: it is reachable only from a function that requires proof the D1 rows were deleted and verified first. **The consumer's `--ruling` mode (AECI-916) never reaches the write at all**, so the token is read-only for the whole of such a run — it still needs the read, because the feed is queried to prove it is empty before a ruling cohort is allowed to touch anything. **Required + fail-closed:** absent → the job exits 2 and goes red, deliberately. An unchecked audit is not a pass — that distinction is the whole point of AECI-796. | CI (promote-strand-audit.yml) |
+
+**Repository variables.** Stored in GitHub Settings → Secrets and Variables → Actions → Variables. These are not secret. Workflows read them as `vars.NAME`.
+
+| Variable | Purpose | Read by |
+|---|---|---|
+| `STAGING_ENABLED` | Gates the `deploy-staging` job. `true` since 2026-05-28 (§3.2). Any other value stops staging deploys on merge. | `deploy.yml` |
+| `PREVIEW_URL` | Base URL for the preview-URL E2E and edge-cache runner jobs. Both jobs are parked (`if: false`), so nothing reads it today. | `deploy.yml` |
+| `POSTHOG_PROJECT_ID_NONPROD` | PostHog non-prod project id for source maps and deploy markers. Optional: the workflows fall back to `525793`. | `deploy.yml`, `pr-preview.yml`, `promote-to-demo.yml` |
+| `POSTHOG_PROJECT_ID_PROD` | PostHog prod project id for source maps, deploy markers and the liveness sweep. Optional: the workflows fall back to `354071`. | `promote-to-prod.yml`, `posthog-liveness-sweep.yml` |
+| `LINEAR_NOTIFICATIONS_DOC_ID` | The id of the one Linear Document that `docs/NOTIFICATIONS.md` is mirrored into (AECI-1201, §11b). While it is unset, a push to `main` skips the mirror job cleanly (the job's `if:` guard, on hold since 2026-10-02 until the Linear Document exists). A `workflow_dispatch` always runs, and with it unset the mirror exits 2 and the run goes red. | `mirror-notifications-doc.yml` |
+
+**Setting up the notifications mirror (AECI-1201).** This is a one-time operator task. Until it is done, every merge that changes `docs/NOTIFICATIONS.md` turns the mirror run red. It does not block merges.
+
+1. In Linear, create a Document in the AECi team. Title it "Notifications". Leave it empty. The first mirror run fills it.
+2. Copy the document id from its URL. The URL ends in the title slug and a short id. We have not verified whether `documentUpdate` takes that short id or needs the document's UUID. The first manual run in step 6 answers it. An `Entity not found` error means the id is the wrong form.
+3. Create a non-human identity for the key. Do not use a personal API key from Chris's account. Pick one of these two.
+   - **Preferred: a dedicated Linear bot member.** Invite a member such as `aeci-bot@thewbsproject.com` as a Member, not an Admin. Add it to the AECi team only. Signed in as that member, create an API key with write access, restricted to the AECi team if Linear offers the restriction. Name it "GitHub notifications doc mirror". The script sends this key as a bare `Authorization` header, so nothing else changes.
+   - **Alternative: a Linear OAuth app with `actor=application`.** The app acts as itself, not as a person, and is installed for the AECi team only. Two catches. The script sends the secret as a bare `Authorization` header, but an OAuth token needs the `Bearer ` prefix, so `scripts/mirror-notifications-doc.mjs` must change first. A client-credentials token also expires, so it needs a rotation plan before it goes in a secret.
+4. Set the secret. The command prompts for the value. Paste the key from step 3.
+
+```bash
+gh secret set LINEAR_DOCS_MIRROR_API_KEY --repo the-wbs-project/aec-integrations
+```
+
+5. Set the variable. The command reads the value from standard input. Paste the document id from step 2, then press Ctrl-D.
+
+```bash
+gh variable set LINEAR_NOTIFICATIONS_DOC_ID --repo the-wbs-project/aec-integrations
+```
+
+6. Run the mirror once by hand, then watch it.
+
+```bash
+gh workflow run mirror-notifications-doc.yml --repo the-wbs-project/aec-integrations --ref main
+```
+
+```bash
+gh run watch --repo the-wbs-project/aec-integrations
+```
+
+7. Open the Linear Document. Check that the header names a commit, and that the tables render as tables. Then record the key's scope in the `LINEAR_DOCS_MIRROR_API_KEY` row above.
+
+To check the payload locally without calling Linear, run `node scripts/mirror-notifications-doc.mjs --dry-run`.
 
 ### 7.2 Worker secrets
 
@@ -1068,6 +1112,16 @@ deliberate, reviewed human action.
 |---|---|---|---|
 | [`reconcile-counts.yml`](../.github/workflows/reconcile-counts.yml) | `0 8 * * *` | Denormalized product aggregates (`integration_count`, `review_count`, `rating_*_avg`) against their source rows, on staging + production | A write path mutated rows without `recomputeProductCounts()` landing. Repair with `db:reconcile-counts -- --fix`. |
 | [`promote-strand-audit.yml`](../.github/workflows/promote-strand-audit.yml) | `0 9 * * *` | Production D1 against the **review app's curation catalog**, read over the `aeci-review` MCP — every public row no upstream record claims, across seven stock buckets (`productRejectedUpstream`, `productDeletedUpstream`, `vendorNoLiveProducts`, `vendorSourceGone`, `integrationSourceGone`, `evidencedPairSourceGone`, `integrationEndpointStranded`) plus `pendingRetractions`. Runs `scripts/ops/2026-09-stranded-row-audit/audit.mjs`. Production only: one curation catalog serves all tiers and holds production uuids. | Usually a curator deleted or edited a record whose D1 row is still live; promote cannot retract, so that strands the row forever. **`evidencedPairSourceGone` is new in AECI-897** — the sweep previously counted `connector_evidenced_pairs` without classifying it and so read green on 2026-09-10 and 2026-09-11 with 215 retracted pairs live and public. That bucket has **no repair tool**; see `docs/RUNBOOKS.md`. **Exit 1 and exit 2 are different problems** — 1 is a real finding, 2 means the audit could not run (missing credential, incomplete sweep, crash) and the catalog is unverified rather than clean. Recipes in `docs/RUNBOOKS.md` §"Promote strand audit is red". **Rewritten 2026-09-08 (AECI-796):** it previously read Airtable and skipped green without `AIRTABLE_TOKEN`, so 25 consecutive runs reported success having audited nothing. There is no skip branch now. |
+
+---
+
+## 11b. Post-merge doc mirror
+
+| Workflow | Trigger | What it does | On red |
+|---|---|---|---|
+| [`mirror-notifications-doc.yml`](../.github/workflows/mirror-notifications-doc.yml) | Push to `main` that changes `docs/NOTIFICATIONS.md`, and `workflow_dispatch` | Overwrites one Linear Document with the doc, through `scripts/mirror-notifications-doc.mjs` (AECI-1201). The mirrored copy carries a header naming the commit and saying Linear edits are overwritten. One concurrency group, no cancel-in-progress, so two merges do not race and the newest commit wins. | The Linear copy is stale. Exit 2 means `LINEAR_DOCS_MIRROR_API_KEY` or `LINEAR_NOTIFICATIONS_DOC_ID` is unset (§7.1). Exit 1 means Linear refused the update: read the logged HTTP status or GraphQL error. Re-run with `workflow_dispatch` once fixed. |
+
+It is **not a required check and cannot block a merge**: it runs only on push, after the merge. A red run is the alert. The payload builder is unit-tested by `scripts/mirror-notifications-doc.test.mjs`, which root `pnpm test:unit` runs through `pnpm test:scripts`.
 
 ---
 

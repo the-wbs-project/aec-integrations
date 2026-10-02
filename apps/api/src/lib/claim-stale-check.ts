@@ -28,7 +28,9 @@
  * the hazard AECI-854 removed from the reconciliation sweep, on the same Resend
  * account that carries Supabase magic links. `lib/alert-bands.ts` is the shared
  * arithmetic: first warning as the ticket crosses 24 hours, then once a day.
- * Stateless — no `warned_at` column, no migration (ADR 0013).
+ * Stateless — no `warned_at` column, no migration (ADR 0013). Stateless bands alone
+ * re-send on a double tick in one window, so the email also carries a send-ledger key
+ * naming each claim's band (AECI-1203).
  *
  * The metric and the log are NOT throttled, matching the sweep: the email is a
  * convenience, the metric is the record.
@@ -51,7 +53,7 @@
 import type { RequestKind } from '@aeci/shared';
 import { and, asc, eq, isNotNull, lt } from 'drizzle-orm';
 
-import { crossedBand } from './alert-bands';
+import { bandDigestKey, bandIndex, crossedBand } from './alert-bands';
 import type { AlertContext } from './admin-alert';
 import { sendStaleClaimTicketAlert, type StaleClaimSummary } from './email';
 import { fetchLinearIssueStates } from './linear';
@@ -274,11 +276,27 @@ export async function runClaimStaleCheck(
       ),
     );
     if (emailRows.length > 0) {
-      const outcome = await sendAlert(c, { to: c.env.FOUNDER_ALERT_EMAIL, rows: emailRows });
+      // Keyed by each claim's request id and band (AECI-1203). A double cron tick or
+      // a retried run in the same window rebuilds the key, and the ledger refuses it.
+      const dedupeKey = bandDigestKey(
+        'stale-claim-ticket-alert',
+        emailRows.map((r) => ({
+          requestId: r.requestId,
+          band: bandIndex(r.ageMinutes, STALE_ALERT_BANDS_MINUTES, STALE_ALERT_REPEAT_MINUTES) ?? 0,
+        })),
+      );
+      const outcome = await sendAlert(c, {
+        to: c.env.FOUNDER_ALERT_EMAIL,
+        rows: emailRows,
+        dedupeKey,
+        ...(emailRows.length === 1
+          ? { entity: { type: 'vendor_request', id: emailRows[0]!.requestId } }
+          : {}),
+      });
       alerted = true;
       count(c, 'aeci.linear.claim_stale.email', 1, [`outcome:${outcome}`]);
       log(c, {
-        level: outcome === 'failed' ? 'warn' : 'info',
+        level: outcome === 'failed' || outcome === 'unknown' ? 'warn' : 'info',
         message: `aeci.linear.claim_stale.email outcome=${outcome} rows=${emailRows.length}${
           c.env.FOUNDER_ALERT_EMAIL ? ` recipient=${c.env.FOUNDER_ALERT_EMAIL}` : ' recipient=unset'
         }`,

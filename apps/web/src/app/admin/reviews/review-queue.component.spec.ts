@@ -375,6 +375,26 @@ describe('ReviewQueue', () => {
     expect(el.querySelector('[role="status"]')?.textContent).toContain('already moderated');
   });
 
+  it('handles a 409 REVIEW_ALREADY_MODERATED (lost race) like a 422', async () => {
+    const api = makeApiMock();
+    api.moderate.mockRejectedValueOnce(
+      new HttpErrorResponse({
+        status: 409,
+        error: { error: { code: 'REVIEW_ALREADY_MODERATED', message: 'x' } },
+      }),
+    );
+    const { el, fixture, store } = await setup(api);
+    store.seed({ reviews: 3 });
+
+    buttonByText(cardFor(el, 'Bravo'), 'Approve').click();
+    await settle();
+    fixture.detectChanges();
+
+    expect(productOrder(el)).toEqual(['Alpha', 'Charlie']);
+    expect(store.pendingReviews()).toBe(3);
+    expect(el.querySelector('[role="status"]')?.textContent).toContain('already moderated');
+  });
+
   it('keeps the row and shows a retryable alert on a generic action failure', async () => {
     const api = makeApiMock();
     api.moderate.mockRejectedValueOnce(new HttpErrorResponse({ status: 500 }));

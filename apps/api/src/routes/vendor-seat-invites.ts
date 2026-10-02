@@ -92,6 +92,8 @@ export type SendSeatInviteEmail = (
     invitedByName: string | null;
     token: string;
     expiresAt: string;
+    /** The registry entry (AECI-1199): the first send or an owner's re-send. */
+    notification: 'vendor-seat-invite' | 'vendor-seat-invite-resend';
   },
 ) => Promise<void>;
 
@@ -249,6 +251,7 @@ export function createSeatInviteHandler(
     afterVendorWrite(c, [], batch.auditEntry);
     c.executionCtx.waitUntil(
       sendEmail(c, {
+        notification: 'vendor-seat-invite',
         to: email,
         vendorName: vendor.companyName,
         invitedByName: owner.displayName,
@@ -396,6 +399,7 @@ export function createResendSeatInviteHandler(
     afterVendorWrite(c, [], batch.auditEntry);
     c.executionCtx.waitUntil(
       sendEmail(c, {
+        notification: 'vendor-seat-invite-resend',
         to: invite.email,
         vendorName: vendor.companyName,
         // The ORIGINAL sender, not whoever pressed the button. The mail's job is

@@ -42,6 +42,7 @@ import type {
   ListProductVersionsResponse,
   ListVendorIntegrationsResponse,
   ListVendorNotificationsResponse,
+  NotificationPreferencesResponse,
   CreateSeatInviteResponse,
   ResendSeatInviteResponse,
   ListVendorSeatsResponse,
@@ -374,6 +375,25 @@ export class VendorApi {
   getNotifications(): Promise<ListVendorNotificationsResponse> {
     return firstValueFrom(
       this.http.get<ListVendorNotificationsResponse>('/api/vendor/notifications'),
+    );
+  }
+
+  /** `GET /api/vendor/notification-preferences` — the caller's OWN seat's nudge
+   *  mute (AECI-1204). Per seat, not per vendor. A read that creates nothing. */
+  getNotificationPreferences(): Promise<NotificationPreferencesResponse> {
+    return firstValueFrom(
+      this.http.get<NotificationPreferencesResponse>('/api/vendor/notification-preferences'),
+    );
+  }
+
+  /** `PUT /api/vendor/notification-preferences` — mute or unmute the daily reminder
+   *  digest for the caller's own seat. The server reads the seat from the session;
+   *  no id is sent. Returns the state as stored. */
+  updateNotificationPreferences(nudgesMuted: boolean): Promise<NotificationPreferencesResponse> {
+    return firstValueFrom(
+      this.http.put<NotificationPreferencesResponse>('/api/vendor/notification-preferences', {
+        nudges_muted: nudgesMuted,
+      }),
     );
   }
 

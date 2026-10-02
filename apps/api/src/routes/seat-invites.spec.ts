@@ -157,6 +157,8 @@ describe('POST /api/vendor/seats/invites', () => {
     expect(sent).toHaveBeenCalledOnce();
     // The token goes to the mail and nowhere else — never to the response body.
     expect(sent.mock.calls[0]![1].token).toBe(rows[0]!.token);
+    // AECI-1199: the first send names its registry entry.
+    expect(sent.mock.calls[0]![1].notification).toBe('vendor-seat-invite');
     expect(JSON.stringify(res.body)).not.toContain(rows[0]!.token);
   });
 
@@ -250,6 +252,8 @@ describe('POST /api/vendor/seats/invites/:id/resend (AECI-927)', () => {
     // the redeem is bound to their mailbox rather than to the token's secrecy.
     expect(sent).toHaveBeenCalledOnce();
     expect(sent.mock.calls[0]![1].token).toBe('tok-1');
+    // AECI-1199: a re-send is its own registry entry, not the first send's.
+    expect(sent.mock.calls[0]![1].notification).toBe('vendor-seat-invite-resend');
     // ...and it still never reaches the response body.
     expect(JSON.stringify(res.body)).not.toContain('tok-1');
 

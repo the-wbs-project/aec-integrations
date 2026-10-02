@@ -367,7 +367,13 @@ export function createModerateContestHandler(
       reason: note ?? `contest ${status}`,
       metadata,
     };
-    const notify = await notificationFor(db, row, session, status);
+    const notify = await notificationFor(
+      'portal-contest-decided-by-aeci',
+      db,
+      row,
+      session,
+      status,
+    );
     const accept =
       status === 'accepted'
         ? await planAcceptWrites(
@@ -495,6 +501,7 @@ async function fileContestIssue(
   const integration = hydratedTarget(hydration, row);
   if (!integration) return null;
   return fileIssue(c, drizzleContestLinearStore(db), {
+    notification: 'linear-contest-issue',
     contestId: row.id,
     integrationId: integration.id,
     ...(integration.anchor === 'evidenced_pair'
@@ -812,6 +819,7 @@ export async function planAcceptWrites(
     for (const vendorId of recipients) {
       audits.push(
         claimNotificationAudit(
+          'portal-integration-claim',
           actor,
           {
             vendorId,

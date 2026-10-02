@@ -46,6 +46,7 @@ import { connectorEvidencedPairs, integrations, productVendors, products } from 
 import { ApiError, notFoundError } from '../errors';
 
 import { NOTIFICATION_SENT_ACTION } from './attestation-notify';
+import type { PortalNotificationId } from './notifications/registry';
 import { isConnectorPoweredEdge } from './connector-powered';
 import { isClaimed, ONE_ROW } from './integration-claims';
 import {
@@ -267,6 +268,8 @@ export const UPDATE_NOTIFICATION_KIND = 'integration_update';
  *  which is what the feed's `json_extract(metadata, '$.vendorId')` filter matches. */
 export interface UpdateNotificationMetadata {
   kind: typeof UPDATE_NOTIFICATION_KIND;
+  /** The registry entry (AECI-1199). Absent on rows written before it. */
+  notificationId: Extract<PortalNotificationId, 'portal-integration-update'>;
   vendorId: string;
   integrationId: string;
   integrationName: string | null;
@@ -284,12 +287,14 @@ export interface UpdateNotificationMetadata {
  * `connector_evidenced_pair` for a pair (AECI-1090).
  */
 export function updateNotificationAudit(
+  notification: Extract<PortalNotificationId, 'portal-integration-update'>,
   actor: { actorId: string | null; actorType: AuditLogEntry['actorType'] },
-  metadata: Omit<UpdateNotificationMetadata, 'kind'>,
+  metadata: Omit<UpdateNotificationMetadata, 'kind' | 'notificationId'>,
   anchor: 'integration' | 'evidenced_pair' = 'integration',
 ): AuditLogEntry {
   const full: UpdateNotificationMetadata = {
     kind: UPDATE_NOTIFICATION_KIND,
+    notificationId: notification,
     ...metadata,
     pairSlugs: metadata.pairSlugs ? orderedPairSlugs(...metadata.pairSlugs) : null,
   };

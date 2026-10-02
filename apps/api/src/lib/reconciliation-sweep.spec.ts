@@ -51,9 +51,11 @@ beforeEach(async () => {
 });
 afterEach(() => t.dispose());
 
-function makeCtx() {
+/** Production by default: the stuck-request email is production-shaped behaviour.
+ *  The AECI-1198 suite below overrides `ENV` / `LINEAR_API_KEY`. */
+function makeCtx(env: Partial<typeof TEST_ENV> = {}) {
   return {
-    env: { ...TEST_ENV },
+    env: { ...TEST_ENV, ENV: 'production' as const, ...env },
     executionCtx: fakeExecutionContext(),
     req: { raw: new Request('https://api.test/cron/reconcile') },
   };
@@ -116,9 +118,23 @@ function failingCreateIssue() {
 // ─── Tests ────────────────────────────────────────────────────────────────────
 
 describe('runReconciliationSweep', () => {
-  it('sends the claim operator alert when the sweep is what finally created the issue (AECI-861)', async () => {
-    // Before this, a claim rescued here notified nobody: the submit-time alert had
-    // already gone out with no issue link, and the successful retry was silent.
+  /** Like `linkingCreateIssue`, but returns the `created` outcome the claim alert needs. */
+  const creatingIssue = () =>
+    vi.fn(async (_c: unknown, _s: unknown, input: { requestId: string }) => {
+      await t.db
+        .update(vendorRequests)
+        .set({ linearIssueId: `iss-${input.requestId}` })
+        .where(eq(vendorRequests.id, input.requestId));
+      return {
+        status: 'created' as const,
+        issueId: `iss-${input.requestId}`,
+        issueUrl: 'https://linear.app/aec/issue/AECI-901/claim',
+      };
+    });
+
+  it('re-sends the claim alert under the SUBMIT key when the sweep creates the issue (AECI-1197 review)', async () => {
+    // The ledger decides whether it goes: a delivered submit alert makes this a
+    // duplicate, a refused one lets it through (`double-send.spec.ts` replays both).
     await seedProductTarget('tgt-1', 'Procore', 'procore');
     await seedWorkflow('wf-1', 'req-1');
     await seedStuckRequest({
@@ -128,53 +144,38 @@ describe('runReconciliationSweep', () => {
       createdAt: minsAgo(30),
     });
     const sendClaimAlert = vi.fn(async () => 'sent' as const);
-    const createIssue = vi.fn(async (_c: unknown, _s: unknown, input: { requestId: string }) => {
-      await t.db
-        .update(vendorRequests)
-        .set({ linearIssueId: `iss-${input.requestId}` })
-        .where(eq(vendorRequests.id, input.requestId));
-      return {
-        status: 'created' as const,
-        issueId: 'iss-req-1',
-        issueUrl: 'https://linear.app/aec/issue/AECI-901/claim',
-      };
-    });
+    const sendAlert = vi.fn(async () => 'sent' as const);
 
-    await runReconciliationSweep(makeCtx(), t.db, {
-      createIssue: createIssue as never,
-      sendAlert: vi.fn(async () => 'skipped' as const) as never,
+    const result = await runReconciliationSweep(makeCtx(), t.db, {
+      createIssue: creatingIssue() as never,
+      sendAlert: sendAlert as never,
       sendClaimAlert: sendClaimAlert as never,
       now: NOW,
     });
 
+    expect(result).toMatchObject({ retried: 1, cleared: 1, alerted: false });
+    expect(sendAlert).not.toHaveBeenCalled();
     expect(sendClaimAlert).toHaveBeenCalledOnce();
-    const [, payload] = sendClaimAlert.mock.calls[0] as unknown as [
-      unknown,
-      { requestId: string; linearIssueUrl: string | null; targetName: string },
-    ];
-    expect(payload).toMatchObject({
-      requestId: 'req-1',
-      targetName: 'Procore',
-      linearIssueUrl: 'https://linear.app/aec/issue/AECI-901/claim',
-    });
+    expect(sendClaimAlert.mock.calls[0]).toEqual([
+      expect.anything(),
+      expect.objectContaining({
+        dedupeKey: 'claim-submitted-alert:req-1',
+        entity: { type: 'vendor_request', id: 'req-1' },
+        requestId: 'req-1',
+        targetName: 'Procore',
+        linearIssueUrl: 'https://linear.app/aec/issue/AECI-901/claim',
+      }),
+    ]);
   });
 
-  it('does NOT send the claim alert for a recovered CORRECTION', async () => {
-    // Same scope rule as the submit path: `NOTIFIED_REQUEST_KINDS` is claims only.
+  it('does NOT send the claim alert for a rescued correction', async () => {
     await seedProductTarget('tgt-1', 'Acme Build', 'acme-build');
     await seedWorkflow('wf-1', 'req-1');
     await seedStuckRequest({ id: 'req-1', targetId: 'tgt-1', createdAt: minsAgo(30) });
     const sendClaimAlert = vi.fn(async () => 'sent' as const);
-    const createIssue = vi.fn(async (_c: unknown, _s: unknown, input: { requestId: string }) => {
-      await t.db
-        .update(vendorRequests)
-        .set({ linearIssueId: `iss-${input.requestId}` })
-        .where(eq(vendorRequests.id, input.requestId));
-      return { status: 'created' as const, issueId: 'i', issueUrl: 'https://linear.app/x' };
-    });
 
     await runReconciliationSweep(makeCtx(), t.db, {
-      createIssue: createIssue as never,
+      createIssue: creatingIssue() as never,
       sendAlert: vi.fn(async () => 'skipped' as const) as never,
       sendClaimAlert: sendClaimAlert as never,
       now: NOW,
@@ -195,10 +196,7 @@ describe('runReconciliationSweep', () => {
     const sendClaimAlert = vi.fn(async () => 'sent' as const);
 
     await runReconciliationSweep(makeCtx(), t.db, {
-      createIssue: vi.fn(async () => ({
-        status: 'failed' as const,
-        reason: 'no_api_key' as const,
-      })) as never,
+      createIssue: failingCreateIssue() as never,
       sendAlert: vi.fn(async () => 'skipped' as const) as never,
       sendClaimAlert: sendClaimAlert as never,
       now: NOW,
@@ -592,6 +590,26 @@ describe('runReconciliationSweep — AECI-854 alert throttle and cause reporting
     );
   });
 
+  it('keys the alert by each row and its band (AECI-1203)', async () => {
+    await seedProductTarget('tgt-1', 'Acme Build', 'acme-build');
+    await seedWorkflow('wf-1', 'req-1');
+    await seedWorkflow('wf-2', 'req-2');
+    await seedStuckRequest({ id: 'req-1', targetId: 'tgt-1', createdAt: minsAgo(65) });
+    await seedStuckRequest({ id: 'req-2', targetId: 'tgt-1', createdAt: minsAgo(365) });
+    const sendAlert = vi.fn(async () => 'sent' as const);
+
+    await runReconciliationSweep(makeCtx(), t.db, {
+      createIssue: failingCreateIssue() as never,
+      sendAlert: sendAlert as never,
+      now: NOW,
+    });
+
+    expect(sendAlert).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ dedupeKey: 'stuck-request-alert:req-1:0,req-2:1' }),
+    );
+  });
+
   it('reports an un-rebuildable row as NOT retried, with the blocker as the reason', async () => {
     await seedProductTarget('tgt-1', 'Acme Build', 'acme-build');
     // No workflow instance → the sweep skips before any retry.
@@ -610,5 +628,85 @@ describe('runReconciliationSweep — AECI-854 alert throttle and cause reporting
         rows: [expect.objectContaining({ retried: false, reason: 'workflow_missing' })],
       }),
     );
+  });
+});
+
+// ─── AECI-1198: no stuck-request email where Linear cannot be configured ─────
+
+describe('runReconciliationSweep — non-production tier without LINEAR_API_KEY (AECI-1198)', () => {
+  async function seedBandCrossingRow() {
+    await seedProductTarget('tgt-1', 'Acme Build', 'acme-build');
+    await seedWorkflow('wf-1', 'req-1');
+    // 65 minutes old: crosses the 60m band on this sweep.
+    await seedStuckRequest({ id: 'req-1', targetId: 'tgt-1', createdAt: minsAgo(65) });
+  }
+
+  it('on staging without a key, skips the email but keeps the metric and the error log', async () => {
+    await seedBandCrossingRow();
+    const sendAlert = vi.fn(async () => 'sent' as const);
+
+    const result = await runReconciliationSweep(
+      makeCtx({ ENV: 'staging', LINEAR_API_KEY: undefined }),
+      t.db,
+      { createIssue: failingCreateIssue() as never, sendAlert: sendAlert as never, now: NOW },
+    );
+
+    expect(sendAlert).not.toHaveBeenCalled();
+    expect(result).toMatchObject({ persistent: 1, alerted: false });
+    expect(submitCount).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.anything(),
+      expect.anything(),
+      'aeci.linear.reconcile.persistent_failure',
+      1,
+      [],
+    );
+    expect(logToPosthog).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.anything(),
+      expect.anything(),
+      expect.objectContaining({ level: 'error', request_ids: ['req-1'] }),
+    );
+  });
+
+  it('treats a missing ENV as non-production', async () => {
+    await seedBandCrossingRow();
+    const sendAlert = vi.fn(async () => 'sent' as const);
+
+    await runReconciliationSweep(makeCtx({ ENV: undefined, LINEAR_API_KEY: undefined }), t.db, {
+      createIssue: failingCreateIssue() as never,
+      sendAlert: sendAlert as never,
+      now: NOW,
+    });
+
+    expect(sendAlert).not.toHaveBeenCalled();
+  });
+
+  it('on staging WITH a key, still emails: a stuck row there is a real failure', async () => {
+    await seedBandCrossingRow();
+    const sendAlert = vi.fn(async () => 'sent' as const);
+
+    const result = await runReconciliationSweep(
+      makeCtx({ ENV: 'staging', LINEAR_API_KEY: 'lin_test' }),
+      t.db,
+      { createIssue: failingCreateIssue() as never, sendAlert: sendAlert as never, now: NOW },
+    );
+
+    expect(sendAlert).toHaveBeenCalledTimes(1);
+    expect(result.alerted).toBe(true);
+  });
+
+  it('on production without a key, emails exactly as before', async () => {
+    await seedBandCrossingRow();
+    const sendAlert = vi.fn(async () => 'sent' as const);
+
+    const result = await runReconciliationSweep(
+      makeCtx({ ENV: 'production', LINEAR_API_KEY: undefined }),
+      t.db,
+      { createIssue: failingCreateIssue() as never, sendAlert: sendAlert as never, now: NOW },
+    );
+
+    expect(sendAlert).toHaveBeenCalledTimes(1);
+    expect(result.alerted).toBe(true);
   });
 });

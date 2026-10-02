@@ -223,6 +223,79 @@ describe('PATCH /api/admin/reviews/:id', () => {
   it('404s an unknown review', async () => {
     expect((await patch(u(999), { action: 'approve' })).status).toBe(404);
   });
+
+  it('keys both decision emails review-decision:{id}, one decision email per review (AECI-1203)', async () => {
+    await seedReview(u(11), 'pending');
+    await patch(u(11), { action: 'approve' });
+    expect(sendReviewApprovedEmail).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        dedupeKey: `review-decision:${u(11)}`,
+        entity: { type: 'review', id: u(11) },
+      }),
+    );
+
+    // The reject template shares the key, so the two can never both reach a reviewer.
+    await t.db.delete(reviews);
+    await seedReview(u(12), 'pending');
+    await patch(u(12), { action: 'reject', rejection_reason: 'Off-topic.' });
+    expect(sendReviewRejectedEmail).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        dedupeKey: `review-decision:${u(12)}`,
+        entity: { type: 'review', id: u(12) },
+      }),
+    );
+  });
+
+  it('two admins racing: the loser rolls back, answers 409, and sends no email (AECI-1203)', async () => {
+    // Both requests pass the pending pre-read. The first batch to arrive waits until
+    // the other has committed, so the guarded UPDATE in the late batch matches no row
+    // and the real SQLite `changes()` sentinel aborts it.
+    await seedReview(u(11), 'pending');
+    const original = t.db.batch.bind(t.db);
+    let releaseFirst!: () => void;
+    const firstMayRun = new Promise<void>((resolve) => (releaseFirst = resolve));
+    let calls = 0;
+    const spy = vi.spyOn(t.db, 'batch').mockImplementation((async (stmts: never) => {
+      calls++;
+      if (calls === 1) {
+        await firstMayRun;
+        return original(stmts);
+      }
+      try {
+        return await original(stmts);
+      } finally {
+        releaseFirst();
+      }
+    }) as never);
+
+    const [approve, reject] = await Promise.all([
+      patch(u(11), { action: 'approve' }),
+      patch(u(11), { action: 'reject', rejection_reason: 'Spam / not a genuine review.' }),
+    ]);
+    spy.mockRestore();
+
+    const statuses = [approve.status, reject.status].sort();
+    expect(statuses).toEqual([200, 409]);
+    const loser = approve.status === 409 ? approve : reject;
+    expect(((await loser.json()) as { error: { code: string } }).error.code).toBe(
+      'REVIEW_ALREADY_MODERATED',
+    );
+
+    // One decision email, one audit row, one transition: the loser wrote nothing.
+    const decisionEmails =
+      vi.mocked(sendReviewApprovedEmail).mock.calls.length +
+      vi.mocked(sendReviewRejectedEmail).mock.calls.length;
+    expect(decisionEmails).toBe(1);
+    const audits = (await t.db.select().from(auditLog)).filter((a) =>
+      a.action.startsWith('review.'),
+    );
+    expect(audits).toHaveLength(1);
+    expect(await t.db.select().from(workflowTransitions)).toHaveLength(1);
+    const [row] = await t.db.select().from(reviews);
+    expect(row!.status).toBe(approve.status === 200 ? 'approved' : 'rejected');
+  });
 });
 
 describe('PATCH /api/admin/reviews/:id — cache-purge enqueue (WC-5 / AECI-319)', () => {

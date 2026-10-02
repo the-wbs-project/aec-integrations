@@ -10,7 +10,7 @@
 
 import { describe, expect, it } from 'vitest';
 
-import { crossedBand } from './alert-bands';
+import { bandDigestKey, bandIndex, crossedBand } from './alert-bands';
 
 /** The AECI-862 claim-staleness configuration: one band at 24h, then daily. */
 const STALE_BANDS = [1440] as const;
@@ -80,5 +80,86 @@ describe('crossedBand', () => {
 
   it('returns false for an empty band list rather than throwing', () => {
     expect(crossedBand(9999, 360, [], 1440)).toBe(false);
+  });
+});
+
+describe('bandIndex (AECI-1203)', () => {
+  const SWEEP = [60, 360] as const;
+  const STALE = [1440] as const;
+  const DAY = 1440;
+
+  it('is null below the first band', () => {
+    expect(bandIndex(0, SWEEP, DAY)).toBeNull();
+    expect(bandIndex(59, SWEEP, DAY)).toBeNull();
+    expect(bandIndex(1439, STALE, DAY)).toBeNull();
+  });
+
+  it('numbers the fixed bands from 0, boundaries inclusive', () => {
+    expect(bandIndex(60, SWEEP, DAY)).toBe(0);
+    expect(bandIndex(359, SWEEP, DAY)).toBe(0);
+    expect(bandIndex(360, SWEEP, DAY)).toBe(1);
+    expect(bandIndex(1439, SWEEP, DAY)).toBe(1);
+  });
+
+  it('adds one per daily boundary past the last band', () => {
+    expect(bandIndex(1440, SWEEP, DAY)).toBe(2);
+    expect(bandIndex(2879, SWEEP, DAY)).toBe(2);
+    expect(bandIndex(2880, SWEEP, DAY)).toBe(3);
+    expect(bandIndex(10 * DAY + 5, SWEEP, DAY)).toBe(11);
+  });
+
+  it('treats a repeat boundary that coincides with the last band as that band', () => {
+    expect(bandIndex(1440, STALE, DAY)).toBe(0);
+    expect(bandIndex(2879, STALE, DAY)).toBe(0);
+    expect(bandIndex(2880, STALE, DAY)).toBe(1);
+    expect(bandIndex(4320, STALE, DAY)).toBe(2);
+  });
+
+  it('is null for an empty band list', () => {
+    expect(bandIndex(5000, [], DAY)).toBeNull();
+  });
+
+  it('starts a new index at every age crossedBand emails, and at no other', () => {
+    // Walk two weeks in sweep-sized steps. Each email must land on a fresh index, and
+    // each index change must come with an email: one key per email, one email per key.
+    for (const [bands, since] of [
+      [SWEEP, 15],
+      [STALE, 360],
+    ] as const) {
+      let previous: number | null = null;
+      for (let age = 0; age <= 14 * DAY; age += since) {
+        const index = bandIndex(age, bands, DAY);
+        const emails = crossedBand(age, since, bands, DAY);
+        expect(emails).toBe(index !== previous);
+        previous = index;
+      }
+    }
+  });
+});
+
+describe('bandDigestKey (AECI-1203)', () => {
+  it('is {template}:{requestId}:{band} for one row', () => {
+    expect(bandDigestKey('stuck-request-alert', [{ requestId: 'r1', band: 2 }])).toBe(
+      'stuck-request-alert:r1:2',
+    );
+  });
+
+  it('sorts the rows, so read order cannot change the key', () => {
+    const a = bandDigestKey('t', [
+      { requestId: 'b', band: 0 },
+      { requestId: 'a', band: 1 },
+    ]);
+    const b = bandDigestKey('t', [
+      { requestId: 'a', band: 1 },
+      { requestId: 'b', band: 0 },
+    ]);
+    expect(a).toBe('t:a:1,b:0');
+    expect(b).toBe(a);
+  });
+
+  it('changes when any row moves to a new band', () => {
+    expect(bandDigestKey('t', [{ requestId: 'a', band: 1 }])).not.toBe(
+      bandDigestKey('t', [{ requestId: 'a', band: 2 }]),
+    );
   });
 });

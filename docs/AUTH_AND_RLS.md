@@ -538,6 +538,7 @@ await db.batch([
 | `DELETE /api/account` | Hard-required | Active user | `account.deleted`; on a vendor's last seat also the AECI-989 hand-back rows, and on a seat left with only banned colleagues the `integration.contest.rerouted` rows, all with a `null` actor and `metadata.source: 'account'` (AECI-1106) |
 | `POST /api/requests/claim`, `/correction` | None (anon form) | None | `claim/correction.submitted` |
 | `POST /api/track/pageview` | Optional | None | Logged to `page_views` |
+| `POST /api/notifications/nudges/mute` (AECI-1204) | None (the opaque `mute_token` is the credential) | None. Acts on whichever seat owns the token. Behind `rateLimit('token', { by: 'ip' })`, never keyed by the token | `notification_preferences.updated`, actor = the seat that owns the token. An unknown token is `200 { ok: false }` and writes nothing |
 | `GET /api/admin/*` | Hard-required | `admin` | No (reads only) |
 | `PATCH /api/admin/reviews/:id` | Hard-required | `admin` | `review.approved` / `.rejected` |
 | `PATCH /api/admin/claims/:id` (AECI-519 / AECI-612) | Hard-required | `admin` | **Two** rows on a first grant: `vendor_claim.granted` (the seat) **and** `vendor_entitlement.granted` (the entitlement + the `vendors.verified` mirror flip), both in the one batch and sharing `metadata.source: 'admin-moderation'`; `.rejected` on the reject path. A **second seat** on an already-active entitlement writes only the claim row — the entitlement builder emits nothing, so the mirror does not churn. (The seat-revoke mechanic `vendor_claim.seat_revoked` got its endpoint in **AECI-664** — `DELETE /api/vendor/seats/:userId`, owner-only, vendor-side; AECI-524 had wired the ban gate only. Ban and revoke stay two different actions.) A grant now also sets `profiles.seat_owner = true`: an AECi-reviewed claim IS the owner event (§11a). |
@@ -564,6 +565,8 @@ await db.batch([
 | `GET /api/seat-invites/:token` (AECI-664) | Hard-required | **`requireAuth()` only** — the caller is by definition not a `vendor_admin` yet, which is why this is not under `/api/vendor/*` | No (reads only). A READ on purpose: mail scanners and URL rewriters fetch what they are sent, and a GET that redeemed would be spent before the human clicked |
 | `POST /api/seat-invites/:token/accept` (AECI-664) | Hard-required | `requireAuth()` **+ the session's verified email must equal the invited address** — the actual security control; an absent session email fails closed. Plus the §2 exclusivity rules (no site admin, no second vendor) | `vendor_seat.invite_accepted`. Writes `seat_owner: false` (the bound on the invite chain), and `work_email_verified` only when the redeemed address is on the vendor's own domain — `computeDomainMatch` runs HERE, not at invite time, because the invite-time domain gate was removed (`STAGE_2_VENDOR_PORTAL_SPEC.md` §11a.3). Neither bit is ever cleared by a redeem |
 | `GET /api/vendor/notifications` (AECI-302) | Hard-required | same — **no** `vendors.verified` gate (reading is not the gated capability) | No (reads only). Reads the §7.3 `audit_log` `notification.sent` ledger filtered on `json_extract(metadata,'$.vendorId') = <session vendor>`; AECi-ops rows store a null vendor and so can never match a caller |
+| `GET /api/vendor/notification-preferences` (AECI-1204) | Hard-required | `requireVendor()`. Acts on `auth.userId` only, so a seat reads its own state and never a colleague's. No `rateLimit()` (a read) | No (reads only). Never creates a row and never returns `mute_token` |
+| `PUT /api/vendor/notification-preferences` (AECI-1204) | Hard-required | `requireVendor()`, then `rateLimit('write')`. Acts on `auth.userId` only. No profile id is read from the request | `notification_preferences.updated` in the same `db.batch`, also on the first write that creates the row. A no-op change writes nothing. Only the attestation sweep's lazy create writes `.created` |
 | `POST /api/vendor/integrations/:id/contests` (AECI-1008) | Hard-required | same **+ endpoint ownership** via `resolveAttestationSlots` (a non-endpoint vendor or unknown id is a flat **404**); the owner (`built_by_vendor_id`) gets **403 `CONTEST_OWN_INTEGRATION`**. **Not** capability-gated: a seat is the whole gate (`STAGE_2_VENDOR_PORTAL_SPEC.md` §11b.2) | `integration.contest.submitted` + a `notification.sent` for the owner when owner-routed |
 | `GET /api/vendor/contests` (AECI-1008) | Hard-required | same — scoped by `vendorContestsWhere` (submitted ∪ owner-routed received). `?integration_id=` (AECI-1153) is ANDed onto each side's own predicate, so it only narrows the caller's rows: a foreign or unknown id answers two empty lists, never a 404 | No (reads only) |
 | `POST /api/vendor/contests/:id/withdraw` (AECI-1008) | Hard-required | same **+ submitter**; anyone else is a flat **404** | `integration.contest.withdrawn` |
@@ -661,6 +664,17 @@ column cannot leak one past a parsed-object check. And it is a **read with no
 write sibling**: the console has no control that could opt a subscriber out, which
 is a deliberate absence rather than an unbuilt feature — the only writer of
 `unsubscribed_at` is the subscriber.
+
+**`notification_preferences.mute_token` is the second bearer capability** (AECI-1204,
+`DATABASE_SCHEMA.md` §9.10). `POST /api/notifications/nudges/mute` mutes the seat that owns the
+token, with no session. It is the RFC 8058 one-click target of the attestation digest's
+`List-Unsubscribe` header and of the `/notifications/mute` page. The same rules hold as for
+`unsubscribe_token`. The token is a `crypto.randomUUID()`. It is never logged, never audited and
+never returned by any read, including `GET /api/vendor/notification-preferences`. It rides only in
+the digest's header and footer link. The route is rate-limited by IP on the `token` bucket, never
+by the token. An unknown token answers `200 { ok: false }`, because a mail appliance reads any
+non-2xx as a broken link. An unmute through `PUT /api/vendor/notification-preferences` rotates the
+token, so a mute link in an earlier digest stops working and cannot re-mute the seat.
 
 **The `/api/vendor/*` rows carry two extra obligations** (AECI-520,
 `STAGE_2_VENDOR_PORTAL_SPEC.md` §4). They are the D1/Drizzle replacement for the

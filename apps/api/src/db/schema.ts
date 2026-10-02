@@ -2268,6 +2268,148 @@ export const jobRuns = sqliteTable(
   ],
 );
 
+// ===========================================================================
+// Notification send ledger (AECI-1202, DATABASE_SCHEMA.md §9.9)
+//
+// Log-class and **exempt from the §26.1 audit-in-batch invariant under ADR
+// 0022**, like `page_views` and `job_runs`: the row IS the record of the send,
+// so an `audit_log` row about it would audit the audit. Written per row,
+// OUTSIDE any `db.batch`, each inside its own try/catch
+// (`lib/notifications/send-ledger.ts`): a ledger write must never stop or fail
+// the send it records. A ledger DB error fails OPEN — the mail still goes.
+// ===========================================================================
+
+/**
+ * What happened to one send attempt to one recipient.
+ *
+ * - `sending`: reserved, and the Resend call has not come back. A row that stays
+ *   here means the isolate died mid-send. It keeps its dedupe key, so it blocks a
+ *   resend: at-most-once by design.
+ * - `sent`: Resend accepted it. `provider_message_id` holds the Resend id.
+ * - `failed`: Resend answered with a non-2xx status, so it did not take the mail.
+ *   The dedupe key is released, so a retry can send.
+ * - `unknown`: the call timed out or threw after the request may have reached
+ *   Resend. The mail may or may not have gone. The dedupe key stays held, exactly as
+ *   for a stuck `sending` row, so a retry cannot send it twice (at-most-once).
+ * - `skipped`: nothing to send with (no key, sender or recipient).
+ * - `suppressed`: the tier delivery policy refused the recipient (AECI-1198).
+ * - `duplicate`: the dedupe key was already held, so nothing was sent.
+ */
+export type NotificationSendOutcome =
+  | 'sending'
+  | 'sent'
+  | 'failed'
+  | 'unknown'
+  | 'skipped'
+  | 'suppressed'
+  | 'duplicate';
+
+/**
+ * One row per send attempt per recipient, for every Resend email (AECI-1202).
+ * Answers "what did we send to this person, and did Resend take it" from our own
+ * data. A one-call send to several recipients (the cron digests) writes one row
+ * per recipient, all sharing the Resend id.
+ */
+export const notificationSends = sqliteTable(
+  'notification_sends',
+  {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+
+    /** The registry id (`lib/notifications/registry.ts`). No FK and no CHECK: the
+     *  registry is code, and the type system enforces the vocabulary. */
+    notificationId: text('notification_id').notNull(),
+
+    /** Unsalted SHA-256 hex of the trimmed, lowercased bare address
+     *  (`lib/hash.ts` `recipientHash`). Pseudonymous, not anonymous: support
+     *  answers "what did we send to X" by hashing X. The address is never stored. */
+    recipientHash: text('recipient_hash').notNull(),
+
+    /** `tierLabel(env)`: `production`, `staging`, … or `non-production`. */
+    tier: text('tier').notNull(),
+
+    /**
+     * Deliberately CHECK-free, following `job_runs.job` and `audit_log.action`: the
+     * vocabulary is young and will grow, and SQLite cannot ALTER a CHECK, so a new
+     * member would need a table-recreate migration. The TypeScript union is the
+     * enforcement; this column is the storage.
+     */
+    outcome: text('outcome').notNull().$type<NotificationSendOutcome>(),
+
+    /** The Resend message id on `sent`. Null on every other outcome, and on a
+     *  2xx whose body did not parse. */
+    providerMessageId: text('provider_message_id'),
+
+    /**
+     * The sender's idempotency key, e.g. `attestation-digest:{vendor}:{seat}:{day}`.
+     * NULLABLE on purpose, exactly as `page_views.dedupe_key`: SQLite treats NULLs as
+     * distinct under a UNIQUE index, so a send with no key never conflicts. Released
+     * (set NULL) when Resend refuses the send (`failed`), so a retry can claim it.
+     * Kept on `unknown`, because the mail may already be out. A `duplicate` row
+     * always stores NULL here, or it would collide with the row that holds the key.
+     */
+    dedupeKey: text('dedupe_key'),
+
+    /** The thing the mail is about (`claim`, `vendor_seat_invite`, …), when the
+     *  sender names one. Free text, no FK: a log row must outlive its entity. */
+    entityType: text('entity_type'),
+    entityId: text('entity_id'),
+
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [
+    // `INSERT … ON CONFLICT(dedupe_key) DO NOTHING` needs a plain (non-partial)
+    // UNIQUE index as its conflict target — same constraint as page_views.
+    uniqueIndex('notification_sends_dedupe_key_idx').on(t.dedupeKey),
+    // "What did we send to this person": equality on the hash, newest first.
+    index('notification_sends_recipient_idx').on(t.recipientHash, t.createdAt),
+    // "Every send of this notification in a window". The §7.4 prune pages the PK.
+    index('notification_sends_notification_idx').on(t.notificationId, t.createdAt),
+  ],
+);
+
+// ===========================================================================
+// Per-seat notification preferences (AECI-1204, DATABASE_SCHEMA.md §9.10)
+//
+// DOMAIN state: a mute is a choice a person made, so every change to it writes
+// its `audit_log` row in the same `db.batch` (`lib/notification-preferences.ts`).
+// A new table rather than a column on `profiles`, because `profiles` carries
+// CHECKs and any change to it risks a drizzle-kit recreate (`docs/migrations.md`
+// §0). The reverse hazard is real too: a future recreate of `profiles` fires this
+// table's ON DELETE CASCADE and wipes every mute. Statement order in such a
+// migration is the control.
+// ===========================================================================
+
+/**
+ * One row per seat that has ever been emailed a nudge digest or touched the
+ * toggle. No row means "not muted, no token yet". The row is created lazily, with
+ * its token, by the first digest send or the first toggle.
+ */
+export const notificationPreferences = sqliteTable(
+  'notification_preferences',
+  {
+    /** The seat's `profiles.id` (the Supabase auth uid). */
+    profileId: text('profile_id')
+      .primaryKey()
+      .references(() => profiles.id, { onDelete: 'cascade' }),
+
+    /** When the seat muted the attestation nudge digest. Null = not muted. The
+     *  mute covers nudges only: seat invites, claim decisions and plan-expiry
+     *  notices still send. */
+    nudgesMutedAt: text('nudges_muted_at'),
+
+    /** Opaque bearer token for the one-click mute link in the digest footer
+     *  (`crypto.randomUUID()`). A capability: never logged, never audited. */
+    muteToken: text('mute_token')
+      .notNull()
+      .$defaultFn(() => crypto.randomUUID()),
+
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [uniqueIndex('notification_preferences_mute_token_key').on(t.muteToken)],
+);
+
 /**
  * External classification of the ASNs we have actually seen (AECI-624).
  *
@@ -3626,6 +3768,7 @@ export const schema = {
   pageViews,
   statsCache,
   jobRuns,
+  notificationSends,
   translations,
   connectorCatalogs,
   connectorCatalogSurfaces,

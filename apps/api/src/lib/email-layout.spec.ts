@@ -135,6 +135,23 @@ describe('renderEmailHtml — the detail table (AECI-924)', () => {
     );
   });
 
+  it('never links a row marked plain, even when the whole value is a URL (AECI-1197 review)', () => {
+    const html = renderEmailHtml({
+      ...BASE,
+      table: [['Their reason', 'https://evil.example/a?b=1&c=<x>', { plain: true }]],
+    });
+    expect(html).not.toContain('<a href="https://evil.example');
+    expect(html).toContain('https://evil.example/a?b=1&amp;c=&lt;x&gt;');
+  });
+
+  it('leaves the plain-text part of a plain row unchanged', () => {
+    const text = renderEmailText({
+      ...BASE,
+      table: [['Their reason', 'https://evil.example/a', { plain: true }]],
+    });
+    expect(text).toContain('Their reason: https://evil.example/a');
+  });
+
   it('leaves a value that merely mentions a URL unlinked', () => {
     const html = renderEmailHtml({
       ...BASE,

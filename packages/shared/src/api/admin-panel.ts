@@ -114,7 +114,7 @@ export type AdminWindow = z.infer<typeof AdminWindowSchema>;
  * | `trade_facet_sparse_by_design` | products carry no `trade` tag and that is not by itself a defect: `TRADES_VOCABULARY.md` §1.1 tags a product only when it has trade-SPECIFIC value, so horizontal platforms correctly carry zero rows |
  * | `api_docs_flag_inconsistent` | N products have `has_api_docs = 1` but no `api_docs_url` — the flag and the artifact disagree |
  * | `series_partly_reconstructed` | some days in the window come from the P2.1 backfill rather than a same-day snapshot, and are approximate (§4); `params.reconstructed_days` counts them and `params.reconstructed_through` is the last such day |
- * | `cron_liveness_unavailable` | N of the fifteen crons have no `job_runs` row yet — they have not run since run recording shipped, or were added since. The CI liveness sweep stays the authority for "a job stopped firing" |
+ * | `cron_liveness_unavailable` | N of the sixteen crons have no `job_runs` row yet — they have not run since run recording shipped, or were added since. The CI liveness sweep stays the authority for "a job stopped firing" |
  * | `orphan_sweep_not_persisted` | **No longer emitted (AECI-583)** — the sweep's result IS persisted now, in the 09:00 drift run's `job_runs.detail`. Retained because removing a code is a breaking change, and so an older cached response still renders |
  * | `stored_result_unreadable` | a stored `job_runs.detail` could not be parsed, so the item is omitted rather than partially reported. `params.job` names which cron's payload |
  * | `utm_attribution_incomplete` | `params.missing` of `params.total` signups in the window carry no `utm_source` — the unattributed bucket is real signups, not missing rows. The direct analogue of `referrer_source_incomplete`, and like it, derived from the window rather than from a date |
@@ -1041,10 +1041,16 @@ export type AdminSnapshotSource = (typeof ADMIN_SNAPSHOT_SOURCES)[number];
  */
 export const PAGE_VIEWS_RETENTION_DAYS = 400;
 export const JOB_RUNS_RETENTION_DAYS = 90;
+/**
+ * The email send ledger (AECI-1202). 400 to match `page_views`: "what did we send this
+ * person last year" is the support question, and it needs the same year-over-year reach.
+ * The rows are small and the volume is tens a day.
+ */
+export const NOTIFICATION_SENDS_RETENTION_DAYS = 400;
 
 /**
- * Floor for the `PAGE_VIEWS_RETENTION_DAYS` / `JOB_RUNS_RETENTION_DAYS` env
- * overrides (`apps/api/src/env.ts`). D1 Time Travel recovers roughly 30 days, so
+ * Floor for the `PAGE_VIEWS_RETENTION_DAYS` / `JOB_RUNS_RETENTION_DAYS` /
+ * `NOTIFICATION_SENDS_RETENTION_DAYS` env overrides (`apps/api/src/env.ts`). D1 Time Travel recovers roughly 30 days, so
  * a window shorter than that would delete rows past the point of any recovery
  * the moment it took effect. An override below this floor is ignored, not
  * clamped — a typo'd `4` should fall back to the reviewed default, not quietly
@@ -1293,7 +1299,7 @@ export type AdminTrafficBreakdownResponse = z.infer<typeof AdminTrafficBreakdown
  */
 
 /**
- * The fifteen cron jobs in `apps/api/src/scheduled.ts`, as a closed vocabulary.
+ * The sixteen cron jobs in `apps/api/src/scheduled.ts`, as a closed vocabulary.
  * These are the ids `job_runs.job` carries (§7.2), so AECI-583 persists against
  * these strings rather than inventing a second naming. `metrics-snapshot` is the
  * ninth, added with the §7.1 snapshot cron (AECI-581); `retention-prune` is the
@@ -1317,6 +1323,10 @@ export type AdminTrafficBreakdownResponse = z.infer<typeof AdminTrafficBreakdown
  * whether the claim tickets older than 24 hours have been started, and escalates
  * the ones that have not. It is the only cron here that reads a third-party API
  * for a BUSINESS-response signal rather than a system-health one.
+ *
+ * `protest-reply-reminder` is the sixteenth (AECI-1205): daily at 12:00 UTC it emails
+ * the owner's seats of every open protest with no reply whose 14-day deadline falls
+ * in the next three days (`STAGE_2_VENDOR_PORTAL_SPEC.md` §11b.12.10).
  */
 export const AdminCronJobSchema = z.enum([
   'metrics-snapshot', // 15 0 * * *
@@ -1334,6 +1344,7 @@ export const AdminCronJobSchema = z.enum([
   'asn-registry', // 0 2 * * 2  (weekly; CF day-of-week is 1=Sunday, so 2 = Monday)
   'indexnow-drain', // 5 0 * * *  (daily since AECI-1136; was */20)
   'claim-stale-check', // 25 */6 * * *
+  'protest-reply-reminder', // 0 12 * * *
 ]);
 export type AdminCronJob = z.infer<typeof AdminCronJobSchema>;
 

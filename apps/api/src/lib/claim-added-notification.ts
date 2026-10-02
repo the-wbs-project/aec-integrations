@@ -19,6 +19,7 @@ import { orderedPairSlugs, type ContextDirection } from '@aeci/shared';
 import type { AuditLogEntry } from '@aeci/shared/audit-log';
 
 import { NOTIFICATION_SENT_ACTION } from './attestation-notify';
+import type { PortalNotificationId } from './notifications/registry';
 
 /** `metadata.kind` on the `notification.sent` row an added claim writes. */
 export const CLAIM_ADDED_NOTIFICATION_KIND = 'claim_added';
@@ -30,6 +31,8 @@ export const CLAIM_ADDED_NOTIFICATION_KIND = 'claim_added';
  */
 export interface ClaimAddedNotificationMetadata {
   kind: typeof CLAIM_ADDED_NOTIFICATION_KIND;
+  /** The registry entry (AECI-1199). Absent on rows written before it. */
+  notificationId: Extract<PortalNotificationId, 'portal-claim-added'>;
   vendorId: string;
   addedByVendorId: string;
   addedByName: string | null;
@@ -50,11 +53,13 @@ export interface ClaimAddedNotificationMetadata {
  * detector rows, and `entity_id` is the claim id.
  */
 export function claimAddedNotificationAudit(
+  notification: Extract<PortalNotificationId, 'portal-claim-added'>,
   actor: { actorId: string | null; actorType: AuditLogEntry['actorType'] },
-  metadata: Omit<ClaimAddedNotificationMetadata, 'kind'>,
+  metadata: Omit<ClaimAddedNotificationMetadata, 'kind' | 'notificationId'>,
 ): AuditLogEntry {
   const full: ClaimAddedNotificationMetadata = {
     kind: CLAIM_ADDED_NOTIFICATION_KIND,
+    notificationId: notification,
     vendorId: metadata.vendorId,
     addedByVendorId: metadata.addedByVendorId,
     addedByName: metadata.addedByName,

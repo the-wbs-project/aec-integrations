@@ -45,6 +45,7 @@ import { ApiError, notFoundError } from '../errors';
 import { resolveAttestationSlots, resolveEvidencedPairSlots } from '../lib/attestation-authority';
 import { auditInsert, workflowTransitionInsert, type BatchStmt } from '../lib/audit';
 import { auditActorType } from '../lib/authz';
+import { emailProtestFiled, type ProtestEmailDeps } from '../lib/contest-protest-emails';
 import {
   assertProtestable,
   dedupeEvidence,
@@ -72,6 +73,7 @@ import {
   type ContestNotificationMetadata,
   type ContestRow,
 } from '../lib/integration-contests';
+import type { ContestPortalNotificationId } from '../lib/notifications/registry';
 import { closeWorkflow, CONTEST_WORKFLOW_TYPE, echo, endpointSlugs } from './vendor-contests';
 import {
   afterVendorWrite,
@@ -128,6 +130,7 @@ function replyClosed(): ApiError {
  * from a single integration read so both sides of a decision get the same snapshot.
  */
 export async function protestNotifications(
+  notification: ContestPortalNotificationId,
   db: Db,
   row: ContestRow,
   actor: { actorId: string | null; actorType: AuditLogEntry['actorType'] },
@@ -149,7 +152,7 @@ export async function protestNotifications(
     ? await endpointSlugs(db, integration.sourceProductId, integration.targetProductId)
     : null;
   return targets.map((target) =>
-    contestNotificationAudit(actor, {
+    contestNotificationAudit(notification, actor, {
       vendorId: target.vendorId,
       contestId: row.id,
       integrationId: anchor.id,
@@ -183,6 +186,7 @@ async function assertStillEndpointVendor(db: Db, vendorId: string, row: ContestR
 export function createFileContestProtestHandler(
   dbFor: DbFactory = getDb,
   clock: Clock = systemClock,
+  emailDeps: ProtestEmailDeps = {},
 ): (c: VendorContext) => Promise<Response> {
   return async (c) => {
     const session = c.get('auth');
@@ -329,7 +333,7 @@ export function createFileContestProtestHandler(
       metadata,
     });
     audits.push(
-      ...(await protestNotifications(db, row, actor, 'protested', [
+      ...(await protestNotifications('portal-contest-protested', db, row, actor, 'protested', [
         { vendorId: row.ownerVendorId, extra: { basis, replyDueAt } },
       ])),
     );
@@ -351,6 +355,23 @@ export function createFileContestProtestHandler(
 
     // Nothing public changed: no purge, no re-crawl. The forward still runs.
     afterVendorWrite(c, [], audits);
+    // AECI-1205 (§11b.12.10): the owner's seats get the reply deadline by email, and
+    // AECi gets the protest alert. After the commit, so a lost race sends nothing.
+    c.executionCtx.waitUntil(
+      emailProtestFiled(
+        c,
+        db,
+        row,
+        {
+          basis,
+          reason: payload.reason,
+          evidenceCount: evidence.length,
+          protestedAt: now,
+          replyDueAt,
+        },
+        emailDeps,
+      ),
+    );
     return echo(c, db, vendorId, after);
   };
 }
@@ -402,9 +423,14 @@ export function createReplyContestProtestHandler(
         afterState: { protest_reply: payload.reply, protest_reply_evidence: evidence },
         metadata,
       },
-      ...(await protestNotifications(db, row, actor, 'protest_replied', [
-        { vendorId: row.submitterVendorId },
-      ])),
+      ...(await protestNotifications(
+        'portal-contest-protest-replied',
+        db,
+        row,
+        actor,
+        'protest_replied',
+        [{ vendorId: row.submitterVendorId }],
+      )),
     ];
     const stmts: BatchStmt[] = [
       db
@@ -494,9 +520,14 @@ export function createWithdrawContestProtestHandler(
         afterState: { protest_status: 'withdrawn' },
         metadata,
       },
-      ...(await protestNotifications(db, row, actor, 'protest_withdrawn', [
-        { vendorId: row.ownerVendorId },
-      ])),
+      ...(await protestNotifications(
+        'portal-contest-protest-withdrawn',
+        db,
+        row,
+        actor,
+        'protest_withdrawn',
+        [{ vendorId: row.ownerVendorId }],
+      )),
     ];
     const stmts: BatchStmt[] = [
       db

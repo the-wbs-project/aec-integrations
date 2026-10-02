@@ -92,7 +92,8 @@ If your work touches a topic below, that document is the truth, not your prior k
 | Search ranking: Algolia settings and signals | `docs/SEARCH_RANKING.md` |
 | Observability (PostHog only): metrics, dashboards, alerts | `docs/OBSERVABILITY.md`; migration record `docs/POSTHOG_MIGRATION_SPEC.md`, ADR 0024 |
 | Analytics: baseline snapshot; product event catalogue | `docs/ANALYTICS_BASELINE.md`; `docs/ANALYTICS.md` |
-| Transactional email, magic-link SMTP, deliverability | `docs/email.md` |
+| Transactional email transport, house layout, magic-link SMTP, deliverability | `docs/email.md` |
+| Every notification we send: channels, audience, tier rule, dedupe, ledger, opt-out | `docs/NOTIFICATIONS.md` (generated from `apps/api/src/lib/notifications/registry.ts`; `pnpm docs:notifications`); ADR 0038 |
 | Incident runbooks; post-launch monitoring and health log | `docs/RUNBOOKS.md`; `docs/POST_LAUNCH_MONITORING.md`; `docs/POST_LAUNCH_HEALTH_REPORT.md` |
 | Admin panel / operator console | `docs/ADMIN_PANEL_SPEC.md` |
 | Launch / DNS cutover runbook | `docs/launch-cutover-runbook.md` |
@@ -323,7 +324,7 @@ post-commit via `ctx.waitUntil` to PostHog Logs through the seam in
 transactional failure. Domain state = catalog, users/profiles, reviews/moderation,
 claims/attestations, requests/workflows. Derived and log-class writes are exempt (`page_views`,
 `mailing_list`, `feedback`, `stats_cache`, Algolia watermark, `recompute-counts`, `metrics_daily`,
-`job_runs`). The test is entity class, not actor class; scheduled `DELETE`s are never exempt.
+`job_runs`, `notification_sends`). The test is entity class, not actor class; scheduled `DELETE`s are never exempt.
 `docs/STAGE_1_SPEC.md` §26, ADR 0022.
 
 ## Cache invalidation

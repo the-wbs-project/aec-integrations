@@ -54,8 +54,18 @@ export function emitDetectorMetrics(
   }
 }
 
-/** What happened to each notification the sweep considered. */
-export type NotifyOutcome = 'sent' | 'failed' | 'skipped' | 'suppressed';
+/**
+ * What happened to each finding the sweep considered.
+ *
+ * - `sent`: at least one seat (or ops address) got a digest listing it.
+ * - `portal-only` (AECI-1204): recorded in the portal, emailed to nobody, on purpose.
+ *   Every seat muted the digest, or the tier delivery policy refused every address.
+ * - `failed`: nobody got it and a send failed. No ledger row, so tomorrow retries.
+ * - `skipped`: nobody got it and nothing could send (no key, no seat, no address).
+ *   No ledger row either.
+ * - `suppressed`: the 30-day ledger window already covers it.
+ */
+export type NotifyOutcome = 'sent' | 'portal-only' | 'failed' | 'skipped' | 'suppressed';
 
 /**
  * Emit the send outcomes, aggregated to one point per (detector, outcome) rather

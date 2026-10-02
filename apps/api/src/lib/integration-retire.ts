@@ -17,6 +17,7 @@ import { and, eq, sql } from 'drizzle-orm';
 import type { Db } from '../db/client';
 import { integrationFieldChallenges } from '../db/schema';
 import { NOTIFICATION_SENT_ACTION } from './attestation-notify';
+import type { PortalNotificationId } from './notifications/registry';
 import { ONE_ROW } from './integration-claims';
 import {
   anchorColumnSql,
@@ -110,6 +111,8 @@ export function openContestsOn(db: Db, anchor: ContestAnchor | string) {
  *  RECIPIENT, which is what the feed's `json_extract(metadata, '$.vendorId')` matches. */
 export interface RetireNotificationMetadata {
   kind: typeof RETIRE_NOTIFICATION_KIND;
+  /** The registry entry (AECI-1199). Absent on rows written before it. */
+  notificationId: Extract<PortalNotificationId, 'portal-integration-retire'>;
   event: IntegrationRetireEvent;
   /** Who retired or restored it (AECI-1046). Absent on rows written before it,
    *  which the feed reads as `'owner'`. */
@@ -130,14 +133,16 @@ export interface RetireNotificationMetadata {
  * `entity_type` is `integration`, like the claim notification.
  */
 export function retireNotificationAudit(
+  notification: Extract<PortalNotificationId, 'portal-integration-retire'>,
   actor: { actorId: string | null; actorType: AuditLogEntry['actorType'] },
-  metadata: Omit<RetireNotificationMetadata, 'kind'>,
+  metadata: Omit<RetireNotificationMetadata, 'kind' | 'notificationId'>,
   /** `'connector_evidenced_pair'` for a pair (AECI-1091), as every pair write
    *  records it. The feed reads `metadata`, never the entity type. */
   entityType: 'integration' | typeof EVIDENCED_PAIR_ENTITY_TYPE = 'integration',
 ): AuditLogEntry {
   const full: RetireNotificationMetadata = {
     kind: RETIRE_NOTIFICATION_KIND,
+    notificationId: notification,
     ...metadata,
     pairSlugs: metadata.pairSlugs ? orderedPairSlugs(...metadata.pairSlugs) : null,
   };

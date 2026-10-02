@@ -38,6 +38,24 @@ The SSR Worker (`apps/web`) is the only public ingress. The API Worker (`apps/ap
 
 > **`apps/agent` is a spike and has only two tiers**, the default wrangler block (preview) and `env.production` — no staging and no demo. It is **hand-deployed, not deployed by CI** (like `apps/datatool`; the PR suite still lints, typechecks and unit-tests it), and it is **not an ingress**: it holds D1 read-only, calls the API Worker over the same `services.API` binding pattern, and writes only its own R2 corpus bucket. It has no custom domain; both tiers run on `workers_dev`, so they answer on `aeci-agent.thewbsproject.workers.dev` and `aeci-agent-production.thewbsproject.workers.dev` and are covered by the existing `AECi Non-Prod` Access app's `aeci-*.thewbsproject.workers.dev` destination (`docs/access.md` §1). Its build is Vite, so the deploy reads the **emitted** `dist/aeci_agent/wrangler.json` with `-c` and the tier is chosen by `CLOUDFLARE_ENV` at build time, **not** by `--env`. See `apps/agent/README.md` and ADR 0034.
 
+### Email per tier (AECI-1198)
+
+Every tier shares one Supabase auth project, so every tier can resolve a real user's
+address. The API Worker therefore gates outbound email by tier. The rule and its
+details live in `docs/email.md` §Tier delivery policy.
+
+| Tier | `ENV` | Outside recipients | Internal recipients | Subject | Stuck-request email without `LINEAR_API_KEY` |
+| --- | --- | --- | --- | --- | --- |
+| **Local** | `preview` (the top-level `wrangler.jsonc` var) | Suppressed | Sent, if `.dev.vars` holds a Resend key | `[preview]` | Skipped |
+| **PR preview** | `preview` | Suppressed | Skipped today, no `RESEND_API_KEY` | `[preview]` | Skipped |
+| **Staging** | `staging` | Suppressed | Sent | `[staging]` | Skipped |
+| **Demo** | `demo` | Suppressed | Sent | `[demo]` | Skipped |
+| **Production** | `production` | Sent | Sent | Unchanged | Sent |
+
+Internal means an address at `thewbsproject.com` or `aecintegrations.com`, exactly. A
+missing or unknown `ENV` counts as non-production. Supabase sign-in mail is outside this
+gate, because Supabase sends it itself.
+
 ## Promotion model
 
 ```

@@ -140,6 +140,12 @@ describe('POST /api/requests/correction', () => {
     expect(res.status).toBe(201);
     const { request_id, row } = await createdRow(res);
     expect(request_id).toMatch(/^[0-9a-f-]{36}$/i);
+    // AECI-1205: no correction email exists, so the message must not promise one.
+    const { message } = (await res.clone().json()) as { message: string };
+    expect(message).toBe(
+      'Your correction has been received. We will review it and update the listing if it needs a change.',
+    );
+    expect(message).not.toMatch(/email/i);
 
     expect(row).toMatchObject({
       kind: 'correction',
@@ -604,11 +610,12 @@ describe('POST /api/requests/* → claim-intake operator alert (background)', ()
     await seedVendor({ slug: 'acme-co' });
     const execCtx = fakeExecutionContext();
 
-    // No LINEAR_API_KEY → `createLinearIssueForRequest` returns `no_api_key`.
+    // No LINEAR_API_KEY → `createLinearIssueForRequest` returns `no_api_key`. On
+    // production that is an outage the sweep retries.
     const res = await claimApp().request(
       '/api/requests/claim',
       postInit(claimBody),
-      ENV_WITH_ALERT,
+      { ...ENV_WITH_ALERT, ENV: 'production' },
       execCtx,
     );
     expect(res.status).toBe(201);
@@ -617,7 +624,30 @@ describe('POST /api/requests/* → claim-intake operator alert (background)', ()
     const sent = JSON.parse(String(vi.mocked(fetchMock).mock.calls[0]![1]!.body)) as {
       text: string;
     };
-    expect(sent.text).toContain('not created yet');
+    expect(sent.text).toContain('not created yet. The reconciliation sweep retries it');
+  });
+
+  it('says Linear is not configured, not "the sweep retries it", on a non-production tier without a key (AECI-1198)', async () => {
+    const fetchMock = resendOkFetch();
+    await seedVendor({ slug: 'acme-co' });
+    const execCtx = fakeExecutionContext();
+
+    const res = await claimApp().request(
+      '/api/requests/claim',
+      postInit(claimBody),
+      { ...ENV_WITH_ALERT, ENV: 'staging' },
+      execCtx,
+    );
+    expect(res.status).toBe(201);
+    await drain(execCtx);
+
+    const sent = JSON.parse(String(vi.mocked(fetchMock).mock.calls[0]![1]!.body)) as {
+      text: string;
+      subject: string;
+    };
+    expect(sent.text).toContain('not created, Linear is not configured on this tier');
+    expect(sent.text).not.toContain('sweep retries it');
+    expect(sent.subject.startsWith('[staging] ')).toBe(true);
   });
 
   it('does NOT alert on a correction — claims only', async () => {

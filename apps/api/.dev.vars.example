@@ -214,6 +214,11 @@ ANTHROPIC_API_KEY=
 # https://resend.com (API Keys). The repo uses Resend, not the spec's original
 # "Loops" — see docs/email.md. To exercise real sends locally, set a key AND
 # EMAIL_FROM to a verified-domain sender below.
+# Local mail reaches INTERNAL addresses only (AECI-1198). Local runs as a
+# non-production tier, so a send to anyone outside @thewbsproject.com or
+# @aecintegrations.com is suppressed and logged, and every subject gets a
+# [preview] prefix. Test a template by sending it to your own internal address.
+# See docs/email.md §Tier delivery policy.
 RESEND_API_KEY=
 # Sender for transactional email — the Resend `from`. Bare address or `Name <addr>`.
 # Must be on a Resend-verified domain. Absent → sends skip (with RESEND_API_KEY).

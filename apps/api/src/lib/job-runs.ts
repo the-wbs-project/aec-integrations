@@ -288,6 +288,15 @@ export type JobRunDetail =
    *  read itself failed, in which case `stale` is 0 because nothing was asserted,
    *  not because nothing is stale — the §5.6 System screen needs that distinction
    *  to avoid reporting an unreadable board as a clean one. */
+  /** The daily AECI-1205 protest reply reminder. `due` is the open, unreplied
+   *  protests whose deadline falls in the next 3 days. `emails` counts per-seat sends;
+   *  a seat already reminded on an earlier run is a `duplicate`, not a failure. */
+  | {
+      job: 'protest-reply-reminder';
+      due: number;
+      capped: number;
+      emails: Record<EmailOutcome, number>;
+    }
   | {
       job: 'claim-stale-check';
       checked: number;
@@ -320,7 +329,7 @@ export type JobRunDetail =
       job: 'retention-prune';
       durationMs: number;
       rowsDeleted: number;
-      /** One entry per prunable table, ALWAYS both, zeros included — "the prune
+      /** One entry per prunable table, ALWAYS all of them, zeros included — "the prune
        *  ran and removed nothing" and "the prune did not consider this table"
        *  are different facts and this row has to distinguish them. */
       tables: RetentionPrunedTableDetail[];
@@ -365,6 +374,11 @@ export type JobRunDetail =
       failed: number;
       skipped: number;
       capped: number;
+      /** AECI-1204: findings recorded for the portal with no email (every seat
+       *  muted, or the tier policy). Absent on rows written before it. */
+      portalOnly?: number;
+      /** AECI-1204: digest emails Resend accepted (vendor seats and ops). */
+      digestsSent?: number;
     }
   /** The Stage 2 §7 term-expiry warning sweep (AECI-613). `due` is terms inside
    *  the horizon BEFORE the `expiry_notice_sent_at` fence and `suppressed` is what
@@ -382,8 +396,8 @@ export type JobRunDetail =
       capped: number;
       warned: number;
       batchFailures: number;
-      vendor: { sent: number; failed: number; skipped: number };
-      admin: { sent: number; failed: number; skipped: number };
+      vendor: Record<EmailOutcome, number>;
+      admin: Record<EmailOutcome, number>;
     }
   /** The daily IndexNow drain (AECI-826 / §20.2; every 20 minutes until
    *  AECI-1136). `submitted` vs `deleted` is the load-bearing pair: they are equal

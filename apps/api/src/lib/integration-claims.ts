@@ -27,6 +27,7 @@ import { eq, sql } from 'drizzle-orm';
 import type { Db } from '../db/client';
 import { connectorEvidencedPairs, integrations } from '../db/schema';
 import { NOTIFICATION_SENT_ACTION } from './attestation-notify';
+import type { PortalNotificationId } from './notifications/registry';
 
 type IntegrationRow = typeof integrations.$inferSelect;
 
@@ -176,6 +177,8 @@ export function isPromoteClaimFenceError(error: unknown): boolean {
  *  is what the feed's `json_extract(metadata, '$.vendorId')` filter matches. */
 export interface ClaimNotificationMetadata {
   kind: typeof CLAIM_NOTIFICATION_KIND;
+  /** The registry entry (AECI-1199). Absent on rows written before it. */
+  notificationId: Extract<PortalNotificationId, 'portal-integration-claim'>;
   vendorId: string;
   integrationId: string;
   integrationName: string | null;
@@ -194,12 +197,14 @@ export interface ClaimNotificationMetadata {
  * (entity: a claim) and the contest rows (entity: a contest).
  */
 export function claimNotificationAudit(
+  notification: Extract<PortalNotificationId, 'portal-integration-claim'>,
   actor: { actorId: string | null; actorType: AuditLogEntry['actorType'] },
-  metadata: Omit<ClaimNotificationMetadata, 'kind'>,
+  metadata: Omit<ClaimNotificationMetadata, 'kind' | 'notificationId'>,
   anchor: 'integration' | 'evidenced_pair' = 'integration',
 ): AuditLogEntry {
   const full: ClaimNotificationMetadata = {
     kind: CLAIM_NOTIFICATION_KIND,
+    notificationId: notification,
     ...metadata,
     pairSlugs: metadata.pairSlugs ? orderedPairSlugs(...metadata.pairSlugs) : null,
   };

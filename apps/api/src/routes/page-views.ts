@@ -20,6 +20,7 @@ import {
 } from '../db/schema';
 import { logToPosthog, submitCount } from '../posthog';
 import { classifyTraffic } from '../lib/bot-classification';
+import { sha256Hex } from '../lib/hash';
 import { classifyClientSignals } from '../lib/client-signals';
 import { classifyReferrer } from '../lib/referrer-classification';
 import type { Env } from '../env';
@@ -103,13 +104,6 @@ function readCfContext(req: Request): CfContext {
     tlsVersion: tlsVersion || null,
     httpProtocol: httpProtocol || null,
   };
-}
-
-async function sha256Hex(input: string): Promise<string> {
-  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(input));
-  return Array.from(new Uint8Array(digest))
-    .map((b) => b.toString(16).padStart(2, '0'))
-    .join('');
 }
 
 function localeFromRoute(_route: string): string {

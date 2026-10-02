@@ -19,7 +19,11 @@
  * trusted the return would be testing the shim.
  */
 
-import { JOB_RUNS_RETENTION_DAYS, PAGE_VIEWS_RETENTION_DAYS } from '@aeci/shared';
+import {
+  JOB_RUNS_RETENTION_DAYS,
+  NOTIFICATION_SENDS_RETENTION_DAYS,
+  PAGE_VIEWS_RETENTION_DAYS,
+} from '@aeci/shared';
 import { count, eq } from 'drizzle-orm';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -27,6 +31,7 @@ import {
   auditLog,
   jobRuns,
   metricsDaily,
+  notificationSends,
   pageViews,
   workflowInstances,
   workflowTransitions,
@@ -50,12 +55,17 @@ const NOW = new Date('2027-08-01T03:00:00.000Z');
 const TODAY = '2027-08-01';
 
 /** The default windows, as the cron resolves them with no env override. */
-const WINDOWS = { page_views: PAGE_VIEWS_RETENTION_DAYS, job_runs: JOB_RUNS_RETENTION_DAYS };
+const WINDOWS = {
+  page_views: PAGE_VIEWS_RETENTION_DAYS,
+  job_runs: JOB_RUNS_RETENTION_DAYS,
+  notification_sends: NOTIFICATION_SENDS_RETENTION_DAYS,
+};
 
 /** Last day the `page_views` prune removes, and the first it keeps. */
 const PV_CUTOFF_DAY = shiftDay(TODAY, -PAGE_VIEWS_RETENTION_DAYS); // 2026-06-27
 const PV_LAST_PRUNED_DAY = shiftDay(PV_CUTOFF_DAY, -1); // 2026-06-26
 const JR_CUTOFF_DAY = shiftDay(TODAY, -JOB_RUNS_RETENTION_DAYS); // 2027-05-03
+const NS_CUTOFF_DAY = shiftDay(TODAY, -NOTIFICATION_SENDS_RETENTION_DAYS); // 2026-06-27
 
 let t: TestDb;
 beforeEach(async () => {
@@ -75,6 +85,19 @@ async function seedJobRuns(days: string[]): Promise<void> {
     .values(days.map((day) => ({ job: 'home-stats' as const, startedAt: at(day) })));
 }
 
+async function seedNotificationSends(days: string[]): Promise<void> {
+  await t.db.insert(notificationSends).values(
+    days.map((day) => ({
+      notificationId: 'review-submitted',
+      recipientHash: 'h',
+      tier: 'production',
+      outcome: 'sent' as const,
+      createdAt: at(day),
+      updatedAt: at(day),
+    })),
+  );
+}
+
 /** One `metrics_daily` row per day — the gate only asks that a day was captured
  *  at all, not that all 20 keys landed (stocks are never backfilled). */
 async function seedSnapshots(days: string[]): Promise<void> {
@@ -92,7 +115,9 @@ function daysBetween(from: string, to: string): string[] {
 }
 
 /** `select count(*)` for a table, as a plain number. */
-async function tally(table: typeof pageViews | typeof jobRuns): Promise<number> {
+async function tally(
+  table: typeof pageViews | typeof jobRuns | typeof notificationSends,
+): Promise<number> {
   const [row] = await t.db.select({ value: count() }).from(table);
   return row?.value ?? 0;
 }
@@ -140,9 +165,22 @@ describe('resolveRetentionDays', () => {
   it('resolves both windows from env, independently', () => {
     expect(resolveRetentionWindows({})).toEqual(WINDOWS);
     expect(resolveRetentionWindows({ JOB_RUNS_RETENTION_DAYS: '45' })).toEqual({
-      page_views: PAGE_VIEWS_RETENTION_DAYS,
+      ...WINDOWS,
       job_runs: 45,
     });
+    expect(resolveRetentionWindows({ NOTIFICATION_SENDS_RETENTION_DAYS: '60' })).toEqual({
+      ...WINDOWS,
+      notification_sends: 60,
+    });
+  });
+
+  it('keeps notification_sends for 400 days, and reports a refused override by table', () => {
+    expect(NOTIFICATION_SENDS_RETENTION_DAYS).toBe(400);
+    const onInvalid = vi.fn();
+    expect(resolveRetentionWindows({ NOTIFICATION_SENDS_RETENTION_DAYS: '7' }, onInvalid)).toEqual(
+      WINDOWS,
+    );
+    expect(onInvalid).toHaveBeenCalledWith('notification_sends', expect.stringContaining('floor'));
   });
 });
 
@@ -162,7 +200,7 @@ describe('runRetentionPrune', () => {
     expect(await t.db.select().from(auditLog)).toHaveLength(0);
   });
 
-  it('reports both tables at zero so the rows_deleted series stays continuous', async () => {
+  it('reports every table at zero so the rows_deleted series stays continuous', async () => {
     const result = await runRetentionPrune(t.db, NOW, WINDOWS);
     expect(result.tables.map((x) => x.table)).toEqual([...PRUNABLE]);
     expect(result.tables.every((x) => x.rowsDeleted === 0)).toBe(true);
@@ -194,6 +232,64 @@ describe('runRetentionPrune', () => {
     // No `metrics_daily` rows exist at all here, and that is fine: the gate is
     // about `page_views`, which has none either.
     expect(await t.db.select().from(metricsDaily)).toHaveLength(0);
+  });
+
+  it('prunes notification_sends on its own 400-day window and keeps the boundary day', async () => {
+    await seedNotificationSends([shiftDay(NS_CUTOFF_DAY, -1), NS_CUTOFF_DAY, TODAY]);
+
+    const result = await runRetentionPrune(t.db, NOW, WINDOWS);
+
+    expect(result).toMatchObject({ status: 'pruned', rowsDeleted: 1 });
+    expect(result.tables.find((x) => x.table === 'notification_sends')).toMatchObject({
+      cutoff: `${NS_CUTOFF_DAY}T00:00:00.000Z`,
+      rowsDeleted: 1,
+      truncated: false,
+    });
+    const survivors = await t.db
+      .select({ createdAt: notificationSends.createdAt })
+      .from(notificationSends);
+    expect(survivors.map((r) => r.createdAt.slice(0, 10)).sort()).toEqual([NS_CUTOFF_DAY, TODAY]);
+    // The deletion is recorded in the same batch, like the other tables.
+    const [audit] = await t.db
+      .select()
+      .from(auditLog)
+      .where(eq(auditLog.action, 'retention.pruned'));
+    expect(audit?.metadata).toEqual({
+      rowsDeleted: 1,
+      tables: [
+        {
+          table: 'notification_sends',
+          cutoff: `${NS_CUTOFF_DAY}T00:00:00.000Z`,
+          rowsDeleted: 1,
+        },
+      ],
+    });
+  });
+
+  it('chunks a notification_sends prune that spans several chunks', async () => {
+    const day = shiftDay(NS_CUTOFF_DAY, -1);
+    const rows = PRUNE_CHUNK_ROWS + 10;
+    for (let i = 0; i < rows; i += 100) {
+      await seedNotificationSends(Array.from({ length: Math.min(100, rows - i) }, () => day));
+    }
+    await seedNotificationSends([TODAY]);
+
+    const result = await runRetentionPrune(t.db, NOW, WINDOWS);
+
+    expect(result.rowsDeleted).toBe(rows);
+    expect(await tally(notificationSends)).toBe(1);
+  });
+
+  it('a snapshot gap stops the notification_sends prune too', async () => {
+    await seedPageViews([PV_LAST_PRUNED_DAY]);
+    await seedSnapshots([]);
+    await seedNotificationSends([shiftDay(NS_CUTOFF_DAY, -1)]);
+
+    const result = await runRetentionPrune(t.db, NOW, WINDOWS);
+
+    expect(result.status).toBe('skipped');
+    expect(result.tables.map((x) => x.table)).toEqual([...PRUNABLE]);
+    expect(await tally(notificationSends)).toBe(1);
   });
 
   // ── §7.4 rule 2: the gate ────────────────────────────────────────────────
@@ -382,7 +478,11 @@ describe('runRetentionPrune', () => {
     await seedSnapshots(daysBetween(shiftDay(TODAY, -40), TODAY));
     await seedPageViews([shiftDay(TODAY, -40), shiftDay(TODAY, -20)]);
 
-    const result = await runRetentionPrune(t.db, NOW, { page_views: 30, job_runs: 30 });
+    const result = await runRetentionPrune(t.db, NOW, {
+      page_views: 30,
+      job_runs: 30,
+      notification_sends: 30,
+    });
 
     expect(result.rowsDeleted).toBe(1);
     expect(await tally(pageViews)).toBe(1);

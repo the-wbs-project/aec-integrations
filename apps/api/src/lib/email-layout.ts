@@ -77,8 +77,20 @@ export interface EmailCta {
  *
  * Both halves are plain strings and both are escaped by the renderer, because every
  * operator alert that uses this carries submitter-supplied text (name, role, email).
+ *
+ * A value that is a whole `https://` URL renders as a link. Pass `{ plain: true }` as
+ * the third element for any value a vendor wrote that reaches another vendor: a
+ * protest reason, a decline note, a proposed value. AECi must not hand one vendor a
+ * clickable link that another vendor chose (AECI-1197 review). The escaped text still
+ * shows, and a mail client may still auto-link it, but AECi's own markup never does.
  */
-export type EmailTableRow = readonly [label: string, value: string];
+export type EmailTableRow = readonly [label: string, value: string, options?: EmailTableRowOptions];
+
+/** Per-row rendering options for an {@link EmailTableRow}. */
+export interface EmailTableRowOptions {
+  /** Never render the value as a link, even when it is a whole URL. */
+  plain?: true;
+}
 
 /** One headed group of rows, for an alert that is about N things rather than one. */
 export interface EmailSection {
@@ -115,6 +127,12 @@ export interface EmailLayout {
   cta?: EmailCta;
   /** Small print below the hairline rule. */
   note?: string;
+  /**
+   * A link appended to the small print, e.g. the one-click mute in a digest footer
+   * (AECI-1204). Needs `note`. Rendered as an underlined link in the HTML part and as
+   * `label: url` in the text part. The label is escaped like the note.
+   */
+  noteLink?: EmailCta;
 }
 
 /**
@@ -149,7 +167,13 @@ export function renderEmailText(layout: EmailLayout): string {
     parts.push(`${section.heading}\n${section.rows.map(([k, v]) => `  ${k}: ${v}`).join('\n')}`);
   }
   if (layout.cta) parts.push(`${layout.cta.label}: ${layout.cta.url}`);
-  if (layout.note) parts.push(layout.note);
+  if (layout.note) {
+    parts.push(
+      layout.noteLink
+        ? `${layout.note}\n${layout.noteLink.label}: ${layout.noteLink.url}`
+        : layout.note,
+    );
+  }
   return parts.join('\n\n');
 }
 
@@ -169,7 +193,7 @@ export function renderEmailHtml(layout: EmailLayout): string {
     ...(layout.table?.length ? [tableRow(layout.table)] : []),
     ...(layout.sections ?? []).map(sectionRow),
     ...(layout.cta ? [ctaRow(layout.cta), pasteableUrlRow(layout.cta.url)] : []),
-    ...(layout.note ? [hairlineRow(), noteRow(layout.note)] : [spacerRow()]),
+    ...(layout.note ? [hairlineRow(), noteRow(layout.note, layout.noteLink)] : [spacerRow()]),
   ].join('');
 
   return (
@@ -269,7 +293,7 @@ function tableRow(rows: readonly EmailTableRow[]): string {
 /** The two-column grid itself, shared by the flat `table` and each `sections` group. */
 function detailTable(rows: readonly EmailTableRow[]): string {
   const cells = rows
-    .map(([label, value], i) => {
+    .map(([label, value, options], i) => {
       const top = i === 0 ? '' : 'border-top:1px solid #d4d4d8;';
       const pad = i === 0 ? 0 : 10;
       return (
@@ -277,7 +301,7 @@ function detailTable(rows: readonly EmailTableRow[]): string {
         `<td valign="top" width="35%" style="padding:${pad}px 12px 10px 0;${top}font-family:${FONT};font-size:13px;line-height:1.5;color:#71717a">` +
         `${escapeHtml(label)}</td>` +
         `<td valign="top" style="padding:${pad}px 0 10px 0;${top}font-family:${FONT};font-size:14px;line-height:1.5;color:#0a0a0a;word-break:break-word">` +
-        `${tableValue(value)}</td>` +
+        `${options?.plain ? escapeHtml(value) : tableValue(value)}</td>` +
         `</tr>`
       );
     })
@@ -304,7 +328,8 @@ function sectionRow(section: EmailSection, i: number): string {
 }
 
 /** Escaped always; linked only when the whole value is an absolute `https://` URL, so
- *  a sentence that merely mentions one is never half-linked. */
+ *  a sentence that merely mentions one is never half-linked. A row marked
+ *  `{ plain: true }` skips this and is never linked. */
 function tableValue(value: string): string {
   const safe = escapeHtml(value);
   if (!/^https:\/\/\S+$/.test(value)) return safe;
@@ -352,10 +377,13 @@ function hairlineRow(): string {
   );
 }
 
-function noteRow(note: string): string {
+function noteRow(note: string, link?: EmailCta): string {
+  const linkHtml = link
+    ? ` <a href="${escapeHtml(link.url)}" style="color:#1e3a2f;text-decoration:underline">${escapeHtml(link.label)}</a>.`
+    : '';
   return (
     `<tr><td style="padding:20px 32px 32px 32px;font-family:${FONT};font-size:13px;line-height:1.6;color:#71717a">` +
-    `${escapeHtml(note)}</td></tr>`
+    `${escapeHtml(note)}${linkHtml}</td></tr>`
   );
 }
 

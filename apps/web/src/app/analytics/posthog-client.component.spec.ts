@@ -103,6 +103,18 @@ describe('createPostHogClient — Tier 2 operational init (§3.3)', () => {
     expect(lastInitConfig()['disable_external_dependency_loading']).toBe(true);
   });
 
+  it('wires before_send to strip ?token= from $current_url', async () => {
+    await createPostHogClient();
+    const beforeSend = lastInitConfig()['before_send'] as (
+      cr: { properties: Record<string, unknown> } | null,
+    ) => { properties: Record<string, unknown> } | null;
+    expect(typeof beforeSend).toBe('function');
+    const out = beforeSend({
+      properties: { $current_url: 'https://www.aecintegrations.com/unsubscribe?token=s3cret' },
+    });
+    expect(out?.properties['$current_url']).toBe('https://www.aecintegrations.com/unsubscribe');
+  });
+
   it('returns null (and never inits) when the injected config is absent', async () => {
     delete (globalThis as GlobalWithConfig).__AECI_POSTHOG__;
     expect(await createPostHogClient()).toBeNull();

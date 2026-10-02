@@ -24,7 +24,10 @@ decision record; no separate ADR.
 - **Transport:** `apps/api/src/lib/email.ts` — a single Resend client in the API
   Worker. Modeled on `lib/toxicity.ts` (the canonical third-party-client posture):
   - **Never throws.** Every failure mode resolves to an `EmailOutcome`
-    (`'sent' | 'failed' | 'skipped'`).
+    (`'sent' | 'failed' | 'unknown' | 'skipped' | 'suppressed' | 'duplicate'`).
+    `failed` is a non-2xx from Resend, so the mail did not go. `unknown` is a timeout or a
+    thrown call, so the mail may or may not have gone (AECI-1197 review). `suppressed` is
+    the tier delivery policy below. `duplicate` is the send ledger's dedupe refusal, below.
   - **Fire-and-forget.** Every call site dispatches via `ctx.waitUntil` so a send
     never blocks (or fails) the action that triggered it (§11.1).
   - **Fail-open / absent-key → `'skipped'`.** No `RESEND_API_KEY` (or no
@@ -32,15 +35,17 @@ decision record; no separate ADR.
     local `dev:bound` / PR-preview state, mirroring `ANTHROPIC_API_KEY` /
     `LINEAR_API_KEY`.
   - `POST https://api.resend.com/emails` (Bearer auth, `from/to/subject/text/html`,
-    `AbortSignal.timeout`).
+    `AbortSignal.timeout`). A keyed send adds Resend's `Idempotency-Key` header, below.
   - **Operator blind copy.** Both transports (`sendTransactionalEmail` and the cron
     `sendEmail`) add a Resend `bcc` from the `EMAIL_BCC` var, so every email the API
     Worker sends also reaches `support@aecintegrations.com`. The point is to see exactly
-    what users receive. An address already in `to` is not copied again. The magic-link
+    what users receive. The exception is `attestation-digest`, below. An address already in `to` is not copied again. The magic-link
     email is not covered: Supabase sends it over SMTP, outside this code (see
     §Magic-link sender below).
   - **Separate copy for unsubscribable sends.** A send with a `List-Unsubscribe`
-    header never gets a `bcc`. Today that is only `mailing-list-welcome`. A `bcc` is
+    header never gets a `bcc`. Today that is `mailing-list-welcome` and
+    `attestation-digest`. The digest passes no `operatorCopy`, so the operator gets no
+    copy of it at all. A `bcc` is
     the same message, so the operator's copy would carry the subscriber's one-click
     opt-out, and Outlook's Unsubscribe button on it would remove the real subscriber.
     Instead, after the subscriber's send succeeds, `sendOperatorCopy` sends a second
@@ -49,14 +54,79 @@ decision record; no separate ADR.
     token `operator-copy`, which matches no subscriber, so the link is inert. The copy
     is not counted in `aeci.email.send`, and a failed copy only warns. No copy goes
     out when the subscriber's send fails.
+  - **Send ledger (AECI-1202).** Every send writes `notification_sends` rows
+    (`DATABASE_SCHEMA.md` §9.9), one per addressed recipient, through
+    `lib/notifications/send-ledger.ts`. The Resend response body is now read on a 2xx:
+    its `{ "id": … }` is stored as `provider_message_id`. A body that does not parse
+    still counts as `sent`, with a null id. Every non-2xx body is still drained or read,
+    so no connection is held (AECI-666).
+    - `sendTransactionalEmail` reserves a `sending` row before the Resend call and
+      settles it to `sent`, `failed` or `unknown` after. A `skipped` or `suppressed` send gets one
+      settled row. The registry id is `notification_id`.
+    - `SendInput.dedupeKey` (optional) is the at-most-once guard. A key already held
+      returns `'duplicate'` with no Resend call and no operator copy, and writes a
+      `duplicate` row. A `failed` send (Resend answered non-2xx) releases its key. An
+      `unknown` send (a timeout or a thrown call, AECI-1197 review) keeps it, because the
+      request may have reached Resend and a retry would then mail twice. A crash mid-send
+      keeps it too. The caller builds the key, because only the caller knows what "the
+      same event" means. The keys in use (AECI-1203, AECI-1204, AECI-1205):
+
+      | Template | Key | Effect |
+      |---|---|---|
+      | `claim-submitted-alert` | `claim-submitted-alert:{requestId}`, shared by the submit and the reconcile sweep | At most one claim alert per request. The sweep's send goes out only when Resend refused the submit's |
+      | `review-approved`, `review-rejected` | `review-decision:{reviewId}` (shared) | One decision email per review |
+      | `stuck-request-alert` | `stuck-request-alert:{requestId}:{bandIndex}` | One email per band |
+      | `stale-claim-ticket-alert` | `stale-claim-ticket-alert:{requestId}:{bandIndex}` | One email per band |
+      | `mailing-list-welcome` | `mailing-list-welcome:{recipientHash}:{YYYY-MM}` | One welcome per address per UTC month |
+      | `landing-signup` | `landing-signup:{recipientHash}:{YYYY-MM}` | One signup alert per address per UTC month |
+      | `attestation-digest` | `attestation-digest:{vendorId}:{profileId}:{YYYY-MM-DD}` | One digest per seat per day |
+      | `attestation-ops-digest` | `attestation-ops-digest:{YYYY-MM-DD}:{hash prefix}` | One digest per ops address per day |
+      | `protest-submitted-alert` | `protest-submitted-alert:{contestId}:{protestedAt}` | One alert per protest |
+      | `contest-protest-opened` | `contest-protest-opened:{contestId}:{protestedAt}:{profileId}` | One email per seat per protest |
+      | `contest-protest-reply-reminder` | `contest-protest-reply-reminder:{contestId}:{protestedAt}:{profileId}` | One reminder per seat per protest |
+      | `contest-declined-protest-window` | `contest-declined-protest-window:{contestId}:{profileId}` | One email per seat per declined contest |
+
+      The two band alerts are digests. Their key lists every row as
+      `{requestId}:{bandIndex}`, sorted and joined by `,` (`bandDigestKey`,
+      `lib/alert-bands.ts`). `bandIndex` is 0 for the first band, 1 for the second, then
+      one more per daily boundary past the last band.
+    - **`Idempotency-Key` (AECI-1197 review).** Every keyed transactional send also
+      sends Resend's `Idempotency-Key` header, built by `resendIdempotencyKey`. The value is
+      `{tier}:{dedupeKey}:{body hash}`. The tier is there because every tier sends from one
+      Resend account and keys are account-wide. The body hash is the first 16 hex of the
+      SHA-256 of the request body. A value over 256 characters, or outside printable ASCII, is sent as its
+      SHA-256 hex. Resend's own docs
+      (`https://resend.com/docs/dashboard/emails/idempotency-keys`, read 2026-10-01): up to
+      256 characters, kept 24 hours, a repeat with the same body returns the first id
+      without mailing, a repeat with a different body is a 409. The header goes on whether the
+      ledger is up or down, because Resend dedupes only when both attempts carry the same
+      key. An identical retry across a ledger outage is stopped by Resend. A re-send with a
+      changed body after a refused send (as with the claim alert's sweep send) gets a new
+      key, so it never meets a 409. The cost: a changed-body retry across a ledger outage
+      can mail twice (ADR 0038, Consequences).
+    - The digest `sendEmail` makes one Resend call and writes one row per recipient,
+      sharing the id. A thrown call writes `unknown` rows. It reads `DB` from its env. The cron passes its whole `Env`.
+    - The operator copy gets one row per operator address under its own registry id.
+      A BCC copy gets no row.
+    - A ledger DB error logs a warning and the mail still goes. Every caller sends inside
+      `waitUntil` or a cron, so the ledger adds no latency to a route response.
+    - The address is never stored. `recipient_hash` is the same unsalted SHA-256 the
+      suppression log uses, so "what did we send to X" is a hash of X and an index seek.
+      Unsalted means linkable: it is a pseudonymous identifier and personal data, kept
+      400 days (`DATABASE_SCHEMA.md` §9.9).
 - **Observability:** every attempt emits `aeci.email.send` (count) tagged
-  `outcome:sent|failed|skipped` + `template:<id>`; failures also `warn` with
-  `source: 'email'`. Telemetry is wrapped so it can never turn a send into a throw.
-  **Every send is fail-open, so the telemetry is the only evidence a send was
-  attempted at all** — a `'skipped'` outcome leaves no other trace. That backstop is
+  `outcome:sent|failed|unknown|skipped|suppressed|duplicate` + `template:<id>`; failures also
+  `warn` with `source: 'email'`. Telemetry is wrapped so it can never turn a send into a
+  throw. Since AECI-1202 the send ledger above is the durable per-send record, and the
+  telemetry is the aggregate view. The ledger fails open too, so on a D1 outage the
+  telemetry is again the only evidence a send was attempted. That backstop is
   **PostHog** (ADR 0024; the Datadog leg was removed at AECI-651). Whichever
   console you are in, the query is the same shape: the `aeci.email.send` count broken
   down by `outcome` and `template`.
+  **Alerts (AECI-1206):** `email-failure-rate`, `email-volume-spike` and
+  `email-suppressed-in-production` watch this metric in production. Thresholds and their
+  basis are in `docs/OBSERVABILITY.md` §Alerts. The failure-rate alert counts `unknown`
+  as failed.
 - **Recipient emails** for reviewers come from `fetchAuthUserEmails()`
   (`lib/supabase-admin.ts`, the GoTrue Admin API) — D1 has no `auth.users` (ADR
   0016). The submission email uses the verified `session.email` directly; the
@@ -66,12 +136,82 @@ decision record; no separate ADR.
   `null` on **PR previews and local dev**, where the key is absent by design
   (`AUTH_AND_RLS.md` §3.1).
 
+## Tier delivery policy (AECI-1198)
+
+**The rule: an email to an outside recipient sends from production only.** Every other
+tier sends only to internal addresses. Anything else is suppressed and logged.
+
+Why it exists. Every tier shares one Supabase auth project, so staging and demo resolve
+real vendor seat addresses. Staging, demo and agent workspaces also hold a live
+`RESEND_API_KEY`. Without this gate, a staging sweep emails real vendors.
+
+How it works. The policy is `apps/api/src/lib/notifications/delivery-policy.ts`. Both
+transports in `lib/email.ts` apply it before they call Resend.
+
+| | Production | Every other tier |
+|---|---|---|
+| Who counts as production | `ENV` is exactly `production` | `development`, `preview`, `staging`, `demo`, a missing `ENV`, or any unknown value |
+| Outside recipient | Sent | Suppressed. No Resend call. |
+| Internal recipient | Sent | Sent |
+| `EMAIL_BCC` addresses | All copied | Outside addresses dropped |
+| Subject | Unchanged | Prefixed with the tier, e.g. `[staging] [AECi] New vendor claim: …` |
+
+- **The allowlist is two domains:** `thewbsproject.com` and `aecintegrations.com`. It is
+  the code constant `INTERNAL_RECIPIENT_DOMAINS`, not an env var, so a bad var cannot
+  widen it. The match is exact on the part after the last `@`, case-insensitive. A
+  subdomain such as `mail.thewbsproject.com` is outside. So are lookalikes such as
+  `evilthewbsproject.com`.
+- **One address per value (AECI-1197 review).** Resend reads a `to` string as a list, so a
+  value that hides a second address would mail it. A value is outside when it has a `,` or
+  `;`, whitespace inside the address, more than one `@` in the address, more than one `<`
+  or `>`, or an `@` outside the angle brackets. `x@gmail.com,support@aecintegrations.com`
+  and `"a@x.com"@aecintegrations.com` are both suppressed.
+- **Fail closed.** A missing or unknown `ENV` is non-production. Its subject prefix is
+  `[non-production]`.
+- **What a suppressed send leaves.** `sendTransactionalEmail` returns `'suppressed'` and
+  counts `aeci.email.send` with `outcome:suppressed`. It writes a `console.warn` with the
+  template, the tier and `recipientHash`. The hash is an unsalted SHA-256 of the trimmed,
+  lowercased address (`lib/hash.ts`). The raw address is never logged. A suppressed
+  recipient gets no operator `COPY:` either.
+- **The cron `sendEmail` transport** filters its `to` list. It sends to whoever is left
+  and returns `'suppressed'` only when nobody is left. It logs the same hash for each
+  dropped address, with the digest's registry id as `template` (AECI-1199).
+- **How callers treat `suppressed`.** It never counts as delivered. The attestation
+  sweep treats a seat whose send was `suppressed` like a muted seat. If every seat was
+  muted or suppressed, it writes the portal row and counts the finding `portal-only`, since
+  AECI-1204. A mix of suppressed and failed sends writes no row. The entitlement sweep
+  counts it per channel and does not stamp the fence. The analytics digest records a
+  `skipped` job run.
+- **Linear noise on non-production tiers.** `LINEAR_API_KEY` is set on production only.
+  So on any other tier without the key, the reconciliation sweep skips the
+  `stuck-request-alert` email. The metric and the error log still fire. The
+  `claim-submitted-alert` row reads `not created, Linear is not configured on this tier`
+  there, not the "sweep retries it" line.
+- **Supabase sign-in mail is outside this gate.** Supabase sends the magic-link and
+  invite emails itself, over the Resend SMTP relay (§Magic-link sender below). No code
+  in this repo touches that path, so this policy cannot stop it.
+- **Testing a template on a non-production tier.** Send it to an internal address. It
+  arrives with the tier prefix.
+
 ### Operating notes (moved from CLAUDE.md, 2026-09-23)
 
 - Lead capture (`feedback` and `mailing_list`) lives in D1 (AECI-257). It is written by `POST /api/feedback` and `POST /api/subscribe`.
 - The caller is the shared mailing-list signup band in `apps/web`, through the SSR Worker's `/api/*` passthrough. The pre-launch `apps/landing` Worker was retired at the apex cutover (AECI-247/277).
 - Unsubscribe (AECI-537) is a tokenized soft-delete through `POST /api/unsubscribe`, with the RFC 8058 one-click header.
 - The `/unsubscribe` page confirms, then POSTs. A GET never mutates. The page is noindex and non-cacheable.
+
+## Notification catalogue
+
+**The list of everything AECi sends is [`docs/NOTIFICATIONS.md`](./NOTIFICATIONS.md).** It is
+generated from the notification registry, `apps/api/src/lib/notifications/registry.ts`
+(AECI-1199), by `pnpm docs:notifications`, and root `pnpm lint` fails when it is stale
+(AECI-1200). It covers every channel: Resend email, the cron digests, the Supabase sign-in
+email, vendor portal rows and Linear writes, plus the PostHog monitoring alerts. For each
+entry it gives the trigger, audience, tier rule, dedupe, ledger, opt-out and governing doc.
+
+This file keeps the transport, the house layout, the per-template copy notes below, secrets,
+the magic-link sender and deliverability. To add an email, add its registry entry first, then
+name the id at the sender, regenerate the catalogue, and add a row to §Template content notes.
 
 ## House layout (the shared shell)
 
@@ -93,7 +233,7 @@ the only brand-correct email in the product and the only one **not** sent by
 | Text wordmark | "AEC Integrations", 14px / 600, Forest, on the white card below the band |
 | Heading | 22px / 600 / 1.3, `#0A0A0A` |
 | Blocks | 15px / 1.6, `#52525B`. First block sits at 12px, later ones at 16px |
-| Detail table | Optional `table` rows. Label 13px `#71717A` at `width="35%"`, value 14px `#0A0A0A`, rows separated by a 1px `#D4D4D8` hairline, no outer box. A value that is a bare `https://` URL renders as a Forest link |
+| Detail table | Optional `table` rows. Label 13px `#71717A` at `width="35%"`, value 14px `#0A0A0A`, rows separated by a 1px `#D4D4D8` hairline, no outer box. A value that is a bare `https://` URL renders as a Forest link, unless the row passes `{ plain: true }` as its third element. **Every vendor-written value that reaches another vendor must be `plain`** (AECI-1197 review): the contest emails' proposed value, value on record, integration name, protest reason (`Their reason`) and decline note (`Their note`). AECi must not hand one vendor a clickable link another vendor chose |
 | Sections | Optional `sections`: the same table repeated under a 15px/600 `#0A0A0A` heading per item, for an alert about N things. Set `table` **or** `sections`, never both |
 | CTA | Forest fill, `#FFFFFF` label, 6px radius, plus the `[if mso]` `v:roundrect` twin Outlook for Windows needs |
 | Paste-able URL | Always rendered under a CTA. Corporate gateways strip buttons routinely |
@@ -145,6 +285,9 @@ then migrated **the whole claim-to-activation path**: `claim-submitted-alert`,
 `stale-claim-ticket-alert`. The `claim-denied` pair followed: the vendor counterparty
 half (`attestation-claim-denied`) and the ops half (`attestation-ops-alert`) moved off
 the legacy `toText`/`toHtml` and `opsText`/`opsTable` formatters onto the house layout.
+**AECI-1204 (2026-10-01) then retired all five per-finding attestation ids** in favour of two
+digests, `attestation-digest` and `attestation-ops-digest`, both on the house layout. The text
+above about the older ids is history.
 `landing-signup` followed on 2026-09-16: the lead-capture path's operator alert, whose
 `Referrer` row now auto-links and whose CTA is `/admin/audience`, the screen equivalent
 AECI-586 gave it. `landing-feedback` followed on 2026-09-18 with the same CTA, which
@@ -156,8 +299,8 @@ unbranded `<body>` of `<p>` tags at an off-palette `#27272a`:
 
 | Formatter | Templates | Count |
 |---|---|---|
-| **`renderEmailHtml` / `renderEmailText`** (house layout) | `review-submitted`, `review-approved`, `review-rejected`, `review-submitted-alert`, `claim-approved`, `claim-rejected`, `claim-submitted-alert`, `vendor-seat-invite`, `stuck-request-alert`, `stale-claim-ticket-alert`, `attestation-claim-denied`, `attestation-ops-alert`, `landing-signup`, `landing-feedback` | 14 |
-| `toText` / `toHtml` (legacy reader-facing) | `account-deleted`, `mailing-list-welcome`, `attestation-silent-counterparty`, `attestation-open-conflict`, `attestation-stale-version`, `entitlement-expiring` | 6 |
+| **`renderEmailHtml` / `renderEmailText`** (house layout) | `review-submitted`, `review-approved`, `review-rejected`, `review-submitted-alert`, `claim-approved`, `claim-rejected`, `claim-submitted-alert`, `contest-submitted-alert`, `protest-submitted-alert`, `contest-protest-opened`, `contest-protest-reply-reminder`, `contest-declined-protest-window`, `vendor-seat-invite`, `stuck-request-alert`, `stale-claim-ticket-alert`, `attestation-digest`, `attestation-ops-digest`, `landing-signup`, `landing-feedback` | 19 |
+| `toText` / `toHtml` (legacy reader-facing) | `account-deleted`, `mailing-list-welcome`, `entitlement-expiring` | 3 |
 | `opsText` / `opsTable` (operator) | `entitlement-expiring-admin` | 1 |
 
 `opsSectionsText` / `opsSectionsHtml` are **gone**: the two templates that used them were
@@ -178,7 +321,7 @@ AECI-924 rejected that. What made the migration possible is the layout's optiona
 and until then the shell could only carry prose. Migrating the remaining ones is now
 mechanical — move the rows into `table`, promote the one actionable link to the `cta`,
 and leave the plain-text part alone, since `renderEmailText` emits exactly the
-`Key: value` block `opsText` did. The `attestation-ops-alert` migration followed this
+`Key: value` block `opsText` did. The `attestation-ops-alert` migration (since replaced by `attestation-ops-digest`) followed this
 pattern: the facts moved into `table`, the pair-page URL auto-links as a row value, and
 there is no CTA because the action (correcting curation) happens in the review app, not
 on a page the email can link to.
@@ -196,44 +339,40 @@ Both lead-capture alerts have migrated.
 The two cron digests are still unmigrated and are a larger job: `lib/analytics-digest.ts`
 carries its own 640px card and its own `#2e4a3d` accent, which is not a DESIGN.md token.
 
-## Template catalogue
+## Template content notes
+
+What each transactional email says and how it renders: subject, layout, CTA, and what it
+deliberately leaves out. Who gets it, what triggers it, its dedupe and its tier rule are in
+[`docs/NOTIFICATIONS.md`](./NOTIFICATIONS.md), generated from the registry. The vendor portal
+rows that send no email are listed there too.
 
 **Corrected 2026-09-23 (AECI-1108):** the `claim-approved`, `claim-rejected` and `vendor-seat-invite` rows now state their subject lines, as their siblings do. The subjects are quoted from `apps/api/src/lib/email.ts`.
 
-| `template` id | Trigger / call site | Recipient | Notes |
-|---|---|---|---|
-| `review-submitted` | `POST /api/reviews` (`routes/reviews.ts`) | reviewer (`session.email`) | Subject: `Your review of ${product} is in moderation`. House layout since 2026-09-29. Names the product in subject and heading, and repeats the submission as a detail table: ratings, headline, a 400-character excerpt of the body, and role, firm, years and recommendation when given. The CTA is the product page when `PUBLIC_SITE_URL` is set. |
-| `review-submitted-alert` | `POST /api/reviews`, post-commit, beside `review-submitted` | `ADMIN_ALERT_EMAIL` (the support inbox) | Subject: `[AECi] New review to moderate: ${product}`. Operator alert that a review is waiting, so moderation does not depend on someone opening `/admin/reviews`. House layout. The table carries the reviewer's email, the full review, the toxicity score (`not scored` when the classifier failed open), the review id, the deployment host and the listing. The single CTA is `/admin/reviews`. Absent `ADMIN_ALERT_EMAIL` → `skipped`, and the queue stays the durable record. |
-| `review-approved` | `PATCH /api/admin/reviews/:id` approve (`routes/admin-reviews.ts`) | reviewer | House layout since 2026-09-29. CTA "View your review" to `/products/{slug}` when `PUBLIC_SITE_URL` set. |
-| `review-rejected` | `PATCH /api/admin/reviews/:id` reject | reviewer | House layout since 2026-09-29. Includes the moderator's reason. CTA "Read the review guidelines" when `PUBLIC_SITE_URL` set. |
-| `account-deleted` | `DELETE /api/account` (`routes/account.ts`) | the deleted user (captured pre-erasure) | GDPR confirmation |
-| `mailing-list-welcome` | `POST /api/subscribe` on a fresh insert or reactivation (`routes/landing-forms.ts`) | the new subscriber (`payload.email`) | Subscriber welcome / first touch (AECI-327). Links to `/products` when `PUBLIC_SITE_URL` set. Not sent on the still-active already-listed no-op. Sibling of the operator `landing-signup` alert. Unsubscribe (AECI-537): with a public host + the subscriber's token, the in-body link and `List-Unsubscribe` header point at the tokenized `/unsubscribe` flow and set RFC 8058 one-click (`List-Unsubscribe-Post`); without them it degrades to the `unsubscribe@<EMAIL_FROM domain>` mailto (see List-Unsubscribe section below). |
-| `stuck-request-alert` | reconciliation sweep (`lib/admin-alert.ts` → `lib/reconciliation-sweep.ts`) | `ADMIN_ALERT_EMAIL` | §6.2 persistent-failure digest. **On the house layout since AECI-924**, through the layout's `sections` (added for this shape), one section per stuck request, carrying the failure **cause** and its plain-English gloss, whether a retry actually ran, and the listing link when `PUBLIC_SITE_URL` is set. `/admin/requests` was a row repeated in every section and is now the single CTA, which is honest because the queue is one page whatever N is. The cause gloss joins with a colon, not the em dash it used to. The subject names the cause when every row shares one, e.g. `[AECi] 1 request stuck in the Linear pipeline (no_api_key)`. **Band-throttled since AECI-854** — one email at 60 min, one at 6 h, then one a day, not one per 15-minute sweep. Unthrottled it sent 96 a day per stuck row, against the same Resend account the Supabase magic-link sender uses, which is a sign-in hazard and not just noise. The `persistent_failure` metric and error log are deliberately **not** throttled. |
-| `landing-signup` | `POST /api/subscribe` on a fresh insert (`routes/landing-forms.ts`) | `ADMIN_ALERT_EMAIL` | Operator "new mailing-list signup" (AECI-247/277 — replaces the retired `apps/landing` Worker's own send). Not sent on the idempotent already-listed no-op. **Screen equivalent since AECI-586: `/admin/audience`.** House layout since 2026-09-16, with `/admin/audience` as its CTA. |
-| `landing-feedback` | `POST /api/feedback` (`routes/landing-forms.ts`) | `ADMIN_ALERT_EMAIL` | Operator "new feedback submitted" (AECI-247/277). **Screen equivalent since AECI-586: `/admin/audience` → Feedback inbox, over `GET /api/admin/feedback`.** House layout since 2026-09-18, with `/admin/audience` as its CTA. |
-| `claim-submitted-alert` | `POST /api/requests/claim` (`routes/requests.ts`) — post-commit, `ctx.waitUntil`, **claims only**; ALSO re-sent by the §6.7 reconciliation sweep when that is what finally created the issue (AECI-861) | `CLAIM_ALERT_EMAIL` (the support inbox) | Operator alert that a claim landed, so intake does not depend on someone watching Linear. **On the house layout since AECI-924** (the second template on it, and the first operator alert): the facts ride the layout's `table` rather than an unbranded `border="1"` grid, and the `/admin/claims/:id` deep link is the single Forest CTA ("Review the claim") rather than an `Administer` row, because reviewing the claim is the one action the email exists to prompt. No `PUBLIC_SITE_URL` means no button and no link rows, exactly as it previously meant no link rows. The plain-text part is unchanged. Carries the claimed target, the submitter's email/name/role, the claimant's LinkedIn profile when they supplied one (AECI-847 — the row reads `not supplied` rather than disappearing, because a missing row in an ops table reads as a rendering bug), and the two §6.8 admin signals the reviewer would otherwise look up by hand — `domain_match` and the duplicate-probe id — plus links to `/admin/claims` and the listing when `PUBLIC_SITE_URL` is set. **Since AECI-861 it is SEQUENCED AFTER the Linear issue, not fired beside it**, so it carries the issue permalink, the deployment host, and the `/admin/claims/:id` deep link to the row rather than the queue. A failed creation renders `Linear issue: not created yet, the reconciliation sweep will retry` rather than omitting the row, because "no ticket yet" is itself what the operator needs to know. **The claimant still gets nothing at submit time** (by design); their only mail is the decision pair below. Corrections deliberately do not alert: they share `createRequest`, but a correction is a low-stakes data fix while a claim asserts control of a listing. The scope lives in `NOTIFIED_REQUEST_KINDS` (`lib/request-links.ts`), read by both send sites, so admitting corrections is one edit. |
-| `contest-submitted-alert` | `POST /api/vendor/integrations/:id/contests` (`routes/vendor-contests.ts`), post-commit, `ctx.waitUntil`, **only when the contest routes to AECi** (AECI-1132) | `CLAIM_ALERT_EMAIL` (the support inbox) | Operator alert that a vendor filed an integration field contest AECi must decide. An AECi-routed contest has no vendor on the other side, so it writes no portal notification, and without this nobody learned of it until someone opened `/admin/contests`. Same inbox as `claim-submitted-alert`, because an `owner` contest is the owner-unknown claim path (`STAGE_2_VENDOR_PORTAL_SPEC.md` §4.5). House layout. The table carries the integration, the field, the current and proposed values (an `owner` value as the vendor's name, `none` for no owner), the submitting vendor, its reason, why AECi decides (owner field, unclaimed row, owner seat lapsed, or owner cannot decide on a connector-powered row), the contest id, the deployment host and the pair page. The single CTA is `/admin/contests`. The subject is `[AECi] Ownership contest: <integration>` or `[AECi] Field contest: <field> on <integration>`. An owner-routed contest sends nothing. Vendors still get no contest email (§11b.8). |
-| `stale-claim-ticket-alert` | the `25 */6` `claim-stale-check` cron (`lib/claim-stale-check.ts`, AECI-862) | `FOUNDER_ALERT_EMAIL` | Founder escalation: claim tickets that **exist** in Linear and that nobody has started after 24 hours. A deliberate third recipient — `stuck-request-alert` means the pipeline is broken and goes to whoever fixes it, this means the pipeline worked and the humans did not, so merging them would bury a business-response problem inside an infrastructure alert. The intro says so in as many words ("nothing is broken"). **On the house layout since AECI-924**, through `sections`, one per ticket, carrying the Linear identifier and title, how long it has waited, the state it is stuck in, the claimant, and **both** links: Linear is where you accept the work, `/admin/claims/:id` is where the claimant's evidence is. Those stay in the rows because with N tickets there is no single one to promote; the CTA is `/admin/claims`, the same page whatever N is. `Ticket` split into `Ticket` + `Title`, which drops a banned em dash and separates the key you paste into Linear from the title you read. Band-throttled by the caller (`lib/alert-bands.ts`) — once as the ticket crosses 24 h, then once a day, never four times a day. Staleness is read from **Linear**, not `vendor_requests.status`, because the local status depends on the §6.3 inbound webhook, which is not confirmed to be delivering. |
-| `claim-approved` | `PATCH /api/admin/claims/:id` approve (`routes/admin-claims.ts`, AECI-528) | claimant (`submitter_email`) | Subject: `Your claim for ${name} is approved`. `${name}` is the vendor name, or the product name for a product claim. Names the claimed vendor/product, lists what the account can now do, links to the `/vendor` dashboard when `PUBLIC_SITE_URL` set. **Two variants since AECI-1215**, by the plan the operator chose (`STAGE_2_PAID_TIERS_SPEC.md` §13.6). Only the capabilities line differs. Managed: "From your vendor portal you can edit the company profile, submit data corrections, and add integration attestations." Free: "Your account is on the Free plan. From your vendor portal you can edit your company details and your product listing." Both share the `claim-approved` template id, because it is one event and the plan is in the audit row. Sign-in copy branches on the `invited` (just-provisioned) vs `linked` identity outcome. Verification framed as an account status, never ranking/placement. **The first template on the house layout (2026-09-14)** — the portal moved from an inline link inside a sentence to the single Forest CTA, since it is the one action the email exists to prompt, and the copy re-cut into a heading plus three short blocks. No `PUBLIC_SITE_URL` means no button, exactly as it previously meant no link. Every §9 AC is unchanged. |
-| `claim-rejected` | `PATCH /api/admin/claims/:id` reject | claimant (`submitter_email`) | Subject: `Your claim for ${name} was not approved`. `${name}` is the vendor name, or the product name for a product claim. Neutral by design (§9 AC): names the vendor, states the claim wasn't approved, invites resubmission. The reviewer's decision `reason` is an **internal audit note** (recorded in `audit_log`, admin-visible) and is **never emailed** — so nothing a reviewer types can leak to the claimant. **On the house layout since AECI-924**, migrated with its `claim-approved` sibling rather than after it, because one claimant receiving a branded approval and an unbranded rejection is worse than either alone. It ships **no CTA**: the Forest button is the layout's one action and a rejection has none the AC permits, so a layout with no `cta` renders no button and no paste-able URL. That makes it the reference for a CTA-less migration. |
-| `vendor-seat-invite` | `POST /api/vendor/seats/invites` **and** `POST /api/vendor/seats/invites/:id/resend` (`routes/vendor-seat-invites.ts`, AECI-664 / AECI-927) — post-commit, `ctx.waitUntil` | the invited colleague (the address the owner typed) | Subject: `You're invited to manage ${name} on AEC Integrations`, where `${name}` is the vendor name. **The only template a CUSTOMER triggers**, which is why that endpoint carries the tightest rate limit on the surface — a 24 h cap of 10 per vendor, plus an AECI-773 burst bucket keyed per vendor rather than per seat so five seats cannot buy five times the sends. (Since AECI-773 it is no longer the *only* rate-limited endpoint — see `waf-rate-limits.md` §6 — but it is still the only one that mails a third party on a customer's command, which is what earns the daily cap.) **AECI-927 added a second trigger** and capped it separately rather than reusing the daily count: a re-send is bounded per INVITE, by a 5-minute cooldown on `last_sent_at` plus a lifetime 4 sends on `send_count`. The lifetime cap is the one that bounds mail volume — pending invites accumulate for 14 days, so a cooldown alone leaves the daily total in the thousands. The re-send re-uses the ORIGINAL sender's name, not the caller's, because the recipient recognises the name on the first copy. Names the inviter and the company (a cold "you have been granted access" from a directory the recipient may not know is indistinguishable from phishing), states the address the link is bound to (redeeming requires signing in as exactly that address, so saying it up front turns the likeliest failure into an instruction), and says the link expires. Carries the redeem link — safe in a URL because the token identifies an invite and never authorizes one (`STAGE_2_VENDOR_PORTAL_SPEC.md` §11a). No `PUBLIC_SITE_URL` → the whole send is `skipped` rather than mailing an invite with nowhere to act on it. **On the house layout since AECI-924, and of the migrated set this is the one that most needed it.** Every point above is a defence against reading as phishing, and the legacy shell undercut all of them: bare grey paragraphs, no logo, the sender named nowhere but the `From:`, and the redeem link as a naked inline anchor. The house shell names the sender in the body twice (logo alt text and the wordmark row, so it survives images-off corporate mail security), and the redeem link is the single Forest CTA with its URL spelled out beneath it, which matters more here than anywhere else because the recipient is being asked to trust a link from a directory they may not know. The binding and expiry lines stay prose rather than becoming table rows: they are instructions, not facts to scan. The binding line's em dash became a full stop. |
-| `attestation-silent-counterparty` | daily §7 detector sweep, 10:00 UTC (`lib/attestation-notify.ts` → `lib/attestation-detectors.ts`, AECI-302). **Never fires on a connector-powered edge** (AECI-705 / `STAGE_2_ATTESTATIONS_SPEC.md` §14) — nor do the three rows below, since the sweep drops every *vendor-addressed* finding on those edges before delivery. The `attestation-ops-alert` row is unaffected: ops findings are AECi's own correction signal, not a nudge | the **silent** slot's vendor seats (unbanned `vendor_admin`, addresses via `fetchAuthUserEmails`) | The counterparty affirmed a data flow and this vendor has not answered for >14d. Copy states outright that one-sided is rendered as one-sided (`STAGE_2_SPEC.md` §8.1(4)), so the nudge informs rather than pressures. Links to the canonical pair page + `/vendor`; both omitted when `PUBLIC_SITE_URL` is unset. |
-| `attestation-open-conflict` | same sweep | **both** disputing vendors' seats | Two vendors recorded opposing positions and it has stood >7d. Non-accusatory, mirroring the pair page's "Companies disagree" treatment — the disagreement is a difference in description, not a defect in either product. Recipients are the *attesting* vendors, not every slot co-owner. |
-| `attestation-stale-version` | same sweep | the attesting vendor's seats | An assertion has aged past 12 months with no version data, or still affirms a flow whose deprecated version has passed. The ask is explicitly three-way — re-confirm, add versions, or **withdraw** — because withdraw is a legitimate answer and a confirm-only ask biases the data. |
-| `attestation-claim-denied` | same sweep (**AECI-961**) | the **counterparty** vendor's seats — the slot with no live attestation | Every live voter has denied a flow, and the other side has said nothing. Non-accusatory on the `attestation-open-conflict` precedent: the recipient has not disagreed with anyone, they have said nothing at all, so the mail informs and invites a position rather than asking them to defend one. **Stance only, never the denier's note.** The reason is confidentiality (AECI-1139): no attestation note is public, and only the other company and AECi may read it, inside the vendor portal. An email can be forwarded, so quoting the note would take it past that audience. The recipient reads it in the portal instead. Free text quoted into an email also lands as an accusation. States what the vendor portal's lane states (`STAGE_2_ATTESTATIONS_SPEC.md` §6.2): the flow stays on the listing as **unverified** until AECi corrects the record, because a denial does not remove it. **Un-thresholded** — it goes on the next sweep, so the denier's in-portal acknowledgement can say plainly that the other vendor is told on the next daily check. **On the house layout.** The pair-page reference link stays as a block (informational, not the action), and the vendor portal becomes the single Forest CTA ("Record your position"), because recording a position is the one action this email exists to prompt. The three sibling nudges (`silent-counterparty`, `open-conflict`, `stale-version`) remain on the legacy formatters for now. |
-| `attestation-ops-alert` | same sweep, one email **per finding** | `ADMIN_ALERT_EMAIL` | The AECi-facing half. Two detectors route here and the body names which: `claim-denied` (every voting vendor denies a claim — it then computes `unverified`, so the correction is invisible on every surface without this) and the ops escalation of `open-conflict`. **On the house layout.** The facts ride the layout's `table` (hairline-separated, not the unbranded `border="1"` grid), and the pair-page URL auto-links as a row value. No CTA: the action this email prompts — correcting the curation — happens in the review app, not on a page the email can link to. The plain-text part is unchanged (`renderEmailText` emits the same `Key: value` block `opsText` did). §7.2 named only the three vendor ids above; the id *is* the metric tag and the catalogue key, so ops mail needs its own. **AECI-961 renamed `aeci-denied` → `claim-denied`** and dropped its AECi-origin gate, so this alert no longer asserts the claim was AECi-seeded; the same detector now also mails the counterparty via the row above. |
-| `entitlement-expiring` | daily term-expiry sweep, 11:00 UTC (`lib/entitlement-expiry.ts`, AECI-613) | the vendor's seats (unbanned `vendor_admin`, addresses via `fetchAuthUserEmails`) | The renewal prompt, sent once per term as `period_end` comes within `EXPIRY_WARNING_DAYS` (30). **The money is deliberately absent** — amount, payer, terms and PO reference are admin-side only (`STAGE_2_PAID_TIERS_SPEC.md` §8); this copy says what the status is, when the term ends, and asks the vendor to get in touch. States outright that **nothing changes on its own** (§7.3 — the sweep warns, it never lapses), so the email cannot read as a shut-off notice. Needs `SUPABASE_SERVICE_ROLE_KEY` for the seat addresses, so it resolves `skipped` locally and on PR previews. |
-| `entitlement-expiring-admin` | same sweep, one email **per term** | `ADMIN_ALERT_EMAIL` | The operator copy, and the reason there are two ids for one event: the vendor half can degrade to `skipped`, while renewal is an offline, human, invoice-driven act somebody has to actually perform. Operator format (`opsText`/`opsTable`) carrying vendor, tier, term end, **payer and invoice ref** — this is the admin-side surface where the arrangement belongs. The last row is the vendor half's own outcome, named explicitly so "the vendor was told" is never assumed: `skipped` there is the normal local/preview state and a real misconfiguration on a deployed tier. |
-
-**Integration ownership and contest events send no email (AECI-1023, checked 2026-09-22).** The
-claim (`integration_claim`), owner edit (`integration_update`), vendor create (`integration_create`, AECI-1011), retire and restore
-(`integration_retire`) and every field-contest event (`contest`: `submitted`, `withdrawn`,
-`accepted`, `declined`, `closed_by_retire`) are delivered only as `notification.sent` audit rows,
-written in the same batch as the change and read by the vendor portal's notification archive
-(`STAGE_2_VENDOR_PORTAL_SPEC.md` §4.5, §4.6, §11b.8). Per-side link writes (AECI-1007) send no
-notification at all. None of them calls `lib/email.ts`, so none has a row in the catalogue above.
-The portal copy for them lives in `vendor-notifications-list.ts` and `vendor-contest-labels.ts`. If
-one of them ever gains an email, it gets a catalogue row here in the same change.
+| `template` id | Content and design notes |
+|---|---|
+| `review-submitted` | Subject: `Your review of ${product} is in moderation`. House layout since 2026-09-29. Names the product in subject and heading, and repeats the submission as a detail table: ratings, headline, a 400-character excerpt of the body, and role, firm, years and recommendation when given. The CTA is the product page when `PUBLIC_SITE_URL` is set. |
+| `review-submitted-alert` | Subject: `[AECi] New review to moderate: ${product}`. Operator alert that a review is waiting, so moderation does not depend on someone opening `/admin/reviews`. House layout. The table carries the reviewer's email, the full review, the toxicity score (`not scored` when the classifier failed open), the review id, the deployment host and the listing. The single CTA is `/admin/reviews`. Absent `ADMIN_ALERT_EMAIL` → `skipped`, and the queue stays the durable record. |
+| `review-approved` | House layout since 2026-09-29. CTA "View your review" to `/products/{slug}` when `PUBLIC_SITE_URL` set. Shares the `review-decision:{reviewId}` key with `review-rejected` (AECI-1203), so a reviewer gets one decision email. Two admins racing on one review: the loser's batch rolls back on a `changes()` sentinel, it answers `409 REVIEW_ALREADY_MODERATED`, and it sends nothing. |
+| `review-rejected` | House layout since 2026-09-29. Includes the moderator's reason. CTA "Read the review guidelines" when `PUBLIC_SITE_URL` set. Same key and race rule as `review-approved`. |
+| `account-deleted` | GDPR confirmation |
+| `mailing-list-welcome` | Subscriber welcome / first touch (AECI-327). Links to `/products` when `PUBLIC_SITE_URL` set. **Promises no future mail since AECI-1205.** No newsletter sender exists, so the fallback line without a site URL no longer says "We'll also email you as new tools and reviews land", and the footer reads "You are on the AEC Integrations mailing list. To leave it, unsubscribe" instead of "To stop these updates". The unsubscribe mechanics are unchanged. Not sent on the still-active already-listed no-op. **Once per address per UTC calendar month** (AECI-1203): an unsubscribe then resubscribe in the same month re-activates the row but sends no second welcome, and no operator `COPY:`. Before that it re-welcomed every time. Sibling of the operator `landing-signup` alert. Unsubscribe (AECI-537): with a public host + the subscriber's token, the in-body link and `List-Unsubscribe` header point at the tokenized `/unsubscribe` flow and set RFC 8058 one-click (`List-Unsubscribe-Post`); without them it degrades to the `unsubscribe@<EMAIL_FROM domain>` mailto (see List-Unsubscribe section below). |
+| `stuck-request-alert` | §6.2 persistent-failure digest. **On the house layout since AECI-924**, through the layout's `sections` (added for this shape), one section per stuck request, carrying the failure **cause** and its plain-English gloss, whether a retry actually ran, and the listing link when `PUBLIC_SITE_URL` is set. `/admin/requests` was a row repeated in every section and is now the single CTA, which is honest because the queue is one page whatever N is. The cause gloss joins with a colon, not the em dash it used to. The subject names the cause when every row shares one, e.g. `[AECi] 1 request stuck in the Linear pipeline (no_api_key)`. **Band-throttled since AECI-854** — one email at 60 min, one at 6 h, then one a day, not one per 15-minute sweep. Unthrottled it sent 96 a day per stuck row, against the same Resend account the Supabase magic-link sender uses, which is a sign-in hazard and not just noise. The `persistent_failure` metric and error log are deliberately **not** throttled. **Not sent on a non-production tier without `LINEAR_API_KEY`** (AECI-1198): the key is production-only, so every request there is stuck by design and the email was daily noise. The metric and error log still fire. **Keyed per row and band since AECI-1203**, because the bands are stateless and a queue retry or a double cron tick in one window crossed the same band twice. The key is `stuck-request-alert:{requestId}:{bandIndex}`, one pair per row in the digest. |
+| `landing-signup` | Operator "new mailing-list signup" (AECI-247/277 — replaces the retired `apps/landing` Worker's own send). Not sent on the idempotent already-listed no-op. Once per subscriber address per UTC month, keyed like the welcome (AECI-1203). **Screen equivalent since AECI-586: `/admin/audience`.** House layout since 2026-09-16, with `/admin/audience` as its CTA. |
+| `landing-feedback` | Operator "new feedback submitted" (AECI-247/277). **Screen equivalent since AECI-586: `/admin/audience` → Feedback inbox, over `GET /api/admin/feedback`.** House layout since 2026-09-18, with `/admin/audience` as its CTA. |
+| `claim-submitted-alert` | Operator alert that a claim landed, so intake does not depend on someone watching Linear. **On the house layout since AECI-924** (the second template on it, and the first operator alert): the facts ride the layout's `table` rather than an unbranded `border="1"` grid, and the `/admin/claims/:id` deep link is the single Forest CTA ("Review the claim") rather than an `Administer` row, because reviewing the claim is the one action the email exists to prompt. No `PUBLIC_SITE_URL` means no button and no link rows, exactly as it previously meant no link rows. The plain-text part is unchanged. Carries the claimed target, the submitter's email/name/role, the claimant's LinkedIn profile when they supplied one (AECI-847 — the row reads `not supplied` rather than disappearing, because a missing row in an ops table reads as a rendering bug), and the two §6.8 admin signals the reviewer would otherwise look up by hand — `domain_match` and the duplicate-probe id — plus links to `/admin/claims` and the listing when `PUBLIC_SITE_URL` is set. **Since AECI-861 it is SEQUENCED AFTER the Linear issue, not fired beside it**, so it carries the issue permalink, the deployment host, and the `/admin/claims/:id` deep link to the row rather than the queue. A failed creation renders `Linear issue: not created yet. The reconciliation sweep retries it, and the link appears on the request in the admin console. No second email is sent.` rather than omitting the row, because "no ticket yet" is itself what the operator needs to know. **At most one claim alert per request (AECI-1203, amended in the AECI-1197 review).** Two senders share the key `claim-submitted-alert:{requestId}`: the submit, and the reconcile sweep when its retry creates the issue (with the link). AECI-861 had the sweep re-send unkeyed, so every rescued claim mailed the inbox twice. AECI-1203 removed that send, which lost the only alert whenever the submit send failed. Now the ledger decides. A delivered or `unknown` submit alert holds the key, so the sweep's send is a `duplicate` and the "No second email is sent" line stays true. A submit alert Resend refused released the key, so the sweep's send is the operator's first word of the claim. `stuck-request-alert` covers a create that never succeeds. On a non-production tier with no `LINEAR_API_KEY`, no retry can ever succeed, so the row reads `not created, Linear is not configured on this tier` instead (AECI-1198). **The claimant still gets nothing at submit time** (by design); their only mail is the decision pair below. Corrections deliberately do not alert: they share `createRequest`, but a correction is a low-stakes data fix while a claim asserts control of a listing. The scope lives in `NOTIFIED_REQUEST_KINDS` (`lib/request-links.ts`), read by both send sites, so admitting corrections is one edit. |
+| `contest-submitted-alert` | Operator alert that a vendor filed an integration field contest AECi must decide. An AECi-routed contest has no vendor on the other side, so it writes no portal notification, and without this nobody learned of it until someone opened `/admin/contests`. Same inbox as `claim-submitted-alert`, because an `owner` contest is the owner-unknown claim path (`STAGE_2_VENDOR_PORTAL_SPEC.md` §4.5). House layout. The table carries the integration, the field, the current and proposed values (an `owner` value as the vendor's name, `none` for no owner), the submitting vendor, its reason, why AECi decides (owner field, unclaimed row, owner seat lapsed, or owner cannot decide on a connector-powered row), the contest id, the deployment host and the pair page. The single CTA is `/admin/contests`. The subject is `[AECi] Ownership contest: <integration>` or `[AECi] Field contest: <field> on <integration>`. An owner-routed contest sends nothing. A contest submit still emails no vendor (§11b.8). The protest and decline emails below are the vendor-facing contest mail (AECI-1205). |
+| `protest-submitted-alert` | **AECI-1205.** Operator alert that a vendor filed a protest, which AECi must decide in `/admin/contests`. Modelled on `contest-submitted-alert`: house layout, same inbox (`CLAIM_ALERT_EMAIL`), single CTA `/admin/contests`. Subject: `[AECi] Protest: <field> on <integration>`, with the raw field id. The table carries the integration, the field, the current and proposed values, the filing vendor, the owner, the basis (the owner declined, or did not answer for 30 days), the protest reason, the evidence-link count, the owner's reply deadline, the contest id, the deployment host and the pair page. Key `protest-submitted-alert:{contestId}:{protestedAt}`. |
+| `contest-protest-opened` | **AECI-1205.** To every unbanned `vendor_admin` seat of the owner vendor, when a protest is filed. Before this the 14-day reply deadline reached the owner only as a portal row. Subject: `Reply by <deadline>: review requested on <integration>`. House layout. The lead says who protested and why (a decline, or 30 days of silence), then "You can reply once, by <deadline>", then that AECi's view is advice and nothing about the review is public. The table carries the integration, the field (a vendor-facing label, e.g. `integration type`), the value on record, the proposed value, the pair page, the protest reason and the deadline. The single CTA "Reply in Messages" opens `/vendor/{slug}/messages`. Every deadline shows its time of day in UTC, e.g. `Sep 3, 2026, 2:30 PM UTC` (`formatDeadline`). The nudge mute does not apply. Key `contest-protest-opened:{contestId}:{protestedAt}:{profileId}`. |
+| `contest-protest-reply-reminder` | **AECI-1205.** The daily 12:00 UTC `protest-reply-reminder` cron sends it to the owner's seats when an open protest has no reply and its deadline falls within the next 3 days. Subject: `Reminder: reply by <deadline> on <integration>`. Heading "Your reply closes soon". Says the owner has not replied, and that after the deadline the reply closes and AECi decides on what it has. Same table and CTA as `contest-protest-opened`. Key `contest-protest-reply-reminder:{contestId}:{protestedAt}:{profileId}`, so the three daily runs inside the window send once per seat. A replied, withdrawn, decided or past-due protest gets none. |
+| `contest-declined-protest-window` | **AECI-1205.** To every unbanned `vendor_admin` seat of the submitting vendor, when the OWNER declines its contest. Subject: `<owner> declined your change request on <integration>`. Says the value on record stays, and that the vendor can ask AECi to review it until the filing deadline (30 days), from Field contests in Messages. The table adds the owner's note (`none` when blank) and the closing instant. CTA "Open Messages" to `/vendor/{slug}/messages`. An AECi decline sends nothing, because it cannot be protested. Key `contest-declined-protest-window:{contestId}:{profileId}`. |
+| `stale-claim-ticket-alert` | Founder escalation: claim tickets that **exist** in Linear and that nobody has started after 24 hours. A deliberate third recipient — `stuck-request-alert` means the pipeline is broken and goes to whoever fixes it, this means the pipeline worked and the humans did not, so merging them would bury a business-response problem inside an infrastructure alert. The intro says so in as many words ("nothing is broken"). **On the house layout since AECI-924**, through `sections`, one per ticket, carrying the Linear identifier and title, how long it has waited, the state it is stuck in, the claimant, and **both** links: Linear is where you accept the work, `/admin/claims/:id` is where the claimant's evidence is. Those stay in the rows because with N tickets there is no single one to promote; the CTA is `/admin/claims`, the same page whatever N is. `Ticket` split into `Ticket` + `Title`, which drops a banned em dash and separates the key you paste into Linear from the title you read. Band-throttled by the caller (`lib/alert-bands.ts`) — once as the ticket crosses 24 h, then once a day, never four times a day. Keyed `stale-claim-ticket-alert:{requestId}:{bandIndex}` per row since AECI-1203, so a double tick in one window sends once. Staleness is read from **Linear**, not `vendor_requests.status`, because the local status depends on the §6.3 inbound webhook, which is not confirmed to be delivering. |
+| `claim-approved` | Subject: `Your claim for ${name} is approved`. `${name}` is the vendor name, or the product name for a product claim. Names the claimed vendor/product, lists what the account can now do, links to the `/vendor` dashboard when `PUBLIC_SITE_URL` set. **Two variants since AECI-1215**, by the plan the operator chose (`STAGE_2_PAID_TIERS_SPEC.md` §13.6). Only the capabilities line differs. Managed: "From your vendor portal you can edit the company profile, submit data corrections, and add integration attestations." Free: "Your account is on the Free plan. From your vendor portal you can edit your company details and your product listing." Both share the `claim-approved` template id, because it is one event and the plan is in the audit row. Sign-in copy branches on the `invited` (just-provisioned) vs `linked` identity outcome. Verification framed as an account status, never ranking/placement. **The first template on the house layout (2026-09-14)** — the portal moved from an inline link inside a sentence to the single Forest CTA, since it is the one action the email exists to prompt, and the copy re-cut into a heading plus three short blocks. No `PUBLIC_SITE_URL` means no button, exactly as it previously meant no link. Every §9 AC is unchanged. |
+| `claim-rejected` | Subject: `Your claim for ${name} was not approved`. `${name}` is the vendor name, or the product name for a product claim. Neutral by design (§9 AC): names the vendor, states the claim wasn't approved, invites resubmission. The reviewer's decision `reason` is an **internal audit note** (recorded in `audit_log`, admin-visible) and is **never emailed** — so nothing a reviewer types can leak to the claimant. **On the house layout since AECI-924**, migrated with its `claim-approved` sibling rather than after it, because one claimant receiving a branded approval and an unbranded rejection is worse than either alone. It ships **no CTA**: the Forest button is the layout's one action and a rejection has none the AC permits, so a layout with no `cta` renders no button and no paste-able URL. That makes it the reference for a CTA-less migration. |
+| `vendor-seat-invite` | Subject: `You're invited to manage ${name} on AEC Integrations`, where `${name}` is the vendor name. **The only template a CUSTOMER triggers**, which is why that endpoint carries the tightest rate limit on the surface — a 24 h cap of 10 per vendor, plus an AECI-773 burst bucket keyed per vendor rather than per seat so five seats cannot buy five times the sends. (Since AECI-773 it is no longer the *only* rate-limited endpoint — see `waf-rate-limits.md` §6 — but it is still the only one that mails a third party on a customer's command, which is what earns the daily cap.) **AECI-927 added a second trigger** and capped it separately rather than reusing the daily count: a re-send is bounded per INVITE, by a 5-minute cooldown on `last_sent_at` plus a lifetime 4 sends on `send_count`. The lifetime cap is the one that bounds mail volume — pending invites accumulate for 14 days, so a cooldown alone leaves the daily total in the thousands. The re-send re-uses the ORIGINAL sender's name, not the caller's, because the recipient recognises the name on the first copy. Names the inviter and the company (a cold "you have been granted access" from a directory the recipient may not know is indistinguishable from phishing), states the address the link is bound to (redeeming requires signing in as exactly that address, so saying it up front turns the likeliest failure into an instruction), and says the link expires. Carries the redeem link — safe in a URL because the token identifies an invite and never authorizes one (`STAGE_2_VENDOR_PORTAL_SPEC.md` §11a). No `PUBLIC_SITE_URL` → the whole send is `skipped` rather than mailing an invite with nowhere to act on it. **On the house layout since AECI-924, and of the migrated set this is the one that most needed it.** Every point above is a defence against reading as phishing, and the legacy shell undercut all of them: bare grey paragraphs, no logo, the sender named nowhere but the `From:`, and the redeem link as a naked inline anchor. The house shell names the sender in the body twice (logo alt text and the wordmark row, so it survives images-off corporate mail security), and the redeem link is the single Forest CTA with its URL spelled out beneath it, which matters more here than anywhere else because the recipient is being asked to trust a link from a directory they may not know. The binding and expiry lines stay prose rather than becoming table rows: they are instructions, not facts to scan. The binding line's em dash became a full stop. |
+| `attestation-digest` | **AECI-1204, 2026-10-01.** Replaces `attestation-silent-counterparty`, `attestation-open-conflict`, `attestation-stale-version` and `attestation-claim-denied`. One email per unmuted `vendor_admin` seat per day, listing every due finding for that seat's vendor. Subject: the finding's own title when there is one, else `${n} integration records for ${company} need a look`. House layout, one section per finding (title, the integration pair, what to do, the pair page), up to 25 (`DIGEST_LIST_LIMIT`). Any further findings are counted in a closing line and live in the portal's Messages list. The single Forest CTA is the vendor portal. **Never fires on a connector-powered edge** (AECI-705 / `STAGE_2_ATTESTATIONS_SPEC.md` §14): the sweep drops those vendor-addressed findings before the digest is built. Per-finding copy carries over from the retired ids. A silent counterparty says plainly that one-sided renders as one-sided (`STAGE_2_SPEC.md` §8.1(4)). An open conflict is non-accusatory, a difference in description and not a defect. A stale version asks three ways, re-confirm, add versions or withdraw, because withdraw is a legitimate answer. A claim-denied item states the stance only, never the denier's note (AECI-1139), and says the flow stays listed as unverified until AECi acts. **No operator copy**, since the send carries `List-Unsubscribe` and such a send never blind-copies the operator. **Unsubscribe:** `List-Unsubscribe` is RFC 8058 one-click to `POST /api/notifications/nudges/mute?token=`, with `List-Unsubscribe-Post`. The footer link goes to the `/notifications/mute?token=` confirm page. Both need `PUBLIC_SITE_URL` and the seat's mute token. The mute covers this digest only. Unmuting in the portal rotates the token, so the links in older digests stop working. Dedupe key: `attestation-digest:{vendorId}:{profileId}:{YYYY-MM-DD}` (UTC). Needs `SUPABASE_SERVICE_ROLE_KEY` for seat addresses, so it resolves `skipped` locally and on PR previews, and no ledger row is written then. A seat whose send is `unknown` (a timeout or thrown call) counts as emailed, so the portal row is written: its key stays held and a retry would be a `duplicate` anyway. |
+| `attestation-ops-digest` | **AECI-1204, 2026-10-01.** Replaces `attestation-ops-alert`. The AECi-facing half: every ops-routed finding of the day in one email per `ADMIN_ALERT_EMAIL` address. Two detectors route here and each section names its own. `claim-denied`: every voting vendor denies a claim, which then computes `unverified` and is invisible on every surface without this mail. `open-conflict`: the ops escalation of a standing disagreement. House layout, with each finding's facts in a section table. **No CTA and no display cap**: the action, correcting the curation, happens in the review app, and an ops row not listed here is seen nowhere else. Dedupe key: `attestation-ops-digest:{YYYY-MM-DD}:{first 16 hex of the recipient hash}`. It is per address because several addresses would otherwise collide on one key. |
+| `entitlement-expiring` | The renewal prompt, sent once per term as `period_end` comes within `EXPIRY_WARNING_DAYS` (30). **The money is deliberately absent** — amount, payer, terms and PO reference are admin-side only (`STAGE_2_PAID_TIERS_SPEC.md` §8); this copy says what the status is, when the term ends, and asks the vendor to get in touch. States outright that **nothing changes on its own** (§7.3 — the sweep warns, it never lapses), so the email cannot read as a shut-off notice. Needs `SUPABASE_SERVICE_ROLE_KEY` for the seat addresses, so it resolves `skipped` locally and on PR previews. |
+| `entitlement-expiring-admin` | The operator copy, and the reason there are two ids for one event: the vendor half can degrade to `skipped`, while renewal is an offline, human, invoice-driven act somebody has to actually perform. Operator format (`opsText`/`opsTable`) carrying vendor, tier, term end, **payer and invoice ref** — this is the admin-side surface where the arrangement belongs. The last row is the vendor half's own outcome, named explicitly so "the vendor was told" is never assumed: `skipped` there is the normal local/preview state and a real misconfiguration on a deployed tier. |
 
 **The two `landing-*` operator alerts got a screen behind them for a stronger reason
 than the digests did (AECI-586).** A digest is a summary of data that stays in D1
@@ -248,17 +387,20 @@ Copy is en-US, built inline in `lib/email.ts` (emails are not i18n'd at launch �
 CLAUDE.md i18n rule is for rendered `apps/web` templates). Migrated templates render
 through the house layout above; the rest are still plain text + minimal HTML.
 
-### Cron digests (the low-level `sendEmail` layer)
+## Cron digests (the low-level `sendEmail` layer)
 
 The table above is the **transactional** layer (`sendTransactionalEmail`, one `template`
 id each, on the `aeci.email.send` metric). Two **scheduled digests** ride the separate
-low-level `sendEmail` transport (`lib/email.ts`, AECI-241) instead — multi-recipient,
-their own metric, no `template` tag — so they don't appear above:
+low-level `sendEmail` transport (`lib/email.ts`, AECI-241) instead, multi-recipient and
+with their own metric. Since AECI-1199 each also counts on `aeci.email.send`, tagged
+`template:digest-data-quality` or `template:digest-analytics`. `sendEmail` holds no
+ExecutionContext, so the digest job emits that count beside its own. Their crons and
+recipient vars are in [`docs/NOTIFICATIONS.md`](./NOTIFICATIONS.md).
 
-| Digest | Cron (UTC) | Builder | Recipient var | Metric | Screen equivalent |
-|---|---|---|---|---|---|
-| Data-quality report | `0 4 * * *` | `lib/data-quality-email.ts` (`scheduled.ts` `runDataQualityJob`) | `DATA_QUALITY_EMAIL_{FROM,TO}` | `aeci.data_quality.email` | **`/admin/system` → "Run data-quality checks"** (AECI-580) |
-| Operator analytics digest (AECI-526) | `0 5 * * *` (05:00 UTC = 12:00 WIB, noon Jakarta) | `lib/analytics-digest.ts` (`scheduled.ts` `runAnalyticsDigestJob`) | `ANALYTICS_DIGEST_EMAIL_TO` — **production only** (sender = shared `EMAIL_FROM`) | `aeci.analytics_digest.email` | **`/admin/overview`** (AECI-576) over `GET /api/admin/overview` (AECI-574). `?day=YYYY-MM-DD` reads any UTC day, defaulting to the digest's prior complete day; `?recompute=1` refreshes the two network-dependent status items and **sends no email** |
+| Registry id | Builder | Metric | Screen equivalent |
+|---|---|---|---|
+| `digest-data-quality` | `lib/data-quality-email.ts` (`scheduled.ts` `runDataQualityJob`) | `aeci.data_quality.email` | **`/admin/system` → "Run data-quality checks"** (AECI-580) |
+| `digest-analytics` (AECI-526) | `lib/analytics-digest.ts` (`scheduled.ts` `runAnalyticsDigestJob`). Its 05:00 UTC cron is noon in Jakarta. | `aeci.analytics_digest.email` | **`/admin/overview`** (AECI-576) over `GET /api/admin/overview` (AECI-574). `?day=YYYY-MM-DD` reads any UTC day, defaulting to the digest's prior complete day; `?recompute=1` refreshes the two network-dependent status items and **sends no email** |
 
 **Neither email is retired by its screen** (`ADMIN_PANEL_SPEC.md` §13 **D2**): push and pull are
 complementary, and no cron is being removed. What the screen adds is *on demand* — the §23.1
@@ -358,13 +500,13 @@ left unset).
 | `RESEND_API_KEY` | Wrangler **secret** | API Worker, staging + production | CI pushes it from a **single shared, un-suffixed** `RESEND_API_KEY` GH secret — one Resend account/key spans every env (like `SUPABASE_ANON_KEY`); `deploy.yml`, `promote-to-demo.yml`, and `promote-to-prod.yml` all push the same secret. Graceful warn-and-skip; absent → sends `'skipped'`. |
 | `EMAIL_FROM` | plain `var` | API Worker, per env (`wrangler.jsonc`) | Resend `from`; `Name <addr>` on the verified sending domain. **One value on every tier: `AEC Integrations <notifications@aecintegrations.com>`.** |
 | `EMAIL_BCC` | plain `var` | API Worker, staging + demo + production (`wrangler.jsonc`) | Resend `bcc` on every send from both transports, except a send with a `List-Unsubscribe` header, which gets a separate `COPY:` message instead (see the transport notes above). **`support@aecintegrations.com` on all three tiers.** Comma/whitespace-separated list (`parseRecipients`). An address already in `to` is dropped. Absent → no `bcc` field. Remove the var to stop the copies. |
-| `CLAIM_ALERT_EMAIL` | plain `var` | API Worker, per env (`wrangler.jsonc`) | `To:` for `claim-submitted-alert` and, since AECI-1132, `contest-submitted-alert`. **`support@aecintegrations.com` on every tier.** A single address (not a parsed list). Kept a separate var from `ADMIN_ALERT_EMAIL` so claim intake can be routed apart from sweep alerts and lead capture. Both point at the support inbox since 2026-09-28. Absent → the alert is a `skipped` no-op. The durable record is the Linear issue for a claim and the `integration_field_challenges` row for a contest, which `/admin/contests` lists either way. |
+| `CLAIM_ALERT_EMAIL` | plain `var` | API Worker, per env (`wrangler.jsonc`) | `To:` for `claim-submitted-alert`, since AECI-1132 `contest-submitted-alert`, and since AECI-1205 `protest-submitted-alert`. **`support@aecintegrations.com` on every tier.** A single address (not a parsed list). Kept a separate var from `ADMIN_ALERT_EMAIL` so claim intake can be routed apart from sweep alerts and lead capture. Both point at the support inbox since 2026-09-28. Absent → the alert is a `skipped` no-op. The durable record is the Linear issue for a claim and the `integration_field_challenges` row for a contest, which `/admin/contests` lists either way. |
 | `FOUNDER_ALERT_EMAIL` | plain `var` | API Worker, per env (`wrangler.jsonc`) | `To:` for `stale-claim-ticket-alert`. **`founders@thewbsproject.com` on staging and production; deliberately UNSET on demo** (demo claims are rehearsal rows, so the digest fail-open skips there — the cron still runs and still emits its metrics). A single address, not a parsed list. The third alert recipient, and separate on purpose: `ADMIN_ALERT_EMAIL` means the pipeline broke, `CLAIM_ALERT_EMAIL` means a claim or an AECi-routed contest arrived, this means a vendor has been waiting a day for a human reply. Absent → the digest is a `skipped` no-op and the job still emits its metric and log, so the signal survives an unset var. |
 | `DATA_QUALITY_EMAIL_FROM` | plain `var` | API Worker, staging / demo / production | `from` for the daily data-quality digest (AECI-241). **Same address as `EMAIL_FROM`** — see the note below. |
 | `DATA_QUALITY_EMAIL_TO` | plain `var` | API Worker, staging / demo / production | `To:` for the daily data-quality digest. **`support@aecintegrations.com` on every tier.** Comma/whitespace-separated list (`parseRecipients`). Because it matches `EMAIL_BCC`, the operator copy is dropped rather than duplicated. Absent → the send is a `skipped` no-op. |
 | `ANALYTICS_DIGEST_EMAIL_TO` | plain `var` | API Worker, **production only** | `To:` for the daily operator analytics digest (AECI-526). **`support@aecintegrations.com`.** Comma/whitespace-separated list (`parseRecipients`). Left unset on staging/demo so their sends `skip`. |
 | `PUBLIC_SITE_URL` | plain `var` | API Worker, per env | Builds absolute links in emails; absent → link omitted. |
-| `ADMIN_ALERT_EMAIL` | plain `var` | API Worker, staging + demo + production | **`support@aecintegrations.com` on all three tiers since 2026-09-28** (it was `chrisw@thewbsproject.com`). Because it matches `EMAIL_BCC`, the operator copy is dropped rather than duplicated. A single address. `To:` for the stuck-request alert, the `review-submitted-alert` moderation alert, the landing signup/feedback operator notifications (AECI-247/277), the §7 attestation ops alerts (AECI-302 — one per finding; absent → those findings resolve `skipped` and are retried by the next daily sweep, since no ledger row is written), **and** the `entitlement-expiring-admin` term warnings (AECI-613 — absent → the operator half resolves `skipped`, which leaves `expiry_notice_sent_at` unstamped only if the vendor half also failed, so the term is re-warned tomorrow). |
+| `ADMIN_ALERT_EMAIL` | plain `var` | API Worker, staging + demo + production | **`support@aecintegrations.com` on all three tiers since 2026-09-28** (it was `chrisw@thewbsproject.com`). Because it matches `EMAIL_BCC`, the operator copy is dropped rather than duplicated. A single address for most senders. The attestation sweep parses it as a list. `To:` for the stuck-request alert, the `review-submitted-alert` moderation alert, the landing signup/feedback operator notifications (AECI-247/277), the daily `attestation-ops-digest` (AECI-1204: one email per listed address per day; absent → no ops digest), **and** the `entitlement-expiring-admin` term warnings (AECI-613 — absent → the operator half resolves `skipped`, which leaves `expiry_notice_sent_at` unstamped only if the vendor half also failed, so the term is re-warned tomorrow). |
 
 > **Every `_FROM` in the repo is `notifications@aecintegrations.com`, deliberately (2026-08-26).**
 > `aecintegrations.com` is the Resend-verified sending domain (§Deliverability below), and it is
@@ -386,7 +528,8 @@ gh secret set RESEND_API_KEY     # single shared key from the Resend dashboard (
 
 Until these exist, deploys still succeed and email simply no-ops (`'skipped'`).
 Local dev: set `RESEND_API_KEY` + `EMAIL_FROM` in `apps/api/.dev.vars` to exercise
-real sends (see `.dev.vars.example`).
+real sends (see `.dev.vars.example`). Local runs as a non-production tier, so mail
+reaches internal addresses only (§Tier delivery policy).
 
 ## Magic-link sender (Supabase Auth → Resend SMTP) — ops, no app code
 
@@ -557,13 +700,24 @@ List-Unsubscribe-Post: List-Unsubscribe=One-Click
 
 The https target is the public SSR host, which forwards `POST /api/unsubscribe` to the private API Worker via the `/api/*` passthrough; the mailto (RFC 2369, derived from the `EMAIL_FROM` domain) is retained as a secondary value. The in-body opt-out link points at the human-facing `/unsubscribe?token=…` page (which confirms, then POSTs the same endpoint). When the host or token is missing, both the header and the in-body link **degrade to the mailto only** — for that path to be actionable, route `unsubscribe@aecintegrations.com` (Cloudflare Email Routing) to an inbox that processes opt-outs. See `POST /api/unsubscribe` in `docs/API_CONTRACTS.md` §6.13 and the `/unsubscribe` page (`apps/web/src/app/unsubscribe/`).
 
+**The attestation digest is the second unsubscribable send (AECI-1204).** `attestation-digest`
+sets the same two headers, with a different target: `List-Unsubscribe: <https://<host>/api/notifications/nudges/mute?token=…>` and `List-Unsubscribe-Post: List-Unsubscribe=One-Click`. There is no mailto fallback. The target is the seat's mute token, a bearer capability, so it appears only in the header and the footer link and is never logged. An unmute in the portal rotates it, so the header and link in an earlier digest answer `{ ok: false }`. The web client strips `token` query parameters from every PostHog URL property before capture, and the confirm page drops the token from the address bar once it has read it (AECI-1197 review). The footer link goes to the `/notifications/mute` confirm page, which mutes only on a click. Without `PUBLIC_SITE_URL` or a token, the digest sends without the headers and without the link. Contract: `API_CONTRACTS.md`, `POST /api/notifications/nudges/mute`.
+
 ## Testing
 
 - `apps/api/src/lib/email-layout.spec.ts` — the house layout in isolation: the card, the
   hardcoded production logo URL, the alt-text-on-Forest fallback, the Forest CTA and its
   VML twin, the paste-able URL, escaping, and that the text half carries no sign-off.
 - `apps/api/src/lib/email.spec.ts` — mocks `fetch`; asserts each template's POST
-  payload + the `sent` / `failed` / `skipped` outcomes (fail-open, never throws). The
+  payload + the `sent` / `failed` / `skipped` / `suppressed` outcomes (fail-open, never
+  throws).
+- `apps/api/src/lib/email-ledger.spec.ts` and
+  `apps/api/src/lib/notifications/send-ledger.spec.ts` — the send ledger against the
+  in-memory D1 harness: the Resend id stored, the dedupe refusal with no fetch, a failed
+  send releasing its key, suppressed and skipped rows, one digest row per recipient, and
+  the fail-open path. Its fixture defaults `ENV` to `production`; the AECI-1198 suites override it.
+- `apps/api/src/lib/notifications/delivery-policy.spec.ts` — the tier policy on every
+  tier, against internal, outside, mixed-case and lookalike addresses. The
   `claim-approved` suite additionally asserts the layout markup, so a regression back to
   `toHtml()` fails rather than quietly shipping.
 - `lib/admin-alert.spec.ts` — the sweep seam delegates to the transport.

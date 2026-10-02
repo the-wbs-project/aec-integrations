@@ -70,7 +70,10 @@ describe('VendorNotificationsList', () => {
     // above a lane whose badge now reads `confirmed`.
     expect(el(fixture).querySelector('details')?.hasAttribute('open')).toBe(false);
     expect(text(fixture)).toContain('last 90 days');
-    expect(text(fixture)).toContain('state at the time it was sent');
+    expect(text(fixture)).toContain('state at the time it was recorded');
+    // AECI-1204: a row is recorded whether or not the seat was emailed, so the
+    // framing must not claim every reminder reached the inbox.
+    expect(text(fixture)).toContain('may not have reached your inbox');
   });
 
   it('renders one row per vendor-facing detector, with its title', async () => {

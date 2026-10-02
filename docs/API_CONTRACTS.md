@@ -262,6 +262,7 @@ Machine-readable codes are stable identifiers. Messages are localized.
 | `MAPPING_CONFLICT` | 409 | A mapping edit would collide with another row on the same listing (AECI-724): the same product twice (`connector_stub_mappings_pair_idx`), or a second listing-level decision (`connector_stub_mappings_decision_idx`). Nothing is written. Edit the other row instead |
 | `CATALOG_VENDOR_MANAGED` | 409 | The connector catalogue a promote page addresses is **vendor-managed** on AECi, so the review lane is frozen for it and the page was not written (AECI-720). Raised from `planConnectorCatalogPage` before any statement is built, so nothing at all is committed — no rows, no `promote_jobs` ledger row, no `audit_log` row — and it reaches the caller on the job poll, not the kick-off. Re-checked inside the page's batch by a sentinel (AECI-1084), so a catalogue flipped to `vendor` between plan and commit also answers this, with the whole batch rolled back. **Not re-sendable**, which is precisely why it is an error and not a `skipped[]` entry: every connector skip kind means "this could not be resolved *yet*". A catalogue returns to review authorship only through `PATCH /api/admin/connector-catalogs/:id` |
 | `INVALID_STATE_TRANSITION` | 422 | Attempted workflow transition is not allowed from current state |
+| `REVIEW_ALREADY_MODERATED` | 409 | `PATCH /api/admin/reviews/:id` lost a race with another moderator: both passed the pending check, the other batch committed first, and a `changes()` sentinel rolled this one back. Nothing was written, no audit row, and no email was sent (AECI-1203). Reload the queue |
 | `CONTEST_OWN_INTEGRATION` | 403 | The caller's vendor owns this integration (`built_by_vendor_id`, the vendor that offers it per AECI-1003), so it cannot contest it (AECI-1008, `STAGE_2_VENDOR_PORTAL_SPEC.md` §11b) |
 | `CONTEST_DUPLICATE` | 409 | The caller's vendor already has an OPEN contest on this field of this integration. `details.contest_id` names it when known |
 | `CONTEST_NOT_OPEN` | 409 | The contest is already accepted, declined or withdrawn. Also the answer to the loser of a decision race, whose batch rolls back entirely (no audit, transition or notification row) |
@@ -1650,7 +1651,7 @@ export const ModerateReviewResponseSchema = z.object({
 export type ModerateReviewResponse = z.infer<typeof ModerateReviewResponseSchema>;
 ```
 
-Errors: `NOT_FOUND`, `INVALID_STATE_TRANSITION` if review is not in `pending` status.
+Errors: `NOT_FOUND`, `INVALID_STATE_TRANSITION` (422) if review is not in `pending` status when the handler reads it; `409 REVIEW_ALREADY_MODERATED` if another moderator decided it between that read and this batch, which then rolls back entirely (AECI-1203). The reviewer's decision email (`review-approved` or `review-rejected`) carries the send-ledger key `review-decision:{reviewId}`, so a review gets one decision email.
 
 #### `GET /api/admin/requests`
 
@@ -3905,7 +3906,7 @@ export const AdminSystemResponseSchema = z.object({
   recomputed: z.boolean(),
   notes: z.array(AdminNoteSchema),
   version: AdminVersionStatusSchema,            // the API Worker's — see below
-  crons: z.array(AdminCronRunSchema),           // ALWAYS all fifteen
+  crons: z.array(AdminCronRunSchema),           // ALWAYS all sixteen
   data_quality: AdminDataQualityStatusSchema.nullable(),   // null unless ?recompute=1
   algolia: z.object({
     watermark: AdminAlgoliaWatermarkSchema.nullable(),     // null = the sync never ran
@@ -5189,11 +5190,11 @@ The handlers read a header when present and fall back to the body value otherwis
 
 **Operator notification (AECI-247/277).** Retiring `apps/landing` moved its operator "new signup / new feedback" Resend email into these handlers: `POST /api/subscribe` (on a real insert — never the idempotent no-op) and `POST /api/feedback` fire a fire-and-forget notification to `ADMIN_ALERT_EMAIL` via `ctx.waitUntil` (`sendLandingSignupNotification` / `sendLandingFeedbackNotification`, `apps/api/src/lib/email.ts`). Fail-open: an absent `RESEND_API_KEY` / `EMAIL_FROM` / `ADMIN_ALERT_EMAIL` is a silent skip and never affects the response.
 
-**Subscriber welcome (AECI-327).** On the same real insert **or reactivation**, `POST /api/subscribe` also fires a second fire-and-forget send — the subscriber's `mailing-list-welcome` first-touch email to `payload.email` (`sendMailingListWelcomeEmail`, `apps/api/src/lib/email.ts`) — so a fresh signup (or a resubscribe after opt-out) schedules two `ctx.waitUntil` sends (operator alert + subscriber welcome), the still-active idempotent no-op none. The welcome email carries the subscriber's `unsubscribe_token`, which builds its tokenized `/unsubscribe?token=…` in-body link and RFC 8058 one-click `List-Unsubscribe-Post` header (AECI-537; see `POST /api/unsubscribe` below and `docs/email.md`). Same fail-open contract: an absent `RESEND_API_KEY` / `EMAIL_FROM`, or an unresolved recipient, is a silent skip. When `EMAIL_BCC` is set, a successful welcome is followed by a separate `COPY:` message to that list, rendered with a dud unsubscribe token and no `List-Unsubscribe` headers, so the operator's copy can never opt the subscriber out (`sendOperatorCopy`; `docs/email.md`).
+**Subscriber welcome (AECI-327).** On the same real insert **or reactivation**, `POST /api/subscribe` also fires a second fire-and-forget send — the subscriber's `mailing-list-welcome` first-touch email to `payload.email` (`sendMailingListWelcomeEmail`, `apps/api/src/lib/email.ts`) — so a fresh signup (or a resubscribe after opt-out) schedules two `ctx.waitUntil` sends (operator alert + subscriber welcome), the still-active idempotent no-op none. **Both are once per address per UTC calendar month** (AECI-1203): they carry the send-ledger keys `mailing-list-welcome:{recipientHash}:{YYYY-MM}` and `landing-signup:{recipientHash}:{YYYY-MM}`, so an unsubscribe then resubscribe in the same month reactivates the row but sends neither email again, and no operator `COPY:`. The welcome email carries the subscriber's `unsubscribe_token`, which builds its tokenized `/unsubscribe?token=…` in-body link and RFC 8058 one-click `List-Unsubscribe-Post` header (AECI-537; see `POST /api/unsubscribe` below and `docs/email.md`). Same fail-open contract: an absent `RESEND_API_KEY` / `EMAIL_FROM`, or an unresolved recipient, is a silent skip. When `EMAIL_BCC` is set, a successful welcome is followed by a separate `COPY:` message to that list, rendered with a dud unsubscribe token and no `List-Unsubscribe` headers, so the operator's copy can never opt the subscriber out (`sendOperatorCopy`; `docs/email.md`).
 
 #### `POST /api/subscribe`
 
-Mailing-list signup. `email` is required and unique (`mailing_list_email_key`); the rest is best-effort attribution. Idempotent: returns `created: false` when the email is already on the list **and still active**. A fresh row is assigned an opaque `unsubscribe_token` (`crypto.randomUUID()`) used by the welcome-email opt-out link (AECI-537). If the email is on the list but previously **unsubscribed** (`unsubscribed_at` set), the handler **reactivates** it — clears `unsubscribed_at`, keeps the existing token, and re-welcomes — returning `created: true` (status `200`, since no new row was created). Only a genuine new insert returns `201`.
+Mailing-list signup. `email` is required and unique (`mailing_list_email_key`); the rest is best-effort attribution. Idempotent: returns `created: false` when the email is already on the list **and still active**. A fresh row is assigned an opaque `unsubscribe_token` (`crypto.randomUUID()`) used by the welcome-email opt-out link (AECI-537). If the email is on the list but previously **unsubscribed** (`unsubscribed_at` set), the handler **reactivates** it — clears `unsubscribed_at`, keeps the existing token, and re-welcomes unless this address was already welcomed this UTC month (AECI-1203) — returning `created: true` (status `200`, since no new row was created). Only a genuine new insert returns `201`.
 
 > **Since AECI-859 this table has a ROW-level read surface** — `GET /api/admin/subscribers`
 > (§6.10) and the `/admin/subscribers` screen. `GET /api/admin/audience` had read
@@ -5265,6 +5266,26 @@ export const UnsubscribeSubmitSchema = z.object({ token: z.string().trim().min(1
 **Response:** `UnsubscribeResult` — `{ ok: boolean }`, HTTP `200` on every outcome the handler reaches. `ok: true` = the token matched a subscriber who is now suppressed (idempotent — already-unsubscribed also returns `true`). `ok: false` = the token matched no one (an invalid or expired link). Tokens are unguessable, so `false` leaks no membership. A best-effort `aeci.mailing_list.unsubscribe` count is emitted on success.
 
 **One non-200: `RATE_LIMITED` (429).** Since AECI-773 the route carries the `token` burst bucket — 10 per client IP per 10 s, `Retry-After: 10` (§4.1a) — because it is the only anonymous write on this router with no WAF rule behind it, and every request is an unbounded D1 `UPDATE` keyed on a caller-supplied token. The middleware runs before the handler, so a limited request never reads the token. The RFC 8058 one-click path is POSTed automatically by mail security appliances and a 429 there reads to the mail client as a broken unsubscribe, so the ceiling sits far above any appliance's cadence.
+
+#### `POST /api/notifications/nudges/mute` (AECI-1204)
+
+The one-click mute from the attestation digest email (`STAGE_2_ATTESTATIONS_SPEC.md` §7.2). It is public and keyed on the seat's opaque `notification_preferences.mute_token`, so it needs no session. Same shape as `POST /api/unsubscribe` above. It mutes only. There is no unmute here, because unmuting is a signed-in action on the Messages page.
+
+**Two callers, one handler.** The token is read from the **`?token=` query first, then the JSON body**:
+
+- the `/notifications/mute` confirm page POSTs `{ token }` as JSON after the visitor clicks. The page never mutates on `GET`.
+- the RFC 8058 one-click header (`List-Unsubscribe-Post: List-Unsubscribe=One-Click`) makes the mail client POST a form body to `…/api/notifications/nudges/mute?token=…`. We read the query token and ignore the body.
+
+```typescript
+export const NudgeMuteSubmitSchema = z.object({ token: z.string().trim().min(1).max(100) });
+export const NudgeMuteResultSchema = z.object({ ok: z.boolean() });
+```
+
+**Response:** `{ ok: boolean }`, HTTP `200` on every outcome the handler reaches. `ok: true` means the token matched a seat, which is now muted. A repeat also returns `true`. `ok: false` means the token matched nothing. Tokens are unguessable, so `false` leaks nothing.
+
+**Audit.** A change writes `notification_preferences.updated` with `metadata.source: 'one-click'` in the same batch. The actor is the seat that owns the token. A repeat writes nothing. The token is a bearer capability and is never logged, audited or returned.
+
+**One non-200: `RATE_LIMITED` (429).** The route carries the `token` bucket, 10 per client IP per 10 s (§4.1a), for the same reason as `/api/unsubscribe`. Other errors: `VALIDATION_FAILED` (400, token missing or over 100 characters) · `MALFORMED_REQUEST` (400, body not JSON). No new codes.
 
 ---
 
@@ -5481,7 +5502,7 @@ Errors: `FORBIDDEN` (422, wrong signed-in address) · `INVALID_STATE_TRANSITION`
 
 The in-portal notification list (AECI-302 / `STAGE_2_ATTESTATIONS_SPEC.md` §7.2) — the daily §7 detector sweep's nudges to this vendor, and since AECI-1008 the contest events addressed to it. **Not account-access-gated**: the legacy `vendors.verified` mirror gates authoring, not reading, so a vendor without active access sees its own (probably empty) list rather than a `403` it cannot act on — the same reasoning as the version list.
 
-**There is no notifications table.** The sweep records every successful send in `audit_log` (`action: 'notification.sent'`, `entity_type: 'claim'`, `entity_id: <claim id>`) as its anti-nag suppression ledger, and this endpoint reads those same rows (§7.3 — "no separate store"). Two consequences for consumers:
+**There is no notifications table behind this feed.** The email send ledger `notification_sends` (AECI-1202) and the mute table `notification_preferences` (AECI-1204) exist, but this endpoint reads neither. The sweep records every due finding in `audit_log` (`action: 'notification.sent'`, `entity_type: 'claim'`, `entity_id: <claim id>`) as its anti-nag suppression ledger, and this endpoint reads those same rows (§7.3 — "no separate store"). Since AECI-1204 a row is written whether or not the vendor was emailed. The email is one daily digest per seat, and a muted or tier-suppressed seat still gets the row, so it still sees the finding here (`STAGE_2_ATTESTATIONS_SPEC.md` §7.3). `metadata.emailedSeats` records how many seats were emailed. It is not on the wire. Two consequences for consumers:
 
 1. **Every field is a snapshot taken at send time**, not a live read. Nothing is re-joined, which is what makes the list cheap — and what keeps a year-old notification legible after the claim it names has been re-curated or deleted.
 2. **Ops-routed rows are invisible here.** The ops halves of `claim-denied` and `open-conflict` are written with `metadata.vendorId = null`, which can never equal a caller's vendor id. The isolation is structural, not a clause a handler must remember. Note that since AECI-961 `claim-denied` writes **two** rows for one denial — an ops row and a counterparty row — and only the second is addressed to a vendor, so it is the only one this endpoint returns.
@@ -5559,6 +5580,28 @@ export const ListVendorNotificationsResponseSchema = z.object({
 `pair_path` is rebuilt from the stored slugs through the same alphabetical rule the pair route canonicalises to (`orderedPairSlugs`), so it always matches the indexable URL. A row whose stored snapshot cannot be read (a future detector id, a later schema) is **skipped rather than surfaced or thrown** — these rows outlive the code that wrote them.
 
 Errors: none beyond the guard's. An empty ledger is `200 { "notifications": [] }`.
+
+#### `GET /api/vendor/notification-preferences` and `PUT /api/vendor/notification-preferences` (AECI-1204)
+
+The caller's own seat setting for the daily attestation reminder email (`STAGE_2_ATTESTATIONS_SPEC.md` §7.2). One setting today: whether the seat is muted. The mute covers the attestation digest only. Seat invites, claim decisions and entitlement-expiry mail still send, and a muted seat still sees every finding in `GET /api/vendor/notifications`.
+
+**Scoping.** Both routes sit behind `requireVendor` and act on `auth.userId`, the seat's `profiles.id`. No profile id is read from the request, so a seat can only change its own preference. The setting is per seat, so one colleague muting does not silence the others.
+
+```typescript
+export const NotificationPreferencesResponseSchema = z.object({
+  nudges_muted: z.boolean(),
+  nudges_muted_at: z.string().nullable(), // ISO-8601; null when not muted
+});
+export const UpdateNotificationPreferencesSchema = z.object({ nudges_muted: z.boolean() }).strict();
+```
+
+- **`GET`** returns `NotificationPreferencesResponse`. A seat with no preference row reads as `{ nudges_muted: false, nudges_muted_at: null }`. It is a read, so it creates nothing and has no `rateLimit()` (reads are never rate-limited, `waf-rate-limits.md` §6.3).
+- **`PUT`** sets the mute and returns the same shape. It is behind `rateLimit('write')`. Unknown body keys are refused. It is idempotent: setting the state the seat already has writes nothing and emits no audit row.
+- **An unmute rotates the seat's mute token.** The `UPDATE` that clears `nudges_muted_at` also sets a new `notification_preferences.mute_token`, in the same `db.batch` as the audit row. Every mute link in an earlier digest then answers `POST /api/notifications/nudges/mute` with `200 { ok: false }`, so an old email cannot re-mute the seat. A mute keeps the token. The response shape does not change, and the token is still never returned.
+
+**Audit.** A change is domain state. It writes `notification_preferences.updated` (`entity_type: 'profile'`, `entity_id` the profile id, `before_state` and `after_state` `{ nudgesMuted }`, `metadata.source: 'vendor-portal'`) in the same `db.batch` as the write. The mute token is never returned, logged or audited.
+
+Errors: `VALIDATION_FAILED` (400, bad or unknown body key) · `MALFORMED_REQUEST` (400, body not JSON) · `RATE_LIMITED` (429, `PUT` only) · plus the guard's `401` and `403`. No new codes.
 
 #### `GET /api/vendor/updates`
 

@@ -83,9 +83,22 @@ Extend the AECI-128 request handler: after the `vendor_requests` insert, create 
 > **The `claim-submitted-alert` email is now sequenced AFTER this call, not fired beside it.** Both
 > used to be independent `ctx.waitUntil` calls, so the mail was composed while the issue was still
 > being created and could not name it. It now chains off the returned `LinearIssueOutcome` and
-> carries the permalink. The §6.4 sweep sends the same mail when IT is what finally created the
-> issue — otherwise a rescued claim notifies nobody, which is the same silent gap AECI-851 fixed one
-> layer down. Scope is `NOTIFIED_REQUEST_KINDS` (claims only, today).
+> carries the permalink. Scope is `NOTIFIED_REQUEST_KINDS` (claims only, today).
+>
+> **AECI-1203, amended by the AECI-1197 review: at most one claim alert per request.** AECI-861
+> had the §6.4 sweep re-send the mail when the sweep was what finally created the issue. Unkeyed,
+> that mailed the support inbox twice for every rescued claim. AECI-1203 removed the re-send, which
+> lost the only alert whenever the submit-time send failed. The review restored it under the
+> submit's own send-ledger key, `claim-submitted-alert:{requestId}` (`docs/email.md`), and the same
+> registry id. The ledger now decides:
+>
+> | Submit-time send | Sweep send after its retry creates the issue |
+> |---|---|
+> | `sent` | `duplicate`, no mail. Support finds the link in Linear and on `/admin/claims/:id` |
+> | `unknown` (timeout or thrown call) | `duplicate`, no mail. The submit mail may be out |
+> | `failed` (Resend refused it, key released) | Sent, with the issue link |
+>
+> The §6.4 stuck-request email covers a create that never succeeds.
 
 ### 6.2 Failure handling
 
@@ -109,6 +122,13 @@ A scheduled job (extend the existing scheduled Worker — the AECI-139 cron→qu
 > `graphql_error` and the rest reach the operator instead of "still failing after retries". That
 > wording was additionally false for a row the sweep could not rebuild, which is skipped and never
 > retried. Constants and the band predicate live in `apps/api/src/lib/reconciliation-sweep.ts`.
+>
+> **AECI-1203 amendment — one email per band, even on a replay.** The bands are stateless, so a
+> queue retry or a double cron tick in one 15-minute window crossed the same band twice and sent
+> twice. The email now carries the send-ledger key `stuck-request-alert:{requestId}:{bandIndex}`
+> (one pair per row of the digest; `bandIndex` in `lib/alert-bands.ts`), and the ledger refuses
+> the repeat. The sweep's only other email is the claim alert under the submit's key, which the
+> ledger lets through only when the submit-time send failed (§6.1).
 
 > **AECI-1008 amendment — the sweep also retries contest issues.** An AECi accept of an
 > integration field contest files a `REVIEW - Apply contested field: …` issue (or, since AECI-1005,
@@ -127,7 +147,9 @@ A scheduled job (extend the existing scheduled Worker — the AECI-139 cron→qu
 
 ### 6.4a Claim-ticket staleness check (AECI-862)
 
-The §6.4 sweep covers exactly one failure: an issue that was **never created**. Once the issue
+The §6.4 sweep covers exactly one failure: an issue that was **never created**. (When its retry
+does create one, it sends the claim alert under the submit's key, §6.1. That alert is not a
+staleness signal, and this check does not send it.) Once the issue
 exists the pipeline considers itself finished, so a ticket can sit in Backlog indefinitely with no
 signal to anyone. A scheduled job closes that gap: every six hours (`25 */6 * * *`), read the
 `claim` rows older than **24 hours** that already carry a `linear_issue_id`, ask Linear what state
@@ -146,7 +168,8 @@ Four decisions are load-bearing:
    anything, and neither is an issue Linear did not return. Both are reported, never warned on.
 3. **The email is band-throttled, the metric and log are not** — 24 h, then daily, via
    `lib/alert-bands.ts` (the AECI-854 arithmetic, generalised). Unthrottled a single stale ticket
-   would email four times a day forever.
+   would email four times a day forever. Since AECI-1203 the email also carries the key
+   `stale-claim-ticket-alert:{requestId}:{bandIndex}`, so a double tick in one window sends once.
 4. **Webhook drift is reported, never repaired.** Holding both answers makes this the only
    instrument that can see §6.3 failure at all (`aeci.linear.claim_stale.webhook_drift`). Writing
    `vendor_requests.status` from here would be a domain write needing its own `audit_log` row in the

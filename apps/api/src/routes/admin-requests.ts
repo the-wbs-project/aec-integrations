@@ -378,6 +378,7 @@ export function createModerateRequestHandler(
     // surfaced. Tolerant of a null `linearIssueId` (issue never created).
     c.executionCtx.waitUntil(
       syncToLinear(c, db, {
+        notification: 'linear-request-resolution',
         requestId: id,
         workflowId,
         linearIssueId: existing.linearIssueId,

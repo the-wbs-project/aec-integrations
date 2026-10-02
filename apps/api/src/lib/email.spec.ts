@@ -4,8 +4,8 @@
  * Two layers, two suites:
  *   - Transactional templates (AECI-240): every send NEVER throws and resolves to
  *     an `EmailOutcome`. Absent `RESEND_API_KEY`/`EMAIL_FROM` or empty recipient →
- *     silent `'skipped'` (no fetch); 2xx → `'sent'`; non-2xx/network/timeout →
- *     `'failed'` (logged, never thrown). Each template helper POSTs the right
+ *     silent `'skipped'` (no fetch); 2xx → `'sent'`; non-2xx → `'failed'`; a
+ *     network error or timeout → `'unknown'` (logged, never thrown). Each template helper POSTs the right
  *     `to`/subject/body. Global `fetch` is stubbed; `POSTHOG_PROJECT_KEY` is unset so the
  *     `warn`/metric paths are no-ops. Mirrors `toxicity.spec.ts`.
  *   - Low-level transport (AECI-241): `sendEmail` + `parseRecipients` with a faked
@@ -20,17 +20,23 @@ import { EMAIL_LOGO_URL } from './email-layout';
 import type { Env } from '../env';
 import {
   parseRecipients,
+  resendIdempotencyKey,
+  recordEmailSend,
   sendAccountDeletionEmail,
-  sendAttestationClaimDeniedEmail,
-  sendAttestationOpenConflictEmail,
-  sendAttestationOpsAlertEmail,
-  sendAttestationSilentCounterpartyEmail,
-  sendAttestationStaleVersionEmail,
+  DIGEST_LIST_LIMIT,
+  sendAttestationDigestEmail,
+  sendAttestationOpsDigestEmail,
+  type AttestationDigestFinding,
   sendClaimApprovedEmail,
   sendClaimDecisionEmail,
   sendClaimRejectedEmail,
   sendClaimSubmittedNotification,
   sendContestSubmittedNotification,
+  sendContestDeclinedProtestWindowEmail,
+  sendContestProtestOpenedEmail,
+  sendContestProtestReplyReminderEmail,
+  sendProtestSubmittedAlert,
+  formatDeadline,
   sendEmail,
   sendEntitlementExpiringAdminEmail,
   sendEntitlementExpiringEmail,
@@ -44,6 +50,7 @@ import {
   type SubmittedReviewSummary,
   sendStaleClaimTicketAlert,
   sendStuckRequestAdminAlert,
+  sendSeatInvite,
   sendTransactionalEmail,
   sendVendorSeatInviteEmail,
   type EmailContext,
@@ -79,10 +86,13 @@ function lastBody(fetchSpy: MockInstance): Record<string, unknown> {
 }
 
 /** Minimal context the client reads: env (key/sender/site) + the telemetry triple.
- *  `RESEND_API_KEY` + `EMAIL_FROM` are set by default so sends go out. */
+ *  `RESEND_API_KEY` + `EMAIL_FROM` are set by default so sends go out. `ENV` defaults
+ *  to `production` so outside test addresses pass the AECI-1198 tier policy; the
+ *  policy suite overrides it. */
 function fakeContext(env: Partial<Env> = {}): EmailContext {
   return {
     env: {
+      ENV: 'production',
       POSTHOG_PROJECT_KEY: undefined,
       RESEND_API_KEY: 'rk_test',
       EMAIL_FROM: 'AEC Integrations <notifications@aecintegrations.com>',
@@ -207,7 +217,7 @@ describe('sendTransactionalEmail (low-level)', () => {
     expect(sendTags()).toEqual([['outcome:failed', 'template:account-deleted']]);
   });
 
-  it('returns failed (never throws) on a network error', async () => {
+  it('returns unknown (never throws) on a network error: the mail may be out (AECI-1197 review)', async () => {
     vi.spyOn(globalThis, 'fetch').mockRejectedValue(new TypeError('network down'));
     await expect(
       sendTransactionalEmail(fakeContext(), {
@@ -216,7 +226,74 @@ describe('sendTransactionalEmail (low-level)', () => {
         text: 'Body',
         template: 'account-deleted',
       }),
-    ).resolves.toBe('failed');
+    ).resolves.toBe('unknown');
+    expect(sendTags()).toEqual([['outcome:unknown', 'template:account-deleted']]);
+  });
+
+  it('returns unknown on a timeout (AbortError), not failed (AECI-1197 review)', async () => {
+    vi.spyOn(globalThis, 'fetch').mockRejectedValue(
+      new DOMException('The operation was aborted due to timeout', 'TimeoutError'),
+    );
+    await expect(
+      sendTransactionalEmail(fakeContext(), {
+        to: 'r@example.com',
+        subject: 'Hi',
+        text: 'Body',
+        template: 'account-deleted',
+      }),
+    ).resolves.toBe('unknown');
+  });
+
+  it('sends a tier-scoped Idempotency-Key with a body hash on a keyed send, and none unkeyed', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(async () => ok());
+    await sendTransactionalEmail(fakeContext(), {
+      to: 'r@example.com',
+      subject: 'Hi',
+      text: 'Body',
+      template: 'account-deleted',
+      dedupeKey: 'review-decision:rev-1',
+    });
+    await sendTransactionalEmail(fakeContext(), {
+      to: 'r@example.com',
+      subject: 'Hi',
+      text: 'Body',
+      template: 'account-deleted',
+    });
+    const headers = fetchSpy.mock.calls.map(
+      (call) => (call[1] as RequestInit).headers as Record<string, string>,
+    );
+    expect(headers[0]!['Idempotency-Key']).toMatch(
+      /^production:review-decision:rev-1:[0-9a-f]{16}$/,
+    );
+    expect(headers[1]).not.toHaveProperty('Idempotency-Key');
+  });
+});
+
+describe('resendIdempotencyKey', () => {
+  it('prefixes the tier, because every tier shares one Resend account', async () => {
+    expect(await resendIdempotencyKey({ ENV: 'staging' }, 'k:1', 'b')).toMatch(
+      /^staging:k:1:[0-9a-f]{16}$/,
+    );
+    expect(await resendIdempotencyKey({}, 'k:1', 'b')).toMatch(/^non-production:k:1:[0-9a-f]{16}$/);
+  });
+
+  it('keeps the key for the same body and changes it for a new body', async () => {
+    const env = { ENV: 'production' };
+    expect(await resendIdempotencyKey(env, 'k', 'one')).toBe(
+      await resendIdempotencyKey(env, 'k', 'one'),
+    );
+    expect(await resendIdempotencyKey(env, 'k', 'one')).not.toBe(
+      await resendIdempotencyKey(env, 'k', 'two'),
+    );
+  });
+
+  it('hashes a key over 256 characters or outside printable ASCII to SHA-256 hex', async () => {
+    const long = await resendIdempotencyKey({ ENV: 'production' }, 'x'.repeat(300), 'b');
+    expect(long).toMatch(/^[0-9a-f]{64}$/);
+    expect(await resendIdempotencyKey({ ENV: 'production' }, 'café', 'b')).toMatch(
+      /^[0-9a-f]{64}$/,
+    );
+    expect(await resendIdempotencyKey({ ENV: 'production' }, 'a b', 'b')).toMatch(/^[0-9a-f]{64}$/);
   });
 });
 
@@ -619,6 +696,32 @@ describe('sendAccountDeletionEmail', () => {
 });
 
 describe('sendMailingListWelcomeEmail', () => {
+  it('promises no future mail: no new-tools line, and the footer names the list (AECI-1205)', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
+    await sendMailingListWelcomeEmail(fakeContext(), { to: 'sub@example.com' });
+    const text = String(lastBody(fetchSpy).text);
+    // No PUBLIC_SITE_URL: the fallback used to read "We'll also email you as new
+    // tools and reviews land in the directory." No newsletter sender exists.
+    expect(text).not.toContain('new tools and reviews land');
+    expect(text).not.toContain('stop these updates');
+    expect(text).toContain('The best next step is to browse the directory');
+    expect(text).toContain(
+      'You are on the AEC Integrations mailing list. To leave it, email unsubscribe@aecintegrations.com with the subject unsubscribe.',
+    );
+
+    await sendMailingListWelcomeEmail(
+      fakeContext({ PUBLIC_SITE_URL: 'https://aecintegrations.com' }),
+      { to: 'sub@example.com', token: 'tok-123' },
+    );
+    const body = lastBody(fetchSpy);
+    expect(String(body.text)).toContain(
+      'You are on the AEC Integrations mailing list. To leave it, unsubscribe here: https://aecintegrations.com/unsubscribe?token=tok-123',
+    );
+    expect(String(body.html)).toContain(
+      'You are on the AEC Integrations mailing list. To leave it,',
+    );
+  });
+
   it('welcomes the subscriber, links the directory, and carries the tokenized one-click unsubscribe (AECI-537)', async () => {
     const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
     const outcome = await sendMailingListWelcomeEmail(
@@ -743,6 +846,38 @@ describe('sendMailingListWelcomeEmail', () => {
     const fetchSpy = vi.spyOn(globalThis, 'fetch');
     expect(await sendMailingListWelcomeEmail(fakeContext(), { to: undefined })).toBe('skipped');
     expect(fetchSpy).not.toHaveBeenCalled();
+  });
+});
+
+// AECI-1199: the id a sender names is the registry entry, and it reaches the metric.
+describe('notification registry ids on the aeci.email.send metric', () => {
+  const invite = {
+    to: 'colleague@globex.com',
+    vendorName: 'Globex Inc',
+    invitedByName: 'Dana Ortiz',
+    token: 'tok_abc123',
+    expiresAt: '2026-10-01T12:00:00.000Z',
+  };
+  const env = { PUBLIC_SITE_URL: 'https://www.aecintegrations.com' };
+
+  it('tags a seat-invite re-send with its own registry id, end to end through the seam', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
+    await sendSeatInvite(fakeContext(env), {
+      ...invite,
+      notification: 'vendor-seat-invite-resend',
+    });
+    expect(sendTags()).toEqual([['outcome:sent', 'template:vendor-seat-invite-resend']]);
+  });
+
+  it('tags a first seat invite with the base id', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
+    await sendSeatInvite(fakeContext(env), { ...invite, notification: 'vendor-seat-invite' });
+    expect(sendTags()).toEqual([['outcome:sent', 'template:vendor-seat-invite']]);
+  });
+
+  it('tags a cron digest with its registry id through recordEmailSend', () => {
+    recordEmailSend(fakeContext(), 'suppressed', 'digest-analytics');
+    expect(sendTags()).toEqual([['outcome:suppressed', 'template:digest-analytics']]);
   });
 });
 
@@ -1430,7 +1565,7 @@ describe('sendClaimSubmittedNotification', () => {
       { ...CLAIM, linearIssueUrl: null },
     );
     const text = String(lastBody(fetchSpy).text);
-    expect(text).toContain('Linear issue: not created yet, the reconciliation sweep will retry');
+    expect(text).toContain('Linear issue: not created yet. The reconciliation sweep retries it');
     expect(text).not.toContain('—');
   });
 });
@@ -1438,6 +1573,7 @@ describe('sendClaimSubmittedNotification', () => {
 // ─── Low-level transport (AECI-241) ─────────────────────────────────────────────
 
 const MSG = {
+  notification: 'digest-data-quality' as const,
   from: 'AECi <dq@aecintegrations.com>',
   to: ['a@x.com', 'b@x.com'],
   subject: 'subj',
@@ -1458,7 +1594,7 @@ describe('sendEmail', () => {
     const fetchImpl = vi.fn();
     expect(
       await sendEmail(
-        { RESEND_API_KEY: 'k' },
+        { ENV: 'production', RESEND_API_KEY: 'k' },
         { ...MSG, to: [] },
         fetchImpl as unknown as typeof fetch,
         silent,
@@ -1466,7 +1602,7 @@ describe('sendEmail', () => {
     ).toBe('skipped');
     expect(
       await sendEmail(
-        { RESEND_API_KEY: 'k' },
+        { ENV: 'production', RESEND_API_KEY: 'k' },
         { ...MSG, from: '' },
         fetchImpl as unknown as typeof fetch,
         silent,
@@ -1480,7 +1616,7 @@ describe('sendEmail', () => {
       async (_url: string | URL, _init?: RequestInit) => new Response('{}', { status: 200 }),
     );
     const out = await sendEmail(
-      { RESEND_API_KEY: 'secret' },
+      { ENV: 'production', RESEND_API_KEY: 'secret' },
       MSG,
       fetchImpl as unknown as typeof fetch,
       silent,
@@ -1503,7 +1639,11 @@ describe('sendEmail', () => {
       async (_url: string | URL, _init?: RequestInit) => new Response('{}', { status: 200 }),
     );
     await sendEmail(
-      { RESEND_API_KEY: 'secret', EMAIL_BCC: 'support@aecintegrations.com, A@x.com' },
+      {
+        ENV: 'production',
+        RESEND_API_KEY: 'secret',
+        EMAIL_BCC: 'support@aecintegrations.com, A@x.com',
+      },
       MSG,
       fetchImpl as unknown as typeof fetch,
       silent,
@@ -1515,17 +1655,27 @@ describe('sendEmail', () => {
   it('returns failed on a non-2xx response', async () => {
     const fetchImpl = vi.fn(async () => new Response('bad', { status: 422 }));
     expect(
-      await sendEmail({ RESEND_API_KEY: 'k' }, MSG, fetchImpl as unknown as typeof fetch, silent),
+      await sendEmail(
+        { ENV: 'production', RESEND_API_KEY: 'k' },
+        MSG,
+        fetchImpl as unknown as typeof fetch,
+        silent,
+      ),
     ).toBe('failed');
   });
 
-  it('returns failed (never throws) when fetch rejects', async () => {
+  it('returns unknown (never throws) when fetch rejects: the digest may be out (AECI-1197 review)', async () => {
     const fetchImpl = vi.fn(async () => {
       throw new Error('network');
     });
     expect(
-      await sendEmail({ RESEND_API_KEY: 'k' }, MSG, fetchImpl as unknown as typeof fetch, silent),
-    ).toBe('failed');
+      await sendEmail(
+        { ENV: 'production', RESEND_API_KEY: 'k' },
+        MSG,
+        fetchImpl as unknown as typeof fetch,
+        silent,
+      ),
+    ).toBe('unknown');
   });
 });
 
@@ -1552,8 +1702,8 @@ function trackedResponse(status: number, body = '{}'): { res: Response; drained:
 const settled = () => new Promise((r) => setTimeout(r, 0));
 
 describe('Resend transports release the response body', () => {
-  it('sendTransactionalEmail drains on 2xx', async () => {
-    const { res, drained } = trackedResponse(200);
+  it('sendTransactionalEmail reads the 2xx body to the end, for the Resend id (AECI-1202)', async () => {
+    const res = new Response('{"id":"re_1"}', { status: 200 });
     vi.spyOn(globalThis, 'fetch').mockResolvedValue(res);
 
     await sendTransactionalEmail(fakeContext(), {
@@ -1562,12 +1712,11 @@ describe('Resend transports release the response body', () => {
       text: 'Body',
       template: 'review-submitted',
     });
-    await settled();
 
-    expect(drained()).toBe(true);
+    expect(res.bodyUsed).toBe(true);
   });
 
-  it('sendTransactionalEmail drains on a non-2xx too (neither branch reads it)', async () => {
+  it('sendTransactionalEmail drains on a non-2xx (that branch does not read it)', async () => {
     const { res, drained } = trackedResponse(422, 'rejected');
     vi.spyOn(globalThis, 'fetch').mockResolvedValue(res);
 
@@ -1582,20 +1731,19 @@ describe('Resend transports release the response body', () => {
     expect(drained()).toBe(true);
   });
 
-  it('sendEmail drains on 2xx', async () => {
-    const { res, drained } = trackedResponse(200);
+  it('sendEmail reads the 2xx body to the end, for the Resend id (AECI-1202)', async () => {
+    const res = new Response('{"id":"re_1"}', { status: 200 });
     const fetchImpl = vi.fn(async () => res);
 
     const out = await sendEmail(
-      { RESEND_API_KEY: 'k' },
+      { ENV: 'production', RESEND_API_KEY: 'k' },
       MSG,
       fetchImpl as unknown as typeof fetch,
       silent,
     );
-    await settled();
 
     expect(out).toBe('sent');
-    expect(drained()).toBe(true);
+    expect(res.bodyUsed).toBe(true);
   });
 
   it('sendEmail still reads the error body on a non-2xx (drain must not steal it)', async () => {
@@ -1605,7 +1753,7 @@ describe('Resend transports release the response body', () => {
     const fetchImpl = vi.fn(async () => new Response('domain not verified', { status: 403 }));
 
     const out = await sendEmail(
-      { RESEND_API_KEY: 'k' },
+      { ENV: 'production', RESEND_API_KEY: 'k' },
       MSG,
       fetchImpl as unknown as typeof fetch,
       {
@@ -1635,156 +1783,180 @@ describe('parseRecipients', () => {
   });
 });
 
-// ─── Attestation detector nudges (§7.2 — AECI-302) ────────────────────────────
+// ─── Attestation digests (§7.2 — AECI-302, digest since AECI-1204) ────────────
 
-describe('attestation nudge templates', () => {
-  const SUBJECT = {
-    to: 'ops@vendor.test',
+describe('attestation digest templates (AECI-1204)', () => {
+  const SITE = { PUBLIC_SITE_URL: 'https://www.aecintegrations.com' };
+  const finding = (over: Partial<AttestationDigestFinding> = {}): AttestationDigestFinding => ({
+    detector: 'silent-counterparty',
     dataObject: 'RFIs',
     product: 'Revit',
     counterpart: 'Procore',
     mechanismName: 'Procore Connector',
     pairSlugs: ['revit', 'procore'] as const,
-  };
-
-  it('sends the silent-counterparty nudge under its own template id', async () => {
-    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
-    const c = fakeContext({ PUBLIC_SITE_URL: 'https://www.aecintegrations.com' });
-
-    expect(await sendAttestationSilentCounterpartyEmail(c, SUBJECT)).toBe('sent');
-    expect(sendTags()).toEqual([['outcome:sent', 'template:attestation-silent-counterparty']]);
-
-    const body = lastBody(fetchSpy);
-    expect(body.to).toBe('ops@vendor.test');
-    expect(body.subject).toContain('RFIs');
-    // The canonical pair URL: alphabetically-first slug is the context.
-    expect(String(body.text)).toContain(
-      'https://www.aecintegrations.com/products/procore/integrations/revit',
-    );
-    // The §8.1(4) promise, stated in the copy rather than merely implied.
-    expect(String(body.text)).toContain('reported by one vendor only');
+    ...over,
+  });
+  const ALL_FOUR: AttestationDigestFinding[] = [
+    finding({ detector: 'open-conflict' }),
+    finding({ detector: 'claim-denied' }),
+    finding({ detector: 'silent-counterparty' }),
+    finding({ detector: 'stale-version' }),
+  ];
+  const digest = (over: Partial<Parameters<typeof sendAttestationDigestEmail>[1]> = {}) => ({
+    to: 'seat@vendor.test',
+    vendorId: 'v-1',
+    vendorName: 'Acme',
+    findings: ALL_FOUR,
+    muteToken: 'tok-1',
+    dedupeKey: 'attestation-digest:v-1:p-1:2026-10-01',
+    ...over,
   });
 
-  it('omits the links entirely when PUBLIC_SITE_URL is unset', async () => {
+  it('sends one digest listing every finding, under attestation-digest', async () => {
     const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
 
-    await sendAttestationSilentCounterpartyEmail(fakeContext(), SUBJECT);
+    expect(await sendAttestationDigestEmail(fakeContext(SITE), digest())).toBe('sent');
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    expect(sendTags()).toEqual([['outcome:sent', 'template:attestation-digest']]);
+
+    const body = lastBody(fetchSpy);
+    expect(body.subject).toBe('4 integration records for Acme need a look');
+    const text = String(body.text);
+    // Each detector keeps the substance of its retired per-finding template.
+    expect(text).toContain('reported by one company only');
+    expect(text).toContain('rather than picking a side');
+    expect(text).toContain('withdraw it');
+    expect(text).toContain('stays listed as unverified');
+    // The canonical pair URL: the alphabetically-first slug is the context.
+    expect(text).toContain('https://www.aecintegrations.com/products/procore/integrations/revit');
+    expect(text).toContain('Open your vendor portal: https://www.aecintegrations.com/vendor');
+    // The house shell.
+    expect(String(body.html)).toContain(EMAIL_LOGO_URL);
+  });
+
+  it('carries an RFC 8058 one-click mute and a footer link to the confirm page', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
+
+    await sendAttestationDigestEmail(fakeContext(SITE), digest());
+
+    const body = lastBody(fetchSpy);
+    expect(body.headers).toEqual({
+      'List-Unsubscribe':
+        '<https://www.aecintegrations.com/api/notifications/nudges/mute?token=tok-1>',
+      'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click',
+    });
+    expect(String(body.text)).toContain(
+      'Mute the daily reminder email: https://www.aecintegrations.com/notifications/mute?token=tok-1',
+    );
+    expect(String(body.html)).toContain(
+      'href="https://www.aecintegrations.com/notifications/mute?token=tok-1"',
+    );
+    // An unsubscribable send never blind-copies: the operator would get the opt-out.
+    expect(body.bcc).toBeUndefined();
+    // The mute covers nudges only, and the footer says so.
+    expect(String(body.text)).toContain(
+      'Seat invites, claim decisions and plan notices still arrive',
+    );
+  });
+
+  it('omits every link and the mute headers when PUBLIC_SITE_URL is unset', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
+
+    await sendAttestationDigestEmail(fakeContext(), digest());
+
+    const body = lastBody(fetchSpy);
+    expect(String(body.text)).not.toContain('http');
+    expect(String(body.text)).not.toContain('undefined');
+    expect(body.headers).toBeUndefined();
+  });
+
+  it('lists at most DIGEST_LIST_LIMIT findings and counts the rest', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
+    const many = Array.from({ length: DIGEST_LIST_LIMIT + 3 }, (_, i) =>
+      finding({ dataObject: `Object ${i}` }),
+    );
+
+    await sendAttestationDigestEmail(fakeContext(SITE), digest({ findings: many }));
 
     const text = String(lastBody(fetchSpy).text);
-    expect(text).not.toContain('http');
-    expect(text).not.toContain('undefined');
+    expect(text).toContain(`Object ${DIGEST_LIST_LIMIT - 1}`);
+    expect(text).not.toContain(`Object ${DIGEST_LIST_LIMIT}`);
+    expect(text).toContain('And 3 more records. Your vendor portal lists every one.');
+  });
+
+  it('uses the finding as the subject when there is only one', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
+    await sendAttestationDigestEmail(fakeContext(), digest({ findings: [finding()] }));
+    expect(lastBody(fetchSpy).subject).toBe('Procore confirmed RFIs with Revit');
   });
 
   it('drops the mechanism clause when the row has no mechanism name', async () => {
     const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
-
-    await sendAttestationOpenConflictEmail(fakeContext(), { ...SUBJECT, mechanismName: null });
-
+    await sendAttestationDigestEmail(
+      fakeContext(),
+      digest({ findings: [finding({ mechanismName: null })] }),
+    );
     expect(String(lastBody(fetchSpy).text)).not.toContain('through');
-  });
-
-  it('sends the open-conflict nudge without blaming either side', async () => {
-    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
-
-    expect(await sendAttestationOpenConflictEmail(fakeContext(), SUBJECT)).toBe('sent');
-    expect(sendTags()).toEqual([['outcome:sent', 'template:attestation-open-conflict']]);
-    expect(String(lastBody(fetchSpy).text)).toContain('rather than picking a side');
-  });
-
-  it('tells the counterparty what was denied, without quoting the denier (AECI-961)', async () => {
-    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
-    const c = fakeContext({ PUBLIC_SITE_URL: 'https://www.aecintegrations.com' });
-
-    expect(await sendAttestationClaimDeniedEmail(c, SUBJECT)).toBe('sent');
-    expect(sendTags()).toEqual([['outcome:sent', 'template:attestation-claim-denied']]);
-
-    const body = lastBody(fetchSpy);
-    const text = String(body.text);
-    // The fact the lane promises: the flow is NOT removed, it stays unverified
-    // until AECi corrects the record (`STAGE_2_ATTESTATIONS_SPEC.md` §6.2).
-    expect(text).toContain('stays on the listing as unverified');
-    expect(text).toContain('record your own position');
-    // Non-accusatory: the recipient has said nothing, so nothing asks them to
-    // defend a position they never took.
-    expect(text.toLowerCase()).not.toContain('dispute');
-    // The portal is the single CTA, not an inline link.
-    expect(text).toContain('Record your position: https://www.aecintegrations.com/vendor');
-    // The house shell, not the legacy formatter.
-    const html = String(body.html);
-    expect(html).toContain(EMAIL_LOGO_URL);
-    expect(html).not.toContain('#27272a');
-    expect(html).not.toContain('The AEC Integrations team');
-  });
-
-  it('omits the claim-denied links when PUBLIC_SITE_URL is unset', async () => {
-    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
-
-    await sendAttestationClaimDeniedEmail(fakeContext(), SUBJECT);
-
-    const text = String(lastBody(fetchSpy).text);
-    expect(text).not.toContain('http');
-    expect(text).not.toContain('undefined');
-  });
-
-  it('offers withdraw as an equal option on the stale-version nudge', async () => {
-    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
-
-    expect(await sendAttestationStaleVersionEmail(fakeContext(), SUBJECT)).toBe('sent');
-    expect(sendTags()).toEqual([['outcome:sent', 'template:attestation-stale-version']]);
-    expect(String(lastBody(fetchSpy).text)).toContain('withdraw it');
   });
 
   it('never implies attesting affects ranking or placement', async () => {
     const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
-
-    for (const send of [
-      sendAttestationSilentCounterpartyEmail,
-      sendAttestationOpenConflictEmail,
-      sendAttestationStaleVersionEmail,
-      sendAttestationClaimDeniedEmail,
-    ]) {
-      await send(fakeContext({ PUBLIC_SITE_URL: 'https://www.aecintegrations.com' }), SUBJECT);
-      const text = String(lastBody(fetchSpy).text).toLowerCase();
-      expect(text).not.toContain('ranking');
-      expect(text).not.toContain('placement');
-      expect(text).not.toContain('search results');
-    }
+    await sendAttestationDigestEmail(fakeContext(SITE), digest());
+    const text = String(lastBody(fetchSpy).text).toLowerCase();
+    expect(text).not.toContain('ranking');
+    expect(text).not.toContain('placement');
+    expect(text).not.toContain('search results');
   });
 
-  it('renders the ops alert on the house shell, naming the detector', async () => {
+  it('renders the ops digest on the house shell, one section per finding', async () => {
     const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
-    const c = fakeContext({ PUBLIC_SITE_URL: 'https://www.aecintegrations.com' });
 
     expect(
-      await sendAttestationOpsAlertEmail(c, {
+      await sendAttestationOpsDigestEmail(fakeContext(SITE), {
         to: 'ops@aecintegrations.com',
-        detector: 'claim-denied',
-        dataObject: 'RFIs',
-        productA: 'Revit',
-        productB: 'Procore',
-        mechanismName: null,
-        claimId: 'claim-1',
-        integrationId: 'intg-1',
-        pairSlugs: ['revit', 'procore'],
+        dedupeKey: 'attestation-ops-digest:2026-10-01:abc',
+        findings: [
+          {
+            detector: 'claim-denied',
+            dataObject: 'RFIs',
+            productA: 'Revit',
+            productB: 'Procore',
+            mechanismName: null,
+            claimId: 'claim-1',
+            integrationId: 'intg-1',
+            pairSlugs: ['revit', 'procore'],
+          },
+          {
+            detector: 'open-conflict',
+            dataObject: 'Submittals',
+            productA: 'Revit',
+            productB: 'Procore',
+            mechanismName: 'Bridge',
+            claimId: 'claim-2',
+            integrationId: 'intg-2',
+            pairSlugs: ['revit', 'procore'],
+          },
+        ],
       }),
     ).toBe('sent');
-    expect(sendTags()).toEqual([['outcome:sent', 'template:attestation-ops-alert']]);
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    expect(sendTags()).toEqual([['outcome:sent', 'template:attestation-ops-digest']]);
 
     const body = lastBody(fetchSpy);
-    expect(body.subject).toContain('[AECi]');
-    expect(String(body.text)).toContain('Detector: claim-denied');
-    expect(String(body.text)).toContain('Claim: claim-1');
-    expect(String(body.text)).toContain('Mechanism: (unnamed)');
-    // The house shell, not the unbranded ops table.
+    expect(body.subject).toBe('[AECi] Attestation findings: 1 denied, 1 in conflict');
+    const text = String(body.text);
+    expect(text).toContain('Vendor denied a claim: RFIs (Revit / Procore)');
+    expect(text).toContain('Unresolved vendor conflict: Submittals (Revit / Procore)');
+    expect(text).toContain('Claim: claim-1');
+    expect(text).toContain('Mechanism: (unnamed)');
     const html = String(body.html);
     expect(html).toContain(EMAIL_LOGO_URL);
     expect(html).not.toContain('border="1"');
-    expect(html).not.toContain('#27272a');
   });
 
-  it('skips every nudge when the transport is unconfigured', async () => {
+  it('skips the digest when the transport is unconfigured', async () => {
     const c = fakeContext({ RESEND_API_KEY: undefined });
-    expect(await sendAttestationSilentCounterpartyEmail(c, SUBJECT)).toBe('skipped');
+    expect(await sendAttestationDigestEmail(c, digest())).toBe('skipped');
   });
 });
 
@@ -2067,5 +2239,459 @@ describe('sendLandingSignupNotification', () => {
     expect(
       await sendLandingSignupNotification(fakeContext({ ADMIN_ALERT_EMAIL: undefined }), SIGNUP),
     ).toBe('skipped');
+  });
+});
+
+// ─── AECI-1198: outside recipients get mail from production only ─────────────
+
+describe('tier delivery policy (AECI-1198)', () => {
+  const INPUT = {
+    to: 'seat@vendor.example',
+    subject: 'Hi',
+    text: 'Body',
+    template: 'claim-approved' as const,
+  };
+
+  it('suppresses an outside recipient on staging: no fetch, outcome + metric tag, hashed log', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    const outcome = await sendTransactionalEmail(fakeContext({ ENV: 'staging' }), INPUT);
+
+    expect(outcome).toBe('suppressed');
+    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(sendTags()).toEqual([['outcome:suppressed', 'template:claim-approved']]);
+    expect(warnSpy).toHaveBeenCalledTimes(1);
+    const [, fields] = warnSpy.mock.calls[0]! as [string, Record<string, string>];
+    expect(fields).toMatchObject({ template: 'claim-approved', tier: 'staging' });
+    expect(fields.recipientHash).toMatch(/^[0-9a-f]{64}$/);
+    // The raw address never reaches the log.
+    expect(JSON.stringify(warnSpy.mock.calls)).not.toContain('vendor.example');
+  });
+
+  it('suppresses on every non-production tier, and on a missing ENV', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    for (const ENV of ['development', 'preview', 'staging', 'demo', undefined] as const) {
+      expect(await sendTransactionalEmail(fakeContext({ ENV }), INPUT)).toBe('suppressed');
+    }
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it('suppresses a subdomain lookalike', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const outcome = await sendTransactionalEmail(fakeContext({ ENV: 'demo' }), {
+      ...INPUT,
+      to: 'x@thewbsproject.com.evil.io',
+    });
+    expect(outcome).toBe('suppressed');
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it('still sends to an internal address on staging, with a [staging] subject', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
+    const outcome = await sendTransactionalEmail(fakeContext({ ENV: 'staging' }), {
+      ...INPUT,
+      to: 'Chris@TheWBSProject.com',
+    });
+    expect(outcome).toBe('sent');
+    expect(lastBody(fetchSpy)).toMatchObject({
+      to: 'Chris@TheWBSProject.com',
+      subject: '[staging] Hi',
+    });
+    expect(sendTags()).toEqual([['outcome:sent', 'template:claim-approved']]);
+  });
+
+  it('leaves production unchanged: outside recipient sent, subject unprefixed', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
+    const outcome = await sendTransactionalEmail(fakeContext({ ENV: 'production' }), INPUT);
+    expect(outcome).toBe('sent');
+    expect(lastBody(fetchSpy)).toMatchObject({ to: 'seat@vendor.example', subject: 'Hi' });
+  });
+
+  it('drops outside BCC addresses on staging and keeps internal ones', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
+    await sendTransactionalEmail(
+      fakeContext({
+        ENV: 'staging',
+        EMAIL_BCC: 'support@aecintegrations.com, someone@gmail.com',
+      }),
+      { ...INPUT, to: 'chris@thewbsproject.com' },
+    );
+    expect(lastBody(fetchSpy).bcc).toEqual(['support@aecintegrations.com']);
+  });
+
+  it('omits bcc entirely on staging when every BCC address is outside', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
+    await sendTransactionalEmail(fakeContext({ ENV: 'staging', EMAIL_BCC: 'someone@gmail.com' }), {
+      ...INPUT,
+      to: 'chris@thewbsproject.com',
+    });
+    expect(lastBody(fetchSpy)).not.toHaveProperty('bcc');
+  });
+
+  it('keeps an outside BCC on production', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
+    await sendTransactionalEmail(
+      fakeContext({ ENV: 'production', EMAIL_BCC: 'someone@gmail.com' }),
+      INPUT,
+    );
+    expect(lastBody(fetchSpy).bcc).toEqual(['someone@gmail.com']);
+  });
+
+  it('filters and prefixes the operator copy of an unsubscribable send', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
+    await sendMailingListWelcomeEmail(
+      fakeContext({
+        ENV: 'staging',
+        PUBLIC_SITE_URL: 'https://staging.aecintegrations.com',
+        EMAIL_BCC: 'support@aecintegrations.com, someone@gmail.com',
+      }),
+      { to: 'sub@thewbsproject.com', token: 'tok-123' },
+    );
+    expect(fetchSpy).toHaveBeenCalledTimes(2);
+    const copy = lastBody(fetchSpy);
+    expect(copy.to).toEqual(['support@aecintegrations.com']);
+    expect(String(copy.subject).startsWith('[staging] COPY: ')).toBe(true);
+  });
+
+  it('makes no operator copy when the recipient itself is suppressed', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const outcome = await sendMailingListWelcomeEmail(
+      fakeContext({ ENV: 'staging', EMAIL_BCC: 'support@aecintegrations.com' }),
+      { to: 'sub@example.com', token: 'tok-123' },
+    );
+    expect(outcome).toBe('suppressed');
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+});
+
+describe('sendEmail tier delivery policy (AECI-1198)', () => {
+  const okFetch = () =>
+    vi.fn(async (_url: string | URL, _init?: RequestInit) => new Response('{}', { status: 200 }));
+  const bodyOf = (fetchImpl: ReturnType<typeof okFetch>) =>
+    JSON.parse(fetchImpl.mock.calls[0]![1]!.body as string) as {
+      to: string[];
+      bcc?: string[];
+      subject: string;
+    };
+
+  it('filters `to` to internal addresses on staging and prefixes the subject', async () => {
+    const fetchImpl = okFetch();
+    const warn = vi.fn();
+    const out = await sendEmail(
+      {
+        ENV: 'staging',
+        RESEND_API_KEY: 'k',
+        EMAIL_BCC: 'ops@aecintegrations.com, someone@gmail.com',
+      },
+      { ...MSG, to: ['chris@thewbsproject.com', 'a@x.com'] },
+      fetchImpl as unknown as typeof fetch,
+      { warn, error: () => {} },
+    );
+    expect(out).toBe('sent');
+    const body = bodyOf(fetchImpl);
+    expect(body.to).toEqual(['chris@thewbsproject.com']);
+    expect(body.bcc).toEqual(['ops@aecintegrations.com']);
+    expect(body.subject).toBe('[staging] subj');
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(JSON.stringify(warn.mock.calls)).not.toContain('a@x.com');
+    // AECI-1199: the log names the digest's registry entry and its rule, not 'digest'.
+    expect(warn.mock.calls[0]![1]).toMatchObject({
+      template: 'digest-data-quality',
+      envRule: 'any-tier',
+      tier: 'staging',
+    });
+  });
+
+  it('returns suppressed with no fetch when every recipient is outside', async () => {
+    const fetchImpl = okFetch();
+    const out = await sendEmail(
+      { ENV: 'demo', RESEND_API_KEY: 'k' },
+      MSG,
+      fetchImpl as unknown as typeof fetch,
+      silent,
+    );
+    expect(out).toBe('suppressed');
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it('treats a missing ENV as non-production', async () => {
+    const fetchImpl = okFetch();
+    const out = await sendEmail(
+      { RESEND_API_KEY: 'k' },
+      MSG,
+      fetchImpl as unknown as typeof fetch,
+      silent,
+    );
+    expect(out).toBe('suppressed');
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it('leaves production unchanged', async () => {
+    const fetchImpl = okFetch();
+    await sendEmail(
+      { ENV: 'production', RESEND_API_KEY: 'k' },
+      MSG,
+      fetchImpl as unknown as typeof fetch,
+      silent,
+    );
+    const body = bodyOf(fetchImpl);
+    expect(body.to).toEqual(['a@x.com', 'b@x.com']);
+    expect(body.subject).toBe('subj');
+  });
+});
+
+describe('protest and decline emails (AECI-1205)', () => {
+  const SITE = {
+    CLAIM_ALERT_EMAIL: 'support@aecintegrations.com',
+    PUBLIC_SITE_URL: 'https://www.aecintegrations.com',
+  };
+  const FACTS = {
+    contestId: 'contest-9',
+    integrationName: 'Revit for MicroStation',
+    field: 'mechanism_kind',
+    currentValue: 'native',
+    proposedValue: 'plugin',
+    pairSlugs: ['revit', 'microstation'] as const,
+  };
+  const OWNER_SEAT = {
+    to: 'sam@bentley.com',
+    vendorId: 'v-b',
+    vendorSlug: 'bentley',
+    vendorName: 'Bentley',
+  };
+  const DUE = '2026-09-03T14:30:00.000Z';
+
+  it('formats a deadline with its time of day in UTC', () => {
+    expect(formatDeadline(DUE)).toBe('Sep 3, 2026, 2:30 PM UTC');
+    expect(formatDeadline('not a date')).toBe('not a date');
+  });
+
+  it('contest-protest-opened tells the owner what was protested and when the reply closes', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
+    const outcome = await sendContestProtestOpenedEmail(fakeContext(SITE), {
+      ...FACTS,
+      ...OWNER_SEAT,
+      submitterVendorName: 'Autodesk <Inc>',
+      basis: 'declined',
+      protestReason: 'The docs say plugin.',
+      replyDueAt: DUE,
+      dedupeKey: 'k1',
+    });
+    expect(outcome).toBe('sent');
+    const body = lastBody(fetchSpy);
+    expect(body.to).toBe('sam@bentley.com');
+    expect(body.subject).toBe(
+      'Reply by Sep 3, 2026, 2:30 PM UTC: review requested on Revit for MicroStation',
+    );
+    const text = String(body.text);
+    expect(text).toContain('Field: integration type');
+    expect(text).toContain('Value on record: native');
+    expect(text).toContain('Proposed value: plugin');
+    expect(text).toContain('Their reason: The docs say plugin.');
+    expect(text).toContain('Reply by: Sep 3, 2026, 2:30 PM UTC');
+    expect(text).toContain('Its view is advice');
+    expect(text).toContain(
+      'Reply in Messages: https://www.aecintegrations.com/vendor/bentley/messages',
+    );
+    expect(text).toContain(
+      'Pair page: https://www.aecintegrations.com/products/microstation/integrations/revit',
+    );
+    expect(String(body.html)).toContain('Autodesk &lt;Inc&gt;');
+    expect(String(body.html)).not.toContain('Autodesk <Inc>');
+    expect(text).not.toContain('—');
+    expect(sendTags()).toContainEqual(['outcome:sent', 'template:contest-protest-opened']);
+  });
+
+  it('contest-protest-opened names the silence basis', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
+    await sendContestProtestOpenedEmail(fakeContext(SITE), {
+      ...FACTS,
+      ...OWNER_SEAT,
+      submitterVendorName: 'Autodesk',
+      basis: 'silence',
+      protestReason: 'No answer.',
+      replyDueAt: DUE,
+      dedupeKey: 'k2',
+    });
+    expect(String(lastBody(fetchSpy).text)).toContain('Bentley did not answer within 30 days');
+  });
+
+  it('drops the button, not the email, when the vendor slug or site URL is missing', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
+    await sendContestProtestOpenedEmail(fakeContext(), {
+      ...FACTS,
+      ...OWNER_SEAT,
+      submitterVendorName: 'Autodesk',
+      basis: 'declined',
+      protestReason: 'r',
+      replyDueAt: DUE,
+      dedupeKey: 'k3',
+    });
+    expect(String(lastBody(fetchSpy).text)).not.toContain('/vendor/');
+  });
+
+  it('contest-protest-reply-reminder says the owner has not replied and when the reply closes', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
+    await sendContestProtestReplyReminderEmail(fakeContext(SITE), {
+      ...FACTS,
+      ...OWNER_SEAT,
+      submitterVendorName: 'Autodesk',
+      replyDueAt: DUE,
+      dedupeKey: 'k4',
+    });
+    const body = lastBody(fetchSpy);
+    expect(body.subject).toBe(
+      'Reminder: reply by Sep 3, 2026, 2:30 PM UTC on Revit for MicroStation',
+    );
+    const text = String(body.text);
+    expect(text).toContain('Bentley has not replied yet.');
+    expect(text).toContain('You can reply once, until Sep 3, 2026, 2:30 PM UTC.');
+    expect(text).toContain(
+      'Reply in Messages: https://www.aecintegrations.com/vendor/bentley/messages',
+    );
+    expect(sendTags()).toContainEqual(['outcome:sent', 'template:contest-protest-reply-reminder']);
+  });
+
+  it('protest-submitted-alert gives support the protest facts and the queue link', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
+    await sendProtestSubmittedAlert(fakeContext(SITE), {
+      ...FACTS,
+      submitterVendorName: 'Autodesk',
+      ownerVendorName: 'Bentley',
+      basis: 'declined',
+      protestReason: 'The docs say plugin.',
+      evidenceCount: 2,
+      replyDueAt: DUE,
+      dedupeKey: 'k5',
+    });
+    const body = lastBody(fetchSpy);
+    expect(body.to).toBe('support@aecintegrations.com');
+    expect(body.subject).toBe('[AECi] Protest: mechanism_kind on Revit for MicroStation');
+    const text = String(body.text);
+    for (const line of [
+      'Field: mechanism_kind',
+      'Current value: native',
+      'Proposed value: plugin',
+      'Filed by: Autodesk',
+      'Owner: Bentley',
+      'Basis: The owner declined the contest',
+      'Reason given: The docs say plugin.',
+      'Evidence links: 2',
+      'Owner reply due: Sep 3, 2026, 2:30 PM UTC',
+      'Contest id: contest-9',
+      'Open the contest queue: https://www.aecintegrations.com/admin/contests',
+    ]) {
+      expect(text).toContain(line);
+    }
+    expect(sendTags()).toContainEqual(['outcome:sent', 'template:protest-submitted-alert']);
+  });
+
+  it('protest-submitted-alert skips without CLAIM_ALERT_EMAIL', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
+    const outcome = await sendProtestSubmittedAlert(fakeContext(), {
+      ...FACTS,
+      submitterVendorName: 'Autodesk',
+      ownerVendorName: 'Bentley',
+      basis: 'silence',
+      protestReason: 'r',
+      evidenceCount: 0,
+      replyDueAt: DUE,
+      dedupeKey: 'k6',
+    });
+    expect(outcome).toBe('skipped');
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it('contest-declined-protest-window tells the submitter the value stays and until when to protest', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
+    await sendContestDeclinedProtestWindowEmail(fakeContext(SITE), {
+      ...FACTS,
+      to: 'dana@autodesk.com',
+      vendorId: 'v-a',
+      vendorSlug: 'autodesk',
+      vendorName: 'Autodesk',
+      ownerVendorName: 'Bentley',
+      decisionNote: null,
+      protestClosesAt: DUE,
+      dedupeKey: 'k7',
+    });
+    const body = lastBody(fetchSpy);
+    expect(body.to).toBe('dana@autodesk.com');
+    expect(body.subject).toBe('Bentley declined your change request on Revit for MicroStation');
+    const text = String(body.text);
+    expect(text).toContain('The value on record stays as it is.');
+    expect(text).toContain(
+      'you can ask AEC Integrations to review it until Sep 3, 2026, 2:30 PM UTC',
+    );
+    expect(text).toContain('Their note: none');
+    expect(text).toContain('Review request closes: Sep 3, 2026, 2:30 PM UTC');
+    expect(text).toContain(
+      'Open Messages: https://www.aecintegrations.com/vendor/autodesk/messages',
+    );
+    expect(sendTags()).toContainEqual(['outcome:sent', 'template:contest-declined-protest-window']);
+  });
+  describe('vendor-written values never render as links (AECI-1197 review)', () => {
+    const EVIL = 'https://evil.example/login?next=/vendor';
+    /** Every `<a href>` in the html part. */
+    const hrefs = (html: string) => [...html.matchAll(/<a href="([^"]+)"/g)].map((m) => m[1]);
+
+    it('contest-protest-opened: a URL-only reason, proposed value and current value stay text', async () => {
+      const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
+      await sendContestProtestOpenedEmail(fakeContext(SITE), {
+        ...FACTS,
+        ...OWNER_SEAT,
+        integrationName: EVIL,
+        currentValue: EVIL,
+        proposedValue: EVIL,
+        submitterVendorName: 'Autodesk',
+        basis: 'declined',
+        protestReason: EVIL,
+        replyDueAt: DUE,
+        dedupeKey: 'k-evil-1',
+      });
+      const html = String(lastBody(fetchSpy).html);
+      expect(hrefs(html)).not.toContain(EVIL.replace(/&/g, '&amp;'));
+      expect(html).not.toContain('href="https://evil.example');
+      expect(html).toContain('https://evil.example/login?next=/vendor');
+      // The AECi-built pair page still links.
+      expect(html).toContain(
+        'href="https://www.aecintegrations.com/products/microstation/integrations/revit"',
+      );
+    });
+
+    it('contest-protest-reply-reminder: a URL-only proposed value stays text', async () => {
+      const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
+      await sendContestProtestReplyReminderEmail(fakeContext(SITE), {
+        ...FACTS,
+        ...OWNER_SEAT,
+        proposedValue: EVIL,
+        submitterVendorName: 'Autodesk',
+        replyDueAt: DUE,
+        dedupeKey: 'k-evil-2',
+      });
+      expect(String(lastBody(fetchSpy).html)).not.toContain('href="https://evil.example');
+    });
+
+    it('contest-declined-protest-window: a URL-only decline note stays text', async () => {
+      const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
+      await sendContestDeclinedProtestWindowEmail(fakeContext(SITE), {
+        ...FACTS,
+        to: 'dana@autodesk.com',
+        vendorId: 'v-a',
+        vendorSlug: 'autodesk',
+        vendorName: 'Autodesk',
+        ownerVendorName: 'Bentley',
+        decisionNote: EVIL,
+        protestClosesAt: DUE,
+        dedupeKey: 'k-evil-3',
+      });
+      const html = String(lastBody(fetchSpy).html);
+      expect(html).not.toContain('href="https://evil.example');
+      expect(html).toContain('https://evil.example/login?next=/vendor');
+    });
   });
 });

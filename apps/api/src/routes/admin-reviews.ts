@@ -9,7 +9,10 @@
  * + the `review.approved|rejected` audit + the lean workflow history (find-or-create
  * the `review_moderation` instance, append the `pending → approved|rejected`
  * transition, mark the instance complete). The denormalized count recompute on
- * approve runs as a separate post-batch step (`lib/recompute-counts.ts`).
+ * approve runs as a separate post-batch step (`lib/recompute-counts.ts`). A
+ * `changes()` sentinel after the guarded UPDATE rolls the batch back for the loser of
+ * a two-admin race, which then answers `409 REVIEW_ALREADY_MODERATED` and sends no
+ * email (AECI-1203).
  *
  * `reviewer_email` (admin-only, lives in `auth.users`) is read via the GoTrue
  * Admin API (seam #2, `lib/supabase-admin.ts`), injected for tests and degrading
@@ -29,7 +32,7 @@ import {
 } from '@aeci/shared';
 import { type AuditLogEntry } from '@aeci/shared/audit-log';
 import { type WorkflowTransitionEntry } from '@aeci/shared/workflow-transition';
-import { and, asc, count, desc, eq } from 'drizzle-orm';
+import { and, asc, count, desc, eq, sql } from 'drizzle-orm';
 import type { Context } from 'hono';
 import type { ZodType } from 'zod';
 
@@ -50,6 +53,7 @@ import {
 } from '../lib/audit';
 import { adminReviewConfig, toAdminReview, type RawAdminReviewRow } from '../lib/drizzle-helpers';
 import { sendReviewApprovedEmail, sendReviewRejectedEmail } from '../lib/email';
+import { ONE_ROW } from '../lib/integration-claims';
 import { validateResponseInDev, writeDb, type DbFactory } from '../lib/handler-utils';
 import { recomputeProductCounts } from '../lib/recompute-counts';
 import { fetchAuthUserEmails } from '../lib/supabase-admin';
@@ -230,10 +234,12 @@ export function createModerateReviewHandler(
       },
     };
 
-    // The guarded update (`WHERE status='pending'`) makes the state change safe
-    // under a concurrent moderation; the preload gate covers the common case (a
-    // rare two-admin race could leave a no-op update with its audit — acceptable
-    // under the §26.3 lean relaxation). Audit + workflow are atomic with it.
+    // The guarded update (`WHERE status='pending'`) makes the state change safe under
+    // a concurrent moderation, and the sentinel right after it makes the LOSER's whole
+    // batch roll back (AECI-1203). Two admins can both pass the preload gate above.
+    // Before the sentinel the loser still committed its audit row and transition, and
+    // then emailed the reviewer a second, possibly contradictory, decision. Now the
+    // loser writes nothing, sends nothing, and answers 409 REVIEW_ALREADY_MODERATED.
     const stmts: BatchStmt[] = [
       db
         .update(reviews)
@@ -244,6 +250,8 @@ export function createModerateReviewHandler(
           ...(approve ? {} : { rejectionReason }),
         })
         .where(and(eq(reviews.id, id), eq(reviews.status, 'pending'))),
+      // Directly after the UPDATE: `changes()` must read the guarded write.
+      reviewStillPendingSentinel(db),
       auditInsert(db, auditEntry),
       existingWf
         ? db
@@ -260,7 +268,17 @@ export function createModerateReviewHandler(
           }),
       workflowTransitionInsert(db, workflowEntry),
     ];
-    await db.batch(stmts as BatchTuple);
+    try {
+      await db.batch(stmts as BatchTuple);
+    } catch (error) {
+      if (!isReviewRaceError(error)) throw error;
+      emitModeration(c, payload.action, 'invalid_state');
+      throw new ApiError(
+        409,
+        ApiErrorCode.REVIEW_ALREADY_MODERATED,
+        'Another moderator decided this review first. Nothing was changed.',
+      );
+    }
 
     // Approve-only: recompute the product's denormalized counts (a rejected review
     // was never counted). Separate post-batch step under D1.
@@ -289,6 +307,15 @@ export function createModerateReviewHandler(
 
     // §11.1 reviewer notification, fire-and-forget. Reuses the email already
     // fetched for the response; fails open (absent key/email → silent skip).
+    //
+    // Both templates share one key (AECI-1203): a review gets one decision email,
+    // ever. Only a `pending` review is moderated, and nothing returns a decided review
+    // to `pending` (a revision is a new review with a new id), so the key never has to
+    // carry the status.
+    const decisionDedupe = {
+      dedupeKey: `review-decision:${id}`,
+      entity: { type: 'review', id },
+    };
     const reviewerEmail = existing.reviewerId
       ? emailByReviewerId.get(existing.reviewerId)
       : undefined;
@@ -298,11 +325,13 @@ export function createModerateReviewHandler(
             to: reviewerEmail,
             productName: existing.product.name,
             productSlug: existing.product.slug,
+            ...decisionDedupe,
           })
         : sendReviewRejectedEmail(c, {
             to: reviewerEmail,
             productName: existing.product.name,
             reason: rejectionReason ?? '',
+            ...decisionDedupe,
           }),
     );
 
@@ -351,4 +380,38 @@ async function computeRepeatOffenderPrompt(
     reviewer_email: emailByReviewerId.get(reviewerId) ?? null,
     rejected_count: rejectedCount,
   };
+}
+
+/**
+ * A batch statement that ABORTS the moderation batch when the guarded
+ * `UPDATE … WHERE status = 'pending'` just before it changed no row (AECI-1203): another
+ * moderator decided the review between this handler's read and its batch. Modelled on
+ * `contestStillOpenSentinel` (`lib/integration-contests.ts`). `changes()` is the row
+ * count of the connection's last write, which inside the batch is the guarded UPDATE.
+ * When it is 0, `json('review-not-pending')` is malformed JSON and raises, so the audit
+ * row and the workflow writes roll back with it. FROM a one-row constant, so the guard
+ * is evaluated exactly once.
+ */
+export function reviewStillPendingSentinel(db: Db) {
+  return db
+    .select({ guard: sql`CASE WHEN changes() = 0 THEN json('review-not-pending') END` })
+    .from(ONE_ROW);
+}
+
+/**
+ * True for the error {@link reviewStillPendingSentinel} raises, in D1 or SQLite. SQLite
+ * reports only "malformed JSON" and never echoes the token. Nothing else in the
+ * moderation batch calls `json()`, so the match is unambiguous.
+ */
+export function isReviewRaceError(error: unknown): boolean {
+  const seen = new Set<unknown>();
+  let current: unknown = error;
+  while (current && !seen.has(current)) {
+    seen.add(current);
+    if (/malformed JSON/i.test(String((current as { message?: unknown }).message ?? current))) {
+      return true;
+    }
+    current = (current as { cause?: unknown }).cause;
+  }
+  return false;
 }
