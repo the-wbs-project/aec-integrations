@@ -211,24 +211,22 @@ describe('VendorProfileForm — read-only when the entitlement lapsed', () => {
     const fixture = create(false);
 
     expect(saveButton(fixture)).toBeNull();
-    expect(fixture.nativeElement.textContent).toContain('Editing is paused');
+    expect(fixture.nativeElement.textContent).toContain(
+      'This seat cannot edit the company profile right now',
+    );
   });
 
-  it('tells the connector catalogue seat the profile stays with AECi, not that it is paused (AECI-1082)', () => {
-    TestBed.inject(VendorPortalStore).seed(VENDOR_ME_CONNECTOR_SEAT_FIXTURE);
-    const fixture = create(false);
-    const text = fixture.nativeElement.textContent as string;
-
-    expect(text).toContain('Your company profile stays with the AECi team');
+  // AECI-1218: company details are editable on every plan (decision 3), so the
+  // old "paused while access is inactive" copy is gone for every seat.
+  it.each([
+    ['the connector catalogue seat', VENDOR_ME_CONNECTOR_SEAT_FIXTURE],
+    ['a never-arranged vendor', VENDOR_ME_UNVERIFIED_FIXTURE],
+  ])('never tells %s that editing is paused or to renew', (_name, me) => {
+    TestBed.inject(VendorPortalStore).seed(me);
+    const text = create(false).nativeElement.textContent as string;
     expect(text).not.toContain('Editing is paused');
     expect(text).not.toContain('renewal');
-  });
-
-  it('keeps the paused copy for a never-arranged vendor with no connector product', () => {
-    TestBed.inject(VendorPortalStore).seed(VENDOR_ME_UNVERIFIED_FIXTURE);
-    const fixture = create(false);
-
-    expect(fixture.nativeElement.textContent).toContain('Editing is paused');
+    expect(text).not.toContain('stays with the AECi team');
   });
 
   it('does not PATCH even if the form is submitted anyway', async () => {

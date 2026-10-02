@@ -159,6 +159,7 @@ describe('VendorPortalNav', () => {
 
     expect(root(harness).querySelector('nav')?.getAttribute('aria-label')).toBe('Revit sections');
     expect(items(harness).map((el) => el.getAttribute('href'))).toEqual([
+      '/portal/products/revit/overview',
       '/portal/products/revit/profile',
       '/portal/products/revit/categories',
       '/portal/products/revit/trades',

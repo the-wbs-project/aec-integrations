@@ -7,7 +7,7 @@ import type { UpdateVendorProductResponse, VendorProduct } from '@aeci/shared';
 import { capabilitiesFor, type Capability } from '@aeci/shared/entitlements';
 
 import { VendorApi } from '../vendor-api';
-import { VENDOR_ME_CONNECTOR_SEAT_FIXTURE, VENDOR_ME_FIXTURE } from '../vendor-fixtures';
+import { VENDOR_ME_FIXTURE } from '../vendor-fixtures';
 import { VendorPortalStore } from '../vendor-portal-store';
 import { VendorProductForm } from './vendor-product-form';
 
@@ -187,10 +187,50 @@ describe('VendorProductForm — the Free plan', () => {
     expect(field(fixture, 'api-docs-url').value).toBe(PRODUCT.api_docs_url ?? '');
   });
 
-  it('offers Save and no paused notice', () => {
+  it('offers Save and no read-only notice', () => {
     const fixture = build();
     expect(saveButton(fixture)).not.toBeNull();
-    expect(fixture.nativeElement.textContent).not.toContain('Editing is paused');
+    expect(fixture.nativeElement.textContent).not.toContain('cannot edit this product');
+  });
+
+  // AECI-1218 (§6.18): a locked field is visible, readonly, and carries a reason
+  // a sighted reader sees AND a screen reader hears, through aria-describedby.
+  it('gives each locked field a visible reason tied to it with aria-describedby', () => {
+    const fixture = build();
+    for (const key of ['tool-integrations-url', 'api-docs-url']) {
+      const control = field(fixture, key);
+      const reasonId = `vendor-product-${PRODUCT.id}-${key}-locked`;
+      expect(control.getAttribute('aria-describedby')?.split(' ')).toContain(reasonId);
+      const reason = fixture.nativeElement.querySelector(`#${reasonId}`) as HTMLElement;
+      expect(reason.textContent).toContain('Part of Managed for this product');
+    }
+  });
+
+  it('gives an editable field no locked reason', () => {
+    const fixture = build();
+    expect(field(fixture, 'description').getAttribute('aria-describedby')).toBeNull();
+    expect(
+      fixture.nativeElement.querySelector(`#vendor-product-${PRODUCT.id}-description-locked`),
+    ).toBeNull();
+  });
+
+  it('names the locked fields once, up front, with a correction link', () => {
+    const fixture = build();
+    const notice = fixture.nativeElement.querySelector(
+      '[data-testid="product-locked-notice"]',
+    ) as HTMLElement;
+    expect(notice.textContent).toContain(
+      'Editing the Integrations page URL and API documentation URL needs Managed for this product.',
+    );
+    expect(notice.querySelector('a[href$="/correction"]')).not.toBeNull();
+  });
+
+  it('shows no locked notice on Managed', () => {
+    const fixture = TestBed.createComponent(VendorProductForm);
+    fixture.componentRef.setInput('product', onPlan(capabilitiesFor('verified')));
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('[data-testid="product-locked-notice"]')).toBeNull();
+    expect(fixture.nativeElement.querySelector('[data-testid="locked-reason"]')).toBeNull();
   });
 
   it('sends only the Free field it changed', async () => {
@@ -255,15 +295,13 @@ describe('VendorProductForm — read-only when the plan holds no product edit', 
     const fixture = build();
 
     expect(saveButton(fixture)).toBeNull();
-    expect(fixture.nativeElement.textContent).toContain('Editing is paused');
+    expect(fixture.nativeElement.textContent).toContain('This seat cannot edit this product');
   });
 
-  it('tells the connector catalogue seat product details stay with AECi (AECI-1082)', () => {
-    TestBed.inject(VendorPortalStore).seed(VENDOR_ME_CONNECTOR_SEAT_FIXTURE);
-    const fixture = build();
-    const text = fixture.nativeElement.textContent as string;
-
-    expect(text).toContain('Product details stay with the AECi team');
+  // AECI-1218: the old notice said editing was paused while access was
+  // inactive. Since AECI-1214 that is false for every real plan.
+  it('never says editing is paused or points at a renewal', () => {
+    const text = build().nativeElement.textContent as string;
     expect(text).not.toContain('Editing is paused');
     expect(text).not.toContain('renewal');
   });

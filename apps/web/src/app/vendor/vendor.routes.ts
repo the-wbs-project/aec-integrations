@@ -76,7 +76,15 @@ export const VENDOR_SECTION_ROUTES: Routes = [
     loadComponent: () =>
       import('./sections/vendor-products-page').then((m) => m.VendorProductsPage),
     children: [
-      { path: '', pathMatch: 'full', redirectTo: 'profile' },
+      // AECI-1218: a product opens on its overview, the checklist beside its plan.
+      { path: '', pathMatch: 'full', redirectTo: 'overview' },
+      {
+        path: 'overview',
+        loadComponent: () =>
+          import('./sections/vendor-product-overview-page').then(
+            (m) => m.VendorProductOverviewPage,
+          ),
+      },
       {
         path: 'profile',
         loadComponent: () =>

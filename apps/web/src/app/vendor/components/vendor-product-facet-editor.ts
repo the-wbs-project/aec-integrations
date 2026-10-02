@@ -30,7 +30,7 @@ import { VendorApi } from '../vendor-api';
 import { VendorPortalStore } from '../vendor-portal-store';
 import { PRODUCT_FIELD_CAPABILITIES } from '@aeci/shared/entitlements';
 
-import { productCan, vendorIsCatalogueSeat } from '../vendor-capabilities';
+import { productCan } from '../vendor-capabilities';
 import { VendorBulletListEditor, newBullet, type BulletDraft } from './vendor-bullet-list-editor';
 
 /** The four taxonomy facets, each its own product tab (AECI-994). */
@@ -200,26 +200,33 @@ interface PendingRemoval {
         </div>
       }
 
-      @if (!canEdit()) {
-        @if (catalogueSeat()) {
-          <!-- AECI-1082: the catalogue seat never had product editing, so it is not paused. -->
-          <p
-            class="rounded-(--radius-md) border border-(--border-default) bg-(--surface-sunken) p-4 text-sm leading-relaxed text-(--text-secondary)"
-            i18n="@@vendor.product.facet.readOnly.catalogue"
+      @if (!tagsEditable()) {
+        <!--
+          AECI-1218 (STAGE_2_VENDOR_PORTAL_SPEC.md section 6.18). Trades,
+          audiences and phases are Managed-only (decision 4). The terms stay
+          visible; this reason is tied to the term list with aria-describedby,
+          so a screen reader reads it with the list.
+        -->
+        <p
+          [id]="lockedId()"
+          class="flex items-start gap-2 rounded-(--radius-md) border border-(--border-default) bg-(--surface-sunken) p-4 text-sm leading-relaxed text-(--text-primary)"
+          data-testid="locked-reason"
+        >
+          <svg
+            aria-hidden="true"
+            class="mt-0.5 h-4 w-4 shrink-0 text-(--text-secondary)"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
           >
-            Product details stay with the AECi team, so this seat cannot edit them. This product
-            stays published exactly as it is, and everything on record is here to read.
-          </p>
-        } @else {
-          <p
-            class="rounded-(--radius-md) border border-(--border-default) bg-(--surface-sunken) p-4 text-sm leading-relaxed text-(--text-secondary)"
-            i18n="@@vendor.product.facet.readOnly"
-          >
-            Editing is paused while your account access is inactive. This product stays published
-            exactly as it is, and everything on record is here to read. The account panel on Vendor
-            Overview has the renewal path.
-          </p>
-        }
+            <rect x="5" y="11" width="14" height="10" rx="2" />
+            <path d="M8 11V7a4 4 0 0 1 8 0v4" />
+          </svg>
+          <span>{{ lockedReason() }}</span>
+        </p>
       }
 
       @if (taxonomy() === null) {
@@ -230,7 +237,10 @@ interface PendingRemoval {
         <div
           class="overflow-hidden rounded-(--radius-md) border border-(--border-default) bg-(--surface-base)"
         >
-          <fieldset class="border-0 p-0">
+          <fieldset
+            class="border-0 p-0"
+            [attr.aria-describedby]="tagsEditable() ? null : lockedId()"
+          >
             <legend class="sr-only">{{ config().legend }}</legend>
             <ul>
               @for (row of rows(); track row.slug) {
@@ -393,8 +403,6 @@ interface PendingRemoval {
 export class VendorProductFacetEditor {
   private readonly api = inject(VendorApi);
   private readonly store = inject(VendorPortalStore);
-  /** The §8.9 connector seat (AECI-1082): its read-only notice is not paused copy. */
-  protected readonly catalogueSeat = vendorIsCatalogueSeat(this.store);
 
   readonly product = input.required<VendorProduct>();
   readonly facet = input.required<ProductFacetKind>();
@@ -417,6 +425,17 @@ export class VendorProductFacetEditor {
       this.config().narrative !== null &&
       productCan(this.product(), PRODUCT_FIELD_CAPABILITIES.usefulness),
   );
+  /** The locked reason's id, for `aria-describedby` on the term list. */
+  protected readonly lockedId = computed(() => `${this.idBase()}-locked`);
+
+  /** Why the terms are read-only on this product (AECI-1218, §6.18). */
+  protected readonly lockedReason = computed(() => {
+    const narrativeLocked = this.config().narrative !== null && !this.narrativeEditable();
+    return narrativeLocked
+      ? $localize`:@@vendor.product.facet.locked.narrative:${this.config().legend}:FACET: and "How teams use it" are part of Managed for this product. The terms and points on record stay published, and you can read them here.`
+      : $localize`:@@vendor.product.facet.locked:${this.config().legend}:FACET: are part of Managed for this product. The terms on record stay published, and you can read them here.`;
+  });
+
   /** Anything on this tab editable: drives Save and the read-only notice. */
   protected readonly canEdit = computed(() => this.tagsEditable() || this.narrativeEditable());
 

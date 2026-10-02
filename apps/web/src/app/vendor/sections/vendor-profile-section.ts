@@ -1,6 +1,7 @@
-import { Component, inject } from '@angular/core';
+import { Component, afterNextRender, computed, inject } from '@angular/core';
 
 import { VendorProfileForm } from '../components/vendor-profile-form';
+import { VendorReviewStrip } from '../components/vendor-review-strip';
 import { vendorCan } from '../vendor-capabilities';
 import { VendorPortalStore } from '../vendor-portal-store';
 
@@ -14,7 +15,7 @@ import { VendorPortalStore } from '../vendor-portal-store';
  */
 @Component({
   selector: 'aec-vendor-profile-section',
-  imports: [VendorProfileForm],
+  imports: [VendorProfileForm, VendorReviewStrip],
   template: `
     @if (me(); as m) {
       <div>
@@ -24,6 +25,8 @@ import { VendorPortalStore } from '../vendor-portal-store';
         >
           Vendor profile
         </h2>
+        <!-- AECI-1218: "Looks right" on the company details (section 13.8). -->
+        <aec-vendor-review-strip class="mt-4" target="profile" [done]="checked()" />
         <div class="mt-4">
           <aec-vendor-profile-form [vendor]="m.vendor" [canEdit]="canEdit()" />
         </div>
@@ -37,4 +40,16 @@ export class VendorProfileSection {
 
   protected readonly me = this.store.me;
   protected readonly canEdit = vendorCan(this.store, 'profile.edit');
+
+  /** The "Check company details" step, once the vendor checklist has loaded. */
+  protected readonly checked = computed(
+    () =>
+      this.store
+        .checklist()
+        ?.steps.some((s) => s.key === 'company_details' && s.status === 'done') ?? false,
+  );
+
+  constructor() {
+    afterNextRender(() => void this.store.ensureChecklist());
+  }
 }

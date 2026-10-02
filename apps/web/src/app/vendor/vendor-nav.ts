@@ -78,6 +78,9 @@ export const VENDOR_NAV_ITEMS: readonly VendorNavItem[] = [
  * labelled for that product. The scope is already said three times.
  */
 export const VENDOR_PRODUCT_NAV_ITEMS: readonly VendorNavItem[] = [
+  // AECI-1218: the product's checklist and plan. "Product Overview" names its
+  // scope for the reason "Vendor Overview" does: both rows have an overview.
+  { path: 'overview', label: $localize`:@@vendor.productNav.overview:Product Overview` },
   { path: 'profile', label: $localize`:@@vendor.productNav.profile:Profile` },
   { path: 'categories', label: $localize`:@@vendor.productNav.categories:Categories` },
   { path: 'trades', label: $localize`:@@vendor.productNav.trades:Trades` },

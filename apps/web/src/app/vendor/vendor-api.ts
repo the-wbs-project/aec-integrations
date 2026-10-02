@@ -59,6 +59,11 @@ import type {
   UpdateConnectorStubMappingInput,
   VendorConnectorCatalogResponse,
   AdminConnectorStubState,
+  ReviewVendorProfileResponse,
+  ReviewVendorProductResponse,
+  ReviewVendorProductIntegrationsResponse,
+  VendorChecklistResponse,
+  VendorProductChecklistResponse,
 } from '@aeci/shared';
 
 /** The Catalogue tab's filter set for {@link VendorApi.getConnectorCatalog}. */
@@ -173,6 +178,54 @@ export class VendorApi {
       this.http.patch<UpdateVendorProductResponse>(
         `/api/vendor/products/${encodeURIComponent(id)}`,
         input,
+      ),
+    );
+  }
+
+  /** `GET /api/vendor/checklist` (AECI-1217, `STAGE_2_PAID_TIERS_SPEC.md` §13.10):
+   *  the vendor-level steps, plus one score per owned product for the Products
+   *  list. A read, never rate-limited. */
+  getChecklist(): Promise<VendorChecklistResponse> {
+    return firstValueFrom(this.http.get<VendorChecklistResponse>('/api/vendor/checklist'));
+  }
+
+  /** `GET /api/vendor/products/:id/checklist` (AECI-1217): one owned product's
+   *  steps and score. */
+  getProductChecklist(productId: string): Promise<VendorProductChecklistResponse> {
+    return firstValueFrom(
+      this.http.get<VendorProductChecklistResponse>(
+        `/api/vendor/products/${encodeURIComponent(productId)}/checklist`,
+      ),
+    );
+  }
+
+  /** `POST /api/vendor/profile/review` (AECI-1216, §13.8): "Looks right" on the
+   *  company details. Stamps `last_reviewed_at`. Free on every plan. The body is
+   *  `.strict()` server-side, so this sends an empty object and nothing else. */
+  reviewProfile(): Promise<ReviewVendorProfileResponse> {
+    return firstValueFrom(
+      this.http.post<ReviewVendorProfileResponse>('/api/vendor/profile/review', {}),
+    );
+  }
+
+  /** `POST /api/vendor/products/:id/review` (AECI-1216): "Looks right" on one
+   *  product's details. */
+  reviewProduct(productId: string): Promise<ReviewVendorProductResponse> {
+    return firstValueFrom(
+      this.http.post<ReviewVendorProductResponse>(
+        `/api/vendor/products/${encodeURIComponent(productId)}/review`,
+        {},
+      ),
+    );
+  }
+
+  /** `POST /api/vendor/products/:id/integrations/review` (AECI-1216, §13.9):
+   *  "Looks right" on one product's integration list. */
+  reviewProductIntegrations(productId: string): Promise<ReviewVendorProductIntegrationsResponse> {
+    return firstValueFrom(
+      this.http.post<ReviewVendorProductIntegrationsResponse>(
+        `/api/vendor/products/${encodeURIComponent(productId)}/integrations/review`,
+        {},
       ),
     );
   }

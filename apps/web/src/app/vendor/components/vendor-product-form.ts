@@ -13,7 +13,7 @@ import { NewTabIcon } from '../../shared/new-tab-icon/new-tab-icon';
 import { RequestTrigger } from '../../requests/request-trigger';
 import { VendorApi } from '../vendor-api';
 import { VendorPortalStore } from '../vendor-portal-store';
-import { productCan, vendorIsCatalogueSeat } from '../vendor-capabilities';
+import { productCan } from '../vendor-capabilities';
 
 type ProductTextKey =
   | 'description'
@@ -53,7 +53,9 @@ interface FieldConfig {
  * field gate reads. On the Free plan description, website and logo are editable
  * and the two doc URLs are `readonly` (never `disabled`, so the value stays in
  * the accessibility tree). A locked field is never sent: the server refuses a
- * request naming one WHOLE. The visible reason on a locked field is AECI-1218.
+ * request naming one WHOLE. Since AECI-1218 each locked field carries a visible
+ * reason under its label, tied to the control with `aria-describedby`, and one
+ * notice above the fields names them all (`STAGE_2_VENDOR_PORTAL_SPEC.md` §6.18).
  *
  * ── UNSAVED EDITS vs. REVALIDATION (AECI-628) ───────────────────────────────
  * Same contract as `vendor-profile-form.ts`: the baseline re-seeds from the input so a clean form tracks the server,
@@ -127,33 +129,65 @@ interface FieldConfig {
         }
 
         @if (!canEdit()) {
-          @if (catalogueSeat()) {
-            <!-- AECI-1082: the catalogue seat never had product editing, so it is not paused. -->
-            <div
-              class="rounded-(--radius-md) border border-(--border-default) bg-(--surface-sunken) p-4"
+          <!--
+            AECI-1218. Every known plan edits the description, website and logo
+            (section 13.3), so this shows only for a plan block that holds none
+            of the product capabilities, which the server does not serve today.
+          -->
+          <div
+            class="rounded-(--radius-md) border border-(--border-default) bg-(--surface-sunken) p-4"
+          >
+            <p
+              class="max-w-prose text-sm leading-relaxed text-(--text-secondary)"
+              i18n="@@vendor.product.readOnly"
             >
-              <p
-                class="max-w-prose text-sm leading-relaxed text-(--text-secondary)"
-                i18n="@@vendor.product.readOnly.catalogue"
-              >
-                Product details stay with the AECi team, so this seat cannot edit them. This product
-                stays published exactly as it is, and everything on record is here to read.
+              This seat cannot edit this product right now. The product stays published exactly as
+              it is, and everything on record is here to read.
+            </p>
+          </div>
+        } @else if (lockedLabels().length > 0) {
+          <!--
+            AECI-1218 (STAGE_2_VENDOR_PORTAL_SPEC.md section 6.18): the Managed-only
+            fields stay visible and readonly, each with its own reason below it.
+            This line says once, up front, which ones and why.
+          -->
+          <div
+            class="flex items-start gap-3 rounded-(--radius-md) border border-(--border-default) bg-(--surface-sunken) p-4"
+            data-testid="product-locked-notice"
+          >
+            <svg
+              aria-hidden="true"
+              class="mt-0.5 h-4 w-4 shrink-0 text-(--text-secondary)"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            >
+              <rect x="5" y="11" width="14" height="10" rx="2" />
+              <path d="M8 11V7a4 4 0 0 1 8 0v4" />
+            </svg>
+            <div class="max-w-prose text-sm leading-relaxed">
+              <p class="font-medium text-(--text-primary)">{{ lockedNotice() }}</p>
+              <p class="mt-1 text-(--text-secondary)" i18n="@@vendor.product.locked.correction">
+                Spot something wrong in one of them?
+                <a
+                  aecRequestTrigger
+                  [entity]="'product'"
+                  [kind]="'correction'"
+                  [slug]="product().slug"
+                  [href]="'/products/' + product().slug + '/correction'"
+                  target="_blank"
+                  rel="noopener"
+                  class="text-(--accent-primary) underline underline-offset-2"
+                  >Request a correction
+                  <span class="inline-flex align-middle"><aec-new-tab-icon /></span
+                ></a>
+                and the AECi team fixes it.
               </p>
             </div>
-          } @else {
-            <div
-              class="rounded-(--radius-md) border border-(--border-default) bg-(--surface-sunken) p-4"
-            >
-              <p
-                class="max-w-prose text-sm leading-relaxed text-(--text-secondary)"
-                i18n="@@vendor.product.readOnly"
-              >
-                Editing is paused while your account access is inactive. This product stays
-                published exactly as it is, and everything on record is here to read. The account
-                panel on Vendor Overview has the renewal path.
-              </p>
-            </div>
-          }
+          </div>
         }
 
         @for (cfg of textFields; track cfg.key) {
@@ -170,6 +204,34 @@ interface FieldConfig {
               />
             } @else {
               <label [for]="fieldId(cfg.key)" [class]="labelClass">{{ cfg.label }}</label>
+              @if (!editable()[cfg.key]) {
+                <!--
+                  AECI-1218: the locked field's reason, visible and tied to the
+                  control with aria-describedby so a screen reader reads it too.
+                -->
+                <p
+                  [id]="fieldId(cfg.key) + '-locked'"
+                  class="flex items-center gap-1.5 text-xs text-(--text-secondary)"
+                  data-testid="locked-reason"
+                >
+                  <svg
+                    aria-hidden="true"
+                    class="h-3.5 w-3.5 shrink-0"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  >
+                    <rect x="5" y="11" width="14" height="10" rx="2" />
+                    <path d="M8 11V7a4 4 0 0 1 8 0v4" />
+                  </svg>
+                  <span i18n="@@vendor.product.locked.reason"
+                    >Part of Managed for this product. The current value stays published.</span
+                  >
+                </p>
+              }
               @if (cfg.control === 'textarea') {
                 <textarea
                   [id]="fieldId(cfg.key)"
@@ -178,9 +240,7 @@ interface FieldConfig {
                   [readOnly]="!editable()[cfg.key]"
                   (input)="onInput(cfg.key, $event)"
                   [attr.aria-invalid]="fieldErrors()[cfg.key] ? 'true' : null"
-                  [attr.aria-describedby]="
-                    fieldErrors()[cfg.key] ? fieldId(cfg.key) + '-error' : null
-                  "
+                  [attr.aria-describedby]="describedBy(cfg.key)"
                   [class]="controlClass(cfg.key)"
                 ></textarea>
               } @else {
@@ -191,9 +251,7 @@ interface FieldConfig {
                   [readOnly]="!editable()[cfg.key]"
                   (input)="onInput(cfg.key, $event)"
                   [attr.aria-invalid]="fieldErrors()[cfg.key] ? 'true' : null"
-                  [attr.aria-describedby]="
-                    fieldErrors()[cfg.key] ? fieldId(cfg.key) + '-error' : null
-                  "
+                  [attr.aria-describedby]="describedBy(cfg.key)"
                   [class]="controlClass(cfg.key)"
                 />
               }
@@ -247,8 +305,6 @@ interface FieldConfig {
 export class VendorProductForm {
   private readonly api = inject(VendorApi);
   private readonly store = inject(VendorPortalStore);
-  /** The §8.9 connector seat (AECI-1082): its read-only notice is not paused copy. */
-  protected readonly catalogueSeat = vendorIsCatalogueSeat(this.store);
 
   readonly product = input.required<VendorProduct>();
 
@@ -261,6 +317,29 @@ export class VendorProductForm {
     }
     return out;
   });
+  /** The labels of the fields this product's plan locks, in form order. */
+  protected readonly lockedLabels = computed(() =>
+    this.textFields.filter((cfg) => !this.editable()[cfg.key]).map((cfg) => cfg.label),
+  );
+
+  /** One sentence naming the locked fields (AECI-1218, §6.18). */
+  protected readonly lockedNotice = computed(() => {
+    const labels = this.lockedLabels();
+    const fields =
+      labels.length <= 1
+        ? labels.join('')
+        : $localize`:@@vendor.product.locked.list:${labels.slice(0, -1).join(', ')}:HEAD: and ${labels[labels.length - 1]}:LAST:`;
+    return $localize`:@@vendor.product.locked.notice:Editing the ${fields}:FIELDS: needs Managed for this product.`;
+  });
+
+  /** The control's descriptions: its locked reason and its error, when shown. */
+  protected describedBy(key: ProductTextKey): string | null {
+    const ids: string[] = [];
+    if (!this.editable()[key]) ids.push(`${this.fieldId(key)}-locked`);
+    if (this.fieldErrors()[key]) ids.push(`${this.fieldId(key)}-error`);
+    return ids.length > 0 ? ids.join(' ') : null;
+  }
+
   /** Any field editable: drives the Save button and the read-only notice. */
   protected readonly canEdit = computed(() => Object.values(this.editable()).some(Boolean));
 

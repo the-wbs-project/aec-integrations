@@ -1,9 +1,11 @@
-import { Component, computed, inject } from '@angular/core';
+import { Component, PLATFORM_ID, computed, effect, inject, untracked } from '@angular/core';
+import { isPlatformBrowser } from '@angular/common';
 
 import { VendorIntegrationsSection } from '../components/vendor-integrations-section';
 import { VendorOwnedIntegrations } from '../components/vendor-owned-integrations';
 import { VendorProductConnectors } from '../components/vendor-product-connectors';
-import { vendorCan } from '../vendor-capabilities';
+import { VendorReviewStrip } from '../components/vendor-review-strip';
+import { productCan } from '../vendor-capabilities';
 import { VendorPortalStore } from '../vendor-portal-store';
 
 import { vendorProductContext } from './vendor-product-context';
@@ -22,7 +24,8 @@ import { vendorProductContext } from './vendor-product-context';
  * answer a per-product question. The read stays vendor-wide (one call, one cursor
  * scope — see `contextProductId` on the section); only the view narrows.
  *
- * The write gate is the `attestation.author` capability off `me`, the same
+ * The write gate is the `attestation.author` capability on THIS product's plan
+ * (`productCan`, AECI-1218 / `STAGE_2_PAID_TIERS_SPEC.md` §13.7), the same
  * capability the server's `requireCapability` asserts on the attestation and
  * version writes (AECI-623; `STAGE_2_REALTIME_SPEC.md` §6.1). It used to be the
  * `vendors.verified` mirror; the client and server halves moved in one change so
@@ -39,10 +42,24 @@ import { vendorProductContext } from './vendor-product-context';
  */
 @Component({
   selector: 'aec-vendor-integrations-page',
-  imports: [VendorIntegrationsSection, VendorOwnedIntegrations, VendorProductConnectors],
+  imports: [
+    VendorIntegrationsSection,
+    VendorOwnedIntegrations,
+    VendorProductConnectors,
+    VendorReviewStrip,
+  ],
   template: `
     @if (me(); as m) {
       <div>
+        <!-- AECI-1218: "Looks right" on this product's integration list (13.8). -->
+        @if (ctx.product(); as p) {
+          <aec-vendor-review-strip
+            target="integrations"
+            [productId]="p.id"
+            [productName]="p.name"
+            [done]="listChecked()"
+          />
+        }
         <div class="mt-4">
           <aec-vendor-integrations-section
             [canAuthor]="canAuthor()"
@@ -63,11 +80,31 @@ import { vendorProductContext } from './vendor-product-context';
   styles: [':host { display: block; }'],
 })
 export class VendorIntegrationsPage {
-  private readonly ctx = vendorProductContext();
+  protected readonly ctx = vendorProductContext();
+  private readonly browser = isPlatformBrowser(inject(PLATFORM_ID));
 
   private readonly store = inject(VendorPortalStore);
   protected readonly me = this.store.me;
-  protected readonly canAuthor = vendorCan(this.store, 'attestation.author');
+  // AECI-1218: a product screen reads THIS product's plan (section 13.7), never
+  // `me().entitlement`. The same block today, so the gate is unchanged.
+  protected readonly canAuthor = computed(() =>
+    productCan(this.ctx.product(), 'attestation.author'),
+  );
+
+  /** The "Check the integration list" step on this product's checklist. */
+  protected readonly listChecked = computed(() => {
+    const id = this.ctx.product()?.id;
+    const c = id ? this.store.productChecklists().get(id) : undefined;
+    return c?.steps.some((s) => s.key === 'integration_list' && s.status === 'done') ?? false;
+  });
+
+  constructor() {
+    effect(() => {
+      const id = this.ctx.product()?.id;
+      if (!id || !this.browser) return;
+      untracked(() => void this.store.ensureProductChecklist(id));
+    });
+  }
 
   /**
    * In practice never `null`: the product shell only renders its outlet once

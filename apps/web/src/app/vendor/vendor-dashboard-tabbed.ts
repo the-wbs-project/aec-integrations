@@ -18,6 +18,8 @@ import { ViewPublicLink } from '../shared/view-public-link/view-public-link';
 import { VendorPortalAnnouncer } from './vendor-announcer';
 import { VENDOR_NAV_ITEMS, productNavItemsFor, type VendorNavItem } from './vendor-nav';
 import { VendorPortalNav } from './vendor-portal-nav';
+import { VendorPlanBadge } from './components/vendor-plan-badge';
+import { VendorPlanEndedBanner } from './components/vendor-plan-ended-banner';
 
 /**
  * Concept A — the vendor portal shell (AECI-522): a breadcrumb, a title, one
@@ -96,7 +98,15 @@ import { VendorPortalNav } from './vendor-portal-nav';
  */
 @Component({
   selector: 'aec-vendor-dashboard-tabbed',
-  imports: [RouterLink, RouterOutlet, VendorPortalNav, ViewPublicLink, RequestDrawer],
+  imports: [
+    RouterLink,
+    RouterOutlet,
+    VendorPortalNav,
+    ViewPublicLink,
+    RequestDrawer,
+    VendorPlanBadge,
+    VendorPlanEndedBanner,
+  ],
   template: `
     @let m = me();
     <section class="mx-auto w-full max-w-7xl px-6 py-10 md:px-8">
@@ -154,8 +164,19 @@ import { VendorPortalNav } from './vendor-portal-nav';
             {{ product()?.name ?? m.vendor.company_name }}
           </h1>
           <aec-view-public-link [href]="publicHref()" />
+          <!-- AECI-1218: the open product's plan, read off the product (section 13.7). -->
+          @if (product(); as p) {
+            <aec-vendor-plan-badge [plan]="p.plan" />
+          }
         </div>
       </header>
+
+      <!--
+        AECI-1218 (STAGE_2_PAID_TIERS_SPEC.md section 13.11): renders only when the
+        vendor's plan ended. Above the tabs, so it heads every portal page, and
+        not dismissible, because it states the current state.
+      -->
+      <aec-vendor-plan-ended-banner [entitlement]="m.entitlement" />
 
       <aec-vendor-portal-nav [items]="navItems()" [ariaLabel]="navLabel()" />
 
