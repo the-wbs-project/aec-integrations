@@ -1,7 +1,7 @@
 import { z } from 'zod';
 
 import { PageQuerySchema, ProductLinkSchema, paginatedResponseSchema } from './common';
-import { PublicReviewSchema } from './reviews';
+import { PublicReviewSchema, PublicVendorResponseSchema } from './reviews';
 
 /**
  * Vendor replies to reviews (AECI-1173, `STAGE_2_VENDOR_PORTAL_SPEC.md` §11c).
@@ -45,24 +45,10 @@ export type ReviewReplyStatusFilter = z.infer<typeof ReviewReplyStatusFilterSche
 
 // ─── Public reply (the shape a visitor reads) ───────────────────────────────
 
-/**
- * One published reply as a visitor reads it (`API_CONTRACTS.md` §6.6). AECI-1178
- * puts an array of these on `PublicReview` as `vendor_responses`. AECI-1176 uses it
- * for the co-owners' published replies on the vendor list (`other_responses`).
- *
- * A reply appears only when it is `published`, its review is `approved`, and its
- * vendor still owns the product (§11c.11). Ordered `published_at ASC, id ASC`.
- * No author, no seat, no moderation field.
- */
-export const PublicVendorResponseSchema = z.object({
-  vendor_slug: z.string(),
-  /** `vendors.company_name`. */
-  vendor_name: z.string(),
-  /** Plain text, line breaks kept. Never parsed as Markdown or HTML. */
-  body: z.string(),
-  published_at: z.string().datetime(),
-});
-export type PublicVendorResponse = z.infer<typeof PublicVendorResponseSchema>;
+// `PublicVendorResponseSchema` lives in `./reviews`, beside the `PublicReviewSchema`
+// that carries it as `vendor_responses`. Defining it here would make the two
+// modules import each other. Re-exported so this file stays the reply vocabulary.
+export { PublicVendorResponseSchema, type PublicVendorResponse } from './reviews';
 
 // ─── Vendor writes (AECI-1176) ───────────────────────────────────────────────
 
@@ -113,14 +99,12 @@ export type ListVendorReviewsQuery = z.infer<typeof ListVendorReviewsQuerySchema
 /**
  * One approved review of a product the caller owns.
  *
- * `review` is the public shape. When AECI-1178 adds `vendor_responses` to
- * `PublicReviewSchema`, this field must become
- * `PublicReviewSchema.omit({ vendor_responses: true })` (`API_CONTRACTS.md`
- * §6.14): the caller's own reply is `response` and the co-owners' are
+ * `review` is the public shape without `vendor_responses` (`API_CONTRACTS.md`
+ * §6.14). The caller's own reply is `response` and the co-owners' are
  * `other_responses`, so the public array would say the same thing twice.
  */
 export const VendorReviewItemSchema = z.object({
-  review: PublicReviewSchema,
+  review: PublicReviewSchema.omit({ vendor_responses: true }),
   product: ProductLinkSchema,
   /** The caller's own reply, any status. `null` when it has not replied. */
   response: VendorReviewResponseSchema.nullable(),

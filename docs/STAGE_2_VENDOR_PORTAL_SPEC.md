@@ -3434,7 +3434,7 @@ A read-time rule would also hand the contest back to the owner when the entitlem
 
 ## 11c. Vendor replies to reviews (AECI-1173)
 
-**Status: specified 2026-10-02 by AECI-1174. Built so far: the table (AECI-1175, migration `0058`), and the four vendor routes, the `review.reply` capability and the `reviews` cursor scope (AECI-1176). The admin queue, the public render, the portal tab and the notifications are not built.** Sub-issues AECI-1175 to AECI-1181 build it (§11c.17). Chris ruled the open decisions on 2026-10-01 and 2026-10-02. This section is the build contract. The table is in `DATABASE_SCHEMA.md` §7.3. The wire shapes are in `API_CONTRACTS.md` §6.6 and §6.14. The admin queue is `ADMIN_PANEL_SPEC.md` §5.13. The Stage 2.1 admission is `STAGE_2_1_SPEC.md` §3.3.4.
+**Status: specified 2026-10-02 by AECI-1174. Built so far: the table (AECI-1175, migration `0058`), the four vendor routes, the `review.reply` capability and the `reviews` cursor scope (AECI-1176), and `vendor_responses` on both public reads with the product-page render (AECI-1178). The admin queue, the portal tab and the notifications are not built.** Sub-issues AECI-1175 to AECI-1181 build it (§11c.17). Chris ruled the open decisions on 2026-10-01 and 2026-10-02. This section is the build contract. The table is in `DATABASE_SCHEMA.md` §7.3. The wire shapes are in `API_CONTRACTS.md` §6.6 and §6.14. The admin queue is `ADMIN_PANEL_SPEC.md` §5.13. The Stage 2.1 admission is `STAGE_2_1_SPEC.md` §3.3.4.
 
 **This section supersedes the AECI-313 ruling of 2026-07-02.** That ruling made launch flag-only. A vendor could report a review by email and nothing else, and public replies were held back for a later paid listing. This is that feature. Reporting a review is unchanged. It stays an email to `reviews@thewbsproject.com` under the Review Guidelines (`apps/web/src/content/legal/review-guidelines.md`). A reply never removes, hides or flags a review.
 
@@ -3622,6 +3622,7 @@ Shapes and error codes are in `API_CONTRACTS.md` §6.6, §6.10 and §6.14.
 - **The reply is announced as belonging to its review.** The reply block is a labelled region tied to its review, for example `aria-labelledby` on the label. Each review stays an `article`.
 - **Visitor-state-neutral.** The page's SSR output is the same for every visitor. No "your reply is pending" state appears on the public page. The vendor sees that in the portal.
 - **i18n and light theme**, like every surface.
+- **As built (AECI-1178).** Each review in `apps/web/src/app/products/product-reviews.html` is an `article` named by its title (`aria-labelledby` on the `h3`). The article holds the review card, then each reply as a `section` below the card, outside its border. The section is labelled by its `h4`. The `h4` shows "Response from {vendor name}" and carries a screen-reader-only tail, "to the review “{title}”". That tail ties the reply to its review and keeps every reply region's name unique, which axe's `landmark-unique` needs. The date is a `time` element. The body is interpolated text with `whitespace-pre-line`, so line breaks show and nothing is parsed. The reply is indented, on `--surface-sunken`, with a full border and a Lucide corner-down-right glyph. A side stripe was not used, because `DESIGN.md` bans it.
 
 ### 11c.16 The portal screen (AECI-1179)
 

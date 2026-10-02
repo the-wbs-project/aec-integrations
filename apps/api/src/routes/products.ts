@@ -40,6 +40,7 @@ import {
 } from '../lib/drizzle-helpers';
 import { reportMissingVendors, validateResponseInDev, type DbFactory } from '../lib/handler-utils';
 import { productExtensionRows } from '../lib/product-extensions';
+import { withPublishedVendorResponses } from '../lib/review-responses';
 import { resolveProductOrderBy } from '../lib/sort';
 
 export function createProductsListHandler(
@@ -118,13 +119,18 @@ export function createProductDetailHandler(
 
     const [relatedProducts, reviewRows, reachablePartners, extensionRows] = await Promise.all([
       relatedPromise,
-      // First page of approved reviews, newest-first; `id` tiebreaks ties.
-      db.query.reviews.findMany({
-        columns: publicReviewColumns,
-        where: and(eq(reviews.productId, row.id), eq(reviews.status, 'approved')),
-        orderBy: [desc(reviews.createdAt), asc(reviews.id)],
-        limit: EMBED_REVIEWS_PAGE_SIZE,
-      }),
+      // First page of approved reviews, newest-first; `id` tiebreaks ties. Each
+      // carries its published vendor replies through the same helper as
+      // `GET /api/products/:slug/reviews` (AECI-1178, §11c.14), chained here so
+      // the reply query overlaps the other reads.
+      db.query.reviews
+        .findMany({
+          columns: publicReviewColumns,
+          where: and(eq(reviews.productId, row.id), eq(reviews.status, 'approved')),
+          orderBy: [desc(reviews.createdAt), asc(reviews.id)],
+          limit: EMBED_REVIEWS_PAGE_SIZE,
+        })
+        .then((rows) => withPublishedVendorResponses(db, rows)),
       // §13.7's reach count (AECI-892). Its own promise rather than an entry in
       // `productDetailConfig`, because the relational `with:` hydrates ROWS and
       // this needs an aggregate — routing it through the shape contract would

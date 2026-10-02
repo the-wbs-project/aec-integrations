@@ -2,7 +2,7 @@ import { DatePipe } from '@angular/common';
 import { HttpClient } from '@angular/common/http';
 import { Component, ChangeDetectionStrategy, computed, inject, input, signal } from '@angular/core';
 
-import type { ProductReviewsResponse, PublicReview } from '@aeci/shared';
+import type { ProductReviewsResponse, PublicReview, PublicVendorResponse } from '@aeci/shared';
 
 import { ReviewCta } from '../reviews/review-cta';
 import { ReviewStars } from '../reviews/review-stars';
@@ -36,6 +36,15 @@ const REVIEWS_PER_PAGE = 24;
  *
  * "Load more" is an imperative browser fetch on click (never during SSR), so
  * it adds no SSR `/api/*` loopback and keeps the cached HTML to page 1.
+ *
+ * Vendor replies (AECI-1178, `STAGE_2_VENDOR_PORTAL_SPEC.md` §11c.15): each
+ * review is an `article` named by its title, holding the review card and then
+ * its published `vendor_responses` as separate blocks below the card. Each reply
+ * is a `section` labelled by its "Response from {vendor}" heading, whose
+ * screen-reader-only tail names the review, so a reply is announced as belonging
+ * to its review and every reply region has a unique name. The API already
+ * filtered to published replies (§11c.11); this component renders what it is
+ * given and adds no visitor state, so the cached HTML stays neutral.
  */
 @Component({
   selector: 'aec-product-reviews',
@@ -92,6 +101,33 @@ export class ProductReviews {
     const count = this.reviewCount();
     return $localize`:@@products.detail.reviews.summaryCount:Based on ${count}:COUNT: reviews`;
   });
+
+  /** The review's published vendor replies. An API from before AECI-1178 omits
+   *  the field (deploy skew, `API_CONTRACTS.md` §6.6), so `undefined` is empty. */
+  protected repliesOf(review: PublicReview): readonly PublicVendorResponse[] {
+    return (
+      (review as { vendor_responses?: readonly PublicVendorResponse[] }).vendor_responses ?? []
+    );
+  }
+
+  protected titleId(review: PublicReview): string {
+    return `review-${review.id}-title`;
+  }
+
+  protected replyLabelId(review: PublicReview, index: number): string {
+    return `review-${review.id}-response-${index}`;
+  }
+
+  /** The visible reply label (§11c.15, exact wording). */
+  protected responseLabel(vendorName: string): string {
+    return $localize`:@@products.detail.reviews.response.label:Response from ${vendorName}:VENDOR:`;
+  }
+
+  /** Screen-reader-only tail of the reply heading: ties the reply to its review
+   *  and keeps each reply region's accessible name unique on the page. */
+  protected responseContext(reviewTitle: string): string {
+    return $localize`:@@products.detail.reviews.response.context:to the review “${reviewTitle}:TITLE:”`;
+  }
 
   loadMore(): void {
     if (this.loadingMore()) return;

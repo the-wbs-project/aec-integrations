@@ -12,12 +12,15 @@
  *     transition batch carries right after its guarded write (§11c.7).
  *   - {@link loadPublishedVendorResponses}: the three-rule render predicate of
  *     §11c.11 and the public order, `published_at ASC, id ASC`.
+ *   - {@link withPublishedVendorResponses}: the one mapper both public review
+ *     reads use (§11c.14), so the list and the product-detail embed cannot drift.
  *
  * Nothing here reads or writes `reviews` beyond a SELECT, and nothing reads a
  * count or a ranking column (§11c.10).
  */
 
 import type {
+  PublicReview,
   PublicVendorResponse,
   ReviewResponseStatus,
   VendorReviewResponse,
@@ -26,6 +29,7 @@ import { and, asc, eq, inArray, isNotNull, ne, sql, type SQL } from 'drizzle-orm
 
 import type { Db } from '../db/client';
 import { productVendors, reviewResponses, reviews, vendors } from '../db/schema';
+import { toPublicReview, type RawPublicReviewRow } from './drizzle-helpers';
 import { ownedProductIds } from '../routes/vendor-shared';
 import { ONE_ROW } from './integration-claims';
 import { chunked } from './promote-claims';
@@ -187,4 +191,27 @@ export async function loadPublishedVendorResponses(
     out.set(row.reviewId, list);
   }
   return out;
+}
+
+/**
+ * Map a page of approved review rows to `PublicReview`, each with its published
+ * vendor replies (§11c.14, AECI-1178). The one helper behind both public reads:
+ * `GET /api/products/:slug/reviews` and the `ProductDetail.reviews` embed.
+ *
+ * One extra query per page (two past 100 ids), never one per review. The rows
+ * keep their order, so the review order, the count and the averages are exactly
+ * what they are without a reply (§11c.10). Nothing here reads a count column.
+ */
+export async function withPublishedVendorResponses(
+  db: Db,
+  rows: readonly RawPublicReviewRow[],
+): Promise<PublicReview[]> {
+  const byReview = await loadPublishedVendorResponses(
+    db,
+    rows.map((r) => r.id),
+  );
+  return rows.map((row) => ({
+    ...toPublicReview(row),
+    vendor_responses: byReview.get(row.id) ?? [],
+  }));
 }

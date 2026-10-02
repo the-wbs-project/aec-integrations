@@ -72,6 +72,30 @@ export const ReviewStatusSchema = z.enum(['pending', 'approved', 'rejected']);
 export type ReviewStatus = z.infer<typeof ReviewStatusSchema>;
 
 /**
+ * One published vendor reply as a visitor reads it (`API_CONTRACTS.md` §6.6,
+ * `STAGE_2_VENDOR_PORTAL_SPEC.md` §11c.14). `PublicReview.vendor_responses` is an
+ * array of these (AECI-1178). The vendor list uses it for the co-owners' published
+ * replies (`other_responses`, AECI-1176).
+ *
+ * A reply appears only when it is `published`, its review is `approved`, and its
+ * vendor still owns the product (§11c.11). Ordered `published_at ASC, id ASC`.
+ * No author, no seat, no moderation field.
+ *
+ * It lives here, not in `review-responses.ts`, because `PublicReviewSchema` needs
+ * it and `review-responses.ts` already imports this module. A schema in each file
+ * would be an import cycle that reads an uninitialised `const`.
+ */
+export const PublicVendorResponseSchema = z.object({
+  vendor_slug: z.string(),
+  /** `vendors.company_name`. */
+  vendor_name: z.string(),
+  /** Plain text, line breaks kept. Never parsed as Markdown or HTML. */
+  body: z.string(),
+  published_at: z.string().datetime(),
+});
+export type PublicVendorResponse = z.infer<typeof PublicVendorResponseSchema>;
+
+/**
  * Public read contract for approved reviews (AECI-199 / Phase 5.8): the item
  * shape for `GET /api/products/:slug/reviews` and the `ProductDetail.reviews`
  * SSR embed. Source of truth is `docs/API_CONTRACTS.md` §6.6 /
@@ -81,6 +105,12 @@ export type ReviewStatus = z.infer<typeof ReviewStatusSchema>;
  * columns, and `updated_at` are deliberately ABSENT — only approved, public
  * fields cross the wire. The endpoint returns approved reviews only, paginated,
  * newest-first.
+ *
+ * `vendor_responses` (AECI-1178, §11c.14): the review's published vendor replies,
+ * one per owning vendor at most, in public order. `[]` when there is none.
+ * `.default([])` covers deploy skew, so a web build that reads the wire without
+ * parsing must still treat `undefined` as empty. Both public paths fill it
+ * through one API helper (`withPublishedVendorResponses`), so they cannot drift.
  */
 export const PublicReviewSchema = z.object({
   id: z.string().uuid(),
@@ -93,6 +123,7 @@ export const PublicReviewSchema = z.object({
   would_recommend: z.enum(['yes', 'no', 'maybe']).nullable(),
   verified_work_email: z.boolean(),
   created_at: z.string().datetime(),
+  vendor_responses: z.array(PublicVendorResponseSchema).default([]),
 });
 export type PublicReview = z.infer<typeof PublicReviewSchema>;
 

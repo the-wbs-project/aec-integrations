@@ -1225,6 +1225,7 @@ export const PublicReviewSchema = z.object({
   would_recommend: z.enum(['yes', 'no', 'maybe']).nullable(),
   verified_work_email: z.boolean(),
   created_at: z.string().datetime(),
+  vendor_responses: z.array(PublicVendorResponseSchema).default([]), // AECI-1178, see below
 });
 export type PublicReview = z.infer<typeof PublicReviewSchema>;
 
@@ -1234,7 +1235,7 @@ export type ProductReviewsResponse = PaginatedResponse<PublicReview>;
 
 Errors: `NOT_FOUND` (unknown product slug — distinct from a known product with zero approved reviews, which is an empty page). API response is `Cache-Control: private, no-store` like its `GET /api/products/:slug` sibling; edge-cacheability + the `product:<slug>` Cache-Tag are an SSR-layer concern (the public product page bakes page 1 in), and review approval/rejection (Phase 5.13) purges that tag.
 
-**Vendor replies on the public review (specified by AECI-1174, built by AECI-1178).** `PublicReviewSchema` gains one field. Both public paths carry it: this list and the `ProductDetail.reviews` embed below. Both map through one helper, so they cannot drift.
+**Vendor replies on the public review (specified by AECI-1174, built by AECI-1178).** `PublicReviewSchema` carries one more field. Both public paths carry it: this list and the `ProductDetail.reviews` embed below. Both map through one helper, so they cannot drift.
 
 ```typescript
 export const PublicVendorResponseSchema = z.object({
@@ -1253,6 +1254,7 @@ export const PublicVendorResponseSchema = z.object({
 - `.default([])` covers deploy skew. A web build reading through `HttpClient` without parsing must still treat `undefined` as empty.
 - One extra query per page fetches the replies for the page's review ids. The review order, `review_count` and the rating averages are the same with or without a reply.
 - No reviewer data is added, and no JSON-LD carries a reply.
+- **As built (AECI-1178).** `PublicVendorResponseSchema` is defined in `packages/shared/src/api/reviews.ts`, beside `PublicReviewSchema`, and re-exported from `review-responses.ts`. Defining it in `review-responses.ts` would make the two modules import each other. The one helper is `withPublishedVendorResponses` in `apps/api/src/lib/review-responses.ts`. It maps a page of review rows and runs `loadPublishedVendorResponses` once for the page. `toPublicReview` returns the review without `vendor_responses`, so the vendor list (§6.14) never carries the field. The product-detail embed chains the reply query onto its review query, so it overlaps the other detail reads.
 
 **Maintenance marker (AECI-616 / `STAGE_2_ATTESTATIONS_SPEC.md` §13).** `GET /api/products/:slug` and `GET /api/vendors/:slug` both carry a `maintenance: { maintained_by, last_reviewed_at }` object (the `MaintenanceSchema` above), feeding the `aec-maintenance-marker` chip in each page header. Detail-only — the marker never renders on a card, so `ProductListItem` / `VendorListItem` do not carry it. `last_reviewed_at` is `null` on almost every record and that renders bare attribution with no date; it is **never** derived from `updated_at` / `created_at` / `promoted_at`, and no migration backfills it.
 
@@ -6565,7 +6567,7 @@ export const ListVendorReviewsQuerySchema = PageQuerySchema.extend({
 export const VendorReviewResponseResultSchema = z.object({ response: VendorReviewResponseSchema });
 
 export const VendorReviewItemSchema = z.object({
-  review: PublicReviewSchema,                          // .omit({ vendor_responses: true }) once AECI-1178 adds that field
+  review: PublicReviewSchema.omit({ vendor_responses: true }), // replies are `response` + `other_responses`
   product: ProductLinkSchema,                          // { id, slug, name, logo_url }
   response: VendorReviewResponseSchema.nullable(),     // the caller's own reply, any status
   other_responses: z.array(PublicVendorResponseSchema), // co-owners' published replies

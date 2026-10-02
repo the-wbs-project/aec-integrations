@@ -12,6 +12,7 @@ import {
   VendorReviewItemSchema,
   VendorReviewResponseSchema,
 } from './review-responses';
+import { PublicReviewSchema } from './reviews';
 
 /** AECI-1176 — the vendor review-reply wire shapes (`API_CONTRACTS.md` §6.14). */
 
@@ -137,6 +138,52 @@ describe('the read shapes', () => {
       can_reply: false,
     });
     expect(item.other_responses).toHaveLength(1);
+  });
+
+  it('strips vendor_responses from the list item review, so a reply is never said twice', () => {
+    const item = VendorReviewItemSchema.parse({
+      review: {
+        id: UUID,
+        rating_overall: 4,
+        rating_onboarding: 3,
+        title: 'T',
+        body: 'B',
+        role_at_company: null,
+        years_using: null,
+        would_recommend: null,
+        verified_work_email: false,
+        created_at: '2026-08-01T00:00:00.000Z',
+        vendor_responses: [
+          {
+            vendor_slug: 'a',
+            vendor_name: 'A',
+            body: 'x',
+            published_at: '2026-09-02T00:00:00.000Z',
+          },
+        ],
+      },
+      product: { id: UUID, slug: 'revit', name: 'Revit', logo_url: null },
+      response: null,
+      other_responses: [],
+      can_reply: true,
+    });
+    expect(item.review).not.toHaveProperty('vendor_responses');
+  });
+
+  it('defaults PublicReview.vendor_responses to [] for deploy skew (AECI-1178)', () => {
+    const parsed = PublicReviewSchema.parse({
+      id: UUID,
+      rating_overall: 4,
+      rating_onboarding: 3,
+      title: 'T',
+      body: 'B',
+      role_at_company: null,
+      years_using: null,
+      would_recommend: null,
+      verified_work_email: false,
+      created_at: '2026-08-01T00:00:00.000Z',
+    });
+    expect(parsed.vendor_responses).toEqual([]);
   });
 
   it('requires a datetime published_at on a public reply', () => {
