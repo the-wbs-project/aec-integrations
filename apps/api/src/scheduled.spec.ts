@@ -12,7 +12,16 @@ import { ADMIN_SNAPSHOT_METRIC_KEYS, AdminDataQualityStatusSchema } from '@aeci/
 import { asc } from 'drizzle-orm';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { auditLog, jobRuns, pageViews, products, reviews } from './db/schema';
+import {
+  auditLog,
+  jobRuns,
+  pageViews,
+  products,
+  profiles,
+  reviews,
+  vendorActivityDaily,
+  vendors,
+} from './db/schema';
 import type { ScheduledJob, ScheduledJobMessageInput, Env } from './env';
 import { makeTestDb, type TestDb } from './test/d1';
 
@@ -129,6 +138,7 @@ const ENTITLEMENT_EXPIRY_CRON = '0 11 * * *';
 const ASN_REGISTRY_CRON = '0 2 * * 2';
 const INDEXNOW_DRAIN_CRON = '5 0 * * *';
 const SNAPSHOT_CRON = '15 0 * * *';
+const VENDOR_SNAPSHOT_CRON = '30 0 * * *';
 
 const ctx = { waitUntil: vi.fn(), passThroughOnException: vi.fn() } as unknown as ExecutionContext;
 
@@ -616,6 +626,95 @@ describe('scheduled (cron producer)', () => {
   });
 });
 
+describe('vendor snapshot (AECI-1210): cron → queue → consumer', () => {
+  /** Two activated vendors (one seat each) and one catalog vendor with nothing. */
+  async function seedVendors(): Promise<void> {
+    await t.db.insert(vendors).values([
+      { id: 'v-acme', slug: 'acme', companyName: 'Acme' },
+      { id: 'v-globex', slug: 'globex', companyName: 'Globex' },
+      { id: 'v-initech', slug: 'initech', companyName: 'Initech' },
+    ]);
+    await t.db.insert(profiles).values([
+      { id: 'u1', role: 'vendor_admin', vendorId: 'v-acme' },
+      { id: 'u2', role: 'vendor_admin', vendorId: 'v-globex' },
+    ]);
+  }
+
+  it('the 00:30 cron enqueues exactly one message and does not run inline', async () => {
+    await seedVendors();
+    const send = vi.fn().mockResolvedValue(undefined);
+    const env = makeEnv({ VENDOR_SNAPSHOT_QUEUE: { send } as never });
+
+    await scheduled(cronController(VENDOR_SNAPSHOT_CRON), env, ctx);
+
+    expect(send).toHaveBeenCalledTimes(1);
+    expect(send).toHaveBeenCalledWith(
+      expect.objectContaining({ job: 'vendor_snapshot', trigger: 'cron' }),
+    );
+    expect(await t.db.select().from(vendorActivityDaily)).toHaveLength(0);
+    expect(await jobRunRows()).toHaveLength(0);
+  });
+
+  it('the consumer writes one row per activated vendor, emits the heartbeat, and ack()s', async () => {
+    await seedVendors();
+    const { batch, ack, retry } = makeBatch('vendor_snapshot', 'aeci-vendor-snapshot-staging');
+
+    await queue(batch, makeEnv(), ctx);
+
+    const rows = await t.db.select().from(vendorActivityDaily);
+    expect(rows.map((r) => r.vendorId).sort()).toEqual(['v-acme', 'v-globex']);
+    expect(submitCount).toHaveBeenCalledWith(
+      ctx,
+      expect.anything(),
+      expect.anything(),
+      'aeci.vendor_snapshot.run',
+      1,
+      ['trigger:cron', 'outcome:ok'],
+    );
+    const [run] = await jobRunRows();
+    expect(run).toMatchObject({ job: 'vendor-snapshot', outcome: 'ok' });
+    expect(run?.detail).toMatchObject({ job: 'vendor-snapshot', vendors: 2 });
+    expect(ack).toHaveBeenCalledTimes(1);
+    expect(retry).not.toHaveBeenCalled();
+  });
+
+  it('a same-day rerun replaces the rows and adds none', async () => {
+    await seedVendors();
+
+    await queue(makeBatch('vendor_snapshot', 'aeci-vendor-snapshot-staging').batch, makeEnv(), ctx);
+    await t.db.insert(profiles).values({ id: 'u3', role: 'vendor_admin', vendorId: 'v-acme' });
+    await queue(makeBatch('vendor_snapshot', 'aeci-vendor-snapshot-staging').batch, makeEnv(), ctx);
+
+    const rows = await t.db.select().from(vendorActivityDaily);
+    expect(rows).toHaveLength(2);
+    expect(rows.find((r) => r.vendorId === 'v-acme')?.seats).toBe(2);
+  });
+
+  it('emits the failed heartbeat and retry()s when the run crashes', async () => {
+    // The first getDb call is the job_runs recorder; the second is the job's own.
+    vi.mocked(getDb)
+      .mockReturnValueOnce(t.dbCtx)
+      .mockImplementationOnce(() => {
+        throw new Error('no DB binding');
+      });
+    const { batch, ack, retry } = makeBatch('vendor_snapshot', 'aeci-vendor-snapshot-staging');
+
+    await queue(batch, makeEnv(), ctx);
+
+    expect(submitCount).toHaveBeenCalledWith(
+      ctx,
+      expect.anything(),
+      expect.anything(),
+      'aeci.vendor_snapshot.run',
+      1,
+      ['trigger:cron', 'outcome:failed'],
+    );
+    expect((await jobRunRows())[0]).toMatchObject({ job: 'vendor-snapshot', outcome: 'failed' });
+    expect(retry).toHaveBeenCalledTimes(1);
+    expect(ack).not.toHaveBeenCalled();
+  });
+});
+
 describe('normalizeJobMessage', () => {
   it('implies trigger=manual and enqueuedAt=receivedAt when a body omits them', () => {
     expect(normalizeJobMessage({ job: 'stats' }, '2026-06-12T07:00:00.000Z')).toEqual({
@@ -828,6 +927,8 @@ describe('job_runs bookkeeping (§7.2)', () => {
     // how a behaviour change to it could have shipped into an untested path.
     [ATTESTATION_NOTIFY_CRON, 'attestation-notify'],
     [SNAPSHOT_CRON, 'metrics-snapshot'],
+    // AECI-1210. Log-class and audit-exempt, so it also runs the ADR 0022 assertion.
+    [VENDOR_SNAPSHOT_CRON, 'vendor-snapshot'],
   ];
 
   /**

@@ -1,5 +1,5 @@
 /**
- * The sixteen cron expressions the API Worker is triggered on, in one place.
+ * The seventeen cron expressions the API Worker is triggered on, in one place.
  *
  * They used to live as module-private constants in `scheduled.ts`, which was fine
  * while `scheduled.ts` was the only reader. `GET /api/admin/system` (AECI-580 /
@@ -11,7 +11,7 @@
  *
  * **Every value MUST stay byte-equal to the matching `triggers.crons` entry in
  * `apps/api/wrangler.jsonc`** (staging, demo and production each declare the same
- * sixteen, and `cron-schedules.spec.ts` asserts it). `scheduled.ts` `switch`es on
+ * seventeen, and `cron-schedules.spec.ts` asserts it). `scheduled.ts` `switch`es on
  * `controller.cron`, so a mismatch silently stops dispatching the job — the
  * failure mode these comments have always warned about.
  *
@@ -247,6 +247,23 @@ export const CLAIM_STALE_CRON = '25 */6 * * *';
 export const PROTEST_REMINDER_CRON = '0 12 * * *';
 
 /**
+ * Daily per-vendor snapshot (AECI-1210 / `DATABASE_SCHEMA.md` §9.12). **00:30 UTC.**
+ *
+ * It snapshots the prior complete UTC day, like the 00:15 `metrics_daily` snapshot,
+ * so it belongs just after midnight. Minute 30 is clear of the 00:05 IndexNow drain,
+ * the 00:15 metrics snapshot, and the 00:25 claim-staleness check. The `*` `/15`
+ * reconcile sweep also fires at 00:30, but under its own expression, so the two
+ * never share a `switch` case. The activity counts read `user_activity_daily` for
+ * whole days ending yesterday. The stock counts are read at run time, 30 minutes
+ * after that day ended.
+ *
+ * Queue-backed (`VENDOR_SNAPSHOT_QUEUE`), the cron-enqueues, consumer-works pattern.
+ * The write is an idempotent upsert on `(day, vendor_id)`, so a queue retry after a
+ * transient D1 failure replaces rows rather than adding any. It sends nothing.
+ */
+export const VENDOR_SNAPSHOT_CRON = '30 0 * * *';
+
+/**
  * Every cron, in schedule order, keyed by the `AdminCronJob` id. `Record<…>` so
  * adding a member to the shared enum without adding a schedule here is a type
  * error rather than a row that quietly vanishes from the System screen.
@@ -268,6 +285,7 @@ export const CRON_SCHEDULES: Record<AdminCronJob, string> = {
   'indexnow-drain': INDEXNOW_DRAIN_CRON,
   'claim-stale-check': CLAIM_STALE_CRON,
   'protest-reply-reminder': PROTEST_REMINDER_CRON,
+  'vendor-snapshot': VENDOR_SNAPSHOT_CRON,
 };
 
 /**
@@ -297,10 +315,12 @@ export const ADMIN_CRON_JOB: Record<ScheduledJob, AdminCronJob> = {
   indexnow_drain: 'indexnow-drain',
   claim_stale_check: 'claim-stale-check',
   protest_reply_reminder: 'protest-reply-reminder',
+  vendor_snapshot: 'vendor-snapshot',
 };
 
 /** Display/iteration order for the System screen — chronological through the UTC
- *  day, then the sub-daily jobs. `indexnow-drain` has been daily (00:05) since
+ *  day, then the sub-daily jobs. `vendor-snapshot` (00:30) follows the 00:15
+ *  `metrics-snapshot`. `indexnow-drain` has been daily (00:05) since
  *  AECI-1136 but keeps its old slot among the sub-daily jobs, so the screen's
  *  order did not move. The weekly `asn-registry` sits at its 02:00
  *  slot in that same day-ordering rather than in a section of its own; its row
@@ -308,6 +328,7 @@ export const ADMIN_CRON_JOB: Record<ScheduledJob, AdminCronJob> = {
  *  `POST_LAUNCH_MONITORING.md` §1a. */
 export const CRON_JOBS: readonly AdminCronJob[] = [
   'metrics-snapshot',
+  'vendor-snapshot',
   'asn-registry',
   'retention-prune',
   'data-quality',
