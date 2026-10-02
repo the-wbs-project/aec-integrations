@@ -538,7 +538,7 @@ export class IntegrationOverview {
             clamp: false,
             tip: [
               $localize`:@@vendor.im.tip.pricingUrl:An optional link to where customers see the price.`,
-              $localize`:@@vendor.im.tip.pricingUrl.public:The public page will link the price to it. That part is not live yet.`,
+              $localize`:@@vendor.im.tip.pricingUrl.public:The public page links the price to it.`,
               this.seat() === 'owner-claimed'
                 ? $localize`:@@vendor.im.tip.pricingUrl.owner:You own this integration, so you set it directly.`
                 : $localize`:@@vendor.im.tip.pricingUrl.other:Only the owner sets it. Nobody requests a change to it.`,

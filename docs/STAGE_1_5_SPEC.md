@@ -325,7 +325,9 @@ In Stage 1.5 **both counts are 0** for every pair (no vendor attestations), so t
 > - **The heading.** "N types of data shared" is a plain `h2` above the mechanism cards
 >   (`data-testid="pair-data-heading"`). With no claims it carries the AECI-919 empty copy (§8)
 >   instead. The version-diff summary and "Show the latest versions" sit under it.
-> - **At a glance, per card.** Price (`pricing_model`), Release stage (`maturity`), How you get it
+> - **At a glance, per card.** Price (`pricing_model`; since AECI-1158 it links to the owner's
+>   `pricing_url` when that is an `http(s)` URL, reads "See pricing" when only the URL is set, and
+>   is hidden when neither is), Release stage (`maturity`), How you get it
 >   (the kind, plus "Offered by {owner}" or "Through {connector}", or both), and Last checked (the
 >   row's own `last_reviewed_at`, UTC, `MMMM d, y`). Per card because each is a column of one
 >   integration row: a pair with a native connector and a Zapier app has two prices. An empty
