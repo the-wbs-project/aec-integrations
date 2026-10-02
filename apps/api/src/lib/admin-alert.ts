@@ -78,7 +78,8 @@ export interface AdminAlert {
   dedupeKey?: string;
 }
 
-/** `suppressed`: the tier delivery policy refused `ADMIN_ALERT_EMAIL` (AECI-1198).
+/** `paused`: an operator paused `stuck-request-alert` on this tier (AECI-1224).
+ *  `suppressed`: the tier delivery policy refused `ADMIN_ALERT_EMAIL` (AECI-1198).
  *  `duplicate`: the send ledger already holds the alert's dedupe key (AECI-1202), so
  *  an earlier send in the same band owns it (AECI-1203). Not a failure.
  *  `unknown`: the Resend call timed out or threw, so the alert may or may not have
@@ -89,7 +90,8 @@ export type AdminAlertOutcome =
   | 'unknown'
   | 'skipped'
   | 'suppressed'
-  | 'duplicate';
+  | 'duplicate'
+  | 'paused';
 
 /**
  * Deliver the admin alert via Resend (`lib/email.ts`). **Never throws** (mirrors

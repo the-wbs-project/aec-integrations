@@ -2366,6 +2366,9 @@ export const jobRuns = sqliteTable(
  * - `skipped`: nothing to send with (no key, sender or recipient).
  * - `suppressed`: the tier delivery policy refused the recipient (AECI-1198).
  * - `duplicate`: the dedupe key was already held, so nothing was sent.
+ * - `paused`: an operator paused this template, or the support copy, on this tier
+ *   (AECI-1224, `notification_settings`). Nothing was sent and no key is held.
+ *   A TypeScript-only addition: the column has no CHECK, so no migration.
  */
 export type NotificationSendOutcome =
   | 'sending'
@@ -2374,7 +2377,8 @@ export type NotificationSendOutcome =
   | 'unknown'
   | 'skipped'
   | 'suppressed'
-  | 'duplicate';
+  | 'duplicate'
+  | 'paused';
 
 /**
  * One row per send attempt per recipient, for every Resend email (AECI-1202).
@@ -2694,6 +2698,38 @@ export const vendorActivityDaily = sqliteTable(
     index('vendor_activity_daily_vendor_day_idx').on(t.vendorId, t.day),
   ],
 );
+
+// ===========================================================================
+// Operator sending switches (AECI-1224, DATABASE_SCHEMA.md §9.13)
+//
+// DOMAIN state: a switch changes who receives mail, so every change writes its
+// `audit_log` row in the same `db.batch` (`lib/notifications/switches.ts`). A new
+// table, so its migration is a pure CREATE: nothing existing is recreated
+// (docs/migrations.md §0). NOT the per-seat mute above: that is a seat's own
+// choice about one digest, this is an operator's choice about a whole template
+// on one tier.
+// ===========================================================================
+
+/**
+ * One row per switch an operator has touched. No row means enabled. The key is a
+ * notification registry id (`lib/notifications/registry.ts`) or the reserved
+ * `support-copy`, which covers the `EMAIL_BCC` blind copy and the operator `COPY:`.
+ */
+export const notificationSettings = sqliteTable('notification_settings', {
+  /** A registry id, or `support-copy`. No CHECK and no FK: the registry is code, and
+   *  the API refuses any key it does not know. */
+  key: text('key').primaryKey(),
+
+  /** False means paused on this tier. */
+  enabled: integer('enabled', { mode: 'boolean' }).notNull(),
+
+  /** The admin's `profiles.id` that made the last change. Deliberately NO foreign key:
+   *  a `profiles` recreate would otherwise cascade here and silently resume paused mail. */
+  updatedBy: text('updated_by'),
+
+  createdAt: createdAt(),
+  updatedAt: updatedAt(),
+});
 
 /**
  * External classification of the ASNs we have actually seen (AECI-624).

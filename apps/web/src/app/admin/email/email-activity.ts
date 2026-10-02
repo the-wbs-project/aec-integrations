@@ -1,6 +1,6 @@
 import { DatePipe } from '@angular/common';
 import { HttpErrorResponse } from '@angular/common/http';
-import { Component, afterNextRender, computed, inject, signal } from '@angular/core';
+import { Component, afterNextRender, computed, inject, signal, viewChild } from '@angular/core';
 import { Title } from '@angular/platform-browser';
 import { RouterLink } from '@angular/router';
 
@@ -19,6 +19,7 @@ import {
 import { AdminPaginator } from '../admin-paginator';
 import { AecSelect, type AecSelectOption } from '../../shared/aec-select/aec-select';
 import { AdminEmailApi, type AdminEmailFilters } from './admin-email-api';
+import { EmailSwitches } from './email-switches';
 
 /** Rows per page. The spec's figure (§5.14); one page is a morning's sends on production. */
 const PER_PAGE = 25;
@@ -58,12 +59,14 @@ type SummaryWindow = 'd7' | 'd30';
  */
 @Component({
   selector: 'aec-email-activity',
-  imports: [AdminPaginator, AecSelect, DatePipe, RouterLink],
+  imports: [AdminPaginator, AecSelect, DatePipe, EmailSwitches, RouterLink],
   templateUrl: './email-activity.html',
 })
 export class EmailActivity {
   private readonly api = inject(AdminEmailApi);
   private readonly titleSvc = inject(Title);
+  /** The sending switches (AECI-1224). Refresh re-reads them with the rest of the page. */
+  private readonly switches = viewChild(EmailSwitches);
 
   protected readonly perPage = PER_PAGE;
   protected readonly resendUrl = resendEmailDashboardUrl;
@@ -156,6 +159,12 @@ export class EmailActivity {
   protected refresh(): void {
     void this.loadSummary();
     void this.loadList();
+    this.switches()?.reload();
+  }
+
+  /** The switches section announces through this page's one live region. */
+  protected onSwitchAnnounce(message: string): void {
+    this.liveMessage.set(message);
   }
 
   protected setWindow(w: SummaryWindow): void {
@@ -312,6 +321,17 @@ export class EmailActivity {
     return n > 0 ? 'font-bold text-(--status-error)' : 'text-(--text-tertiary)';
   }
 
+  /** The summary's send-outcome columns, in order. `paused` (AECI-1224) is last. */
+  protected readonly summaryOutcomes = [
+    'sent',
+    'failed',
+    'unknown',
+    'skipped',
+    'suppressed',
+    'duplicate',
+    'paused',
+  ] as const;
+
   /** `unknown`: the mail may or may not have gone. Warning hue, not error. */
   protected cautionClass(n: number): string {
     return n > 0 ? 'font-bold text-(--accent-secondary-deep)' : 'text-(--text-tertiary)';
@@ -369,6 +389,8 @@ function outcomeLabel(outcome: string): string {
       return $localize`:@@admin.email.outcome.suppressed:Suppressed`;
     case 'duplicate':
       return $localize`:@@admin.email.outcome.duplicate:Duplicate`;
+    case 'paused':
+      return $localize`:@@admin.email.outcome.paused:Paused`;
     default:
       return outcome;
   }

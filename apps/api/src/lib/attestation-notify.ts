@@ -31,11 +31,12 @@
  * |-------------------------------------------------------------|------|-----------------|
  * | at least one seat `sent`, `duplicate` or `unknown`          | yes  | `sent`          |
  * | otherwise, and any seat `failed`                            | no   | `failed`        |
- * | otherwise, no seat `skipped`, and at least one seat muted   |      |                 |
- * |   or tier-suppressed                                        | yes  | `portal-only`   |
+ * | otherwise, no seat `skipped`, and at least one seat muted,  |      |                 |
+ * |   tier-suppressed or operator-paused (AECI-1224)            | yes  | `portal-only`   |
  * | otherwise (no seat, no address, no key)                     | no   | `skipped`       |
  *
- * A muted seat chose not to get email, and the tier policy refuses on purpose. Both
+ * A muted seat chose not to get email, the tier policy refuses on purpose, and an
+ * operator who paused the digest on this tier chose the same for every seat. All three
  * are final answers, so the finding is recorded and the vendor sees it in the
  * portal. That holds when the other seats had no address, too: `['muted',
  * 'no-address']` is `portal-only`, because no retry can email the muted seat and the
@@ -342,7 +343,12 @@ export function decideDelivery(seats: readonly SeatOutcome[]): {
   if (seats.includes('failed')) return { outcome: 'failed', record: false, emailedSeats: 0 };
   // `skipped` (no Resend key or sender) is a config gap that a retry can close, so it
   // blocks the portal-only answer exactly as `failed` does. `no-address` does not.
-  if (!seats.includes('skipped') && seats.some((s) => s === 'muted' || s === 'suppressed')) {
+  // `paused` (AECI-1224) is an operator's mute of the whole digest on this tier, so it
+  // answers like a seat's own mute: the portal row is still written.
+  if (
+    !seats.includes('skipped') &&
+    seats.some((s) => s === 'muted' || s === 'suppressed' || s === 'paused')
+  ) {
     return { outcome: 'portal-only', record: true, emailedSeats: 0 };
   }
   return { outcome: 'skipped', record: false, emailedSeats: 0 };

@@ -8,6 +8,8 @@ import { PageQuerySchema, paginatedResponseSchema } from './common';
  *   GET  /api/admin/email/summary        per-template counts, 7 and 30 days
  *   GET  /api/admin/email/sends          the send ledger, newest first, filtered
  *   POST /api/admin/email/sends/search   the same list for one exact address
+ *   GET  /api/admin/email/switches       the sending switches (AECI-1224)
+ *   PUT  /api/admin/email/switches/:key  pause or resume one (AECI-1224)
  *
  * Source of truth: `ADMIN_PANEL_SPEC.md` §5.14 and §13 D23, `API_CONTRACTS.md` §6.10.
  * Tables: `notification_sends` (`DATABASE_SCHEMA.md` §9.9) and
@@ -25,7 +27,8 @@ import { PageQuerySchema, paginatedResponseSchema } from './common';
  */
 
 /** Every `notification_sends.outcome` value. `sending` is a send in flight, or one whose
- *  isolate died. The summary does not count it; the list filter can still find it. */
+ *  isolate died. The summary does not count it; the list filter can still find it.
+ *  `paused` (AECI-1224): an operator paused the template, or the support copy, on this tier. */
 export const ADMIN_EMAIL_SEND_OUTCOMES = [
   'sending',
   'sent',
@@ -34,11 +37,12 @@ export const ADMIN_EMAIL_SEND_OUTCOMES = [
   'skipped',
   'suppressed',
   'duplicate',
+  'paused',
 ] as const;
 export const AdminEmailSendOutcomeSchema = z.enum(ADMIN_EMAIL_SEND_OUTCOMES);
 export type AdminEmailSendOutcome = z.infer<typeof AdminEmailSendOutcomeSchema>;
 
-/** The six outcomes the summary counts. */
+/** The seven outcomes the summary counts. `paused` since AECI-1224. */
 export const ADMIN_EMAIL_SUMMARY_OUTCOMES = [
   'sent',
   'failed',
@@ -46,6 +50,7 @@ export const ADMIN_EMAIL_SUMMARY_OUTCOMES = [
   'skipped',
   'suppressed',
   'duplicate',
+  'paused',
 ] as const;
 export type AdminEmailSummaryOutcome = (typeof ADMIN_EMAIL_SUMMARY_OUTCOMES)[number];
 
@@ -100,6 +105,7 @@ export const AdminEmailOutcomeCountsSchema = z.object({
   skipped: count,
   suppressed: count,
   duplicate: count,
+  paused: count,
 });
 export type AdminEmailOutcomeCounts = z.infer<typeof AdminEmailOutcomeCountsSchema>;
 
@@ -257,3 +263,61 @@ export const AdminEmailSearchResponseSchema = AdminEmailSendsResponseSchema.exte
   unmatched_events: z.array(AdminEmailUnmatchedEventSchema).max(ADMIN_EMAIL_UNMATCHED_EVENTS_LIMIT),
 });
 export type AdminEmailSearchResponse = z.infer<typeof AdminEmailSearchResponseSchema>;
+
+// ─── Sending switches (AECI-1224) ─────────────────────────────────────────────
+//
+// `ADMIN_PANEL_SPEC.md` §5.14 "Sending switches" and §13 D24, `DATABASE_SCHEMA.md` §9.13.
+// A switch pauses one email template, or the support copy, on THIS tier. No row means
+// enabled. Only `pausable` entries can be paused; the server refuses the rest with
+// `NOTIFICATION_NOT_PAUSABLE`.
+
+/** The reserved key for the `EMAIL_BCC` blind copy and the operator `COPY:`. */
+export const ADMIN_EMAIL_SUPPORT_COPY_KEY = 'support-copy';
+
+export const AdminEmailSwitchKindSchema = z.enum(['notification', 'support_copy']);
+export type AdminEmailSwitchKind = z.infer<typeof AdminEmailSwitchKindSchema>;
+
+export const AdminEmailSwitchSchema = z.object({
+  /** A registry id, or `support-copy`. */
+  key: z.string().min(1),
+  kind: AdminEmailSwitchKindSchema,
+  /** The registry summary. Null for the support copy, whose copy is the UI's. */
+  summary: z.string().nullable(),
+  audience: z.enum(['external', 'operator']).nullable(),
+  pausable: z.boolean(),
+  /** False means paused on this tier. Always true for a non-pausable entry. */
+  enabled: z.boolean(),
+  /** When the switch last changed, or null when it never has. */
+  updated_at: z.string().nullable(),
+  /** The admin's profile id that changed it last, or null. */
+  updated_by: z.string().nullable(),
+});
+export type AdminEmailSwitch = z.infer<typeof AdminEmailSwitchSchema>;
+
+export const AdminEmailSwitchesResponseSchema = z.object({
+  generated_at: z.string().datetime(),
+  /** `tierLabel(env)`: a switch acts on this tier only. */
+  environment: z.string().min(1),
+  /** Whether `EMAIL_BCC` is set on this tier. Never its value. */
+  support_copy_configured: z.boolean(),
+  /** The support copy first, then every email registry entry in id order. */
+  switches: z.array(AdminEmailSwitchSchema),
+});
+export type AdminEmailSwitchesResponse = z.infer<typeof AdminEmailSwitchesResponseSchema>;
+
+/** `PUT /api/admin/email/switches/:key` body. Strict: nothing else is writable. */
+export const SetAdminEmailSwitchBodySchema = z
+  .object({
+    enabled: z.boolean(),
+    /** Recorded on the audit row. */
+    reason: z.string().trim().max(500).optional(),
+  })
+  .strict();
+export type SetAdminEmailSwitchBody = z.infer<typeof SetAdminEmailSwitchBodySchema>;
+
+export const SetAdminEmailSwitchResponseSchema = z.object({
+  switch: AdminEmailSwitchSchema,
+  /** False when the request named the state it already had: nothing was written. */
+  changed: z.boolean(),
+});
+export type SetAdminEmailSwitchResponse = z.infer<typeof SetAdminEmailSwitchResponseSchema>;

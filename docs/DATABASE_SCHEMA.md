@@ -1437,6 +1437,7 @@ is invisible rather than a constraint violation:
 | `notification.sent` | **`claim`** | AECI-302 — `lib/attestation-notify.ts` | Note the `entity_type`: this is the §7.3 anti-nag **dedupe ledger**, deliberately keyed to the claim it concerns rather than to a notification entity, because decision §1.3(6) ships no notifications table. `GET /api/vendor/notifications` reads these same rows. Written after delivery, one row per due finding. Since AECI-1204 (2026-10-01) the email is one daily digest per seat, and the row is written when at least one seat got the digest, **or** when every seat was deliberately not emailed (muted, or tier-suppressed). It is not written when no seat got it and a send failed, nor when nothing could be attempted, so the next sweep retries. Metadata: `detector`, `vendorId` (null for ops), `emailedSeats` (seats with `sent` or `duplicate`, 0 means portal only), `notificationId` (`attestation-digest` or `attestation-ops-digest`), plus the send-time snapshot. Rule: `STAGE_2_ATTESTATIONS_SPEC.md` §7.3. |
 | `notification_preferences.created` | `profile` | AECI-1204 — `lib/notification-preferences.ts` | Actor `system`. The attestation sweep creates a seat's row lazily, only for seats it is about to email, in the same batch. `metadata` holds no token. |
 | `notification_preferences.updated` | `profile` | AECI-1204 — `routes/notification-preferences.ts` | Every mute or unmute. `entity_id` is the profile id. `before_state` and `after_state` are `{ nudgesMuted }`. `metadata.source` is `vendor-portal` or `one-click`. A no-op writes nothing. The mute token is never audited. |
+| `notification_settings.updated` | `notification_setting` | AECI-1224 — `routes/admin-email-switches.ts` via `lib/notifications/switches.ts` | Every pause or resume of a sending switch (§9.13). Actor is the admin. `entity_id` is the key: a registry id or `support-copy`. `before_state` and `after_state` are `{ enabled }`. `metadata` is `{ source: 'admin-email-switches', tier, reason? }`. A request naming the current state writes nothing. |
 
 **Actions AECI-1008 added** (integration field contests, `STAGE_2_VENDOR_PORTAL_SPEC.md` §11b):
 
@@ -3276,7 +3277,7 @@ create table notification_sends (
   notification_id text not null,   -- the registry id (apps/api/src/lib/notifications/registry.ts)
   recipient_hash text not null,    -- sha256 hex of the trimmed, lowercased bare address; '' = no recipient
   tier text not null,              -- tierLabel(env): production | staging | demo | preview | development | non-production
-  outcome text not null,           -- sending | sent | failed | unknown | skipped | suppressed | duplicate
+  outcome text not null,           -- sending | sent | failed | unknown | skipped | suppressed | duplicate | paused
   provider_message_id text,        -- the Resend id on 'sent'; null otherwise
   dedupe_key text,                 -- the sender's idempotency key; null = never deduplicated
   entity_type text,                -- what the mail is about, when the sender names it
@@ -3332,6 +3333,12 @@ call threw. Each recipient refused
 by the tier policy gets a `suppressed` row. BCC copies get no row of their own. The separate
 operator copy of an unsubscribable send gets one row per operator address, under its own
 registry id.
+
+**`paused` (AECI-1224).** An operator paused the template, or the support copy, on this tier
+(§9.13). No Resend call was made. The row carries no dedupe key, so a later run can send it
+after a resume. A paused template writes one row per recipient; a paused support copy writes
+one row per copy address under the `-operator-copy` id. Adding the value took no migration:
+the column has no CHECK.
 
 **`outcome` carries no CHECK**, following `job_runs.job` and `audit_log.action`. The
 vocabulary is young, and SQLite cannot ALTER a CHECK, so a new member would need a
@@ -3650,6 +3657,48 @@ days. It is not in the prune's `PRUNABLE` list. `ADMIN_PANEL_SPEC.md` §7.4.
 
 **Migration `0057`** is a plain `CREATE TABLE` plus one `CREATE INDEX`. It is not a recreate and
 cannot cascade. `apps/api/src/test/migration-0057.spec.ts` pins that.
+
+### 9.13 `notification_settings`
+
+The operator's sending switches (AECI-1224, migration `0060_funny_colossus.sql`). Each row
+pauses one email template, or the support copy, on this tier. `ADMIN_PANEL_SPEC.md` §5.14
+"Sending switches" and §13 D24 govern the screen, and `docs/email.md` §Sending switches the
+transport.
+
+```sql
+create table notification_settings (
+  key text primary key,            -- a registry id (lib/notifications/registry.ts) or 'support-copy'
+  enabled integer not null,        -- boolean; 0 = paused on this tier
+  updated_by text,                 -- the admin's profiles.id; NO foreign key, on purpose
+  created_at text not null,
+  updated_at text not null
+);
+```
+
+**No row means enabled.** Rows exist only for switches an operator has touched. The
+transport reads at most two rows per send (the template and `support-copy`) by primary key.
+
+**`support-copy` is a reserved key, not a registry id.** It covers the `EMAIL_BCC` blind copy
+and the separate operator `COPY:`. `registry.spec.ts` holds that no registry id equals it. If
+AECI-1220 drops `EMAIL_BCC`, the key goes with it.
+
+**A row for a non-pausable entry does nothing.** The write route refuses to create one
+(`400 NOTIFICATION_NOT_PAUSABLE`), and the transport ignores one that predates an entry
+becoming always-on. Resuming it is allowed, so it can be cleared.
+
+**No CHECK and no FK on `key`.** The registry is code. The API refuses a key it does not know
+(404). **`updated_by` has no FK either**, on purpose: a `profiles` recreate would otherwise
+fire `ON DELETE` into this table and silently resume paused mail (`docs/migrations.md` §0).
+
+**Domain state, so every write audits** (`notification_settings.updated`, §8.4) in the same
+`db.batch`, behind a sentinel that aborts the batch when the stored state moved since the
+read. Not the per-seat mute in §9.10: that is a seat's own choice about one digest.
+
+**Migration `0060`** is a plain `CREATE TABLE`. It recreates nothing and cannot cascade.
+
+**Read and written by** `apps/api/src/lib/notifications/switches.ts`, called from
+`lib/email.ts` (the per-send read) and `routes/admin-email-switches.ts`. Contract:
+`API_CONTRACTS.md` §6.10, "Sending switches".
 
 ---
 

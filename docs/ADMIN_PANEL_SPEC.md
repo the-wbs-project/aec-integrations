@@ -154,7 +154,7 @@ Twenty-three routes under the existing `AdminShell` (`app/admin/admin-shell.ts`)
     /admin/users           §5.8  (list)
     /admin/users/:id       §5.8  (detail — nav links the list only)
     /admin/reviewers       → redirect to /admin/users?banned=true  (§5.8, AECI-692)
-    /admin/email           §5.14 (what we sent and whether it arrived, AECI-1223)
+    /admin/email           §5.14 (what we sent and whether it arrived, AECI-1223; sending switches, AECI-1224)
     /admin/system          §5.6
 ```
 
@@ -1336,17 +1336,20 @@ screen in `apps/web/src/app/admin/review-responses/`. Five notes:
 - **Restore a removed reply.** A removal is final. A mistaken removal needs a data fix with its
   own audit row, which is a deliberate speed bump.
 
-### 5.14 Email — SHIPPED (AECI-1223, 2026-10-02)
+### 5.14 Email — SHIPPED (AECI-1223, 2026-10-02; switches AECI-1224, 2026-10-02)
 
 The screen that answers "did this person get our email?" from our own tables. Before it,
 the answer meant opening the Resend dashboard. It reads two log-class tables and the
-notification registry. It writes nothing and calls no external API.
+notification registry. Since AECI-1224 it also holds the sending switches, which pause one
+template or the support copy on this tier (see "Sending switches" below). That is its only
+write. It calls no external API.
 
 | Source | What it gives the screen | Governing doc |
 |---|---|---|
 | `notification_sends` (AECI-1202) | One row per send attempt per recipient: template, outcome, Resend id, related entity, time | `DATABASE_SCHEMA.md` §9.9 |
 | `notification_delivery_events` (AECI-1222) | What Resend reported after it took the mail: sent, delivered, delayed, bounced, complained | `DATABASE_SCHEMA.md` §9.9a, `email.md` §Delivery webhooks |
-| `NOTIFICATIONS` in `apps/api/src/lib/notifications/registry.ts` | Each template's id, audience and one-line summary | ADR 0038 |
+| `NOTIFICATIONS` in `apps/api/src/lib/notifications/registry.ts` | Each template's id, audience, one-line summary and `pausable` flag | ADR 0038 |
+| `notification_settings` (AECI-1224) | Which templates, and whether the support copy, are paused on this tier | `DATABASE_SCHEMA.md` §9.13 |
 
 **Route and nav.** `/admin/email`, under **Operations**, between Users and System status. It
 is not a queue, so it has no badge and does not join §5.0c's sum. It sits in Operations
@@ -1363,16 +1366,19 @@ not a trend. It has no detail route, so §5.0b derives its trail as
    stream. On every other tier the API returns `sign_in: null` and the panel is absent. It
    is absent, not zero, because those tiers never record the stream.
 2. **Summary per template.** One row per template with any ledger row or delivery event in
-   the last 30 days. A 7 days / 30 days switch picks the window. Ten count columns, in two
+   the last 30 days. A 7 days / 30 days switch picks the window. Eleven count columns, in two
    labelled groups. Send outcomes from the ledger: `sent`, `failed`, `unknown`, `skipped`,
-   `suppressed`, `duplicate`. Delivery events: delivered, bounced, complained, delayed. A
+   `suppressed`, `duplicate`, `paused` (AECI-1224, its own column at the end of the group, so
+   a pause shows as a count that rises while the template is off). Delivery events: delivered,
+   bounced, complained, delayed. A
    `sending` row is counted in neither group, because it is an attempt still in flight or an
    isolate that died. The row's label is the registry id and the registry `summary`. A
    template id the registry no longer knows renders its raw id with a "Not in the registry"
    tag. The sign-in stream is excluded here, because the panel above owns it.
-3. **Sends.** Every ledger row, newest first, paginated at 25. Columns: when, template,
+3. **Sending switches (AECI-1224).** See "Sending switches" below.
+4. **Sends.** Every ledger row, newest first, paginated at 25. Columns: when, template,
    outcome, latest delivery status, related entity, and a link to the message in Resend.
-4. **Unmatched delivery events, during an address search only.** See "Address search".
+5. **Unmatched delivery events, during an address search only.** See "Address search".
 
 **Windows.** "7 days" and "30 days" are rolling windows ending at the request time, in UTC.
 A ledger row counts by `created_at`. A delivery event counts by its own `created_at`, the
@@ -1393,7 +1399,7 @@ other outcome shows "Not applicable" in this column.
 | Filter | Values | Applies to |
 |---|---|---|
 | Template | Every email id in the registry, plus any unregistered id the ledger holds | `notification_id =` |
-| Send outcome | `sending`, `sent`, `failed`, `unknown`, `skipped`, `suppressed`, `duplicate` | `outcome =` |
+| Send outcome | `sending`, `sent`, `failed`, `unknown`, `skipped`, `suppressed`, `duplicate`, `paused` | `outcome =` |
 | Delivery status | `delivered`, `bounced`, `complained`, `delivery_delayed`, `sent`, `none` | the row's latest event type, or no event for `none` |
 | Date range | `from` and `to`, `YYYY-MM-DD`, both inclusive, UTC | `created_at` |
 
@@ -1444,7 +1450,7 @@ the dashboard uses today, and it lives in one constant (`RESEND_EMAIL_DASHBOARD_
 `packages/shared/src/api/admin-email.ts`). The screen never calls the Resend API: the
 Worker holds a sending-only key.
 
-**Review without a session.** `/preview/admin-email` renders the real component over a fixture-backed fake API, like `/preview/admin-contests`. The real route sits behind the SSR admin gate, which a dev server cannot pass without a real magic-link session. The design checklist ran against it.
+**Review without a session.** `/preview/admin-email` renders the real component over a fixture-backed fake API, like `/preview/admin-contests`. Since AECI-1224 the fake holds the sending switches in memory, with one template already paused, so both dialogs and the Paused column are reachable. The real route sits behind the SSR admin gate, which a dev server cannot pass without a real magic-link session. The design checklist ran against it.
 
 **Freshness.** A bounce is visible within a minute of the webhook landing. Nothing is
 cached: `/admin/*` is `private, no-store` (§9.2) and both reads hit D1 live. A Refresh
@@ -1456,11 +1462,65 @@ empty states are different sentences. No ledger rows at all says nothing has bee
 from this tier yet. A filter or search that matches nothing says so and offers Clear
 filters.
 
+**Sending switches (AECI-1224).** Before this, stopping a misbehaving email or the support
+copy took a `wrangler.jsonc` change and a deploy. The switches section pauses one template,
+or the support copy, on this tier, from this page. §13 D24 records the choices below.
+
+- **What a switch covers.** Our own sending only: the sends that go through `lib/email.ts`.
+  Resend account settings (tracking, domains, suppression) stay in the Resend dashboard, and
+  the Worker never holds a full-access Resend key (ruling 2026-10-02 on AECI-1224). The
+  Supabase sign-in email is sent by Supabase, so no switch can stop it. Portal rows and
+  Linear writes are not email and have no switch.
+- **Per tier.** Each tier has its own D1, so a switch on staging pauses staging only.
+- **Which templates can be paused.** The registry decides, per entry, with
+  `pausable` (`apps/api/src/lib/notifications/registry.ts`). Only `email` and `email+portal`
+  entries may be pausable, and a test holds that. Anything security- or obligation-bearing
+  stays always on: seat invites, claim decisions, review decisions, the account-deleted
+  confirmation, and every vendor email that carries a deadline (the protest and decline
+  windows, the reply reminder, plan expiry). Operator alerts, the cron digests, receipts and
+  nudges are pausable. Each entry's `note` says why. `docs/NOTIFICATIONS.md` has a Pausable
+  column.
+- **The support copy.** One more switch, the reserved key `support-copy`. Paused, the
+  transport drops the `EMAIL_BCC` blind copy from every send and skips the separate `COPY:`
+  of an unsubscribable send. The registry entry `mailing-list-welcome-operator-copy` is not
+  pausable on its own: the support-copy switch is its control. When `EMAIL_BCC` is unset on
+  this tier, the page says no support copy is set up and shows no control. If AECI-1220 drops
+  `EMAIL_BCC`, this switch goes with it.
+- **The section.** Title "Sending switches". A support-copy block first, then a table of
+  every pausable template: id and registry summary, audience, status ("Sending", or "Paused"
+  with when and by whom), and one button, Pause or Resume. Non-pausable templates get no
+  control. They are listed under a closed disclosure, "Always on (N)", with one sentence on
+  why, so an operator looking for a template learns it cannot be paused rather than wondering
+  where it went.
+- **Confirmation.** Pause and Resume both open a confirmation dialog (`BrnDialog`, opened from
+  the click handler, never from an `effect()`). The dialog says what stops or restarts and
+  that it applies to this tier only, and takes an optional reason that goes in the audit row.
+  The table updates from the PUT's response. A polite live region announces the change.
+- **What a pause does to a send.** The transport reads the switches once per send call: one
+  D1 query, on the primary, for that template and the support copy. A paused template makes
+  no Resend call, writes a ledger row with outcome `paused`, counts `aeci.email.send` with
+  `outcome:paused`, and logs the recipient hash only. A missing row means enabled. If the read
+  fails, the send goes ahead (fail open) and the failure is warned and counted
+  (`aeci.email.switches.unavailable`). Email is fail-open everywhere, and a D1 hiccup must not
+  drop a seat invite. A paused send holds no dedupe key, so a later run can send it after a
+  resume. For the attestation digest a pause behaves like a mute: the portal row is still
+  written. `email.md` §Sending switches is the transport's own description.
+- **The write.** `PUT /api/admin/email/switches/:key`, admin-only, behind `rateLimit('write')`
+  (`waf-rate-limits.md` §6.2). Pausing a non-pausable entry is `400 NOTIFICATION_NOT_PAUSABLE`.
+  Resuming one is allowed, so a row left from before an entry became always-on can be
+  cleared. Every change writes its `notification_settings.updated` audit row (actor, key,
+  old and new value, reason) in the same `db.batch`, behind a race sentinel. A request that
+  names the current state is a 200 that writes nothing. The transport also ignores a paused
+  row for a non-pausable entry, so a stale row can never stop protected mail.
+- **Not the per-seat mute.** `notification_preferences` (AECI-1204) is a seat's own choice
+  about the attestation digest. A switch is an operator's choice about a whole template on
+  one tier. They are separate tables and separate code.
+
 **What this screen deliberately does not do.**
 
 - **Show addresses.** §13 D23.
-- **Resend, retry or suppress anything.** It is read-only. Resend keeps its own suppression
-  list (`email.md` §Delivery webhooks).
+- **Resend, retry or suppress anything.** Its one write is the sending switches. Resend keeps
+  its own suppression list (`email.md` §Delivery webhooks).
 - **Show opens or clicks.** They are never stored (`email.md`, ruling 2026-10-02).
 - **List portal or Linear notifications.** They are not email and have no ledger row. The
   template filter lists only `email` and `email+portal` registry entries.
@@ -1473,7 +1533,7 @@ filters.
 
 All endpoints are admin-gated and register on the existing `authAdmin` sub-router in `apps/api/src/index.ts` behind `requireAdmin()`, which stays the single enforcement point (`AUTH_AND_RLS.md`). Contracts live in `packages/shared/src/api/admin-panel.ts` and reuse `PageQuerySchema` (`page` / `perPage`, capped at 100) and `paginatedResponseSchema` so list shapes match `/api/admin/requests`.
 
-**All the §5.1–§5.6 endpoints are `GET` and read-only.** The later sections added by other epics are the exceptions, and they are narrow: §5.7 added one `DELETE` (seat revoke) and, at AECI-740, one `POST` (seat provision), §5.8 added none at all — its ban reuses the pre-existing `PATCH /api/admin/reviewers/:id` — §5.9 added one `PATCH` (the `managed_by` flip), §5.10 added one `PATCH` (the operator note), §5.11 added one `DELETE` (clear a worklist row), and §5.12 added one `PATCH` (the contest decision, AECI-1008) and a second (the protest decision, AECI-1009). §5.13 added one `GET` and one `PATCH` (the vendor review-reply queue and its decision, AECI-1177), with contracts in `packages/shared/src/api/review-responses.ts`. AECI-1046 added two `POST`s to §5.7 (the admin integration retire and restore) and one `GET` (the vendor's held integrations). AECI-1223 added §5.14's two `GET`s and one `POST` that is a **read**: the address search carries the address in its body so it never reaches a request URL, and it writes nothing. Their contracts live in `packages/shared/src/api/admin-vendors.ts`, `admin-users.ts` and `admin-reindex.ts` respectively, using the **bare** `paginatedResponseSchema` rather than this section's `.extend({ generated_at, source, notes })` console shape.
+**All the §5.1–§5.6 endpoints are `GET` and read-only.** The later sections added by other epics are the exceptions, and they are narrow: §5.7 added one `DELETE` (seat revoke) and, at AECI-740, one `POST` (seat provision), §5.8 added none at all — its ban reuses the pre-existing `PATCH /api/admin/reviewers/:id` — §5.9 added one `PATCH` (the `managed_by` flip), §5.10 added one `PATCH` (the operator note), §5.11 added one `DELETE` (clear a worklist row), and §5.12 added one `PATCH` (the contest decision, AECI-1008) and a second (the protest decision, AECI-1009). §5.13 added one `GET` and one `PATCH` (the vendor review-reply queue and its decision, AECI-1177), with contracts in `packages/shared/src/api/review-responses.ts`. AECI-1046 added two `POST`s to §5.7 (the admin integration retire and restore) and one `GET` (the vendor's held integrations). AECI-1223 added §5.14's two `GET`s and one `POST` that is a **read**: the address search carries the address in its body so it never reaches a request URL, and it writes nothing. AECI-1224 added §5.14's sending switches: one `GET` and one `PUT`, a write that audits in its batch. Their contracts live in `packages/shared/src/api/admin-vendors.ts`, `admin-users.ts` and `admin-reindex.ts` respectively, using the **bare** `paginatedResponseSchema` rather than this section's `.extend({ generated_at, source, notes })` console shape.
 
 > **Why §5.11 takes the bare envelope, stated once because it is the rule's clearest case.** The console shape's `notes` array exists to *qualify a number that might be wrong* — a bot-classified count, a figure computed without a credential. A queue depth cannot be qualified. The rows are either there or they are not, and there is no upstream whose absence would make the count approximate. So the surface that would gain least from the envelope is the one that most obviously should not carry it.
 
@@ -1506,7 +1566,7 @@ All endpoints are admin-gated and register on the existing `authAdmin` sub-route
 | `GET /api/admin/claims/:id` | §5.10 detail — **SHIPPED (AECI-739)** | One claim, every queue signal plus `duplicate_siblings` — the rows behind the queue's duplicate chip. `is_duplicate` here IS `duplicate_siblings.length > 0`, so the two surfaces cannot disagree. **422**, not 404, on a `kind='correction'` id: the row exists and moderates elsewhere |
 | `PATCH /api/admin/claims/:id/notes` | §5.10 operator note — **SHIPPED (AECI-739)** | **The fourth write in this table**, and an *annotation* — no status change, no grant, no email, no purge, no `workflow_instances` row. Audit row in the same `db.batch` as the guarded `UPDATE`, carrying the full old and new note, which is what makes the trail the note's history. Unchanged text is a 200 no-op that writes nothing |
 | `GET /api/admin/reindex` | §5.11 worklist — **SHIPPED (AECI-946)** | The Google re-crawl queue, most important first. `PageQuerySchema` + `?priority=` (1–4). **Ordering is fixed and carries no `sort` parameter**, because a worklist the operator can re-order no longer has the right next action on top. `id ASC` is the third `ORDER BY` term per AECI-825: rows from one promote share a `queued_at` to the millisecond, and a paginated list without a unique trailing term can drop or duplicate a row |
-| `DELETE /api/admin/reindex/:id` | §5.11 Done — **SHIPPED (AECI-946)** | **The fifth write in this table**, and *queue consumption* — no catalog row, no account row, nothing a visitor can see. Audit row in the same `db.batch` as the delete, `action='reindex.cleared'`, attributed to the admin rather than `'system'`. This is **not** §26.1's scheduled-deletion case, so it audits per row rather than one summary row per run. Carries **no** `rateLimit()` — true of every admin write **except** the three AECI-955 logo routes below, the AECI-1008 contest decision, the two AECI-1046 integration retire routes and the AECI-1177 review-reply decision (`waf-rate-limits.md` §6.2). A row another tab already cleared is a flat 404 |
+| `DELETE /api/admin/reindex/:id` | §5.11 Done — **SHIPPED (AECI-946)** | **The fifth write in this table**, and *queue consumption* — no catalog row, no account row, nothing a visitor can see. Audit row in the same `db.batch` as the delete, `action='reindex.cleared'`, attributed to the admin rather than `'system'`. This is **not** §26.1's scheduled-deletion case, so it audits per row rather than one summary row per run. Carries **no** `rateLimit()` — true of every admin write **except** the three AECI-955 logo routes below, the AECI-1008 contest decision, the two AECI-1046 integration retire routes, the AECI-1177 review-reply decision and the AECI-1224 sending switch (`waf-rate-limits.md` §6.2). A row another tab already cleared is a flat 404 |
 | `GET /api/admin/contests` | §5.12 queue — **SHIPPED (AECI-1008)** | `PageQuerySchema` + `?status=` (default `open`) + `?routed_to=` (default `aeci`; `owner` is the read-only view). Ordered `created_at DESC, id ASC`. Bare `paginatedResponseSchema`, same reasoning as §5.11. Contract in `packages/shared/src/api/integration-contests.ts` |
 | `PATCH /api/admin/contests/:id` | §5.12 accept / decline — **SHIPPED (AECI-1008)** | **A decision write, not a catalog write** (the eighth §2 exception). Accept files a `REVIEW - ` Linear issue after commit. It writes catalog data only on a claimed row, where promote no longer can (AECI-1005, `STAGE_2_VENDOR_PORTAL_SPEC.md` §11b.6). **Since AECI-1191 an accept that changes a vendor-held value requires `note`** (`400 VALIDATION_FAILED`, `error.field = 'note'`, nothing written), recorded in the decision audit row's `metadata.reason`; the list read carries `accept_note_required`. Audit row, workflow transition and the submitter's `notification.sent` ride one `db.batch` behind a race sentinel. Carries `rateLimit('write')`. `409 CONTEST_NOT_OPEN` / `CONTEST_ROUTED_TO_OWNER` |
 | `GET /api/admin/review-responses` | §5.13 queue — **SHIPPED (AECI-1177)** | `PageQuerySchema` + `?status=` (default `pending`). Ordered `updated_at ASC, id ASC`, oldest first. Bare `paginatedResponseSchema`. Contract in `packages/shared/src/api/review-responses.ts` |
@@ -1515,12 +1575,14 @@ All endpoints are admin-gated and register on the existing `authAdmin` sub-route
 | `POST /api/admin/integrations/:id/retire` · `/restore` | §5.7 Integrations tab — **AECI-1046** | **A moderation write** (the ninth §2 exception). Body `{ reason }`, required. The owner retire's batch: guarded UPDATE of `retired_at` / `retired_by` / `updated_at`, contest closes on retire, the audit row with the admin and the reason, a `notification.sent` to the owner and every endpoint vendor, both count recomputes. Since AECI-1091 the id may name a vendor-held evidenced pair: a soft retire of the pair's `retired_at` / `retired_by`, never a delete, with the connector's count recomputed too. Carries `rateLimit('write')`. `409 INTEGRATION_NOT_VENDOR_HELD` / `INTEGRATION_RETIRED` / `INTEGRATION_NOT_RETIRED` / `INTEGRATION_RETIRED_BY_OWNER` |
 | `GET /api/admin/email/summary` | §5.14 summary — **SHIPPED (AECI-1223)** | Per-template 7-day and 30-day counts of the six ledger outcomes and four delivery events, plus `templates` (every email registry entry, for the filter) and `sign_in` (production only, else `null`). Two `GROUP BY` statements and one for the sign-in stream in one `db.batch`. Registry summaries are data from `registry.ts`, not a second list. No query parameters. Contract in `packages/shared/src/api/admin-email.ts` |
 | `GET /api/admin/email/sends` | §5.14 list — **SHIPPED (AECI-1223)** | `PageQuerySchema` (default `perPage` 25) + `?template=&outcome=&delivery=&from=&to=`. Ordered `created_at DESC, id DESC`. Each row carries its latest delivery event and its resolved `entity.admin_path`. **An `address` parameter is a `400 ADDRESS_NOT_ALLOWED_IN_URL`**, so an address can never reach a request URL. Bare `paginatedResponseSchema` plus `generated_at` |
+| `GET /api/admin/email/switches` | §5.14 sending switches — **AECI-1224** | Every `email` and `email+portal` registry entry plus the reserved `support-copy` key, each with `pausable`, `enabled` and who changed it last. `support_copy_configured` says whether `EMAIL_BCC` is set on this tier, never its value. One `SELECT` over `notification_settings`. A missing row reads as enabled. No audit row, no `rateLimit()` (a read). Contract in `packages/shared/src/api/admin-email.ts` |
+| `PUT /api/admin/email/switches/:key` | §5.14 pause or resume — **AECI-1224** | **A write.** Body `{ enabled, reason? }`, strict. An unknown key is a 404. `enabled: false` on a non-pausable entry is **`400 NOTIFICATION_NOT_PAUSABLE`**. Naming the current state is a 200 with `changed: false` and no write. Otherwise ONE `db.batch`: a race sentinel on the state just read (**`409 NOTIFICATION_SWITCH_CHANGED`** when another tab moved it), the upsert, and the `notification_settings.updated` audit row (actor, key, `before_state`/`after_state` `{ enabled }`, tier, reason). Post-commit PostHog forward. Carries `rateLimit('write')` after `requireAdmin()`. No purge: no public page reads the table |
 | `POST /api/admin/email/sends/search` | §5.14 address search — **SHIPPED (AECI-1223)** | **A read with a body, not a write.** The same filters plus a required `address`, in JSON. The handler hashes it with `recipientHash` and filters `recipient_hash =`. The address is never logged and never in the response. Adds `unmatched_events`, the 25 newest delivery events for that hash with no ledger row. No audit row, no `rateLimit()` (reads are never limited) |
 | `POST /api/admin/logo` | Logo upload — **SHIPPED (AECI-955)** | Not a write *in D1*: one bounded multipart `file` to the private `UPLOADS` R2 bucket, keyed by its SHA-256, returning `{logo_url: "/api/logos/<hash>"}`. No `audit_log` row, because no domain state moved — an upload is not a catalog edit until a parent form saves. Carries `rateLimit('write')` and a same-origin check (`requireLogoOrigin`), both exceptions to the conventions above; the limiter is here because this route is the only admin write that consumes unbounded external storage. Contract in `packages/shared/src/api/logos.ts` |
 | `PATCH /api/admin/vendors/:id/logo` | §5.7 vendor logo — **SHIPPED (AECI-955)** | **The sixth write in this table, and the FIRST catalog-content write** (`STAGE_2_5_SPEC.md` §11 admits it; §2's boundary is amended, not bypassed). Strict `{logo_url, reason}` only (AECI-1191 added the required `reason`, recorded in the audit row's `metadata.reason`) — no other column is reachable. Writes `logo_url` + `logo_source='admin'` + `updated_at` with its `vendor.updated` audit row in the same `db.batch`, then purges `vendor:{slug}` post-commit. `logo_source` fences promote off that column permanently (`REVIEW_APP_PROMOTE_API.md` "Logo ownership override"). Carries `rateLimit('write')` |
 | `PATCH /api/admin/products/:id/logo` | §5.7 product logo — **SHIPPED (AECI-955)** | **The seventh write**, same shape, same required `reason` (AECI-1191): `product.updated` audit row in the same `db.batch`, purging `product:{slug}` + `index:products`. The narrower tag set than `productEditTags` is deliberate — a logo touches no facet membership, and every browse page that lists the product already embeds its `product:{slug}` tag. Carries `rateLimit('write')` |
 
-**Conventions.** No `audit_log` rows **from the reads** — every `GET` in the table above writes nothing, including the `?recompute=1` ones, all five §5.9 connector reads, §5.10's claim detail, §5.4a's roster, §5.11's worklist and all three §5.14 email reads, the `POST` search included (§26.1 governs writes; ADR 0022 scopes it). Reading a subscriber's address is not exempted by special pleading: it is a read, and the panel audits none of them. The write paths do audit, in the same `db.batch` as their write: §5.7's revoke via `revokeSeatStatements` and provision via `provisionSeatStatements`, §5.8's ban via the AECI-218 handler, AECI-720's `managed_by` flip via `auditInsert` alongside its guarded `UPDATE`, and AECI-739's operator note via `saveClaimNotesStatements`, and AECI-946's worklist clear via `deleteGscRecrawlRow` alongside `auditInsert`, and AECI-955's two logo PATCHes via `auditInsert` alongside their guarded `UPDATE`. **Only one of them touches §2's "no editing catalog data" boundary, and it does so by amendment rather than by accident**: a seat revoke and a ban are account writes, a `managed_by` flip is a *governance* write — it decides which system may author a catalogue, and changes no catalogue content — an operator note is an *annotation* on a request row, which was never catalog data, and a worklist clear removes a row from a table no public surface reads. The AECI-955 logo PATCHes **are** catalog-content writes, admitted as §2's seventh named exception and bounded to a single column by a strict one-key schema (`STAGE_2_5_SPEC.md` §11). Promotion remains the review-app → `POST /api/promote` path, and there is still no *general* admin vendor-edit or product-edit endpoint — logo is the only field an operator can write. No `Cache-Tag`, no edge caching; `/admin/*` is absent from `ROUTE_CACHE_PATTERNS` in `server-runtime.ts` and therefore takes the non-cacheable branch with `private, no-store`. That must stay true (§9.2). Response validation in dev via `validateResponseInDev`, as with the other admin routes.
+**Conventions.** No `audit_log` rows **from the reads** — every `GET` in the table above writes nothing, including the `?recompute=1` ones, all five §5.9 connector reads, §5.10's claim detail, §5.4a's roster, §5.11's worklist and all three §5.14 email reads, the `POST` search included (§26.1 governs writes; ADR 0022 scopes it). Reading a subscriber's address is not exempted by special pleading: it is a read, and the panel audits none of them. The write paths do audit, in the same `db.batch` as their write: §5.7's revoke via `revokeSeatStatements` and provision via `provisionSeatStatements`, §5.8's ban via the AECI-218 handler, AECI-720's `managed_by` flip via `auditInsert` alongside its guarded `UPDATE`, and AECI-739's operator note via `saveClaimNotesStatements`, and AECI-946's worklist clear via `deleteGscRecrawlRow` alongside `auditInsert`, and AECI-955's two logo PATCHes via `auditInsert` alongside their guarded `UPDATE`, and AECI-1224's sending switch via `auditInsert` alongside its upsert and race sentinel. **Only one of them touches §2's "no editing catalog data" boundary, and it does so by amendment rather than by accident**: a seat revoke and a ban are account writes, a `managed_by` flip is a *governance* write — it decides which system may author a catalogue, and changes no catalogue content — an operator note is an *annotation* on a request row, which was never catalog data, and a worklist clear removes a row from a table no public surface reads. The AECI-955 logo PATCHes **are** catalog-content writes, admitted as §2's seventh named exception and bounded to a single column by a strict one-key schema (`STAGE_2_5_SPEC.md` §11). Promotion remains the review-app → `POST /api/promote` path, and there is still no *general* admin vendor-edit or product-edit endpoint — logo is the only field an operator can write. No `Cache-Tag`, no edge caching; `/admin/*` is absent from `ROUTE_CACHE_PATTERNS` in `server-runtime.ts` and therefore takes the non-cacheable branch with `private, no-store`. That must stay true (§9.2). Response validation in dev via `validateResponseInDev`, as with the other admin routes.
 
 **Manual job triggers — the line is side effects, not manual-ness (§13 D8).** *Recomputation* is in scope and is a `GET`: both `runDataQualityJob` and the digest's metric collection are already pure reads, so `?recompute=1` on the two endpoints above writes nothing, sends nothing, and carries no `audit_log` obligation. *Running a job for real* — sending the digest, `algolia-sync`, the retention prune, the reconcile sweep, anything that writes, emails, purges, or calls an external API — stays **deferred**, and `POST /api/admin/jobs/:job/run` is not built. Owner: **@chrisw**. Revisit when an operator first needs to force a job outside its window during an incident; at that point it is a state-changing write and needs its `audit_log` row in the same batch.
 
@@ -2651,6 +2713,8 @@ D1–D4 were settled when this document was drafted. **D5–D11 were settled by 
   **What is NOT decided here, and is the reviewer's call:** whether these are the right four classes; whether a classification record is per row or per (row, version); whether the unresolved class is reported as a share or as a count; and whether shadow mode runs inside the Worker or offline over an export.
 
 - **D23 — The email screen keeps the ledger hash-only, and shows the related entity instead of the recipient** (default taken by AECI-1223 on 2026-10-02, pending Chris, reversible before merge; §5.14, ADR 0038, `DATABASE_SCHEMA.md` §9.9). AECI-1197 chose to store an unsalted SHA-256 of each recipient and never the address. The email screen then cannot say who a row went to. Two options were open. **(a) Store the address too.** That reverses part of ADR 0038, puts every external recipient's address in a log-class table with a 400-day prune, and needs its own ruling. **(b) Keep the hash.** Show the related entity (`entity_type`, `entity_id`) per row, linked to its admin page, and answer "what did we send to X" by hashing X. **(b) was taken.** The support question names a person, so the operator already holds the address, and an exact-match hash search answers it. The cost is accepted: a partial-address search finds nothing, and a row whose sender named no entity shows no "to" at all. Two rules follow. The address reaches the API in a `POST` body, never a URL, because both Workers log request URLs. The response never echoes it and carries only an 8-character hash prefix.
+
+- **D24 — Sending switches: a new table keyed by registry id, a reserved key for the support copy, and a registry flag for what may be paused** (taken by AECI-1224 on 2026-10-02 under the rulings relayed that day; §5.14 "Sending switches", `DATABASE_SCHEMA.md` §9.13, `email.md` §Sending switches). Four choices. **(1) A new table, `notification_settings`, not a column anywhere.** Keyed by the registry id, one row per switch an operator has touched, no row meaning enabled. A new table is a plain `CREATE TABLE`, so nothing is recreated (`migrations.md` §0). `updated_by` carries no foreign key, so a `profiles` recreate cannot cascade into it and silently resume paused mail. **(2) The support copy is a reserved key in the same table, `support-copy`**, not a second table or a row type column. It has the same shape (on or off, who, when), the same audit action and the same write route, and one query reads it with the template's row. A test holds that no registry id is `support-copy`. **(3) `pausable` lives on the registry entry**, decided per entry with its reason in the entry's note. The server refuses to pause a non-pausable entry, and the transport ignores a paused row for one, so the protection holds even against a stale row. **(4) Fail open on a failed read.** Email is fail-open everywhere in `lib/email.ts`, and a D1 hiccup that dropped a seat invite would be worse than a paused alert that slipped through once. The failure is warned and counted. The summary table gets its own `paused` column rather than folding it into `skipped`, because a pause is an operator's decision and `skipped` is a configuration gap.
 
 ---
 

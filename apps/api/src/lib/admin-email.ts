@@ -78,6 +78,7 @@ const zeroOutcomes = (): AdminEmailOutcomeCounts => ({
   skipped: 0,
   suppressed: 0,
   duplicate: 0,
+  paused: 0,
 });
 const zeroDelivery = (): AdminEmailDeliveryCounts => ({
   delivered: 0,

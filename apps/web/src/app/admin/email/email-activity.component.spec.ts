@@ -33,7 +33,16 @@ import { EmailActivity } from './email-activity';
 const counts = (
   over: Partial<AdminEmailWindowCounts['outcomes']> = {},
 ): AdminEmailWindowCounts => ({
-  outcomes: { sent: 3, failed: 0, unknown: 0, skipped: 0, suppressed: 0, duplicate: 0, ...over },
+  outcomes: {
+    sent: 3,
+    failed: 0,
+    unknown: 0,
+    skipped: 0,
+    suppressed: 0,
+    duplicate: 0,
+    paused: 0,
+    ...over,
+  },
   delivery: { delivered: 2, bounced: 1, complained: 0, delivery_delayed: 0 },
 });
 
@@ -98,6 +107,8 @@ interface ApiMock {
   summary: ReturnType<typeof vi.fn>;
   listSends: ReturnType<typeof vi.fn>;
   searchSends: ReturnType<typeof vi.fn>;
+  switches: ReturnType<typeof vi.fn>;
+  setSwitch: ReturnType<typeof vi.fn>;
 }
 
 function makeApi(
@@ -116,6 +127,14 @@ function makeApi(
     summary: answer(opts.summary, makeSummary()),
     listSends: answer(opts.list, makeList()),
     searchSends: answer(opts.search, { ...makeList(), unmatched_events: [] }),
+    // The switches section (AECI-1224) has its own spec; here it only has to load.
+    switches: vi.fn(async () => ({
+      generated_at: '2026-10-02T12:00:00.000Z',
+      environment: 'staging',
+      support_copy_configured: false,
+      switches: [],
+    })),
+    setSwitch: vi.fn(),
   };
 }
 
@@ -314,5 +333,34 @@ describe('EmailActivity', () => {
     expect(el.textContent).toContain('No report yet');
     expect(el.textContent).toContain('Not applicable');
     expect(el.textContent).toContain('Not recorded');
+  });
+});
+
+describe('EmailActivity and the sending switches (AECI-1224)', () => {
+  it('shows a Paused column in the summary with its count', async () => {
+    const summary = makeSummary();
+    summary.rows[0]!.d7 = counts({ paused: 4 });
+    const { el } = await setup(makeApi({ summary }));
+    const headers = [...el.querySelectorAll('table th[scope="col"]')].map((th) =>
+      th.textContent?.trim(),
+    );
+    expect(headers).toContain('Paused');
+    const row = el.querySelector<HTMLTableRowElement>('tbody tr')!;
+    expect([...row.querySelectorAll('td')].map((td) => td.textContent?.trim())).toContain('4');
+  });
+
+  it('renders the switches section between the summary and the sends', async () => {
+    const { el } = await setup();
+    const headings = [...el.querySelectorAll('h3')].map((h) => h.textContent?.trim());
+    expect(headings.indexOf('Sending switches')).toBeGreaterThan(headings.indexOf('By template'));
+    expect(headings.indexOf('Sending switches')).toBeLessThan(headings.indexOf('Sends'));
+  });
+
+  it('Refresh re-reads the switches with the rest of the page', async () => {
+    const { el, api, rerender } = await setup();
+    expect(api.switches).toHaveBeenCalledTimes(1);
+    [...el.querySelectorAll('button')].find((b) => b.textContent?.trim() === 'Refresh')!.click();
+    await rerender();
+    expect(api.switches).toHaveBeenCalledTimes(2);
   });
 });

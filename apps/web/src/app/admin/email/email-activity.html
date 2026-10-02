@@ -5,6 +5,8 @@
   subscriber-list toolbar), so an operator meets one voice. Every value below is
   rendered as text. No recipient address appears anywhere on this page: the ledger
   stores a hash only (ADR 0038), and the search box's value is never echoed.
+  The sending switches (AECI-1224) are their own component, between the summary and
+  the sends, and announce through this page's live region.
 -->
 <section aria-labelledby="admin-email-heading" class="space-y-10">
   <div class="flex flex-wrap items-start justify-between gap-4">
@@ -203,7 +205,7 @@
       role="region"
       aria-labelledby="admin-email-summary-heading"
     >
-      <table class="w-full min-w-[64rem] border-collapse text-sm">
+      <table class="w-full min-w-[68rem] border-collapse text-sm">
         <caption class="sr-only" i18n="@@admin.email.summary.caption">
           Send outcomes and delivery reports for each email template
         </caption>
@@ -212,7 +214,7 @@
             <td></td>
             <th
               scope="colgroup"
-              colspan="6"
+              colspan="7"
               class="pb-1 text-start text-xs font-bold text-(--text-secondary)"
               i18n="@@admin.email.group.outcomes"
             >
@@ -235,8 +237,7 @@
             >
               Template
             </th>
-            @for (o of ['sent', 'failed', 'unknown', 'skipped', 'suppressed', 'duplicate']; track o)
-            {
+            @for (o of summaryOutcomes; track o) {
             <th scope="col" class="py-2 pe-3 text-end font-bold text-(--text-secondary)">
               {{ outcomeLabel(o) }}
             </th>
@@ -318,6 +319,9 @@
             >
               {{ c.outcomes.duplicate }}
             </td>
+            <td class="py-2.5 pe-3 text-end tabular-nums" [class]="cautionClass(c.outcomes.paused)">
+              {{ c.outcomes.paused }}
+            </td>
             <td
               class="border-s border-(--border-default) py-2.5 ps-4 pe-3 text-end tabular-nums"
               [class]="countClass(c.delivery.delivered)"
@@ -353,6 +357,9 @@
     </p>
     }
   </section>
+
+  <!-- Sending switches: AECI-1224 -->
+  <aec-email-switches (announce)="onSwitchAnnounce($event)" />
 
   <!-- Sends -->
   <section aria-labelledby="admin-email-sends-heading" class="space-y-4">

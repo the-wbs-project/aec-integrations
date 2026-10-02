@@ -68,6 +68,14 @@
  * `lib/notifications/resend-tags.ts`. One Resend account serves every tier, so the delivery
  * webhook (`POST /api/webhooks/resend`) uses them to keep only its own tier's events and to
  * name the template. A BCC copy rides the same message, so it carries the same tags.
+ *
+ * **Sending switches (AECI-1224).** An operator can pause a pausable template, or the support
+ * copy, on one tier from `/admin/email` (`lib/notifications/switches.ts`). Both layers read
+ * the switches once per send call, in one D1 query, after the `skipped` check. A paused
+ * template makes no Resend call, writes a `paused` ledger row per recipient, counts
+ * `aeci.email.send{outcome:paused}` and logs a recipient hash. A paused support copy drops
+ * the `EMAIL_BCC` blind copy and skips the separate `COPY:`. A failed read fails OPEN: the
+ * send goes ahead, and the failure warns and counts `aeci.email.switches.unavailable`.
  */
 
 import {
@@ -105,6 +113,7 @@ import {
 } from './notifications/registry';
 import { createLinkTagger, type LinkTagger } from './notifications/link-tag';
 import { resendTags } from './notifications/resend-tags';
+import { readSendSwitches, SUPPORT_COPY_KEY, type SendSwitches } from './notifications/switches';
 import {
   finalizeSend,
   ledgerDb,
@@ -148,8 +157,18 @@ export type EmailContext = {
  *   (AECI-1202), so this send made no Resend call. The earlier send owns delivery.
  *   Not a failure, and not delivered by this call: a caller must not count it as
  *   either. Only a send that passes a `dedupeKey` can produce it.
+ * - `paused`: an operator paused this template on this tier (AECI-1224). Nothing was
+ *   sent and no dedupe key is held, so a later run can send it after a resume. Like
+ *   `suppressed`, a deliberate no-send: not a failure, not a delivery.
  */
-export type EmailOutcome = 'sent' | 'failed' | 'unknown' | 'skipped' | 'suppressed' | 'duplicate';
+export type EmailOutcome =
+  | 'sent'
+  | 'failed'
+  | 'unknown'
+  | 'skipped'
+  | 'suppressed'
+  | 'duplicate'
+  | 'paused';
 
 /**
  * Stable template ids: the `template:` metric tag and the `docs/email.md` catalogue key.
@@ -246,6 +265,20 @@ export async function sendTransactionalEmail(
     return 'skipped';
   }
 
+  // The operator's sending switches (AECI-1224): one read, fail-open.
+  const switches = await readSendSwitches(db, [input.template, SUPPORT_COPY_KEY]);
+  if (!switches.available) {
+    warn(c, `sending switches unreadable for ${input.template}, sending anyway`);
+    emitSwitchesUnavailable(c, 'transactional');
+  }
+  if (switches.isPaused(input.template)) {
+    await logPaused(console, input.template, c.env, [input.to]);
+    emit(c, 'paused', input.template);
+    await recordSend(db, { ...row, outcome: 'paused' });
+    return 'paused';
+  }
+  const supportCopy = !switches.isPaused(SUPPORT_COPY_KEY);
+
   // The tier delivery policy (AECI-1198): outside production, an outside recipient
   // gets nothing. No fetch, so no operator copy either.
   //
@@ -281,7 +314,7 @@ export async function sendTransactionalEmail(
     JSON.stringify({
       from,
       to: input.to,
-      ...(unsubscribable ? {} : bccField(c.env, [input.to])),
+      ...(unsubscribable ? {} : bccField(c.env, [input.to], supportCopy)),
       subject,
       text: content.text,
       ...(content.html ? { html: content.html } : {}),
@@ -361,7 +394,7 @@ export async function sendTransactionalEmail(
     return 'unknown';
   }
   await finalizeSend(db, reservation.rowId, { outcome: 'sent', providerMessageId });
-  if (unsubscribable) await sendOperatorCopy(c, apiKey, from, input);
+  if (unsubscribable) await sendOperatorCopy(c, apiKey, from, input, switches);
   return 'sent';
 }
 
@@ -380,17 +413,30 @@ function renderBody(body: SendBody, link: LinkTagger): EmailContent {
  * is not counted in `aeci.email.send`, which stays one count per recipient send.
  * It does get ledger rows, one per operator address, under its own registry id.
  * Its links carry `utm_source` and `utm_campaign` but no `n` (AECI-1209).
+ * A paused support copy (AECI-1224) makes no Resend call and writes `paused` rows instead.
  */
 async function sendOperatorCopy(
   c: EmailContext,
   apiKey: string,
   from: string,
   input: SendInput,
+  switches: SendSwitches,
 ): Promise<void> {
-  // `bccField` already drops any address the tier policy refuses (AECI-1198).
-  const to = bccField(c.env, [input.to]).bcc;
+  // `bccField` already drops any address the tier policy refuses (AECI-1198). It is asked
+  // for the list with the switch on, so a paused copy still records who it skipped.
+  const to = bccField(c.env, [input.to], true).bcc;
   if (!to || !input.operatorCopy) return;
   const notification = input.operatorCopy.notification;
+  if (switches.isPaused(SUPPORT_COPY_KEY)) {
+    await logPaused(console, notification, c.env, to);
+    await recordRecipients(ledgerDb(c.env), to, {
+      notificationId: notification,
+      tier: tierLabel(c.env),
+      entity: input.entity,
+      outcome: 'paused',
+    });
+    return;
+  }
   // One Resend call to the whole operator list, so there is no per-recipient row
   // before the send and no `n`. The links carry the copy's own id as the campaign
   // (AECI-1209). A render bug records a `failed` copy rather than throwing.
@@ -2379,7 +2425,9 @@ export interface EmailEnv extends DeliveryPolicyEnv {
  *   - `'unknown'` — the request threw, so the mail may or may not have gone.
  *   - `'sent'`    — accepted by Resend.
  *   - `'suppressed'` — the tier delivery policy refused every recipient (AECI-1198).
+ *   - `'paused'` — an operator paused this digest on this tier (AECI-1224).
  * It never returns `'duplicate'`: a digest takes no dedupe key.
+ * `telemetry`, when given, counts a failed switches read on `aeci.email.switches.unavailable`.
  * When `env.DB` is present it writes one `notification_sends` row per recipient
  * (AECI-1202): `suppressed` for each refused address, and `sent` (sharing the one
  * Resend id), `failed` or `unknown` for the rest. One Resend call, so no reservation step.
@@ -2392,6 +2440,7 @@ export async function sendEmail(
   message: EmailMessage,
   fetchImpl: typeof fetch = fetch,
   logger: Pick<Console, 'warn' | 'error'> = console,
+  telemetry?: EmailContext,
 ): Promise<EmailOutcome> {
   const db = ledgerDb(env);
   const row = { notificationId: message.notification, tier: tierLabel(env) };
@@ -2405,6 +2454,19 @@ export async function sendEmail(
     await recordRecipients(db, message.to, { ...row, outcome: 'skipped' }, logger);
     return 'skipped';
   }
+
+  // The operator's sending switches (AECI-1224): one read, fail-open.
+  const switches = await readSendSwitches(db, [message.notification, SUPPORT_COPY_KEY]);
+  if (!switches.available) {
+    logger.warn(`email: sending switches unreadable for ${message.notification}, sending anyway`);
+    if (telemetry) emitSwitchesUnavailable(telemetry, 'digest');
+  }
+  if (switches.isPaused(message.notification)) {
+    await logPaused(logger, message.notification, env, message.to);
+    await recordRecipients(db, message.to, { ...row, outcome: 'paused' }, logger);
+    return 'paused';
+  }
+  const supportCopy = !switches.isPaused(SUPPORT_COPY_KEY);
 
   const { allowed: to, suppressed } = partitionRecipients(env, message.to);
   if (suppressed.length > 0) {
@@ -2424,7 +2486,7 @@ export async function sendEmail(
       body: JSON.stringify({
         from: message.from,
         to,
-        ...bccField(env, to),
+        ...bccField(env, to, supportCopy),
         subject: tierSubject(env, message.subject),
         text: message.text,
         ...(message.html ? { html: message.html } : {}),
@@ -2467,7 +2529,7 @@ async function recordRecipients(
     notificationId: EmailNotificationId;
     tier: string;
     entity?: LedgerEntity;
-    outcome: 'sent' | 'failed' | 'unknown' | 'skipped' | 'suppressed';
+    outcome: 'sent' | 'failed' | 'unknown' | 'skipped' | 'suppressed' | 'paused';
     providerMessageId?: string | null;
   },
   logger: Pick<Console, 'warn'> = console,
@@ -2532,13 +2594,16 @@ async function hashRecipient(address: string): Promise<string> {
  * sends, through either transport above, blind-copies the operator so they see
  * exactly what users receive. An address already in `to` is dropped, so an
  * operator alert never lands twice. So is any address the tier delivery policy
- * refuses (AECI-1198). Absent or empty → no `bcc` field at all.
+ * refuses (AECI-1198). Absent or empty → no `bcc` field at all, and so is a paused
+ * support copy (`supportCopy: false`, AECI-1224).
  * `sendOperatorCopy` reuses it as the `to` list of its separate copy.
  */
 function bccField(
   env: DeliveryPolicyEnv & { EMAIL_BCC?: string },
   to: readonly string[],
+  supportCopy: boolean,
 ): { bcc?: string[] } {
+  if (!supportCopy) return {};
   const addressed = new Set(to.map((t) => bareAddress(t)));
   const candidates = parseRecipients(env.EMAIL_BCC).filter((b) => !addressed.has(bareAddress(b)));
   const bcc = partitionRecipients(env, candidates).allowed;
@@ -2564,6 +2629,30 @@ async function logSuppressed(
       logger.warn('email: suppressed — recipient outside the internal allowlist on this tier', {
         template,
         envRule,
+        tier,
+        recipientHash: await recipientHash(bareAddress(address)),
+      });
+    } catch {
+      // Logging must never break a send.
+    }
+  }
+}
+
+/**
+ * Log each recipient of a send an operator paused (AECI-1224). Like {@link logSuppressed}:
+ * the template, the tier and a recipient hash, never the address. Never throws.
+ */
+async function logPaused(
+  logger: Pick<Console, 'warn'>,
+  template: EmailNotificationId,
+  env: DeliveryPolicyEnv,
+  recipients: readonly string[],
+): Promise<void> {
+  const tier = tierLabel(env);
+  for (const address of recipients) {
+    try {
+      logger.warn('email: paused — an operator switch is off for this template on this tier', {
+        template,
         tier,
         recipientHash: await recipientHash(bareAddress(address)),
       });
@@ -2734,6 +2823,20 @@ export function recordEmailSend(
   notification: DigestNotificationId,
 ): void {
   emit(c, outcome, notification);
+}
+
+/**
+ * Count a failed switches read (AECI-1224). The send went ahead (fail-open); this is how an
+ * operator learns a pause may not have held. `layer` is `transactional` or `digest`. Never throws.
+ */
+function emitSwitchesUnavailable(c: EmailContext, layer: 'transactional' | 'digest'): void {
+  try {
+    submitCount(c.executionCtx, c.env, c.req.raw, 'aeci.email.switches.unavailable', 1, [
+      `layer:${layer}`,
+    ]);
+  } catch {
+    // Telemetry must never break a send.
+  }
 }
 
 /** Best-effort `warn` to the observability plane; wrapped like `emit`. */

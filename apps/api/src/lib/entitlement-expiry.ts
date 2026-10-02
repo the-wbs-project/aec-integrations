@@ -400,14 +400,17 @@ async function loadVendorSeatEmails(
  * it may or may not have gone. It is neither delivered nor failed: it ranks below
  * `failed` and does not stamp the fence. These sends take no dedupe key, so tomorrow's
  * run may warn again. A possible second warning beats a lost one here, because the
- * warning protects the vendor's paid term. None of `unknown`, `duplicate`,
- * `suppressed` or `skipped` stamps the fence.
+ * warning protects the vendor's paid term. `paused` (AECI-1224) means an operator
+ * paused the template on this tier: only the admin notice is pausable, and it ranks
+ * above `suppressed` because the pause is the more recent decision. None of `unknown`,
+ * `duplicate`, `paused`, `suppressed` or `skipped` stamps the fence.
  */
 function collapse(outcomes: readonly EmailOutcome[]): EmailOutcome {
   if (outcomes.includes('sent')) return 'sent';
   if (outcomes.includes('failed')) return 'failed';
   if (outcomes.includes('unknown')) return 'unknown';
   if (outcomes.includes('duplicate')) return 'duplicate';
+  if (outcomes.includes('paused')) return 'paused';
   if (outcomes.includes('suppressed')) return 'suppressed';
   return 'skipped';
 }
@@ -443,8 +446,8 @@ export async function runEntitlementExpirySweep(
     capped: 0,
     malformed: 0,
     warned: 0,
-    vendor: { sent: 0, failed: 0, unknown: 0, skipped: 0, suppressed: 0, duplicate: 0 },
-    admin: { sent: 0, failed: 0, unknown: 0, skipped: 0, suppressed: 0, duplicate: 0 },
+    vendor: { sent: 0, failed: 0, unknown: 0, skipped: 0, suppressed: 0, duplicate: 0, paused: 0 },
+    admin: { sent: 0, failed: 0, unknown: 0, skipped: 0, suppressed: 0, duplicate: 0, paused: 0 },
     batchFailures: 0,
   };
 

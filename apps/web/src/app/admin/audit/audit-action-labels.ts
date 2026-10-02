@@ -160,6 +160,9 @@ const ACTION_LABELS: Readonly<Record<string, string>> = {
   // AECI-724. Filed under the catalogue, so it sits on the same tab as the handover.
   'connector_mapping.updated': $localize`:@@admin.audit.action.connectorMappingUpdated:Listing mapping edited`,
 
+  // ── Email (AECI-1224) ─────────────────────────────────────────────────────
+  'notification_settings.updated': $localize`:@@admin.audit.action.notificationSwitchUpdated:Sending switch changed`,
+
   // ── System ────────────────────────────────────────────────────────────────
   'notification.sent': $localize`:@@admin.audit.action.notificationSent:Notification sent`,
   'retention.pruned': $localize`:@@admin.audit.action.retentionPruned:Old records pruned`,

@@ -64,4 +64,21 @@ describe('AdminEmailApi', () => {
     req.flush({ data: [], page: 1, perPage: 25, total: 0, unmatched_events: [] });
     await promise;
   });
+
+  it('GETs the switches', async () => {
+    const promise = api.switches();
+    const req = httpMock.expectOne('/api/admin/email/switches');
+    expect(req.request.method).toBe('GET');
+    req.flush({});
+    await promise;
+  });
+
+  it('PUTs one switch by key, with the body as given', async () => {
+    const promise = api.setSwitch('landing-feedback', { enabled: false, reason: 'Spam wave' });
+    const req = httpMock.expectOne('/api/admin/email/switches/landing-feedback');
+    expect(req.request.method).toBe('PUT');
+    expect(req.request.body).toEqual({ enabled: false, reason: 'Spam wave' });
+    req.flush({});
+    await promise;
+  });
 });

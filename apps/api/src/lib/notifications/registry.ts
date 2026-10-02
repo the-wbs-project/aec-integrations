@@ -88,6 +88,13 @@ export interface NotificationEntry {
   /** Every durable record of the send. `['none']` when there is none. */
   ledger: readonly NotificationLedger[];
   optOut: NotificationOptOut;
+  /**
+   * Whether an operator may pause it on one tier from `/admin/email` (AECI-1224,
+   * `lib/notifications/switches.ts`). Only an entry sent through `lib/email.ts` (`email`,
+   * `email+portal`) may be `true`; `registry.spec.ts` enforces it. Anything security- or
+   * obligation-bearing stays `false`. The entry's `note` says why, either way.
+   */
+  pausable: boolean;
   /** `docs/<file>.md §<number or heading>`. `registry.spec.ts` resolves it. */
   doc: string;
   summary: string;
@@ -107,8 +114,10 @@ export const NOTIFICATIONS = {
     dedupe: 'None on the send. A partial-unique index blocks a duplicate review.',
     ledger: ['notification_sends'],
     optOut: 'none',
+    pausable: true,
     doc: CATALOGUE,
     summary: 'Tells a reviewer their review is in moderation.',
+    note: 'Pausable: a courtesy receipt. No action or deadline depends on it.',
   },
   'review-submitted-alert': {
     channel: 'email',
@@ -118,8 +127,10 @@ export const NOTIFICATIONS = {
     dedupe: 'None.',
     ledger: ['notification_sends'],
     optOut: 'none',
+    pausable: true,
     doc: CATALOGUE,
     summary: 'Tells ADMIN_ALERT_EMAIL a review is waiting for moderation.',
+    note: 'Pausable: operator alert. The review waits in /admin/reviews either way.',
   },
   'review-approved': {
     channel: 'email',
@@ -130,8 +141,10 @@ export const NOTIFICATIONS = {
       'Key review-decision:{reviewId}, shared with the other decision email: one decision email per review. A losing concurrent moderation gets 409 REVIEW_ALREADY_MODERATED and sends nothing.',
     ledger: ['notification_sends'],
     optOut: 'none',
+    pausable: false,
     doc: CATALOGUE,
     summary: 'Tells a reviewer their review was approved.',
+    note: 'Always on: a review decision to its author.',
   },
   'review-rejected': {
     channel: 'email',
@@ -142,8 +155,10 @@ export const NOTIFICATIONS = {
       'Key review-decision:{reviewId}, shared with the other decision email: one decision email per review. A losing concurrent moderation gets 409 REVIEW_ALREADY_MODERATED and sends nothing.',
     ledger: ['notification_sends'],
     optOut: 'none',
+    pausable: false,
     doc: CATALOGUE,
     summary: "Tells a reviewer their review needs revision, with the moderator's reason.",
+    note: 'Always on: a review decision to its author, with the reason they need to revise.',
   },
   'vendor-review-published': {
     channel: 'email',
@@ -154,10 +169,11 @@ export const NOTIFICATIONS = {
       'Key vendor-review-published:{reviewId}:{profileId}, one per seat. A losing concurrent moderation gets 409 REVIEW_ALREADY_MODERATED and sends nothing.',
     ledger: ['notification_sends'],
     optOut: 'none',
+    pausable: false,
     doc: 'docs/STAGE_2_VENDOR_PORTAL_SPEC.md §11c.12',
     summary:
       'Tells every unbanned seat of each owning vendor that a review of its product was approved.',
-    note: 'Sent beside the portal-review row, on every plan. The attestation nudge mute does not cover it.',
+    note: 'Sent beside the portal-review row, on every plan. The attestation nudge mute does not cover it. Always on until ruled: it reached main after AECI-1224 set the pausable list.',
   },
   'account-deleted': {
     channel: 'email',
@@ -167,8 +183,10 @@ export const NOTIFICATIONS = {
     dedupe: 'None.',
     ledger: ['notification_sends'],
     optOut: 'none',
+    pausable: false,
     doc: CATALOGUE,
     summary: 'Confirms to a user that their account was deleted.',
+    note: 'Always on: confirms an erasure, a legal obligation.',
   },
   'mailing-list-welcome': {
     channel: 'email',
@@ -179,9 +197,10 @@ export const NOTIFICATIONS = {
       'Not sent to an address that is already active. Key mailing-list-welcome:{recipientHash}:{YYYY-MM} (UTC), so an unsubscribe then resubscribe welcomes once per calendar month.',
     ledger: ['notification_sends'],
     optOut: 'mailing-list-unsubscribe',
+    pausable: true,
     doc: CATALOGUE,
     summary: 'Welcomes a new mailing-list subscriber.',
-    note: 'The mailing_list row is a log-class record of the subscription, not of the send.',
+    note: 'The mailing_list row is a log-class record of the subscription, not of the send. Pausable: a welcome. No obligation rides on it.',
   },
   'mailing-list-welcome-operator-copy': {
     channel: 'email',
@@ -191,9 +210,10 @@ export const NOTIFICATIONS = {
     dedupe: 'Sent only after mailing-list-welcome was sent, so a duplicate welcome sends no copy.',
     ledger: ['notification_sends'],
     optOut: 'none',
+    pausable: false,
     doc: 'docs/email.md §Architecture',
     summary: 'Sends the EMAIL_BCC list a COPY: of the welcome, with an inert unsubscribe link.',
-    note: 'Not counted in aeci.email.send. A failed copy only warns.',
+    note: 'Not counted in aeci.email.send. A failed copy only warns. Always on as an entry: the support-copy switch is its control, not a switch of its own.',
   },
   'landing-signup': {
     channel: 'email',
@@ -204,8 +224,10 @@ export const NOTIFICATIONS = {
       'Not sent for an address that is already active. Key landing-signup:{recipientHash}:{YYYY-MM} (UTC), keyed on the subscriber.',
     ledger: ['notification_sends'],
     optOut: 'none',
+    pausable: true,
     doc: CATALOGUE,
     summary: 'Tells ADMIN_ALERT_EMAIL someone joined the mailing list.',
+    note: 'Pausable: operator alert. /admin/audience lists the subscriber either way.',
   },
   'landing-feedback': {
     channel: 'email',
@@ -215,9 +237,10 @@ export const NOTIFICATIONS = {
     dedupe: 'None. Every submit sends.',
     ledger: ['notification_sends'],
     optOut: 'none',
+    pausable: true,
     doc: CATALOGUE,
     summary: 'Tells ADMIN_ALERT_EMAIL someone submitted feedback.',
-    note: 'The feedback row records the submission, not the send.',
+    note: 'The feedback row records the submission, not the send. Pausable: operator alert. /admin/audience lists the feedback either way.',
   },
   'claim-submitted-alert': {
     channel: 'email',
@@ -231,9 +254,10 @@ export const NOTIFICATIONS = {
       'Claims only, not corrections. Both senders use key claim-submitted-alert:{requestId}, so at most one alert per request. A delivered or unknown submit alert holds the key and the sweep send is a duplicate. A submit alert Resend refused released it, so the sweep send goes out with the issue link.',
     ledger: ['notification_sends'],
     optOut: 'none',
+    pausable: true,
     doc: CATALOGUE,
     summary: 'Tells CLAIM_ALERT_EMAIL a vendor claimed a listing, after the Linear attempt.',
-    note: 'LINEAR_API_KEY is set on production only. On staging and demo no issue is created, so the Linear row reads "not created, Linear is not configured on this tier" (AECI-1198).',
+    note: 'LINEAR_API_KEY is set on production only. On staging and demo no issue is created, so the Linear row reads "not created, Linear is not configured on this tier" (AECI-1198). Pausable: operator alert. The claim waits in /admin/claims either way.',
   },
   'contest-submitted-alert': {
     channel: 'email',
@@ -246,8 +270,10 @@ export const NOTIFICATIONS = {
     dedupe: 'None. Sent only when the contest routes to AECi.',
     ledger: ['notification_sends'],
     optOut: 'none',
+    pausable: true,
     doc: 'docs/STAGE_2_VENDOR_PORTAL_SPEC.md §11b.8',
     summary: 'Tells CLAIM_ALERT_EMAIL a vendor filed a contest that AECi must decide.',
+    note: 'Pausable: operator alert. The contest waits in /admin/contests either way.',
   },
   'protest-submitted-alert': {
     channel: 'email',
@@ -261,8 +287,10 @@ export const NOTIFICATIONS = {
       'Key protest-submitted-alert:{contestId}:{protestedAt}. A replay of the same protest is a duplicate. A later protest on the same contest is a new send.',
     ledger: ['notification_sends'],
     optOut: 'none',
+    pausable: true,
     doc: 'docs/STAGE_2_VENDOR_PORTAL_SPEC.md §11b.12.10',
     summary: 'Tells CLAIM_ALERT_EMAIL a vendor filed a protest that AECi must decide.',
+    note: 'Pausable: operator alert. The protest waits in /admin/contests either way.',
   },
   'contest-protest-opened': {
     channel: 'email',
@@ -276,10 +304,11 @@ export const NOTIFICATIONS = {
       'One per seat per protest: key contest-protest-opened:{contestId}:{protestedAt}:{profileId}.',
     ledger: ['notification_sends'],
     optOut: 'none',
+    pausable: false,
     doc: 'docs/STAGE_2_VENDOR_PORTAL_SPEC.md §11b.12.10',
     summary:
       "Tells the owner's seats a submitter asked AECi to review a contest, with the 14-day reply deadline.",
-    note: 'Sent beside the portal-contest-protested row. The attestation nudge mute does not cover it: missing it costs the owner its reply.',
+    note: 'Sent beside the portal-contest-protested row. The attestation nudge mute does not cover it: missing it costs the owner its reply. Always on: carries the 14-day reply deadline.',
   },
   'contest-protest-reply-reminder': {
     channel: 'email',
@@ -293,10 +322,11 @@ export const NOTIFICATIONS = {
       'One per seat per protest: key contest-protest-reply-reminder:{contestId}:{protestedAt}:{profileId}. The daily runs inside the 3-day window send it once.',
     ledger: ['notification_sends'],
     optOut: 'none',
+    pausable: false,
     doc: 'docs/STAGE_2_VENDOR_PORTAL_SPEC.md §11b.12.10',
     summary:
       "Reminds the owner's seats, 2 to 3 days before the deadline, that they have not replied to a protest.",
-    note: 'Skips a protest that has a reply, is no longer open, or is past its deadline.',
+    note: 'Skips a protest that has a reply, is no longer open, or is past its deadline. Always on: warns of the reply deadline.',
   },
   'contest-declined-protest-window': {
     channel: 'email',
@@ -310,10 +340,11 @@ export const NOTIFICATIONS = {
       'One per seat per contest: key contest-declined-protest-window:{contestId}:{profileId}. A contest is declined once.',
     ledger: ['notification_sends'],
     optOut: 'none',
+    pausable: false,
     doc: 'docs/STAGE_2_VENDOR_PORTAL_SPEC.md §11b.12.10',
     summary:
       "Tells the submitter's seats the owner declined its contest, and until when it can ask AECi to review it.",
-    note: 'Owner declines only. An AECi decline cannot be protested and sends nothing.',
+    note: 'Owner declines only. An AECi decline cannot be protested and sends nothing. Always on: carries the 30-day protest deadline.',
   },
   'claim-approved': {
     channel: 'email',
@@ -323,9 +354,10 @@ export const NOTIFICATIONS = {
     dedupe: 'Re-approving an already-seated claim is a no-op and sends nothing.',
     ledger: ['notification_sends'],
     optOut: 'none',
+    pausable: false,
     doc: 'docs/STAGE_2_VENDOR_PORTAL_SPEC.md §9',
     summary: 'Tells a claimant their claim was approved.',
-    note: 'Two variants by the plan the operator chose (AECI-1215): Managed lists attestations, Free says the account is on the Free plan. One id, because it is one event.',
+    note: 'Two variants by the plan the operator chose (AECI-1215): Managed lists attestations, Free says the account is on the Free plan. One id, because it is one event. Always on: a claim decision, and the first the vendor hears of its seat.',
   },
   'claim-rejected': {
     channel: 'email',
@@ -335,8 +367,10 @@ export const NOTIFICATIONS = {
     dedupe: 'Status guard: open or in-review claims only.',
     ledger: ['notification_sends'],
     optOut: 'none',
+    pausable: false,
     doc: 'docs/STAGE_2_VENDOR_PORTAL_SPEC.md §9',
     summary: 'Tells a claimant their claim was not approved, without the reviewer reason.',
+    note: 'Always on: a claim decision.',
   },
   'vendor-seat-invite': {
     channel: 'email',
@@ -349,8 +383,10 @@ export const NOTIFICATIONS = {
     dedupe: '10 per vendor per day, plus a per-vendor burst bucket.',
     ledger: ['notification_sends', 'invite-row'],
     optOut: 'none',
+    pausable: false,
     doc: 'docs/STAGE_2_VENDOR_PORTAL_SPEC.md §11a.5',
     summary: 'Invites a colleague, typed by a vendor owner, to take a seat.',
+    note: 'Always on: an invite is the only way the colleague can take the seat.',
   },
   'vendor-seat-invite-resend': {
     channel: 'email',
@@ -363,9 +399,10 @@ export const NOTIFICATIONS = {
     dedupe: '5-minute cooldown on last_sent_at, 4 sends per invite on send_count.',
     ledger: ['notification_sends', 'invite-row'],
     optOut: 'none',
+    pausable: false,
     doc: 'docs/STAGE_2_VENDOR_PORTAL_SPEC.md §11a.9',
     summary: 'Re-sends a pending seat invite.',
-    note: 'Same template as vendor-seat-invite.',
+    note: 'Same template as vendor-seat-invite. Always on: an owner asked for it again.',
   },
   'stuck-request-alert': {
     channel: 'email',
@@ -379,9 +416,10 @@ export const NOTIFICATIONS = {
       'Stateless age bands: 60 minutes, 6 hours, then daily (lib/alert-bands.ts). Key stuck-request-alert:{requestId}:{bandIndex}, one pair per row in the digest.',
     ledger: ['notification_sends'],
     optOut: 'none',
+    pausable: true,
     doc: 'docs/STAGE_1_PHASE_6_SPEC.md §6.4',
     summary: 'Tells ADMIN_ALERT_EMAIL which requests are stuck in the Linear pipeline.',
-    note: 'LINEAR_API_KEY is set on production only, so every staging and demo request stays unlinked. The sweep skips this email there. The metric and error log still fire (AECI-1198).',
+    note: 'LINEAR_API_KEY is set on production only, so every staging and demo request stays unlinked. The sweep skips this email there. The metric and error log still fire (AECI-1198). Pausable: operator alert. The metric and error log still fire.',
   },
   'stale-claim-ticket-alert': {
     channel: 'email',
@@ -392,9 +430,10 @@ export const NOTIFICATIONS = {
       'Stateless bands: 24 hours, then daily. Key stale-claim-ticket-alert:{requestId}:{bandIndex}, one pair per row in the digest.',
     ledger: ['notification_sends'],
     optOut: 'none',
+    pausable: true,
     doc: 'docs/STAGE_1_PHASE_6_SPEC.md §6.4a',
     summary: 'Tells FOUNDER_ALERT_EMAIL which claim tickets nobody has started after 24 hours.',
-    note: 'Production only in practice. Staging and demo create no Linear issues, and FOUNDER_ALERT_EMAIL is unset on demo.',
+    note: 'Production only in practice. Staging and demo create no Linear issues, and FOUNDER_ALERT_EMAIL is unset on demo. Pausable: operator alert.',
   },
   'attestation-digest': {
     channel: 'email+portal',
@@ -405,10 +444,11 @@ export const NOTIFICATIONS = {
       'One per seat per day: attestation-digest:{vendorId}:{profileId}:{YYYY-MM-DD}. Each finding is listed once per 30 days per (claim, detector, vendor), read from the notification.sent rows.',
     ledger: ['notification_sends', 'audit_log'],
     optOut: 'nudge-mute',
+    pausable: true,
     doc: 'docs/STAGE_2_ATTESTATIONS_SPEC.md §7.2',
     summary:
       'Sends each unmuted vendor seat one daily digest of every due attestation finding for its vendor.',
-    note: 'Replaced four per-finding templates in AECI-1204. A due finding gets its portal row when a seat was emailed or every seat was muted or refused by the tier policy. A failed or unconfigured send writes no row, so the next sweep retries it. metadata.emailedSeats says how many seats got it. Never lists a vendor finding on a connector-powered edge (AECI-705).',
+    note: 'Replaced four per-finding templates in AECI-1204. A due finding gets its portal row when a seat was emailed or every seat was muted or refused by the tier policy. A failed or unconfigured send writes no row, so the next sweep retries it. metadata.emailedSeats says how many seats got it. Never lists a vendor finding on a connector-powered edge (AECI-705). Pausable: a nudge. A pause behaves like a mute: the portal row is still written.',
   },
   'attestation-ops-digest': {
     channel: 'email',
@@ -419,10 +459,11 @@ export const NOTIFICATIONS = {
       'One per address per day: attestation-ops-digest:{YYYY-MM-DD}:{recipient hash}. Each finding is listed once per 30 days per (claim, detector, ~ops).',
     ledger: ['notification_sends', 'audit_log'],
     optOut: 'none',
+    pausable: true,
     doc: 'docs/STAGE_2_ATTESTATIONS_SPEC.md §7.2',
     summary:
       'Tells ADMIN_ALERT_EMAIL about every denied claim and standing conflict of the day, in one email.',
-    note: 'Replaced attestation-ops-alert, one email per finding, in AECI-1204. Its notification.sent rows carry vendorId null, so no vendor portal shows them.',
+    note: 'Replaced attestation-ops-alert, one email per finding, in AECI-1204. Its notification.sent rows carry vendorId null, so no vendor portal shows them. Pausable: operator digest. The notification.sent rows are still written.',
   },
   'entitlement-expiring': {
     channel: 'email',
@@ -432,8 +473,10 @@ export const NOTIFICATIONS = {
     dedupe: 'expiry_notice_sent_at fence: one notice per term, 30 days out.',
     ledger: ['notification_sends', 'fence-column'],
     optOut: 'none',
+    pausable: false,
     doc: 'docs/STAGE_2_PAID_TIERS_SPEC.md §7.2',
     summary: "Warns a vendor's seats that their plan term ends soon.",
+    note: "Always on: warns of the end of a vendor's paid term.",
   },
   'entitlement-expiring-admin': {
     channel: 'email',
@@ -443,8 +486,10 @@ export const NOTIFICATIONS = {
     dedupe: 'Same fence as entitlement-expiring.',
     ledger: ['notification_sends', 'fence-column'],
     optOut: 'none',
+    pausable: true,
     doc: 'docs/STAGE_2_PAID_TIERS_SPEC.md §7.2',
     summary: 'Tells ADMIN_ALERT_EMAIL a vendor term ends soon, with payer and invoice ref.',
+    note: 'Pausable: operator alert. The vendor notice alone stamps the fence.',
   },
 
   // ─── Email: cron digests (`sendEmail`) ────────────────────────────────────
@@ -456,9 +501,10 @@ export const NOTIFICATIONS = {
     dedupe: 'None. Sends on a clean run too, so silence means the cron failed.',
     ledger: ['notification_sends', 'job_runs'],
     optOut: 'none',
+    pausable: true,
     doc: 'docs/email.md §Cron digests',
     summary: 'Sends DATA_QUALITY_EMAIL_TO the daily data-quality check results.',
-    note: 'DATA_QUALITY_EMAIL_TO is set on staging, demo and production, so the support inbox gets one a day from each.',
+    note: 'DATA_QUALITY_EMAIL_TO is set on staging, demo and production, so the support inbox gets one a day from each. Pausable: operator digest. job_runs still records each run, so liveness does not depend on the mail.',
   },
   'digest-analytics': {
     channel: 'email',
@@ -468,9 +514,10 @@ export const NOTIFICATIONS = {
     dedupe: 'None.',
     ledger: ['notification_sends', 'job_runs'],
     optOut: 'none',
+    pausable: true,
     doc: 'docs/email.md §Cron digests',
     summary: "Sends ANALYTICS_DIGEST_EMAIL_TO the prior day's traffic digest.",
-    note: 'ANALYTICS_DIGEST_EMAIL_TO is set on production only.',
+    note: 'ANALYTICS_DIGEST_EMAIL_TO is set on production only. Pausable: operator digest. /admin/overview shows the same numbers.',
   },
 
   // ─── Supabase Auth email ──────────────────────────────────────────────────
@@ -485,9 +532,10 @@ export const NOTIFICATIONS = {
     dedupe: "GoTrue's own rate limits.",
     ledger: ['none'],
     optOut: 'none',
+    pausable: false,
     doc: 'docs/email.md §Magic-link sender',
     summary: 'The magic-link or confirm-signup email for anyone who signs in.',
-    note: 'Supabase sends it over the Resend SMTP relay. No app code sends it, so the tier gate cannot stop it. It carries no Resend tags. Since AECI-1222 production records its delivery events (tier auth) in notification_delivery_events, matched by subject and sender; no tier records the send itself.',
+    note: 'Supabase sends it over the Resend SMTP relay. No app code sends it, so the tier gate cannot stop it. It carries no Resend tags. Since AECI-1222 production records its delivery events (tier auth) in notification_delivery_events, matched by subject and sender; no tier records the send itself. Not pausable: Supabase sends it, so no switch here can stop it.',
   },
 
   // ─── Vendor portal feed (`notification.sent` rows, no email) ──────────────
@@ -502,8 +550,10 @@ export const NOTIFICATIONS = {
     dedupe: 'One row per transition, in the transition batch.',
     ledger: ['audit_log'],
     optOut: 'none',
+    pausable: false,
     doc: 'docs/STAGE_2_VENDOR_PORTAL_SPEC.md §11b.8',
     summary: 'Tells the owner a vendor contested a field on its integration.',
+    note: 'Not pausable: a portal row, not email.',
   },
   'portal-contest-withdrawn': {
     channel: 'portal',
@@ -516,8 +566,10 @@ export const NOTIFICATIONS = {
     dedupe: 'One row per transition, in the transition batch.',
     ledger: ['audit_log'],
     optOut: 'none',
+    pausable: false,
     doc: 'docs/STAGE_2_VENDOR_PORTAL_SPEC.md §11b.8',
     summary: 'Tells the owner a contest on its integration was withdrawn.',
+    note: 'Not pausable: a portal row, not email.',
   },
   'portal-contest-decided-by-owner': {
     channel: 'portal',
@@ -530,9 +582,10 @@ export const NOTIFICATIONS = {
     dedupe: 'One row per transition, in the transition batch.',
     ledger: ['audit_log'],
     optOut: 'none',
+    pausable: false,
     doc: 'docs/STAGE_2_VENDOR_PORTAL_SPEC.md §11b.8',
     summary: 'Tells the submitter the owner accepted or declined its contest.',
-    note: 'A decline carries the 30-day protest deadline. Since AECI-1205 the contest-declined-protest-window email carries it too.',
+    note: 'A decline carries the 30-day protest deadline. Since AECI-1205 the contest-declined-protest-window email carries it too. Not pausable: a portal row, not email.',
   },
   'portal-contest-decided-by-aeci': {
     channel: 'portal',
@@ -542,8 +595,10 @@ export const NOTIFICATIONS = {
     dedupe: 'One row per transition, in the transition batch.',
     ledger: ['audit_log'],
     optOut: 'none',
+    pausable: false,
     doc: 'docs/STAGE_2_VENDOR_PORTAL_SPEC.md §11b.8',
     summary: 'Tells the submitter AECi accepted or declined its contest.',
+    note: 'Not pausable: a portal row, not email.',
   },
   'portal-contest-closed-by-retire': {
     channel: 'portal',
@@ -556,8 +611,10 @@ export const NOTIFICATIONS = {
     dedupe: 'One row per closed contest, in the retire batch.',
     ledger: ['audit_log'],
     optOut: 'none',
+    pausable: false,
     doc: 'docs/STAGE_2_VENDOR_PORTAL_SPEC.md §11b.8',
     summary: 'Tells the other side of an open contest that a retire closed it.',
+    note: 'Not pausable: a portal row, not email.',
   },
   'portal-contest-protested': {
     channel: 'portal',
@@ -570,9 +627,10 @@ export const NOTIFICATIONS = {
     dedupe: 'One row per protest step, in the step batch.',
     ledger: ['audit_log'],
     optOut: 'none',
+    pausable: false,
     doc: 'docs/STAGE_2_VENDOR_PORTAL_SPEC.md §11b.12.10',
     summary: 'Tells the owner a submitter asked AECi to review a contest.',
-    note: 'Carries the 14-day reply deadline. Since AECI-1205 the contest-protest-opened email carries it too.',
+    note: 'Carries the 14-day reply deadline. Since AECI-1205 the contest-protest-opened email carries it too. Not pausable: a portal row, not email.',
   },
   'portal-contest-protest-replied': {
     channel: 'portal',
@@ -585,8 +643,10 @@ export const NOTIFICATIONS = {
     dedupe: 'One row per protest step, in the step batch.',
     ledger: ['audit_log'],
     optOut: 'none',
+    pausable: false,
     doc: 'docs/STAGE_2_VENDOR_PORTAL_SPEC.md §11b.12.10',
     summary: 'Tells the submitter the owner replied to its protest.',
+    note: 'Not pausable: a portal row, not email.',
   },
   'portal-contest-protest-withdrawn': {
     channel: 'portal',
@@ -599,8 +659,10 @@ export const NOTIFICATIONS = {
     dedupe: 'One row per protest step, in the step batch.',
     ledger: ['audit_log'],
     optOut: 'none',
+    pausable: false,
     doc: 'docs/STAGE_2_VENDOR_PORTAL_SPEC.md §11b.12.10',
     summary: 'Tells the owner a protest on its integration was withdrawn.',
+    note: 'Not pausable: a portal row, not email.',
   },
   'portal-contest-protest-decided': {
     channel: 'portal',
@@ -613,8 +675,10 @@ export const NOTIFICATIONS = {
     dedupe: 'One row per side, in the decision batch.',
     ledger: ['audit_log'],
     optOut: 'none',
+    pausable: false,
     doc: 'docs/STAGE_2_VENDOR_PORTAL_SPEC.md §11b.12.10',
     summary: 'Tells both vendors whether AECi upheld or rejected a protest.',
+    note: 'Not pausable: a portal row, not email.',
   },
   'portal-integration-claim': {
     channel: 'portal',
@@ -627,8 +691,10 @@ export const NOTIFICATIONS = {
     dedupe: 'One row per recipient, in the claim batch.',
     ledger: ['audit_log'],
     optOut: 'none',
+    pausable: false,
     doc: 'docs/STAGE_2_VENDOR_PORTAL_SPEC.md §4.5',
     summary: 'Tells the other endpoint vendors that a vendor now owns an integration.',
+    note: 'Not pausable: a portal row, not email.',
   },
   'portal-integration-retire': {
     channel: 'portal',
@@ -641,8 +707,10 @@ export const NOTIFICATIONS = {
     dedupe: 'One row per recipient, in the write batch.',
     ledger: ['audit_log'],
     optOut: 'none',
+    pausable: false,
     doc: 'docs/STAGE_2_VENDOR_PORTAL_SPEC.md §4.6',
     summary: 'Tells the endpoint vendors an integration was retired or restored.',
+    note: 'Not pausable: a portal row, not email.',
   },
   'portal-integration-update': {
     channel: 'portal',
@@ -655,8 +723,10 @@ export const NOTIFICATIONS = {
     dedupe: 'One row per recipient, in the edit batch.',
     ledger: ['audit_log'],
     optOut: 'none',
+    pausable: false,
     doc: 'docs/STAGE_2_VENDOR_PORTAL_SPEC.md §4.5.6',
     summary: 'Tells the other endpoint vendors the owner edited an integration.',
+    note: 'Not pausable: a portal row, not email.',
   },
   'portal-integration-create': {
     channel: 'portal',
@@ -669,8 +739,10 @@ export const NOTIFICATIONS = {
     dedupe: 'One row per recipient, in the create batch.',
     ledger: ['audit_log'],
     optOut: 'none',
+    pausable: false,
     doc: 'docs/STAGE_2_VENDOR_PORTAL_SPEC.md §4.7',
     summary: 'Tells the other endpoint vendors a vendor created an integration on their product.',
+    note: 'Not pausable: a portal row, not email.',
   },
   'portal-claim-added': {
     channel: 'portal',
@@ -683,8 +755,10 @@ export const NOTIFICATIONS = {
     dedupe: 'One row per recipient, in the attestation batch.',
     ledger: ['audit_log'],
     optOut: 'none',
+    pausable: false,
     doc: 'docs/STAGE_2_ATTESTATIONS_SPEC.md §7.6',
     summary: 'Tells a vendor another vendor added a data row to an integration on its product.',
+    note: 'Not pausable: a portal row, not email.',
   },
   'portal-review': {
     channel: 'portal',
@@ -694,9 +768,10 @@ export const NOTIFICATIONS = {
     dedupe: 'One row per owning vendor, in the approve batch.',
     ledger: ['audit_log'],
     optOut: 'none',
+    pausable: false,
     doc: 'docs/STAGE_2_VENDOR_PORTAL_SPEC.md §11c.12',
     summary: 'Tells each owning vendor that a review of its product was approved.',
-    note: 'Written for a vendor with no seat too, so the feed is complete once it is seated. A reject writes none.',
+    note: 'Written for a vendor with no seat too, so the feed is complete once it is seated. A reject writes none. Not pausable: a portal row, not email.',
   },
   'portal-review-response': {
     channel: 'portal',
@@ -709,9 +784,10 @@ export const NOTIFICATIONS = {
     dedupe: 'One row per decision, in the decision batch.',
     ledger: ['audit_log'],
     optOut: 'none',
+    pausable: false,
     doc: 'docs/STAGE_2_VENDOR_PORTAL_SPEC.md §11c.12',
     summary: 'Tells a vendor that AECi approved, rejected or removed its reply to a review.',
-    note: 'metadata.event names the decision. Reject and remove carry the reason. No email, as for contests.',
+    note: 'metadata.event names the decision. Reject and remove carry the reason. No email, as for contests. Not pausable: a portal row, not email.',
   },
 
   // ─── Linear (Linear then notifies its own subscribers) ────────────────────
@@ -726,9 +802,10 @@ export const NOTIFICATIONS = {
     dedupe: 'Read-guard on the linked issue id, then a compare-and-set persist.',
     ledger: ['linear-issue-id'],
     optOut: 'none',
+    pausable: false,
     doc: 'docs/STAGE_1_PHASE_6_SPEC.md §6.1',
     summary: 'Files a Linear issue for a vendor claim or correction.',
-    note: 'LINEAR_API_KEY is set on production only, so staging and demo file no issues.',
+    note: 'LINEAR_API_KEY is set on production only, so staging and demo file no issues. Not pausable: a Linear write, not email.',
   },
   'linear-request-duplicate-comment': {
     channel: 'linear',
@@ -738,9 +815,10 @@ export const NOTIFICATIONS = {
     dedupe: 'Once per issue create.',
     ledger: ['none'],
     optOut: 'none',
+    pausable: false,
     doc: 'docs/STAGE_1_PHASE_6_SPEC.md §7.2',
     summary: 'Comments on a new request issue that it may duplicate an open request.',
-    note: 'Production only: it needs the issue that linear-request-issue creates.',
+    note: 'Production only: it needs the issue that linear-request-issue creates. Not pausable: a Linear write, not email.',
   },
   'linear-contest-issue': {
     channel: 'linear',
@@ -753,9 +831,10 @@ export const NOTIFICATIONS = {
     dedupe: 'Read-guard on the linked issue id, then a compare-and-set persist.',
     ledger: ['linear-issue-id'],
     optOut: 'none',
+    pausable: false,
     doc: 'docs/STAGE_2_VENDOR_PORTAL_SPEC.md §11b.6',
     summary: 'Files the REVIEW - issue that carries an accepted contest to the review lane.',
-    note: 'LINEAR_API_KEY is set on production only, so staging and demo file no issues.',
+    note: 'LINEAR_API_KEY is set on production only, so staging and demo file no issues. Not pausable: a Linear write, not email.',
   },
   'linear-request-resolution': {
     channel: 'linear',
@@ -765,9 +844,10 @@ export const NOTIFICATIONS = {
     dedupe: 'None. Each resolve or reject pushes once.',
     ledger: ['none'],
     optOut: 'none',
+    pausable: false,
     doc: 'docs/STAGE_1_PHASE_6_SPEC.md §6.5',
     summary: "Moves a request's Linear issue to Done or Canceled and comments the reason.",
-    note: 'The site-linear-sync workflow_transitions row records the sync, not a send. Production only: other tiers have no linked issue to move.',
+    note: 'The site-linear-sync workflow_transitions row records the sync, not a send. Production only: other tiers have no linked issue to move. Not pausable: a Linear write, not email.',
   },
 } as const satisfies Record<string, NotificationEntry>;
 
@@ -798,6 +878,11 @@ export type PortalNotificationId = NotificationIdFor<'portal'>;
 
 /** The contest and protest events of the portal feed. */
 export type ContestPortalNotificationId = Extract<PortalNotificationId, `portal-contest-${string}`>;
+
+/** The ids an operator may pause (AECI-1224). */
+export type PausableNotificationId = {
+  [K in NotificationId]: NotificationRegistry[K]['pausable'] extends true ? K : never;
+}[NotificationId];
 
 /** Linear writes that notify the AECi team. */
 export type LinearNotificationId = NotificationIdFor<'linear'>;

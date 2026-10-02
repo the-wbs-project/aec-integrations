@@ -8,6 +8,9 @@
  * **The address search is a POST body, on purpose.** Both Workers log request URLs, so an
  * address must never be put in a query string. `listSends` takes no address at all, and the
  * API refuses one if it arrives there (`ADDRESS_NOT_ALLOWED_IN_URL`).
+ *
+ * **The sending switches (AECI-1224)** are one read and one write. The write is only ever
+ * called from the confirmation dialog's submit handler.
  */
 import { HttpClient, HttpParams } from '@angular/common/http';
 import { Injectable, inject } from '@angular/core';
@@ -17,6 +20,9 @@ import type {
   AdminEmailSearchResponse,
   AdminEmailSendsResponse,
   AdminEmailSummaryResponse,
+  AdminEmailSwitchesResponse,
+  SetAdminEmailSwitchBody,
+  SetAdminEmailSwitchResponse,
 } from '@aeci/shared';
 
 /** The list filters, as the screen holds them. Absent means "any". */
@@ -58,6 +64,21 @@ export class AdminEmailApi {
     }
     return firstValueFrom(
       this.http.post<AdminEmailSearchResponse>('/api/admin/email/sends/search', body),
+    );
+  }
+
+  /** `GET /api/admin/email/switches`. */
+  switches(): Promise<AdminEmailSwitchesResponse> {
+    return firstValueFrom(this.http.get<AdminEmailSwitchesResponse>('/api/admin/email/switches'));
+  }
+
+  /** `PUT /api/admin/email/switches/:key`. Pause (`enabled: false`) or resume one. */
+  setSwitch(key: string, body: SetAdminEmailSwitchBody): Promise<SetAdminEmailSwitchResponse> {
+    return firstValueFrom(
+      this.http.put<SetAdminEmailSwitchResponse>(
+        `/api/admin/email/switches/${encodeURIComponent(key)}`,
+        body,
+      ),
     );
   }
 }

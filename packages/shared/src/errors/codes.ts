@@ -115,6 +115,11 @@ export const ApiErrorCode = {
   // AECI-1223: `GET /api/admin/email/sends` was given an `address`. An address must never
   // reach a request URL, which both Workers log; the search is a POST body (400).
   ADDRESS_NOT_ALLOWED_IN_URL: 'ADDRESS_NOT_ALLOWED_IN_URL',
+  // AECI-1224: `PUT /api/admin/email/switches/:key` tried to pause an entry the registry
+  // marks always-on (400). Resuming one is allowed.
+  NOTIFICATION_NOT_PAUSABLE: 'NOTIFICATION_NOT_PAUSABLE',
+  // AECI-1224: the switch moved between the read and the write, from another tab (409).
+  NOTIFICATION_SWITCH_CHANGED: 'NOTIFICATION_SWITCH_CHANGED',
   RATE_LIMITED: 'RATE_LIMITED',
   // AECI-770: a verified session has no `profiles` row and the self-heal could not
   // create one (503). Retryable. Distinct from UNAUTHENTICATED, which says "sign in

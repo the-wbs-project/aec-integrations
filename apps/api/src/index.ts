@@ -74,6 +74,10 @@ import {
   createAdminEmailSummaryHandler,
 } from './routes/admin-email';
 import {
+  createAdminEmailSwitchesHandler,
+  createSetAdminEmailSwitchHandler,
+} from './routes/admin-email-switches';
+import {
   createAdminReindexListHandler,
   createClearReindexRowHandler,
 } from './routes/admin-reindex';
@@ -916,6 +920,17 @@ authAdmin.delete('/api/admin/reindex/:id', requireAdmin(), createClearReindexRow
 authAdmin.get('/api/admin/email/summary', requireAdmin(), createAdminEmailSummaryHandler());
 authAdmin.get('/api/admin/email/sends', requireAdmin(), createAdminEmailSendsHandler());
 authAdmin.post('/api/admin/email/sends/search', requireAdmin(), createAdminEmailSearchHandler());
+// §5.14 / AECI-1224 — the sending switches. The GET is a read (no audit, no limiter). The
+// PUT pauses or resumes one template or the support copy on THIS tier: a write that audits
+// in its own batch and carries `rateLimit('write')` after the guard (`waf-rate-limits.md`
+// §6.2). It refuses to pause a non-pausable entry (`NOTIFICATION_NOT_PAUSABLE`).
+authAdmin.get('/api/admin/email/switches', requireAdmin(), createAdminEmailSwitchesHandler());
+authAdmin.put(
+  '/api/admin/email/switches/:key',
+  requireAdmin(),
+  rateLimit('write'),
+  createSetAdminEmailSwitchHandler(),
+);
 app.route('/', authAdmin);
 
 // Stage 2 vendor-portal sub-router (AECI-520, `STAGE_2_VENDOR_PORTAL_SPEC.md` §4).

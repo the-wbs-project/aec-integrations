@@ -1,0 +1,341 @@
+<!--
+  Sending switches, spec section 5.14. AECI-1224.
+
+  Same table recipe and button styles as the rest of the email page. Only pausable
+  templates get a control. Pause and Resume both confirm in a dialog, opened from the
+  click handler. Every value below is rendered as text.
+-->
+<section aria-labelledby="admin-email-switches-heading" class="space-y-4">
+  <div class="space-y-1">
+    <h3
+      id="admin-email-switches-heading"
+      class="text-base font-bold text-(--text-primary)"
+      i18n="@@admin.email.switches.heading"
+    >
+      Sending switches
+    </h3>
+    @if (data()) {
+    <p class="max-w-[64ch] text-sm text-(--text-secondary)" i18n="@@admin.email.switches.intro">
+      Pause one template, or the support copy, on {{ environment() }} only. A paused send is
+      recorded with the outcome Paused. Resend's own settings stay in the Resend dashboard.
+    </p>
+    }
+  </div>
+
+  @if (loading() && !data()) {
+  <p class="text-sm text-(--text-secondary)" i18n="@@admin.email.switches.loading">
+    Loading switches…
+  </p>
+  } @else if (loadFailed() && !data()) {
+  <div class="space-y-3" role="alert">
+    <p class="text-sm font-medium text-(--text-primary)" i18n="@@admin.email.switches.loadError">
+      We couldn't load the sending switches.
+    </p>
+    <button
+      type="button"
+      (click)="retry()"
+      class="inline-flex items-center rounded-(--radius-md) border border-(--border-strong) bg-(--surface-raised) px-4 py-2 text-sm font-bold text-(--text-primary) transition-colors hover:bg-(--surface-sunken) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+      i18n="@@admin.email.retry"
+    >
+      Try again
+    </button>
+  </div>
+  } @else if (data()) {
+  <!-- The support copy -->
+  <div
+    class="flex flex-wrap items-center justify-between gap-4 rounded-(--radius-md) border border-(--border-default) bg-(--surface-base) p-4"
+  >
+    <div class="space-y-1">
+      <p class="text-sm font-bold text-(--text-primary)" i18n="@@admin.email.switches.copy.title">
+        Support copy
+      </p>
+      @if (supportCopyConfigured()) {
+      <p class="max-w-[60ch] text-sm text-(--text-secondary)" i18n="@@admin.email.switches.copy.on">
+        Support gets a blind copy of each email, and a separate copy of each welcome email.
+      </p>
+      } @else {
+      <p
+        class="max-w-[60ch] text-sm text-(--text-secondary)"
+        i18n="@@admin.email.switches.copy.unset"
+      >
+        No support copy is set up on this tier, so there is nothing to pause.
+      </p>
+      }
+    </div>
+    @if (supportCopyConfigured() && supportCopy(); as copy) {
+    <div class="flex items-center gap-4">
+      @if (copy.enabled) {
+      <span class="text-sm text-(--text-primary)" i18n="@@admin.email.switches.status.copying"
+        >Copying</span
+      >
+      } @else {
+      <span
+        class="text-sm font-bold text-(--accent-secondary-deep)"
+        i18n="@@admin.email.switches.status.paused"
+        >Paused</span
+      >
+      }
+      <button
+        type="button"
+        (click)="openChange(copy)"
+        class="inline-flex items-center rounded-(--radius-md) border border-(--border-strong) bg-(--surface-raised) px-4 py-2 text-sm font-bold text-(--text-primary) transition-colors hover:bg-(--surface-sunken) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+      >
+        @if (copy.enabled) {
+        <span i18n="@@admin.email.switches.copy.pause">Pause the copy</span>
+        } @else {
+        <span i18n="@@admin.email.switches.copy.resume">Resume the copy</span>
+        }
+      </button>
+    </div>
+    }
+  </div>
+
+  <!-- The pausable templates -->
+  <div
+    class="overflow-x-auto focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+    tabindex="0"
+    role="region"
+    aria-labelledby="admin-email-switches-heading"
+  >
+    <table class="w-full min-w-[48rem] border-collapse text-sm">
+      <caption class="sr-only" i18n="@@admin.email.switches.caption">
+        Templates that can be paused on this tier, with whether each is sending
+      </caption>
+      <thead>
+        <tr class="border-b border-(--border-strong)">
+          <th
+            scope="col"
+            class="py-2 pe-4 text-start font-bold text-(--text-secondary)"
+            i18n="@@admin.email.col.template"
+          >
+            Template
+          </th>
+          <th
+            scope="col"
+            class="py-2 pe-4 text-start font-bold text-(--text-secondary)"
+            i18n="@@admin.email.switches.col.audience"
+          >
+            Goes to
+          </th>
+          <th
+            scope="col"
+            class="py-2 pe-4 text-start font-bold text-(--text-secondary)"
+            i18n="@@admin.email.switches.col.status"
+          >
+            Status
+          </th>
+          <th scope="col" class="py-2 text-end font-bold text-(--text-secondary)">
+            <span class="sr-only" i18n="@@admin.email.switches.col.action">Action</span>
+          </th>
+        </tr>
+      </thead>
+      <tbody>
+        @for (s of pausable(); track s.key) {
+        <tr class="border-b border-(--border-default) align-top">
+          <th scope="row" class="py-2.5 pe-4 text-start font-normal">
+            <span class="block font-mono text-xs font-bold text-(--text-primary)">{{ s.key }}</span>
+            @if (s.summary) {
+            <span class="mt-0.5 block max-w-[48ch] text-xs text-(--text-secondary)"
+              >{{ s.summary }}</span
+            >
+            }
+          </th>
+          <td class="py-2.5 pe-4 text-(--text-secondary)">{{ audienceLabel(s.audience) }}</td>
+          <td class="py-2.5 pe-4">
+            @if (s.enabled) {
+            <span class="text-(--text-primary)" i18n="@@admin.email.switches.status.sending"
+              >Sending</span
+            >
+            } @else {
+            <span
+              class="font-bold text-(--accent-secondary-deep)"
+              i18n="@@admin.email.switches.status.paused"
+              >Paused</span
+            >
+            } @if (s.updated_at) {
+            <span class="block text-xs text-(--text-secondary)"
+              ><span i18n="@@admin.email.switches.changedAt">Changed</span> {{ s.updated_at | date:
+              'medium' : 'UTC' }}</span
+            >
+            } @if (s.updated_by) {
+            <a
+              [routerLink]="['/admin/users', s.updated_by]"
+              class="block text-xs text-(--text-secondary) underline decoration-(--border-strong) underline-offset-4 transition-colors hover:text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+              ><span i18n="@@admin.email.switches.changedBy">by admin</span>
+              <span class="font-mono"> {{ shortId(s.updated_by) }}</span></a
+            >
+            }
+          </td>
+          <td class="py-2.5 text-end">
+            <button
+              type="button"
+              (click)="openChange(s)"
+              class="inline-flex items-center rounded-(--radius-md) border border-(--border-strong) bg-(--surface-raised) px-3 py-1.5 text-sm font-bold text-(--text-primary) transition-colors hover:bg-(--surface-sunken) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+            >
+              @if (s.enabled) {
+              <span i18n="@@admin.email.switches.pause">Pause</span>
+              } @else {
+              <span i18n="@@admin.email.switches.resume">Resume</span>
+              }
+              <span class="sr-only"> {{ s.key }}</span>
+            </button>
+          </td>
+        </tr>
+        }
+      </tbody>
+    </table>
+  </div>
+
+  <!-- Always on: no control, by design -->
+  <details class="group rounded-(--radius-md) border border-(--border-default) bg-(--surface-base)">
+    <summary
+      class="cursor-pointer px-4 py-3 text-sm font-bold text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+    >
+      <span i18n="@@admin.email.switches.alwaysOn.summary">Always on</span>
+      <span class="font-normal text-(--text-secondary)"> ({{ alwaysOn().length }})</span>
+    </summary>
+    <div class="space-y-3 border-t border-(--border-default) px-4 py-3">
+      <p
+        class="max-w-[64ch] text-sm text-(--text-secondary)"
+        i18n="@@admin.email.switches.alwaysOn.why"
+      >
+        These carry a decision, a security step or a deadline, so they cannot be paused here. The
+        sign-in email is sent by Supabase, so no switch here can stop it either.
+      </p>
+      <ul class="space-y-2">
+        @for (s of alwaysOn(); track s.key) {
+        <li>
+          <span class="block font-mono text-xs font-bold text-(--text-primary)">{{ s.key }}</span>
+          @if (s.summary) {
+          <span class="block max-w-[64ch] text-xs text-(--text-secondary)">{{ s.summary }}</span>
+          }
+        </li>
+        }
+      </ul>
+    </div>
+  </details>
+  }
+
+  <brn-dialog (closed)="closeChange()">
+    <ng-template brnDialogContent>
+      @if (pending(); as p) {
+      <div
+        class="fixed top-1/2 left-1/2 z-50 w-[min(92vw,30rem)] -translate-x-1/2 -translate-y-1/2 rounded-(--radius-lg) border border-(--border-default) bg-(--surface-raised) p-6 text-(--text-primary) shadow-[0_16px_48px_-8px_rgb(0_0_0/0.18),0_4px_16px_-2px_rgb(0_0_0/0.10)]"
+      >
+        @if (p.target.kind === 'support_copy') { @if (!p.enabled) {
+        <h2
+          brnDialogTitle
+          class="text-lg font-bold text-(--text-primary)"
+          i18n="@@admin.email.switches.dialog.copyPauseTitle"
+        >
+          Pause the support copy?
+        </h2>
+        <p
+          brnDialogDescription
+          class="mt-1.5 text-sm leading-relaxed text-(--text-secondary)"
+          i18n="@@admin.email.switches.dialog.copyPauseBody"
+        >
+          Support stops getting a copy of each email on {{ environment() }}. Recipients still get
+          theirs. Other tiers are not affected.
+        </p>
+        } @else {
+        <h2
+          brnDialogTitle
+          class="text-lg font-bold text-(--text-primary)"
+          i18n="@@admin.email.switches.dialog.copyResumeTitle"
+        >
+          Resume the support copy?
+        </h2>
+        <p
+          brnDialogDescription
+          class="mt-1.5 text-sm leading-relaxed text-(--text-secondary)"
+          i18n="@@admin.email.switches.dialog.copyResumeBody"
+        >
+          Support gets a copy of each email on {{ environment() }} again, starting with the next
+          send. Copies skipped while paused are not sent.
+        </p>
+        } } @else { @if (!p.enabled) {
+        <h2
+          brnDialogTitle
+          class="text-lg font-bold text-(--text-primary)"
+          i18n="@@admin.email.switches.dialog.pauseTitle"
+        >
+          Pause {{ p.target.key }}?
+        </h2>
+        <p
+          brnDialogDescription
+          class="mt-1.5 text-sm leading-relaxed text-(--text-secondary)"
+          i18n="@@admin.email.switches.dialog.pauseBody"
+        >
+          Nothing from this template is sent on {{ environment() }} until you resume it. Each
+          skipped send is recorded as Paused. Other tiers are not affected.
+        </p>
+        } @else {
+        <h2
+          brnDialogTitle
+          class="text-lg font-bold text-(--text-primary)"
+          i18n="@@admin.email.switches.dialog.resumeTitle"
+        >
+          Resume {{ p.target.key }}?
+        </h2>
+        <p
+          brnDialogDescription
+          class="mt-1.5 text-sm leading-relaxed text-(--text-secondary)"
+          i18n="@@admin.email.switches.dialog.resumeBody"
+        >
+          This template sends again on {{ environment() }}, starting with the next send. Resuming
+          does not send what was skipped.
+        </p>
+        } }
+
+        <form novalidate (submit)="$event.preventDefault(); confirmChange()" class="mt-5 space-y-2">
+          <label
+            for="admin-email-switch-reason"
+            class="block text-xs font-bold tracking-[0.08em] text-(--text-secondary) uppercase"
+            i18n="@@admin.email.switches.dialog.reasonLabel"
+          >
+            Reason (optional, kept in the audit trail)
+          </label>
+          <textarea
+            id="admin-email-switch-reason"
+            rows="2"
+            maxlength="500"
+            [value]="reason()"
+            (input)="onReasonInput($event)"
+            class="w-full rounded-(--radius-md) border border-(--border-default) bg-(--surface-base) px-3 py-2 text-sm text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+          ></textarea>
+          @if (failedMessage()) {
+          <p class="text-sm font-medium text-(--text-primary)" role="alert">
+            {{ failedMessage() }}
+          </p>
+          }
+          <div class="flex flex-wrap gap-3 pt-2">
+            <button
+              type="submit"
+              [disabled]="submitting()"
+              class="inline-flex items-center justify-center rounded-(--radius-md) border border-(--text-primary) bg-(--text-primary) px-5 py-2 text-sm font-bold text-(--surface-base) transition-opacity hover:opacity-90 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              @if (submitting()) {
+              <span i18n="@@admin.email.switches.dialog.working">Saving…</span>
+              } @else if (p.enabled) {
+              <span i18n="@@admin.email.switches.dialog.confirmResume">Resume sending</span>
+              } @else {
+              <span i18n="@@admin.email.switches.dialog.confirmPause">Pause sending</span>
+              }
+            </button>
+            <button
+              type="button"
+              (click)="closeChange()"
+              [disabled]="submitting()"
+              class="inline-flex items-center justify-center rounded-(--radius-md) border border-(--border-strong) bg-(--surface-base) px-5 py-2 text-sm font-medium text-(--text-primary) transition-colors hover:bg-(--surface-sunken) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) disabled:cursor-not-allowed disabled:opacity-50"
+              i18n="@@admin.email.switches.dialog.cancel"
+            >
+              Cancel
+            </button>
+          </div>
+        </form>
+      </div>
+      }
+    </ng-template>
+  </brn-dialog>
+</section>

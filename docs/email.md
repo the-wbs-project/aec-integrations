@@ -24,10 +24,11 @@ decision record; no separate ADR.
 - **Transport:** `apps/api/src/lib/email.ts` — a single Resend client in the API
   Worker. Modeled on `lib/toxicity.ts` (the canonical third-party-client posture):
   - **Never throws.** Every failure mode resolves to an `EmailOutcome`
-    (`'sent' | 'failed' | 'unknown' | 'skipped' | 'suppressed' | 'duplicate'`).
+    (`'sent' | 'failed' | 'unknown' | 'skipped' | 'suppressed' | 'duplicate' | 'paused'`).
     `failed` is a non-2xx from Resend, so the mail did not go. `unknown` is a timeout or a
     thrown call, so the mail may or may not have gone (AECI-1197 review). `suppressed` is
     the tier delivery policy below. `duplicate` is the send ledger's dedupe refusal, below.
+    `paused` is an operator's sending switch (AECI-1224, §Sending switches below).
   - **Fire-and-forget.** Every call site dispatches via `ctx.waitUntil` so a send
     never blocks (or fails) the action that triggered it (§11.1).
   - **Fail-open / absent-key → `'skipped'`.** No `RESEND_API_KEY` (or no
@@ -39,7 +40,8 @@ decision record; no separate ADR.
   - **Operator blind copy.** Both transports (`sendTransactionalEmail` and the cron
     `sendEmail`) add a Resend `bcc` from the `EMAIL_BCC` var, so every email the API
     Worker sends also reaches `support@aecintegrations.com`. The point is to see exactly
-    what users receive. The exception is `attestation-digest`, below. An address already in `to` is not copied again. The magic-link
+    what users receive. The exception is `attestation-digest`, below. A paused support-copy
+    switch drops the `bcc` from every send (AECI-1224, §Sending switches). An address already in `to` is not copied again. The magic-link
     email is not covered: Supabase sends it over SMTP, outside this code (see
     §Magic-link sender below).
   - **Separate copy for unsubscribable sends.** A send with a `List-Unsubscribe`
@@ -53,7 +55,8 @@ decision record; no separate ADR.
     has no unsubscribe headers. Its body is the same template rendered with the dud
     token `operator-copy`, which matches no subscriber, so the link is inert. The copy
     is not counted in `aeci.email.send`, and a failed copy only warns. No copy goes
-    out when the subscriber's send fails.
+    out when the subscriber's send fails. A paused support-copy switch skips it too, and
+    writes a `paused` ledger row per copy address instead (AECI-1224).
   - **Resend tags (AECI-1222).** Every Resend call carries `tags`: `tier` (`tierLabel(env)`)
     and `notification_id` (the registry id). That covers the transactional send, the operator
     `COPY:` (under its own `-operator-copy` id) and the digest `sendEmail`. A BCC copy rides
@@ -674,6 +677,51 @@ only for what our tables do not hold: the rendered message and Resend's own supp
 4. Send a test event from the Resend dashboard and look for `outcome:recorded` or
    `outcome:other_tier` on `aeci.email.delivery`.
 
+## Sending switches (AECI-1224)
+
+Before AECI-1224, stopping a misbehaving email or the support copy took a `wrangler.jsonc`
+change and a deploy. Now an operator pauses it on `/admin/email` (`ADMIN_PANEL_SPEC.md`
+§5.14 "Sending switches", §13 D24). Switches cover our own sending only. Resend account
+settings, such as tracking and domains, stay in the Resend dashboard, and the Worker never
+holds a full-access Resend key (ruling 2026-10-02).
+
+**What can be paused.** `pausable` on each registry entry decides
+(`apps/api/src/lib/notifications/registry.ts`, the Pausable column of `NOTIFICATIONS.md`).
+Only `email` and `email+portal` entries may be pausable. Anything security- or
+obligation-bearing stays on: seat invites, claim and review decisions, the account-deleted
+confirmation, and every vendor email that carries a deadline. Operator alerts, the two cron
+digests, receipts and the attestation nudge digest are pausable. The Supabase sign-in email
+is sent by Supabase, so no switch here can stop it. The support copy has its own switch,
+the reserved key `support-copy`.
+
+**Where it is stored.** `notification_settings` (`DATABASE_SCHEMA.md` §9.13), one row per
+switch an operator has touched, in each tier's own D1. A missing row means enabled. A
+switch on staging pauses staging only.
+
+**What the transport does.** Both layers in `lib/email.ts` read the switches once per send
+call: one D1 query on the primary, for the template and `support-copy`, after the `skipped`
+check. Nothing is cached across calls, so a pause stops the very next send.
+
+| Switch | Effect on a send |
+|---|---|
+| Template paused | No Resend call. One `paused` ledger row per recipient, `aeci.email.send{outcome:paused}` (the digests count it through `recordEmailSend`), and a log line with the template, the tier and a recipient hash, never the address. Returns `'paused'` |
+| Support copy paused | The `bcc` field is dropped. The separate `COPY:` of an unsubscribable send is not sent, and each copy address gets a `paused` ledger row under the `-operator-copy` id. The recipient's own email is unchanged |
+| Row for a non-pausable entry | Ignored. A row left from before an entry became always-on cannot stop it |
+| Read fails | **Fail open.** The send goes ahead as if every switch were on. It warns (`source: 'email'`) and counts `aeci.email.switches.unavailable{layer}`. A D1 hiccup must not drop a seat invite |
+
+**What a pause means to each caller.** A paused send holds no dedupe key, so a later run can
+send it after a resume. Resuming does not replay what was skipped. The attestation sweep
+treats a paused digest like a mute: the finding still gets its portal row and its 30-day
+dedupe. The entitlement-expiry sweep never stamps its fence on `paused`. The data-quality
+and analytics digest jobs record a paused send as a `skipped` `job_runs` row, so liveness
+still shows in `/admin/system`.
+
+**Who can change it.** An admin, through `PUT /api/admin/email/switches/:key`
+(`API_CONTRACTS.md` §6.10, "Sending switches"). Pausing a non-pausable entry is a `400
+NOTIFICATION_NOT_PAUSABLE`. Every change writes a `notification_settings.updated` audit row
+in the same batch. It is not the per-seat nudge mute in `notification_preferences`, which is
+a seat's own choice about the attestation digest.
+
 ## Secrets & vars
 
 | Name | Kind | Where | Notes |
@@ -681,7 +729,7 @@ only for what our tables do not hold: the rendered message and Resend's own supp
 | `RESEND_API_KEY` | Wrangler **secret** | API Worker, staging + production | CI pushes it from a **single shared, un-suffixed** `RESEND_API_KEY` GH secret — one Resend account/key spans every env (like `SUPABASE_ANON_KEY`); `deploy.yml`, `promote-to-demo.yml`, and `promote-to-prod.yml` all push the same secret. Graceful warn-and-skip; absent → sends `'skipped'`. |
 | `RESEND_WEBHOOK_SECRET` | Wrangler **secret** | API Worker, staging + demo + production | The Svix signing secret of that tier's Resend webhook endpoint (§Delivery webhooks). **Per tier, not shared**: each endpoint has its own, so CI pushes `RESEND_WEBHOOK_SECRET_STAGING` (`deploy.yml`), `_DEMO` (`promote-to-demo.yml`) and `_PRODUCTION` (`promote-to-prod.yml`) under this one name. Warn-and-skip. Absent → every event 401s. Never on previews or the web Worker. |
 | `EMAIL_FROM` | plain `var` | API Worker, per env (`wrangler.jsonc`) | Resend `from`; `Name <addr>` on the verified sending domain. **One value on every tier: `AEC Integrations <notifications@aecintegrations.com>`.** |
-| `EMAIL_BCC` | plain `var` | API Worker, staging + demo + production (`wrangler.jsonc`) | Resend `bcc` on every send from both transports, except a send with a `List-Unsubscribe` header, which gets a separate `COPY:` message instead (see the transport notes above). **`support@aecintegrations.com` on all three tiers.** Comma/whitespace-separated list (`parseRecipients`). An address already in `to` is dropped. Absent → no `bcc` field. Remove the var to stop the copies. |
+| `EMAIL_BCC` | plain `var` | API Worker, staging + demo + production (`wrangler.jsonc`) | Resend `bcc` on every send from both transports, except a send with a `List-Unsubscribe` header, which gets a separate `COPY:` message instead (see the transport notes above). **`support@aecintegrations.com` on all three tiers.** Comma/whitespace-separated list (`parseRecipients`). An address already in `to` is dropped. Absent → no `bcc` field. **To stop the copies without a deploy, pause the support-copy switch on `/admin/email`** (AECI-1224, §Sending switches). It covers both the `bcc` and the `COPY:`. If AECI-1220 drops this var, the switch goes with it. |
 | `CLAIM_ALERT_EMAIL` | plain `var` | API Worker, per env (`wrangler.jsonc`) | `To:` for `claim-submitted-alert`, since AECI-1132 `contest-submitted-alert`, and since AECI-1205 `protest-submitted-alert`. **`support@aecintegrations.com` on every tier.** A single address (not a parsed list). Kept a separate var from `ADMIN_ALERT_EMAIL` so claim intake can be routed apart from sweep alerts and lead capture. Both point at the support inbox since 2026-09-28. Absent → the alert is a `skipped` no-op. The durable record is the Linear issue for a claim and the `integration_field_challenges` row for a contest, which `/admin/contests` lists either way. |
 | `FOUNDER_ALERT_EMAIL` | plain `var` | API Worker, per env (`wrangler.jsonc`) | `To:` for `stale-claim-ticket-alert`. **`founders@thewbsproject.com` on staging and production; deliberately UNSET on demo** (demo claims are rehearsal rows, so the digest fail-open skips there — the cron still runs and still emits its metrics). A single address, not a parsed list. The third alert recipient, and separate on purpose: `ADMIN_ALERT_EMAIL` means the pipeline broke, `CLAIM_ALERT_EMAIL` means a claim or an AECi-routed contest arrived, this means a vendor has been waiting a day for a human reply. Absent → the digest is a `skipped` no-op and the job still emits its metric and log, so the signal survives an unset var. |
 | `DATA_QUALITY_EMAIL_FROM` | plain `var` | API Worker, staging / demo / production | `from` for the daily data-quality digest (AECI-241). **Same address as `EMAIL_FROM`** — see the note below. |

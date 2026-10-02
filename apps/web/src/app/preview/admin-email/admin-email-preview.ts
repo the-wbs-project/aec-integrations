@@ -5,7 +5,11 @@ import type {
   AdminEmailSendRow,
   AdminEmailSendsResponse,
   AdminEmailSummaryResponse,
+  AdminEmailSwitch,
+  AdminEmailSwitchesResponse,
   AdminEmailWindowCounts,
+  SetAdminEmailSwitchBody,
+  SetAdminEmailSwitchResponse,
 } from '@aeci/shared';
 
 import { AdminEmailApi, type AdminEmailFilters } from '../../admin/email/admin-email-api';
@@ -22,6 +26,9 @@ import { EmailActivity } from '../../admin/email/email-activity';
  * (`isPreviewPath`). The fixture is the production shape (the sign-in panel shows). It
  * applies the outcome, delivery and template filters in memory so the no-match state is
  * reachable. No address is stored: a search returns the rows of one synthetic recipient.
+ *
+ * AECI-1224 adds the sending switches: an in-memory set, one template already paused, so
+ * the paused status, the summary's Paused column and both dialogs are all reachable.
  */
 const HOUR = 3_600_000;
 const ago = (hours: number): string => new Date(Date.now() - hours * HOUR).toISOString();
@@ -31,7 +38,16 @@ const counts = (
   over: Partial<AdminEmailWindowCounts['outcomes']> = {},
   delivery: Partial<AdminEmailWindowCounts['delivery']> = {},
 ): AdminEmailWindowCounts => ({
-  outcomes: { sent, failed: 0, unknown: 0, skipped: 0, suppressed: 0, duplicate: 0, ...over },
+  outcomes: {
+    sent,
+    failed: 0,
+    unknown: 0,
+    skipped: 0,
+    suppressed: 0,
+    duplicate: 0,
+    paused: 0,
+    ...over,
+  },
   delivery: { delivered: sent, bounced: 0, complained: 0, delivery_delayed: 0, ...delivery },
 });
 
@@ -106,6 +122,14 @@ const SUMMARY: AdminEmailSummaryResponse = {
       registered: true,
       d7: counts(7),
       d30: counts(30),
+    },
+    {
+      notification_id: 'landing-feedback',
+      summary: 'Tells ADMIN_ALERT_EMAIL someone submitted feedback.',
+      audience: 'operator',
+      registered: true,
+      d7: counts(0, { paused: 6 }, { delivered: 0 }),
+      d30: counts(9, { paused: 6 }, { delivered: 9 }),
     },
   ],
   sign_in: {
@@ -238,11 +262,103 @@ function filtered(f: AdminEmailFilters, rows: AdminEmailSendRow[]): AdminEmailSe
   };
 }
 
+const sw = (
+  key: string,
+  summary: string,
+  audience: 'external' | 'operator',
+  pausable: boolean,
+  enabled = true,
+): AdminEmailSwitch => ({
+  key,
+  kind: 'notification',
+  summary,
+  audience,
+  pausable,
+  enabled,
+  updated_at: enabled ? null : ago(5),
+  updated_by: enabled ? null : '49dd03ee-0000-4000-8000-000000000001',
+});
+
+/** A trimmed copy of the registry's email entries: enough of each kind to review. */
+const SWITCHES: AdminEmailSwitch[] = [
+  {
+    key: 'support-copy',
+    kind: 'support_copy',
+    summary: null,
+    audience: null,
+    pausable: true,
+    enabled: true,
+    updated_at: null,
+    updated_by: null,
+  },
+  sw('account-deleted', 'Confirms to a user that their account was deleted.', 'external', false),
+  sw(
+    'attestation-digest',
+    'Sends each unmuted vendor seat one daily digest of every due attestation finding for its vendor.',
+    'external',
+    true,
+  ),
+  sw('claim-approved', 'Tells a claimant their claim was approved.', 'external', false),
+  sw(
+    'claim-submitted-alert',
+    'Tells CLAIM_ALERT_EMAIL a vendor claimed a listing, after the Linear attempt.',
+    'operator',
+    true,
+  ),
+  sw(
+    'digest-data-quality',
+    'Sends DATA_QUALITY_EMAIL_TO the daily data-quality check results.',
+    'operator',
+    true,
+  ),
+  sw(
+    'landing-feedback',
+    'Tells ADMIN_ALERT_EMAIL someone submitted feedback.',
+    'operator',
+    true,
+    false,
+  ),
+  sw('review-submitted', 'Tells a reviewer their review is in moderation.', 'external', true),
+  sw(
+    'vendor-seat-invite',
+    'Invites a colleague, typed by a vendor owner, to take a seat.',
+    'external',
+    false,
+  ),
+];
+
 // eslint-disable-next-line @angular-eslint/use-injectable-provided-in -- component-provided preview fake
 @Injectable()
 class PreviewAdminEmailApi extends AdminEmailApi {
+  private switchState = SWITCHES.map((s) => ({ ...s }));
+
   override async summary(): Promise<AdminEmailSummaryResponse> {
     return SUMMARY;
+  }
+
+  override async switches(): Promise<AdminEmailSwitchesResponse> {
+    return {
+      generated_at: new Date().toISOString(),
+      environment: 'production',
+      support_copy_configured: true,
+      switches: this.switchState,
+    };
+  }
+
+  override async setSwitch(
+    key: string,
+    body: SetAdminEmailSwitchBody,
+  ): Promise<SetAdminEmailSwitchResponse> {
+    const current = this.switchState.find((s) => s.key === key);
+    if (!current) throw new Error(`unknown switch ${key}`);
+    const next: AdminEmailSwitch = {
+      ...current,
+      enabled: body.enabled,
+      updated_at: new Date().toISOString(),
+      updated_by: '49dd03ee-0000-4000-8000-000000000001',
+    };
+    this.switchState = this.switchState.map((s) => (s.key === key ? next : s));
+    return { switch: next, changed: current.enabled !== body.enabled };
   }
 
   override async listSends(filters: AdminEmailFilters): Promise<AdminEmailSendsResponse> {
