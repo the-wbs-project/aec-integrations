@@ -1047,10 +1047,16 @@ export const JOB_RUNS_RETENTION_DAYS = 90;
  * The rows are small and the volume is tens a day.
  */
 export const NOTIFICATION_SENDS_RETENTION_DAYS = 400;
+/**
+ * The per-user daily activity log (AECI-1208, `user_activity_daily`). 400 to match
+ * `page_views`: about 13 months, which is what the privacy policy promises. Erasure
+ * deletes a user's rows sooner.
+ */
+export const USER_ACTIVITY_RETENTION_DAYS = 400;
 
 /**
  * Floor for the `PAGE_VIEWS_RETENTION_DAYS` / `JOB_RUNS_RETENTION_DAYS` /
- * `NOTIFICATION_SENDS_RETENTION_DAYS` env overrides (`apps/api/src/env.ts`). D1 Time Travel recovers roughly 30 days, so
+ * `NOTIFICATION_SENDS_RETENTION_DAYS` / `USER_ACTIVITY_RETENTION_DAYS` env overrides (`apps/api/src/env.ts`). D1 Time Travel recovers roughly 30 days, so
  * a window shorter than that would delete rows past the point of any recovery
  * the moment it took effect. An override below this floor is ignored, not
  * clamped — a typo'd `4` should fall back to the reviewed default, not quietly

@@ -15,6 +15,7 @@ import {
   products,
   profiles,
   reviews,
+  userActivityDaily,
   vendorEntitlements,
   vendorRequests,
   vendors,
@@ -313,6 +314,32 @@ describe('PATCH /api/account', () => {
 });
 
 describe('DELETE /api/account', () => {
+  it("deletes the user's user_activity_daily rows in the erasure batch (AECI-1208)", async () => {
+    await t.db.insert(profiles).values([{ id: USER }, { id: ADMIN_USER }]);
+    const row = (userId: string, day: string) => ({
+      userId,
+      day,
+      role: 'reviewer',
+      firstSeenAt: `${day}T10:00:00.000Z`,
+      lastSeenAt: `${day}T10:00:00.000Z`,
+    });
+    await t.db
+      .insert(userActivityDaily)
+      .values([row(USER, '2026-10-01'), row(USER, '2026-10-02'), row(ADMIN_USER, '2026-10-02')]);
+
+    const res = await run(
+      createDeleteAccountHandler(
+        t.factory,
+        vi.fn(async () => ({ ok: true })),
+      ),
+      'delete',
+    );
+
+    expect(res.status).toBe(200);
+    const left = await t.db.select().from(userActivityDaily);
+    expect(left.map((r) => r.userId)).toEqual([ADMIN_USER]);
+  });
+
   it('erases the profile, anonymizes refs, audits, and deletes the auth user', async () => {
     await t.db.insert(profiles).values({ id: USER, displayName: 'Ada' });
     await t.db

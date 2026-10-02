@@ -23,6 +23,7 @@ import {
   JOB_RUNS_RETENTION_DAYS,
   NOTIFICATION_SENDS_RETENTION_DAYS,
   PAGE_VIEWS_RETENTION_DAYS,
+  USER_ACTIVITY_RETENTION_DAYS,
 } from '@aeci/shared';
 import { count, eq } from 'drizzle-orm';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -33,6 +34,7 @@ import {
   metricsDaily,
   notificationSends,
   pageViews,
+  userActivityDaily,
   workflowInstances,
   workflowTransitions,
 } from '../db/schema';
@@ -59,6 +61,7 @@ const WINDOWS = {
   page_views: PAGE_VIEWS_RETENTION_DAYS,
   job_runs: JOB_RUNS_RETENTION_DAYS,
   notification_sends: NOTIFICATION_SENDS_RETENTION_DAYS,
+  user_activity_daily: USER_ACTIVITY_RETENTION_DAYS,
 };
 
 /** Last day the `page_views` prune removes, and the first it keeps. */
@@ -66,6 +69,7 @@ const PV_CUTOFF_DAY = shiftDay(TODAY, -PAGE_VIEWS_RETENTION_DAYS); // 2026-06-27
 const PV_LAST_PRUNED_DAY = shiftDay(PV_CUTOFF_DAY, -1); // 2026-06-26
 const JR_CUTOFF_DAY = shiftDay(TODAY, -JOB_RUNS_RETENTION_DAYS); // 2027-05-03
 const NS_CUTOFF_DAY = shiftDay(TODAY, -NOTIFICATION_SENDS_RETENTION_DAYS); // 2026-06-27
+const UA_CUTOFF_DAY = shiftDay(TODAY, -USER_ACTIVITY_RETENTION_DAYS); // 2026-06-27
 
 let t: TestDb;
 beforeEach(async () => {
@@ -98,6 +102,21 @@ async function seedNotificationSends(days: string[]): Promise<void> {
   );
 }
 
+/** One `user_activity_daily` row per entry. Each needs a distinct `(user, day)`,
+ *  so the user id carries the index. */
+async function seedUserActivity(days: string[], offset = 0): Promise<void> {
+  if (days.length === 0) return;
+  await t.db.insert(userActivityDaily).values(
+    days.map((day, i) => ({
+      userId: `u-${offset + i}`,
+      day,
+      role: 'vendor_admin',
+      firstSeenAt: at(day),
+      lastSeenAt: at(day),
+    })),
+  );
+}
+
 /** One `metrics_daily` row per day — the gate only asks that a day was captured
  *  at all, not that all 20 keys landed (stocks are never backfilled). */
 async function seedSnapshots(days: string[]): Promise<void> {
@@ -116,7 +135,7 @@ function daysBetween(from: string, to: string): string[] {
 
 /** `select count(*)` for a table, as a plain number. */
 async function tally(
-  table: typeof pageViews | typeof jobRuns | typeof notificationSends,
+  table: typeof pageViews | typeof jobRuns | typeof notificationSends | typeof userActivityDaily,
 ): Promise<number> {
   const [row] = await t.db.select({ value: count() }).from(table);
   return row?.value ?? 0;
@@ -172,6 +191,19 @@ describe('resolveRetentionDays', () => {
       ...WINDOWS,
       notification_sends: 60,
     });
+  });
+
+  it('keeps user_activity_daily for 400 days, overridable with the same floor', () => {
+    expect(USER_ACTIVITY_RETENTION_DAYS).toBe(400);
+    expect(resolveRetentionWindows({ USER_ACTIVITY_RETENTION_DAYS: '90' })).toEqual({
+      ...WINDOWS,
+      user_activity_daily: 90,
+    });
+    const onInvalid = vi.fn();
+    expect(resolveRetentionWindows({ USER_ACTIVITY_RETENTION_DAYS: '29' }, onInvalid)).toEqual(
+      WINDOWS,
+    );
+    expect(onInvalid).toHaveBeenCalledWith('user_activity_daily', expect.stringContaining('floor'));
   });
 
   it('keeps notification_sends for 400 days, and reports a refused override by table', () => {
@@ -290,6 +322,80 @@ describe('runRetentionPrune', () => {
     expect(result.status).toBe('skipped');
     expect(result.tables.map((x) => x.table)).toEqual([...PRUNABLE]);
     expect(await tally(notificationSends)).toBe(1);
+  });
+
+  // ── user_activity_daily: a day column and a rowid cursor (AECI-1208) ────
+
+  it('prunes user_activity_daily days older than the cutoff and keeps the boundary day', async () => {
+    await seedUserActivity([shiftDay(UA_CUTOFF_DAY, -30), shiftDay(UA_CUTOFF_DAY, -1)]);
+    await seedUserActivity([UA_CUTOFF_DAY, TODAY], 10);
+
+    const result = await runRetentionPrune(t.db, NOW, WINDOWS);
+
+    expect(result).toMatchObject({ status: 'pruned', rowsDeleted: 2 });
+    expect(result.tables.find((x) => x.table === 'user_activity_daily')).toMatchObject({
+      cutoff: `${UA_CUTOFF_DAY}T00:00:00.000Z`,
+      rowsDeleted: 2,
+      truncated: false,
+    });
+    const survivors = await t.db.select({ day: userActivityDaily.day }).from(userActivityDaily);
+    expect(survivors.map((r) => r.day).sort()).toEqual([UA_CUTOFF_DAY, TODAY]);
+    const [audit] = await t.db
+      .select()
+      .from(auditLog)
+      .where(eq(auditLog.action, 'retention.pruned'));
+    expect(audit?.metadata).toEqual({
+      rowsDeleted: 2,
+      tables: [
+        { table: 'user_activity_daily', cutoff: `${UA_CUTOFF_DAY}T00:00:00.000Z`, rowsDeleted: 2 },
+      ],
+    });
+  });
+
+  it('chunks a user_activity_daily prune by rowid, counting exactly', async () => {
+    const day = shiftDay(UA_CUTOFF_DAY, -1);
+    const rows = PRUNE_CHUNK_ROWS + 25;
+    for (let i = 0; i < rows; i += 100) {
+      await seedUserActivity(
+        Array.from({ length: Math.min(100, rows - i) }, () => day),
+        i,
+      );
+    }
+    await seedUserActivity([TODAY], rows);
+
+    const result = await runRetentionPrune(t.db, NOW, WINDOWS);
+
+    expect(result.rowsDeleted).toBe(rows);
+    expect(await tally(userActivityDaily)).toBe(1);
+  });
+
+  it('stops user_activity_daily at the per-table budget and reports truncated', async () => {
+    const day = shiftDay(UA_CUTOFF_DAY, -1);
+    const rows = PRUNE_CHUNK_ROWS * MAX_CHUNKS_PER_TABLE + 1;
+    for (let i = 0; i < rows; i += 500) {
+      await seedUserActivity(
+        Array.from({ length: Math.min(500, rows - i) }, () => day),
+        i,
+      );
+    }
+
+    const first = await runRetentionPrune(t.db, NOW, WINDOWS);
+    expect(first.tables.find((x) => x.table === 'user_activity_daily')).toMatchObject({
+      rowsDeleted: PRUNE_CHUNK_ROWS * MAX_CHUNKS_PER_TABLE,
+      truncated: true,
+    });
+    expect(await tally(userActivityDaily)).toBe(1);
+  });
+
+  it('a snapshot gap stops the user_activity_daily prune too', async () => {
+    await seedPageViews([PV_LAST_PRUNED_DAY]);
+    await seedSnapshots([]);
+    await seedUserActivity([shiftDay(UA_CUTOFF_DAY, -1)]);
+
+    const result = await runRetentionPrune(t.db, NOW, WINDOWS);
+
+    expect(result.status).toBe('skipped');
+    expect(await tally(userActivityDaily)).toBe(1);
   });
 
   // ── §7.4 rule 2: the gate ────────────────────────────────────────────────
@@ -482,6 +588,7 @@ describe('runRetentionPrune', () => {
       page_views: 30,
       job_runs: 30,
       notification_sends: 30,
+      user_activity_daily: 30,
     });
 
     expect(result.rowsDeleted).toBe(1);
