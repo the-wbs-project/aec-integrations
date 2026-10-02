@@ -57,6 +57,12 @@
  * `waitUntil` or a cron, so the ledger writes add no latency to a route response. A
  * ledger DB error warns and the send goes ahead. BCC copies get no row of their own;
  * the separate operator copy does.
+ *
+ * **Link tagging (AECI-1209).** A template hands `sendTransactionalEmail` a `render(link)`
+ * callback, not finished HTML. The send reserves its ledger row, then renders with a
+ * tagger that adds `utm_source=email`, `utm_campaign=<template>` and `n=<row id>` to every
+ * site URL the template passes through `link`. See `lib/notifications/link-tag.ts` and
+ * `docs/email.md` §Link tagging.
  */
 
 import {
@@ -71,7 +77,13 @@ import { logToPosthog, submitCount } from '../posthog';
 import type { Db } from '../db/client';
 import type { Env } from '../env';
 import type { StuckRequestSummary } from './admin-alert';
-import { escapeHtml, renderEmailHtml, renderEmailText, type EmailTableRow } from './email-layout';
+import {
+  escapeHtml,
+  renderEmailHtml,
+  renderEmailText,
+  type EmailLayout,
+  type EmailTableRow,
+} from './email-layout';
 import { recipientHash, sha256Hex } from './hash';
 import {
   isProductionTier,
@@ -86,6 +98,7 @@ import {
   type EmailNotificationId,
   type TransactionalEmailId,
 } from './notifications/registry';
+import { createLinkTagger, type LinkTagger } from './notifications/link-tag';
 import {
   finalizeSend,
   ledgerDb,
@@ -150,13 +163,33 @@ const OPERATOR_COPY_TOKEN = 'operator-copy';
 /** Cap on how long we wait for Resend before giving up (resolves to `'unknown'`). */
 const TIMEOUT_MS = 5000;
 
-interface SendInput {
-  to: string;
-  subject: string;
+/** A rendered email body: the text part and, usually, the HTML part. */
+export interface EmailContent {
   text: string;
   html?: string;
+}
+
+/**
+ * Renders a body with every site link passed through `link` (AECI-1209). Called once
+ * the ledger row is reserved, so `link` can carry that row's id as `n`. Pure: it may
+ * be called more than once for one send.
+ */
+export type RenderEmail = (link: LinkTagger) => EmailContent;
+
+/**
+ * The body of a send: either `render`, which receives the link tagger, or a static
+ * `text`/`html` whose links are never tagged. Every template helper below uses
+ * `render`. The static form is for a body with no site link in it.
+ */
+type SendBody =
+  | { render: RenderEmail; text?: never; html?: never }
+  | { render?: never; text: string; html?: string };
+
+type SendInput = SendBody & {
+  to: string;
+  subject: string;
   template: EmailTemplate;
-  /** Extra MIME headers (e.g. `List-Unsubscribe`) forwarded to Resend verbatim. */
+  /** Extra MIME headers (e.g. `List-Unsubscribe`) forwarded to Resend verbatim. Never tagged. */
   headers?: Record<string, string>;
   /**
    * Body for the separate operator copy of a send that carries `List-Unsubscribe`.
@@ -164,7 +197,7 @@ interface SendInput {
    * Absent on such a send → no operator copy at all. See `sendOperatorCopy`. The copy
    * is its own registry entry, so it names its own id.
    */
-  operatorCopy?: { notification: TransactionalEmailId; text: string; html?: string };
+  operatorCopy?: { notification: TransactionalEmailId } & SendBody;
   /**
    * Idempotency key for the send ledger (AECI-1202), e.g. `{template}:{entity}:{day}`.
    * A second send with a key that is already held resolves to `'duplicate'` with no
@@ -173,7 +206,7 @@ interface SendInput {
   dedupeKey?: string;
   /** What the mail is about, stored on the ledger row. */
   entity?: LedgerEntity;
-}
+};
 
 /**
  * The ledger fields a per-template helper forwards to {@link sendTransactionalEmail}
@@ -238,23 +271,48 @@ export async function sendTransactionalEmail(
   // The operator gets a separate copy instead, after the recipient's send lands.
   const unsubscribable = Boolean(input.headers?.['List-Unsubscribe']);
 
-  const body = JSON.stringify({
-    from,
-    to: input.to,
-    ...(unsubscribable ? {} : bccField(c.env, [input.to])),
-    subject,
-    text: input.text,
-    ...(input.html ? { html: input.html } : {}),
-    ...(input.headers ? { headers: input.headers } : {}),
-  });
+  const requestBody = (content: EmailContent): string =>
+    JSON.stringify({
+      from,
+      to: input.to,
+      ...(unsubscribable ? {} : bccField(c.env, [input.to])),
+      subject,
+      text: content.text,
+      ...(content.html ? { html: content.html } : {}),
+      ...(input.headers ? { headers: input.headers } : {}),
+    });
+
+  // Render now, after the reserve, so every site link carries this send's ledger row
+  // id as `n` (AECI-1209). A ledger that failed open gives no id, and the links then
+  // carry the two `utm_*` params alone.
+  const tagFor = (sendId: number | null): LinkTagger =>
+    createLinkTagger({ siteUrl: c.env.PUBLIC_SITE_URL, templateId: input.template, sendId });
+  let body: string;
+  let untaggedBody: string;
+  try {
+    body = requestBody(renderBody(input, tagFor(reservation.rowId)));
+    untaggedBody = reservation.rowId === null ? body : requestBody(renderBody(input, tagFor(null)));
+  } catch (err) {
+    // A render bug must not throw out of a send, or leave the key held by a row that
+    // never sends. `failed` releases the key, like a refused send.
+    warn(
+      c,
+      `Render of ${input.template} threw: ${err instanceof Error ? err.message : String(err)}`,
+    );
+    emit(c, 'failed', input.template);
+    await finalizeSend(db, reservation.rowId, { outcome: 'failed' });
+    return 'failed';
+  }
 
   // Every keyed send carries the header, ledger up or down. Resend dedupes only when
   // both attempts carry the same key, so a header sent only during a ledger outage
   // missed the attempt either side of it. The key holds a hash of the body, so an
   // identical retry dedupes and a re-send with a new body (after a refused send) gets
-  // a new key, never a 409.
+  // a new key, never a 409. The hash is of the body WITHOUT `n` (AECI-1209): each
+  // attempt reserves its own row, so its `n` differs, and an attempt during a ledger
+  // outage has none. Hashing the tagged body would give every attempt a new key.
   const idempotencyKey = input.dedupeKey
-    ? await resendIdempotencyKey(c.env, input.dedupeKey, body)
+    ? await resendIdempotencyKey(c.env, input.dedupeKey, untaggedBody)
     : null;
   let providerMessageId: string | null;
   try {
@@ -300,6 +358,12 @@ export async function sendTransactionalEmail(
   return 'sent';
 }
 
+/** The body of a send, from its render callback or its static text. */
+function renderBody(body: SendBody, link: LinkTagger): EmailContent {
+  if (body.render) return body.render(link);
+  return { text: body.text ?? '', ...(body.html ? { html: body.html } : {}) };
+}
+
 /**
  * The operator's copy of a send that carries `List-Unsubscribe`, as its own message
  * to the `EMAIL_BCC` list. The subject is prefixed `COPY: `. It has no unsubscribe
@@ -308,6 +372,7 @@ export async function sendTransactionalEmail(
  * the recipient's send succeeded. Never throws, and a failure only warns: the copy
  * is not counted in `aeci.email.send`, which stays one count per recipient send.
  * It does get ledger rows, one per operator address, under its own registry id.
+ * Its links carry `utm_source` and `utm_campaign` but no `n` (AECI-1209).
  */
 async function sendOperatorCopy(
   c: EmailContext,
@@ -319,39 +384,53 @@ async function sendOperatorCopy(
   const to = bccField(c.env, [input.to]).bcc;
   if (!to || !input.operatorCopy) return;
   const notification = input.operatorCopy.notification;
+  // One Resend call to the whole operator list, so there is no per-recipient row
+  // before the send and no `n`. The links carry the copy's own id as the campaign
+  // (AECI-1209). A render bug records a `failed` copy rather than throwing.
+  let content: EmailContent | null = null;
+  try {
+    content = renderBody(
+      input.operatorCopy,
+      createLinkTagger({ siteUrl: c.env.PUBLIC_SITE_URL, templateId: notification, sendId: null }),
+    );
+  } catch (err) {
+    warn(c, `Render of ${notification} threw: ${err instanceof Error ? err.message : String(err)}`);
+  }
   let outcome: 'sent' | 'failed' | 'unknown' = 'failed';
   let providerMessageId: string | null = null;
-  try {
-    const res = await fetch(RESEND_URL, {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        from,
-        to,
-        subject: tierSubject(c.env, `COPY: ${input.subject}`),
-        text: input.operatorCopy.text,
-        ...(input.operatorCopy.html ? { html: input.operatorCopy.html } : {}),
-      }),
-      signal: AbortSignal.timeout(TIMEOUT_MS),
-    });
-    if (res.ok) {
-      providerMessageId = await readProviderMessageId(res);
-      outcome = 'sent';
-    } else {
-      discardResponseBody(res);
-      warn(c, `Resend ${notification} returned ${res.status}`);
+  if (content) {
+    try {
+      const res = await fetch(RESEND_URL, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          from,
+          to,
+          subject: tierSubject(c.env, `COPY: ${input.subject}`),
+          text: content.text,
+          ...(content.html ? { html: content.html } : {}),
+        }),
+        signal: AbortSignal.timeout(TIMEOUT_MS),
+      });
+      if (res.ok) {
+        providerMessageId = await readProviderMessageId(res);
+        outcome = 'sent';
+      } else {
+        discardResponseBody(res);
+        warn(c, `Resend ${notification} returned ${res.status}`);
+      }
+    } catch (err) {
+      outcome = 'unknown';
+      warn(
+        c,
+        `Resend ${notification} did not complete, outcome unknown: ${
+          err instanceof Error ? err.message : String(err)
+        }`,
+      );
     }
-  } catch (err) {
-    outcome = 'unknown';
-    warn(
-      c,
-      `Resend ${notification} did not complete, outcome unknown: ${
-        err instanceof Error ? err.message : String(err)
-      }`,
-    );
   }
   await recordRecipients(ledgerDb(c.env), to, {
     notificationId: notification,
@@ -447,18 +526,17 @@ export function sendReviewSubmittedEmail(
   const openingHtml = `Thanks for reviewing <strong>${escapeHtml(review.productName)}</strong> on AEC Integrations. Your review is now in moderation.`;
   const process =
     "We check every review by hand to keep the directory trustworthy. You'll hear from us again once it's approved and live.";
-  const shared = {
+  const shared = (link: LinkTagger) => ({
     preheader: `We received your review of ${review.productName}.`,
     heading: `Your review of ${review.productName} is in moderation`,
     table: reviewRows(review, REVIEW_EXCERPT_CHARS),
-    ...(url ? { cta: { label: `View ${review.productName}`, url } } : {}),
-  };
+    ...(url ? { cta: { label: `View ${review.productName}`, url: link(url) } } : {}),
+  });
   return sendTransactionalEmail(c, {
     to: opts.to ?? '',
     template: 'review-submitted',
     subject: `Your review of ${review.productName} is in moderation`,
-    text: renderEmailText({ ...shared, blocks: [opening, process] }),
-    html: renderEmailHtml({ ...shared, blocks: [openingHtml, process] }),
+    render: (link) => houseBody(shared(link), [opening, process], [openingHtml, process]),
   });
 }
 
@@ -493,22 +571,22 @@ export function sendReviewSubmittedAlert(
   rows.push(['Review id', review.reviewId]);
   if (host) rows.push(['Environment', host]);
   const listing = productUrl(c.env, review.productSlug);
-  if (listing) rows.push(['Listing', listing]);
 
   const intro = `${reviewer} submitted a review of ${review.productName}. It is waiting for moderation.`;
   const introHtml = `${escapeHtml(reviewer)} submitted a review of <strong>${escapeHtml(review.productName)}</strong>. It is waiting for moderation.`;
-  const shared = {
+  const shared = (link: LinkTagger) => ({
     preheader: intro,
     heading: `New review of ${review.productName}`,
-    table: rows,
-    ...(base ? { cta: { label: 'Open the moderation queue', url: `${base}/admin/reviews` } } : {}),
-  };
+    table: listing ? [...rows, ['Listing', link(listing)] as const] : rows,
+    ...(base
+      ? { cta: { label: 'Open the moderation queue', url: link(`${base}/admin/reviews`) } }
+      : {}),
+  });
   return sendTransactionalEmail(c, {
     to: c.env.ADMIN_ALERT_EMAIL ?? '',
     template: 'review-submitted-alert',
     subject: `[AECi] New review to moderate: ${review.productName}`,
-    text: renderEmailText({ ...shared, blocks: [intro] }),
-    html: renderEmailHtml({ ...shared, blocks: [introHtml] }),
+    render: (link) => houseBody(shared(link), [intro], [introHtml]),
   });
 }
 
@@ -524,17 +602,16 @@ export function sendReviewApprovedEmail(
   const opening = `Your review of ${opts.productName} is now published on AEC Integrations.`;
   const openingHtml = `Your review of <strong>${escapeHtml(opts.productName)}</strong> is now published on AEC Integrations.`;
   const thanks = 'Thanks for helping the AEC community choose better software.';
-  const shared = {
+  const shared = (link: LinkTagger) => ({
     preheader: `Your review of ${opts.productName} is live.`,
     heading: `Your review of ${opts.productName} is live`,
-    ...(url ? { cta: { label: 'View your review', url } } : {}),
-  };
+    ...(url ? { cta: { label: 'View your review', url: link(url) } } : {}),
+  });
   return sendTransactionalEmail(c, {
     to: opts.to ?? '',
     template: 'review-approved',
     subject: `Your review of ${opts.productName} is now live`,
-    text: renderEmailText({ ...shared, blocks: [opening, thanks] }),
-    html: renderEmailHtml({ ...shared, blocks: [openingHtml, thanks] }),
+    render: (link) => houseBody(shared(link), [opening, thanks], [openingHtml, thanks]),
     dedupeKey: opts.dedupeKey,
     entity: opts.entity,
   });
@@ -555,17 +632,17 @@ export function sendReviewRejectedEmail(
   const reasonText = `Moderator note: ${opts.reason}`;
   const reasonHtml = `<em>${escapeHtml(opts.reason)}</em>`;
   const next = "You're welcome to submit an updated review that follows our review guidelines.";
-  const shared = {
+  const shared = (link: LinkTagger) => ({
     preheader: `Your review of ${opts.productName} needs a revision.`,
     heading: `Your review of ${opts.productName} needs revision`,
-    ...(guidelines ? { cta: { label: 'Read the review guidelines', url: guidelines } } : {}),
-  };
+    ...(guidelines ? { cta: { label: 'Read the review guidelines', url: link(guidelines) } } : {}),
+  });
   return sendTransactionalEmail(c, {
     to: opts.to ?? '',
     template: 'review-rejected',
     subject: `Your review of ${opts.productName} needs revision`,
-    text: renderEmailText({ ...shared, blocks: [opening, reasonText, next] }),
-    html: renderEmailHtml({ ...shared, blocks: [openingHtml, reasonHtml, next] }),
+    render: (link) =>
+      houseBody(shared(link), [opening, reasonText, next], [openingHtml, reasonHtml, next]),
     dedupeKey: opts.dedupeKey,
     entity: opts.entity,
   });
@@ -626,19 +703,19 @@ export function sendClaimApprovedEmail(
   const opening = `Your vendor account is now active on AEC Integrations and can manage the ${name} listing.`;
   const openingHtml = `Your vendor account is now active on AEC Integrations and can manage the <strong>${escapeHtml(name)}</strong> listing.`;
 
-  const shared = {
+  const shared = (link: LinkTagger) => ({
     preheader: `Your vendor portal for ${name} is open.`,
     heading: `Your claim for ${name} is approved`,
-    ...(portal ? { cta: { label: 'Go to your vendor portal', url: portal } } : {}),
+    ...(portal ? { cta: { label: 'Go to your vendor portal', url: link(portal) } } : {}),
     note: accountStatus,
-  };
+  });
 
   return sendTransactionalEmail(c, {
     to: opts.to ?? '',
     template: 'claim-approved',
     subject: `Your claim for ${name} is approved`,
-    text: renderEmailText({ ...shared, blocks: [opening, capabilities, signIn] }),
-    html: renderEmailHtml({ ...shared, blocks: [openingHtml, capabilities, signIn] }),
+    render: (link) =>
+      houseBody(shared(link), [opening, capabilities, signIn], [openingHtml, capabilities, signIn]),
   });
 }
 
@@ -714,22 +791,23 @@ export function sendVendorSeatInviteEmail(
   const binding = `The invite is tied to ${opts.to ?? 'this address'}. Sign in with that address to accept it.`;
   const expiry = `This link expires on ${new Date(opts.expiresAt).toUTCString()}.`;
 
-  const shared = {
+  const shared = (tag: LinkTagger) => ({
     preheader: opening,
     heading: `You're invited to manage ${name}`,
-    cta: { label: 'Accept your invite', url: link },
+    cta: { label: 'Accept your invite', url: tag(link) },
     note: expiry,
-  };
+  });
 
   return sendTransactionalEmail(c, {
     to: opts.to ?? '',
     template: opts.notification ?? 'vendor-seat-invite',
     subject: `You're invited to manage ${name} on AEC Integrations`,
-    text: renderEmailText({ ...shared, blocks: [opening, capabilities, binding] }),
-    html: renderEmailHtml({
-      ...shared,
-      blocks: [openingHtml, capabilities, escapeHtml(binding)],
-    }),
+    render: (tag) =>
+      houseBody(
+        shared(tag),
+        [opening, capabilities, binding],
+        [openingHtml, capabilities, escapeHtml(binding)],
+      ),
   });
 }
 
@@ -799,8 +877,7 @@ export function sendClaimRejectedEmail(
     to: opts.to ?? '',
     template: 'claim-rejected',
     subject: `Your claim for ${name} was not approved`,
-    text: renderEmailText({ ...shared, blocks: [opening, resubmit] }),
-    html: renderEmailHtml({ ...shared, blocks: [openingHtml, resubmit] }),
+    render: () => houseBody(shared, [opening, resubmit], [openingHtml, resubmit]),
   });
 }
 
@@ -964,16 +1041,17 @@ export function sendAttestationDigestEmail(
       : `${total} integration records need a look`;
   const lead = `Here is what we noticed on the integrations listed for ${company}. Each item says what we saw and what you can do about it.`;
 
-  const sections = listed.map((f) => {
-    const item = digestItem(f);
-    const pair = pairUrl(c.env, f.pairSlugs[0], f.pairSlugs[1]);
-    const rows: Array<readonly [string, string]> = [
-      ['Integration', `${f.product} and ${f.counterpart}${viaMechanism(f.mechanismName)}`],
-      ['What to do', item.ask],
-    ];
-    if (pair) rows.push(['How it reads now', pair]);
-    return { heading: item.title, rows };
-  });
+  const sections = (link: LinkTagger) =>
+    listed.map((f) => {
+      const item = digestItem(f);
+      const pair = pairUrl(c.env, f.pairSlugs[0], f.pairSlugs[1]);
+      const rows: Array<readonly [string, string]> = [
+        ['Integration', `${f.product} and ${f.counterpart}${viaMechanism(f.mechanismName)}`],
+        ['What to do', item.ask],
+      ];
+      if (pair) rows.push(['How it reads now', link(pair)]);
+      return { heading: item.title, rows };
+    });
 
   const restText =
     rest > 0
@@ -981,14 +1059,15 @@ export function sendAttestationDigestEmail(
       : null;
   const note = `You get this daily reminder email because you hold a seat for ${company} on AEC Integrations. Muting it affects your seat only. Seat invites, claim decisions and plan notices still arrive.`;
 
-  const shared = {
+  // The mute page is an opt-out, so it is never tagged (`link-tag.ts`).
+  const shared = (link: LinkTagger) => ({
     preheader: first && total === 1 ? first.title : lead,
     heading,
-    sections,
-    ...(portal ? { cta: { label: 'Open your vendor portal', url: portal } } : {}),
+    sections: sections(link),
+    ...(portal ? { cta: { label: 'Open your vendor portal', url: link(portal) } } : {}),
     note,
     ...(mutePage ? { noteLink: { label: 'Mute the daily reminder email', url: mutePage } } : {}),
-  };
+  });
 
   const headers: Record<string, string> = {};
   if (oneClick) {
@@ -1000,11 +1079,12 @@ export function sendAttestationDigestEmail(
     to: opts.to,
     template: 'attestation-digest',
     subject,
-    text: renderEmailText({ ...shared, blocks: [lead, ...(restText ? [restText] : [])] }),
-    html: renderEmailHtml({
-      ...shared,
-      blocks: [escapeHtml(lead), ...(restText ? [escapeHtml(restText)] : [])],
-    }),
+    render: (link) =>
+      houseBody(
+        shared(link),
+        [lead, ...(restText ? [restText] : [])],
+        [escapeHtml(lead), ...(restText ? [escapeHtml(restText)] : [])],
+      ),
     ...(oneClick ? { headers } : {}),
     dedupeKey: opts.dedupeKey,
     entity: { type: 'vendor', id: opts.vendorId },
@@ -1055,30 +1135,33 @@ export function sendAttestationOpsDigestEmail(
   const intro =
     'Today’s attestation findings that need AECi. A denied claim renders as unverified and is invisible on the site until someone corrects the curation. A standing conflict means two vendors still disagree past the notification threshold. Each vendor involved was told in its own digest.';
 
-  const sections = opts.findings.map((f) => ({
-    heading: `${f.detector === 'claim-denied' ? 'Vendor denied a claim' : 'Unresolved vendor conflict'}: ${f.dataObject} (${f.productA} / ${f.productB})`,
-    rows: [
-      ['Detector', f.detector],
-      ['Mechanism', f.mechanismName?.trim() || '(unnamed)'],
-      ['Claim', f.claimId],
-      ['Integration', f.integrationId],
-      ['Pair page', pairUrl(c.env, f.pairSlugs[0], f.pairSlugs[1]) ?? '(no PUBLIC_SITE_URL)'],
-    ] as const,
-  }));
+  const sections = (link: LinkTagger) =>
+    opts.findings.map((f) => {
+      const pair = pairUrl(c.env, f.pairSlugs[0], f.pairSlugs[1]);
+      return {
+        heading: `${f.detector === 'claim-denied' ? 'Vendor denied a claim' : 'Unresolved vendor conflict'}: ${f.dataObject} (${f.productA} / ${f.productB})`,
+        rows: [
+          ['Detector', f.detector],
+          ['Mechanism', f.mechanismName?.trim() || '(unnamed)'],
+          ['Claim', f.claimId],
+          ['Integration', f.integrationId],
+          ['Pair page', pair ? link(pair) : '(no PUBLIC_SITE_URL)'],
+        ] as const,
+      };
+    });
 
   const heading = `Attestation findings: ${denied} denied, ${conflicts} in conflict`;
-  const shared = {
+  const shared = (link: LinkTagger) => ({
     preheader: `${total} attestation ${total === 1 ? 'finding needs' : 'findings need'} AECi.`,
     heading,
-    sections,
-  };
+    sections: sections(link),
+  });
 
   return sendTransactionalEmail(c, {
     to: opts.to,
     template: 'attestation-ops-digest',
     subject: `[AECi] ${heading}`,
-    text: renderEmailText({ ...shared, blocks: [intro] }),
-    html: renderEmailHtml({ ...shared, blocks: [escapeHtml(intro)] }),
+    render: (link) => houseBody(shared(link), [intro], [escapeHtml(intro)]),
     dedupeKey: opts.dedupeKey,
   });
 }
@@ -1144,22 +1227,26 @@ export function sendEntitlementExpiringEmail(
   const stance =
     "An active vendor account means this company can manage its AECi profile. It does not verify product quality or integration accuracy, and it doesn't affect search ranking or placement.";
 
-  const textParagraphs = [lead, noLapse, ask];
-  const htmlParagraphs = [
-    past
-      ? `Your vendor access term for <strong>${escapeHtml(name)}</strong> on AEC Integrations reached its end date of ${escapeHtml(opts.periodEndDay)}. That was ${escapeHtml(phrase)}.`
-      : `Your vendor access term for <strong>${escapeHtml(name)}</strong> on AEC Integrations ends ${escapeHtml(phrase)}, on ${escapeHtml(opts.periodEndDay)}.`,
-    noLapse,
-    ask,
-  ];
-  if (portal) {
-    textParagraphs.push(`Your current status is on your vendor portal: ${portal}`);
-    htmlParagraphs.push(
-      `Your current status is on <a href="${escapeHtml(portal)}">your vendor portal</a>.`,
-    );
-  }
-  textParagraphs.push(stance);
-  htmlParagraphs.push(stance);
+  const render = (link: LinkTagger): EmailContent => {
+    const textParagraphs = [lead, noLapse, ask];
+    const htmlParagraphs = [
+      past
+        ? `Your vendor access term for <strong>${escapeHtml(name)}</strong> on AEC Integrations reached its end date of ${escapeHtml(opts.periodEndDay)}. That was ${escapeHtml(phrase)}.`
+        : `Your vendor access term for <strong>${escapeHtml(name)}</strong> on AEC Integrations ends ${escapeHtml(phrase)}, on ${escapeHtml(opts.periodEndDay)}.`,
+      noLapse,
+      ask,
+    ];
+    if (portal) {
+      const tagged = link(portal);
+      textParagraphs.push(`Your current status is on your vendor portal: ${tagged}`);
+      htmlParagraphs.push(
+        `Your current status is on <a href="${escapeHtml(tagged)}">your vendor portal</a>.`,
+      );
+    }
+    textParagraphs.push(stance);
+    htmlParagraphs.push(stance);
+    return { text: toText(textParagraphs), html: toHtml(htmlParagraphs) };
+  };
 
   return sendTransactionalEmail(c, {
     to: opts.to,
@@ -1167,8 +1254,7 @@ export function sendEntitlementExpiringEmail(
     subject: past
       ? `Your vendor access term for ${name} has reached its end date`
       : `Your vendor access term for ${name} ends ${phrase}`,
-    text: toText(textParagraphs),
-    html: toHtml(htmlParagraphs),
+    render,
   });
 }
 
@@ -1305,7 +1391,11 @@ export function sendMailingListWelcomeEmail(
   // The body is rendered twice: once with the subscriber's token, once with a dud
   // for the operator copy. The dud keeps the layout identical, and the unsubscribe
   // page rejects it, so the operator's link cannot opt the subscriber out.
-  const render = (tok: string | null): { text: string; html: string } => {
+  //
+  // Only the browse link is tagged. The unsubscribe page and the mailto are opt-outs,
+  // and the tagger would leave them alone anyway (`link-tag.ts`).
+  const body = (tok: string | null, link: LinkTagger): EmailContent => {
+    const browse = browseUrl ? link(browseUrl) : null;
     const pageUrl = base && tok ? `${base}/unsubscribe?token=${encodeURIComponent(tok)}` : null;
     const unsubText = pageUrl
       ? `You are on the AEC Integrations mailing list. To leave it, unsubscribe here: ${pageUrl}`
@@ -1320,15 +1410,13 @@ export function sendMailingListWelcomeEmail(
     const textParagraphs = [
       intro,
       what,
-      browseUrl ? `${browseLead} Browse the directory: ${browseUrl}` : fallback,
+      browse ? `${browseLead} Browse the directory: ${browse}` : fallback,
       ...(unsubText ? [unsubText] : []),
     ];
     const htmlParagraphs = [
       intro,
       what,
-      browseUrl
-        ? `${browseLead} <a href="${escapeHtml(browseUrl)}">Browse the directory</a>`
-        : fallback,
+      browse ? `${browseLead} <a href="${escapeHtml(browse)}">Browse the directory</a>` : fallback,
       ...(unsubHtml ? [unsubHtml] : []),
     ];
     return { text: toText(textParagraphs), html: toHtml(htmlParagraphs) };
@@ -1338,11 +1426,11 @@ export function sendMailingListWelcomeEmail(
     to: opts.to ?? '',
     template: 'mailing-list-welcome',
     subject: 'Welcome to AEC Integrations',
-    ...render(token),
+    render: (link) => body(token, link),
     ...(Object.keys(unsubHeaders).length ? { headers: unsubHeaders } : {}),
     operatorCopy: {
       notification: 'mailing-list-welcome-operator-copy',
-      ...render(token ? OPERATOR_COPY_TOKEN : null),
+      render: (link) => body(token ? OPERATOR_COPY_TOKEN : null, link),
     },
     // A duplicate makes no Resend call, so it sends no operator copy either.
     dedupeKey: opts.dedupeKey,
@@ -1401,22 +1489,23 @@ export function sendStuckRequestAdminAlert(
   const plural = rows.length === 1 ? '' : 's';
   const base = siteUrl(c.env);
 
-  const sections = rows.map((r) => {
-    const name = r.targetName ?? '(target removed)';
-    const detail: Array<[string, string]> = [
-      ['Stuck', `${r.kind} ${r.targetType} "${name}"`],
-      ['Age', formatStuckAge(r.ageMinutes)],
-      ['Cause', describeStuckReason(r)],
-      ['Request id', r.requestId],
-    ];
-    // Only when the target still resolves — a dead link on an alert about a
-    // missing row would be its own small lie.
-    if (base && r.targetSlug) {
-      const path = r.targetType === 'vendor' ? 'vendors' : 'products';
-      detail.push(['Listing', `${base}/${path}/${r.targetSlug}`]);
-    }
-    return { heading: `${name} (${r.kind})`, rows: detail };
-  });
+  const sections = (link: LinkTagger) =>
+    rows.map((r) => {
+      const name = r.targetName ?? '(target removed)';
+      const detail: Array<[string, string]> = [
+        ['Stuck', `${r.kind} ${r.targetType} "${name}"`],
+        ['Age', formatStuckAge(r.ageMinutes)],
+        ['Cause', describeStuckReason(r)],
+        ['Request id', r.requestId],
+      ];
+      // Only when the target still resolves — a dead link on an alert about a
+      // missing row would be its own small lie.
+      if (base && r.targetSlug) {
+        const path = r.targetType === 'vendor' ? 'vendors' : 'products';
+        detail.push(['Listing', link(`${base}/${path}/${r.targetSlug}`)]);
+      }
+      return { heading: `${name} (${r.kind})`, rows: detail };
+    });
 
   const intro =
     `The reconciliation sweep found ${rows.length} request${plural} whose Linear issue was ` +
@@ -1426,19 +1515,20 @@ export function sendStuckRequestAdminAlert(
 
   // One queue for every row, however many there are, so a single CTA is honest here.
   // It replaces the per-row `Request queue` line, which repeated the same URL N times.
-  const shared = {
+  const shared = (link: LinkTagger) => ({
     preheader: `${rows.length} request${plural} never reached Linear.`,
     heading: `${rows.length} request${plural} stuck in the Linear pipeline`,
-    sections,
-    ...(base ? { cta: { label: 'Open the request queue', url: `${base}/admin/requests` } } : {}),
-  };
+    sections: sections(link),
+    ...(base
+      ? { cta: { label: 'Open the request queue', url: link(`${base}/admin/requests`) } }
+      : {}),
+  });
 
   return sendTransactionalEmail(c, {
     to: opts.to ?? '',
     template: 'stuck-request-alert',
     subject: `[AECi] ${rows.length} request${plural} stuck in the Linear pipeline${subjectReasonSuffix(rows)}`,
-    text: renderEmailText({ ...shared, blocks: [intro] }),
-    html: renderEmailHtml({ ...shared, blocks: [escapeHtml(intro)] }),
+    render: (link) => houseBody(shared(link), [intro], [escapeHtml(intro)]),
     dedupeKey: opts.dedupeKey,
     entity: opts.entity,
   });
@@ -1509,22 +1599,25 @@ export function sendStaleClaimTicketAlert(
   const { rows } = opts;
   const plural = rows.length === 1 ? '' : 's';
 
-  const sections = rows.map((r) => {
-    const name = r.targetName ?? '(target removed)';
-    const detail: Array<[string, string]> = [
-      // Two rows, not one joined by an em dash: the identifier is what you paste into
-      // Linear and the title is what you read, and PRODUCT.md bans the dash anyway.
-      ['Ticket', r.identifier],
-      ['Title', r.title],
-      ['Waiting', formatStuckAge(r.ageMinutes)],
-      ['Still in', r.stateName ?? 'an un-started state'],
-      ['Claimant', r.submitterEmail],
-      ['Request id', r.requestId],
-    ];
-    if (r.issueUrl) detail.push(['Linear', r.issueUrl]);
-    if (r.adminUrl) detail.push(['Administer', r.adminUrl]);
-    return { heading: `${name} (${r.kind})`, rows: detail };
-  });
+  // `adminUrl` is built upstream (`claim-stale-check.ts`) and is ours, so it is tagged.
+  // `issueUrl` is Linear's, off our origin, so the tagger leaves it alone.
+  const sections = (link: LinkTagger) =>
+    rows.map((r) => {
+      const name = r.targetName ?? '(target removed)';
+      const detail: Array<[string, string]> = [
+        // Two rows, not one joined by an em dash: the identifier is what you paste into
+        // Linear and the title is what you read, and PRODUCT.md bans the dash anyway.
+        ['Ticket', r.identifier],
+        ['Title', r.title],
+        ['Waiting', formatStuckAge(r.ageMinutes)],
+        ['Still in', r.stateName ?? 'an un-started state'],
+        ['Claimant', r.submitterEmail],
+        ['Request id', r.requestId],
+      ];
+      if (r.issueUrl) detail.push(['Linear', r.issueUrl]);
+      if (r.adminUrl) detail.push(['Administer', link(r.adminUrl)]);
+      return { heading: `${name} (${r.kind})`, rows: detail };
+    });
 
   const intro =
     `${rows.length} claim ticket${plural} ${rows.length === 1 ? 'has' : 'have'} been open for more ` +
@@ -1535,19 +1628,18 @@ export function sendStaleClaimTicketAlert(
   // The per-ticket links stay in the rows: with N tickets there is no single one to
   // promote. The CTA is the queue, which is the same page whatever N is.
   const base = siteUrl(c.env);
-  const shared = {
+  const shared = (link: LinkTagger) => ({
     preheader: `${rows.length} vendor${plural} waiting on a reply.`,
     heading: `${rows.length} claim ticket${plural} un-started after 24 hours`,
-    sections,
-    ...(base ? { cta: { label: 'Open the claim queue', url: `${base}/admin/claims` } } : {}),
-  };
+    sections: sections(link),
+    ...(base ? { cta: { label: 'Open the claim queue', url: link(`${base}/admin/claims`) } } : {}),
+  });
 
   return sendTransactionalEmail(c, {
     to: opts.to ?? '',
     template: 'stale-claim-ticket-alert',
     subject: `[AECi] ${rows.length} claim ticket${plural} un-started after 24h`,
-    text: renderEmailText({ ...shared, blocks: [intro] }),
-    html: renderEmailHtml({ ...shared, blocks: [escapeHtml(intro)] }),
+    render: (link) => houseBody(shared(link), [intro], [escapeHtml(intro)]),
     dedupeKey: opts.dedupeKey,
     entity: opts.entity,
   });
@@ -1609,19 +1701,21 @@ export function sendLandingSignupNotification(
   ];
   const base = siteUrl(c.env);
   const intro = 'Someone just joined the AEC Integrations mailing list.';
-  const shared = {
+  // The `Referrer` row is a recorded fact, not a link we built, so it is not tagged.
+  const shared = (link: LinkTagger) => ({
     preheader: `${opts.email} joined the mailing list.`,
     heading: 'New mailing list signup',
     table: rows,
-    ...(base ? { cta: { label: 'Open the audience panel', url: `${base}/admin/audience` } } : {}),
-  };
+    ...(base
+      ? { cta: { label: 'Open the audience panel', url: link(`${base}/admin/audience`) } }
+      : {}),
+  });
 
   return sendTransactionalEmail(c, {
     to: c.env.ADMIN_ALERT_EMAIL ?? '',
     template: 'landing-signup',
     subject: '[AECi] New mailing list signup',
-    text: renderEmailText({ ...shared, blocks: [intro] }),
-    html: renderEmailHtml({ ...shared, blocks: [escapeHtml(intro)] }),
+    render: (link) => houseBody(shared(link), [intro], [escapeHtml(intro)]),
     dedupeKey: opts.dedupeKey,
     entity: opts.entity,
   });
@@ -1720,27 +1814,30 @@ export function sendClaimSubmittedNotification(
         ? 'not created, Linear is not configured on this tier'
         : 'not created yet. The reconciliation sweep retries it, and the link appears on the request in the admin console. No second email is sent.'),
   ]);
-  if (base) {
-    rows.push(['Review queue', `${base}/admin/claims`]);
+  // The `LinkedIn` row is the claimant's own URL, off our origin, so it is not tagged.
+  const linkRows = (link: LinkTagger): Array<[string, string]> => {
+    if (!base) return [];
     const path = opts.targetType === 'vendor' ? 'vendors' : 'products';
-    rows.push(['Listing', `${base}/${path}/${opts.slug}`]);
-  }
+    return [
+      ['Review queue', link(`${base}/admin/claims`)],
+      ['Listing', link(`${base}/${path}/${opts.slug}`)],
+    ];
+  };
 
   const intro = `${opts.submitterEmail} submitted a claim for ${opts.targetName}.`;
   const introHtml = `${escapeHtml(opts.submitterEmail)} submitted a claim for <strong>${escapeHtml(opts.targetName)}</strong>.`;
-  const shared = {
+  const shared = (link: LinkTagger) => ({
     preheader: intro,
     heading: `New claim for ${opts.targetName}`,
-    table: rows,
-    ...(adminUrl ? { cta: { label: 'Review the claim', url: adminUrl } } : {}),
-  };
+    table: [...rows, ...linkRows(link)],
+    ...(adminUrl ? { cta: { label: 'Review the claim', url: link(adminUrl) } } : {}),
+  });
 
   return sendTransactionalEmail(c, {
     to: c.env.CLAIM_ALERT_EMAIL ?? '',
     template: 'claim-submitted-alert',
     subject: `[AECi] New vendor claim: ${opts.targetName}`,
-    text: renderEmailText({ ...shared, blocks: [intro] }),
-    html: renderEmailHtml({ ...shared, blocks: [introHtml] }),
+    render: (link) => houseBody(shared(link), [intro], [introHtml]),
     dedupeKey: opts.dedupeKey,
     entity: opts.entity,
   });
@@ -1805,7 +1902,6 @@ export function sendContestSubmittedNotification(
   ];
   if (host) rows.push(['Environment', host]);
   const pair = opts.pairSlugs ? pairUrl(c.env, opts.pairSlugs[0], opts.pairSlugs[1]) : null;
-  if (pair) rows.push(['Pair page', pair]);
 
   const subject = isOwner
     ? `[AECi] Ownership contest: ${opts.integrationName}`
@@ -1816,21 +1912,22 @@ export function sendContestSubmittedNotification(
   const introHtml = isOwner
     ? `${escapeHtml(opts.submitterVendorName)} contested who owns <strong>${escapeHtml(opts.integrationName)}</strong>. AECi decides it.`
     : `${escapeHtml(opts.submitterVendorName)} contested the ${escapeHtml(opts.field)} of <strong>${escapeHtml(opts.integrationName)}</strong>. AECi decides it.`;
-  const shared = {
+  const shared = (link: LinkTagger) => ({
     preheader: intro,
     heading: isOwner
       ? `Ownership contest on ${opts.integrationName}`
       : `Field contest on ${opts.integrationName}`,
-    table: rows,
-    ...(base ? { cta: { label: 'Open the contest queue', url: `${base}/admin/contests` } } : {}),
-  };
+    table: pair ? [...rows, ['Pair page', link(pair)] as const] : rows,
+    ...(base
+      ? { cta: { label: 'Open the contest queue', url: link(`${base}/admin/contests`) } }
+      : {}),
+  });
 
   return sendTransactionalEmail(c, {
     to: c.env.CLAIM_ALERT_EMAIL ?? '',
     template: 'contest-submitted-alert',
     subject,
-    text: renderEmailText({ ...shared, blocks: [intro] }),
-    html: renderEmailHtml({ ...shared, blocks: [introHtml] }),
+    render: (link) => houseBody(shared(link), [intro], [introHtml]),
   });
 }
 
@@ -1912,7 +2009,7 @@ function vendorMessagesUrl(env: Env, vendorSlug: string | null): string | null {
  * name can be vendor-edited too, on a vendor-owned row. Only the pair-page URL, which
  * AECi builds, links.
  */
-function contestFactRows(env: Env, facts: ContestEmailFacts): EmailTableRow[] {
+function contestFactRows(env: Env, facts: ContestEmailFacts, link: LinkTagger): EmailTableRow[] {
   const rows: EmailTableRow[] = [
     ['Integration', facts.integrationName, PLAIN],
     ['Field', contestFieldLabel(facts.field)],
@@ -1920,7 +2017,7 @@ function contestFactRows(env: Env, facts: ContestEmailFacts): EmailTableRow[] {
     ['Proposed value', facts.proposedValue ?? 'none', PLAIN],
   ];
   const pair = facts.pairSlugs ? pairUrl(env, facts.pairSlugs[0], facts.pairSlugs[1]) : null;
-  if (pair) rows.push(['Pair page', pair]);
+  if (pair) rows.push(['Pair page', link(pair)]);
   return rows;
 }
 
@@ -1959,27 +2056,27 @@ export function sendContestProtestOpenedEmail(
       ? `${opts.submitterVendorName} asked to change the ${field} of ${opts.integrationName}, and ${company} did not answer within 30 days. They have now asked AEC Integrations to review it.`
       : `${opts.submitterVendorName} disagrees with the decision ${company} made on their request to change the ${field} of ${opts.integrationName}. They have asked AEC Integrations to review it.`;
   const reply = `You can reply once, by ${due}. Reply under Field contests in Messages on your vendor portal.`;
-  const rows = [
-    ...contestFactRows(c.env, opts),
-    ['Their reason', opts.protestReason, PLAIN] as const,
-    ['Reply by', due] as const,
-  ];
-  const shared = {
+  const shared = (link: LinkTagger) => ({
     preheader: `Reply by ${due}.`,
     heading: `Review requested on ${opts.integrationName}`,
-    table: rows,
-    ...(messages ? { cta: { label: 'Reply in Messages', url: messages } } : {}),
+    table: [
+      ...contestFactRows(c.env, opts, link),
+      ['Their reason', opts.protestReason, PLAIN] as const,
+      ['Reply by', due] as const,
+    ],
+    ...(messages ? { cta: { label: 'Reply in Messages', url: link(messages) } } : {}),
     note: `You get this email because you hold a seat for ${company} on AEC Integrations.`,
-  };
+  });
   return sendTransactionalEmail(c, {
     to: opts.to,
     template: 'contest-protest-opened',
     subject: `Reply by ${due}: review requested on ${opts.integrationName}`,
-    text: renderEmailText({ ...shared, blocks: [why, reply, PROTEST_IS_ADVICE] }),
-    html: renderEmailHtml({
-      ...shared,
-      blocks: [escapeHtml(why), escapeHtml(reply), escapeHtml(PROTEST_IS_ADVICE)],
-    }),
+    render: (link) =>
+      houseBody(
+        shared(link),
+        [why, reply, PROTEST_IS_ADVICE],
+        [escapeHtml(why), escapeHtml(reply), escapeHtml(PROTEST_IS_ADVICE)],
+      ),
     dedupeKey: opts.dedupeKey,
     entity: { type: 'integration_field_challenge', id: opts.contestId },
   });
@@ -2006,20 +2103,18 @@ export function sendContestProtestReplyReminderEmail(
   const messages = vendorMessagesUrl(c.env, opts.vendorSlug);
   const lead = `${opts.submitterVendorName} asked AEC Integrations to review a contest on the ${field} of ${opts.integrationName}. ${company} has not replied yet.`;
   const reply = `You can reply once, until ${due}. After that the reply closes, and AEC Integrations decides on what it has.`;
-  const rows = [...contestFactRows(c.env, opts), ['Reply by', due] as const];
-  const shared = {
+  const shared = (link: LinkTagger) => ({
     preheader: `The reply closes ${due}.`,
     heading: `Your reply closes soon`,
-    table: rows,
-    ...(messages ? { cta: { label: 'Reply in Messages', url: messages } } : {}),
+    table: [...contestFactRows(c.env, opts, link), ['Reply by', due] as const],
+    ...(messages ? { cta: { label: 'Reply in Messages', url: link(messages) } } : {}),
     note: `You get this email because you hold a seat for ${company} on AEC Integrations.`,
-  };
+  });
   return sendTransactionalEmail(c, {
     to: opts.to,
     template: 'contest-protest-reply-reminder',
     subject: `Reminder: reply by ${due} on ${opts.integrationName}`,
-    text: renderEmailText({ ...shared, blocks: [lead, reply] }),
-    html: renderEmailHtml({ ...shared, blocks: [escapeHtml(lead), escapeHtml(reply)] }),
+    render: (link) => houseBody(shared(link), [lead, reply], [escapeHtml(lead), escapeHtml(reply)]),
     dedupeKey: opts.dedupeKey,
     entity: { type: 'integration_field_challenge', id: opts.contestId },
   });
@@ -2065,22 +2160,22 @@ export function sendProtestSubmittedAlert(
   ];
   if (host) rows.push(['Environment', host]);
   const pair = opts.pairSlugs ? pairUrl(c.env, opts.pairSlugs[0], opts.pairSlugs[1]) : null;
-  if (pair) rows.push(['Pair page', pair]);
 
   const intro = `${opts.submitterVendorName} asked AECi to review the ${opts.field} of ${opts.integrationName}. The owner, ${opts.ownerVendorName}, can reply until the due date. AECi decides it.`;
   const introHtml = `${escapeHtml(opts.submitterVendorName)} asked AECi to review the ${escapeHtml(opts.field)} of <strong>${escapeHtml(opts.integrationName)}</strong>. The owner, ${escapeHtml(opts.ownerVendorName)}, can reply until the due date. AECi decides it.`;
-  const shared = {
+  const shared = (link: LinkTagger) => ({
     preheader: intro,
     heading: `Protest on ${opts.integrationName}`,
-    table: rows,
-    ...(base ? { cta: { label: 'Open the contest queue', url: `${base}/admin/contests` } } : {}),
-  };
+    table: pair ? [...rows, ['Pair page', link(pair)] as const] : rows,
+    ...(base
+      ? { cta: { label: 'Open the contest queue', url: link(`${base}/admin/contests`) } }
+      : {}),
+  });
   return sendTransactionalEmail(c, {
     to: c.env.CLAIM_ALERT_EMAIL ?? '',
     template: 'protest-submitted-alert',
     subject: `[AECi] Protest: ${opts.field} on ${opts.integrationName}`,
-    text: renderEmailText({ ...shared, blocks: [intro] }),
-    html: renderEmailHtml({ ...shared, blocks: [introHtml] }),
+    render: (link) => houseBody(shared(link), [intro], [introHtml]),
     dedupeKey: opts.dedupeKey,
     entity: { type: 'integration_field_challenge', id: opts.contestId },
   });
@@ -2110,24 +2205,23 @@ export function sendContestDeclinedProtestWindowEmail(
   const messages = vendorMessagesUrl(c.env, opts.vendorSlug);
   const lead = `${opts.ownerVendorName} declined the request from ${company} to change the ${field} of ${opts.integrationName}. The value on record stays as it is.`;
   const window = `If you disagree, you can ask AEC Integrations to review it until ${closes}, from Field contests in Messages on your vendor portal. Its view is advice, and nothing about the review is public.`;
-  const rows = [
-    ...contestFactRows(c.env, opts),
-    ['Their note', opts.decisionNote?.trim() || 'none', PLAIN] as const,
-    ['Review request closes', closes] as const,
-  ];
-  const shared = {
+  const shared = (link: LinkTagger) => ({
     preheader: `You can ask for a review until ${closes}.`,
     heading: `${opts.ownerVendorName} declined your change request`,
-    table: rows,
-    ...(messages ? { cta: { label: 'Open Messages', url: messages } } : {}),
+    table: [
+      ...contestFactRows(c.env, opts, link),
+      ['Their note', opts.decisionNote?.trim() || 'none', PLAIN] as const,
+      ['Review request closes', closes] as const,
+    ],
+    ...(messages ? { cta: { label: 'Open Messages', url: link(messages) } } : {}),
     note: `You get this email because you hold a seat for ${company} on AEC Integrations.`,
-  };
+  });
   return sendTransactionalEmail(c, {
     to: opts.to,
     template: 'contest-declined-protest-window',
     subject: `${opts.ownerVendorName} declined your change request on ${opts.integrationName}`,
-    text: renderEmailText({ ...shared, blocks: [lead, window] }),
-    html: renderEmailHtml({ ...shared, blocks: [escapeHtml(lead), escapeHtml(window)] }),
+    render: (link) =>
+      houseBody(shared(link), [lead, window], [escapeHtml(lead), escapeHtml(window)]),
     dedupeKey: opts.dedupeKey,
     entity: { type: 'integration_field_challenge', id: opts.contestId },
   });
@@ -2168,19 +2262,21 @@ export function sendLandingFeedbackNotification(
   ];
   const base = siteUrl(c.env);
   const intro = 'Someone just submitted feedback on AEC Integrations.';
-  const shared = {
+  // The `Referrer` row is a recorded fact, not a link we built, so it is not tagged.
+  const shared = (link: LinkTagger) => ({
     preheader: `New feedback from ${opts.email ?? 'an anonymous visitor'}.`,
     heading: 'New feedback submitted',
     table: rows,
-    ...(base ? { cta: { label: 'Open the feedback inbox', url: `${base}/admin/audience` } } : {}),
-  };
+    ...(base
+      ? { cta: { label: 'Open the feedback inbox', url: link(`${base}/admin/audience`) } }
+      : {}),
+  });
 
   return sendTransactionalEmail(c, {
     to: c.env.ADMIN_ALERT_EMAIL ?? '',
     template: 'landing-feedback',
     subject: '[AECi] New feedback submitted',
-    text: renderEmailText({ ...shared, blocks: [intro] }),
-    html: renderEmailHtml({ ...shared, blocks: [escapeHtml(intro)] }),
+    render: (link) => houseBody(shared(link), [intro], [escapeHtml(intro)]),
   });
 }
 
@@ -2477,6 +2573,21 @@ function pairUrl(env: Env, slugA: string, slugB: string): string | null {
   if (!base) return null;
   const [context, other] = orderedPairSlugs(slugA, slugB);
   return `${base}/products/${context}/integrations/${other}`;
+}
+
+/**
+ * Both parts of a house-layout body (`./email-layout`). `textBlocks` are plain text,
+ * `htmlBlocks` are trusted HTML. Every URL in `shared` must already be tagged.
+ */
+function houseBody(
+  shared: Omit<EmailLayout, 'blocks'>,
+  textBlocks: string[],
+  htmlBlocks: string[],
+): EmailContent {
+  return {
+    text: renderEmailText({ ...shared, blocks: textBlocks }),
+    html: renderEmailHtml({ ...shared, blocks: htmlBlocks }),
+  };
 }
 
 /**
