@@ -22,6 +22,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
   auditLog,
+  gscRecrawlQueue,
+  indexnowQueue,
   integrationFieldChallenges,
   integrations,
   productVendors,
@@ -86,9 +88,12 @@ let t: TestDb;
 let claimed = false;
 /** AECI-1132: the operator alert seam, captured rather than sent. */
 let alerts = vi.fn<SendContestAlert>();
+/** Spread over `TEST_ENV` in `call()`; the re-crawl plan gate sets it (AECI-1186). */
+let callEnv: Partial<Env> = {};
 
 beforeEach(async () => {
   claimed = false;
+  callEnv = {};
   alerts = vi.fn<SendContestAlert>().mockResolvedValue('sent');
   t = await makeTestDb();
   await t.db.insert(vendors).values([
@@ -160,6 +165,7 @@ async function call(
   const send = vi.fn().mockResolvedValue(undefined);
   const env: Env = {
     ...TEST_ENV,
+    ...callEnv,
     CACHE_PURGE_QUEUE: { send } as unknown as Env['CACHE_PURGE_QUEUE'],
   };
   const execCtx = fakeExecutionContext();
@@ -1037,5 +1043,39 @@ describe('the offered contest fields (AECI-1155)', () => {
     expect(a.body.submitted.map((c: JsonBody) => c.field)).toContain('website');
     const b = await call(AUTH_B, `/api/vendor/contests?integration_id=${I_MAIN}`);
     expect(b.body.received.map((c: JsonBody) => c.field)).toEqual(['website']);
+  });
+});
+
+// AECI-1186: search-engine submission is a Managed-only benefit. A Free owner's
+// accepted contest still commits; it buffers nothing into either re-crawl queue.
+// Only `accepted` reaches the re-crawl tail, so both cases accept.
+describe('re-crawl plan gate (AECI-1186)', () => {
+  async function acceptAs(auth: AuthzVariables['auth']) {
+    claimed = true;
+    const submitted = await submit(AUTH_A, I_MAIN, NAME_CONTEST);
+    expect(submitted.body.contest.routed_to).toBe('owner');
+    // Turned on for the decision only, so the queues hold the decision's rows alone.
+    callEnv = { INDEXNOW_KEY: 'test-key', PUBLIC_SITE_URL: 'https://www.aecintegrations.com' };
+    const res = await call(auth, `/api/vendor/contests/${submitted.body.contest.id}/decision`, {
+      decision: 'accept',
+    });
+    expect(res.status).toBe(200);
+    expect(res.body.contest.status).toBe('accepted');
+  }
+
+  it("leaves no row in either queue after a Free owner's accept", async () => {
+    await acceptAs(AUTH_B);
+    expect(await t.db.select().from(indexnowQueue)).toHaveLength(0);
+    expect(await t.db.select().from(gscRecrawlQueue)).toHaveLength(0);
+  });
+
+  it("buffers an entitled owner's accept into both queues", async () => {
+    await acceptAs({
+      ...AUTH_B,
+      entitlementTier: 'verified',
+      entitlement: { status: 'active', periodEnd: null },
+    });
+    expect((await t.db.select().from(indexnowQueue)).length).toBeGreaterThan(0);
+    expect((await t.db.select().from(gscRecrawlQueue)).length).toBeGreaterThan(0);
   });
 });

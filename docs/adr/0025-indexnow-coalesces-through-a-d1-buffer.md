@@ -1,6 +1,6 @@
 # ADR 0025: IndexNow submissions coalesce through a D1 buffer drained by a cron, not a Cloudflare Queue
 
-**Status:** Accepted (amended 2026-09-10 — the transport no longer retries a bare 429, and the request ceiling stated below was wrong by a factor of three; see the [Amendment](#amendment--2026-09-10-aeci-833-the-retry-now-makes-the-distinction-this-record-only-asserted). Amended again 2026-09-28 — the drain runs once a day, highest tier first, instead of every 20 minutes; see the [second Amendment](#amendment--2026-09-28-aeci-1136-send-once-a-day-highest-priority-pages-first))
+**Status:** Accepted (amended 2026-09-10 — the transport no longer retries a bare 429, and the request ceiling stated below was wrong by a factor of three; see the [Amendment](#amendment--2026-09-10-aeci-833-the-retry-now-makes-the-distinction-this-record-only-asserted). Amended again 2026-09-28 — the drain runs once a day, highest tier first, instead of every 20 minutes; see the [second Amendment](#amendment--2026-09-28-aeci-1136-send-once-a-day-highest-priority-pages-first). Amended again 2026-10-02 — the vendor appender is plan-gated; see the [third Amendment](#amendment--2026-10-02-aeci-1186-the-vendor-appender-is-plan-gated))
 **Date:** 2026-09-09
 **Context owner:** chrisw@thewbsproject.com
 **Relates to:** AECI-826 (this record), AECI-833 (the first amendment), AECI-1136 (the second amendment), AECI-236 (the original per-promote ping), AECI-801 (closed affirmatively — the key was always provisioned). Build contract: `docs/STAGE_1_SPEC.md` §20.2. Applies the AECI-666 batching rule to a second transport. Follows ADR 0013's cron→job shape and declines its queue, for a reason ADR 0013 did not have to consider. Builds on ADR 0016 (D1/Drizzle, `db.batch` as the atomic unit) and ADR 0022 (the scheduled-`DELETE` exception it satisfies).
@@ -278,6 +278,20 @@ because nearly every tick was refused. Measured latency was already about a day.
 the seven-day expiry and the audit rule. Seven days now means seven daily attempts before a URL
 is dropped. We kept it: the sitemap covers a dropped URL, and `aeci.indexnow.expired` still
 reports every drop.
+
+## Amendment — 2026-10-02 (AECI-1186): the vendor appender is plan-gated
+
+Chris ruled on 2026-09-29 that IndexNow submission is a Managed-only benefit (recorded on
+AECI-1160). The second appender from AECI-944 now buffers only when the writing vendor holds an
+active entitlement. A Free seat's write commits and purges as before, and appends nothing.
+
+- The gate is in `bufferVendorRecrawl` (`apps/api/src/routes/vendor-shared.ts`). It reads the
+  session's resolved entitlement, so it costs no read.
+- It keys off the write's origin. The admin retire shares the vendor tail with a session that
+  carries no entitlement, and AECi's own writes stay ungated. The promote appender is unchanged.
+- The buffer, the drain, the cadence and the alerts are unchanged. A quieter buffer only means
+  fewer `source:vendor` rows.
+- It is external discovery, not a ranking input (`STAGE_2_PAID_TIERS_SPEC.md` §3.2).
 
 ## Re-open trigger
 

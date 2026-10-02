@@ -273,6 +273,11 @@ re-crawl announcement now rides `afterVendorWrite` rather than each call site, w
 every present and future vendor write inherits it and a writer that changes no public page
 opts out by passing nothing.
 
+**Plan-gated since AECI-1186 (2026-10-02).** Search-engine submission is a Managed-only benefit.
+A vendor write whose session has no active entitlement buffers nothing into either queue. The
+edit still commits and purges. The gate sits in the same shared tail, so every vendor write
+inherits it too. `STAGE_2_PAID_TIERS_SPEC.md` §3.3(d) and §13.1a govern.
+
 The two channels are fed differently, and the difference is the whole design. IndexNow is free,
 so it takes everything the edit touched. Since AECI-1136 it borrows Google's tier for each URL
 so its daily send goes highest tier first, and hub pages are tier 4. Google is quota-capped and worked by
@@ -553,7 +558,7 @@ A vendor-held row with no owner on file (an `owner` accept that said "neither" o
 | Never connector-powered | Decision 9 from the other side, as for the owner edit: there is no `powered_by` field, and `iPaaS` or `integrator` is `422 INTEGRATION_INVALID_VALUE`. A connector-powered row would be frozen against its own owner. **Unchanged by AECI-1040 (ruled 2026-09-23):** create stays closed on connector-powered rows. A vendor that wants one added messages AECi. |
 | What it writes | `origin = 'vendor'`, `built_by_vendor_id` = caller, `claimed_at` = now, and §13.9's maintenance transfer (`maintained_by = 'vendor'`, `last_reviewed_at` = now). The id is minted app-side with `crypto.randomUUID()`, as promote mints its creates. |
 | One batch | The INSERT, the `integration.created` audit row (the action the catalog additions series counts; `metadata.source = 'vendor-portal'`, `reason = 'vendor-create'`, `possibleDuplicateIds`), one `notification.sent` row (`metadata.kind: 'integration_create'`) per other endpoint vendor, and both endpoints' `integration_count` recomputed in the batch (`integrationCountRecomputeStmt`, the §4.6.1 pattern). A create has no prior state to race, so there is no sentinel. |
-| After commit | By-id Algolia sync of the integration, both products and the vendor, behind `dispatchHook` (the retire's `syncOwnerWriteSearch`). Purge `pair:{a}__{b}`, both `product:`, `vendor:{caller}`, `index:products`, `taxonomy` and `sitemap` (`CACHE_STRATEGY.md` §3). Queue the pair and both product URLs through the IndexNow buffer and the GSC re-crawl queue. `index:home` is left to its daily cron, as for every vendor write. |
+| After commit | By-id Algolia sync of the integration, both products and the vendor, behind `dispatchHook` (the retire's `syncOwnerWriteSearch`). Purge `pair:{a}__{b}`, both `product:`, `vendor:{caller}`, `index:products`, `taxonomy` and `sitemap` (`CACHE_STRATEGY.md` §3). Queue the pair and both product URLs through the IndexNow buffer and the GSC re-crawl queue, only when the caller holds an active entitlement (AECI-1186). `index:home` is left to its daily cron, as for every vendor write. |
 | Response | `201 { integration, possible_duplicates }`. |
 
 Handler: `apps/api/src/routes/vendor-integration-create.ts`. Shared rule: `apps/api/src/lib/integration-twins.ts`.

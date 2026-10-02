@@ -161,7 +161,7 @@ import {
   isMaintenanceTransfer,
   maintenanceTransferColumns,
   parseJsonBody,
-  recrawlEnabled,
+  vendorRecrawlEnabled,
   sessionVendorId,
   type VendorContext,
 } from './vendor-shared';
@@ -1235,7 +1235,7 @@ export function createDecideContestHandler(
 
     const base = publicSiteBase(c.env);
     const recrawl =
-      status === 'accepted' && pairSlugs && recrawlEnabled(c.env) && base
+      status === 'accepted' && pairSlugs && vendorRecrawlEnabled(c) && base
         ? attestationEditRecrawl(base, pairSlugs[0], pairSlugs[1])
         : undefined;
     afterVendorWrite(c, tags, audits, recrawl, db);

@@ -1,6 +1,6 @@
 # 0031 — Google re-crawl is a human-drained ranked worklist, not an automated push
 
-**Status:** Accepted
+**Status:** Accepted (amended 2026-10-02 — the vendor arm is plan-gated; see the Amendment)
 **Date:** 2026-09-14
 **Issue:** AECI-943 (epic), AECI-945, AECI-946
 **Supersedes:** nothing. Sits beside ADR 0025, which answers a different question about a different engine.
@@ -202,6 +202,16 @@ table. See the note under §1.)*
   are unchanged. *(Until AECI-1136, which made its cron daily and borrowed this record's tier
   map. See ADR 0025's 2026-09-28 amendment.)* The one thing this work did to it is give `indexnow_queue` a second appender
   (AECI-944), which the `url` unique index already deduped across.
+
+## Amendment — 2026-10-02 (AECI-1186): the vendor arm is plan-gated
+
+Decision 4 of epic AECI-1182, ruled by Chris on 2026-10-02: the Google worklist is a
+Managed-only benefit, like IndexNow. A vendor write whose session has no active entitlement
+queues nothing into `gsc_recrawl_queue`. The ruling for IndexNow named only that engine. Chris
+chose to gate both legs so a Free vendor gets no search-engine submission of either kind.
+
+The promote arm and the admin retire stay ungated. The ranking, the screen and the
+no-staleness rule above are unchanged. `STAGE_2_PAID_TIERS_SPEC.md` §13.1a records the ruling.
 
 ## References
 

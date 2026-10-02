@@ -14,7 +14,16 @@ import { eq } from 'drizzle-orm';
 import { Hono } from 'hono';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { auditLog, integrations, productVendors, products, profiles, vendors } from '../db/schema';
+import {
+  auditLog,
+  gscRecrawlQueue,
+  indexnowQueue,
+  integrations,
+  productVendors,
+  products,
+  profiles,
+  vendors,
+} from '../db/schema';
 import type { Env } from '../env';
 import { errorHandler } from '../errors';
 import { NOTIFICATION_SENT_ACTION } from '../lib/attestation-notify';
@@ -59,8 +68,11 @@ const AUTH_B = seat(2, VENDOR_B);
 const AUTH_C = seat(3, VENDOR_C);
 
 let t: TestDb;
+/** Spread over `TEST_ENV` in `call()`; the re-crawl plan gate sets it (AECI-1186). */
+let callEnv: Partial<Env> = {};
 
 beforeEach(async () => {
+  callEnv = {};
   t = await makeTestDb();
   await t.db.insert(vendors).values([
     { id: VENDOR_A, slug: 'autodesk', companyName: 'Autodesk' },
@@ -117,6 +129,7 @@ async function call(
   const send = vi.fn().mockResolvedValue(undefined);
   const env: Env = {
     ...TEST_ENV,
+    ...callEnv,
     CACHE_PURGE_QUEUE: { send } as unknown as Env['CACHE_PURGE_QUEUE'],
   };
   const execCtx = fakeExecutionContext();
@@ -410,4 +423,31 @@ describe('POST /api/vendor/integrations — the edit field set (AECI-1154, AECI-
       expect(await t.db.select().from(auditLog)).toHaveLength(0);
     },
   );
+});
+
+// AECI-1186: search-engine submission is a Managed-only benefit. A Free seat's
+// create still commits; it buffers nothing into either re-crawl queue.
+describe('re-crawl plan gate (AECI-1186)', () => {
+  beforeEach(() => {
+    callEnv = { INDEXNOW_KEY: 'test-key', PUBLIC_SITE_URL: 'https://www.aecintegrations.com' };
+  });
+
+  it("leaves no row in either queue after a Free seat's create", async () => {
+    const res = await create(AUTH_A, valid());
+    expect(res.status).toBe(201);
+    expect(await t.db.select().from(indexnowQueue)).toHaveLength(0);
+    expect(await t.db.select().from(gscRecrawlQueue)).toHaveLength(0);
+  });
+
+  it("buffers an entitled seat's create into both queues", async () => {
+    const entitled: AuthzVariables['auth'] = {
+      ...AUTH_A,
+      entitlementTier: 'verified',
+      entitlement: { status: 'active', periodEnd: null },
+    };
+    const res = await create(entitled, valid());
+    expect(res.status).toBe(201);
+    expect((await t.db.select().from(indexnowQueue)).length).toBeGreaterThan(0);
+    expect((await t.db.select().from(gscRecrawlQueue)).length).toBeGreaterThan(0);
+  });
 });

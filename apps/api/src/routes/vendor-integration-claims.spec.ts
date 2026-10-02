@@ -17,6 +17,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   auditLog,
   connectorEvidencedPairs,
+  gscRecrawlQueue,
+  indexnowQueue,
   integrations,
   productVendors,
   products,
@@ -82,8 +84,11 @@ const entitled = (auth: AuthzVariables['auth']): AuthzVariables['auth'] => ({
 });
 
 let t: TestDb;
+/** Spread over `TEST_ENV` in `call()`; the re-crawl plan gate sets it (AECI-1186). */
+let callEnv: Partial<Env> = {};
 
 beforeEach(async () => {
+  callEnv = {};
   t = await makeTestDb();
   await t.db.insert(vendors).values([
     { id: VENDOR_A, slug: 'autodesk', companyName: 'Autodesk' },
@@ -184,6 +189,7 @@ async function call(
   const send = vi.fn().mockResolvedValue(undefined);
   const env: Env = {
     ...TEST_ENV,
+    ...callEnv,
     CACHE_PURGE_QUEUE: { send } as unknown as Env['CACHE_PURGE_QUEUE'],
   };
   const execCtx = fakeExecutionContext();
@@ -638,5 +644,27 @@ describe('contest routing once claimed (the isIntegrationClaimed stub, replaced)
     expect(routeContest(claimed, 'owner').routedTo).toBe('aeci');
     // An unclaimed row with an owner on file still routes to AECi.
     expect(routeContest(await row(I_THIRD_PARTY), 'listing_url').routedTo).toBe('aeci');
+  });
+});
+
+// AECI-1186: search-engine submission is a Managed-only benefit. A Free seat's
+// claim still commits; it buffers nothing into either re-crawl queue.
+describe('re-crawl plan gate (AECI-1186)', () => {
+  beforeEach(() => {
+    callEnv = { INDEXNOW_KEY: 'test-key', PUBLIC_SITE_URL: 'https://www.aecintegrations.com' };
+  });
+
+  it("leaves no row in either queue after a Free seat's claim", async () => {
+    const res = await claim(AUTH_B, I_MAIN);
+    expect(res.status).toBe(200);
+    expect(await t.db.select().from(indexnowQueue)).toHaveLength(0);
+    expect(await t.db.select().from(gscRecrawlQueue)).toHaveLength(0);
+  });
+
+  it("buffers an entitled seat's claim into both queues", async () => {
+    const res = await claim(entitled(AUTH_B), I_MAIN);
+    expect(res.status).toBe(200);
+    expect((await t.db.select().from(indexnowQueue)).length).toBeGreaterThan(0);
+    expect((await t.db.select().from(gscRecrawlQueue)).length).toBeGreaterThan(0);
   });
 });

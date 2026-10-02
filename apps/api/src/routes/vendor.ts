@@ -132,7 +132,7 @@ import {
   isMaintenanceTransfer,
   maintenanceTransferColumns,
   parseJsonBody,
-  recrawlEnabled,
+  vendorRecrawlEnabled,
   requireOwnedProduct,
   seatsOf,
   sessionVendorId,
@@ -983,7 +983,7 @@ export function createUpdateVendorProfileHandler(
     // `vendor:{slug}` is enough here: a product detail page embeds its vendor and
     // therefore carries this tag (`CACHE_STRATEGY.md` §3 rule 2), so every page
     // showing the vendor repaints.
-    const profileBase = recrawlEnabled(c.env) ? publicSiteBase(c.env) : null;
+    const profileBase = vendorRecrawlEnabled(c) ? publicSiteBase(c.env) : null;
     afterVendorWrite(
       c,
       [`vendor:${after.slug}`],
@@ -1172,12 +1172,12 @@ export function createUpdateVendorProductHandler(
     // The read is folded into the recrawl derivation rather than awaited inline,
     // so a slow or failing count never delays the response. A rejection resolves
     // to "no trade URLs", which is the safe direction.
-    // `recrawlEnabled` is checked BEFORE the read rather than inside the buffer,
-    // so a gated environment pays nothing: `resolvePublishedTradeSlugs` is a
-    // grouped D1 count and running it to feed a buffer that will not be written
-    // is pure waste on every preview and every local request.
+    // `vendorRecrawlEnabled` is checked BEFORE the read rather than inside the
+    // buffer, so a gated environment or a Free seat (AECI-1186) pays nothing:
+    // `resolvePublishedTradeSlugs` is a grouped D1 count and running it to feed a
+    // buffer that will not be written is pure waste.
     const touchedTrades = symmetricDifference(beforeTaxonomy.trades, afterTaxonomy.trades);
-    const productBase = recrawlEnabled(c.env) ? publicSiteBase(c.env) : null;
+    const productBase = vendorRecrawlEnabled(c) ? publicSiteBase(c.env) : null;
     const recrawl = productBase
       ? resolvePublishedTradeSlugs(db, touchedTrades)
           .catch(() => [] as string[])

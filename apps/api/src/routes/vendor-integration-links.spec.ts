@@ -13,6 +13,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
   auditLog,
+  gscRecrawlQueue,
+  indexnowQueue,
   integrations,
   integrationVendorLinks,
   productVendors,
@@ -65,8 +67,11 @@ const AUTH_C = seat(3, VENDOR_C);
 
 const OLD = '2026-01-01T00:00:00.000Z';
 let t: TestDb;
+/** Spread over `TEST_ENV` in `call()`; the re-crawl plan gate sets it (AECI-1186). */
+let callEnv: Partial<Env> = {};
 
 beforeEach(async () => {
+  callEnv = {};
   t = await makeTestDb();
   await t.db.insert(vendors).values([
     { id: VENDOR_A, slug: 'autodesk', companyName: 'Autodesk' },
@@ -140,6 +145,7 @@ async function call(
   const send = vi.fn().mockResolvedValue(undefined);
   const env: Env = {
     ...TEST_ENV,
+    ...callEnv,
     CACHE_PURGE_QUEUE: { send } as unknown as Env['CACHE_PURGE_QUEUE'],
   };
   const execCtx = fakeExecutionContext();
@@ -489,5 +495,38 @@ describe('a retired row takes no link write (AECI-1010)', () => {
     expect(await storedLinks()).toEqual([]);
     expect(await auditRows()).toEqual([]);
     expect((await row(I_MAIN)).maintainedBy).toBe('aeci');
+  });
+});
+
+// AECI-1186: search-engine submission is a Managed-only benefit. A Free seat's
+// link write still commits; it buffers nothing into either re-crawl queue.
+describe('re-crawl plan gate (AECI-1186)', () => {
+  beforeEach(() => {
+    callEnv = { INDEXNOW_KEY: 'test-key', PUBLIC_SITE_URL: 'https://www.aecintegrations.com' };
+  });
+
+  it("leaves no row in either queue after a Free seat's link write", async () => {
+    const res = await put(AUTH_A, I_MAIN, P_SOURCE, 'listing', 'https://autodesk.example/listing');
+    expect(res.status).toBe(200);
+    expect(await t.db.select().from(indexnowQueue)).toHaveLength(0);
+    expect(await t.db.select().from(gscRecrawlQueue)).toHaveLength(0);
+  });
+
+  it("buffers an entitled seat's link write into both queues", async () => {
+    const entitled: AuthzVariables['auth'] = {
+      ...AUTH_A,
+      entitlementTier: 'verified',
+      entitlement: { status: 'active', periodEnd: null },
+    };
+    const res = await put(
+      entitled,
+      I_MAIN,
+      P_SOURCE,
+      'listing',
+      'https://autodesk.example/listing',
+    );
+    expect(res.status).toBe(200);
+    expect((await t.db.select().from(indexnowQueue)).length).toBeGreaterThan(0);
+    expect((await t.db.select().from(gscRecrawlQueue)).length).toBeGreaterThan(0);
   });
 });
