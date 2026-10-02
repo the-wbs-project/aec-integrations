@@ -113,7 +113,7 @@ import {
 } from './routes/slug-redirects';
 import { createSubmitReviewHandler } from './routes/reviews';
 import { createStatsHomeHandler } from './routes/stats';
-import { createLinearWebhookHandler } from './routes/webhooks';
+import { createLinearWebhookHandler, createResendWebhookHandler } from './routes/webhooks';
 import { createTaxonomyHandler } from './routes/taxonomy';
 import { createTaxonomyDetailHandler } from './routes/taxonomy-detail';
 import { createTaxonomyListHandler } from './routes/taxonomy-list';
@@ -378,6 +378,12 @@ phase28.post(
 // blanket POST middleware is ever proposed, this route is the first thing it
 // would silently catch.
 phase28.post('/api/webhooks/linear', createLinearWebhookHandler());
+// Inbound Resend delivery webhook (AECI-1222). Public URL, reached through the SSR `/api/*`
+// passthrough like the Linear route. Auth is the Svix signature verified inside the handler
+// against `RESEND_WEBHOOK_SECRET`; unset → every delivery 401s. Deliberately NOT rate-limited,
+// for the Linear route's reasons: signature-gated, no actor to key on, and Resend retries, so
+// a 429 drops a legitimate event. See `routes/webhooks.ts`.
+phase28.post('/api/webhooks/resend', createResendWebhookHandler());
 
 app.route('/', phase28);
 

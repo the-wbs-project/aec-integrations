@@ -1758,6 +1758,7 @@ The one code change riding along: `apps/api/src/routes/account.ts`'s `db.update(
 | `page_views` | 400 days | `PAGE_VIEWS_RETENTION_DAYS` | AECI-584 |
 | `job_runs` | 90 days | `JOB_RUNS_RETENTION_DAYS` | AECI-584 |
 | `notification_sends` | 400 days | `NOTIFICATION_SENDS_RETENTION_DAYS` | AECI-1202 |
+| `notification_delivery_events` | 400 days | `NOTIFICATION_DELIVERY_EVENTS_RETENTION_DAYS` | AECI-1222 |
 | `user_activity_daily` | 400 days | `USER_ACTIVITY_RETENTION_DAYS` | AECI-1208 |
 | `metrics_daily` | indefinite | none | AECI-581 |
 | `vendor_activity_daily` | indefinite | none | AECI-1210 |
@@ -1766,6 +1767,10 @@ The one code change riding along: `apps/api/src/routes/account.ts`'s `db.update(
 match `page_views`: "what did we send this person last year" is a support question that needs the
 same year-over-year reach. Its rows are small and number tens a day. It is pruned by the same cron,
 under the same four rules, and a snapshot gap stops it with the rest of the run.
+
+`notification_delivery_events` (`DATABASE_SCHEMA.md` §9.9a, AECI-1222) holds Resend's delivery
+events for those sends. It takes the ledger's rule, 400 days, because it describes the same sends
+and a support answer needs both halves. Same cron, same four rules.
 
 `user_activity_daily` is the per-user daily activity log (`DATABASE_SCHEMA.md` §9.11). It keeps
 400 days, about 13 months, which is what the privacy policy promises. Erasure deletes a user's
@@ -1799,9 +1804,9 @@ The window lives in a **config constant**, not a literal, so it can be shortened
 4. **The cutoff is always a UTC midnight.** Whole-day boundaries make the cut window a set of *complete* days, which is what lets rule 2's per-day check be exact and keeps the row counts aligned with the day series §7.1 stores.
 5. **Chunking pages the `id` column, not `created_at`.** `page_views` has no leading-`created_at` index (all five are `(dimension, created_at)`), so a bare `DELETE … WHERE created_at < ?` is a full scan. `id` is `AUTOINCREMENT` and co-monotonic with `created_at`, so each chunk reads ≤500 ids in PK order and emits a `DELETE` bounded by that id range — with `created_at < cutoff` repeated in every statement, so the predicate stays authoritative and a monotonicity violation can only under-delete. The cursor is also the only source of `rowsDeleted`: D1 does not report `meta.changes` usefully for batched writes, and the test harness's `db.batch` shim returns `[]`, so a `DELETE … LIMIT n` chunk could not produce the number rule 4 requires. `DELETE … LIMIT` and long `id IN (…)` lists are avoided for portability rather than because D1 rejects them — local D1 accepts both — and the module header says so explicitly rather than leaving a false claim behind.
 
-The window is `PAGE_VIEWS_RETENTION_DAYS` / `JOB_RUNS_RETENTION_DAYS` / `NOTIFICATION_SENDS_RETENTION_DAYS` / `USER_ACTIVITY_RETENTION_DAYS` in `@aeci/shared`, with like-named optional env overrides per tier (shipped UNSET). An override below **30 days** — D1 Time Travel's horizon — is ignored rather than clamped and logged as `aeci.retention.invalid_window_override`: a typo'd `4` must fall back to the reviewed default, not quietly become the shortest legal window.
+The window is `PAGE_VIEWS_RETENTION_DAYS` / `JOB_RUNS_RETENTION_DAYS` / `NOTIFICATION_SENDS_RETENTION_DAYS` / `NOTIFICATION_DELIVERY_EVENTS_RETENTION_DAYS` / `USER_ACTIVITY_RETENTION_DAYS` in `@aeci/shared`, with like-named optional env overrides per tier (shipped UNSET). An override below **30 days** — D1 Time Travel's horizon — is ignored rather than clamped and logged as `aeci.retention.invalid_window_override`: a typo'd `4` must fall back to the reviewed default, not quietly become the shortest legal window.
 
-This does **not** contradict `STAGE_1_SPEC.md` §26.6 ("no archiving or pruning at launch"), which is scoped to the audit and workflow tables; §7.4 governs `page_views`, `metrics_daily`, `job_runs`, `notification_sends`, `user_activity_daily`, and `vendor_activity_daily` only. The two are cross-referenced so a future reader does not have to re-derive that.
+This does **not** contradict `STAGE_1_SPEC.md` §26.6 ("no archiving or pruning at launch"), which is scoped to the audit and workflow tables; §7.4 governs `page_views`, `metrics_daily`, `job_runs`, `notification_sends`, `notification_delivery_events`, `user_activity_daily`, and `vendor_activity_daily` only. The two are cross-referenced so a future reader does not have to re-derive that.
 
 ### 7.5 Lead-capture indexes — SHIPPED (AECI-586, migration `0014`)
 

@@ -3288,6 +3288,7 @@ create table notification_sends (
 create unique index notification_sends_dedupe_key_idx on notification_sends(dedupe_key);
 create index notification_sends_recipient_idx on notification_sends(recipient_hash, created_at);
 create index notification_sends_notification_idx on notification_sends(notification_id, created_at);
+create index notification_sends_provider_message_idx on notification_sends(provider_message_id); -- AECI-1222
 ```
 
 **`recipient_hash` is a linkable pseudonymous identifier. It is personal data, not anonymous
@@ -3343,13 +3344,78 @@ audit the audit. Every write is a single statement outside any `db.batch`, insid
 try/catch. Every caller already sends inside `waitUntil` or a cron, so the ledger adds no
 latency to a route response.
 
-**Read by** nothing in the app yet. It is an operator query surface: `wrangler d1 execute`
-against the recipient or notification index.
+**Read by** the Resend delivery webhook since AECI-1222, which looks each event's id up on
+`provider_message_id` (that index was added in migration `0059` for it) to join §9.9a. It is
+otherwise an operator query surface: `wrangler d1 execute` against the recipient or
+notification index.
 
 **Retention: 400 days, enforced by retention-prune** (`apps/api/src/lib/retention-prune.ts`),
 on the same whole-UTC-day, chunked-by-`id` mechanism as `page_views` §9.1. A snapshot gap stops
 it too, because the prune aborts the whole run. Window: `NOTIFICATION_SENDS_RETENTION_DAYS` in
 `@aeci/shared`, overridable per tier by the like-named env var. `ADMIN_PANEL_SPEC.md` §7.4.
+
+### 9.9a `notification_delivery_events`
+
+What happened to a send after Resend took it (AECI-1222, migration
+`0059_faithful_shriek.sql`: a pure CREATE TABLE plus three indexes, and one plain CREATE INDEX on
+`notification_sends`. Nothing is recreated). One row per Resend
+delivery event per impacted recipient. The writer is
+`apps/api/src/lib/notifications/delivery-events.ts`, called by `POST /api/webhooks/resend`.
+`docs/email.md` §Delivery webhooks is the governing doc.
+
+```sql
+create table notification_delivery_events (
+  id integer primary key autoincrement,
+  svix_id text not null,              -- the svix-id header; a Resend retry repeats it
+  provider_message_id text not null,  -- Resend data.email_id = notification_sends.provider_message_id
+  event_type text not null,           -- sent | delivered | delivery_delayed | bounced | complained
+  notification_send_id integer,       -- the joined notification_sends.id; null = no ledger row
+  notification_id text not null,      -- registry id; 'supabase-sign-in' for tier auth; 'unknown' when unnamed
+  tier text not null,                 -- the receiving tier's tierLabel(env), or 'auth'
+  recipient_hash text not null,       -- recipientHash() of the impacted address; '' = none named
+  bounce_type text,                   -- data.bounce.type on a bounce (Permanent, Temporary)
+  bounce_subtype text,                -- data.bounce.subType (Suppressed, MessageRejected, …)
+  occurred_at text not null,          -- Resend's created_at for the event
+  created_at text not null
+);
+
+create unique index notification_delivery_events_svix_recipient_idx
+  on notification_delivery_events(svix_id, recipient_hash);
+create index notification_delivery_events_message_idx on notification_delivery_events(provider_message_id);
+create index notification_delivery_events_recipient_idx on notification_delivery_events(recipient_hash, created_at);
+```
+
+**One row per impacted recipient.** Resend's `data.to` lists the recipients an event is about,
+so one event can write several rows. The idempotency index is therefore
+`(svix_id, recipient_hash)`, not `svix_id` alone. A Resend retry repeats the svix id, so its
+`INSERT … ON CONFLICT DO NOTHING` writes nothing.
+
+**The join.** Each row picks the earliest `notification_sends` row with the same
+`provider_message_id` and the same `recipient_hash`. That handles a digest (one Resend id, one
+row per recipient), the operator `COPY:` (one row per operator address) and a retried keyed
+send that got the first send's id back. A recipient with no ledger row, such as a BCC copy, is
+stored with `notification_send_id` NULL. No ledger row is invented.
+
+**No foreign key** to `notification_sends`, on purpose. A log row must outlive its parent, and
+an FK would put this table on the `ON DELETE` path of any future recreate of the ledger
+(`docs/migrations.md` §0). `event_type` has no CHECK, for the ledger's reason: the
+`NotificationDeliveryEventType` union in `schema.ts` is the enforcement.
+
+**Which tier writes what.** Each tier's D1 holds only events tagged with its own tier.
+Production also holds the untagged Supabase sign-in stream as tier `auth`. Every other event is
+dropped and counted, never stored (`docs/email.md` §Delivery webhooks).
+
+**`recipient_hash` is personal data**, exactly as in §9.9: the same unsalted hash, linkable to
+the ledger and to a person.
+
+**No `audit_log` row.** Log-class under ADR 0022, like `notification_sends`. Unlike the
+ledger, a write error is not swallowed: the route answers 500 and Resend retries.
+
+**Read by** nothing in the app yet. Operator query surface, like the ledger.
+
+**Retention: 400 days, the ledger's rule**, enforced by retention-prune on the same mechanism.
+Window: `NOTIFICATION_DELIVERY_EVENTS_RETENTION_DAYS` in `@aeci/shared`, overridable per tier
+by the like-named env var. `ADMIN_PANEL_SPEC.md` §7.4.
 
 ### 9.10 `notification_preferences`
 

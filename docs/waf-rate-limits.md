@@ -464,6 +464,14 @@ from these rules. Read the two exclusions as one decision each, not as a zone-on
   and HMAC-verified (`LINEAR_WEBHOOK_SIGNING_SECRET`). A per-IP limit would drop
   legitimate Linear deliveries/retries once volume rises; the HMAC signature is the
   gate. Leave it unmatched by both the rate-limit rules and the scraper rule.
+- **`POST /api/webhooks/resend`** (AECI-1222) — server-to-server from Resend's Svix senders
+  and signature-verified (`RESEND_WEBHOOK_SECRET`). Same reasoning as the Linear webhook: it
+  has no actor to key on, Svix retries, and a 429 drops a legitimate delivery event. **No new
+  zone rule is needed.** Neither rate-limit rule matches the path, the §2 scraper rule's path
+  list does not include it, and the §2a probe rules match nothing in it. One dependency: §3b's
+  SBFM "Definitely automated" must stay **Allow**, as it already must for CI, or Resend's
+  requests would be challenged. If a flood ever needs a control, a WAF **custom** rule on this
+  path is the tool, not a rate-limit slot.
 
 ---
 
@@ -1324,6 +1332,7 @@ Four properties to hold on to before changing anything:
 | **`POST /api/requests/*`, `/api/subscribe`, `/api/feedback`** | Rule A only | Rule A already covers them, and the only key we hold is a caller-supplied email an adversary rotates for free — a check on every anonymous submit that defeats nobody |
 | **`POST /api/page-views`** | none | §1 "Deliberately not rate-limited". A cap silently truncates the only consent-independent analytics source, and silent data loss is worse than the flood |
 | **`POST /api/webhooks/linear`** | none | HMAC-gated, single egress, and Linear **retries** — a 429 drops a legitimate delivery |
+| **`POST /api/webhooks/resend`** (AECI-1222) | none | Svix-signature-gated, no actor to key on, and Resend **retries** — a 429 drops a delivery event. A bad signature costs one HMAC and a 401 |
 | **`POST /api/promote`, `/api/promote/connector-catalog`** | none | First-party trusted caller, and the connector arm is **paged** — a limiter throttles our own ingest. `REVIEW_APP_PROMOTE_API.md` §6 publishes this to the review app's repo |
 | **every `requireAdmin()` write except the seven below** | none | Hand-granted role with no anonymous path to it, and every write emits an `audit_log` row in the same batch. A limiter would risk 429-ing a moderation burst, which is the legitimate workload |
 | `POST /api/admin/logo`, `PATCH /api/admin/vendors/:id/logo`, `PATCH /api/admin/products/:id/logo` (AECI-955) | `write` (by user) | **The exception to the row above, and the reason is the resource, not the role.** `POST /api/admin/logo` is the only admin write that consumes *unbounded external storage*: it puts bytes in R2 and writes no D1 row, so nothing else bounds it and there is no reference-aware cleanup job yet (ADR 0032). The two PATCHes take the same bucket so an upload→save pair spends from one budget rather than letting the cheap half of the pair run free. 30 / 60 s per admin is ~15 logo saves a minute, well above a human operator and far below a runaway client. The sibling `POST /api/vendor/logo` is limited for the same reason under `requireVendor()` |

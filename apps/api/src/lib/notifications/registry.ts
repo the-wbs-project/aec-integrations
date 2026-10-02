@@ -487,7 +487,7 @@ export const NOTIFICATIONS = {
     optOut: 'none',
     doc: 'docs/email.md §Magic-link sender',
     summary: 'The magic-link or confirm-signup email for anyone who signs in.',
-    note: 'Supabase sends it over the Resend SMTP relay. No app code sends it, so the tier gate cannot stop it.',
+    note: 'Supabase sends it over the Resend SMTP relay. No app code sends it, so the tier gate cannot stop it. It carries no Resend tags. Since AECI-1222 production records its delivery events (tier auth) in notification_delivery_events, matched by subject and sender; no tier records the send itself.',
   },
 
   // ─── Vendor portal feed (`notification.sent` rows, no email) ──────────────

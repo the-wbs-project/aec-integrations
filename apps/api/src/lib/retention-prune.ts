@@ -4,7 +4,8 @@
  *
  * A scheduled job (`../scheduled.ts`, cron `0 3 * * *`) deletes `page_views`
  * older than 400 days, `job_runs` older than 90, `notification_sends` older
- * than 400 (AECI-1202), and `user_activity_daily` days older than 400
+ * than 400 (AECI-1202), `notification_delivery_events` older than 400
+ * (AECI-1222), and `user_activity_daily` days older than 400
  * (AECI-1208). It is the **first scheduled
  * `DELETE` in the system's history**, which is why so much of this file is about
  * refusing to delete rather than deleting.
@@ -90,6 +91,7 @@
 import {
   JOB_RUNS_RETENTION_DAYS,
   MIN_RETENTION_DAYS,
+  NOTIFICATION_DELIVERY_EVENTS_RETENTION_DAYS,
   NOTIFICATION_SENDS_RETENTION_DAYS,
   PAGE_VIEWS_RETENTION_DAYS,
   USER_ACTIVITY_RETENTION_DAYS,
@@ -103,6 +105,7 @@ import type { Db } from '../db/client';
 import {
   jobRuns,
   metricsDaily,
+  notificationDeliveryEvents,
   notificationSends,
   pageViews,
   userActivityDaily,
@@ -148,6 +151,7 @@ export const PRUNABLE = [
   'page_views',
   'job_runs',
   'notification_sends',
+  'notification_delivery_events',
   'user_activity_daily',
 ] as const;
 export type PrunableTable = (typeof PRUNABLE)[number];
@@ -176,6 +180,12 @@ const SOURCES: Record<PrunableTable, PruneSource> = {
     table: notificationSends,
     id: notificationSends.id,
     age: notificationSends.createdAt,
+  },
+  notification_delivery_events: {
+    kind: 'id',
+    table: notificationDeliveryEvents,
+    id: notificationDeliveryEvents.id,
+    age: notificationDeliveryEvents.createdAt,
   },
   user_activity_daily: { kind: 'day', table: userActivityDaily, age: userActivityDaily.day },
 };
@@ -221,6 +231,7 @@ export function resolveRetentionWindows(
     PAGE_VIEWS_RETENTION_DAYS?: string;
     JOB_RUNS_RETENTION_DAYS?: string;
     NOTIFICATION_SENDS_RETENTION_DAYS?: string;
+    NOTIFICATION_DELIVERY_EVENTS_RETENTION_DAYS?: string;
     USER_ACTIVITY_RETENTION_DAYS?: string;
   },
   onInvalid?: (table: PrunableTable, reason: string) => void,
@@ -238,6 +249,11 @@ export function resolveRetentionWindows(
       env.NOTIFICATION_SENDS_RETENTION_DAYS,
       NOTIFICATION_SENDS_RETENTION_DAYS,
       (reason) => onInvalid?.('notification_sends', reason),
+    ),
+    notification_delivery_events: resolveRetentionDays(
+      env.NOTIFICATION_DELIVERY_EVENTS_RETENTION_DAYS,
+      NOTIFICATION_DELIVERY_EVENTS_RETENTION_DAYS,
+      (reason) => onInvalid?.('notification_delivery_events', reason),
     ),
     user_activity_daily: resolveRetentionDays(
       env.USER_ACTIVITY_RETENTION_DAYS,
@@ -473,6 +489,7 @@ export async function runRetentionPrune(
     page_views: cutoffFor(now, windows.page_views),
     job_runs: cutoffFor(now, windows.job_runs),
     notification_sends: cutoffFor(now, windows.notification_sends),
+    notification_delivery_events: cutoffFor(now, windows.notification_delivery_events),
     user_activity_daily: cutoffFor(now, windows.user_activity_daily),
   } as const;
 

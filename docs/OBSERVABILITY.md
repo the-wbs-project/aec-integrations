@@ -271,6 +271,8 @@ than a Worker metric.
 | `aeci.linear.issue.duration_ms` | distribution | `apps/api/src/lib/linear.ts` (`createLinearIssueForRequest`, AECI-211) | `outcome` (ok / failed) |
 | `aeci.webhooks.linear.receipt` | count | `apps/api/src/routes/webhooks.ts` (`createLinearWebhookHandler`, AECI-212 — the inbound `POST /api/webhooks/linear`, emitted after a valid HMAC verify) | `type` (Linear webhook resource, e.g. `Issue`), `action` (`create` / `update` / `remove`) |
 | `aeci.webhooks.linear.hmac_failure` | count | `apps/api/src/routes/webhooks.ts` (`createLinearWebhookHandler`, AECI-212 — emitted before the 401 when `Linear-Signature` is missing/invalid) | — |
+| `aeci.email.delivery` | count | `apps/api/src/routes/webhooks.ts` (`createResendWebhookHandler`, AECI-1222 — the inbound `POST /api/webhooks/resend`, emitted after a valid Svix signature). Value = impacted recipients | `event` (sent / delivered / delivery_delayed / bounced / complained; `other` on an ignored type), `template` (the registry id; `unknown` on every drop and when the event names no registry id; `supabase-sign-in` for the sign-in stream), `tier` (the receiving tier, `auth` for the sign-in stream, or the foreign tier of a drop; anything outside the known labels is `other`), `outcome` (`recorded` / `replay` / `other_tier` / `untagged` / `ignored`). **Never an address or a recipient hash.** One Resend account serves every tier, so `other_tier` is normal: it is the other tiers' mail reaching this endpoint. `untagged` on production means mail Resend sent that neither our code nor the Supabase sign-in match produced. `replay` is a Svix retry of an event already stored. **Alerts (AECI-1222):** `email-bounce-rate` and `email-complaint-rate`, on `outcome:recorded` only. `docs/email.md` §Delivery webhooks |
+| `aeci.webhooks.resend.signature_failure` | count | `apps/api/src/routes/webhooks.ts` (`createResendWebhookHandler`, AECI-1222 — emitted before the 401) | `reason` (`missing_secret` / `bad_secret` / `missing_headers` / `stale` / `mismatch`). A steady `missing_secret` means the tier's `RESEND_WEBHOOK_SECRET` was never pushed while a Resend endpoint points at it. No alert yet |
 | `aeci.linear.sync` | count | `apps/api/src/lib/linear.ts` (`pushRequestResolutionToLinear`, AECI-213 — the site→Linear resolve/reject `ctx.waitUntil` push) | `outcome` (ok / failed / skipped_no_issue), `kind` (claim / correction), `to_status` (resolved / rejected), `reason` on failure (http_error / graphql_error / timeout / network / empty_response / db_error) |
 | `aeci.linear.sync.duration_ms` | distribution | `apps/api/src/lib/linear.ts` (`pushRequestResolutionToLinear`, AECI-213) | `outcome` (ok / failed) |
 | `aeci.linear.reconcile.stuck` | gauge | `apps/api/src/lib/reconciliation-sweep.ts` (`runReconciliationSweep`, AECI-214 — the every-15-min sweep) | — (backlog: count of `open`/unlinked `vendor_requests` older than the stuck threshold; **0 on a clean run**) |
@@ -371,6 +373,7 @@ contributes ≈490 between them.
 | `aeci.waf.ratelimit.blocked` | ~5 `rule` × ~3 `action` × ~3 `host` × 2 `source` | ~90 |
 | `aeci.stats.compute.key` | 2 `trigger` × 12 `home.*` keys × 3 `outcome` | 72 |
 | `aeci.email.send` | 27 `template` ids (25 transactional, 2 digests; AECI-1199, minus five and plus two attestation ids in AECI-1204, minus `claim-submitted-alert-retry` in AECI-1203, plus four protest ids in AECI-1205) × 6 `outcome` (`suppressed` since AECI-1198, non-production only; `duplicate` since AECI-1202, only for a sender that passes a dedupe key; `unknown` since the AECI-1197 review, a timeout or thrown call) | 162 |
+| `aeci.email.delivery` | recorded: ≤29 `template` (27 email ids, `supabase-sign-in`, `unknown`) × 5 `event` × 1 `tier` per project + replays of the same; drops: 5 `event` × ~7 `tier` × 3 `outcome` with `template:unknown` (AECI-1222). Worst case ≈300. Real volume is a few emails a day, so the series that actually appear in a window are far fewer: a template only makes series for the events it gets | ≤300 (worst), ~20 (expected) |
 | `aeci.cache.purge` | consumer (3 × 4) + `/admin/purge` (3 × 3 × 4 `mode`) | ~48 |
 | `aeci.metrics_snapshot.metric` | 20 `metrics_daily` keys × 2 `outcome` | 40 |
 | `aeci.job_runs.write` | 2 `phase` × 9 jobs × 2 `outcome` | 36 |
@@ -380,6 +383,12 @@ contributes ≈490 between them.
 | *(remaining ~50 metrics)* | mostly `outcome` × one dimension | ≈490 |
 | **Steady-state total** | | **≈936** |
 | **During a deploy overlap** | ×2 for `version` | **≈1,872** |
+
+> **AECI-1222 adds `aeci.email.delivery` at ~20 expected series (row above), taking the
+> steady state to ≈956 and the overlap to ≈1,912.** The table's totals are left as AECI-645
+> computed them. The worst case of ≈300 is reachable only if every template bounces, delays
+> and is reported as spam in one window. Drops carry `template:unknown` and a bounded `tier`
+> so another tier's traffic cannot multiply the count.
 
 **≈936 is 94% of the guardrail before any multiplier, and a deploy overlap puts
 us at ~1.8× over it.** That is the finding. Two decisions follow, both taken in
@@ -1167,7 +1176,10 @@ deleted with the rest of the plane at AECI-651.
 > condition AECI-826 was filed over. Re-run `apply.sh` and update these numbers
 > together with `observability/posthog/README.md`.
 >
-> **2026-10-01 (AECI-1206):** the committed set is now 50 insights and 18 alerts. The live
+> **2026-10-02 (AECI-1222):** the committed set is now 52 insights and 20 alerts. The two
+> delivery alerts are committed and NOT applied.
+>
+> **2026-10-01 (AECI-1206):** the committed set was then 50 insights and 18 alerts. The live
 > numbers above are older than that. Production carried 14 alerts on 2026-09-24, and the dated
 > updates in `observability/posthog/README.md` are the latest read.
 
@@ -1204,8 +1216,8 @@ duplicate either here, or the two will drift and the doc will lose.
 |---|---|
 | `observability/posthog/README.md` | The **26-row monitor disposition table** (every Datadog monitor → its new home, with its retired threshold), the AW6 judgement calls, the migration hazards, the drill record, the numbered manual steps and the operator checklist. `docs/RUNBOOKS.md` carries the disposition table as well, for the on-call reader. |
 | `observability/posthog/project-config.json` | Project topology, alert subscribers, and the **cron liveness registry** the CI sweep reads (fifteen watched, `protest-reply-reminder` pending its first production heartbeat). |
-| `observability/posthog/insights.json` | 7 dashboards, 50 insights (32 board + 18 alert-source), as data. Board and tile **names and descriptions are written for the reader** — plain English, no issue ids or metric names; the Datadog lineage lives in a repo-only `notes` field. Convention and the `previousNames` rename mechanism: `observability/posthog/README.md` §"Naming and descriptions". |
-| `observability/posthog/alerts.json` | 18 alerts. Each names its source insight by **stable key** (`insightKey`), not by title, and carries the **retired Datadog query verbatim**. Five have no Datadog predecessor: `indexnow-failure-rate` (AECI-826), `profile-ensure-failed` (AECI-1099), and the three email alerts `email-failure-rate`, `email-volume-spike` and `email-suppressed-in-production` (AECI-1206). |
+| `observability/posthog/insights.json` | 7 dashboards, 52 insights (32 board + 20 alert-source), as data. Board and tile **names and descriptions are written for the reader** — plain English, no issue ids or metric names; the Datadog lineage lives in a repo-only `notes` field. Convention and the `previousNames` rename mechanism: `observability/posthog/README.md` §"Naming and descriptions". |
+| `observability/posthog/alerts.json` | 20 alerts. Each names its source insight by **stable key** (`insightKey`), not by title, and carries the **retired Datadog query verbatim**. Five have no Datadog predecessor: `indexnow-failure-rate` (AECI-826), `profile-ensure-failed` (AECI-1099), the three email alerts `email-failure-rate`, `email-volume-spike` and `email-suppressed-in-production` (AECI-1206), and the two delivery alerts `email-bounce-rate` and `email-complaint-rate` (AECI-1222, not yet applied). Seven in all. |
 | `observability/posthog/apply.sh` | The applier. `--dry-run` / `--verify`; dashboards + insights to **both** projects, alerts to **prod only**. |
 
 **Every insight is a HogQL query over `posthog.metrics`** (or, for the two re-homed
@@ -1266,7 +1278,7 @@ Two alert sets, only one of which is armed on production.
 |---|---|---|
 | Count | **26**, all applied and live | **18** committed, 14 live: 13 cover 16 of those 26, and 5 are net-new (AECI-826, AECI-1099, three in AECI-1206) |
 | Applied to | production (and `env`-scoped where relevant) | **non-production dashboards only**; alerts are prod-only and unapplied pending the `phx_` key |
-| Cadence | 5 min – 1 day, per monitor | **hourly**, except three **daily** alerts with a 24 h or longer window: `indexnow-failure-rate` (since 2026-09-24), `email-failure-rate` and `email-volume-spike` (AECI-1206) (`every_15_minutes` needs the Boost add-on; `real_time` needs Scale/Enterprise) |
+| Cadence | 5 min – 1 day, per monitor | **hourly**, except three **daily** alerts with a 24 h or longer window: `indexnow-failure-rate` (since 2026-09-24), `email-failure-rate` and `email-volume-spike` (AECI-1206), `email-bounce-rate` and `email-complaint-rate` (AECI-1222, 7-day window) (`every_15_minutes` needs the Boost add-on; `real_time` needs Scale/Enterprise) |
 | Absence detection | `notify_no_data`, 8 monitors | **none** — moved out of the vendor entirely, to the CI liveness sweep |
 | Delivery | email to `@chrisw@thewbsproject.com` | email `subscribed_users`, today `chrisw@thewbsproject.com`. A recipient must be a PostHog organization member. No Slack/webhook wired — deliberate; AECi has no Slack |
 | Pages today? | **Yes** | No |
@@ -1287,6 +1299,15 @@ daily maximum of 2 and an hourly maximum of 1. The full basis is in each entry's
 | `email-failure-rate` | `(failed + unknown) / (sent + failed + unknown)` | 24 h, daily | over 20%, and only once 2 or more sends failed or were unknown |
 | `email-volume-spike` | `sent + failed + unknown` | 24 h, daily | more than 50 |
 | `email-suppressed-in-production` | `suppressed` | 1 h, hourly | more than 0 |
+| `email-bounce-rate` | `aeci.email.delivery` `bounced / sent`, `outcome:recorded` | 7 days, daily | over 5%, and only once 2 or more bounced |
+| `email-complaint-rate` | `aeci.email.delivery` `complained / sent`, `outcome:recorded` | 7 days, daily | over 0.1%, and only once 1 or more complained |
+
+**The two delivery alerts (AECI-1222) have INITIAL thresholds, set before any delivery data
+existed.** Re-tune both from the first 14 days of production data. Until then, at a few emails
+a day, the complaint alert fires on any complaint and the bounce alert on a second bounce in a
+week. Their source is the Resend delivery webhook (`docs/email.md` §Delivery webhooks), so they
+count the sign-in email (tier `auth`) as well. Drops, replays and ignored types count toward
+neither. Both are committed and not applied: `apply.sh` is run by hand.
 
 `skipped` and `duplicate` count toward none of them, because neither made a Resend call.
 `unknown` (AECI-1197 review) counts as a failure: the call timed out or threw, so it did not

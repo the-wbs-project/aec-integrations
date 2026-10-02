@@ -25,7 +25,7 @@
  * good registry in place (visibly stale via `fetched_at`).
  * 03:00 UTC — daily §7.4 retention prune (`./lib/retention-prune`, AECI-584 /
  * Phase 8.3 P3.2): delete `page_views` older than 400 days, `job_runs` older
- * than 90 and `notification_sends` older than 400 (AECI-1202), in bounded chunks, committing every chunk together with ONE summary
+ * than 90, and `notification_sends` (AECI-1202) and `notification_delivery_events` (AECI-1222) older than 400, in bounded chunks, committing every chunk together with ONE summary
  * `audit_log` row (the ADR 0022 exception — the only cron here that audits).
  * Runs after the 00:15 snapshot, and *verifies* rather than assumes it landed:
  * a day inside the cut window with no `metrics_daily` row aborts the whole run.

@@ -152,6 +152,9 @@ jobs:
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           ANTHROPIC_API_KEY_PRODUCTION: ${{ secrets.ANTHROPIC_API_KEY_PRODUCTION }}
           RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+          # AECI-1222: per-tier Svix secret for the Resend delivery webhook. Mapped so the
+          # VALUE check is real (same must-be-mapped rule as above).
+          RESEND_WEBHOOK_SECRET_DEMO: ${{ secrets.RESEND_WEBHOOK_SECRET_DEMO }}
           # AECI-640: POSTHOG_KEY_PRODUCTION is no longer mapped or checked — the
           # publishable `phc_` token is a committed `vars.POSTHOG_PROJECT_KEY`
           # entry in wrangler.jsonc, and demo now points at the NON-prod PostHog
@@ -184,7 +187,7 @@ jobs:
           # seams on the API Worker — recommended, never REQUIRED, because every seam
           # degrades rather than failing closed. CF_PURGE_API_TOKEN is absent by
           # design (WC-10 / AECI-324 retired the zone HTTP purge transport).
-          RECOMMENDED_SECRETS: 'CF_ACCESS_CLIENT_ID CF_ACCESS_CLIENT_SECRET REVIEW_APP_TOKEN ALGOLIA_APP_ID ALGOLIA_ADMIN_KEY ALGOLIA_SEARCH_KEY SUPABASE_ANON_KEY SUPABASE_SERVICE_ROLE_KEY ANTHROPIC_API_KEY_PRODUCTION RESEND_API_KEY ADMIN_PURGE_TOKEN CF_ZONE_ID CF_ANALYTICS_API_TOKEN POSTHOG_QUERY_API_KEY_NONPROD POSTHOG_PROJECT_ID_NONPROD PEERINGDB_API_KEY'
+          RECOMMENDED_SECRETS: 'CF_ACCESS_CLIENT_ID CF_ACCESS_CLIENT_SECRET REVIEW_APP_TOKEN ALGOLIA_APP_ID ALGOLIA_ADMIN_KEY ALGOLIA_SEARCH_KEY SUPABASE_ANON_KEY SUPABASE_SERVICE_ROLE_KEY ANTHROPIC_API_KEY_PRODUCTION RESEND_API_KEY ADMIN_PURGE_TOKEN CF_ZONE_ID CF_ANALYTICS_API_TOKEN POSTHOG_QUERY_API_KEY_NONPROD POSTHOG_PROJECT_ID_NONPROD PEERINGDB_API_KEY RESEND_WEBHOOK_SECRET_DEMO'
         run: bash scripts/require-secrets.sh
 
       # Assert STAGING (the immediate upstream tier) is at the SHA on BOTH the API
@@ -360,6 +363,28 @@ jobs:
           fi
           printf '%s' "$ANTHROPIC_API_KEY_VALUE" \
             | pnpm exec wrangler secret put ANTHROPIC_API_KEY --env demo
+
+      # AECI-1222: push the Resend delivery-webhook signing secret. Each tier registers its
+      # OWN endpoint in the Resend dashboard and each endpoint has its own Svix secret, so
+      # the GH secret is suffixed per tier and lands on the Worker as RESEND_WEBHOOK_SECRET.
+      # Recommended + warn-and-skip: POST /api/webhooks/resend fails CLOSED without it (every
+      # delivery 401s and counts aeci.webhooks.resend.signature_failure), so its absence is
+      # loud, and a tier whose endpoint is not registered yet must not block a deploy.
+      # API Worker only. Previews never get it.
+      - name: Push RESEND_WEBHOOK_SECRET to API Worker (demo)
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          RESEND_WEBHOOK_SECRET_VALUE: ${{ secrets.RESEND_WEBHOOK_SECRET_DEMO }}
+        working-directory: apps/api
+        run: |
+          set -euo pipefail
+          if [ -z "$RESEND_WEBHOOK_SECRET_VALUE" ]; then
+            echo "::warning::RESEND_WEBHOOK_SECRET_DEMO not set — skipping. The Resend delivery webhook rejects every event on demo (401) until it is provisioned."
+            exit 0
+          fi
+          printf '%s' "$RESEND_WEBHOOK_SECRET_VALUE" \
+            | pnpm exec wrangler secret put RESEND_WEBHOOK_SECRET --env demo
 
       # Push RESEND_API_KEY (shared, fail-open) for transactional email.
       - name: Push RESEND_API_KEY to API Worker (demo)

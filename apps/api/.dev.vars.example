@@ -144,6 +144,18 @@ LINEAR_API_KEY=
 #   printf '%s' "$BODY" | openssl dgst -sha256 -hmac "$SECRET"   # → Linear-Signature
 LINEAR_WEBHOOK_SIGNING_SECRET=
 
+# ─── Resend delivery webhook signing (AECI-1222) ───────────────────────────
+# Svix signing secret (whsec_<base64>) for the inbound Resend delivery webhook
+# (POST /api/webhooks/resend). Each tier's endpoint in the Resend dashboard has
+# its own secret. CI pushes RESEND_WEBHOOK_SECRET_{STAGING,DEMO,PRODUCTION} as
+# this one name. Absent → every event is rejected 401 (fail-closed). Locally,
+# use any whsec_ value of your own and sign requests the Svix way:
+#   base64(HMAC-SHA256(key = base64-decoded part after whsec_,
+#                      data = "<svix-id>.<svix-timestamp>.<raw body>"))
+# sent as `svix-signature: v1,<that>` beside svix-id and svix-timestamp.
+# Local D1 only: no Resend endpoint ever points at a local Worker.
+RESEND_WEBHOOK_SECRET=
+
 # ─── Cloudflare zone id (AECI-262 WAF poll) ────────────────────────────────
 # CF_ZONE_ID is the zone id for aecintegrations.com. Public value — set as a
 # Wrangler secret/var in deployed envs (staging + production):

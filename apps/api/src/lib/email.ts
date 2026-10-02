@@ -63,6 +63,11 @@
  * tagger that adds `utm_source=email`, `utm_campaign=<template>` and `n=<row id>` to every
  * site URL the template passes through `link`. See `lib/notifications/link-tag.ts` and
  * `docs/email.md` §Link tagging.
+ * **Resend tags (AECI-1222).** Every Resend call, on both layers and the operator copy,
+ * carries `tags` `tier` (`tierLabel(env)`) and `notification_id` (the registry id), built by
+ * `lib/notifications/resend-tags.ts`. One Resend account serves every tier, so the delivery
+ * webhook (`POST /api/webhooks/resend`) uses them to keep only its own tier's events and to
+ * name the template. A BCC copy rides the same message, so it carries the same tags.
  */
 
 import {
@@ -99,6 +104,7 @@ import {
   type TransactionalEmailId,
 } from './notifications/registry';
 import { createLinkTagger, type LinkTagger } from './notifications/link-tag';
+import { resendTags } from './notifications/resend-tags';
 import {
   finalizeSend,
   ledgerDb,
@@ -280,6 +286,7 @@ export async function sendTransactionalEmail(
       text: content.text,
       ...(content.html ? { html: content.html } : {}),
       ...(input.headers ? { headers: input.headers } : {}),
+      tags: resendTags(c.env, input.template),
     });
 
   // Render now, after the reserve, so every site link carries this send's ledger row
@@ -412,6 +419,7 @@ async function sendOperatorCopy(
           subject: tierSubject(c.env, `COPY: ${input.subject}`),
           text: content.text,
           ...(content.html ? { html: content.html } : {}),
+          tags: resendTags(c.env, notification),
         }),
         signal: AbortSignal.timeout(TIMEOUT_MS),
       });
@@ -2420,6 +2428,7 @@ export async function sendEmail(
         subject: tierSubject(env, message.subject),
         text: message.text,
         ...(message.html ? { html: message.html } : {}),
+        tags: resendTags(env, message.notification),
       }),
     });
     if (!res.ok) {

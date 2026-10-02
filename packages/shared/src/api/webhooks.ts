@@ -1,8 +1,8 @@
 import { z } from 'zod';
 
 /**
- * Inbound webhook contracts (AECI-212 / Phase 6.5). Currently just Linear, the
- * Linear → Site half of the bidirectional moderation sync (`STAGE_1_SPEC.md`
+ * Inbound webhook contracts. Linear (AECI-212 / Phase 6.5) and, since AECI-1222, the
+ * Resend delivery webhook at the end of this file. Linear is the Linear → Site half of the bidirectional moderation sync (`STAGE_1_SPEC.md`
  * §26.4, `STAGE_1_PHASE_6_SPEC.md` §6.3). The companion outbound direction
  * (Site → Linear, 6.6) calls the Linear GraphQL API and needs no schema here.
  *
@@ -74,3 +74,56 @@ export const LinearWebhookSchema = z.object({
   webhookTimestamp: z.number(),
 });
 export type LinearWebhook = z.infer<typeof LinearWebhookSchema>;
+
+// ─── Resend delivery webhook (AECI-1222) ─────────────────────────────────────
+
+/**
+ * The Resend event types the delivery webhook records. Opens and clicks are deliberately
+ * absent: Apple Mail and corporate link scanners fire them on their own, and they are
+ * tracking data (ruling 2026-10-02). Any other type is acknowledged and ignored.
+ */
+export const RESEND_DELIVERY_EVENT_TYPES = [
+  'email.sent',
+  'email.delivered',
+  'email.delivery_delayed',
+  'email.bounced',
+  'email.complained',
+] as const;
+export type ResendDeliveryEventType = (typeof RESEND_DELIVERY_EVENT_TYPES)[number];
+
+/**
+ * Resend's webhook envelope, the slice the recorder reads. Field names from Resend's
+ * per-event pages (`https://resend.com/docs/webhooks/emails/*`, read 2026-10-02):
+ * `{ type, created_at, data: { email_id, from, to[], subject, tags, bounce? } }`.
+ *
+ * Tolerant like `LinearWebhookSchema`: unknown keys are stripped, not rejected. `tags` is an
+ * object of `name → value` in the documented payload. An array of `{ name, value }` (the send
+ * API's shape) is accepted too, so a format change cannot silently untag every event.
+ * `data` is optional at the top level because a non-email event type may carry another shape.
+ * The route checks the type before it reads `data`.
+ */
+export const ResendWebhookSchema = z.object({
+  type: z.string(),
+  created_at: z.string(),
+  data: z
+    .object({
+      email_id: z.string().min(1),
+      from: z.string().optional(),
+      to: z.array(z.string()).optional(),
+      subject: z.string().optional(),
+      tags: z
+        .union([
+          z.record(z.string(), z.string()),
+          z.array(z.object({ name: z.string(), value: z.string() })),
+        ])
+        .optional(),
+      bounce: z
+        .object({
+          type: z.string().optional(),
+          subType: z.string().optional(),
+        })
+        .optional(),
+    })
+    .optional(),
+});
+export type ResendWebhook = z.infer<typeof ResendWebhookSchema>;

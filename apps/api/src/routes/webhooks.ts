@@ -1,7 +1,9 @@
 /**
- * Inbound webhook endpoints (AECI-212 / Phase 6.5).
+ * Inbound webhook endpoints.
  *
- *   POST /api/webhooks/linear   — Linear → Site moderation sync.
+ *   POST /api/webhooks/linear   — Linear → Site moderation sync (AECI-212 / Phase 6.5).
+ *   POST /api/webhooks/resend   — Resend delivery events (AECI-1222). See
+ *                                 `createResendWebhookHandler` at the end of this file.
  *
  * This is the inbound half of the bidirectional Linear↔Supabase sync
  * (`STAGE_1_SPEC.md` §26.4, `STAGE_1_PHASE_6_SPEC.md` §6.3). When an admin moves
@@ -32,7 +34,12 @@
  * status change is one atomic `db.batch` (ADR 0016 / AECI-253, AECI-249).
  */
 
-import { ApiErrorCode, LinearWebhookSchema, type LinearWebhook } from '@aeci/shared';
+import {
+  ApiErrorCode,
+  LinearWebhookSchema,
+  ResendWebhookSchema,
+  type LinearWebhook,
+} from '@aeci/shared';
 import { type AuditLogEntry } from '@aeci/shared/audit-log';
 import { type WorkflowTransitionEntry } from '@aeci/shared/workflow-transition';
 import { and, eq, inArray } from 'drizzle-orm';
@@ -41,7 +48,7 @@ import type { Context } from 'hono';
 import { getDb } from '../db/client';
 import { forwardAuditBatch } from '../lib/moderation-forward';
 import { vendorRequests, workflowInstances } from '../db/schema';
-import { submitCount } from '../posthog';
+import { logToPosthog, submitCount } from '../posthog';
 import type { Env } from '../env';
 import { ApiError } from '../errors';
 import { json } from '../http';
@@ -53,6 +60,16 @@ import {
 } from '../lib/audit';
 import { writeDb, type DbFactory } from '../lib/handler-utils';
 import { verifyLinearSignature } from '../lib/linear-webhook-auth';
+import {
+  classifyEvent,
+  isHandledEventType,
+  isRegistryId,
+  metricTier,
+  recordDeliveryEvent,
+  shortEventType,
+  UNKNOWN_NOTIFICATION,
+} from '../lib/notifications/delivery-events';
+import { verifySvixSignature } from '../lib/resend-webhook-auth';
 
 // ─── Status mapping ───────────────────────────────────────────────────────────
 
@@ -220,4 +237,149 @@ export function createLinearWebhookHandler(
 
     return ack(true, `${currentStatus}→${targetStatus}`);
   };
+}
+
+// ─── Resend delivery webhook (AECI-1222) ─────────────────────────────────────
+
+/** The delivery metric. One count per impacted recipient, never an address or a hash. */
+export const EMAIL_DELIVERY_METRIC = 'aeci.email.delivery';
+
+/** A rejected signature, tagged with the reason. */
+export const RESEND_SIGNATURE_FAILURE_METRIC = 'aeci.webhooks.resend.signature_failure';
+
+type DeliveryOutcome = 'recorded' | 'replay' | 'other_tier' | 'untagged' | 'ignored';
+
+/**
+ * `POST /api/webhooks/resend`: record Resend's delivery events (`docs/email.md` §Delivery
+ * webhooks, `API_CONTRACTS.md` §6.11).
+ *
+ * 1. Read the raw body once and verify the Svix signature (`lib/resend-webhook-auth.ts`).
+ *    Any failure, including an unset `RESEND_WEBHOOK_SECRET`, is a 401 before the body is
+ *    parsed, and counts `aeci.webhooks.resend.signature_failure{reason}`. An unset secret
+ *    also warns, because it rejects every delivery.
+ * 2. Parse and validate. Malformed JSON or a schema miss is a 400.
+ * 3. Only the five delivery types are recorded. Any other type, opens and clicks included,
+ *    is a 200 with nothing stored.
+ * 4. Keep only this tier's events (`classifyEvent`), then join and insert
+ *    (`recordDeliveryEvent`). A replayed `svix-id` inserts nothing and answers 200.
+ * 5. Count `aeci.email.delivery` tagged `event`, `template`, `tier`, `outcome`.
+ *
+ * Log-class: no `audit_log` row, no cache purge (nothing it writes renders on a page), and no
+ * in-Worker rate limit (no actor to key on, and Resend retries a 429).
+ */
+export function createResendWebhookHandler(
+  dbFor: DbFactory = getDb,
+): (c: Context<{ Bindings: Env }>) => Promise<Response> {
+  return async (c) => {
+    const rawBody = await c.req.text();
+
+    const verified = await verifySvixSignature({
+      id: c.req.header('svix-id'),
+      timestamp: c.req.header('svix-timestamp'),
+      signature: c.req.header('svix-signature'),
+      rawBody,
+      secret: c.env.RESEND_WEBHOOK_SECRET,
+    });
+    if (!verified.ok) {
+      count(c, RESEND_SIGNATURE_FAILURE_METRIC, 1, [`reason:${verified.reason}`]);
+      if (verified.reason === 'missing_secret' || verified.reason === 'bad_secret') {
+        try {
+          logToPosthog(c.executionCtx, c.env, c.req.raw, {
+            level: 'warn',
+            source: 'resend-webhook',
+            message: `RESEND_WEBHOOK_SECRET is ${
+              verified.reason === 'missing_secret' ? 'not set' : 'not a whsec_ base64 value'
+            }: every Resend delivery event is rejected`,
+          });
+        } catch {
+          // Telemetry must never change the response.
+        }
+      }
+      throw new ApiError(401, ApiErrorCode.UNAUTHENTICATED, 'Invalid Resend webhook signature');
+    }
+    const svixId = c.req.header('svix-id')!;
+
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(rawBody);
+    } catch {
+      throw new ApiError(400, ApiErrorCode.MALFORMED_REQUEST, 'Request body is not valid JSON');
+    }
+    const payload = ResendWebhookSchema.parse(parsed);
+
+    if (!isHandledEventType(payload.type) || !payload.data) {
+      delivery(c, 1, 'other', UNKNOWN_NOTIFICATION, 'other', 'ignored');
+      return resendAck(0, `ignored event type: ${payload.type}`);
+    }
+    const event = shortEventType(payload.type);
+    const recipients = Math.max(payload.data.to?.length ?? 0, 1);
+
+    const classification = classifyEvent(c.env, payload.data);
+    if (classification.kind === 'drop') {
+      // The template stays `unknown` on a drop, so a foreign tag can never add a series.
+      delivery(
+        c,
+        recipients,
+        event,
+        UNKNOWN_NOTIFICATION,
+        metricTier(classification.tier),
+        classification.reason,
+      );
+      return resendAck(0, classification.reason);
+    }
+
+    const { db } = writeDb(c, dbFor);
+    const result = await recordDeliveryEvent(db, {
+      svixId,
+      eventType: payload.type,
+      occurredAt: payload.created_at,
+      data: payload.data,
+      classification,
+    });
+
+    const tier = metricTier(classification.tier);
+    for (const [notificationId, n] of result.insertedByNotification) {
+      delivery(c, n, event, templateTag(notificationId), tier, 'recorded');
+    }
+    const replayed = result.attempted - result.inserted;
+    if (replayed > 0) {
+      delivery(c, replayed, event, templateTag(result.firstNotificationId), tier, 'replay');
+    }
+    return resendAck(result.inserted, result.inserted === 0 ? 'replay' : 'recorded');
+  };
+}
+
+/** A registry id, or `unknown`. Keeps the `template` tag on the registry's vocabulary. */
+function templateTag(notificationId: string): string {
+  return isRegistryId(notificationId) ? notificationId : UNKNOWN_NOTIFICATION;
+}
+
+function resendAck(recorded: number, reason: string): Response {
+  return json({ ok: true, recorded, reason }, { status: 200 });
+}
+
+function delivery(
+  c: Context<{ Bindings: Env }>,
+  value: number,
+  event: string,
+  template: string,
+  tier: string,
+  outcome: DeliveryOutcome,
+): void {
+  count(c, EMAIL_DELIVERY_METRIC, value, [
+    `event:${event}`,
+    `template:${template}`,
+    `tier:${tier}`,
+    `outcome:${outcome}`,
+  ]);
+}
+
+/** `submitCount`, wrapped so telemetry can never turn an acknowledged event into a 500
+ *  (which would make Resend retry an event already stored). */
+function count(c: Context<{ Bindings: Env }>, name: string, value: number, tags: string[]): void {
+  try {
+    submitCount(c.executionCtx, c.env, c.req.raw, name, value, tags);
+  } catch {
+    // Telemetry must never change the response.
+  }
 }

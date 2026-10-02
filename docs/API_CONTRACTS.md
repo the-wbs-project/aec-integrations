@@ -4927,6 +4927,51 @@ export const LinearWebhookSchema = z.object({
 
 Worker writes corresponding `workflow_transitions` entries (see `STAGE_1_SPEC.md` §26).
 
+#### `POST /api/webhooks/resend` (AECI-1222)
+
+Receives Resend's delivery events and records them in `notification_delivery_events`
+(`DATABASE_SCHEMA.md` §9.9a). Governing doc: `docs/email.md` §Delivery webhooks. Public URL,
+reached through the SSR `/api/*` passthrough like the Linear webhook. No session, no in-Worker
+rate limit, no `audit_log` row (log-class, ADR 0022), no cache purge.
+
+**Auth: the Svix signature.** Headers `svix-id`, `svix-timestamp` (unix seconds) and
+`svix-signature` (space-separated `v1,<base64>`). The Worker computes HMAC-SHA256 over
+`{svix-id}.{svix-timestamp}.{raw body}` with the base64-decoded part of
+`RESEND_WEBHOOK_SECRET` after `whsec_`, and accepts when any `v1` entry matches (constant-time).
+A timestamp more than 5 minutes from the Worker clock is rejected. Verified before parsing.
+
+```typescript
+// packages/shared/src/api/webhooks.ts. Tolerant: unknown keys are stripped.
+export const ResendWebhookSchema = z.object({
+  type: z.string(),                      // 'email.delivered', 'email.bounced', …
+  created_at: z.string(),
+  data: z.object({
+    email_id: z.string().min(1),         // = notification_sends.provider_message_id
+    from: z.string().optional(),
+    to: z.array(z.string()).optional(),  // the impacted recipients
+    subject: z.string().optional(),
+    tags: z.union([
+      z.record(z.string(), z.string()),  // documented shape: { tier, notification_id }
+      z.array(z.object({ name: z.string(), value: z.string() })),
+    ]).optional(),
+    bounce: z.object({ type: z.string().optional(), subType: z.string().optional() }).optional(),
+  }).optional(),
+});
+```
+
+| Case | Status | Body |
+|---|---|---|
+| Missing or bad signature, stale timestamp, unset secret | `401 UNAUTHENTICATED` | error envelope |
+| Signed body that is not JSON, or fails the schema | `400 MALFORMED_REQUEST` / `VALIDATION_FAILED` | error envelope |
+| Type other than `email.sent` / `delivered` / `delivery_delayed` / `bounced` / `complained` | `200` | `{ ok: true, recorded: 0, reason: 'ignored event type: …' }` |
+| Tagged for another tier, or untagged and not this tier's to record | `200` | `{ ok: true, recorded: 0, reason: 'other_tier' \| 'untagged' }` |
+| Recorded | `200` | `{ ok: true, recorded: <rows>, reason: 'recorded' }` |
+| Replayed `svix-id` | `200` | `{ ok: true, recorded: 0, reason: 'replay' }` |
+| D1 error | `500` | error envelope. Resend retries |
+
+A drop or a replay is a 2xx on purpose: a non-2xx makes Resend retry an event that will never
+be stored.
+
 ### 6.12 Promotion (review-app push)
 
 #### `POST /api/promote` → `202` + `GET /api/promote/jobs/:id`
