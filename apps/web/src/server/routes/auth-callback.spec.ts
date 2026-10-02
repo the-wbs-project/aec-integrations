@@ -20,6 +20,7 @@ import {
   normalizeAuthMethod,
   PROFILE_ENSURE_ATTEMPTS,
   sanitizeReturnPath,
+  signInReturnPath,
   type AuthCallbackDeps,
 } from './auth-callback';
 
@@ -77,6 +78,32 @@ describe('sanitizeReturnPath', () => {
     ['evil.com/x', 'no leading slash'],
   ])('collapses %s (%s) to /', (raw) => {
     expect(sanitizeReturnPath(raw)).toBe('/');
+  });
+});
+
+describe('signInReturnPath (AECI-1208)', () => {
+  const u = (s: string) => new URL(s, 'https://www.aecintegrations.com');
+
+  it('keeps the pathname alone when there is no arrival param', () => {
+    expect(signInReturnPath(u('/vendor/acme'))).toBe('/vendor/acme');
+  });
+
+  it('carries the allowlisted arrival params and drops every other param', () => {
+    expect(
+      signInReturnPath(
+        u('/vendor/acme?tab=x&utm_source=email&token=secret&utm_campaign=seat_invite&n=42'),
+      ),
+    ).toBe('/vendor/acme?utm_source=email&utm_campaign=seat_invite&n=42');
+  });
+
+  it('drops an invalid n or an oversized value rather than carrying it', () => {
+    expect(signInReturnPath(u(`/admin?n=evil&utm_source=${'a'.repeat(101)}`))).toBe('/admin');
+  });
+
+  it('stays same-origin: a path that would read as scheme-relative collapses to /', () => {
+    expect(
+      signInReturnPath(u('https://www.aecintegrations.com//evil.com/x?utm_source=email')),
+    ).toBe('/');
   });
 });
 
@@ -157,6 +184,27 @@ describe('createAuthCallbackHandler', () => {
       method: 'POST',
       headers: { Authorization: 'Bearer jwt-abc' },
     });
+  });
+
+  it('carries the arrival params in return through to the final redirect (AECI-1208)', async () => {
+    const { request } = makeHarness({});
+    const back = '/vendor/acme?utm_source=email&utm_campaign=seat_invite&n=42';
+    const res = await request(
+      `?code=pkce-123&method=magic_link&return=${encodeURIComponent(back)}`,
+    );
+    expect(res.status).toBe(303);
+    expect(res.headers.get('Location')).toBe(back);
+  });
+
+  it('keeps the arrival params on the error bounce back to /auth/login (AECI-1208)', async () => {
+    const { request } = makeHarness({
+      exchange: () => ({ data: { session: null }, error: { message: 'expired' } }),
+    });
+    const back = '/vendor?utm_source=email&n=7';
+    const res = await request(`?code=stale&return=${encodeURIComponent(back)}`);
+    expect(res.headers.get('Location')).toBe(
+      `/auth/login?error=link_invalid&return=${encodeURIComponent(back)}`,
+    );
   });
 
   it('defaults the redirect to / when return is absent', async () => {

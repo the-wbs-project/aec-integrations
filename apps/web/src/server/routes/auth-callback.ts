@@ -38,6 +38,7 @@
  * session was created but its profile could not be, AECI-770).
  */
 
+import { arrivalQueryString } from '@aeci/shared';
 import type { Context } from 'hono';
 
 import type { WebEnv } from '../../env';
@@ -67,6 +68,21 @@ export function sanitizeReturnPath(raw: string | null | undefined): string {
   if (!raw || !raw.startsWith('/')) return '/';
   if (raw.startsWith('//') || raw.startsWith('/\\')) return '/';
   return raw;
+}
+
+/**
+ * The `?return=` value for a signed-out visitor the SSR Worker bounces to
+ * `/auth/login` (AECI-1208). The pathname, plus the landing URL's arrival params
+ * (`utm_source`, `utm_campaign`, `n`) and nothing else, narrowed by
+ * {@link sanitizeReturnPath}. Every other query param is dropped, exactly as it
+ * was before the arrival params were carried.
+ *
+ * The login page and `/auth/callback` already keep a query string inside
+ * `return`, so the params reach the final redirect, where the browser's
+ * `ArrivalCaptureService` reports them once the visitor is signed in.
+ */
+export function signInReturnPath(url: URL): string {
+  return sanitizeReturnPath(url.pathname + arrivalQueryString(url.search));
 }
 
 const NO_STORE = 'private, no-store';

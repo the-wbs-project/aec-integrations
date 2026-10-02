@@ -2,6 +2,7 @@ import { Component, inject } from '@angular/core';
 import { RouterOutlet } from '@angular/router';
 
 import { ConsentBanner } from './analytics/consent-banner';
+import { ArrivalCaptureService } from './core/arrival-capture.service';
 import { InitialFragmentScroller } from './core/initial-fragment-scroller';
 import { PageViewTracker } from './core/page-view-tracker';
 import { ScrollBehaviorManager } from './core/scroll-behavior-manager';
@@ -31,6 +32,7 @@ export class App {
   private readonly pageViews = inject(PageViewTracker);
   private readonly scrollBehavior = inject(ScrollBehaviorManager);
   private readonly initialFragmentScroller = inject(InitialFragmentScroller);
+  private readonly arrivalCapture = inject(ArrivalCaptureService);
 
   constructor() {
     // AECI-151 — count in-app (client-side) navigations as page-views. The SSR
@@ -48,5 +50,10 @@ export class App {
     // the initial hydration navigation, and `scrollRestoration: 'manual'` disables
     // the browser's native fragment scroll. No-op on the server. See the manager.
     this.initialFragmentScroller.start();
+
+    // AECI-1208 — report the landing URL's `utm_source` / `utm_campaign` / `n`
+    // once the visitor is signed in, for the daily activity row. Browser-only,
+    // no storage, once per app instance. No-op on the server.
+    this.arrivalCapture.start();
   }
 }

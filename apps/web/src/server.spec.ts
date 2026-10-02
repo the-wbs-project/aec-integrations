@@ -2387,6 +2387,23 @@ describe('createApp review-route auth gate (AECI-200)', () => {
     expect(res.headers.get('cache-control')).toBe('private, no-store');
   });
 
+  it('carries the arrival params on the review and account bounce too (AECI-1208)', async () => {
+    const { binding } = recordingApiBinding();
+    const app = createApp({
+      ssrRenderer: fixedRenderer(new Response('SSR shouldn’t run for a logged-out visitor')),
+    });
+
+    const req = new Request('https://www.aecintegrations.com/account?ref=x&utm_source=email', {
+      headers: { cookie: 'theme=dark' },
+    });
+    const res = await app.fetch(req, binding as unknown as Bindings, fakeExecutionContext());
+
+    expect(res.status).toBe(303);
+    expect(res.headers.get('location')).toBe(
+      `/auth/login?return=${encodeURIComponent('/account?utm_source=email')}`,
+    );
+  });
+
   it('falls through to SSR when a session cookie is present', async () => {
     const { binding } = recordingApiBinding();
     const app = createApp({ ssrRenderer: fixedRenderer(new Response('SSR-OK', { status: 200 })) });
@@ -2526,6 +2543,24 @@ describe('createApp vendor-portal anon gate + cacheability (AECI-520)', () => {
     expect(res.status).toBe(303);
     expect(res.headers.get('location')).toBe('/auth/login?return=%2Fvendor');
     expect(res.headers.get('cache-control')).toBe('private, no-store');
+  });
+
+  it('carries the arrival params, and only those, through the bounce (AECI-1208)', async () => {
+    const { binding } = recordingApiBinding();
+    const app = createApp({
+      ssrRenderer: fixedRenderer(new Response('SSR shouldn’t run for a logged-out visitor')),
+    });
+
+    const req = new Request(
+      'https://www.aecintegrations.com/vendor/acme?utm_source=email&utm_campaign=seat_invite&n=42&tab=x&token=t',
+      { headers: { cookie: 'theme=dark' } },
+    );
+    const res = await app.fetch(req, binding as unknown as Bindings, fakeExecutionContext());
+
+    expect(res.status).toBe(303);
+    expect(res.headers.get('location')).toBe(
+      `/auth/login?return=${encodeURIComponent('/vendor/acme?utm_source=email&utm_campaign=seat_invite&n=42')}`,
+    );
   });
 
   it('falls through to SSR when a session cookie is present (role check is the resolver’s)', async () => {

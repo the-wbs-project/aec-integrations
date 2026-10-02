@@ -38,6 +38,10 @@ describe('safeReturnPath', () => {
     ['/products/procore', 'nested path'],
     ['/products/x?y=1#z', 'path with query and fragment'],
     ['/search?q=revit%20worksharing', 'encoded query'],
+    [
+      '/vendor/acme?utm_source=email&utm_campaign=seat_invite&n=42',
+      'arrival params carried by the sign-in bounce (AECI-1208)',
+    ],
     ['/categories/estimating-takeoff', 'hyphenated slug'],
   ])('preserves %s (%s)', (raw, _label) => {
     expect(safeReturnPath(raw)).toBe(raw);
