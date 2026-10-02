@@ -175,7 +175,9 @@ describe('MethodologyPage', () => {
       const planList = Array.from(host.querySelectorAll('li'))
         .map((li) => li.textContent?.trim() ?? '')
         .filter((line) =>
-          /^(which other product details a vendor may edit|whether (a vendor|the)|how far back)/.test(line),
+          /^(which other product details a vendor may edit|whether (a vendor|the)|how far back)/.test(
+            line,
+          ),
         );
       expect(planList).toHaveLength(4);
       expect(planList.join(' ')).not.toMatch(/claim an integration|contest/i);
