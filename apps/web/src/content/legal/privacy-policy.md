@@ -2,7 +2,7 @@
 title: Privacy Policy
 version: 1.0
 effective_date:
-last_updated: 17 September 2026
+last_updated: 2 October 2026
 counsel_approved_by: pending sign-off
 counsel_approved_on: pending sign-off
 linear_issue: AECI-308
@@ -22,6 +22,7 @@ We collect only what we need to run the service:
 - **Contact details you give us**: for example the email address you provide to join the waitlist, send feedback, submit a review, or report a correction. Reviews and requests may include any additional information you choose to enter.
 - **Review and request content**: the text, ratings, and optional metadata you submit (such as your role, years of use, and your firm), together with limited technical context (such as a timestamp) used for moderation and anti-abuse. The optional firm you give is used only in aggregate (a count of distinct firms that have reviewed) and is not shown on your published review; it is removed if you delete your account.
 - **Usage and analytics data**: pages viewed, approximate location derived from IP, device and browser type, and similar event data, collected through privacy-respecting product analytics to understand how the service is used. This is the part of our measurement that depends on your consent.
+- **Signed-in activity**: When you are signed in, we keep a record of the days you use AECi, which parts of the site you use, and how you arrived. We use it to run and improve the service. We do not sell it or use it for advertising.
 - **Operational telemetry**: anonymous error reports and page-performance measurements, used only to keep the service reliable and secure. This data carries no account identifier, no advertising identifier, and no identifier we can link back to you across visits. See "Do Not Track, Global Privacy Control, and operational telemetry" below.
 
 We do **not** sell your personal data, and we do not use it for third-party advertising.
@@ -63,6 +64,8 @@ We use a small number of strictly necessary cookies to make the service work, an
 
 We honour the **Do Not Track (DNT)** and **Global Privacy Control (GPC)** browser signals as an opt-out of **product analytics**. If your browser sends either signal, we do not show you the consent banner, we do not record pageviews or product events for you, and we do not store any analytics identifier in your browser. That decision cannot be overridden by a previously stored choice.
 
+**Signed-in activity.** This record is not affected by your cookie choice or by browser privacy signals, because it is part of running your signed-in account.
+
 A narrow slice of **operational telemetry** runs for every visitor, whether or not you have consented and whether or not you send DNT or GPC. It is limited to two things: **error reports**, so we learn that a page failed, and **performance measurements**, so we learn that a page was slow. We treat this as strictly necessary to operating the service securely and reliably, and it is scoped to match:
 
 - it carries **no identifiers** of any kind, and nothing that links one visit to another;
@@ -85,6 +88,7 @@ We keep personal data only as long as we need it for the purposes above:
 
 - **Waitlist and feedback emails**: until you ask us to remove them or they are no longer needed.
 - **Published reviews and requests**: for as long as the content remains published, plus a limited period for audit and abuse-prevention.
+- **Signed-in activity**: We keep the record of the days you use AECi for about 13 months, then delete it. We delete it sooner if you delete your account.
 - **Analytics and monitoring data**: for a limited retention window in line with the relevant provider's settings, after which it is deleted or aggregated.
 
 ## Your rights
