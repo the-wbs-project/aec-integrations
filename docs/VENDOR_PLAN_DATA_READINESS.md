@@ -195,11 +195,12 @@ Four indirect couplings need a ruling:
 
 1. **Paid vendors can raise their own ranking input.** `listing_tier` ranks on description,
    website, logo and categories. Only plan holders can edit those themselves today. A free vendor
-   must file a correction and wait. **Resolved by ruling 2026-10-01:** these four fields become
-   editable on every plan (AECI-1214).
+   must file a correction and wait. **Resolved 2026-10-01 by AECI-1212, built in AECI-1214:** these
+   four fields become editable on every plan. Spec: `STAGE_2_PAID_TIERS_SPEC.md` §13.4.
 2. **Only paid vendors can create vendor agreement.** Attestation needs `attestation.author`. The
    public pair page shows whether both vendors agree. So the "both vendors agree" trust state is
-   reachable only by paying vendors. **Ruled 2026-10-01:** this stays a Managed feature.
+   reachable only by paying vendors. **Ruled 2026-10-01 in AECI-1212:** this stays a Managed
+   feature. Spec: `STAGE_2_PAID_TIERS_SPEC.md` §13.1.
 3. **Public version-diff depth depends on payment.** It opens when either endpoint vendor holds a
    plan (`lib/pair-version-diff.ts:76-114`). It is disclosed on `/methodology`. Per-product plans
    must re-key it to the endpoint product.

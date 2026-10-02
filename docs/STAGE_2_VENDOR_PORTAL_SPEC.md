@@ -2422,6 +2422,56 @@ Two field changes share one mechanism: the portal's field lists stop being the s
 
 **As built (AECI-1154, AECI-1155 server side).** Migration `0052_sticky_gamma_corps.sql` is the two plain `ADD COLUMN`s, and `src/test/migration-0052.spec.ts` is its tripwire. The lists are in `packages/shared/src/api/integration-contests.ts` (`INTEGRATION_OFFERED_CONTEST_FIELDS`, `EVIDENCED_PAIR_OFFERED_CONTEST_FIELDS`, `PORTAL_WITHDRAWN_FIELDS`) and `integration-edits.ts` (`INTEGRATION_EDIT_ONLY_FIELDS`, `INTEGRATION_EDIT_MAX_LENGTH`, `INTEGRATION_EDIT_URL_FIELDS`). The API maps edit fields to columns through `EDIT_FIELD_COLUMNS` (`apps/api/src/lib/integration-contests.ts`), not the contest map, so an old contest on `website` still decides through `CONTEST_FIELD_COLUMNS`. A promote cross-table move carries `pricing_url` across (`REVIEW_APP_PROMOTE_API.md` §4b). The pair read returns it as `mechanisms[].pricing_url`. **The "Price" fact does not link yet**: AECI-1142's "At a glance" row is now in, and it renders `pricing_model` only. `products-pair.ts` does not read `pricing_url`, and the portal tooltip (`@@vendor.im.tip.pricingUrl.public`) says the link is not live. Rendering it is a UI follow-up. The §6.14 and §6.15 edit forms offer the new list and the pricing page, compile-level only; the page's own editors are the UI build's.
 
+### 6.18 Free plan surfaces (AECI-1212)
+
+**Status: specified 2026-10-01 by AECI-1213. Not built.** AECI-1218 builds the portal UI. AECI-1219 writes the help page. The rules behind every surface below are in `STAGE_2_PAID_TIERS_SPEC.md` §13. This section names what the portal shows. It does not restate those rules.
+
+**Design reference.** The mockup is `docs/design/mockups/free-plan-portal/`. Open `free-plan-portal.html` in a browser. The numbered screenshots beside it show Free, Managed, Pilot ended and Mixed. It is a design reference, not a contract. Where it and this section disagree, this section wins.
+
+**Where product screens read the plan.** Product screens read `product.plan` through `productCan(product, cap)`. They never read `me().entitlement`. `STAGE_2_PAID_TIERS_SPEC.md` §13.7 defines the field and the helper. Until per-product plans exist, every product carries the vendor's plan. So no screen changes when they land.
+
+#### Vendor overview
+
+- One line summarizes the plan. Decision 2 allows nothing more at vendor level.
+- The vendor checklist sits below it. Its three steps are in `STAGE_2_PAID_TIERS_SPEC.md` §13.10. "Invite a colleague" is marked optional.
+
+#### Products list
+
+- Each row shows a plan badge and a checklist score.
+- A Free product reads "3 of 3" when done. A Managed product reads "x of 4".
+
+#### Product overview and profile
+
+- Each product page has its own plan panel and its own checklist.
+- The checklist offers "Looks right" on product details and on the integration list. The vendor's company details carry their own "Looks right". The routes are in `STAGE_2_PAID_TIERS_SPEC.md` §13.8.
+- On a Free product the "Confirm data flows" step shows but is marked optional. It does not count toward the score.
+
+#### Locked Managed-only fields
+
+Decision 4 names the fields that stay Managed-only. On a Free product they stay visible.
+
+- Each locked field is `readonly`, not `disabled`. `disabled` drops the value from the accessibility tree. `STAGE_2_PAID_TIERS_SPEC.md` §8.1 made the same choice for the lapsed forms.
+- Each locked field shows a visible reason, for example that it is part of Managed.
+- The reason is tied to the field with `aria-describedby`, so a screen reader reads it.
+- The server refuses a locked field whatever the markup does. `STAGE_2_PAID_TIERS_SPEC.md` §13.3 gives the gate.
+
+#### Pilot-ended banner
+
+- The banner shows when the entitlement `status` is `expired` or `revoked`. It never shows for a vendor that never had a plan. `STAGE_2_PAID_TIERS_SPEC.md` §13.11 gives the rule.
+- It is calm and not dismissible. It gives the end date from `ended_at`.
+- It lists what still works and what went read-only. It says "nothing you entered was removed".
+
+#### Copy every plan panel carries
+
+Every plan panel carries decision 10's line, word for word:
+
+> "No plan changes where you rank or appear, whether a review is published, or what we verify."
+
+#### What the portal offers
+
+- Managed shows a draft price label.
+- Nothing beyond Managed is shown. That is decision 9.
+
 ---
 
 ## 7. Moderation escalation — ban gate (AECI-524)
