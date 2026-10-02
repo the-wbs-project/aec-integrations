@@ -42,6 +42,7 @@ import type { VendorMeResponse } from '@aeci/shared';
 
 import { VendorPortalAnnouncer } from './vendor-announcer';
 import { VendorApi } from './vendor-api';
+import { VENDOR_REVIEWS_FIXTURE } from './vendor-review-fixtures';
 import {
   VENDOR_ME_CONNECTOR_SEAT_FIXTURE,
   VENDOR_ME_DOWNGRADED_FIXTURE,
@@ -136,6 +137,10 @@ beforeEach(() => {
                 ),
               ),
             ),
+          // AECI-1179: the Reviews tab's read and the overview's unanswered counts.
+          // Empty by default, so the all-clear cases stay clear; the Reviews cases
+          // swap in the fixture.
+          listReviews: vi.fn().mockResolvedValue({ data: [], page: 1, perPage: 10, total: 0 }),
         } as Partial<VendorApi>,
       },
       // Root-provided here where the real surface scopes it to `VendorPage`; the
@@ -244,6 +249,7 @@ describe('VendorDashboardTabbed — the routed section nav', () => {
       'Audiences',
       'Phases',
       'Integrations',
+      'Reviews',
     ]);
     expect(navLink(harness, 'Integrations').getAttribute('aria-current')).toBe('page');
   });
@@ -714,6 +720,7 @@ describe('VendorDashboardTabbed — the context-aware header (§6.11)', () => {
       'Audiences',
       'Phases',
       'Integrations',
+      'Reviews',
     ]);
     // No second heading inside the product page.
     expect(el.querySelector('aec-vendor-products-page > h2')).toBeNull();
@@ -944,6 +951,7 @@ describe('VendorDashboardTabbed — the connector catalogue seat (AECI-1083)', (
       'Audiences',
       'Phases',
       'Integrations',
+      'Reviews',
       'Catalogue',
     ]);
     expect(navLink(harness, 'Catalogue').getAttribute('href')).toBe(
@@ -989,5 +997,42 @@ describe('VendorDashboardTabbed — the connector catalogue seat (AECI-1083)', (
     const link = root(harness).querySelector('[data-catalogue-link]');
     expect(link?.textContent?.trim()).toBe('Open the Agave catalogue');
     expect(link?.getAttribute('href')).toBe(`/vendor/${seatSlug}/products/agave/catalogue`);
+  });
+});
+
+describe('VendorDashboardTabbed — the Reviews tab (AECI-1179)', () => {
+  beforeEach(() => {
+    const api = TestBed.inject(VendorApi) as unknown as { listReviews: ReturnType<typeof vi.fn> };
+    api.listReviews.mockImplementation((f: { productId?: string; replyStatus?: string | null }) => {
+      const data = VENDOR_REVIEWS_FIXTURE.filter(
+        (i) =>
+          (!f.productId || i.product.id === f.productId) &&
+          (!f.replyStatus || (i.response?.status ?? 'none') === f.replyStatus),
+      );
+      return Promise.resolve({ data, page: 1, perPage: 10, total: data.length });
+    });
+  });
+
+  it('routes a product Reviews tab to the reviews list for that product', async () => {
+    const harness = await open('products/summit-model-coordination/reviews');
+    await flush();
+    harness.detectChanges();
+    await flush();
+    harness.detectChanges();
+    const el = root(harness);
+    expect(el.querySelector('aec-vendor-reviews-list')).not.toBeNull();
+    expect(navLink(harness, 'Reviews').getAttribute('aria-current')).toBe('page');
+    expect(el.querySelectorAll('[data-review]').length).toBeGreaterThan(0);
+  });
+
+  it('lists unanswered reviews per product on the overview', async () => {
+    const harness = await open();
+    await flush();
+    harness.detectChanges();
+    await flush();
+    harness.detectChanges();
+    const text = root(harness).textContent ?? '';
+    expect(text).toContain('2 reviews of Summit Field Issues have no reply from you');
+    expect(text).toContain('A review of Summit Model Coordination has no reply from you');
   });
 });

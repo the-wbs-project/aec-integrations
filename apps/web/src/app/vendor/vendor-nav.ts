@@ -87,6 +87,8 @@ export const VENDOR_PRODUCT_NAV_ITEMS: readonly VendorNavItem[] = [
   { path: 'audiences', label: $localize`:@@vendor.productNav.audiences:Audiences` },
   { path: 'phases', label: $localize`:@@vendor.productNav.phases:Phases` },
   { path: 'integrations', label: $localize`:@@vendor.productNav.integrations:Integrations` },
+  // AECI-1179 (§11c.16): every product, every plan. A Free product reads its reviews too.
+  { path: 'reviews', label: $localize`:@@vendor.productNav.reviews:Reviews` },
   {
     path: 'catalogue',
     label: $localize`:@@vendor.productNav.catalogue:Catalogue`,

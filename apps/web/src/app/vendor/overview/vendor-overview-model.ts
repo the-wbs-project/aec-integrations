@@ -178,6 +178,8 @@ export type NeedsItemLink =
     }
   | { readonly kind: 'productProfile'; readonly productSlug: string }
   | { readonly kind: 'productCategories'; readonly productSlug: string }
+  /** A product's Reviews tab (AECI-1179, §11c.16). */
+  | { readonly kind: 'productReviews'; readonly productSlug: string }
   | { readonly kind: 'products' }
   | { readonly kind: 'profile' }
   | { readonly kind: 'messages' }
@@ -237,6 +239,21 @@ export type NeedsItem =
       readonly link: NeedsItemLink;
     }
   | {
+      /** Approved reviews of one product with no reply from this vendor
+       *  (AECI-1179, `STAGE_2_VENDOR_PORTAL_SPEC.md` §11c.16). */
+      readonly type: 'reviews';
+      readonly key: string;
+      readonly product: ProductClaimCount['product'];
+      readonly count: number;
+      readonly link: NeedsItemLink;
+    }
+  | {
+      readonly type: 'reviewsMore';
+      readonly key: string;
+      readonly products: number;
+      readonly link: NeedsItemLink;
+    }
+  | {
       readonly type: 'productGaps';
       readonly key: string;
       readonly product: VendorProduct;
@@ -280,6 +297,12 @@ export interface NeedsInput {
   /** `counterpart_added_unanswered` off the integrations read (AECI-1153). `0`
    *  until the read lands, and when omitted. */
   readonly counterpartAddedUnanswered?: number;
+  /**
+   * Per product, the approved reviews with no reply from this vendor (AECI-1179).
+   * The caller lists only products whose plan holds `review.reply`, because a row
+   * the vendor cannot act on is a nag. Omitted or empty until the reads land.
+   */
+  readonly reviewsToAnswer?: readonly ProductClaimCount[];
   /** The `attestation.author` capability, the gate the Integrations tab uses
    *  (AECI-623). */
   readonly canAttest: boolean;
@@ -395,6 +418,31 @@ export function buildNeedsItems(input: NeedsInput): NeedsList {
         link: { kind: 'products' },
       });
     }
+  }
+
+  // AECI-1179: one row per product with unanswered reviews, most first. Not paused
+  // by the edit gates above: `review.reply` is its own capability, and the caller
+  // already dropped every product without it.
+  const reviews = (input.reviewsToAnswer ?? [])
+    .filter((r) => r.count > 0)
+    .slice()
+    .sort((a, b) => b.count - a.count);
+  for (const row of reviews.slice(0, PRODUCT_ROW_CAP)) {
+    worthDoing.push({
+      type: 'reviews',
+      key: `reviews:${row.product.id}`,
+      product: row.product,
+      count: row.count,
+      link: { kind: 'productReviews', productSlug: row.product.slug },
+    });
+  }
+  if (reviews.length > PRODUCT_ROW_CAP) {
+    worthDoing.push({
+      type: 'reviewsMore',
+      key: 'reviews:more',
+      products: reviews.length - PRODUCT_ROW_CAP,
+      link: { kind: 'products' },
+    });
   }
 
   if (input.canEditProducts) {
@@ -541,6 +589,8 @@ export function linkCommands(link: NeedsItemLink): readonly string[] {
       return ['..', 'products', link.productSlug, 'profile'];
     case 'productCategories':
       return ['..', 'products', link.productSlug, 'categories'];
+    case 'productReviews':
+      return ['..', 'products', link.productSlug, 'reviews'];
     case 'products':
       return ['..', 'products'];
     case 'profile':
