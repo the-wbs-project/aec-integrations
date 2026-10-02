@@ -1231,7 +1231,7 @@ Errors: `NOT_FOUND` (unknown product slug — distinct from a known product with
 
 **Maintenance marker (AECI-616 / `STAGE_2_ATTESTATIONS_SPEC.md` §13).** `GET /api/products/:slug` and `GET /api/vendors/:slug` both carry a `maintenance: { maintained_by, last_reviewed_at }` object (the `MaintenanceSchema` above), feeding the `aec-maintenance-marker` chip in each page header. Detail-only — the marker never renders on a card, so `ProductListItem` / `VendorListItem` do not carry it. `last_reviewed_at` is `null` on almost every record and that renders bare attribution with no date; it is **never** derived from `updated_at` / `created_at` / `promoted_at`, and no migration backfills it.
 
-**Since AECI-981 the `'vendor'` branch is reachable on both** (`STAGE_2_ATTESTATIONS_SPEC.md` §13.9). Every vendor-authorized catalog write — `PATCH /api/vendor/profile`, `PATCH /api/vendor/products/:id`, and the three `/api/vendor/products/:id/versions` writes — sets `maintained_by = 'vendor'` and stamps `last_reviewed_at` on the row it writes. Per row and never transitive: a product edit does not flip the vendor. Neither the write endpoints' own request schemas nor their responses carry the field — the transfer is derived server-side, the way promote refuses `maintainedBy` — so `VendorAccountSchema` / `VendorProductSchema` are unchanged and the marker's data still reaches readers only through the two detail responses above.
+**Since AECI-981 the `'vendor'` branch is reachable on both** (`STAGE_2_ATTESTATIONS_SPEC.md` §13.9). Every vendor-authorized catalog write — `PATCH /api/vendor/profile`, `PATCH /api/vendor/products/:id`, and the three `/api/vendor/products/:id/versions` writes — sets `maintained_by = 'vendor'` and stamps `last_reviewed_at` on the row it writes. Since AECI-1216 the company and product "Looks right" routes (`POST /api/vendor/profile/review`, `POST /api/vendor/products/:id/review`, §6.14) do the same with no content edit. Their responses echo the new `last_reviewed_at`, so the portal can show it without a refetch. Per row and never transitive: a product edit does not flip the vendor. Neither the edit endpoints' own request schemas nor their responses carry the field — the transfer is derived server-side, the way promote refuses `maintainedBy` — so `VendorAccountSchema` / `VendorProductSchema` are unchanged and the marker's data still reaches readers only through the two detail responses above.
 
 **`ProductDetail` reviews embed (§5.4–§5.5).** `GET /api/products/:slug` additionally carries:
 
@@ -5232,7 +5232,7 @@ export const UnsubscribeSubmitSchema = z.object({ token: z.string().trim().min(1
 
 Stage 2 (AECI-520). All require `role === 'vendor_admin'` **and** a non-null `profiles.vendor_id`, enforced by the `requireVendor()` Worker middleware (`apps/api/src/lib/authz.ts`) — verifies the JWT, loads the D1 profile, and rejects in this order: missing token/profile `401`; `banned_at` set `403`; wrong role `403`; null `vendor_id` `403`. A site **`admin` is rejected too** — there is no impersonation at launch, admins act on vendor data through `/api/admin/*` so the audit trail names the real actor.
 
-Source of truth: `packages/shared/src/api/vendor.ts` + `product-versions.ts` + `vendor-attestations.ts` + `vendor-connectors.ts` + `vendor-notifications.ts` + `vendor-updates.ts` + `integration-contests.ts` + `integration-claims.ts` + `integration-edits.ts` (Zod), `apps/api/src/routes/vendor.ts` + `vendor-product-versions.ts` + `vendor-attestations.ts` + `vendor-connectors.ts` + `vendor-notifications.ts` + `vendor-data-objects.ts` + `vendor-updates.ts` + `vendor-contests.ts` + `vendor-integration-claims.ts` + `vendor-integration-edits.ts` (handlers), with the shared guard + scoping-predicate seam in `apps/api/src/routes/vendor-shared.ts` and the two-slot authority seam in `apps/api/src/lib/attestation-authority.ts`; `STAGE_2_VENDOR_PORTAL_SPEC.md` §4, `STAGE_2_ATTESTATIONS_SPEC.md` §5 / §7.2 / §8.3, and `STAGE_2_REALTIME_SPEC.md` §2.
+Source of truth: `packages/shared/src/api/vendor.ts` + `product-versions.ts` + `vendor-attestations.ts` + `vendor-connectors.ts` + `vendor-notifications.ts` + `vendor-updates.ts` + `integration-contests.ts` + `integration-claims.ts` + `integration-edits.ts` (Zod), `apps/api/src/routes/vendor.ts` + `vendor-product-versions.ts` + `vendor-attestations.ts` + `vendor-connectors.ts` + `vendor-notifications.ts` + `vendor-data-objects.ts` + `vendor-updates.ts` + `vendor-contests.ts` + `vendor-integration-claims.ts` + `vendor-integration-edits.ts` + `vendor-review.ts` (handlers), with the shared guard + scoping-predicate seam in `apps/api/src/routes/vendor-shared.ts` and the two-slot authority seam in `apps/api/src/lib/attestation-authority.ts`; `STAGE_2_VENDOR_PORTAL_SPEC.md` §4, `STAGE_2_ATTESTATIONS_SPEC.md` §5 / §7.2 / §8.3, and `STAGE_2_REALTIME_SPEC.md` §2.
 
 **Two invariants govern this whole surface.**
 
@@ -5244,6 +5244,8 @@ Source of truth: `packages/shared/src/api/vendor.ts` + `product-versions.ts` + `
    **Named exception: integration field contests (AECI-1008).** The four contest endpoints below need a seat and nothing else. A contest asks for a public fact to be fixed and writes nothing public by itself, and gating accuracy behind a paid tier is the pay-for-placement line from the other side. The owner accept does write the catalog, and it is still not capability-gated, because the owner is deciding someone else's request about a row it already maintains. `STAGE_2_VENDOR_PORTAL_SPEC.md` §11b.2 holds the reasoning.
 
    **Second named exception: integration ownership (AECI-1005, AECI-1003 decision 15).** `POST /api/vendor/integrations/:id/claim` needs a seat and nothing else (except on a connector-powered row, below), and so does `PATCH /api/vendor/integrations/:id` (AECI-1006), and so do the later owner writes on integrations (AECI-1010 retire and restore, AECI-1011 create). The per-side link writes (AECI-1007, below) are seat-gated the same way; they need an endpoint, not ownership. Who gets a seat is the commercial control (decision 14: an owner pays); there is no `integration.edit` capability. `STAGE_2_VENDOR_PORTAL_SPEC.md` §4.5 holds the contract. **One exception inside the exception (AECI-1040 ruling 2, AECI-1089):** an owner write on a connector-powered row also needs an active entitlement, and answers `403 INTEGRATION_ENTITLEMENT_REQUIRED` without one. It is not a capability and compares no tier (`apps/api/src/lib/integration-entitlement.ts`). Built for the claim and the edit (AECI-1090) and the contest decision (AECI-1092); retire reuses it when it opens.
+
+   **Third named exception: "Looks right" (AECI-1216).** The three review routes below need a seat and nothing else, on every plan (`STAGE_2_PAID_TIERS_SPEC.md` §13.1 decision 7). They record a review and change no content.
 
 Every editable field is `.nullable().optional()`: an **absent** key leaves the column untouched, an explicit **`null`** clears it. Taxonomy arrays are set-replacement — absent leaves the facet alone, `[]` clears it. URLs must be `http://` or `https://` (§7.1); a plain `.url()` would accept `javascript:`.
 
@@ -5638,6 +5640,42 @@ Two consequences that do **not** follow the sibling pattern:
 - **The picker is unfiltered by the publication floor.** `GET /api/taxonomy → trades` returns every seeded term; the floor gates the SEO surfaces, not tagging. Hiding a sub-floor trade from the picker would make it permanently unreachable, since a vendor tagging it is precisely how it reaches the floor.
 
 Errors: `NOT_FOUND` (unknown id **or** a product owned by another vendor — deliberately indistinguishable), `VALIDATION_FAILED` (empty body, unknown taxonomy slug, malformed URL/slug), `MALFORMED_REQUEST`, `ENTITLEMENT_REQUIRED` (403 — the tier lacks `product.edit`, or lacks `product.taxonomy.edit` when the body carries any facet array, or lacks a specific field's capability via `details.fields`), `RATE_LIMITED` (429 — AECI-773 `write` burst cap, `Retry-After: 60`; this write purges cache tags post-commit, so an unbounded loop here is an edge-cache purge loop). **`ENTITLEMENT_REQUIRED` is raised only after ownership settles**, so a non-owner still gets the flat 404.
+
+#### "Looks right": `POST /api/vendor/profile/review`, `POST /api/vendor/products/:id/review`, `POST /api/vendor/products/:id/integrations/review`
+
+Stage 2.1 (AECI-1216, `STAGE_2_PAID_TIERS_SPEC.md` §13.8 and §13.9). Each records "checked, nothing to change". The two edit schemas above refuse an empty body, so these are the only way to stamp a review with no content edit. Zod in `packages/shared/src/api/vendor.ts`, handlers in `apps/api/src/routes/vendor-review.ts`.
+
+| Route | Gate | Writes | Audit action | Purge tags |
+|---|---|---|---|---|
+| `POST /api/vendor/profile/review` | `requireVendor()` → `rateLimit('write')` | `vendors.maintained_by = 'vendor'`, `last_reviewed_at = now` | `vendor.reviewed` | `vendor:{slug}` |
+| `POST /api/vendor/products/:id/review` | as above, then ownership (404) | the same two columns on `products` | `product.reviewed` | `product:{slug}`, `index:products` |
+| `POST /api/vendor/products/:id/integrations/review` | as above, then ownership (404) | `products.integrations_reviewed_at = now`, and `last_reviewed_at = now` on the §13.9 rows | `product.integrations_reviewed` | `product:{slug}` and `integration:{id}` per stamped row |
+
+```typescript
+export const ReviewVendorRecordSchema = z.object({}).strict(); // the body: {} or no body at all
+
+export const ReviewVendorProfileResponseSchema = z.object({
+  last_reviewed_at: z.string().datetime(),
+});
+export const ReviewVendorProductResponseSchema = z.object({
+  product_id: z.string().uuid(),
+  last_reviewed_at: z.string().datetime(),
+});
+export const ReviewVendorProductIntegrationsResponseSchema = z.object({
+  product_id: z.string().uuid(),
+  integrations_reviewed_at: z.string().datetime(),
+  stamped_count: z.number().int().min(0), // integrations + connector_evidenced_pairs rows
+});
+```
+
+- **Seat-only, on every plan.** No `requireCapability`, so no `ENTITLEMENT_REQUIRED`. A Free seat and a Managed seat get the same answer.
+- **The body is `.strict()`.** The edit schemas strip unknown keys. This one refuses them, so an edit posted here by mistake is a `400` rather than a review stamp that drops the edit.
+- **Company and product transfer maintenance exactly as an edit does** (`STAGE_2_ATTESTATIONS_SPEC.md` §13.9). The audit row's before/after is the maintenance pair, because that pair is the whole change. `metadata` carries `source: 'vendor-portal'`, `vendorId`, `reason: 'looks-right'`, and `maintenanceTransfer: true` only on the save that changes hands.
+- **The integration-list route stamps only rows the caller already maintains.** A row qualifies when it is live, touches the product (as either endpoint, or as the connector), has `built_by_vendor_id` = the caller, and has `maintained_by = 'vendor'`. It never writes `maintained_by`. One set-based `UPDATE` per table. One audit row keyed to the product, with the stamped ids in `metadata.integrationIds` and `metadata.evidencedPairIds`. Zero qualifying rows is a normal `200`: the product column is still stamped.
+- **No re-crawl.** No content changed, so nothing is queued for IndexNow or Google.
+- **Cursor.** Each write moves `updated_at` on the rows it stamps, so the `profile`, `products` and `integrations` scopes of `GET /api/vendor/updates` move with it.
+
+Errors: `NOT_FOUND` (the two product routes: unknown product, or another vendor's, deliberately indistinguishable, and raised before the body is read), `VALIDATION_FAILED` (a body carrying any key), `MALFORMED_REQUEST` (a body that is not JSON), `RATE_LIMITED` (429, the `write` bucket, `Retry-After: 60`), plus the §6.14 guard errors.
 
 #### `GET /api/vendor/products/:id/connectors`
 

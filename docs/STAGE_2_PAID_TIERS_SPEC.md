@@ -990,6 +990,18 @@ The third route stamps only rows this vendor already maintains.
 
 That column is the epic's only migration. It is an additive `ADD COLUMN` with no table recreate. `docs/migrations.md` §0 says why a recreate is unsafe.
 
+#### As built (AECI-1216 — 2026-10-02)
+
+The three routes are in `apps/api/src/routes/vendor-review.ts`. The migration is `0053_blushing_crystal.sql`, one `ALTER TABLE products ADD COLUMN`. The wire contract is `API_CONTRACTS.md` §6.14. Decisions taken at build that §13.8 and §13.9 did not fix:
+
+- **"Touching the product" includes the connector arm.** A row qualifies when the product is either endpoint, or the connector that powers it (`integrations.powered_by_product_id`, `connector_evidenced_pairs.connector_product_id`). A connector's page lists those rows, so they are on its integration list.
+- **Retired rows are not stamped.** They are off the public list, so there is no list entry being confirmed.
+- **The ids are read before the batch.** The audit row must name them and is built before the batch runs. Each UPDATE repeats the full rule and also pins the ids it read. So a row that changes hands in between is skipped, and no row is ever stamped without being audited.
+- **The body is `{}` or nothing, and refuses any key.** The edit schemas strip unknown keys. This one is `.strict()`, so an edit sent here by mistake is a 400 rather than a stamp that drops it.
+- **The product route purges `productEditTags()` with no facet change.** That is `product:{slug}` and `index:products`. It skips the four facet reads an edit needs, because no browse page gains or loses the product.
+- **`metadata.reason = 'looks-right'`** on all three audit rows, so one grep finds them. `maintenanceTransfer: true` appears only on the save that changes hands, as on every other writer.
+- **The cursor moves with no new code.** Each stamp moves `updated_at` on the rows it writes, which the `profile`, `products` and `integrations` scopes of `GET /api/vendor/updates` already read.
+
 ### 13.10 Checklist steps
 
 Every step derives from existing records plus the §13.9 column. There is no progress table. AECI-1217 serves them.

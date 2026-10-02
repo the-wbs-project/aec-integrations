@@ -371,6 +371,57 @@ export type UpdateVendorProductInput = z.infer<typeof UpdateVendorProductSchema>
 export const UpdateVendorProductResponseSchema = z.object({ product: VendorProductSchema });
 export type UpdateVendorProductResponse = z.infer<typeof UpdateVendorProductResponseSchema>;
 
+// ─── "Looks right" (AECI-1216) ───────────────────────────────────────────────
+//
+//   POST /api/vendor/profile/review
+//   POST /api/vendor/products/:id/review
+//   POST /api/vendor/products/:id/integrations/review
+//
+// `STAGE_2_PAID_TIERS_SPEC.md` §13.8 and §13.9. Each records "checked, nothing to
+// change". The edit schemas above refuse an empty save, so these routes are the only
+// way to stamp a review with no content edit. Seat-only: no capability, every plan.
+
+/**
+ * The request body of all three "Looks right" routes: an empty JSON object, or no
+ * body at all (the handler reads a missing body as `{}`).
+ *
+ * `.strict()`, unlike the edit schemas above, which strip unknown keys. Stripping
+ * would turn `{ "description": "…" }` sent here by mistake into a silent review
+ * stamp with the edit thrown away. A 400 tells the caller it used the wrong route.
+ */
+export const ReviewVendorRecordSchema = z.object({}).strict();
+export type ReviewVendorRecordInput = z.infer<typeof ReviewVendorRecordSchema>;
+
+/** `POST /api/vendor/profile/review` echoes the new `vendors.last_reviewed_at`. */
+export const ReviewVendorProfileResponseSchema = z.object({
+  last_reviewed_at: z.string().datetime(),
+});
+export type ReviewVendorProfileResponse = z.infer<typeof ReviewVendorProfileResponseSchema>;
+
+/** `POST /api/vendor/products/:id/review` echoes the new `products.last_reviewed_at`. */
+export const ReviewVendorProductResponseSchema = z.object({
+  product_id: z.string().uuid(),
+  last_reviewed_at: z.string().datetime(),
+});
+export type ReviewVendorProductResponse = z.infer<typeof ReviewVendorProductResponseSchema>;
+
+/**
+ * `POST /api/vendor/products/:id/integrations/review` echoes the new
+ * `products.integrations_reviewed_at` and how many rows it stamped.
+ *
+ * `stamped_count` counts `integrations` and `connector_evidenced_pairs` rows together.
+ * Zero is a normal answer: a vendor that maintains no row on this product still
+ * completes the checklist step (§13.9), and nothing else is written.
+ */
+export const ReviewVendorProductIntegrationsResponseSchema = z.object({
+  product_id: z.string().uuid(),
+  integrations_reviewed_at: z.string().datetime(),
+  stamped_count: z.number().int().min(0),
+});
+export type ReviewVendorProductIntegrationsResponse = z.infer<
+  typeof ReviewVendorProductIntegrationsResponseSchema
+>;
+
 // ─── GET /api/vendor/seats ───────────────────────────────────────────────────
 
 /**

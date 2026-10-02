@@ -63,9 +63,11 @@ const updatedAt = () =>
  * `last_reviewed_at` is when a human LAST ACTUALLY RE-CHECKED the record — a
  * falsifiable claim the marker renders to readers. It is deliberately a **plain
  * column**: no `$defaultFn`, and above all **no `$onUpdate`**, unlike `updatedAt()`
- * directly above. It is written by exactly three paths — an explicit
- * `lastReviewedAt` in the promote payload, a vendor attestation, and (AECI-981) any
- * vendor-authorized catalog write in the portal — and by nothing else.
+ * directly above. It is written by exactly four paths — an explicit
+ * `lastReviewedAt` in the promote payload, a vendor attestation, (AECI-981) any
+ * vendor-authorized catalog write in the portal, and (AECI-1216) the three "Looks
+ * right" routes, which record "checked, nothing to change" with no content edit
+ * (`STAGE_2_PAID_TIERS_SPEC.md` §13.8) — and by nothing else.
  *
  * Promote's write is FENCED: refused on a row where `maintained_by` is `'vendor'`.
  * The marker renders this ONE column as `Reviewed <date>` in the AECi branch and
@@ -83,7 +85,9 @@ const lastReviewedAt = () => text('last_reviewed_at');
 /** Who is on the hook for the record's accuracy. `'vendor'` is reachable via a live
  *  vendor attestation on an `integrations` row (AECI-301) and, since AECI-981, via
  *  any vendor-authorized catalog write, on the row it writes — per row, never
- *  transitively. Promote must never write this column, or a routine push would
+ *  transitively. The company and product "Looks right" routes (AECI-1216) count as
+ *  such a write. The integration-list "Looks right" never writes this column: it
+ *  stamps only rows already `'vendor'` and built by the caller (§13.9). Promote must never write this column, or a routine push would
  *  silently un-vendor a record; a cross-table move must CARRY it for the same
  *  reason, since an INSERT would otherwise take the default below. Two paths flip
  *  it back: an attestation retract (§13.4), and the last-seat hand-back
@@ -237,6 +241,17 @@ export const products = sqliteTable(
 
     lastReviewedAt: lastReviewedAt(),
     maintainedBy: maintainedBy(),
+    /**
+     * When a seat last confirmed this product's integration list with "Looks right"
+     * (AECI-1216, `STAGE_2_PAID_TIERS_SPEC.md` §13.9). Written ONLY by
+     * `POST /api/vendor/products/:id/integrations/review`. It completes the
+     * checklist's "Check the integration list" step even when the vendor maintains
+     * zero rows, which is why it is not derived from the rows' own
+     * `last_reviewed_at`. Plain column like {@link lastReviewedAt}: no
+     * `$defaultFn`, no `$onUpdate`, no backfill. Added by a bare `ADD COLUMN`
+     * (`docs/migrations.md` §0), so it must never gain a table-level CHECK.
+     */
+    integrationsReviewedAt: text('integrations_reviewed_at'),
 
     createdAt: createdAt(),
     updatedAt: updatedAt(),

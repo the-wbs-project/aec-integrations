@@ -77,6 +77,11 @@ const ACTION_LABELS: Readonly<Record<string, string>> = {
   'product_version.updated': $localize`:@@admin.audit.action.versionUpdated:Product version updated`,
   'product_version.deleted': $localize`:@@admin.audit.action.versionDeleted:Product version removed`,
 
+  // ── "Looks right" (AECI-1216): a seat confirmed a record with no change ────
+  'vendor.reviewed': $localize`:@@admin.audit.action.vendorReviewed:Vendor confirmed company details`,
+  'product.reviewed': $localize`:@@admin.audit.action.productReviewed:Vendor confirmed product details`,
+  'product.integrations_reviewed': $localize`:@@admin.audit.action.productIntegrationsReviewed:Vendor confirmed integration list`,
+
   // ── Reviews ───────────────────────────────────────────────────────────────
   'review.submitted': $localize`:@@admin.audit.action.reviewSubmitted:Review submitted`,
   'review.approved': $localize`:@@admin.audit.action.reviewApproved:Review approved`,

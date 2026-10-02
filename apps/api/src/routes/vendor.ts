@@ -188,7 +188,11 @@ export type FetchSeatEmails = (
  * purpose: a page that is purged but not announced, or announced but not purged,
  * is the drift this keeps out.
  */
-function productEditTags(slug: string, before: TaxonomySlugs, after: TaxonomySlugs): string[] {
+export function productEditTags(
+  slug: string,
+  before: TaxonomySlugs,
+  after: TaxonomySlugs,
+): string[] {
   const tags = new Set<string>([`product:${slug}`, 'index:products']);
   const facets: ReadonlyArray<[string, keyof TaxonomySlugs]> = [
     ['category', 'categories'],
@@ -267,7 +271,7 @@ function toVendorAccount(row: VendorRow): VendorAccount {
   };
 }
 
-type TaxonomySlugs = {
+export type TaxonomySlugs = {
   categories: string[];
   audiences: string[];
   phases: string[];
@@ -349,7 +353,7 @@ async function loadTaxonomySlugs(
 }
 
 /** Empty-set fallback so a product with no taxonomy still maps cleanly. */
-const NO_TAXONOMY: TaxonomySlugs = { categories: [], audiences: [], phases: [], trades: [] };
+export const NO_TAXONOMY: TaxonomySlugs = { categories: [], audiences: [], phases: [], trades: [] };
 
 /**
  * The four taxonomy facets, as data.

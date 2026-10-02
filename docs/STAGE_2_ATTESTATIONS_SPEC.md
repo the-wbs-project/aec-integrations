@@ -2368,8 +2368,8 @@ column is indexed — both are read with the row.
 
 | Column | Written by | Never written by |
 |---|---|---|
-| `last_reviewed_at` | `lastReviewedAt` in the promote payload (`REVIEW_APP_PROMOTE_API.md` §3.6), **and only on an AECi-maintained row** (§13.9); a vendor attestation (§5); **any vendor-authorized catalog write** (§13.9) | anything else — no default, no trigger, no derivation |
-| `maintained_by` | the §5 vendor attestation path; **any vendor-authorized catalog write** (§13.9); **back to `'aeci'`** by an attestation retraction (§13.4) and by the last-seat hand-back (§13.9, AECI-989) | **promote** — the payload does not accept it |
+| `last_reviewed_at` | `lastReviewedAt` in the promote payload (`REVIEW_APP_PROMOTE_API.md` §3.6), **and only on an AECi-maintained row** (§13.9); a vendor attestation (§5); **any vendor-authorized catalog write** (§13.9); the three **"Looks right"** routes (AECI-1216, `STAGE_2_PAID_TIERS_SPEC.md` §13.8), the integration-list one only on rows the caller already maintains | anything else — no default, no trigger, no derivation |
+| `maintained_by` | the §5 vendor attestation path; **any vendor-authorized catalog write** (§13.9), including the company and product "Looks right" routes (AECI-1216); **back to `'aeci'`** by an attestation retraction (§13.4) and by the last-seat hand-back (§13.9, AECI-989) | **promote** — the payload does not accept it; the integration-list "Looks right", which stamps only rows already `'vendor'` |
 
 > **Updated by AECI-981 (2026-09-16).** This table read "the §5 vendor attestation
 > path only" for four weeks while the vendor portal shipped a profile editor, a
@@ -2525,7 +2525,7 @@ the marker's vendor branch renders `Vendor maintained · Updated <date>` (worded
 `Vendor-maintained · Updated <date>` until AECI-1142), so
 "Updated" is the accurate verb for a save.
 
-The nine write sites are the complete list (five at AECI-981; AECI-1008 added the sixth, AECI-1005 the seventh, AECI-1006 the eighth, AECI-1007 the ninth):
+The twelve write sites are the complete list (five at AECI-981; AECI-1008 added the sixth, AECI-1005 the seventh, AECI-1006 the eighth, AECI-1007 the ninth, AECI-1216 the last three):
 
 | Endpoint | Row | Shape |
 |---|---|---|
@@ -2538,6 +2538,9 @@ The nine write sites are the complete list (five at AECI-981; AECI-1008 added th
 | `POST /api/vendor/integrations/:id/claim` (AECI-1005) | `integrations` | folded into the claim write (`claimed_at` + the transfer in one statement); one `integration.claimed` row with before/after, `metadata.reason = 'owner-claim'` |
 | `PATCH /api/vendor/integrations/:id` (AECI-1006) | `integrations` | folded into the field write (the changed columns + the transfer in one statement); one `integration.updated` row with before/after, `metadata.reason = 'owner-edit'` |
 | `PUT` / `DELETE /api/vendor/integrations/:id/links/:productId/:kind` (AECI-1007) | `integrations` | own statement in the link batch (the link lives in `integration_vendor_links`); one `integration.link_set` / `integration.link_removed` row carrying the link's before/after. A DELETE of an unset link writes nothing and transfers nothing |
+| `POST /api/vendor/profile/review` (AECI-1216) | `vendors` | the transfer IS the write; one `vendor.reviewed` row whose before/after is the maintenance pair, `metadata.reason = 'looks-right'` |
+| `POST /api/vendor/products/:id/review` (AECI-1216) | `products` | `productMaintenanceTransfer` under its own labels; one `product.reviewed` row, same shape |
+| `POST /api/vendor/products/:id/integrations/review` (AECI-1216) | `integrations`, `connector_evidenced_pairs` | stamps `last_reviewed_at` only, and only on live rows touching the product with `built_by_vendor_id` = the caller and `maintained_by = 'vendor'`. **It never transfers maintenance**: every row it touches is already the caller's. One set-based UPDATE per table, plus `products.integrations_reviewed_at`; one `product.integrations_reviewed` row keyed to the product, the stamped ids in its metadata (`STAGE_2_PAID_TIERS_SPEC.md` §13.9) |
 
 The sixth is the owner of an integration accepting another vendor's contest
 (`STAGE_2_VENDOR_PORTAL_SPEC.md` §11b.6). It writes the contested column and the
@@ -2578,7 +2581,7 @@ Four consequences worth stating, because each is a thing someone will otherwise
    transition instead sets `metadata.maintenanceTransfer: true`, and only on the
    write that actually changes hands — flagging every later save would make the
    flag useless for finding the ones that mattered. The key is **omitted**, not
-   set to `false`, on every later save, and identically on all nine sites: a
+   set to `false`, on every later save, and identically on every site: a
    key-presence query over `audit_log.metadata` has to mean the same thing
    whichever surface wrote the row.
 2. **Per row, never transitive.** A vendor editing its company profile does not flip
