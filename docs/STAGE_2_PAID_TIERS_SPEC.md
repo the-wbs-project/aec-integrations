@@ -258,7 +258,7 @@ The ladder is **binary at launch** — `unclaimed` (no active entitlement, "Free
 
 ### 3.2 The ranking firewall — what the unit test asserts
 
-`packages/shared/src/entitlements.spec.ts`, five assertions, escalating:
+`packages/shared/src/entitlements.spec.ts`, six assertions, escalating:
 
 1. **Frozen vocabulary** — `expect(CAPABILITIES).toEqual([…literal list…])`. A new capability id fails the test until someone edits it deliberately. A speed bump; weak alone.
 2. **Ranking-vocabulary regex** — no capability id matches `/rank|placement|position|boost|sponsor|feature|priorit|weight|sort|relevance|pin|top/i`. Same shape as the existing regex-over-a-const-table guard at `algolia.spec.ts` ~:283-291.
@@ -293,7 +293,9 @@ for (const banned of ['verified', 'tier', 'entitlement', 'status', 'paid', 'plan
 
 5. **No `listing_tier` input may need a plan to edit (added 2026-10-01, AECI-1212, built by AECI-1214).** Every `listing_tier` input maps to the wire field that writes it, or to "not vendor-editable" for `name` and `company_name`. Each field's capability, read from `PRODUCT_FIELD_CAPABILITIES` / `VENDOR_FIELD_CAPABILITIES`, must be in `TIER_CAPABILITIES.unclaimed`. The API builds its column maps and facet gate from those tables, so the test checks the gate the routes enforce. See §13.4.
 
-**Search-engine submission is external discovery, not a ranking input (AECI-1186).** Since 2026-10-02 a vendor write buffers its changed URLs for IndexNow and the Google worklist only when the vendor holds an active entitlement (§3.3(d), §13.1a). That gate tells Bing, Yandex and an operator that a page changed. It feeds nothing into Algolia, `listing_tier`, `customRanking` or any sort on our own pages, so none of the five assertions above moves. It does not change where anything ranks on AECi. What a search engine does with a submitted URL is outside our control and outside this firewall.
+6. **A review reply never reaches a ranking input (added 2026-10-02, AECI-1181, `STAGE_2_VENDOR_PORTAL_SPEC.md` §11c.10).** Replies are written under the `verified`-only `review.reply` capability, so a ranking input that read one would let payment buy position. Block 6 of `entitlements.spec.ts` asserts, as data, that no `INDEX_SETTINGS` searchable, facet or `customRanking` attribute, no Algolia record field, no public `?sort=` key and no `listing_tier` input names a reply (`review_responses`, `vendor_responses`, `reply*`), and that `listing_tier` reads no reply field that rides along. The source half is `apps/api/src/lib/review-reply-ranking-firewall.spec.ts`. It scans every file that computes a ranking input (`sort.ts`, `recompute-counts.ts`, the Algolia builders, sync and drift reconcile, the datatool reindex, `algolia.ts`, `algolia-records.ts`, `listing-tier.ts`) for the reply table, its Drizzle handle, its module or a reply field, and pins both public review lists to `created_at DESC, id ASC`. A new ranking-input file joins that list.
+
+**Search-engine submission is external discovery, not a ranking input (AECI-1186).** Since 2026-10-02 a vendor write buffers its changed URLs for IndexNow and the Google worklist only when the vendor holds an active entitlement (§3.3(d), §13.1a). That gate tells Bing, Yandex and an operator that a page changed. It feeds nothing into Algolia, `listing_tier`, `customRanking` or any sort on our own pages, so none of the six assertions above moves. It does not change where anything ranks on AECi. What a search engine does with a submitted URL is outside our control and outside this firewall.
 
 The other half of the firewall **already exists and must stay untouched**: `algolia.spec.ts` ~:242/:262/:274 freeze each entity's `customRanking` to its exact Stage-1 value, so any attempt to add a ranking signal fails there first. **`packages/shared/src/algolia.ts` `INDEX_SETTINGS` and those three assertions are out of bounds for this epic** — see `SEARCH_RANKING.md`.
 

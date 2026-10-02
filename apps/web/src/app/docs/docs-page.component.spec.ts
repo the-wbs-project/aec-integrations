@@ -22,6 +22,7 @@ const VENDOR_SLUGS = [
   'attesting-an-integration',
   'owning-an-integration',
   'contests-and-protests',
+  'replying-to-reviews',
   'plans-and-the-account-label',
 ];
 
@@ -46,9 +47,9 @@ function render(slug: string): { host: HTMLElement; title: Title; meta: Meta } {
 }
 
 describe('docs manifest', () => {
-  it('lists the six vendor-guide pages in task order', () => {
+  it('lists the seven vendor-guide pages in task order', () => {
     expect(docsSection('vendors').map((page) => page.slug)).toEqual(VENDOR_SLUGS);
-    expect(DOCS_PAGES).toHaveLength(6);
+    expect(DOCS_PAGES).toHaveLength(7);
   });
 
   it('gives every page a title, a description, a date and a unique order', () => {
@@ -107,6 +108,23 @@ describe('docs manifest', () => {
     }
   });
 
+  it('describes review replies the way STAGE_2_VENDOR_PORTAL_SPEC.md §11c ships them (AECI-1181)', () => {
+    const page = getDocsPage('vendors', 'replying-to-reviews')!;
+    const text = new DOMParser().parseFromString(page.html, 'text/html').body.textContent ?? '';
+    // §11c.15: the public label, and §11c.10: a reply never moves ranking.
+    expect(text).toContain('"Response from" your company name');
+    expect(text).toContain('or where anything ranks');
+    // Ruling 1 (pre-moderation), ruling 5 (an edit hides the live reply), §11c.6 (removed is final).
+    expect(text).toContain('We check every reply before anyone sees it.');
+    expect(text).toContain('Editing a published reply takes it off the product page.');
+    expect(text).toContain('A removed reply is final.');
+    // §11c.9 and §11c.14: Free cannot write, but can withdraw.
+    expect(text).toContain('You can still withdraw one.');
+    // Ruling 3: no reviewer notice. Reporting stays the email route.
+    expect(text).toContain('We do not tell the reviewer that you replied.');
+    expect(page.html).toContain('mailto:reviews@thewbsproject.com');
+  });
+
   it('carries no screenshots at v0', () => {
     for (const page of DOCS_PAGES) {
       expect(page.html, page.slug).not.toContain('<img');
@@ -138,7 +156,7 @@ describe('DocsPageComponent', () => {
     expect(host.querySelector('.aec-prose h2')).not.toBeNull();
 
     const rail = host.querySelectorAll('nav[aria-labelledby] a');
-    expect(rail).toHaveLength(6);
+    expect(rail).toHaveLength(7);
     const current = host.querySelectorAll('nav[aria-labelledby] a[aria-current="page"]');
     expect(current).toHaveLength(1);
     expect(current[0].textContent?.trim()).toBe(page.title);

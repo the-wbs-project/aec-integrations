@@ -2,7 +2,7 @@
 title: Plans and the account label
 description: What the Free and Managed plans let your company do on AEC Integrations, how the checklists and "Looks right" work, what happens when a plan ends, and the things no plan can buy.
 section: vendors
-order: 6
+order: 7
 last_updated: 2 October 2026
 ---
 
@@ -33,6 +33,7 @@ These stay part of Managed:
 - a product's trades, audiences and phases,
 - confirming or denying data flows on your integrations ([Attesting an integration](/docs/vendors/attesting-an-integration)),
 - claiming, editing, retiring and restoring an integration delivered through a connector, and deciding change requests on one ([Owning an integration](/docs/vendors/owning-an-integration)),
+- writing, editing and resubmitting a public reply to a review of one of your products ([Replying to reviews](/docs/vendors/replying-to-reviews)),
 - the "Active on AECi" label on your vendor page,
 - telling search engines about your changes.
 
@@ -119,11 +120,12 @@ This applies to a pilot too.
 - Everything in "What needs Managed" becomes read-only.
 - The "Active on AECi" label comes off.
 - We stop telling search engines about your changes. Your edits still go live.
+- You can no longer write, edit or resubmit a reply to a review. Published replies stay up, and you can still withdraw one.
 - An integration delivered through a connector that you already claimed stays claimed. One you retired stays retired. Open change requests on one move to AEC Integrations.
 - Each product's checklist counts three steps again, as on Free.
 
 ## Related
 
-- Previous: [Contests and protests](/docs/vendors/contests-and-protests).
+- Previous: [Replying to reviews](/docs/vendors/replying-to-reviews).
 - Back to the start: [Claiming your vendor listing](/docs/vendors/claiming-your-listing).
 - [How we research and verify listings](/methodology), including the no-pay-for-placement rule.
