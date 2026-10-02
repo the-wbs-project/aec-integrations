@@ -32,8 +32,7 @@ import {
  * ── WHY IT IS A COLLAPSED DISCLOSURE ────────────────────────────────────────
  * These rows are not live state. The endpoint reads the §7.3 `audit_log` ledger
  * of nudges the sweep **recorded**, over a 90-day window. Since AECI-1204 a row is
- * recorded whether or not any seat was emailed (a seat may have muted the daily
- * digest), so the framing copy no longer says every reminder was emailed. Each row is
+ * recorded even when no seat was emailed because every seat muted the daily digest, so the framing copy no longer says every reminder was emailed. Each row is
  * "a historical record of a nudge, and it stays accurate even after the underlying
  * claim is re-curated". Rendered prominently, a three-week-old "Vendors disagree" row
  * would sit above a lane whose badge now reads `confirmed`, and the surface

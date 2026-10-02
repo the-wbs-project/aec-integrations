@@ -3247,7 +3247,7 @@ marks a `skipped` send that had no recipient.
    be taken back.
 7. A ledger DB error fails open. The writer logs a warning and the mail still goes.
 
-A keyed send whose ledger write failed open carries Resend's `Idempotency-Key` header, `{tier}:{dedupe_key}` (ADR 0037
+Every keyed send also carries Resend's `Idempotency-Key` header, `{tier}:{dedupe_key}:{body hash}` (ADR 0037
 §3, `docs/email.md` §Send ledger).
 
 A send with no dedupe key stores NULL, and SQLite treats NULLs as distinct under a UNIQUE
@@ -3256,7 +3256,8 @@ cannot be partial, the same trade as `page_views.dedupe_key` (§9.1). Senders pa
 AECI-1203, AECI-1204 and AECI-1205. Each registry entry's key is in `docs/NOTIFICATIONS.md`, and
 ADR 0037 records why the protocol is at-most-once. **AECI-1204 added its keys for the two attestation digests** (`attestation-digest:{vendorId}:{profileId}:{YYYY-MM-DD}` and `attestation-ops-digest:{YYYY-MM-DD}:{first 16 hex of the recipient hash}`, `STAGE_2_ATTESTATIONS_SPEC.md` §7.2).
 
-The digests make one Resend call for several recipients, with no dedupe key. They write one
+The cron digests sent through `sendEmail` (data quality and the other unkeyed digests) make
+one Resend call for several recipients, with no dedupe key. They write one
 settled row per recipient after the call, all sharing the Resend id, or all `unknown` when the
 call threw. Each recipient refused
 by the tier policy gets a `suppressed` row. BCC copies get no row of their own. The separate

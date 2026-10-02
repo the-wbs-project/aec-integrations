@@ -65,6 +65,24 @@ const INPUT = {
   template: 'claim-approved' as const,
 };
 
+/** A ledger client whose every write throws, so the transport fails open. */
+function brokenLedger(): Db {
+  return {
+    insert: () => {
+      throw new Error('D1_ERROR');
+    },
+    update: () => {
+      throw new Error('D1_ERROR');
+    },
+  } as unknown as Db;
+}
+
+function idempotencyKeys(fetchSpy: { mock: { calls: unknown[][] } }): (string | undefined)[] {
+  return fetchSpy.mock.calls.map(
+    (call) => ((call[1] as RequestInit).headers as Record<string, string>)['Idempotency-Key'],
+  );
+}
+
 function sendTags(): string[][] {
   return vi
     .mocked(submitCount)
@@ -97,20 +115,38 @@ describe('sendTransactionalEmail writes the send ledger', () => {
     ]);
   });
 
-  it('sends no Idempotency-Key while the ledger is up, so a re-send after a refusal is not a 409', async () => {
+  it('a re-send with a new body after a refusal gets a new Idempotency-Key, so it is not a 409', async () => {
     const fetchSpy = vi
       .spyOn(globalThis, 'fetch')
       .mockResolvedValueOnce(new Response('nope', { status: 422 }))
       .mockResolvedValueOnce(new Response('{"id":"re_2"}'));
 
     expect(await sendTransactionalEmail(ctx(), { ...INPUT, dedupeKey: 'k' })).toBe('failed');
+    expect(
+      await sendTransactionalEmail(ctx(), { ...INPUT, text: 'New body', dedupeKey: 'k' }),
+    ).toBe('sent');
+
+    const keys = idempotencyKeys(fetchSpy);
+    expect(keys).toHaveLength(2);
+    expect(keys[0]).toMatch(/^production:k:[0-9a-f]{16}$/);
+    expect(keys[1]).toMatch(/^production:k:[0-9a-f]{16}$/);
+    expect(keys[0]).not.toBe(keys[1]);
+  });
+
+  it('sends the same Idempotency-Key whether or not the ledger is up, so Resend dedupes across an outage', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('{"id":"re_1"}'));
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    // Attempt 1: the ledger is down, so it fails open and no row holds the key.
+    vi.mocked(ledgerDb).mockReturnValueOnce(brokenLedger());
+    expect(await sendTransactionalEmail(ctx(), { ...INPUT, dedupeKey: 'k' })).toBe('sent');
+    // Attempt 2: the ledger is back and reserves a row. Only Resend can stop this one.
     expect(await sendTransactionalEmail(ctx(), { ...INPUT, dedupeKey: 'k' })).toBe('sent');
 
-    const headers = fetchSpy.mock.calls.map(
-      (call) => (call[1] as RequestInit).headers as Record<string, string>,
-    );
-    expect(headers).toHaveLength(2);
-    for (const h of headers) expect(h).not.toHaveProperty('Idempotency-Key');
+    const keys = idempotencyKeys(fetchSpy);
+    expect(keys).toHaveLength(2);
+    expect(keys[0]).toBeDefined();
+    expect(keys[1]).toBe(keys[0]);
   });
 
   it('a second send with the same key is a duplicate: no fetch, a duplicate row', async () => {
@@ -222,14 +258,7 @@ describe('sendTransactionalEmail writes the send ledger', () => {
   });
 
   it('fails open: a broken ledger still sends', async () => {
-    vi.mocked(ledgerDb).mockReturnValue({
-      insert: () => {
-        throw new Error('D1_ERROR');
-      },
-      update: () => {
-        throw new Error('D1_ERROR');
-      },
-    } as unknown as Db);
+    vi.mocked(ledgerDb).mockReturnValue(brokenLedger());
     vi.spyOn(console, 'warn').mockImplementation(() => {});
     const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('{"id":"re_1"}'));
 

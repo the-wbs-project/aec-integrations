@@ -35,15 +35,17 @@ decision record; no separate ADR.
     local `dev:bound` / PR-preview state, mirroring `ANTHROPIC_API_KEY` /
     `LINEAR_API_KEY`.
   - `POST https://api.resend.com/emails` (Bearer auth, `from/to/subject/text/html`,
-    `AbortSignal.timeout`). A keyed send adds Resend's `Idempotency-Key` header only while the ledger is down, below.
+    `AbortSignal.timeout`). A keyed send adds Resend's `Idempotency-Key` header, below.
   - **Operator blind copy.** Both transports (`sendTransactionalEmail` and the cron
     `sendEmail`) add a Resend `bcc` from the `EMAIL_BCC` var, so every email the API
     Worker sends also reaches `support@aecintegrations.com`. The point is to see exactly
-    what users receive. An address already in `to` is not copied again. The magic-link
+    what users receive. The exception is `attestation-digest`, below. An address already in `to` is not copied again. The magic-link
     email is not covered: Supabase sends it over SMTP, outside this code (see
     §Magic-link sender below).
   - **Separate copy for unsubscribable sends.** A send with a `List-Unsubscribe`
-    header never gets a `bcc`. Today that is only `mailing-list-welcome`. A `bcc` is
+    header never gets a `bcc`. Today that is `mailing-list-welcome` and
+    `attestation-digest`. The digest passes no `operatorCopy`, so the operator gets no
+    copy of it at all. A `bcc` is
     the same message, so the operator's copy would carry the subscriber's one-click
     opt-out, and Outlook's Unsubscribe button on it would remove the real subscriber.
     Instead, after the subscriber's send succeeds, `sendOperatorCopy` sends a second
@@ -79,22 +81,29 @@ decision record; no separate ADR.
       | `landing-signup` | `landing-signup:{recipientHash}:{YYYY-MM}` | One signup alert per address per UTC month |
       | `attestation-digest` | `attestation-digest:{vendorId}:{profileId}:{YYYY-MM-DD}` | One digest per seat per day |
       | `attestation-ops-digest` | `attestation-ops-digest:{YYYY-MM-DD}:{hash prefix}` | One digest per ops address per day |
+      | `protest-submitted-alert` | `protest-submitted-alert:{contestId}:{protestedAt}` | One alert per protest |
+      | `contest-protest-opened` | `contest-protest-opened:{contestId}:{protestedAt}:{profileId}` | One email per seat per protest |
+      | `contest-protest-reply-reminder` | `contest-protest-reply-reminder:{contestId}:{protestedAt}:{profileId}` | One reminder per seat per protest |
+      | `contest-declined-protest-window` | `contest-declined-protest-window:{contestId}:{profileId}` | One email per seat per declined contest |
 
       The two band alerts are digests. Their key lists every row as
       `{requestId}:{bandIndex}`, sorted and joined by `,` (`bandDigestKey`,
       `lib/alert-bands.ts`). `bandIndex` is 0 for the first band, 1 for the second, then
       one more per daily boundary past the last band.
-    - **`Idempotency-Key` (AECI-1197 review).** A keyed transactional send also sends
-      Resend's `Idempotency-Key` header, built by `resendIdempotencyKey`. The value is
-      `{tier}:{dedupeKey}`, because every tier sends from one Resend account and keys are
-      account-wide. A value over 256 characters, or outside printable ASCII, is sent as its
+    - **`Idempotency-Key` (AECI-1197 review).** Every keyed transactional send also
+      sends Resend's `Idempotency-Key` header, built by `resendIdempotencyKey`. The value is
+      `{tier}:{dedupeKey}:{body hash}`. The tier is there because every tier sends from one
+      Resend account and keys are account-wide. The body hash is the first 16 hex of the
+      SHA-256 of the request body. A value over 256 characters, or outside printable ASCII, is sent as its
       SHA-256 hex. Resend's own docs
       (`https://resend.com/docs/dashboard/emails/idempotency-keys`, read 2026-10-01): up to
       256 characters, kept 24 hours, a repeat with the same body returns the first id
-      without mailing, a repeat with a different body is a 409. The header is sent ONLY when
-      the ledger failed open (no reserved row). While the ledger is up it owns dedupe, so a
-      re-send after a refused send (the key was released, the body may differ, as with the
-      claim alert's sweep send) never meets a 409.
+      without mailing, a repeat with a different body is a 409. The header goes on whether the
+      ledger is up or down, because Resend dedupes only when both attempts carry the same
+      key. An identical retry across a ledger outage is stopped by Resend. A re-send with a
+      changed body after a refused send (as with the claim alert's sweep send) gets a new
+      key, so it never meets a 409. The cost: a changed-body retry across a ledger outage
+      can mail twice (ADR 0037, Consequences).
     - The digest `sendEmail` makes one Resend call and writes one row per recipient,
       sharing the id. A thrown call writes `unknown` rows. It reads `DB` from its env. The cron passes its whole `Env`.
     - The operator copy gets one row per operator address under its own registry id.
@@ -498,7 +507,7 @@ left unset).
 | `DATA_QUALITY_EMAIL_TO` | plain `var` | API Worker, staging / demo / production | `To:` for the daily data-quality digest. **`support@aecintegrations.com` on every tier.** Comma/whitespace-separated list (`parseRecipients`). Because it matches `EMAIL_BCC`, the operator copy is dropped rather than duplicated. Absent → the send is a `skipped` no-op. |
 | `ANALYTICS_DIGEST_EMAIL_TO` | plain `var` | API Worker, **production only** | `To:` for the daily operator analytics digest (AECI-526). **`support@aecintegrations.com`.** Comma/whitespace-separated list (`parseRecipients`). Left unset on staging/demo so their sends `skip`. |
 | `PUBLIC_SITE_URL` | plain `var` | API Worker, per env | Builds absolute links in emails; absent → link omitted. |
-| `ADMIN_ALERT_EMAIL` | plain `var` | API Worker, staging + demo + production | **`support@aecintegrations.com` on all three tiers since 2026-09-28** (it was `chrisw@thewbsproject.com`). Because it matches `EMAIL_BCC`, the operator copy is dropped rather than duplicated. A single address. `To:` for the stuck-request alert, the `review-submitted-alert` moderation alert, the landing signup/feedback operator notifications (AECI-247/277), the §7 attestation ops alerts (AECI-302 — one per finding; absent → those findings resolve `skipped` and are retried by the next daily sweep, since no ledger row is written), **and** the `entitlement-expiring-admin` term warnings (AECI-613 — absent → the operator half resolves `skipped`, which leaves `expiry_notice_sent_at` unstamped only if the vendor half also failed, so the term is re-warned tomorrow). |
+| `ADMIN_ALERT_EMAIL` | plain `var` | API Worker, staging + demo + production | **`support@aecintegrations.com` on all three tiers since 2026-09-28** (it was `chrisw@thewbsproject.com`). Because it matches `EMAIL_BCC`, the operator copy is dropped rather than duplicated. A single address for most senders. The attestation sweep parses it as a list. `To:` for the stuck-request alert, the `review-submitted-alert` moderation alert, the landing signup/feedback operator notifications (AECI-247/277), the daily `attestation-ops-digest` (AECI-1204: one email per listed address per day; absent → no ops digest), **and** the `entitlement-expiring-admin` term warnings (AECI-613 — absent → the operator half resolves `skipped`, which leaves `expiry_notice_sent_at` unstamped only if the vendor half also failed, so the term is re-warned tomorrow). |
 
 > **Every `_FROM` in the repo is `notifications@aecintegrations.com`, deliberately (2026-08-26).**
 > `aecintegrations.com` is the Resend-verified sending domain (§Deliverability below), and it is

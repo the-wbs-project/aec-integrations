@@ -74,8 +74,8 @@ email. Like `indexnow-failure-rate` they sit beside the table, not inside it.
 
 | Alert | Source insight | Threshold | Cadence |
 |---|---|---|---|
-| `email-failure-rate` | `alert-email-failure-rate` | failed / (sent + failed) > 20% over 24 h, reported only once 2 or more failed | daily |
-| `email-volume-spike` | `alert-email-volume-spike` | sent + failed > 50 in 24 h | daily |
+| `email-failure-rate` | `alert-email-failure-rate` | (failed + unknown) / (sent + failed + unknown) > 20% over 24 h, reported only once 2 or more failed or unknown | daily |
+| `email-volume-spike` | `alert-email-volume-spike` | sent + failed + unknown > 50 in 24 h | daily |
 | `email-suppressed-in-production` | `alert-email-suppressed` | any `outcome:suppressed` in 1 h | hourly |
 
 Basis: production 354071, 30 days to 2026-10-01, read-only. 6 sends, 0 failed, daily p50 0,

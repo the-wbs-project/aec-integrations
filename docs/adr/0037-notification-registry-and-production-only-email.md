@@ -81,12 +81,14 @@ Nothing listed them. The inventory found six problems.
   6. A crash between reserve and finalize leaves a `sending` row that still holds the key. It
      blocks a resend.
   7. A ledger DB error fails open. The mail still goes.
-- **A keyed send carries Resend's `Idempotency-Key` header only while the ledger is down.** Resend documents it on
+- **Every keyed send also carries Resend's `Idempotency-Key` header.** Resend documents it on
   `POST /emails`: up to 256 characters, kept 24 hours, and a repeat with the same body returns the
-  first send's id without mailing. The value is `{tier}:{dedupeKey}`, because every tier shares one
-  Resend account. A longer or non-ASCII value is sent as its SHA-256 hex. It is sent only when the
-  ledger failed open, so it backs up the ledger during an outage. While the ledger is up the header
-  is left off, so a re-send after a refused send (released key, changed body) is never a 409.
+  first send's id without mailing. The value is `{tier}:{dedupeKey}:{body hash}`, because every
+  tier shares one Resend account. The body hash is the first 16 hex of the SHA-256 of the request
+  body. A longer or non-ASCII value is sent as its SHA-256 hex. The header goes on whether the
+  ledger is up or down. Resend dedupes only when both attempts carry the same key, so a header
+  sent only during an outage would miss the attempt just before or just after it. The body hash
+  means a re-send with a changed body after a refused send gets a new key, so it is never a 409.
 - **Why at-most-once and not at-least-once.** A missed email can be sent by hand, and the portal
   row still records the finding. A double email cannot be taken back, and on the shared Resend
   account a complaint spike can put sign-in links at risk. So a crash or a timeout mid-send loses
@@ -165,10 +167,10 @@ The branch review changed these, each recorded where it applies above or below.
   key and sends the smaller digest.
 - **A crashed or timed-out send may be lost.** It shows as a stuck `sending` row or an `unknown`
   row in `notification_sends`. Nothing re-sends it automatically.
-- **A retry during a ledger outage can get a Resend 409.** Resend refuses a reused
-  `Idempotency-Key` with a different body. The header is sent only while the ledger is down, so
-  this needs a ledger outage on both the first send and the retry. Support still sees a claim in
-  `/admin/claims` and Linear.
+- **A changed-body retry across a ledger outage can mail twice.** The body hash gives a changed
+  body a new `Idempotency-Key`, so Resend cannot stop it. If the ledger also missed the first
+  send, nothing stops it. This needs a ledger outage and a retry whose rendered body differs.
+  Identical retries are always stopped.
 - **`profiles` has a cascade-child pin.** `apps/api/src/test/d1.spec.ts` fails if the set of
   `ON DELETE CASCADE` children of `profiles` changes, so a recreate plan sees the mutes.
 - **Non-production testing needs an internal address.** A tester who wants to see a mail on staging

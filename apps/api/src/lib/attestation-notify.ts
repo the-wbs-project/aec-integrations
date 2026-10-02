@@ -50,7 +50,9 @@
  * finding tomorrow under a new day key, which is the double nudge the key exists to
  * stop.
  * `duplicate` counts as emailed because the digest key is held by an earlier send of
- * today's digest. That is the replay after a ledger flush failed. The cost is a
+ * today's digest. That is a same-day re-run, after a killed run or a manual re-trigger.
+ * A failed ledger flush is swallowed, not retried, so its findings are re-listed in
+ * tomorrow's digest under a new day key. The cost is a
  * finding that first appeared in a same-day re-run: it is recorded as emailed though
  * the earlier digest did not list it. The sweep runs once a day, so that window is a
  * queue retry.

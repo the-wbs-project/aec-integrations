@@ -128,15 +128,17 @@ export async function ensureNudgePreferences(
 }
 
 export interface SetNudgesMutedResult {
-  /** The row after the write (or unchanged). */
-  pref: NudgePreference;
+  /** The row after the write (or unchanged). Undefined when a seat with no row
+   *  unmutes: no row reads as unmuted, so there is nothing to write. */
+  pref: NudgePreference | undefined;
   /** The audit entries written, for the post-commit forward. Empty on a no-op. */
   entries: AuditLogEntry[];
 }
 
 /**
  * Set one seat's mute. Idempotent: setting the state it already has writes nothing
- * and keeps the original `nudges_muted_at`.
+ * and keeps the original `nudges_muted_at`. A seat with no row reads as unmuted, so
+ * unmuting it writes no row and no audit row.
  *
  * The preference write and its audit row go in ONE `db.batch`. When the row does
  * not exist yet, the insert is that write, and it mints the token.
@@ -162,7 +164,7 @@ export async function setNudgesMuted(
   const nowIso = (input.now ?? new Date()).toISOString();
   const existing = (await loadNudgePreferences(db, [input.profileId])).get(input.profileId);
   const wasMuted = isNudgeMuted(existing);
-  if (existing && wasMuted === input.muted) return { pref: existing, entries: [] };
+  if (wasMuted === input.muted) return { pref: existing, entries: [] };
 
   const nudgesMutedAt = input.muted ? nowIso : null;
   const entry: AuditLogEntry = {

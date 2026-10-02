@@ -16,6 +16,7 @@ import { describe, expect, it } from 'vitest';
 interface Insight {
   key: string;
   dashboardKey: string;
+  description?: string;
   query: string;
 }
 
@@ -104,5 +105,20 @@ describe('observability/posthog alerts.json ↔ insights.json', () => {
     const board = insights.find((i) => i.key === 'email-sends-by-template');
     expect(board?.dashboardKey).not.toBe('alert-sources');
     expect(board?.query).toContain("metric_name = 'aeci.email.send'");
+    // Every outcome `emit()` in email.ts can send gets its own column.
+    for (const outcome of ['sent', 'failed', 'unknown', 'skipped', 'duplicate', 'suppressed']) {
+      expect(board?.query).toContain(`s.labels['outcome'] = '${outcome}'`);
+    }
+  });
+});
+
+describe('observability/posthog insights.json descriptions', () => {
+  // PostHog rejects a description over 400 characters, and apply.sh refuses the
+  // whole run. Catch it in CI instead of at apply time.
+  it('keeps every insight description within 400 characters', () => {
+    const tooLong = insights
+      .filter((i) => (i.description ?? '').length > 400)
+      .map((i) => `${i.key} (${i.description!.length})`);
+    expect(tooLong).toEqual([]);
   });
 });

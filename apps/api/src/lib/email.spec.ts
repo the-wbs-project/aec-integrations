@@ -243,7 +243,7 @@ describe('sendTransactionalEmail (low-level)', () => {
     ).resolves.toBe('unknown');
   });
 
-  it('sends a tier-scoped Idempotency-Key on a keyed send when the ledger is down, and none unkeyed', async () => {
+  it('sends a tier-scoped Idempotency-Key with a body hash on a keyed send, and none unkeyed', async () => {
     const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(async () => ok());
     await sendTransactionalEmail(fakeContext(), {
       to: 'r@example.com',
@@ -261,22 +261,38 @@ describe('sendTransactionalEmail (low-level)', () => {
     const headers = fetchSpy.mock.calls.map(
       (call) => (call[1] as RequestInit).headers as Record<string, string>,
     );
-    expect(headers[0]!['Idempotency-Key']).toBe('production:review-decision:rev-1');
+    expect(headers[0]!['Idempotency-Key']).toMatch(
+      /^production:review-decision:rev-1:[0-9a-f]{16}$/,
+    );
     expect(headers[1]).not.toHaveProperty('Idempotency-Key');
   });
 });
 
 describe('resendIdempotencyKey', () => {
   it('prefixes the tier, because every tier shares one Resend account', async () => {
-    expect(await resendIdempotencyKey({ ENV: 'staging' }, 'k:1')).toBe('staging:k:1');
-    expect(await resendIdempotencyKey({}, 'k:1')).toBe('non-production:k:1');
+    expect(await resendIdempotencyKey({ ENV: 'staging' }, 'k:1', 'b')).toMatch(
+      /^staging:k:1:[0-9a-f]{16}$/,
+    );
+    expect(await resendIdempotencyKey({}, 'k:1', 'b')).toMatch(/^non-production:k:1:[0-9a-f]{16}$/);
+  });
+
+  it('keeps the key for the same body and changes it for a new body', async () => {
+    const env = { ENV: 'production' };
+    expect(await resendIdempotencyKey(env, 'k', 'one')).toBe(
+      await resendIdempotencyKey(env, 'k', 'one'),
+    );
+    expect(await resendIdempotencyKey(env, 'k', 'one')).not.toBe(
+      await resendIdempotencyKey(env, 'k', 'two'),
+    );
   });
 
   it('hashes a key over 256 characters or outside printable ASCII to SHA-256 hex', async () => {
-    const long = await resendIdempotencyKey({ ENV: 'production' }, 'x'.repeat(300));
+    const long = await resendIdempotencyKey({ ENV: 'production' }, 'x'.repeat(300), 'b');
     expect(long).toMatch(/^[0-9a-f]{64}$/);
-    expect(await resendIdempotencyKey({ ENV: 'production' }, 'café')).toMatch(/^[0-9a-f]{64}$/);
-    expect(await resendIdempotencyKey({ ENV: 'production' }, 'a b')).toMatch(/^[0-9a-f]{64}$/);
+    expect(await resendIdempotencyKey({ ENV: 'production' }, 'café', 'b')).toMatch(
+      /^[0-9a-f]{64}$/,
+    );
+    expect(await resendIdempotencyKey({ ENV: 'production' }, 'a b', 'b')).toMatch(/^[0-9a-f]{64}$/);
   });
 });
 

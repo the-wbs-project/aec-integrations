@@ -34,8 +34,9 @@
  */
 
 /** Where the notification lands. `email+portal` is one notification on both. Since
- *  AECI-1204 the portal row is written whether or not the email went out, so a muted
- *  seat's vendor still sees it. */
+ *  AECI-1204 the portal row is written when a seat was emailed or every seat muted or
+ *  was refused by the tier policy, so a muted seat's vendor still sees it. A failed or
+ *  unconfigured send writes no row, so the next sweep retries it. */
 export type NotificationChannel = 'email' | 'portal' | 'email+portal' | 'linear' | 'supabase-email';
 
 /** `external` is a person outside AECi. `operator` is an AECi inbox or the AECi team. */
@@ -280,7 +281,7 @@ export const NOTIFICATIONS = {
     optOut: 'none',
     doc: 'docs/STAGE_2_VENDOR_PORTAL_SPEC.md §11b.12.10',
     summary:
-      "Reminds the owner's seats, 3 days before the deadline, that they have not replied to a protest.",
+      "Reminds the owner's seats, 2 to 3 days before the deadline, that they have not replied to a protest.",
     note: 'Skips a protest that has a reply, is no longer open, or is past its deadline.',
   },
   'contest-declined-protest-window': {
@@ -392,7 +393,7 @@ export const NOTIFICATIONS = {
     doc: 'docs/STAGE_2_ATTESTATIONS_SPEC.md §7.2',
     summary:
       'Sends each unmuted vendor seat one daily digest of every due attestation finding for its vendor.',
-    note: 'Replaced four per-finding templates in AECI-1204. Every due finding gets its portal row, emailed or not; metadata.emailedSeats says how many seats got it. Never lists a vendor finding on a connector-powered edge (AECI-705).',
+    note: 'Replaced four per-finding templates in AECI-1204. A due finding gets its portal row when a seat was emailed or every seat was muted or refused by the tier policy. A failed or unconfigured send writes no row, so the next sweep retries it. metadata.emailedSeats says how many seats got it. Never lists a vendor finding on a connector-powered edge (AECI-705).',
   },
   'attestation-ops-digest': {
     channel: 'email',

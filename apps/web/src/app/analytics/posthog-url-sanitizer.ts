@@ -4,7 +4,8 @@
  * Two pages take a per-recipient secret in the query string: `/unsubscribe?token=`
  * (mailing list, AECI-537) and `/notifications/mute?token=` (digest mute,
  * AECI-1204). The SDK copies the address bar into `$current_url` on every event,
- * and into `$referrer` on the next page. Without this, the token would sit in
+ * into `$referrer` on the next page, and into `$session_entry_url` on every
+ * later event of the session. Without this, the token would sit in
  * PostHog where anyone with project read access could replay it.
  *
  * Wired as the `before_send` hook in `createPostHogClient` (`posthog-client.ts`).
@@ -24,7 +25,9 @@ const SECRET_PARAM = 'token';
 
 /**
  * Event properties that hold a URL or path. The `$initial_*` keys are the
- * first-touch copies the SDK writes into `$set_once`.
+ * first-touch copies the SDK writes into `$set_once`. The `$session_entry_*` keys
+ * are the session's first URL, which posthog-js (`getSessionProps`) copies onto
+ * every event in the session.
  */
 const URL_PROPERTIES = [
   '$current_url',
@@ -33,6 +36,9 @@ const URL_PROPERTIES = [
   '$initial_current_url',
   '$initial_referrer',
   '$initial_pathname',
+  '$session_entry_url',
+  '$session_entry_referrer',
+  '$session_entry_pathname',
 ] as const;
 
 function decodeKey(rawKey: string): string {

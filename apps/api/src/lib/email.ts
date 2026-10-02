@@ -51,7 +51,8 @@
  * addressed recipient (`lib/notifications/send-ledger.ts`): `skipped`, `suppressed`,
  * `sent` with the Resend message id read from the 2xx body, `failed` on a non-2xx,
  * `unknown` on a timeout or thrown call, or `duplicate` when a `dedupeKey` is already
- * held. A keyed send also carries Resend's `Idempotency-Key` header. A transactional send reserves its row before the
+ * held. A keyed send also carries Resend's `Idempotency-Key` header, with a hash of
+ * the body in the key. A transactional send reserves its row before the
  * Resend call and settles it after. Every caller already runs the send inside
  * `waitUntil` or a cron, so the ledger writes add no latency to a route response. A
  * ledger DB error warns and the send goes ahead. BCC copies get no row of their own;
@@ -237,13 +238,24 @@ export async function sendTransactionalEmail(
   // The operator gets a separate copy instead, after the recipient's send lands.
   const unsubscribable = Boolean(input.headers?.['List-Unsubscribe']);
 
-  // The header only backs up a ledger that failed open (no reserved row). While the
-  // ledger is up it already owns dedupe, and a header there would turn a legitimate
-  // re-send after a refused send (a released key, new body) into a Resend 409.
-  const idempotencyKey =
-    input.dedupeKey && reservation.rowId === null
-      ? await resendIdempotencyKey(c.env, input.dedupeKey)
-      : null;
+  const body = JSON.stringify({
+    from,
+    to: input.to,
+    ...(unsubscribable ? {} : bccField(c.env, [input.to])),
+    subject,
+    text: input.text,
+    ...(input.html ? { html: input.html } : {}),
+    ...(input.headers ? { headers: input.headers } : {}),
+  });
+
+  // Every keyed send carries the header, ledger up or down. Resend dedupes only when
+  // both attempts carry the same key, so a header sent only during a ledger outage
+  // missed the attempt either side of it. The key holds a hash of the body, so an
+  // identical retry dedupes and a re-send with a new body (after a refused send) gets
+  // a new key, never a 409.
+  const idempotencyKey = input.dedupeKey
+    ? await resendIdempotencyKey(c.env, input.dedupeKey, body)
+    : null;
   let providerMessageId: string | null;
   try {
     const res = await fetch(RESEND_URL, {
@@ -253,15 +265,7 @@ export async function sendTransactionalEmail(
         'Content-Type': 'application/json',
         ...(idempotencyKey ? { 'Idempotency-Key': idempotencyKey } : {}),
       },
-      body: JSON.stringify({
-        from,
-        to: input.to,
-        ...(unsubscribable ? {} : bccField(c.env, [input.to])),
-        subject,
-        text: input.text,
-        ...(input.html ? { html: input.html } : {}),
-        ...(input.headers ? { headers: input.headers } : {}),
-      }),
+      body,
       signal: AbortSignal.timeout(TIMEOUT_MS),
     });
 
@@ -2298,26 +2302,33 @@ async function recordRecipients(
 /** Resend's documented cap on an `Idempotency-Key`. */
 const IDEMPOTENCY_KEY_MAX = 256;
 
+/** Hex chars of the body hash in an `Idempotency-Key`: 64 bits, enough to tell bodies apart. */
+const BODY_HASH_HEX = 16;
+
 /**
  * The `Idempotency-Key` header for a keyed send (AECI-1197 review). Resend documents
  * the header on `POST /emails`: up to 256 characters, kept for 24 hours. A repeat with
  * the same key and the same body returns the first send's id and mails nobody. A
  * repeat with a different body is a 409. See `docs/email.md` §Send ledger.
  *
- * The key is `{tier}:{dedupeKey}`. Every tier sends from one Resend account and keys
- * are account-wide, so without the tier a staging digest and the production digest
- * with the same day key would collide. A key longer than 256 characters, or with
- * anything outside printable ASCII, is sent as its SHA-256 hex instead.
+ * The key is `{tier}:{dedupeKey}:{body hash}`. Every tier sends from one Resend
+ * account and keys are account-wide, so without the tier a staging digest and the
+ * production digest with the same day key would collide. The body hash is the first
+ * 16 hex of the SHA-256 of the request body. An identical retry gets the same key and
+ * Resend mails nobody. A re-send with a changed body gets a new key, so it is never a
+ * 409. A key longer than 256 characters, or with anything outside printable ASCII, is
+ * sent as its SHA-256 hex instead.
  *
- * It backs up the ledger and is sent ONLY when the ledger failed open (no reserved
- * row). While the ledger is up it owns dedupe. Sending the header there too would make
- * a legitimate re-send after a refused send (released key, different body) a 409.
+ * Every keyed send carries it, ledger up or down. It backs up the ledger across an
+ * outage, including the attempt just before or just after one.
  */
 export async function resendIdempotencyKey(
   env: DeliveryPolicyEnv,
   dedupeKey: string,
+  body: string,
 ): Promise<string> {
-  const key = `${tierLabel(env)}:${dedupeKey}`;
+  const bodyHash = (await sha256Hex(body)).slice(0, BODY_HASH_HEX);
+  const key = `${tierLabel(env)}:${dedupeKey}:${bodyHash}`;
   if (key.length <= IDEMPOTENCY_KEY_MAX && /^[\x21-\x7e]+$/.test(key)) return key;
   return sha256Hex(key);
 }

@@ -192,6 +192,15 @@ describe('PUT /api/vendor/notification-preferences', () => {
     expect(await updates()).toHaveLength(2);
   });
 
+  it('an unmute from a seat with no row writes no row and no audit row', async () => {
+    const batch = vi.spyOn(t.db, 'batch');
+    const res = await put({ nudges_muted: false });
+    expect(res).toEqual({ status: 200, body: { nudges_muted: false, nudges_muted_at: null } });
+    expect(batch).not.toHaveBeenCalled();
+    expect(await prefRows()).toHaveLength(0);
+    expect(await updates()).toHaveLength(0);
+  });
+
   it('rotates the mute token on unmute, in the same batch as the audit row', async () => {
     await put({ nudges_muted: true });
     const mutedToken = (await prefRows())[0]!.muteToken;

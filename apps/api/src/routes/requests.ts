@@ -285,9 +285,9 @@ async function createRequest(
   // fail the 201. The claimant still gets no submit-time mail by design; their only
   // mail is the decision pair from `PATCH /api/admin/claims/:id`.
   //
-  // This is the ONLY claim alert (AECI-1203). When the create fails, the §6.7 sweep
-  // retries it silently: support finds the link in Linear and the admin console, and
-  // the stuck-request alert covers a create that never succeeds. The key makes a
+  // The §6.7 sweep re-sends this alert under the same key when its retry creates the
+  // issue (AECI-1203). The ledger makes that send a `duplicate` unless Resend refused
+  // this one. The stuck-request alert covers a create that never succeeds. The key makes a
   // replayed `waitUntil` a ledger `duplicate`, not a second email.
   c.executionCtx.waitUntil(
     linearDone.then((outcome) => {

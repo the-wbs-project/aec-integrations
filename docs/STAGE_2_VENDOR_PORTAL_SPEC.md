@@ -3217,7 +3217,7 @@ The two decision events carry `metadata.recipientRole` (`submitter` or `owner`),
 
 - **After the commit, never on the request.** The two route senders run in `ctx.waitUntil` after the batch. A refused or lost step sends nothing, and a failed send never changes the response.
 - **At most once.** Each key is held in `notification_sends` (AECI-1202). A replay is a `duplicate` with no Resend call. A protest's key carries `protestedAt`, so a later protest on the same contest is a new send. A failed send releases its key.
-- **The reminder.** The reply window is 14 days, so the reminder goes out on day 11, on the first daily run inside the 3-day window. The next runs inside the window are duplicates. A replied, withdrawn, decided or past-due protest is never selected. The job needs no column: the ledger key is its fence. It is queue-less, like `entitlement-expiry`.
+- **The reminder.** The reply window is 14 days, so the reminder goes out on the first daily 12:00 UTC run inside the 3-day window. That is 2 to 3 days before the deadline, on day 11 or 12 after filing. The next runs inside the window are duplicates. A replied, withdrawn, decided or past-due protest is never selected. The job needs no column: the ledger key is its fence. It is queue-less, like `entitlement-expiry`.
 - **Only an owner decline sends the window email.** An AECi decline cannot be protested (§11b.12.2), and an accept has nothing to protest.
 - **No mute.** These emails carry a deadline the vendor loses a right by missing. The per-seat attestation nudge mute (AECI-1204) does not apply to them.
 - **Tier policy.** The three vendor emails are `production-external`: off production they reach only internal addresses (AECI-1198). The alert is operator mail.

@@ -7,7 +7,8 @@ import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { provideZonelessChangeDetection } from '@angular/core';
 import { TestBed, type ComponentFixture } from '@angular/core/testing';
-import { ActivatedRoute, convertToParamMap, provideRouter } from '@angular/router';
+import { ActivatedRoute, Router, convertToParamMap, provideRouter } from '@angular/router';
+import { RouterTestingHarness } from '@angular/router/testing';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { NudgeMutePage } from './nudge-mute';
@@ -32,6 +33,26 @@ function setup(token: string | null) {
   const fixture = TestBed.createComponent(NudgeMutePage);
   fixture.detectChanges();
   return { fixture, httpMock: TestBed.inject(HttpTestingController) };
+}
+
+/** The real route, so the Router's own URL is what the test reads. */
+async function routed(url: string) {
+  TestBed.configureTestingModule({
+    providers: [
+      provideZonelessChangeDetection(),
+      provideRouter([{ path: 'notifications/mute', component: NudgeMutePage }]),
+      provideHttpClient(),
+      provideHttpClientTesting(),
+    ],
+  });
+  const harness = await RouterTestingHarness.create();
+  await harness.navigateByUrl(url, NudgeMutePage);
+  await harness.fixture.whenStable();
+  return {
+    harness,
+    router: TestBed.inject(Router),
+    httpMock: TestBed.inject(HttpTestingController),
+  };
 }
 
 const el = (f: ComponentFixture<unknown>) => f.nativeElement as HTMLElement;
@@ -93,27 +114,24 @@ describe('NudgeMutePage', () => {
     expect(el(fixture).querySelector('button')).not.toBeNull();
   });
 
-  it('drops the token from the address bar but still POSTs it', async () => {
-    window.history.replaceState({}, '', '/notifications/mute?utm_source=email&token=tok-1#x');
-    const { fixture, httpMock } = setup('tok-1');
-    await fixture.whenStable();
+  it('drops the token from the Router URL but still POSTs it', async () => {
+    // Through the Router, so a cancelled navigation cannot write the token back.
+    const { harness, router, httpMock } = await routed(
+      '/notifications/mute?utm_source=email&token=tok-1#x',
+    );
 
-    expect(window.location.pathname).toBe('/notifications/mute');
-    expect(window.location.search).toBe('?utm_source=email');
-    expect(window.location.hash).toBe('#x');
+    expect(router.url).toBe('/notifications/mute?utm_source=email#x');
 
-    confirm(fixture);
+    harness.routeNativeElement!.querySelector('button')!.click();
     const req = httpMock.expectOne(URL);
     expect(req.request.body).toEqual({ token: 'tok-1' });
     req.flush({ ok: true });
     await settle();
   });
 
-  it('leaves the address bar alone when there is no token', async () => {
-    window.history.replaceState({}, '', '/notifications/mute?utm_source=email');
-    const { fixture } = setup(null);
-    await fixture.whenStable();
-    expect(window.location.search).toBe('?utm_source=email');
+  it('leaves the URL alone when there is no token', async () => {
+    const { router } = await routed('/notifications/mute?utm_source=email');
+    expect(router.url).toBe('/notifications/mute?utm_source=email');
   });
 
   it('explains where the link lives when there is no token, with no button', () => {

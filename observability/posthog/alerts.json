@@ -507,7 +507,7 @@
       "replaces": {
         "datadogMonitor": null,
         "datadogQuery": null,
-        "_note": "NEW with AECI-1206, no Datadog predecessor. Counts sent + failed, the sends that reached Resend. Threshold basis, production 30 days to 2026-10-01: 6 sends in total, daily p50 0, p95 2, max 2. The AECI-1199 digest tags add about 2 a day, so an expected day is 2 to 4. attestation-digest adds one per unmuted vendor_admin seat per day and no seats are granted yet. 50 is over ten times the busiest expected day and leaves room for about 40 seats. Revisit when seats are granted."
+        "_note": "NEW with AECI-1206, no Datadog predecessor. Counts sent + failed + unknown, the sends that reached or may have reached Resend. Threshold basis, production 30 days to 2026-10-01: 6 sends in total, daily p50 0, p95 2, max 2. The AECI-1199 digest tags add about 2 a day, so an expected day is 2 to 4. attestation-digest adds one per unmuted vendor_admin seat per day and no seats are granted yet. 50 is over ten times the busiest expected day and leaves room for about 40 seats. Revisit when seats are granted."
       },
       "runbook": "docs/NOTIFICATIONS.md names each template's sender; the email-sends-by-template tile shows which one burst."
     },

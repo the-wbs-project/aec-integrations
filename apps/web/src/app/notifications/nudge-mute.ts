@@ -19,7 +19,6 @@
  * Mute only. Turning reminders back on is the Messages page switch, behind a
  * vendor session. Light theme only; every string is `i18n` or `$localize`.
  */
-import { DOCUMENT } from '@angular/common';
 import {
   Component,
   ElementRef,
@@ -29,9 +28,8 @@ import {
   signal,
   viewChild,
 } from '@angular/core';
-import { ActivatedRoute, RouterLink } from '@angular/router';
+import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 
-import { stripTokenParam } from '../analytics/posthog-url-sanitizer';
 import { canonicalUrl } from '../core/canonical';
 import { MetaService } from '../core/meta.service';
 import { NudgeMuteApi } from './nudge-mute-api';
@@ -169,7 +167,7 @@ export class NudgeMutePage {
   private readonly meta = inject(MetaService);
   private readonly api = inject(NudgeMuteApi);
   private readonly route = inject(ActivatedRoute);
-  private readonly document = inject(DOCUMENT);
+  private readonly router = inject(Router);
 
   protected readonly btn = BTN;
   protected readonly headline = HEADLINE;
@@ -194,13 +192,19 @@ export class NudgeMutePage {
     // does not linger in history, a shared screenshot, or a copied URL. The POST
     // still sends the copy held in `token`. `afterNextRender` never runs during
     // SSR, so this is browser-only.
+    //
+    // It goes through the Router, not `history.replaceState`. The Router keeps its
+    // own copy of the URL and writes it back to the address bar on a cancelled or
+    // failed navigation, so a raw replace would let the token come back. The route
+    // and component stay the same, so nothing re-runs.
     afterNextRender(() => {
       if (!this.token) return;
-      const win = this.document.defaultView;
-      if (!win) return;
-      const { href } = win.location;
-      const clean = stripTokenParam(href);
-      if (clean !== href) win.history.replaceState(win.history.state, '', clean);
+      void this.router.navigate([], {
+        queryParams: { token: null },
+        queryParamsHandling: 'merge',
+        preserveFragment: true,
+        replaceUrl: true,
+      });
     });
 
     effect(() => {

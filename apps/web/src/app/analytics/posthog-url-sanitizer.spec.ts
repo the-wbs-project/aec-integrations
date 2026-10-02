@@ -102,6 +102,24 @@ describe('sanitizePostHogEvent', () => {
     });
   });
 
+  it('scrubs the $session_entry_* copies the SDK puts on every event of a session', () => {
+    const out = sanitizePostHogEvent(
+      event({
+        event: '$web_vitals',
+        properties: {
+          $session_entry_url: `${ORIGIN}/unsubscribe?token=a&utm_source=email`,
+          $session_entry_referrer: `${ORIGIN}/notifications/mute?token=b`,
+          $session_entry_pathname: '/notifications/mute?token=c',
+        },
+      }),
+    );
+    expect(out?.properties).toEqual({
+      $session_entry_url: `${ORIGIN}/unsubscribe?utm_source=email`,
+      $session_entry_referrer: `${ORIGIN}/notifications/mute`,
+      $session_entry_pathname: '/notifications/mute',
+    });
+  });
+
   it('passes null through and ignores non-string URL properties', () => {
     expect(sanitizePostHogEvent(null)).toBeNull();
     const out = sanitizePostHogEvent(
