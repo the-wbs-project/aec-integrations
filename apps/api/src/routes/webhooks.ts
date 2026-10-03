@@ -393,6 +393,7 @@ export function createResendWebhookHandler(
       occurredAt: payload.created_at,
       data: payload.data,
       classification,
+      emailBcc: c.env.EMAIL_BCC,
     });
 
     const outcome = result.inserted ? 'recorded' : 'replay';

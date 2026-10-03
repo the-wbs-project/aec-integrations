@@ -647,6 +647,7 @@ metric once:
 - **Several addresses, or none:** the row is unattributed. `recipient_hash` is `''`,
   `notification_send_id` is NULL, and there is no ledger join. The `notification_id` comes from
   the message's tag. An address search never finds it.
+- `EMAIL_BCC` addresses are set aside before counting. See the BCC rule below.
 
 **The join.** `data.email_id` is the ledger's `provider_message_id`. A single-address event picks
 its ledger row by `recipientHash`, and the earliest matching row wins:
@@ -657,10 +658,13 @@ its ledger row by `recipientHash`, and the earliest matching row wins:
 - The operator `COPY:` writes one row per operator address. Same rule.
 - A retried keyed send can get the first send's id back through `Idempotency-Key`. The
   earliest row is the send that went.
-- **A BCC copy has no ledger row.** Resend's docs do not say whether a BCC address appears in
-  `data.to`. If an event names the BCC address alone, it is stored with `notification_send_id`
-  NULL under the message's `notification_id` tag. If it names the BCC address beside the `to`
-  address, the whole event is unattributed. No ledger row is invented either way.
+- **A BCC copy has no ledger row, and no event is ever attributed to it.** Resend's docs do
+  not say whether a BCC address appears in `data.to`. So the handler sets the tier's `EMAIL_BCC`
+  addresses aside before counting, parsed as the send path parses them, with no tier refusal
+  filter. A bounce to `[user, support]` with support in `EMAIL_BCC` joins the user's row. If
+  only one BCC address is named, the event is attributed to it only when that address has a
+  ledger row for the message: the operator `COPY:` send, which goes to support and keeps its
+  own rows. Otherwise it is stored unattributed. No ledger row is invented.
 - **An event that lands before `finalizeSend` stores the message id stays unjoined.** The ledger
   row gets `provider_message_id` only after Resend's send call returns. An event that arrives
   first, in practice only `email.sent`, finds no row and is stored with `notification_send_id`

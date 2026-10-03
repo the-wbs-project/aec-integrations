@@ -292,6 +292,67 @@ describe('POST /api/webhooks/resend — recording', () => {
     });
   });
 
+  it('sets EMAIL_BCC aside: a bounce to [user, support] joins the user row', async () => {
+    const env: Env = {
+      ...PROD,
+      EMAIL_BCC: 'Support <Support@aecintegrations.com>, ops@aecintegrations.com',
+    };
+    const sendId = await ledgerRow('r@example.com');
+    await post(
+      event('email.bounced', {
+        to: ['r@example.com', 'support@aecintegrations.com'],
+        bounce: { type: 'Permanent', subType: 'General', message: 'no such user' },
+      }),
+      { env },
+    );
+    expect(await events()).toEqual([
+      expect.objectContaining({
+        notificationSendId: sendId,
+        recipientHash: await recipientHash('r@example.com'),
+        eventType: 'bounced',
+      }),
+    ]);
+  });
+
+  it('keeps an operator COPY event to [support] joined to its own ledger row', async () => {
+    const env: Env = { ...PROD, EMAIL_BCC: 'support@aecintegrations.com' };
+    await ledgerRow('r@example.com', { providerMessageId: 'em_user' });
+    const copyId = await ledgerRow('support@aecintegrations.com', {
+      notificationId: 'review-submitted-operator-copy',
+      providerMessageId: 'em_copy',
+    });
+    await post(
+      event('email.delivered', { email_id: 'em_copy', to: ['support@aecintegrations.com'] }),
+      { env },
+    );
+    expect(await events()).toEqual([
+      expect.objectContaining({
+        notificationSendId: copyId,
+        notificationId: 'review-submitted-operator-copy',
+        recipientHash: await recipientHash('support@aecintegrations.com'),
+      }),
+    ]);
+  });
+
+  it('never attributes a plain blind-copy event to the BCC address', async () => {
+    const env: Env = { ...PROD, EMAIL_BCC: 'support@aecintegrations.com' };
+    await ledgerRow('r@example.com');
+    await post(event('email.delivered', { to: ['support@aecintegrations.com'] }), { env });
+    expect(await events()).toEqual([
+      expect.objectContaining({ notificationSendId: null, recipientHash: '' }),
+    ]);
+  });
+
+  it('leaves [a, b] unattributed when neither is in EMAIL_BCC', async () => {
+    const env: Env = { ...PROD, EMAIL_BCC: 'support@aecintegrations.com' };
+    await ledgerRow('a@example.com');
+    await ledgerRow('b@example.com');
+    await post(event('email.delivered', { to: ['a@example.com', 'b@example.com'] }), { env });
+    expect(await events()).toEqual([
+      expect.objectContaining({ notificationSendId: null, recipientHash: '' }),
+    ]);
+  });
+
   it('stores an event that names nobody once, unattributed', async () => {
     await post(event('email.delivered', { to: [] }));
     expect(await events()).toEqual([

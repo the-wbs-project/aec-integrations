@@ -36,6 +36,21 @@
  * nobody is stored the same unattributed way. Either way the event writes exactly one row and
  * counts the metric once.
  *
+ * ─── Blind copies ─────────────────────────────────────────────────────────────
+ *
+ * Production blind-copies support (`EMAIL_BCC`) on nearly every send. If Resend lists BCC
+ * addresses in `data.to`, counting them would leave almost every event unattributed. So the
+ * tier's `EMAIL_BCC` addresses (parsed as the send path parses them, no tier refusal filter)
+ * are set aside before counting:
+ *
+ *   - One address left: attributed to it and joined, as above.
+ *   - Two or more left: unattributed.
+ *   - None left, and the event named one BCC address: attributed to it ONLY when that
+ *     address has a ledger row for this message. That is the operator `COPY:` send, which
+ *     goes TO support and keeps its own rows. A plain blind copy has no row, so its event is
+ *     stored unattributed and never under the BCC address.
+ *   - None left from several BCC addresses, or nothing named: unattributed.
+ *
  * ─── Log-class ────────────────────────────────────────────────────────────────
  *
  * No `audit_log` row (ADR 0022), like `notification_sends`. Unlike the ledger it does NOT
@@ -58,6 +73,7 @@ import {
   notificationSends,
   type NotificationDeliveryEventType,
 } from '../../db/schema';
+import { parseRecipients } from '../email';
 import { recipientHash } from '../hash';
 import { isProductionTier, tierLabel, type DeliveryPolicyEnv } from './delivery-policy';
 import { NOTIFICATIONS } from './registry';
@@ -179,6 +195,8 @@ export interface RecordInput {
   occurredAt: string;
   data: NonNullable<ResendWebhook['data']>;
   classification: Extract<DeliveryClassification, { kind: 'record' }>;
+  /** The tier's raw `EMAIL_BCC`: the support blind copy's addresses. See "Blind copies". */
+  emailBcc?: string;
 }
 
 export interface RecordResult {
@@ -186,18 +204,29 @@ export interface RecordResult {
   inserted: boolean;
   /** The stored row's `notification_id`, for the metric. */
   notificationId: string;
-  /** True when the event named exactly one address and was joined by it. */
+  /** True when the row carries a recipient hash (see the header). */
   attributed: boolean;
 }
 
 /**
- * Store one row for the event. A single-address event joins its ledger row by recipient
- * hash. Any other event is stored unattributed (see the header). A DB error propagates.
+ * Store one row for the event, attributed to at most one recipient by the rules in the
+ * header ("One row per event", "Blind copies"). A DB error propagates.
  */
 export async function recordDeliveryEvent(db: Db, input: RecordInput): Promise<RecordResult> {
   const { data, classification } = input;
-  const hashes = await recipientHashes(data.to ?? []);
-  const hash = hashes.length === 1 ? hashes[0]! : null;
+  const named = await recipientHashes(data.to ?? []);
+  const bcc = new Set(await recipientHashes(parseRecipients(input.emailBcc)));
+  const others = named.filter((h) => !bcc.has(h));
+
+  // Exactly one non-BCC address: that recipient. No non-BCC address and exactly one BCC
+  // address: a candidate that counts only if it joins a ledger row (the operator `COPY:`).
+  let hash: string | null = null;
+  let mustJoin = false;
+  if (others.length === 1) hash = others[0]!;
+  else if (others.length === 0 && named.length === 1) {
+    hash = named[0]!;
+    mustJoin = true;
+  }
 
   const fallbackId = classification.signIn
     ? SIGN_IN_NOTIFICATION_ID
@@ -217,6 +246,8 @@ export async function recordDeliveryEvent(db: Db, input: RecordInput): Promise<R
       )
       .orderBy(asc(notificationSends.id))
       .limit(1);
+    // A blind copy has no ledger row of its own: never attribute an event to it.
+    if (mustJoin && !match) hash = null;
   }
 
   const bounce = input.eventType === 'email.bounced' ? data.bounce : undefined;
