@@ -297,6 +297,16 @@ export const routes: Routes = [
         path: 'reviews',
         loadComponent: () => import('./admin/reviews/review-queue').then((m) => m.ReviewQueue),
       },
+      // AECI-1177 — the vendor review-reply queue (`ADMIN_PANEL_SPEC.md` §5.13). One
+      // flat child and no detail route: a row already carries everything a decision
+      // needs, as on `/admin/contests`.
+      {
+        path: 'review-responses',
+        loadComponent: () =>
+          import('./admin/review-responses/review-response-queue').then(
+            (m) => m.ReviewResponseQueue,
+          ),
+      },
       {
         path: 'requests',
         loadComponent: () => import('./admin/requests/request-queue').then((m) => m.RequestQueue),

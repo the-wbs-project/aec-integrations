@@ -1,5 +1,14 @@
 import { NgTemplateOutlet, formatDate } from '@angular/common';
-import { Component, LOCALE_ID, afterNextRender, computed, inject } from '@angular/core';
+import {
+  Component,
+  LOCALE_ID,
+  afterNextRender,
+  computed,
+  effect,
+  inject,
+  signal,
+  untracked,
+} from '@angular/core';
 import { RouterLink } from '@angular/router';
 
 import { VendorGlanceBand } from '../components/vendor-glance-band';
@@ -14,11 +23,13 @@ import {
   linkQueryParams,
   openCorrections,
   type NeedsItem,
+  type ProductClaimCount,
   type ProductGapField,
   type ProfileGapField,
 } from '../overview/vendor-overview-model';
 import { VendorPortalAnnouncer } from '../vendor-announcer';
-import { vendorCan, vendorIsCatalogueSeat } from '../vendor-capabilities';
+import { VendorApi } from '../vendor-api';
+import { productCan, vendorCan, vendorIsCatalogueSeat } from '../vendor-capabilities';
 import { VendorPortalStore } from '../vendor-portal-store';
 
 /** The presentational half of a {@link NeedsItem}: what the row says. */
@@ -328,8 +339,20 @@ export class VendorOverviewSection {
   private readonly store = inject(VendorPortalStore);
   private readonly announcer = inject(VendorPortalAnnouncer);
   private readonly locale = inject(LOCALE_ID);
+  private readonly api = inject(VendorApi);
 
   protected readonly me = this.store.me;
+
+  /**
+   * Unanswered reviews per product (AECI-1179, §11c.16): one `GET /api/vendor/reviews`
+   * per product whose plan holds `review.reply`, filtered to `reply_status=none` with
+   * `perPage=1`, so each costs one row and answers with `total`. Re-read when the
+   * `reviews` cursor moves. Empty until the reads land, and a failed read drops
+   * its product rather than claiming a count.
+   */
+  private readonly reviewsToAnswer = signal<readonly ProductClaimCount[]>([]);
+  private reviewsTicket = 0;
+  private readonly rendered = signal(false);
 
   protected readonly integrationsLoading = computed(
     () => this.store.integrationsStatus() === 'idle' || this.store.integrationsLoading(),
@@ -370,6 +393,7 @@ export class VendorOverviewSection {
             Date.parse(c.protest.reply_due_at) > Date.now(),
         ).length,
       counterpartAddedUnanswered: this.store.counterpartAddedUnanswered(),
+      reviewsToAnswer: this.reviewsToAnswer(),
       canManageSeats: this.store.canManageSeats(),
       // The same capability the Integrations tab gates on (AECI-623).
       canAttest: this.canAttest(),
@@ -415,6 +439,16 @@ export class VendorOverviewSection {
       void this.store.ensure('seats');
       void this.store.ensure('contests');
       void this.store.ensureChecklist();
+      this.rendered.set(true);
+    });
+
+    // AECI-1179: the unanswered-review counts, on first render, on a catalog or plan
+    // change, and on every `reviews` cursor tick.
+    effect(() => {
+      if (!this.rendered()) return;
+      this.store.reviewsRevision();
+      const products = (this.me()?.products ?? []).filter((p) => productCan(p, 'review.reply'));
+      untracked(() => void this.loadReviewCounts(products));
     });
   }
 
@@ -426,6 +460,29 @@ export class VendorOverviewSection {
         );
       }
     });
+  }
+
+  private async loadReviewCounts(
+    products: readonly { id: string; slug: string; name: string }[],
+  ): Promise<void> {
+    const ticket = ++this.reviewsTicket;
+    const results = await Promise.all(
+      products.map(async (p) => {
+        try {
+          const res = await this.api.listReviews({
+            page: 1,
+            perPage: 1,
+            productId: p.id,
+            replyStatus: 'none',
+          });
+          return { product: { id: p.id, slug: p.slug, name: p.name }, count: res.total };
+        } catch {
+          return null;
+        }
+      }),
+    );
+    if (ticket !== this.reviewsTicket) return;
+    this.reviewsToAnswer.set(results.filter((r): r is ProductClaimCount => r !== null));
   }
 
   protected retryIntegrations(): void {
@@ -569,6 +626,41 @@ export class VendorOverviewSection {
             item.products === 1
               ? $localize`:@@vendor.overview.item.waitingMore.title.one:And 1 more product with data flows waiting`
               : $localize`:@@vendor.overview.item.waitingMore.title.many:And ${item.products}:COUNT: more products with data flows waiting`,
+          body: $localize`:@@vendor.overview.item.more.body:Open Products to see them all.`,
+        };
+      case 'reviews': {
+        const name = item.product.name;
+        return {
+          key: item.key,
+          commands,
+          queryParams,
+          fragment,
+          icon: 'pencil',
+          tone: 'quiet',
+          pill:
+            item.count === 1
+              ? $localize`:@@vendor.overview.item.reviews.pill.one:1 review`
+              : $localize`:@@vendor.overview.item.reviews.pill.many:${item.count}:COUNT: reviews`,
+          title:
+            item.count === 1
+              ? $localize`:@@vendor.overview.item.reviews.title.one:A review of ${name}:PRODUCT: has no reply from you`
+              : $localize`:@@vendor.overview.item.reviews.title.many:${item.count}:COUNT: reviews of ${name}:PRODUCT: have no reply from you`,
+          body: $localize`:@@vendor.overview.item.reviews.body:You can answer each review once, in public. AEC Integrations checks every reply before it shows.`,
+        };
+      }
+      case 'reviewsMore':
+        return {
+          key: item.key,
+          commands,
+          queryParams,
+          fragment,
+          icon: 'pencil',
+          tone: 'quiet',
+          pill: $localize`:@@vendor.overview.item.more.pill:More`,
+          title:
+            item.products === 1
+              ? $localize`:@@vendor.overview.item.reviewsMore.title.one:And 1 more product with reviews to answer`
+              : $localize`:@@vendor.overview.item.reviewsMore.title.many:And ${item.products}:COUNT: more products with reviews to answer`,
           body: $localize`:@@vendor.overview.item.more.body:Open Products to see them all.`,
         };
       case 'productGaps': {

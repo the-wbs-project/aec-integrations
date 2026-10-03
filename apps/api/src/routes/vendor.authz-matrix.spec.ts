@@ -59,6 +59,13 @@
  * granted-seat cell reaches a real write. Its isolation cells are the owner rule
  * one grain up from the endpoint rule: the other endpoint vendor gets a 403, and a
  * vendor on neither endpoint gets the unknown-id 404.
+ *
+ * AECI-1176 adds the four review-reply routes (`STAGE_2_VENDOR_PORTAL_SPEC.md`
+ * §11c.14). They take every guard cell. Their own cells: a seat on a vendor that does
+ * not own the review's product gets the unknown-review 404 on every write; a co-owner
+ * (a non-primary `product_vendors` row) may reply; and the `review.reply` gate answers
+ * `403 ENTITLEMENT_REQUIRED` on create and edit for a seat with no plan, while its
+ * withdraw and its list read go through.
  */
 
 import { ApiErrorCode } from '@aeci/shared';
@@ -75,6 +82,8 @@ import {
   productVersions,
   products,
   profiles,
+  reviewResponses,
+  reviews,
   taxonomyDataObjects,
   vendorEntitlements,
   vendors,
@@ -109,6 +118,12 @@ import { createListDataObjectsHandler } from './vendor-data-objects';
 import { createCreateVendorIntegrationHandler } from './vendor-integration-create';
 import { createUpdateVendorIntegrationHandler } from './vendor-integration-edits';
 import { createVendorUpdatesHandler } from './vendor-updates';
+import {
+  createEditReviewResponseHandler,
+  createListVendorReviewsHandler,
+  createSubmitReviewResponseHandler,
+  createWithdrawReviewResponseHandler,
+} from './vendor-review-responses';
 
 const SUPABASE_URL = 'https://test-project.supabase.co';
 const ENV = { ENV: 'preview', SUPABASE_URL } as Env;
@@ -133,6 +148,13 @@ const DATA_OBJECT_SUBMITTALS = uuid(41);
 const CLAIM_AB = uuid(50); // on INTEGRATION_AB — A may attest
 const CLAIM_BU = uuid(51); // on INTEGRATION_BU — A may not
 const CLAIM_UNVERIFIED = uuid(52); // on INTEGRATION_BU — the unverified vendor's own
+
+// AECI-1176 fixtures: approved reviews. REVIEW_A_EDIT and REVIEW_A_WD carry a pending
+// reply of vendor A's, so the PATCH and withdraw granted-seat cells reach a write.
+const REVIEW_A = uuid(80);
+const REVIEW_A_EDIT = uuid(81);
+const REVIEW_A_WD = uuid(82);
+const REVIEW_U = uuid(83); // on the unverified vendor's product, with its pending reply
 
 const SEAT_A = uuid(100); // granted seat on vendor A
 const SEAT_B = uuid(101); // granted seat on vendor B
@@ -269,6 +291,37 @@ beforeEach(async () => {
     { id: ADMIN, role: 'admin' },
     { id: SEAT_UNVERIFIED, role: 'vendor_admin', vendorId: VENDOR_UNVERIFIED },
   ]);
+  const review = (id: string, productId: string) => ({
+    id,
+    productId,
+    ratingOverall: 4,
+    ratingOnboarding: 4,
+    title: 'A title',
+    body: 'A review body.',
+    status: 'approved',
+  });
+  await t.db
+    .insert(reviews)
+    .values([
+      review(REVIEW_A, PRODUCT_A),
+      review(REVIEW_A_EDIT, PRODUCT_A),
+      review(REVIEW_A_WD, PRODUCT_A),
+      review(REVIEW_U, PRODUCT_UNVERIFIED),
+    ]);
+  const reply = (id: string, reviewId: string, vendorId: string) => ({
+    id,
+    reviewId,
+    vendorId,
+    body: 'A pending reply.',
+    status: 'pending',
+  });
+  await t.db
+    .insert(reviewResponses)
+    .values([
+      reply(uuid(90), REVIEW_A_EDIT, VENDOR_A),
+      reply(uuid(91), REVIEW_A_WD, VENDOR_A),
+      reply(uuid(92), REVIEW_U, VENDOR_UNVERIFIED),
+    ]);
 });
 afterEach(() => t.dispose());
 
@@ -362,6 +415,23 @@ function makeApp() {
     '/api/vendor/integrations/:id',
     requireVendor(guard),
     createUpdateVendorIntegrationHandler(t.factory),
+  );
+  // AECI-1176 — seat; ownership and the `review.reply` gate are inside the handlers.
+  app.get('/api/vendor/reviews', requireVendor(guard), createListVendorReviewsHandler(t.factory));
+  app.post(
+    '/api/vendor/reviews/:reviewId/response',
+    requireVendor(guard),
+    createSubmitReviewResponseHandler(t.factory),
+  );
+  app.patch(
+    '/api/vendor/reviews/:reviewId/response',
+    requireVendor(guard),
+    createEditReviewResponseHandler(t.factory),
+  );
+  app.post(
+    '/api/vendor/reviews/:reviewId/response/withdraw',
+    requireVendor(guard),
+    createWithdrawReviewResponseHandler(t.factory),
   );
   return app;
 }
@@ -458,6 +528,19 @@ const ROUTES: ReadonlyArray<{ path: string; method: string; body?: unknown; ok?:
     method: 'PATCH',
     body: { description: 'edited by the owner' },
   },
+  { path: '/api/vendor/reviews', method: 'GET' },
+  {
+    path: `/api/vendor/reviews/${REVIEW_A}/response`,
+    method: 'POST',
+    body: { body: 'Thanks for the review.' },
+    ok: 201,
+  },
+  {
+    path: `/api/vendor/reviews/${REVIEW_A_EDIT}/response`,
+    method: 'PATCH',
+    body: { body: 'An edited reply.' },
+  },
+  { path: `/api/vendor/reviews/${REVIEW_A_WD}/response/withdraw`, method: 'POST' },
 ];
 
 /** The version routes that WRITE, and are therefore Verified-gated. */
@@ -974,5 +1057,89 @@ describe('/api/vendor/* — cross-vendor isolation', () => {
       'submittals',
       'rfis',
     ]);
+  });
+});
+
+describe('/api/vendor/reviews* — ownership and the review.reply gate (AECI-1176)', () => {
+  const writes = (reviewId: string) => [
+    { path: `/api/vendor/reviews/${reviewId}/response`, method: 'POST', body: { body: 'Hi.' } },
+    { path: `/api/vendor/reviews/${reviewId}/response`, method: 'PATCH', body: { body: 'Hi.' } },
+    { path: `/api/vendor/reviews/${reviewId}/response/withdraw`, method: 'POST' },
+  ];
+
+  it.each(writes(REVIEW_A_EDIT))(
+    '$method $path by a seat of a vendor that does not own the product → 404, unmutated, unaudited',
+    async ({ path, method, body }) => {
+      const { status, body: res } = await call(path, method, SEAT_B, body);
+      expect(status).toBe(404);
+      expect(res.error.details).toEqual({ resource: 'review', id: REVIEW_A_EDIT });
+      const rows = await t.db.select().from(reviewResponses);
+      expect(rows.find((r) => r.reviewId === REVIEW_A_EDIT)).toMatchObject({
+        vendorId: VENDOR_A,
+        status: 'pending',
+        body: 'A pending reply.',
+      });
+      expect(rows).toHaveLength(3);
+      expect(await t.db.select().from(auditLog)).toHaveLength(0);
+    },
+  );
+
+  it('a non-owner with no plan still gets the 404, never the 403', async () => {
+    const { status } = await call(
+      `/api/vendor/reviews/${REVIEW_A}/response`,
+      'POST',
+      SEAT_UNVERIFIED,
+      {
+        body: 'Hi.',
+      },
+    );
+    expect(status).toBe(404);
+  });
+
+  it('a co-owner (non-primary product_vendors row) may reply to the same review', async () => {
+    await t.db
+      .insert(productVendors)
+      .values({ productId: PRODUCT_A, vendorId: VENDOR_B, isPrimary: false });
+    const { status } = await call(`/api/vendor/reviews/${REVIEW_A_EDIT}/response`, 'POST', SEAT_B, {
+      body: 'From the co-owner.',
+    });
+    expect(status).toBe(201);
+  });
+
+  it.each([
+    { method: 'POST', path: `/api/vendor/reviews/${REVIEW_U}/response` },
+    { method: 'PATCH', path: `/api/vendor/reviews/${REVIEW_U}/response` },
+  ])(
+    '$method by a seat with no plan on its OWN review → 403 ENTITLEMENT_REQUIRED',
+    async ({ method, path }) => {
+      const { status, body } = await call(path, method, SEAT_UNVERIFIED, { body: 'New words.' });
+      expect(status).toBe(403);
+      expect(body.error.code).toBe(ApiErrorCode.ENTITLEMENT_REQUIRED);
+      expect(body.error.details).toMatchObject({ capability: 'review.reply', tier: 'unclaimed' });
+      expect(await t.db.select().from(auditLog)).toHaveLength(0);
+    },
+  );
+
+  it('lets a seat with no plan WITHDRAW its own reply and READ its reviews', async () => {
+    const withdrawn = await call(
+      `/api/vendor/reviews/${REVIEW_U}/response/withdraw`,
+      'POST',
+      SEAT_UNVERIFIED,
+    );
+    expect(withdrawn.status).toBe(200);
+    expect(withdrawn.body.response.status).toBe('withdrawn');
+
+    const listed = await call('/api/vendor/reviews', 'GET', SEAT_UNVERIFIED);
+    expect(listed.status).toBe(200);
+    expect(listed.body.data.map((i: JsonBody) => i.review.id)).toEqual([REVIEW_U]);
+    expect(listed.body.data[0].can_reply).toBe(false);
+  });
+
+  it('GET /reviews returns only the caller’s own products’ reviews', async () => {
+    const a = await call('/api/vendor/reviews', 'GET', SEAT_A);
+    expect(a.body.total).toBe(3);
+    expect(a.body.data.every((i: JsonBody) => i.product.id === PRODUCT_A)).toBe(true);
+    const b = await call('/api/vendor/reviews', 'GET', SEAT_B);
+    expect(b.body).toMatchObject({ data: [], total: 0 });
   });
 });

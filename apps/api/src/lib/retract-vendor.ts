@@ -37,6 +37,15 @@
  *   attestations               attested_by_vendor_id    set null    allowed; reported + NULLed
  *   page_views                 vendor_id                —           allowed; NULLed, never deleted
  *   integration_vendor_links   vendor_id                set null    allowed; NULLed by the FK action
+ *   review_responses           vendor_id                cascade     NOT HANDLED; deleted by the FK action
+ *
+ * `review_responses` (AECI-1175, migration 0058) is not counted, refused or tombstoned
+ * here yet. A retractable vendor owns no product, so none of its replies can render
+ * (`STAGE_2_VENDOR_PORTAL_SPEC.md` §11c.11), but the cascade removes them with no
+ * footprint row. The field-contest table's submitter vendor (cascade) and owner
+ * vendor (set null) columns are in the same state. Neither table has a seat-free
+ * writer, so a vendor with rows in either almost always trips the `profiles` refusal
+ * first. Unlike `retract-product.ts`, this lane has no snapshot-driven FK coverage spec.
  *
  * `integration_vendor_links` (AECI-1007, migration 0045) is the one row above the plan
  * does NOT null by hand. Its `ON DELETE SET NULL` does it, which D1 enforces, and an

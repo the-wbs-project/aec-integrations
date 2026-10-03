@@ -304,6 +304,42 @@ describe('buildNeedsItems — field contests to decide (AECI-1008)', () => {
   });
 });
 
+describe('buildNeedsItems — reviews with no reply (AECI-1179)', () => {
+  const ref = (n: number) => ({
+    id: `00000000-0000-4000-8000-00000000590${n}`,
+    slug: `p${n}`,
+    name: `P${n}`,
+  });
+
+  it('adds a Worth doing row per product, most first, linked to its Reviews tab', () => {
+    const { worthDoing } = buildNeedsItems(
+      input({
+        reviewsToAnswer: [
+          { product: ref(1), count: 1 },
+          { product: ref(2), count: 3 },
+          { product: ref(3), count: 0 },
+        ],
+      }),
+    );
+    const rows = worthDoing.filter((i) => i.type === 'reviews');
+    expect(rows.map((r) => (r.type === 'reviews' ? r.product.slug : null))).toEqual(['p2', 'p1']);
+    expect(linkCommands(rows[0]!.link)).toEqual(['..', 'products', 'p2', 'reviews']);
+  });
+
+  it('caps the rows and adds a More row', () => {
+    const many = [1, 2, 3, 4, 5].map((n) => ({ product: ref(n), count: n }));
+    const { worthDoing } = buildNeedsItems(input({ reviewsToAnswer: many }));
+    expect(worthDoing.filter((i) => i.type === 'reviews')).toHaveLength(PRODUCT_ROW_CAP);
+    expect(worthDoing.find((i) => i.type === 'reviewsMore')).toMatchObject({
+      products: 5 - PRODUCT_ROW_CAP,
+    });
+  });
+
+  it('is absent when omitted', () => {
+    expect(buildNeedsItems(input()).worthDoing.some((i) => i.type === 'reviews')).toBe(false);
+  });
+});
+
 describe('buildNeedsItems — protests to reply to (AECI-1009)', () => {
   it('adds one Needs you now row after the contests row, linked to Messages', () => {
     const { now } = buildNeedsItems(input({ contestsToDecide: 1, protestsToReply: 2 }));

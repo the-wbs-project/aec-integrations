@@ -6,6 +6,8 @@
  * Contracts:
  *   - Query: `ProductReviewsQuerySchema` (page/perPage); Response:
  *     `ProductReviewsResponseSchema` (`PaginatedResponse<PublicReview>`). No PII.
+ *   - Each review carries its published `vendor_responses` (AECI-1178, §11c.14),
+ *     through the same helper as the `ProductDetail.reviews` embed.
  */
 
 import {
@@ -21,8 +23,9 @@ import { products, reviews } from '../db/schema';
 import type { Env } from '../env';
 import { ApiError, notFoundError } from '../errors';
 import { json } from '../http';
-import { publicReviewColumns, toPublicReview } from '../lib/drizzle-helpers';
+import { publicReviewColumns } from '../lib/drizzle-helpers';
 import { validateResponseInDev, type DbFactory } from '../lib/handler-utils';
+import { withPublishedVendorResponses } from '../lib/review-responses';
 
 export function createProductReviewsListHandler(
   dbFor: DbFactory = getDb,
@@ -61,8 +64,11 @@ export function createProductReviewsListHandler(
       db.select({ value: count() }).from(reviews).where(where),
     ]);
 
+    // §11c.14: the page's published vendor replies, one batched query.
+    const data = await withPublishedVendorResponses(db, rows);
+
     const body: ProductReviewsResponse = {
-      data: rows.map(toPublicReview),
+      data,
       page: query.page,
       perPage: query.perPage,
       total: countRows[0]?.value ?? 0,

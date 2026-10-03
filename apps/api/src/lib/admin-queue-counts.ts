@@ -37,6 +37,11 @@
  * AECI-1009), so it is disjoint from all four. It badges `/admin/contests` and is
  * summed into the Operations trigger and the header badge like the others.
  *
+ * `pending_review_responses` (AECI-1177) counts `review_responses.status =
+ * 'pending'`, the vendor replies awaiting pre-moderation
+ * (`STAGE_2_VENDOR_PORTAL_SPEC.md` §11c). Another table, so disjoint from all
+ * five. It badges `/admin/review-responses`.
+ *
  * ── WHY `open` AND NOT `open + in_review` ───────────────────────────────────
  * `vendor_requests.status` allows `open | in_review | resolved | rejected`, and
  * `in_review` is real: the inbound Linear webhook moves an actively-worked issue
@@ -56,24 +61,31 @@
 import { and, count, eq, isNull, or } from 'drizzle-orm';
 
 import type { Db } from '../db/client';
-import { gscRecrawlQueue, integrationFieldChallenges, reviews, vendorRequests } from '../db/schema';
+import {
+  gscRecrawlQueue,
+  integrationFieldChallenges,
+  reviewResponses,
+  reviews,
+  vendorRequests,
+} from '../db/schema';
 
-/** The five counters, in the wire shape both endpoints return. */
+/** The six counters, in the wire shape both endpoints return. */
 export interface AdminQueueCounts {
   pending_reviews: number;
   pending_requests: number;
   pending_claims: number;
   pending_reindex: number;
   pending_contests: number;
+  pending_review_responses: number;
 }
 
 /**
- * All five counts in ONE D1 round trip. `db.batch` rather than `Promise.all`
- * because five trivial `COUNT(*)`s are not worth five binding calls, and this
+ * All six counts in ONE D1 round trip. `db.batch` rather than `Promise.all`
+ * because six trivial `COUNT(*)`s are not worth five binding calls, and this
  * runs on the header probe of every signed-in admin page load.
  */
 export async function readAdminQueueCounts(db: Db): Promise<AdminQueueCounts> {
-  const [reviewRows, requestRows, claimRows, reindexRows, contestRows] = await db.batch([
+  const [reviewRows, requestRows, claimRows, reindexRows, contestRows, replyRows] = await db.batch([
     db.select({ value: count() }).from(reviews).where(eq(reviews.status, 'pending')),
     db
       .select({ value: count() })
@@ -109,6 +121,12 @@ export async function readAdminQueueCounts(db: Db): Promise<AdminQueueCounts> {
           eq(integrationFieldChallenges.protestStatus, 'open'),
         ),
       ),
+    // AECI-1177: vendor replies awaiting approval. Served by
+    // `review_responses_status_updated_idx`.
+    db
+      .select({ value: count() })
+      .from(reviewResponses)
+      .where(eq(reviewResponses.status, 'pending')),
   ]);
 
   return {
@@ -117,5 +135,6 @@ export async function readAdminQueueCounts(db: Db): Promise<AdminQueueCounts> {
     pending_claims: claimRows[0]?.value ?? 0,
     pending_reindex: reindexRows[0]?.value ?? 0,
     pending_contests: contestRows[0]?.value ?? 0,
+    pending_review_responses: replyRows[0]?.value ?? 0,
   };
 }

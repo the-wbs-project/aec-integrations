@@ -51,6 +51,9 @@ import type {
   ReviewVendorProfileResponse,
   ReviewVendorProductResponse,
   ReviewVendorProductIntegrationsResponse,
+  ListVendorReviewsResponse,
+  VendorReviewItem,
+  VendorReviewResponseResult,
 } from '@aeci/shared';
 import { compareText } from '@aeci/shared/text-sort';
 import {
@@ -73,7 +76,9 @@ import {
   VendorApi,
   type VendorAttestationPosition,
   type VendorConnectorCatalogFilters,
+  type VendorReviewsFilters,
 } from '../../vendor/vendor-api';
+import { VENDOR_REVIEWS_FIXTURE } from '../../vendor/vendor-review-fixtures';
 import {
   VENDOR_CONNECTOR_CATALOG_FIXTURE,
   type ConnectorCatalogFixture,
@@ -133,6 +138,8 @@ const PREVIEW_UPDATES: VendorUpdatesResponse = {
     contests: '2026-08-18T12:00:00.000Z',
     // AECI-1083. Frozen: a preview save splices the PATCH echo in directly.
     catalogue: '2026-08-18T12:00:00.000Z',
+    // AECI-1176. Frozen: no preview surface reads reviews yet (AECI-1179).
+    reviews: '2026-08-18T12:00:00.000Z',
   },
   server_time: '2026-08-18T12:00:00.000Z',
 };
@@ -383,6 +390,7 @@ export class PreviewVendorApi extends VendorApi {
     this.nextClaimSeq = 0;
     this.contests = clone(PREVIEW_CONTESTS);
     this.nextContestSeq = 0;
+    this.reviews = clone([...VENDOR_REVIEWS_FIXTURE]);
   }
 
   override async getMe(): Promise<VendorMeResponse> {
@@ -1039,6 +1047,132 @@ export class PreviewVendorApi extends VendorApi {
   }
 
   // ─── Vendor create (AECI-1011) ─────────────────────────────────────────────
+
+  // ─── Vendor replies to reviews (AECI-1179) ─────────────────────────────────
+
+  /** Per-session copy, so a preview reply sticks until the page reloads. */
+  private reviews: VendorReviewItem[] = clone([...VENDOR_REVIEWS_FIXTURE]);
+
+  /** The server's `can_reply`: the owned product's plan holds `review.reply`. */
+  private canReplyOn(productId: string): boolean {
+    const product = this.me?.products.find((p) => p.id === productId);
+    return product?.plan.capabilities.includes('review.reply') ?? false;
+  }
+
+  override async listReviews(filters: VendorReviewsFilters): Promise<ListVendorReviewsResponse> {
+    const owned = new Set((this.me?.products ?? []).map((p) => p.id));
+    const rows = this.reviews
+      .filter((i) => owned.has(i.product.id))
+      .filter((i) => !filters.productId || i.product.id === filters.productId)
+      .filter((i) => {
+        if (!filters.replyStatus) return true;
+        const state = i.response?.status ?? 'none';
+        return state === filters.replyStatus;
+      })
+      .map((i) => ({ ...i, can_reply: this.canReplyOn(i.product.id) }));
+    const start = (filters.page - 1) * filters.perPage;
+    return clone({
+      data: rows.slice(start, start + filters.perPage),
+      page: filters.page,
+      perPage: filters.perPage,
+      total: rows.length,
+    });
+  }
+
+  private ownedReview(reviewId: string): VendorReviewItem {
+    const owned = new Set((this.me?.products ?? []).map((p) => p.id));
+    const item = this.reviews.find((i) => i.review.id === reviewId && owned.has(i.product.id));
+    if (!item) throw apiError(404, 'NOT_FOUND', 'Review not found');
+    return item;
+  }
+
+  private requireReply(item: VendorReviewItem): void {
+    if (!this.canReplyOn(item.product.id)) {
+      throw apiError(403, 'ENTITLEMENT_REQUIRED', 'Replying needs review.reply', {
+        details: { capability: 'review.reply' },
+      });
+    }
+  }
+
+  override async submitReviewResponse(
+    reviewId: string,
+    body: string,
+  ): Promise<VendorReviewResponseResult> {
+    const item = this.ownedReview(reviewId);
+    this.requireReply(item);
+    const now = new Date().toISOString();
+    const current = item.response;
+    if (current?.status === 'removed') {
+      throw apiError(409, 'REVIEW_RESPONSE_REMOVED', 'Removed', { details: { status: 'removed' } });
+    }
+    if (current && (current.status === 'pending' || current.status === 'published')) {
+      throw apiError(409, 'REVIEW_RESPONSE_EXISTS', 'Exists', {
+        details: { status: current.status },
+      });
+    }
+    item.response = {
+      id: current?.id ?? `preview-reply-${reviewId}`,
+      status: 'pending',
+      body: body.trim(),
+      rejection_reason: null,
+      published_at: null,
+      moderated_at: null,
+      created_at: current?.created_at ?? now,
+      updated_at: now,
+    };
+    return { response: clone(item.response) };
+  }
+
+  override async editReviewResponse(
+    reviewId: string,
+    body: string,
+  ): Promise<VendorReviewResponseResult> {
+    const item = this.ownedReview(reviewId);
+    this.requireReply(item);
+    const current = item.response;
+    if (!current) throw apiError(404, 'NOT_FOUND', 'Reply not found');
+    if (current.status === 'removed') {
+      throw apiError(409, 'REVIEW_RESPONSE_REMOVED', 'Removed', { details: { status: 'removed' } });
+    }
+    if (current.status !== 'pending' && current.status !== 'published') {
+      throw apiError(409, 'REVIEW_RESPONSE_WRONG_STATE', 'Wrong state', {
+        details: { status: current.status },
+      });
+    }
+    if (body.trim() === current.body) {
+      throw apiError(422, 'REVIEW_RESPONSE_NO_CHANGE', 'Unchanged', { field: 'body' });
+    }
+    item.response = {
+      ...current,
+      status: 'pending',
+      body: body.trim(),
+      published_at: null,
+      updated_at: new Date().toISOString(),
+    };
+    return { response: clone(item.response) };
+  }
+
+  /** Not gated, like the server (§11c.9). */
+  override async withdrawReviewResponse(reviewId: string): Promise<VendorReviewResponseResult> {
+    const item = this.ownedReview(reviewId);
+    const current = item.response;
+    if (!current) throw apiError(404, 'NOT_FOUND', 'Reply not found');
+    if (current.status === 'removed') {
+      throw apiError(409, 'REVIEW_RESPONSE_REMOVED', 'Removed', { details: { status: 'removed' } });
+    }
+    if (current.status !== 'pending' && current.status !== 'published') {
+      throw apiError(409, 'REVIEW_RESPONSE_WRONG_STATE', 'Wrong state', {
+        details: { status: current.status },
+      });
+    }
+    item.response = {
+      ...current,
+      status: 'withdrawn',
+      published_at: null,
+      updated_at: new Date().toISOString(),
+    };
+    return { response: clone(item.response) };
+  }
 
   // ─── The connector catalogue seat (AECI-1083) ─────────────────────────────
 

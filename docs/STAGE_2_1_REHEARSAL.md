@@ -243,6 +243,7 @@ the "Active on AECi" label (AECI-965 retired "Verified badge"; AECI-1131 relabel
 | 3. Attesting an integration | [attesting-an-integration] | 11a–11d |
 | 4. Owning an integration | [owning-an-integration] | 11a (the maintenance marker) |
 | 5. Contests and protests | [contests-and-protests] | **none.** This lifecycle has no field contest. The page gets no proof from this script. |
+| Replying to reviews (AECI-1181, added 2026-10-02 after AECI-1104) | [replying-to-reviews] | **none.** This lifecycle has no review reply. The page gets no proof from this script. |
 | 6. Plans and the account label | [plans-and-the-account-label] | 12a–13b |
 
 [claiming-your-listing]: https://www.aecintegrations.com/docs/vendors/claiming-your-listing
@@ -250,6 +251,7 @@ the "Active on AECi" label (AECI-965 retired "Verified badge"; AECI-1131 relabel
 [attesting-an-integration]: https://www.aecintegrations.com/docs/vendors/attesting-an-integration
 [owning-an-integration]: https://www.aecintegrations.com/docs/vendors/owning-an-integration
 [contests-and-protests]: https://www.aecintegrations.com/docs/vendors/contests-and-protests
+[replying-to-reviews]: https://www.aecintegrations.com/docs/vendors/replying-to-reviews
 [plans-and-the-account-label]: https://www.aecintegrations.com/docs/vendors/plans-and-the-account-label
 
 ---

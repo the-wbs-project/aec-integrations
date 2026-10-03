@@ -126,6 +126,27 @@ Chris ruled the epic's ten decisions on 2026-10-01. `STAGE_2_PAID_TIERS_SPEC.md`
 | **AECI-1218** | Builds the portal UI: plan panels, badges, scores, locked fields, the checklist and the pilot-ended banner. | It refines the built portal for the Free state. The checklist and "Looks right" parts are **a named exception to §4.** |
 | **AECI-1219** | Updates the vendor help page to match what ships. | §3.5 makes the vendor guides a §5 exit gate. |
 
+#### 3.3.4 Vendor replies to reviews epic AECI-1173 (admitted 2026-10-01)
+
+Chris directed the epic into Stage 2.1 on 2026-10-01. He ruled its open decisions on 2026-10-01 and 2026-10-02. `STAGE_2_VENDOR_PORTAL_SPEC.md` §11c records them.
+
+**Why it is here.** Pilot vendors are seated from 2026-10-14 and will see their reviews. Today a vendor that disagrees with a review has one option: email AECi and ask us to act. A labelled, moderated reply lets it answer without asking us to remove anything. The review stays exactly as written. That protects the trust model during the pilot, which is the window this stage exists for.
+
+**A named exception to §1 and §4.** §1 admits no new features, and §4 says "no portal surface additions". This epic adds a table, routes, an admin queue, a public render and a portal tab. It is admitted by operator decision on 2026-10-01, in the way AECI-710 and AECI-711 are admitted in §3.3.2. It ranks behind the seat-granting blockers. It does not change review moderation, ranking or any count.
+
+| Issue | What it does | Why it is admitted |
+|---|---|---|
+| **AECI-1174** | Writes `STAGE_2_VENDOR_PORTAL_SPEC.md` §11c and its companion edits. | It is the contract the other seven build to. |
+| **AECI-1175** | Adds the `review_responses` table in one additive migration. | **A named exception to §1.** |
+| **AECI-1176** | Adds the vendor routes, the `review.reply` capability and the `reviews` cursor scope. | **A named exception to §1.** |
+| **AECI-1177** | Adds the admin moderation queue and its badge. | **A named exception to §1.** |
+| **AECI-1178** | Renders published replies under their reviews on the product page. | **A named exception to §1.** |
+| **AECI-1179** | Adds the portal Reviews tab. | **A named exception to §4.** |
+| **AECI-1180** | Tells the vendor when a review of its product is approved. | It refines the built notification feed for the seated pilot. The new-review notice is useful whether or not a vendor can reply. |
+| **AECI-1181** | Writes the vendor help page and the ranking-firewall assertion. | §3.5 makes the vendor guides a §5 exit gate, and the firewall is the stage's named guard. |
+
+**Status 2026-10-02.** All eight are built on the epic branch, one commit each, and not yet merged. `STAGE_2_VENDOR_PORTAL_SPEC.md` §11c.17 tracks each one.
+
 ### 3.4 Dark-window operations
 
 - Monitor the parked claim queue; decide and (if needed) implement the acknowledgement posture for parked claimants ("received, under review" — nothing that promises a timeline).
@@ -137,7 +158,7 @@ Chris ruled the epic's ten decisions on 2026-10-01. `STAGE_2_PAID_TIERS_SPEC.md`
 
 The Product Docs / Help Center epic remains Stage 2 scope (`STAGE_2_SPEC.md` §2.6, `STAGE_2_PRODUCT_DOCS_SPEC.md`), but its deferred **vendor-guide tranche** was always triggered by "vendor-portal testing settles" — which is this stage. Publication of the vendor guides is a §5 exit gate: vendors are not asked to do the work (and later pay) without support content in place.
 
-**Built 2026-09-23 (AECI-1104).** Six task pages render at `/docs/vendors/*` (`STAGE_2_PRODUCT_DOCS_SPEC.md` §5). They are live but noindex, out of the sitemap, and not yet linked from the footer or the portal. AECI-1105 flips all three when the first pilot vendor is seated, which is the moment §5's "published" becomes literal. The rehearsal script (`STAGE_2_1_REHEARSAL.md`, AECI-1103) links each lifecycle step to its page in its "Vendor-guide mapping" table.
+**Built 2026-09-23 (AECI-1104).** Six task pages render at `/docs/vendors/*` (`STAGE_2_PRODUCT_DOCS_SPEC.md` §5). They are live but noindex, out of the sitemap, and not yet linked from the footer or the portal. AECI-1105 flips all three when the first pilot vendor is seated, which is the moment §5's "published" becomes literal. The rehearsal script (`STAGE_2_1_REHEARSAL.md`, AECI-1103) links each lifecycle step to its page in its "Vendor-guide mapping" table. AECI-1181 added a seventh page on 2026-10-02, `/docs/vendors/replying-to-reviews`, under the same noindex rule.
 
 ## 4. Out of scope
 

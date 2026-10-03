@@ -51,6 +51,7 @@ import {
   sendStaleClaimTicketAlert,
   sendStuckRequestAdminAlert,
   sendTransactionalEmail,
+  sendVendorReviewPublishedEmail,
   sendVendorSeatInviteEmail,
   type EmailContext,
   type EmailOutcome,
@@ -184,6 +185,21 @@ const FIXTURES: Record<EmailTemplate, Fixture> = {
         to: 'r@example.com',
         productName: 'Revit',
         reason: 'Too short',
+      }),
+  },
+  'vendor-review-published': {
+    links: true,
+    send: (c) =>
+      sendVendorReviewPublishedEmail(c, {
+        to: 'seat@vendor.example',
+        vendorSlug: 'autodesk',
+        reviewId: 'rev-1',
+        productName: 'Revit',
+        productSlug: 'revit',
+        title: 'Solid',
+        ratingOverall: 4,
+        ratingOnboarding: 3,
+        dedupeKey: 'vendor-review-published:rev-1:p-1',
       }),
   },
   'account-deleted': {

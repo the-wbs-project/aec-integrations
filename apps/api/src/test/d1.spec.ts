@@ -964,6 +964,43 @@ describe('connector lane (AECI-714)', () => {
     t.dispose();
   });
 
+  it('pins the tables that cascade INTO reviews — the next recreate depends on it', async () => {
+    // `review_responses` (AECI-1175, migration 0058) is the FIRST cascade child of
+    // `reviews`. `reviews` has been rebuilt once already (0027). A recreate of it in
+    // drizzle-kit's generated order would now delete every vendor reply, so the next
+    // one must carry `review_responses` out of the way first (`docs/migrations.md`
+    // §3.3a, `STAGE_2_VENDOR_PORTAL_SPEC.md` §11c.11).
+    const t = await makeTestDb();
+    const inbound = t.raw
+      .prepare(
+        `SELECT m.name FROM sqlite_master m WHERE m.type = 'table'
+           AND m.name NOT LIKE 'sqlite_%'
+           AND EXISTS (SELECT 1 FROM pragma_foreign_key_list(m.name) f
+                       WHERE f."table" = 'reviews')
+         ORDER BY m.name`,
+      )
+      .all()
+      .map((r) => (r as { name: string }).name);
+    expect(inbound).toEqual(['review_responses']);
+    t.dispose();
+  });
+
+  it('keeps review_responses free of children — a rebuild of it stays a leaf rebuild', async () => {
+    // A reply is one level deep (§11c.4). If a table ever references this one, a
+    // status-CHECK change here stops being a cheap leaf rebuild.
+    const t = await makeTestDb();
+    const inbound = t.raw
+      .prepare(
+        `SELECT m.name FROM sqlite_master m WHERE m.type = 'table'
+           AND m.name NOT LIKE 'sqlite_%'
+           AND EXISTS (SELECT 1 FROM pragma_foreign_key_list(m.name) f
+                       WHERE f."table" = 'review_responses')`,
+      )
+      .all();
+    expect(inbound).toEqual([]);
+    t.dispose();
+  });
+
   it('keeps integration_field_challenges free of children — 0050 rebuilt it on that fact', async () => {
     // `0050_rainy_puma.sql` (AECI-1092) rebuilt this table in place, which is safe ONLY
     // because nothing holds a foreign key into it: dropping a table that is purely a

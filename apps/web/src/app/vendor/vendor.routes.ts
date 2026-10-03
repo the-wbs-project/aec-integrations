@@ -115,6 +115,13 @@ export const VENDOR_SECTION_ROUTES: Routes = [
             (m) => m.VendorIntegrationDetailPage,
           ),
       },
+      // AECI-1179 (§11c.16): approved reviews of this product, with the vendor's
+      // reply to each. Per product because plans live at product level.
+      {
+        path: 'reviews',
+        loadComponent: () =>
+          import('./sections/vendor-product-reviews-page').then((m) => m.VendorProductReviewsPage),
+      },
       // AECI-1083: the connector catalogue seat's screen. The product row shows the
       // tab on `connector`-role products only; the page covers a typed URL.
       {

@@ -15,7 +15,10 @@
  * AECI-1006 the owner's edit (`metadata.kind = 'integration_update'`), and since
  * AECI-1011 a vendor's create (`metadata.kind = 'integration_create'`), to the same
  * recipients, and since AECI-1153 a data row another vendor added
- * (`metadata.kind = 'claim_added'`), to the vendors of the other endpoint.
+ * (`metadata.kind = 'claim_added'`), to the vendors of the other endpoint, and
+ * since AECI-1180 an approved review of an owned product (`metadata.kind =
+ * 'review'`), to every owning vendor, and AECi's decision on a vendor's reply
+ * (`metadata.kind = 'review_response'`), to the reply's vendor.
  * The list is a union on `kind`; the scoping predicate below is unchanged, so the
  * `notifications` cursor needed no change either.
  *
@@ -53,6 +56,10 @@ import {
   CONTEST_NOTIFICATION_EVENTS,
   INTEGRATION_CONTEST_FIELDS,
   ListVendorNotificationsResponseSchema,
+  REVIEW_RESPONSE_NOTIFICATION_EVENTS,
+  type ReviewResponseNotificationEvent,
+  type VendorReviewNotification,
+  type VendorReviewResponseNotification,
   type AttestationDetector,
   type ContestNotificationEvent,
   type ContextDirection,
@@ -91,6 +98,12 @@ import {
   type RetireNotificationMetadata,
 } from '../lib/integration-retire';
 import { pairPathFor, type ContestNotificationMetadata } from '../lib/integration-contests';
+import {
+  REVIEW_NOTIFICATION_KIND,
+  REVIEW_RESPONSE_NOTIFICATION_KIND,
+  type ReviewNotificationMetadata,
+  type ReviewResponseNotificationMetadata,
+} from '../lib/review-notifications';
 import {
   UPDATE_NOTIFICATION_KIND,
   type UpdateNotificationMetadata,
@@ -171,6 +184,10 @@ function toVendorNotification(row: {
   if (kind === CREATE_NOTIFICATION_KIND) return toCreateNotification(row);
   // AECI-1153: another vendor added a data row to an integration on its product.
   if (kind === CLAIM_ADDED_NOTIFICATION_KIND) return toClaimAddedNotification(row);
+  // AECI-1180: a review of one of its products was approved.
+  if (kind === REVIEW_NOTIFICATION_KIND) return toReviewNotification(row);
+  // AECI-1180: AECi decided one of its replies to a review.
+  if (kind === REVIEW_RESPONSE_NOTIFICATION_KIND) return toReviewResponseNotification(row);
   const meta = row.metadata as Partial<NotificationLedgerMetadata> | null;
   if (!meta || !row.entityId) return null;
   if (typeof meta.detector !== 'string' || !DETECTORS.has(meta.detector)) return null;
@@ -399,6 +416,61 @@ function toClaimAddedNotification(row: {
     added_by_name: typeof meta.addedByName === 'string' ? meta.addedByName : null,
     counterpart_product: productRef(meta.counterpartProduct),
     pair_path: pairPathFor(pairSlugs),
+    created_at: row.createdAt,
+  };
+}
+
+const REVIEW_RESPONSE_EVENTS = new Set<string>(REVIEW_RESPONSE_NOTIFICATION_EVENTS);
+
+/**
+ * Map one `review` ledger row (AECI-1180), or `null` when it is not recognisable.
+ * Same tolerance as the other mappers.
+ */
+function toReviewNotification(row: {
+  id: string;
+  entityId: string | null;
+  createdAt: string;
+  metadata: unknown;
+}): VendorReviewNotification | null {
+  const meta = row.metadata as Partial<ReviewNotificationMetadata> | null;
+  if (!meta || typeof meta.reviewId !== 'string') return null;
+  const product = productRef(meta.product);
+  if (!product || typeof meta.reviewTitle !== 'string') return null;
+  return {
+    kind: 'review',
+    id: row.id,
+    review_id: meta.reviewId,
+    product,
+    review_title: meta.reviewTitle,
+    created_at: row.createdAt,
+  };
+}
+
+/**
+ * Map one `review_response` ledger row (AECI-1180), or `null` when it is not
+ * recognisable. Same tolerance as the other mappers.
+ */
+function toReviewResponseNotification(row: {
+  id: string;
+  entityId: string | null;
+  createdAt: string;
+  metadata: unknown;
+}): VendorReviewResponseNotification | null {
+  const meta = row.metadata as Partial<ReviewResponseNotificationMetadata> | null;
+  if (!meta || typeof meta.responseId !== 'string' || typeof meta.reviewId !== 'string') {
+    return null;
+  }
+  if (typeof meta.event !== 'string' || !REVIEW_RESPONSE_EVENTS.has(meta.event)) return null;
+  const product = productRef(meta.product);
+  if (!product) return null;
+  return {
+    kind: 'review_response',
+    id: row.id,
+    event: meta.event as ReviewResponseNotificationEvent,
+    response_id: meta.responseId,
+    review_id: meta.reviewId,
+    product,
+    reason: meta.event !== 'approved' && typeof meta.reason === 'string' ? meta.reason : null,
     created_at: row.createdAt,
   };
 }

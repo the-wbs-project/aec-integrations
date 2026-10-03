@@ -61,7 +61,9 @@ import { z } from 'zod';
  * `integrations` to `GET /api/vendor/integrations`, and `notifications` to
  * `GET /api/vendor/notifications`, and `contests` (AECI-1008) to
  * `GET /api/vendor/contests`, and `catalogue` (AECI-1083) to the portal store's
- * catalogue tick, which the Catalogue tab re-reads its open page on. Adding a scope here without adding it to that
+ * catalogue tick, which the Catalogue tab re-reads its open page on, and `reviews`
+ * (AECI-1176) to the store's reviews tick, which the Reviews tab (AECI-1179) re-reads
+ * its open page on. Adding a scope here without adding it to that
  * map ships a cursor nothing acts on.
  */
 export const VendorRevisionsSchema = z.object({
@@ -99,6 +101,14 @@ export const VendorRevisionsSchema = z.object({
    * all of them. `.default(null)` for deploy skew, as `contests`.
    */
   catalogue: z.string().nullable().default(null),
+  /**
+   * The ninth scope (AECI-1176, `STAGE_2_VENDOR_PORTAL_SPEC.md` §11c.13): the later of
+   * `MAX(reviews.updated_at)` over approved reviews of the caller's owned products,
+   * under `vendorReviewsWhere` (the predicate `GET /api/vendor/reviews` uses), and
+   * `MAX(review_responses.updated_at)` over the caller's own replies. `.default(null)`
+   * for deploy skew, as `contests`.
+   */
+  reviews: z.string().nullable().default(null),
 });
 export type VendorRevisions = z.infer<typeof VendorRevisionsSchema>;
 
@@ -121,6 +131,7 @@ const SCOPE_INDEX = {
   requests: true,
   contests: true,
   catalogue: true,
+  reviews: true,
 } satisfies Record<VendorPortalScope, true>;
 
 export const VENDOR_PORTAL_SCOPES = Object.keys(SCOPE_INDEX) as readonly VendorPortalScope[];

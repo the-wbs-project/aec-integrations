@@ -648,6 +648,63 @@ export function sendReviewRejectedEmail(
   });
 }
 
+/** What the owning vendor's email says about one approved review (AECI-1180). */
+export interface PublishedReviewForVendor {
+  to: string;
+  vendorSlug: string;
+  reviewId: string;
+  productName: string;
+  productSlug: string;
+  title: string;
+  ratingOverall: number;
+  ratingOnboarding: number;
+  /** `vendor-review-published:{reviewId}:{profileId}`, one per seat. The caller owns it. */
+  dedupeKey: string;
+}
+
+/**
+ * `vendor-review-published` (AECI-1180 / `STAGE_2_VENDOR_PORTAL_SPEC.md` §11c.12):
+ * tells an owning vendor's seat that a review of its product was approved.
+ *
+ * Sent post-commit from `PATCH /api/admin/reviews/:id` approve, to every unbanned
+ * `vendor_admin` seat of every owning vendor, on every plan. On the house layout. It
+ * names the product, quotes the review's headline and both ratings, and carries no
+ * reviewer data. The one CTA is the product's Reviews screen in the portal, and it
+ * is omitted when `PUBLIC_SITE_URL` is unset. The copy never says a plan affects
+ * whether the review shows or where the product ranks.
+ *
+ * The headline is the reviewer's text, so its row is `{ plain: true }` and never
+ * links. The ledger row's entity is the review, and the caller's per-seat dedupe key
+ * makes a replayed approve a `duplicate` (AECI-1202).
+ */
+export function sendVendorReviewPublishedEmail(
+  c: EmailContext,
+  opts: PublishedReviewForVendor,
+): Promise<EmailOutcome> {
+  const reviews = vendorProductReviewsUrl(c.env, opts.vendorSlug, opts.productSlug);
+  const lead = `A new review of ${opts.productName} was approved. It is now published on the product's AEC Integrations listing.`;
+  const leadHtml = `A new review of <strong>${escapeHtml(opts.productName)}</strong> was approved. It is now published on the product's AEC Integrations listing.`;
+  const where = 'You can read it in full on the Reviews screen of your vendor portal.';
+  const shared = (link: LinkTagger) => ({
+    preheader: `New review of ${opts.productName}: “${opts.title}”`,
+    heading: `New review of ${opts.productName}`,
+    table: [
+      ['Headline', `“${opts.title}”`, { plain: true }],
+      ['Overall rating', `${opts.ratingOverall} of 5`],
+      ['Onboarding rating', `${opts.ratingOnboarding} of 5`],
+    ] satisfies EmailTableRow[],
+    ...(reviews ? { cta: { label: 'Read the review', url: link(reviews) } } : {}),
+  });
+  return sendTransactionalEmail(c, {
+    to: opts.to,
+    template: 'vendor-review-published',
+    subject: `New review of ${opts.productName} on AEC Integrations`,
+    render: (link) => houseBody(shared(link), [lead, where], [leadHtml, where]),
+    dedupeKey: opts.dedupeKey,
+    entity: { type: 'review', id: opts.reviewId },
+  });
+}
+
 /**
  * §9 "Claim approved" (`STAGE_2_VENDOR_PORTAL_SPEC.md` / AECI-528). The claimant's
  * vendor claim was granted, so their vendor account now has active management access. For an
@@ -2541,6 +2598,16 @@ function productUrl(env: Env, slug: string): string | null {
 function portalUrl(env: Env): string | null {
   const base = siteUrl(env);
   return base ? `${base}/vendor` : null;
+}
+
+/** A product's Reviews screen in the portal
+ *  (`/vendor/:vendorSlug/products/:productSlug/reviews`, §11c.16), or `null` when
+ *  `PUBLIC_SITE_URL` is unset. */
+function vendorProductReviewsUrl(env: Env, vendorSlug: string, productSlug: string): string | null {
+  const base = siteUrl(env);
+  return base
+    ? `${base}/vendor/${encodeURIComponent(vendorSlug)}/products/${encodeURIComponent(productSlug)}/reviews`
+    : null;
 }
 
 /**

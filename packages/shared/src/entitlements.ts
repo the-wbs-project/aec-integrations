@@ -72,6 +72,7 @@ export const CAPABILITIES = [
   'attestation.author', // AECI-623 — the attestation + product-version writes
   'analytics.view', // vendor analytics — declared, no consumer yet
   'integration.version_diff', // AECI-304 — consulted by `./version-diff`
+  'review.reply', // AECI-1176 — a public reply to a review, `verified` only (STAGE_2_VENDOR_PORTAL_SPEC.md §11c.9)
 ] as const;
 
 /** One capability id. */

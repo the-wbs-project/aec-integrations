@@ -3,12 +3,19 @@ import { Injectable, Signal, computed, signal } from '@angular/core';
 /** The Operations queues the console badges, and the key each badge is wired to
  *  in `admin-nav.ts`. Named rather than indexed so a nav entry declares WHICH
  *  queue it counts instead of inheriting the one global number. */
-export type AdminQueueKey = 'reviews' | 'requests' | 'claims' | 'contests' | 'reindex';
+export type AdminQueueKey =
+  | 'reviews'
+  | 'reviewResponses'
+  | 'requests'
+  | 'claims'
+  | 'contests'
+  | 'reindex';
 
 /** Every key, in nav order. Iterated by the group total, so a fifth queue is one
  *  entry here plus one in `admin-nav.ts`. */
 export const ADMIN_QUEUE_KEYS: readonly AdminQueueKey[] = [
   'reviews',
+  'reviewResponses',
   'requests',
   'claims',
   'contests',
@@ -41,7 +48,8 @@ export type AdminQueueSeed = Partial<Record<AdminQueueKey, number | null | undef
  * open claim, and nothing here would notice. AECI-946's `reindex` is a fourth
  * key over a different table entirely (`gsc_recrawl_queue`), so it cannot
  * overlap the other three by construction. AECI-1008's `contests` is a fifth, on
- * `integration_field_challenges`, disjoint for the same reason.
+ * `integration_field_challenges`, disjoint for the same reason. AECI-1177's
+ * `reviewResponses` is a sixth, on `review_responses`, disjoint again.
  *
  * `providedIn: 'root'` → one instance, shared across the header, the layout and
  * its outlet. A fresh full navigation to `/admin` re-runs the resolver and
@@ -55,6 +63,7 @@ export class AdminSummaryStore {
     Record<AdminQueueKey, ReturnType<typeof signal<number | null>>>
   > = {
     reviews: signal<number | null>(null),
+    reviewResponses: signal<number | null>(null),
     requests: signal<number | null>(null),
     claims: signal<number | null>(null),
     contests: signal<number | null>(null),
@@ -63,6 +72,8 @@ export class AdminSummaryStore {
 
   /** Live pending-review count for the nav badge. */
   readonly pendingReviews = this.counts.reviews.asReadonly();
+  /** Live count of vendor replies to reviews awaiting approval (AECI-1177). */
+  readonly pendingReviewResponses = this.counts.reviewResponses.asReadonly();
   /** Live open-correction-request count (claims are counted separately). */
   readonly pendingRequests = this.counts.requests.asReadonly();
   /** Live open-vendor-claim count. */

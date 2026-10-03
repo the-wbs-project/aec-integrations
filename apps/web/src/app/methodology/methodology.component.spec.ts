@@ -169,9 +169,10 @@ describe('MethodologyPage', () => {
     it('does not add ownership to the paid-plan list (decision 15: a seat is the gate)', () => {
       const { host } = setup();
       const text = host.textContent ?? '';
-      // The Managed list is exactly four items (the Free edits sit in the
-      // sentence before it, AECI-1219), and claiming, editing and
-      // contesting are seat-gated, so none of them may appear in it.
+      // The Managed list is exactly five items (the Free edits sit in the
+      // sentence before it, AECI-1219, and the reply item is AECI-1181), and
+      // claiming, editing and contesting are seat-gated, so none of them may
+      // appear in it.
       const planList = Array.from(host.querySelectorAll('li'))
         .map((li) => li.textContent?.trim() ?? '')
         .filter((line) =>
@@ -179,7 +180,7 @@ describe('MethodologyPage', () => {
             line,
           ),
         );
-      expect(planList).toHaveLength(4);
+      expect(planList).toHaveLength(5);
       expect(planList.join(' ')).not.toMatch(/claim an integration|contest/i);
       expect(text).toContain('this is the complete list');
     });
@@ -198,7 +199,13 @@ describe('MethodologyPage', () => {
     }
   });
 
-  it('discloses that a vendor plan reaches one reader-visible surface', () => {
+  it('says a vendor reply to a review never affects ranking (AECI-1181, §11c.10)', () => {
+    const text = setup().host.textContent ?? '';
+    expect(text).toContain("A vendor's reply to a review never affects ranking.");
+    expect(text).toContain('whether a vendor can post a public reply to a review of its product');
+  });
+
+  it('discloses the reader-visible surfaces a vendor plan reaches', () => {
     const { host } = setup();
     const text = host.textContent ?? '';
     // `integration.version_diff` gates historical diff depth on the PUBLIC pair
@@ -208,6 +215,8 @@ describe('MethodologyPage', () => {
     // are pinned: that it happens, and that the current state stays free.
     expect(text).toContain('how far back the version history on an integration page goes');
     expect(text).toContain('The current state of an integration is always shown in full');
+    // AECI-1181: `review.reply` is the second. A reply is vendor text a reader sees.
+    expect(text).toContain('Replies and version history are the two places a payment changes');
   });
 
   it('renders the maintainer and both contact routes', () => {

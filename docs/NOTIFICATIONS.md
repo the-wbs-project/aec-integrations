@@ -62,14 +62,14 @@ run `pnpm docs:notifications` and commit this file.
 
 | Channel | Entries |
 |---|---|
-| `email` | 26 |
+| `email` | 27 |
 | `email+portal` | 1 |
 | `supabase-email` | 1 |
-| `portal` | 14 |
+| `portal` | 16 |
 | `linear` | 4 |
-| **Total** | **46** |
+| **Total** | **49** |
 
-## Email (Resend) (`email`, 26)
+## Email (Resend) (`email`, 27)
 
 Resend email from the API Worker. Transactional sends go through `sendTransactionalEmail`,
 and the id is the `template:` tag on the `aeci.email.send` metric. The cron digests
@@ -104,6 +104,7 @@ on success (AECI-1202, `docs/DATABASE_SCHEMA.md` §9.9).
 | `review-submitted-alert` | Tells ADMIN_ALERT_EMAIL a review is waiting for moderation. | operator | route: POST /api/reviews (routes/reviews.ts) | `any-tier` | None. | `notification_sends` | `none` | docs/email.md §Template content notes |  |
 | `stale-claim-ticket-alert` | Tells FOUNDER_ALERT_EMAIL which claim tickets nobody has started after 24 hours. | operator | cron: 25 */6 claim-stale-check (lib/claim-stale-check.ts) | `any-tier` | Stateless bands: 24 hours, then daily. Key stale-claim-ticket-alert:{requestId}:{bandIndex}, one pair per row in the digest. | `notification_sends` | `none` | docs/STAGE_1_PHASE_6_SPEC.md §6.4a | Production only in practice. Staging and demo create no Linear issues, and FOUNDER_ALERT_EMAIL is unset on demo. |
 | `stuck-request-alert` | Tells ADMIN_ALERT_EMAIL which requests are stuck in the Linear pipeline. | operator | sweep: */15 reconciliation sweep (lib/reconciliation-sweep.ts, lib/admin-alert.ts) | `any-tier` | Stateless age bands: 60 minutes, 6 hours, then daily (lib/alert-bands.ts). Key stuck-request-alert:{requestId}:{bandIndex}, one pair per row in the digest. | `notification_sends` | `none` | docs/STAGE_1_PHASE_6_SPEC.md §6.4 | LINEAR_API_KEY is set on production only, so every staging and demo request stays unlinked. The sweep skips this email there. The metric and error log still fire (AECI-1198). |
+| `vendor-review-published` | Tells every unbanned seat of each owning vendor that a review of its product was approved. | external | route: PATCH /api/admin/reviews/:id (routes/admin-reviews.ts) | `production-external` | Key vendor-review-published:{reviewId}:{profileId}, one per seat. A losing concurrent moderation gets 409 REVIEW_ALREADY_MODERATED and sends nothing. | `notification_sends` | `none` | docs/STAGE_2_VENDOR_PORTAL_SPEC.md §11c.12 | Sent beside the portal-review row, on every plan. The attestation nudge mute does not cover it. |
 | `vendor-seat-invite` | Invites a colleague, typed by a vendor owner, to take a seat. | external | route: POST /api/vendor/seats/invites (routes/vendor-seat-invites.ts) | `production-external` | 10 per vendor per day, plus a per-vendor burst bucket. | `notification_sends`, `invite-row` | `none` | docs/STAGE_2_VENDOR_PORTAL_SPEC.md §11a.5 |  |
 | `vendor-seat-invite-resend` | Re-sends a pending seat invite. | external | route: POST /api/vendor/seats/invites/:id/resend (routes/vendor-seat-invites.ts) | `production-external` | 5-minute cooldown on last_sent_at, 4 sends per invite on send_count. | `notification_sends`, `invite-row` | `none` | docs/STAGE_2_VENDOR_PORTAL_SPEC.md §11a.9 | Same template as vendor-seat-invite. |
 
@@ -129,7 +130,7 @@ tier rule cannot stop it and no metric counts it. The template is
 |---|---|---|---|---|---|---|---|---|---|
 | `supabase-sign-in` | The magic-link or confirm-signup email for anyone who signs in. | external | supabase: signInWithOtp (apps/web/src/app/auth/auth.service.ts) | `any-tier` | GoTrue's own rate limits. | `none` | `none` | docs/email.md §Magic-link sender | Supabase sends it over the Resend SMTP relay. No app code sends it, so the tier gate cannot stop it. |
 
-## Vendor portal feed only (`portal`, 14)
+## Vendor portal feed only (`portal`, 16)
 
 Delivered only as `notification.sent` audit rows, written in the same `db.batch` as the
 change that caused them. The row is its own ledger. The vendor portal reads them through
@@ -155,6 +156,8 @@ notification at all.
 | `portal-integration-create` | Tells the other endpoint vendors a vendor created an integration on their product. | external | route: POST /api/vendor/integrations (routes/vendor-integration-create.ts) | `any-tier` | One row per recipient, in the create batch. | `audit_log` | `none` | docs/STAGE_2_VENDOR_PORTAL_SPEC.md §4.7 |  |
 | `portal-integration-retire` | Tells the endpoint vendors an integration was retired or restored. | external | route: POST /api/{vendor,admin}/integrations/:id/{retire,restore} (routes/integration-retire-write.ts) | `any-tier` | One row per recipient, in the write batch. | `audit_log` | `none` | docs/STAGE_2_VENDOR_PORTAL_SPEC.md §4.6 |  |
 | `portal-integration-update` | Tells the other endpoint vendors the owner edited an integration. | external | route: PATCH /api/vendor/integrations/:id (routes/vendor-integration-edits.ts, routes/vendor-evidenced-pair-edits.ts) | `any-tier` | One row per recipient, in the edit batch. | `audit_log` | `none` | docs/STAGE_2_VENDOR_PORTAL_SPEC.md §4.5.6 |  |
+| `portal-review` | Tells each owning vendor that a review of its product was approved. | external | route: PATCH /api/admin/reviews/:id (routes/admin-reviews.ts) | `any-tier` | One row per owning vendor, in the approve batch. | `audit_log` | `none` | docs/STAGE_2_VENDOR_PORTAL_SPEC.md §11c.12 | Written for a vendor with no seat too, so the feed is complete once it is seated. A reject writes none. |
+| `portal-review-response` | Tells a vendor that AECi approved, rejected or removed its reply to a review. | external | route: PATCH /api/admin/review-responses/:id (routes/admin-review-responses.ts) | `any-tier` | One row per decision, in the decision batch. | `audit_log` | `none` | docs/STAGE_2_VENDOR_PORTAL_SPEC.md §11c.12 | metadata.event names the decision. Reject and remove carry the reason. No email, as for contests. |
 
 ## Linear (`linear`, 4)
 

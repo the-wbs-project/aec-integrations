@@ -14,6 +14,10 @@
  * a two-admin race, which then answers `409 REVIEW_ALREADY_MODERATED` and sends no
  * email (AECI-1203).
  *
+ * An approve also writes one `notification.sent` row per owning vendor into the
+ * same batch, and emails their seats post-commit (AECI-1180,
+ * `STAGE_2_VENDOR_PORTAL_SPEC.md` §11c.12, `lib/review-notifications.ts`).
+ *
  * `reviewer_email` (admin-only, lives in `auth.users`) is read via the GoTrue
  * Admin API (seam #2, `lib/supabase-admin.ts`), injected for tests and degrading
  * to `reviewer_email: null` — the queue must stay usable, never 500.
@@ -56,6 +60,11 @@ import { sendReviewApprovedEmail, sendReviewRejectedEmail } from '../lib/email';
 import { ONE_ROW } from '../lib/integration-claims';
 import { validateResponseInDev, writeDb, type DbFactory } from '../lib/handler-utils';
 import { recomputeProductCounts } from '../lib/recompute-counts';
+import {
+  emailOwnersOfApprovedReview,
+  loadReviewOwners,
+  reviewApprovedNotifications,
+} from '../lib/review-notifications';
 import { fetchAuthUserEmails } from '../lib/supabase-admin';
 
 type AdminContext = Context<{ Bindings: Env; Variables: AuthzVariables }>;
@@ -68,6 +77,10 @@ export type FetchReviewerEmails = (
 
 /** Injected recompute seam (post-batch, approve-only). */
 type RecomputeFn = (db: Db, productIds: Iterable<string>) => Promise<void>;
+
+/** Injected owner-email seam (post-commit, approve-only, AECI-1180). The seat
+ *  addresses come through the same `fetchEmails` seam as the reviewer's. */
+export type NotifyReviewOwnersFn = typeof emailOwnersOfApprovedReview;
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -164,6 +177,7 @@ export function createModerateReviewHandler(
   dbFor: DbFactory = getDb,
   fetchEmails: FetchReviewerEmails = fetchAuthUserEmails,
   recompute: RecomputeFn = recomputeProductCounts,
+  notifyOwners: NotifyReviewOwnersFn = emailOwnersOfApprovedReview,
 ): (c: AdminContext) => Promise<Response> {
   return async (c) => {
     const session = c.get('auth');
@@ -234,12 +248,24 @@ export function createModerateReviewHandler(
       },
     };
 
+    // AECI-1180 (§11c.12): on approve, one `notification.sent` row per owning
+    // vendor, primary or not, on every plan. Owners are read before the batch
+    // because a batch statement cannot fan out into audit rows. Reject writes none.
+    const owners = approve ? await loadReviewOwners(db, existing.product.id) : [];
+    const notifications = reviewApprovedNotifications(
+      'portal-review',
+      { actorId: userId, actorType: auditEntry.actorType },
+      owners,
+      { id, title: existing.title, product: existing.product },
+    );
+
     // The guarded update (`WHERE status='pending'`) makes the state change safe under
     // a concurrent moderation, and the sentinel right after it makes the LOSER's whole
     // batch roll back (AECI-1203). Two admins can both pass the preload gate above.
     // Before the sentinel the loser still committed its audit row and transition, and
     // then emailed the reviewer a second, possibly contradictory, decision. Now the
     // loser writes nothing, sends nothing, and answers 409 REVIEW_ALREADY_MODERATED.
+    // The vendor feed rows ride the same batch, so the loser writes none of them.
     const stmts: BatchStmt[] = [
       db
         .update(reviews)
@@ -267,6 +293,7 @@ export function createModerateReviewHandler(
             finalOutcome: newStatus,
           }),
       workflowTransitionInsert(db, workflowEntry),
+      ...notifications.map((entry) => auditInsert(db, entry)),
     ];
     try {
       await db.batch(stmts as BatchTuple);
@@ -292,7 +319,26 @@ export function createModerateReviewHandler(
       c.executionCtx.waitUntil(purgeProductTag(c, existing.product.slug));
     }
     // §26.5 audit + workflow forwards, in ONE request (AECI-1112).
-    forwardAuditBatch(c, [auditEntry], [workflowEntry]);
+    forwardAuditBatch(c, [auditEntry, ...notifications], [workflowEntry]);
+
+    // AECI-1180: email the owners' seats, post-commit and fail-open.
+    if (owners.length > 0) {
+      c.executionCtx.waitUntil(
+        notifyOwners(
+          c,
+          db,
+          owners,
+          {
+            id,
+            title: existing.title,
+            ratingOverall: existing.ratingOverall,
+            ratingOnboarding: existing.ratingOnboarding,
+            product: existing.product,
+          },
+          fetchEmails,
+        ),
+      );
+    }
 
     const moderatedRow: RawAdminReviewRow = {
       ...existing,

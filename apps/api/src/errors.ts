@@ -54,6 +54,10 @@ type ResourceKind =
   | 'phase'
   | 'trade'
   | 'review'
+  // A vendor's reply to a review (AECI-1176). Answered only after the review's
+  // ownership has settled, so it discloses nothing the caller cannot already see.
+  // An unknown, unowned or unapproved review answers `review` instead.
+  | 'review_response'
   | 'vendor_request'
   // A vendor seat and the pending invite to one (AECI-664). Both are the SAME
   // 404 a cross-vendor id gets: an owner probing `/api/vendor/seats/invites/:id`

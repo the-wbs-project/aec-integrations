@@ -2075,7 +2075,12 @@ export function toProductListItem(raw: RawProductListRow): ProductListItem {
 
 const VALID_WOULD_RECOMMEND = new Set<PublicReview['would_recommend']>(['yes', 'no', 'maybe']);
 
-export function toPublicReview(raw: RawPublicReviewRow): PublicReview {
+/** The review's own public fields. `vendor_responses` is not here: it needs a
+ *  second query, so the public reads add it through `withPublishedVendorResponses`
+ *  (`lib/review-responses.ts`, §11c.14), and the vendor list omits it. */
+export type PublicReviewFields = Omit<PublicReview, 'vendor_responses'>;
+
+export function toPublicReview(raw: RawPublicReviewRow): PublicReviewFields {
   const wouldRecommend = raw.wouldRecommend as PublicReview['would_recommend'] | null;
   return {
     id: raw.id,
@@ -2404,7 +2409,8 @@ export type ProductExtensionRows = {
 export function toProductDetail(
   raw: RawProductDetailRow,
   relatedProducts: RawProductListRow[],
-  reviews: RawPublicReviewRow[] = [],
+  /** Already mapped, with `vendor_responses`, by `withPublishedVendorResponses`. */
+  reviews: PublicReview[] = [],
   reachablePartnerIds: readonly string[] = [],
   extensionRows: ProductExtensionRows = { hosts: [], extensions: [] },
 ): ProductDetail {
@@ -2489,7 +2495,7 @@ export function toProductDetail(
     related_products: relatedProducts.map(toProductListItem),
     extension_of: extensionRows.hosts.map(toProductListItem),
     extensions: extensionRows.extensions.map(toProductListItem),
-    reviews: reviews.map(toPublicReview),
+    reviews,
     reachable_pair_count: reachOnlyPartnerCount(reachablePartnerIds, deliveredPartnerIds),
     maintenance: toMaintenance(raw),
   };

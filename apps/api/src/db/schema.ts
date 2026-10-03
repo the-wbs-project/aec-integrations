@@ -1222,6 +1222,78 @@ export const reviews = sqliteTable(
   ],
 );
 
+/**
+ * A vendor's pre-moderated public reply to one approved review of a product it owns
+ * (AECI-1175, `STAGE_2_VENDOR_PORTAL_SPEC.md` §11c, `DATABASE_SCHEMA.md` §7.3).
+ *
+ * A row renders on the product page only when it is `published`, its review is
+ * `approved`, and its vendor still owns the product in `product_vendors` (§11c.11).
+ * The state machine lives in `status`. No `workflow_instances` row is written, so
+ * the closed `workflow_instances_type_check` stays closed (§11c.7).
+ *
+ * ── THE CHECK IS WRITTEN ONCE ───────────────────────────────────────────────
+ * The status CHECK is table-level because it lands in the CREATE TABLE. Adding a
+ * value later is a recreate of this table (`docs/migrations.md` §3.3a). The five
+ * values are final for this feature.
+ *
+ * ── CASCADES ────────────────────────────────────────────────────────────────
+ * `review_id` and `vendor_id` both cascade. This is the FIRST cascade child of
+ * `reviews`: a future recreate of `reviews` in drizzle-kit's generated order would
+ * delete every reply, so `test/d1.spec.ts` pins it.
+ *
+ * ── PROFILES ────────────────────────────────────────────────────────────────
+ * `author_profile_id` and `moderated_by` are two of the sixteen inbound FKs to
+ * `profiles.id`, both `ON DELETE SET NULL` AND nulled explicitly in the
+ * `DELETE /api/account` erasure batch (`docs/AUTH_AND_RLS.md` §8). The reply
+ * survives its author's erasure: it is the vendor's record, not the person's.
+ *
+ * Nothing ranks on this table. No count, aggregate, Algolia attribute, sort key
+ * or `listing_tier` input reads it (`STAGE_2_PAID_TIERS_SPEC.md` §3.2).
+ */
+export const reviewResponses = sqliteTable(
+  'review_responses',
+  {
+    id: uuidPk(),
+    reviewId: text('review_id')
+      .notNull()
+      .references(() => reviews.id, { onDelete: 'cascade' }),
+    vendorId: text('vendor_id')
+      .notNull()
+      .references(() => vendors.id, { onDelete: 'cascade' }),
+    /** The seat that last wrote the body. */
+    authorProfileId: text('author_profile_id').references(() => profiles.id, {
+      onDelete: 'set null',
+    }),
+
+    /** Plain text, 1..2000 chars after trim (API-validated, §11c.5). */
+    body: text('body').notNull(),
+    status: text('status').notNull().default('pending'),
+    /** Set on reject and remove; shown to the vendor (ruling 7). */
+    rejectionReason: text('rejection_reason'),
+    moderatedBy: text('moderated_by').references(() => profiles.id, { onDelete: 'set null' }),
+    moderatedAt: text('moderated_at'),
+    /** Set on approve; cleared on edit, withdraw and remove. */
+    publishedAt: text('published_at'),
+
+    createdAt: createdAt(),
+    /** On a pending row: when it entered the moderation queue. */
+    updatedAt: updatedAt(),
+  },
+  (t) => [
+    // Ruling 4: one reply per (review, vendor). A resubmit reuses the row.
+    uniqueIndex('review_responses_review_vendor_key').on(t.reviewId, t.vendorId),
+    // The admin queue (AECI-1177): by status, oldest `updated_at` first, because an
+    // edit or resubmit re-enters the queue at its `updated_at`.
+    index('review_responses_status_updated_idx').on(t.status, t.updatedAt),
+    // The vendor portal list and the `reviews` cursor scope (AECI-1176).
+    index('review_responses_vendor_updated_idx').on(t.vendorId, t.updatedAt),
+    check(
+      'review_responses_status_check',
+      sql`"status" IN ('pending', 'published', 'rejected', 'withdrawn', 'removed')`,
+    ),
+  ],
+);
+
 // ===========================================================================
 // Operations and workflow (§8)
 // ===========================================================================
@@ -3893,6 +3965,7 @@ export const schema = {
   productExtensions,
   profiles,
   reviews,
+  reviewResponses,
   vendorRequests,
   vendorEntitlements,
   vendorSeatInvites,

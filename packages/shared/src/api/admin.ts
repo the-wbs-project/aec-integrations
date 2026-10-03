@@ -49,5 +49,10 @@ export const AdminSummaryResponseSchema = z.object({
    *  Optional on the wire type for deploy skew only; the server always sends it,
    *  and the store leaves an absent key alone rather than zeroing it. */
   pending_contests: z.number().int().nonnegative().optional(),
+  /** Pending vendor replies to reviews, `review_responses.status = 'pending'`
+   *  (AECI-1177, `STAGE_2_VENDOR_PORTAL_SPEC.md` §11c). A different table, so
+   *  disjoint from every queue above. Badges `/admin/review-responses`. Optional
+   *  for deploy skew, exactly like `pending_contests`. */
+  pending_review_responses: z.number().int().nonnegative().optional(),
 });
 export type AdminSummaryResponse = z.infer<typeof AdminSummaryResponseSchema>;

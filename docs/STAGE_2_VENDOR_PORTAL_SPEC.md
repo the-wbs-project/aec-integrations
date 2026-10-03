@@ -1775,6 +1775,7 @@ heading outline is unchanged.
 | Conflicts and waiting | `integrations` scope | Yes, including integration-row edits once AECI-992 lands |
 | Seat invites | `seats`, which has no cursor | Loads on entry only, the same accepted posture as the Seats tab |
 | Contests to decide | `contests` scope (AECI-1008) | Yes |
+| Reviews with no reply | `reviews` scope (AECI-1179, §11c.16). One `reply_status=none&perPage=1` read per product whose plan holds `review.reply` | Yes |
 | Views | none | Placeholder |
 
 **The single-page concept (`vendor-dashboard-single.ts`) is unchanged, on purpose.** It
@@ -2032,7 +2033,7 @@ A third-party owner makes neither product of its integrations, so the product-sc
 
 The §8.9 seat maintains its own connector catalogue (`STAGE_2_SPEC.md` §8.9(1)). AECI-724 shipped the write, `PATCH /api/vendor/connector-stub-mappings/:id`, but no screen. This tab is the screen.
 
-- **Where it lives.** A **Catalogue** tab in the product row, after Integrations, shown only on a `connector`-role product (`VENDOR_PRODUCT_NAV_ITEMS`' `roles`, read by `productNavItemsFor`). A catalogue belongs to one connector product (`connector_catalogs` is unique on `connector_product_id`), and a vendor can hold more than one, so it is a product tab rather than a vendor section. On every other product the tab does not exist, which is the empty-tab cost §6.13 declined. A typed `…/catalogue` URL on another product says it has no catalogue. Route: `…/products/:productSlug/catalogue`, `sections/vendor-product-catalogue-page.ts`.
+- **Where it lives.** A **Catalogue** tab in the product row, after Integrations (after Reviews since AECI-1179, §11c.16), shown only on a `connector`-role product (`VENDOR_PRODUCT_NAV_ITEMS`' `roles`, read by `productNavItemsFor`). A catalogue belongs to one connector product (`connector_catalogs` is unique on `connector_product_id`), and a vendor can hold more than one, so it is a product tab rather than a vendor section. On every other product the tab does not exist, which is the empty-tab cost §6.13 declined. A typed `…/catalogue` URL on another product says it has no catalogue. Route: `…/products/:productSlug/catalogue`, `sections/vendor-product-catalogue-page.ts`.
 - **The way in.** On the overview, the plan panel's `catalogue` state now links to each connector product's tab ("Open the Agave catalogue"). A plain link, not a button: it is navigation to the seat's own work, not the call to action §8.9(5) keeps off this state.
 - **Read.** `GET /api/vendor/products/:id/connector-catalog` (`API_CONTRACTS.md` §6.14), new in this issue. Ownership, then `connector` role, each a 404. No capability and no entitlement read. It returns the catalogue's summary (`managed_by`, the "as of" stamp, listing, unmatched and publishable counts) and one page of listings with their mappings. The wire drops the mapping's `notes` and replaces the raw `decided_by` (a review-app reviewer's name, before AECI-724) with a kind: `vendor`, `aeci` or `automatic`.
 - **The list** (`components/vendor-connector-catalogue.ts`). One bordered `--surface-raised` card of rows, 25 a page, ordered by name. Each row: the listing name, **View listing** (new tab, said to screen readers), and each mapping as a phrase ("Matched to Procore", "Not Procore", "Outside AECi's scope"), who stands behind it ("Confirmed by your company", "Decided by AECi", "Suggested by name, not confirmed"), the confidence, the evidence link, and a quiet **Counts toward reach** tag on a row that clears §9a.4's gate. A search box and a "Show" filter (`<aec-select>`: all, no match yet, or one status) sit above. The status words are the vendor's, not the console's (`components/vendor-catalogue-labels.ts`).
@@ -3430,6 +3431,242 @@ A read-time rule would also hand the contest back to the owner when the entitlem
 
 **Closed by AECI-1091.** A retire closes the open contests on the retired row (§4.6). The evidenced-pair retire closes contests anchored by `evidenced_pair_id`, and its `noOpenContestsSentinel` reads the same column (`buildPairRetireBatch`, `openContestsOn` and `noOpenContestsSentinel` take a `ContestAnchor`).
 
+---
+
+## 11c. Vendor replies to reviews (AECI-1173)
+
+**Status: specified 2026-10-02 by AECI-1174 and built on the epic branch by AECI-1175 to AECI-1181: the table (AECI-1175, migration `0058`), the four vendor routes, the `review.reply` capability and the `reviews` cursor scope (AECI-1176), the admin queue with its two routes and badge (AECI-1177), `vendor_responses` on both public reads with the product-page render (AECI-1178), the portal Reviews tab with its Overview row (AECI-1179), the vendor notifications (AECI-1180), and the vendor guide page `/docs/vendors/replying-to-reviews` with the §11c.10 firewall assertion and the `/methodology` sentence (AECI-1181).** Chris ruled the open decisions on 2026-10-01 and 2026-10-02. This section is the build contract. The table is in `DATABASE_SCHEMA.md` §7.3. The wire shapes are in `API_CONTRACTS.md` §6.6 and §6.14. The admin queue is `ADMIN_PANEL_SPEC.md` §5.13. The Stage 2.1 admission is `STAGE_2_1_SPEC.md` §3.3.4.
+
+**This section supersedes the AECI-313 ruling of 2026-07-02.** That ruling made launch flag-only. A vendor could report a review by email and nothing else, and public replies were held back for a later paid listing. This is that feature. Reporting a review is unchanged. It stays an email to `reviews@thewbsproject.com` under the Review Guidelines (`apps/web/src/content/legal/review-guidelines.md`). A reply never removes, hides or flags a review.
+
+### 11c.1 What a reply is
+
+A vendor that owns a product answers one approved review of that product in public. The reply sits under the review on the product page. It is labelled as the vendor's. It never changes the review. AECi approves every reply before anyone sees it.
+
+### 11c.2 The rulings
+
+| # | Decision | Ruling |
+|---|---|---|
+| 1 | Moderation timing | **Pre-moderation.** A reply is hidden until AECi approves it. The cache purges only when public visibility changes (§11c.6). The ruling's words were "purges only on admin decisions". An edit under ruling 5 and a withdraw also take a live reply off the page, so a vendor edit or withdraw of a `published` reply purges too. Nothing a vendor does makes a reply appear. |
+| 2 | Plan gate | **A new capability, `review.reply`, held by `verified` only.** "Verified" is the tier the portal calls Managed (`STAGE_2_PAID_TIERS_SPEC.md` §13.2). A vendor on Free (`unclaimed`) cannot reply. Flipping it is a one-line registry change (§11c.9). |
+| 3 | Reviewer notice | **None in this version.** Recorded as open, with options (§11c.12). |
+| 4 | Co-owned products | **Each owning vendor may post one reply per review.** Primary or not. `unique(review_id, vendor_id)`. |
+| 5 | Edit | **An edit of a published reply returns it to `pending` and hides it until AECi approves it again.** One body column, no edit history on the row. |
+| 6 | Resubmit | **A rejected or withdrawn reply may be resubmitted on the same row.** It goes back to `pending`. |
+| 7 | Reason | **The rejection or removal reason is shown to the vendor in the portal.** |
+| 8 | Guidelines copy | **Ships inside the existing AECI-308 draft.** Counsel reviews it with the rest. It does not block merge. |
+| 9 | Removal is final, and confirmed | **Ruling 2026-10-02.** A removed reply stays final: the vendor can never post another reply to that review. Because it is final, the admin queue asks for an explicit confirm before it sends a remove (§11c.6, `ADMIN_PANEL_SPEC.md` §5.13). |
+
+### 11c.3 Who may reply
+
+- **A seat on an owning vendor.** The caller passes `requireVendor()`. The reviewed product must have a `product_vendors` row for the caller's vendor. `requireOwnedProduct()` (`apps/api/src/routes/vendor-shared.ts`) already accepts any owner, primary or not. Ruling 4 keeps that.
+- **A miss is a `404`.** An unknown review, a review of a product the caller does not own, and a review that is not `approved` all answer the same `404`. A vendor never learns a pending or rejected review exists.
+- **Then the capability.** `requireCapability(c, 'review.reply')` runs after ownership settles. A Free seat gets `403 ENTITLEMENT_REQUIRED`, never before the `404`. That is the order `STAGE_2_PAID_TIERS_SPEC.md` §4 fixes for every product write.
+- **A banned seat** gets the `403` that `requireVendor()` gives every banned seat (§7).
+- **Ownership is checked at write time, not stored as a right.** A vendor that later loses its `product_vendors` row keeps its reply row. The public render drops it (§11c.11), and any write on it answers `404`.
+
+### 11c.4 Cardinality
+
+One reply per (review, vendor). A unique index enforces it (`DATABASE_SCHEMA.md` §7.3). A co-owned product can therefore show more than one reply under a review, one per owning vendor. A reply is one level deep. Nobody replies to a reply.
+
+### 11c.5 The reply body
+
+- Plain text. Trimmed, then **1 to 2,000 characters**. The review body has no stricter cap, and a reply longer than most reviews reads as a rebuttal.
+- Line breaks are kept. Nothing is parsed as Markdown or HTML. URLs render as text, not links. That removes the link-spam case from moderation.
+- No title, no rating, no attachments.
+
+### 11c.6 States, transitions and purges
+
+Five statuses: `pending`, `published`, `rejected`, `withdrawn` and `removed`. `removed` is final. The status CHECK is written once, when the table is created.
+
+| From | To | Actor | Endpoint | Audit action | Purges `product:{slug}` |
+|---|---|---|---|---|---|
+| (no row) | `pending` | vendor seat | `POST /api/vendor/reviews/:reviewId/response` | `review_response.submitted` | no |
+| `rejected` or `withdrawn` | `pending` | vendor seat | the same `POST` (resubmit, same row) | `review_response.submitted`, `metadata.resubmit = true` | no |
+| `pending` | `pending` | vendor seat | `PATCH /api/vendor/reviews/:reviewId/response` | `review_response.edited` | no |
+| `published` | `pending` | vendor seat | the same `PATCH` | `review_response.edited`, `metadata.wasPublished = true` | **yes**, the reply leaves the page |
+| `pending` | `withdrawn` | vendor seat | `POST /api/vendor/reviews/:reviewId/response/withdraw` | `review_response.withdrawn` | no |
+| `published` | `withdrawn` | vendor seat | the same withdraw | `review_response.withdrawn`, `metadata.wasPublished = true` | **yes**, the reply leaves the page |
+| `pending` | `published` | AECi admin | `PATCH /api/admin/review-responses/:id`, `approve` | `review_response.approved` | **yes**, the reply appears |
+| `pending` | `rejected` | AECi admin | the same `PATCH`, `reject` + reason | `review_response.rejected` | no |
+| `published` | `removed` | AECi admin | the same `PATCH`, `remove` + reason | `review_response.removed` | **yes**, the reply leaves the page |
+
+Every other move is refused with `409 REVIEW_RESPONSE_WRONG_STATE` and writes nothing. An admin decision on the right status but a version the vendor has since replaced is refused with `409 REVIEW_RESPONSE_CHANGED` (§11c.7). Three moves are worth naming:
+
+- **A vendor cannot edit a rejected or withdrawn reply.** It resubmits through the `POST`. The `PATCH` is for `pending` and `published` only.
+- **AECi cannot remove a pending reply.** It rejects it. Remove is for a reply that is live.
+- **Nobody moves a `removed` reply.** Any vendor write on it answers `409 REVIEW_RESPONSE_REMOVED`. The vendor cannot reply to that review again. A removal is AECi's judgement that the reply broke the guidelines after it was live, so it does not reopen. Ruling 9 (2026-10-02) keeps it final.
+- **The admin confirms before a remove (ruling 9).** Because a removal is final, the queue does not send it on the reason form's submit. It first shows a confirm that says the removal is final, the reply comes off the product page, and the vendor can never reply to this review again. Only the deliberate "Remove permanently" sends the `PATCH`. Cancelling sends nothing. The API is unchanged.
+
+**Purge rule.** Only a transition that changes what a visitor sees purges. Under pre-moderation that is an admin approve or remove, and a vendor edit or withdraw of a `published` reply. Nothing else purges. The purge is `product:{slug}` through the `aeci-cache-purge-{env}` Queue, after commit. The source is `moderation` for an admin decision and `vendor` for a vendor write (`afterVendorWrite`). No transition queues a re-crawl, an IndexNow ping or an Algolia sync. Review moderation does not either (`apps/api/src/routes/admin-reviews.ts`).
+
+**Columns per transition.**
+
+- **Submit and resubmit** set `body`, `status = 'pending'`, `author_profile_id` to the caller, and clear `rejection_reason`, `moderated_by`, `moderated_at` and `published_at`. The old reason is history. The audit row keeps it.
+- **Edit** sets `body`, `status = 'pending'`, `author_profile_id` to the caller, and clears `published_at`. An edit whose trimmed body equals the stored body is `422 REVIEW_RESPONSE_NO_CHANGE`. That stops a no-op save from hiding a live reply.
+- **Withdraw** sets `status = 'withdrawn'` and clears `published_at`.
+- **Approve** sets `status = 'published'`, `published_at`, `moderated_by` and `moderated_at`.
+- **Reject and remove** set the status, `rejection_reason`, `moderated_by` and `moderated_at`. Remove also clears `published_at`.
+- Every write sets `updated_at`. The audit row carries the body before and after on submit, edit and resubmit, so the row needs no history column.
+
+### 11c.7 One batch per transition, and the race sentinel
+
+Every transition writes, in one `db.batch`:
+
+1. the guarded `UPDATE … WHERE id = ? AND status IN (…allowed from-states)`, or the `INSERT` for a first submit. An admin decision also guards on `updated_at = <expected_updated_at>` (below);
+2. a sentinel that aborts the batch when that statement changed no row;
+3. the `audit_log` row (`entity_type = 'review_response'`), through `apps/api/src/lib/audit.ts`;
+4. on an admin decision, the vendor's `notification.sent` row (§11c.12).
+
+The sentinel is the contest pattern (`contestStillOpenSentinel`, §11b.7). It reads `changes()`. When the guarded statement matched nothing it evaluates `json('review-response-changed')`, which raises and rolls the whole batch back. Every other statement sits after it. The handler maps that one error to `409 REVIEW_RESPONSE_WRONG_STATE`, with `details.status` from a re-read. A first submit that loses a race to another seat of the same vendor trips the unique index instead, and answers `409 REVIEW_RESPONSE_EXISTS`. So a lost race commits no audit row, no notification and no purge.
+
+**An admin decision guards on status plus version.** Status alone is not enough. A vendor edit of a pending reply is `pending` to `pending` with a new body. A withdraw then resubmit also ends `pending`. Either can land between the admin loading the queue and deciding. A status-only guard would then approve text the admin never read. So `PATCH /api/admin/review-responses/:id` requires `expected_updated_at`, the `updated_at` of the row the admin saw, echoed verbatim. The handler compares it before the batch and answers `409 REVIEW_RESPONSE_CHANGED` with `details.status` and `details.updated_at` on a mismatch. The guarded `UPDATE` also carries `AND updated_at = ?`, so an edit inside the batch window trips the sentinel and rolls back. The re-read then answers `REVIEW_RESPONSE_CHANGED` when the status still matches and `REVIEW_RESPONSE_WRONG_STATE` when it moved. A wrong status wins over a stale version. Every vendor write sets `updated_at` (§11c.6), so every vendor change is visible to this guard. The web queue sends the card's `updated_at`, and on this `409` says "The vendor changed this reply. Read the new version before deciding." and reloads.
+
+The vendor routes need no version. Each guards on the exact status it read, so an admin decision landing first trips their sentinel instead.
+
+**No workflow type.** Nothing writes `workflow_instances` or `workflow_transitions`. The state lives in `review_responses.status`. Opening `workflow_instances_type_check` would rebuild that table on D1, and a rebuild fires `ON DELETE CASCADE` two levels down (`docs/migrations.md` §0). Reusing `review_moderation` or `correction_request` was rejected too. A reply is not a review and not a request, and the Linear webhook and the request sweep key off those types. The audit rows are the history.
+
+### 11c.8 What AECi moderates against
+
+The Review Guidelines' vendor-response section is the public standard (`apps/web/src/content/legal/review-guidelines.md`). AECi rejects or removes a reply that:
+
+- names, identifies or guesses at the reviewer, or discloses anything about them;
+- offers the reviewer anything, or asks them to change or remove the review;
+- is advertising, a sales pitch, or contact details meant to move the conversation off the page;
+- breaks any rule a review must follow: false statements of fact, naming individuals, confidential data, harassment, unlawful content.
+
+A reply may disagree, correct a fact, explain a fix, or say what changed in a later release. AECi does not reject a reply because it is critical of the review.
+
+### 11c.9 The plan gate
+
+- **The capability id is `review.reply`.** AECI-1176 adds it to `CAPABILITIES` in `packages/shared/src/entitlements.ts`. `verified` holds every capability already, so `TIER_CAPABILITIES` needs no edit. It must not be added to `unclaimed`.
+- **The frozen-vocabulary assertion in `entitlements.spec.ts` grows by one id.** The id matches neither `RANKING_VOCABULARY_PATTERN` nor `PLAN_SHAPED`.
+- **Revisitable.** Opening replies to Free is a one-line move of the id into `TIER_CAPABILITIES.unclaimed`. No schema, route or UI change follows. Record the decision as an amendment to this section if it happens.
+- **Per-product plans.** The portal reads the gate as `productCan(product, 'review.reply')` (`STAGE_2_PAID_TIERS_SPEC.md` §13.7). Until per-product plans land, that is the vendor's plan. The server gate is `requireCapability`, and it follows §13.7 when that lands.
+- **Reads are never gated.** A Free seat lists its reviews and sees its own past replies. It cannot write. The portal shows the gated state the way `STAGE_2_PAID_TIERS_SPEC.md` §4 and §8 do for every locked write.
+- **Decision 10 still holds.** The plan panel says no plan changes "whether a review is published". The gate decides who may answer a review. It never decides whether the review shows.
+
+### 11c.10 The firewall
+
+A reply never changes ranking, placement or a review's standing. `STAGE_2_PAID_TIERS_SPEC.md` §3.2 is the firewall this extends. Concretely, nothing in this section writes or reads into:
+
+- `reviews.status`, `reviews.moderated_*` or any other `reviews` column. No reply route opens a statement on `reviews`.
+- `products.review_count`, `rating_overall_avg` or `rating_onboarding_avg`. `recompute-counts.ts` counts approved reviews only and does not read `review_responses`.
+- An Algolia record attribute, `INDEX_SETTINGS`, a `customRanking` key, a sort key or a `listing_tier` input.
+- The order of reviews on the page. It stays `created_at DESC, id ASC`, with or without a reply.
+
+AECI-1181 proves it. It extends `entitlements.spec.ts` with an assertion that no ranking input, sort key or `listing_tier` input names `review_responses`, `vendor_responses` or any reply column. **As built (AECI-1181):** block 6 of `entitlements.spec.ts` checks the settings, record shapes, sort keys and `listing_tier` inputs as data, and `apps/api/src/lib/review-reply-ranking-firewall.spec.ts` scans the files that compute ranking inputs for the reply table, module or field (`STAGE_2_PAID_TIERS_SPEC.md` §3.2 assertion 6). Because the capability lives in the registry, the existing §3.2 assertions cover its name.
+
+### 11c.11 The review lifecycle
+
+**A reply renders only when all of these hold:**
+
+1. the review is `approved`;
+2. the reply is `published`;
+3. the reply's vendor still owns the review's product in `product_vendors`.
+
+Rule 3 stops a "Response from" label naming a vendor that no longer owns the product.
+
+| Review event | What happens to the reply |
+|---|---|
+| The review leaves `approved` (rejected or archived) | The row is untouched. The reply stops rendering, because rule 1 fails. Today no route moves an approved review. `PATCH /api/admin/reviews/:id` moderates `pending` only, and no archive flow exists. The rule is written so a future one needs no change here. |
+| The reviewer erases their account | The review is anonymized: `reviewer_id` and `reviewer_firm` go null and `anonymized_at` is stamped. The review stays approved, so the reply stays. |
+| The review row is deleted | `review_id` is `ON DELETE CASCADE`. The reply goes with it. The only path today is the product's own deletion, which cascades `products` → `reviews` → `review_responses`. |
+| The vendor row is deleted | `vendor_id` is `ON DELETE CASCADE`. The reply goes with it. |
+| The reply's author erases their account | `author_profile_id` is `ON DELETE SET NULL` and the erasure batch nulls it explicitly. The reply stays. It is the vendor's record, not the person's (`AUTH_AND_RLS.md` §8). |
+
+**A cascade hazard to carry.** `review_responses` is the first cascade child of `reviews`. A future table rebuild of `reviews` would delete every reply. `reviews` has been rebuilt once already (migration `0027`). AECI-1175 adds `review_responses` to the cascade-children assertion in `apps/api/src/test/d1.spec.ts`, so the next rebuild must move it out of the way first (`docs/migrations.md` §3.3a).
+
+### 11c.12 Notifications
+
+**To the vendor, when a review of its product is approved (AECI-1180).**
+
+- **The feed row.** `PATCH /api/admin/reviews/:id` with `approve` writes one `notification.sent` row per owning vendor of the product, primary or not. `metadata.kind = 'review'`, `metadata.vendorId` is the recipient, and `metadata` carries `reviewId` and `productId`. The rows go in the approve batch, after the guarded `UPDATE`. A reject writes none. A vendor with no seat still gets the row, so the feed is complete when it is seated.
+- **The email.** After commit, through `ctx.waitUntil`, one `vendor-review-published` email per owning vendor that has at least one unbanned `vendor_admin` seat. Its seats are the recipients. Addresses come from `fetchAuthUserEmails`, which already runs under `mapWithConcurrency`. The sends run under `mapWithConcurrency(vendors, WORKER_CONNECTION_LIMIT, …)`, and every unread response body is released with `discardResponseBody`. The email uses the house layout (`apps/api/src/lib/email-layout.ts`, `docs/email.md`). It names the product, quotes the review's title and ratings, and has one call to action: the portal's reviews screen. A failed send is logged and never changes the moderation response.
+- **Not plan-gated.** Every owning vendor is told, on every plan. Knowing what is said about your product is not a paid feature. Replying is.
+- **Volume.** One email per approved review per vendor. There is no digest. Revisit if a vendor gets more than a few a week.
+- **As built (AECI-1180).** The pieces live in `apps/api/src/lib/review-notifications.ts`. Owners come from `product_vendors` before the batch. The rows go in after the workflow transition. Each seat gets its own message, because `sendTransactionalEmail` takes one address, and a vendor's seats are sent one after another inside the vendor fan-out. So at most `WORKER_CONNECTION_LIMIT` sends are in flight. The subject is `New review of {product} on AEC Integrations` and the CTA is "Read the review" (`docs/email.md`). The portal feed renders both kinds and links each to the product's Reviews tab.
+- **Registry and send ledger (AECI-1197).** The three notifications are entries in `apps/api/src/lib/notifications/registry.ts`, mirrored in `docs/NOTIFICATIONS.md`: the email `vendor-review-published`, and the feed rows `portal-review` and `portal-review-response`. Each feed row records its id as `metadata.notificationId`. Seats come from `loadVendorSeatRecipients` (`lib/vendor-seat-recipients.ts`), which applies no mute: the AECI-1204 nudge mute covers the attestation digest only. Each seat's send writes a `notification_sends` row under the key `vendor-review-published:{reviewId}:{profileId}`, so a replayed approve is a `duplicate` with no Resend call. The registry rule is `production-external`: outside production the tier policy suppresses every outside address (AECI-1198). The loser of a two-admin race (`409 REVIEW_ALREADY_MODERATED`, AECI-1203) rolls back its feed rows with the rest of its batch and sends nothing.
+
+**To the vendor, when AECi decides its reply.** Approve, reject and remove each write one `notification.sent` row with `metadata.kind = 'review_response'`, `metadata.event` (`approved | rejected | removed`) and `metadata.vendorId` set to the reply's vendor, in the decision batch. Reject and remove carry the reason in `metadata.reason`. No email. That matches contests (§11b.8).
+
+**The feed union grows by two members.** `GET /api/vendor/notifications` adds `review` and `review_response` to its `kind` union. `isAttestationNotification` in `packages/shared/src/api/vendor-notifications.ts` names every non-attestation kind, so it must name both. The scoping predicate is unchanged, so the `notifications` cursor needs no change.
+
+**To the reviewer: none in this version (ruling 3). Open.** The options, for a later ruling:
+
+- **(a) A transactional email when a reply is published.** It needs a lawful basis. Legitimate interest is arguable, because the reviewer chose to post publicly about the product. But the reviewer never asked to hear from the vendor's side, and the email would carry vendor-authored text. The privacy notice would need a line naming it.
+- **(b) Opt-in at submit.** A checkbox on the review form, "Tell me if the vendor responds". Consent is clean. It needs a stored flag per review, which is a `reviews` column and so a schema change on a table with a rebuild history.
+- **(c) An opt-in on the account page.** One preference for every review the person writes. Clean consent, no `reviews` column, but it needs a `profiles` column and an account-page control.
+
+The consent question to settle first: is telling a reviewer that a vendor answered them a service message about their own content, or a new kind of contact? Counsel decides that, with the AECI-308 review.
+
+### 11c.13 Freshness
+
+**`reviews` is the ninth cursor scope on `GET /api/vendor/updates`** (`STAGE_2_REALTIME_SPEC.md` §2.2). It reports the larger of `MAX(reviews.updated_at)` over approved reviews of the caller's owned products and `MAX(review_responses.updated_at)` over the caller's replies. It uses the same predicate `GET /api/vendor/reviews` imports (`vendorReviewsWhere`), so the cursor and the list cannot disagree. It is `.default(null)` on the wire for deploy skew, as `contests` is. The client maps it to a refetch of the reviews resource.
+
+### 11c.14 Routes
+
+| Method | Path | Gate | Success |
+|---|---|---|---|
+| `GET` | `/api/vendor/reviews` | seat. No capability, no `rateLimit()` | `200`, paginated |
+| `POST` | `/api/vendor/reviews/:reviewId/response` | seat + owner + `review.reply`, `rateLimit('write')` | `201 { response }` on create, `200 { response }` on resubmit |
+| `PATCH` | `/api/vendor/reviews/:reviewId/response` | seat + owner + `review.reply`, `rateLimit('write')` | `200 { response }` |
+| `POST` | `/api/vendor/reviews/:reviewId/response/withdraw` | seat + owner, `rateLimit('write')` | `200 { response }` |
+| `GET` | `/api/admin/review-responses` | admin. No `rateLimit()` | `200`, paginated |
+| `PATCH` | `/api/admin/review-responses/:id` | admin, `rateLimit('write')` | `200`, the updated row |
+
+- **Withdraw is not capability-gated.** A vendor that drops to Free can still take its own words down. Removing a reply is never a paid feature.
+- **The vendor routes key on the review id**, because the (review, vendor) pair names exactly one reply. The admin routes key on the reply id, because an admin acts on a row.
+- **`GET /api/vendor/reviews`** lists approved reviews of the caller's owned products, newest first (`reviews.created_at DESC, reviews.id ASC`). Each item carries the review in its public shape, the product, the caller's own reply (any status, with the reason when rejected or removed), and other owners' published replies. Filters: `product_id` and `reply_status` (`none` or one of the five statuses). Not audited.
+- **Public reads carry replies on both paths.** `GET /api/products/:slug/reviews` and the 24-review embed in `GET /api/products/:slug` (`ProductDetail.reviews`, `apps/api/src/routes/products.ts`) both map through one helper, so the two cannot drift. `PublicReview` gains `vendor_responses`: `Array<{ vendor_slug, vendor_name, body, published_at }>`, ordered `published_at ASC, review_responses.id ASC`. It is `[]` when there is none, and `.default([])` for deploy skew. One extra query per page fetches the replies for the page's review ids, so the cost does not grow with the page. No reviewer data is added. No JSON-LD carries a reply, as none carries a review (`apps/web/src/app/core/meta.service.ts`).
+
+Shapes and error codes are in `API_CONTRACTS.md` §6.6, §6.10 and §6.14.
+
+### 11c.15 The public render (AECI-1178)
+
+- **Under its review, never inside it.** The reply is a separate block after the review body. It is never styled as part of the review.
+- **The label is "Response from {vendor name}"**, then the publication date, from `published_at`. `{vendor name}` is `vendors.company_name`. Co-owner replies stack in the wire order.
+- **The reply is announced as belonging to its review.** The reply block is a labelled region tied to its review, for example `aria-labelledby` on the label. Each review stays an `article`.
+- **Visitor-state-neutral.** The page's SSR output is the same for every visitor. No "your reply is pending" state appears on the public page. The vendor sees that in the portal.
+- **i18n and light theme**, like every surface.
+- **As built (AECI-1178).** Each review in `apps/web/src/app/products/product-reviews.html` is an `article` named by its title (`aria-labelledby` on the `h3`). The article holds the review card, then each reply as a `section` below the card, outside its border. The section is labelled by its `h4`. The `h4` shows "Response from {vendor name}" and carries a screen-reader-only tail, "to the review “{title}”". That tail ties the reply to its review and keeps every reply region's name unique, which axe's `landmark-unique` needs. The date is a `time` element. The body is interpolated text with `whitespace-pre-line`, so line breaks show and nothing is parsed. The reply is indented, on `--surface-sunken`, with a full border and a Lucide corner-down-right glyph. A side stripe was not used, because `DESIGN.md` bans it.
+
+### 11c.16 The portal screen (AECI-1179)
+
+- **Where.** A Reviews tab on each product (`/vendor/:vendorSlug/products/:productSlug/reviews`), because plans live at product level (`STAGE_2_PAID_TIERS_SPEC.md` §13.1 decision 2). The Overview's "What needs you" gains a row for approved reviews with no reply, linked to the tab.
+- **States.** Each review shows one of: no reply, Pending, Published (with its date), Rejected (with the reason), Withdrawn, Removed (with the reason). Removed shows no reply action.
+- **Actions.** Reply on no reply. Edit on Pending and Published. Resubmit on Rejected and Withdrawn. Withdraw on Pending and Published. Editing a Published reply warns, before save, that it comes off the page until AECi approves the change.
+- **Gated state.** A Free product shows the reviews and the reply states. Reply, Edit and Resubmit are replaced by the locked-field treatment of §6.18: a visible reason, tied by `aria-describedby`. Withdraw stays.
+- **Pessimistic writes, re-read on `409`**, the contest list pattern (§11b.10). Revalidation follows the `reviews` cursor scope.
+- **As built (AECI-1179).** The tab is `sections/vendor-product-reviews-page.ts` over `components/vendor-reviews-list.ts`, after Integrations in `VENDOR_PRODUCT_NAV_ITEMS`, on every product. It reads one page of ten through `GET /api/vendor/reviews?product_id=…`, with a "Show" filter over `reply_status`. Each review is an `article` named by its title. A co-owner's published reply renders read-only below it, labelled "Response from {vendor name}". The caller's reply is a `section` headed "Your reply", with a status pill, a one-line meaning, the body, a date, and the AECi reason in its own box on Rejected and Removed. The gate is `productCan(product, 'review.reply')`, not the item's `can_reply`, as §11c.9 says. On a product without it, one notice says replying is part of Managed for this product, in the §6.18 locked-reason treatment that AECI-1218 built (the lock glyph on a sunken bordered panel, `data-testid="locked-reason"`), and every reply section points at it with `aria-describedby`. Reply, Edit and Resubmit open one inline form: a plain `textarea`, a character counter against `REVIEW_RESPONSE_BODY_MAX`, and a client check through `ReviewResponseBodySchema` before any request. An unchanged edit is refused client-side too. Withdraw confirms inline, as the contest list does. A write splices the echo in, then re-reads the page quietly. A `409` or `404` closes the form, says why, and re-reads. A `403 ENTITLEMENT_REQUIRED` refreshes `me`. A `reviews` tick re-reads the open page, or, with a form open, shows "These reviews changed elsewhere" with a reload. The Overview row is per product, in "Worth doing", most first, capped at three with a "more" row. It counts each product whose plan holds `review.reply` with one `reply_status=none&perPage=1` read, and re-reads on the `reviews` tick. The dev preview (`/preview/vendor-dashboard/products/summit-model-coordination/reviews`) carries one review per state; `?fixture=downgraded` shows the gated tab.
+
+### 11c.17 Build order
+
+| Order | Issue | Delivers | Governing subsections | Status |
+|---|---|---|---|---|
+| 1 | AECI-1174 | This section and its companion edits | all | Written 2026-10-02 |
+| 2 | AECI-1175 | The `review_responses` table, migration, seed, cascade-children pin | §11c.6, §11c.11; `DATABASE_SCHEMA.md` §7.3 | Built 2026-10-02, migration `0058` |
+| 3 | AECI-1176 | The four vendor routes, the capability, the shared schemas, the `reviews` cursor scope | §11c.3 to §11c.10, §11c.13, §11c.14 | Built 2026-10-02 |
+| 4 | AECI-1177 | The two admin routes, the queue, the badge | §11c.6, §11c.7, §11c.8; `ADMIN_PANEL_SPEC.md` §5.13 | Built 2026-10-02 |
+| 5 | AECI-1178 | `vendor_responses` on both public reads, and the product-page render | §11c.11, §11c.14, §11c.15 | Built 2026-10-02 |
+| 6 | AECI-1179 | The portal Reviews tab | §11c.16 | Built 2026-10-02 |
+| 7 | AECI-1180 | The review-approved feed row and email, the decision feed rows | §11c.12 | Built 2026-10-02 |
+| 8 | AECI-1181 | The vendor help page, the firewall assertion, and one sentence in `/methodology` saying vendor replies never affect ranking | §11c.10 | Built 2026-10-02 |
+
+All eight are on the epic branch `chris/aeci-1173-epic-vendors-reply-to-reviews-of-their-products`, one commit each. "Built" means committed there. Each issue closes when that branch merges to `main`.
+
+### 11c.18 Out of scope
+
+- A reviewer answering the vendor's reply. Replies are one level deep.
+- Any vendor power to hide, score, flag or remove a review. Reporting a review stays the email route.
+- Replies on pair pages, vendor pages or any surface other than the product page.
+- Any change to review moderation itself.
+- A notice to the reviewer (§11c.12, open).
+- Edit history on the row. The audit log holds it.
+- Rich text, links or attachments in a reply.
+
+---
+
 ## 12. Cross-references
 
 | Topic | Doc |
@@ -3445,6 +3682,7 @@ A read-time rule would also hand the contest back to the owner when the entitlem
 | Connector lane — who pays, and what a connector vendor gets instead | `STAGE_2_SPEC.md` §8.8 (payer) + §8.9 (return side) + §8.10 (a connector vendor that owns integrations it manages pays); the operator procedure is §5.2 here. Tracked catalogues/stubs and `docs/connector-vendors.md` live in the **`aec-integrations-review`** repo |
 | Paid tiers & entitlements — the successor epic (AECI-515) | `STAGE_2_PAID_TIERS_SPEC.md` (§3's un-verify owner, §6.1's paid-tier display, §9's billing notices, §11's deferrals) |
 | Integration field contests (§11b) | Wire shapes and error codes: `API_CONTRACTS.md` §4, §6.10, §6.14. Table: `DATABASE_SCHEMA.md` §8.7. Notifications: `STAGE_2_ATTESTATIONS_SPEC.md` §7.5. The owner-accept write: `STAGE_2_ATTESTATIONS_SPEC.md` §13.9. The `contests` cursor: `STAGE_2_REALTIME_SPEC.md` §2. The Linear retry: `STAGE_1_PHASE_6_SPEC.md` §6.4 (the Phase 6.7 sweep). What "claimed" means: §4.5 (AECI-1005, ADR 0035). The protest to AECi: §11b.12 (AECI-1009) |
+| Vendor replies to reviews (§11c) | Wire shapes and error codes: `API_CONTRACTS.md` §4, §6.6, §6.10, §6.14. Table: `DATABASE_SCHEMA.md` §7.3. Admin queue: `ADMIN_PANEL_SPEC.md` §5.13. Capability and firewall: `STAGE_2_PAID_TIERS_SPEC.md` §3.2, §13. Stage 2.1 admission: `STAGE_2_1_SPEC.md` §3.3.4 |
 
 ---
 

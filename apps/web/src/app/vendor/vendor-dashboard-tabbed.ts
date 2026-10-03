@@ -35,7 +35,7 @@ import { VendorPlanEndedBanner } from './components/vendor-plan-ended-banner';
  *   - product context (`…/products/:productSlug/*`, for a product this vendor
  *     owns): `Vendor › Acme › Products › Revit`, the product as the `h1`, the
  *     product's public page, a "Back to Acme" link, and the product tabs
- *     (Profile / Categories / Trades / Audiences / Phases / Integrations, and Catalogue on a
+ *     (Profile / Categories / Trades / Audiences / Phases / Integrations / Reviews, and Catalogue on a
  *     `connector`-role product, AECI-1083) in place of the vendor tabs.
  *
  * It used to render the vendor header and tab row always, and the product page

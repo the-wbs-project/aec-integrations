@@ -166,6 +166,7 @@ describe('VendorPortalNav', () => {
       '/portal/products/revit/audiences',
       '/portal/products/revit/phases',
       '/portal/products/revit/integrations',
+      '/portal/products/revit/reviews',
     ]);
     const current = items(harness).filter((el) => el.getAttribute('aria-current') === 'page');
     expect(current.map((el) => el.textContent?.trim())).toEqual(['Audiences']);

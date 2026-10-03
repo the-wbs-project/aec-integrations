@@ -74,8 +74,8 @@ import { VendorApi } from './vendor-api';
 
 /**
  * The client scope vocabulary from `docs/STAGE_2_REALTIME_SPEC.md` §3 — the same
- * eight keys `GET /api/vendor/updates` reports a cursor for (AECI-627; `contests`
- * since AECI-1008, `catalogue` since AECI-1083), so a caller
+ * nine keys `GET /api/vendor/updates` reports a cursor for (AECI-627; `contests`
+ * since AECI-1008, `catalogue` since AECI-1083, `reviews` since AECI-1176), so a caller
  * can hand the store exactly the scopes the cursor said moved.
  */
 export type VendorPortalScope =
@@ -86,7 +86,8 @@ export type VendorPortalScope =
   | 'notifications'
   | 'requests'
   | 'contests'
-  | 'catalogue';
+  | 'catalogue'
+  | 'reviews';
 
 /** What the store actually holds, one per endpoint. Four scopes collapse onto
  *  `me` because they are four views of one payload. */
@@ -96,7 +97,8 @@ export type VendorPortalResource =
   | 'notifications'
   | 'seats'
   | 'contests'
-  | 'catalogue';
+  | 'catalogue'
+  | 'reviews';
 
 /** A user-facing section: the granularity at which unsaved edits are registered
  *  and at which a "reload this section" affordance is offered. */
@@ -134,6 +136,13 @@ export interface VendorPortalData {
    * page it has open. No section maps to it, so nothing ever stashes it.
    */
   catalogue: number;
+  /**
+   * The `reviews` scope's revision tick (AECI-1176, `STAGE_2_VENDOR_PORTAL_SPEC.md`
+   * §11c.13). Not a payload, for the catalogue's reason: `GET /api/vendor/reviews`
+   * is paged and filtered per product, so the Reviews tab (AECI-1179) owns its read
+   * and re-reads its open page when this moves.
+   */
+  reviews: number;
 }
 
 /** The empty contests payload: the value before the first read, and the one a
@@ -179,6 +188,8 @@ const SCOPE_RESOURCE: Readonly<Record<VendorPortalScope, VendorPortalResource>> 
   contests: 'contests',
   // AECI-1083: a tick the Catalogue tab listens to, not an endpoint.
   catalogue: 'catalogue',
+  // AECI-1176: a tick the Reviews tab listens to, not an endpoint.
+  reviews: 'reviews',
 };
 
 /** Section → the resource whose refetch would replace what that section renders. */
@@ -222,6 +233,7 @@ export class VendorPortalStore {
     seats: signal<readonly VendorSeat[]>([]),
     contests: signal<ListVendorContestsResponse>(NO_CONTESTS),
     catalogue: signal(0),
+    reviews: signal(0),
   };
 
   private readonly statuses: Readonly<
@@ -233,6 +245,7 @@ export class VendorPortalStore {
     seats: signal<VendorPortalStatus>('idle'),
     contests: signal<VendorPortalStatus>('idle'),
     catalogue: signal<VendorPortalStatus>('idle'),
+    reviews: signal<VendorPortalStatus>('idle'),
   };
 
   /**
@@ -247,6 +260,7 @@ export class VendorPortalStore {
     seats: 0,
     contests: 0,
     catalogue: 0,
+    reviews: 0,
   };
 
   /** Fresh server payloads held back because a dirty section is rendering the
@@ -290,6 +304,9 @@ export class VendorPortalStore {
    * reload instead of replacing what the vendor is editing.
    */
   readonly catalogueRevision: Signal<number> = this.state.catalogue.asReadonly();
+  /** Bumped each time the `reviews` cursor moves (AECI-1176). The Reviews tab
+   *  (AECI-1179) re-reads its open page on a change. */
+  readonly reviewsRevision: Signal<number> = this.state.reviews.asReadonly();
 
   /**
    * The two other halves of `GET /api/vendor/seats` (AECI-664 / §11a).
@@ -401,6 +418,8 @@ export class VendorPortalStore {
   /** Always `false` in practice: bumping a counter cannot fail. Exposed so the
    *  live sync's exhaustive per-resource switch has something to read. */
   readonly catalogueFailed = computed(() => this.statuses.catalogue() === 'failed');
+  /** Always `false` in practice, as {@link catalogueFailed}. */
+  readonly reviewsFailed = computed(() => this.statuses.reviews() === 'failed');
 
   // ── Seeding ──────────────────────────────────────────────────────────────
 
@@ -726,6 +745,10 @@ export class VendorPortalStore {
         case 'catalogue':
           // No request: the tab owns its paged read. Bumping the tick is the signal.
           this.receive('catalogue', this.read('catalogue') + 1);
+          break;
+        case 'reviews':
+          // No request: the Reviews tab owns its paged read (AECI-1179).
+          this.receive('reviews', this.read('reviews') + 1);
           break;
         case 'seats': {
           const payload = await this.api.getSeats();

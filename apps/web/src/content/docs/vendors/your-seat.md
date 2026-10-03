@@ -57,6 +57,7 @@ On every plan, including Free, you can:
 - manage seats, if you are an owner,
 - claim, edit, retire and add the integrations your company owns, except one delivered through a connector ([Owning an integration](/docs/vendors/owning-an-integration)),
 - add your own links to an integration at either end,
+- see the reviews of your products, and withdraw your company's reply to one ([Replying to reviews](/docs/vendors/replying-to-reviews)),
 - contest a detail on an integration your company does not own ([Contests and protests](/docs/vendors/contests-and-protests)),
 - maintain the catalogue of a connector product your company makes, on that product's **Catalogue** tab, once we have handed the catalogue to you ([Claiming your vendor listing](/docs/vendors/claiming-your-listing#vendors-whose-products-are-connectors)).
 
@@ -64,7 +65,8 @@ On Managed, you can also:
 
 - edit a product's integrations page URL, API docs URL, trades, audiences, phases and "How teams use it",
 - confirm or deny data flows ([Attesting an integration](/docs/vendors/attesting-an-integration)),
-- claim, edit, retire and restore an integration your company owns that is delivered through a connector, and decide contests on it ([Owning an integration](/docs/vendors/owning-an-integration)).
+- claim, edit, retire and restore an integration your company owns that is delivered through a connector, and decide contests on it ([Owning an integration](/docs/vendors/owning-an-integration)),
+- reply in public to reviews of your products ([Replying to reviews](/docs/vendors/replying-to-reviews)).
 
 A seat never changes where your company or products appear in search or in any listing. Neither does a plan. See [Plans and the account label](/docs/vendors/plans-and-the-account-label).
 

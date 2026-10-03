@@ -111,6 +111,15 @@ export const ADMIN_NAV_GROUPS: readonly AdminNavGroup[] = [
         label: $localize`:@@admin.shell.nav.reviews:Review queue`,
         badge: 'reviews',
       },
+      // AECI-1177 (`ADMIN_PANEL_SPEC.md` §5.13). The sixth badged queue, right after
+      // Review queue because both moderate user-facing review content. It counts
+      // pending rows of `review_responses`, a table no other queue reads, so the
+      // Operations sum stays honest by construction.
+      {
+        path: '/admin/review-responses',
+        label: $localize`:@@admin.shell.nav.reviewResponses:Review replies`,
+        badge: 'reviewResponses',
+      },
       // AECI-922 badges all three Operations queues, and the Operations trigger
       // shows their SUM. The sum is only honest because the queues are disjoint:
       // `/admin/requests` counts open CORRECTIONS and `/admin/claims` counts open

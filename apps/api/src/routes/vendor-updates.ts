@@ -42,6 +42,8 @@
  *   | `requests`     | `vendorRequestsWhere` (`vendor-shared.ts`)                   |
  *   | `contests`     | `vendorContestsWhere` (`lib/integration-contests.ts`)        |
  *   | `catalogue`    | `ownedConnectorCatalogIds` (`lib/vendor-connector-catalog.ts`) |
+ *   | `reviews`      | `vendorReviewsWhere` (`lib/review-responses.ts`), plus the   |
+ *   |                | caller's own replies (`review_responses.vendor_id`)          |
  *
  * `vendorId` comes from `c.get('auth')` and never from the request — the AECI-520
  * invariant; the endpoint takes no parameters at all.
@@ -54,10 +56,10 @@
  * endpoint would degrade the very list it is a cursor for.
  *
  * ── ONE ROUND TRIP ──────────────────────────────────────────────────────────
- * Ten SELECTs in one `db.batch([...])` for eight scopes (six until AECI-1008
+ * Eleven SELECTs in one `db.batch([...])` for nine scopes (six until AECI-1008
  * added `contests`, one per scope until AECI-992 split `integrations` in two,
- * eight until AECI-1089 added the owned-rows statement, and nine until AECI-1083
- * added `catalogue`). The Worker pays per D1 hop, and this is the most frequently called
+ * eight until AECI-1089 added the owned-rows statement, nine until AECI-1083
+ * added `catalogue`, and ten until AECI-1176 added `reviews`). The Worker pays per D1 hop, and this is the most frequently called
  * endpoint on the surface, so eight sequential reads would multiply the epic's
  * cost by eight for no benefit. Each statement returns a single aggregate row.
  * `integrations` is the one scope fed by several statements: its own rows and the
@@ -90,6 +92,8 @@ import {
   integrations,
   productVendors,
   products,
+  reviewResponses,
+  reviews,
   vendorEntitlements,
   vendorRequests,
   vendors,
@@ -101,6 +105,7 @@ import { ONE_ROW } from '../lib/integration-claims';
 import { ownedEvidencedPairsWhere, ownedIntegrationsWhere } from '../lib/owned-integrations';
 import { vendorContestsWhere } from '../lib/integration-contests';
 import { ownedConnectorCatalogIds } from '../lib/vendor-connector-catalog';
+import { vendorReviewsWhere } from '../lib/review-responses';
 import { validateResponseInDev, type DbFactory } from '../lib/handler-utils';
 import { vendorNotificationLedgerWhere } from './vendor-notifications';
 import {
@@ -190,6 +195,7 @@ export function createVendorUpdatesHandler(
       requestRows,
       contestRows,
       catalogueRows,
+      reviewRows,
     ] = await db.batch([
       // `profile` — the vendor's own row. Also moves on the `verified` mirror
       // flip, which is the point: that flip is an admin action the vendor must
@@ -338,6 +344,27 @@ export function createVendorUpdatesHandler(
             .where(inArray(connectorStubs.catalogId, ownedConnectorCatalogIds(db, vendorId)))})`,
         })
         .from(ONE_ROW),
+
+      // `reviews` (AECI-1176, §11c.13) — two terms in one statement. The approved
+      // reviews of the caller's owned products, under `vendorReviewsWhere`, the SAME
+      // predicate `GET /api/vendor/reviews` lists with: a newly approved review moves
+      // `reviews.updated_at`. And the caller's own replies, any status, on the
+      // `(vendor_id, updated_at)` index: every vendor write and every admin decision
+      // stamps `updated_at`. Co-owners' replies are deliberately NOT a term: a
+      // co-owner's pending write would otherwise move this vendor's cursor and leak
+      // that it happened (the "too wide" failure in the header).
+      db
+        .select({
+          reviews: sql<string | null>`(${db
+            .select({ value: max(reviews.updatedAt) })
+            .from(reviews)
+            .where(vendorReviewsWhere(db, vendorId))})`,
+          replies: sql<string | null>`(${db
+            .select({ value: max(reviewResponses.updatedAt) })
+            .from(reviewResponses)
+            .where(eq(reviewResponses.vendorId, vendorId))})`,
+        })
+        .from(ONE_ROW),
     ]);
 
     const integrationRow = integrationRows[0];
@@ -363,6 +390,7 @@ export function createVendorUpdatesHandler(
         catalogueRows[0]?.mappings ?? null,
         catalogueRows[0]?.stubs ?? null,
       ),
+      reviews: latestOf(reviewRows[0]?.reviews ?? null, reviewRows[0]?.replies ?? null),
     };
 
     const body: VendorUpdatesResponse = {

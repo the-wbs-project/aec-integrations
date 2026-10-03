@@ -2,7 +2,7 @@
 title: Review Guidelines
 version: 1.0
 effective_date:
-last_updated: 2 July 2026
+last_updated: 2 October 2026
 counsel_approved_by: pending sign-off
 counsel_approved_on: pending sign-off
 linear_issue: AECI-308
@@ -38,6 +38,18 @@ We remove, and may decline to publish, reviews that contain:
 Every submitted review enters a moderation queue before it is published. We apply automated anti-abuse and content checks and human review against these guidelines. We may approve a review, decline it, or ask for clarification, at our discretion. Approved reviews are published as the **opinion of the reviewer**; they are not statements of fact by the operator and are not our endorsement (see our [Terms of Service](/legal/terms)).
 
 We may remove or edit a published review at any time if it later appears to breach these guidelines, and we may suspend the ability to submit reviews where we detect abuse. We aim to be fair and consistent, but we do not guarantee that any particular review will be published or kept online.
+
+## Vendor responses
+
+A company that owns a reviewed product may post one public response to each published review of that product. Where a product has more than one owner, each owner may post one response.
+
+- **Labelled.** A response appears under the review as "Response from" the company's name, with the date it was published. It is never shown as part of the review.
+- **Moderated before publication.** We check every response against these guidelines before anyone sees it. An edited response goes back through moderation and is hidden until we approve the change.
+- **The review stays as written.** A response cannot alter, hide, or remove a review. It does not change a review's rating, whether the review is published, or how any product ranks.
+- **The same standards apply.** A response must not identify or speculate about the reviewer, offer them anything, or ask them to change or remove their review. It must not contain advertising, contact details intended to move the conversation elsewhere, or anything this page does not allow in a review.
+- **Our decision.** We may decline a response, or remove a published one, if it breaches these guidelines. We tell the company why.
+
+A company that believes a review breaches these guidelines reports it in the usual way, described below. Posting a response is not a report.
 
 ## Reporting a review
 

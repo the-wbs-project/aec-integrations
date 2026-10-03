@@ -21,6 +21,7 @@ import claimingMd from '../../content/docs/vendors/claiming-your-listing.md';
 import contestsMd from '../../content/docs/vendors/contests-and-protests.md';
 import owningMd from '../../content/docs/vendors/owning-an-integration.md';
 import plansMd from '../../content/docs/vendors/plans-and-the-account-label.md';
+import replyingMd from '../../content/docs/vendors/replying-to-reviews.md';
 import seatMd from '../../content/docs/vendors/your-seat.md';
 import { parseFrontmatter } from '../legal/legal-frontmatter';
 
@@ -53,6 +54,7 @@ const SECTIONS: Readonly<Record<DocsSectionId, readonly RawPage[]>> = {
     { slug: 'attesting-an-integration', source: attestingMd },
     { slug: 'owning-an-integration', source: owningMd },
     { slug: 'contests-and-protests', source: contestsMd },
+    { slug: 'replying-to-reviews', source: replyingMd },
     { slug: 'plans-and-the-account-label', source: plansMd },
   ],
 };

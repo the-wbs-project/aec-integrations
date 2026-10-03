@@ -20,6 +20,10 @@ import { errorHandler } from '../errors';
 import type { AuthzVariables } from '../lib/authz';
 import { NOTIFICATION_SENT_ACTION } from '../lib/attestation-notify';
 import { claimAddedNotificationAudit } from '../lib/claim-added-notification';
+import {
+  reviewApprovedNotifications,
+  reviewResponseDecisionNotification,
+} from '../lib/review-notifications';
 import { makeTestDb, type TestDb } from '../test/d1';
 import { TEST_ENV, fakeExecutionContext } from '../test/helpers';
 import {
@@ -253,6 +257,82 @@ describe('GET /api/vendor/notifications — claim_added rows (AECI-1153 / §7.6)
 
   it('skips a claim_added row it cannot read, rather than 500ing the tab', async () => {
     await ledgerRow({ metadata: { kind: 'claim_added', vendorId: VENDOR, direction: 'sideways' } });
+    const { res, body } = await get();
+    expect(res.status).toBe(200);
+    expect(body.notifications).toEqual([]);
+  });
+});
+
+describe('GET /api/vendor/notifications — review rows (AECI-1180 / §11c.12)', () => {
+  const PRODUCT = { id: uuid(40), slug: 'revit', name: 'Revit' };
+  const ADMIN_ACTOR = { actorId: null, actorType: 'admin' as const };
+
+  it('maps a review row and a review_response row, and validates the union', async () => {
+    const [review] = reviewApprovedNotifications(
+      'portal-review',
+      ADMIN_ACTOR,
+      [{ vendorId: VENDOR, vendorSlug: 'autodesk' }],
+      { id: uuid(41), title: 'Solid', product: PRODUCT },
+    );
+    await ledgerRow({ metadata: review!.metadata, createdAt: daysAgo(2) });
+    const decision = reviewResponseDecisionNotification('portal-review-response', ADMIN_ACTOR, {
+      responseId: uuid(42),
+      decision: 'approve',
+      vendorId: VENDOR,
+      reviewId: uuid(41),
+      product: PRODUCT,
+      reason: null,
+    });
+    await ledgerRow({ metadata: decision.metadata, createdAt: daysAgo(1) });
+
+    const { res, body } = await get();
+    expect(res.status).toBe(200);
+    expect(() => ListVendorNotificationsResponseSchema.parse(body)).not.toThrow();
+    expect(body.notifications).toEqual([
+      {
+        kind: 'review_response',
+        id: expect.any(String),
+        event: 'approved',
+        response_id: uuid(42),
+        review_id: uuid(41),
+        product: { slug: 'revit', name: 'Revit' },
+        reason: null,
+        created_at: expect.any(String),
+      },
+      {
+        kind: 'review',
+        id: expect.any(String),
+        review_id: uuid(41),
+        product: { slug: 'revit', name: 'Revit' },
+        review_title: 'Solid',
+        created_at: expect.any(String),
+      },
+    ]);
+  });
+
+  it('is isolated to its recipient', async () => {
+    const [review] = reviewApprovedNotifications(
+      'portal-review',
+      ADMIN_ACTOR,
+      [{ vendorId: OTHER_VENDOR, vendorSlug: 'bentley' }],
+      { id: uuid(41), title: 'Solid', product: PRODUCT },
+    );
+    await ledgerRow({ metadata: review!.metadata });
+    expect((await get()).body.notifications).toEqual([]);
+  });
+
+  it('skips review rows it cannot read, rather than 500ing the tab', async () => {
+    await ledgerRow({ metadata: { kind: 'review', vendorId: VENDOR, reviewId: uuid(41) } });
+    await ledgerRow({
+      metadata: {
+        kind: 'review_response',
+        vendorId: VENDOR,
+        event: 'withdrawn',
+        responseId: uuid(42),
+        reviewId: uuid(41),
+        product: { slug: 'revit', name: 'Revit' },
+      },
+    });
     const { res, body } = await get();
     expect(res.status).toBe(200);
     expect(body.notifications).toEqual([]);

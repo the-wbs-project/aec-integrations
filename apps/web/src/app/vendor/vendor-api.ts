@@ -65,7 +65,19 @@ import type {
   ReviewVendorProductIntegrationsResponse,
   VendorChecklistResponse,
   VendorProductChecklistResponse,
+  ListVendorReviewsResponse,
+  ReviewReplyStatusFilter,
+  VendorReviewResponseResult,
 } from '@aeci/shared';
+
+/** The Reviews tab's filter set for {@link VendorApi.listReviews} (AECI-1179). */
+export interface VendorReviewsFilters {
+  readonly page: number;
+  readonly perPage: number;
+  /** One owned product. Absent means every owned product (the overview's count). */
+  readonly productId?: string;
+  readonly replyStatus?: ReviewReplyStatusFilter | null;
+}
 
 /** The Catalogue tab's filter set for {@link VendorApi.getConnectorCatalog}. */
 export interface VendorConnectorCatalogFilters {
@@ -582,6 +594,47 @@ export class VendorApi {
     );
   }
 
+  // ─── Vendor replies to reviews (AECI-1179, §11c.14) ───────────────────────
+
+  /** `GET /api/vendor/reviews` — approved reviews of the caller's owned products,
+   *  newest first, each with the caller's own reply and the co-owners' published
+   *  ones. Never gated. Inside the live cursor as the `reviews` scope. */
+  listReviews(filters: VendorReviewsFilters): Promise<ListVendorReviewsResponse> {
+    const params = new URLSearchParams({
+      page: String(filters.page),
+      perPage: String(filters.perPage),
+    });
+    if (filters.productId) params.set('product_id', filters.productId);
+    if (filters.replyStatus) params.set('reply_status', filters.replyStatus);
+    return firstValueFrom(
+      this.http.get<ListVendorReviewsResponse>(`/api/vendor/reviews?${params}`),
+    );
+  }
+
+  /** `POST /api/vendor/reviews/:reviewId/response` — create the reply (201), or
+   *  resubmit a rejected or withdrawn one on the same row (200). Lands `pending`. */
+  submitReviewResponse(reviewId: string, body: string): Promise<VendorReviewResponseResult> {
+    return firstValueFrom(
+      this.http.post<VendorReviewResponseResult>(reviewResponsePath(reviewId), { body }),
+    );
+  }
+
+  /** `PATCH /api/vendor/reviews/:reviewId/response` — edit a pending or published
+   *  reply. Lands `pending`, so a published reply leaves the page (ruling 5). */
+  editReviewResponse(reviewId: string, body: string): Promise<VendorReviewResponseResult> {
+    return firstValueFrom(
+      this.http.patch<VendorReviewResponseResult>(reviewResponsePath(reviewId), { body }),
+    );
+  }
+
+  /** `POST …/response/withdraw` — take a pending or published reply down. Not
+   *  capability-gated (§11c.9). */
+  withdrawReviewResponse(reviewId: string): Promise<VendorReviewResponseResult> {
+    return firstValueFrom(
+      this.http.post<VendorReviewResponseResult>(`${reviewResponsePath(reviewId)}/withdraw`, {}),
+    );
+  }
+
   /** `DELETE …/links/:productId/:kind` — remove it. Removing an unset link is a
    *  200 that writes nothing. */
   deleteIntegrationLink(
@@ -603,4 +656,8 @@ function integrationLinkPath(
   kind: IntegrationLinkKind,
 ): string {
   return `/api/vendor/integrations/${encodeURIComponent(integrationId)}/links/${encodeURIComponent(productId)}/${kind}`;
+}
+
+function reviewResponsePath(reviewId: string): string {
+  return `/api/vendor/reviews/${encodeURIComponent(reviewId)}/response`;
 }

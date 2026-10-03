@@ -84,6 +84,6 @@ You see the request in **Messages** under **Field contests**, and on the integra
 ## Related
 
 - Previous: [Owning an integration](/docs/vendors/owning-an-integration).
-- Next: [Plans and the account label](/docs/vendors/plans-and-the-account-label).
+- Next: [Replying to reviews](/docs/vendors/replying-to-reviews).
 - The [Listing Accuracy Policy](/legal/listing-accuracy) sets out the contest and correction routes for everyone.
 - [How we research and verify listings](/methodology).

@@ -2,6 +2,14 @@ import { describe, expect, it } from 'vitest';
 
 import { INDEX_ENTITIES, indexSettingsFor } from './algolia';
 import {
+  AlgoliaIntegrationRecordSchema,
+  AlgoliaProductRecordSchema,
+  AlgoliaVendorRecordSchema,
+} from './algolia-records';
+import { IntegrationSortSchema } from './api/integrations';
+import { ProductSortSchema } from './api/products';
+import { VendorSortSchema } from './api/vendors';
+import {
   CAPABILITIES,
   ENTITLEMENT_STATUSES,
   PRODUCT_FIELD_CAPABILITIES,
@@ -50,7 +58,7 @@ import {
 // ---------------------------------------------------------------------------
 
 describe('the entitlement vocabulary is frozen (§3.1) [invariant]', () => {
-  it('declares exactly the ten capability ids, in spec order', () => {
+  it('declares exactly the eleven capability ids, in spec order', () => {
     expect(CAPABILITIES).toEqual([
       'profile.edit',
       'profile.rich_fields',
@@ -62,7 +70,16 @@ describe('the entitlement vocabulary is frozen (§3.1) [invariant]', () => {
       'attestation.author',
       'analytics.view',
       'integration.version_diff',
+      'review.reply',
     ]);
+  });
+
+  it('keeps review.reply off the Free plan (STAGE_2_VENDOR_PORTAL_SPEC.md §11c.9)', () => {
+    // Opening replies to Free is a deliberate one-line move into
+    // TIER_CAPABILITIES.unclaimed, recorded as an amendment to §11c.9. This
+    // assertion makes that move a visible test change too.
+    expect(TIER_CAPABILITIES.unclaimed).not.toContain('review.reply');
+    expect(TIER_CAPABILITIES.verified).toContain('review.reply');
   });
 
   it('is a binary ladder at launch (§8.4)', () => {
@@ -508,6 +525,125 @@ describe('no listing_tier input needs a plan to edit (§13.4) [invariant]', () =
     ]) {
       expect(CAPABILITIES as readonly string[]).toContain(capability);
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 6. A vendor's reply to a review never reaches ranking (AECI-1181).
+// ---------------------------------------------------------------------------
+
+/**
+ * `STAGE_2_VENDOR_PORTAL_SPEC.md` §11c.10. A reply is vendor-authored text under
+ * a review, and only `verified` may write one (`review.reply`). If any ranking
+ * input read it, payment would buy position through the side door. So no
+ * Algolia searchable, facet or `customRanking` attribute, no Algolia record
+ * field, no public sort key and no `listing_tier` input may name the reply
+ * table, its public field or a reply column.
+ *
+ * This block checks those as data. The source half, which scans the files
+ * that compute ranking inputs for a JOIN or import of the reply table, is
+ * `apps/api/src/lib/review-reply-ranking-firewall.spec.ts`.
+ */
+
+/** Reply-shaped substrings. Lowercased, so `vendorResponses` is caught too. */
+const REPLY_SHAPED = [
+  'review_response',
+  'reviewresponse',
+  'vendor_response',
+  'vendorresponse',
+  'repl',
+];
+
+/** Every reply-ish name a careless caller might sort or rank on. */
+const REPLY_FIELD_CANDIDATES = [
+  'review_responses',
+  'reviewResponses',
+  'vendor_responses',
+  'vendorResponses',
+  'review_response',
+  'responses',
+  'response',
+  'replies',
+  'reply',
+  'reply_count',
+  'has_reply',
+];
+
+function namesAReply(name: string): boolean {
+  const lower = name.toLowerCase();
+  return REPLY_SHAPED.some((shape) => lower.includes(shape)) || /^responses?$/.test(lower);
+}
+
+const RECORD_SCHEMAS = {
+  product: AlgoliaProductRecordSchema,
+  vendor: AlgoliaVendorRecordSchema,
+  integration: AlgoliaIntegrationRecordSchema,
+} as const;
+
+describe('a review reply never reaches a ranking input (§11c.10) [invariant]', () => {
+  it('the reply matcher catches every candidate, so the checks below are not vacuous', () => {
+    for (const candidate of REPLY_FIELD_CANDIDATES) {
+      expect(namesAReply(candidate), candidate).toBe(true);
+    }
+    // ...and spares the review signals that legitimately rank.
+    for (const legit of ['review_count', 'rating_overall_avg', 'reviews', 'listing_tier']) {
+      expect(namesAReply(legit), legit).toBe(false);
+    }
+  });
+
+  it('no Algolia searchable, facet or customRanking attribute names a reply', () => {
+    for (const attribute of rankingVocabulary) {
+      expect(namesAReply(attribute), `INDEX_SETTINGS attribute "${attribute}"`).toBe(false);
+    }
+  });
+
+  it('no Algolia record field names a reply', () => {
+    // A record field is one settings edit away from ranking, so the record
+    // shape is held to the same rule as the settings.
+    for (const [entity, schema] of Object.entries(RECORD_SCHEMAS)) {
+      const fields = Object.keys(schema.shape);
+      expect(fields.length, `${entity} record has no fields`).toBeGreaterThan(5);
+      for (const field of fields) {
+        expect(namesAReply(field), `${entity} record field "${field}"`).toBe(false);
+      }
+    }
+  });
+
+  it('no public sort key is a reply', () => {
+    for (const candidate of REPLY_FIELD_CANDIDATES) {
+      expect(ProductSortSchema.safeParse(candidate).success, `?sort=${candidate}`).toBe(false);
+      expect(VendorSortSchema.safeParse(candidate).success, `?sort=${candidate}`).toBe(false);
+      expect(IntegrationSortSchema.safeParse(candidate).success, `?sort=${candidate}`).toBe(false);
+    }
+  });
+
+  it('no listing_tier input names a reply, and none is read when one rides along', () => {
+    for (const field of [...PRODUCT_LISTING_TIER_INPUTS, ...VENDOR_LISTING_TIER_INPUTS]) {
+      expect(namesAReply(field), `listing_tier input "${field}"`).toBe(false);
+    }
+    const replyFields = {
+      vendor_responses: [{ vendor_slug: 'acme', vendor_name: 'Acme', body: 'Thanks.' }],
+      review_responses: 3,
+      reply_count: 3,
+    };
+    const productReads = propertiesRead(productListingTier, { ...fullProduct, ...replyFields });
+    const vendorReads = propertiesRead(vendorListingTier, { ...fullVendor, ...replyFields });
+    for (const read of [...productReads, ...vendorReads]) {
+      expect(namesAReply(read), `listing_tier read "${read}"`).toBe(false);
+    }
+    expect(productListingTier({ ...fullProduct, ...replyFields })).toBe(
+      productListingTier(fullProduct),
+    );
+    expect(vendorListingTier({ ...fullVendor, ...replyFields })).toBe(
+      vendorListingTier(fullVendor),
+    );
+  });
+
+  it('the review.reply capability names no ranking concept', () => {
+    // Block 2 covers every capability. This pins the one §11c.9 added, by name.
+    expect('review.reply').not.toMatch(RANKING_VOCABULARY_PATTERN);
+    expect(rankingVocabulary.has('review.reply')).toBe(false);
+    expect(rankingVocabulary.has('review_reply')).toBe(false);
   });
 });
 
