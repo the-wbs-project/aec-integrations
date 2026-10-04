@@ -193,3 +193,47 @@ the API on authenticated requests, and never joined to `page_views`.
 **Where it is recorded.** `STAGE_1_SPEC.md` §26.1 lists `user_activity_daily` beside the other
 exempt tables and names this class. `CODE_REVIEW_EXEMPTIONS.md` EX-002 covers its two writers.
 The privacy policy discloses the record, because it does not depend on cookie consent (AECI-1211).
+
+## Amendment 2026-10-04 — the search-engine submission log (AECI-1183)
+
+Nothing above is reversed. This adds a second class of log the three-part test does not reach.
+
+**The problem.** `recrawl_submissions` (`DATABASE_SCHEMA.md` §9.6a) keeps one row per URL per
+search-engine submission attempt: the URL, the channel, the outcome, the HTTP status and when.
+The IndexNow drain writes it. IndexNow and the Google worklist are Managed-plan benefits, so we
+must be able to show a vendor which of its pages we submitted. The table fails the original
+test on two counts. It cannot be reproduced by re-running a job, because a past request cannot be
+re-made. It is not invisible, because a vendor will read it (AECI-1187). Calling it log-class
+without a rule would leave §26.1 contradicting itself.
+
+Per-URL audit rows were the other answer, and Chris declined them on 2026-10-04. A full drain day
+is 10,000 URLs, and `audit_log` is never pruned (§26.6). Ten thousand audit rows a day would each
+say only "we sent this URL", which the log row already says.
+
+**The class.** An **append-only evidence log** is a table that meets all four of these rules:
+
+1. **Rows are never updated.** A later attempt for the same URL is a new row. A retry after a
+   refusal leaves both rows.
+2. **Rows are never deleted.** `retention-prune` excludes the table by name, beside `audit_log`,
+   and `retention-prune.spec.ts` asserts a real run leaves it untouched. The table has no foreign
+   key, so no cascade can empty it.
+3. **Only named writers write it.** For `recrawl_submissions` those are the IndexNow drain
+   (`apps/api/src/lib/indexnow-drain.ts`) and, from AECI-1185, the admin reindex clear. A third
+   writer needs a new amendment.
+4. **Every batch is tied to an audited row.** Each write carries a `batch_id`. The drain's
+   `indexnow.drained` audit row names the same value as `metadata.batchId`, in the same
+   `db.batch`. The admin clear will do the same with its `reindex.cleared` row.
+
+A table in this class is exempt from the per-row `audit_log` obligation. A table that fails any
+rule is domain state and audits.
+
+**The one gap in rule 4, stated plainly.** A refused or failed drain run deletes nothing, so it
+writes no audit row, as it never has. Its log rows are still written, because a refusal is
+evidence too. That batch is named in the run's `job_runs.detail.batchId` instead. `job_runs` is
+pruned after its window, so a refused batch's link outlives its `job_runs` row only in the log
+itself. We accept that. The refused rows record a request that changed nothing, and adding an
+audit row for a non-deletion would break the "no change, no row" rule of §26.1.
+
+**Where it is recorded.** `STAGE_1_SPEC.md` §26.1 lists `recrawl_submissions` beside the other
+exempt tables and names this class. `CODE_REVIEW_EXEMPTIONS.md` EX-002 names the table and its
+writer. ADR 0025's 2026-10-04 amendment covers the drain side.

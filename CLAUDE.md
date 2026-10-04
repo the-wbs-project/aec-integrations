@@ -325,7 +325,7 @@ post-commit via `ctx.waitUntil` to PostHog Logs through the seam in
 transactional failure. Domain state = catalog, users/profiles, reviews/moderation,
 claims/attestations, requests/workflows. Derived and log-class writes are exempt (`page_views`,
 `mailing_list`, `feedback`, `stats_cache`, Algolia watermark, `recompute-counts`, `metrics_daily`,
-`job_runs`, `notification_sends`, `notification_delivery_events`, `vendor_activity_daily`, and the per-user service log `user_activity_daily`
+`job_runs`, `notification_sends`, `notification_delivery_events`, `vendor_activity_daily`, the append-only evidence log `recrawl_submissions` (ADR 0022 2026-10-04 amendment), and the per-user service log `user_activity_daily`
 under ADR 0022's 2026-10-02 amendment). The test is entity class, not actor class; scheduled `DELETE`s are never exempt.
 `docs/STAGE_1_SPEC.md` §26, ADR 0022.
 

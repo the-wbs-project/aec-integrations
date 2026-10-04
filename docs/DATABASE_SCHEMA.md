@@ -2480,7 +2480,9 @@ and publicly invisible, so ADR 0022 exempts it like `stats_cache` and `job_runs`
 delete is a *scheduled* delete, which §26.1 never exempts, so each run that removes rows
 writes exactly one summary row in the **same `db.batch`**: `action='indexnow.drained'`,
 `entity_type='indexnow_queue'`, `metadata.reason` of `submitted` or `expired`. A run that
-removes nothing writes no row.
+removes nothing writes no row. Since AECI-1183 a `submitted` row also carries
+`metadata.batchId`, the run's UUID. Every `recrawl_submissions` row the run wrote has the same
+`batch_id` (§9.6a). An `expired` row has no `batchId`, because nothing was sent.
 
 **There are two appenders since AECI-944, not one.** `bufferVendorRecrawl`
 (`apps/api/src/routes/vendor-shared.ts`) appends on every vendor-portal write that changes a
@@ -2496,9 +2498,86 @@ A page a vendor edits between two drain runs is still submitted once.
 
 **Written by** `bufferIndexNowAfterPromote` (`apps/api/src/routes/promote.ts`, post-commit),
 `bufferVendorRecrawl` (`apps/api/src/routes/vendor-shared.ts`, post-commit) and the drain
-(`apps/api/src/lib/indexnow-drain.ts`). **Read by** the drain only — no public or admin surface
-queries it; its state is visible as the `aeci.indexnow.pending` gauge and the `job_runs` row
-for `indexnow-drain`.
+(`apps/api/src/lib/indexnow-drain.ts`). **Read by** the drain only. No public or admin surface
+queries it. Its state is visible as the `aeci.indexnow.pending` gauge and the `job_runs` row
+for `indexnow-drain`. The drain does not delete what it sends without a trace any more: it copies
+every sent row into `recrawl_submissions` first (§9.6a, AECI-1183).
+
+### 9.6a `recrawl_submissions`
+
+The search-engine submission log (AECI-1183, migration `0061_good_thanos.sql`). One row per URL
+per submission attempt. It answers "which of this vendor's pages did we tell search engines
+about, when, and what did they say". IndexNow and the Google worklist are Managed-plan benefits
+(`STAGE_2_PAID_TIERS_SPEC.md` §13.1a), so we must be able to show them per vendor. The drain used
+to delete what it sent and keep only counts, and that history cannot be rebuilt.
+
+```sql
+create table recrawl_submissions (
+  id integer primary key autoincrement,
+  url text not null,                 -- absolute public URL, copied from indexnow_queue.url
+  channel text not null,             -- 'indexnow' | 'gsc_manual'
+  outcome text not null,             -- 'accepted' | 'refused' | 'failed' | 'requested'
+  http_status integer,               -- null for a transport error and for gsc_manual
+  batch_id text not null,            -- one UUID per drain run or per admin clear
+  priority integer,                  -- the queue tier at send time, 1..4
+  submitted_at text not null,        -- ISO-8601, one value per batch
+  constraint recrawl_submissions_channel_check check (channel in ('indexnow', 'gsc_manual')),
+  constraint recrawl_submissions_outcome_check
+    check (outcome in ('accepted', 'refused', 'failed', 'requested'))
+);
+
+create index recrawl_submissions_url_submitted_at_idx on recrawl_submissions(url, submitted_at);
+create index recrawl_submissions_batch_id_idx on recrawl_submissions(batch_id);
+create index recrawl_submissions_submitted_at_idx on recrawl_submissions(submitted_at);
+```
+
+**Outcome mapping for IndexNow** (`submissionOutcome` in `apps/api/src/lib/indexnow-drain.ts`):
+
+| Response | `outcome` | `http_status` |
+|---|---|---|
+| 2xx | `accepted` | the status |
+| 4xx, 429 / 403 / 422 included | `refused` | the status |
+| 5xx | `failed` | the status |
+| no response (transport error) | `failed` | null |
+
+`requested` is reserved for the Google worklist clear (`gsc_manual`, AECI-1185). Nothing writes
+it yet. None of these outcomes means "indexed". A search engine never tells us that.
+
+**Written by** the IndexNow drain only, today. It writes one row per URL it sent:
+
+- On success, in the same `db.batch` as the queue delete. Order is the contract: the log
+  inserts, then the id-chunked deletes, then the `indexnow.drained` audit row with
+  `metadata.batchId`. The insert is `INSERT … SELECT … FROM indexnow_queue WHERE id IN (…)`, so it
+  must run before the delete.
+- On a refusal or a transport failure, in a batch of its own. The queue rows stay buffered and
+  no audit row is written, as before. Tomorrow's retry adds a second row per URL with a new
+  `batch_id`. This run's `batch_id` is in its `job_runs.detail.batchId` (§9.4).
+
+Retired-slug URLs are never sent, so they never get a row. A run where every row was retired
+writes none. The insert chunks ids at `RECRAWL_SUBMISSION_IDS_PER_STATEMENT` (95). Each statement
+binds the four run constants plus one parameter per id, 99 in all, under D1's cap of 100.
+`apps/api/src/lib/indexnow-drain.spec.ts` asserts the count at 0, 1 and 10,000 ids. AECI-1185
+adds the second writer, the admin reindex clear (`channel = 'gsc_manual'`).
+
+**Readers to come.** The vendor read `GET /api/vendor/recrawl-submissions` (AECI-1187) and the
+admin submission history on `/admin/reindex` (AECI-1188). Nothing reads the table yet.
+
+**No `audit_log` row per URL.** A log-class table under ADR 0022's amendment of 2026-10-04. It
+fails that ADR's three-part test, because it is not reproducible and a vendor will read it. It is
+exempt as an append-only evidence log, and only while four rules hold. Rows are never updated.
+Rows are never deleted. Only the IndexNow drain and the admin reindex clear write it. Every batch
+is tied to an audited row by `batch_id`. A refused run is the one gap: it has no audit row, so
+its `batch_id` is named in `job_runs.detail` instead.
+
+**No foreign keys.** Evidence must outlive a retracted vendor or a re-slugged page. A table with
+no FK cannot be emptied by a D1 recreate cascade (`docs/migrations.md` §0).
+
+**Retention: forever.** `retention-prune` excludes it by name, beside `audit_log`
+(`apps/api/src/lib/retention-prune.ts`, `ADMIN_PANEL_SPEC.md` §7.4).
+`apps/api/src/lib/retention-prune.spec.ts` asserts a real run leaves it untouched.
+
+**Migration `0061`** is a plain `CREATE TABLE` plus three `CREATE INDEX`. It is not a recreate and
+cannot cascade. `apps/api/src/test/migration-0061.spec.ts` pins that.
 
 ---
 
@@ -3944,7 +4023,7 @@ Migrations are generated by **drizzle-kit** from the Drizzle schema and applied 
 
 Every write that changes **domain state** must emit its `audit_log` (+ `workflow_transitions` where applicable) row (`STAGE_1_SPEC.md` §26.1, `CLAUDE.md` §"Audit logging and the observability forward"). Failure to log is a transactional failure — the mutation must not commit without its audit entry.
 
-**Scope (ADR 0022).** "Domain state" is the catalog, users and profiles, reviews and moderation, claims and attestations, requests and workflows. **Derived and log-class writes are exempt**: `page_views`, `mailing_list`, `feedback` (`API_CONTRACTS.md` §6.9/§6.13), `stats_cache`, the Algolia watermark, the denormalized product counters (§14.2), and the cron-written `metrics_daily` (§9.3 — **shipped**, AECI-581) and `job_runs` (§9.4 — **shipped**, AECI-583) tables (`ADMIN_PANEL_SPEC.md` §7.1/§7.2). `notification_sends` (§9.9), `notification_delivery_events` (§9.9a, AECI-1222), the daily per-vendor snapshot `vendor_activity_daily` (§9.12), and the per-user service log `user_activity_daily` (§9.11, ADR 0022's 2026-10-02 amendment) are exempt too. The test is **entity class, not actor class** — a `system`/cron actor writing domain state still audits — and **scheduled `DELETE`s are never exempt**: they emit one summary row per run (`action='retention.pruned'`). That exception is live as of AECI-584 (§9.1/§9.4): the 03:00 retention prune is the only cron that writes an `audit_log` row, and it writes exactly one per run — `actor_type='system'`, `entity_type='retention'`, `metadata={rowsDeleted, tables:[{table, cutoff, rowsDeleted}]}` — inside the same atomic `db.batch` as every chunked `DELETE`. A run that deletes nothing writes none: the exception exists because a deletion's fact is unrecoverable afterwards, and a non-deletion has no such fact.
+**Scope (ADR 0022).** "Domain state" is the catalog, users and profiles, reviews and moderation, claims and attestations, requests and workflows. **Derived and log-class writes are exempt**: `page_views`, `mailing_list`, `feedback` (`API_CONTRACTS.md` §6.9/§6.13), `stats_cache`, the Algolia watermark, the denormalized product counters (§14.2), and the cron-written `metrics_daily` (§9.3 — **shipped**, AECI-581) and `job_runs` (§9.4 — **shipped**, AECI-583) tables (`ADMIN_PANEL_SPEC.md` §7.1/§7.2). `notification_sends` (§9.9), `notification_delivery_events` (§9.9a, AECI-1222), the daily per-vendor snapshot `vendor_activity_daily` (§9.12), and the per-user service log `user_activity_daily` (§9.11, ADR 0022's 2026-10-02 amendment) are exempt too. So is the search-engine submission log `recrawl_submissions` (§9.6a), an append-only evidence log under ADR 0022's 2026-10-04 amendment: never updated, never deleted, written only by the IndexNow drain and the admin reindex clear, each batch tied to an audited row by `batch_id`. The test is **entity class, not actor class** — a `system`/cron actor writing domain state still audits — and **scheduled `DELETE`s are never exempt**: they emit one summary row per run (`action='retention.pruned'`). That exception is live as of AECI-584 (§9.1/§9.4): the 03:00 retention prune is the only cron that writes an `audit_log` row, and it writes exactly one per run — `actor_type='system'`, `entity_type='retention'`, `metadata={rowsDeleted, tables:[{table, cutoff, rowsDeleted}]}` — inside the same atomic `db.batch` as every chunked `DELETE`. A run that deletes nothing writes none: the exception exists because a deletion's fact is unrecoverable afterwards, and a non-deletion has no such fact.
 
 **The 11:00 entitlement-expiry sweep is a second auditing cron, and for the same "entity class, not actor class" reason** (AECI-613): it writes `expiry_notice_sent_at` on a domain row and emits one `vendor_entitlement.expiry_warned` row (`actor_type='system'`) per warned term, in the same batch. "We warned them on date X" is precisely the fact an offline-invoice dispute needs, so exempting it would lose the one record that matters. Note what that means for the exempt lists: `entitlement-expiry` is **not** ADR-0022-exempt in the way `retention-prune` is — where a cron-level test carves it out, the carve-out is a mocking artifact, and the real obligation is asserted in `entitlement-expiry.spec.ts`.
 

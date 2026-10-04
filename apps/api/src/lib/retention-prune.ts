@@ -34,9 +34,12 @@
  *   3. **Hard exclusions.** `audit_log`, `workflow_instances` and
  *      `workflow_transitions` are governed by `STAGE_1_SPEC.md` §26.6
  *      (indefinite — and this cron is not the vehicle for changing that);
- *      `metrics_daily` is the long memory §7.1 exists to keep. {@link PRUNABLE}
- *      is the complete list of tables this module can touch, and a spec asserts
- *      the four are untouched by a real run.
+ *      `metrics_daily` is the long memory §7.1 exists to keep.
+ *      `recrawl_submissions` (AECI-1183) is the search-engine submission log, kept
+ *      forever: ADR 0022's 2026-10-04 amendment exempts it from the audit
+ *      invariant only while it is never deleted. {@link PRUNABLE} is the complete
+ *      list of tables this module can touch, and a spec asserts the five are
+ *      untouched by a real run.
  *   4. **One summary `audit_log` row per run**, in the SAME batch as the delete
  *      — `actor_type='system'`, `action='retention.pruned'`. Scheduled deletion
  *      is the explicit exception to the ADR 0022 / §13 D11 carve-out that
@@ -143,9 +146,9 @@ const MAX_REPORTED_MISSING_DAYS = 10;
 
 /**
  * The complete list of tables this module may delete from. Rule 3 of §7.4 in
- * executable form: `audit_log`, `workflow_instances`, `workflow_transitions` and
- * `metrics_daily` are absent, and `retention-prune.spec.ts` asserts a real run
- * leaves all four untouched.
+ * executable form: `audit_log`, `workflow_instances`, `workflow_transitions`,
+ * `metrics_daily` and `recrawl_submissions` are absent, and
+ * `retention-prune.spec.ts` asserts a real run leaves all five untouched.
  */
 export const PRUNABLE = [
   'page_views',

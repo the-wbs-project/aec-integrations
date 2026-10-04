@@ -36,6 +36,7 @@ import {
   notificationDeliveryEvents,
   notificationSends,
   pageViews,
+  recrawlSubmissions,
   userActivityDaily,
   vendorActivityDaily,
   workflowInstances,
@@ -564,6 +565,27 @@ describe('runRetentionPrune', () => {
     await runRetentionPrune(t.db, NOW, WINDOWS);
 
     expect(await t.db.select().from(vendorActivityDaily)).toHaveLength(1);
+  });
+
+  it('keeps recrawl_submissions forever — it is not prunable (AECI-1183)', async () => {
+    // The search-engine submission log is evidence a vendor reads. ADR 0022's
+    // 2026-10-04 amendment exempts it from the audit invariant only on the
+    // condition that it is never deleted, so it must never join PRUNABLE.
+    expect(PRUNABLE as readonly string[]).not.toContain('recrawl_submissions');
+    await seedSnapshots(daysBetween(shiftDay(PV_LAST_PRUNED_DAY, -1), PV_LAST_PRUNED_DAY));
+    await t.db.insert(recrawlSubmissions).values({
+      url: 'https://www.aecintegrations.com/products/revit',
+      channel: 'indexnow',
+      outcome: 'accepted',
+      httpStatus: 200,
+      batchId: 'b-ancient',
+      priority: 1,
+      submittedAt: at('2025-01-01'),
+    });
+
+    await runRetentionPrune(t.db, NOW, WINDOWS);
+
+    expect(await t.db.select().from(recrawlSubmissions)).toHaveLength(1);
   });
 
   // ── §7.4 rule 4: exactly one summary audit row ───────────────────────────

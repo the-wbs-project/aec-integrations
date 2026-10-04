@@ -2921,6 +2921,79 @@ export const indexnowQueue = sqliteTable(
 );
 
 /**
+ * The search-engine submission log (AECI-1183, `DATABASE_SCHEMA.md` §9.6a).
+ *
+ * One row per URL per submission attempt. The IndexNow drain writes a row for
+ * every URL it sends, in the same `db.batch` as its queue delete on success, and
+ * in a batch of its own on a refusal or a transport failure (the queue rows stay
+ * buffered, so tomorrow's attempt adds a second row per URL). Retired-slug rows
+ * are never sent and never logged. AECI-1185 adds the `gsc_manual` writer.
+ *
+ * ─── Why it exists ────────────────────────────────────────────────────────────
+ *
+ * The drain used to delete what it sent and keep only counts. IndexNow and the
+ * Google worklist are Managed-plan benefits, so we must be able to show a vendor
+ * which of its pages we told search engines about. History not logged on the day
+ * cannot be rebuilt.
+ *
+ * ─── Class, and the four rules (ADR 0022, 2026-10-04 amendment) ───────────────
+ *
+ * Log class: no per-URL `audit_log` row. Every row of one run shares a
+ * `batch_id`, and the run's one `indexnow.drained` audit row carries the same
+ * value as `metadata.batchId`. The exemption holds only while all four rules do:
+ * rows are never updated, never deleted (`retention-prune` excludes the table),
+ * written only by the drain and the admin reindex clear, and every batch is tied
+ * to an audited row by `batch_id`. A failed attempt has no audit row today; its
+ * `batch_id` is in that run's `job_runs.detail` instead.
+ *
+ * No foreign keys. Evidence must outlive a retracted vendor, and a table with no
+ * FK cannot be emptied by a D1 recreate cascade (`docs/migrations.md` §0).
+ */
+export const recrawlSubmissions = sqliteTable(
+  'recrawl_submissions',
+  {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+
+    /** The absolute public URL that was submitted, copied from `indexnow_queue`. */
+    url: text('url').notNull(),
+
+    /** `indexnow` (the drain) or `gsc_manual` (the admin worklist clear, AECI-1185). */
+    channel: text('channel').notNull(),
+
+    /** `accepted` (2xx), `refused` (4xx, a 429 included), `failed` (5xx or no
+     *  response), or `requested` (an operator asked Google by hand). */
+    outcome: text('outcome').notNull(),
+
+    /** The HTTP status IndexNow returned. NULL for a transport error and for
+     *  `gsc_manual`. */
+    httpStatus: integer('http_status'),
+
+    /** One UUID per drain run or per admin clear. Joins the run's rows to its
+     *  `indexnow.drained` audit row (`metadata.batchId`) and `job_runs.detail`. */
+    batchId: text('batch_id').notNull(),
+
+    /** The queue tier the URL was sent at, 1..4. NULL where the writer has none. */
+    priority: integer('priority'),
+
+    /** When the request was made, ISO 8601. One value for the whole batch. */
+    submittedAt: text('submitted_at').notNull(),
+  },
+  (t) => [
+    // A URL's history, newest first: the vendor and admin reads (AECI-1187/1188).
+    index('recrawl_submissions_url_submitted_at_idx').on(t.url, t.submittedAt),
+    // One run's rows, and the cause copy keyed by batch (AECI-1184).
+    index('recrawl_submissions_batch_id_idx').on(t.batchId),
+    // Date-range reads across every URL.
+    index('recrawl_submissions_submitted_at_idx').on(t.submittedAt),
+    check('recrawl_submissions_channel_check', sql`"channel" IN ('indexnow', 'gsc_manual')`),
+    check(
+      'recrawl_submissions_outcome_check',
+      sql`"outcome" IN ('accepted', 'refused', 'failed', 'requested')`,
+    ),
+  ],
+);
+
+/**
  * The Google re-crawl worklist (AECI-945).
  *
  * ─── What it is, and why it is not `indexnow_queue` ───────────────────────────
