@@ -51,6 +51,7 @@ import type {
   ReviewVendorProfileResponse,
   ReviewVendorProductResponse,
   ReviewVendorProductIntegrationsResponse,
+  ListVendorHistoryResponse,
   ListVendorReviewsResponse,
   VendorReviewItem,
   VendorReviewResponseResult,
@@ -76,8 +77,10 @@ import {
   VendorApi,
   type VendorAttestationPosition,
   type VendorConnectorCatalogFilters,
+  type VendorHistoryFilters,
   type VendorReviewsFilters,
 } from '../../vendor/vendor-api';
+import { VENDOR_HISTORY_FIXTURE } from '../../vendor/vendor-history-fixtures';
 import { VENDOR_REVIEWS_FIXTURE } from '../../vendor/vendor-review-fixtures';
 import {
   VENDOR_CONNECTOR_CATALOG_FIXTURE,
@@ -1142,6 +1145,22 @@ export class PreviewVendorApi extends VendorApi {
   private canReplyOn(productId: string): boolean {
     const product = this.me?.products.find((p) => p.id === productId);
     return product?.plan.capabilities.includes('review.reply') ?? false;
+  }
+
+  /** The Changes page (AECI-1160). A vendor with no products is the new-vendor
+   *  fixture, which has no history yet: that is the empty state. */
+  override async listHistory(
+    page: number,
+    perPage: number,
+    filters: VendorHistoryFilters = {},
+  ): Promise<ListVendorHistoryResponse> {
+    const rows = (this.me?.products.length ? VENDOR_HISTORY_FIXTURE : []).filter((r) => {
+      if (filters.kind === 'vendor') return r.actor_kind === 'your_team';
+      if (filters.kind === 'aeci') return r.actor_kind === 'aeci';
+      return true;
+    });
+    const start = (page - 1) * perPage;
+    return clone({ data: rows.slice(start, start + perPage), page, perPage, total: rows.length });
   }
 
   override async listReviews(filters: VendorReviewsFilters): Promise<ListVendorReviewsResponse> {

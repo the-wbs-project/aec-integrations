@@ -1,0 +1,180 @@
+/**
+ * AECI-1160 — the portal Changes page (`STAGE_2_VENDOR_PORTAL_SPEC.md` §6.19):
+ * one row per actor kind, the AECi reason only when present, the filter refetch,
+ * the empty state and the CSV link.
+ */
+import { provideZonelessChangeDetection } from '@angular/core';
+import { TestBed, type ComponentFixture } from '@angular/core/testing';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
+import type { VendorHistoryItem } from '@aeci/shared';
+
+import { VendorApi } from '../vendor-api';
+import { VENDOR_HISTORY_FIXTURE } from '../vendor-history-fixtures';
+
+import { VENDOR_HISTORY_PAGE_SIZE, VendorHistoryPage } from './vendor-history-page';
+
+const flush = () => new Promise<void>((resolve) => setTimeout(resolve));
+
+function page(items: readonly VendorHistoryItem[], total = items.length) {
+  return { data: [...items], page: 1, perPage: VENDOR_HISTORY_PAGE_SIZE, total };
+}
+
+const byActor = (kind: VendorHistoryItem['actor_kind']) =>
+  VENDOR_HISTORY_FIXTURE.find((r) => r.actor_kind === kind)!;
+const AECI_WITH_REASON = VENDOR_HISTORY_FIXTURE.find((r) => r.actor_kind === 'aeci' && r.reason)!;
+const AECI_NO_REASON = VENDOR_HISTORY_FIXTURE.find((r) => r.actor_kind === 'aeci' && !r.reason)!;
+
+let api: { listHistory: ReturnType<typeof vi.fn> };
+
+beforeEach(() => {
+  TestBed.resetTestingModule();
+  api = { listHistory: vi.fn().mockResolvedValue(page(VENDOR_HISTORY_FIXTURE)) };
+  TestBed.configureTestingModule({
+    providers: [
+      provideZonelessChangeDetection(),
+      { provide: VendorApi, useValue: api as unknown as VendorApi },
+    ],
+  });
+});
+afterEach(() => vi.restoreAllMocks());
+
+async function settle(fixture: ComponentFixture<unknown>): Promise<void> {
+  for (let i = 0; i < 4; i += 1) {
+    fixture.detectChanges();
+    await flush();
+  }
+  fixture.detectChanges();
+}
+
+async function create(): Promise<ComponentFixture<VendorHistoryPage>> {
+  const fixture = TestBed.createComponent(VendorHistoryPage);
+  await settle(fixture);
+  return fixture;
+}
+
+const el = (fixture: ComponentFixture<unknown>) => fixture.nativeElement as HTMLElement;
+const row = (fixture: ComponentFixture<unknown>, item: VendorHistoryItem) =>
+  el(fixture).querySelector<HTMLElement>(`[data-history-row="${item.id}"]`)!;
+const text = (scope: HTMLElement, selector: string) =>
+  scope.querySelector(selector)?.textContent?.replace(/\s+/g, ' ').trim() ?? null;
+
+describe('VendorHistoryPage — rows', () => {
+  it('reads page one of every change', async () => {
+    await create();
+    expect(api.listHistory).toHaveBeenCalledWith(1, VENDOR_HISTORY_PAGE_SIZE, { kind: 'all' });
+  });
+
+  it('names who made each change, per actor kind', async () => {
+    const fixture = await create();
+    expect(text(row(fixture, byActor('your_team')), '[data-history-actor]')).toBe('Your team');
+    expect(text(row(fixture, byActor('aeci')), '[data-history-actor]')).toBe('AECi');
+    expect(text(row(fixture, byActor('system')), '[data-history-actor]')).toBe('System');
+  });
+
+  it('says what happened in plain words, with the entity and the humanized fields', async () => {
+    const fixture = await create();
+    const r = row(fixture, byActor('your_team'));
+    expect(text(r, '[data-history-action]')).toBe('Product listing updated');
+    expect(text(r, '[data-history-entity]')).toBe('Summit Model Coordination');
+    expect(text(r, '[data-history-fields]')).toContain('Description, Website URL, Logo URL');
+    expect(text(r, '[data-history-plan]')).toContain('Managed');
+    expect(r.querySelector('time')?.getAttribute('datetime')).toBe(byActor('your_team').at);
+  });
+
+  it('omits the plan when the row has no snapshot', async () => {
+    const fixture = await create();
+    const noPlan = VENDOR_HISTORY_FIXTURE.find((r) => r.plan === null)!;
+    expect(row(fixture, noPlan).querySelector('[data-history-plan]')).toBeNull();
+  });
+
+  it('shows the reason from AECi only when the row carries one', async () => {
+    const fixture = await create();
+    const withReason = row(fixture, AECI_WITH_REASON);
+    expect(text(withReason, '[data-history-reason]')).toContain('Reason from AECi');
+    expect(text(withReason, '[data-history-reason]')).toContain(AECI_WITH_REASON.reason!);
+    expect(row(fixture, AECI_NO_REASON).querySelector('[data-history-reason]')).toBeNull();
+    expect(row(fixture, byActor('your_team')).querySelector('[data-history-reason]')).toBeNull();
+  });
+
+  it('keeps an empty follow-up slot on every row until AECI-1187', async () => {
+    const fixture = await create();
+    const slots = el(fixture).querySelectorAll('[data-history-follow-up]');
+    expect(slots).toHaveLength(VENDOR_HISTORY_FIXTURE.length);
+    expect([...slots].every((s) => s.textContent?.trim() === '')).toBe(true);
+  });
+
+  it('carries the banner, and never claims indexing or ranking', async () => {
+    const fixture = await create();
+    const banner = text(el(fixture), '[data-history-banner]')!;
+    expect(banner).toContain('when change history began');
+    expect(banner).toContain('Search engines decide');
+    const all = el(fixture).textContent!.toLowerCase();
+    expect(all).not.toContain('indexed');
+    expect(all).not.toContain('ranked');
+  });
+});
+
+describe('VendorHistoryPage — filter, CSV, empty', () => {
+  it('refetches page one when the filter changes, and the CSV link follows it', async () => {
+    const fixture = await create();
+    expect(el(fixture).querySelector('[data-history-csv]')?.getAttribute('href')).toBe(
+      '/api/vendor/history.csv',
+    );
+
+    api.listHistory.mockResolvedValue(page([byActor('aeci')]));
+    el(fixture).querySelector<HTMLButtonElement>('[data-kind="aeci"]')!.click();
+    await settle(fixture);
+
+    expect(api.listHistory).toHaveBeenLastCalledWith(1, VENDOR_HISTORY_PAGE_SIZE, {
+      kind: 'aeci',
+    });
+    expect(el(fixture).querySelector('[data-kind="aeci"]')?.getAttribute('aria-pressed')).toBe(
+      'true',
+    );
+    expect(el(fixture).querySelector('[data-history-csv]')?.getAttribute('href')).toBe(
+      '/api/vendor/history.csv?kind=aeci',
+    );
+
+    el(fixture).querySelector<HTMLButtonElement>('[data-kind="vendor"]')!.click();
+    await settle(fixture);
+    expect(api.listHistory).toHaveBeenLastCalledWith(1, VENDOR_HISTORY_PAGE_SIZE, {
+      kind: 'vendor',
+    });
+  });
+
+  it('shows the empty state when there is no history', async () => {
+    api.listHistory.mockResolvedValue(page([]));
+    const fixture = await create();
+    expect(text(el(fixture), '[data-history-empty]')).toContain('No changes yet');
+    expect(el(fixture).querySelector('[data-history-row]')).toBeNull();
+  });
+
+  it('says a filtered empty list is the filter', async () => {
+    const fixture = await create();
+    api.listHistory.mockResolvedValue(page([]));
+    el(fixture).querySelector<HTMLButtonElement>('[data-kind="vendor"]')!.click();
+    await settle(fixture);
+    expect(text(el(fixture), '[data-history-empty]')).toContain('No change matches');
+  });
+
+  it('pages forward', async () => {
+    api.listHistory.mockResolvedValue(page(VENDOR_HISTORY_FIXTURE, 60));
+    const fixture = await create();
+    expect(text(el(fixture), '[data-history-page]')).toBe('Page 1 of 3');
+    const next = [...el(fixture).querySelectorAll('button')].find(
+      (b) => b.textContent?.trim() === 'Next',
+    )!;
+    next.click();
+    await settle(fixture);
+    expect(api.listHistory).toHaveBeenLastCalledWith(2, VENDOR_HISTORY_PAGE_SIZE, {
+      kind: 'all',
+    });
+  });
+
+  it('offers a retry when the first read fails', async () => {
+    api.listHistory.mockRejectedValueOnce(new Error('boom'));
+    const fixture = await create();
+    expect(el(fixture).querySelector('[data-history-failed]')).not.toBeNull();
+  });
+});

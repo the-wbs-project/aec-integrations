@@ -138,6 +138,11 @@ export const VENDOR_SECTION_ROUTES: Routes = [
     loadComponent: () =>
       import('./sections/vendor-messages-page').then((m) => m.VendorMessagesPage),
   },
+  // AECI-1160 (§6.19): the change history. Every plan, because the API is ungated.
+  {
+    path: 'history',
+    loadComponent: () => import('./history/vendor-history-page').then((m) => m.VendorHistoryPage),
+  },
   {
     path: 'seats',
     loadComponent: () => import('./sections/vendor-seats-page').then((m) => m.VendorSeatsPage),

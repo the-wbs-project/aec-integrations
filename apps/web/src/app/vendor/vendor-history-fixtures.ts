@@ -1,0 +1,89 @@
+/**
+ * Fixtures for the portal Changes page (AECI-1160, `STAGE_2_VENDOR_PORTAL_SPEC.md`
+ * §6.19), shared by the dev-only preview (`/preview/vendor-dashboard/history`) and
+ * the component specs.
+ *
+ * Newest first, as the API orders them. Every `actor_kind` appears, one AECi row
+ * carries a vendor-facing reason and one does not, one row has no plan snapshot,
+ * and one action is unknown to this build so the humanize fallback shows.
+ */
+import type { VendorHistoryItem } from '@aeci/shared';
+
+const MANAGED = { tier: 'verified', status: 'active' } as const;
+const FREE = { tier: 'unclaimed', status: null } as const;
+
+function row(
+  n: number,
+  at: string,
+  partial: Omit<VendorHistoryItem, 'id' | 'at'>,
+): VendorHistoryItem {
+  return { id: `00000000-0000-4000-8000-0000000059${String(n).padStart(2, '0')}`, at, ...partial };
+}
+
+export const VENDOR_HISTORY_FIXTURE: readonly VendorHistoryItem[] = [
+  row(1, '2026-10-03T15:42:00.000Z', {
+    actor_kind: 'your_team',
+    action: 'product.updated',
+    entity_type: 'product',
+    entity_id: '00000000-0000-4000-8000-000000005201',
+    entity_name: 'Summit Model Coordination',
+    fields: ['description', 'website_url', 'logo_url'],
+    plan: MANAGED,
+  }),
+  row(2, '2026-10-02T09:10:00.000Z', {
+    actor_kind: 'aeci',
+    action: 'integration.retired',
+    entity_type: 'integration',
+    entity_id: '00000000-0000-4000-8000-000000005301',
+    entity_name: 'Summit Model Coordination and Procore',
+    fields: ['retired_at'],
+    plan: MANAGED,
+    reason:
+      'Procore confirmed this connection was withdrawn in August. We retired it so the listing matches what is on offer today.',
+  }),
+  row(3, '2026-09-30T18:05:00.000Z', {
+    actor_kind: 'system',
+    action: 'vendor_entitlement.expiry_warned',
+    entity_type: 'vendor',
+    entity_id: '00000000-0000-4000-8000-000000005200',
+    entity_name: 'Summit Software',
+    fields: [],
+    plan: MANAGED,
+  }),
+  row(4, '2026-09-29T11:20:00.000Z', {
+    actor_kind: 'aeci',
+    action: 'vendor_entitlement.granted',
+    entity_type: 'vendor',
+    entity_id: '00000000-0000-4000-8000-000000005200',
+    entity_name: 'Summit Software',
+    fields: ['tier', 'status', 'period_end'],
+    plan: FREE,
+  }),
+  row(5, '2026-09-28T08:00:00.000Z', {
+    actor_kind: 'your_team',
+    action: 'vendor_seat.invited',
+    entity_type: 'vendor',
+    entity_id: '00000000-0000-4000-8000-000000005200',
+    entity_name: 'Summit Software',
+    fields: [],
+    plan: null,
+  }),
+  row(6, '2026-09-27T14:30:00.000Z', {
+    actor_kind: 'your_team',
+    action: 'integration.updated',
+    entity_type: 'integration',
+    entity_id: '00000000-0000-4000-8000-000000005302',
+    entity_name: 'Summit Model Coordination and Autodesk Construction Cloud',
+    fields: ['mechanism_kind', 'dataObjects'],
+    plan: FREE,
+  }),
+  row(7, '2026-09-26T10:00:00.000Z', {
+    actor_kind: 'system',
+    action: 'listing.future_event',
+    entity_type: null,
+    entity_id: null,
+    entity_name: null,
+    fields: [],
+    plan: FREE,
+  }),
+];

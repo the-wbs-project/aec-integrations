@@ -62,7 +62,7 @@ import { VENDOR_SECTION_ROUTES } from './vendor.routes';
 const flush = () => new Promise<void>((resolve) => setTimeout(resolve));
 
 const SLUG = VENDOR_ME_FIXTURE.vendor.slug;
-const NAV_LABELS = ['Vendor Overview', 'Profile', 'Products', 'Messages', 'Seats'];
+const NAV_LABELS = ['Vendor Overview', 'Profile', 'Products', 'Messages', 'Changes', 'Seats'];
 
 /**
  * Stands in for `VendorPage`: the surface owner that binds the shell's `me` to
@@ -204,7 +204,7 @@ const navLabels = (harness: RouterTestingHarness) =>
   [...navItems(harness)].map((el) => el.textContent?.trim());
 
 describe('VendorDashboardTabbed — the routed section nav', () => {
-  it('lists the five sections, with Messages between Products and Seats', async () => {
+  it('lists the six sections, with Messages and Changes between Products and Seats', async () => {
     // AECI-666: Integrations left this row for the product row; Messages took
     // its slot.
     expect(navLabels(await open())).toEqual(NAV_LABELS);
@@ -214,7 +214,9 @@ describe('VendorDashboardTabbed — the routed section nav', () => {
     const harness = await open();
 
     expect([...navItems(harness)].map((a) => a.getAttribute('href'))).toEqual(
-      ['overview', 'profile', 'products', 'messages', 'seats'].map((p) => `/vendor/${SLUG}/${p}`),
+      ['overview', 'profile', 'products', 'messages', 'history', 'seats'].map(
+        (p) => `/vendor/${SLUG}/${p}`,
+      ),
     );
   });
 
