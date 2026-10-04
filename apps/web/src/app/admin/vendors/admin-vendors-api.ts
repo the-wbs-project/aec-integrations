@@ -30,6 +30,9 @@ import type {
   AdminVendorsListQuery,
   AdminVendorsListResponse,
   RetireIntegrationResponse,
+  AdminFieldOverrideResponse,
+  AdminFieldOverridesResponse,
+  AdminSetFieldOverrideInput,
 } from '@aeci/shared';
 
 @Injectable({ providedIn: 'root' })
@@ -101,6 +104,45 @@ export class AdminVendorsApi {
     return firstValueFrom(
       this.http.post<RetireIntegrationResponse>(
         `/api/admin/integrations/${encodeURIComponent(integrationId)}/${mode}`,
+        overrideReasonBody(reason, internalNote),
+      ),
+    );
+  }
+
+  /**
+   * `GET /api/admin/vendors/:id/field-overrides` (AECI-1237): the active AECi field
+   * locks on the vendor, its products and the integrations it owns.
+   */
+  listFieldOverrides(vendorId: string): Promise<AdminFieldOverridesResponse> {
+    return firstValueFrom(
+      this.http.get<AdminFieldOverridesResponse>(
+        `/api/admin/vendors/${encodeURIComponent(vendorId)}/field-overrides`,
+      ),
+    );
+  }
+
+  /**
+   * `POST /api/admin/field-overrides` (AECI-1237): correct one field and lock it. The
+   * reason is shown to the vendor; the internal note is never shown.
+   */
+  setFieldOverride(input: AdminSetFieldOverrideInput): Promise<AdminFieldOverrideResponse> {
+    return firstValueFrom(
+      this.http.post<AdminFieldOverrideResponse>('/api/admin/field-overrides', {
+        ...input,
+        ...overrideReasonBody(input.reason, input.internalNote ?? ''),
+      }),
+    );
+  }
+
+  /** `POST /api/admin/field-overrides/:id/lift` (AECI-1237). Same reason rule. */
+  liftFieldOverride(
+    overrideId: string,
+    reason: string,
+    internalNote = '',
+  ): Promise<AdminFieldOverrideResponse> {
+    return firstValueFrom(
+      this.http.post<AdminFieldOverrideResponse>(
+        `/api/admin/field-overrides/${encodeURIComponent(overrideId)}/lift`,
         overrideReasonBody(reason, internalNote),
       ),
     );

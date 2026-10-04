@@ -168,6 +168,7 @@ export function ownedRowsForProduct(
                         [values]="editValues(row)"
                         [connectorDelivered]="row.connector_powered"
                         [idPrefix]="formPrefix(row)"
+                        [lockedFields]="row.locked_fields"
                         (closed)="closeEdit(row)"
                       />
                     }

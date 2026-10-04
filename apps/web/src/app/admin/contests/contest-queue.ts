@@ -412,6 +412,14 @@ export class ContestQueue {
       void this.load();
       return;
     }
+    if (code === 'FIELD_LOCKED_BY_AECI') {
+      // AECI-1237 (§11d.5): the field carries an AECi lock. Accepting would write
+      // the column the lock holds, so the lock is lifted first, on the vendor page.
+      this.failedActionMessage.set(
+        $localize`:@@admin.contests.action.locked:This field carries an AEC Integrations lock. Lift it under Field corrections on the vendor page, then decide again. Nothing was changed.`,
+      );
+      return;
+    }
     if (code === 'CONTEST_ROUTED_TO_OWNER') {
       this.failedActionMessage.set(
         $localize`:@@admin.contests.action.routedToOwner:The integration's owner decides this contest, not AEC Integrations. Nothing was changed.`,

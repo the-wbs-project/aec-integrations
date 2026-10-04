@@ -4,12 +4,15 @@ import { Component, computed, effect, inject, input, signal, untracked } from '@
 
 import {
   UpdateVendorProductSchema,
+  lockedField,
+  type LockedField,
   type UpdateVendorProductInput,
   type VendorProduct,
 } from '@aeci/shared';
 import { PRODUCT_FIELD_CAPABILITIES } from '@aeci/shared/entitlements';
 
 import { NewTabIcon } from '../../shared/new-tab-icon/new-tab-icon';
+import { VendorLockedNote } from './vendor-locked-note';
 import { RequestTrigger } from '../../requests/request-trigger';
 import { VendorApi } from '../vendor-api';
 import { VendorPortalStore } from '../vendor-portal-store';
@@ -67,7 +70,7 @@ interface FieldConfig {
  */
 @Component({
   selector: 'aec-vendor-product-form',
-  imports: [LogoInput, RequestTrigger, NewTabIcon],
+  imports: [LogoInput, RequestTrigger, NewTabIcon, VendorLockedNote],
   template: `
     <div class="space-y-6">
       <!-- Read-only identity: rename is a correction request, not a vendor edit. -->
@@ -237,7 +240,7 @@ interface FieldConfig {
                   [id]="fieldId(cfg.key)"
                   rows="4"
                   [value]="model()[cfg.key]"
-                  [readOnly]="!editable()[cfg.key]"
+                  [readOnly]="!editable()[cfg.key] || !!aeciLock(cfg.key)"
                   (input)="onInput(cfg.key, $event)"
                   [attr.aria-invalid]="fieldErrors()[cfg.key] ? 'true' : null"
                   [attr.aria-describedby]="describedBy(cfg.key)"
@@ -248,12 +251,15 @@ interface FieldConfig {
                   [id]="fieldId(cfg.key)"
                   type="url"
                   [value]="model()[cfg.key]"
-                  [readOnly]="!editable()[cfg.key]"
+                  [readOnly]="!editable()[cfg.key] || !!aeciLock(cfg.key)"
                   (input)="onInput(cfg.key, $event)"
                   [attr.aria-invalid]="fieldErrors()[cfg.key] ? 'true' : null"
                   [attr.aria-describedby]="describedBy(cfg.key)"
                   [class]="controlClass(cfg.key)"
                 />
+              }
+              @if (aeciLock(cfg.key); as lock) {
+                <aec-vendor-locked-note [lock]="lock" [noteId]="fieldId(cfg.key) + '-aeci'" />
               }
             }
             @if (fieldErrors()[cfg.key]; as err) {
@@ -286,6 +292,15 @@ interface FieldConfig {
             >
               Product updated. Your listing shows the change now; search results refresh within a
               day.
+            </p>
+          } @else if (saveLocked()) {
+            <p
+              class="text-sm font-medium text-(--text-primary)"
+              role="alert"
+              i18n="@@vendor.product.saveLocked"
+            >
+              AEC Integrations has locked a field you changed, so nothing was saved. Reload this
+              section to see the locked value.
             </p>
           } @else if (saveError()) {
             <p
@@ -336,8 +351,18 @@ export class VendorProductForm {
   protected describedBy(key: ProductTextKey): string | null {
     const ids: string[] = [];
     if (!this.editable()[key]) ids.push(`${this.fieldId(key)}-locked`);
+    if (this.aeciLock(key)) ids.push(`${this.fieldId(key)}-aeci`);
     if (this.fieldErrors()[key]) ids.push(`${this.fieldId(key)}-error`);
     return ids.length > 0 ? ids.join(' ') : null;
+  }
+
+  /**
+   * AECI-1237 (§11d.5): AECi's lock on a field, when it corrected one. A separate
+   * axis from `editable`, which is the plan: a plan lock says "needs Managed", an AECi
+   * lock says who set the value and why.
+   */
+  protected aeciLock(key: string): LockedField | undefined {
+    return lockedField(this.product().locked_fields, key);
   }
 
   /** Any field editable: drives the Save button and the read-only notice. */
@@ -371,6 +396,8 @@ export class VendorProductForm {
   protected readonly logoPending = signal(false);
   protected readonly saved = signal(false);
   protected readonly saveError = signal(false);
+  /** AECI-1237: the save was refused with `409 FIELD_LOCKED_BY_AECI`. */
+  protected readonly saveLocked = signal(false);
 
   protected readonly labelClass =
     'block text-xs font-bold uppercase tracking-[0.08em] text-(--text-secondary)';
@@ -379,7 +406,7 @@ export class VendorProductForm {
   private readonly inputBase =
     'w-full rounded-(--radius-md) border border-(--border-default) px-3 py-2 text-sm text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)';
   protected controlClass(key: ProductTextKey): string {
-    return this.editable()[key]
+    return this.editable()[key] && !this.aeciLock(key)
       ? `${this.inputBase} bg-(--surface-base)`
       : `${this.inputBase} bg-(--surface-sunken)`;
   }
@@ -507,6 +534,7 @@ export class VendorProductForm {
     if (!this.canEdit()) return;
     this.saved.set(false);
     this.saveError.set(false);
+    this.saveLocked.set(false);
     const parsed = UpdateVendorProductSchema.safeParse(this.diff());
     if (!parsed.success) return; // guarded by saveDisabled; defensive
     this.saving.set(true);
@@ -526,8 +554,9 @@ export class VendorProductForm {
         )
         .commit();
       this.saved.set(true);
-    } catch {
-      this.saveError.set(true);
+    } catch (err) {
+      if (apiErrorCode(err) === 'FIELD_LOCKED_BY_AECI') this.saveLocked.set(true);
+      else this.saveError.set(true);
     } finally {
       this.saving.set(false);
     }
@@ -543,4 +572,10 @@ export class VendorProductForm {
       logo_url: p.logo_url ?? '',
     });
   }
+}
+
+/** The `code` from the API's `{ error: { code } }` envelope, read structurally. */
+function apiErrorCode(err: unknown): string | null {
+  const inner = (err as { error?: { error?: { code?: unknown } } } | null)?.error?.error;
+  return typeof inner?.code === 'string' ? inner.code : null;
 }

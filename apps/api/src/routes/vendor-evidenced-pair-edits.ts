@@ -68,6 +68,12 @@ import { ApiError, notFoundError } from '../errors';
 import { json } from '../http';
 import { auditInsert, type BatchStmt, type BatchTuple } from '../lib/audit';
 import { auditActorType } from '../lib/authz';
+import {
+  fieldLockedError,
+  fieldsUnlockedSentinel,
+  lockRaceRefusal,
+  lockedFieldsAmong,
+} from '../lib/field-overrides';
 import { validateResponseInDev } from '../lib/handler-utils';
 import {
   evidencedOwnerWriteRefusal,
@@ -202,6 +208,12 @@ export async function editEvidencedPair(
     return json(body);
   }
 
+  // AECI-1237 (§11d.5): a field AECi corrected and locked refuses a new value. Only
+  // the CHANGED fields are asked, so sending the stored value back is harmless.
+  const lockedNow = await lockedFieldsAmong(db, 'connector_evidenced_pair', pairId, changed);
+  if (lockedNow.length > 0) throw fieldLockedError(lockedNow);
+  const lockSentinel = fieldsUnlockedSentinel(db, 'connector_evidenced_pair', pairId, changed);
+
   // One wave: the owner's name, the endpoint vendors and the three slugs.
   const productIds = [pair.productAId, pair.productBId, pair.connectorProductId];
   const [owner, endpointVendors, productRows] = await Promise.all([
@@ -291,6 +303,8 @@ export async function editEvidencedPair(
   ];
 
   const stmts: BatchStmt[] = [
+    // AECI-1237: a lock that landed after the read aborts the save here.
+    ...(lockSentinel ? [lockSentinel] : []),
     db
       .update(connectorEvidencedPairs)
       .set({ ...columns, ...maintenanceTransferColumns(now), updatedAt: now })
@@ -302,6 +316,8 @@ export async function editEvidencedPair(
     await db.batch(stmts as BatchTuple);
   } catch (error) {
     if (!isOwnerWriteRaceError(error)) throw error;
+    const locked = await lockRaceRefusal(db, 'connector_evidenced_pair', pairId, changed);
+    if (locked) throw locked;
     const current = await db.query.connectorEvidencedPairs.findFirst({
       where: eq(connectorEvidencedPairs.id, pairId),
     });

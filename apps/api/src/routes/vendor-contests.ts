@@ -78,6 +78,7 @@ import {
   type VendorContestResponse,
 } from '@aeci/shared';
 import type { AuditLogEntry } from '@aeci/shared/audit-log';
+import type { FieldOverrideEntityType as LockEntity } from '@aeci/shared';
 import type { WorkflowTransitionEntry } from '@aeci/shared/workflow-transition';
 import { and, asc, desc, eq, inArray, or } from 'drizzle-orm';
 
@@ -106,6 +107,11 @@ import {
   type BatchTuple,
 } from '../lib/audit';
 import { auditActorType } from '../lib/authz';
+import {
+  assertFieldsUnlocked,
+  fieldsUnlockedSentinel,
+  lockRaceRefusal,
+} from '../lib/field-overrides';
 import { emailOwnerDecline, type ProtestEmailDeps } from '../lib/contest-protest-emails';
 import { sendContestSubmittedNotification, type ContestAlertRouteReason } from '../lib/email';
 import { validateResponseInDev, writeDb, type DbFactory } from '../lib/handler-utils';
@@ -368,11 +374,16 @@ export async function runGuardedContestBatch(
   db: Db,
   id: string,
   stmts: BatchStmt[],
+  // AECI-1237: an accept also carries `fieldsUnlockedSentinel`. Its abort looks like
+  // every other sentinel's, so the caller passes the re-read that names it.
+  lockRace?: () => Promise<ApiError | null>,
 ): Promise<ContestRow> {
   try {
     await db.batch(stmts as BatchTuple);
   } catch (error) {
     if (!isContestRaceError(error)) throw error;
+    const locked = lockRace ? await lockRace() : null;
+    if (locked) throw locked;
     const current = await db.query.integrationFieldChallenges.findFirst({
       columns: { status: true },
       where: eq(integrationFieldChallenges.id, id),
@@ -477,6 +488,10 @@ export function createSubmitContestHandler(
         { field: 'field' },
       );
     }
+    // 3c. AECI-1237 (§11d.5): a field AECi corrected and locked takes no contest. No
+    //     owner could accept it, and the value is AECi's, which the vendor disputes
+    //     with AECi directly (§11d.4).
+    await assertFieldsUnlocked(db, anchorEntityType(anchor.kind) as LockEntity, anchor.id, [field]);
     // A named owner holding neither endpoint has no slots, so no context product.
     const owned = authority
       ? authority.slots.map((slot) =>
@@ -1189,6 +1204,7 @@ export function createDecideContestHandler(
 
     let tags: string[] = [];
     let pairSlugs: readonly [string, string] | null = null;
+    let lockRace: (() => Promise<ApiError | null>) | undefined;
     if (status === 'accepted') {
       // `owner` never routes to a vendor (§11b), so this is unreachable short of a
       // corrupt row. Refuse rather than write a column no accept may touch. The same
@@ -1216,6 +1232,20 @@ export function createDecideContestHandler(
           { field: 'mechanism_kind' },
         );
       }
+      // AECI-1237 (§11d.5): an owner accept writes the column, so a field AECi
+      // corrected and locked refuses it as the owner's edit would. Declining stays open.
+      await assertFieldsUnlocked(db, anchorEntityType(anchor.kind) as LockEntity, anchor.id, [
+        field,
+      ]);
+      const lockSentinel = fieldsUnlockedSentinel(
+        db,
+        anchorEntityType(anchor.kind) as LockEntity,
+        anchor.id,
+        [field],
+      );
+      if (lockSentinel) stmts.push(lockSentinel);
+      lockRace = () =>
+        lockRaceRefusal(db, anchorEntityType(anchor.kind) as LockEntity, anchor.id, [field]);
       const column = CONTEST_FIELD_COLUMNS[field];
       const before = storedFieldValue(target, field);
       const purge = await anchorPurgeTags(db, target, pairCacheTag);
@@ -1282,7 +1312,7 @@ export function createDecideContestHandler(
       ...workflow.stmts,
       ...audits.map((entry) => auditInsert(db, vendorAuditEntry(c, entry))),
     );
-    const after = await runGuardedContestBatch(db, id, stmts);
+    const after = await runGuardedContestBatch(db, id, stmts, lockRace);
 
     // The owner edit's tail (AECI-1090): a by-id Algolia sync of the record, behind
     // promote's `dispatchHook` watchdog. The integrations index holds evidenced pairs

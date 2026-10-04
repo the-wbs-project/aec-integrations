@@ -18,6 +18,8 @@ import {
   CONNECTOR_POWERED_FROZEN_EDIT_FIELDS,
   INTEGRATION_EDIT_MAX_LENGTH,
   OWNER_EDITABLE_MECHANISM_KINDS,
+  lockedField,
+  type LockedField,
   type IntegrationEditField,
   type OfferedContestField,
   type VendorContest,
@@ -59,6 +61,7 @@ import {
 } from './integration-detail-styles';
 import { VendorNotOurs, selfDisclaimOn, selfDisclaimStands } from '../components/vendor-not-ours';
 import { VendorTip } from './vendor-tip';
+import { VendorLockedNote } from '../components/vendor-locked-note';
 
 type RowKey = IntegrationEditField | 'owner' | 'maintained' | 'added';
 type Control = 'text' | 'url' | 'textarea' | 'select';
@@ -108,7 +111,7 @@ const PENCIL =
  */
 @Component({
   selector: 'aec-integration-overview',
-  imports: [VendorTip, VendorNotOurs],
+  imports: [VendorTip, VendorNotOurs, VendorLockedNote],
   styles: [ID_STYLES],
   template: `
     <div class="space-y-6">
@@ -242,6 +245,13 @@ const PENCIL =
                         "
                         >{{ row.value }}</span
                       >
+                    }
+                    @if (row.edit && lockOf(row.edit); as lock) {
+                      <aec-vendor-locked-note
+                        class="basis-full"
+                        [lock]="lock"
+                        [noteId]="rowId(row.key) + '-locked'"
+                      />
                     }
                     @if (row.field && flagFor(row.field); as c) {
                       <aec-vendor-tip
@@ -450,8 +460,15 @@ export class IntegrationOverview {
   /** Whether the claimed owner may edit this field: the connector-powered row
    *  needs a plan and keeps `mechanism_kind` frozen (§4.5.6). */
   protected canEdit(field: IntegrationEditField): boolean {
+    // AECI-1237 (§11d.5): a field AEC Integrations locked has no pencil.
+    if (this.lockOf(field)) return false;
     if (!this.connector()) return true;
     return this.state.entitled() && !CONNECTOR_POWERED_FROZEN_EDIT_FIELDS.has(field);
+  }
+
+  /** AECI-1237: AECi's lock on an owner-edit field of this row, when it set one. */
+  protected lockOf(field: IntegrationEditField): LockedField | undefined {
+    return lockedField(this.integration().locked_fields, field);
   }
 
   protected readonly groups = computed<readonly Group[]>(() => {

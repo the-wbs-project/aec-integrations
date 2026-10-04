@@ -56,6 +56,9 @@ export function editSaveErrorMessage(err: unknown): string {
       return $localize`:@@vendor.integrationEdit.save.error.entitlement:Editing an integration delivered through a connector product needs an active plan, so nothing was saved. Contact AEC Integrations to activate or renew it.`;
     case 'INTEGRATION_INVALID_VALUE':
       return $localize`:@@vendor.integrationEdit.save.error.invalid:One of the values is not valid for its field. Check the form and try again.`;
+    // AECI-1237 (§11d.5).
+    case 'FIELD_LOCKED_BY_AECI':
+      return $localize`:@@vendor.integrationEdit.save.error.locked:AEC Integrations has locked a field you changed, so nothing was saved. Reload the page to see the locked value.`;
     case 'RATE_LIMITED':
       return $localize`:@@vendor.integrationEdit.save.error.rate:Too many requests in a short time. Wait a minute and try again.`;
     default:

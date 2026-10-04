@@ -249,11 +249,18 @@ export type VendorReviewResponseNotification = z.infer<
  *     product logo. `logo_cleared` is true on a removal.
  *   - `seat_revoked`: AECi removed one of the vendor's seats. Goes to the vendor,
  *     which is its remaining seats. With no seat left nothing is written.
+ *   - `field_corrected` (AECI-1237, §11d.5): AECi corrected a field on a record the
+ *     vendor holds and locked it, so the vendor cannot change it back. Goes to the
+ *     holding vendor. Carries the new `value`.
+ *   - `field_lock_lifted` (AECI-1237): AECi lifted that lock. The vendor may edit the
+ *     field again. The value stays as AECi set it.
  */
 export const AECI_OVERRIDE_NOTIFICATION_EVENTS = [
   'field_overridden',
   'logo_overridden',
   'seat_revoked',
+  'field_corrected',
+  'field_lock_lifted',
 ] as const;
 export type AeciOverrideNotificationEvent = (typeof AECI_OVERRIDE_NOTIFICATION_EVENTS)[number];
 
@@ -264,6 +271,14 @@ export const AeciOverrideLogoSubjectSchema = z.object({
   name: z.string(),
 });
 export type AeciOverrideLogoSubject = z.infer<typeof AeciOverrideLogoSubjectSchema>;
+
+/**
+ * The company or product a `field_corrected` or `field_lock_lifted` row is about
+ * (AECI-1237). An integration is named by `integration_id`, `integration_name` and
+ * `pair_path` instead, as on `field_overridden`.
+ */
+export const AeciOverrideRecordSubjectSchema = AeciOverrideLogoSubjectSchema;
+export type AeciOverrideRecordSubject = AeciOverrideLogoSubject;
 
 /**
  * One AECi override addressed to this vendor (`kind: 'aeci_override'`, AECI-1159).
@@ -290,6 +305,15 @@ export const VendorAeciOverrideNotificationSchema = z.object({
   logo_cleared: z.boolean().default(false),
   /** `seat_revoked`: the removed seat's display name, when it had one. */
   seat_name: z.string().nullable().default(null),
+  /**
+   * AECI-1237, `field_corrected` and `field_lock_lifted` on a company or product.
+   * `field` names the field, in the record's own wire name. On an integration the
+   * three integration fields above are set instead.
+   */
+  record_subject: AeciOverrideRecordSubjectSchema.nullable().default(null),
+  /** AECI-1237, `field_corrected`: the value AECi set, as text. `null` when it
+   *  cleared the field, and on every other event. */
+  value: z.string().nullable().default(null),
   created_at: z.string(),
 });
 export type VendorAeciOverrideNotification = z.infer<typeof VendorAeciOverrideNotificationSchema>;

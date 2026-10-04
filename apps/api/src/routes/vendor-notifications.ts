@@ -528,6 +528,8 @@ function toAeciOverrideNotification(row: {
     logo_subject: null,
     logo_cleared: false,
     seat_name: null,
+    record_subject: null,
+    value: null,
     created_at: row.createdAt,
   };
   switch (meta.event as AeciOverrideNotificationEvent) {
@@ -564,6 +566,45 @@ function toAeciOverrideNotification(row: {
         event: 'seat_revoked',
         seat_name: typeof meta.seatName === 'string' ? meta.seatName : null,
       };
+    // AECI-1237 (§11d.5): a field correction with a lock, and its lift. A company or
+    // product row names the record in `record_subject`; an integration row uses the
+    // integration fields, as `field_overridden` does.
+    case 'field_corrected':
+    case 'field_lock_lifted': {
+      if (typeof meta.field !== 'string') return null;
+      const event = meta.event as 'field_corrected' | 'field_lock_lifted';
+      const value =
+        event === 'field_corrected' && typeof meta.value === 'string' ? meta.value : null;
+      const subject = meta.recordSubject as Partial<AeciOverrideLogoSubject> | undefined;
+      if (subject !== undefined) {
+        const ref = productRef(subject);
+        if (!ref || (subject.type !== 'vendor' && subject.type !== 'product')) return null;
+        return {
+          ...base,
+          event,
+          field: meta.field,
+          value,
+          record_subject: { type: subject.type, ...ref },
+        };
+      }
+      if (typeof meta.integrationId !== 'string') return null;
+      const pair = meta.pairSlugs;
+      const pairSlugs =
+        Array.isArray(pair) && typeof pair[0] === 'string' && typeof pair[1] === 'string'
+          ? ([pair[0], pair[1]] as const)
+          : null;
+      return {
+        ...base,
+        event,
+        field: meta.field,
+        value,
+        integration_id: meta.integrationId,
+        integration_name: typeof meta.integrationName === 'string' ? meta.integrationName : null,
+        pair_path: pairPathFor(pairSlugs),
+      };
+    }
+    default:
+      return null;
   }
 }
 

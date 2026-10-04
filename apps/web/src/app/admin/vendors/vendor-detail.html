@@ -275,6 +275,24 @@
     </div>
   </section>
 
+  <!-- AECI-1237: AECi field corrections with a lock (ADMIN_PANEL_SPEC.md section 5.7). -->
+  <section class="mt-6" aria-labelledby="admin-vendor-field-corrections">
+    <h3
+      id="admin-vendor-field-corrections"
+      class="text-xs font-bold uppercase tracking-[0.08em] text-(--text-secondary)"
+      i18n="@@admin.vendors.detail.fieldCorrections"
+    >
+      Field corrections
+    </h3>
+    <div class="mt-2">
+      <aec-admin-field-corrections
+        [vendorId]="v.id"
+        [vendorName]="v.company_name"
+        (announce)="onAnnounce($event)"
+      />
+    </div>
+  </section>
+
   <!-- ── Entitlement ──────────────────────────────────────────────────────── -->
   <section class="mt-6" aria-labelledby="admin-vendor-entitlement">
     <h3

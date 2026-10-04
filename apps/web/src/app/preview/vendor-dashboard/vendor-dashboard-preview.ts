@@ -230,7 +230,31 @@ export class VendorDashboardPreview {
     { key: 'mixed', label: 'Mixed · 12 products' },
   ];
 
+  /**
+   * AECI-1237: `?locked=1` adds AECi field locks to the company (phone number) and to
+   * the first product (website), so the locked rendering of the profile and product
+   * forms can be reviewed and axe-scanned. Any fixture.
+   */
+  private readonly locked = inject(ActivatedRoute).snapshot.queryParamMap.get('locked') === '1';
+
   protected readonly activeMe = computed(() => {
+    const me = this.fixtureMe();
+    if (!this.locked) return me;
+    const lock = (field: string) => ({
+      field,
+      reason: 'The value on file reaches a different company. We checked the company register.',
+      set_at: '2026-10-04T00:00:00.000Z',
+    });
+    return {
+      ...me,
+      vendor: { ...me.vendor, locked_fields: [lock('phone_number')] },
+      products: me.products.map((p, i) =>
+        i === 0 ? { ...p, locked_fields: [lock('website')] } : p,
+      ),
+    };
+  });
+
+  private readonly fixtureMe = computed(() => {
     switch (this.fixture()) {
       case 'expiring':
         return VENDOR_ME_EXPIRING_FIXTURE;

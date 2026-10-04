@@ -17,7 +17,9 @@ import {
   INTEGRATION_EDIT_URL_FIELDS,
   OWNER_EDITABLE_MECHANISM_KINDS,
   UpdateVendorIntegrationSchema,
+  lockedField,
   type IntegrationEditField,
+  type LockedField,
   type UpdateVendorIntegrationInput,
 } from '@aeci/shared';
 
@@ -26,6 +28,7 @@ import { mechanismKindLabel } from '../../search/mechanism-labels';
 import { VendorPortalAnnouncer } from '../vendor-announcer';
 import { VendorApi } from '../vendor-api';
 import { VendorPortalStore } from '../vendor-portal-store';
+import { VendorLockedNote } from './vendor-locked-note';
 
 import { editFieldLabel } from './vendor-contest-labels';
 import { editSaveErrorMessage, editValueMessage } from './vendor-integration-ownership-labels';
@@ -103,6 +106,7 @@ export type EditFormOutcome = 'saved' | 'cancelled';
  */
 @Component({
   selector: 'aec-vendor-integration-edit-form',
+  imports: [VendorLockedNote],
   styles: [':host { display: block; }'],
   template: `
     <form
@@ -150,76 +154,94 @@ export type EditFormOutcome = 'saved' | 'cancelled';
                   <span class="font-normal tracking-normal normal-case">{{ optionalLabel }}</span>
                 }
               </label>
-              @switch (control(field)) {
-                @case ('textarea') {
-                  <textarea
-                    [id]="fieldId(field)"
-                    rows="4"
-                    [attr.maxlength]="maxLength(field)"
-                    [value]="draft()[field]"
-                    (input)="onInput(field, inputValue($event))"
-                    [attr.aria-invalid]="showError(field) ? 'true' : null"
-                    [attr.aria-describedby]="showError(field) ? fieldId(field) + '-error' : null"
-                    [class]="inputClass"
-                  ></textarea>
-                }
-                @case ('url') {
-                  <input
-                    [id]="fieldId(field)"
-                    type="url"
-                    inputmode="url"
-                    autocomplete="url"
-                    [attr.maxlength]="maxLength(field)"
-                    [value]="draft()[field]"
-                    (input)="onInput(field, inputValue($event))"
-                    [attr.aria-invalid]="showError(field) ? 'true' : null"
-                    [attr.aria-describedby]="showError(field) ? fieldId(field) + '-error' : null"
-                    [class]="inputClass"
-                  />
-                }
-                @case ('text') {
-                  <input
-                    [id]="fieldId(field)"
-                    type="text"
-                    [attr.maxlength]="maxLength(field)"
-                    [value]="draft()[field]"
-                    (input)="onInput(field, inputValue($event))"
-                    [attr.aria-invalid]="showError(field) ? 'true' : null"
-                    [attr.aria-describedby]="showError(field) ? fieldId(field) + '-error' : null"
-                    [class]="inputClass"
-                  />
-                }
-                @default {
-                  <div class="relative max-w-sm">
-                    <select
+              @if (lockOf(field); as lock) {
+                <!-- AECI-1237: a field AEC Integrations locked is shown, not edited. -->
+                <input
+                  [id]="fieldId(field)"
+                  type="text"
+                  readonly
+                  [value]="displayValue(field)"
+                  [attr.aria-describedby]="fieldId(field) + '-locked'"
+                  [class]="lockedInputClass"
+                />
+                <aec-vendor-locked-note [lock]="lock" [noteId]="fieldId(field) + '-locked'" />
+              } @else {
+                @switch (control(field)) {
+                  @case ('textarea') {
+                    <textarea
                       [id]="fieldId(field)"
-                      (change)="onInput(field, selectValue($event))"
+                      rows="4"
+                      [attr.maxlength]="maxLength(field)"
+                      [value]="draft()[field]"
+                      (input)="onInput(field, inputValue($event))"
                       [attr.aria-invalid]="showError(field) ? 'true' : null"
                       [attr.aria-describedby]="showError(field) ? fieldId(field) + '-error' : null"
-                      [class]="selectClass"
-                    >
-                      @if (draft()[field] === '') {
-                        <option value="" disabled selected>{{ choosePlaceholder }}</option>
-                      }
-                      @for (option of optionsFor(field); track option.value) {
-                        <option [value]="option.value" [selected]="option.value === draft()[field]">
-                          {{ option.label }}
-                        </option>
-                      }
-                    </select>
-                    <svg
-                      class="pointer-events-none absolute end-3 top-1/2 h-4 w-4 -translate-y-1/2 text-(--text-secondary)"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      stroke-width="2"
-                      stroke-linecap="round"
-                      stroke-linejoin="round"
-                      aria-hidden="true"
-                    >
-                      <path d="m6 9 6 6 6-6" />
-                    </svg>
-                  </div>
+                      [class]="inputClass"
+                    ></textarea>
+                  }
+                  @case ('url') {
+                    <input
+                      [id]="fieldId(field)"
+                      type="url"
+                      inputmode="url"
+                      autocomplete="url"
+                      [attr.maxlength]="maxLength(field)"
+                      [value]="draft()[field]"
+                      (input)="onInput(field, inputValue($event))"
+                      [attr.aria-invalid]="showError(field) ? 'true' : null"
+                      [attr.aria-describedby]="showError(field) ? fieldId(field) + '-error' : null"
+                      [class]="inputClass"
+                    />
+                  }
+                  @case ('text') {
+                    <input
+                      [id]="fieldId(field)"
+                      type="text"
+                      [attr.maxlength]="maxLength(field)"
+                      [value]="draft()[field]"
+                      (input)="onInput(field, inputValue($event))"
+                      [attr.aria-invalid]="showError(field) ? 'true' : null"
+                      [attr.aria-describedby]="showError(field) ? fieldId(field) + '-error' : null"
+                      [class]="inputClass"
+                    />
+                  }
+                  @default {
+                    <div class="relative max-w-sm">
+                      <select
+                        [id]="fieldId(field)"
+                        (change)="onInput(field, selectValue($event))"
+                        [attr.aria-invalid]="showError(field) ? 'true' : null"
+                        [attr.aria-describedby]="
+                          showError(field) ? fieldId(field) + '-error' : null
+                        "
+                        [class]="selectClass"
+                      >
+                        @if (draft()[field] === '') {
+                          <option value="" disabled selected>{{ choosePlaceholder }}</option>
+                        }
+                        @for (option of optionsFor(field); track option.value) {
+                          <option
+                            [value]="option.value"
+                            [selected]="option.value === draft()[field]"
+                          >
+                            {{ option.label }}
+                          </option>
+                        }
+                      </select>
+                      <svg
+                        class="pointer-events-none absolute end-3 top-1/2 h-4 w-4 -translate-y-1/2 text-(--text-secondary)"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        stroke-width="2"
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                        aria-hidden="true"
+                      >
+                        <path d="m6 9 6 6 6-6" />
+                      </svg>
+                    </div>
+                  }
                 }
               }
               @if (showError(field)) {
@@ -280,6 +302,9 @@ export class VendorIntegrationEditForm implements OnInit {
   readonly connectorDelivered = input(false);
   /** Unique per rendering of a row, so two forms for one row never share ids. */
   readonly idPrefix = input.required<string>();
+  /** AECI-1237 (§11d.5): the fields AEC Integrations locked on this row. They render
+   *  read-only with AECi's reason, and are never sent. */
+  readonly lockedFields = input<readonly LockedField[] | undefined>(undefined);
 
   readonly closed = output<EditFormOutcome>();
 
@@ -329,6 +354,7 @@ export class VendorIntegrationEditForm implements OnInit {
     const seed = this.seed();
     const out: Partial<Record<IntegrationEditField, string>> = {};
     for (const field of this.editableFields()) {
+      if (this.lockOf(field)) continue;
       if (draft[field].trim() !== seed[field].trim()) out[field] = draft[field];
     }
     return out;
@@ -449,6 +475,19 @@ export class VendorIntegrationEditForm implements OnInit {
     return `${this.idPrefix()}-${key}`;
   }
 
+  protected lockOf(field: IntegrationEditField): LockedField | undefined {
+    return lockedField(this.lockedFields(), field);
+  }
+
+  /** A locked field's value as a vendor reads it: the option label on a picker. */
+  protected displayValue(field: IntegrationEditField): string {
+    const value = this.seed()[field];
+    if (field === 'mechanism_kind' || field === 'direction') {
+      return this.optionsFor(field).find((o) => o.value === value)?.label ?? value;
+    }
+    return value;
+  }
+
   protected selectValue(event: Event): string {
     return (event.target as HTMLSelectElement).value;
   }
@@ -464,6 +503,8 @@ export class VendorIntegrationEditForm implements OnInit {
     'block text-xs font-bold tracking-[0.08em] text-(--text-secondary) uppercase';
   protected readonly inputClass =
     'w-full rounded-(--radius-md) border border-(--border-default) bg-(--surface-base) px-3 py-2 text-sm text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)';
+  protected readonly lockedInputClass =
+    'w-full rounded-(--radius-md) border border-(--border-default) bg-(--surface-sunken) px-3 py-2 text-sm text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)';
   protected readonly primaryButtonClass =
     'inline-flex items-center justify-center rounded-(--radius-md) border border-(--border-strong) bg-(--accent-primary) px-5 py-2.5 text-sm font-bold text-(--surface-base) transition-colors hover:bg-(--accent-primary-hover) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) disabled:cursor-not-allowed disabled:opacity-50';
   protected readonly secondaryButtonClass =

@@ -432,6 +432,14 @@ export class VendorContestsList {
       });
       return;
     }
+    // AECI-1237 (§11d.5): accepting would undo AECi's locked correction.
+    if (info?.code === 'FIELD_LOCKED_BY_AECI') {
+      this.rowError.set({
+        id: contest.id,
+        message: $localize`:@@vendor.contests.error.locked:AEC Integrations corrected this field and locked it, so this contest cannot be accepted. You can still decline it.`,
+      });
+      return;
+    }
     // The owner changed, or AEC Integrations now decides it (an entitlement cleared).
     if (info?.code === 'CONTEST_INTEGRATION_CHANGED') {
       this.rowError.set({

@@ -361,6 +361,9 @@ export function contestValueMessage(
 export function contestSubmitErrorMessage(err: unknown): string {
   const info = readVendorApiError(err);
   switch (info?.code) {
+    // AECI-1237 (§11d.5): AECi corrected and locked the field.
+    case 'FIELD_LOCKED_BY_AECI':
+      return $localize`:@@vendor.contest.submit.error.locked:AEC Integrations corrected this field and locked it, so it cannot be contested. To dispute it, email AEC Integrations.`;
     case 'CONTEST_DUPLICATE':
       return $localize`:@@vendor.contest.submit.error.duplicate:You already have an open contest on this field. Withdraw it in Messages if you want to send a different value.`;
     case 'CONTEST_NO_CHANGE':

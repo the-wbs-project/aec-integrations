@@ -107,6 +107,15 @@ export const previewRoutes: Routes = [
         (m) => m.AdminVendorIntegrationsPreview,
       ),
   },
+  // AECI-1237 — the Field corrections section of `/admin/vendors/:id` over a fake
+  // API, so the lock list and the correct and lift forms render without a session.
+  {
+    path: 'admin-field-corrections',
+    loadComponent: () =>
+      import('./admin-field-corrections/admin-field-corrections-preview').then(
+        (m) => m.AdminFieldCorrectionsPreview,
+      ),
+  },
   // AECI-286 — search relevance lab: compare candidate `customRanking` levers
   // (SEARCH_RANKING.md §7) over curated fixtures while real query data is still
   // too thin to tune against (the real-data run is AECI-283). No Algolia.

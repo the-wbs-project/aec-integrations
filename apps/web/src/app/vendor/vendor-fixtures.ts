@@ -1824,6 +1824,8 @@ export const VENDOR_OVERRIDE_NOTIFICATIONS_FIXTURE: readonly VendorAeciOverrideN
     logo_subject: null,
     logo_cleared: false,
     seat_name: null,
+    record_subject: null,
+    value: null,
     created_at: daysFromNow(-1),
   },
   {
@@ -1838,6 +1840,8 @@ export const VENDOR_OVERRIDE_NOTIFICATIONS_FIXTURE: readonly VendorAeciOverrideN
     logo_subject: { type: 'vendor', slug: 'summit-software', name: 'Summit Software' },
     logo_cleared: false,
     seat_name: null,
+    record_subject: null,
+    value: null,
     created_at: daysFromNow(-3),
   },
   {
@@ -1852,6 +1856,8 @@ export const VENDOR_OVERRIDE_NOTIFICATIONS_FIXTURE: readonly VendorAeciOverrideN
     logo_subject: null,
     logo_cleared: false,
     seat_name: 'Pat Example',
+    record_subject: null,
+    value: null,
     created_at: daysFromNow(-5),
   },
 ];

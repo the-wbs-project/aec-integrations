@@ -70,6 +70,7 @@ import {
   type ListAdminContestsResponse,
 } from '@aeci/shared';
 import type { AuditLogEntry } from '@aeci/shared/audit-log';
+import type { FieldOverrideEntityType as LockEntity } from '@aeci/shared';
 import type { WorkflowTransitionEntry } from '@aeci/shared/workflow-transition';
 import { and, asc, count, desc, eq, inArray, isNotNull, sql } from 'drizzle-orm';
 import type { Context } from 'hono';
@@ -83,6 +84,11 @@ import { logBatchToPosthog, submitCount, type PosthogLogEvent } from '../posthog
 import { auditInsert, workflowTransitionInsert, type BatchStmt } from '../lib/audit';
 import { aeciOverrideNotificationAudit } from '../lib/aeci-override-notifications';
 import { auditActorType, type AuthzVariables } from '../lib/authz';
+import {
+  assertFieldsUnlocked,
+  fieldsUnlockedSentinel,
+  lockRaceRefusal,
+} from '../lib/field-overrides';
 import { validateResponseInDev, writeDb, type DbFactory } from '../lib/handler-utils';
 import {
   vendorsForEvidencedPairSlots,
@@ -486,7 +492,7 @@ export function createModerateContestHandler(
     ];
     let after: ContestRow;
     try {
-      after = await runGuardedContestBatch(db, id, stmts);
+      after = await runGuardedContestBatch(db, id, stmts, accept?.lockRace);
     } catch (error) {
       if (error instanceof ApiError && error.code === ApiErrorCode.CONTEST_NOT_OPEN) {
         emitModeration(c, payload.decision, 'not_open');
@@ -767,6 +773,8 @@ export async function planAcceptWrites(
    * row has no owner on file.
    */
   displacedOwner: DisplacedOwner | null;
+  /** AECI-1237: names a lock that landed mid-batch, for `runGuardedContestBatch`. */
+  lockRace?: () => Promise<ApiError | null>;
 }> {
   const anchor = contestAnchorOf(row);
   const integration = await loadContestTarget(db, anchor);
@@ -799,8 +807,17 @@ export async function planAcceptWrites(
   const entity = { entityType: anchorEntityType(anchor.kind), entityId: integration.id };
 
   let appliedMode: ContestAppliedMode = 'upstream-only';
+  let lockRace: (() => Promise<ApiError | null>) | undefined;
   if (field !== 'owner') {
     if (claimed) {
+      // AECI-1237 (§11d.5): this accept writes the column, and a field AECi corrected
+      // and locked is written only through the lock. Lift it first, then decide. The
+      // sentinel is the in-batch half for a lock set while this admin decided.
+      const lockEntity = anchorEntityType(anchor.kind) as LockEntity;
+      await assertFieldsUnlocked(db, lockEntity, anchor.id, [field]);
+      const lockSentinel = fieldsUnlockedSentinel(db, lockEntity, anchor.id, [field]);
+      if (lockSentinel) stmts.push(lockSentinel);
+      lockRace = () => lockRaceRefusal(db, lockEntity, anchor.id, [field]);
       const column = CONTEST_FIELD_COLUMNS[field];
       stmts.push(anchorUpdate(db, anchor, { [column]: row.proposedValue }));
       audits.push({
@@ -940,7 +957,7 @@ export async function planAcceptWrites(
           ),
         }
       : null;
-  return { stmts, audits, tags, appliedMode, overwritesVendorField, displacedOwner };
+  return { stmts, audits, tags, appliedMode, overwritesVendorField, displacedOwner, lockRace };
 }
 
 /** The owner an AECi accept displaces (AECI-1159), as its notice snapshots it. */

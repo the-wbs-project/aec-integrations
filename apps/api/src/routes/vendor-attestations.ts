@@ -129,6 +129,7 @@ import { type AuditLogEntry } from '@aeci/shared/audit-log';
 import { compareText } from '@aeci/shared/text-sort';
 import { and, eq, inArray, isNull, ne, notInArray, or, sql } from 'drizzle-orm';
 
+import { lockedFieldsByEntity } from '../lib/field-overrides';
 import { isConnectorPoweredEdge } from '../lib/connector-powered';
 import { loadOwnedIntegrations } from '../lib/owned-integrations';
 import { assertIntegrationLive } from '../lib/live-integration';
@@ -1179,6 +1180,26 @@ export function createListVendorIntegrationsHandler(
     // both tables. Its own predicate (`lib/owned-integrations.ts`), which the
     // freshness cursor imports too (`STAGE_2_REALTIME_SPEC.md` §2.2).
     const ownedRows = await loadOwnedIntegrations(db, vendorId, new Set(authorities.keys()));
+
+    // AECI-1237 (§11d.5): AECi's field locks on each row, so the owner's edit controls
+    // render those fields read-only. One read per anchor table on the partial unique
+    // index, and only rows the caller already sees.
+    const [integrationLocks, pairLocks] = await Promise.all([
+      lockedFieldsByEntity(db, 'integration', [
+        ...surface.map((entry) => entry.id),
+        ...ownedRows.filter((row) => row.anchor === 'integration').map((row) => row.id),
+      ]),
+      lockedFieldsByEntity(
+        db,
+        'connector_evidenced_pair',
+        ownedRows.filter((row) => row.anchor === 'evidenced_pair').map((row) => row.id),
+      ),
+    ]);
+    for (const entry of surface) entry.locked_fields = integrationLocks.get(entry.id) ?? [];
+    for (const row of ownedRows) {
+      row.locked_fields =
+        (row.anchor === 'evidenced_pair' ? pairLocks : integrationLocks).get(row.id) ?? [];
+    }
 
     return json(surfaceBody(c, surface, ownedRows, counterpartAddedUnanswered(surface)));
   };

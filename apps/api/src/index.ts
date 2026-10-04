@@ -4,6 +4,11 @@ import {
   createUpdateAdminLogoHandler,
 } from './routes/logos';
 import {
+  createAdminVendorFieldOverridesHandler,
+  createLiftFieldOverrideHandler,
+  createSetFieldOverrideHandler,
+} from './routes/admin-field-overrides';
+import {
   ApiErrorCode,
   CategoryDetailSchema,
   AudienceDetailSchema,
@@ -814,6 +819,26 @@ authAdmin.get(
   '/api/admin/vendors/:id/integrations',
   requireAdmin(),
   createAdminVendorIntegrationsHandler(),
+);
+// AECI-1237: the admin field correction with a lock, and its lift
+// (STAGE_2_VENDOR_PORTAL_SPEC.md §11d.5). Writes are rate-limited after the guard;
+// the per-vendor list is a read.
+authAdmin.post(
+  '/api/admin/field-overrides',
+  requireAdmin(),
+  rateLimit('write'),
+  createSetFieldOverrideHandler(),
+);
+authAdmin.post(
+  '/api/admin/field-overrides/:id/lift',
+  requireAdmin(),
+  rateLimit('write'),
+  createLiftFieldOverrideHandler(),
+);
+authAdmin.get(
+  '/api/admin/vendors/:id/field-overrides',
+  requireAdmin(),
+  createAdminVendorFieldOverridesHandler(),
 );
 authAdmin.post(
   '/api/admin/integrations/:id/retire',

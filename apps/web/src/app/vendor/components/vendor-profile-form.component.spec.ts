@@ -248,3 +248,80 @@ describe('VendorProfileForm — read-only when the entitlement lapsed', () => {
     expect(fixture.nativeElement.textContent).not.toContain('Editing is paused');
   });
 });
+
+/**
+ * A field AEC Integrations corrected and locked (AECI-1237,
+ * `STAGE_2_VENDOR_PORTAL_SPEC.md` §11d.5): read-only, with who set it and why, and a
+ * refused save says it was a lock rather than a failure to retry.
+ */
+describe('VendorProfileForm — a field AECi locked (AECI-1237)', () => {
+  const LOCK = {
+    field: 'phone_number',
+    reason: 'The number on file reaches a different company.',
+    set_at: '2026-10-04T00:00:00.000Z',
+  };
+  let updateProfile: ReturnType<typeof vi.fn>;
+
+  beforeEach(() => {
+    updateProfile = vi.fn();
+    TestBed.resetTestingModule();
+    TestBed.configureTestingModule({
+      providers: [
+        provideZonelessChangeDetection(),
+        provideHttpClient(),
+        { provide: VendorApi, useValue: { updateProfile } as Partial<VendorApi> },
+        VendorPortalStore,
+      ],
+    });
+  });
+
+  afterEach(() => vi.restoreAllMocks());
+
+  function create(vendor: VendorAccount): ComponentFixture<VendorProfileForm> {
+    const fixture = TestBed.createComponent(VendorProfileForm);
+    fixture.componentRef.setInput('vendor', vendor);
+    fixture.detectChanges();
+    return fixture;
+  }
+
+  const field = (fixture: ComponentFixture<VendorProfileForm>, id: string): HTMLInputElement =>
+    fixture.nativeElement.querySelector(`#${id}`) as HTMLInputElement;
+
+  it('renders the locked field read-only and ties the note to it', () => {
+    const fixture = create({ ...VENDOR, locked_fields: [LOCK] });
+    const phone = field(fixture, 'vendor-profile-phone-number');
+    expect(phone.readOnly).toBe(true);
+    expect(phone.disabled).toBe(false);
+    const note = fixture.nativeElement.querySelector('#vendor-profile-phone-number-locked');
+    expect(note?.textContent).toContain('Set by AEC Integrations.');
+    expect(note?.textContent).toContain(LOCK.reason);
+    expect(phone.getAttribute('aria-describedby')).toContain('vendor-profile-phone-number-locked');
+  });
+
+  it('leaves every other field editable', () => {
+    const fixture = create({ ...VENDOR, locked_fields: [LOCK] });
+    expect(field(fixture, 'vendor-profile-website').readOnly).toBe(false);
+    expect(fixture.nativeElement.querySelectorAll('[data-testid="locked-note"]')).toHaveLength(1);
+  });
+
+  it('shows no note when nothing is locked, or the list is absent', () => {
+    const fixture = create(VENDOR);
+    expect(fixture.nativeElement.querySelector('[data-testid="locked-note"]')).toBeNull();
+    expect(field(fixture, 'vendor-profile-phone-number').readOnly).toBe(false);
+  });
+
+  it('says a refused save was a lock, not a failure to retry', async () => {
+    updateProfile.mockRejectedValue({
+      error: { error: { code: 'FIELD_LOCKED_BY_AECI', message: 'locked' } },
+    });
+    const fixture = create(VENDOR);
+    setInputValue(fixture, 'vendor-profile-headquarters', 'San Francisco');
+    saveButton(fixture).click();
+    await flush();
+    fixture.detectChanges();
+    expect(fixture.nativeElement.textContent).toContain(
+      'AEC Integrations has locked a field you changed',
+    );
+    expect(fixture.nativeElement.textContent).not.toContain('Something went wrong');
+  });
+});

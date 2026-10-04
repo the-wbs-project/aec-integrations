@@ -98,6 +98,16 @@ export const AUDIT_VENDOR_ACTIONS = {
   'vendor_entitlement.cleared': { kind: 'aeci-override', receipt: true },
   'vendor_entitlement.expiry_warned': { kind: 'system', receipt: true },
 
+  // ── AECi field corrections with a lock (AECI-1237, §11d.5) ────────────────
+  // `integration.*` covers both anchor tables, as `integration.updated` does; the
+  // row's `entity_type` says which.
+  'vendor.field_overridden': { kind: 'aeci-override', receipt: true },
+  'vendor.override_lifted': { kind: 'aeci-override', receipt: true },
+  'product.field_overridden': { kind: 'aeci-override', receipt: true },
+  'product.override_lifted': { kind: 'aeci-override', receipt: true },
+  'integration.field_overridden': { kind: 'aeci-override', receipt: true },
+  'integration.override_lifted': { kind: 'aeci-override', receipt: true },
+
   // ── Connector catalogues ──────────────────────────────────────────────────
   'connector_catalog.managed_by_vendor': { kind: 'aeci-override', receipt: true },
   'connector_catalog.managed_by_review': { kind: 'aeci-override', receipt: true },

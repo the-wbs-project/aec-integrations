@@ -20,7 +20,10 @@ import type {
   VendorIntegration,
 } from '@aeci/shared';
 
+import { lockedField, type LockedField } from '@aeci/shared';
+
 import { NewTabIcon } from '../../shared/new-tab-icon/new-tab-icon';
+import { VendorLockedNote } from '../components/vendor-locked-note';
 import { linkSaveErrorMessage, linkValueProblem } from '../components/vendor-link-labels';
 import {
   editSaveErrorMessage,
@@ -85,7 +88,7 @@ const PENCIL =
  */
 @Component({
   selector: 'aec-integration-links',
-  imports: [VendorTip, NewTabIcon],
+  imports: [VendorTip, NewTabIcon, VendorLockedNote],
   styles: [ID_STYLES],
   template: `
     @let i = integration();
@@ -181,6 +184,13 @@ const PENCIL =
                       >Not set</span
                     >
                   }
+                  @if (lockOf(field); as lock) {
+                    <aec-vendor-locked-note
+                      class="basis-full"
+                      [lock]="lock"
+                      [noteId]="'record-' + field + '-locked'"
+                    />
+                  }
                   @if (flagFor(field); as c) {
                     <aec-vendor-tip
                       variant="flag"
@@ -191,7 +201,9 @@ const PENCIL =
                   }
                   <span class="ms-auto flex shrink-0 items-center">
                     @if (live()) {
-                      @if (recordEditable()) {
+                      @if (lockOf(field)) {
+                        <!-- AECI-1237: AEC Integrations locked it; the note says why. -->
+                      } @else if (recordEditable()) {
                         <button
                           #pencil
                           type="button"
@@ -456,6 +468,11 @@ export class IntegrationLinksSection {
   protected readonly busy = signal(false);
 
   protected readonly recordFields: readonly RecordField[] = ['listing_url', 'docs_url'];
+
+  /** AECI-1237 (§11d.5): AECi's lock on a record link, when it set one. */
+  protected lockOf(field: RecordField): LockedField | undefined {
+    return lockedField(this.integration().locked_fields, field);
+  }
   protected readonly sideKinds: readonly { key: IntegrationLinkKind; label: string }[] = [
     { key: 'listing', label: $localize`:@@vendor.im.links.listing:Where customers get it` },
     { key: 'docs', label: $localize`:@@vendor.im.links.docs:Setup guide` },
