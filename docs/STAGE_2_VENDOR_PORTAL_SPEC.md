@@ -2539,6 +2539,35 @@ Decisions taken at build that this section did not fix:
 - **Copy that §13 made false is gone.** The panel's lapsed, none and catalogue states, and the profile, product and facet read-only notices, said a seat with no plan, a lapsed plan or the catalogue seat could not edit its profile or products. The facet tabs now give a Managed-only reason tied to the term list, and the generic notices remain only for a plan block with no edit capability at all, which no known tier serves.
 - **Preview presets.** `/preview/vendor-dashboard?fixture=free` (never had a plan), `pilot-ended` (revoked, `ended_at` 14 days ago) and `mixed` (12 products, 5 Managed and 7 Free, which only per-product plans can produce). The preview fake serves both checklist reads, scored by `vendorChecklistFixture` / `productChecklistFixture`, and its "Looks right" ticks the step. `e2e/preview-vendor-free-plan.spec.ts` drives the three presets with axe.
 
+
+### 6.19 The Changes page (AECI-1160, interim build 2026-10-04)
+
+**Status: interim.** The page ships without its search follow-up column. That column waits on AECI-1187, the search submission log. AECI-1160 stays open until it renders.
+
+**What it is.** `…/history`, labelled "Changes" in the vendor row between Messages and Seats. It lists the vendor's change history from `GET /api/vendor/history` (AECI-1194, `API_CONTRACTS.md` §6.14), newest first, 25 rows a page. Every plan sees it, because the API is ungated. It is historical and read-only, so it has no live cursor.
+
+**Anchor.** Customer.io's workspace audit log on Mobbin (`mobbin.com/screens/5e4f44d9-4c65-4381-8681-d2921df2591e`): one sentence per event, the timestamp at the row's end, filters above the list, export at the top.
+
+**Each row shows:**
+
+- what happened, from `vendor/history/vendor-history-labels.ts`. It is an open map with a humanize fallback, never a closed union. A spec holds every `receipt: true` action in `@aeci/shared/audit-vendor-actions` to a label;
+- the entity's current name;
+- the date and time;
+- who: "Your team", "AECi" or "System", from `actor_kind`;
+- the changed field names, humanized. Never the values, which are not on the wire;
+- "Plan at the time", Managed or Free, when the row has a plan snapshot. Managed means an `active` row over a paid tier, the `isManaged` rule;
+- on an AECi row with a `reason`, that reason under "Reason from AECi".
+
+**Controls.** A pressed-button filter: All changes, Your team's edits, AECi changes (`kind=all|vendor|aeci`). System rows show under All only. A "Download CSV" link points at `vendorHistoryCsvUrl` with the same filter.
+
+**Banner.** It says the list starts when change history began, with no date, because nothing older is backfilled. A second line says search engines decide crawling and what they show. The page never says "indexed" or "ranked".
+
+**The pending follow-up column.** Each row renders `vendor/history/vendor-history-follow-up.ts`, which is empty today and carries a `TODO(AECI-1187)`. When the submission log ships it will show one state per URL and channel (not eligible, queued, submitted, failed or skipped), joined on the causing audit id AECI-1184 adds. A Free vendor sees "No expedited search submission". Copy says "submitted" or "requested", never "indexed".
+
+**Preview.** `/preview/vendor-dashboard/history` renders `vendor/vendor-history-fixtures.ts`: every actor kind, an AECi row with a reason and one without, a row with no plan, and an action this build does not know. `?fixture=unverified` (no products) is the empty state.
+
+**Help page.** `/docs/vendors/change-history`.
+
 ---
 
 ## 7. Moderation escalation — ban gate (AECI-524)

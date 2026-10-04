@@ -17,6 +17,7 @@
 import { marked } from 'marked';
 
 import attestingMd from '../../content/docs/vendors/attesting-an-integration.md';
+import changeHistoryMd from '../../content/docs/vendors/change-history.md';
 import claimingMd from '../../content/docs/vendors/claiming-your-listing.md';
 import contestsMd from '../../content/docs/vendors/contests-and-protests.md';
 import owningMd from '../../content/docs/vendors/owning-an-integration.md';
@@ -56,6 +57,7 @@ const SECTIONS: Readonly<Record<DocsSectionId, readonly RawPage[]>> = {
     { slug: 'contests-and-protests', source: contestsMd },
     { slug: 'replying-to-reviews', source: replyingMd },
     { slug: 'plans-and-the-account-label', source: plansMd },
+    { slug: 'change-history', source: changeHistoryMd },
   ],
 };
 

@@ -3,7 +3,7 @@ title: Plans and the account label
 description: What the Free and Managed plans let your company do on AEC Integrations, how the checklists and "Looks right" work, what happens when a plan ends, and the things no plan can buy.
 section: vendors
 order: 7
-last_updated: 2 October 2026
+last_updated: 4 October 2026
 ---
 
 Every company with a seat is on one of two plans: Free or Managed. Free costs nothing. We arrange Managed with you by invoice or purchase order. No plan changes where anything ranks.
@@ -127,5 +127,5 @@ This applies to a pilot too.
 ## Related
 
 - Previous: [Replying to reviews](/docs/vendors/replying-to-reviews).
-- Back to the start: [Claiming your vendor listing](/docs/vendors/claiming-your-listing).
+- Next: [Your change history](/docs/vendors/change-history).
 - [How we research and verify listings](/methodology), including the no-pay-for-placement rule.
