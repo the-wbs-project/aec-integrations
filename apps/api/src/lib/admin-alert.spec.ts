@@ -55,7 +55,7 @@ beforeEach(() => {
 
 describe('sendAdminAlert', () => {
   it('delegates to the Resend transport with the recipient + rows and returns its outcome', async () => {
-    const c = ctx({ ADMIN_ALERT_EMAIL: 'ops@aecintegrations.com' });
+    const c = ctx({ SUPPORT_EMAIL: 'ops@aecintegrations.com' });
     const outcome = await sendAdminAlert(c, ALERT);
 
     expect(outcome).toBe('sent');
@@ -75,10 +75,7 @@ describe('sendAdminAlert', () => {
 
   it('emits outcome:failed and warns when the send fails', async () => {
     vi.mocked(sendStuckRequestAdminAlert).mockResolvedValue('failed');
-    const outcome = await sendAdminAlert(
-      ctx({ ADMIN_ALERT_EMAIL: 'ops@aecintegrations.com' }),
-      ALERT,
-    );
+    const outcome = await sendAdminAlert(ctx({ SUPPORT_EMAIL: 'ops@aecintegrations.com' }), ALERT);
 
     expect(outcome).toBe('failed');
     expect(submitCount).toHaveBeenCalledWith(
@@ -97,7 +94,7 @@ describe('sendAdminAlert', () => {
     );
   });
 
-  it('passes no recipient and skips when ADMIN_ALERT_EMAIL is unset', async () => {
+  it('passes no recipient and skips when SUPPORT_EMAIL is unset', async () => {
     vi.mocked(sendStuckRequestAdminAlert).mockResolvedValue('skipped');
     const outcome = await sendAdminAlert(ctx(), ALERT);
 
@@ -114,8 +111,8 @@ describe('sendAdminAlert', () => {
     );
   });
 
-  it('logs the recipient when ADMIN_ALERT_EMAIL is set', async () => {
-    await sendAdminAlert(ctx({ ADMIN_ALERT_EMAIL: 'ops@aecintegrations.com' }), ALERT);
+  it('logs the recipient when SUPPORT_EMAIL is set', async () => {
+    await sendAdminAlert(ctx({ SUPPORT_EMAIL: 'ops@aecintegrations.com' }), ALERT);
 
     expect(logToPosthog).toHaveBeenCalledWith(
       expect.anything(),

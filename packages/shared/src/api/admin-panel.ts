@@ -2224,7 +2224,7 @@ export type AdminFeedbackQuery = z.infer<typeof AdminFeedbackQuerySchema>;
  *
  * **This is the first read surface the `feedback` table has ever had.** Until
  * now the only way anyone saw a submission was the fire-and-forget operator
- * email to `ADMIN_ALERT_EMAIL` (§6.13) — so nothing here is a re-shaping of an
+ * email to `SUPPORT_EMAIL` (§6.13) — so nothing here is a re-shaping of an
  * existing view; the column set simply is the row.
  *
  * `email` crosses in full rather than truncated. That is the opposite of

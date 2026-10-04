@@ -360,11 +360,11 @@ describe('sendReviewSubmittedEmail', () => {
 });
 
 describe('sendReviewSubmittedAlert', () => {
-  it('sends the whole review to ADMIN_ALERT_EMAIL with a moderation-queue CTA', async () => {
+  it('sends the whole review to SUPPORT_EMAIL with a moderation-queue CTA', async () => {
     const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
     const outcome = await sendReviewSubmittedAlert(
       fakeContext({
-        ADMIN_ALERT_EMAIL: 'support@aecintegrations.com',
+        SUPPORT_EMAIL: 'support@aecintegrations.com',
         PUBLIC_SITE_URL: 'https://staging.aecintegrations.com',
       }),
       { review: REVIEW, reviewerEmail: 'rev@example.com', toxicityScore: 0.02 },
@@ -387,7 +387,7 @@ describe('sendReviewSubmittedAlert', () => {
 
   it('reports an unscored review rather than a blank', async () => {
     const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
-    await sendReviewSubmittedAlert(fakeContext({ ADMIN_ALERT_EMAIL: 'ops@example.com' }), {
+    await sendReviewSubmittedAlert(fakeContext({ SUPPORT_EMAIL: 'ops@example.com' }), {
       review: REVIEW,
       reviewerEmail: undefined,
       toxicityScore: null,
@@ -397,7 +397,7 @@ describe('sendReviewSubmittedAlert', () => {
     expect(text).toContain('Reviewer: unknown');
   });
 
-  it('skips when ADMIN_ALERT_EMAIL is unset', async () => {
+  it('skips when SUPPORT_EMAIL is unset', async () => {
     const fetchSpy = vi.spyOn(globalThis, 'fetch');
     expect(
       await sendReviewSubmittedAlert(fakeContext(), {
@@ -752,9 +752,9 @@ describe('sendMailingListWelcomeEmail', () => {
     expect(text).not.toContain('new tools and reviews land');
     expect(text).not.toContain('stop these updates');
     expect(text).toContain('The best next step is to browse the directory');
-    expect(text).toContain(
-      'You are on the AEC Integrations mailing list. To leave it, email unsubscribe@aecintegrations.com with the subject unsubscribe.',
-    );
+    // No host, so no opt-out line, and never the unowned `unsubscribe@` mailbox (AECI-1220).
+    expect(text).not.toContain('You are on the AEC Integrations mailing list');
+    expect(text).not.toContain('unsubscribe@');
 
     await sendMailingListWelcomeEmail(
       fakeContext({ PUBLIC_SITE_URL: 'https://aecintegrations.com' }),
@@ -786,11 +786,11 @@ describe('sendMailingListWelcomeEmail', () => {
     // In-body opt-out now links the /unsubscribe page (token in the query).
     expect(String(body.text)).toContain('https://aecintegrations.com/unsubscribe?token=tok-123');
     expect(String(body.html)).toContain('https://aecintegrations.com/unsubscribe?token=tok-123');
-    // RFC 8058 one-click: https target (through the SSR passthrough) + the mailto
-    // as a secondary value, plus the List-Unsubscribe-Post header.
+    // RFC 8058 one-click: the https target alone (through the SSR passthrough), plus
+    // the List-Unsubscribe-Post header. No mailto since AECI-1220.
     const headers = body.headers as Record<string, string>;
     expect(headers['List-Unsubscribe']).toBe(
-      '<https://aecintegrations.com/api/unsubscribe?token=tok-123>, <mailto:unsubscribe@aecintegrations.com?subject=unsubscribe>',
+      '<https://aecintegrations.com/api/unsubscribe?token=tok-123>',
     );
     expect(headers['List-Unsubscribe-Post']).toBe('List-Unsubscribe=One-Click');
     // Voice guard: the authored copy is em-dash-free (the only em dash in the body
@@ -800,7 +800,7 @@ describe('sendMailingListWelcomeEmail', () => {
     expect(authoredCopy).not.toContain('—');
   });
 
-  it('falls back to the mailto opt-out when there is no token (mailto-only List-Unsubscribe, no one-click)', async () => {
+  it('carries no opt-out header or line, and no mailto, when there is no token (AECI-1220)', async () => {
     const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
     await sendMailingListWelcomeEmail(
       fakeContext({ PUBLIC_SITE_URL: 'https://aecintegrations.com' }),
@@ -810,12 +810,8 @@ describe('sendMailingListWelcomeEmail', () => {
     );
 
     const body = lastBody(fetchSpy);
-    const headers = body.headers as Record<string, string>;
-    expect(headers['List-Unsubscribe']).toBe(
-      '<mailto:unsubscribe@aecintegrations.com?subject=unsubscribe>',
-    );
-    expect(headers['List-Unsubscribe-Post']).toBeUndefined();
-    expect(String(body.text)).toContain('unsubscribe@aecintegrations.com');
+    expect(body.headers).toBeUndefined();
+    expect(String(body.text)).not.toContain('unsubscribe@');
     expect(String(body.text)).not.toContain('/unsubscribe?token=');
   });
 
@@ -824,9 +820,9 @@ describe('sendMailingListWelcomeEmail', () => {
     await sendMailingListWelcomeEmail(fakeContext(), { to: 'sub@example.com', token: 'tok-123' });
     const body = lastBody(fetchSpy);
     expect(String(body.text)).not.toContain('/products');
-    // Without a host there is no page/one-click link; it degrades to the mailto.
+    // Without a host there is no page or one-click link, and no header at all.
     expect(String(body.text)).not.toContain('/unsubscribe');
-    expect((body.headers as Record<string, string>)['List-Unsubscribe-Post']).toBeUndefined();
+    expect(body.headers).toBeUndefined();
   });
 
   it('sends the operator a separate COPY: with no bcc, no unsubscribe headers and a dud token', async () => {
@@ -878,7 +874,10 @@ describe('sendMailingListWelcomeEmail', () => {
       .spyOn(globalThis, 'fetch')
       .mockResolvedValue(new Response('bad', { status: 422 }));
     const outcome = await sendMailingListWelcomeEmail(
-      fakeContext({ EMAIL_BCC: 'support@aecintegrations.com' }),
+      fakeContext({
+        EMAIL_BCC: 'support@aecintegrations.com',
+        PUBLIC_SITE_URL: 'https://aecintegrations.com',
+      }),
       { to: 'sub@example.com', token: 'tok-123' },
     );
     expect(outcome).toBe('failed');
@@ -891,7 +890,10 @@ describe('sendMailingListWelcomeEmail', () => {
       .mockResolvedValueOnce(ok())
       .mockRejectedValueOnce(new Error('network down'));
     const outcome = await sendMailingListWelcomeEmail(
-      fakeContext({ EMAIL_BCC: 'support@aecintegrations.com' }),
+      fakeContext({
+        EMAIL_BCC: 'support@aecintegrations.com',
+        PUBLIC_SITE_URL: 'https://aecintegrations.com',
+      }),
       { to: 'sub@example.com', token: 'tok-123' },
     );
     expect(outcome).toBe('sent');
@@ -1033,15 +1035,26 @@ describe('sendStaleClaimTicketAlert', () => {
     ageMinutes: 1500,
   };
 
+  it('sends from production only: suppressed on staging, no fetch (AECI-1220)', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const outcome = await sendStaleClaimTicketAlert(fakeContext({ ENV: 'staging' }), {
+      to: 'support@aecintegrations.com',
+      rows: [row],
+    });
+    expect(outcome).toBe('suppressed');
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
   it('carries both links, because they answer different questions', async () => {
     const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
     await sendStaleClaimTicketAlert(fakeContext(), {
-      to: 'founders@thewbsproject.com',
+      to: 'support@aecintegrations.com',
       rows: [row],
     });
 
     const body = lastBody(fetchSpy);
-    expect(body.to).toBe('founders@thewbsproject.com');
+    expect(body.to).toBe('support@aecintegrations.com');
     expect(body.subject).toBe('[AECi] 1 claim ticket un-started after 24h');
     const text = String(body.text);
     // Linear is where you accept the work; admin is where the evidence is.
@@ -1053,11 +1066,12 @@ describe('sendStaleClaimTicketAlert', () => {
   });
 
   it('pluralizes and says nothing is broken, because nothing is', async () => {
-    // The wording matters: this is not an infrastructure alarm, and reading it as
-    // one is what the separate recipient exists to prevent.
+    // The wording matters: this is not an infrastructure alarm. Since AECI-1220 it
+    // lands in the same support inbox as the stuck-request alert, so the copy carries
+    // the distinction alone.
     const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
     await sendStaleClaimTicketAlert(fakeContext(), {
-      to: 'founders@thewbsproject.com',
+      to: 'support@aecintegrations.com',
       rows: [row, { ...row, requestId: 'req-2', identifier: 'AECI-901' }],
     });
 
@@ -1069,7 +1083,7 @@ describe('sendStaleClaimTicketAlert', () => {
   it('renders a removed target without a dead link', async () => {
     const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
     await sendStaleClaimTicketAlert(fakeContext(), {
-      to: 'founders@thewbsproject.com',
+      to: 'support@aecintegrations.com',
       rows: [{ ...row, targetName: null, issueUrl: null, adminUrl: null }],
     });
 
@@ -1083,7 +1097,7 @@ describe('sendStaleClaimTicketAlert', () => {
   it('renders one headed section per ticket in the house shell', async () => {
     const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
     await sendStaleClaimTicketAlert(fakeContext(), {
-      to: 'founders@thewbsproject.com',
+      to: 'support@aecintegrations.com',
       rows: [row, { ...row, requestId: 'req-2', identifier: 'AECI-901', targetName: 'Globex' }],
     });
 
@@ -1099,7 +1113,7 @@ describe('sendStaleClaimTicketAlert', () => {
   it('splits the ticket key from its title, dropping a banned em dash', async () => {
     const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
     await sendStaleClaimTicketAlert(fakeContext(), {
-      to: 'founders@thewbsproject.com',
+      to: 'support@aecintegrations.com',
       rows: [row],
     });
     const text = String(lastBody(fetchSpy).text);
@@ -1112,7 +1126,7 @@ describe('sendStaleClaimTicketAlert', () => {
     const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
     await sendStaleClaimTicketAlert(
       fakeContext({ PUBLIC_SITE_URL: 'https://www.aecintegrations.com' }),
-      { to: 'founders@thewbsproject.com', rows: [row] },
+      { to: 'support@aecintegrations.com', rows: [row] },
     );
     const text = String(lastBody(fetchSpy).text);
     expect(text).toContain('Open the claim queue: https://www.aecintegrations.com/admin/claims');
@@ -1123,7 +1137,7 @@ describe('sendStaleClaimTicketAlert', () => {
   it('renders no button when PUBLIC_SITE_URL is unset', async () => {
     const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
     await sendStaleClaimTicketAlert(fakeContext(), {
-      to: 'founders@thewbsproject.com',
+      to: 'support@aecintegrations.com',
       rows: [row],
     });
     expect(String(lastBody(fetchSpy).text)).not.toContain('Open the claim queue');
@@ -1399,11 +1413,11 @@ describe('sendContestSubmittedNotification (AECI-1132)', () => {
     pairSlugs: ['revit', 'microstation'] as const,
   };
   const SITE = {
-    CLAIM_ALERT_EMAIL: 'support@aecintegrations.com',
+    SUPPORT_EMAIL: 'support@aecintegrations.com',
     PUBLIC_SITE_URL: 'https://www.aecintegrations.com',
   };
 
-  it('sends an owner contest to CLAIM_ALERT_EMAIL, saying nobody owns it on file', async () => {
+  it('sends an owner contest to SUPPORT_EMAIL, saying nobody owns it on file', async () => {
     const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
     const outcome = await sendContestSubmittedNotification(fakeContext(SITE), CONTEST);
 
@@ -1438,7 +1452,7 @@ describe('sendContestSubmittedNotification (AECI-1132)', () => {
     expect(String(body.text)).toContain('Why AECi decides: No vendor has claimed this integration');
   });
 
-  it('skips (no fetch) when CLAIM_ALERT_EMAIL is unset', async () => {
+  it('skips (no fetch) when SUPPORT_EMAIL is unset', async () => {
     const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
     expect(await sendContestSubmittedNotification(fakeContext(), CONTEST)).toBe('skipped');
     expect(fetchSpy).not.toHaveBeenCalled();
@@ -1471,11 +1485,11 @@ describe('sendClaimSubmittedNotification', () => {
     duplicateOfRequestId: null,
   };
 
-  it('sends to CLAIM_ALERT_EMAIL with the target in the subject and both signals in the body', async () => {
+  it('sends to SUPPORT_EMAIL with the target in the subject and both signals in the body', async () => {
     const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
     const outcome = await sendClaimSubmittedNotification(
       fakeContext({
-        CLAIM_ALERT_EMAIL: 'support@aecintegrations.com',
+        SUPPORT_EMAIL: 'support@aecintegrations.com',
         PUBLIC_SITE_URL: 'https://www.aecintegrations.com',
       }),
       CLAIM,
@@ -1498,7 +1512,7 @@ describe('sendClaimSubmittedNotification', () => {
   it('says the LinkedIn profile was not supplied rather than omitting the row', async () => {
     const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
     await sendClaimSubmittedNotification(
-      fakeContext({ CLAIM_ALERT_EMAIL: 'support@aecintegrations.com' }),
+      fakeContext({ SUPPORT_EMAIL: 'support@aecintegrations.com' }),
       { ...CLAIM, submitterLinkedinUrl: null },
     );
     expect(String(lastBody(fetchSpy).text)).toContain('LinkedIn: not supplied');
@@ -1507,7 +1521,7 @@ describe('sendClaimSubmittedNotification', () => {
   it('links a vendor target at /vendors and a product target at /products', async () => {
     const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
     const ctx = fakeContext({
-      CLAIM_ALERT_EMAIL: 'support@aecintegrations.com',
+      SUPPORT_EMAIL: 'support@aecintegrations.com',
       PUBLIC_SITE_URL: 'https://www.aecintegrations.com',
     });
 
@@ -1529,7 +1543,7 @@ describe('sendClaimSubmittedNotification', () => {
   it('surfaces the duplicate id when the probe matched', async () => {
     const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
     await sendClaimSubmittedNotification(
-      fakeContext({ CLAIM_ALERT_EMAIL: 'support@aecintegrations.com' }),
+      fakeContext({ SUPPORT_EMAIL: 'support@aecintegrations.com' }),
       { ...CLAIM, duplicateOfRequestId: 'req-1' },
     );
     expect(String(lastBody(fetchSpy).text)).toContain('Possible duplicate: req-1');
@@ -1538,7 +1552,7 @@ describe('sendClaimSubmittedNotification', () => {
   it('omits the links when PUBLIC_SITE_URL is unset rather than emitting a dead host', async () => {
     const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
     await sendClaimSubmittedNotification(
-      fakeContext({ CLAIM_ALERT_EMAIL: 'support@aecintegrations.com' }),
+      fakeContext({ SUPPORT_EMAIL: 'support@aecintegrations.com' }),
       CLAIM,
     );
     const text = String(lastBody(fetchSpy).text);
@@ -1546,7 +1560,7 @@ describe('sendClaimSubmittedNotification', () => {
     expect(text).not.toContain('Listing');
   });
 
-  it('skips (no fetch) when CLAIM_ALERT_EMAIL is unset — fail-open, never throws', async () => {
+  it('skips (no fetch) when SUPPORT_EMAIL is unset — fail-open, never throws', async () => {
     const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
     const outcome = await sendClaimSubmittedNotification(fakeContext(), CLAIM);
 
@@ -1558,7 +1572,7 @@ describe('sendClaimSubmittedNotification', () => {
   it('escapes HTML in the submitter-supplied fields', async () => {
     const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
     await sendClaimSubmittedNotification(
-      fakeContext({ CLAIM_ALERT_EMAIL: 'support@aecintegrations.com' }),
+      fakeContext({ SUPPORT_EMAIL: 'support@aecintegrations.com' }),
       { ...CLAIM, submitterName: '<script>alert(1)</script>' },
     );
     const html = String(lastBody(fetchSpy).html);
@@ -1571,7 +1585,7 @@ describe('sendClaimSubmittedNotification', () => {
     const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
     await sendClaimSubmittedNotification(
       fakeContext({
-        CLAIM_ALERT_EMAIL: 'support@aecintegrations.com',
+        SUPPORT_EMAIL: 'support@aecintegrations.com',
         PUBLIC_SITE_URL: 'https://www.aecintegrations.com',
       }),
       CLAIM,
@@ -1589,7 +1603,7 @@ describe('sendClaimSubmittedNotification', () => {
     const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
     await sendClaimSubmittedNotification(
       fakeContext({
-        CLAIM_ALERT_EMAIL: 'support@aecintegrations.com',
+        SUPPORT_EMAIL: 'support@aecintegrations.com',
         PUBLIC_SITE_URL: 'https://www.aecintegrations.com',
       }),
       CLAIM,
@@ -1606,7 +1620,7 @@ describe('sendClaimSubmittedNotification', () => {
   it('renders no button when PUBLIC_SITE_URL is unset, rather than a dead one', async () => {
     const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
     await sendClaimSubmittedNotification(
-      fakeContext({ CLAIM_ALERT_EMAIL: 'support@aecintegrations.com' }),
+      fakeContext({ SUPPORT_EMAIL: 'support@aecintegrations.com' }),
       CLAIM,
     );
     const body = lastBody(fetchSpy);
@@ -1617,7 +1631,7 @@ describe('sendClaimSubmittedNotification', () => {
   it('states the Linear issue is pending without an em dash PRODUCT.md bans', async () => {
     const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
     await sendClaimSubmittedNotification(
-      fakeContext({ CLAIM_ALERT_EMAIL: 'support@aecintegrations.com' }),
+      fakeContext({ SUPPORT_EMAIL: 'support@aecintegrations.com' }),
       { ...CLAIM, linearIssueUrl: null },
     );
     const text = String(lastBody(fetchSpy).text);
@@ -2192,7 +2206,7 @@ describe('sendLandingFeedbackNotification', () => {
     const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
     const outcome = await sendLandingFeedbackNotification(
       fakeContext({
-        ADMIN_ALERT_EMAIL: 'ops@aecintegrations.com',
+        SUPPORT_EMAIL: 'ops@aecintegrations.com',
         PUBLIC_SITE_URL: 'https://www.aecintegrations.com',
       }),
       FEEDBACK,
@@ -2223,18 +2237,15 @@ describe('sendLandingFeedbackNotification', () => {
   it('drops the button when PUBLIC_SITE_URL is unset', async () => {
     const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
     await sendLandingFeedbackNotification(
-      fakeContext({ ADMIN_ALERT_EMAIL: 'ops@aecintegrations.com', PUBLIC_SITE_URL: undefined }),
+      fakeContext({ SUPPORT_EMAIL: 'ops@aecintegrations.com', PUBLIC_SITE_URL: undefined }),
       FEEDBACK,
     );
     expect(String(lastBody(fetchSpy).html)).not.toContain('/admin/audience');
   });
 
-  it('skips when ADMIN_ALERT_EMAIL is unset', async () => {
+  it('skips when SUPPORT_EMAIL is unset', async () => {
     expect(
-      await sendLandingFeedbackNotification(
-        fakeContext({ ADMIN_ALERT_EMAIL: undefined }),
-        FEEDBACK,
-      ),
+      await sendLandingFeedbackNotification(fakeContext({ SUPPORT_EMAIL: undefined }), FEEDBACK),
     ).toBe('skipped');
   });
 });
@@ -2255,7 +2266,7 @@ describe('sendLandingSignupNotification', () => {
     const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
     const outcome = await sendLandingSignupNotification(
       fakeContext({
-        ADMIN_ALERT_EMAIL: 'ops@aecintegrations.com',
+        SUPPORT_EMAIL: 'ops@aecintegrations.com',
         PUBLIC_SITE_URL: 'https://www.aecintegrations.com',
       }),
       SIGNUP,
@@ -2285,15 +2296,15 @@ describe('sendLandingSignupNotification', () => {
   it('drops the button when PUBLIC_SITE_URL is unset', async () => {
     const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
     await sendLandingSignupNotification(
-      fakeContext({ ADMIN_ALERT_EMAIL: 'ops@aecintegrations.com', PUBLIC_SITE_URL: undefined }),
+      fakeContext({ SUPPORT_EMAIL: 'ops@aecintegrations.com', PUBLIC_SITE_URL: undefined }),
       SIGNUP,
     );
     expect(String(lastBody(fetchSpy).html)).not.toContain('/admin/audience');
   });
 
-  it('skips when ADMIN_ALERT_EMAIL is unset', async () => {
+  it('skips when SUPPORT_EMAIL is unset', async () => {
     expect(
-      await sendLandingSignupNotification(fakeContext({ ADMIN_ALERT_EMAIL: undefined }), SIGNUP),
+      await sendLandingSignupNotification(fakeContext({ SUPPORT_EMAIL: undefined }), SIGNUP),
     ).toBe('skipped');
   });
 });
@@ -2434,32 +2445,68 @@ describe('sendEmail tier delivery policy (AECI-1198)', () => {
       subject: string;
     };
 
-  it('filters `to` to internal addresses on staging and prefixes the subject', async () => {
+  it('suppresses the data-quality digest on staging, internal recipients included (AECI-1220)', async () => {
     const fetchImpl = okFetch();
     const warn = vi.fn();
     const out = await sendEmail(
       {
         ENV: 'staging',
         RESEND_API_KEY: 'k',
-        EMAIL_BCC: 'ops@aecintegrations.com, someone@gmail.com',
+        EMAIL_BCC: 'ops@aecintegrations.com',
       },
-      { ...MSG, to: ['chris@thewbsproject.com', 'a@x.com'] },
+      { ...MSG, to: ['support@aecintegrations.com', 'a@x.com'] },
       fetchImpl as unknown as typeof fetch,
       { warn, error: () => {} },
     );
-    expect(out).toBe('sent');
-    const body = bodyOf(fetchImpl);
-    expect(body.to).toEqual(['chris@thewbsproject.com']);
-    expect(body.bcc).toEqual(['ops@aecintegrations.com']);
-    expect(body.subject).toBe('[staging] subj');
-    expect(warn).toHaveBeenCalledTimes(1);
-    expect(JSON.stringify(warn.mock.calls)).not.toContain('a@x.com');
+    expect(out).toBe('suppressed');
+    expect(fetchImpl).not.toHaveBeenCalled();
+    expect(warn).toHaveBeenCalledTimes(2);
+    expect(warn.mock.calls[0]![0]).toBe(
+      'email: suppressed — this notification does not send on staging',
+    );
+    expect(JSON.stringify(warn.mock.calls)).not.toContain('support@aecintegrations.com');
     // AECI-1199: the log names the digest's registry entry and its rule, not 'digest'.
     expect(warn.mock.calls[0]![1]).toMatchObject({
       template: 'digest-data-quality',
-      envRule: 'any-tier',
+      envRule: 'production-and-demo',
       tier: 'staging',
     });
+  });
+
+  it('sends the data-quality digest to the support inbox on demo (AECI-1220)', async () => {
+    const fetchImpl = okFetch();
+    const out = await sendEmail(
+      { ENV: 'demo', RESEND_API_KEY: 'k' },
+      { ...MSG, to: ['support@aecintegrations.com'] },
+      fetchImpl as unknown as typeof fetch,
+      silent,
+    );
+    expect(out).toBe('sent');
+    expect(bodyOf(fetchImpl).subject).toBe('[demo] subj');
+  });
+
+  it('suppresses the analytics digest on demo: production only (AECI-1220)', async () => {
+    const fetchImpl = okFetch();
+    const out = await sendEmail(
+      { ENV: 'demo', RESEND_API_KEY: 'k' },
+      { ...MSG, notification: 'digest-analytics', to: ['support@aecintegrations.com'] },
+      fetchImpl as unknown as typeof fetch,
+      silent,
+    );
+    expect(out).toBe('suppressed');
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it('sends the analytics digest to the support inbox on production (AECI-1220)', async () => {
+    const fetchImpl = okFetch();
+    const out = await sendEmail(
+      { ENV: 'production', RESEND_API_KEY: 'k' },
+      { ...MSG, notification: 'digest-analytics', to: ['support@aecintegrations.com'] },
+      fetchImpl as unknown as typeof fetch,
+      silent,
+    );
+    expect(out).toBe('sent');
+    expect(bodyOf(fetchImpl).to).toEqual(['support@aecintegrations.com']);
   });
 
   it('returns suppressed with no fetch when every recipient is outside', async () => {
@@ -2502,7 +2549,7 @@ describe('sendEmail tier delivery policy (AECI-1198)', () => {
 
 describe('protest and decline emails (AECI-1205)', () => {
   const SITE = {
-    CLAIM_ALERT_EMAIL: 'support@aecintegrations.com',
+    SUPPORT_EMAIL: 'support@aecintegrations.com',
     PUBLIC_SITE_URL: 'https://www.aecintegrations.com',
   };
   const FACTS = {
@@ -2646,7 +2693,7 @@ describe('protest and decline emails (AECI-1205)', () => {
     expect(sendTags()).toContainEqual(['outcome:sent', 'template:protest-submitted-alert']);
   });
 
-  it('protest-submitted-alert skips without CLAIM_ALERT_EMAIL', async () => {
+  it('protest-submitted-alert skips without SUPPORT_EMAIL', async () => {
     const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
     const outcome = await sendProtestSubmittedAlert(fakeContext(), {
       ...FACTS,

@@ -490,7 +490,7 @@ describe('POST /api/requests/* → claim-intake operator alert (background)', ()
     ...TEST_ENV,
     RESEND_API_KEY: 'rk_test',
     EMAIL_FROM: 'AEC Integrations <notifications@aecintegrations.com>',
-    CLAIM_ALERT_EMAIL: 'support@aecintegrations.com',
+    SUPPORT_EMAIL: 'support@aecintegrations.com',
   };
   const claimBody = {
     target_type: 'vendor',
@@ -522,7 +522,7 @@ describe('POST /api/requests/* → claim-intake operator alert (background)', ()
     return fetchMock;
   }
 
-  it('emails CLAIM_ALERT_EMAIL after a claim commits', async () => {
+  it('emails SUPPORT_EMAIL after a claim commits', async () => {
     const fetchMock = resendOkFetch();
     await seedVendor({ slug: 'acme-co' });
     const execCtx = fakeExecutionContext();
@@ -690,7 +690,7 @@ describe('POST /api/requests/* → claim-intake operator alert (background)', ()
     expect(row).toMatchObject({ kind: 'claim', status: 'open' });
   });
 
-  it('skips the send (no fetch) when CLAIM_ALERT_EMAIL is unset', async () => {
+  it('skips the send (no fetch) when SUPPORT_EMAIL is unset', async () => {
     const fetchMock = resendOkFetch();
     await seedVendor({ slug: 'acme-co' });
     const execCtx = fakeExecutionContext();
@@ -698,7 +698,7 @@ describe('POST /api/requests/* → claim-intake operator alert (background)', ()
     const res = await claimApp().request(
       '/api/requests/claim',
       postInit(claimBody),
-      { ...ENV_WITH_ALERT, CLAIM_ALERT_EMAIL: undefined },
+      { ...ENV_WITH_ALERT, SUPPORT_EMAIL: undefined },
       execCtx,
     );
     expect(res.status).toBe(201);

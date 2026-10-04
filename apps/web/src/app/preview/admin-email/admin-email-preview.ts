@@ -77,7 +77,7 @@ const SUMMARY: AdminEmailSummaryResponse = {
     },
     {
       id: 'digest-analytics',
-      summary: "Sends ANALYTICS_DIGEST_EMAIL_TO the prior day's traffic digest.",
+      summary: "Sends SUPPORT_EMAIL the prior day's traffic digest.",
       audience: 'operator',
     },
     {
@@ -117,7 +117,7 @@ const SUMMARY: AdminEmailSummaryResponse = {
     },
     {
       notification_id: 'digest-analytics',
-      summary: "Sends ANALYTICS_DIGEST_EMAIL_TO the prior day's traffic digest.",
+      summary: "Sends SUPPORT_EMAIL the prior day's traffic digest.",
       audience: 'operator',
       registered: true,
       d7: counts(7),
@@ -125,7 +125,7 @@ const SUMMARY: AdminEmailSummaryResponse = {
     },
     {
       notification_id: 'landing-feedback',
-      summary: 'Tells ADMIN_ALERT_EMAIL someone submitted feedback.',
+      summary: 'Tells SUPPORT_EMAIL someone submitted feedback.',
       audience: 'operator',
       registered: true,
       d7: counts(0, { paused: 6 }, { delivered: 0 }),
@@ -301,19 +301,19 @@ const SWITCHES: AdminEmailSwitch[] = [
   sw('claim-approved', 'Tells a claimant their claim was approved.', 'external', false),
   sw(
     'claim-submitted-alert',
-    'Tells CLAIM_ALERT_EMAIL a vendor claimed a listing, after the Linear attempt.',
+    'Tells SUPPORT_EMAIL a vendor claimed a listing, after the Linear attempt.',
     'operator',
     true,
   ),
   sw(
     'digest-data-quality',
-    'Sends DATA_QUALITY_EMAIL_TO the daily data-quality check results.',
+    'Sends SUPPORT_EMAIL the daily data-quality check results.',
     'operator',
     true,
   ),
   sw(
     'landing-feedback',
-    'Tells ADMIN_ALERT_EMAIL someone submitted feedback.',
+    'Tells SUPPORT_EMAIL someone submitted feedback.',
     'operator',
     true,
     false,

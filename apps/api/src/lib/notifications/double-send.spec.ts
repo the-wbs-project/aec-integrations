@@ -58,10 +58,8 @@ const ENV: Env = {
   ENV: 'production',
   RESEND_API_KEY: 'rk_test',
   EMAIL_FROM: 'AEC Integrations <notifications@aecintegrations.com>',
-  ADMIN_ALERT_EMAIL: 'ops@aecintegrations.com',
-  CLAIM_ALERT_EMAIL: 'support@aecintegrations.com',
-  FOUNDER_ALERT_EMAIL: 'founder@aecintegrations.com',
-  EMAIL_BCC: 'support@aecintegrations.com',
+  SUPPORT_EMAIL: 'support@aecintegrations.com',
+  EMAIL_BCC: 'copy@aecintegrations.com',
   PUBLIC_SITE_URL: 'https://www.aecintegrations.com',
 };
 
@@ -347,7 +345,7 @@ describe('stuck-request alert', () => {
     // 65 min: crosses the 60-minute band. A queue retry re-runs the same window.
     await sweep(65);
     await sweep(66);
-    expect(resendCalls().filter(([to]) => to === 'ops@aecintegrations.com')).toHaveLength(1);
+    expect(resendCalls().filter(([to]) => to === 'support@aecintegrations.com')).toHaveLength(1);
     expect((await ledger('stuck-request-alert')).map((r) => [r.outcome, r.dedupeKey])).toEqual([
       ['sent', 'stuck-request-alert:req-1:0'],
       ['duplicate', null],
@@ -355,7 +353,7 @@ describe('stuck-request alert', () => {
 
     // 6 h 5 min: the next band, a new key, a second email.
     await sweep(365);
-    expect(resendCalls().filter(([to]) => to === 'ops@aecintegrations.com')).toHaveLength(2);
+    expect(resendCalls().filter(([to]) => to === 'support@aecintegrations.com')).toHaveLength(2);
   });
 });
 
@@ -399,7 +397,7 @@ describe('stale-claim-ticket alert', () => {
         now: new Date(created.getTime() + ageMinutes * MINUTE),
       });
     const toFounder = () =>
-      resendCalls().filter(([to]) => to === 'founder@aecintegrations.com').length;
+      resendCalls().filter(([to]) => to === 'support@aecintegrations.com').length;
 
     // 25 h: crosses the 24-hour band. A double cron tick re-runs the same window.
     await check(25 * 60);

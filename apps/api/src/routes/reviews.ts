@@ -260,7 +260,7 @@ export function createSubmitReviewHandler(
     // Best-effort §26.5 forwards, the §11.1 "in moderation" confirmation to the
     // reviewer, and the moderation alert to the support inbox, all fire-and-forget
     // AFTER the atomic commit. Both emails fail open: an absent RESEND_API_KEY,
-    // session email or ADMIN_ALERT_EMAIL is a silent skip and never affects the 201.
+    // session email or SUPPORT_EMAIL is a silent skip and never affects the 201.
     // The audit row and the transition go in ONE request (AECI-1112).
     forwardAuditBatch(c, [auditEntry], [workflowEntry], 'review-form');
     const summary: SubmittedReviewSummary = {

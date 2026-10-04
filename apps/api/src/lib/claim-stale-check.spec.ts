@@ -55,7 +55,7 @@ function makeCtx(over: Record<string, unknown> = {}) {
     env: {
       ...TEST_ENV,
       PUBLIC_SITE_URL: 'https://www.aecintegrations.com',
-      FOUNDER_ALERT_EMAIL: 'founders@thewbsproject.com',
+      SUPPORT_EMAIL: 'support@aecintegrations.com',
       ...over,
     },
     executionCtx: fakeExecutionContext(),
@@ -115,7 +115,7 @@ describe('runClaimStaleCheck', () => {
       unknown,
       { to: string; rows: unknown[] },
     ];
-    expect(payload.to).toBe('founders@thewbsproject.com');
+    expect(payload.to).toBe('support@aecintegrations.com');
     expect(payload.rows).toHaveLength(1);
     expect(payload.rows[0]).toMatchObject({
       requestId: 'req-1',
@@ -301,12 +301,12 @@ describe('runClaimStaleCheck', () => {
     );
   });
 
-  it('skips the send when FOUNDER_ALERT_EMAIL is unset, without throwing', async () => {
+  it('skips the send when SUPPORT_EMAIL is unset, without throwing', async () => {
     await t.db.insert(products).values({ id: 'tgt-1', slug: 'procore', name: 'Procore' });
     await seedClaim({ id: 'req-1' });
     const sendAlert = vi.fn(async () => 'skipped' as const);
 
-    const result = await runClaimStaleCheck(makeCtx({ FOUNDER_ALERT_EMAIL: undefined }), t.db, {
+    const result = await runClaimStaleCheck(makeCtx({ SUPPORT_EMAIL: undefined }), t.db, {
       fetchStates: statesFor([['iss-req-1', 'backlog', 'Backlog']]) as never,
       sendAlert: sendAlert as never,
       now: NOW,

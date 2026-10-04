@@ -11,6 +11,7 @@ import {
   isInternalRecipient,
   isProductionTier,
   partitionRecipients,
+  refusedByTierRule,
   tierLabel,
   tierSubject,
 } from './delivery-policy';
@@ -145,5 +146,35 @@ describe('tierSubject / tierLabel', () => {
     expect(tierSubject({}, 'Hello')).toBe('[non-production] Hello');
     expect(tierSubject({ ENV: 'qa' }, 'Hello')).toBe('[non-production] Hello');
     expect(tierLabel({})).toBe('non-production');
+  });
+});
+
+describe('refusedByTierRule (AECI-1220)', () => {
+  it('refuses a production-only entry on every other tier, and when ENV is missing', () => {
+    for (const tier of NON_PRODUCTION) {
+      expect(refusedByTierRule({ ENV: tier }, 'production-only')).toBe(true);
+    }
+    expect(refusedByTierRule({}, 'production-only')).toBe(true);
+    expect(refusedByTierRule({ ENV: 'qa' }, 'production-only')).toBe(true);
+  });
+
+  it('lets a production-only entry through on production', () => {
+    expect(refusedByTierRule({ ENV: 'production' }, 'production-only')).toBe(false);
+  });
+
+  it('lets a production-and-demo entry through on production and demo only', () => {
+    expect(refusedByTierRule({ ENV: 'production' }, 'production-and-demo')).toBe(false);
+    expect(refusedByTierRule({ ENV: 'demo' }, 'production-and-demo')).toBe(false);
+    for (const tier of ['development', 'preview', 'staging', 'qa']) {
+      expect(refusedByTierRule({ ENV: tier }, 'production-and-demo')).toBe(true);
+    }
+    expect(refusedByTierRule({}, 'production-and-demo')).toBe(true);
+  });
+
+  it('never refuses the other rules outright: the allowlist decides those', () => {
+    for (const rule of ['production-external', 'any-tier']) {
+      expect(refusedByTierRule({ ENV: 'staging' }, rule)).toBe(false);
+      expect(refusedByTierRule({}, rule)).toBe(false);
+    }
   });
 });

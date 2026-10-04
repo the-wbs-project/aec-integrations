@@ -153,7 +153,7 @@ staleness signal, and this check does not send it.) Once the issue
 exists the pipeline considers itself finished, so a ticket can sit in Backlog indefinitely with no
 signal to anyone. A scheduled job closes that gap: every six hours (`25 */6 * * *`), read the
 `claim` rows older than **24 hours** that already carry a `linear_issue_id`, ask Linear what state
-those issues are in, and email `FOUNDER_ALERT_EMAIL` one digest naming the ones still in a
+those issues are in, and email `FOUNDER_ALERT_EMAIL` (since AECI-1220: `SUPPORT_EMAIL`, production only) one digest naming the ones still in a
 `triage` / `backlog` / `unstarted` state. Implementation: `apps/api/src/lib/claim-stale-check.ts`.
 
 Four decisions are load-bearing:

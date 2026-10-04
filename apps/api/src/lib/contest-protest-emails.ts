@@ -5,7 +5,7 @@
  * Three senders, all fire-and-forget after a committed write or from a cron:
  *
  *   - {@link emailProtestFiled}: a protest was filed. The owner vendor's seats get
- *     `contest-protest-opened` with the 14-day reply deadline, and `CLAIM_ALERT_EMAIL`
+ *     `contest-protest-opened` with the 14-day reply deadline, and `SUPPORT_EMAIL`
  *     gets `protest-submitted-alert`.
  *   - {@link emailOwnerDecline}: the owner declined a contest. The submitter vendor's
  *     seats get `contest-declined-protest-window` with the 30-day filing deadline.

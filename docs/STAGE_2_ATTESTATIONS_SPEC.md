@@ -1514,7 +1514,7 @@ seat) is history. See the as-built note at the end of §7.3.
   (`DIGEST_LIST_LIMIT`), counts the rest, and links to the vendor portal. It carries no operator
   copy. The send's dedupe key is `attestation-digest:{vendorId}:{profileId}:{YYYY-MM-DD}` (UTC),
   so a queue retry cannot send a second digest to a seat the same day.
-- **Ops findings** go out as one `attestation-ops-digest` per `ADMIN_ALERT_EMAIL` address per day.
+- **Ops findings** go out as one `attestation-ops-digest` per `ADMIN_ALERT_EMAIL` address per day (since AECI-1220: `SUPPORT_EMAIL`).
   The key is `attestation-ops-digest:{YYYY-MM-DD}:{first 16 hex of the recipient hash}`. It is per
   address because several addresses would otherwise collide on one key.
 - **Unsubscribe.** The digest carries `List-Unsubscribe` (RFC 8058 one-click, pointing at
@@ -2263,7 +2263,7 @@ Runs alongside; finishes what each sub-issue seeds (the AECI-525 pattern).
   `other_version`, plus the inverse `MULTI_VALUE_CACHE_KEY_PARAMS` rule and the §7.2
   URL-derived-`noindex` qualification). Verify rather than re-add.
 - **`docs/email.md`** — ✅ **done by AECI-302**: §7.2's catalogue carries all four `attestation-*`
-  template rows, and §9's `ADMIN_ALERT_EMAIL` row records that an unset address resolves those
+  template rows, and §9's `ADMIN_ALERT_EMAIL` row (since AECI-1220: `SUPPORT_EMAIL`) records that an unset address resolves those
   findings `skipped` (retried next sweep, no ledger row). Verify rather than re-add.
 - **`docs/OBSERVABILITY.md`** + **`docs/POST_LAUNCH_MONITORING.md`** — ✅ **done by AECI-302** for
   the §7.4 detector metrics (§4's four `aeci.attestation.*` rows) and the launch-tunable thresholds

@@ -821,15 +821,15 @@ point (`docs/OBSERVABILITY.md`).
 
 ## Claim ticket un-started after 24 hours
 
-**Email:** `[AECi] N claim tickets un-started after 24h` → `FOUNDER_ALERT_EMAIL`
-(`founders@thewbsproject.com`). Emitted by the `25 */6` `claim-stale-check` cron
+**Email:** `[AECi] N claim tickets un-started after 24h` → `SUPPORT_EMAIL`
+(`support@aecintegrations.com`; it went to `founders@thewbsproject.com` before AECI-1220). Emitted by the `25 */6` `claim-stale-check` cron
 (`apps/api/src/lib/claim-stale-check.ts`, AECI-862).
 
-**Staging and production only.** `FOUNDER_ALERT_EMAIL` is unset on demo, so the digest
-fail-open skips there. The demo cron still runs and still emits every metric, so a demo
-claim left un-started is visible in `aeci.linear.claim_stale.stale` without mailing anyone.
-If this alert arrives carrying a `demo.aecintegrations.com` admin link, the var has been
-re-added to the demo block in `apps/api/wrangler.jsonc`.
+**Production only since AECI-1220.** The alert is `envRule: 'production-only'`, so staging and
+demo suppress it (`outcome:suppressed`). Their crons still run and still emit every metric,
+so a demo claim left un-started is visible in `aeci.linear.claim_stale.stale` without
+mailing anyone. If this alert arrives carrying a `demo.aecintegrations.com` admin link, the
+tier rule has been removed from the registry entry.
 
 **Nothing is broken.** That is the whole point of this being a separate message to a separate
 address. `stuck-request-alert` below means the pipeline failed and the operator must fix it. This
@@ -955,8 +955,8 @@ product/vendor was deleted, or it has no workflow instance — logged `cannot re
 resolve it manually in `/admin/requests`.
 
 **Escalation:** the admin email seam (`lib/admin-alert.ts`) now sends via Resend (AECI-240 / Phase 7.5)
-to `ADMIN_ALERT_EMAIL` (`aeci.linear.reconcile.email{outcome:sent|failed|skipped|suppressed}`), but it is fail-open:
-when `RESEND_API_KEY` / `ADMIN_ALERT_EMAIL` are absent the outcome is `skipped`, so **this alert +
+to `SUPPORT_EMAIL` (`aeci.linear.reconcile.email{outcome:sent|failed|skipped|suppressed}`), but it is fail-open:
+when `RESEND_API_KEY` / `SUPPORT_EMAIL` are absent the outcome is `skipped`, so **this alert +
 the `/admin/requests` queue remain the guaranteed notification** (§6.2). On a non-production tier
 with no `LINEAR_API_KEY`, the sweep sends no email at all (AECI-1198). The key is production-only,
 so a stuck row there is expected and not paged by mail. Make sure on-call routes a
@@ -1042,7 +1042,8 @@ triage. The email digest to the support inbox (`support@aecintegrations.com`) ca
    that the `aeci-data-quality-<env>` queue exists.
 4. **Digest not received?** If the run fired (metrics present) but the support inbox got no email, check
    `aeci.data_quality.email{outcome}`: `skipped` = `RESEND_API_KEY` / `DATA_QUALITY_EMAIL_FROM` /
-   `DATA_QUALITY_EMAIL_TO` not set on the Worker (fail-open by design); `failed` = a Resend error — check
+   `SUPPORT_EMAIL` not set on the Worker (fail-open by design); `suppressed` = the tier is
+   staging (or local), because the digest sends from production and demo only since AECI-1220; `failed` = a Resend error — check
    the `source:data-quality-cron` log for the HTTP status and Resend's delivery log.
 
 **Repair:** report-only — triage the digest and fix the underlying data (attach a vendor to an orphan

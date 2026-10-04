@@ -50,11 +50,23 @@ export type NotificationTriggerKind = 'route' | 'cron' | 'sweep' | 'supabase';
  *   - `production-external`: email to an outside person sends from production only.
  *     Every other tier sends to the internal allowlist alone (AECI-1198,
  *     `delivery-policy.ts`).
+ *   - `production-only`: operator email that sends from production alone, to anyone
+ *     (AECI-1220). Every other tier suppresses it whatever the recipient, because its
+ *     content is only true of production: real traffic, real catalog data, real
+ *     vendors waiting. It replaced unsetting a recipient var per tier, once one
+ *     `SUPPORT_EMAIL` named the support inbox on every tier.
+ *   - `production-and-demo`: the same, but demo sends too (AECI-1220). Demo is the
+ *     rehearsal tier with a promoted catalog worth checking. Staging and every other
+ *     tier suppress it.
  *   - `any-tier`: no tier gate of its own. For email this is operator mail, whose
  *     recipients are internal inboxes. For a portal row or a Linear write there is no
  *     outbound message for the gate to act on.
  */
-export type NotificationEnvRule = 'production-external' | 'any-tier';
+export type NotificationEnvRule =
+  | 'production-external'
+  | 'production-only'
+  | 'production-and-demo'
+  | 'any-tier';
 
 /**
  * A durable record that proves this specific send happened, as of today. An entry lists
@@ -129,7 +141,7 @@ export const NOTIFICATIONS = {
     optOut: 'none',
     pausable: true,
     doc: CATALOGUE,
-    summary: 'Tells ADMIN_ALERT_EMAIL a review is waiting for moderation.',
+    summary: 'Tells SUPPORT_EMAIL a review is waiting for moderation.',
     note: 'Pausable: operator alert. The review waits in /admin/reviews either way.',
   },
   'review-approved': {
@@ -226,7 +238,7 @@ export const NOTIFICATIONS = {
     optOut: 'none',
     pausable: true,
     doc: CATALOGUE,
-    summary: 'Tells ADMIN_ALERT_EMAIL someone joined the mailing list.',
+    summary: 'Tells SUPPORT_EMAIL someone joined the mailing list.',
     note: 'Pausable: operator alert. /admin/audience lists the subscriber either way.',
   },
   'landing-feedback': {
@@ -239,7 +251,7 @@ export const NOTIFICATIONS = {
     optOut: 'none',
     pausable: true,
     doc: CATALOGUE,
-    summary: 'Tells ADMIN_ALERT_EMAIL someone submitted feedback.',
+    summary: 'Tells SUPPORT_EMAIL someone submitted feedback.',
     note: 'The feedback row records the submission, not the send. Pausable: operator alert. /admin/audience lists the feedback either way.',
   },
   'claim-submitted-alert': {
@@ -256,7 +268,7 @@ export const NOTIFICATIONS = {
     optOut: 'none',
     pausable: true,
     doc: CATALOGUE,
-    summary: 'Tells CLAIM_ALERT_EMAIL a vendor claimed a listing, after the Linear attempt.',
+    summary: 'Tells SUPPORT_EMAIL a vendor claimed a listing, after the Linear attempt.',
     note: 'LINEAR_API_KEY is set on production only. On staging and demo no issue is created, so the Linear row reads "not created, Linear is not configured on this tier" (AECI-1198). Pausable: operator alert. The claim waits in /admin/claims either way.',
   },
   'contest-submitted-alert': {
@@ -272,7 +284,7 @@ export const NOTIFICATIONS = {
     optOut: 'none',
     pausable: true,
     doc: 'docs/STAGE_2_VENDOR_PORTAL_SPEC.md §11b.8',
-    summary: 'Tells CLAIM_ALERT_EMAIL a vendor filed a contest that AECi must decide.',
+    summary: 'Tells SUPPORT_EMAIL a vendor filed a contest that AECi must decide.',
     note: 'Pausable: operator alert. The contest waits in /admin/contests either way.',
   },
   'protest-submitted-alert': {
@@ -289,7 +301,7 @@ export const NOTIFICATIONS = {
     optOut: 'none',
     pausable: true,
     doc: 'docs/STAGE_2_VENDOR_PORTAL_SPEC.md §11b.12.10',
-    summary: 'Tells CLAIM_ALERT_EMAIL a vendor filed a protest that AECi must decide.',
+    summary: 'Tells SUPPORT_EMAIL a vendor filed a protest that AECi must decide.',
     note: 'Pausable: operator alert. The protest waits in /admin/contests either way.',
   },
   'contest-protest-opened': {
@@ -418,22 +430,22 @@ export const NOTIFICATIONS = {
     optOut: 'none',
     pausable: true,
     doc: 'docs/STAGE_1_PHASE_6_SPEC.md §6.4',
-    summary: 'Tells ADMIN_ALERT_EMAIL which requests are stuck in the Linear pipeline.',
+    summary: 'Tells SUPPORT_EMAIL which requests are stuck in the Linear pipeline.',
     note: 'LINEAR_API_KEY is set on production only, so every staging and demo request stays unlinked. The sweep skips this email there. The metric and error log still fire (AECI-1198). Pausable: operator alert. The metric and error log still fire.',
   },
   'stale-claim-ticket-alert': {
     channel: 'email',
     audience: 'operator',
     trigger: { kind: 'cron', ref: '25 */6 claim-stale-check (lib/claim-stale-check.ts)' },
-    envRule: 'any-tier',
+    envRule: 'production-only',
     dedupe:
       'Stateless bands: 24 hours, then daily. Key stale-claim-ticket-alert:{requestId}:{bandIndex}, one pair per row in the digest.',
     ledger: ['notification_sends'],
     optOut: 'none',
     pausable: true,
     doc: 'docs/STAGE_1_PHASE_6_SPEC.md §6.4a',
-    summary: 'Tells FOUNDER_ALERT_EMAIL which claim tickets nobody has started after 24 hours.',
-    note: 'Production only in practice. Staging and demo create no Linear issues, and FOUNDER_ALERT_EMAIL is unset on demo. Pausable: operator alert.',
+    summary: 'Tells SUPPORT_EMAIL which claim tickets nobody has started after 24 hours.',
+    note: 'Production only since AECI-1220. Staging and demo create no Linear issues, so a stale ticket there is a rehearsal row. Before AECI-1220 it went to founders@. Pausable: operator alert.',
   },
   'attestation-digest': {
     channel: 'email+portal',
@@ -462,7 +474,7 @@ export const NOTIFICATIONS = {
     pausable: true,
     doc: 'docs/STAGE_2_ATTESTATIONS_SPEC.md §7.2',
     summary:
-      'Tells ADMIN_ALERT_EMAIL about every denied claim and standing conflict of the day, in one email.',
+      'Tells SUPPORT_EMAIL about every denied claim and standing conflict of the day, in one email.',
     note: 'Replaced attestation-ops-alert, one email per finding, in AECI-1204. Its notification.sent rows carry vendorId null, so no vendor portal shows them. Pausable: operator digest. The notification.sent rows are still written.',
   },
   'entitlement-expiring': {
@@ -488,7 +500,7 @@ export const NOTIFICATIONS = {
     optOut: 'none',
     pausable: true,
     doc: 'docs/STAGE_2_PAID_TIERS_SPEC.md §7.2',
-    summary: 'Tells ADMIN_ALERT_EMAIL a vendor term ends soon, with payer and invoice ref.',
+    summary: 'Tells SUPPORT_EMAIL a vendor term ends soon, with payer and invoice ref.',
     note: 'Pausable: operator alert. The vendor notice alone stamps the fence.',
   },
 
@@ -497,27 +509,27 @@ export const NOTIFICATIONS = {
     channel: 'email',
     audience: 'operator',
     trigger: { kind: 'cron', ref: '0 4 data-quality job (scheduled.ts runDataQualityJob)' },
-    envRule: 'any-tier',
+    envRule: 'production-and-demo',
     dedupe: 'None. Sends on a clean run too, so silence means the cron failed.',
     ledger: ['notification_sends', 'job_runs'],
     optOut: 'none',
     pausable: true,
     doc: 'docs/email.md §Cron digests',
-    summary: 'Sends DATA_QUALITY_EMAIL_TO the daily data-quality check results.',
-    note: 'DATA_QUALITY_EMAIL_TO is set on staging, demo and production, so the support inbox gets one a day from each. Pausable: operator digest. job_runs still records each run, so liveness does not depend on the mail.',
+    summary: 'Sends SUPPORT_EMAIL the daily data-quality check results.',
+    note: 'Production and demo only since AECI-1220. Before it, staging also sent one a day about synthetic data. Pausable: operator digest. job_runs still records each run, so liveness does not depend on the mail.',
   },
   'digest-analytics': {
     channel: 'email',
     audience: 'operator',
     trigger: { kind: 'cron', ref: '0 5 analytics digest (scheduled.ts runAnalyticsDigestJob)' },
-    envRule: 'any-tier',
+    envRule: 'production-only',
     dedupe: 'None.',
     ledger: ['notification_sends', 'job_runs'],
     optOut: 'none',
     pausable: true,
     doc: 'docs/email.md §Cron digests',
-    summary: "Sends ANALYTICS_DIGEST_EMAIL_TO the prior day's traffic digest.",
-    note: 'ANALYTICS_DIGEST_EMAIL_TO is set on production only. Pausable: operator digest. /admin/overview shows the same numbers.',
+    summary: "Sends SUPPORT_EMAIL the prior day's traffic digest.",
+    note: 'Production only: only production traffic is real. Pausable: operator digest. /admin/overview shows the same numbers.',
   },
 
   // ─── Supabase Auth email ──────────────────────────────────────────────────

@@ -749,7 +749,7 @@ emit_recipes() {
   record_recipe ""
   record_recipe "3. NON-EMAIL ALERT DELIVERY (Slack / Discord / HTTPS webhook) is a"
   record_recipe "   cdp-functions object, not a field on the alert. Deliberately not wired:"
-  record_recipe "   AECi has no Slack (CLAUDE.md), and email to \$ADMIN_ALERT_EMAIL is the"
+  record_recipe "   AECi has no Slack (CLAUDE.md), and email to \$SUPPORT_EMAIL is the"
   record_recipe "   established operator channel."
   record_recipe "     -> If that changes: integrations-channels-retrieve, then create a"
   record_recipe "        cdp-function filtered on the alert id."

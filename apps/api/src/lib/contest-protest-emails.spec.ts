@@ -83,7 +83,7 @@ const ENV: Env = {
   ENV: 'production',
   RESEND_API_KEY: 'rk_test',
   EMAIL_FROM: 'AEC Integrations <notifications@aecintegrations.com>',
-  CLAIM_ALERT_EMAIL: 'support@aecintegrations.com',
+  SUPPORT_EMAIL: 'support@aecintegrations.com',
   PUBLIC_SITE_URL: 'https://www.aecintegrations.com',
 };
 

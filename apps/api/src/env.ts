@@ -39,7 +39,7 @@ import type { PromoteWorkflowParams } from './lib/promote-jobs';
  * `entitlement_expiry` is the daily 11:00 UTC Stage 2 §7 term-expiry warning
  * sweep (AECI-613 / `STAGE_2_PAID_TIERS_SPEC.md` §7): one indexed read over
  * `vendor_entitlements_expiry_idx` → a renewal prompt to the vendor's seats and
- * an operator copy to `ADMIN_ALERT_EMAIL`, fenced by `expiry_notice_sent_at` so a
+ * an operator copy to `SUPPORT_EMAIL`, fenced by `expiry_notice_sent_at` so a
  * term earns one notice rather than one per night. Queue-less like
  * `moderation`/`waf`/`analytics`, and it **warns only** — it never writes
  * `status` and never writes `vendors.verified` (§7.3).
@@ -576,48 +576,27 @@ export type Env = {
    */
   LINEAR_API_KEY?: string;
   /**
-   * Recipient for the persistent-failure admin alert raised by the reconciliation
-   * sweep (AECI-214 / Phase 6.7) — the `To:` address of the §6.2 admin email now
-   * wired through Resend (`lib/email.ts`, AECI-240). Absent → the sweep's
-   * `sendAdminAlert()` seam returns `'skipped'` and the **PostHog alert**
-   * (`aeci.linear.reconcile.persistent_failure` + the `source:reconcile` error log)
-   * is the guaranteed backstop (§6.2). Set as a plain wrangler var per env:
-   * `support@aecintegrations.com` on staging, demo and production.
-   */
-  ADMIN_ALERT_EMAIL?: string;
-
-  /**
-   * Founder escalation recipient for the AECI-862 claim-staleness check — the
-   * 6-hourly job that warns when a claim ticket exists in Linear and nobody has
-   * started it after 24 hours.
+   * The support inbox: the one recipient for every operator email the API Worker
+   * sends (AECI-1220). Before AECI-1220 five vars named it: `ADMIN_ALERT_EMAIL`,
+   * `CLAIM_ALERT_EMAIL`, `FOUNDER_ALERT_EMAIL`, `DATA_QUALITY_EMAIL_TO` and
+   * `ANALYTICS_DIGEST_EMAIL_TO`. Four of them named support. The stale-claim alert
+   * went to `founders@`. It reaches:
    *
-   * A THIRD address beside `ADMIN_ALERT_EMAIL` and `CLAIM_ALERT_EMAIL`, and that
-   * is the point: those two say "the pipeline is broken" and "a claim arrived",
-   * both addressed to whoever operates the system. This one says a vendor has been
-   * waiting a day for a human reply, which is a business-response problem and
-   * wants different eyes. Folding it into either of the others would bury it.
+   *   - the transactional operator alerts: moderation, lead capture, feedback, new
+   *     claim, contest and protest, the §6.2 stuck-request digest, the term-expiry
+   *     copy, the AECI-862 stale-claim digest and the attestation ops digest;
+   *   - the two cron digests, data quality and analytics. Analytics and the stale-claim
+   *     digest send from production only, data quality from production and demo
+   *     (`envRule` in `lib/notifications/registry.ts`).
    *
-   * Absent → the digest is `'skipped'` and the job still emits its metric and log,
-   * so the signal survives an unset var (the §6.2 backstop posture).
+   * Keep it to ONE address. The digests parse it as a list (`parseRecipients`), but
+   * the transactional alerts pass it to Resend verbatim, and outside production the
+   * tier policy refuses a value with a comma in it. Plain wrangler var,
+   * `support@aecintegrations.com` on staging, demo and production. Absent → every
+   * operator send is a `skipped` no-op and the triggering action still succeeds. The
+   * metric and the log line each sender emits are the backstop (§6.2).
    */
-  FOUNDER_ALERT_EMAIL?: string;
-  /**
-   * Recipient for the operator "new vendor claim" alert — sent post-commit from
-   * `POST /api/requests/claim` (`routes/requests.ts`). A SINGLE address, like
-   * `ADMIN_ALERT_EMAIL` (the transactional transport passes `to` through to Resend
-   * verbatim; only the `_TO` digest vars take a parsed list). Separate from
-   * `ADMIN_ALERT_EMAIL` on purpose, so claim intake can be routed apart from the
-   * sweep alerts and lead-capture notifications. Both are the support inbox
-   * (`support@aecintegrations.com`) today. Plain wrangler var per env. Absent → the alert is
-   * a `skipped` no-op and the submit still returns `201` — the Linear issue
-   * (§6.4) stays the durable record either way.
-   *
-   * Since AECI-1132 it is also the `To:` for `contest-submitted-alert`, sent when an
-   * integration field contest routes to AECi at submit (§11b.8). An `owner` contest
-   * is the owner-unknown claim path, so it belongs in the same inbox. Absent → the
-   * contest alert skips too, and the contest row stays the durable record.
-   */
-  CLAIM_ALERT_EMAIL?: string;
+  SUPPORT_EMAIL?: string;
   /**
    * Resend API key — the single transactional-email secret for the API Worker.
    * Powers BOTH the §11.1 transactional templates (AECI-240 / Phase 7.5 — review
@@ -645,28 +624,18 @@ export type Env = {
    * so the copy cannot opt the recipient out (`sendOperatorCopy`). Lets the
    * operator see exactly what users receive. Comma/whitespace-separated list,
    * parsed by `parseRecipients`; an address already in `to` is not repeated.
-   * Plain wrangler var, set on staging, demo and production to
-   * `support@aecintegrations.com`. Absent → no `bcc` field. See `docs/email.md`.
+   * **Unset on every tier since AECI-1220.** The send ledger (`notification_sends`)
+   * records each send, and the copies kept personal data in the support mailbox
+   * after an account deletion. The code path stays, so turning it back on is one
+   * plain wrangler var per tier. Absent → no `bcc` field. See `docs/email.md`.
    */
   EMAIL_BCC?: string;
   /**
-   * Sender + recipient(s) for the data-quality digest (AECI-241). `_FROM` is a
-   * single verified Resend sender; `_TO` is a comma/whitespace-separated list
-   * (`support@aecintegrations.com` on every tier), parsed by `parseRecipients` (`lib/email.ts`). Plain wrangler
-   * vars per env. Either absent → the send is a `skipped` no-op.
+   * Sender for the data-quality digest (AECI-241): a single verified Resend sender.
+   * The recipient is `SUPPORT_EMAIL` (AECI-1220). Plain wrangler var per env. Absent →
+   * the send is a `skipped` no-op. The analytics digest (AECI-526) uses the shared
+   * `EMAIL_FROM`. Data quality sends from production and demo, analytics from
+   * production only.
    */
   DATA_QUALITY_EMAIL_FROM?: string;
-  DATA_QUALITY_EMAIL_TO?: string;
-  /**
-   * Recipient(s) for the daily operator analytics digest (AECI-526). A
-   * comma/whitespace-separated list parsed by `parseRecipients` (`lib/email.ts`);
-   * the sender is the shared `EMAIL_FROM` (no separate `_FROM` — one verified
-   * sender). Plain wrangler var. Set on **production only** — staging/demo run the
-   * cron (for liveness) but intentionally leave this unset, so only prod's real
-   * numbers are emailed; every other env (incl. local/preview) is `skipped`.
-   * Absent → the digest send is a `skipped` no-op, so the cron still runs and
-   * emits its outcome metric. See `scheduled.ts` `runAnalyticsDigestJob` +
-   * `docs/email.md`.
-   */
-  ANALYTICS_DIGEST_EMAIL_TO?: string;
 };

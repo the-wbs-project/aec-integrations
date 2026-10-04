@@ -105,7 +105,7 @@ describe('every Resend call carries tier and notification_id tags', () => {
   it('the digest sendEmail', async () => {
     const fetchImpl = vi.fn(async () => new Response('{"id":"re_2"}', { status: 200 }));
     await sendEmail(
-      { ENV: 'demo', RESEND_API_KEY: 'k' },
+      { ENV: 'production', RESEND_API_KEY: 'k' },
       {
         notification: 'digest-data-quality',
         from: 'AECi <dq@aecintegrations.com>',
@@ -117,7 +117,7 @@ describe('every Resend call carries tier and notification_id tags', () => {
       { warn: () => {}, error: () => {} },
     );
     expect(bodyAt(fetchImpl, 0).tags).toEqual([
-      { name: 'tier', value: 'demo' },
+      { name: 'tier', value: 'production' },
       { name: 'notification_id', value: 'digest-data-quality' },
     ]);
   });

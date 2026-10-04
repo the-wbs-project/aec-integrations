@@ -137,7 +137,7 @@ export function createFeedbackHandler(
 
     // Operator "new feedback" notification — retires the `apps/landing` Worker's
     // own Resend send (AECI-247/277). Fire-and-forget after the insert; fail-open
-    // (absent RESEND_API_KEY / ADMIN_ALERT_EMAIL → silent skip, never affects 201).
+    // (absent RESEND_API_KEY / SUPPORT_EMAIL → silent skip, never affects 201).
     c.executionCtx.waitUntil(
       sendLandingFeedbackNotification(c, {
         email,
@@ -229,7 +229,7 @@ export function createSubscribeHandler(
     // dup before sending) so a still-subscribed re-subscribe neither re-alerts
     // nor re-welcomes. Both fail-open on absent secrets (RESEND_API_KEY /
     // recipient) and never affect the response:
-    //   1. the operator "new signup" alert to ADMIN_ALERT_EMAIL (retires the
+    //   1. the operator "new signup" alert to SUPPORT_EMAIL (retires the
     //      `apps/landing` Worker's own Resend send, AECI-247/277);
     //   2. the subscriber's welcome email — their first touch (AECI-327), now
     //      carrying the tokenized unsubscribe link (AECI-537).

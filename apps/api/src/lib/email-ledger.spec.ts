@@ -323,7 +323,7 @@ describe('sendEmail (digests) writes the send ledger', () => {
     ]);
   });
 
-  it('writes suppressed rows for refused addresses and sent rows for the rest', async () => {
+  it('writes a suppressed row per recipient for a tier-limited digest on staging (AECI-1220)', async () => {
     const fetchImpl = vi.fn(async () => new Response('{"id":"re_d"}'));
     await sendEmail(
       { ENV: 'staging', RESEND_API_KEY: 'k', DB },
@@ -331,9 +331,10 @@ describe('sendEmail (digests) writes the send ledger', () => {
       fetchImpl as unknown as typeof fetch,
       silent,
     );
+    expect(fetchImpl).not.toHaveBeenCalled();
     expect((await rows()).map((r) => [r.outcome, r.tier])).toEqual([
       ['suppressed', 'staging'],
-      ['sent', 'staging'],
+      ['suppressed', 'staging'],
     ]);
   });
 

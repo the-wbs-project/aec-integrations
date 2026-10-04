@@ -281,7 +281,7 @@ async function createRequest(
   // data fix, a claim asserts control of a listing. `kind` is the gate rather than a
   // separate claim-only code path, so admitting corrections later is a predicate
   // change here and nothing else. Fail-open (absent
-  // `CLAIM_ALERT_EMAIL`/`RESEND_API_KEY` → `'skipped'`), so it can never delay or
+  // `SUPPORT_EMAIL`/`RESEND_API_KEY` → `'skipped'`), so it can never delay or
   // fail the 201. The claimant still gets no submit-time mail by design; their only
   // mail is the decision pair from `PATCH /api/admin/claims/:id`.
   //

@@ -101,6 +101,7 @@ import { recipientHash, sha256Hex } from './hash';
 import {
   isProductionTier,
   partitionRecipients,
+  refusedByTierRule,
   tierLabel,
   tierSubject,
   type DeliveryPolicyEnv,
@@ -288,9 +289,13 @@ export async function sendTransactionalEmail(
   // allowlist passes them on every tier and the result is the same. Keeping one
   // policy means a misconfigured operator var that points outside is still caught.
   // `registry.spec.ts` asserts that every `any-tier` email entry is operator mail.
+  //
+  // A `production-only` or `production-and-demo` entry (AECI-1220) is refused outright
+  // on any other tier, whatever the recipient.
   const { envRule } = getNotification(input.template);
-  if (partitionRecipients(c.env, [input.to]).suppressed.length > 0) {
-    await logSuppressed(console, input.template, envRule, c.env, [input.to]);
+  const tierRefused = refusedByTierRule(c.env, envRule);
+  if (tierRefused || partitionRecipients(c.env, [input.to]).suppressed.length > 0) {
+    await logSuppressed(console, input.template, envRule, c.env, [input.to], tierRefused);
     emit(c, 'suppressed', input.template);
     await recordSend(db, { ...row, outcome: 'suppressed' });
     return 'suppressed';
@@ -597,7 +602,7 @@ export function sendReviewSubmittedEmail(
 /**
  * Operator alert: a review is waiting in the moderation queue. Sent post-commit from
  * `POST /api/reviews`, beside the reviewer's confirmation. Recipient is
- * `ADMIN_ALERT_EMAIL` (the support inbox); absent → `'skipped'`, and the queue at
+ * `SUPPORT_EMAIL` (the support inbox); absent → `'skipped'`, and the queue at
  * `/admin/reviews` stays the durable record.
  *
  * Carries the whole review and the toxicity score, so the operator can triage from the
@@ -637,7 +642,7 @@ export function sendReviewSubmittedAlert(
       : {}),
   });
   return sendTransactionalEmail(c, {
-    to: c.env.ADMIN_ALERT_EMAIL ?? '',
+    to: c.env.SUPPORT_EMAIL ?? '',
     template: 'review-submitted-alert',
     subject: `[AECi] New review to moderate: ${review.productName}`,
     render: (link) => houseBody(shared(link), [intro], [introHtml]),
@@ -1032,7 +1037,7 @@ export async function sendClaimDecisionEmail(
 // ─── Attestation digests (§7.2 — AECI-302, digest since AECI-1204) ────────────
 // Sent by `lib/attestation-notify.ts` after the daily sweep. ONE email per unmuted
 // vendor seat per day, listing every due finding for that seat's vendor, and ONE
-// ops digest per day to `ADMIN_ALERT_EMAIL`. Before AECI-1204 each finding was its
+// ops digest per day to `SUPPORT_EMAIL`. Before AECI-1204 each finding was its
 // own email to every seat, so 40 findings meant 40 emails per seat in one morning,
 // on the same Resend account that sends sign-in links.
 //
@@ -1216,7 +1221,7 @@ export interface AttestationOpsDigestFinding {
 
 /**
  * The AECi-facing half of the sweep (`attestation-ops-digest`, AECI-1204): every
- * ops-routed finding of the day, in ONE email per `ADMIN_ALERT_EMAIL` address. It
+ * ops-routed finding of the day, in ONE email per `SUPPORT_EMAIL` address. It
  * replaced `attestation-ops-alert`, which sent one email per finding.
  *
  * Two detectors route here, and each section names its own:
@@ -1370,7 +1375,7 @@ export function sendEntitlementExpiringEmail(
 }
 
 /**
- * §7.2 `entitlement-expiring-admin` — the operator copy, to `ADMIN_ALERT_EMAIL`.
+ * §7.2 `entitlement-expiring-admin` — the operator copy, to `SUPPORT_EMAIL`.
  *
  * Exists because the vendor half needs the GoTrue admin seam and can therefore
  * degrade to `skipped`, while renewal is an offline, human, invoice-driven act
@@ -1441,15 +1446,6 @@ export function sendAccountDeletionEmail(
   });
 }
 
-/** Derive the `unsubscribe@<sender-domain>` mailbox from `EMAIL_FROM` (e.g.
- *  `AEC Integrations <notifications@aecintegrations.com>` → `unsubscribe@aecintegrations.com`).
- *  Null when the sender has no parseable domain, so the header is simply omitted.
- *  The address must be routed (Cloudflare Email Routing) for opt-outs to be actioned. */
-function unsubscribeMailto(env: Env): string | null {
-  const domain = env.EMAIL_FROM?.match(/@([A-Za-z0-9.-]+)/)?.[1];
-  return domain ? `unsubscribe@${domain}` : null;
-}
-
 /** Mailing-list welcome (AECI-327) — the subscriber's first touch, sent by
  *  `POST /api/subscribe` on a real insert / reactivation (not the idempotent
  *  already-listed no-op). Recipient is the new subscriber. Links to the directory
@@ -1460,8 +1456,12 @@ function unsubscribeMailto(env: Env): string | null {
  *  `token`, the in-body link points at the `/unsubscribe?token=…` page and the
  *  headers carry a true RFC 8058 one-click opt-out (`List-Unsubscribe-Post` +
  *  an https `List-Unsubscribe` target that hits `POST /api/unsubscribe?token=…`
- *  through the SSR passthrough), with the RFC 2369 `mailto:` as a secondary
- *  value. Without a host/token we fall back to the mailto-only header + link.
+ *  through the SSR passthrough). Without a host or a token there is no opt-out
+ *  link and no header. That happens only where `PUBLIC_SITE_URL` is unset (local
+ *  and PR previews): every deployed tier sets it, and every subscriber row carries a
+ *  token. Until AECI-1220 the header also carried an `unsubscribe@<sender-domain>`
+ *  mailto, and the no-host footer named that mailbox. Nobody owned that mailbox, so
+ *  an opt-out sent to it may never have been actioned. Both are gone.
  *
  *  Voice per PRODUCT.md: sentence case, no em dashes, no "verification is live"
  *  claim, no pricing. Draft copy — marketing owns final wording. */
@@ -1481,43 +1481,31 @@ export function sendMailingListWelcomeEmail(
   // in the directory." No newsletter sender exists, so the fallback promises nothing.
   const fallback = browseLead;
 
-  // Tokenized page link + one-click endpoint (preferred), else the mailto opt-out.
-  const mailto = unsubscribeMailto(c.env);
+  // Tokenized page link + RFC 8058 one-click endpoint. No host or token, no opt-out.
   const token = opts.token ?? null;
   const oneClickUrl =
     base && token ? `${base}/api/unsubscribe?token=${encodeURIComponent(token)}` : null;
-
-  // List-Unsubscribe: https one-click (RFC 8058) with the mailto as a secondary
-  // value when both are available; otherwise whichever single value we have.
-  const mailtoValue = mailto ? `<mailto:${mailto}?subject=unsubscribe>` : null;
-  const listUnsub = oneClickUrl
-    ? mailtoValue
-      ? `<${oneClickUrl}>, ${mailtoValue}`
-      : `<${oneClickUrl}>`
-    : mailtoValue;
   const unsubHeaders: Record<string, string> = {};
-  if (listUnsub) unsubHeaders['List-Unsubscribe'] = listUnsub;
-  if (oneClickUrl) unsubHeaders['List-Unsubscribe-Post'] = 'List-Unsubscribe=One-Click';
+  if (oneClickUrl) {
+    unsubHeaders['List-Unsubscribe'] = `<${oneClickUrl}>`;
+    unsubHeaders['List-Unsubscribe-Post'] = 'List-Unsubscribe=One-Click';
+  }
 
   // The body is rendered twice: once with the subscriber's token, once with a dud
   // for the operator copy. The dud keeps the layout identical, and the unsubscribe
   // page rejects it, so the operator's link cannot opt the subscriber out.
   //
-  // Only the browse link is tagged. The unsubscribe page and the mailto are opt-outs,
-  // and the tagger would leave them alone anyway (`link-tag.ts`).
+  // Only the browse link is tagged. The unsubscribe page is an opt-out, and the
+  // tagger would leave it alone anyway (`link-tag.ts`).
   const body = (tok: string | null, link: LinkTagger): EmailContent => {
     const browse = browseUrl ? link(browseUrl) : null;
     const pageUrl = base && tok ? `${base}/unsubscribe?token=${encodeURIComponent(tok)}` : null;
     const unsubText = pageUrl
       ? `You are on the AEC Integrations mailing list. To leave it, unsubscribe here: ${pageUrl}`
-      : mailto
-        ? `You are on the AEC Integrations mailing list. To leave it, email ${mailto} with the subject unsubscribe.`
-        : null;
+      : null;
     const unsubHtml = pageUrl
       ? `You are on the AEC Integrations mailing list. To leave it, <a href="${escapeHtml(pageUrl)}">unsubscribe</a>.`
-      : mailto
-        ? `You are on the AEC Integrations mailing list. To leave it, <a href="mailto:${escapeHtml(mailto)}?subject=unsubscribe">unsubscribe</a>.`
-        : null;
+      : null;
     const textParagraphs = [
       intro,
       what,
@@ -1569,7 +1557,7 @@ const STUCK_REASON_HELP: Record<string, string> = {
 
 /**
  * The request→Linear "persistent failure" admin alert (deferred from AECI-214).
- * Recipient is `ADMIN_ALERT_EMAIL`; called by `lib/admin-alert.ts`.
+ * Recipient is `SUPPORT_EMAIL`; called by `lib/admin-alert.ts`.
  *
  * AECI-854 rewrote this. Three things were wrong with the original:
  *
@@ -1679,17 +1667,18 @@ export interface StaleClaimSummary {
 }
 
 /**
- * Founder escalation: claim tickets that exist in Linear and that nobody has
+ * Stale-claim escalation: claim tickets that exist in Linear and that nobody has
  * started (AECI-862 / `STAGE_1_PHASE_6_SPEC.md` §6.2).
  *
  * A sibling of `sendStuckRequestAdminAlert` above, and deliberately a SEPARATE
- * message with a separate recipient. That one means the pipeline is broken and
- * goes to the operator who can fix it. This one means the pipeline worked and the
- * humans did not, so it goes to `FOUNDER_ALERT_EMAIL`. Merging them would bury a
- * business-response problem inside an infrastructure alert.
+ * message. That one means the pipeline is broken. This one means the pipeline worked
+ * and the humans did not. Merging them would bury a business-response problem inside
+ * an infrastructure alert. Both go to `SUPPORT_EMAIL` since AECI-1220. Before it this
+ * one went to `founders@`. It sends from production only (`envRule: 'production-only'`):
+ * staging and demo create no Linear issues, so a stale row there is a rehearsal.
  *
  * Band-throttled by the caller, not here (`lib/alert-bands.ts`): first as the
- * ticket crosses 24 hours, then once a day. Absent `FOUNDER_ALERT_EMAIL` or
+ * ticket crosses 24 hours, then once a day. Absent `SUPPORT_EMAIL` or
  * `RESEND_API_KEY` yields `'skipped'`, like every send in this file.
  *
  * Every row carries both links, because the two answer different questions: the
@@ -1769,7 +1758,7 @@ function subjectReasonSuffix(rows: readonly StuckRequestSummary[]): string {
 // When `apps/landing` retires, its two forms (`/api/subscribe`, `/api/feedback`)
 // are served straight by this Worker (via the SSR passthrough), so the operator
 // "new signup / new feedback" email the landing Worker used to send moves here.
-// Recipient is `ADMIN_ALERT_EMAIL` (the operator address the reconcile-sweep alert
+// Recipient is `SUPPORT_EMAIL` (the operator address the reconcile-sweep alert
 // already uses — no new secret to provision). Fired fire-and-forget via
 // `ctx.waitUntil` from `routes/landing-forms.ts`; fail-open like every send.
 // Internal ops mail, en-US (not i18n'd — the CLAUDE.md i18n rule is for rendered
@@ -1823,7 +1812,7 @@ export function sendLandingSignupNotification(
   });
 
   return sendTransactionalEmail(c, {
-    to: c.env.ADMIN_ALERT_EMAIL ?? '',
+    to: c.env.SUPPORT_EMAIL ?? '',
     template: 'landing-signup',
     subject: '[AECi] New mailing list signup',
     render: (link) => houseBody(shared(link), [intro], [escapeHtml(intro)]),
@@ -1837,7 +1826,7 @@ export function sendLandingSignupNotification(
  *
  * Fired fire-and-forget via `ctx.waitUntil` AFTER the atomic commit, so a mail
  * failure can never roll back an accepted claim or delay the `201` — same posture as
- * every other send here. Recipient is `CLAIM_ALERT_EMAIL`; absent → `'skipped'`.
+ * every other send here. Recipient is `SUPPORT_EMAIL`; absent → `'skipped'`.
  *
  * **It is sequenced after the Linear issue, not beside it (AECI-861).** Until then
  * `createRequest` fired this in a `waitUntil` that raced
@@ -1945,7 +1934,7 @@ export function sendClaimSubmittedNotification(
   });
 
   return sendTransactionalEmail(c, {
-    to: c.env.CLAIM_ALERT_EMAIL ?? '',
+    to: c.env.SUPPORT_EMAIL ?? '',
     template: 'claim-submitted-alert',
     subject: `[AECi] New vendor claim: ${opts.targetName}`,
     render: (link) => houseBody(shared(link), [intro], [introHtml]),
@@ -1975,7 +1964,7 @@ const CONTEST_ROUTE_REASON_TEXT: Record<ContestAlertRouteReason, string> = {
  * Fired fire-and-forget via `ctx.waitUntil` AFTER the submit batch commits, so a mail
  * failure can never roll back the contest or delay the `201`. Only an AECi-routed
  * submit sends it. An owner-routed one already reaches its decider through the portal
- * notification (§11b.8). Recipient is `CLAIM_ALERT_EMAIL`; absent → `'skipped'`.
+ * notification (§11b.8). Recipient is `SUPPORT_EMAIL`; absent → `'skipped'`.
  *
  * The values arrive already labelled: an `owner` value is a vendor id, and the caller
  * resolves it to a name. `null` renders as `none`, because "nobody owns it" is the fact
@@ -2035,7 +2024,7 @@ export function sendContestSubmittedNotification(
   });
 
   return sendTransactionalEmail(c, {
-    to: c.env.CLAIM_ALERT_EMAIL ?? '',
+    to: c.env.SUPPORT_EMAIL ?? '',
     template: 'contest-submitted-alert',
     subject,
     render: (link) => houseBody(shared(link), [intro], [introHtml]),
@@ -2234,7 +2223,7 @@ export function sendContestProtestReplyReminderEmail(
 /**
  * `protest-submitted-alert`: AECi learns a vendor filed a protest, which it must
  * decide in `/admin/contests` (§11b.12.11). Modelled on `contest-submitted-alert`:
- * house layout, a facts table, one CTA to the queue, to `CLAIM_ALERT_EMAIL`. The
+ * house layout, a facts table, one CTA to the queue, to `SUPPORT_EMAIL`. The
  * caller's key is `protest-submitted-alert:{contestId}:{protestedAt}`.
  */
 export function sendProtestSubmittedAlert(
@@ -2283,7 +2272,7 @@ export function sendProtestSubmittedAlert(
       : {}),
   });
   return sendTransactionalEmail(c, {
-    to: c.env.CLAIM_ALERT_EMAIL ?? '',
+    to: c.env.SUPPORT_EMAIL ?? '',
     template: 'protest-submitted-alert',
     subject: `[AECi] Protest: ${opts.field} on ${opts.integrationName}`,
     render: (link) => houseBody(shared(link), [intro], [introHtml]),
@@ -2384,7 +2373,7 @@ export function sendLandingFeedbackNotification(
   });
 
   return sendTransactionalEmail(c, {
-    to: c.env.ADMIN_ALERT_EMAIL ?? '',
+    to: c.env.SUPPORT_EMAIL ?? '',
     template: 'landing-feedback',
     subject: '[AECi] New feedback submitted',
     render: (link) => houseBody(shared(link), [intro], [escapeHtml(intro)]),
@@ -2468,10 +2457,15 @@ export async function sendEmail(
   }
   const supportCopy = !switches.isPaused(SUPPORT_COPY_KEY);
 
-  const { allowed: to, suppressed } = partitionRecipients(env, message.to);
+  // A tier-limited digest (AECI-1220, `production-only` or `production-and-demo`) is
+  // refused outright on any other tier, so the whole list is suppressed. Otherwise the tier policy filters it address by address.
+  const { envRule } = getNotification(message.notification);
+  const tierRefused = refusedByTierRule(env, envRule);
+  const { allowed: to, suppressed } = tierRefused
+    ? { allowed: [] as string[], suppressed: [...message.to] }
+    : partitionRecipients(env, message.to);
   if (suppressed.length > 0) {
-    const { envRule } = getNotification(message.notification);
-    await logSuppressed(logger, message.notification, envRule, env, suppressed);
+    await logSuppressed(logger, message.notification, envRule, env, suppressed, tierRefused);
     await recordRecipients(db, suppressed, { ...row, outcome: 'suppressed' }, logger);
   }
   if (to.length === 0) return 'suppressed';
@@ -2611,7 +2605,8 @@ function bccField(
 }
 
 /**
- * Log each recipient the tier delivery policy refused (AECI-1198). The record carries
+ * Log each recipient the tier delivery policy refused (AECI-1198), or every recipient of
+ * a tier-limited entry on a tier its rule refuses (AECI-1220). The record carries
  * the template, the tier and an unsalted hash of the address, never the address
  * itself. Never throws: a hashing failure must not turn a suppression into a send
  * error.
@@ -2622,11 +2617,15 @@ async function logSuppressed(
   envRule: string,
   env: DeliveryPolicyEnv,
   recipients: readonly string[],
+  tierRefused = false,
 ): Promise<void> {
   const tier = tierLabel(env);
+  const reason = tierRefused
+    ? `email: suppressed — this notification does not send on ${tier}`
+    : 'email: suppressed — recipient outside the internal allowlist on this tier';
   for (const address of recipients) {
     try {
-      logger.warn('email: suppressed — recipient outside the internal allowlist on this tier', {
+      logger.warn(reason, {
         template,
         envRule,
         tier,
