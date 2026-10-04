@@ -9,7 +9,7 @@ change it here first and carry the edit across; keep the table clean and liftabl
 
 | File | What it is |
 |---|---|
-| `project-config.json` | Topology (both projects, hosts, alert subscribers) + the **liveness registry** the CI sweep reads: fifteen of the seventeen crons. `protest-reply-reminder` and `vendor-snapshot` wait in `liveness.pendingFirstHeartbeat` (see Pending liveness entries). |
+| `project-config.json` | Topology (both projects, hosts, alert subscribers) + the **liveness registry** the CI sweep reads: all seventeen crons. An entry for a cron that has not run in production yet carries an `activeFrom` (see New crons: activeFrom). |
 | `insights.json` | 7 dashboards, 52 insights (32 board + 20 alert-source), as data. Names and descriptions are written for a **reader**, not for an archaeologist — see "Naming and descriptions". |
 | `alerts.json` | 20 PostHog alerts. Each names its source insight by **stable key** (`insightKey`, never by title) and carries the **retired Datadog query verbatim**. |
 | `apply.sh` | Thin applier over the three JSON files. Dashboards + insights to both projects, alerts to prod only. |
@@ -117,8 +117,8 @@ Two deliberate widenings ride along:
    home-stats were previously unwatched — several shipped after the Datadog monitors were
    written, and `indexnow-drain` and `claim-stale-check` did not exist until AECI-826 and
    AECI-862). AECI-1205 added `protest-reply-reminder` and AECI-1210 added
-   `vendor-snapshot`, so the query now sums fifteen metrics. Their failure halves are live,
-   but their liveness rows wait outside the sweep (see "Pending liveness entries" below).
+   `vendor-snapshot`, so the query now sums fifteen metrics. Their liveness rows are in the
+   sweep with an `activeFrom` grace (see "New crons: activeFrom" below).
    Three of the seventeen crons are absent from that query on purpose:
    `moderation-snapshot`, `algolia-drift` and `request-reconcile` heartbeat on a GAUGE with no
    `outcome` tag, so there is nothing to sum. `indexnow-drain` was missing until AECI-864 —
@@ -389,21 +389,34 @@ items settled since then are marked ✅ with their date:
 
 ---
 
-## Pending liveness entries
+## New crons: activeFrom
 
 The sweep reads the production project. A cron that has never run in production has no
-heartbeat there, so its row reports `MISSING` on every sweep and turns the scheduled job red.
+heartbeat there, so its row would report `MISSING` from merge until the first production run.
 That is a false alarm, not a dead cron.
 
-So a new cron waits in `liveness.pendingFirstHeartbeat` in `project-config.json` until its
-first production heartbeat appears. The sweep never reads that list.
-`apps/api/src/lib/cron-schedules.spec.ts` fails if a cron is in neither list, and its
-`LIVENESS_PENDING` constant names each one on purpose.
+**The rule (AECI-1221).** Ship a new cron's `liveness.crons` entry in the same PR as the cron,
+and give it an `activeFrom`:
 
-| Cron | Heartbeat to wait for | Then |
+- Format: a UTC instant, `YYYY-MM-DDTHH:MM:SSZ`. That is the only form jq `fromdateiso8601`
+  parses. `apps/api/src/lib/cron-schedules.spec.ts` checks it, and the sweep exits 2
+  ("unchecked") on a value it cannot parse.
+- Value: the planned production promote, plus one cron interval, plus a few hours of margin.
+  A new trigger can miss its first tick while it propagates, so allow for that too.
+- Before `activeFrom`, a missing heartbeat prints `PENDING` with a `::notice` and does not fail
+  the sweep. A heartbeat that exists is judged `ok` or `STALE` as usual.
+- After `activeFrom`, the entry is ordinary. If the promote slipped and the cron still has no
+  heartbeat, the sweep fails `MISSING`. Either promote, or move the date and say why in the
+  commit.
+- Once the first production heartbeat is in, delete `activeFrom` from the entry.
+
+`cron-schedules.spec.ts` fails if a cron in `CRON_JOBS` has no entry. There is no side list:
+the old `liveness.pendingFirstHeartbeat` list is gone.
+
+| Cron | Heartbeat to wait for | `activeFrom` |
 |---|---|---|
-| `protest-reply-reminder` (AECI-1205) | `aeci.contest.protest_reminder.job` in production | Move its object into `liveness.crons` and drop it from `LIVENESS_PENDING`. A follow-up issue tracks this. |
-| `vendor-snapshot` (AECI-1210) | `aeci.vendor_snapshot.run` in production | Move its object into `liveness.crons` and drop it from `LIVENESS_PENDING`. |
+| `protest-reply-reminder` (AECI-1205) | `aeci.contest.protest_reminder.job` | `2026-10-12T12:00:00Z`. No production heartbeat on 2026-10-04. |
+| `vendor-snapshot` (AECI-1210) | `aeci.vendor_snapshot.run` | `2026-10-12T12:00:00Z`. No production heartbeat on 2026-10-04. |
 
 ## The liveness sweep drill
 
@@ -422,6 +435,17 @@ Run on 2026-08-24 via `PH_APP_HOST=http://127.0.0.1:<port>`:
 | `one-stale` | `aeci.waf.poll` present, age 400 min (max 180) | that row prints `STALE`, `::error title=Cron heartbeat STALE: waf-poll::'aeci.waf.poll' last reported 400 minutes ago; the '0 * * * *' schedule allows 180.`, **exit 1** |
 | `http-500` | PostHog returns 500 | `Cron liveness is UNCHECKED for this run — treat it as unknown, not as healthy`, **exit 2** |
 | no key | `POSTHOG_CLI_API_KEY` unset | `Cron liveness is UNCHECKED until then — this is not a pass`, **exit 2** |
+
+The `activeFrom` grace (AECI-1221) is drilled on every CI run, not once.
+`scripts/posthog-liveness-sweep.test.mjs` runs the real script against the same kind of stub,
+under root `pnpm test:scripts`:
+
+| Case | Result |
+|---|---|
+| heartbeat missing, `activeFrom` in the future | row prints `PENDING`, `::notice`, **exit 0** |
+| heartbeat missing, `activeFrom` passed | `MISSING`, **exit 1** |
+| heartbeat stale, `activeFrom` in the future | `STALE`, **exit 1**. The grace covers only a missing heartbeat |
+| `activeFrom` not `YYYY-MM-DDTHH:MM:SSZ` | `UNCHECKED`, **exit 2** |
 
 The stub also echoed back what the script sent, confirming
 `POST /api/projects/354071/query/`, `Authorization: Bearer phx_…`, and the thirteen-metric

@@ -25,7 +25,7 @@ browser RUM SDK, the `observability/datadog/` monitor + dashboard JSON, every
 | Question | Where to look |
 |---|---|
 | "My phone buzzed — what fired?" | One of the 14 PostHog alerts live in production (hourly cadence, production project only, verified 2026-09-24). **18 are committed**: the AECI-1099 `profile-ensure-failed` alert and the three AECI-1206 email alerts reach PostHog only when `apply.sh` is re-run. **12 of the 14 live alerts are `Errored` today (AECI-1115)**, see Alerts below |
-| "Did the 08:00 cron actually run?" | The **CI liveness sweep** (`.github/workflows/posthog-liveness-sweep.yml`), every 3 h, **fifteen** of the seventeen crons watched. `protest-reply-reminder` and `vendor-snapshot` join after their first production heartbeat. It runs OUTSIDE the Worker, which is what lets it detect a dead Worker |
+| "Did the 08:00 cron actually run?" | The **CI liveness sweep** (`.github/workflows/posthog-liveness-sweep.yml`), every 3 h, all **seventeen** crons watched. A cron production has not run yet carries an `activeFrom` and prints `PENDING` until then (AECI-1221). It runs OUTSIDE the Worker, which is what lets it detect a dead Worker |
 | "What does this metric mean?" | This document |
 | "Show me the graph" | PostHog — 7 dashboards, 50 committed insights, applied from `observability/posthog/insights.json` |
 | "Read the error log for this request" | The PostHog Logs explorer |
@@ -495,20 +495,21 @@ no matching heartbeat, or a heartbeat with no row, is a bug in the instrumentati
 — not a discrepancy to reconcile by hand.
 
 **Coverage widened in the port.** Datadog watched **six** of these crons for
-absence; the CI sweep watches **fifteen** of the seventeen (`observability/posthog/project-config.json`
-holds the registry, one row per cron with its own staleness allowance). **`protest-reply-reminder`
-and `vendor-snapshot` are held out until their first production heartbeat.** The sweep reads
-production, where those crons have never run, so their rows would report MISSING on every sweep
-and fail the job red. Their entries are parked in `liveness.pendingFirstHeartbeat`. Move each
-into `liveness.crons` once its heartbeat (`aeci.contest.protest_reminder.job`,
-`aeci.vendor_snapshot.run`) appears in production. A follow-up issue tracks the
-protest-reminder move.
-`cron-schedules.spec.ts` fails if a cron is in neither list.
+absence; the CI sweep watches all **seventeen** (`observability/posthog/project-config.json`
+holds the registry, one row per cron with its own staleness allowance). **A new cron ships its
+entry with an `activeFrom` (AECI-1221).** The sweep reads production, where a new cron has never
+run, so its row would report MISSING from merge until the first production run. Before
+`activeFrom` a missing heartbeat prints `PENDING` and does not fail the sweep. After it the row
+is ordinary. `protest-reply-reminder` and `vendor-snapshot` carry `activeFrom`
+`2026-10-12T12:00:00Z`; delete it once each heartbeat (`aeci.contest.protest_reminder.job`,
+`aeci.vendor_snapshot.run`) appears in production. The rule is
+`observability/posthog/README.md` §"New crons: activeFrom".
+`cron-schedules.spec.ts` fails if a cron has no entry.
 
 | Cron | `job_runs.job` | Its liveness signal |
 |---|---|---|
 | 00:15 metrics snapshot | `metrics-snapshot` | `aeci.metrics_snapshot.run` (`outcome:success\|partial\|failed`) |
-| 00:30 vendor snapshot | `vendor-snapshot` | `aeci.vendor_snapshot.run` (`outcome:ok\|failed`), emitted on every run including failures. Staleness allowance 26 h once it joins the sweep. **Not swept yet:** held in `pendingFirstHeartbeat` until the first production heartbeat. Added by AECI-1210 |
+| 00:30 vendor snapshot | `vendor-snapshot` | `aeci.vendor_snapshot.run` (`outcome:ok\|failed`), emitted on every run including failures. Staleness allowance 26 h. In the sweep with `activeFrom` `2026-10-12T12:00:00Z`, so it prints `PENDING` until its first production heartbeat (AECI-1221). Added by AECI-1210 |
 | Mondays 02:00 ASN registry (`0 2 * * 2` — CF day-of-week is 1=Sunday) | `asn-registry` | `aeci.asn_registry.refresh` (`outcome:ok\|partial\|failed\|skipped`) |
 | 03:00 retention prune | `retention-prune` | `aeci.retention.prune` (`outcome:ok\|skipped\|failed`) |
 | 04:00 data quality | `data-quality` | `aeci.data_quality.job` (`outcome:success\|failed`) |
@@ -521,7 +522,7 @@ protest-reminder move.
 | 11:00 entitlement term expiry | `entitlement-expiry` | `aeci.entitlement.expiry.job` (`outcome:ok\|failed`) — plus the `aeci.entitlement.expiry_due` gauge, emitted every run including zero. As with the 10:00 sweep the zero series is the real liveness signal, and for a longer time: every backfilled entitlement is perpetual (`period_end IS NULL`) and structurally invisible to the partial expiry index, so "0 due" is healthy and no-data is the failure. Added by AECI-613 |
 | `*/15` request reconcile | `request-reconcile` | `aeci.linear.reconcile.stuck` (gauge) |
 | `5 0 * * *` IndexNow drain (daily since AECI-1136; `*/20` before) | `indexnow-drain` | `aeci.indexnow.drain` (`outcome:ok\|refused\|failed\|skipped`) — emitted on **every** run including the ones that make no outbound request (empty buffer, no creds). That is the whole point: `aeci.indexnow.submit` is emitted only when a submission is attempted, so a day with nothing buffered would look identical to a dead cron. Staleness allowance 26 h, the daily-job house value (90 min while it ran every 20 minutes) — the margin is for the *sweep's* lateness, not the job's. Added by AECI-826 |
-| 12:00 protest reply reminder | `protest-reply-reminder` | `aeci.contest.protest_reminder.job` (`outcome:ok\|failed`), emitted on every run including the ones with no protest due, plus the `aeci.contest.protest_reminder.due` gauge. Staleness allowance 26 h once it joins the sweep. **Not swept yet:** held in `pendingFirstHeartbeat` until the first production heartbeat. Added by AECI-1205 |
+| 12:00 protest reply reminder | `protest-reply-reminder` | `aeci.contest.protest_reminder.job` (`outcome:ok\|failed`), emitted on every run including the ones with no protest due, plus the `aeci.contest.protest_reminder.due` gauge. Staleness allowance 26 h. In the sweep with `activeFrom` `2026-10-12T12:00:00Z`, so it prints `PENDING` until its first production heartbeat (AECI-1221). Added by AECI-1205 |
 | `25 */6` claim staleness | `claim-stale-check` | `aeci.linear.claim_stale.job` (`outcome:ok\|failed`) — emitted on **every** run, including the ones that find nothing and the ones where the Linear read failed. Staleness allowance 8 h (one cadence plus margin). Added by AECI-862 |
 | hourly WAF poll | `waf-poll` | `aeci.waf.poll` (`outcome:ok`) |
 
@@ -1222,7 +1223,7 @@ duplicate either here, or the two will drift and the doc will lose.
 | File | What it is |
 |---|---|
 | `observability/posthog/README.md` | The **26-row monitor disposition table** (every Datadog monitor → its new home, with its retired threshold), the AW6 judgement calls, the migration hazards, the drill record, the numbered manual steps and the operator checklist. `docs/RUNBOOKS.md` carries the disposition table as well, for the on-call reader. |
-| `observability/posthog/project-config.json` | Project topology, alert subscribers, and the **cron liveness registry** the CI sweep reads (fifteen watched, `protest-reply-reminder` pending its first production heartbeat). |
+| `observability/posthog/project-config.json` | Project topology, alert subscribers, and the **cron liveness registry** the CI sweep reads (all seventeen watched; an entry may carry an `activeFrom` grace, AECI-1221). |
 | `observability/posthog/insights.json` | 7 dashboards, 52 insights (32 board + 20 alert-source), as data. Board and tile **names and descriptions are written for the reader** — plain English, no issue ids or metric names; the Datadog lineage lives in a repo-only `notes` field. Convention and the `previousNames` rename mechanism: `observability/posthog/README.md` §"Naming and descriptions". |
 | `observability/posthog/alerts.json` | 20 alerts. Each names its source insight by **stable key** (`insightKey`), not by title, and carries the **retired Datadog query verbatim**. Seven have no Datadog predecessor: `indexnow-failure-rate` (AECI-826), `profile-ensure-failed` (AECI-1099), the three email alerts `email-failure-rate`, `email-volume-spike` and `email-suppressed-in-production` (AECI-1206), and the two delivery alerts `email-bounce-rate` and `email-complaint-rate` (AECI-1222, not yet applied). Seven in all. |
 | `observability/posthog/apply.sh` | The applier. `--dry-run` / `--verify`; dashboards + insights to **both** projects, alerts to **prod only**. |
@@ -1367,7 +1368,8 @@ telemetry step in this repo is best-effort (`posthog-deploy-marker.sh` always ex
 0), so the surrounding convention points the other way; the correct precedent is
 `.github/workflows/reconcile-counts.yml`.
 
-Exit codes are deliberately three-valued: **0** = every watched heartbeat fresh (fifteen today); **1**
+Exit codes are deliberately three-valued: **0** = every watched heartbeat fresh (seventeen today),
+or missing but PENDING (a `::notice::`, only for a cron whose `activeFrom` has not passed); **1**
 = a heartbeat is MISSING or STALE (with a GitHub `::error::` annotation naming the
 cron and its allowance); **2** = the sweep could not run at all (PostHog 5xx, or no
 `POSTHOG_CLI_API_KEY`) and reports "UNCHECKED, not healthy". **"The sweep could not
