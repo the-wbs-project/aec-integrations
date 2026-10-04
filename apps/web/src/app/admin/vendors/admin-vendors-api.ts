@@ -20,7 +20,6 @@ import { Injectable, inject } from '@angular/core';
 import { firstValueFrom } from 'rxjs';
 
 import type {
-  AdminRevokeSeat,
   AdminVendorIntegrationsQuery,
   AdminVendorIntegrationsResponse,
   AdminVendorAuditQuery,
@@ -90,17 +89,19 @@ export class AdminVendorsApi {
 
   /**
    * `POST /api/admin/integrations/:id/retire` or `/restore` (AECI-1046). The reason
-   * is required and goes into the audit row only.
+   * is required and, since AECI-1159, shown to the integration's owner. The optional
+   * internal note goes into the audit row only.
    */
   setIntegrationRetired(
     integrationId: string,
     mode: 'retire' | 'restore',
     reason: string,
+    internalNote = '',
   ): Promise<RetireIntegrationResponse> {
     return firstValueFrom(
       this.http.post<RetireIntegrationResponse>(
         `/api/admin/integrations/${encodeURIComponent(integrationId)}/${mode}`,
-        { reason },
+        overrideReasonBody(reason, internalNote),
       ),
     );
   }
@@ -126,16 +127,29 @@ export class AdminVendorsApi {
    * person is `/admin/users/:id`. It only un-grants this one person's access.
    *
    * AECI-1191: the body carries the admin's required `reason`, which the API
-   * records in the `vendor_claim.seat_revoked` audit row.
+   * records in the `vendor_claim.seat_revoked` audit row. AECI-1159: the reason is
+   * shown to the vendor's remaining seats, and the optional internal note is not.
    */
-  revokeSeat(vendorId: string, userId: string, reason: string): Promise<void> {
+  revokeSeat(vendorId: string, userId: string, reason: string, internalNote = ''): Promise<void> {
     return firstValueFrom(
       this.http.delete<void>(
         `/api/admin/vendors/${encodeURIComponent(vendorId)}/seats/${encodeURIComponent(userId)}`,
-        { body: { reason } satisfies AdminRevokeSeat },
+        { body: overrideReasonBody(reason, internalNote) },
       ),
     );
   }
+}
+
+/**
+ * The body of an AECi override (AECI-1159): the vendor reason, and the internal
+ * note only when one was written, so a blank note is never sent.
+ */
+export function overrideReasonBody(
+  reason: string,
+  internalNote: string,
+): { reason: string; internalNote?: string } {
+  const note = internalNote.trim();
+  return note ? { reason, internalNote: note } : { reason };
 }
 
 function toParams(query: Record<string, string | number | boolean | undefined>): HttpParams {

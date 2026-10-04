@@ -27,8 +27,9 @@ const ENTRIES = Object.entries(NOTIFICATIONS) as Array<[string, NotificationEntr
  * AECI-1203 removed the sweep's re-send of the claim alert, `claim-submitted-alert-retry`: 42.
  * AECI-1205 added the four protest and decline emails: 46.
  * AECI-1180 added the vendor review email and the two review feed rows: 49.
+ * AECI-1159 added the three AECi override feed rows: 52.
  */
-const EXPECTED_COUNT = 49;
+const EXPECTED_COUNT = 52;
 
 const sendsEmail = (e: NotificationEntry) => e.channel === 'email' || e.channel === 'email+portal';
 
@@ -66,7 +67,7 @@ describe('notification registry shape', () => {
       email: 27,
       'email+portal': 1,
       'supabase-email': 1,
-      portal: 16,
+      portal: 19,
       linear: 4,
     });
   });

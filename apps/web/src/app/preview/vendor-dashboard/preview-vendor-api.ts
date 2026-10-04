@@ -98,6 +98,7 @@ import {
   VENDOR_INTEGRATIONS_FIXTURE,
   VENDOR_OWNED_INTEGRATIONS_FIXTURE,
   VENDOR_NOTIFICATIONS_FIXTURE,
+  VENDOR_OVERRIDE_NOTIFICATIONS_FIXTURE,
   VENDOR_PRODUCT_CONNECTORS_FIXTURE,
   VENDOR_PRODUCT_VERSIONS_FIXTURE,
   VENDOR_SEATS_FIXTURE,
@@ -669,9 +670,11 @@ export class PreviewVendorApi extends VendorApi {
 
   override async getNotifications(): Promise<ListVendorNotificationsResponse> {
     // Newest first, as the ledger read orders them.
-    const rows = [...VENDOR_CONTEST_NOTIFICATIONS_FIXTURE, ...VENDOR_NOTIFICATIONS_FIXTURE].sort(
-      (a, b) => (a.created_at < b.created_at ? 1 : a.created_at > b.created_at ? -1 : 0),
-    );
+    const rows = [
+      ...VENDOR_OVERRIDE_NOTIFICATIONS_FIXTURE,
+      ...VENDOR_CONTEST_NOTIFICATIONS_FIXTURE,
+      ...VENDOR_NOTIFICATIONS_FIXTURE,
+    ].sort((a, b) => (a.created_at < b.created_at ? 1 : a.created_at > b.created_at ? -1 : 0));
     return { notifications: clone(rows) };
   }
 

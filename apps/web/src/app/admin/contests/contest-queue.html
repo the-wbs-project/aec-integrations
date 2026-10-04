@@ -680,8 +680,8 @@
             class="block text-xs font-bold uppercase tracking-[0.08em] text-(--text-secondary)"
           >
             @if (acceptNoteRequired(c)) {
-            <span i18n="@@admin.contests.accept.labelRequired"
-              >Why you are changing the owner's value (required)</span
+            <span i18n="@@admin.contests.accept.vendorLabelRequired"
+              >Reason shown to the vendor (required)</span
             >
             } @else {
             <span i18n="@@admin.contests.accept.label">Note for the review issue (optional)</span>
@@ -689,10 +689,10 @@
           </label>
           <p [id]="'contest-note-' + c.id + '-help'" class="text-xs text-(--text-secondary)">
             @if (acceptNoteRequired(c)) {
-            <span i18n="@@admin.contests.accept.noteHelpRequired"
-              >The owner holds this integration, so accepting changes their listing. Your note is
-              recorded in the audit trail, copied into the Linear issue and shown to the vendor that
-              filed the contest.</span
+            <span i18n="@@admin.contests.accept.vendorHelpRequired"
+              >The owner holds this integration, so accepting changes their listing. The owner and
+              the vendor that filed the contest both read this in their portal messages. It is also
+              recorded in the audit trail and copied into the Linear issue.</span
             >
             } @else {
             <span i18n="@@admin.contests.accept.noteHelp"
@@ -716,11 +716,26 @@
             [id]="'contest-note-' + c.id + '-error'"
             role="alert"
             class="text-sm font-medium text-(--text-primary)"
-            i18n="@@admin.contests.accept.noteMissing"
+            i18n="@@admin.contests.accept.vendorReasonMissing"
           >
-            Write a note before you accept. The owner holds this integration.
+            Write a reason for the vendor before you accept. The owner holds this integration.
           </p>
           }
+          <label
+            [attr.for]="'contest-internal-note-' + c.id"
+            class="block pt-2 text-xs font-bold uppercase tracking-[0.08em] text-(--text-secondary)"
+            i18n="@@admin.contests.accept.internalNoteLabel"
+          >
+            Internal note (optional, never shown to the vendor)
+          </label>
+          <textarea
+            [id]="'contest-internal-note-' + c.id"
+            rows="2"
+            [attr.maxlength]="internalNoteMax"
+            [value]="internalNote()"
+            (input)="onInternalNoteInput($event)"
+            class="w-full rounded-(--radius-md) border border-(--border-default) bg-(--surface-base) px-3 py-2 text-sm text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+          ></textarea>
           <div class="flex flex-wrap gap-3 pt-1">
             <button
               type="submit"

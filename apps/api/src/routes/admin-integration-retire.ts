@@ -14,7 +14,9 @@
  *
  * 1. **Admin only, rate-limited after the guard.** `requireAdmin()` then
  *    `rateLimit('write')` at registration. A required `reason` (1 to 1000 characters)
- *    goes into the audit row. It is not shown to any vendor.
+ *    goes into the audit row with `reasonVisibility: 'vendor'`, and an optional
+ *    `internalNote` beside it. Since AECI-1159 the OWNER's notice carries the reason.
+ *    The endpoint vendors' notices stay generic, and no vendor sees the note.
  * 2. **Vendor-held rows only.** An AECi-held row answers
  *    `409 INTEGRATION_NOT_VENDOR_HELD`: promote, the review app and the retraction
  *    tools own it, and retiring it here would hide a row the next promote still writes.
@@ -26,7 +28,8 @@
  * 4. **Everyone on the row is told.** A `notification.sent` row
  *    (`kind: 'integration_retire'`, `retiredBy: 'aeci'`) goes to the owner vendor and
  *    to every vendor of either endpoint, in the same batch. The owner is told because,
- *    unlike an owner retire, it did not do this itself.
+ *    unlike an owner retire, it did not do this itself, and its row alone carries the
+ *    reason (AECI-1159).
  * 5. **Not a delete.** Claims, attestations, links and contests are kept. A retire
  *    closes the row's open contests as withdrawn, exactly as the owner retire does.
  *    Restore reopens none.
@@ -50,6 +53,7 @@ import {
   type AdminVendorIntegrationRow,
   type AdminVendorIntegrationsResponse,
   type RetireIntegrationResponse,
+  vendorVisibleReasonMetadata,
 } from '@aeci/shared';
 import { compareText } from '@aeci/shared/text-sort';
 import { and, eq, isNotNull, or } from 'drizzle-orm';
@@ -141,7 +145,7 @@ function handlerFor(mode: RetireMode, dbFor: DbFactory): (c: VendorContext) => P
     if (!integrationId) {
       throw new ApiError(400, 'VALIDATION_FAILED', 'Missing id', { field: 'id' });
     }
-    const { reason } = await parseJsonBody(c, AdminRetireIntegrationBodySchema);
+    const { reason, internalNote } = await parseJsonBody(c, AdminRetireIntegrationBodySchema);
     const { db } = writeDb(c, dbFor);
 
     // Either table (AECI-1091): `integrations` first, then the pair table.
@@ -179,7 +183,9 @@ function handlerFor(mode: RetireMode, dbFor: DbFactory): (c: VendorContext) => P
       actor: { actorId: session.userId, actorType: auditActorType(session) },
       retiredBy: 'aeci' as const,
       source: ADMIN_RETIRE_AUDIT_SOURCE,
-      metadata: { reason },
+      // AECI-1159: the reason is written for the vendor and marked so. The owner's
+      // notice carries it; the internal note stays on the audit row alone.
+      metadata: vendorVisibleReasonMetadata({ reason, internalNote }),
       actingVendorId: null,
       recipients,
       owner: { id: owner?.id ?? null, name: owner?.companyName ?? null },

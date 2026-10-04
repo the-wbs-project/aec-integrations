@@ -457,7 +457,9 @@ describe('ContestQueue', () => {
 
       expect(api.decide).not.toHaveBeenCalled();
       expect(area.getAttribute('aria-invalid')).toBe('true');
-      expect(el.querySelector('#contest-note-k1-error')?.textContent).toContain('Write a note');
+      expect(el.querySelector('#contest-note-k1-error')?.textContent).toContain(
+        'Write a reason for the vendor',
+      );
       expect(area.getAttribute('aria-describedby')).toContain('contest-note-k1-error');
       expect(document.activeElement).toBe(area);
     });
@@ -477,6 +479,33 @@ describe('ContestQueue', () => {
       });
     });
 
+    it('labels the reason as shown to the vendor and sends the internal note (AECI-1159)', async () => {
+      const { fixture, el, api } = await setup(
+        makeApiMock([makeContest({ id: 'k1', accept_note_required: true })]),
+      );
+      buttonByText(el, 'Accept').click();
+      fixture.detectChanges();
+      expect(el.querySelector('label[for="contest-note-k1"]')?.textContent).toContain(
+        'Reason shown to the vendor (required)',
+      );
+      const note = el.querySelector('#contest-internal-note-k1') as HTMLTextAreaElement;
+      expect(el.querySelector('label[for="contest-internal-note-k1"]')?.textContent).toContain(
+        'Internal note (optional, never shown to the vendor)',
+      );
+      expect(note.required).toBe(false);
+      typeNote(fixture, el, 'Their docs show the new link.');
+      note.value = '  Checked by phone.  ';
+      note.dispatchEvent(new Event('input'));
+      fixture.detectChanges();
+      submitForm(el);
+      await flush(fixture);
+      expect(api.decide).toHaveBeenCalledWith('k1', {
+        decision: 'accept',
+        note: 'Their docs show the new link.',
+        internalNote: 'Checked by phone.',
+      });
+    });
+
     it('asks for the note when the API says the row was claimed after load', async () => {
       const api = makeApiMock([makeContest({ id: 'k1' })]);
       const { fixture, el } = await setup(api);
@@ -486,7 +515,9 @@ describe('ContestQueue', () => {
       submitForm(el);
       await flush(fixture);
 
-      expect(el.querySelector('#contest-note-k1-error')?.textContent).toContain('Write a note');
+      expect(el.querySelector('#contest-note-k1-error')?.textContent).toContain(
+        'Write a reason for the vendor',
+      );
       expect(el.querySelector('label[for="contest-note-k1"]')?.textContent).toContain('(required)');
       expect(el.querySelector('article')).not.toBeNull();
     });

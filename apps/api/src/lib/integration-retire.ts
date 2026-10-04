@@ -8,6 +8,7 @@
 
 import {
   orderedPairSlugs,
+  type REASON_VISIBILITY_VENDOR,
   type IntegrationRetireEvent,
   type IntegrationRetiredBy,
 } from '@aeci/shared';
@@ -124,6 +125,13 @@ export interface RetireNotificationMetadata {
   ownerVendorId: string | null;
   ownerName: string | null;
   pairSlugs: readonly [string, string] | null;
+  /**
+   * AECI-1159: AECi's vendor-visible reason, on an AECi retire or restore, on the
+   * OWNER's row only, with the marker the feed requires. Absent on every endpoint
+   * vendor's row, on an owner retire, and on rows written before AECI-1159.
+   */
+  reason?: string;
+  reasonVisibility?: typeof REASON_VISIBILITY_VENDOR;
 }
 
 /**

@@ -152,11 +152,34 @@ describe('AdminLogoEditor', () => {
     const label = fixture.nativeElement.querySelector(
       `label[for="${area.id}"]`,
     ) as HTMLLabelElement;
-    expect(label.textContent).toContain('Reason (required)');
+    expect(label.textContent).toContain('Reason shown to the vendor (required)');
     expect(area.required).toBe(true);
     expect(
       fixture.nativeElement.querySelector(`#${area.getAttribute('aria-describedby')}`),
     ).toBeTruthy();
+  });
+
+  it('offers an optional internal note, labelled as never shown, and sends it (AECI-1159)', async () => {
+    const fixture = mount();
+    const note = fixture.nativeElement.querySelectorAll('textarea')[1] as HTMLTextAreaElement;
+    const label = fixture.nativeElement.querySelector(
+      `label[for="${note.id}"]`,
+    ) as HTMLLabelElement;
+    expect(label.textContent).toContain('Internal note (optional, never shown to the vendor)');
+    expect(note.required).toBe(false);
+    typeUrl(fixture, UPLOADED);
+    typeReason(fixture);
+    note.value = '  Trademark ticket 9.  ';
+    note.dispatchEvent(new Event('input'));
+    saveButton(fixture).click();
+    const request = http.expectOne(`/api/admin/vendors/00000000-0000-4000-8000-000000000001/logo`);
+    expect(request.request.body).toEqual({
+      logo_url: UPLOADED,
+      reason: REASON,
+      internalNote: 'Trademark ticket 9.',
+    });
+    request.flush({ logo_url: UPLOADED });
+    await fixture.whenStable();
   });
 
   it.each([

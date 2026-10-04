@@ -11,7 +11,7 @@ import {
   paginatedResponseSchema,
   type SortOrder,
 } from './common';
-import { AdminReasonSchema } from './admin-reason';
+import { AdminOverrideReasonSchema } from './admin-reason';
 import { IntegrationRetiredBySchema } from './integration-retire';
 import { ProductRoleSchema } from './products';
 import { VendorSeatInviteSchema, VendorSeatSchema } from './vendor';
@@ -567,10 +567,12 @@ export type ProvisionVendorSeat = z.infer<typeof ProvisionVendorSeatSchema>;
 
 /**
  * `DELETE /api/admin/vendors/:id/seats/:userId` body (AECI-1191). The reason is
- * required and lands in the `vendor_claim.seat_revoked` audit row. The portal's
+ * required and lands in the `vendor_claim.seat_revoked` audit row. Since AECI-1159
+ * it is shown to the vendor's remaining seats on a portal notice; with no seat
+ * left, nothing is sent. `internalNote` is optional and never shown. The portal's
  * owner-only `DELETE /api/vendor/seats/:userId` takes no body.
  */
-export const AdminRevokeSeatSchema = z.object({ reason: AdminReasonSchema }).strict();
+export const AdminRevokeSeatSchema = AdminOverrideReasonSchema.strict();
 export type AdminRevokeSeat = z.infer<typeof AdminRevokeSeatSchema>;
 
 /**

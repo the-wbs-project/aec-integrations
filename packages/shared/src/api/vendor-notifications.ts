@@ -238,13 +238,67 @@ export type VendorReviewResponseNotification = z.infer<
   typeof VendorReviewResponseNotificationSchema
 >;
 
+/**
+ * What AEC Integrations changed on a record the vendor holds (AECI-1159,
+ * `STAGE_2_VENDOR_PORTAL_SPEC.md` §11d). An AECi retire or restore is not here: it
+ * stays an `integration_retire` row, which carries the reason on the owner's row.
+ *
+ *   - `field_overridden`: AECi accepted a contest that changed a field the vendor
+ *     holds as the integration's owner. Goes to the displaced owner.
+ *   - `logo_overridden`: AECi replaced the vendor's company logo or a product logo.
+ *   - `seat_revoked`: AECi removed one of the vendor's seats. Goes to the vendor,
+ *     which is its remaining seats. With no seat left nothing is written.
+ */
+export const AECI_OVERRIDE_NOTIFICATION_EVENTS = [
+  'field_overridden',
+  'logo_overridden',
+  'seat_revoked',
+] as const;
+export type AeciOverrideNotificationEvent = (typeof AECI_OVERRIDE_NOTIFICATION_EVENTS)[number];
+
+/** The record a `logo_overridden` row is about. */
+export const AeciOverrideLogoSubjectSchema = z.object({
+  type: z.enum(['vendor', 'product']),
+  slug: z.string(),
+  name: z.string(),
+});
+export type AeciOverrideLogoSubject = z.infer<typeof AeciOverrideLogoSubjectSchema>;
+
+/**
+ * One AECi override addressed to this vendor (`kind: 'aeci_override'`, AECI-1159).
+ *
+ * Written in the SAME batch as the override, as a `notification.sent` audit row.
+ * Every vendor gets it on every plan: there is no tier rule. `reason` is AECi's
+ * vendor-visible reason. The admin's internal note is never on the row. The other
+ * fields are snapshots and are `null` where the event has no such thing.
+ */
+export const VendorAeciOverrideNotificationSchema = z.object({
+  kind: z.literal('aeci_override'),
+  /** The `audit_log` row id. */
+  id: z.string().uuid(),
+  event: z.enum(AECI_OVERRIDE_NOTIFICATION_EVENTS),
+  reason: z.string(),
+  /** `field_overridden`: the integration and the contested field. */
+  integration_id: z.string().uuid().nullable().default(null),
+  integration_name: z.string().nullable().default(null),
+  field: z.string().nullable().default(null),
+  pair_path: z.string().nullable().default(null),
+  /** `logo_overridden`: the company or product whose logo changed. */
+  logo_subject: AeciOverrideLogoSubjectSchema.nullable().default(null),
+  /** `seat_revoked`: the removed seat's display name, when it had one. */
+  seat_name: z.string().nullable().default(null),
+  created_at: z.string(),
+});
+export type VendorAeciOverrideNotification = z.infer<typeof VendorAeciOverrideNotificationSchema>;
+
 /** One row of the feed. Discriminated on `kind`; see the attestation member for
  *  why its `kind` may be absent. `integration_claim` joined in AECI-1005
  *  (`VendorIntegrationClaimNotificationSchema` in `./integration-claims`), and
  *  `integration_retire` in AECI-1010 (`./integration-retire`), and
  *  `integration_update` in AECI-1006 (`./integration-edits`), and
  *  `integration_create` in AECI-1011 (`./integration-create`), and `claim_added` in
- *  AECI-1153 (above), and `review` and `review_response` in AECI-1180 (above). */
+ *  AECI-1153 (above), and `review` and `review_response` in AECI-1180 (above), and
+ *  `aeci_override` in AECI-1159 (above). */
 export const VendorNotificationSchema = z.union([
   VendorContestNotificationSchema,
   VendorIntegrationClaimNotificationSchema,
@@ -254,6 +308,7 @@ export const VendorNotificationSchema = z.union([
   VendorClaimAddedNotificationSchema,
   VendorReviewNotificationSchema,
   VendorReviewResponseNotificationSchema,
+  VendorAeciOverrideNotificationSchema,
   VendorAttestationNotificationSchema,
 ]);
 export type VendorNotification = z.infer<typeof VendorNotificationSchema>;
@@ -263,7 +318,7 @@ export type VendorNotification = z.infer<typeof VendorNotificationSchema>;
  *  carries an explicit `kind`, so this names them rather than testing for one.
  *  **A new member must be named here**, or its rows read as attestation rows
  *  (`claim_added` since AECI-1153, `review` and `review_response` since
- *  AECI-1180). */
+ *  AECI-1180, `aeci_override` since AECI-1159). */
 export function isAttestationNotification(
   notification: VendorNotification,
 ): notification is VendorAttestationNotification {
@@ -275,7 +330,8 @@ export function isAttestationNotification(
     notification.kind !== 'integration_create' &&
     notification.kind !== 'claim_added' &&
     notification.kind !== 'review' &&
-    notification.kind !== 'review_response'
+    notification.kind !== 'review_response' &&
+    notification.kind !== 'aeci_override'
   );
 }
 

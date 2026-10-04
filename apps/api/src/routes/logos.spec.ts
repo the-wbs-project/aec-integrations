@@ -220,11 +220,19 @@ describe('logo routes', () => {
         const [row] = await t.db.select().from(table).where(eq(table.id, id));
         expect(row).toMatchObject({ logoUrl: value, logoSource: 'admin' });
       }
-      const audits = await t.db.select().from(auditLog);
+      const all = await t.db.select().from(auditLog);
+      // AECI-1159: each save also writes the vendor's notice in the same batch.
+      const audits = all.filter((a) => a.action !== 'notification.sent');
       expect(audits).toHaveLength(2);
-      // AECI-1191: the reason lands in the audit row of the same batch.
+      expect(all.filter((a) => a.action === 'notification.sent')).toHaveLength(2);
+      // AECI-1191: the reason lands in the audit row of the same batch, marked
+      // vendor-visible since AECI-1159.
       for (const audit of audits) {
-        expect(audit.metadata).toMatchObject({ source: 'admin-panel', reason: REASON });
+        expect(audit.metadata).toMatchObject({
+          source: 'admin-panel',
+          reason: REASON,
+          reasonVisibility: 'vendor',
+        });
         // AECI-1192 / AECI-1193: the vendor holding the record (the product's primary
         // owner), the product when it is one, and that vendor's plan (no row: `none`).
         expect(audit).toMatchObject({
@@ -240,6 +248,47 @@ describe('logo routes', () => {
       });
     },
   );
+  it.each(['vendors', 'products'])(
+    'AECI-1159: tells the vendor holding the %s record, with the reason and never the internal note',
+    async (kind) => {
+      const id = kind === 'vendors' ? uuid(2) : uuid(3);
+      const NOTE = 'Ticket 77: trademark complaint.';
+      const res = await patch(`/api/admin/${kind}/${id}/logo`, {
+        logo_url: 'https://example.com/logo.png',
+        reason: REASON,
+        internalNote: NOTE,
+      });
+      expect(res.status).toBe(200);
+      const all = await t.db.select().from(auditLog);
+      const [audit] = all.filter((a) => a.action !== 'notification.sent');
+      expect(audit!.metadata).toMatchObject({ reason: REASON, internalNote: NOTE });
+      const [notice] = all.filter((a) => a.action === 'notification.sent');
+      expect(notice).toMatchObject({ vendorId: uuid(2), entityId: id });
+      expect(notice!.metadata).toMatchObject({
+        kind: 'aeci_override',
+        notificationId: 'portal-logo-overridden-by-aeci',
+        event: 'logo_overridden',
+        vendorId: uuid(2),
+        reason: REASON,
+        reasonVisibility: 'vendor',
+        logoSubject:
+          kind === 'vendors'
+            ? { type: 'vendor', slug: 'vendor', name: 'Vendor' }
+            : { type: 'product', slug: 'product', name: 'Product' },
+      });
+      expect(JSON.stringify(notice!.metadata)).not.toContain(NOTE);
+    },
+  );
+  it('AECI-1159: writes no notice for a product no vendor holds', async () => {
+    await t.db.delete(productVendors);
+    const res = await patch(`/api/admin/products/${uuid(3)}/logo`, {
+      logo_url: null,
+      reason: REASON,
+    });
+    expect(res.status).toBe(200);
+    const all = await t.db.select().from(auditLog);
+    expect(all.map((a) => a.action)).toEqual(['product.updated']);
+  });
   it('rolls the logo back when the audit insert fails', async () => {
     t.raw.exec(
       "CREATE TRIGGER fail_logo_audit BEFORE INSERT ON audit_log BEGIN SELECT RAISE(ABORT, 'audit failed'); END",

@@ -1342,8 +1342,61 @@ describe('DELETE /api/admin/vendors/:id/seats/:userId', () => {
     expect(rows[0].vendorTier).toBe('verified');
     expect(rows[0].vendorEntitlementStatus).toBe('active');
     expect(rows[0].actorType).toBe('admin');
-    // AECI-1191: the admin's reason rides the same row.
-    expect(rows[0].metadata).toMatchObject({ reason: REVOKE_REASON });
+    // AECI-1191: the admin's reason rides the same row. AECI-1159: marked vendor-visible.
+    expect(rows[0].metadata).toMatchObject({
+      reason: REVOKE_REASON,
+      reasonVisibility: 'vendor',
+    });
+    expect(rows[0].metadata).not.toHaveProperty('internalNote');
+  });
+
+  it('AECI-1159: tells the remaining seats, with the reason and never the internal note', async () => {
+    await t.db.insert(profiles).values({
+      id: SEAT_B,
+      role: 'vendor_admin',
+      vendorId: VENDOR,
+      displayName: 'Remaining Seat',
+    });
+    await t.db
+      .update(profiles)
+      .set({ displayName: 'Departed Seat' })
+      .where(eq(profiles.id, SEAT_A));
+    const NOTE = 'HR confirmed the departure by phone.';
+    expect(
+      (await revoke(VENDOR, SEAT_A, { reason: REVOKE_REASON, internalNote: NOTE })).status,
+    ).toBe(204);
+
+    const [revoked] = await t.db
+      .select()
+      .from(auditLog)
+      .where(eq(auditLog.action, 'vendor_claim.seat_revoked'));
+    expect(revoked!.metadata).toMatchObject({ reasonVisibility: 'vendor', internalNote: NOTE });
+
+    const notices = await t.db
+      .select()
+      .from(auditLog)
+      .where(eq(auditLog.action, 'notification.sent'));
+    expect(notices).toHaveLength(1);
+    expect(notices[0]).toMatchObject({ vendorId: VENDOR, entityType: 'profile', entityId: SEAT_A });
+    expect(notices[0]!.metadata).toMatchObject({
+      kind: 'aeci_override',
+      notificationId: 'portal-seat-revoked-by-aeci',
+      event: 'seat_revoked',
+      vendorId: VENDOR,
+      reason: REVOKE_REASON,
+      reasonVisibility: 'vendor',
+      seatName: 'Departed Seat',
+    });
+    expect(JSON.stringify(notices[0]!.metadata)).not.toContain(NOTE);
+  });
+
+  it('AECI-1159: sends nothing when the revoke leaves no seat', async () => {
+    expect((await revoke(VENDOR, SEAT_A)).status).toBe(204);
+    const notices = await t.db
+      .select()
+      .from(auditLog)
+      .where(eq(auditLog.action, 'notification.sent'));
+    expect(notices).toHaveLength(0);
   });
 
   it.each([

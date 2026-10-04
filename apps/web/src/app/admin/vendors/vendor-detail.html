@@ -501,16 +501,17 @@
                 <label
                   [attr.for]="'seat-revoke-reason-' + seat.user_id"
                   class="mt-3 block text-xs font-bold uppercase tracking-[0.08em] text-(--text-secondary)"
-                  i18n="@@admin.vendors.detail.seats.reason.label"
+                  i18n="@@admin.vendors.detail.seats.reason.vendorLabel"
                 >
-                  Reason (required)
+                  Reason shown to the vendor (required)
                 </label>
                 <p
                   [id]="'seat-revoke-reason-help-' + seat.user_id"
                   class="mt-1 text-xs text-(--text-secondary)"
-                  i18n="@@admin.vendors.detail.seats.reason.help"
+                  i18n="@@admin.vendors.detail.seats.reason.vendorHelp"
                 >
-                  Recorded in the audit trail with your name. Write it so the vendor can read it.
+                  The vendor's other seats read this in their portal messages. If this is the last
+                  seat, nobody is told. It is recorded in the audit trail with your name.
                 </p>
                 <textarea
                   #revokeReasonInput
@@ -534,11 +535,27 @@
                   [id]="'seat-revoke-reason-error-' + seat.user_id"
                   role="alert"
                   class="mt-2 text-sm font-medium text-(--text-primary)"
-                  i18n="@@admin.vendors.detail.seats.reason.required"
+                  i18n="@@admin.vendors.detail.seats.reason.vendorRequired"
                 >
-                  Enter a reason. It is recorded in the audit trail.
+                  Enter a reason for the vendor. Its other seats read it in their portal messages.
                 </p>
                 }
+                <label
+                  [attr.for]="'seat-revoke-note-' + seat.user_id"
+                  class="mt-3 block text-xs font-bold uppercase tracking-[0.08em] text-(--text-secondary)"
+                  i18n="@@admin.vendors.detail.seats.note.label"
+                >
+                  Internal note (optional, never shown to the vendor)
+                </label>
+                <textarea
+                  [id]="'seat-revoke-note-' + seat.user_id"
+                  rows="2"
+                  [attr.maxlength]="reasonMax"
+                  [disabled]="revokePendingId() === seat.user_id"
+                  [value]="revokeInternalNote()"
+                  (input)="onRevokeNoteInput($event)"
+                  class="mt-2 w-full max-w-xl rounded-(--radius-md) border border-(--border-default) bg-(--surface-base) px-3 py-2 text-sm text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+                ></textarea>
                 <div class="mt-3 flex flex-wrap gap-3">
                   <button
                     type="submit"

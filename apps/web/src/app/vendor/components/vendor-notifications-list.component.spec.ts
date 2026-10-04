@@ -327,6 +327,99 @@ describe('VendorNotificationsList', () => {
     },
   );
 
+  it("shows AECi's reason on the owner's retire row, and none on a row without one (AECI-1159)", async () => {
+    const row = {
+      kind: 'integration_retire' as const,
+      event: 'retired' as const,
+      integration_id: '00000000-0000-4000-8000-00000000c2b2',
+      integration_name: 'Summit ↔ Procore',
+      owner_name: 'Summit Software',
+      retired_by: 'aeci' as const,
+      pair_path: null,
+      created_at: '2026-09-22T12:00:00.000Z',
+    };
+    getNotifications.mockResolvedValue({
+      notifications: [
+        {
+          ...row,
+          id: '00000000-0000-4000-8000-00000000c2e1',
+          reason: 'Names a product you do not sell.',
+        },
+        { ...row, id: '00000000-0000-4000-8000-00000000c2e2', reason: null },
+      ],
+    });
+    const fixture = await create();
+    const items = [...el(fixture).querySelectorAll('li')].map((li) => li.textContent ?? '');
+    expect(items[0]).toContain('Reason: Names a product you do not sell.');
+    expect(items[1]).not.toContain('Reason:');
+  });
+
+  it.each([
+    [
+      'field_overridden',
+      {
+        integration_id: '00000000-0000-4000-8000-00000000c2f2',
+        integration_name: 'Summit ↔ Procore',
+        field: 'name',
+        pair_path: '/products/procore/integrations/summit',
+      },
+      'AEC Integrations changed a detail on an integration you own',
+      'Summit ↔ Procore',
+    ],
+    [
+      'logo_overridden',
+      { logo_subject: { type: 'product', slug: 'summit', name: 'Summit' } },
+      'AEC Integrations replaced a product logo',
+      'Summit',
+    ],
+    [
+      'logo_overridden',
+      { logo_subject: { type: 'vendor', slug: 'summit-software', name: 'Summit Software' } },
+      'AEC Integrations replaced your company logo',
+      'Summit Software',
+    ],
+    [
+      'seat_revoked',
+      { seat_name: 'Pat Example' },
+      'AEC Integrations removed a seat from your vendor account',
+      'Pat Example',
+    ],
+  ] as const)(
+    'renders an AECi override `%s` row with its reason and the dispute route (AECI-1159)',
+    async (event, extra, title, detail) => {
+      getNotifications.mockResolvedValue({
+        notifications: [
+          {
+            kind: 'aeci_override',
+            id: '00000000-0000-4000-8000-00000000c2f1',
+            event,
+            reason: 'The value on record was wrong.',
+            integration_id: null,
+            integration_name: null,
+            field: null,
+            pair_path: null,
+            logo_subject: null,
+            seat_name: null,
+            created_at: '2026-10-04T12:00:00.000Z',
+            ...extra,
+          },
+        ],
+      });
+      const fixture = await create();
+      const body = text(fixture);
+      expect(body).toContain(title);
+      expect(body).toContain(detail);
+      expect(body).toContain('Reason: The value on record was wrong.');
+      expect(body).toContain('founders@thewbsproject.com');
+      // It is not misread as an attestation row.
+      expect(body).toContain('Recent notifications (1)');
+      const pairLink = [...el(fixture).querySelectorAll('a')].find((a) =>
+        a.textContent?.includes('View the integration page'),
+      );
+      expect(!!pairLink).toBe(event === 'field_overridden');
+    },
+  );
+
   it('names AEC Integrations on a contest its retire closed (AECI-1046)', async () => {
     getNotifications.mockResolvedValue({
       notifications: [

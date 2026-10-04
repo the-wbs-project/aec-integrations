@@ -17,7 +17,7 @@ import { firstValueFrom } from 'rxjs';
 
 import type {
   AdminContest,
-  DecideContestInput,
+  AdminDecideContestInput,
   DecideContestProtestInput,
   ListAdminContestsQuery,
   ListAdminContestsResponse,
@@ -42,7 +42,7 @@ export class AdminContestsApi {
   /** `PATCH /api/admin/contests/:id`. Accept records the decision and files a
    *  `REVIEW - ` Linear issue after commit; it writes no catalog data. Returns the
    *  row's post-decision state. */
-  decide(id: string, input: DecideContestInput): Promise<AdminContest> {
+  decide(id: string, input: AdminDecideContestInput): Promise<AdminContest> {
     return firstValueFrom(
       this.http.patch<AdminContest>(`/api/admin/contests/${encodeURIComponent(id)}`, input),
     );

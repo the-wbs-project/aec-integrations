@@ -97,7 +97,8 @@ import { json } from '../http';
 import { auditActorType, type AuthzVariables } from '../lib/authz';
 import { VENDOR_ADMIN_ROLE } from '../lib/claimed-vendors';
 import { textAsc } from '../lib/collation';
-import type { BatchTuple } from '../lib/audit';
+import { auditInsert, type BatchTuple } from '../lib/audit';
+import { aeciOverrideNotificationAudit } from '../lib/aeci-override-notifications';
 import { validateResponseInDev, writeDb, type DbFactory } from '../lib/handler-utils';
 import { toProductRole, vendorListConfig } from '../lib/drizzle-helpers';
 import { resolveAdminVendorOrderBy } from '../lib/sort';
@@ -888,7 +889,7 @@ export function createAdminRevokeSeatHandler(
     } catch {
       throw new ApiError(400, ApiErrorCode.MALFORMED_REQUEST, 'Request body is not valid JSON');
     }
-    const { reason } = AdminRevokeSeatSchema.parse(raw);
+    const { reason, internalNote } = AdminRevokeSeatSchema.parse(raw);
 
     const vendor = await db.query.vendors.findFirst({
       columns: { id: true },
@@ -899,7 +900,7 @@ export function createAdminRevokeSeatHandler(
     // The plan snapshot (AECI-1193) rides the same wave as the seat read.
     const [target, entitlement] = await Promise.all([
       db.query.profiles.findFirst({
-        columns: { id: true, role: true, vendorId: true },
+        columns: { id: true, role: true, vendorId: true, displayName: true },
         where: and(eq(profiles.id, targetId), seatsOf(vendorId)),
       }),
       loadEntitlement(db, vendorId),
@@ -917,6 +918,7 @@ export function createAdminRevokeSeatHandler(
       now,
       profileBefore: { role: target.role, vendorId: target.vendorId },
       reason,
+      internalNote,
     });
 
     // AECI-989: what the vendor is left with decides what else rides this batch.
@@ -932,6 +934,21 @@ export function createAdminRevokeSeatHandler(
           ? await planOwnerSeatLapse(db, handbackParams)
           : null;
 
+    // AECI-1159: the vendor's remaining seats are told, with the reason, in the same
+    // batch. The feed is per vendor, so one row reaches every seat. With no seat left
+    // (`handback`) nobody could read it, so none is written and the audit row is the
+    // record. The seat-race sentinels keep that decision true at commit.
+    const notice =
+      outcome === 'handback'
+        ? null
+        : aeciOverrideNotificationAudit('portal-seat-revoked-by-aeci', actor, {
+            event: 'seat_revoked',
+            vendorId,
+            reason,
+            seatUserId: targetId,
+            seatName: target.displayName ?? null,
+          });
+
     // The profile UPDATE, then the race guards, then everything else: a batch whose
     // plan no longer matches the seats rolls back whole (`seatRaceSentinels`).
     const [profileWrite, ...revokeRest] = batch.stmts;
@@ -940,6 +957,7 @@ export function createAdminRevokeSeatHandler(
         profileWrite!,
         ...seatRaceSentinels(db, vendorId, outcome),
         ...revokeRest,
+        ...(notice ? [auditInsert(db, notice)] : []),
         ...(follow?.stmts ?? []),
       ] as BatchTuple);
     } catch (error) {
@@ -948,7 +966,11 @@ export function createAdminRevokeSeatHandler(
     }
     // ONE batched forward: the hand-back adds a row per product, integration and
     // contest, so one `fetch` per row would run past the connection limit.
-    forwardAuditBatch(c, [batch.auditEntry, ...(follow?.audits ?? [])], follow?.transitions ?? []);
+    forwardAuditBatch(
+      c,
+      [batch.auditEntry, ...(notice ? [notice] : []), ...(follow?.audits ?? [])],
+      follow?.transitions ?? [],
+    );
     if (follow?.purgeTags.length) {
       c.executionCtx.waitUntil(purgeTags(c, follow.purgeTags, 'moderation'));
     }

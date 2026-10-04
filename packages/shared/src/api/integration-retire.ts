@@ -1,5 +1,7 @@
 import { z } from 'zod';
 
+import { ADMIN_REASON_MAX, AdminOverrideReasonSchema } from './admin-reason';
+
 /**
  * Integration retire and restore (AECI-1010 / `STAGE_2_VENDOR_PORTAL_SPEC.md` §4.6).
  *
@@ -96,6 +98,12 @@ export const VendorIntegrationRetireNotificationSchema = z.object({
    * AECI-1046 carry no value and read as `'owner'`.
    */
   retired_by: IntegrationRetiredBySchema.default('owner'),
+  /**
+   * AECI-1159: AECi's reason, on an AECi retire or restore, on the OWNER's row only.
+   * `null` on every endpoint vendor's row, on an owner retire, and on every row
+   * written before AECI-1159. Defaulted for deploy skew.
+   */
+  reason: z.string().nullable().default(null),
   pair_path: z.string().nullable(),
   created_at: z.string(),
 });
@@ -106,17 +114,15 @@ export type VendorIntegrationRetireNotification = z.infer<
 // ─── Admin retire and restore (AECI-1046) ────────────────────────────────────
 
 /** The reason cap. Long enough for a paragraph citing the Terms, short enough to
- *  stay a note. */
-export const ADMIN_RETIRE_REASON_MAX = 1000;
+ *  stay a note. The same cap as every admin override reason (`ADMIN_REASON_MAX`). */
+export const ADMIN_RETIRE_REASON_MAX = ADMIN_REASON_MAX;
 
 /**
  * `POST /api/admin/integrations/:id/retire` and `/restore` body. The reason is
  * required on both: it is recorded in the audit row, which is the only record of
- * why AECi acted on a vendor's listing. It is not shown to the vendor.
+ * why AECi acted on a vendor's listing. Since AECI-1159 it is written for the
+ * vendor: the integration's OWNER is shown it on its retire notice. The endpoint
+ * vendors' notices stay generic. `internalNote` is optional and never shown.
  */
-export const AdminRetireIntegrationBodySchema = z
-  .object({
-    reason: z.string().trim().min(1).max(ADMIN_RETIRE_REASON_MAX),
-  })
-  .strict();
+export const AdminRetireIntegrationBodySchema = AdminOverrideReasonSchema.strict();
 export type AdminRetireIntegrationBody = z.infer<typeof AdminRetireIntegrationBodySchema>;

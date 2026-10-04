@@ -1,5 +1,6 @@
 import { z } from 'zod';
 
+import { AdminInternalNoteSchema } from './admin-reason';
 import { PageQuerySchema, ProductLinkSchema, paginatedResponseSchema } from './common';
 import { ContextDirectionSchema, IntegrationMechanismKindSchema } from './integrations';
 
@@ -340,6 +341,21 @@ export const DecideContestSchema = z.object({
   note: contestText.nullable().optional(),
 });
 export type DecideContestInput = z.infer<typeof DecideContestSchema>;
+
+/**
+ * `PATCH /api/admin/contests/:id` (AECI-1159). The vendor decision plus an optional
+ * `internalNote`, which is never shown to a vendor.
+ *
+ * `note` keeps its job: it is the decision note the submitter reads. On an accept
+ * that overwrites a value the owner holds (`accept_note_required`), it is also the
+ * reason shown to the displaced owner, so the admin form labels it "Reason shown to
+ * the vendor". The vendor route keeps {@link DecideContestSchema}, which strips an
+ * `internalNote` a vendor might send.
+ */
+export const AdminDecideContestSchema = DecideContestSchema.extend({
+  internalNote: AdminInternalNoteSchema,
+});
+export type AdminDecideContestInput = z.input<typeof AdminDecideContestSchema>;
 
 /** Up to three absolute `http(s)` URLs. The server deduplicates them. */
 export const ProtestEvidenceSchema = z

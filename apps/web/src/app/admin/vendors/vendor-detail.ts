@@ -181,6 +181,8 @@ export class VendorDetail {
   /** AECI-1191: the revoke's required reason, recorded in its audit row. */
   protected readonly revokeReason = signal('');
   protected readonly revokeReasonError = signal(false);
+  /** AECI-1159: AECi's own note on the revoke. Never shown to a vendor. */
+  protected readonly revokeInternalNote = signal('');
   protected readonly reasonMax = ADMIN_REASON_MAX;
   private readonly injector = inject(Injector);
   private readonly revokeReasonInput =
@@ -303,6 +305,7 @@ export class VendorDetail {
   protected askRevoke(userId: string): void {
     this.revokeFailedMessage.set('');
     this.revokeReason.set('');
+    this.revokeInternalNote.set('');
     this.revokeReasonError.set(false);
     this.revokeConfirmId.set(userId);
     // The confirm row renders on the next pass; the reason is its first field.
@@ -313,6 +316,10 @@ export class VendorDetail {
 
   protected cancelRevoke(): void {
     this.revokeConfirmId.set(null);
+  }
+
+  protected onRevokeNoteInput(event: Event): void {
+    this.revokeInternalNote.set((event.target as HTMLTextAreaElement).value);
   }
 
   protected onRevokeReasonInput(event: Event): void {
@@ -339,7 +346,7 @@ export class VendorDetail {
     this.revokePendingId.set(seat.user_id);
     this.revokeFailedMessage.set('');
     try {
-      await this.api.revokeSeat(id, seat.user_id, reason);
+      await this.api.revokeSeat(id, seat.user_id, reason, this.revokeInternalNote());
       this.vendor.update((v) =>
         v && v.seats ? { ...v, seats: v.seats.filter((s) => s.user_id !== seat.user_id) } : v,
       );

@@ -27,11 +27,13 @@
  * retire to be its own kind.
  */
 
-import type {
-  CachePurgeSource,
-  IntegrationContestField,
-  IntegrationRetireEvent,
-  IntegrationRetiredBy,
+import {
+  REASON_VISIBILITY_VENDOR,
+  vendorVisibleReason,
+  type CachePurgeSource,
+  type IntegrationContestField,
+  type IntegrationRetireEvent,
+  type IntegrationRetiredBy,
 } from '@aeci/shared';
 import type { AlgoliaEnv } from '@aeci/shared/algolia';
 import type { AuditLogEntry } from '@aeci/shared/audit-log';
@@ -58,6 +60,7 @@ import {
   retireNotificationAudit,
   retireRaceSentinel,
   type openContestsOn,
+  type RetireNotificationMetadata,
 } from '../lib/integration-retire';
 import { publicSiteBase } from '../lib/public-urls';
 import { integrationCountRecomputeStmt } from '../lib/recompute-counts';
@@ -128,6 +131,21 @@ export interface RetireBatch {
   productIds: string[];
 }
 
+/**
+ * The reason on one recipient's notice (AECI-1159): AECi's vendor-visible reason, on
+ * an AECi retire or restore, to the OWNER only. The endpoint vendors' notices stay
+ * generic, and an owner retire carries none. Read through `vendorVisibleReason`, so
+ * only metadata carrying the `reasonVisibility: 'vendor'` marker yields one.
+ */
+function ownerNoticeReason(
+  input: Pick<RetireBatchInput, 'retiredBy' | 'owner' | 'metadata'>,
+  recipient: string,
+): Pick<RetireNotificationMetadata, 'reason' | 'reasonVisibility'> {
+  if (input.retiredBy !== 'aeci' || recipient !== input.owner.id) return {};
+  const reason = vendorVisibleReason(input.metadata);
+  return reason ? { reason, reasonVisibility: REASON_VISIBILITY_VENDOR } : {};
+}
+
 export function buildRetireBatch(db: Db, input: RetireBatchInput): RetireBatch {
   const { mode, row, now, actor, contests, pairSlugs } = input;
   const integrationId = row.id;
@@ -164,6 +182,7 @@ export function buildRetireBatch(db: Db, input: RetireBatchInput): RetireBatch {
       ownerVendorId: input.owner.id,
       ownerName: input.owner.name,
       pairSlugs,
+      ...ownerNoticeReason(input, recipient),
     }),
   );
 
@@ -232,9 +251,15 @@ function contestCloseStatements(
   const stmts: BatchStmt[] = [];
   const audits: AuditLogEntry[] = [];
 
-  // The admin's reason (AECI-1046) belongs on the row's audit row only. The contest
-  // rows and their workflow transitions carry the fixed retire reason.
-  const { reason: _adminReason, ...contestExtra } = input.metadata;
+  // The admin's reason (AECI-1046) belongs on the row's audit row only, with its
+  // vendor-visibility marker and internal note (AECI-1159). The contest rows and their
+  // workflow transitions carry the fixed retire reason.
+  const {
+    reason: _adminReason,
+    reasonVisibility: _reasonVisibility,
+    internalNote: _internalNote,
+    ...contestExtra
+  } = input.metadata;
 
   for (const contest of contests) {
     const metadata = {
@@ -372,6 +397,7 @@ export function buildPairRetireBatch(db: Db, input: PairRetireBatchInput): Retir
         ownerVendorId: input.owner.id,
         ownerName: input.owner.name,
         pairSlugs,
+        ...ownerNoticeReason(input, recipient),
       },
       EVIDENCED_PAIR_ENTITY_TYPE,
     ),

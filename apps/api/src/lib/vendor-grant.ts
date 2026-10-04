@@ -33,7 +33,11 @@
  * statement here names `vendors` at all — the invariant cannot silently regress.
  */
 
-import type { ClaimEntitlement, ClaimGrantPlan } from '@aeci/shared';
+import {
+  vendorVisibleReasonMetadata,
+  type ClaimEntitlement,
+  type ClaimGrantPlan,
+} from '@aeci/shared';
 import type { AuditLogEntry } from '@aeci/shared/audit-log';
 import type { VendorPlanSnapshot } from '@aeci/shared/entitlements';
 import type { WorkflowTransitionEntry } from '@aeci/shared/workflow-transition';
@@ -153,7 +157,13 @@ export interface RevokeSeatParams {
   actorType: AuditLogEntry['actorType'];
   now: string;
   profileBefore: SeatProfileBefore | null;
+  /**
+   * The admin's reason (AECI-1191). Only the admin revoke passes one, and since
+   * AECI-1159 it is written for the vendor: it lands with `reasonVisibility:
+   * 'vendor'`, and `internalNote` beside it stays AECi's.
+   */
   reason?: string | null;
+  internalNote?: string | null;
   /**
    * `metadata.source` on the audit row. Defaults to the admin-moderation tag this
    * module was written for; AECI-664's vendor-side revoke passes `'vendor-portal'`
@@ -392,7 +402,9 @@ export function revokeSeatStatements(db: Db, p: RevokeSeatParams): RevokeBatch {
     seat_user_id: p.userId,
     // Explicit in the trail: a seat revoke deliberately leaves the vendor verified.
     verified_untouched: true,
-    ...(p.reason ? { reason: p.reason } : {}),
+    ...(p.reason
+      ? vendorVisibleReasonMetadata({ reason: p.reason, internalNote: p.internalNote })
+      : {}),
   };
 
   const auditEntry: AuditLogEntry = {

@@ -11,7 +11,11 @@ import {
 } from '@angular/core';
 import { RouterLink } from '@angular/router';
 
-import { isAttestationNotification, type VendorNotification } from '@aeci/shared';
+import {
+  isAttestationNotification,
+  type VendorAeciOverrideNotification,
+  type VendorNotification,
+} from '@aeci/shared';
 
 import { VendorPortalAnnouncer } from '../vendor-announcer';
 import { VendorNotificationBaseline } from '../vendor-notification-baseline';
@@ -92,13 +96,14 @@ import {
       <div class="mt-3 space-y-3" [attr.aria-busy]="loading() ? 'true' : null">
         <p
           class="max-w-prose text-xs text-(--text-secondary)"
-          i18n="@@vendor.attest.notify.framing.digest"
+          i18n="@@vendor.attest.notify.framing.overrides"
         >
           What we noted in the last 90 days: our reminders, updates on field contests, what owners
-          changed on integrations with your products, new reviews of your products, and our
-          decisions on your replies. Reminders also go out in the daily reminder email, unless your
-          seat muted it, so a reminder here may not have reached your inbox. New reviews are emailed
-          to every seat. Each note reflects the state at the time it was recorded.
+          changed on integrations with your products, new reviews of your products, our decisions on
+          your replies, and changes AEC Integrations made to what your company holds, with our
+          reason. Reminders also go out in the daily reminder email, unless your seat muted it, so a
+          reminder here may not have reached your inbox. New reviews are emailed to every seat. Each
+          note reflects the state at the time it was recorded.
         </p>
 
         @if (loading()) {
@@ -343,6 +348,19 @@ export class VendorNotificationsList {
       ];
     }
     if (notification.kind === 'review_response') return [notification.product.name];
+    // AECI-1159: an AECi override names what it changed. Its reason is the note.
+    if (notification.kind === 'aeci_override') {
+      const parts =
+        notification.event === 'field_overridden'
+          ? [
+              notification.field ? contestFieldLabelLoose(notification.field) : null,
+              notification.integration_name,
+            ]
+          : notification.event === 'logo_overridden'
+            ? [notification.logo_subject?.name]
+            : [notification.seat_name];
+      return parts.filter((part): part is string => !!part);
+    }
     // AECI-1046: an AECi retire names AEC Integrations in the title, so the owner name
     // is not repeated as if the owner had acted.
     if (notification.kind === 'integration_retire' && notification.retired_by === 'aeci') {
@@ -421,6 +439,19 @@ function titleOf(notification: VendorNotification): string {
     // AECI-1180 / `STAGE_2_VENDOR_PORTAL_SPEC.md` §11c.12.
     return $localize`:@@vendor.reviews.notify.title:A new review of your product was published`;
   }
+  if (notification.kind === 'aeci_override') {
+    // AECI-1159 / `STAGE_2_VENDOR_PORTAL_SPEC.md` §11d.
+    switch (notification.event) {
+      case 'field_overridden':
+        return $localize`:@@vendor.override.notify.field:AEC Integrations changed a detail on an integration you own`;
+      case 'logo_overridden':
+        return notification.logo_subject?.type === 'product'
+          ? $localize`:@@vendor.override.notify.productLogo:AEC Integrations replaced a product logo`
+          : $localize`:@@vendor.override.notify.companyLogo:AEC Integrations replaced your company logo`;
+      case 'seat_revoked':
+        return $localize`:@@vendor.override.notify.seat:AEC Integrations removed a seat from your vendor account`;
+    }
+  }
   if (notification.kind === 'review_response') {
     switch (notification.event) {
       case 'approved':
@@ -451,9 +482,13 @@ function noteOf(
       return $localize`:@@vendor.claim.notify.note:The owner now keeps this integration's details, and AEC Integrations no longer updates them. If the owner on file is wrong, contest the Owner field on the integration.`;
     case 'integration_retire':
       if (notification.retired_by === 'aeci') {
-        return notification.event === 'retired'
-          ? $localize`:@@vendor.retire.notify.note.aeciRetired:It is no longer shown on the public site. Nothing was deleted, and only AEC Integrations can restore it.`
-          : $localize`:@@vendor.retire.notify.note.restored:It is back on the public site as it was before it was retired.`;
+        const note =
+          notification.event === 'retired'
+            ? $localize`:@@vendor.retire.notify.note.aeciRetired:It is no longer shown on the public site. Nothing was deleted, and only AEC Integrations can restore it.`
+            : $localize`:@@vendor.retire.notify.note.restored:It is back on the public site as it was before it was retired.`;
+        // AECI-1159: the owner's row carries AECi's reason. Other rows carry none.
+        const reason = notification.reason;
+        return reason ? `${note} ${reasonSentence(reason)}` : note;
       }
       return notification.event === 'retired'
         ? $localize`:@@vendor.retire.notify.note.retired:It is no longer shown on the public site. Nothing was deleted, and the owner can restore it.`
@@ -476,7 +511,35 @@ function noteOf(
         ? $localize`:@@vendor.reviews.notify.reply.note.removed:It no longer shows on the public page. Reason: ${reason}:reason:`
         : $localize`:@@vendor.reviews.notify.reply.note.rejected:It was not published. Reason: ${reason}:reason:`;
     }
+    case 'aeci_override':
+      return overrideNote(notification);
     case 'contest':
       return contestNotificationNote(notification, formatDay);
   }
+}
+
+/** "Reason: …", AECi's vendor-visible reason (AECI-1159). */
+function reasonSentence(reason: string): string {
+  return $localize`:@@vendor.override.notify.reason:Reason: ${reason}:reason:`;
+}
+
+/**
+ * What an AECi override means for the vendor, then AECi's reason (AECI-1159). The
+ * last sentence names the dispute route (§11d.4).
+ */
+function overrideNote(notification: VendorAeciOverrideNotification): string {
+  let meaning: string;
+  switch (notification.event) {
+    case 'field_overridden':
+      meaning = $localize`:@@vendor.override.notify.note.field:We accepted a change request on it, and the new value is live.`;
+      break;
+    case 'logo_overridden':
+      meaning = $localize`:@@vendor.override.notify.note.logo:The new logo is live on the public site.`;
+      break;
+    case 'seat_revoked':
+      meaning = $localize`:@@vendor.override.notify.note.seat:That person no longer has access to your vendor portal.`;
+      break;
+  }
+  const dispute = $localize`:@@vendor.override.notify.dispute:If you think this is wrong, email founders@thewbsproject.com and quote this message.`;
+  return `${meaning} ${reasonSentence(notification.reason)} ${dispute}`;
 }

@@ -43,7 +43,8 @@ type Mode = 'retire' | 'restore';
  * write accepts (vendor-held), so every action offered is one the API will take.
  *
  * The action is a second, explicit step, as the portal's owner retire is. The button
- * opens an inline form under the row with a required reason, and only its own submit
+ * opens an inline form under the row with a required reason shown to the vendor and
+ * an optional internal note that is never shown (AECI-1159), and only its own submit
  * sends the request. No browser dialog. Writes are pessimistic: the row changes when
  * the server answers, and the outcome goes to the page's one live region through
  * `announce`. The write's audit row files under the integration, not the vendor, so
@@ -79,6 +80,8 @@ export class VendorIntegrationsPanel {
   /** The row whose form is open, and which action it is for. */
   protected readonly formFor = signal<{ id: string; mode: Mode } | null>(null);
   protected readonly reason = signal('');
+  /** AECI-1159: AECi's own note. Never shown to a vendor. */
+  protected readonly internalNote = signal('');
   protected readonly pending = signal(false);
   protected readonly formError = signal<string | null>(null);
 
@@ -130,6 +133,7 @@ export class VendorIntegrationsPanel {
   protected openForm(row: AdminVendorIntegrationRow, mode: Mode): void {
     this.formFor.set({ id: row.id, mode });
     this.reason.set('');
+    this.internalNote.set('');
     this.formError.set(null);
     afterNextRender(() => this.reasonEl()?.nativeElement.focus(), { injector: this.injector });
   }
@@ -146,12 +150,16 @@ export class VendorIntegrationsPanel {
     this.reason.set((event.target as HTMLTextAreaElement).value);
   }
 
+  protected onNoteInput(event: Event): void {
+    this.internalNote.set((event.target as HTMLTextAreaElement).value);
+  }
+
   protected async submit(row: AdminVendorIntegrationRow, mode: Mode): Promise<void> {
     if (this.pending()) return;
     const reason = this.reason().trim();
     if (!reason) {
       this.formError.set(
-        $localize`:@@admin.vendors.integrations.reason.required:Enter a reason. It is recorded in the audit trail.`,
+        $localize`:@@admin.vendors.integrations.reason.vendorRequired:Enter a reason for the vendor. The owner reads it in its portal messages.`,
       );
       this.reasonEl()?.nativeElement.focus();
       return;
@@ -159,7 +167,7 @@ export class VendorIntegrationsPanel {
     this.pending.set(true);
     this.formError.set(null);
     try {
-      const res = await this.api.setIntegrationRetired(row.id, mode, reason);
+      const res = await this.api.setIntegrationRetired(row.id, mode, reason, this.internalNote());
       this.rows.update((rows) =>
         rows.map((r) =>
           r.id === row.id

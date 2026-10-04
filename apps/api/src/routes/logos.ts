@@ -4,6 +4,7 @@ import {
   LogoKeySchema,
   LogoPathSchema,
   UploadLogoResponseSchema,
+  vendorVisibleReasonMetadata,
   type AuditLogEntry,
 } from '@aeci/shared';
 import { hasCapability } from '@aeci/shared/entitlements';
@@ -22,6 +23,7 @@ import { validateLogo } from '../lib/logo-validation';
 import { logToPosthog } from '../posthog';
 import { parseJsonBody } from './vendor-shared';
 import { productAuditStamp, vendorAuditStamp } from '../lib/audit-vendor';
+import { aeciOverrideNotificationAudit } from '../lib/aeci-override-notifications';
 
 type LogoContext = Context<{ Bindings: Env; Variables: AuthzVariables }>;
 export const LOGO_REQUEST_MAX_BYTES = LOGO_MAX_BYTES + 16 * 1024;
@@ -175,7 +177,13 @@ export function createUpdateAdminLogoHandler(kind: 'vendor' | 'product', dbFor: 
     // the vendor holding the product, with its plan. Same wave as the row read.
     const [[before], stamp] = await Promise.all([
       db
-        .select({ slug: table.slug, logoUrl: table.logoUrl, logoSource: table.logoSource })
+        .select({
+          slug: table.slug,
+          // AECI-1159: the name the vendor's notice snapshots.
+          name: kind === 'vendor' ? vendors.companyName : products.name,
+          logoUrl: table.logoUrl,
+          logoSource: table.logoSource,
+        })
         .from(table)
         .where(eq(table.id, id)),
       kind === 'vendor' ? vendorAuditStamp(db, id) : productAuditStamp(db, id),
@@ -198,12 +206,33 @@ export function createUpdateAdminLogoHandler(kind: 'vendor' | 'product', dbFor: 
       productId: kind === 'product' ? id : null,
       beforeState: { logoUrl: before.logoUrl, logoSource: before.logoSource },
       afterState: { logoUrl: columns.logoUrl, logoSource: columns.logoSource },
-      // AECI-1191: the admin's reason rides the same row, in the same batch.
-      metadata: { source: 'admin-panel', fields: ['logo_url'], reason: payload.reason },
+      // AECI-1191: the admin's reason rides the same row, in the same batch. AECI-1159:
+      // it is written for the vendor and marked so; the internal note stays here.
+      metadata: {
+        source: 'admin-panel',
+        fields: ['logo_url'],
+        ...vendorVisibleReasonMetadata(payload),
+      },
     };
+    // AECI-1159: the vendor that holds the record is told, with the reason, in the
+    // same batch. Every plan, no tier rule. No holder, no notice.
+    const notice = stamp.vendorId
+      ? aeciOverrideNotificationAudit(
+          'portal-logo-overridden-by-aeci',
+          { actorId: session.userId, actorType: auditActorType(session) },
+          {
+            event: 'logo_overridden',
+            vendorId: stamp.vendorId,
+            reason: payload.reason,
+            entityId: id,
+            logoSubject: { type: kind, slug: before.slug, name: before.name },
+          },
+        )
+      : null;
     await db.batch([
       db.update(table).set(columns).where(eq(table.id, id)),
       auditInsert(db, auditEntry),
+      ...(notice ? [auditInsert(db, notice)] : []),
     ]);
     const tags =
       kind === 'vendor' ? [`vendor:${before.slug}`] : [`product:${before.slug}`, 'index:products'];

@@ -16,6 +16,7 @@ import { ADMIN_REASON_MAX, AdminReasonSchema, UpdateLogoSchema } from '@aeci/sha
 import { firstValueFrom } from 'rxjs';
 
 import { LogoInput } from '../../../shared/logo-input/logo-input';
+import { overrideReasonBody } from '../admin-vendors-api';
 
 @Component({
   selector: 'aec-admin-logo-editor',
@@ -36,16 +37,17 @@ import { LogoInput } from '../../../shared/logo-input/logo-input';
         <label
           [attr.for]="fieldId('reason')"
           class="block text-xs font-bold uppercase tracking-[0.08em] text-(--text-secondary)"
-          i18n="@@admin.logo.reason.label"
+          i18n="@@admin.logo.reason.vendorLabel"
         >
-          Reason (required)
+          Reason shown to the vendor (required)
         </label>
         <p
           [id]="fieldId('reason-help')"
           class="mt-1 text-xs text-(--text-secondary)"
-          i18n="@@admin.logo.reason.help"
+          i18n="@@admin.logo.reason.vendorHelp"
         >
-          Recorded in the audit trail with your name. Write it so the vendor can read it.
+          The vendor reads this in its portal messages. It is recorded in the audit trail with your
+          name.
         </p>
         <textarea
           #reasonInput
@@ -69,11 +71,29 @@ import { LogoInput } from '../../../shared/logo-input/logo-input';
             [id]="fieldId('reason-error')"
             role="alert"
             class="mt-2 text-sm font-medium text-(--text-primary)"
-            i18n="@@admin.logo.reason.required"
+            i18n="@@admin.logo.reason.vendorRequired"
           >
-            Enter a reason. It is recorded in the audit trail.
+            Enter a reason for the vendor. The vendor reads it in its portal messages.
           </p>
         }
+      </div>
+      <div>
+        <label
+          [attr.for]="fieldId('note')"
+          class="block text-xs font-bold uppercase tracking-[0.08em] text-(--text-secondary)"
+          i18n="@@admin.logo.note.label"
+        >
+          Internal note (optional, never shown to the vendor)
+        </label>
+        <textarea
+          [id]="fieldId('note')"
+          rows="2"
+          [attr.maxlength]="reasonMax"
+          [disabled]="saving()"
+          [value]="internalNote()"
+          (input)="onNoteInput($event)"
+          class="mt-2 w-full rounded-(--radius-md) border border-(--border-default) bg-(--surface-base) px-3 py-2 text-sm text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+        ></textarea>
       </div>
       <button
         type="submit"
@@ -113,6 +133,8 @@ export class AdminLogoEditor {
   /** AECI-1191: the overwrite's reason, required by the API and kept in the audit row. */
   protected readonly reason = signal('');
   protected readonly reasonError = signal(false);
+  /** AECI-1159: AECi's own note, kept in the audit row and never shown to a vendor. */
+  protected readonly internalNote = signal('');
   protected readonly reasonMax = ADMIN_REASON_MAX;
   private readonly reasonInput = viewChild<ElementRef<HTMLTextAreaElement>>('reasonInput');
   private readonly baseline = signal('');
@@ -136,6 +158,7 @@ export class AdminLogoEditor {
         this.draft.set(value);
         this.saved.set(false);
         this.reason.set('');
+        this.internalNote.set('');
         this.reasonError.set(false);
       }
     });
@@ -147,6 +170,10 @@ export class AdminLogoEditor {
   protected onReasonInput(event: Event): void {
     this.reason.set((event.target as HTMLTextAreaElement).value);
     if (this.reasonError()) this.reasonError.set(false);
+  }
+
+  protected onNoteInput(event: Event): void {
+    this.internalNote.set((event.target as HTMLTextAreaElement).value);
   }
 
   protected async save(): Promise<void> {
@@ -166,12 +193,13 @@ export class AdminLogoEditor {
       await firstValueFrom(
         this.http.patch(
           `/api/admin/${this.kind() === 'vendor' ? 'vendors' : 'products'}/${recordId}/logo`,
-          { logo_url: logoUrl, reason: parsedReason.data },
+          { logo_url: logoUrl, ...overrideReasonBody(parsedReason.data, this.internalNote()) },
         ),
       );
       if (recordId !== this.recordId()) return;
       this.baseline.set(logoUrl ?? '');
       this.reason.set('');
+      this.internalNote.set('');
       this.saved.set(true);
       this.logoSaved.emit(logoUrl);
       this.announce.emit($localize`:@@admin.logo.confirmation:Logo saved.`);

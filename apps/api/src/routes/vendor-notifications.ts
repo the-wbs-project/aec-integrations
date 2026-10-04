@@ -18,7 +18,9 @@
  * (`metadata.kind = 'claim_added'`), to the vendors of the other endpoint, and
  * since AECI-1180 an approved review of an owned product (`metadata.kind =
  * 'review'`), to every owning vendor, and AECi's decision on a vendor's reply
- * (`metadata.kind = 'review_response'`), to the reply's vendor.
+ * (`metadata.kind = 'review_response'`), to the reply's vendor, and since AECI-1159
+ * an AECi override of a field, a logo or a seat (`metadata.kind = 'aeci_override'`),
+ * to the vendor that held it, with AECi's vendor-visible reason.
  * The list is a union on `kind`; the scoping predicate below is unchanged, so the
  * `notifications` cursor needed no change either.
  *
@@ -53,6 +55,11 @@
  */
 
 import {
+  AECI_OVERRIDE_NOTIFICATION_EVENTS,
+  vendorVisibleReason,
+  type AeciOverrideLogoSubject,
+  type AeciOverrideNotificationEvent,
+  type VendorAeciOverrideNotification,
   CONTEST_NOTIFICATION_EVENTS,
   INTEGRATION_CONTEST_FIELDS,
   ListVendorNotificationsResponseSchema,
@@ -84,6 +91,10 @@ import {
   type NotificationLedgerMetadata,
 } from '../lib/attestation-notify';
 import { validateResponseInDev, type DbFactory } from '../lib/handler-utils';
+import {
+  AECI_OVERRIDE_NOTIFICATION_KIND,
+  type AeciOverrideNotificationMetadata,
+} from '../lib/aeci-override-notifications';
 import {
   CLAIM_ADDED_NOTIFICATION_KIND,
   type ClaimAddedNotificationMetadata,
@@ -194,6 +205,8 @@ function toVendorNotification(row: {
   if (kind === REVIEW_NOTIFICATION_KIND) return toReviewNotification(row);
   // AECI-1180: AECi decided one of its replies to a review.
   if (kind === REVIEW_RESPONSE_NOTIFICATION_KIND) return toReviewResponseNotification(row);
+  // AECI-1159: AECi overrode a field, a logo or a seat the vendor holds.
+  if (kind === AECI_OVERRIDE_NOTIFICATION_KIND) return toAeciOverrideNotification(row);
   const meta = row.metadata as Partial<NotificationLedgerMetadata> | null;
   if (!meta || !row.entityId) return null;
   if (typeof meta.detector !== 'string' || !DETECTORS.has(meta.detector)) return null;
@@ -321,6 +334,9 @@ function toRetireNotification(row: {
     owner_name: typeof meta.ownerName === 'string' ? meta.ownerName : null,
     // AECI-1046. A row written before it carries no value: the owner retired it.
     retired_by: meta.retiredBy === 'aeci' ? 'aeci' : 'owner',
+    // AECI-1159: only an AECi retire's owner row carries a reason, and only with the
+    // vendor-visibility marker. Every other row, and every older one, reads `null`.
+    reason: meta.retiredBy === 'aeci' ? vendorVisibleReason(meta) : null,
     pair_path: pairPathFor(pairSlugs),
     created_at: row.createdAt,
   };
@@ -479,6 +495,70 @@ function toReviewResponseNotification(row: {
     reason: meta.event !== 'approved' && typeof meta.reason === 'string' ? meta.reason : null,
     created_at: row.createdAt,
   };
+}
+
+const AECI_OVERRIDE_EVENTS = new Set<string>(AECI_OVERRIDE_NOTIFICATION_EVENTS);
+
+/**
+ * Map one `aeci_override` ledger row (AECI-1159), or `null` when it is not
+ * recognisable. Same tolerance as the other mappers. **A row without the
+ * `reasonVisibility: 'vendor'` marker is dropped**, because its reason was never
+ * written for a vendor. The internal note is never read.
+ */
+function toAeciOverrideNotification(row: {
+  id: string;
+  entityId: string | null;
+  createdAt: string;
+  metadata: unknown;
+}): VendorAeciOverrideNotification | null {
+  const meta = row.metadata as Partial<AeciOverrideNotificationMetadata> | null;
+  if (!meta || typeof meta.event !== 'string' || !AECI_OVERRIDE_EVENTS.has(meta.event)) {
+    return null;
+  }
+  const reason = vendorVisibleReason(meta);
+  if (!reason) return null;
+  const base = {
+    kind: 'aeci_override' as const,
+    id: row.id,
+    reason,
+    integration_id: null,
+    integration_name: null,
+    field: null,
+    pair_path: null,
+    logo_subject: null,
+    seat_name: null,
+    created_at: row.createdAt,
+  };
+  switch (meta.event as AeciOverrideNotificationEvent) {
+    case 'field_overridden': {
+      if (typeof meta.integrationId !== 'string' || typeof meta.field !== 'string') return null;
+      const pair = meta.pairSlugs;
+      const pairSlugs =
+        Array.isArray(pair) && typeof pair[0] === 'string' && typeof pair[1] === 'string'
+          ? ([pair[0], pair[1]] as const)
+          : null;
+      return {
+        ...base,
+        event: 'field_overridden',
+        integration_id: meta.integrationId,
+        integration_name: typeof meta.integrationName === 'string' ? meta.integrationName : null,
+        field: meta.field,
+        pair_path: pairPathFor(pairSlugs),
+      };
+    }
+    case 'logo_overridden': {
+      const subject = meta.logoSubject as Partial<AeciOverrideLogoSubject> | undefined;
+      const ref = productRef(subject);
+      if (!ref || (subject?.type !== 'vendor' && subject?.type !== 'product')) return null;
+      return { ...base, event: 'logo_overridden', logo_subject: { type: subject.type, ...ref } };
+    }
+    case 'seat_revoked':
+      return {
+        ...base,
+        event: 'seat_revoked',
+        seat_name: typeof meta.seatName === 'string' ? meta.seatName : null,
+      };
+  }
 }
 
 export function createListVendorNotificationsHandler(
