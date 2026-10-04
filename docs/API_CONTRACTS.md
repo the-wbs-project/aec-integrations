@@ -2656,10 +2656,11 @@ Metric: `aeci.vendor_seat.provision` with `outcome:ok|noop|conflict|unavailable|
 emitted on every branch including the refusals.
 
 Audit: `vendor_seat.provisioned`, `entity_type='profile'`, `entity_id` = the seat's user id,
-in the **same `db.batch`** as the profile write (§26.1). `metadata.vendor_id` is load-bearing
-rather than decorative: it is the only route by which `GET /api/admin/vendors/:id/audit`
-reaches the row (leg 3 of `auditScopeWhere`; leg 4's roster subquery filters on the ban
-actions only). The metadata also carries `entitlement_granted: false`,
+in the **same `db.batch`** as the profile write (§26.1). The row names the vendor in the
+`audit_log.vendor_id` column (AECI-1192), which is how `GET /api/admin/vendors/:id/audit` reaches
+it (leg 3 of `auditScopeWhere`; leg 4's roster subquery filters on the ban actions only). Rows
+written before AECI-1192 carry it only in `metadata.vendor_id`, which leg 3 keeps as a legacy
+fallback. New rows spell that metadata key `vendorId` (`DATABASE_SCHEMA.md` §8.4). The metadata also carries `entitlement_granted: false`,
 `is_pure_connector_vendor`, `identity_outcome` and `seat_created`.
 
 #### `PATCH /api/admin/vendors/:id/entitlement` (Stage 2 — AECI-532)
@@ -6461,8 +6462,10 @@ catalogue whose product the caller holds only as a non-connector role all answer
 whether a catalogue has been handed over. Only then **409 `CATALOG_REVIEW_MANAGED`** on the owner's
 own review-managed catalogue.
 
-Audit `metadata.source` is `vendor-portal` and `metadata.vendor_id` is the caller's vendor, which is
-the leg by which `/admin/vendors/:id`'s audit tab reaches a row filed under a catalogue. Moves the
+Audit `metadata.source` is `vendor-portal` and the `audit_log.vendor_id` column is the caller's
+vendor (AECI-1192), which is the leg by which `/admin/vendors/:id`'s audit tab reaches a row filed
+under a catalogue. Rows written before AECI-1192 carry it as `metadata.vendor_id`; new rows spell
+that key `vendorId` (`DATABASE_SCHEMA.md` §8.4). Moves the
 AECI-516 `catalogue` scope (the row's `updated_at`), so another open tab of the same vendor
 re-reads. The portal UI is the Catalogue tab (AECI-1083), which lists rows through
 `GET /api/vendor/products/:id/connector-catalog` above.

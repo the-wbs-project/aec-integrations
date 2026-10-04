@@ -872,8 +872,9 @@ Four things the build settled:
 2. **The audit row files under the catalogue.** `connector_mapping.updated`,
    `entity_type = 'connector_catalog'`, mapping id in `metadata.mapping_id`. So the Audit section
    on this screen shows every edit beside the handover and the sync runs, with no new read path.
-   A seat's edit also carries `metadata.vendor_id`, which puts it on `/admin/vendors/:id`'s audit
-   tab.
+   A seat's edit also names its vendor in the `audit_log.vendor_id` column (AECI-1192), which
+   puts it on `/admin/vendors/:id`'s audit tab. Rows written before AECI-1192 carry
+   `metadata.vendor_id` instead; new rows spell that key `vendorId`.
 3. **The row is replaced in place.** The PATCH returns the triage row's own shape, so the table
    updates without a refetch. The Audit section refetches. The counts block waits for the next
    load, as it does after the managed-by flip.
@@ -896,7 +897,7 @@ UI:
 | Live | Reads on load | In the AECI-516 cursor as the `catalogue` scope |
 
 So an operator edit here shows up in an open seat tab within one poll, and a seat's edit shows up
-here as a `connector_mapping.updated` audit row with `metadata.vendor_id` and `decided_by =
+here as a `connector_mapping.updated` audit row with `audit_log.vendor_id` set and `decided_by =
 vendor:{slug}` on the row. The managed-by flip on this screen is what turns the seat's Edit
 controls on and off; the seat's tab re-reads when it moves. Neither screen can add a mapping to a
 listing that has none (AECI-1126).
