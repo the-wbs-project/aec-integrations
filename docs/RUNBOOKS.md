@@ -93,8 +93,8 @@ claim-stale-check, waf-poll, and the per-key half of home-stats — several ship
 the Datadog monitors were written; `indexnow-drain` did not exist until AECI-826 and only
 joined the failure alert in AECI-864, and `claim-stale-check` did not exist until
 AECI-862; AECI-1205 added `protest-reply-reminder` and AECI-1210 added `vendor-snapshot` to
-the failure alert, and both join the sweep after their first production heartbeat),
-and the liveness sweep watches **fifteen** of the seventeen crons where Datadog watched six.
+the failure alert; both are in the sweep with an `activeFrom` grace, AECI-1221),
+and the liveness sweep watches all **seventeen** crons where Datadog watched six.
 
 **A fourteenth alert exists and is deliberately outside the table above.**
 `indexnow-failure-rate` (AECI-826) has **no Datadog predecessor** — `aeci.indexnow.submit`

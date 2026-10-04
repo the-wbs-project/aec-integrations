@@ -162,6 +162,8 @@ The branch review changed these, each recorded where it applies above or below.
   the token from the address bar.
 - `protest-reply-reminder` is out of the liveness sweep until its first production heartbeat
   (`observability/posthog/README.md` §Pending liveness entries). A follow-up issue tracks it.
+  *AECI-1221 (2026-10-04): it is now in the sweep with an `activeFrom` grace, and the pending
+  list is gone (`observability/posthog/README.md` §New crons: activeFrom).*
 
 ### 7. Amendment (2026-10-04, AECI-1220): one support address, tier-limited rules, no blind copy
 

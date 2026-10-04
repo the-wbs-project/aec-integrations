@@ -74,40 +74,35 @@ describe('ADMIN_CRON_JOB', () => {
 
 describe('CRON_JOBS ↔ the PostHog liveness registry', () => {
   /**
-   * Crons deliberately held out of `liveness.crons` until production has emitted their
-   * first heartbeat. The CI sweep reads production, so a cron that has never run there
-   * reports MISSING on every sweep and fails the scheduled job red.
-   *
-   * - `protest-reply-reminder` (AECI-1205): re-add it to `liveness.crons` once
-   *   `aeci.contest.protest_reminder.job` appears in production. A follow-up issue
-   *   tracks the move. Delete it from this list in the same commit.
-   * - `vendor-snapshot` (AECI-1210): the same, once `aeci.vendor_snapshot.run`
-   *   appears in production.
+   * Every cron is in `liveness.crons`. A cron that has not run in production yet ships its
+   * entry with an `activeFrom` (AECI-1221): before that instant the CI sweep prints a
+   * missing heartbeat as PENDING instead of failing. `observability/posthog/README.md`
+   * §"New crons: activeFrom" states the rule.
    */
-  const LIVENESS_PENDING: readonly string[] = ['protest-reply-reminder', 'vendor-snapshot'];
-
   const config = JSON.parse(
     readFileSync(
       join(process.cwd(), '..', '..', 'observability', 'posthog', 'project-config.json'),
       'utf8',
     ),
   ) as {
-    liveness: { crons: Array<{ job: string }>; pendingFirstHeartbeat?: Array<{ job: string }> };
+    liveness: { crons: Array<{ job: string; activeFrom?: string }> } & Record<string, unknown>;
   };
   const watched = config.liveness.crons.map((c) => c.job);
-  const pending = (config.liveness.pendingFirstHeartbeat ?? []).map((c) => c.job);
 
-  it('watches every cron, except the ones pending a first production heartbeat', () => {
-    const expected = CRON_JOBS.filter((job) => !LIVENESS_PENDING.includes(job));
-    expect(new Set(watched)).toEqual(new Set(expected));
-    expect(watched).toHaveLength(expected.length);
+  it('watches every cron exactly once', () => {
+    expect(new Set(watched)).toEqual(new Set(CRON_JOBS));
+    expect(watched).toHaveLength(CRON_JOBS.length);
   });
 
-  it('keeps a pending cron out of the sweep and parks its entry in pendingFirstHeartbeat', () => {
-    for (const job of LIVENESS_PENDING) {
-      expect(watched).not.toContain(job);
-      expect(pending).toContain(job);
+  it('has no side list of unwatched crons', () => {
+    expect(config.liveness).not.toHaveProperty('pendingFirstHeartbeat');
+  });
+
+  it('writes every activeFrom in the one form jq fromdateiso8601 parses', () => {
+    for (const { job, activeFrom } of config.liveness.crons) {
+      if (activeFrom === undefined) continue;
+      expect(activeFrom, job).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/);
+      expect(Number.isNaN(Date.parse(activeFrom)), job).toBe(false);
     }
-    expect(new Set(pending)).toEqual(new Set(LIVENESS_PENDING));
   });
 });

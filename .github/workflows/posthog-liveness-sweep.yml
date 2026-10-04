@@ -38,6 +38,9 @@
 # .github/workflows/reconcile-counts.yml — a scheduled correctness guard that goes red
 # and explains itself. Failure here means a production cron has stopped.
 #
+# A row that prints PENDING is NOT a failure: it is a new cron whose `activeFrom` has not
+# arrived yet (AECI-1221, observability/posthog/README.md §"New crons: activeFrom").
+#
 # ── The dependency this introduces ──────────────────────────────────────────────
 #
 # Absence detection now depends on GitHub Actions availability, which Datadog's

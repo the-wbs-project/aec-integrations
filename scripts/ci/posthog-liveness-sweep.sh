@@ -48,8 +48,22 @@
 #   PH_LIVENESS_CONFIG   optional — path to the config JSON. Overridable so the failure
 #                                   path can be DRILLED against a fixture instead of
 #                                   waiting for a real cron to die.
+#   PH_LIVENESS_NOW_EPOCH optional — "now" in Unix seconds, for the activeFrom comparison.
+#                                   Only scripts/posthog-liveness-sweep.test.mjs sets it.
 #
-# Exit codes: 0 every heartbeat fresh · 1 one or more stale/missing · 2 could not check.
+# Exit codes: 0 every heartbeat fresh (or PENDING) · 1 one or more stale/missing ·
+# 2 could not check.
+#
+# ── activeFrom: a new cron's grace period (AECI-1221) ───────────────────────────
+#
+# A cron that has never run in production has no heartbeat there. Without a grace rule
+# its row reports MISSING from merge until its first production run, and the sweep goes
+# red every 3 h for a day or more. So a `liveness.crons[]` entry may carry an optional
+# `activeFrom` (UTC, `YYYY-MM-DDTHH:MM:SSZ`). Before that instant a MISSING heartbeat
+# prints PENDING and does not fail the sweep. The grace covers ONLY a missing heartbeat:
+# a heartbeat that exists is judged ok/STALE as usual. Once `activeFrom` has passed the
+# entry is an ordinary one, so a cron that still never ran fails MISSING — that is the
+# signal. The rule is written up in observability/posthog/README.md §"New crons: activeFrom".
 #
 # Note the asymmetry between 1 and 2: "the sweep could not run" is NOT "the crons are
 # fine". Both are red, and the annotations say which is which.
@@ -92,7 +106,7 @@ trap 'rm -rf "$TMP"' EXIT
 
 # ── Build the query ─────────────────────────────────────────────────────────────
 #
-# ONE query for all fifteen crons rather than fifteen queries: one round trip, one place
+# ONE query for every cron rather than one query each: one round trip, one place
 # to read the whole picture, and no chance of a partial sweep reporting a partial pass.
 # `dateDiff` happens server-side so the shell only ever compares integers — no clock
 # skew between the runner and PostHog, and no date parsing in bash.
@@ -162,6 +176,8 @@ jq -r '(.results // .result)[] | [(.[0] // ""), (.[1] // ""), ((.[2] // 0) | tos
 # ── Compare EXPECTED against SEEN ───────────────────────────────────────────────
 STALE=0
 FRESH=0
+PENDING=0
+NOW_EPOCH="${PH_LIVENESS_NOW_EPOCH:-$(date -u +%s)}"
 printf '%-24s %-34s %10s %10s   %s\n' "JOB" "HEARTBEAT METRIC" "AGE(min)" "MAX(min)" "STATE"
 printf '%-24s %-34s %10s %10s   %s\n' "------------------------" "----------------------------------" "----------" "----------" "-----"
 
@@ -172,9 +188,26 @@ while [ "$I" -lt "$CRON_COUNT" ]; do
   METRIC="$(jq -r --argjson i "$I" '.liveness.crons[$i].metric' "$CONFIG")"
   MAX_AGE="$(jq -r --argjson i "$I" '.liveness.crons[$i].maxAgeMinutes' "$CONFIG")"
   SCHEDULE="$(jq -r --argjson i "$I" '.liveness.crons[$i].cron' "$CONFIG")"
+  ACTIVE_FROM="$(jq -r --argjson i "$I" '.liveness.crons[$i].activeFrom // empty' "$CONFIG")"
+  ACTIVE_FROM_EPOCH=""
+  if [ -n "$ACTIVE_FROM" ]; then
+    # fromdateiso8601 accepts only `YYYY-MM-DDTHH:MM:SSZ`. A value it cannot parse means
+    # this run cannot say whether the row is in grace, so it is "unchecked", not a pass.
+    if ! ACTIVE_FROM_EPOCH="$(jq -rn --arg d "$ACTIVE_FROM" '$d | fromdateiso8601' 2>/dev/null)"; then
+      echo "::error::posthog-liveness-sweep: liveness.crons[] entry '${JOB}' has activeFrom '${ACTIVE_FROM}', which is not YYYY-MM-DDTHH:MM:SSZ. Cron liveness is UNCHECKED for this run."
+      exit 2
+    fi
+  fi
   I=$((I + 1))
 
   AGE="$(awk -F'\t' -v m="$METRIC" '$1 == m { print $3; exit }' "$TMP/seen.tsv")"
+
+  if [ -z "${AGE:-}" ] && [ -n "$ACTIVE_FROM_EPOCH" ] && [ "$NOW_EPOCH" -lt "$ACTIVE_FROM_EPOCH" ]; then
+    printf '%-24s %-34s %10s %10s   %s\n' "$JOB" "$METRIC" "none" "$MAX_AGE" "PENDING"
+    echo "::notice title=Cron heartbeat PENDING: ${JOB}::No '${METRIC}' data point yet. The entry is in its first-heartbeat grace until ${ACTIVE_FROM}; after that a missing heartbeat fails the sweep."
+    PENDING=$((PENDING + 1))
+    continue
+  fi
 
   if [ -z "${AGE:-}" ]; then
     printf '%-24s %-34s %10s %10s   %s\n' "$JOB" "$METRIC" "none" "$MAX_AGE" "MISSING"
@@ -203,5 +236,9 @@ if [ "$STALE" -gt 0 ]; then
   exit 1
 fi
 
-echo "posthog-liveness-sweep: all ${FRESH} cron heartbeats fresh on project ${PROJECT_ID}."
+if [ "$PENDING" -gt 0 ]; then
+  echo "posthog-liveness-sweep: all ${FRESH} cron heartbeats fresh on project ${PROJECT_ID}, ${PENDING} pending a first heartbeat (activeFrom not reached)."
+else
+  echo "posthog-liveness-sweep: all ${FRESH} cron heartbeats fresh on project ${PROJECT_ID}."
+fi
 exit 0
