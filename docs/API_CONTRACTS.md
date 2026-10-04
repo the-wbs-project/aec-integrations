@@ -5745,7 +5745,7 @@ export const NudgeMuteResultSchema = z.object({ ok: z.boolean() });
 
 Stage 2 (AECI-520). All require `role === 'vendor_admin'` **and** a non-null `profiles.vendor_id`, enforced by the `requireVendor()` Worker middleware (`apps/api/src/lib/authz.ts`) — verifies the JWT, loads the D1 profile, and rejects in this order: missing token/profile `401`; `banned_at` set `403`; wrong role `403`; null `vendor_id` `403`. A site **`admin` is rejected too** — there is no impersonation at launch, admins act on vendor data through `/api/admin/*` so the audit trail names the real actor.
 
-Source of truth: `packages/shared/src/api/vendor.ts` + `product-versions.ts` + `vendor-attestations.ts` + `vendor-connectors.ts` + `vendor-notifications.ts` + `vendor-recrawl-submissions.ts` + `vendor-updates.ts` + `integration-contests.ts` + `integration-claims.ts` + `integration-edits.ts` (Zod), `apps/api/src/routes/vendor.ts` + `vendor-product-versions.ts` + `vendor-attestations.ts` + `vendor-connectors.ts` + `vendor-notifications.ts` + `vendor-recrawl-submissions.ts` + `vendor-data-objects.ts` + `vendor-updates.ts` + `vendor-contests.ts` + `vendor-integration-claims.ts` + `vendor-integration-edits.ts` + `vendor-review.ts` (handlers), with the shared guard + scoping-predicate seam in `apps/api/src/routes/vendor-shared.ts` and the two-slot authority seam in `apps/api/src/lib/attestation-authority.ts`; `STAGE_2_VENDOR_PORTAL_SPEC.md` §4, `STAGE_2_ATTESTATIONS_SPEC.md` §5 / §7.2 / §8.3, and `STAGE_2_REALTIME_SPEC.md` §2.
+Source of truth: `packages/shared/src/api/vendor.ts` + `product-versions.ts` + `vendor-attestations.ts` + `vendor-connectors.ts` + `vendor-notifications.ts` + `vendor-history.ts` + `vendor-recrawl-submissions.ts` + `vendor-updates.ts` + `integration-contests.ts` + `integration-claims.ts` + `integration-edits.ts` (Zod), `apps/api/src/routes/vendor.ts` + `vendor-product-versions.ts` + `vendor-attestations.ts` + `vendor-connectors.ts` + `vendor-notifications.ts` + `vendor-recrawl-submissions.ts` + `vendor-data-objects.ts` + `vendor-updates.ts` + `vendor-contests.ts` + `vendor-integration-claims.ts` + `vendor-integration-edits.ts` + `vendor-review.ts` (handlers), with the shared guard + scoping-predicate seam in `apps/api/src/routes/vendor-shared.ts` and the two-slot authority seam in `apps/api/src/lib/attestation-authority.ts`; `STAGE_2_VENDOR_PORTAL_SPEC.md` §4, `STAGE_2_ATTESTATIONS_SPEC.md` §5 / §7.2 / §8.3, and `STAGE_2_REALTIME_SPEC.md` §2.
 
 **Two invariants govern this whole surface.**
 
@@ -6078,6 +6078,63 @@ export const VendorAeciOverrideNotificationSchema = z.object({    // AECI-1159
   created_at: z.string(),
 });
 ```
+
+#### Change history: `GET /api/vendor/history` and `GET /api/vendor/history.csv` (AECI-1194)
+
+The vendor's own change history: what its seats changed, what AECi changed on its records, and what the system did. JSON pages and a CSV export run one shared query (`apps/api/src/lib/vendor-history.ts`). Zod: `packages/shared/src/api/vendor-history.ts`. Handlers: `apps/api/src/routes/vendor-history.ts`.
+
+**Guard.** `requireVendor()` and nothing else. There is **no capability gate**: every plan, Free included, sees what AECi changed (`STAGE_2_PAID_TIERS_SPEC.md` §4.3). There is **no rate limit**, because reads are never rate-limited. Neither route writes an `audit_log` row.
+
+**Scope.** `WHERE audit_log.vendor_id = <session vendor> AND action IN (<receipt actions>) ORDER BY created_at DESC, id DESC`.
+
+- The receipt actions are the `receipt: true` entries of `@aeci/shared/audit-vendor-actions`. `notification.sent`, a seat's mute setting and `vendor.deleted` are not receipts.
+- The query never joins through `entity_id` to the entity's current owner. A co-owned product therefore shows each owner only the rows stamped with its own id. A row stays with the vendor it named after ownership moves.
+- Rows written before AECI-1192 carry a null `vendor_id` and never appear. There is no backfill.
+
+**Filters** (both routes):
+
+| Param | Values | Meaning |
+|---|---|---|
+| `kind` | `all` (default), `vendor`, `aeci` | `vendor` keeps registry `kind: 'vendor-edit'` actions. `aeci` keeps `kind: 'aeci-override'`. `system` actions show under `all` only |
+| `from` | `YYYY-MM-DD` | Inclusive UTC day |
+| `to` | `YYYY-MM-DD` | Inclusive UTC day. `from` after `to` is a `400` |
+
+The JSON route also takes `page` and `perPage` (`PageQuerySchema`: default 24, max 100). A bad value is a `400 VALIDATION_ERROR`.
+
+**`GET /api/vendor/history`** returns `paginatedResponseSchema(VendorHistoryItemSchema)`:
+
+```typescript
+export const VendorHistoryItemSchema = z.object({
+  id: z.string(),
+  at: z.string(),                                    // audit_log.created_at
+  actor_kind: z.enum(['your_team', 'aeci', 'system']),
+  action: z.string(),                                // the audit action, e.g. 'product.updated'
+  entity_type: z.string().nullable(),
+  entity_id: z.string().nullable(),
+  entity_name: z.string().nullable(),                 // the CURRENT name; null when none or gone
+  fields: z.array(z.string()),                       // key names of after_state, never values
+  plan: z.object({ tier: z.string(), status: z.string().nullable() }).nullable(),
+  reason: z.string().optional(),                     // only behind reasonVisibility = 'vendor'
+});
+// { data: VendorHistoryItem[], page, perPage, total }
+```
+
+Field names are snake_case, like the other vendor endpoints. `page` and `perPage` keep the shared `PageQuerySchema` spelling. The CSV header row uses the same names as the JSON.
+
+The item is an **allow-list projection**. It never carries `actor_id`, an email, raw before/after values, `metadata.internalNote`, or any other metadata key.
+
+- `actor_kind` comes from `actor_type`. `user` is `your_team`, because `requireVendor()` admits only seats and a vendor-portal write records `user`. `admin` is `aeci`. `system` and `workflow` are `system`.
+- `entity_name` is read now, in one batched `IN` query per entity type per page. It resolves vendors, products, integrations, product versions, connector-evidenced pairs and connector catalogues. Every other type is `null`, because its name would be a person's name or email.
+- `fields` holds the key names of an object `after_state`, filtered to identifier-shaped keys. An array, a scalar or unparseable JSON gives `[]`.
+- `plan` is the `vendor_tier` and `vendor_entitlement_status` snapshot taken at write time (AECI-1193). It is `null` on a row with no snapshot.
+- `reason` is present only when `metadata.reasonVisibility === 'vendor'` and `metadata.reason` is a non-empty string (AECI-1159). It is omitted otherwise.
+
+**`GET /api/vendor/history.csv`** returns the same rows as CSV.
+
+- Headers: `Content-Type: text/csv; charset=utf-8`, `Content-Disposition: attachment; filename="aeci-change-history-<YYYY-MM-DD>.csv"`, `Cache-Control: private, no-store`.
+- Columns: `id, at, actor_kind, action, entity_type, entity_id, entity_name, fields, plan_tier, plan_status, reason`. `fields` is joined with `;`.
+- The export stops at **10,000 rows** (`VENDOR_HISTORY_CSV_MAX_ROWS`), newest first. Every response carries `X-AECI-Total-Rows: <matching rows>` and `X-AECI-Truncated: true|false`. `true` means the file holds the newest 10,000 rows of a longer history. Narrow `from`/`to` to export the rest.
+- Cells go through `csvCell` in `@aeci/shared/csv`: RFC 4180 quoting, and a leading `'` on any cell starting with `=`, `+`, `-`, `@`, tab or CR, so a spreadsheet never runs it as a formula.
 
 #### `GET /api/vendor/notification-preferences` and `PUT /api/vendor/notification-preferences` (AECI-1204)
 

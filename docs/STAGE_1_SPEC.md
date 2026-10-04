@@ -444,7 +444,7 @@ High-level intent, now Worker-enforced rather than policy-enforced:
 - Public read on directory tables (products, vendors, integrations, taxonomy) and approved reviews
 - Authenticated insert on reviews, with `reviewer_id` matching the auth UID
 - Owners can update their own pending reviews
-- Admin-only access to moderation tables, audit log, workflow tables, page_views, vendor_requests
+- Admin-only access to moderation tables, audit log, workflow tables, page_views, vendor_requests. The one exception: a vendor reads its own audit rows through two scoped, allow-listed readers (§26.7)
 
 ### 5.4 GDPR compliance
 
@@ -2126,8 +2126,11 @@ This decision is intentionally deferred — easier to introduce retention later 
 
 ### 26.7 Access control
 
-- `audit_log` and workflow tables are admin-read only, enforced by the **Worker request guard** (`requireAdmin()` in `apps/api/src/lib/authz.ts`) — **not** by RLS. D1 has no PostgREST, no GRANTs and no row-level security, so app-layer authorization is the only layer (ADR 0016; `AUTH_AND_RLS.md` Layer 1, and §14's note to the same effect). No-leakage authz-matrix specs are what hold the line
-- No public API exposes audit data
+- `audit_log` and workflow tables are read by AECi admins and, for two narrow views, by the vendor the rows are about. Access is enforced by the **Worker request guard** in `apps/api/src/lib/authz.ts`, **not** by RLS. D1 has no PostgREST, no GRANTs and no row-level security, so app-layer authorization is the only layer (ADR 0016; `AUTH_AND_RLS.md` Layer 1, and §14's note to the same effect). No-leakage authz-matrix specs are what hold the line.
+  - **Admin readers** sit behind `requireAdmin()`, for example `GET /api/admin/vendors/:id/audit`.
+  - **Vendor readers** sit behind `requireVendor()` and are scoped by the session's vendor id, never by a request parameter. There are two. `GET /api/vendor/notifications` reads the `notification.sent` ledger rows addressed to the vendor (AECI-302). `GET /api/vendor/history` and its CSV twin read the rows whose `audit_log.vendor_id` is the vendor and whose action is a receipt in `@aeci/shared/audit-vendor-actions` (AECI-1194). Both project rows through an allow-list: no actor id, no email, no raw before/after values, no internal note. `API_CONTRACTS.md` §6.14 holds the shapes.
+  - Workflow tables (`workflow_instances`, `workflow_transitions`) stay admin-read only.
+- No public API exposes audit data. The vendor readers are authenticated, per-vendor reads, not public ones
 - Personal data in audit entries follows GDPR rules — when a user invokes right to erasure, their `actor_id` references are nulled but audit entries remain (the action happened; the actor is anonymized)
 
 ---
