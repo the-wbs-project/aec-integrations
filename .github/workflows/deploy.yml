@@ -578,7 +578,7 @@ jobs:
     needs: [lint-and-types, unit-tests, build-web, e2e-and-integration]
     environment:
       name: staging
-      url: https://aeci-web-staging.thewbsproject.workers.dev # WBS-INTERIM (AECI-1166): staging.aecintegrations.com at cutover
+      url: https://staging.aecintegrations.com
     permissions:
       contents: read
     steps:
@@ -1093,7 +1093,7 @@ jobs:
       #     DB endpoint 500s and /categories 404s.
       - name: Smoke test staging (API + SSR at SHA, DB healthy)
         env:
-          HOST: https://aeci-web-staging.thewbsproject.workers.dev # WBS-INTERIM (AECI-1166): staging.aecintegrations.com at cutover
+          HOST: https://staging.aecintegrations.com
           EXPECTED_SHA: ${{ github.sha }}
           CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
           CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}

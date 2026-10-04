@@ -45,7 +45,7 @@ Rulesets API).
 Applied to zone `aecintegrations.com` via the CF Rulesets API (token scoped to
 `Zone WAF: Edit`).
 
-### As-built: the zone moves to The WBS Project, Enterprise (2026-10-03, AECI-1161)
+### As-built: the zone moves to The WBS Project, Enterprise (2026-10-04, AECI-1161)
 
 **Effective at the cutover, the zone lives in The WBS Project account on the Enterprise
 plan.** Every rule id and both ruleset ids recorded in the sections below are the **old
@@ -343,7 +343,7 @@ cannot be reached directly.
 
 ## Plan constraints (the old zone's Cloudflare **Pro** plan) — read before editing
 
-> **Enterprise lifts these from the 2026-10-03 cutover** (AECI-1161). The two rate-limit rules were ported 1:1, so the thresholds below are still what is deployed. Treat each limit here as the reason the rule has its current shape, not as a ceiling on the WBS zone. Redesigning a rule to use longer counting periods, more slots or per-user counting is separate work.
+> **Enterprise lifts these from the 2026-10-04 cutover** (AECI-1161). The two rate-limit rules were ported 1:1, so the thresholds below are still what is deployed. Treat each limit here as the reason the rule has its current shape, not as a ceiling on the WBS zone. Redesigning a rule to use longer counting periods, more slots or per-user counting is separate work.
 
 These shaped every threshold below on Pro; they were not tunable without a plan upgrade:
 
@@ -376,7 +376,7 @@ These shaped every threshold below on Pro; they were not tunable without a plan 
 ## 0. Preconditions
 
 1. Sign in to Cloudflare → select **The WBS Project** account
-   (`004dc1af737b22a8aa83b3550fa9b9d3`; before 2026-10-03 this read the **AEC Integrations**
+   (`004dc1af737b22a8aa83b3550fa9b9d3`; before 2026-10-04 this read the **AEC Integrations**
    account, `e62ec9d8012c3e0c225f8e4dbab76b79`) → zone **`aecintegrations.com`**.
 2. **Review existing rules first.** `STAGE_1_SPEC.md` §15.1 notes "existing WAF
    rules in place." Go to **Security → WAF → Rate limiting rules** and confirm how
@@ -895,7 +895,7 @@ with the three curls above (expect `404 / 200-or-303 / 200`).
 
 ## 3b. Zone-level bot settings — dashboard-only, and **not** covered by anything above (AECI-800)
 
-> **As-built (2026-10-03, AECI-1161).** The zone is on The WBS Project's Enterprise plan, and this section describes the Pro-era setup that was copied across. The settings were compared item by item on 2026-09-30 and match the old zone, except two that cannot be saved on a Pending zone and are cutover steps: **continuous script monitoring** goes on, and **Bot Preference Sync** goes off (on, it rewrites our `robots.txt`). "Bot Fight Mode is absent" and the Pro-only remarks below describe the old zone. Enterprise zones may expose more bot features, so check the dashboard before relying on those remarks. The comparison table is in `scripts/ops/2026-09-wbs-account-move/README.md`.
+> **As-built (2026-10-04, AECI-1161).** The zone is on The WBS Project's Enterprise plan, and this section describes the Pro-era setup that was copied across. The settings were compared item by item on 2026-09-30 and match the old zone, except two that cannot be saved on a Pending zone and are cutover steps: **continuous script monitoring** goes on, and **Bot Preference Sync** goes off (on, it rewrites our `robots.txt`). "Bot Fight Mode is absent" and the Pro-only remarks below describe the old zone. Enterprise zones may expose more bot features, so check the dashboard before relying on those remarks. The comparison table is in `scripts/ops/2026-09-wbs-account-move/README.md`.
 
 > *External account state — re-verify on audit; settings last checked 2026-09-09, crawler traffic last read 2026-09-17 (AECI-815).*
 > Nothing in this repo reads, writes, or tests these. No CI check catches them when

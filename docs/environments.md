@@ -6,7 +6,7 @@
 
 ## Topology
 
-> **Cloudflare account (effective at the 2026-10-03 cutover, AECI-1161).** Every Cloudflare resource lives in **The WBS Project** account (`004dc1af737b22a8aa83b3550fa9b9d3`, workers.dev subdomain `thewbsproject.workers.dev`, Zero Trust org `the-wbs-project.cloudflareaccess.com`) on the Enterprise plan. Before that it lived in the **AEC Integrations** account (`e62ec9d8012c3e0c225f8e4dbab76b79`, subdomain `aec-integrations.workers.dev`, Pro plan). Workers, D1, KV, R2, Queues and Workflows were redeployed fresh and the data copied; nothing moved in place. The new D1 and KV ids are in the wrangler files and in `scripts/ops/2026-09-wbs-account-move/ids.json`. Rationale and what was lost: [ADR 0036](./adr/0036-move-to-the-wbs-project-cloudflare-account.md). Step-by-step: `scripts/ops/2026-09-wbs-account-move/README.md`. Other WBS apps share the `thewbsproject.workers.dev` subdomain, so a `*.thewbsproject.workers.dev` pattern is wider than AECi. Match `aeci-*.` instead.
+> **Cloudflare account (effective at the 2026-10-04 cutover, AECI-1161).** Every Cloudflare resource lives in **The WBS Project** account (`004dc1af737b22a8aa83b3550fa9b9d3`, workers.dev subdomain `thewbsproject.workers.dev`, Zero Trust org `the-wbs-project.cloudflareaccess.com`) on the Enterprise plan. Before that it lived in the **AEC Integrations** account (`e62ec9d8012c3e0c225f8e4dbab76b79`, subdomain `aec-integrations.workers.dev`, Pro plan). Workers, D1, KV, R2, Queues and Workflows were redeployed fresh and the data copied; nothing moved in place. The new D1 and KV ids are in the wrangler files and in `scripts/ops/2026-09-wbs-account-move/ids.json`. Rationale and what was lost: [ADR 0036](./adr/0036-move-to-the-wbs-project-cloudflare-account.md). Step-by-step: `scripts/ops/2026-09-wbs-account-move/README.md`. Other WBS apps share the `thewbsproject.workers.dev` subdomain, so a `*.thewbsproject.workers.dev` pattern is wider than AECi. Match `aeci-*.` instead.
 
 AECi runs four tiers of environment plus local. Worker and Supabase project naming is rigid — workflows, smoke tests, and docs assume these exact names.
 
@@ -253,7 +253,7 @@ pnpm exec wrangler d1 time-travel info aeci-app-production --env production
 pnpm exec wrangler d1 time-travel restore aeci-app-production --env production --timestamp=<ISO8601-before-promote>
 ```
 
-> **As-built note (2026-10-03, AECI-1161).** The databases on The WBS Project account are new, imported from a dump. Their time-travel history starts at the import, so a restore point earlier than the cutover does not exist. The pre-move history stays on the old account until it is deleted (30 days after the cutover). Time-travel is the last-resort rollback for the first 30 days.
+> **As-built note (2026-10-04, AECI-1161).** The databases on The WBS Project account are new, imported from a dump. Their time-travel history starts at the import, so a restore point earlier than the cutover does not exist. The pre-move history stays on the old account until it is deleted (30 days after the cutover). Time-travel is the last-resort rollback for the first 30 days.
 
 Auth lives in the single shared Supabase project (ADR 0017) and is **not** touched by the promote — recover it via a Supabase point-in-time restore only if ever needed.
 
@@ -629,7 +629,7 @@ magic link **point at localhost** — even though the request came from staging.
 - **Redirect URLs** (wildcards allowed; `/**` covers `/auth/callback?…`):
   - `https://demo.aecintegrations.com/**` — production
   - `https://staging.aecintegrations.com/**` — staging
-  - `https://*.thewbsproject.workers.dev/**` — PR-preview SSR origins (since the 2026-10-03 account move; see [ADR 0036](./adr/0036-move-to-the-wbs-project-cloudflare-account.md). The old `https://*.aec-integrations.workers.dev/**` entry can go once the old account is deleted)
+  - `https://*.thewbsproject.workers.dev/**` — PR-preview SSR origins (since the 2026-10-04 account move; see [ADR 0036](./adr/0036-move-to-the-wbs-project-cloudflare-account.md). The old `https://*.aec-integrations.workers.dev/**` entry can go once the old account is deleted)
   - `http://localhost:8788/**` and `http://localhost:8790/**` — local dev (primary + agent workspaces; `globalThis.location.origin` is the SSR port)
   - `https://aecintegrations.com/**` — the public launch domain, when it lands
 - **Site URL**: `https://demo.aecintegrations.com` — the deployed fallback (only used when a request omits/​mismatches `emailRedirectTo`).
@@ -913,7 +913,7 @@ production* and provisioning a fresh empty project for development:
 
 ### 2. Cloudflare DNS
 
-- [ ] Confirm `aecintegrations.com` is on Cloudflare in **The WBS Project** account on the Enterprise plan. _(Before the 2026-10-03 move this read "the AEC account and a Pro plan"; see [ADR 0036](./adr/0036-move-to-the-wbs-project-cloudflare-account.md).)_
+- [ ] Confirm `aecintegrations.com` is on Cloudflare in **The WBS Project** account on the Enterprise plan. _(Before the 2026-10-04 move this read "the AEC account and a Pro plan"; see [ADR 0036](./adr/0036-move-to-the-wbs-project-cloudflare-account.md).)_
 - [ ] Add a custom hostname for `staging.aecintegrations.com` pointing at the Workers zone (Cloudflare Dashboard → Workers & Pages → `aeci-web-staging` → Settings → Triggers → Custom Domains → Add). Wrangler will reconcile the route on first deploy.
 - [ ] `demo.aecintegrations.com`, the apex (`aecintegrations.com`) and `www` need **no manual zone edits** — `custom_domain: true` in each web env block makes wrangler provision the DNS record + cert on deploy. The apex + `www` are on `aeci-web-production` (AECI-247/277); their reassignment off the retired landing Worker was the apex-cutover DNS flip. **The reverse is not symmetric: removing a route from a Worker that still exists does NOT reap the Custom Domain** — that is a dashboard action (Worker → Settings → Domains & Routes), which is what AECI-807 hit retiring `prod.aecintegrations.com`.
 

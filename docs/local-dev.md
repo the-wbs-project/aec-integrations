@@ -141,7 +141,7 @@ guardrails and recipes. The short version:
 
 ### 4.1 Which Cloudflare account remote commands hit (AECI-1161)
 
-Local dev reads a local D1 and touches no Cloudflare account. Any `wrangler` command with `--remote`, and any `wrangler deploy`, reaches the account named by `account_id` at the top of each `wrangler.jsonc`. From the 2026-10-03 cutover that is The WBS Project (`004dc1af737b22a8aa83b3550fa9b9d3`), and the D1 and KV ids in those files are the new ones. Sign wrangler in as a user with access to that account. Preview and agent URLs are `aeci-*.thewbsproject.workers.dev`, behind the Access app in [`access.md`](./access.md). Before the cutover they were `*.aec-integrations.workers.dev` on the old account. [ADR 0036](./adr/0036-move-to-the-wbs-project-cloudflare-account.md).
+Local dev reads a local D1 and touches no Cloudflare account. Any `wrangler` command with `--remote`, and any `wrangler deploy`, reaches the account named by `account_id` at the top of each `wrangler.jsonc`. From the 2026-10-04 cutover that is The WBS Project (`004dc1af737b22a8aa83b3550fa9b9d3`), and the D1 and KV ids in those files are the new ones. Sign wrangler in as a user with access to that account. Preview and agent URLs are `aeci-*.thewbsproject.workers.dev`, behind the Access app in [`access.md`](./access.md). Before the cutover they were `*.aec-integrations.workers.dev` on the old account. [ADR 0036](./adr/0036-move-to-the-wbs-project-cloudflare-account.md).
 
 ## 5. Version reporting (AECI-74)
 

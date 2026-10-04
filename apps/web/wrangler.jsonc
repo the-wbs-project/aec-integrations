@@ -177,17 +177,12 @@
         "default": { "type": "worker", "cache": { "enabled": false } },
         "Renderer": { "type": "worker", "cache": { "enabled": true } },
       },
-      // WBS-INTERIM (AECI-1166): until the zone moves to the WBS account, staging
-      // cannot bind its custom domain, so it serves on
-      // aeci-web-staging.thewbsproject.workers.dev (Access-gated by `aeci-*`).
-      // At cutover: delete `workers_dev` and restore the `routes` block.
-      "workers_dev": true,
-      // "routes": [
-      //   {
-      //     "pattern": "staging.aecintegrations.com",
-      //     "custom_domain": true,
-      //   },
-      // ],
+      "routes": [
+        {
+          "pattern": "staging.aecintegrations.com",
+          "custom_domain": true,
+        },
+      ],
       "services": [{ "binding": "API", "service": "aeci-api-staging" }],
       // WC-5 (AECI-319): consume the cross-Worker cache-purge queue. The API Worker
       // (producer) enqueues on promote/moderation; this Worker issues `ctx.cache.purge()`
