@@ -440,7 +440,7 @@ The rest of the table above is unchanged. Tests: `vendor-integration-edits-conne
 > this replaced. The current rendering is the Integration links section (§6.17.5), backed by
 > `integration-links.ts`; the write rules and gates in the table above are what it calls.
 
-**Each endpoint vendor stores its own listing and docs link on an integration** (decision 6), shown on the pair page beside the other side's. They are web links. Nothing routes on them and nothing reads them to grant anything.
+**Each endpoint vendor stores its own listing and docs link on an integration** (decision 6), shown on the pair page beside the other side's. **Each link is labelled with its side's product name, never the company's** (AECI-1141, ruled 2026-09-28). The link is stored per product, and one company can own both sides: AutoCAD Architecture and Navisworks read "AutoCAD Architecture listing" and "Navisworks listing", not "Autodesk listing" twice. They are web links. Nothing routes on them and nothing reads them to grant anything.
 
 | Rule | As built |
 |---|---|

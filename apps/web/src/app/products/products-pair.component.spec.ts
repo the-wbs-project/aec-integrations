@@ -195,8 +195,8 @@ describe('ProductsPairPage', () => {
     expect(el.querySelector('a[href="https://example.com/listing"]')).toBeTruthy();
   });
 
-  // AECI-1007: each endpoint vendor's own links, labelled by vendor, with AECi's
-  // curated link as the per-kind fallback.
+  // AECI-1007: each endpoint vendor's own links, labelled by product (AECI-1141),
+  // with AECi's curated link as the per-kind fallback.
   describe('per-side vendor links (AECI-1007)', () => {
     const withLinks = (vendor_links: ProductPairResponse['mechanisms'][number]['vendor_links']) => {
       const pair = buildPair({
@@ -225,7 +225,7 @@ describe('ProductsPairPage', () => {
         rel: a.getAttribute('rel'),
       }));
 
-    it('labels each side by its vendor, falling back to the product name', () => {
+    it('labels each side by its product name, not its vendor', () => {
       const { el } = setup(
         withLinks({
           context: { listing_url: 'https://procore.example/l', docs_url: null },
@@ -234,7 +234,8 @@ describe('ProductsPairPage', () => {
       );
       const found = links(el);
       expect(found.map((l) => [l.href, l.text])).toEqual([
-        ['https://procore.example/l', 'Procore Technologies listing'],
+        // The context side's vendor is "Procore Technologies"; the label is the product.
+        ['https://procore.example/l', 'Procore listing'],
         ['https://revit.example/l', 'Revit listing'],
         // No vendor set a docs link, so AECi's curated one stays, unlabelled.
         ['https://aeci.example/docs', 'Documentation'],
@@ -242,6 +243,35 @@ describe('ProductsPairPage', () => {
       // The curated listing link is replaced, not shown beside the vendors' own.
       expect(el.querySelector('a[href="https://example.com/listing"]')).toBeNull();
       for (const l of found) expect(l.rel).toBe('noopener noreferrer nofollow');
+    });
+
+    // AECI-1141: one company owning both products used to label both links
+    // "Autodesk listing", so the reader could not tell them apart (WCAG 2.4.4).
+    it('gives distinct labels when one vendor owns both products', () => {
+      const autodesk = {
+        vendor: { id: 'v2', name: 'Autodesk', slug: 'autodesk', logo_url: null, verified: false },
+      };
+      const pair = buildPair({
+        context_product: productListItem('acad-arch', 'AutoCAD Architecture', autodesk),
+        other_product: productListItem('navisworks', 'Navisworks', autodesk),
+      });
+      pair.mechanisms[0] = {
+        ...pair.mechanisms[0]!,
+        vendor_links: {
+          context: { listing_url: 'https://acad.example/l', docs_url: 'https://acad.example/d' },
+          other: { listing_url: 'https://navis.example/l', docs_url: 'https://navis.example/d' },
+        },
+      };
+      const { el } = setup(pair);
+      const found = links(el);
+      expect(found.map((l) => [l.href, l.text])).toEqual([
+        ['https://acad.example/l', 'AutoCAD Architecture listing'],
+        ['https://navis.example/l', 'Navisworks listing'],
+        ['https://acad.example/d', 'AutoCAD Architecture documentation'],
+        ['https://navis.example/d', 'Navisworks documentation'],
+      ]);
+      expect(new Set(found.map((l) => l.text)).size).toBe(found.length);
+      expect(el.textContent).not.toContain('Autodesk listing');
     });
 
     it('keeps the legacy links when no vendor has set any', () => {
