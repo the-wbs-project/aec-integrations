@@ -244,7 +244,8 @@ interface MechanismLink {
   readonly label: string;
 }
 
-/** Whose name labels a side's own link: its vendor, else the product itself. */
+/** Whose name labels a side's own link: its product. The link is stored per
+ *  product, and one company can own both sides (AECI-1141). */
 interface PairSideNames {
   readonly context: string;
   readonly other: string;
@@ -252,7 +253,7 @@ interface PairSideNames {
 
 /**
  * The mechanism card's external links (AECI-1007). Per kind, each endpoint vendor's
- * OWN link wins and is labelled with that vendor's name, context side first. Only
+ * OWN link wins and is labelled with that side's product name, context side first. Only
  * when neither side has set that kind does the card fall back to AECi's curated
  * `listing_url` / `docs_url`, under the unlabelled copy it always had. Listing links
  * come before docs links, as they did before.
@@ -270,7 +271,7 @@ function mechanismLinks(m: ProductPairMechanism, names: PairSideNames): Mechanis
     for (const side of listings) {
       out.push({
         href: side.links!.listing_url!,
-        label: $localize`:@@pair.mechanism.listingBy:${side.name}:vendor: listing`,
+        label: $localize`:@@pair.mechanism.listingBy:${side.name}:product: listing`,
       });
     }
   } else if (m.listing_url) {
@@ -281,7 +282,7 @@ function mechanismLinks(m: ProductPairMechanism, names: PairSideNames): Mechanis
     for (const side of docs) {
       out.push({
         href: side.links!.docs_url!,
-        label: $localize`:@@pair.mechanism.docsBy:${side.name}:vendor: documentation`,
+        label: $localize`:@@pair.mechanism.docsBy:${side.name}:product: documentation`,
       });
     }
   } else if (m.docs_url) {
@@ -1122,8 +1123,8 @@ export class ProductsPairPage {
       other: pair.other_product.vendor?.name ?? null,
     };
     const sideNames: PairSideNames = {
-      context: vendorNames.context ?? pair.context_product.name,
-      other: vendorNames.other ?? otherName,
+      context: pair.context_product.name,
+      other: otherName,
     };
     const mechanisms = pair.mechanisms.map((m) =>
       this.toMechanismView(m, otherName, vendorNames, sideNames),
