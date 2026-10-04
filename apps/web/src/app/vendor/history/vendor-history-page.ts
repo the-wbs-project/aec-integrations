@@ -179,7 +179,7 @@ export const VENDOR_HISTORY_PAGE_SIZE = 25;
                   <time
                     class="shrink-0 text-xs text-(--text-secondary) tabular-nums"
                     [attr.datetime]="item.at"
-                    >{{ item.at | date: 'medium' }}</time
+                    >{{ item.at | date: 'MMM d, y, h:mm a' }}</time
                   >
                 </div>
 
