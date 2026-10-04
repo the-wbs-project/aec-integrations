@@ -77,6 +77,8 @@ export function claimAddedNotificationAudit(
     action: NOTIFICATION_SENT_ACTION,
     entityType: 'claim',
     entityId: metadata.claimId,
+    // AECI-1192: `notification.sent` carries the RECIPIENT in `vendor_id`.
+    vendorId: metadata.vendorId,
     metadata: full,
   };
 }

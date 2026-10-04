@@ -81,9 +81,20 @@
  *     `POST /admin/purge` command, and `production` currently serves uncached anyway.
  */
 
-import { escapeSqlLiteral, REVIEW_RESPONSES_TABLE_SQL } from './retract-product';
+import {
+  AUDIT_LOG_DDL_SQL,
+  ddlHasAuditVendorColumns,
+  escapeSqlLiteral,
+  REVIEW_RESPONSES_TABLE_SQL,
+} from './retract-product';
+import { vendorPlanSnapshot } from '@aeci/shared/entitlements';
 
-export { escapeSqlLiteral, REVIEW_RESPONSES_TABLE_SQL };
+export {
+  AUDIT_LOG_DDL_SQL,
+  ddlHasAuditVendorColumns,
+  escapeSqlLiteral,
+  REVIEW_RESPONSES_TABLE_SQL,
+};
 
 // ─── FK handling (the table in the header, as data) ─────────────────────────
 
@@ -316,6 +327,9 @@ export interface VendorAuditInsertArgs {
    *  Defaults to true; the CLI passes its {@link REVIEW_RESPONSES_TABLE_SQL} probe so a
    *  tier without the table gets a plan that never names it. */
   reviewResponsesTable?: boolean;
+  /** AECI-1192: whether `audit_log` has migration 0061's columns on the target tier.
+   *  Defaults to true; the CLI passes its {@link AUDIT_LOG_DDL_SQL} probe. */
+  auditVendorColumns?: boolean;
 }
 
 /**
@@ -335,6 +349,7 @@ export function buildVendorAuditInsert({
   auditId,
   now,
   operator = 'chrisw@thewbsproject.com',
+  auditVendorColumns = true,
 }: VendorAuditInsertArgs): string {
   const beforeState = {
     table: 'vendors',
@@ -371,8 +386,13 @@ export function buildVendorAuditInsert({
     'entity_id',
     'before_state',
     'metadata',
+    ...(auditVendorColumns ? ['vendor_id', 'vendor_tier', 'vendor_entitlement_status'] : []),
     'created_at',
   ];
+  // AECI-1192 / AECI-1193: the row is about the vendor it deletes. A retractable
+  // vendor holds no `vendor_entitlements` row (a row refuses the retraction), so its
+  // plan is `none`, the same value `vendorPlanSnapshot(null)` gives.
+  const plan = vendorPlanSnapshot(null);
   const vals = [
     sqlLiteral(auditId),
     'NULL',
@@ -382,6 +402,9 @@ export function buildVendorAuditInsert({
     sqlLiteral(vendor.id),
     sqlLiteral(JSON.stringify(beforeState)),
     sqlLiteral(JSON.stringify(metadata)),
+    ...(auditVendorColumns
+      ? [sqlLiteral(vendor.id), sqlLiteral(plan.tier), sqlLiteral(plan.status)]
+      : []),
     sqlLiteral(now),
   ];
   return `INSERT INTO "audit_log" (${cols.map((c) => `"${c}"`).join(',')}) VALUES (${vals.join(',')});`;

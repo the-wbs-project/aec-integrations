@@ -173,6 +173,7 @@ describe('batch shapes', () => {
       inviteId: INVITE,
       token: 'tok',
       vendorId: VENDOR,
+      vendorPlan: { tier: 'none', status: 'none' as const },
       email: 'dana@acme.com',
       actorId: ACTOR,
       actorType: 'user',
@@ -193,6 +194,7 @@ describe('batch shapes', () => {
       inviteId: INVITE,
       token: 'super-secret-token',
       vendorId: VENDOR,
+      vendorPlan: { tier: 'none', status: 'none' as const },
       email: 'dana@acme.com',
       actorId: ACTOR,
       actorType: 'user',
@@ -206,6 +208,7 @@ describe('batch shapes', () => {
     const batch = revokeInviteStatements(t.db, {
       inviteId: INVITE,
       vendorId: VENDOR,
+      vendorPlan: { tier: 'none', status: 'none' as const },
       email: 'dana@acme.com',
       actorId: ACTOR,
       actorType: 'user',
@@ -222,6 +225,7 @@ describe('batch shapes', () => {
     const batch = acceptInviteStatements(t.db, {
       inviteId: INVITE,
       vendorId: VENDOR,
+      vendorPlan: { tier: 'none', status: 'none' as const },
       email: 'dana@acme.com',
       userId: USER,
       actorType: 'user',
@@ -248,6 +252,7 @@ describe('batch shapes', () => {
     const batch = acceptInviteStatements(t.db, {
       inviteId: INVITE,
       vendorId: VENDOR,
+      vendorPlan: { tier: 'none', status: 'none' as const },
       email: 'dana@acme.com',
       userId: USER,
       actorType: 'user',
@@ -273,6 +278,7 @@ describe('batch shapes', () => {
     const batch = acceptInviteStatements(t.db, {
       inviteId: INVITE,
       vendorId: VENDOR,
+      vendorPlan: { tier: 'none', status: 'none' as const },
       email: 'dana@gmail.com',
       userId: USER,
       actorType: 'user',
@@ -287,6 +293,7 @@ describe('batch shapes', () => {
     const batch = acceptInviteStatements(t.db, {
       inviteId: INVITE,
       vendorId: VENDOR,
+      vendorPlan: { tier: 'none', status: 'none' as const },
       email: 'dana@gmail.com',
       userId: USER,
       actorType: 'user',
@@ -310,6 +317,7 @@ describe('batch shapes', () => {
     const batch = acceptInviteStatements(t.db, {
       inviteId: INVITE,
       vendorId: VENDOR,
+      vendorPlan: { tier: 'none', status: 'none' as const },
       email: 'dana@acme.com',
       userId: USER,
       actorType: 'user',
@@ -332,6 +340,7 @@ describe('batch shapes', () => {
     const batch = resendInviteStatements(t.db, {
       inviteId: INVITE,
       vendorId: VENDOR,
+      vendorPlan: { tier: 'none', status: 'none' as const },
       email: 'dana@acme.com',
       actorId: ACTOR,
       actorType: 'user',

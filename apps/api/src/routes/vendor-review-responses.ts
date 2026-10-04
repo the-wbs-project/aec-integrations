@@ -83,6 +83,7 @@ import {
   parseJsonBody,
   sessionVendorId,
   type VendorContext,
+  vendorAuditEntry,
 } from './vendor-shared';
 
 /** The review a write addresses, once ownership has settled. */
@@ -250,6 +251,7 @@ export function createSubmitReviewResponseHandler(
         action: REVIEW_RESPONSE_ACTIONS.submitted,
         entityType: REVIEW_RESPONSE_ENTITY_TYPE,
         entityId: id,
+        productId: review.productId,
         beforeState: null,
         afterState: { status: 'pending', body },
         metadata: replyMetadata(vendorId, review),
@@ -266,7 +268,7 @@ export function createSubmitReviewResponseHandler(
           updatedAt: now,
         }),
         reviewResponseChangedSentinel(db),
-        auditInsert(db, audit),
+        auditInsert(db, vendorAuditEntry(c, audit)),
       ]);
       // Pending is invisible to the public: nothing to purge (§11c.6).
       afterVendorWrite(c, [], audit);
@@ -285,6 +287,7 @@ export function createSubmitReviewResponseHandler(
       action: REVIEW_RESPONSE_ACTIONS.submitted,
       entityType: REVIEW_RESPONSE_ENTITY_TYPE,
       entityId: existing.id,
+      productId: review.productId,
       beforeState: {
         status: from,
         body: existing.body,
@@ -308,7 +311,7 @@ export function createSubmitReviewResponseHandler(
         })
         .where(and(eq(reviewResponses.id, existing.id), eq(reviewResponses.status, from))),
       reviewResponseChangedSentinel(db),
-      auditInsert(db, audit),
+      auditInsert(db, vendorAuditEntry(c, audit)),
     ]);
     afterVendorWrite(c, [], audit);
     return echo(c, row, 200);
@@ -358,6 +361,7 @@ export function createEditReviewResponseHandler(
       action: REVIEW_RESPONSE_ACTIONS.edited,
       entityType: REVIEW_RESPONSE_ENTITY_TYPE,
       entityId: existing.id,
+      productId: review.productId,
       beforeState: { status: from, body: existing.body },
       afterState: { status: 'pending', body },
       metadata: replyMetadata(vendorId, review, { wasPublished }),
@@ -374,7 +378,7 @@ export function createEditReviewResponseHandler(
         })
         .where(and(eq(reviewResponses.id, existing.id), eq(reviewResponses.status, from))),
       reviewResponseChangedSentinel(db),
-      auditInsert(db, audit),
+      auditInsert(db, vendorAuditEntry(c, audit)),
     ]);
     afterVendorWrite(c, wasPublished ? [`product:${review.productSlug}`] : [], audit);
     return echo(c, row);
@@ -413,6 +417,7 @@ export function createWithdrawReviewResponseHandler(
       action: REVIEW_RESPONSE_ACTIONS.withdrawn,
       entityType: REVIEW_RESPONSE_ENTITY_TYPE,
       entityId: existing.id,
+      productId: review.productId,
       beforeState: { status: from },
       afterState: { status: 'withdrawn' },
       metadata: replyMetadata(vendorId, review, { wasPublished }),
@@ -423,7 +428,7 @@ export function createWithdrawReviewResponseHandler(
         .set({ status: 'withdrawn', publishedAt: null, updatedAt: now })
         .where(and(eq(reviewResponses.id, existing.id), eq(reviewResponses.status, from))),
       reviewResponseChangedSentinel(db),
-      auditInsert(db, audit),
+      auditInsert(db, vendorAuditEntry(c, audit)),
     ]);
     afterVendorWrite(c, wasPublished ? [`product:${review.productSlug}`] : [], audit);
     return echo(c, row);

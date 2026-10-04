@@ -286,9 +286,9 @@ export function createVendorUpdatesHandler(
         .from(ONE_ROW),
 
       // `notifications` — the §7.3 `notification.sent` ledger, under the list
-      // endpoint's own predicate (action + 90-day window + the `json_extract`
-      // vendor filter). Ops-routed rows store `metadata.vendorId = null`, which
-      // `json_extract` returns as SQL NULL and can therefore never equal a
+      // endpoint's own predicate (action + 90-day window + the vendor filter: the
+      // `vendor_id` column, or `metadata.vendorId` on rows written before
+      // AECI-1192). Ops-routed rows store NULL in both, which can never equal a
       // caller's id — the same structural isolation the list relies on.
       db
         .select({ value: max(auditLog.createdAt) })

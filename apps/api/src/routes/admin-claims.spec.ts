@@ -330,9 +330,15 @@ describe('PATCH /api/admin/claims/:id — grant', () => {
     expect(audits).toHaveLength(2);
     const claimAudit = audits.find((a) => a.action === 'vendor_claim.granted')!;
     expect(claimAudit.actorId).toBe(ADMIN_ID);
+    // AECI-1192 / AECI-1193: the column, and the plan BEFORE the grant.
+    expect(claimAudit).toMatchObject({
+      vendorId: VENDOR_ID,
+      vendorTier: 'none',
+      vendorEntitlementStatus: 'none',
+    });
     expect(claimAudit.metadata).toMatchObject({
       source: 'admin-moderation',
-      vendor_id: VENDOR_ID,
+      vendorId: VENDOR_ID,
       identity_outcome: 'linked',
       verified_flipped: true,
       entitlement: { payer: 'Autodesk AP', amount: 'USD 5,000/yr' },
@@ -1049,6 +1055,7 @@ describe('revokeSeatStatements', () => {
     const { stmts } = revokeSeatStatements(t.db, {
       userId: CLAIMANT_ID,
       vendorId: VENDOR_ID,
+      vendorPlan: { tier: 'none', status: 'none' as const },
       actorId: ADMIN_ID,
       actorType: 'admin',
       now: new Date().toISOString(),
@@ -1066,7 +1073,8 @@ describe('revokeSeatStatements', () => {
     const audits = await t.db.select().from(auditLog);
     expect(audits).toHaveLength(1);
     expect(audits[0]!.action).toBe('vendor_claim.seat_revoked');
-    expect(audits[0]!.metadata).toMatchObject({ verified_untouched: true, vendor_id: VENDOR_ID });
+    expect(audits[0]!.metadata).toMatchObject({ verified_untouched: true, vendorId: VENDOR_ID });
+    expect(audits[0]!.vendorId).toBe(VENDOR_ID);
   });
 });
 

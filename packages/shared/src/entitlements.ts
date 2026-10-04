@@ -289,3 +289,44 @@ export function capabilitiesFor(tier: EntitlementTier): readonly Capability[] {
 export function hasCapability(tier: EntitlementTier, capability: Capability): boolean {
   return capabilitiesFor(tier).includes(capability);
 }
+
+/** `'none'` on both axes of {@link VendorPlanSnapshot}: the vendor holds no
+ *  `vendor_entitlements` row (the Free plan, §13.2). Explicit, never NULL, so an
+ *  audit row can say "no plan" rather than "not recorded" (AECI-1193). */
+export const NO_PLAN = 'none' as const;
+
+/**
+ * The vendor's plan at the moment an audit row is written (AECI-1193,
+ * `DATABASE_SCHEMA.md` §8.4) — what lands in `audit_log.vendor_tier` and
+ * `audit_log.vendor_entitlement_status`.
+ *
+ * `tier` is the RAW row tier (`'verified'`), not the resolved `EntitlementTier`:
+ * the session flattens an expired `verified` row to `unclaimed`, and "actions
+ * after the Managed plan lapsed" needs both halves.
+ */
+export interface VendorPlanSnapshot {
+  tier: string;
+  status: EntitlementStatus | typeof NO_PLAN;
+}
+
+/**
+ * Snapshot a `vendor_entitlements` row (or its absence) for an audit row.
+ *
+ * Same status rule as the session's `entitlementFor` (`apps/api/src/lib/authz.ts`):
+ * the stored `status` is the truth, and a status outside the §2.2 vocabulary is
+ * not echoed. There is deliberately no clock check against `period_end`. The
+ * session does not make one either (the expiry cron flips the row), so the
+ * snapshot always describes the plan the write was AUTHORIZED under.
+ *
+ * Structurally typed so a Drizzle row, `loadEntitlement`'s projection or the
+ * session's `entitlement` block can all be passed.
+ */
+export function vendorPlanSnapshot(
+  row: { tier: string; status: string } | null | undefined,
+): VendorPlanSnapshot {
+  if (!row) return { tier: NO_PLAN, status: NO_PLAN };
+  const status = (ENTITLEMENT_STATUSES as readonly string[]).includes(row.status)
+    ? (row.status as EntitlementStatus)
+    : NO_PLAN;
+  return { tier: row.tier, status };
+}

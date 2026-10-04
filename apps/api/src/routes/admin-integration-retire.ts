@@ -82,6 +82,8 @@ import {
   type RetireMode,
 } from './integration-retire-write';
 import { parseJsonBody, type VendorContext } from './vendor-shared';
+import { loadEntitlement } from '../lib/vendor-entitlement';
+import { vendorPlanSnapshot } from '@aeci/shared/entitlements';
 
 /** `metadata.source` on the audit rows and the PostHog forward, as every admin write tags it. */
 export const ADMIN_RETIRE_AUDIT_SOURCE = 'admin-moderation';
@@ -149,13 +151,15 @@ function handlerFor(mode: RetireMode, dbFor: DbFactory): (c: VendorContext) => P
     const refusal = adminRetireRefusal(target, mode);
     if (refusal) throw refusal;
 
-    const [owner, endpointVendors, slugs, contests] = await Promise.all([
+    const [owner, ownerEntitlement, endpointVendors, slugs, contests] = await Promise.all([
       target.builtByVendorId
         ? db.query.vendors.findFirst({
             columns: { id: true, slug: true, companyName: true },
             where: eq(vendors.id, target.builtByVendorId),
           })
         : Promise.resolve(undefined),
+      // The owner's plan for the audit rows (AECI-1193), in the same wave.
+      target.builtByVendorId ? loadEntitlement(db, target.builtByVendorId) : Promise.resolve(null),
       endpointVendorIds(db, located),
       retireSlugs(db, located),
       // Either anchor: a pair's contests sit on `evidenced_pair_id` (AECI-1092).
@@ -179,6 +183,7 @@ function handlerFor(mode: RetireMode, dbFor: DbFactory): (c: VendorContext) => P
       actingVendorId: null,
       recipients,
       owner: { id: owner?.id ?? null, name: owner?.companyName ?? null },
+      ownerPlan: vendorPlanSnapshot(ownerEntitlement),
       pairSlugs: slugs.pairSlugs,
     };
     const batch: RetireBatch =

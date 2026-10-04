@@ -93,6 +93,7 @@ import {
   ownedSideProductId,
   withRecrawlProduct,
   type VendorContext,
+  vendorAuditEntry,
 } from './vendor-shared';
 
 /** `audit_log.action` for an owner edit, shared with `vendor-integration-edits.ts`
@@ -295,7 +296,7 @@ export async function editEvidencedPair(
       .set({ ...columns, ...maintenanceTransferColumns(now), updatedAt: now })
       .where(evidencedOwnerWriteWhere(pairId, vendorId)),
     ownerWriteSentinel(db),
-    ...audits.map((entry) => auditInsert(db, entry)),
+    ...audits.map((entry) => auditInsert(db, vendorAuditEntry(c, entry))),
   ];
   try {
     await db.batch(stmts as BatchTuple);

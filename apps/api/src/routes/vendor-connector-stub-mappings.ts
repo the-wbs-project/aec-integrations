@@ -56,6 +56,7 @@ import {
   parseJsonBody,
   sessionVendorId,
   type VendorContext,
+  sessionVendorPlan,
 } from './vendor-shared';
 
 export function createVendorUpdateConnectorStubMappingHandler(
@@ -101,6 +102,7 @@ export function createVendorUpdateConnectorStubMappingHandler(
       decidedBy: connectorVendorDecider(vendor.slug),
       auditSource: AUDIT_SOURCE,
       vendorId,
+      vendorPlan: sessionVendorPlan(c),
     });
 
     if (result.auditEntries.length > 0) {

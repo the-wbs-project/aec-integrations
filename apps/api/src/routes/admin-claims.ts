@@ -87,7 +87,7 @@ import {
   type VendorOwnedIntegrations,
   type VendorProductRoles,
 } from '@aeci/shared';
-import { tierFor, type EntitlementTier } from '@aeci/shared/entitlements';
+import { tierFor, vendorPlanSnapshot, type EntitlementTier } from '@aeci/shared/entitlements';
 import { and, asc, count, desc, eq, inArray, isNull, ne, or } from 'drizzle-orm';
 import type { Context } from 'hono';
 import type { ZodType } from 'zod';
@@ -514,6 +514,7 @@ async function approveClaim(
   const grant = grantSeatStatements(db, {
     userId,
     vendorId: vendor.id,
+    vendorPlan: vendorPlanSnapshot(entitlementBefore),
     requestId: existing.id,
     actorId,
     actorType,

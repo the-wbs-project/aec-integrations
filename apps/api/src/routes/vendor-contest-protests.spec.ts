@@ -616,6 +616,19 @@ describe('PATCH /api/admin/contests/:id/protest', () => {
         [VENDOR_B, 'owner'],
       ].sort(),
     );
+    // AECI-1192 / AECI-1193: the AECi decision row is about the OWNER's row, so it
+    // names the owner and its plan, never the protesting submitter.
+    const [decision] = await t.db
+      .select()
+      .from(auditLog)
+      .where(eq(auditLog.action, 'integration.contest.protest_upheld'));
+    expect(decision).toMatchObject({
+      vendorId: VENDOR_B,
+      // The fixture seeds no entitlement row for the owner.
+      vendorTier: 'none',
+      vendorEntitlementStatus: 'none',
+    });
+    expect(decision!.metadata).toMatchObject({ submitterVendorId: VENDOR_A });
   });
 
   it('rejects, starting a 90-day cooldown the submitter is told about', async () => {

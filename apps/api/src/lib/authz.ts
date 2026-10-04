@@ -125,6 +125,13 @@ export type AuthenticatedSession = {
    */
   entitlement: {
     status: EntitlementStatus;
+    /** The RAW `vendor_entitlements.tier` from the same join (AECI-1193). Not an
+     *  authorization input: `entitlementTier` is. It exists so a vendor audit row
+     *  can snapshot "verified, expired" with no extra D1 read, which the resolved
+     *  `entitlementTier` (`unclaimed` once lapsed) cannot say. Optional so a
+     *  hand-built test session may omit it; `vendorAuditEntry` then falls back to
+     *  `entitlementTier`. */
+    tier?: string;
     periodEnd: string | null;
     /** `vendor_entitlements.ended_at`: when the row last left `active`
      *  (AECI-1218, the pilot-ended banner's date line). `null` while active.
@@ -317,7 +324,7 @@ function entitlementFor(
     // instead of a cast, and it is the behaviour we want if that CHECK is ever
     // widened — degrade to "no term on record", never echo an unknown status.
     entitlement: isEntitlementStatus(status)
-      ? { status, periodEnd: row.entPeriodEnd, endedAt: row.entEndedAt }
+      ? { status, tier: row.entTier, periodEnd: row.entPeriodEnd, endedAt: row.entEndedAt }
       : null,
   };
 }

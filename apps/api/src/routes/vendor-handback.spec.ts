@@ -723,8 +723,10 @@ describe('revoking the LAST seat hands back claimed evidenced pairs too (AECI-10
       expect(row.metadata).toMatchObject({
         anchor: 'evidenced_pair',
         integrationId: row.entityId,
-        vendor_id: VENDOR,
+        vendorId: VENDOR,
       });
+      // AECI-1192: `sealed()` names the vendor that held the pair.
+      expect(row.vendorId).toBe(VENDOR);
     }
     const flip = rows.find(
       (row) => (row.afterState as { maintained_by?: string } | null)?.maintained_by === 'aeci',

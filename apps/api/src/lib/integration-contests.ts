@@ -897,6 +897,8 @@ export function contestNotificationAudit(
     action: NOTIFICATION_SENT_ACTION,
     entityType: CONTEST_ENTITY_TYPE,
     entityId: metadata.contestId,
+    // AECI-1192: `notification.sent` carries the RECIPIENT in `vendor_id`.
+    vendorId: metadata.vendorId,
     metadata: full,
   };
 }

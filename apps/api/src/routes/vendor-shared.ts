@@ -14,6 +14,7 @@
 
 import type { CachePurgeSource } from '@aeci/shared';
 import { type AuditLogEntry } from '@aeci/shared/audit-log';
+import { vendorPlanSnapshot, type VendorPlanSnapshot } from '@aeci/shared/entitlements';
 import { and, eq, inArray, or, type SQL, type SQLWrapper } from 'drizzle-orm';
 import type { Context } from 'hono';
 import type { ZodType } from 'zod';
@@ -23,6 +24,7 @@ import { productVendors, products, profiles, vendorRequests, vendors } from '../
 import { logBatchToPosthog, logToPosthog, submitCount, type PosthogLogEvent } from '../posthog';
 import type { Env } from '../env';
 import { ApiError, notFoundError } from '../errors';
+import { NOTIFICATION_SENT_ACTION } from '../lib/attestation-notify';
 import type { BatchStmt } from '../lib/audit';
 import type { AuthzVariables } from '../lib/authz';
 import { VENDOR_ADMIN_ROLE } from '../lib/claimed-vendors';
@@ -61,6 +63,38 @@ export function sessionVendorId(c: VendorContext): string {
 }
 
 /**
+ * The session vendor's plan, snapshotted for an audit row (AECI-1193). Read from
+ * the session's `entitlement` block, which `requireVendor()` already joined, so a
+ * vendor write costs no extra D1 read. A hand-built test session without the raw
+ * `tier` falls back to the resolved `entitlementTier`.
+ */
+export function sessionVendorPlan(c: VendorContext): VendorPlanSnapshot {
+  const auth = c.get('auth');
+  const ent = auth.entitlement;
+  return vendorPlanSnapshot(
+    ent ? { tier: ent.tier ?? auth.entitlementTier, status: ent.status } : null,
+  );
+}
+
+/**
+ * Stamp a vendor-actor audit entry with the acting vendor and its plan
+ * (AECI-1192 / AECI-1193, `DATABASE_SCHEMA.md` §8.4).
+ *
+ * **Every `auditInsert` a `/api/vendor/*` route writes goes through this.**
+ * `audit-vendor-id-writers.spec.ts` fails the build on one that does not. The
+ * vendor id comes from the session, never from the request, exactly as every
+ * other vendor-surface scope does. `productId` stays the caller's: only it knows
+ * whether the row is about one product.
+ */
+export function vendorAuditEntry(c: VendorContext, entry: AuditLogEntry): AuditLogEntry {
+  // A `notification.sent` row in a vendor write's batch is ABOUT its recipient,
+  // not the actor: its builder already set `vendorId` to the vendor being told.
+  // Stamping the acting vendor over it would file the notice under the sender.
+  if (entry.action === NOTIFICATION_SENT_ACTION) return entry;
+  return { ...entry, vendorId: sessionVendorId(c), vendorPlan: sessionVendorPlan(c) };
+}
+
+/**
  * The §26.5 log envelope for one vendor-portal `audit_log` row. A pure mapper
  * rather than the old `AuditLogForwarder` closure so a write's whole entry set
  * can be posted in ONE request per vendor — see {@link afterVendorWrite}.
@@ -76,6 +110,10 @@ export function vendorAuditLogEvent(
     entity_type: entry.entityType ?? undefined,
     entity_id: entry.entityId ?? undefined,
     source,
+    // AECI-1192 / AECI-1193: the same vendor and plan the row's columns carry, so a
+    // PostHog log search can slice by vendor without joining back to D1.
+    vendor_id: entry.vendorId ?? undefined,
+    vendor_tier: entry.vendorPlan?.tier ?? undefined,
   };
 }
 
@@ -406,7 +444,15 @@ export function afterVendorWrite(
   // retire) labels its forward and its purge as AECi-initiated.
   origin: VendorWriteOrigin = VENDOR_ORIGIN,
 ): void {
-  const list = Array.isArray(entries) ? entries : [entries as AuditLogEntry];
+  const raw = Array.isArray(entries) ? entries : [entries as AuditLogEntry];
+  // AECI-1192: a vendor-origin forward carries the same vendor and plan its row's
+  // columns do. An AECi-origin write (the admin retire) already set them
+  // explicitly, and so has the invite redeem, whose session holds no vendor yet.
+  const sessionVendor = (c.get('auth') as AuthzVariables['auth'] | undefined)?.vendorId;
+  const list =
+    origin.purgeSource === 'vendor' && sessionVendor
+      ? raw.map((entry) => vendorAuditEntry(c, entry))
+      : raw;
   // ONE request per vendor for the whole entry set, not one per entry
   // (AECI-666). This used to be `Promise.all([purge, ...list.map(forward)])`,
   // and since the §3.1 dual-run fires both legs from the same call site, a claim
@@ -603,6 +649,7 @@ export function productMaintenanceTransfer(
       action: labels.action,
       entityType: 'product',
       entityId: before.id,
+      productId: before.id,
       beforeState: {
         maintained_by: before.maintainedBy,
         last_reviewed_at: before.lastReviewedAt,

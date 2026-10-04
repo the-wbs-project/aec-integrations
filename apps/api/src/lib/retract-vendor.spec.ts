@@ -264,12 +264,23 @@ describe('buildVendorDeleteStatements', () => {
 describe('buildVendorAuditInsert', () => {
   const sql = buildVendorAuditInsert(AUDIT_ARGS);
 
-  it('matches the consume.mjs column list and shape', () => {
+  it('matches the consume.mjs column list and shape, plus the AECI-1192 columns', () => {
     expect(sql).toContain(
-      'INSERT INTO "audit_log" ("id","actor_id","actor_type","action","entity_type","entity_id","before_state","metadata","created_at")',
+      'INSERT INTO "audit_log" ("id","actor_id","actor_type","action","entity_type","entity_id","before_state","metadata","vendor_id","vendor_tier","vendor_entitlement_status","created_at")',
     );
     // actor_id is NULL — a CLI run has no profile row.
     expect(sql).toContain(`,NULL,'system','vendor.deleted','vendor','${VENDOR.id}',`);
+    // The row is about the vendor it deletes. A retractable vendor holds no
+    // entitlement row, so its plan is `none` on both axes (AECI-1193).
+    expect(sql).toContain(`,'${VENDOR.id}','none','none','${AUDIT_ARGS.now}');`);
+  });
+
+  it('never names the AECI-1192 columns on a tier without migration 0061', () => {
+    const legacy = buildVendorAuditInsert({ ...AUDIT_ARGS, auditVendorColumns: false });
+    expect(legacy).toContain(
+      'INSERT INTO "audit_log" ("id","actor_id","actor_type","action","entity_type","entity_id","before_state","metadata","created_at")',
+    );
+    expect(legacy).not.toContain('vendor_tier');
   });
 
   it('carries the tool, the issue and the ruling in metadata', () => {

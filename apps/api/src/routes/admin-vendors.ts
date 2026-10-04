@@ -63,7 +63,7 @@ import {
   type VendorEntitlementResponse,
   type VendorSeatInvite,
 } from '@aeci/shared';
-import { and, asc, count, desc, eq, inArray, or, sql, type SQL } from 'drizzle-orm';
+import { and, asc, count, desc, eq, inArray, ne, or, sql, type SQL } from 'drizzle-orm';
 import { alias } from 'drizzle-orm/sqlite-core';
 import type { Context } from 'hono';
 
@@ -121,6 +121,9 @@ import { resolveClaimantIdentity } from '../lib/claimant-identity';
 import { forwardAuditBatch } from '../lib/moderation-forward';
 import { submitCount } from '../posthog';
 import { ownedProductIds, purgeTags, seatsOf, vendorRequestsWhere } from './vendor-shared';
+import { loadEntitlement } from '../lib/vendor-entitlement';
+import { vendorPlanSnapshot } from '@aeci/shared/entitlements';
+import { NOTIFICATION_SENT_ACTION } from '../lib/attestation-notify';
 
 type AdminVendorContext = Context<{ Bindings: Env; Variables: AuthzVariables }>;
 
@@ -562,6 +565,10 @@ const VENDOR_ENTITY_TYPES = ['vendor', 'vendor_entitlement'] as const;
  * Actions whose audit row carries `metadata.vendor_id` but files under some other
  * entity — a request id, an invite id, or a seat's user id.
  *
+ * **Legacy since AECI-1192.** New rows name the vendor in the `vendor_id` column and
+ * spell the metadata key `vendorId`. This list now serves only rows written before
+ * that, which are never rewritten, so it must not shrink.
+ *
  * `vendor_claim.seat_revoked` is the one that justifies the whole leg. It files
  * under `entity_type='profile'` with the seat's user id, and by the time anyone
  * reads it that profile no longer has `vendor_id` set — the revoke nulled it. So
@@ -623,8 +630,11 @@ const VENDOR_SEAT_PROFILE_ACTIONS = ['vendor_admin.banned', 'vendor_admin.unbann
  *     reuses `vendorRequestsWhere`, which already handles the vendor-arm /
  *     product-arm split — a product claim's `target_id` is a PRODUCT id, so a
  *     naive `target_type='vendor'` test would miss it.
- *  3. `action IN (...) AND json_extract(metadata,'$.vendor_id') = :vendorId` —
- *     for the rows that file under a profile or an invite. See
+ *  3. `vendor_id = :vendorId` (any action but `notification.sent`), OR the legacy
+ *     `action IN (...) AND json_extract(metadata,'$.vendor_id') = :vendorId` — for
+ *     the rows that file under a profile, an invite, a contest or a product. The
+ *     column (AECI-1192, `DATABASE_SCHEMA.md` §8.4) is set on every new row about a
+ *     vendor; the JSON leg reaches rows written before it. See
  *     {@link VENDOR_METADATA_ACTIONS}.
  *  4. `action IN ('vendor_admin.banned', ...) AND entity_id IN (<the vendor's
  *     seats>)` — the ban/unban rows, which file under `entity_type='profile'`
@@ -657,6 +667,13 @@ function auditScopeWhere(db: Db, vendorId: string, scope: AdminVendorAuditScope)
           .where(vendorRequestsWhere(vendorId, ownedProductIds(db, vendorId))),
       ),
     ),
+    // Leg 3 (AECI-1192): the indexed `vendor_id` column, on any action except the
+    // `notification.sent` ledger (the vendor's Messages feed, not its history). Rows
+    // written before the column carry the vendor only in `metadata.vendor_id`, on the
+    // actions listed in VENDOR_METADATA_ACTIONS, and are never rewritten (no backfill,
+    // ruling 2026-10-04). The action filter stays on that legacy leg only: it is what
+    // keeps the JSON probe from walking the whole table.
+    and(eq(auditLog.vendorId, vendorId), ne(auditLog.action, NOTIFICATION_SENT_ACTION)),
     and(
       inArray(auditLog.action, [...VENDOR_METADATA_ACTIONS]),
       sql`json_extract(${auditLog.metadata}, '$.vendor_id') = ${vendorId}`,
@@ -852,10 +869,14 @@ export function createAdminRevokeSeatHandler(
     });
     if (!vendor) throw notFoundError('vendor', { id: vendorId });
 
-    const target = await db.query.profiles.findFirst({
-      columns: { id: true, role: true, vendorId: true },
-      where: and(eq(profiles.id, targetId), seatsOf(vendorId)),
-    });
+    // The plan snapshot (AECI-1193) rides the same wave as the seat read.
+    const [target, entitlement] = await Promise.all([
+      db.query.profiles.findFirst({
+        columns: { id: true, role: true, vendorId: true },
+        where: and(eq(profiles.id, targetId), seatsOf(vendorId)),
+      }),
+      loadEntitlement(db, vendorId),
+    ]);
     if (!target) throw notFoundError('profile', { id: targetId });
 
     const now = new Date().toISOString();
@@ -863,6 +884,7 @@ export function createAdminRevokeSeatHandler(
     const batch = revokeSeatStatements(db, {
       userId: targetId,
       vendorId,
+      vendorPlan: vendorPlanSnapshot(entitlement),
       ...actor,
       now,
       profileBefore: { role: target.role, vendorId: target.vendorId },
@@ -1051,10 +1073,14 @@ export function createProvisionSeatHandler(
     // `seat_owner`, which both the idempotency check and the audit before-state
     // need. Read it here rather than widening the shared snapshot: that type is
     // consumed by `approveClaim`'s conflict path, which has no use for the column.
-    const before = await db.query.profiles.findFirst({
-      columns: { role: true, vendorId: true, seatOwner: true, bannedAt: true },
-      where: eq(profiles.id, userId),
-    });
+    const [before, entitlement] = await Promise.all([
+      db.query.profiles.findFirst({
+        columns: { role: true, vendorId: true, seatOwner: true, bannedAt: true },
+        where: eq(profiles.id, userId),
+      }),
+      // The plan snapshot for the audit row (AECI-1193), in the same wave.
+      loadEntitlement(db, vendorId),
+    ]);
 
     const readout = (noop: boolean): ProvisionVendorSeatResponse => ({
       user_id: userId,
@@ -1095,6 +1121,7 @@ export function createProvisionSeatHandler(
     const batch = provisionSeatStatements(db, {
       userId,
       vendorId,
+      vendorPlan: vendorPlanSnapshot(entitlement),
       actorId: auth.userId,
       actorType: auditActorType(auth),
       now: new Date().toISOString(),

@@ -73,6 +73,7 @@ import {
   withRecrawlProduct,
   type VendorContext,
 } from './vendor-shared';
+import type { VendorPlanSnapshot } from '@aeci/shared/entitlements';
 
 export type RetireMode = 'retire' | 'restore';
 type IntegrationRow = typeof integrations.$inferSelect;
@@ -100,7 +101,22 @@ export interface RetireBatchInput {
   /** Vendor ids that get a `notification.sent` row, already de-duplicated. */
   recipients: readonly string[];
   owner: { id: string | null; name: string | null };
+  /** The owner's plan at write time (AECI-1193): the vendor session's on an owner
+   *  retire, `vendorPlanSnapshot(loadEntitlement(owner))` on an admin one. Ignored
+   *  when there is no owner. */
+  ownerPlan: VendorPlanSnapshot | null;
   pairSlugs: readonly [string, string] | null;
+}
+
+/**
+ * The `vendor_id` and plan every non-notification row of a retire carries
+ * (AECI-1192): the OWNER holding the row, never a contest submitter. NULL when no
+ * owner is on file.
+ */
+function ownerStamp(input: Pick<RetireBatchInput, 'owner' | 'ownerPlan'>) {
+  return input.owner.id
+    ? { vendorId: input.owner.id, vendorPlan: input.ownerPlan }
+    : { vendorId: null, vendorPlan: null };
 }
 
 export interface RetireBatch {
@@ -125,6 +141,7 @@ export function buildRetireBatch(db: Db, input: RetireBatchInput): RetireBatch {
     action: mode === 'retire' ? INTEGRATION_RETIRED_ACTION : INTEGRATION_RESTORED_ACTION,
     entityType: 'integration',
     entityId: integrationId,
+    ...ownerStamp(input),
     beforeState: { retired_at: row.retiredAt, retired_by: row.retiredBy },
     afterState: { retired_at: retiredAt, retired_by: retiredBy },
     metadata: {
@@ -196,7 +213,16 @@ function contestCloseStatements(
   db: Db,
   input: Pick<
     RetireBatchInput,
-    'mode' | 'now' | 'actor' | 'source' | 'metadata' | 'actingVendorId' | 'retiredBy' | 'pairSlugs'
+    | 'mode'
+    | 'now'
+    | 'actor'
+    | 'source'
+    | 'metadata'
+    | 'actingVendorId'
+    | 'retiredBy'
+    | 'pairSlugs'
+    | 'owner'
+    | 'ownerPlan'
   >,
   contests: readonly OpenContest[],
   target: { anchor: ContestAnchor; rowName: string | null },
@@ -229,6 +255,7 @@ function contestCloseStatements(
       action: 'integration.contest.withdrawn',
       entityType: CONTEST_ENTITY_TYPE,
       entityId: contest.id,
+      ...ownerStamp(input),
       beforeState: { status: 'open' },
       afterState: { status: 'withdrawn' },
       metadata,
@@ -318,6 +345,7 @@ export function buildPairRetireBatch(db: Db, input: PairRetireBatchInput): Retir
     action: mode === 'retire' ? INTEGRATION_RETIRED_ACTION : INTEGRATION_RESTORED_ACTION,
     entityType: EVIDENCED_PAIR_ENTITY_TYPE,
     entityId: pairId,
+    ...ownerStamp(input),
     beforeState: { retired_at: pair.retiredAt, retired_by: pair.retiredBy },
     afterState: { retired_at: retiredAt, retired_by: retiredBy },
     metadata: {

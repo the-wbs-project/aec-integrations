@@ -15,6 +15,7 @@
  */
 
 import type { AuditLogEntry, AuditLogActorType } from '@aeci/shared';
+import type { VendorPlanSnapshot } from '@aeci/shared/entitlements';
 import { eq, inArray } from 'drizzle-orm';
 
 import { notificationPreferences } from '../db/schema';
@@ -159,6 +160,10 @@ export async function setNudgesMuted(
     actorType: AuditLogActorType;
     source: PreferenceSource;
     now?: Date;
+    /** The seat's vendor and plan, from a vendor session (AECI-1192 / AECI-1193).
+     *  Absent on the one-click mute, which holds a token and no session. */
+    vendorId?: string | null;
+    vendorPlan?: VendorPlanSnapshot | null;
   },
 ): Promise<SetNudgesMutedResult> {
   const nowIso = (input.now ?? new Date()).toISOString();
@@ -173,6 +178,8 @@ export async function setNudgesMuted(
     action: PREFERENCES_UPDATED_ACTION,
     entityType: PREFERENCES_ENTITY_TYPE,
     entityId: input.profileId,
+    vendorId: input.vendorId ?? null,
+    vendorPlan: input.vendorPlan ?? null,
     beforeState: { nudgesMuted: wasMuted },
     afterState: { nudgesMuted: input.muted },
     metadata: { source: input.source },

@@ -141,6 +141,7 @@ import {
   type ProductRow,
   type VendorContext,
   type VendorRow,
+  vendorAuditEntry,
 } from './vendor-shared';
 
 /** Injected seat-email seam. Default hits the GoTrue Admin API; returns an empty
@@ -974,7 +975,7 @@ export function createUpdateVendorProfileHandler(
 
     await db.batch([
       db.update(vendors).set(writeColumns).where(eq(vendors.id, vendorId)),
-      auditInsert(db, auditEntry),
+      auditInsert(db, vendorAuditEntry(c, auditEntry)),
     ] as BatchTuple);
 
     // The batch committed exactly `writeColumns`, so re-reading the row would
@@ -1131,6 +1132,7 @@ export function createUpdateVendorProductHandler(
       action: 'product.updated',
       entityType: 'product',
       entityId: productId,
+      productId,
       beforeState: { ...pickColumns(before, Object.keys(columns)), ...beforeFacets },
       afterState: { ...columns, ...afterFacets },
       // Zod strips unknown keys and omits absent optionals, so the payload's own
@@ -1159,7 +1161,7 @@ export function createUpdateVendorProductHandler(
         stmts.push(db.insert(facet.join).values(ids.map((id) => facet.row(productId, id))));
       }
     });
-    stmts.push(auditInsert(db, auditEntry));
+    stmts.push(auditInsert(db, vendorAuditEntry(c, auditEntry)));
     await db.batch(stmts as BatchTuple);
 
     // The batch committed exactly `writeColumns` and exactly the facets above,

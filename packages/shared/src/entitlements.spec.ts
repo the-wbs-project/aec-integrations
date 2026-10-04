@@ -18,6 +18,7 @@ import {
   VENDOR_FIELD_CAPABILITIES,
   capabilitiesFor,
   hasCapability,
+  vendorPlanSnapshot,
   isEntitlementTier,
   tierFor,
   type Capability,
@@ -743,5 +744,37 @@ describe('PAID_TIERS — what an admin may actually grant [invariant]', () => {
 
   it('never offers a tier that would light the badge for nothing', () => {
     for (const tier of PAID_TIERS) expect(capabilitiesFor(tier).length).toBeGreaterThan(0);
+  });
+});
+
+// AECI-1193: what an audit row records about the vendor's plan.
+describe('vendorPlanSnapshot', () => {
+  it.each([
+    ['active', { tier: 'verified', status: 'active' }],
+    ['pending', { tier: 'verified', status: 'pending' }],
+    ['expired', { tier: 'verified', status: 'expired' }],
+    ['revoked', { tier: 'verified', status: 'revoked' }],
+  ] as const)('keeps the RAW tier beside a %s status', (status, expected) => {
+    // `tierFor` would say `unclaimed` for every one but `active`. The snapshot must
+    // still say which plan lapsed.
+    expect(vendorPlanSnapshot({ tier: 'verified', status })).toEqual(expected);
+  });
+
+  it('records `none` on both axes for no entitlement row, never null', () => {
+    expect(vendorPlanSnapshot(null)).toEqual({ tier: 'none', status: 'none' });
+    expect(vendorPlanSnapshot(undefined)).toEqual({ tier: 'none', status: 'none' });
+  });
+
+  it('does not echo a status outside the §2.2 vocabulary', () => {
+    expect(vendorPlanSnapshot({ tier: 'verified', status: 'weird' })).toEqual({
+      tier: 'verified',
+      status: 'none',
+    });
+  });
+
+  it('every snapshot status is a vocabulary word or none', () => {
+    for (const status of ENTITLEMENT_STATUSES) {
+      expect(vendorPlanSnapshot({ tier: 'verified', status }).status).toBe(status);
+    }
   });
 });

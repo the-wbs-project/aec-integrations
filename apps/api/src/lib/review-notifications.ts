@@ -152,6 +152,9 @@ export function reviewApprovedNotifications(
       action: NOTIFICATION_SENT_ACTION,
       entityType: 'review',
       entityId: review.id,
+      // AECI-1192: the recipient, and the product the review is about.
+      vendorId: owner.vendorId,
+      productId: review.product.id,
       metadata,
     };
   });
@@ -190,6 +193,9 @@ export function reviewResponseDecisionNotification(
     action: NOTIFICATION_SENT_ACTION,
     entityType: REVIEW_RESPONSE_ENTITY_TYPE,
     entityId: input.responseId,
+    // AECI-1192: the recipient, and the product the reply's review is about.
+    vendorId: input.vendorId,
+    productId: input.product.id,
     metadata,
   };
 }

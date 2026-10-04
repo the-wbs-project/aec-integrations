@@ -60,6 +60,11 @@ export function auditInsert(db: Db, entry: AuditLogEntry): BatchStmt {
     beforeState: entry.beforeState ?? undefined,
     afterState: entry.afterState ?? undefined,
     metadata: entry.metadata ?? undefined,
+    // AECI-1192 / AECI-1193 (`DATABASE_SCHEMA.md` §8.4).
+    vendorId: entry.vendorId ?? null,
+    productId: entry.productId ?? null,
+    vendorTier: entry.vendorPlan?.tier ?? null,
+    vendorEntitlementStatus: entry.vendorPlan?.status ?? null,
   });
 }
 

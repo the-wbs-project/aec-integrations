@@ -304,6 +304,8 @@ export function updateNotificationAudit(
     action: NOTIFICATION_SENT_ACTION,
     entityType: anchor === 'evidenced_pair' ? 'connector_evidenced_pair' : 'integration',
     entityId: metadata.integrationId,
+    // AECI-1192: `notification.sent` carries the RECIPIENT in `vendor_id`.
+    vendorId: metadata.vendorId,
     metadata: full,
   };
 }

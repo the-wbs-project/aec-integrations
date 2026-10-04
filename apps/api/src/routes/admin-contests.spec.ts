@@ -452,6 +452,29 @@ describe('PATCH /api/admin/contests/:id — the note on a vendor-held overwrite 
     expect((await contestRow(id)).decisionNote).toBe(ACCEPT_NOTE);
   });
 
+  it('stamps the decision and its catalog write with the OWNER, never the submitter (AECI-1192)', async () => {
+    const id = await fileContest('name', 'Revit Link');
+    await setIntegration({ claimedAt: CLAIMED_AT, maintainedBy: 'vendor' });
+    expect((await contestRow(id)).ownerVendorId).toBe(VENDOR_B);
+    expect((await accept(id)).status).toBe(200);
+    const audits = await t.db.select().from(auditLog);
+    // The vendor-actor submission names the vendor that filed it.
+    const submitted = audits.find((r) => r.action === 'integration.contest.submitted');
+    expect(submitted).toMatchObject({ vendorId: VENDOR_A, vendorEntitlementStatus: 'none' });
+    // The AECi decision and the field it overwrote are about the owner's row.
+    for (const action of ['integration.contest.accepted', 'integration.updated']) {
+      const row = audits.find((r) => r.action === action);
+      expect(row, action).toMatchObject({
+        vendorId: VENDOR_B,
+        vendorTier: 'none',
+        vendorEntitlementStatus: 'none',
+      });
+    }
+    // The submitter stays a role key in metadata.
+    const decision = audits.find((r) => r.action === 'integration.contest.accepted');
+    expect(decision!.metadata).toMatchObject({ submitterVendorId: VENDOR_A });
+  });
+
   it('still accepts an unclaimed row with no note', async () => {
     const id = await fileContest('name', 'Revit Link');
     expect((await accept(id, null)).status).toBe(200);
@@ -519,6 +542,8 @@ describe('PATCH /api/admin/contests/:id — accepts on owned rows (AECI-1005)', 
         (r.metadata as { kind: string }).kind === 'integration_claim',
     );
     expect(claimNotice!.metadata).toMatchObject({ vendorId: VENDOR_B, ownerVendorId: VENDOR_A });
+    // AECI-1192: the owner stamp never clobbers a notice's RECIPIENT.
+    expect(claimNotice!.vendorId).toBe(VENDOR_B);
     expect(fileIssue.mock.calls[0]![2]).toMatchObject({
       field: 'owner',
       appliedMode: 'owner-recorded',

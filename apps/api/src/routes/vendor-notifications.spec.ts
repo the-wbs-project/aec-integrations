@@ -159,6 +159,40 @@ describe('GET /api/vendor/notifications', () => {
     expect((await get({ ...AUTH, vendorId: OTHER_VENDOR })).body.notifications).toEqual([]);
   });
 
+  it('reads the recipient from the vendor_id column on new rows (AECI-1192)', async () => {
+    // A row whose metadata carries no `vendorId` at all: only the column can match.
+    await t.db.insert(auditLog).values({
+      id: crypto.randomUUID(),
+      actorType: 'system',
+      action: NOTIFICATION_SENT_ACTION,
+      entityType: 'claim',
+      entityId: CLAIM,
+      vendorId: VENDOR,
+      metadata: {
+        detector: 'silent-counterparty',
+        integrationId: uuid(10),
+        dataObject: { slug: 'rfis', name: 'RFIs' },
+        counterpartProduct: { slug: 'procore', name: 'Procore' },
+        pairSlugs: ['revit', 'procore'],
+      },
+    });
+    expect((await get()).body.notifications).toHaveLength(1);
+    expect((await get({ ...AUTH, vendorId: OTHER_VENDOR })).body.notifications).toEqual([]);
+  });
+
+  it('ignores a vendor-actor row even when its vendor_id column matches', async () => {
+    await t.db.insert(auditLog).values({
+      id: crypto.randomUUID(),
+      actorType: 'user',
+      action: 'vendor.updated',
+      entityType: 'vendor',
+      entityId: VENDOR,
+      vendorId: VENDOR,
+      metadata: { source: 'vendor-portal', vendorId: VENDOR },
+    });
+    expect((await get()).body.notifications).toEqual([]);
+  });
+
   it('ignores audit rows that are not notifications', async () => {
     await t.db.insert(auditLog).values({
       id: crypto.randomUUID(),

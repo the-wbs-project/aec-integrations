@@ -165,7 +165,14 @@ describe('activateEntitlementStatements — the §2.3 matrix', () => {
     expect(rows[0]!.metadata).toMatchObject({
       verified_flipped: true,
       entitlement_created: true,
-      vendor_id: VENDOR_ID,
+      // AECI-1192: new rows spell the key camelCase; the column is canonical.
+      vendorId: VENDOR_ID,
+    });
+    // AECI-1192 / AECI-1193: the vendor, and its plan BEFORE the grant (no row).
+    expect(rows[0]).toMatchObject({
+      vendorId: VENDOR_ID,
+      vendorTier: 'none',
+      vendorEntitlementStatus: 'none',
     });
   });
 

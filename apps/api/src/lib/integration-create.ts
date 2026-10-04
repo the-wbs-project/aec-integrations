@@ -58,6 +58,8 @@ export function createNotificationAudit(
     action: NOTIFICATION_SENT_ACTION,
     entityType: 'integration',
     entityId: metadata.integrationId,
+    // AECI-1192: `notification.sent` carries the RECIPIENT in `vendor_id`.
+    vendorId: metadata.vendorId,
     metadata: full,
   };
 }

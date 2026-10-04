@@ -49,6 +49,10 @@
       "types": "./src/audit-log.ts",
       "default": "./src/audit-log.ts"
     },
+    "./audit-vendor-actions": {
+      "types": "./src/audit-vendor-actions.ts",
+      "default": "./src/audit-vendor-actions.ts"
+    },
     "./algolia": {
       "types": "./src/algolia.ts",
       "default": "./src/algolia.ts"

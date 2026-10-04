@@ -35,6 +35,7 @@
 
 import type { ClaimEntitlement, ClaimGrantPlan } from '@aeci/shared';
 import type { AuditLogEntry } from '@aeci/shared/audit-log';
+import type { VendorPlanSnapshot } from '@aeci/shared/entitlements';
 import type { WorkflowTransitionEntry } from '@aeci/shared/workflow-transition';
 import { and, eq, inArray } from 'drizzle-orm';
 
@@ -86,6 +87,9 @@ export interface GrantSeatParams {
   userId: string;
   /** The VENDOR being claimed (a product claim's vendor is resolved by the caller). */
   vendorId: string;
+  /** The vendor's plan BEFORE this write (AECI-1193), from `loadEntitlement` +
+   *  `vendorPlanSnapshot`, or the vendor session's on the owner-side revoke. */
+  vendorPlan: VendorPlanSnapshot;
   requestId: string;
   /** The acting admin. */
   actorId: string;
@@ -142,6 +146,9 @@ export interface RevokeSeatParams {
   /** The vendor the seat is on — the revoke is scoped to it so a stray seat can't
    *  be un-granted by targeting the wrong vendor. */
   vendorId: string;
+  /** The vendor's plan BEFORE this write (AECI-1193), from `loadEntitlement` +
+   *  `vendorPlanSnapshot`, or the vendor session's on the owner-side revoke. */
+  vendorPlan: VendorPlanSnapshot;
   actorId: string;
   actorType: AuditLogEntry['actorType'];
   now: string;
@@ -205,7 +212,7 @@ export function grantSeatStatements(db: Db, p: GrantSeatParams): ClaimBatch {
   const verifiedAfter = managed || p.vendorWasVerified;
   const hasEntitlement = p.entitlement && Object.keys(p.entitlement).length > 0;
   const metadata = claimMetadata(p, {
-    vendor_id: p.vendorId,
+    vendorId: p.vendorId,
     seat_user_id: p.userId,
     identity_outcome: p.identityOutcome,
     seat_created: p.seatCreated,
@@ -218,6 +225,8 @@ export function grantSeatStatements(db: Db, p: GrantSeatParams): ClaimBatch {
     actorId: p.actorId,
     actorType: p.actorType,
     action: 'vendor_claim.granted',
+    vendorId: p.vendorId,
+    vendorPlan: p.vendorPlan,
     entityType: 'vendor_request',
     entityId: p.requestId,
     beforeState: {
@@ -379,7 +388,7 @@ export function rejectClaimStatements(db: Db, p: RejectClaimParams): ClaimBatch 
 export function revokeSeatStatements(db: Db, p: RevokeSeatParams): RevokeBatch {
   const metadata = {
     source: p.source ?? CLAIM_AUDIT_SOURCE,
-    vendor_id: p.vendorId,
+    vendorId: p.vendorId,
     seat_user_id: p.userId,
     // Explicit in the trail: a seat revoke deliberately leaves the vendor verified.
     verified_untouched: true,
@@ -390,6 +399,8 @@ export function revokeSeatStatements(db: Db, p: RevokeSeatParams): RevokeBatch {
     actorId: p.actorId,
     actorType: p.actorType,
     action: 'vendor_claim.seat_revoked',
+    vendorId: p.vendorId,
+    vendorPlan: p.vendorPlan,
     entityType: 'profile',
     entityId: p.userId,
     beforeState: {
@@ -473,6 +484,9 @@ export interface ProvisionSeatParams {
   /** Resolved auth-user id (= `profiles.id`, = JWT `sub`). */
   userId: string;
   vendorId: string;
+  /** The vendor's plan BEFORE this write (AECI-1193), from `loadEntitlement` +
+   *  `vendorPlanSnapshot`, or the vendor session's on the owner-side revoke. */
+  vendorPlan: VendorPlanSnapshot;
   /** The acting admin. */
   actorId: string;
   actorType: AuditLogEntry['actorType'];
@@ -507,6 +521,8 @@ export function provisionSeatStatements(db: Db, p: ProvisionSeatParams): RevokeB
     actorId: p.actorId,
     actorType: p.actorType,
     action: 'vendor_seat.provisioned',
+    vendorId: p.vendorId,
+    vendorPlan: p.vendorPlan,
     // Files under the SEAT, matching `vendor_claim.seat_revoked` — the two are a
     // pair and an operator reading one wants the other beside it.
     entityType: 'profile',
@@ -519,11 +535,10 @@ export function provisionSeatStatements(db: Db, p: ProvisionSeatParams): RevokeB
     afterState: { role: VENDOR_ADMIN_ROLE, vendor_id: p.vendorId, seat_owner: true },
     metadata: {
       source: CLAIM_AUDIT_SOURCE,
-      // LOAD-BEARING, not decoration: this row files under `entity_type='profile'`,
-      // so leg 3 of `auditScopeWhere` (`routes/admin-vendors.ts`) is the only way
-      // the vendor's own audit tab reaches it — and that leg matches on
-      // `json_extract(metadata,'$.vendor_id')`. Dropping this hides the row.
-      vendor_id: p.vendorId,
+      // Since AECI-1192 the `vendor_id` COLUMN is what leg 3 of `auditScopeWhere`
+      // (`routes/admin-vendors.ts`) matches; `$.vendor_id` is only its legacy
+      // fallback for rows written before. New rows spell the key `vendorId`.
+      vendorId: p.vendorId,
       seat_user_id: p.userId,
       identity_outcome: p.identityOutcome,
       seat_created: p.profileBefore === null,

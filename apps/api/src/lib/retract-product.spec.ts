@@ -9,6 +9,8 @@ import {
   buildCacheTagsForProduct,
   buildDeleteStatements,
   buildFootprintSql,
+  AUDIT_LOG_DDL_SQL,
+  ddlHasAuditVendorColumns,
   ddlHasVendorHeldColumns,
   EVIDENCED_PAIRS_DDL_SQL,
   RETRACT_VENDOR_HELD_TOKEN,
@@ -834,6 +836,33 @@ describe('the delete plan re-checks vendor-held at write time (AECI-1088 review)
     t.dispose();
   });
 
+  it('stamps every tombstone with the retracted product id (AECI-1192)', async () => {
+    const t = await makeTestDb();
+    seed(t);
+    apply(t, buildDeleteStatements(args(t, true)));
+    const rows = t.raw
+      .prepare('SELECT action, product_id, vendor_id FROM audit_log')
+      .all() as Array<{ action: string; product_id: string | null; vendor_id: string | null }>;
+    expect(rows.length).toBeGreaterThan(1);
+    for (const row of rows) {
+      expect(row.product_id).toBe(P);
+      // No holder survives the plan, so no vendor is named.
+      expect(row.vendor_id).toBeNull();
+    }
+    t.dispose();
+  });
+
+  it('reads 0061 off the audit_log DDL', async () => {
+    const t = await makeTestDb();
+    const ddl = (t.raw.prepare(AUDIT_LOG_DDL_SQL).get() as { sql: string }).sql;
+    expect(ddlHasAuditVendorColumns(ddl)).toBe(true);
+    t.dispose();
+    const old = await makeTestDb({ upToExclusive: '0061_large_korvac.sql' });
+    const oldDdl = (old.raw.prepare(AUDIT_LOG_DDL_SQL).get() as { sql: string }).sql;
+    expect(ddlHasAuditVendorColumns(oldDdl)).toBe(false);
+    old.dispose();
+  });
+
   it('still retracts when nothing in scope is vendor-held', async () => {
     const t = await makeTestDb();
     seed(t);
@@ -865,8 +894,11 @@ describe('the delete plan re-checks vendor-held at write time (AECI-1088 review)
       vendorHeldPairColumns: false,
       // AECI-1092: nor 0050's evidenced contest anchor.
       evidencedContestAnchor: false,
+      // AECI-1192: nor 0061's `audit_log` columns.
+      auditVendorColumns: false,
     });
     expect(statements.join('\n')).not.toMatch(/claimed_at/);
+    expect(statements.join('\n')).not.toMatch(/"product_id"\) SELECT/);
     expect(statements.join('\n')).not.toMatch(/"evidenced_pair_id"/);
     apply(t, statements);
     t.dispose();
