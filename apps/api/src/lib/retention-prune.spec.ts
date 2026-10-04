@@ -21,6 +21,7 @@
 
 import {
   JOB_RUNS_RETENTION_DAYS,
+  NOTIFICATION_DELIVERY_EVENTS_RETENTION_DAYS,
   NOTIFICATION_SENDS_RETENTION_DAYS,
   PAGE_VIEWS_RETENTION_DAYS,
   USER_ACTIVITY_RETENTION_DAYS,
@@ -32,6 +33,7 @@ import {
   auditLog,
   jobRuns,
   metricsDaily,
+  notificationDeliveryEvents,
   notificationSends,
   pageViews,
   userActivityDaily,
@@ -62,6 +64,7 @@ const WINDOWS = {
   page_views: PAGE_VIEWS_RETENTION_DAYS,
   job_runs: JOB_RUNS_RETENTION_DAYS,
   notification_sends: NOTIFICATION_SENDS_RETENTION_DAYS,
+  notification_delivery_events: NOTIFICATION_DELIVERY_EVENTS_RETENTION_DAYS,
   user_activity_daily: USER_ACTIVITY_RETENTION_DAYS,
 };
 
@@ -103,6 +106,21 @@ async function seedNotificationSends(days: string[]): Promise<void> {
   );
 }
 
+async function seedDeliveryEvents(days: string[]): Promise<void> {
+  await t.db.insert(notificationDeliveryEvents).values(
+    days.map((day, i) => ({
+      svixId: `msg_${day}_${i}`,
+      providerMessageId: 'em_1',
+      eventType: 'delivered' as const,
+      notificationId: 'review-submitted',
+      tier: 'production',
+      recipientHash: 'h',
+      occurredAt: at(day),
+      createdAt: at(day),
+    })),
+  );
+}
+
 /** One `user_activity_daily` row per entry. Each needs a distinct `(user, day)`,
  *  so the user id carries the index. */
 async function seedUserActivity(days: string[], offset = 0): Promise<void> {
@@ -136,7 +154,12 @@ function daysBetween(from: string, to: string): string[] {
 
 /** `select count(*)` for a table, as a plain number. */
 async function tally(
-  table: typeof pageViews | typeof jobRuns | typeof notificationSends | typeof userActivityDaily,
+  table:
+    | typeof pageViews
+    | typeof jobRuns
+    | typeof notificationSends
+    | typeof notificationDeliveryEvents
+    | typeof userActivityDaily,
 ): Promise<number> {
   const [row] = await t.db.select({ value: count() }).from(table);
   return row?.value ?? 0;
@@ -214,6 +237,20 @@ describe('resolveRetentionDays', () => {
       WINDOWS,
     );
     expect(onInvalid).toHaveBeenCalledWith('notification_sends', expect.stringContaining('floor'));
+  });
+
+  it('keeps notification_delivery_events for 400 days, the ledger rule, with its own override', () => {
+    expect(NOTIFICATION_DELIVERY_EVENTS_RETENTION_DAYS).toBe(400);
+    expect(resolveRetentionWindows({ NOTIFICATION_DELIVERY_EVENTS_RETENTION_DAYS: '90' })).toEqual({
+      ...WINDOWS,
+      notification_delivery_events: 90,
+    });
+    const onInvalid = vi.fn();
+    resolveRetentionWindows({ NOTIFICATION_DELIVERY_EVENTS_RETENTION_DAYS: '7' }, onInvalid);
+    expect(onInvalid).toHaveBeenCalledWith(
+      'notification_delivery_events',
+      expect.stringContaining('floor'),
+    );
   });
 });
 
@@ -297,6 +334,19 @@ describe('runRetentionPrune', () => {
         },
       ],
     });
+  });
+
+  it('prunes notification_delivery_events on the ledger window (AECI-1222)', async () => {
+    await seedDeliveryEvents([shiftDay(NS_CUTOFF_DAY, -1), NS_CUTOFF_DAY, TODAY]);
+
+    const result = await runRetentionPrune(t.db, NOW, WINDOWS);
+
+    expect(result.tables.find((x) => x.table === 'notification_delivery_events')).toMatchObject({
+      cutoff: `${NS_CUTOFF_DAY}T00:00:00.000Z`,
+      rowsDeleted: 1,
+      truncated: false,
+    });
+    expect(await tally(notificationDeliveryEvents)).toBe(2);
   });
 
   it('chunks a notification_sends prune that spans several chunks', async () => {
@@ -614,6 +664,7 @@ describe('runRetentionPrune', () => {
       page_views: 30,
       job_runs: 30,
       notification_sends: 30,
+      notification_delivery_events: 30,
       user_activity_daily: 30,
     });
 

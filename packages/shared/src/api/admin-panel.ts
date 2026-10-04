@@ -1053,10 +1053,16 @@ export const NOTIFICATION_SENDS_RETENTION_DAYS = 400;
  * deletes a user's rows sooner.
  */
 export const USER_ACTIVITY_RETENTION_DAYS = 400;
+/**
+ * The Resend delivery events (AECI-1222). The ledger's rule: they describe the sends in
+ * `notification_sends`, so they keep the same 400 days.
+ */
+export const NOTIFICATION_DELIVERY_EVENTS_RETENTION_DAYS = 400;
 
 /**
  * Floor for the `PAGE_VIEWS_RETENTION_DAYS` / `JOB_RUNS_RETENTION_DAYS` /
- * `NOTIFICATION_SENDS_RETENTION_DAYS` / `USER_ACTIVITY_RETENTION_DAYS` env overrides (`apps/api/src/env.ts`). D1 Time Travel recovers roughly 30 days, so
+ * `NOTIFICATION_SENDS_RETENTION_DAYS` / `NOTIFICATION_DELIVERY_EVENTS_RETENTION_DAYS` /
+ * `USER_ACTIVITY_RETENTION_DAYS` env overrides (`apps/api/src/env.ts`). D1 Time Travel recovers roughly 30 days, so
  * a window shorter than that would delete rows past the point of any recovery
  * the moment it took effect. An override below this floor is ignored, not
  * clamped — a typo'd `4` should fall back to the reviewed default, not quietly

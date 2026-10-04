@@ -24,10 +24,11 @@ decision record; no separate ADR.
 - **Transport:** `apps/api/src/lib/email.ts` — a single Resend client in the API
   Worker. Modeled on `lib/toxicity.ts` (the canonical third-party-client posture):
   - **Never throws.** Every failure mode resolves to an `EmailOutcome`
-    (`'sent' | 'failed' | 'unknown' | 'skipped' | 'suppressed' | 'duplicate'`).
+    (`'sent' | 'failed' | 'unknown' | 'skipped' | 'suppressed' | 'duplicate' | 'paused'`).
     `failed` is a non-2xx from Resend, so the mail did not go. `unknown` is a timeout or a
     thrown call, so the mail may or may not have gone (AECI-1197 review). `suppressed` is
     the tier delivery policy below. `duplicate` is the send ledger's dedupe refusal, below.
+    `paused` is an operator's sending switch (AECI-1224, §Sending switches below).
   - **Fire-and-forget.** Every call site dispatches via `ctx.waitUntil` so a send
     never blocks (or fails) the action that triggered it (§11.1).
   - **Fail-open / absent-key → `'skipped'`.** No `RESEND_API_KEY` (or no
@@ -39,7 +40,8 @@ decision record; no separate ADR.
   - **Operator blind copy.** Both transports (`sendTransactionalEmail` and the cron
     `sendEmail`) add a Resend `bcc` from the `EMAIL_BCC` var, so every email the API
     Worker sends also reaches `support@aecintegrations.com`. The point is to see exactly
-    what users receive. The exception is `attestation-digest`, below. An address already in `to` is not copied again. The magic-link
+    what users receive. The exception is `attestation-digest`, below. A paused support-copy
+    switch drops the `bcc` from every send (AECI-1224, §Sending switches). An address already in `to` is not copied again. The magic-link
     email is not covered: Supabase sends it over SMTP, outside this code (see
     §Magic-link sender below).
   - **Separate copy for unsubscribable sends.** A send with a `List-Unsubscribe`
@@ -53,7 +55,16 @@ decision record; no separate ADR.
     has no unsubscribe headers. Its body is the same template rendered with the dud
     token `operator-copy`, which matches no subscriber, so the link is inert. The copy
     is not counted in `aeci.email.send`, and a failed copy only warns. No copy goes
-    out when the subscriber's send fails.
+    out when the subscriber's send fails. A paused support-copy switch skips it too, and
+    writes a `paused` ledger row per copy address instead (AECI-1224).
+  - **Resend tags (AECI-1222).** Every Resend call carries `tags`: `tier` (`tierLabel(env)`)
+    and `notification_id` (the registry id). That covers the transactional send, the operator
+    `COPY:` (under its own `-operator-copy` id) and the digest `sendEmail`. A BCC copy rides
+    the same message, so it carries the same tags. The values are sanitized to Resend's tag
+    charset (`[A-Za-z0-9_-]`, at most 256) by `lib/notifications/resend-tags.ts`. Today's
+    tier labels and registry ids pass unchanged. The delivery webhook below depends on them.
+    Because the tags are in the request body, they are also inside the `Idempotency-Key`
+    body hash. A keyed retry that straddles the deploy which added them gets a new key.
   - **Send ledger (AECI-1202).** Every send writes `notification_sends` rows
     (`DATABASE_SCHEMA.md` §9.9), one per addressed recipient, through
     `lib/notifications/send-ledger.ts`. The Resend response body is now read on a 2xx:
@@ -268,7 +279,8 @@ transports in `lib/email.ts` apply it before they call Resend.
   there, not the "sweep retries it" line.
 - **Supabase sign-in mail is outside this gate.** Supabase sends the magic-link and
   invite emails itself, over the Resend SMTP relay (§Magic-link sender below). No code
-  in this repo touches that path, so this policy cannot stop it.
+  in this repo touches that path, so this policy cannot stop it. It also carries no Resend
+  tags, which is how the delivery webhook tells it apart (§Delivery webhooks).
 - **Testing a template on a non-production tier.** Send it to an internal address. It
   arrives with the tier prefix.
 
@@ -574,13 +586,177 @@ for liveness, but `ANALYTICS_DIGEST_EMAIL_TO` is set on **production only** —
 staging/demo carry synthetic D1 data, so their sends intentionally `skip` (the var is
 left unset).
 
+## Delivery webhooks (AECI-1222)
+
+**`sent` in `notification_sends` means Resend accepted the request. It does not mean the mail
+arrived.** Resend reports what happened next through a webhook. `POST /api/webhooks/resend`
+on the API Worker records it in `notification_delivery_events` (`DATABASE_SCHEMA.md` §9.9a)
+and counts it on `aeci.email.delivery`. Contract: `API_CONTRACTS.md` §6.11.
+
+**Which events.** `email.sent`, `email.delivered`, `email.delivery_delayed`, `email.bounced`
+and `email.complained`. Nothing else is stored. Any other type gets a 200 and is counted as
+`outcome:ignored`.
+
+- **No opens and no clicks (ruling 2026-10-02).** Apple Mail and corporate link scanners fire
+  them on their own, so the data is mostly noise. It is also tracking data that the
+  trust-first positioning argues against. Do not subscribe the endpoint to them.
+- **Open and click tracking off for `aecintegrations.com`.** Check it in the Resend dashboard
+  (Domains → `aecintegrations.com` → Configuration). Record the date and who checked here.
+  **Not yet checked: 2026-10-02, AECI-1222 had no dashboard access.**
+
+**How a request is checked.** Resend signs webhooks with Svix. The handler reads the raw body
+once and verifies it before parsing (`lib/resend-webhook-auth.ts`, WebCrypto, no dependency):
+
+- The key is the base64-decoded part of `RESEND_WEBHOOK_SECRET` after `whsec_`.
+- The signed content is `{svix-id}.{svix-timestamp}.{raw body}`, HMAC-SHA256, base64.
+- `svix-signature` holds space-separated `v1,<base64>` entries. Any match passes, which is how
+  Svix rotates a secret. The compare is constant-time.
+- A `svix-timestamp` more than 5 minutes from the Worker clock is rejected.
+- A body over 256 KB is a 413 before the signature is checked. A declared `Content-Length`
+  over the cap is refused unread. A body with no declared length is read up to the cap, then
+  cancelled.
+- A missing header, a bad signature or a stale timestamp is a 401. An unset or malformed
+  secret is a 401 for every request plus a `warn` log, once per isolate. Each 401 counts
+  `aeci.webhooks.resend.signature_failure{reason}`.
+
+**The shared-account trap.** One Resend account and one key serve every tier, and a webhook
+endpoint receives the events of the whole account. Staging's events reach production's
+endpoint. So each tier keeps only its own:
+
+| The event's `tier` tag | Production | Staging, demo |
+|---|---|---|
+| This tier | Recorded | Recorded |
+| Another tier | Dropped, `outcome:other_tier` | Dropped, `outcome:other_tier` |
+| Absent, and subject `Sign in to AEC Integrations` from `aecintegrations.com` or a subdomain | Recorded as tier `auth`, `supabase-sign-in` | Dropped, `outcome:untagged` |
+| Absent, anything else | Dropped, `outcome:untagged` | Dropped, `outcome:untagged` |
+
+The sign-in stream is matched by subject and sender because Supabase sends it and cannot tag
+it. Every tier shares one Supabase project, so it is one stream, and production alone records
+it. The subject is the one both GoTrue slots carry (§Magic-link sender). Change the subject
+there and `SIGN_IN_SUBJECT` in `lib/notifications/delivery-events.ts` in the same PR, or
+sign-in events start dropping as `untagged`.
+
+**One row per event.** Resend's docs describe `data.to` on every email event, `email.sent`
+included, as the "Array of impacted recipient email addresses"
+(https://resend.com/docs/webhooks/emails/bounced). They do not say an event is sent per
+recipient, and they say nothing about BCC. So an event that names more than one address cannot
+be pinned on any one of them. The handler stores every event as exactly one row and counts the
+metric once:
+
+- **One address named:** the row carries that address's `recipientHash` and joins the ledger.
+- **Several addresses, or none:** the row is unattributed. `recipient_hash` is `''`,
+  `notification_send_id` is NULL, and there is no ledger join. The `notification_id` comes from
+  the message's tag. An address search never finds it.
+- `EMAIL_BCC` addresses are set aside before counting. See the BCC rule below.
+
+**The join.** `data.email_id` is the ledger's `provider_message_id`. A single-address event picks
+its ledger row by `recipientHash`, and the earliest matching row wins:
+
+- A digest makes one Resend call for several recipients. If Resend reports per recipient, each
+  recipient finds its own row. If it reports one event naming all of them, the event is
+  unattributed.
+- The operator `COPY:` writes one row per operator address. Same rule.
+- A retried keyed send can get the first send's id back through `Idempotency-Key`. The
+  earliest row is the send that went.
+- **A BCC copy has no ledger row, and no event is ever attributed to it.** Resend's docs do
+  not say whether a BCC address appears in `data.to`. So the handler sets the tier's `EMAIL_BCC`
+  addresses aside before counting, parsed as the send path parses them, with no tier refusal
+  filter. A bounce to `[user, support]` with support in `EMAIL_BCC` joins the user's row. If
+  only one BCC address is named, the event is attributed to it only when that address has a
+  ledger row for the message: the operator `COPY:` send, which goes to support and keeps its
+  own rows. Otherwise it is stored unattributed. No ledger row is invented.
+- **An event that lands before `finalizeSend` stores the message id stays unjoined.** The ledger
+  row gets `provider_message_id` only after Resend's send call returns. An event that arrives
+  first, in practice only `email.sent`, finds no row and is stored with `notification_send_id`
+  NULL. Nothing re-joins it later.
+- A ledger outage leaves the same NULL. Only `sent` rows carry an id, so `failed`, `unknown`
+  and unparsed sends never get events.
+
+**Idempotent.** The UNIQUE `(svix_id, recipient_hash)` index makes a Resend retry insert
+nothing. A retry carries the same body, so an unattributed event lands on `(svix_id, '')` again. The handler still answers 200 and counts `outcome:replay`.
+
+**Failure.** A D1 error is a 500, so Resend retries the delivery. This is the opposite of the
+send ledger, which fails open, because here the retry is the only copy of the event. Telemetry
+never changes the response.
+
+**Not built here.** Resend already keeps a suppression list for hard bounces and complaints,
+so AECi keeps no second one.
+
+**Where to look now (AECI-1223).** `/admin/email` (Operations → Email, `ADMIN_PANEL_SPEC.md`
+§5.14) reads both tables. It shows a per-template summary for 7 and 30 days, every send newest
+first with its latest delivery report, and on production the sign-in stream's counts. To answer
+"did this person get our email", type their full address into the search: the API hashes it
+and matches the ledger. A partial address finds nothing, by design (ADR 0038). The address
+search also lists the person's delivery reports with no ledger row, which is where a sign-in
+link or a blind copy shows when Resend's event names that address alone. The summary's delivery
+columns count events, so a multi-address event counts once. Each row links to the message in the Resend dashboard. Open Resend
+only for what our tables do not hold: the rendered message and Resend's own suppression list.
+
+**Operator steps per tier** (`environments.md` has the per-tier table):
+
+1. In the Resend dashboard, add a webhook endpoint `https://<host>/api/webhooks/resend` with
+   the five events above. Production is `www.aecintegrations.com`, demo
+   `demo.aecintegrations.com`, staging `staging.aecintegrations.com`.
+2. Copy that endpoint's signing secret into the GH secret `RESEND_WEBHOOK_SECRET_PRODUCTION`,
+   `_DEMO` or `_STAGING`. The next deploy or promote pushes it.
+3. Staging sits behind Cloudflare Access, which would refuse Resend's request. See
+   `access.md` §Resend delivery webhook before registering staging.
+4. Send a test event from the Resend dashboard and look for `outcome:recorded` or
+   `outcome:other_tier` on `aeci.email.delivery`.
+
+## Sending switches (AECI-1224)
+
+Before AECI-1224, stopping a misbehaving email or the support copy took a `wrangler.jsonc`
+change and a deploy. Now an operator pauses it on `/admin/email` (`ADMIN_PANEL_SPEC.md`
+§5.14 "Sending switches", §13 D24). Switches cover our own sending only. Resend account
+settings, such as tracking and domains, stay in the Resend dashboard, and the Worker never
+holds a full-access Resend key (ruling 2026-10-02).
+
+**What can be paused.** `pausable` on each registry entry decides
+(`apps/api/src/lib/notifications/registry.ts`, the Pausable column of `NOTIFICATIONS.md`).
+Only `email` and `email+portal` entries may be pausable. Anything security- or
+obligation-bearing stays on: seat invites, claim and review decisions, the account-deleted
+confirmation, and every vendor email that carries a deadline. Operator alerts, the two cron
+digests, receipts and the attestation nudge digest are pausable. The Supabase sign-in email
+is sent by Supabase, so no switch here can stop it. The support copy has its own switch,
+the reserved key `support-copy`.
+
+**Where it is stored.** `notification_settings` (`DATABASE_SCHEMA.md` §9.13), one row per
+switch an operator has touched, in each tier's own D1. A missing row means enabled. A
+switch on staging pauses staging only.
+
+**What the transport does.** Both layers in `lib/email.ts` read the switches once per send
+call: one D1 query on the primary, for the template and `support-copy`, after the `skipped`
+check. Nothing is cached across calls, so a pause stops the very next send.
+
+| Switch | Effect on a send |
+|---|---|
+| Template paused | No Resend call. One `paused` ledger row per recipient, `aeci.email.send{outcome:paused}` (the digests count it through `recordEmailSend`), and a log line with the template, the tier and a recipient hash, never the address. Returns `'paused'` |
+| Support copy paused | The `bcc` field is dropped. The separate `COPY:` of an unsubscribable send is not sent, and each copy address gets a `paused` ledger row under the `-operator-copy` id. The recipient's own email is unchanged |
+| Row for a non-pausable entry | Ignored. A row left from before an entry became always-on cannot stop it |
+| Read fails | **Fail open.** The send goes ahead as if every switch were on. It warns (the transactional layer to PostHog with `source: 'email'`, the digest layer to the console) and counts `aeci.email.switches.unavailable{layer}`. A D1 hiccup must not drop a seat invite |
+
+**What a pause means to each caller.** A paused send holds no dedupe key, so a later run can
+send it after a resume. Resuming does not replay what was skipped. The attestation sweep
+treats a paused digest like a mute: the finding still gets its portal row and its 30-day
+dedupe. The entitlement-expiry sweep never stamps its fence on `paused`. The data-quality
+and analytics digest jobs record a paused send as a `skipped` `job_runs` row, so liveness
+still shows in `/admin/system`.
+
+**Who can change it.** An admin, through `PUT /api/admin/email/switches/:key`
+(`API_CONTRACTS.md` §6.10, "Sending switches"). Pausing a non-pausable entry is a `400
+NOTIFICATION_NOT_PAUSABLE`. Every change writes a `notification_settings.updated` audit row
+in the same batch. It is not the per-seat nudge mute in `notification_preferences`, which is
+a seat's own choice about the attestation digest.
+
 ## Secrets & vars
 
 | Name | Kind | Where | Notes |
 |---|---|---|---|
 | `RESEND_API_KEY` | Wrangler **secret** | API Worker, staging + production | CI pushes it from a **single shared, un-suffixed** `RESEND_API_KEY` GH secret — one Resend account/key spans every env (like `SUPABASE_ANON_KEY`); `deploy.yml`, `promote-to-demo.yml`, and `promote-to-prod.yml` all push the same secret. Graceful warn-and-skip; absent → sends `'skipped'`. |
+| `RESEND_WEBHOOK_SECRET` | Wrangler **secret** | API Worker, staging + demo + production | The Svix signing secret of that tier's Resend webhook endpoint (§Delivery webhooks). **Per tier, not shared**: each endpoint has its own, so CI pushes `RESEND_WEBHOOK_SECRET_STAGING` (`deploy.yml`), `_DEMO` (`promote-to-demo.yml`) and `_PRODUCTION` (`promote-to-prod.yml`) under this one name. Warn-and-skip. Absent → every event 401s. Never on previews or the web Worker. |
 | `EMAIL_FROM` | plain `var` | API Worker, per env (`wrangler.jsonc`) | Resend `from`; `Name <addr>` on the verified sending domain. **One value on every tier: `AEC Integrations <notifications@aecintegrations.com>`.** |
-| `EMAIL_BCC` | plain `var` | API Worker, staging + demo + production (`wrangler.jsonc`) | Resend `bcc` on every send from both transports, except a send with a `List-Unsubscribe` header, which gets a separate `COPY:` message instead (see the transport notes above). **`support@aecintegrations.com` on all three tiers.** Comma/whitespace-separated list (`parseRecipients`). An address already in `to` is dropped. Absent → no `bcc` field. Remove the var to stop the copies. |
+| `EMAIL_BCC` | plain `var` | API Worker, staging + demo + production (`wrangler.jsonc`) | Resend `bcc` on every send from both transports, except a send with a `List-Unsubscribe` header, which gets a separate `COPY:` message instead (see the transport notes above). **`support@aecintegrations.com` on all three tiers.** Comma/whitespace-separated list (`parseRecipients`). An address already in `to` is dropped. Absent → no `bcc` field. **To stop the copies without a deploy, pause the support-copy switch on `/admin/email`** (AECI-1224, §Sending switches). It covers both the `bcc` and the `COPY:`. If AECI-1220 drops this var, the switch goes with it. |
 | `CLAIM_ALERT_EMAIL` | plain `var` | API Worker, per env (`wrangler.jsonc`) | `To:` for `claim-submitted-alert`, since AECI-1132 `contest-submitted-alert`, and since AECI-1205 `protest-submitted-alert`. **`support@aecintegrations.com` on every tier.** A single address (not a parsed list). Kept a separate var from `ADMIN_ALERT_EMAIL` so claim intake can be routed apart from sweep alerts and lead capture. Both point at the support inbox since 2026-09-28. Absent → the alert is a `skipped` no-op. The durable record is the Linear issue for a claim and the `integration_field_challenges` row for a contest, which `/admin/contests` lists either way. |
 | `FOUNDER_ALERT_EMAIL` | plain `var` | API Worker, per env (`wrangler.jsonc`) | `To:` for `stale-claim-ticket-alert`. **`founders@thewbsproject.com` on staging and production; deliberately UNSET on demo** (demo claims are rehearsal rows, so the digest fail-open skips there — the cron still runs and still emits its metrics). A single address, not a parsed list. The third alert recipient, and separate on purpose: `ADMIN_ALERT_EMAIL` means the pipeline broke, `CLAIM_ALERT_EMAIL` means a claim or an AECi-routed contest arrived, this means a vendor has been waiting a day for a human reply. Absent → the digest is a `skipped` no-op and the job still emits its metric and log, so the signal survives an unset var. |
 | `DATA_QUALITY_EMAIL_FROM` | plain `var` | API Worker, staging / demo / production | `from` for the daily data-quality digest (AECI-241). **Same address as `EMAIL_FROM`** — see the note below. |
@@ -704,10 +880,12 @@ link" on a first click. The fix is offering the 6-digit `{{ .Token }}` as an alt
 (`otp_length = 6`), which needs an OTP entry route in `apps/web` calling `verifyOtp` — a
 feature, not a template edit. Build it if that symptom appears.
 
-**Second known gap: magic links are the only uninstrumented email in the product.** Every send
-in `lib/email.ts` emits `aeci.email.send{outcome,template}`; GoTrue mail bypasses that path
-entirely, so a delivery failure on the single most important email AECi sends is invisible
-outside the Resend dashboard.
+**Second known gap, narrowed by AECI-1222: AECi still has no record that a magic link was
+sent.** Every send in `lib/email.ts` emits `aeci.email.send{outcome,template}` and writes a
+ledger row. GoTrue mail bypasses that path entirely. Since AECI-1222, production records what
+happened to it after Resend took it: delivered, delayed, bounced or marked as spam, as
+tier `auth` in `notification_delivery_events` and on `aeci.email.delivery` (§Delivery
+webhooks). A sign-in email that GoTrue never handed to Resend still leaves no trace in AECi.
 
 `supabase/config.toml` is **local-only** (magic links land in Inbucket at
 `:54324` during `supabase start`); deployed SMTP lives in the dashboard.
@@ -805,6 +983,15 @@ sets the same two headers, with a different target: `List-Unsubscribe: <https://
   tier, against internal, outside, mixed-case and lookalike addresses. The
   `claim-approved` suite additionally asserts the layout markup, so a regression back to
   `toHtml()` fails rather than quietly shipping.
+- `apps/api/src/lib/notifications/resend-tags.spec.ts` — the tag sanitizer, and the `tier`
+  and `notification_id` tags on all three Resend call sites (AECI-1222).
+- `apps/api/src/lib/resend-webhook-auth.spec.ts` — Svix verification, including Svix's
+  published test vector, rotation, a changed body, a swapped id and the 5-minute window.
+- `apps/api/src/lib/notifications/delivery-events.spec.ts` — the tier filter and the
+  sign-in stream match.
+- `apps/api/src/routes/resend-webhook.spec.ts` — the route against the in-memory D1: the
+  join, a replay recorded once, the tier drops, ignored types, and no address or hash in
+  any metric or log.
 - `lib/admin-alert.spec.ts` — the sweep seam delegates to the transport.
 - `routes/{reviews,admin-reviews,account}.spec.ts` — assert the right send fires
   (mocked `lib/email`) with the correct recipient/payload, and that a send never

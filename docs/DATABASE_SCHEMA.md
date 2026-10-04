@@ -1437,6 +1437,7 @@ is invisible rather than a constraint violation:
 | `notification.sent` | **`claim`** | AECI-302 — `lib/attestation-notify.ts` | Note the `entity_type`: this is the §7.3 anti-nag **dedupe ledger**, deliberately keyed to the claim it concerns rather than to a notification entity, because decision §1.3(6) ships no notifications table. `GET /api/vendor/notifications` reads these same rows. Written after delivery, one row per due finding. Since AECI-1204 (2026-10-01) the email is one daily digest per seat, and the row is written when at least one seat got the digest, **or** when every seat was deliberately not emailed (muted, or tier-suppressed). It is not written when no seat got it and a send failed, nor when nothing could be attempted, so the next sweep retries. Metadata: `detector`, `vendorId` (null for ops), `emailedSeats` (seats with `sent` or `duplicate`, 0 means portal only), `notificationId` (`attestation-digest` or `attestation-ops-digest`), plus the send-time snapshot. Rule: `STAGE_2_ATTESTATIONS_SPEC.md` §7.3. |
 | `notification_preferences.created` | `profile` | AECI-1204 — `lib/notification-preferences.ts` | Actor `system`. The attestation sweep creates a seat's row lazily, only for seats it is about to email, in the same batch. `metadata` holds no token. |
 | `notification_preferences.updated` | `profile` | AECI-1204 — `routes/notification-preferences.ts` | Every mute or unmute. `entity_id` is the profile id. `before_state` and `after_state` are `{ nudgesMuted }`. `metadata.source` is `vendor-portal` or `one-click`. A no-op writes nothing. The mute token is never audited. |
+| `notification_settings.updated` | `notification_setting` | AECI-1224 — `routes/admin-email-switches.ts` via `lib/notifications/switches.ts` | Every pause or resume of a sending switch (§9.13). Actor is the admin. `entity_id` is the key: a registry id or `support-copy`. `before_state` and `after_state` are `{ enabled }`. `metadata` is `{ source: 'admin-email-switches', tier, reason? }`. A request naming the current state writes nothing. |
 
 **Actions AECI-1008 added** (integration field contests, `STAGE_2_VENDOR_PORTAL_SPEC.md` §11b):
 
@@ -3276,7 +3277,7 @@ create table notification_sends (
   notification_id text not null,   -- the registry id (apps/api/src/lib/notifications/registry.ts)
   recipient_hash text not null,    -- sha256 hex of the trimmed, lowercased bare address; '' = no recipient
   tier text not null,              -- tierLabel(env): production | staging | demo | preview | development | non-production
-  outcome text not null,           -- sending | sent | failed | unknown | skipped | suppressed | duplicate
+  outcome text not null,           -- sending | sent | failed | unknown | skipped | suppressed | duplicate | paused
   provider_message_id text,        -- the Resend id on 'sent'; null otherwise
   dedupe_key text,                 -- the sender's idempotency key; null = never deduplicated
   entity_type text,                -- what the mail is about, when the sender names it
@@ -3288,6 +3289,7 @@ create table notification_sends (
 create unique index notification_sends_dedupe_key_idx on notification_sends(dedupe_key);
 create index notification_sends_recipient_idx on notification_sends(recipient_hash, created_at);
 create index notification_sends_notification_idx on notification_sends(notification_id, created_at);
+create index notification_sends_provider_message_idx on notification_sends(provider_message_id); -- AECI-1222
 ```
 
 **`recipient_hash` is a linkable pseudonymous identifier. It is personal data, not anonymous
@@ -3332,6 +3334,12 @@ by the tier policy gets a `suppressed` row. BCC copies get no row of their own. 
 operator copy of an unsubscribable send gets one row per operator address, under its own
 registry id.
 
+**`paused` (AECI-1224).** An operator paused the template, or the support copy, on this tier
+(§9.13). No Resend call was made. The row carries no dedupe key, so a later run can send it
+after a resume. A paused template writes one row per recipient; a paused support copy writes
+one row per copy address under the `-operator-copy` id. Adding the value took no migration:
+the column has no CHECK.
+
 **`outcome` carries no CHECK**, following `job_runs.job` and `audit_log.action`. The
 vocabulary is young, and SQLite cannot ALTER a CHECK, so a new member would need a
 table-recreate migration. The `NotificationSendOutcome` union in `apps/api/src/db/schema.ts`
@@ -3343,13 +3351,89 @@ audit the audit. Every write is a single statement outside any `db.batch`, insid
 try/catch. Every caller already sends inside `waitUntil` or a cron, so the ledger adds no
 latency to a route response.
 
-**Read by** nothing in the app yet. It is an operator query surface: `wrangler d1 execute`
-against the recipient or notification index.
+**Read by** the Resend delivery webhook since AECI-1222, which looks each event's id up on
+`provider_message_id` (that index was added in migration `0059` for it) to join §9.9a, and
+since AECI-1223 by the `/admin/email` screen (`ADMIN_PANEL_SPEC.md` §5.14): `GET
+/api/admin/email/summary`, `GET /api/admin/email/sends` and the address search `POST
+/api/admin/email/sends/search`, which hashes the typed address with `recipientHash` and seeks
+on the recipient index. The screen shows `entity_type` / `entity_id` and an 8-character hash
+prefix, never an address (§13 D23 of that doc).
 
 **Retention: 400 days, enforced by retention-prune** (`apps/api/src/lib/retention-prune.ts`),
 on the same whole-UTC-day, chunked-by-`id` mechanism as `page_views` §9.1. A snapshot gap stops
 it too, because the prune aborts the whole run. Window: `NOTIFICATION_SENDS_RETENTION_DAYS` in
 `@aeci/shared`, overridable per tier by the like-named env var. `ADMIN_PANEL_SPEC.md` §7.4.
+
+### 9.9a `notification_delivery_events`
+
+What happened to a send after Resend took it (AECI-1222, migration
+`0059_faithful_shriek.sql`: a pure CREATE TABLE plus three indexes, and one plain CREATE INDEX on
+`notification_sends`. Nothing is recreated). One row per Resend
+delivery event. The writer is
+`apps/api/src/lib/notifications/delivery-events.ts`, called by `POST /api/webhooks/resend`.
+`docs/email.md` §Delivery webhooks is the governing doc.
+
+```sql
+create table notification_delivery_events (
+  id integer primary key autoincrement,
+  svix_id text not null,              -- the svix-id header; a Resend retry repeats it
+  provider_message_id text not null,  -- Resend data.email_id = notification_sends.provider_message_id
+  event_type text not null,           -- sent | delivered | delivery_delayed | bounced | complained
+  notification_send_id integer,       -- the joined notification_sends.id; null = no ledger row
+  notification_id text not null,      -- registry id; 'supabase-sign-in' for tier auth; 'unknown' when unnamed
+  tier text not null,                 -- the receiving tier's tierLabel(env), or 'auth'
+  recipient_hash text not null,       -- recipientHash() of the one address named; '' = unattributed
+  bounce_type text,                   -- data.bounce.type on a bounce (Permanent, Temporary)
+  bounce_subtype text,                -- data.bounce.subType (Suppressed, MessageRejected, …)
+  occurred_at text not null,          -- Resend's created_at for the event
+  created_at text not null
+);
+
+create unique index notification_delivery_events_svix_recipient_idx
+  on notification_delivery_events(svix_id, recipient_hash);
+create index notification_delivery_events_message_idx on notification_delivery_events(provider_message_id);
+create index notification_delivery_events_recipient_idx on notification_delivery_events(recipient_hash, created_at);
+```
+
+**One row per event.** Resend documents `data.to` as the "impacted" recipients but never says an
+event is per recipient, or whether a BCC address appears. So an event naming exactly one address
+stores that address's hash and joins the ledger. An event naming several addresses, or none, is
+stored once **unattributed**: `recipient_hash = ''`, `notification_send_id` NULL, no ledger
+join. The idempotency index is `(svix_id, recipient_hash)`. A Resend retry repeats the svix id
+and the body, so its `INSERT … ON CONFLICT DO NOTHING` writes nothing, `''` included.
+`docs/email.md` §Delivery webhooks has the Resend quote.
+
+**The join.** A single-address row picks the earliest `notification_sends` row with the same
+`provider_message_id` and the same `recipient_hash`. That handles a digest reported per
+recipient (one Resend id, one ledger row per recipient), the operator `COPY:` (one row per
+operator address) and a retried keyed send that got the first send's id back. A recipient with
+no ledger row, such as a BCC copy named alone, is stored with `notification_send_id` NULL. So is
+an event that lands before the ledger row has its `provider_message_id`. No ledger row is
+invented.
+
+**No foreign key** to `notification_sends`, on purpose. A log row must outlive its parent, and
+an FK would put this table on the `ON DELETE` path of any future recreate of the ledger
+(`docs/migrations.md` §0). `event_type` has no CHECK, for the ledger's reason: the
+`NotificationDeliveryEventType` union in `schema.ts` is the enforcement.
+
+**Which tier writes what.** Each tier's D1 holds only events tagged with its own tier.
+Production also holds the untagged Supabase sign-in stream as tier `auth`. Every other event is
+dropped and counted, never stored (`docs/email.md` §Delivery webhooks).
+
+**`recipient_hash` is personal data**, exactly as in §9.9: the same unsalted hash, linkable to
+the ledger and to a person.
+
+**No `audit_log` row.** Log-class under ADR 0022, like `notification_sends`. Unlike the
+ledger, a write error is not swallowed: the route answers 500 and Resend retries.
+
+**Read by** the `/admin/email` screen since AECI-1223 (`ADMIN_PANEL_SPEC.md` §5.14): the summary
+counts events by `created_at`, the list picks each ledger row's newest joined event by
+`occurred_at`, and the address search returns the recipient's events with a NULL
+`notification_send_id`. An unattributed event shows in the summary only.
+
+**Retention: 400 days, the ledger's rule**, enforced by retention-prune on the same mechanism.
+Window: `NOTIFICATION_DELIVERY_EVENTS_RETENTION_DAYS` in `@aeci/shared`, overridable per tier
+by the like-named env var. `ADMIN_PANEL_SPEC.md` §7.4.
 
 ### 9.10 `notification_preferences`
 
@@ -3579,6 +3663,48 @@ days. It is not in the prune's `PRUNABLE` list. `ADMIN_PANEL_SPEC.md` §7.4.
 
 **Migration `0057`** is a plain `CREATE TABLE` plus one `CREATE INDEX`. It is not a recreate and
 cannot cascade. `apps/api/src/test/migration-0057.spec.ts` pins that.
+
+### 9.13 `notification_settings`
+
+The operator's sending switches (AECI-1224, migration `0060_funny_colossus.sql`). Each row
+pauses one email template, or the support copy, on this tier. `ADMIN_PANEL_SPEC.md` §5.14
+"Sending switches" and §13 D24 govern the screen, and `docs/email.md` §Sending switches the
+transport.
+
+```sql
+create table notification_settings (
+  key text primary key,            -- a registry id (lib/notifications/registry.ts) or 'support-copy'
+  enabled integer not null,        -- boolean; 0 = paused on this tier
+  updated_by text,                 -- the admin's profiles.id; NO foreign key, on purpose
+  created_at text not null,
+  updated_at text not null
+);
+```
+
+**No row means enabled.** Rows exist only for switches an operator has touched. The
+transport reads at most two rows per send (the template and `support-copy`) by primary key.
+
+**`support-copy` is a reserved key, not a registry id.** It covers the `EMAIL_BCC` blind copy
+and the separate operator `COPY:`. `registry.spec.ts` holds that no registry id equals it. If
+AECI-1220 drops `EMAIL_BCC`, the key goes with it.
+
+**A row for a non-pausable entry does nothing.** The write route refuses to create one
+(`400 NOTIFICATION_NOT_PAUSABLE`), and the transport ignores one that predates an entry
+becoming always-on. Resuming it is allowed, so it can be cleared.
+
+**No CHECK and no FK on `key`.** The registry is code. The API refuses a key it does not know
+(404). **`updated_by` has no FK either**, on purpose: a `profiles` recreate would otherwise
+fire `ON DELETE` into this table and silently resume paused mail (`docs/migrations.md` §0).
+
+**Domain state, so every write audits** (`notification_settings.updated`, §8.4) in the same
+`db.batch`, behind a sentinel that aborts the batch when the stored state moved since the
+read. Not the per-seat mute in §9.10: that is a seat's own choice about one digest.
+
+**Migration `0060`** is a plain `CREATE TABLE`. It recreates nothing and cannot cascade.
+
+**Read and written by** `apps/api/src/lib/notifications/switches.ts`, called from
+`lib/email.ts` (the per-send read) and `routes/admin-email-switches.ts`. Contract:
+`API_CONTRACTS.md` §6.10, "Sending switches".
 
 ---
 
@@ -3812,7 +3938,7 @@ Migrations are generated by **drizzle-kit** from the Drizzle schema and applied 
 
 Every write that changes **domain state** must emit its `audit_log` (+ `workflow_transitions` where applicable) row (`STAGE_1_SPEC.md` §26.1, `CLAUDE.md` §"Audit logging and the observability forward"). Failure to log is a transactional failure — the mutation must not commit without its audit entry.
 
-**Scope (ADR 0022).** "Domain state" is the catalog, users and profiles, reviews and moderation, claims and attestations, requests and workflows. **Derived and log-class writes are exempt**: `page_views`, `mailing_list`, `feedback` (`API_CONTRACTS.md` §6.9/§6.13), `stats_cache`, the Algolia watermark, the denormalized product counters (§14.2), and the cron-written `metrics_daily` (§9.3 — **shipped**, AECI-581) and `job_runs` (§9.4 — **shipped**, AECI-583) tables (`ADMIN_PANEL_SPEC.md` §7.1/§7.2). `notification_sends` (§9.9), the daily per-vendor snapshot `vendor_activity_daily` (§9.12), and the per-user service log `user_activity_daily` (§9.11, ADR 0022's 2026-10-02 amendment) are exempt too. The test is **entity class, not actor class** — a `system`/cron actor writing domain state still audits — and **scheduled `DELETE`s are never exempt**: they emit one summary row per run (`action='retention.pruned'`). That exception is live as of AECI-584 (§9.1/§9.4): the 03:00 retention prune is the only cron that writes an `audit_log` row, and it writes exactly one per run — `actor_type='system'`, `entity_type='retention'`, `metadata={rowsDeleted, tables:[{table, cutoff, rowsDeleted}]}` — inside the same atomic `db.batch` as every chunked `DELETE`. A run that deletes nothing writes none: the exception exists because a deletion's fact is unrecoverable afterwards, and a non-deletion has no such fact.
+**Scope (ADR 0022).** "Domain state" is the catalog, users and profiles, reviews and moderation, claims and attestations, requests and workflows. **Derived and log-class writes are exempt**: `page_views`, `mailing_list`, `feedback` (`API_CONTRACTS.md` §6.9/§6.13), `stats_cache`, the Algolia watermark, the denormalized product counters (§14.2), and the cron-written `metrics_daily` (§9.3 — **shipped**, AECI-581) and `job_runs` (§9.4 — **shipped**, AECI-583) tables (`ADMIN_PANEL_SPEC.md` §7.1/§7.2). `notification_sends` (§9.9), `notification_delivery_events` (§9.9a, AECI-1222), the daily per-vendor snapshot `vendor_activity_daily` (§9.12), and the per-user service log `user_activity_daily` (§9.11, ADR 0022's 2026-10-02 amendment) are exempt too. The test is **entity class, not actor class** — a `system`/cron actor writing domain state still audits — and **scheduled `DELETE`s are never exempt**: they emit one summary row per run (`action='retention.pruned'`). That exception is live as of AECI-584 (§9.1/§9.4): the 03:00 retention prune is the only cron that writes an `audit_log` row, and it writes exactly one per run — `actor_type='system'`, `entity_type='retention'`, `metadata={rowsDeleted, tables:[{table, cutoff, rowsDeleted}]}` — inside the same atomic `db.batch` as every chunked `DELETE`. A run that deletes nothing writes none: the exception exists because a deletion's fact is unrecoverable afterwards, and a non-deletion has no such fact.
 
 **The 11:00 entitlement-expiry sweep is a second auditing cron, and for the same "entity class, not actor class" reason** (AECI-613): it writes `expiry_notice_sent_at` on a domain row and emits one `vendor_entitlement.expiry_warned` row (`actor_type='system'`) per warned term, in the same batch. "We warned them on date X" is precisely the fact an offline-invoice dispute needs, so exempting it would lose the one record that matters. Note what that means for the exempt lists: `entitlement-expiry` is **not** ADR-0022-exempt in the way `retention-prune` is — where a cron-level test carves it out, the carve-out is a mocking artifact, and the real obligation is asserted in `entitlement-expiry.spec.ts`.
 

@@ -33,6 +33,28 @@ These were settled by AECI-75. Don't deviate without raising the issue first.
 
 ---
 
+## Resend delivery webhook (AECI-1222) — an open operator decision, no change made
+
+`POST /api/webhooks/resend` is called by Resend's servers (Svix). They cannot pass an Access
+OTP challenge or present the `aeci-gh-actions` service token. So on a gated host every
+delivery is refused at the edge before the Worker sees it. The Worker's own Svix signature
+check is the real gate, and it fails closed.
+
+- **Production (`www.aecintegrations.com`) and demo (`demo.aecintegrations.com`)** are not
+  Access destinations today. Their endpoints need nothing here. If demo is gated again, it
+  joins the staging case below.
+- **Staging (`staging.aecintegrations.com`)** is gated from the 2026-10-03 cutover. Its
+  endpoint needs a path-scoped **Bypass** for exactly `/api/webhooks/resend`, or it receives
+  nothing.
+- **The tension.** A path-scoped Bypass in Access is a second self-hosted application on that
+  path. "Locked decisions" above says splitting the app per surface has broken Worker requests
+  before. So this is raised, not done. The Linear webhook never met it: it is production-only.
+- **The cheap answer.** Register production and demo only, and leave staging unregistered.
+  Staging's tagged events then go nowhere, and nothing else is lost: each tier records only
+  its own events anyway.
+
+AECI-1222 changed nothing in Access. Record the decision here when it is made.
+
 ## 1. Current configuration (recorded)
 
 The Cloudflare resources as deployed. If any of these change, update this section in the same PR.

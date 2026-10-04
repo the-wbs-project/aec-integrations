@@ -102,6 +102,7 @@ const COLUMNS = [
   'Dedupe',
   'Ledger',
   'Opt-out',
+  'Pausable',
   'Doc',
   'Note',
 ] as const;
@@ -127,6 +128,7 @@ function entryRow(id: string, e: NotificationEntry): string {
     e.dedupe,
     e.ledger.map((l) => `\`${l}\``).join(', '),
     `\`${e.optOut}\``,
+    e.pausable ? 'yes' : 'no',
     e.doc,
     e.note ?? '',
   ];
@@ -190,6 +192,12 @@ function intro(): string[] {
     `${SENT_ROW} row), \`fence-column\` (a sent-at column on the entity), \`invite-row\` (the`,
     'seat invite row), `job_runs` (the cron run record), `linear-issue-id` (the issue id stored',
     'on the request or contest), or `none`.',
+    '',
+    '**Pausable** (AECI-1224) says whether an operator may pause the entry on one tier from',
+    '`/admin/email`. Only email sent through `lib/email.ts` can be paused, and anything',
+    "security- or obligation-bearing stays always on. The entry's note says why. The support",
+    'copy (`EMAIL_BCC` and the operator `COPY:`) has its own switch, `support-copy`.',
+    '`docs/ADMIN_PANEL_SPEC.md` §5.14 and `docs/email.md` §Sending switches govern it.',
     '',
     '**To add a notification,** add its registry entry first, name the id at the sender, then',
     `run \`${NOTIFICATIONS_DOC_COMMAND}\` and commit this file.`,

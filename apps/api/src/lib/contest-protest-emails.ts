@@ -268,6 +268,7 @@ const emptyOutcomes = (): Record<EmailOutcome, number> => ({
   skipped: 0,
   suppressed: 0,
   duplicate: 0,
+  paused: 0,
 });
 
 /**

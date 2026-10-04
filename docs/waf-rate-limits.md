@@ -464,6 +464,14 @@ from these rules. Read the two exclusions as one decision each, not as a zone-on
   and HMAC-verified (`LINEAR_WEBHOOK_SIGNING_SECRET`). A per-IP limit would drop
   legitimate Linear deliveries/retries once volume rises; the HMAC signature is the
   gate. Leave it unmatched by both the rate-limit rules and the scraper rule.
+- **`POST /api/webhooks/resend`** (AECI-1222) — server-to-server from Resend's Svix senders
+  and signature-verified (`RESEND_WEBHOOK_SECRET`). Same reasoning as the Linear webhook: it
+  has no actor to key on, Svix retries, and a 429 drops a legitimate delivery event. **No new
+  zone rule is needed.** Neither rate-limit rule matches the path, the §2 scraper rule's path
+  list does not include it, and the §2a probe rules match nothing in it. One dependency: §3b's
+  SBFM "Definitely automated" must stay **Allow**, as it already must for CI, or Resend's
+  requests would be challenged. If a flood ever needs a control, a WAF **custom** rule on this
+  path is the tool, not a rate-limit slot.
 
 ---
 
@@ -1324,12 +1332,15 @@ Four properties to hold on to before changing anything:
 | **`POST /api/requests/*`, `/api/subscribe`, `/api/feedback`** | Rule A only | Rule A already covers them, and the only key we hold is a caller-supplied email an adversary rotates for free — a check on every anonymous submit that defeats nobody |
 | **`POST /api/page-views`** | none | §1 "Deliberately not rate-limited". A cap silently truncates the only consent-independent analytics source, and silent data loss is worse than the flood |
 | **`POST /api/webhooks/linear`** | none | HMAC-gated, single egress, and Linear **retries** — a 429 drops a legitimate delivery |
+| **`POST /api/webhooks/resend`** (AECI-1222) | none | Svix-signature-gated, no actor to key on, and Resend **retries** — a 429 drops a delivery event. A bad signature costs one HMAC and a 401 |
 | **`POST /api/promote`, `/api/promote/connector-catalog`** | none | First-party trusted caller, and the connector arm is **paged** — a limiter throttles our own ingest. `REVIEW_APP_PROMOTE_API.md` §6 publishes this to the review app's repo |
 | **every `requireAdmin()` write except the seven below** | none | Hand-granted role with no anonymous path to it, and every write emits an `audit_log` row in the same batch. A limiter would risk 429-ing a moderation burst, which is the legitimate workload |
 | `POST /api/admin/logo`, `PATCH /api/admin/vendors/:id/logo`, `PATCH /api/admin/products/:id/logo` (AECI-955) | `write` (by user) | **The exception to the row above, and the reason is the resource, not the role.** `POST /api/admin/logo` is the only admin write that consumes *unbounded external storage*: it puts bytes in R2 and writes no D1 row, so nothing else bounds it and there is no reference-aware cleanup job yet (ADR 0032). The two PATCHes take the same bucket so an upload→save pair spends from one budget rather than letting the cheap half of the pair run free. 30 / 60 s per admin is ~15 logo saves a minute, well above a human operator and far below a runaway client. The sibling `POST /api/vendor/logo` is limited for the same reason under `requireVendor()` |
 | `PATCH /api/admin/contests/:id` (AECI-1008) | `write` (by user) | A decision write, and an accept files a `REVIEW - ` Linear issue after commit. The limiter bounds that outbound Linear traffic, which nothing else caps on this route. 30 / 60 s per admin is far above a human working the queue. `GET /api/admin/contests` is a read and carries no limiter |
 | `PATCH /api/admin/review-responses/:id` (AECI-1177) | `write` (by user) | Vendor replies to reviews (`STAGE_2_VENDOR_PORTAL_SPEC.md` §11c.14). An approve or remove purges `product:{slug}`, so an unbounded loop is an edge-cache purge loop. 30 / 60 s per admin is far above a human working the queue. `GET /api/admin/review-responses` is a read and carries no limiter |
 | `POST /api/admin/integrations/:id/retire`, `POST /api/admin/integrations/:id/restore` (AECI-1046) | `write` (by user) | The owner retire's batch run by an admin: each hides or re-shows a vendor-held row everywhere, recomputes both endpoint counts, runs a by-id Algolia sync and purges seven cache tags. Registered after `requireAdmin()`. `GET /api/admin/vendors/:id/integrations` is a read and carries no limiter |
+| `PUT /api/admin/email/switches/:key` (AECI-1224) | `write` (by user) | A pause or resume of a sending switch. It changes who receives mail on this tier and writes an `audit_log` row per change, so a runaway client would flood the audit trail and flap live mail on and off. 30 / 60 s per admin is far above a human operator. The existing `write` bucket, no new binding. `GET /api/admin/email/switches` is a read and carries no limiter |
+| **`POST /api/admin/email/sends/search`** (AECI-1223) | none | **A read, not a write.** It is a `POST` only so the searched address rides the body instead of a logged URL (`ADMIN_PANEL_SPEC.md` §5.14). It writes nothing, so the §6.3 rule that reads are never limited applies |
 | **`POST /admin/purge`** (SSR Worker) | none | It would be the SSR Worker's first non-transport binding across four env blocks, and buys little: an unauthenticated flood costs one constant-time compare and a 401, and an attacker who *has* the token purges everything in one request. If a control is wanted, use a WAF **custom** rule — separate, larger quota, consumes neither rate-limit slot |
 
 ### 6.3 Two invariants

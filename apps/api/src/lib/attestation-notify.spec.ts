@@ -584,6 +584,19 @@ describe('groupFindings / decideDelivery (pure)', () => {
     expect(decideDelivery(['muted', 'suppressed'])).toMatchObject({ outcome: 'portal-only' });
   });
 
+  it('treats an operator pause like a mute: portal-only, recorded (AECI-1224)', () => {
+    expect(decideDelivery(['paused', 'paused'])).toEqual({
+      outcome: 'portal-only',
+      record: true,
+      emailedSeats: 0,
+    });
+    // A failure beside a pause still retries tomorrow.
+    expect(decideDelivery(['paused', 'failed'])).toMatchObject({
+      outcome: 'failed',
+      record: false,
+    });
+  });
+
   it('records portal-only when a muted or suppressed seat sits beside a seat with no address (AECI-1197 review)', () => {
     expect(decideDelivery(['muted', 'no-address'])).toEqual({
       outcome: 'portal-only',

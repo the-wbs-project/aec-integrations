@@ -110,6 +110,25 @@ describe('observability/posthog alerts.json ↔ insights.json', () => {
       expect(board?.query).toContain(`s.labels['outcome'] = '${outcome}'`);
     }
   });
+
+  it('carries the AECI-1222 delivery alerts on recorded events only', () => {
+    const byKey = new Map(alerts.map((a) => [a.key, a]));
+    const expected = [
+      ['email-bounce-rate', 'alert-email-bounce-rate', 'daily', 5],
+      ['email-complaint-rate', 'alert-email-complaint-rate', 'daily', 0.1],
+    ] as const;
+    for (const [key, insightKey, interval, upper] of expected) {
+      const alert = byKey.get(key);
+      expect(alert?.insightKey).toBe(insightKey);
+      expect(alert?.calculationInterval).toBe(interval);
+      expect(alert?.threshold.configuration.bounds.upper).toBe(upper);
+      const query = insights.find((i) => i.key === insightKey)?.query ?? '';
+      expect(query).toContain("metric_name = 'aeci.email.delivery'");
+      // Drops, replays and ignored types are not this tier's mail.
+      expect(query).toContain("s.labels['outcome'] = 'recorded'");
+      expect(query).toContain("s.labels['event'] = 'sent'");
+    }
+  });
 });
 
 describe('observability/posthog insights.json descriptions', () => {

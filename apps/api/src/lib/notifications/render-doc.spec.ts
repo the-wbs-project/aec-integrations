@@ -21,6 +21,7 @@ const FIXTURE: Record<string, NotificationEntry> = {
     dedupe: 'One row per write.',
     ledger: ['audit_log'],
     optOut: 'none',
+    pausable: false,
     doc: 'docs/x.md §1',
     summary: 'Tells a vendor about b.',
   },
@@ -32,6 +33,7 @@ const FIXTURE: Record<string, NotificationEntry> = {
     dedupe: 'None.',
     ledger: ['notification_sends'],
     optOut: 'none',
+    pausable: false,
     doc: 'docs/x.md §2',
     summary: 'Sends zeta | with a pipe.',
     note: 'Production only.',
@@ -44,6 +46,7 @@ const FIXTURE: Record<string, NotificationEntry> = {
     dedupe: 'None.',
     ledger: ['notification_sends'],
     optOut: 'none',
+    pausable: true,
     doc: 'docs/x.md §3',
     summary: 'Sends alpha.',
   },
@@ -76,10 +79,10 @@ Transport, house layout, per-template copy notes and secrets are in \`docs/email
 Every send writes one \`notification_sends\` row per recipient, with the Resend message id
 on success (AECI-1202, \`docs/DATABASE_SCHEMA.md\` §9.9).
 
-| Id | Summary | Audience | Trigger | Tier rule | Dedupe | Ledger | Opt-out | Doc | Note |
-|---|---|---|---|---|---|---|---|---|---|
-| \`Alpha-mail\` | Sends alpha. | operator | route: POST /a | \`any-tier\` | None. | \`notification_sends\` | \`none\` | docs/x.md §3 |  |
-| \`zeta-mail\` | Sends zeta \\| with a pipe. | external | cron: 0 1 * * * | \`production-external\` | None. | \`notification_sends\` | \`none\` | docs/x.md §2 | Production only. |
+| Id | Summary | Audience | Trigger | Tier rule | Dedupe | Ledger | Opt-out | Pausable | Doc | Note |
+|---|---|---|---|---|---|---|---|---|---|---|
+| \`Alpha-mail\` | Sends alpha. | operator | route: POST /a | \`any-tier\` | None. | \`notification_sends\` | \`none\` | yes | docs/x.md §3 |  |
+| \`zeta-mail\` | Sends zeta \\| with a pipe. | external | cron: 0 1 * * * | \`production-external\` | None. | \`notification_sends\` | \`none\` | no | docs/x.md §2 | Production only. |
 
 ## Vendor portal feed only (\`portal\`, 1)
 
@@ -113,7 +116,7 @@ describe('renderNotificationsDoc', () => {
     const body = doc.slice(doc.indexOf('## Counts'));
     expect(body.startsWith(EXPECTED_BODY)).toBe(true);
     expect(body).toContain(
-      '| `portal-b` | Tells a vendor about b. | external | route: POST /b | `any-tier` | One row per write. | `audit_log` | `none` | docs/x.md §1 |  |\n\n## Monitoring',
+      '| `portal-b` | Tells a vendor about b. | external | route: POST /b | `any-tier` | One row per write. | `audit_log` | `none` | no | docs/x.md §1 |  |\n\n## Monitoring',
     );
   });
 

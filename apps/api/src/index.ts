@@ -69,6 +69,15 @@ import { createAdminCatalogCoverageHandler } from './routes/admin-catalog';
 import { createAdminFeedbackHandler } from './routes/admin-feedback';
 import { createAdminSubscribersHandler } from './routes/admin-subscribers';
 import {
+  createAdminEmailSearchHandler,
+  createAdminEmailSendsHandler,
+  createAdminEmailSummaryHandler,
+} from './routes/admin-email';
+import {
+  createAdminEmailSwitchesHandler,
+  createSetAdminEmailSwitchHandler,
+} from './routes/admin-email-switches';
+import {
   createAdminReindexListHandler,
   createClearReindexRowHandler,
 } from './routes/admin-reindex';
@@ -113,7 +122,7 @@ import {
 } from './routes/slug-redirects';
 import { createSubmitReviewHandler } from './routes/reviews';
 import { createStatsHomeHandler } from './routes/stats';
-import { createLinearWebhookHandler } from './routes/webhooks';
+import { createLinearWebhookHandler, createResendWebhookHandler } from './routes/webhooks';
 import { createTaxonomyHandler } from './routes/taxonomy';
 import { createTaxonomyDetailHandler } from './routes/taxonomy-detail';
 import { createTaxonomyListHandler } from './routes/taxonomy-list';
@@ -378,6 +387,12 @@ phase28.post(
 // blanket POST middleware is ever proposed, this route is the first thing it
 // would silently catch.
 phase28.post('/api/webhooks/linear', createLinearWebhookHandler());
+// Inbound Resend delivery webhook (AECI-1222). Public URL, reached through the SSR `/api/*`
+// passthrough like the Linear route. Auth is the Svix signature verified inside the handler
+// against `RESEND_WEBHOOK_SECRET`; unset → every delivery 401s. Deliberately NOT rate-limited,
+// for the Linear route's reasons: signature-gated, no actor to key on, and Resend retries, so
+// a 429 drops a legitimate event. See `routes/webhooks.ts`.
+phase28.post('/api/webhooks/resend', createResendWebhookHandler());
 
 app.route('/', phase28);
 
@@ -898,6 +913,24 @@ authAdmin.get('/api/admin/subscribers', requireAdmin(), createAdminSubscribersHa
 // 429-ing the burst this screen exists to support).
 authAdmin.get('/api/admin/reindex', requireAdmin(), createAdminReindexListHandler());
 authAdmin.delete('/api/admin/reindex/:id', requireAdmin(), createClearReindexRowHandler());
+// §5.14 / AECI-1223 — the email screen. Three READS over `notification_sends` and
+// `notification_delivery_events`; no audit row, no `rateLimit()` (reads are never
+// limited). The address search is a POST so the address rides the body and never a
+// logged URL; the GET list refuses an `address` parameter (`ADDRESS_NOT_ALLOWED_IN_URL`).
+authAdmin.get('/api/admin/email/summary', requireAdmin(), createAdminEmailSummaryHandler());
+authAdmin.get('/api/admin/email/sends', requireAdmin(), createAdminEmailSendsHandler());
+authAdmin.post('/api/admin/email/sends/search', requireAdmin(), createAdminEmailSearchHandler());
+// §5.14 / AECI-1224 — the sending switches. The GET is a read (no audit, no limiter). The
+// PUT pauses or resumes one template or the support copy on THIS tier: a write that audits
+// in its own batch and carries `rateLimit('write')` after the guard (`waf-rate-limits.md`
+// §6.2). It refuses to pause a non-pausable entry (`NOTIFICATION_NOT_PAUSABLE`).
+authAdmin.get('/api/admin/email/switches', requireAdmin(), createAdminEmailSwitchesHandler());
+authAdmin.put(
+  '/api/admin/email/switches/:key',
+  requireAdmin(),
+  rateLimit('write'),
+  createSetAdminEmailSwitchHandler(),
+);
 app.route('/', authAdmin);
 
 // Stage 2 vendor-portal sub-router (AECI-520, `STAGE_2_VENDOR_PORTAL_SPEC.md` §4).

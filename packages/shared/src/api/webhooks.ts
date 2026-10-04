@@ -1,8 +1,8 @@
 import { z } from 'zod';
 
 /**
- * Inbound webhook contracts (AECI-212 / Phase 6.5). Currently just Linear, the
- * Linear → Site half of the bidirectional moderation sync (`STAGE_1_SPEC.md`
+ * Inbound webhook contracts. Linear (AECI-212 / Phase 6.5) and, since AECI-1222, the
+ * Resend delivery webhook at the end of this file. Linear is the Linear → Site half of the bidirectional moderation sync (`STAGE_1_SPEC.md`
  * §26.4, `STAGE_1_PHASE_6_SPEC.md` §6.3). The companion outbound direction
  * (Site → Linear, 6.6) calls the Linear GraphQL API and needs no schema here.
  *
@@ -74,3 +74,61 @@ export const LinearWebhookSchema = z.object({
   webhookTimestamp: z.number(),
 });
 export type LinearWebhook = z.infer<typeof LinearWebhookSchema>;
+
+// ─── Resend delivery webhook (AECI-1222) ─────────────────────────────────────
+
+/**
+ * The Resend event types the delivery webhook records. Opens and clicks are deliberately
+ * absent: Apple Mail and corporate link scanners fire them on their own, and they are
+ * tracking data (ruling 2026-10-02). Any other type is acknowledged and ignored.
+ */
+export const RESEND_DELIVERY_EVENT_TYPES = [
+  'email.sent',
+  'email.delivered',
+  'email.delivery_delayed',
+  'email.bounced',
+  'email.complained',
+] as const;
+export type ResendDeliveryEventType = (typeof RESEND_DELIVERY_EVENT_TYPES)[number];
+
+/**
+ * The `data` of a Resend email event, the slice the recorder reads. Field names from Resend's
+ * per-event pages (`https://resend.com/docs/webhooks/emails/*`, read 2026-10-02):
+ * `{ email_id, from, to[], subject, tags, bounce? }`.
+ *
+ * Tolerant like `LinearWebhookSchema`: unknown keys are stripped, not rejected. `tags` is an
+ * object of `name → value` in the documented payload. An array of `{ name, value }` (the send
+ * API's shape) is accepted too, so a format change cannot silently untag every event.
+ */
+export const ResendEmailEventDataSchema = z.object({
+  email_id: z.string().min(1),
+  from: z.string().optional(),
+  to: z.array(z.string()).optional(),
+  subject: z.string().optional(),
+  tags: z
+    .union([
+      z.record(z.string(), z.string()),
+      z.array(z.object({ name: z.string(), value: z.string() })),
+    ])
+    .optional(),
+  bounce: z
+    .object({
+      type: z.string().optional(),
+      subType: z.string().optional(),
+    })
+    .optional(),
+});
+export type ResendEmailEventData = z.infer<typeof ResendEmailEventDataSchema>;
+
+/**
+ * Resend's webhook envelope: `{ type, created_at, data }`. `data` is left unparsed here because
+ * its shape depends on the type: a `contact.*` or `domain.*` event has no `email_id`. The route
+ * checks the type first and parses `data` with {@link ResendEmailEventDataSchema} only for the
+ * five recorded email types, so any other type is a 200, never a 400 that Resend would retry.
+ */
+export const ResendWebhookSchema = z.object({
+  type: z.string(),
+  created_at: z.string(),
+  data: z.unknown().optional(),
+});
+export type ResendWebhook = z.infer<typeof ResendWebhookSchema>;

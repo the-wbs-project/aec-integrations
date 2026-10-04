@@ -13,6 +13,7 @@ import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 import { getNotification, NOTIFICATIONS, type NotificationEntry } from './registry';
+import { SUPPORT_COPY_KEY } from './switches';
 
 /** Vitest runs with cwd = apps/api. */
 const REPO_ROOT = join(process.cwd(), '..', '..');
@@ -162,5 +163,65 @@ describe('notification registry shape', () => {
       // else. Seat invites, claim decisions and plan-expiry notices still send.
       expect(entry.optOut === 'nudge-mute').toBe(id === 'attestation-digest');
     });
+  });
+});
+
+// ─── Pausable (AECI-1224) ────────────────────────────────────────────────────
+
+/**
+ * Mail an operator must never be able to stop from `/admin/email`. Security- or
+ * obligation-bearing: invites, decisions, the erasure confirmation, and every vendor email
+ * that carries a deadline. Moving an id out of this list is a decision, so it is a test edit.
+ */
+const ALWAYS_ON = [
+  'account-deleted',
+  'claim-approved',
+  'claim-rejected',
+  'contest-declined-protest-window',
+  'contest-protest-opened',
+  'contest-protest-reply-reminder',
+  'entitlement-expiring',
+  'mailing-list-welcome-operator-copy',
+  'review-approved',
+  'review-rejected',
+  'vendor-seat-invite',
+  'vendor-seat-invite-resend',
+];
+
+describe('pausable (AECI-1224)', () => {
+  it('is true only on an entry sent through lib/email.ts', () => {
+    for (const [id, e] of ENTRIES) {
+      if (!sendsEmail(e)) expect(e.pausable, id).toBe(false);
+    }
+  });
+
+  it('is false on every supabase-email, portal and linear entry', () => {
+    const others = ENTRIES.filter(([, e]) =>
+      ['supabase-email', 'portal', 'linear'].includes(e.channel),
+    );
+    expect(others.length).toBeGreaterThan(0);
+    for (const [id, e] of others) expect(e.pausable, id).toBe(false);
+  });
+
+  it('keeps security- and deadline-bearing mail always on', () => {
+    for (const id of ALWAYS_ON) {
+      expect(NOTIFICATIONS[id as keyof typeof NOTIFICATIONS].pausable, id).toBe(false);
+    }
+  });
+
+  it('pauses only what is listed: 15 pausable email entries', () => {
+    const pausable = ENTRIES.filter(([, e]) => e.pausable).map(([id]) => id);
+    expect(pausable).toHaveLength(15);
+    for (const id of pausable) expect(ALWAYS_ON).not.toContain(id);
+  });
+
+  it("says why in the entry's note, either way", () => {
+    for (const [id, e] of ENTRIES) {
+      expect(e.note, id).toMatch(e.pausable ? /Pausable:/ : /(Always on|Not pausable)/);
+    }
+  });
+
+  it('never uses the reserved support-copy key as an id', () => {
+    expect(Object.keys(NOTIFICATIONS)).not.toContain(SUPPORT_COPY_KEY);
   });
 });
