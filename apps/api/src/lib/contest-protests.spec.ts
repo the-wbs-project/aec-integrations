@@ -44,6 +44,7 @@ const TABLE_ALLOWED = new Set([
   'lib/linear.ts', // the REVIEW - issue persist on an AECi accept
   'lib/reconciliation-sweep.ts', // the Phase 6.7 retry of a missing REVIEW - issue
   'lib/retract-product.ts', // the operator CLI's cascade report
+  'lib/retract-vendor.ts', // the operator CLI deletes filed contests and detaches owned ones (AECI-1226)
   'lib/integration-retire.ts', // a retire closes open contests (AECI-1010 / AECI-1046)
   'routes/integration-retire-write.ts', // the shared retire batch
   'routes/vendor-updates.ts', // the vendor `contests` freshness cursor, authenticated
