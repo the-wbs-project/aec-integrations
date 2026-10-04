@@ -3,7 +3,7 @@ title: Contests and protests
 description: How to ask for a change to a detail on an integration your company does not own, what to do when one of yours is asked about, and how to ask AEC Integrations to review an owner's decision.
 section: vendors
 order: 5
-last_updated: 2 October 2026
+last_updated: 4 October 2026
 ---
 
 A change request is how a company asks to change one detail of an integration it does not own. A protest is how it asks AEC Integrations to look again when the owner turns a request down. Both need a seat on your vendor account. Both work on the Free plan. An owner deciding a request on an integration delivered through a connector needs the Managed plan.
@@ -60,6 +60,8 @@ On an integration delivered through a connector, deciding a request needs Manage
 Editing a field yourself does not close a request on it. The request stays open until you decide it.
 
 Requests sent before you claimed the integration stay with AEC Integrations.
+
+When AEC Integrations accepts a request that changes a value your company holds, you are told in **Messages**, with the field and the reason. The sender gets its own notice. If you disagree, see [If AEC Integrations changes something you hold](/docs/vendors/owning-an-integration#if-aec-integrations-changes-something-you-hold).
 
 ## Ask AEC Integrations to review an owner's decision
 

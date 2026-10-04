@@ -526,18 +526,18 @@ A separate section at the foot of the integration card (`vendor-integration-reti
 
 | Rule | As built |
 |---|---|
-| Routes | `POST /api/admin/integrations/:id/retire` and `/restore`, body `{ reason }` (trimmed, 1 to 1,000 characters, `.strict()`). Wire: `API_CONTRACTS.md` §6.14. Handler: `apps/api/src/routes/admin-integration-retire.ts`. |
+| Routes | `POST /api/admin/integrations/:id/retire` and `/restore`, body `{ reason, internalNote? }` (`AdminOverrideReasonSchema`: reason trimmed, 1 to 1,000 characters; note optional, same cap; `.strict()`). Wire: `API_CONTRACTS.md` §6.14. Handler: `apps/api/src/routes/admin-integration-retire.ts`. |
 | Gate | `requireAdmin()` → `rateLimit('write')`. |
 | Scope | Vendor-held rows only, in either table. An AECi-held row answers `409 INTEGRATION_NOT_VENDOR_HELD`: promote, the review app and the retraction tools own it, and a retire here would hide a row the next promote still writes. No connector-powered refusal. A claimed connector-powered `integrations` row is vendor-held and this route covers it unchanged. A vendor-held `connector_evidenced_pairs` row is covered since AECI-1091 (below). |
 | Who restores (ruled) | **Only an admin restores an admin retire.** The owner restore answers `403 INTEGRATION_RETIRED_BY_AECI`. **An admin restore never undoes an owner retire** (`409 INTEGRATION_RETIRED_BY_OWNER`): the owner controls its own retire. |
 | Recorded where (ruled) | `integrations.retired_by` (`'owner'` \| `'aeci'`), migration `0046`, a plain `ADD COLUMN` with a hand-written column CHECK. Set with `retired_at`, cleared by restore. **No backfill:** a retired row with NULL predates 0046 and every reader treats it as `'owner'` (`effectiveRetiredBy` in `@aeci/shared`). |
 | One batch | The owner retire's, shared through `apps/api/src/routes/integration-retire-write.ts`: the guarded UPDATE (vendor-held, and `retired_by = 'aeci'` on restore), the race sentinel, the contest closes as `withdrawn`, the audit row, the notifications, both count recomputes. |
-| Audit | `integration.retired` / `integration.restored` with the admin as actor and `metadata { source: 'admin-moderation', reason, retiredBy: 'aeci' }`. The reason is not shown to any vendor. |
-| Who is told | A `notification.sent` row (`kind: 'integration_retire'`, `retiredBy: 'aeci'`) to the **owner** and to every vendor of either endpoint, in the batch. The portal feed titles it "AEC Integrations retired (restored) an integration on your product". |
+| Audit | `integration.retired` / `integration.restored` with the admin as actor and `metadata { source: 'admin-moderation', reason, reasonVisibility: 'vendor', internalNote?, retiredBy: 'aeci' }`. Since AECI-1159 the reason is shown to the owner (§11d). The internal note is never shown to a vendor. Rows from before AECI-1159 carry no marker and stay internal. |
+| Who is told | A `notification.sent` row (`kind: 'integration_retire'`, `retiredBy: 'aeci'`) to the **owner** and to every vendor of either endpoint, in the batch. The portal feed titles it "AEC Integrations retired (restored) an integration on your product". Since AECI-1159 the owner's row alone carries the reason, and the portal shows it. The endpoint vendors' rows stay generic. |
 | Not a delete | Claims, attestations, per-side links and contests are kept. Restore reopens no contest. |
 | After commit | The owner retire's tail: by-id Algolia sync, the same purge tags through the queue (`source: 'moderation'`), the re-crawl buffer. |
 | Portal | The card badge reads "Retired by AEC Integrations". The retire section says "Retired by AEC Integrations on {date}" to both sides and offers no Restore. The ownership line says AEC Integrations retired it, so it cannot be edited or restored there. |
-| Admin UI | The **Integrations** tab on `/admin/vendors/:id` (`ADMIN_PANEL_SPEC.md` §5.7), over `GET /api/admin/vendors/:id/integrations`: the vendor-held rows the vendor owns in both tables (since AECI-1091), live and retired. A pair row names the connector it is delivered through. Retire on a live row, Restore on an AECi retire, nothing on an owner retire. Each opens an inline form with the required reason. No browser dialog. |
+| Admin UI | The **Integrations** tab on `/admin/vendors/:id` (`ADMIN_PANEL_SPEC.md` §5.7), over `GET /api/admin/vendors/:id/integrations`: the vendor-held rows the vendor owns in both tables (since AECI-1091), live and retired. A pair row names the connector it is delivered through. Retire on a live row, Restore on an AECi retire, nothing on an owner retire. Each opens an inline form with "Reason shown to the vendor (required)" and "Internal note (optional, never shown to the vendor)" (AECI-1159). No browser dialog. |
 
 A vendor-held row with no owner on file (an `owner` accept that said "neither" on a vendor-created row) is not listed on any vendor page. The API still takes its id.
 
@@ -546,7 +546,7 @@ A vendor-held row with no owner on file (an `owner` accept that said "neither" o
 - **Soft retire only.** It sets `retired_at` and `retired_by = 'aeci'` on the pair (migration `0049`), mirroring this section on `integrations`.
 - **Never a delete.** The table is a cascade parent of `claims`, and `attestations` cascade from `claims`, so a delete would destroy both.
 - **Vendor-held means the same:** `claimed_at IS NOT NULL OR origin = 'vendor'` on the pair (`vendorHeldEvidencedPairWhere`). An AECi-held pair answers `409 INTEGRATION_NOT_VENDOR_HELD`.
-- **The same cross-refusal.** Only an admin restores an admin retire (the owner gets `403 INTEGRATION_RETIRED_BY_AECI`). An admin never undoes an owner retire (`409 INTEGRATION_RETIRED_BY_OWNER`). The reason is required and stays internal.
+- **The same cross-refusal.** Only an admin restores an admin retire (the owner gets `403 INTEGRATION_RETIRED_BY_AECI`). An admin never undoes an owner retire (`409 INTEGRATION_RETIRED_BY_OWNER`). The reason is required. Since AECI-1159 it is shown to the owner (§11d).
 - **The pair batch** (`buildPairRetireBatch`): the guard is vendor-held plus `retired_by = 'aeci'` on restore. The audit rows use entity type `connector_evidenced_pair` with `metadata.anchor: 'evidenced_pair'`. The owner and every vendor of either endpoint are told. The connector's count is recomputed and its `product:` tag purged with the endpoints'.
 
 ### 4.7 A vendor creates an integration (AECI-1011 — 2026-09-22)
@@ -2997,7 +2997,7 @@ Anyone else gets a `404`. A closed contest answers `409 CONTEST_NOT_OPEN`. **The
 
 **A stale accept is refused (AECI-1006, ruled 2026-09-22).** The content-field/claimed row above writes the column, and routing is frozen at submit, so a contest filed before the claim can reach an admin after the owner has edited the same field. When the live column differs from the contest's recorded `current_value` (`NULL` counts as a value), the accept answers `409 CONTEST_VALUE_STALE` and writes nothing. It is checked on the handler's read and again inside the batch by `contestValueUnchangedSentinel`, a `ONE_ROW` guard placed after the integration-state sentinel. The admin declines, or the submitter withdraws and re-files against the current value. `GET /api/admin/contests` carries `live_value` and `value_stale` so the queue shows the reason before anyone clicks (§11b.11). No other case is ever stale: an unclaimed row writes nothing here, and an `owner` contest is decided on ownership.
 
-**An accept that changes a vendor-held value needs a note (AECI-1191, 2026-10-02).** On a claimed row the accept overwrites something the owner holds, and the owner is entitled to a reason. `acceptOverwritesVendorField` (`apps/api/src/lib/integration-contests.ts`) is true when the integration is claimed at decision time AND the accept changes the claim or a column. It mirrors the branches of `planAcceptWrites`. In the table that is the content-field/claimed row (`applied-here`), the `owner` reassign row (`owner-reassigned`, any proposal other than the submitter, which clears `claimed_at` even when the proposed owner already holds the claim), and an `owner-approved` accept that takes the claim from another vendor. Unclaimed rows, declines, and a holder whose own contest proposes itself keep the note optional. Without the note the accept answers `400 VALIDATION_FAILED` with `error.field = 'note'`. It is checked after the routing, not-open and stale 409s and before the batch, so nothing is written. `CONTEST_INTEGRATION_CHANGED` is raised inside the batch, so a refused accept never reaches it. `DecideContestSchema` is unchanged, because the rule depends on the row's state. A note on an accept is also written to the decision audit row as `metadata.reason`. `GET /api/admin/contests` carries `accept_note_required` (true only on an open row) so the queue can ask before the admin clicks. Showing the reason to the owner is AECI-1159 and is not built.
+**An accept that changes a vendor-held value needs a note (AECI-1191, 2026-10-02).** On a claimed row the accept overwrites something the owner holds, and the owner is entitled to a reason. `acceptOverwritesVendorField` (`apps/api/src/lib/integration-contests.ts`) is true when the integration is claimed at decision time AND the accept changes the claim or a column. It mirrors the branches of `planAcceptWrites`. In the table that is the content-field/claimed row (`applied-here`), the `owner` reassign row (`owner-reassigned`, any proposal other than the submitter, which clears `claimed_at` even when the proposed owner already holds the claim), and an `owner-approved` accept that takes the claim from another vendor. Unclaimed rows, declines, and a holder whose own contest proposes itself keep the note optional. Without the note the accept answers `400 VALIDATION_FAILED` with `error.field = 'note'`. It is checked after the routing, not-open and stale 409s and before the batch, so nothing is written. `CONTEST_INTEGRATION_CHANGED` is raised inside the batch, so a refused accept never reaches it. `DecideContestSchema` is unchanged, because the rule depends on the row's state. A note on an accept is also written to the decision audit row as `metadata.reason`. `GET /api/admin/contests` carries `accept_note_required` (true only on an open row) so the queue can ask before the admin clicks. Since AECI-1159 the note on such an accept is the reason shown to the displaced owner: the decision row marks it `reasonVisibility: 'vendor'`, and the owner gets a `portal-field-overridden-by-aeci` notice in the decision batch (§11d). The owner was told nothing before. The admin route takes `AdminDecideContestSchema`, which adds an optional `internalNote` that is never shown to a vendor. `decision_note` is unchanged.
 
 The decision's own audit row records the case as `metadata.appliedMode` (`upstream-only | applied-here | owner-recorded`), which is what the reconciliation sweep reads back when it re-files a missing issue. Every accept files a Linear issue through `ctx.waitUntil`:
 
@@ -3676,6 +3676,49 @@ All eight are on the epic branch `chris/aeci-1173-epic-vendors-reply-to-reviews-
 - A notice to the reviewer (§11c.12, open).
 - Edit history on the row. The audit log holds it.
 - Rich text, links or attachments in a reply.
+
+---
+
+## 11d. AECi overrides (AECI-1159, scope 1159a)
+
+**Status: built 2026-10-04 on `chris/aeci-1159-override-reasons-to-vendors`, under epic AECI-1190.** Chris ruled the open decisions on 2026-10-04. The rulings are on AECI-1190. The vendor-facing copy is a draft pending legal review. New override powers are out of scope here: the admin field correction with a lock is AECI-1237, and the reversible takedown with the Listing Accuracy Policy rewrite is AECI-1238.
+
+An **override** is an AECi admin write that changes a record a vendor holds. This section lists the overrides AECi already makes, the reason rule they share, what the vendor sees, and how a vendor disputes one.
+
+### 11d.1 The overrides
+
+| Action | Route | Reason | Who is told | What they see |
+|---|---|---|---|---|
+| Integration retire and restore | `POST /api/admin/integrations/:id/{retire,restore}` (§4.6.4) | Required vendor reason, optional internal note | The owner and every endpoint vendor | The owner's notice carries the reason. The endpoint vendors' notices stay generic. |
+| Contest accept that overwrites an owner-held value | `PATCH /api/admin/contests/:id` (§11b.6) | Required note when `accept_note_required`, optional internal note | The displaced owner, new. The submitter, as before. | The owner gets `portal-field-overridden-by-aeci` with the note as the reason. The submitter keeps its decision notice and `decision_note`. |
+| Admin logo overwrite | `PATCH /api/admin/{vendors,products}/:id/logo` (`STAGE_2_5_SPEC.md` §11) | Required vendor reason, optional internal note | The vendor, or the product's holding vendor | `portal-logo-overridden-by-aeci` with the reason. None when no vendor holds the record. |
+| Seat revoke | `DELETE /api/admin/vendors/:id/seats/:userId` (§11a, `ADMIN_PANEL_SPEC.md` §5.7) | Required vendor reason, optional internal note | The vendor's remaining seats | `portal-seat-revoked-by-aeci` with the reason. **None when no seat remains.** The audit row is then the record. |
+| Protest decision | `PATCH /api/admin/contests/:id/protest` (§11b.12) | Required | Both sides | Unchanged. The decision note is already shown on the contest. |
+| Entitlement change, seat provision, claim decision | various | Optional | Partly | Out of scope for 1159a. Tracked on epic AECI-1190. |
+
+### 11d.2 The reason rule
+
+1. **Every override in the first four rows needs a vendor reason.** It is 1 to 1,000 characters, trimmed, and a blank one is refused with `400 VALIDATION_FAILED`. The schema is `AdminOverrideReasonSchema` in `packages/shared/src/api/admin-reason.ts`. The contest accept keeps its field name `note`, through `AdminDecideContestSchema`.
+2. **The reason is written for the vendor to read.** The admin form labels it "Reason shown to the vendor (required)".
+3. **An optional internal note sits beside it.** The form labels it "Internal note (optional, never shown to the vendor)". It is stored only in the override's own audit row, as `metadata.internalNote`. It is never copied onto a notification row and never returned by a vendor read.
+4. **The visibility marker.** The override's audit row carries `metadata.reasonVisibility = 'vendor'` beside `metadata.reason`, in the same `db.batch` as the write. **A row without the marker is never shown to a vendor.** That covers every row written before this section, including the reasons captured since AECI-1191, which were written for AECi alone. There is no backfill. AECI-1194's change history reads these exact keys.
+5. **Every vendor gets the notice, on every plan.** There is no tier rule (ruling 2026-10-04).
+
+### 11d.3 What the vendor sees
+
+Each notice is a `notification.sent` audit row in the override's batch, so a failed write leaves none. It appears under **Messages** in the portal (`GET /api/vendor/notifications`). No email is sent, as for contests (§11b.8). The registry entries are in `docs/NOTIFICATIONS.md`.
+
+- **Retire or restore:** the existing `integration_retire` row gains `reason` on the owner's row only. The feed returns `reason: null` on every other row, and on any row without the marker.
+- **Field, logo and seat:** a new feed member, `kind: 'aeci_override'`, with `event` of `field_overridden`, `logo_overridden` or `seat_revoked`. Its `reason` is AECi's vendor reason. It names the integration and field, the company or product, or the removed seat's display name. The wire shape is in `API_CONTRACTS.md`.
+- **The portal** titles each row with AEC Integrations as the actor and shows "Reason: …" under it (`vendor-notifications-list.ts`).
+
+### 11d.4 The dispute route
+
+A vendor that disagrees with an override uses the routes that already exist. There is no new appeal flow.
+
+- **Any override:** email AEC Integrations at the address in the Listing Accuracy Policy's "Requesting a correction" section, citing the notice. An admin can restore its own retire, set the logo again, or provision a seat again.
+- **A field AECi overwrote:** the owner still holds the integration and can edit the field in the portal. A lock that stops that is AECI-1237, not built.
+- **A contest decision:** the protest route in §11b.12 applies only to an owner's decision. A decision AECi made has already had AECi's answer.
 
 ---
 

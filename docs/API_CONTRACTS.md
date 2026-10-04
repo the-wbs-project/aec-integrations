@@ -2496,13 +2496,19 @@ Revoke one seat, AECi-side. `204 No Content`. Behind `requireAdmin()`. The admin
 sibling of the portal's owner-only `DELETE /api/vendor/seats/:userId` (AECI-664), which
 cannot help here: it is scoped to the caller's own session vendor.
 
-**Body: `AdminRevokeSeatSchema`, strict `{ reason }` (AECI-1191).** `reason` is `AdminReasonSchema`
+**Body: `AdminRevokeSeatSchema`, strict `{ reason, internalNote? }` (AECI-1191, AECI-1159).** The
+schema is `AdminOverrideReasonSchema.strict()`. `reason` is `AdminReasonSchema`
 (`z.string().trim().min(1).max(1000)`, shared with the logo writes; the contest accept note keeps
-`DecideContestSchema`'s own 1 to 2000 characters). The
+`DecideContestSchema`'s own 1 to 2000 characters). Since AECI-1159 it is the reason shown to the
+vendor. `internalNote` is optional, trimmed, at most 1,000 characters, and a blank or null value
+reads as absent. It is never shown to a vendor. The
 body is parsed before any read. A missing or non-JSON body is `400 MALFORMED_REQUEST`. A missing,
 blank or over-long `reason`, or an unknown key, is `400 VALIDATION_FAILED`. Either way nothing is
 written. The reason lands in the `vendor_claim.seat_revoked` row's `metadata.reason`, in the same
-batch. The hand-back and lapse audit rows below do not repeat it. The portal's owner-only
+batch, with `metadata.reasonVisibility = 'vendor'` and `metadata.internalNote` when given. When the
+revoke leaves the vendor at least one seat, a portal-only `notification.sent` row
+(`kind: 'aeci_override'`, `event: 'seat_revoked'`) goes to each remaining seat in that batch. A
+revoke that leaves no seat sends nothing (`STAGE_2_VENDOR_PORTAL_SPEC.md` §11d). The hand-back and lapse audit rows below do not repeat it. The portal's owner-only
 `DELETE /api/vendor/seats/:userId` is unchanged and takes no body.
 
 Composes `revokeSeatStatements` (`apps/api/src/lib/vendor-grant.ts`) **unchanged**, so:
@@ -3249,9 +3255,11 @@ Ordered `created_at DESC, id ASC`, served by `integration_field_challenges_queue
 
 #### `PATCH /api/admin/contests/:id` (AECI-1008)
 
-Accept or decline an **AECi-routed** contest, or a **stranded** owner-routed one (its owner vendor was deleted, so `owner_vendor_id` is NULL; AECI-1005). Body: `DecideContestSchema` (`{ decision: 'accept' | 'decline', note? }`). Carries `rateLimit('write')`. Returns the updated `AdminContest`.
+Accept or decline an **AECi-routed** contest, or a **stranded** owner-routed one (its owner vendor was deleted, so `owner_vendor_id` is NULL; AECI-1005). Body: `AdminDecideContestSchema` (`DecideContestSchema` plus an optional `internalNote`, AECI-1159). Carries `rateLimit('write')`. Returns the updated `AdminContest`.
 
 **An accept that changes a vendor-held value requires the `note` (AECI-1191).** The rule is `acceptOverwritesVendorField` (`apps/api/src/lib/integration-contests.ts`): the integration is claimed at decision time AND the accept changes the claim or a column, mirroring the branches of `planAcceptWrites`. That is a content field (`applied-here`), an `owner` contest whose proposed owner is not the submitter (`owner-reassigned`, which clears `claimed_at` even when the proposed owner already holds the claim), and an `owner` contest proposing the submitter while another vendor holds the claim (`owner-approved`). An unclaimed row, a holder proposing itself, and any decline keep the note optional. Without the note the answer is `400 VALIDATION_FAILED` with `error.field = 'note'`. The check runs after the 409 routing, not-open and stale refusals and before the batch (`CONTEST_INTEGRATION_CHANGED` comes from the in-batch sentinel, so it is never reached), so nothing is written. `DecideContestSchema` is unchanged. The handler enforces the rule, and the list read reports it as `accept_note_required`. When an accept carries a note, the `integration.contest.accepted` row gets `metadata.reason` = the note. `decision_note`, `afterState.decision_note` and the transition reason are unchanged.
+
+**The note is the reason shown to the displaced owner (AECI-1159, `STAGE_2_VENDOR_PORTAL_SPEC.md` §11d).** On an accept that required the note, the audit row also carries `metadata.reasonVisibility = 'vendor'`. The batch adds a portal-only `notification.sent` row (`kind: 'aeci_override'`, `event: 'field_overridden'`) to the owner that held the value. It is not written when the owner is the submitter or when no vendor owns the row. `internalNote` is optional, trimmed, at most 1,000 characters, stored only as `metadata.internalNote`, and never shown to a vendor. The vendor contest decision route still parses `DecideContestSchema`, so it strips `internalNote`.
 
 **What an accept writes depends on the integration (AECI-1005, ADR 0035).** Every accept files a Linear issue after commit in `ctx.waitUntil` (`createLinearIssueForContest`; AECi team, no project; playbook AECI-1025), and the §6.7 sweep retries it. A decline files nothing and writes nothing. On an **unclaimed** row the accept writes no catalog data: the review app applies the value and re-promotes. A **claimed** row is not written by promote, so there the accept writes it:
 
@@ -5993,6 +6001,7 @@ export const VendorIntegrationRetireNotificationSchema = z.object({ // AECI-1010
   integration_id: z.string().uuid(),
   integration_name: z.string().nullable(),
   owner_name: z.string().nullable(),     // the owner, as named at the time
+  reason: z.string().nullable().default(null), // AECI-1159: AECi's vendor reason, owner's row only
   pair_path: z.string().nullable(),
   created_at: z.string(),
 });
@@ -6049,6 +6058,25 @@ export const VendorReviewResponseNotificationSchema = z.object({  // AECI-1180
 ```
 
 Both join `VendorNotificationSchema` ahead of the attestation member, beside `integration_create` and `claim_added`, which the union block above predates.
+
+**The override member (AECI-1159, `STAGE_2_VENDOR_PORTAL_SPEC.md` §11d).** `kind: 'aeci_override'` is a portal-only `notification.sent` row written in the batch of an AECi override, on every plan, with no email. Its `reason` is the vendor reason from the override's audit row. The integration retire row gains `reason` too, set on the owner's row when AECi retires or restores, and `null` on every other row and on any row whose audit row lacks `reasonVisibility = 'vendor'`. The registry ids are `portal-field-overridden-by-aeci`, `portal-logo-overridden-by-aeci` and `portal-seat-revoked-by-aeci`. `isAttestationNotification` names the member.
+
+```typescript
+export const VendorAeciOverrideNotificationSchema = z.object({    // AECI-1159
+  kind: z.literal('aeci_override'),
+  id: z.string().uuid(),
+  event: z.enum(['field_overridden', 'logo_overridden', 'seat_revoked']),
+  reason: z.string(),
+  integration_id: z.string().uuid().nullable().default(null),     // field_overridden
+  integration_name: z.string().nullable().default(null),
+  field: z.string().nullable().default(null),
+  pair_path: z.string().nullable().default(null),
+  logo_subject: z.object({ type: z.enum(['vendor', 'product']), slug: z.string(), name: z.string() })
+    .nullable().default(null),                                    // logo_overridden
+  seat_name: z.string().nullable().default(null),                 // seat_revoked
+  created_at: z.string(),
+});
+```
 
 #### `GET /api/vendor/notification-preferences` and `PUT /api/vendor/notification-preferences` (AECI-1204)
 
@@ -6863,6 +6891,9 @@ export const DecideContestSchema = z.object({
   decision: z.enum(['accept', 'decline']),
   note: z.string().trim().min(1).max(2000).nullable().optional(),
 });
+export const AdminDecideContestSchema = DecideContestSchema.extend({ // AECI-1159, admin route only
+  internalNote: z.string().trim().max(1000).nullable().optional(),
+});
 // AECI-1191: the schema stays optional-note. `PATCH /api/admin/contests/:id` makes the note
 // REQUIRED on an accept that changes a vendor-held value (`acceptOverwritesVendorField`: claimed
 // row, and a content field or an owner change). A decline and an unclaimed accept keep it optional.
@@ -7111,15 +7142,18 @@ Stage 2.1 (AECI-1046, ADR 0035's 2026-09-22 note, `STAGE_2_VENDOR_PORTAL_SPEC.md
 
 ```typescript
 export const AdminRetireIntegrationBodySchema = z
-  .object({ reason: z.string().trim().min(1).max(1000) })
-  .strict();
+  .object({
+    reason: z.string().trim().min(1).max(1000),            // shown to the owner
+    internalNote: z.string().trim().max(1000).nullable().optional(), // never shown to a vendor
+  })
+  .strict(); // = AdminOverrideReasonSchema.strict(), AECI-1159
 ```
 
-**The reason is required on both** and lands in the audit row's `metadata.reason`. It is not shown to any vendor. The response is `RetireIntegrationResponseSchema` above, with `retired_by: 'aeci'` after a retire.
+**The reason is required on both** and lands in the audit row's `metadata.reason`, with `metadata.reasonVisibility = 'vendor'` and `metadata.internalNote` when given (AECI-1159). The owner sees the reason in Messages. Endpoint vendors' notices stay generic. A row without the marker is never shown to a vendor (`STAGE_2_VENDOR_PORTAL_SPEC.md` §11d.2). The response is `RetireIntegrationResponseSchema` above, with `retired_by: 'aeci'` after a retire.
 
 **Refusals, in order:** `404` (unknown id), `409 INTEGRATION_NOT_VENDOR_HELD` (an AECi-held row belongs to promote and the review app), `409 INTEGRATION_RETIRED` (retire of a retired row, whoever retired it), `409 INTEGRATION_NOT_RETIRED` (restore of a live row), `409 INTEGRATION_RETIRED_BY_OWNER` (restore of an owner retire, or a pre-0046 retire with NULL `retired_by`). A body without a non-empty `reason` of at most 1,000 characters is `400 VALIDATION_FAILED`. A refusal writes nothing.
 
-**One batch, the owner retire's.** The guarded `UPDATE` requires the row to be vendor-held (`claimed_at IS NOT NULL OR origin = 'vendor'`) and, on restore, `retired_by = 'aeci'`. Retire writes `retired_by = 'aeci'`. Contests close exactly as above. The `integration.retired` / `integration.restored` row carries the admin as actor and `metadata { source: 'admin-moderation', reason, retiredBy: 'aeci' }`. One `notification.sent` row (`kind: 'integration_retire'`, `retiredBy: 'aeci'`) goes to the **owner** and to every vendor of either endpoint, because the owner did not act. Both endpoint counts are recomputed in the batch. A lost race re-derives the refusal or answers `409 INTEGRATION_CHANGED_WHILE_SAVING`.
+**One batch, the owner retire's.** The guarded `UPDATE` requires the row to be vendor-held (`claimed_at IS NOT NULL OR origin = 'vendor'`) and, on restore, `retired_by = 'aeci'`. Retire writes `retired_by = 'aeci'`. Contests close exactly as above. The `integration.retired` / `integration.restored` row carries the admin as actor and `metadata { source: 'admin-moderation', reason, reasonVisibility: 'vendor', internalNote?, retiredBy: 'aeci' }`. One `notification.sent` row (`kind: 'integration_retire'`, `retiredBy: 'aeci'`) goes to the **owner** and to every vendor of either endpoint, because the owner did not act. Both endpoint counts are recomputed in the batch. A lost race re-derives the refusal or answers `409 INTEGRATION_CHANGED_WHILE_SAVING`.
 
 **After commit:** the owner retire's tail: by-id Algolia sync (failures logged as `aeci.api.admin.retire_algolia_sync_failed`), the same purge tags through the queue with `source: 'moderation'`, and the re-crawl buffer.
 
@@ -7331,13 +7365,13 @@ Source: `packages/shared/src/api/logos.ts`, STAGE_2_5_SPEC.md §11, ADR 0032. `L
 | `POST /api/vendor/logo` | Vendor seat + product.listing.edit or profile.edit (every seat holds both since AECI-1214) | Exactly one multipart `file` | `200 {logo_url: "/api/logos/<sha256>"}` |
 | `POST /api/admin/logo` | Admin | Same | Same |
 | `GET /api/logos/:key` | Public | Lowercase SHA-256 key | Validated image bytes |
-| `PATCH /api/admin/vendors/:id/logo` | Admin | Strict `{logo_url: string | null, reason: string}` (`AdminUpdateLogoSchema`, AECI-1191) | `200 {logo_url}` |
+| `PATCH /api/admin/vendors/:id/logo` | Admin | Strict `{logo_url: string | null, reason: string, internalNote?: string}` (`AdminUpdateLogoSchema`, AECI-1191, AECI-1159) | `200 {logo_url}` |
 | `PATCH /api/admin/products/:id/logo` | Admin | Same | Same |
 
 Uploads accept PNG/JPEG/static WebP, at most 2 MiB and 2048 pixels per dimension. Request bytes are bounded at 2 MiB + 16 KiB before parsing multipart, including requests without Content-Length. File MIME and filename are ignored. No upload writes D1. JSON success uses private, no-store. Logo GET returns hard-coded detected image MIME, nosniff, sandbox CSP and one-year immutable caching. Errors are private, no-store.
 
 Existing error codes are reused: `MALFORMED_REQUEST` 400 for multipart errors, `VALIDATION_FAILED` 400 for format/dimension/field/path errors, `PAYLOAD_TOO_LARGE` 413 for byte limits, `UNAUTHENTICATED` 401, `FORBIDDEN` 403 for role/origin, `ENTITLEMENT_REQUIRED` 403 for vendor capability, `RATE_LIMITED` 429, `NOT_FOUND` 404, and `DEPENDENCY_FAILURE` 503 when storage is unbound. Auth precedes write limiting and parsing. Reads are never rate-limited.
 
-**Admin logo writes require a reason (AECI-1191).** `reason` is `AdminReasonSchema` (trimmed, 1 to 1000 characters). A missing or blank reason is `400 VALIDATION_FAILED` and nothing is written. It lands in the `vendor.updated` or `product.updated` audit row's `metadata.reason`, in the same `db.batch`. `UpdateLogoSchema` (`{logo_url}` only) still exists, and the vendor-portal logo paths are unchanged.
+**Admin logo writes require a reason (AECI-1191).** `reason` is `AdminReasonSchema` (trimmed, 1 to 1000 characters). A missing or blank reason is `400 VALIDATION_FAILED` and nothing is written. It lands in the `vendor.updated` or `product.updated` audit row's `metadata.reason`, in the same `db.batch`, with `metadata.reasonVisibility = 'vendor'` and `metadata.internalNote` when given (AECI-1159). The reason is shown to the vendor, and `internalNote` (optional, trimmed, at most 1,000 characters) never is. The batch adds a portal-only `notification.sent` row (`kind: 'aeci_override'`, `event: 'logo_overridden'`) to the vendor, or to the vendor that holds the product. None is written when no vendor holds the record. `UpdateLogoSchema` (`{logo_url}` only) still exists, and the vendor-portal logo paths are unchanged.
 
 Vendor profile/product PATCHes use LogoUrlSchema for logo_url, check local object existence/validation, and set logo_source=vendor only for explicitly supplied logo_url. Admin PATCHes set admin ownership. All catalog saves audit atomically and enqueue page purges after commit. Intentional clears retain ownership. Admin product roster rows now include nullable logo_url. Neither provenance nor protected catalog columns are client-writable.

@@ -78,9 +78,9 @@ run `pnpm docs:notifications` and commit this file.
 | `email` | 27 |
 | `email+portal` | 1 |
 | `supabase-email` | 1 |
-| `portal` | 16 |
+| `portal` | 19 |
 | `linear` | 4 |
-| **Total** | **49** |
+| **Total** | **52** |
 
 ## Email (Resend) (`email`, 27)
 
@@ -143,7 +143,7 @@ tier rule cannot stop it and no metric counts it. The template is
 |---|---|---|---|---|---|---|---|---|---|---|
 | `supabase-sign-in` | The magic-link or confirm-signup email for anyone who signs in. | external | supabase: signInWithOtp (apps/web/src/app/auth/auth.service.ts) | `any-tier` | GoTrue's own rate limits. | `none` | `none` | no | docs/email.md §Magic-link sender | Supabase sends it over the Resend SMTP relay. No app code sends it, so the tier gate cannot stop it. It carries no Resend tags. Since AECI-1222 production records its delivery events (tier auth) in notification_delivery_events, matched by subject and sender; no tier records the send itself. Not pausable: Supabase sends it, so no switch here can stop it. |
 
-## Vendor portal feed only (`portal`, 16)
+## Vendor portal feed only (`portal`, 19)
 
 Delivered only as `notification.sent` audit rows, written in the same `db.batch` as the
 change that caused them. The row is its own ledger. The vendor portal reads them through
@@ -165,12 +165,15 @@ notification at all.
 | `portal-contest-protested` | Tells the owner a submitter asked AECi to review a contest. | external | route: POST /api/vendor/contests/:id/protest (routes/vendor-contest-protests.ts) | `any-tier` | One row per protest step, in the step batch. | `audit_log` | `none` | no | docs/STAGE_2_VENDOR_PORTAL_SPEC.md §11b.12.10 | Carries the 14-day reply deadline. Since AECI-1205 the contest-protest-opened email carries it too. Not pausable: a portal row, not email. |
 | `portal-contest-submitted` | Tells the owner a vendor contested a field on its integration. | external | route: POST /api/vendor/integrations/:id/contests (routes/vendor-contests.ts) | `any-tier` | One row per transition, in the transition batch. | `audit_log` | `none` | no | docs/STAGE_2_VENDOR_PORTAL_SPEC.md §11b.8 | Not pausable: a portal row, not email. |
 | `portal-contest-withdrawn` | Tells the owner a contest on its integration was withdrawn. | external | route: POST /api/vendor/contests/:id/withdraw (routes/vendor-contests.ts) | `any-tier` | One row per transition, in the transition batch. | `audit_log` | `none` | no | docs/STAGE_2_VENDOR_PORTAL_SPEC.md §11b.8 | Not pausable: a portal row, not email. |
+| `portal-field-overridden-by-aeci` | Tells an integration's owner that AECi accepted a contest that changed a field it holds, and why. | external | route: PATCH /api/admin/contests/:id (routes/admin-contests.ts) | `any-tier` | One row per decision, in the decision batch. | `audit_log` | `none` | no | docs/STAGE_2_VENDOR_PORTAL_SPEC.md §11d | Sent only when the accept overwrites a value the owner holds, to an owner that is not the submitter. Every plan, no tier rule. Carries the reason, never the internal note. Not pausable: a portal row, not email. |
 | `portal-integration-claim` | Tells the other endpoint vendors that a vendor now owns an integration. | external | route: POST /api/vendor/integrations/:id/claim (routes/vendor-integration-claims.ts); owner accept in routes/admin-contests.ts | `any-tier` | One row per recipient, in the claim batch. | `audit_log` | `none` | no | docs/STAGE_2_VENDOR_PORTAL_SPEC.md §4.5 | Not pausable: a portal row, not email. |
 | `portal-integration-create` | Tells the other endpoint vendors a vendor created an integration on their product. | external | route: POST /api/vendor/integrations (routes/vendor-integration-create.ts) | `any-tier` | One row per recipient, in the create batch. | `audit_log` | `none` | no | docs/STAGE_2_VENDOR_PORTAL_SPEC.md §4.7 | Not pausable: a portal row, not email. |
-| `portal-integration-retire` | Tells the endpoint vendors an integration was retired or restored. | external | route: POST /api/{vendor,admin}/integrations/:id/{retire,restore} (routes/integration-retire-write.ts) | `any-tier` | One row per recipient, in the write batch. | `audit_log` | `none` | no | docs/STAGE_2_VENDOR_PORTAL_SPEC.md §4.6 | Not pausable: a portal row, not email. |
+| `portal-integration-retire` | Tells the endpoint vendors an integration was retired or restored. | external | route: POST /api/{vendor,admin}/integrations/:id/{retire,restore} (routes/integration-retire-write.ts) | `any-tier` | One row per recipient, in the write batch. | `audit_log` | `none` | no | docs/STAGE_2_VENDOR_PORTAL_SPEC.md §4.6 | On an AECi retire or restore the owner is told too, and since AECI-1159 the owner's row carries AECi's vendor-visible reason. Endpoint vendors' rows stay generic. Not pausable: a portal row, not email. |
 | `portal-integration-update` | Tells the other endpoint vendors the owner edited an integration. | external | route: PATCH /api/vendor/integrations/:id (routes/vendor-integration-edits.ts, routes/vendor-evidenced-pair-edits.ts) | `any-tier` | One row per recipient, in the edit batch. | `audit_log` | `none` | no | docs/STAGE_2_VENDOR_PORTAL_SPEC.md §4.5.6 | Not pausable: a portal row, not email. |
+| `portal-logo-overridden-by-aeci` | Tells a vendor that AECi replaced its company logo or a product logo, and why. | external | route: PATCH /api/admin/{vendors,products}/:id/logo (routes/logos.ts) | `any-tier` | One row per overwrite, in the write batch. | `audit_log` | `none` | no | docs/STAGE_2_VENDOR_PORTAL_SPEC.md §11d | Goes to the vendor itself, or to the product's holding vendor. None when no vendor holds the record. Every plan, no tier rule. Carries the reason, never the internal note. Not pausable: a portal row, not email. |
 | `portal-review` | Tells each owning vendor that a review of its product was approved. | external | route: PATCH /api/admin/reviews/:id (routes/admin-reviews.ts) | `any-tier` | One row per owning vendor, in the approve batch. | `audit_log` | `none` | no | docs/STAGE_2_VENDOR_PORTAL_SPEC.md §11c.12 | Written for a vendor with no seat too, so the feed is complete once it is seated. A reject writes none. Not pausable: a portal row, not email. |
 | `portal-review-response` | Tells a vendor that AECi approved, rejected or removed its reply to a review. | external | route: PATCH /api/admin/review-responses/:id (routes/admin-review-responses.ts) | `any-tier` | One row per decision, in the decision batch. | `audit_log` | `none` | no | docs/STAGE_2_VENDOR_PORTAL_SPEC.md §11c.12 | metadata.event names the decision. Reject and remove carry the reason. No email, as for contests. Not pausable: a portal row, not email. |
+| `portal-seat-revoked-by-aeci` | Tells a vendor's remaining seats that AECi removed one of its seats, and why. | external | route: DELETE /api/admin/vendors/:id/seats/:userId (routes/admin-vendors.ts) | `any-tier` | One row per revoke, in the revoke batch. | `audit_log` | `none` | no | docs/STAGE_2_VENDOR_PORTAL_SPEC.md §11d | Not written when the revoke leaves no seat: nobody could read it, and the audit row is the record. Every plan, no tier rule. Carries the reason, never the internal note. Not pausable: a portal row, not email. |
 
 ## Linear (`linear`, 4)
 
