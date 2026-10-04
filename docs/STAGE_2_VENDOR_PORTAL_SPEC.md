@@ -3572,7 +3572,7 @@ Rule 3 stops a "Response from" label naming a vendor that no longer owns the pro
 | The review leaves `approved` (rejected or archived) | The row is untouched. The reply stops rendering, because rule 1 fails. Today no route moves an approved review. `PATCH /api/admin/reviews/:id` moderates `pending` only, and no archive flow exists. The rule is written so a future one needs no change here. |
 | The reviewer erases their account | The review is anonymized: `reviewer_id` and `reviewer_firm` go null and `anonymized_at` is stamped. The review stays approved, so the reply stays. |
 | The review row is deleted | `review_id` is `ON DELETE CASCADE`. The reply goes with it. The only path today is the product's own deletion, which cascades `products` → `reviews` → `review_responses`. |
-| The vendor row is deleted | `vendor_id` is `ON DELETE CASCADE`. The reply goes with it. |
+| The vendor row is deleted | `vendor_id` is `ON DELETE CASCADE`. The reply goes with it. The only path is `ops:retract-vendor`, which deletes the replies explicitly before the vendor and counts them on the `vendor.deleted` audit row (AECI-1226). |
 | The reply's author erases their account | `author_profile_id` is `ON DELETE SET NULL` and the erasure batch nulls it explicitly. The reply stays. It is the vendor's record, not the person's (`AUTH_AND_RLS.md` §8). |
 
 **A cascade hazard to carry.** `review_responses` is the first cascade child of `reviews`. A future table rebuild of `reviews` would delete every reply. `reviews` has been rebuilt once already (migration `0027`). AECI-1175 adds `review_responses` to the cascade-children assertion in `apps/api/src/test/d1.spec.ts`, so the next rebuild must move it out of the way first (`docs/migrations.md` §3.3a).

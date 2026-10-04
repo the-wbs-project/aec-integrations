@@ -31,6 +31,9 @@ const RAW_CLEAN: RawVendorFootprintRow = {
   claims: 3,
   attestations: 2,
   page_views: 41,
+  review_responses: 2,
+  field_contests_submitted: 1,
+  field_contests_owned: 1,
 };
 
 const VENDOR: VendorRow = {
@@ -74,7 +77,7 @@ describe('buildVendorLookupSqlForIds', () => {
 });
 
 describe('buildVendorFootprintSql', () => {
-  it('escapes the id and counts every one of the nine referencing tables', () => {
+  it('escapes the id and counts every one of the referencing tables', () => {
     const sql = buildVendorFootprintSql("a'b");
     expect(sql).toContain(`'a''b'`);
     for (const t of [
@@ -87,9 +90,30 @@ describe('buildVendorFootprintSql', () => {
       '"claims"',
       '"attestations"',
       '"page_views"',
+      '"review_responses"',
+      '"integration_field_challenges"',
     ]) {
       expect(sql).toContain(t);
     }
+  });
+
+  it('counts the replies and both contest roles (AECI-1226)', () => {
+    const sql = buildVendorFootprintSql('v1');
+    expect(sql).toContain(
+      `(SELECT count(*) FROM "review_responses" WHERE "vendor_id" = 'v1') AS review_responses`,
+    );
+    expect(sql).toContain(
+      `FROM "integration_field_challenges" WHERE "submitter_vendor_id" = 'v1') AS field_contests_submitted`,
+    );
+    expect(sql).toContain(
+      `FROM "integration_field_challenges" WHERE "owner_vendor_id" = 'v1' AND "submitter_vendor_id" <> 'v1') AS field_contests_owned`,
+    );
+  });
+
+  it('never names review_responses on a tier without migration 0058', () => {
+    const sql = buildVendorFootprintSql('v1', { reviewResponsesTable: false });
+    expect(sql).toContain('0 AS review_responses');
+    expect(sql).not.toContain('"review_responses"');
   });
 
   it('counts BOTH edge tables separately — the AECI-721 two-table rule', () => {
@@ -109,6 +133,27 @@ describe('classifyVendorRetraction', () => {
     expect(clean.claims).toBe(3);
     expect(clean.attestations).toBe(2);
     expect(clean.pageViews).toBe(41);
+  });
+
+  it('does not refuse on replies or contests (AECI-1226)', () => {
+    const c = classifyVendorRetraction({
+      ...clean,
+      reviewResponses: 5,
+      fieldContestsSubmitted: 3,
+      fieldContestsOwned: 2,
+    });
+    expect(c.safe).toBe(true);
+  });
+
+  it('parses a footprint row read before AECI-1226 as zero replies and contests', () => {
+    const { review_responses, field_contests_submitted, field_contests_owned, ...old } = RAW_CLEAN;
+    void review_responses;
+    void field_contests_submitted;
+    void field_contests_owned;
+    const f = parseVendorFootprint(old);
+    expect(f.reviewResponses).toBe(0);
+    expect(f.fieldContestsSubmitted).toBe(0);
+    expect(f.fieldContestsOwned).toBe(0);
   });
 
   const refusalCases: Array<[keyof VendorFootprint, string]> = [
@@ -159,8 +204,31 @@ describe('buildVendorDeleteStatements', () => {
     expect(idx('UPDATE "attestations"')).toBeLessThan(idx('DELETE FROM "vendors"'));
   });
 
+  it('deletes the replies and filed contests explicitly, before the vendor (AECI-1226)', () => {
+    expect(stmts).toContain(`DELETE FROM "review_responses" WHERE "vendor_id" = '${VENDOR.id}';`);
+    expect(stmts).toContain(
+      `DELETE FROM "integration_field_challenges" WHERE "submitter_vendor_id" = '${VENDOR.id}';`,
+    );
+    expect(idx('DELETE FROM "review_responses"')).toBeLessThan(idx('DELETE FROM "vendors"'));
+    expect(idx('DELETE FROM "integration_field_challenges"')).toBeLessThan(
+      idx('DELETE FROM "vendors"'),
+    );
+  });
+
+  it('NULLs the contest owner after deleting filed contests, so a self-owned one is deleted', () => {
+    const update = idx('UPDATE "integration_field_challenges" SET "owner_vendor_id" = NULL');
+    expect(update).toBeGreaterThan(idx('DELETE FROM "integration_field_challenges"'));
+    expect(update).toBeLessThan(idx('DELETE FROM "vendors"'));
+  });
+
+  it('never names review_responses on a tier without migration 0058', () => {
+    const without = buildVendorDeleteStatements({ ...AUDIT_ARGS, reviewResponsesTable: false });
+    expect(without.join('\n')).not.toContain('FROM "review_responses"');
+    expect(without.length).toBe(stmts.length - 1);
+  });
+
   it('NULLs page_views.vendor_id and never deletes a page_views row', () => {
-    expect(stmts[0]).toBe(
+    expect(stmts).toContain(
       `UPDATE "page_views" SET "vendor_id" = NULL WHERE "vendor_id" = '${VENDOR.id}';`,
     );
     expect(stmts.some((s) => s.includes('DELETE FROM "page_views"'))).toBe(false);
@@ -216,6 +284,16 @@ describe('buildVendorAuditInsert', () => {
     expect(json).toContain('page_views');
   });
 
+  it('counts the deleted replies and contests, and the detached owner contests (AECI-1226)', () => {
+    const json = sql.slice(sql.indexOf(`'{`) + 1, sql.indexOf(`}',`) + 1);
+    const before = JSON.parse(json) as {
+      removed: Record<string, number>;
+      detached: Record<string, number>;
+    };
+    expect(before.removed).toEqual({ review_responses: 2, field_contests: 1 });
+    expect(before.detached.field_contests_owner).toBe(1);
+  });
+
   it('escapes a quote inside the JSON payload rather than breaking the literal', () => {
     const quoted = buildVendorAuditInsert({
       ...AUDIT_ARGS,
@@ -267,6 +345,9 @@ describe('formatVendorFootprintReport', () => {
     expect(report).toContain('Algolia:  yes');
     expect(report).toContain('connector-evidenced pairs built');
     expect(report).toContain('page_views → vendor_id NULLed');
+    expect(report).toContain('review replies (deleted)');
+    expect(report).toContain('field contests filed (deleted)');
+    expect(report).toContain('field contests owned → owner NULLed');
     expect(report).not.toContain('REFUSED');
   });
 

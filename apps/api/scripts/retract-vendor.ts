@@ -17,9 +17,11 @@
  * vendor refuses the whole run.**
  *
  * WHAT IT DOES (on `--apply`, per vendor, in one `wrangler d1 execute` batch):
- *   1. D1: NULL `page_views.vendor_id`, `claims.created_by_vendor_id` and
- *      `attestations.attested_by_vendor_id`, then DELETE the vendor, then INSERT the
- *      `audit_log` row — in that order, in that batch.
+ *   1. D1: DELETE the vendor's review replies and the field contests it filed; NULL
+ *      `integration_field_challenges.owner_vendor_id`, `page_views.vendor_id`,
+ *      `claims.created_by_vendor_id` and `attestations.attested_by_vendor_id`; then
+ *      DELETE the vendor, then INSERT the `audit_log` row, which counts every row
+ *      deleted or detached — in that order, in that batch (AECI-1226).
  *   2. Algolia: delete the `<env>_vendors` object (objectID = vendor id) so search does
  *      not keep an orphan (reuses the AECI-267 orphan-purge core).
  *   3. Cache: print the `vendor:<slug>` Cache-Tag purge command.
@@ -78,6 +80,7 @@ import {
   classifyVendorRetraction,
   formatVendorFootprintReport,
   parseVendorFootprint,
+  REVIEW_RESPONSES_TABLE_SQL,
   VENDOR_ORIGIN_RESIDUE_NOTE,
   type RawVendorFootprintRow,
   type RetractVendorTarget,
@@ -339,11 +342,17 @@ export async function main(argv: string[]): Promise<number> {
   const algolia = skipAlgolia ? undefined : resolveAlgolia(target);
   if (skipAlgolia) console.log('Algolia: skipped (--skip-algolia).\n');
 
-  // 3. Footprint + classification, per vendor.
+  // 3. Footprint + classification, per vendor. AECI-1226: probe for the reply table
+  //    first. Migration 0058 reaches each tier at its next deploy, and naming a missing
+  //    table would fail the read and the delete batch.
+  const reviewResponsesTable =
+    (runD1<{ name: string }>(target, REVIEW_RESPONSES_TABLE_SQL)[0]?.results.length ?? 0) > 0;
   const plan: VendorPlanEntry[] = [];
   for (const vendor of vendors) {
-    const raw = runD1<RawVendorFootprintRow>(target, buildVendorFootprintSql(vendor.id))[0]
-      ?.results[0];
+    const raw = runD1<RawVendorFootprintRow>(
+      target,
+      buildVendorFootprintSql(vendor.id, { reviewResponsesTable }),
+    )[0]?.results[0];
     if (!raw) {
       console.error(`Could not read footprint for ${vendor.id} (empty result).`);
       return 1;
@@ -386,8 +395,16 @@ export async function main(argv: string[]): Promise<number> {
       claims: acc.claims + e.footprint.claims,
       attestations: acc.attestations + e.footprint.attestations,
       pageViews: acc.pageViews + e.footprint.pageViews,
+      contestsOwned: acc.contestsOwned + e.footprint.fieldContestsOwned,
     }),
-    { claims: 0, attestations: 0, pageViews: 0 },
+    { claims: 0, attestations: 0, pageViews: 0, contestsOwned: 0 },
+  );
+  const removed = plan.reduce(
+    (acc, e) => ({
+      replies: acc.replies + e.footprint.reviewResponses,
+      contests: acc.contests + e.footprint.fieldContestsSubmitted,
+    }),
+    { replies: 0, contests: 0 },
   );
   if (detached.claims > 0) console.warn(`⚠  ${VENDOR_ORIGIN_RESIDUE_NOTE}\n`);
 
@@ -397,8 +414,10 @@ export async function main(argv: string[]): Promise<number> {
   if (!apply) {
     console.log(`DRY RUN — nothing deleted. ${plan.length} vendor(s) are retractable.`);
     console.log(
-      `On --apply: delete them from ${target.db}, detaching ${detached.claims} claim(s), ` +
-        `${detached.attestations} attestation(s) and ${detached.pageViews} page_view(s);`,
+      `On --apply: delete them from ${target.db} with ${removed.replies} review reply(ies) and ` +
+        `${removed.contests} filed field contest(s); detach ${detached.claims} claim(s), ` +
+        `${detached.attestations} attestation(s), ${detached.pageViews} page_view(s) and ` +
+        `${detached.contestsOwned} owned field contest(s);`,
     );
     console.log(`de-index the Algolia vendors objects; purge Cache-Tags: ${tags.join(', ')}.`);
     console.log(
@@ -425,6 +444,7 @@ export async function main(argv: string[]): Promise<number> {
       footprint: entry.footprint,
       auditId: randomUUID(),
       now,
+      reviewResponsesTable,
     }).join('\n');
     const results = runD1<unknown>(target, statements);
     const changed = results.reduce((sum, r) => sum + (r.meta?.changes ?? 0), 0);
