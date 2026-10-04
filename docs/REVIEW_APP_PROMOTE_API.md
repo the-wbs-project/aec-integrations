@@ -1746,8 +1746,10 @@ production, so a vendor row that ends up owning nothing is unreachable from both
 vendor with **zero products and zero owned edges** — owned edges meaning both
 `integrations.built_by_vendor_id` and `connector_evidenced_pairs.built_by_vendor_id` — is removed
 on the AECi side with `pnpm --filter @aeci/api ops:retract-vendor`, which refuses any vendor that
-owns something and has no `--force`. It detaches `claims`, `attestations` and `page_views`, deletes
-the vendor, and writes one `audit_log` row (`action = 'vendor.deleted'`) in the same batch. Only
+owns something and has no `--force`. It deletes the vendor's review replies and the field contests
+it filed, detaches `claims`, `attestations`, `page_views` and the contests it owned, deletes the
+vendor, and writes one `audit_log` row (`action = 'vendor.deleted'`) in the same batch, with every
+count on it (AECI-1226). Only
 **after** that run does the review app clear the record's `supabase_vendor_id` and delete it.
 
 #### Operating notes (moved from CLAUDE.md, 2026-09-23)

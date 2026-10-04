@@ -22,30 +22,36 @@
  * that owns something: the fix for that vendor is a merge or a product-level retraction,
  * not a delete.
  *
- * WHAT POINTS AT `vendors` (schema snapshot `apps/api/migrations/meta/0042_snapshot.json`;
- * every one of the nine is handled here and nothing else references the table):
+ * WHAT POINTS AT `vendors` (the latest drizzle-kit snapshot under `apps/api/migrations/meta/`).
+ * Every one of the thirteen has an explicit outcome in `VENDOR_FK_HANDLING`, and
+ * `retract-vendor-fk-coverage.spec.ts` fails when the latest snapshot carries one that
+ * does not, so the next table cannot become a silent cascade (AECI-1226):
  *
- *   table                      column                   on delete   this lane
- *   ─────────────────────────  ───────────────────────  ──────────  ─────────────────────
- *   product_vendors            vendor_id                cascade     REFUSE (the products check)
- *   integrations               built_by_vendor_id       —           REFUSE (owned edge)
- *   connector_evidenced_pairs  built_by_vendor_id       —           REFUSE (owned edge)
- *   profiles                   vendor_id                —           REFUSE (claimed, or was)
- *   vendor_entitlements        vendor_id                cascade     REFUSE (a seat exists)
- *   vendor_seat_invites        vendor_id                cascade     REFUSE (a seat is pending)
- *   claims                     created_by_vendor_id     set null    allowed; reported + NULLed
- *   attestations               attested_by_vendor_id    set null    allowed; reported + NULLed
- *   page_views                 vendor_id                —           allowed; NULLed, never deleted
- *   integration_vendor_links   vendor_id                set null    allowed; NULLed by the FK action
- *   review_responses           vendor_id                cascade     NOT HANDLED; deleted by the FK action
+ *   table                         column                   on delete   this lane
+ *   ────────────────────────────  ───────────────────────  ──────────  ─────────────────────
+ *   product_vendors               vendor_id                cascade     REFUSE (the products check)
+ *   integrations                  built_by_vendor_id       —           REFUSE (owned edge)
+ *   connector_evidenced_pairs     built_by_vendor_id       —           REFUSE (owned edge)
+ *   profiles                      vendor_id                —           REFUSE (claimed, or was)
+ *   vendor_entitlements           vendor_id                cascade     REFUSE (a seat exists)
+ *   vendor_seat_invites           vendor_id                cascade     REFUSE (a seat is pending)
+ *   review_responses              vendor_id                cascade     allowed; deleted + counted
+ *   integration_field_challenges  submitter_vendor_id      cascade     allowed; deleted + counted
+ *   integration_field_challenges  owner_vendor_id          set null    allowed; NULLed + counted
+ *   claims                        created_by_vendor_id     set null    allowed; reported + NULLed
+ *   attestations                  attested_by_vendor_id    set null    allowed; reported + NULLed
+ *   page_views                    vendor_id                —           allowed; NULLed, never deleted
+ *   integration_vendor_links      vendor_id                set null    allowed; NULLed by the FK action
  *
- * `review_responses` (AECI-1175, migration 0058) is not counted, refused or tombstoned
- * here yet. A retractable vendor owns no product, so none of its replies can render
- * (`STAGE_2_VENDOR_PORTAL_SPEC.md` §11c.11), but the cascade removes them with no
- * footprint row. The field-contest table's submitter vendor (cascade) and owner
- * vendor (set null) columns are in the same state. Neither table has a seat-free
- * writer, so a vendor with rows in either almost always trips the `profiles` refusal
- * first. Unlike `retract-product.ts`, this lane has no snapshot-driven FK coverage spec.
+ * Vendor replies (`review_responses`, AECI-1175, migration 0058) and the contests the
+ * vendor filed are deleted EXPLICITLY, before the vendor row, and counted on the
+ * `vendor.deleted` tombstone (AECI-1226). Contests where it was the snapshotted owner
+ * survive with `owner_vendor_id` NULLed: they are the submitter's record. A retractable
+ * vendor owns no product, so none of its replies can render (`STAGE_2_VENDOR_PORTAL_SPEC.md`
+ * §11c.11), but the tombstone still has to say how much vendor-authored text went.
+ * Neither table has a seat-free writer, so a vendor with rows in either almost always
+ * trips the `profiles` refusal first. The reply table is named only where it exists
+ * (`reviewResponsesTable`), because a tier without 0058 would fail the whole batch.
  *
  * `integration_vendor_links` (AECI-1007, migration 0045) is the one row above the plan
  * does NOT null by hand. Its `ON DELETE SET NULL` does it, which D1 enforces, and an
@@ -75,9 +81,39 @@
  *     `POST /admin/purge` command, and `production` currently serves uncached anyway.
  */
 
-import { escapeSqlLiteral } from './retract-product';
+import { escapeSqlLiteral, REVIEW_RESPONSES_TABLE_SQL } from './retract-product';
 
-export { escapeSqlLiteral };
+export { escapeSqlLiteral, REVIEW_RESPONSES_TABLE_SQL };
+
+// ─── FK handling (the table in the header, as data) ─────────────────────────
+
+/**
+ * What this lane does with one foreign key into `vendors`.
+ *  - `refuse`     counted; any row refuses the retraction. There is no override.
+ *  - `delete`     counted; deleted explicitly before the vendor, counted on its tombstone.
+ *  - `detach`     counted; the column is NULLed explicitly, the row survives.
+ *  - `fk-action`  NULLed by the FK's own `ON DELETE SET NULL`, never named in the plan
+ *                 (see `integration_vendor_links` in the header).
+ */
+export type VendorFkOutcome = 'refuse' | 'delete' | 'detach' | 'fk-action';
+
+/** Every FK into `vendors`, keyed `table.column`. Pinned to the latest migration
+ *  snapshot by `retract-vendor-fk-coverage.spec.ts`. */
+export const VENDOR_FK_HANDLING: Readonly<Record<string, VendorFkOutcome>> = {
+  'product_vendors.vendor_id': 'refuse',
+  'integrations.built_by_vendor_id': 'refuse',
+  'connector_evidenced_pairs.built_by_vendor_id': 'refuse',
+  'profiles.vendor_id': 'refuse',
+  'vendor_entitlements.vendor_id': 'refuse',
+  'vendor_seat_invites.vendor_id': 'refuse',
+  'review_responses.vendor_id': 'delete',
+  'integration_field_challenges.submitter_vendor_id': 'delete',
+  'integration_field_challenges.owner_vendor_id': 'detach',
+  'claims.created_by_vendor_id': 'detach',
+  'attestations.attested_by_vendor_id': 'detach',
+  'page_views.vendor_id': 'detach',
+  'integration_vendor_links.vendor_id': 'fk-action',
+};
 
 /**
  * `claims` carries a two-column invariant — `origin = 'vendor' ⟺ created_by_vendor_id IS
@@ -141,8 +177,19 @@ export function buildVendorLookupSqlForIds(ids: readonly string[]): string {
  * vendor, so filtering it here would let a delete proceed into a constraint failure,
  * or cascade away a row its owner can restore.
  */
-export function buildVendorFootprintSql(id: string): string {
+export function buildVendorFootprintSql(
+  id: string,
+  opts: {
+    /** AECI-1226: `review_responses` exists (migration 0058). Defaults to true, the
+     *  schema at HEAD; the CLI passes its {@link REVIEW_RESPONSES_TABLE_SQL} probe. */
+    reviewResponsesTable?: boolean;
+  } = {},
+): string {
   const v = `'${escapeSqlLiteral(id)}'`;
+  const reviewResponses =
+    (opts.reviewResponsesTable ?? true)
+      ? `(SELECT count(*) FROM "review_responses" WHERE "vendor_id" = ${v})`
+      : '0';
   return `SELECT
     (SELECT count(*) FROM "product_vendors" WHERE "vendor_id" = ${v}) AS products,
     (SELECT count(*) FROM "integrations" WHERE "built_by_vendor_id" = ${v}) AS integrations,
@@ -152,7 +199,10 @@ export function buildVendorFootprintSql(id: string): string {
     (SELECT count(*) FROM "vendor_seat_invites" WHERE "vendor_id" = ${v}) AS seat_invites,
     (SELECT count(*) FROM "claims" WHERE "created_by_vendor_id" = ${v}) AS claims,
     (SELECT count(*) FROM "attestations" WHERE "attested_by_vendor_id" = ${v}) AS attestations,
-    (SELECT count(*) FROM "page_views" WHERE "vendor_id" = ${v}) AS page_views;`;
+    (SELECT count(*) FROM "page_views" WHERE "vendor_id" = ${v}) AS page_views,
+    ${reviewResponses} AS review_responses,
+    (SELECT count(*) FROM "integration_field_challenges" WHERE "submitter_vendor_id" = ${v}) AS field_contests_submitted,
+    (SELECT count(*) FROM "integration_field_challenges" WHERE "owner_vendor_id" = ${v} AND "submitter_vendor_id" <> ${v}) AS field_contests_owned;`;
 }
 
 /** Raw footprint row as D1 returns it. */
@@ -166,6 +216,10 @@ export interface RawVendorFootprintRow {
   claims: number;
   attestations: number;
   page_views: number;
+  /** AECI-1226. Optional so a row built before it still parses. */
+  review_responses?: number;
+  field_contests_submitted?: number;
+  field_contests_owned?: number;
 }
 
 export interface VendorFootprint {
@@ -178,6 +232,14 @@ export interface VendorFootprint {
   claims: number;
   attestations: number;
   pageViews: number;
+  /** Vendor replies to reviews. Deleted with the vendor (AECI-1226). */
+  reviewResponses: number;
+  /** Field contests the vendor filed. Deleted with the vendor (AECI-1226). */
+  fieldContestsSubmitted: number;
+  /** Field contests the vendor was the snapshotted owner of and did not file. They
+   *  survive with `owner_vendor_id` NULLed (AECI-1226). One it filed is counted in
+   *  `fieldContestsSubmitted` only, because the plan deletes it. */
+  fieldContestsOwned: number;
 }
 
 export function parseVendorFootprint(row: RawVendorFootprintRow): VendorFootprint {
@@ -191,6 +253,9 @@ export function parseVendorFootprint(row: RawVendorFootprintRow): VendorFootprin
     claims: row.claims,
     attestations: row.attestations,
     pageViews: row.page_views,
+    reviewResponses: row.review_responses ?? 0,
+    fieldContestsSubmitted: row.field_contests_submitted ?? 0,
+    fieldContestsOwned: row.field_contests_owned ?? 0,
   };
 }
 
@@ -201,8 +266,9 @@ export interface VendorRetractionClassification {
 
 /**
  * Does this vendor own anything? Six counts refuse and there is no override for any of
- * them. `claims`, `attestations` and `page_views` never refuse — they are detached, not
- * destroyed, and the CLI reports each count.
+ * them. `claims`, `attestations`, `page_views` and owned contests never refuse — they are
+ * detached, not destroyed. Replies and filed contests never refuse either — they are the
+ * vendor's own text and go with it (AECI-1226). The CLI reports each count.
  */
 export function classifyVendorRetraction(
   footprint: VendorFootprint,
@@ -246,13 +312,18 @@ export interface VendorAuditInsertArgs {
   /** ISO-8601, injected for the same reason. */
   now: string;
   operator?: string;
+  /** AECI-1226: whether `review_responses` exists on the target tier (migration 0058).
+   *  Defaults to true; the CLI passes its {@link REVIEW_RESPONSES_TABLE_SQL} probe so a
+   *  tier without the table gets a plan that never names it. */
+  reviewResponsesTable?: boolean;
 }
 
 /**
  * One `audit_log` INSERT per deleted vendor, in the same batch as the delete (§26.1).
  * Column list and shape copied from `consume.mjs`'s `buildAuditInsert`: `actor_id` is
  * NULL (no operator profile row exists for a CLI run), `actor_type` is `'system'`,
- * `before_state` holds the vendor row and the detach counts, and `metadata` carries the
+ * `before_state` holds the vendor row, the counts of the rows deleted with it (`removed`)
+ * and the detach counts (`detached`), and `metadata` carries the
  * tool, the issue and the ruling that authorised it.
  *
  * `actor_type` must stay inside the `audit_log_actor_type_check` CHECK
@@ -268,10 +339,17 @@ export function buildVendorAuditInsert({
   const beforeState = {
     table: 'vendors',
     row: vendor,
+    // AECI-1226: counts only. No reply body or contest text: `audit_log` is kept
+    // indefinitely (§26.6), the same reason `retract-product.ts` gives.
+    removed: {
+      review_responses: footprint.reviewResponses,
+      field_contests: footprint.fieldContestsSubmitted,
+    },
     detached: {
       claims: footprint.claims,
       attestations: footprint.attestations,
       page_views: footprint.pageViews,
+      field_contests_owner: footprint.fieldContestsOwned,
     },
   };
   const metadata = {
@@ -312,11 +390,14 @@ export function buildVendorAuditInsert({
 // ─── The delete plan ─────────────────────────────────────────────────────────
 
 /**
- * Ordered statements to detach and remove one vendor, child→parent. The three SET NULLs
- * come first because D1 enforces the FKs and `page_views.vendor_id` has no `ON DELETE`
- * action at all, so it would block the vendor DELETE outright. `claims` and `attestations`
- * would be NULLed by their own `ON DELETE SET NULL`, but they are written explicitly so
- * the plan reads the same as it behaves.
+ * Ordered statements to detach and remove one vendor, child→parent. The vendor's own
+ * replies and filed contests are deleted first, explicitly, never left to the cascade
+ * (AECI-1226). The deletes precede the owner NULL, so a contest the vendor both filed
+ * and owned is deleted, not detached. The SET NULLs come next because D1 enforces the
+ * FKs and `page_views.vendor_id` has no `ON DELETE` action at all, so it would block the
+ * vendor DELETE outright. `claims`, `attestations` and the contest owner would be NULLed
+ * by their own `ON DELETE SET NULL`, but they are written explicitly so the plan reads
+ * the same as it behaves.
  *
  * `page_views` rows are NEVER deleted — they are log-class traffic history whose value
  * does not depend on the vendor row surviving.
@@ -328,7 +409,13 @@ export function buildVendorAuditInsert({
 export function buildVendorDeleteStatements(args: VendorAuditInsertArgs): string[] {
   const v = `'${escapeSqlLiteral(args.vendor.id)}'`;
   return [
+    // AECI-1226: the vendor's own rows, explicitly, counted on the tombstone.
+    ...((args.reviewResponsesTable ?? true)
+      ? [`DELETE FROM "review_responses" WHERE "vendor_id" = ${v};`]
+      : []),
+    `DELETE FROM "integration_field_challenges" WHERE "submitter_vendor_id" = ${v};`,
     // Detach, never destroy.
+    `UPDATE "integration_field_challenges" SET "owner_vendor_id" = NULL WHERE "owner_vendor_id" = ${v};`,
     `UPDATE "page_views" SET "vendor_id" = NULL WHERE "vendor_id" = ${v};`,
     `UPDATE "claims" SET "created_by_vendor_id" = NULL WHERE "created_by_vendor_id" = ${v};`,
     `UPDATE "attestations" SET "attested_by_vendor_id" = NULL WHERE "attested_by_vendor_id" = ${v};`,
@@ -372,6 +459,9 @@ export function formatVendorFootprintReport(entry: VendorPlanEntry): string {
     ['claims → created_by NULLed', footprint.claims],
     ['attestations → attested_by NULLed', footprint.attestations],
     ['page_views → vendor_id NULLed', footprint.pageViews],
+    ['review replies (deleted)', footprint.reviewResponses],
+    ['field contests filed (deleted)', footprint.fieldContestsSubmitted],
+    ['field contests owned → owner NULLed', footprint.fieldContestsOwned],
   ];
   const algolia = entry.inAlgolia === undefined ? 'not checked' : entry.inAlgolia ? 'yes' : 'no';
   const lines = [

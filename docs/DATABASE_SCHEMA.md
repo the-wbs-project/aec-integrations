@@ -1225,7 +1225,8 @@ create index review_responses_vendor_updated_idx on review_responses(vendor_id, 
 - **No workflow columns.** The state machine lives in `status`. No `workflow_instances` row is
   written, so the closed `workflow_instances_type_check` stays closed.
 - **Cascades.** `review_id` cascades, so deleting a review deletes its replies. `vendor_id` cascades,
-  so deleting a vendor deletes its replies. Deleting a product reaches replies two levels down
+  so deleting a vendor deletes its replies. `ops:retract-vendor` deletes them explicitly first and
+  counts them on its `vendor.deleted` audit row (AECI-1226). Deleting a product reaches replies two levels down
   (`products` → `reviews` → `review_responses`). **This is the first cascade child of `reviews`.** A
   future rebuild of `reviews` would delete every reply, and `reviews` was rebuilt once already
   (`0027`). AECI-1175 adds the table to the cascade-children assertion in
@@ -1745,6 +1746,11 @@ create index integration_field_challenges_submitter_idx on integration_field_cha
   spec). A promote cross-table move does not: since AECI-1110 it re-anchors every contest
   onto the destination row, flipping the anchor columns in one UPDATE, before it drops the
   source. No column was added for this.
+- **Off `vendors`, one cascade and one SET NULL.** `submitter_vendor_id` cascades and
+  `owner_vendor_id` is `SET NULL`. `ops:retract-vendor` deletes the contests a vendor filed and
+  NULLs the owner on the rest, explicitly, and counts both on its `vendor.deleted` audit row
+  (AECI-1226). `retract-vendor-fk-coverage.spec.ts` fails when a new FK into `vendors` has no
+  handling decision.
 
 **`owner_seat_lapsed_at` (AECI-989, migration `0048_wild_black_queen.sql`, a generated plain
 `ADD COLUMN`, no CHECK).** Set while an open contest sits with AECi **only** because its owner

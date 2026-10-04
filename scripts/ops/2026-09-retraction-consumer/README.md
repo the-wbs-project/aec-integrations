@@ -1035,8 +1035,9 @@ add the eight to a hold list to make it green.
 `pnpm --filter @aeci/api ops:retract-vendor` removes a vendor from a deployed D1 when, and only
 when, it owns nothing — zero products and zero rows in **both** `integrations.built_by_vendor_id`
 and `connector_evidenced_pairs.built_by_vendor_id`. There is no `--force`. It detaches `claims`,
-`attestations` and `page_views`, deletes the vendor and writes one `audit_log` row
-(`action = 'vendor.deleted'`) in the same batch, then de-indexes the `<env>_vendors` Algolia
+`attestations` and `page_views` (and, since AECI-1226, deletes the vendor's review replies and
+filed field contests and NULLs the owner on contests it owned), deletes the vendor and writes one
+`audit_log` row (`action = 'vendor.deleted'`) in the same batch, then de-indexes the `<env>_vendors` Algolia
 object. `--apply` needs `--confirm-count N` matching the resolved plan, and one refusing vendor
 refuses the whole run. Clearing the upstream `supabase_vendor_id` and deleting the review-app
 record stays a separate manual step. That is what takes `vendorNoLiveProducts` to 0 for these
