@@ -53,6 +53,10 @@
       "types": "./src/audit-vendor-actions.ts",
       "default": "./src/audit-vendor-actions.ts"
     },
+    "./csv": {
+      "types": "./src/csv.ts",
+      "default": "./src/csv.ts"
+    },
     "./algolia": {
       "types": "./src/algolia.ts",
       "default": "./src/algolia.ts"

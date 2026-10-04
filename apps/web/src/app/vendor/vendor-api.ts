@@ -42,6 +42,8 @@ import type {
   ListProductVersionsResponse,
   ListVendorIntegrationsResponse,
   ListVendorNotificationsResponse,
+  ListVendorHistoryResponse,
+  VendorHistoryKind,
   NotificationPreferencesResponse,
   CreateSeatInviteResponse,
   ResendSeatInviteResponse,
@@ -77,6 +79,30 @@ export interface VendorReviewsFilters {
   /** One owned product. Absent means every owned product (the overview's count). */
   readonly productId?: string;
   readonly replyStatus?: ReviewReplyStatusFilter | null;
+}
+
+/** The change-history filter set for {@link VendorApi.listHistory} (AECI-1194).
+ *  `from` and `to` are inclusive UTC days, `YYYY-MM-DD`. */
+export interface VendorHistoryFilters {
+  readonly kind?: VendorHistoryKind;
+  readonly from?: string | null;
+  readonly to?: string | null;
+}
+
+/** The query string both history routes share. Pagination is the JSON route's only. */
+function historyParams(filters: VendorHistoryFilters): URLSearchParams {
+  const params = new URLSearchParams();
+  if (filters.kind && filters.kind !== 'all') params.set('kind', filters.kind);
+  if (filters.from) params.set('from', filters.from);
+  if (filters.to) params.set('to', filters.to);
+  return params;
+}
+
+/** `GET /api/vendor/history.csv` for the given filters, for a download link
+ *  (AECI-1194). Same-origin, so the session cookie rides along. */
+export function vendorHistoryCsvUrl(filters: VendorHistoryFilters = {}): string {
+  const query = historyParams(filters).toString();
+  return query ? `/api/vendor/history.csv?${query}` : '/api/vendor/history.csv';
 }
 
 /** The Catalogue tab's filter set for {@link VendorApi.getConnectorCatalog}. */
@@ -387,6 +413,22 @@ export class VendorApi {
   getNotifications(): Promise<ListVendorNotificationsResponse> {
     return firstValueFrom(
       this.http.get<ListVendorNotificationsResponse>('/api/vendor/notifications'),
+    );
+  }
+
+  /** `GET /api/vendor/history` — the vendor's change history, newest first
+   *  (AECI-1194). Never gated: every plan sees what AECi changed. The CSV twin is
+   *  {@link vendorHistoryCsvUrl}. */
+  listHistory(
+    page: number,
+    perPage: number,
+    filters: VendorHistoryFilters = {},
+  ): Promise<ListVendorHistoryResponse> {
+    const params = historyParams(filters);
+    params.set('page', String(page));
+    params.set('perPage', String(perPage));
+    return firstValueFrom(
+      this.http.get<ListVendorHistoryResponse>(`/api/vendor/history?${params}`),
     );
   }
 
