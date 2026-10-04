@@ -39,10 +39,17 @@ scratch() { local d; d="$(mktemp -d)"; (cd "$d" && "$WRANGLER" "$@"); }
 case "$step" in
   stop-old-crons)
     need_env
-    tmp="$ROOT/apps/api/wrangler.old-crons.json"
-    trap 'rm -f "$tmp"' EXIT
-    node "$HERE/strip-config.mjs" "$ROOT/apps/api/wrangler.jsonc" "$tmp" --crons-only --account "$OLD_ACCOUNT"
-    (cd "$ROOT/apps/api" && CLOUDFLARE_ACCOUNT_ID=$OLD_ACCOUNT "$WRANGLER" triggers deploy -c "$(basename "$tmp")" --env "$env_name")
+    # Clear the schedules through the API, not `wrangler triggers deploy`. That
+    # command also syncs queue consumers from today's wrangler.jsonc, which names
+    # queues created only on WBS (aeci-vendor-snapshot-*, AECI-1210), so it fails
+    # against the old account. This call touches the cron schedules and nothing else.
+    : "${CLOUDFLARE_API_TOKEN:?export the old-account token}"
+    url="https://api.cloudflare.com/client/v4/accounts/$OLD_ACCOUNT/workers/scripts/aeci-api-$env_name/schedules"
+    curl -sf -X PUT -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" -H 'Content-Type: application/json' --data '[]' "$url" >/dev/null
+    left="$(curl -sf -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" "$url" |
+      node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>console.log(JSON.parse(s).result.schedules.length))')"
+    echo "old aeci-api-$env_name now has $left cron schedules"
+    [ "$left" = "0" ]
     ;;
 
   export)

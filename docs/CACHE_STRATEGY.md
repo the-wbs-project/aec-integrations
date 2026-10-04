@@ -20,7 +20,7 @@ Native Workers Cache is **zoneless**: no zone-level cache configuration touches 
 
 ### Operating notes (moved from CLAUDE.md, 2026-09-23)
 
-- The zone plan is external account state. Re-verify it on audit. It was last checked 2026-09 (Pro). **From the 2026-10-03 cutover the zone is on The WBS Project's Enterprise plan** (AECI-1161, ADR 0036). Native Workers Cache is zoneless, so nothing here changes with the plan or the account. The Pro-plan limits quoted below (for example the 30 tags per call on the retired HTTP purge) describe the old zone.
+- The zone plan is external account state. Re-verify it on audit. It was last checked 2026-09 (Pro). **From the 2026-10-04 cutover the zone is on The WBS Project's Enterprise plan** (AECI-1161, ADR 0036). Native Workers Cache is zoneless, so nothing here changes with the plan or the account. The Pro-plan limits quoted below (for example the 30 tags per call on the retired HTTP purge) describe the old zone.
 
 ---
 

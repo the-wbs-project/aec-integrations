@@ -5,7 +5,7 @@
 > _Renamed from the placeholder `0004-pro-plan-purge-by-url` — purge is by **Cache-Tag**, not by URL. The URL-invalidation approach (`STAGE_1_SPEC.md §9.3` `invalidateForEntity()`) is superseded._
 
 **Status:** Accepted (a CLAUDE.md non-negotiable)
-**Note 2026-10-03:** the zone moves to The WBS Project's Enterprise plan at the account move ([ADR 0036](0036-move-to-the-wbs-project-cloudflare-account.md)). "Pro plan" here describes the old zone. Cache-Tag purge is unaffected.
+**Note 2026-10-04:** the zone moves to The WBS Project's Enterprise plan at the account move ([ADR 0036](0036-move-to-the-wbs-project-cloudflare-account.md)). "Pro plan" here describes the old zone. Cache-Tag purge is unaffected.
 **Date:** Phase 2 · **Recorded:** 2026-06-01
 **Context owner:** _unset — confirm_
 

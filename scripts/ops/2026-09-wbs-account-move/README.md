@@ -18,14 +18,14 @@ The domain is registered at Cloudflare Registrar. It moves between accounts with
 | DNSSEC off on `aecintegrations.com` | Done 2026-09-30. 1.1.1.1 no longer returns a DS record |
 | Rate-limit `namespace_id` collision check | Clear. None of the local WBS configs declares `ratelimits` |
 | Resources created on WBS | Done 2026-09-30. The ids are in `ids.json` and wired into the api, agent, datatool and web wrangler files on this branch |
-| Config PR (branch `aeci-1163-wbs-account-move`) | Open, not merged. It merges at the cutover, not before |
-| Zone staged on WBS | Added as Enterprise (Pending). DNS imported and trimmed. The three M365 CNAMEs must be DNS only |
+| Config PR (branch `aeci-1163-wbs-account-move`) | Merged 2026-10-01 as #870, before the cutover, with staging on workers.dev under `WBS-INTERIM`. The interim lines were reverted after the cutover |
+| Zone staged on WBS | Done. DNS imported and trimmed. The three M365 CNAMEs are DNS only. The Bing `verify.bing.com` CNAME was missing from the import and was added 2026-10-04 |
 | WAF on WBS | Done 2026-09-30 through the dashboard. 3 custom rules, 2 rate-limit rules, Managed + OWASP are active. The Pending zone accepted them. See "WAF rule map" |
-| Old zone Pro plan removed | Not started. Pro **and** the "Smart Shield Argo Zone Level Plan - Basic" add-on both renew **Thu 2026-10-08**. Cancel both before Wed 2026-10-07 (24 h before, UTC). If missed, they renew to 2026-11-08 |
+| Old zone Pro plan removed | Pro and the "Smart Shield Argo Zone Level Plan - Basic" add-on were cancelled before the 2026-10-08 renewal. The scheduled cancellation did not block the registrar move |
 | Review app service binding | None (review agent, 2026-09-30). The review app calls AECi over the public URL, so the two apps don't have to deploy in lockstep |
-| Bot settings on WBS | Done 2026-09-30, except two items that won't save on a Pending zone. See "Bot settings" |
-| Rehearsal | Not started |
-| Cutover | Not scheduled |
+| Bot settings on WBS | Done 2026-09-30, except two items that won't save on a Pending zone. Those two were cutover step 6b. See "Bot settings" |
+| Rehearsal | Done 2026-10-01. See "Rehearsal result" |
+| Cutover | Done 2026-10-04 for production and demo. See "Cutover result". The review app (AECI-1168) moves separately |
 
 ## Why the config PR waits for the cutover
 
@@ -224,7 +224,7 @@ CI deploys to WBS once the GitHub secrets are swapped and this branch is on `mai
 
 | # | Token | Command | What it does |
 |---|---|---|---|
-| a | old | `cutover.sh stop-old-crons production` | Empties the old API's cron triggers. No code is redeployed and the web Worker is untouched |
+| a | old | `cutover.sh stop-old-crons production` | Empties the old API's cron schedules through the Workers API. No code is redeployed and the web Worker is untouched. It does not use `wrangler triggers deploy`, because that also syncs queue consumers and fails on queues that exist only on WBS |
 | b | old | `cutover.sh export production` | Exports, runs the three prep scripts, proves the prepared file loads with strict foreign keys and is identical to the raw export, and writes expected row counts. About 4 min |
 | c | WBS | `cutover.sh reset production` | Restores the WBS database to empty, or skips if already empty |
 | d | WBS | `cutover.sh import production` | Imports, then compares every table's row count against the export. Exits non-zero on any mismatch |
@@ -234,7 +234,9 @@ CI deploys to WBS once the GitHub secrets are swapped and this branch is on `mai
 
 **Before step f for staging:** revert the interim staging change. Every line is tagged `WBS-INTERIM`: `git grep -n WBS-INTERIM`. Restore the `routes` block in `apps/web/wrangler.jsonc`, drop its `workers_dev: true`, and put `https://staging.aecintegrations.com` back in deploy, refresh-staging, promote-to-demo and browserstack.
 
-Repeat a–d and f for `staging` and `demo`. Not scripted yet: Worker secrets (on hold) and the R2 copy (waiting for S3 keys).
+Repeat a–d and f for `staging` and `demo`. Not scripted yet: Worker secrets (on hold).
+
+R2 goes across with `copy-r2.sh ENV`. It lists the old bucket with the old-account token, copies each object with `wrangler r2 object get`/`put` (the put uses the WBS OAuth login), skips objects already on WBS at the same size, and fails if any are missing afterwards. No S3 keys are needed. Pass `--dry-run` to list without copying. On 2026-10-04 the old buckets held one object in total, in `aeci-uploads-demo`.
 
 
 0. Cancel Pro and the Smart Shield Argo add-on on the old zone before 2026-10-07. Cancelling only stops the 2026-10-08 renewal, and Pro keeps working until then. Per Cloudflare's docs, a Pro plan does not block the move:
@@ -260,6 +262,24 @@ Repeat a–d and f for `staging` and `demo`. Not scripted yet: Worker secrets (o
    - One promote
    - One `/admin/purge`
 9. Unfreeze. Leave the old stack deployed and read-only for 48 hours, while resolvers still hold the old nameservers.
+
+### Cutover result (2026-10-04)
+
+| Step | UTC |
+|---|---|
+| Production export finished | 04:10 |
+| `.com` delegation changed to amalia/bjorn | 04:22:38 |
+| WBS zone Active, old zone Moved | 04:26:13 |
+| Demo promoted | 04:37:58 |
+| Production promoted | 04:43:40 |
+
+- The outage was about 17 minutes, from zone Active to the production bind. Every host returned 530 in between.
+- Production and demo were bound with `promote-to-demo` and `promote-to-prod` on `cc3e921a`, not with `cutover.sh bind`. `main` was 21 commits and six migrations (0053 to 0058) ahead of production. `bind` applies no migrations and puts no secrets. The promote lane does both.
+- The registrar move set the `.com` nameservers itself. Nothing was edited by hand. After the delegation changed, the zone stayed Pending until "Check nameservers now" was pressed.
+- Before activation, every Cloudflare nameserver pair answered with the active zone's records. That answers the resolver open question above: there is no drain window.
+- The first demo promote failed with `No access to the specified resource` on `/zones/…/workers/routes`. The WBS `aeci-github-actions` token had no zone grants. Adding Zone Read, Workers Routes Edit and DNS Edit fixed it. See `docs/CICD_PLAN.md` §7.1.
+- `stop-old-crons` failed on its first run. `wrangler triggers deploy` also syncs queue consumers and rejected `aeci-vendor-snapshot-staging`, which exists only on WBS. The step now uses the Workers schedules API.
+- Rows written on the old site after 04:10 UTC are not on WBS. Diff the old production D1 against the export before the old account is deleted.
 
 ## Phase 5: follow-through (AECI-1167)
 

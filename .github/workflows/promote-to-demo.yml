@@ -193,7 +193,7 @@ jobs:
       # service-token headers when CF_ACCESS_* are set.
       - name: Verify staging is at inputs.commit_sha (API + SSR)
         env:
-          HOST: https://aeci-web-staging.thewbsproject.workers.dev # WBS-INTERIM (AECI-1166): staging.aecintegrations.com at cutover
+          HOST: https://staging.aecintegrations.com
           EXPECTED_SHA: ${{ inputs.commit_sha }}
           CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
           CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}

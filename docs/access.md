@@ -2,7 +2,7 @@
 
 How `staging.aecintegrations.com`, `aeci-*.thewbsproject.workers.dev` PR previews, and — until launch — web production `demo.aecintegrations.com` are gated, and how to manage the allowlist and rotate the service token over time.
 
-> **As-built (effective at the 2026-10-03 cutover, AECI-1161, [ADR 0036](./adr/0036-move-to-the-wbs-project-cloudflare-account.md)).** Access now lives in **The WBS Project** Zero Trust org (`the-wbs-project.cloudflareaccess.com`), not the old AEC Integrations org. The old account's separate agent-production Access app is folded into the one app below. The ids, AUD and the `aeci-*.thewbsproject.workers.dev` pattern in this file are the new ones. Where this file says "Locked decisions", they still hold.
+> **As-built (effective at the 2026-10-04 cutover, AECI-1161, [ADR 0036](./adr/0036-move-to-the-wbs-project-cloudflare-account.md)).** Access now lives in **The WBS Project** Zero Trust org (`the-wbs-project.cloudflareaccess.com`), not the old AEC Integrations org. The old account's separate agent-production Access app is folded into the one app below. The ids, AUD and the `aeci-*.thewbsproject.workers.dev` pattern in this file are the new ones. Where this file says "Locked decisions", they still hold.
 
 > **Per [ADR 0017](./adr/0017-single-supabase-auth-project-across-environments.md):** all environments share a single Supabase **auth** project, so per-environment isolation is enforced **here, by Cloudflare Access** — not by Supabase project separation. Production is gated to the allowlist throughout pre-launch and **opened at launch** by removing its Access destination.
 
@@ -39,7 +39,7 @@ The Cloudflare resources as deployed. If any of these change, update this sectio
 
 | Item | Value |
 |---|---|
-| Cloudflare account | `The WBS Project` — `004dc1af737b22a8aa83b3550fa9b9d3` (was `AEC Integrations`, `e62ec9d8012c3e0c225f8e4dbab76b79`, until the 2026-10-03 cutover) |
+| Cloudflare account | `The WBS Project` — `004dc1af737b22a8aa83b3550fa9b9d3` (was `AEC Integrations`, `e62ec9d8012c3e0c225f8e4dbab76b79`, until the 2026-10-04 cutover) |
 | Access app | `AECi Non-Prod` — `53dccd08-c97b-46ba-a96e-750a419d749f`, self-hosted. It also gates the agent spike's production-named Worker, which had its own app on the old account |
 | Zero Trust team domain | `the-wbs-project.cloudflareaccess.com` (issues the Access JWT `iss` + serves the JWKS at `/cdn-cgi/access/certs`; consumed by `apps/datatool` `ACCESS_TEAM_DOMAIN`) |
 | App AUD tag | `cccc1e20ad7d9da26dd5a7fe67716b39102bc74e4eceb9eab66afb5786d7b632` |

@@ -5,7 +5,7 @@
 
 > **What this is.** The one-time procedure to flip the apex (`aecintegrations.com`) + `www` off the static coming-soon **landing** Worker (`apps/landing`) onto the Angular SSR app (`aeci-web-production`), turn on indexing + search-engine pings, and send the waitlist "we're live" broadcast. It is a **forward cutover with no automatic rollback** — the app becomes the production home. Run it only after the AECI-246 launch-readiness gate is signed off.
 >
-> **As-built note (2026-10-03, AECI-1161).** This is the 2026-07 launch procedure and stays as written. The account it names, **AEC Integrations**, was replaced by **The WBS Project** account at the 2026-10-03 cutover, and the zone moved to the Enterprise plan. A re-run of step 5 below (extending the WAF host set) must use the WBS zone and its new rule ids, `docs/waf-rate-limits.md` "As-built: the zone moves to The WBS Project". The one-time move procedure is `scripts/ops/2026-09-wbs-account-move/README.md`.
+> **As-built note (2026-10-04, AECI-1161).** This is the 2026-07 launch procedure and stays as written. The account it names, **AEC Integrations**, was replaced by **The WBS Project** account at the 2026-10-04 cutover, and the zone moved to the Enterprise plan. A re-run of step 5 below (extending the WAF host set) must use the WBS zone and its new rule ids, `docs/waf-rate-limits.md` "As-built: the zone moves to The WBS Project". The one-time move procedure is `scripts/ops/2026-09-wbs-account-move/README.md`.
 >
 > **This runbook is prepared as the 7.12 deliverable; running it is AECI-247, out of scope for the 7.12 gate.**
 >

@@ -785,7 +785,7 @@ monitors shipped by AECI-219 / Phase 6.12, now the PostHog alerts in `observabil
 
 `aeci.waf.ratelimit.blocked` / `aeci.waf.poll` (AECI-262, §15.1) surface the Cloudflare WAF
 rate-limit + scraper-challenge mitigations (`docs/waf-rate-limits.md`) as metrics. Enterprise
-Logpush is the "push" path Cloudflare offers; we were on **Pro** (the zone moves to The WBS Project's Enterprise plan at the 2026-10-03 cutover, AECI-1161, so Logpush becomes available and the poll is kept until that is built), so the API Worker's hourly cron
+Logpush is the "push" path Cloudflare offers; we were on **Pro** (the zone moves to The WBS Project's Enterprise plan at the 2026-10-04 cutover, AECI-1161, so Logpush becomes available and the poll is kept until that is built), so the API Worker's hourly cron
 (`runWafMetricsJob`) **polls** instead — it reads the previous clock hour of the zone's
 `firewallEventsAdaptiveGroups` over the GraphQL Analytics API
 (`packages/shared/src/cloudflare-analytics.ts`) and `submitCount`s one

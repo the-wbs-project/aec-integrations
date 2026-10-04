@@ -7,7 +7,7 @@ Operational response guides for AECi's alerts.
 > Phase 6. **Linked from the alert messages on both planes — keep the heading anchors
 > stable.**
 
-> **Cloudflare account (2026-10-03, AECI-1161).** Every "Cloudflare dashboard" reference below means **The WBS Project** account (`004dc1af737b22a8aa83b3550fa9b9d3`) from the cutover. Workers Logs and workflow instance history before that date are on the old AEC Integrations account only, and the old account is deleted 30 days after the cutover. [ADR 0036](./adr/0036-move-to-the-wbs-project-cloudflare-account.md).
+> **Cloudflare account (2026-10-04, AECI-1161).** Every "Cloudflare dashboard" reference below means **The WBS Project** account (`004dc1af737b22a8aa83b3550fa9b9d3`) from the cutover. Workers Logs and workflow instance history before that date are on the old AEC Integrations account only, and the old account is deleted 30 days after the cutover. [ADR 0036](./adr/0036-move-to-the-wbs-project-cloudflare-account.md).
 
 ## Which console just paged you
 
@@ -1257,7 +1257,7 @@ an `audit_log` row — exactly one `retention.pruned` summary row per run, in th
 the deletes (the ADR 0022 exception).
 
 Two facts shape every response here. **Deletion is effectively permanent**: D1 Time Travel recovers
-only ~30 days. (The databases on The WBS Project account are imports from the 2026-10-03 cutover, so their history starts there. AECI-1161.) And **`metrics_daily` is the only thing that survives a `page_views` prune**, which is
+only ~30 days. (The databases on The WBS Project account are imports from the 2026-10-04 cutover, so their history starts there. AECI-1161.) And **`metrics_daily` is the only thing that survives a `page_views` prune**, which is
 why the job verifies a `metrics_daily` row exists for *every* day inside its cut window before
 deleting anything, and refuses the whole run — the `job_runs` half included — if one is missing.
 

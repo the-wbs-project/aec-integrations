@@ -1,7 +1,7 @@
 # ADR 0036: Move every Cloudflare resource to The WBS Project account
 
 - Status: Accepted
-- Date: 2026-09-30 (cutover planned Saturday 2026-10-03)
+- Date: 2026-09-30. The cutover ran on Sunday 2026-10-04, one day after the planned Saturday.
 - Issue: AECI-1161 (phase issues AECI-1162 to AECI-1167; the review app's own move is AECI-1168)
 - Supersedes: nothing. It changes where the decisions in ADR 0016, ADR 0017, ADR 0020 and ADR 0021 run, not what they decide.
 
