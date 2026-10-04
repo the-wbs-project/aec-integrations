@@ -605,6 +605,7 @@ await db.batch([
 | `PUT /api/vendor/claims/:claimId/attestation` (AECI-301) | Hard-required | same **+ §4.2a endpoint authority + attestable edge (AECI-705) + `vendors.verified`**, in that order | `attestation.retracted` (per superseded row) + `attestation.created` (per owned slot) |
 | `DELETE /api/vendor/claims/:claimId/attestation` (AECI-301) | Hard-required | same **+ §4.2a endpoint authority + `vendors.verified`** — **no edge gate**, so a position on an edge that later became connector-powered can still be withdrawn | `attestation.retracted` (per retracted row) |
 | `POST /api/webhooks/linear` | HMAC-verified | N/A | `workflow.transitioned` |
+| `POST /api/webhooks/resend` (AECI-1222) | Svix-signature-verified (`RESEND_WEBHOOK_SECRET`) | N/A | none (log-class, ADR 0022) |
 
 **Admin panel reads (AECI-574 / Phase 8.3, extended by AECI-577, AECI-579,
 AECI-580, AECI-586, and AECI-859).** Nine endpoints join the `GET /api/admin/*` row

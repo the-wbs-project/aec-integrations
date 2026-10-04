@@ -77,6 +77,10 @@ email. Like `indexnow-failure-rate` they sit beside the table, not inside it.
 | `email-failure-rate` | `alert-email-failure-rate` | (failed + unknown) / (sent + failed + unknown) > 20% over 24 h, reported only once 2 or more failed or unknown | daily |
 | `email-volume-spike` | `alert-email-volume-spike` | sent + failed + unknown > 50 in 24 h | daily |
 | `email-suppressed-in-production` | `alert-email-suppressed` | any `outcome:suppressed` in 1 h | hourly |
+| `email-bounce-rate` | `alert-email-bounce-rate` | bounced / sent > 5% over 7 days, `outcome:recorded`, reported only once 2 or more bounced | daily |
+| `email-complaint-rate` | `alert-email-complaint-rate` | complained / sent > 0.1% over 7 days, `outcome:recorded`, reported only once 1 or more complained | daily |
+
+The two delivery alerts (AECI-1222) read `aeci.email.delivery`, not `aeci.email.send`. Their thresholds are initial, set before any delivery data existed. Re-tune them from the first 14 days of production data.
 
 Basis: production 354071, 30 days to 2026-10-01, read-only. 6 sends, 0 failed, daily p50 0,
 p95 2, max 2, hourly max 1. The two operator digests were untagged until AECI-1199, and

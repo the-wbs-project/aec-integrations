@@ -92,38 +92,43 @@ export const RESEND_DELIVERY_EVENT_TYPES = [
 export type ResendDeliveryEventType = (typeof RESEND_DELIVERY_EVENT_TYPES)[number];
 
 /**
- * Resend's webhook envelope, the slice the recorder reads. Field names from Resend's
+ * The `data` of a Resend email event, the slice the recorder reads. Field names from Resend's
  * per-event pages (`https://resend.com/docs/webhooks/emails/*`, read 2026-10-02):
- * `{ type, created_at, data: { email_id, from, to[], subject, tags, bounce? } }`.
+ * `{ email_id, from, to[], subject, tags, bounce? }`.
  *
  * Tolerant like `LinearWebhookSchema`: unknown keys are stripped, not rejected. `tags` is an
  * object of `name → value` in the documented payload. An array of `{ name, value }` (the send
  * API's shape) is accepted too, so a format change cannot silently untag every event.
- * `data` is optional at the top level because a non-email event type may carry another shape.
- * The route checks the type before it reads `data`.
+ */
+export const ResendEmailEventDataSchema = z.object({
+  email_id: z.string().min(1),
+  from: z.string().optional(),
+  to: z.array(z.string()).optional(),
+  subject: z.string().optional(),
+  tags: z
+    .union([
+      z.record(z.string(), z.string()),
+      z.array(z.object({ name: z.string(), value: z.string() })),
+    ])
+    .optional(),
+  bounce: z
+    .object({
+      type: z.string().optional(),
+      subType: z.string().optional(),
+    })
+    .optional(),
+});
+export type ResendEmailEventData = z.infer<typeof ResendEmailEventDataSchema>;
+
+/**
+ * Resend's webhook envelope: `{ type, created_at, data }`. `data` is left unparsed here because
+ * its shape depends on the type: a `contact.*` or `domain.*` event has no `email_id`. The route
+ * checks the type first and parses `data` with {@link ResendEmailEventDataSchema} only for the
+ * five recorded email types, so any other type is a 200, never a 400 that Resend would retry.
  */
 export const ResendWebhookSchema = z.object({
   type: z.string(),
   created_at: z.string(),
-  data: z
-    .object({
-      email_id: z.string().min(1),
-      from: z.string().optional(),
-      to: z.array(z.string()).optional(),
-      subject: z.string().optional(),
-      tags: z
-        .union([
-          z.record(z.string(), z.string()),
-          z.array(z.object({ name: z.string(), value: z.string() })),
-        ])
-        .optional(),
-      bounce: z
-        .object({
-          type: z.string().optional(),
-          subType: z.string().optional(),
-        })
-        .optional(),
-    })
-    .optional(),
+  data: z.unknown().optional(),
 });
 export type ResendWebhook = z.infer<typeof ResendWebhookSchema>;

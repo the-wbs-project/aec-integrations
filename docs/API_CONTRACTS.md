@@ -4985,8 +4985,9 @@ export const SetAdminEmailSwitchBodySchema = z.object({
 // 200: { switch: AdminEmailSwitch, changed: boolean }   changed:false = the state it already had
 ```
 
-**Order of checks.** An unknown key (neither a registry id nor `support-copy`) is `404
-NOT_FOUND`. A registry id of any channel resolves, so `enabled: false` on a non-pausable entry,
+**Order of checks.** The body is parsed first: a non-JSON body is `400 MALFORMED_REQUEST` and a
+schema miss `400 VALIDATION_FAILED`. Then an unknown key (neither a registry id nor
+`support-copy`) is `404 NOT_FOUND`. A registry id of any channel resolves, so `enabled: false` on a non-pausable entry,
 including a portal, Linear or the Supabase sign-in id, is `400 NOTIFICATION_NOT_PAUSABLE`.
 `enabled: true` is always accepted, so a stale paused row can be cleared. Naming the current
 state is a 200 with `changed: false` that writes nothing. Otherwise ONE `db.batch`: a sentinel
@@ -5056,20 +5057,25 @@ A timestamp more than 5 minutes from the Worker clock is rejected. Verified befo
 
 ```typescript
 // packages/shared/src/api/webhooks.ts. Tolerant: unknown keys are stripped.
+// The envelope. `data` stays unparsed until the type is known: a contact or domain event has
+// no `email_id`, and must get a 200, not a 400 that Resend retries.
 export const ResendWebhookSchema = z.object({
   type: z.string(),                      // 'email.delivered', 'email.bounced', …
   created_at: z.string(),
-  data: z.object({
-    email_id: z.string().min(1),         // = notification_sends.provider_message_id
-    from: z.string().optional(),
-    to: z.array(z.string()).optional(),  // the impacted recipients; >1 = stored unattributed
-    subject: z.string().optional(),
-    tags: z.union([
-      z.record(z.string(), z.string()),  // documented shape: { tier, notification_id }
-      z.array(z.object({ name: z.string(), value: z.string() })),
-    ]).optional(),
-    bounce: z.object({ type: z.string().optional(), subType: z.string().optional() }).optional(),
-  }).optional(),
+  data: z.unknown().optional(),
+});
+
+// Parsed from `data` only for the five recorded email types.
+export const ResendEmailEventDataSchema = z.object({
+  email_id: z.string().min(1),           // = notification_sends.provider_message_id
+  from: z.string().optional(),
+  to: z.array(z.string()).optional(),    // the impacted recipients; >1 = stored unattributed
+  subject: z.string().optional(),
+  tags: z.union([
+    z.record(z.string(), z.string()),    // documented shape: { tier, notification_id }
+    z.array(z.object({ name: z.string(), value: z.string() })),
+  ]).optional(),
+  bounce: z.object({ type: z.string().optional(), subType: z.string().optional() }).optional(),
 });
 ```
 
@@ -5077,8 +5083,8 @@ export const ResendWebhookSchema = z.object({
 |---|---|---|
 | `Content-Length` over 256 KB, or an undeclared body that passes 256 KB while read | `413 PAYLOAD_TOO_LARGE` | error envelope. Checked before the signature |
 | Missing or bad signature, stale timestamp, unset secret | `401 UNAUTHENTICATED` | error envelope. An unusable secret also warns, once per isolate |
-| Signed body that is not JSON, or fails the schema | `400 MALFORMED_REQUEST` / `VALIDATION_FAILED` | error envelope |
-| Type other than `email.sent` / `delivered` / `delivery_delayed` / `bounced` / `complained` | `200` | `{ ok: true, recorded: 0, reason: 'ignored event type: …' }` |
+| Signed body that is not JSON, fails the envelope, or is a recorded type whose `data` fails `ResendEmailEventDataSchema` | `400 MALFORMED_REQUEST` / `VALIDATION_FAILED` | error envelope |
+| Type other than `email.sent` / `delivered` / `delivery_delayed` / `bounced` / `complained`, whatever its `data` holds | `200` | `{ ok: true, recorded: 0, reason: 'ignored event type: …' }` |
 | Tagged for another tier, or untagged and not this tier's to record | `200` | `{ ok: true, recorded: 0, reason: 'other_tier' \| 'untagged' }` |
 | Recorded | `200` | `{ ok: true, recorded: 1, reason: 'recorded' }`. Always one row per event |
 | Replayed `svix-id` | `200` | `{ ok: true, recorded: 0, reason: 'replay' }` |

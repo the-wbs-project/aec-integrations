@@ -63,7 +63,7 @@
 import {
   RESEND_DELIVERY_EVENT_TYPES,
   type ResendDeliveryEventType,
-  type ResendWebhook,
+  type ResendEmailEventData,
 } from '@aeci/shared';
 import { and, asc, eq } from 'drizzle-orm';
 
@@ -143,7 +143,7 @@ export function isRegistryId(id: string): boolean {
 }
 
 /** The event's tags as a map, from either shape Resend may send. */
-export function eventTags(data: NonNullable<ResendWebhook['data']>): Map<string, string> {
+export function eventTags(data: ResendEmailEventData): Map<string, string> {
   const tags = data.tags;
   if (!tags) return new Map();
   if (Array.isArray(tags)) return new Map(tags.map((t) => [t.name, t.value]));
@@ -156,7 +156,7 @@ export function eventTags(data: NonNullable<ResendWebhook['data']>): Map<string,
  * subdomain of it. Supabase sends it over the Resend SMTP relay, outside our code, so it is
  * the one stream with no tags.
  */
-export function isSupabaseSignInEmail(data: NonNullable<ResendWebhook['data']>): boolean {
+export function isSupabaseSignInEmail(data: ResendEmailEventData): boolean {
   if ((data.subject ?? '').trim() !== SIGN_IN_SUBJECT) return false;
   const sender = bareAddress(data.from ?? '');
   const at = sender.lastIndexOf('@');
@@ -168,7 +168,7 @@ export function isSupabaseSignInEmail(data: NonNullable<ResendWebhook['data']>):
 /** Decide whether this tier records the event. See the header. */
 export function classifyEvent(
   env: DeliveryPolicyEnv,
-  data: NonNullable<ResendWebhook['data']>,
+  data: ResendEmailEventData,
 ): DeliveryClassification {
   const tags = eventTags(data);
   const taggedTier = tags.get(RESEND_TAG_TIER);
@@ -193,7 +193,7 @@ export interface RecordInput {
   svixId: string;
   eventType: ResendDeliveryEventType;
   occurredAt: string;
-  data: NonNullable<ResendWebhook['data']>;
+  data: ResendEmailEventData;
   classification: Extract<DeliveryClassification, { kind: 'record' }>;
   /** The tier's raw `EMAIL_BCC`: the support blind copy's addresses. See "Blind copies". */
   emailBcc?: string;

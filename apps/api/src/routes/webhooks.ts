@@ -37,6 +37,7 @@
 import {
   ApiErrorCode,
   LinearWebhookSchema,
+  ResendEmailEventDataSchema,
   ResendWebhookSchema,
   type LinearWebhook,
 } from '@aeci/shared';
@@ -311,9 +312,10 @@ type DeliveryOutcome = 'recorded' | 'replay' | 'other_tier' | 'untagged' | 'igno
  *    unset `RESEND_WEBHOOK_SECRET`, is a 401 before the body is parsed, and counts
  *    `aeci.webhooks.resend.signature_failure{reason}` per request. An unset secret also
  *    warns, once per isolate, because it rejects every delivery.
- * 2. Parse and validate. Malformed JSON or a schema miss is a 400.
- * 3. Only the five delivery types are recorded. Any other type, opens and clicks included,
- *    is a 200 with nothing stored.
+ * 2. Parse the envelope (`type`, `created_at`). Malformed JSON or an envelope miss is a 400.
+ * 3. Only the five delivery types are recorded. Any other type, opens, clicks, contact and
+ *    domain events included, is a 200 with nothing stored, whatever its `data` holds. Only a
+ *    recorded type has its `data` validated, and a miss there is a 400.
  * 4. Keep only this tier's events (`classifyEvent`), then join and insert ONE row
  *    (`recordDeliveryEvent`; an event naming several addresses is stored unattributed). A
  *    replayed `svix-id` inserts nothing and answers 200.
@@ -366,13 +368,16 @@ export function createResendWebhookHandler(
     }
     const payload = ResendWebhookSchema.parse(parsed);
 
-    if (!isHandledEventType(payload.type) || !payload.data) {
+    // The type decides before `data` is read: a contact or domain event carries no
+    // `email_id`, and a 400 for it would have Resend retry an event we never record.
+    if (!isHandledEventType(payload.type) || payload.data === undefined) {
       delivery(c, 1, 'other', UNKNOWN_NOTIFICATION, 'other', 'ignored');
       return resendAck(0, `ignored event type: ${payload.type}`);
     }
     const event = shortEventType(payload.type);
+    const data = ResendEmailEventDataSchema.parse(payload.data);
 
-    const classification = classifyEvent(c.env, payload.data);
+    const classification = classifyEvent(c.env, data);
     if (classification.kind === 'drop') {
       // The template stays `unknown` on a drop, so a foreign tag can never add a series.
       delivery(
@@ -391,7 +396,7 @@ export function createResendWebhookHandler(
       svixId,
       eventType: payload.type,
       occurredAt: payload.created_at,
-      data: payload.data,
+      data,
       classification,
       emailBcc: c.env.EMAIL_BCC,
     });

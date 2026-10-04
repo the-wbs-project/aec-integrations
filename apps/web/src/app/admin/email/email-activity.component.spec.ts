@@ -364,3 +364,108 @@ describe('EmailActivity and the sending switches (AECI-1224)', () => {
     expect(api.switches).toHaveBeenCalledTimes(2);
   });
 });
+
+describe('EmailActivity list loads out of order', () => {
+  it("never paints an earlier search's rows under a newer one", async () => {
+    const api = makeApi();
+    const unmatchedA = {
+      id: 9,
+      notification_id: 'supabase-sign-in',
+      tier: 'auth',
+      event_type: 'delivered' as const,
+      occurred_at: '2026-10-01T08:00:00.000Z',
+      provider_message_id: 're_a',
+      bounce_type: null,
+      bounce_subtype: null,
+    };
+    let releaseA!: () => void;
+    api.searchSends.mockImplementation(async (address: string) => {
+      if (address === 'a@x.com') {
+        await new Promise<void>((resolve) => (releaseA = resolve));
+        return {
+          ...makeList({ data: [makeRow({ notification_id: 'search-a-row' })] }),
+          unmatched_events: [unmatchedA],
+        };
+      }
+      return { ...makeList({ data: [], total: 0 }), unmatched_events: [] };
+    });
+    const { el, rerender } = await setup(api);
+
+    await search(el, rerender, 'a@x.com');
+    await search(el, rerender, 'b@x.com');
+    expect(el.textContent).toContain('No sends match this search or filter.');
+
+    releaseA();
+    await rerender();
+    expect(el.textContent).not.toContain('search-a-row');
+    // B's own (empty) unmatched section, not A's sign-in report.
+    expect(el.textContent).not.toContain('supabase-sign-in');
+    expect(el.textContent).toContain('No reports for this address.');
+    expect(el.textContent).toContain('No sends match this search or filter.');
+  });
+
+  it("hides the previous search's unmatched reports while a new search is in flight", async () => {
+    const api = makeApi();
+    let releaseB!: () => void;
+    api.searchSends.mockImplementation(async (address: string) => {
+      if (address === 'b@x.com') await new Promise<void>((resolve) => (releaseB = resolve));
+      return {
+        ...makeList({ data: [], total: 0 }),
+        unmatched_events: [
+          {
+            id: 3,
+            notification_id: 'supabase-sign-in',
+            tier: 'auth',
+            event_type: 'delivered',
+            occurred_at: '2026-10-01T08:00:00.000Z',
+            provider_message_id: 're_auth',
+            bounce_type: null,
+            bounce_subtype: null,
+          },
+        ],
+      };
+    });
+    const { el, rerender } = await setup(api);
+    await search(el, rerender, 'a@x.com');
+    expect(el.textContent).toContain('Delivery reports with no send record');
+
+    await search(el, rerender, 'b@x.com');
+    expect(el.textContent).not.toContain('Delivery reports with no send record');
+    releaseB();
+    await rerender();
+    expect(el.textContent).toContain('Delivery reports with no send record');
+  });
+});
+
+describe('EmailActivity input the server would refuse', () => {
+  it('does not send an address with no @, and says why', async () => {
+    const { el, api, rerender } = await setup();
+    await search(el, rerender, 'bob');
+    expect(api.searchSends).not.toHaveBeenCalled();
+    expect(el.textContent).toContain('Enter a full email address');
+    const input = el.querySelector<HTMLInputElement>('#admin-email-address')!;
+    expect(input.getAttribute('aria-invalid')).toBe('true');
+  });
+
+  it('refuses a From date after the To date without a request or a retry button', async () => {
+    const { fixture, api, el, rerender } = await setup();
+    const calls = api.listSends.mock.calls.length;
+    const cmp = fixture.componentInstance as unknown as {
+      onFrom(e: Event): void;
+      onTo(e: Event): void;
+    };
+    cmp.onTo({ target: { value: '2026-10-01' } } as unknown as Event);
+    await rerender();
+    cmp.onFrom({ target: { value: '2026-10-05' } } as unknown as Event);
+    await rerender();
+    expect(api.listSends.mock.calls.length).toBe(calls + 1); // only the To change was sent
+    expect(el.textContent).toContain("These filters can't be searched.");
+    expect(el.textContent).not.toContain('Try again');
+  });
+
+  it('shows the input message, not a retry, when the server answers 400', async () => {
+    const { el } = await setup(makeApi({ list: new HttpErrorResponse({ status: 400 }) }));
+    expect(el.textContent).toContain("These filters can't be searched.");
+    expect(el.textContent).not.toContain('Try again');
+  });
+});

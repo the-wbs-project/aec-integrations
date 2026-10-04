@@ -390,7 +390,12 @@
           spellcheck="false"
           [value]="addressDraft()"
           (input)="onAddressInput($event)"
-          aria-describedby="admin-email-address-hint"
+          [attr.aria-invalid]="addressInvalid() || null"
+          [attr.aria-describedby]="
+            addressInvalid()
+              ? 'admin-email-address-error admin-email-address-hint'
+              : 'admin-email-address-hint'
+          "
           class="w-72 rounded-(--radius-md) border border-(--border-default) bg-(--surface-base) px-3 py-2 text-sm text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
         />
       </div>
@@ -412,6 +417,16 @@
       </button>
       }
     </form>
+    @if (addressInvalid()) {
+    <p
+      id="admin-email-address-error"
+      role="alert"
+      class="text-sm font-medium text-(--text-primary)"
+      i18n="@@admin.email.search.invalid"
+    >
+      Enter a full email address, with an &#64; sign.
+    </p>
+    }
     <p id="admin-email-address-hint" class="text-xs text-(--text-secondary)">
       <strong class="text-(--text-primary)" i18n="@@admin.email.search.rule"
         >Exact match on the whole address.</strong
@@ -491,6 +506,15 @@
 
     @if (listFirstLoad()) {
     <p class="text-sm text-(--text-secondary)" i18n="@@admin.email.sends.loading">Loading sends…</p>
+    } @else if (listError() === 'invalid') {
+    <p
+      class="text-sm font-medium text-(--text-primary)"
+      role="alert"
+      i18n="@@admin.email.sends.invalid"
+    >
+      These filters can't be searched. Check that the address is complete and the From date is not
+      after the To date.
+    </p>
     } @else if (listError(); as kind) {
     <div class="space-y-3" role="alert">
       <p class="text-sm font-medium text-(--text-primary)">
@@ -691,7 +715,7 @@
   </section>
 
   <!-- Delivery reports no send record claims. Only during an address search. -->
-  @if (address() && !listError() && !listFirstLoad()) {
+  @if (address() && !listError() && !listFirstLoad() && !listBusy()) {
   <section aria-labelledby="admin-email-unmatched-heading" class="space-y-4">
     <h3
       id="admin-email-unmatched-heading"

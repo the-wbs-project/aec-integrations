@@ -24,8 +24,9 @@ import { EmailSwitches } from './email-switches';
 /** Rows per page. The spec's figure (§5.14); one page is a morning's sends on production. */
 const PER_PAGE = 25;
 
-/** Why a read failed, for the copy. Only an auth failure mentions the session. */
-type LoadError = 'session' | 'other';
+/** Why a read failed, for the copy. Only an auth failure mentions the session. `invalid` is
+ *  input the server refuses (400): retrying the same input cannot help, so it has no retry. */
+type LoadError = 'session' | 'invalid' | 'other';
 
 /** The two summary windows. */
 type SummaryWindow = 'd7' | 'd30';
@@ -92,6 +93,12 @@ export class EmailActivity {
   /** The address last SENT. Search is submit-only: nothing is hashed per keystroke. */
   protected readonly address = signal('');
   protected readonly addressDraft = signal('');
+  /** The draft was submitted without an `@`. Checked here so a typo is not sent. */
+  protected readonly addressInvalid = signal(false);
+
+  /** Bumped by every list load. A response whose number is no longer current is dropped, so
+   *  a slow earlier search can never paint its rows under a newer one. */
+  private listSeq = 0;
   /** `null` is "any", the `AecSelect` convention. */
   protected readonly template = signal<string | null>(null);
   protected readonly outcome = signal<string | null>(null);
@@ -173,14 +180,23 @@ export class EmailActivity {
 
   protected onAddressInput(event: Event): void {
     this.addressDraft.set((event.target as HTMLInputElement).value);
+    this.addressInvalid.set(false);
   }
 
   protected submitSearch(): void {
-    this.address.set(this.addressDraft().trim());
+    const draft = this.addressDraft().trim();
+    // The server refuses an address with no `@`. Say so here rather than send it.
+    if (draft !== '' && !draft.includes('@')) {
+      this.addressInvalid.set(true);
+      return;
+    }
+    this.addressInvalid.set(false);
+    this.address.set(draft);
     this.refilter();
   }
 
   protected clearSearch(): void {
+    this.addressInvalid.set(false);
     this.addressDraft.set('');
     this.address.set('');
     this.refilter();
@@ -213,6 +229,7 @@ export class EmailActivity {
 
   /** One action that resets every filter, the search included. */
   protected clearFilters(): void {
+    this.addressInvalid.set(false);
     this.addressDraft.set('');
     this.address.set('');
     this.template.set(null);
@@ -256,8 +273,20 @@ export class EmailActivity {
   }
 
   private async loadList(): Promise<void> {
+    const seq = ++this.listSeq;
     this.listBusy.set(true);
     this.listError.set(null);
+    // A typed `from` after `to` gets past the pickers' min/max. The server refuses it, so
+    // refuse it here without a request.
+    if (this.from() && this.to() && this.from() > this.to()) {
+      this.listError.set('invalid');
+      this.sends.set([]);
+      this.unmatched.set([]);
+      this.total.set(0);
+      this.listBusy.set(false);
+      this.listFirstLoad.set(false);
+      return;
+    }
     const filters: AdminEmailFilters = {
       page: this.page(),
       perPage: this.perPage,
@@ -271,11 +300,13 @@ export class EmailActivity {
     try {
       if (address) {
         const res = await this.api.searchSends(address, filters);
+        if (seq !== this.listSeq) return;
         this.sends.set(res.data);
         this.total.set(res.total);
         this.unmatched.set(res.unmatched_events);
       } else {
         const res = await this.api.listSends(filters);
+        if (seq !== this.listSeq) return;
         this.sends.set(res.data);
         this.total.set(res.total);
         this.unmatched.set([]);
@@ -284,13 +315,18 @@ export class EmailActivity {
         $localize`:@@admin.email.announce.loaded:Matching sends: ${this.total()}:COUNT:.`,
       );
     } catch (err) {
+      if (seq !== this.listSeq) return;
       this.listError.set(errorKind(err));
       this.sends.set([]);
       this.unmatched.set([]);
       this.total.set(0);
     } finally {
-      this.listBusy.set(false);
-      this.listFirstLoad.set(false);
+      // Only the newest load owns the busy flag. An older one finishing must not clear it
+      // while the newer request is still in flight.
+      if (seq === this.listSeq) {
+        this.listBusy.set(false);
+        this.listFirstLoad.set(false);
+      }
     }
   }
 
@@ -415,7 +451,8 @@ function deliveryLabel(event: string): string {
 }
 
 function errorKind(err: unknown): LoadError {
-  return err instanceof HttpErrorResponse && (err.status === 401 || err.status === 403)
-    ? 'session'
-    : 'other';
+  if (!(err instanceof HttpErrorResponse)) return 'other';
+  if (err.status === 401 || err.status === 403) return 'session';
+  if (err.status === 400) return 'invalid';
+  return 'other';
 }

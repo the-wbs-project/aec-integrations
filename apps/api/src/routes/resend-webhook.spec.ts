@@ -441,6 +441,40 @@ describe('POST /api/webhooks/resend — tier filter', () => {
     expect(await events()).toHaveLength(0);
     expect(deliveryTags().every((d) => d.tags.includes('outcome:ignored'))).toBe(true);
   });
+
+  it('acknowledges contact and domain events, whose data has no email_id, without a 400', async () => {
+    const contact = {
+      type: 'contact.created',
+      created_at: '2026-10-02T10:00:00.000Z',
+      data: {
+        id: 'e169aa45-1ecf-4183-9955-b1499d5701d3',
+        audience_id: '78261eea-8f8b-4381-83c6-79fa7120f1cf',
+        email: 'someone@example.com',
+        unsubscribed: false,
+      },
+    };
+    const domain = {
+      type: 'domain.updated',
+      created_at: '2026-10-02T10:00:00.000Z',
+      data: { id: 'd91cd9bd-1176-453e-8fc1-35364d380206', name: 'aecintegrations.com' },
+    };
+    for (const [i, body] of [contact, domain].entries()) {
+      const res = await post(body, { id: `msg_other_${i}` });
+      expect(res.status).toBe(200);
+    }
+    expect(await events()).toHaveLength(0);
+    expect(deliveryTags().every((d) => d.tags.includes('outcome:ignored'))).toBe(true);
+  });
+
+  it('still refuses a recorded email type whose data has no email_id', async () => {
+    const res = await post({
+      type: 'email.delivered',
+      created_at: '2026-10-02T10:00:00.000Z',
+      data: { to: ['r@example.com'] },
+    });
+    expect(res.status).toBe(400);
+    expect(await events()).toHaveLength(0);
+  });
 });
 
 describe('POST /api/webhooks/resend — body cap', () => {

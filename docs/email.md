@@ -734,7 +734,7 @@ check. Nothing is cached across calls, so a pause stops the very next send.
 | Template paused | No Resend call. One `paused` ledger row per recipient, `aeci.email.send{outcome:paused}` (the digests count it through `recordEmailSend`), and a log line with the template, the tier and a recipient hash, never the address. Returns `'paused'` |
 | Support copy paused | The `bcc` field is dropped. The separate `COPY:` of an unsubscribable send is not sent, and each copy address gets a `paused` ledger row under the `-operator-copy` id. The recipient's own email is unchanged |
 | Row for a non-pausable entry | Ignored. A row left from before an entry became always-on cannot stop it |
-| Read fails | **Fail open.** The send goes ahead as if every switch were on. It warns (`source: 'email'`) and counts `aeci.email.switches.unavailable{layer}`. A D1 hiccup must not drop a seat invite |
+| Read fails | **Fail open.** The send goes ahead as if every switch were on. It warns (the transactional layer to PostHog with `source: 'email'`, the digest layer to the console) and counts `aeci.email.switches.unavailable{layer}`. A D1 hiccup must not drop a seat invite |
 
 **What a pause means to each caller.** A paused send holds no dedupe key, so a later run can
 send it after a resume. Resuming does not replay what was skipped. The attestation sweep
