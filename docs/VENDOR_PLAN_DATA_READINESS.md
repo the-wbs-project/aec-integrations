@@ -131,7 +131,7 @@ Tiers: **F** = Free listing and seat, **M** = Managed, **I** = Insights, **E** =
 > **Item 9, updated 2026-10-01 (epic AECI-1197, ADR 0038).** The audit row above describes `main`
 > at `2380b367`. Epic AECI-1197 changes three of its facts. Each email send now writes a
 > `notification_sends` row with the Resend message id (AECI-1202). The `?n=` link and portal open
-> or click recording are AECI-1209, not built. No bounce or delivery webhook exists. The vendor nudge is one daily digest per
+> or click recording are AECI-1209, not built. Since AECI-1222 (2026-10-02) a Resend delivery webhook records delivered, delayed, bounced and complained events per send in `notification_delivery_events`. Opens and clicks are deliberately not recorded. The vendor nudge is one daily digest per
 > seat, and a `notification.sent` row is written whether or not a seat was emailed, with
 > `metadata.emailedSeats` (AECI-1204). Staging and demo no longer email vendors at all, because
 > non-production email goes only to `thewbsproject.com` and `aecintegrations.com` (AECI-1198). The

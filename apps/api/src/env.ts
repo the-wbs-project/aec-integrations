@@ -209,6 +209,15 @@ export type Env = {
    */
   LINEAR_WEBHOOK_SIGNING_SECRET?: string;
   /**
+   * Svix signing secret (`whsec_<base64>`) for the inbound Resend delivery webhook,
+   * `POST /api/webhooks/resend` (AECI-1222), verified by `lib/resend-webhook-auth.ts`.
+   * Each tier registers its own endpoint in the Resend dashboard, and each endpoint has its
+   * own secret, so CI pushes a per-tier GH secret (`RESEND_WEBHOOK_SECRET_{STAGING,DEMO,
+   * PRODUCTION}`) under this one name. **Fails closed:** unset → every delivery is a 401
+   * and a warning. Never on the web Worker. `docs/email.md` §Delivery webhooks.
+   */
+  RESEND_WEBHOOK_SECRET?: string;
+  /**
    * Cloudflare Workflow binding carrying the promote ingest (AECI-563 / ADR 0021).
    * `POST /api/promote` creates an instance whose **id is the caller-supplied job
    * id** — the kick-off idempotency key, since `create({ id })` throws on a
@@ -488,6 +497,8 @@ export type Env = {
   JOB_RUNS_RETENTION_DAYS?: string;
   NOTIFICATION_SENDS_RETENTION_DAYS?: string;
   USER_ACTIVITY_RETENTION_DAYS?: string;
+  /** Override for the `notification_delivery_events` window (AECI-1222). Same rules. */
+  NOTIFICATION_DELIVERY_EVENTS_RETENTION_DAYS?: string;
   /**
    * Internal-traffic ASN list for the admin panel's read-time filter (AECI-574 /
    * `ADMIN_PANEL_SPEC.md` §13 **D10**). On 2026-08-10, 67 of the digest's 92

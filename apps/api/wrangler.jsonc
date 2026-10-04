@@ -86,6 +86,14 @@
   //                 recommended/warn-and-skip, NOT required — a prod webhook may not
   //                 be registered in Linear at all, and its absence is loud (it has
   //                 its own alert) rather than silent like LINEAR_API_KEY above.
+  //   RESEND_WEBHOOK_SECRET — Svix signing secret (`whsec_…`) for the inbound Resend
+  //                 delivery webhook (AECI-1222, `POST /api/webhooks/resend`).
+  //                 Fail-CLOSED: absent → every event 401s and
+  //                 `aeci.webhooks.resend.signature_failure` counts it. Each tier's
+  //                 Resend endpoint has its own secret, so CI pushes
+  //                 RESEND_WEBHOOK_SECRET_{STAGING,DEMO,PRODUCTION} (deploy.yml /
+  //                 promote-to-demo.yml / promote-to-prod.yml, warn-and-skip) under
+  //                 this one name. Never on previews or the web Worker.
   //   RESEND_API_KEY — Resend API key for transactional email (AECI-240 / Phase 7.5,
   //                 §11.1). Read at runtime by `lib/email.ts` for review submit/
   //                 approve/reject confirmations, the account-deletion email, and the

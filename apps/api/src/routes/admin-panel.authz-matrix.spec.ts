@@ -12,9 +12,9 @@
  * Extended by AECI-579 with `GET /api/admin/catalog/coverage`, by AECI-586 with
  * the Audience pair, by AECI-652 with the three `/api/admin/vendors` reads, by
  * AECI-722 with the five `/api/admin/connector-catalogs` reads, by AECI-739 with
- * `GET /api/admin/claims/:id`, by AECI-859 with `GET /api/admin/subscribers`, and
- * by AECI-1008 with `GET /api/admin/contests`, and by AECI-1177 with
- * `GET /api/admin/review-responses`.
+ * `GET /api/admin/claims/:id`, by AECI-859 with `GET /api/admin/subscribers`, by
+ * AECI-1008 with `GET /api/admin/contests`, by AECI-1177 with
+ * `GET /api/admin/review-responses`, and by AECI-1223 with the two email GETs.
  * Every read endpoint the epic adds belongs in {@link ROUTES} — that is the point
  * of the file.
  *
@@ -42,6 +42,7 @@ import { createAdminCatalogCoverageHandler } from './admin-catalog';
 import { createAdminClaimDetailHandler } from './admin-claims';
 import { createAdminContestsListHandler } from './admin-contests';
 import { createAdminReviewResponsesListHandler } from './admin-review-responses';
+import { createAdminEmailSendsHandler, createAdminEmailSummaryHandler } from './admin-email';
 import { createAdminReindexListHandler } from './admin-reindex';
 import { createAdminFeedbackHandler } from './admin-feedback';
 import { createAdminTimeseriesHandler } from './admin-metrics';
@@ -173,6 +174,11 @@ const ROUTES = [
   // `get()`-shaped, and `admin-review-responses.spec.ts` runs the same deny matrix
   // against both verbs.
   { name: 'GET /api/admin/review-responses', url: '/api/admin/review-responses' },
+  // AECI-1223 — the §5.14 email screen. Two GETs here; the POST address search is
+  // a read too, but this file is `get()`-shaped, so `admin-email.spec.ts` runs the
+  // same deny matrix against it.
+  { name: 'GET /api/admin/email/summary', url: '/api/admin/email/summary' },
+  { name: 'GET /api/admin/email/sends', url: '/api/admin/email/sends' },
 ] as const;
 
 let jwks: TestJwks;
@@ -332,6 +338,16 @@ function makeApp() {
     '/api/admin/review-responses',
     requireAdmin(guard),
     createAdminReviewResponsesListHandler(t.factory, async () => new Map<string, string>()),
+  );
+  app.get(
+    '/api/admin/email/summary',
+    requireAdmin(guard),
+    createAdminEmailSummaryHandler(t.factory, clock),
+  );
+  app.get(
+    '/api/admin/email/sends',
+    requireAdmin(guard),
+    createAdminEmailSendsHandler(t.factory, clock),
   );
   return app;
 }

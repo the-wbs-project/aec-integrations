@@ -301,6 +301,9 @@ Machine-readable codes are stable identifiers. Messages are localized.
 | `CONTEST_CHANGED_DURING_PROMOTE` | 409 | Promote job error only. A contest on an edge the bundle moves between `integrations` and `connector_evidenced_pairs` was filed, withdrawn or decided after the promote planned the move and before it committed. Nothing was written; re-push with a new `jobId`, and the re-push re-anchors the contests as they now stand (AECI-1110, `REVIEW_APP_PROMOTE_API.md` §3.4a) |
 | `VENDOR_OWNED_TWIN_CREATED_DURING_PROMOTE` | 409 | Promote job error only. A vendor created (or claimed) a strong-match twin of an integration the bundle was about to insert, de-route or update, after the promote planned the write and before it committed. Nothing was written; re-push with a new `jobId`, and the re-push reports `skipped[] { reason: 'VENDOR_OWNED_TWIN' }`, unless the edge is an UPDATE of a row that already matched the new vendor row, which the re-push writes (AECI-1011, `REVIEW_APP_PROMOTE_API.md` §4c) |
 | `PROFILE_UNAVAILABLE` | 503 | A verified session has no `profiles` row and the `GET /api/account` self-heal could not create one (AECI-770, `AUTH_AND_RLS.md` §3.1a). Retryable: the client offers "try again", never "sign in again", because a new sign-in does not help. Only `GET /api/account` raises it |
+| `NOTIFICATION_NOT_PAUSABLE` | 400 | `PUT /api/admin/email/switches/:key` asked to pause an entry the notification registry marks always on (AECI-1224): a seat invite, a claim or review decision, the account-deleted confirmation, a deadline email, or anything not sent through `lib/email.ts`. Resuming one is allowed. `field: 'key'` |
+| `NOTIFICATION_SWITCH_CHANGED` | 409 | The sending switch moved between the handler's read and its write, from another tab or admin (AECI-1224). Nothing was written. Reload and retry |
+| `ADDRESS_NOT_ALLOWED_IN_URL` | 400 | `GET /api/admin/email/sends` was given an `address` parameter (AECI-1223). An address must never be in a URL, because both Workers log request URLs. Search with `POST /api/admin/email/sends/search` and the address in the body. `field: 'address'` |
 | `RATE_LIMITED` | 429 | Rate limit exceeded. Two mechanisms raise it, both in the API Worker and both carrying `Retry-After` (§4.1a): the **`rateLimit()` middleware** (`apps/api/src/rate-limit-middleware.ts`, AECI-773) for burst caps, and a **D1 `count()`** in the handler for the two windows no binding can express — `INVITE_DAILY_LIMIT` (10 per vendor per rolling 24 h) and the review cap (3 per user per rolling hour). The Cloudflare WAF rate-limit rules are a **separate layer** that never produces this code: they mitigate at the edge and return Cloudflare's own 403 block page, not a §3.3 envelope (`docs/waf-rate-limits.md` §6.4). **Reads are never rate-limited**, so no `GET` returns this |
 | `DEPENDENCY_FAILURE` | 503 | Upstream dependency (Supabase, Algolia, Linear) failed |
 | `INTERNAL_ERROR` | 500 | Unexpected server error |
@@ -4885,6 +4888,118 @@ filter needs its counts computed both ways or the operator gets a smaller number
 compare it against — and that is a decision for whoever builds the screen, not one to settle in a
 spec draft.
 
+#### `GET /api/admin/email/summary`, `GET /api/admin/email/sends`, `POST /api/admin/email/sends/search` (AECI-1223)
+
+The `/admin/email` screen (`ADMIN_PANEL_SPEC.md` §5.14): what we sent, and whether it arrived.
+Reads over `notification_sends` (`DATABASE_SCHEMA.md` §9.9) and `notification_delivery_events`
+(§9.9a). `requireAdmin()`, no `rateLimit()`, no `audit_log` row, `private, no-store`. Contract in
+`packages/shared/src/api/admin-email.ts`.
+
+```typescript
+// GET /api/admin/email/summary — no parameters.
+export const AdminEmailSummaryResponseSchema = z.object({
+  generated_at: z.string().datetime(),
+  environment: z.string(),                 // tierLabel(env)
+  templates: z.array(AdminEmailTemplateSchema),   // every email / email+portal registry entry
+  rows: z.array(AdminEmailSummaryRowSchema),      // templates with activity in 30 days
+  sign_in: z.object({ d7, d30 }).nullable(),      // tier `auth`; production only, else null
+});
+// A row: { notification_id, summary|null, audience|null, registered, d7, d30 }, each window
+// { outcomes: { sent, failed, unknown, skipped, suppressed, duplicate, paused },  // paused: AECI-1224
+//   delivery: { delivered, bounced, complained, delivery_delayed } }.
+
+// GET /api/admin/email/sends
+export const AdminEmailSendsQuerySchema = PageQuerySchema.extend({
+  perPage: …default(25),
+  template: z.string().optional(),                 // notification_id =
+  outcome: AdminEmailSendOutcomeSchema.optional(), // the eight ledger outcomes, `sending` and `paused` included
+  delivery: z.enum([...events, 'none']).optional(),// the row's LATEST event type, or no event
+  from: utcDate.optional(), to: utcDate.optional(),// inclusive UTC days on created_at; from <= to
+});
+
+// POST /api/admin/email/sends/search — JSON body: the same fields plus
+  address: z.string().trim().min(3).max(320)       // must contain '@'; never echoed
+
+export const AdminEmailSendRowSchema = z.object({
+  id, notification_id, summary: z.string().nullable(), outcome, created_at,
+  provider_message_id: z.string().nullable(),
+  recipient_hash_prefix: z.string(),               // first 8 hex chars, cut in SQL
+  entity: z.object({ type, id, admin_path: z.string().nullable() }).nullable(),
+  latest_delivery: z.object({ event_type, occurred_at, bounce_type, bounce_subtype }).nullable(),
+});
+// sends: paginatedResponseSchema(row).extend({ generated_at })
+// search: the same plus unmatched_events (≤ 25): events for the hash with no ledger row.
+```
+
+**The address is a body field, never a query parameter.** Both Workers record request URLs in
+Workers Logs, so the GET answers `400 ADDRESS_NOT_ALLOWED_IN_URL` to an `address` parameter rather
+than ignore it. The search strips a `Name <…>` wrapper and hashes with `recipientHash`
+(`apps/api/src/lib/hash.ts`), the ledger's own normalization, then filters `recipient_hash =` on
+the `(recipient_hash, created_at)` index. No response carries an address or a full hash, and a
+validation error names the field without quoting it (`admin-email.spec.ts` asserts both on the
+serialized body).
+
+**Ordering** is `created_at DESC, id DESC`, fixed. The latest event per row is the newest by
+`occurred_at`, then `id`, among events with that row's `notification_send_id`, narrowed by
+`provider_message_id` so it rides the message index. `entity.admin_path` is resolved server-side
+(`vendor_request` needs its `kind`: a claim links `/admin/claims/:id`, a correction `/admin/requests`).
+
+**Windows** count a ledger row by its `created_at` and an event by its own `created_at` (when the
+webhook landed), not by Resend's verbatim `occurred_at` string.
+
+Errors: `VALIDATION_FAILED` (400) for a bad page, an unknown outcome or delivery value, a
+malformed date, `from` after `to`, or a missing / addressless `address`; `MALFORMED_REQUEST` (400)
+for a non-JSON search body; `ADDRESS_NOT_ALLOWED_IN_URL` (400).
+
+#### Sending switches: `GET /api/admin/email/switches`, `PUT /api/admin/email/switches/:key` (AECI-1224)
+
+Pause one email template, or the support copy, on THIS tier (`ADMIN_PANEL_SPEC.md` §5.14
+"Sending switches", §13 D24; `docs/email.md` §Sending switches). Table `notification_settings`
+(`DATABASE_SCHEMA.md` §9.13). `requireAdmin()` on both; the PUT adds `rateLimit('write')` after
+the guard. Contract in `packages/shared/src/api/admin-email.ts`.
+
+```typescript
+// GET /api/admin/email/switches — no parameters. A read: no audit row, no limiter.
+export const AdminEmailSwitchesResponseSchema = z.object({
+  generated_at: z.string().datetime(),
+  environment: z.string(),                   // tierLabel(env): a switch acts on this tier only
+  support_copy_configured: z.boolean(),      // EMAIL_BCC is set; never its value
+  switches: z.array(AdminEmailSwitchSchema), // 'support-copy' first, then every email entry by id
+});
+export const AdminEmailSwitchSchema = z.object({
+  key: z.string(),                           // a registry id, or 'support-copy'
+  kind: z.enum(['notification', 'support_copy']),
+  summary: z.string().nullable(),            // registry summary; null for the support copy
+  audience: z.enum(['external', 'operator']).nullable(),
+  pausable: z.boolean(),                     // from the registry; true for the support copy
+  enabled: z.boolean(),                      // false = paused; always true when !pausable
+  updated_at: z.string().nullable(),
+  updated_by: z.string().nullable(),         // the admin's profile id
+});
+
+// PUT /api/admin/email/switches/:key — strict body
+export const SetAdminEmailSwitchBodySchema = z.object({
+  enabled: z.boolean(),
+  reason: z.string().trim().max(500).optional(),   // recorded on the audit row
+}).strict();
+// 200: { switch: AdminEmailSwitch, changed: boolean }   changed:false = the state it already had
+```
+
+**Order of checks.** The body is parsed first: a non-JSON body is `400 MALFORMED_REQUEST` and a
+schema miss `400 VALIDATION_FAILED`. Then an unknown key (neither a registry id nor
+`support-copy`) is `404 NOT_FOUND`. A registry id of any channel resolves, so `enabled: false` on a non-pausable entry,
+including a portal, Linear or the Supabase sign-in id, is `400 NOTIFICATION_NOT_PAUSABLE`.
+`enabled: true` is always accepted, so a stale paused row can be cleared. Naming the current
+state is a 200 with `changed: false` that writes nothing. Otherwise ONE `db.batch`: a sentinel
+that aborts unless the stored state still matches the read, the upsert, and the
+`notification_settings.updated` audit row. A sentinel abort is `409
+NOTIFICATION_SWITCH_CHANGED`. The audit forward to PostHog runs post-commit in `waitUntil`. No
+cache purge: no public page reads the table.
+
+Errors: `VALIDATION_FAILED` (400) for a non-boolean `enabled`, an extra field or a long reason;
+`MALFORMED_REQUEST` (400) for a non-JSON body; `NOTIFICATION_NOT_PAUSABLE` (400); `NOT_FOUND`
+(404); `NOTIFICATION_SWITCH_CHANGED` (409); `RATE_LIMITED` (429).
+
 #### `POST /api/admin/integrations/:id/retire`, `/restore` and `GET /api/admin/vendors/:id/integrations` (AECI-1046)
 
 The admin retire and restore of a vendor-held integration, and the vendor's list of them (the Integrations tab on `/admin/vendors/:id`). Specified beside the owner retire in §6.14, because they share one batch. `requireAdmin()` then `rateLimit('write')` on the two POSTs; the GET is never rate-limited and writes no audit row.
@@ -4926,6 +5041,57 @@ export const LinearWebhookSchema = z.object({
 ```
 
 Worker writes corresponding `workflow_transitions` entries (see `STAGE_1_SPEC.md` §26).
+
+#### `POST /api/webhooks/resend` (AECI-1222)
+
+Receives Resend's delivery events and records them in `notification_delivery_events`
+(`DATABASE_SCHEMA.md` §9.9a). Governing doc: `docs/email.md` §Delivery webhooks. Public URL,
+reached through the SSR `/api/*` passthrough like the Linear webhook. No session, no in-Worker
+rate limit, no `audit_log` row (log-class, ADR 0022), no cache purge.
+
+**Auth: the Svix signature.** Headers `svix-id`, `svix-timestamp` (unix seconds) and
+`svix-signature` (space-separated `v1,<base64>`). The Worker computes HMAC-SHA256 over
+`{svix-id}.{svix-timestamp}.{raw body}` with the base64-decoded part of
+`RESEND_WEBHOOK_SECRET` after `whsec_`, and accepts when any `v1` entry matches (constant-time).
+A timestamp more than 5 minutes from the Worker clock is rejected. Verified before parsing.
+
+```typescript
+// packages/shared/src/api/webhooks.ts. Tolerant: unknown keys are stripped.
+// The envelope. `data` stays unparsed until the type is known: a contact or domain event has
+// no `email_id`, and must get a 200, not a 400 that Resend retries.
+export const ResendWebhookSchema = z.object({
+  type: z.string(),                      // 'email.delivered', 'email.bounced', …
+  created_at: z.string(),
+  data: z.unknown().optional(),
+});
+
+// Parsed from `data` only for the five recorded email types.
+export const ResendEmailEventDataSchema = z.object({
+  email_id: z.string().min(1),           // = notification_sends.provider_message_id
+  from: z.string().optional(),
+  to: z.array(z.string()).optional(),    // the impacted recipients; >1 = stored unattributed
+  subject: z.string().optional(),
+  tags: z.union([
+    z.record(z.string(), z.string()),    // documented shape: { tier, notification_id }
+    z.array(z.object({ name: z.string(), value: z.string() })),
+  ]).optional(),
+  bounce: z.object({ type: z.string().optional(), subType: z.string().optional() }).optional(),
+});
+```
+
+| Case | Status | Body |
+|---|---|---|
+| `Content-Length` over 256 KB, or an undeclared body that passes 256 KB while read | `413 PAYLOAD_TOO_LARGE` | error envelope. Checked before the signature |
+| Missing or bad signature, stale timestamp, unset secret | `401 UNAUTHENTICATED` | error envelope. An unusable secret also warns, once per isolate |
+| Signed body that is not JSON, fails the envelope, or is a recorded type whose `data` fails `ResendEmailEventDataSchema` | `400 MALFORMED_REQUEST` / `VALIDATION_FAILED` | error envelope |
+| Type other than `email.sent` / `delivered` / `delivery_delayed` / `bounced` / `complained`, whatever its `data` holds | `200` | `{ ok: true, recorded: 0, reason: 'ignored event type: …' }` |
+| Tagged for another tier, or untagged and not this tier's to record | `200` | `{ ok: true, recorded: 0, reason: 'other_tier' \| 'untagged' }` |
+| Recorded | `200` | `{ ok: true, recorded: 1, reason: 'recorded' }`. Always one row per event |
+| Replayed `svix-id` | `200` | `{ ok: true, recorded: 0, reason: 'replay' }` |
+| D1 error | `500` | error envelope. Resend retries |
+
+A drop or a replay is a 2xx on purpose: a non-2xx makes Resend retry an event that will never
+be stored.
 
 ### 6.12 Promotion (review-app push)
 

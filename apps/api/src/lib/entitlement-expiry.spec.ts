@@ -828,6 +828,7 @@ describe('tier delivery policy — the real senders on a staging config (AECI-11
       skipped: 0,
       suppressed: 1,
       duplicate: 0,
+      paused: 0,
     });
     expect(result.admin.sent).toBe(1);
   });

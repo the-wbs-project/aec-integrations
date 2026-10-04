@@ -25,7 +25,7 @@
  * good registry in place (visibly stale via `fetched_at`).
  * 03:00 UTC — daily §7.4 retention prune (`./lib/retention-prune`, AECI-584 /
  * Phase 8.3 P3.2): delete `page_views` older than 400 days, `job_runs` older
- * than 90 and `notification_sends` older than 400 (AECI-1202), in bounded chunks, committing every chunk together with ONE summary
+ * than 90, and `notification_sends` (AECI-1202) and `notification_delivery_events` (AECI-1222) older than 400, in bounded chunks, committing every chunk together with ONE summary
  * `audit_log` row (the ADR 0022 exception — the only cron here that audits).
  * Runs after the 00:15 snapshot, and *verifies* rather than assumes it landed:
  * a day inside the cut window with no `metrics_daily` row aborts the whole run.
@@ -1199,21 +1199,24 @@ async function runDataQualityJob(env: Env, ctx: ExecutionContext): Promise<JobRu
     generatedAt: new Date(),
   });
   const recipients = parseRecipients(env.DATA_QUALITY_EMAIL_TO);
-  const emailOutcome = await sendEmail(env, {
-    notification: 'digest-data-quality',
-    from: env.DATA_QUALITY_EMAIL_FROM ?? '',
-    to: recipients,
-    subject: digest.subject,
-    text: digest.text,
-    html: digest.html,
-  });
+  const telemetry = { env, executionCtx: ctx, req: { raw: req } };
+  const emailOutcome = await sendEmail(
+    env,
+    {
+      notification: 'digest-data-quality',
+      from: env.DATA_QUALITY_EMAIL_FROM ?? '',
+      to: recipients,
+      subject: digest.subject,
+      text: digest.text,
+      html: digest.html,
+    },
+    fetch,
+    console,
+    telemetry,
+  );
   submitCount(ctx, env, req, DQ_EMAIL_METRIC, 1, [`outcome:${emailOutcome}`]);
   // The shared email metric, tagged with the digest's registry id (AECI-1199).
-  recordEmailSend(
-    { env, executionCtx: ctx, req: { raw: req } },
-    emailOutcome,
-    'digest-data-quality',
-  );
+  recordEmailSend(telemetry, emailOutcome, 'digest-data-quality');
   logToPosthog(ctx, env, req, {
     // `unknown` (the call threw) is as worth a look as `failed`.
     level: emailOutcome === 'failed' || emailOutcome === 'unknown' ? 'error' : 'info',
@@ -1308,18 +1311,25 @@ async function runAnalyticsDigestJob(env: Env, ctx: ExecutionContext): Promise<J
       browserStartsUnavailable: browserStarts.ok ? null : browserStarts.reason,
     });
     const recipients = parseRecipients(env.ANALYTICS_DIGEST_EMAIL_TO);
-    const outcome = await sendEmail(env, {
-      notification: 'digest-analytics',
-      // Shares the transactional sender (`EMAIL_FROM`) — one verified Resend sender,
-      // no separate `_FROM` var. Absent → `sendEmail` skips (fail-open).
-      from: env.EMAIL_FROM ?? '',
-      to: recipients,
-      subject: digest.subject,
-      text: digest.text,
-      html: digest.html,
-    });
+    const telemetry = { env, executionCtx: ctx, req: { raw: req } };
+    const outcome = await sendEmail(
+      env,
+      {
+        notification: 'digest-analytics',
+        // Shares the transactional sender (`EMAIL_FROM`) — one verified Resend sender,
+        // no separate `_FROM` var. Absent → `sendEmail` skips (fail-open).
+        from: env.EMAIL_FROM ?? '',
+        to: recipients,
+        subject: digest.subject,
+        text: digest.text,
+        html: digest.html,
+      },
+      fetch,
+      console,
+      telemetry,
+    );
     submitCount(ctx, env, req, ANALYTICS_EMAIL_METRIC, 1, [`outcome:${outcome}`]);
-    recordEmailSend({ env, executionCtx: ctx, req: { raw: req } }, outcome, 'digest-analytics');
+    recordEmailSend(telemetry, outcome, 'digest-analytics');
     logToPosthog(ctx, env, req, {
       level: outcome === 'failed' || outcome === 'unknown' ? 'error' : 'info',
       message: `aeci.analytics_digest.email outcome=${outcome} recipients=${recipients.length}: ${digest.subject}`,
@@ -1330,8 +1340,8 @@ async function runAnalyticsDigestJob(env: Env, ctx: ExecutionContext): Promise<J
     // misconfiguration the operator should see as not-ok; on local/preview it is
     // the expected state.
     return {
-      // A tier-policy `suppressed` (AECI-1198) is a deliberate no-send, so it
-      // records as `skipped`, not `failed`. An `unknown` send (it threw, so it may
+      // A tier-policy `suppressed` (AECI-1198) or an operator's `paused` (AECI-1224) is
+      // a deliberate no-send, so it records as `skipped`, not `failed`. An `unknown` send (it threw, so it may
       // or may not have gone) records as `failed`, so the operator checks the inbox.
       outcome:
         outcome === 'sent'

@@ -155,7 +155,7 @@ describe('AdminShell', () => {
       // and Connectors (AECI-722, §5.9);
       // Operations = the three queues, Vendor claims (AECI-521 — folded into
       // ADMIN_NAV_GROUPS at the AECI-619 reconciliation), Vendors (AECI-652),
-      // Users (AECI-692) and System status (AECI-580, §5.6).
+      // Users (AECI-692), Email (AECI-1223, §5.14) and System status (AECI-580, §5.6).
       expect(navLinks(root)).toEqual([
         '/admin/overview',
         '/admin/activity',
@@ -172,6 +172,7 @@ describe('AdminShell', () => {
         '/admin/reindex',
         '/admin/vendors',
         '/admin/users',
+        '/admin/email',
         '/admin/system',
       ]);
     });

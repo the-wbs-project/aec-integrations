@@ -112,6 +112,11 @@ Runbook: [Account record could not be created at sign-in](#account-record-could-
 Thresholds and their basis: `observability/posthog/README.md`. First look:
 `docs/email.md` for the transport, `docs/NOTIFICATIONS.md` for what each template is.
 
+**Two delivery alerts (AECI-1222) sit beside them**: `email-bounce-rate` and
+`email-complaint-rate`. They watch `aeci.email.delivery` on `outcome:recorded`, over 7 days,
+checked daily. The thresholds are initial. First look: `docs/email.md` §Delivery webhooks, then
+the Resend dashboard for the message itself.
+
 ### The combined cron-failure alert — where the detail is
 
 Rows 2, 3, 4 and 6 above are **one** PostHog alert:

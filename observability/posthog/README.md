@@ -10,8 +10,8 @@ change it here first and carry the edit across; keep the table clean and liftabl
 | File | What it is |
 |---|---|
 | `project-config.json` | Topology (both projects, hosts, alert subscribers) + the **liveness registry** the CI sweep reads: fifteen of the seventeen crons. `protest-reply-reminder` and `vendor-snapshot` wait in `liveness.pendingFirstHeartbeat` (see Pending liveness entries). |
-| `insights.json` | 7 dashboards, 50 insights (32 board + 18 alert-source), as data. Names and descriptions are written for a **reader**, not for an archaeologist — see "Naming and descriptions". |
-| `alerts.json` | 18 PostHog alerts. Each names its source insight by **stable key** (`insightKey`, never by title) and carries the **retired Datadog query verbatim**. |
+| `insights.json` | 7 dashboards, 52 insights (32 board + 20 alert-source), as data. Names and descriptions are written for a **reader**, not for an archaeologist — see "Naming and descriptions". |
+| `alerts.json` | 20 PostHog alerts. Each names its source insight by **stable key** (`insightKey`, never by title) and carries the **retired Datadog query verbatim**. |
 | `apply.sh` | Thin applier over the three JSON files. Dashboards + insights to both projects, alerts to prod only. |
 | `../../scripts/ci/posthog-liveness-sweep.sh` | The absence detector. Replaces all eight `notify_no_data` monitors. |
 | `../../.github/workflows/posthog-liveness-sweep.yml` | Runs it every 3 hours, outside the Worker, and **fails red**. |
@@ -77,6 +77,10 @@ email. Like `indexnow-failure-rate` they sit beside the table, not inside it.
 | `email-failure-rate` | `alert-email-failure-rate` | (failed + unknown) / (sent + failed + unknown) > 20% over 24 h, reported only once 2 or more failed or unknown | daily |
 | `email-volume-spike` | `alert-email-volume-spike` | sent + failed + unknown > 50 in 24 h | daily |
 | `email-suppressed-in-production` | `alert-email-suppressed` | any `outcome:suppressed` in 1 h | hourly |
+| `email-bounce-rate` | `alert-email-bounce-rate` | bounced / sent > 5% over 7 days, `outcome:recorded`, reported only once 2 or more bounced | daily |
+| `email-complaint-rate` | `alert-email-complaint-rate` | complained / sent > 0.1% over 7 days, `outcome:recorded`, reported only once 1 or more complained | daily |
+
+The two delivery alerts (AECI-1222) read `aeci.email.delivery`, not `aeci.email.send`. Their thresholds are initial, set before any delivery data existed. Re-tune them from the first 14 days of production data.
 
 Basis: production 354071, 30 days to 2026-10-01, read-only. 6 sends, 0 failed, daily p50 0,
 p95 2, max 2, hourly max 1. The two operator digests were untagged until AECI-1199, and
@@ -557,7 +561,10 @@ Non-production 525793 was created 2026-08-24; **production 354071 was applied 20
 and carries the same 7 dashboards (ids `2033129`–`2033136`) and 43 insights (ids
 `11342302`–`11342372`), verified 2026-09-04.
 
-> **Update 2026-10-01 (AECI-1206):** the committed set is now 50 insights and 18 alerts.
+> **Update 2026-10-02 (AECI-1222):** the committed set is now 52 insights and 20 alerts. The two
+> new ones, `email-bounce-rate` and `email-complaint-rate`, are committed and not applied.
+>
+> **Update 2026-10-01 (AECI-1206):** the committed set was then 50 insights and 18 alerts.
 > The email board tile, three email alert sources and three email alerts reach PostHog on
 > the next `apply.sh` run.
 >

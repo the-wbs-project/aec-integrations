@@ -49,6 +49,8 @@ type ResourceKind =
   // the same screen just handed them. The 404 exists because the row may have
   // been cleared by another operator, or another tab, between read and click.
   | 'reindex_queue_row'
+  // A sending switch key (AECI-1224): neither a registry id nor `support-copy`.
+  | 'notification_setting'
   | 'category'
   | 'audience'
   | 'phase'

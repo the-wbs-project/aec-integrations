@@ -1,7 +1,7 @@
 {
   "_readme": [
     "AECI-647 / PH-6 — docs/POSTHOG_MIGRATION_SPEC.md §AW6 + §5.",
-    "The 18 PostHog alerts, as data. Each carries the RETIRED DATADOG QUERY VERBATIM in",
+    "The 20 PostHog alerts, as data. Each carries the RETIRED DATADOG QUERY VERBATIM in",
     "`replaces`, so re-promoting or re-tuning one is a config change and not archaeology.",
     "",
     "`insightKey` names the source insight by its STABLE KEY in insights.json, never by its",
@@ -540,6 +540,68 @@
         "_note": "NEW with AECI-1206, no Datadog predecessor. outcome:suppressed is the AECI-1198 tier delivery gate refusing an outside recipient. The gate applies to non-production tiers only, and only production reports to this project, so any count means the gate misread the tier and a real recipient got nothing. Production had never emitted the outcome as of 2026-10-01; it did not exist before this epic."
       },
       "runbook": "docs/email.md §Tier delivery policy."
+    },
+    {
+      "key": "email-bounce-rate",
+      "name": "AECi \u2014 Emails bouncing (> 5% over 7 days, at least 2 bounced)",
+      "insightKey": "alert-email-bounce-rate",
+      "enabled": true,
+      "calculationInterval": "daily",
+      "_calculationIntervalNote": "Daily, matching email-failure-rate. The window is 7 days, so an hourly check would re-read the same week 24 times a day and email on each firing check.",
+      "condition": {
+        "type": "absolute_value"
+      },
+      "threshold": {
+        "configuration": {
+          "type": "absolute",
+          "bounds": {
+            "upper": 5
+          }
+        }
+      },
+      "config": {
+        "type": "HogQLAlertConfig",
+        "evaluation": "last_row",
+        "column": "bounce_rate_pct",
+        "label_column": "sample"
+      },
+      "replaces": {
+        "datadogMonitor": null,
+        "datadogQuery": null,
+        "_note": "NEW with AECI-1222, no Datadog predecessor. INITIAL threshold set before any delivery data existed. Re-tune after 14 days of production data. Not applied to PostHog by AECI-1222: apply.sh is run by hand."
+      },
+      "runbook": "docs/email.md \u00a7Delivery webhooks (what each event means, how to read notification_delivery_events); the Resend dashboard for the bounce or complaint itself."
+    },
+    {
+      "key": "email-complaint-rate",
+      "name": "AECi \u2014 Emails marked as spam (> 0.1% over 7 days, at least 1)",
+      "insightKey": "alert-email-complaint-rate",
+      "enabled": true,
+      "calculationInterval": "daily",
+      "_calculationIntervalNote": "Daily, matching email-failure-rate. The window is 7 days, so an hourly check would re-read the same week 24 times a day and email on each firing check.",
+      "condition": {
+        "type": "absolute_value"
+      },
+      "threshold": {
+        "configuration": {
+          "type": "absolute",
+          "bounds": {
+            "upper": 0.1
+          }
+        }
+      },
+      "config": {
+        "type": "HogQLAlertConfig",
+        "evaluation": "last_row",
+        "column": "complaint_rate_pct",
+        "label_column": "sample"
+      },
+      "replaces": {
+        "datadogMonitor": null,
+        "datadogQuery": null,
+        "_note": "NEW with AECI-1222, no Datadog predecessor. INITIAL threshold set before any delivery data existed: at today's volume any complaint fires. Re-tune after 14 days of production data. Not applied to PostHog by AECI-1222: apply.sh is run by hand."
+      },
+      "runbook": "docs/email.md \u00a7Delivery webhooks (what each event means, how to read notification_delivery_events); the Resend dashboard for the bounce or complaint itself."
     }
   ]
 }

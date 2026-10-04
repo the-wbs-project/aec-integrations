@@ -2366,6 +2366,9 @@ export const jobRuns = sqliteTable(
  * - `skipped`: nothing to send with (no key, sender or recipient).
  * - `suppressed`: the tier delivery policy refused the recipient (AECI-1198).
  * - `duplicate`: the dedupe key was already held, so nothing was sent.
+ * - `paused`: an operator paused this template, or the support copy, on this tier
+ *   (AECI-1224, `notification_settings`). Nothing was sent and no key is held.
+ *   A TypeScript-only addition: the column has no CHECK, so no migration.
  */
 export type NotificationSendOutcome =
   | 'sending'
@@ -2374,7 +2377,8 @@ export type NotificationSendOutcome =
   | 'unknown'
   | 'skipped'
   | 'suppressed'
-  | 'duplicate';
+  | 'duplicate'
+  | 'paused';
 
 /**
  * One row per send attempt per recipient, for every Resend email (AECI-1202).
@@ -2437,6 +2441,82 @@ export const notificationSends = sqliteTable(
     index('notification_sends_recipient_idx').on(t.recipientHash, t.createdAt),
     // "Every send of this notification in a window". The §7.4 prune pages the PK.
     index('notification_sends_notification_idx').on(t.notificationId, t.createdAt),
+    // The delivery webhook's join (AECI-1222): every Resend event looks its id up here.
+    // A plain CREATE INDEX, so adding it recreated nothing (docs/migrations.md §0).
+    index('notification_sends_provider_message_idx').on(t.providerMessageId),
+  ],
+);
+
+// ===========================================================================
+// Resend delivery events (AECI-1222, DATABASE_SCHEMA.md §9.9a)
+//
+// LOG-CLASS, like `notification_sends`: no `audit_log` row (ADR 0022). Written by
+// `POST /api/webhooks/resend` (`lib/notifications/delivery-events.ts`). A new table, so
+// its migration is a pure CREATE: nothing existing is recreated (docs/migrations.md §0).
+// ===========================================================================
+
+/** The delivery event, without Resend's `email.` prefix. Opens and clicks are never stored. */
+export type NotificationDeliveryEventType =
+  | 'sent'
+  | 'delivered'
+  | 'delivery_delayed'
+  | 'bounced'
+  | 'complained';
+
+/**
+ * One row per Resend delivery event per impacted recipient. Resend's `data.to` lists the
+ * impacted recipients, so an event for a several-recipient digest can write several rows.
+ */
+export const notificationDeliveryEvents = sqliteTable(
+  'notification_delivery_events',
+  {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+
+    /** The `svix-id` header. Unique per delivery attempt of one event; a retry repeats it. */
+    svixId: text('svix_id').notNull(),
+
+    /** Resend's `data.email_id`, which is `notification_sends.provider_message_id`. */
+    providerMessageId: text('provider_message_id').notNull(),
+
+    /** CHECK-free, like `notification_sends.outcome`: the union is the enforcement. */
+    eventType: text('event_type').notNull().$type<NotificationDeliveryEventType>(),
+
+    /**
+     * The joined `notification_sends.id`, or null when no ledger row matches (a BCC copy,
+     * a ledger outage, the Supabase sign-in email). Deliberately NO foreign key: a log row
+     * must outlive its parent, and an FK would put this table on the ON DELETE path of any
+     * future `notification_sends` recreate.
+     */
+    notificationSendId: integer('notification_send_id'),
+
+    /** The registry id: the joined row's, else the `notification_id` tag when it names a
+     *  registry entry, else `unknown`. `supabase-sign-in` for the sign-in stream. */
+    notificationId: text('notification_id').notNull(),
+
+    /** The receiving tier's `tierLabel(env)`, or `auth` for the Supabase sign-in stream. */
+    tier: text('tier').notNull(),
+
+    /** `recipientHash()` of the impacted address, the ledger's own normalization. '' when
+     *  the event named no recipient. */
+    recipientHash: text('recipient_hash').notNull(),
+
+    /** `data.bounce.type` / `data.bounce.subType` on a bounce (`Permanent`, `Suppressed`, …). */
+    bounceType: text('bounce_type'),
+    bounceSubtype: text('bounce_subtype'),
+
+    /** Resend's event time (`created_at` on the envelope). */
+    occurredAt: text('occurred_at').notNull(),
+
+    createdAt: createdAt(),
+  },
+  (t) => [
+    // Idempotency: a Resend retry repeats the svix id, so the repeat inserts nothing.
+    // Per recipient, because one event can name several.
+    uniqueIndex('notification_delivery_events_svix_recipient_idx').on(t.svixId, t.recipientHash),
+    // "What happened to this message".
+    index('notification_delivery_events_message_idx').on(t.providerMessageId),
+    // "What happened to mail for this person", newest first.
+    index('notification_delivery_events_recipient_idx').on(t.recipientHash, t.createdAt),
   ],
 );
 
@@ -2618,6 +2698,38 @@ export const vendorActivityDaily = sqliteTable(
     index('vendor_activity_daily_vendor_day_idx').on(t.vendorId, t.day),
   ],
 );
+
+// ===========================================================================
+// Operator sending switches (AECI-1224, DATABASE_SCHEMA.md §9.13)
+//
+// DOMAIN state: a switch changes who receives mail, so every change writes its
+// `audit_log` row in the same `db.batch` (`lib/notifications/switches.ts`). A new
+// table, so its migration is a pure CREATE: nothing existing is recreated
+// (docs/migrations.md §0). NOT the per-seat mute above: that is a seat's own
+// choice about one digest, this is an operator's choice about a whole template
+// on one tier.
+// ===========================================================================
+
+/**
+ * One row per switch an operator has touched. No row means enabled. The key is a
+ * notification registry id (`lib/notifications/registry.ts`) or the reserved
+ * `support-copy`, which covers the `EMAIL_BCC` blind copy and the operator `COPY:`.
+ */
+export const notificationSettings = sqliteTable('notification_settings', {
+  /** A registry id, or `support-copy`. No CHECK and no FK: the registry is code, and
+   *  the API refuses any key it does not know. */
+  key: text('key').primaryKey(),
+
+  /** False means paused on this tier. */
+  enabled: integer('enabled', { mode: 'boolean' }).notNull(),
+
+  /** The admin's `profiles.id` that made the last change. Deliberately NO foreign key:
+   *  a `profiles` recreate would otherwise cascade here and silently resume paused mail. */
+  updatedBy: text('updated_by'),
+
+  createdAt: createdAt(),
+  updatedAt: updatedAt(),
+});
 
 /**
  * External classification of the ASNs we have actually seen (AECI-624).
