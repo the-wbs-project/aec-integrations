@@ -155,6 +155,12 @@ describe('notification registry shape', () => {
       }
       // `production-external` is an email rule. Nothing else has a send to gate.
       if (entry.envRule === 'production-external') expect(sendsEmail(entry)).toBe(true);
+      // `production-only` and `production-and-demo` (AECI-1220) are operator email the transport refuses outright
+      // off production. A portal row or a Linear write has no send for it to refuse.
+      if (entry.envRule === 'production-only' || entry.envRule === 'production-and-demo') {
+        expect(sendsEmail(entry)).toBe(true);
+        expect(entry.audience).toBe('operator');
+      }
     });
 
     it('offers an opt-out only where one exists', () => {

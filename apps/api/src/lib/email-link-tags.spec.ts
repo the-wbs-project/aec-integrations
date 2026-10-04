@@ -102,8 +102,7 @@ function ctx(env: Partial<Env> = {}): EmailContext {
       RESEND_API_KEY: 'rk_test',
       EMAIL_FROM: 'AEC Integrations <notifications@aecintegrations.com>',
       PUBLIC_SITE_URL: SITE,
-      ADMIN_ALERT_EMAIL: 'support@aecintegrations.com',
-      CLAIM_ALERT_EMAIL: 'claims@aecintegrations.com',
+      SUPPORT_EMAIL: 'support@aecintegrations.com',
       EMAIL_BCC: 'ops@aecintegrations.com',
       ...env,
     } as Env,
@@ -602,10 +601,11 @@ describe('every transactional email template tags its site links (AECI-1209)', (
 
   it('the exclusion checks above saw real cases', () => {
     // Opt-out pages (`/unsubscribe`, `/notifications/mute`), an off-origin link
-    // (Linear, LinkedIn), the mailing-list mailto, the logo and List-Unsubscribe.
+    // (Linear, LinkedIn), the logo and List-Unsubscribe. No template carries a mailto
+    // since AECI-1220 dropped the welcome's `unsubscribe@`, so `seen.mailto` is not
+    // asserted. `link-tag.spec.ts` covers the mailto rule directly.
     expect(seen.untaggedSitePaths).toBeGreaterThan(0);
     expect(seen.offOrigin).toBeGreaterThan(0);
-    expect(seen.mailto).toBeGreaterThan(0);
     expect(seen.images).toBeGreaterThan(0);
     expect(seen.headers).toBeGreaterThan(0);
   });

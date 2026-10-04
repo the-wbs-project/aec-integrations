@@ -20,8 +20,8 @@
 
 AECi has three operator-facing information channels today, and none of them is a screen:
 
-1. **The daily analytics digest** (`lib/analytics-digest.ts`, 05:00 UTC cron → `ANALYTICS_DIGEST_EMAIL_TO`) — yesterday's traffic, top products, sources, sign-ins, moderation depth, crawler activity.
-2. **The daily data-quality digest** (`lib/data-quality.ts` + `lib/data-quality-email.ts`, 04:00 UTC cron → `ADMIN_ALERT_EMAIL`) — ten catalog-integrity checks.
+1. **The daily analytics digest** (`lib/analytics-digest.ts`, 05:00 UTC cron → `SUPPORT_EMAIL`, production only since AECI-1220) — yesterday's traffic, top products, sources, sign-ins, moderation depth, crawler activity.
+2. **The daily data-quality digest** (`lib/data-quality.ts` + `lib/data-quality-email.ts`, 04:00 UTC cron → `SUPPORT_EMAIL`, production and demo only since AECI-1220) — ten catalog-integrity checks.
 3. **The observability plane** — infrastructure metrics and alerts, plus consented product analytics. Two vendors today: **Datadog** is what alerts on production, **PostHog** is what the migration is moving to (ADR 0024 dual-run; Datadog is deleted at AECI-651). Either way it is a separate console, which is the point below.
 
 Each has a structural limit. The emails are **push-only and yesterday-shaped**: you cannot ask a follow-up question, drill into a number, or look at a range. The data-quality checks are computed daily and then **discarded into an inbox** — nothing persists them. And PostHog, by design, sees only the slice of traffic that clicks **Accept** on the consent banner (`app/analytics/consent.ts` is strict opt-in; `posthog-js` is not even imported until `state() === 'granted'`).
@@ -1493,8 +1493,9 @@ or the support copy, on this tier, from this page. §13 D24 records the choices 
   transport drops the `EMAIL_BCC` blind copy from every send and skips the separate `COPY:`
   of an unsubscribable send. The registry entry `mailing-list-welcome-operator-copy` is not
   pausable on its own: the support-copy switch is its control. When `EMAIL_BCC` is unset on
-  this tier, the page says no support copy is set up and shows no control. If AECI-1220 drops
-  `EMAIL_BCC`, this switch goes with it.
+  this tier, the page says no support copy is set up and shows no control. AECI-1220 unset
+  `EMAIL_BCC` on every tier, so no control shows today. The switch and the code path stay, so
+  re-adding the var is one line per tier.
 - **The section.** Title "Sending switches". A support-copy block first, then a table of
   every pausable template: id and registry summary, audience, status ("Sending", or "Paused"
   with when and by whom), and one button, Pause or Resume. Non-pausable templates get no

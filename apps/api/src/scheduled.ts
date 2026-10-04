@@ -66,7 +66,7 @@
  * `STAGE_2_ATTESTATIONS_SPEC.md` §7): four detectors over the claim/attestation
  * spine (silent counterparty, open conflict, stale version, AECi-seeded claim
  * denied) → nudge emails to the vendors' seats and per-finding ops alerts to
- * `ADMIN_ALERT_EMAIL`, deduped against an `audit_log` ledger so a daily sweep
+ * `SUPPORT_EMAIL`, deduped against an `audit_log` ledger so a daily sweep
  * cannot re-nag daily. Deliberately last of the daily jobs, so a nudge describes
  * the state the site is actually serving. Unlike the read-only gauges this one
  * RETHROWS on an unexpected failure, so the queue retries — a sweep that never
@@ -75,7 +75,7 @@
  * (`./lib/entitlement-expiry`, AECI-613 / `STAGE_2_PAID_TIERS_SPEC.md` §7): one
  * indexed read over `vendor_entitlements_expiry_idx` for terms within 30 days →
  * a renewal prompt to the vendor's seats and an operator copy to
- * `ADMIN_ALERT_EMAIL`, fenced by `expiry_notice_sent_at` so a term earns ONE
+ * `SUPPORT_EMAIL`, fenced by `expiry_notice_sent_at` so a term earns ONE
  * notice rather than one per night. Queue-less (a small read plus a handful of
  * fail-open emails). **It warns and never lapses** — it writes
  * `expiry_notice_sent_at` and an audit row, never `status` and never
@@ -1198,7 +1198,7 @@ async function runDataQualityJob(env: Env, ctx: ExecutionContext): Promise<JobRu
     env: algoliaEnvFor(env),
     generatedAt: new Date(),
   });
-  const recipients = parseRecipients(env.DATA_QUALITY_EMAIL_TO);
+  const recipients = parseRecipients(env.SUPPORT_EMAIL);
   const telemetry = { env, executionCtx: ctx, req: { raw: req } };
   const emailOutcome = await sendEmail(
     env,
@@ -1239,7 +1239,7 @@ async function runDataQualityJob(env: Env, ctx: ExecutionContext): Promise<JobRu
  *  UTC day's page views, top products, new + total users, and the live
  *  pending-moderation depth (with day-over-day deltas). Report-only reads — no audit
  *  row, no mutation. The Resend transport is fail-open: an absent `RESEND_API_KEY` /
- *  `EMAIL_FROM` / `ANALYTICS_DIGEST_EMAIL_TO` yields `outcome:skipped` (the expected
+ *  `EMAIL_FROM` / `SUPPORT_EMAIL` yields `outcome:skipped` (the expected
  *  local/preview state), and the `aeci.analytics_digest.email` metric is the delivery
  *  signal. Queue-less (like `moderation`/`waf`), so it always runs inline. Never throws:
  *  a read/format crash is logged and counted `outcome:failed` (so the metric still
@@ -1310,7 +1310,7 @@ async function runAnalyticsDigestJob(env: Env, ctx: ExecutionContext): Promise<J
       browserStarts: browserStarts.ok ? browserStarts.starts : null,
       browserStartsUnavailable: browserStarts.ok ? null : browserStarts.reason,
     });
-    const recipients = parseRecipients(env.ANALYTICS_DIGEST_EMAIL_TO);
+    const recipients = parseRecipients(env.SUPPORT_EMAIL);
     const telemetry = { env, executionCtx: ctx, req: { raw: req } };
     const outcome = await sendEmail(
       env,

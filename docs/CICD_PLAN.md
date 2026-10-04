@@ -565,7 +565,7 @@ Stored in GitHub Settings → Secrets and Variables → Actions. Scoped per envi
 | `POSTHOG_PROJECT_ID_PROD` | PostHog prod project id for source maps, deploy markers and the liveness sweep. Optional: the workflows fall back to `354071`. | `promote-to-prod.yml`, `posthog-liveness-sweep.yml` |
 | `LINEAR_NOTIFICATIONS_DOC_ID` | The id of the one Linear Document that `docs/NOTIFICATIONS.md` is mirrored into (AECI-1201, §11b). While it is unset, a push to `main` skips the mirror job cleanly (the job's `if:` guard, on hold since 2026-10-02 until the Linear Document exists). A `workflow_dispatch` always runs, and with it unset the mirror exits 2 and the run goes red. | `mirror-notifications-doc.yml` |
 
-**Setting up the notifications mirror (AECI-1201).** This is a one-time operator task. Until it is done, every merge that changes `docs/NOTIFICATIONS.md` turns the mirror run red. It does not block merges.
+**Setting up the notifications mirror (AECI-1201).** This is a one-time operator task. The mirror is built and switched off. Until it is done, a push to `main` skips the mirror job, and only a manual `workflow_dispatch` runs it and goes red. AECI-1201 is Canceled, so nothing schedules this setup. It never blocks merges.
 
 1. In Linear, create a Document in the AECi team. Title it "Notifications". Leave it empty. The first mirror run fills it.
 2. Copy the document id from its URL. The URL ends in the title slug and a short id. We have not verified whether `documentUpdate` takes that short id or needs the document's UUID. The first manual run in step 6 answers it. An `Entity not found` error means the id is the wrong form.
@@ -1122,7 +1122,7 @@ deliberate, reviewed human action.
 |---|---|---|---|
 | [`mirror-notifications-doc.yml`](../.github/workflows/mirror-notifications-doc.yml) | Push to `main` that changes `docs/NOTIFICATIONS.md`, and `workflow_dispatch` | Overwrites one Linear Document with the doc, through `scripts/mirror-notifications-doc.mjs` (AECI-1201). The mirrored copy carries a header naming the commit and saying Linear edits are overwritten. One concurrency group, no cancel-in-progress, so two merges do not race and the newest commit wins. | The Linear copy is stale. Exit 2 means `LINEAR_DOCS_MIRROR_API_KEY` or `LINEAR_NOTIFICATIONS_DOC_ID` is unset (§7.1). Exit 1 means Linear refused the update: read the logged HTTP status or GraphQL error. Re-run with `workflow_dispatch` once fixed. |
 
-It is **not a required check and cannot block a merge**: it runs only on push, after the merge. A red run is the alert. The payload builder is unit-tested by `scripts/mirror-notifications-doc.test.mjs`, which root `pnpm test:unit` runs through `pnpm test:scripts`.
+**The mirror is switched off until `LINEAR_NOTIFICATIONS_DOC_ID` and `LINEAR_DOCS_MIRROR_API_KEY` are set:** a push to `main` skips the job, and no merge runs it. It is **not a required check and cannot block a merge**: it runs only on push, after the merge. Once it is on, a red run is the alert. The payload builder is unit-tested by `scripts/mirror-notifications-doc.test.mjs`, which root `pnpm test:unit` runs through `pnpm test:scripts`.
 
 ---
 

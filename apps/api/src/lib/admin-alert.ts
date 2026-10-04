@@ -14,7 +14,7 @@
  * **The transport is Resend** (AECI-240 / Phase 7.5, §11.1) — `sendAdminAlert`
  * delegates to `sendStuckRequestAdminAlert` in `lib/email.ts`, then emits
  * `aeci.linear.reconcile.email` with the send `outcome` and logs the digest. It
- * stays fail-open: an absent `RESEND_API_KEY` / `ADMIN_ALERT_EMAIL` resolves to
+ * stays fail-open: an absent `RESEND_API_KEY` / `SUPPORT_EMAIL` resolves to
  * `'skipped'` (the expected local/preview state, mirroring the absent-`LINEAR_API_KEY`
  * posture), and the §6.2 Datadog alert remains the guaranteed backstop regardless.
  * Kept as its own module so the email channel (and its test) live in one place,
@@ -79,7 +79,7 @@ export interface AdminAlert {
 }
 
 /** `paused`: an operator paused `stuck-request-alert` on this tier (AECI-1224).
- *  `suppressed`: the tier delivery policy refused `ADMIN_ALERT_EMAIL` (AECI-1198).
+ *  `suppressed`: the tier delivery policy refused `SUPPORT_EMAIL` (AECI-1198).
  *  `duplicate`: the send ledger already holds the alert's dedupe key (AECI-1202), so
  *  an earlier send in the same band owns it (AECI-1203). Not a failure.
  *  `unknown`: the Resend call timed out or threw, so the alert may or may not have
@@ -96,7 +96,7 @@ export type AdminAlertOutcome =
 /**
  * Deliver the admin alert via Resend (`lib/email.ts`). **Never throws** (mirrors
  * `linearGraphql`) — a telemetry or transport failure must not break the sweep.
- * Returns the send `outcome`; an absent `RESEND_API_KEY` / `ADMIN_ALERT_EMAIL`
+ * Returns the send `outcome`; an absent `RESEND_API_KEY` / `SUPPORT_EMAIL`
  * yields `'skipped'`, in which case the caller has already raised the Datadog
  * alert, which is the guaranteed backstop (§6.2).
  *
@@ -109,7 +109,7 @@ export async function sendAdminAlert(
   alert: AdminAlert,
 ): Promise<AdminAlertOutcome> {
   const outcome: AdminAlertOutcome = await sendStuckRequestAdminAlert(c, {
-    to: c.env.ADMIN_ALERT_EMAIL,
+    to: c.env.SUPPORT_EMAIL,
     rows: alert.rows,
     dedupeKey: alert.dedupeKey,
     // One request is the entity. A digest of several names none: the key lists them.
@@ -121,7 +121,7 @@ export async function sendAdminAlert(
   log(c, {
     level: outcome === 'failed' || outcome === 'unknown' ? 'warn' : 'info',
     message: `aeci.linear.reconcile.email outcome=${outcome} rows=${alert.rows.length}${
-      c.env.ADMIN_ALERT_EMAIL ? ` recipient=${c.env.ADMIN_ALERT_EMAIL}` : ' recipient=unset'
+      c.env.SUPPORT_EMAIL ? ` recipient=${c.env.SUPPORT_EMAIL}` : ' recipient=unset'
     }`,
     request_ids: alert.rows.map((r) => r.requestId),
   });

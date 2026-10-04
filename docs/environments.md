@@ -56,6 +56,23 @@ Internal means an address at `thewbsproject.com` or `aecintegrations.com`, exact
 missing or unknown `ENV` counts as non-production. Supabase sign-in mail is outside this
 gate, because Supabase sends it itself.
 
+Operator email vars, one value per tier (AECI-1220):
+
+| Var | Staging | Demo | Production |
+| --- | --- | --- | --- |
+| `SUPPORT_EMAIL` | `support@aecintegrations.com` | `support@aecintegrations.com` | `support@aecintegrations.com` |
+| `EMAIL_BCC` | Unset | Unset | Unset |
+
+`SUPPORT_EMAIL` is the one recipient of every operator email. It replaced
+`ADMIN_ALERT_EMAIL`, `CLAIM_ALERT_EMAIL`, `FOUNDER_ALERT_EMAIL`, `DATA_QUALITY_EMAIL_TO` and
+`ANALYTICS_DIGEST_EMAIL_TO`. `EMAIL_BCC` is off everywhere because the send ledger records
+each send and the copies kept personal data after an account deletion. Re-adding it is one
+var line per tier in `apps/api/wrangler.jsonc` (`docs/email.md` §Secrets & vars).
+
+The daily analytics digest and the stale-claim alert are `production-only`: staging and demo
+suppress them, whatever the recipient. The daily data-quality digest is `production-and-demo`:
+production and demo send it, and staging suppresses it.
+
 ### Resend delivery webhook per tier (AECI-1222)
 
 `POST /api/webhooks/resend` records what happened to a send after Resend took it

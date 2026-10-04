@@ -596,7 +596,7 @@ describe('scheduled (cron producer)', () => {
     ]);
 
     // Even with every queue bound, analytics has no producer → always inline; and with
-    // no RESEND_API_KEY / ANALYTICS_DIGEST_EMAIL_TO the fail-open send resolves 'skipped'.
+    // no RESEND_API_KEY / SUPPORT_EMAIL the fail-open send resolves 'skipped'.
     const send = vi.fn().mockResolvedValue(undefined);
     const env = makeEnv({
       ALGOLIA_SYNC_QUEUE: { send } as never,

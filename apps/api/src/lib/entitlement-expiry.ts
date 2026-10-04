@@ -488,7 +488,7 @@ export async function runEntitlementExpirySweep(
     });
   }
 
-  const adminRecipients = parseRecipients(c.env.ADMIN_ALERT_EMAIL);
+  const adminRecipients = parseRecipients(c.env.SUPPORT_EMAIL);
   const seatEmails = await loadVendorSeatEmails(
     db,
     c.env,

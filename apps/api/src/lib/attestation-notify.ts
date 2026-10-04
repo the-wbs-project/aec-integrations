@@ -8,7 +8,7 @@
  *   1. groups the due vendor findings by vendor, then by seat;
  *   2. sends ONE `attestation-digest` per unmuted seat per day, listing every due
  *      finding for that seat's vendor;
- *   3. sends ONE `attestation-ops-digest` per `ADMIN_ALERT_EMAIL` address per day,
+ *   3. sends ONE `attestation-ops-digest` per `SUPPORT_EMAIL` address per day,
  *      listing every due ops finding;
  *   4. records every due finding in `audit_log` (the ledger that is also the portal
  *      row), unless delivery failed or could not be attempted.
@@ -295,7 +295,7 @@ export function vendorDigestKey(vendorId: string, profileId: string, day: string
 }
 
 /** `attestation-ops-digest:{YYYY-MM-DD}:{recipient hash prefix}`. Per address,
- *  because `ADMIN_ALERT_EMAIL` may list several and one key would make the second
+ *  because `SUPPORT_EMAIL` may list several and one key would make the second
  *  a duplicate of the first. */
 export function opsDigestKey(day: string, addressHash: string): string {
   return `attestation-ops-digest:${day}:${addressHash.slice(0, 16)}`;
@@ -559,11 +559,11 @@ export async function runAttestationNotifySweep(
     await record(findings, 'attestation-digest', seatOutcomes);
   }
 
-  // ── The ops digest: one per ADMIN_ALERT_EMAIL address.
+  // ── The ops digest: one per SUPPORT_EMAIL address.
   if (ops.length > 0) {
     const opsFindings = ops.map(opsDigestFinding);
     const seatOutcomes: SeatOutcome[] = [];
-    for (const to of parseRecipients(c.env.ADMIN_ALERT_EMAIL)) {
+    for (const to of parseRecipients(c.env.SUPPORT_EMAIL)) {
       seatOutcomes.push(
         await sendAttestationOpsDigestEmail(c, {
           to,

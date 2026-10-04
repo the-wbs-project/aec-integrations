@@ -5,6 +5,7 @@
 - Issue: AECI-1197 (sub-issues AECI-1198 to AECI-1206)
 - Supersedes: nothing. It amends `STAGE_2_ATTESTATIONS_SPEC.md` §7.2 and §7.3 (one email per finding becomes one digest per seat) and `STAGE_1_PHASE_6_SPEC.md` §6.1 (the sweep's claim alert re-send shares the submit's dedupe key).
 - Amended: 2026-10-01, the branch review. Recorded inline below and listed under "Review amendments".
+- Amended: 2026-10-04, AECI-1220. Tier-limited rules (`production-only`, `production-and-demo`), one `SUPPORT_EMAIL`, the operator blind copy off. See §7.
 
 ## Context
 
@@ -107,7 +108,7 @@ Nothing listed them. The inventory found six problems.
 
 - The sweep sends one `attestation-digest` per unmuted `vendor_admin` seat per day. It lists every
   due finding, 25 in full and the rest counted. One `attestation-ops-digest` goes to each
-  `ADMIN_ALERT_EMAIL` address per day.
+  `ADMIN_ALERT_EMAIL` address per day (`SUPPORT_EMAIL` since AECI-1220, §7).
 - The five per-finding templates are retired: `attestation-silent-counterparty`,
   `attestation-open-conflict`, `attestation-stale-version`, `attestation-claim-denied` and
   `attestation-ops-alert`.
@@ -162,6 +163,33 @@ The branch review changed these, each recorded where it applies above or below.
 - `protest-reply-reminder` is out of the liveness sweep until its first production heartbeat
   (`observability/posthog/README.md` §Pending liveness entries). A follow-up issue tracks it.
 
+### 7. Amendment (2026-10-04, AECI-1220): one support address, tier-limited rules, no blind copy
+
+- **One recipient var.** `SUPPORT_EMAIL` (`support@aecintegrations.com` on staging, demo and
+  production) replaces `ADMIN_ALERT_EMAIL`, `CLAIM_ALERT_EMAIL`, `FOUNDER_ALERT_EMAIL`,
+  `DATA_QUALITY_EMAIL_TO` and `ANALYTICS_DIGEST_EMAIL_TO`. Four of the five already named support.
+  The stale-claim alert moves from `founders@thewbsproject.com` to it. `DATA_QUALITY_EMAIL_FROM`
+  stays. Keep the value to one address: off production the tier policy refuses a value with a comma.
+- **Two tier-limited rules.** `envRule: 'production-only'` sends from production alone, to any
+  recipient. `'production-and-demo'` also sends on demo. Every other tier suppresses the entry:
+  outcome `suppressed`, one `notification_sends` row per recipient. `refusedByTierRule` in
+  `delivery-policy.ts` decides, and both transports in `lib/email.ts` apply it.
+  `digest-analytics` and `stale-claim-ticket-alert` are `production-only`. `digest-data-quality`
+  is `production-and-demo`, at Chris's call: demo holds a promoted catalog worth checking. The
+  rules replace unsetting a recipient var per tier, which no longer works with one shared var.
+  Staging stops sending the daily data-quality digest about synthetic data.
+  The analytics job records `suppressed` as `skipped` in `job_runs`, as before.
+- **`EMAIL_BCC` is unset on every tier.** `notification_sends` already records each send, and the
+  copies kept personal data in Microsoft 365 after an account deletion. The code path stays: the
+  `bcc` field, the operator `COPY:` of the welcome email, the `support-copy` switch and the
+  delivery-events BCC handling. Turning it back on is one wrangler var line per tier.
+- **`unsubscribe@` is gone.** The welcome email's `List-Unsubscribe` header carries only the
+  https RFC 8058 URL. With no host or token there is no opt-out line and no header, which
+  happens on local and PR previews only. Nobody owned the mailbox.
+- **The Linear Document mirror is built and switched off.** The workflow skips until
+  `LINEAR_NOTIFICATIONS_DOC_ID` and its key are set. AECI-1201 is Canceled. This replaces the
+  "fails with exit 2" consequence below.
+
 ## Consequences
 
 - **Staging now shows portal rows with `emailedSeats` 0.** Its seats are outside the allowlist, so
@@ -186,5 +214,6 @@ The branch review changed these, each recorded where it applies above or below.
 - **The registry must change with the code.** Adding, retiring or re-keying a notification is a
   registry edit plus `pnpm docs:notifications` in the same commit, or lint fails.
 - **The Linear Document needs a repository secret and a variable.** Until the operator sets
-  `LINEAR_DOCS_MIRROR_API_KEY` and `LINEAR_NOTIFICATIONS_DOC_ID`, each mirror run fails with exit 2.
-  The run is not a required check, so it never blocks a merge (`docs/CICD_PLAN.md` §11b).
+  `LINEAR_DOCS_MIRROR_API_KEY` and `LINEAR_NOTIFICATIONS_DOC_ID`, the mirror workflow skips
+  (§7, AECI-1220). The run is not a required check, so it never blocks a merge
+  (`docs/CICD_PLAN.md` §11b).

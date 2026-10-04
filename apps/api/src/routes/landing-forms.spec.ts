@@ -320,7 +320,7 @@ describe('AECI-275 trusted geo headers + app-origin', () => {
 });
 
 // AECI-247/277 — retiring `apps/landing` moves its operator "new signup / new
-// feedback" Resend send into these handlers (to `ADMIN_ALERT_EMAIL`, fail-open).
+// feedback" Resend send into these handlers (to `SUPPORT_EMAIL`, fail-open).
 // AECI-327 adds a second subscribe-side send: the subscriber's welcome email. Both
 // are fired fire-and-forget via `ctx.waitUntil` AFTER the DB write, so the sends
 // (skipped in tests — TEST_ENV has no RESEND_API_KEY) never affect the response.

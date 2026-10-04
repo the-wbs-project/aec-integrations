@@ -5,7 +5,7 @@
  *
  * **This is the first read surface the `feedback` table has ever had.** It is
  * written by `POST /api/feedback` (`routes/landing-forms.ts`) and forwarded as a
- * fire-and-forget operator email to `ADMIN_ALERT_EMAIL` — and that email has been
+ * fire-and-forget operator email to `SUPPORT_EMAIL` — and that email has been
  * the only way anyone has seen a submission since the table was created. Nothing
  * here re-shapes an existing view; the column set simply is the row.
  *

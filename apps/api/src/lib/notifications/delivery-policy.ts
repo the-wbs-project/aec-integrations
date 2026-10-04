@@ -10,6 +10,10 @@
  *     Anything else is suppressed by the transport (`lib/email.ts`), which logs it with
  *     a recipient hash and counts `aeci.email.send` with `outcome:suppressed`.
  *   - **Fail closed.** A missing or unknown `ENV` counts as non-production.
+ *   - **Tier-limited entries** (AECI-1220). A registry entry with
+ *     `envRule: 'production-only'` sends from production alone, and one with
+ *     `'production-and-demo'` from production and demo. Every other tier suppresses it
+ *     whatever the recipient, through {@link refusedByTierRule}.
  *
  * The allowlist is a code constant, not an env var, so a misconfigured var cannot widen
  * it. Supabase sign-in mail is outside this gate because Supabase sends it itself.
@@ -32,6 +36,15 @@ const NAMED_TIERS = new Set(['development', 'preview', 'staging', 'demo']);
 /** True only when `ENV` is exactly `'production'`. Missing or unknown is non-production. */
 export function isProductionTier(env: DeliveryPolicyEnv): boolean {
   return env.ENV === 'production';
+}
+
+/** True when the entry's tier rule refuses this tier outright, before any recipient is
+ *  looked at (AECI-1220): a `production-only` entry outside production, or a
+ *  `production-and-demo` entry outside those two. */
+export function refusedByTierRule(env: DeliveryPolicyEnv, envRule: string): boolean {
+  if (envRule === 'production-only') return !isProductionTier(env);
+  if (envRule === 'production-and-demo') return !isProductionTier(env) && env.ENV !== 'demo';
+  return false;
 }
 
 /** The tier label for logs and the subject prefix. Unknown or missing is `non-production`. */

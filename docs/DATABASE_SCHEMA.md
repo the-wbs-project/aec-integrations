@@ -3692,7 +3692,7 @@ transport reads at most two rows per send (the template and `support-copy`) by p
 
 **`support-copy` is a reserved key, not a registry id.** It covers the `EMAIL_BCC` blind copy
 and the separate operator `COPY:`. `registry.spec.ts` holds that no registry id equals it. If
-AECI-1220 drops `EMAIL_BCC`, the key goes with it.
+AECI-1220 unset `EMAIL_BCC` on every tier. The key stays, so re-adding the var needs no code change.
 
 **A row for a non-pausable entry does nothing.** The write route refuses to create one
 (`400 NOTIFICATION_NOT_PAUSABLE`), and the transport ignores one that predates an entry

@@ -8,7 +8,7 @@
  *
  * Every six hours it reads the claims that are past `STALE_THRESHOLD_HOURS` and
  * have a linked issue, asks Linear what state each of those issues is actually in,
- * and emails `FOUNDER_ALERT_EMAIL` one digest naming the ones nobody has started.
+ * and emails `SUPPORT_EMAIL` one digest naming the ones nobody has started.
  *
  * ── IT ASKS LINEAR, NOT D1 ────────────────────────────────────────────────────
  * `vendor_requests.status` advances past `open` only when the §6.3 inbound webhook
@@ -286,7 +286,7 @@ export async function runClaimStaleCheck(
         })),
       );
       const outcome = await sendAlert(c, {
-        to: c.env.FOUNDER_ALERT_EMAIL,
+        to: c.env.SUPPORT_EMAIL,
         rows: emailRows,
         dedupeKey,
         ...(emailRows.length === 1
@@ -298,7 +298,7 @@ export async function runClaimStaleCheck(
       log(c, {
         level: outcome === 'failed' || outcome === 'unknown' ? 'warn' : 'info',
         message: `aeci.linear.claim_stale.email outcome=${outcome} rows=${emailRows.length}${
-          c.env.FOUNDER_ALERT_EMAIL ? ` recipient=${c.env.FOUNDER_ALERT_EMAIL}` : ' recipient=unset'
+          c.env.SUPPORT_EMAIL ? ` recipient=${c.env.SUPPORT_EMAIL}` : ' recipient=unset'
         }`,
       });
     } else {

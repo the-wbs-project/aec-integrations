@@ -155,7 +155,7 @@ const waited: Array<Promise<unknown>> = [];
 
 function ctx(env: Partial<Env> = {}): ExpiryContext {
   return {
-    env: { ADMIN_ALERT_EMAIL: 'ops@aecintegrations.com', ...env } as Env,
+    env: { SUPPORT_EMAIL: 'ops@aecintegrations.com', ...env } as Env,
     executionCtx: {
       waitUntil: (p: Promise<unknown>) => {
         waited.push(p);
@@ -503,7 +503,7 @@ describe('without SUPABASE_SERVICE_ROLE_KEY', () => {
     await seedEntitlement();
     const { recorded, sendVendorEmail, sendAdminEmail } = seams();
 
-    const result = await runEntitlementExpirySweep(ctx({ ADMIN_ALERT_EMAIL: undefined }), t.db, {
+    const result = await runEntitlementExpirySweep(ctx({ SUPPORT_EMAIL: undefined }), t.db, {
       now: NOW,
       fetchSeatEmails: noSeatEmails,
       sendVendorEmail,
@@ -842,7 +842,7 @@ describe('tier delivery policy — the real senders on a staging config (AECI-11
       .mockImplementation(async () => new Response('{"id":"re_1"}', { status: 200 }));
 
     const result = await runEntitlementExpirySweep(
-      ctx({ ...STAGING, ADMIN_ALERT_EMAIL: 'ops@vendor.example' }),
+      ctx({ ...STAGING, SUPPORT_EMAIL: 'ops@vendor.example' }),
       t.db,
       {
         now: NOW,

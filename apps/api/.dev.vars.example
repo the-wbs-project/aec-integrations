@@ -235,24 +235,19 @@ RESEND_API_KEY=
 # Sender for transactional email — the Resend `from`. Bare address or `Name <addr>`.
 # Must be on a Resend-verified domain. Absent → sends skip (with RESEND_API_KEY).
 EMAIL_FROM=
-# Optional. Blind copy on EVERY send, both transports in lib/email.ts. Deployed tiers
-# set it to support@aecintegrations.com. Leave it empty locally so test sends stay quiet.
+# Optional. Blind copy on EVERY send, both transports in lib/email.ts. Unset on every
+# deployed tier since AECI-1220. Leave it empty locally so test sends stay quiet.
 EMAIL_BCC=
-# Optional. Recipient of the operator alerts: the reconcile-sweep stuck-request alert
-# (§6.2), signup/feedback notifications, attestation ops alerts and the operator copy
-# of entitlement-expiry warnings. Deployed tiers set it to support@aecintegrations.com.
-ADMIN_ALERT_EMAIL=
-# Optional. Recipient of the operator "new vendor claim" alert, sent post-commit
-# from POST /api/requests/claim. Deployed tiers set this to support@aecintegrations.com;
-# it is a separate var from ADMIN_ALERT_EMAIL so the two can be routed apart.
-# A single address. Absent → the alert is a fail-open 'skipped' and the submit still
-# returns 201. Corrections never alert — claims only.
-CLAIM_ALERT_EMAIL=
-# Optional. Recipient(s) for the daily operator analytics digest (AECI-526) — the
-# 05:00 UTC (noon Jakarta) cron's page-views / top-product / sign-in summary. Comma-separated;
-# sender is the shared EMAIL_FROM above. Absent → the digest send is a 'skipped'
-# no-op (set a RESEND_API_KEY + EMAIL_FROM + this to exercise it locally).
-ANALYTICS_DIGEST_EMAIL_TO=
+# Optional. The support inbox: the ONE recipient of every operator email (AECI-1220).
+# Moderation, signup and feedback alerts, claim/contest/protest intake, the §6.2
+# stuck-request alert, the stale-claim digest, attestation ops alerts, the operator
+# copy of entitlement-expiry warnings, and the data-quality and analytics digests.
+# One address. Deployed tiers set it to support@aecintegrations.com. It replaces
+# ADMIN_ALERT_EMAIL, CLAIM_ALERT_EMAIL, FOUNDER_ALERT_EMAIL, DATA_QUALITY_EMAIL_TO and
+# ANALYTICS_DIGEST_EMAIL_TO; rename yours if your .dev.vars still has them. The two
+# digests and the stale-claim digest are tier-limited (production, plus demo for data
+# quality), so locally they are suppressed whatever this says. Absent → every operator send is a 'skipped' no-op.
+SUPPORT_EMAIL=
 
 # ─── IndexNow notification after promote (AECI-236 / §20.2) ─────────────────
 # On promote, the WORKER submits the affected public URLs to IndexNow (Bing /

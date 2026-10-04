@@ -110,7 +110,7 @@ const ENV: Env = {
   ENV: 'production',
   RESEND_API_KEY: 'rk_test',
   EMAIL_FROM: 'AEC Integrations <notifications@aecintegrations.com>',
-  ADMIN_ALERT_EMAIL: 'ops@aecintegrations.com',
+  SUPPORT_EMAIL: 'ops@aecintegrations.com',
   PUBLIC_SITE_URL: 'https://www.aecintegrations.com',
 };
 
@@ -238,7 +238,7 @@ describe('runAttestationNotifySweep — delivery', () => {
     expect(sentTo()).toEqual(['acme@example.com']);
   });
 
-  it('routes an ops finding to ADMIN_ALERT_EMAIL with vendorId null on the ledger', async () => {
+  it('routes an ops finding to SUPPORT_EMAIL with vendorId null on the ledger', async () => {
     await sweep([finding({ detector: 'claim-denied', vendorId: null })]);
 
     expect(sentTo()).toEqual(['ops@aecintegrations.com']);
@@ -378,9 +378,9 @@ describe('runAttestationNotifySweep — fail-open', () => {
     expect(await ledgerRows()).toHaveLength(0);
   });
 
-  it('skips an ops finding when ADMIN_ALERT_EMAIL is unset', async () => {
+  it('skips an ops finding when SUPPORT_EMAIL is unset', async () => {
     const result = await sweep([finding({ detector: 'claim-denied', vendorId: null })], {
-      env: { ADMIN_ALERT_EMAIL: undefined },
+      env: { SUPPORT_EMAIL: undefined },
     });
     expect(result).toMatchObject({ skipped: 1, sent: 0 });
   });
@@ -810,9 +810,9 @@ describe('runAttestationNotifySweep — ops digest (AECI-1204)', () => {
     expect(new Set(rows.map((r) => meta(r).vendorId))).toEqual(new Set([null]));
   });
 
-  it('sends one per ADMIN_ALERT_EMAIL address, each with its own dedupe key', async () => {
+  it('sends one per SUPPORT_EMAIL address, each with its own dedupe key', async () => {
     await sweep([opsFinding(1)], {
-      env: { ADMIN_ALERT_EMAIL: 'ops@aecintegrations.com, chris@thewbsproject.com' },
+      env: { SUPPORT_EMAIL: 'ops@aecintegrations.com, chris@thewbsproject.com' },
     });
     expect(sentTo()).toEqual(['ops@aecintegrations.com', 'chris@thewbsproject.com']);
   });
