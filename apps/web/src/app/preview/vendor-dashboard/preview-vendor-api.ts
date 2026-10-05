@@ -80,10 +80,7 @@ import {
   type VendorHistoryFilters,
   type VendorReviewsFilters,
 } from '../../vendor/vendor-api';
-import {
-  VENDOR_HISTORY_FIXTURE,
-  historyKindKeeps,
-} from '../../vendor/vendor-history-fixtures';
+import { VENDOR_HISTORY_FIXTURE, historyKindKeeps } from '../../vendor/vendor-history-fixtures';
 import { VENDOR_REVIEWS_FIXTURE } from '../../vendor/vendor-review-fixtures';
 import {
   VENDOR_CONNECTOR_CATALOG_FIXTURE,
