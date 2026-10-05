@@ -19,6 +19,8 @@ No Loops client was ever written. The docs (§11.1, `CLAUDE.md`, `CICD_PLAN.md`,
 `API_CONTRACTS.md`) were corrected to Resend in this issue. This file is the
 decision record; no separate ADR.
 
+> **As-built note (2026-10-04, AECI-1161).** The `aecintegrations.com` zone moved to **The WBS Project** Cloudflare account at the cutover ([ADR 0036](./adr/0036-move-to-the-wbs-project-cloudflare-account.md)). The mail DNS records moved with it: the M365 MX, the Resend `send.` MX and SPF, `resend._domainkey` and `_dmarc`. Resend and Microsoft 365 did not move. Re-verified 2026-10-04: Resend shows the domain `verified` in `us-east-1`, and the DKIM value on the new zone matches Resend's byte for byte. Any "Cloudflare dashboard" step below means the WBS account.
+
 ## Architecture
 
 - **Transport:** `apps/api/src/lib/email.ts` — a single Resend client in the API

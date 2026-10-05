@@ -14,7 +14,7 @@
 
 import { readFileSync } from 'node:fs';
 
-const BLOCKER_2 = '4781ac7e149247baa5b4119274119821';
+const BLOCKER_2 = '2e2e7ae15d69446a872dcb142e7ed82c'; // WBS zone id since 2026-10-04 (was 4781ac7e… on the old zone)
 const TITLES = {
   1: 'Block secret-file probes (AECI-1138)',
   2: 'Block framework and endpoint probes (AECI-1138)',

@@ -65,12 +65,12 @@ The Cloudflare resources as deployed. If any of these change, update this sectio
 | Access app | `AECi Non-Prod` — `53dccd08-c97b-46ba-a96e-750a419d749f`, self-hosted. It also gates the agent spike's production-named Worker, which had its own app on the old account |
 | Zero Trust team domain | `the-wbs-project.cloudflareaccess.com` (issues the Access JWT `iss` + serves the JWKS at `/cdn-cgi/access/certs`; consumed by `apps/datatool` `ACCESS_TEAM_DOMAIN`) |
 | App AUD tag | `cccc1e20ad7d9da26dd5a7fe67716b39102bc74e4eceb9eab66afb5786d7b632` |
-| Allow policy | `One Time Pin` (`AECi allowlist` on the old org). Policy id and OTP identity provider id on the new org: read them from the dashboard or `GET /accounts/{id}/access/policies`; they are not recorded in the runbook. The old ids (`4c6b7bbd-…`, `c31649de-…`) are dead |
-| Service Auth policy | Service token `aeci-gh-actions` |
+| Allow policy | `One Time Pin`, reusable, id `cbc91dab-355c-4a5d-8b94-8f21e86f2be1` (`AECi allowlist` on the old org). Identity provider: One-time PIN, id `55c57483-2202-4157-960d-49166c71c151`. Read 2026-10-05. The old ids (`4c6b7bbd-…`, `c31649de-…`) are dead |
+| Service Auth policy | `GitHub Actions`, reusable, decision `non_identity`, id `3e414a01-fcbe-49f2-879a-df8701336e5f`. Includes service token `a0591e50-04a7-46dc-a51c-95e458ae05ff` (`aeci-gh-actions`) |
 | Service token | `aeci-gh-actions` (Client ID + Secret in GitHub repo secrets as `CF_ACCESS_CLIENT_ID` / `CF_ACCESS_CLIENT_SECRET`) |
-| Destinations | `aeci-*.thewbsproject.workers.dev`; `staging.aecintegrations.com` is added at the cutover, once the WBS zone is Active. `demo.aecintegrations.com` is listed in the pre-launch text below and is not a destination now (production is public) |
+| Destinations | `aeci-*.thewbsproject.workers.dev` and `staging.aecintegrations.com`. Staging was added 2026-10-05, after the cutover left it public for about a day (AECI-1166). `demo.aecintegrations.com` is listed in the pre-launch text below and is not a destination now (production is public) |
 | Session duration | `24h` |
-| Allowlist emails | `chrisw@thewbsproject.com`; `billh@thewbsproject.com` is to be added (runbook, 2026-10-01) |
+| Allowlist emails | `chrisw@thewbsproject.com`, `billh@thewbsproject.com` |
 
 > **Cutover note (ADR 0017):** adding `demo.aecintegrations.com` to the **Destinations** above (same app, same allowlist + service-token policies) is what gates production. The `aeci-gh-actions` service token must be allowed on the policy covering it so the `promote-to-prod` smoke (`verify-version.sh` / `verify-health.sh`) can reach prod. At launch, delete the `demo.aecintegrations.com` destination to make production public — no code change needed (the prod `CF_ACCESS_*` workflow vars then become a harmless no-op).
 

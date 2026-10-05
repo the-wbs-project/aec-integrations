@@ -56,6 +56,8 @@ redesigned. The source export is `scripts/ops/2026-09-wbs-account-move/waf-expor
 
 | Rule | Old zone id | WBS zone id |
 |---|---|---|
+| Custom-rules ruleset (`http_request_firewall_custom`) | `974122bb23af4354a215724d9c7e8436` | `0052017b9bf44ceaad5888bf9d6c3d97` |
+| Rate-limit ruleset (`http_ratelimit`) | `6ba381516e4c4c37af85631a68b04ef6` | `eaec1f752ded4f6e9a16b1ec70c2b087` |
 | Blocker Rule 1 ("Block scanner probes", Block) | `bc961c9f6c2e4e02ba2429d06f8f1dc2` | `b154c36f480f4f639cb6e614cf75de69` |
 | Blocker Rule 2 ("Blocker 2", Block, 403) | `4781ac7e149247baa5b4119274119821` | `2e2e7ae15d69446a872dcb142e7ed82c` |
 | Scraper-UA (Managed Challenge) | `319173bafcf749fdbf9b739480d71ded` | `44749706cd6540d686ba27122176d0cc` |
@@ -66,9 +68,9 @@ redesigned. The source export is `scripts/ops/2026-09-wbs-account-move/waf-expor
 
 - **Not copied:** "Skip WAF for stack-test subdomain". `stack-test` is retired and is not in the WBS DNS.
 - **Carried over as-is:** the host lists still name `prod.aecintegrations.com`, which was retired in AECI-807. Narrowing them is separate work.
-- **The AECI-1138 probe-block rules** (below) were still pending on the old zone, so they were not part of the copy.
-- **Ruleset ids on the WBS zone are not recorded yet.** The dashboard does not show them. They must be read through the API once the WBS zone token exists, then written into `scripts/ops/2026-09-waf-host-scope/rules.mjs` and here. Until then every script under `scripts/ops/2026-09-waf-*` pins the old ruleset ids and must not be run against the WBS zone.
-- **Bot settings** were compared on 2026-09-30 and match, with two cutover steps: turn continuous script monitoring on and turn Bot Preference Sync off once the zone is Active. Bot Preference Sync prepends to `robots.txt` if left on. The comparison table is in the runbook, `scripts/ops/2026-09-wbs-account-move/README.md`.
+- **The AECI-1138 probe-block rules** were still pending on the old zone, so they were not part of the copy. They were applied directly on the WBS zone on 2026-10-05 (below).
+- **Ruleset ids on the WBS zone were read through the API on 2026-10-05** with `CF_WAF_API_TOKEN`. Every rule id in the table was confirmed live at the same time. `scripts/ops/2026-09-waf-host-scope/rules.mjs` and `scripts/ops/2026-09-waf-secret-file-block/` now pin the WBS ids. `scripts/ops/2026-09-waf-prod-host-removal/` imports its ruleset ids from the host-scope file, so it follows.
+- **Bot settings** were compared on 2026-09-30 and match, with two cutover steps: turn continuous script monitoring on and turn Bot Preference Sync off once the zone is Active. Bot Preference Sync prepends to `robots.txt` if left on. Read through the API on 2026-10-05: Bot Preference Sync is off (`is_robots_txt_managed: false`). Continuous script monitoring was turned on the same day, and reads back `page_shield.enabled: true`. The comparison table is in the runbook, `scripts/ops/2026-09-wbs-account-move/README.md`.
 - **Zone analytics history stays on the old zone.** The `aeci.waf.ratelimit.blocked` poll starts from zero at the cutover. It needs the swapped `CF_ZONE_ID` and `CF_ANALYTICS_API_TOKEN` (§5).
 
 ### Original apply (2026-06-23, AECI-242)
@@ -212,14 +214,22 @@ or (http.request.uri.path contains "/debugbar/")
 
 ### Scanner probe block (2026-09, AECI-1138)
 
-**PENDING — drafted 2026-09-28, not yet applied to the zone.** Two new custom rules,
-**"Block secret-file probes (AECI-1138)"** then **"Block framework and endpoint probes
-(AECI-1138)"**, both action Block, placed directly after "Blocker 2". Definition, evidence and
-checked exclusions are [§2a](#2a-scanner-probe-block--security--waf--custom-rules-aeci-1138).
-The rate-limit ruleset is untouched. Custom rules go from 4 (plus any generated `AI Crawl
-Control` rule) to 6, against a Pro cap of 20. Replace this paragraph with the dated apply and
-both rule ids. Apply with
-[`scripts/ops/2026-09-waf-secret-file-block/`](../scripts/ops/2026-09-waf-secret-file-block/README.md).
+**Applied 2026-10-05 on the WBS zone**, through the dashboard, in custom-rules ruleset
+`0052017b9bf44ceaad5888bf9d6c3d97` (version 5). Both rules are action Block and sit directly after
+"Blocker 2", in this order:
+
+| Rule | Id | Length |
+|---|---|---|
+| "Block secret-file probes (AECI-1138)" | `49bd8d0675c846f3931c22f354f95854` | 1,108 |
+| "Block framework and endpoint probes (AECI-1138)" | `d5d854680deb4e47b905353cfdacb202` | 3,272 |
+
+Both live expressions match the §2a blocks character for character (read back through the API).
+The corpus check was re-run against production first: `failures=0`. After the apply, all seven
+README probes returned 403. The controls `/`, `/robots.txt`, `/sitemap.xml`, `/products/procore`,
+`/search` and `/api/version` returned 200, and `/.well-known/traffic-advice` returned 404.
+The custom ruleset now holds 5 rules. The rate-limit ruleset is untouched. Definition, evidence
+and checked exclusions are [§2a](#2a-scanner-probe-block--security--waf--custom-rules-aeci-1138).
+Scripts: [`scripts/ops/2026-09-waf-secret-file-block/`](../scripts/ops/2026-09-waf-secret-file-block/README.md).
 
 ### Host-set extension to production (2026-09, AECI-659)
 
@@ -539,9 +549,8 @@ Why it is shaped this way:
 
 ## 2a. Scanner probe block — Security → WAF → Custom rules (AECI-1138)
 
-**Status: drafted 2026-09-28, NOT applied.** The two rules below are written ahead of the zone,
-the same direction as AECI-807. Replace this line with the dated apply and both rule ids once
-they are live (see [Deployed state](#deployed-state)).
+**Status: applied 2026-10-05.** Rule ids `49bd8d06…` and `d5d85468…`. See
+[Deployed state](#deployed-state).
 
 Two custom rules, both action **Block**, placed directly after "Blocker 2" in this order. They
 are two rules rather than one because together they are about 4,000 characters, and the Ruleset
@@ -819,7 +828,7 @@ edit, with the §4 verification, not as a new rule.
 | `/api/reviews` 3/**user**/hr | ✅ **delivered** — literally, since AECI-773 | Not here: Rule B is unchanged and stays the per-IP edge burst brake. The spec's actual sentence is honoured in the Worker — `rateLimit('write')` gives the per-**user** half (Enterprise-only on WAF) and a D1 `count()` over `reviews` gives the per-**hour** half (which the native binding also cannot do — its window enum is 10 or 60 s). §6.2, ADR 0026 |
 | magic-link 5/**email**/hr | ❌ not in CF | **Supabase → Authentication → Rate Limits** — the request goes browser→Supabase and never reaches Cloudflare (owner-managed, out of scope for AECI-242) |
 | block known scraper UAs | ✅ §2 custom rule | this runbook |
-| *(not in the spec)* secret-file and framework scanners | ⏳ two §2a custom rules, drafted, not applied (AECI-1138) | Path-only Block. The two pre-existing Block rules cover part of it. §2a closes the gaps: 93.7% of the 2026-09 scanner's logged 404s |
+| *(not in the spec)* secret-file and framework scanners | ✅ two §2a custom rules, applied 2026-10-05 (AECI-1138) | Path-only Block. The two pre-existing Block rules cover part of it. §2a closes the gaps: 93.7% of the 2026-09 scanner's logged 404s |
 | the vendor portal's own paths | ✅ clear (was broken by a MANAGED rule) | §3a below — a managed rule 403'd every path containing `/vendor/` zone-wide; **resolved 2026-08-26**, kept as the detection recipe |
 | *(not in the spec)* AI crawlers + agent fetchers | ⚠️ governed **elsewhere** | §3b below — zone-level bot settings, dashboard-only, unreachable from any rule here. AECI-800 |
 | *(not in the spec)* the vendor-portal writes, the two token-presenting paths, the account/identity writes | ✅ **covered in the Worker** (AECI-773) | Not coverable here at all: both Pro slots are spent and there is no third. §6 |

@@ -54,7 +54,7 @@ Rule 1 goes directly after "Blocker 2". Rule 2 goes directly after rule 1.
 
 ### Dashboard
 
-1. Cloudflare → account **AEC Integrations** → zone **aecintegrations.com**.
+1. Cloudflare → account **The WBS Project** → zone **aecintegrations.com**.
 2. **Security → WAF → Custom rules → Create rule.**
 3. Rule name: `Block secret-file probes (AECI-1138)`.
 4. **When incoming requests match** → **Edit expression**. Paste the matching ` ```wirefilter `
@@ -71,28 +71,28 @@ The token needs **Zone → WAF → Edit** on `aecintegrations.com`. `CF_READONLY
 this. Set `CF_WAF_API_TOKEN` and `CF_ZONE_ID` exactly as
 `scripts/ops/2026-09-waf-host-scope/README.md` → "Credentials" describes.
 
-Confirm the custom-rules entry point is still ruleset `974122bb23af4354a215724d9c7e8436`, and list
+Confirm the custom-rules entry point is still ruleset `0052017b9bf44ceaad5888bf9d6c3d97`, and list
 its rules in order. This is a read.
 
 ```bash
 curl -s -H "Authorization: Bearer $CF_WAF_API_TOKEN" "https://api.cloudflare.com/client/v4/zones/$CF_ZONE_ID/rulesets/phases/http_request_firewall_custom/entrypoint" | jq '{id: .result.id, version: .result.version, rules: [.result.rules[] | {id, description, action, enabled}]}'
 ```
 
-The `id` must be `974122bb23af4354a215724d9c7e8436`, and `4781ac7e149247baa5b4119274119821`
+The `id` must be `0052017b9bf44ceaad5888bf9d6c3d97`, and `2e2e7ae15d69446a872dcb142e7ed82c`
 ("Blocker 2") must be in the list. If either is not true, stop and re-read the zone first.
 
 Create rule 1. The last line prints its id.
 
 ```bash
 node scripts/ops/2026-09-waf-secret-file-block/payload.mjs 1 > /tmp/aeci-1138-rule-1.json
-curl -s -X POST -H "Authorization: Bearer $CF_WAF_API_TOKEN" -H "Content-Type: application/json" --data @/tmp/aeci-1138-rule-1.json "https://api.cloudflare.com/client/v4/zones/$CF_ZONE_ID/rulesets/974122bb23af4354a215724d9c7e8436/rules" | jq -r '.success, (.errors | tostring), (.result.rules[] | select(.description == "Block secret-file probes (AECI-1138)") | .id)'
+curl -s -X POST -H "Authorization: Bearer $CF_WAF_API_TOKEN" -H "Content-Type: application/json" --data @/tmp/aeci-1138-rule-1.json "https://api.cloudflare.com/client/v4/zones/$CF_ZONE_ID/rulesets/0052017b9bf44ceaad5888bf9d6c3d97/rules" | jq -r '.success, (.errors | tostring), (.result.rules[] | select(.description == "Block secret-file probes (AECI-1138)") | .id)'
 ```
 
 Put that id in `AECI_1138_RULE_1_ID`, then create rule 2 after it.
 
 ```bash
 node scripts/ops/2026-09-waf-secret-file-block/payload.mjs 2 "$AECI_1138_RULE_1_ID" > /tmp/aeci-1138-rule-2.json
-curl -s -X POST -H "Authorization: Bearer $CF_WAF_API_TOKEN" -H "Content-Type: application/json" --data @/tmp/aeci-1138-rule-2.json "https://api.cloudflare.com/client/v4/zones/$CF_ZONE_ID/rulesets/974122bb23af4354a215724d9c7e8436/rules" | jq -r '.success, (.errors | tostring), (.result.rules[] | select(.description == "Block framework and endpoint probes (AECI-1138)") | .id)'
+curl -s -X POST -H "Authorization: Bearer $CF_WAF_API_TOKEN" -H "Content-Type: application/json" --data @/tmp/aeci-1138-rule-2.json "https://api.cloudflare.com/client/v4/zones/$CF_ZONE_ID/rulesets/0052017b9bf44ceaad5888bf9d6c3d97/rules" | jq -r '.success, (.errors | tostring), (.result.rules[] | select(.description == "Block framework and endpoint probes (AECI-1138)") | .id)'
 ```
 
 ## 3. Confirm it is blocking
@@ -127,7 +127,7 @@ to roughly the unmatched 6%: generic names and random strings.
 Disable either rule in the dashboard (the toggle on the Custom rules list). Or delete by id:
 
 ```bash
-curl -s -X DELETE -H "Authorization: Bearer $CF_WAF_API_TOKEN" "https://api.cloudflare.com/client/v4/zones/$CF_ZONE_ID/rulesets/974122bb23af4354a215724d9c7e8436/rules/$AECI_1138_RULE_ID" | jq '{success, errors}'
+curl -s -X DELETE -H "Authorization: Bearer $CF_WAF_API_TOKEN" "https://api.cloudflare.com/client/v4/zones/$CF_ZONE_ID/rulesets/0052017b9bf44ceaad5888bf9d6c3d97/rules/$AECI_1138_RULE_ID" | jq '{success, errors}'
 ```
 
 Set `AECI_1138_RULE_ID` to the id of the rule you are removing before running it.

@@ -23,7 +23,7 @@ The domain is registered at Cloudflare Registrar. It moves between accounts with
 | WAF on WBS | Done 2026-09-30 through the dashboard. 3 custom rules, 2 rate-limit rules, Managed + OWASP are active. The Pending zone accepted them. See "WAF rule map" |
 | Old zone Pro plan removed | Pro and the "Smart Shield Argo Zone Level Plan - Basic" add-on were cancelled before the 2026-10-08 renewal. The scheduled cancellation did not block the registrar move |
 | Review app service binding | None (review agent, 2026-09-30). The review app calls AECi over the public URL, so the two apps don't have to deploy in lockstep |
-| Bot settings on WBS | Done 2026-09-30, except two items that won't save on a Pending zone. Those two were cutover step 6b. See "Bot settings" |
+| Bot settings on WBS | Done. The two Pending-zone items (cutover step 6b) were confirmed 2026-10-05: Bot Preference Sync off, continuous script monitoring on. See "Bot settings" |
 | Rehearsal | Done 2026-10-01. See "Rehearsal result" |
 | Cutover | Done 2026-10-04 for production and demo. See "Cutover result". The review app (AECI-1168) moves separately |
 
@@ -116,7 +116,7 @@ The source rules are in `waf-export.json`, read from the old zone's dashboard. E
 
 - Not copied: "Skip WAF for stack-test subdomain". `stack-test` is retired and is not in the WBS DNS.
 - Carried over as-is: the host lists still name `prod.aecintegrations.com`, which is retired (AECI-807). Narrowing them is separate work.
-- Not yet recorded: the ruleset ids that `scripts/ops/2026-09-waf-host-scope/rules.mjs` pins. The dashboard does not show them. Read them through the API once the zone token exists, then update `rules.mjs` and `docs/waf-rate-limits.md`.
+- Ruleset ids, read through the API on 2026-10-05: custom `0052017b9bf44ceaad5888bf9d6c3d97`, rate limit `eaec1f752ded4f6e9a16b1ec70c2b087`. `rules.mjs` and `docs/waf-rate-limits.md` pin them.
 
 ## Bot settings (compared 2026-09-30)
 
@@ -279,7 +279,8 @@ R2 goes across with `copy-r2.sh ENV`. It lists the old bucket with the old-accou
 - Before activation, every Cloudflare nameserver pair answered with the active zone's records. That answers the resolver open question above: there is no drain window.
 - The first demo promote failed with `No access to the specified resource` on `/zones/…/workers/routes`. The WBS `aeci-github-actions` token had no zone grants. Adding Zone Read, Workers Routes Edit and DNS Edit fixed it. See `docs/CICD_PLAN.md` §7.1.
 - `stop-old-crons` failed on its first run. `wrangler triggers deploy` also syncs queue consumers and rejected `aeci-vendor-snapshot-staging`, which exists only on WBS. The step now uses the Workers schedules API.
-- Rows written on the old site after 04:10 UTC are not on WBS. Diff the old production D1 against the export before the old account is deleted.
+- Rows written on the old site after 04:10 UTC are not on WBS. The 2026-10-04 diff found no domain rows, only 22 `page_views` rows (04:10 to 04:26), mostly bots. Chris ruled to drop them (AECI-1166, AECI-1167).
+- `staging.aecintegrations.com` served publicly after the cutover until it was added to the `AECi Non-Prod` Access app on 2026-10-05 (AECI-1166).
 
 ## Phase 5: follow-through (AECI-1167)
 
