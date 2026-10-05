@@ -357,7 +357,7 @@ export function createSetVendorEntitlementHandler(
         audits: planned.audits.map((entry) =>
           entry.vendorId
             ? entry
-            : { ...entry, vendorId: vendor.id, vendorPlan: vendorPlanSnapshot(existing) },
+            : { ...entry, vendorId: vendor.id, vendorPlan: vendorPlanSnapshot(existing, now) },
         ),
       };
       try {

@@ -206,7 +206,7 @@ export function createAcceptSeatInviteHandler(
       email: invite.email,
       userId: auth.userId,
       actorType: auditActorType(auth),
-      vendorPlan: vendorPlanSnapshot(entitlement),
+      vendorPlan: vendorPlanSnapshot(entitlement, now),
       now,
       domainMatched,
       profileBefore: before

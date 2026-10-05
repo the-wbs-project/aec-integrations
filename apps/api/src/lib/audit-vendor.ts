@@ -27,13 +27,17 @@ export const NO_VENDOR_STAMP: VendorAuditStamp = { vendorId: null, vendorPlan: n
 /**
  * The vendor and its current plan, for an audit row about something it holds.
  * `null` in, both columns NULL out: an unowned entity has no vendor to name.
+ * `now` is the write time the plan is judged at: an `active` row past its
+ * `period_end` records `expired` (`vendorPlanSnapshot`). It defaults to the wall
+ * clock, which is the write time for every handler that does not hold its own.
  */
 export async function vendorAuditStamp(
   db: Db,
   vendorId: string | null | undefined,
+  now: Date | string = new Date(),
 ): Promise<VendorAuditStamp> {
   if (!vendorId) return NO_VENDOR_STAMP;
-  return { vendorId, vendorPlan: vendorPlanSnapshot(await loadEntitlement(db, vendorId)) };
+  return { vendorId, vendorPlan: vendorPlanSnapshot(await loadEntitlement(db, vendorId), now) };
 }
 
 /**
@@ -53,6 +57,10 @@ export async function productHolderVendorId(db: Db, productId: string): Promise<
 }
 
 /** {@link vendorAuditStamp} for the vendor holding one product. */
-export async function productAuditStamp(db: Db, productId: string): Promise<VendorAuditStamp> {
-  return vendorAuditStamp(db, await productHolderVendorId(db, productId));
+export async function productAuditStamp(
+  db: Db,
+  productId: string,
+  now: Date | string = new Date(),
+): Promise<VendorAuditStamp> {
+  return vendorAuditStamp(db, await productHolderVendorId(db, productId), now);
 }

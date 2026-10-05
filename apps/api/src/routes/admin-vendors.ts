@@ -884,7 +884,7 @@ export function createAdminRevokeSeatHandler(
     const batch = revokeSeatStatements(db, {
       userId: targetId,
       vendorId,
-      vendorPlan: vendorPlanSnapshot(entitlement),
+      vendorPlan: vendorPlanSnapshot(entitlement, now),
       ...actor,
       now,
       profileBefore: { role: target.role, vendorId: target.vendorId },
@@ -1118,13 +1118,14 @@ export function createProvisionSeatHandler(
       return json(body);
     }
 
+    const now = new Date().toISOString();
     const batch = provisionSeatStatements(db, {
       userId,
       vendorId,
-      vendorPlan: vendorPlanSnapshot(entitlement),
+      vendorPlan: vendorPlanSnapshot(entitlement, now),
       actorId: auth.userId,
       actorType: auditActorType(auth),
-      now: new Date().toISOString(),
+      now,
       identityOutcome: resolution.outcome,
       profileBefore: before
         ? {

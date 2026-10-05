@@ -94,6 +94,24 @@ describe('the admin-side holder and plan helpers', () => {
     });
   });
 
+  it('vendorAuditStamp records expired for an active row past period_end', async () => {
+    await t.db.insert(vendorEntitlements).values({
+      id: uuid(41),
+      vendorId: V1,
+      tier: 'verified',
+      status: 'active',
+      periodEnd: '2026-10-01',
+    });
+    expect(await vendorAuditStamp(t.db, V1, '2026-10-05T00:00:00.000Z')).toEqual({
+      vendorId: V1,
+      vendorPlan: { tier: 'verified', status: 'expired' },
+    });
+    expect(await vendorAuditStamp(t.db, V1, '2026-09-30T00:00:00.000Z')).toEqual({
+      vendorId: V1,
+      vendorPlan: { tier: 'verified', status: 'active' },
+    });
+  });
+
   it('vendorAuditStamp leaves both NULL for no vendor', async () => {
     expect(await vendorAuditStamp(t.db, null)).toEqual(NO_VENDOR_STAMP);
   });
@@ -158,6 +176,18 @@ describe('vendorAuditEntry stamps the session vendor and plan', () => {
       (c) => sessionVendorPlan(c),
     );
     expect(plan).toEqual({ tier: 'verified', status: 'active' });
+  });
+
+  it('records expired when the session row is active but past period_end', async () => {
+    const plan = await withSession(
+      {
+        ...SESSION,
+        entitlementTier: 'verified',
+        entitlement: { status: 'active', tier: 'verified', periodEnd: '2026-10-01T00:00:00.000Z' },
+      },
+      (c) => sessionVendorPlan(c, '2026-10-05T00:00:00.000Z'),
+    );
+    expect(plan).toEqual({ tier: 'verified', status: 'expired' });
   });
 
   it('passes a notification.sent row through untouched: it names its RECIPIENT', async () => {

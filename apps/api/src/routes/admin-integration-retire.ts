@@ -183,7 +183,7 @@ function handlerFor(mode: RetireMode, dbFor: DbFactory): (c: VendorContext) => P
       actingVendorId: null,
       recipients,
       owner: { id: owner?.id ?? null, name: owner?.companyName ?? null },
-      ownerPlan: vendorPlanSnapshot(ownerEntitlement),
+      ownerPlan: vendorPlanSnapshot(ownerEntitlement, now),
       pairSlugs: slugs.pairSlugs,
     };
     const batch: RetireBatch =

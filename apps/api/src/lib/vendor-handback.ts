@@ -170,7 +170,7 @@ function emptyBatch(): HandbackBatch {
  */
 async function sealed(batch: HandbackBatch, db: Db, p: HandbackParams): Promise<HandbackBatch> {
   if (batch.audits.length === 0) return batch;
-  const vendorPlan = vendorPlanSnapshot(await loadEntitlement(db, p.vendorId));
+  const vendorPlan = vendorPlanSnapshot(await loadEntitlement(db, p.vendorId), p.now);
   const audits = batch.audits.map((a) =>
     a.vendorId ? a : { ...a, vendorId: p.vendorId, vendorPlan },
   );

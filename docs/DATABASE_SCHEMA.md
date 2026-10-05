@@ -1456,6 +1456,16 @@ vendor X" one indexed query, and "what plan X was on when it happened" a filter.
   from the session at no extra D1 cost. An admin write reads `loadEntitlement` in the handler. An
   admin row about an entitlement change records the plan **before** the change; `after_state` holds
   the new one. A `notification.sent` row carries no plan.
+- **A lapsed plan records as `expired` (ruling, 2026-10-05).** The snapshot does not simply trust
+  the stored status. Nothing auto-lapses a row: the expiry cron only warns. So a row stored
+  `active` whose `period_end` is at or before the write time records `vendor_entitlement_status =
+  'expired'`. `vendorPlanSnapshot` takes the row's `period_end` and the write's `now` for this.
+  The vendor path reads `period_end` from the session's `entitlement` block. The admin path reads
+  it from `loadEntitlement`. `period_end` is ISO-8601 TEXT, date-only or a full timestamp. It is
+  compared by parsed instant, and a date-only value reads as UTC midnight. A null `period_end` is
+  perpetual and never lapses. `expired`, `revoked`, `pending` and `none` are recorded as stored.
+  This is a record rule only. Session authorization and `tierFor` still trust the stored status,
+  so the write is authorized exactly as before.
 - **Columns, not metadata.** The plan was stored in columns so it is typed and filterable inside
   the `vendor_id` slice, and so it cannot drift in spelling the way metadata keys did.
 - **No FK, no CHECK.** An FK would block or erase attribution when a vendor is retracted

@@ -67,12 +67,23 @@ export function sessionVendorId(c: VendorContext): string {
  * the session's `entitlement` block, which `requireVendor()` already joined, so a
  * vendor write costs no extra D1 read. A hand-built test session without the raw
  * `tier` falls back to the resolved `entitlementTier`.
+ *
+ * The block carries `periodEnd`, so a write made after the term ended records
+ * `expired` even though the stored status, and so the session, still read
+ * `active` (ruling 2026-10-05). `now` is the write time and defaults to the wall
+ * clock. The session's authorization is untouched.
  */
-export function sessionVendorPlan(c: VendorContext): VendorPlanSnapshot {
+export function sessionVendorPlan(
+  c: VendorContext,
+  now: Date | string = new Date(),
+): VendorPlanSnapshot {
   const auth = c.get('auth');
   const ent = auth.entitlement;
   return vendorPlanSnapshot(
-    ent ? { tier: ent.tier ?? auth.entitlementTier, status: ent.status } : null,
+    ent
+      ? { tier: ent.tier ?? auth.entitlementTier, status: ent.status, periodEnd: ent.periodEnd }
+      : null,
+    now,
   );
 }
 

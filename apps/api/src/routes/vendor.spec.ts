@@ -497,6 +497,49 @@ describe('PATCH /api/vendor/profile', () => {
       });
     });
 
+    // Ruling 2026-10-05: nothing auto-lapses the row, so a stored `active` past
+    // its `period_end` still authorizes as before. Only the audit row says `expired`.
+    it('records `expired` for a write after period_end on a still-active row', async () => {
+      const { status } = await patchJson(
+        '/api/vendor/profile',
+        { description: 'After the term' },
+        {
+          ...AUTH,
+          entitlementTier: 'verified',
+          entitlement: {
+            status: 'active',
+            tier: 'verified',
+            periodEnd: '2020-01-01T00:00:00.000Z',
+          },
+        },
+      );
+      expect(status).toBe(200);
+      const [row] = await auditRows();
+      expect(row).toMatchObject({
+        vendorId: VENDOR,
+        vendorTier: 'verified',
+        vendorEntitlementStatus: 'expired',
+      });
+    });
+
+    it('records `active` for a write before period_end', async () => {
+      await patchJson(
+        '/api/vendor/profile',
+        { description: 'Inside the term' },
+        {
+          ...AUTH,
+          entitlementTier: 'verified',
+          entitlement: {
+            status: 'active',
+            tier: 'verified',
+            periodEnd: '2999-01-01T00:00:00.000Z',
+          },
+        },
+      );
+      const [row] = await auditRows();
+      expect(row).toMatchObject({ vendorTier: 'verified', vendorEntitlementStatus: 'active' });
+    });
+
     it('records `none`, not NULL, for a vendor with no entitlement row', async () => {
       await patchJson(
         '/api/vendor/profile',

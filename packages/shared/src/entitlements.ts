@@ -312,21 +312,44 @@ export interface VendorPlanSnapshot {
 /**
  * Snapshot a `vendor_entitlements` row (or its absence) for an audit row.
  *
- * Same status rule as the session's `entitlementFor` (`apps/api/src/lib/authz.ts`):
- * the stored `status` is the truth, and a status outside the §2.2 vocabulary is
- * not echoed. There is deliberately no clock check against `period_end`. The
- * session does not make one either (the expiry cron flips the row), so the
- * snapshot always describes the plan the write was AUTHORIZED under.
+ * The stored `status` is the starting point, and a status outside the §2.2
+ * vocabulary is not echoed. One clock check sits on top (ruling, 2026-10-05): a
+ * row stored `active` whose `period_end` is already past at `now` records
+ * `expired`. Nothing auto-lapses a row (the expiry cron only warns), so without
+ * this a write made after the term ended would read as a live plan.
+ *
+ * This is a RECORD rule, not an authorization rule. The session's `entitlementFor`
+ * and `tierFor` keep trusting the stored status, so the write itself is
+ * authorized exactly as before. Only what the audit row says changes.
+ *
+ * `period_end` is ISO-8601 TEXT, either date-only (`2027-08-14`, read as UTC
+ * midnight) or a full timestamp. It is compared by parsed instant, never as a
+ * string, so the two spellings cannot mis-order. A null `period_end` is a
+ * perpetual term and never lapses. An unparseable one keeps the stored status.
  *
  * Structurally typed so a Drizzle row, `loadEntitlement`'s projection or the
  * session's `entitlement` block can all be passed.
  */
 export function vendorPlanSnapshot(
-  row: { tier: string; status: string } | null | undefined,
+  row: { tier: string; status: string; periodEnd: string | null } | null | undefined,
+  now: Date | string,
 ): VendorPlanSnapshot {
   if (!row) return { tier: NO_PLAN, status: NO_PLAN };
   const status = (ENTITLEMENT_STATUSES as readonly string[]).includes(row.status)
     ? (row.status as EntitlementStatus)
     : NO_PLAN;
+  if (status === 'active' && termHasEnded(row.periodEnd, now)) {
+    return { tier: row.tier, status: 'expired' };
+  }
   return { tier: row.tier, status };
+}
+
+/** Whether `periodEnd` is at or before `now`. Null or unparseable on either side
+ *  is "not ended": the snapshot then falls back to the stored status. */
+function termHasEnded(periodEnd: string | null, now: Date | string): boolean {
+  if (periodEnd === null) return false;
+  const endMs = Date.parse(periodEnd);
+  const nowMs = typeof now === 'string' ? Date.parse(now) : now.getTime();
+  if (Number.isNaN(endMs) || Number.isNaN(nowMs)) return false;
+  return endMs <= nowMs;
 }

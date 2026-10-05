@@ -284,7 +284,7 @@ export function activateEntitlementStatements(
     entityId: p.vendorId,
     // AECI-1192 / AECI-1193: the plan BEFORE this write; after_state holds the new one.
     vendorId: p.vendorId,
-    vendorPlan: vendorPlanSnapshot(p.existing),
+    vendorPlan: vendorPlanSnapshot(p.existing, p.now),
     beforeState: {
       tier: p.existing?.tier ?? null,
       status: p.existing?.status ?? null,
@@ -393,7 +393,7 @@ export function renewEntitlementStatements(db: Db, p: RenewEntitlementParams): E
     entityId: p.vendorId,
     // AECI-1192 / AECI-1193: the plan BEFORE this write; after_state holds the new one.
     vendorId: p.vendorId,
-    vendorPlan: vendorPlanSnapshot(p.existing),
+    vendorPlan: vendorPlanSnapshot(p.existing, p.now),
     beforeState: {
       tier: p.existing.tier,
       status: ACTIVE,
@@ -477,7 +477,7 @@ export function deactivateEntitlementStatements(
     entityId: p.vendorId,
     // AECI-1192 / AECI-1193: the plan BEFORE this write; after_state holds the new one.
     vendorId: p.vendorId,
-    vendorPlan: vendorPlanSnapshot(p.existing),
+    vendorPlan: vendorPlanSnapshot(p.existing, p.now),
     beforeState: {
       tier: p.existing.tier,
       status: ACTIVE,

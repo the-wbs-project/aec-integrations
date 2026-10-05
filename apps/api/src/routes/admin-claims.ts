@@ -514,7 +514,7 @@ async function approveClaim(
   const grant = grantSeatStatements(db, {
     userId,
     vendorId: vendor.id,
-    vendorPlan: vendorPlanSnapshot(entitlementBefore),
+    vendorPlan: vendorPlanSnapshot(entitlementBefore, resolvedAt),
     requestId: existing.id,
     actorId,
     actorType,

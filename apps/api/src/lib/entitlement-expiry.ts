@@ -335,9 +335,11 @@ export function expiryNoticeStatements(
     entityType: ENTITLEMENT_ENTITY_TYPE,
     entityId: p.vendorId,
     // AECI-1192 / AECI-1193. The scan only selects `active` rows, and the UPDATE is
-    // guarded on that, so the plan at write time is this tier, active.
+    // guarded on that, so the stored plan is this tier, active. A warning sent
+    // after `period_end` (nothing auto-lapses) records `expired`: the snapshot's
+    // clock rule (ruling 2026-10-05).
     vendorId: p.vendorId,
-    vendorPlan: vendorPlanSnapshot({ tier: p.tier, status: ACTIVE }),
+    vendorPlan: vendorPlanSnapshot({ tier: p.tier, status: ACTIVE, periodEnd: p.periodEnd }, p.now),
     metadata: {
       source: EXPIRY_AUDIT_SOURCE,
       vendorId: p.vendorId,

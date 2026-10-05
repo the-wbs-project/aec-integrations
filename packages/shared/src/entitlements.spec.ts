@@ -749,6 +749,10 @@ describe('PAID_TIERS — what an admin may actually grant [invariant]', () => {
 
 // AECI-1193: what an audit row records about the vendor's plan.
 describe('vendorPlanSnapshot', () => {
+  const NOW = '2026-10-05T12:00:00.000Z';
+  const FUTURE = '2027-01-01T00:00:00.000Z';
+  const PAST = '2026-10-01T00:00:00.000Z';
+
   it.each([
     ['active', { tier: 'verified', status: 'active' }],
     ['pending', { tier: 'verified', status: 'pending' }],
@@ -757,24 +761,91 @@ describe('vendorPlanSnapshot', () => {
   ] as const)('keeps the RAW tier beside a %s status', (status, expected) => {
     // `tierFor` would say `unclaimed` for every one but `active`. The snapshot must
     // still say which plan lapsed.
-    expect(vendorPlanSnapshot({ tier: 'verified', status })).toEqual(expected);
+    expect(vendorPlanSnapshot({ tier: 'verified', status, periodEnd: FUTURE }, NOW)).toEqual(
+      expected,
+    );
   });
 
   it('records `none` on both axes for no entitlement row, never null', () => {
-    expect(vendorPlanSnapshot(null)).toEqual({ tier: 'none', status: 'none' });
-    expect(vendorPlanSnapshot(undefined)).toEqual({ tier: 'none', status: 'none' });
+    expect(vendorPlanSnapshot(null, NOW)).toEqual({ tier: 'none', status: 'none' });
+    expect(vendorPlanSnapshot(undefined, NOW)).toEqual({ tier: 'none', status: 'none' });
   });
 
   it('does not echo a status outside the §2.2 vocabulary', () => {
-    expect(vendorPlanSnapshot({ tier: 'verified', status: 'weird' })).toEqual({
-      tier: 'verified',
-      status: 'none',
-    });
+    expect(vendorPlanSnapshot({ tier: 'verified', status: 'weird', periodEnd: PAST }, NOW)).toEqual(
+      { tier: 'verified', status: 'none' },
+    );
   });
 
   it('every snapshot status is a vocabulary word or none', () => {
     for (const status of ENTITLEMENT_STATUSES) {
-      expect(vendorPlanSnapshot({ tier: 'verified', status }).status).toBe(status);
+      expect(vendorPlanSnapshot({ tier: 'verified', status, periodEnd: null }, NOW).status).toBe(
+        status,
+      );
     }
+  });
+
+  // Ruling 2026-10-05: a lapsed plan records as expired. Nothing auto-lapses the
+  // row, so the clock is checked at write time. Authorization (`tierFor`) is not.
+  describe('the period_end clock rule', () => {
+    it('active with a future end records active', () => {
+      expect(
+        vendorPlanSnapshot({ tier: 'verified', status: 'active', periodEnd: FUTURE }, NOW),
+      ).toEqual({ tier: 'verified', status: 'active' });
+    });
+
+    it('active with a past end records expired, keeping the raw tier', () => {
+      expect(
+        vendorPlanSnapshot({ tier: 'verified', status: 'active', periodEnd: PAST }, NOW),
+      ).toEqual({ tier: 'verified', status: 'expired' });
+    });
+
+    it('an end exactly at now has ended', () => {
+      expect(
+        vendorPlanSnapshot({ tier: 'verified', status: 'active', periodEnd: NOW }, NOW).status,
+      ).toBe('expired');
+    });
+
+    it('compares a date-only end by instant, as UTC midnight', () => {
+      const row = { tier: 'verified', status: 'active', periodEnd: '2026-10-05' };
+      expect(vendorPlanSnapshot(row, '2026-10-04T23:59:59.000Z').status).toBe('active');
+      expect(vendorPlanSnapshot(row, NOW).status).toBe('expired');
+    });
+
+    it('accepts a Date for now', () => {
+      expect(
+        vendorPlanSnapshot({ tier: 'verified', status: 'active', periodEnd: PAST }, new Date(NOW))
+          .status,
+      ).toBe('expired');
+    });
+
+    it('a null end is perpetual and stays active', () => {
+      expect(
+        vendorPlanSnapshot({ tier: 'verified', status: 'active', periodEnd: null }, NOW).status,
+      ).toBe('active');
+    });
+
+    it('an unparseable end keeps the stored status', () => {
+      expect(
+        vendorPlanSnapshot({ tier: 'verified', status: 'active', periodEnd: 'soon' }, NOW).status,
+      ).toBe('active');
+    });
+
+    it.each(['expired', 'revoked', 'pending'] as const)(
+      'a past end leaves a %s row unchanged',
+      (status) => {
+        expect(vendorPlanSnapshot({ tier: 'verified', status, periodEnd: PAST }, NOW).status).toBe(
+          status,
+        );
+      },
+    );
+
+    it('a past end with no row still records none', () => {
+      expect(vendorPlanSnapshot(null, NOW)).toEqual({ tier: 'none', status: 'none' });
+    });
+
+    it('does not change tierFor: the lapsed-but-active row still authorizes', () => {
+      expect(tierFor({ tier: 'verified', status: 'active' })).toBe('verified');
+    });
   });
 });

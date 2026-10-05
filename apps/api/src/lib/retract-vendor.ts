@@ -392,7 +392,7 @@ export function buildVendorAuditInsert({
   // AECI-1192 / AECI-1193: the row is about the vendor it deletes. A retractable
   // vendor holds no `vendor_entitlements` row (a row refuses the retraction), so its
   // plan is `none`, the same value `vendorPlanSnapshot(null)` gives.
-  const plan = vendorPlanSnapshot(null);
+  const plan = vendorPlanSnapshot(null, now);
   const vals = [
     sqlLiteral(auditId),
     'NULL',
