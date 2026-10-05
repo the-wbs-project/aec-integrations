@@ -42,6 +42,19 @@ test.describe('/admin/reindex — SSR auth gate (AECI-946)', () => {
     expect(res.headers()['cache-tag']).toBeUndefined();
   });
 
+  test('the submission history read is admin-gated (AECI-1188)', async ({ request }) => {
+    // A 401 rather than a 404 proves the literal path is registered and not
+    // swallowed by `/api/admin/reindex/:id`, which exists for DELETE only. The
+    // filtered, authenticated render is covered by
+    // `reindex-history.component.spec.ts`, for the reason in the header.
+    const res = await request.get('/api/admin/reindex/submissions?channel=indexnow', {
+      maxRedirects: 0,
+    });
+    expect(res.status()).toBe(401);
+    expect(res.headers()['cache-control']).toBe('private, no-store');
+    expect(res.headers()['cache-tag']).toBeUndefined();
+  });
+
   test('the Done button endpoint is admin-gated', async ({ request }) => {
     // The one write on this surface. Unauthenticated it must never reach the
     // handler, which would otherwise delete a row and audit it as an admin

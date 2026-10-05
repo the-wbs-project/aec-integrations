@@ -3464,6 +3464,85 @@ and every write audits in-batch, so a limiter would add no protection while risk
 No cache purge and no `workflow_instances` row. No public surface reads this table,
 and clearing a worklist row is not a workflow transition.
 
+---
+
+#### `GET /api/admin/reindex/submissions` (AECI-1188)
+
+The search-engine submission history (`ADMIN_PANEL_SPEC.md` §5.11): every URL the
+IndexNow drain sent and every URL an operator marked as requested, newest first, each
+with its causes. Contract `ListReindexSubmissionsQuerySchema` /
+`ListReindexSubmissionsResponseSchema` in `packages/shared/src/api/admin-reindex.ts`;
+handler `createAdminReindexSubmissionsHandler` in `apps/api/src/routes/admin-reindex.ts`.
+Registers on `authAdmin` behind `requireAdmin()`. The literal path does not meet
+`/api/admin/reindex/:id`, which is registered for `DELETE` only.
+
+```
+GET /api/admin/reindex/submissions?page=1&perPage=25&vendorId=…&channel=indexnow&outcome=accepted&from=2026-10-01&to=2026-10-05
+→ 200 {
+    data: [
+      {
+        id: 41,
+        url: "https://www.aecintegrations.com/products/autodesk-build/integrations/microstation",
+        channel: "indexnow",
+        outcome: "accepted",
+        http_status: 200,
+        priority: 1,
+        submitted_at: "2026-10-05T00:05:00.000Z",
+        causes: [
+          {
+            source: "vendor",
+            audit_log_id: "6c1e…",
+            action: "product.updated",
+            vendor: { id: "0f2a…", slug: "autodesk", name: "Autodesk" },
+            product: { id: "9b7d…", slug: "autodesk-build", name: "Autodesk Build" },
+            promote_job_id: null,
+            queued_at: "2026-10-04T09:12:00.000Z"
+          }
+        ]
+      }
+    ],
+    page: 1, perPage: 25, total: 112
+  }
+```
+
+**Query.** `PageQuerySchema` plus five optional filters, ANDed:
+
+| Param | Shape | Meaning |
+|---|---|---|
+| `vendorId` | string, 1–64 | Keep a submission when ANY of its causes has this `vendor_id` (an `EXISTS`). The row still carries every cause. |
+| `channel` | `indexnow` \| `gsc_manual` | `recrawl_submissions.channel`. |
+| `outcome` | `accepted` \| `refused` \| `failed` \| `requested` | `recrawl_submissions.outcome`. |
+| `from` | `YYYY-MM-DD` | Inclusive UTC day: `submitted_at >= from T00:00:00.000Z`. |
+| `to` | `YYYY-MM-DD` | Inclusive UTC day: `submitted_at <` the next day's midnight. |
+
+`from` after `to` is `VALIDATION_FAILED` (400). So is an unknown channel or outcome.
+
+**One row per submission, never per cause.** Unlike the vendor read (§6.14), which
+returns one row per (submission, cause), this read nests the causes. The `total`
+counts submissions. A pair page two vendors edited is one row with two causes.
+
+**Two reads.** The page and its `count()` run in one `db.batch`. The causes then load
+in a second query, `WHERE submission_id IN (…)`, bounded by the page's ids. A page binds
+at most `perPage` (≤ 100) parameters there. An empty page skips it. `audit_log`,
+`vendors` and `products` are LEFT joins: a promote cause has no audit id and no
+vendor, and a deleted vendor or product keeps its id with `slug` and `name` null.
+
+**Fields.** `http_status` is null for a transport failure and for `gsc_manual`.
+`priority` is the tier the URL was sent at. A cause's `source` is `vendor`, `admin` or
+`promote`, an open string like `audit_log.action`. `action` is the causing audit row's
+action, null for a promote cause, which carries `promote_job_id` instead. `vendor` is
+null for promote and admin causes. `product` is null when the edit touched no product.
+`causes` is empty for a submission queued before AECI-1184, or whose cause write failed.
+
+**Ordering is `submitted_at DESC, id DESC`, causes `queued_at ASC, id ASC`.** No `sort`
+parameter. One drain run shares one `submitted_at`, so the id term keeps page
+boundaries stable. Every term is a timestamp or integer, so all stay BINARY (§3.2).
+
+**Envelope** is the bare `paginatedResponseSchema`, as for the worklist above.
+
+A read. No `audit_log` row and no `rateLimit()` (ADR 0026). No search engine says a
+page was indexed, so nothing in the shape claims it.
+
 Errors: `VALIDATION_FAILED` (400) on a non-integer or non-positive `:id`, or a
 missing or unknown `outcome`;
 `NOT_FOUND` (404) when the row is already gone, which is the ordinary outcome of two

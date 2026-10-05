@@ -14,7 +14,8 @@
  * AECI-722 with the five `/api/admin/connector-catalogs` reads, by AECI-739 with
  * `GET /api/admin/claims/:id`, by AECI-859 with `GET /api/admin/subscribers`, by
  * AECI-1008 with `GET /api/admin/contests`, by AECI-1177 with
- * `GET /api/admin/review-responses`, and by AECI-1223 with the two email GETs.
+ * `GET /api/admin/review-responses`, by AECI-1223 with the two email GETs, and by
+ * AECI-1188 with `GET /api/admin/reindex/submissions`.
  * Every read endpoint the epic adds belongs in {@link ROUTES} — that is the point
  * of the file.
  *
@@ -43,7 +44,10 @@ import { createAdminClaimDetailHandler } from './admin-claims';
 import { createAdminContestsListHandler } from './admin-contests';
 import { createAdminReviewResponsesListHandler } from './admin-review-responses';
 import { createAdminEmailSendsHandler, createAdminEmailSummaryHandler } from './admin-email';
-import { createAdminReindexListHandler } from './admin-reindex';
+import {
+  createAdminReindexListHandler,
+  createAdminReindexSubmissionsHandler,
+} from './admin-reindex';
 import { createAdminFeedbackHandler } from './admin-feedback';
 import { createAdminTimeseriesHandler } from './admin-metrics';
 import { createAdminOverviewHandler } from './admin-overview';
@@ -165,6 +169,12 @@ const ROUTES = [
   // of its write semantics (`admin-reindex.spec.ts`, which runs the same deny
   // matrix against both verbs).
   { name: 'GET /api/admin/reindex', url: '/api/admin/reindex' },
+  // AECI-1188 — the §5.11 submission history. A read, with all four filters set so
+  // a 401/403 can only come from the gate.
+  {
+    name: 'GET /api/admin/reindex/submissions',
+    url: `/api/admin/reindex/submissions?vendorId=${VENDOR}&channel=indexnow&outcome=accepted&from=2026-10-01&to=2026-10-04`,
+  },
   // AECI-1008 — the §5.12 contest queue. ONE read; the decision PATCH is not
   // here, for the same reason as the reindex DELETE: this file is `get()`-shaped,
   // and `admin-contests.spec.ts` runs the same deny matrix against both verbs.
@@ -331,6 +341,11 @@ function makeApp() {
     createAdminClaimDetailHandler(t.factory, noAuthAccounts),
   );
   app.get('/api/admin/reindex', requireAdmin(guard), createAdminReindexListHandler(t.factory));
+  app.get(
+    '/api/admin/reindex/submissions',
+    requireAdmin(guard),
+    createAdminReindexSubmissionsHandler(t.factory),
+  );
   app.get('/api/admin/contests', requireAdmin(guard), createAdminContestsListHandler(t.factory));
   // AECI-1177. The second argument is the author-email seam, whose default would
   // reach GoTrue; an empty map is the cheapest branch that still 200s.

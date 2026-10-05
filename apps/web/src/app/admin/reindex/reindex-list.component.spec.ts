@@ -47,6 +47,8 @@ function makeRow(over: Partial<ReindexQueueRow> & { id: number }): ReindexQueueR
 interface ApiMock {
   list: ReturnType<typeof vi.fn>;
   clear: ReturnType<typeof vi.fn>;
+  /** The history section (AECI-1188) has its own spec; here it only has to load. */
+  submissions: ReturnType<typeof vi.fn>;
 }
 
 function makeApiMock(rows: ReindexQueueRow[], total = rows.length): ApiMock {
@@ -54,6 +56,7 @@ function makeApiMock(rows: ReindexQueueRow[], total = rows.length): ApiMock {
   return {
     list: vi.fn(async () => structuredClone(page)),
     clear: vi.fn(async () => undefined),
+    submissions: vi.fn(async () => ({ data: [], page: 1, perPage: 25, total: 0 })),
   };
 }
 
@@ -325,10 +328,14 @@ describe('ReindexList', () => {
   });
 
   describe('accessibility (structural)', () => {
-    it('uses a single h2 and no lower heading (the shell owns the h1)', async () => {
+    it('uses one h2 per section and no lower heading (the shell owns the h1)', async () => {
       const { el } = await setup(makeApiMock([makeRow({ id: 1 })]));
       expect(el.querySelectorAll('h1')).toHaveLength(0);
-      expect(el.querySelectorAll('h2')).toHaveLength(1);
+      // The worklist, then the submission history (AECI-1188) as its sibling.
+      expect([...el.querySelectorAll('h2')].map((h) => h.textContent?.trim())).toEqual([
+        'Re-index queue',
+        'Submission history',
+      ]);
       expect(el.querySelector('h3, h4, h5, h6')).toBeNull();
     });
 

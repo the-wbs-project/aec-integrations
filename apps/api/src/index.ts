@@ -79,6 +79,7 @@ import {
 } from './routes/admin-email-switches';
 import {
   createAdminReindexListHandler,
+  createAdminReindexSubmissionsHandler,
   createClearReindexRowHandler,
 } from './routes/admin-reindex';
 import { createAdminOverviewHandler } from './routes/admin-overview';
@@ -913,6 +914,13 @@ authAdmin.get('/api/admin/subscribers', requireAdmin(), createAdminSubscribersHa
 // anonymous path, and every write audits in-batch — a limiter would only risk
 // 429-ing the burst this screen exists to support).
 authAdmin.get('/api/admin/reindex', requireAdmin(), createAdminReindexListHandler());
+// AECI-1188 — the submission history. A read: no audit row, no `rateLimit()`. The
+// literal path never meets `/:id`, which is registered for DELETE only.
+authAdmin.get(
+  '/api/admin/reindex/submissions',
+  requireAdmin(),
+  createAdminReindexSubmissionsHandler(),
+);
 authAdmin.delete('/api/admin/reindex/:id', requireAdmin(), createClearReindexRowHandler());
 // §5.14 / AECI-1223 — the email screen. Three READS over `notification_sends` and
 // `notification_delivery_events`; no audit row, no `rateLimit()` (reads are never

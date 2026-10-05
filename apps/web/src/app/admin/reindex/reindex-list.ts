@@ -21,6 +21,7 @@ import type { ListReindexQueueQuery, ReindexClearOutcome, ReindexQueueRow } from
 import { AdminPaginator } from '../admin-paginator';
 import { AdminSummaryStore } from '../admin-summary.store';
 import { AdminReindexApi } from './admin-reindex.api';
+import { ReindexHistory } from './reindex-history';
 
 /** A worklist is walked top to bottom, so the page is big enough that the
  *  operator rarely pages at all, and small enough that the table stays scannable. */
@@ -88,10 +89,22 @@ function humanizeReason(reason: string): string {
  * none. Either records what the operator did, never what Google did, so no copy
  * here says "indexed". The dialog opens from the click handler, never from an
  * `effect()`: `BrnDialog.open()` creates an effect of its own (NG0602).
+ *
+ * ── SUBMISSION HISTORY (AECI-1188) ───────────────────────────────────────────
+ * Below the worklist, `ReindexHistory` lists what was submitted and requested,
+ * with causes. It loads on its own and fails on its own, so a failed history
+ * never hides the worklist.
  */
 @Component({
   selector: 'aec-reindex-list',
-  imports: [AdminPaginator, BrnDialog, BrnDialogContent, BrnDialogDescription, BrnDialogTitle],
+  imports: [
+    AdminPaginator,
+    BrnDialog,
+    BrnDialogContent,
+    BrnDialogDescription,
+    BrnDialogTitle,
+    ReindexHistory,
+  ],
   templateUrl: './reindex-list.html',
 })
 export class ReindexList {

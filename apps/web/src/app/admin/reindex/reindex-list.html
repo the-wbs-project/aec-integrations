@@ -34,14 +34,15 @@
     </div>
   </div>
 
-  <p class="mt-2 text-sm text-(--text-secondary)" i18n="@@admin.reindex.intro">
+  <p class="mt-2 max-w-[60ch] text-sm text-(--text-secondary)" i18n="@@admin.reindex.intro">
     Google accepts no re-index request from us by API, so this is done by hand: copy a URL, paste it
     into Search Console's URL Inspection bar, request indexing, then come back, select Done and say
     whether you requested it.
   </p>
 
   <!-- Polite announcements. A copy changes nothing on screen and a Done removes
-       the row, so without this a screen reader hears nothing either way. -->
+       the row, so without this a screen reader hears nothing either way. The
+       history section below announces its result counts here too. -->
   <p class="sr-only" role="status" aria-live="polite">{{ liveMessage() }}</p>
 
   @if (loading()) {
@@ -66,7 +67,7 @@
     </button>
   </div>
   } @else if (isEmpty()) {
-  <p class="mt-8 text-sm text-(--text-secondary)" i18n="@@admin.reindex.empty">
+  <p class="mt-8 max-w-[60ch] text-sm text-(--text-secondary)" i18n="@@admin.reindex.empty">
     Rows arrive here when a promote or a vendor edit changes a public page, so an empty list is the
     good outcome and means Google has nothing pending from us.
   </p>
@@ -252,3 +253,6 @@
     </ng-template>
   </brn-dialog>
 </section>
+
+<!-- AECI-1188: what was submitted and requested, with causes. Read-only. -->
+<aec-reindex-history (announce)="liveMessage.set($event)" />

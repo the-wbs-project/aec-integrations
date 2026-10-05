@@ -1041,7 +1041,7 @@ identical states is not a history.
 
 > **Breadcrumb revision — SHIPPED (AECI-777).** The detail page's bespoke "Back to the claim queue" link is gone: the shell's breadcrumb (§5.0b) is the way back, and the `h2` no longer reads "Vendor claim". This is the one detail screen that needed a rule rather than a field — a claim has no name of its own, so it is titled by its **target**, falling back to `targetFallbackLabel()` for the claim that outlived a retracted product, and to the section's word before the fetch resolves. No endpoint, query or response shape moved.
 
-### 5.11 Re-index queue — SHIPPED (AECI-946, 2026-09-14)
+### 5.11 Re-index queue — SHIPPED (AECI-946, 2026-09-14; submission history AECI-1188, 2026-10-05)
 
 The Google re-crawl worklist. `STAGE_1_SPEC.md` §20.2 owns the contract and
 **ADR 0031** owns the reasoning; `DATABASE_SCHEMA.md` §9.8 is the table and
@@ -1070,6 +1070,31 @@ operator worked from memory after a promote, which `environments.md` described a
   the row's causes copied onto it. The answer records what the operator did. It is
   not proof that Google accepted the request or indexed the page, and no copy on
   this screen says "indexed".
+- **Submission history, below the worklist (AECI-1188).** A read-only section,
+  "Submission history", lists `recrawl_submissions` newest first (`submitted_at
+  DESC, id DESC`), 25 a page, from `GET /api/admin/reindex/submissions`. One row per
+  submission: when (UTC), the URL, the channel ("IndexNow (Bing, Yandex)" or
+  "Search Console, by hand"), an outcome badge (accepted, refused, failed,
+  requested) with the IndexNow HTTP status, and every cause the row carries. Each
+  cause shows its source (Vendor edit, Admin edit, Promote), the audit action label
+  from `audit-action-labels.ts`, the product name, and the vendor as a link to
+  `/admin/vendors/:id`. A promote cause shows its job id. There is no audit-by-id
+  page, so a cause does not link to its audit row. The vendor page's audit trail
+  lists it. A submission with no cause row says "Not recorded": it was queued
+  before AECI-1184, or its cause write failed.
+- **Four filters, all optional, ANDed.** Channel and Outcome are selects. A From
+  and To date pair filters inclusive UTC days on `submitted_at`. From after To is
+  refused on the client without a request, and the API 400s it. The vendor filter
+  has no picker. Each vendor cause carries an "Only this vendor" button. The active
+  filter shows as a chip with a Remove button. A select loaded from the paginated
+  admin vendor list would silently omit vendors, so it was not used. The vendor
+  filter keeps a submission when any of its causes names that vendor, and the row
+  still shows every cause. Clear filters resets all four. A refilter returns to
+  page 1. An empty log and a filter that matches nothing have different copy.
+- **The history announces through the worklist's live region.** The page keeps one
+  polite live region. The history reports its result count there after a refilter.
+  Focus moves to the chip after "Only this vendor", and to the section heading
+  after Remove or Clear filters, because each pressed button leaves the DOM.
 
 Four IA notes, in §5.10's voice:
 
@@ -1117,11 +1142,13 @@ Four IA notes, in §5.10's voice:
 - **Re-queue a URL, or edit a priority.** Both are derived from a write that
   happened. Hand-editing either would make the `reason` column a claim rather than a
   record.
-- **Show what has already been requested.** Not yet. Since AECI-1185 the history
-  exists: every `requested` clear writes a `gsc_manual` row to `recrawl_submissions`
-  (`DATABASE_SCHEMA.md` §9.6a), beside the IndexNow drain's rows, and every clear
-  writes its `reindex.cleared` audit row with `metadata.outcome`. The view of that
-  log on this screen is AECI-1188.
+- **Change the submission history.** The section is read-only. `recrawl_submissions`
+  and `recrawl_submission_causes` are append-only evidence logs
+  (`DATABASE_SCHEMA.md` §9.6a, §9.6b), so the history has no delete, no edit and no
+  re-submit. A `not_requested` clear writes no submission row, so it is not in the
+  history. Its `reindex.cleared` audit row with `metadata.outcome` is the only record.
+- **Say a page was indexed.** No search engine tells us. The history records what we
+  submitted and what an operator says they requested.
 
 ### 5.12 Field contests — SHIPPED (AECI-1008, 2026-09-18; connector-powered rows and evidenced pairs AECI-1092, 2026-09-23)
 

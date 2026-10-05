@@ -17,6 +17,8 @@ import { firstValueFrom } from 'rxjs';
 import type {
   ListReindexQueueQuery,
   ListReindexQueueResponse,
+  ListReindexSubmissionsQuery,
+  ListReindexSubmissionsResponse,
   ReindexClearOutcome,
 } from '@aeci/shared';
 
@@ -32,6 +34,20 @@ export class AdminReindexApi {
     }
     return firstValueFrom(
       this.http.get<ListReindexQueueResponse>('/api/admin/reindex', { params }),
+    );
+  }
+
+  /** `GET /api/admin/reindex/submissions` — the submission history, newest
+   *  first, each row with its causes (AECI-1188). Unset filters are omitted. */
+  submissions(
+    query: Partial<ListReindexSubmissionsQuery> = {},
+  ): Promise<ListReindexSubmissionsResponse> {
+    let params = new HttpParams();
+    for (const [key, value] of Object.entries(query)) {
+      if (value !== undefined && value !== '') params = params.set(key, String(value));
+    }
+    return firstValueFrom(
+      this.http.get<ListReindexSubmissionsResponse>('/api/admin/reindex/submissions', { params }),
     );
   }
 

@@ -1,6 +1,10 @@
 import { z } from 'zod';
 
 import { PageQuerySchema, paginatedResponseSchema } from './common';
+import {
+  RecrawlSubmissionChannelSchema,
+  RecrawlSubmissionOutcomeSchema,
+} from './vendor-recrawl-submissions';
 
 /**
  * Admin re-index worklist contracts (AECI-946 / §20.2), behind `requireAdmin()`:
@@ -8,6 +12,9 @@ import { PageQuerySchema, paginatedResponseSchema } from './common';
  *   GET    /api/admin/reindex      — the worklist, most important first.
  *   DELETE /api/admin/reindex/:id  — mark one URL done and drop it, with
  *                                    `?outcome=requested|not_requested` (AECI-1185).
+ *   GET    /api/admin/reindex/submissions — the search-engine submission
+ *                                    history, with each submission's causes
+ *                                    (AECI-1188).
  *
  * Source of truth: `ADMIN_PANEL_SPEC.md` §5.11, `API_CONTRACTS.md` §6.10,
  * `STAGE_1_SPEC.md` §20.2. The row shape mirrors `gsc_recrawl_queue`
@@ -109,3 +116,92 @@ export const ClearReindexRowQuerySchema = z.object({
   outcome: z.enum(REINDEX_CLEAR_OUTCOMES),
 });
 export type ClearReindexRowQuery = z.infer<typeof ClearReindexRowQuerySchema>;
+
+// ─── Submission history (AECI-1188) ───────────────────────────────────────────
+
+/**
+ * `GET /api/admin/reindex/submissions`: every URL we sent to a search engine, or
+ * asked Google to re-crawl by hand, newest first, with the edits that caused it.
+ * Source of truth: `ADMIN_PANEL_SPEC.md` §5.11, `API_CONTRACTS.md` §6.10,
+ * `DATABASE_SCHEMA.md` §9.6a and §9.6b.
+ *
+ * Read-only. The backing tables are append-only evidence logs (ADR 0022), so
+ * nothing on this surface writes. Wording rule as for the vendor read: these are
+ * submissions and requests, never "indexed".
+ */
+
+const utcDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Expected YYYY-MM-DD');
+
+const fromNotAfterTo = (v: { from?: string; to?: string }) => !v.from || !v.to || v.from <= v.to;
+
+/**
+ * Every filter is optional and they AND together.
+ *
+ * - `vendorId` keeps a submission when ANY of its causes names that vendor. The
+ *   row still carries all its causes, so an operator sees the other vendor on a
+ *   shared pair page too.
+ * - `from` / `to` are inclusive UTC days on `submitted_at`. `from` after `to` is
+ *   a 400.
+ *
+ * Ordering is fixed newest-first, so there is no `sort` parameter.
+ */
+export const ListReindexSubmissionsQuerySchema = PageQuerySchema.extend({
+  vendorId: z.string().min(1).max(64).optional(),
+  channel: RecrawlSubmissionChannelSchema.optional(),
+  outcome: RecrawlSubmissionOutcomeSchema.optional(),
+  from: utcDate.optional(),
+  to: utcDate.optional(),
+}).refine(fromNotAfterTo, { message: '`from` must not be after `to`', path: ['from'] });
+export type ListReindexSubmissionsQuery = z.infer<typeof ListReindexSubmissionsQuerySchema>;
+
+/** A named entity a cause points at. `slug` and `name` are null when the row no
+ *  longer exists: the log keeps the id and outlives the vendor or product. */
+export const ReindexSubmissionEntitySchema = z.object({
+  id: z.string().min(1),
+  slug: z.string().nullable(),
+  name: z.string().nullable(),
+});
+export type ReindexSubmissionEntity = z.infer<typeof ReindexSubmissionEntitySchema>;
+
+/**
+ * One edit behind a submission. `source` is `vendor` (a vendor-portal write),
+ * `admin` (an admin write through the vendor seam) or `promote` (the review-app
+ * promote). It is an open string, like
+ * `audit_log.action`, so a row can outlive the code that wrote it; the web
+ * client labels the known values. `audit_log_id` and `action` are null for a
+ * promote cause, which carries `promote_job_id` instead. `vendor` is null for a
+ * promote or admin cause; `product` is null when the edit touched no product.
+ */
+export const ReindexSubmissionCauseSchema = z.object({
+  source: z.string().min(1),
+  audit_log_id: z.string().nullable(),
+  action: z.string().nullable(),
+  vendor: ReindexSubmissionEntitySchema.nullable(),
+  product: ReindexSubmissionEntitySchema.nullable(),
+  promote_job_id: z.string().nullable(),
+  queued_at: z.string(),
+});
+export type ReindexSubmissionCause = z.infer<typeof ReindexSubmissionCauseSchema>;
+
+/**
+ * One submission, with every cause it carries. `causes` is empty for a
+ * submission queued before AECI-1184 shipped, or whose cause write failed.
+ * `http_status` is null for a transport failure and for `gsc_manual`.
+ * `priority` is the queue tier the URL was sent at, null where none was recorded.
+ */
+export const ReindexSubmissionRowSchema = z.object({
+  id: z.number().int().positive(),
+  url: z.string(),
+  channel: RecrawlSubmissionChannelSchema,
+  outcome: RecrawlSubmissionOutcomeSchema,
+  http_status: z.number().int().nullable(),
+  priority: z.number().int().nullable(),
+  submitted_at: z.string(),
+  causes: z.array(ReindexSubmissionCauseSchema),
+});
+export type ReindexSubmissionRow = z.infer<typeof ReindexSubmissionRowSchema>;
+
+export const ListReindexSubmissionsResponseSchema = paginatedResponseSchema(
+  ReindexSubmissionRowSchema,
+);
+export type ListReindexSubmissionsResponse = z.infer<typeof ListReindexSubmissionsResponseSchema>;

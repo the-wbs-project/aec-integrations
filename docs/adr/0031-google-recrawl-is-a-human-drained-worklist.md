@@ -227,8 +227,9 @@ edits reached Google's manual lane (epic AECI-1182). A `not_requested` clear wri
 
 The record is the operator's word. Nothing tells us whether Google accepted the request, and
 Google does not publish one. So the row says "requested", never "indexed", and no surface may
-read it as proof of indexing. The second "cannot do" bullet in `ADMIN_PANEL_SPEC.md` §5.11 is
-superseded in part: the history now exists, and its view is AECI-1188.
+read it as proof of indexing. The old "cannot show what has been requested" bullet in
+`ADMIN_PANEL_SPEC.md` §5.11 is superseded: the history exists, and since AECI-1188 a read-only
+"Submission history" section on `/admin/reindex` shows it (`GET /api/admin/reindex/submissions`).
 
 ## References
 
