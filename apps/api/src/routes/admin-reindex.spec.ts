@@ -81,6 +81,9 @@ interface SeedRow {
   reason: string;
   source?: string;
   queuedAt: string;
+  inspectReason?: string | null;
+  inspectedAt?: string | null;
+  lastCrawlAt?: string | null;
 }
 
 const seed = (rows: readonly SeedRow[]) =>
@@ -173,6 +176,46 @@ describe('GET /api/admin/reindex — the worklist', () => {
       `${BASE}/products/b`,
     ]);
     expect(body.total).toBe(4);
+  });
+
+  it('puts rows Google says need a request first inside a tier, fetch failures last (AECI-1236)', async () => {
+    const queuedAt = '2026-09-01T00:00:00.000Z';
+    await seed([
+      { url: `${BASE}/vendors/never`, priority: 3, reason: 'vendor.updated', queuedAt },
+      {
+        url: `${BASE}/vendors/gone`,
+        priority: 3,
+        reason: 'vendor.updated',
+        queuedAt,
+        inspectReason: 'page_fetch_failed',
+        inspectedAt: '2026-10-05T12:00:00.000Z',
+      },
+      {
+        url: `${BASE}/vendors/stale`,
+        priority: 3,
+        reason: 'vendor.updated',
+        queuedAt: '2026-09-02T00:00:00.000Z',
+        inspectReason: 'crawl_predates_change',
+        inspectedAt: '2026-10-05T12:00:00.000Z',
+        lastCrawlAt: '2026-08-30T00:00:00Z',
+      },
+      { url: `${BASE}/products/t1`, priority: 1, reason: 'product.created', queuedAt },
+    ]);
+
+    const body = (await (await get()).json()) as {
+      data: { url: string; inspect_reason: string | null; last_crawl_at: string | null }[];
+    };
+    // The tier still leads: tier 1 is first even though it was never inspected.
+    expect(body.data.map((r) => r.url)).toEqual([
+      `${BASE}/products/t1`,
+      `${BASE}/vendors/stale`,
+      `${BASE}/vendors/never`,
+      `${BASE}/vendors/gone`,
+    ]);
+    expect(body.data[1]).toMatchObject({
+      inspect_reason: 'crawl_predates_change',
+      last_crawl_at: '2026-08-30T00:00:00Z',
+    });
   });
 
   it('breaks a same-priority same-timestamp tie on id, so pagination is total', async () => {

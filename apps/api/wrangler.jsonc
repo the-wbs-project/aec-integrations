@@ -557,6 +557,9 @@
           // AECI-1210 per-vendor snapshot of the prior UTC day. Minute 30 is clear of
           // 00:05, 00:15 and 00:25; the */15 sweep is a different expression.
           "30 0 * * *",
+          // AECI-1236 Google URL Inspection run, after the Pacific-midnight quota
+          // reset. Not 12:00: the protest reminder owns "0 12 * * *".
+          "0 13 * * *",
         ],
       },
       // ADR 0013: the cron `scheduled` handler enqueues onto these queues; the
@@ -576,6 +579,9 @@
           { "queue": "aeci-attestation-notify-staging", "binding": "ATTESTATION_NOTIFY_QUEUE" },
           // AECI-1210: the daily per-vendor snapshot.
           { "queue": "aeci-vendor-snapshot-staging", "binding": "VENDOR_SNAPSHOT_QUEUE" },
+          // AECI-1236: the daily URL Inspection run. The consumer re-sends its own
+          // next chunk here, so this binding is both producer and chain.
+          { "queue": "aeci-gsc-inspect-staging", "binding": "GSC_INSPECT_QUEUE" },
           // WC-5 (AECI-319): cross-Worker cache-purge. Producer only — the SSR Worker
           // consumes `aeci-cache-purge-staging` (apps/web/wrangler.jsonc).
           { "queue": "aeci-cache-purge-staging", "binding": "CACHE_PURGE_QUEUE" },
@@ -619,6 +625,12 @@
           },
           {
             "queue": "aeci-vendor-snapshot-staging",
+            "max_batch_size": 1,
+            "max_retries": 3,
+            "max_concurrency": 1,
+          },
+          {
+            "queue": "aeci-gsc-inspect-staging",
             "max_batch_size": 1,
             "max_retries": 3,
             "max_concurrency": 1,
@@ -756,6 +768,9 @@
           // AECI-1210 per-vendor snapshot of the prior UTC day. Minute 30 is clear of
           // 00:05, 00:15 and 00:25; the */15 sweep is a different expression.
           "30 0 * * *",
+          // AECI-1236 Google URL Inspection run, after the Pacific-midnight quota
+          // reset. Not 12:00: the protest reminder owns "0 12 * * *".
+          "0 13 * * *",
         ],
       },
       // ADR 0013 (see staging note): cron enqueues → `queue` consumer runs the job.
@@ -769,6 +784,9 @@
           { "queue": "aeci-attestation-notify-demo", "binding": "ATTESTATION_NOTIFY_QUEUE" },
           // AECI-1210: the daily per-vendor snapshot.
           { "queue": "aeci-vendor-snapshot-demo", "binding": "VENDOR_SNAPSHOT_QUEUE" },
+          // AECI-1236: the daily URL Inspection run. The consumer re-sends its own
+          // next chunk here, so this binding is both producer and chain.
+          { "queue": "aeci-gsc-inspect-demo", "binding": "GSC_INSPECT_QUEUE" },
           // WC-5 (AECI-319): cross-Worker cache-purge. Producer only — the SSR Worker
           // consumes `aeci-cache-purge-demo` (apps/web/wrangler.jsonc).
           { "queue": "aeci-cache-purge-demo", "binding": "CACHE_PURGE_QUEUE" },
@@ -812,6 +830,12 @@
           },
           {
             "queue": "aeci-vendor-snapshot-demo",
+            "max_batch_size": 1,
+            "max_retries": 3,
+            "max_concurrency": 1,
+          },
+          {
+            "queue": "aeci-gsc-inspect-demo",
             "max_batch_size": 1,
             "max_retries": 3,
             "max_concurrency": 1,
@@ -976,6 +1000,9 @@
           // AECI-1210 per-vendor snapshot of the prior UTC day. Minute 30 is clear of
           // 00:05, 00:15 and 00:25; the */15 sweep is a different expression.
           "30 0 * * *",
+          // AECI-1236 Google URL Inspection run, after the Pacific-midnight quota
+          // reset. Not 12:00: the protest reminder owns "0 12 * * *".
+          "0 13 * * *",
         ],
       },
       // ADR 0013 (see staging note): cron enqueues → `queue` consumer runs the job.
@@ -989,6 +1016,9 @@
           { "queue": "aeci-attestation-notify-production", "binding": "ATTESTATION_NOTIFY_QUEUE" },
           // AECI-1210: the daily per-vendor snapshot.
           { "queue": "aeci-vendor-snapshot-production", "binding": "VENDOR_SNAPSHOT_QUEUE" },
+          // AECI-1236: the daily URL Inspection run. The consumer re-sends its own
+          // next chunk here, so this binding is both producer and chain.
+          { "queue": "aeci-gsc-inspect-production", "binding": "GSC_INSPECT_QUEUE" },
           // WC-5 (AECI-319): cross-Worker cache-purge. Producer only — the SSR Worker
           // consumes `aeci-cache-purge-production` (apps/web/wrangler.jsonc).
           { "queue": "aeci-cache-purge-production", "binding": "CACHE_PURGE_QUEUE" },
@@ -1032,6 +1062,12 @@
           },
           {
             "queue": "aeci-vendor-snapshot-production",
+            "max_batch_size": 1,
+            "max_retries": 3,
+            "max_concurrency": 1,
+          },
+          {
+            "queue": "aeci-gsc-inspect-production",
             "max_batch_size": 1,
             "max_retries": 3,
             "max_concurrency": 1,

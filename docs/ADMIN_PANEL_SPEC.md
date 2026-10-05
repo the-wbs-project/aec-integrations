@@ -651,7 +651,7 @@ series' first tombstone, since those dates differ per series.
 ### 5.6 System — SHIPPED (AECI-580, 2026-08-13; completed by AECI-583, 2026-08-13)
 
 - SSR + API `sha` / `deployedAt` / `environment` from the two existing endpoints (`/api/version` and the SSR Worker's own `/_version` — they differ precisely so a stale SSR deploy is detectable). The UI reads both and flags a mismatch as a `role="alert"` band; an unknown SHA (the `wrangler --var` injection missing) reads as *unknown*, not as a difference. The bundle carries the **API** Worker's half — nothing reachable from the API Worker knows the SSR Worker's SHA.
-- **Cron liveness** — last run, duration, outcome per job, for all seventeen crons (§7.2).
+- **Cron liveness** — last run, duration, outcome per job, for all eighteen crons (§7.2).
 - **The data-quality checks** rendered with severity and sample rows — formerly visible only in an email. **Delivered as specified:** since AECI-583 the default view reads the last persisted `job_runs` result (labelled with the run's own `computed_at`) and `?recompute=1` is the refresh. Both are pure reads, so neither writes anything or needs an `audit_log` row (§13 **D8**).
 - Algolia sync watermark, index drift, orphan-sweep results.
 - D1 size and per-table row counts.
@@ -1057,12 +1057,23 @@ only, which is why AECI-747 deleted the ping we used to make, and nothing has
 replaced it because nothing can. Search Console → URL Inspection → Request Indexing
 is a browser action against a daily quota Google does not publish.
 
-So the automation stops at *knowing what needs doing*. Before this screen the
+So the automation stops at *knowing what needs doing*, plus one narrowing step. The read-only URL
+Inspection API can say whether Google already re-crawled a page since it last changed. The daily
+`gsc-inspect` cron (AECI-1236, `0 13 * * *`) uses it to close those rows by itself. It requests
+nothing. Each batch writes one summary `reindex.auto_cleared` audit row that lists every cleared
+row (`STAGE_1_SPEC.md` §26.1). `scripts/gsc-reindex-triage.mjs` (step 0 of
+`docs/gsc-reindex-playbook.md`) stays as a manual fallback. It clears rows through the Done
+endpoint below, so those keep their per-row audit. Before this screen the
 operator worked from memory after a promote, which `environments.md` described as
 "undelegated, unmonitored and invisible". This fixes the third word only.
 
 - **`/admin/reindex`** — one table, most important first, with a Done button per
-  row. `priority`, `reason`, `url`, and age. The only filter is `?priority=`.
+  row. `priority`, `reason`, `url`, a **Google says** column, and age. The only filter is
+  `?priority=`. **Google says** is the last inspection result (AECI-1236): a label from
+  `inspect_reason` and the date of Google's last crawl. It reads "Not checked yet" for a row
+  nobody has inspected, and for a row edited since. Rows the daily cron closed are under
+  `reindex.auto_cleared` in `audit_log`, one summary row per batch with the list in
+  `metadata.rows`. They write no `recrawl_submissions` row, because nothing was requested.
 - **Done asks what happened (AECI-1185).** Done opens a dialog with two answers and
   Cancel. "Requested indexing in Search Console" sends `?outcome=requested`.
   "Cleared without a request" sends `?outcome=not_requested`, for a quota that ran
@@ -1112,7 +1123,10 @@ Four IA notes, in §5.10's voice:
   operator can change is a worklist whose top row is no longer reliably the right
   next action, and working top-down is the entire value of the screen. The
   `?priority=` filter is a convenience for "clear the tier-1 backlog first on a tight
-  day", not the mechanism.
+  day", not the mechanism. Since AECI-1236 the order is `priority`, then an inspection
+  bucket, then `queued_at`, then `id`. The bucket puts rows Google says need a request
+  first (0), rows not yet inspected next (1), and `page_fetch_failed` rows last (2).
+  A failed fetch is a page problem that a request cannot fix, so it sinks inside its tier.
 
 **This section is not read-only, and it is the sixth §2 exception.** The write is a
 `DELETE`, and three things about it are decisions rather than defaults:
@@ -1139,7 +1153,11 @@ Four IA notes, in §5.10's voice:
 
 - **Submit to Google.** There is no API to call. If one ever accepts our content
   types, this screen becomes the thing that drives it and the worklist shape
-  survives unchanged.
+  survives unchanged. The inspection run reads from Google and requests nothing.
+- **Close a row from the screen on Google's evidence.** The cron does that. A row that
+  stays after an inspection means Google has not recrawled the page since the last change,
+  or the check has not reached it yet. The cron closes a row only on verdict `PASS` and a
+  crawl after `last_changed_at`.
 - **Re-queue a URL, or edit a priority.** Both are derived from a write that
   happened. Hand-editing either would make the `reason` column a claim rather than a
   record.
@@ -1932,9 +1950,9 @@ job_runs
   INDEX (job, started_at)
 ```
 
-Each of the seventeen cron handlers in `scheduled.ts` writes one row (eight at the time this was written; AECI-581 added the 00:15 `snapshot` job, AECI-584 the 03:00 `retention` prune, AECI-302 the 10:00 attestation detector sweep, AECI-613 the 11:00 entitlement term-expiry sweep, AECI-826 the IndexNow drain (`*/20`, daily at `5 0` since AECI-1136), AECI-862 the `25 */6` claim-staleness check, AECI-1205 the 12:00 protest reply reminder, AECI-1210 the 00:30 vendor snapshot, and AECI-624 the WEEKLY 02:00 Monday `asn-registry` refresh — cron `0 2 * * 2`, because Cloudflare's day-of-week is 1=Sunday, AECI-661 — which met this table at the AECI-750 reconcile). The data-quality run stores its full result set in `detail`, which is what §5.6 renders. Retention: 90 days (§7.4), enforced by the 03:00 prune since AECI-584.
+Each of the eighteen cron handlers in `scheduled.ts` writes one row (eight at the time this was written; AECI-581 added the 00:15 `snapshot` job, AECI-584 the 03:00 `retention` prune, AECI-302 the 10:00 attestation detector sweep, AECI-613 the 11:00 entitlement term-expiry sweep, AECI-826 the IndexNow drain (`*/20`, daily at `5 0` since AECI-1136), AECI-862 the `25 */6` claim-staleness check, AECI-1205 the 12:00 protest reply reminder, AECI-1210 the 00:30 vendor snapshot, AECI-1236 the 13:00 `gsc-inspect` Google URL Inspection run, and AECI-624 the WEEKLY 02:00 Monday `asn-registry` refresh — cron `0 2 * * 2`, because Cloudflare's day-of-week is 1=Sunday, AECI-661 — which met this table at the AECI-750 reconcile). The data-quality run stores its full result set in `detail`, which is what §5.6 renders. Retention: 90 days (§7.4), enforced by the 03:00 prune since AECI-584.
 
-**SHIPPED (AECI-583, 2026-08-13.)** `job` uses the seventeen `AdminCronJob` ids in `packages/shared/src/api/admin-panel.ts` (AECI-581 added the ninth, `metrics-snapshot`; AECI-584 the tenth, `retention-prune`; AECI-302 the eleventh, `attestation-notify`; AECI-613 the twelfth, `entitlement-expiry`; AECI-624 the thirteenth, `asn-registry`; AECI-826 the fourteenth, `indexnow-drain`; AECI-862 the fifteenth, `claim-stale-check`; AECI-1205 the sixteenth, `protest-reply-reminder`; AECI-1210 the seventeenth, `vendor-snapshot` — no migration needed for any of them, `job` carries no CHECK for exactly this reason); the DDL above is the built shape and `DATABASE_SCHEMA.md` §9.4 is the implementation record. Four things settled during the build are worth carrying forward:
+**SHIPPED (AECI-583, 2026-08-13.)** `job` uses the eighteen `AdminCronJob` ids in `packages/shared/src/api/admin-panel.ts` (AECI-581 added the ninth, `metrics-snapshot`; AECI-584 the tenth, `retention-prune`; AECI-302 the eleventh, `attestation-notify`; AECI-613 the twelfth, `entitlement-expiry`; AECI-624 the thirteenth, `asn-registry`; AECI-826 the fourteenth, `indexnow-drain`; AECI-862 the fifteenth, `claim-stale-check`; AECI-1205 the sixteenth, `protest-reply-reminder`; AECI-1210 the seventeenth, `vendor-snapshot`; AECI-1236 the eighteenth, `gsc-inspect` — no migration needed for any of them, `job` carries no CHECK for exactly this reason); the DDL above is the built shape and `DATABASE_SCHEMA.md` §9.4 is the implementation record. Four things settled during the build are worth carrying forward:
 
 - **Written on entry, completed on exit.** `withJobRun` (`apps/api/src/lib/job-runs.ts`) awaits the entry insert *before* invoking the job, so a run the isolate never returns from leaves `finished_at IS NULL` — the unfinished row is the signal. The finish write is awaited too, never `ctx.waitUntil`: on the queue path `ack()` fires the instant the job returns, and a deferred write would race it and manufacture false timeouts.
 - **All ten impls return a `JobRunReport` rather than `void`.** They swallow their own operational errors, so a wrapper that only watched for a throw would record `ok` for a failed run. A *thrown* handler is recorded `failed` **and rethrown**, preserving the reconcile job's deliberate queue retry; a *reported* failure does not throw, so instrumenting did not widen the retry surface to the other nine.

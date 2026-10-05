@@ -3384,7 +3384,11 @@ GET /api/admin/reindex?page=1&perPage=25&priority=1
         priority: 1,
         reason: "product.created",
         source: "promote",
-        queued_at: "2026-09-14T09:12:03.101Z"
+        queued_at: "2026-09-14T09:12:03.101Z",
+        last_changed_at: "2026-09-14T09:12:03.101Z",
+        inspected_at: "2026-10-05T12:04:41.220Z",
+        last_crawl_at: "2026-09-10T03:15:00Z",
+        inspect_reason: "crawl_predates_change"
       }
     ],
     page: 1, perPage: 25, total: 37
@@ -3401,16 +3405,29 @@ there or they are not.
 relative URL, because a Domain property spans several hosts and will not guess one.
 The value the operator copies has to be paste-ready as it stands.
 
-**`reason` is an open `string`, not a `z.enum`.** Nothing prunes this table on a
-schedule, so a row can outlive the code that wrote its reason. A closed enum would
+**Four inspection fields, all nullable (AECI-1236).** They carry the last result of the daily
+`gsc-inspect` run (`DATABASE_SCHEMA.md` §9.8). `last_changed_at` is an ISO datetime, the page's
+latest change. `inspected_at` is an ISO datetime, when Google was last asked. `last_crawl_at` is
+Google's `lastCrawlTime` verbatim, so it is a plain `string` and not validated as a datetime.
+`inspect_reason` is an open `string`, for the same reason as `reason`. Known slugs are
+`crawl_predates_change`, `unknown_to_google`, `discovered_not_indexed`, `crawled_not_indexed`,
+`excluded_noindex`, `page_with_redirect`, `page_fetch_failed` and `not_indexed_other`. A row that
+has not been inspected, or changed since, has `inspected_at` and `inspect_reason` null. A row
+Google has never crawled has `last_crawl_at` null. The run deletes rows Google has already
+recrawled, so a row in this list is one that needs a request or one nobody has checked yet.
+
+**`reason` is an open `string`, not a `z.enum`.** Nothing ages a row out, so a row can outlive
+the code that wrote its reason. A closed enum would
 make the reader fail on a row it should merely render. The client maps known values
 to labels and falls back to humanizing the slug. Known values today:
 `product.created`, `product.updated`, `product.minor`, `vendor.created`,
 `vendor.updated`, `vendor.minor`, `pair.created`, `pair.updated`,
 `trade.published`.
 
-**Ordering is `priority ASC, queued_at ASC, id ASC` and there is no `sort`
-parameter.** A worklist whose order the operator can change no longer has the right
+**Ordering is `priority ASC, inspection bucket ASC, queued_at ASC, id ASC` and there is no
+`sort` parameter.** The bucket (AECI-1236) is 0 for a row Google says needs a request, 1 for a row
+not yet inspected, and 2 for `page_fetch_failed`, which a request cannot fix. Before AECI-1236
+the order was `priority ASC, queued_at ASC, id ASC`. A worklist whose order the operator can change no longer has the right
 next action on top, which is the only thing this surface is for. The `id ASC` term is
 the AECI-825 rule rather than decoration: two rows written by the same promote share
 a `queued_at` to the millisecond, and a paginated list without a unique trailing term
@@ -4195,7 +4212,7 @@ export const AdminSystemResponseSchema = z.object({
   recomputed: z.boolean(),
   notes: z.array(AdminNoteSchema),
   version: AdminVersionStatusSchema,            // the API Worker's — see below
-  crons: z.array(AdminCronRunSchema),           // ALWAYS all seventeen
+  crons: z.array(AdminCronRunSchema),           // ALWAYS all eighteen
   data_quality: AdminDataQualityStatusSchema.nullable(),   // null unless ?recompute=1
   algolia: z.object({
     watermark: AdminAlgoliaWatermarkSchema.nullable(),     // null = the sync never ran

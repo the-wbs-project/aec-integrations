@@ -86,7 +86,7 @@
       "replacement for all eight Datadog `notify_no_data` monitors (spec \u00a73.4 / \u00a7AW6).",
       "",
       "MUST STAY IN SYNC WITH apps/api/src/lib/cron-schedules.ts. That file is the source of",
-      "truth for the seventeen cron expressions and is asserted byte-equal to",
+      "truth for the eighteen cron expressions and is asserted byte-equal to",
       "apps/api/wrangler.jsonc `triggers.crons` by cron-schedules.spec.ts. The `cron` field",
       "below is a COPY for documentation; the sweep only reads `metric` and `maxAgeMinutes`.",
       "A cron whose schedule changes without `maxAgeMinutes` changing here will either",
@@ -127,6 +127,10 @@
       "AECI-1210 added vendor-snapshot, the seventeenth cron, daily at 00:30 UTC. Its",
       "heartbeat aeci.vendor_snapshot.run is emitted on EVERY run, outcome ok or failed.",
       "",
+      "AECI-1236 added gsc-inspect, the eighteenth cron, daily at 13:00 UTC: Google URL",
+      "Inspection over the re-crawl worklist. Its heartbeat fires on EVERY chunk, including",
+      "skipped (no key) and quota-halted runs, so its absence means the job stopped running.",
+      "",
       "activeFrom (AECI-1221): an entry may carry an optional `activeFrom`, a UTC instant in",
       "the form YYYY-MM-DDTHH:MM:SSZ. Before it, a MISSING heartbeat prints PENDING and does",
       "not fail the sweep. A heartbeat that exists is judged as usual. After it, the entry is",
@@ -136,8 +140,8 @@
       "interval plus margin. Delete it once the first production heartbeat is in. It replaced",
       "the `pendingFirstHeartbeat` side list, which held protest-reply-reminder and",
       "vendor-snapshot. cron-schedules.spec.ts asserts every cron is in `crons` and every",
-      "activeFrom parses. The rule is in README.md §'New crons: activeFrom'. No entry carries",
-      "one today: AECI-1232 removed the last two on 2026-10-05, after both first heartbeats."
+      "activeFrom parses. The rule is in README.md §'New crons: activeFrom'. gsc-inspect",
+      "carries one until its first production heartbeat (AECI-1236)."
     ],
     "project": "prod",
     "lookbackHours": 360,
@@ -285,6 +289,16 @@
         "datadogMonitor": null,
         "datadogNoDataTimeframeMinutes": null,
         "_note": "AECI-1210. Never had a Datadog monitor \u2014 the cron did not exist. 1560 min (26 h) is the house allowance for a daily job, copied from metrics-snapshot. A new cron can miss its first 00:30 tick after deploy while the trigger propagates; that is not a bug. activeFrom (AECI-1221) was removed by AECI-1232 on 2026-10-05, once aeci.vendor_snapshot.run had appeared in production (first run 2026-10-05 00:30 UTC)."
+      },
+      {
+        "job": "gsc-inspect",
+        "cron": "0 13 * * *",
+        "metric": "aeci.gsc_inspect.run",
+        "maxAgeMinutes": 1560,
+        "activeFrom": "2026-10-12T18:00:00Z",
+        "datadogMonitor": null,
+        "datadogNoDataTimeframeMinutes": null,
+        "_note": "AECI-1236. Never had a Datadog monitor \u2014 the cron did not exist. Daily, so 1560 (26 h) like every other daily job. The heartbeat fires on every chunk of a run, including skipped (no GSC_SA_KEY_JSON) and quota-halted ones, so a run that stops partway still emits. outcome:quota is a routine Google 429 and is NOT a failure; only outcome:failed (key refused, chain enqueue failed) reaches the cron-failure alert."
       }
     ]
   }

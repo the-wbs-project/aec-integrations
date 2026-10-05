@@ -24,7 +24,7 @@ into a health report, or the report will silently mix a census with a funnel.
 |---|---|---|
 | **PostHog** (`aec-integrations`, **354071**, production only) | Person-linked logs (`posthogDistinctId`), `$exception` grouping, deploy `deployment` events, and the product funnels in `ANALYTICS.md` | **Alerts — none are applied to production yet.** Dashboards are applied to the **non-production** project (525793) only. Do not read a prod number off a 525793 board |
 | **`/admin/*`** (`job_runs`, `page_views`, `metrics_daily`) | Cron run records, the consent-independent traffic count, D1 footprint | Absence ("it never ran" writes no row, by construction) |
-| **The CI liveness sweep** (`posthog-liveness-sweep.yml`, every 3 h) | Cron **absence**, across all seventeen crons (a cron production has not run yet prints `PENDING` until its `activeFrom`, `observability/posthog/README.md`) — **already running** and worth reading during the dual-run | Anything about *why* a cron failed |
+| **The CI liveness sweep** (`posthog-liveness-sweep.yml`, every 3 h) | Cron **absence**, across all eighteen crons (a cron production has not run yet prints `PENDING` until its `activeFrom`, `observability/posthog/README.md`) — **already running** and worth reading during the dual-run | Anything about *why* a cron failed |
 | **Cloudflare** (Workers observability, Security → Events) | Edge cache HIT-rate, absolute request volume, per-IP WAF detail | Application-level anything |
 
 The rule for this pass: **read PostHog for production numbers, read the liveness sweep
@@ -220,10 +220,10 @@ data today, with the PostHog successor in brackets.
 > from **before** AECI-640 carry mixed tiers (demo was pointed at the prod key), so filter by `$host`
 > when reading history that far back.
 
-### 1a. The 17 scheduled crons (row 6 detail)
+### 1a. The 18 scheduled crons (row 6 detail)
 
 Each cron emits an always-on heartbeat; **absence** of that heartbeat is the liveness signal. A green
-board here means all seventeen fired on schedule. Since AECI-583 each run **also** writes a `job_runs`
+board here means all eighteen fired on schedule. Since AECI-583 each run **also** writes a `job_runs`
 row that `/admin/system` renders (see the split below).
 
 > **Read the record off `/admin/system`; read absence off something outside the Worker.** AECI-583
@@ -239,7 +239,7 @@ row that `/admin/system` renders (see the split below).
 > it **succeeded**. Full reconciliation in `OBSERVABILITY.md`.
 >
 > **What owns absence.** Formerly Datadog's six `notify_no_data` monitors; since AECI-651,
-> AECI-651 — and **already running now** — the CI liveness sweep, which watches all **seventeen** (none carries an `activeFrom` grace since AECI-1232). It
+> AECI-651 — and **already running now** — the CI liveness sweep, which watches all **eighteen** (`gsc-inspect` carries an `activeFrom` grace until its first production run, AECI-1236). It
 > runs outside the Worker on purpose; a liveness check hosted inside the API Worker cannot detect
 > the API Worker being dead. **PostHog alerts are explicitly not the answer:** no PostHog tier has
 > `notify_no_data`, and a "count < 1" alert over an empty window returns no rows rather than
@@ -269,6 +269,7 @@ job in its label column; "sweep" means the CI liveness sweep, with its staleness
 | `*/15 * * * *` | Request→Linear reconciliation sweep | `request-reconcile` | reconcile-stuck / reconcile-no-data → **persistent-stuck stays its own alert**; liveness → sweep (window **relaxed 60 → 90 min**, margin for the *sweep's* lateness) |
 | `5 0 * * *` | IndexNow submission drain (AECI-826 / §20.2; **daily since AECI-1136**, every 20 minutes before) — reads the `indexnow_queue` buffer that the promote hook and (since AECI-944) every vendor-portal write by a vendor with an active entitlement (AECI-1186) append to, highest tier first, and makes **one** outbound IndexNow submission of up to 10,000 URLs per run, logging every URL it sends in `recrawl_submissions` under one `batch_id` (AECI-1183; the id is in the run's `job_runs.detail`) — and, under a rate limit, exactly one request, because a bare 429 is not retried (AECI-833; a 5xx or a `Retry-After`-bearing 429 can still cost up to three, see §3 "IndexNow drain cadence"). Queue-less **on purpose**: a queue retry re-submits inside the same rate-limit window, so tomorrow's run is the backoff | `indexnow-drain` | **new with AECI-826.** Read `aeci.indexnow.drain{outcome}` — emitted on **every** run including the empty and no-creds ones, which is what makes absence meaningful. Liveness → **sweep (26 h)**. Failure → **combined cron alert** (`aeci.indexnow.drain{outcome:failed}`, added by AECI-864 — AECI-826 had wired only the liveness half). `failed` is a **local** fault only, today an unparseable `PUBLIC_SITE_URL`. A batch IndexNow rejects is `outcome:refused`, which the combined alert does not read, because a throttled run is routine and that alert pages above zero. A run that **throws** (a D1 error) emits no `aeci.indexnow.drain` at all, so it reaches the sweep, not this alert. A sustained refusal ratio does get its **own alert** ("Search-engine pings refused", > 90% over 72 h with a ≥3-submission floor; 24 h until AECI-1136). That alert is the check whose absence let the channel fail silently for at least three days |
 | `25 */6 * * *` | Claim-ticket staleness check (AECI-862 / §6.2) — reads the `claim` rows older than 24 h that already have a `linear_issue_id`, asks Linear in **one batched query** what state each of those issues is in, and emails `SUPPORT_EMAIL` a digest (production only since AECI-1220) naming the ones nobody has started. Queue-less and inline. **Minute 25 avoids the `*/15` and hourly expressions** — two jobs cannot share a cron string, because `scheduled.ts` switches on the raw value | `claim-stale-check` | **new with AECI-862.** Read `aeci.linear.claim_stale.job{outcome}` for liveness and `aeci.linear.claim_stale.stale` for the verdict. **A run that finds stale tickets is a SUCCESSFUL run** — `outcome:ok` means the check completed, not that the queue is clean. Two series need reading together: `…claim_stale.checked` is the population and `…claim_stale.stale` the finding, so "0 stale" means something different when 0 claims were eligible. `…claim_stale.read_failure` non-zero means Linear was unreadable and **nothing was asserted** — not that nothing is stale |
+| `0 13 * * *` | Google URL Inspection run (AECI-1236 / §20.2, ADR 0031 amendment) — inspects `gsc_recrawl_queue` rows through Search Console's read-only API and deletes the ones Google re-crawled after the page last changed, with one `reindex.auto_cleared` audit row per batch. Up to 1,500 rows a run in chunks of 100, about an hour, chained through the `aeci-gsc-inspect-{env}` queue. Runs after Google's Pacific-midnight quota reset, at 13:00 because the protest reminder owns `0 12 * * *`. Needs `GSC_SA_KEY_JSON` (production only) | `gsc-inspect` | **new with the job.** `aeci.gsc_inspect.run{outcome}` is emitted on every chunk, including no-key and quota-halted runs, so absence means the job stopped → sweep (26 h). `outcome:quota` is a routine Google 429 and not a failure. `outcome:failed` (key refused, chain enqueue failed) → combined alert. See `RUNBOOKS.md` "gsc-inspect halted on quota or failed" |
 | `0 * * * *` | WAF firewall-event poll | `waf-poll` | waf-ratelimit-spike / **waf-poll-not-running** (AECI-279) → spike stays its own alert with the **one rescaled threshold** (500/15 m → 2,000/1 h); poll liveness → sweep (180 min, unchanged) |
 
 **Nine of these gain failure coverage they never had** — metrics-snapshot, analytics-digest,

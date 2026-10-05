@@ -90,6 +90,10 @@ vi.mock('@aeci/shared/cloudflare-analytics', () => ({ fetchWafFirewallEvents: vi
 // The inline jobs (moderation snapshot, drift counter) call `getDb`; mock it to
 // hand back the in-memory D1 harness so the real Drizzle reads run on real SQL.
 vi.mock('./db/client', () => ({ getDb: vi.fn() }));
+vi.mock('./lib/gsc-inspect-job', async (importActual) => ({
+  ...(await importActual<typeof import('./lib/gsc-inspect-job')>()),
+  runGscInspectChunk: vi.fn(),
+}));
 
 import { fetchWafFirewallEvents } from '@aeci/shared/cloudflare-analytics';
 
@@ -117,6 +121,7 @@ import { runEntitlementExpirySweep } from './lib/entitlement-expiry';
 import { refreshAsnRegistry } from './lib/asn-registry';
 import { CHECKS } from './lib/data-quality';
 import { runHomeStats } from './lib/home-stats';
+import { runGscInspectChunk } from './lib/gsc-inspect-job';
 import { runReconciliationSweep } from './lib/reconciliation-sweep';
 import { normalizeJobMessage, queue, scheduled } from './scheduled';
 
@@ -139,6 +144,7 @@ const ASN_REGISTRY_CRON = '0 2 * * 2';
 const INDEXNOW_DRAIN_CRON = '5 0 * * *';
 const SNAPSHOT_CRON = '15 0 * * *';
 const VENDOR_SNAPSHOT_CRON = '30 0 * * *';
+const GSC_INSPECT_CRON = '0 13 * * *';
 
 const ctx = { waitUntil: vi.fn(), passThroughOnException: vi.fn() } as unknown as ExecutionContext;
 
@@ -1331,5 +1337,172 @@ describe('cron telemetry is batched, one request per kind per phase (AECI-1112)'
     );
     expect(logBatchToPosthog).toHaveBeenCalledTimes(1);
     expect(singleLogs('aeci.metrics_snapshot.captured')).toEqual([]);
+  });
+});
+
+describe('gsc_inspect: cron → queue → chained consumer (AECI-1236)', () => {
+  const chunk = (over: Partial<Awaited<ReturnType<typeof runGscInspectChunk>>> = {}) => ({
+    outcome: 'ok' as const,
+    inspected: 100,
+    closed: 10,
+    tagged: 90,
+    errors: 0,
+    next: null,
+    failedIds: [] as number[],
+    ...over,
+  });
+
+  it('enqueues onto GSC_INSPECT_QUEUE and does not run inline', async () => {
+    const send = vi.fn().mockResolvedValue(undefined);
+    await scheduled(
+      cronController(GSC_INSPECT_CRON),
+      makeEnv({ GSC_INSPECT_QUEUE: { send } as never }),
+      ctx,
+    );
+    expect(send).toHaveBeenCalledWith(
+      expect.objectContaining({ job: 'gsc_inspect', trigger: 'cron' }),
+    );
+    expect(runGscInspectChunk).not.toHaveBeenCalled();
+  });
+
+  it('starts a run with the full budget and re-sends the next chunk with what is left', async () => {
+    vi.mocked(runGscInspectChunk).mockResolvedValueOnce(chunk({ next: 1_400 }));
+    const send = vi.fn().mockResolvedValue(undefined);
+    const { batch, ack } = makeBatch('gsc_inspect', 'aeci-gsc-inspect-staging');
+
+    await queue(batch, makeEnv({ GSC_INSPECT_QUEUE: { send } as never }), ctx);
+
+    expect(vi.mocked(runGscInspectChunk).mock.calls[0]![1]).toBe(1_500);
+    expect(send).toHaveBeenCalledWith(
+      expect.objectContaining({
+        job: 'gsc_inspect',
+        trigger: 'cron',
+        gscInspect: { runId: expect.any(String), remaining: 1_400, skipIds: [] },
+      }),
+    );
+    expect(ack).toHaveBeenCalledTimes(1);
+    expect(batchedPoints()).toContainEqual(
+      expect.objectContaining({
+        metric: 'aeci.gsc_inspect.run',
+        tags: ['trigger:cron', 'outcome:ok'],
+      }),
+    );
+  });
+
+  it('continues a chained run with its budget and runId, and ends it when next is null', async () => {
+    vi.mocked(runGscInspectChunk).mockResolvedValueOnce(chunk({ next: null }));
+    const send = vi.fn().mockResolvedValue(undefined);
+    const { batch } = makeBatchFromBody(
+      {
+        job: 'gsc_inspect',
+        trigger: 'cron',
+        enqueuedAt: 'x',
+        gscInspect: { runId: 'run-1', remaining: 200 },
+      },
+      'aeci-gsc-inspect-staging',
+    );
+
+    await queue(batch, makeEnv({ GSC_INSPECT_QUEUE: { send } as never }), ctx);
+
+    expect(vi.mocked(runGscInspectChunk).mock.calls[0]![1]).toBe(200);
+    expect(send).not.toHaveBeenCalled();
+    const [row] = await jobRunRows();
+    expect(row).toMatchObject({ job: 'gsc-inspect', outcome: 'ok' });
+    expect(row!.detail).toMatchObject({ runId: 'run-1', remaining: 200, next: null });
+  });
+
+  // A failed row is not stamped, so without the skip list it would sort back to
+  // the top of every later chunk and, at 100 failures, starve the whole worklist.
+  it('carries every failed id forward so later chunks of the run skip them', async () => {
+    vi.mocked(runGscInspectChunk).mockResolvedValueOnce(
+      chunk({ next: 1_300, errors: 2, failedIds: [7, 9] }),
+    );
+    const send = vi.fn().mockResolvedValue(undefined);
+    const { batch } = makeBatchFromBody(
+      {
+        job: 'gsc_inspect',
+        trigger: 'cron',
+        enqueuedAt: 'x',
+        gscInspect: { runId: 'run-1', remaining: 1_400, skipIds: [3] },
+      },
+      'aeci-gsc-inspect-staging',
+    );
+
+    await queue(batch, makeEnv({ GSC_INSPECT_QUEUE: { send } as never }), ctx);
+
+    expect(vi.mocked(runGscInspectChunk).mock.calls[0]![2]).toEqual([3]);
+    expect(send).toHaveBeenCalledWith(
+      expect.objectContaining({
+        gscInspect: { runId: 'run-1', remaining: 1_300, skipIds: [3, 7, 9] },
+      }),
+    );
+  });
+
+  it('passes the failed ids between inline chunks too', async () => {
+    vi.mocked(runGscInspectChunk)
+      .mockResolvedValueOnce(chunk({ next: 1_400, errors: 1, failedIds: [5] }))
+      .mockResolvedValueOnce(chunk({ inspected: 3, next: null }));
+    await scheduled(cronController(GSC_INSPECT_CRON), makeEnv(), ctx);
+    expect(vi.mocked(runGscInspectChunk).mock.calls[1]![2]).toEqual([5]);
+  });
+
+  it('runs every chunk inline in a loop when no queue is bound (local/preview)', async () => {
+    vi.mocked(runGscInspectChunk)
+      .mockResolvedValueOnce(chunk({ next: 1_400 }))
+      .mockResolvedValueOnce(chunk({ inspected: 3, next: null }));
+    await scheduled(cronController(GSC_INSPECT_CRON), makeEnv(), ctx);
+    expect(runGscInspectChunk).toHaveBeenCalledTimes(2);
+    expect(vi.mocked(runGscInspectChunk).mock.calls[1]![1]).toBe(1_400);
+  });
+
+  it('reports a spent quota as outcome:quota, not failed, and stops the chain', async () => {
+    vi.mocked(runGscInspectChunk).mockResolvedValueOnce(
+      chunk({ outcome: 'halted_quota', next: null, errors: 40 }),
+    );
+    const send = vi.fn().mockResolvedValue(undefined);
+    const { batch } = makeBatch('gsc_inspect', 'aeci-gsc-inspect-staging');
+    await queue(batch, makeEnv({ GSC_INSPECT_QUEUE: { send } as never }), ctx);
+    expect(send).not.toHaveBeenCalled();
+    expect(batchedPoints()).toContainEqual(
+      expect.objectContaining({
+        metric: 'aeci.gsc_inspect.run',
+        tags: ['trigger:cron', 'outcome:quota'],
+      }),
+    );
+    const [row] = await jobRunRows();
+    expect(row).toMatchObject({ outcome: 'ok' });
+  });
+
+  it('reports a refused key as outcome:failed', async () => {
+    vi.mocked(runGscInspectChunk).mockResolvedValueOnce(
+      chunk({ outcome: 'halted_auth', inspected: 0, next: null }),
+    );
+    await scheduled(cronController(GSC_INSPECT_CRON), makeEnv(), ctx);
+    expect(batchedPoints()).toContainEqual(
+      expect.objectContaining({ tags: ['trigger:cron', 'outcome:failed'] }),
+    );
+    const [row] = await jobRunRows();
+    expect(row).toMatchObject({ job: 'gsc-inspect', outcome: 'failed' });
+  });
+
+  it('emits outcome:skipped and a skipped job_runs row when the key is absent', async () => {
+    vi.mocked(runGscInspectChunk).mockResolvedValueOnce(
+      chunk({ outcome: 'skipped', reason: 'no_creds', inspected: 0, closed: 0, tagged: 0 }),
+    );
+    await scheduled(cronController(GSC_INSPECT_CRON), makeEnv(), ctx);
+    expect(batchedPoints()).toContainEqual(
+      expect.objectContaining({ tags: ['trigger:cron', 'outcome:skipped'] }),
+    );
+    const [row] = await jobRunRows();
+    expect(row).toMatchObject({ outcome: 'skipped' });
+  });
+
+  it('carries gscInspect through normalizeJobMessage', () => {
+    expect(
+      normalizeJobMessage(
+        { job: 'gsc_inspect', gscInspect: { runId: 'r', remaining: 5, skipIds: [1, 2] } },
+        '2026-06-12T07:00:00.000Z',
+      ),
+    ).toMatchObject({ gscInspect: { runId: 'r', remaining: 5, skipIds: [1, 2] } });
   });
 });

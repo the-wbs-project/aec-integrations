@@ -10,8 +10,8 @@
  *   2. **A conflict PRESERVES `queued_at`.** Ordering inside a tier is
  *      oldest-first, so refreshing the timestamp would let a page someone keeps
  *      editing starve an older one indefinitely.
- *   3. **Chunking is 20 rows, not 33.** D1 caps a query at 100 bound parameters
- *      and this table binds five columns. The in-memory harness binds 32,766
+ *   3. **Chunking is 16 rows, not 20 or 33.** D1 caps a query at 100 bound
+ *      parameters and this table binds six columns since AECI-1236. The in-memory harness binds 32,766
  *      happily, so only a parameter-count assertion catches a wrong constant —
  *      a behavioural test passes either way and fails in production.
  *   4. **The tier map is exhaustive over the reason union.** A reason with no
@@ -162,6 +162,36 @@ describe('enqueueGscRecrawl — the conflict rule', () => {
     expect((await rowFor(url))!.queuedAt).toBe(first.toISOString());
   });
 
+  it('REFRESHES last_changed_at and clears the inspection tags on a re-enqueue (AECI-1236)', async () => {
+    const url = `${BASE}/products/procore`;
+    const first = new Date('2026-09-20T00:00:00.000Z');
+    const later = new Date('2026-09-28T00:00:00.000Z');
+
+    await enqueueGscRecrawl(t.db, [{ url, reason: 'product.minor' }], 'vendor', () => first);
+    expect((await rowFor(url))!.lastChangedAt).toBe(first.toISOString());
+
+    // The inspection run tagged it after Google crawled on the 25th.
+    await t.db
+      .update(gscRecrawlQueue)
+      .set({
+        inspectedAt: '2026-09-26T12:00:00.000Z',
+        inspectReason: 'crawl_predates_change',
+        lastCrawlAt: '2026-09-25T00:00:00.000Z',
+        coverageState: 'Submitted and indexed',
+      })
+      .where(eq(gscRecrawlQueue.url, url));
+
+    await enqueueGscRecrawl(t.db, [{ url, reason: 'product.minor' }], 'vendor', () => later);
+    const row = (await rowFor(url))!;
+    expect(row.queuedAt).toBe(first.toISOString());
+    expect(row.lastChangedAt).toBe(later.toISOString());
+    expect(row.inspectedAt).toBeNull();
+    expect(row.inspectReason).toBeNull();
+    // What Google last said survives: it is still true, and the screen shows it.
+    expect(row.lastCrawlAt).toBe('2026-09-25T00:00:00.000Z');
+    expect(row.coverageState).toBe('Submitted and indexed');
+  });
+
   it('keeps one row per URL however many times it is queued', async () => {
     const url = `${BASE}/products/procore`;
     for (const reason of ['product.minor', 'product.updated', 'product.minor'] as const) {
@@ -222,11 +252,11 @@ describe('enqueueGscRecrawl — retired slugs', () => {
 // ─── The D1 bound-parameter cap ──────────────────────────────────────────────
 
 describe('gscRecrawlInsertStatements — the 100-bound-parameter cap', () => {
-  it('chunks at 20 rows, because this table binds five columns', () => {
-    // 100 / 5 = 20. NOT 33, which is `indexnow_queue`'s three-column figure —
-    // copying that constant across would bind 165 parameters and be rejected by
+  it('chunks at 16 rows, because this table binds six columns', () => {
+    // floor(100 / 6) = 16. NOT 20, the five-column figure before AECI-1236 added
+    // `last_changed_at` — keeping it would bind 120 parameters and be rejected by
     // D1 while passing every spec in this repo.
-    expect(GSC_RECRAWL_INSERT_ROWS_PER_STATEMENT).toBe(20);
+    expect(GSC_RECRAWL_INSERT_ROWS_PER_STATEMENT).toBe(16);
   });
 
   it('emits at most 100 bound parameters per statement', () => {
@@ -237,6 +267,7 @@ describe('gscRecrawlInsertStatements — the 100-bound-parameter cap', () => {
     const stmts = gscRecrawlInsertStatements(t.db, entries, '2026-09-01T00:00:00.000Z', 'promote');
 
     expect(stmts).toHaveLength(3);
+    expect(stmts[0]!.toSQL().params).toHaveLength(96);
     for (const stmt of stmts) {
       const { params } = stmt.toSQL();
       expect(params.length).toBeLessThanOrEqual(100);

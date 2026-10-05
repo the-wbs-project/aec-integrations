@@ -2398,12 +2398,12 @@ for a stock: an uncaptured day would report zero subscribers rather than unknown
 
 ### 9.4 `job_runs`
 
-One row per execution of one of the seventeen `scheduled.ts` cron jobs (AECI-583; `ADMIN_PANEL_SPEC.md` §7.2 — the twelfth is the 11:00 entitlement term-expiry sweep, AECI-613, the thirteenth is the WEEKLY 02:00 Monday `asn-registry` refresh, AECI-624, which met this table at the AECI-750 reconcile, the fourteenth is the IndexNow drain, AECI-826, daily at `5 0` since AECI-1136 (`*/20` before), the fifteenth is the `25 */6` claim-staleness check, AECI-862, the sixteenth is the 12:00 protest reply reminder, AECI-1205, and the seventeenth is the 00:30 vendor snapshot, AECI-1210). Before it existed a cron's outcome lived **only** as an emitted metric, so nothing in D1 could answer "did the 08:00 Algolia sync run today", and the data-quality findings lived **only** in the 04:00 email — computed, sent, discarded.
+One row per execution of one of the eighteen `scheduled.ts` cron jobs (AECI-583; `ADMIN_PANEL_SPEC.md` §7.2 — the twelfth is the 11:00 entitlement term-expiry sweep, AECI-613, the thirteenth is the WEEKLY 02:00 Monday `asn-registry` refresh, AECI-624, which met this table at the AECI-750 reconcile, the fourteenth is the IndexNow drain, AECI-826, daily at `5 0` since AECI-1136 (`*/20` before), the fifteenth is the `25 */6` claim-staleness check, AECI-862, the sixteenth is the 12:00 protest reply reminder, AECI-1205, the seventeenth is the 00:30 vendor snapshot, AECI-1210, and the eighteenth is the daily 13:00 `gsc-inspect` Google URL Inspection run, AECI-1236). Before it existed a cron's outcome lived **only** as an emitted metric, so nothing in D1 could answer "did the 08:00 Algolia sync run today", and the data-quality findings lived **only** in the 04:00 email — computed, sent, discarded.
 
 ```sql
 create table job_runs (
   id bigserial primary key,
-  job text not null,                -- one of the seventeen AdminCronJob ids (packages/shared/src/api/admin-panel.ts)
+  job text not null,                -- one of the eighteen AdminCronJob ids (packages/shared/src/api/admin-panel.ts)
   started_at timestamptz not null,  -- written on ENTRY: the row exists before the job finishes
   finished_at timestamptz,          -- null = in flight, or the isolate never came back
   outcome text,                     -- 'ok' | 'failed' | 'skipped'; null while finished_at is null
@@ -3457,7 +3457,8 @@ The Google re-crawl worklist (AECI-945; `STAGE_1_SPEC.md` §20.2, ADR 0031). Add
 `apps/api/migrations/0036_youthful_vengeance.sql`, which is a pure `CREATE TABLE` plus two
 indexes and recreates nothing. A promote or a vendor write appends the entity pages it changed;
 the `/admin/reindex` screen (`ADMIN_PANEL_SPEC.md` §5.11) reads them in priority order, and its
-Done button deletes one row.
+Done button deletes one row. Migration `0064_robust_hawkeye.sql` (AECI-1236) adds the five
+inspection columns, one index and a backfill. It is five `ADD COLUMN`s, so nothing is recreated.
 
 ```sql
 create table gsc_recrawl_queue (
@@ -3466,12 +3467,29 @@ create table gsc_recrawl_queue (
   priority integer not null,             -- 1 (most important) .. 4 (may never be reached); derived from `reason`
   reason text not null,                  -- why it is here, e.g. product.created; drives the tier AND the screen's "why" column
   source text not null,                  -- what appended it: 'promote' or 'vendor'
-  queued_at text not null                -- when the change happened; oldest-first inside a tier, PRESERVED on conflict
+  queued_at text not null,               -- when the change happened; oldest-first inside a tier, PRESERVED on conflict
+  last_changed_at text,                  -- AECI-1236. The page's LATEST change; set on insert, REFRESHED on conflict. Backfilled by 0064 with the migration's run time
+  inspected_at text,                     -- AECI-1236. When the daily run last asked Google. NULL = never, or reset by a newer change
+  last_crawl_at text,                    -- AECI-1236. Google's lastCrawlTime at that inspection, verbatim. NULL = never crawled
+  coverage_state text,                   -- AECI-1236. Google's coverageState text, verbatim, for the operator
+  inspect_reason text                    -- AECI-1236. Why the row still needs a person (GscInspectReason slug). No CHECK
 );
 
 create unique index gsc_recrawl_queue_url_idx on gsc_recrawl_queue(url);
 create index gsc_recrawl_queue_priority_queued_at_idx on gsc_recrawl_queue(priority, queued_at);
+create index gsc_recrawl_queue_inspected_at_idx on gsc_recrawl_queue(inspected_at);  -- AECI-1236: the inspection run's read
 ```
+
+The five new columns are nullable only so `ADD COLUMN` needs no recreate. `last_changed_at` is
+null on no row after the 0064 backfill, and readers fall back to `queued_at` if it ever is. The
+backfill writes the time the migration ran, not `queued_at`. A row re-enqueued before 0064 kept
+its first `queued_at`, so `queued_at` can predate the page's real last change. Backfilling from it
+would let the first run close a row whose latest edit Google never saw. So rows queued before 0064
+close only once Google crawls after the migration.
+`inspect_reason` has no CHECK for the same reason `priority` has none. The values are the
+`GSC_INSPECT_REASONS` slugs in `apps/api/src/lib/gsc-inspection.ts`: `crawl_predates_change`,
+`unknown_to_google`, `discovered_not_indexed`, `crawled_not_indexed`, `excluded_noindex`,
+`page_with_redirect`, `page_fetch_failed` and `not_indexed_other`.
 
 **Why it is a separate table rather than a column on `indexnow_queue`.** Two structural
 reasons, and neither is tidiness. First, that table's drain **deletes** what it sends
@@ -3483,10 +3501,12 @@ indiscriminately and empties daily. Request Indexing is quota-capped, so this li
 lifecycles on one row. Since AECI-1136 `indexnow_queue` borrows this table's tier map for its
 own daily order (§9.6), but the tables stay separate.
 
-**A person drains this one, and there is no cron.** Google's Indexing API accepts `JobPosting`
-and `BroadcastEvent` only, which is why AECI-747 deleted the ping we used to make. Nothing
-replaced it because nothing can. Search Console then URL Inspection then Request Indexing is a
-browser action, so the automation stops at *knowing what needs doing*.
+**A person requests indexing for this one, and no cron does.** Google's Indexing API accepts
+`JobPosting` and `BroadcastEvent` only, which is why AECI-747 deleted the ping we used to make.
+Nothing replaced it because nothing can. Search Console then URL Inspection then Request Indexing
+is a browser action, so the automation stops at *knowing what needs doing*. Since AECI-1236 one
+cron does touch the table. The daily `gsc-inspect` run reads each row's Google status, tags it,
+and deletes the rows Google has already recrawled since the last change. It requests nothing.
 
 **Conflict RAISES priority; it does not ignore the conflict.** `url` is UNIQUE, so a page edited
 five times before the operator reaches it is one row rather than five. The statement is
@@ -3500,6 +3520,13 @@ follow the priority, so the screen's "why" column explains the tier the row actu
 oldest-first. Refreshing the timestamp would let a page someone keeps editing starve an older
 one forever.
 
+**`last_changed_at` is the opposite, and the conflict now refreshes it (AECI-1236).** The
+conflict update also sets `inspected_at` and `inspect_reason` to null. A new change makes the
+last inspection out of date, so the next run must look again. `last_crawl_at` and `coverage_state`
+stay, because they are still what Google last said. The inspection run closes a row only
+when Google's crawl is strictly after `last_changed_at`, and comparing with `queued_at` would close
+a row on a crawl that predates the latest edit.
+
 **`priority` carries no CHECK constraint.** The exhaustive `reason` map in
 `apps/api/src/lib/gsc-recrawl-priority.ts` is the enforcement, and it is exhaustive at the type
 level, so a new reason cannot ship untiered. A CHECK here would force a destructive table
@@ -3511,10 +3538,12 @@ was discarded, so a rule that turns out to be wrong is undetectable. Ranking kee
 spends the quota top-down, and leaves tier 4 unreached on a busy week. The failure mode becomes
 "I did not get to it", which is visible on the screen, rather than "it never existed".
 
-**No auto-prune, and there must not be one.** `indexnow_queue` ages rows out after
+**No age-based prune, and there must not be one.** `indexnow_queue` ages rows out after
 `INDEXNOW_QUEUE_MAX_AGE_DAYS` (7) because a missed ping is recoverable, since the sitemap covers
 the URL anyway. Here an aged-out row is work silently discarded that nobody ever saw. Rows
-persist until a human clears them. The screen displays age and nothing enforces it. The only
+persist until a human clears them, or until the inspection run finds Google has recrawled the page
+since its last change (AECI-1236). That is evidence, not age. The screen displays age and nothing
+enforces it. The only
 other disposal path in the module is `deleteGscRecrawlForeignHosts`, which drops rows whose host
 no longer matches `PUBLIC_SITE_URL` after an environment re-point, because the operator cannot
 paste those into that Search Console property. **It has no caller today.** It is a statement
@@ -3522,10 +3551,11 @@ builder waiting for one, and it is listed here so a reader does not mistake its 
 call graph for a missing disposal rule. Wiring it is a one-line change at the admin read; wiring
 it to a cron would be the staleness sweep this section refuses.
 
-**The write side is chunked at 20 rows per statement, not 33.** Five columns are bound per row,
-so 20 rows is D1's 100-parameter cap exactly and one more row is a rejected statement.
+**The write side is chunked at 16 rows per statement, not 33.** Six columns are bound per row
+since AECI-1236 added `last_changed_at` to the insert, so 16 rows is 96 of D1's 100 parameters
+and 17 would be 102, a rejected statement. It was 20 rows at five columns.
 `INDEXNOW_INSERT_ROWS_PER_STATEMENT` is 25 because that table binds four columns (`url`, `queued_at`,
-`source`, `priority`); copying the constant across would bind 125 parameters and fail. It would fail **only in production**,
+`source`, `priority`); copying the constant across would bind 150 parameters and fail. It would fail **only in production**,
 because better-sqlite3's ceiling in the in-memory harness is 32,766. The specs therefore assert
 the emitted parameter count per statement rather than only that the rows landed.
 
@@ -3533,9 +3563,11 @@ the emitted parameter count per statement rather than only that the rows landed.
 for a machine drain. It is far more than a day's Request Indexing quota, so anything below the
 cut is by definition tier-4 work that was not going to be reached today.
 
-**`audit_log`: the INSERTs are exempt, the DELETE is not, and not for the usual reason.**
+**`audit_log`: the INSERTs are exempt, the DELETEs are not, and the two audit differently.**
 Appending is derived, log-class and publicly invisible, so ADR 0022 exempts it like
-`indexnow_queue` and `job_runs`. The DELETE audits **per row**, `action='reindex.cleared'`,
+`indexnow_queue` and `job_runs`. The inspection run's tag `UPDATE`s (`inspected_at`,
+`last_crawl_at`, `coverage_state`, `inspect_reason`) are exempt on the same grounds. The operator
+DELETE audits **per row**, `action='reindex.cleared'`,
 `entity_type='gsc_recrawl_queue'`, in the same `db.batch` as the delete, attributed to the
 admin rather than to `'system'`. Note this is **not** §26.1's scheduled-deletion exception,
 which allows one summary row per run. This is an operator action on an admin screen, so the
@@ -3544,6 +3576,13 @@ Since AECI-1185 the audit row's `metadata` carries `outcome` (`requested` or `no
 and a `requested` clear also writes a `gsc_manual` row to `recrawl_submissions` (§9.6a) in the
 same batch.
 
+The inspection run's DELETE **is** scheduled, so it follows the exception. Each batch of up to
+100 rows is one `db.batch` carrying the guarded `DELETE`s, the tag `UPDATE`s and one summary row,
+`action='reindex.auto_cleared'`, `actor_type='system'`, `entity_type='gsc_recrawl_queue'`.
+`metadata.rows` lists every cleared row: id, url, priority, reason, `queued_at`, `last_changed_at`
+and Google's last crawl. A batch that clears nothing writes no summary row. The `DELETE` is
+guarded on the row not having changed since it was read, so an edit during the run keeps its row.
+
 **Absent from the `schema` barrel**, like `indexnowQueue` and `metricsDaily`. Every access is a
 direct `db.insert()` / `db.select()` / `db.delete()` and never `db.query.*`, so it needs no
 relational-query registration.
@@ -3551,7 +3590,8 @@ relational-query registration.
 **Written by** `bufferIndexNowAfterPromote` (`apps/api/src/routes/promote.ts`, post-commit) and
 `bufferVendorRecrawl` (`apps/api/src/routes/vendor-shared.ts`, post-commit), both through
 `enqueueGscRecrawlUrls` (`apps/api/src/lib/gsc-recrawl-queue.ts`), and cleared one row at a time by
-`DELETE /api/admin/reindex/:id`. Since AECI-1184 each appender also writes one
+`DELETE /api/admin/reindex/:id`, and by the inspection run (`apps/api/src/lib/gsc-inspect-job.ts`,
+AECI-1236), which also writes the four inspection columns. Since AECI-1184 each appender also writes one
 `recrawl_queue_causes` row (`channel = 'gsc'`) per URL the worklist actually took, and the clear
 sweeps the cleared URL's causes in its own batch (§9.6b). The vendor appender also gates on an active entitlement since
 AECI-1186 (decision 4 of epic AECI-1182): a Free seat's write queues nothing here, exactly as

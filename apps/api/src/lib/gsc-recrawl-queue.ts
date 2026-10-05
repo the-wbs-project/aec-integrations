@@ -6,13 +6,16 @@
  * (`GSC_RECRAWL_PRIORITY`) and both let a conflict RAISE a row's tier, never
  * lower it. The differences that remain are the whole point, and there are two:
  *
- *   1. **A person drains this one.** There is no cron. `POST /api/promote` and the
- *      vendor-portal writes APPEND; the `/admin/reindex` screen (AECI-946) READS,
- *      and its Done button DELETES one row. Google has no API that accepts our
- *      content types (AECI-747), so Search Console → URL Inspection → Request
- *      Indexing, run by hand, is the only channel. See {@link enqueueGscRecrawl}
- *      for the conflict rule, which also carries `reason` and `source` along
- *      with the tier because an operator reads them.
+ *   1. **A person drains this one.** No cron submits it. `POST /api/promote` and
+ *      the vendor-portal writes APPEND; the `/admin/reindex` screen (AECI-946)
+ *      READS, and its Done button DELETES one row. Google has no API that accepts
+ *      our content types (AECI-747), so Search Console → Request Indexing, run by
+ *      hand, is the only channel. A daily cron does *inspect* it (AECI-1236,
+ *      `lib/gsc-inspect-job.ts`): it closes rows Google has already re-crawled
+ *      since `last_changed_at` and tags the rest, so the person only sees rows
+ *      that need them. See {@link enqueueGscRecrawl} for the conflict rule,
+ *      which also carries `reason` and `source` along with the tier because an
+ *      operator reads them.
  *   2. **Nothing ages out.** `indexnow_queue` has a seven-day staleness sweep
  *      because a missed ping is recoverable — the sitemap covers the URL anyway.
  *      A row dropped from *this* table is work no human ever saw. There is no
@@ -40,9 +43,10 @@ import {
  * Rows per INSERT statement.
  *
  * **D1 caps a query at 100 bound parameters**, and this is that cap divided by
- * the number of bound columns per row. Five are bound here — `url`, `priority`,
- * `reason`, `source`, `queued_at` — so 20 rows is 100 parameters exactly and one
- * more row is a rejected statement.
+ * the number of bound columns per row. Six are bound here — `url`, `priority`,
+ * `reason`, `source`, `queued_at`, `last_changed_at` (AECI-1236) — so 16 rows is
+ * 96 parameters and a 17th row (102) is a rejected statement. It was 20 while
+ * five columns were bound.
  *
  * **This is NOT `INDEXNOW_INSERT_ROWS_PER_STATEMENT` (25).** That constant is the
  * same cap divided by *four* columns, because `indexnow_queue` has a `priority`
@@ -52,7 +56,7 @@ import {
  * passes every test in this repo. The specs therefore assert the emitted
  * parameter count per statement, not just that the rows landed.
  */
-export const GSC_RECRAWL_INSERT_ROWS_PER_STATEMENT = 20;
+export const GSC_RECRAWL_INSERT_ROWS_PER_STATEMENT = 16;
 
 /**
  * One worklist row, as the admin screen reads it.
@@ -83,6 +87,7 @@ function insertChunk(db: Db, chunk: readonly GscRecrawlEntry[], queuedAt: string
         reason: entry.reason,
         source,
         queuedAt,
+        lastChangedAt: queuedAt,
       })),
     )
     .onConflictDoUpdate({
@@ -104,6 +109,16 @@ function insertChunk(db: Db, chunk: readonly GscRecrawlEntry[], queuedAt: string
         // survives. Ordering inside a tier is oldest-first; refreshing the
         // timestamp would let a page someone keeps editing starve an older one
         // indefinitely.
+        //
+        // `last_changed_at` IS refreshed (AECI-1236). The inspection run closes a
+        // row only when Google crawled after this time, so it must be the newest
+        // change, not the first one. And the last inspection no longer describes
+        // the page, so its tags are cleared and the row goes back to the front
+        // of the inspection order. `last_crawl_at` and `coverage_state` are kept:
+        // they are still what Google last said, and the screen shows them.
+        lastChangedAt: sql`excluded.last_changed_at`,
+        inspectedAt: sql`null`,
+        inspectReason: sql`null`,
       },
     })
     .returning({ id: gscRecrawlQueue.id });

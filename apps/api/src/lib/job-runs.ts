@@ -301,6 +301,20 @@ export type JobRunDetail =
       capped: number;
       emails: Record<EmailOutcome, number>;
     }
+  /** The daily AECI-1236 URL Inspection run. One row per CHUNK (one consumer
+   *  invocation), all sharing `runId`; `remaining` is the budget the chunk started
+   *  with and `next` what it passed on (null = the run ended here). */
+  | {
+      job: 'gsc-inspect';
+      runId: string;
+      remaining: number;
+      next: number | null;
+      inspected: number;
+      closed: number;
+      tagged: number;
+      errors: number;
+      halted?: 'quota' | 'auth';
+    }
   | {
       job: 'claim-stale-check';
       checked: number;

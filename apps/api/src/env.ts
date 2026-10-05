@@ -82,7 +82,10 @@ export type ScheduledJob =
   | 'protest_reply_reminder'
   // AECI-1210: the daily 00:30 UTC per-vendor snapshot. Queue-backed
   // (`VENDOR_SNAPSHOT_QUEUE`): an idempotent upsert, so a retry is safe.
-  | 'vendor_snapshot';
+  | 'vendor_snapshot'
+  // AECI-1236: the daily Google URL Inspection run. Queue-backed and self-chaining
+  // (`GSC_INSPECT_QUEUE`): one run outlives a single consumer invocation.
+  | 'gsc_inspect';
 
 /**
  * Body of a message on a scheduled-job queue. Producer: the cron `scheduled()`
@@ -100,6 +103,16 @@ export type ScheduledJobMessage = {
   trigger: 'cron' | 'manual';
   /** ISO 8601 enqueue timestamp, for staleness / observability. */
   enqueuedAt: string;
+  /** Present only on a CHAINED `gsc_inspect` message (AECI-1236): the run spans
+   *  several consumer invocations, and each one passes on the budget left. The
+   *  cron's first message has none, which starts a fresh run. */
+  gscInspect?: {
+    runId: string;
+    remaining: number;
+    /** Rows whose inspection failed earlier in this run. Later chunks skip them,
+     *  so a set of failing URLs cannot fill every chunk. Absent = none. */
+    skipIds?: number[];
+  };
 };
 
 /**
@@ -440,6 +453,14 @@ export type Env = {
    */
   VENDOR_SNAPSHOT_QUEUE?: Queue<ScheduledJobMessage>;
   /**
+   * Queue carrying the daily Google URL Inspection run (AECI-1236 / §20.2). A run
+   * is about an hour of calls and a consumer invocation is capped at 15 minutes,
+   * so the consumer handles one chunk and re-sends the next one HERE with the
+   * budget left (`ScheduledJobMessage.gscInspect`). Absent on local/preview → the
+   * cron runs the chunks inline (`enqueueOrRun`).
+   */
+  GSC_INSPECT_QUEUE?: Queue<ScheduledJobMessage>;
+  /**
    * Cloudflare Queue **producer** binding for cross-Worker cache-purge (WC-5 /
    * AECI-319 / ADR 0020 §3). The post-promote purge (`purgeAfterPromote`, the ordered
    * home-stats flow) and review moderation (`admin-reviews.ts`) enqueue a
@@ -575,6 +596,19 @@ export type Env = {
    * `apps/api/src/linear-secrets-ci.spec.ts` (the CI gate).
    */
   LINEAR_API_KEY?: string;
+  /**
+   * Google service-account key, the whole key-file JSON (AECI-1236). Read by the
+   * daily URL Inspection run (`lib/gsc-inspect-job.ts`), which signs a
+   * `webmasters.readonly` token with it. The account needs read access to the
+   * `sc-domain:aecintegrations.com` Search Console property and nothing else.
+   *
+   * **Production only, and recommended rather than required.** The worklist only
+   * fills where `INDEXNOW_KEY` is set, which is production. `promote-to-prod.yml`
+   * pushes it from the `GSC_SA_KEY_JSON_PRODUCTION` GH secret; when it is absent
+   * the run is `skipped` with `aeci.gsc_inspect.run{outcome:skipped}` emitted, so
+   * a missing key is visible rather than silent (the AECI-851 lesson).
+   */
+  GSC_SA_KEY_JSON?: string;
   /**
    * The support inbox: the one recipient for every operator email the API Worker
    * sends (AECI-1220). Before AECI-1220 five vars named it: `ADMIN_ALERT_EMAIL`,

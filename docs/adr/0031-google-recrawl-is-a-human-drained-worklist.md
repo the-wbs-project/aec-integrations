@@ -231,6 +231,58 @@ read it as proof of indexing. The old "cannot show what has been requested" bull
 `ADMIN_PANEL_SPEC.md` §5.11 is superseded: the history exists, and since AECI-1188 a read-only
 "Submission history" section on `/admin/reindex` shows it (`GET /api/admin/reindex/submissions`).
 
+## 2026-10-05 amendment (AECI-1236): inspection is automated, the request is not
+
+**The decision stands for the request.** No Google API accepts our content types (AECI-747), so a
+person still opens Search Console and clicks Request Indexing. What changed is the step before it.
+The operator was working a list that held rows Google had already indexed, and had no way to tell
+them from rows that still needed a request.
+
+A daily cron now asks Google's URL Inspection API about each queued URL and closes the rows Google
+has already caught up on. The API is read-only and has its own quota, so it is not the Indexing
+API this record declined. The cron is the eighteenth, `gsc-inspect` at `0 13 * * *`, after Google's
+Pacific-midnight quota reset. (`0 12 * * *` belongs to the protest reply reminder.) It reads the key from `GSC_SA_KEY_JSON` and does nothing without it.
+`apps/api/src/lib/gsc-inspection.ts` and `gsc-inspect-job.ts` hold it.
+
+**§2 still holds: the list is ranked, never filtered.** A close is not a filter. A filter is a rule
+that decides in advance what the operator never sees. A close is evidence about one page. The row
+leaves only when Google reports verdict `PASS` and a `lastCrawlTime` strictly after the row's
+`last_changed_at`. Any other answer keeps the row. A page Google could not fetch is tagged
+`page_fetch_failed` and never closed, because absence of a good answer is not a ruling (ADR 0030).
+
+**§3 still holds: nothing ages a row out.** A close is not an age-out. Time never removes a row.
+Google's own report that it has recrawled the page after the last change does.
+
+**The operator can still audit what left.** Each batch writes one summary `audit_log` row,
+`action='reindex.auto_cleared'`. Its `metadata.rows` lists every cleared row with its id, url,
+priority, reason, `queued_at`, `last_changed_at` and Google's last crawl time. A batch that closes
+nothing writes no row. Chris ruled on 2026-10-05 for one summary row per batch over one row per
+cleared row.
+
+**§4 gains a second timestamp.** On conflict the insert now also refreshes `last_changed_at` and
+clears `inspected_at` and `inspect_reason`. It keeps `last_crawl_at` and `coverage_state`, which are still what Google last said. `queued_at` is still preserved, for the starvation
+reason in §4. The close compares Google's crawl time against the latest change, not the first
+queue time. A page edited after Google last crawled it must not close on an old crawl.
+A re-edit also clears the old inspection, so the next run looks again.
+
+**§5 is unchanged for the button and new for the cron.** Done still audits per row, attributed to
+the admin. The scheduled close is the scheduled-deletion case from §26.1, so it writes a summary
+row with `actor_type='system'`. The discriminator is still *scheduled*, not *queue*. The tag
+`UPDATE`s that record `inspected_at`, `last_crawl_at`, `coverage_state` and `inspect_reason` are
+derived, log-class writes under ADR 0022 and write no audit row.
+
+**Consequences.**
+
+- The consequence "the last step is still manual and still undelegated" stands for the request only.
+- A run takes about an hour. It inspects up to 1,500 rows in chunks of 100, about 25 a minute.
+  Rows inspected in the last three days are skipped. A Google `429` halts the run, and the next
+  day continues. A row whose inspection failed is left untouched and skipped by the rest of that
+  run, so a set of failing URLs cannot fill every chunk. The next day's run tries it again.
+- The run is chained through a Queue, `aeci-gsc-inspect-{env}`, because one consumer invocation is
+  capped at 15 minutes. Without the binding (local, preview) it loops inline.
+- The key is recommended, not required. Without it the screen works as before, with no
+  "Google says" column filled in.
+
 ## References
 
 - `docs/STAGE_1_SPEC.md` §20.2 (the contract), §20.5 (the write-event pipeline), §26.1 (why the
@@ -240,5 +292,5 @@ read it as proof of indexing. The old "cannot show what has been requested" bull
 - `docs/API_CONTRACTS.md` §6.10 (the two endpoints)
 - `docs/DATABASE_SCHEMA.md` §9.6a, §9.6b (the submission log the `requested` clear writes)
 - `docs/environments.md` → "Request indexing by hand (Google)" (the operator procedure)
-- `docs/RUNBOOKS.md` → "There is no runbook for an unworked Google queue" (the declined alert)
+- `docs/RUNBOOKS.md` → "There is no runbook for an unworked Google queue" (the declined alert); "gsc-inspect halted on quota or failed" (AECI-1236)
 - ADR 0025 (the IndexNow buffer), ADR 0022 (why the INSERTs are audit-exempt)

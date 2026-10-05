@@ -93,8 +93,8 @@ claim-stale-check, waf-poll, and the per-key half of home-stats — several ship
 the Datadog monitors were written; `indexnow-drain` did not exist until AECI-826 and only
 joined the failure alert in AECI-864, and `claim-stale-check` did not exist until
 AECI-862; AECI-1205 added `protest-reply-reminder` and AECI-1210 added `vendor-snapshot` to
-the failure alert; both are ordinary sweep rows since AECI-1232),
-and the liveness sweep watches all **seventeen** crons where Datadog watched six.
+the failure alert; both are ordinary sweep rows since AECI-1232; AECI-1236 added `gsc-inspect`),
+and the liveness sweep watches all **eighteen** crons where Datadog watched six.
 
 **A fourteenth alert exists and is deliberately outside the table above.**
 `indexnow-failure-rate` (AECI-826) has **no Datadog predecessor** — `aeci.indexnow.submit`
@@ -2048,3 +2048,42 @@ Rows do not expire, by design, so the work is all still there. Open `/admin/rein
 `?priority=1`, and spend that day's quota from the top. The one thing to check first is that
 the queued hosts still match `PUBLIC_SITE_URL`, since an environment re-point leaves URLs the
 operator cannot paste into that Search Console property.
+
+## gsc-inspect halted on quota or failed
+
+**Signal:** `aeci.gsc_inspect.run{outcome:quota}` or `{outcome:failed}` for the `gsc-inspect` cron
+(AECI-1236, `0 13 * * *`). `outcome:failed` also reaches the combined cron-failure alert.
+`/admin/system` shows the run's `job_runs.detail`: `{ job, runId, remaining, next, inspected,
+closed, tagged, errors, halted? }`.
+
+**What the job does.** It asks Google's read-only URL Inspection API about queued rows and deletes
+the ones Google re-crawled after the page last changed. It requests nothing. A run is up to 1,500
+rows in chunks of 100, chained through `aeci-gsc-inspect-{env}`. A row whose inspection failed
+(`errors`) is left as it was. The chained message carries its id in `skipIds`, so later chunks of
+the same run skip it, and the next day's run tries it again.
+
+**`outcome:quota`: do nothing.** Google answered 429 and the run stopped on purpose. This is
+routine. Rows not reached keep their place, because the next run reads never-inspected rows first.
+Tomorrow's run continues. The worklist is as long as it was, so work it from the top as usual. Look
+again if `quota` appears on most days with a low `inspected` count. We do not know why that would
+happen. File an issue with the `job_runs` rows. The run budget of 1,500 is under Google's
+published 2,000 calls a day per property.
+
+**`outcome:failed`: check the key, the property, then the queue.**
+
+1. Read the run's `job_runs.detail` on `/admin/system` and the warn log from the same time. A key Google refused is a `401` or `403`.
+2. Confirm the service account is still a user on the Search Console property
+   `sc-domain:aecintegrations.com` and the Search Console API is enabled on its Google project.
+3. Confirm `GSC_SA_KEY_JSON` is set on the production API Worker. A missing key reads
+   `outcome:skipped`, not `failed`. Re-run `promote-to-prod.yml` or put the secret by hand if the
+   GH secret `GSC_SA_KEY_JSON_PRODUCTION` was rotated.
+4. If the log says `aeci.gsc_inspect.chain_enqueue_failed`, confirm the queue
+   `aeci-gsc-inspect-production` exists (`wrangler queues list`). The deploy creates it, so a
+   missing queue means a deploy step was skipped.
+
+**What is safe to ignore.** A failed or halted run never deletes a row it did not inspect, and it
+never closes a row on a failed page fetch. The cost of a dead run is a longer list, not lost work.
+The manual fallback is step 0 of `docs/gsc-reindex-playbook.md`.
+
+**`outcome:skipped` is the correct state outside production**, and in production before the key is
+provisioned. It is not a fault.

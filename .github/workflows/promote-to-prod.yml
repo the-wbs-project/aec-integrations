@@ -216,6 +216,9 @@ jobs:
           # false-warns "not set" on every promote even when the GH secret exists.
           POSTHOG_QUERY_API_KEY_PRODUCTION: ${{ secrets.POSTHOG_QUERY_API_KEY_PRODUCTION }}
           POSTHOG_PROJECT_ID_PRODUCTION: ${{ secrets.POSTHOG_PROJECT_ID_PRODUCTION }}
+          # AECI-1236 URL Inspection key. Recommended, not required: without it the
+          # daily run skips and emits aeci.gsc_inspect.run{outcome:skipped}.
+          GSC_SA_KEY_JSON_PRODUCTION: ${{ secrets.GSC_SA_KEY_JSON_PRODUCTION }}
           PEERINGDB_API_KEY: ${{ secrets.PEERINGDB_API_KEY }}
           # AECI-851: the Phase 6 form→Linear pipeline. Single shared (un-suffixed)
           # keys — one Linear workspace/board backs the integration, and only
@@ -268,7 +271,7 @@ jobs:
           # emits aeci.webhooks.linear.hmac_failure, so its absence is loud rather
           # than silent — and a prod webhook may not be registered in Linear at all,
           # in which case the secret is moot and must not block a promote.
-          RECOMMENDED_SECRETS: 'ADMIN_PURGE_TOKEN CF_ZONE_ID SUPABASE_ANON_KEY SUPABASE_SERVICE_ROLE_KEY ANTHROPIC_API_KEY_PRODUCTION RESEND_API_KEY INDEXNOW_KEY_PRODUCTION CF_ANALYTICS_API_TOKEN POSTHOG_QUERY_API_KEY_PRODUCTION POSTHOG_PROJECT_ID_PRODUCTION PEERINGDB_API_KEY LINEAR_WEBHOOK_SIGNING_SECRET RESEND_WEBHOOK_SECRET_PRODUCTION'
+          RECOMMENDED_SECRETS: 'ADMIN_PURGE_TOKEN CF_ZONE_ID SUPABASE_ANON_KEY SUPABASE_SERVICE_ROLE_KEY ANTHROPIC_API_KEY_PRODUCTION RESEND_API_KEY INDEXNOW_KEY_PRODUCTION CF_ANALYTICS_API_TOKEN POSTHOG_QUERY_API_KEY_PRODUCTION POSTHOG_PROJECT_ID_PRODUCTION PEERINGDB_API_KEY LINEAR_WEBHOOK_SIGNING_SECRET RESEND_WEBHOOK_SECRET_PRODUCTION GSC_SA_KEY_JSON_PRODUCTION'
         run: bash scripts/require-secrets.sh
 
       # -----------------------------------------------------------------------
@@ -374,6 +377,7 @@ jobs:
           create_queue aeci-attestation-notify-production
           # AECI-1210: the daily per-vendor snapshot.
           create_queue aeci-vendor-snapshot-production
+          create_queue aeci-gsc-inspect-production
           # WC-5 (AECI-319): cross-Worker cache-purge queue. Producer = API Worker;
           # consumer = SSR Worker (both deploy below), so it must exist first.
           create_queue aeci-cache-purge-production
@@ -580,6 +584,26 @@ jobs:
           fi
           printf '%s' "$LINEAR_WEBHOOK_SIGNING_SECRET_VALUE" \
             | pnpm exec wrangler secret put LINEAR_WEBHOOK_SIGNING_SECRET --env production
+
+      # AECI-1236: push the Google service-account key (the whole key-file JSON) for
+      # the daily URL Inspection run. RECOMMENDED, not required, and production ONLY:
+      # the worklist only fills where INDEXNOW_KEY is set, and without the key the
+      # run skips with aeci.gsc_inspect.run{outcome:skipped}, so its absence is
+      # visible on the dashboard rather than silent (the AECI-851 lesson).
+      - name: Push GSC_SA_KEY_JSON to API Worker (production)
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          GSC_SA_KEY_JSON_VALUE: ${{ secrets.GSC_SA_KEY_JSON_PRODUCTION }}
+        working-directory: apps/api
+        run: |
+          set -euo pipefail
+          if [ -z "$GSC_SA_KEY_JSON_VALUE" ]; then
+            echo "::warning::GSC_SA_KEY_JSON_PRODUCTION not set — skipping push. The daily URL Inspection run will skip, and every queued row stays for the manual Search Console pass."
+            exit 0
+          fi
+          printf '%s' "$GSC_SA_KEY_JSON_VALUE" \
+            | pnpm exec wrangler secret put GSC_SA_KEY_JSON --env production
 
       # AECI-530: push the Supabase GoTrue service-role key to the prod API Worker so
       # the split-identity seams (lib/supabase-admin.ts — the register in
