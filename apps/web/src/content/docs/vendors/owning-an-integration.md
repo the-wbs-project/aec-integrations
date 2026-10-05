@@ -87,7 +87,7 @@ AEC Integrations can change a record your company holds. When it does, you are t
 - **A logo.** If AEC Integrations replaces your company's or a product's logo, you are told why.
 - **A seat.** If AEC Integrations removes a seat, the seats that remain are told why. If no seat remains, nobody can be told in the portal.
 
-If you disagree, email the address in the [Listing Accuracy Policy](/legal/listing-accuracy) under "Requesting a correction", and quote the notice. We can restore a retired integration, set a logo again, or grant a seat again.
+If you disagree, email [support@aecintegrations.com](mailto:support@aecintegrations.com) and quote the notice. We can restore a retired integration, set a logo again, or grant a seat again.
 
 ## Add an integration
 

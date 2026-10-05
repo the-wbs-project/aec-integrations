@@ -452,6 +452,31 @@ describe('VendorNotificationsList', () => {
     },
   );
 
+  it('names the overwritten field in the note (AECI-1159)', async () => {
+    getNotifications.mockResolvedValue({
+      notifications: [
+        {
+          kind: 'aeci_override',
+          id: '00000000-0000-4000-8000-00000000c2f5',
+          event: 'field_overridden',
+          reason: 'The value on record was wrong.',
+          integration_id: '00000000-0000-4000-8000-00000000c2f6',
+          integration_name: 'Summit ↔ Procore',
+          field: 'name',
+          pair_path: '/products/procore/integrations/summit',
+          logo_subject: null,
+          seat_name: null,
+          created_at: '2026-10-04T12:00:00.000Z',
+        },
+      ],
+    });
+    const body = text(await create());
+    expect(body).toContain(
+      'We accepted a change request to the Name field. The new value is now live.',
+    );
+    expect(body).not.toContain('on it');
+  });
+
   it('tells a reassigned owner it no longer holds the integration (AECI-1159)', async () => {
     getNotifications.mockResolvedValue({
       notifications: [
@@ -475,7 +500,7 @@ describe('VendorNotificationsList', () => {
     expect(body).toContain('You no longer maintain it.');
     expect(body).toContain('support@aecintegrations.com');
     expect(body).not.toContain('changed a detail');
-    expect(body).not.toContain('the new value is live');
+    expect(body).not.toContain('The new value is now live');
   });
 
   it('names AEC Integrations on a contest its retire closed (AECI-1046)', async () => {

@@ -539,10 +539,13 @@ function overrideNote(notification: VendorAeciOverrideNotification): string {
   let meaning: string;
   switch (notification.event) {
     case 'field_overridden':
-      meaning =
-        notification.field === 'owner'
-          ? $localize`:@@vendor.override.notify.note.ownerReassigned:We accepted a change request on its owner. You no longer maintain it.`
-          : $localize`:@@vendor.override.notify.note.field:We accepted a change request on it, and the new value is live.`;
+      if (notification.field === 'owner') {
+        meaning = $localize`:@@vendor.override.notify.note.ownerReassigned:We accepted a change request to transfer this integration to another vendor. You no longer maintain it.`;
+      } else if (notification.field) {
+        meaning = $localize`:@@vendor.override.notify.note.field:We accepted a change request to the ${contestFieldLabelLoose(notification.field)}:field: field. The new value is now live.`;
+      } else {
+        meaning = $localize`:@@vendor.override.notify.note.fieldUnnamed:We accepted a change request to this integration. The new value is now live.`;
+      }
       break;
     case 'logo_overridden':
       meaning = notification.logo_cleared
