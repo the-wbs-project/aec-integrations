@@ -83,7 +83,7 @@ AEC Integrations can also retire an integration your company holds, to take a fa
 
 AEC Integrations can change a record your company holds. When it does, you are told in **Messages** and the notice gives the reason. Other companies' notices do not carry the reason.
 
-- **A field on an integration.** When AEC Integrations accepts a change request that replaces a value you hold, your company is told which field changed and why. You can still edit that field yourself.
+- **A field on an integration.** When AEC Integrations accepts a change request that replaces a value you hold, your company is told which field changed and why. You can still edit that field yourself, unless AEC Integrations has also locked it, as the next item describes.
 - **A corrected and locked field.** AEC Integrations can correct a fact on your company profile, a product or an integration you hold, such as a phone number, a website or an integration's direction, and lock it. You are told the new value and why. The field then shows "Set by AEC Integrations" with the reason, and you cannot change it. A change request on that field is refused too. When AEC Integrations lifts the lock, you are told, and you can edit the field again. Its value stays as AEC Integrations set it until you change it.
 - **A logo.** If AEC Integrations replaces your company's or a product's logo, you are told why.
 - **A seat.** If AEC Integrations removes a seat, the seats that remain are told why. If no seat remains, nobody can be told in the portal.
