@@ -27,7 +27,16 @@ export const VENDOR_HISTORY_KINDS = ['all', 'vendor', 'aeci'] as const;
 export const VendorHistoryKindSchema = z.enum(VENDOR_HISTORY_KINDS);
 export type VendorHistoryKind = z.infer<typeof VendorHistoryKindSchema>;
 
-const utcDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Expected YYYY-MM-DD');
+/** A real calendar day. The round-trip rejects `2026-13-01` and `2026-02-31`,
+ *  which the shape regex alone lets through (one throws, one rolls over). */
+const isRealUtcDay = (d: string): boolean => {
+  const parsed = new Date(`${d}T00:00:00Z`);
+  return !Number.isNaN(parsed.getTime()) && parsed.toISOString().slice(0, 10) === d;
+};
+const utcDate = z
+  .string()
+  .regex(/^\d{4}-\d{2}-\d{2}$/, 'Expected YYYY-MM-DD')
+  .refine(isRealUtcDay, 'Not a real calendar day');
 
 const filterShape = {
   kind: VendorHistoryKindSchema.default('all'),

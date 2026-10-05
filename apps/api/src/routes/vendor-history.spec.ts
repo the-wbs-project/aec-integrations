@@ -403,6 +403,18 @@ describe('GET /api/vendor/history — filters and pages', () => {
     expect(r.status).toBe(400);
   });
 
+  it.each(['?to=2026-13-01', '?to=2026-02-31', '?from=2026-13-01', '?from=2026-02-31'])(
+    '%s is not a real day: 400 VALIDATION_FAILED on JSON and CSV',
+    async (query) => {
+      const r = await getJson(AUTH_A, query);
+      expect(r.status).toBe(400);
+      expect(r.body.error.code).toBe('VALIDATION_FAILED');
+      const { res, text } = await getCsv(AUTH_A, query);
+      expect(res.status).toBe(400);
+      expect(JSON.parse(text).error.code).toBe('VALIDATION_FAILED');
+    },
+  );
+
   it('writes no audit row', async () => {
     const before = await t.db.select({ n: count() }).from(auditLog);
     await getJson(AUTH_A);

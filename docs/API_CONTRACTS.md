@@ -6099,7 +6099,7 @@ The vendor's own change history: what its seats changed, what AECi changed on it
 | `from` | `YYYY-MM-DD` | Inclusive UTC day |
 | `to` | `YYYY-MM-DD` | Inclusive UTC day. `from` after `to` is a `400` |
 
-The JSON route also takes `page` and `perPage` (`PageQuerySchema`: default 24, max 100). A bad value is a `400 VALIDATION_ERROR`.
+The JSON route also takes `page` and `perPage` (`PageQuerySchema`: default 24, max 100). A bad value is a `400 VALIDATION_FAILED` on both routes. That includes a `from` or `to` that is not a real calendar day, such as `2026-13-01` or `2026-02-31`.
 
 **`GET /api/vendor/history`** returns `paginatedResponseSchema(VendorHistoryItemSchema)`:
 
