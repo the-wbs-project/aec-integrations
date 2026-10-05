@@ -3149,12 +3149,18 @@ export const recrawlSubmissionCauses = sqliteTable(
  * inside a tier is oldest-first, so refreshing the timestamp would let a
  * repeatedly-edited page starve an older one forever.
  *
- * ─── No auto-prune, deliberately ──────────────────────────────────────────────
+ * ─── No age-based prune; one evidence-based close (AECI-1236) ─────────────────
  *
  * `indexnow_queue` ages rows out after `INDEXNOW_QUEUE_MAX_AGE_DAYS` because a
  * missed ping is recoverable — the sitemap covers it eventually. **Here an
- * aged-out row is work silently discarded that nobody ever saw.** Rows persist
- * until a human clears them. The screen displays age; nothing enforces it.
+ * aged-out row is work silently discarded that nobody ever saw**, so nothing
+ * removes a row for being old.
+ *
+ * The one scheduled delete is the daily URL Inspection run
+ * (`lib/gsc-inspect-job.ts`). It removes a row only when Google reports the page
+ * indexed AND crawled after `lastChangedAt`, which is evidence the request is no
+ * longer needed, not age. Every other row stays until a human clears it, and the
+ * run tags it with what Google said (`inspectReason`, `lastCrawlAt`).
  *
  * ─── Audit ────────────────────────────────────────────────────────────────────
  *
@@ -3164,7 +3170,11 @@ export const recrawlSubmissionCauses = sqliteTable(
  * is not exempt and is not the scheduled-deletion case either** — it is an
  * operator action on an admin screen, so it audits **per row**
  * (`action='reindex.cleared'`), in the same `db.batch` as the delete, attributed
- * to the admin rather than to `'system'`.
+ * to the admin rather than to `'system'`. The inspection run's delete IS the
+ * scheduled case, so it writes one summary row per batch
+ * (`action='reindex.auto_cleared'`, `actor_type='system'`) whose `metadata`
+ * lists every cleared row. Its tag UPDATEs are derived from Google's answer and
+ * exempt like the INSERTs.
  *
  * Like `indexnowQueue` and `metricsDaily`, this table is deliberately absent from
  * the `schema` barrel at the foot of this file: every access is a direct
@@ -3214,6 +3224,38 @@ export const gscRecrawlQueue = sqliteTable(
     queuedAt: text('queued_at')
       .notNull()
       .$defaultFn(() => new Date().toISOString()),
+
+    /** When the page LAST changed (AECI-1236). Set on insert AND refreshed on
+     *  every conflict, unlike `queuedAt`. The inspection run compares Google's
+     *  last crawl with THIS, because a row queued on the 20th, crawled on the
+     *  25th and edited again on the 28th still reads `queuedAt` = the 20th, and
+     *  comparing with that would close the row with the 28th's change unseen.
+     *  Nullable only so migration 0064 could add it without a table recreate;
+     *  the migration backfilled it with its own run time, NOT `queued_at` (a row
+     *  re-enqueued before 0064 kept its first `queued_at`, which can predate
+     *  the real last change), and readers fall back to
+     *  `queuedAt` when it is null. */
+    lastChangedAt: text('last_changed_at'),
+
+    /** When the inspection run last asked Google about this URL. Null = never,
+     *  or reset by a newer change. Drives the run's order (never-inspected
+     *  first) and its three-day skip. */
+    inspectedAt: text('inspected_at'),
+
+    /** Google's `lastCrawlTime` at the last inspection. Null when Google has
+     *  never crawled the page. */
+    lastCrawlAt: text('last_crawl_at'),
+
+    /** Google's `coverageState` text at the last inspection, verbatim, e.g.
+     *  `Discovered - currently not indexed`. Kept for the operator; decisions
+     *  read `inspectReason`. */
+    coverageState: text('coverage_state'),
+
+    /** Why the row still needs a person, from the last inspection: one of the
+     *  `GscInspectReason` slugs (`crawl_predates_change`, `unknown_to_google`,
+     *  `page_fetch_failed`, …). No CHECK, for the same recreate reason as
+     *  `priority`; the TypeScript union is the guard. */
+    inspectReason: text('inspect_reason'),
   },
   (t) => [
     // The dedupe constraint AND the conflict target for `ON CONFLICT DO UPDATE`.
@@ -3221,6 +3263,8 @@ export const gscRecrawlQueue = sqliteTable(
     // The worklist read, exactly: `ORDER BY priority ASC, queued_at ASC`. A
     // composite in that column order serves it without a sort step.
     index('gsc_recrawl_queue_priority_queued_at_idx').on(t.priority, t.queuedAt),
+    // The inspection run's read: never-inspected first, then oldest inspection.
+    index('gsc_recrawl_queue_inspected_at_idx').on(t.inspectedAt),
   ],
 );
 

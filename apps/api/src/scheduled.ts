@@ -159,6 +159,7 @@ import {
   DATA_QUALITY_CRON,
   ENTITLEMENT_EXPIRY_CRON,
   CLAIM_STALE_CRON,
+  GSC_INSPECT_CRON,
   INDEXNOW_DRAIN_CRON,
   PROTEST_REMINDER_CRON,
   MODERATION_CRON,
@@ -171,6 +172,13 @@ import {
 } from './lib/cron-schedules';
 import { runClaimStaleCheck } from './lib/claim-stale-check';
 import { runProtestReplyReminderSweep } from './lib/contest-protest-emails';
+import {
+  GSC_INSPECT_ROWS_METRIC,
+  GSC_INSPECT_RUN_BUDGET,
+  GSC_INSPECT_RUN_METRIC,
+  runGscInspectChunk,
+  type GscInspectChunkResult,
+} from './lib/gsc-inspect-job';
 import { runEntitlementExpirySweep } from './lib/entitlement-expiry';
 import {
   drainIndexNowQueue,
@@ -1857,6 +1865,133 @@ async function runIndexNowDrainJob(env: Env, ctx: ExecutionContext): Promise<Job
   };
 }
 
+/**
+ * The daily Google URL Inspection run (AECI-1236 / §20.2). One CHUNK per call.
+ *
+ * `lib/gsc-inspect-job.ts` does the work; this wrapper owns the chain, the
+ * metrics and the audit forward. A message with no `gscInspect` (the cron's, or
+ * an operator's force-run) starts a run with the full budget; a chained one
+ * continues with what the previous chunk left. With the queue bound, each chunk
+ * re-sends the next one and returns, so no invocation outlives the 15-minute
+ * consumer cap. Without it (local, preview) the chunks run inline in a loop.
+ *
+ * Metric outcomes: `ok`, `skipped` (no key / not a public env), `quota` (Google
+ * said 429: the day is spent, routine, NOT a failure) and `failed` (the key was
+ * refused, or the next chunk could not be enqueued). Only `failed` reaches the
+ * cron-failure alert.
+ */
+async function runGscInspectJob(
+  env: Env,
+  ctx: ExecutionContext,
+  message?: ScheduledJobMessage,
+): Promise<JobRunReport> {
+  const req = cronRequest('/cron/gsc-inspect');
+  const trigger = message?.trigger ?? 'cron';
+  const runId = message?.gscInspect?.runId ?? crypto.randomUUID();
+  const startRemaining = message?.gscInspect?.remaining ?? GSC_INSPECT_RUN_BUDGET;
+  const queue = env.GSC_INSPECT_QUEUE;
+  const deps = {
+    db: cronDb(env).db,
+    serviceAccountJson: env.GSC_SA_KEY_JSON,
+    indexNowKey: env.INDEXNOW_KEY,
+    publicSiteUrl: env.PUBLIC_SITE_URL,
+  };
+  const { sink, flush } = batchedMetricSink(ctx, env, req);
+  const forward: AuditLogForwarder = (e) => {
+    logToPosthog(ctx, env, req, {
+      level: 'info',
+      message: `audit ${e.action}`,
+      source: 'audit_log',
+      audit: e,
+    });
+  };
+
+  const totals = { inspected: 0, closed: 0, tagged: 0, errors: 0 };
+  let remaining = startRemaining;
+  // Ids that failed earlier in this run; later chunks skip them (see the job's header).
+  let skipIds: readonly number[] = message?.gscInspect?.skipIds ?? [];
+  let result: GscInspectChunkResult;
+  for (;;) {
+    result = await runGscInspectChunk(deps, remaining, skipIds);
+    skipIds = [...skipIds, ...result.failedIds];
+    totals.inspected += result.inspected;
+    totals.closed += result.closed;
+    totals.tagged += result.tagged;
+    totals.errors += result.errors;
+    if (result.auditEntry) ctx.waitUntil(forwardAuditLog(result.auditEntry, forward));
+    if (result.next === null || queue) break;
+    remaining = result.next;
+  }
+
+  let enqueueFailed = false;
+  if (result.next !== null && queue) {
+    try {
+      await queue.send({
+        job: 'gsc_inspect',
+        trigger,
+        enqueuedAt: new Date().toISOString(),
+        gscInspect: { runId, remaining: result.next, skipIds: [...skipIds] },
+      });
+    } catch (error) {
+      enqueueFailed = true;
+      logToPosthog(ctx, env, req, {
+        level: 'error',
+        message: 'aeci.gsc_inspect.chain_enqueue_failed',
+        source: 'gsc-inspect-cron',
+        reason: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
+  const metricOutcome =
+    result.outcome === 'halted_auth' || enqueueFailed
+      ? 'failed'
+      : result.outcome === 'halted_quota'
+        ? 'quota'
+        : result.outcome;
+  sink.count(GSC_INSPECT_RUN_METRIC, 1, [`trigger:${trigger}`, `outcome:${metricOutcome}`]);
+  for (const [key, value] of [
+    ['closed', totals.closed],
+    ['tagged', totals.tagged],
+    ['error', totals.errors],
+  ] as const) {
+    if (value > 0) sink.count(GSC_INSPECT_ROWS_METRIC, value, [`result:${key}`]);
+  }
+  flush();
+
+  if (result.outcome === 'skipped') {
+    logToPosthog(ctx, env, req, {
+      level: 'warn',
+      message: `aeci.gsc_inspect.skipped reason=${result.reason}`,
+      source: 'gsc-inspect-cron',
+    });
+    return { outcome: 'skipped', detail: { job: 'gsc-inspect', reason: result.reason ?? '' } };
+  }
+  if (result.outcome !== 'ok') {
+    logToPosthog(ctx, env, req, {
+      level: result.outcome === 'halted_auth' ? 'error' : 'warn',
+      message: `aeci.gsc_inspect.${result.outcome}`,
+      source: 'gsc-inspect-cron',
+      reason: result.reason,
+    });
+  }
+  return {
+    outcome: metricOutcome === 'failed' ? 'failed' : 'ok',
+    detail: {
+      job: 'gsc-inspect',
+      runId,
+      remaining: startRemaining,
+      next: enqueueFailed ? null : result.next,
+      ...totals,
+      ...(result.outcome === 'halted_quota'
+        ? { halted: 'quota' as const }
+        : result.outcome === 'halted_auth'
+          ? { halted: 'auth' as const }
+          : {}),
+    },
+  };
+}
+
 /** The host portion of a URL, or `undefined` if it's missing/unparseable. The
  *  WAF poll scopes its query to the env's own host so a shared zone isn't
  *  triple-counted across `env:` tags. */
@@ -2031,6 +2166,11 @@ function queueForJob(env: Env, job: ScheduledJob): Queue<ScheduledJobMessage> | 
       // 3-day window, and the ledger key stops a re-send. No
       // `PROTEST_REMINDER_QUEUE` binding exists.
       return undefined;
+    case 'gsc_inspect':
+      // Queue-backed AND self-chaining (AECI-1236): a run is about an hour of
+      // Google calls and a consumer invocation is capped at 15 minutes, so each
+      // message handles one chunk and re-sends the next one here.
+      return env.GSC_INSPECT_QUEUE;
   }
 }
 
@@ -2210,6 +2350,7 @@ async function dispatchScheduledJob(
   env: Env,
   ctx: ExecutionContext,
   job: ScheduledJob,
+  message?: ScheduledJobMessage,
 ): Promise<JobRunReport> {
   switch (job) {
     case 'sync':
@@ -2246,6 +2387,8 @@ async function dispatchScheduledJob(
       return runProtestReplyReminderJob(env, ctx);
     case 'vendor_snapshot':
       return runVendorSnapshotJob(env, ctx);
+    case 'gsc_inspect':
+      return runGscInspectJob(env, ctx, message);
   }
 }
 
@@ -2266,10 +2409,15 @@ async function dispatchScheduledJob(
  * cron fired and no row exists yet; the read side must not read that as "didn't
  * run", which is why an absent row stays `unknown`/`derived` rather than failing.
  */
-async function runScheduledJob(env: Env, ctx: ExecutionContext, job: ScheduledJob): Promise<void> {
+async function runScheduledJob(
+  env: Env,
+  ctx: ExecutionContext,
+  job: ScheduledJob,
+  message?: ScheduledJobMessage,
+): Promise<void> {
   await withJobRun(
     { db: jobRunDb(env), job: ADMIN_CRON_JOB[job], sink: jobRunSink(ctx, env) },
-    () => dispatchScheduledJob(env, ctx, job),
+    () => dispatchScheduledJob(env, ctx, job, message),
   );
 }
 
@@ -2332,6 +2480,9 @@ export const scheduled: ExportedHandlerScheduledHandler<Env> = async (controller
     case VENDOR_SNAPSHOT_CRON:
       await enqueueOrRun(env, ctx, 'vendor_snapshot');
       return;
+    case GSC_INSPECT_CRON:
+      await enqueueOrRun(env, ctx, 'gsc_inspect');
+      return;
     default:
       // A trigger fired with no matching case. This used to be a bare
       // `console.warn`, which made it indistinguishable from a job that never
@@ -2372,6 +2523,9 @@ export function normalizeJobMessage(
     job: body.job,
     trigger: body.trigger ?? 'manual',
     enqueuedAt: body.enqueuedAt ?? receivedAt,
+    // Only a chained gsc_inspect message carries it (AECI-1236); dropping it
+    // here would restart the run with a fresh budget on every chunk.
+    ...(body.gscInspect ? { gscInspect: body.gscInspect } : {}),
   };
 }
 
@@ -2394,9 +2548,10 @@ export const queue: ExportedHandlerQueueHandler<Env, ScheduledJobMessageInput> =
   ctx,
 ) => {
   for (const message of batch.messages) {
-    const { job, trigger } = normalizeJobMessage(message.body, message.timestamp.toISOString());
+    const normalized = normalizeJobMessage(message.body, message.timestamp.toISOString());
+    const { job, trigger } = normalized;
     try {
-      await runScheduledJob(env, ctx, job);
+      await runScheduledJob(env, ctx, job, normalized);
       message.ack();
     } catch (error) {
       console.error(

@@ -101,10 +101,21 @@ function makeForwarder(c: AdminContext): AuditLogForwarder | undefined {
 }
 
 /**
+ * Inside a tier, rows Google says need a request come first, then rows not
+ * inspected yet, then rows whose page Google could not fetch (AECI-1236). A
+ * fetch failure goes last because a request cannot fix it; it needs someone to
+ * look at the page.
+ */
+const INSPECTION_BUCKET = sql`case
+  when ${gscRecrawlQueue.inspectReason} is null then 1
+  when ${gscRecrawlQueue.inspectReason} = 'page_fetch_failed' then 2
+  else 0 end`;
+
+/**
  * The worklist, most important first.
  *
- * Ordering is `priority ASC, queued_at ASC, id ASC` and is **not** client-
- * selectable. A worklist whose order the operator can change is a worklist whose
+ * Ordering is `priority ASC, inspection bucket ASC, queued_at ASC, id ASC` (see
+ * `INSPECTION_BUCKET`) and is **not** client-selectable. A worklist whose order the operator can change is a worklist whose
  * top row is no longer reliably the right next action, and the whole value of
  * this screen is that working top-down spends a capped quota well.
  *
@@ -133,11 +144,16 @@ export function createAdminReindexListHandler(
           reason: gscRecrawlQueue.reason,
           source: gscRecrawlQueue.source,
           queued_at: gscRecrawlQueue.queuedAt,
+          last_changed_at: gscRecrawlQueue.lastChangedAt,
+          inspected_at: gscRecrawlQueue.inspectedAt,
+          last_crawl_at: gscRecrawlQueue.lastCrawlAt,
+          inspect_reason: gscRecrawlQueue.inspectReason,
         })
         .from(gscRecrawlQueue)
         .where(where)
         .orderBy(
           asc(gscRecrawlQueue.priority),
+          asc(INSPECTION_BUCKET),
           asc(gscRecrawlQueue.queuedAt),
           asc(gscRecrawlQueue.id),
         )

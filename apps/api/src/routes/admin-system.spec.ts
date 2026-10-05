@@ -101,10 +101,10 @@ const cron = (body: AdminSystemResponse, job: string) =>
   body.crons.find((r) => r.job === job) ?? expect.fail(`no cron row for ${job}`);
 
 describe('GET /api/admin/system — cron liveness never reports a passing state', () => {
-  it('returns all seventeen crons as `unknown` on an empty database', async () => {
+  it('returns all eighteen crons as `unknown` on an empty database', async () => {
     const body = await system();
 
-    expect(body.crons).toHaveLength(17);
+    expect(body.crons).toHaveLength(18);
     expect(body.crons.map((r) => r.job)).toEqual([
       'metrics-snapshot',
       'vendor-snapshot',
@@ -119,6 +119,7 @@ describe('GET /api/admin/system — cron liveness never reports a passing state'
       'attestation-notify',
       'entitlement-expiry',
       'protest-reply-reminder',
+      'gsc-inspect',
       'request-reconcile',
       'waf-poll',
       'indexnow-drain',
@@ -157,10 +158,10 @@ describe('GET /api/admin/system — cron liveness never reports a passing state'
     const note = body.notes.find((n) => n.code === 'cron_liveness_unavailable');
     expect(note).toBeDefined();
     expect(note?.severity).toBe('warn');
-    expect(note?.params).toEqual({ unknown: 17, total: 17 });
+    expect(note?.params).toEqual({ unknown: 18, total: 18 });
   });
 
-  it('derives home-stats + algolia-sync from D1 once their artifacts exist, and leaves the other fifteen unknown', async () => {
+  it('derives home-stats + algolia-sync from D1 once their artifacts exist, and leaves the other sixteen unknown', async () => {
     await t.db.insert(statsCache).values([
       { key: 'home.total_products', value: 3, computedAt: '2026-08-13T01:00:00.000Z' },
       { key: 'home.total_vendors', value: 2, computedAt: '2026-08-13T01:05:00.000Z' },
@@ -201,14 +202,15 @@ describe('GET /api/admin/system — cron liveness never reports a passing state'
       'attestation-notify',
       'entitlement-expiry',
       'protest-reply-reminder',
+      'gsc-inspect',
       'request-reconcile',
       'waf-poll',
       'indexnow-drain',
       'claim-stale-check',
     ]);
     expect(body.notes.find((n) => n.code === 'cron_liveness_unavailable')?.params).toEqual({
-      unknown: 15,
-      total: 17,
+      unknown: 16,
+      total: 18,
     });
   });
 

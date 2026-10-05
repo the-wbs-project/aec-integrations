@@ -37,7 +37,8 @@
   <p class="mt-2 max-w-[60ch] text-sm text-(--text-secondary)" i18n="@@admin.reindex.intro">
     Google accepts no re-index request from us by API, so this is done by hand: copy a URL, paste it
     into Search Console's URL Inspection bar, request indexing, then come back, select Done and say
-    whether you requested it.
+    whether you requested it. A daily check asks Google about every row and removes the ones it has
+    already re-crawled since the page changed, so what is left here still needs you.
   </p>
 
   <!-- Polite announcements. A copy changes nothing on screen and a Done removes
@@ -73,7 +74,7 @@
   </p>
   } @else {
   <div class="mt-6 overflow-x-auto">
-    <table class="w-full min-w-[56rem] border-collapse text-sm">
+    <table class="w-full min-w-[68rem] border-collapse text-sm">
       <caption class="sr-only" i18n="@@admin.reindex.table.caption">
         URLs awaiting a manual Request Indexing in Search Console, most important first
       </caption>
@@ -99,6 +100,13 @@
             i18n="@@admin.reindex.col.reason"
           >
             Reason
+          </th>
+          <th
+            scope="col"
+            class="py-2 pe-4 text-start font-bold text-(--text-secondary)"
+            i18n="@@admin.reindex.col.google"
+          >
+            Google says
           </th>
           <th
             scope="col"
@@ -150,6 +158,12 @@
           </td>
 
           <td class="py-3 pe-4 text-(--text-secondary)">{{ reasonLabel(r.reason) }}</td>
+          <td class="py-3 pe-4">
+            <span class="block text-(--text-primary)">{{ googleLabel(r) }}</span>
+            @if (lastCrawlLabel(r); as crawl) {
+            <span class="block text-xs text-(--text-secondary)">{{ crawl }}</span>
+            }
+          </td>
           <td class="py-3 pe-4 text-(--text-secondary)">{{ age(r.queued_at) }}</td>
 
           <td class="py-3">

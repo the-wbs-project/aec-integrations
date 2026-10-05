@@ -178,6 +178,10 @@ const ACTION_LABELS: Readonly<Record<string, string>> = {
   // clear writes a `recrawl_submissions` row. Metadata is not on this wire, so
   // the label covers both outcomes and claims no request.
   'reindex.cleared': $localize`:@@admin.audit.action.reindexCleared:Re-index worklist row cleared`,
+  // AECI-1236: the daily URL Inspection run removing worklist rows Google had
+  // already re-crawled since the page changed. One summary row per batch, with
+  // every cleared URL in `metadata.rows`.
+  'reindex.auto_cleared': $localize`:@@admin.audit.action.reindexAutoCleared:Re-index rows cleared by the daily Google check`,
 };
 
 /**

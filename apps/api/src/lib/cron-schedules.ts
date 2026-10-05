@@ -264,6 +264,21 @@ export const PROTEST_REMINDER_CRON = '0 12 * * *';
 export const VENDOR_SNAPSHOT_CRON = '30 0 * * *';
 
 /**
+ * Google URL Inspection run (AECI-1236 / §20.2). **Daily at 13:00 UTC.**
+ *
+ * 13:00 UTC is 05:00 or 06:00 in California, after Google's per-property daily
+ * quota resets at Pacific midnight, so the run starts with a full day's quota
+ * and the operator's own Search Console use comes after it. It cannot be 12:00:
+ * the protest reply reminder owns `0 12 * * *`, and two jobs cannot share one
+ * expression. The hourly WAF poll also fires at 13:00, under its own expression.
+ *
+ * Queue-backed, unlike most of the read-only crons, because the run does not fit
+ * in one invocation: about an hour of calls against a 15-minute consumer cap. The
+ * consumer handles one chunk and re-sends the next on `aeci-gsc-inspect-{env}`.
+ */
+export const GSC_INSPECT_CRON = '0 13 * * *';
+
+/**
  * Every cron, in schedule order, keyed by the `AdminCronJob` id. `Record<…>` so
  * adding a member to the shared enum without adding a schedule here is a type
  * error rather than a row that quietly vanishes from the System screen.
@@ -286,6 +301,7 @@ export const CRON_SCHEDULES: Record<AdminCronJob, string> = {
   'claim-stale-check': CLAIM_STALE_CRON,
   'protest-reply-reminder': PROTEST_REMINDER_CRON,
   'vendor-snapshot': VENDOR_SNAPSHOT_CRON,
+  'gsc-inspect': GSC_INSPECT_CRON,
 };
 
 /**
@@ -316,6 +332,7 @@ export const ADMIN_CRON_JOB: Record<ScheduledJob, AdminCronJob> = {
   claim_stale_check: 'claim-stale-check',
   protest_reply_reminder: 'protest-reply-reminder',
   vendor_snapshot: 'vendor-snapshot',
+  gsc_inspect: 'gsc-inspect',
 };
 
 /** Display/iteration order for the System screen — chronological through the UTC
@@ -340,6 +357,7 @@ export const CRON_JOBS: readonly AdminCronJob[] = [
   'attestation-notify',
   'entitlement-expiry',
   'protest-reply-reminder',
+  'gsc-inspect',
   'request-reconcile',
   'waf-poll',
   'indexnow-drain',

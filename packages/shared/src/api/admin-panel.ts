@@ -1343,6 +1343,11 @@ export type AdminTrafficBreakdownResponse = z.infer<typeof AdminTrafficBreakdown
  * `vendor-snapshot` is the seventeenth (AECI-1210): daily at 00:30 UTC it writes one
  * `vendor_activity_daily` row per activated vendor for the prior UTC day. It is
  * queue-backed and sends nothing.
+ *
+ * `gsc-inspect` is the eighteenth (AECI-1236): daily at 13:00 UTC it asks Google's
+ * URL Inspection API about the re-crawl worklist, closes the rows Google already
+ * re-crawled since their last change, and tags the rest. It is queue-backed and
+ * chained, because one run outlives a single consumer invocation.
  */
 export const AdminCronJobSchema = z.enum([
   'metrics-snapshot', // 15 0 * * *
@@ -1362,6 +1367,7 @@ export const AdminCronJobSchema = z.enum([
   'claim-stale-check', // 25 */6 * * *
   'protest-reply-reminder', // 0 12 * * *
   'vendor-snapshot', // 30 0 * * *
+  'gsc-inspect', // 0 13 * * *
 ]);
 export type AdminCronJob = z.infer<typeof AdminCronJobSchema>;
 

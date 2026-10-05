@@ -1989,7 +1989,8 @@ is required from the review app.
   `indexnow_queue` for a daily cron to submit (00:05 UTC, highest tier first, since
   AECI-1136; `*/20` before). Google gets a row in
   `gsc_recrawl_queue` (AECI-945), which is a worklist a person drains through Search
-  Console, tiered `pair.created` or `pair.updated`. Neither arm makes an outbound
+  Console, tiered `pair.created` or `pair.updated`. A daily inspection cron (AECI-1236) later closes
+  the rows Google has already re-crawled, and the request itself stays manual. Neither arm makes an outbound
   request on the promote. Since AECI-1184 each buffered URL also gets a cause row
   carrying your `jobId` (`recrawl_queue_causes.promote_job_id`,
   `DATABASE_SCHEMA.md` §9.6b), so a later submission names the promote that caused

@@ -38,7 +38,7 @@ type PriorityFilter = number | null;
  *
  * ── THE FALLBACK IS LOAD-BEARING ─────────────────────────────────────────────
  * `ReindexQueueRowSchema.reason` is a plain `z.string()` on purpose: nothing
- * prunes `gsc_recrawl_queue` on a schedule, so a row can outlive the code that
+ * ages a `gsc_recrawl_queue` row out, so a row can outlive the code that
  * wrote its reason, and a new writer anywhere in the API must not blank a cell
  * on this screen. Never convert this map to a closed union.
  */
@@ -52,6 +52,22 @@ const REASON_LABELS: Readonly<Record<string, string>> = {
   'pair.created': $localize`:@@admin.reindex.reason.pairCreated:New integration page`,
   'pair.updated': $localize`:@@admin.reindex.reason.pairUpdated:Integration page changed`,
   'trade.published': $localize`:@@admin.reindex.reason.tradePublished:Trade page published`,
+};
+
+/**
+ * What Google said at the last daily inspection (AECI-1236), keyed by the
+ * `inspect_reason` slugs `apps/api/src/lib/gsc-inspection.ts` writes. Open for
+ * the same reason as {@link REASON_LABELS}: an unknown slug is humanized.
+ */
+const INSPECT_LABELS: Readonly<Record<string, string>> = {
+  crawl_predates_change: $localize`:@@admin.reindex.google.crawlPredatesChange:Indexed, but crawled before the change`,
+  unknown_to_google: $localize`:@@admin.reindex.google.unknown:Not known to Google`,
+  discovered_not_indexed: $localize`:@@admin.reindex.google.discovered:Discovered, not indexed`,
+  crawled_not_indexed: $localize`:@@admin.reindex.google.crawledNotIndexed:Crawled, not indexed`,
+  excluded_noindex: $localize`:@@admin.reindex.google.noindex:Excluded by noindex`,
+  page_with_redirect: $localize`:@@admin.reindex.google.redirect:Saw a redirect`,
+  page_fetch_failed: $localize`:@@admin.reindex.google.fetchFailed:Could not fetch the page. Check it before requesting`,
+  not_indexed_other: $localize`:@@admin.reindex.google.notIndexed:Not indexed`,
 };
 
 /** Turn an unmapped `entity.verb` slug into a readable phrase: `data_object.created`
@@ -206,6 +222,24 @@ export class ReindexList {
   /** Why this URL is queued, in English. Never throws, never returns empty. */
   protected reasonLabel(reason: string): string {
     return REASON_LABELS[reason] ?? humanizeReason(reason);
+  }
+
+  /** What Google said at the last inspection, or that nobody has asked yet. */
+  protected googleLabel(row: ReindexQueueRow): string {
+    if (!row.inspect_reason) {
+      return $localize`:@@admin.reindex.google.notChecked:Not checked yet`;
+    }
+    return INSPECT_LABELS[row.inspect_reason] ?? humanizeReason(row.inspect_reason);
+  }
+
+  /** Google's last crawl as a date, shown only once the row has been inspected. */
+  protected lastCrawlLabel(row: ReindexQueueRow): string | null {
+    if (!row.inspected_at) return null;
+    if (!row.last_crawl_at) {
+      return $localize`:@@admin.reindex.google.neverCrawled:Never crawled`;
+    }
+    const day = row.last_crawl_at.slice(0, 10);
+    return $localize`:@@admin.reindex.google.lastCrawl:Last crawl ${day}:DATE:`;
   }
 
   /**

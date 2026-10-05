@@ -199,7 +199,8 @@ tail: Algolia upserts, cache purges, search-engine buffering, audit forwards. Si
    (`mapWithConcurrency`, `packages/shared/src/concurrency.ts`) is the only lever.
    *(**This hook no longer exists.** AECI-747 deleted the transport on 2026-09-01, and
    AECI-945 replaced it with a D1 worklist a person drains, which makes no outbound
-   request at all — ADR 0031. The rule it demonstrates is unchanged and still binds the
+   request at all — ADR 0031. (A daily read-only inspection cron has pruned that worklist since
+   AECI-1236. The request is still a person's.) The rule it demonstrates is unchanged and still binds the
    GoTrue lookups; `mapWithConcurrency` is still the lever where an upstream has no
    batch endpoint. Left in place because this is a record of what AECI-666 changed.)*
 4. **The cache purge enqueues via one `queue.sendBatch()`**, not a concurrent

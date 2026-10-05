@@ -41,6 +41,10 @@ function makeRow(over: Partial<ReindexQueueRow> & { id: number }): ReindexQueueR
     reason: over.reason ?? 'product.updated',
     source: over.source ?? 'promote',
     queued_at: over.queued_at ?? new Date(Date.now() - 90 * 60_000).toISOString(),
+    last_changed_at: over.last_changed_at ?? null,
+    inspected_at: over.inspected_at ?? null,
+    last_crawl_at: over.last_crawl_at ?? null,
+    inspect_reason: over.inspect_reason ?? null,
   };
 }
 
@@ -175,12 +179,45 @@ describe('ReindexList', () => {
     expect(el.textContent).toContain('Trade page published');
   });
 
-  // Nothing prunes `gsc_recrawl_queue`, so a row can outlive the code that wrote
+  // Nothing ages a `gsc_recrawl_queue` row out, so a row can outlive the code that wrote
   // its reason. An unmapped slug must render as something, never as a blank cell.
   it('humanizes an unknown reason slug rather than rendering nothing', async () => {
     const { el } = await setup(makeApiMock([makeRow({ id: 1, reason: 'data_object.created' })]));
     const cell = rowFor(el, '/products/product-1').querySelectorAll('td')[1];
     expect(cell.textContent?.trim()).toBe('Data object created');
+  });
+
+  it('shows what Google said and its last crawl once a row is inspected (AECI-1236)', async () => {
+    const { el } = await setup(
+      makeApiMock([
+        makeRow({
+          id: 1,
+          inspected_at: '2026-10-05T12:00:00.000Z',
+          inspect_reason: 'crawl_predates_change',
+          last_crawl_at: '2026-09-25T08:00:00Z',
+        }),
+        makeRow({
+          id: 2,
+          inspected_at: '2026-10-05T12:00:00.000Z',
+          inspect_reason: 'unknown_to_google',
+        }),
+        makeRow({ id: 3 }),
+        makeRow({
+          id: 4,
+          inspected_at: '2026-10-05T12:00:00.000Z',
+          inspect_reason: 'something_new',
+        }),
+      ]),
+    );
+    const cells = bodyRows(el).map((r) =>
+      [...r.querySelectorAll('td')[2].querySelectorAll('span')].map((s) => s.textContent?.trim()),
+    );
+    expect(cells).toEqual([
+      ['Indexed, but crawled before the change', 'Last crawl 2026-09-25'],
+      ['Not known to Google', 'Never crawled'],
+      ['Not checked yet'],
+      ['Something new', 'Never crawled'],
+    ]);
   });
 
   it('shows how long each URL has been waiting', async () => {
@@ -191,7 +228,7 @@ describe('ReindexList', () => {
         makeRow({ id: 3, queued_at: new Date(Date.now() - 3 * 86_400_000).toISOString() }),
       ]),
     );
-    const ages = bodyRows(el).map((r) => r.querySelectorAll('td')[2].textContent?.trim());
+    const ages = bodyRows(el).map((r) => r.querySelectorAll('td')[3].textContent?.trim());
     expect(ages).toEqual(['30 min', '5 h', '3 d']);
   });
 
@@ -343,7 +380,7 @@ describe('ReindexList', () => {
       const { el } = await setup(makeApiMock([makeRow({ id: 1 }), makeRow({ id: 2 })]));
       expect(el.querySelector('caption')?.textContent?.trim()).toBeTruthy();
       const colHeaders = [...el.querySelectorAll('thead th')];
-      expect(colHeaders).toHaveLength(5);
+      expect(colHeaders).toHaveLength(6);
       for (const th of colHeaders) expect(th.getAttribute('scope')).toBe('col');
       // The URL is the row's identity, so it is a row header rather than a cell.
       for (const row of bodyRows(el)) {

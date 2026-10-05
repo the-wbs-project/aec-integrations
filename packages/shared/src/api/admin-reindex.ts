@@ -52,9 +52,10 @@ import {
  */
 export const REINDEX_QUEUE_MAX_PRIORITY = 4;
 
-/** Worklist filter. Ordering is fixed — priority, then oldest first — so there
- *  is no `sort` parameter: a worklist whose order the operator can change is a
- *  worklist whose top row is no longer the right next action. */
+/** Worklist filter. Ordering is fixed — priority, then rows Google says need a
+ *  request, then oldest first (AECI-1236) — so there is no `sort` parameter: a
+ *  worklist whose order the operator can change is a worklist whose top row is no
+ *  longer the right next action. */
 export const ListReindexQueueQuerySchema = PageQuerySchema.extend({
   /** Show only this tier. The operator's use for it is "clear the tier-1 backlog
    *  first on a day when the quota is tight", which the default ordering already
@@ -71,10 +72,15 @@ export type ListReindexQueueQuery = z.infer<typeof ListReindexQueueQuerySchema>;
  * guess one — so the value the operator copies has to be paste-ready as-is.
  *
  * `reason` is an open string rather than a `z.enum`, matching `audit_log.action`
- * and for the same reason: nothing prunes this table on a schedule, so a row can
- * outlive the code that wrote its reason. A closed enum would make the reader
- * fail on a row it should merely render. The web client maps known values to
- * labels and falls back to humanizing the slug.
+ * and for the same reason: nothing ages a row out, so a row can outlive the code
+ * that wrote its reason. A closed enum would make the reader fail on a row it
+ * should merely render. The web client maps known values to labels and falls back
+ * to humanizing the slug. `inspect_reason` is open for the same reason.
+ *
+ * The four inspection fields (AECI-1236) come from the daily URL Inspection run.
+ * All null means the row has not been inspected yet, or changed since. Rows the
+ * run found already re-crawled are deleted, so every row here is one Google
+ * still needs a request for, or one nobody has checked.
  */
 export const ReindexQueueRowSchema = z.object({
   id: z.number().int().positive(),
@@ -83,6 +89,14 @@ export const ReindexQueueRowSchema = z.object({
   reason: z.string().min(1),
   source: z.string().min(1),
   queued_at: z.string().datetime(),
+  /** The page's latest change; the inspection run compares Google's crawl with it. */
+  last_changed_at: z.string().datetime().nullable(),
+  /** When the run last asked Google about this URL. */
+  inspected_at: z.string().datetime().nullable(),
+  /** Google's `lastCrawlTime` at that inspection, verbatim (RFC 3339). */
+  last_crawl_at: z.string().nullable(),
+  /** Why the row still needs a person, e.g. `crawl_predates_change`. */
+  inspect_reason: z.string().nullable(),
 });
 export type ReindexQueueRow = z.infer<typeof ReindexQueueRowSchema>;
 
