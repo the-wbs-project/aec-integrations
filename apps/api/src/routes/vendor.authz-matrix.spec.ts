@@ -102,6 +102,7 @@ import {
 } from './vendor';
 import { createListVendorProductConnectorsHandler } from './vendor-connectors';
 import { createListVendorNotificationsHandler } from './vendor-notifications';
+import { createListVendorHistoryHandler, createVendorHistoryCsvHandler } from './vendor-history';
 import { createListVendorRecrawlSubmissionsHandler } from './vendor-recrawl-submissions';
 import {
   createDeleteProductVersionHandler,
@@ -343,6 +344,13 @@ function makeApp() {
     requireVendor(guard),
     createListVendorNotificationsHandler(t.factory),
   );
+  // AECI-1194 — guard only; no capability gate, no rate limit.
+  app.get('/api/vendor/history', requireVendor(guard), createListVendorHistoryHandler(t.factory));
+  app.get(
+    '/api/vendor/history.csv',
+    requireVendor(guard),
+    createVendorHistoryCsvHandler(t.factory),
+  );
   // AECI-1187 — guard only; scoped on the cause's vendor, never capability-gated.
   app.get(
     '/api/vendor/recrawl-submissions',
@@ -473,6 +481,8 @@ const ROUTES: ReadonlyArray<{ path: string; method: string; body?: unknown; ok?:
   { path: '/api/vendor/me', method: 'GET' },
   { path: '/api/vendor/seats', method: 'GET' },
   { path: '/api/vendor/notifications', method: 'GET' },
+  { path: '/api/vendor/history', method: 'GET' },
+  { path: '/api/vendor/history.csv', method: 'GET' },
   { path: '/api/vendor/recrawl-submissions', method: 'GET' },
   { path: '/api/vendor/profile', method: 'PATCH', body: { description: 'edited' } },
   {
@@ -845,6 +855,39 @@ describe('/api/vendor/* — cross-vendor isolation', () => {
 
     const b = await call('/api/vendor/notifications', 'GET', SEAT_B);
     expect(b.body.notifications.map((n: { claim_id: string }) => n.claim_id)).toEqual([uuid(702)]);
+  });
+
+  it('GET /history returns only rows stamped with the caller’s vendor, and leaks nothing', async () => {
+    const row = (n: number, vendorId: string | null, actorId: string) => ({
+      id: uuid(800 + n),
+      actorId,
+      actorType: 'admin' as const,
+      action: 'product.updated',
+      entityType: 'product',
+      entityId: PRODUCT_A,
+      afterState: { description: 'a raw value' },
+      metadata: { internalNote: 'internal only', reason: 'shown', reasonVisibility: 'vendor' },
+      vendorId,
+    });
+    await t.db
+      .insert(auditLog)
+      .values([row(1, VENDOR_A, SEAT_A), row(2, VENDOR_B, SEAT_B), row(3, null, SEAT_A)]);
+
+    const a = await call('/api/vendor/history', 'GET', SEAT_A);
+    expect(a.body.data.map((r: { id: string }) => r.id)).toEqual([uuid(801)]);
+    const b = await call('/api/vendor/history', 'GET', SEAT_B);
+    expect(b.body.data.map((r: { id: string }) => r.id)).toEqual([uuid(802)]);
+
+    // The Free seat is not gated: it reads its own (empty) history.
+    const free = await call('/api/vendor/history', 'GET', SEAT_UNVERIFIED);
+    expect(free.status).toBe(200);
+    expect(free.body.data).toEqual([]);
+
+    const wire = JSON.stringify([a.body, b.body]);
+    expect(wire).not.toContain('internal only');
+    expect(wire).not.toContain('a raw value');
+    expect(wire).not.toContain(SEAT_A);
+    expect(wire).not.toContain(SEAT_B);
   });
 
   it('PATCH /profile edits only the caller’s own vendor', async () => {

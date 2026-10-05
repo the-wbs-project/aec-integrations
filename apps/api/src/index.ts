@@ -217,6 +217,10 @@ import {
   createSeatInvitePreviewHandler,
 } from './routes/seat-invites';
 import { createVendorUpdatesHandler } from './routes/vendor-updates';
+import {
+  createListVendorHistoryHandler,
+  createVendorHistoryCsvHandler,
+} from './routes/vendor-history';
 import { createVendorDetailHandler, createVendorsListHandler } from './routes/vendors';
 import { createVersionHandler } from './routes/version';
 import { queue, scheduled } from './scheduled';
@@ -1186,6 +1190,11 @@ authVendor.delete(
 authVendor.get('/api/vendor/data-objects', requireVendor(), createListDataObjectsHandler());
 // AECI-627. No path overlap with anything above, so ordering is free.
 authVendor.get('/api/vendor/updates', requireVendor(), createVendorUpdatesHandler());
+// AECI-1194: the vendor's change history. A SEAT IS THE WHOLE GATE: no
+// `requireCapability` (reads are never gated, PAID_TIERS §4.3), no `rateLimit`
+// (reads are never rate-limited), and no audit row.
+authVendor.get('/api/vendor/history', requireVendor(), createListVendorHistoryHandler());
+authVendor.get('/api/vendor/history.csv', requireVendor(), createVendorHistoryCsvHandler());
 // AECI-1008: integration field contests. A SEAT IS THE WHOLE GATE — no
 // `requireCapability`, deliberately (the §6.14 exception in
 // `STAGE_2_VENDOR_PORTAL_SPEC.md` §11b). Writes carry `rateLimit('write')`; the

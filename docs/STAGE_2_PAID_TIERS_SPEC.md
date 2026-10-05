@@ -377,6 +377,8 @@ New code in `packages/shared/src/errors/codes.ts` (precedent: `REVIEW_BANNED`, w
 
 **`GET /api/vendor/me` and `GET /api/vendor/seats` must not consult a capability.** `/vendor` is gated by `vendorMeResolver`, which maps 403/404 to a **404 render** (a 401 goes to `/auth/login` instead — AECI-954). If `me` were ever capability-gated, a vendor whose entitlement lapsed would see a 404 for the entire dashboard — and could therefore never see the renewal notice this epic exists to show them. It is a one-line mistake with total blast radius on exactly the cohort you are trying to bill. **This is an acceptance criterion with its own test**, not a convention.
 
+**The change history is ungated too (AECI-1194).** `GET /api/vendor/history` and `GET /api/vendor/history.csv` take a seat and nothing else, on every plan, Free included. A vendor sees what AECi changed on its records whether or not it pays (`API_CONTRACTS.md` §6.14).
+
 ### 4.4 As built (AECI-611 — 2026-08-18)
 
 Shipped as specified: the `leftJoin` on the `vendor_admin` guard branch only, `entitlementTier` + `entitlement` on `AuthenticatedSession`, `requireCapability()`, the 403, and the two-axis allow-list. `requireAuth()` / `requireAdmin()` are byte-identical to before. Six decisions this section did not pre-specify:

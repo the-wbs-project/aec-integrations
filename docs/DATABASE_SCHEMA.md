@@ -1485,7 +1485,9 @@ vendor X" one indexed query, and "what plan X was on when it happened" a filter.
 - **The registry and the guard.** `@aeci/shared/audit-vendor-actions` lists every vendor-scoped
   action with `{ kind, receipt }`. `routes/audit-vendor-id-writers.spec.ts` fails when a vendor route
   writes an audit row without `vendorAuditEntry`, or when a writer of a listed action does not set
-  `vendorId`. AECI-1194 uses the `receipt: true` actions as its allow-list.
+  `vendorId`. AECI-1194's change history (`GET /api/vendor/history`, `API_CONTRACTS.md` §6.14)
+  uses the `receipt: true` actions as its allow-list. It reads `vendor_id = ?` with **no** legacy
+  fallback, so rows written before `0061` never appear in a vendor's history.
 - **Not stamped.** AECi promote writes and ops product retractions name no vendor; a retraction's
   tombstones carry `product_id` only. Claim rejections and claim notes are about a request, not a
   vendor-held entity. The one-click mute holds no session and names no vendor.
@@ -4082,7 +4084,7 @@ High-level intent (now **Worker-enforced**, not RLS-enforced):
 - Public read on directory tables (products, vendors, integrations, taxonomy, approved reviews)
 - Authenticated insert on reviews
 - Owners update own pending reviews
-- Admin-only access to moderation, audit log, workflow, page_views, vendor_requests
+- Admin-only access to moderation, audit log, workflow, page_views, vendor_requests. The one exception: a vendor reads its own `audit_log` rows through `GET /api/vendor/notifications` and `GET /api/vendor/history` (`STAGE_1_SPEC.md` §26.7)
 - Vendor-portal reads/writes scoped to the caller's `vendor_id` (`vendor_admin`; `AUTH_AND_RLS.md` §3.2 / §4.4)
 - Connector mapping edits (AECI-724): `admin`, or a `vendor_admin` whose `vendor_id` holds the catalogue's `connector`-role product through `product_vendors`. Never capability-gated and no `vendor_entitlements` read (`STAGE_2_SPEC.md` §8.9(2)). Both paths require `connector_catalogs.managed_by = 'vendor'` (`AUTH_AND_RLS.md` §4.4)
 
