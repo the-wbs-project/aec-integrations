@@ -2,7 +2,7 @@
 title: Terms of Service
 version: 1.0
 effective_date:
-last_updated: 2 July 2026
+last_updated: 5 October 2026
 counsel_approved_by: pending sign-off
 counsel_approved_on: pending sign-off
 linear_issue: AECI-308
