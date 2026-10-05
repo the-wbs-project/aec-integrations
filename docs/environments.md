@@ -26,6 +26,13 @@ AECi runs four tiers of environment plus local. Worker and Supabase project nami
 >
 > **All tiers share one Supabase auth project** (ADR 0017; auth-only — the app DB is Cloudflare D1 per ADR 0016), so one admin login works everywhere. Demo and Production still have **independent** D1, KV, Cloudflare Queues, and Algolia index sets: production keeps `aeci-app-production` / `aeci-*-production` / `production_*`; demo has its own `aeci-app-demo` / `aeci-*-demo` / `demo_*`. The `ENV` var (and therefore Algolia prefix + the PostHog `env` dimension) is `production` vs `demo`; the two are the audience-facing tiers recognised by `isPublicSite()` (`@aeci/shared/deploy-env`) — both block `/preview/*`, strip per-request response validation, and bound per-render log volume.
 
+> **Production's D1 lives in ENAM; the other tiers live in APAC (AECI-839).** D1 cannot move between regions. The 2026-10-04 account move created `aeci-app-production` without a location, and it landed in APAC while most traffic is US. Production now runs on a second database, `aeci-app-production-us` (`1f4378db-dabb-4724-b5b8-d0a9ab6c6a3b`), created with `--location=enam`. Demo, staging and preview stay in APAC on purpose.
+>
+> - **The binding keeps the old name.** In `apps/{api,agent,datatool}/wrangler.jsonc` the production block says `database_name: "aeci-app-production"` with the new id. So `wrangler d1 … aeci-app-production --env production`, run inside `apps/api`, reaches the ENAM database.
+> - **Outside a wrangler config, use the real name.** From `/tmp` or the repo root, `aeci-app-production` is looked up by name and reaches the retired APAC copy. Use `aeci-app-production-us` there.
+> - **Check the binding, not the name.** From `apps/api`, `wrangler d1 info aeci-app-production --env production` must report `uuid` `1f4378db-…` and `running_in_region` `ENAM`. `d1 info aeci-app-production-us` is always ENAM, so it cannot tell you which database production uses.
+> - Runbook and rollback: `scripts/ops/2026-10-prod-d1-us-move/README.md`.
+
 Worker `name` (deployed) values in `apps/{web,api}/wrangler.jsonc`:
 
 | Worker | Preview env | Staging env | Demo env | Production env |
@@ -1188,7 +1195,7 @@ The demo tier (`demo.aecintegrations.com`) is the public showcase, inserted betw
 - [ ] **Provision demo Cloudflare resources** and paste the printed ids into `apps/api/wrangler.jsonc` (`env.demo`):
   ```bash
   cd apps/api
-  pnpm exec wrangler d1 create aeci-app-demo                 # → database_id
+  pnpm exec wrangler d1 create aeci-app-demo --location=apac  # → database_id
   pnpm exec wrangler kv namespace create aeci-api-taxonomy-demo  # → id
   for q in aeci-algolia-sync-demo aeci-algolia-drift-demo aeci-stats-demo \
            aeci-reconcile-demo aeci-data-quality-demo; do
@@ -1268,10 +1275,12 @@ Prereqs: Workers **Paid** plan, `CLOUDFLARE_API_TOKEN` with Workers + D1 + KV ed
 
 ```bash
 cd apps/api
-pnpm exec wrangler d1 create aeci-app-<tier>                    # → database_id
+pnpm exec wrangler d1 create aeci-app-<tier> --location=apac    # → database_id
 pnpm exec wrangler kv namespace create aeci-api-taxonomy-<tier> # → id  (optional)
 pnpm exec wrangler kv namespace create aeci-api-promote-<tier>  # → id  (optional)
 ```
+
+Always pass `--location`. Without it, D1 picks a region near whoever runs the command. That is how production first landed in APAC (AECI-839). Production is `enam`. Demo, staging, preview and throwaway tiers are `apac` on purpose (Chris, 2026-10-05).
 
 Paste the ids over the placeholders and commit. Both KV namespaces are genuinely
 optional — `routes/taxonomy.ts` falls back to a direct D1 read, and `PROMOTE_KV` only

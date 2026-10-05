@@ -1277,8 +1277,9 @@ counts on 2026-09-10 (`observability/posthog/README.md` manual step 2). What the
 data showed: PostHog's absolute upper bound is **strict**, so a reading of exactly
 `1500` does not fire and only a reading of `2500` or more does. Production's uncached
 detail renders put the 95th observation in the 1,000–1,500 ms band about a third of all
-hours and above 1,500 ms for roughly two hours a day, so the alert fires on real
-slowness rather than on a reconstruction defect. The latency itself is AECI-839.
+hours. Before the D1 region move (AECI-839) it was above 1,500 ms for 0 to 15 hours a
+day, about 5 on average. So the alert fires on real slowness rather than on a
+reconstruction defect. The latency itself is AECI-839.
 
 ## Alerts
 

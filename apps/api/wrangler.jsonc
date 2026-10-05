@@ -940,15 +940,20 @@
           "class_name": "PromoteWorkflow",
         },
       ],
-      // ADR 0016 / AECI-252 + AECI-256. `database_id` is provisioned (AECI-256);
-      // promote-to-prod CI applies migrations via `wrangler d1 migrations apply
-      // aeci-app-production --env production --remote`.
+      // ADR 0016 / AECI-252 + AECI-256. promote-to-prod CI applies migrations via
+      // `wrangler d1 migrations apply aeci-app-production --env production --remote`.
       "r2_buckets": [{ "binding": "UPLOADS", "bucket_name": "aeci-uploads-production" }],
+      // AECI-839: `database_id` is the ENAM database, whose Cloudflare name is
+      // `aeci-app-production-us`. `database_name` keeps the old name on purpose.
+      // Scripts and CI pass `aeci-app-production --env production`, and wrangler
+      // resolves that through this block to the id below. If the name here changed,
+      // wrangler would look the old name up by API and reach the retired APAC copy.
+      // scripts/ops/2026-10-prod-d1-us-move/README.md has the reasoning.
       "d1_databases": [
         {
           "binding": "DB",
           "database_name": "aeci-app-production",
-          "database_id": "3bbbd4ca-4907-41c1-9f76-7d7241ca2b8f",
+          "database_id": "1f4378db-dabb-4724-b5b8-d0a9ab6c6a3b",
           "migrations_dir": "migrations",
         },
       ],

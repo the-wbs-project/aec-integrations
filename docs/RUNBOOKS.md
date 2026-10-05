@@ -217,11 +217,11 @@ caching regression — page the on-call engineer (Phase 6 rotation TBD).
 >
 > **Why it fires as often as it does.** Production runs with no edge cache, so every
 > detail render is a MISS and reaches this series (50–800 renders/hour). Measured
-> 2026-09-07 → 09-09: the median build is 500–1000 ms, the 95th observation lands in the
-> 1000–1500 bucket in about a third of all hours, and it crosses 1,500 ms for roughly two
-> hours a day. The alert is living next to its line because detail renders are slow, not
-> because the port is wrong. Do not raise the threshold; fix the render. The latency
-> itself is tracked as **AECI-839**.
+> 2026-09-07 → 09-09: the median build is 500–1000 ms, and the 95th observation lands in the
+> 1000–1500 bucket in about a third of all hours. Before the D1 region move (AECI-839) it
+> crossed 1,500 ms for 0 to 15 hours a day, about 5 on average. The alert is living next
+> to its line because detail renders are slow, not because the port is wrong. Do not raise
+> the threshold; fix the render. The latency itself is tracked as **AECI-839**.
 >
 > For everyday reading prefer the Traffic board tile *Page speed spread — how many were
 > fast, how many were slow*, which is a straight read of the bucket counts.
@@ -233,6 +233,20 @@ is exactly "the Worker ran", so this alert is **unaffected** by the front-of-Wor
 
 **First checks**
 
+0. **Where is the production D1?** Run this from `apps/api`, so wrangler resolves the
+   name through the production binding:
+
+   ```bash
+   env -u CLOUDFLARE_API_TOKEN pnpm exec wrangler d1 info aeci-app-production --env production
+   ```
+
+   `uuid` must be `1f4378db-dabb-4724-b5b8-d0a9ab6c6a3b` and `running_in_region` must
+   say `ENAM`. Most traffic is US. Every D1 query from a US request travels to the
+   database's region and back, so a far region slows every render. Production ran in
+   APAC from the 2026-10-04 account move until the AECI-839 move. If the uuid is
+   `3bbbd4ca…` or the region is `APAC`, the binding points at the retired copy. Checking
+   `aeci-app-production-us` by name proves nothing here, because that database is always
+   ENAM whatever the binding says. See `scripts/ops/2026-10-prod-d1-us-move/README.md`.
 1. Is the API slow? Check `p95:aeci.api.query.duration_ms by {endpoint}` for the detail
    endpoints (`/api/products/:slug`, `/api/vendors/:slug`, `/api/integrations/:id`).
 2. D1 health: the API's `db.batch` / query spans in the logs (`service:aeci-api`) and

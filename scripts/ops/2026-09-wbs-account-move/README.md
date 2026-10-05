@@ -26,6 +26,7 @@ The domain is registered at Cloudflare Registrar. It moves between accounts with
 | Bot settings on WBS | Done. The two Pending-zone items (cutover step 6b) were confirmed 2026-10-05: Bot Preference Sync off, continuous script monitoring on. See "Bot settings" |
 | Rehearsal | Done 2026-10-01. See "Rehearsal result" |
 | Cutover | Done 2026-10-04 for production and demo. See "Cutover result". The review app (AECI-1168) moves separately |
+| Production D1 region | The move created `aeci-app-production` in APAC. AECI-839 re-homes production onto `aeci-app-production-us` in ENAM. See `scripts/ops/2026-10-prod-d1-us-move/` |
 
 ## Why the config PR waits for the cutover
 

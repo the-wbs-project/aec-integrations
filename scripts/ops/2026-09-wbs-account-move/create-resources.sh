@@ -21,10 +21,17 @@ QUEUE_ENVS=(staging demo production)
 QUEUES=(algolia-sync algolia-drift stats reconcile data-quality attestation-notify cache-purge)
 
 echo "== D1"
+# Always pass a location. Without one, D1 picks a region near the caller, and the
+# 2026-09-30 run put production in APAC (AECI-839). Production serves mostly US
+# traffic, so it is enam. Demo, staging and preview stay apac on purpose
+# (Chris, 2026-10-05).
+# Production's live database is now aeci-app-production-us; see
+# scripts/ops/2026-10-prod-d1-us-move. This loop would only re-create the old name.
+d1_location() { case "$1" in production) echo enam ;; *) echo apac ;; esac; }
 existing_d1="$(W d1 list --json)"
 for e in "${ENVS[@]}"; do
   n="aeci-app-$e"
-  if grep -q "\"$n\"" <<<"$existing_d1"; then echo "exists  $n"; else W d1 create "$n" >/dev/null && echo "created $n"; fi
+  if grep -q "\"$n\"" <<<"$existing_d1"; then echo "exists  $n"; else W d1 create "$n" --location="$(d1_location "$e")" >/dev/null && echo "created $n"; fi
 done
 
 echo "== KV"
