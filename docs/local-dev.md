@@ -187,6 +187,10 @@ and CI agents, get them automatically. Commit any changes under `.agents/skills/
     artifact, so a stale doc yields an advisory MINOR instead of a false blocker.
   - Issues with no `§X.Y` anchor use the n/a ladder.
   - It is the pre-implementation half of [`CODE_REVIEW_CHECKLIST.md`](./CODE_REVIEW_CHECKLIST.md).
+- **`self-review`** is a local skill: the pre-submit review of your own diff. It applies
+  [`CODE_REVIEW_CHECKLIST.md`](./CODE_REVIEW_CHECKLIST.md), fixes doc findings in place, and
+  returns findings or "Approved". Any agent or sub-agent that writes code on its own runs it
+  before reporting done. An orchestrator puts it in every coding sub-agent's prompt.
 - **`pbakaus/impeccable`** is the design skill. It is one skill with 23 sub-commands: `craft`,
   `shape`, `teach`, `document`, `critique`, `audit`, `polish`, `bolder`, `quieter`, `distill`,
   `harden`, `onboard`, `animate`, `colorize`, `typeset`, `layout`, `delight`, `overdrive`,
