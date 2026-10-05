@@ -10,10 +10,10 @@
 // abort rather than as a silently mangled expression.
 //
 
-/** Zone-level ruleset ids (docs/waf-rate-limits.md "Deployed state"). */
+/** Zone-level ruleset ids on the WBS zone since the 2026-10-04 move (docs/waf-rate-limits.md "As-built"). */
 export const RULESETS = {
-  ratelimit: '6ba381516e4c4c37af85631a68b04ef6',
-  custom: '974122bb23af4354a215724d9c7e8436',
+  ratelimit: 'eaec1f752ded4f6e9a16b1ec70c2b087',
+  custom: '0052017b9bf44ceaad5888bf9d6c3d97',
 };
 
 /**

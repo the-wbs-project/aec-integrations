@@ -56,6 +56,8 @@ redesigned. The source export is `scripts/ops/2026-09-wbs-account-move/waf-expor
 
 | Rule | Old zone id | WBS zone id |
 |---|---|---|
+| Custom-rules ruleset (`http_request_firewall_custom`) | `974122bb23af4354a215724d9c7e8436` | `0052017b9bf44ceaad5888bf9d6c3d97` |
+| Rate-limit ruleset (`http_ratelimit`) | `6ba381516e4c4c37af85631a68b04ef6` | `eaec1f752ded4f6e9a16b1ec70c2b087` |
 | Blocker Rule 1 ("Block scanner probes", Block) | `bc961c9f6c2e4e02ba2429d06f8f1dc2` | `b154c36f480f4f639cb6e614cf75de69` |
 | Blocker Rule 2 ("Blocker 2", Block, 403) | `4781ac7e149247baa5b4119274119821` | `2e2e7ae15d69446a872dcb142e7ed82c` |
 | Scraper-UA (Managed Challenge) | `319173bafcf749fdbf9b739480d71ded` | `44749706cd6540d686ba27122176d0cc` |
@@ -67,8 +69,8 @@ redesigned. The source export is `scripts/ops/2026-09-wbs-account-move/waf-expor
 - **Not copied:** "Skip WAF for stack-test subdomain". `stack-test` is retired and is not in the WBS DNS.
 - **Carried over as-is:** the host lists still name `prod.aecintegrations.com`, which was retired in AECI-807. Narrowing them is separate work.
 - **The AECI-1138 probe-block rules** (below) were still pending on the old zone, so they were not part of the copy.
-- **Ruleset ids on the WBS zone are not recorded yet.** The dashboard does not show them. They must be read through the API once the WBS zone token exists, then written into `scripts/ops/2026-09-waf-host-scope/rules.mjs` and here. Until then every script under `scripts/ops/2026-09-waf-*` pins the old ruleset ids and must not be run against the WBS zone.
-- **Bot settings** were compared on 2026-09-30 and match, with two cutover steps: turn continuous script monitoring on and turn Bot Preference Sync off once the zone is Active. Bot Preference Sync prepends to `robots.txt` if left on. The comparison table is in the runbook, `scripts/ops/2026-09-wbs-account-move/README.md`.
+- **Ruleset ids on the WBS zone were read through the API on 2026-10-05** with `CF_WAF_API_TOKEN`. Every rule id in the table was confirmed live at the same time. `scripts/ops/2026-09-waf-host-scope/rules.mjs` and `scripts/ops/2026-09-waf-secret-file-block/` now pin the WBS ids. `scripts/ops/2026-09-waf-prod-host-removal/` imports its ruleset ids from the host-scope file, so it follows.
+- **Bot settings** were compared on 2026-09-30 and match, with two cutover steps: turn continuous script monitoring on and turn Bot Preference Sync off once the zone is Active. Bot Preference Sync prepends to `robots.txt` if left on. Read through the API on 2026-10-05: Bot Preference Sync is off (`is_robots_txt_managed: false`). Continuous script monitoring is still off (`page_shield.enabled: false`). The comparison table is in the runbook, `scripts/ops/2026-09-wbs-account-move/README.md`.
 - **Zone analytics history stays on the old zone.** The `aeci.waf.ratelimit.blocked` poll starts from zero at the cutover. It needs the swapped `CF_ZONE_ID` and `CF_ANALYTICS_API_TOKEN` (§5).
 
 ### Original apply (2026-06-23, AECI-242)
