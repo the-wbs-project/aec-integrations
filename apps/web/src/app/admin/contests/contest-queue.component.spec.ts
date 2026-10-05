@@ -220,6 +220,28 @@ describe('ContestQueue', () => {
     expect(empty.textContent).toContain('Neither endpoint vendor');
   });
 
+  it('says plainly when the vendor on file says the row is not theirs (AECI-1225)', async () => {
+    const { el } = await setup(
+      makeApiMock([
+        makeContest({
+          id: 'k3',
+          field: 'owner',
+          current_value: SUMMIT.id,
+          current_label: SUMMIT.name,
+          proposed_value: null,
+          submitter_vendor: SUMMIT,
+          owner_vendor: SUMMIT,
+        }),
+      ]),
+    );
+    const article = el.querySelector('article') as HTMLElement;
+    expect(
+      article.querySelector('[data-testid="contest-self-disclaim"]')?.textContent?.trim(),
+    ).toBe('Summit Estimating is the vendor on file and says this integration is not theirs.');
+    // "Offered by" would only repeat "Filed by".
+    expect(article.textContent).not.toContain('Offered by');
+  });
+
   it('renders a stored direction against the two product names', async () => {
     const { el } = await setup(
       makeApiMock([

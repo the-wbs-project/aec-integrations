@@ -720,6 +720,9 @@ export class PreviewVendorApi extends VendorApi {
     body: SubmitIntegrationContestInput,
     anchor: ContestAnchorKind = 'integration',
   ): Promise<VendorContestResponse> {
+    // AECI-1225: the vendor named as owner says a row is not its own.
+    const notOurs = this.notOurs(integrationId, body, anchor);
+    if (notOurs) return notOurs;
     // AECI-1092: an evidenced pair is looked up among the connectors fixture's
     // contest targets, which carry the same fields an integration entry does.
     const pairTargets = Object.values(VENDOR_PRODUCT_CONNECTORS_FIXTURE).flatMap((r) =>
@@ -797,6 +800,85 @@ export class PreviewVendorApi extends VendorApi {
       cooldown_until: null,
     };
     this.contests.submitted.unshift(contest);
+    return { contest: clone(contest) };
+  }
+
+  /**
+   * AECI-1225: the vendor named as owner files an `owner` contest on its own row. The
+   * server allows it only on a seeded, unclaimed row, and only for `owner`. It routes
+   * to AECi, and the fake ticks the claim step of each product the row touches, as the
+   * server's checklist stops counting the row. `null` when the caller is not the owner.
+   */
+  private notOurs(
+    integrationId: string,
+    body: SubmitIntegrationContestInput,
+    anchor: ContestAnchorKind,
+  ): VendorContestResponse | null {
+    const self = this.me?.vendor;
+    const owned = (this.integrations.owned ?? []).find(
+      (row) => row.id === integrationId && row.anchor === anchor,
+    );
+    const endpoint = this.integrations.integrations.find(
+      (i) => i.id === integrationId && i.is_owner && anchor === 'integration',
+    );
+    if (!self || (!owned && !endpoint)) return null;
+    const claimedAt = owned ? owned.claimed_at : (endpoint?.claimed_at ?? null);
+    if (body.field !== 'owner' || claimedAt !== null) {
+      throw apiError(403, 'CONTEST_OWN_INTEGRATION', 'You own this integration');
+    }
+    if (body.proposed_value === self.id) {
+      throw apiError(422, 'CONTEST_NO_CHANGE', 'Same as the current value', {
+        field: 'proposed_value',
+      });
+    }
+    const standing = this.contests.submitted.some(
+      (c) =>
+        c.integration_id === integrationId &&
+        c.anchor === anchor &&
+        c.field === 'owner' &&
+        c.status === 'open',
+    );
+    if (standing) {
+      throw apiError(409, 'CONTEST_DUPLICATE', 'You already have an open contest on this field');
+    }
+    const productA = owned ? owned.product_a : endpoint!.context_product;
+    const productB = owned ? owned.product_b : endpoint!.other_product;
+    const now = '2026-10-05T12:00:00.000Z';
+    const me = { id: self.id, name: self.company_name };
+    const proposedName =
+      endpoint?.endpoint_vendors.find((v) => v.id === body.proposed_value)?.name ?? null;
+    const contest: VendorContest = {
+      id: `00000000-0000-4000-8000-${String(0xc100 + ++this.nextContestSeq).padStart(12, '0')}`,
+      integration_id: integrationId,
+      anchor,
+      integration_name: owned ? owned.name : (endpoint?.name ?? null),
+      context_product: productA,
+      other_product: productB,
+      field: 'owner',
+      current_value: self.id,
+      proposed_value: body.proposed_value,
+      current_label: me.name,
+      proposed_label: proposedName,
+      reason: body.reason,
+      routed_to: 'aeci',
+      status: 'open',
+      submitter_vendor: me,
+      owner_vendor: me,
+      decision_note: null,
+      decided_at: null,
+      created_at: now,
+      updated_at: now,
+      protest: null,
+      protest_opens_at: null,
+      protest_closes_at: null,
+      protest_basis: null,
+      cooldown_until: null,
+    };
+    this.contests.submitted.unshift(contest);
+    const touched = [productA.id, productB.id, owned?.connector?.id];
+    for (const product of this.me?.products ?? []) {
+      if (touched.includes(product.id)) this.tickProductStep(product.id, 'claims');
+    }
     return { contest: clone(contest) };
   }
 

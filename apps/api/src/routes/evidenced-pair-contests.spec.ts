@@ -315,6 +315,26 @@ describe('POST /api/vendor/integrations/:id/contests on an evidenced pair — su
     expect(res.body.error.code).toBe('CONTEST_OWN_INTEGRATION');
   });
 
+  it('lets the pair’s named owner, a connector vendor on no endpoint, say "not ours" (AECI-1225)', async () => {
+    const res = await submitPair(seat(SEAT_T, VENDOR_T), {
+      field: 'owner',
+      proposed_value: null,
+      reason: 'We list the connector, but we do not offer this pair.',
+    });
+    expect(res.status).toBe(201);
+    expect(res.body.contest).toMatchObject({ field: 'owner', routed_to: 'aeci' });
+    const row = await contest(res.body.contest.id);
+    expect(row.evidencedPairId).toBe(PAIR);
+    expect(row.submitterVendorId).toBe(VENDOR_T);
+    expect(row.ownerVendorId).toBe(VENDOR_T);
+  });
+
+  it('refuses a content field from the pair’s named owner with 403 (AECI-1225)', async () => {
+    const res = await submitPair(seat(SEAT_T, VENDOR_T), DOCS);
+    expect(res.status).toBe(403);
+    expect(res.body.error.code).toBe('CONTEST_OWN_INTEGRATION');
+  });
+
   it('refuses mechanism_kind on a pair as a shape error (the column does not exist)', async () => {
     const res = await submitPair(AUTH_A, {
       field: 'mechanism_kind',

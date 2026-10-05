@@ -38,8 +38,9 @@ export interface ChecklistProductFacts {
 
 /** What the route counted for one product. */
 export interface ChecklistProductCounts {
-  /** Seeded rows naming the vendor as builder, still unclaimed, with no open
-   *  owner contest, that the vendor can claim on this product's plan. */
+  /** Seeded rows naming the vendor as builder, still unclaimed, with no
+   *  standing owner contest (open, or accepted against this vendor), that the
+   *  vendor can claim on this product's plan. */
   unclaimedRows: number;
   /** Claims on this product's attestable integrations with no live attestation
    *  by the vendor. */

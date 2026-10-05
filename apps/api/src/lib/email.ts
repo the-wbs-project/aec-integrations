@@ -1945,12 +1945,14 @@ export function sendClaimSubmittedNotification(
 
 /** Why a contest reached AECi rather than the owner (§11b.4), for the alert body. */
 export type ContestAlertRouteReason =
+  | 'owner-self-disclaim'
   | 'owner-field'
   | 'unclaimed'
   | 'owner-seat-lapsed'
   | 'owner-cannot-decide';
 
 const CONTEST_ROUTE_REASON_TEXT: Record<ContestAlertRouteReason, string> = {
+  'owner-self-disclaim': 'The vendor named as owner says it does not own this integration',
   'owner-field': 'Ownership contests always go to AECi',
   unclaimed: 'No vendor has claimed this integration',
   'owner-seat-lapsed': 'The owner has no active seat',
@@ -2003,20 +2005,31 @@ export function sendContestSubmittedNotification(
   if (host) rows.push(['Environment', host]);
   const pair = opts.pairSlugs ? pairUrl(c.env, opts.pairSlugs[0], opts.pairSlugs[1]) : null;
 
-  const subject = isOwner
-    ? `[AECi] Ownership contest: ${opts.integrationName}`
-    : `[AECi] Field contest: ${opts.field} on ${opts.integrationName}`;
-  const intro = isOwner
-    ? `${opts.submitterVendorName} contested who owns ${opts.integrationName}. AECi decides it.`
-    : `${opts.submitterVendorName} contested the ${opts.field} of ${opts.integrationName}. AECi decides it.`;
-  const introHtml = isOwner
-    ? `${escapeHtml(opts.submitterVendorName)} contested who owns <strong>${escapeHtml(opts.integrationName)}</strong>. AECi decides it.`
-    : `${escapeHtml(opts.submitterVendorName)} contested the ${escapeHtml(opts.field)} of <strong>${escapeHtml(opts.integrationName)}</strong>. AECi decides it.`;
+  // AECI-1225: the named owner saying "not ours" is its own subject, so the inbox can
+  // tell it from a dispute between two vendors.
+  const notOurs = opts.routeReason === 'owner-self-disclaim';
+  const subject = notOurs
+    ? `[AECi] Not ours: ${opts.integrationName}`
+    : isOwner
+      ? `[AECi] Ownership contest: ${opts.integrationName}`
+      : `[AECi] Field contest: ${opts.field} on ${opts.integrationName}`;
+  const intro = notOurs
+    ? `${opts.submitterVendorName} says it does not own ${opts.integrationName}. AECi decides it.`
+    : isOwner
+      ? `${opts.submitterVendorName} contested who owns ${opts.integrationName}. AECi decides it.`
+      : `${opts.submitterVendorName} contested the ${opts.field} of ${opts.integrationName}. AECi decides it.`;
+  const introHtml = notOurs
+    ? `${escapeHtml(opts.submitterVendorName)} says it does not own <strong>${escapeHtml(opts.integrationName)}</strong>. AECi decides it.`
+    : isOwner
+      ? `${escapeHtml(opts.submitterVendorName)} contested who owns <strong>${escapeHtml(opts.integrationName)}</strong>. AECi decides it.`
+      : `${escapeHtml(opts.submitterVendorName)} contested the ${escapeHtml(opts.field)} of <strong>${escapeHtml(opts.integrationName)}</strong>. AECi decides it.`;
   const shared = (link: LinkTagger) => ({
     preheader: intro,
-    heading: isOwner
-      ? `Ownership contest on ${opts.integrationName}`
-      : `Field contest on ${opts.integrationName}`,
+    heading: notOurs
+      ? `Not ours: ${opts.integrationName}`
+      : isOwner
+        ? `Ownership contest on ${opts.integrationName}`
+        : `Field contest on ${opts.integrationName}`,
     table: pair ? [...rows, ['Pair page', link(pair)] as const] : rows,
     ...(base
       ? { cta: { label: 'Open the contest queue', url: link(`${base}/admin/contests`) } }

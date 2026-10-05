@@ -26,7 +26,9 @@
  * "Claim or say not ours": a row counts against a product when it touches the
  * product (as either endpoint, or as the connector, the §13.9 arm), is live, was
  * seeded (`origin = 'aeci'`), names the vendor in `built_by_vendor_id`, has no
- * `claimed_at`, and carries no OPEN `owner` contest. Both tables. A
+ * `claimed_at`, and carries no standing `owner` contest: none open, and none
+ * accepted against the vendor still on file (AECI-1225, the vendor's own "not
+ * ours" included). Both tables. A
  * connector-powered row counts only when the product's plan can claim it: the
  * claim route refuses such a row without an active entitlement (AECI-1089), so on
  * Free it would be a step nobody can finish, which §13.1 decision 6 forbids.
@@ -119,8 +121,13 @@ function canClaimConnectorPowered(plan: VendorEntitlementBlock): boolean {
   return plan.tier !== 'unclaimed';
 }
 
-/** No open `owner` contest sits on this `integrations` row. */
-function noOpenOwnerContestOnIntegration(db: Db) {
+/**
+ * No STANDING `owner` contest sits on this `integrations` row (AECI-1225). Standing
+ * means open, from any vendor, or accepted against the vendor still on file: AECi
+ * agreed that vendor is not the owner, and the next promote re-points the row. A
+ * declined contest leaves the row on the vendor, so it counts again.
+ */
+function noStandingOwnerContestOnIntegration(db: Db) {
   return notExists(
     db
       .select({ one: sql`1` })
@@ -129,14 +136,20 @@ function noOpenOwnerContestOnIntegration(db: Db) {
         and(
           eq(integrationFieldChallenges.integrationId, integrations.id),
           eq(integrationFieldChallenges.field, 'owner'),
-          eq(integrationFieldChallenges.status, 'open'),
+          or(
+            eq(integrationFieldChallenges.status, 'open'),
+            and(
+              eq(integrationFieldChallenges.status, 'accepted'),
+              eq(integrationFieldChallenges.ownerVendorId, integrations.builtByVendorId),
+            ),
+          ),
         ),
       ),
   );
 }
 
-/** No open `owner` contest sits on this evidenced pair. */
-function noOpenOwnerContestOnPair(db: Db) {
+/** No standing `owner` contest sits on this evidenced pair. */
+function noStandingOwnerContestOnPair(db: Db) {
   return notExists(
     db
       .select({ one: sql`1` })
@@ -145,7 +158,13 @@ function noOpenOwnerContestOnPair(db: Db) {
         and(
           eq(integrationFieldChallenges.evidencedPairId, connectorEvidencedPairs.id),
           eq(integrationFieldChallenges.field, 'owner'),
-          eq(integrationFieldChallenges.status, 'open'),
+          or(
+            eq(integrationFieldChallenges.status, 'open'),
+            and(
+              eq(integrationFieldChallenges.status, 'accepted'),
+              eq(integrationFieldChallenges.ownerVendorId, connectorEvidencedPairs.builtByVendorId),
+            ),
+          ),
         ),
       ),
   );
@@ -179,7 +198,7 @@ function loadChecklistFacts(
           inArray(integrations.targetProductId, scope),
           inArray(integrations.poweredByProductId, scope),
         ),
-        noOpenOwnerContestOnIntegration(db),
+        noStandingOwnerContestOnIntegration(db),
       ),
     )
     .then((rows) =>
@@ -207,7 +226,7 @@ function loadChecklistFacts(
           inArray(connectorEvidencedPairs.productBId, scope),
           inArray(connectorEvidencedPairs.connectorProductId, scope),
         ),
-        noOpenOwnerContestOnPair(db),
+        noStandingOwnerContestOnPair(db),
       ),
     )
     .then((rows) =>

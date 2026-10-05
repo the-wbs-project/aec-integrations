@@ -40,6 +40,10 @@ A claim cannot be undone from the portal. The only way an integration leaves its
 
 **If your company offers an integration but is not recorded as the owner,** open the Owner row and choose **Ask to be recorded as the owner**. If someone else already holds that row, choose **Request a correction** and pick Owner. AEC Integrations reviews it. If it is accepted, your company is recorded as the owner and the integration is claimed for you in the same step. This works the same way on an integration delivered through a connector.
 
+## Say an integration is not yours
+
+If the Owner row names your company but you do not offer the integration, choose **Not ours?**. You can do this only while AEC Integrations still maintains the row and you have not claimed it. On the integration page, pick who does offer it, or "Someone else, or we don't know". On the product page's list, choose "Someone else, or we don't know" and name the vendor in your reason. Always give a reason. AEC Integrations decides. While it reviews, you can withdraw the request. If it agrees, the listing changes at its next catalog update. Until then your company stays recorded as the owner.
+
 ## Edit its details
 
 Once you have claimed an integration, its page shows a pencil beside every detail you can change: name, description, how you get it, connection name, release stage, pricing, pricing page, listing page, and documentation. Choose the pencil to edit that one field in place, then save. Name and how you get it cannot be left empty. AEC Integrations never overwrites the pricing page you set. On the public integration page, the price links to your pricing page, or reads "See pricing" when no price is listed.

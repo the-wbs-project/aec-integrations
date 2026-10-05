@@ -1079,3 +1079,174 @@ describe('re-crawl plan gate (AECI-1186)', () => {
     expect((await t.db.select().from(gscRecrawlQueue)).length).toBeGreaterThan(0);
   });
 });
+
+// ─── Self-disclaim: the named owner says "not ours" (AECI-1225) ───────────────
+
+describe('POST /api/vendor/integrations/:id/contests — self-disclaim (AECI-1225)', () => {
+  // D makes only the connector product, and is named as owner of a row it holds no
+  // endpoint of. The integration list is the only place it can see that row.
+  const VENDOR_D = uuid(4);
+  const SEAT_D = uuid(103);
+  const AUTH_D = seat(SEAT_D, VENDOR_D);
+  const P_CONNECTOR = uuid(13);
+  const I_POWERED = uuid(22); // P_FOREIGN (C) → P_TARGET (B), powered by D's connector
+
+  const NOT_OURS = {
+    field: 'owner',
+    proposed_value: null,
+    reason: 'We did not build this. It is listed under us by mistake.',
+  };
+
+  beforeEach(async () => {
+    // I_MAIN is seeded and unclaimed for this block: B is named but never claimed it.
+    await t.db.update(integrations).set({ claimedAt: null }).where(eq(integrations.id, I_MAIN));
+    await t.db.insert(vendors).values({ id: VENDOR_D, slug: 'zapier', companyName: 'Zapier' });
+    await t.db.insert(products).values({ id: P_CONNECTOR, slug: 'zapier', name: 'Zapier' });
+    await t.db
+      .insert(productVendors)
+      .values({ productId: P_CONNECTOR, vendorId: VENDOR_D, isPrimary: true });
+    await t.db.insert(integrations).values({
+      id: I_POWERED,
+      sourceProductId: P_FOREIGN,
+      targetProductId: P_TARGET,
+      poweredByProductId: P_CONNECTOR,
+      mechanismKind: 'iPaaS',
+      direction: 'a_to_b',
+      builtByVendorId: VENDOR_D,
+    });
+    await t.db.insert(profiles).values({ id: SEAT_D, role: 'vendor_admin', vendorId: VENDOR_D });
+  });
+
+  it('lets the named owner of a seeded, unclaimed row say it is not its own', async () => {
+    const { status, body } = await submit(AUTH_B, I_MAIN, NOT_OURS);
+    expect(status).toBe(201);
+    expect(body.contest).toMatchObject({ field: 'owner', routed_to: 'aeci', status: 'open' });
+
+    const [row] = await contestRows();
+    expect(row).toMatchObject({
+      submitterVendorId: VENDOR_B,
+      ownerVendorId: VENDOR_B,
+      currentValue: VENDOR_B,
+      proposedValue: null,
+    });
+    // One batch: the workflow instance, its transition and the audit row.
+    expect(await t.db.select().from(workflowInstances)).toHaveLength(1);
+    expect(await t.db.select().from(workflowTransitions)).toHaveLength(1);
+    const audits = await t.db
+      .select()
+      .from(auditLog)
+      .where(eq(auditLog.action, 'integration.contest.submitted'));
+    expect(audits).toHaveLength(1);
+    expect(audits[0]!.metadata).toMatchObject({ selfDisclaim: true, routedTo: 'aeci' });
+    // AECi-routed: no vendor is notified, AECi is emailed with the "not ours" reason.
+    expect(await notificationRows()).toHaveLength(0);
+    expect(alerts).toHaveBeenCalledTimes(1);
+    expect(alerts.mock.calls[0]![1]).toMatchObject({
+      field: 'owner',
+      currentValue: 'Bentley',
+      proposedValue: null,
+      submitterVendorName: 'Bentley',
+      routeReason: 'owner-self-disclaim',
+    });
+  });
+
+  it('lets the named owner propose the other endpoint vendor', async () => {
+    const { status } = await submit(AUTH_B, I_MAIN, { ...NOT_OURS, proposed_value: VENDOR_A });
+    expect(status).toBe(201);
+    const [row] = await contestRows();
+    expect(row!.proposedValue).toBe(VENDOR_A);
+  });
+
+  it('lets a named owner that holds neither endpoint say it, through builder authority', async () => {
+    const { status, body } = await submit(AUTH_D, I_POWERED, NOT_OURS);
+    expect(status).toBe(201);
+    expect(body.contest).toMatchObject({ routed_to: 'aeci' });
+    const [row] = await contestRows();
+    expect(row).toMatchObject({ submitterVendorId: VENDOR_D, ownerVendorId: VENDOR_D });
+  });
+
+  it('refuses a context product to a named owner that holds neither endpoint', async () => {
+    const { status, body } = await submit(AUTH_D, I_POWERED, {
+      ...NOT_OURS,
+      context_product_id: P_FOREIGN,
+    });
+    expect(status).toBe(400);
+    expect(body.error.field).toBe('context_product_id');
+  });
+
+  it('still answers a flat 404 to a vendor that holds neither endpoint and is not named', async () => {
+    const { status } = await submit(AUTH_D, I_MAIN, NOT_OURS);
+    expect(status).toBe(404);
+    expect(await contestRows()).toHaveLength(0);
+  });
+
+  it('refuses a content field from the named owner with 403', async () => {
+    const own = await submit(AUTH_B, I_MAIN, NAME_CONTEST);
+    expect(own.status).toBe(403);
+    expect(own.body.error.code).toBe('CONTEST_OWN_INTEGRATION');
+    const connectorOwner = await submit(AUTH_D, I_POWERED, NAME_CONTEST);
+    expect(connectorOwner.status).toBe(403);
+    expect(await contestRows()).toHaveLength(0);
+  });
+
+  it('refuses the named owner on a claimed row with 403', async () => {
+    await t.db
+      .update(integrations)
+      .set({ claimedAt: '2026-09-01T00:00:00.000Z' })
+      .where(eq(integrations.id, I_MAIN));
+    const { status, body } = await submit(AUTH_B, I_MAIN, NOT_OURS);
+    expect(status).toBe(403);
+    expect(body.error.code).toBe('CONTEST_OWN_INTEGRATION');
+  });
+
+  it('refuses the named owner on a vendor-created row with 403', async () => {
+    await t.db.update(integrations).set({ origin: 'vendor' }).where(eq(integrations.id, I_MAIN));
+    const { status, body } = await submit(AUTH_B, I_MAIN, NOT_OURS);
+    expect(status).toBe(403);
+    expect(body.error.code).toBe('CONTEST_OWN_INTEGRATION');
+  });
+
+  it('answers 422 CONTEST_NO_CHANGE when the named owner proposes itself', async () => {
+    const { status, body } = await submit(AUTH_B, I_MAIN, {
+      ...NOT_OURS,
+      proposed_value: VENDOR_B,
+    });
+    expect(status).toBe(422);
+    expect(body.error.code).toBe('CONTEST_NO_CHANGE');
+  });
+
+  it('writes nothing when the row is claimed between the read and the batch', async () => {
+    const racing = createSubmitContestHandler(
+      racingFactory(t.factory, () => {
+        t.raw
+          .prepare('UPDATE integrations SET claimed_at = ? WHERE id = ?')
+          .run('2026-10-05T00:00:00.000Z', I_MAIN);
+      }),
+      () => false,
+      undefined,
+      alerts,
+    );
+    const a = new Hono<{ Bindings: Env; Variables: AuthzVariables }>();
+    a.onError(errorHandler());
+    a.use('*', async (c, next) => {
+      c.set('auth', AUTH_B);
+      await next();
+    });
+    a.post('/api/vendor/integrations/:id/contests', racing);
+    const res = await a.request(
+      `/api/vendor/integrations/${I_MAIN}/contests`,
+      {
+        method: 'POST',
+        body: JSON.stringify(NOT_OURS),
+        headers: { 'content-type': 'application/json' },
+      },
+      TEST_ENV,
+      fakeExecutionContext(),
+    );
+    expect(res.status).toBe(409);
+    expect(((await res.json()) as JsonBody).error.code).toBe('CONTEST_INTEGRATION_CHANGED');
+    expect(await contestRows()).toHaveLength(0);
+    expect(await auditRows()).toHaveLength(0);
+    expect(alerts).not.toHaveBeenCalled();
+  });
+});
