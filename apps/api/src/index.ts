@@ -220,6 +220,7 @@ import { createVendorUpdatesHandler } from './routes/vendor-updates';
 import {
   createListVendorHistoryHandler,
   createVendorHistoryCsvHandler,
+  createVendorHistoryFollowUpHandler,
 } from './routes/vendor-history';
 import { createVendorDetailHandler, createVendorsListHandler } from './routes/vendors';
 import { createVersionHandler } from './routes/version';
@@ -1195,6 +1196,12 @@ authVendor.get('/api/vendor/updates', requireVendor(), createVendorUpdatesHandle
 // (reads are never rate-limited), and no audit row.
 authVendor.get('/api/vendor/history', requireVendor(), createListVendorHistoryHandler());
 authVendor.get('/api/vendor/history.csv', requireVendor(), createVendorHistoryCsvHandler());
+// AECI-1160: the search follow-up of one history page. Same gate: a seat, nothing else.
+authVendor.get(
+  '/api/vendor/history/follow-up',
+  requireVendor(),
+  createVendorHistoryFollowUpHandler(),
+);
 // AECI-1008: integration field contests. A SEAT IS THE WHOLE GATE — no
 // `requireCapability`, deliberately (the §6.14 exception in
 // `STAGE_2_VENDOR_PORTAL_SPEC.md` §11b). Writes carry `rateLimit('write')`; the

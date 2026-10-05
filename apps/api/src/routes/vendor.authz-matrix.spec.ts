@@ -82,6 +82,8 @@ import {
   productVersions,
   products,
   profiles,
+  recrawlSubmissionCauses,
+  recrawlSubmissions,
   reviewResponses,
   reviews,
   taxonomyDataObjects,
@@ -102,7 +104,11 @@ import {
 } from './vendor';
 import { createListVendorProductConnectorsHandler } from './vendor-connectors';
 import { createListVendorNotificationsHandler } from './vendor-notifications';
-import { createListVendorHistoryHandler, createVendorHistoryCsvHandler } from './vendor-history';
+import {
+  createListVendorHistoryHandler,
+  createVendorHistoryCsvHandler,
+  createVendorHistoryFollowUpHandler,
+} from './vendor-history';
 import { createListVendorRecrawlSubmissionsHandler } from './vendor-recrawl-submissions';
 import {
   createDeleteProductVersionHandler,
@@ -351,6 +357,12 @@ function makeApp() {
     requireVendor(guard),
     createVendorHistoryCsvHandler(t.factory),
   );
+  // AECI-1160 — guard only, like the history read.
+  app.get(
+    '/api/vendor/history/follow-up',
+    requireVendor(guard),
+    createVendorHistoryFollowUpHandler(t.factory),
+  );
   // AECI-1187 — guard only; scoped on the cause's vendor, never capability-gated.
   app.get(
     '/api/vendor/recrawl-submissions',
@@ -483,6 +495,7 @@ const ROUTES: ReadonlyArray<{ path: string; method: string; body?: unknown; ok?:
   { path: '/api/vendor/notifications', method: 'GET' },
   { path: '/api/vendor/history', method: 'GET' },
   { path: '/api/vendor/history.csv', method: 'GET' },
+  { path: `/api/vendor/history/follow-up?ids=${uuid(801)}`, method: 'GET' },
   { path: '/api/vendor/recrawl-submissions', method: 'GET' },
   { path: '/api/vendor/profile', method: 'PATCH', body: { description: 'edited' } },
   {
@@ -888,6 +901,46 @@ describe('/api/vendor/* — cross-vendor isolation', () => {
     expect(wire).not.toContain('a raw value');
     expect(wire).not.toContain(SEAT_A);
     expect(wire).not.toContain(SEAT_B);
+  });
+
+  it('GET /history/follow-up answers only the caller’s own causes, whatever ids it is sent', async () => {
+    const at = '2026-10-04T00:05:00.000Z';
+    const [sub] = await t.db
+      .insert(recrawlSubmissions)
+      .values({
+        url: 'https://example.test/products/a',
+        channel: 'indexnow',
+        outcome: 'accepted',
+        httpStatus: 200,
+        batchId: 'batch-1',
+        submittedAt: at,
+      })
+      .returning({ id: recrawlSubmissions.id });
+    await t.db.insert(recrawlSubmissionCauses).values([
+      {
+        submissionId: sub!.id,
+        source: 'vendor',
+        auditLogId: uuid(811),
+        vendorId: VENDOR_A,
+        queuedAt: at,
+      },
+      {
+        submissionId: sub!.id,
+        source: 'vendor',
+        auditLogId: uuid(812),
+        vendorId: VENDOR_B,
+        queuedAt: at,
+      },
+    ]);
+    const ids = `${uuid(811)},${uuid(812)}`;
+
+    const a = await call(`/api/vendor/history/follow-up?ids=${ids}`, 'GET', SEAT_A);
+    expect(a.body.data.map((r: { audit_log_id: string }) => r.audit_log_id)).toEqual([uuid(811)]);
+    const b = await call(`/api/vendor/history/follow-up?ids=${ids}`, 'GET', SEAT_B);
+    expect(b.body.data.map((r: { audit_log_id: string }) => r.audit_log_id)).toEqual([uuid(812)]);
+    const free = await call(`/api/vendor/history/follow-up?ids=${ids}`, 'GET', SEAT_UNVERIFIED);
+    expect(free.status).toBe(200);
+    expect(free.body.data).toEqual([]);
   });
 
   it('PATCH /profile edits only the caller’s own vendor', async () => {

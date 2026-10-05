@@ -54,16 +54,14 @@ async function axeSerious(page: import('@playwright/test').Page) {
 }
 
 test.describe('vendor portal nav (preview)', () => {
-  test('is one horizontal row of five section links under a vendor breadcrumb', async ({
-    page,
-  }) => {
+  test('is one horizontal row of six section links under a vendor breadcrumb', async ({ page }) => {
     const res = await page.goto(`${PATH}/overview`);
     expect(res?.status(), `GET ${PATH}/overview must return 200`).toBe(200);
 
     // Exactly one row: a `md:hidden` mobile duplicate would double every item
     // in a screen reader's link list.
     await expect(nav(page)).toHaveCount(1);
-    await expect(nav(page).getByRole('link')).toHaveCount(5);
+    await expect(nav(page).getByRole('link')).toHaveCount(6);
     await expect(nav(page).getByRole('link', { name: 'Vendor Overview' })).toHaveAttribute(
       'aria-current',
       'page',

@@ -24,6 +24,7 @@ const VENDOR_SLUGS = [
   'contests-and-protests',
   'replying-to-reviews',
   'plans-and-the-account-label',
+  'change-history',
 ];
 
 function render(slug: string): { host: HTMLElement; title: Title; meta: Meta } {
@@ -47,9 +48,9 @@ function render(slug: string): { host: HTMLElement; title: Title; meta: Meta } {
 }
 
 describe('docs manifest', () => {
-  it('lists the seven vendor-guide pages in task order', () => {
+  it('lists the eight vendor-guide pages in task order', () => {
     expect(docsSection('vendors').map((page) => page.slug)).toEqual(VENDOR_SLUGS);
-    expect(DOCS_PAGES).toHaveLength(7);
+    expect(DOCS_PAGES).toHaveLength(8);
   });
 
   it('gives every page a title, a description, a date and a unique order', () => {
@@ -156,7 +157,7 @@ describe('DocsPageComponent', () => {
     expect(host.querySelector('.aec-prose h2')).not.toBeNull();
 
     const rail = host.querySelectorAll('nav[aria-labelledby] a');
-    expect(rail).toHaveLength(7);
+    expect(rail).toHaveLength(8);
     const current = host.querySelectorAll('nav[aria-labelledby] a[aria-current="page"]');
     expect(current).toHaveLength(1);
     expect(current[0].textContent?.trim()).toBe(page.title);

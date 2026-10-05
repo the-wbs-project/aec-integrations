@@ -51,6 +51,8 @@ import type {
   ReviewVendorProfileResponse,
   ReviewVendorProductResponse,
   ReviewVendorProductIntegrationsResponse,
+  ListVendorHistoryFollowUpResponse,
+  ListVendorHistoryResponse,
   ListVendorReviewsResponse,
   VendorReviewItem,
   VendorReviewResponseResult,
@@ -76,8 +78,14 @@ import {
   VendorApi,
   type VendorAttestationPosition,
   type VendorConnectorCatalogFilters,
+  type VendorHistoryFilters,
   type VendorReviewsFilters,
 } from '../../vendor/vendor-api';
+import {
+  VENDOR_HISTORY_FIXTURE,
+  VENDOR_HISTORY_FOLLOW_UP_FIXTURE,
+  historyKindKeeps,
+} from '../../vendor/vendor-history-fixtures';
 import { VENDOR_REVIEWS_FIXTURE } from '../../vendor/vendor-review-fixtures';
 import {
   VENDOR_CONNECTOR_CATALOG_FIXTURE,
@@ -1142,6 +1150,33 @@ export class PreviewVendorApi extends VendorApi {
   private canReplyOn(productId: string): boolean {
     const product = this.me?.products.find((p) => p.id === productId);
     return product?.plan.capabilities.includes('review.reply') ?? false;
+  }
+
+  /** The Changes page (AECI-1160). A vendor with no products is the new-vendor
+   *  fixture, which has no history yet: that is the empty state. */
+  override async listHistory(
+    page: number,
+    perPage: number,
+    filters: VendorHistoryFilters = {},
+  ): Promise<ListVendorHistoryResponse> {
+    // By WHO acted, as the API filters (AECI-1194): `historyKindKeeps`.
+    const kind = filters.kind ?? 'all';
+    const rows = (this.me?.products.length ? VENDOR_HISTORY_FIXTURE : []).filter((r) =>
+      historyKindKeeps(kind, r),
+    );
+    const start = (page - 1) * perPage;
+    return clone({ data: rows.slice(start, start + perPage), page, perPage, total: rows.length });
+  }
+
+  /** The search follow-up of the asked-for rows (AECI-1160), as the API scopes it:
+   *  only lines whose audit id was asked for. */
+  override async getHistoryFollowUp(
+    auditIds: readonly string[],
+  ): Promise<ListVendorHistoryFollowUpResponse> {
+    const asked = new Set(auditIds);
+    return clone({
+      data: VENDOR_HISTORY_FOLLOW_UP_FIXTURE.filter((l) => asked.has(l.audit_log_id)),
+    });
   }
 
   override async listReviews(filters: VendorReviewsFilters): Promise<ListVendorReviewsResponse> {

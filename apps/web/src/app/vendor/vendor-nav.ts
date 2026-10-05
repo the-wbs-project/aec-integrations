@@ -44,7 +44,7 @@ export interface VendorNavItem {
 }
 
 /**
- * The portal's five VENDOR-level sections, in nav order. Adding a section is one
+ * The portal's six VENDOR-level sections, in nav order. Adding a section is one
  * entry here plus its child route in `vendor.routes.ts` — the two files are read
  * together and nothing else lists the sections.
  *
@@ -61,6 +61,8 @@ export const VENDOR_NAV_ITEMS: readonly VendorNavItem[] = [
   { path: 'profile', label: $localize`:@@vendor.nav.profile:Profile` },
   { path: 'products', label: $localize`:@@vendor.nav.products:Products` },
   { path: 'messages', label: $localize`:@@vendor.nav.messages:Messages` },
+  // AECI-1160 (§6.19): what changed on the listing, and who changed it.
+  { path: 'history', label: $localize`:@@vendor.nav.history:Changes` },
   { path: 'seats', label: $localize`:@@vendor.nav.seats:Seats` },
 ];
 

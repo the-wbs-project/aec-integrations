@@ -22,7 +22,7 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import { VENDOR_NAV_ITEMS, productNavItemsFor, type VendorNavItem } from './vendor-nav';
 import { VendorPortalNav } from './vendor-portal-nav';
 
-const NAV_LABELS = ['Vendor Overview', 'Profile', 'Products', 'Messages', 'Seats'];
+const NAV_LABELS = ['Vendor Overview', 'Profile', 'Products', 'Messages', 'Changes', 'Seats'];
 
 /** Set before each mount; the host is created by the router, so there is no
  *  fixture instance to write to. */
@@ -72,6 +72,7 @@ async function mount(
               ],
             },
             { path: 'messages', children: [] },
+            { path: 'history', children: [] },
             { path: 'seats', children: [] },
           ],
         },
@@ -111,6 +112,7 @@ describe('VendorPortalNav', () => {
         '/portal/profile',
         '/portal/products',
         '/portal/messages',
+        '/portal/history',
         '/portal/seats',
       ],
     );
@@ -189,6 +191,6 @@ describe('VendorPortalNav', () => {
     // separating them.
     expect(list.className).toContain('overflow-y-hidden');
     expect(root(harness).querySelectorAll('nav')).toHaveLength(1);
-    expect(items(harness)).toHaveLength(5);
+    expect(items(harness)).toHaveLength(6);
   });
 });

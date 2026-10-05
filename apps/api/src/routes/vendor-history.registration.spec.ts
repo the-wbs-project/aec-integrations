@@ -1,5 +1,5 @@
 /**
- * AECI-1194 — the two change-history reads are mounted on the REAL Worker with
+ * AECI-1194 — the change-history reads (and AECI-1160's follow-up read) are mounted on the REAL Worker with
  * `requireVendor()` and nothing else: no rate limit (reads are never
  * rate-limited, `waf-rate-limits.md` §6, ADR 0026) and no capability gate.
  *
@@ -68,31 +68,33 @@ function refusingLimiter(): RateLimit & { keys: string[] } {
 }
 
 describe('change-history route registration', () => {
-  it.each(['/api/vendor/history', '/api/vendor/history.csv'])(
-    '%s answers 200 with every limiter refusing, and never asks one',
-    async (path) => {
-      const write = refusingLimiter();
-      const token = refusingLimiter();
-      const res = await worker.fetch(
-        new Request(`https://api${path}`, { headers: { authorization: 'Bearer test' } }),
-        { ENV: 'preview', WRITE_RATE_LIMIT: write, TOKEN_RATE_LIMIT: token } as Env,
-        fakeExecutionContext(),
-      );
-      expect(res.status).toBe(200);
-      expect(write.keys).toEqual([]);
-      expect(token.keys).toEqual([]);
-    },
-  );
+  it.each([
+    '/api/vendor/history',
+    '/api/vendor/history.csv',
+    '/api/vendor/history/follow-up?ids=a',
+  ])('%s answers 200 with every limiter refusing, and never asks one', async (path) => {
+    const write = refusingLimiter();
+    const token = refusingLimiter();
+    const res = await worker.fetch(
+      new Request(`https://api${path}`, { headers: { authorization: 'Bearer test' } }),
+      { ENV: 'preview', WRITE_RATE_LIMIT: write, TOKEN_RATE_LIMIT: token } as Env,
+      fakeExecutionContext(),
+    );
+    expect(res.status).toBe(200);
+    expect(write.keys).toEqual([]);
+    expect(token.keys).toEqual([]);
+  });
 
-  it.each(['/api/vendor/history', '/api/vendor/history.csv'])(
-    '%s is behind the vendor guard',
-    async (path) => {
-      const res = await worker.fetch(
-        new Request(`https://api${path}`),
-        { ENV: 'preview' } as Env,
-        fakeExecutionContext(),
-      );
-      expect(res.status).toBe(401);
-    },
-  );
+  it.each([
+    '/api/vendor/history',
+    '/api/vendor/history.csv',
+    '/api/vendor/history/follow-up?ids=a',
+  ])('%s is behind the vendor guard', async (path) => {
+    const res = await worker.fetch(
+      new Request(`https://api${path}`),
+      { ENV: 'preview' } as Env,
+      fakeExecutionContext(),
+    );
+    expect(res.status).toBe(401);
+  });
 });
