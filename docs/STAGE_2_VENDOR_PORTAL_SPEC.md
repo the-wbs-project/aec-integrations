@@ -278,6 +278,11 @@ A vendor write whose session has no active entitlement buffers nothing into eith
 edit still commits and purges. The gate sits in the same shared tail, so every vendor write
 inherits it too. `STAGE_2_PAID_TIERS_SPEC.md` §3.3(d) and §13.1a govern.
 
+**Every submission is logged (AECI-1182, 2026-10-05).** The drain no longer keeps only counts. It
+records each URL it sends in `recrawl_submissions` with the outcome, and the cause rows name the
+vendor edit that queued it (`DATABASE_SCHEMA.md` §9.6a, §9.6b). The vendor reads it through
+`GET /api/vendor/recrawl-submissions` (`API_CONTRACTS.md` §6.14). No portal page renders it yet.
+
 The two channels are fed differently, and the difference is the whole design. IndexNow is free,
 so it takes everything the edit touched. Since AECI-1136 it borrows Google's tier for each URL
 so its daily send goes highest tier first, and hub pages are tier 4. Google is quota-capped and worked by

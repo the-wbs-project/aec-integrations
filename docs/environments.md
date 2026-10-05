@@ -318,7 +318,7 @@ invisible part is fixed; the other two are not, and are not going to be.
 
 | Engine | Channel | Automated? |
 |---|---|---|
-| Bing / Yandex | IndexNow, buffered into `indexnow_queue` and drained by a daily `5 0 * * *` cron, highest tier first (AECI-236, rebuilt in AECI-826, second writer added in AECI-944 and plan-gated in AECI-1186, daily since AECI-1136; `*/20` before) | **Yes, once a day.** Every submission the old per-promote design made across 2026-09-07..09 returned HTTP 429 — 23 of 23. On the 20-minute drain, prod for 2026-09-22..28 showed `aeci.indexnow.submit{outcome:ok}` only on the first tick after 00:00 UTC, which is why the drain is now daily |
+| Bing / Yandex | IndexNow, buffered into `indexnow_queue` and drained by a daily `5 0 * * *` cron, highest tier first (AECI-236, rebuilt in AECI-826, second writer added in AECI-944 and plan-gated in AECI-1186, daily since AECI-1136; `*/20` before; every URL it sends is logged in `recrawl_submissions` since AECI-1183) | **Yes, once a day.** Every submission the old per-promote design made across 2026-09-07..09 returned HTTP 429 — 23 of 23. On the 20-minute drain, prod for 2026-09-22..28 showed `aeci.indexnow.submit{outcome:ok}` only on the first tick after 00:00 UTC, which is why the drain is now daily |
 | Google | Queued into `gsc_recrawl_queue`, then Search Console → **URL Inspection → Request Indexing** | **Half.** The machine knows what needs doing. A person does it |
 
 Google's Indexing API is documented for `JobPosting` and `BroadcastEvent` only, so the AECI-263
@@ -339,7 +339,9 @@ look *now*.
 4. If it reports "URL is not on Google", click **Request Indexing**. If it reports the URL is
    already indexed, request it anyway. The row is here because the *content* changed, and
    indexed is not the same as current.
-5. Click **Done** on that row and move to the next. Done **deletes** the row rather than flagging
+5. Click **Done** on that row. A dialog asks what happened. Choose "Requested indexing in Search
+   Console" if you clicked Request Indexing, or "Cleared without a request" if the quota ran out
+   or the page is gone (AECI-1185). Either answer **deletes** the row rather than flagging
    it, so an empty screen means genuinely nothing is pending rather than nothing you have not
    already dismissed. Nothing is lost: a later edit to the same page queues a fresh row.
 6. Stop when Google stops accepting requests. What is left below the cut is, by construction, the

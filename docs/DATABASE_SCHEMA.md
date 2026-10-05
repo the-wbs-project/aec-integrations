@@ -3445,8 +3445,8 @@ it to a cron would be the staleness sweep this section refuses.
 
 **The write side is chunked at 20 rows per statement, not 33.** Five columns are bound per row,
 so 20 rows is D1's 100-parameter cap exactly and one more row is a rejected statement.
-`INDEXNOW_INSERT_ROWS_PER_STATEMENT` is 33 because that table binds three columns; copying the
-constant across would bind 165 parameters and fail. It would fail **only in production**,
+`INDEXNOW_INSERT_ROWS_PER_STATEMENT` is 25 because that table binds four columns (`url`, `queued_at`,
+`source`, `priority`); copying the constant across would bind 125 parameters and fail. It would fail **only in production**,
 because better-sqlite3's ceiling in the in-memory harness is 32,766. The specs therefore assert
 the emitted parameter count per statement rather than only that the rows landed.
 
