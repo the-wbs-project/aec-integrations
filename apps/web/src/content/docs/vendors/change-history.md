@@ -3,7 +3,7 @@ title: Your change history
 description: Where to see every change to your company, products, integrations and seats, who made it, and why AEC Integrations changed something.
 section: vendors
 order: 8
-last_updated: 4 October 2026
+last_updated: 5 October 2026
 ---
 
 The vendor portal keeps a record of every change to your listing. It shows what changed, when, and who made the change. When AEC Integrations changes something you hold, it shows our reason.
@@ -45,11 +45,22 @@ The list starts when change history began. Changes made before then are not list
 
 The list does not include messages we sent you. Those are under **Messages**.
 
-## Search engines
+## Search follow-up
 
-A change here is a change to your listing on AEC Integrations. Search engines decide when they crawl your pages and what they show in their results. The list makes no promise about search results.
+On Managed, when your team changes a public page, we tell search engines about it. Under the change, **Search follow-up** lists each page it touched and what we did, with the date and time:
 
-A later update will add, for each change, what we did to tell search engines about the pages it touched.
+- **IndexNow (Bing and others).** We send changed pages to IndexNow once a day. A page shows **Queued for the next daily send**, then **Submitted** once IndexNow accepts it. If IndexNow refuses it or does not answer, the page shows **Submission failed** with the reason, and whether we will try again at the next daily send.
+- **Google.** Google takes no automatic notice, so an AEC Integrations admin asks Google to re-crawl pages by hand in Search Console. A page shows **Queued for AECi to request a Google re-crawl** while it waits. It shows **Re-crawl requested in Google Search Console** only when the admin recorded that they made the request.
+
+If a page was sent more than once, it shows one line with where it stands now.
+
+On Free, a change to your listing shows **No expedited search submission**. Sending changed pages to search engines is part of Managed. Search engines still find the change on their own schedule.
+
+Changes made before search follow-up began, and changes that touch no public page, show no search follow-up.
+
+## Search engines control crawling and indexing
+
+A change here is a change to your listing on AEC Integrations. "Submitted" and "requested" mean we told a search engine about the change. Search engines decide when they crawl your pages and what they show in their results. The list makes no promise about search results.
 
 ## Related
 

@@ -2540,9 +2540,7 @@ Decisions taken at build that this section did not fix:
 - **Preview presets.** `/preview/vendor-dashboard?fixture=free` (never had a plan), `pilot-ended` (revoked, `ended_at` 14 days ago) and `mixed` (12 products, 5 Managed and 7 Free, which only per-product plans can produce). The preview fake serves both checklist reads, scored by `vendorChecklistFixture` / `productChecklistFixture`, and its "Looks right" ticks the step. `e2e/preview-vendor-free-plan.spec.ts` drives the three presets with axe.
 
 
-### 6.19 The Changes page (AECI-1160, interim build 2026-10-04)
-
-**Status: interim.** The page ships without its search follow-up column. That column waits on AECI-1187, the search submission log. AECI-1160 stays open until it renders.
+### 6.19 The Changes page (AECI-1160, built 2026-10-04, search follow-up 2026-10-05)
 
 **What it is.** `…/history`, labelled "Changes" in the vendor row between Messages and Seats. It lists the vendor's change history from `GET /api/vendor/history` (AECI-1194, `API_CONTRACTS.md` §6.14), newest first, 25 rows a page. Every plan sees it, because the API is ungated. It is historical and read-only, so it has no live cursor.
 
@@ -2560,11 +2558,17 @@ Decisions taken at build that this section did not fix:
 
 **Controls.** A pressed-button filter: All changes, Your team's edits, AECi changes (`kind=all|vendor|aeci`). The filter selects by who acted, through the same table that sets `actor_kind` (`apps/api/src/lib/vendor-history.ts`). "Your team's edits" keeps the rows the vendor's own seats made (`actor_kind: 'your_team'`). "AECi changes" keeps the rows an AECi admin made (`actor_kind: 'aeci'`), whatever the action. An admin overwriting a logo writes `product.updated` and lands here. System rows show under All only. The preview fake (`PreviewVendorApi.listHistory`) filters on `actor_kind` the same way. A "Download CSV" link points at `vendorHistoryCsvUrl` with the same filter.
 
-**Banner.** It says the list starts when change history began, with no date, because nothing older is backfilled. A second line says search engines decide crawling and what they show. The page never says "indexed" or "ranked".
+**Banner.** It says the list starts when change history began, with no date, because nothing older is backfilled. A second line says search engines control crawling and indexing, and that "submitted" and "requested" mean we told a search engine about a change. The page never says "indexed" or "ranked".
 
-**The pending follow-up column.** Each row renders `vendor/history/vendor-history-follow-up.ts`, which is empty today and carries a `TODO(AECI-1187)`. When the submission log ships it will show one state per URL and channel (not eligible, queued, submitted, failed or skipped), joined on the causing audit id AECI-1184 adds. A Free vendor sees "No expedited search submission". Copy says "submitted" or "requested", never "indexed".
+**Search follow-up.** Each row renders `vendor/history/vendor-history-follow-up.ts`. Once the rows land, the page makes one `GET /api/vendor/history/follow-up` read for the page's team rows (`API_CONTRACTS.md` §6.14), joined on the causing audit id AECI-1184 records. Only the team's own edits can have lines: the read is scoped on the vendor's own recrawl causes, and AECi and system rows record none. A row then shows one of three things:
 
-**Preview.** `/preview/vendor-dashboard/history` renders `vendor/vendor-history-fixtures.ts`: every actor kind, an AECi row with a reason and one without, a row with no plan, and an action this build does not know. `?fixture=unverified` (no products) is the empty state.
+- **Lines.** Each affected URL, as its page path linking to the public page, with one line per channel and the time: "IndexNow (Bing and others)" queued, submitted or failed, and "Google" queued or requested. A failed line gives IndexNow's HTTP status, or says it did not answer, and whether we will try again at the next daily send. Retries fold into one line, so a URL refused twice and then accepted reads "Submitted".
+- **"No expedited search submission".** A team edit that can change a public page (`LISTING_ACTIONS` in the component, the writers that pass a recrawl to `afterVendorWrite`), made on Free per the row's plan snapshot. IndexNow and the Google worklist are Managed-only (`STAGE_2_PAID_TIERS_SPEC.md` §13.1a), so a Free write queues nothing.
+- **Nothing.** Any other row, and a Managed row with no lines (a change before AECI-1184, on a tier with IndexNow off, or one that touched no public page).
+
+Google "requested" shows only when an operator recorded the request when clearing the worklist row (AECI-1185). A row cleared as "not requested" leaves no trace, so it never reads as requested. **"Skipped" has no state.** Nothing records a URL the Google worklist cleared without a request, or an IndexNow row that expired unsent, against the edit that queued it. Showing it would need the clear and the expiry to keep their cause rows. If the follow-up read fails, the rows stay and one line above the list says the follow-up could not load. Copy says "submitted" or "requested", never "indexed" or "ranked".
+
+**Preview.** `/preview/vendor-dashboard/history` renders `vendor/vendor-history-fixtures.ts`: every actor kind, an AECi row with a reason and one without, a row with no plan, and an action this build does not know. `PreviewVendorApi.getHistoryFollowUp` serves `VENDOR_HISTORY_FOLLOW_UP_FIXTURE`: a Managed edit with several URLs (submitted, requested, failed and retrying), a second Managed edit queued on both channels with a failure that will not retry, and a Free edit showing "No expedited search submission". `?fixture=unverified` (no products) is the empty state.
 
 **Help page.** `/docs/vendors/change-history`.
 

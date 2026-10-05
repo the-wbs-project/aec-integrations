@@ -5762,7 +5762,7 @@ export const NudgeMuteResultSchema = z.object({ ok: z.boolean() });
 
 Stage 2 (AECI-520). All require `role === 'vendor_admin'` **and** a non-null `profiles.vendor_id`, enforced by the `requireVendor()` Worker middleware (`apps/api/src/lib/authz.ts`) — verifies the JWT, loads the D1 profile, and rejects in this order: missing token/profile `401`; `banned_at` set `403`; wrong role `403`; null `vendor_id` `403`. A site **`admin` is rejected too** — there is no impersonation at launch, admins act on vendor data through `/api/admin/*` so the audit trail names the real actor.
 
-Source of truth: `packages/shared/src/api/vendor.ts` + `product-versions.ts` + `vendor-attestations.ts` + `vendor-connectors.ts` + `vendor-notifications.ts` + `vendor-history.ts` + `vendor-recrawl-submissions.ts` + `vendor-updates.ts` + `integration-contests.ts` + `integration-claims.ts` + `integration-edits.ts` (Zod), `apps/api/src/routes/vendor.ts` + `vendor-product-versions.ts` + `vendor-attestations.ts` + `vendor-connectors.ts` + `vendor-notifications.ts` + `vendor-recrawl-submissions.ts` + `vendor-data-objects.ts` + `vendor-updates.ts` + `vendor-contests.ts` + `vendor-integration-claims.ts` + `vendor-integration-edits.ts` + `vendor-review.ts` (handlers), with the shared guard + scoping-predicate seam in `apps/api/src/routes/vendor-shared.ts` and the two-slot authority seam in `apps/api/src/lib/attestation-authority.ts`; `STAGE_2_VENDOR_PORTAL_SPEC.md` §4, `STAGE_2_ATTESTATIONS_SPEC.md` §5 / §7.2 / §8.3, and `STAGE_2_REALTIME_SPEC.md` §2.
+Source of truth: `packages/shared/src/api/vendor.ts` + `product-versions.ts` + `vendor-attestations.ts` + `vendor-connectors.ts` + `vendor-notifications.ts` + `vendor-history.ts` + `vendor-recrawl-submissions.ts` + `vendor-updates.ts` + `integration-contests.ts` + `integration-claims.ts` + `integration-edits.ts` (Zod), `apps/api/src/routes/vendor.ts` + `vendor-product-versions.ts` + `vendor-attestations.ts` + `vendor-connectors.ts` + `vendor-notifications.ts` + `vendor-history.ts` + `vendor-recrawl-submissions.ts` + `vendor-data-objects.ts` + `vendor-updates.ts` + `vendor-contests.ts` + `vendor-integration-claims.ts` + `vendor-integration-edits.ts` + `vendor-review.ts` (handlers), with the shared guard + scoping-predicate seam in `apps/api/src/routes/vendor-shared.ts` and the two-slot authority seam in `apps/api/src/lib/attestation-authority.ts`; `STAGE_2_VENDOR_PORTAL_SPEC.md` §4, `STAGE_2_ATTESTATIONS_SPEC.md` §5 / §7.2 / §8.3, and `STAGE_2_REALTIME_SPEC.md` §2.
 
 **Two invariants govern this whole surface.**
 
@@ -6152,6 +6152,49 @@ The item is an **allow-list projection**. It never carries `actor_id`, an email,
 - Columns: `id, at, actor_kind, action, entity_type, entity_id, entity_name, fields, plan_tier, plan_status, reason`. `fields` is joined with `;`.
 - The export stops at **10,000 rows** (`VENDOR_HISTORY_CSV_MAX_ROWS`), newest first. Every response carries `X-AECI-Total-Rows: <matching rows>` and `X-AECI-Truncated: true|false`. `true` means the file holds the newest 10,000 rows of a longer history. Narrow `from`/`to` to export the rest.
 - Cells go through `csvCell` in `@aeci/shared/csv`: RFC 4180 quoting, and a leading `'` on any cell starting with `=`, `+`, `-` or `@` after any leading whitespace (NBSP included), or with a tab or CR, so a spreadsheet never runs it as a formula.
+
+#### Change history: search follow-up, `GET /api/vendor/history/follow-up` (AECI-1160)
+
+The search follow-up of one page of change history: for each change, which public URLs it queued for search submission and where each now stands. The Changes page calls it once per page with the page's audit ids, never once per row. Zod: `VendorHistoryFollowUpQuerySchema` and `ListVendorHistoryFollowUpResponseSchema` in `packages/shared/src/api/vendor-history.ts`. Handler: `createVendorHistoryFollowUpHandler` in `apps/api/src/routes/vendor-history.ts`. Query and fold: `apps/api/src/lib/vendor-history-follow-up.ts`.
+
+**Guard.** The same as the history read: `requireVendor()` and nothing else. No capability gate, so a Free vendor reads it too and gets the lines from a period when it held a plan. No rate limit. No `audit_log` row.
+
+**Query.** `ids`: comma-separated audit ids, the history rows' `id`. 1 to 100 after blank entries are dropped and duplicates collapse (`VENDOR_HISTORY_FOLLOW_UP_MAX_IDS`). A missing, empty or longer list is a `400 VALIDATION_FAILED`.
+
+**Scope.** Both reads filter on the recrawl cause's `vendor_id = <session vendor>` and `audit_log_id IN (ids)`, the same vendor predicate as `GET /api/vendor/recrawl-submissions` (AECI-1187). An id that is not one of the caller's own edits matches nothing, so the ids need no separate ownership check. Promote and AECi admin causes store a null vendor and never reach a vendor. The ids are bound 90 per statement (`FOLLOW_UP_IDS_PER_STATEMENT`), so each statement stays under D1's 100-parameter cap with the vendor id. All statements run in one `db.batch`.
+
+**Sources.**
+
+- `recrawl_submission_causes` inner-joined to `recrawl_submissions`: every IndexNow attempt and every recorded Google request (`DATABASE_SCHEMA.md` §9.6a, §9.6b). Permanent, so a line stays true after the queues drain.
+- `recrawl_queue_causes`: URLs still waiting on either queue. Transient.
+
+**Response.** Unpaginated, ordered by audit id, URL, then channel (identifier orderings, so `BINARY`, §3.2):
+
+```typescript
+export const VendorHistoryFollowUpSchema = z.object({
+  audit_log_id: z.string(),                          // the history row's id
+  url: z.string(),                                   // absolute public URL
+  channel: z.enum(['indexnow', 'google']),           // gsc and gsc_manual both read as google
+  state: z.enum(['queued', 'submitted', 'failed', 'requested']),
+  at: z.string(),                                    // send or request time; queued_at for queued
+  http_status: z.number().int().nullable(),          // IndexNow's status on submitted and failed
+  retrying: z.boolean(),                             // failed only: still queued for another send
+});
+// { data: VendorHistoryFollowUp[] }
+```
+
+**One line per (change, URL, channel).** Retries never show as repeat claims.
+
+| Channel | Rule |
+|---|---|
+| `indexnow` | Any `accepted` attempt is `submitted`, at the latest accepted time. Otherwise the latest `refused` or `failed` attempt is `failed`, with `retrying: true` while a cause is still queued. With no attempt yet, a queued cause is `queued` |
+| `google` | A `gsc_manual` row with outcome `requested` is `requested`. Otherwise a queued `gsc` cause is `queued`. A worklist row cleared as `not_requested` writes no submission row and sweeps its cause, so it shows nothing. The page never infers a request from a cleared row |
+
+"Not eligible" is not a server state. A Free write queues nothing (`STAGE_2_PAID_TIERS_SPEC.md` §13.1a), so the page derives it from the row's `plan` snapshot (`STAGE_2_VENDOR_PORTAL_SPEC.md` §6.19). "Skipped" has no source either: a `not_requested` clear and an IndexNow row that expires unsent leave no per-cause trace.
+
+**Wording.** "Submitted" and "requested" only. Nothing says "indexed" or "ranked".
+
+**Cost.** One history page is 25 rows, so one chunk and two statements. The submission read rides `recrawl_submission_causes_vendor_id_submission_id_idx` and filters the vendor's cause rows on `audit_log_id`. The queue read scans `recrawl_queue_causes`, which holds only what waits for the next drain or clear. Neither cause table indexes `audit_log_id`.
 
 #### `GET /api/vendor/notification-preferences` and `PUT /api/vendor/notification-preferences` (AECI-1204)
 
