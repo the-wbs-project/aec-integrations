@@ -4,7 +4,8 @@
  * Two jobs, in this order:
  *
  * 1. **Formula-injection guard.** A spreadsheet treats a cell that begins with
- *    `=`, `+`, `-`, `@`, a tab or a carriage return as a formula. Such a cell gets
+ *    `=`, `+`, `-`, `@`, a tab or a carriage return as a formula, and some trim
+ *    leading whitespace (NBSP included) first, so ` =1` counts too. Such a cell gets
  *    a leading `'`, which every major spreadsheet reads as "this is text". The
  *    guard runs on the raw value, before quoting, so a quoted cell is guarded too.
  * 2. **RFC 4180 quoting.** A cell holding `"`, `,`, CR or LF is wrapped in double
@@ -16,7 +17,10 @@
 
 export type CsvValue = string | number | boolean | null | undefined;
 
-const FORMULA_LEAD = /^[=+\-@\t\r]/;
+/** A tab or CR first, or `=`, `+`, `-` or `@` after any leading whitespace.
+ *  `\s` covers the space, NBSP (U+00A0) and the other Unicode spaces, which a
+ *  spreadsheet may trim before it decides the cell is a formula. */
+const FORMULA_LEAD = /^(?:[\t\r]|\s*[=+\-@])/;
 const NEEDS_QUOTES = /[",\r\n]/;
 
 /** One cell, guarded and quoted. */

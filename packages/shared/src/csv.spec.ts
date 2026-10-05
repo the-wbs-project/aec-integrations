@@ -29,6 +29,20 @@ describe('csvCell', () => {
     },
   );
 
+  it.each([
+    ['a leading space', ' =SUM(A1:A2)'],
+    ['a leading NBSP', '\u00A0=SUM(A1:A2)'],
+    ['mixed leading whitespace', ' \u00A0 +1'],
+    ['whitespace then @', '  @cmd'],
+  ])('prefixes a formula behind %s', (_label, value) => {
+    expect(csvCell(value)).toBe(`'${value}`);
+  });
+
+  it('leaves leading whitespace before plain text alone', () => {
+    expect(csvCell(' plain')).toBe(' plain');
+    expect(csvCell('\u00A0plain')).toBe('\u00A0plain');
+  });
+
   it('guards before quoting, so a formula with a comma is guarded and quoted', () => {
     expect(csvCell('=HYPERLINK("http://x",1)')).toBe('"\'=HYPERLINK(""http://x"",1)"');
   });
