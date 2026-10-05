@@ -33,7 +33,7 @@ import type {
   VendorHistoryItem,
   VendorHistoryKind,
 } from '@aeci/shared';
-import { and, count, desc, eq, gte, inArray, lt, type SQL } from 'drizzle-orm';
+import { and, count, desc, eq, gte, inArray, lt, sql, type SQL } from 'drizzle-orm';
 
 import type { Db } from '../db/client';
 import {
@@ -107,7 +107,11 @@ export function vendorHistoryWhere(vendorId: string, filter: VendorHistoryFilter
   return and(...clauses) as SQL;
 }
 
-/** The columns the projection reads. Nothing else leaves the database. */
+/**
+ * The columns the projection reads. Nothing else leaves the database: the
+ * `after_state` and `metadata` JSON are reduced in SQL ({@link selectRows}), so
+ * neither the raw values nor the internal note are ever loaded into the Worker.
+ */
 export interface VendorHistoryRawRow {
   id: string;
   createdAt: string;
@@ -115,8 +119,12 @@ export interface VendorHistoryRawRow {
   action: string;
   entityType: string | null;
   entityId: string | null;
-  afterState: unknown;
-  metadata: unknown;
+  /** The top-level key names of `after_state` as a JSON array, from SQL. */
+  afterStateKeys: string | null;
+  /** `metadata.reasonVisibility`, from SQL. */
+  reasonVisibility: unknown;
+  /** `metadata.reason` when it is a JSON string, else null, from SQL. */
+  reason: unknown;
   vendorTier: string | null;
   vendorEntitlementStatus: string | null;
 }
@@ -125,30 +133,23 @@ export interface VendorHistoryRawRow {
 const FIELD_NAME = /^[A-Za-z][A-Za-z0-9_]{0,63}$/;
 
 /**
- * The key names of `after_state`. Historical rows vary: some hold an object,
- * some an array, some a scalar or nothing, and a writer may have stored JSON
- * as a string. Only an object's keys count, and only keys shaped like a field
- * name, so a map keyed by an email or an id can never surface one.
+ * The field names to show, from the SQL key list. Only keys shaped like a field
+ * name count, so a map keyed by an email or an id can never surface one.
  */
-export function afterStateFields(afterState: unknown): string[] {
-  let value = afterState;
-  if (typeof value === 'string') {
-    try {
-      value = JSON.parse(value);
-    } catch {
-      return [];
-    }
+export function afterStateFields(keysJson: unknown): string[] {
+  if (typeof keysJson !== 'string') return [];
+  let keys: unknown;
+  try {
+    keys = JSON.parse(keysJson);
+  } catch {
+    return [];
   }
-  if (typeof value !== 'object' || value === null || Array.isArray(value)) return [];
-  return Object.keys(value).filter((key) => FIELD_NAME.test(key));
+  if (!Array.isArray(keys)) return [];
+  return keys.filter((key): key is string => typeof key === 'string' && FIELD_NAME.test(key));
 }
 
 /** AECi's vendor-facing reason, only behind the AECI-1159 marker. */
-function vendorReason(metadata: unknown): string | undefined {
-  if (typeof metadata !== 'object' || metadata === null || Array.isArray(metadata)) {
-    return undefined;
-  }
-  const { reasonVisibility, reason } = metadata as Record<string, unknown>;
+function vendorReason(reasonVisibility: unknown, reason: unknown): string | undefined {
   if (reasonVisibility !== 'vendor') return undefined;
   return typeof reason === 'string' && reason.trim() !== '' ? reason : undefined;
 }
@@ -158,7 +159,7 @@ export function projectVendorHistoryRow(
   row: VendorHistoryRawRow,
   entityName: string | null,
 ): VendorHistoryItem {
-  const reason = vendorReason(row.metadata);
+  const reason = vendorReason(row.reasonVisibility, row.reason);
   return {
     id: row.id,
     at: row.createdAt,
@@ -167,7 +168,7 @@ export function projectVendorHistoryRow(
     entity_type: row.entityType,
     entity_id: row.entityId,
     entity_name: entityName,
-    fields: afterStateFields(row.afterState),
+    fields: afterStateFields(row.afterStateKeys),
     plan: row.vendorTier
       ? { tier: row.vendorTier, status: row.vendorEntitlementStatus ?? null }
       : null,
@@ -262,6 +263,36 @@ export async function resolveEntityNames(
   return names;
 }
 
+/**
+ * `after_state` as a JSON object, or NULL. Historical rows vary: some hold an
+ * object, some an array, a scalar, nothing or malformed text, and a writer may
+ * have stored the object JSON-encoded as a string. Nested CASEs, not AND, so
+ * `json_type` never sees text `json_valid` rejected (it would throw).
+ */
+const AFTER_STATE_OBJECT = sql`CASE WHEN json_valid(${auditLog.afterState}) THEN
+  CASE json_type(${auditLog.afterState})
+    WHEN 'object' THEN ${auditLog.afterState}
+    WHEN 'text' THEN
+      CASE WHEN json_valid(json_extract(${auditLog.afterState}, '$')) THEN
+        CASE WHEN json_type(json_extract(${auditLog.afterState}, '$')) = 'object'
+          THEN json_extract(${auditLog.afterState}, '$') END
+      END
+  END
+END`;
+
+/** The top-level key names of `after_state`, as a JSON array (`[]` when none). */
+const AFTER_STATE_KEYS = sql<
+  string | null
+>`(SELECT json_group_array(je.key) FROM json_each(${AFTER_STATE_OBJECT}) AS je)`;
+
+/** `metadata` when it is a JSON object, guarded the same way. */
+const metadataPath = (path: string, type?: string) =>
+  sql`CASE WHEN json_valid(${auditLog.metadata}) THEN
+    CASE WHEN json_type(${auditLog.metadata}) = 'object'${
+      type ? sql` AND json_type(${auditLog.metadata}, ${path}) = ${type}` : sql``
+    } THEN json_extract(${auditLog.metadata}, ${path}) END
+  END`;
+
 /** The page of raw rows, newest first, `id DESC` as the tiebreaker. */
 async function selectRows(
   db: Db,
@@ -277,8 +308,9 @@ async function selectRows(
       action: auditLog.action,
       entityType: auditLog.entityType,
       entityId: auditLog.entityId,
-      afterState: auditLog.afterState,
-      metadata: auditLog.metadata,
+      afterStateKeys: AFTER_STATE_KEYS,
+      reasonVisibility: metadataPath('$.reasonVisibility'),
+      reason: metadataPath('$.reason', 'text'),
       vendorTier: auditLog.vendorTier,
       vendorEntitlementStatus: auditLog.vendorEntitlementStatus,
     })

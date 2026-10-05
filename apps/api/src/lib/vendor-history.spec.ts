@@ -16,8 +16,6 @@ import {
   type VendorHistoryRawRow,
 } from './vendor-history';
 
-const ACTOR = '00000000-0000-4000-8000-000000000099';
-
 function row(overrides: Partial<VendorHistoryRawRow> = {}): VendorHistoryRawRow {
   return {
     id: 'row-1',
@@ -26,16 +24,9 @@ function row(overrides: Partial<VendorHistoryRawRow> = {}): VendorHistoryRawRow 
     action: 'product.updated',
     entityType: 'product',
     entityId: 'prod-1',
-    afterState: { description: 'secret new value', website: 'https://x.test' },
-    metadata: {
-      source: 'admin-logo-override',
-      actorEmail: 'ops@aecintegrations.com',
-      actorId: ACTOR,
-      reason: 'Your logo failed our contrast check.',
-      reasonVisibility: 'vendor',
-      internalNote: 'Vendor was rude on the phone; watch them.',
-      otherVendorNote: 'Bentley asked us to do this.',
-    },
+    afterStateKeys: '["description","website"]',
+    reasonVisibility: 'vendor',
+    reason: 'Your logo failed our contrast check.',
     vendorTier: 'verified',
     vendorEntitlementStatus: 'active',
     ...overrides,
@@ -60,26 +51,16 @@ describe('projectVendorHistoryRow — redaction', () => {
       ].sort(),
     );
     expect(VendorHistoryItemSchema.strict().parse(item)).toEqual(item);
-  });
-
-  it('never leaks the internal note, an email, an actor id or a raw value', () => {
-    const wire = JSON.stringify(projectVendorHistoryRow(row(), 'Revit'));
-    expect(wire).not.toContain('rude');
-    expect(wire).not.toContain('internalNote');
-    expect(wire).not.toContain('@aecintegrations.com');
-    expect(wire).not.toContain(ACTOR);
-    expect(wire).not.toContain('secret new value');
-    expect(wire).not.toContain('https://x.test');
-    expect(wire).not.toContain('Bentley');
+    expect(item.fields).toEqual(['description', 'website']);
   });
 
   it('returns the reason only behind reasonVisibility = vendor', () => {
     expect(projectVendorHistoryRow(row(), null).reason).toBe(
       'Your logo failed our contrast check.',
     );
-    for (const reasonVisibility of [undefined, 'internal', 'VENDOR', true]) {
+    for (const reasonVisibility of [undefined, null, 'internal', 'VENDOR', 1, '["vendor"]']) {
       const item = projectVendorHistoryRow(
-        row({ metadata: { reason: 'Hidden reason', reasonVisibility } }),
+        row({ reason: 'Hidden reason', reasonVisibility }),
         null,
       );
       expect('reason' in item).toBe(false);
@@ -88,17 +69,8 @@ describe('projectVendorHistoryRow — redaction', () => {
 
   it('omits a marked reason that is not a non-empty string', () => {
     for (const reason of [42, '', '   ', null]) {
-      const item = projectVendorHistoryRow(
-        row({ metadata: { reason, reasonVisibility: 'vendor' } }),
-        null,
-      );
+      const item = projectVendorHistoryRow(row({ reason }), null);
       expect('reason' in item).toBe(false);
-    }
-  });
-
-  it('survives a metadata value that is not an object', () => {
-    for (const metadata of [null, 'text', 3, ['reasonVisibility']]) {
-      expect('reason' in projectVendorHistoryRow(row({ metadata }), null)).toBe(false);
     }
   });
 
@@ -114,32 +86,28 @@ describe('projectVendorHistoryRow — redaction', () => {
 });
 
 describe('afterStateFields', () => {
-  it('returns the key names of an object', () => {
-    expect(afterStateFields({ description: 'x', logo_url: null })).toEqual([
-      'description',
-      'logo_url',
-    ]);
+  it('returns the names in the SQL key list', () => {
+    expect(afterStateFields('["description","logo_url"]')).toEqual(['description', 'logo_url']);
   });
 
-  it('parses a JSON string defensively', () => {
-    expect(afterStateFields('{"name":"x"}')).toEqual(['name']);
-    expect(afterStateFields('not json')).toEqual([]);
-  });
-
-  it('returns nothing for an array, a scalar or null', () => {
-    expect(afterStateFields(['a', 'b'])).toEqual([]);
-    expect(afterStateFields(7)).toEqual([]);
+  it('returns nothing for null, malformed text or a non-array', () => {
     expect(afterStateFields(null)).toEqual([]);
     expect(afterStateFields(undefined)).toEqual([]);
+    expect(afterStateFields('not json')).toEqual([]);
+    expect(afterStateFields('{"a":1}')).toEqual([]);
+    expect(afterStateFields('[]')).toEqual([]);
   });
 
   it('drops keys that look like data rather than field names', () => {
     expect(
-      afterStateFields({
-        'someone@example.com': true,
-        '00000000-0000-4000-8000-000000000001': 'x',
-        status: 'active',
-      }),
+      afterStateFields(
+        JSON.stringify([
+          'someone@example.com',
+          '00000000-0000-4000-8000-000000000001',
+          'status',
+          7,
+        ]),
+      ),
     ).toEqual(['status']);
   });
 });

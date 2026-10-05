@@ -6125,7 +6125,7 @@ The item is an **allow-list projection**. It never carries `actor_id`, an email,
 
 - `actor_kind` comes from `actor_type`. `user` is `your_team`, because `requireVendor()` admits only seats and a vendor-portal write records `user`. `admin` is `aeci`. `system` and `workflow` are `system`.
 - `entity_name` is read now, in one batched `IN` query per entity type per page. It resolves vendors, products, integrations, product versions, connector-evidenced pairs and connector catalogues. Every other type is `null`, because its name would be a person's name or email.
-- `fields` holds the key names of an object `after_state`, filtered to identifier-shaped keys. An array, a scalar or unparseable JSON gives `[]`.
+- `fields` holds the key names of an object `after_state`, filtered to identifier-shaped keys. An array, a scalar or unparseable JSON gives `[]`. The keys, `metadata.reasonVisibility` and `metadata.reason` are computed in SQL (`json_each`, `json_group_array`, `json_extract`), so neither route ever loads the raw `after_state` or `metadata` JSON.
 - `plan` is the `vendor_tier` and `vendor_entitlement_status` snapshot taken at write time (AECI-1193). It is `null` on a row with no snapshot.
 - `reason` is present only when `metadata.reasonVisibility === 'vendor'` and `metadata.reason` is a non-empty string (AECI-1159). It is omitted otherwise.
 

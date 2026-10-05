@@ -306,6 +306,55 @@ describe('GET /api/vendor/history — projection', () => {
     }
   });
 
+  it('reduces odd after_state and metadata in SQL without failing the read', async () => {
+    const insert = t.raw.prepare(
+      `INSERT INTO audit_log (id, actor_type, action, entity_type, entity_id, vendor_id,
+         after_state, metadata, created_at)
+       VALUES (?, 'admin', 'vendor.updated', 'vendor', ?, ?, ?, ?, ?)`,
+    );
+    const cases: [number, string | null, string | null][] = [
+      [30, '{not json', '{"reason":"Hidden","reasonVisibility":"vendor"'],
+      [31, '["a","b"]', '["reasonVisibility"]'],
+      [32, '7', '"vendor"'],
+      [33, JSON.stringify(JSON.stringify({ name: 'x' })), null],
+      [
+        34,
+        JSON.stringify({ 'someone@example.com': 1, status: 'a' }),
+        JSON.stringify({ reasonVisibility: 'vendor', reason: { nested: 'object' } }),
+      ],
+      [
+        35,
+        JSON.stringify({ logo_url: 'secret value' }),
+        JSON.stringify({ reasonVisibility: 'vendor', reason: 'Shown', internalNote: 'x' }),
+      ],
+    ];
+    for (const [n, after, meta] of cases) {
+      insert.run(
+        uuid(1000 + n),
+        VENDOR_A,
+        VENDOR_A,
+        after,
+        meta,
+        `2026-11-${n - 29}T00:00:00.000Z`,
+      );
+    }
+    const r = await getJson(AUTH_A, '?from=2026-11-01');
+    expect(r.status).toBe(200);
+    const byId = new Map((r.body.data as VendorHistoryItem[]).map((i) => [i.id, i]));
+    expect(byId.get(uuid(1030))).toMatchObject({ fields: [] });
+    expect('reason' in byId.get(uuid(1030))!).toBe(false);
+    expect(byId.get(uuid(1031))).toMatchObject({ fields: [] });
+    expect(byId.get(uuid(1032))).toMatchObject({ fields: [] });
+    expect(byId.get(uuid(1033))).toMatchObject({ fields: ['name'] });
+    expect(byId.get(uuid(1034))).toMatchObject({ fields: ['status'] });
+    expect('reason' in byId.get(uuid(1034))!).toBe(false);
+    expect(byId.get(uuid(1035))).toMatchObject({ fields: ['logo_url'], reason: 'Shown' });
+    expect(JSON.stringify(r.body)).not.toContain('secret value');
+
+    const { res } = await getCsv(AUTH_A, '?from=2026-11-01');
+    expect(res.status).toBe(200);
+  });
+
   it('reads the entity name now, not at write time', async () => {
     await t.raw
       .prepare('UPDATE products SET name = ? WHERE id = ?')
