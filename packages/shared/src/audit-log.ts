@@ -49,6 +49,25 @@ export interface AuditLogEntry {
   beforeState?: unknown;
   afterState?: unknown;
   metadata?: unknown;
+  /**
+   * `audit_log.vendor_id` (AECI-1192, `DATABASE_SCHEMA.md` §8.4). The vendor the row
+   * is ABOUT: the acting vendor on a vendor-actor row; the vendor HOLDING the entity
+   * when the row is written on an admin or system row (the owner, never a contest
+   * submitter — role keys such as `submitterVendorId` stay in `metadata`); the
+   * recipient on a `notification.sent` row. This column, not `metadata`, is the
+   * canonical place for the vendor id on new rows.
+   */
+  vendorId?: string | null;
+  /** `audit_log.product_id` (AECI-1192): set when the row is about ONE product. */
+  productId?: string | null;
+  /**
+   * The vendor's plan when the row was written (AECI-1193): `audit_log.vendor_tier`
+   * and `audit_log.vendor_entitlement_status`. Build it with `vendorPlanSnapshot`
+   * from `@aeci/shared/entitlements` so "no entitlement row" records `'none'`
+   * rather than NULL. Absent (NULL columns) means "not snapshotted", which is what
+   * every row written before AECI-1193 carries.
+   */
+  vendorPlan?: { tier: string; status: string } | null;
 }
 
 /**

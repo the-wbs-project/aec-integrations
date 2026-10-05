@@ -69,6 +69,7 @@ import { json } from '../http';
 import { auditInsert, type BatchStmt, type BatchTuple } from '../lib/audit';
 import { auditActorType, type AuthzVariables } from '../lib/authz';
 import { validateResponseInDev, writeDb, type DbFactory } from '../lib/handler-utils';
+import { NO_VENDOR_STAMP, vendorAuditStamp, type VendorAuditStamp } from '../lib/audit-vendor';
 
 type CatalogContext = Context<{ Bindings: Env; Variables: AuthzVariables }>;
 
@@ -151,11 +152,17 @@ export function createSetConnectorCatalogManagementHandler(
     // Validate the named vendor rather than trusting it. A typo would otherwise park a
     // dangling id in the audit metadata for AECI-722's screen to render — and this is
     // the only record of who the catalogue was handed to, so it has to be a real id.
+    // The named vendor's plan rides the same read wave (AECI-1193).
+    let stamp: VendorAuditStamp = NO_VENDOR_STAMP;
     if (payload.vendorId) {
-      const vendor = await db.query.vendors.findFirst({
-        columns: { id: true },
-        where: eq(vendors.id, payload.vendorId),
-      });
+      const [vendor, named] = await Promise.all([
+        db.query.vendors.findFirst({
+          columns: { id: true },
+          where: eq(vendors.id, payload.vendorId),
+        }),
+        vendorAuditStamp(db, payload.vendorId),
+      ]);
+      stamp = named;
       if (!vendor) {
         emitManagementAction(c, to, 'not_found');
         throw notFoundError('vendor', { id: payload.vendorId });
@@ -190,12 +197,16 @@ export function createSetConnectorCatalogManagementHandler(
           : 'connector_catalog.managed_by_review',
       entityType: 'connector_catalog',
       entityId: id,
+      // AECI-1192 / AECI-1193: the vendor the catalogue is handed to, when one is
+      // named, and its plan. The connector product is the one product it is about.
+      ...stamp,
+      productId: existing.connectorProductId,
       beforeState: { managed_by: from },
       afterState: { managed_by: to },
       metadata: {
         source: AUDIT_SOURCE,
         connector_product_id: existing.connectorProductId,
-        ...(payload.vendorId ? { vendor_id: payload.vendorId } : {}),
+        ...(payload.vendorId ? { vendorId: payload.vendorId } : {}),
         ...(payload.reason ? { reason: payload.reason } : {}),
         // Explicit in the trail rather than inferred from `managed_by`, the same way
         // `lib/vendor-entitlement.ts` says `seats_untouched` out loud: a reader of this

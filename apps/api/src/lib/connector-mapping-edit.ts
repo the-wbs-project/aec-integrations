@@ -50,6 +50,7 @@ import { ApiError, notFoundError } from '../errors';
 import { isPublishable } from './admin-connectors';
 import { auditInsert, type BatchStmt, type BatchTuple } from './audit';
 import { ONE_ROW } from './integration-claims';
+import type { VendorPlanSnapshot } from '@aeci/shared/entitlements';
 
 // ─── The row as the edit sees it ─────────────────────────────────────────────
 
@@ -126,8 +127,11 @@ export interface MappingEditActor {
   decidedBy: string;
   /** The audit `metadata.source` facet. */
   auditSource: string;
-  /** Set on a vendor seat's edit, so the vendor audit viewer can reach the row. */
+  /** Set on a vendor seat's edit, so the vendor audit viewer can reach the row.
+   *  Lands in `audit_log.vendor_id` (AECI-1192). */
   vendorId?: string;
+  /** The vendor seat's plan from its session (AECI-1193). Set with `vendorId`. */
+  vendorPlan?: VendorPlanSnapshot;
 }
 
 export interface MappingEditResult {
@@ -345,6 +349,11 @@ export async function applyMappingEdit(
     // with no metadata probing. The sync's own run row files the same way.
     entityType: 'connector_catalog',
     entityId: target.catalogId,
+    // AECI-1192 / AECI-1193: a vendor seat's edit carries the vendor and its plan.
+    // An AECi admin's edit carries neither (the catalogue tab is its home).
+    vendorId: actor.vendorId ?? null,
+    vendorPlan: actor.vendorId ? (actor.vendorPlan ?? null) : null,
+    productId: target.connectorProductId,
     beforeState: auditState(target),
     afterState: auditState(written),
     metadata: {
@@ -352,7 +361,7 @@ export async function applyMappingEdit(
       mapping_id: target.id,
       stub_id: target.stubId,
       connector_product_id: target.connectorProductId,
-      ...(actor.vendorId ? { vendor_id: actor.vendorId } : {}),
+      ...(actor.vendorId ? { vendorId: actor.vendorId } : {}),
       publishable_before: publishableBefore,
       publishable_after: publishableAfter,
     },

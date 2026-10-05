@@ -81,6 +81,8 @@ import {
   formatVendorFootprintReport,
   parseVendorFootprint,
   REVIEW_RESPONSES_TABLE_SQL,
+  AUDIT_LOG_DDL_SQL,
+  ddlHasAuditVendorColumns,
   VENDOR_ORIGIN_RESIDUE_NOTE,
   type RawVendorFootprintRow,
   type RetractVendorTarget,
@@ -347,6 +349,10 @@ export async function main(argv: string[]): Promise<number> {
   //    table would fail the read and the delete batch.
   const reviewResponsesTable =
     (runD1<{ name: string }>(target, REVIEW_RESPONSES_TABLE_SQL)[0]?.results.length ?? 0) > 0;
+  // AECI-1192: the same for migration 0063's `audit_log` columns.
+  const auditVendorColumns = ddlHasAuditVendorColumns(
+    runD1<{ sql: string }>(target, AUDIT_LOG_DDL_SQL)[0]?.results[0]?.sql,
+  );
   const plan: VendorPlanEntry[] = [];
   for (const vendor of vendors) {
     const raw = runD1<RawVendorFootprintRow>(
@@ -445,6 +451,7 @@ export async function main(argv: string[]): Promise<number> {
       auditId: randomUUID(),
       now,
       reviewResponsesTable,
+      auditVendorColumns,
     }).join('\n');
     const results = runD1<unknown>(target, statements);
     const changed = results.reduce((sum, r) => sum + (r.meta?.changes ?? 0), 0);

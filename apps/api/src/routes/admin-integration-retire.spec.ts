@@ -219,11 +219,24 @@ describe('POST /api/admin/integrations/:id/retire', () => {
       retiredBy: 'aeci',
     });
     expect(audit!.afterState).toMatchObject({ retired_by: 'aeci' });
+    // AECI-1192 / AECI-1193: an AECi override on the OWNER's row names the owner and
+    // its plan, read in the handler (no entitlement row here: `none`).
+    expect(audit).toMatchObject({
+      vendorId: VENDOR_B,
+      productId: null,
+      vendorTier: 'none',
+      vendorEntitlementStatus: 'none',
+    });
 
     const notices = await auditsFor(NOTIFICATION_SENT_ACTION);
     expect(notices.map((n) => (n.metadata as { vendorId: string }).vendorId).sort()).toEqual(
       [VENDOR_A, VENDOR_B].sort(),
     );
+    // A notice names its RECIPIENT in the column, never the owner, and has no plan.
+    for (const n of notices) {
+      expect(n.vendorId).toBe((n.metadata as { vendorId: string }).vendorId);
+      expect(n.vendorTier).toBeNull();
+    }
     for (const n of notices) {
       expect(n.metadata).toMatchObject({ kind: 'integration_retire', retiredBy: 'aeci' });
     }

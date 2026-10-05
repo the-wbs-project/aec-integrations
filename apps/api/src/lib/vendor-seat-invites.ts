@@ -31,6 +31,7 @@
  */
 
 import type { AuditLogEntry } from '@aeci/shared/audit-log';
+import type { VendorPlanSnapshot } from '@aeci/shared/entitlements';
 import { and, eq, gt, isNull, sql } from 'drizzle-orm';
 
 import type { Db } from '../db/client';
@@ -206,6 +207,9 @@ export interface SeatInviteBatch {
 }
 
 export interface CreateInviteParams {
+  /** The vendor's plan at write time (AECI-1193): the session's, or for the redeem
+   *  (no vendor session yet) `vendorPlanSnapshot(await loadEntitlement(...))`. */
+  vendorPlan: VendorPlanSnapshot;
   inviteId: string;
   token: string;
   vendorId: string;
@@ -236,12 +240,14 @@ export function createInviteStatements(db: Db, p: CreateInviteParams): SeatInvit
     actorId: p.actorId,
     actorType: p.actorType,
     action: 'vendor_seat.invited',
+    vendorId: p.vendorId,
+    vendorPlan: p.vendorPlan,
     entityType: 'vendor_seat_invite',
     entityId: p.inviteId,
     afterState: { email: p.email, expires_at: p.expiresAt },
     metadata: {
       source: SEAT_INVITE_AUDIT_SOURCE,
-      vendor_id: p.vendorId,
+      vendorId: p.vendorId,
       invited_email: p.email,
     },
   };
@@ -265,6 +271,9 @@ export function createInviteStatements(db: Db, p: CreateInviteParams): SeatInvit
 }
 
 export interface RevokeInviteParams {
+  /** The vendor's plan at write time (AECI-1193): the session's, or for the redeem
+   *  (no vendor session yet) `vendorPlanSnapshot(await loadEntitlement(...))`. */
+  vendorPlan: VendorPlanSnapshot;
   inviteId: string;
   vendorId: string;
   email: string;
@@ -287,13 +296,15 @@ export function revokeInviteStatements(db: Db, p: RevokeInviteParams): SeatInvit
     actorId: p.actorId,
     actorType: p.actorType,
     action: 'vendor_seat.invite_revoked',
+    vendorId: p.vendorId,
+    vendorPlan: p.vendorPlan,
     entityType: 'vendor_seat_invite',
     entityId: p.inviteId,
     beforeState: { revoked_at: null },
     afterState: { revoked_at: p.now },
     metadata: {
       source: SEAT_INVITE_AUDIT_SOURCE,
-      vendor_id: p.vendorId,
+      vendorId: p.vendorId,
       invited_email: p.email,
     },
   };
@@ -318,6 +329,9 @@ export function revokeInviteStatements(db: Db, p: RevokeInviteParams): SeatInvit
 }
 
 export interface ResendInviteParams {
+  /** The vendor's plan at write time (AECI-1193): the session's, or for the redeem
+   *  (no vendor session yet) `vendorPlanSnapshot(await loadEntitlement(...))`. */
+  vendorPlan: VendorPlanSnapshot;
   inviteId: string;
   vendorId: string;
   email: string;
@@ -374,13 +388,15 @@ export function resendInviteStatements(db: Db, p: ResendInviteParams): SeatInvit
     actorId: p.actorId,
     actorType: p.actorType,
     action: 'vendor_seat.invite_resent',
+    vendorId: p.vendorId,
+    vendorPlan: p.vendorPlan,
     entityType: 'vendor_seat_invite',
     entityId: p.inviteId,
     beforeState: { send_count: p.sendCountBefore },
     afterState: { send_count: p.sendCountBefore + 1, expires_at: p.expiresAt },
     metadata: {
       source: SEAT_INVITE_AUDIT_SOURCE,
-      vendor_id: p.vendorId,
+      vendorId: p.vendorId,
       invited_email: p.email,
     },
   };
@@ -412,6 +428,9 @@ export function resendInviteStatements(db: Db, p: ResendInviteParams): SeatInvit
 }
 
 export interface AcceptInviteParams {
+  /** The vendor's plan at write time (AECI-1193): the session's, or for the redeem
+   *  (no vendor session yet) `vendorPlanSnapshot(await loadEntitlement(...))`. */
+  vendorPlan: VendorPlanSnapshot;
   inviteId: string;
   vendorId: string;
   email: string;
@@ -485,6 +504,8 @@ export function acceptInviteStatements(db: Db, p: AcceptInviteParams): SeatInvit
     actorId: p.userId,
     actorType: p.actorType,
     action: 'vendor_seat.invite_accepted',
+    vendorId: p.vendorId,
+    vendorPlan: p.vendorPlan,
     entityType: 'profile',
     entityId: p.userId,
     beforeState: {
@@ -499,7 +520,7 @@ export function acceptInviteStatements(db: Db, p: AcceptInviteParams): SeatInvit
     },
     metadata: {
       source: SEAT_INVITE_AUDIT_SOURCE,
-      vendor_id: p.vendorId,
+      vendorId: p.vendorId,
       invite_id: p.inviteId,
       invited_email: p.email,
       seat_created: p.profileBefore === null,

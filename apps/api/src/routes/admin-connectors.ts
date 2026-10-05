@@ -268,6 +268,7 @@ async function loadHandover(
   const rows = await db
     .select({
       actorId: auditLog.actorId,
+      vendorId: auditLog.vendorId,
       metadata: auditLog.metadata,
       createdAt: auditLog.createdAt,
     })
@@ -286,7 +287,10 @@ async function loadHandover(
   if (!row) return { handover: null, actorId: null };
 
   const meta = (row.metadata ?? {}) as Record<string, unknown>;
-  const vendorId = typeof meta['vendor_id'] === 'string' ? meta['vendor_id'] : null;
+  // AECI-1192: the `vendor_id` column on rows written since; `vendor_id` in metadata
+  // on older rows, which are never rewritten.
+  const vendorId =
+    row.vendorId ?? (typeof meta['vendor_id'] === 'string' ? meta['vendor_id'] : null);
   const reason = typeof meta['reason'] === 'string' ? meta['reason'] : null;
 
   let vendor: LinkRef | null = null;

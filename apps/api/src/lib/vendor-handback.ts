@@ -103,6 +103,8 @@ import {
   ownerEntitlementActiveSentinel,
   vendorHoldsActiveEntitlement,
 } from './integration-contests';
+import { vendorPlanSnapshot } from '@aeci/shared/entitlements';
+import { loadEntitlement } from './vendor-entitlement';
 
 /** Who is acting. The admin on the revoke and the ban. `null` on an account
  *  erasure (AECI-1106): the erased profile is deleted in the same batch, and
@@ -117,6 +119,12 @@ export interface HandbackParams extends HandbackActor {
   now: string;
   /** `metadata.source` on every row. The admin routes pass `admin-moderation`. */
   source: string;
+  /**
+   * The vendor's plan snapshot, when the caller already read the entitlement for its
+   * own rows (the revoke, the ban, every seat grant). {@link sealed} stamps it as-is
+   * and skips its own `vendor_entitlements` read. Absent, `sealed` reads it.
+   */
+  vendorPlan?: NonNullable<AuditLogEntry['vendorPlan']>;
 }
 
 /** What a builder hands the caller: put `stmts` in the batch, forward the rest
@@ -156,9 +164,29 @@ function emptyBatch(): HandbackBatch {
   return { stmts: [], audits: [], transitions: [], purgeTags: [] };
 }
 
-/** Add the audit rows' inserts to the statements, in order, once. */
-function sealed(batch: HandbackBatch, db: Db): HandbackBatch {
-  return { ...batch, stmts: [...batch.stmts, ...batch.audits.map((a) => auditInsert(db, a))] };
+/**
+ * Add the audit rows' inserts to the statements, in order, once.
+ *
+ * Every row a handback, lapse or return writes is about something `p.vendorId`
+ * HOLDS (its products, integrations, pairs and owner contests), so each is stamped
+ * with that vendor and its plan (AECI-1192 / AECI-1193, `DATABASE_SCHEMA.md` §8.4).
+ * A row that already names a vendor keeps it: a `notification.sent` row carries
+ * its recipient. The plan is `p.vendorPlan` when the caller passed one, so a
+ * caller that already read the entitlement does not read it twice. Otherwise it
+ * costs one `vendor_entitlements` read, and only when there is a row to stamp.
+ */
+async function sealed(batch: HandbackBatch, db: Db, p: HandbackParams): Promise<HandbackBatch> {
+  if (batch.audits.length === 0) return batch;
+  const vendorPlan =
+    p.vendorPlan ?? vendorPlanSnapshot(await loadEntitlement(db, p.vendorId), p.now);
+  const audits = batch.audits.map((a) =>
+    a.vendorId ? a : { ...a, vendorId: p.vendorId, vendorPlan },
+  );
+  return {
+    ...batch,
+    audits,
+    stmts: [...batch.stmts, ...audits.map((a) => auditInsert(db, a))],
+  };
 }
 
 // ─── Which seat event is this? ───────────────────────────────────────────────
@@ -283,7 +311,7 @@ export async function ownerSeatLapsed(db: Db, vendorId: string): Promise<boolean
 export async function planVendorHandback(db: Db, p: HandbackParams): Promise<HandbackBatch> {
   const batch = emptyBatch();
   const actor = { actorId: p.actorId, actorType: p.actorType };
-  const base = { source: p.source, vendor_id: p.vendorId };
+  const base = { source: p.source, vendorId: p.vendorId };
 
   const vendor = await db.query.vendors.findFirst({
     columns: { id: true, slug: true, maintainedBy: true },
@@ -336,6 +364,7 @@ export async function planVendorHandback(db: Db, p: HandbackParams): Promise<Han
       action: 'product.updated',
       entityType: 'product',
       entityId: product.id,
+      productId: product.id,
       beforeState: { maintained_by: 'vendor' },
       afterState: { maintained_by: 'aeci' },
       metadata: { ...base, reason: MAINTENANCE_REASON, cause: HANDBACK_REASON },
@@ -532,7 +561,7 @@ export async function planVendorHandback(db: Db, p: HandbackParams): Promise<Han
   }
 
   batch.purgeTags = [...new Set(batch.purgeTags)];
-  return sealed(batch, db);
+  return sealed(batch, db, p);
 }
 
 /** Ids per `IN (...)` lookup. D1 caps bound parameters per query at 100, and a
@@ -642,7 +671,7 @@ export async function planOwnerSeatLapse(db: Db, p: HandbackParams): Promise<Han
       source: p.source,
     });
   }
-  return sealed(batch, db);
+  return sealed(batch, db, p);
 }
 
 // ─── 3. The seat return ──────────────────────────────────────────────────────
@@ -761,7 +790,7 @@ export async function planOwnerSeatReturn(
   // Ruling B's guard on the return: a clear that commits between the read above and
   // this batch aborts it, and the retry keeps those contests with AECi.
   if (batch.entitlementGuarded) batch.stmts.push(ownerEntitlementActiveSentinel(db, p.vendorId));
-  return sealed(batch, db);
+  return sealed(batch, db, p);
 }
 
 /**

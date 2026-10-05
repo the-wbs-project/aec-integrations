@@ -115,6 +115,7 @@ import {
   ownedSideProductId,
   withRecrawlProduct,
   type VendorContext,
+  vendorAuditEntry,
 } from './vendor-shared';
 
 /** `audit_log.action` for an owner edit. The same action an owner contest accept
@@ -305,7 +306,7 @@ export function createUpdateVendorIntegrationHandler(
         .where(ownerWriteWhere(integrationId, vendorId)),
       // Immediately after the guarded UPDATE: a lost race aborts the batch here.
       ownerWriteSentinel(db),
-      ...audits.map((entry) => auditInsert(db, entry)),
+      ...audits.map((entry) => auditInsert(db, vendorAuditEntry(c, entry))),
     ];
     try {
       await db.batch(stmts as BatchTuple);

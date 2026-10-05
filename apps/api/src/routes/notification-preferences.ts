@@ -42,7 +42,13 @@ import {
   type NudgePreference,
 } from '../lib/notification-preferences';
 import { logBatchToPosthog } from '../posthog';
-import { afterVendorWrite, parseJsonBody, type VendorContext } from './vendor-shared';
+import {
+  afterVendorWrite,
+  parseJsonBody,
+  type VendorContext,
+  sessionVendorId,
+  sessionVendorPlan,
+} from './vendor-shared';
 
 function toResponse(pref: NudgePreference | undefined): NotificationPreferencesResponse {
   return {
@@ -84,6 +90,8 @@ export function createUpdateNotificationPreferencesHandler(
       actorId: session.userId,
       actorType: auditActorType(session),
       source: 'vendor-portal',
+      vendorId: sessionVendorId(c),
+      vendorPlan: sessionVendorPlan(c),
     });
     // No cache tag: nothing public renders a seat's preference.
     if (entries.length > 0) afterVendorWrite(c, [], entries);

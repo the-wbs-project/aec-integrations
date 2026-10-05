@@ -75,6 +75,7 @@ import {
 import { reviewResponseDecisionNotification } from '../lib/review-notifications';
 import { fetchAuthUserEmails } from '../lib/supabase-admin';
 import { parseJsonBody, purgeTags } from './vendor-shared';
+import { vendorAuditStamp } from '../lib/audit-vendor';
 
 type AdminContext = Context<{ Bindings: Env; Variables: AuthzVariables }>;
 
@@ -329,6 +330,9 @@ export function createDecideReviewResponseHandler(
       action: REVIEW_RESPONSE_DECISION_ACTIONS[payload.decision],
       entityType: REVIEW_RESPONSE_ENTITY_TYPE,
       entityId: id,
+      // AECI-1192 / AECI-1193: the reply is the vendor's, about one product.
+      ...(await vendorAuditStamp(db, row.vendorId)),
+      productId: row.productId,
       beforeState: { status: plan.from },
       afterState: { status: plan.to, ...(reason ? { rejection_reason: reason } : {}) },
       metadata: {

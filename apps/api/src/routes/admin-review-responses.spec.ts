@@ -431,6 +431,9 @@ describe('PATCH /api/admin/review-responses/:id — the transitions', () => {
         action: 'notification.sent',
         entityType: 'review_response',
         entityId: uuid(700),
+        // AECI-1192: the recipient, and the product the reply's review is about.
+        vendorId: VENDOR_A,
+        productId: P_A,
         metadata: {
           kind: 'review_response',
           notificationId: 'portal-review-response',

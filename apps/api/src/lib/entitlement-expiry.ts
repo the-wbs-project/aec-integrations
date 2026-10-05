@@ -87,7 +87,7 @@ const ACTIVE = 'active';
  * customer about a problem their own portal denies. One promise, one constant.
  */
 export { EXPIRY_WARNING_DAYS } from '@aeci/shared/entitlements';
-import { EXPIRY_WARNING_DAYS } from '@aeci/shared/entitlements';
+import { EXPIRY_WARNING_DAYS, vendorPlanSnapshot } from '@aeci/shared/entitlements';
 
 /** `audit_log.action` for a delivered warning (§7.3). Audited — rather than
  *  following the `stats_cache` no-audit precedent — because "we warned them on
@@ -334,9 +334,15 @@ export function expiryNoticeStatements(
     action: EXPIRY_WARNED_ACTION,
     entityType: ENTITLEMENT_ENTITY_TYPE,
     entityId: p.vendorId,
+    // AECI-1192 / AECI-1193. The scan only selects `active` rows, and the UPDATE is
+    // guarded on that, so the stored plan is this tier, active. A warning sent
+    // after `period_end` (nothing auto-lapses) records `expired`: the snapshot's
+    // clock rule (ruling 2026-10-05).
+    vendorId: p.vendorId,
+    vendorPlan: vendorPlanSnapshot({ tier: p.tier, status: ACTIVE, periodEnd: p.periodEnd }, p.now),
     metadata: {
       source: EXPIRY_AUDIT_SOURCE,
-      vendor_id: p.vendorId,
+      vendorId: p.vendorId,
       tier: p.tier,
       period_end: p.periodEnd,
       days_remaining: p.daysRemaining,

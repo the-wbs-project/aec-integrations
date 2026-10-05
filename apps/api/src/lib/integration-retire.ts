@@ -152,6 +152,8 @@ export function retireNotificationAudit(
     action: NOTIFICATION_SENT_ACTION,
     entityType,
     entityId: metadata.integrationId,
+    // AECI-1192: `notification.sent` carries the RECIPIENT in `vendor_id`.
+    vendorId: metadata.vendorId,
     metadata: full,
   };
 }

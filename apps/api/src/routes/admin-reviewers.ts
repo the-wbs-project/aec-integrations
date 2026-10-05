@@ -67,6 +67,7 @@ import {
   seatsChangedError,
 } from '../lib/vendor-handback';
 import type { FetchReviewerEmails } from './admin-reviews';
+import { NO_VENDOR_STAMP, vendorAuditStamp } from '../lib/audit-vendor';
 
 type AdminContext = Context<{ Bindings: Env; Variables: AuthzVariables }>;
 
@@ -216,12 +217,17 @@ export function createBanReviewerHandler(
     });
     const workflowId = existingWf?.id ?? crypto.randomUUID();
 
+    // AECI-1192 / AECI-1193: a vendor seat's ban is about the vendor the seat is on,
+    // so the row carries that vendor and its plan. A reviewer's ban carries neither.
+    const stamp =
+      seatRole === 'vendor_admin' ? await vendorAuditStamp(db, existing.vendorId) : NO_VENDOR_STAMP;
     const auditEntry: AuditLogEntry = {
       actorId: userId,
       actorType: auditActorType(session),
       action: ban ? `${seatRole}.banned` : `${seatRole}.unbanned`,
       entityType: 'profile',
       entityId: id,
+      ...stamp,
       beforeState: { banned_at: existing.bannedAt ?? null, ban_reason: existing.banReason },
       afterState: { banned_at: bannedAt, ban_reason: reason },
       metadata,
@@ -269,6 +275,8 @@ export function createBanReviewerHandler(
           actorType: auditActorType(session),
           now: bannedAt ?? new Date().toISOString(),
           source: 'admin-moderation',
+          // The ban row's own stamp already read the plan. `sealed()` reuses it.
+          ...(stamp.vendorPlan ? { vendorPlan: stamp.vendorPlan } : {}),
         }
       : null;
     // What the ban leaves: the target stays a (banned) profile, so any outcome but

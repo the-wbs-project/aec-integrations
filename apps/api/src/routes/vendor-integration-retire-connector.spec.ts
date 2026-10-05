@@ -397,6 +397,7 @@ describe('owner retire on an evidenced pair (AECI-1091)', () => {
       actingVendorId: V_CONN,
       recipients: [V_A],
       owner: { id: V_CONN, name: 'Agave' },
+      ownerPlan: null,
       pairSlugs: ['procore', 'sage-intacct'],
       contests: [],
     });
@@ -477,6 +478,7 @@ describe('contests on the pair (AECI-1091 over AECI-1092)', () => {
       actingVendorId: V_CONN,
       recipients: [V_A, V_B],
       owner: { id: V_CONN, name: 'Agave' },
+      ownerPlan: null,
       pairSlugs: ['procore', 'sage-intacct'],
       contests: [],
     });

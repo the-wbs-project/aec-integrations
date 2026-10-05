@@ -47,6 +47,7 @@ import { and, eq, ne } from 'drizzle-orm';
 import type { Db } from '../db/client';
 import { vendorEntitlements, vendors } from '../db/schema';
 import { auditInsert, type BatchStmt } from './audit';
+import { vendorPlanSnapshot } from '@aeci/shared/entitlements';
 
 /** The one status that mirrors onto `vendors.verified`. */
 const ACTIVE = 'active';
@@ -281,6 +282,9 @@ export function activateEntitlementStatements(
     action: p.action ?? ENTITLEMENT_ACTION.set,
     entityType: ENTITLEMENT_ENTITY_TYPE,
     entityId: p.vendorId,
+    // AECI-1192 / AECI-1193: the plan BEFORE this write; after_state holds the new one.
+    vendorId: p.vendorId,
+    vendorPlan: vendorPlanSnapshot(p.existing, p.now),
     beforeState: {
       tier: p.existing?.tier ?? null,
       status: p.existing?.status ?? null,
@@ -295,7 +299,7 @@ export function activateEntitlementStatements(
     },
     metadata: {
       source: p.source ?? ENTITLEMENT_AUDIT_SOURCE,
-      vendor_id: p.vendorId,
+      vendorId: p.vendorId,
       verified_flipped: verifiedFlipped,
       entitlement_created: entitlementCreated,
       ...(reactivated ? { reactivated: true } : {}),
@@ -387,6 +391,9 @@ export function renewEntitlementStatements(db: Db, p: RenewEntitlementParams): E
     action: p.action ?? ENTITLEMENT_ACTION.renewed,
     entityType: ENTITLEMENT_ENTITY_TYPE,
     entityId: p.vendorId,
+    // AECI-1192 / AECI-1193: the plan BEFORE this write; after_state holds the new one.
+    vendorId: p.vendorId,
+    vendorPlan: vendorPlanSnapshot(p.existing, p.now),
     beforeState: {
       tier: p.existing.tier,
       status: ACTIVE,
@@ -403,7 +410,7 @@ export function renewEntitlementStatements(db: Db, p: RenewEntitlementParams): E
     },
     metadata: {
       source: p.source ?? ENTITLEMENT_AUDIT_SOURCE,
-      vendor_id: p.vendorId,
+      vendorId: p.vendorId,
       // Explicit: a renewal never moves the mirror, so it never moves the Algolia
       // watermark either (R2).
       verified_flipped: false,
@@ -468,6 +475,9 @@ export function deactivateEntitlementStatements(
     action: p.action ?? ENTITLEMENT_ACTION.cleared,
     entityType: ENTITLEMENT_ENTITY_TYPE,
     entityId: p.vendorId,
+    // AECI-1192 / AECI-1193: the plan BEFORE this write; after_state holds the new one.
+    vendorId: p.vendorId,
+    vendorPlan: vendorPlanSnapshot(p.existing, p.now),
     beforeState: {
       tier: p.existing.tier,
       status: ACTIVE,
@@ -482,7 +492,7 @@ export function deactivateEntitlementStatements(
     },
     metadata: {
       source: p.source ?? ENTITLEMENT_AUDIT_SOURCE,
-      vendor_id: p.vendorId,
+      vendorId: p.vendorId,
       verified_flipped: verifiedFlipped,
       terminal_status: p.terminal,
       // Explicit in the trail: clearing an entitlement leaves every seat in place

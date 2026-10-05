@@ -89,6 +89,7 @@ import {
   sessionVendorId,
   type VendorContext,
   type VendorRecrawl,
+  vendorAuditEntry,
 } from './vendor-shared';
 
 type ProductVersionRow = typeof productVersions.$inferSelect;
@@ -287,6 +288,7 @@ export function createProductVersionHandler(
       action: 'product_version.created',
       entityType: 'product_version',
       entityId: row.id,
+      productId,
       afterState: toProductVersion(row),
       metadata: { source: AUDIT_SOURCE, vendorId, productId, fields: Object.keys(payload) },
     };
@@ -308,8 +310,8 @@ export function createProductVersionHandler(
     await db.batch([
       db.insert(productVersions).values(row),
       maintenance.stmt,
-      auditInsert(db, auditEntry),
-      auditInsert(db, maintenance.audit),
+      auditInsert(db, vendorAuditEntry(c, auditEntry)),
+      auditInsert(db, vendorAuditEntry(c, maintenance.audit)),
     ] as BatchTuple);
 
     afterVendorWrite(
@@ -380,6 +382,7 @@ export function createUpdateProductVersionHandler(
       action: 'product_version.updated',
       entityType: 'product_version',
       entityId: versionId,
+      productId,
       beforeState: toProductVersion(before),
       afterState: toProductVersion({ ...after, updatedAt: before.updatedAt }),
       // Zod strips unknown keys and omits absent optionals, so the payload's own
@@ -400,8 +403,8 @@ export function createUpdateProductVersionHandler(
     await db.batch([
       db.update(productVersions).set(writeColumns).where(eq(productVersions.id, versionId)),
       maintenance.stmt,
-      auditInsert(db, auditEntry),
-      auditInsert(db, maintenance.audit),
+      auditInsert(db, vendorAuditEntry(c, auditEntry)),
+      auditInsert(db, vendorAuditEntry(c, maintenance.audit)),
     ] as BatchTuple);
 
     afterVendorWrite(
@@ -445,6 +448,7 @@ export function createDeleteProductVersionHandler(
       action: 'product_version.deleted',
       entityType: 'product_version',
       entityId: versionId,
+      productId,
       beforeState: toProductVersion(before),
       metadata: { source: AUDIT_SOURCE, vendorId, productId },
     };
@@ -467,8 +471,8 @@ export function createDeleteProductVersionHandler(
     await db.batch([
       db.delete(productVersions).where(eq(productVersions.id, versionId)),
       maintenance.stmt,
-      auditInsert(db, auditEntry),
-      auditInsert(db, maintenance.audit),
+      auditInsert(db, vendorAuditEntry(c, auditEntry)),
+      auditInsert(db, vendorAuditEntry(c, maintenance.audit)),
     ] as BatchTuple);
 
     afterVendorWrite(

@@ -141,6 +141,7 @@ import {
 } from './vendor-contests';
 import { isConnectorPoweredEdge } from '../lib/connector-powered';
 import { purgeTags } from './vendor-shared';
+import { vendorAuditStamp } from '../lib/audit-vendor';
 
 type AdminContext = Context<{ Bindings: Env; Variables: AuthzVariables }>;
 
@@ -405,7 +406,17 @@ export function createModerateContestHandler(
         ...(note ? { reason: note } : {}),
       };
     }
-    const audits = [audit, ...(accept?.audits ?? []), ...(notify ? [notify] : [])];
+    // AECI-1192 / AECI-1193: the decision and any catalog write it applies are about
+    // the integration the OWNER holds, so they carry the owner and its plan, never the
+    // submitter (`submitterVendorId` stays in metadata). The notification keeps its
+    // recipient. A stranded row has no owner: both columns stay NULL.
+    const stamp = await vendorAuditStamp(db, row.ownerVendorId);
+    const audits = [
+      { ...audit, ...stamp },
+      // A row that already names a vendor is a `notification.sent` to its recipient.
+      ...(accept?.audits ?? []).map((entry) => (entry.vendorId ? entry : { ...entry, ...stamp })),
+      ...(notify ? [notify] : []),
+    ];
 
     const stmts: BatchStmt[] = [
       db

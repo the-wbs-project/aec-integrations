@@ -180,7 +180,7 @@ describe('PATCH …/connector-catalogs/:id — freezing the review lane', () => 
     expect((await t.db.select().from(auditLog))[0]?.metadata).toEqual({
       source: 'admin-connector-catalog',
       connector_product_id: CONNECTOR_ID,
-      vendor_id: VENDOR,
+      vendorId: VENDOR,
       reason: 'Feed-for-listing partnership signed 2026-08-31.',
       review_lane_frozen: true,
       seat_not_granted: true,

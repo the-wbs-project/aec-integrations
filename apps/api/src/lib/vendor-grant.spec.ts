@@ -74,6 +74,7 @@ const grantArgs = (vendorWasVerified: boolean, plan: 'free' | 'managed' = 'manag
   plan,
   userId: CLAIMANT_ID,
   vendorId: VENDOR_ID,
+  vendorPlan: { tier: 'none', status: 'none' as const },
   requestId: REQUEST_ID,
   actorId: ADMIN_ID,
   actorType: 'admin' as const,
@@ -151,6 +152,7 @@ describe('the claim builders never emit a `vendors` statement (§6 step 8)', () 
     const revoke = revokeSeatStatements(t.db, {
       userId: CLAIMANT_ID,
       vendorId: VENDOR_ID,
+      vendorPlan: { tier: 'none', status: 'none' as const },
       actorId: ADMIN_ID,
       actorType: 'admin',
       now: NOW,
@@ -239,6 +241,7 @@ describe('the claim audit row still records the verification outcome', () => {
 const provisionArgs = (before: ProvisionProfileBefore | null = null) => ({
   userId: CLAIMANT_ID,
   vendorId: VENDOR_ID,
+  vendorPlan: { tier: 'none', status: 'none' as const },
   actorId: ADMIN_ID,
   actorType: 'admin' as const,
   now: NOW,
@@ -305,10 +308,13 @@ describe('provisionSeatStatements is a seat and nothing else (§8.9(2))', () => 
     expect(auditEntry.entityType).toBe('profile');
     expect(auditEntry.entityId).toBe(CLAIMANT_ID);
     expect(metadata['entitlement_granted']).toBe(false);
-    // LOAD-BEARING: leg 3 of `auditScopeWhere` matches on this JSON path, and it
-    // is the only leg that reaches a `vendor_seat.*` row on the vendor's own
-    // audit tab. Without it the row exists and is invisible.
-    expect(metadata['vendor_id']).toBe(VENDOR_ID);
+    // LOAD-BEARING since AECI-1192: leg 3 of `auditScopeWhere` matches the
+    // `vendor_id` COLUMN, the only leg that reaches a `vendor_seat.*` row on the
+    // vendor's own audit tab. The metadata key is spelled `vendorId` on new rows.
+    expect(auditEntry.vendorId).toBe(VENDOR_ID);
+    expect(auditEntry.vendorPlan).toEqual({ tier: 'none', status: 'none' });
+    expect(metadata['vendorId']).toBe(VENDOR_ID);
+    expect(metadata['vendor_id']).toBeUndefined();
     expect(metadata['is_pure_connector_vendor']).toBe(true);
     expect(metadata['seat_created']).toBe(true);
     expect(auditEntry.afterState).toMatchObject({

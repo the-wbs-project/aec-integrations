@@ -89,6 +89,7 @@ import {
   sessionVendorId,
   withRecrawlProduct,
   type VendorContext,
+  vendorAuditEntry,
 } from './vendor-shared';
 
 /** Is this a promoted product, and (when `vendorId` is given) one that vendor
@@ -263,7 +264,7 @@ export function createCreateVendorIntegrationHandler(
         createdAt: now,
         updatedAt: now,
       }),
-      ...audits.map((entry) => auditInsert(db, entry)),
+      ...audits.map((entry) => auditInsert(db, vendorAuditEntry(c, entry))),
       // Last: both endpoints' counts over the row as this batch leaves it, so the
       // purge below can never race a stale count (the AECI-1010 pattern).
       integrationCountRecomputeStmt(db, sourceId),

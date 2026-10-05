@@ -101,6 +101,7 @@ import {
   sessionVendorId,
   withRecrawlProduct,
   type VendorContext,
+  vendorAuditEntry,
 } from './vendor-shared';
 
 /** `audit_log.action` values. `entity_type` is `integration`, like every other
@@ -362,7 +363,7 @@ export function createPutIntegrationLinkHandler(
           .update(integrations)
           .set(maintenanceTransferColumns(now))
           .where(eq(integrations.id, target.row.id)),
-        auditInsert(db, audit),
+        auditInsert(db, vendorAuditEntry(c, audit)),
       ],
       audit,
     );
@@ -414,7 +415,7 @@ export function createDeleteIntegrationLinkHandler(
             .update(integrations)
             .set(stranded ? { updatedAt: now } : maintenanceTransferColumns(now))
             .where(eq(integrations.id, target.row.id)),
-          auditInsert(db, audit),
+          auditInsert(db, vendorAuditEntry(c, audit)),
         ],
         audit,
       );

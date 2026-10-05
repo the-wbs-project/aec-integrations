@@ -225,6 +225,14 @@ describe('logo routes', () => {
       // AECI-1191: the reason lands in the audit row of the same batch.
       for (const audit of audits) {
         expect(audit.metadata).toMatchObject({ source: 'admin-panel', reason: REASON });
+        // AECI-1192 / AECI-1193: the vendor holding the record (the product's primary
+        // owner), the product when it is one, and that vendor's plan (no row: `none`).
+        expect(audit).toMatchObject({
+          vendorId: uuid(2),
+          productId: kind === 'products' ? uuid(3) : null,
+          vendorTier: 'none',
+          vendorEntitlementStatus: 'none',
+        });
       }
       expect(env.CACHE_PURGE_QUEUE?.send).toHaveBeenCalledWith({
         tags: kind === 'vendors' ? ['vendor:vendor'] : ['product:product', 'index:products'],

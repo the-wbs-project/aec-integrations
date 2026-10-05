@@ -53,7 +53,7 @@ import {
   type VendorEntitlementResponse,
 } from '@aeci/shared';
 import { type AuditLogEntry } from '@aeci/shared/audit-log';
-import { capabilitiesFor, hasCapability } from '@aeci/shared/entitlements';
+import { capabilitiesFor, hasCapability, vendorPlanSnapshot } from '@aeci/shared/entitlements';
 import { eq } from 'drizzle-orm';
 import type { Context } from 'hono';
 
@@ -346,10 +346,20 @@ export function createSetVendorEntitlementHandler(
     // plan is then re-read and the batch retried once.
     const rerouteAudits: AuditLogEntry[] = [];
     for (let attempt = 1; ; attempt++) {
-      const reroute =
+      const planned =
         action === 'clear'
           ? await planEntitlementClearReroute(db, vendor.id, { actorId, actorType }, now)
           : null;
+      // AECI-1192 / AECI-1193: each re-routed contest is one the vendor OWNS, so its
+      // row carries the vendor and the plan it held before this clear.
+      const reroute = planned && {
+        ...planned,
+        audits: planned.audits.map((entry) =>
+          entry.vendorId
+            ? entry
+            : { ...entry, vendorId: vendor.id, vendorPlan: vendorPlanSnapshot(existing, now) },
+        ),
+      };
       try {
         await db.batch([
           ...batch.stmts,

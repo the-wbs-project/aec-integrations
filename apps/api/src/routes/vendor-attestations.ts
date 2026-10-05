@@ -176,6 +176,7 @@ import {
   type VendorContext,
   type VendorRecrawl,
   type VendorRow,
+  vendorAuditEntry,
 } from './vendor-shared';
 
 /** Live attestations only. `retracted_at` is supersession — the ONLY column that
@@ -1403,10 +1404,10 @@ export function createVendorClaimHandler(
       db.insert(claims).values(claimRow),
       db.insert(attestations).values(attestationRows),
       maintenance.stmt,
-      auditInsert(db, claimAudit),
-      ...attestationAudits.map((entry) => auditInsert(db, entry)),
-      auditInsert(db, maintenance.audit),
-      ...notificationAudits.map((entry) => auditInsert(db, entry)),
+      auditInsert(db, vendorAuditEntry(c, claimAudit)),
+      ...attestationAudits.map((entry) => auditInsert(db, vendorAuditEntry(c, entry))),
+      auditInsert(db, vendorAuditEntry(c, maintenance.audit)),
+      ...notificationAudits.map((entry) => auditInsert(db, vendorAuditEntry(c, entry))),
     ];
     await db.batch(stmts as BatchTuple);
 
@@ -1554,7 +1555,7 @@ export function createUpsertVendorAttestationHandler(
     const maintenance = vendorMaintainedFlip(c, db, authority, now, { vendorId, claimId });
     stmts.push(maintenance.stmt);
     audits.push(maintenance.audit);
-    stmts.push(...audits.map((entry) => auditInsert(db, entry)));
+    stmts.push(...audits.map((entry) => auditInsert(db, vendorAuditEntry(c, entry))));
     await db.batch(stmts as BatchTuple);
 
     afterVendorWrite(
@@ -1702,7 +1703,7 @@ export function createRetractVendorAttestationHandler(
         ),
       // After the retract, so a reader of the batch sees the two in causal order.
       ...(maintenance ? [maintenance.stmt] : []),
-      ...audits.map((entry) => auditInsert(db, entry)),
+      ...audits.map((entry) => auditInsert(db, vendorAuditEntry(c, entry))),
     ];
     await db.batch(stmts as BatchTuple);
 

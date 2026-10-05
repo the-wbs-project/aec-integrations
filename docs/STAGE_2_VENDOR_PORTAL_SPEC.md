@@ -794,6 +794,8 @@ Shipped with **no migration**. `POST /api/admin/vendors/:id/seats`, contract in
   ban actions only. Without the entry the row that says *"this vendor was given access"* is
   the one thing the vendor's own audit tab cannot show, while the revoke beside it renders
   fine. The web-side `describeAuditAction()` map is the matching lockstep edit.
+  *Since AECI-1192, new rows reach leg 3 through the indexed `audit_log.vendor_id` column. The
+  `VENDOR_METADATA_ACTIONS` entry now serves only rows written before it (`DATABASE_SCHEMA.md` §8.4).*
 - **The audit metadata says `entitlement_granted: false` out loud**, mirroring
   `seat_not_granted: true` on AECI-720's `managed_by` flip from the opposite direction. §8.9(2)
   is a fence somebody will eventually be tempted to step over; the trail should make it

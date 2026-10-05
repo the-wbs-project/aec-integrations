@@ -33,6 +33,24 @@ export interface ForwardContext {
   req: { raw: Request };
 }
 
+/**
+ * The vendor and plan an audit row's columns carry (AECI-1192 / AECI-1193), as log
+ * attributes, so a PostHog log search can slice by vendor without joining back to D1.
+ * Shared by this forward and the vendor portal's `vendorAuditLogEvent`, so an admin
+ * row and a vendor row carry the same three keys. Absent on a row about no vendor.
+ */
+export function auditVendorLogFields(entry: Pick<AuditLogEntry, 'vendorId' | 'vendorPlan'>): {
+  vendor_id?: string;
+  vendor_tier?: string;
+  vendor_entitlement_status?: string;
+} {
+  return {
+    vendor_id: entry.vendorId ?? undefined,
+    vendor_tier: entry.vendorPlan?.tier ?? undefined,
+    vendor_entitlement_status: entry.vendorPlan?.status ?? undefined,
+  };
+}
+
 export function forwardAuditBatch(
   c: ForwardContext,
   audits: readonly (AuditLogEntry | null | undefined)[],
@@ -50,6 +68,7 @@ export function forwardAuditBatch(
           action: entry.action,
           entity_type: entry.entityType ?? undefined,
           entity_id: entry.entityId ?? undefined,
+          ...auditVendorLogFields(entry),
         })),
       ...transitions
         .filter((entry): entry is WorkflowTransitionEntry => entry != null)

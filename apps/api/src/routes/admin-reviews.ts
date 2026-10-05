@@ -229,6 +229,9 @@ export function createModerateReviewHandler(
       action: approve ? 'review.approved' : 'review.rejected',
       entityType: 'review',
       entityId: id,
+      // AECI-1192: the product the review is about. A review is not vendor-held, so
+      // there is no `vendor_id`.
+      productId: existing.product.id,
       metadata: {
         source: 'admin-moderation',
         product_id: existing.product.id,

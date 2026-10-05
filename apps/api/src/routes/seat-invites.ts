@@ -58,6 +58,8 @@ import {
 } from '../lib/vendor-handback';
 import { acceptInviteStatements, inviteRedeemState } from '../lib/vendor-seat-invites';
 import { afterVendorWrite } from './vendor-shared';
+import { loadEntitlement } from '../lib/vendor-entitlement';
+import { vendorPlanSnapshot } from '@aeci/shared/entitlements';
 
 type InviteContext = Context<{ Bindings: Env; Variables: AuthzVariables }>;
 
@@ -166,10 +168,15 @@ export function createAcceptSeatInviteHandler(
     // vendor seat (there is no impersonation at launch), and one account belongs
     // to one vendor — a multi-vendor person uses separate accounts. Both are
     // EXPLICIT errors, never a silent overwrite of an existing linkage.
-    const before = await db.query.profiles.findFirst({
-      columns: { role: true, vendorId: true, seatOwner: true, workEmailVerified: true },
-      where: eq(profiles.id, auth.userId),
-    });
+    // The vendor's plan rides the same wave (AECI-1193): the redeemer has no vendor
+    // session yet, so the audit row's plan snapshot is read here.
+    const [before, entitlement] = await Promise.all([
+      db.query.profiles.findFirst({
+        columns: { role: true, vendorId: true, seatOwner: true, workEmailVerified: true },
+        where: eq(profiles.id, auth.userId),
+      }),
+      loadEntitlement(db, invite.vendorId),
+    ]);
     if (before?.role === 'admin') {
       throw new ApiError(
         409,
@@ -199,6 +206,7 @@ export function createAcceptSeatInviteHandler(
       email: invite.email,
       userId: auth.userId,
       actorType: auditActorType(auth),
+      vendorPlan: vendorPlanSnapshot(entitlement, now),
       now,
       domainMatched,
       profileBefore: before
@@ -219,6 +227,7 @@ export function createAcceptSeatInviteHandler(
         actorType: auditActorType(auth),
         now,
         source: 'vendor-portal',
+        vendorPlan: vendorPlanSnapshot(entitlement, now),
       },
       auth.userId,
     );

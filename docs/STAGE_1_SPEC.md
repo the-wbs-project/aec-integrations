@@ -1939,6 +1939,10 @@ create table audit_log (
   before_state text, -- JSON: prior state of changed fields (updates only)
   after_state text, -- JSON: new state of changed fields (updates only)
   metadata text, -- JSON workflow context: linear_issue_id, ip_address, user_agent, cf_country, etc.
+  vendor_id text, -- AECI-1192: the vendor the row is about (DATABASE_SCHEMA.md §8.4)
+  product_id text, -- AECI-1192: the one product the row is about
+  vendor_tier text, -- AECI-1193: the vendor's plan tier at write time, or 'none'
+  vendor_entitlement_status text, -- AECI-1193: its status at write time, or 'none'
   created_at text not null, -- ISO-8601 UTC
   constraint audit_log_actor_type_check check (actor_type in ('user', 'admin', 'system', 'workflow'))
 );
@@ -1948,6 +1952,8 @@ create index audit_log_action_idx on audit_log(action, created_at);
 create index audit_log_created_at_idx on audit_log(created_at);
 create index audit_log_actor_idx on audit_log(actor_id, created_at) where actor_id is not null;
 ```
+
+**Who and which plan (AECI-1192, AECI-1193).** Every row about a vendor names it in `vendor_id`, and carries the vendor's plan at write time. Meaning, the no-backfill ruling (2026-10-04) and the metadata spelling rule live in `DATABASE_SCHEMA.md` §8.4.
 
 **Naming convention:** dot-separated `entity.action` (e.g. `review.approved`, `product.created`, `vendor.updated`, `claim.submitted`, `claim.approved`).
 

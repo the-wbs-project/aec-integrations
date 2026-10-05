@@ -310,8 +310,11 @@ function scanSources(sources: readonly Source[]): ScanResult {
     for (const m of withoutImports.matchAll(/(?<![\w$])NOTIFICATION_SENT_ACTION(?![\w$])/g)) {
       const before = withoutImports.slice(Math.max(0, m.index - 80), m.index);
       if (/export const\s*$/.test(before)) continue;
-      // The two read-only uses: the attestation suppression read and the vendor feed.
-      if (/eq\(\s*auditLog\.action\s*,\s*$/.test(before)) continue;
+      // The read-only uses: the attestation suppression read and the vendor feed
+      // (`eq`), the admin vendor audit tab that leaves the ledger out (`ne`, AECI-1192),
+      // and `vendorAuditEntry`, which passes a ledger row through untouched (`===`).
+      if (/(?:eq|ne)\(\s*auditLog\.action\s*,\s*$/.test(before)) continue;
+      if (/\.action\s*===\s*$/.test(before)) continue;
       if (!/\baction\s*:\s*$/.test(before)) {
         flag(
           rel,

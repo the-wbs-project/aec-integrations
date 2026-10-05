@@ -182,12 +182,18 @@ describe('PATCH /api/vendor/connector-stub-mappings/:id — the owner seat', () 
       entityType: 'connector_catalog',
       entityId: CATALOG_ID,
     });
-    // `vendor_id` is what lets the admin vendor audit tab reach a row filed under a
-    // catalogue.
+    // The `vendor_id` column is what lets the admin vendor audit tab reach a row
+    // filed under a catalogue (AECI-1192). The metadata key is now `vendorId`.
     expect(audits[0]?.metadata).toMatchObject({
       source: 'vendor-portal',
-      vendor_id: AGAVE_VENDOR,
+      vendorId: AGAVE_VENDOR,
       mapping_id: MAPPING_ID,
+    });
+    expect(audits[0]).toMatchObject({
+      vendorId: AGAVE_VENDOR,
+      productId: expect.any(String),
+      vendorTier: 'none',
+      vendorEntitlementStatus: 'none',
     });
     // Still no entitlement: nothing here opens one.
     expect(await t.db.select().from(vendorEntitlements)).toHaveLength(0);

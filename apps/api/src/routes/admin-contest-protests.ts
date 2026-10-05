@@ -46,6 +46,7 @@ import {
 import { forwardModerationBatch, readJson, toAdminContest } from './admin-contests';
 import { closeProtestWorkflow, protestNotifications, type Clock } from './vendor-contest-protests';
 import type { VendorContext } from './vendor-shared';
+import { vendorAuditStamp } from '../lib/audit-vendor';
 
 type AdminContext = VendorContext;
 
@@ -85,6 +86,9 @@ export function createDecideContestProtestHandler(
         action: status === 'upheld' ? PROTEST_ACTIONS.upheld : PROTEST_ACTIONS.rejected,
         entityType: CONTEST_ENTITY_TYPE,
         entityId: id,
+        // AECI-1192 / AECI-1193: the OWNER holding the contested row and its plan,
+        // never the protesting submitter (`submitterVendorId` stays in metadata).
+        ...(await vendorAuditStamp(db, row.ownerVendorId)),
         beforeState: { protest_status: 'open' },
         afterState: { protest_status: status, protest_decision_note: payload.note },
         metadata,

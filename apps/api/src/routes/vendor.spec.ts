@@ -436,6 +436,125 @@ describe('PATCH /api/vendor/profile', () => {
     expect(rows[0]?.afterState).toEqual({ description: 'New blurb' });
   });
 
+  // AECI-1192 / AECI-1193: who and which plan, read from the session with no D1 read.
+  describe('the vendor and plan columns', () => {
+    const expired: AuthzVariables['auth'] = {
+      ...AUTH,
+      // The session flattens a lapsed `verified` row to `unclaimed`; the raw tier
+      // rides beside it for exactly this snapshot.
+      entitlementTier: 'unclaimed',
+      entitlement: {
+        status: 'expired',
+        tier: 'verified',
+        periodEnd: '2026-09-01T00:00:00.000Z',
+        endedAt: '2026-09-02T00:00:00.000Z',
+      },
+    };
+
+    it('stamps a profile edit with the acting vendor and its active plan', async () => {
+      await patchJson(
+        '/api/vendor/profile',
+        { description: 'New blurb' },
+        {
+          ...AUTH,
+          entitlement: { status: 'active', tier: 'verified', periodEnd: null },
+        },
+      );
+      const [row] = await auditRows();
+      expect(row).toMatchObject({
+        vendorId: VENDOR,
+        productId: null,
+        vendorTier: 'verified',
+        vendorEntitlementStatus: 'active',
+      });
+    });
+
+    it('stamps a product edit with the vendor AND the product', async () => {
+      const { status } = await patchJson(`/api/vendor/products/${PRODUCT}`, {
+        description: 'New product blurb',
+      });
+      expect(status).toBe(200);
+      const [row] = await auditRows();
+      expect(row).toMatchObject({
+        action: 'product.updated',
+        vendorId: VENDOR,
+        productId: PRODUCT,
+        // A hand-built session without the raw tier falls back to `entitlementTier`.
+        vendorTier: 'verified',
+        vendorEntitlementStatus: 'active',
+      });
+    });
+
+    it('records `expired` for a write after the Managed plan lapsed', async () => {
+      // `profile.edit` is a Free capability (AECI-1214), so the write still lands.
+      const { status } = await patchJson('/api/vendor/profile', { description: 'Late' }, expired);
+      expect(status).toBe(200);
+      const [row] = await auditRows();
+      expect(row).toMatchObject({
+        vendorId: VENDOR,
+        vendorTier: 'verified',
+        vendorEntitlementStatus: 'expired',
+      });
+    });
+
+    // Ruling 2026-10-05: nothing auto-lapses the row, so a stored `active` past
+    // its `period_end` still authorizes as before. Only the audit row says `expired`.
+    it('records `expired` for a write after period_end on a still-active row', async () => {
+      const { status } = await patchJson(
+        '/api/vendor/profile',
+        { description: 'After the term' },
+        {
+          ...AUTH,
+          entitlementTier: 'verified',
+          entitlement: {
+            status: 'active',
+            tier: 'verified',
+            periodEnd: '2020-01-01T00:00:00.000Z',
+          },
+        },
+      );
+      expect(status).toBe(200);
+      const [row] = await auditRows();
+      expect(row).toMatchObject({
+        vendorId: VENDOR,
+        vendorTier: 'verified',
+        vendorEntitlementStatus: 'expired',
+      });
+    });
+
+    it('records `active` for a write before period_end', async () => {
+      await patchJson(
+        '/api/vendor/profile',
+        { description: 'Inside the term' },
+        {
+          ...AUTH,
+          entitlementTier: 'verified',
+          entitlement: {
+            status: 'active',
+            tier: 'verified',
+            periodEnd: '2999-01-01T00:00:00.000Z',
+          },
+        },
+      );
+      const [row] = await auditRows();
+      expect(row).toMatchObject({ vendorTier: 'verified', vendorEntitlementStatus: 'active' });
+    });
+
+    it('records `none`, not NULL, for a vendor with no entitlement row', async () => {
+      await patchJson(
+        '/api/vendor/profile',
+        { description: 'Free' },
+        {
+          ...AUTH,
+          entitlementTier: 'unclaimed',
+          entitlement: null,
+        },
+      );
+      const [row] = await auditRows();
+      expect(row).toMatchObject({ vendorTier: 'none', vendorEntitlementStatus: 'none' });
+    });
+  });
+
   it('enqueues a vendor:<slug> purge with source:vendor', async () => {
     const { send } = await patchJson('/api/vendor/profile', { description: 'New blurb' });
     expect(send).toHaveBeenCalledTimes(1);

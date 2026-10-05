@@ -174,6 +174,7 @@ import {
   ownedSideProductId,
   withRecrawlProduct,
   type VendorContext,
+  vendorAuditEntry,
 } from './vendor-shared';
 
 /** `workflow_instances.workflow_type` for a contest. Reused, not added: the CHECK
@@ -826,7 +827,7 @@ async function planSubmit(
       ? [ownerEntitlementActiveSentinel(db, ownerVendorId)]
       : []),
     workflowTransitionInsert(db, transition),
-    ...audits.map((entry) => auditInsert(db, entry)),
+    ...audits.map((entry) => auditInsert(db, vendorAuditEntry(c, entry))),
   ];
   return { stmts, audits, row, entitlementGuarded };
 }
@@ -1037,7 +1038,7 @@ export function createWithdrawContestHandler(
       // Immediately after the guarded UPDATE, before everything else.
       contestStillOpenSentinel(db, id),
       ...workflow.stmts,
-      ...audits.map((entry) => auditInsert(db, entry)),
+      ...audits.map((entry) => auditInsert(db, vendorAuditEntry(c, entry))),
     ]);
     afterVendorWrite(c, [], audits);
     return echo(c, db, vendorId, after);
@@ -1277,7 +1278,10 @@ export function createDecideContestHandler(
       { actorId: session.userId, reason: note ?? `contest ${status}`, metadata },
       now,
     );
-    stmts.push(...workflow.stmts, ...audits.map((entry) => auditInsert(db, entry)));
+    stmts.push(
+      ...workflow.stmts,
+      ...audits.map((entry) => auditInsert(db, vendorAuditEntry(c, entry))),
+    );
     const after = await runGuardedContestBatch(db, id, stmts);
 
     // The owner edit's tail (AECI-1090): a by-id Algolia sync of the record, behind

@@ -119,6 +119,7 @@ import {
   ownedSideProductId,
   sessionVendorId,
   type VendorContext,
+  sessionVendorPlan,
 } from './vendor-shared';
 
 type Mode = RetireMode;
@@ -246,6 +247,7 @@ function handlerFor(mode: Mode, dbFor: DbFactory): (c: VendorContext) => Promise
       actingVendorId: vendorId,
       recipients,
       owner: { id: vendorId, name: owner.companyName },
+      ownerPlan: sessionVendorPlan(c),
       pairSlugs: slugs.pairSlugs,
     };
     const batch: RetireBatch =

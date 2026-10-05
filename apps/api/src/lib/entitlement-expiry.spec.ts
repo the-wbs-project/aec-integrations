@@ -211,7 +211,10 @@ describe('§7.3 THE NON-NEGOTIABLE — the cron warns, it never lapses', () => {
   it('emits no statement that mutates `status`', () => {
     const { stmts } = expiryNoticeStatements(t.db, params);
     for (const stmt of stmts) {
-      expect(setClauseOf(sqlOf(stmt))).not.toContain('status');
+      // The audit row's `vendor_entitlement_status` column (AECI-1193) RECORDS the
+      // status; it does not mutate it. Every other mention is still refused.
+      const clause = setClauseOf(sqlOf(stmt)).replaceAll('"vendor_entitlement_status"', '');
+      expect(clause).not.toContain('status');
     }
   });
 

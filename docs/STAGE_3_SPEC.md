@@ -208,6 +208,8 @@ Every open, stage-less or misplaced issue, with its proposed destination. Market
 | AECI-592 unreachable DQ check | no project | **Stage 2.5 §4** |
 | AECI-623 capability convergence | Stage 2 Build | **Stage 2.1 §3.3** (moved forward from 2.5 §5 on 2026-08-31 — gates seat-granting) |
 | AECI-633 vendor-portal SR pass | Stage 2 Build | **Stage 2.1 §3.3** (moved forward from 2.5 §5 on 2026-08-31 — gates seat-granting) |
+| AECI-1159 override policy | Stage 3 | **Stage 2.1 §3.3.5** (moved in 2026-10-01 under epic AECI-1190, by Chris's ruling) |
+| AECI-1160 change receipt page | Stage 3 | **Stage 2.1 §3.3.5** (moved in 2026-10-01 under epic AECI-1190, by Chris's ruling) |
 | AECI-244 public-site SR pass | Stage 1 Build | **Stage 2.5 §5** — but only the VoiceOver/NVDA run itself. The machine layer was discharged 2026-09-09 → `docs/ACCESSIBILITY_AUDIT.md`, and **the four defect/coverage issues it produced were routed to Stage 3** (see §2.5 above) |
 | AECI-598 / 599 / 600 / 601 docs | no project | **Stage 2.5 §6** |
 | AECI-281 moderation refinement | Stage 2 Build | **Stage 3 §2.1** |

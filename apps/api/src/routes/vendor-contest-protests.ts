@@ -81,6 +81,7 @@ import {
   parseJsonBody,
   sessionVendorId,
   type VendorContext,
+  vendorAuditEntry,
 } from './vendor-shared';
 
 /** The clock, injectable so specs can stand on each window boundary. */
@@ -337,7 +338,7 @@ export function createFileContestProtestHandler(
         { vendorId: row.ownerVendorId, extra: { basis, replyDueAt } },
       ])),
     );
-    stmts.push(...audits.map((entry) => auditInsert(db, entry)));
+    stmts.push(...audits.map((entry) => auditInsert(db, vendorAuditEntry(c, entry))));
 
     const after = await runGuardedProtestBatch(db, id, stmts, async () => {
       const fresh = await db.query.integrationFieldChallenges.findFirst({
@@ -465,7 +466,7 @@ export function createReplyContestProtestHandler(
         }),
       );
     }
-    stmts.push(...audits.map((entry) => auditInsert(db, entry)));
+    stmts.push(...audits.map((entry) => auditInsert(db, vendorAuditEntry(c, entry))));
 
     const after = await runGuardedProtestBatch(db, id, stmts, async () => {
       const fresh = await db.query.integrationFieldChallenges.findFirst({
@@ -549,7 +550,7 @@ export function createWithdrawContestProtestHandler(
         metadata,
         now,
       ),
-      ...audits.map((entry) => auditInsert(db, entry)),
+      ...audits.map((entry) => auditInsert(db, vendorAuditEntry(c, entry))),
     ];
     const after = await runGuardedProtestBatch(db, id, stmts, async () => protestNotOpen());
     afterVendorWrite(c, [], audits);

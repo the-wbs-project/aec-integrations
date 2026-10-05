@@ -244,6 +244,8 @@ function ledgerEntry(
     action: NOTIFICATION_SENT_ACTION,
     entityType: NOTIFICATION_ENTITY_TYPE,
     entityId: finding.claimId,
+    // AECI-1192: the RECIPIENT; `null` for an ops-only finding.
+    vendorId: finding.vendorId,
     metadata,
   };
 }

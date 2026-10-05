@@ -147,6 +147,23 @@ Chris directed the epic into Stage 2.1 on 2026-10-01. He ruled its open decision
 
 **Status 2026-10-02.** All eight are built on the epic branch, one commit each, and not yet merged. `STAGE_2_VENDOR_PORTAL_SPEC.md` §11c.17 tracks each one.
 
+#### 3.3.5 Change receipts and override reasons epic AECI-1190 (moved in 2026-10-01)
+
+Chris moved AECI-1159 and AECI-1160 in from Stage 3 on 2026-10-01, under epic AECI-1190. This entry, and the matching rows in `STAGE_3_SPEC.md` §3, are the record §1's pull-forward rule asks for. Chris ruled the epic's open decisions on 2026-10-04. The ruling is on AECI-1190.
+
+**Why it passes §1.** Pilot vendors are seated from 2026-10-14. From that day AECi changes records those vendors hold, and the vendor has no way to see what changed or why. The audit trail that a receipt reads cannot be rebuilt after the fact, so the columns it needs must ship before the pilot starts. `VENDOR_PLAN_DATA_READINESS.md` item 8 (G8) names the gap.
+
+**A named exception to §1 and §4.** The receipt page is a portal surface addition, and the admin field correction is a new admin feature. Both are admitted by operator decision, in the way AECI-710 and AECI-711 are admitted in §3.3.2. They rank behind the seat-granting blockers.
+
+| Issue | What it does | Why it is admitted |
+|---|---|---|
+| **AECI-1191** | Requires a reason on the admin logo overwrite, the seat revoke and the contest accept that overwrites a vendor-held value. **Done** (PR #888). | It refines built admin writes on vendor-held records. |
+| **AECI-1192** | Adds `audit_log.vendor_id` and `product_id`, and stamps them on every row about a vendor (`DATABASE_SCHEMA.md` §8.4). No backfill. | The receipt reads this column. History before it ships is lost. |
+| **AECI-1193** | Adds the vendor's plan at write time to the same rows (`vendor_tier`, `vendor_entitlement_status`). | Same reason. "What plan was the vendor on" cannot be answered later. |
+| **AECI-1194** | Serves the vendor's own change history as an API and a CSV. | The read behind AECI-1160. |
+| **AECI-1159** | Moved from Stage 3. Tells the vendor about the overrides AECi already makes. Split three ways on 2026-10-04: the notice itself, an admin field correction with a lock, and a reversible takedown with the policy rewrite. The takedown waits on counsel. | **A named exception to §1** for the field correction and the takedown. |
+| **AECI-1160** | Moved from Stage 3. The receipt page in the portal. | **A named exception to §4.** |
+
 ### 3.4 Dark-window operations
 
 - Monitor the parked claim queue; decide and (if needed) implement the acknowledgement posture for parked claimants ("received, under review" — nothing that promises a timeline).

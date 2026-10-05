@@ -511,6 +511,8 @@ describe('requireVendor — the entitlement join', () => {
     expect(auth?.entitlementTier).toBe('verified');
     expect(auth?.entitlement).toEqual({
       status: 'active',
+      // The RAW row tier (AECI-1193), for the audit plan snapshot.
+      tier: 'verified',
       periodEnd: '2027-01-01T00:00:00.000Z',
       endedAt: null,
     });
@@ -544,6 +546,9 @@ describe('requireVendor — the entitlement join', () => {
       // `endedAt` rides along for the pilot-ended banner (AECI-1218, §13.11).
       expect(auth?.entitlement).toEqual({
         status,
+        // The raw tier survives the downgrade too (AECI-1193): an audit row written
+        // now must say "verified, expired", which `entitlementTier` cannot.
+        tier: 'verified',
         periodEnd: '2026-01-01T00:00:00.000Z',
         endedAt: status === 'pending' ? null : '2026-01-02T00:00:00.000Z',
       });

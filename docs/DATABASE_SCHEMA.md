@@ -1408,6 +1408,12 @@ create table audit_log (
   after_state text, -- JSON
   metadata text, -- JSON workflow context: linear_issue_id, ip_address, user_agent, cf_country
 
+  -- AECI-1192 / AECI-1193 (migration 0063). No FK, no CHECK. See "Who and which plan" below.
+  vendor_id text, -- the vendor the row is ABOUT
+  product_id text, -- the one product the row is about
+  vendor_tier text, -- raw vendor_entitlements.tier at write time, or 'none'
+  vendor_entitlement_status text, -- 'active' | 'pending' | 'expired' | 'revoked' | 'none'
+
   created_at text not null -- ISO-8601 UTC
 );
 
@@ -1415,6 +1421,8 @@ create index audit_log_entity_idx on audit_log(entity_type, entity_id, created_a
 create index audit_log_actor_idx on audit_log(actor_id, created_at) where actor_id is not null;
 create index audit_log_action_idx on audit_log(action, created_at);
 create index audit_log_created_at_idx on audit_log(created_at);
+create index audit_log_vendor_idx on audit_log(vendor_id, created_at) where vendor_id is not null;
+create index audit_log_product_idx on audit_log(product_id, created_at) where product_id is not null;
 ```
 
 > **Notation.** These three tables are **D1/SQLite**: ids are application-generated UUID `text`,
@@ -1425,6 +1433,62 @@ create index audit_log_created_at_idx on audit_log(created_at);
 > document still carry the Postgres-baseline notation** — a pre-existing residue of the ADR 0016
 > migration, tracked separately; `apps/api/src/db/schema.ts` and `apps/api/migrations/` remain the
 > executable truth for every table.
+
+**Who and which plan: `vendor_id`, `product_id`, `vendor_tier`, `vendor_entitlement_status`**
+(AECI-1192 and AECI-1193, migration `0063`, 2026-10-04). They make "everything that happened to
+vendor X" one indexed query, and "what plan X was on when it happened" a filter.
+
+- **`vendor_id`** names the vendor the row is about:
+  - on a vendor-actor row, the **acting** vendor, from the session (`vendorAuditEntry` in
+    `routes/vendor-shared.ts`);
+  - on an admin or system row about a vendor-held entity, the vendor that **held** the entity when
+    the row was written. That is the owner, never a contest submitter. Role keys such as
+    `submitterVendorId` stay in `metadata`. A co-owned product names its primary owner
+    (`lib/audit-vendor.ts`);
+  - on a `notification.sent` row, the **recipient**. This is the old `metadata.vendorId` meaning.
+- **`product_id`** is set when the row is about one product: a product edit or version, a review
+  reply, a connector mapping, the tombstones of a product retraction. An integration row is about
+  two products and leaves it NULL.
+- **`vendor_tier`** and **`vendor_entitlement_status`** are the plan at write time, from
+  `vendorPlanSnapshot` (`@aeci/shared/entitlements`). The tier is the RAW row tier (`verified`), so
+  a write after a lapse reads `verified` + `expired`. A vendor with no `vendor_entitlements` row
+  records `none` on both, never NULL. NULL means "not snapshotted". A vendor write reads the plan
+  from the session at no extra D1 cost. An admin write reads `loadEntitlement` in the handler. An
+  admin row about an entitlement change records the plan **before** the change; `after_state` holds
+  the new one. A `notification.sent` row carries no plan.
+- **A lapsed plan records as `expired` (ruling, 2026-10-05).** The snapshot does not simply trust
+  the stored status. Nothing auto-lapses a row: the expiry cron only warns. So a row stored
+  `active` whose `period_end` is at or before the write time records `vendor_entitlement_status =
+  'expired'`. `vendorPlanSnapshot` takes the row's `period_end` and the write's `now` for this.
+  The vendor path reads `period_end` from the session's `entitlement` block. The admin path reads
+  it from `loadEntitlement`. `period_end` is ISO-8601 TEXT, date-only or a full timestamp. It is
+  compared by parsed instant, and a date-only value reads as UTC midnight. A null `period_end` is
+  perpetual and never lapses. `expired`, `revoked`, `pending` and `none` are recorded as stored.
+  This is a record rule only. Session authorization and `tierFor` still trust the stored status,
+  so the write is authorized exactly as before.
+- **Columns, not metadata.** The plan was stored in columns so it is typed and filterable inside
+  the `vendor_id` slice, and so it cannot drift in spelling the way metadata keys did.
+- **No FK, no CHECK.** An FK would block or erase attribution when a vendor is retracted
+  (`retract-vendor-fk-coverage.spec.ts`). A CHECK change forces a table recreate (`migrations.md`
+  §0).
+- **No backfill (ruling, 2026-10-04).** Rows written before migration `0063` keep NULL in all four
+  columns and are never rewritten. Readers that must see old rows keep a legacy fallback:
+  - `auditScopeWhere` leg 3 (`routes/admin-vendors.ts`): `vendor_id = ?` on any action except
+    `notification.sent`, OR the old `json_extract(metadata,'$.vendor_id') = ?` on the listed
+    actions;
+  - `vendorNotificationLedgerWhere` (`routes/vendor-notifications.ts`, reused by the
+    `GET /api/vendor/updates` cursor): `vendor_id = ?` OR `json_extract(metadata,'$.vendorId') = ?`.
+- **Spelling rule.** The column is the canonical place for the vendor id. A metadata key that also
+  names it is spelled camelCase `vendorId` on new rows. The snake_case `metadata.vendor_id` that the
+  seat, invite, grant, entitlement, hand-back, connector-catalogue and mapping writers used before
+  AECI-1192 survives only on old rows.
+- **The registry and the guard.** `@aeci/shared/audit-vendor-actions` lists every vendor-scoped
+  action with `{ kind, receipt }`. `routes/audit-vendor-id-writers.spec.ts` fails when a vendor route
+  writes an audit row without `vendorAuditEntry`, or when a writer of a listed action does not set
+  `vendorId`. AECI-1194 uses the `receipt: true` actions as its allow-list.
+- **Not stamped.** AECi promote writes and ops product retractions name no vendor; a retraction's
+  tombstones carry `product_id` only. Claim rejections and claim notes are about a request, not a
+  vendor-held entity. The one-click mute holds no session and names no vendor.
 
 **Actions the AECI-514 attestations epic added** (`STAGE_2_ATTESTATIONS_SPEC.md`). Listed together
 because `action` carries no CHECK — this comment block is the only enumeration, so an omission here
@@ -1447,7 +1511,7 @@ is invisible rather than a constraint violation:
 | `integration.contest.submitted` / `.withdrawn` | `integration_field_challenge` | `routes/vendor-contests.ts` | `metadata.source = 'vendor-portal'`, plus `vendorId`, `contestId`, `integrationId`, `field` |
 | `integration.contest.accepted` / `.declined` | `integration_field_challenge` | `routes/vendor-contests.ts` (owner) and `routes/admin-contests.ts` (AECi) | `actor_type` tells the two apart; the admin rows carry `metadata.source = 'admin-moderation'`, and, since AECI-1191, `metadata.reason` = the note on an accept (required when the accept changes a vendor-held value) |
 | `integration.updated` with `metadata.reason = 'contest-accepted'` | `integration` | `routes/vendor-contests.ts` | Only on an owner accept. Before/after of the contested column plus the maintenance pair; `maintenanceTransfer: true` only when the row changes hands |
-| `notification.sent` | **`integration_field_challenge`** | both contest route modules | A second writer of the §7.3 ledger. `metadata.kind = 'contest'` and **no `detector`**, so the sweep's suppression read skips it. `metadata.vendorId` is the recipient, which is what the vendor feed filters on |
+| `notification.sent` | **`integration_field_challenge`** | both contest route modules | A second writer of the §7.3 ledger. `metadata.kind = 'contest'` and **no `detector`**, so the sweep's suppression read skips it. The recipient is in the `vendor_id` column and in `metadata.vendorId`. The vendor feed filters on the column, with the metadata key as the fallback for rows written before AECI-1192 |
 
 ---
 

@@ -100,6 +100,7 @@ import {
   ownedSideProductId,
   withRecrawlProduct,
   type VendorContext,
+  vendorAuditEntry,
 } from './vendor-shared';
 
 /**
@@ -374,7 +375,7 @@ export function createClaimIntegrationHandler(
       guardedClaimUpdate(db, target, vendorId, now),
       // Immediately after the guarded UPDATE: a lost race aborts the batch here.
       claimRaceSentinel(db, integrationId),
-      ...audits.map((entry) => auditInsert(db, entry)),
+      ...audits.map((entry) => auditInsert(db, vendorAuditEntry(c, entry))),
     ];
     try {
       await db.batch(stmts as BatchTuple);

@@ -114,6 +114,9 @@ describe('reviewApprovedNotifications', () => {
       action: 'notification.sent',
       entityType: 'review',
       entityId: REVIEW.id,
+      // AECI-1192: the recipient, and the product the review is about.
+      vendorId: PRIMARY,
+      productId: P,
       metadata: {
         kind: 'review',
         notificationId: 'portal-review',

@@ -1875,6 +1875,18 @@ export const auditLog = sqliteTable(
     afterState: text('after_state', { mode: 'json' }).$type<unknown>(),
     metadata: text('metadata', { mode: 'json' }).$type<unknown>(),
 
+    // AECI-1192 / AECI-1193 (DATABASE_SCHEMA.md §8.4). The vendor the row is ABOUT
+    // (acting vendor on a vendor-actor row; the vendor HOLDING the entity on an
+    // admin/system row; the recipient on `notification.sent`), the one product the
+    // row is about, and the vendor's plan at write time. Deliberately no FK (a
+    // retraction must not erase or block attribution) and no CHECK (a CHECK change
+    // forces a D1 table recreate, docs/migrations.md §0). Old rows stay NULL: no
+    // backfill (ruling 2026-10-04).
+    vendorId: text('vendor_id'),
+    productId: text('product_id'),
+    vendorTier: text('vendor_tier'),
+    vendorEntitlementStatus: text('vendor_entitlement_status'),
+
     createdAt: createdAt(),
   },
   (t) => [
@@ -1884,6 +1896,12 @@ export const auditLog = sqliteTable(
     index('audit_log_actor_idx')
       .on(t.actorId, t.createdAt)
       .where(sql`"actor_id" IS NOT NULL`),
+    index('audit_log_vendor_idx')
+      .on(t.vendorId, t.createdAt)
+      .where(sql`"vendor_id" IS NOT NULL`),
+    index('audit_log_product_idx')
+      .on(t.productId, t.createdAt)
+      .where(sql`"product_id" IS NOT NULL`),
     check(
       'audit_log_actor_type_check',
       sql`"actor_type" IN ('user', 'admin', 'system', 'workflow')`,

@@ -1031,9 +1031,91 @@ describe('GET /api/admin/vendors/:id/audit', () => {
     expect(b.data.map((r: { action: string }) => r.action)).toContain('vendor_claim.seat_revoked');
   });
 
-  it('reaches a seat ban/unban, which files under the profile with no vendor_id', async () => {
-    // `admin-reviewers.ts` writes `vendor_admin.banned` under `entity_type='profile'`
-    // with the seat's id and metadata `{ source, reason? }` — no `vendor_id`, and the
+  it('reaches any row whose vendor_id COLUMN names the vendor, on any action (AECI-1192)', async () => {
+    // An ADMIN's edit of the vendor's product files under the product. Before
+    // AECI-1192 nothing reached it from this tab. The column makes it entity scope.
+    // (`audit()` defaults to an admin actor with no actor_id.)
+    await t.db.insert(auditLog).values([
+      audit({
+        action: 'product.updated',
+        entityType: 'product',
+        entityId: u(77),
+        vendorId: VENDOR,
+      }),
+      // The Messages ledger stays out of the history tab, even with the column set.
+      audit({
+        action: 'notification.sent',
+        entityType: 'claim',
+        entityId: u(78),
+        vendorId: VENDOR,
+      }),
+      // Another vendor's row never leaks in.
+      audit({
+        action: 'product.updated',
+        entityType: 'product',
+        entityId: u(79),
+        vendorId: u(999),
+      }),
+    ]);
+
+    const res = await send(
+      mount(
+        'get',
+        '/api/admin/vendors/:id/audit',
+        createAdminVendorAuditHandler(t.factory, emailSeam()),
+      ),
+      `/api/admin/vendors/${VENDOR}/audit?scope=entity`,
+    );
+    const b = await body(res);
+    const ids = b.data.map((r: { entity_id: string }) => r.entity_id);
+    expect(ids).toContain(u(77));
+    expect(ids).not.toContain(u(78));
+    expect(ids).not.toContain(u(79));
+  });
+
+  it("files a seat's own edit under actor scope, never entity scope (AECI-1192 review)", async () => {
+    // `vendorAuditEntry` stamps the ACTING vendor on every seat write, so the column
+    // alone would list the vendor's own edits as "done to this vendor". Leg 3 drops
+    // rows whose actor is a current seat. An admin's row on the same vendor stays.
+    await t.db
+      .insert(profiles)
+      .values({ id: SEAT_A, role: 'vendor_admin', vendorId: VENDOR, displayName: 'Ada' });
+    await t.db.insert(auditLog).values([
+      audit({
+        action: 'product.updated',
+        actorId: SEAT_A,
+        actorType: 'user',
+        entityType: 'product',
+        entityId: u(81),
+        vendorId: VENDOR,
+      }),
+      audit({
+        action: 'product.updated',
+        entityType: 'product',
+        entityId: u(82),
+        vendorId: VENDOR,
+      }),
+    ]);
+    const handler = createAdminVendorAuditHandler(t.factory, emailSeam());
+    const idsFor = async (scope: string) => {
+      const res = await send(
+        mount('get', '/api/admin/vendors/:id/audit', handler),
+        `/api/admin/vendors/${VENDOR}/audit?scope=${scope}`,
+      );
+      return (await body(res)).data.map((r: { entity_id: string }) => r.entity_id);
+    };
+
+    const entity = await idsFor('entity');
+    expect(entity).toContain(u(82));
+    expect(entity).not.toContain(u(81));
+    expect(await idsFor('actor')).toEqual([u(81)]);
+    expect((await idsFor('all')).sort()).toEqual([u(81), u(82)].sort());
+  });
+
+  it('reaches a LEGACY seat ban/unban, which files under the profile with no vendor_id', async () => {
+    // Before AECI-1192 `admin-reviewers.ts` wrote `vendor_admin.banned` under
+    // `entity_type='profile'` with the seat's id and metadata `{ source, reason? }`.
+    // New rows carry the `vendor_id` column. These older ones carry no vendor, and the
     // actor is the ADMIN, not the seat. So neither the entity-id leg, the metadata
     // leg, nor the actor scope reaches it. The roster shows the ban is in effect; the
     // audit tab has to be able to explain when and why. A ban does not null
@@ -1250,9 +1332,15 @@ describe('DELETE /api/admin/vendors/:id/seats/:userId', () => {
     expect(rows).toHaveLength(1);
     expect(rows[0].entityType).toBe('profile');
     expect(rows[0].entityId).toBe(SEAT_A);
-    // The audit viewer's third disjunct depends on this key being present — it is
-    // the ONLY way the row is reachable once `profiles.vendor_id` is null.
-    expect((rows[0].metadata as { vendor_id?: string }).vendor_id).toBe(VENDOR);
+    // The audit viewer's third disjunct depends on the `vendor_id` COLUMN (AECI-1192)
+    // — it is the ONLY way the row is reachable once `profiles.vendor_id` is null.
+    // New rows spell the metadata key `vendorId`.
+    expect(rows[0].vendorId).toBe(VENDOR);
+    expect((rows[0].metadata as { vendorId?: string }).vendorId).toBe(VENDOR);
+    // AECI-1193: the vendor's plan at the moment of the revoke (the seed's active
+    // `verified` row). A seat revoke leaves the entitlement alone.
+    expect(rows[0].vendorTier).toBe('verified');
+    expect(rows[0].vendorEntitlementStatus).toBe('active');
     expect(rows[0].actorType).toBe('admin');
     // AECI-1191: the admin's reason rides the same row.
     expect(rows[0].metadata).toMatchObject({ reason: REVOKE_REASON });
@@ -1448,8 +1536,9 @@ describe('POST /api/admin/vendors/:id/seats', () => {
     const metadata = rows[0].metadata as Record<string, unknown>;
     // Leg 3 of `auditScopeWhere` is the only route to this row on the vendor's
     // own audit tab — the seat DOES carry `vendor_id`, but leg 4 filters on the
-    // ban actions only.
-    expect(metadata.vendor_id).toBe(VENDOR);
+    // ban actions only. Since AECI-1192 leg 3 reads the column.
+    expect(rows[0].vendorId).toBe(VENDOR);
+    expect(metadata.vendorId).toBe(VENDOR);
     expect(metadata.entitlement_granted).toBe(false);
     expect(metadata.is_pure_connector_vendor).toBe(true);
   });

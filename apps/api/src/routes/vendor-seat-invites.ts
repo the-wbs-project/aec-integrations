@@ -79,7 +79,12 @@ import {
 } from '../lib/vendor-seat-invites';
 import { revokeSeatStatements } from '../lib/vendor-grant';
 import type { BatchTuple } from '../lib/audit';
-import { afterVendorWrite, sessionVendorId, type VendorContext } from './vendor-shared';
+import {
+  afterVendorWrite,
+  sessionVendorId,
+  type VendorContext,
+  sessionVendorPlan,
+} from './vendor-shared';
 
 /** Injected send seam (the `SendClaimDecisionEmail` shape, AECI-519/528): the
  *  in-handler default is a no-op so the handler is unit-testable with no Resend,
@@ -240,6 +245,7 @@ export function createSeatInviteHandler(
       email,
       actorId: auth.userId,
       actorType: auditActorType(auth),
+      vendorPlan: sessionVendorPlan(c),
       now,
       expiresAt,
     });
@@ -387,6 +393,7 @@ export function createResendSeatInviteHandler(
       email: invite.email,
       actorId: auth.userId,
       actorType: auditActorType(auth),
+      vendorPlan: sessionVendorPlan(c),
       now,
       expiresAt,
       sendCountBefore: invite.sendCount,
@@ -477,6 +484,7 @@ export function createRevokeSeatInviteHandler(
       email: invite.email,
       actorId: auth.userId,
       actorType: auditActorType(auth),
+      vendorPlan: sessionVendorPlan(c),
       now,
     });
     await db.batch(batch.stmts as BatchTuple);
@@ -560,6 +568,7 @@ export function createRemoveSeatHandler(
       vendorId,
       actorId: auth.userId,
       actorType: auditActorType(auth),
+      vendorPlan: sessionVendorPlan(c),
       now,
       profileBefore: { role: target.role, vendorId: target.vendorId },
       source: 'vendor-portal',

@@ -63,6 +63,7 @@ import {
   requireOwnedProduct,
   sessionVendorId,
   type VendorContext,
+  vendorAuditEntry,
 } from './vendor-shared';
 
 /** `metadata.reason` on every "Looks right" audit row, so one grep finds them all. */
@@ -142,7 +143,7 @@ export function createReviewVendorProfileHandler(
         .update(vendors)
         .set({ ...maintenanceTransferColumns(now), updatedAt: now })
         .where(eq(vendors.id, vendorId)),
-      auditInsert(db, audit),
+      auditInsert(db, vendorAuditEntry(c, audit)),
     ] as BatchTuple);
 
     // `vendor:{slug}`, the profile PATCH's tag. Every page that shows the vendor
@@ -184,7 +185,7 @@ export function createReviewVendorProductHandler(
       { vendorId },
       { action: PRODUCT_REVIEWED_ACTION, reason: LOOKS_RIGHT_REASON },
     );
-    await db.batch([stmt, auditInsert(db, audit)] as BatchTuple);
+    await db.batch([stmt, auditInsert(db, vendorAuditEntry(c, audit))] as BatchTuple);
 
     // `productEditTags` with no facet change: `product:{slug}` and `index:products`.
     // No facet moved, so no browse page gains or loses the product, and each one
@@ -291,6 +292,7 @@ export function createReviewVendorProductIntegrationsHandler(
       action: PRODUCT_INTEGRATIONS_REVIEWED_ACTION,
       entityType: 'product',
       entityId: productId,
+      productId,
       beforeState: { integrations_reviewed_at: before.integrationsReviewedAt },
       afterState: { integrations_reviewed_at: now },
       metadata: {
@@ -334,7 +336,7 @@ export function createReviewVendorProductIntegrationsHandler(
           ),
       );
     }
-    stmts.push(auditInsert(db, audit));
+    stmts.push(auditInsert(db, vendorAuditEntry(c, audit)));
     await db.batch(stmts as BatchTuple);
 
     // `product:{slug}` plus each stamped row's `integration:{id}`. Every pair page

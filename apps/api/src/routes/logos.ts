@@ -21,6 +21,7 @@ import { writeDb, type DbFactory } from '../lib/handler-utils';
 import { validateLogo } from '../lib/logo-validation';
 import { logToPosthog } from '../posthog';
 import { parseJsonBody } from './vendor-shared';
+import { productAuditStamp, vendorAuditStamp } from '../lib/audit-vendor';
 
 type LogoContext = Context<{ Bindings: Env; Variables: AuthzVariables }>;
 export const LOGO_REQUEST_MAX_BYTES = LOGO_MAX_BYTES + 16 * 1024;
@@ -170,10 +171,15 @@ export function createUpdateAdminLogoHandler(kind: 'vendor' | 'product', dbFor: 
     const payload = await parseJsonBody(c, AdminUpdateLogoSchema);
     const { db } = writeDb(c, dbFor);
     const table = kind === 'vendor' ? vendors : products;
-    const [before] = await db
-      .select({ slug: table.slug, logoUrl: table.logoUrl, logoSource: table.logoSource })
-      .from(table)
-      .where(eq(table.id, id));
+    // The vendor this row is about (AECI-1192 / AECI-1193): the vendor itself, or
+    // the vendor holding the product, with its plan. Same wave as the row read.
+    const [[before], stamp] = await Promise.all([
+      db
+        .select({ slug: table.slug, logoUrl: table.logoUrl, logoSource: table.logoSource })
+        .from(table)
+        .where(eq(table.id, id)),
+      kind === 'vendor' ? vendorAuditStamp(db, id) : productAuditStamp(db, id),
+    ]);
     if (!before) throw notFoundError(kind, { id });
     await assertStoredLogo(c.env, payload.logo_url);
     const columns = {
@@ -188,6 +194,8 @@ export function createUpdateAdminLogoHandler(kind: 'vendor' | 'product', dbFor: 
       action: kind === 'vendor' ? 'vendor.updated' : 'product.updated',
       entityType: kind,
       entityId: id,
+      ...stamp,
+      productId: kind === 'product' ? id : null,
       beforeState: { logoUrl: before.logoUrl, logoSource: before.logoSource },
       afterState: { logoUrl: columns.logoUrl, logoSource: columns.logoSource },
       // AECI-1191: the admin's reason rides the same row, in the same batch.

@@ -74,7 +74,7 @@ import {
   type VendorNotification,
 } from '@aeci/shared';
 import { ATTESTATION_DETECTORS, orderedPairSlugs } from '@aeci/shared';
-import { and, desc, eq, gte, sql } from 'drizzle-orm';
+import { and, desc, eq, gte, or, sql } from 'drizzle-orm';
 
 import { getDb } from '../db/client';
 import { auditLog } from '../db/schema';
@@ -142,9 +142,15 @@ export function vendorNotificationLedgerWhere(vendorId: string, now: number = Da
   return and(
     eq(auditLog.action, NOTIFICATION_SENT_ACTION),
     gte(auditLog.createdAt, since),
-    // The scoping filter. An ops row stores `"vendorId": null`, which
-    // `json_extract` returns as SQL NULL — never equal to a caller's id.
-    sql`json_extract(${auditLog.metadata}, '$.vendorId') = ${vendorId}`,
+    // The scoping filter. Since AECI-1192 a `notification.sent` row names its
+    // RECIPIENT in the indexed `vendor_id` column; rows written before carry it only
+    // in `metadata.vendorId`, and are never rewritten (no backfill, ruling
+    // 2026-10-04), so the JSON leg stays as the legacy fallback. An ops row stores
+    // NULL in both, which never equals a caller's id.
+    or(
+      eq(auditLog.vendorId, vendorId),
+      sql`json_extract(${auditLog.metadata}, '$.vendorId') = ${vendorId}`,
+    ),
   );
 }
 
