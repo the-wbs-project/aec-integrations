@@ -24,7 +24,9 @@ import { UpdateVendorProductSchema, UpdateVendorProfileSchema } from './vendor';
  *    routes accept. Left out: the logo (its own admin path, ADR 0032), "How teams
  *    use it" (ADR 0033), the company and product descriptions (marketing copy, not a
  *    fact; a takedown is AECI-1238), the four taxonomy facets (join rewrites over
- *    AECi's own vocabulary) and every name (a rename is a correction request).
+ *    AECi's own vocabulary) and the company and product names (a rename is a
+ *    correction request). An integration's `name` IS offered: it is one of the
+ *    owner-edit fields, and a wrong integration name is a factual error.
  * 2. **The value passes the vendor's own rule for the field.** The vendor PATCH
  *    schema for a company or product field, `integrationEditValueProblem` for an
  *    integration field. AECi cannot store a value the vendor could not.
