@@ -789,9 +789,10 @@ a seat's own choice about the attestation digest.
 > `thewbsproject.com` was the verified domain — directly contradicting §Deliverability. That
 > divergence is now removed: all four tiers carry the identical address for both vars.
 >
-> `thewbsproject.com` still appears throughout the repo, but **only as a recipient or a published
-> contact** — the `founders@` / `reviews@` mailto links on the legal and contact pages, which
-> are Microsoft 365 mailboxes and never Resend senders. Nothing sends **from** it.
+> `thewbsproject.com` still appears in the repo, but **only as a recipient or a published
+> contact** — the `reviews@` mailto link on the legal pages, a Microsoft 365 mailbox and never a
+> Resend sender. Nothing sends **from** it. The general public contact address on the contact,
+> legal, methodology and help pages is `support@aecintegrations.com`.
 
 **One-time ops step (not in CI):** provision the keys —
 

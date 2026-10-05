@@ -50,12 +50,12 @@ describe('LegalPage', () => {
     expect(article!.querySelector('a[href="/legal/review-guidelines"]')).not.toBeNull();
   });
 
-  it('routes review reports to the reviews@ alias (AECI-307), not the founders@ catch-all', () => {
+  it('routes review reports to the reviews@ alias (AECI-307), not the support@ catch-all', () => {
     const { host } = render('review-guidelines');
     const article = host.querySelector('article.aec-prose');
     expect(article!.querySelector('a[href="mailto:reviews@thewbsproject.com"]')).not.toBeNull();
     // The review-report path must not fall back to the general contact address.
-    expect(article!.querySelector('a[href="mailto:founders@thewbsproject.com"]')).toBeNull();
+    expect(article!.querySelector('a[href="mailto:support@aecintegrations.com"]')).toBeNull();
   });
 
   it('puts the contest path beside the correction path on the listing-accuracy policy (AECI-1023)', () => {

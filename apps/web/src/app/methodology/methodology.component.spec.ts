@@ -223,7 +223,7 @@ describe('MethodologyPage', () => {
     const { host } = setup();
     expect(host.textContent).toContain('The WBS Project');
     const hrefs = Array.from(host.querySelectorAll('a')).map((a) => a.getAttribute('href'));
-    expect(hrefs).toContain('mailto:founders@thewbsproject.com');
+    expect(hrefs).toContain('mailto:support@aecintegrations.com');
     expect(hrefs).toContain('mailto:reviews@thewbsproject.com');
     expect(hrefs).toContain('/contact');
   });

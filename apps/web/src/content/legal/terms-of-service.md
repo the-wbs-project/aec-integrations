@@ -62,4 +62,4 @@ We may update these terms from time to time. Material changes are versioned and 
 
 ## Contact
 
-Questions about these terms: [founders@thewbsproject.com](mailto:founders@thewbsproject.com).
+Questions about these terms: [support@aecintegrations.com](mailto:support@aecintegrations.com).

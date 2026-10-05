@@ -28,7 +28,7 @@ test.describe('/contact — Phase 7.3 (AECI-238)', () => {
 
   test('SSR-renders a mailto contact path to the Stage 1 address', async ({ request }) => {
     const html = await (await request.get('/contact')).text();
-    expect(html).toContain('mailto:founders@thewbsproject.com');
+    expect(html).toContain('mailto:support@aecintegrations.com');
     expect(html).toContain('Get in touch');
   });
 
@@ -52,10 +52,10 @@ test.describe('/contact — Phase 7.3 (AECI-238)', () => {
     // The email card carries two `mailto:` anchors with the same href: the
     // visible address line and the "Email us" primary button. Scope by
     // accessible name so each is asserted unambiguously.
-    await expect(page.getByRole('link', { name: 'founders@thewbsproject.com' })).toBeVisible();
+    await expect(page.getByRole('link', { name: 'support@aecintegrations.com' })).toBeVisible();
     await expect(page.getByRole('link', { name: 'Email us' })).toHaveAttribute(
       'href',
-      'mailto:founders@thewbsproject.com',
+      'mailto:support@aecintegrations.com',
     );
   });
 
