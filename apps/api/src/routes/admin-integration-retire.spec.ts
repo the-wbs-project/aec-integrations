@@ -19,6 +19,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
   auditLog,
+  connectorEvidencedPairs,
   gscRecrawlQueue,
   indexnowQueue,
   integrationFieldChallenges,
@@ -491,6 +492,63 @@ describe('POST /api/admin/integrations/:id/restore', () => {
     );
     expect(entry?.retired_by).toBe('aeci');
   });
+});
+
+describe('AECi retire and restore on a connector_evidenced_pairs row (AECI-1159)', () => {
+  const P_CONNECTOR = uuid(12);
+  const PAIR = uuid(23);
+  beforeEach(async () => {
+    await t.db
+      .insert(products)
+      .values({ id: P_CONNECTOR, slug: 'syncezy', name: 'SyncEzy', promotionStatus: 'promoted' });
+    await t.db.insert(connectorEvidencedPairs).values({
+      id: PAIR,
+      connectorProductId: P_CONNECTOR,
+      productAId: P_SOURCE,
+      productBId: P_TARGET,
+      name: 'Revit to MicroStation via SyncEzy',
+      direction: 'a_to_b',
+      docsUrl: 'https://example.test/docs',
+      builtByVendorId: VENDOR_B,
+      claimedAt: CLAIMED_AT,
+    });
+  });
+
+  const noticesByVendor = async (event: 'retired' | 'restored') => {
+    const notices = (await auditsFor(NOTIFICATION_SENT_ACTION)).filter(
+      (n) => n.entityId === PAIR && (n.metadata as { event?: string }).event === event,
+    );
+    return new Map(notices.map((n) => [(n.metadata as { vendorId: string }).vendorId, n]));
+  };
+
+  it.each(['retire', 'restore'] as const)(
+    'the owner notice on a pair %s carries the reason, and the endpoint vendor gets none',
+    async (mode) => {
+      const RESTORE_REASON = 'Checked with the vendor. The listing is accurate.';
+      expect((await adminRetire(PAIR)).status).toBe(200);
+      if (mode === 'restore') expect((await adminRestore(PAIR, RESTORE_REASON)).status).toBe(200);
+      const reason = mode === 'retire' ? REASON : RESTORE_REASON;
+      const byVendor = await noticesByVendor(mode === 'retire' ? 'retired' : 'restored');
+      expect([...byVendor.keys()].sort()).toEqual([VENDOR_A, VENDOR_B]);
+      expect(byVendor.get(VENDOR_B)).toMatchObject({ entityType: 'connector_evidenced_pair' });
+      expect(byVendor.get(VENDOR_B)!.metadata).toMatchObject({
+        retiredBy: 'aeci',
+        reason,
+        reasonVisibility: 'vendor',
+      });
+      expect(byVendor.get(VENDOR_A)!.metadata).not.toHaveProperty('reason');
+      expect(byVendor.get(VENDOR_A)!.metadata).not.toHaveProperty('reasonVisibility');
+
+      const endpoint = await call(AUTH_A, '/api/vendor/notifications', 'GET');
+      expect(JSON.stringify(endpoint.body)).not.toContain(reason);
+      const owner = await call(AUTH_B, '/api/vendor/notifications', 'GET');
+      expect(owner.body.notifications[0]).toMatchObject({
+        kind: 'integration_retire',
+        retired_by: 'aeci',
+        reason,
+      });
+    },
+  );
 });
 
 describe('GET /api/admin/vendors/:id/integrations', () => {
