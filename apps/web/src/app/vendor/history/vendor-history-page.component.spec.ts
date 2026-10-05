@@ -9,6 +9,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { VendorHistoryItem } from '@aeci/shared';
 
+import { VendorPortalAnnouncer } from '../vendor-announcer';
 import { VendorApi } from '../vendor-api';
 import { VENDOR_HISTORY_FIXTURE, historyKindKeeps } from '../vendor-history-fixtures';
 
@@ -176,6 +177,112 @@ describe('VendorHistoryPage — filter, CSV, empty', () => {
     api.listHistory.mockRejectedValueOnce(new Error('boom'));
     const fixture = await create();
     expect(el(fixture).querySelector('[data-history-failed]')).not.toBeNull();
+  });
+});
+
+const pressed = (fixture: ComponentFixture<unknown>) =>
+  el(fixture).querySelector('[aria-pressed="true"]')?.getAttribute('data-kind') ?? null;
+const button = (fixture: ComponentFixture<unknown>, label: string) =>
+  [...el(fixture).querySelectorAll('button')].find((b) => b.textContent?.trim() === label)!;
+
+describe('VendorHistoryPage — screen readers', () => {
+  it('announces the first-load failure as an alert', async () => {
+    api.listHistory.mockRejectedValueOnce(new Error('boom'));
+    const fixture = await create();
+    const alert = el(fixture).querySelector('[data-history-failed] [role="alert"]');
+    expect(alert?.textContent).toContain('Could not load your change history.');
+  });
+
+  it('announces a failed refresh as an alert', async () => {
+    const fixture = await create();
+    api.listHistory.mockRejectedValueOnce(new Error('boom'));
+    el(fixture).querySelector<HTMLButtonElement>('[data-kind="aeci"]')!.click();
+    await settle(fixture);
+    const alert = el(fixture).querySelector('[data-history-refresh-failed] [role="alert"]');
+    expect(alert?.textContent).toContain('Could not refresh the list.');
+  });
+
+  it('announces a finished filter change and page change politely', async () => {
+    api.listHistory.mockResolvedValue(page(VENDOR_HISTORY_FIXTURE, 60));
+    const fixture = await create();
+    const announcer = TestBed.inject(VendorPortalAnnouncer);
+    expect(announcer.message()).toBe('');
+
+    el(fixture).querySelector<HTMLButtonElement>('[data-kind="aeci"]')!.click();
+    await settle(fixture);
+    expect(announcer.message().trim()).toBe('AECi changes, page 1 of 3.');
+
+    button(fixture, 'Next').click();
+    await settle(fixture);
+    expect(announcer.message().trim()).toBe('AECi changes, page 2 of 3.');
+  });
+
+  it('announces an empty filter result', async () => {
+    const fixture = await create();
+    api.listHistory.mockResolvedValue(page([]));
+    el(fixture).querySelector<HTMLButtonElement>('[data-kind="vendor"]')!.click();
+    await settle(fixture);
+    expect(TestBed.inject(VendorPortalAnnouncer).message().trim()).toBe(
+      "Your team's edits: no changes to show.",
+    );
+  });
+});
+
+describe('VendorHistoryPage — a failed refresh keeps the controls honest', () => {
+  it('keeps the old chip pressed and the old CSV filter when a filter read fails', async () => {
+    const fixture = await create();
+    api.listHistory.mockRejectedValueOnce(new Error('boom'));
+    el(fixture).querySelector<HTMLButtonElement>('[data-kind="aeci"]')!.click();
+    await settle(fixture);
+
+    expect(el(fixture).querySelector('[data-history-refresh-failed]')).not.toBeNull();
+    expect(pressed(fixture)).toBe('all');
+    expect(el(fixture).querySelector('[data-history-csv]')?.getAttribute('href')).toBe(
+      '/api/vendor/history.csv',
+    );
+    expect(el(fixture).querySelectorAll('[data-history-row]')).toHaveLength(
+      VENDOR_HISTORY_FIXTURE.length,
+    );
+  });
+
+  it('keeps the old page label when a page read fails', async () => {
+    api.listHistory.mockResolvedValue(page(VENDOR_HISTORY_FIXTURE, 60));
+    const fixture = await create();
+    api.listHistory.mockRejectedValueOnce(new Error('boom'));
+    button(fixture, 'Next').click();
+    await settle(fixture);
+
+    expect(text(el(fixture), '[data-history-page]')).toBe('Page 1 of 3');
+    expect(button(fixture, 'Previous').disabled).toBe(true);
+  });
+
+  it('retries the read that failed, then moves the chip with the rows', async () => {
+    const fixture = await create();
+    api.listHistory.mockRejectedValueOnce(new Error('boom'));
+    el(fixture).querySelector<HTMLButtonElement>('[data-kind="aeci"]')!.click();
+    await settle(fixture);
+    expect(pressed(fixture)).toBe('all');
+
+    api.listHistory.mockResolvedValue(page([byActor('aeci')]));
+    button(fixture, 'Try again').click();
+    await settle(fixture);
+    expect(api.listHistory).toHaveBeenLastCalledWith(1, VENDOR_HISTORY_PAGE_SIZE, {
+      kind: 'aeci',
+    });
+    expect(pressed(fixture)).toBe('aeci');
+    expect(el(fixture).querySelector('[data-history-refresh-failed]')).toBeNull();
+  });
+
+  it('lets the same chip be pressed again after its read failed', async () => {
+    const fixture = await create();
+    api.listHistory.mockRejectedValueOnce(new Error('boom'));
+    el(fixture).querySelector<HTMLButtonElement>('[data-kind="aeci"]')!.click();
+    await settle(fixture);
+
+    api.listHistory.mockResolvedValue(page([byActor('aeci')]));
+    el(fixture).querySelector<HTMLButtonElement>('[data-kind="aeci"]')!.click();
+    await settle(fixture);
+    expect(pressed(fixture)).toBe('aeci');
   });
 });
 

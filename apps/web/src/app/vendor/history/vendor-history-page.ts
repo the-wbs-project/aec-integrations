@@ -1,16 +1,9 @@
 import { DatePipe } from '@angular/common';
-import {
-  Component,
-  afterNextRender,
-  computed,
-  effect,
-  inject,
-  signal,
-  untracked,
-} from '@angular/core';
+import { Component, afterNextRender, computed, inject, signal } from '@angular/core';
 
 import type { ListVendorHistoryResponse, VendorHistoryItem, VendorHistoryKind } from '@aeci/shared';
 
+import { VendorPortalAnnouncer } from '../vendor-announcer';
 import { VendorApi, vendorHistoryCsvUrl } from '../vendor-api';
 
 import { VendorHistoryFollowUp } from './vendor-history-follow-up';
@@ -22,6 +15,12 @@ import {
   historyPlanLabel,
   humanizeField,
 } from './vendor-history-labels';
+
+/** One read: a filter and a page. */
+interface HistoryTarget {
+  readonly kind: VendorHistoryKind;
+  readonly page: number;
+}
 
 /** Rows per page. */
 export const VENDOR_HISTORY_PAGE_SIZE = 25;
@@ -115,7 +114,8 @@ export const VENDOR_HISTORY_PAGE_SIZE = 25;
 
       @if (state() === 'failed' && !response()) {
         <div class="mt-6 space-y-2" data-history-failed>
-          <p class="text-sm text-(--text-primary)" i18n="@@vendor.history.failed">
+          <!-- The alert wraps the sentence only, so the retry button is not read out with it. -->
+          <p class="text-sm text-(--text-primary)" role="alert" i18n="@@vendor.history.failed">
             Could not load your change history.
           </p>
           <button
@@ -137,7 +137,7 @@ export const VENDOR_HISTORY_PAGE_SIZE = 25;
             class="mt-4 flex max-w-[52ch] flex-wrap items-center gap-3 text-sm text-(--text-primary)"
             data-history-refresh-failed
           >
-            <span i18n="@@vendor.history.refreshFailed"
+            <span role="alert" i18n="@@vendor.history.refreshFailed"
               >Could not refresh the list. It shows what was loaded last.</span
             >
             <button
@@ -255,15 +255,24 @@ export const VENDOR_HISTORY_PAGE_SIZE = 25;
 })
 export class VendorHistoryPage {
   private readonly api = inject(VendorApi);
+  private readonly announcer = inject(VendorPortalAnnouncer);
 
   protected readonly kinds = HISTORY_KIND_ORDER;
+  /**
+   * The filter and page of the rows ON SCREEN. They move only when a read lands,
+   * so the pressed chip and the page label always describe the visible rows. A
+   * failed re-read leaves them, and the rows, as they were.
+   */
   protected readonly page = signal(1);
   protected readonly kind = signal<VendorHistoryKind>('all');
   protected readonly response = signal<ListVendorHistoryResponse | null>(null);
   protected readonly state = signal<'loading' | 'loaded' | 'failed'>('loading');
   protected readonly refreshing = signal(false);
 
-  private readonly rendered = signal(false);
+  /** The read in flight, or the one on screen once it lands or fails. */
+  private target: HistoryTarget = { kind: 'all', page: 1 };
+  /** The read that failed last. "Try again" repeats it. */
+  private failedTarget: HistoryTarget | null = null;
   private ticket = 0;
 
   protected readonly items = computed(() => this.response()?.data ?? []);
@@ -288,15 +297,8 @@ export class VendorHistoryPage {
   );
 
   constructor() {
-    afterNextRender(() => this.rendered.set(true));
-
-    // Load on first render, and again when the filter or the page moves.
-    effect(() => {
-      if (!this.rendered()) return;
-      this.page();
-      this.kind();
-      untracked(() => void this.load({ quiet: this.response() !== null }));
-    });
+    // Browser only: the list is per-seat data, never part of the cached SSR shell.
+    afterNextRender(() => void this.load(this.target, { announce: false }));
   }
 
   protected actionLabel(action: string): string {
@@ -320,42 +322,67 @@ export class VendorHistoryPage {
   }
 
   protected applyKind(kind: VendorHistoryKind): void {
-    if (kind === this.kind()) return;
-    this.page.set(1);
-    this.kind.set(kind);
+    if (kind === this.target.kind) return;
+    void this.load({ kind, page: 1 }, { announce: true });
   }
 
   protected goToPage(page: number): void {
-    this.page.set(Math.min(Math.max(1, page), this.pageCount()));
+    const next = Math.min(Math.max(1, page), this.pageCount());
+    if (next === this.page() && next === this.target.page) return;
+    void this.load({ kind: this.kind(), page: next }, { announce: true });
   }
 
   protected reload(): void {
-    void this.load({ quiet: this.response() !== null });
+    void this.load(this.failedTarget ?? this.target, { announce: this.response() !== null });
   }
 
-  /** Read the open page. `quiet` keeps the list on screen; a newer read always wins. */
-  private async load({ quiet }: { quiet: boolean }): Promise<void> {
+  /**
+   * Read one page. With rows on screen the read is quiet: the list stays put
+   * until the answer lands. A newer read always wins. `kind` and `page` commit
+   * only with a response, so a failure cannot leave them describing other rows.
+   */
+  private async load(target: HistoryTarget, { announce }: { announce: boolean }): Promise<void> {
     const ticket = ++this.ticket;
+    this.target = target;
+    this.failedTarget = null;
+    const quiet = this.response() !== null;
     if (quiet) this.refreshing.set(true);
-    else {
-      this.state.set('loading');
-      this.response.set(null);
-    }
+    else this.state.set('loading');
     try {
-      const res = await this.api.listHistory(this.page(), VENDOR_HISTORY_PAGE_SIZE, {
-        kind: this.kind(),
+      const res = await this.api.listHistory(target.page, VENDOR_HISTORY_PAGE_SIZE, {
+        kind: target.kind,
       });
       if (ticket !== this.ticket) return;
-      this.response.set(res);
-      this.state.set('loaded');
       const last = Math.max(1, Math.ceil(res.total / res.perPage));
-      if (this.page() > last) this.page.set(last);
+      if (target.page > last) {
+        // The list shrank under us: read the new last page instead.
+        void this.load({ kind: target.kind, page: last }, { announce });
+        return;
+      }
+      this.response.set(res);
+      this.kind.set(target.kind);
+      this.page.set(target.page);
+      this.state.set('loaded');
+      if (announce) this.announcer.announce(this.shownMessage(res));
     } catch {
       if (ticket !== this.ticket) return;
+      // Roll the request back to what is on screen. The chips stay honest, and
+      // pressing the same chip again re-reads it.
+      this.target = { kind: this.kind(), page: this.page() };
+      this.failedTarget = target;
       this.state.set('failed');
     } finally {
       if (ticket === this.ticket) this.refreshing.set(false);
     }
+  }
+
+  /** What the portal's one live region says once a filter or page change lands. */
+  private shownMessage(res: ListVendorHistoryResponse): string {
+    const filter = historyKindLabel(this.kind());
+    if (res.total === 0) {
+      return $localize`:@@vendor.history.live.empty:${filter}:FILTER:: no changes to show.`;
+    }
+    return $localize`:@@vendor.history.live.shown:${filter}:FILTER:, page ${this.page()}:PAGE: of ${this.pageCount()}:COUNT:.`;
   }
 
   /** The integrations tab's filter chip. The pressed colours are the unlayered
