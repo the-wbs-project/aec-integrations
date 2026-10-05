@@ -2463,10 +2463,15 @@ what its people did, including edits to their products. `all` is the default, be
 that is the operator's actual question. **Entity scope is four OR'd disjuncts, not
 one** — `entity_id = <vendor>` misses a rejected claim (whose audit metadata carries no
 `vendor_id` at all), a revoked seat (whose `profiles.vendor_id` is null by the time
-anyone reads it, so the actor scope misses it too), and a seat ban/unban (which files
-under the seat's `profiles.id` with no `vendor_id`, matched instead through the current
-seat roster). `STAGE_2_PAID_TIERS_SPEC.md` §5.6.2 has the full query and why each leg is
-load-bearing.
+anyone reads it, so the actor scope misses it too), and anything filed under a product,
+contest or invite. Since AECI-1192 most of those arrive through the indexed
+`audit_log.vendor_id` column. **Entity scope excludes any row whose actor is one of the
+vendor's current seats.** The column names the *acting* vendor on a seat write, so
+without the exclusion the vendor's own edits would read as done to it. Those rows stay
+in `actor` and `all`. A seat ban/unban written since AECI-1192 carries the column and
+arrives that way. Older ban/unban rows carry no vendor at all and are matched through
+the current seat roster instead. `STAGE_2_PAID_TIERS_SPEC.md` §5.6.2 has the full query
+and why each leg is load-bearing.
 
 **`before_state` / `after_state` are `z.unknown().nullable()` deliberately.** They are
 free-form JSON snapshots written by ~34 call sites across the life of the schema, with
