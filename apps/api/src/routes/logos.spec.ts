@@ -289,7 +289,7 @@ describe('logo routes', () => {
     });
     expect(res.status).toBe(200);
     expect(logBatchToPosthog).toHaveBeenCalledTimes(1);
-    const events = vi.mocked(logBatchToPosthog).mock.calls[0]![3] as {
+    const events = vi.mocked(logBatchToPosthog).mock.calls[0]![3] as unknown as {
       action: string;
       source: string;
     }[];
