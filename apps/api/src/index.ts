@@ -142,6 +142,7 @@ import {
   createVendorProductChecklistHandler,
 } from './routes/vendor-checklist';
 import { createListVendorNotificationsHandler } from './routes/vendor-notifications';
+import { createListVendorRecrawlSubmissionsHandler } from './routes/vendor-recrawl-submissions';
 import {
   createGetNotificationPreferencesHandler,
   createNudgeMuteHandler,
@@ -969,6 +970,14 @@ app.route('/', authAdmin);
 // not capability-gated (reading is not the capability).
 //   - GET   /api/vendor/notifications — the last 90 days of detector nudges.
 //
+// AECI-1187 adds the vendor's search-engine submission history: the URLs we sent
+// to IndexNow or asked Google to re-crawl, each with the vendor's own edit that
+// caused it. Scoped on `recrawl_submission_causes.vendor_id` only, so a URL two
+// vendors' edits sent shows each vendor only its own cause. Not capability-gated
+// (decision 3, `STAGE_2_PAID_TIERS_SPEC.md` §13.1a: submission is Managed-only,
+// reading the history is not), not rate-limited, and writes no `audit_log` row.
+//   - GET   /api/vendor/recrawl-submissions — paginated, newest first, `?channel=`.
+//
 // Stage 2 / AECI-301 adds the attestation authoring surface — the first code that
 // can write a `vendor_a`/`vendor_b` attestation, and therefore the first that can
 // move a claim off `unverified` (`STAGE_2_ATTESTATIONS_SPEC.md` §5). Same two
@@ -1032,6 +1041,12 @@ authVendor.get(
   '/api/vendor/notifications',
   requireVendor(),
   createListVendorNotificationsHandler(),
+);
+// AECI-1187: a read, so no limiter and no capability gate (decision 3).
+authVendor.get(
+  '/api/vendor/recrawl-submissions',
+  requireVendor(),
+  createListVendorRecrawlSubmissionsHandler(),
 );
 // AECI-1204: the caller's own seat's nudge mute. The GET is a read (no limiter);
 // the PUT is a write and carries `rateLimit('write')` after the guard. Both act on

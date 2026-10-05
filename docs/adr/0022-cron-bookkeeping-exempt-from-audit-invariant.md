@@ -262,3 +262,8 @@ with `outcome=requested` writes, one `gsc_manual` row per clear. Its fresh `batc
 `metadata.batchId` of the `reindex.cleared` audit row in the same `db.batch`, so rule 4 holds with
 no gap: an admin clear always deletes, so it always audits. A `not_requested` clear writes no log
 row. No third writer was added.
+
+**The vendor reader landed on 2026-10-05 (AECI-1187).** `GET /api/vendor/recrawl-submissions`
+reads `recrawl_submissions` through this vendor's `recrawl_submission_causes` rows. It is a read,
+so it writes nothing and changes none of the four rules. `recrawl_queue_causes` is still shown to
+no one.

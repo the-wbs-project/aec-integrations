@@ -7,6 +7,13 @@
  * them. None of that may ever reach a ranking, a search record, the home stats or
  * a public listing. A vendor who logs in more must never rank higher.
  *
+ * The three search-engine submission tables (AECI-1183/1184, read by the vendor
+ * in AECI-1187) join the list on the same footing: `recrawl_submissions`,
+ * `recrawl_submission_causes` and `recrawl_queue_causes` record which vendor's
+ * edits we told search engines about, and submission is a Managed-plan benefit
+ * (`STAGE_2_PAID_TIERS_SPEC.md` §13.1a). A vendor who edits more, or pays for
+ * submission, must never rank higher on AECi.
+ *
  * This is an INVARIANT test, asserted over module SOURCE: behaviour cannot see a
  * read that does not exist yet, and a source scan can. It fails if any module on
  * those paths, in `apps/api/src` or `packages/shared/src`, names one of the tables
@@ -31,7 +38,7 @@ const SHARED_SRC = join(process.cwd(), '..', '..', 'packages', 'shared', 'src');
 const FIREWALLED =
   /algolia|home-stats|search|rank|listing|sort|(^|\/)stats\.ts$|product-facets|taxonomy|recompute-counts|^routes\/(products|vendors|integrations)\.ts$/;
 
-/** The operator-only tables, by SQL name and by Drizzle identifier. */
+/** The operator-only and submission-log tables, by SQL name and by Drizzle identifier. */
 const FORBIDDEN = [
   'user_activity_daily',
   'userActivityDaily',
@@ -39,6 +46,12 @@ const FORBIDDEN = [
   'vendorActivityDaily',
   'notification_sends',
   'notificationSends',
+  'recrawl_submissions',
+  'recrawlSubmissions',
+  'recrawl_submission_causes',
+  'recrawlSubmissionCauses',
+  'recrawl_queue_causes',
+  'recrawlQueueCauses',
 ];
 
 function sourceFiles(root: string, dir = root, acc: string[] = []): string[] {

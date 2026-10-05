@@ -5652,7 +5652,7 @@ export const NudgeMuteResultSchema = z.object({ ok: z.boolean() });
 
 Stage 2 (AECI-520). All require `role === 'vendor_admin'` **and** a non-null `profiles.vendor_id`, enforced by the `requireVendor()` Worker middleware (`apps/api/src/lib/authz.ts`) — verifies the JWT, loads the D1 profile, and rejects in this order: missing token/profile `401`; `banned_at` set `403`; wrong role `403`; null `vendor_id` `403`. A site **`admin` is rejected too** — there is no impersonation at launch, admins act on vendor data through `/api/admin/*` so the audit trail names the real actor.
 
-Source of truth: `packages/shared/src/api/vendor.ts` + `product-versions.ts` + `vendor-attestations.ts` + `vendor-connectors.ts` + `vendor-notifications.ts` + `vendor-updates.ts` + `integration-contests.ts` + `integration-claims.ts` + `integration-edits.ts` (Zod), `apps/api/src/routes/vendor.ts` + `vendor-product-versions.ts` + `vendor-attestations.ts` + `vendor-connectors.ts` + `vendor-notifications.ts` + `vendor-data-objects.ts` + `vendor-updates.ts` + `vendor-contests.ts` + `vendor-integration-claims.ts` + `vendor-integration-edits.ts` + `vendor-review.ts` (handlers), with the shared guard + scoping-predicate seam in `apps/api/src/routes/vendor-shared.ts` and the two-slot authority seam in `apps/api/src/lib/attestation-authority.ts`; `STAGE_2_VENDOR_PORTAL_SPEC.md` §4, `STAGE_2_ATTESTATIONS_SPEC.md` §5 / §7.2 / §8.3, and `STAGE_2_REALTIME_SPEC.md` §2.
+Source of truth: `packages/shared/src/api/vendor.ts` + `product-versions.ts` + `vendor-attestations.ts` + `vendor-connectors.ts` + `vendor-notifications.ts` + `vendor-recrawl-submissions.ts` + `vendor-updates.ts` + `integration-contests.ts` + `integration-claims.ts` + `integration-edits.ts` (Zod), `apps/api/src/routes/vendor.ts` + `vendor-product-versions.ts` + `vendor-attestations.ts` + `vendor-connectors.ts` + `vendor-notifications.ts` + `vendor-recrawl-submissions.ts` + `vendor-data-objects.ts` + `vendor-updates.ts` + `vendor-contests.ts` + `vendor-integration-claims.ts` + `vendor-integration-edits.ts` + `vendor-review.ts` (handlers), with the shared guard + scoping-predicate seam in `apps/api/src/routes/vendor-shared.ts` and the two-slot authority seam in `apps/api/src/lib/attestation-authority.ts`; `STAGE_2_VENDOR_PORTAL_SPEC.md` §4, `STAGE_2_ATTESTATIONS_SPEC.md` §5 / §7.2 / §8.3, and `STAGE_2_REALTIME_SPEC.md` §2.
 
 **Two invariants govern this whole surface.**
 
@@ -6037,6 +6037,79 @@ Mechanics: eleven SELECTs for nine scopes in one `db.batch([...])` = one D1 roun
 Errors: none beyond the guard's. A seat whose vendor row has since been deleted gets `200` with `profile: null` rather than the `404` `GET /api/vendor/me` answers — a cursor that threw would take the poll loop down with it.
 
 **The ninth scope, `reviews`, specified by AECI-1174 and built by AECI-1176** (`STAGE_2_VENDOR_PORTAL_SPEC.md` §11c.13). It reports the larger of `MAX(reviews.updated_at)` over approved reviews of the caller's owned products, under `vendorReviewsWhere`, and `MAX(review_responses.updated_at)` over the caller's own replies. `.default(null)` for deploy skew. It maps to the store's `reviews` revision tick. **Co-owners' replies are not a term.** A co-owner's pending write must not move this vendor's cursor, because the timestamp would leak that it happened. The cost: a co-owner's reply being published or withdrawn does not, by itself, refresh this vendor's `other_responses`. The next own write or newly approved review does.
+
+#### `GET /api/vendor/recrawl-submissions` (AECI-1187)
+
+The vendor's search-engine submission history. Each row is one URL we sent to IndexNow, or that an operator asked Google to re-crawl in Search Console, paired with one of this vendor's edits that queued it. The backing tables are the append-only `recrawl_submissions` log and its `recrawl_submission_causes` rows (`DATABASE_SCHEMA.md` §9.6a, §9.6b).
+
+**Scoping.** The query starts from `recrawl_submission_causes` with `WHERE vendor_id = <session vendor>` (`vendorRecrawlSubmissionsWhere` in `apps/api/src/routes/vendor-recrawl-submissions.ts`) and inner-joins the submission. A pair page that two vendors' edits sent is one submission with two cause rows, and each vendor sees only its own. Promote and admin causes carry no vendor, so they reach nobody here.
+
+**Never entitlement-gated.** Submission is Managed-only (`STAGE_2_PAID_TIERS_SPEC.md` §13.1a), but reading your own history is not a capability (decision 3, 2026-10-04, and invariant 3 above: reads never are). A Free vendor gets `200` with an empty list, or with the rows from a period when it held a plan. Not rate-limited (reads never are, ADR 0026).
+
+**Read-only, so no `audit_log` row.**
+
+```typescript
+export const ListVendorRecrawlSubmissionsQuerySchema = PageQuerySchema.extend({
+  channel: z.enum(['indexnow', 'gsc_manual']).optional(),
+});
+export const VendorRecrawlSubmissionSchema = z.object({
+  submission_id: z.number().int().positive(),  // recrawl_submissions.id
+  url: z.string(),                             // absolute public URL
+  channel: z.enum(['indexnow', 'gsc_manual']),
+  outcome: z.enum(['accepted', 'refused', 'failed', 'requested']),
+  submitted_at: z.string(),
+  cause: z.object({
+    audit_log_id: z.string().nullable(),       // the edit's audit row
+    action: z.string().nullable(),             // audit_log.action, LEFT joined; open string
+    product_id: z.string().nullable(),         // the vendor's own product the edit touched
+    product_slug: z.string().nullable(),       // products, LEFT joined; null if gone
+    product_name: z.string().nullable(),
+    queued_at: z.string(),                     // when the edit queued the URL
+  }),
+});
+export const ListVendorRecrawlSubmissionsResponseSchema =
+  paginatedResponseSchema(VendorRecrawlSubmissionSchema);
+```
+
+Example:
+
+```json
+{
+  "data": [
+    {
+      "submission_id": 412,
+      "url": "https://www.aecintegrations.com/products/autodesk-build",
+      "channel": "indexnow",
+      "outcome": "accepted",
+      "submitted_at": "2026-10-04T00:05:01.233Z",
+      "cause": {
+        "audit_log_id": "6f0c…",
+        "action": "product.updated",
+        "product_id": "9b1e…",
+        "product_slug": "autodesk-build",
+        "product_name": "Autodesk Build",
+        "queued_at": "2026-10-03T14:22:09.871Z"
+      }
+    }
+  ],
+  "page": 1,
+  "perPage": 24,
+  "total": 1
+}
+```
+
+**One row per (submission, this vendor's cause).** Two expected repeats:
+
+- Two of the vendor's edits that queued the same URL before one drain give one submission and two rows with the same `submission_id`.
+- A URL IndexNow refused, or that failed in transport, stays queued and is sent again the next day. A URL refused N times yields N submission rows, each carrying the same cause. That is a record of N attempts, not a duplicate.
+
+**Order.** `submitted_at DESC`, then `recrawl_submissions.id DESC`, then `recrawl_submission_causes.id DESC`. All three are timestamp or integer orderings, so they stay `BINARY` (§3.2). One drain run shares one `submitted_at`, so the two id terms keep page boundaries stable. `total` is a `count()` over the same join and predicate, in the same `db.batch` as the page.
+
+**Wording.** Fields and client copy say "submitted" and "requested". Nothing says "indexed" or "ranked", because no search engine tells us that. Not a ranking input: `apps/api/src/lib/ranking-firewall.spec.ts` forbids the three recrawl tables in every search, ranking and listing module.
+
+**No `GET /api/vendor/updates` scope.** The history moves once a day, when the IndexNow drain runs, or when an operator clears a worklist row. A portal surface re-reads it on open.
+
+Errors: `VALIDATION_FAILED` (400, bad `page`, `perPage` or `channel`) · plus the guard's `401` and `403`. No new codes.
 
 #### `PATCH /api/vendor/profile`
 

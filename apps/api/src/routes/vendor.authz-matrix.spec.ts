@@ -102,6 +102,7 @@ import {
 } from './vendor';
 import { createListVendorProductConnectorsHandler } from './vendor-connectors';
 import { createListVendorNotificationsHandler } from './vendor-notifications';
+import { createListVendorRecrawlSubmissionsHandler } from './vendor-recrawl-submissions';
 import {
   createDeleteProductVersionHandler,
   createListProductVersionsHandler,
@@ -342,6 +343,12 @@ function makeApp() {
     requireVendor(guard),
     createListVendorNotificationsHandler(t.factory),
   );
+  // AECI-1187 — guard only; scoped on the cause's vendor, never capability-gated.
+  app.get(
+    '/api/vendor/recrawl-submissions',
+    requireVendor(guard),
+    createListVendorRecrawlSubmissionsHandler(t.factory),
+  );
   app.patch(
     '/api/vendor/profile',
     requireVendor(guard),
@@ -466,6 +473,7 @@ const ROUTES: ReadonlyArray<{ path: string; method: string; body?: unknown; ok?:
   { path: '/api/vendor/me', method: 'GET' },
   { path: '/api/vendor/seats', method: 'GET' },
   { path: '/api/vendor/notifications', method: 'GET' },
+  { path: '/api/vendor/recrawl-submissions', method: 'GET' },
   { path: '/api/vendor/profile', method: 'PATCH', body: { description: 'edited' } },
   {
     path: `/api/vendor/products/${PRODUCT_A}`,

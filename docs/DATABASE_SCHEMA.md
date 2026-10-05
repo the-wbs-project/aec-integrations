@@ -2569,8 +2569,14 @@ before the queue delete, in the same `db.batch` as the cause copy, the delete, t
 the `reindex.cleared` audit row that names the `batch_id` as `metadata.batchId`. A clear with
 `outcome=not_requested` writes no row.
 
-**Readers to come.** The vendor read `GET /api/vendor/recrawl-submissions` (AECI-1187) and the
-admin submission history on `/admin/reindex` (AECI-1188). Nothing reads the table yet.
+**Read by** the vendor history `GET /api/vendor/recrawl-submissions` (AECI-1187,
+`API_CONTRACTS.md` §6.14). It reaches a row only through this vendor's cause rows in
+`recrawl_submission_causes` (§9.6b), joined on `id`, and orders on `(submitted_at DESC, id DESC)`.
+The admin submission history on `/admin/reindex` (AECI-1188) is still to come.
+
+**Not a ranking input.** No search, Algolia, ranking, home-stats or listing module may read it.
+`apps/api/src/lib/ranking-firewall.spec.ts` fails the build if one names the table. The same holds
+for both tables in §9.6b.
 
 **No `audit_log` row per URL.** A log-class table under ADR 0022's amendment of 2026-10-04. It
 fails that ADR's three-part test, because it is not reproducible and a vendor will read it. It is
@@ -2687,8 +2693,12 @@ submission rows it points at.
 
 **No foreign keys** on either table, for the same reasons as §9.6a.
 
-**Readers to come.** The vendor read (AECI-1187) scopes on `recrawl_submission_causes.vendor_id`.
-The admin history (AECI-1188) reads causes by `submission_id`. Nothing reads either table yet.
+**Read by** the vendor history `GET /api/vendor/recrawl-submissions` (AECI-1187). It scopes on
+`recrawl_submission_causes.vendor_id = <session vendor>` through the `(vendor_id, submission_id)`
+index, and inner-joins the submission. So a URL two vendors' edits sent shows each vendor only its
+own cause row. Rows with a null `vendor_id` (promote and admin causes) reach no vendor. The admin
+history (AECI-1188) will read causes by `submission_id`. Nothing reads `recrawl_queue_causes` outside
+the drain's copy and the sweep.
 
 **Migration `0062`** is two `CREATE TABLE` plus three `CREATE INDEX`. It is not a recreate and
 cannot cascade. `apps/api/src/test/migration-0062.spec.ts` pins that.
