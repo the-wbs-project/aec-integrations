@@ -136,7 +136,8 @@
       "interval plus margin. Delete it once the first production heartbeat is in. It replaced",
       "the `pendingFirstHeartbeat` side list, which held protest-reply-reminder and",
       "vendor-snapshot. cron-schedules.spec.ts asserts every cron is in `crons` and every",
-      "activeFrom parses. The rule is in README.md §'New crons: activeFrom'."
+      "activeFrom parses. The rule is in README.md §'New crons: activeFrom'. No entry carries",
+      "one today: AECI-1232 removed the last two on 2026-10-05, after both first heartbeats."
     ],
     "project": "prod",
     "lookbackHours": 360,
@@ -272,20 +273,18 @@
         "cron": "0 12 * * *",
         "metric": "aeci.contest.protest_reminder.job",
         "maxAgeMinutes": 1560,
-        "activeFrom": "2026-10-12T12:00:00Z",
         "datadogMonitor": null,
         "datadogNoDataTimeframeMinutes": null,
-        "_note": "AECI-1205. Never had a Datadog monitor \u2014 the cron did not exist. 1560 min (26 h) is the house allowance for a daily job. activeFrom (AECI-1221): production had no heartbeat on 2026-10-04, so the row prints PENDING until then. Delete activeFrom once aeci.contest.protest_reminder.job appears in production."
+        "_note": "AECI-1205. Never had a Datadog monitor \u2014 the cron did not exist. 1560 min (26 h) is the house allowance for a daily job. activeFrom (AECI-1221) was removed by AECI-1232 on 2026-10-05, once aeci.contest.protest_reminder.job had appeared in production."
       },
       {
         "job": "vendor-snapshot",
         "cron": "30 0 * * *",
         "metric": "aeci.vendor_snapshot.run",
         "maxAgeMinutes": 1560,
-        "activeFrom": "2026-10-12T12:00:00Z",
         "datadogMonitor": null,
         "datadogNoDataTimeframeMinutes": null,
-        "_note": "AECI-1210. Never had a Datadog monitor \u2014 the cron did not exist. 1560 min (26 h) is the house allowance for a daily job, copied from metrics-snapshot. A new cron can miss its first 00:30 tick after deploy while the trigger propagates; that is not a bug. activeFrom (AECI-1221): production had no heartbeat on 2026-10-04, so the row prints PENDING until then. Delete activeFrom once aeci.vendor_snapshot.run appears in production."
+        "_note": "AECI-1210. Never had a Datadog monitor \u2014 the cron did not exist. 1560 min (26 h) is the house allowance for a daily job, copied from metrics-snapshot. A new cron can miss its first 00:30 tick after deploy while the trigger propagates; that is not a bug. activeFrom (AECI-1221) was removed by AECI-1232 on 2026-10-05, once aeci.vendor_snapshot.run had appeared in production (first run 2026-10-05 00:30 UTC)."
       }
     ]
   }

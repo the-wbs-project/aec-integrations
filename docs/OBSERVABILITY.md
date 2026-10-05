@@ -500,16 +500,16 @@ holds the registry, one row per cron with its own staleness allowance). **A new 
 entry with an `activeFrom` (AECI-1221).** The sweep reads production, where a new cron has never
 run, so its row would report MISSING from merge until the first production run. Before
 `activeFrom` a missing heartbeat prints `PENDING` and does not fail the sweep. After it the row
-is ordinary. `protest-reply-reminder` and `vendor-snapshot` carry `activeFrom`
-`2026-10-12T12:00:00Z`; delete it once each heartbeat (`aeci.contest.protest_reminder.job`,
-`aeci.vendor_snapshot.run`) appears in production. The rule is
+is ordinary. Delete `activeFrom` once the cron's first production heartbeat is in. No entry
+carries one today: AECI-1232 removed it from `protest-reply-reminder` and `vendor-snapshot` on
+2026-10-05, after both heartbeats appeared in production. The rule is
 `observability/posthog/README.md` §"New crons: activeFrom".
 `cron-schedules.spec.ts` fails if a cron has no entry.
 
 | Cron | `job_runs.job` | Its liveness signal |
 |---|---|---|
 | 00:15 metrics snapshot | `metrics-snapshot` | `aeci.metrics_snapshot.run` (`outcome:success\|partial\|failed`) |
-| 00:30 vendor snapshot | `vendor-snapshot` | `aeci.vendor_snapshot.run` (`outcome:ok\|failed`), emitted on every run including failures. Staleness allowance 26 h. In the sweep with `activeFrom` `2026-10-12T12:00:00Z`, so it prints `PENDING` until its first production heartbeat (AECI-1221). Added by AECI-1210 |
+| 00:30 vendor snapshot | `vendor-snapshot` | `aeci.vendor_snapshot.run` (`outcome:ok\|failed`), emitted on every run including failures. Staleness allowance 26 h. In the sweep as an ordinary row since AECI-1232 (2026-10-05), after its first production run. Added by AECI-1210 |
 | Mondays 02:00 ASN registry (`0 2 * * 2` — CF day-of-week is 1=Sunday) | `asn-registry` | `aeci.asn_registry.refresh` (`outcome:ok\|partial\|failed\|skipped`) |
 | 03:00 retention prune | `retention-prune` | `aeci.retention.prune` (`outcome:ok\|skipped\|failed`) |
 | 04:00 data quality | `data-quality` | `aeci.data_quality.job` (`outcome:success\|failed`) |
@@ -522,7 +522,7 @@ is ordinary. `protest-reply-reminder` and `vendor-snapshot` carry `activeFrom`
 | 11:00 entitlement term expiry | `entitlement-expiry` | `aeci.entitlement.expiry.job` (`outcome:ok\|failed`) — plus the `aeci.entitlement.expiry_due` gauge, emitted every run including zero. As with the 10:00 sweep the zero series is the real liveness signal, and for a longer time: every backfilled entitlement is perpetual (`period_end IS NULL`) and structurally invisible to the partial expiry index, so "0 due" is healthy and no-data is the failure. Added by AECI-613 |
 | `*/15` request reconcile | `request-reconcile` | `aeci.linear.reconcile.stuck` (gauge) |
 | `5 0 * * *` IndexNow drain (daily since AECI-1136; `*/20` before) | `indexnow-drain` | `aeci.indexnow.drain` (`outcome:ok\|refused\|failed\|skipped`) — emitted on **every** run including the ones that make no outbound request (empty buffer, no creds). That is the whole point: `aeci.indexnow.submit` is emitted only when a submission is attempted, so a day with nothing buffered would look identical to a dead cron. Staleness allowance 26 h, the daily-job house value (90 min while it ran every 20 minutes) — the margin is for the *sweep's* lateness, not the job's. Added by AECI-826 |
-| 12:00 protest reply reminder | `protest-reply-reminder` | `aeci.contest.protest_reminder.job` (`outcome:ok\|failed`), emitted on every run including the ones with no protest due, plus the `aeci.contest.protest_reminder.due` gauge. Staleness allowance 26 h. In the sweep with `activeFrom` `2026-10-12T12:00:00Z`, so it prints `PENDING` until its first production heartbeat (AECI-1221). Added by AECI-1205 |
+| 12:00 protest reply reminder | `protest-reply-reminder` | `aeci.contest.protest_reminder.job` (`outcome:ok\|failed`), emitted on every run including the ones with no protest due, plus the `aeci.contest.protest_reminder.due` gauge. Staleness allowance 26 h. In the sweep as an ordinary row since AECI-1232 (2026-10-05), after its first production run. Added by AECI-1205 |
 | `25 */6` claim staleness | `claim-stale-check` | `aeci.linear.claim_stale.job` (`outcome:ok\|failed`) — emitted on **every** run, including the ones that find nothing and the ones where the Linear read failed. Staleness allowance 8 h (one cadence plus margin). Added by AECI-862 |
 | hourly WAF poll | `waf-poll` | `aeci.waf.poll` (`outcome:ok`) |
 
