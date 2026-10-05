@@ -159,6 +159,32 @@ describe('AdminFieldCorrections (AECI-1237)', () => {
     expect(api.setFieldOverride).not.toHaveBeenCalled();
   });
 
+  it('offers every product past the first page of 100', async () => {
+    const all = Array.from({ length: 230 }, (_, i) => ({
+      id: `00000000-0000-4000-8000-${String(1000 + i).padStart(12, '0')}`,
+      name: `Product ${i}`,
+    }));
+    api.listProducts.mockImplementation(
+      async (_id: string, query: { page: number; perPage: number }) => ({
+        data: all.slice((query.page - 1) * query.perPage, query.page * query.perPage),
+        page: query.page,
+        perPage: query.perPage,
+        total: all.length,
+      }),
+    );
+    const { fixture, el } = await create();
+    await openForm(fixture, el);
+    await settle(fixture);
+    const options = Array.from((byId(el, 'record') as HTMLSelectElement).options).map(
+      (o) => o.value,
+    );
+    expect(api.listProducts.mock.calls.map((c) => (c[1] as { page: number }).page)).toEqual([
+      1, 2, 3,
+    ]);
+    expect(options.filter((v) => v.startsWith('product:'))).toHaveLength(230);
+    expect(options).toContain(`product:${all[229]!.id}`);
+  });
+
   it('leaves mechanism_kind out on a connector-powered integration, as the server does', async () => {
     const endpoint = (n: number, name: string) => ({
       id: `00000000-0000-4000-8000-00000000003${n}`,

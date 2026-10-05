@@ -170,13 +170,14 @@ export class AdminFieldCorrections {
       label: $localize`:@@admin.fieldCorrections.record.company:${this.vendorName()}:name: (company)`,
     };
     try {
+      const vendorId = this.vendorId();
       const [products, integrations] = await Promise.all([
-        this.api.listProducts(this.vendorId(), { page: 1, perPage: 100 }),
-        this.api.listIntegrations(this.vendorId(), { page: 1, perPage: 100 }),
+        fetchAllPages((query) => this.api.listProducts(vendorId, query)),
+        fetchAllPages((query) => this.api.listIntegrations(vendorId, query)),
       ]);
       this.records.set([
         company,
-        ...products.data.map(
+        ...products.map(
           (p): CorrectableRecord => ({
             key: `product:${p.id}`,
             entityType: 'product',
@@ -184,7 +185,7 @@ export class AdminFieldCorrections {
             label: $localize`:@@admin.fieldCorrections.record.product:${p.name}:name: (product)`,
           }),
         ),
-        ...integrations.data.map((row): CorrectableRecord => {
+        ...integrations.map((row): CorrectableRecord => {
           const entityType: FieldOverrideEntityType =
             row.anchor === 'evidenced_pair' ? 'connector_evidenced_pair' : 'integration';
           const name = row.name ?? `${row.source.name} ↔ ${row.target.name}`;
@@ -388,6 +389,28 @@ export class AdminFieldCorrections {
 
   protected liftFormId(lock: AdminFieldOverride, part: string): string {
     return `admin-field-lock-${lock.id}-${part}`;
+  }
+}
+
+/** The largest page the admin list routes serve (`PageQuerySchema`). */
+const PICKER_PAGE_SIZE = 100;
+
+/**
+ * Every row of a paged admin list. The picker must offer every record the vendor
+ * holds, and the two lists have no search, so it reads `total` from page 1 and
+ * walks the rest one page at a time. A large vendor costs a few sequential reads.
+ */
+export async function fetchAllPages<T>(
+  fetchPage: (query: {
+    page: number;
+    perPage: number;
+  }) => Promise<{ data: readonly T[]; total: number }>,
+): Promise<T[]> {
+  const rows: T[] = [];
+  for (let page = 1; ; page++) {
+    const res = await fetchPage({ page, perPage: PICKER_PAGE_SIZE });
+    rows.push(...res.data);
+    if (res.data.length === 0 || rows.length >= res.total) return rows;
   }
 }
 
