@@ -1943,7 +1943,7 @@ create unique index integration_vendor_links_side_kind_key
 
 ### 8.9 `field_overrides` (Stage 2.1 — AECI-1237)
 
-AECi's field corrections with a lock (ADR 0039, `STAGE_2_VENDOR_PORTAL_SPEC.md` §11d.5). One row per correction. While `lifted_at` is NULL the lock stands, and every vendor write that would change `field` on the entity answers `409 FIELD_LOCKED_BY_AECI`. A lift stamps the `lifted_*` columns and keeps the row as history, so a field can be locked again under a new row. Migration `0064_conscious_toro.sql`: one `CREATE TABLE` and three `CREATE INDEX`, no recreate of any table.
+AECi's field corrections with a lock (ADR 0039, `STAGE_2_VENDOR_PORTAL_SPEC.md` §11d.5). One row per correction. While `lifted_at` is NULL the lock stands, and every vendor write that would change `field` on the entity answers `409 FIELD_LOCKED_BY_AECI`. A lift stamps the `lifted_*` columns and keeps the row as history, so a field can be locked again under a new row. Migration `0065_simple_inertia.sql`: one `CREATE TABLE` and three `CREATE INDEX`, no recreate of any table.
 
 | Column | Type | Notes |
 |---|---|---|
