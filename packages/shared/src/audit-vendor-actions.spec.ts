@@ -23,6 +23,13 @@ describe('AUDIT_VENDOR_ACTIONS (AECI-1192)', () => {
       'vendor_claim.seat_revoked',
       'product.updated',
       'vendor.updated',
+      // AECI-1237: the field correction with a lock, and its lift.
+      'vendor.field_overridden',
+      'vendor.override_lifted',
+      'product.field_overridden',
+      'product.override_lifted',
+      'integration.field_overridden',
+      'integration.override_lifted',
     ]) {
       expect(AUDIT_VENDOR_RECEIPT_ACTIONS).toContain(action);
     }

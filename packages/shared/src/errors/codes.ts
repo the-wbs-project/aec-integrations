@@ -101,6 +101,17 @@ export const ApiErrorCode = {
   INTEGRATION_NOT_VENDOR_HELD: 'INTEGRATION_NOT_VENDOR_HELD',
   // AECI-1006 owner edits (`API_CONTRACTS.md` §4): a value that is wrong for its field.
   INTEGRATION_INVALID_VALUE: 'INTEGRATION_INVALID_VALUE',
+  // AECI-1237 admin field corrections (`STAGE_2_VENDOR_PORTAL_SPEC.md` §11d.5).
+  // `FIELD_LOCKED_BY_AECI` (409) answers a vendor write that would change a field AECi
+  // corrected and locked; `details.fields` names them. `FIELD_OVERRIDE_ACTIVE` (409)
+  // answers an admin correction of a field that already carries an unlifted lock.
+  // `FIELD_OVERRIDE_LIFTED` (409) answers a lift of a lock already lifted.
+  // `FIELD_OVERRIDE_NOT_VENDOR_HELD` (409) answers a correction on a record no vendor
+  // holds, which promote and the review app own.
+  FIELD_LOCKED_BY_AECI: 'FIELD_LOCKED_BY_AECI',
+  FIELD_OVERRIDE_ACTIVE: 'FIELD_OVERRIDE_ACTIVE',
+  FIELD_OVERRIDE_LIFTED: 'FIELD_OVERRIDE_LIFTED',
+  FIELD_OVERRIDE_NOT_VENDOR_HELD: 'FIELD_OVERRIDE_NOT_VENDOR_HELD',
   // AECI-1011: a vendor created (or took) a row that strongly matches an integration
   // this promote planned to insert, de-route or update, after the plan read and before
   // the batch. The batch rolls back; re-push and the VENDOR_OWNED_TWIN guard skips

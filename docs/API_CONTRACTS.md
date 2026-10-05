@@ -295,6 +295,10 @@ Machine-readable codes are stable identifiers. Messages are localized.
 | `INTEGRATION_RETIRED_BY_AECI` | 403 | `POST /api/vendor/integrations/:id/restore` on a row an AECi admin retired (`retired_by = 'aeci'`). Only an admin restores an admin retire (AECI-1046, ruled 2026-09-22). Nothing is written |
 | `INTEGRATION_RETIRED_BY_OWNER` | 409 | `POST /api/admin/integrations/:id/restore` on a row its owner retired (`retired_by = 'owner'`, or NULL on a retire from before migration 0046). The owner controls its own retire, so the admin restore never undoes it (AECI-1046) |
 | `INTEGRATION_NOT_VENDOR_HELD` | 409 | `POST /api/admin/integrations/:id/retire` or `/restore` on an AECi-held row (not claimed and `origin = 'aeci'`). Promote, the review app and the retraction tools own that row, and a retire here would hide a row the next promote still writes (AECI-1046) |
+| `FIELD_LOCKED_BY_AECI` | 409 | A vendor write that would change a field AEC Integrations corrected and locked (AECI-1237, `STAGE_2_VENDOR_PORTAL_SPEC.md` §11d.5): `PATCH /api/vendor/profile`, `PATCH /api/vendor/products/:id`, `PATCH /api/vendor/integrations/:id` (either anchor table), a contest submit on the field, and an owner or AECi contest accept that would write it. `details.fields` names the locked fields. A company or product body that resends the stored value of a locked field drops it rather than refusing. A lock set between the handler's read and its batch aborts the batch with the same answer. Nothing is written |
+| `FIELD_OVERRIDE_ACTIVE` | 409 | `POST /api/admin/field-overrides` on a field that already carries an unlifted lock, including one set by a racing correction (the partial unique index `field_overrides_active_key`). Lift it first (AECI-1237) |
+| `FIELD_OVERRIDE_LIFTED` | 409 | `POST /api/admin/field-overrides/:id/lift` on a lock already lifted, including a lost lift race (AECI-1237) |
+| `FIELD_OVERRIDE_NOT_VENDOR_HELD` | 409 | `POST /api/admin/field-overrides` on a record no vendor holds: a company with no active seat, a product none of whose owners has one, or an integration or pair that is neither claimed nor vendor-created. Promote and the review app write it, so the correction belongs upstream (AECI-1237) |
 | `INTEGRATION_NOT_CLAIMED` | 409 | Retire, restore (AECI-1010) or `PATCH /api/vendor/integrations/:id` (AECI-1006) by the recorded owner of a row it has not claimed yet. Claim first (`POST /api/vendor/integrations/:id/claim`): ownership is taken by the claim, and until then promote still writes the row, so an edit would be overwritten. Also the answer when the claim was cleared under the owner between its read and its batch |
 | `INTEGRATION_INVALID_VALUE` | 422 | `PATCH /api/vendor/integrations/:id`, and `POST /api/vendor/integrations` (AECI-1011): a value wrong for its field. Not an `http(s)` URL, not a known `mechanism_kind`, a connector-delivered kind (`iPaaS`, `integrator`), not a caller-relative direction, or a clear of `name`, `mechanism_kind` or `direction`. Also, on the PATCH (AECI-1090): any change or clear of `mechanism_kind` on a connector-powered `integrations` row, where it is frozen, and any `mechanism_kind` at all on a `connector_evidenced_pairs` row, which has no such column. `field` names the field (AECI-1006) |
 | `INTEGRATION_CLAIMED_DURING_PROMOTE` | 409 | Promote job error only (`GET /api/promote/jobs/:id`). An integration in the bundle was claimed after the promote planned its write and before it committed. Nothing was written; re-push with a new `jobId` (`REVIEW_APP_PROMOTE_API.md` §4b) |
@@ -5133,6 +5137,26 @@ Errors: `VALIDATION_FAILED` (400) for a non-boolean `enabled`, an extra field or
 `MALFORMED_REQUEST` (400) for a non-JSON body; `NOTIFICATION_NOT_PAUSABLE` (400); `NOT_FOUND`
 (404); `NOTIFICATION_SWITCH_CHANGED` (409); `RATE_LIMITED` (429).
 
+#### `POST /api/admin/field-overrides`, `POST /api/admin/field-overrides/:id/lift` and `GET /api/admin/vendors/:id/field-overrides` (AECI-1237)
+
+AECi corrects one factual field on a vendor-held record and locks it, so a later vendor write cannot undo it, and lifts the lock later. Contract: `STAGE_2_VENDOR_PORTAL_SPEC.md` §11d.5, ADR 0039. Schemas: `packages/shared/src/api/field-overrides.ts`. `requireAdmin()` then `rateLimit('write')` on the two POSTs; the GET is never rate-limited and writes no audit row.
+
+| Method | Path | Body | Success |
+|---|---|---|---|
+| `POST` | `/api/admin/field-overrides` | Strict `{ entityType, entityId, field, value, reason, internalNote? }` (`AdminSetFieldOverrideSchema`). `entityType` is `vendor`, `product`, `integration` or `connector_evidenced_pair`. `value` is a string, a number (`founded_year`) or `null` to clear | `201 { override }` |
+| `POST` | `/api/admin/field-overrides/:id/lift` | Strict `{ reason, internalNote? }` (`AdminLiftFieldOverrideSchema`) | `200 { override }` with `lifted_*` set |
+| `GET` | `/api/admin/vendors/:id/field-overrides` | none | `200 { overrides }`: every unlifted lock on the vendor, the products it owns and the integrations and pairs it owns, newest first |
+
+`override` is `AdminFieldOverrideSchema`: the lock row, both reasons and the internal note, plus `entity_name`.
+
+**Fields.** `field` must be on the entity type's allow-list (`fieldOverrideFieldsFor`): company `website`, `headquarters`, `founded_year`, `public_private`, `parent_company`, `contact_email`, `phone_number` and the eight profile links; product `website`, `tool_integrations_url`, `api_docs_url`; integration the ten owner-edit fields (`name` among them), less `mechanism_kind` on a connector-powered row; pair the nine `CONNECTOR_POWERED_EDIT_FIELDS`. The value passes the vendor's own rule for the field. `direction` takes the stored frame, `a_to_b`, `b_to_a` or `both`.
+
+**Refusals, in order:** `400 VALIDATION_FAILED` for the shape, a missing or blank `reason`, or a field off the list (`error.field = 'field'`); `404` for an unknown record; `409 FIELD_OVERRIDE_NOT_VENDOR_HELD`; `400 VALIDATION_FAILED` with `error.field = 'field'` for a frozen `mechanism_kind`; `400 VALIDATION_FAILED` with `error.field = 'value'` for a bad value; `409 FIELD_OVERRIDE_ACTIVE`. The lift: `404`, then `409 FIELD_OVERRIDE_LIFTED`. A refusal writes nothing.
+
+**One batch.** Correction: the lock INSERT first, the column `UPDATE` with `updated_at`, the `<entity>.field_overridden` audit row (`vendor.*`, `product.*`, or `integration.*` on both anchor tables) with before and after, the holder's `vendor_id` and plan, `product_id` on a product and `metadata { source: 'admin-moderation', field, overrideId, reason, reasonVisibility: 'vendor', internalNote? }`, and one `notification.sent` row (`kind: 'aeci_override'`, `event: 'field_corrected'`) to the holder. No maintenance transfer. Lift: the guarded `UPDATE … WHERE lifted_at IS NULL`, a sentinel, the `<entity>.override_lifted` row and a `field_lock_lifted` notice to the vendor named on the lock. The column keeps the corrected value.
+
+**After commit.** A correction purges the record's tags through `CACHE_PURGE_QUEUE` with `source: 'moderation'` (`CACHE_STRATEGY.md` §3), syncs its Algolia record by id behind `dispatchHook`, and forwards the audit rows to PostHog. A lift only forwards.
+
 #### `POST /api/admin/integrations/:id/retire`, `/restore` and `GET /api/admin/vendors/:id/integrations` (AECI-1046)
 
 The admin retire and restore of a vendor-held integration, and the vendor's list of them (the Integrations tab on `/admin/vendors/:id`). Specified beside the owner retire in §6.14, because they share one batch. `requireAdmin()` then `rateLimit('write')` on the two POSTs; the GET is never rate-limited and writes no audit row.
@@ -6342,6 +6366,10 @@ Example:
 
 Errors: `VALIDATION_FAILED` (400, bad `page`, `perPage` or `channel`) · plus the guard's `401` and `403`. No new codes.
 
+#### AECi field locks on vendor writes (AECI-1237)
+
+A field AEC Integrations corrected and locked (§6.10, `STAGE_2_VENDOR_PORTAL_SPEC.md` §11d.5) refuses every vendor write that would change it with `409 FIELD_LOCKED_BY_AECI` and `details.fields`. That covers `PATCH /api/vendor/profile`, `PATCH /api/vendor/products/:id` and `PATCH /api/vendor/integrations/:id` on either anchor table, after each route's ownership and capability gates and before any write. A company or product body that resends the stored value of a locked field drops it; the integration edit already drops unchanged values. Contests follow the same rule: a submit on a locked field, and an owner accept that would write one, answer the same 409. The reads carry the locks: `locked_fields: [{ field, reason, set_at }]` on `VendorAccount`, `VendorProduct` and both entries of `GET /api/vendor/integrations`, optional for deploy skew and never carrying the internal note.
+
 #### `PATCH /api/vendor/profile`
 
 Edits the caller's own vendor row. The path carries **no** vendor id, so cross-vendor access is structurally impossible.
@@ -7277,7 +7305,7 @@ export const AdminRetireIntegrationBodySchema = z
 
 **On a pair (AECI-1091, ruling D).** The same two routes take a `connector_evidenced_pairs` id. Vendor-held means the same on the pair (`claimed_at IS NOT NULL OR origin = 'vendor'`), and the refusals, cross-refusal and reason rule are unchanged. The batch is the owner's pair batch above with the admin's guard (vendor-held, and `retired_by = 'aeci'` on restore); the owner and every vendor of either endpoint are told.
 
-**The list.** `GET /api/admin/vendors/:id/integrations` returns the rows with `built_by_vendor_id = :id` that are vendor-held, live and retired, in **both** tables since AECI-1091, ordered by name case-insensitively (`compareText`, an unnamed row first) then id: `id`, `anchor` (`'integration'` or `'evidenced_pair'`), `name`, `source` / `target` (`{ id, slug, name }`; a pair's canonical A and B), `connector` (the pair's connector product, `null` on an `integrations` row), `origin`, `claimed_at`, `retired_at`, `retired_by` (NULL on a retired row reads `'owner'`), `pair_path` and `updated_at`. Paged in memory, because the two tables share no SQL `ORDER BY` without a compound select and one vendor's vendor-held rows are few. `anchor` and `connector` default on parse (`'integration'`, `null`) for deploy skew. `404` for an unknown vendor. No audit row.
+**The list.** `GET /api/admin/vendors/:id/integrations` returns the rows with `built_by_vendor_id = :id` that are vendor-held, live and retired, in **both** tables since AECI-1091, ordered by name case-insensitively (`compareText`, an unnamed row first) then id: `id`, `anchor` (`'integration'` or `'evidenced_pair'`), `name`, `source` / `target` (`{ id, slug, name }`; a pair's canonical A and B), `connector` (the pair's connector product, `null` on an `integrations` row), `connector_powered` (`isConnectorPoweredEdge`, always `true` on a pair; AECI-1237's field-correction picker reads it), `origin`, `claimed_at`, `retired_at`, `retired_by` (NULL on a retired row reads `'owner'`), `pair_path` and `updated_at`. Paged in memory, because the two tables share no SQL `ORDER BY` without a compound select and one vendor's vendor-held rows are few. `anchor`, `connector` and `connector_powered` default on parse (`'integration'`, `null`, `false`) for deploy skew. `404` for an unknown vendor. No audit row.
 
 **The owner's view.** `GET /api/vendor/integrations` carries `retired_by` on each entry, and a `kind: 'integration_retire'` row on `GET /api/vendor/notifications` carries `retired_by` (`'owner'` for rows written before AECI-1046).
 

@@ -51,6 +51,8 @@ type ResourceKind =
   | 'reindex_queue_row'
   // A sending switch key (AECI-1224): neither a registry id nor `support-copy`.
   | 'notification_setting'
+  // An AECi field lock (AECI-1237). The caller is an authenticated admin.
+  | 'field_override'
   | 'category'
   | 'audience'
   | 'phase'

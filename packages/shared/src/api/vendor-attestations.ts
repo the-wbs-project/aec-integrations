@@ -10,6 +10,7 @@ import {
 import { ContextDirectionSchema, IntegrationMechanismKindSchema } from './integrations';
 import { IntegrationRetiredBySchema } from './integration-retire';
 import { EMPTY_SIDE_LINKS, IntegrationSideLinksSchema } from './integration-vendor-links';
+import { LockedFieldsSchema } from './locked-fields';
 import type { AttestationSource } from './promote';
 
 /**
@@ -405,6 +406,9 @@ export const VendorIntegrationSchema = z.object({
    * contests it.
    */
   pricing_url: z.string().nullable().default(null),
+  /** AECI-1237 (§11d.5). The fields AEC Integrations corrected and locked on this
+   *  row. The owner's edit controls render them read-only. Absent reads as none. */
+  locked_fields: LockedFieldsSchema,
 });
 
 export type VendorIntegration = z.infer<typeof VendorIntegrationSchema>;
@@ -453,6 +457,8 @@ export const OwnedIntegrationSchema = z.object({
   contestable_fields: ContestableFieldsSchema.default(EMPTY_CONTESTABLE_FIELDS),
   /** AECI-1154. The owner's pricing page link, for §6.15's edit form. Not contestable. */
   pricing_url: z.string().nullable().default(null),
+  /** AECI-1237. As on `VendorIntegrationSchema`. */
+  locked_fields: LockedFieldsSchema,
 });
 
 export type OwnedIntegration = z.infer<typeof OwnedIntegrationSchema>;

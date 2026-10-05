@@ -422,6 +422,8 @@ describe('GET /api/vendor/notifications — AECi override rows (AECI-1159 / §11
       logo_subject: null,
       logo_cleared: false,
       seat_name: null,
+      record_subject: null,
+      value: null,
       created_at: expect.any(String),
     };
     expect(body.notifications).toEqual([

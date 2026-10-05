@@ -87,6 +87,12 @@ import { json } from '../http';
 import { vendorsForIntegrationSlots } from '../lib/attestation-authority';
 import { auditInsert, type BatchStmt, type BatchTuple } from '../lib/audit';
 import { auditActorType } from '../lib/authz';
+import {
+  fieldLockedError,
+  fieldsUnlockedSentinel,
+  lockRaceRefusal,
+  lockedFieldsAmong,
+} from '../lib/field-overrides';
 import { isConnectorPoweredEdge } from '../lib/connector-powered';
 import { validateResponseInDev, writeDb, type DbFactory } from '../lib/handler-utils';
 import { EDIT_FIELD_COLUMNS, storedEditValue } from '../lib/integration-contests';
@@ -234,6 +240,12 @@ export function createUpdateVendorIntegrationHandler(
       return json(body);
     }
 
+    // AECI-1237 (§11d.5): a field AECi corrected and locked refuses a new value. Only
+    // the CHANGED fields are asked, so sending the stored value back is harmless.
+    const lockedNow = await lockedFieldsAmong(db, 'integration', integrationId, changed);
+    if (lockedNow.length > 0) throw fieldLockedError(lockedNow);
+    const lockSentinel = fieldsUnlockedSentinel(db, 'integration', integrationId, changed);
+
     const [owner, slotVendors, pairSlugs] = await Promise.all([
       db.query.vendors.findFirst({
         columns: { id: true, companyName: true },
@@ -298,6 +310,8 @@ export function createUpdateVendorIntegrationHandler(
     ];
 
     const stmts: BatchStmt[] = [
+      // AECI-1237: a lock that landed after the read aborts the save here.
+      ...(lockSentinel ? [lockSentinel] : []),
       db
         .update(integrations)
         .set({ ...columns, ...maintenanceTransferColumns(now), updatedAt: now })
@@ -312,6 +326,8 @@ export function createUpdateVendorIntegrationHandler(
       await db.batch(stmts as BatchTuple);
     } catch (error) {
       if (!isOwnerWriteRaceError(error)) throw error;
+      const locked = await lockRaceRefusal(db, 'integration', integrationId, changed);
+      if (locked) throw locked;
       const current = await db.query.integrations.findFirst({
         where: eq(integrations.id, integrationId),
       });

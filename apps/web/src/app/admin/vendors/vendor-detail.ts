@@ -1,3 +1,4 @@
+import { AdminFieldCorrections } from './admin-field-corrections';
 import { AdminLogoEditor } from './admin-logo-editor/admin-logo-editor';
 import { DatePipe } from '@angular/common';
 import {
@@ -111,6 +112,7 @@ export type AdminVendorTab = 'vendor' | 'products' | 'integrations' | 'audit';
   selector: 'aec-vendor-detail',
   imports: [
     AdminLogoEditor,
+    AdminFieldCorrections,
     RouterLink,
     AuditTrail,
     EntitlementControl,

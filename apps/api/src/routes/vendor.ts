@@ -76,6 +76,9 @@ import {
   type ManageableSeatInvite,
   type ProductUsefulness,
   type UsefulnessGroup,
+  type LockedField,
+  PRODUCT_OVERRIDE_FIELDS,
+  VENDOR_OVERRIDE_FIELDS,
 } from '@aeci/shared';
 import { type AuditLogEntry } from '@aeci/shared/audit-log';
 import {
@@ -119,6 +122,17 @@ import {
   type AuthenticatedSession,
 } from '../lib/authz';
 import { textAsc } from '../lib/collation';
+import {
+  PRODUCT_OVERRIDE_COLUMNS,
+  VENDOR_OVERRIDE_COLUMNS,
+  activeLocksOn,
+  fieldLockedError,
+  fieldsUnlockedSentinel,
+  isSentinelJsonAbort,
+  lockRaceRefusal,
+  lockedFieldsByEntity,
+  screenLockedPatch,
+} from '../lib/field-overrides';
 import { toUsefulness } from '../lib/drizzle-helpers';
 import { validateResponseInDev, writeDb, type DbFactory } from '../lib/handler-utils';
 import { publicSiteBase } from '../lib/public-urls';
@@ -258,8 +272,10 @@ function symmetricDifference(before: readonly string[], after: readonly string[]
 
 // ─── Row → wire mappers ──────────────────────────────────────────────────────
 
-function toVendorAccount(row: VendorRow): VendorAccount {
+function toVendorAccount(row: VendorRow, lockedFields: LockedField[] = []): VendorAccount {
   return {
+    // AECI-1237: the fields AECi locked, so the profile form renders them read-only.
+    locked_fields: lockedFields,
     id: row.id,
     slug: row.slug,
     company_name: row.companyName,
@@ -320,8 +336,11 @@ function toVendorProduct(
   isPrimary: boolean,
   tax: TaxonomySlugs,
   plan: VendorEntitlementBlock,
+  lockedFields: LockedField[] = [],
 ): VendorProduct {
   return {
+    // AECI-1237: as on the vendor, the product fields AECi locked.
+    locked_fields: lockedFields,
     id: row.id,
     slug: row.slug,
     name: row.name,
@@ -714,42 +733,48 @@ export function createVendorMeHandler(
     const productIds = owned.map((row) => row.productId);
     const primaryById = new Map(owned.map((row) => [row.productId, row.isPrimary]));
 
-    const [productRows, taxonomy, seatRows, requestRows] = await Promise.all([
-      productIds.length
-        ? db.query.products.findMany({
-            where: inArray(products.id, productIds),
-            // Case-insensitive (AECI-825); `id` keeps the order total, since
-            // NOCASE ties two spellings that differ only in case.
-            orderBy: [textAsc(products.name), asc(products.id)],
-          })
-        : Promise.resolve([]),
-      loadTaxonomySlugs(db, productIds),
-      // Must use the SAME predicate as `GET /api/vendor/seats`, or the dashboard
-      // reports a seat count the roster can't account for — a `reviewer` profile
-      // pointing at this vendor is not a seat. Only the count is consumed, so
-      // count it in SQL rather than shipping every row back.
-      db.select({ value: count() }).from(profiles).where(seatsOf(vendorId)),
-      // The vendor's own claim/correction requests: those targeting the vendor
-      // itself, plus those targeting any product it owns. The predicate is shared
-      // with `GET /api/vendor/updates`'s `requests` cursor (AECI-627) — see
-      // `vendorRequestsWhere` for why that sharing is load-bearing.
-      db.query.vendorRequests.findMany({
-        where: vendorRequestsWhere(vendorId, productIds),
-        orderBy: [asc(vendorRequests.createdAt)],
-      }),
-    ]);
+    const [productRows, taxonomy, seatRows, requestRows, vendorLocks, productLocks] =
+      await Promise.all([
+        productIds.length
+          ? db.query.products.findMany({
+              where: inArray(products.id, productIds),
+              // Case-insensitive (AECI-825); `id` keeps the order total, since
+              // NOCASE ties two spellings that differ only in case.
+              orderBy: [textAsc(products.name), asc(products.id)],
+            })
+          : Promise.resolve([]),
+        loadTaxonomySlugs(db, productIds),
+        // Must use the SAME predicate as `GET /api/vendor/seats`, or the dashboard
+        // reports a seat count the roster can't account for — a `reviewer` profile
+        // pointing at this vendor is not a seat. Only the count is consumed, so
+        // count it in SQL rather than shipping every row back.
+        db.select({ value: count() }).from(profiles).where(seatsOf(vendorId)),
+        // The vendor's own claim/correction requests: those targeting the vendor
+        // itself, plus those targeting any product it owns. The predicate is shared
+        // with `GET /api/vendor/updates`'s `requests` cursor (AECI-627) — see
+        // `vendorRequestsWhere` for why that sharing is load-bearing.
+        db.query.vendorRequests.findMany({
+          where: vendorRequestsWhere(vendorId, productIds),
+          orderBy: [asc(vendorRequests.createdAt)],
+        }),
+        // AECI-1237: AECi's field locks, so the forms render those fields read-only.
+        // Two reads on the partial unique index; nothing when nothing is locked.
+        lockedFieldsByEntity(db, 'vendor', [vendorId]),
+        lockedFieldsByEntity(db, 'product', productIds),
+      ]);
 
     // One block for the vendor and, until per-product plans exist, for every
     // product too (§13.7).
     const plan = entitlementBlock(session);
     const body: VendorMeResponse = {
-      vendor: toVendorAccount(vendor),
+      vendor: toVendorAccount(vendor, vendorLocks.get(vendorId)),
       products: productRows.map((row) =>
         toVendorProduct(
           row,
           primaryById.get(row.id) ?? false,
           taxonomy.get(row.id) ?? NO_TAXONOMY,
           plan,
+          productLocks.get(row.id),
         ),
       ),
       requests: requestRows.map(
@@ -928,11 +953,30 @@ export function createUpdateVendorProfileHandler(
     // holds `profile.edit` (§13.3), so a seat with no plan passes. The gate stays
     // so a future rung that withholds company details needs no handler edit.
     requireCapability(c, 'profile.edit');
-    const payload = await parseJsonBody(c, UpdateVendorProfileSchema);
+    const sent = await parseJsonBody(c, UpdateVendorProfileSchema);
 
     const { db } = writeDb(c, dbFor);
-    const before = await db.query.vendors.findFirst({ where: eq(vendors.id, vendorId) });
+    const [before, locks] = await Promise.all([
+      db.query.vendors.findFirst({ where: eq(vendors.id, vendorId) }),
+      activeLocksOn(db, 'vendor', vendorId),
+    ]);
     if (!before) throw notFoundError('vendor', { id: vendorId });
+
+    // AECI-1237 (§11d.5): a field AECi corrected and locked refuses a new value with
+    // `409 FIELD_LOCKED_BY_AECI`. Sending the stored value back changes nothing, so it
+    // is dropped rather than refused. After the capability gate, before any write.
+    const screened = screenLockedPatch(sent, locks, before, VENDOR_OVERRIDE_COLUMNS);
+    if (screened.refused.length > 0) throw fieldLockedError(screened.refused);
+    const payload = screened.payload;
+    if (Object.keys(payload).length === 0) {
+      const body: UpdateVendorProfileResponse = { vendor: toVendorAccount(before, locks) };
+      validateResponseInDev(c.env, () => UpdateVendorProfileResponseSchema.parse(body));
+      return json(body);
+    }
+    const guarded = Object.keys(payload).filter((field) =>
+      (VENDOR_OVERRIDE_FIELDS as readonly string[]).includes(field),
+    );
+    const lockSentinel = fieldsUnlockedSentinel(db, 'vendor', vendorId, guarded);
 
     const { columns } = splitPatch(payload, VENDOR_COLUMN_MAP, session.entitlementTier);
     if (payload.logo_url !== undefined) {
@@ -973,10 +1017,18 @@ export function createUpdateVendorProfileHandler(
       },
     };
 
-    await db.batch([
-      db.update(vendors).set(writeColumns).where(eq(vendors.id, vendorId)),
-      auditInsert(db, vendorAuditEntry(c, auditEntry)),
-    ] as BatchTuple);
+    try {
+      const stmts: BatchStmt[] = [
+        // AECI-1237: a lock that landed after the read above aborts the save here.
+        ...(lockSentinel ? [lockSentinel] : []),
+        db.update(vendors).set(writeColumns).where(eq(vendors.id, vendorId)),
+        auditInsert(db, vendorAuditEntry(c, auditEntry)),
+      ];
+      await db.batch(stmts as BatchTuple);
+    } catch (error) {
+      if (!isSentinelJsonAbort(error)) throw error;
+      throw (await lockRaceRefusal(db, 'vendor', vendorId, guarded)) ?? error;
+    }
 
     // The batch committed exactly `writeColumns`, so re-reading the row would
     // only cost a round-trip — and could 404 a write that actually succeeded.
@@ -1000,7 +1052,7 @@ export function createUpdateVendorProfileHandler(
       db,
     );
 
-    const body: UpdateVendorProfileResponse = { vendor: toVendorAccount(after) };
+    const body: UpdateVendorProfileResponse = { vendor: toVendorAccount(after, locks) };
     validateResponseInDev(c.env, () => UpdateVendorProfileResponseSchema.parse(body));
     return json(body);
   };
@@ -1039,7 +1091,7 @@ export function createUpdateVendorProductHandler(
       throw new ApiError(400, 'VALIDATION_FAILED', 'Missing product id', { field: 'id' });
     }
 
-    const payload = await parseJsonBody(c, UpdateVendorProductSchema);
+    const sent = await parseJsonBody(c, UpdateVendorProductSchema);
     const { db } = writeDb(c, dbFor);
 
     // Ownership is proven FIRST, in its own wave, and a miss is a 404 — a vendor
@@ -1063,10 +1115,37 @@ export function createUpdateVendorProductHandler(
     // unentitled caller sending a bad slug gets the 403 it is owed rather than
     // the 400 from a read it was never allowed to make.
     assertFieldsEntitled(
-      payload,
+      sent,
       (field) => PRODUCT_FIELD_CAPABILITIES[field as ProductEditableField],
       session.entitlementTier,
     );
+
+    // AECI-1237 (§11d.5): the profile handler's lock rule, after ownership and the
+    // field gate, before the resolution wave. Ownership has settled, so the 409
+    // discloses nothing.
+    const locks = await activeLocksOn(db, 'product', productId);
+    const screened = screenLockedPatch(sent, locks, before, PRODUCT_OVERRIDE_COLUMNS);
+    if (screened.refused.length > 0) throw fieldLockedError(screened.refused);
+    const payload = screened.payload;
+    if (Object.keys(payload).length === 0) {
+      const unchangedTaxonomy =
+        (await loadTaxonomySlugs(db, [productId])).get(productId) ?? NO_TAXONOMY;
+      const body: UpdateVendorProductResponse = {
+        product: toVendorProduct(
+          before,
+          isPrimary,
+          unchangedTaxonomy,
+          entitlementBlock(session),
+          locks,
+        ),
+      };
+      validateResponseInDev(c.env, () => UpdateVendorProductResponseSchema.parse(body));
+      return json(body);
+    }
+    const guarded = Object.keys(payload).filter((field) =>
+      (PRODUCT_OVERRIDE_FIELDS as readonly string[]).includes(field),
+    );
+    const lockSentinel = fieldsUnlockedSentinel(db, 'product', productId, guarded);
 
     // Now that the caller is known to own the row, the rest goes in one wave.
     // Term resolution happens BEFORE the batch opens, so an unknown slug is a
@@ -1151,6 +1230,8 @@ export function createUpdateVendorProductHandler(
     // One atomic unit: the column patch, each sent facet's delete+reinsert, and
     // the audit row (§26.1).
     const stmts: BatchStmt[] = [
+      // AECI-1237: a lock that landed after the read above aborts the save here.
+      ...(lockSentinel ? [lockSentinel] : []),
       db.update(products).set(writeColumns).where(eq(products.id, productId)),
     ];
     FACETS.forEach((facet, i) => {
@@ -1162,7 +1243,12 @@ export function createUpdateVendorProductHandler(
       }
     });
     stmts.push(auditInsert(db, vendorAuditEntry(c, auditEntry)));
-    await db.batch(stmts as BatchTuple);
+    try {
+      await db.batch(stmts as BatchTuple);
+    } catch (error) {
+      if (!isSentinelJsonAbort(error)) throw error;
+      throw (await lockRaceRefusal(db, 'product', productId, guarded)) ?? error;
+    }
 
     // The batch committed exactly `writeColumns` and exactly the facets above,
     // so the post-write state is known without reading it back. Re-reading would
@@ -1213,7 +1299,7 @@ export function createUpdateVendorProductHandler(
     );
 
     const body: UpdateVendorProductResponse = {
-      product: toVendorProduct(after, isPrimary, afterTaxonomy, entitlementBlock(session)),
+      product: toVendorProduct(after, isPrimary, afterTaxonomy, entitlementBlock(session), locks),
     };
     validateResponseInDev(c.env, () => UpdateVendorProductResponseSchema.parse(body));
     return json(body);

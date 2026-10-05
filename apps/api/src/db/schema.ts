@@ -1913,6 +1913,61 @@ export const auditLog = sqliteTable(
 );
 
 /**
+ * AECi field corrections with a lock (AECI-1237, ADR 0039, `DATABASE_SCHEMA.md` §8.9,
+ * `STAGE_2_VENDOR_PORTAL_SPEC.md` §11d.5).
+ *
+ * One row per correction. While `lifted_at` is NULL the lock is active: a vendor write
+ * that would change `field` on the entity answers `409 FIELD_LOCKED_BY_AECI`. A lift
+ * stamps the three `lifted_*` columns and keeps the row as history, so a field can be
+ * locked again later under a new row. At most ONE active lock per (entity, field), by
+ * the partial unique index.
+ *
+ * `entity_type` is promote's vocabulary: `vendor`, `product`, `integration` or
+ * `connector_evidenced_pair`. `field` is the record's wire name (`phone_number`,
+ * `docs_url`). `value` is the JSON of what AECi wrote (text, a year, or `null`), kept
+ * so the lock says what it locks even after the column moves on (promote after an
+ * un-claim, say).
+ *
+ * **Deliberately no FK and no CHECK.** No FK into the four entity tables: a lock row is
+ * history, and an FK would cascade it away with a retraction or block one (the retract
+ * scripts' FK-coverage specs would also have to own it). No FK from `set_by` /
+ * `lifted_by` to `profiles`: as with audit metadata, an admin's id stays on the record.
+ * No CHECK: a CHECK change forces a D1 table recreate (`docs/migrations.md` §0); the
+ * vocabulary is enforced by `AdminSetFieldOverrideSchema`.
+ */
+export const fieldOverrides = sqliteTable(
+  'field_overrides',
+  {
+    id: uuidPk(),
+    entityType: text('entity_type').notNull(),
+    entityId: text('entity_id').notNull(),
+    field: text('field').notNull(),
+    value: text('value', { mode: 'json' }).$type<string | number | null>(),
+    /** Shown to the vendor (AECI-1159's `reasonVisibility: 'vendor'` rule). */
+    reason: text('reason').notNull(),
+    /** Never shown to a vendor. */
+    internalNote: text('internal_note'),
+    /** The vendor that held the entity when the lock was set. Who was told. */
+    vendorId: text('vendor_id'),
+    setBy: text('set_by'),
+    setAt: text('set_at').notNull(),
+    liftedBy: text('lifted_by'),
+    liftedAt: text('lifted_at'),
+    /** Shown to the vendor, like `reason`. */
+    liftReason: text('lift_reason'),
+  },
+  (t) => [
+    uniqueIndex('field_overrides_active_key')
+      .on(t.entityType, t.entityId, t.field)
+      .where(sql`"lifted_at" IS NULL`),
+    index('field_overrides_entity_idx').on(t.entityType, t.entityId),
+    index('field_overrides_vendor_idx')
+      .on(t.vendorId, t.setAt)
+      .where(sql`"vendor_id" IS NOT NULL`),
+  ],
+);
+
+/**
  * Exactly-once guard for the async promote ingest (AECI-571 / ADR 0021).
  *
  * Cloudflare Workflows guarantee a step runs *at least* once: if the engine dies in
@@ -4316,6 +4371,7 @@ export const schema = {
   integrationFieldChallenges,
   integrationVendorLinks,
   auditLog,
+  fieldOverrides,
   promoteJobs,
   pageViews,
   statsCache,

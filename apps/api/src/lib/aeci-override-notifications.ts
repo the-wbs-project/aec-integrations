@@ -12,6 +12,10 @@
  *   - `portal-seat-revoked-by-aeci`: the admin seat revoke. To the vendor, which is
  *     its remaining seats. Not written when no seat remains.
  *
+ *   - `portal-field-corrected-by-aeci` and `portal-field-lock-lifted-by-aeci`
+ *     (AECI-1237, §11d.5): the admin field correction with a lock, and its lift. To
+ *     the vendor that holds the record.
+ *
  * The fourth override, the admin retire and restore, keeps its `integration_retire`
  * row and adds the reason to the owner's row (`lib/integration-retire.ts`).
  *
@@ -27,6 +31,7 @@ import {
   orderedPairSlugs,
   type AeciOverrideLogoSubject,
   type AeciOverrideNotificationEvent,
+  type AeciOverrideRecordSubject,
 } from '@aeci/shared';
 import type { AuditLogEntry } from '@aeci/shared/audit-log';
 
@@ -41,6 +46,8 @@ export const AECI_OVERRIDE_NOTIFICATION_IDS = {
   field_overridden: 'portal-field-overridden-by-aeci',
   logo_overridden: 'portal-logo-overridden-by-aeci',
   seat_revoked: 'portal-seat-revoked-by-aeci',
+  field_corrected: 'portal-field-corrected-by-aeci',
+  field_lock_lifted: 'portal-field-lock-lifted-by-aeci',
 } as const satisfies Record<AeciOverrideNotificationEvent, PortalNotificationId>;
 
 export type AeciOverridePortalNotificationId =
@@ -67,6 +74,12 @@ export interface AeciOverrideNotificationMetadata {
   /** `seat_revoked` */
   seatUserId?: string;
   seatName?: string | null;
+  /** `field_corrected` / `field_lock_lifted` (AECI-1237) on a company or product. */
+  recordSubject?: AeciOverrideRecordSubject;
+  /** `field_corrected`: the value AECi set, as text, or `null` for a cleared field. */
+  value?: string | null;
+  /** `field_corrected` / `field_lock_lifted`: the `field_overrides` row. */
+  overrideId?: string;
 }
 
 type Actor = { actorId: string | null; actorType: AuditLogEntry['actorType'] };
@@ -88,7 +101,28 @@ type EventInput =
       /** The write set `logo_url` to null. */
       cleared: boolean;
     }
-  | { event: 'seat_revoked'; seatUserId: string; seatName: string | null };
+  | { event: 'seat_revoked'; seatUserId: string; seatName: string | null }
+  | ({
+      event: 'field_corrected' | 'field_lock_lifted';
+      overrideId: string;
+      field: string;
+      /** `field_corrected` only. */
+      value?: string | null;
+    } & (
+      | {
+          /** `vendor` or `product`. */
+          entityType: 'vendor' | 'product';
+          entityId: string;
+          recordSubject: AeciOverrideRecordSubject;
+        }
+      | {
+          /** `integration` or `connector_evidenced_pair`. */
+          entityType: 'integration' | 'connector_evidenced_pair';
+          entityId: string;
+          integrationName: string | null;
+          pairSlugs: readonly [string, string] | null;
+        }
+    ));
 
 /**
  * The `notification.sent` row for one AECi override, to one vendor. Push it into the
@@ -131,6 +165,23 @@ export function aeciOverrideNotificationAudit(
       metadata = { ...base, seatUserId: input.seatUserId, seatName: input.seatName };
       entity = { entityType: 'profile', entityId: input.seatUserId };
       break;
+    case 'field_corrected':
+    case 'field_lock_lifted':
+      metadata = {
+        ...base,
+        field: input.field,
+        overrideId: input.overrideId,
+        ...(input.event === 'field_corrected' ? { value: input.value ?? null } : {}),
+        ...('recordSubject' in input
+          ? { recordSubject: input.recordSubject }
+          : {
+              integrationId: input.entityId,
+              integrationName: input.integrationName,
+              pairSlugs: input.pairSlugs ? orderedPairSlugs(...input.pairSlugs) : null,
+            }),
+      };
+      entity = { entityType: input.entityType, entityId: input.entityId };
+      break;
   }
   return {
     actorId: actor.actorId,
@@ -140,6 +191,10 @@ export function aeciOverrideNotificationAudit(
     // AECI-1192: `notification.sent` carries the RECIPIENT in `vendor_id`.
     vendorId: input.vendorId,
     ...(input.event === 'logo_overridden' && input.logoSubject.type === 'product'
+      ? { productId: input.entityId }
+      : {}),
+    ...((input.event === 'field_corrected' || input.event === 'field_lock_lifted') &&
+    input.entityType === 'product'
       ? { productId: input.entityId }
       : {}),
     metadata,

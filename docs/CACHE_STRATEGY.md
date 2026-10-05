@@ -347,6 +347,13 @@ helper enqueues for all of them (`purgeTags` / `afterVendorWrite` in
   > marker is a claim about who is accountable and a stale one is a lie rather
   > than merely old.
 
+- **AECi field correction** (`POST /api/admin/field-overrides`, AECI-1237) → the
+  record's own tags, sent with `source: 'moderation'`: `vendor:{slug}` for a company;
+  `product:{slug}` and `index:products` for a product; `pair:{min}__{max}`, both
+  endpoint `product:` tags and a connector's `product:` tag for an integration or pair.
+  A correction changes no count, so no `taxonomy` or `sitemap`. The lift changes no
+  public value and purges nothing.
+
 - **Integration create** (`POST /api/vendor/integrations`, AECI-1011) → **the same
   seven tags as retire and restore below**, with the creating vendor as `vendor:{slug}`.
   A create is the mirror of a restore: a new row joins every count and the pair URL

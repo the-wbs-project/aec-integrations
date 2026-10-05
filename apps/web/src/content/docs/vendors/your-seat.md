@@ -8,6 +8,8 @@ last_updated: 2 October 2026
 
 A seat is one person's access to one vendor's account on AEC Integrations. Seats have no price and no limit on how many your company holds. What a seat can change depends partly on your company's plan, Free or Managed, set out below.
 
+A field that AEC Integrations corrected and locked shows "Set by AEC Integrations" with the reason, and no seat can change it until AEC Integrations lifts the lock. [Owning an integration](/docs/vendors/owning-an-integration) explains how a lock works.
+
 ## Sign in
 
 Go to the [sign-in page](/auth/login) and choose **Continue with Google**, or enter your email and choose **Email me a sign-in link**. Use the address your seat was granted to. There is no password.

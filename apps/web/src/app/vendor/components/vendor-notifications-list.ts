@@ -1,3 +1,4 @@
+import { fieldOverrideLabel } from './field-override-labels';
 import { DatePipe, formatDate } from '@angular/common';
 import {
   Component,
@@ -358,7 +359,13 @@ export class VendorNotificationsList {
             ]
           : notification.event === 'logo_overridden'
             ? [notification.logo_subject?.name]
-            : [notification.seat_name];
+            : notification.event === 'seat_revoked'
+              ? [notification.seat_name]
+              : // AECI-1237: a correction or a lift names the field and the record.
+                [
+                  notification.field ? fieldOverrideLabel(notification.field) : null,
+                  notification.record_subject?.name ?? notification.integration_name,
+                ];
       return parts.filter((part): part is string => !!part);
     }
     // AECI-1046: an AECi retire names AEC Integrations in the title, so the owner name
@@ -458,6 +465,11 @@ function titleOf(notification: VendorNotification): string {
           : $localize`:@@vendor.override.notify.companyLogo:AEC Integrations replaced your company logo`;
       case 'seat_revoked':
         return $localize`:@@vendor.override.notify.seat:AEC Integrations removed a seat from your vendor account`;
+      // AECI-1237 / §11d.5.
+      case 'field_corrected':
+        return $localize`:@@vendor.override.notify.corrected:AEC Integrations corrected a detail and locked it`;
+      case 'field_lock_lifted':
+        return $localize`:@@vendor.override.notify.lifted:AEC Integrations lifted a lock on a detail`;
     }
   }
   if (notification.kind === 'review_response') {
@@ -554,6 +566,15 @@ function overrideNote(notification: VendorAeciOverrideNotification): string {
       break;
     case 'seat_revoked':
       meaning = $localize`:@@vendor.override.notify.note.seat:That person no longer has access to your vendor portal.`;
+      break;
+    case 'field_corrected': {
+      const value =
+        notification.value ?? $localize`:@@vendor.override.notify.note.cleared:(cleared)`;
+      meaning = $localize`:@@vendor.override.notify.note.corrected:The new value, ${value}:value:, is live. You cannot change this field until AEC Integrations lifts the lock.`;
+      break;
+    }
+    case 'field_lock_lifted':
+      meaning = $localize`:@@vendor.override.notify.note.lifted:You can edit this field again. Its value is still the one AEC Integrations set.`;
       break;
   }
   const dispute = $localize`:@@vendor.override.notify.dispute:If you think this is wrong, email support@aecintegrations.com and quote this message.`;

@@ -438,6 +438,11 @@ export const AdminVendorIntegrationRowSchema = z.object({
   /** The connector product an evidenced pair is delivered through. `null` on an
    *  `integrations` row. */
   connector: AdminIntegrationEndpointSchema.nullable().default(null),
+  /** Connector-powered (`isConnectorPoweredEdge`): its `mechanism_kind` is frozen
+   *  (AECI-1040 ruling 5). Always `true` on an evidenced pair. AECI-1237: the field
+   *  correction picker drops `mechanism_kind` on such a row, as the server does.
+   *  Defaults on parse for deploy skew. */
+  connector_powered: z.boolean().default(false),
   /** `'aeci'` (seeded by promote, then claimed) or `'vendor'` (created by the vendor). */
   origin: z.enum(['aeci', 'vendor']),
   claimed_at: z.string().nullable(),

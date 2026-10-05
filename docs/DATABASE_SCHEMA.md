@@ -1941,6 +1941,31 @@ create unique index integration_vendor_links_side_kind_key
   links stay. The pair read hides them (`isConnectorPoweredEdge`), and the vendor can still
   `DELETE` its own, which passes the connector fence. A `PUT` stays refused (decision 9).
 
+### 8.9 `field_overrides` (Stage 2.1 — AECI-1237)
+
+AECi's field corrections with a lock (ADR 0039, `STAGE_2_VENDOR_PORTAL_SPEC.md` §11d.5). One row per correction. While `lifted_at` is NULL the lock stands, and every vendor write that would change `field` on the entity answers `409 FIELD_LOCKED_BY_AECI`. A lift stamps the `lifted_*` columns and keeps the row as history, so a field can be locked again under a new row. Migration `0065_simple_inertia.sql`: one `CREATE TABLE` and three `CREATE INDEX`, no recreate of any table.
+
+| Column | Type | Notes |
+|---|---|---|
+| `id` | text PK | uuid |
+| `entity_type` | text NOT NULL | `vendor`, `product`, `integration` or `connector_evidenced_pair` (promote's vocabulary) |
+| `entity_id` | text NOT NULL | the record's id. No FK |
+| `field` | text NOT NULL | the record's wire name: `phone_number`, `docs_url` |
+| `value` | text (JSON) | what AECi wrote: text, a year or `null` |
+| `reason` | text NOT NULL | shown to the vendor |
+| `internal_note` | text | never shown to a vendor |
+| `vendor_id` | text | the vendor holding the record at set time, which was told. No FK |
+| `set_by`, `set_at` | text | the admin and when. `set_at` NOT NULL |
+| `lifted_by`, `lifted_at`, `lift_reason` | text | NULL while the lock stands. `lift_reason` is shown to the vendor |
+
+Indexes: **`field_overrides_active_key`**, unique on `(entity_type, entity_id, field) WHERE lifted_at IS NULL` (one active lock per field, and the race guard for a double correction); `field_overrides_entity_idx` on `(entity_type, entity_id)`; `field_overrides_vendor_idx` on `(vendor_id, set_at) WHERE vendor_id IS NOT NULL`.
+
+**Deliberately no FK and no CHECK.** No FK into the four entity tables: a lock row is history, and an FK would either cascade it away with a retraction or block the retraction, and the retract scripts' FK-coverage specs would have to own it. A retraction leaves the row behind; nothing reads it except by entity id. No FK from `set_by` or `lifted_by` to `profiles`, so the account erasure (`AUTH_AND_RLS.md` §8, sixteen inbound FKs) is unchanged and an erased admin's id stays here as it does in audit metadata. No CHECK, because a CHECK change forces a D1 table recreate (`docs/migrations.md` §0); `AdminSetFieldOverrideSchema` holds the vocabulary.
+
+**Writers.** `POST /api/admin/field-overrides` inserts, in the batch that writes the column and the audit row. `POST /api/admin/field-overrides/:id/lift` stamps the lift. Nothing else writes it. Readers: the vendor writers' lock check and sentinel (`apps/api/src/lib/field-overrides.ts`), the vendor reads' `locked_fields`, and `GET /api/admin/vendors/:id/field-overrides`.
+
+**Retention.** Kept. A lock row is part of the record of what AECi changed on a vendor's listing, like `audit_log`.
+
 ---
 
 ## 9. Analytics and caching tables

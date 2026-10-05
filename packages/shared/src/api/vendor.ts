@@ -2,6 +2,7 @@ import { LogoUrlSchema } from './logos';
 import { z } from 'zod';
 
 import { VendorEntitlementBlockSchema } from './admin-entitlements';
+import { LockedFieldsSchema } from './locked-fields';
 import { ProductUsefulnessSchema } from './usefulness';
 import { PUBLIC_PRIVATE } from './promote';
 
@@ -150,6 +151,11 @@ export const VendorAccountSchema = z.object({
 
   created_at: z.string().datetime(),
   updated_at: z.string().datetime(),
+
+  // AECI-1237 (§11d.5). The fields AEC Integrations corrected and locked, with the
+  // vendor-visible reason. The profile form renders them read-only. Absent reads as
+  // none locked.
+  locked_fields: LockedFieldsSchema,
 });
 export type VendorAccount = z.infer<typeof VendorAccountSchema>;
 
@@ -195,6 +201,9 @@ export const VendorProductSchema = z.object({
   // per-product plan table exists, the server copies the vendor's block into
   // every product, so this and the server gate read the same block.
   plan: VendorEntitlementBlockSchema,
+
+  // AECI-1237 (§11d.5). As on `VendorAccountSchema`: the product fields AECi locked.
+  locked_fields: LockedFieldsSchema,
 });
 export type VendorProduct = z.infer<typeof VendorProductSchema>;
 

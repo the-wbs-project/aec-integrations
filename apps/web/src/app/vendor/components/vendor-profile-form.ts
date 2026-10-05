@@ -5,12 +5,15 @@ import { Listbox, Option } from '@angular/aria/listbox';
 
 import {
   UpdateVendorProfileSchema,
+  lockedField,
+  type LockedField,
   type UpdateVendorProfileInput,
   type VendorAccount,
 } from '@aeci/shared';
 
 import { RequestTrigger } from '../../requests/request-trigger';
 import { NewTabIcon } from '../../shared/new-tab-icon/new-tab-icon';
+import { VendorLockedNote } from './vendor-locked-note';
 import { VendorApi } from '../vendor-api';
 import { VendorPortalStore } from '../vendor-portal-store';
 
@@ -90,7 +93,7 @@ interface FieldConfig {
  */
 @Component({
   selector: 'aec-vendor-profile-form',
-  imports: [LogoInput, Listbox, Option, RequestTrigger, NewTabIcon],
+  imports: [LogoInput, Listbox, Option, RequestTrigger, NewTabIcon, VendorLockedNote],
   template: `
     <form class="space-y-8" novalidate (submit)="$event.preventDefault(); onSave()">
       <!--
@@ -192,13 +195,11 @@ interface FieldConfig {
                   [id]="fieldId(cfg.key)"
                   rows="4"
                   [value]="model()[cfg.key]"
-                  [readOnly]="!canEdit()"
+                  [readOnly]="readOnly(cfg.key)"
                   (input)="onInput(cfg.key, $event)"
                   [attr.aria-invalid]="fieldErrors()[cfg.key] ? 'true' : null"
-                  [attr.aria-describedby]="
-                    fieldErrors()[cfg.key] ? fieldId(cfg.key) + '-error' : null
-                  "
-                  [class]="controlClass()"
+                  [attr.aria-describedby]="describedBy(cfg.key)"
+                  [class]="fieldClass(cfg.key)"
                 ></textarea>
               } @else {
                 <input
@@ -207,14 +208,15 @@ interface FieldConfig {
                   [attr.inputmode]="cfg.control === 'year' ? 'numeric' : null"
                   [attr.autocomplete]="cfg.autocomplete ?? null"
                   [value]="model()[cfg.key]"
-                  [readOnly]="!canEdit()"
+                  [readOnly]="readOnly(cfg.key)"
                   (input)="onInput(cfg.key, $event)"
                   [attr.aria-invalid]="fieldErrors()[cfg.key] ? 'true' : null"
-                  [attr.aria-describedby]="
-                    fieldErrors()[cfg.key] ? fieldId(cfg.key) + '-error' : null
-                  "
-                  [class]="controlClass()"
+                  [attr.aria-describedby]="describedBy(cfg.key)"
+                  [class]="fieldClass(cfg.key)"
                 />
+              }
+              @if (lockOf(cfg.key); as lock) {
+                <aec-vendor-locked-note [lock]="lock" [noteId]="fieldId(cfg.key) + '-locked'" />
               }
             }
             @if (fieldErrors()[cfg.key]; as err) {
@@ -242,9 +244,12 @@ interface FieldConfig {
             ngListbox
             orientation="horizontal"
             selectionMode="explicit"
-            [readonly]="!canEdit()"
+            [readonly]="readOnly('public_private')"
             [(value)]="publicPrivateSel"
             [attr.aria-labelledby]="fieldId('public_private') + '-label'"
+            [attr.aria-describedby]="
+              lockOf('public_private') ? fieldId('public_private') + '-locked' : null
+            "
             class="m-0 flex list-none flex-wrap gap-2 p-0"
           >
             @for (opt of ownershipOptions; track opt.value) {
@@ -258,6 +263,12 @@ interface FieldConfig {
               </li>
             }
           </ul>
+          @if (lockOf('public_private'); as lock) {
+            <aec-vendor-locked-note
+              [lock]="lock"
+              [noteId]="fieldId('public_private') + '-locked'"
+            />
+          }
         </div>
       </fieldset>
 
@@ -276,12 +287,15 @@ interface FieldConfig {
               [type]="inputType(cfg.control)"
               [attr.autocomplete]="cfg.autocomplete ?? null"
               [value]="model()[cfg.key]"
-              [readOnly]="!canEdit()"
+              [readOnly]="readOnly(cfg.key)"
               (input)="onInput(cfg.key, $event)"
               [attr.aria-invalid]="fieldErrors()[cfg.key] ? 'true' : null"
-              [attr.aria-describedby]="fieldErrors()[cfg.key] ? fieldId(cfg.key) + '-error' : null"
-              [class]="controlClass()"
+              [attr.aria-describedby]="describedBy(cfg.key)"
+              [class]="fieldClass(cfg.key)"
             />
+            @if (lockOf(cfg.key); as lock) {
+              <aec-vendor-locked-note [lock]="lock" [noteId]="fieldId(cfg.key) + '-locked'" />
+            }
             @if (fieldErrors()[cfg.key]; as err) {
               <p
                 [id]="fieldId(cfg.key) + '-error'"
@@ -312,6 +326,15 @@ interface FieldConfig {
             i18n="@@vendor.profile.saved"
           >
             Profile updated. Your listing shows the change now; search results refresh within a day.
+          </p>
+        } @else if (saveLocked()) {
+          <p
+            class="text-sm font-medium text-(--text-primary)"
+            role="alert"
+            i18n="@@vendor.profile.saveLocked"
+          >
+            AEC Integrations has locked a field you changed, so nothing was saved. Reload this
+            section to see the locked value.
           </p>
         } @else if (saveError()) {
           <p
@@ -440,6 +463,8 @@ export class VendorProfileForm {
   protected readonly logoPending = signal(false);
   protected readonly saved = signal(false);
   protected readonly saveError = signal(false);
+  /** AECI-1237: the save was refused with `409 FIELD_LOCKED_BY_AECI`. */
+  protected readonly saveLocked = signal(false);
 
   protected readonly labelClass =
     'block text-xs font-bold uppercase tracking-[0.08em] text-(--text-secondary)';
@@ -553,6 +578,29 @@ export class VendorProfileForm {
     void this.store.reload('profile');
   }
 
+  /** AECI-1237: AECi's lock on a field, when it holds one. */
+  protected lockOf(key: string): LockedField | undefined {
+    return lockedField(this.vendor().locked_fields, key);
+  }
+
+  /** Read-only without `profile.edit`, and on a field AECi locked (§11d.5). */
+  protected readOnly(key: string): boolean {
+    return !this.canEdit() || this.lockOf(key) !== undefined;
+  }
+
+  /** The sunken read-only surface on a locked field too. See {@link controlClass}. */
+  protected fieldClass(key: string): string {
+    return this.lockOf(key) ? `${this.inputBase} bg-(--surface-sunken)` : this.controlClass();
+  }
+
+  protected describedBy(key: string): string | null {
+    const ids = [
+      this.fieldErrors()[key] ? `${this.fieldId(key)}-error` : null,
+      this.lockOf(key) ? `${this.fieldId(key)}-locked` : null,
+    ].filter((id): id is string => id !== null);
+    return ids.length ? ids.join(' ') : null;
+  }
+
   protected fieldId(key: string): string {
     return `vendor-profile-${key.replace(/_/g, '-')}`;
   }
@@ -590,6 +638,7 @@ export class VendorProfileForm {
     if (!this.canEdit()) return;
     this.saved.set(false);
     this.saveError.set(false);
+    this.saveLocked.set(false);
     const body = this.diff();
     const parsed = UpdateVendorProfileSchema.safeParse(body);
     if (!parsed.success) return; // guarded by saveDisabled; defensive
@@ -598,8 +647,9 @@ export class VendorProfileForm {
       const res = await this.api.updateProfile(parsed.data);
       this.seed(res.vendor);
       this.saved.set(true);
-    } catch {
-      this.saveError.set(true);
+    } catch (err) {
+      if (apiErrorCode(err) === 'FIELD_LOCKED_BY_AECI') this.saveLocked.set(true);
+      else this.saveError.set(true);
     } finally {
       this.saving.set(false);
     }
@@ -628,4 +678,10 @@ export class VendorProfileForm {
         return $localize`:@@vendor.profile.error.tooLong:This value is too long.`;
     }
   }
+}
+
+/** The `code` from the API's `{ error: { code } }` envelope, read structurally. */
+function apiErrorCode(err: unknown): string | null {
+  const inner = (err as { error?: { error?: { code?: unknown } } } | null)?.error?.error;
+  return typeof inner?.code === 'string' ? inner.code : null;
 }

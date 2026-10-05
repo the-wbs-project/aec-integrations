@@ -848,6 +848,40 @@ export const NOTIFICATIONS = {
     summary: "Tells a vendor's remaining seats that AECi removed one of its seats, and why.",
     note: 'Not written when the revoke leaves no seat: nobody could read it, and the audit row is the record. Every plan, no tier rule. Carries the reason, never the internal note. Not pausable: a portal row, not email.',
   },
+  'portal-field-corrected-by-aeci': {
+    channel: 'portal',
+    audience: 'external',
+    trigger: {
+      kind: 'route',
+      ref: 'POST /api/admin/field-overrides (routes/admin-field-overrides.ts)',
+    },
+    envRule: 'any-tier',
+    dedupe: 'One row per correction, in the correction batch.',
+    ledger: ['audit_log'],
+    optOut: 'none',
+    pausable: false,
+    doc: 'docs/STAGE_2_VENDOR_PORTAL_SPEC.md §11d.5',
+    summary:
+      'Tells a vendor that AECi corrected a field on a record it holds and locked it, with the new value and why.',
+    note: 'Goes to the vendor holding the record when the lock was set. None when no vendor holds it, which the route refuses anyway. Every plan, no tier rule. Carries the reason, never the internal note. Not pausable: a portal row, not email.',
+  },
+  'portal-field-lock-lifted-by-aeci': {
+    channel: 'portal',
+    audience: 'external',
+    trigger: {
+      kind: 'route',
+      ref: 'POST /api/admin/field-overrides/:id/lift (routes/admin-field-overrides.ts)',
+    },
+    envRule: 'any-tier',
+    dedupe: 'One row per lift, in the lift batch.',
+    ledger: ['audit_log'],
+    optOut: 'none',
+    pausable: false,
+    doc: 'docs/STAGE_2_VENDOR_PORTAL_SPEC.md §11d.5',
+    summary:
+      'Tells a vendor that AECi lifted a field lock, so it can edit the field again, and why.',
+    note: 'Goes to the vendor named on the lock when it was set. Every plan, no tier rule. Carries the lift reason, never the internal note. Not pausable: a portal row, not email.',
+  },
 
   // ─── Linear (Linear then notifies its own subscribers) ────────────────────
   'linear-request-issue': {

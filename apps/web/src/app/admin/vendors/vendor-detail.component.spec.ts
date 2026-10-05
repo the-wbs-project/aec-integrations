@@ -106,6 +106,8 @@ interface ApiMock {
   listAudit: ReturnType<typeof vi.fn>;
   listProducts: ReturnType<typeof vi.fn>;
   revokeSeat: ReturnType<typeof vi.fn>;
+  /** AECI-1237: the Field corrections section's read. */
+  listFieldOverrides: ReturnType<typeof vi.fn>;
 }
 
 function makeProductRow(over: Partial<AdminVendorProductRow> = {}): AdminVendorProductRow {
@@ -148,6 +150,7 @@ function makeApiMock(
     listAudit: vi.fn(async () => structuredClone(audit)),
     listProducts: vi.fn(async () => structuredClone(products)),
     revokeSeat: vi.fn(async () => undefined),
+    listFieldOverrides: vi.fn(async () => ({ overrides: [] })),
   };
 }
 
@@ -277,7 +280,14 @@ describe('VendorDetail', () => {
     // the seats, and a decision about either needs both on screen.
     const { el } = await setup(makeApiMock(makeVendor()));
     const headings = [...el.querySelectorAll('h3')].map((h) => h.textContent?.trim());
-    expect(headings).toEqual(['Vendor logo', 'Basics', 'Entitlement', 'Seats']);
+    // AECI-1237: Field corrections sits between the basics and the entitlement.
+    expect(headings).toEqual([
+      'Vendor logo',
+      'Basics',
+      'Field corrections',
+      'Entitlement',
+      'Seats',
+    ]);
   });
 
   describe('tabs', () => {
