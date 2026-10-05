@@ -275,6 +275,8 @@ export function createBanReviewerHandler(
           actorType: auditActorType(session),
           now: bannedAt ?? new Date().toISOString(),
           source: 'admin-moderation',
+          // The ban row's own stamp already read the plan. `sealed()` reuses it.
+          ...(stamp.vendorPlan ? { vendorPlan: stamp.vendorPlan } : {}),
         }
       : null;
     // What the ban leaves: the target stays a (banned) profile, so any outcome but

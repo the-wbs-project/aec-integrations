@@ -574,7 +574,15 @@ async function approveClaim(
   // returns to an owner that already holds an active plan.
   const returned = await planSeatGrantReturn(
     db,
-    { vendorId: vendor.id, actorId, actorType, now: resolvedAt, source: CLAIM_AUDIT_SOURCE },
+    {
+      vendorId: vendor.id,
+      actorId,
+      actorType,
+      now: resolvedAt,
+      source: CLAIM_AUDIT_SOURCE,
+      // The same pre-batch snapshot the grant's own rows carry. No second read.
+      vendorPlan: vendorPlanSnapshot(entitlementBefore, resolvedAt),
+    },
     userId,
     { entitledAfterBatch: managed },
   );

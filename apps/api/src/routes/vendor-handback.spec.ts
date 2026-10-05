@@ -45,6 +45,7 @@ import { createAdminRevokeSeatHandler, createProvisionSeatHandler } from './admi
 import type { resolveClaimantIdentity } from '../lib/claimant-identity';
 import { REFUSED_CLAIMED_INTEGRATION, runPromoteIngest, type PromoteRunCtx } from './promote';
 import { logBatchToPosthog, logToPosthog } from '../posthog';
+import { planVendorHandback } from '../lib/vendor-handback';
 
 vi.mock('../posthog', () => ({
   logToPosthog: vi.fn(),
@@ -614,6 +615,55 @@ describe('a new seat grant returns the contests a ban moved to AECi', () => {
       .values({ id: SEAT_B, role: 'reviewer', bannedAt: CLAIMED_AT, banReason: 'abuse' });
     await provision();
     expect((await contest()).routedTo).toBe('aeci');
+  });
+});
+
+// ─── The plan stamp: passed in, or read once (AECI-1192 review) ──────────────
+
+describe("the hand-back stamps the caller's plan, or reads it when none is passed", () => {
+  const params = {
+    vendorId: VENDOR,
+    actorId: ADMIN,
+    actorType: 'admin' as const,
+    now: '2026-10-05T00:00:00.000Z',
+    source: 'admin-moderation',
+  };
+
+  it('stamps a passed vendorPlan as-is, without reading the entitlement', async () => {
+    // A plan the table does not hold: only the caller's value can produce it.
+    const vendorPlan = { tier: 'caller-tier', status: 'active' };
+    const batch = await planVendorHandback(t.db, { ...params, vendorPlan });
+    expect(batch.audits.length).toBeGreaterThan(0);
+    for (const a of batch.audits) {
+      if (a.action === 'notification.sent') continue;
+      expect(a).toMatchObject({ vendorId: VENDOR, vendorPlan });
+    }
+  });
+
+  it('reads the entitlement when no vendorPlan is passed', async () => {
+    const batch = await planVendorHandback(t.db, params);
+    expect(batch.audits.length).toBeGreaterThan(0);
+    for (const a of batch.audits) {
+      if (a.action === 'notification.sent') continue;
+      expect(a).toMatchObject({
+        vendorId: VENDOR,
+        vendorPlan: { tier: 'verified', status: 'active' },
+      });
+    }
+  });
+
+  it('the admin revoke stamps its hand-back rows with the plan the seat row carries', async () => {
+    expect((await revoke(SEAT_A)).status).toBe(204);
+    const rows = await t.db
+      .select({
+        action: auditLog.action,
+        tier: auditLog.vendorTier,
+        status: auditLog.vendorEntitlementStatus,
+      })
+      .from(auditLog)
+      .where(eq(auditLog.vendorId, VENDOR));
+    expect(rows.length).toBeGreaterThan(1);
+    expect(new Set(rows.map((r) => `${r.tier}/${r.status}`))).toEqual(new Set(['verified/active']));
   });
 });
 

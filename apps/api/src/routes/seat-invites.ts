@@ -227,6 +227,7 @@ export function createAcceptSeatInviteHandler(
         actorType: auditActorType(auth),
         now,
         source: 'vendor-portal',
+        vendorPlan: vendorPlanSnapshot(entitlement, now),
       },
       auth.userId,
     );

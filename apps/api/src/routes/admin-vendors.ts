@@ -908,10 +908,11 @@ export function createAdminRevokeSeatHandler(
 
     const now = new Date().toISOString();
     const actor = { actorId: auth.userId, actorType: auditActorType(auth) };
+    const vendorPlan = vendorPlanSnapshot(entitlement, now);
     const batch = revokeSeatStatements(db, {
       userId: targetId,
       vendorId,
-      vendorPlan: vendorPlanSnapshot(entitlement, now),
+      vendorPlan,
       ...actor,
       now,
       profileBefore: { role: target.role, vendorId: target.vendorId },
@@ -922,7 +923,8 @@ export function createAdminRevokeSeatHandler(
     // No seat at all hands the record back to AECi. Only banned seats left moves
     // the owner's open contests to AECi's queue until an unban.
     const outcome = await seatLossOutcome(db, vendorId, targetId);
-    const handbackParams = { vendorId, ...actor, now, source: CLAIM_AUDIT_SOURCE };
+    // The plan read above rides the handback rows too: `sealed()` does not re-read it.
+    const handbackParams = { vendorId, ...actor, now, source: CLAIM_AUDIT_SOURCE, vendorPlan };
     const follow =
       outcome === 'handback'
         ? await planVendorHandback(db, handbackParams)
@@ -1146,10 +1148,11 @@ export function createProvisionSeatHandler(
     }
 
     const now = new Date().toISOString();
+    const vendorPlan = vendorPlanSnapshot(entitlement, now);
     const batch = provisionSeatStatements(db, {
       userId,
       vendorId,
-      vendorPlan: vendorPlanSnapshot(entitlement, now),
+      vendorPlan,
       actorId: auth.userId,
       actorType: auditActorType(auth),
       now,
@@ -1173,8 +1176,9 @@ export function createProvisionSeatHandler(
         vendorId,
         actorId: auth.userId,
         actorType: auditActorType(auth),
-        now: new Date().toISOString(),
+        now,
         source: CLAIM_AUDIT_SOURCE,
+        vendorPlan,
       },
       userId,
     );
