@@ -54,7 +54,7 @@ Rule 1 goes directly after "Blocker 2". Rule 2 goes directly after rule 1.
 
 ### Dashboard
 
-1. Cloudflare → account **AEC Integrations** → zone **aecintegrations.com**.
+1. Cloudflare → account **The WBS Project** → zone **aecintegrations.com**.
 2. **Security → WAF → Custom rules → Create rule.**
 3. Rule name: `Block secret-file probes (AECI-1138)`.
 4. **When incoming requests match** → **Edit expression**. Paste the matching ` ```wirefilter `
