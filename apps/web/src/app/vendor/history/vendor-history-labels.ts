@@ -41,6 +41,14 @@ const ACTION_LABELS: Readonly<Record<string, string>> = {
   'integration.restored': $localize`:@@vendor.history.action.integrationRestored:Integration restored`,
   'connector_mapping.updated': $localize`:@@vendor.history.action.connectorMappingUpdated:Connector catalogue entry updated`,
 
+  // ── AECi corrections with a lock (AECI-1237) ─────────────────────────────
+  'vendor.field_overridden': $localize`:@@vendor.history.action.vendorFieldOverridden:Company profile detail corrected and locked by AECi`,
+  'vendor.override_lifted': $localize`:@@vendor.history.action.vendorOverrideLifted:Lock lifted on a company profile detail`,
+  'product.field_overridden': $localize`:@@vendor.history.action.productFieldOverridden:Product listing detail corrected and locked by AECi`,
+  'product.override_lifted': $localize`:@@vendor.history.action.productOverrideLifted:Lock lifted on a product listing detail`,
+  'integration.field_overridden': $localize`:@@vendor.history.action.integrationFieldOverridden:Integration detail corrected and locked by AECi`,
+  'integration.override_lifted': $localize`:@@vendor.history.action.integrationOverrideLifted:Lock lifted on an integration detail`,
+
   // ── Field contests and protests ──────────────────────────────────────────
   'integration.contest.submitted': $localize`:@@vendor.history.action.contestSubmitted:Field contest sent`,
   'integration.contest.withdrawn': $localize`:@@vendor.history.action.contestWithdrawn:Field contest withdrawn`,
