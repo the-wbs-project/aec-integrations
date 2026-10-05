@@ -366,8 +366,8 @@ the same correctness bug the "provision `INDEXNOW_KEY` only at launch" rule exis
 only published terms are buffered.
 
 **The floor read matters more under the buffer, not less**: a
-sub-floor trade URL written to `indexnow_queue` outlives the promote and is submitted up to twenty
-minutes later by a job with no way to re-derive whether it should have been. The `/trades` **index** is submitted whenever any trade is
+sub-floor trade URL written to `indexnow_queue` outlives the promote and is submitted by the next daily drain (up to twenty
+minutes later before AECI-1136) by a job with no way to re-derive whether it should have been. The `/trades` **index** is submitted whenever any trade is
 touched at all — published or not — because it renders live per-term counts and gains or loses a
 tile on a floor crossing. AECI-542 excluded trade URLs outright and deferred the decision to
 AECI-546; this is that decision.

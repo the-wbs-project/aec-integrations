@@ -1,0 +1,294 @@
+<section aria-labelledby="admin-reindex-history-heading" class="mt-14 space-y-4">
+  <h2
+    #heading
+    id="admin-reindex-history-heading"
+    tabindex="-1"
+    class="text-xl font-bold text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+    i18n="@@admin.reindex.history.heading"
+  >
+    Submission history
+  </h2>
+  <p class="max-w-[60ch] text-sm text-(--text-secondary)" i18n="@@admin.reindex.history.intro">
+    Every URL the daily IndexNow run sent to Bing and Yandex, and every URL an operator marked as
+    requested in Search Console, newest first, with the edits that caused it. This records what we
+    submitted and requested. It does not say whether a search engine indexed the page.
+  </p>
+
+  <div class="flex flex-wrap items-end gap-3">
+    <aec-select
+      i18n-label="@@admin.reindex.history.filter.channel.label"
+      label="Channel"
+      [options]="channelOptions"
+      [value]="channel()"
+      idPrefix="admin-reindex-history-channel"
+      (changed)="onChannel($event)"
+    />
+    <aec-select
+      i18n-label="@@admin.reindex.history.filter.outcome.label"
+      label="Outcome"
+      [options]="outcomeOptions"
+      [value]="outcome()"
+      idPrefix="admin-reindex-history-outcome"
+      (changed)="onOutcome($event)"
+    />
+    <div class="flex items-center gap-2">
+      <label
+        for="admin-reindex-history-from"
+        class="text-xs font-bold tracking-[0.08em] text-(--text-secondary) uppercase"
+        i18n="@@admin.reindex.history.filter.from"
+        >Submitted from</label
+      >
+      <input
+        id="admin-reindex-history-from"
+        type="date"
+        [value]="from()"
+        [attr.max]="to() || null"
+        (change)="onFrom($event)"
+        class="rounded-(--radius-md) border border-(--border-default) bg-(--surface-base) px-2 py-1.5 text-sm text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+      />
+      <label
+        for="admin-reindex-history-to"
+        class="text-xs font-bold tracking-[0.08em] text-(--text-secondary) uppercase"
+        i18n="@@admin.reindex.history.filter.to"
+        >to</label
+      >
+      <input
+        id="admin-reindex-history-to"
+        type="date"
+        [value]="to()"
+        [attr.min]="from() || null"
+        (change)="onTo($event)"
+        class="rounded-(--radius-md) border border-(--border-default) bg-(--surface-base) px-2 py-1.5 text-sm text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+      />
+    </div>
+    @if (anyFilter()) {
+    <button
+      type="button"
+      (click)="clearFilters()"
+      class="inline-flex cursor-pointer items-center rounded-(--radius-md) px-3 py-2 text-sm font-medium text-(--text-secondary) underline decoration-(--border-strong) underline-offset-4 transition-colors hover:text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+      i18n="@@admin.reindex.history.filter.clearAll"
+    >
+      Clear filters
+    </button>
+    }
+  </div>
+
+  <!-- The vendor filter is set from a row's "Only this vendor" button. -->
+  @if (vendor(); as v) {
+  <div class="flex flex-wrap items-center gap-2 text-sm">
+    <span
+      class="text-xs font-bold tracking-[0.08em] text-(--text-secondary) uppercase"
+      i18n="@@admin.reindex.history.filter.vendor.label"
+      >Vendor</span
+    >
+    <span
+      class="inline-flex items-center gap-2 rounded-full bg-(--accent-primary-soft) py-0.5 ps-3 pe-1 font-medium text-(--accent-primary)"
+    >
+      {{ v.name }}
+      <button
+        #vendorRemove
+        type="button"
+        (click)="clearVendor()"
+        class="inline-flex cursor-pointer items-center rounded-full px-2 py-0.5 text-xs font-bold text-(--accent-primary) transition-colors hover:bg-(--surface-base) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+      >
+        <span i18n="@@admin.reindex.history.filter.vendor.remove">Remove</span>
+        <span class="sr-only" i18n="@@admin.reindex.history.filter.vendor.removeSr">
+          the vendor filter</span
+        >
+      </button>
+    </span>
+  </div>
+  } @else {
+  <p
+    class="max-w-[60ch] text-xs text-(--text-secondary)"
+    i18n="@@admin.reindex.history.filter.vendor.hint"
+  >
+    To see one vendor's submissions, select Only this vendor beside its name in the table.
+  </p>
+  } @if (firstLoad()) {
+  <p class="text-sm text-(--text-secondary)" i18n="@@admin.reindex.history.loading">
+    Loading submission history…
+  </p>
+  } @else if (error() === 'invalid') {
+  <p
+    class="text-sm font-medium text-(--text-primary)"
+    role="alert"
+    i18n="@@admin.reindex.history.invalid"
+  >
+    These filters can't be searched. Check that the From date is not after the To date.
+  </p>
+  } @else if (error(); as kind) {
+  <div class="space-y-3" role="alert">
+    <p class="text-sm font-medium text-(--text-primary)">
+      <span i18n="@@admin.reindex.history.error">We couldn't load the submission history.</span>
+      @if (kind === 'session') {
+      <span i18n="@@admin.reindex.history.error.session">Your session may have expired.</span>
+      }
+    </p>
+    <button
+      type="button"
+      (click)="retry()"
+      class="inline-flex cursor-pointer items-center rounded-(--radius-md) border border-(--border-strong) bg-(--surface-raised) px-4 py-2 text-sm font-bold text-(--text-primary) transition-colors hover:bg-(--surface-sunken) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+      i18n="@@admin.reindex.history.retry"
+    >
+      Try again
+    </button>
+  </div>
+  } @else if (isEmpty()) {
+  <p class="max-w-[60ch] text-sm text-(--text-secondary)" i18n="@@admin.reindex.history.empty">
+    Nothing has been submitted yet. Rows appear after the daily IndexNow run sends a URL, or after
+    an operator marks a worklist URL as requested.
+  </p>
+  } @else {
+  <div [attr.aria-busy]="busy()" class="space-y-4">
+    <p class="text-sm text-(--text-secondary)">
+      <span i18n="@@admin.reindex.history.count"
+        >{total(), plural, =1 {1 submission matches.} other {{{ total() }} submissions
+        match.}}</span
+      >
+      @if (busy()) {
+      <span class="ms-2" i18n="@@admin.reindex.history.updating">Updating…</span>
+      }
+    </p>
+
+    @if (noMatches()) {
+    <p class="text-sm text-(--text-secondary)" i18n="@@admin.reindex.history.noMatches">
+      No submissions match these filters.
+    </p>
+    } @else {
+    <div
+      class="overflow-x-auto focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+      tabindex="0"
+      role="region"
+      aria-labelledby="admin-reindex-history-caption"
+    >
+      <table class="w-full min-w-[60rem] border-collapse text-sm">
+        <caption
+          id="admin-reindex-history-caption"
+          class="sr-only"
+          i18n="@@admin.reindex.history.caption"
+        >
+          Each URL submitted to a search engine, newest first, with its channel, outcome and the
+          edits that caused it
+        </caption>
+        <thead>
+          <tr class="border-b border-(--border-strong)">
+            <th
+              scope="col"
+              class="py-2 pe-4 text-start font-bold text-(--text-secondary)"
+              i18n="@@admin.reindex.history.col.when"
+            >
+              Submitted (UTC)
+            </th>
+            <th
+              scope="col"
+              class="py-2 pe-4 text-start font-bold text-(--text-secondary)"
+              i18n="@@admin.reindex.history.col.url"
+            >
+              URL
+            </th>
+            <th
+              scope="col"
+              class="py-2 pe-4 text-start font-bold text-(--text-secondary)"
+              i18n="@@admin.reindex.history.col.channel"
+            >
+              Channel
+            </th>
+            <th
+              scope="col"
+              class="py-2 pe-4 text-start font-bold text-(--text-secondary)"
+              i18n="@@admin.reindex.history.col.outcome"
+            >
+              Outcome
+            </th>
+            <th
+              scope="col"
+              class="py-2 text-start font-bold text-(--text-secondary)"
+              i18n="@@admin.reindex.history.col.causes"
+            >
+              Caused by
+            </th>
+          </tr>
+        </thead>
+        <tbody>
+          @for (row of rows(); track row.id) {
+          <tr class="border-b border-(--border-default) align-top">
+            <td class="py-2.5 pe-4 whitespace-nowrap text-(--text-secondary)">
+              {{ row.submitted_at | date: 'medium' : 'UTC' }}
+            </td>
+            <th scope="row" class="py-2.5 pe-4 text-start font-normal">
+              <span class="block max-w-[28rem] break-all text-(--text-primary)">{{ row.url }}</span>
+            </th>
+            <td class="py-2.5 pe-4 text-(--text-primary)">{{ channelLabel(row.channel) }}</td>
+            <td class="py-2.5 pe-4">
+              <span
+                class="inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium"
+                [class]="outcomeClass(row.outcome)"
+                >{{ outcomeLabel(row.outcome) }}</span
+              >
+              @if (row.http_status !== null) {
+              <span class="mt-1 block font-mono text-xs text-(--text-secondary)"
+                ><span i18n="@@admin.reindex.history.httpStatus">HTTP</span> {{ row.http_status
+                }}</span
+              >
+              }
+            </td>
+            <td class="py-2.5">
+              @if (row.causes.length === 0) {
+              <span class="text-(--text-secondary)" i18n="@@admin.reindex.history.causes.none"
+                >Not recorded</span
+              >
+              } @else {
+              <ul class="space-y-2">
+                @for (cause of row.causes; track causeKey(cause, $index)) {
+                <li>
+                  <span class="font-medium text-(--text-primary)">{{ sourceLabel(cause) }}</span>
+                  @if (cause.action) {
+                  <span class="text-(--text-secondary)"> · {{ actionLabel(cause.action) }}</span>
+                  } @if (cause.product; as p) {
+                  <span class="block text-(--text-primary)">{{ productName(p) }}</span>
+                  } @if (cause.vendor; as v) {
+                  <span class="flex flex-wrap items-baseline gap-x-3">
+                    <a
+                      [routerLink]="vendorPath(v)"
+                      class="text-(--text-primary) underline decoration-(--border-strong) underline-offset-4 transition-colors hover:decoration-(--accent-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+                      >{{ vendorName(v) }}</a
+                    >
+                    @if (vendor()?.id !== v.id) {
+                    <button
+                      type="button"
+                      (click)="filterToVendor(v)"
+                      class="cursor-pointer text-xs font-medium text-(--text-secondary) underline underline-offset-4 transition-colors hover:text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+                    >
+                      <span i18n="@@admin.reindex.history.vendor.only">Only this vendor</span>
+                      <span class="sr-only">: {{ vendorName(v) }}</span>
+                    </button>
+                    }
+                  </span>
+                  } @if (cause.promote_job_id) {
+                  <span class="block font-mono text-xs text-(--text-secondary)"
+                    ><span i18n="@@admin.reindex.history.promoteJob">Job</span> {{
+                    cause.promote_job_id }}</span
+                  >
+                  }
+                </li>
+                }
+              </ul>
+              }
+            </td>
+          </tr>
+          }
+        </tbody>
+      </table>
+    </div>
+
+    <aec-admin-paginator
+      [page]="page()"
+      [perPage]="perPage"
+      [total]="total()"
+      (pageChange)="goToPage($event)"
+    />
+    }
+  </div>
+  }
+</section>

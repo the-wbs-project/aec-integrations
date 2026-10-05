@@ -1041,7 +1041,7 @@ identical states is not a history.
 
 > **Breadcrumb revision — SHIPPED (AECI-777).** The detail page's bespoke "Back to the claim queue" link is gone: the shell's breadcrumb (§5.0b) is the way back, and the `h2` no longer reads "Vendor claim". This is the one detail screen that needed a rule rather than a field — a claim has no name of its own, so it is titled by its **target**, falling back to `targetFallbackLabel()` for the claim that outlived a retracted product, and to the section's word before the fetch resolves. No endpoint, query or response shape moved.
 
-### 5.11 Re-index queue — SHIPPED (AECI-946, 2026-09-14)
+### 5.11 Re-index queue — SHIPPED (AECI-946, 2026-09-14; submission history AECI-1188, 2026-10-05)
 
 The Google re-crawl worklist. `STAGE_1_SPEC.md` §20.2 owns the contract and
 **ADR 0031** owns the reasoning; `DATABASE_SCHEMA.md` §9.8 is the table and
@@ -1062,6 +1062,39 @@ operator worked from memory after a promote, which `environments.md` described a
 
 - **`/admin/reindex`** — one table, most important first, with a Done button per
   row. `priority`, `reason`, `url`, and age. The only filter is `?priority=`.
+- **Done asks what happened (AECI-1185).** Done opens a dialog with two answers and
+  Cancel. "Requested indexing in Search Console" sends `?outcome=requested`.
+  "Cleared without a request" sends `?outcome=not_requested`, for a quota that ran
+  out, a page that is gone, or an edit not worth a request. Both remove the row.
+  Only `requested` writes a `recrawl_submissions` row (channel `gsc_manual`), with
+  the row's causes copied onto it. The answer records what the operator did. It is
+  not proof that Google accepted the request or indexed the page, and no copy on
+  this screen says "indexed".
+- **Submission history, below the worklist (AECI-1188).** A read-only section,
+  "Submission history", lists `recrawl_submissions` newest first (`submitted_at
+  DESC, id DESC`), 25 a page, from `GET /api/admin/reindex/submissions`. One row per
+  submission: when (UTC), the URL, the channel ("IndexNow (Bing, Yandex)" or
+  "Search Console, by hand"), an outcome badge (accepted, refused, failed,
+  requested) with the IndexNow HTTP status, and every cause the row carries. Each
+  cause shows its source (Vendor edit, Admin edit, Promote), the audit action label
+  from `audit-action-labels.ts`, the product name, and the vendor as a link to
+  `/admin/vendors/:id`. A promote cause shows its job id. There is no audit-by-id
+  page, so a cause does not link to its audit row. The vendor page's audit trail
+  lists it. A submission with no cause row says "Not recorded": it was queued
+  before AECI-1184, or its cause write failed.
+- **Four filters, all optional, ANDed.** Channel and Outcome are selects. A From
+  and To date pair filters inclusive UTC days on `submitted_at`. From after To is
+  refused on the client without a request, and the API 400s it. The vendor filter
+  has no picker. Each vendor cause carries an "Only this vendor" button. The active
+  filter shows as a chip with a Remove button. A select loaded from the paginated
+  admin vendor list would silently omit vendors, so it was not used. The vendor
+  filter keeps a submission when any of its causes names that vendor, and the row
+  still shows every cause. Clear filters resets all four. A refilter returns to
+  page 1. An empty log and a filter that matches nothing have different copy.
+- **The history announces through the worklist's live region.** The page keeps one
+  polite live region. The history reports its result count there after a refilter.
+  Focus moves to the chip after "Only this vendor", and to the section heading
+  after Remove or Clear filters, because each pressed button leaves the DOM.
 
 Four IA notes, in §5.10's voice:
 
@@ -1093,7 +1126,9 @@ Four IA notes, in §5.10's voice:
   `db.batch` as the delete, attributed to the admin rather than to `'system'`. The
   summary-row allowance exists for *scheduled* deletes and does not reach an
   operator clicking a button. `before_state` carries the cleared row, because the
-  row is gone immediately afterwards and the trail is the only surviving copy.
+  row is gone immediately afterwards and the trail is the only surviving copy. Since
+  AECI-1185 `metadata` carries `outcome`, and a `requested` clear adds `batchId`,
+  which is the `recrawl_submissions.batch_id` of the row it wrote.
 - **The DELETE carries no `rateLimit()`**, matching every other `requireAdmin()`
   write here (`waf-rate-limits.md` §6.2). Clearing thirty rows in one sitting is
   exactly the workload this screen exists for, so a write-shaped ceiling would 429
@@ -1107,9 +1142,13 @@ Four IA notes, in §5.10's voice:
 - **Re-queue a URL, or edit a priority.** Both are derived from a write that
   happened. Hand-editing either would make the `reason` column a claim rather than a
   record.
-- **Show what has already been requested.** That is the cost of Done deleting, and
-  it is accepted. `audit_log` filtered on `reindex.cleared` is the history, which is
-  where the other admin writes keep theirs too.
+- **Change the submission history.** The section is read-only. `recrawl_submissions`
+  and `recrawl_submission_causes` are append-only evidence logs
+  (`DATABASE_SCHEMA.md` §9.6a, §9.6b), so the history has no delete, no edit and no
+  re-submit. A `not_requested` clear writes no submission row, so it is not in the
+  history. Its `reindex.cleared` audit row with `metadata.outcome` is the only record.
+- **Say a page was indexed.** No search engine tells us. The history records what we
+  submitted and what an operator says they requested.
 
 ### 5.12 Field contests — SHIPPED (AECI-1008, 2026-09-18; connector-powered rows and evidenced pairs AECI-1092, 2026-09-23)
 
@@ -1581,7 +1620,7 @@ All endpoints are admin-gated and register on the existing `authAdmin` sub-route
 | `GET /api/admin/claims/:id` | §5.10 detail — **SHIPPED (AECI-739)** | One claim, every queue signal plus `duplicate_siblings` — the rows behind the queue's duplicate chip. `is_duplicate` here IS `duplicate_siblings.length > 0`, so the two surfaces cannot disagree. **422**, not 404, on a `kind='correction'` id: the row exists and moderates elsewhere |
 | `PATCH /api/admin/claims/:id/notes` | §5.10 operator note — **SHIPPED (AECI-739)** | **The fourth write in this table**, and an *annotation* — no status change, no grant, no email, no purge, no `workflow_instances` row. Audit row in the same `db.batch` as the guarded `UPDATE`, carrying the full old and new note, which is what makes the trail the note's history. Unchanged text is a 200 no-op that writes nothing |
 | `GET /api/admin/reindex` | §5.11 worklist — **SHIPPED (AECI-946)** | The Google re-crawl queue, most important first. `PageQuerySchema` + `?priority=` (1–4). **Ordering is fixed and carries no `sort` parameter**, because a worklist the operator can re-order no longer has the right next action on top. `id ASC` is the third `ORDER BY` term per AECI-825: rows from one promote share a `queued_at` to the millisecond, and a paginated list without a unique trailing term can drop or duplicate a row |
-| `DELETE /api/admin/reindex/:id` | §5.11 Done — **SHIPPED (AECI-946)** | **The fifth write in this table**, and *queue consumption* — no catalog row, no account row, nothing a visitor can see. Audit row in the same `db.batch` as the delete, `action='reindex.cleared'`, attributed to the admin rather than `'system'`. This is **not** §26.1's scheduled-deletion case, so it audits per row rather than one summary row per run. Carries **no** `rateLimit()` — true of every admin write **except** the three AECI-955 logo routes below, the AECI-1008 contest decision, the two AECI-1046 integration retire routes, the AECI-1177 review-reply decision and the AECI-1224 sending switch (`waf-rate-limits.md` §6.2). A row another tab already cleared is a flat 404 |
+| `DELETE /api/admin/reindex/:id` | §5.11 Done — **SHIPPED (AECI-946)** | **The fifth write in this table**, and *queue consumption* — no catalog row, no account row, nothing a visitor can see. Audit row in the same `db.batch` as the delete, `action='reindex.cleared'`, attributed to the admin rather than `'system'`. This is **not** §26.1's scheduled-deletion case, so it audits per row rather than one summary row per run. Carries **no** `rateLimit()` — true of every admin write **except** the three AECI-955 logo routes below, the AECI-1008 contest decision, the two AECI-1046 integration retire routes, the AECI-1177 review-reply decision and the AECI-1224 sending switch (`waf-rate-limits.md` §6.2). A row another tab already cleared is a flat 404. Since AECI-1185 `?outcome=requested\|not_requested` is required (400 otherwise). `requested` also writes one `gsc_manual` `recrawl_submissions` row and its causes in the same batch |
 | `GET /api/admin/contests` | §5.12 queue — **SHIPPED (AECI-1008)** | `PageQuerySchema` + `?status=` (default `open`) + `?routed_to=` (default `aeci`; `owner` is the read-only view). Ordered `created_at DESC, id ASC`. Bare `paginatedResponseSchema`, same reasoning as §5.11. Contract in `packages/shared/src/api/integration-contests.ts` |
 | `PATCH /api/admin/contests/:id` | §5.12 accept / decline — **SHIPPED (AECI-1008)** | **A decision write, not a catalog write** (the eighth §2 exception). Accept files a `REVIEW - ` Linear issue after commit. It writes catalog data only on a claimed row, where promote no longer can (AECI-1005, `STAGE_2_VENDOR_PORTAL_SPEC.md` §11b.6). **Since AECI-1191 an accept that changes a vendor-held value requires `note`** (`400 VALIDATION_FAILED`, `error.field = 'note'`, nothing written), recorded in the decision audit row's `metadata.reason`; the list read carries `accept_note_required`. Audit row, workflow transition and the submitter's `notification.sent` ride one `db.batch` behind a race sentinel. Carries `rateLimit('write')`. `409 CONTEST_NOT_OPEN` / `CONTEST_ROUTED_TO_OWNER` |
 | `GET /api/admin/review-responses` | §5.13 queue — **SHIPPED (AECI-1177)** | `PageQuerySchema` + `?status=` (default `pending`). Ordered `updated_at ASC, id ASC`, oldest first. Bare `paginatedResponseSchema`. Contract in `packages/shared/src/api/review-responses.ts` |
@@ -2001,7 +2040,7 @@ Four binding rules on the cron:
 
 - **Chunk the deletes.** D1 bills rows *written*, and a delete is a write; a single statement over a large window is a bad first run.
 - **Never prune a day the snapshot has not captured.** Verify a `metrics_daily` row exists for **every** day inside the cut window before deleting — do not assume the schedule held (§10 states the same dependency).
-- **Hard-exclude `audit_log`, `workflow_instances`, `workflow_transitions`, and `metrics_daily`.** The first three are governed by `STAGE_1_SPEC.md` §26.6 (indefinite, and this cron is not the vehicle for changing that); the fourth is the long memory §7.1 exists to keep.
+- **Hard-exclude `audit_log`, `workflow_instances`, `workflow_transitions`, and `metrics_daily`.** The first three are governed by `STAGE_1_SPEC.md` §26.6 (indefinite, and this cron is not the vehicle for changing that); the fourth is the long memory §7.1 exists to keep. Since AECI-1183 `recrawl_submissions` (`DATABASE_SCHEMA.md` §9.6a) is excluded too. It is the search-engine submission log, kept forever, and ADR 0022's 2026-10-04 amendment exempts it from auditing only while it is never deleted. Since AECI-1184 its cause table `recrawl_submission_causes` (§9.6b) is excluded on the same terms.
 - **Emit one summary `audit_log` row per run** — `actor_type='system'`, `action='retention.pruned'`, `metadata={table, cutoff, rowsDeleted}` — in the same batch as the delete. Scheduled deletion is the explicit **exception** to the §13 D11 / ADR 0022 carve-out: deletion is the one write whose fact cannot be recovered from the data afterwards.
 
 The window lives in a **config constant**, not a literal, so it can be shortened later without a migration. Note the practical consequence: `page_views` data starts 2026-06-23, so at 400 days **this cron deletes nothing until ~2027-07**. That is deliberate — build the mechanism, set the threshold safe — and it is why §10 deprioritizes P3.2. `job_runs` bites first, around **2026-11-11**.

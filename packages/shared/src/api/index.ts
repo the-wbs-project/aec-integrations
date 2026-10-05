@@ -45,6 +45,7 @@ export * from './vendor-checklist';
 export * from './vendor-connector-catalog';
 export * from './vendor-connectors';
 export * from './vendor-notifications';
+export * from './vendor-recrawl-submissions';
 export * from './vendor-updates';
 export * from './vendors';
 export * from './version';

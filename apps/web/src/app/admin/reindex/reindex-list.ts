@@ -1,12 +1,27 @@
 import { HttpErrorResponse } from '@angular/common/http';
-import { PLATFORM_ID, Component, afterNextRender, computed, inject, signal } from '@angular/core';
+import {
+  PLATFORM_ID,
+  Component,
+  afterNextRender,
+  computed,
+  inject,
+  signal,
+  viewChild,
+} from '@angular/core';
 import { isPlatformBrowser } from '@angular/common';
+import {
+  BrnDialog,
+  BrnDialogContent,
+  BrnDialogDescription,
+  BrnDialogTitle,
+} from '@spartan-ng/brain/dialog';
 
-import type { ListReindexQueueQuery, ReindexQueueRow } from '@aeci/shared';
+import type { ListReindexQueueQuery, ReindexClearOutcome, ReindexQueueRow } from '@aeci/shared';
 
 import { AdminPaginator } from '../admin-paginator';
 import { AdminSummaryStore } from '../admin-summary.store';
 import { AdminReindexApi } from './admin-reindex.api';
+import { ReindexHistory } from './reindex-history';
 
 /** A worklist is walked top to bottom, so the page is big enough that the
  *  operator rarely pages at all, and small enough that the table stays scannable. */
@@ -63,14 +78,33 @@ function humanizeReason(reason: string): string {
  * It never reads cookies or session state directly.
  *
  * ── DONE DELETES, WHICH IS WHY THE BADGE IS TRUSTWORTHY ──────────────────────
- * There is no "requested" flag: `DELETE /api/admin/reindex/:id` drops the row.
- * So an empty screen means "genuinely nothing pending" rather than "nothing I
- * have not already dismissed", and the nav count is the real backlog. A later
- * edit to the same page inserts a fresh row, so nothing is lost.
+ * There is no "requested" flag on the row: `DELETE /api/admin/reindex/:id`
+ * drops it. So an empty screen means "genuinely nothing pending" rather than
+ * "nothing I have not already dismissed", and the nav count is the real
+ * backlog. A later edit to the same page inserts a fresh row, so nothing is lost.
+ *
+ * ── DONE ASKS WHAT HAPPENED (AECI-1185) ──────────────────────────────────────
+ * Done opens a dialog with two answers. "Requested indexing" writes a
+ * `gsc_manual` row to the submission log; "Cleared without a request" writes
+ * none. Either records what the operator did, never what Google did, so no copy
+ * here says "indexed". The dialog opens from the click handler, never from an
+ * `effect()`: `BrnDialog.open()` creates an effect of its own (NG0602).
+ *
+ * ── SUBMISSION HISTORY (AECI-1188) ───────────────────────────────────────────
+ * Below the worklist, `ReindexHistory` lists what was submitted and requested,
+ * with causes. It loads on its own and fails on its own, so a failed history
+ * never hides the worklist.
  */
 @Component({
   selector: 'aec-reindex-list',
-  imports: [AdminPaginator],
+  imports: [
+    AdminPaginator,
+    BrnDialog,
+    BrnDialogContent,
+    BrnDialogDescription,
+    BrnDialogTitle,
+    ReindexHistory,
+  ],
   templateUrl: './reindex-list.html',
 })
 export class ReindexList {
@@ -99,6 +133,10 @@ export class ReindexList {
   protected readonly liveMessage = signal('');
 
   protected readonly priority = signal<PriorityFilter>(null);
+
+  /** The row whose Done dialog is open, or `null` when it is closed. */
+  protected readonly doneTarget = signal<ReindexQueueRow | null>(null);
+  private readonly doneDialog = viewChild(BrnDialog);
 
   protected readonly priorityOptions: ReadonlyArray<{ key: PriorityFilter; label: string }> = [
     { key: null, label: $localize`:@@admin.reindex.filter.priority.all:All` },
@@ -195,23 +233,53 @@ export class ReindexList {
   }
 
   /**
-   * Mark one URL done: `DELETE`, drop the row, tick the nav badge down.
+   * Done: ask what the operator did before clearing. Called from the row's click
+   * handler only. The dialog returns focus to this row's Done button on close.
+   */
+  protected openDone(row: ReindexQueueRow): void {
+    if (this.pendingActionId() !== null) return;
+    this.failedActionId.set(null);
+    this.doneTarget.set(row);
+    this.doneDialog()?.open();
+  }
+
+  /** Cancel, Escape, or a backdrop click. Also runs when a clear closes it. */
+  protected closeDone(): void {
+    this.doneTarget.set(null);
+    this.doneDialog()?.close();
+  }
+
+  /** One of the dialog's two answers. */
+  protected confirmDone(outcome: ReindexClearOutcome): void {
+    const row = this.doneTarget();
+    if (!row) return;
+    void this.markDone(row, outcome);
+  }
+
+  /**
+   * Clear one URL with its outcome: `DELETE`, drop the row, tick the badge down.
+   *
+   * The dialog stays open, its buttons disabled, while the request runs. It
+   * closes on every result, so a failure lands focus back on the row's Done
+   * button, beside its inline retry message.
    *
    * A **404** means another operator cleared it first. Drop the row, but do NOT
    * decrement — their own action already did, and decrementing twice for one row
    * walks the badge below the real backlog with nothing to resync it until the
    * next full visit to `/admin`. Anything else keeps the row and offers a retry.
    */
-  protected async markDone(row: ReindexQueueRow): Promise<void> {
+  private async markDone(row: ReindexQueueRow, outcome: ReindexClearOutcome): Promise<void> {
     if (this.pendingActionId() !== null) return;
     this.failedActionId.set(null);
     this.pendingActionId.set(row.id);
     try {
-      await this.api.clear(row.id);
+      await this.api.clear(row.id, outcome);
       this.removeRow(row.id);
       this.summaryStore.decrement('reindex');
       this.liveMessage.set(
-        $localize`:@@admin.reindex.announce.done:Marked done and removed from the queue.`,
+        outcome === 'requested'
+          ? $localize`:@@admin.reindex.announce.doneRequested:Recorded as requested in Search Console and removed from the queue.`
+          : $localize`:@@admin.reindex.announce.doneNotRequested:Removed from the queue without a request.`,
       );
     } catch (err) {
       if (err instanceof HttpErrorResponse && err.status === 404) {
@@ -224,6 +292,7 @@ export class ReindexList {
       }
     } finally {
       this.pendingActionId.set(null);
+      this.closeDone();
     }
   }
 

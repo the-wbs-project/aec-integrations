@@ -173,9 +173,11 @@ const ACTION_LABELS: Readonly<Record<string, string>> = {
   'indexnow.drained': $localize`:@@admin.audit.action.indexnowDrained:Search-engine ping queue drained`,
   // AECI-946. The operator side of the same problem IndexNow solves for Bing and
   // Yandex: Google accepts no ping, so a row is cleared by hand from
-  // `/admin/reindex` once the URL has been submitted in Search Console. One row
-  // per URL cleared, so this is the only record that the chore was done.
-  'reindex.cleared': $localize`:@@admin.audit.action.reindexCleared:Re-index request marked done`,
+  // `/admin/reindex`. One row per URL cleared. Since AECI-1185 the clear says
+  // whether indexing was requested (`metadata.outcome`), and only a `requested`
+  // clear writes a `recrawl_submissions` row. Metadata is not on this wire, so
+  // the label covers both outcomes and claims no request.
+  'reindex.cleared': $localize`:@@admin.audit.action.reindexCleared:Re-index worklist row cleared`,
 };
 
 /**

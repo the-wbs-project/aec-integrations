@@ -27,8 +27,13 @@ import type { BatchStmt } from '../lib/audit';
 import type { AuthzVariables } from '../lib/authz';
 import { VENDOR_ADMIN_ROLE } from '../lib/claimed-vendors';
 import type { GscRecrawlEntry } from '../lib/gsc-recrawl-priority';
-import { enqueueGscRecrawl } from '../lib/gsc-recrawl-queue';
+import { enqueueGscRecrawlUrls } from '../lib/gsc-recrawl-queue';
 import { enqueueIndexNowUrls, indexNowEntriesByTier } from '../lib/indexnow-queue';
+import {
+  enqueueRecrawlCauses,
+  type RecrawlCause,
+  type RecrawlCauseChannel,
+} from '../lib/recrawl-causes';
 import { hasActiveEntitlement } from '../lib/integration-entitlement';
 import { publicSiteBase } from '../lib/public-urls';
 
@@ -179,6 +184,76 @@ export function vendorRecrawlEnabled(c: VendorContext): boolean {
 export interface VendorRecrawl {
   indexNow: readonly string[];
   gsc: readonly GscRecrawlEntry[];
+  /**
+   * The session vendor's own product this write touched (AECI-1184). Recorded on
+   * every queued URL's cause row, so the vendor's submission history can name the
+   * product. `null` or absent when the write touches no product of the vendor's
+   * (a company profile edit) or the owned side cannot be determined. Each call
+   * site states its rule beside the value.
+   *
+   * A thunk is a deferred read. `bufferVendorRecrawl` calls it only after the
+   * environment and entitlement gates pass, so a gated-out write never reads.
+   */
+  productId?: string | null | (() => Promise<string | null>);
+}
+
+/**
+ * Stamp the owned product onto a write's recrawl (AECI-1184). Takes the value or
+ * the promise a call site already builds, and passes `undefined` through, so each
+ * site wraps what it has rather than restructuring it.
+ *
+ * `productId` may be a thunk for a site that has not read the owned side. It is
+ * stored, not called. `bufferVendorRecrawl` calls it post-commit inside
+ * `waitUntil`, and only after the environment and entitlement gates pass, so the
+ * read never delays the response and a gated-out write (an unentitled vendor)
+ * never reads at all. A failed read records `null`: losing the product must never
+ * lose the recrawl itself.
+ */
+export function withRecrawlProduct(
+  recrawl: VendorRecrawl | undefined,
+  productId: string | null,
+): VendorRecrawl | undefined;
+export function withRecrawlProduct(
+  recrawl: VendorRecrawl | Promise<VendorRecrawl> | undefined,
+  productId: string | null | (() => Promise<string | null>),
+): VendorRecrawl | Promise<VendorRecrawl> | undefined;
+export function withRecrawlProduct(
+  recrawl: VendorRecrawl | Promise<VendorRecrawl> | undefined,
+  productId: string | null | (() => Promise<string | null>),
+): VendorRecrawl | Promise<VendorRecrawl> | undefined {
+  if (!recrawl) return undefined;
+  if (recrawl instanceof Promise) return recrawl.then((r) => ({ ...r, productId }));
+  return { ...recrawl, productId };
+}
+
+/**
+ * The owned side of a two-endpoint write, for {@link withRecrawlProduct}: the
+ * source if the vendor owns it, else the target if it owns that, else `null`. A
+ * vendor owning both (a self-integration) records the source. An integration's
+ * owner need not own either endpoint, which is the `null` case.
+ */
+export function ownedSideProductId(
+  owned: readonly string[],
+  sourceProductId: string,
+  targetProductId: string,
+): string | null {
+  if (owned.includes(sourceProductId)) return sourceProductId;
+  if (owned.includes(targetProductId)) return targetProductId;
+  return null;
+}
+
+/**
+ * The owned product for a recrawl's cause rows. Runs a deferred read here, past
+ * both gates, and records `null` if it fails or throws.
+ */
+async function resolveRecrawlProduct(recrawl: VendorRecrawl): Promise<string | null> {
+  const { productId } = recrawl;
+  if (typeof productId !== 'function') return productId ?? null;
+  try {
+    return await productId();
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -207,6 +282,7 @@ async function bufferVendorRecrawl(
   db: Db,
   pending: VendorRecrawl | Promise<VendorRecrawl>,
   origin: VendorWriteOrigin,
+  cause: Omit<RecrawlCause, 'productId'>,
 ): Promise<void> {
   // Re-checked here as well as at the call site. The call-site check exists so a
   // handler never does the WORK of deriving URLs on a gated environment; this one
@@ -229,6 +305,24 @@ async function bufferVendorRecrawl(
   // promise straight over, so the read never delays the response — it settles
   // inside `waitUntil` alongside the inserts it feeds.
   const recrawl = await pending;
+  const fullCause: RecrawlCause = { ...cause, productId: await resolveRecrawlProduct(recrawl) };
+
+  // AECI-1184: why each URL is queued. Written after its queue upsert, inside that
+  // upsert's catch, and caught on its own so a lost cause is logged as itself. A
+  // cause failure never fails the vendor write, which committed long ago.
+  const recordCauses = async (channel: RecrawlCauseChannel, urls: readonly string[]) => {
+    try {
+      await enqueueRecrawlCauses(db, channel, urls, fullCause);
+    } catch (error) {
+      logToPosthog(c.executionCtx, c.env, c.req.raw, {
+        level: 'warn',
+        message: 'aeci.api.vendor.recrawl_causes_failed',
+        outcome: error instanceof Error ? error.message : String(error),
+        channel,
+        urls_count: urls.length,
+      });
+    }
+  };
 
   if (recrawl.indexNow.length > 0) {
     try {
@@ -246,6 +340,9 @@ async function bufferVendorRecrawl(
       submitCount(c.executionCtx, c.env, c.req.raw, 'aeci.indexnow.queued', queued, [
         'source:vendor',
       ]);
+      // The IndexNow buffer takes every URL it is handed, so the causes take the
+      // same list.
+      await recordCauses('indexnow', recrawl.indexNow);
     } catch (error) {
       logToPosthog(c.executionCtx, c.env, c.req.raw, {
         level: 'warn',
@@ -258,10 +355,13 @@ async function bufferVendorRecrawl(
 
   if (recrawl.gsc.length > 0) {
     try {
-      const touched = await enqueueGscRecrawl(db, recrawl.gsc, 'vendor');
+      const { touched, urls } = await enqueueGscRecrawlUrls(db, recrawl.gsc, 'vendor');
       submitCount(c.executionCtx, c.env, c.req.raw, 'aeci.gsc_recrawl.queued', touched, [
         'source:vendor',
       ]);
+      // Only the URLs the worklist actually took: it drops retired slugs at
+      // enqueue, and a cause for a URL it refused would describe nothing.
+      if (urls.length > 0) await recordCauses('gsc', urls);
     } catch (error) {
       logToPosthog(c.executionCtx, c.env, c.req.raw, {
         level: 'warn',
@@ -322,7 +422,20 @@ export function afterVendorWrite(
     list.map((entry) => vendorAuditLogEvent(entry, origin.auditSource)),
   );
   c.executionCtx.waitUntil(purgeTags(c, tags, origin.purgeSource));
-  if (recrawl && db) c.executionCtx.waitUntil(bufferVendorRecrawl(c, db, recrawl, origin));
+  if (recrawl && db) {
+    // AECI-1184: the cause every URL of this write is queued under. The audit id is
+    // the first entry's, minted by `auditInsert` when the batch was built. An
+    // admin-origin write (the admin retire) records no vendor: the session is
+    // AECi's, not the vendor's.
+    const isVendor = origin.purgeSource === 'vendor';
+    const cause: Omit<RecrawlCause, 'productId'> = {
+      source: isVendor ? 'vendor' : 'admin',
+      auditLogId: list[0]?.id ?? null,
+      vendorId: isVendor ? (c.get('auth').vendorId ?? null) : null,
+      promoteJobId: null,
+    };
+    c.executionCtx.waitUntil(bufferVendorRecrawl(c, db, recrawl, origin, cause));
+  }
 }
 
 // ─── Scoping predicates shared by a handler and its freshness cursor ─────────

@@ -34,13 +34,24 @@ export type BatchStmt = BatchItem<'sqlite'>;
 export type BatchTuple = [BatchStmt, ...BatchStmt[]];
 
 /**
- * Build the `audit_log` insert for the caller's batch. `id` + `created_at` are
- * filled by the schema's `$defaultFn`s at build time. JSON columns
+ * Build the `audit_log` insert for the caller's batch. `created_at` is filled by
+ * the schema's `$defaultFn` at build time.
+ *
+ * `id` is minted HERE, onto the caller's entry (`entry.id ??= randomUUID()`), not
+ * left to the schema default (AECI-1184). The write's post-commit consumers get
+ * the entry object back, so the recrawl cause linkage can record which audit row
+ * caused a queued URL without a read. A caller-supplied id is kept. The mutation
+ * is the contract: one entry object is one audit row. Passing the same object into
+ * two batches that BOTH commit reuses the id and trips the PK. Rebuilding a batch
+ * after it rolled back (the erasure's seat-race retry in `routes/account.ts`) is
+ * safe, because the first insert never landed. JSON columns
  * (`before/after_state`, `metadata`) are omitted when absent (→ SQL NULL),
  * mirroring the old `?? undefined` Prisma behaviour.
  */
 export function auditInsert(db: Db, entry: AuditLogEntry): BatchStmt {
+  entry.id ??= crypto.randomUUID();
   return db.insert(auditLog).values({
+    id: entry.id,
     actorId: entry.actorId ?? null,
     actorType: entry.actorType,
     action: entry.action,

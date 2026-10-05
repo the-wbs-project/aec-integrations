@@ -106,6 +106,7 @@ import {
   type LocatedRetireRow,
   type RetireTarget,
 } from '../lib/retire-target';
+import { ownedEndpointIds } from '../lib/integration-owner-writes';
 import {
   afterRetireCommit,
   buildPairRetireBatch,
@@ -113,7 +114,12 @@ import {
   type RetireBatch,
   type RetireMode,
 } from './integration-retire-write';
-import { AUDIT_SOURCE, sessionVendorId, type VendorContext } from './vendor-shared';
+import {
+  AUDIT_SOURCE,
+  ownedSideProductId,
+  sessionVendorId,
+  type VendorContext,
+} from './vendor-shared';
 
 type Mode = RetireMode;
 
@@ -294,6 +300,18 @@ function handlerFor(mode: Mode, dbFor: DbFactory): (c: VendorContext) => Promise
       audits: batch.audits,
       hookPrefix: 'vendor',
       syncFailureMessage: 'aeci.api.vendor.retire_algolia_sync_failed',
+      // AECI-1184: the endpoint the owner's vendor sells, source (A) first. `null`
+      // for a third-party owner. The connector product is never the owned side.
+      recrawlProductId: () => {
+        const [sourceId, targetId] =
+          located.anchor === 'integration'
+            ? [located.row.sourceProductId, located.row.targetProductId]
+            : [located.pair.productAId, located.pair.productBId];
+        return ownedEndpointIds(db, vendorId, {
+          sourceProductId: sourceId,
+          targetProductId: targetId,
+        }).then((owned) => ownedSideProductId(owned, sourceId, targetId));
+      },
     });
 
     const body: RetireIntegrationResponse = {

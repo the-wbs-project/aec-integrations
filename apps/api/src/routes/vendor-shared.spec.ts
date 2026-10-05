@@ -18,14 +18,17 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Db } from '../db/client';
 import type { Env } from '../env';
 import type { AuthzVariables } from '../lib/authz';
-import { enqueueGscRecrawl } from '../lib/gsc-recrawl-queue';
+import { enqueueGscRecrawlUrls } from '../lib/gsc-recrawl-queue';
 import { enqueueIndexNowUrls } from '../lib/indexnow-queue';
+import { enqueueRecrawlCauses } from '../lib/recrawl-causes';
 import { logBatchToPosthog, submitCount } from '../posthog';
 import { fakeExecutionContext } from '../test/helpers';
 import {
   afterVendorWrite,
   AUDIT_SOURCE,
+  ownedSideProductId,
   vendorRecrawlEnabled,
+  withRecrawlProduct,
   type VendorContext,
   type VendorRecrawl,
 } from './vendor-shared';
@@ -43,7 +46,13 @@ vi.mock('../lib/indexnow-queue', async (importOriginal) => ({
   enqueueIndexNowUrls: vi.fn().mockResolvedValue(1),
 }));
 vi.mock('../lib/gsc-recrawl-queue', () => ({
-  enqueueGscRecrawl: vi.fn().mockResolvedValue(1),
+  enqueueGscRecrawlUrls: vi.fn().mockResolvedValue({
+    touched: 1,
+    urls: ['https://www.aecintegrations.com/products/revit'],
+  }),
+}));
+vi.mock('../lib/recrawl-causes', () => ({
+  enqueueRecrawlCauses: vi.fn().mockResolvedValue(1),
 }));
 
 function entry(n: number): AuditLogEntry {
@@ -149,7 +158,8 @@ describe('afterVendorWrite — the re-crawl plan gate (AECI-1186)', () => {
 
   beforeEach(() => {
     vi.mocked(enqueueIndexNowUrls).mockClear();
-    vi.mocked(enqueueGscRecrawl).mockClear();
+    vi.mocked(enqueueGscRecrawlUrls).mockClear();
+    vi.mocked(enqueueRecrawlCauses).mockClear();
     vi.mocked(submitCount).mockClear();
   });
 
@@ -167,7 +177,8 @@ describe('afterVendorWrite — the re-crawl plan gate (AECI-1186)', () => {
     await run(FREE);
     expect(enqueueIndexNowUrls).not.toHaveBeenCalled();
     // Decision 4 of AECI-1182 (2026-10-02): the Google worklist is Managed-only too.
-    expect(enqueueGscRecrawl).not.toHaveBeenCalled();
+    expect(enqueueGscRecrawlUrls).not.toHaveBeenCalled();
+    expect(enqueueRecrawlCauses).not.toHaveBeenCalled();
     expect(submitCount).not.toHaveBeenCalled();
   });
 
@@ -175,7 +186,7 @@ describe('afterVendorWrite — the re-crawl plan gate (AECI-1186)', () => {
     await run(MANAGED);
     expect(enqueueIndexNowUrls).toHaveBeenCalledTimes(1);
     expect(vi.mocked(enqueueIndexNowUrls).mock.calls[0][2]).toBe('vendor');
-    expect(enqueueGscRecrawl).toHaveBeenCalledWith(db, RECRAWL.gsc, 'vendor');
+    expect(enqueueGscRecrawlUrls).toHaveBeenCalledWith(db, RECRAWL.gsc, 'vendor');
   });
 
   it('keeps an AECi admin write ungated, though its session carries no entitlement', async () => {
@@ -183,7 +194,113 @@ describe('afterVendorWrite — the re-crawl plan gate (AECI-1186)', () => {
     // on the session alone would silently drop AECi's own re-crawls.
     await run(FREE, { auditSource: 'admin-moderation', purgeSource: 'moderation' });
     expect(enqueueIndexNowUrls).toHaveBeenCalledTimes(1);
-    expect(enqueueGscRecrawl).toHaveBeenCalledTimes(1);
+    expect(enqueueGscRecrawlUrls).toHaveBeenCalledTimes(1);
+  });
+
+  // ── AECI-1184: the cause each queued URL is recorded under ─────────────────
+
+  it('records a vendor cause naming the first audit entry, the vendor and the product', async () => {
+    const { c, execCtx } = makeCtx(PUBLIC, { ...MANAGED, vendorId: 'vendor-1' });
+    const first = { ...entry(0), id: 'audit-first' };
+    afterVendorWrite(
+      c,
+      [],
+      [first, { ...entry(1), id: 'audit-second' }],
+      { ...RECRAWL, productId: 'product-1' },
+      db,
+    );
+    await Promise.all(vi.mocked(execCtx.waitUntil).mock.calls.map((call) => call[0]));
+
+    const cause = {
+      source: 'vendor',
+      auditLogId: 'audit-first',
+      vendorId: 'vendor-1',
+      productId: 'product-1',
+      promoteJobId: null,
+    };
+    expect(enqueueRecrawlCauses).toHaveBeenCalledWith(db, 'indexnow', RECRAWL.indexNow, cause);
+    // The URLs the worklist reports it took, not the list handed in.
+    expect(enqueueRecrawlCauses).toHaveBeenCalledWith(
+      db,
+      'gsc',
+      ['https://www.aecintegrations.com/products/revit'],
+      cause,
+    );
+  });
+
+  it('records an admin-origin cause with no vendor, even when the session names one', async () => {
+    await run(
+      { ...FREE, vendorId: 'vendor-1' },
+      { auditSource: 'admin-moderation', purgeSource: 'moderation' },
+    );
+    for (const call of vi.mocked(enqueueRecrawlCauses).mock.calls) {
+      expect(call[3]).toMatchObject({ source: 'admin', vendorId: null, productId: null });
+    }
+    expect(enqueueRecrawlCauses).toHaveBeenCalledTimes(2);
+  });
+
+  it('writes no gsc cause when the worklist took no URL', async () => {
+    vi.mocked(enqueueGscRecrawlUrls).mockResolvedValueOnce({ touched: 0, urls: [] });
+    await run(MANAGED);
+    expect(vi.mocked(enqueueRecrawlCauses).mock.calls.map((call) => call[1])).toEqual(['indexnow']);
+  });
+
+  it('a throwing cause write settles quietly and leaves the queue writes made', async () => {
+    vi.mocked(enqueueRecrawlCauses).mockRejectedValue(new Error('D1 down'));
+    try {
+      await expect(run(MANAGED)).resolves.toBeUndefined();
+      expect(enqueueIndexNowUrls).toHaveBeenCalledTimes(1);
+      expect(enqueueGscRecrawlUrls).toHaveBeenCalledTimes(1);
+      // The gsc leg still ran after the IndexNow cause failed.
+      expect(enqueueRecrawlCauses).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.mocked(enqueueRecrawlCauses).mockResolvedValue(1);
+    }
+  });
+
+  // ── The owned-product thunk is read only past both gates ──────────────────
+
+  it('never runs the product thunk for a vendor write with no active entitlement', async () => {
+    const read = vi.fn(async () => 'product-1');
+    await run(FREE, undefined, withRecrawlProduct(RECRAWL, read)!);
+    expect(read).not.toHaveBeenCalled();
+    expect(enqueueIndexNowUrls).not.toHaveBeenCalled();
+  });
+
+  it('never runs the product thunk on a gated environment', async () => {
+    const read = vi.fn(async () => 'product-1');
+    const { c, execCtx } = makeCtx({}, MANAGED);
+    afterVendorWrite(c, [], entry(0), withRecrawlProduct(RECRAWL, read), db);
+    await Promise.all(vi.mocked(execCtx.waitUntil).mock.calls.map((call) => call[0]));
+    expect(read).not.toHaveBeenCalled();
+    expect(enqueueIndexNowUrls).not.toHaveBeenCalled();
+  });
+
+  it('runs the product thunk once for an entitled write and records its value', async () => {
+    const read = vi.fn(async () => 'product-1');
+    await run(MANAGED, undefined, withRecrawlProduct(Promise.resolve(RECRAWL), read)!);
+    expect(read).toHaveBeenCalledTimes(1);
+    for (const call of vi.mocked(enqueueRecrawlCauses).mock.calls) {
+      expect(call[3]).toMatchObject({ productId: 'product-1' });
+    }
+    expect(enqueueRecrawlCauses).toHaveBeenCalledTimes(2);
+  });
+
+  it.each([
+    ['rejects', () => Promise.reject(new Error('read failed'))],
+    [
+      'throws synchronously',
+      () => {
+        throw new Error('read failed');
+      },
+    ],
+  ])('records a null product and keeps the recrawl when the thunk %s', async (_label, thunk) => {
+    await run(MANAGED, undefined, withRecrawlProduct(RECRAWL, thunk as () => Promise<string>)!);
+    expect(enqueueIndexNowUrls).toHaveBeenCalledTimes(1);
+    for (const call of vi.mocked(enqueueRecrawlCauses).mock.calls) {
+      expect(call[3]).toMatchObject({ productId: null });
+    }
+    expect(enqueueRecrawlCauses).toHaveBeenCalledTimes(2);
   });
 
   it('settles a rejected derivation handed over by a Free write', async () => {
@@ -207,5 +324,35 @@ describe('vendorRecrawlEnabled', () => {
   ] as const)('%s → %s', (_label, env, entitlementTier, expected) => {
     const { c } = makeCtx(env, { entitlementTier, entitlement: null });
     expect(vendorRecrawlEnabled(c)).toBe(expected);
+  });
+});
+
+describe('withRecrawlProduct / ownedSideProductId (AECI-1184)', () => {
+  const RECRAWL: VendorRecrawl = { indexNow: ['u'], gsc: [] };
+
+  it('passes undefined through and never runs the thunk', () => {
+    const read = vi.fn(async () => 'p');
+    expect(withRecrawlProduct(undefined, read)).toBeUndefined();
+    expect(read).not.toHaveBeenCalled();
+  });
+
+  it('stamps a value and a promise alike', async () => {
+    expect(withRecrawlProduct(RECRAWL, 'p1')).toEqual({ ...RECRAWL, productId: 'p1' });
+    await expect(withRecrawlProduct(Promise.resolve(RECRAWL), 'p2')).resolves.toEqual({
+      ...RECRAWL,
+      productId: 'p2',
+    });
+  });
+
+  it('stores a thunk without calling it', () => {
+    const read = vi.fn(async () => 'p3');
+    expect(withRecrawlProduct(RECRAWL, read)).toEqual({ ...RECRAWL, productId: read });
+    expect(read).not.toHaveBeenCalled();
+  });
+
+  it('picks the source, then the target, then null', () => {
+    expect(ownedSideProductId(['a', 'b'], 'a', 'b')).toBe('a');
+    expect(ownedSideProductId(['b'], 'a', 'b')).toBe('b');
+    expect(ownedSideProductId([], 'a', 'b')).toBeNull();
   });
 });

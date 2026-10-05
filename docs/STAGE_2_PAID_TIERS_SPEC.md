@@ -915,6 +915,7 @@ Two later rulings closed the epic's open questions. Both are comments on AECI-12
 - Promote and AECi admin writes are not plan-gated. They are AECi's own work, not a vendor benefit.
 - The copy says "submitted" or "told search engines", never "indexed" or "ranked". No plan changes where a page ranks or appears (decision 10, §3.2).
 - §3.3(d) has the mechanism.
+- **Ruled 2026-10-04 (decision 3 of epic AECI-1182):** reading the history is not gated. `GET /api/vendor/recrawl-submissions` (AECI-1187, `API_CONTRACTS.md` §6.14) answers every seat, so a Free vendor sees an empty list or the rows from a period when it held a plan. Reads are never gated (§4.3).
 
 ### 13.2 Plan model
 

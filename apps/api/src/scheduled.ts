@@ -1849,6 +1849,10 @@ async function runIndexNowDrainJob(env: Env, ctx: ExecutionContext): Promise<Job
       pending: result.pending,
       status: result.status,
       attempts: result.attempts,
+      // AECI-1183. Joins this run to its `recrawl_submissions` rows. For a refused
+      // run this is the only record that names the batch, since no audit row is
+      // written.
+      ...(result.batchId ? { batchId: result.batchId } : {}),
     },
   };
 }

@@ -99,6 +99,7 @@ import {
   parseJsonBody,
   vendorRecrawlEnabled,
   sessionVendorId,
+  withRecrawlProduct,
   type VendorContext,
 } from './vendor-shared';
 
@@ -286,7 +287,8 @@ async function commit(
     pairSlugs && vendorRecrawlEnabled(c) && base
       ? attestationEditRecrawl(base, pairSlugs[0], pairSlugs[1])
       : undefined;
-  afterVendorWrite(c, tags, audit, recrawl, db);
+  // AECI-1184: the link's side, the product the session vendor sells (`Target`).
+  afterVendorWrite(c, tags, audit, withRecrawlProduct(recrawl, target.productId), db);
 }
 
 function auditFor(

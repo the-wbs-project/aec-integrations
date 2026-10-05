@@ -32,6 +32,15 @@ export type AuditLogActorType = 'user' | 'admin' | 'system' | 'workflow';
  * (e.g. `{ linear_issue_id, ip_address, cf_country }`).
  */
 export interface AuditLogEntry {
+  /**
+   * The `audit_log.id` this entry is (or will be) inserted under. Optional:
+   * `auditInsert` stamps a fresh UUID here when it is unset, so the caller's own
+   * entry object carries its row id after the statement is built (AECI-1184).
+   * That is how a post-commit consumer such as the recrawl cause linkage names
+   * the audit row without re-reading it. One entry object is one row: never put
+   * the same object into two batches that both commit.
+   */
+  id?: string;
   actorId?: string | null;
   actorType: AuditLogActorType;
   action: string;

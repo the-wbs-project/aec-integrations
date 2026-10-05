@@ -1959,6 +1959,30 @@ by design and the only evidence was a warn log nobody reads (AECI-826).
    `PUBLIC_SITE_URL`, and it also fires the combined "Cron job failed" alert (AECI-864).
    A refused batch does not fire that alert, so this ratio alert is the only page for it.
 
+4. **Read what each run sent and what came back (AECI-1183).** The drain logs every URL it
+   sends in `recrawl_submissions`, one row per URL per attempt, with `outcome`
+   (`accepted`, `refused` or `failed`) and `http_status`. A refused run keeps its URLs buffered
+   and adds a fresh row per URL on tomorrow's retry, so one URL can have several rows. Each run
+   shares one `batch_id`. Find the latest runs' ids first.
+
+   ```bash
+   wrangler d1 execute aeci-app-production --env production --remote --command "select started_at, outcome, json_extract(detail, '$.batchId') as batch_id from job_runs where job = 'indexnow-drain' order by started_at desc limit 5"
+   ```
+
+   Then count that run's rows by outcome. `http_status` is null for a transport error.
+
+   ```bash
+   wrangler d1 execute aeci-app-production --env production --remote --command "select outcome, http_status, count(*) from recrawl_submissions where batch_id = 'PASTE-BATCH-ID' group by outcome, http_status"
+   ```
+
+   An empty-queue run and a run whose rows were all retired slugs have no `batchId` and no
+   rows. For one URL's history, filter on `url` instead. To see why a URL was queued, join
+   `recrawl_submission_causes` on `submission_id = recrawl_submissions.id`. A row queued before
+   AECI-1184 shipped has no cause row. The log is never pruned. A Google clear that said
+   "requested" appears here as channel `gsc_manual`, outcome `requested`, and records what the
+   operator did, never that Google indexed the page. `DATABASE_SCHEMA.md` §9.6a and §9.6b hold
+   the columns.
+
 ### The key is unverified, and a 429 cannot tell you otherwise
 
 > **Update 2026-09-28 (AECI-1136):** prod accepted submissions on 09-23, 09-25 and 09-27, each

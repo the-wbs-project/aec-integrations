@@ -149,7 +149,12 @@ function versionEditRecrawl(
   if (!base) return undefined;
   return readPairCounterpartSlugs(db, productId)
     .catch(() => [] as string[])
-    .then((counterpartSlugs) => productVersionRecrawl(base, productSlug, counterpartSlugs));
+    .then((counterpartSlugs) => ({
+      ...productVersionRecrawl(base, productSlug, counterpartSlugs),
+      // AECI-1184: the versioned product, which every caller proved is the session
+      // vendor's own (`requireOwnedProduct`) before it wrote.
+      productId,
+    }));
 }
 
 /** The path's version id. Present by routing, but Hono types it optional. */

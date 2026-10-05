@@ -67,7 +67,12 @@ import { dispatchHook, type PromoteRunCtx } from './promote';
 import { pairCacheTag } from './promote-pair';
 import { closeWorkflow } from './vendor-contests';
 import { attestationEditRecrawl } from './vendor-recrawl';
-import { afterVendorWrite, recrawlEnabled, type VendorContext } from './vendor-shared';
+import {
+  afterVendorWrite,
+  recrawlEnabled,
+  withRecrawlProduct,
+  type VendorContext,
+} from './vendor-shared';
 
 export type RetireMode = 'retire' | 'restore';
 type IntegrationRow = typeof integrations.$inferSelect;
@@ -390,6 +395,12 @@ export interface RetireCommitInput {
   hookPrefix: string;
   syncFailureMessage: string;
   origin?: { auditSource: string; purgeSource: CachePurgeSource };
+  /**
+   * The session vendor's own endpoint, for the recrawl cause (AECI-1184). A thunk
+   * so the owner read runs post-commit and only when there is a recrawl. Absent
+   * on the admin retire, whose cause names no vendor and no product.
+   */
+  recrawlProductId?: () => Promise<string | null>;
 }
 
 /** The post-commit tail. All best-effort; see the module header. */
@@ -431,7 +442,14 @@ export function afterRetireCommit(c: VendorContext, db: Db, input: RetireCommitI
     pairSlugs && recrawlEnabled(c.env) && base
       ? attestationEditRecrawl(base, pairSlugs[0], pairSlugs[1])
       : undefined;
-  afterVendorWrite(c, tags, input.audits, recrawl, db, input.origin);
+  afterVendorWrite(
+    c,
+    tags,
+    input.audits,
+    withRecrawlProduct(recrawl, input.recrawlProductId ?? null),
+    db,
+    input.origin,
+  );
 }
 
 /**

@@ -26,7 +26,7 @@
 import { eq } from 'drizzle-orm';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { auditLog, indexnowQueue, slugRedirects } from '../db/schema';
+import { auditLog, indexnowQueue, recrawlSubmissions, slugRedirects } from '../db/schema';
 import type { Env } from '../env';
 import { makeTestDb, type TestDb } from '../test/d1';
 
@@ -35,6 +35,7 @@ import {
   drainIndexNowQueue,
   drainMetricOutcome,
   INDEXNOW_DRAINED_ACTION,
+  submissionOutcome,
   INDEXNOW_EXPIRED_METRIC,
   INDEXNOW_SUBMIT_METRIC,
   INDEXNOW_SUBMITTED_URLS_METRIC,
@@ -49,7 +50,9 @@ import {
   INDEXNOW_QUEUE_MAX_AGE_DAYS,
   indexNowEntriesByTier,
   indexNowInsertStatements,
+  insertSubmissionsFromQueue,
   readPendingIndexNowUrls,
+  RECRAWL_SUBMISSION_IDS_PER_STATEMENT,
 } from './indexnow-queue';
 
 const NOW = new Date('2026-09-09T12:00:00.000Z');
@@ -777,5 +780,203 @@ describe('drainIndexNowQueue — daily, tiered (AECI-1136)', () => {
     expect((await rowsByUrl()).get(url('a'))?.priority).toBe(1);
     expect(await drainAudits()).toHaveLength(0);
     expect(s.metrics.filter((m) => m.metric === INDEXNOW_SUBMITTED_URLS_METRIC)).toEqual([]);
+  });
+});
+
+// ── AECI-1183: the search-engine submission log ─────────────────────────────
+//
+// The drain used to keep only counts. It now writes one `recrawl_submissions`
+// row per URL it sends, on success AND on a refusal, so a vendor can be shown
+// which of its pages we told the engines about.
+
+describe('recrawl_submissions (AECI-1183)', () => {
+  const FIELDS = {
+    batchId: '00000000-0000-4000-8000-000000000000',
+    httpStatus: 200,
+    outcome: 'accepted' as const,
+    submittedAt: NOW.toISOString(),
+  };
+
+  async function submissions() {
+    return t.db.select().from(recrawlSubmissions).orderBy(recrawlSubmissions.id);
+  }
+
+  function drain(fetchImpl: typeof fetch) {
+    const s = sinks();
+    return drainIndexNowQueue({ db: t.db, env: ENV, ...s.deps, fetchImpl, now: () => NOW });
+  }
+
+  it.each([0, 1, 10_000])(
+    'keeps every log statement under D1s 100-bound-parameter cap at %i ids',
+    (n) => {
+      // The load-bearing guard, as for the queue INSERT and DELETE: the harness
+      // binds 32,766 parameters happily, so only the emitted SQL tells.
+      const ids = Array.from({ length: n }, (_, i) => i + 1);
+      const stmts = insertSubmissionsFromQueue(t.db, ids, FIELDS);
+      expect(stmts).toHaveLength(Math.ceil(n / RECRAWL_SUBMISSION_IDS_PER_STATEMENT));
+      for (const stmt of stmts) {
+        const params = (stmt as unknown as { toSQL(): { params: unknown[] } }).toSQL().params;
+        expect(params.length).toBeLessThanOrEqual(100);
+      }
+    },
+  );
+
+  it('binds one parameter per id plus the four run constants', () => {
+    const ids = Array.from({ length: RECRAWL_SUBMISSION_IDS_PER_STATEMENT }, (_, i) => i + 1);
+    const [stmt] = insertSubmissionsFromQueue(t.db, ids, FIELDS);
+    const { sql, params } = (
+      stmt as unknown as { toSQL(): { sql: string; params: unknown[] } }
+    ).toSQL();
+    expect(params).toHaveLength(99);
+    expect(sql).toMatch(/^insert into "recrawl_submissions"/i);
+    expect(sql).toMatch(/from "indexnow_queue"/i);
+  });
+
+  it('maps statuses to outcomes', () => {
+    expect(submissionOutcome(200)).toEqual({ outcome: 'accepted', httpStatus: 200 });
+    expect(submissionOutcome(202)).toEqual({ outcome: 'accepted', httpStatus: 202 });
+    expect(submissionOutcome(429)).toEqual({ outcome: 'refused', httpStatus: 429 });
+    expect(submissionOutcome(403)).toEqual({ outcome: 'refused', httpStatus: 403 });
+    expect(submissionOutcome(422)).toEqual({ outcome: 'refused', httpStatus: 422 });
+    expect(submissionOutcome(503)).toEqual({ outcome: 'failed', httpStatus: 503 });
+    expect(submissionOutcome(0)).toEqual({ outcome: 'failed', httpStatus: null });
+  });
+
+  it('on success logs every sent URL, empties the queue, and ties the batch to the audit row', async () => {
+    await enqueueIndexNowUrls(t.db, [
+      { url: url('a'), priority: 1 },
+      { url: url('b'), priority: 4 },
+    ]);
+    const result = await drain(respond(200));
+
+    expect(await queued()).toEqual([]);
+    const rows = await submissions();
+    expect(rows.map((r) => [r.url, r.channel, r.outcome, r.httpStatus, r.priority])).toEqual([
+      [url('a'), 'indexnow', 'accepted', 200, 1],
+      [url('b'), 'indexnow', 'accepted', 200, 4],
+    ]);
+    expect(rows.every((r) => r.submittedAt === NOW.toISOString())).toBe(true);
+
+    const audits = await drainAudits();
+    expect(audits).toHaveLength(1);
+    const batchId = (audits[0]!.metadata as { batchId: string }).batchId;
+    expect(batchId).toMatch(/^[0-9a-f-]{36}$/);
+    expect(rows.every((r) => r.batchId === batchId)).toBe(true);
+    expect(result.batchId).toBe(batchId);
+  });
+
+  it('on a 429 logs refused rows, keeps the queue intact and writes no audit row', async () => {
+    await enqueueIndexNowUrls(t.db, [url('a'), url('b')]);
+    const result = await drain(respond(429, '{"errorCode":"TooManyRequests"}'));
+
+    expect(await queued()).toEqual([url('a'), url('b')]);
+    expect(await drainAudits()).toHaveLength(0);
+    const rows = await submissions();
+    expect(rows.map((r) => [r.url, r.outcome, r.httpStatus])).toEqual([
+      [url('a'), 'refused', 429],
+      [url('b'), 'refused', 429],
+    ]);
+    expect(result.batchId).toBe(rows[0]!.batchId);
+  });
+
+  it('still reports a refusal when the refusal log batch fails, and warns instead of throwing', async () => {
+    await enqueueIndexNowUrls(t.db, [url('a'), url('b')]);
+    // Every other D1 call goes through; only the refusal-log batch fails.
+    const db = new Proxy(t.db, {
+      get(target, prop, receiver) {
+        if (prop === 'batch') return () => Promise.reject(new Error('D1_ERROR: boom'));
+        return Reflect.get(target, prop, receiver) as unknown;
+      },
+    });
+    const s = sinks();
+    const result = await drainIndexNowQueue({
+      db,
+      env: ENV,
+      ...s.deps,
+      fetchImpl: respond(429, '{"errorCode":"TooManyRequests"}'),
+      now: () => NOW,
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.refused).toBe(true);
+    expect(result.status).toBe(429);
+    expect(result.reason).toMatch(/^indexnow_429: /);
+    expect(result.pending).toBe(2);
+    expect(result.batchId).toBeUndefined();
+    expect(drainMetricOutcome(result)).toBe('refused');
+
+    const logFailed = s.logs.find((l) => l.message === 'aeci.indexnow.submission_log_failed');
+    expect(logFailed).toMatchObject({ level: 'warn', status: 429, urls_count: 2 });
+    expect(logFailed!.batchId).toMatch(/^[0-9a-f-]{36}$/);
+    expect(logFailed!.error).toContain('boom');
+    // The refusal warn is still emitted, exactly as without the log failure.
+    expect(s.logs.find((l) => l.message === 'aeci.indexnow.submit_failed')).toMatchObject({
+      level: 'warn',
+      status: 429,
+      pending: 2,
+    });
+
+    expect(await queued()).toEqual([url('a'), url('b')]);
+    expect(await submissions()).toEqual([]);
+  });
+
+  it('logs a transport failure as failed with a NULL status', async () => {
+    await enqueueIndexNowUrls(t.db, [url('a')]);
+    const fetchImpl = vi.fn().mockRejectedValue(new Error('boom')) as unknown as typeof fetch;
+    const s = sinks();
+    await drainIndexNowQueue({
+      db: t.db,
+      env: ENV,
+      ...s.deps,
+      fetchImpl,
+      now: () => NOW,
+      sleep: async () => {},
+    });
+
+    expect(await queued()).toEqual([url('a')]);
+    const rows = await submissions();
+    expect(rows.map((r) => [r.outcome, r.httpStatus])).toEqual([['failed', null]]);
+  });
+
+  it('a retry after a refusal adds a second row per URL, in a new batch', async () => {
+    await enqueueIndexNowUrls(t.db, [url('a'), url('b')]);
+    await drain(respond(429));
+    await drain(respond(200));
+
+    expect(await queued()).toEqual([]);
+    const rows = await submissions();
+    expect(rows).toHaveLength(4);
+    for (const u of [url('a'), url('b')]) {
+      expect(rows.filter((r) => r.url === u).map((r) => r.outcome)).toEqual([
+        'refused',
+        'accepted',
+      ]);
+    }
+    expect(new Set(rows.map((r) => r.batchId)).size).toBe(2);
+  });
+
+  it('never logs a retired URL, including when the whole batch is retired', async () => {
+    await t.db.insert(slugRedirects).values({
+      entity: 'product',
+      fromSlug: 'old',
+      toSlug: 'new',
+      createdAt: '2026-01-01T00:00:00.000Z',
+    });
+    await enqueueIndexNowUrls(t.db, [url('old'), url('live')]);
+    await drain(respond(200));
+    expect((await submissions()).map((r) => r.url)).toEqual([url('live')]);
+
+    await enqueueIndexNowUrls(t.db, [url('old')]);
+    const fetchImpl = respond(200);
+    await drain(fetchImpl);
+    expect(fetchImpl).not.toHaveBeenCalled();
+    expect(await queued()).toEqual([]);
+    expect((await submissions()).map((r) => r.url)).toEqual([url('live')]);
+  });
+
+  it('writes nothing to the log on an empty buffer', async () => {
+    const result = await drain(respond(200));
+    expect(await submissions()).toEqual([]);
+    expect(result.batchId).toBeUndefined();
   });
 });

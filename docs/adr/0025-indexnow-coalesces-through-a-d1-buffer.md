@@ -1,6 +1,6 @@
 # ADR 0025: IndexNow submissions coalesce through a D1 buffer drained by a cron, not a Cloudflare Queue
 
-**Status:** Accepted (amended 2026-09-10 — the transport no longer retries a bare 429, and the request ceiling stated below was wrong by a factor of three; see the [Amendment](#amendment--2026-09-10-aeci-833-the-retry-now-makes-the-distinction-this-record-only-asserted). Amended again 2026-09-28 — the drain runs once a day, highest tier first, instead of every 20 minutes; see the [second Amendment](#amendment--2026-09-28-aeci-1136-send-once-a-day-highest-priority-pages-first). Amended again 2026-10-02 — the vendor appender is plan-gated; see the [third Amendment](#amendment--2026-10-02-aeci-1186-the-vendor-appender-is-plan-gated))
+**Status:** Accepted (amended 2026-09-10 — the transport no longer retries a bare 429, and the request ceiling stated below was wrong by a factor of three; see the [Amendment](#amendment--2026-09-10-aeci-833-the-retry-now-makes-the-distinction-this-record-only-asserted). Amended again 2026-09-28 — the drain runs once a day, highest tier first, instead of every 20 minutes; see the [second Amendment](#amendment--2026-09-28-aeci-1136-send-once-a-day-highest-priority-pages-first). Amended again 2026-10-02 — the vendor appender is plan-gated; see the [third Amendment](#amendment--2026-10-02-aeci-1186-the-vendor-appender-is-plan-gated). Amended again 2026-10-04 — the drain logs every URL it sends; see the [fourth Amendment](#amendment--2026-10-04-aeci-1183-the-drain-logs-every-url-it-sends))
 **Date:** 2026-09-09
 **Context owner:** chrisw@thewbsproject.com
 **Relates to:** AECI-826 (this record), AECI-833 (the first amendment), AECI-1136 (the second amendment), AECI-236 (the original per-promote ping), AECI-801 (closed affirmatively — the key was always provisioned). Build contract: `docs/STAGE_1_SPEC.md` §20.2. Applies the AECI-666 batching rule to a second transport. Follows ADR 0013's cron→job shape and declines its queue, for a reason ADR 0013 did not have to consider. Builds on ADR 0016 (D1/Drizzle, `db.batch` as the atomic unit) and ADR 0022 (the scheduled-`DELETE` exception it satisfies).
@@ -292,6 +292,28 @@ active entitlement. A Free seat's write commits and purges as before, and append
 - The buffer, the drain, the cadence and the alerts are unchanged. A quieter buffer only means
   fewer `source:vendor` rows.
 - It is external discovery, not a ranking input (`STAGE_2_PAID_TIERS_SPEC.md` §3.2).
+
+## Amendment — 2026-10-04 (AECI-1183): the drain logs every URL it sends
+
+The drain used to delete what it sent and keep only counts. We could not show a vendor which of
+its pages we had submitted, and IndexNow is a Managed-plan benefit. The drain now writes one
+`recrawl_submissions` row per sent URL (`DATABASE_SCHEMA.md` §9.6a).
+
+- Each run mints one `batchId`. The log rows carry it as `batch_id`. The `indexnow.drained`
+  audit row carries it as `metadata.batchId`, and `job_runs.detail` carries it too.
+- On success one `db.batch` holds the log inserts, then the id-chunked deletes, then the audit
+  row. The insert is `INSERT … SELECT` from `indexnow_queue` by id, so it must precede the delete.
+  It chunks ids at 95, which binds 99 parameters per statement under D1's cap of 100.
+- On a refusal or a transport failure the log rows are written in a batch of their own, with
+  outcome `refused` or `failed`. The queue rows stay buffered and no audit row is written, as
+  before. Tomorrow's retry adds a second row per URL. This batch is best-effort: if it fails,
+  the drain warns `aeci.indexnow.submission_log_failed` and still reports the refusal, so a D1
+  error cannot turn a refusal into a thrown run. The success batch is not best-effort.
+- Retired-slug URLs are never sent, so they are never logged.
+- The log is kept forever and has no foreign key. Its exemption from per-row auditing is ADR
+  0022's 2026-10-04 amendment.
+- The cadence, the request ceiling, the buffer bound and the alerts are unchanged. The drain
+  adds at most 106 statements to its success batch on a 10,000-URL day.
 
 ## Re-open trigger
 

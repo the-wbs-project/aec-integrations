@@ -4,7 +4,8 @@
  * Two kinds of caller, deliberately kept apart:
  *   - the promote's post-commit hook (`routes/promote.ts`) and the vendor-portal
  *     writes (`routes/vendor-shared.ts`) APPEND, and
- *   - the daily drain cron (`lib/indexnow-drain.ts`) READS and DELETES.
+ *   - the daily drain cron (`lib/indexnow-drain.ts`) READS and DELETES, and
+ *     copies every URL it sends into the `recrawl_submissions` log (AECI-1183).
  *
  * They meet only here so the tiering, the dedupe rule, the delete shape and the
  * staleness window are stated once.
@@ -21,7 +22,7 @@
 import { inArray, lte, sql } from 'drizzle-orm';
 
 import type { Db } from '../db/client';
-import { indexnowQueue } from '../db/schema';
+import { indexnowQueue, recrawlSubmissions } from '../db/schema';
 
 import type { BatchStmt } from './audit';
 import {
@@ -305,6 +306,73 @@ export function deleteDrainedIndexNowUrls(db: Db, ids: readonly number[]): Batch
   for (let i = 0; i < ids.length; i += INDEXNOW_DELETE_IDS_PER_STATEMENT) {
     const chunk = ids.slice(i, i + INDEXNOW_DELETE_IDS_PER_STATEMENT);
     stmts.push(db.delete(indexnowQueue).where(inArray(indexnowQueue.id, chunk)));
+  }
+  return stmts;
+}
+
+/** What a submission log row records about the request (AECI-1183). */
+export type RecrawlSubmissionOutcome = 'accepted' | 'refused' | 'failed';
+
+/** The per-run constants every log row of one drain shares. */
+export interface SubmissionLogFields {
+  batchId: string;
+  /** The HTTP status IndexNow returned, or `null` when no response arrived. */
+  httpStatus: number | null;
+  outcome: RecrawlSubmissionOutcome;
+  submittedAt: string;
+}
+
+/**
+ * Ids per submission-log INSERT … SELECT statement (AECI-1183).
+ *
+ * The statement binds the four per-run constants (`outcome`, `http_status`,
+ * `batch_id`, `submitted_at`) plus one parameter per id. The channel is a SQL
+ * literal. 95 ids is therefore 99 bound parameters, one under D1's cap of 100.
+ */
+export const RECRAWL_SUBMISSION_IDS_PER_STATEMENT = 95;
+
+/**
+ * The statements that copy the sent queue rows into `recrawl_submissions`, one
+ * row per id, chunked to {@link RECRAWL_SUBMISSION_IDS_PER_STATEMENT}.
+ *
+ * `INSERT … SELECT … FROM indexnow_queue WHERE id IN (…)`, so the URL and tier
+ * come from the queue row itself rather than being re-bound per row. That is
+ * what keeps the parameter count at one per id. It also means the statements
+ * must run BEFORE the queue delete in the same batch, which `commitDrain` does.
+ *
+ * `id` is selected as `NULL` only because Drizzle's insert-select names every
+ * table column. SQLite assigns the autoincrement value for a NULL rowid.
+ *
+ * Returned as `BatchStmt`s, never run here. On success they share the drain's
+ * delete-and-audit batch. On a refusal they are a batch of their own. A later
+ * writer (AECI-1184's cause copy) can follow them in the same batch, keyed by
+ * `batchId`, without changing this builder.
+ */
+export function insertSubmissionsFromQueue(
+  db: Db,
+  ids: readonly number[],
+  fields: SubmissionLogFields,
+): BatchStmt[] {
+  const stmts: BatchStmt[] = [];
+  for (let i = 0; i < ids.length; i += RECRAWL_SUBMISSION_IDS_PER_STATEMENT) {
+    const chunk = ids.slice(i, i + RECRAWL_SUBMISSION_IDS_PER_STATEMENT);
+    stmts.push(
+      db.insert(recrawlSubmissions).select(
+        db
+          .select({
+            id: sql<number>`NULL`.as('id'),
+            url: indexnowQueue.url,
+            channel: sql<string>`'indexnow'`.as('channel'),
+            outcome: sql<string>`${fields.outcome}`.as('outcome'),
+            httpStatus: sql<number | null>`${fields.httpStatus}`.as('http_status'),
+            batchId: sql<string>`${fields.batchId}`.as('batch_id'),
+            priority: indexnowQueue.priority,
+            submittedAt: sql<string>`${fields.submittedAt}`.as('submitted_at'),
+          })
+          .from(indexnowQueue)
+          .where(inArray(indexnowQueue.id, chunk)),
+      ),
+    );
   }
   return stmts;
 }

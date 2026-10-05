@@ -87,6 +87,7 @@ import {
   parseJsonBody,
   vendorRecrawlEnabled,
   sessionVendorId,
+  withRecrawlProduct,
   type VendorContext,
 } from './vendor-shared';
 
@@ -299,7 +300,9 @@ export function createCreateVendorIntegrationHandler(
       pairSlugs && vendorRecrawlEnabled(c) && base
         ? attestationEditRecrawl(base, pairSlugs[0], pairSlugs[1])
         : undefined;
-    afterVendorWrite(c, tags, audits, recrawl, db);
+    // AECI-1184: `product_id`, the source endpoint, which step 2 proved is the
+    // creator's own.
+    afterVendorWrite(c, tags, audits, withRecrawlProduct(recrawl, sourceId), db);
 
     const body: CreateVendorIntegrationResponse = {
       integration: {

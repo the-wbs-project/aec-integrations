@@ -1,6 +1,6 @@
 # 0031 — Google re-crawl is a human-drained ranked worklist, not an automated push
 
-**Status:** Accepted (amended 2026-10-02 — the vendor arm is plan-gated; see the Amendment)
+**Status:** Accepted (amended 2026-10-02 — the vendor arm is plan-gated; amended 2026-10-05 — Done records whether indexing was requested; see the Amendments)
 **Date:** 2026-09-14
 **Issue:** AECI-943 (epic), AECI-945, AECI-946
 **Supersedes:** nothing. Sits beside ADR 0025, which answers a different question about a different engine.
@@ -213,6 +213,24 @@ chose to gate both legs so a Free vendor gets no search-engine submission of eit
 The promote arm and the admin retire stay ungated. The ranking, the screen and the
 no-staleness rule above are unchanged. `STAGE_2_PAID_TIERS_SPEC.md` §13.1a records the ruling.
 
+## Amendment — 2026-10-05 (AECI-1185): Done records whether indexing was requested
+
+Done now asks the operator what they did. The dialog offers "Requested indexing in Search
+Console" and "Cleared without a request", and `DELETE /api/admin/reindex/:id` requires
+`?outcome=requested|not_requested`. Both answers delete the row, so the worklist shape, the
+badge and the "Done deletes" decision above are unchanged.
+
+A `requested` clear writes one `recrawl_submissions` row (channel `gsc_manual`, outcome
+`requested`, no HTTP status) and copies the URL's causes onto it, in the same `db.batch` as the
+delete and the `reindex.cleared` audit row. That gives vendors and the admin a record of which
+edits reached Google's manual lane (epic AECI-1182). A `not_requested` clear writes no log row.
+
+The record is the operator's word. Nothing tells us whether Google accepted the request, and
+Google does not publish one. So the row says "requested", never "indexed", and no surface may
+read it as proof of indexing. The old "cannot show what has been requested" bullet in
+`ADMIN_PANEL_SPEC.md` §5.11 is superseded: the history exists, and since AECI-1188 a read-only
+"Submission history" section on `/admin/reindex` shows it (`GET /api/admin/reindex/submissions`).
+
 ## References
 
 - `docs/STAGE_1_SPEC.md` §20.2 (the contract), §20.5 (the write-event pipeline), §26.1 (why the
@@ -220,6 +238,7 @@ no-staleness rule above are unchanged. `STAGE_2_PAID_TIERS_SPEC.md` §13.1a reco
 - `docs/DATABASE_SCHEMA.md` §9.8 (the table), §9.6 (the sibling)
 - `docs/ADMIN_PANEL_SPEC.md` §5.11 (the screen), §5.0c (the fourth badge)
 - `docs/API_CONTRACTS.md` §6.10 (the two endpoints)
+- `docs/DATABASE_SCHEMA.md` §9.6a, §9.6b (the submission log the `requested` clear writes)
 - `docs/environments.md` → "Request indexing by hand (Google)" (the operator procedure)
 - `docs/RUNBOOKS.md` → "There is no runbook for an unworked Google queue" (the declined alert)
 - ADR 0025 (the IndexNow buffer), ADR 0022 (why the INSERTs are audit-exempt)

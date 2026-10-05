@@ -79,6 +79,7 @@ import {
 } from './routes/admin-email-switches';
 import {
   createAdminReindexListHandler,
+  createAdminReindexSubmissionsHandler,
   createClearReindexRowHandler,
 } from './routes/admin-reindex';
 import { createAdminOverviewHandler } from './routes/admin-overview';
@@ -142,6 +143,7 @@ import {
   createVendorProductChecklistHandler,
 } from './routes/vendor-checklist';
 import { createListVendorNotificationsHandler } from './routes/vendor-notifications';
+import { createListVendorRecrawlSubmissionsHandler } from './routes/vendor-recrawl-submissions';
 import {
   createGetNotificationPreferencesHandler,
   createNudgeMuteHandler,
@@ -912,6 +914,13 @@ authAdmin.get('/api/admin/subscribers', requireAdmin(), createAdminSubscribersHa
 // anonymous path, and every write audits in-batch — a limiter would only risk
 // 429-ing the burst this screen exists to support).
 authAdmin.get('/api/admin/reindex', requireAdmin(), createAdminReindexListHandler());
+// AECI-1188 — the submission history. A read: no audit row, no `rateLimit()`. The
+// literal path never meets `/:id`, which is registered for DELETE only.
+authAdmin.get(
+  '/api/admin/reindex/submissions',
+  requireAdmin(),
+  createAdminReindexSubmissionsHandler(),
+);
 authAdmin.delete('/api/admin/reindex/:id', requireAdmin(), createClearReindexRowHandler());
 // §5.14 / AECI-1223 — the email screen. Three READS over `notification_sends` and
 // `notification_delivery_events`; no audit row, no `rateLimit()` (reads are never
@@ -968,6 +977,14 @@ app.route('/', authAdmin);
 // store (`STAGE_2_ATTESTATIONS_SPEC.md` §7.3) — scoped to the caller's vendor, and
 // not capability-gated (reading is not the capability).
 //   - GET   /api/vendor/notifications — the last 90 days of detector nudges.
+//
+// AECI-1187 adds the vendor's search-engine submission history: the URLs we sent
+// to IndexNow or asked Google to re-crawl, each with the vendor's own edit that
+// caused it. Scoped on `recrawl_submission_causes.vendor_id` only, so a URL two
+// vendors' edits sent shows each vendor only its own cause. Not capability-gated
+// (decision 3, `STAGE_2_PAID_TIERS_SPEC.md` §13.1a: submission is Managed-only,
+// reading the history is not), not rate-limited, and writes no `audit_log` row.
+//   - GET   /api/vendor/recrawl-submissions — paginated, newest first, `?channel=`.
 //
 // Stage 2 / AECI-301 adds the attestation authoring surface — the first code that
 // can write a `vendor_a`/`vendor_b` attestation, and therefore the first that can
@@ -1032,6 +1049,12 @@ authVendor.get(
   '/api/vendor/notifications',
   requireVendor(),
   createListVendorNotificationsHandler(),
+);
+// AECI-1187: a read, so no limiter and no capability gate (decision 3).
+authVendor.get(
+  '/api/vendor/recrawl-submissions',
+  requireVendor(),
+  createListVendorRecrawlSubmissionsHandler(),
 );
 // AECI-1204: the caller's own seat's nudge mute. The GET is a read (no limiter);
 // the PUT is a write and carries `rateLimit('write')` after the guard. Both act on

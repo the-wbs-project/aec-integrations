@@ -112,6 +112,8 @@ import {
   parseJsonBody,
   vendorRecrawlEnabled,
   sessionVendorId,
+  ownedSideProductId,
+  withRecrawlProduct,
   type VendorContext,
 } from './vendor-shared';
 
@@ -346,7 +348,18 @@ export function createUpdateVendorIntegrationHandler(
       pairSlugs && vendorRecrawlEnabled(c) && base
         ? attestationEditRecrawl(base, pairSlugs[0], pairSlugs[1])
         : undefined;
-    afterVendorWrite(c, tags, audits, recrawl, db);
+    // AECI-1184: the endpoint the owner's vendor sells, source first. `null` when the
+    // owner owns neither endpoint, which an integration owner may.
+    afterVendorWrite(
+      c,
+      tags,
+      audits,
+      withRecrawlProduct(
+        recrawl,
+        ownedSideProductId(owned, row.sourceProductId, row.targetProductId),
+      ),
+      db,
+    );
 
     const body: UpdateVendorIntegrationResponse = {
       integration: {

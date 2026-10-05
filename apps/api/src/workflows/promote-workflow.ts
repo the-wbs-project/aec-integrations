@@ -226,7 +226,9 @@ export async function runPromoteWorkflow(
   // otherwise re-fire every purge/upsert/ping. All of them are fire-and-forget through
   // `rc.waitUntil`, so the instance completes the moment the batch has committed and the
   // poller gets its IDs without waiting on Algolia or Cloudflare.
-  (deps.dispatchHooks ?? dispatchPromoteHooks)(rc, result, deps);
+  // `jobId` rides as a hook argument (AECI-1184) so the recrawl causes can name
+  // this promote. It is not added to `PromoteRunCtx`, which stays narrow.
+  (deps.dispatchHooks ?? dispatchPromoteHooks)(rc, result, deps, jobId);
 
   emitJobOutcome(rc, jobId, 'complete', Date.now() - startedAt);
   return result.response;

@@ -39,6 +39,7 @@ import {
   RETIRE_CLOSED_CONTEST_REASON,
 } from '../lib/integration-retire';
 import { makeTestDb, type TestDb } from '../test/d1';
+import { expectVendorCauses } from '../test/recrawl-causes';
 import { TEST_ENV, fakeExecutionContext } from '../test/helpers';
 import { racingFactory } from '../test/racing-factory';
 import { createListVendorIntegrationsHandler } from './vendor-attestations';
@@ -585,5 +586,7 @@ describe('re-crawl plan gate (AECI-1186)', () => {
     expect(res.status).toBe(200);
     expect((await t.db.select().from(indexnowQueue)).length).toBeGreaterThan(0);
     expect((await t.db.select().from(gscRecrawlQueue)).length).toBeGreaterThan(0);
+    // AECI-1184: a cause per queued URL, naming the owner's own endpoint.
+    await expectVendorCauses(t, VENDOR_B);
   });
 });

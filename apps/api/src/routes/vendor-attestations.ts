@@ -470,15 +470,25 @@ function attestationEditTags(sourceSlug: string, targetSlug: string): string[] {
  * Returns `undefined` off a public environment so `afterVendorWrite` skips the
  * buffering entirely rather than deriving URLs against a base that does not
  * exist.
+ *
+ * `productId` (AECI-1184) is the caller's framed endpoint: the product named by
+ * `context_product_id` (asserted owned), else endpoint A when the caller holds
+ * slot A, else endpoint B. Exactly the product {@link contextIsSourceFor} frames
+ * the write against, so it is always one the session vendor sells.
  */
 function recrawlFor(
   c: VendorContext,
   endpoints: { sourceSlug: string; targetSlug: string },
+  authority: AttestationAuthority,
+  contextIsSource: boolean,
 ): VendorRecrawl | undefined {
   if (!recrawlEnabled(c.env)) return undefined;
   const base = publicSiteBase(c.env);
   if (!base) return undefined;
-  return attestationEditRecrawl(base, endpoints.sourceSlug, endpoints.targetSlug);
+  return {
+    ...attestationEditRecrawl(base, endpoints.sourceSlug, endpoints.targetSlug),
+    productId: contextIsSource ? authority.sourceProductId : authority.targetProductId,
+  };
 }
 
 // ─── Shared loads ────────────────────────────────────────────────────────────
@@ -1404,7 +1414,7 @@ export function createVendorClaimHandler(
       c,
       attestationEditTags(endpoints.sourceSlug, endpoints.targetSlug),
       [claimAudit, ...attestationAudits, maintenance.audit, ...notificationAudits],
-      recrawlFor(c, endpoints),
+      recrawlFor(c, endpoints, authority, contextIsSource),
       db,
     );
 
@@ -1551,7 +1561,7 @@ export function createUpsertVendorAttestationHandler(
       c,
       attestationEditTags(endpoints.sourceSlug, endpoints.targetSlug),
       audits,
-      recrawlFor(c, endpoints),
+      recrawlFor(c, endpoints, authority, contextIsSource),
       db,
     );
 
@@ -1700,7 +1710,8 @@ export function createRetractVendorAttestationHandler(
       c,
       attestationEditTags(endpoints.sourceSlug, endpoints.targetSlug),
       audits,
-      recrawlFor(c, endpoints),
+      // A retract carries no frame, so the A-first fallback names the product.
+      recrawlFor(c, endpoints, authority, contextIsSourceFor(authority)),
       db,
     );
     return noContent();

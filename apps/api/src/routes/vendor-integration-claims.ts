@@ -87,7 +87,7 @@ import {
   integrationEntitlementRequired,
   type EntitlementSession,
 } from '../lib/integration-entitlement';
-import { endpointSlugs } from '../lib/integration-owner-writes';
+import { endpointSlugs, ownedEndpointIds } from '../lib/integration-owner-writes';
 import { publicSiteBase } from '../lib/public-urls';
 import { pairCacheTag } from './promote-pair';
 import { attestationEditRecrawl } from './vendor-recrawl';
@@ -97,6 +97,8 @@ import {
   isMaintenanceTransfer,
   vendorRecrawlEnabled,
   sessionVendorId,
+  ownedSideProductId,
+  withRecrawlProduct,
   type VendorContext,
 } from './vendor-shared';
 
@@ -408,7 +410,22 @@ export function createClaimIntegrationHandler(
       pairSlugs && vendorRecrawlEnabled(c) && base
         ? attestationEditRecrawl(base, pairSlugs[0], pairSlugs[1])
         : undefined;
-    afterVendorWrite(c, tags, audits, recrawl, db);
+    // AECI-1184: the endpoint the claimant's vendor sells, source (A) first. `null`
+    // for a third-party owner that sells neither. Read post-commit, only when there
+    // is a recrawl to stamp.
+    const [sourceId, targetId] = target.endpointIds;
+    afterVendorWrite(
+      c,
+      tags,
+      audits,
+      withRecrawlProduct(recrawl, () =>
+        ownedEndpointIds(db, vendorId, {
+          sourceProductId: sourceId,
+          targetProductId: targetId,
+        }).then((owned) => ownedSideProductId(owned, sourceId, targetId)),
+      ),
+      db,
+    );
 
     const body: ClaimIntegrationResponse = {
       integration: {
