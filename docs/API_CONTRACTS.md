@@ -6095,7 +6095,7 @@ The vendor's own change history: what its seats changed, what AECi changed on it
 
 | Param | Values | Meaning |
 |---|---|---|
-| `kind` | `all` (default), `vendor`, `aeci` | `vendor` keeps registry `kind: 'vendor-edit'` actions. `aeci` keeps `kind: 'aeci-override'`. `system` actions show under `all` only |
+| `kind` | `all` (default), `vendor`, `aeci` | Selects by who acted, the same rule as `actor_kind`. `vendor` keeps `your_team` rows (`actor_type = 'user'`). `aeci` keeps `aeci` rows (`actor_type = 'admin'`). `all` keeps every row, `system` rows included. The action is not consulted, so an AECi admin's `product.updated` shows under `aeci`. The receipt allow-list applies under every value |
 | `from` | `YYYY-MM-DD` | Inclusive UTC day |
 | `to` | `YYYY-MM-DD` | Inclusive UTC day. `from` after `to` is a `400` |
 

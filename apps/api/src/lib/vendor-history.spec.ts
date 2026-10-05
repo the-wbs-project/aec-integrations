@@ -5,13 +5,13 @@
  */
 
 import { VendorHistoryItemSchema } from '@aeci/shared';
-import { AUDIT_VENDOR_ACTIONS } from '@aeci/shared/audit-vendor-actions';
 import { describe, expect, it } from 'vitest';
 
 import {
   actorKindFor,
   afterStateFields,
   historyActions,
+  historyActorTypes,
   projectVendorHistoryRow,
   type VendorHistoryRawRow,
 } from './vendor-history';
@@ -155,24 +155,27 @@ describe('actorKindFor', () => {
 
 describe('historyActions', () => {
   it('never includes a non-receipt action', () => {
-    const all = historyActions('all');
+    const all = historyActions();
     expect(all).not.toContain('notification.sent');
     expect(all).not.toContain('notification_preferences.updated');
     expect(all).not.toContain('vendor.deleted');
   });
 
-  it('splits by registry kind', () => {
-    for (const a of historyActions('vendor')) {
-      expect(AUDIT_VENDOR_ACTIONS[a as keyof typeof AUDIT_VENDOR_ACTIONS].kind).toBe('vendor-edit');
-    }
-    for (const a of historyActions('aeci')) {
-      expect(AUDIT_VENDOR_ACTIONS[a as keyof typeof AUDIT_VENDOR_ACTIONS].kind).toBe(
-        'aeci-override',
-      );
-    }
+  it('stays under the D1 bound-parameter cap with room for the other clauses', () => {
+    expect(historyActions().length).toBeLessThan(90);
+  });
+});
+
+describe('historyActorTypes', () => {
+  it('all keeps every actor', () => {
+    expect(historyActorTypes('all')).toBeNull();
   });
 
-  it('stays under the D1 bound-parameter cap with room for the other clauses', () => {
-    expect(historyActions('all').length).toBeLessThan(90);
+  it('agrees with actorKindFor for every actor type', () => {
+    for (const actorType of ['user', 'admin', 'system', 'workflow', 'something-new']) {
+      const kind = actorKindFor(actorType);
+      expect(historyActorTypes('vendor')!.includes(actorType)).toBe(kind === 'your_team');
+      expect(historyActorTypes('aeci')!.includes(actorType)).toBe(kind === 'aeci');
+    }
   });
 });

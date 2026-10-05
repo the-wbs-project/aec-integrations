@@ -301,12 +301,64 @@ describe('GET /api/vendor/history — projection', () => {
 });
 
 describe('GET /api/vendor/history — filters and pages', () => {
-  it('kind=aeci keeps AECi overrides; kind=vendor keeps vendor edits', async () => {
+  it('kind selects by who acted: aeci keeps admin rows, vendor keeps seat rows', async () => {
     expect(ids((await getJson(AUTH_A, '?kind=aeci')).body.data)).toEqual([uuid(1003)]);
     expect(ids((await getJson(AUTH_A, '?kind=vendor')).body.data)).toEqual([
       uuid(1007),
       uuid(1001),
     ]);
+  });
+
+  describe('an AECi admin product.updated (a logo overwrite)', () => {
+    beforeEach(async () => {
+      await t.db.insert(auditLog).values(
+        audit(9, '2026-10-09', {
+          actorId: ADMIN,
+          actorType: 'admin',
+          action: 'product.updated',
+          entityType: 'product',
+          entityId: SHARED_PRODUCT,
+          afterState: { logo_url: 'https://cdn.test/new.png' },
+          metadata: { source: 'admin-logo-override' },
+          vendorId: VENDOR_A,
+        }),
+      );
+    });
+
+    it('JSON: shows under aeci and all, not vendor; the seat edit under vendor only', async () => {
+      const aeci = ids((await getJson(AUTH_A, '?kind=aeci')).body.data);
+      const vendor = ids((await getJson(AUTH_A, '?kind=vendor')).body.data);
+      const all = ids((await getJson(AUTH_A, '?kind=all')).body.data);
+      expect(aeci).toEqual([uuid(1009), uuid(1003)]);
+      expect(vendor).not.toContain(uuid(1009));
+      expect(all).toContain(uuid(1009));
+      expect(vendor).toContain(uuid(1001));
+      expect(aeci).not.toContain(uuid(1001));
+      for (const item of (await getJson(AUTH_A, '?kind=aeci')).body.data as VendorHistoryItem[]) {
+        expect(item.actor_kind).toBe('aeci');
+      }
+      for (const item of (await getJson(AUTH_A, '?kind=vendor')).body.data as VendorHistoryItem[]) {
+        expect(item.actor_kind).toBe('your_team');
+      }
+    });
+
+    it('CSV: shows under aeci, not vendor; the seat edit under vendor only', async () => {
+      const csvIds = async (query: string) => {
+        const [, ...rows] = parseCsv((await getCsv(AUTH_A, query)).text);
+        return rows.map((r) => r[0]);
+      };
+      const aeci = await csvIds('?kind=aeci');
+      const vendor = await csvIds('?kind=vendor');
+      expect(aeci).toEqual([uuid(1009), uuid(1003)]);
+      expect(vendor).toEqual([uuid(1007), uuid(1001)]);
+    });
+  });
+
+  it('system rows show under all only', async () => {
+    const all = ids((await getJson(AUTH_A)).body.data);
+    expect(all).toContain(uuid(1008));
+    expect(ids((await getJson(AUTH_A, '?kind=vendor')).body.data)).not.toContain(uuid(1008));
+    expect(ids((await getJson(AUTH_A, '?kind=aeci')).body.data)).not.toContain(uuid(1008));
   });
 
   it('from and to are inclusive UTC days', async () => {

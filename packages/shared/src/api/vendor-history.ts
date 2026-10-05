@@ -18,8 +18,10 @@ export const VendorHistoryActorKindSchema = z.enum(VENDOR_HISTORY_ACTOR_KINDS);
 export type VendorHistoryActorKind = z.infer<typeof VendorHistoryActorKindSchema>;
 
 /**
- * The `kind` filter. `vendor` and `aeci` match the registry `kind` of the row's
- * action (`vendor-edit`, `aeci-override`); `system` rows show under `all` only.
+ * The `kind` filter selects by WHO acted, matching `actor_kind`. `vendor` keeps
+ * `your_team` rows, `aeci` keeps `aeci` rows, and `all` keeps everything,
+ * `system` rows included. The action is not consulted: an AECi admin's
+ * `product.updated` shows under `aeci`, not `vendor`.
  */
 export const VENDOR_HISTORY_KINDS = ['all', 'vendor', 'aeci'] as const;
 export const VendorHistoryKindSchema = z.enum(VENDOR_HISTORY_KINDS);

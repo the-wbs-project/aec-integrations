@@ -17,13 +17,15 @@
  * setting never show. The field allow-list is {@link projectVendorHistoryRow}: it
  * builds each wire row from named columns. `actor_id`, emails, raw before/after
  * values and `metadata.internalNote` are never copied, whatever the row holds.
+ *
+ * ── THE `kind` FILTER ───────────────────────────────────────────────────────
+ * `kind` selects by WHO acted, not by the action's registry kind: an AECi admin
+ * overwriting a logo writes `product.updated`, and it belongs under `aeci`.
+ * `vendor` keeps `actor_kind: 'your_team'`, `aeci` keeps `actor_kind: 'aeci'`,
+ * `all` keeps everything, system rows included. Both come from one table.
  */
 
-import {
-  AUDIT_VENDOR_ACTIONS,
-  AUDIT_VENDOR_RECEIPT_ACTIONS,
-  type AuditVendorActionKind,
-} from '@aeci/shared/audit-vendor-actions';
+import { AUDIT_VENDOR_RECEIPT_ACTIONS } from '@aeci/shared/audit-vendor-actions';
 import { WORKER_CONNECTION_LIMIT, mapWithConcurrency } from '@aeci/shared/concurrency';
 import type {
   VendorHistoryActorKind,
@@ -44,17 +46,45 @@ import {
   vendors,
 } from '../db/schema';
 
-/** Registry `kind` each filter value keeps. `all` keeps every receipt action. */
-const KIND_FILTER: Record<Exclude<VendorHistoryKind, 'all'>, AuditVendorActionKind> = {
-  vendor: 'vendor-edit',
-  aeci: 'aeci-override',
+/** The receipt actions. The outer filter, whatever `kind` asks for. */
+export function historyActions(): string[] {
+  return [...AUDIT_VENDOR_RECEIPT_ACTIONS];
+}
+
+/**
+ * Who made the change: the ONE table both `actor_kind` and the `kind` filter
+ * read, so the label on a row and the filter that keeps it cannot disagree.
+ *
+ * `vendor_admin` writes record `actor_type = 'user'` (`auditActorType`), and
+ * `requireVendor()` admits only seats, so a `user` row stamped with this
+ * vendor's id is one of its own seats. A site admin acting on the vendor records
+ * `admin`. Every other actor type (crons, sweeps and ops scripts record
+ * `system`, promote records `workflow`) is `system`.
+ */
+const ACTOR_KIND_BY_TYPE: Readonly<Record<string, VendorHistoryActorKind>> = {
+  user: 'your_team',
+  admin: 'aeci',
 };
 
-/** The receipt actions one `kind` filter allows. */
-export function historyActions(kind: VendorHistoryKind): string[] {
-  if (kind === 'all') return [...AUDIT_VENDOR_RECEIPT_ACTIONS];
+export function actorKindFor(actorType: string): VendorHistoryActorKind {
+  return Object.hasOwn(ACTOR_KIND_BY_TYPE, actorType) ? ACTOR_KIND_BY_TYPE[actorType]! : 'system';
+}
+
+/** The `actor_kind` each `kind` filter keeps. `all` keeps every row. */
+const KIND_FILTER: Record<Exclude<VendorHistoryKind, 'all'>, VendorHistoryActorKind> = {
+  vendor: 'your_team',
+  aeci: 'aeci',
+};
+
+/**
+ * The `actor_type` values one `kind` filter keeps, or `null` for `all`. Derived
+ * from {@link ACTOR_KIND_BY_TYPE}, so `kind=vendor` returns exactly the rows
+ * labelled `your_team` and `kind=aeci` exactly the rows labelled `aeci`.
+ */
+export function historyActorTypes(kind: VendorHistoryKind): string[] | null {
+  if (kind === 'all') return null;
   const want = KIND_FILTER[kind];
-  return AUDIT_VENDOR_RECEIPT_ACTIONS.filter((a) => AUDIT_VENDOR_ACTIONS[a].kind === want);
+  return Object.keys(ACTOR_KIND_BY_TYPE).filter((t) => ACTOR_KIND_BY_TYPE[t] === want);
 }
 
 /** The day after a `YYYY-MM-DD`, as an ISO instant: the exclusive end of `to`. */
@@ -68,8 +98,10 @@ function dayAfter(day: string): string {
 export function vendorHistoryWhere(vendorId: string, filter: VendorHistoryFilter): SQL {
   const clauses: SQL[] = [
     eq(auditLog.vendorId, vendorId),
-    inArray(auditLog.action, historyActions(filter.kind)),
+    inArray(auditLog.action, historyActions()),
   ];
+  const actorTypes = historyActorTypes(filter.kind);
+  if (actorTypes) clauses.push(inArray(auditLog.actorType, actorTypes));
   if (filter.from) clauses.push(gte(auditLog.createdAt, `${filter.from}T00:00:00.000Z`));
   if (filter.to) clauses.push(lt(auditLog.createdAt, dayAfter(filter.to)));
   return and(...clauses) as SQL;
@@ -87,19 +119,6 @@ export interface VendorHistoryRawRow {
   metadata: unknown;
   vendorTier: string | null;
   vendorEntitlementStatus: string | null;
-}
-
-/**
- * Who made the change. `vendor_admin` writes record `actor_type = 'user'`
- * (`auditActorType`), and `requireVendor()` admits only seats, so a `user` row
- * stamped with this vendor's id is one of its own seats. A site admin acting on
- * the vendor records `admin`. Crons, sweeps and ops scripts record `system`, and
- * promote records `workflow`.
- */
-export function actorKindFor(actorType: string): VendorHistoryActorKind {
-  if (actorType === 'admin') return 'aeci';
-  if (actorType === 'user') return 'your_team';
-  return 'system';
 }
 
 /** A field NAME, not a value. Rejects anything that looks like data used as a key. */
