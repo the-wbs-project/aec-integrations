@@ -165,8 +165,23 @@ export async function enqueueGscRecrawl(
   source: string,
   now: () => Date = () => new Date(),
 ): Promise<number> {
+  return (await enqueueGscRecrawlUrls(db, entries, source, now)).touched;
+}
+
+/**
+ * {@link enqueueGscRecrawl}, also returning the URLs it actually wrote (AECI-1184):
+ * deduped, minus the retired slugs it refuses. The recrawl cause linkage records
+ * a cause for exactly these, so a cause row never describes a URL the worklist
+ * did not take.
+ */
+export async function enqueueGscRecrawlUrls(
+  db: Db,
+  entries: readonly GscRecrawlEntry[],
+  source: string,
+  now: () => Date = () => new Date(),
+): Promise<{ touched: number; urls: string[] }> {
   const deduped = dedupeByBestPriority(entries);
-  if (deduped.length === 0) return 0;
+  if (deduped.length === 0) return { touched: 0, urls: [] };
 
   // AECI-978 — never queue a URL that only redirects. Google's Request Indexing
   // quota is the tightest channel we have, and this list is what an operator works
@@ -182,13 +197,13 @@ export async function enqueueGscRecrawl(
   const retired = retiredSlugPaths(await listSlugRedirects(db));
   const sendable =
     retired.size === 0 ? deduped : deduped.filter((e) => !isRetiredSlugUrl(e.url, retired));
-  if (sendable.length === 0) return 0;
+  if (sendable.length === 0) return { touched: 0, urls: [] };
   const queuedAt = now().toISOString();
   let touched = 0;
   for (const stmt of gscRecrawlInsertStatements(db, sendable, queuedAt, source)) {
     touched += (await stmt).length;
   }
-  return touched;
+  return { touched, urls: sendable.map((e) => e.url) };
 }
 
 /**

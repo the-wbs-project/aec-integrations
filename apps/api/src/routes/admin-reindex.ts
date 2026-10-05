@@ -51,6 +51,7 @@ import { auditInsert, type BatchStmt, type BatchTuple } from '../lib/audit';
 import { auditActorType, type AuthzVariables } from '../lib/authz';
 import { deleteGscRecrawlRow, readGscRecrawlRow } from '../lib/gsc-recrawl-queue';
 import { validateResponseInDev, writeDb, type DbFactory } from '../lib/handler-utils';
+import { sweepOrphanCauses } from '../lib/recrawl-causes';
 import { logToPosthog } from '../posthog';
 
 type AdminContext = Context<{ Bindings: Env; Variables: AuthzVariables }>;
@@ -197,7 +198,13 @@ export function createClearReindexRowHandler(
       metadata: { source: AUDIT_SOURCE },
     };
 
-    const stmts: BatchStmt[] = [deleteGscRecrawlRow(db, row.id), auditInsert(db, auditEntry)];
+    const stmts: BatchStmt[] = [
+      deleteGscRecrawlRow(db, row.id),
+      // AECI-1184: the cleared URL's causes go with it, after the delete so the
+      // sweep sees the row gone. AECI-1185 adds the submission and cause copy.
+      sweepOrphanCauses(db, 'gsc'),
+      auditInsert(db, auditEntry),
+    ];
     await db.batch(stmts as BatchTuple);
 
     c.executionCtx.waitUntil(forwardAuditLog(auditEntry, makeForwarder(c)));

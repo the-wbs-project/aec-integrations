@@ -22,6 +22,7 @@ import { Hono } from 'hono';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
+  auditLog,
   connectorEvidencedPairs,
   gscRecrawlQueue,
   indexnowQueue,
@@ -29,12 +30,17 @@ import {
   productVendors,
   products,
   profiles,
+  recrawlQueueCauses,
+  recrawlSubmissionCauses,
+  recrawlSubmissions,
   taxonomyTrades,
   vendors,
 } from '../db/schema';
 import type { Env } from '../env';
 import { errorHandler } from '../errors';
 import type { AuthzVariables } from '../lib/authz';
+import { drainIndexNowQueue } from '../lib/indexnow-drain';
+import * as recrawlCauses from '../lib/recrawl-causes';
 import { makeTestDb, type TestDb } from '../test/d1';
 import { submitCount } from '../posthog';
 import { fakeExecutionContext, TEST_ENV } from '../test/helpers';
@@ -292,6 +298,13 @@ describe('POST /api/vendor/products/:id/versions — re-crawl buffering', () => 
     expect(gsc.every((r) => r.source === 'vendor')).toBe(true);
   });
 
+  it('records the versioned product on every cause (AECI-1184)', async () => {
+    await postVersion();
+    const causes = await t.db.select().from(recrawlQueueCauses);
+    expect(causes.length).toBe(4);
+    expect(causes.every((r) => r.productId === PRODUCT && r.vendorId === VENDOR)).toBe(true);
+  });
+
   it('never announces the product page, because versions do not render on it', async () => {
     await postVersion();
     const urls = (await gscRows()).map((r) => r.url);
@@ -423,5 +436,144 @@ describe('the plan gate', () => {
     expect(res.status).toBe(200);
     expect(await indexNowRows()).toHaveLength(0);
     expect(await gscRows()).toHaveLength(0);
+  });
+});
+
+// ─── Cause linkage (AECI-1184) ───────────────────────────────────────────────
+
+describe('recrawl causes', () => {
+  const causes = () => t.db.select().from(recrawlQueueCauses).orderBy(recrawlQueueCauses.id);
+
+  /** A second vendor that co-owns PRODUCT, with its own seat. */
+  const VENDOR_2 = u(11);
+  const SEAT_2 = u(31);
+  const AUTH_2: AuthzVariables['auth'] = { ...AUTH, userId: SEAT_2, vendorId: VENDOR_2 };
+  async function seedCoOwner() {
+    await t.db
+      .insert(vendors)
+      .values({ id: VENDOR_2, slug: 'reseller', companyName: 'Reseller', verified: true });
+    await t.db
+      .insert(productVendors)
+      .values({ productId: PRODUCT, vendorId: VENDOR_2, isPrimary: false });
+    await t.db.insert(profiles).values({ id: SEAT_2, role: 'vendor_admin', vendorId: VENDOR_2 });
+  }
+
+  it('a product edit records a vendor cause on every queued URL, naming its audit row', async () => {
+    const res = await patchJson(`/api/vendor/products/${PRODUCT}`, { description: 'New.' });
+    expect(res.status).toBe(200);
+
+    const [audit] = await t.db.select({ id: auditLog.id }).from(auditLog);
+    const rows = await causes();
+    const indexNowUrls = (await indexNowRows()).map((r) => r.url).sort();
+    const gscUrls = (await gscRows()).map((r) => r.url).sort();
+    expect(
+      rows
+        .filter((r) => r.channel === 'indexnow')
+        .map((r) => r.url)
+        .sort(),
+    ).toEqual(indexNowUrls);
+    expect(
+      rows
+        .filter((r) => r.channel === 'gsc')
+        .map((r) => r.url)
+        .sort(),
+    ).toEqual(gscUrls);
+    for (const row of rows) {
+      expect(row).toMatchObject({
+        source: 'vendor',
+        auditLogId: audit!.id,
+        vendorId: VENDOR,
+        productId: PRODUCT,
+        promoteJobId: null,
+      });
+    }
+  });
+
+  it('a profile edit names the vendor and no product', async () => {
+    await patchJson('/api/vendor/profile', { headquarters: 'Carpinteria, CA' });
+    const rows = await causes();
+    expect(rows.length).toBeGreaterThan(0);
+    expect(rows.every((r) => r.vendorId === VENDOR && r.productId === null)).toBe(true);
+  });
+
+  it('an integration edit names the owned endpoint', async () => {
+    await patchJson(`/api/vendor/integrations/${OWNED_INTEGRATION}`, { name: 'Procore Sync' });
+    const rows = await causes();
+    expect(rows.length).toBeGreaterThan(0);
+    expect(rows.every((r) => r.productId === PRODUCT)).toBe(true);
+  });
+
+  it('an evidenced-pair edit names the owned endpoint, A first', async () => {
+    // The owner sells endpoint A of the pair, never the connector product.
+    const PAIR = u(52);
+    await t.db.insert(connectorEvidencedPairs).values({
+      id: PAIR,
+      connectorProductId: CONNECTOR,
+      productAId: PRODUCT,
+      productBId: EVIDENCED,
+      name: 'Procore ↔ Sage 300 via Agave',
+      builtByVendorId: VENDOR,
+      claimedAt: '2026-09-01T00:00:00.000Z',
+    });
+    const res = await patchJson(`/api/vendor/integrations/${PAIR}`, { name: 'Procore Sage' });
+    expect(res.status).toBe(200);
+    const rows = await causes();
+    expect(new Set(rows.map((r) => r.channel))).toEqual(new Set(['indexnow', 'gsc']));
+    expect(rows.every((r) => r.productId === PRODUCT && r.vendorId === VENDOR)).toBe(true);
+  });
+
+  it('a Free seat writes no cause, as it writes no queue row', async () => {
+    auth = FREE_AUTH;
+    await patchJson(`/api/vendor/products/${PRODUCT}`, { description: 'x' });
+    expect(await causes()).toEqual([]);
+  });
+
+  it('two vendors editing one product: one submission per URL, two causes, an empty cause table', async () => {
+    await seedCoOwner();
+    await patchJson(`/api/vendor/products/${PRODUCT}`, { description: 'First.' });
+    auth = AUTH_2;
+    await patchJson(`/api/vendor/products/${PRODUCT}`, { description: 'Second.' });
+
+    const productUrl = `${BASE}/products/procore`;
+    expect(
+      (await causes()).filter((r) => r.channel === 'indexnow' && r.url === productUrl),
+    ).toHaveLength(2);
+
+    await drainIndexNowQueue({
+      db: t.db,
+      env: PUBLIC_ENV,
+      metrics: { count: () => {}, gauge: () => {} },
+      log: () => {},
+      fetchImpl: vi
+        .fn()
+        .mockResolvedValue(new Response('', { status: 200 })) as unknown as typeof fetch,
+    });
+
+    const subs = (await t.db.select().from(recrawlSubmissions)).filter((s) => s.url === productUrl);
+    expect(subs).toHaveLength(1);
+    const copied = await t.db.select().from(recrawlSubmissionCauses);
+    expect(
+      copied
+        .filter((c) => c.submissionId === subs[0]!.id)
+        .map((c) => c.vendorId)
+        .sort(),
+    ).toEqual([VENDOR, VENDOR_2].sort());
+    // Only the Google worklist's causes remain: that queue is cleared by hand.
+    expect((await causes()).every((r) => r.channel === 'gsc')).toBe(true);
+  });
+
+  it('a throwing cause write never fails the vendor write or its queue rows', async () => {
+    const spy = vi
+      .spyOn(recrawlCauses, 'enqueueRecrawlCauses')
+      .mockRejectedValue(new Error('D1 down'));
+    try {
+      const res = await patchJson(`/api/vendor/products/${PRODUCT}`, { description: 'x' });
+      expect(res.status).toBe(200);
+      expect(spy).toHaveBeenCalled();
+      expect((await indexNowRows()).length).toBeGreaterThan(0);
+      expect((await gscRows()).length).toBeGreaterThan(0);
+    } finally {
+      spy.mockRestore();
+    }
   });
 });

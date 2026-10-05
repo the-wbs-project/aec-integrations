@@ -1990,7 +1990,11 @@ is required from the review app.
   AECI-1136; `*/20` before). Google gets a row in
   `gsc_recrawl_queue` (AECI-945), which is a worklist a person drains through Search
   Console, tiered `pair.created` or `pair.updated`. Neither arm makes an outbound
-  request on the promote. The promote response's
+  request on the promote. Since AECI-1184 each buffered URL also gets a cause row
+  carrying your `jobId` (`recrawl_queue_causes.promote_job_id`,
+  `DATABASE_SCHEMA.md` §9.6b), so a later submission names the promote that caused
+  it. The id reaches the hook as an argument, never through the commit context.
+  The promote response's
   `sourceSlug` / `targetSlug` (§4) are populated by the ingest precisely so this
   needs no extra DB read. (The pair page itself renders once AECI-294 lands; until
   then the tag purge is a harmless no-op and the pings are best-effort.)

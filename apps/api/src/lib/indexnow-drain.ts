@@ -89,6 +89,7 @@ import {
   type RecrawlSubmissionOutcome,
   type SubmissionLogFields,
 } from './indexnow-queue';
+import { copyCausesToSubmissions, sweepOrphanCauses } from './recrawl-causes';
 
 /** One count per outbound IndexNow submission ATTEMPT. Same name and meaning it
  *  has carried since AECI-236; only the `source` tag changed, `promote` → `cron`,
@@ -248,6 +249,8 @@ async function expireStale(db: Db, now: Date): Promise<number> {
   if (expired === 0) return 0;
   const stmts: BatchStmt[] = [
     deleteStaleIndexNowUrls(db, cutoff),
+    // AECI-1184: an expired URL's causes go with it. They were never submitted.
+    sweepOrphanCauses(db, 'indexnow'),
     auditInsert(db, {
       actorType: 'system',
       action: INDEXNOW_DRAINED_ACTION,
@@ -274,6 +277,11 @@ async function expireStale(db: Db, now: Date): Promise<number> {
  * then the audit row carrying `batchId`. The copy reads the queue rows, so it must
  * come first. The all-retired path passes no `submissions`, because nothing was
  * sent.
+ *
+ * Since AECI-1184 two more statements ride along. The cause copy follows the log
+ * rows, because it joins them by `batchId`. The orphan sweep follows the deletes,
+ * because it removes every cause whose URL is no longer queued. A retired URL's
+ * causes are swept without being copied: it was never sent.
  */
 async function commitDrain(
   db: Db,
@@ -286,10 +294,14 @@ async function commitDrain(
   const stmts: BatchStmt[] = [
     // The log copy reads the queue rows, so it must precede their delete.
     ...(submissions ? insertSubmissionsFromQueue(db, submissions.ids, submissions.fields) : []),
+    // The cause copy joins the log rows above, so it must follow them (AECI-1184).
+    ...(submissions ? [copyCausesToSubmissions(db, 'indexnow', batchId)] : []),
     ...deleteDrainedIndexNowUrls(
       db,
       rows.map((r) => r.id),
     ),
+    // After the deletes, so it sees the queue as this run leaves it.
+    sweepOrphanCauses(db, 'indexnow'),
     auditInsert(db, {
       actorType: 'system',
       action: INDEXNOW_DRAINED_ACTION,
@@ -453,11 +465,16 @@ export async function drainIndexNowQueue(deps: DrainDeps): Promise<IndexNowDrain
     // there is nothing to log.
     let loggedBatch: string | undefined;
     if (outcome.attempts > 0) {
-      const stmts = insertSubmissionsFromQueue(db, sentIds, {
-        batchId,
-        submittedAt,
-        ...submissionOutcome(outcome.status),
-      });
+      const stmts = [
+        ...insertSubmissionsFromQueue(db, sentIds, {
+          batchId,
+          submittedAt,
+          ...submissionOutcome(outcome.status),
+        }),
+        // The causes are copied onto the refused attempt too (AECI-1184). No sweep:
+        // the URLs stay queued, so their causes stay for tomorrow's attempt.
+        copyCausesToSubmissions(db, 'indexnow', batchId),
+      ];
       await db.batch(stmts as BatchTuple);
       loggedBatch = batchId;
     }

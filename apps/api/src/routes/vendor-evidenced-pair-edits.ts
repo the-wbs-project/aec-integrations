@@ -90,6 +90,8 @@ import {
   parseJsonBody,
   vendorRecrawlEnabled,
   sessionVendorId,
+  ownedSideProductId,
+  withRecrawlProduct,
   type VendorContext,
 } from './vendor-shared';
 
@@ -339,7 +341,15 @@ export async function editEvidencedPair(
     pairSlugs && vendorRecrawlEnabled(c) && base
       ? attestationEditRecrawl(base, pairSlugs[0], pairSlugs[1])
       : undefined;
-  afterVendorWrite(c, tags, audits, recrawl, db);
+  // AECI-1184: the pair endpoint the owner's vendor sells, A first. `null` when it
+  // owns neither.
+  afterVendorWrite(
+    c,
+    tags,
+    audits,
+    withRecrawlProduct(recrawl, ownedSideProductId(owned, pair.productAId, pair.productBId)),
+    db,
+  );
 
   const body: UpdateVendorIntegrationResponse = {
     integration: {

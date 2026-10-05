@@ -36,6 +36,7 @@ import {
   notificationDeliveryEvents,
   notificationSends,
   pageViews,
+  recrawlSubmissionCauses,
   recrawlSubmissions,
   userActivityDaily,
   vendorActivityDaily,
@@ -586,6 +587,24 @@ describe('runRetentionPrune', () => {
     await runRetentionPrune(t.db, NOW, WINDOWS);
 
     expect(await t.db.select().from(recrawlSubmissions)).toHaveLength(1);
+  });
+
+  it('keeps recrawl_submission_causes forever — it is not prunable (AECI-1184)', async () => {
+    // Same footing as the log it points at: exempt only while never deleted.
+    expect(PRUNABLE as readonly string[]).not.toContain('recrawl_submission_causes');
+    await seedSnapshots(daysBetween(shiftDay(PV_LAST_PRUNED_DAY, -1), PV_LAST_PRUNED_DAY));
+    await t.db.insert(recrawlSubmissionCauses).values({
+      submissionId: 1,
+      source: 'vendor',
+      auditLogId: 'audit-ancient',
+      vendorId: 'vendor-1',
+      productId: 'product-1',
+      queuedAt: at('2025-01-01'),
+    });
+
+    await runRetentionPrune(t.db, NOW, WINDOWS);
+
+    expect(await t.db.select().from(recrawlSubmissionCauses)).toHaveLength(1);
   });
 
   // ── §7.4 rule 4: exactly one summary audit row ───────────────────────────

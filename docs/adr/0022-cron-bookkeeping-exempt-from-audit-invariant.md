@@ -237,3 +237,21 @@ audit row for a non-deletion would break the "no change, no row" rule of §26.1.
 **Where it is recorded.** `STAGE_1_SPEC.md` §26.1 lists `recrawl_submissions` beside the other
 exempt tables and names this class. `CODE_REVIEW_EXEMPTIONS.md` EX-002 names the table and its
 writer. ADR 0025's 2026-10-04 amendment covers the drain side.
+
+**Extended the same day for the cause tables (AECI-1184).** Two more tables, one in each class.
+
+- `recrawl_submission_causes` (`DATABASE_SCHEMA.md` §9.6b) is an append-only evidence log under
+  the four rules above. It holds why each submission was made: the causing write's audit row, its
+  vendor and product, or the promote job id. It is never updated and never deleted
+  (`retention-prune` excludes it by name). Its only writer is `copyCausesToSubmissions`, called by
+  the IndexNow drain and, from AECI-1185, the admin reindex clear. Rule 4 holds because every row
+  is written in the same batch as the `recrawl_submissions` rows it points at, so it inherits
+  their `batch_id` link through `submission_id`.
+- `recrawl_queue_causes` is ordinary derived log class under the original three-part test. It is
+  derived from a write that already audited, it is never shown to anyone, and a lost row costs
+  attribution rather than state. Its rows are deleted by an orphan sweep in the same batch as each
+  queue delete. That sweep rides batches that already carry their own audit row (the drain's
+  `indexnow.drained`, the clear's `reindex.cleared`), so it needs no row of its own.
+
+One mechanism changed to make this possible. `auditInsert` now mints `audit_log.id` onto the
+caller's entry before the batch runs, so a post-commit consumer can name the row without a read.

@@ -30,11 +30,12 @@ import { eq } from 'drizzle-orm';
 import { Hono } from 'hono';
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { auditLog, gscRecrawlQueue, profiles } from '../db/schema';
+import { auditLog, gscRecrawlQueue, profiles, recrawlQueueCauses } from '../db/schema';
 import type { Env } from '../env';
 import { errorHandler } from '../errors';
 import { requireAdmin, type AuthzVariables } from '../lib/authz';
 import { readAdminQueueCounts } from '../lib/admin-queue-counts';
+import { enqueueRecrawlCauses } from '../lib/recrawl-causes';
 import { makeTestJwks, type TestJwks } from '../test/auth';
 import { makeTestDb, type TestDb } from '../test/d1';
 import { fakeExecutionContext, TEST_ENV } from '../test/helpers';
@@ -326,6 +327,41 @@ describe('DELETE /api/admin/reindex/:id — the Done button', () => {
     const left = await readQueue();
     expect(left).toHaveLength(1);
     expect(left[0]!.url).toBe(`${BASE}/products/b`);
+  });
+
+  it('sweeps the cleared URLs gsc causes and keeps every other cause (AECI-1184)', async () => {
+    const rows = await seed([
+      {
+        url: `${BASE}/products/a`,
+        priority: 1,
+        reason: 'product.created',
+        queuedAt: '2026-09-01T00:00:00.000Z',
+      },
+      {
+        url: `${BASE}/products/b`,
+        priority: 1,
+        reason: 'product.created',
+        queuedAt: '2026-09-01T00:00:00.000Z',
+      },
+    ]);
+    const cause = {
+      source: 'vendor' as const,
+      auditLogId: 'audit-1',
+      vendorId: 'vendor-1',
+      productId: null,
+      promoteJobId: null,
+    };
+    await enqueueRecrawlCauses(t.db, 'gsc', [`${BASE}/products/a`, `${BASE}/products/b`], cause);
+    // The same URL on the IndexNow channel belongs to the drain, not to this clear.
+    await enqueueRecrawlCauses(t.db, 'indexnow', [`${BASE}/products/a`], cause);
+
+    expect((await del(rows[0]!.id)).status).toBe(204);
+
+    const left = await t.db.select().from(recrawlQueueCauses).orderBy(recrawlQueueCauses.id);
+    expect(left.map((c) => [c.channel, c.url])).toEqual([
+      ['gsc', `${BASE}/products/b`],
+      ['indexnow', `${BASE}/products/a`],
+    ]);
   });
 });
 

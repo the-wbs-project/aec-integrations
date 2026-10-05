@@ -216,6 +216,14 @@ describe('runPromoteWorkflow', () => {
     expect(rc.request.url).toBe(SOURCE_URL);
   });
 
+  it('hands the job id to the hooks as an argument, not on the run ctx (AECI-1184)', async () => {
+    const dispatchHooks = vi.fn();
+    await run({}, { dispatchHooks }).promise;
+    const [rc, , , jobId] = dispatchHooks.mock.calls[0]!;
+    expect(jobId).toBe(JOB_ID);
+    expect(rc).not.toHaveProperty('jobId');
+  });
+
   /**
    * AECI-571 — the acceptance criterion, executed: force the commit step to replay and
    * assert exactly one product row, one vendor row, one set of audit rows, and the same

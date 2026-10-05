@@ -32,6 +32,7 @@ import type { AuthzVariables } from '../lib/authz';
 import { INTEGRATION_CLAIMED_ACTION } from '../lib/integration-claims';
 import { routeContest } from '../lib/integration-contests';
 import { makeTestDb, type TestDb } from '../test/d1';
+import { expectVendorCauses } from '../test/recrawl-causes';
 import { TEST_ENV, fakeExecutionContext } from '../test/helpers';
 import { racingFactory } from '../test/racing-factory';
 import { createClaimIntegrationHandler } from './vendor-integration-claims';
@@ -666,5 +667,7 @@ describe('re-crawl plan gate (AECI-1186)', () => {
     expect(res.status).toBe(200);
     expect((await t.db.select().from(indexnowQueue)).length).toBeGreaterThan(0);
     expect((await t.db.select().from(gscRecrawlQueue)).length).toBeGreaterThan(0);
+    // AECI-1184: a cause per queued URL, naming the claimant's own endpoint.
+    await expectVendorCauses(t, VENDOR_B);
   });
 });

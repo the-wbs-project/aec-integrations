@@ -36,6 +36,7 @@ import type { AuthzVariables } from '../lib/authz';
 import { checkRetiredIntegrationsUnclaimed } from '../lib/data-quality';
 import { INTEGRATION_RESTORED_ACTION, INTEGRATION_RETIRED_ACTION } from '../lib/integration-retire';
 import { makeTestDb, type TestDb } from '../test/d1';
+import { expectAdminCauses } from '../test/recrawl-causes';
 import { TEST_ENV, fakeExecutionContext } from '../test/helpers';
 import {
   createAdminRestoreIntegrationHandler,
@@ -432,5 +433,7 @@ describe('re-crawl plan gate (AECI-1186)', () => {
     expect(res.status).toBe(200);
     expect((await t.db.select().from(indexnowQueue)).length).toBeGreaterThan(0);
     expect((await t.db.select().from(gscRecrawlQueue)).length).toBeGreaterThan(0);
+    // AECI-1184: a cause per queued URL, naming no vendor and no product.
+    await expectAdminCauses(t);
   });
 });

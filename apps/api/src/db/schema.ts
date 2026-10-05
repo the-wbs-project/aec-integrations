@@ -2994,6 +2994,101 @@ export const recrawlSubmissions = sqliteTable(
 );
 
 /**
+ * Why a queued URL is queued (AECI-1184, `DATABASE_SCHEMA.md` §9.6b). Transient.
+ *
+ * One row per (producer write, URL, queue). A URL queued by two vendor edits
+ * before the drain occupies ONE queue row and TWO cause rows, because the queues
+ * dedupe on `url` and the causes must not. Written post-commit and best-effort,
+ * after the queue upsert, by `bufferVendorRecrawl` and `bufferIndexNowAfterPromote`.
+ *
+ * Joined to the queue by `(channel, url)`, never by queue id: the queue upsert
+ * keeps the first row's id, and a cause written for a URL that was already queued
+ * must still attach. When the drain sends a URL it copies its causes into
+ * `recrawl_submission_causes` in the same batch, then sweeps every cause whose
+ * URL is no longer queued (the orphan sweep). The 7-day expiry, the all-retired
+ * path and the admin worklist clear run the same sweep.
+ *
+ * Ordinary ADR 0022 derived log class: its rows are reconstructable intent, never
+ * read by a vendor directly, and deleted by the sweep. No foreign keys.
+ */
+export const recrawlQueueCauses = sqliteTable(
+  'recrawl_queue_causes',
+  {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+
+    /** Which queue the URL went to: `indexnow` (`indexnow_queue`) or `gsc`
+     *  (`gsc_recrawl_queue`). */
+    channel: text('channel').notNull(),
+
+    /** The absolute public URL, byte-equal to the queue row's `url`. */
+    url: text('url').notNull(),
+
+    /** `vendor` (a vendor-portal write), `admin` (an admin write through the vendor
+     *  seam), or `promote` (the review-app promote). */
+    source: text('source').notNull(),
+
+    /** The `audit_log.id` of the write's first audit row. NULL for promote. */
+    auditLogId: text('audit_log_id'),
+
+    /** The session vendor. NULL for admin-origin and promote writes. */
+    vendorId: text('vendor_id'),
+
+    /** The session vendor's own product the write touched. NULL when none. */
+    productId: text('product_id'),
+
+    /** The promote Workflow's job id. NULL for vendor and admin writes. */
+    promoteJobId: text('promote_job_id'),
+
+    /** When the cause was written, ISO 8601. */
+    queuedAt: text('queued_at').notNull(),
+  },
+  (t) => [
+    // The drain's copy join and the orphan sweep both key on (channel, url).
+    index('recrawl_queue_causes_channel_url_idx').on(t.channel, t.url),
+    check('recrawl_queue_causes_channel_check', sql`"channel" IN ('indexnow', 'gsc')`),
+    check('recrawl_queue_causes_source_check', sql`"source" IN ('vendor', 'promote', 'admin')`),
+  ],
+);
+
+/**
+ * The cause of each logged submission (AECI-1184, `DATABASE_SCHEMA.md` §9.6b).
+ * Permanent and append-only, on the same ADR 0022 evidence-log footing as
+ * `recrawl_submissions`: never updated, never deleted (`retention-prune` excludes
+ * it), written only in the same batch as the submission rows it points at.
+ *
+ * One row per (submission, cause). Copied from `recrawl_queue_causes` by
+ * `copyCausesToSubmissions`, keyed by the run's `batch_id`. A submission with no
+ * cause row was queued before AECI-1184 shipped, or its cause write failed.
+ *
+ * No foreign keys, for the same reasons as `recrawl_submissions`.
+ */
+export const recrawlSubmissionCauses = sqliteTable(
+  'recrawl_submission_causes',
+  {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+
+    /** `recrawl_submissions.id`. No FK by design. */
+    submissionId: integer('submission_id').notNull(),
+
+    /** Copied from `recrawl_queue_causes.source`. */
+    source: text('source').notNull(),
+    auditLogId: text('audit_log_id'),
+    vendorId: text('vendor_id'),
+    productId: text('product_id'),
+    promoteJobId: text('promote_job_id'),
+
+    /** When the cause was queued, copied from `recrawl_queue_causes.queued_at`. */
+    queuedAt: text('queued_at').notNull(),
+  },
+  (t) => [
+    // A submission's causes (the admin history, AECI-1188).
+    index('recrawl_submission_causes_submission_id_idx').on(t.submissionId),
+    // One vendor's submissions (the vendor read, AECI-1187).
+    index('recrawl_submission_causes_vendor_id_submission_id_idx').on(t.vendorId, t.submissionId),
+  ],
+);
+
+/**
  * The Google re-crawl worklist (AECI-945).
  *
  * ─── What it is, and why it is not `indexnow_queue` ───────────────────────────

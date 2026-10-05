@@ -36,6 +36,7 @@ import {
   productVendors,
   profiles,
   promoteJobs,
+  recrawlQueueCauses,
   statsCache,
   taxonomyAudiences,
   taxonomyCategories,
@@ -4079,6 +4080,80 @@ describe('IndexNow submission after promote (AECI-236)', () => {
       t.db,
     );
     expect(await t.db.select().from(gscRecrawlQueue)).toHaveLength(0);
+  });
+
+  // ── Cause linkage (AECI-1184) ───────────────────────────────────────────────
+
+  it('records a promote cause carrying the job id for every URL on both queues', async () => {
+    await bufferIndexNowAfterPromote(
+      runCtx(indexNowEnv),
+      productResponse(),
+      Promise.resolve({} as AffectedUrlOptions),
+      t.db,
+      'job-aeci-1184',
+    );
+
+    const causes = await t.db
+      .select()
+      .from(recrawlQueueCauses)
+      .orderBy(recrawlQueueCauses.channel, recrawlQueueCauses.url);
+    expect(causes.map((c) => [c.channel, c.url])).toEqual([
+      ['gsc', 'https://aecintegrations.com/products/revit'],
+      ['indexnow', 'https://aecintegrations.com/products'],
+      ['indexnow', 'https://aecintegrations.com/products/revit'],
+    ]);
+    for (const cause of causes) {
+      expect(cause).toMatchObject({
+        source: 'promote',
+        promoteJobId: 'job-aeci-1184',
+        auditLogId: null,
+        vendorId: null,
+        productId: null,
+      });
+    }
+  });
+
+  it('dispatchPromoteHooks passes the job id through to the IndexNow hook', async () => {
+    const notifyIndexNow = vi.fn<PromoteIndexNowNotify>(async () => {});
+    const rc = runCtx(indexNowEnv);
+    dispatchPromoteHooks(
+      rc,
+      {
+        response: productResponse(),
+        removedTradeSlugs: [],
+        wrote: false,
+        bookmark: null,
+        auditEntries: [],
+        staleSupabaseIds: [],
+      } as unknown as Parameters<typeof dispatchPromoteHooks>[1],
+      {
+        notifyIndexNow,
+        dbFor: (() => ({ db: t.db })) as unknown as NonNullable<
+          Parameters<typeof dispatchPromoteHooks>[2]
+        >['dbFor'],
+        syncAlgolia: async () => {},
+        refreshHomeStats: async () => {},
+      },
+      'job-xyz',
+    );
+    expect(notifyIndexNow).toHaveBeenCalledTimes(1);
+    expect(notifyIndexNow.mock.calls[0]![3]).toBe('job-xyz');
+  });
+
+  it('a failing cause write never stops the queue write', async () => {
+    // Drop the cause table: the queue upserts still land, and nothing throws.
+    t.raw.exec('DROP TABLE recrawl_queue_causes');
+    await expect(
+      bufferIndexNowAfterPromote(
+        runCtx(indexNowEnv),
+        productResponse(),
+        Promise.resolve({} as AffectedUrlOptions),
+        t.db,
+        'job-1',
+      ),
+    ).resolves.toBeUndefined();
+    expect(await t.db.select().from(indexnowQueue)).toHaveLength(2);
+    expect(await t.db.select().from(gscRecrawlQueue)).toHaveLength(1);
   });
 });
 

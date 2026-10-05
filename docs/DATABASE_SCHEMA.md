@@ -2501,7 +2501,9 @@ A page a vendor edits between two drain runs is still submitted once.
 (`apps/api/src/lib/indexnow-drain.ts`). **Read by** the drain only. No public or admin surface
 queries it. Its state is visible as the `aeci.indexnow.pending` gauge and the `job_runs` row
 for `indexnow-drain`. The drain does not delete what it sends without a trace any more: it copies
-every sent row into `recrawl_submissions` first (§9.6a, AECI-1183).
+every sent row into `recrawl_submissions` first (§9.6a, AECI-1183). Since AECI-1184 both
+appenders also record why each URL is queued in `recrawl_queue_causes`, which the drain copies
+onto the submission and then sweeps (§9.6b).
 
 ### 9.6a `recrawl_submissions`
 
@@ -2578,6 +2580,109 @@ no FK cannot be emptied by a D1 recreate cascade (`docs/migrations.md` §0).
 
 **Migration `0061`** is a plain `CREATE TABLE` plus three `CREATE INDEX`. It is not a recreate and
 cannot cascade. `apps/api/src/test/migration-0061.spec.ts` pins that.
+
+**Causes since AECI-1184.** Each row may have cause rows in `recrawl_submission_causes` (§9.6b)
+that say which write queued the URL. A row with none was queued before AECI-1184 shipped, or its
+cause write failed.
+
+### 9.6b `recrawl_queue_causes` and `recrawl_submission_causes`
+
+Why each submitted URL was queued (AECI-1184, migration `0062_youthful_sauron.sql`). The two
+queues dedupe on `url`, so a queue row cannot say who caused it: two vendor edits to one product
+before the drain leave one row. The causes live beside the queues instead, one row per producer
+write per URL per queue. When a URL is submitted, its causes are copied onto the submission.
+
+```sql
+-- Transient. One row per (producer write, URL, queue). Deleted once the URL leaves its queue.
+create table recrawl_queue_causes (
+  id integer primary key autoincrement,
+  channel text not null,          -- 'indexnow' (indexnow_queue) | 'gsc' (gsc_recrawl_queue)
+  url text not null,              -- byte-equal to the queue row's url
+  source text not null,           -- 'vendor' | 'promote' | 'admin'
+  audit_log_id text,              -- the write's first audit_log.id; null for promote
+  vendor_id text,                 -- the session vendor; null for admin and promote
+  product_id text,                -- the session vendor's own product; null when none
+  promote_job_id text,            -- the promote Workflow job id; null for vendor and admin
+  queued_at text not null,
+  constraint recrawl_queue_causes_channel_check check (channel in ('indexnow', 'gsc')),
+  constraint recrawl_queue_causes_source_check check (source in ('vendor', 'promote', 'admin'))
+);
+create index recrawl_queue_causes_channel_url_idx on recrawl_queue_causes(channel, url);
+
+-- Permanent, append-only. One row per (submission, cause).
+create table recrawl_submission_causes (
+  id integer primary key autoincrement,
+  submission_id integer not null, -- recrawl_submissions.id, no FK
+  source text not null,
+  audit_log_id text,
+  vendor_id text,
+  product_id text,
+  promote_job_id text,
+  queued_at text not null         -- when the cause was queued, copied
+);
+create index recrawl_submission_causes_submission_id_idx on recrawl_submission_causes(submission_id);
+create index recrawl_submission_causes_vendor_id_submission_id_idx
+  on recrawl_submission_causes(vendor_id, submission_id);
+```
+
+**Joined to the queue by `(channel, url)`, never by queue id.** The queue upsert keeps the first
+row's id. A cause for a URL already queued must still attach.
+
+**How the audit id is known before the batch.** `auditInsert` (`apps/api/src/lib/audit.ts`) mints
+`audit_log.id` onto the caller's entry (`entry.id ??= crypto.randomUUID()`). The same entry object
+reaches `afterVendorWrite`, which takes the first entry's id. One entry object is one audit row.
+Putting the same object into two batches that both commit would reuse the id and trip the PK.
+
+**`recrawl_queue_causes` is written by**
+
+- `bufferVendorRecrawl` (`apps/api/src/routes/vendor-shared.ts`), post-commit, after each queue
+  upsert. `source` is `vendor`, or `admin` for the admin retire, which shares the tail. An
+  admin-origin cause names no vendor and no product. Each call site sets `productId` on its
+  `VendorRecrawl` and states its rule beside the value. The rule is the session vendor's own
+  product the write touched: the edited product, or for an integration or pair write the
+  endpoint the vendor sells (source first, `null` when it sells neither). A profile edit names
+  none.
+- `bufferIndexNowAfterPromote` (`apps/api/src/routes/promote.ts`), post-commit, after each queue
+  upsert. `source = 'promote'` and `promote_job_id` is the Workflow job id, passed to
+  `dispatchPromoteHooks` as an argument (not on `PromoteRunCtx`). No vendor, product or audit id.
+
+Both write exactly the URLs their queue took: every URL for IndexNow, and for Google only the
+URLs `enqueueGscRecrawlUrls` kept after dropping retired slugs. Both are best-effort. A cause
+failure is logged (`aeci.api.vendor.recrawl_causes_failed`, `aeci.api.promote.recrawl_causes_failed`)
+and never fails the write or the queue upsert. Statements chunk at
+`RECRAWL_CAUSE_ROWS_PER_STATEMENT` (12): eight parameters per row is 96, under D1's cap of 100.
+
+**`recrawl_queue_causes` is deleted by** `sweepOrphanCauses(db, channel)`
+(`apps/api/src/lib/recrawl-causes.ts`), which removes every cause on a channel whose URL is no
+longer in that channel's queue. It runs in the same batch as each queue delete: the drain's
+success commit (after the deletes), its all-retired commit, its 7-day expiry, and the admin
+worklist clear (`channel = 'gsc'`). It binds one parameter. A refused drain run does not sweep,
+because its URLs stay queued.
+
+**`recrawl_submission_causes` is written by** `copyCausesToSubmissions(db, channel, batchId)`, one
+`INSERT … SELECT` that joins the run's `recrawl_submissions` rows to the queued causes. It binds
+two parameters at any run size. The drain runs it right after the submission inserts, in the
+success batch and in the refusal batch alike. A refused URL's causes are copied onto the refused
+row and copied again onto the next attempt. AECI-1185 adds the admin clear as a second caller.
+
+**Known limit.** A cause written between the drain's read and its commit, for a URL in the drain
+set, is copied onto that run's submission and then swept. Its queue upsert hit the row the drain
+was about to delete, so that edit's URL is not re-sent either. This is what the queue already does
+to such an edit.
+
+**Class.** `recrawl_queue_causes` is ordinary ADR 0022 derived log class: transient, derived from
+a write that already audited, never shown to anyone. `recrawl_submission_causes` is on the same
+append-only evidence-log footing as `recrawl_submissions` (ADR 0022, 2026-10-04 amendment): never
+updated, never deleted (`retention-prune` excludes it), and written only in the same batch as the
+submission rows it points at.
+
+**No foreign keys** on either table, for the same reasons as §9.6a.
+
+**Readers to come.** The vendor read (AECI-1187) scopes on `recrawl_submission_causes.vendor_id`.
+The admin history (AECI-1188) reads causes by `submission_id`. Nothing reads either table yet.
+
+**Migration `0062`** is two `CREATE TABLE` plus three `CREATE INDEX`. It is not a recreate and
+cannot cascade. `apps/api/src/test/migration-0062.spec.ts` pins that.
 
 ---
 
@@ -3337,8 +3442,10 @@ relational-query registration.
 
 **Written by** `bufferIndexNowAfterPromote` (`apps/api/src/routes/promote.ts`, post-commit) and
 `bufferVendorRecrawl` (`apps/api/src/routes/vendor-shared.ts`, post-commit), both through
-`enqueueGscRecrawl` (`apps/api/src/lib/gsc-recrawl-queue.ts`), and cleared one row at a time by
-`DELETE /api/admin/reindex/:id`. The vendor appender also gates on an active entitlement since
+`enqueueGscRecrawlUrls` (`apps/api/src/lib/gsc-recrawl-queue.ts`), and cleared one row at a time by
+`DELETE /api/admin/reindex/:id`. Since AECI-1184 each appender also writes one
+`recrawl_queue_causes` row (`channel = 'gsc'`) per URL the worklist actually took, and the clear
+sweeps the cleared URL's causes in its own batch (§9.6b). The vendor appender also gates on an active entitlement since
 AECI-1186 (decision 4 of epic AECI-1182): a Free seat's write queues nothing here, exactly as
 for `indexnow_queue`. Both appenders gate on `INDEXNOW_KEY` **and**
 `PUBLIC_SITE_URL`, which looks wrong for a table that has nothing to do with IndexNow and is
@@ -4023,7 +4130,7 @@ Migrations are generated by **drizzle-kit** from the Drizzle schema and applied 
 
 Every write that changes **domain state** must emit its `audit_log` (+ `workflow_transitions` where applicable) row (`STAGE_1_SPEC.md` §26.1, `CLAUDE.md` §"Audit logging and the observability forward"). Failure to log is a transactional failure — the mutation must not commit without its audit entry.
 
-**Scope (ADR 0022).** "Domain state" is the catalog, users and profiles, reviews and moderation, claims and attestations, requests and workflows. **Derived and log-class writes are exempt**: `page_views`, `mailing_list`, `feedback` (`API_CONTRACTS.md` §6.9/§6.13), `stats_cache`, the Algolia watermark, the denormalized product counters (§14.2), and the cron-written `metrics_daily` (§9.3 — **shipped**, AECI-581) and `job_runs` (§9.4 — **shipped**, AECI-583) tables (`ADMIN_PANEL_SPEC.md` §7.1/§7.2). `notification_sends` (§9.9), `notification_delivery_events` (§9.9a, AECI-1222), the daily per-vendor snapshot `vendor_activity_daily` (§9.12), and the per-user service log `user_activity_daily` (§9.11, ADR 0022's 2026-10-02 amendment) are exempt too. So is the search-engine submission log `recrawl_submissions` (§9.6a), an append-only evidence log under ADR 0022's 2026-10-04 amendment: never updated, never deleted, written only by the IndexNow drain and the admin reindex clear, each batch tied to an audited row by `batch_id`. The test is **entity class, not actor class** — a `system`/cron actor writing domain state still audits — and **scheduled `DELETE`s are never exempt**: they emit one summary row per run (`action='retention.pruned'`). That exception is live as of AECI-584 (§9.1/§9.4): the 03:00 retention prune is the only cron that writes an `audit_log` row, and it writes exactly one per run — `actor_type='system'`, `entity_type='retention'`, `metadata={rowsDeleted, tables:[{table, cutoff, rowsDeleted}]}` — inside the same atomic `db.batch` as every chunked `DELETE`. A run that deletes nothing writes none: the exception exists because a deletion's fact is unrecoverable afterwards, and a non-deletion has no such fact.
+**Scope (ADR 0022).** "Domain state" is the catalog, users and profiles, reviews and moderation, claims and attestations, requests and workflows. **Derived and log-class writes are exempt**: `page_views`, `mailing_list`, `feedback` (`API_CONTRACTS.md` §6.9/§6.13), `stats_cache`, the Algolia watermark, the denormalized product counters (§14.2), and the cron-written `metrics_daily` (§9.3 — **shipped**, AECI-581) and `job_runs` (§9.4 — **shipped**, AECI-583) tables (`ADMIN_PANEL_SPEC.md` §7.1/§7.2). `notification_sends` (§9.9), `notification_delivery_events` (§9.9a, AECI-1222), the daily per-vendor snapshot `vendor_activity_daily` (§9.12), and the per-user service log `user_activity_daily` (§9.11, ADR 0022's 2026-10-02 amendment) are exempt too. So is the search-engine submission log `recrawl_submissions` (§9.6a), an append-only evidence log under ADR 0022's 2026-10-04 amendment: never updated, never deleted, written only by the IndexNow drain and the admin reindex clear, each batch tied to an audited row by `batch_id`. Its cause table `recrawl_submission_causes` (§9.6b, AECI-1184) is on the same footing, and the transient `recrawl_queue_causes` is ordinary derived log class. The test is **entity class, not actor class** — a `system`/cron actor writing domain state still audits — and **scheduled `DELETE`s are never exempt**: they emit one summary row per run (`action='retention.pruned'`). That exception is live as of AECI-584 (§9.1/§9.4): the 03:00 retention prune is the only cron that writes an `audit_log` row, and it writes exactly one per run — `actor_type='system'`, `entity_type='retention'`, `metadata={rowsDeleted, tables:[{table, cutoff, rowsDeleted}]}` — inside the same atomic `db.batch` as every chunked `DELETE`. A run that deletes nothing writes none: the exception exists because a deletion's fact is unrecoverable afterwards, and a non-deletion has no such fact.
 
 **The 11:00 entitlement-expiry sweep is a second auditing cron, and for the same "entity class, not actor class" reason** (AECI-613): it writes `expiry_notice_sent_at` on a domain row and emits one `vendor_entitlement.expiry_warned` row (`actor_type='system'`) per warned term, in the same batch. "We warned them on date X" is precisely the fact an offline-invoice dispute needs, so exempting it would lose the one record that matters. Note what that means for the exempt lists: `entitlement-expiry` is **not** ADR-0022-exempt in the way `retention-prune` is — where a cron-level test carves it out, the carve-out is a mocking artifact, and the real obligation is asserted in `entitlement-expiry.spec.ts`.
 

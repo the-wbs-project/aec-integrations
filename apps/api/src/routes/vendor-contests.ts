@@ -144,6 +144,7 @@ import type { ContestPortalNotificationId } from '../lib/notifications/registry'
 import { isConnectorPoweredEdge } from '../lib/connector-powered';
 import { isClaimed } from '../lib/integration-claims';
 import { requireActiveEntitlement } from '../lib/integration-entitlement';
+import { ownedEndpointIds } from '../lib/integration-owner-writes';
 import { ownerSeatLapsed } from '../lib/vendor-handback';
 import {
   protestSubmitRefusal,
@@ -163,6 +164,8 @@ import {
   parseJsonBody,
   vendorRecrawlEnabled,
   sessionVendorId,
+  ownedSideProductId,
+  withRecrawlProduct,
   type VendorContext,
 } from './vendor-shared';
 
@@ -1238,7 +1241,19 @@ export function createDecideContestHandler(
       status === 'accepted' && pairSlugs && vendorRecrawlEnabled(c) && base
         ? attestationEditRecrawl(base, pairSlugs[0], pairSlugs[1])
         : undefined;
-    afterVendorWrite(c, tags, audits, recrawl, db);
+    // AECI-1184: the endpoint the deciding owner's vendor sells, source (A) first.
+    // `null` for a third-party owner. Read post-commit, only when there is a recrawl.
+    afterVendorWrite(
+      c,
+      tags,
+      audits,
+      withRecrawlProduct(recrawl, () =>
+        ownedEndpointIds(db, vendorId, target).then((owned) =>
+          ownedSideProductId(owned, target.sourceProductId, target.targetProductId),
+        ),
+      ),
+      db,
+    );
     // AECI-1205 (§11b.12.10): the submitter's seats get the 30-day protest window by
     // email too. After the commit, so a lost race sends nothing.
     if (protestClosesAt) {

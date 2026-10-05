@@ -156,7 +156,12 @@ import { type DbFactory } from '../lib/handler-utils';
 import { runHomeStats, type HomeStatsResult } from '../lib/home-stats';
 import { emitHomeStatsMetrics, type StatsMetricSink } from '../lib/home-stats-metrics';
 import { enqueueIndexNowUrls, indexNowEntriesByTier } from '../lib/indexnow-queue';
-import { enqueueGscRecrawl } from '../lib/gsc-recrawl-queue';
+import {
+  enqueueRecrawlCauses,
+  type RecrawlCause,
+  type RecrawlCauseChannel,
+} from '../lib/recrawl-causes';
+import { enqueueGscRecrawlUrls } from '../lib/gsc-recrawl-queue';
 import { extensionHostSlugs } from '../lib/product-extensions';
 import { recomputeProductCounts } from '../lib/recompute-counts';
 import { cacheTagsForPromote, touchedTradeSlugs } from './promote-cache-tags';
@@ -1265,14 +1270,19 @@ function logAlgoliaSyncFailure(rc: PromoteRunCtx, entity: string, reason: string
  * touched trades that are PUBLISHED post-commit, plus the removed slugs. It
  * arrives as a promise so the one D1 read backing it is never awaited on the
  * request path — see `resolveTradeUrlOptions`.
+ *
+ * `jobId` is the promote Workflow's job id (AECI-1184). It is written onto every
+ * buffered URL's `recrawl_queue_causes` row, so a submission can name the promote
+ * that caused it. `null` when the caller has none.
  */
 export type PromoteIndexNowNotify = (
   rc: PromoteRunCtx,
   response: PromoteResponse,
   tradeUrls: Promise<AffectedUrlOptions>,
+  jobId: string | null,
 ) => Promise<void>;
 
-const defaultIndexNowNotify: PromoteIndexNowNotify = (rc, response, tradeUrls) =>
+const defaultIndexNowNotify: PromoteIndexNowNotify = (rc, response, tradeUrls, jobId) =>
   // The promote's write bookmark (`rc.bookmark()`) anchors the append at the same
   // D1 session as the commit, matching the home-stats seam below. It is a write,
   // so replica lag cannot corrupt it — but pinning the session keeps the whole
@@ -1282,6 +1292,7 @@ const defaultIndexNowNotify: PromoteIndexNowNotify = (rc, response, tradeUrls) =
     response,
     tradeUrls,
     getDb(rc.env, { bookmark: rc.bookmark() }).db,
+    jobId,
   );
 
 /** Exported for the promote spec: append the affected public URLs to
@@ -1293,6 +1304,7 @@ export async function bufferIndexNowAfterPromote(
   response: PromoteResponse,
   tradeUrls: Promise<AffectedUrlOptions>,
   db: Db,
+  jobId: string | null = null,
 ): Promise<void> {
   const key = rc.env.INDEXNOW_KEY;
   const siteUrl = rc.env.PUBLIC_SITE_URL;
@@ -1318,9 +1330,37 @@ export async function bufferIndexNowAfterPromote(
     return;
   }
 
+  // AECI-1184: a promote's cause names the job and nothing else. There is no
+  // vendor session and no single audit row behind a promote.
+  const cause: RecrawlCause = {
+    source: 'promote',
+    auditLogId: null,
+    vendorId: null,
+    productId: null,
+    promoteJobId: jobId,
+  };
+  // Written after each queue upsert and caught on its own, so a lost cause is logged
+  // as itself and never suppresses the queue write or reaches the committed promote.
+  const recordCauses = async (channel: RecrawlCauseChannel, urls: readonly string[]) => {
+    try {
+      await enqueueRecrawlCauses(db, channel, urls, cause);
+    } catch (error) {
+      logToPosthog(rc, rc.env, rc.request, {
+        level: 'warn',
+        message: 'aeci.api.promote.recrawl_causes_failed',
+        source: 'review-app-promote',
+        channel,
+        reason: error instanceof Error ? error.message : 'recrawl_causes_failed',
+        urls_count: urls.length,
+      });
+    }
+  };
+
   try {
     const queued = await enqueueIndexNowUrls(db, indexNowEntriesByTier(urlList, gscEntries));
     submitCount(rc, rc.env, rc.request, 'aeci.indexnow.queued', queued, ['source:promote']);
+    // The IndexNow buffer takes every URL it is handed, so the causes take the same list.
+    await recordCauses('indexnow', urlList);
   } catch (error) {
     // Fail-open, exactly as the submission did: the promote is committed and a
     // missed ping costs discovery latency, never correctness. The sitemap's
@@ -1346,8 +1386,10 @@ export async function bufferIndexNowAfterPromote(
   // successful IndexNow buffer or vice versa. They are independent discovery
   // channels and one being broken is not a reason to lose the other.
   try {
-    const touched = await enqueueGscRecrawl(db, gscEntries, 'promote');
+    const { touched, urls } = await enqueueGscRecrawlUrls(db, gscEntries, 'promote');
     submitCount(rc, rc.env, rc.request, 'aeci.gsc_recrawl.queued', touched, ['source:promote']);
+    // Only the URLs the worklist took: it refuses retired slugs at enqueue.
+    if (urls.length > 0) await recordCauses('gsc', urls);
   } catch (error) {
     // Fail-open for the same reason the IndexNow half is: the promote is
     // committed, and a missing worklist row costs the operator a manual
@@ -3775,11 +3817,16 @@ export async function runPromoteIngest(
  * replayed step can never double-fire these. Synchronous by design: it dispatches
  * and returns, which is what lets the job reach `complete` the instant the batch
  * commits.
+ *
+ * `jobId` (AECI-1184) is a hook argument, not a `PromoteRunCtx` field, so the
+ * commit's context stays narrow. Only the IndexNow hook reads it, to stamp the
+ * recrawl causes. `null` when the caller has no job.
  */
 export function dispatchPromoteHooks(
   rc: PromoteRunCtx,
   result: PromoteIngestResult,
   deps: PromoteIngestDeps = {},
+  jobId: string | null = null,
 ): void {
   const dbFor = deps.dbFor ?? getDb;
   const syncAlgolia = deps.syncAlgolia ?? defaultAlgoliaSync;
@@ -3848,7 +3895,7 @@ export function dispatchPromoteHooks(
   // absence is the gate — and it gates the buffer too, so a pre-launch tier never
   // accumulates rows the drain would submit the moment a key appeared.
   if (rc.env.INDEXNOW_KEY && rc.env.PUBLIC_SITE_URL) {
-    dispatchHook(rc, 'indexnow', notifyIndexNow(rc, response, tradeUrls));
+    dispatchHook(rc, 'indexnow', notifyIndexNow(rc, response, tradeUrls, jobId));
   }
 
   // Surface any `skipped[]` entries (§4) in the observability plane: a completed job

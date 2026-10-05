@@ -137,6 +137,7 @@ import {
   seatsOf,
   sessionVendorId,
   vendorRequestsWhere,
+  withRecrawlProduct,
   type ProductRow,
   type VendorContext,
   type VendorRow,
@@ -988,7 +989,13 @@ export function createUpdateVendorProfileHandler(
       c,
       [`vendor:${after.slug}`],
       auditEntry,
-      profileBase ? vendorProfileRecrawl(profileBase, after.slug, Object.keys(payload)) : undefined,
+      // AECI-1184: a company profile edit touches no product, so the cause names none.
+      withRecrawlProduct(
+        profileBase
+          ? vendorProfileRecrawl(profileBase, after.slug, Object.keys(payload))
+          : undefined,
+        null,
+      ),
       db,
     );
 
@@ -1197,7 +1204,9 @@ export function createUpdateVendorProductHandler(
       c,
       productEditTags(after.slug, beforeTaxonomy, afterTaxonomy),
       auditEntry,
-      recrawl,
+      // AECI-1184: the edited product, which `requireOwnedProduct` proved is the
+      // session vendor's own.
+      withRecrawlProduct(recrawl, productId),
       db,
     );
 

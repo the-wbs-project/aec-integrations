@@ -41,6 +41,7 @@ import {
   productVersions,
   products,
   profiles,
+  recrawlQueueCauses,
   taxonomyDataObjects,
   vendors,
 } from '../db/schema';
@@ -48,6 +49,7 @@ import type { Env } from '../env';
 import { errorHandler } from '../errors';
 import type { AuthzVariables } from '../lib/authz';
 import { makeTestDb, type TestDb } from '../test/d1';
+import { expectVendorCauses } from '../test/recrawl-causes';
 import { TEST_ENV, buildAppWithHandler, fakeExecutionContext } from '../test/helpers';
 import { createPairTimelineHandler, createProductPairHandler } from './integrations';
 import {
@@ -1939,5 +1941,82 @@ describe('POST /api/vendor/claims: the claim_added notification (AECI-1153 / §7
     expect(status).toBe(500);
     expect(await notifications()).toEqual([]);
     expect(await claimRows()).toHaveLength(2);
+  });
+});
+
+// ─── Recrawl cause linkage (AECI-1184) ───────────────────────────────────────
+//
+// All three handlers buffer a recrawl of the pair page. Each cause names the
+// caller's framed endpoint: `context_product_id` when given, else slot A when the
+// caller holds it, else slot B.
+
+describe('recrawl causes (AECI-1184)', () => {
+  async function publicCall(
+    method: 'POST' | 'PUT' | 'DELETE',
+    path: string,
+    body: unknown,
+    auth: AuthzVariables['auth'],
+  ) {
+    const env = {
+      ...TEST_ENV,
+      PUBLIC_SITE_URL: 'https://www.aecintegrations.com',
+      INDEXNOW_KEY: 'test-key',
+      CACHE_PURGE_QUEUE: { send: vi.fn().mockResolvedValue(undefined) },
+    } as unknown as Env;
+    const execCtx = fakeExecutionContext();
+    const res = await app(auth).request(
+      path,
+      body === undefined
+        ? { method }
+        : { method, body: JSON.stringify(body), headers: { 'content-type': 'application/json' } },
+      env,
+      execCtx,
+    );
+    await Promise.all(vi.mocked(execCtx.waitUntil).mock.calls.map((c) => c[0]));
+    return res.status;
+  }
+  const causeProducts = async () =>
+    new Set((await t.db.select().from(recrawlQueueCauses)).map((r) => r.productId));
+
+  it('a claim by the endpoint-B owner names endpoint B', async () => {
+    const status = await publicCall(
+      'POST',
+      '/api/vendor/claims',
+      { integration_id: I_MAIN, data_object: 'submittals', direction: 'outbound' },
+      AUTH_B,
+    );
+    expect(status).toBe(201);
+    await expectVendorCauses(t, VENDOR_B);
+    expect(await causeProducts()).toEqual(new Set([P_TARGET]));
+  });
+
+  it('a claim framed by context_product_id names that product', async () => {
+    const status = await publicCall(
+      'POST',
+      '/api/vendor/claims',
+      {
+        integration_id: I_INTRA,
+        data_object: 'submittals',
+        direction: 'outbound',
+        context_product_id: P_OWN_B,
+      },
+      AUTH_BOTH,
+    );
+    expect(status).toBe(201);
+    expect(await causeProducts()).toEqual(new Set([P_OWN_B]));
+  });
+
+  it('an attestation by the endpoint-A owner names endpoint A', async () => {
+    expect(await publicCall('PUT', attestationUrl(C_MAIN), { asserted: true }, AUTH_A)).toBe(200);
+    await expectVendorCauses(t, VENDOR_A);
+    expect(await causeProducts()).toEqual(new Set([P_SOURCE]));
+  });
+
+  it('a retract names the caller endpoint', async () => {
+    expect(await publicCall('PUT', attestationUrl(C_MAIN), { asserted: true }, AUTH_B)).toBe(200);
+    await t.db.delete(recrawlQueueCauses);
+    expect(await publicCall('DELETE', attestationUrl(C_MAIN), undefined, AUTH_B)).toBe(204);
+    await expectVendorCauses(t, VENDOR_B);
+    expect(await causeProducts()).toEqual(new Set([P_TARGET]));
   });
 });
