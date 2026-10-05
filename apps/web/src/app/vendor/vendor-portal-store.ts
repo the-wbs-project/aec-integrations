@@ -208,13 +208,16 @@ const SECTIONS = Object.keys(SECTION_RESOURCE) as readonly VendorPortalSection[]
  * The scopes whose movement refetches the checklists (AECI-1218,
  * `STAGE_2_REALTIME_SPEC.md` §2.3). "Looks right" and every edit move `profile` or
  * `products`, a claim or an attestation moves `integrations`, a plan change moves
- * `entitlement`. `requests`, `notifications`, `contests` and `catalogue` feed no step.
+ * `entitlement`. An `owner` contest, the vendor's own "not ours" included, moves only
+ * `contests` and clears a row from the claim step (AECI-1225). `requests`,
+ * `notifications` and `catalogue` feed no step.
  */
 const CHECKLIST_SCOPES: ReadonlySet<VendorPortalScope> = new Set<VendorPortalScope>([
   'profile',
   'entitlement',
   'products',
   'integrations',
+  'contests',
 ]);
 
 // Intentionally NOT `providedIn: 'root'`: see the "WHY IT IS NOT root" note in

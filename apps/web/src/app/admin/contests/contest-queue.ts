@@ -280,6 +280,12 @@ export class ContestQueue {
     return c.status === 'open' && c.live_value !== undefined && c.live_value !== c.current_value;
   }
 
+  /** The vendor on file said the row is not its own (AECI-1225): an `owner` contest
+   *  whose submitter is the owner snapshot. Filed by and Offered by would repeat it. */
+  protected isSelfDisclaim(c: AdminContest): boolean {
+    return c.field === 'owner' && c.owner_vendor?.id === c.submitter_vendor.id;
+  }
+
   /** The owner snapshot taken at submit, or the plain absence of one. */
   protected ownerName(c: AdminContest): string {
     return (

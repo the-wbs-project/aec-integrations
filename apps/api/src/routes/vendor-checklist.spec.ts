@@ -316,6 +316,67 @@ describe('"Claim or say not ours"', () => {
     expect(await claimStep(FREE)).toBe('todo');
   });
 
+  // AECI-1225: the vendor's own "not ours", a self-disclaim `owner` contest.
+  const selfDisclaim = (status = 'open') => ({
+    ...ownerContest(uuid(71), uuid(20), status),
+    submitterVendorId: VENDOR,
+    reason: 'We did not build this.',
+  });
+
+  it('ignores a row the vendor itself said is not its own', async () => {
+    await t.db.insert(integrations).values(seededRow(uuid(20)));
+    await t.db.insert(integrationFieldChallenges).values(selfDisclaim());
+    expect(await claimStep(FREE)).toBe('done');
+  });
+
+  it('keeps ignoring it once AECi accepts, until promote re-points the row', async () => {
+    await t.db.insert(integrations).values(seededRow(uuid(20)));
+    await t.db.insert(integrationFieldChallenges).values(selfDisclaim('accepted'));
+    expect(await claimStep(FREE)).toBe('done');
+  });
+
+  it('counts the row again once AECi declines the vendor’s own "not ours"', async () => {
+    await t.db.insert(integrations).values(seededRow(uuid(20)));
+    await t.db.insert(integrationFieldChallenges).values(selfDisclaim('declined'));
+    expect(await claimStep(FREE)).toBe('todo');
+  });
+
+  it('ignores a row under another vendor’s accepted owner contest against this vendor', async () => {
+    await t.db.insert(integrations).values(seededRow(uuid(20)));
+    await t.db
+      .insert(integrationFieldChallenges)
+      .values(ownerContest(uuid(70), uuid(20), 'accepted'));
+    expect(await claimStep(FREE)).toBe('done');
+  });
+
+  it('does not let an accepted contest about an earlier owner clear the row', async () => {
+    // The contest was about OTHER. Promote then named VENDOR, so the step asks again.
+    await t.db.insert(integrations).values(seededRow(uuid(20)));
+    await t.db.insert(integrationFieldChallenges).values({
+      ...ownerContest(uuid(70), uuid(20), 'accepted'),
+      submitterVendorId: VENDOR,
+      currentValue: OTHER,
+      ownerVendorId: OTHER,
+    });
+    expect(await claimStep(FREE)).toBe('todo');
+  });
+
+  it('ignores an evidenced pair the vendor said is not its own, once accepted', async () => {
+    await t.db.insert(connectorEvidencedPairs).values({
+      id: uuid(30),
+      connectorProductId: P_BRIDGE,
+      productAId: P_ONE,
+      productBId: P_PARTNER,
+      builtByVendorId: VENDOR,
+    });
+    await t.db.insert(integrationFieldChallenges).values({
+      ...selfDisclaim('accepted'),
+      integrationId: null,
+      evidencedPairId: uuid(30),
+    });
+    expect(await claimStep(MANAGED)).toBe('done');
+  });
+
   it('is not satisfied by an open contest on a different field', async () => {
     await t.db.insert(integrations).values(seededRow(uuid(20)));
     await t.db.insert(integrationFieldChallenges).values({

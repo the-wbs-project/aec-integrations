@@ -26,7 +26,14 @@
  * `resolveAttestationSlots` (the one implementation of that rule). A contest the
  * caller neither filed nor decides is a 404 indistinguishable from one that does
  * not exist. The owner of an integration gets a 403 instead, because by then it
- * has proven it owns an endpoint and the integration's existence is disclosed.
+ * has proven it owns the row and the integration's existence is disclosed.
+ *
+ * One exception (AECI-1225, §11b.2): the vendor named in `built_by_vendor_id` on a
+ * seeded (`origin = 'aeci'`), unclaimed row may file an `owner` contest, a
+ * "self-disclaim" saying the row is not its own. It needs no endpoint: a connector
+ * vendor named as owner holds neither, and it is the one being asked. It routes to
+ * AECi like every `owner` contest, and an in-batch guard refuses it if the row was
+ * claimed or re-pointed meanwhile.
  *
  * ── 3. ORDER: AUTHORITY → OWNER → SHAPE → VALUE → DUPLICATE ─────────────────
  * The integration id is a path param, so ownership is proven before the body is
@@ -427,11 +434,9 @@ export function createSubmitContestHandler(
       ? { kind: anchorKind, id }
       : await locateContestAnchor(db, id);
 
-    // 1. Authority, alone in its wave: an endpoint vendor or a flat 404.
-    const authority: AttestationAuthority =
-      anchor.kind === 'evidenced_pair'
-        ? await resolveEvidencedPairSlots(db, vendorId, anchor.id)
-        : await resolveAttestationSlots(db, vendorId, anchor.id);
+    // 1. Authority, alone in its wave: an endpoint vendor, the row's named owner
+    //    (AECI-1225, `null` slots), or a flat 404.
+    const authority = await resolveContestAuthority(db, vendorId, anchor);
 
     const [target, vendor] = await Promise.all([
       loadContestTarget(db, anchor),
@@ -440,14 +445,11 @@ export function createSubmitContestHandler(
     if (!vendor) throw notFoundError('vendor', { id: vendorId });
     if (!target) throw notFoundError('integration', { id: anchor.id });
 
-    // 2. The owner cannot contest its own integration.
-    if (target.builtByVendorId === vendorId) {
-      throw new ApiError(
-        403,
-        ApiErrorCode.CONTEST_OWN_INTEGRATION,
-        'Your company owns this integration, so you can edit it rather than contest it.',
-      );
-    }
+    // 2. The owner cannot contest its own integration, with one exception (AECI-1225):
+    //    the vendor named on a seeded, unclaimed row may say it is not its own. That is
+    //    an `owner` contest, checked once the body names the field (step 3b).
+    const selfDisclaim = target.builtByVendorId === vendorId;
+    if (selfDisclaim && !selfDisclaimable(target)) throw ownIntegration();
     // 2b. A retired row takes no new contest (AECI-1010). Its owner withdrew it, and
     //     the retire closed every open contest on it as withdrawn.
     assertIntegrationLive(target);
@@ -459,6 +461,8 @@ export function createSubmitContestHandler(
     //    existing contest reads through.
     const payload = await parseJsonBody(c, SubmitIntegrationContestSchema);
     const field = payload.field;
+    // 3b. The owner may contest only `owner`, and only to name someone else.
+    if (selfDisclaim && field !== 'owner') throw ownIntegration();
     if (!(contestFieldsFor(anchor.kind) as readonly string[]).includes(field)) {
       throw new ApiError(
         400,
@@ -469,9 +473,12 @@ export function createSubmitContestHandler(
         { field: 'field' },
       );
     }
-    const owned = authority.slots.map((slot) =>
-      slot === 'vendor_a' ? authority.sourceProductId : authority.targetProductId,
-    );
+    // A named owner holding neither endpoint has no slots, so no context product.
+    const owned = authority
+      ? authority.slots.map((slot) =>
+          slot === 'vendor_a' ? authority.sourceProductId : authority.targetProductId,
+        )
+      : [];
     if (payload.context_product_id && !owned.includes(payload.context_product_id)) {
       throw new ApiError(
         400,
@@ -481,8 +488,8 @@ export function createSubmitContestHandler(
       );
     }
     const contextIsSource = payload.context_product_id
-      ? payload.context_product_id === authority.sourceProductId
-      : authority.slots.includes('vendor_a');
+      ? payload.context_product_id === authority?.sourceProductId
+      : (authority?.slots.includes('vendor_a') ?? true);
 
     // 4. Value — a business rule per field, so 422 rather than 400.
     const wire = payload.proposed_value;
@@ -555,6 +562,7 @@ export function createSubmitContestHandler(
       proposedValue,
       reason: payload.reason,
       pairSlugs,
+      selfDisclaim,
     };
 
     // 7. Route and write. A lost race with an admin clearing the owner's entitlement
@@ -601,6 +609,9 @@ function contestRouteReason(
   target: ContestTarget,
   claimed: IntegrationClaimedPredicate,
 ): ContestAlertRouteReason {
+  if (row.field === 'owner' && row.submitterVendorId === row.ownerVendorId) {
+    return 'owner-self-disclaim';
+  }
   if (row.field === 'owner') return 'owner-field';
   if (row.ownerSeatLapsedAt) return 'owner-seat-lapsed';
   if (target.builtByVendorId === null || !claimed(target)) return 'unclaimed';
@@ -660,6 +671,8 @@ interface SubmitDraft {
   proposedValue: string | null;
   reason: string;
   pairSlugs: readonly [string, string] | null;
+  /** The row's named owner says the row is not its own (AECI-1225). */
+  selfDisclaim: boolean;
 }
 
 /**
@@ -741,6 +754,7 @@ async function planSubmit(
     ...anchorMetadata(anchor),
     field,
     routedTo,
+    ...(draft.selfDisclaim ? { selfDisclaim: true } : {}),
   };
   const audit: AuditLogEntry = {
     actorId: session.userId,
@@ -799,6 +813,11 @@ async function planSubmit(
     // AECI-1010: a retire that committed after the read above would otherwise leave
     // an open contest on a retired row, which the retire's own close missed.
     contestAnchorLiveSentinel(db, anchor),
+    // AECI-1225: a self-disclaim stands only while the row is unclaimed and still names
+    // the caller. A claim or a promote re-point landing first aborts the batch.
+    ...(draft.selfDisclaim
+      ? [contestIntegrationStateSentinel(db, anchor, { claimed: false, ownerVendorId: vendorId })]
+      : []),
     // Ruling B's submit-side half: the owner must still be entitled at commit.
     ...(entitlementGuarded && ownerVendorId
       ? [ownerEntitlementActiveSentinel(db, ownerVendorId)]
@@ -807,6 +826,47 @@ async function planSubmit(
     ...audits.map((entry) => auditInsert(db, entry)),
   ];
   return { stmts, audits, row, entitlementGuarded };
+}
+
+/**
+ * Who may contest this row (rule 2). An endpoint vendor gets its slots. The vendor
+ * named in `built_by_vendor_id` but holding neither endpoint, such as a connector
+ * vendor, gets `null`: it may file only a self-disclaim (AECI-1225). Everyone else
+ * gets the endpoint resolver's flat 404, so the row's existence is not disclosed.
+ */
+async function resolveContestAuthority(
+  db: Db,
+  vendorId: string,
+  anchor: ContestAnchor,
+): Promise<AttestationAuthority | null> {
+  try {
+    return anchor.kind === 'evidenced_pair'
+      ? await resolveEvidencedPairSlots(db, vendorId, anchor.id)
+      : await resolveAttestationSlots(db, vendorId, anchor.id);
+  } catch (error) {
+    if (!(error instanceof ApiError) || error.status !== 404) throw error;
+    const target = await loadContestTarget(db, anchor);
+    if (target?.builtByVendorId !== vendorId) throw error;
+    return null;
+  }
+}
+
+/**
+ * May the row's named owner say it is not its own (AECI-1225)? Only on a seeded row
+ * nobody has claimed. A claimed row is the owner's to edit, retire or hand back, and
+ * a vendor-created row is the vendor's own by construction.
+ */
+function selfDisclaimable(target: Pick<ContestTarget, 'origin' | 'claimedAt'>): boolean {
+  return target.origin === 'aeci' && target.claimedAt === null;
+}
+
+function ownIntegration(): ApiError {
+  return new ApiError(
+    403,
+    ApiErrorCode.CONTEST_OWN_INTEGRATION,
+    'Your company owns this integration, so you can edit it rather than contest it. ' +
+      'On a row AEC Integrations added that you have not claimed, you can only say it is not yours.',
+  );
 }
 
 /** Every AECI-1009 protest column, empty. A new contest carries no protest. */

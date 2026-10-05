@@ -21,7 +21,7 @@ import { VendorPortalStore } from '../vendor-portal-store';
 import { VendorIntegrationEditForm, type EditFormValues } from './vendor-integration-edit-form';
 import { VENDOR_EDIT_FORM_START_OPEN } from './vendor-integration-edit-form';
 import { claimErrorMessage } from './vendor-integration-ownership-labels';
-import { VendorNotOursLink } from './vendor-not-ours-link';
+import { VendorNotOurs, selfDisclaimOn, selfDisclaimStands } from './vendor-not-ours';
 import { VendorOwnedRetire } from './vendor-owned-retire';
 
 /** Where the owner stands on one owned row. `claimed-needs-plan` is a claimed
@@ -87,7 +87,7 @@ export function ownedRowsForProduct(
  */
 @Component({
   selector: 'aec-vendor-owned-integrations',
-  imports: [VendorIntegrationEditForm, VendorOwnedRetire, VendorNotOursLink],
+  imports: [VendorIntegrationEditForm, VendorOwnedRetire, VendorNotOurs],
   changeDetection: ChangeDetectionStrategy.OnPush,
   host: { class: 'block' },
   template: `
@@ -216,31 +216,35 @@ export function ownedRowsForProduct(
                         claimed it.
                       </p>
                     }
-                    <div class="mt-3 flex flex-wrap items-center gap-3">
-                      <button
-                        type="button"
-                        [class]="primaryButtonClass"
-                        [disabled]="claimingId() !== null"
-                        (click)="onClaim(row)"
-                        data-testid="claim-owned-integration"
-                      >
-                        @if (claimingId() === row.id) {
-                          <span i18n="@@vendor.ownedIntegrations.claiming">Claiming…</span>
-                        } @else {
-                          <span i18n="@@vendor.ownedIntegrations.claim"
-                            >Claim this integration</span
-                          >
-                        }
-                      </button>
-                      <!-- AECI-1218: the checklist's "say not ours", via a correction. -->
-                      @if (contextSlug(); as slug) {
-                        <aec-vendor-not-ours-link
-                          [productSlug]="slug"
-                          [productA]="row.product_a.name"
-                          [productB]="row.product_b.name"
-                        />
-                      }
-                    </div>
+                    <!-- AECI-1225: while the vendor's own "not ours" stands, the claim
+                         is not offered beside it. -->
+                    @if (!notOursStands(row)) {
+                      <div class="mt-3">
+                        <button
+                          type="button"
+                          [class]="primaryButtonClass"
+                          [disabled]="claimingId() !== null"
+                          (click)="onClaim(row)"
+                          data-testid="claim-owned-integration"
+                        >
+                          @if (claimingId() === row.id) {
+                            <span i18n="@@vendor.ownedIntegrations.claiming">Claiming…</span>
+                          } @else {
+                            <span i18n="@@vendor.ownedIntegrations.claim"
+                              >Claim this integration</span
+                            >
+                          }
+                        </button>
+                      </div>
+                    }
+                    <!-- AECI-1225: the checklist's "say not ours". -->
+                    <aec-vendor-not-ours
+                      class="mt-3"
+                      [integrationId]="row.id"
+                      [anchor]="row.anchor"
+                      [productA]="row.product_a.name"
+                      [productB]="row.product_b.name"
+                    />
                   }
                 }
                 <!-- AECI-1091: retire and restore. Renders nothing on an unclaimed row. -->
@@ -300,10 +304,10 @@ export class VendorOwnedIntegrations {
     ),
   );
 
-  /** The page's product slug, which a "Not ours?" correction is filed against. */
-  protected readonly contextSlug = computed(
-    () => this.store.me()?.products.find((p) => p.id === this.contextProductId())?.slug ?? null,
-  );
+  /** Does the vendor's own "not ours" stand on this row (AECI-1225)? */
+  protected notOursStands(row: OwnedIntegration): boolean {
+    return selfDisclaimStands(selfDisclaimOn(this.store.contests().submitted, row.id, row.anchor));
+  }
 
   /** Does the caller make one of the two products? Then the claim notifies only the
    *  other side, since the server never notifies the owner itself. */

@@ -282,6 +282,11 @@ export interface ContestTarget {
   builtByVendorId: string | null;
   claimedAt: string | null;
   retiredAt: string | null;
+  /**
+   * `'aeci'` for a seeded row, `'vendor'` for one a vendor created (ADR 0035). Read
+   * by the self-disclaim rule (AECI-1225): only a seeded row can be "not ours".
+   */
+  origin: string;
   maintainedBy: string;
   lastReviewedAt: string | null;
   sourceProductId: string;
@@ -322,6 +327,7 @@ export async function loadContestTarget(
       builtByVendorId: pair.builtByVendorId,
       claimedAt: pair.claimedAt,
       retiredAt: pair.retiredAt,
+      origin: pair.origin,
       maintainedBy: pair.maintainedBy,
       lastReviewedAt: pair.lastReviewedAt,
       sourceProductId: pair.productAId,
@@ -350,6 +356,7 @@ export async function loadContestTarget(
     builtByVendorId: row.builtByVendorId,
     claimedAt: row.claimedAt,
     retiredAt: row.retiredAt,
+    origin: row.origin,
     maintainedBy: row.maintainedBy,
     lastReviewedAt: row.lastReviewedAt,
     sourceProductId: row.sourceProductId,

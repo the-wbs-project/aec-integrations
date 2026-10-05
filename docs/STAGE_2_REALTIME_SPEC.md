@@ -262,14 +262,16 @@ type VendorPortalScope =
 > `integrations`, through the row term, the owned-rows statement and the claim and attestation
 > terms. A plan change moves `entitlement`. So the portal (AECI-1218) refetches
 > `GET /api/vendor/checklist`, and any open `GET /api/vendor/products/:id/checklist`, when any of
-> `profile`, `entitlement`, `products` or `integrations` moves. Same never-from-cold rule as
+> `profile`, `entitlement`, `products`, `integrations` or (since AECI-1225) `contests` moves. Same never-from-cold rule as
 > `contests`. Two inputs move no scope, and that is accepted. A seat or invite change moves nothing,
 > because there is no seats scope. "Invite a colleague" is optional and the inviter's own tab sees
 > the change after its own write. An `owner` contest another vendor files on the caller's row is
 > AECi-routed, so it is outside the caller's `contests` predicate. The claim step catches up on the
-> next refetch. Widening a cursor for either would cross the §2.2 invariant for a cosmetic gain.
-> **As built (AECI-1218):** `VendorPortalStore.revalidate` calls `refreshChecklists()` when any of the
-> four scopes moved. The checklists sit outside the store's resource map, so a failed checklist read
+> next refetch. **The caller's own "not ours" is different (AECI-1225).** It is a contest the caller
+> submitted, so it is inside the `contests` predicate through `submitter_vendor_id`. It ticks the
+> claim step, and so do its withdraw and its decision, so `contests` joins the checklist scopes. Widening a cursor for either would cross the §2.2 invariant for a cosmetic gain.
+> **As built (AECI-1218, amended AECI-1225):** `VendorPortalStore.revalidate` calls `refreshChecklists()` when any of the
+> four scopes moved. `CHECKLIST_SCOPES` gained `contests` in AECI-1225, so it is now five. The checklists sit outside the store's resource map, so a failed checklist read
 > holds back no cursor in `VendorLiveSync`.
 >
 > **The integration detail page (specified 2026-09-28, `STAGE_2_VENDOR_PORTAL_SPEC.md` §6.17) adds

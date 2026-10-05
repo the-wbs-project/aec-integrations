@@ -299,15 +299,28 @@
         </div>
 
         <!-- Who and when -->
+        @if (isSelfDisclaim(c)) {
+        <!-- AECI-1225: the vendor on file filed it about itself. -->
+        <p
+          class="mt-4 text-sm font-medium text-(--text-primary)"
+          data-testid="contest-self-disclaim"
+          i18n="@@admin.contests.selfDisclaim"
+        >
+          {{ c.submitter_vendor.name }} is the vendor on file and says this integration is not
+          theirs.
+        </p>
+        }
         <dl class="mt-4 flex flex-wrap gap-x-6 gap-y-1 text-xs text-(--text-secondary)">
           <div class="flex gap-1.5">
             <dt class="font-bold" i18n="@@admin.contests.meta.submitter">Filed by</dt>
             <dd>{{ c.submitter_vendor.name }}</dd>
           </div>
+          @if (!isSelfDisclaim(c)) {
           <div class="flex gap-1.5">
             <dt class="font-bold" i18n="@@admin.contests.meta.owner">Offered by</dt>
             <dd>{{ ownerName(c) }}</dd>
           </div>
+          }
           <div class="flex gap-1.5">
             <dt class="font-bold" i18n="@@admin.contests.meta.submitted">Submitted</dt>
             <dd>{{ c.created_at | date: 'medium' }}</dd>

@@ -1452,6 +1452,27 @@ describe('sendContestSubmittedNotification (AECI-1132)', () => {
     expect(String(body.text)).toContain('Why AECi decides: No vendor has claimed this integration');
   });
 
+  it('gives the named owner’s own "not ours" its own subject and reason (AECI-1225)', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
+    await sendContestSubmittedNotification(fakeContext(SITE), {
+      ...CONTEST,
+      currentValue: 'Autodesk',
+      proposedValue: null,
+      routeReason: 'owner-self-disclaim',
+    });
+    const body = lastBody(fetchSpy);
+    expect(body.subject).toBe('[AECi] Not ours: Revit for MicroStation');
+    const text = String(body.text);
+    expect(text).toContain(
+      'Autodesk says it does not own Revit for MicroStation. AECi decides it.',
+    );
+    expect(text).toContain('Owner on file: Autodesk');
+    expect(text).toContain('Proposed owner: none');
+    expect(text).toContain(
+      'Why AECi decides: The vendor named as owner says it does not own this integration',
+    );
+  });
+
   it('skips (no fetch) when SUPPORT_EMAIL is unset', async () => {
     const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
     expect(await sendContestSubmittedNotification(fakeContext(), CONTEST)).toBe('skipped');

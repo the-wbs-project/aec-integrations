@@ -69,7 +69,7 @@ Each product's checklist has four steps:
 
 - **Check product details.** Edit the product, or choose "Looks right".
 - **Check the integration list.** Choose "Looks right" on the product's integrations. This step completes even when your company has claimed none of them yet.
-- **Claim or say "not ours".** Claim each integration your company is recorded as owning. If one is not yours, request a correction on its Owner. [Owning an integration](/docs/vendors/owning-an-integration) explains both.
+- **Claim or say "not ours".** Claim each integration your company is recorded as owning. If one is not yours, choose "Not ours?" on it and say who offers it, if you know. The step counts it as answered while AEC Integrations reviews it, and after it agrees. [Owning an integration](/docs/vendors/owning-an-integration) explains both.
 - **Confirm data flows.** Answer Yes or No on every data flow of the product's integrations.
 
 How a product's score counts:

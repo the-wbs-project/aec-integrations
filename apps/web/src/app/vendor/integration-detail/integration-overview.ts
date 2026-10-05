@@ -57,7 +57,7 @@ import {
   ID_STYLES,
   ROW_ACTION,
 } from './integration-detail-styles';
-import { VendorNotOursLink } from '../components/vendor-not-ours-link';
+import { VendorNotOurs, selfDisclaimOn, selfDisclaimStands } from '../components/vendor-not-ours';
 import { VendorTip } from './vendor-tip';
 
 type RowKey = IntegrationEditField | 'owner' | 'maintained' | 'added';
@@ -108,7 +108,7 @@ const PENCIL =
  */
 @Component({
   selector: 'aec-integration-overview',
-  imports: [VendorTip, VendorNotOursLink],
+  imports: [VendorTip, VendorNotOurs],
   styles: [ID_STYLES],
   template: `
     <div class="space-y-6">
@@ -257,24 +257,19 @@ const PENCIL =
                         @if (row.key === 'owner') {
                           @switch (ownerAction()) {
                             @case ('claim') {
-                              <button
-                                type="button"
-                                [class]="rowAction"
-                                [disabled]="claiming()"
-                                (click)="claim()"
-                                data-testid="claim-integration"
-                                i18n="@@vendor.im.owner.claim"
-                              >
-                                Claim this integration
-                              </button>
-                              <!-- AECI-1218: the checklist's "say not ours", via a correction. -->
-                              <span class="ms-3">
-                                <aec-vendor-not-ours-link
-                                  [productSlug]="integration().context_product.slug"
-                                  [productA]="integration().context_product.name"
-                                  [productB]="integration().other_product.name"
-                                />
-                              </span>
+                              <!-- AECI-1225: not offered while the vendor's own "not ours" stands. -->
+                              @if (!notOursStands()) {
+                                <button
+                                  type="button"
+                                  [class]="rowAction"
+                                  [disabled]="claiming()"
+                                  (click)="claim()"
+                                  data-testid="claim-integration"
+                                  i18n="@@vendor.im.owner.claim"
+                                >
+                                  Claim this integration
+                                </button>
+                              }
                             }
                             @case ('ask') {
                               <button
@@ -363,6 +358,16 @@ const PENCIL =
                   @if (row.key === 'owner' && claimError()) {
                     <p role="alert" [class]="alert" class="basis-full">{{ claimError() }}</p>
                   }
+                  <!-- AECI-1225: the checklist's "say not ours", under the Owner row. -->
+                  @if (row.key === 'owner' && live() && ownerAction() === 'claim') {
+                    <aec-vendor-not-ours
+                      class="basis-full"
+                      [integrationId]="integration().id"
+                      [productA]="integration().context_product.name"
+                      [productB]="integration().other_product.name"
+                      [otherVendors]="otherEndpointVendors()"
+                    />
+                  }
                 </dd>
               </div>
             }
@@ -414,6 +419,19 @@ export class IntegrationOverview {
     if (i.is_owner) return this.claimAllowed() ? 'claim' : null;
     if (i.owner !== null) return null;
     return openOwnerRequest(this.state.contests()) ? 'see' : 'ask';
+  });
+
+  /** Does the vendor's own "not ours" stand on this row (AECI-1225)? */
+  protected readonly notOursStands = computed(() =>
+    selfDisclaimStands(
+      selfDisclaimOn(this.store.contests().submitted, this.integration().id, 'integration'),
+    ),
+  );
+
+  /** The endpoint vendors a "not ours" may name instead: everyone but the caller. */
+  protected readonly otherEndpointVendors = computed(() => {
+    const me = this.integration().owner?.id;
+    return this.integration().endpoint_vendors.filter((v) => v.id !== me);
   });
 
   protected readonly kindOptions = OWNER_EDITABLE_MECHANISM_KINDS;

@@ -1145,6 +1145,11 @@ Four IA notes, in §5.10's voice:
   open **stranded** owner-routed rows (AECI-1005), which AECi decides, plus open **protests**
   (AECI-1009). A protested row is `declined`, so the protest term never double-counts a row.
   §5.0c covers why the sum stays honest: a different table, so disjointness is trivial.
+- **A self-disclaim reads as one (AECI-1225, 2026-10-05).** When the field is `owner` and
+  the submitter is the owner snapshot, the card says "<vendor> is the vendor on file and says
+  this integration is not theirs." It hides "Offered by", which would name the same vendor.
+  The contest is an ordinary `owner` contest and AECi decides it. An accept on an unclaimed row
+  changes nothing live. The builder changes at the next promote.
 - **Owner-routed rows are visible but read-only.** They render "With the owner" and no
   decision buttons. An operator can see a dispute it does not own, but two deciders on one
   row is how a contest gets accepted twice with two values. The API refuses the PATCH with
