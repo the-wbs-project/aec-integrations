@@ -20,7 +20,7 @@ import { auditInsert } from '../lib/audit';
 import { auditActorType, requireCapability, type AuthzVariables } from '../lib/authz';
 import { writeDb, type DbFactory } from '../lib/handler-utils';
 import { validateLogo } from '../lib/logo-validation';
-import { logToPosthog } from '../posthog';
+import { forwardAuditBatch } from '../lib/moderation-forward';
 import { parseJsonBody } from './vendor-shared';
 import { productAuditStamp, vendorAuditStamp } from '../lib/audit-vendor';
 import { aeciOverrideNotificationAudit } from '../lib/aeci-override-notifications';
@@ -246,14 +246,8 @@ export function createUpdateAdminLogoHandler(kind: 'vendor' | 'product', dbFor: 
         }
       })(),
     );
-    logToPosthog(c.executionCtx, c.env, c.req.raw, {
-      level: 'info',
-      message: `audit ${auditEntry.action} ${id}`,
-      action: auditEntry.action,
-      entity_type: kind,
-      entity_id: id,
-      source: 'admin-panel',
-    });
+    // AECI-1159: ONE batched forward carries the write's row and the vendor's notice.
+    forwardAuditBatch(c, [auditEntry, notice], [], 'admin-panel');
     return json({ logo_url: columns.logoUrl });
   };
 }

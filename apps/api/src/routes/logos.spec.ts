@@ -3,6 +3,7 @@ import { join } from 'node:path';
 import { eq } from 'drizzle-orm';
 import { Hono } from 'hono';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { logBatchToPosthog } from '../posthog';
 import { auditLog, products, productVendors, profiles, vendors } from '../db/schema';
 import type { Env } from '../env';
 import { errorHandler } from '../errors';
@@ -280,6 +281,21 @@ describe('logo routes', () => {
       expect(JSON.stringify(notice!.metadata)).not.toContain(NOTE);
     },
   );
+  it('AECI-1159: forwards the write row and the notice in one batched call', async () => {
+    vi.mocked(logBatchToPosthog).mockClear();
+    const res = await patch(`/api/admin/vendors/${uuid(2)}/logo`, {
+      logo_url: 'https://example.com/logo.png',
+      reason: REASON,
+    });
+    expect(res.status).toBe(200);
+    expect(logBatchToPosthog).toHaveBeenCalledTimes(1);
+    const events = vi.mocked(logBatchToPosthog).mock.calls[0]![3] as {
+      action: string;
+      source: string;
+    }[];
+    expect(events.map((e) => e.action)).toEqual(['vendor.updated', 'notification.sent']);
+    expect(events.every((e) => e.source === 'admin-panel')).toBe(true);
+  });
   it('AECI-1159: marks a removed logo as cleared on the notice', async () => {
     const res = await patch(`/api/admin/vendors/${uuid(2)}/logo`, {
       logo_url: null,
