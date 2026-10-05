@@ -6073,6 +6073,7 @@ export const VendorAeciOverrideNotificationSchema = z.object({    // AECI-1159
   pair_path: z.string().nullable().default(null),
   logo_subject: z.object({ type: z.enum(['vendor', 'product']), slug: z.string(), name: z.string() })
     .nullable().default(null),                                    // logo_overridden
+  logo_cleared: z.boolean().default(false),                       // logo_overridden: removed, not replaced
   seat_name: z.string().nullable().default(null),                 // seat_revoked
   created_at: z.string(),
 });

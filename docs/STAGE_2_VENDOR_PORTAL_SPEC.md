@@ -3710,7 +3710,7 @@ Each notice is a `notification.sent` audit row in the override's batch, so a fai
 
 - **Retire or restore:** the existing `integration_retire` row gains `reason` on the owner's row only. The feed returns `reason: null` on every other row, and on any row without the marker.
 - **Field, logo and seat:** a new feed member, `kind: 'aeci_override'`, with `event` of `field_overridden`, `logo_overridden` or `seat_revoked`. Its `reason` is AECi's vendor reason. It names the integration and field, the company or product, or the removed seat's display name. The wire shape is in `API_CONTRACTS.md`.
-- **The portal** titles each row with AEC Integrations as the actor and shows "Reason: …" under it (`vendor-notifications-list.ts`). A `field_overridden` row whose `field` is `owner` is a reassign. It tells the old owner it no longer maintains the integration.
+- **The portal** titles each row with AEC Integrations as the actor and shows "Reason: …" under it (`vendor-notifications-list.ts`). A `logo_overridden` row with `logo_cleared: true` says the logo was removed, not replaced. A `field_overridden` row whose `field` is `owner` is a reassign. It tells the old owner it no longer maintains the integration.
 
 ### 11d.4 The dispute route
 

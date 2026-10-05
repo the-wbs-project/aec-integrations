@@ -448,6 +448,11 @@ function titleOf(notification: VendorNotification): string {
           ? $localize`:@@vendor.override.notify.ownerReassigned:AEC Integrations gave an integration you owned to another vendor`
           : $localize`:@@vendor.override.notify.field:AEC Integrations changed a detail on an integration you own`;
       case 'logo_overridden':
+        if (notification.logo_cleared) {
+          return notification.logo_subject?.type === 'product'
+            ? $localize`:@@vendor.override.notify.productLogoRemoved:AEC Integrations removed a product logo`
+            : $localize`:@@vendor.override.notify.companyLogoRemoved:AEC Integrations removed your company logo`;
+        }
         return notification.logo_subject?.type === 'product'
           ? $localize`:@@vendor.override.notify.productLogo:AEC Integrations replaced a product logo`
           : $localize`:@@vendor.override.notify.companyLogo:AEC Integrations replaced your company logo`;
@@ -540,7 +545,9 @@ function overrideNote(notification: VendorAeciOverrideNotification): string {
           : $localize`:@@vendor.override.notify.note.field:We accepted a change request on it, and the new value is live.`;
       break;
     case 'logo_overridden':
-      meaning = $localize`:@@vendor.override.notify.note.logo:The new logo is live on the public site.`;
+      meaning = notification.logo_cleared
+        ? $localize`:@@vendor.override.notify.note.logoRemoved:The public site no longer shows a logo for it.`
+        : $localize`:@@vendor.override.notify.note.logo:The new logo is live on the public site.`;
       break;
     case 'seat_revoked':
       meaning = $localize`:@@vendor.override.notify.note.seat:That person no longer has access to your vendor portal.`;

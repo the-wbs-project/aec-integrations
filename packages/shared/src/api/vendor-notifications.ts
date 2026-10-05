@@ -245,7 +245,8 @@ export type VendorReviewResponseNotification = z.infer<
  *
  *   - `field_overridden`: AECi accepted a contest that changed a field the vendor
  *     holds as the integration's owner. Goes to the displaced owner.
- *   - `logo_overridden`: AECi replaced the vendor's company logo or a product logo.
+ *   - `logo_overridden`: AECi replaced or removed the vendor's company logo or a
+ *     product logo. `logo_cleared` is true on a removal.
  *   - `seat_revoked`: AECi removed one of the vendor's seats. Goes to the vendor,
  *     which is its remaining seats. With no seat left nothing is written.
  */
@@ -285,6 +286,8 @@ export const VendorAeciOverrideNotificationSchema = z.object({
   pair_path: z.string().nullable().default(null),
   /** `logo_overridden`: the company or product whose logo changed. */
   logo_subject: AeciOverrideLogoSubjectSchema.nullable().default(null),
+  /** `logo_overridden`: AECi removed the logo rather than replacing it. */
+  logo_cleared: z.boolean().default(false),
   /** `seat_revoked`: the removed seat's display name, when it had one. */
   seat_name: z.string().nullable().default(null),
   created_at: z.string(),

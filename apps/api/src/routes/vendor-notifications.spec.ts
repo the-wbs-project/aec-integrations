@@ -395,6 +395,7 @@ describe('GET /api/vendor/notifications — AECi override rows (AECI-1159 / §11
       reason: REASON,
       entityId: uuid(51),
       logoSubject: { type: 'product', slug: 'revit', name: 'Revit' },
+      cleared: true,
     });
     const seat = aeciOverrideNotificationAudit('portal-seat-revoked-by-aeci', ADMIN_ACTOR, {
       event: 'seat_revoked',
@@ -419,6 +420,7 @@ describe('GET /api/vendor/notifications — AECi override rows (AECI-1159 / §11
       field: null,
       pair_path: null,
       logo_subject: null,
+      logo_cleared: false,
       seat_name: null,
       created_at: expect.any(String),
     };
@@ -428,6 +430,7 @@ describe('GET /api/vendor/notifications — AECi override rows (AECI-1159 / §11
         ...common,
         event: 'logo_overridden',
         logo_subject: { type: 'product', slug: 'revit', name: 'Revit' },
+        logo_cleared: true,
       },
       {
         ...common,

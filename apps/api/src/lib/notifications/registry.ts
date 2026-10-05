@@ -828,7 +828,8 @@ export const NOTIFICATIONS = {
     optOut: 'none',
     pausable: false,
     doc: 'docs/STAGE_2_VENDOR_PORTAL_SPEC.md §11d',
-    summary: 'Tells a vendor that AECi replaced its company logo or a product logo, and why.',
+    summary:
+      'Tells a vendor that AECi replaced or removed its company logo or a product logo, and why.',
     note: "Goes to the vendor itself, or to the product's holding vendor. None when no vendor holds the record. Every plan, no tier rule. Carries the reason, never the internal note. Not pausable: a portal row, not email.",
   },
   'portal-seat-revoked-by-aeci': {

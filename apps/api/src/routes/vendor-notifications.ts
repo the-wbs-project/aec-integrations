@@ -526,6 +526,7 @@ function toAeciOverrideNotification(row: {
     field: null,
     pair_path: null,
     logo_subject: null,
+    logo_cleared: false,
     seat_name: null,
     created_at: row.createdAt,
   };
@@ -550,7 +551,12 @@ function toAeciOverrideNotification(row: {
       const subject = meta.logoSubject as Partial<AeciOverrideLogoSubject> | undefined;
       const ref = productRef(subject);
       if (!ref || (subject?.type !== 'vendor' && subject?.type !== 'product')) return null;
-      return { ...base, event: 'logo_overridden', logo_subject: { type: subject.type, ...ref } };
+      return {
+        ...base,
+        event: 'logo_overridden',
+        logo_subject: { type: subject.type, ...ref },
+        logo_cleared: meta.logoCleared === true,
+      };
     }
     case 'seat_revoked':
       return {

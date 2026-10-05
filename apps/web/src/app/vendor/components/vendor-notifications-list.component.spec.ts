@@ -420,6 +420,38 @@ describe('VendorNotificationsList', () => {
     },
   );
 
+  it.each([
+    ['vendor', 'AEC Integrations removed your company logo'],
+    ['product', 'AEC Integrations removed a product logo'],
+  ] as const)(
+    'says a removed %s logo was removed, not replaced (AECI-1159)',
+    async (type, title) => {
+      getNotifications.mockResolvedValue({
+        notifications: [
+          {
+            kind: 'aeci_override',
+            id: '00000000-0000-4000-8000-00000000c2f5',
+            event: 'logo_overridden',
+            reason: 'The logo belonged to another company.',
+            integration_id: null,
+            integration_name: null,
+            field: null,
+            pair_path: null,
+            logo_subject: { type, slug: 'summit', name: 'Summit' },
+            logo_cleared: true,
+            seat_name: null,
+            created_at: '2026-10-04T12:00:00.000Z',
+          },
+        ],
+      });
+      const body = text(await create());
+      expect(body).toContain(title);
+      expect(body).toContain('The public site no longer shows a logo for it.');
+      expect(body).not.toContain('replaced');
+      expect(body).not.toContain('The new logo is live');
+    },
+  );
+
   it('tells a reassigned owner it no longer holds the integration (AECI-1159)', async () => {
     getNotifications.mockResolvedValue({
       notifications: [

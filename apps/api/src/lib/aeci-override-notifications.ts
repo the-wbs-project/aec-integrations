@@ -62,6 +62,8 @@ export interface AeciOverrideNotificationMetadata {
   pairSlugs?: readonly [string, string] | null;
   /** `logo_overridden` */
   logoSubject?: AeciOverrideLogoSubject;
+  /** `logo_overridden`: true when AECi removed the logo rather than replacing it. */
+  logoCleared?: boolean;
   /** `seat_revoked` */
   seatUserId?: string;
   seatName?: string | null;
@@ -79,7 +81,13 @@ type EventInput =
       /** `'connector_evidenced_pair'` on a pair, as every pair write records it. */
       entityType: string;
     }
-  | { event: 'logo_overridden'; logoSubject: AeciOverrideLogoSubject; entityId: string }
+  | {
+      event: 'logo_overridden';
+      logoSubject: AeciOverrideLogoSubject;
+      entityId: string;
+      /** The write set `logo_url` to null. */
+      cleared: boolean;
+    }
   | { event: 'seat_revoked'; seatUserId: string; seatName: string | null };
 
 /**
@@ -116,7 +124,7 @@ export function aeciOverrideNotificationAudit(
       entity = { entityType: input.entityType, entityId: input.integrationId };
       break;
     case 'logo_overridden':
-      metadata = { ...base, logoSubject: input.logoSubject };
+      metadata = { ...base, logoSubject: input.logoSubject, logoCleared: input.cleared };
       entity = { entityType: input.logoSubject.type, entityId: input.entityId };
       break;
     case 'seat_revoked':

@@ -275,10 +275,21 @@ describe('logo routes', () => {
           kind === 'vendors'
             ? { type: 'vendor', slug: 'vendor', name: 'Vendor' }
             : { type: 'product', slug: 'product', name: 'Product' },
+        logoCleared: false,
       });
       expect(JSON.stringify(notice!.metadata)).not.toContain(NOTE);
     },
   );
+  it('AECI-1159: marks a removed logo as cleared on the notice', async () => {
+    const res = await patch(`/api/admin/vendors/${uuid(2)}/logo`, {
+      logo_url: null,
+      reason: REASON,
+    });
+    expect(res.status).toBe(200);
+    const all = await t.db.select().from(auditLog);
+    const [notice] = all.filter((a) => a.action === 'notification.sent');
+    expect(notice!.metadata).toMatchObject({ event: 'logo_overridden', logoCleared: true });
+  });
   it('AECI-1159: writes no notice for a product no vendor holds', async () => {
     await t.db.delete(productVendors);
     const res = await patch(`/api/admin/products/${uuid(3)}/logo`, {

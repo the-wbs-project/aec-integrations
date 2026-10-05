@@ -226,6 +226,7 @@ export function createUpdateAdminLogoHandler(kind: 'vendor' | 'product', dbFor: 
             reason: payload.reason,
             entityId: id,
             logoSubject: { type: kind, slug: before.slug, name: before.name },
+            cleared: payload.logo_url === null,
           },
         )
       : null;
