@@ -63,7 +63,20 @@ import {
   type VendorEntitlementResponse,
   type VendorSeatInvite,
 } from '@aeci/shared';
-import { and, asc, count, desc, eq, inArray, ne, or, sql, type SQL } from 'drizzle-orm';
+import {
+  and,
+  asc,
+  count,
+  desc,
+  eq,
+  inArray,
+  isNull,
+  ne,
+  notInArray,
+  or,
+  sql,
+  type SQL,
+} from 'drizzle-orm';
 import { alias } from 'drizzle-orm/sqlite-core';
 import type { Context } from 'hono';
 
@@ -597,20 +610,21 @@ const VENDOR_METADATA_ACTIONS = [
 ] as const;
 
 /**
- * Ban/unban actions that file under `entity_type='profile'` with a SEAT's user id
- * and carry NO `metadata.vendor_id` (`admin-reviewers.ts` builds the metadata as
- * `{ source, reason? }`). They are reached via the current seat roster rather than
- * the JSON path: a ban is a per-seat lock that does NOT null `vendor_id`, so a
- * currently-seated banned profile is still in {@link seatsOf}. Without this leg
- * the audit tab is silent about a ban the seat roster is actively showing — an
- * operator asking "why can this colleague not sign in?" would find nothing.
+ * Ban/unban actions that file under `entity_type='profile'` with a SEAT's user id.
  *
- * A seat banned and LATER revoked drops out (the revoke nulls `vendor_id`), but
- * its own `vendor_claim.seat_revoked` row stays reachable via leg 3 — so "lost
- * access" is never lost, only the intermediate ban's own row is, in that one
- * ordering. Widening the ban writer to stamp `metadata.vendor_id` would be the
- * alternative; a roster subquery is retroactive over rows already written, which
- * the writer change is not (the same reasoning §5.6.2 gives for legs 2 and 3).
+ * **Legacy since AECI-1192.** `admin-reviewers.ts` now stamps the seat's vendor in
+ * the `vendor_id` column on a `vendor_admin` ban or unban, so every new row reaches
+ * the tab through leg 3 (the actor is the admin, never a seat, so the seat exclusion
+ * does not drop it). This leg serves only rows written before that. Those carry no
+ * vendor at all: no column, and metadata of `{ source, reason? }`. They are never
+ * rewritten, so this leg must stay.
+ *
+ * It reaches them via the current seat roster: a ban is a per-seat lock that does
+ * NOT null `vendor_id`, so a currently-seated banned profile is still in
+ * {@link seatsOf}. Without it the audit tab is silent about an older ban the seat
+ * roster is actively showing. A seat banned and LATER revoked drops out of the
+ * roster, but its `vendor_claim.seat_revoked` row stays reachable via leg 3. So
+ * "lost access" is never lost. Only that older ban's own row is, in that one ordering.
  */
 const VENDOR_SEAT_PROFILE_ACTIONS = ['vendor_admin.banned', 'vendor_admin.unbanned'] as const;
 
@@ -635,11 +649,14 @@ const VENDOR_SEAT_PROFILE_ACTIONS = ['vendor_admin.banned', 'vendor_admin.unbann
  *     the rows that file under a profile, an invite, a contest or a product. The
  *     column (AECI-1192, `DATABASE_SCHEMA.md` §8.4) is set on every new row about a
  *     vendor; the JSON leg reaches rows written before it. See
- *     {@link VENDOR_METADATA_ACTIONS}.
+ *     {@link VENDOR_METADATA_ACTIONS}. Both halves then drop any row whose
+ *     `actor_id` is one of the vendor's current seats. The column names the ACTING
+ *     vendor on a seat write, so without this the entity scope ("done to this
+ *     vendor") would list the vendor's own edits. Those rows are the actor scope's.
  *  4. `action IN ('vendor_admin.banned', ...) AND entity_id IN (<the vendor's
- *     seats>)` — the ban/unban rows, which file under `entity_type='profile'`
- *     with the seat's user id and carry no `metadata.vendor_id`, so none of legs
- *     1–3 reach them. Matched through the current seat roster instead. See
+ *     seats>)` — ban/unban rows written BEFORE AECI-1192, which file under
+ *     `entity_type='profile'` with the seat's user id and carry no vendor at all.
+ *     New ban rows carry the column and arrive via leg 3. See
  *     {@link VENDOR_SEAT_PROFILE_ACTIONS}.
  *
  * **Actor scope is a subquery, not a resolved id list.** `ID_CHUNK` /
@@ -655,6 +672,10 @@ const VENDOR_SEAT_PROFILE_ACTIONS = ['vendor_admin.banned', 'vendor_admin.unbann
  * `audit_log` is hard-excluded from the retention prune and only ever grows.
  */
 function auditScopeWhere(db: Db, vendorId: string, scope: AdminVendorAuditScope): SQL | undefined {
+  // The vendor's current seats. One uncorrelated subquery, shared by leg 3's seat
+  // exclusion, leg 4's roster match and the actor scope, so the three cannot drift.
+  const seatIds = () => db.select({ id: profiles.id }).from(profiles).where(seatsOf(vendorId));
+
   const entity = or(
     and(inArray(auditLog.entityType, [...VENDOR_ENTITY_TYPES]), eq(auditLog.entityId, vendorId)),
     and(
@@ -673,24 +694,30 @@ function auditScopeWhere(db: Db, vendorId: string, scope: AdminVendorAuditScope)
     // actions listed in VENDOR_METADATA_ACTIONS, and are never rewritten (no backfill,
     // ruling 2026-10-04). The action filter stays on that legacy leg only: it is what
     // keeps the JSON probe from walking the whole table.
-    and(eq(auditLog.vendorId, vendorId), ne(auditLog.action, NOTIFICATION_SENT_ACTION)),
+    //
+    // Seat exclusion (AECI-1192 review): `vendorAuditEntry` stamps the ACTING vendor on
+    // every seat write, so without it "done to this vendor" would list the vendor's own
+    // edits. A row a current seat wrote belongs to the actor scope. The exclusion is a
+    // residual filter: `audit_log_vendor_idx` (or the action index on the legacy leg)
+    // still drives the scan, and the uncorrelated subquery is evaluated once. A NULL
+    // actor (system, promote, cron) is kept explicitly, because `NULL NOT IN (…)` is NULL.
     and(
-      inArray(auditLog.action, [...VENDOR_METADATA_ACTIONS]),
-      sql`json_extract(${auditLog.metadata}, '$.vendor_id') = ${vendorId}`,
+      or(
+        and(eq(auditLog.vendorId, vendorId), ne(auditLog.action, NOTIFICATION_SENT_ACTION)),
+        and(
+          inArray(auditLog.action, [...VENDOR_METADATA_ACTIONS]),
+          sql`json_extract(${auditLog.metadata}, '$.vendor_id') = ${vendorId}`,
+        ),
+      ),
+      or(isNull(auditLog.actorId), notInArray(auditLog.actorId, seatIds())),
     ),
     and(
       inArray(auditLog.action, [...VENDOR_SEAT_PROFILE_ACTIONS]),
-      inArray(
-        auditLog.entityId,
-        db.select({ id: profiles.id }).from(profiles).where(seatsOf(vendorId)),
-      ),
+      inArray(auditLog.entityId, seatIds()),
     ),
   );
 
-  const actor = inArray(
-    auditLog.actorId,
-    db.select({ id: profiles.id }).from(profiles).where(seatsOf(vendorId)),
-  );
+  const actor = inArray(auditLog.actorId, seatIds());
 
   switch (scope) {
     case 'entity':
