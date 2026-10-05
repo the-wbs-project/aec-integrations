@@ -130,7 +130,8 @@
         {
           "binding": "DB",
           "database_name": "aeci-app-production",
-          "database_id": "1f4378db-dabb-4724-b5b8-d0a9ab6c6a3b", // AECI-839: ENAM copy, Cloudflare name aeci-app-production-us
+          // AECI-839: ENAM copy, Cloudflare name aeci-app-production-us
+          "database_id": "1f4378db-dabb-4724-b5b8-d0a9ab6c6a3b",
         },
       ],
       "ai": {
