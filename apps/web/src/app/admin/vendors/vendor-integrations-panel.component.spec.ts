@@ -27,6 +27,7 @@ function makeRow(over: Partial<AdminVendorIntegrationRow> = {}): AdminVendorInte
     id: '00000000-0000-4000-8000-000000000101',
     anchor: 'integration',
     connector: null,
+    connector_powered: false,
     name: 'Revit for MicroStation',
     source: { id: '00000000-0000-4000-8000-000000000201', slug: 'revit', name: 'Revit' },
     target: {
