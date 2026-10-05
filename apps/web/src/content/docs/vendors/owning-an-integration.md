@@ -3,7 +3,7 @@ title: Owning an integration
 description: How the company that offers an integration claims it, edits it, adds its links, retires it, and adds new ones.
 section: vendors
 order: 4
-last_updated: 2 October 2026
+last_updated: 4 October 2026
 ---
 
 An integration belongs to the company that offers it: whoever a customer buys it from or gets it from. The public integration page names that company on its "Offered by" line. AEC Integrations recorded most integrations from public sources to start the catalogue. This page is for the company that owns one.
@@ -77,7 +77,17 @@ When you retire an integration:
 
 Choose **Restore integration** in Settings to put it back. It returns as it was. Requests closed by the retire stay closed.
 
-AEC Integrations can also retire an integration your company holds, to take a false or abusive listing off the public site. Your company and the company that makes the other product are told. Settings then says "Retired by AEC Integrations", with no Restore button, because only AEC Integrations can restore that retire. Nothing is deleted.
+AEC Integrations can also retire an integration your company holds, to take a false or abusive listing off the public site. Your company and the company that makes the other product are told. The notice to your company includes the reason AEC Integrations gave, and you find it in **Messages**. Settings then says "Retired by AEC Integrations", with no Restore button, because only AEC Integrations can restore that retire. Nothing is deleted.
+
+## If AEC Integrations changes something you hold
+
+AEC Integrations can change a record your company holds. When it does, you are told in **Messages** and the notice gives the reason. Other companies' notices do not carry the reason.
+
+- **A field on an integration.** When AEC Integrations accepts a change request that replaces a value you hold, your company is told which field changed and why. You can still edit that field yourself.
+- **A logo.** If AEC Integrations replaces your company's or a product's logo, you are told why.
+- **A seat.** If AEC Integrations removes a seat, the seats that remain are told why. If no seat remains, nobody can be told in the portal.
+
+If you disagree, email [support@aecintegrations.com](mailto:support@aecintegrations.com) and quote the notice. We can restore a retired integration, set a logo again, or grant a seat again.
 
 ## Add an integration
 

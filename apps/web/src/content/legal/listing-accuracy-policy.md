@@ -2,7 +2,7 @@
 title: Listing Accuracy Policy
 version: 1.0
 effective_date:
-last_updated: 22 September 2026
+last_updated: 5 October 2026
 counsel_approved_by: pending sign-off
 counsel_approved_on: pending sign-off
 linear_issue: AECI-308
@@ -30,7 +30,7 @@ We work to keep listings accurate and up to date, but public sources change and 
 
 ## Requesting a correction
 
-Anyone, including a vendor, can ask us to correct a factual error in a listing. Email [founders@thewbsproject.com](mailto:founders@thewbsproject.com) (or use the correction option in the service) and include:
+Anyone, including a vendor, can ask us to correct a factual error in a listing. Email [support@aecintegrations.com](mailto:support@aecintegrations.com) (or use the correction option in the service) and include:
 
 - a link to the listing;
 - what specifically is inaccurate; and
@@ -91,4 +91,4 @@ We may update this policy from time to time. The current version and its effecti
 
 ## Contact
 
-Corrections and questions: [founders@thewbsproject.com](mailto:founders@thewbsproject.com).
+Corrections and questions: [support@aecintegrations.com](mailto:support@aecintegrations.com).

@@ -60,8 +60,9 @@
 
 import {
   AdminContestSchema,
+  AdminDecideContestSchema,
   ApiErrorCode,
-  DecideContestSchema,
+  vendorVisibleReasonMetadata,
   ListAdminContestsQuerySchema,
   ListAdminContestsResponseSchema,
   type AdminContest,
@@ -80,6 +81,7 @@ import { ApiError, notFoundError } from '../errors';
 import { json } from '../http';
 import { logBatchToPosthog, submitCount, type PosthogLogEvent } from '../posthog';
 import { auditInsert, workflowTransitionInsert, type BatchStmt } from '../lib/audit';
+import { aeciOverrideNotificationAudit } from '../lib/aeci-override-notifications';
 import { auditActorType, type AuthzVariables } from '../lib/authz';
 import { validateResponseInDev, writeDb, type DbFactory } from '../lib/handler-utils';
 import {
@@ -315,7 +317,7 @@ export function createModerateContestHandler(
     const session = c.get('auth');
     const id = c.req.param('id');
     if (!id) throw new ApiError(400, 'VALIDATION_FAILED', 'Missing contest id', { field: 'id' });
-    const payload = await DecideContestSchema.parseAsync(await readJson(c));
+    const payload = await AdminDecideContestSchema.parseAsync(await readJson(c));
     const { db } = writeDb(c, dbFor);
 
     const row = await db.query.integrationFieldChallenges.findFirst({
@@ -343,6 +345,8 @@ export function createModerateContestHandler(
 
     const status = payload.decision === 'accept' ? 'accepted' : 'declined';
     const note = payload.note ?? null;
+    // AECI-1159: AECi's own note, never shown to a vendor. On the decision's audit row.
+    const internalNote = payload.internalNote;
     const now = new Date().toISOString();
     const metadata = {
       source: 'admin-moderation',
@@ -399,13 +403,39 @@ export function createModerateContestHandler(
     if (accept) {
       // `appliedMode` is also what the §6.7 sweep reads back to re-file the issue.
       // AECI-1191: the admin's note is the reason, on the decision's own row.
+      // AECI-1159: on an accept that overwrites the owner's value, it is the reason
+      // shown to the displaced owner, and is marked vendor-visible.
       audit.metadata = {
         ...metadata,
         appliedMode: accept.appliedMode,
         ...(stranded ? { stranded: true } : {}),
-        ...(note ? { reason: note } : {}),
+        ...(note
+          ? accept.overwritesVendorField
+            ? vendorVisibleReasonMetadata({ reason: note, internalNote })
+            : { reason: note }
+          : {}),
       };
     }
+    if (internalNote) audit.metadata = { ...(audit.metadata ?? {}), internalNote };
+    // AECI-1159: the displaced owner is told, with the reason, in the same batch.
+    // Before this it was told nothing. The submitter keeps its own decision notice.
+    const displaced =
+      accept?.displacedOwner && note
+        ? aeciOverrideNotificationAudit(
+            'portal-field-overridden-by-aeci',
+            { actorId: session.userId, actorType: auditActorType(session) },
+            {
+              event: 'field_overridden',
+              vendorId: accept.displacedOwner.vendorId,
+              reason: note,
+              integrationId: accept.displacedOwner.integrationId,
+              integrationName: accept.displacedOwner.integrationName,
+              field: row.field,
+              pairSlugs: accept.displacedOwner.pairSlugs,
+              entityType: accept.displacedOwner.entityType,
+            },
+          )
+        : null;
     // AECI-1192 / AECI-1193: the decision and any catalog write it applies are about
     // the integration the OWNER holds, so they carry the owner and its plan, never the
     // submitter (`submitterVendorId` stays in metadata). The notification keeps its
@@ -416,6 +446,7 @@ export function createModerateContestHandler(
       // A row that already names a vendor is a `notification.sent` to its recipient.
       ...(accept?.audits ?? []).map((entry) => (entry.vendorId ? entry : { ...entry, ...stamp })),
       ...(notify ? [notify] : []),
+      ...(displaced ? [displaced] : []),
     ];
 
     const stmts: BatchStmt[] = [
@@ -730,6 +761,12 @@ export async function planAcceptWrites(
   appliedMode: ContestAppliedMode;
   /** AECI-1191: the accept changes a vendor-held value, so it requires a note. */
   overwritesVendorField: boolean;
+  /**
+   * AECI-1159: the owner whose value the accept overwrites, when it is a vendor
+   * other than the submitter. `null` when nothing vendor-held changes, or when the
+   * row has no owner on file.
+   */
+  displacedOwner: DisplacedOwner | null;
 }> {
   const anchor = contestAnchorOf(row);
   const integration = await loadContestTarget(db, anchor);
@@ -887,13 +924,32 @@ export async function planAcceptWrites(
   if (appliedMode !== 'upstream-only') {
     tags = (await anchorPurgeTags(db, integration, pairCacheTag)).tags;
   }
-  return {
-    stmts,
-    audits,
-    tags,
-    appliedMode,
-    overwritesVendorField: acceptOverwritesVendorField(row, integration),
-  };
+  const overwritesVendorField = acceptOverwritesVendorField(row, integration);
+  const displacedId = integration.builtByVendorId;
+  const displacedOwner: DisplacedOwner | null =
+    overwritesVendorField && displacedId && displacedId !== row.submitterVendorId
+      ? {
+          vendorId: displacedId,
+          integrationId: integration.id,
+          integrationName: integration.name,
+          entityType: anchorEntityType(anchor.kind),
+          pairSlugs: await endpointSlugs(
+            db,
+            integration.sourceProductId,
+            integration.targetProductId,
+          ),
+        }
+      : null;
+  return { stmts, audits, tags, appliedMode, overwritesVendorField, displacedOwner };
+}
+
+/** The owner an AECi accept displaces (AECI-1159), as its notice snapshots it. */
+interface DisplacedOwner {
+  vendorId: string;
+  integrationId: string;
+  integrationName: string | null;
+  entityType: string;
+  pairSlugs: readonly [string, string] | null;
 }
 
 export async function readJson(c: AdminContext): Promise<unknown> {

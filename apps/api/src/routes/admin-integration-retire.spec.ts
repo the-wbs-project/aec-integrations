@@ -19,6 +19,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
   auditLog,
+  connectorEvidencedPairs,
   gscRecrawlQueue,
   indexnowQueue,
   integrationFieldChallenges,
@@ -260,6 +261,87 @@ describe('POST /api/admin/integrations/:id/retire', () => {
     );
   });
 
+  it('AECI-1159: marks the reason vendor-visible and keeps the internal note on the audit row', async () => {
+    const NOTE = 'Ticket 4411: counsel asked for this.';
+    const res = await call(ADMIN, `/api/admin/integrations/${I_MAIN}/retire`, 'POST', {
+      reason: REASON,
+      internalNote: NOTE,
+    });
+    expect(res.status).toBe(200);
+    const [audit] = await auditsFor(INTEGRATION_RETIRED_ACTION);
+    expect(audit!.metadata).toMatchObject({
+      reason: REASON,
+      reasonVisibility: 'vendor',
+      internalNote: NOTE,
+    });
+    // The internal note is on no other row: not a notice, not a contest row.
+    const all = await t.db.select().from(auditLog);
+    const withNote = all.filter((r) => JSON.stringify(r.metadata).includes(NOTE));
+    expect(withNote.map((r) => r.id)).toEqual([audit!.id]);
+  });
+
+  it('AECI-1159: the owner sees the reason, and the endpoint vendor gets a generic notice', async () => {
+    await adminRetire(I_MAIN);
+    const notices = await auditsFor(NOTIFICATION_SENT_ACTION);
+    const byVendor = new Map(
+      notices.map((n) => [(n.metadata as { vendorId: string }).vendorId, n.metadata]),
+    );
+    expect(byVendor.get(VENDOR_B)).toMatchObject({ reason: REASON, reasonVisibility: 'vendor' });
+    expect(byVendor.get(VENDOR_A)).not.toHaveProperty('reason');
+    expect(byVendor.get(VENDOR_A)).not.toHaveProperty('reasonVisibility');
+
+    const owner = await call(AUTH_B, '/api/vendor/notifications', 'GET');
+    expect(owner.body.notifications[0]).toMatchObject({
+      kind: 'integration_retire',
+      retired_by: 'aeci',
+      reason: REASON,
+    });
+    const endpoint = await call(AUTH_A, '/api/vendor/notifications', 'GET');
+    const retireRow = (endpoint.body.notifications as { kind: string }[]).find(
+      (n) => n.kind === 'integration_retire',
+    );
+    expect(retireRow).toMatchObject({ retired_by: 'aeci', reason: null });
+    expect(JSON.stringify(endpoint.body)).not.toContain(REASON);
+  });
+
+  it('AECI-1159: the owner sees the reason on an AECi restore too', async () => {
+    await adminRetire(I_MAIN);
+    const RESTORE_REASON = 'Checked with the vendor. The listing is accurate.';
+    const res = await adminRestore(I_MAIN, RESTORE_REASON);
+    expect(res.status).toBe(200);
+    const owner = await call(AUTH_B, '/api/vendor/notifications', 'GET');
+    const restored = (owner.body.notifications as { event?: string }[]).find(
+      (n) => n.event === 'restored',
+    );
+    expect(restored).toMatchObject({ retired_by: 'aeci', reason: RESTORE_REASON });
+  });
+
+  it('AECI-1159: a retire row without the marker never yields a reason', async () => {
+    // A hand-written legacy row: an AECi retire from before AECI-1159 carries no marker.
+    await t.db.insert(auditLog).values({
+      actorType: 'user',
+      actorId: ADMIN.userId,
+      action: NOTIFICATION_SENT_ACTION,
+      entityType: 'integration',
+      entityId: I_MAIN,
+      vendorId: VENDOR_B,
+      metadata: {
+        kind: 'integration_retire',
+        event: 'retired',
+        retiredBy: 'aeci',
+        vendorId: VENDOR_B,
+        integrationId: I_MAIN,
+        integrationName: 'Revit for MicroStation',
+        ownerVendorId: VENDOR_B,
+        ownerName: 'Bentley',
+        pairSlugs: ['microstation', 'revit'],
+        reason: 'Internal only, before AECI-1159.',
+      },
+    });
+    const owner = await call(AUTH_B, '/api/vendor/notifications', 'GET');
+    expect(owner.body.notifications[0]).toMatchObject({ retired_by: 'aeci', reason: null });
+  });
+
   it('recomputes both endpoint counts in the batch', async () => {
     await adminRetire(I_MAIN);
     const source = await t.db.query.products.findFirst({ where: eq(products.id, P_SOURCE) });
@@ -296,8 +378,8 @@ describe('POST /api/admin/integrations/:id/retire', () => {
     expect(contest!.status).toBe('withdrawn');
     expect(contest!.id).toBe(CONTEST);
 
-    // The submitter is told AEC Integrations retired it, and no row but the
-    // integration's own audit row carries the admin's reason.
+    // The submitter is told AEC Integrations retired it. No contest row carries the
+    // admin's reason. Of the retire notices, only the OWNER's carries it (AECI-1159).
     const notices = await auditsFor(NOTIFICATION_SENT_ACTION);
     const contestNotice = notices.find((n) => (n.metadata as { kind: string }).kind === 'contest');
     expect(contestNotice!.metadata).toMatchObject({
@@ -308,7 +390,11 @@ describe('POST /api/admin/integrations/:id/retire', () => {
     expect(JSON.stringify(contestNotice!.metadata)).not.toContain(REASON);
     const [withdrawn] = await auditsFor('integration.contest.withdrawn');
     expect(JSON.stringify(withdrawn!.metadata)).not.toContain(REASON);
-    for (const n of notices) expect(JSON.stringify(n.metadata)).not.toContain(REASON);
+    for (const n of notices) {
+      const meta = n.metadata as { vendorId: string; kind: string };
+      if (meta.kind === 'integration_retire' && meta.vendorId === VENDOR_B) continue;
+      expect(JSON.stringify(n.metadata)).not.toContain(REASON);
+    }
 
     const feed = await call(AUTH_A, '/api/vendor/notifications', 'GET');
     expect(() => ListVendorNotificationsResponseSchema.parse(feed.body)).not.toThrow();
@@ -406,6 +492,63 @@ describe('POST /api/admin/integrations/:id/restore', () => {
     );
     expect(entry?.retired_by).toBe('aeci');
   });
+});
+
+describe('AECi retire and restore on a connector_evidenced_pairs row (AECI-1159)', () => {
+  const P_CONNECTOR = uuid(12);
+  const PAIR = uuid(23);
+  beforeEach(async () => {
+    await t.db
+      .insert(products)
+      .values({ id: P_CONNECTOR, slug: 'syncezy', name: 'SyncEzy', promotionStatus: 'promoted' });
+    await t.db.insert(connectorEvidencedPairs).values({
+      id: PAIR,
+      connectorProductId: P_CONNECTOR,
+      productAId: P_SOURCE,
+      productBId: P_TARGET,
+      name: 'Revit to MicroStation via SyncEzy',
+      direction: 'a_to_b',
+      docsUrl: 'https://example.test/docs',
+      builtByVendorId: VENDOR_B,
+      claimedAt: CLAIMED_AT,
+    });
+  });
+
+  const noticesByVendor = async (event: 'retired' | 'restored') => {
+    const notices = (await auditsFor(NOTIFICATION_SENT_ACTION)).filter(
+      (n) => n.entityId === PAIR && (n.metadata as { event?: string }).event === event,
+    );
+    return new Map(notices.map((n) => [(n.metadata as { vendorId: string }).vendorId, n]));
+  };
+
+  it.each(['retire', 'restore'] as const)(
+    'the owner notice on a pair %s carries the reason, and the endpoint vendor gets none',
+    async (mode) => {
+      const RESTORE_REASON = 'Checked with the vendor. The listing is accurate.';
+      expect((await adminRetire(PAIR)).status).toBe(200);
+      if (mode === 'restore') expect((await adminRestore(PAIR, RESTORE_REASON)).status).toBe(200);
+      const reason = mode === 'retire' ? REASON : RESTORE_REASON;
+      const byVendor = await noticesByVendor(mode === 'retire' ? 'retired' : 'restored');
+      expect([...byVendor.keys()].sort()).toEqual([VENDOR_A, VENDOR_B]);
+      expect(byVendor.get(VENDOR_B)).toMatchObject({ entityType: 'connector_evidenced_pair' });
+      expect(byVendor.get(VENDOR_B)!.metadata).toMatchObject({
+        retiredBy: 'aeci',
+        reason,
+        reasonVisibility: 'vendor',
+      });
+      expect(byVendor.get(VENDOR_A)!.metadata).not.toHaveProperty('reason');
+      expect(byVendor.get(VENDOR_A)!.metadata).not.toHaveProperty('reasonVisibility');
+
+      const endpoint = await call(AUTH_A, '/api/vendor/notifications', 'GET');
+      expect(JSON.stringify(endpoint.body)).not.toContain(reason);
+      const owner = await call(AUTH_B, '/api/vendor/notifications', 'GET');
+      expect(owner.body.notifications[0]).toMatchObject({
+        kind: 'integration_retire',
+        retired_by: 'aeci',
+        reason,
+      });
+    },
+  );
 });
 
 describe('GET /api/admin/vendors/:id/integrations', () => {

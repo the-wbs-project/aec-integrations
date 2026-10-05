@@ -451,7 +451,11 @@ describe('revoking a seat while an active one remains changes nothing else', () 
     const before = await catalogSnapshot();
     const { send } = await revoke(SEAT_A);
     expect(await catalogSnapshot()).toEqual(before);
-    expect(await auditActions()).toEqual(['vendor_claim.seat_revoked']);
+    // AECI-1159: the remaining seat is told, with the reason. Nothing else is written.
+    expect((await auditActions()).sort()).toEqual([
+      'notification.sent',
+      'vendor_claim.seat_revoked',
+    ]);
     expect(send).not.toHaveBeenCalled();
   });
 

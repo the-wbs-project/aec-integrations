@@ -20,7 +20,7 @@ Every product and vendor page has a way to suggest a correction. Tell us:
 - what it should say, and
 - a public source, where you have one.
 
-We check it against public sources and update the listing where the evidence supports it. We may decline or hold a request we cannot verify. You can also email [founders@thewbsproject.com](mailto:founders@thewbsproject.com).
+We check it against public sources and update the listing where the evidence supports it. We may decline or hold a request we cannot verify. You can also email [support@aecintegrations.com](mailto:support@aecintegrations.com).
 
 **If the integration has been claimed by its owner,** the owner keeps its details and our catalogue updates no longer reach it. Send us the correction anyway. We will share it with the owner, who decides whether to change it.
 

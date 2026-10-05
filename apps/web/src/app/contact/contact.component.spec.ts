@@ -32,9 +32,9 @@ describe('ContactPage', () => {
     const host = setup().host;
     const mailto = host.querySelector<HTMLAnchorElement>('a[href^="mailto:"]');
     expect(mailto).not.toBeNull();
-    expect(mailto?.getAttribute('href')).toBe('mailto:founders@thewbsproject.com');
+    expect(mailto?.getAttribute('href')).toBe('mailto:support@aecintegrations.com');
     // The visible label matches the address (built from the same const, can't drift).
-    expect(mailto?.textContent?.trim()).toBe('founders@thewbsproject.com');
+    expect(mailto?.textContent?.trim()).toBe('support@aecintegrations.com');
   });
 
   it('points listing fixes back at the directory', () => {

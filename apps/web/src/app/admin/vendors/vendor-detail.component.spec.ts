@@ -577,8 +577,33 @@ describe('VendorDetail', () => {
       await settle();
       fixture.detectChanges();
 
-      expect(api.revokeSeat).toHaveBeenCalledWith(VENDOR_ID, SEAT_ID, REVOKE_REASON);
+      expect(api.revokeSeat).toHaveBeenCalledWith(VENDOR_ID, SEAT_ID, REVOKE_REASON, '');
       expect(el.textContent).toContain('No one has portal access');
+    });
+
+    it('offers an optional internal note, labelled as never shown, and sends it (AECI-1159)', async () => {
+      const { el, fixture, api } = await setup(makeApiMock(makeVendor()));
+      buttonByText(el, 'Remove seat')!.click();
+      fixture.detectChanges();
+      await settle();
+
+      const note = el.querySelector('textarea[id^="seat-revoke-note-"]') as HTMLTextAreaElement;
+      const label = el.querySelector(`label[for="${note.id}"]`) as HTMLLabelElement;
+      expect(label.textContent).toContain('Internal note (optional, never shown to the vendor)');
+      expect(note.required).toBe(false);
+
+      typeRevokeReason(el);
+      note.value = 'HR ticket 5.';
+      note.dispatchEvent(new Event('input'));
+      fixture.detectChanges();
+      buttonByText(el, 'Confirm removal')!.click();
+      await settle();
+      expect(api.revokeSeat).toHaveBeenCalledWith(
+        VENDOR_ID,
+        SEAT_ID,
+        REVOKE_REASON,
+        'HR ticket 5.',
+      );
     });
 
     it('labels the required reason and refuses an empty one without a request (AECI-1191)', async () => {
@@ -589,7 +614,7 @@ describe('VendorDetail', () => {
 
       const area = el.querySelector('textarea[id^="seat-revoke-reason-"]') as HTMLTextAreaElement;
       const label = el.querySelector(`label[for="${area.id}"]`) as HTMLLabelElement;
-      expect(label.textContent).toContain('Reason (required)');
+      expect(label.textContent).toContain('Reason shown to the vendor (required)');
       expect(area.required).toBe(true);
       expect(document.activeElement).toBe(area);
 

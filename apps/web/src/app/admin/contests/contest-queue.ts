@@ -3,14 +3,15 @@ import { HttpErrorResponse } from '@angular/common/http';
 import { Component, afterNextRender, computed, inject, signal } from '@angular/core';
 import { RouterLink } from '@angular/router';
 
+import { ADMIN_REASON_MAX } from '@aeci/shared';
 import type {
   AdminContest,
+  AdminDecideContestInput,
   ContestDecision,
   ContestProtestDecision,
   ContestProtestStatus,
   ContestRoute,
   ContestStatus,
-  DecideContestInput,
   ListAdminContestsQuery,
 } from '@aeci/shared';
 
@@ -99,6 +100,10 @@ export class ContestQueue {
    */
   protected readonly noteForcedId = signal<string | null>(null);
   protected readonly noteMissing = signal(false);
+  /** AECI-1159: AECi's own note on an accept. Kept in the audit row, never shown to
+   *  a vendor. */
+  protected readonly internalNote = signal('');
+  protected readonly internalNoteMax = ADMIN_REASON_MAX;
   /** Id and message of the contest whose last decision failed (inline alert). */
   protected readonly failedActionId = signal<string | null>(null);
   protected readonly failedActionMessage = signal('');
@@ -313,6 +318,7 @@ export class ContestQueue {
     this.failedActionId.set(null);
     this.noteMissing.set(false);
     this.formText.set('');
+    this.internalNote.set('');
     this.formMode.set(mode);
     this.formOpenId.set(id);
   }
@@ -321,7 +327,12 @@ export class ContestQueue {
     this.formOpenId.set(null);
     this.formMode.set(null);
     this.formText.set('');
+    this.internalNote.set('');
     this.noteMissing.set(false);
+  }
+
+  protected onInternalNoteInput(event: Event): void {
+    this.internalNote.set((event.target as HTMLTextAreaElement).value);
   }
 
   protected onFormInput(event: Event): void {
@@ -338,7 +349,12 @@ export class ContestQueue {
       this.showNoteMissing(id);
       return;
     }
-    const input: DecideContestInput = { decision, ...(note ? { note } : {}) };
+    const internalNote = decision === 'accept' ? this.internalNote().trim() : '';
+    const input: AdminDecideContestInput = {
+      decision,
+      ...(note ? { note } : {}),
+      ...(internalNote ? { internalNote } : {}),
+    };
     const wasCounted = !!row && this.isActionable(row);
     this.failedActionId.set(null);
     this.pendingActionId.set(id);

@@ -118,9 +118,9 @@ import { MetaService } from '../core/meta.service';
 export class ContactPage {
   private readonly meta = inject(MetaService);
 
-  /** Stage 1 contact address (matches the landing page). Shared by the visible
-   *  label and the `mailto:` href so they can never drift. */
-  protected readonly email = 'founders@thewbsproject.com';
+  /** The public contact address. Shared by the visible label and the `mailto:`
+   *  href so they can never drift. */
+  protected readonly email = 'support@aecintegrations.com';
   protected readonly mailtoHref = `mailto:${this.email}`;
 
   constructor() {

@@ -132,14 +132,20 @@ describe('retire', () => {
     button(el, 'Retire')!.click();
     await settle(fixture);
     expect(el.textContent).toContain('Retire this integration as AEC Integrations?');
-    expect(el.textContent).toContain('It is not shown to the vendor.');
+    // AECI-1159: the reason is the vendor's to read; the internal note is not.
+    expect(el.textContent).toContain('Reason shown to the vendor (required)');
+    expect(el.textContent).toContain('Internal note (optional, never shown to the vendor)');
+    const labels = [...el.querySelectorAll('label')].map((l) => l.getAttribute('for'));
+    for (const id of labels) expect(el.querySelector(`[id="${id}"]`)).toBeTruthy();
     expect(document.activeElement).toBe(el.querySelector('textarea'));
     expect(api.setIntegrationRetired).not.toHaveBeenCalled();
 
     // An empty reason is refused in the page.
     button(el, 'Retire integration')!.click();
     await settle(fixture);
-    expect(el.querySelector('[role="alert"]')?.textContent).toContain('Enter a reason.');
+    expect(el.querySelector('[role="alert"]')?.textContent).toContain(
+      'Enter a reason for the vendor.',
+    );
     expect(api.setIntegrationRetired).not.toHaveBeenCalled();
   });
 
@@ -160,10 +166,38 @@ describe('retire', () => {
     typeReason(el, '  False listing.  ');
     button(el, 'Retire integration')!.click();
     await settle(fixture);
-    expect(api.setIntegrationRetired).toHaveBeenCalledWith(row.id, 'retire', 'False listing.');
+    expect(api.setIntegrationRetired).toHaveBeenCalledWith(row.id, 'retire', 'False listing.', '');
     expect(el.textContent).toContain('Retired by AEC Integrations');
     expect(button(el, 'Restore')).toBeTruthy();
     expect(announced[0]).toContain('Integration retired.');
+  });
+
+  it('AECI-1159: sends the internal note beside the vendor reason', async () => {
+    const row = makeRow();
+    api.setIntegrationRetired.mockResolvedValue({
+      integration: {
+        id: row.id,
+        retired_at: '2026-09-22T00:00:00.000Z',
+        retired_by: 'aeci',
+        updated_at: '2026-09-22T00:00:00.000Z',
+      },
+      withdrawn_contest_ids: [],
+    });
+    const { fixture, el } = await create([row]);
+    button(el, 'Retire')!.click();
+    await settle(fixture);
+    typeReason(el, 'False listing.');
+    const note = el.querySelectorAll('textarea')[1]!;
+    note.value = 'Ticket 12.';
+    note.dispatchEvent(new Event('input'));
+    button(el, 'Retire integration')!.click();
+    await settle(fixture);
+    expect(api.setIntegrationRetired).toHaveBeenCalledWith(
+      row.id,
+      'retire',
+      'False listing.',
+      'Ticket 12.',
+    );
   });
 
   it('Cancel closes the form and returns focus to the trigger', async () => {
@@ -228,7 +262,7 @@ describe('an evidenced pair (AECI-1091)', () => {
     typeReason(el, 'False listing.');
     button(el, 'Retire integration')!.click();
     await settle(fixture);
-    expect(api.setIntegrationRetired).toHaveBeenCalledWith(row.id, 'retire', 'False listing.');
+    expect(api.setIntegrationRetired).toHaveBeenCalledWith(row.id, 'retire', 'False listing.', '');
     expect(el.textContent).toContain('Retired by AEC Integrations');
   });
 });
@@ -255,6 +289,7 @@ describe('restore', () => {
       row.id,
       'restore',
       'Vendor corrected the listing.',
+      '',
     );
     expect(el.textContent).toContain('Live');
   });

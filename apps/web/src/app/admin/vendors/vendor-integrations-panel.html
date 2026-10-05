@@ -202,16 +202,17 @@
             <label
               [attr.for]="formId(row, 'reason')"
               class="mt-3 block text-xs font-bold uppercase tracking-[0.08em] text-(--text-secondary)"
-              i18n="@@admin.vendors.integrations.reason.label"
+              i18n="@@admin.vendors.integrations.reason.vendorLabel"
             >
-              Reason (required)
+              Reason shown to the vendor (required)
             </label>
             <p
               [id]="formId(row, 'reason-help')"
               class="mt-1 text-xs text-(--text-secondary)"
-              i18n="@@admin.vendors.integrations.reason.help"
+              i18n="@@admin.vendors.integrations.reason.vendorHelp"
             >
-              Recorded in the audit trail with your name. It is not shown to the vendor.
+              The owner reads this in its portal messages. The vendors at both ends are told without
+              it. It is recorded in the audit trail with your name.
             </p>
             <textarea
               #reasonInput
@@ -225,6 +226,21 @@
               [attr.aria-invalid]="formError() ? 'true' : null"
               [value]="reason()"
               (input)="onReasonInput($event)"
+              class="mt-2 w-full rounded-(--radius-md) border border-(--border-default) bg-(--surface-base) px-3 py-2 text-sm text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+            ></textarea>
+            <label
+              [attr.for]="formId(row, 'note')"
+              class="mt-3 block text-xs font-bold uppercase tracking-[0.08em] text-(--text-secondary)"
+              i18n="@@admin.vendors.integrations.note.label"
+            >
+              Internal note (optional, never shown to the vendor)
+            </label>
+            <textarea
+              [id]="formId(row, 'note')"
+              rows="2"
+              [attr.maxlength]="reasonMax"
+              [value]="internalNote()"
+              (input)="onNoteInput($event)"
               class="mt-2 w-full rounded-(--radius-md) border border-(--border-default) bg-(--surface-base) px-3 py-2 text-sm text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
             ></textarea>
             @if (formError(); as message) {

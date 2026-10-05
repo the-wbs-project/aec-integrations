@@ -24,6 +24,7 @@ import type {
   VendorEntitlementBlock,
   VendorMeResponse,
   VendorAttestationNotification,
+  VendorAeciOverrideNotification,
   VendorContestNotification,
   ListVendorContestsResponse,
   VendorProduct,
@@ -1805,6 +1806,55 @@ export const VENDOR_CONTESTS_EMPTY_FIXTURE: ListVendorContestsResponse = {
   submitted: [],
   received: [],
 };
+
+/** AECi override rows in the notification archive (AECI-1159 / §11d): one per
+ *  event, so the preview's Messages shows each with its reason. Kept apart from
+ *  {@link VENDOR_NOTIFICATIONS_FIXTURE} so specs counting attestation rows are
+ *  unaffected. */
+export const VENDOR_OVERRIDE_NOTIFICATIONS_FIXTURE: readonly VendorAeciOverrideNotification[] = [
+  {
+    kind: 'aeci_override',
+    id: '00000000-0000-4000-8000-000000005d01',
+    event: 'field_overridden',
+    reason: 'The vendor at the other end showed the integration was renamed in its 2026.2 release.',
+    integration_id: INTEGRATION_VENDOR_B.id,
+    integration_name: INTEGRATION_VENDOR_B.name,
+    field: 'name',
+    pair_path: '/products/summit-field-issues/integrations/autodesk-build',
+    logo_subject: null,
+    logo_cleared: false,
+    seat_name: null,
+    created_at: daysFromNow(-1),
+  },
+  {
+    kind: 'aeci_override',
+    id: '00000000-0000-4000-8000-000000005d02',
+    event: 'logo_overridden',
+    reason: 'The uploaded logo belonged to a different company.',
+    integration_id: null,
+    integration_name: null,
+    field: null,
+    pair_path: null,
+    logo_subject: { type: 'vendor', slug: 'summit-software', name: 'Summit Software' },
+    logo_cleared: false,
+    seat_name: null,
+    created_at: daysFromNow(-3),
+  },
+  {
+    kind: 'aeci_override',
+    id: '00000000-0000-4000-8000-000000005d03',
+    event: 'seat_revoked',
+    reason: 'Your company told us this person left.',
+    integration_id: null,
+    integration_name: null,
+    field: null,
+    pair_path: null,
+    logo_subject: null,
+    logo_cleared: false,
+    seat_name: 'Pat Example',
+    created_at: daysFromNow(-5),
+  },
+];
 
 /** Contest rows in the notification archive (AECI-1008): one per viewpoint the
  *  preview vendor can hold. Kept apart from {@link VENDOR_NOTIFICATIONS_FIXTURE}

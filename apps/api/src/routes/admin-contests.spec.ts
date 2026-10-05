@@ -475,6 +475,76 @@ describe('PATCH /api/admin/contests/:id — the note on a vendor-held overwrite 
     expect(decision!.metadata).toMatchObject({ submitterVendorId: VENDOR_A });
   });
 
+  it('AECI-1159: marks the reason vendor-visible and keeps the internal note on the decision row', async () => {
+    const id = await fileContest('name', 'Revit Link');
+    await setIntegration({ claimedAt: CLAIMED_AT, maintainedBy: 'vendor' });
+    const NOTE = 'Evidence in the shared drive.';
+    const res = await call(ADMIN, 'PATCH', `/api/admin/contests/${id}`, {
+      decision: 'accept',
+      note: ACCEPT_NOTE,
+      internalNote: NOTE,
+    });
+    expect(res.status).toBe(200);
+    const audits = await t.db.select().from(auditLog);
+    const decision = audits.find((r) => r.action === 'integration.contest.accepted');
+    expect(decision!.metadata).toMatchObject({
+      reason: ACCEPT_NOTE,
+      reasonVisibility: 'vendor',
+      internalNote: NOTE,
+    });
+    // The note is on the decision row alone. The contest keeps the decision note.
+    const withNote = audits.filter((r) => JSON.stringify(r.metadata).includes(NOTE));
+    expect(withNote.map((r) => r.id)).toEqual([decision!.id]);
+    expect((await contestRow(id)).decisionNote).toBe(ACCEPT_NOTE);
+    expect(JSON.stringify(res.body)).not.toContain(NOTE);
+  });
+
+  it('AECI-1159: tells the displaced owner, with the reason, in the decision batch', async () => {
+    const id = await fileContest('name', 'Revit Link');
+    await setIntegration({ claimedAt: CLAIMED_AT, maintainedBy: 'vendor' });
+    expect((await accept(id)).status).toBe(200);
+    const notices = (await t.db.select().from(auditLog)).filter(
+      (r) => r.action === 'notification.sent',
+    );
+    const override = notices.find(
+      (r) => (r.metadata as { kind?: string }).kind === 'aeci_override',
+    );
+    expect(override).toMatchObject({ vendorId: VENDOR_B, entityId: I_MAIN });
+    expect(override!.metadata).toMatchObject({
+      notificationId: 'portal-field-overridden-by-aeci',
+      event: 'field_overridden',
+      vendorId: VENDOR_B,
+      reason: ACCEPT_NOTE,
+      reasonVisibility: 'vendor',
+      integrationId: I_MAIN,
+      field: 'name',
+    });
+    // The submitter's own notice is the decision, and it is not an override row.
+    const submitterRows = notices.filter(
+      (r) => (r.metadata as { vendorId?: string }).vendorId === VENDOR_A,
+    );
+    expect(submitterRows.map((r) => (r.metadata as { kind: string }).kind)).toEqual(['contest']);
+  });
+
+  it('AECI-1159: the displaced owner on a reassign is told too', async () => {
+    await setIntegration({ claimedAt: CLAIMED_AT });
+    const id = await fileContest('owner', null);
+    expect((await accept(id)).status).toBe(200);
+    const override = (await t.db.select().from(auditLog)).find(
+      (r) => (r.metadata as { kind?: string }).kind === 'aeci_override',
+    );
+    expect(override!.metadata).toMatchObject({ vendorId: VENDOR_B, field: 'owner' });
+  });
+
+  it('AECI-1159: an accept that overwrites nothing vendor-held tells no owner', async () => {
+    const id = await fileContest('name', 'Revit Link');
+    expect((await accept(id)).status).toBe(200);
+    const override = (await t.db.select().from(auditLog)).find(
+      (r) => (r.metadata as { kind?: string }).kind === 'aeci_override',
+    );
+    expect(override).toBeUndefined();
+  });
+
   it('still accepts an unclaimed row with no note', async () => {
     const id = await fileContest('name', 'Revit Link');
     expect((await accept(id, null)).status).toBe(200);

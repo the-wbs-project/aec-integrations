@@ -1,6 +1,6 @@
 import { z } from 'zod';
 
-import { AdminReasonSchema } from './admin-reason';
+import { AdminOverrideReasonSchema } from './admin-reason';
 import { HTTPS_URL_MAX_LENGTH, isHttpsUrl } from './https-url';
 import { LogoPathSchema } from './logo-read';
 
@@ -35,9 +35,11 @@ export const UpdateLogoSchema = z.object({ logo_url: LogoUrlSchema.nullable() })
  * `PATCH /api/admin/vendors/:id/logo` and `/api/admin/products/:id/logo`
  * (AECI-1191): the logo plus a required `reason`, recorded in the audit row. An
  * admin overwrite replaces a logo the vendor may have chosen, so it says why.
+ * Since AECI-1159 the reason is shown to the vendor on a portal notice, and an
+ * optional `internalNote` stays in the audit row alone.
  */
 export const AdminUpdateLogoSchema = z
-  .object({ logo_url: LogoUrlSchema.nullable(), reason: AdminReasonSchema })
+  .object({ logo_url: LogoUrlSchema.nullable(), ...AdminOverrideReasonSchema.shape })
   .strict();
 export const UploadLogoResponseSchema = z.object({ logo_url: LogoPathSchema });
 export type UploadLogoResponse = z.infer<typeof UploadLogoResponseSchema>;

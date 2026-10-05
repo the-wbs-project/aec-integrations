@@ -161,7 +161,7 @@ Chris moved AECI-1159 and AECI-1160 in from Stage 3 on 2026-10-01, under epic AE
 | **AECI-1192** | Adds `audit_log.vendor_id` and `product_id`, and stamps them on every row about a vendor (`DATABASE_SCHEMA.md` §8.4). No backfill. | The receipt reads this column. History before it ships is lost. |
 | **AECI-1193** | Adds the vendor's plan at write time to the same rows (`vendor_tier`, `vendor_entitlement_status`). | Same reason. "What plan was the vendor on" cannot be answered later. |
 | **AECI-1194** | Serves the vendor's own change history as an API and a CSV. | The read behind AECI-1160. |
-| **AECI-1159** | Moved from Stage 3. Tells the vendor about the overrides AECi already makes. Split three ways on 2026-10-04: the notice itself, an admin field correction with a lock, and a reversible takedown with the policy rewrite. The takedown waits on counsel. | **A named exception to §1** for the field correction and the takedown. |
+| **AECI-1159** | Moved from Stage 3. Tells the vendor about the overrides AECi already makes. Split three ways on 2026-10-04: the notice itself, an admin field correction with a lock, and a reversible takedown with the policy rewrite. The takedown waits on counsel. **Scope 1159a is built on `chris/aeci-1159-override-reasons-to-vendors`, not merged** (`STAGE_2_VENDOR_PORTAL_SPEC.md` §11d): the notice, the vendor-visible reason and the internal note. The field correction is AECI-1237 and the takedown is AECI-1238. | **A named exception to §1** for the field correction and the takedown. |
 | **AECI-1160** | Moved from Stage 3. The receipt page in the portal. | **A named exception to §4.** |
 
 ### 3.4 Dark-window operations

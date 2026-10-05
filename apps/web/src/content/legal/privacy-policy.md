@@ -2,7 +2,7 @@
 title: Privacy Policy
 version: 1.0
 effective_date:
-last_updated: 2 October 2026
+last_updated: 5 October 2026
 counsel_approved_by: pending sign-off
 counsel_approved_on: pending sign-off
 linear_issue: AECI-308
@@ -12,7 +12,7 @@ linear_issue: AECI-308
 
 This policy explains what personal data AEC Integrations (the "service") collects, why, how long we keep it, and the rights you have over it. The service is operated by The WBS Project (the "operator", "we", "us"), which is the data controller for the personal data described here. It is written to comply with the EU and UK General Data Protection Regulation (GDPR).
 
-**Controller:** Pending, Pending. Data-protection contact: [founders@thewbsproject.com](mailto:founders@thewbsproject.com).
+**Controller:** Pending, Pending. Data-protection contact: [support@aecintegrations.com](mailto:support@aecintegrations.com).
 
 ## What we collect
 
@@ -41,7 +41,7 @@ We do not request access to your Gmail, Google Drive, contacts, calendar, or any
 
 **How we share it.** We do not sell Google user data, use it for advertising, or share it with third parties, except the service providers that host and operate the service on our behalf, or where required by law. We do not use Google user data to train AI or machine-learning models.
 
-**How long we keep it.** We keep it for as long as your account exists. If you delete your account, or ask us to at [founders@thewbsproject.com](mailto:founders@thewbsproject.com), we delete it, except for a limited audit record kept to prevent abuse.
+**How long we keep it.** We keep it for as long as your account exists. If you delete your account, or ask us to at [support@aecintegrations.com](mailto:support@aecintegrations.com), we delete it, except for a limited audit record kept to prevent abuse.
 
 **Revoking access.** You can remove our access at any time from your Google Account at [myaccount.google.com/permissions](https://myaccount.google.com/permissions).
 
@@ -93,11 +93,11 @@ We keep personal data only as long as we need it for the purposes above:
 
 ## Your rights
 
-Subject to applicable law, you have the right to access, correct, delete, restrict, or object to the processing of your personal data, to data portability, and to withdraw consent. You also have the right to lodge a complaint with your local data-protection authority. To exercise any of these rights, contact us at [founders@thewbsproject.com](mailto:founders@thewbsproject.com); we will respond within the timeframe the law requires.
+Subject to applicable law, you have the right to access, correct, delete, restrict, or object to the processing of your personal data, to data portability, and to withdraw consent. You also have the right to lodge a complaint with your local data-protection authority. To exercise any of these rights, contact us at [support@aecintegrations.com](mailto:support@aecintegrations.com); we will respond within the timeframe the law requires.
 
 ## Deletion
 
-To request deletion of your personal data, including a waitlist or feedback email, or a review you submitted, contact us at [founders@thewbsproject.com](mailto:founders@thewbsproject.com). We will delete or anonymise the data we hold about you, except where we are required or permitted by law to retain it (for example, a limited audit record kept for abuse prevention).
+To request deletion of your personal data, including a waitlist or feedback email, or a review you submitted, contact us at [support@aecintegrations.com](mailto:support@aecintegrations.com). We will delete or anonymise the data we hold about you, except where we are required or permitted by law to retain it (for example, a limited audit record kept for abuse prevention).
 
 ## Children
 
@@ -109,4 +109,4 @@ We may update this policy from time to time. The current version and its effecti
 
 ## Contact
 
-Privacy questions or requests: [founders@thewbsproject.com](mailto:founders@thewbsproject.com).
+Privacy questions or requests: [support@aecintegrations.com](mailto:support@aecintegrations.com).

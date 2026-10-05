@@ -722,7 +722,7 @@ export const NOTIFICATIONS = {
     pausable: false,
     doc: 'docs/STAGE_2_VENDOR_PORTAL_SPEC.md §4.6',
     summary: 'Tells the endpoint vendors an integration was retired or restored.',
-    note: 'Not pausable: a portal row, not email.',
+    note: "On an AECi retire or restore the owner is told too, and since AECI-1159 the owner's row carries AECi's vendor-visible reason. Endpoint vendors' rows stay generic. Not pausable: a portal row, not email.",
   },
   'portal-integration-update': {
     channel: 'portal',
@@ -800,6 +800,53 @@ export const NOTIFICATIONS = {
     doc: 'docs/STAGE_2_VENDOR_PORTAL_SPEC.md §11c.12',
     summary: 'Tells a vendor that AECi approved, rejected or removed its reply to a review.',
     note: 'metadata.event names the decision. Reject and remove carry the reason. No email, as for contests. Not pausable: a portal row, not email.',
+  },
+  'portal-field-overridden-by-aeci': {
+    channel: 'portal',
+    audience: 'external',
+    trigger: { kind: 'route', ref: 'PATCH /api/admin/contests/:id (routes/admin-contests.ts)' },
+    envRule: 'any-tier',
+    dedupe: 'One row per decision, in the decision batch.',
+    ledger: ['audit_log'],
+    optOut: 'none',
+    pausable: false,
+    doc: 'docs/STAGE_2_VENDOR_PORTAL_SPEC.md §11d',
+    summary:
+      "Tells an integration's owner that AECi accepted a contest that changed a field it holds, and why. On an Owner accept it tells the old owner it no longer holds the integration.",
+    note: 'Sent only when the accept overwrites a value the owner holds, to an owner that is not the submitter. Every plan, no tier rule. Carries the reason, never the internal note. Not pausable: a portal row, not email.',
+  },
+  'portal-logo-overridden-by-aeci': {
+    channel: 'portal',
+    audience: 'external',
+    trigger: {
+      kind: 'route',
+      ref: 'PATCH /api/admin/{vendors,products}/:id/logo (routes/logos.ts)',
+    },
+    envRule: 'any-tier',
+    dedupe: 'One row per overwrite, in the write batch.',
+    ledger: ['audit_log'],
+    optOut: 'none',
+    pausable: false,
+    doc: 'docs/STAGE_2_VENDOR_PORTAL_SPEC.md §11d',
+    summary:
+      'Tells a vendor that AECi replaced or removed its company logo or a product logo, and why.',
+    note: "Goes to the vendor itself, or to the product's holding vendor. None when no vendor holds the record. Every plan, no tier rule. Carries the reason, never the internal note. Not pausable: a portal row, not email.",
+  },
+  'portal-seat-revoked-by-aeci': {
+    channel: 'portal',
+    audience: 'external',
+    trigger: {
+      kind: 'route',
+      ref: 'DELETE /api/admin/vendors/:id/seats/:userId (routes/admin-vendors.ts)',
+    },
+    envRule: 'any-tier',
+    dedupe: 'One row per revoke, in the revoke batch.',
+    ledger: ['audit_log'],
+    optOut: 'none',
+    pausable: false,
+    doc: 'docs/STAGE_2_VENDOR_PORTAL_SPEC.md §11d',
+    summary: "Tells a vendor's remaining seats that AECi removed one of its seats, and why.",
+    note: 'Not written when the revoke leaves no seat: nobody could read it, and the audit row is the record. Every plan, no tier rule. Carries the reason, never the internal note. Not pausable: a portal row, not email.',
   },
 
   // ─── Linear (Linear then notifies its own subscribers) ────────────────────

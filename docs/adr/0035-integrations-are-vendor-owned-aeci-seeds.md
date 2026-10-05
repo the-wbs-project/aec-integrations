@@ -154,6 +154,20 @@ The Revisit section named this trigger: a claimed row going back to AECi other t
 
 Contract: `STAGE_2_ATTESTATIONS_SPEC.md` §13.9, builder `apps/api/src/lib/vendor-handback.ts`. Account erasure of the last seat is the one remaining path, AECI-1106.
 
+## 2026-10-04 note: override reasons are vendor-visible (AECI-1159, scope 1159a)
+
+Decision 12 and the AECI-1046 admin retire kept AECi's reason for an override internal. That changes for four overrides, ruled by Chris on 2026-10-04 under epic AECI-1190. The policy is `STAGE_2_VENDOR_PORTAL_SPEC.md` §11d.
+
+- **The four overrides** are the AECi retire and restore, a contest accept that overwrites an owner-held value, an admin logo overwrite, and an admin seat revoke. Each now needs a reason written for the vendor, and each tells the vendor in Messages on every plan, with no email.
+- **A marker decides what a vendor may see.** The override's audit row carries `metadata.reasonVisibility = 'vendor'` beside `metadata.reason`. A row without the marker is never shown to a vendor.
+- **There is no backfill.** Every earlier reason, including the ones AECI-1191 required, was written for AECi alone and stays internal.
+- **An optional internal note** sits beside the reason as `metadata.internalNote`. No notification row copies it and no vendor read returns it.
+- **Endpoint vendors on a retire** still get the generic notice. Only the owner sees the reason.
+- **A seat revoke that leaves no seat** tells nobody. The audit row is the record.
+- **Ownership is unchanged.** The owner still holds the integration and can edit a field AECi overwrote. A lock is AECI-1237. A reversible takedown is AECI-1238.
+
+Decisions 1 to 15 are unchanged.
+
 ## Revisit
 
 When the AECI-1040 follow-ups ship the owner carve-out (decision 9), if tiers start to differentiate what a seat may do (decision 15), or if a claimed row needs to go back to AECi by a path other than the owner-reassignment accept or the last-seat hand-back (the 2026-09-23 note).

@@ -18,6 +18,7 @@ import { auditLog, vendors } from '../db/schema';
 import type { Env } from '../env';
 import { errorHandler } from '../errors';
 import type { AuthzVariables } from '../lib/authz';
+import { aeciOverrideNotificationAudit } from '../lib/aeci-override-notifications';
 import { NOTIFICATION_SENT_ACTION } from '../lib/attestation-notify';
 import { claimAddedNotificationAudit } from '../lib/claim-added-notification';
 import {
@@ -370,5 +371,112 @@ describe('GET /api/vendor/notifications — review rows (AECI-1180 / §11c.12)',
     const { res, body } = await get();
     expect(res.status).toBe(200);
     expect(body.notifications).toEqual([]);
+  });
+});
+
+describe('GET /api/vendor/notifications — AECi override rows (AECI-1159 / §11d)', () => {
+  const ADMIN_ACTOR = { actorId: null, actorType: 'admin' as const };
+  const REASON = 'The logo belonged to a different company.';
+
+  it('maps the three override events with the reason, and validates the union', async () => {
+    const field = aeciOverrideNotificationAudit('portal-field-overridden-by-aeci', ADMIN_ACTOR, {
+      event: 'field_overridden',
+      vendorId: VENDOR,
+      reason: REASON,
+      integrationId: uuid(50),
+      integrationName: 'Revit for Procore',
+      field: 'name',
+      pairSlugs: ['revit', 'procore'],
+      entityType: 'integration',
+    });
+    const logo = aeciOverrideNotificationAudit('portal-logo-overridden-by-aeci', ADMIN_ACTOR, {
+      event: 'logo_overridden',
+      vendorId: VENDOR,
+      reason: REASON,
+      entityId: uuid(51),
+      logoSubject: { type: 'product', slug: 'revit', name: 'Revit' },
+      cleared: true,
+    });
+    const seat = aeciOverrideNotificationAudit('portal-seat-revoked-by-aeci', ADMIN_ACTOR, {
+      event: 'seat_revoked',
+      vendorId: VENDOR,
+      reason: REASON,
+      seatUserId: uuid(52),
+      seatName: 'Pat Example',
+    });
+    await ledgerRow({ metadata: field.metadata, createdAt: daysAgo(3) });
+    await ledgerRow({ metadata: logo.metadata, createdAt: daysAgo(2) });
+    await ledgerRow({ metadata: seat.metadata, createdAt: daysAgo(1) });
+
+    const { res, body } = await get();
+    expect(res.status).toBe(200);
+    expect(() => ListVendorNotificationsResponseSchema.parse(body)).not.toThrow();
+    const common = {
+      kind: 'aeci_override',
+      id: expect.any(String),
+      reason: REASON,
+      integration_id: null,
+      integration_name: null,
+      field: null,
+      pair_path: null,
+      logo_subject: null,
+      logo_cleared: false,
+      seat_name: null,
+      created_at: expect.any(String),
+    };
+    expect(body.notifications).toEqual([
+      { ...common, event: 'seat_revoked', seat_name: 'Pat Example' },
+      {
+        ...common,
+        event: 'logo_overridden',
+        logo_subject: { type: 'product', slug: 'revit', name: 'Revit' },
+        logo_cleared: true,
+      },
+      {
+        ...common,
+        event: 'field_overridden',
+        integration_id: uuid(50),
+        integration_name: 'Revit for Procore',
+        field: 'name',
+        pair_path: '/products/procore/integrations/revit',
+      },
+    ]);
+  });
+
+  it('drops an override row without the vendor-visibility marker, and never reads an internal note', async () => {
+    await ledgerRow({
+      metadata: {
+        kind: 'aeci_override',
+        event: 'seat_revoked',
+        vendorId: VENDOR,
+        reason: 'Written for AECi only.',
+      },
+    });
+    await ledgerRow({
+      metadata: {
+        kind: 'aeci_override',
+        event: 'seat_revoked',
+        vendorId: VENDOR,
+        reason: REASON,
+        reasonVisibility: 'vendor',
+        internalNote: 'Never shown.',
+      },
+    });
+    const { body } = await get();
+    expect(body.notifications).toHaveLength(1);
+    expect(JSON.stringify(body)).not.toContain('Written for AECi only.');
+    expect(JSON.stringify(body)).not.toContain('Never shown.');
+  });
+
+  it('is isolated to its recipient', async () => {
+    const seat = aeciOverrideNotificationAudit('portal-seat-revoked-by-aeci', ADMIN_ACTOR, {
+      event: 'seat_revoked',
+      vendorId: OTHER_VENDOR,
+      reason: REASON,
+      seatUserId: uuid(52),
+      seatName: null,
+    });
+    await ledgerRow({ metadata: seat.metadata });
+    expect((await get()).body.notifications).toEqual([]);
   });
 });
