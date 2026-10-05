@@ -164,6 +164,8 @@ The branch review changed these, each recorded where it applies above or below.
   (`observability/posthog/README.md` §Pending liveness entries). A follow-up issue tracks it.
   *AECI-1221 (2026-10-04): it is now in the sweep with an `activeFrom` grace, and the pending
   list is gone (`observability/posthog/README.md` §New crons: activeFrom).*
+  *AECI-1232 (2026-10-05): its first production heartbeat is in, so the grace is removed and the
+  row is ordinary.*
 
 ### 7. Amendment (2026-10-04, AECI-1220): one support address, tier-limited rules, no blind copy
 

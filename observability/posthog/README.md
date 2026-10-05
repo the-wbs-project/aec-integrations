@@ -413,10 +413,13 @@ and give it an `activeFrom`:
 `cron-schedules.spec.ts` fails if a cron in `CRON_JOBS` has no entry. There is no side list:
 the old `liveness.pendingFirstHeartbeat` list is gone.
 
-| Cron | Heartbeat to wait for | `activeFrom` |
+No entry carries an `activeFrom` today. AECI-1232 removed the last two on 2026-10-05, after a
+production sweep reported both heartbeats `ok`:
+
+| Cron | Heartbeat | First seen in production |
 |---|---|---|
-| `protest-reply-reminder` (AECI-1205) | `aeci.contest.protest_reminder.job` | `2026-10-12T12:00:00Z`. No production heartbeat on 2026-10-04. |
-| `vendor-snapshot` (AECI-1210) | `aeci.vendor_snapshot.run` | `2026-10-12T12:00:00Z`. No production heartbeat on 2026-10-04. |
+| `protest-reply-reminder` (AECI-1205) | `aeci.contest.protest_reminder.job` | 2026-10-04, 12:00 UTC run |
+| `vendor-snapshot` (AECI-1210) | `aeci.vendor_snapshot.run` | 2026-10-05, 00:30 UTC run |
 
 ## The liveness sweep drill
 
