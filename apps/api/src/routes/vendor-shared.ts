@@ -103,7 +103,13 @@ export function vendorAuditEntry(c: VendorContext, entry: AuditLogEntry): AuditL
   // not the actor: its builder already set `vendorId` to the vendor being told.
   // Stamping the acting vendor over it would file the notice under the sender.
   if (entry.action === NOTIFICATION_SENT_ACTION) return entry;
-  return { ...entry, vendorId: sessionVendorId(c), vendorPlan: sessionVendorPlan(c) };
+  // Stamp the caller's own entry object rather than a copy. `auditInsert` mints
+  // the row id onto the object it is handed (AECI-1184), and the post-commit
+  // recrawl cause linkage reads that id off the entry the handler still holds.
+  // A copy would leave the handler's entry without an id.
+  entry.vendorId = sessionVendorId(c);
+  entry.vendorPlan = sessionVendorPlan(c);
+  return entry;
 }
 
 /**

@@ -309,7 +309,7 @@ export async function main(argv: string[]): Promise<number> {
   // AECI-1175: the same for migration 0058's vendor-reply table.
   const reviewResponsesTable =
     (runD1<{ name: string }>(target, REVIEW_RESPONSES_TABLE_SQL)[0]?.results.length ?? 0) > 0;
-  // AECI-1192: the same for migration 0061's `audit_log` columns. A tier without them
+  // AECI-1192: the same for migration 0063's `audit_log` columns. A tier without them
   // gets tombstones that never name them.
   const auditVendorColumns = ddlHasAuditVendorColumns(
     runD1<{ sql: string }>(target, AUDIT_LOG_DDL_SQL)[0]?.results[0]?.sql,

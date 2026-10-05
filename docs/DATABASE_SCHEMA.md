@@ -1408,7 +1408,7 @@ create table audit_log (
   after_state text, -- JSON
   metadata text, -- JSON workflow context: linear_issue_id, ip_address, user_agent, cf_country
 
-  -- AECI-1192 / AECI-1193 (migration 0061). No FK, no CHECK. See "Who and which plan" below.
+  -- AECI-1192 / AECI-1193 (migration 0063). No FK, no CHECK. See "Who and which plan" below.
   vendor_id text, -- the vendor the row is ABOUT
   product_id text, -- the one product the row is about
   vendor_tier text, -- raw vendor_entitlements.tier at write time, or 'none'
@@ -1435,7 +1435,7 @@ create index audit_log_product_idx on audit_log(product_id, created_at) where pr
 > executable truth for every table.
 
 **Who and which plan: `vendor_id`, `product_id`, `vendor_tier`, `vendor_entitlement_status`**
-(AECI-1192 and AECI-1193, migration `0061`, 2026-10-04). They make "everything that happened to
+(AECI-1192 and AECI-1193, migration `0063`, 2026-10-04). They make "everything that happened to
 vendor X" one indexed query, and "what plan X was on when it happened" a filter.
 
 - **`vendor_id`** names the vendor the row is about:
@@ -1471,7 +1471,7 @@ vendor X" one indexed query, and "what plan X was on when it happened" a filter.
 - **No FK, no CHECK.** An FK would block or erase attribution when a vendor is retracted
   (`retract-vendor-fk-coverage.spec.ts`). A CHECK change forces a table recreate (`migrations.md`
   §0).
-- **No backfill (ruling, 2026-10-04).** Rows written before migration `0061` keep NULL in all four
+- **No backfill (ruling, 2026-10-04).** Rows written before migration `0063` keep NULL in all four
   columns and are never rewritten. Readers that must see old rows keep a legacy fallback:
   - `auditScopeWhere` leg 3 (`routes/admin-vendors.ts`): `vendor_id = ?` on any action except
     `notification.sent`, OR the old `json_extract(metadata,'$.vendor_id') = ?` on the listed

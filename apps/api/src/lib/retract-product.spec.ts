@@ -852,12 +852,12 @@ describe('the delete plan re-checks vendor-held at write time (AECI-1088 review)
     t.dispose();
   });
 
-  it('reads 0061 off the audit_log DDL', async () => {
+  it('reads 0063 off the audit_log DDL', async () => {
     const t = await makeTestDb();
     const ddl = (t.raw.prepare(AUDIT_LOG_DDL_SQL).get() as { sql: string }).sql;
     expect(ddlHasAuditVendorColumns(ddl)).toBe(true);
     t.dispose();
-    const old = await makeTestDb({ upToExclusive: '0061_large_korvac.sql' });
+    const old = await makeTestDb({ upToExclusive: '0063_dazzling_wolf_cub.sql' });
     const oldDdl = (old.raw.prepare(AUDIT_LOG_DDL_SQL).get() as { sql: string }).sql;
     expect(ddlHasAuditVendorColumns(oldDdl)).toBe(false);
     old.dispose();
@@ -894,7 +894,7 @@ describe('the delete plan re-checks vendor-held at write time (AECI-1088 review)
       vendorHeldPairColumns: false,
       // AECI-1092: nor 0050's evidenced contest anchor.
       evidencedContestAnchor: false,
-      // AECI-1192: nor 0061's `audit_log` columns.
+      // AECI-1192: nor 0063's `audit_log` columns.
       auditVendorColumns: false,
     });
     expect(statements.join('\n')).not.toMatch(/claimed_at/);

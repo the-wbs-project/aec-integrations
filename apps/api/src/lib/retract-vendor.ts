@@ -327,7 +327,7 @@ export interface VendorAuditInsertArgs {
    *  Defaults to true; the CLI passes its {@link REVIEW_RESPONSES_TABLE_SQL} probe so a
    *  tier without the table gets a plan that never names it. */
   reviewResponsesTable?: boolean;
-  /** AECI-1192: whether `audit_log` has migration 0061's columns on the target tier.
+  /** AECI-1192: whether `audit_log` has migration 0063's columns on the target tier.
    *  Defaults to true; the CLI passes its {@link AUDIT_LOG_DDL_SQL} probe. */
   auditVendorColumns?: boolean;
 }

@@ -275,7 +275,7 @@ describe('buildVendorAuditInsert', () => {
     expect(sql).toContain(`,'${VENDOR.id}','none','none','${AUDIT_ARGS.now}');`);
   });
 
-  it('never names the AECI-1192 columns on a tier without migration 0061', () => {
+  it('never names the AECI-1192 columns on a tier without migration 0063', () => {
     const legacy = buildVendorAuditInsert({ ...AUDIT_ARGS, auditVendorColumns: false });
     expect(legacy).toContain(
       'INSERT INTO "audit_log" ("id","actor_id","actor_type","action","entity_type","entity_id","before_state","metadata","created_at")',

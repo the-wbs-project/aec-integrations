@@ -282,11 +282,11 @@ export const REVIEW_RESPONSES_TABLE_SQL = `SELECT "name" FROM "sqlite_master" WH
 export const CONTESTS_DDL_SQL = `SELECT "sql" FROM "sqlite_master" WHERE "type" = 'table' AND "name" = 'integration_field_challenges';`;
 
 /** AECI-1192: the `audit_log` DDL. It carries `vendor_id`, `product_id`, `vendor_tier`
- *  and `vendor_entitlement_status` on a tier migration 0061 has reached, and not before.
+ *  and `vendor_entitlement_status` on a tier migration 0063 has reached, and not before.
  *  SQLite appends an `ADD COLUMN` to the stored `CREATE TABLE` text, so the DDL shows it. */
 export const AUDIT_LOG_DDL_SQL = `SELECT "sql" FROM "sqlite_master" WHERE "type" = 'table' AND "name" = 'audit_log';`;
 
-/** Does this `audit_log` DDL carry 0061's columns? The last one added is the test. */
+/** Does this `audit_log` DDL carry 0063's columns? The last one added is the test. */
 export function ddlHasAuditVendorColumns(ddl: string | null | undefined): boolean {
   return typeof ddl === 'string' && /[`"[]?vendor_entitlement_status[`"\]]?\s+text\b/i.test(ddl);
 }
@@ -591,7 +591,7 @@ export interface ProductDeleteArgs {
   vendorHeldColumns?: boolean;
   /** AECI-1088 review: the same for `connector_evidenced_pairs` and migration 0049. */
   vendorHeldPairColumns?: boolean;
-  /** AECI-1192: whether `audit_log` has migration 0061's columns on the target tier.
+  /** AECI-1192: whether `audit_log` has migration 0063's columns on the target tier.
    *  Defaults to true, the schema at HEAD; the CLI passes its {@link AUDIT_LOG_DDL_SQL}
    *  probe so a tier without them gets tombstones that never name them. */
   auditVendorColumns?: boolean;
@@ -645,7 +645,7 @@ const AUDIT_COLS = `"id","actor_id","actor_type","action","entity_type","entity_
  * AECI-1192: every tombstone of a retraction is history of the retracted product, so
  * each carries its id in `audit_log.product_id`. No `vendor_id`: the plan deletes the
  * `product_vendors` rows before the product's own tombstone, and an owned product is
- * retracted only with `--force`. Omitted on a tier without migration 0061.
+ * retracted only with `--force`. Omitted on a tier without migration 0063.
  */
 function auditCols(args: ProductDeleteArgs): string {
   return (args.auditVendorColumns ?? true) ? `${AUDIT_COLS},"product_id"` : AUDIT_COLS;
