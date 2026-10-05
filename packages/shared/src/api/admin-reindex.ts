@@ -130,7 +130,25 @@ export type ClearReindexRowQuery = z.infer<typeof ClearReindexRowQuerySchema>;
  * submissions and requests, never "indexed".
  */
 
-const utcDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Expected YYYY-MM-DD');
+/**
+ * A real UTC calendar day. The regex checks the shape only, so `2026-13-01` and
+ * `2026-02-30` pass it. The refine round-trips the label through `Date` and
+ * requires it back unchanged: month 13 is an invalid date and Feb 30 rolls to
+ * March, so both fail here as a 400 instead of reaching the route's day
+ * arithmetic (a thrown `RangeError`, or a silently shifted window). Same check
+ * as `parseUtcDay` in `apps/api/src/lib/admin-analytics.ts`, which throws an
+ * `ApiError` and so cannot be reused inside a schema.
+ */
+const utcDate = z
+  .string()
+  .regex(/^\d{4}-\d{2}-\d{2}$/, 'Expected YYYY-MM-DD')
+  .refine(
+    (v) => {
+      const ms = Date.parse(`${v}T00:00:00.000Z`);
+      return Number.isFinite(ms) && new Date(ms).toISOString().slice(0, 10) === v;
+    },
+    { message: 'Not a real calendar date' },
+  );
 
 const fromNotAfterTo = (v: { from?: string; to?: string }) => !v.from || !v.to || v.from <= v.to;
 

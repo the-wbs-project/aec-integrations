@@ -306,7 +306,9 @@ its pages we had submitted, and IndexNow is a Managed-plan benefit. The drain no
   It chunks ids at 95, which binds 99 parameters per statement under D1's cap of 100.
 - On a refusal or a transport failure the log rows are written in a batch of their own, with
   outcome `refused` or `failed`. The queue rows stay buffered and no audit row is written, as
-  before. Tomorrow's retry adds a second row per URL.
+  before. Tomorrow's retry adds a second row per URL. This batch is best-effort: if it fails,
+  the drain warns `aeci.indexnow.submission_log_failed` and still reports the refusal, so a D1
+  error cannot turn a refusal into a thrown run. The success batch is not best-effort.
 - Retired-slug URLs are never sent, so they are never logged.
 - The log is kept forever and has no foreign key. Its exemption from per-row auditing is ADR
   0022's 2026-10-04 amendment.

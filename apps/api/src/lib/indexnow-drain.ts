@@ -51,8 +51,11 @@
  *      row share one `batchId`. On a refusal or a transport failure the delete and
  *      the audit row do not run, so the rows stay buffered and tomorrow's run
  *      retries them. The log rows are still written, in a batch of their own,
- *      with outcome `refused` or `failed`. A URL retried tomorrow gets a second
- *      log row.
+ *      with outcome `refused` or `failed`. That refusal-log batch is
+ *      best-effort: if it fails, the run warns `aeci.indexnow.submission_log_failed`
+ *      and still reports the refusal, so those attempts have no log row. A URL
+ *      retried tomorrow gets a second log row. The success-path batch is not
+ *      best-effort: its log rows are atomic with the delete.
  *
  * ─── Fail-open, and never a throw ─────────────────────────────────────────────
  *
@@ -60,7 +63,8 @@
  * write is long committed by the time this runs, but the same posture holds for
  * the cron: a missing key, an unparseable `PUBLIC_SITE_URL` and an IndexNow outage
  * all resolve to a `skipped`/`failed` job report rather than an exception. A **D1**
- * error is the one exception and is deliberately left to propagate, exactly as the
+ * error is the one exception (bar the refusal-log batch in step 4, which warns
+ * and carries on) and is deliberately left to propagate, exactly as the
  * other cron impls leave theirs: `withJobRun` records the `failed` `job_runs` row
  * and rethrows, which is what keeps a broken database visible rather than reported
  * as a quiet no-op. The job is queue-less (`queueForJob` returns `undefined`)
@@ -136,6 +140,10 @@ export type IndexNowDrainLogSink = (event: {
   status?: number;
   attempts?: number;
   pending?: number;
+  /** The run's id, on `aeci.indexnow.submission_log_failed`. */
+  batchId?: string;
+  /** The caught error's message, on `aeci.indexnow.submission_log_failed`. */
+  error?: string;
 }) => void;
 
 export interface IndexNowDrainResult {
@@ -475,8 +483,26 @@ export async function drainIndexNowQueue(deps: DrainDeps): Promise<IndexNowDrain
         // the URLs stay queued, so their causes stay for tomorrow's attempt.
         copyCausesToSubmissions(db, 'indexnow', batchId),
       ];
-      await db.batch(stmts as BatchTuple);
-      loggedBatch = batchId;
+      // Best-effort, unlike the success path. A D1 error here must not turn a
+      // soft refusal into a thrown run: that would lose the refusal reason from
+      // the job report and the warn below, and change what the AECI-864 alert
+      // sees. So a failed log write warns and the refusal is reported as before.
+      // The success-path batch (log + delete + audit) still throws, because
+      // there the log is atomic with the delete.
+      try {
+        await db.batch(stmts as BatchTuple);
+        loggedBatch = batchId;
+      } catch (err) {
+        log({
+          level: 'warn',
+          message: 'aeci.indexnow.submission_log_failed',
+          reason: 'refusal log batch failed; refusal still reported',
+          batchId,
+          urls_count: sendable.length,
+          status: outcome.status,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
     }
     const pending = await countPendingIndexNowUrls(db);
     log({

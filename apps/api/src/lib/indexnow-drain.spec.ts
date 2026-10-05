@@ -879,6 +879,47 @@ describe('recrawl_submissions (AECI-1183)', () => {
     expect(result.batchId).toBe(rows[0]!.batchId);
   });
 
+  it('still reports a refusal when the refusal log batch fails, and warns instead of throwing', async () => {
+    await enqueueIndexNowUrls(t.db, [url('a'), url('b')]);
+    // Every other D1 call goes through; only the refusal-log batch fails.
+    const db = new Proxy(t.db, {
+      get(target, prop, receiver) {
+        if (prop === 'batch') return () => Promise.reject(new Error('D1_ERROR: boom'));
+        return Reflect.get(target, prop, receiver) as unknown;
+      },
+    });
+    const s = sinks();
+    const result = await drainIndexNowQueue({
+      db,
+      env: ENV,
+      ...s.deps,
+      fetchImpl: respond(429, '{"errorCode":"TooManyRequests"}'),
+      now: () => NOW,
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.refused).toBe(true);
+    expect(result.status).toBe(429);
+    expect(result.reason).toMatch(/^indexnow_429: /);
+    expect(result.pending).toBe(2);
+    expect(result.batchId).toBeUndefined();
+    expect(drainMetricOutcome(result)).toBe('refused');
+
+    const logFailed = s.logs.find((l) => l.message === 'aeci.indexnow.submission_log_failed');
+    expect(logFailed).toMatchObject({ level: 'warn', status: 429, urls_count: 2 });
+    expect(logFailed!.batchId).toMatch(/^[0-9a-f-]{36}$/);
+    expect(logFailed!.error).toContain('boom');
+    // The refusal warn is still emitted, exactly as without the log failure.
+    expect(s.logs.find((l) => l.message === 'aeci.indexnow.submit_failed')).toMatchObject({
+      level: 'warn',
+      status: 429,
+      pending: 2,
+    });
+
+    expect(await queued()).toEqual([url('a'), url('b')]);
+    expect(await submissions()).toEqual([]);
+  });
+
   it('logs a transport failure as failed with a NULL status', async () => {
     await enqueueIndexNowUrls(t.db, [url('a')]);
     const fetchImpl = vi.fn().mockRejectedValue(new Error('boom')) as unknown as typeof fetch;

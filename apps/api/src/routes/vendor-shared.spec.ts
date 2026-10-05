@@ -258,6 +258,51 @@ describe('afterVendorWrite — the re-crawl plan gate (AECI-1186)', () => {
     }
   });
 
+  // ── The owned-product thunk is read only past both gates ──────────────────
+
+  it('never runs the product thunk for a vendor write with no active entitlement', async () => {
+    const read = vi.fn(async () => 'product-1');
+    await run(FREE, undefined, withRecrawlProduct(RECRAWL, read)!);
+    expect(read).not.toHaveBeenCalled();
+    expect(enqueueIndexNowUrls).not.toHaveBeenCalled();
+  });
+
+  it('never runs the product thunk on a gated environment', async () => {
+    const read = vi.fn(async () => 'product-1');
+    const { c, execCtx } = makeCtx({}, MANAGED);
+    afterVendorWrite(c, [], entry(0), withRecrawlProduct(RECRAWL, read), db);
+    await Promise.all(vi.mocked(execCtx.waitUntil).mock.calls.map((call) => call[0]));
+    expect(read).not.toHaveBeenCalled();
+    expect(enqueueIndexNowUrls).not.toHaveBeenCalled();
+  });
+
+  it('runs the product thunk once for an entitled write and records its value', async () => {
+    const read = vi.fn(async () => 'product-1');
+    await run(MANAGED, undefined, withRecrawlProduct(Promise.resolve(RECRAWL), read)!);
+    expect(read).toHaveBeenCalledTimes(1);
+    for (const call of vi.mocked(enqueueRecrawlCauses).mock.calls) {
+      expect(call[3]).toMatchObject({ productId: 'product-1' });
+    }
+    expect(enqueueRecrawlCauses).toHaveBeenCalledTimes(2);
+  });
+
+  it.each([
+    ['rejects', () => Promise.reject(new Error('read failed'))],
+    [
+      'throws synchronously',
+      () => {
+        throw new Error('read failed');
+      },
+    ],
+  ])('records a null product and keeps the recrawl when the thunk %s', async (_label, thunk) => {
+    await run(MANAGED, undefined, withRecrawlProduct(RECRAWL, thunk as () => Promise<string>)!);
+    expect(enqueueIndexNowUrls).toHaveBeenCalledTimes(1);
+    for (const call of vi.mocked(enqueueRecrawlCauses).mock.calls) {
+      expect(call[3]).toMatchObject({ productId: null });
+    }
+    expect(enqueueRecrawlCauses).toHaveBeenCalledTimes(2);
+  });
+
   it('settles a rejected derivation handed over by a Free write', async () => {
     const rejected = Promise.reject(new Error('trade floor read failed'));
     await expect(run(FREE, undefined, rejected)).resolves.toBeUndefined();
@@ -291,21 +336,18 @@ describe('withRecrawlProduct / ownedSideProductId (AECI-1184)', () => {
     expect(read).not.toHaveBeenCalled();
   });
 
-  it('stamps a value, a promise and a thunk alike', async () => {
+  it('stamps a value and a promise alike', async () => {
     expect(withRecrawlProduct(RECRAWL, 'p1')).toEqual({ ...RECRAWL, productId: 'p1' });
     await expect(withRecrawlProduct(Promise.resolve(RECRAWL), 'p2')).resolves.toEqual({
       ...RECRAWL,
       productId: 'p2',
     });
-    await expect(withRecrawlProduct(RECRAWL, async () => 'p3')).resolves.toEqual({
-      ...RECRAWL,
-      productId: 'p3',
-    });
   });
 
-  it('records null when the owned-side read fails, and keeps the recrawl', async () => {
-    const stamped = withRecrawlProduct(RECRAWL, () => Promise.reject(new Error('read failed')));
-    await expect(stamped).resolves.toEqual({ ...RECRAWL, productId: null });
+  it('stores a thunk without calling it', () => {
+    const read = vi.fn(async () => 'p3');
+    expect(withRecrawlProduct(RECRAWL, read)).toEqual({ ...RECRAWL, productId: read });
+    expect(read).not.toHaveBeenCalled();
   });
 
   it('picks the source, then the target, then null', () => {

@@ -3515,7 +3515,7 @@ GET /api/admin/reindex/submissions?page=1&perPage=25&vendorId=…&channel=indexn
 | `from` | `YYYY-MM-DD` | Inclusive UTC day: `submitted_at >= from T00:00:00.000Z`. |
 | `to` | `YYYY-MM-DD` | Inclusive UTC day: `submitted_at <` the next day's midnight. |
 
-`from` after `to` is `VALIDATION_FAILED` (400). So is an unknown channel or outcome.
+`from` after `to` is `VALIDATION_FAILED` (400). So is an unknown channel or outcome, and so is a `from` or `to` that matches `YYYY-MM-DD` but is not a real calendar date (`2026-13-01`, `2026-02-30`). The schema round-trips each date through `Date` and rejects it unless it comes back unchanged.
 
 **One row per submission, never per cause.** Unlike the vendor read (§6.14), which
 returns one row per (submission, cause), this read nests the causes. The `total`

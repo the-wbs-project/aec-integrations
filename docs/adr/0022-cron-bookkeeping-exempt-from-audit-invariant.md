@@ -229,7 +229,8 @@ rule is domain state and audits.
 
 **The one gap in rule 4, stated plainly.** A refused or failed drain run deletes nothing, so it
 writes no audit row, as it never has. Its log rows are still written, because a refusal is
-evidence too. That batch is named in the run's `job_runs.detail.batchId` instead. `job_runs` is
+evidence too. That write is best-effort: a failed refusal-log batch warns
+`aeci.indexnow.submission_log_failed` and leaves the attempt unlogged. That batch is named in the run's `job_runs.detail.batchId` instead. `job_runs` is
 pruned after its window, so a refused batch's link outlives its `job_runs` row only in the log
 itself. We accept that. The refused rows record a request that changed nothing, and adding an
 audit row for a non-deletion would break the "no change, no row" rule of §26.1.

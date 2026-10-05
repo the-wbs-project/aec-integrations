@@ -2554,7 +2554,12 @@ engine never tells us that.
   must run before the delete.
 - On a refusal or a transport failure, in a batch of its own. The queue rows stay buffered and
   no audit row is written, as before. Tomorrow's retry adds a second row per URL with a new
-  `batch_id`. This run's `batch_id` is in its `job_runs.detail.batchId` (§9.4).
+  `batch_id`. This run's `batch_id` is in its `job_runs.detail.batchId` (§9.4). This batch is
+  best-effort, unlike the success batch. If it fails, the drain warns
+  `aeci.indexnow.submission_log_failed` with the `batchId` and the error, and still reports the
+  refusal exactly as before. That attempt then has no log row, and `job_runs.detail` carries no
+  `batchId`. A D1 error must not turn a refusal into a thrown run, which would lose the refusal
+  reason and change what the AECI-864 cron-failure alert sees.
 
 Retired-slug URLs are never sent, so they never get a row. A run where every row was retired
 writes none. The insert chunks ids at `RECRAWL_SUBMISSION_IDS_PER_STATEMENT` (95). Each statement
@@ -2595,6 +2600,14 @@ no FK cannot be emptied by a D1 recreate cascade (`docs/migrations.md` §0).
 **Retention: forever.** `retention-prune` excludes it by name, beside `audit_log`
 (`apps/api/src/lib/retention-prune.ts`, `ADMIN_PANEL_SPEC.md` §7.4).
 `apps/api/src/lib/retention-prune.spec.ts` asserts a real run leaves it untouched.
+
+**Growth bound.** The worst case is a 10,000-URL backlog refused every day for its 7-day queue
+life (`INDEXNOW_QUEUE_MAX_AGE_DAYS`). That writes 70,000 `recrawl_submissions` rows, plus one
+`recrawl_submission_causes` copy per cause per row per attempt. A submission row is roughly 350
+bytes with its three indexes, and a cause row roughly 200 bytes with its two. So one such week
+with one cause per URL is about 40 MB. Both tables are kept forever by design, against D1's
+10 GB per-database limit. That is about 250 worst-case weeks, so watch the database size if
+refusals ever persist.
 
 **Migration `0061`** is a plain `CREATE TABLE` plus three `CREATE INDEX`. It is not a recreate and
 cannot cascade. `apps/api/src/test/migration-0061.spec.ts` pins that.

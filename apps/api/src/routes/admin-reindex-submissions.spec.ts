@@ -189,6 +189,9 @@ describe('ListReindexSubmissionsQuerySchema', () => {
     ['an unknown channel', { channel: 'bing' }],
     ['an unknown outcome', { outcome: 'indexed' }],
     ['a datetime for from', { from: '2026-10-04T00:00:00Z' }],
+    ['month 13 for to', { to: '2026-13-01' }],
+    ['Feb 30 for to', { to: '2026-02-30' }],
+    ['Feb 30 for from', { from: '2026-02-30' }],
     ['an empty vendorId', { vendorId: '' }],
     ['a perPage over 100', { perPage: '101' }],
   ])('rejects %s', (_label, input) => {
@@ -376,6 +379,21 @@ describe('GET /api/admin/reindex/submissions', () => {
     const { res, body } = await get('?from=2026-10-05&to=2026-10-04');
     expect(res.status).toBe(400);
     expect(body.error.code).toBe('VALIDATION_FAILED');
+  });
+
+  it.each([
+    ['month 13', '?to=2026-13-01'],
+    ['Feb 30', '?to=2026-02-30'],
+    ['Feb 30 as from', '?from=2026-02-30'],
+  ])('400s an impossible date (%s) instead of throwing or rolling over', async (_label, qs) => {
+    const { res, body } = await get(qs);
+    expect(res.status).toBe(400);
+    expect(body.error.code).toBe('VALIDATION_FAILED');
+  });
+
+  it('accepts Feb 29 in a leap year', async () => {
+    const { res } = await get('?from=2028-02-29&to=2028-02-29');
+    expect(res.status).toBe(200);
   });
 
   it('binds one parameter per page row in the causes read, and no more', async () => {

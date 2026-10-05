@@ -190,8 +190,11 @@ export interface VendorRecrawl {
    * product. `null` or absent when the write touches no product of the vendor's
    * (a company profile edit) or the owned side cannot be determined. Each call
    * site states its rule beside the value.
+   *
+   * A thunk is a deferred read. `bufferVendorRecrawl` calls it only after the
+   * environment and entitlement gates pass, so a gated-out write never reads.
    */
-  productId?: string | null;
+  productId?: string | null | (() => Promise<string | null>);
 }
 
 /**
@@ -199,10 +202,12 @@ export interface VendorRecrawl {
  * the promise a call site already builds, and passes `undefined` through, so each
  * site wraps what it has rather than restructuring it.
  *
- * `productId` may be a thunk for a site that has not read the owned side. It runs
- * only when there is a recrawl, and post-commit inside `waitUntil`, so the read
- * never delays the response. A failed read records `null`: losing the product
- * must never lose the recrawl itself.
+ * `productId` may be a thunk for a site that has not read the owned side. It is
+ * stored, not called. `bufferVendorRecrawl` calls it post-commit inside
+ * `waitUntil`, and only after the environment and entitlement gates pass, so the
+ * read never delays the response and a gated-out write (an unentitled vendor)
+ * never reads at all. A failed read records `null`: losing the product must never
+ * lose the recrawl itself.
  */
 export function withRecrawlProduct(
   recrawl: VendorRecrawl | undefined,
@@ -217,10 +222,6 @@ export function withRecrawlProduct(
   productId: string | null | (() => Promise<string | null>),
 ): VendorRecrawl | Promise<VendorRecrawl> | undefined {
   if (!recrawl) return undefined;
-  if (typeof productId === 'function') {
-    const read = productId().catch(() => null);
-    return Promise.all([recrawl, read]).then(([r, id]) => ({ ...r, productId: id }));
-  }
   if (recrawl instanceof Promise) return recrawl.then((r) => ({ ...r, productId }));
   return { ...recrawl, productId };
 }
@@ -239,6 +240,20 @@ export function ownedSideProductId(
   if (owned.includes(sourceProductId)) return sourceProductId;
   if (owned.includes(targetProductId)) return targetProductId;
   return null;
+}
+
+/**
+ * The owned product for a recrawl's cause rows. Runs a deferred read here, past
+ * both gates, and records `null` if it fails or throws.
+ */
+async function resolveRecrawlProduct(recrawl: VendorRecrawl): Promise<string | null> {
+  const { productId } = recrawl;
+  if (typeof productId !== 'function') return productId ?? null;
+  try {
+    return await productId();
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -290,7 +305,7 @@ async function bufferVendorRecrawl(
   // promise straight over, so the read never delays the response — it settles
   // inside `waitUntil` alongside the inserts it feeds.
   const recrawl = await pending;
-  const fullCause: RecrawlCause = { ...cause, productId: recrawl.productId ?? null };
+  const fullCause: RecrawlCause = { ...cause, productId: await resolveRecrawlProduct(recrawl) };
 
   // AECI-1184: why each URL is queued. Written after its queue upsert, inside that
   // upsert's catch, and caught on its own so a lost cause is logged as itself. A
