@@ -103,6 +103,7 @@ class PreviewAdminVendorsApi extends AdminVendorsApi {
           source: { id: uuid(20), slug: 'agave-erp-sync', name: 'Agave ERP Sync' },
           target: { id: uuid(21), slug: 'procore', name: 'Procore' },
           connector: null,
+          connector_powered: false,
           origin: 'aeci',
           claimed_at: TS,
           retired_at: null,

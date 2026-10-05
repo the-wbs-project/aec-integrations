@@ -568,6 +568,42 @@ describe('GET /api/admin/vendors/:id/integrations', () => {
     expect(res.body.data[0]).toMatchObject({ origin: 'vendor', retired_by: null });
   });
 
+  it('flags a connector-powered row, so the field-correction picker drops mechanism_kind (AECI-1237)', async () => {
+    const P_CONNECTOR = uuid(12);
+    await t.db
+      .insert(products)
+      .values({ id: P_CONNECTOR, slug: 'syncezy', name: 'SyncEzy', promotionStatus: 'promoted' });
+    await t.db
+      .update(integrations)
+      .set({ poweredByProductId: P_CONNECTOR })
+      .where(eq(integrations.id, I_CREATED));
+    await t.db.insert(connectorEvidencedPairs).values({
+      id: uuid(23),
+      connectorProductId: P_CONNECTOR,
+      productAId: P_SOURCE,
+      productBId: P_TARGET,
+      name: 'Revit to MicroStation via SyncEzy',
+      direction: 'a_to_b',
+      builtByVendorId: VENDOR_B,
+      claimedAt: CLAIMED_AT,
+    });
+    const res = await call(ADMIN, `/api/admin/vendors/${VENDOR_B}/integrations`, 'GET');
+    expect(res.status).toBe(200);
+    const flags = new Map(
+      (res.body.data as { id: string; connector_powered: boolean }[]).map((r) => [
+        r.id,
+        r.connector_powered,
+      ]),
+    );
+    expect(flags).toEqual(
+      new Map([
+        [I_CREATED, true],
+        [I_MAIN, false],
+        [uuid(23), true],
+      ]),
+    );
+  });
+
   it('404s an unknown vendor', async () => {
     expect((await call(ADMIN, `/api/admin/vendors/${uuid(98)}/integrations`, 'GET')).status).toBe(
       404,

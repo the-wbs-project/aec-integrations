@@ -159,6 +159,48 @@ describe('AdminFieldCorrections (AECI-1237)', () => {
     expect(api.setFieldOverride).not.toHaveBeenCalled();
   });
 
+  it('leaves mechanism_kind out on a connector-powered integration, as the server does', async () => {
+    const endpoint = (n: number, name: string) => ({
+      id: `00000000-0000-4000-8000-00000000003${n}`,
+      slug: name.toLowerCase(),
+      name,
+    });
+    const row = (id: string, name: string, connectorPowered: boolean) => ({
+      id,
+      anchor: 'integration',
+      name,
+      source: endpoint(1, 'Revit'),
+      target: endpoint(2, 'Procore'),
+      connector: null,
+      connector_powered: connectorPowered,
+      origin: 'aeci',
+      claimed_at: '2026-09-01T00:00:00.000Z',
+      retired_at: null,
+      retired_by: null,
+      pair_path: null,
+      updated_at: '2026-09-01T00:00:00.000Z',
+    });
+    const POWERED = '00000000-0000-4000-8000-000000000041';
+    const NATIVE = '00000000-0000-4000-8000-000000000042';
+    api.listIntegrations.mockResolvedValue({
+      data: [row(POWERED, 'Via Zapier', true), row(NATIVE, 'Native link', false)],
+      page: 1,
+      perPage: 100,
+      total: 2,
+    });
+    const { fixture, el } = await create();
+    await openForm(fixture, el);
+    const fieldValues = async (key: string) => {
+      choose(el, 'record', key);
+      await settle(fixture);
+      return Array.from((byId(el, 'field') as HTMLSelectElement).options).map((o) => o.value);
+    };
+    const powered = await fieldValues(`integration:${POWERED}`);
+    expect(powered).toContain('name');
+    expect(powered).not.toContain('mechanism_kind');
+    expect(await fieldValues(`integration:${NATIVE}`)).toContain('mechanism_kind');
+  });
+
   it('sends nothing without a reason for the vendor', async () => {
     const { fixture, el } = await create();
     await openForm(fixture, el);
@@ -249,5 +291,16 @@ describe('fieldCorrectionErrorMessage', () => {
       'already lifted',
     );
     expect(fieldCorrectionErrorMessage(new Error('boom'))).toContain('Try again');
+    expect(
+      fieldCorrectionErrorMessage(
+        new HttpErrorResponse({
+          status: 400,
+          error: { error: { code: 'VALIDATION_FAILED', message: 'x', field: 'field' } },
+        }),
+      ),
+    ).toContain('cannot be corrected on this record');
+    expect(fieldCorrectionErrorMessage(apiError(400, 'VALIDATION_FAILED'))).toContain(
+      'Check the field, the value and the reason',
+    );
   });
 });

@@ -64,6 +64,7 @@ import { ApiError, notFoundError } from '../errors';
 import { json } from '../http';
 import { type BatchTuple } from '../lib/audit';
 import { auditActorType } from '../lib/authz';
+import { isConnectorPoweredEdge } from '../lib/connector-powered';
 import { validateResponseInDev, writeDb, type DbFactory } from '../lib/handler-utils';
 import { isVendorHeld } from '../lib/integration-claims';
 import { pairPathFor } from '../lib/integration-contests';
@@ -272,7 +273,7 @@ async function loadVendorHeldRows(db: Db, vendorId: string): Promise<AdminVendor
   } as const;
   const [rows, pairs] = await Promise.all([
     db.query.integrations.findMany({
-      columns: rowColumns,
+      columns: { ...rowColumns, poweredByProductId: true, mechanismKind: true },
       with: { sourceProduct: endpoint, targetProduct: endpoint },
       where: and(eq(integrations.builtByVendorId, vendorId), vendorHeldIntegrationWhere),
     }),
@@ -302,6 +303,7 @@ async function loadVendorHeldRows(db: Db, vendorId: string): Promise<AdminVendor
         source: row.sourceProduct,
         target: row.targetProduct,
         connector: null,
+        connector_powered: isConnectorPoweredEdge(row),
         pair_path: pairPathFor([row.sourceProduct.slug, row.targetProduct.slug]),
       }),
     ),
@@ -312,6 +314,7 @@ async function loadVendorHeldRows(db: Db, vendorId: string): Promise<AdminVendor
         source: pair.productA,
         target: pair.productB,
         connector: pair.connectorProduct,
+        connector_powered: true,
         pair_path: pairPathFor([pair.productA.slug, pair.productB.slug]),
       }),
     ),

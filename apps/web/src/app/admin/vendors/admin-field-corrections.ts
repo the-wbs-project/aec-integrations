@@ -38,6 +38,9 @@ export interface CorrectableRecord {
   /** The two endpoint names, for the `direction` choices. Integrations only. */
   readonly source?: string;
   readonly target?: string;
+  /** A connector-powered integration or a pair: `mechanism_kind` is frozen there
+   *  (AECI-1040 ruling 5), so the server refuses it and the picker leaves it out. */
+  readonly connectorPowered?: boolean;
 }
 
 /** How a field's value is entered. */
@@ -109,7 +112,9 @@ export class AdminFieldCorrections {
 
   protected readonly fields = computed<readonly FieldOverrideField[]>(() => {
     const record = this.record();
-    return record ? fieldOverrideFieldsFor(record.entityType) : [];
+    return record
+      ? fieldOverrideFieldsFor(record.entityType, { connectorPowered: record.connectorPowered })
+      : [];
   });
 
   protected readonly control = computed<ValueControl>(() => controlFor(this.field()));
@@ -190,6 +195,7 @@ export class AdminFieldCorrections {
             label: $localize`:@@admin.fieldCorrections.record.integration:${name}:name: (integration)`,
             source: row.source.name,
             target: row.target.name,
+            connectorPowered: row.connector_powered,
           };
         }),
       ]);
@@ -402,14 +408,26 @@ function controlFor(field: string): ValueControl {
   }
 }
 
+function errorBody(err: unknown): { code: string | null; field: string | null } {
+  const inner = (err as { error?: { error?: { code?: unknown; field?: unknown } } } | null)?.error
+    ?.error;
+  return {
+    code: typeof inner?.code === 'string' ? inner.code : null,
+    field: typeof inner?.field === 'string' ? inner.field : null,
+  };
+}
+
 function errorCode(err: unknown): string | null {
-  const inner = (err as { error?: { error?: { code?: unknown } } } | null)?.error?.error;
-  return typeof inner?.code === 'string' ? inner.code : null;
+  return errorBody(err).code;
 }
 
 /** One message per refusal the two admin routes can answer. */
 export function fieldCorrectionErrorMessage(err: unknown): string {
-  switch (errorCode(err)) {
+  const { code, field } = errorBody(err);
+  if (code === 'VALIDATION_FAILED' && field === 'field') {
+    return $localize`:@@admin.fieldCorrections.error.field:This field cannot be corrected on this record. Choose another field.`;
+  }
+  switch (code) {
     case 'FIELD_OVERRIDE_ACTIVE':
       return $localize`:@@admin.fieldCorrections.error.active:This field is already locked. Lift the lock below before correcting it again.`;
     case 'FIELD_OVERRIDE_LIFTED':
