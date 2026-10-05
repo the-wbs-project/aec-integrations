@@ -273,6 +273,9 @@ Shared skills live in `.agents/skills/`, checked in. Commit any changes there.
   `cloudflare-email-service` (email is Resend), the `sandbox-*` and `cloudflare-one*` bundles.
   Note the umbrella `cloudflare` skill still carries `durable-objects`, `agents-sdk`, `sandbox`
   and the email topics under its own `references/`; that is upstream content, not an adoption.
+- **`self-review`**: the pre-submit review of your own diff. **Any agent or sub-agent that builds
+  code on its own runs it before reporting done.** An orchestrator puts this in every coding
+  sub-agent's prompt and rejects a report that has no review result.
 - The `coreyhaines31/marketingskills` bundle is removed; restore with `pnpm skills:update`. It must
   never clobber `impeccable/`.
 
