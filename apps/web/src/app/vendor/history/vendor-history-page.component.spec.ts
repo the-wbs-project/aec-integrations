@@ -81,6 +81,10 @@ describe('VendorHistoryPage — rows', () => {
     expect(text(r, '[data-history-fields]')).toContain('Description, Website URL, Logo URL');
     expect(text(r, '[data-history-plan]')).toContain('Managed');
     expect(r.querySelector('time')?.getAttribute('datetime')).toBe(byActor('your_team').at);
+    // Locale-aware, to the minute, with the zone named. Never seconds.
+    const shown = r.querySelector('time')!.textContent!.replace(/\s+/g, ' ').trim();
+    expect(shown).toMatch(/^Oct \d{1,2}, 2026, \d{1,2}:\d{2} [AP]M \S+$/);
+    expect(shown).not.toMatch(/:\d{2}:\d{2}/);
   });
 
   it('omits the plan when the row has no snapshot', async () => {

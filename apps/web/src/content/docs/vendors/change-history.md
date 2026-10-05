@@ -18,7 +18,7 @@ Each row is one change, newest first. It shows:
 
 - **What happened,** in plain words. For example, "Product listing updated" or "Integration retired".
 - **What it was about.** The company, product or integration the change touched, by its current name.
-- **When.** The date and time of the change.
+- **When.** The date and time of the change, in your own time zone. The zone is named after the time.
 - **By.** Who made it: **Your team**, **AECi**, or **System**. System means an automatic process, such as a plan reminder or a contest that closed with no answer.
 - **Changed.** The names of the fields that changed, when there were any. The list shows which fields changed, not their old or new values.
 - **Plan at the time.** Your plan when the change was made, Free or Managed.

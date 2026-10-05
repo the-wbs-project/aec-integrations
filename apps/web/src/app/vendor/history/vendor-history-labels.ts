@@ -15,7 +15,7 @@ import { planLabel } from '../vendor-plan';
  * the `receipt: true` actions of `@aeci/shared/audit-vendor-actions`, but a newer
  * API can add one before this build knows it. An unmapped action therefore
  * renders through {@link humanizeAction}. Never make this map a closed union.
- * `vendor-history-labels.spec.ts` holds every registry receipt action to a label.
+ * `vendor-history-labels.component.spec.ts` holds every registry receipt action to a label.
  */
 const ACTION_LABELS: Readonly<Record<string, string>> = {
   // ── The company and product records ──────────────────────────────────────
@@ -156,4 +156,25 @@ export function historyKindLabel(kind: VendorHistoryKind): string {
 export function historyPlanLabel(plan: VendorHistoryPlan): string {
   const managed = plan.status === 'active' && plan.tier !== 'unclaimed' && plan.tier !== 'none';
   return planLabel(managed ? 'managed' : 'free');
+}
+
+/**
+ * When the change happened, to the minute, in the reader's locale and time zone,
+ * with the zone named: "Oct 3, 2026, 11:42 AM EDT" in en-US. The medium date plus
+ * the short time, built on `Intl` because Angular's `DatePipe` names a zone only
+ * as a GMT offset. A row is read on its own, so each one carries its zone.
+ *
+ * Runs in the browser only: the list loads after first render, so the server's
+ * zone never reaches the page. `timeZone` exists for the specs.
+ */
+export function historyTimeFormatter(locale: string, timeZone?: string): Intl.DateTimeFormat {
+  return new Intl.DateTimeFormat(locale, {
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+    timeZoneName: 'short',
+    ...(timeZone ? { timeZone } : {}),
+  });
 }

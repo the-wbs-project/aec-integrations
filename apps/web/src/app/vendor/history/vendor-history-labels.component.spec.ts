@@ -17,6 +17,7 @@ import {
   hasHistoryActionLabel,
   historyActorLabel,
   historyPlanLabel,
+  historyTimeFormatter,
   humanizeField,
 } from './vendor-history-labels';
 
@@ -58,5 +59,22 @@ describe('vendor history labels', () => {
     expect(historyPlanLabel({ tier: 'verified', status: 'expired' })).toBe('Free');
     expect(historyPlanLabel({ tier: 'unclaimed', status: null })).toBe('Free');
     expect(historyPlanLabel({ tier: 'none', status: 'none' })).toBe('Free');
+  });
+});
+
+describe('historyTimeFormatter', () => {
+  const at = new Date('2026-10-03T15:42:07.000Z');
+  const flat = (v: string) => v.replace(/\s/g, ' ');
+
+  it('shows the medium date and the short time with the zone, no seconds', () => {
+    expect(flat(historyTimeFormatter('en-US', 'America/New_York').format(at))).toBe(
+      'Oct 3, 2026, 11:42 AM EDT',
+    );
+  });
+
+  it("follows the reader's locale", () => {
+    expect(flat(historyTimeFormatter('en-GB', 'Europe/London').format(at))).toBe(
+      '3 Oct 2026, 16:42 BST',
+    );
   });
 });

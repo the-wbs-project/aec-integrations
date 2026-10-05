@@ -2552,7 +2552,7 @@ Decisions taken at build that this section did not fix:
 
 - what happened, from `vendor/history/vendor-history-labels.ts`. It is an open map with a humanize fallback, never a closed union. A spec holds every `receipt: true` action in `@aeci/shared/audit-vendor-actions` to a label;
 - the entity's current name;
-- the date and time;
+- the date and time, to the minute, in the reader's locale and time zone with the zone named (`historyTimeFormatter`: medium date, short time, short zone name, e.g. "Oct 3, 2026, 11:42 AM EDT");
 - who: "Your team", "AECi" or "System", from `actor_kind`;
 - the changed field names, humanized. Never the values, which are not on the wire;
 - "Plan at the time", Managed or Free, when the row has a plan snapshot. Managed means an `active` row over a paid tier, the `isManaged` rule;

@@ -1,5 +1,4 @@
-import { DatePipe } from '@angular/common';
-import { Component, afterNextRender, computed, inject, signal } from '@angular/core';
+import { Component, LOCALE_ID, afterNextRender, computed, inject, signal } from '@angular/core';
 
 import type { ListVendorHistoryResponse, VendorHistoryItem, VendorHistoryKind } from '@aeci/shared';
 
@@ -13,6 +12,7 @@ import {
   historyActorLabel,
   historyKindLabel,
   historyPlanLabel,
+  historyTimeFormatter,
   humanizeField,
 } from './vendor-history-labels';
 
@@ -42,7 +42,7 @@ export const VENDOR_HISTORY_PAGE_SIZE = 25;
  */
 @Component({
   selector: 'aec-vendor-history-page',
-  imports: [DatePipe, VendorHistoryFollowUp],
+  imports: [VendorHistoryFollowUp],
   host: { class: 'block' },
   template: `
     <section aria-labelledby="vendor-history-heading" data-vendor-history>
@@ -179,7 +179,7 @@ export const VENDOR_HISTORY_PAGE_SIZE = 25;
                   <time
                     class="shrink-0 text-xs text-(--text-secondary) tabular-nums"
                     [attr.datetime]="item.at"
-                    >{{ item.at | date: 'MMM d, y, h:mm a' }}</time
+                    >{{ timeLabel(item) }}</time
                   >
                 </div>
 
@@ -256,6 +256,7 @@ export const VENDOR_HISTORY_PAGE_SIZE = 25;
 export class VendorHistoryPage {
   private readonly api = inject(VendorApi);
   private readonly announcer = inject(VendorPortalAnnouncer);
+  private readonly time = historyTimeFormatter(inject(LOCALE_ID));
 
   protected readonly kinds = HISTORY_KIND_ORDER;
   /**
@@ -307,6 +308,10 @@ export class VendorHistoryPage {
 
   protected actorLabel(item: VendorHistoryItem): string {
     return historyActorLabel(item.actor_kind);
+  }
+
+  protected timeLabel(item: VendorHistoryItem): string {
+    return this.time.format(new Date(item.at));
   }
 
   protected planLabel(item: VendorHistoryItem): string {
