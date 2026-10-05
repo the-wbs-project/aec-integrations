@@ -37,6 +37,7 @@ import {
   type RecrawlCauseChannel,
 } from '../lib/recrawl-causes';
 import { hasActiveEntitlement } from '../lib/integration-entitlement';
+import { auditVendorLogFields } from '../lib/moderation-forward';
 import { publicSiteBase } from '../lib/public-urls';
 
 export type VendorContext = Context<{ Bindings: Env; Variables: AuthzVariables }>;
@@ -123,8 +124,7 @@ export function vendorAuditLogEvent(
     source,
     // AECI-1192 / AECI-1193: the same vendor and plan the row's columns carry, so a
     // PostHog log search can slice by vendor without joining back to D1.
-    vendor_id: entry.vendorId ?? undefined,
-    vendor_tier: entry.vendorPlan?.tier ?? undefined,
+    ...auditVendorLogFields(entry),
   };
 }
 

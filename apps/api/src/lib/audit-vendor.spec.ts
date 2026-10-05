@@ -196,14 +196,18 @@ describe('vendorAuditEntry stamps the session vendor and plan', () => {
     expect(entry).toBe(notice);
   });
 
-  it('forwards vendor_id and vendor_tier to PostHog', () => {
+  it('forwards vendor_id, vendor_tier and vendor_entitlement_status to PostHog', () => {
     const event = vendorAuditLogEvent({
       actorType: 'user',
       action: 'vendor.updated',
       entityId: V1,
       vendorId: V1,
-      vendorPlan: { tier: 'verified', status: 'active' },
+      vendorPlan: { tier: 'verified', status: 'expired' },
     });
-    expect(event).toMatchObject({ vendor_id: V1, vendor_tier: 'verified' });
+    expect(event).toMatchObject({
+      vendor_id: V1,
+      vendor_tier: 'verified',
+      vendor_entitlement_status: 'expired',
+    });
   });
 });

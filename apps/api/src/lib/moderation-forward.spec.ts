@@ -66,6 +66,41 @@ describe('forwardAuditBatch', () => {
     expect(messages[10]).toBe('workflow open→resolved wf-0');
   });
 
+  it("carries an admin row's vendor_id, vendor_tier and vendor_entitlement_status (AECI-1192)", async () => {
+    const intake = stubPosthogIntake();
+    const { c, settle } = ctx();
+
+    forwardAuditBatch(
+      c,
+      [
+        { ...audit(1), vendorId: 'vendor-1', vendorPlan: { tier: 'verified', status: 'expired' } },
+        audit(2),
+      ],
+      [],
+    );
+    await settle();
+
+    const [, init] = intake.fetchMock.mock.calls.find(([input]) =>
+      String(input).includes('/i/v1/logs'),
+    )!;
+    type Attr = { key: string; value: { stringValue?: string } };
+    const records = (
+      JSON.parse(String(init?.body)) as {
+        resourceLogs: { scopeLogs: { logRecords: { attributes: Attr[] }[] }[] }[];
+      }
+    ).resourceLogs[0]!.scopeLogs[0]!.logRecords;
+    const attrs = (i: number) =>
+      Object.fromEntries(records[i]!.attributes.map((a) => [a.key, a.value.stringValue]));
+    expect(attrs(0)).toMatchObject({
+      vendor_id: 'vendor-1',
+      vendor_tier: 'verified',
+      vendor_entitlement_status: 'expired',
+    });
+    // A row about no vendor carries none of the three keys.
+    expect(Object.keys(attrs(1))).not.toContain('vendor_id');
+    expect(Object.keys(attrs(1))).not.toContain('vendor_entitlement_status');
+  });
+
   it('skips null entries, and sends nothing at all when every entry is null', async () => {
     const intake = stubPosthogIntake();
     const { c, settle } = ctx();
