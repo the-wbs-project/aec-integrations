@@ -248,8 +248,15 @@ export async function resolveEntityNames(
     NAME_LOOKUPS[type]!(db, ids).then((found) => ({ type, found })),
   );
   const names = new Map<string, string | null>();
-  for (const result of settled) {
-    if (result.status !== 'fulfilled') continue;
+  for (const [i, result] of settled.entries()) {
+    if (result.status !== 'fulfilled') {
+      // Degrade to null names, but say so: a silent miss looks like a deleted entity.
+      console.warn('[vendor-history] entity name lookup failed', {
+        entityType: jobs[i]?.type,
+        error: result.reason instanceof Error ? result.reason.message : String(result.reason),
+      });
+      continue;
+    }
     for (const { id, name } of result.value.found) names.set(nameKey(result.value.type, id), name);
   }
   return names;

@@ -18,7 +18,7 @@ import {
 } from '@aeci/shared';
 import { count } from 'drizzle-orm';
 import { Hono } from 'hono';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { auditLog, integrations, productVendors, products, profiles, vendors } from '../db/schema';
 import type { Env } from '../env';
@@ -287,6 +287,23 @@ describe('GET /api/vendor/history — projection', () => {
     expect(wire).not.toContain(SEAT_A);
     expect(wire).not.toContain(ADMIN);
     expect(wire).not.toContain('A edit');
+  });
+
+  it('a failed name lookup degrades to null and warns with the entity type', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      t.raw.exec('ALTER TABLE integrations RENAME TO integrations_gone');
+      const retired = ((await getJson(AUTH_A)).body.data as VendorHistoryItem[]).find(
+        (i) => i.id === uuid(1007),
+      );
+      expect(retired?.entity_name).toBeNull();
+      expect(warn).toHaveBeenCalledWith(
+        '[vendor-history] entity name lookup failed',
+        expect.objectContaining({ entityType: 'integration', error: expect.any(String) }),
+      );
+    } finally {
+      warn.mockRestore();
+    }
   });
 
   it('reads the entity name now, not at write time', async () => {
