@@ -30,10 +30,10 @@ When AEC Integrations changes something you hold, the row can show a **Reason fr
 Use the buttons above the list:
 
 - **All changes** shows everything.
-- **Your team's edits** shows changes your seats made.
-- **AECi changes** shows changes AEC Integrations made.
+- **Your team's edits** shows changes a person on your team made from their seat.
+- **AECi changes** shows changes an AEC Integrations admin made.
 
-Changes made by an automatic process show under **All changes** only.
+The filter goes by who made the change, not by what changed. If an AECi admin edits your product listing, that row shows under **AECi changes**. Changes made by an automatic process have no person behind them, so they show under **All changes** only.
 
 ## Download a copy
 

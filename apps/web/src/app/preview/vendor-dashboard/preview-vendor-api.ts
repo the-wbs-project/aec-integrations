@@ -80,7 +80,10 @@ import {
   type VendorHistoryFilters,
   type VendorReviewsFilters,
 } from '../../vendor/vendor-api';
-import { VENDOR_HISTORY_FIXTURE } from '../../vendor/vendor-history-fixtures';
+import {
+  VENDOR_HISTORY_FIXTURE,
+  historyKindKeeps,
+} from '../../vendor/vendor-history-fixtures';
 import { VENDOR_REVIEWS_FIXTURE } from '../../vendor/vendor-review-fixtures';
 import {
   VENDOR_CONNECTOR_CATALOG_FIXTURE,
@@ -1154,11 +1157,11 @@ export class PreviewVendorApi extends VendorApi {
     perPage: number,
     filters: VendorHistoryFilters = {},
   ): Promise<ListVendorHistoryResponse> {
-    const rows = (this.me?.products.length ? VENDOR_HISTORY_FIXTURE : []).filter((r) => {
-      if (filters.kind === 'vendor') return r.actor_kind === 'your_team';
-      if (filters.kind === 'aeci') return r.actor_kind === 'aeci';
-      return true;
-    });
+    // By WHO acted, as the API filters (AECI-1194): `historyKindKeeps`.
+    const kind = filters.kind ?? 'all';
+    const rows = (this.me?.products.length ? VENDOR_HISTORY_FIXTURE : []).filter((r) =>
+      historyKindKeeps(kind, r),
+    );
     const start = (page - 1) * perPage;
     return clone({ data: rows.slice(start, start + perPage), page, perPage, total: rows.length });
   }

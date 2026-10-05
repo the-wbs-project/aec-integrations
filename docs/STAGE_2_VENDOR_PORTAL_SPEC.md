@@ -2558,7 +2558,7 @@ Decisions taken at build that this section did not fix:
 - "Plan at the time", Managed or Free, when the row has a plan snapshot. Managed means an `active` row over a paid tier, the `isManaged` rule;
 - on an AECi row with a `reason`, that reason under "Reason from AECi".
 
-**Controls.** A pressed-button filter: All changes, Your team's edits, AECi changes (`kind=all|vendor|aeci`). System rows show under All only. A "Download CSV" link points at `vendorHistoryCsvUrl` with the same filter.
+**Controls.** A pressed-button filter: All changes, Your team's edits, AECi changes (`kind=all|vendor|aeci`). The filter selects by who acted, through the same table that sets `actor_kind` (`apps/api/src/lib/vendor-history.ts`). "Your team's edits" keeps the rows the vendor's own seats made (`actor_kind: 'your_team'`). "AECi changes" keeps the rows an AECi admin made (`actor_kind: 'aeci'`), whatever the action. An admin overwriting a logo writes `product.updated` and lands here. System rows show under All only. The preview fake (`PreviewVendorApi.listHistory`) filters on `actor_kind` the same way. A "Download CSV" link points at `vendorHistoryCsvUrl` with the same filter.
 
 **Banner.** It says the list starts when change history began, with no date, because nothing older is backfilled. A second line says search engines decide crawling and what they show. The page never says "indexed" or "ranked".
 

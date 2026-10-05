@@ -10,7 +10,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { VendorHistoryItem } from '@aeci/shared';
 
 import { VendorApi } from '../vendor-api';
-import { VENDOR_HISTORY_FIXTURE } from '../vendor-history-fixtures';
+import { VENDOR_HISTORY_FIXTURE, historyKindKeeps } from '../vendor-history-fixtures';
 
 import { VENDOR_HISTORY_PAGE_SIZE, VendorHistoryPage } from './vendor-history-page';
 
@@ -176,5 +176,33 @@ describe('VendorHistoryPage — filter, CSV, empty', () => {
     api.listHistory.mockRejectedValueOnce(new Error('boom'));
     const fixture = await create();
     expect(el(fixture).querySelector('[data-history-failed]')).not.toBeNull();
+  });
+});
+
+describe('historyKindKeeps — the preview filter mirrors the API (AECI-1194)', () => {
+  const keep = (kind: 'all' | 'vendor' | 'aeci') =>
+    VENDOR_HISTORY_FIXTURE.filter((r) => historyKindKeeps(kind, r));
+
+  it('filters by who acted, never by the action', () => {
+    expect(keep('vendor').every((r) => r.actor_kind === 'your_team')).toBe(true);
+    expect(keep('aeci').every((r) => r.actor_kind === 'aeci')).toBe(true);
+    expect(keep('all')).toHaveLength(VENDOR_HISTORY_FIXTURE.length);
+  });
+
+  it("puts AECi's integration.retired row under AECi changes, not your team's", () => {
+    const retired = VENDOR_HISTORY_FIXTURE.find((r) => r.action === 'integration.retired')!;
+    expect(retired.actor_kind).toBe('aeci');
+    expect(keep('aeci')).toContain(retired);
+    expect(keep('vendor')).not.toContain(retired);
+  });
+
+  it('shows system rows under All only', () => {
+    const system = VENDOR_HISTORY_FIXTURE.filter((r) => r.actor_kind === 'system');
+    expect(system.length).toBeGreaterThan(0);
+    for (const r of system) {
+      expect(keep('vendor')).not.toContain(r);
+      expect(keep('aeci')).not.toContain(r);
+      expect(keep('all')).toContain(r);
+    }
   });
 });

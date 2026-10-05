@@ -7,7 +7,23 @@
  * carries a vendor-facing reason and one does not, one row has no plan snapshot,
  * and one action is unknown to this build so the humanize fallback shows.
  */
-import type { VendorHistoryItem } from '@aeci/shared';
+import type { VendorHistoryActorKind, VendorHistoryItem, VendorHistoryKind } from '@aeci/shared';
+
+/**
+ * The `actor_kind` each `kind` filter keeps, mirroring `KIND_FILTER` in
+ * `apps/api/src/lib/vendor-history.ts` (AECI-1194). The filter selects by WHO
+ * acted, never by the action: an AECi admin's `product.updated` is an AECi row.
+ * `all` keeps every row; system rows show under `all` only.
+ */
+const KIND_KEEPS: Readonly<Record<Exclude<VendorHistoryKind, 'all'>, VendorHistoryActorKind>> = {
+  vendor: 'your_team',
+  aeci: 'aeci',
+};
+
+/** Whether the API's `kind` filter keeps this row. The preview fake's filter. */
+export function historyKindKeeps(kind: VendorHistoryKind, item: VendorHistoryItem): boolean {
+  return kind === 'all' || item.actor_kind === KIND_KEEPS[kind];
+}
 
 const MANAGED = { tier: 'verified', status: 'active' } as const;
 const FREE = { tier: 'unclaimed', status: null } as const;
