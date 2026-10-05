@@ -420,6 +420,32 @@ describe('VendorNotificationsList', () => {
     },
   );
 
+  it('tells a reassigned owner it no longer holds the integration (AECI-1159)', async () => {
+    getNotifications.mockResolvedValue({
+      notifications: [
+        {
+          kind: 'aeci_override',
+          id: '00000000-0000-4000-8000-00000000c2f3',
+          event: 'field_overridden',
+          reason: 'The other vendor builds it.',
+          integration_id: '00000000-0000-4000-8000-00000000c2f4',
+          integration_name: 'Summit ↔ Procore',
+          field: 'owner',
+          pair_path: '/products/procore/integrations/summit',
+          logo_subject: null,
+          seat_name: null,
+          created_at: '2026-10-04T12:00:00.000Z',
+        },
+      ],
+    });
+    const body = text(await create());
+    expect(body).toContain('AEC Integrations gave an integration you owned to another vendor');
+    expect(body).toContain('You no longer maintain it.');
+    expect(body).toContain('support@aecintegrations.com');
+    expect(body).not.toContain('changed a detail');
+    expect(body).not.toContain('the new value is live');
+  });
+
   it('names AEC Integrations on a contest its retire closed (AECI-1046)', async () => {
     getNotifications.mockResolvedValue({
       notifications: [

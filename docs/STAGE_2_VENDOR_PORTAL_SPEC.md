@@ -3710,7 +3710,7 @@ Each notice is a `notification.sent` audit row in the override's batch, so a fai
 
 - **Retire or restore:** the existing `integration_retire` row gains `reason` on the owner's row only. The feed returns `reason: null` on every other row, and on any row without the marker.
 - **Field, logo and seat:** a new feed member, `kind: 'aeci_override'`, with `event` of `field_overridden`, `logo_overridden` or `seat_revoked`. Its `reason` is AECi's vendor reason. It names the integration and field, the company or product, or the removed seat's display name. The wire shape is in `API_CONTRACTS.md`.
-- **The portal** titles each row with AEC Integrations as the actor and shows "Reason: …" under it (`vendor-notifications-list.ts`).
+- **The portal** titles each row with AEC Integrations as the actor and shows "Reason: …" under it (`vendor-notifications-list.ts`). A `field_overridden` row whose `field` is `owner` is a reassign. It tells the old owner it no longer maintains the integration.
 
 ### 11d.4 The dispute route
 
@@ -3718,6 +3718,7 @@ A vendor that disagrees with an override uses the routes that already exist. The
 
 - **Any override:** email support@aecintegrations.com, citing the notice. An admin can restore its own retire, set the logo again, or provision a seat again.
 - **A field AECi overwrote:** the owner still holds the integration and can edit the field in the portal. A lock that stops that is AECI-1237, not built.
+- **An owner AECi reassigned:** the old owner no longer holds the integration and cannot edit it. Its notice says so, with its own title. Its only route is email to support@aecintegrations.com.
 - **A contest decision:** the protest route in §11b.12 applies only to an owner's decision. A decision AECi made has already had AECi's answer.
 
 ---

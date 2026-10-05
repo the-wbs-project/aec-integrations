@@ -443,7 +443,10 @@ function titleOf(notification: VendorNotification): string {
     // AECI-1159 / `STAGE_2_VENDOR_PORTAL_SPEC.md` §11d.
     switch (notification.event) {
       case 'field_overridden':
-        return $localize`:@@vendor.override.notify.field:AEC Integrations changed a detail on an integration you own`;
+        // An accepted Owner contest moved the integration away from this vendor.
+        return notification.field === 'owner'
+          ? $localize`:@@vendor.override.notify.ownerReassigned:AEC Integrations gave an integration you owned to another vendor`
+          : $localize`:@@vendor.override.notify.field:AEC Integrations changed a detail on an integration you own`;
       case 'logo_overridden':
         return notification.logo_subject?.type === 'product'
           ? $localize`:@@vendor.override.notify.productLogo:AEC Integrations replaced a product logo`
@@ -531,7 +534,10 @@ function overrideNote(notification: VendorAeciOverrideNotification): string {
   let meaning: string;
   switch (notification.event) {
     case 'field_overridden':
-      meaning = $localize`:@@vendor.override.notify.note.field:We accepted a change request on it, and the new value is live.`;
+      meaning =
+        notification.field === 'owner'
+          ? $localize`:@@vendor.override.notify.note.ownerReassigned:We accepted a change request on its owner. You no longer maintain it.`
+          : $localize`:@@vendor.override.notify.note.field:We accepted a change request on it, and the new value is live.`;
       break;
     case 'logo_overridden':
       meaning = $localize`:@@vendor.override.notify.note.logo:The new logo is live on the public site.`;
