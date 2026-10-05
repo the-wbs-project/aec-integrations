@@ -15,6 +15,9 @@
  * A double decrement walks the badge below the real backlog and nothing resyncs
  * it until the next full visit to `/admin`.
  *
+ * AECI-1185: Done opens a dialog asking whether indexing was requested. Each
+ * answer sends its `outcome`, and Cancel sends nothing.
+ *
  * Harness mirrors `request-queue.component.spec.ts`: zoneless + a macrotask
  * `settle()` drains `afterNextRender`'s async load.
  */
@@ -90,6 +93,37 @@ function buttonByText(root: HTMLElement, text: string): HTMLButtonElement {
   const btn = [...root.querySelectorAll('button')].find((b) => b.textContent?.trim() === text);
   if (!btn) throw new Error(`No button "${text}"`);
   return btn;
+}
+
+/** The open Done dialog, mounted in the CDK overlay container on
+ *  `document.body`. A closing container lingers empty for its close delay, so
+ *  "open" means a dialog that still renders its title. */
+function dialogEl(): HTMLElement | null {
+  const open = [...document.body.querySelectorAll<HTMLElement>('[role="dialog"]')].filter((d) =>
+    d.querySelector('h2'),
+  );
+  return open.at(-1) ?? null;
+}
+
+const REQUESTED = 'Requested indexing in Search Console';
+const NOT_REQUESTED = 'Cleared without a request';
+
+/** Click a row's Done, then one of the dialog's buttons. */
+async function chooseDone(
+  el: HTMLElement,
+  fixture: { detectChanges: () => void; whenStable: () => Promise<unknown> },
+  url: string,
+  choice: string,
+): Promise<void> {
+  buttonByText(rowFor(el, url), 'Done').click();
+  fixture.detectChanges();
+  await fixture.whenStable();
+  const dialog = dialogEl();
+  if (!dialog) throw new Error('Done did not open the dialog');
+  buttonByText(dialog, choice).click();
+  await settle();
+  fixture.detectChanges();
+  await fixture.whenStable();
 }
 
 describe('ReindexList', () => {
@@ -172,20 +206,68 @@ describe('ReindexList', () => {
     vi.unstubAllGlobals();
   });
 
-  it('marks a row done: calls DELETE, drops the row and ticks the badge down', async () => {
+  it('Done opens a titled, described dialog and calls nothing yet', async () => {
+    const api = makeApiMock([
+      makeRow({ id: 1, url: 'https://www.aecintegrations.com/products/procore' }),
+    ]);
+    const { el, fixture } = await setup(api);
+    buttonByText(rowFor(el, '/products/procore'), 'Done').click();
+    fixture.detectChanges();
+    await fixture.whenStable();
+    const dialog = dialogEl();
+    expect(dialog).not.toBeNull();
+    // The title and description reach the dialog's accessible name and description.
+    const titleId = dialog!.getAttribute('aria-labelledby');
+    const descId = dialog!.getAttribute('aria-describedby');
+    expect(document.getElementById(titleId!)?.textContent).toContain('Did you request indexing?');
+    expect(document.getElementById(descId!)?.textContent).toContain('not whether Google');
+    expect(dialog!.textContent).toContain('/products/procore');
+    // The answers record an action. Neither claims the page was indexed.
+    for (const b of dialog!.querySelectorAll('button')) {
+      expect(b.textContent).not.toContain('indexed');
+    }
+    expect(api.clear).not.toHaveBeenCalled();
+  });
+
+  it('Requested: clears with outcome=requested, drops the row and ticks the badge down', async () => {
     const api = makeApiMock([
       makeRow({ id: 1, url: 'https://www.aecintegrations.com/products/procore' }),
       makeRow({ id: 2, url: 'https://www.aecintegrations.com/products/bluebeam' }),
     ]);
     const { el, fixture, store } = await setup(api);
     store.seed({ reindex: 5 });
-    buttonByText(rowFor(el, '/products/procore'), 'Done').click();
-    await settle();
-    fixture.detectChanges();
-    expect(api.clear).toHaveBeenCalledWith(1);
+    await chooseDone(el, fixture, '/products/procore', REQUESTED);
+    expect(api.clear).toHaveBeenCalledWith(1, 'requested');
     expect(bodyRows(el)).toHaveLength(1);
     expect(el.textContent).toContain('/products/bluebeam');
     expect(store.pendingReindex()).toBe(4);
+    expect(el.querySelector('[role="status"]')?.textContent).toContain(
+      'requested in Search Console',
+    );
+    expect(dialogEl()).toBeNull();
+  });
+
+  it('Cleared without a request: clears with outcome=not_requested', async () => {
+    const api = makeApiMock([makeRow({ id: 1 }), makeRow({ id: 2 })]);
+    const { el, fixture, store } = await setup(api);
+    store.seed({ reindex: 5 });
+    await chooseDone(el, fixture, '/products/product-1', NOT_REQUESTED);
+    expect(api.clear).toHaveBeenCalledWith(1, 'not_requested');
+    expect(bodyRows(el)).toHaveLength(1);
+    expect(store.pendingReindex()).toBe(4);
+    expect(el.querySelector('[role="status"]')?.textContent).toContain('without a request');
+    expect(dialogEl()).toBeNull();
+  });
+
+  it('Cancel closes the dialog, calls nothing and keeps the row', async () => {
+    const api = makeApiMock([makeRow({ id: 1 })]);
+    const { el, fixture, store } = await setup(api);
+    store.seed({ reindex: 5 });
+    await chooseDone(el, fixture, '/products/product-1', 'Cancel');
+    expect(api.clear).not.toHaveBeenCalled();
+    expect(bodyRows(el)).toHaveLength(1);
+    expect(store.pendingReindex()).toBe(5);
+    expect(dialogEl()).toBeNull();
   });
 
   it('handles a 404 (already cleared) by dropping the row WITHOUT decrementing', async () => {
@@ -193,9 +275,7 @@ describe('ReindexList', () => {
     api.clear.mockRejectedValueOnce(new HttpErrorResponse({ status: 404 }));
     const { el, fixture, store } = await setup(api);
     store.seed({ reindex: 5 });
-    buttonByText(rowFor(el, '/products/product-1'), 'Done').click();
-    await settle();
-    fixture.detectChanges();
+    await chooseDone(el, fixture, '/products/product-1', REQUESTED);
     expect(bodyRows(el)).toHaveLength(1);
     expect(el.querySelector('[role="status"]')?.textContent).toContain('already cleared');
     // Whoever cleared it already decremented. Doing it again walks the badge
@@ -208,12 +288,11 @@ describe('ReindexList', () => {
     api.clear.mockRejectedValueOnce(new HttpErrorResponse({ status: 500 }));
     const { el, fixture, store } = await setup(api);
     store.seed({ reindex: 5 });
-    buttonByText(rowFor(el, '/products/product-1'), 'Done').click();
-    await settle();
-    fixture.detectChanges();
+    await chooseDone(el, fixture, '/products/product-1', NOT_REQUESTED);
     expect(bodyRows(el)).toHaveLength(1);
     expect(el.querySelector('[role="alert"]')?.textContent).toContain('Something went wrong');
     expect(store.pendingReindex()).toBe(5);
+    expect(dialogEl()).toBeNull();
   });
 
   it('says an empty list is the good outcome, and where rows come from', async () => {

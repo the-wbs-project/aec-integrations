@@ -14,7 +14,11 @@ import { HttpClient, HttpParams } from '@angular/common/http';
 import { Injectable, inject } from '@angular/core';
 import { firstValueFrom } from 'rxjs';
 
-import type { ListReindexQueueQuery, ListReindexQueueResponse } from '@aeci/shared';
+import type {
+  ListReindexQueueQuery,
+  ListReindexQueueResponse,
+  ReindexClearOutcome,
+} from '@aeci/shared';
 
 @Injectable({ providedIn: 'root' })
 export class AdminReindexApi {
@@ -31,11 +35,14 @@ export class AdminReindexApi {
     );
   }
 
-  /** `DELETE /api/admin/reindex/:id` — mark one URL done and drop it. Resolves on
+  /** `DELETE /api/admin/reindex/:id?outcome=` — mark one URL done and drop it,
+   *  recording whether the operator requested indexing (AECI-1185). Resolves on
    *  `204`; a `404` means someone else already cleared the row. */
-  clear(id: number): Promise<void> {
+  clear(id: number, outcome: ReindexClearOutcome): Promise<void> {
     return firstValueFrom(
-      this.http.delete<void>(`/api/admin/reindex/${encodeURIComponent(String(id))}`),
+      this.http.delete<void>(`/api/admin/reindex/${encodeURIComponent(String(id))}`, {
+        params: new HttpParams().set('outcome', outcome),
+      }),
     );
   }
 }

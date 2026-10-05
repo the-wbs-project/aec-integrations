@@ -29,6 +29,7 @@
  */
 
 import {
+  ClearReindexRowQuerySchema,
   ListReindexQueueQuerySchema,
   ListReindexQueueResponseSchema,
   type ListReindexQueueResponse,
@@ -49,9 +50,13 @@ import { ApiError, notFoundError } from '../errors';
 import { json, noContent } from '../http';
 import { auditInsert, type BatchStmt, type BatchTuple } from '../lib/audit';
 import { auditActorType, type AuthzVariables } from '../lib/authz';
-import { deleteGscRecrawlRow, readGscRecrawlRow } from '../lib/gsc-recrawl-queue';
+import {
+  deleteGscRecrawlRow,
+  insertGscManualSubmission,
+  readGscRecrawlRow,
+} from '../lib/gsc-recrawl-queue';
 import { validateResponseInDev, writeDb, type DbFactory } from '../lib/handler-utils';
-import { sweepOrphanCauses } from '../lib/recrawl-causes';
+import { copyCausesToSubmissions, sweepOrphanCauses } from '../lib/recrawl-causes';
 import { logToPosthog } from '../posthog';
 
 type AdminContext = Context<{ Bindings: Env; Variables: AuthzVariables }>;
@@ -142,7 +147,14 @@ export function createAdminReindexListHandler(
 }
 
 /**
- * Mark one URL done and drop it.
+ * Mark one URL done and drop it, recording whether the operator asked Google.
+ *
+ * **`?outcome=` is required (AECI-1185).** `requested` means the operator ran
+ * Request Indexing in Search Console. The batch then also writes one
+ * `gsc_manual` row to `recrawl_submissions` and copies the row's causes onto
+ * it. `not_requested` means they cleared it without asking, and no submission
+ * row is written. Either way it is a record of what the operator did, never of
+ * what Google did: nothing here says the page was indexed.
  *
  * **Done deletes rather than flagging**, and that is the design rather than a
  * shortcut. A `requested_at` column would mean an empty-looking screen could
@@ -174,6 +186,11 @@ export function createClearReindexRowHandler(
       throw new ApiError(400, 'VALIDATION_FAILED', 'Invalid worklist row id', { field: 'id' });
     }
 
+    // Validate before the pre-read, so a bad call touches nothing.
+    const { outcome } = ClearReindexRowQuerySchema.parse(
+      Object.fromEntries(new URL(c.req.url).searchParams),
+    );
+
     const { db } = writeDb(c, dbFor);
 
     // Pre-read, because the audit row has to record WHAT was cleared and D1 does
@@ -181,6 +198,10 @@ export function createClearReindexRowHandler(
     // batch runs, so there is no way to defer this.
     const row = await readGscRecrawlRow(db, id);
     if (!row) throw notFoundError('reindex_queue_row', { id: raw });
+
+    // One UUID per `requested` clear. It ties the submission row to this audit
+    // row (`metadata.batchId`), the same join the IndexNow drain uses.
+    const batchId = outcome === 'requested' ? crypto.randomUUID() : undefined;
 
     const auditEntry: AuditLogEntry = {
       actorId: session.userId,
@@ -195,13 +216,24 @@ export function createClearReindexRowHandler(
         source: row.source,
         queued_at: row.queuedAt,
       },
-      metadata: { source: AUDIT_SOURCE },
+      metadata: { source: AUDIT_SOURCE, outcome, ...(batchId ? { batchId } : {}) },
     };
 
+    // Order is load-bearing. The submission insert reads the queue row, so it
+    // runs before the delete. The cause copy joins on the submission row, so it
+    // follows the insert. The sweep runs after the delete so it sees the URL
+    // gone, and removes the transient causes the copy just made permanent.
     const stmts: BatchStmt[] = [
+      ...(batchId
+        ? [
+            insertGscManualSubmission(db, row.id, {
+              batchId,
+              submittedAt: new Date().toISOString(),
+            }),
+            copyCausesToSubmissions(db, 'gsc', batchId),
+          ]
+        : []),
       deleteGscRecrawlRow(db, row.id),
-      // AECI-1184: the cleared URL's causes go with it, after the delete so the
-      // sweep sees the row gone. AECI-1185 adds the submission and cause copy.
       sweepOrphanCauses(db, 'gsc'),
       auditInsert(db, auditEntry),
     ];

@@ -45,8 +45,11 @@ test.describe('/admin/reindex — SSR auth gate (AECI-946)', () => {
   test('the Done button endpoint is admin-gated', async ({ request }) => {
     // The one write on this surface. Unauthenticated it must never reach the
     // handler, which would otherwise delete a row and audit it as an admin
-    // action nobody performed.
-    const res = await request.delete('/api/admin/reindex/1', { maxRedirects: 0 });
+    // action nobody performed. A well-formed `outcome` (AECI-1185), so the 401
+    // comes from the guard and not from validation.
+    const res = await request.delete('/api/admin/reindex/1?outcome=requested', {
+      maxRedirects: 0,
+    });
     expect(res.status()).toBe(401);
     expect(res.headers()['cache-control']).toBe('private, no-store');
   });

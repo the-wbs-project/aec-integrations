@@ -222,7 +222,7 @@ say only "we sent this URL", which the log row already says.
    writer needs a new amendment.
 4. **Every batch is tied to an audited row.** Each write carries a `batch_id`. The drain's
    `indexnow.drained` audit row names the same value as `metadata.batchId`, in the same
-   `db.batch`. The admin clear will do the same with its `reindex.cleared` row.
+   `db.batch`. The admin clear does the same with its `reindex.cleared` row (AECI-1185, below).
 
 A table in this class is exempt from the per-row `audit_log` obligation. A table that fails any
 rule is domain state and audits.
@@ -255,3 +255,10 @@ writer. ADR 0025's 2026-10-04 amendment covers the drain side.
 
 One mechanism changed to make this possible. `auditInsert` now mints `audit_log.id` onto the
 caller's entry before the batch runs, so a post-commit consumer can name the row without a read.
+
+**The second writer landed on 2026-10-05 (AECI-1185).** The admin reindex clear now writes
+`recrawl_submissions` and `recrawl_submission_causes`, as rule 3 named in advance. Only a clear
+with `outcome=requested` writes, one `gsc_manual` row per clear. Its fresh `batch_id` is the
+`metadata.batchId` of the `reindex.cleared` audit row in the same `db.batch`, so rule 4 holds with
+no gap: an admin clear always deletes, so it always audits. A `not_requested` clear writes no log
+row. No third writer was added.

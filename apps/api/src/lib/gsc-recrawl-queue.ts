@@ -25,7 +25,7 @@
 import { eq, sql } from 'drizzle-orm';
 
 import type { Db } from '../db/client';
-import { gscRecrawlQueue } from '../db/schema';
+import { gscRecrawlQueue, recrawlSubmissions } from '../db/schema';
 import { isRetiredSlugUrl, listSlugRedirects, retiredSlugPaths } from './slug-redirect';
 
 import type { BatchStmt } from './audit';
@@ -256,6 +256,41 @@ export async function readGscRecrawlRow(
  */
 export function deleteGscRecrawlRow(db: Db, id: number): BatchStmt {
   return db.delete(gscRecrawlQueue).where(eq(gscRecrawlQueue.id, id));
+}
+
+/**
+ * Log one worklist row as a manual Google request (AECI-1185) — the Done
+ * button's `requested` outcome, returned as a `BatchStmt` for the clear's batch.
+ *
+ * `INSERT … SELECT … FROM gsc_recrawl_queue WHERE id = ?`, so the URL and tier
+ * come from the row itself. It must therefore run BEFORE
+ * {@link deleteGscRecrawlRow} in the same batch, and the cause copy
+ * (`copyCausesToSubmissions(db, 'gsc', batchId)`) must follow it, because that
+ * copy joins on the row this writes.
+ *
+ * `outcome` is `requested` and `http_status` is NULL: the operator asked Google
+ * by hand, and nothing tells us whether Google accepted or acted on it.
+ */
+export function insertGscManualSubmission(
+  db: Db,
+  id: number,
+  fields: { batchId: string; submittedAt: string },
+): BatchStmt {
+  return db.insert(recrawlSubmissions).select(
+    db
+      .select({
+        id: sql<number>`NULL`.as('id'),
+        url: gscRecrawlQueue.url,
+        channel: sql<string>`'gsc_manual'`.as('channel'),
+        outcome: sql<string>`'requested'`.as('outcome'),
+        httpStatus: sql<number | null>`NULL`.as('http_status'),
+        batchId: sql<string>`${fields.batchId}`.as('batch_id'),
+        priority: gscRecrawlQueue.priority,
+        submittedAt: sql<string>`${fields.submittedAt}`.as('submitted_at'),
+      })
+      .from(gscRecrawlQueue)
+      .where(eq(gscRecrawlQueue.id, id)),
+  );
 }
 
 /** Re-export so a caller needs one import rather than two. */

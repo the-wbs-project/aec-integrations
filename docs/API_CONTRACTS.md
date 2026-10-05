@@ -3410,14 +3410,36 @@ Writes nothing, including no `audit_log` row (ADR 0022 / `ADMIN_PANEL_SPEC.md` �
 
 ---
 
-#### `DELETE /api/admin/reindex/:id` (AECI-946)
+#### `DELETE /api/admin/reindex/:id` (AECI-946, outcome AECI-1185)
 
-Mark one URL done and drop it.
+Mark one URL done and drop it, recording whether the operator requested indexing.
 
 ```
-DELETE /api/admin/reindex/412
+DELETE /api/admin/reindex/412?outcome=requested
 → 204 No Content
 ```
+
+**`?outcome=` is required (AECI-1185).** `ClearReindexRowQuerySchema` in
+`packages/shared/src/api/admin-reindex.ts`, values `requested | not_requested`.
+`requested` means the operator ran Request Indexing in Search Console.
+`not_requested` means they cleared the row without asking. A missing or unknown
+value is `VALIDATION_FAILED` (400) and touches nothing. The value records what the
+operator did. It is not evidence that Google accepted the request or indexed the
+page.
+
+**What the batch holds, in order.** For `requested`:
+
+1. One `recrawl_submissions` row, `INSERT … SELECT` from the queue row: `channel
+   'gsc_manual'`, `outcome 'requested'`, `http_status` NULL, the row's `priority`,
+   a fresh `batch_id` UUID, `submitted_at` now (`DATABASE_SCHEMA.md` §9.6a).
+2. `copyCausesToSubmissions(db, 'gsc', batchId)`: the URL's `gsc` causes become
+   `recrawl_submission_causes` rows (§9.6b).
+3. The queue delete.
+4. `sweepOrphanCauses(db, 'gsc')`: the cleared URL's transient causes go.
+5. The `reindex.cleared` audit row, `metadata` `{ source, outcome, batchId }`.
+
+For `not_requested`: steps 3, 4 and 5 only, and `metadata` has no `batchId`. No
+submission row is written, so the log holds only URLs someone asked Google about.
 
 **Done deletes rather than flagging.** A `requested_at` column would mean an
 empty-looking screen could still hold rows, so the nav badge would have to
@@ -3427,8 +3449,8 @@ fresh row.
 
 **One `audit_log` row, in the SAME `db.batch` as the delete.**
 `action='reindex.cleared'`, `entity_type='gsc_recrawl_queue'`, `entity_id` the row
-id, `before_state` carrying the whole cleared row, `metadata.source='admin-panel'`,
-attributed to the **admin** rather than to `'system'`. The handler pre-reads the row
+id, `before_state` carrying the whole cleared row, `metadata.source='admin-panel'`
+plus `metadata.outcome` (and `metadata.batchId` on `requested`), attributed to the **admin** rather than to `'system'`. The handler pre-reads the row
 because D1 does not return deleted rows and the audit statement must be built before
 the batch runs. This is **not** §26.1's scheduled-deletion exception, which allows one
 summary row per run: that allowance is for crons, and an operator clicking a button
@@ -3442,7 +3464,8 @@ and every write audits in-batch, so a limiter would add no protection while risk
 No cache purge and no `workflow_instances` row. No public surface reads this table,
 and clearing a worklist row is not a workflow transition.
 
-Errors: `VALIDATION_FAILED` (400) on a non-integer or non-positive `:id`;
+Errors: `VALIDATION_FAILED` (400) on a non-integer or non-positive `:id`, or a
+missing or unknown `outcome`;
 `NOT_FOUND` (404) when the row is already gone, which is the ordinary outcome of two
 tabs clearing the same row. `id` is `AUTOINCREMENT` and SQLite never reuses it, so a
 stale click cannot land on a different row.

@@ -30,7 +30,14 @@ import { eq } from 'drizzle-orm';
 import { Hono } from 'hono';
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { auditLog, gscRecrawlQueue, profiles, recrawlQueueCauses } from '../db/schema';
+import {
+  auditLog,
+  gscRecrawlQueue,
+  profiles,
+  recrawlQueueCauses,
+  recrawlSubmissionCauses,
+  recrawlSubmissions,
+} from '../db/schema';
 import type { Env } from '../env';
 import { errorHandler } from '../errors';
 import { requireAdmin, type AuthzVariables } from '../lib/authz';
@@ -110,8 +117,18 @@ function app() {
 const get = (query = '') =>
   app().request(`/api/admin/reindex${query}`, {}, TEST_ENV, fakeExecutionContext());
 
-const del = (id: string | number) =>
-  app().request(`/api/admin/reindex/${id}`, { method: 'DELETE' }, TEST_ENV, fakeExecutionContext());
+/** `outcome` defaults to `not_requested`, the clear that writes no log row.
+ *  Pass `null` to omit the parameter. */
+const del = (id: string | number, outcome: string | null = 'not_requested') =>
+  app().request(
+    `/api/admin/reindex/${id}${outcome === null ? '' : `?outcome=${outcome}`}`,
+    { method: 'DELETE' },
+    TEST_ENV,
+    fakeExecutionContext(),
+  );
+
+const submissions = () => t.db.select().from(recrawlSubmissions);
+const submissionCauses = () => t.db.select().from(recrawlSubmissionCauses);
 
 // ─── The worklist read ───────────────────────────────────────────────────────
 
@@ -365,6 +382,129 @@ describe('DELETE /api/admin/reindex/:id — the Done button', () => {
   });
 });
 
+// ─── The Done outcome (AECI-1185) ────────────────────────────────────────────
+
+describe('DELETE /api/admin/reindex/:id — the outcome', () => {
+  const procore = `${BASE}/products/procore`;
+  const cause = {
+    source: 'vendor' as const,
+    auditLogId: 'audit-1',
+    vendorId: 'vendor-1',
+    productId: 'product-1',
+    promoteJobId: null,
+  };
+
+  const seedOne = async () => {
+    const [row] = await seed([
+      {
+        url: procore,
+        priority: 2,
+        reason: 'product.updated',
+        queuedAt: '2026-09-01T00:00:00.000Z',
+      },
+    ]);
+    await enqueueRecrawlCauses(t.db, 'gsc', [procore], cause);
+    return row!;
+  };
+
+  it('400s a missing outcome and touches nothing', async () => {
+    const row = await seedOne();
+    const res = await del(row.id, null);
+    expect(res.status).toBe(400);
+    expect(((await res.json()) as { error: { code: string } }).error.code).toBe(
+      'VALIDATION_FAILED',
+    );
+    expect(await readQueue()).toHaveLength(1);
+    expect(await auditRows()).toHaveLength(0);
+    expect(await submissions()).toHaveLength(0);
+  });
+
+  it('400s an unknown outcome and touches nothing', async () => {
+    const row = await seedOne();
+    // "indexed" is exactly the claim this surface must never make.
+    const res = await del(row.id, 'indexed');
+    expect(res.status).toBe(400);
+    expect(await readQueue()).toHaveLength(1);
+    expect(await auditRows()).toHaveLength(0);
+  });
+
+  it('requested: logs one gsc_manual row with its causes, in the clear batch', async () => {
+    const row = await seedOne();
+
+    const res = await del(row.id, 'requested');
+    expect(res.status).toBe(204);
+    expect(await readQueue()).toHaveLength(0);
+
+    const subs = await submissions();
+    expect(subs).toHaveLength(1);
+    const sub = subs[0]!;
+    expect(sub.url).toBe(procore);
+    expect(sub.channel).toBe('gsc_manual');
+    expect(sub.outcome).toBe('requested');
+    expect(sub.httpStatus).toBeNull();
+    expect(sub.priority).toBe(2);
+    expect(sub.batchId).toMatch(/^[0-9a-f-]{36}$/);
+
+    const causes = await submissionCauses();
+    expect(causes).toHaveLength(1);
+    expect(causes[0]).toMatchObject({
+      submissionId: sub.id,
+      source: 'vendor',
+      auditLogId: 'audit-1',
+      vendorId: 'vendor-1',
+      productId: 'product-1',
+    });
+    // The transient cause went with the queue row.
+    expect(await t.db.select().from(recrawlQueueCauses)).toHaveLength(0);
+
+    const audits = await auditRows();
+    expect(audits).toHaveLength(1);
+    expect(audits[0]!.action).toBe(REINDEX_CLEARED_ACTION);
+    expect(audits[0]!.metadata).toMatchObject({
+      source: 'admin-panel',
+      outcome: 'requested',
+      batchId: sub.batchId,
+    });
+  });
+
+  it('requested: does not copy the same URLs IndexNow causes', async () => {
+    const row = await seedOne();
+    await enqueueRecrawlCauses(t.db, 'indexnow', [procore], { ...cause, auditLogId: 'audit-2' });
+
+    expect((await del(row.id, 'requested')).status).toBe(204);
+
+    const causes = await submissionCauses();
+    expect(causes.map((c) => c.auditLogId)).toEqual(['audit-1']);
+    const left = await t.db.select().from(recrawlQueueCauses);
+    expect(left.map((c) => c.channel)).toEqual(['indexnow']);
+  });
+
+  it('not_requested: writes no submission row, drops the causes, audits the outcome', async () => {
+    const row = await seedOne();
+
+    const res = await del(row.id, 'not_requested');
+    expect(res.status).toBe(204);
+    expect(await readQueue()).toHaveLength(0);
+    expect(await submissions()).toHaveLength(0);
+    expect(await submissionCauses()).toHaveLength(0);
+    expect(await t.db.select().from(recrawlQueueCauses)).toHaveLength(0);
+
+    const audits = await auditRows();
+    expect(audits).toHaveLength(1);
+    expect(audits[0]!.metadata).toEqual({ source: 'admin-panel', outcome: 'not_requested' });
+  });
+
+  it('404s an already-cleared row with either outcome and logs nothing', async () => {
+    const row = await seedOne();
+    await t.db.delete(gscRecrawlQueue).where(eq(gscRecrawlQueue.id, row.id));
+
+    expect((await del(row.id, 'requested')).status).toBe(404);
+    expect((await del(row.id, 'not_requested')).status).toBe(404);
+    expect(await submissions()).toHaveLength(0);
+    expect(await auditRows()).toHaveLength(0);
+  });
+});
+
 // ─── The nav badge ───────────────────────────────────────────────────────────
 
 describe('readAdminQueueCounts — the fourth queue', () => {
@@ -432,14 +572,16 @@ describe('/api/admin/reindex — authorization', () => {
 
   it('401s an anonymous caller on both verbs', async () => {
     expect((await call('/api/admin/reindex', 'GET')).status).toBe(401);
-    expect((await call('/api/admin/reindex/1', 'DELETE')).status).toBe(401);
+    expect((await call('/api/admin/reindex/1?outcome=requested', 'DELETE')).status).toBe(401);
   });
 
   it('403s a signed-in non-admin on both verbs', async () => {
     await t.db.insert(profiles).values({ id: USER, role: 'reviewer' });
     const token = await jwks.mintToken({ sub: USER, supabaseUrl: SUPABASE_URL });
     expect((await call('/api/admin/reindex', 'GET', token)).status).toBe(403);
-    expect((await call('/api/admin/reindex/1', 'DELETE', token)).status).toBe(403);
+    expect((await call('/api/admin/reindex/1?outcome=requested', 'DELETE', token)).status).toBe(
+      403,
+    );
   });
 
   it('lets an admin through', async () => {

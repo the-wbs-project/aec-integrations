@@ -6,7 +6,8 @@ import { PageQuerySchema, paginatedResponseSchema } from './common';
  * Admin re-index worklist contracts (AECI-946 / §20.2), behind `requireAdmin()`:
  *
  *   GET    /api/admin/reindex      — the worklist, most important first.
- *   DELETE /api/admin/reindex/:id  — mark one URL done and drop it.
+ *   DELETE /api/admin/reindex/:id  — mark one URL done and drop it, with
+ *                                    `?outcome=requested|not_requested` (AECI-1185).
  *
  * Source of truth: `ADMIN_PANEL_SPEC.md` §5.11, `API_CONTRACTS.md` §6.10,
  * `STAGE_1_SPEC.md` §20.2. The row shape mirrors `gsc_recrawl_queue`
@@ -82,11 +83,29 @@ export const ListReindexQueueResponseSchema = paginatedResponseSchema(ReindexQue
 export type ListReindexQueueResponse = z.infer<typeof ListReindexQueueResponseSchema>;
 
 /**
- * `DELETE /api/admin/reindex/:id` takes no body and returns `204`.
+ * `DELETE /api/admin/reindex/:id?outcome=…` takes no body and returns `204`.
  *
  * There is deliberately no "mark done" flag and no `requested_at` column — Done
  * deletes. That is what makes an empty screen mean "genuinely nothing pending"
  * rather than "nothing pending that I have not already dismissed", which is the
  * property that makes the nav badge trustworthy at a glance. A later edit to the
  * same page inserts a fresh row, so nothing is lost.
+ *
+ * Since AECI-1185 the operator says what they did, and the query parameter is
+ * required:
+ *
+ *   - `requested`: they asked Google for indexing in Search Console. The clear
+ *     writes one `gsc_manual` row to `recrawl_submissions`, carrying the row's
+ *     causes. This records a request, not that Google accepted or acted on it.
+ *   - `not_requested`: they cleared the row without asking (the quota ran out,
+ *     the page is gone, the edit was trivial). No submission row is written.
+ *
+ * Both outcomes write the `reindex.cleared` audit row with `metadata.outcome`.
  */
+export const REINDEX_CLEAR_OUTCOMES = ['requested', 'not_requested'] as const;
+export type ReindexClearOutcome = (typeof REINDEX_CLEAR_OUTCOMES)[number];
+
+export const ClearReindexRowQuerySchema = z.object({
+  outcome: z.enum(REINDEX_CLEAR_OUTCOMES),
+});
+export type ClearReindexRowQuery = z.infer<typeof ClearReindexRowQuerySchema>;

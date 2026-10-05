@@ -2542,10 +2542,11 @@ create index recrawl_submissions_submitted_at_idx on recrawl_submissions(submitt
 | 5xx | `failed` | the status |
 | no response (transport error) | `failed` | null |
 
-`requested` is reserved for the Google worklist clear (`gsc_manual`, AECI-1185). Nothing writes
-it yet. None of these outcomes means "indexed". A search engine never tells us that.
+`requested` is the Google worklist clear's outcome (`gsc_manual`, AECI-1185): the operator says
+they ran Request Indexing in Search Console. None of these outcomes means "indexed". A search
+engine never tells us that.
 
-**Written by** the IndexNow drain only, today. It writes one row per URL it sent:
+**Written by** two writers. The IndexNow drain writes one row per URL it sent:
 
 - On success, in the same `db.batch` as the queue delete. Order is the contract: the log
   inserts, then the id-chunked deletes, then the `indexnow.drained` audit row with
@@ -2558,8 +2559,15 @@ it yet. None of these outcomes means "indexed". A search engine never tells us t
 Retired-slug URLs are never sent, so they never get a row. A run where every row was retired
 writes none. The insert chunks ids at `RECRAWL_SUBMISSION_IDS_PER_STATEMENT` (95). Each statement
 binds the four run constants plus one parameter per id, 99 in all, under D1's cap of 100.
-`apps/api/src/lib/indexnow-drain.spec.ts` asserts the count at 0, 1 and 10,000 ids. AECI-1185
-adds the second writer, the admin reindex clear (`channel = 'gsc_manual'`).
+`apps/api/src/lib/indexnow-drain.spec.ts` asserts the count at 0, 1 and 10,000 ids.
+
+The admin reindex clear (`DELETE /api/admin/reindex/:id?outcome=requested`, AECI-1185) writes one
+row per clear through `insertGscManualSubmission` (`apps/api/src/lib/gsc-recrawl-queue.ts`):
+`channel 'gsc_manual'`, `outcome 'requested'`, `http_status` NULL, the queue row's `priority`, a
+fresh `batch_id`. It is an `INSERT … SELECT … FROM gsc_recrawl_queue WHERE id = ?`, so it runs
+before the queue delete, in the same `db.batch` as the cause copy, the delete, the cause sweep and
+the `reindex.cleared` audit row that names the `batch_id` as `metadata.batchId`. A clear with
+`outcome=not_requested` writes no row.
 
 **Readers to come.** The vendor read `GET /api/vendor/recrawl-submissions` (AECI-1187) and the
 admin submission history on `/admin/reindex` (AECI-1188). Nothing reads the table yet.
@@ -2663,7 +2671,8 @@ because its URLs stay queued.
 `INSERT … SELECT` that joins the run's `recrawl_submissions` rows to the queued causes. It binds
 two parameters at any run size. The drain runs it right after the submission inserts, in the
 success batch and in the refusal batch alike. A refused URL's causes are copied onto the refused
-row and copied again onto the next attempt. AECI-1185 adds the admin clear as a second caller.
+row and copied again onto the next attempt. The admin clear (AECI-1185) is the second caller,
+with `channel = 'gsc'`, on a `requested` clear only, right after its one submission insert.
 
 **Known limit.** A cause written between the drain's read and its commit, for a URL in the drain
 set, is copied onto that run's submission and then swept. Its queue upsert hit the row the drain
@@ -3435,6 +3444,9 @@ Appending is derived, log-class and publicly invisible, so ADR 0022 exempts it l
 admin rather than to `'system'`. Note this is **not** §26.1's scheduled-deletion exception,
 which allows one summary row per run. This is an operator action on an admin screen, so the
 ordinary per-write rule reaches it directly and the summary-row allowance never applies.
+Since AECI-1185 the audit row's `metadata` carries `outcome` (`requested` or `not_requested`),
+and a `requested` clear also writes a `gsc_manual` row to `recrawl_submissions` (§9.6a) in the
+same batch.
 
 **Absent from the `schema` barrel**, like `indexnowQueue` and `metricsDaily`. Every access is a
 direct `db.insert()` / `db.select()` / `db.delete()` and never `db.query.*`, so it needs no

@@ -1062,6 +1062,14 @@ operator worked from memory after a promote, which `environments.md` described a
 
 - **`/admin/reindex`** — one table, most important first, with a Done button per
   row. `priority`, `reason`, `url`, and age. The only filter is `?priority=`.
+- **Done asks what happened (AECI-1185).** Done opens a dialog with two answers and
+  Cancel. "Requested indexing in Search Console" sends `?outcome=requested`.
+  "Cleared without a request" sends `?outcome=not_requested`, for a quota that ran
+  out, a page that is gone, or an edit not worth a request. Both remove the row.
+  Only `requested` writes a `recrawl_submissions` row (channel `gsc_manual`), with
+  the row's causes copied onto it. The answer records what the operator did. It is
+  not proof that Google accepted the request or indexed the page, and no copy on
+  this screen says "indexed".
 
 Four IA notes, in §5.10's voice:
 
@@ -1093,7 +1101,9 @@ Four IA notes, in §5.10's voice:
   `db.batch` as the delete, attributed to the admin rather than to `'system'`. The
   summary-row allowance exists for *scheduled* deletes and does not reach an
   operator clicking a button. `before_state` carries the cleared row, because the
-  row is gone immediately afterwards and the trail is the only surviving copy.
+  row is gone immediately afterwards and the trail is the only surviving copy. Since
+  AECI-1185 `metadata` carries `outcome`, and a `requested` clear adds `batchId`,
+  which is the `recrawl_submissions.batch_id` of the row it wrote.
 - **The DELETE carries no `rateLimit()`**, matching every other `requireAdmin()`
   write here (`waf-rate-limits.md` §6.2). Clearing thirty rows in one sitting is
   exactly the workload this screen exists for, so a write-shaped ceiling would 429
@@ -1107,9 +1117,11 @@ Four IA notes, in §5.10's voice:
 - **Re-queue a URL, or edit a priority.** Both are derived from a write that
   happened. Hand-editing either would make the `reason` column a claim rather than a
   record.
-- **Show what has already been requested.** That is the cost of Done deleting, and
-  it is accepted. `audit_log` filtered on `reindex.cleared` is the history, which is
-  where the other admin writes keep theirs too.
+- **Show what has already been requested.** Not yet. Since AECI-1185 the history
+  exists: every `requested` clear writes a `gsc_manual` row to `recrawl_submissions`
+  (`DATABASE_SCHEMA.md` §9.6a), beside the IndexNow drain's rows, and every clear
+  writes its `reindex.cleared` audit row with `metadata.outcome`. The view of that
+  log on this screen is AECI-1188.
 
 ### 5.12 Field contests — SHIPPED (AECI-1008, 2026-09-18; connector-powered rows and evidenced pairs AECI-1092, 2026-09-23)
 
@@ -1576,7 +1588,7 @@ All endpoints are admin-gated and register on the existing `authAdmin` sub-route
 | `GET /api/admin/claims/:id` | §5.10 detail — **SHIPPED (AECI-739)** | One claim, every queue signal plus `duplicate_siblings` — the rows behind the queue's duplicate chip. `is_duplicate` here IS `duplicate_siblings.length > 0`, so the two surfaces cannot disagree. **422**, not 404, on a `kind='correction'` id: the row exists and moderates elsewhere |
 | `PATCH /api/admin/claims/:id/notes` | §5.10 operator note — **SHIPPED (AECI-739)** | **The fourth write in this table**, and an *annotation* — no status change, no grant, no email, no purge, no `workflow_instances` row. Audit row in the same `db.batch` as the guarded `UPDATE`, carrying the full old and new note, which is what makes the trail the note's history. Unchanged text is a 200 no-op that writes nothing |
 | `GET /api/admin/reindex` | §5.11 worklist — **SHIPPED (AECI-946)** | The Google re-crawl queue, most important first. `PageQuerySchema` + `?priority=` (1–4). **Ordering is fixed and carries no `sort` parameter**, because a worklist the operator can re-order no longer has the right next action on top. `id ASC` is the third `ORDER BY` term per AECI-825: rows from one promote share a `queued_at` to the millisecond, and a paginated list without a unique trailing term can drop or duplicate a row |
-| `DELETE /api/admin/reindex/:id` | §5.11 Done — **SHIPPED (AECI-946)** | **The fifth write in this table**, and *queue consumption* — no catalog row, no account row, nothing a visitor can see. Audit row in the same `db.batch` as the delete, `action='reindex.cleared'`, attributed to the admin rather than `'system'`. This is **not** §26.1's scheduled-deletion case, so it audits per row rather than one summary row per run. Carries **no** `rateLimit()` — true of every admin write **except** the three AECI-955 logo routes below, the AECI-1008 contest decision, the two AECI-1046 integration retire routes, the AECI-1177 review-reply decision and the AECI-1224 sending switch (`waf-rate-limits.md` §6.2). A row another tab already cleared is a flat 404 |
+| `DELETE /api/admin/reindex/:id` | §5.11 Done — **SHIPPED (AECI-946)** | **The fifth write in this table**, and *queue consumption* — no catalog row, no account row, nothing a visitor can see. Audit row in the same `db.batch` as the delete, `action='reindex.cleared'`, attributed to the admin rather than `'system'`. This is **not** §26.1's scheduled-deletion case, so it audits per row rather than one summary row per run. Carries **no** `rateLimit()` — true of every admin write **except** the three AECI-955 logo routes below, the AECI-1008 contest decision, the two AECI-1046 integration retire routes, the AECI-1177 review-reply decision and the AECI-1224 sending switch (`waf-rate-limits.md` §6.2). A row another tab already cleared is a flat 404. Since AECI-1185 `?outcome=requested\|not_requested` is required (400 otherwise). `requested` also writes one `gsc_manual` `recrawl_submissions` row and its causes in the same batch |
 | `GET /api/admin/contests` | §5.12 queue — **SHIPPED (AECI-1008)** | `PageQuerySchema` + `?status=` (default `open`) + `?routed_to=` (default `aeci`; `owner` is the read-only view). Ordered `created_at DESC, id ASC`. Bare `paginatedResponseSchema`, same reasoning as §5.11. Contract in `packages/shared/src/api/integration-contests.ts` |
 | `PATCH /api/admin/contests/:id` | §5.12 accept / decline — **SHIPPED (AECI-1008)** | **A decision write, not a catalog write** (the eighth §2 exception). Accept files a `REVIEW - ` Linear issue after commit. It writes catalog data only on a claimed row, where promote no longer can (AECI-1005, `STAGE_2_VENDOR_PORTAL_SPEC.md` §11b.6). **Since AECI-1191 an accept that changes a vendor-held value requires `note`** (`400 VALIDATION_FAILED`, `error.field = 'note'`, nothing written), recorded in the decision audit row's `metadata.reason`; the list read carries `accept_note_required`. Audit row, workflow transition and the submitter's `notification.sent` ride one `db.batch` behind a race sentinel. Carries `rateLimit('write')`. `409 CONTEST_NOT_OPEN` / `CONTEST_ROUTED_TO_OWNER` |
 | `GET /api/admin/review-responses` | §5.13 queue — **SHIPPED (AECI-1177)** | `PageQuerySchema` + `?status=` (default `pending`). Ordered `updated_at ASC, id ASC`, oldest first. Bare `paginatedResponseSchema`. Contract in `packages/shared/src/api/review-responses.ts` |
