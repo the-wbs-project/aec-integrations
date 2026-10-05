@@ -51,6 +51,7 @@ import type {
   ReviewVendorProfileResponse,
   ReviewVendorProductResponse,
   ReviewVendorProductIntegrationsResponse,
+  ListVendorHistoryFollowUpResponse,
   ListVendorHistoryResponse,
   ListVendorReviewsResponse,
   VendorReviewItem,
@@ -80,7 +81,11 @@ import {
   type VendorHistoryFilters,
   type VendorReviewsFilters,
 } from '../../vendor/vendor-api';
-import { VENDOR_HISTORY_FIXTURE, historyKindKeeps } from '../../vendor/vendor-history-fixtures';
+import {
+  VENDOR_HISTORY_FIXTURE,
+  VENDOR_HISTORY_FOLLOW_UP_FIXTURE,
+  historyKindKeeps,
+} from '../../vendor/vendor-history-fixtures';
 import { VENDOR_REVIEWS_FIXTURE } from '../../vendor/vendor-review-fixtures';
 import {
   VENDOR_CONNECTOR_CATALOG_FIXTURE,
@@ -1161,6 +1166,17 @@ export class PreviewVendorApi extends VendorApi {
     );
     const start = (page - 1) * perPage;
     return clone({ data: rows.slice(start, start + perPage), page, perPage, total: rows.length });
+  }
+
+  /** The search follow-up of the asked-for rows (AECI-1160), as the API scopes it:
+   *  only lines whose audit id was asked for. */
+  override async getHistoryFollowUp(
+    auditIds: readonly string[],
+  ): Promise<ListVendorHistoryFollowUpResponse> {
+    const asked = new Set(auditIds);
+    return clone({
+      data: VENDOR_HISTORY_FOLLOW_UP_FIXTURE.filter((l) => asked.has(l.audit_log_id)),
+    });
   }
 
   override async listReviews(filters: VendorReviewsFilters): Promise<ListVendorReviewsResponse> {

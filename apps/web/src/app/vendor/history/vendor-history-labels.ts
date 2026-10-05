@@ -154,8 +154,12 @@ export function historyKindLabel(kind: VendorHistoryKind): string {
  * over a paid tier is Managed.
  */
 export function historyPlanLabel(plan: VendorHistoryPlan): string {
-  const managed = plan.status === 'active' && plan.tier !== 'unclaimed' && plan.tier !== 'none';
-  return planLabel(managed ? 'managed' : 'free');
+  return planLabel(historyPlanIsManaged(plan) ? 'managed' : 'free');
+}
+
+/** Whether a row's plan snapshot is Managed. The rule {@link historyPlanLabel} names. */
+export function historyPlanIsManaged(plan: VendorHistoryPlan): boolean {
+  return plan.status === 'active' && plan.tier !== 'unclaimed' && plan.tier !== 'none';
 }
 
 /**

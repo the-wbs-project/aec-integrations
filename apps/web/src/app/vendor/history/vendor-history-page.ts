@@ -1,6 +1,11 @@
 import { Component, LOCALE_ID, afterNextRender, computed, inject, signal } from '@angular/core';
 
-import type { ListVendorHistoryResponse, VendorHistoryItem, VendorHistoryKind } from '@aeci/shared';
+import type {
+  ListVendorHistoryResponse,
+  VendorHistoryFollowUp as FollowUpLine,
+  VendorHistoryItem,
+  VendorHistoryKind,
+} from '@aeci/shared';
 
 import { VendorPortalAnnouncer } from '../vendor-announcer';
 import { VendorApi, vendorHistoryCsvUrl } from '../vendor-api';
@@ -25,13 +30,20 @@ interface HistoryTarget {
 /** Rows per page. */
 export const VENDOR_HISTORY_PAGE_SIZE = 25;
 
+const NO_LINES: readonly FollowUpLine[] = [];
+
 /**
  * `…/history`, the portal's Changes page (AECI-1160, `STAGE_2_VENDOR_PORTAL_SPEC.md`
- * §6.19). INTERIM: the per-URL search follow-up column waits on AECI-1187.
+ * §6.19).
  *
  * One page of `GET /api/vendor/history` (AECI-1194), newest first: what changed on
  * the vendor's listing, who changed it, and, on an AECi row, the reason AECi gave.
  * Every plan sees it. The API is ungated and so is this page.
+ *
+ * Each row also shows its search follow-up: which public URLs the change queued,
+ * and whether each was queued, submitted, failed or requested, per channel. One
+ * `GET /api/vendor/history/follow-up` read per page, keyed by the page's audit
+ * ids, after the rows land (`vendor-history-follow-up.ts`).
  *
  * Anchor reference: Customer.io's workspace audit log
  * (mobbin.com/screens/5e4f44d9-4c65-4381-8681-d2921df2591e). One sentence per
@@ -88,8 +100,8 @@ export const VENDOR_HISTORY_PAGE_SIZE = 25;
           This list starts when change history began. Changes made before then are not listed.
         </p>
         <p class="text-(--text-secondary)" i18n="@@vendor.history.banner.search">
-          Search engines decide when they crawl your pages and what they show. A change here is not
-          a promise about search results.
+          Search engines control crawling and indexing. "Submitted" and "requested" mean we told a
+          search engine about a change. They are not a promise about search results.
         </p>
       </div>
 
@@ -149,6 +161,14 @@ export const VENDOR_HISTORY_PAGE_SIZE = 25;
               Try again
             </button>
           </div>
+        }
+
+        @if (followUpFailed()) {
+          <p class="mt-4 max-w-[52ch] text-sm text-(--text-secondary)" data-follow-up-failed>
+            <span i18n="@@vendor.history.followUp.loadFailed"
+              >Could not load the search follow-up for these changes.</span
+            >
+          </p>
         }
 
         @if (items().length === 0) {
@@ -218,7 +238,7 @@ export const VENDOR_HISTORY_PAGE_SIZE = 25;
                   </div>
                 }
 
-                <aec-vendor-history-follow-up [item]="item" />
+                <aec-vendor-history-follow-up [item]="item" [lines]="followUpFor(item.id)" />
               </li>
             }
           </ol>
@@ -269,6 +289,9 @@ export class VendorHistoryPage {
   protected readonly response = signal<ListVendorHistoryResponse | null>(null);
   protected readonly state = signal<'loading' | 'loaded' | 'failed'>('loading');
   protected readonly refreshing = signal(false);
+  /** The search follow-up of the rows on screen, by audit id. */
+  private readonly followUps = signal<ReadonlyMap<string, readonly FollowUpLine[]>>(new Map());
+  protected readonly followUpFailed = signal(false);
 
   /** The read in flight, or the one on screen once it lands or fails. */
   private target: HistoryTarget = { kind: 'all', page: 1 };
@@ -300,6 +323,10 @@ export class VendorHistoryPage {
   constructor() {
     // Browser only: the list is per-seat data, never part of the cached SSR shell.
     afterNextRender(() => void this.load(this.target, { announce: false }));
+  }
+
+  protected followUpFor(id: string): readonly FollowUpLine[] {
+    return this.followUps().get(id) ?? NO_LINES;
   }
 
   protected actionLabel(action: string): string {
@@ -365,9 +392,12 @@ export class VendorHistoryPage {
         return;
       }
       this.response.set(res);
+      this.followUps.set(new Map());
+      this.followUpFailed.set(false);
       this.kind.set(target.kind);
       this.page.set(target.page);
       this.state.set('loaded');
+      void this.loadFollowUp(res.data, ticket);
       if (announce) this.announcer.announce(this.shownMessage(res));
     } catch {
       if (ticket !== this.ticket) return;
@@ -378,6 +408,31 @@ export class VendorHistoryPage {
       this.state.set('failed');
     } finally {
       if (ticket === this.ticket) this.refreshing.set(false);
+    }
+  }
+
+  /**
+   * The search follow-up of the rows just shown, in one read. Only the team's own
+   * edits can have any: the read is scoped on the vendor's own recrawl causes, and
+   * AECi and system rows never record one. A failure leaves the rows as they are
+   * and says so once, above the list.
+   */
+  private async loadFollowUp(rows: readonly VendorHistoryItem[], ticket: number): Promise<void> {
+    const ids = rows.filter((r) => r.actor_kind === 'your_team').map((r) => r.id);
+    if (ids.length === 0) return;
+    try {
+      const res = await this.api.getHistoryFollowUp(ids);
+      if (ticket !== this.ticket) return;
+      const byId = new Map<string, FollowUpLine[]>();
+      for (const line of res.data) {
+        const list = byId.get(line.audit_log_id);
+        if (list) list.push(line);
+        else byId.set(line.audit_log_id, [line]);
+      }
+      this.followUps.set(byId);
+    } catch {
+      if (ticket !== this.ticket) return;
+      this.followUpFailed.set(true);
     }
   }
 

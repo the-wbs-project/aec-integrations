@@ -6,8 +6,18 @@
  * Newest first, as the API orders them. Every `actor_kind` appears, one AECi row
  * carries a vendor-facing reason and one does not, one row has no plan snapshot,
  * and one action is unknown to this build so the humanize fallback shows.
+ *
+ * The search follow-up (`VENDOR_HISTORY_FOLLOW_UP_FIXTURE`) covers a Managed edit
+ * with several URLs (submitted, requested, failed and retrying, queued), a second
+ * Managed edit still queued on both channels with a final failure, and a Free
+ * edit, which shows "No expedited search submission".
  */
-import type { VendorHistoryActorKind, VendorHistoryItem, VendorHistoryKind } from '@aeci/shared';
+import type {
+  VendorHistoryActorKind,
+  VendorHistoryFollowUp,
+  VendorHistoryItem,
+  VendorHistoryKind,
+} from '@aeci/shared';
 
 /**
  * The `actor_kind` each `kind` filter keeps, mirroring `KIND_FILTER` in
@@ -44,6 +54,15 @@ export const VENDOR_HISTORY_FIXTURE: readonly VendorHistoryItem[] = [
     entity_id: '00000000-0000-4000-8000-000000005201',
     entity_name: 'Summit Model Coordination',
     fields: ['description', 'website_url', 'logo_url'],
+    plan: MANAGED,
+  }),
+  row(8, '2026-10-02T16:25:00.000Z', {
+    actor_kind: 'your_team',
+    action: 'integration.link_set',
+    entity_type: 'integration',
+    entity_id: '00000000-0000-4000-8000-000000005303',
+    entity_name: 'Summit Model Coordination and Bluebeam',
+    fields: ['url'],
     plan: MANAGED,
   }),
   row(2, '2026-10-02T09:10:00.000Z', {
@@ -102,4 +121,65 @@ export const VENDOR_HISTORY_FIXTURE: readonly VendorHistoryItem[] = [
     fields: [],
     plan: FREE,
   }),
+];
+
+const SITE = 'https://www.aecintegrations.com';
+
+/** The follow-up lines `GET /api/vendor/history/follow-up` would answer for the
+ *  fixture's team rows, in the API's order (audit id, URL, channel). */
+export const VENDOR_HISTORY_FOLLOW_UP_FIXTURE: readonly VendorHistoryFollowUp[] = [
+  {
+    audit_log_id: VENDOR_HISTORY_FIXTURE[0]!.id,
+    url: `${SITE}/products/summit-model-coordination`,
+    channel: 'indexnow',
+    state: 'submitted',
+    at: '2026-10-04T00:05:00.000Z',
+    http_status: 200,
+    retrying: false,
+  },
+  {
+    audit_log_id: VENDOR_HISTORY_FIXTURE[0]!.id,
+    url: `${SITE}/products/summit-model-coordination`,
+    channel: 'google',
+    state: 'requested',
+    at: '2026-10-04T13:20:00.000Z',
+    http_status: null,
+    retrying: false,
+  },
+  {
+    audit_log_id: VENDOR_HISTORY_FIXTURE[0]!.id,
+    url: `${SITE}/vendors/summit-software`,
+    channel: 'indexnow',
+    state: 'failed',
+    at: '2026-10-04T00:05:00.000Z',
+    http_status: 429,
+    retrying: true,
+  },
+  {
+    audit_log_id: VENDOR_HISTORY_FIXTURE[1]!.id,
+    url: `${SITE}/products/summit-model-coordination/integrations/bluebeam-revu`,
+    channel: 'indexnow',
+    state: 'queued',
+    at: '2026-10-02T16:25:00.000Z',
+    http_status: null,
+    retrying: false,
+  },
+  {
+    audit_log_id: VENDOR_HISTORY_FIXTURE[1]!.id,
+    url: `${SITE}/products/summit-model-coordination/integrations/bluebeam-revu`,
+    channel: 'google',
+    state: 'queued',
+    at: '2026-10-02T16:25:00.000Z',
+    http_status: null,
+    retrying: false,
+  },
+  {
+    audit_log_id: VENDOR_HISTORY_FIXTURE[1]!.id,
+    url: `${SITE}/products/bluebeam-revu`,
+    channel: 'indexnow',
+    state: 'failed',
+    at: '2026-10-03T00:05:00.000Z',
+    http_status: null,
+    retrying: false,
+  },
 ];

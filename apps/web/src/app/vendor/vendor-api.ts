@@ -42,6 +42,7 @@ import type {
   ListProductVersionsResponse,
   ListVendorIntegrationsResponse,
   ListVendorNotificationsResponse,
+  ListVendorHistoryFollowUpResponse,
   ListVendorHistoryResponse,
   VendorHistoryKind,
   NotificationPreferencesResponse,
@@ -429,6 +430,16 @@ export class VendorApi {
     params.set('perPage', String(perPage));
     return firstValueFrom(
       this.http.get<ListVendorHistoryResponse>(`/api/vendor/history?${params}`),
+    );
+  }
+
+  /** `GET /api/vendor/history/follow-up` — the search follow-up of one history
+   *  page, keyed by the page's audit ids (AECI-1160). One read per page, never one
+   *  per row. The API takes up to `VENDOR_HISTORY_FOLLOW_UP_MAX_IDS` ids. */
+  getHistoryFollowUp(auditIds: readonly string[]): Promise<ListVendorHistoryFollowUpResponse> {
+    const ids = auditIds.map(encodeURIComponent).join(',');
+    return firstValueFrom(
+      this.http.get<ListVendorHistoryFollowUpResponse>(`/api/vendor/history/follow-up?ids=${ids}`),
     );
   }
 

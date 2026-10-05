@@ -1,7 +1,8 @@
 /**
  * AECI-1160 — the portal Changes page (`STAGE_2_VENDOR_PORTAL_SPEC.md` §6.19):
  * one row per actor kind, the AECi reason only when present, the filter refetch,
- * the empty state and the CSV link.
+ * the empty state, the CSV link, and each row's search follow-up: several URLs,
+ * queued, submitted, failed and requested lines, and the Free state.
  */
 import { provideZonelessChangeDetection } from '@angular/core';
 import { TestBed, type ComponentFixture } from '@angular/core/testing';
@@ -11,7 +12,11 @@ import type { VendorHistoryItem } from '@aeci/shared';
 
 import { VendorPortalAnnouncer } from '../vendor-announcer';
 import { VendorApi } from '../vendor-api';
-import { VENDOR_HISTORY_FIXTURE, historyKindKeeps } from '../vendor-history-fixtures';
+import {
+  VENDOR_HISTORY_FIXTURE,
+  VENDOR_HISTORY_FOLLOW_UP_FIXTURE,
+  historyKindKeeps,
+} from '../vendor-history-fixtures';
 
 import { VENDOR_HISTORY_PAGE_SIZE, VendorHistoryPage } from './vendor-history-page';
 
@@ -26,11 +31,14 @@ const byActor = (kind: VendorHistoryItem['actor_kind']) =>
 const AECI_WITH_REASON = VENDOR_HISTORY_FIXTURE.find((r) => r.actor_kind === 'aeci' && r.reason)!;
 const AECI_NO_REASON = VENDOR_HISTORY_FIXTURE.find((r) => r.actor_kind === 'aeci' && !r.reason)!;
 
-let api: { listHistory: ReturnType<typeof vi.fn> };
+let api: { listHistory: ReturnType<typeof vi.fn>; getHistoryFollowUp: ReturnType<typeof vi.fn> };
 
 beforeEach(() => {
   TestBed.resetTestingModule();
-  api = { listHistory: vi.fn().mockResolvedValue(page(VENDOR_HISTORY_FIXTURE)) };
+  api = {
+    listHistory: vi.fn().mockResolvedValue(page(VENDOR_HISTORY_FIXTURE)),
+    getHistoryFollowUp: vi.fn().mockResolvedValue({ data: [...VENDOR_HISTORY_FOLLOW_UP_FIXTURE] }),
+  };
   TestBed.configureTestingModule({
     providers: [
       provideZonelessChangeDetection(),
@@ -102,18 +110,116 @@ describe('VendorHistoryPage — rows', () => {
     expect(row(fixture, byActor('your_team')).querySelector('[data-history-reason]')).toBeNull();
   });
 
-  it('keeps an empty follow-up slot on every row until AECI-1187', async () => {
-    const fixture = await create();
-    const slots = el(fixture).querySelectorAll('[data-history-follow-up]');
-    expect(slots).toHaveLength(VENDOR_HISTORY_FIXTURE.length);
-    expect([...slots].every((s) => s.textContent?.trim() === '')).toBe(true);
-  });
-
   it('carries the banner, and never claims indexing or ranking', async () => {
     const fixture = await create();
     const banner = text(el(fixture), '[data-history-banner]')!;
     expect(banner).toContain('when change history began');
-    expect(banner).toContain('Search engines decide');
+    expect(banner).toContain('Search engines control crawling and indexing');
+    const all = el(fixture).textContent!.toLowerCase();
+    expect(all).not.toContain('indexed');
+    expect(all).not.toContain('ranked');
+  });
+});
+
+describe('VendorHistoryPage — search follow-up', () => {
+  const MANAGED_EDIT = VENDOR_HISTORY_FIXTURE.find((r) => r.action === 'product.updated')!;
+  const QUEUED_EDIT = VENDOR_HISTORY_FIXTURE.find((r) => r.action === 'integration.link_set')!;
+  const FREE_EDIT = VENDOR_HISTORY_FIXTURE.find((r) => r.action === 'integration.updated')!;
+  const SEAT_INVITE = VENDOR_HISTORY_FIXTURE.find((r) => r.action === 'vendor_seat.invited')!;
+  const FREE_SYSTEM = VENDOR_HISTORY_FIXTURE.find(
+    (r) => r.actor_kind === 'system' && r.plan?.tier === 'unclaimed',
+  )!;
+
+  const lines = (fixture: ComponentFixture<unknown>, item: VendorHistoryItem) =>
+    [...row(fixture, item).querySelectorAll<HTMLElement>('[data-state]')].map((li) => ({
+      channel: li.dataset['channel'],
+      state: li.dataset['state'],
+      text: li.textContent!.replace(/\s+/g, ' ').trim(),
+    }));
+
+  it('reads the follow-up once per page, for the team rows only', async () => {
+    await create();
+    expect(api.getHistoryFollowUp).toHaveBeenCalledTimes(1);
+    const ids = VENDOR_HISTORY_FIXTURE.filter((r) => r.actor_kind === 'your_team').map((r) => r.id);
+    expect(api.getHistoryFollowUp).toHaveBeenCalledWith(ids);
+  });
+
+  it('skips the read when the page has no team rows', async () => {
+    api.listHistory.mockResolvedValue(page([byActor('aeci'), byActor('system')]));
+    await create();
+    expect(api.getHistoryFollowUp).not.toHaveBeenCalled();
+  });
+
+  it('lists every affected URL of a Managed edit, one line per channel, with times', async () => {
+    const fixture = await create();
+    const r = row(fixture, MANAGED_EDIT);
+    const urls = [...r.querySelectorAll('[data-follow-up-url] > a')].map((a) =>
+      a.textContent!.trim(),
+    );
+    expect(urls).toEqual(['/products/summit-model-coordination', '/vendors/summit-software']);
+    expect(lines(fixture, MANAGED_EDIT).map((l) => [l.channel, l.state])).toEqual([
+      ['indexnow', 'submitted'],
+      ['google', 'requested'],
+      ['indexnow', 'failed'],
+    ]);
+    const [submitted, requested, failed] = lines(fixture, MANAGED_EDIT);
+    expect(submitted!.text).toMatch(/^IndexNow \(Bing and others\): Submitted, Oct \d{1,2}, 2026/);
+    expect(requested!.text).toContain('Google: Re-crawl requested in Google Search Console');
+    expect(failed!.text).toContain('Submission failed');
+    expect(failed!.text).toContain('HTTP 429');
+    expect(failed!.text).toContain('We will try again at the next daily send.');
+    for (const time of r.querySelectorAll('[data-follow-up-lines] time')) {
+      expect(time.getAttribute('datetime')).toMatch(/^2026-10-0\dT/);
+    }
+  });
+
+  it('shows queued lines on both channels, and a failure that will not be retried', async () => {
+    const fixture = await create();
+    const shown = lines(fixture, QUEUED_EDIT);
+    expect(shown.filter((l) => l.state === 'queued').map((l) => l.channel)).toEqual([
+      'indexnow',
+      'google',
+    ]);
+    expect(shown.find((l) => l.channel === 'google')!.text).toContain(
+      'Queued for AECi to request a Google re-crawl',
+    );
+    const failed = shown.find((l) => l.state === 'failed')!;
+    expect(failed.text).toContain('IndexNow did not answer.');
+    expect(failed.text).toContain('We are not trying again.');
+  });
+
+  it('tells a Free listing edit there was no expedited search submission', async () => {
+    const fixture = await create();
+    expect(text(row(fixture, FREE_EDIT), '[data-follow-up-not-eligible]')).toContain(
+      'No expedited search submission',
+    );
+    expect(row(fixture, FREE_EDIT).querySelector('[data-follow-up-lines]')).toBeNull();
+  });
+
+  it('says nothing on rows with no follow-up to report', async () => {
+    const fixture = await create();
+    for (const item of [SEAT_INVITE, FREE_SYSTEM, AECI_WITH_REASON, AECI_NO_REASON]) {
+      const slot = row(fixture, item).querySelector('[data-history-follow-up]')!;
+      expect(slot.textContent?.trim()).toBe('');
+    }
+  });
+
+  it('keeps the rows and says so once when the follow-up read fails', async () => {
+    api.getHistoryFollowUp.mockRejectedValueOnce(new Error('boom'));
+    const fixture = await create();
+    expect(el(fixture).querySelectorAll('[data-history-row]')).toHaveLength(
+      VENDOR_HISTORY_FIXTURE.length,
+    );
+    expect(text(el(fixture), '[data-follow-up-failed]')).toContain(
+      'Could not load the search follow-up',
+    );
+    expect(el(fixture).querySelector('[data-follow-up-lines]')).toBeNull();
+    // The Free state needs no read, so it still shows.
+    expect(row(fixture, FREE_EDIT).querySelector('[data-follow-up-not-eligible]')).not.toBeNull();
+  });
+
+  it('never says indexed or ranked, with every follow-up state on screen', async () => {
+    const fixture = await create();
     const all = el(fixture).textContent!.toLowerCase();
     expect(all).not.toContain('indexed');
     expect(all).not.toContain('ranked');

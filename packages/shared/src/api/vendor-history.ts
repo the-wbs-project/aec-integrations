@@ -109,3 +109,93 @@ export const VENDOR_HISTORY_CSV_COLUMNS = [
   'plan_status',
   'reason',
 ] as const;
+
+// ─── Search follow-up (AECI-1160) ──────────────────────────────────────────
+
+/**
+ * `GET /api/vendor/history/follow-up?ids=<audit id>,<audit id>,…` (AECI-1160,
+ * `API_CONTRACTS.md` §6.14 "Change history: search follow-up").
+ *
+ * What the search follow-up of each change on one history page is, keyed by the
+ * page's audit ids. One request per page. The read joins the recrawl cause rows
+ * (AECI-1184) on `audit_log_id`, scoped by the cause's `vendor_id`, so an id that
+ * is not one of the caller's own edits returns nothing.
+ */
+
+/** Most audit ids one follow-up read takes: one history page at the API's cap. */
+export const VENDOR_HISTORY_FOLLOW_UP_MAX_IDS = 100;
+
+/** Comma-separated audit ids. Blank entries are dropped; duplicates collapse. */
+export const VendorHistoryFollowUpQuerySchema = z.object({
+  ids: z
+    .string()
+    .transform((raw) => [
+      ...new Set(
+        raw
+          .split(',')
+          .map((id) => id.trim())
+          .filter(Boolean),
+      ),
+    ])
+    .pipe(z.array(z.string().max(64)).min(1).max(VENDOR_HISTORY_FOLLOW_UP_MAX_IDS)),
+});
+export type VendorHistoryFollowUpQuery = z.infer<typeof VendorHistoryFollowUpQuerySchema>;
+
+/**
+ * The two search channels, as the vendor reads them. `indexnow` is the daily
+ * IndexNow send (Bing, Yandex and others). `google` is the Google worklist an AECi
+ * operator works by hand in Search Console (ADR 0031).
+ */
+export const VENDOR_SEARCH_CHANNELS = ['indexnow', 'google'] as const;
+export const VendorSearchChannelSchema = z.enum(VENDOR_SEARCH_CHANNELS);
+export type VendorSearchChannel = z.infer<typeof VendorSearchChannelSchema>;
+
+/**
+ * One URL's state on one channel. Each says what WE did, never what a search
+ * engine did with it:
+ *
+ * - `queued`: waiting for the next IndexNow send, or on the Google worklist;
+ * - `submitted`: IndexNow accepted the URL (a 2xx);
+ * - `failed`: IndexNow refused the URL or did not answer. `retrying` says whether
+ *   it is still queued for another try;
+ * - `requested`: an AECi operator recorded that they asked Google to re-crawl it.
+ *   Clearing a worklist row without that answer is never shown as `requested`.
+ *
+ * "Not eligible" is not a server state. The page derives it from the row's plan
+ * snapshot, because a Free write never queues anything to report on.
+ */
+export const VENDOR_SEARCH_FOLLOW_UP_STATES = [
+  'queued',
+  'submitted',
+  'failed',
+  'requested',
+] as const;
+export const VendorSearchFollowUpStateSchema = z.enum(VENDOR_SEARCH_FOLLOW_UP_STATES);
+export type VendorSearchFollowUpState = z.infer<typeof VendorSearchFollowUpStateSchema>;
+
+/** One (change, URL, channel) and where it stands. */
+export const VendorHistoryFollowUpSchema = z.object({
+  /** The history row's `id`. */
+  audit_log_id: z.string(),
+  /** The absolute public URL. */
+  url: z.string(),
+  channel: VendorSearchChannelSchema,
+  state: VendorSearchFollowUpStateSchema,
+  /** When the state began: the send or request time, or when the change queued
+   *  the URL for `queued`. ISO 8601 UTC. */
+  at: z.string(),
+  /** The IndexNow HTTP status on `submitted` and `failed`; `null` otherwise and on
+   *  a transport failure. */
+  http_status: z.number().int().nullable(),
+  /** `failed` only: the URL is still queued and will be sent again. */
+  retrying: z.boolean(),
+});
+export type VendorHistoryFollowUp = z.infer<typeof VendorHistoryFollowUpSchema>;
+
+/** Unpaginated: bounded by the ids asked for. Ordered by audit id, URL, channel. */
+export const ListVendorHistoryFollowUpResponseSchema = z.object({
+  data: z.array(VendorHistoryFollowUpSchema),
+});
+export type ListVendorHistoryFollowUpResponse = z.infer<
+  typeof ListVendorHistoryFollowUpResponseSchema
+>;
