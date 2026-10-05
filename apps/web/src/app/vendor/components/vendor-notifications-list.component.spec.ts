@@ -410,7 +410,7 @@ describe('VendorNotificationsList', () => {
       expect(body).toContain(title);
       expect(body).toContain(detail);
       expect(body).toContain('Reason: The value on record was wrong.');
-      expect(body).toContain('founders@thewbsproject.com');
+      expect(body).toContain('support@aecintegrations.com');
       // It is not misread as an attestation row.
       expect(body).toContain('Recent notifications (1)');
       const pairLink = [...el(fixture).querySelectorAll('a')].find((a) =>

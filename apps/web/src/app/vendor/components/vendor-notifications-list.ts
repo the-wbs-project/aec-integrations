@@ -540,6 +540,6 @@ function overrideNote(notification: VendorAeciOverrideNotification): string {
       meaning = $localize`:@@vendor.override.notify.note.seat:That person no longer has access to your vendor portal.`;
       break;
   }
-  const dispute = $localize`:@@vendor.override.notify.dispute:If you think this is wrong, email founders@thewbsproject.com and quote this message.`;
+  const dispute = $localize`:@@vendor.override.notify.dispute:If you think this is wrong, email support@aecintegrations.com and quote this message.`;
   return `${meaning} ${reasonSentence(notification.reason)} ${dispute}`;
 }

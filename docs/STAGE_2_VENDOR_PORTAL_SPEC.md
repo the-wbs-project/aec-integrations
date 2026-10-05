@@ -3716,7 +3716,7 @@ Each notice is a `notification.sent` audit row in the override's batch, so a fai
 
 A vendor that disagrees with an override uses the routes that already exist. There is no new appeal flow.
 
-- **Any override:** email AEC Integrations at the address in the Listing Accuracy Policy's "Requesting a correction" section, citing the notice. An admin can restore its own retire, set the logo again, or provision a seat again.
+- **Any override:** email support@aecintegrations.com, citing the notice. An admin can restore its own retire, set the logo again, or provision a seat again.
 - **A field AECi overwrote:** the owner still holds the integration and can edit the field in the portal. A lock that stops that is AECI-1237, not built.
 - **A contest decision:** the protest route in §11b.12 applies only to an owner's decision. A decision AECi made has already had AECi's answer.
 
