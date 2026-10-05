@@ -38,7 +38,7 @@ Anyone, including a vendor, can ask us to correct a factual error in a listing. 
 
 We review every request, verify it against public sources, and update the listing where the correction is supported. We aim to respond promptly. We may decline or defer a request we cannot verify, and we decide at our discretion how a correction is reflected.
 
-For an integration its owner has claimed, the owner maintains the details, so we take a supported correction up with the owner rather than change the integration through our catalogue updates.
+If a listing a vendor maintains is inaccurate, we ask the vendor to correct it. Where the vendor does not respond, or disagrees, and we hold evidence that the listing is wrong, AEC Integrations holds the right to correct the specific factual detail itself. We tell the vendor what we changed and why. A corrected detail stays as we set it until we review it again, and the vendor can dispute it by writing to us at [support@aecintegrations.com](mailto:support@aecintegrations.com).
 
 ## Contesting an integration detail
 

@@ -30,5 +30,5 @@ The table has no FK into the entity tables and no CHECK. A lock row is history: 
 
 - The owner's freedom to edit (ADR 0035 decision 8) now has one named exception, set and lifted only by an AECi admin, always with a reason the owner reads and an audit row.
 - **Known limit.** When a record stops being vendor-held, for example when the last-seat hand-back clears `claimed_at`, promote writes the column again and the lock row stays. It still blocks a re-claimed vendor's edit of that field until an admin lifts it. Clearing locks on hand-back was not built, because a lock is AECi's statement about a fact, not about who holds the record.
-- **The legal text is not changed here.** The Listing Accuracy Policy says AECi takes a supported correction up with the owner. The wording that matches this power needs counsel. The proposed change is on AECI-1237.
+- **The legal text changes with it (Chris, 2026-10-05).** The Listing Accuracy Policy now says AECi asks the vendor first and holds the right to correct a factual detail itself when the vendor does not respond or disagrees. Disputes go to support@aecintegrations.com. The policy stays a draft pending counsel review (AECI-308).
 - The contract is `STAGE_2_VENDOR_PORTAL_SPEC.md` §11d.5. The table is `DATABASE_SCHEMA.md` §8.9. The routes and the error rows are `API_CONTRACTS.md` §4, §6.10 and §6.14.

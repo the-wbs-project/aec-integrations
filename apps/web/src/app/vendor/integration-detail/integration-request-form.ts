@@ -513,7 +513,7 @@ export class IntegrationRequestForm {
 export function requestErrorMessage(err: unknown): string {
   switch (readVendorApiError(err)?.code) {
     case 'FIELD_LOCKED_BY_AECI':
-      return $localize`:@@vendor.im.request.error.locked:AEC Integrations corrected this detail and locked it, so a change cannot be requested. To dispute it, email AEC Integrations.`;
+      return $localize`:@@vendor.im.request.error.locked:AEC Integrations corrected this detail and locked it, so a change cannot be requested. To dispute it, email support@aecintegrations.com.`;
     case 'CONTEST_DUPLICATE':
       return $localize`:@@vendor.im.request.error.duplicate:You already asked to change this detail. Withdraw that request below if you want to send a different value.`;
     case 'CONTEST_NO_CHANGE':

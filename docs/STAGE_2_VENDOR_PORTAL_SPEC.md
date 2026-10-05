@@ -3784,7 +3784,7 @@ A vendor that disagrees with an override uses the routes that already exist. The
 
 **Promote.** Unchanged. A lock is only set on a vendor-held record, and promote is fenced off every one (§4.5.3; the claimed-vendor block for companies and products). **Known limit:** when a record stops being vendor-held (the last-seat hand-back clears `claimed_at`, §4.5.3), promote writes the column again and the lock row stays. It still blocks a re-claimed vendor's edit of that field until an admin lifts it. ADR 0039 records this.
 
-**The legal text is not changed here.** The Listing Accuracy Policy says AECi takes a supported correction up with the owner. The wording that matches this power needs counsel; it is proposed on AECI-1237.
+**The legal text changes with it (Chris, 2026-10-05).** The Listing Accuracy Policy's "Requesting a correction" section now says AECi asks the vendor first and holds the right to correct a factual detail itself when the vendor does not respond or disagrees, with disputes to support@aecintegrations.com. The policy as a whole remains a draft pending counsel review (AECI-308).
 
 Wire shapes and errors: `API_CONTRACTS.md` §4, §6.10 and §6.14. Table: `DATABASE_SCHEMA.md` §8.9. Notifications: `docs/NOTIFICATIONS.md`. Tests: `apps/api/src/routes/admin-field-overrides.spec.ts`.
 

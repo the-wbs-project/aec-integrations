@@ -8,7 +8,7 @@ import type { LockedField } from '@aeci/shared';
  * reason. The field itself renders read-only; the host points its
  * `aria-describedby` at `noteId`, so a screen reader hears why it cannot be edited.
  *
- * The dispute route is §11d.4's: email AEC Integrations. A lock is lifted only by
+ * The dispute route is §11d.4: email support@aecintegrations.com. A lock is lifted only by
  * AECi, so the line says so rather than offering an action the vendor cannot take.
  */
 @Component({
@@ -24,7 +24,7 @@ import type { LockedField } from '@aeci/shared';
       >
       <span i18n="@@vendor.locked.reason">Reason: {{ lock().reason }}</span>
       <span i18n="@@vendor.locked.dispute"
-        >To dispute it, email AEC Integrations and quote this reason.</span
+        >To dispute it, email support@aecintegrations.com and quote this reason.</span
       >
     </p>
   `,
