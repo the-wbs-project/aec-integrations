@@ -106,9 +106,11 @@ function isLinkedInProfileUrl(value: string): boolean {
 }
 
 /**
- * Claim-form fields. `body` ("anything we should know") is required here rather
- * than optional as in the original spec copy: the column is NOT NULL and a claim
- * needs verification context. `phone` from the spec mock is dropped — the Phase 2
+ * Claim-form fields. `body` ("anything we should know") is optional, as in the
+ * original spec copy. It was required with a 20-character floor until claimants
+ * sent to claim by AECi found it busy work. The column stays NOT NULL, so "not
+ * supplied" is stored as the empty string, and `.default('')` keeps the key
+ * omittable on the wire. `phone` from the spec mock is dropped — the Phase 2
  * §5.1 table has no phone column. Both are flagged as table-reconciliation
  * decisions in the PR.
  *
@@ -150,11 +152,7 @@ export const ClaimFormSchema = z.object({
       'Enter a LinkedIn profile URL (https://www.linkedin.com/in/…).',
     )
     .default(''),
-  body: z
-    .string()
-    .trim()
-    .min(20, 'Tell us about your connection to this listing (at least 20 characters).')
-    .max(2000, 'Keep this under 2000 characters.'),
+  body: z.string().trim().max(2000, 'Keep this under 2000 characters.').default(''),
 });
 export type ClaimForm = z.infer<typeof ClaimFormSchema>;
 

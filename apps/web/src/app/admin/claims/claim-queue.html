@@ -463,9 +463,11 @@
         }
 
         <!-- Body -->
+        @if (r.body) {
         <p class="mt-4 whitespace-pre-line text-sm leading-relaxed text-(--text-secondary)">
           {{ r.body }}
         </p>
+        }
 
         <!-- §5.2: on a pure-connector vendor that owns NO integrations, BOTH
              actions are wrong, so the warning repeats here rather than only in

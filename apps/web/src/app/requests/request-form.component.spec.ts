@@ -123,13 +123,14 @@ describe('RequestForm', () => {
     httpMock.verify();
   });
 
-  it('discloses the 20-character floor as persistent hint text, described before any error', () => {
+  it('marks the claim note optional, with no character floor, described by its hint', () => {
     const { el, httpMock } = setup('vendor', 'claim');
 
     // The hint is present from first render (not gated on touched/invalid) and is
     // the only thing describing the field until an error joins it.
     const hint = el.querySelector('#claim-body-hint');
-    expect(hint?.textContent).toContain('Minimum 20 characters');
+    expect(hint?.textContent).not.toContain('Minimum');
+    expect(el.querySelector('label[for="claim-body"]')?.textContent).toContain('(optional)');
     expect(el.querySelector('#claim-body')?.getAttribute('aria-describedby')).toBe(
       'claim-body-hint',
     );
@@ -279,6 +280,26 @@ describe('RequestForm', () => {
     expect(formValue).toMatchObject({ submitter_email: 'dana@acme.example' });
     httpMock.verify();
   });
+
+  it('submits a claim with the note left empty', async () => {
+    const { fixture, el, api, httpMock } = setup('vendor', 'claim', 'acme-co', 'dana@acme.example');
+
+    type(fixture, '#claim-name', 'Dana Reyes');
+    type(fixture, '#claim-role', 'Head of Partnerships');
+    await settle();
+    fixture.detectChanges();
+
+    expect((el.querySelector('button[type="submit"]') as HTMLButtonElement).disabled).toBe(false);
+    (el.querySelector('form') as HTMLFormElement).dispatchEvent(new Event('submit'));
+    await settle();
+    fixture.detectChanges();
+
+    expect(api.submitClaim).toHaveBeenCalledTimes(1);
+    const [, formValue] = api.submitClaim.mock.calls[0];
+    expect(formValue).toMatchObject({ body: '' });
+    httpMock.verify();
+  });
+
   // ── AECI-847: the optional LinkedIn profile field ─────────────────────────
   describe('the claim LinkedIn field', () => {
     /** Fills every REQUIRED claim field, leaving `#claim-linkedin` to the case. */
@@ -286,7 +307,6 @@ describe('RequestForm', () => {
       type(fixture, '#claim-name', 'Dana Reyes');
       type(fixture, '#claim-role', 'Head of Partnerships');
       type(fixture, '#claim-email', 'dana@acme.example');
-      type(fixture, '#claim-body', 'I run the integrations program at Acme and own this listing.');
     }
 
     it('describes the field by its hint before any error', () => {

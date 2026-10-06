@@ -144,7 +144,7 @@ describe('RequestTrigger', () => {
 
   // The default. Most triggers have no context beyond the target, which the
   // request already carries as (target_type, slug) — passing an empty string
-  // would seed the field with nothing and defeat the 20-character floor's hint.
+  // would seed the field with nothing and defeat the field's hint.
   it('omits `bodyPrefill` entirely when the trigger supplies none', () => {
     const { anchor, drawer } = setup('browser');
     click(anchor);

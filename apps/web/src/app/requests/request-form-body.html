@@ -432,6 +432,7 @@
       i18n="@@requests.claim.body.label"
     >
       Anything we should know?
+      <span class="font-normal normal-case text-(--text-tertiary)">(optional)</span>
     </label>
     <textarea
       id="claim-body"
@@ -448,7 +449,6 @@
     >
       Tell us how you're connected to this listing: the team you work on, what you do with the
       product, or anything else that helps us verify you.
-      <strong class="text-(--text-primary)">Minimum 20 characters.</strong>
     </p>
     @if (form.body().touched() && form.body().getError('standardSchema')) {
     <p
@@ -457,7 +457,7 @@
       role="alert"
       i18n="@@requests.claim.body.error"
     >
-      Add at least 20 characters.
+      Keep this under 2,000 characters.
     </p>
     }
   </div>
