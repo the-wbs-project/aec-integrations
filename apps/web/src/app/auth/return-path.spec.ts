@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { safeReturnPath } from './return-path';
+import { safeReturnPath, signInQueryParams } from './return-path';
 
 // The open-redirect acceptance criterion (AECI-194): every hostile shape an
 // attacker could place in `/auth/login?return=…` must collapse to `/`, and
@@ -45,5 +45,27 @@ describe('safeReturnPath', () => {
     ['/categories/estimating-takeoff', 'hyphenated slug'],
   ])('preserves %s (%s)', (raw, _label) => {
     expect(safeReturnPath(raw)).toBe(raw);
+  });
+});
+
+describe('signInQueryParams', () => {
+  it.each([
+    ['/products/procore', { return: '/products/procore' }],
+    ['/search?q=revit&page=2', { return: '/search?q=revit&page=2' }],
+    ['/integrations/a/b#reviews', { return: '/integrations/a/b#reviews' }],
+  ])('returns the visitor to %s', (url, expected) => {
+    expect(signInQueryParams(url)).toEqual(expected);
+  });
+
+  it.each([
+    [null],
+    [''],
+    ['/'],
+    ['/auth/login'],
+    ['/auth/login?return=/products/x'],
+    ['/auth?x=1'],
+    ['//evil.example'],
+  ])('omits the param for %s', (url) => {
+    expect(signInQueryParams(url)).toEqual({});
   });
 });

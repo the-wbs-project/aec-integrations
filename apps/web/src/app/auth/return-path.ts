@@ -34,3 +34,15 @@ export function safeReturnPath(raw: string | null | undefined): string {
   if (/[\u0000-\u001f\u007f]/.test(raw)) return '/';
   return raw;
 }
+
+/**
+ * Query params for a "Sign in" link that should bring the visitor back to
+ * `url`: `{ return: <path> }`, or `{}` when there is nothing worth returning to.
+ * That is the home page (the login flow's own default) or an `/auth` page
+ * (landing on the login page after logging in is a dead end).
+ */
+export function signInQueryParams(url: string | null | undefined): Record<string, string> {
+  const path = safeReturnPath(url);
+  if (path === '/' || /^\/auth(?:[/?#]|$)/.test(path)) return {};
+  return { return: path };
+}

@@ -42,6 +42,7 @@ import { Component, inject } from '@angular/core';
 import { Router, RouterLink, RouterLinkActive } from '@angular/router';
 
 import { SessionStatus } from '../auth/session-status';
+import { injectSignInQueryParams } from '../auth/sign-in-link';
 import { TaxonomyNavStore } from '../core/taxonomy/taxonomy-nav.store';
 import { SearchAutocomplete } from '../search/search-autocomplete';
 import type { AutocompleteSuggestion } from '../search/autocomplete-mapping';
@@ -156,6 +157,7 @@ import { UserMenu } from './user-menu';
           } @else {
             <a
               routerLink="/auth/login"
+              [queryParams]="signInParams()"
               class="inline-flex shrink-0 items-center rounded-(--radius-md) bg-(--accent-primary) px-4 py-1.5 text-sm font-medium whitespace-nowrap text-(--surface-base) hover:bg-(--accent-primary-hover) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
               i18n="@@app.header.signIn"
             >
@@ -171,6 +173,8 @@ import { UserMenu } from './user-menu';
 export class SiteHeader {
   protected readonly taxonomy = inject(TaxonomyNavStore);
   protected readonly session = inject(SessionStatus);
+  /** `?return=<this page>` so signing in lands back here, not on `/`. */
+  protected readonly signInParams = injectSignInQueryParams();
   private readonly router = inject(Router);
 
   protected onSearchQuery(query: string): void {

@@ -57,6 +57,7 @@ import { Analytics } from '../analytics/analytics';
 import { AuthService } from '../auth/auth.service';
 import { SessionStatus } from '../auth/session-status';
 import { signOutAndGoHome } from '../auth/sign-out';
+import { injectSignInQueryParams } from '../auth/sign-in-link';
 import { VendorStatus } from '../vendor/vendor-status';
 import { TaxonomyNavStore } from '../core/taxonomy/taxonomy-nav.store';
 import { SearchAutocomplete } from '../search/search-autocomplete';
@@ -276,6 +277,7 @@ import { facetNavLabel, facetViewAllLabel } from './taxonomy-nav-copy';
             } @else {
               <a
                 routerLink="/auth/login"
+                [queryParams]="signInParams()"
                 (click)="menu.close()"
                 class="flex w-full items-center justify-center rounded-md bg-(--accent-primary) px-4 py-2 text-sm font-medium text-(--surface-base) hover:bg-(--accent-primary-hover) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
                 i18n="@@app.header.signIn"
@@ -292,6 +294,8 @@ import { facetNavLabel, facetViewAllLabel } from './taxonomy-nav-copy';
 export class NavMenu {
   private readonly taxonomy = inject(TaxonomyNavStore);
   protected readonly session = inject(SessionStatus);
+  /** `?return=<this page>` so signing in lands back here, not on `/`. */
+  protected readonly signInParams = injectSignInQueryParams();
   protected readonly adminStatus = inject(AdminStatus);
   protected readonly vendorStatus = inject(VendorStatus);
   private readonly summaryStore = inject(AdminSummaryStore);

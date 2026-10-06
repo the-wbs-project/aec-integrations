@@ -173,7 +173,7 @@ describe('AccountPage', () => {
     api.getProfile.mockRejectedValueOnce(new Error('401'));
     const { el } = await setup(api);
     expect(el.querySelector('[role="alert"]')?.textContent).toContain('session may have expired');
-    expect(el.querySelector('a[href="/auth/login"]')).not.toBeNull();
+    expect(el.querySelector('a[href="/auth/login?return=%2Faccount"]')).not.toBeNull();
   });
 
   it('offers a retry, not "sign in again", on 503 PROFILE_UNAVAILABLE and recovers (AECI-770)', async () => {
@@ -191,7 +191,7 @@ describe('AccountPage', () => {
     expect(el.querySelector('[role="alert"]')?.textContent).toContain(
       "couldn't finish setting up your account",
     );
-    expect(el.querySelector('a[href="/auth/login"]')).toBeNull();
+    expect(el.querySelector('a[href^="/auth/login"]')).toBeNull();
 
     const retry = [...el.querySelectorAll('button')].find((b) =>
       b.textContent?.includes('Try again'),
