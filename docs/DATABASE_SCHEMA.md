@@ -1278,7 +1278,7 @@ create table vendor_requests (
     check (domain_match in ('pending', 'match', 'no_match', 'manual_review')),
 
   -- Submission content
-  body       text not null,
+  body       text not null,             -- claim: 0..2000 chars, '' when skipped; correction: 20..2000
   source_url text,
 
   -- AECI-739: the free-text OPERATOR note (STAGE_2_VENDOR_PORTAL_SPEC.md §5.2

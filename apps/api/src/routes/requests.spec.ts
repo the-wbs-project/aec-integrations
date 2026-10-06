@@ -371,6 +371,32 @@ describe('POST /api/requests/claim', () => {
     );
     expect(await t.db.select().from(vendorRequests)).toHaveLength(0);
   });
+
+  // "Anything we should know?" is optional: claimants AECi sends to claim have
+  // nothing to add, and the old 20-character floor was busy work.
+  describe('optional body', () => {
+    it('accepts a claim with no body key and stores the empty string', async () => {
+      await seedVendor({ slug: 'acme-co' });
+      const { body: _omit, ...noBody } = validBody;
+      const res = await submitClaim(noBody);
+      expect(res.status).toBe(201);
+      expect((await createdRow(res)).row?.body).toBe('');
+    });
+
+    it('accepts a short body', async () => {
+      await seedVendor({ slug: 'acme-co' });
+      const res = await submitClaim({ ...validBody, body: 'CEO.' });
+      expect(res.status).toBe(201);
+      expect((await createdRow(res)).row?.body).toBe('CEO.');
+    });
+
+    it('still rejects a body over 2000 characters', async () => {
+      await seedVendor({ slug: 'acme-co' });
+      const res = await submitClaim({ ...validBody, body: 'x'.repeat(2001) });
+      expect(res.status).toBe(400);
+      expect(await t.db.select().from(vendorRequests)).toHaveLength(0);
+    });
+  });
 });
 
 // ─── Phase 6.8 (AECI-215): domain-match + duplicate signals ─────────────────────

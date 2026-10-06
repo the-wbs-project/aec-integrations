@@ -1286,13 +1286,15 @@ export const ClaimRequestSchema = ClaimFormSchema.extend({
   slug: z.string().min(1),
 });
 // ClaimFormSchema = { submitter_name (1–200), submitter_email (email, ≤200),
-//                     submitter_role (1–100), body (20–2000),
+//                     submitter_role (1–100), body (0–2000, key omittable),
 //                     submitter_linkedin_url ('' or a LinkedIn URL ≤200) }
 ```
 
 **`submitter_linkedin_url` (AECI-847).** The claimant's own LinkedIn profile, the identity signal `/admin/claims` renders for the reviewer. Optional and validated against a **host allowlist**, not a generic URL check: the scheme must be `https:` and the hostname must be `linkedin.com` or a subdomain of it (so `www.`, and the regional mirrors like `uk.linkedin.com`, both pass). An unanchored URL check would accept the claimant's own marketing page, which looks like evidence and is not, and it would let a `javascript:` string reach an admin `href`. `''` means "not supplied" and is stored as `NULL`.
 
-Unlike every other field on these two schemas, the KEY is omittable: it carries `.default('')`. The field was added to an endpoint already serving production traffic, so a body that predates it must still validate. Do not "tidy" that default away.
+Unlike the other submitter fields, the KEY is omittable: it carries `.default('')`. The field was added to an endpoint already serving production traffic, so a body that predates it must still validate. Do not "tidy" that default away.
+
+**`body` is optional on a claim.** "Anything we should know?" has no minimum length. It used to require 20 characters, which was busy work for claimants AECi had asked to claim. It also carries `.default('')`, so the key may be omitted. The column is `NOT NULL`, so "not supplied" is stored as `''`, not `NULL`. The 2,000-character cap stays. A correction's `body` keeps its 20-character floor.
 
 #### `POST /api/requests/correction`
 
