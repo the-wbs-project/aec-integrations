@@ -144,7 +144,8 @@ jobs:
       # dispatched ref, so a run from another branch could carry an old or edited
       # gate. This check catches a wrong-branch dispatch from the Actions UI or
       # `gh workflow run`. It cannot stop a branch that deletes the check itself.
-      # Only a deployment-branch rule on the `demo` environment can do that.
+      # The `demo` environment's deployment-branch rule (main only, set
+      # 2026-10-07) does: the deploy job cannot start from any other ref.
       - name: Require dispatch from main
         env:
           REF: ${{ github.ref }}

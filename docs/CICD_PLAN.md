@@ -1341,7 +1341,7 @@ Lighthouse does not run on PRs or on merges to `main`. It measures a commit in t
 
 `promote-to-prod.yml` has no Lighthouse step. It requires demo to be at the SHA, so the demo gate covers production.
 
-**Both promote workflows must be dispatched from `main`.** GitHub runs the copy of the workflow file at the dispatched ref. A run from another branch could carry an old or edited gate. The first step of `pre-promotion-checks` fails unless `github.ref` is `refs/heads/main`. `commit_sha` still chooses the commit. This catches a wrong-branch dispatch. It cannot stop a branch that deletes the check. Only a deployment-branch rule on the `demo` and `production` environments can do that. We have not checked whether those rules are set.
+**Both promote workflows must be dispatched from `main`.** GitHub runs the copy of the workflow file at the dispatched ref. A run from another branch could carry an old or edited gate. The first step of `pre-promotion-checks` fails unless `github.ref` is `refs/heads/main`. `commit_sha` still chooses the commit. This catches a wrong-branch dispatch. It cannot stop a branch that deletes the check. The `demo` and `production` environments carry a deployment-branch rule that allows `main` only, set 2026-10-07. That rule does stop it: the deploy job cannot start from any other ref. Check it with `gh api repos/the-wbs-project/aec-integrations/environments/demo/deployment-branch-policies`.
 
 **Token scope.** The `lighthouse` job holds a `statuses: write` token. Its checkout sets `persist-credentials: false`, so the token is not written to `.git/config` where `pnpm install` scripts could read it. Only the two status steps receive it, as `GH_TOKEN`.
 
