@@ -1,8 +1,14 @@
 import { provideHttpClient, withXhr } from '@angular/common/http';
 import { provideHttpClientTesting } from '@angular/common/http/testing';
-import { provideZonelessChangeDetection, signal, type WritableSignal } from '@angular/core';
+import {
+  Component,
+  PLATFORM_ID,
+  provideZonelessChangeDetection,
+  signal,
+  type WritableSignal,
+} from '@angular/core';
 import { TestBed } from '@angular/core/testing';
-import { provideRouter } from '@angular/router';
+import { provideRouter, Router } from '@angular/router';
 import { beforeEach, describe, expect, it } from 'vitest';
 
 import { AdminStatus } from '../admin/admin-status';
@@ -11,6 +17,9 @@ import { AuthService } from '../auth/auth.service';
 import { SessionStatus } from '../auth/session-status';
 
 import { SiteHeader } from './site-header';
+
+@Component({ template: '' })
+class BlankPage {}
 
 /**
  * The header's auth affordance (Phase 5 §4.4). `SessionStatus.signedIn()` is
@@ -28,7 +37,7 @@ describe('SiteHeader auth affordance', () => {
     TestBed.configureTestingModule({
       providers: [
         provideZonelessChangeDetection(),
-        provideRouter([]),
+        provideRouter([{ path: '**', component: BlankPage }]),
         provideHttpClient(withXhr()),
         provideHttpClientTesting(),
         // `avatarUrl` / `fullName` feed the AECI-850 identity block inside the
@@ -66,6 +75,31 @@ describe('SiteHeader auth affordance', () => {
     const signIn = el.querySelector('a[href="/auth/login"]');
     expect(signIn?.textContent?.trim()).toBe('Sign in');
     expect(el.querySelector('a[href="/account"]')).toBeNull();
+  });
+
+  it('threads the current page into "Sign in" as ?return= so sign-in lands back here', async () => {
+    const fixture = render();
+    await TestBed.inject(Router).navigateByUrl('/products/procore?tab=reviews');
+    fixture.detectChanges();
+
+    const el = fixture.nativeElement as HTMLElement;
+    const signIn = el.querySelector<HTMLAnchorElement>('a[href^="/auth/login"]');
+    expect(signIn?.getAttribute('href')).toBe(
+      '/auth/login?return=%2Fproducts%2Fprocore%3Ftab%3Dreviews',
+    );
+  });
+
+  it('renders "Sign in" with the path alone on the server, so cached HTML carries no query', async () => {
+    // The edge key drops utm_* and the email send id `n`, so a rendered query
+    // would bake one visitor's params into HTML served to everyone.
+    TestBed.overrideProvider(PLATFORM_ID, { useValue: 'server' });
+    const fixture = render();
+    await TestBed.inject(Router).navigateByUrl('/products/procore?utm_source=email&n=abc#reviews');
+    fixture.detectChanges();
+
+    const el = fixture.nativeElement as HTMLElement;
+    const signIn = el.querySelector<HTMLAnchorElement>('a[href^="/auth/login"]');
+    expect(signIn?.getAttribute('href')).toBe('/auth/login?return=%2Fproducts%2Fprocore');
   });
 
   it('swaps to the account menu (no "Sign in") once the probe reports a session', () => {
