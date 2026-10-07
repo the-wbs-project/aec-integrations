@@ -65,7 +65,7 @@ shipped.
 > **Current state (deviation from spec) — set 2026-05-18, updated 2026-05-26.**
 > - **Cloudflare account (AECI-1161, [ADR 0036](./adr/0036-move-to-the-wbs-project-cloudflare-account.md)).** Every environment deploys to The WBS Project account from the 2026-10-04 cutover. The config PR that changes `account_id` in the wrangler files merges only after the cutover. Staging deploys from `main` on every merge, and its custom domain cannot bind on the WBS account until the zone has moved, so an early merge would break the staging deploy. Runbook: `scripts/ops/2026-09-wbs-account-move/README.md`.
 > - **Staging** is auto-deployed on merge to `main` via `.github/workflows/deploy.yml` `deploy-staging` job, gated by `vars.STAGING_ENABLED`.
-> - **Demo** is promoted manually via `.github/workflows/promote-to-demo.yml` — `workflow_dispatch` with a single `commit_sha` input (AECI-879 dropped the typed `confirm=PROMOTE` box; the SHA is the confirmation). The public showcase tier, inserted between staging and production; it shares the prod Supabase project (touches no Postgres).
+> - **Demo** is promoted manually via `.github/workflows/promote-to-demo.yml` — `workflow_dispatch` with a single `commit_sha` input (AECI-879 dropped the typed `confirm=PROMOTE` box; the SHA is the confirmation). The public showcase tier, inserted between staging and production; it shares the prod Supabase project (touches no Postgres). It is gated on Lighthouse: the SHA needs a `lighthouse: success` commit status, or the promote measures it first (§11c).
 > - **Production** is promoted manually via `.github/workflows/promote-to-prod.yml` (AECI-78) — `workflow_dispatch` with a single explicit `commit_sha` input and a GH Environment approval gate. AECI-879 dropped the typed `confirm=PROMOTE` box; the SHA is the confirmation and the approval gate is the real stop. It promotes from **demo** (the immediate upstream tier). There is intentionally **no auto-deploy to demo or production**.
 > - **Per-PR previews** are wired via `.github/workflows/pr-preview.yml` (AECI-79). Only the SSR Worker is per-PR (`aeci-web-pr-<N>` on `aeci-*.thewbsproject.workers.dev`); the API Worker is shared (`aeci-api-preview`) and reaches the app DB through its native D1 `DB` binding (no Prisma Accelerate, no `DATABASE_URL`; ADR 0016). See `docs/environments.md` §"PR previews" for the DB-strategy decision.
 
@@ -90,7 +90,7 @@ Four permanent environments, all on Cloudflare — plus, while Stage 2 is being 
 
 ### 2.1 Preview environment
 
-Spun up per PR by [`pr-preview.yml`](../.github/workflows/pr-preview.yml) (AECI-79). Provides a working deployment for human review; the preview-URL E2E / integration-runner jobs remain parked in `deploy.yml` pending separate work to bridge them across workflows. (E2E and axe run **on every PR** against a local `dev:bound` server in `deploy.yml`. Lighthouse used to as well — AECI-65 un-parked it against `dev:bound` — but it never gated anything on a PR and has since moved to its own **push-to-main-only** workflow ([`lighthouse.yml`](../.github/workflows/lighthouse.yml)), so it no longer runs on PRs; it **error-gates the post-merge run** instead (AECI-188 — a budget miss turns the workflow red after merge).)
+Spun up per PR by [`pr-preview.yml`](../.github/workflows/pr-preview.yml) (AECI-79). Provides a working deployment for human review; the preview-URL E2E / integration-runner jobs remain parked in `deploy.yml` pending separate work to bridge them across workflows. (E2E and axe run **on every PR** against a local `dev:bound` server in `deploy.yml`. Lighthouse used to as well — AECI-65 un-parked it against `dev:bound` — but it never gated anything on a PR and has since moved to its own workflow ([`lighthouse.yml`](../.github/workflows/lighthouse.yml)). It no longer runs on PRs or merges. It runs nightly and as the demo promote gate (§11c).)
 
 - Each PR gets a unique SSR Worker `aeci-web-pr-<N>` at `https://aeci-web-pr-<N>.thewbsproject.workers.dev`.
 - Auto-deletes when the PR is closed or merged (cleanup job in the same workflow).
@@ -178,6 +178,48 @@ Runs in parallel where possible to minimize wall time. Goal: under 10 minutes to
 > job via the `changes` job. The `push` `paths-ignore` (docs-only) and the `paths` (auth/JWKS input
 > set) filter are unchanged.
 
+> **One exception since 2026-10: PRs into `batch/**` take a lite lane.** A sub-agent PR into a
+> batch branch (§10a) runs `deploy.yml` with lint, typecheck and unit tests scoped to the packages
+> it changed plus their dependents. E2E is skipped. `Build SSR Worker` builds only when apps/web
+> is in scope. `pr-preview.yml` and `integration-db-tests.yml` skip these PRs through
+> `branches-ignore: ['batch/**']`. `drift-check.yml` still runs, because it is cheap and
+> migration-relevant. The batch → `main` PR runs the full lane once for the whole batch.
+>
+> `scripts/ci/lane-plan.mjs` makes the call. It picks the lite lane only when the base starts with
+> `batch/` and every changed file sits under `apps/<x>/` or `packages/<x>/` or is Markdown. Any
+> other file forces the full lane. That covers `pnpm-lock.yaml`, the root `package.json`, tsconfig,
+> ESLint and Prettier config, `.github/**`, `scripts/**`, and the `docs/*.json` vocabularies the API
+> specs read. The affected set comes from `pnpm ls --filter "...[HEAD^1]"`, so a change to
+> packages/shared selects every app.
+>
+> The diff is `git diff --name-status --no-renames HEAD^1 HEAD`. With `--no-renames`, a rename
+> shows as a delete of the old path plus an add of the new one. **Any deleted file forces the full
+> lane.** A deletion can remove a whole package or a file another package reads, and pnpm cannot
+> see that losing side.
+>
+> Some specs read another package's files by relative path. pnpm cannot see those edges, so
+> `HIDDEN_READERS` in `lane-plan.mjs` adds them by hand:
+>
+> | A change under | Also selects | Why |
+> |---|---|---|
+> | `docs/` | apps/api | The notifications registry spec checks every `docs/X.md §Y` pointer |
+> | `apps/datatool/` | apps/agent, apps/api | `access.spec.ts` byte-compares the datatool copy. Three api specs import or scan datatool source |
+> | `apps/agent/` | apps/api | The count-lockstep spec scans agent source |
+> | `apps/api/migrations/` | apps/datatool, apps/agent | Their test D1 applies the api migrations |
+> | `apps/api/src/`, `apps/web/src/` | packages/shared | The version-diff consult-sites spec scans both trees |
+>
+> A new spec that reads across packages needs a row in that table.
+>
+> **A planning error falls back to the full lane.** If git or pnpm fails while planning the lite
+> lane, the script prints a `::warning::` annotation and returns the full plan. A merge-ref
+> checkout without a second parent also takes the full lane.
+>
+> Each job runs the plan itself rather than reading a shared plan job. A job whose `needs:` failed
+> is skipped, and GitHub counts a skipped required check as passing. In-job planning means a broken
+> plan can never turn a job silently green. In the lite lane the unit and build jobs still run and
+> report success. They skip their steps, not the job. The root `scripts/*.test.mjs` tests run in
+> both lanes, because some read files a lite-lane PR can change, such as `docs/NOTIFICATIONS.md`.
+
 **Job: `changes`** (~10 s) — *non-required, advisory*
 1. **Checkout** — REQUIRED, not incidental. `dorny/paths-filter` reads the changed-file list from
    the GitHub API on `pull_request`, but shells out to **git** on `push`. Without a working copy
@@ -199,17 +241,39 @@ Runs in parallel where possible to minimize wall time. Goal: under 10 minutes to
 4. `pnpm run lint` (ESLint ×4 packages + `apps/web/scripts/check-source-constraints.mjs` + Prettier)
 5. `pnpm run typecheck` (`tsc --noEmit` across the monorepo)
 
+In the lite lane, step 4 narrows only the per-package ESLint pass to the affected packages. The
+CLAUDE.md size gate, the NOTIFICATIONS.md drift check and the whole-repo Prettier check still run.
+Step 5 runs `typecheck` for the affected packages. apps/web has no `typecheck` script in either
+lane. Its type errors surface in `ng build` and `ng test`.
+
 This job is where the non-negotiable constraints are enforced (AECI-549), not just style: the Drizzle/D1 data-layer ban, zoneless, light-theme-only, and the `Vary` discipline all fail here. Because `lint-and-types` is a required check on `main` and `stage-2`, a PR cannot merge while violating one. See `ANGULAR_STYLE_GUIDE.md` §24 for the rule-to-constraint map.
 
-**Job: `unit-tests`** (~4 min on a PR; ~5.5 min on a push, where the coverage step also runs)
-1. Checkout, install
-2. `pnpm run test:unit` (Vitest + `apps/web`'s `ng test` component specs)
-3. `pnpm -r run test:coverage` as an **advisory, non-blocking** step
-   (`continue-on-error`), **push-only since AECI-917**; on a push it uploads the
-   lcov/HTML `coverage` artifact. It does not run on PRs, where it cost ~2 min of
-   a required check for a report nobody read per PR (`TESTING_STRATEGY.md` §3.3).
-4. Coverage is **reported, not gated** — a drop does not fail the job
-   (`TESTING_STRATEGY.md` §3.3). There is no Codecov integration today.
+**Jobs: `unit-api`, `unit-web`, and the `unit-tests` gate** (split 2026-10)
+
+The unit lane is three jobs. Measured 2026-10-03 to 10-06, the single job took 7.4 min median on a
+PR. apps/api's vitest suite (368 s) was the floor, and it shared a 4-vCPU runner with apps/web's
+vitest and `ng test` (207 s) under one `pnpm -r`. Each now has its own runner.
+
+| Job | Check name | Runs |
+|---|---|---|
+| `unit-api` | `Unit tests (api)` | apps/api vitest |
+| `unit-web` | `Unit tests (web + shared)` | root `scripts/*.test.mjs`, apps/web vitest + `ng test`, packages/shared, apps/agent, apps/datatool |
+| `unit-tests` | `Unit tests` (**required**) | Nothing. Passes only when both jobs above report `success` |
+
+The gate has `if: always()` and checks each `needs.<job>.result` explicitly. Without that, a red
+unit job would skip the gate, and a skipped required check counts as passing. Every job that waits
+on unit work (`migrate-preview`, `deploy-staging`) still `needs: [unit-tests]`, so it waits on both.
+`unit-web` excludes the workspace root by name. The root's own `test:unit` script recurses into
+every package, apps/api included.
+
+**Coverage, push only.** Since 2026-10 a push runs each suite **once** with coverage on, instead
+of a test run followed by a second coverage run. That saves about 5 min on every push to `main`.
+The vitest thresholds are zeroed on the command line (`COVERAGE_ARGS` in `deploy.yml`), so the exit
+code reflects test failures only. `scripts/ci/coverage-advisory.mjs` then compares each package's
+totals with the `thresholds` block in its `vitest.config.ts`. A miss becomes a warning annotation
+and a row in the job summary. Coverage stays **reported, not gated** (`TESTING_STRATEGY.md` §3.3).
+The artifacts are `coverage-api` and `coverage-web`. PRs skip coverage entirely (AECI-917). There
+is no Codecov integration today.
 
 **Job: `integration-db-tests`** (~3 min, AECI-90; its own workflow `integration-db-tests.yml`, extracted from `deploy.yml`) — *non-blocking*
 1. Checkout, install
@@ -238,6 +302,11 @@ This job is where the non-negotiable constraints are enforced (AECI-549), not ju
 3. Bundle size check against budget (defined in `TESTING_STRATEGY.md`)
 4. Upload build artifact for downstream jobs
 
+The real job is `build-web` (check `Build SSR Worker`). In the lite lane it builds only when
+apps/web is in scope. It stays in that lane because it is cheap and catches template and build
+breaks that lint and unit tests miss. It exposes `outputs.lane`, which `e2e-and-integration` reads
+to skip itself in the lite lane.
+
 **Per-PR preview deploy** — lives in the separate [`pr-preview.yml`](../.github/workflows/pr-preview.yml) workflow (AECI-79), not as a job in `deploy.yml`. Triggered by `pull_request` (`opened` / `synchronize` / `reopened`); the deploy job builds the SSR Worker, runs `wrangler deploy --env preview --name aeci-web-pr-<N>` with `COMMIT_SHA` + `DEPLOYED_AT` vars, verifies both `/api/version` (API Worker) and `/_version` (SSR Worker, AECI-92) report the PR head SHA, and posts a sticky PR comment with the preview URL. The matching `closed` event teardown runs `wrangler delete`. **No migrations of any kind are applied per-PR** under the current Option 1 strategy — not Supabase (there is no Postgres app DB) and deliberately not D1 either. The shared `aeci-app-preview` D1 is migrated on push to `main` by `deploy.yml`'s `migrate-preview` job (§3.2), never from a PR branch: applying an unmerged branch's schema would change the database every *other* PR preview reads. A PR that adds a migration therefore previews against the pre-merge schema (AECI-828).
 
 **Job: `e2e-tests`** (depends on `deploy-preview`, ~5 min)
@@ -258,11 +327,7 @@ This job is where the non-negotiable constraints are enforced (AECI-549), not ju
 2. Fail if any violations above "moderate" severity
 3. Comment on PR with summary if violations found
 
-**Job: `lighthouse`** (depends on `deploy-preview`, ~3 min)
-1. Run Lighthouse CI against preview URL for home, product, vendor pages
-2. Compare against performance budget (Core Web Vitals targets)
-3. Fail if LCP > 2.5s, INP > 200ms, CLS > 0.1, or Accessibility < 95
-4. Comment on PR with scores
+**Job: `lighthouse`** — not built as planned. Lighthouse never runs on PRs. It runs nightly and as the demo promote gate, in its own workflow. See §11c.
 
 **Aggregate PR result:**
 - All checks green: PR is mergeable
@@ -340,7 +405,7 @@ Triggered by Chris (workflow_dispatch with a single `commit_sha` input) and gate
 6. Poll both `www.aecintegrations.com/api/version` (API Worker) and `/_version` (SSR Worker, AECI-92) until **both** return the promoted SHA **and** `/api/health` is `db:ok` (60s budget) via `scripts/verify-version.sh` + `scripts/verify-health.sh`; a smoke failure auto-rolls-back both Workers
 7. Write summary (commit, DEPLOYED_AT, actor)
 
-The **demo** tier is deployed by the light sibling [`promote-to-demo.yml`](../.github/workflows/promote-to-demo.yml): validate `commit_sha` matches `^[0-9a-f]{40}$` → assert **staging** is at the SHA → (GH Environment `demo`) provision `aeci-*-demo` queues (the eight-queue scheduled-job set, incl. the AECI-302 `aeci-attestation-notify-demo`, the AECI-1210 `aeci-vendor-snapshot-demo` and the AECI-1236 `aeci-gsc-inspect-demo`, + the WC-5 `aeci-cache-purge-demo` queue) → apply `aeci-app-demo` D1 migrations (`scripts/d1-apply-migrations.sh`, which retries a transient D1 `[code: 7500]` internal error) → deploy `aeci-{api,web}-demo` → push demo Worker secrets → smoke `demo.aecintegrations.com` → auto-rollback on smoke failure. The `demo` GH Environment has no required reviewer by default (add one to gate it). It touches no Postgres (demo shares the prod Supabase project, which production owns).
+The **demo** tier is deployed by the light sibling [`promote-to-demo.yml`](../.github/workflows/promote-to-demo.yml): validate `commit_sha` matches `^[0-9a-f]{40}$` (and that a Lighthouse override carries a reason) → assert **staging** is at the SHA → Lighthouse gate (reuse a `lighthouse: success` status on the SHA, else measure it now through `lighthouse.yml`; §11c) → (GH Environment `demo`) provision `aeci-*-demo` queues (the eight-queue scheduled-job set, incl. the AECI-302 `aeci-attestation-notify-demo`, the AECI-1210 `aeci-vendor-snapshot-demo` and the AECI-1236 `aeci-gsc-inspect-demo`, + the WC-5 `aeci-cache-purge-demo` queue) → apply `aeci-app-demo` D1 migrations (`scripts/d1-apply-migrations.sh`, which retries a transient D1 `[code: 7500]` internal error) → deploy `aeci-{api,web}-demo` → push demo Worker secrets → smoke `demo.aecintegrations.com` → auto-rollback on smoke failure. The `demo` GH Environment has no required reviewer by default (add one to gate it). It touches no Postgres (demo shares the prod Supabase project, which production owns).
 
 Algolia index updates **are** wired (step 9 of `deploy-staging` above, and the equivalent in both promote workflows). **Slack was dropped from the project entirely**, not deferred — there is no Slack integration anywhere in `.github/workflows/` or `scripts/` (the only mention was a comment recording that an alert-grade Datadog *event* replaced it on rollback — removed with the Datadog leg at AECI-651). Release-tag automation remains unbuilt — see §3.4.
 
@@ -539,14 +604,14 @@ Stored in GitHub Settings → Secrets and Variables → Actions. Scoped per envi
 | `SUPABASE_ANON_KEY` | Public Supabase key | All |
 | `ALGOLIA_ADMIN_KEY` | **Single shared management** key (one value, every env) — search + index-mutation ACLs; one Algolia app spans all envs and the key reaches every index (`--env` is only an index-name prefix). Sync pipeline (3.5/3.6) + CI. Pushed to the API Worker as `ALGOLIA_ADMIN_KEY` by `deploy.yml` / `promote-to-prod.yml` / `promote-to-demo.yml`. The former `_STAGING`/`_PRODUCTION` secrets are retired. | All |
 | `ALGOLIA_SEARCH_KEY` | **Single shared search-only** key (`['search']`, one value every env), client-exposed (InstantSearch, 3.9). **Must be scoped to cover every env's indexes + sort replicas** it serves (`staging_*`/`production_*`/`demo_*`/`preview_*`; AECI-175 — `connectSortBy` queries a replica directly) — it's one shared value now, so an env-scoped key breaks the others. Pushed to the web Worker (with `ALGOLIA_APP_ID`) by `deploy.yml` (staging — recommended/warn-and-skip), `promote-to-prod.yml` (production — required/fail-closed), `promote-to-demo.yml` (demo). The former `_STAGING`/`_PRODUCTION`/`_PREVIEW`/`_DEMO` secrets are retired. | All |
-| `ALGOLIA_SEARCH_KEY` (Lighthouse preview use) | The same shared `ALGOLIA_SEARCH_KEY` above. Consumed by [`lighthouse.yml`](../.github/workflows/lighthouse.yml) (AECI-188), which writes it into `apps/web/.dev.vars` so the post-merge Lighthouse run measures `/search` with the real InstantSearch SDK against the `preview_*` indexes (populated via `pnpm algolia:bulk-sync -- --env preview`); the workflow hard-fails without it, so the shared key **must** also cover `preview_*`. | CI (lighthouse.yml) |
+| `ALGOLIA_SEARCH_KEY` (Lighthouse preview use) | The same shared `ALGOLIA_SEARCH_KEY` above. Consumed by [`lighthouse.yml`](../.github/workflows/lighthouse.yml) (AECI-188), which writes it into `apps/web/.dev.vars` so every Lighthouse run (nightly, promote gate, manual; §11c) measures `/search` with the real InstantSearch SDK against the `preview_*` indexes (populated via `pnpm algolia:bulk-sync -- --env preview`); the workflow hard-fails without it, so the shared key **must** also cover `preview_*`. | CI (lighthouse.yml) |
 | `ALGOLIA_APP_ID` | Algolia application id. **Single value shared across all envs** (one app; only indexes/keys differ). Pushed to both Workers. | All |
 | ~~`POSTHOG_KEY_STAGING` / `_PRODUCTION`~~ — **retired (AECI-640)** | **No longer read by any workflow.** The publishable `phc_` project token is now a committed per-env `vars.POSTHOG_PROJECT_KEY` in both `wrangler.jsonc` files, and all four CI push steps are deleted. The token ships in the served HTML on every page, so keeping it a secret bought nothing and cost the weeks-dark prod analytics of AECI-326. **Operator action: delete both GH secrets.** | — |
 | `POSTHOG_CLI_API_KEY` | Personal `phx_` key. **CI-only — never a Worker secret** (a personal key reaches the whole org). Used by `posthog-sourcemaps.sh` (§9.1a) and the deploy marker's annotation leg (§9.1). Needs the union of `error tracking write` + `organization read` and insight/dashboard/alert write + project read (for the AECI-647 `apply.sh`). Optional + warn-and-skip everywhere. Not in `RECOMMENDED_SECRETS` — the scripts self-warn, which is the right gate for a step that must never block a deploy. | CI (all deploy paths) |
 | ~~`DATADOG_API_KEY`~~ | **Retired at AECI-651** — no longer read by any workflow. Delete from GH secrets (manual, WC-10 precedent). | — |
 | ~~`DATADOG_APP_KEY`~~ | **Retired at AECI-651.** Same. | — |
-| `RESEND_API_KEY` | Resend key for transactional email (AECI-240, §11.1). **Single shared, un-suffixed key** — one Resend account/key spans every env (like `SUPABASE_ANON_KEY`); pushed to the API Worker as `RESEND_API_KEY` by `deploy.yml` (staging), `promote-to-demo.yml` (demo), and `promote-to-prod.yml` (production). **Optional + fail-open on every env** (warn-and-skip): a missing key makes every send a silent `'skipped'` and the triggering action still succeeds. Pairs with the `EMAIL_FROM` var (sender). See `docs/email.md`. | staging, demo, production |
-| `LINEAR_API_KEY` | Linear personal API key for the form→Linear pipeline (AECI-211, §6.4); pushed to the API Worker as `LINEAR_API_KEY` by `promote-to-prod.yml` **only** (AECI-851). **Single shared, un-suffixed key.** **REQUIRED + fail-closed on production** — the one runtime-fail-open key that still blocks a promote, because the absent-key path emits **no metric and no log**: `createLinearIssueForRequest()` returns before its first emission, so a vendor claim routes to nobody and the only signal is the 60-minute reconciliation-sweep email. Preflighted in `REQUIRED_SECRETS`, then re-asserted on the live Worker in `REQUIRED_WORKER_SECRETS`. **Production only, deliberately** — the board constants in `apps/api/src/lib/linear.ts` are hardcoded to the one live "Vendor Requests" project, so a staging/demo/preview Worker files fixture claims as real issues (`AECI-638` "Claim: Fixture Procore" is what that looks like). `apps/api/src/linear-secrets-ci.spec.ts` asserts both halves. ⚠️ **This row previously read `LINEAR_API_TOKEN` / "All", a name that exists nowhere in the code** — which is part of why prod ran with no key from the 2026-07 apex cutover to 2026-09-10. | production |
+| `RESEND_API_KEY` | Resend key for transactional email (AECI-240, §11.1). **Single shared, un-suffixed key** — one Resend account/key spans every env (like `SUPABASE_ANON_KEY`); pushed to the API Worker as `RESEND_API_KEY` by `deploy.yml` (staging), `promote-to-demo.yml` (demo), and `promote-to-prod.yml` (production). **Optional + fail-open on every env** (warn-and-skip): a missing key makes every send a silent `'skipped'` and the triggering action still succeeds. Pairs with the `EMAIL_FROM` var (sender). See `docs/email.md`. Also read directly by the nightly Lighthouse alert job in `lighthouse.yml` (§11c), which emails support@ when it files a new regression issue. | staging, demo, production |
+| `LINEAR_API_KEY` | Linear personal API key for the form→Linear pipeline (AECI-211, §6.4); pushed to the API Worker as `LINEAR_API_KEY` by `promote-to-prod.yml` **only** (AECI-851). **Single shared, un-suffixed key.** **REQUIRED + fail-closed on production** — the one runtime-fail-open key that still blocks a promote, because the absent-key path emits **no metric and no log**: `createLinearIssueForRequest()` returns before its first emission, so a vendor claim routes to nobody and the only signal is the 60-minute reconciliation-sweep email. Preflighted in `REQUIRED_SECRETS`, then re-asserted on the live Worker in `REQUIRED_WORKER_SECRETS`. **Production only, deliberately** — the board constants in `apps/api/src/lib/linear.ts` are hardcoded to the one live "Vendor Requests" project, so a staging/demo/preview Worker files fixture claims as real issues (`AECI-638` "Claim: Fixture Procore" is what that looks like). `apps/api/src/linear-secrets-ci.spec.ts` asserts both halves. The nightly Lighthouse alert job in `lighthouse.yml` (§11c) also reads the GH secret directly to file and comment on `lighthouse-regression` issues. It never pushes it to a Worker. ⚠️ **This row previously read `LINEAR_API_TOKEN` / "All", a name that exists nowhere in the code** — which is part of why prod ran with no key from the 2026-07 apex cutover to 2026-09-10. | production |
 | `LINEAR_WEBHOOK_SIGNING_SECRET` | HMAC-SHA256 signing secret for the inbound Linear webhook (AECI-212, §6.5, `POST /api/webhooks/linear`); pushed to the API Worker by `promote-to-prod.yml` **only** (AECI-851). **Single shared, un-suffixed.** **Recommended + warn-and-skip**, the opposite call from the row above: this one **fails closed** (every delivery rejected 401 before any write) and emits `aeci.webhooks.linear.hmac_failure`, which has its own alert — so its absence is loud, not silent. A prod webhook may not be registered in Linear at all, in which case the secret is moot and must not block a promote. Previously named `LINEAR_WEBHOOK_SECRET` here, which matches nothing in the code. | production |
 | `RESEND_WEBHOOK_SECRET_STAGING` / `_DEMO` / `_PRODUCTION` | Svix signing secret of that tier's Resend delivery-webhook endpoint (AECI-1222, `POST /api/webhooks/resend`), pushed to the API Worker as `RESEND_WEBHOOK_SECRET` by `deploy.yml` / `promote-to-demo.yml` / `promote-to-prod.yml`. **Suffixed per tier**, because each Resend endpoint has its own secret. **Recommended + warn-and-skip**: the endpoint fails closed (every event 401s), so absence is loud and must not block a deploy. Not on PR previews. | staging / demo / production |
 | `LINEAR_DOCS_MIRROR_API_KEY` | Linear API key for [`mirror-notifications-doc.yml`](../.github/workflows/mirror-notifications-doc.yml) (AECI-1201, §11b). It overwrites one Linear Document with `docs/NOTIFICATIONS.md` through the GraphQL `documentUpdate` mutation, sent as a bare `Authorization` header. **CI-only, never pushed to a Worker.** **Separate from `LINEAR_API_KEY` above** so the production Worker's key and this one rotate and revoke independently. **Owner: chrisw@thewbsproject.com.** **Do not use a personal API key.** A personal key acts as Chris with every team he can see, and it dies or changes owner when his account does. Use a non-human identity limited to the AECi team instead, as in setup step 3 below. Scope: the narrowest Linear offers that can still update a document. Read access alone is not enough. Record the identity and scope chosen here when the key is created. **Required + fail-closed:** absent, the mirror exits 2 and the run goes red. It never blocks a merge, because the workflow runs only after one. | CI (mirror-notifications-doc.yml) |
@@ -597,6 +662,18 @@ gh run watch --repo the-wbs-project/aec-integrations
 7. Open the Linear Document. Check that the header names a commit, and that the tables render as tables. Then record the key's scope in the `LINEAR_DOCS_MIRROR_API_KEY` row above.
 
 To check the payload locally without calling Linear, run `node scripts/mirror-notifications-doc.mjs --dry-run`.
+
+**The `GITHUB_TOKEN` scope.** `deploy.yml`, `pr-preview.yml` and `lighthouse.yml` set a top-level `permissions: contents: read`. A job that needs more grants it in its own block:
+
+| Workflow | Job | Extra scope | Why |
+|---|---|---|---|
+| `deploy.yml` | `changes` | `pull-requests: read` | `dorny/paths-filter` lists the PR's files through the pulls API |
+| `pr-preview.yml` | `deploy`, `cleanup` | `pull-requests: write` | The sticky preview comment on the PR |
+| `lighthouse.yml` | `resolve` | `statuses: read` | Reads the existing `lighthouse` status |
+| `lighthouse.yml` | `lighthouse` | `statuses: write` | Posts the `lighthouse` status |
+| `promote-to-demo.yml` | `lighthouse-lookup` | `statuses: read`, `actions: read` | Reads the status, then the run it links to |
+
+Artifacts and `actions/cache` use the runner's own runtime token, so no job needs `actions` scope for them.
 
 ### 7.2 Worker secrets
 
@@ -694,7 +771,7 @@ Every PR must pass these gates before merge:
 - ✓ Preview deploys successfully
 - ✓ E2E tests pass against preview
 - ✓ No new accessibility violations (axe-core) — blocks the **staging deploy**, but is not a required merge check (see the branch-protection table below) and is skipped on docs-only PRs
-- ✓ Lighthouse scores meet budget (Performance / Accessibility / Best-Practices / SEO ≥ 90 mobile) — **partially enforced** (AECI-188): Accessibility / Best-Practices / SEO / TBT / the `/search` TTFB are error-level on the post-merge run; Performance / LCP / CLS / the JS budgets remain advisory pending the perf follow-up (see the note below)
+- ✓ Lighthouse scores meet budget (Performance / Accessibility / Best-Practices / SEO ≥ 90 mobile) — **partially enforced** (AECI-188): Accessibility / Best-Practices / SEO / TBT / the `/search` TTFB are error-level on the nightly run and the promote-to-demo gate (§11c); Performance / LCP / CLS / the JS budgets remain advisory pending the perf follow-up (see the note below)
 - ✓ At least one human reviewer approval
 
 Two checks run **advisory / non-blocking** rather than as merge gates: coverage is generated and reported but never fails a build (target: 70% line coverage — see §3.1 and `TESTING_STRATEGY.md` §3.3; **push-only since AECI-917**, so it is not part of the PR lane at all), and the `integration-db-tests` lane reports red/green without gating the staging deploy until it's promoted to a required check (`TESTING_STRATEGY.md` §6.5).
@@ -702,13 +779,42 @@ Two checks run **advisory / non-blocking** rather than as merge gates: coverage 
 **axe + Lighthouse wiring (AECI-65 / Phase 2.19).** Both harnesses (scaffolded in AECI-33) run against **every Phase 2 page type** on a local `dev:bound` server, using committed seed fixtures (`apps/api/seed/phase2-fixtures.sql`, seeded into the local D1 by `dev:bound`'s `db:setup:local` → `db:seed:fixtures:local`):
 
 - **axe** runs in the `e2e-and-integration` job of `deploy.yml` (`apps/web/e2e/phase2-a11y.spec.ts`) across all **14 page types** — the 13 originals plus the product-PAIR page added by AECI-303 — plus the open taxonomy-flyout state, for **15 axe assertions**. One pass per URL in the **sole light theme**: AECI-226 removed the dark theme, so there is no second pass and no `emulateMedia` (`CLAUDE.md` §"Light only (Stage 1)"). **Zero AA violations**, with **no carve-outs** — header and footer are both fully in scope, the footer's former `.exclude('aec-site-footer')` went away with the dark theme it existed for, and AECI-166 removed the contrast-debt foreground allowlist by fixing the tokens. On **gating**: a red run fails the job and `deploy-staging` needs it, so it **blocks the staging deploy** — but it is **not a required merge check** (see the branch-protection table below, which lists only `Lint & typecheck` / `Unit tests` / `Build SSR Worker`), and the job is **skipped on docs-only PRs** by the `changes` paths filter. So "runs on every code PR", not every PR.
-- **Lighthouse** (mobile, simulated throttle, median of 3 runs) runs in its own [`lighthouse.yml`](../.github/workflows/lighthouse.yml) workflow on **push-to-main only** — _not_ on PRs. Running it on every PR was pure noise when it gated nothing; it now **error-gates the post-merge run** (AECI-188), just before/alongside the staging deploy. It builds + boots its own `dev:bound` and uses a per-commit concurrency group so each merged SHA gets an uncancelled report (deploy.yml's run-level cancel-in-progress would otherwise kill it on a rapid follow-up merge). Budgets (§12 of `STAGE_1_PHASE_2_SPEC.md`: scores ≥ 90, LCP ≤ 2.5s, CLS ≤ 0.1, detail-page JS ≤ 200 KB) are **partially enforced**: Accessibility / Best-Practices / SEO / TBT (and the `/search` TTFB) assert at `'error'` — a miss exits 1 and turns the workflow red — while Performance / LCP / CLS / the JS budgets stay `'warn'` until the measured misses are fixed (perf follow-up issue referenced in `.lighthouserc.cjs`; budgets must not be lowered to pass, per the AECI-65 note). A red here means `main` already regressed — fix forward or revert.
+- **Lighthouse** (mobile, simulated throttle, median of 3 runs) runs in its own [`lighthouse.yml`](../.github/workflows/lighthouse.yml) workflow. It runs nightly at 09:00 UTC and as the promote-to-demo gate. It never runs on PRs or merges. §11c has the triggers, the `lighthouse` commit status, and the alert. Budgets (§12 of `STAGE_1_PHASE_2_SPEC.md`: scores ≥ 90, LCP ≤ 2.5s, CLS ≤ 0.1, detail-page JS ≤ 200 KB) are **partially enforced**. Accessibility, Best-Practices, SEO and the `/search` TTFB assert at `'error'`. Performance, LCP, CLS, TBT and the JS budgets stay `'warn'` (`.lighthouserc.cjs`). Budgets must not be lowered to pass, per the AECI-65 note. A red nightly means `main` regressed. Fix forward or revert.
 
 **Search wiring (AECI-145 / Phase 3.12).** The same jobs extend to the search/listing surfaces without any workflow change (both already run every `e2e/*.spec.ts` and `lhci autorun`): `/search` is in the Lighthouse collection as a `noindex`, SEO-exempt page (AECI-146), and AECI-145 adds its **MISS-only TTFB budget** (`server-response-time`, since it's `private, no-store`, now error-level); the AECI-143 facet sidebar gets interaction E2E (`apps/web/e2e/facets.spec.ts`) plus a cache-key unit test (originally `cacheKeyUrl()`, removed in WC-3 / AECI-317 with the manual `caches.default` pipeline; **restored in WC-4 / AECI-318 as `cacheKeyFor()` in `cache-key-url.spec.ts`**, now behind the gateway entrypoint) that proves distinct facets → distinct cache entries. The **Lighthouse run measures `/search` with the real InstantSearch SDK** — `lighthouse.yml` provisions the shared `ALGOLIA_SEARCH_KEY` into `apps/web/.dev.vars` (AECI-188; the key must cover the `preview_*` indexes) so the `/search` JS-transfer budget and a11y numbers reflect the production page, not the degraded shell. The Playwright live-results flow still self-skips in `deploy.yml` (no Algolia there); see `TESTING_STRATEGY.md` §7.2/§8/§10.5.
 
-The "human reviewer" requirement is enforced by GitHub branch protection on `main`.
+The "human reviewer" line is **not enforced**. Branch protection on `main` sets no
+`required_pull_request_reviews` (see the table below).
 
-> **Branch protection, per branch (verified 2026-08-14).**
+> **Branch protection on `main` today (verified 2026-10-07 with
+> `gh api repos/the-wbs-project/aec-integrations/branches/main/protection`).**
+>
+> | Setting | Value |
+> |---|---|
+> | Required contexts | `Lint & typecheck`, `Unit tests`, `Build SSR Worker` |
+> | `strict` (PR must be up to date with `main`) | **`false`** |
+> | `required_linear_history` | `true` |
+> | `required_conversation_resolution` | `true` |
+> | `required_pull_request_reviews` | not set |
+> | `enforce_admins` | `false` |
+> | Force-push / deletion | blocked |
+> | Merge queue, auto-merge | neither is on |
+> | Repo `delete_branch_on_merge` | `true` |
+>
+> `main` is the only protected branch. `batch/**` branches (§10a) are unprotected on purpose. The
+> lite lane runs on PRs into them, but nothing blocks a merge there.
+>
+> **`strict` is `false`, not `true`.** Earlier versions of this section and §10 said `strict: true`.
+> That was wrong by 2026-10. A PR can merge while behind `main`. The post-merge `push` run (§3.2) is
+> what catches a semantic conflict between two PRs that each passed on their own.
+>
+> **What an orchestrator merges on.** An orchestrating agent merges a PR into `main` when the three
+> required checks are green. It does not wait for E2E. `e2e-and-integration`, axe and Lighthouse
+> are not merge gates. E2E still blocks the staging deploy after merge, so a red E2E on `main` is
+> fixed forward or reverted. For many sub-agent PRs at once, use a batch branch (§10a) instead of
+> rebasing each PR onto `main` in turn.
+
+> **Branch protection, per branch (verified 2026-08-14). Historical.**
 >
 > | Branch | Protected | Required contexts |
 > |---|---|---|
@@ -716,14 +822,15 @@ The "human reviewer" requirement is enforced by GitHub branch protection on `mai
 > | `stage-2` | **Yes — added 2026-08-14**, an exact mirror of `main` | same three |
 > | `admin-panel` | **No** (404 "Branch not protected") | — |
 >
-> Both protected branches also set `strict: true` (PR must be up to date with the base before
-> merging), `required_linear_history`, `required_conversation_resolution`, and no
+> Both protected branches were recorded as setting `strict: true` (corrected above: `main` is
+> `strict: false` as of 2026-10-07), `required_linear_history`, `required_conversation_resolution`, and no
 > force-push/deletion. Neither sets `required_pull_request_reviews`, so the "human reviewer"
 > line above is aspirational, not enforced. Both leave **`enforce_admins: false`** — an admin can
 > still merge past red or missing checks.
 >
 > Re-verified **2026-09-01** while porting the fix below to `main` (AECI-728): `main` and
-> `stage-2` still require the same three contexts, `main` still sets `strict: true`, and
+> `stage-2` still require the same three contexts, `main` was recorded as `strict: true` (wrong by
+> 2026-10-07, see above), and
 > `admin-panel` has since been **retired** — the branch is deleted, so its row is historical.
 >
 > **Resolved — the required checks now always report, even on docs-only PRs.** Previously a
@@ -982,10 +1089,11 @@ wrangler deploy --env staging \
   they are, the interleaved apply order on already-migrated tiers is inert).
 - **CI on the integration branches.** Every PR gets the full gate no matter which branch it
   targets — `deploy.yml`, `integration-db-tests.yml`, `drift-check.yml` and `pr-preview.yml` are
-  all base-branch-agnostic (§3.1). `main` additionally gets a post-merge `push` run (§3.2) and is
-  the only branch that deploys. `main` is branch-protected on three required contexts (§8) plus
-  `strict: true` and required linear history — so merge commits are rejected there and PRs land by
-  squash. (`deploy.yml`'s `push.branches` still lists `stage-2` and `admin-panel`. Both entries are
+  all base-branch-agnostic (§3.1). The one exception is a PR into `batch/**`, which takes the lite
+  lane and skips the preview and integration-DB workflows (§10a). `main` additionally gets a
+  post-merge `push` run (§3.2) and is the only branch that deploys. `main` is branch-protected on
+  three required contexts and required linear history, with `strict: false` (§8). So merge commits
+  are rejected there and PRs land by squash, but a PR need not be up to date with `main`. (`deploy.yml`'s `push.branches` still lists `stage-2` and `admin-panel`. Both entries are
   inert now the branches are retired and can be dropped on the next touch of the file.) **Opening a new long-lived
   integration branch is a two-line change:** add it to `deploy.yml`'s `push.branches`, and remove
   it when the branch merges up. Nothing needs touching for a short-lived feature or epic branch.
@@ -1020,10 +1128,84 @@ parallel feature work creates conflicts, work it out in PRs. ADR 0019 reinstates
 - No AI co-author trailer on commits. Do not add a `Co-Authored-By: Claude` line, or any other attribution line naming Claude, to a commit message. This overrides any harness attribution reminder.
 - The PR description includes `Closes AECI-{N}` for the primary issue, and the PR base branch is `main`.
 - Wait for CI to pass: lint, typecheck, unit tests, build, preview deploy, E2E, accessibility and Lighthouse. Only `Lint & typecheck`, `Unit tests` and `Build SSR Worker` block a merge. E2E, accessibility and Lighthouse do not.
-- The PR suite is base-branch-agnostic. It runs identically whether a PR targets `main` or an epic branch, because `deploy.yml` and `integration-db-tests.yml` carry no `branches:` filter on `pull_request`. Lighthouse stays push-to-`main` only by design.
+- The PR suite is base-branch-agnostic. It runs identically whether a PR targets `main` or an epic branch, because `deploy.yml` carries no `branches:` filter on `pull_request`. The exception is a PR into `batch/**`, which takes the lite lane (§10a). Lighthouse never runs on PRs. It runs nightly and at the demo promote (§11c).
 - Squash merge to `main`. Required linear history rejects merge commits, so squash or rebase only. The `stage-2` to `main` merge commit was a one-off that needed the protection temporarily relaxed. Do not plan on repeating it.
 - Applying a fix to live prod is the ordinary flow, then promote by SHA (`promote-to-demo`, then `promote-to-prod`; see `docs/environments.md`).
 - Linear auto-closes the issue on merge.
+
+---
+
+## 10a. Batch branches for parallel sub-agent work
+
+Use a batch branch when an orchestrator fans one piece of work out to several sub-agent PRs. On
+2026-10-03 to 10-06, sub-agent PRs that edited the same hot files were rebased onto `main` and
+fully re-tested one after another. Each rebase paid the full PR lane again: about 7.4 min of unit
+tests and 7.7 min of E2E. A batch branch pays the full lane once per batch.
+
+**How CI treats it.** A PR whose base starts with `batch/` takes the lite lane (§3.1). Lint,
+typecheck and unit tests run for the changed packages and their dependents. Packages whose specs
+read the changed files by relative path are added too. E2E, the PR preview and the integration-DB
+tests are skipped. `drift-check.yml` still runs. These force the full lane:
+
+- a root-level change, such as the lockfile or `.github/**`;
+- any deleted file, including the old path of a rename;
+- a planning error. The plan warns and runs everything rather than failing the job.
+
+The batch → `main` PR is an ordinary PR into `main` and runs everything.
+
+**The procedure.**
+
+1. **Create the branch from `main`.** Name it `batch/<name>`, for example `batch/aeci-1240-portal`.
+   The commands are below this list.
+2. **Point every sub-agent at it.** Each sub-agent branches from `batch/<name>` and opens its PR
+   with `--base batch/<name>`. Its PR description says `Part of AECI-N`, not `Closes AECI-N`. A PR
+   into a batch branch puts nothing on `main`, so it must not close anything.
+3. **Merge each sub-PR when its lite lane is green.** Squash merge, as on `main`. Each sub-change
+   becomes one commit on the batch branch, which keeps a later revert clean.
+4. **Resolve hot-file conflicts once, in the batch branch.** When a sub-PR conflicts with the
+   batch tip, merge the batch tip into the sub-PR branch and resolve there. Do not rebase. The
+   usual hot files and their rules:
+   - **Migrations.** The first one merged keeps its number. Later ones renumber, and their
+     snapshots are regenerated, never just renamed. Follow `docs/migrations.md` §0 "Renumbering a
+     migration". `pnpm --filter @aeci/api db:generate` must then report "No schema changes" with a
+     clean `git status`. `drift-check.yml` runs on the sub-PR and checks it too.
+   - **`docs/API_CONTRACTS.md` and `apps/api/src/index.ts`.** Keep both sides. These conflicts are
+     almost always two additions in the same place.
+   - **The notifications registry.** Keep both entries in
+     `apps/api/src/lib/notifications/registry.ts`. Then regenerate `docs/NOTIFICATIONS.md` with
+     `pnpm docs:notifications`. Never hand-merge the generated file. `pnpm lint` fails if it drifts.
+5. **Self-review your own conflict fixes.** The orchestrator runs the `self-review` skill on every
+   conflict-resolution commit it writes. A sub-agent's review does not cover the orchestrator's
+   resolution.
+6. **Open the batch → `main` PR.** Its description carries one `Closes AECI-N` line for **every**
+   sub-issue in the batch (`docs/linear-issue-conventions.md` §6). Linear never saw a `Closes` on
+   the sub-PRs, so this is the only place the issues close from. Add the epic's `Closes` line only
+   if every child is now closed.
+7. **Merge on the three required checks.** Squash merge, as with any PR into `main` (§8). GitHub
+   deletes the branch on merge, because `delete_branch_on_merge` is on. Merge or close every open
+   sub-PR first. GitHub retargets any still-open PR into the batch branch onto `main`.
+8. **On a red full lane, fix forward or revert one sub-change.** Before the batch merges, do it in
+   the batch branch: push a fix, or `git revert` the single squash commit of the offending
+   sub-change and reopen that sub-issue. After the batch merges, a revert on `main` reverts the
+   whole batch. So prefer fixing forward on `main` with an ordinary PR.
+
+Creating the branch, for step 1:
+
+```bash
+git fetch origin main
+git switch -c batch/aeci-1240-portal origin/main
+git push -u origin batch/aeci-1240-portal
+```
+
+**Keeping the batch current.** `main` is `strict: false`, so the batch need not be up to date to
+merge. Merge `main` into the batch only when the batch → `main` PR shows a conflict. A merge commit
+is fine on a batch branch. The final squash flattens it. If `main` gained a migration meanwhile,
+`main` keeps its numbers and the batch renumbers (`docs/migrations.md` §0).
+
+**What we have not verified.** Linear's GitHub integration also links a PR to an issue by branch
+name, such as `aeci-1234-...`. It may move a sub-issue to Done when its sub-PR merges into the batch
+branch, even without a `Closes` line. If it does, move the issue back to In Review. The fix is a
+Linear branch rule that ignores merges into `batch/*`.
 
 ---
 
@@ -1046,9 +1228,17 @@ lint-and-types ──→ build-web ──┐
                                ├─→ e2e-and-integration ──┐
 changes  ──────────────────────┘                         │
  (advisory)                                              ├─→ deploy-staging
-unit-tests ──────────────────────────────────────────────┤   (push + refs/heads/main
-lint-and-types ──────────────────────────────────────────┘    + STAGING_ENABLED)
+unit-api ──┐                                             │   (push + refs/heads/main
+           ├─→ unit-tests (gate, if: always()) ──────────┤    + STAGING_ENABLED)
+unit-web ──┘        └─→ migrate-preview (push + main)    │
+lint-and-types ──────────────────────────────────────────┘
 ```
+
+> **2026-10:** the single `unit-tests` job became `unit-api` + `unit-web` behind a `unit-tests`
+> gate that keeps the required `Unit tests` name (§3.1). We have not measured the split yet. The
+> estimate is a PR-lane unit wall time of about 6 min, down from 7.4 min median, because apps/api's
+> suite no longer shares cores with `ng test`. The push lane also drops its second coverage pass,
+> about 5 min.
 
 > **AECI-917 (2026-09-14):** `build-web` no longer `needs:` `unit-tests`. The build reads no test
 > output, so waiting on a 6-minute test job idled it for ~5 minutes on every PR. `deploy-staging`
@@ -1073,15 +1263,19 @@ lint-and-types ─────────────────────�
 
 `changes` has no `needs:` and nothing gates on it except `e2e-and-integration`, which reads it
 **fail-open** (§3.1 / §11.3). The three **required** contexts are `lint-and-types` / `unit-tests` /
-`build-web` — none of them `needs:` `changes`, so the filter can never block a merge.
+`build-web` — none of them `needs:` `changes`, so the filter can never block a merge. `unit-tests`
+does `needs:` the two unit jobs, which is why it runs under `if: always()` and checks each result.
 
-Preview deploys are a separate workflow (`pr-preview.yml`), and Lighthouse runs post-merge in
-`lighthouse.yml` — neither is a job in this graph.
+Preview deploys are a separate workflow (`pr-preview.yml`), and Lighthouse runs nightly and at
+the demo promote in `lighthouse.yml` (§11c). Neither is a job in this graph.
 
 ### 11.3 Selective testing
 
 For very small PRs (e.g. doc-only changes), skip only the **non-required** downstream jobs — never
 gate a required check behind a workflow-level `paths-ignore`.
+
+PRs into `batch/**` get package-scoped selective testing: the lite lane in §3.1 and §10a. The
+required jobs still run and report there. They skip steps, never the job.
 
 > **Do NOT skip required checks via a `pull_request` `paths-ignore`.** A workflow skipped by
 > `paths-ignore` reports *nothing*, and GitHub treats a missing required context as pending, not
@@ -1123,6 +1317,35 @@ deliberate, reviewed human action.
 | [`mirror-notifications-doc.yml`](../.github/workflows/mirror-notifications-doc.yml) | Push to `main` that changes `docs/NOTIFICATIONS.md`, and `workflow_dispatch` | Overwrites one Linear Document with the doc, through `scripts/mirror-notifications-doc.mjs` (AECI-1201). The mirrored copy carries a header naming the commit and saying Linear edits are overwritten. One concurrency group, no cancel-in-progress, so two merges do not race and the newest commit wins. | The Linear copy is stale. Exit 2 means `LINEAR_DOCS_MIRROR_API_KEY` or `LINEAR_NOTIFICATIONS_DOC_ID` is unset (§7.1). Exit 1 means Linear refused the update: read the logged HTTP status or GraphQL error. Re-run with `workflow_dispatch` once fixed. |
 
 **The mirror is switched off until `LINEAR_NOTIFICATIONS_DOC_ID` and `LINEAR_DOCS_MIRROR_API_KEY` are set:** a push to `main` skips the job, and no merge runs it. It is **not a required check and cannot block a merge**: it runs only on push, after the merge. Once it is on, a red run is the alert. The payload builder is unit-tested by `scripts/mirror-notifications-doc.test.mjs`, which root `pnpm test:unit` runs through `pnpm test:scripts`.
+
+---
+
+## 11c. Lighthouse: nightly, and the demo promote gate
+
+Lighthouse does not run on PRs or on merges to `main`. It measures a commit in three ways, all through [`lighthouse.yml`](../.github/workflows/lighthouse.yml).
+
+| Trigger | What it measures | Skips when | Alerts |
+|---|---|---|---|
+| `schedule`, `0 9 * * *` (09:00 UTC daily) | `main` HEAD | HEAD already has `lighthouse: success`, or a `failure` posted by an earlier nightly run. A failure posted by the promote gate or a manual run never alerted, so the nightly measures again. | Yes. See below. |
+| `workflow_call` from `promote-to-demo.yml` | `inputs.commit_sha` | Never. The promote only calls it when it needs a fresh result. | No. The promote gate is the signal. |
+| `workflow_dispatch` | The dispatched ref | Never | No |
+
+**The result lives on the commit.** Each measurement posts a GitHub commit status with context `lighthouse` on the measured SHA. It posts `pending` first, then `success` or `failure`. A cancelled run posts `error`. The description ends with the trigger: `(nightly)`, `(promote gate)` or `(manual)`. The status links to the run that measured it. A measurement made through `workflow_call` appears as a `promote-to-demo` run, so callers look up the status, not the workflow's run list. Only statuses posted by `github-actions[bot]` count.
+
+**The demo promote gate.** `promote-to-demo.yml` reads the `lighthouse` status on the SHA before it deploys.
+
+- `success`, verified: the gate passes and the job summary links the earlier run. Verified means three things. `github-actions[bot]` posted it. Its link names a run in this repo. The runs API says that run's workflow is `lighthouse.yml` or `promote-to-demo.yml`, and its branch is `main`. The bot check alone is not enough, because any workflow job with `statuses: write` posts as the bot.
+- `success` that cannot be verified: the promote measures the SHA now. This covers a missing or foreign link, a run from another workflow or branch, and a runs API error. It never passes on doubt.
+- `failure`, `pending`, `error` or no status: the promote measures the SHA now. Only that fresh result decides. A stale failure may have been a flake, so it never blocks by itself.
+- Override: set `override_lighthouse` and give an `override_reason`. The measurement is skipped. The reason goes to the job summary and the run log. An empty reason fails the promote.
+
+`promote-to-prod.yml` has no Lighthouse step. It requires demo to be at the SHA, so the demo gate covers production.
+
+**Both promote workflows must be dispatched from `main`.** GitHub runs the copy of the workflow file at the dispatched ref. A run from another branch could carry an old or edited gate. The first step of `pre-promotion-checks` fails unless `github.ref` is `refs/heads/main`. `commit_sha` still chooses the commit. This catches a wrong-branch dispatch. It cannot stop a branch that deletes the check. Only a deployment-branch rule on the `demo` and `production` environments can do that. We have not checked whether those rules are set.
+
+**Token scope.** The `lighthouse` job holds a `statuses: write` token. Its checkout sets `persist-credentials: false`, so the token is not written to `.git/config` where `pnpm install` scripts could read it. Only the two status steps receive it, as `GH_TOKEN`.
+
+**The nightly alert.** On a red scheduled run, `scripts/lighthouse-alert.mjs` files or updates a Linear issue and may email support@. `docs/OBSERVABILITY.md` describes the alert. It reads `LINEAR_API_KEY` and `RESEND_API_KEY` (§7.1). The script's tests are `scripts/lighthouse-alert.test.mjs`, run by `pnpm test:scripts`.
 
 ---
 

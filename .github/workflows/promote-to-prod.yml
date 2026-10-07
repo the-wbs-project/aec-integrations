@@ -9,6 +9,7 @@
 # Two jobs, in order:
 #
 #   1. pre-promotion-checks (unattended)
+#      - Refuses a run dispatched from any ref but `main` (`github.ref`).
 #      - Validates `commit_sha` is a full 40-char hex SHA (the SHA is the
 #        confirmation — there is no typed-word gate; AECI-879).
 #      - `scripts/require-secrets.sh` over the prod secrets (REQUIRED fail-fast,
@@ -129,6 +130,23 @@ jobs:
     permissions:
       contents: read
     steps:
+      # -----------------------------------------------------------------------
+      # Step 0: Dispatch from `main` only.
+      #   GitHub runs the copy of this file at the dispatched ref, so a run from
+      #   another branch could carry an old or edited gate. This check catches a
+      #   wrong-branch dispatch from the Actions UI or `gh workflow run`. It
+      #   cannot stop a branch that deletes the check itself. Only a
+      #   deployment-branch rule on the `production` environment can do that.
+      # -----------------------------------------------------------------------
+      - name: Require dispatch from main
+        env:
+          REF: ${{ github.ref }}
+        run: |
+          if [ "$REF" != "refs/heads/main" ]; then
+            echo "::error::promote-to-prod must be dispatched from main (got '$REF'). Re-run it with the branch set to main. commit_sha still picks the commit."
+            exit 1
+          fi
+
       # -----------------------------------------------------------------------
       # Step 1: Validate `commit_sha` input.
       #   The SHA *is* the confirmation (AECI-879). There is no typed-word gate:

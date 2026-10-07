@@ -134,8 +134,9 @@ function printNextSteps({ env, appId, searchKey, managementKey }) {
   console.log(`gh secret set ALGOLIA_SEARCH_KEY --body '${searchKey}'`);
   if (env === 'preview') {
     console.log(
-      '#   preview search key → lighthouse.yml (AECI-188): the post-merge Lighthouse\n' +
-        '#   workflow hard-fails without it (it provisions /search with the real SDK).\n' +
+      '#   preview search key → lighthouse.yml (AECI-188): the nightly Lighthouse run\n' +
+        '#   and the demo promote gate hard-fail without it (they measure /search with\n' +
+        '#   the real SDK).\n' +
         '#   No preview ADMIN GitHub secret: sync (3.5) uses the management key directly.',
     );
   } else {

@@ -2,6 +2,9 @@
 #
 # Current posture (AECI-76 / sub-issue (a) of AECI-71):
 #   PR push (ANY base) → lint → typecheck → unit → build → e2e+axe   (no deploy)
+#   PR into batch/**   → LITE lane: lint/typecheck/unit for the affected
+#                       packages only, no E2E (scripts/ci/lane-plan.mjs;
+#                       procedure in docs/CICD_PLAN.md §10a)
 #   push to main       → …same… → migrate-preview + deploy-staging
 #   push to stage-2 / admin-panel → …same… (no deploy — migrate-preview and
 #                       deploy-staging are independently gated on
@@ -28,7 +31,8 @@
 # cross-workflow `needs:` isn't a thing. Un-parking means either moving them into
 # pr-preview.yml or wiring a `workflow_run` trigger here. (AECI-65 originally
 # un-parked the `lighthouse` job here against a local `dev:bound` server; it has
-# since moved to its own push-to-main workflow — `.github/workflows/lighthouse.yml`.)
+# since moved to its own workflow — `.github/workflows/lighthouse.yml`, which runs
+# nightly and as the promote-to-demo gate, never on merges.)
 #
 # `deploy-staging` is gated on `vars.STAGING_ENABLED == 'true'`. Flip the
 # repo variable after the manual prerequisites in `docs/environments.md`
@@ -47,10 +51,8 @@
 # non-blocking) and added the phase2-a11y success-path axe specs in the e2e job
 # (which seeds its fixtures from the LOCAL D1 via dev:bound → db:setup:local). The
 # `lighthouse` job has since MOVED OUT of this workflow into
-# `.github/workflows/lighthouse.yml`, which triggers on push-to-main ONLY — so
-# Lighthouse no longer runs on PRs (it was advisory there anyway) and instead
-# ERROR-GATES the post-merge run (AECI-188: a11y/BP/SEO/TBT + /search TTFB at
-# error level), just before/alongside the staging deploy. The axe specs
+# `.github/workflows/lighthouse.yml`. It runs nightly and as the promote-to-demo
+# gate (docs/CICD_PLAN.md §11c), never on PRs or merges. The axe specs
 # (e2e-and-integration) stay here.
 #
 # AECI-90 added the apps/api `src/integration/**` suites (PostgREST RLS deny
@@ -69,6 +71,17 @@
 #                                 AECI-917 made that step PUSH-ONLY: it cost ~2
 #                                 min of the required `unit-tests` check on every
 #                                 PR for a report nobody read per PR.
+#                                 2026-10: the push run no longer runs the suite
+#                                 twice. Each unit job runs it ONCE with coverage
+#                                 on and the thresholds zeroed (`COVERAGE_ARGS`),
+#                                 and scripts/ci/coverage-advisory.mjs warns on a
+#                                 miss. Same advisory posture, ~5 min less.
+#
+# 2026-10: unit tests split into `unit-api` and `unit-web` so apps/api's vitest
+#                                 suite (the floor of the lane) gets its own
+#                                 runner. The REQUIRED `Unit tests` check is now
+#                                 the `unit-tests` aggregator, which fails unless
+#                                 both jobs succeeded.
 #
 # THE RULE (do not deploy if required secrets are missing): deploy-staging runs
 # `scripts/require-secrets.sh` before any deploy and `scripts/verify-worker-secrets.sh`
@@ -137,8 +150,10 @@ on:
     # branches come and go. This is safe because `deploy-staging` is
     # independently gated on `push` + `refs/heads/main` (see its own `if:`), and
     # the two preview-URL jobs are `if: false` — so a non-main PR adds only
-    # lint-and-types / unit-tests / build-web / e2e-and-integration and deploys
-    # nothing.
+    # lint-and-types / the unit jobs / build-web / e2e-and-integration and
+    # deploys nothing. A PR into `batch/**` takes the LITE lane (see the note
+    # above `lint-and-types`), which still reports all three required checks.
+    # Keep this trigger filter-free so those PRs run at all.
     #
     # NO workflow-level `paths-ignore` on `pull_request` — DELIBERATELY REMOVED.
     # Both `main` AND `stage-2` require the three status checks `Lint & typecheck`
@@ -171,6 +186,15 @@ concurrency:
   group: deploy-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+# Least privilege. Every job here only checks out code, so the default is
+# read-only contents. Jobs that need more grant it themselves:
+#   changes  pull-requests: read, for dorny/paths-filter's PR file list.
+# Artifacts and actions/cache use the runner's own runtime token, not
+# GITHUB_TOKEN, so they need no `actions` scope. Cloudflare and Supabase calls
+# use repo secrets, not GITHUB_TOKEN.
+permissions:
+  contents: read
+
 env:
   NODE_VERSION: '24'
   PNPM_VERSION: '10.33.0'
@@ -180,6 +204,16 @@ env:
   # 2026-09-16. See:
   # https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
+  # Appended to each package's `test:coverage` on push. Zeroing the vitest
+  # thresholds keeps coverage advisory (docs/TESTING_STRATEGY.md §3.3) while the
+  # same run gates on test failures; `json-summary` feeds
+  # scripts/ci/coverage-advisory.mjs. The reporter list repeats the configs' own
+  # three because a CLI reporter flag replaces the configured list.
+  COVERAGE_ARGS: >-
+    --coverage.thresholds.lines=0 --coverage.thresholds.branches=0
+    --coverage.thresholds.functions=0 --coverage.thresholds.statements=0
+    --coverage.reporter=text --coverage.reporter=html --coverage.reporter=lcov
+    --coverage.reporter=json-summary
 
 jobs:
   # Detect whether the change touches anything other than markdown / docs. Used
@@ -191,6 +225,11 @@ jobs:
   changes:
     name: Detect changes
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      # dorny/paths-filter lists the PR's files through the pulls API on
+      # `pull_request`. On a private repo that needs this scope.
+      pull-requests: read
     outputs:
       code: ${{ steps.filter.outputs.code }}
     steps:
@@ -220,63 +259,226 @@ jobs:
               - '!**/*.md'
               - '!docs/**'
 
+  # ---------------------------------------------------------------------------
+  # The lint / unit / build jobs below each run `scripts/ci/lane-plan.mjs`
+  # THEMSELVES rather than reading a shared plan job's outputs. That is the
+  # point, not duplication: a job whose `needs:` failed is SKIPPED, and GitHub
+  # counts a skipped required check as PASSING. With the plan in-job, a broken
+  # plan can never make a job silently green. A crash of the script itself turns
+  # the job red. A git or pnpm error while planning the lite lane falls back to
+  # the full lane with a warning. Every job checks out the same `github.sha`, so
+  # the copies agree unless one hits such an error. Then that job runs MORE
+  # work, never less.
+  #
+  #   full lane — every push, every PR into `main`, and any PR into `batch/**`
+  #               that touches a root-level file or deletes any file.
+  #               Identical work to before.
+  #   lite lane — a PR into `batch/**` that only touches package files or
+  #               Markdown. Lint, typecheck and unit tests run for the changed
+  #               packages plus their dependents; E2E is skipped; the SSR build
+  #               runs only when apps/web is in scope. docs/CICD_PLAN.md §10a.
+  #
+  # `fetch-depth: 2` gives the plan the PR merge commit's first parent (the base
+  # tip). Without it the plan cannot diff and falls back to the full lane.
+  # ---------------------------------------------------------------------------
   lint-and-types:
     name: Lint & typecheck
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
+        with:
+          fetch-depth: 2
       - name: Install pnpm
         run: npm install -g pnpm@${{ env.PNPM_VERSION }}
       - uses: actions/setup-node@v5
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: 'pnpm'
+      - name: Plan lane
+        id: plan
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_REF: ${{ github.base_ref }}
+        run: node scripts/ci/lane-plan.mjs
       - run: pnpm install --frozen-lockfile
-      - run: pnpm run lint
-      - run: pnpm run typecheck
+      # The lite branch is root `pnpm run lint` with only the per-package ESLint
+      # pass narrowed. The CLAUDE.md size gate, the NOTIFICATIONS.md drift check
+      # and the whole-repo Prettier check stay unconditional because they are cheap.
+      - name: Lint
+        env:
+          LANE: ${{ steps.plan.outputs.lane }}
+          LINT_FILTER: ${{ steps.plan.outputs.lint_filter }}
+        run: |
+          if [ "$LANE" != "lite" ]; then
+            pnpm run lint
+            exit 0
+          fi
+          node scripts/check-claude-md-size.mjs
+          pnpm run docs:notifications:check
+          if [ -n "$LINT_FILTER" ]; then
+            read -ra FILTER <<< "$LINT_FILTER"
+            pnpm "${FILTER[@]}" run lint
+          fi
+          pnpm run format:check
+      # apps/web has no `typecheck` script (its type errors surface in `ng build`
+      # and `ng test`), so `--if-present` skips it in both lanes, as before.
+      - name: Typecheck
+        env:
+          LANE: ${{ steps.plan.outputs.lane }}
+          LINT_FILTER: ${{ steps.plan.outputs.lint_filter }}
+        run: |
+          if [ "$LANE" != "lite" ]; then
+            pnpm run typecheck
+            exit 0
+          fi
+          if [ -n "$LINT_FILTER" ]; then
+            read -ra FILTER <<< "$LINT_FILTER"
+            pnpm "${FILTER[@]}" --if-present run typecheck
+          fi
 
-  unit-tests:
-    name: Unit tests
+  # apps/api's vitest suite is the floor of the unit lane (368 s measured
+  # 2026-10). It used to share a 4-vCPU runner with apps/web's vitest + `ng test`
+  # under one `pnpm -r`, so each slowed the other. It now has its own runner.
+  #
+  # On push the suite runs ONCE with coverage on (no second coverage pass). The
+  # vitest thresholds are zeroed on the command line (`COVERAGE_ARGS`) so the
+  # exit code reflects test failures only. Coverage stays ADVISORY
+  # (docs/TESTING_STRATEGY.md §3.3): `coverage-advisory.mjs` compares the totals
+  # with each config's `thresholds` and turns a miss into a warning annotation.
+  # PRs still skip coverage entirely (AECI-917).
+  unit-api:
+    name: Unit tests (api)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
+        with:
+          fetch-depth: 2
       - name: Install pnpm
         run: npm install -g pnpm@${{ env.PNPM_VERSION }}
       - uses: actions/setup-node@v5
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: 'pnpm'
-      - run: pnpm install --frozen-lockfile
-      - run: pnpm run test:unit
-      # AECI-90: coverage is ADVISORY (docs/TESTING_STRATEGY.md §3.3) — generate
-      # and surface the v8 lcov + text table for visibility, but never gate the
-      # merge on it. `continue-on-error` keeps a sub-threshold result (the
-      # vitest `thresholds` blocks exit non-zero on a miss) from failing the
-      # job. The thresholds stay in the configs as the documented target.
-      #
-      # AECI-917: PUSH-ONLY. On a PR this step cost ~2 min of the REQUIRED
-      # `unit-tests` check to produce a report nobody acted on per PR — and it
-      # never covered the 171 `ng test` component specs anyway, because
-      # `apps/web`'s `test:coverage` is the plain vitest suite. It still runs on
-      # every push to a long-lived branch (`main`, `admin-panel`), so
-      # `migrate-preview` and `deploy-staging` on main still wait behind it.
-      - name: Coverage (advisory, non-blocking)
-        if: github.event_name == 'push'
-        continue-on-error: true
-        run: pnpm -r --if-present run test:coverage
+      - name: Plan lane
+        id: plan
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_REF: ${{ github.base_ref }}
+        run: node scripts/ci/lane-plan.mjs
+      - if: steps.plan.outputs.api == 'true'
+        run: pnpm install --frozen-lockfile
+      - name: apps/api unit tests
+        if: steps.plan.outputs.api == 'true' && github.event_name != 'push'
+        run: pnpm --filter @aeci/api run test:unit
+      - name: apps/api unit tests with coverage
+        if: steps.plan.outputs.api == 'true' && github.event_name == 'push'
+        run: |
+          read -ra COV <<< "$COVERAGE_ARGS"
+          pnpm --filter @aeci/api run test:coverage "${COV[@]}"
+      - name: Coverage advisory (non-blocking)
+        if: ${{ !cancelled() && github.event_name == 'push' }}
+        run: node scripts/ci/coverage-advisory.mjs apps/api
       - name: Upload coverage report
-        # `always()` so a failed coverage run still uploads what it produced; the
-        # event guard (AECI-917) keeps PRs from uploading a never-generated report.
+        # `always()` so a red suite still uploads what it produced.
         if: ${{ always() && github.event_name == 'push' }}
         uses: actions/upload-artifact@v6
         with:
-          name: coverage
-          path: |
-            apps/api/coverage
-            apps/web/coverage
-            packages/shared/coverage
+          name: coverage-api
+          path: apps/api/coverage
           retention-days: 7
           if-no-files-found: ignore
+
+  # Everything that is not apps/api: the root `scripts/*.test.mjs`, apps/web
+  # (vitest + `ng test`), packages/shared, apps/agent, apps/datatool. The
+  # filter excludes the workspace root by name, because the root's own
+  # `test:unit` script recurses into every package, apps/api included.
+  unit-web:
+    name: Unit tests (web + shared)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 2
+      - name: Install pnpm
+        run: npm install -g pnpm@${{ env.PNPM_VERSION }}
+      - uses: actions/setup-node@v5
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'pnpm'
+      - name: Plan lane
+        id: plan
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_REF: ${{ github.base_ref }}
+        run: node scripts/ci/lane-plan.mjs
+      - if: steps.plan.outputs.rest == 'true'
+        run: pnpm install --frozen-lockfile
+      # Runs in BOTH lanes. A scripts/ change forces the full lane, but these
+      # tests also read files a lite-lane PR can change. For example,
+      # scripts/mirror-notifications-doc.test.mjs reads docs/NOTIFICATIONS.md.
+      # They use only node built-ins, so they need no `pnpm install`, and the
+      # whole suite takes about a second.
+      - name: Root script tests
+        run: pnpm run test:scripts
+      - name: Unit tests (non-api packages)
+        if: steps.plan.outputs.rest == 'true' && github.event_name != 'push'
+        env:
+          REST_FILTER: ${{ steps.plan.outputs.rest_filter }}
+        run: |
+          read -ra FILTER <<< "$REST_FILTER"
+          pnpm "${FILTER[@]}" --if-present run test:unit
+      # Push: one pass with coverage, then the `ng test` component specs, which
+      # apps/web's `test:coverage` (plain vitest) does not include.
+      - name: Unit tests with coverage (non-api packages)
+        if: steps.plan.outputs.rest == 'true' && github.event_name == 'push'
+        env:
+          REST_FILTER: ${{ steps.plan.outputs.rest_filter }}
+        run: |
+          read -ra FILTER <<< "$REST_FILTER"
+          read -ra COV <<< "$COVERAGE_ARGS"
+          pnpm "${FILTER[@]}" --if-present run test:coverage "${COV[@]}"
+          pnpm --filter @aeci/web run test:component
+      - name: Coverage advisory (non-blocking)
+        if: ${{ !cancelled() && github.event_name == 'push' }}
+        run: node scripts/ci/coverage-advisory.mjs apps/web packages/shared apps/agent apps/datatool
+      - name: Upload coverage report
+        if: ${{ always() && github.event_name == 'push' }}
+        uses: actions/upload-artifact@v6
+        with:
+          name: coverage-web
+          path: |
+            apps/web/coverage
+            packages/shared/coverage
+            apps/agent/coverage
+            apps/datatool/coverage
+          retention-days: 7
+          if-no-files-found: ignore
+
+  # The REQUIRED `Unit tests` check. Do not rename it: branch protection on
+  # `main` matches this exact name. It passes only when BOTH unit jobs passed.
+  #
+  # `if: always()` is load-bearing. Without it a failed unit job would SKIP this
+  # job, and a skipped required check counts as passing. The step then checks
+  # each result explicitly, so `failure`, `cancelled` and `skipped` all fail it.
+  # The unit jobs never skip at job level (they no-op at step level in the lite
+  # lane), so `success` is the only acceptable result.
+  unit-tests:
+    name: Unit tests
+    runs-on: ubuntu-latest
+    needs: [unit-api, unit-web]
+    if: always()
+    steps:
+      - name: Require every unit job to pass
+        env:
+          API_RESULT: ${{ needs.unit-api.result }}
+          WEB_RESULT: ${{ needs.unit-web.result }}
+        run: |
+          echo "Unit tests (api): $API_RESULT"
+          echo "Unit tests (web + shared): $WEB_RESULT"
+          if [ "$API_RESULT" != "success" ] || [ "$WEB_RESULT" != "success" ]; then
+            echo "::error::A unit job did not succeed. See the jobs above."
+            exit 1
+          fi
 
   build-web:
     name: Build SSR Worker
@@ -287,17 +489,34 @@ jobs:
     # a red suite still blocks the merge — the gate moved, it did not go away.
     # `deploy-staging` now carries its OWN explicit `needs:` on the test jobs (see
     # that job below), because it used to inherit lint + unit through this one.
+    #
+    # In the lite lane the build runs only when apps/web is in scope. It stays in
+    # that lane at all because it is cheap and catches template and build breaks
+    # that apps/web's lint and unit tests miss. `outputs.lane` tells
+    # `e2e-and-integration` which lane ran, from a job that is known to succeed.
     needs: [lint-and-types]
+    outputs:
+      lane: ${{ steps.plan.outputs.lane }}
     steps:
       - uses: actions/checkout@v5
+        with:
+          fetch-depth: 2
       - name: Install pnpm
         run: npm install -g pnpm@${{ env.PNPM_VERSION }}
       - uses: actions/setup-node@v5
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: 'pnpm'
-      - run: pnpm install --frozen-lockfile
-      - run: pnpm --filter @aeci/web build
+      - name: Plan lane
+        id: plan
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_REF: ${{ github.base_ref }}
+        run: node scripts/ci/lane-plan.mjs
+      - if: steps.plan.outputs.web == 'true'
+        run: pnpm install --frozen-lockfile
+      - if: steps.plan.outputs.web == 'true'
+        run: pnpm --filter @aeci/web build
       # AECI-646 note: since the production build emits HIDDEN source maps, this
       # artifact now carries `.map` files. That is deliberate — the deploy job
       # downloads this artifact and `scripts/ci/posthog-sourcemaps.sh` needs the
@@ -307,7 +526,8 @@ jobs:
       # binding in apps/web/wrangler.jsonc) and would be world-readable. The maps
       # never reach that path — every exit route of the sourcemaps script deletes
       # them, including the warn-skip when POSTHOG_CLI_API_KEY is absent.
-      - uses: actions/upload-artifact@v6
+      - if: steps.plan.outputs.web == 'true'
+        uses: actions/upload-artifact@v6
         with:
           name: web-dist
           path: apps/web/dist
@@ -333,8 +553,13 @@ jobs:
     # `changes` job that errors rather than answering must NOT be able to skip
     # the staging deploy. Only an explicit `code == 'false'` (a real docs-only
     # verdict) skips; an empty output from a failed/skipped filter runs the lane.
+    #
+    # The lite lane (a PR into `batch/**`, docs/CICD_PLAN.md §10a) skips E2E.
+    # The batch → main PR runs it once for the whole batch. The lane comes from
+    # `build-web`'s output, which is always set when that job succeeded, and the
+    # guard fails open the same way: only an explicit `lite` skips.
     needs: [changes, build-web]
-    if: ${{ !cancelled() && needs.build-web.result == 'success' && needs.changes.outputs.code != 'false' }}
+    if: ${{ !cancelled() && needs.build-web.result == 'success' && needs.changes.outputs.code != 'false' && needs.build-web.outputs.lane != 'lite' }}
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v5
@@ -531,8 +756,8 @@ jobs:
   # (docs/environments.md §"GitHub Environments"), so a standalone job reaches
   # CLOUDFLARE_API_TOKEN fine, and a red preview apply never blocks staging.
   #
-  # `needs: [unit-tests]` is deliberate: that job runs
-  # apps/api/src/test/migration-0027.spec.ts, the guard on the one migration
+  # `needs: [unit-tests]` is deliberate: that gate requires `unit-api`, which
+  # runs apps/api/src/test/migration-0027.spec.ts, the guard on the one migration
   # whose statement order is a data-loss control. We never touch a real
   # database while it is red. Fail-closed otherwise (no continue-on-error) —
   # silent drift is the defect being fixed here.
@@ -574,7 +799,8 @@ jobs:
     runs-on: ubuntu-latest
     # `lint-and-types` / `unit-tests` are listed EXPLICITLY since AECI-917:
     # `build-web` no longer needs `unit-tests`, and the staging deploy must never
-    # run on a red suite.
+    # run on a red suite. `unit-tests` is the aggregator over `unit-api` and
+    # `unit-web`, so this waits on all unit work.
     needs: [lint-and-types, unit-tests, build-web, e2e-and-integration]
     environment:
       name: staging

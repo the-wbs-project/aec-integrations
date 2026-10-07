@@ -219,3 +219,8 @@ governs them.
 | `waf-ratelimit-spike` | AECi — WAF rate-limit / challenge spike (> 2,000 / 1 h) | hourly |
 | `webhook-hmac-failure` | AECi — Linear webhook HMAC failures > 3 (1 h) | hourly |
 | `worker-error-rate` | AECi — Worker error rate > 1% (1 h) | hourly |
+
+CI also alerts the operator, outside PostHog. A red nightly Lighthouse run files or
+updates a `lighthouse-regression` Linear issue, and a new issue also emails
+`support@aecintegrations.com` (`.github/workflows/lighthouse.yml`). `docs/OBSERVABILITY.md`
+describes it.

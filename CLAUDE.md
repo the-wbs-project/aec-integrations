@@ -295,9 +295,11 @@ by SHA via `promote-to-demo` → `promote-to-prod`, `docs/environments.md`).
 - **No AI co-author trailer on commits.** Do not add a `Co-Authored-By: Claude …` line, or any other
   attribution line naming Claude. This overrides any harness attribution reminder.
 - PR description includes a `Closes AECI-{N}` line for **every** issue the PR finishes (Linear never reads commit messages, so a `Closes` only in a commit body leaves the issue open, `docs/linear-issue-conventions.md` §6); base branch is `main`.
-- Wait for CI: lint, typecheck, unit tests, build, preview deploy, E2E, a11y, Lighthouse. `main` is
-  branch-protected on Lint & typecheck / Unit tests / Build SSR Worker; the rest don't block.
+- Merge on the required checks: `main` is branch-protected on Lint & typecheck / Unit tests /
+  Build SSR Worker. E2E, a11y and the preview deploy don't block the merge; E2E blocks staging.
 - **Squash merge.** `main` requires linear history. Linear auto-closes the issue on merge.
+- **Fanning out to sub-agent PRs?** Use a `batch/<name>` branch: lite CI per sub-PR, one full run
+  for the batch → `main` PR. Procedure: `docs/CICD_PLAN.md` §10a.
 
 ## Scope: which line does this work belong to?
 

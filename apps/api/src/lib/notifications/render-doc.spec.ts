@@ -100,6 +100,11 @@ governs them.
 |---|---|---|
 | \`a-alert\` | A alert | daily |
 | \`z-alert\` | Z alert | hourly |
+
+CI also alerts the operator, outside PostHog. A red nightly Lighthouse run files or
+updates a \`lighthouse-regression\` Linear issue, and a new issue also emails
+\`support@aecintegrations.com\` (\`.github/workflows/lighthouse.yml\`). \`docs/OBSERVABILITY.md\`
+describes it.
 `;
 
 describe('renderNotificationsDoc', () => {
