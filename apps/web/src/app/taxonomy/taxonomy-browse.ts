@@ -213,7 +213,7 @@ import { PaginationFooter } from '../shared/pagination/pagination-footer';
             @if (listingView.view() === 'table') {
               <div class="overflow-x-auto">
                 <table
-                  class="w-full border-collapse text-start text-sm md:min-w-[52rem]"
+                  class="w-full border-collapse text-start text-sm md:min-w-[44rem]"
                   i18n-aria-label="@@taxonomy.browse.table.aria"
                   aria-label="Products"
                 >
@@ -237,13 +237,6 @@ import { PaginationFooter } from '../shared/pagination/pagination-footer';
                       </th>
                       <th
                         scope="col"
-                        class="px-4 py-3 font-medium"
-                        i18n="@@taxonomy.browse.col.category"
-                      >
-                        Primary category
-                      </th>
-                      <th
-                        scope="col"
                         class="hidden px-4 py-3 text-end font-medium md:table-cell"
                         i18n="@@taxonomy.browse.col.rating"
                       >
@@ -262,7 +255,7 @@ import { PaginationFooter } from '../shared/pagination/pagination-footer';
                     @if (idx.items().length === 0 && idx.pending()) {
                       <tr aria-busy="true">
                         <td
-                          colspan="5"
+                          colspan="4"
                           class="px-4 py-12 text-center text-(--text-secondary)"
                           i18n="@@taxonomy.browse.loading"
                         >
@@ -272,7 +265,7 @@ import { PaginationFooter } from '../shared/pagination/pagination-footer';
                     } @else if (idx.items().length === 0 && idx.error()) {
                       <tr>
                         <td
-                          colspan="5"
+                          colspan="4"
                           class="px-4 py-12 text-center text-(--text-secondary)"
                           i18n="@@taxonomy.browse.error"
                         >
@@ -285,7 +278,7 @@ import { PaginationFooter } from '../shared/pagination/pagination-footer';
                       } @empty {
                         <tr>
                           <td
-                            colspan="5"
+                            colspan="4"
                             class="px-4 py-12 text-center text-(--text-secondary)"
                             i18n="@@taxonomy.browse.empty"
                           >

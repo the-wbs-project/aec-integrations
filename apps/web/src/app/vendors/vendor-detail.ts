@@ -420,18 +420,18 @@ type SocialKey = 'linkedin' | 'x' | 'youtube' | 'facebook' | 'instagram';
             } @else {
               <!-- Real table (replaces the former card stack) mirroring the
                    integrations table on the product page, so the vendor's
-                   portfolio aligns into scannable columns. Category + Rating
-                   collapse at md (matching ProductCard / the browse tables), the
-                   category folding into the product cell.
+                   portfolio aligns into scannable columns. Rating collapses at
+                   md (matching ProductCard / the browse tables). The table has
+                   four columns: product, rating, integrations, and the row link.
 
                    The min width is 34rem, not the former 44rem. AECI-853 moved
                    DetailLayout's sidebar dock from xl to lg, which makes 608px
                    the narrowest this body column ever gets. At 44rem (704px) the
                    table overflowed that by 96px and scrolled inside a narrow
-                   well. All five columns are kept: measured worst case with a
-                   long product name AND a long category is 648px, so at 608px
-                   the longest rows wrap one line (57px to 72px) rather than
-                   scrolling. Do not raise this back above 38rem. -->
+                   well. The 648px worst case measured for AECI-853 included a
+                   category column that has since been removed, so the table is
+                   narrower now than that figure. Do not raise this back above
+                   38rem. -->
               <div class="overflow-x-auto">
                 <table
                   class="w-full border-collapse text-start text-sm md:min-w-[34rem]"
@@ -449,13 +449,6 @@ type SocialKey = 'linkedin' | 'x' | 'youtube' | 'facebook' | 'instagram';
                         i18n="@@vendors.detail.body.products.col.product"
                       >
                         Product
-                      </th>
-                      <th
-                        scope="col"
-                        class="hidden px-4 py-3 text-start font-medium md:table-cell"
-                        i18n="@@vendors.detail.body.products.col.category"
-                      >
-                        Category
                       </th>
                       <th
                         scope="col"
@@ -489,7 +482,7 @@ type SocialKey = 'linkedin' | 'x' | 'youtube' | 'facebook' | 'instagram';
                         }
                       } @placeholder (minimum 100ms) {
                         <tr aria-hidden="true">
-                          <td colspan="5" class="px-4 py-3">
+                          <td colspan="4" class="px-4 py-3">
                             <div
                               class="h-16 animate-pulse rounded-(--radius-lg)
                                 border border-(--border-default) bg-(--surface-sunken)"

@@ -45,7 +45,6 @@ function buildProduct(slug: string, id: string): ProductListItem {
       logo_url: null,
       verified: false,
     },
-    primary_category: null,
     integration_count: 0,
     review_count: 0,
     rating_overall_avg: null,

@@ -51,7 +51,6 @@ function makePairProduct(overrides: Partial<ProductListItem> = {}): ProductListI
       logo_url: 'https://cdn.example/autodesk.png',
       verified: false,
     },
-    primary_category: { id: 'c1', name: 'BIM Authoring', slug: 'bim-authoring' },
     integration_count: 12,
     review_count: 4,
     rating_overall_avg: 4.2,
@@ -599,7 +598,6 @@ describe('buildPairJsonLd', () => {
         slug: 'procore',
         name: 'Procore',
         logo_url: 'https://cdn.example/procore.png',
-        primary_category: { id: 'c9', name: 'Project Management', slug: 'project-management' },
         vendor: {
           id: '00000000-0000-0000-0000-0000000000b0',
           slug: 'procore-technologies',
@@ -628,7 +626,6 @@ describe('buildPairJsonLd', () => {
           '@id': `${PAIR_ORIGIN}/products/procore#product`,
           name: 'Procore',
           url: `${PAIR_ORIGIN}/products/procore`,
-          applicationCategory: 'Project Management',
           image: 'https://cdn.example/procore.png',
           publisher: { '@type': 'Organization', name: 'Procore Technologies' },
         },
@@ -637,7 +634,6 @@ describe('buildPairJsonLd', () => {
           '@id': `${PAIR_ORIGIN}/products/revit#product`,
           name: 'Revit',
           url: `${PAIR_ORIGIN}/products/revit`,
-          applicationCategory: 'BIM Authoring',
           image: 'https://cdn.example/revit.png',
           publisher: { '@type': 'Organization', name: 'Autodesk' },
         },
@@ -646,7 +642,7 @@ describe('buildPairJsonLd', () => {
   });
 
   it('omits every optional about field when the source is null', () => {
-    const bare = makePairProduct({ logo_url: null, vendor: null, primary_category: null });
+    const bare = makePairProduct({ logo_url: null, vendor: null });
     const ld = build({ context: bare, other: bare });
     expect(ld.about[0]).toEqual({
       '@type': 'SoftwareApplication',
@@ -779,7 +775,6 @@ function makeDescribedProduct(overrides: Partial<ProductDetail> = {}): ProductDe
     logo_url: null,
     product_role: 'application',
     vendor: null,
-    primary_category: null,
     integration_count: 0,
     review_count: 0,
     rating_overall_avg: null,
@@ -816,7 +811,6 @@ function makeListedProduct(slug: string, name: string, integrationCount: number)
     logo_url: null,
     product_role: 'application',
     vendor: null,
-    primary_category: null,
     integration_count: integrationCount,
     review_count: 0,
     rating_overall_avg: null,

@@ -78,16 +78,16 @@ export class HomeSectionsPreview {
   ];
 
   protected readonly trending: readonly ProductListItem[] = [
-    this.product(1, 'Procore', 'Procore Technologies', 'Project Management', 24),
-    this.product(2, 'Autodesk Construction Cloud', 'Autodesk', 'BIM', 18),
-    this.product(3, 'Bluebeam Revu', 'Bluebeam', 'Document Control', 9),
-    this.product(4, 'PlanGrid', 'Autodesk', 'Field Reporting', 0),
+    this.product(1, 'Procore', 'Procore Technologies', 24),
+    this.product(2, 'Autodesk Construction Cloud', 'Autodesk', 18),
+    this.product(3, 'Bluebeam Revu', 'Bluebeam', 9),
+    this.product(4, 'PlanGrid', 'Autodesk', 0),
   ];
 
   protected readonly recentlyAdded: readonly ProductListItem[] = [
-    this.product(5, 'Fieldwire', 'Hilti', 'Field Reporting', 3),
-    this.product(6, 'Newforma', 'Newforma', 'Project Information', 2),
-    this.product(7, 'Buildertrend', 'Buildertrend', 'Construction Management', 1),
+    this.product(5, 'Fieldwire', 'Hilti', 3),
+    this.product(6, 'Newforma', 'Newforma', 2),
+    this.product(7, 'Buildertrend', 'Buildertrend', 1),
   ];
 
   private integration(
@@ -117,7 +117,6 @@ export class HomeSectionsPreview {
     n: number,
     name: string,
     vendor: string,
-    category: string,
     integration_count: number,
   ): ProductListItem {
     const slug = (s: string) => s.toLowerCase().replace(/\s+/g, '-');
@@ -128,7 +127,6 @@ export class HomeSectionsPreview {
       logo_url: null,
       product_role: 'application',
       vendor: { id: `v${n}`, slug: slug(vendor), name: vendor, logo_url: null, verified: false },
-      primary_category: { id: `c${n}`, slug: slug(category), name: category },
       integration_count,
       review_count: 0,
       rating_overall_avg: null,

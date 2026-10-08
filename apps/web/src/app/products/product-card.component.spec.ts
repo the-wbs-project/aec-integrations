@@ -20,11 +20,6 @@ const baseProduct: ProductListItem = {
     logo_url: null,
     verified: false,
   },
-  primary_category: {
-    id: '00000000-0000-4000-8000-000000030001',
-    name: 'Project Management',
-    slug: 'project-management',
-  },
   integration_count: 12,
   review_count: 3,
   rating_overall_avg: 4.5,
@@ -70,24 +65,12 @@ describe('ProductCard', () => {
     expect(link?.textContent).toContain('Procore Technologies');
   });
 
-  it('renders the primary category as a link to /categories/:slug', () => {
+  it('renders four cells and no category link', () => {
     const fixture = setupFixture();
-    const link = (fixture.nativeElement as HTMLElement).querySelector(
-      'a[href="/categories/project-management"]',
-    );
-    expect(link?.textContent).toContain('Project Management');
-  });
-
-  it('renders an en-dash placeholder when primary_category is null', () => {
-    const fixture = setupFixture({ ...baseProduct, primary_category: null });
-    const placeholder = (fixture.nativeElement as HTMLElement).querySelector(
-      'span[aria-label="No primary category"]',
-    );
-    expect(placeholder?.textContent?.trim()).toBe('–');
-    // No category link should be rendered.
-    expect(
-      (fixture.nativeElement as HTMLElement).querySelector('a[href^="/categories/"]'),
-    ).toBeNull();
+    const el = fixture.nativeElement as HTMLElement;
+    // Product, Vendor, Rating, Integrations.
+    expect(el.querySelectorAll('td')).toHaveLength(4);
+    expect(el.querySelector('a[href^="/categories/"]')).toBeNull();
   });
 
   it('renders an en-dash placeholder when vendor is null (AECI-115, no /vendors/unknown link)', () => {

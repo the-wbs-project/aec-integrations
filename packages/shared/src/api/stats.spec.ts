@@ -41,7 +41,6 @@ const validProductListItem = {
   logo_url: null,
   product_role: 'application' as const,
   vendor: { id: uuid(4), name: 'Autodesk', slug: 'autodesk', logo_url: null, verified: false },
-  primary_category: validLinkRef,
   integration_count: 12,
   review_count: 5,
   rating_overall_avg: 4.2,

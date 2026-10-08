@@ -23,7 +23,7 @@ import { RATING_VISIBILITY_MIN_REVIEWS } from '@aeci/shared';
  *   - `inline` (default, grid + search cards) — renders **nothing** when gated,
  *     so the card reflows with no orphaned label.
  *   - `cell` (dense table row) — renders an en-dash empty state when gated, the
- *     same `–` + `aria-label` pattern the vendor / category cells use, so the
+ *     same `–` + `aria-label` pattern the vendor cell uses, so the
  *     `<td>` stays populated and the column doesn't collapse.
  *
  * Accessibility mirrors `ReviewStars`: the star glyph is decorative

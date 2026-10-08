@@ -442,7 +442,7 @@ Row behavior:
 
 Cell content:
 
-- **ProductCard** (`tr[aec-product-card]`) — a monogram (`LogoOrInitial`, 32px) beside the name (→ `/products/:slug`), vendor (→ `/vendors/:slug`; nullable per AECI-115), primary category as a `TaxonomyBadge` chip (→ `/categories/:slug`), the overall rating as a `RatingSummary` (`variant="cell"` — gold star + average + review count, or an en-dash below the §5.5 ≥5-review gate; `hidden md:table-cell` so it collapses with the vendor column on mobile, where the card-grid view carries the rating), and the integration count as an `IntegrationStat` (graceful "Not yet connected" at zero). AECI-190 folded this richer treatment in so the `/products` table view and the taxonomy browse-page tables share one row.
+- **ProductCard** (`tr[aec-product-card]`) — a monogram (`LogoOrInitial`, 32px) beside the name (→ `/products/:slug`), vendor (→ `/vendors/:slug`; nullable per AECI-115), the overall rating as a `RatingSummary` (`variant="cell"` — gold star + average + review count, or an en-dash below the §5.5 ≥5-review gate; `hidden md:table-cell` so it collapses with the vendor column on mobile, where the card-grid view carries the rating), and the integration count as an `IntegrationStat` (graceful "Not yet connected" at zero). AECI-190 folded this richer treatment in so the `/products` table view and the taxonomy browse-page tables share one row.
 
 ### Search & discovery (Phase 3)
 
@@ -483,18 +483,17 @@ Two components in `apps/web/src/app/products/product-extensions.ts` render the `
   Note this is a **native `<select>`**, while `/search` uses an Angular Aria combobox (`<aec-search-sort-by>`, below). That is deliberate, not drift: the search control's options are built browser-side from the loaded Algolia controller, whereas these are static and SSR-rendered, so a native select keeps sorting operable with no JS.
 
 - **Layout:** responsive `grid` — 1 / 2 / 3 columns (`sm:grid-cols-2 lg:grid-cols-3`). The grid is deliberately *broken* (per the anti-reference against identical SaaS grids): the lead product gets a wide featured card spanning two columns on a warm **Bone** (`accent-warm`) band. The host enables the lead only on page 1 at the newest sort, so its "Recently added" eyebrow stays truthful; otherwise the grid is uniform.
-- **Tile:** one whole-card `<a>` to `/products/:slug`, so category / role render as **non-link** chips (`CategoryChip` / `RoleBadge`, never the `<a>`-based `TaxonomyBadge` — nested anchors are invalid + an axe failure). Monogram (`LogoOrInitial`), name (Source Serif), vendor, the overall rating as a `RatingSummary` (`variant="inline"` — the line is **omitted entirely** below the §5.5 gate, so the card reflows with no orphaned label; `RatingSummary` is non-link, safe inside the whole-card anchor), and the integration count as an `IntegrationStat` badge. Borders not shadows; hover raises `border-default` → `border-strong`.
+- **Tile:** one whole-card `<a>` to `/products/:slug`, so the role renders as a **non-link** chip (`RoleBadge`, never an `<a>`-based badge — nested anchors are invalid + an axe failure). The tile carries no category: a product can sit in several, and none is its "main" one. Monogram (`LogoOrInitial`), name (Source Serif), vendor, the overall rating as a `RatingSummary` (`variant="inline"` — the line is **omitted entirely** below the §5.5 gate, so the card reflows with no orphaned label; `RatingSummary` is non-link, safe inside the whole-card anchor), and the integration count as an `IntegrationStat` badge. Borders not shadows; hover raises `border-default` → `border-strong`.
 
 ### Integration stat
 
 `IntegrationStat` (`aec-integration-stat`) renders a product's `integration_count` as a deliberate metric — the directory's whole thesis is "which tools connect to what" — in three weights: `inline` (number over noun; table cells + grid), `badge` (a bordered pill with a Lucide "link" glyph), `headline` (a large Forest figure on the featured card). At zero it renders "Not yet connected" in `text-secondary`, never a bare `0`; it pluralizes the noun (1 → "integration"). The glyph is `aria-hidden` — the number + noun carry the meaning.
 
-### Role + category chips
+### Role chip
 
-Two non-link chips for the card grid, sharing the Tags / Taxonomy-chip **surface** (bordered, `rounded.sm`, `surface-raised`, `text-secondary`) and — since AECI-841 — the **standalone attribution chip metrics** in §Badges (`px-2.5 py-1` / `0.75rem`, 29px). They render in the same flex row, so the two must move together; see the "One chip spec" rule for what happened the last time one moved alone.
+One non-link chip for the card grid, sharing the Tags / Taxonomy-chip **surface** (bordered, `rounded.sm`, `surface-raised`, `text-secondary`) and — since AECI-841 — the **standalone attribution chip metrics** in §Badges (`px-2.5 py-1` / `0.75rem`, 29px).
 
-- **RoleBadge** (`aec-role-badge`) — the product's `product_role`, shown **only** for `connector` / `hybrid`; the default `application` renders nothing, so the chip earns attention by appearing selectively.
-- **CategoryChip** (`aec-category-chip`) — the primary category as plain styled text (not a link), for contexts where the whole card is already a link.
+- **RoleBadge** (`aec-role-badge`) — the product's `product_role`, shown **only** for `connector` / `hybrid`; the default `application` renders nothing, so the chip earns attention by appearing selectively. The grid gates the whole chip row on the role, so an application's tile carries no empty row.
 
 ### Home (Phase 4)
 
@@ -684,14 +683,14 @@ Native inputs driven by Signal Forms today (ADR 0009); richer controls use Angul
 
 **One chip spec (AECI-841).** The **standalone attribution chip** — the kind that sits in a hero or
 card chip row on its own line of meaning — is `px-2.5 py-1` / `0.75rem` / `font-medium` /
-`tracking-[0.01em]` / `rounded.sm`, which renders **29px tall**. Five components carry it:
-`RoleBadge`, `CategoryChip`, `MaintenanceMarker`, `AgreementBadge`, and `VendorAccountBadge`
+`tracking-[0.01em]` / `rounded.sm`, which renders **29px tall**. Four components carry it:
+`RoleBadge`, `MaintenanceMarker`, `AgreementBadge`, and `VendorAccountBadge`
 (as of AECI-1131 its only remaining variants are `public` and `portal`, both at this spec).
 
 This is a rule because it was broken twice in the same change. `RoleBadge` shipped at `px-2 py-0.5`
 and the product-detail hero put a 22px "Connector" chip next to the 29px maintenance marker in the
 same row; the text was the same 12px in both. Fixing that alone then left `RoleBadge` at 29px beside
-`CategoryChip` at 22px in `ProductCardGrid`'s chip row — the identical defect, relocated. **Chip
+a category chip (since removed) at 22px in `ProductCardGrid`'s chip row — the identical defect, relocated. **Chip
 metrics travel with the vocabulary, not the component**, so moving one means auditing every row the
 component appears in. If you are writing a chip and reaching for different padding, you are making a
 second chip vocabulary.
@@ -789,7 +788,7 @@ Vendor agreement is represented by the explicit `AgreementBadge` labels above, i
 
 Chip-style links to category / audience / phase browse pages (the `TaxonomyBadge` component). Distinct from the status badges above — these are navigational, not state indicators.
 
-> **Metrics here govern `TaxonomyBadge` only.** The two non-link card-grid chips that borrow this surface (`RoleBadge`, `CategoryChip` — see "Role + category chips" above) take the §Badges standalone-attribution metrics instead: `px-2.5 py-1` / `0.75rem`. They share the surface, not the type scale.
+> **Metrics here govern `TaxonomyBadge` only.** The non-link card-grid chip that borrows this surface (`RoleBadge` — see "Role chip" above) takes the §Badges standalone-attribution metrics instead: `px-2.5 py-1` / `0.75rem`. They share the surface, not the type scale.
 
 - **Surface:** `surface-raised` fill, 0.5px solid `border-default` raising to 1px `border-strong` on hover. `rounded.sm` (4px).
 - **Typography:** Atkinson Hyperlegible Next **medium (500)**, 0.8125rem / 13px, tracking +0.01em. Deliberately lighter than the `label` role (600): the chip reads as a content tag, not a button. (500 is a real cut since the Next upgrade, AECI-230 — the classic family silently rendered it as 400.) `text-primary` shifts to `accent-primary` on hover.

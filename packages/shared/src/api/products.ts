@@ -59,11 +59,6 @@ export type ProductSort = z.infer<typeof ProductSortSchema>;
  * product to carry at least one link (AECI-115). When absent we surface `null`
  * and the SSR layer renders an empty state — rather than fabricating a sentinel
  * vendor that would render a broken `/vendors/unknown` link.
- *
- * `primary_category` carries the highest-display-order category the product
- * belongs to (or `null` when the product has no categories). Added so the
- * AECI-58 index page can render a category cell on each `ProductCard` row
- * without a chain-fetch — same §7.2 rule that drives `vendor` hydration.
  */
 export const ProductListItemSchema = z.object({
   id: z.string().uuid(),
@@ -72,7 +67,6 @@ export const ProductListItemSchema = z.object({
   logo_url: LogoReadUrlSchema.nullable(),
   product_role: ProductRoleSchema,
   vendor: VendorLinkSchema.nullable(),
-  primary_category: LinkRefSchema.nullable(),
   integration_count: z.number().int().min(0),
   review_count: z.number().int().min(0),
   rating_overall_avg: z.number().nullable(),

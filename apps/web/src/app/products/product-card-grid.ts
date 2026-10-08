@@ -6,7 +6,6 @@ import type { ProductListItem } from '@aeci/shared';
 import { RatingSummary } from '../reviews/rating-summary';
 import { LogoOrInitial } from '../shared/logo-or-initial/logo-or-initial';
 
-import { CategoryChip } from './category-chip';
 import { IntegrationStat } from './integration-stat';
 import { RoleBadge } from './role-badge';
 
@@ -15,20 +14,21 @@ import { RoleBadge } from './role-badge';
  * to "index and browse pages"; this is the card-grid variant that comment
  * anticipated). Anchor: Faire (DESIGN.md Anchor-Site Rule).
  *
- * Each tile is a self-contained pitch — monogram, name, vendor, category + role
- * chips, and the integration count as a Faire-"Bestseller"-style trust badge.
- * To dodge the "identical 3×3 SaaS grid" anti-reference (DESIGN.md), the grid is
- * broken: the lead product gets a wide featured card on a warm Bone band. The
- * host only enables `featuredLead` on page 1 at the newest sort, so the
- * "Recently added" claim stays truthful.
+ * Each tile is a self-contained pitch — monogram, name, vendor, a role chip
+ * (connector / hybrid only), and the integration count as a
+ * Faire-"Bestseller"-style trust badge. To dodge the "identical 3×3 SaaS grid"
+ * anti-reference (DESIGN.md), the grid is broken: the lead product gets a wide
+ * featured card on a warm Bone band. The host only enables `featuredLead` on
+ * page 1 at the newest sort, so the "Recently added" claim stays truthful.
  *
- * The whole card is one link, so category/role render as non-link chips
- * (`CategoryChip` / `RoleBadge`, not the `<a>`-based `TaxonomyBadge`) to avoid
- * nested anchors. Both themes via tokens (§11.4).
+ * The whole card is one link, so the role renders as a non-link chip
+ * (`RoleBadge`) to avoid nested anchors. The tile carries no category: a
+ * product can sit in several categories, and no one of them is its "main" one.
+ * Both themes via tokens (§11.4).
  */
 @Component({
   selector: 'aec-product-card-grid',
-  imports: [RouterLink, LogoOrInitial, CategoryChip, RoleBadge, IntegrationStat, RatingSummary],
+  imports: [RouterLink, LogoOrInitial, RoleBadge, IntegrationStat, RatingSummary],
   template: `
     <ul role="list" class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
       @if (featured(); as product) {
@@ -71,12 +71,14 @@ import { RoleBadge } from './role-badge';
                 }
               </p>
             </div>
-            <div class="flex flex-wrap items-center gap-2">
-              @if (product.primary_category; as cat) {
-                <aec-category-chip [name]="cat.name" />
-              }
-              <aec-role-badge [role]="product.product_role" />
-            </div>
+            <!-- Role chip row: rendered only for connector / hybrid. RoleBadge
+                 renders nothing for an application, and an empty row would still
+                 take a flex gap, so the row itself is gated. -->
+            @if (product.product_role !== 'application') {
+              <div class="flex flex-wrap items-center gap-2">
+                <aec-role-badge [role]="product.product_role" />
+              </div>
+            }
             <!-- Editorial rating: omitted entirely below the §5.5 ≥5-review gate
                  (the card reflows). -->
             <aec-rating-summary
@@ -113,12 +115,12 @@ import { RoleBadge } from './role-badge';
                 }
               </p>
             </div>
-            <div class="flex flex-wrap items-center gap-2">
-              @if (product.primary_category; as cat) {
-                <aec-category-chip [name]="cat.name" />
-              }
-              <aec-role-badge [role]="product.product_role" />
-            </div>
+            <!-- Role chip row: connector / hybrid only (see the featured card). -->
+            @if (product.product_role !== 'application') {
+              <div class="flex flex-wrap items-center gap-2">
+                <aec-role-badge [role]="product.product_role" />
+              </div>
+            }
             <!-- Editorial rating: omitted entirely below the §5.5 ≥5-review gate. -->
             <aec-rating-summary
               variant="inline"

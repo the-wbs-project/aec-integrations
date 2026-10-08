@@ -403,7 +403,6 @@ describe('ProductIntegrationsSection empty state on an extension (§13.3b / AECI
     ...link(slug, name),
     product_role: 'application',
     vendor: null,
-    primary_category: null,
     integration_count: 0,
     review_count: 0,
     rating_overall_avg: null,

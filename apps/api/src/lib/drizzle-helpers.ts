@@ -734,7 +734,7 @@ export const productVersionDiffGateConfig = {
 } as const;
 
 /** `ProductListItem` hydration. `vendor` resolves from `productVendors` ordered
- *  `isPrimary desc`; `primary_category` from the category joins. */
+ *  `isPrimary desc`. No taxonomy joins: a list row carries no category. */
 export const productListConfig = {
   columns: {
     id: true,
@@ -756,9 +756,6 @@ export const productListConfig = {
     // via `find(isPrimary) ?? rows[0]`, so it is order-independent.
     productVendors: {
       with: { vendor: { columns: vendorLinkColumns } },
-    },
-    productCategories: {
-      with: { category: { columns: taxonomyLinkWithOrderColumns } },
     },
   },
 } as const;
@@ -1242,9 +1239,9 @@ export interface RawProductListRow {
   createdAt: string;
   updatedAt: string;
   productVendors: Array<{ isPrimary: boolean; vendor: RawVendorLink }>;
-  productCategories: Array<{ category: RawTaxonomyLinkWithOrder }>;
 }
 export interface RawProductDetailRow extends RawProductListRow, RawMaintenanceColumns {
+  productCategories: Array<{ category: RawTaxonomyLinkWithOrder }>;
   description: string | null;
   website: string | null;
   toolIntegrationsUrl: string | null;
@@ -2030,25 +2027,6 @@ export function computePairMaintenance(
   };
 }
 
-function pickPrimaryCategory(
-  rows: Array<{ category: RawTaxonomyLinkWithOrder }>,
-): { id: string; name: string; slug: string } | null {
-  if (rows.length === 0) return null;
-  let best = rows[0]!.category;
-  for (let i = 1; i < rows.length; i++) {
-    const candidate = rows[i]!.category;
-    const candidateOrder = candidate.displayOrder ?? Number.POSITIVE_INFINITY;
-    const bestOrder = best.displayOrder ?? Number.POSITIVE_INFINITY;
-    if (
-      candidateOrder < bestOrder ||
-      (candidateOrder === bestOrder && compareText(candidate.name, best.name) < 0)
-    ) {
-      best = candidate;
-    }
-  }
-  return { id: best.id, name: best.name, slug: best.slug };
-}
-
 export function pickPrimaryVendor(
   rows: Array<{ isPrimary: boolean; vendor: RawVendorLink }>,
 ): VendorLink | null {
@@ -2071,7 +2049,6 @@ export function toProductListItem(raw: RawProductListRow): ProductListItem {
     logo_url: raw.logoUrl,
     product_role: toProductRole(raw.productRole, raw.id),
     vendor: pickPrimaryVendor(raw.productVendors),
-    primary_category: pickPrimaryCategory(raw.productCategories),
     integration_count: raw.integrationCount,
     review_count: raw.reviewCount,
     rating_overall_avg: ratingsVisible ? raw.ratingOverallAvg : null,

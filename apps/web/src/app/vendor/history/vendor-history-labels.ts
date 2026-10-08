@@ -115,8 +115,8 @@ export function hasHistoryActionLabel(action: string): boolean {
 const ACRONYMS = new Set(['url', 'id', 'api', 'sso', 'csv', 'ifc', 'bim', 'aec']);
 
 /**
- * A changed field's key, readable: `logo_url` → "Logo URL", `primaryCategory` →
- * "Primary category". The wire carries key names only, never values.
+ * A changed field's key, readable: `logo_url` → "Logo URL", `dataObjects` →
+ * "Data objects". The wire carries key names only, never values.
  */
 export function humanizeField(field: string): string {
   const words = field

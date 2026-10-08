@@ -687,14 +687,14 @@ export class UnifiedHomePreview {
     this.integration(4, 'AutoCAD', 'BIM 360', null, 'a_to_b'),
   ];
   protected readonly trendingProducts: readonly ProductListItem[] = [
-    this.product(1, 'Procore', 'Procore Technologies', 'Project management', 24),
-    this.product(2, 'Autodesk Construction Cloud', 'Autodesk', 'BIM', 18),
-    this.product(3, 'Bluebeam Revu', 'Bluebeam', 'Document control', 9),
-    this.product(4, 'PlanGrid', 'Autodesk', 'Field reporting', 6),
+    this.product(1, 'Procore', 'Procore Technologies', 24),
+    this.product(2, 'Autodesk Construction Cloud', 'Autodesk', 18),
+    this.product(3, 'Bluebeam Revu', 'Bluebeam', 9),
+    this.product(4, 'PlanGrid', 'Autodesk', 6),
   ];
   protected readonly recentlyAddedProducts: readonly ProductListItem[] = [
-    this.product(5, 'Fieldwire', 'Hilti', 'Field reporting', 3),
-    this.product(6, 'Newforma', 'Newforma', 'Project information', 2),
+    this.product(5, 'Fieldwire', 'Hilti', 3),
+    this.product(6, 'Newforma', 'Newforma', 2),
   ];
 
   private term(
@@ -733,7 +733,6 @@ export class UnifiedHomePreview {
     n: number,
     name: string,
     vendor: string,
-    category: string,
     integration_count: number,
   ): ProductListItem {
     const slug = (s: string) => s.toLowerCase().replace(/\s+/g, '-');
@@ -744,7 +743,6 @@ export class UnifiedHomePreview {
       logo_url: null,
       product_role: 'application',
       vendor: { id: `v${n}`, slug: slug(vendor), name: vendor, logo_url: null, verified: false },
-      primary_category: { id: `c${n}`, slug: slug(category), name: category },
       integration_count,
       review_count: 0,
       rating_overall_avg: null,

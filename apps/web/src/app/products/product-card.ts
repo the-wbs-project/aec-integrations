@@ -5,7 +5,6 @@ import type { ProductListItem } from '@aeci/shared';
 
 import { RatingSummary } from '../reviews/rating-summary';
 import { LogoOrInitial } from '../shared/logo-or-initial/logo-or-initial';
-import { TaxonomyBadge } from '../shared/taxonomy-badge/taxonomy-badge';
 
 import { IntegrationStat } from './integration-stat';
 
@@ -24,24 +23,25 @@ import { IntegrationStat } from './integration-stat';
  * primitives, `VendorCard` and `IntegrationCard`, were deleted once AECI-165
  * removed the `/vendors` and `/integrations` index pages that consumed them.
  *
- * Renders five cells: product (monogram via `LogoOrInitial` + name link),
+ * Renders four cells: product (monogram via `LogoOrInitial` + name link),
  * vendor (linked when present, otherwise an en-dash empty state — `vendor` is
- * nullable per AECI-115), primary category (a `TaxonomyBadge` chip linking to
- * `/categories/:slug`, otherwise an en-dash), the overall rating as a
- * `RatingSummary` (`variant="cell"` — gold star + average + review count, or an
- * en-dash below the §5.5 ≥5-review gate), and the integration count as an
- * `IntegrationStat` (graceful "Not yet connected" at zero). AECI-190 folded the
- * monogram / chip / stat treatment in here so the `/products` table view and the
- * taxonomy browse-page tables share one upgraded row.
+ * nullable per AECI-115), the overall rating as a `RatingSummary`
+ * (`variant="cell"` — gold star + average + review count, or an en-dash below
+ * the §5.5 ≥5-review gate), and the integration count as an `IntegrationStat`
+ * (graceful "Not yet connected" at zero). AECI-190 folded the monogram / stat
+ * treatment in here so the `/products` table view and the taxonomy browse-page
+ * tables share one upgraded row. The row carries no category: a product can sit
+ * in several categories, and no one of them is its "main" one.
  *
- * Responsive: the vendor cell collapses below `md` — the same breakpoint at
- * which `BrowseLayout`'s filter sidebar collapses into its mobile "Filters"
- * disclosure (`facet-sidebar.ts`). So the column and the sidebar appear/vanish
- * together: at `md+` the sidebar sits beside a 4-column table; below `md` the
- * table is full-width single-column and the vendor surfaces as a muted link
- * under the product name. (A container query against the *table's* width is
- * wrong here — below `md` the full-width table is wide enough that the vendor
- * column would reappear, out of step with the collapsed sidebar.)
+ * Responsive: the vendor and rating cells collapse below `md` — the same
+ * breakpoint at which `BrowseLayout`'s filter sidebar collapses into its mobile
+ * "Filters" disclosure (`facet-sidebar.ts`). So the columns and the sidebar
+ * appear/vanish together: at `md+` the sidebar sits beside a 4-column table;
+ * below `md` the table is full-width with two columns (product, integrations)
+ * and the vendor surfaces as a muted link under the product name. (A container
+ * query against the *table's* width is wrong here — below `md` the full-width
+ * table is wide enough that the vendor column would reappear, out of step with
+ * the collapsed sidebar.)
  */
 @Component({
   // Attribute selector is required so the rendered DOM is a literal `<tr>` —
@@ -51,7 +51,7 @@ import { IntegrationStat } from './integration-stat';
   // CDK uses for `tr[cdk-row]` / `tr[mat-row]`.
   // eslint-disable-next-line @angular-eslint/component-selector
   selector: 'tr[aec-product-card]',
-  imports: [RouterLink, LogoOrInitial, TaxonomyBadge, IntegrationStat, RatingSummary],
+  imports: [RouterLink, LogoOrInitial, IntegrationStat, RatingSummary],
   host: {
     // `group` so the stacked-vendor sublabel can react to the row's hover /
     // focus-within state (it steps tertiary→secondary when the row fill goes
@@ -107,18 +107,6 @@ import { IntegrationStat } from './integration-stat';
         >
       }
     </td>
-    <td class="px-4 py-3 text-(--text-secondary)">
-      @if (primaryCategory(); as cat) {
-        <aec-taxonomy-badge kind="category" [slug]="cat.slug" [name]="cat.name" />
-      } @else {
-        <span
-          class="text-(--text-secondary)"
-          i18n="@@products.card.category.none"
-          aria-label="No primary category"
-          >–</span
-        >
-      }
-    </td>
     <!-- Rating column collapses below md alongside the Vendor column (same
          breakpoint as BrowseLayout's filter sidebar); the card-grid view carries
          the rating on small screens. The cell variant keeps the cell populated
@@ -139,5 +127,4 @@ export class ProductCard {
   readonly product = input.required<ProductListItem>();
 
   protected readonly vendor = computed(() => this.product().vendor);
-  protected readonly primaryCategory = computed(() => this.product().primary_category);
 }

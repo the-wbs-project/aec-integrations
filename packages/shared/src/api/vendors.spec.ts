@@ -39,7 +39,6 @@ const validProductListItem = {
     logo_url: null,
     verified: false,
   },
-  primary_category: null,
   integration_count: 12,
   review_count: 5,
   rating_overall_avg: 4.2,

@@ -16,12 +16,10 @@ import {
   connectorStubMappings,
   connectorStubs,
   integrations,
-  productCategories,
   products,
   productTrades,
   productVendors,
   productVersions,
-  taxonomyCategories,
   taxonomyDataObjects,
   taxonomyTrades,
   vendors,
@@ -38,17 +36,13 @@ describe('in-memory D1 harness (AECI-253)', () => {
     t.dispose();
   });
 
-  it('hydrates a product via the relational query builder (vendor + primary category)', async () => {
+  it('hydrates a product via the relational query builder (vendor)', async () => {
     const t = await makeTestDb();
     await t.db.insert(vendors).values({ id: 'v1', slug: 'autodesk', companyName: 'Autodesk' });
     await t.db
       .insert(products)
       .values({ id: 'p1', slug: 'revit', name: 'Revit', promotionStatus: 'promoted' });
     await t.db.insert(productVendors).values({ productId: 'p1', vendorId: 'v1', isPrimary: true });
-    await t.db
-      .insert(taxonomyCategories)
-      .values({ id: 'c1', slug: 'bim-authoring', name: 'BIM Authoring', displayOrder: 60 });
-    await t.db.insert(productCategories).values({ productId: 'p1', categoryId: 'c1' });
 
     const [row] = await t.db.query.products.findMany({
       ...productListConfig,
@@ -56,7 +50,6 @@ describe('in-memory D1 harness (AECI-253)', () => {
     });
     expect(row?.name).toBe('Revit');
     expect(row?.productVendors[0]?.vendor.companyName).toBe('Autodesk');
-    expect(row?.productCategories[0]?.category.slug).toBe('bim-authoring');
     t.dispose();
   });
 
