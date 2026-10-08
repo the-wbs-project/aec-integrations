@@ -464,9 +464,12 @@ export class ReviewQueue {
   }
 }
 
-/** created_at ascending (oldest first) — the queue-age order. */
+/** created_at ascending (oldest first) — the queue-age order. ISO timestamps
+ *  compare in binary, never with an unpinned `localeCompare` (AECI-1243); `id`
+ *  breaks a same-millisecond tie. */
 function byCreatedAtAsc(a: AdminReview, b: AdminReview): number {
-  return a.created_at.localeCompare(b.created_at);
+  if (a.created_at !== b.created_at) return a.created_at < b.created_at ? -1 : 1;
+  return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
 }
 
 /** toxicity_score descending, nulls last, oldest-first tiebreak. */

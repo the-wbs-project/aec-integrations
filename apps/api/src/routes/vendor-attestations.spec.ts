@@ -407,6 +407,31 @@ describe('GET /api/vendor/integrations', () => {
     expect(integration.powered_by).toBeNull();
   });
 
+  it('orders claims by vocabulary, slug, direction, then id (AECI-1243)', async () => {
+    await t.db.insert(claims).values([
+      { id: uuid(44), integrationId: I_MAIN, dataObjectId: DO_SUBMITTALS, direction: 'a_to_b' },
+      { id: uuid(43), integrationId: I_MAIN, dataObjectId: DO_RFIS, direction: 'both' },
+    ]);
+    const [integration] = (await call('/api/vendor/integrations')).body.integrations;
+    expect(integration.claims.map((c: { id: string }) => c.id)).toEqual([
+      C_MAIN, // rfis, a_to_b
+      uuid(43), // rfis, both
+      uuid(44), // submittals
+    ]);
+  });
+
+  it('breaks a same-pair tie between two integrations on id (AECI-1243)', async () => {
+    // A second Revit ↔ MicroStation row whose id sorts BEFORE I_MAIN, inserted after it.
+    await t.db.insert(integrations).values({
+      id: uuid(19),
+      sourceProductId: P_SOURCE,
+      targetProductId: P_TARGET,
+      mechanismKind: 'api',
+    });
+    const { body } = await call('/api/vendor/integrations');
+    expect(body.integrations.map((i: { id: string }) => i.id)).toEqual([uuid(19), I_MAIN]);
+  });
+
   it('carries ownership and the current contestable values, framed per entry (AECI-1008)', async () => {
     await t.db
       .update(integrations)

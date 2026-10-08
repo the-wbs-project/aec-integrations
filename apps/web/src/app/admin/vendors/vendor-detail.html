@@ -748,13 +748,11 @@
               </th>
               <td class="py-2 pe-4 text-(--text-secondary)">
                 @if (invite.invited_by) { {{ invite.invited_by }} } @else {
-                <!-- The sender FK is ON DELETE SET NULL, so an invite outlives
-                     the account that sent it. -->
-                <span
-                  class="text-(--text-tertiary)"
-                  i18n-aria-label="@@admin.vendors.detail.invites.senderGone"
-                  aria-label="The sending account no longer exists"
-                  >&ndash;</span
+                <!-- No name: the sender deleted their account (the FK is ON DELETE
+                     SET NULL) or never set a display name. -->
+                <span class="text-(--text-tertiary)" aria-hidden="true">&ndash;</span>
+                <span class="sr-only" i18n="@@admin.vendors.detail.invites.noSenderName"
+                  >No sender name</span
                 >
                 }
               </td>

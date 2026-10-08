@@ -251,6 +251,81 @@ describe('UserDetail', () => {
     });
   });
 
+  describe('pending invites table (AECI-1243)', () => {
+    const invite = (
+      n: number,
+      vendor: string,
+      invitedBy: string | null,
+      createdAt: string,
+      expiresAt: string,
+    ) => ({
+      id: `00000000-0000-4000-8000-00000000090${n}`,
+      email: 'rita@acme.com',
+      invited_by: invitedBy,
+      expires_at: expiresAt,
+      created_at: createdAt,
+      vendor_id: VENDOR_ID,
+      vendor_name: vendor,
+    });
+    const invites = [
+      invite(1, 'Procore', 'Sam Seat', '2026-08-01T00:00:00.000Z', '2026-12-01T00:00:00.000Z'),
+      invite(2, 'acme', null, '2026-09-01T00:00:00.000Z', '2026-11-01T00:00:00.000Z'),
+      invite(3, 'Zeta', 'ann', '2026-07-01T00:00:00.000Z', '2026-10-15T00:00:00.000Z'),
+    ];
+
+    const vendorColumn = (el: HTMLElement) =>
+      [...el.querySelectorAll('tbody th[scope="row"]')].map((th) => th.textContent?.trim());
+    const inviteHeader = (el: HTMLElement, label: string) =>
+      [...el.querySelectorAll<HTMLTableCellElement>('thead th')].find((th) =>
+        th.textContent?.trim().startsWith(label),
+      );
+
+    it('defaults to newest invite first, and says so through aria-sort', async () => {
+      const { el } = await setup(makeApiMock(makeUser({ pending_invites: invites })));
+      expect(vendorColumn(el)).toEqual(['acme', 'Procore', 'Zeta']);
+      expect(inviteHeader(el, 'Invited on')?.getAttribute('aria-sort')).toBe('descending');
+      expect(inviteHeader(el, 'Vendor')?.getAttribute('aria-sort')).toBe('none');
+    });
+
+    it('sorts by vendor A to Z ignoring case, and flips on a second click', async () => {
+      const { el, fixture } = await setup(makeApiMock(makeUser({ pending_invites: invites })));
+      const button = inviteHeader(el, 'Vendor')!.querySelector('button')!;
+      await click(fixture, button);
+      expect(vendorColumn(el)).toEqual(['acme', 'Procore', 'Zeta']);
+      expect(inviteHeader(el, 'Vendor')?.getAttribute('aria-sort')).toBe('ascending');
+      await click(fixture, button);
+      expect(vendorColumn(el)).toEqual(['Zeta', 'Procore', 'acme']);
+    });
+
+    it('puts a missing sender last in both directions', async () => {
+      const { el, fixture } = await setup(makeApiMock(makeUser({ pending_invites: invites })));
+      const button = inviteHeader(el, 'Invited by')!.querySelector('button')!;
+      await click(fixture, button);
+      expect(vendorColumn(el)).toEqual(['Zeta', 'Procore', 'acme']);
+      await click(fixture, button);
+      expect(vendorColumn(el)).toEqual(['Procore', 'Zeta', 'acme']);
+    });
+
+    it('treats an empty sender name as missing: a dash, sorted last', async () => {
+      const withBlank = [
+        ...invites,
+        invite(4, 'Beta', '', '2026-06-01T00:00:00.000Z', '2026-10-20T00:00:00.000Z'),
+      ];
+      const { el, fixture } = await setup(makeApiMock(makeUser({ pending_invites: withBlank })));
+      const button = inviteHeader(el, 'Invited by')!.querySelector('button')!;
+      await click(fixture, button);
+      expect(vendorColumn(el).slice(0, 2)).toEqual(['Zeta', 'Procore']);
+      expect(el.textContent).toContain('No sender name');
+      expect(el.textContent).not.toContain('no longer exists');
+    });
+
+    it('sorts by expiry, soonest first', async () => {
+      const { el, fixture } = await setup(makeApiMock(makeUser({ pending_invites: invites })));
+      await click(fixture, inviteHeader(el, 'Expires')!.querySelector('button')!);
+      expect(vendorColumn(el)).toEqual(['Zeta', 'acme', 'Procore']);
+    });
+  });
+
   describe('contributions', () => {
     it('labels the request count as an email match, not an account link', async () => {
       const { el } = await setup();

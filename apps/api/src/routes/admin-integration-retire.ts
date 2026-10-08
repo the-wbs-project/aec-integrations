@@ -321,10 +321,12 @@ async function loadVendorHeldRows(db: Db, vendorId: string): Promise<AdminVendor
   ];
 }
 
-/** The sort key: the row's name, with an unnamed row first, as the SQL
- *  `textAsc(name)` this replaced put a NULL first. */
+/** The sort key: the label the admin page shows for the row (AECI-1243). An
+ *  unnamed row renders as `Source ↔ Target` (`pairLabel` in
+ *  `vendor-integrations-panel.ts`, and the Field corrections Record picker), so
+ *  it sorts there too rather than bunching at the top. */
 function sortName(row: AdminVendorIntegrationRow): string {
-  return row.name ?? '';
+  return row.name ?? `${row.source.name} ↔ ${row.target.name}`;
 }
 
 /**

@@ -54,7 +54,9 @@ import {
   type AdminNote,
   type LinkRef,
 } from '@aeci/shared';
-import { and, asc, count, desc, eq, inArray, isNotNull, or } from 'drizzle-orm';
+import { compareText } from '@aeci/shared/text-sort';
+import { and, asc, count, desc, eq, inArray, isNotNull, or, sql } from 'drizzle-orm';
+import { alias } from 'drizzle-orm/sqlite-core';
 import type { Context } from 'hono';
 
 import { getDb, type Db } from '../db/client';
@@ -523,6 +525,9 @@ export function createAdminConnectorStubsHandler(
       list.push(toMapping(m, productMap));
       byStub.set(m.stubId, list);
     }
+    // A to Z by mapped product name, then id (AECI-1243). A mapping with no
+    // product (`unmapped` / `not_found`) has no name to sort on and goes last.
+    for (const list of byStub.values()) list.sort(compareMappingsByProductName);
 
     const neverFetched = rows.filter((r) => !r.actionsFetched).length;
     const advisories: AdminNote[] = [];
@@ -603,6 +608,11 @@ export function createAdminConnectorPairsHandler(
         eq(connectorEvidencedPairs.connectorProductId, catalog.connectorProductId),
         liveEvidencedPairWhere,
       );
+      // A to Z by product A's name, then product B's, then id (AECI-1243): the
+      // order of the "A – B" label the table renders. Aliased joins because the
+      // list is paginated, so the order has to be total in SQL.
+      const productA = alias(products, 'evidenced_product_a');
+      const productB = alias(products, 'evidenced_product_b');
       const [rows, totals] = await db.batch([
         db
           .select({
@@ -618,8 +628,10 @@ export function createAdminConnectorPairsHandler(
             maintainedBy: connectorEvidencedPairs.maintainedBy,
           })
           .from(connectorEvidencedPairs)
+          .leftJoin(productA, eq(productA.id, connectorEvidencedPairs.productAId))
+          .leftJoin(productB, eq(productB.id, connectorEvidencedPairs.productBId))
           .where(where)
-          .orderBy(asc(connectorEvidencedPairs.id))
+          .orderBy(textAsc(productA.name), textAsc(productB.name), asc(connectorEvidencedPairs.id))
           .limit(query.perPage)
           .offset(offset),
         db.select({ value: count() }).from(connectorEvidencedPairs).where(where),
@@ -690,6 +702,13 @@ export function createAdminConnectorPairsHandler(
       eq(connectorPairs.catalogId, id),
       query.surface ? eq(connectorPairs.surface, query.surface) : undefined,
     );
+    // A to Z by side A's listing name, then side B's, then id (AECI-1243). The
+    // listing name is what the table renders first for a side (`label`, else
+    // `slug`), and it is the product's name on the platform. The mapped AECi
+    // product cannot order the page: it is picked per side in memory by
+    // `representativeMapping`, after pagination.
+    const stubA = alias(connectorStubs, 'reachable_stub_a');
+    const stubB = alias(connectorStubs, 'reachable_stub_b');
     const [rows, totals] = await db.batch([
       db
         .select({
@@ -705,8 +724,14 @@ export function createAdminConnectorPairsHandler(
           removedAt: connectorPairs.removedAt,
         })
         .from(connectorPairs)
+        .leftJoin(stubA, eq(stubA.id, connectorPairs.stubAId))
+        .leftJoin(stubB, eq(stubB.id, connectorPairs.stubBId))
         .where(where)
-        .orderBy(desc(connectorPairs.lastSeenAt), asc(connectorPairs.id))
+        .orderBy(
+          textAsc(sql`coalesce(${stubA.label}, ${stubA.slug})`),
+          textAsc(sql`coalesce(${stubB.label}, ${stubB.slug})`),
+          asc(connectorPairs.id),
+        )
         .limit(query.perPage)
         .offset(offset),
       db.select({ value: count() }).from(connectorPairs).where(where),
@@ -909,4 +934,17 @@ export function createAdminConnectorAuditHandler(
     });
     return json(body);
   };
+}
+
+/** Stub mappings A to Z by mapped product name, product-less last, then id. */
+function compareMappingsByProductName(a: AdminConnectorMapping, b: AdminConnectorMapping): number {
+  const an = a.product?.name;
+  const bn = b.product?.name;
+  if (an !== bn) {
+    if (an === undefined) return 1;
+    if (bn === undefined) return -1;
+    const byName = compareText(an, bn);
+    if (byName !== 0) return byName;
+  }
+  return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
 }

@@ -227,6 +227,8 @@ Two rules the editor keeps because the caps are newer than the data. Promote enf
 
 The editor stages into a dirty-diff rather than persisting on close, because a staged edit is protected by `VendorPortalStore.markDirty` and the "changed somewhere else" banner. Since AECI-994 the tags and the points for a facet share that one draft and one Save, and the same PATCH carries both (`STAGE_2_VENDOR_PORTAL_SPEC.md` §6.12).
 
+**Display order is set on read, not by the writer.** `GET /api/products/:slug` sorts the groups: audiences alphabetically by name, phases in the vocabulary's lifecycle order (`display_order`, the same rule as the header's Phases menu). The points inside a group keep the order the vendor or curator chose, which is why the editor offers move up and move down. The stored block and the vendor portal read keep the writer's order. `apps/api/src/lib/usefulness-order.ts`.
+
 `MATERIAL_PRODUCT_FIELDS` gains `usefulness`, so an edit files as `product.updated` and not `product.minor` in the ADR 0031 Google re-crawl worklist. Cache purging is unchanged (`product:{slug}` already covers the detail page) and Algolia needs nothing, since `usefulness` is not an indexed attribute.
 
 ## 13. Connector-lane public surfaces (placed 2026-09-23)

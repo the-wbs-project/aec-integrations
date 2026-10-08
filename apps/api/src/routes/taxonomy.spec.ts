@@ -85,6 +85,21 @@ describe('GET /api/taxonomy', () => {
     expect(body.trades.find((x) => x.slug === 'roofing')?.product_count).toBe(0);
   });
 
+  it('orders audiences A to Z by name, not by display_order (AECI-1243)', async () => {
+    await t.db.insert(taxonomyAudiences).values([
+      { id: u(1), slug: 'structural-engineer', name: 'Structural Engineer', displayOrder: 10 },
+      { id: u(2), slug: 'architect', name: 'architect', displayOrder: 20 },
+      { id: u(3), slug: 'bim-manager', name: 'BIM Manager', displayOrder: null },
+    ]);
+    const res = await app().request('/api/taxonomy', {}, TEST_ENV, fakeExecutionContext());
+    const body = TaxonomyResponseSchema.parse(await res.json());
+    expect(body.audiences.map((a) => a.slug)).toEqual([
+      'architect',
+      'bim-manager',
+      'structural-engineer',
+    ]);
+  });
+
   it('returns an empty trades list on a catalog with no trade vocabulary seeded', async () => {
     const res = await app().request('/api/taxonomy', {}, TEST_ENV, fakeExecutionContext());
     const body = TaxonomyResponseSchema.parse(await res.json());

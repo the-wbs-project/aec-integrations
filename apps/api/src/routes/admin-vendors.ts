@@ -96,7 +96,7 @@ import { ApiError, notFoundError } from '../errors';
 import { json } from '../http';
 import { auditActorType, type AuthzVariables } from '../lib/authz';
 import { VENDOR_ADMIN_ROLE } from '../lib/claimed-vendors';
-import { textAsc } from '../lib/collation';
+import { blankLast, textAsc } from '../lib/collation';
 import { auditInsert, type BatchTuple } from '../lib/audit';
 import { aeciOverrideNotificationAudit } from '../lib/aeci-override-notifications';
 import { validateResponseInDev, writeDb, type DbFactory } from '../lib/handler-utils';
@@ -348,7 +348,9 @@ export function createAdminVendorDetailHandler(
         })
         .from(profiles)
         .where(seatsOf(vendorId))
-        .orderBy(asc(profiles.createdAt)),
+        // A to Z by the name the roster shows, unnamed seats last, then id
+        // (AECI-1243).
+        .orderBy(blankLast(profiles.displayName), textAsc(profiles.displayName), asc(profiles.id)),
       // `liveInvitesFor`, not `pendingInvitesFor` plus a hand-rolled expiry term:
       // the latter covers only the two terminal columns, and an invite that merely
       // aged out is still `accepted_at IS NULL AND revoked_at IS NULL`. Showing it
@@ -366,7 +368,7 @@ export function createAdminVendorDetailHandler(
         .from(vendorSeatInvites)
         .leftJoin(invitedBy, eq(invitedBy.id, vendorSeatInvites.invitedById))
         .where(liveInvitesFor(vendorId, now))
-        .orderBy(asc(vendorSeatInvites.createdAt)),
+        .orderBy(asc(vendorSeatInvites.createdAt), asc(vendorSeatInvites.id)),
       // `product_count` AND the §5.2 role breakdown out of ONE grouped read
       // (AECI-738). Deliberately not a `count()` beside a `GROUP BY`: two
       // statements answering the same question is how `STAGE_1_5_SPEC.md` §13.5

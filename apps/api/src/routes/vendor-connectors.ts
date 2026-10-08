@@ -272,9 +272,16 @@ export function createListVendorProductConnectorsHandler(
         const partner = links.get(r.partnerProductId);
         if (partner) reachable.push(partner);
       }
+      // Partner name, then the edge's own name, then id (AECI-1243): one
+      // partner can be delivered by two edges through the same connector.
       const deliveredHere = delivered
         .filter((item) => item.via?.id === id)
-        .sort((a, b) => compareText(partnerOf(a).name, partnerOf(b).name));
+        .sort(
+          (a, b) =>
+            compareText(partnerOf(a).name, partnerOf(b).name) ||
+            compareText(a.name ?? '', b.name ?? '') ||
+            binaryCompare(a.id, b.id),
+        );
       connectors.push({
         connector,
         catalog_as_of: asOf.get(id) ?? null,
@@ -282,7 +289,9 @@ export function createListVendorProductConnectorsHandler(
         delivered_contest_targets: deliveredHere
           .map((item) => contestTargets.get(item.id))
           .filter((t): t is EvidencedPairContestTarget => t !== undefined),
-        reachable: reachable.sort((a, b) => compareText(a.name, b.name)),
+        reachable: reachable.sort(
+          (a, b) => compareText(a.name, b.name) || binaryCompare(a.id, b.id),
+        ),
       });
     }
     // Delivered-heavy connectors first, then by size, then by name. Ranking
@@ -291,11 +300,18 @@ export function createListVendorProductConnectorsHandler(
       (a, b) =>
         b.delivered.length - a.delivered.length ||
         b.reachable.length - a.reachable.length ||
-        compareText(a.connector.name, b.connector.name),
+        compareText(a.connector.name, b.connector.name) ||
+        // Final tiebreak, so two same-named connectors never swap (AECI-1243).
+        binaryCompare(a.connector.id, b.connector.id),
     );
 
     const body: VendorProductConnectorsResponse = { product_id: productId, connectors };
     validateResponseInDev(c.env, () => VendorProductConnectorsResponseSchema.parse(body));
     return json(body);
   };
+}
+
+/** BINARY order for ids (AECI-1243). */
+function binaryCompare(a: string, b: string): number {
+  return a < b ? -1 : a > b ? 1 : 0;
 }

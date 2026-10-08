@@ -43,6 +43,7 @@ import {
   auditLog,
   connectorCatalogSurfaces,
   connectorCatalogs,
+  connectorEvidencedPairs,
   connectorPairs,
   connectorStubMappings,
   connectorStubs,
@@ -499,6 +500,17 @@ describe('GET /api/admin/connector-catalogs/:id/stubs', () => {
     expect(byId['stub-human']).toBe(true);
   });
 
+  it("lists a stub's mappings A to Z by product name, product-less last (AECI-1243)", async () => {
+    await seedStub('stub-multi');
+    await seedMapping('m-1', 'stub-multi', { status: 'ambiguous_parked', productId: null });
+    await seedMapping('m-3', 'stub-multi', { productId: APP_B, decidedBy: 'chris' });
+    await seedMapping('m-2', 'stub-multi', { productId: APP_A, decidedBy: 'chris' });
+
+    const json = await fetchStubs();
+    const stub = json.data.find((x: { id: string }) => x.id === 'stub-multi');
+    expect(stub.mappings.map((m: { id: string }) => m.id)).toEqual(['m-2', 'm-3', 'm-1']);
+  });
+
   it('never ships the actions blob, and null reads as never-fetched', async () => {
     await seedStub('stub-null', { actions: null, actionCount: null });
     await seedStub('stub-fetched', {
@@ -634,6 +646,48 @@ describe('GET /api/admin/connector-catalogs/:id/pairs', () => {
     expect(json.total).toBe(1);
     expect(json.data[0].id).toBe('pair-derived');
     expect(json.data[0].surface).toBe('derived');
+  });
+
+  it('orders the evidenced lane A to Z by product A, then product B, then id (AECI-1243)', async () => {
+    // Ids sort opposite to names, so an id-only order fails this.
+    await t.db.insert(products).values([
+      { id: u(31), slug: 'zoho', name: 'Zoho' },
+      { id: u(32), slug: 'acumatica', name: 'acumatica' },
+      { id: u(33), slug: 'buildertrend', name: 'Buildertrend' },
+    ]);
+    await t.db.insert(connectorEvidencedPairs).values([
+      // Zoho – Buildertrend
+      { id: u(41), connectorProductId: CONNECTOR, productAId: u(31), productBId: u(33) },
+      // acumatica – Buildertrend
+      { id: u(42), connectorProductId: CONNECTOR, productAId: u(32), productBId: u(33) },
+      // Procore – acumatica
+      { id: u(43), connectorProductId: CONNECTOR, productAId: APP_A, productBId: u(32) },
+      // Procore – Sage Intacct
+      { id: u(40), connectorProductId: CONNECTOR, productAId: APP_A, productBId: APP_B },
+    ]);
+
+    const json = await fetchPairs('?lane=evidenced');
+    expect(json.data.map((r: { id: string }) => r.id)).toEqual([u(42), u(43), u(40), u(41)]);
+  });
+
+  it('orders the reachable lane A to Z by side listing names, then id (AECI-1243)', async () => {
+    await seedStub('stub-a', { label: 'Zoho' });
+    await seedStub('stub-b', { label: null });
+    await seedStub('stub-c', { label: 'acumatica' });
+    await seedStub('stub-d', { label: 'Procore' });
+    // stub-b has no label, so it sorts as its slug "stub-b".
+    await seedPair('pair-1', 'curated', 'stub-a', 'stub-d'); // Zoho / Procore
+    await seedPair('pair-2', 'curated', 'stub-c', 'stub-d'); // acumatica / Procore
+    await seedPair('pair-3', 'curated', 'stub-b', 'stub-c'); // stub-b / acumatica
+    await seedPair('pair-4', 'curated', 'stub-a', 'stub-c'); // Zoho / acumatica
+
+    const json = await fetchPairs();
+    expect(json.data.map((r: { id: string }) => r.id)).toEqual([
+      'pair-2',
+      'pair-3',
+      'pair-4',
+      'pair-1',
+    ]);
   });
 
   it('serves the evidenced lane as empty, with the AECI-721 advisory', async () => {

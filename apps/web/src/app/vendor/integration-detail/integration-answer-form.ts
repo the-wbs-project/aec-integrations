@@ -221,8 +221,10 @@ export class IntegrationAnswerForm {
       this.integration().other_product.name,
     ),
   );
+  /** Outbound, both, inbound: the one order every direction picker uses
+   *  (AECI-1243). The first remaining option is the default. */
   protected readonly otherDirections = computed<readonly ContextDirection[]>(() =>
-    (['outbound', 'inbound', 'both'] as const).filter((d) => d !== this.claim().direction),
+    (['outbound', 'both', 'inbound'] as const).filter((d) => d !== this.claim().direction),
   );
   protected readonly audience = computed(() =>
     noteAudience(this.integration(), this.state.myVendorId()),

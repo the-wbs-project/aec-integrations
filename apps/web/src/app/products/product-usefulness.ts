@@ -32,6 +32,10 @@ import type { ProductUsefulness } from '@aeci/shared';
  * the vendor wire shape cannot carry a `name` at all. That is what makes it safe
  * to interpolate one here as a `<dt>` (ADR 0033).
  *
+ * Order is the API's: audiences alphabetical, phases in lifecycle order, points
+ * as the writer chose them (`apps/api/src/lib/usefulness-order.ts`). This
+ * component never re-sorts.
+ *
  * Layout: two columns on `md+`; a single populated side goes full-width. Groups
  * with no points are dropped. Group names / points are data (interpolation, no
  * `innerHTML`); only the static labels are i18n-wrapped. Body text uses

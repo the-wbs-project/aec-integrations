@@ -161,7 +161,7 @@ Two consequences worth knowing before touching a sort:
 
 #### Taxonomy ordering — `display_order` NULLs go LAST (AECI-925)
 
-**`display_order` is nullable on every `taxonomy_*` table, and SQLite sorts NULL FIRST under a plain `ASC`.** So a term with no curated position does not fall to the end of the list, it opens it. Every taxonomy `ORDER BY` therefore goes through `displayOrderAsc` (`apps/api/src/lib/display-order.ts`), which emits `<col> IS NULL, asc(<col>)` — curated terms in their curated sequence, uncurated terms after them in name order. Never write `asc(table.displayOrder)`; `display-order.spec.ts` is a source scan that fails the build if you do.
+**`display_order` is nullable on every `taxonomy_*` table, and SQLite sorts NULL FIRST under a plain `ASC`.** So a term with no curated position does not fall to the end of the list, it opens it. Every taxonomy `ORDER BY` that orders by curated position therefore goes through `displayOrderAsc` (`apps/api/src/lib/display-order.ts`), which emits `<col> IS NULL, asc(<col>)` — curated terms in their curated sequence, uncurated terms after them in name order. Audiences do not order by position at all: they read A to Z by name (AECI-1242, AECI-1243). Never write `asc(table.displayOrder)`; `display-order.spec.ts` is a source scan that fails the build if you do.
 
 This is not hypothetical. `resolveTaxonomy` (`apps/api/src/routes/promote.ts`) mints a category / audience / phase that matches no stored slug and, since AECI-970, no stored name, from `{ id, slug, name }` alone, leaving both `display_order` and `description` NULL, so **any** term promote invents outranks the whole seeded vocabulary until a curator gives it an order. Production carries exactly one such row — `reality-capture-scan-to-bim`, a duplicate of the seeded `reality-capture` (**AECI-926**) — and before this fix it was the first entry in the category nav, the browse index and the vendor portal's category picker. AECI-926 takes option A: the upstream term is renamed to `Reality Capture` so `slugify` lands on the seeded slug, the joins are re-pointed, the minted row deleted, and `/categories/reality-capture-scan-to-bim` 301s from `apps/web/src/server-runtime.ts`. **The redirect and the guards ship with the code; the data op is a separate, manual step** — `scripts/ops/2026-09-reality-capture-dedup/README.md` is the status of record for whether it has run. The ordering rule above is unchanged and still load-bearing — it is what keeps the *next* minted term out of the top slot.
 
@@ -223,12 +223,12 @@ Per-detail hydration rules:
 | Detail response | Field | Embedded shape |
 |---|---|---|
 | `ProductDetail` | `vendor` | `VendorLink` |
-| `ProductDetail` | `categories` / `audiences` / `phases` / `trades` | `LinkRef[]` — `trades` (AECI-541) is **sparse by design**: most products carry zero trade tags, so `[]` is the common, correct value, not missing data (`STAGE_1_SPEC.md` §5.5a). |
+| `ProductDetail` | `categories` / `audiences` / `phases` / `trades` | `LinkRef[]`, sorted by the API (AECI-1242): audiences A to Z, the other three by `display_order` then name. `trades` (AECI-541) is **sparse by design**: most products carry zero trade tags, so `[]` is the common, correct value, not missing data (`STAGE_1_SPEC.md` §5.5a). |
 | `ProductDetail` | `integrations_as_source` / `integrations_as_target` | `ProductIntegrationItem[]` (= `IntegrationListItem` + `context_direction` + `powered_by_product` + `data_object_slugs`). **Each array spans BOTH delivered-tier tables** (AECI-713 / `STAGE_1_5_SPEC.md` §13.1) — an edge in `integrations`, or a `connector_evidenced_pairs` row on which this product is an endpoint, discriminated by `via`. An evidenced pair is filed by its **oriented** source/target, never by which of `product_a` / `product_b` matched: the canonical order is a storage detail and carries no orientation meaning. **Both arrays are unordered** — deliberately. The rendered table interleaves them into one list sorted alphabetically by partner name (`STAGE_1_5_SPEC.md` §7.1), which SQL cannot express here: the relations can only `ORDER BY` columns of `integrations`, while the partner name lives on the joined product. Do not add an `orderBy` and assume the client inherits it. |
 | `ProductDetail` | `integrations_as_connector` | `PoweredIntegrationItem[]` (= `IntegrationListItem` + `data_object_slugs`) — edges this product **powers** as the mechanism (`powered_by_product_id`), not as an endpoint (Stage 1.5 Addendum B). No `context_direction` **by design**: the page product is neither endpoint, so it has no frame to be relative to. `data_object_slugs` (AECI-1080) means what it means on `ProductIntegrationItem`, on both arms (`integrations` and `connector_evidenced_pairs`). The hub unions it per collapsed pair row. `/api/integrations` does not carry it. |
 | `ProductDetail` | `related_products` | `ProductListItem[]` |
 | `ProductDetail` | `extension_of` / `extensions` | `ProductListItem[]`, both defaulted to `[]` (AECI-710 / `STAGE_1_5_SPEC.md` §13.3b). `extension_of` is the hosts this product is built **within**; `extensions` is the products built within it. Read from `product_extensions` by `productExtensionRows` (`apps/api/src/lib/product-extensions.ts`), each sorted by `textAsc(name)` then `id`, unbounded. **Not integrations**: never in `integrations_as_*`, never in `integration_count`, never a §13.5 lockstep site. |
-| `VendorDetail` | `products` | `ProductListItem[]` |
+| `VendorDetail` | `products` | `ProductListItem[]`, sorted A to Z by name (`compareText`, case-insensitive) then `id`, in `toVendorDetail` (AECI-1242). The junction relation cannot `ORDER BY` the product name. |
 | `IntegrationDetail` | `source` / `target` | `ProductLink` |
 | `IntegrationDetail` | `built_by_vendor` | `VendorLink \| null` |
 | `IntegrationDetail` / `ProductIntegrationItem` | `powered_by_product` | `ProductLink \| null` |
@@ -429,6 +429,9 @@ export const ProductListItemSchema = z.object({
 // group elaborates one audience or phase term by `slug`/`name` (same field types as
 // LinkRef, but it carries NO `id` — it is slug-based, not a hydrated LinkRef; do not
 // "fix" this by extending LinkRefSchema). `points` holds >= 1 bullet, in display order.
+// GET /api/products/:slug sorts the GROUPS on read (lib/usefulness-order.ts): audiences
+// alphabetically by name, phases by taxonomy display_order (lifecycle, as the header
+// Phases menu). Points keep the writer's order. Writers' stored group order is not public.
 export const UsefulnessGroupSchema = z.object({
   slug: z.string().min(1),
   name: z.string().min(1),
@@ -446,6 +449,9 @@ export const ProductDetailSchema = ProductListItemSchema.extend({
   tool_integrations_url: z.string().url().nullable(),
   api_docs_url: z.string().url().nullable(),
   has_api_docs: z.boolean(),
+  // Facet order is set by the API (AECI-1242, lib/taxonomy-order.ts): audiences A-Z by
+  // name; categories, phases and trades by display_order then name (NULLs last), so
+  // phases read in project-lifecycle order. Clients render as received.
   categories: z.array(LinkRefSchema),
   audiences: z.array(LinkRefSchema),
   phases: z.array(LinkRefSchema),
@@ -670,7 +676,7 @@ export type ProductFacetsQuery = z.infer<typeof ProductFacetsQuerySchema>;
 
 // One `TaxonomyTermWithCount[]` per dimension; here `product_count` is the
 // SCOPED count (reflecting the other active filters), ordered by `display_order`
-// then name — same per-term shape the flat taxonomy list endpoints return.
+// then name, EXCEPT audiences, which are A to Z by name then slug (AECI-1242) — same per-term shape the flat taxonomy list endpoints return.
 // `integration_count` is deliberately ABSENT on this endpoint: it would be
 // unscoped, and sitting beside a scoped product count it would read as
 // comparable. See the note under §6.4.
@@ -1082,6 +1088,8 @@ export const CategoriesListResponseSchema = z.object({
 ```
 
 Not paginated — the taxonomy is small by design (Phase 2 Spec §3.1).
+
+**Order (AECI-1243).** Categories, phases and trades by `display_order` (NULLs last), then name. Audiences A to Z by name (`textAsc`), then `slug`, because the curated audience `display_order` is disciplines then job titles and reads as unsorted. `GET /api/taxonomy` uses the same per-facet order.
 
 **`/api/trades` is not publication-gated.** Every term is returned with its `product_count`, including terms below the `TRADE_PUBLISH_MIN_PRODUCTS = 1` floor — i.e. the zero-product terms, which after the AECI-547 backfill is 27 of the 34; the gate is applied per-surface by the consumer (`STAGE_1_SPEC.md` §5.5a, `TRADES_VOCABULARY.md` §6). Keeping the gate out of the API avoids splitting the vocabulary into two response shapes.
 
@@ -2932,8 +2940,8 @@ handlers in `apps/api/src/routes/admin-connectors.ts` over `apps/api/src/lib/adm
 |---|---|
 | `GET /api/admin/connector-catalogs` | Paginated catalogue list. `?managed_by=review\|vendor`, `?search=` over the connector product's name/slug |
 | `GET /api/admin/connector-catalogs/:id` | Basics, surfaces, counts, the derived `handover`, `advisories` |
-| `GET /api/admin/connector-catalogs/:id/stubs` | The triage queue. `?state=`, `?proposals_only=`, `?confidence=`, `?search=`, `?include_removed=` |
-| `GET /api/admin/connector-catalogs/:id/pairs` | `?lane=reachable\|evidenced` (default `reachable`), `?surface=curated\|generated\|derived\|unknown` on the reachable lane |
+| `GET /api/admin/connector-catalogs/:id/stubs` | The triage queue. `?state=`, `?proposals_only=`, `?confidence=`, `?search=`, `?include_removed=`. Newest listing first; each stub's `mappings[]` A to Z by mapped product name, product-less last, then `id` (AECI-1243) |
+| `GET /api/admin/connector-catalogs/:id/pairs` | `?lane=reachable\|evidenced` (default `reachable`), `?surface=curated\|generated\|derived\|unknown` on the reachable lane. Order (AECI-1243): evidenced A to Z by product A name, then product B name, then `id`. Reachable A to Z by side A's listing name (`label`, else `slug`), then side B's, then `id` |
 | `GET /api/admin/connector-catalogs/:id/audit` | `entity_type='connector_catalog' AND entity_id=:id`, off `audit_log_entity_idx` |
 
 **All five write nothing** — no `audit_log` row (§6's convention as scoped by ADR 0022), no purge,
@@ -3063,8 +3071,8 @@ seam #2, `fetchAuthUserRecords`) enriches the page D1 already chose.
 // packages/shared/src/api/admin-users.ts
 AdminUsersListQuerySchema = PageQuerySchema.extend({
   perPage: …default 24, max 50,           // NOT the shared 100 — see below
-  sort:    z.enum(['created', 'updated']), // D1 columns ONLY
-  order:   z.enum(['asc', 'desc']).optional(), // absent = natural (both DESC)
+  sort:    z.enum(['created', 'updated', 'name']), // D1 columns ONLY; `name` AECI-1243
+  order:   z.enum(['asc', 'desc']).optional(), // absent = natural (dates DESC, name ASC)
   search:  z.string().optional(),
   role:    z.enum(['reviewer', 'admin', 'vendor_admin']).optional(),
   banned:  z.enum(['true', 'false']).transform((v) => v === 'true').optional(),
@@ -3092,12 +3100,15 @@ AdminUsersListResponse = PaginatedResponse<AdminUserRow> & {
 - **`sort` takes D1 columns only.** `last_sign_in_at` lives in GoTrue and is fetched
   *after* the `ORDER BY` has chosen the page, so sorting by it would reorder the
   current page and call it a ranking. It is not sortable and will not become so.
-- **`order` is optional, and absent means the key's natural direction** — both keys
-  here descend (newest first). It is the same parameter, with the same semantics,
+- **`order` is optional, and absent means the key's natural direction** — the two
+  date keys descend (newest first) and `name` ascends. It is the same parameter, with the same semantics,
   that `GET /api/admin/vendors` takes: the natural directions live in
   `ADMIN_USER_SORT_DEFAULT_ORDER` (`packages/shared`), which `resolveAdminUserOrderBy`
   and the table's arrows both read, and only the PRIMARY term flips — `id ASC` stays
   the stable tiebreaker (AECI-99).
+- **`sort=name` orders on `profiles.display_name`** (AECI-1243), case-insensitive
+  (`textDir`). An account with no display name, NULL or empty (both render "Unnamed
+  account"), sorts **last in both directions**: the `blankLast` term never flips, only the name does.
 - **`search` matches `display_name` as an escaped substring** (`likeContains` —
   operator-typed `%`/`_` are escaped, not honoured) and, **only when the term
   contains `@`**, also resolves it as an **exact** email through seam #4a.
@@ -3145,6 +3156,9 @@ AdminUserDetail = {
   `created_at` on the enclosing object, which is the profile's; both ship.
 - **`null` is not `[]` and not `0`.** `pending_invites: null` means the address
   could not be resolved, so the set is unknown; `[]` means resolved and empty.
+- **`pending_invites` ships newest first** (`created_at DESC, id DESC`, AECI-1243).
+  The page renders it as a table that re-sorts in place by vendor, sender, invite
+  date or expiry.
   `requests_by_email: null` means the match could not be attempted; `0` would
   assert "this person filed none".
 - **`seat` is single-valued by construction.** There is no `vendor_users` table — a
@@ -5894,6 +5908,8 @@ export const VendorEntitlementBlockSchema = z.object({
 
 `VendorRequestSummary` deliberately omits `submitter_email` and the free-text `body` — a correction may be filed by a member of the public.
 
+**`requests` ships newest first** (`created_at DESC, id DESC`, AECI-1243). The Messages list renders that order.
+
 **The `entitlement` block costs one query, for `price` only.** Every other field is built from the same `AuthenticatedSession` the write gate asserts on, so the dashboard's readout and the 403 a write would get **cannot disagree**. `price` is the display-only plan price override (`STAGE_2_PAID_TIERS_SPEC.md` §13.13), one primary-key read of `vendor_plan_pricing`. It never carries who set it, and it gates nothing. `capabilities` ships expanded so the dashboard disables controls off one field instead of re-deriving the ladder in the browser. It is **required**, not optional (R10). For `unclaimed` (the Free plan, which a lapsed row also resolves to) it is `['profile.edit', 'product.listing.edit', 'product.categories.edit']`, never empty (AECI-1214).
 
 **Each product carries `plan` (AECI-1214, `STAGE_2_PAID_TIERS_SPEC.md` §13.7).** Plans live at the product level, so product screens gate on `product.plan` through `productCan` and never on `entitlement`. Until a per-product plan table exists, the server copies the vendor's block into every product. Server enforcement stays vendor-wide, and the field and the gate read the same block. `PATCH /api/vendor/products/:id` echoes the product with its `plan` too.
@@ -5913,6 +5929,8 @@ The vendor's seat roster plus the caller's own management rights. A bare object,
 Multi-seat is **flat in data capability** — every seat edits the same things — but since AECI-664 it is not flat in seat MANAGEMENT: `profiles.seat_owner` gates invite/remove alone (`STAGE_2_VENDOR_PORTAL_SPEC.md` §11a). A seat is an owner if it came from an admin claim grant, and is not if it came from redeeming an invite.
 
 **This read is never capability-gated** (R13, with `GET /api/vendor/me`): a vendor whose entitlement lapsed must still be able to see and manage who has access.
+
+**Order (AECI-1243).** `seats` A to Z by `display_name` (case-insensitive), a seat with no name last, then `user_id`. `pending_invites` in the order they were sent, then `id`. The admin vendor roster (`GET /api/admin/vendors/:id`) and the claim queue's `existing_seats` use the same seat order.
 
 **`token` is deliberately absent from `pending_invites`.** Every seat can read this payload, and a token is the redeem handle — putting it here would let any seat redeem an invite addressed to somebody else's mailbox. Revoking uses the row `id`; the token appears only in the invite email.
 
@@ -6638,7 +6656,7 @@ export const VendorProductConnectorsResponseSchema = z.object({
 
 **Not listed:** a Convention-A self-reference and an `iPaaS` edge with no named connector. Both stay in `integrations`, and `GET /api/vendor/integrations` already returns them with `attestable: false`.
 
-**Ordering.** Connectors by delivered count, then reachable count (both descending), then name through `compareText`. Partners by name through `compareText`. Nothing paid is read.
+**Ordering.** Connectors by delivered count, then reachable count (both descending), then name through `compareText`, then connector `id`. Delivered rows by partner name, then the row's own name (both `compareText`), then `id`. Reachable partners by name, then `id` (the `id` tiebreaks are AECI-1243). Nothing paid is read.
 
 **Outside the AECI-516 cursor.** No `GET /api/vendor/updates` scope covers this read. Only an operator catalogue sync, a promote, or a connector seat's mapping edit on its own vendor-managed catalogue moves it (AECI-724). Nothing the reading vendor does moves it. The client fetches it once per product (`STAGE_2_REALTIME_SPEC.md` §2.3). A pure read, so no `audit_log` row.
 
@@ -6678,7 +6696,7 @@ export const VendorConnectorCatalogResponseSchema = paginatedResponseSchema(Vend
   });
 ```
 
-**Narrower than the admin triage row, on purpose.** No `notes` (review-side curation text), and `decided_by` crosses as a kind: `vendor` for `vendor:{slug}`, `automatic` for `auto-name-match`, `aeci` for anything else, which before AECI-724 was a review-app reviewer's name. Removed listings are not returned, and the action inventory is not on the wire. Ordered by `COALESCE(label, slug)` case-insensitively (`textAsc`), `id` as the tiebreaker. The summary counts describe the whole catalogue, not the filtered page.
+**Narrower than the admin triage row, on purpose.** No `notes` (review-side curation text), and `decided_by` crosses as a kind: `vendor` for `vendor:{slug}`, `automatic` for `auto-name-match`, `aeci` for anything else, which before AECI-724 was a review-app reviewer's name. Removed listings are not returned, and the action inventory is not on the wire. Ordered by `COALESCE(label, slug)` case-insensitively (`textAsc`), `id` as the tiebreaker. The summary counts describe the whole catalogue, not the filtered page. Each listing's `mappings[]` reads A to Z by mapped product name, a mapping with no product last, then `id` (AECI-1243).
 
 **The catalogue is resolved through `ownedConnectorCatalogIds`** (`lib/vendor-connector-catalog.ts`), which is the PATCH's ownership clause as a subquery, and the `catalogue` cursor scope imports the same function. `vendor-connector-catalog.spec.ts` pins that every mapping the read shows is one the PATCH does not 404.
 
@@ -6927,7 +6945,7 @@ export const ListDataObjectsResponseSchema = z.object({
 });
 ```
 
-**`GET /api/vendor/integrations`** returns every integration touching a product the caller owns, with each claim's live attestations resolved into `mine` / `counterparty`, its computed `agreement`, and the slot(s) that are the caller's. Unpaginated — the set is bounded by the vendor's own catalog. Retracted attestations never appear (`retracted_at IS NULL`, the same filter the public pair page applies). Claims are ordered by the `data_object` vocabulary's `display_order`. A vendor whose products carry no integrations gets `200 { integrations: [], owned: [] }`, not a 404.
+**`GET /api/vendor/integrations`** returns every integration touching a product the caller owns, with each claim's live attestations resolved into `mine` / `counterparty`, its computed `agreement`, and the slot(s) that are the caller's. Unpaginated — the set is bounded by the vendor's own catalog. Retracted attestations never appear (`retracted_at IS NULL`, the same filter the public pair page applies). Integrations are ordered by context product name, then counterpart name, then `id`. Claims are ordered by the `data_object` vocabulary's `display_order` (NULLs last), then slug, then direction as the caller's frame shows it (outbound, both, inbound), then claim `id` (AECI-1243). A vendor whose products carry no integrations gets `200 { integrations: [], owned: [] }`, not a 404.
 
 **`owned` (AECI-1089).** The rows the caller's vendor owns (`built_by_vendor_id`) that `integrations` does not carry: every owned `connector_evidenced_pairs` row, and every owned `integrations` row on which the caller holds no endpoint. A third-party owner makes neither product of its rows, so this is the only place it sees them. Retired rows are listed. Sorted by `product_a` name, then `product_b` name (`compareText`), then `id`. `.default([])` for deploy skew. The freshness cursor covers it (`GET /api/vendor/updates`).
 
@@ -7367,7 +7385,7 @@ export const AdminRetireIntegrationBodySchema = z
 
 **On a pair (AECI-1091, ruling D).** The same two routes take a `connector_evidenced_pairs` id. Vendor-held means the same on the pair (`claimed_at IS NOT NULL OR origin = 'vendor'`), and the refusals, cross-refusal and reason rule are unchanged. The batch is the owner's pair batch above with the admin's guard (vendor-held, and `retired_by = 'aeci'` on restore); the owner and every vendor of either endpoint are told.
 
-**The list.** `GET /api/admin/vendors/:id/integrations` returns the rows with `built_by_vendor_id = :id` that are vendor-held, live and retired, in **both** tables since AECI-1091, ordered by name case-insensitively (`compareText`, an unnamed row first) then id: `id`, `anchor` (`'integration'` or `'evidenced_pair'`), `name`, `source` / `target` (`{ id, slug, name }`; a pair's canonical A and B), `connector` (the pair's connector product, `null` on an `integrations` row), `connector_powered` (`isConnectorPoweredEdge`, always `true` on a pair; AECI-1237's field-correction picker reads it), `origin`, `claimed_at`, `retired_at`, `retired_by` (NULL on a retired row reads `'owner'`), `pair_path` and `updated_at`. Paged in memory, because the two tables share no SQL `ORDER BY` without a compound select and one vendor's vendor-held rows are few. `anchor`, `connector` and `connector_powered` default on parse (`'integration'`, `null`, `false`) for deploy skew. `404` for an unknown vendor. No audit row.
+**The list.** `GET /api/admin/vendors/:id/integrations` returns the rows with `built_by_vendor_id = :id` that are vendor-held, live and retired, in **both** tables since AECI-1091, ordered by the label the page shows, case-insensitively (`compareText`), then id. That label is the name, or `Source ↔ Target` for an unnamed row (AECI-1243; it used to sort first). Fields: `id`, `anchor` (`'integration'` or `'evidenced_pair'`), `name`, `source` / `target` (`{ id, slug, name }`; a pair's canonical A and B), `connector` (the pair's connector product, `null` on an `integrations` row), `connector_powered` (`isConnectorPoweredEdge`, always `true` on a pair; AECI-1237's field-correction picker reads it), `origin`, `claimed_at`, `retired_at`, `retired_by` (NULL on a retired row reads `'owner'`), `pair_path` and `updated_at`. Paged in memory, because the two tables share no SQL `ORDER BY` without a compound select and one vendor's vendor-held rows are few. `anchor`, `connector` and `connector_powered` default on parse (`'integration'`, `null`, `false`) for deploy skew. `404` for an unknown vendor. No audit row.
 
 **The owner's view.** `GET /api/vendor/integrations` carries `retired_by` on each entry, and a `kind: 'integration_retire'` row on `GET /api/vendor/notifications` carries `retired_by` (`'owner'` for rows written before AECI-1046).
 

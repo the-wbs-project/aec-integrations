@@ -8,7 +8,8 @@
  * For each dimension the scoped count joins the dimension's link table to
  * `products`, applies `buildProductsWhere(query, dim)` (every active filter EXCEPT
  * that dimension's own clause), and groups by term. Terms are listed in editorial
- * order to match the flat list endpoints; a term with no matching product counts 0.
+ * order to match the flat list endpoints, except audiences, which read A to Z by name
+ * (AECI-1242). A term with no matching product counts 0.
  *
  * `trades` (§5.5a / AECI-541) is the fourth dimension and behaves identically —
  * including the zero-count listing, which is the common case there: the facet is
@@ -21,7 +22,7 @@ import {
   ProductFacetsResponseSchema,
   type ProductFacetsResponse,
 } from '@aeci/shared';
-import { count, eq } from 'drizzle-orm';
+import { asc, count, eq } from 'drizzle-orm';
 import type { Context } from 'hono';
 
 import { getDb } from '../db/client';
@@ -104,10 +105,9 @@ export function createProductFacetsHandler(
           displayOrder: taxonomyAudiences.displayOrder,
         })
         .from(taxonomyAudiences)
-        .orderBy(
-          ...displayOrderAsc(taxonomyAudiences.displayOrder),
-          textAsc(taxonomyAudiences.name),
-        ),
+        // Audiences read A to Z, not in curated `display_order` (AECI-1242): that
+        // order is disciplines then job titles, which reads as unsorted here.
+        .orderBy(textAsc(taxonomyAudiences.name), asc(taxonomyAudiences.slug)),
       db
         .select({ termId: productAudiences.audienceId, value: count() })
         .from(productAudiences)

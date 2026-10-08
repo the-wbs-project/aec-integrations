@@ -1,5 +1,16 @@
 import { HttpErrorResponse } from '@angular/common/http';
-import { Component, computed, inject, input, output, signal } from '@angular/core';
+import {
+  Component,
+  ElementRef,
+  Injector,
+  afterNextRender,
+  computed,
+  inject,
+  input,
+  output,
+  signal,
+  viewChild,
+} from '@angular/core';
 
 import {
   CONNECTOR_DECISION_STATUSES,
@@ -12,6 +23,11 @@ import {
 } from '@aeci/shared';
 
 import { AecSelect, type AecSelectOption } from '../../shared/aec-select/aec-select';
+import {
+  ProductCombobox,
+  type ProductComboboxItem,
+  type ProductComboboxSearch,
+} from '../../shared/product-combobox/product-combobox';
 import { mappingConfidenceLabel, mappingStatusLabel } from './connector-labels';
 import { MappingEditApi } from './mapping-edit-api';
 
@@ -28,6 +44,7 @@ import { MappingEditApi } from './mapping-edit-api';
  *
  * ── WHAT IT EDITS ───────────────────────────────────────────────────────────
  * The product pointer (status + product) and the depth (confidence + evidence),
+ * the product found with the shared type-ahead `ProductCombobox` (AECI-1244),
  * the four columns the endpoint accepts. It sends all four on save; the server
  * answers an unchanged row as a 200 no-op that writes nothing. It says out loud
  * that saving stamps the operator as the decider, because that is what makes a
@@ -39,11 +56,12 @@ import { MappingEditApi } from './mapping-edit-api';
  */
 @Component({
   selector: 'aec-mapping-edit-control',
-  imports: [AecSelect],
+  imports: [AecSelect, ProductCombobox],
   templateUrl: './mapping-edit-control.html',
 })
 export class MappingEditControl {
   private readonly api = inject(MappingEditApi);
+  private readonly injector = inject(Injector);
 
   readonly mapping = input.required<AdminConnectorMapping>();
   /** The listing's label, for copy that names what is being edited. */
@@ -64,10 +82,11 @@ export class MappingEditControl {
   protected readonly confidence = signal<string | null>(null);
   protected readonly evidenceUrl = signal('');
 
-  protected readonly productQuery = signal('');
-  protected readonly productResults = signal<readonly LinkRef[]>([]);
-  protected readonly productSearching = signal(false);
-  protected readonly searchNotice = signal('');
+  private readonly changeButton = viewChild<ElementRef<HTMLButtonElement>>('changeButton');
+  private readonly combobox = viewChild(ProductCombobox);
+
+  /** The public product search, A to Z. */
+  protected readonly search: ProductComboboxSearch = (query) => this.api.searchProducts(query);
 
   /** §9a.4: `mapped` / `ruled_out` name a product, the decision statuses name none. */
   protected readonly namesProduct = computed(
@@ -91,16 +110,12 @@ export class MappingEditControl {
     this.product.set(m.product);
     this.confidence.set(m.confidence);
     this.evidenceUrl.set(m.evidence_url ?? '');
-    this.productQuery.set('');
-    this.productResults.set([]);
-    this.searchNotice.set('');
     this.failedMessage.set('');
     this.open.set(true);
   }
 
   protected closeForm(): void {
     this.open.set(false);
-    this.productResults.set([]);
     this.failedMessage.set('');
   }
 
@@ -116,48 +131,15 @@ export class MappingEditControl {
     this.evidenceUrl.set((event.target as HTMLInputElement).value);
   }
 
-  protected onProductQueryInput(event: Event): void {
-    this.productQuery.set((event.target as HTMLInputElement).value);
-  }
-
-  protected async searchProducts(): Promise<void> {
-    const query = this.productQuery().trim();
-    if (query.length < 2) {
-      this.searchNotice.set(
-        $localize`:@@admin.connectors.mapping.search.short:Type at least two letters of the product name.`,
-      );
-      return;
-    }
-    if (this.productSearching()) return;
-    this.productSearching.set(true);
-    this.searchNotice.set('');
-    try {
-      const page = await this.api.searchProducts(query);
-      const found = page.data.map((p) => ({ id: p.id, name: p.name, slug: p.slug }));
-      this.productResults.set(found);
-      if (found.length === 0) {
-        this.searchNotice.set(
-          $localize`:@@admin.connectors.mapping.search.none:No published product matches that name.`,
-        );
-      }
-    } catch {
-      this.productResults.set([]);
-      this.searchNotice.set(
-        $localize`:@@admin.connectors.mapping.search.failed:The search did not work. Try again.`,
-      );
-    } finally {
-      this.productSearching.set(false);
-    }
-  }
-
-  protected chooseProduct(product: LinkRef): void {
-    this.product.set(product);
-    this.productResults.set([]);
-    this.productQuery.set('');
+  protected chooseProduct(product: ProductComboboxItem): void {
+    this.product.set({ id: product.id, name: product.name, slug: product.slug });
+    // The picker unmounts, so focus moves to the control that brings it back.
+    afterNextRender(() => this.changeButton()?.nativeElement.focus(), { injector: this.injector });
   }
 
   protected clearProduct(): void {
     this.product.set(null);
+    afterNextRender(() => this.combobox()?.focus(), { injector: this.injector });
   }
 
   protected async submit(): Promise<void> {

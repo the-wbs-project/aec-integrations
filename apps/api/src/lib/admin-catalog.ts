@@ -346,7 +346,7 @@ export async function researchStatusDistribution(db: Db): Promise<AdminResearchS
 
 /**
  * One facet's terms with their usage count. Terms come back uncapped and
- * display-ordered: the five vocabularies total ~134 rows (32 categories · 36
+ * display-ordered (audiences A to Z instead, AECI-1243): the five vocabularies total ~134 rows (32 categories · 36
  * audiences · 5 phases · 34 trades · 27 data objects), so paging would be
  * ceremony over a list that fits on one screen.
  *
@@ -379,7 +379,13 @@ async function facetUsage(
       value: correlatedCount(join.fk, table.id),
     })
     .from(table)
-    .orderBy(...displayOrderAsc(table.displayOrder), textAsc(table.name));
+    .orderBy(
+      // Audiences read A to Z (AECI-1243), matching the public taxonomy lists.
+      // The other facets keep their curated order.
+      ...(facet === 'audience'
+        ? [textAsc(table.name), asc(table.slug)]
+        : [...displayOrderAsc(table.displayOrder), textAsc(table.name), asc(table.slug)]),
+    );
 
   return rows.map((r) => ({
     id: r.id,
