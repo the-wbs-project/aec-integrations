@@ -234,7 +234,19 @@ export function submittedChange(
       c.added_by === 'you' &&
       myAnswer(c) === 'yes',
   );
-  return candidates.length === 1 ? candidates[0] : null;
+  if (candidates.length !== 1) return null;
+  const change = candidates[0];
+  // One to one: a correction two denied rows could claim gets no box, so a Cancel
+  // on one box never withdraws the Yes another box stands on.
+  const rivals = integration.claims.filter(
+    (c) =>
+      c.id !== denied.id &&
+      c.id !== change.id &&
+      c.data_object_slug === denied.data_object_slug &&
+      c.direction !== change.direction &&
+      myAnswer(c) === 'no',
+  );
+  return rivals.length === 0 ? change : null;
 }
 
 /** Every submitted change on the integration: the denied row's id to its
@@ -251,7 +263,7 @@ export function submittedChanges(
 }
 
 /** The denied row whose box stands for `correctionId`, if that row is a
- *  correction. The first in the API's order when two denied rows share one. */
+ *  correction. */
 export function deniedRowFor(
   integration: Pick<VendorIntegration, 'attestable' | 'claims'>,
   correctionId: string,

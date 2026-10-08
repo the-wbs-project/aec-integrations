@@ -428,6 +428,14 @@ describe('submittedChange — a denied row and its correction (§6.17.4, AECI-12
     expect(submittedChange(withClaims(base, [denied, correction, second]), denied)).toBeNull();
   });
 
+  it('two denied rows of the same data: no box on either, so one Cancel cannot undo the other', () => {
+    const denied2 = row('r2', { direction: 'inbound', mine: own(false, 'Both ways.') });
+    const three = withClaims(base, [denied, denied2, correction]);
+    expect(submittedChange(three, denied)).toBeNull();
+    expect(submittedChange(three, denied2)).toBeNull();
+    expect(deniedRowFor(three, 'c')).toBeNull();
+  });
+
   it('a row added by the other company, or by AEC Integrations, is not a correction', () => {
     for (const added_by of ['counterpart', null] as const) {
       const other = { ...correction, added_by };
