@@ -20,11 +20,16 @@ import {
   type CreateVendorIntegrationInput,
   type IntegrationEditField,
   type PossibleDuplicateIntegration,
-  type ProductListItem,
 } from '@aeci/shared';
 
 import { directionHeading } from '../../products/pair-direction-labels';
 import { mechanismKindLabel } from '../../search/mechanism-labels';
+import { LogoOrInitial } from '../../shared/logo-or-initial/logo-or-initial';
+import {
+  ProductCombobox,
+  type ProductComboboxItem,
+  type ProductComboboxSearch,
+} from '../../shared/product-combobox/product-combobox';
 import { VendorPortalAnnouncer } from '../vendor-announcer';
 import { VendorApi } from '../vendor-api';
 import { readVendorApiError } from '../vendor-api-error';
@@ -74,6 +79,7 @@ function emptyDraft(): Draft {
  */
 @Component({
   selector: 'aec-vendor-integration-create',
+  imports: [LogoOrInitial, ProductCombobox],
   styles: [':host { display: block; }'],
   template: `
     <div class="space-y-4" data-testid="integration-create">
@@ -198,69 +204,65 @@ function emptyDraft(): Draft {
             </div>
 
             <div class="max-w-2xl space-y-2">
-              <label
-                for="vendor-create-search"
-                [class]="labelClass"
-                i18n="@@vendor.integrationCreate.search.label"
-                >The other product</label
-              >
-              <div class="flex flex-wrap gap-2">
-                <input
-                  id="vendor-create-search"
-                  type="search"
-                  autocomplete="off"
-                  [value]="query()"
-                  (input)="onQuery(inputValue($event))"
-                  (keydown.enter)="onSearch($event)"
-                  aria-describedby="vendor-create-search-hint"
-                  [class]="inputClass + ' max-w-sm flex-1'"
-                />
-                <button
-                  type="button"
-                  [class]="secondaryButtonClass"
-                  [disabled]="searching()"
-                  (click)="onSearch()"
-                  data-testid="create-search"
-                  i18n="@@vendor.integrationCreate.search.button"
+              @if (counterpart(); as chosen) {
+                <p [class]="labelClass" i18n="@@vendor.integrationCreate.counterpart.label">
+                  The other product
+                </p>
+                <div
+                  class="flex max-w-sm items-center gap-3 rounded-(--radius-md) border border-(--border-default) bg-(--surface-base) px-3 py-2"
+                  data-testid="create-counterpart"
                 >
-                  Search
-                </button>
-              </div>
-              <p
-                id="vendor-create-search-hint"
-                class="max-w-prose text-xs text-(--text-secondary)"
-                i18n="@@vendor.integrationCreate.search.hint"
-              >
-                Search the published catalogue by product name, then choose one result.
-              </p>
-
-              @if (searchNotice(); as notice) {
-                <p class="text-sm text-(--text-primary)">{{ notice }}</p>
-              }
-              @if (results().length > 0) {
-                <fieldset class="space-y-1" data-testid="create-results">
-                  <legend class="sr-only" i18n="@@vendor.integrationCreate.results.legend">
-                    Search results
-                  </legend>
-                  @for (product of results(); track product.id) {
-                    <label
-                      class="flex cursor-pointer items-center gap-3 rounded-(--radius-sm) px-2 py-1.5 text-sm text-(--text-primary) hover:bg-(--surface-sunken)"
-                    >
-                      <input
-                        type="radio"
-                        name="vendor-create-counterpart"
-                        [value]="product.id"
-                        [checked]="product.id === counterpart()?.id"
-                        (change)="onCounterpart(product)"
-                        class="accent-(--accent-primary)"
-                      />
-                      <span>{{ product.name }}</span>
-                      @if (product.vendor; as vendor) {
-                        <span class="text-xs text-(--text-secondary)">{{ vendor.name }}</span>
-                      }
-                    </label>
-                  }
-                </fieldset>
+                  <aec-logo-or-initial
+                    [src]="chosen.logo_url ?? null"
+                    [name]="chosen.name"
+                    size="sm"
+                  />
+                  <span class="flex min-w-0 flex-1 flex-col">
+                    <span class="truncate text-sm font-medium text-(--text-primary)">{{
+                      chosen.name
+                    }}</span>
+                    @if (chosen.vendor; as vendor) {
+                      <span class="truncate text-xs text-(--text-secondary)">{{
+                        vendor.name
+                      }}</span>
+                    }
+                  </span>
+                  <button
+                    #changeButton
+                    type="button"
+                    [class]="secondaryButtonClass"
+                    [attr.aria-label]="changeCounterpartLabel(chosen.name)"
+                    (click)="onChangeCounterpart()"
+                    data-testid="create-change-counterpart"
+                    i18n="@@vendor.integrationCreate.counterpart.change"
+                  >
+                    Change
+                  </button>
+                </div>
+              } @else {
+                <label
+                  for="vendor-create-search"
+                  [class]="labelClass"
+                  i18n="@@vendor.integrationCreate.search.label"
+                  >The other product</label
+                >
+                <aec-product-combobox
+                  class="max-w-sm"
+                  inputId="vendor-create-search"
+                  [search]="search"
+                  [exclude]="excluded()"
+                  [describedBy]="counterpartDescribedBy()"
+                  [invalid]="showError('counterpart')"
+                  (picked)="onCounterpart($event)"
+                  (announce)="announcer.announce($event)"
+                />
+                <p
+                  id="vendor-create-search-hint"
+                  class="max-w-prose text-xs text-(--text-secondary)"
+                  i18n="@@vendor.integrationCreate.search.hint"
+                >
+                  Search the published catalogue by product name, then choose one result.
+                </p>
               }
               @if (showError('counterpart')) {
                 <p id="vendor-create-counterpart-error" role="alert" [class]="errorClass">
@@ -402,7 +404,7 @@ function emptyDraft(): Draft {
 export class VendorIntegrationCreate {
   private readonly api = inject(VendorApi);
   private readonly store = inject(VendorPortalStore);
-  private readonly announcer = inject(VendorPortalAnnouncer);
+  protected readonly announcer = inject(VendorPortalAnnouncer);
   private readonly injector = inject(Injector);
 
   /** The product the tab is filed under, preselected as "your product". */
@@ -410,6 +412,8 @@ export class VendorIntegrationCreate {
 
   private readonly trigger = viewChild<ElementRef<HTMLButtonElement>>('trigger');
   private readonly resultHeading = viewChild<ElementRef<HTMLElement>>('resultHeading');
+  private readonly changeButton = viewChild<ElementRef<HTMLButtonElement>>('changeButton');
+  private readonly combobox = viewChild(ProductCombobox);
 
   protected readonly groups = EDIT_GROUPS;
   protected readonly formId = 'vendor-create-form';
@@ -423,11 +427,10 @@ export class VendorIntegrationCreate {
   protected readonly draft = signal<Draft>(emptyDraft());
 
   private readonly chosenOwn = signal<string | null>(null);
-  protected readonly query = signal('');
-  protected readonly searching = signal(false);
-  protected readonly searchNotice = signal<string | null>(null);
-  protected readonly results = signal<readonly ProductListItem[]>([]);
-  protected readonly counterpart = signal<ProductListItem | null>(null);
+  protected readonly counterpart = signal<ProductComboboxItem | null>(null);
+
+  /** The public product search, A to Z (AECI-1244). */
+  protected readonly search: ProductComboboxSearch = (query) => this.api.searchProducts(query);
 
   protected readonly result = signal<{
     id: string;
@@ -447,6 +450,18 @@ export class VendorIntegrationCreate {
     if (context && products.some((p) => p.id === context)) return context;
     return products[0]?.id ?? null;
   });
+
+  /** The counterpart cannot be the vendor's own product. */
+  protected readonly excluded = computed(() => {
+    const own = this.ownProductId();
+    return own ? [own] : [];
+  });
+
+  protected readonly counterpartDescribedBy = computed(() =>
+    this.showError('counterpart')
+      ? 'vendor-create-search-hint vendor-create-counterpart-error'
+      : 'vendor-create-search-hint',
+  );
 
   /** Every integration already on record for the chosen pair, from the list the
    *  tab holds. Context before submit, never a block. */
@@ -528,9 +543,6 @@ export class VendorIntegrationCreate {
     this.draft.set(emptyDraft());
     this.attempted.set(false);
     this.saveNotice.set(null);
-    this.query.set('');
-    this.results.set([]);
-    this.searchNotice.set(null);
     this.counterpart.set(null);
   }
 
@@ -540,46 +552,21 @@ export class VendorIntegrationCreate {
     if (this.counterpart()?.id === id) this.counterpart.set(null);
   }
 
-  protected onQuery(value: string): void {
-    this.query.set(value);
-  }
-
-  protected async onSearch(event?: Event): Promise<void> {
-    // Enter in the search box must search, not submit the whole form.
-    event?.preventDefault();
-    const query = this.query().trim();
-    if (query.length < 2) {
-      this.searchNotice.set(
-        $localize`:@@vendor.integrationCreate.search.short:Type at least two letters of the product name.`,
-      );
-      return;
-    }
-    this.searching.set(true);
-    this.searchNotice.set(null);
-    try {
-      const page = await this.api.searchProducts(query);
-      const own = this.ownProductId();
-      const items = page.data.filter((product) => product.id !== own);
-      this.results.set(items);
-      this.searchNotice.set(
-        items.length === 0
-          ? $localize`:@@vendor.integrationCreate.search.none:No published product matches that name.`
-          : null,
-      );
-      this.announcer.announce(
-        $localize`:@@vendor.integrationCreate.search.live:${items.length}:count: products found.`,
-      );
-    } catch {
-      this.searchNotice.set(
-        $localize`:@@vendor.integrationCreate.search.failed:The search did not work. Try again.`,
-      );
-    } finally {
-      this.searching.set(false);
-    }
-  }
-
-  protected onCounterpart(product: ProductListItem): void {
+  protected onCounterpart(product: ProductComboboxItem): void {
     this.counterpart.set(product);
+    // The picker unmounts, so focus moves to the control that brings it back.
+    afterNextRender(() => this.changeButton()?.nativeElement.focus(), {
+      injector: this.injector,
+    });
+  }
+
+  protected onChangeCounterpart(): void {
+    this.counterpart.set(null);
+    afterNextRender(() => this.combobox()?.focus(), { injector: this.injector });
+  }
+
+  protected changeCounterpartLabel(name: string): string {
+    return $localize`:@@vendor.integrationCreate.counterpart.changeAria:Change the other product, now ${name}:PRODUCT:`;
   }
 
   protected onInput(field: IntegrationEditField, value: string): void {

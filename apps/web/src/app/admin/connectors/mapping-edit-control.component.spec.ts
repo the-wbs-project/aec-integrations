@@ -10,7 +10,8 @@
  *     a product-bearing status with no product is refused before the request.
  *  3. **The refusals get their own copy**: the lane reclaimed mid-edit, and the
  *     conflict 409.
- *  4. **Host-owned chrome**: no live region of its own.
+ *  4. **Host-owned chrome**: no live region of its own. The product picker's
+ *     result count goes out through `announce` too (AECI-1244).
  */
 import { HttpErrorResponse } from '@angular/common/http';
 import { Component, provideZonelessChangeDetection, signal } from '@angular/core';
@@ -19,6 +20,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { AdminConnectorMapping, ConnectorStubMappingEditResponse } from '@aeci/shared';
 
+import { PRODUCT_COMBOBOX_DEBOUNCE_MS } from '../../shared/product-combobox/product-combobox';
 import { MappingEditApi } from './mapping-edit-api';
 import { MappingEditControl } from './mapping-edit-control';
 
@@ -108,13 +110,21 @@ function clickByText(el: HTMLElement, text: string): void {
   button.click();
 }
 
+function clickableByText(el: HTMLElement, text: string): HTMLButtonElement | undefined {
+  return [...el.querySelectorAll('button')].find((b) => b.textContent?.trim() === text);
+}
+
 function submitForm(el: HTMLElement): void {
   el.querySelector('form')!.dispatchEvent(new Event('submit', { cancelable: true }));
 }
 
 describe('MappingEditControl', () => {
   beforeEach(() => TestBed.resetTestingModule());
-  afterEach(() => vi.restoreAllMocks());
+  afterEach(() => {
+    vi.restoreAllMocks();
+    // The picker's popup renders into a body-level CDK overlay under jsdom.
+    document.querySelectorAll('.cdk-overlay-container').forEach((n) => n.remove());
+  });
 
   it('opens a form prefilled from the row, with no live region of its own', async () => {
     const { el, refresh } = await setup({});
@@ -128,19 +138,32 @@ describe('MappingEditControl', () => {
 
   it('re-points to a searched product and sends the four editable columns only', async () => {
     const updateMapping = vi.fn(async () => okResponse({ product: AUTODESK }));
-    const { el, host, refresh } = await setup({ updateMapping });
+    const searchProducts = vi.fn(async () => ({ data: [AUTODESK] }));
+    const { el, host, refresh } = await setup({ updateMapping, searchProducts });
     clickByText(el, 'Edit');
     await refresh();
     clickByText(el, 'Change');
     await refresh();
 
+    // AECI-1244: the shared type-ahead combobox. No Find button; the search goes
+    // out after the pause, A to Z, and a row is chosen from the popup.
     const search = el.querySelector<HTMLInputElement>('#t-product')!;
+    expect(search.getAttribute('role')).toBe('combobox');
+    expect(clickableByText(el, 'Find')).toBeUndefined();
+    search.dispatchEvent(new FocusEvent('focusin', { bubbles: true }));
     search.value = 'auto';
-    search.dispatchEvent(new Event('input'));
-    clickByText(el, 'Find');
+    search.dispatchEvent(new InputEvent('input', { bubbles: true }));
     await refresh();
-    clickByText(el, 'Autodesk Build');
+    await new Promise((resolve) => setTimeout(resolve, PRODUCT_COMBOBOX_DEBOUNCE_MS + 30));
     await refresh();
+    expect(searchProducts).toHaveBeenCalledWith('auto');
+    // The count goes to the host's live region, not one of the control's own.
+    expect(host.announced()).toBe('1 product found.');
+    const option = document.querySelector<HTMLElement>('[data-product-option]')!;
+    option.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
+    option.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    await refresh();
+    expect(el.querySelector('[data-chosen-product]')?.textContent).toContain('Autodesk Build');
 
     submitForm(el);
     await refresh();
