@@ -183,6 +183,39 @@ describe('ProductCombobox', () => {
     expect(options()[0]!.textContent).toContain('ProjectSight');
   });
 
+  it('drops an earlier answer that lands during the pause before the next search', async () => {
+    const first = deferred<{ data: ProductComboboxItem[] }>();
+    const second = deferred<{ data: ProductComboboxItem[] }>();
+    const search = vi
+      .fn<ProductComboboxSearch>()
+      .mockReturnValueOnce(first.promise)
+      .mockReturnValueOnce(second.promise);
+    const { fixture, host, input } = mount(search);
+
+    await typeAndSettle(fixture, input, 'pro');
+    expect(search).toHaveBeenCalledTimes(1);
+    const announcedBefore = host.announced.length;
+
+    // "proj" is typed; its search has not left yet when "pro" answers.
+    await type(fixture, input, 'proj');
+    first.resolve({ data: [] });
+    await wait(0);
+    await settle(fixture);
+    expect(search).toHaveBeenCalledTimes(1);
+    expect(stateText()).toContain('Searching');
+    expect(stateText()).not.toContain('pro');
+    expect(host.announced).toHaveLength(announcedBefore);
+
+    await wait(PRODUCT_COMBOBOX_DEBOUNCE_MS + 30);
+    await settle(fixture);
+    expect(search).toHaveBeenLastCalledWith('proj');
+    second.resolve({ data: [PROJECTSIGHT] });
+    await wait(0);
+    await settle(fixture);
+    expect(options()).toHaveLength(1);
+    expect(options()[0]!.textContent).toContain('ProjectSight');
+  });
+
   it('keeps the server order, leaves out excluded ids, and shows the vendor', async () => {
     const search = vi.fn(async () => ({ data: [ACONEX, PROCORE, PROJECTSIGHT] }));
     const { fixture, host, input } = mount(search);
@@ -225,13 +258,16 @@ describe('ProductCombobox', () => {
 
     input.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }));
     await settle(fixture);
-    expect(input.getAttribute('aria-activedescendant')).toBeTruthy();
+    const activeId = input.getAttribute('aria-activedescendant');
+    expect(activeId).toBeTruthy();
+    const activeText = document.getElementById(activeId!)?.textContent ?? '';
 
     const enter = new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true });
     input.dispatchEvent(enter);
     await settle(fixture);
 
-    expect(host.picked.map((p) => p.id)).toHaveLength(1);
+    expect(host.picked).toHaveLength(1);
+    expect(activeText).toContain(host.picked[0]!.name);
     expect(enter.defaultPrevented).toBe(true);
     expect(host.submits).toBe(0);
     expect(input.value).toBe('');

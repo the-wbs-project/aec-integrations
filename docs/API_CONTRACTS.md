@@ -161,7 +161,7 @@ Two consequences worth knowing before touching a sort:
 
 #### Taxonomy ordering — `display_order` NULLs go LAST (AECI-925)
 
-**`display_order` is nullable on every `taxonomy_*` table, and SQLite sorts NULL FIRST under a plain `ASC`.** So a term with no curated position does not fall to the end of the list, it opens it. Every taxonomy `ORDER BY` that orders by curated position therefore goes through `displayOrderAsc` (audiences do not order by position at all: they read A to Z by name, AECI-1242/AECI-1243) (`apps/api/src/lib/display-order.ts`), which emits `<col> IS NULL, asc(<col>)` — curated terms in their curated sequence, uncurated terms after them in name order. Never write `asc(table.displayOrder)`; `display-order.spec.ts` is a source scan that fails the build if you do.
+**`display_order` is nullable on every `taxonomy_*` table, and SQLite sorts NULL FIRST under a plain `ASC`.** So a term with no curated position does not fall to the end of the list, it opens it. Every taxonomy `ORDER BY` that orders by curated position therefore goes through `displayOrderAsc` (`apps/api/src/lib/display-order.ts`), which emits `<col> IS NULL, asc(<col>)` — curated terms in their curated sequence, uncurated terms after them in name order. Audiences do not order by position at all: they read A to Z by name (AECI-1242, AECI-1243). Never write `asc(table.displayOrder)`; `display-order.spec.ts` is a source scan that fails the build if you do.
 
 This is not hypothetical. `resolveTaxonomy` (`apps/api/src/routes/promote.ts`) mints a category / audience / phase that matches no stored slug and, since AECI-970, no stored name, from `{ id, slug, name }` alone, leaving both `display_order` and `description` NULL, so **any** term promote invents outranks the whole seeded vocabulary until a curator gives it an order. Production carries exactly one such row — `reality-capture-scan-to-bim`, a duplicate of the seeded `reality-capture` (**AECI-926**) — and before this fix it was the first entry in the category nav, the browse index and the vendor portal's category picker. AECI-926 takes option A: the upstream term is renamed to `Reality Capture` so `slugify` lands on the seeded slug, the joins are re-pointed, the minted row deleted, and `/categories/reality-capture-scan-to-bim` 301s from `apps/web/src/server-runtime.ts`. **The redirect and the guards ship with the code; the data op is a separate, manual step** — `scripts/ops/2026-09-reality-capture-dedup/README.md` is the status of record for whether it has run. The ordering rule above is unchanged and still load-bearing — it is what keeps the *next* minted term out of the top slot.
 
@@ -3050,8 +3050,8 @@ AdminUsersListResponse = PaginatedResponse<AdminUserRow> & {
   and the table's arrows both read, and only the PRIMARY term flips — `id ASC` stays
   the stable tiebreaker (AECI-99).
 - **`sort=name` orders on `profiles.display_name`** (AECI-1243), case-insensitive
-  (`textDir`). An account with no display name sorts **last in both directions**:
-  the `display_name IS NULL` term never flips, only the name does.
+  (`textDir`). An account with no display name, NULL or empty (both render "Unnamed
+  account"), sorts **last in both directions**: the `blankLast` term never flips, only the name does.
 - **`search` matches `display_name` as an escaped substring** (`likeContains` —
   operator-typed `%`/`_` are escaped, not honoured) and, **only when the term
   contains `@`**, also resolves it as an **exact** email through seam #4a.

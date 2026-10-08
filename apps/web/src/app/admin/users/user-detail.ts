@@ -350,10 +350,13 @@ export function sortInvites(
       case 'vendor':
         return sign * compareText(a.vendor_name, b.vendor_name);
       case 'invited_by': {
-        if (a.invited_by === b.invited_by) return 0;
-        if (a.invited_by === null) return 1;
-        if (b.invited_by === null) return -1;
-        return sign * compareText(a.invited_by, b.invited_by);
+        // An empty name is unnamed too, as the API's `blankLast` treats it.
+        const an = a.invited_by || null;
+        const bn = b.invited_by || null;
+        if (an === bn) return 0;
+        if (an === null) return 1;
+        if (bn === null) return -1;
+        return sign * compareText(an, bn);
       }
       case 'created':
         return sign * binary(a.created_at, b.created_at);

@@ -359,9 +359,11 @@ export class ProductCombobox {
 
   private schedule(raw: string): void {
     this.cancelPending();
+    // Every keystroke makes an in-flight answer stale, including one that
+    // lands during the pause before the next search starts.
+    this.seq++;
     const query = raw.trim();
     if (query.length < PRODUCT_COMBOBOX_MIN_CHARS) {
-      this.seq++; // an in-flight answer is now stale
       this.results.set([]);
       this.phase.set(query.length === 0 ? 'idle' : 'short');
       if (query.length === 0) this.setExpanded(false);
@@ -375,7 +377,7 @@ export class ProductCombobox {
 
   private async run(query: string): Promise<void> {
     this.timer = null;
-    const mine = ++this.seq;
+    const mine = this.seq;
     try {
       const page = await this.search()(query);
       if (mine !== this.seq) return;

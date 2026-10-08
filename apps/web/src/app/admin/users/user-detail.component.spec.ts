@@ -306,6 +306,19 @@ describe('UserDetail', () => {
       expect(vendorColumn(el)).toEqual(['Procore', 'Zeta', 'acme']);
     });
 
+    it('treats an empty sender name as missing: a dash, sorted last', async () => {
+      const withBlank = [
+        ...invites,
+        invite(4, 'Beta', '', '2026-06-01T00:00:00.000Z', '2026-10-20T00:00:00.000Z'),
+      ];
+      const { el, fixture } = await setup(makeApiMock(makeUser({ pending_invites: withBlank })));
+      const button = inviteHeader(el, 'Invited by')!.querySelector('button')!;
+      await click(fixture, button);
+      expect(vendorColumn(el).slice(0, 2)).toEqual(['Zeta', 'Procore']);
+      expect(el.textContent).toContain('No sender name');
+      expect(el.textContent).not.toContain('no longer exists');
+    });
+
     it('sorts by expiry, soonest first', async () => {
       const { el, fixture } = await setup(makeApiMock(makeUser({ pending_invites: invites })));
       await click(fixture, inviteHeader(el, 'Expires')!.querySelector('button')!);

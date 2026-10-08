@@ -239,10 +239,11 @@ describe('GET /api/vendor/products/:id/connectors', () => {
 
 describe('GET /api/vendor/products/:id/connectors — tiebreaks (AECI-1243)', () => {
   it('orders delivered rows whose partners share a name by edge name, then id', async () => {
-    // Two partner products that differ only in case: the partner name ties.
+    // Two partner products with the same name: the partner name ties, so only
+    // the edge name can put the higher id first.
     await t.db.insert(products).values([
       { id: uuid(24), slug: 'sage-a', name: 'Sage' },
-      { id: uuid(25), slug: 'sage-b', name: 'sage' },
+      { id: uuid(25), slug: 'sage-b', name: 'Sage' },
     ]);
     await t.db.insert(connectorEvidencedPairs).values([
       {
