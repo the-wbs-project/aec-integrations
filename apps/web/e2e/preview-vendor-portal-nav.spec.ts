@@ -66,7 +66,7 @@ test.describe('vendor portal nav (preview)', () => {
       'aria-current',
       'page',
     );
-    // Vendor › Company. The separators are aria-hidden, so they are not list items.
+    // Vendor portal › Company. The separators are aria-hidden, so they are not list items.
     await expect(breadcrumb(page).getByRole('listitem')).toHaveCount(2);
   });
 
@@ -118,8 +118,9 @@ test.describe('vendor portal nav (preview)', () => {
       productNav(page, productName).getByRole('link', { name: 'Integrations', exact: true }),
     ).toHaveAttribute('aria-current', 'page');
 
-    await clickUntil(breadcrumb(page).getByRole('link', { name: 'Vendor', exact: true }), () =>
-      expect(page).toHaveURL(new RegExp(`${PATH}/overview$`), { timeout: 1_000 }),
+    await clickUntil(
+      breadcrumb(page).getByRole('link', { name: 'Vendor portal', exact: true }),
+      () => expect(page).toHaveURL(new RegExp(`${PATH}/overview$`), { timeout: 1_000 }),
     );
     await expect(nav(page)).toHaveCount(1);
     await expect(productNav(page, productName)).toHaveCount(0);

@@ -12,8 +12,6 @@ import { expect, test, type Page } from '@playwright/test';
  * and its path has no `/vendor/` segment for the zone WAF to refuse.
  */
 const PATH = '/preview/vendor-dashboard';
-const DECISION_10 =
-  'No plan changes where you rank or appear, whether a review is published, or what we verify.';
 
 async function axeSerious(page: Page) {
   const result = await new AxeBuilder({ page })
@@ -23,14 +21,11 @@ async function axeSerious(page: Page) {
 }
 
 test.describe('Free plan portal (preview)', () => {
-  test('Free: the overview has the checklist and a one-line plan, and no banner', async ({
-    page,
-  }) => {
+  test('Free: the overview has the checklist and no plan card, and no banner', async ({ page }) => {
     const res = await page.goto(`${PATH}/overview?fixture=free`);
     expect(res?.status()).toBe(200);
 
-    await expect(page.getByTestId('plan-summary-line')).toHaveText('2 products, all on Free');
-    await expect(page.getByTestId('plan-decision10').first()).toHaveText(DECISION_10);
+    await expect(page.getByTestId('plan-summary-line')).toHaveCount(0);
     await expect(page.getByRole('heading', { name: 'Getting started' })).toBeVisible();
     await expect(page.getByTestId('plan-ended-banner')).toHaveCount(0);
     expect(await axeSerious(page), 'Free overview must be axe clean').toEqual([]);

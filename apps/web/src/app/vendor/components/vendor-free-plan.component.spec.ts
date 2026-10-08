@@ -14,7 +14,6 @@ import { provideRouter } from '@angular/router';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { VendorEntitlementBlock, VendorProduct } from '@aeci/shared';
-import { capabilitiesFor } from '@aeci/shared/entitlements';
 
 import { productChecklistRows, vendorChecklistRows } from '../checklist-rows';
 import { VendorPortalAnnouncer } from '../vendor-announcer';
@@ -36,13 +35,10 @@ import { VendorChecklist } from './vendor-checklist';
 import { VendorLooksRight } from './vendor-looks-right';
 import { VendorPlanBadge } from './vendor-plan-badge';
 import { VendorPlanEndedBanner } from './vendor-plan-ended-banner';
-import { VendorPlanSummary } from './vendor-plan-summary';
 
 const flush = () => new Promise<void>((resolve) => setTimeout(resolve));
 const textOf = (f: ComponentFixture<unknown>) =>
   ((f.nativeElement as HTMLElement).textContent ?? '').replace(/\s+/g, ' ').trim();
-const DECISION_10 =
-  'No plan changes where you rank or appear, whether a review is published, or what we verify.';
 
 const MANAGED: VendorEntitlementBlock = VENDOR_ME_FIXTURE.entitlement;
 const FREE: VendorEntitlementBlock = VENDOR_ME_FREE_FIXTURE.entitlement;
@@ -329,60 +325,5 @@ describe('VendorPlanEndedBanner', () => {
   it('still reads without an ended_at', () => {
     const f = create({ ...VENDOR_ME_PILOT_ENDED_FIXTURE.entitlement, ended_at: null });
     expect(textOf(f)).toContain('Your products are now on the Free plan.');
-  });
-});
-
-// ── The vendor plan summary ─────────────────────────────────────────────────
-
-describe('VendorPlanSummary', () => {
-  function create(entitlement: VendorEntitlementBlock, products: readonly VendorProduct[]) {
-    const f = TestBed.createComponent(VendorPlanSummary);
-    f.componentRef.setInput('entitlement', entitlement);
-    f.componentRef.setInput('products', products);
-    f.detectChanges();
-    return f;
-  }
-  const line = (f: ComponentFixture<VendorPlanSummary>) =>
-    (f.nativeElement as HTMLElement)
-      .querySelector('[data-testid="plan-summary-line"]')
-      ?.textContent?.trim();
-
-  it('counts each plan off the products, in one line', () => {
-    expect(line(create(MANAGED, VENDOR_ME_MIXED_FIXTURE.products))).toBe(
-      '12 products: 5 on Managed, 7 on Free',
-    );
-    expect(line(create(FREE, VENDOR_ME_FREE_FIXTURE.products))).toBe('2 products, all on Free');
-  });
-
-  it('carries decision 10 word for word', () => {
-    const f = create(FREE, VENDOR_ME_FREE_FIXTURE.products);
-    expect(
-      (f.nativeElement as HTMLElement)
-        .querySelector('[data-testid="plan-decision10"]')
-        ?.textContent?.trim(),
-    ).toBe(DECISION_10);
-  });
-
-  it('shows the account label only for an active Managed vendor', () => {
-    const managed = create(MANAGED, VENDOR_ME_FIXTURE.products);
-    expect(
-      (managed.nativeElement as HTMLElement).querySelector('aec-vendor-account-badge'),
-    ).not.toBeNull();
-    const free = create(FREE, VENDOR_ME_FREE_FIXTURE.products);
-    expect(
-      (free.nativeElement as HTMLElement).querySelector('aec-vendor-account-badge'),
-    ).toBeNull();
-  });
-
-  it('adds the end date when Managed is running out', () => {
-    const soon: VendorEntitlementBlock = {
-      ...MANAGED,
-      period_end: new Date(Date.now() + 5 * 86_400_000).toISOString(),
-      capabilities: [...capabilitiesFor('verified')],
-    };
-    const products = VENDOR_ME_FIXTURE.products.map((p) => onPlan(p, soon));
-    expect(line(create(soon, products))).toBe(
-      '2 products, all on Managed. Managed ends in 5 days.',
-    );
   });
 });

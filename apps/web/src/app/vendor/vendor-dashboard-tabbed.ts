@@ -116,7 +116,7 @@ import { VendorPlanEndedBanner } from './components/vendor-plan-ended-banner';
             <ol class="m-0 flex list-none flex-wrap items-center gap-2 p-0 text-sm">
               <li>
                 <a routerLink="overview" [class]="crumbLinkClass" i18n="@@vendor.breadcrumb.vendor"
-                  >Vendor</a
+                  >Vendor portal</a
                 >
               </li>
               <li aria-hidden="true" class="text-(--text-tertiary)">›</li>

@@ -771,7 +771,7 @@ Replace `apps/web/src/app/vendor/components/vendor-verified-status.ts` — whose
 | `lapsed` | `expired` / `revoked` (and the fail-closed drift case below) | A **loss to acknowledge**. Leads with what the vendor KEEPS, names what is paused, offers a renewal path. Since AECI-1214 what is paused is the account label, the Managed product fields, and confirming, denying or clearing data flows. The panel copy still says "editing your profile and products" until AECI-1218 rewrites the panels (§13.11). |
 | `none` | `status: null` — no entitlement row at all | An **invitation**, not a loss. |
 
-> **As revised (AECI-1218, 2026-10-02).** The panel is now per product and reads `product.plan` (§13.7). Its states are `managed` (was `active`), `expiring`, `pending`, `ended` (was `lapsed`; now also the plan-ended banner's job vendor-wide), `free` (was `none`; also the unknown-tier drift case, which no longer reads as ended), and `catalogue`. Every state carries decision 10's line. Every state but `catalogue` shows "Managed is $25 a month per product" with a "Draft price" tag (decision 9). The framing sentence below and the compact strip are gone. The vendor overview carries a one-line summary instead (`vendor-plan-summary.ts`).
+> **As revised (AECI-1218, 2026-10-02).** The panel is now per product and reads `product.plan` (§13.7). Its states are `managed` (was `active`), `expiring`, `pending`, `ended` (was `lapsed`; now also the plan-ended banner's job vendor-wide), `free` (was `none`; also the unknown-tier drift case, which no longer reads as ended), and `catalogue`. Every state carries decision 10's line. Every state but `catalogue` shows "Managed is $25 a month per product" with a "Draft price" tag (decision 9). The framing sentence below and the compact strip are gone. The vendor overview carries no plan card; the checklist takes the full width (`STAGE_2_VENDOR_PORTAL_SPEC.md` §6.18).
 
 `null` vs `expired` is the distinction that earned two panels: never-arranged and lapsed are materially different conversations, and rendering a loss-acknowledgement at someone who never bought anything is the wrong message. §4 made that distinction available on the wire.
 
@@ -904,6 +904,8 @@ Chris made these ten decisions on 2026-10-01 in epic AECI-1212. They are quoted 
 8. **Pilot end lands the vendor on the Free plan.** A calm banner lists what still works and what went read-only. Nothing the vendor entered is removed.
 9. **The portal shows nothing beyond Managed for now.** Managed shows a draft price label.
 10. **Each plan panel says:** "No plan changes where you rank or appear, whether a review is published, or what we verify."
+
+> **As revised (2026-10-08).** The one-line plan summary in decision 2 is gone. The vendor dashboard shows no plan card, and the vendor checklist takes the full width (`STAGE_2_VENDOR_PORTAL_SPEC.md` §6.18). The decision above stays as quoted.
 
 Two later rulings closed the epic's open questions. Both are comments on AECI-1212.
 

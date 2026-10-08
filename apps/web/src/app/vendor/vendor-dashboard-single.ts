@@ -7,7 +7,6 @@ import { RequestDrawer } from '../requests/request-drawer';
 
 import { VendorPortalAnnouncer } from './vendor-announcer';
 import { VendorIntegrationsSection } from './components/vendor-integrations-section';
-import { VendorPlanSummary } from './components/vendor-plan-summary';
 import { VendorPlanEndedBanner } from './components/vendor-plan-ended-banner';
 import { VendorProfileForm } from './components/vendor-profile-form';
 import { VendorProductsSection } from './components/vendor-products-section';
@@ -28,7 +27,6 @@ import { VendorSeatRoster } from './components/vendor-seat-roster';
 @Component({
   selector: 'aec-vendor-dashboard-single',
   imports: [
-    VendorPlanSummary,
     VendorPlanEndedBanner,
     VendorNotificationsList,
     VendorRequestStatus,
@@ -52,12 +50,10 @@ import { VendorSeatRoster } from './components/vendor-seat-roster';
       </header>
 
       <div class="mt-10 space-y-14">
-        <!-- AECI-1218: the plan-ended banner (section 13.11) and the one-line plan
-             summary (section 6.18). Each product's plan panel is on the tabbed
+        <!-- AECI-1218: the plan-ended banner (section 13.11). Each product's plan panel is on the tabbed
              concept's product overview. -->
         <div>
           <aec-vendor-plan-ended-banner [entitlement]="m.entitlement" />
-          <aec-vendor-plan-summary [entitlement]="m.entitlement" [products]="m.products" />
         </div>
 
         <section aria-labelledby="vendor-requests-heading">
