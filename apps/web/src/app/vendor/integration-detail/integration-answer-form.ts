@@ -1,6 +1,7 @@
 import {
   Component,
   ElementRef,
+  type OnInit,
   afterNextRender,
   computed,
   inject,
@@ -48,7 +49,12 @@ type WrongKind = 'not-shared' | 'direction' | 'other';
  *   company adds or edits its reason on a Yes.
  *
  * The answer changes only on Save. "The direction is wrong" is two writes, shown as
- * one outcome ({@link IntegrationDetailState.directionWrong}). Opening focuses the
+ * one outcome ({@link IntegrationDetailState.directionWrong}).
+ *
+ * Opened from a submitted change's Change (`change` set, AECI-1246), the form
+ * starts on "The direction is wrong" with the correction's direction chosen and the
+ * saved reason filled in, and saves through
+ * {@link IntegrationDetailState.reviseChange}. Opening focuses the
  * first radio (or the textarea for a Yes); closing hands focus back through
  * `closed`, which the host routes to the row's control.
  */
@@ -181,13 +187,19 @@ type WrongKind = 'not-shared' | 'direction' | 'other';
     </form>
   `,
 })
-export class IntegrationAnswerForm {
+export class IntegrationAnswerForm implements OnInit {
   private readonly state = inject(IntegrationDetailState);
+  private readonly host = inject<ElementRef<HTMLElement>>(ElementRef);
 
   readonly integration = input.required<VendorIntegration>();
   readonly claim = input.required<VendorClaim>();
   /** The answer this form saves. */
   readonly mode = input.required<'yes' | 'no'>();
+  /** The correction of a submitted change this form revises, if any (§6.17.4). */
+  readonly change = input<VendorClaim | null>(null);
+  /** The answer saved. Emitted just before `closed`, so a host can tell a save
+   *  from a Cancel (§6.17.4: a save puts an answered row back to plain text). */
+  readonly saved = output<void>();
   /** The form is done: saved or cancelled. */
   readonly closed = output<void>();
 
@@ -242,15 +254,26 @@ export class IntegrationAnswerForm {
   protected readonly secondary = BTN_SECONDARY;
 
   constructor() {
-    // Seed from the saved position, then focus the first control, once.
+    // Focus the first control once, after `ngOnInit` has seeded the form: the
+    // chosen radio for a No (the first one, unless a submitted change chose "The
+    // direction is wrong"), the textarea for a Yes.
     afterNextRender(() => {
-      // The saved note seeds the form only when it belongs to the same stance: a
-      // note on a Yes is not a reason for a No.
-      const current = myAnswer(this.claim());
-      if (current === this.mode()) this.note.set(myNote(this.claim()) ?? '');
-      this.right.set(this.otherDirections()[0] ?? 'outbound');
-      (this.mode() === 'no' ? this.firstKind() : this.noteField())?.nativeElement.focus();
+      const checked = this.host.nativeElement.querySelector<HTMLInputElement>(
+        'input[type="radio"]:checked',
+      );
+      if (this.mode() === 'no') (checked ?? this.firstKind()?.nativeElement)?.focus();
+      else this.noteField()?.nativeElement.focus();
     });
+  }
+
+  ngOnInit(): void {
+    // Seed from the saved position. The saved note seeds the form only when it
+    // belongs to the same stance: a note on a Yes is not a reason for a No.
+    const current = myAnswer(this.claim());
+    if (current === this.mode()) this.note.set(myNote(this.claim()) ?? '');
+    const change = this.change();
+    if (change) this.kind.set('direction');
+    this.right.set(change?.direction ?? this.otherDirections()[0] ?? 'outbound');
   }
 
   protected directionText(direction: ContextDirection): string {
@@ -278,7 +301,23 @@ export class IntegrationAnswerForm {
     this.error.set(null);
     this.busy.set(true);
     try {
-      if (this.mode() === 'no' && this.kind() === 'direction') {
+      const change = this.change();
+      if (this.mode() === 'no' && change) {
+        const result = await this.state.reviseChange(
+          this.claim(),
+          change,
+          note,
+          this.kind() === 'direction' ? this.right() : null,
+        );
+        if (result === 'partial') {
+          this.partial.set(true);
+          return;
+        }
+        if (result !== null) {
+          this.error.set(result);
+          return;
+        }
+      } else if (this.mode() === 'no' && this.kind() === 'direction') {
         const result = await this.state.directionWrong(this.claim(), note, this.right());
         if (result === 'partial') {
           this.partial.set(true);
@@ -295,6 +334,7 @@ export class IntegrationAnswerForm {
           return;
         }
       }
+      this.saved.emit();
       this.closed.emit();
     } finally {
       this.busy.set(false);
@@ -307,6 +347,7 @@ export class IntegrationAnswerForm {
     try {
       if (await this.state.addCorrectedRow(this.claim(), this.right())) {
         this.partial.set(false);
+        this.saved.emit();
         this.closed.emit();
       }
     } finally {
