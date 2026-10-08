@@ -1,6 +1,6 @@
-# 2026-09 retraction-feed consumer (AECI-882 / AECI-811 / AECI-878 / AECI-889 / AECI-916 / AECI-957 / AECI-1024 / AECI-1020 / AECI-928 / AECI-1018)
+# 2026-09 retraction-feed consumer (AECI-882 / AECI-811 / AECI-878 / AECI-889 / AECI-916 / AECI-957 / AECI-1024 / AECI-1020 / AECI-928 / AECI-1018 / AECI-1170)
 
-**Status: RUN — thirteen tranches, all complete.** Applied to `aeci-app-production` on
+**Status: RUN — fourteen tranches, all complete.** Applied to `aeci-app-production` on
 2026-09-13 (214 rows), 2026-09-14 (the 2 held back), 2026-09-14 again (17 rows, AECI-889
 batch 1), 2026-09-14 a third time (21 rows, AECI-889 batches 2 + 3), 2026-09-14 a
 fourth time (2 rows, **AECI-916 — the first operator-ruling run**), 2026-09-15
@@ -12,7 +12,8 @@ retirement, and the first to cascade claims that no surviving row holds**), and 
 (1 row, **the ADP Workforce Now ↔ Sage 100 Contractor leftover of that same AECI-1020
 window, ruled withdrawn**), and 2026-09-24 (16 rows, **AECI-928 — Zapier's I24 retire**),
 and 2026-09-24 again (1 row, **AECI-1018 — the AutoCAD Map 3D ↔ Civil 3D row that AECI-928
-held**). **The feed is empty.** No hold is active in the file. The AECI-1024 vendor half ran the same
+held**), and 2026-10-01 (3 rows, **AECI-1170 — the first ruling run against promote
+double-create residue**). **The feed is empty.** No hold is active in the file. The AECI-1024 vendor half ran the same
 day through the new `ops:retract-vendor` lane (8 vendor rows), and Nemetschek Group followed on
 the same lane in the AECI-1020 window (1 vendor row). The daily audit is green.
 
@@ -1549,6 +1550,85 @@ Nothing to purge. `apps/web/wrangler.jsonc` still has `exports` only in the `pre
 
 Both are the documented no-edge state, checked in **both** orientations. `list_retractions`
 reads 0 pending entries.
+
+## What ran — 2026-10-01, 3 rows (AECI-1170, promote double-create residue)
+
+**Why.** A review-app bulk promote on 2026-09-29 created three upstream integration records
+twice each, once per carrier product. The second carrier's payload had no `supabaseId`, so
+promote took the insert path. Upstream kept the first id each time, and the second row of each
+pair was stranded. The daily strand audit reported them as three `integrationSourceGone` rows
+from 2026-09-29. The upstream cause is AECI-1171. The ruling is
+[`rulings/aeci-1170-procore-promote-double-create.json`](rulings/aeci-1170-procore-promote-double-create.json),
+with `noUpstreamRuling: false`. The upstream record's own `supabaseId` names the row to keep.
+
+This is ruling mode because no journal entry can exist. Upstream never pointed at the three
+strays, so nothing upstream could journal their removal.
+
+```
+node scripts/ops/2026-09-retraction-consumer/consume.mjs --env production --ruling scripts/ops/2026-09-retraction-consumer/rulings/aeci-1170-procore-promote-double-create.json
+node scripts/ops/2026-09-retraction-consumer/consume.mjs --env production --ruling scripts/ops/2026-09-retraction-consumer/rulings/aeci-1170-procore-promote-double-create.json --apply --allow-production --confirm-count 3
+```
+
+The dry run read `feed: 0 pending entries`, `resolve: integrations 3,
+connector_evidenced_pairs 0, already gone 0`, `plan: 3 to delete, 0 held`, `cascade: 10
+claims, 10 attestations, 0 per-side vendor links`, and `affected products: 4`.
+
+| Pair | Upstream record | Kept | Deleted | Claims |
+|---|---|---|---|--:|
+| Dropbox (Two Way Sync) by SyncEzy → Procore PM | `rect74sRLiPZBmqu0` | `35253fd5-…` | `401bf831-bbce-4df3-bbea-d760900f6fe2` | 4 |
+| SharePoint (Two Way Sync) by SyncEzy → Procore PM | `rec8MRqCb988YZnSD` | `548a69d6-…` | `25a09736-1854-4587-b45c-bff6ae602158` | 5 |
+| Smartsheet Sync → Procore PM | `recjzXP5j3yCScnGV` | `fff60b9d-…` | `0332587d-eb30-4c0d-b0c7-6977379a1880` | 1 |
+
+The apply ran at **2026-10-01T02:26:52Z**. It wrote **3 `integration.deleted` audit rows**
+with `metadata.source = 'operator-ruling'`: `06c35e7d-…`, `8d96205a-…` and `3ddeed02-…`.
+**4 products** had `integration_count` repaired and `updated_at` bumped at 02:26:55Z:
+`procore-project-management`, `dropbox-two-way-sync-by-syncezy`,
+`sharepoint-two-way-sync-by-syncezy` and `smartsheet-sync`.
+
+**Not recorded at the time.** The before/after table counts, the Time Travel bookmark and the
+local rollback file name were never written down, and the rollback file is in no surviving
+workspace. Production D1 has since moved database twice (2026-10-04 and 2026-10-05), so we do
+not know whether any Time Travel history still reaches 2026-10-01. This section was written on
+2026-10-08 from production reads, listed below.
+
+### `MAX_CASCADE` moved by twin-count
+
+Raised to `10 / 10`. Each stray's claims were compared with its kept twin's on object,
+direction, origin, vendor, attestation source, asserted, retracted, deprecated and note. The
+sets are identical: 4 = 4, 5 = 5, 1 = 1. The cascade is superseded, not lost. None of the six
+rows was vendor-held.
+
+### The three guards, pinned and reset
+
+| Constant | Pinned for this run | Now, in the file |
+|---|---|---|
+| `EXPECTED` | `{ total: 3, inPairs: 0, inIntegrations: 3 }` | `{ 0, 0, 0 }` |
+| `MAX_CASCADE` | `{ claims: 10, attestations: 10 }` | `{ 0, 0 }` |
+| `HOLD` | `{}` | `{}` |
+
+**Unlike earlier runs, the pins were committed** (#868, which staged the run). They stayed on
+`main` from 2026-10-01 until the reset in the change that added this section.
+
+### Algolia
+
+`production_integrations` returns 404 for all three deleted ids and 200 for the kept twin
+`35253fd5-…`. The index holds 1185 records, which matches production's 1108 integrations plus
+77 evidenced pairs. This run did not remove the three orphans. Three is under the nightly
+sweep's cap of 50, so the sweep is the likely remover. We did not check which run did it.
+
+### Cache
+
+Nothing to purge. Production serves uncached.
+
+### Verification (2026-10-08)
+
+- Production D1: the three deleted ids are absent. The three kept twins are live with 4, 5
+  and 1 claims. No claim still references a deleted id.
+- All six pair URLs, both orientations, return **200 with no `noindex`**. The kept twin still
+  serves each pair, so this is the expected state.
+- The daily strand audit has been green every day since 2026-10-03. Run 37647779815 reads
+  `integrationSourceGone 0` and `RESULT: clean`. The 2026-10-01 and 2026-10-02 runs were red
+  on an MCP session error, not on these rows.
 
 ## The second half — `ops:retract-product` for the ACC product row (AECI-809)
 
