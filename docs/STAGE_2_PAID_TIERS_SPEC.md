@@ -1039,6 +1039,19 @@ Three routes. Each is seat-only. Each registers `requireVendor()` then `rateLimi
 
 Every pair page embeds both of its products, so the `product:{slug}` tag also purges the pair pages that show a stamped integration's chip.
 
+> **As built (AECI-1241 — 2026-10-08).** The "Looks right" strip at the head of company Profile, product Profile and product Integrations now shows only for a step that was not done when the page loaded. Chris ruled it: a vendor who checked a step long ago comes back to change things, and a permanent strip is noise to them.
+>
+> - **Not done at load.** The strip shows. After a press it stays for the rest of that view and reads "Checked". It does not vanish when the checklist refetch flips the step to done.
+> - **Done at load.** No strip. The next visit to a page the vendor just checked is this case, because `VendorPortalStore` keeps the refetched checklist.
+> - **Checklist not loaded yet.** Nothing renders, so a checked page never flashes the strip.
+> - **The decision is per record.** A product page reused for another product decides again from that product's checklist.
+>
+> The same rule covers the "Looks right" button on the product checklist card on a product's Overview (Chris, 2026-10-08). A row whose step was done when the card first saw it shows no button. A row pressed in this view keeps the button and reads "Checked" until the vendor leaves. The row itself and its "Open Profile" link always render. A done row's body says it is checked and that an edit records a later check, so it never tells the vendor to press a button that is not there. The vendor checklist's company row does the same (`checklist-rows.ts`).
+>
+> The rule is `latchReviewDecisions` in `apps/web/src/app/vendor/components/vendor-review-strip.ts`. It is a `linkedSignal` latch: it records a decision the first time a step's state is known for a record, then holds it. The strips call it through `reviewStripShown`. The card calls it once per row, keyed by target and product. The routes are unchanged.
+>
+> The accepted consequence is that a checked step offers no re-stamp anywhere in the portal. A vendor moves the public "Updated" date on a checked record only by saving an edit.
+
 ### 13.9 Integration-list stamp scope
 
 The third route stamps only rows this vendor already maintains.

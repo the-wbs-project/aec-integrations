@@ -12,6 +12,9 @@ import type { ChecklistRow } from './components/vendor-checklist';
  * `STAGE_2_PAID_TIERS_SPEC.md` §13.10). The API sends stable keys, never copy, so
  * every label lives here as `$localize`.
  *
+ * AECI-1241: a done "Looks right" step gets done-state body copy, because the
+ * button and the page strip are no longer offered once a step is done.
+ *
  * Paths are relative to the page that renders the card: Vendor Overview
  * (`…/overview`) for the vendor rows, a product's overview
  * (`…/products/:slug/overview`) for the product rows.
@@ -31,7 +34,10 @@ function vendorRow(step: VendorChecklistStep, finished: number, total: number): 
       return {
         ...base,
         title: $localize`:@@vendor.checklist.company.title:Check your company details`,
-        body: $localize`:@@vendor.checklist.company.body:Press Looks right on your profile, or edit anything that is out of date.`,
+        body:
+          step.status === 'done'
+            ? $localize`:@@vendor.checklist.company.body.done:Checked. To record a later check, save an edit on your profile.`
+            : $localize`:@@vendor.checklist.company.body:Press Looks right on your profile, or edit anything that is out of date.`,
         action: {
           kind: 'link',
           label: $localize`:@@vendor.checklist.company.action:Review company`,
@@ -90,7 +96,10 @@ function productRow(
       return {
         ...base,
         title: $localize`:@@vendor.checklist.details.title:Check product details`,
-        body: $localize`:@@vendor.checklist.details.body:Press Looks right if the details are current, or edit them on Profile.`,
+        body:
+          step.status === 'done'
+            ? $localize`:@@vendor.checklist.details.body.done:Checked. To record a later check, save an edit on Profile.`
+            : $localize`:@@vendor.checklist.details.body:Press Looks right if the details are current, or edit them on Profile.`,
         action: {
           kind: 'looksRight',
           target: 'product',
@@ -106,7 +115,10 @@ function productRow(
       return {
         ...base,
         title: $localize`:@@vendor.checklist.list.title:Check the integration list`,
-        body: $localize`:@@vendor.checklist.list.body:Is every integration listed, and nothing extra? Add a missing one on Integrations.`,
+        body:
+          step.status === 'done'
+            ? $localize`:@@vendor.checklist.list.body.done:Checked. Add a missing integration on Integrations.`
+            : $localize`:@@vendor.checklist.list.body:Is every integration listed, and nothing extra? Add a missing one on Integrations.`,
         action: {
           kind: 'looksRight',
           target: 'integrations',
