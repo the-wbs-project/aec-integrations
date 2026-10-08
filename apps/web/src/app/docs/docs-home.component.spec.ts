@@ -53,6 +53,7 @@ describe('DocsHomeComponent', () => {
     ]);
     expect(Array.from(groups[2].querySelectorAll('a')).map((a) => a.getAttribute('href'))).toEqual([
       '/docs/reviewers',
+      '/docs/account',
     ]);
   });
 
@@ -64,12 +65,13 @@ describe('DocsHomeComponent', () => {
       'trust',
       'vendors',
       'reviewers',
+      'account',
     ]);
     const hrefs = sections.flatMap((s) =>
       Array.from(s.querySelectorAll('a')).map((a) => a.getAttribute('href')),
     );
     for (const page of DOCS_PAGES) expect(hrefs, page.path).toContain(page.path);
-    for (const empty of ['account', 'faq']) {
+    for (const empty of ['faq']) {
       expect(host.querySelector(`a[href^="/docs/${empty}"]`), empty).toBeNull();
     }
   });

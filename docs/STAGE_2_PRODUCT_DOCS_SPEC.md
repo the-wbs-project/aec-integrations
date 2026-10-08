@@ -2,8 +2,17 @@
 
 **Version:** 1.0 — **build contract**
 **Date:** August 2026 (v0.1 scope outline); firmed into a build contract 2026-10-08 (AECI-1247)
-**Status:** Decomposed. The AECI-634 epic has eight sub-issues, AECI-1247 to AECI-1254 (§8). The vendor guide is built and noindex (AECI-1104). The shell is built (AECI-1248): the `/docs` home, section indexes, prev/next, linked breadcrumbs, noindex by path and the sitemap entries, with `requests-and-corrections` imported. The getting-started and trust pages are built and indexable (AECI-1249). The remaining pages of the site map are unbuilt.
+**Status:** Decomposed. The AECI-634 epic has eight sub-issues, AECI-1247 to AECI-1254 (§8). The vendor guide is built and noindex (AECI-1104). The shell is built (AECI-1248): the `/docs` home, section indexes, prev/next, linked breadcrumbs, noindex by path and the sitemap entries, with `requests-and-corrections` imported. The getting-started and trust pages are built and indexable (AECI-1249). The reviewer and account pages are built and indexable (AECI-1250). The remaining pages of the site map are unbuilt.
 **Companion to:** `docs/STAGE_2_SPEC.md` §2.6 (the pillar stub). The architecture decision is ADR 0040.
+
+> **2026-10-08 — reviewer and account pages shipped (AECI-1250).** Three pages, indexable and in
+> `sitemap.xml`: `reviewers/writing-a-review` (order 1, ahead of `requests-and-corrections`), and
+> `account/signing-in` and `account/your-data`, which make `account` a visible section. Every
+> sentence was checked against the review form, `POST /api/reviews`, the moderation route, the
+> account page, `DELETE /api/account`, the login page and the account menu. Where the shipped copy
+> says something the code does not do, the pages follow the code and the copy is filed: the
+> display-name help, the rate-limit and body-length messages (AECI-1256), the rejection email's
+> "submit an updated review" (AECI-1257) and the unset "Verified reviewer" label (AECI-1258).
 
 > **2026-10-08 — getting-started and trust shipped (AECI-1249).** Six reader pages, indexable and in
 > `sitemap.xml`: `getting-started/what-aeci-is`, `reading-an-integration-page`, `taxonomy`, and
@@ -136,10 +145,10 @@ URL scheme: `/docs/<section>/<slug>`, kebab-case. About 25 pages at v1.
 │  ├─ change-history                 — the Changes page: every change, who made it, AECi's reasons (AECI-1160)
 │  └─ (AECI-1251, after the AECI-1103 rehearsal) your-dashboard, editing-profile-and-products, product-versions,
 │     notifications-and-messages; performance only if analytics.view has shipped
-├─ reviewers/                        — AECI-1250 (requests-and-corrections: SHIPPED by AECI-1248, indexable)
+├─ reviewers/                        — SHIPPED (AECI-1250; requests-and-corrections by AECI-1248), indexable
 │  ├─ writing-a-review               — dual reviews: product quality vs onboarding experience
 │  └─ requests-and-corrections       — requesting an integration, correcting a listing, contesting a detail (AECI-1023)
-├─ account/                          — AECI-1250
+├─ account/                          — SHIPPED (AECI-1250), indexable
 │  ├─ signing-in                     — magic link + Google, common failure modes, an expired session
 │  └─ your-data                      — links /legal/privacy; deletion/erasure path
 └─ faq                               — AECI-1254: seeded from real pilot-vendor questions, not invented

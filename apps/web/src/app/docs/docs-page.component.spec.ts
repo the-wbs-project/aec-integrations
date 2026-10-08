@@ -99,9 +99,14 @@ describe('DocsPageComponent', () => {
     expect(links[0].getAttribute('rel')).toBe('prev');
   });
 
-  it('renders no pager on a section with one page', () => {
+  // No section has a single page since AECI-1250, so the no-pager case is covered
+  // by the synthetic-manifest `docsNeighbours` spec in docs-content.component.spec.ts.
+  it('does not page from the reviewer guide into the account section', () => {
     const { host } = render('reviewers', 'requests-and-corrections');
-    expect(pager(host)).toBeNull();
+    const links = Array.from(pager(host)!.querySelectorAll('a'));
+    expect(links.map((a) => [a.getAttribute('rel'), a.getAttribute('href')])).toEqual([
+      ['prev', '/docs/reviewers/writing-a-review'],
+    ]);
   });
 
   it('is noindex on the vendor guide until AECI-1253 and sets title + canonical', () => {

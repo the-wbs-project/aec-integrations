@@ -34,7 +34,9 @@ const VENDOR_SLUGS = [
   'change-history',
 ];
 
-const REVIEWER_SLUGS = ['requests-and-corrections'];
+const REVIEWER_SLUGS = ['writing-a-review', 'requests-and-corrections'];
+
+const ACCOUNT_SLUGS = ['signing-in', 'your-data'];
 
 const GETTING_STARTED_SLUGS = ['what-aeci-is', 'reading-an-integration-page', 'taxonomy'];
 
@@ -188,8 +190,9 @@ describe('docs manifest', () => {
       'trust',
       'vendors',
       'reviewers',
+      'account',
     ]);
-    for (const empty of ['account', 'faq']) {
+    for (const empty of ['faq']) {
       expect(getDocsSection(empty), empty).toBeUndefined();
     }
   });
@@ -204,16 +207,18 @@ describe('docs manifest', () => {
     expect(getDocsSection('vendors')?.label).toBe('Vendor guide');
   });
 
-  it('lists the vendor guide and the reviewer guide in task order', () => {
+  it('lists the vendor guide, the reviewer guide and the account pages in task order', () => {
     expect(docsSection('vendors').map((page) => page.slug)).toEqual(VENDOR_SLUGS);
     expect(docsSection('reviewers').map((page) => page.slug)).toEqual(REVIEWER_SLUGS);
+    expect(docsSection('account').map((page) => page.slug)).toEqual(ACCOUNT_SLUGS);
     expect(docsSection('getting-started').map((page) => page.slug)).toEqual(GETTING_STARTED_SLUGS);
     expect(docsSection('trust').map((page) => page.slug)).toEqual(TRUST_SLUGS);
     expect(DOCS_PAGES).toHaveLength(
       GETTING_STARTED_SLUGS.length +
         TRUST_SLUGS.length +
         VENDOR_SLUGS.length +
-        REVIEWER_SLUGS.length,
+        REVIEWER_SLUGS.length +
+        ACCOUNT_SLUGS.length,
     );
   });
 
@@ -305,6 +310,25 @@ describe('docs manifest', () => {
     expect(text).toContain('Suggest a correction');
   });
 
+  it('describes reviews and accounts as the code ships them (AECI-1250)', () => {
+    const textOf = (section: string, slug: string): string =>
+      new DOMParser().parseFromString(getDocsPage(section, slug)!.html, 'text/html').body
+        .textContent ?? '';
+    const review = textOf('reviewers', 'writing-a-review');
+    // A turned-down review still blocks a second one (reviews.ts dedup).
+    expect(review).toContain('You cannot send a second one.');
+    // No moderation SLA, and no badge that no code path ever sets (AECI-1258).
+    expect(review).not.toMatch(/24 hours|Verified reviewer/);
+    const data = textOf('account', 'your-data');
+    // Public reviews carry no name (publicReviewColumns), whatever the form help says (AECI-1256).
+    expect(data).toContain('Published reviews never show your display name');
+    // DELETE /api/account anonymizes reviews and clears the firm.
+    expect(data).toContain('Your reviews stay, with no link to you.');
+    const signIn = textOf('account', 'signing-in');
+    expect(signIn).toContain('Continue with Google');
+    expect(signIn).toContain('Email me a sign-in link');
+  });
+
   it('explains ranking in words, with no numbers and no signal names (STAGE_2_5_SPEC.md §2)', () => {
     const page = getDocsPage('trust', 'how-ranking-works')!;
     const text = new DOMParser().parseFromString(page.html, 'text/html').body.textContent ?? '';
@@ -334,8 +358,9 @@ describe('docsNeighbours', () => {
     expect(docsNeighbours(vendors[3])).toEqual({ prev: vendors[2], next: vendors[4] });
     // The last vendor page is followed by the reviewer section; the pager stops.
     expect(docsNeighbours(vendors.at(-1)!)).toEqual({ prev: vendors.at(-2), next: undefined });
-    const [requests] = docsSection('reviewers');
-    expect(docsNeighbours(requests)).toEqual({ prev: undefined, next: undefined });
+    const [writing, requests] = docsSection('reviewers');
+    expect(docsNeighbours(writing)).toEqual({ prev: undefined, next: requests });
+    expect(docsNeighbours(requests)).toEqual({ prev: writing, next: undefined });
   });
 });
 
@@ -348,7 +373,9 @@ describe('indexableDocsPaths', () => {
       '/docs/trust',
       ...TRUST_SLUGS.map((slug) => `/docs/trust/${slug}`),
       '/docs/reviewers',
-      '/docs/reviewers/requests-and-corrections',
+      ...REVIEWER_SLUGS.map((slug) => `/docs/reviewers/${slug}`),
+      '/docs/account',
+      ...ACCOUNT_SLUGS.map((slug) => `/docs/account/${slug}`),
     ]);
   });
 });
@@ -365,6 +392,8 @@ describe('DOCS_ROUTES', () => {
       ...VENDOR_SLUGS.map((slug) => `vendors/${slug}`),
       'reviewers',
       ...REVIEWER_SLUGS.map((slug) => `reviewers/${slug}`),
+      'account',
+      ...ACCOUNT_SLUGS.map((slug) => `account/${slug}`),
     ]);
   });
 
@@ -375,7 +404,7 @@ describe('DOCS_ROUTES', () => {
   });
 
   it('gives an empty section no route', () => {
-    for (const empty of ['account', 'faq']) {
+    for (const empty of ['faq']) {
       expect(
         DOCS_ROUTES.some((route) => route.path === empty || route.path?.startsWith(`${empty}/`)),
         empty,

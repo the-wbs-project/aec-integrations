@@ -53,6 +53,7 @@ A concern about a review, not a listing, goes to [reviews@thewbsproject.com](mai
 
 ## Related
 
+- Previous: [Writing a review](/docs/reviewers/writing-a-review).
 - [Contests and protests](/docs/vendors/contests-and-protests), the full vendor guide to change requests.
 - [Owning an integration](/docs/vendors/owning-an-integration), for the vendor that owns one.
 - [Listing Accuracy Policy](/legal/listing-accuracy).

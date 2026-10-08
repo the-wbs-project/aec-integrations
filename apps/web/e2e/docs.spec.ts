@@ -65,6 +65,37 @@ test.describe('/docs shell — AECI-1248', () => {
     }
   });
 
+  // AECI-1250 — the reviewer and account pages. Indexable, like the reader pages.
+  const REVIEWER_AND_ACCOUNT_PAGES: readonly (readonly [string, string])[] = [
+    ['/docs/reviewers/writing-a-review', 'Writing a review'],
+    ['/docs/account/signing-in', 'Signing in'],
+    ['/docs/account/your-data', 'Your account and your data'],
+  ];
+
+  test('SSR-renders the reviewer and account pages with their titles (AECI-1250)', async ({
+    request,
+  }) => {
+    for (const [path, title] of REVIEWER_AND_ACCOUNT_PAGES) {
+      const res = await request.get(path, { maxRedirects: 0 });
+      expect(res.status(), path).toBe(200);
+      const html = await res.text();
+      expect(html, path).toMatch(new RegExp(`<h1[^>]*>\\s*${title}\\s*</h1>`));
+      expect(html, path).not.toMatch(/<meta[^>]+name="robots"[^>]+content="noindex"/);
+    }
+  });
+
+  test('/docs/account is a section page listing both account pages (AECI-1250)', async ({
+    request,
+  }) => {
+    const res = await request.get('/docs/account', { maxRedirects: 0 });
+    expect(res.status()).toBe(200);
+    expect(res.headers()['cache-tag'] ?? '').toContain('route:index');
+    const html = await res.text();
+    expect(html).toMatch(/<h1[^>]*>\s*Your account\s*<\/h1>/);
+    expect(html).toContain('/docs/account/signing-in');
+    expect(html).toContain('/docs/account/your-data');
+  });
+
   test('walks home → section → article, then the pager and breadcrumb', async ({ page }) => {
     await page.goto('/docs');
     await expect(page.getByRole('heading', { level: 1 })).toHaveText('Help center');

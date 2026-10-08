@@ -24,10 +24,13 @@
  */
 import { marked } from 'marked';
 
+import signingInMd from '../../content/docs/account/signing-in.md';
+import yourDataMd from '../../content/docs/account/your-data.md';
 import readingMd from '../../content/docs/getting-started/reading-an-integration-page.md';
 import taxonomyMd from '../../content/docs/getting-started/taxonomy.md';
 import whatAeciMd from '../../content/docs/getting-started/what-aeci-is.md';
 import requestsMd from '../../content/docs/reviewers/requests-and-corrections.md';
+import writingReviewMd from '../../content/docs/reviewers/writing-a-review.md';
 import agreementStatesMd from '../../content/docs/trust/agreement-states.md';
 import rankingMd from '../../content/docs/trust/how-ranking-works.md';
 import accountLabelMd from '../../content/docs/trust/the-account-label.md';
@@ -199,7 +202,14 @@ const SECTION_PAGES: Readonly<Partial<Record<DocsSectionId, readonly RawDocsPage
     { slug: 'plans-and-the-account-label', source: plansMd },
     { slug: 'change-history', source: changeHistoryMd },
   ],
-  reviewers: [{ slug: 'requests-and-corrections', source: requestsMd }],
+  reviewers: [
+    { slug: 'writing-a-review', source: writingReviewMd },
+    { slug: 'requests-and-corrections', source: requestsMd },
+  ],
+  account: [
+    { slug: 'signing-in', source: signingInMd },
+    { slug: 'your-data', source: yourDataMd },
+  ],
 };
 
 /** The text of every level-2 ATX heading in a Markdown body, in order. */
