@@ -1,5 +1,5 @@
 import { NgOptimizedImage } from '@angular/common';
-import { HttpClient, HttpErrorResponse } from '@angular/common/http';
+import { HttpClient } from '@angular/common/http';
 import {
   ChangeDetectionStrategy,
   Component,
@@ -12,17 +12,15 @@ import {
   output,
   signal,
 } from '@angular/core';
-import {
-  LOGO_MAX_BYTES,
-  LogoPathSchema,
-  LogoUrlSchema,
-  UploadLogoResponseSchema,
-} from '@aeci/shared';
+import { LogoPathSchema, LogoUrlSchema } from '@aeci/shared';
 import type { Subscription } from 'rxjs';
 
+import { pickLogoFile, uploadLogo, type LogoUploadEndpoint } from './logo-upload';
+
 /**
- * `LogoInput` (AECI-955) — the Logo URL field plus validated upload, shared by
- * the vendor profile/product forms and the admin console.
+ * `LogoInput` (AECI-955) — the Logo URL field plus validated upload, used by the
+ * admin console's logo editor. The vendor portal uses `vendor-logo-field.ts`,
+ * which puts the same choice behind an Edit dialog and saves on its own.
  *
  * ── THE URL TEXT STAYS READABLE IN EVERY STATE (AECI-982) ───────────────────
  * The 2026-09-16 UX review caught the disabled URL dimming to half opacity,
@@ -181,7 +179,7 @@ export class LogoInput {
   readonly value = model('');
   readonly readOnly = input(false);
   readonly disabled = input(false);
-  readonly uploadEndpoint = input<'/api/vendor/logo' | '/api/admin/logo'>('/api/vendor/logo');
+  readonly uploadEndpoint = input<LogoUploadEndpoint>('/api/vendor/logo');
   readonly pendingChange = output<boolean>();
   readonly announce = output<string>();
   protected readonly pending = signal(false);
@@ -248,50 +246,35 @@ export class LogoInput {
     input.value = '';
   }
   private select(files: FileList | null): void {
-    if (this.readOnly() || this.disabled() || !files?.length) return;
+    if (this.readOnly() || this.disabled()) return;
+    const picked = pickLogoFile(files);
+    if (!picked) return;
     this.cancel();
     this.error.set('');
     this.status.set('');
-    const file = files.item(0);
-    if (files.length !== 1 || !file) {
-      this.error.set($localize`:@@logo.oneFile:Choose one image at a time.`);
+    if ('error' in picked) {
+      this.error.set(picked.error);
       return;
     }
-    if (!file.size || file.size > LOGO_MAX_BYTES) {
-      this.error.set($localize`:@@logo.size:Choose an image no larger than 2 MiB.`);
-      return;
-    }
-    const body = new FormData();
-    body.append('file', file);
     this.pending.set(true);
     this.pendingChange.emit(true);
     this.status.set($localize`:@@logo.uploading:Uploading logo…`);
     this.announce.emit(this.status());
-    this.upload = this.http.post<unknown>(this.uploadEndpoint(), body).subscribe({
-      next: (response) => {
-        const result = UploadLogoResponseSchema.safeParse(response);
+    this.upload = uploadLogo(this.http, this.uploadEndpoint(), picked.file).subscribe({
+      next: (logoUrl) => {
         this.pending.set(false);
         this.pendingChange.emit(false);
-        if (!result.success) {
-          this.error.set($localize`:@@logo.invalidResponse:Upload failed. Please try again.`);
-          this.status.set('');
-          return;
-        }
-        this.value.set(result.data.logo_url);
+        this.value.set(logoUrl);
         this.status.set(
           $localize`:@@logo.uploaded:Logo uploaded. Save your changes to publish it.`,
         );
         this.announce.emit(this.status());
       },
-      error: (error: unknown) => {
+      error: (error: Error) => {
         this.pending.set(false);
         this.pendingChange.emit(false);
         this.status.set('');
-        this.error.set(
-          error instanceof HttpErrorResponse && error.status === 429
-            ? $localize`:@@logo.rateLimited:Too many uploads. Wait a moment and try again.`
-            : $localize`:@@logo.uploadFailed:We couldn't upload this image. Check the format, size and dimensions, then try again.`,
-        );
+        this.error.set(error.message);
       },
     });
   }
