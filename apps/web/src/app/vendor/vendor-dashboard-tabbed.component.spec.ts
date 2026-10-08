@@ -318,7 +318,7 @@ describe('VendorDashboardTabbed — the downgraded entitlement (§4.3 / §8)', (
     );
     // Not dismissible: it states the current state.
     expect(banner?.querySelector('button')).toBeNull();
-    expect(el.querySelector('aec-vendor-plan-summary')).not.toBeNull();
+    expect(el.querySelector('aec-vendor-checklist')).not.toBeNull();
   });
 
   it('keeps company details editable for a revoked vendor, off CAPABILITIES (AECI-1214)', async () => {
@@ -368,17 +368,15 @@ describe('VendorDashboardTabbed — the overview landing page (AECI-983)', () =>
       a.getAttribute('href'),
     ]);
 
-  // AECI-1218 (§6.18, decision 2): one line of plan at vendor level, beside the
-  // vendor checklist. The full plan panel moved to each product's overview.
-  it('summarises the plan in one line beside the vendor checklist', async () => {
+  // AECI-1218 (§6.18, decision 2): no plan card at vendor level. The overview
+  // shows the vendor checklist; the full plan panel is on each product's overview.
+  it('shows the vendor checklist and no plan card', async () => {
     const harness = await open('overview');
     await flush();
     harness.detectChanges();
     const el = root(harness);
 
-    expect(el.querySelector('[data-testid="plan-summary-line"]')?.textContent?.trim()).toBe(
-      '2 products, all on Managed',
-    );
+    expect(el.querySelector('[data-testid="plan-summary-line"]')).toBeNull();
     expect(el.querySelector('aec-vendor-plan-panel')).toBeNull();
     expect(el.querySelector('aec-vendor-checklist')?.textContent).toContain(
       'Check your company details',
@@ -590,18 +588,16 @@ describe('VendorDashboardTabbed — a refetched `me` (§6.1)', () => {
     expect(el.querySelector('aec-vendor-product-form button[type="submit"]')).not.toBeNull();
   });
 
-  it('drops the plan-ended banner and shows the account label when the plan returns', async () => {
+  it('drops the plan-ended banner when the plan returns', async () => {
     const harness = await open('overview', VENDOR_ME_DOWNGRADED_FIXTURE);
     const el = root(harness);
 
     expect(el.querySelector('[data-testid="plan-ended-banner"]')).not.toBeNull();
-    expect(el.querySelector('aec-vendor-account-badge')).toBeNull();
 
     TestBed.inject(VendorPortalStore).seed(VENDOR_ME_FIXTURE);
     harness.detectChanges();
 
     expect(el.querySelector('[data-testid="plan-ended-banner"]')).toBeNull();
-    expect(el.querySelector('aec-vendor-account-badge')).not.toBeNull();
   });
 
   it('opens the Integrations controls, because `verified` is a mirror of the same row', async () => {
@@ -695,7 +691,7 @@ describe('VendorDashboardTabbed — the context-aware header (§6.11)', () => {
     const harness = await open('seats');
     const el = root(harness);
 
-    expect(crumbs(harness)).toEqual(['Vendor', company]);
+    expect(crumbs(harness)).toEqual(['Vendor portal', company]);
     expect(
       el.querySelector('nav[aria-label="Breadcrumb"] [aria-current="page"]')?.textContent?.trim(),
     ).toBe(company);
@@ -708,7 +704,7 @@ describe('VendorDashboardTabbed — the context-aware header (§6.11)', () => {
     const harness = await open('products/summit-field-issues/categories');
     const el = root(harness);
 
-    expect(crumbs(harness)).toEqual(['Vendor', company, 'Products', 'Summit Field Issues']);
+    expect(crumbs(harness)).toEqual(['Vendor portal', company, 'Products', 'Summit Field Issues']);
     expect(el.querySelector('h1')?.textContent?.trim()).toBe('Summit Field Issues');
     expect(el.querySelectorAll('aec-vendor-portal-nav')).toHaveLength(1);
     expect(el.querySelector('aec-vendor-portal-nav nav')?.getAttribute('aria-label')).toBe(
@@ -735,7 +731,7 @@ describe('VendorDashboardTabbed — the context-aware header (§6.11)', () => {
     );
 
     expect(links.map((a) => [a.textContent?.trim(), a.getAttribute('href')])).toEqual([
-      ['Vendor', `/vendor/${SLUG}/overview`],
+      ['Vendor portal', `/vendor/${SLUG}/overview`],
       [company, `/vendor/${SLUG}/overview`],
       ['Products', `/vendor/${SLUG}/products`],
       [`← Back to ${company}`, `/vendor/${SLUG}/overview`],

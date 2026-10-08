@@ -846,7 +846,7 @@ Design work runs the `apps/web` UI checklist (`CLAUDE.md` §"Design checklist"):
 
 Shipped as the Angular `/vendor` surface (singular — the public `/vendors/:slug` detail is a different, cacheable route). Files under `apps/web/src/app/vendor/`. Decisions taken at build:
 
-- **IA — tabbed.** Both a tabbed and a single-page concept were built as live-toggleable previews (`/preview/vendor-dashboard`, the AECI-270 precedent); the PO chose **tabbed** (`vendor-dashboard-tabbed.ts`: a side-nav — Overview / Profile / Products / Seats — over one content panel). It was originally an in-page `@switch` with **no child routes**, so the concept could render identically in the preview and on the real page; **§6.2 replaced that with real child routes** and the same relative-link trick keeps the preview working. **§6.4 replaced the side-nav with a horizontal tab row** and turned Products into a filterable dropdown; the nav lives in `vendor-portal-nav.ts` now, not in the shell. **§6.5 then moved Integrations down a level, under the selected product** (alongside a new Taxonomy tab), gave a product its own nav row (`vendor-product-nav.ts`), and put **Messages** in the slot Integrations vacated. **§6.10 turned the Overview into a landing page**: a compact access strip, a glance band, and a "What needs you" list that links to the work (AECI-983). **§6.11 made the header follow the context**: a breadcrumb replaces the "Vendor" eyebrow, an open product takes over the `h1` and the single tab row, the Products dropdown and the separate product nav are deleted, and bare `…/products` is a product list. **§6.12 split Taxonomy into one tab per facet** and moved "How teams use it" under Audiences and Phases (AECI-994). **AECI-999 turned the Integrations tab into a three-level drill-down** (counterpart, integration, data flow), collapsed on arrival, with a health pill, filters and shareable URL state; the build record is `STAGE_2_ATTESTATIONS_SPEC.md` §6.3. **§6.13 added a read-only Connectors section below that list** (AECI-1013): the connectors that deliver or reach the product, with no new tab. The single-page concept (`vendor-dashboard-single.ts`) stays in the tree behind the preview. The presentational pieces (`components/vendor-{verified-status,request-status,seat-roster,profile-form,product-form,products-section}.ts`) are shared by both. **AECI-606** (`STAGE_2_ATTESTATIONS_SPEC.md` §6) adds an Integrations tab and its components (`components/vendor-{integrations-section,integration-card,claim-lane,attestation-control,add-claim-form,notifications-list,attestation-labels}.ts`, joined by `vendor-{counterpart-group,health-pill,integration-health}.ts` in AECI-999, and by `vendor-contest-form.ts` in AECI-1008, the seat-only "Contest a field" action on every card the vendor does not own, §11b.10) to **both** concepts, so the single-page concept does not silently lose a section the tabbed one has.
+- **IA — tabbed.** Both a tabbed and a single-page concept were built as live-toggleable previews (`/preview/vendor-dashboard`, the AECI-270 precedent); the PO chose **tabbed** (`vendor-dashboard-tabbed.ts`: a side-nav — Overview / Profile / Products / Seats — over one content panel). It was originally an in-page `@switch` with **no child routes**, so the concept could render identically in the preview and on the real page; **§6.2 replaced that with real child routes** and the same relative-link trick keeps the preview working. **§6.4 replaced the side-nav with a horizontal tab row** and turned Products into a filterable dropdown; the nav lives in `vendor-portal-nav.ts` now, not in the shell. **§6.5 then moved Integrations down a level, under the selected product** (alongside a new Taxonomy tab), gave a product its own nav row (`vendor-product-nav.ts`), and put **Messages** in the slot Integrations vacated. **§6.10 turned the Overview into a landing page**: a compact access strip, a glance band, and a "What needs you" list that links to the work (AECI-983). **§6.11 made the header follow the context**: a breadcrumb ("Vendor portal › Company") replaces the "Vendor" eyebrow, an open product takes over the `h1` and the single tab row, the Products dropdown and the separate product nav are deleted, and bare `…/products` is a product list. **§6.12 split Taxonomy into one tab per facet** and moved "How teams use it" under Audiences and Phases (AECI-994). **AECI-999 turned the Integrations tab into a three-level drill-down** (counterpart, integration, data flow), collapsed on arrival, with a health pill, filters and shareable URL state; the build record is `STAGE_2_ATTESTATIONS_SPEC.md` §6.3. **§6.13 added a read-only Connectors section below that list** (AECI-1013): the connectors that deliver or reach the product, with no new tab. The single-page concept (`vendor-dashboard-single.ts`) stays in the tree behind the preview. The presentational pieces (`components/vendor-{verified-status,request-status,seat-roster,profile-form,product-form,products-section}.ts`) are shared by both. **AECI-606** (`STAGE_2_ATTESTATIONS_SPEC.md` §6) adds an Integrations tab and its components (`components/vendor-{integrations-section,integration-card,claim-lane,attestation-control,add-claim-form,notifications-list,attestation-labels}.ts`, joined by `vendor-{counterpart-group,health-pill,integration-health}.ts` in AECI-999, and by `vendor-contest-form.ts` in AECI-1008, the seat-only "Contest a field" action on every card the vendor does not own, §11b.10) to **both** concepts, so the single-page concept does not silently lose a section the tabbed one has.
 - **Gate = the `/admin` pattern.** `vendorMeResolver` (`vendor-me.resolver.ts`) calls `GET /api/vendor/me`; a **403/404 → 404 render** (`<aec-not-found/>` + `RESPONSE_INIT.status = 404` + noindex), a 200 → the portal, a 5xx rethrows. `requireVendor()` rejects reviewers, banned seats, null-`vendor_id` seats, **and site admins** — all surface as the same 404. **401 was in that set and no longer is: since AECI-954 it redirects to `/auth/login?return=<url>` (§6.6).** Non-cacheable + `Cache-Tag`-free by the fail-closed classifier (no `server-runtime.ts` change; the worker login-bounce for anon `/vendor` already shipped with AECI-520). The page sets `robots: noindex`.
 - **Edits.** `vendor-profile-form.ts` / `vendor-product-form.ts` are dirty-diff editors validated **live against the shared `UpdateVendorProfile*`/`UpdateVendorProduct*` schemas** (single source of truth; a single-key parse per field). Only changed fields are PATCHed (the endpoint requires ≥1; Save is disabled until a real change); the echo re-seeds the baseline so the form settles clean. **Optimistic + on-demand revalidation, no socket.** Save-confirmation copy never promises instant search — it says the listing updates now and search refreshes within a day (§8.3(5) / AECI-529). `name`/`slug` are read-only with a "rename = correction request" hint, and `public_private` uses the Angular Aria single-select listbox stand-in (ADR 0010). Product taxonomy is its own pattern — see the sub-bullet below.
 
@@ -1735,16 +1735,17 @@ comment on the listing, so it is never a row here.
 
 **The glance band** (`components/vendor-glance-band.ts`, presentational):
 
-- **Views** (`components/vendor-views-tile.ts`) is a **placeholder**. It has a
-  working `aria-pressed` toggle (1d / 1w / 1m, default 1w) and a sentence that
-  follows it ("View counts for the last 7 days are coming soon."). It shows no
-  number and makes no server read. It never shows 0: nothing is counted yet, so
-  a zero would claim a measurement that was never made. AECI-941 binds the
-  figure and listens to its `periodChange` output. The windows are complete UTC
-  days (`VENDOR_PERFORMANCE_SPEC.md` §5.2).
+- **Views** (`components/vendor-views-tile.ts`) is a **placeholder**. It shows the
+  sentence "Coming soon", no number, no period toggle, and makes no server
+  read. It never shows 0: nothing is counted yet, so a zero would claim a
+  measurement that was never made. AECI-941 binds the figure and restores the
+  1d / 1w / 1m toggle (default 1w) with its `periodChange` output. The windows
+  are complete UTC days (`VENDOR_PERFORMANCE_SPEC.md` §5.2).
 - **In conflict** is the deduped conflict total. Its line reads "On {product}" or
-  "Across N products", and it links to the first conflicted product's
-  integrations, or to Products at zero. Since AECI-999 that link carries
+  "Across N products". At zero it is a plain card with a green check badge and
+  no link. With conflicts it is a link with a red X badge: one conflicted product
+  links to that product's integrations, several link to Products, because one tile
+  cannot link to them all. Since AECI-999 that link carries
   `?status=conflict`, so the tab opens filtered to conflicts. The "What needs you"
   conflict and waiting rows do the same with `conflict` and `needs_you`
   (`STAGE_2_ATTESTATIONS_SPEC.md` §6.3).
@@ -1759,8 +1760,10 @@ comment on the listing, so it is never a row here.
   > (`vendor-overview-model.ts`, `linkFor` and `pageOrTab`). `statusFromParam` still maps an old
   > `conflict` or `needs_you` value to its nearest §6.17.2 key, so an existing bookmark keeps working.
 - **Suggestions about your listing** counts open corrections, shows "Newest filed
-  {date}" (UTC), and links to Messages. The body and submitter are off the wire,
-  so the copy never implies a reply is possible.
+  {date}" (UTC), and links to Messages with an attention badge. At none open it is
+  a plain card with a green check badge and no link, because Messages would be
+  empty. The body and submitter are off the wire, so the copy never implies a
+  reply is possible.
 
 A zero is never a bare `0`. It renders a sentence. The conflict tile shows a loading
 sentence (with `aria-busy`, no `role="status"`) and, on failure, a Try again that
@@ -1815,7 +1818,7 @@ read as a button group. It was unclear which header was in charge of the page.
 
 | | Vendor context | Product context (`…/products/:productSlug/*`) |
 | -- | -- | -- |
-| Breadcrumb | Vendor › *Company* | Vendor › *Company* › Products › *Product* |
+| Breadcrumb | Vendor portal › *Company* | Vendor portal › *Company* › Products › *Product* |
 | `h1` | company name | product name |
 | Public link | `/vendors/:slug` | `/products/:slug` |
 | Back link | none | "← Back to *Company*" |
@@ -1824,7 +1827,7 @@ read as a button group. It was unclear which header was in charge of the page.
 
 - **The breadcrumb** is a `<nav aria-label="Breadcrumb">` over an `<ol>`, the same
   markup as the public product page. Its last item is plain text with
-  `aria-current="page"`. "Vendor" and the company both link to `overview`. With one
+  `aria-current="page"`. "Vendor portal" and the company both link to `overview`. With one
   vendor per seat they land in the same place; the pair is what the operator asked for.
 - **Only an owned product switches context.** A URL naming a product the vendor does
   not own stays in vendor context and the page says so, with a link to the product
@@ -2518,7 +2521,7 @@ Every plan panel carries decision 10's line, word for word:
 
 | Surface | File | Reads |
 |---|---|---|
-| Vendor overview: "Getting started" checklist beside "Your plan" one-line summary | `sections/vendor-overview-section.ts`, `components/vendor-plan-summary.ts` | `GET /api/vendor/checklist`, each product's `plan` |
+| Vendor overview: "Getting started" checklist full width | `sections/vendor-overview-section.ts`, `components/vendor-checklist.ts` | `GET /api/vendor/checklist`, each product's `plan` |
 | Products list: score and plan badge per row | `sections/vendor-product-list-page.ts`, `components/vendor-plan-badge.ts` | the checklist summary, `product.plan` |
 | Product overview (new route `…/products/:slug/overview`, now the product default and the first product tab, "Product Overview") | `sections/vendor-product-overview-page.ts`, `components/vendor-checklist.ts`, `components/vendor-plan-panel.ts` | `GET /api/vendor/products/:id/checklist`, `product.plan` |
 | "Looks right" | `components/vendor-looks-right.ts`, `components/vendor-review-strip.ts` | the three §13.8 routes |
@@ -2531,7 +2534,7 @@ Decisions taken at build that this section did not fix:
 - **"Looks right" sits in two places per target.** On the product checklist's two rows, and as a strip at the head of the page that holds the thing being confirmed: company Profile, product Profile, product Integrations. The vendor checklist's company step links to Profile rather than confirming from the overview, so the vendor sees what they confirm. After a success the button revalidates the scopes the write moved, which refetches `/me` and every loaded checklist, and announces through the shell's live region. A failure stays beside the button as `role="alert"`.
 - **The checklists live in `VendorPortalStore`, outside its resource machinery.** They map to no scope and no form holds them dirty, so a failed checklist read never holds back a cursor. `revalidate` refetches the vendor checklist, and each product checklist a page has opened, when `profile`, `entitlement`, `products` or `integrations` moves (`STAGE_2_REALTIME_SPEC.md` §2.3). Never from cold.
 - **The banner says "Your Managed plan has ended", not "your pilot".** §13.11 says a later expiry path needs no copy change, so the copy cannot name a pilot. It is not dismissible, unlike the mockup's "Hide this": this section wins.
-- **The overview's full plan panel is gone.** Decision 2 allows one line at vendor level, so the summary reads "2 products, all on Free" or "12 products: 5 on Managed, 7 on Free", adds "Managed ends in N days" when a plan is expiring, and carries the "Active on AECi" label for an active Managed vendor. The connector catalogue seat keeps its links to each Catalogue tab there.
+- **The overview's full plan panel is gone, and so is the vendor-level plan line.** Plans are per product, so a vendor-level "Your plan" card could not be true for a vendor with products on different plans. This supersedes the one-line summary AECI-1218 first built (`vendor-plan-summary.ts`, deleted). The vendor checklist now takes the full width. A replacement "Your public pages" card was built and dropped, because it only repeated the header's "View public page" link and the Products tab. Plan state shows on each product's own overview and as a badge on each Products row. The vendor-wide plan-ended banner is unchanged. The connector catalogue seat's links to each Catalogue tab now sit between the checklist and "What needs you".
 - **An active row over a tier this build does not know reads as Free, not as ended.** Nothing ended, and the banner never shows for it.
 - **"Not ours?" is a disclosure that files the owner's self-disclaim (AECI-1225, 2026-10-05).** It replaced the AECI-1218 stopgap, which opened the correction form (`vendor-not-ours-link.ts`, deleted). The form has a "Who offers it?" native select and a required reason. On the integration page the select lists the other endpoint vendors and "Someone else, or we don't know", which sends `null`. On the owned-integrations list it offers only "Someone else, or we don't know", because `OwnedIntegration` carries no vendor ids. It posts `POST /api/vendor/integrations/:id/contests` with `field: 'owner'` and `context_product_id: null` (§11b.2). It is mounted on the owned-integrations list and under the Owner row of the integration page, and it sits with the unclaimed rows. The server, not the control, enforces `origin = 'aeci'` (§11b.2).
 - **"Not ours?" reads its state from the `contests` resource.** Open: "You told AEC Integrations this integration is not yours. It is reviewing that.", with Withdraw. Accepted: "AEC Integrations agreed" and says the listing changes at its next catalog update. Declined: a note and the trigger again. "Claim this integration" is hidden while a contest is open or accepted. `VendorPortalStore` adds `contests` to the scopes that refetch loaded checklists, so the "Claim or say not ours" step ticks without a reload (`STAGE_2_REALTIME_SPEC.md` §2.3).

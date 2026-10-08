@@ -13,7 +13,6 @@ import { RouterLink } from '@angular/router';
 
 import { VendorGlanceBand } from '../components/vendor-glance-band';
 import { VendorChecklist } from '../components/vendor-checklist';
-import { VendorPlanSummary } from '../components/vendor-plan-summary';
 import { vendorChecklistRows } from '../checklist-rows';
 import {
   buildNeedsItems,
@@ -53,10 +52,10 @@ interface NeedsRow {
  * Three blocks, top to bottom:
  *  1. **The glance band.** Views (a placeholder until AECI-941), In conflict, and
  *     Suggestions about your listing.
- *  2. **Getting started and Your plan** (AECI-1218, §6.18). The vendor checklist
- *     (`GET /api/vendor/checklist`) beside the one-line plan summary. Plans live
- *     per product (decision 2), so the full plan panel is on each product's
- *     overview. A plan that ended is the shell's banner, above the tabs.
+ *  2. **Getting started** (AECI-1218, §6.18). The vendor checklist
+ *     (`GET /api/vendor/checklist`), full width. Plans live per product
+ *     (decision 2), so there is no vendor-level plan card: the plan panel is on
+ *     each product's overview. A plan that ended is the shell's banner, above the tabs.
  *  3. **What needs you.** One prioritised list, each row a link to where the work
  *     is done. "Needs you now" is conflicts and open corrections. "Worth doing" is
  *     waiting positions, incomplete products, the company profile and unaccepted
@@ -76,7 +75,7 @@ interface NeedsRow {
  */
 @Component({
   selector: 'aec-vendor-overview-section',
-  imports: [NgTemplateOutlet, RouterLink, VendorGlanceBand, VendorChecklist, VendorPlanSummary],
+  imports: [NgTemplateOutlet, RouterLink, VendorGlanceBand, VendorChecklist],
   template: `
     @if (me(); as m) {
       <div class="space-y-8">
@@ -92,10 +91,10 @@ interface NeedsRow {
 
         <!--
           AECI-1218 (STAGE_2_VENDOR_PORTAL_SPEC.md section 6.18). The vendor
-          checklist beside the one-line plan summary. Plans live per product, so
-          the summary links to the Products list rather than describing a plan.
+          checklist, full width. Plans live per product, so there is no vendor
+          plan card.
         -->
-        <div class="grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,24rem)]">
+        <div>
           <div>
             @if (checklist(); as c) {
               <aec-vendor-checklist
@@ -137,8 +136,27 @@ interface NeedsRow {
               </div>
             }
           </div>
-          <aec-vendor-plan-summary [entitlement]="m.entitlement" [products]="m.products" />
         </div>
+
+        @if (catalogueSeat() && connectorProducts().length > 0) {
+          <!--
+            AECI-1083: where the catalogue seat's work is. Navigation, not a call
+            to action, so a plain link per connector product. Outside the paused
+            box because the seat keeps the Free edits, so it is not paused.
+          -->
+          <div>
+            @for (p of connectorProducts(); track p.slug) {
+              <p class="text-sm">
+                <a
+                  [routerLink]="['..', 'products', p.slug, 'catalogue']"
+                  class="font-medium text-(--accent-primary) underline underline-offset-2 focus-visible:rounded-(--radius-sm) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+                  data-catalogue-link
+                  >{{ catalogueLinkLabel(p.name) }}</a
+                >
+              </p>
+            }
+          </div>
+        }
 
         <section aria-labelledby="vendor-overview-needs-h">
           <h2
@@ -371,6 +389,12 @@ export class VendorOverviewSection {
   private readonly canAttest = vendorCan(this.store, 'attestation.author');
   /** The §8.9 connector seat (AECI-1082): the paused row speaks to it differently. */
   protected readonly catalogueSeat = vendorIsCatalogueSeat(this.store);
+  protected readonly connectorProducts = computed(
+    () => this.store.me()?.products.filter((p) => p.product_role === 'connector') ?? [],
+  );
+  protected catalogueLinkLabel(name: string): string {
+    return $localize`:@@vendor.plan.catalogue.link:Open the ${name}:PRODUCT: catalogue`;
+  }
 
   protected readonly conflicts = computed(() => conflictsByProduct(this.store.integrations()));
   protected readonly corrections = computed(() => openCorrections(this.me()?.requests ?? []));

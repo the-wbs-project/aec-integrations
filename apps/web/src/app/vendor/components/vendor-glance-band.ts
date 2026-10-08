@@ -26,8 +26,13 @@ import { VendorViewsTile, type VendorViewsPeriod } from './vendor-views-tile';
  * `--surface-raised` cards, a large Source Serif numeral, a quiet line beneath.
  * Not the admin `StatTile`, whose chart hues DESIGN.md keeps inside `/admin`.
  *
- * Three rules on top of it:
+ * Rules on top of it:
  *  - **A zero is never a bare 0.** It renders a sentence ("No conflicts").
+ *  - **Only a tile with something to do is a link.** At zero the tile is a plain card with a
+ *    green check badge; with conflicts it is a link with a red X badge. One
+ *    conflicted product links to its filtered Integrations tab, several link to
+ *    Products. The Suggestions tile follows the same rule: a link to Messages with an
+ *    attention badge when open, a plain check card at none.
  *  - **A non-zero conflict figure is `--status-error`**, a deliberate departure
  *    from the home cards' Forest figures: `conflict` is the one sanctioned red,
  *    and a conflict count that looks like good news defeats the tile. At zero
@@ -76,54 +81,124 @@ import { VendorViewsTile, type VendorViewsPeriod } from './vendor-views-tile';
             </button>
           </div>
         } @else {
-          <a
-            [routerLink]="conflictLink()"
-            [queryParams]="conflictTotal() > 0 ? conflictQueryParams : null"
-            [class]="tileLinkClass"
-            [attr.aria-label]="conflictAria()"
-            data-tile="conflict"
-          >
-            <div class="flex min-h-9 md:min-h-12 items-center">
-              <p [class]="labelClass" i18n="@@vendor.overview.conflict.label">In conflict</p>
-            </div>
-            @if (conflictTotal() > 0) {
-              <p [class]="figureClass" class="text-(--status-error)">{{ conflictTotal() }}</p>
+          @if (conflictTotal() > 0) {
+            <a
+              [routerLink]="conflictLink()"
+              [queryParams]="conflictQueryParams()"
+              [class]="tileLinkClass"
+              [attr.aria-label]="conflictAria()"
+              data-tile="conflict"
+            >
+              <div class="flex min-h-9 md:min-h-12 items-center">
+                <p [class]="labelClass" i18n="@@vendor.overview.conflict.label">In conflict</p>
+              </div>
+              <div class="flex items-center gap-3">
+                <span [class]="badgeClass" class="bg-(--status-error)" aria-hidden="true">
+                  <svg
+                    viewBox="0 0 16 16"
+                    class="size-4"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2"
+                    stroke-linecap="round"
+                  >
+                    <path d="M4.5 4.5l7 7M11.5 4.5l-7 7" />
+                  </svg>
+                </span>
+                <p [class]="figureClass" class="text-(--status-error)">{{ conflictTotal() }}</p>
+              </div>
               <p class="text-sm text-(--text-secondary)">{{ conflictLine() }}</p>
-            } @else {
-              <p [class]="zeroClass" i18n="@@vendor.overview.conflict.zero">No conflicts</p>
+            </a>
+          } @else {
+            <div [class]="tileClass" data-tile="conflict">
+              <div class="flex min-h-9 md:min-h-12 items-center">
+                <p [class]="labelClass" i18n="@@vendor.overview.conflict.label">In conflict</p>
+              </div>
+              <div class="flex items-center gap-3">
+                <span [class]="badgeClass" class="bg-(--accent-primary)" aria-hidden="true">
+                  <svg
+                    viewBox="0 0 16 16"
+                    class="size-4"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  >
+                    <path d="M3.5 8.5l3 3 6-7" />
+                  </svg>
+                </span>
+                <p [class]="zeroClass" i18n="@@vendor.overview.conflict.zero">No conflicts</p>
+              </div>
               <p class="text-sm text-(--text-secondary)" i18n="@@vendor.overview.conflict.zeroLine">
                 Nobody has contradicted what you have recorded
               </p>
-            }
-          </a>
+            </div>
+          }
         }
       </div>
 
       <!-- Suggestions = open corrections. The body and the submitter are off the
            wire, so the copy reports a state and never implies a reply. -->
-      <a
-        [routerLink]="['..', 'messages']"
-        [class]="tileLinkClass"
-        [attr.aria-label]="suggestionsAria()"
-        data-tile="suggestions"
-      >
-        <div class="flex min-h-9 md:min-h-12 items-center">
-          <p [class]="labelClass" i18n="@@vendor.overview.suggestions.label">
-            Suggestions about your listing
-          </p>
-        </div>
-        @if (openCorrections() > 0) {
-          <p [class]="figureClass" class="text-(--accent-primary)">{{ openCorrections() }}</p>
+      @if (openCorrections() > 0) {
+        <a
+          [routerLink]="['..', 'messages']"
+          [class]="tileLinkClass"
+          [attr.aria-label]="suggestionsAria()"
+          data-tile="suggestions"
+        >
+          <div class="flex min-h-9 md:min-h-12 items-center">
+            <p [class]="labelClass" i18n="@@vendor.overview.suggestions.label">
+              Suggestions about your listing
+            </p>
+          </div>
+          <div class="flex items-center gap-3">
+            <span [class]="badgeClass" class="bg-(--accent-primary)" aria-hidden="true">
+              <svg
+                viewBox="0 0 16 16"
+                class="size-4"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+              >
+                <path d="M8 3.5v5M8 11.5v.5" />
+              </svg>
+            </span>
+            <p [class]="figureClass" class="text-(--accent-primary)">{{ openCorrections() }}</p>
+          </div>
           @if (newestLine(); as line) {
             <p class="text-sm text-(--text-secondary)">{{ line }}</p>
           }
-        } @else {
-          <p [class]="zeroClass" i18n="@@vendor.overview.suggestions.zero">None open</p>
+        </a>
+      } @else {
+        <div [class]="tileClass" data-tile="suggestions">
+          <div class="flex min-h-9 md:min-h-12 items-center">
+            <p [class]="labelClass" i18n="@@vendor.overview.suggestions.label">
+              Suggestions about your listing
+            </p>
+          </div>
+          <div class="flex items-center gap-3">
+            <span [class]="badgeClass" class="bg-(--accent-primary)" aria-hidden="true">
+              <svg
+                viewBox="0 0 16 16"
+                class="size-4"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              >
+                <path d="M3.5 8.5l3 3 6-7" />
+              </svg>
+            </span>
+            <p [class]="zeroClass" i18n="@@vendor.overview.suggestions.zero">None open</p>
+          </div>
           <p class="text-sm text-(--text-secondary)" i18n="@@vendor.overview.suggestions.zeroLine">
             Anyone can suggest a correction from your public pages
           </p>
-        }
-      </a>
+        </div>
+      }
     </section>
   `,
   styles: [':host { display: block; }'],
@@ -146,15 +221,20 @@ export class VendorGlanceBand {
 
   protected readonly regionLabel = $localize`:@@vendor.overview.glance.aria:Your account at a glance`;
 
+  /**
+   * One conflicted product: straight to its Integrations tab, filtered. Several:
+   * the Products list, since one tile cannot link to them all.
+   */
   protected readonly conflictLink = computed<readonly string[]>(() => {
-    const first = this.conflictProducts()[0];
-    return this.conflictTotal() > 0 && first
-      ? ['..', 'products', first.product.slug, 'integrations']
+    const rows = this.conflictProducts();
+    return rows.length === 1
+      ? ['..', 'products', rows[0]!.product.slug, 'integrations']
       : ['..', 'products'];
   });
 
-  /** Lands on the Integrations tab filtered to conflicts (AECI-999). */
-  protected readonly conflictQueryParams = { status: 'disagreement' } as const;
+  protected readonly conflictQueryParams = computed(() =>
+    this.conflictProducts().length === 1 ? { status: 'disagreement' } : null,
+  );
 
   protected readonly conflictLine = computed(() => {
     const rows = this.conflictProducts();
@@ -166,13 +246,14 @@ export class VendorGlanceBand {
 
   protected readonly conflictAria = computed(() => {
     const total = this.conflictTotal();
-    const first = this.conflictProducts()[0];
-    if (total === 0 || !first) {
-      return $localize`:@@vendor.overview.conflict.aria.zero:No data flows in conflict. Open your products.`;
+    const rows = this.conflictProducts();
+    if (rows.length === 1) {
+      const name = rows[0]!.product.name;
+      return total === 1
+        ? $localize`:@@vendor.overview.conflict.aria.one:1 data flow in conflict. Open ${name}:PRODUCT:.`
+        : $localize`:@@vendor.overview.conflict.aria.many:${total}:COUNT: data flows in conflict. Open ${name}:PRODUCT:.`;
     }
-    return total === 1
-      ? $localize`:@@vendor.overview.conflict.aria.one:1 data flow in conflict. Open ${first.product.name}:PRODUCT:.`
-      : $localize`:@@vendor.overview.conflict.aria.many:${total}:COUNT: data flows in conflict. Open ${first.product.name}:PRODUCT:.`;
+    return $localize`:@@vendor.overview.conflict.aria.products:${total}:COUNT: data flows in conflict across ${rows.length}:PRODUCTS: products. Open your products.`;
   });
 
   /**
@@ -191,9 +272,6 @@ export class VendorGlanceBand {
 
   protected readonly suggestionsAria = computed(() => {
     const n = this.openCorrections();
-    if (n === 0) {
-      return $localize`:@@vendor.overview.suggestions.aria.zero:No suggestions about your listing are open. Open messages.`;
-    }
     return n === 1
       ? $localize`:@@vendor.overview.suggestions.aria.one:1 suggestion about your listing is open. Open messages.`
       : $localize`:@@vendor.overview.suggestions.aria.many:${n}:COUNT: suggestions about your listing are open. Open messages.`;
@@ -202,6 +280,8 @@ export class VendorGlanceBand {
   protected readonly tileClass =
     'flex h-full flex-col gap-2 rounded-(--radius-lg) border border-(--border-default) bg-(--surface-raised) p-6';
   protected readonly tileLinkClass = `${this.tileClass} no-underline transition-colors hover:bg-(--surface-sunken) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)`;
+  protected readonly badgeClass =
+    'inline-flex size-8 shrink-0 items-center justify-center rounded-full text-(--surface-base)';
   protected readonly labelClass = 'text-sm text-(--text-secondary)';
   protected readonly figureClass = 'font-display text-5xl font-semibold tabular-nums';
   protected readonly zeroClass = 'font-display text-2xl font-semibold text-(--text-primary)';

@@ -80,14 +80,28 @@ describe('VendorGlanceBand — zero states', () => {
     expect(el(fixture).querySelector('.text-\\(--status-error\\)')).toBeNull();
   });
 
+  it('renders the none-open suggestions tile as a plain card with a check, not a link', async () => {
+    const fixture = await create();
+    const suggestions = tile(fixture, 'suggestions');
+    expect(suggestions?.tagName).toBe('DIV');
+    expect(suggestions?.getAttribute('href')).toBeNull();
+    expect(suggestions?.querySelector('svg')).not.toBeNull();
+  });
+
   it('labels the region and each tile link', async () => {
     const fixture = await create();
     expect(el(fixture).querySelector('section')?.getAttribute('aria-label')).toBe(
       'Your account at a glance',
     );
-    expect(tile(fixture, 'conflict')?.getAttribute('aria-label')).toBe(
-      'No data flows in conflict. Open your products.',
-    );
+  });
+
+  it('renders the zero conflict tile as a plain card with a check, not a link', async () => {
+    const fixture = await create();
+    const conflict = tile(fixture, 'conflict');
+    expect(conflict?.tagName).toBe('DIV');
+    expect(conflict?.getAttribute('href')).toBeNull();
+    expect(conflict?.querySelector('svg')).not.toBeNull();
+    expect(conflict?.querySelector('.bg-\\(--accent-primary\\)')).not.toBeNull();
   });
 });
 
@@ -103,6 +117,8 @@ describe('VendorGlanceBand — populated', () => {
     expect(figure?.textContent?.trim()).toBe('2');
     expect(figure?.classList.contains('text-(--status-error)')).toBe(true);
     expect(clean(conflict?.textContent)).toContain('On Summit Model Coordination');
+    expect(conflict?.tagName).toBe('A');
+    expect(conflict?.querySelector('.bg-\\(--status-error\\) svg')).not.toBeNull();
   });
 
   it('says "Across N products" when conflicts span several', async () => {
@@ -126,12 +142,13 @@ describe('VendorGlanceBand — populated', () => {
 });
 
 describe('VendorGlanceBand — links', () => {
-  it('routes conflicts to the first conflicted product, and suggestions to Messages', async () => {
+  it('routes one conflicted product to its tab, several to Products, and suggestions to Messages', async () => {
     const harnessUrl = '/vendor/summit-bim/overview';
     const harness = await RouterTestingHarness.create(harnessUrl);
     const host = harness.routeDebugElement!.componentInstance as Host;
     host.total.set(2);
-    host.products.set([SUMMIT, FIELD]);
+    host.products.set([SUMMIT]);
+    host.corrections.set(1);
     harness.detectChanges();
     await harness.fixture.whenStable();
 
@@ -143,12 +160,17 @@ describe('VendorGlanceBand — links', () => {
       '/vendor/summit-bim/messages',
     );
 
-    host.total.set(0);
-    host.products.set([]);
+    host.total.set(3);
+    host.products.set([SUMMIT, FIELD]);
     harness.detectChanges();
     expect(root.querySelector('[data-tile="conflict"]')?.getAttribute('href')).toBe(
       '/vendor/summit-bim/products',
     );
+
+    host.total.set(0);
+    host.products.set([]);
+    harness.detectChanges();
+    expect(root.querySelector('[data-tile="conflict"]')?.getAttribute('href')).toBeNull();
   });
 });
 

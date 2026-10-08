@@ -26,7 +26,7 @@ import { VendorPlanBadge } from './vendor-plan-badge';
  * One product's plan panel (AECI-1218, `STAGE_2_VENDOR_PORTAL_SPEC.md` §6.18,
  * `STAGE_2_PAID_TIERS_SPEC.md` §13). It sits on each product's overview, beside
  * that product's checklist. Plans live at the product level (decision 2), so the
- * vendor overview carries only a one-line summary (`vendor-plan-summary.ts`).
+ * vendor overview carries no plan card.
  *
  * It reads `product.plan`, never `me().entitlement` (§13.7). Until per-product
  * plans exist, every product carries the vendor's block, so this panel says the
