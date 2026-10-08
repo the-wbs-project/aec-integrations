@@ -27,6 +27,9 @@ import { Directive, signal } from '@angular/core';
     '(mouseenter)': 'open()',
     '(mouseleave)': 'close()',
     '(focusout)': 'onFocusOut($event)',
+    '(pointerdown)': 'pressInside = true',
+    '(pointerup)': 'pressInside = false',
+    '(pointercancel)': 'pressInside = false',
     '(keydown.escape)': 'onEscape($event)',
   },
 })
@@ -34,11 +37,21 @@ export abstract class NavDisclosure {
   private readonly openSig = signal(false);
   protected readonly isOpen = this.openSig.asReadonly();
 
+  /**
+   * True between a pointer press inside the host and its release. Safari never
+   * focuses a link or button on click: the mousedown blurs whatever had focus
+   * and focus goes to `<body>` (`relatedTarget` null). With focus on the trigger
+   * (after a Tab), that blur closed the panel within the press, so the release
+   * landed on whatever was under it and the click on a panel link was lost.
+   */
+  protected pressInside = false;
+
   protected open(): void {
     this.openSig.set(true);
   }
 
   protected close(): void {
+    this.pressInside = false;
     this.openSig.set(false);
   }
 
@@ -46,10 +59,16 @@ export abstract class NavDisclosure {
     this.openSig.update((v) => !v);
   }
 
-  /** Close when focus leaves the host entirely (e.g. Tab past the last link). */
+  /**
+   * Close when focus leaves the host entirely (e.g. Tab past the last link). A
+   * blur to nowhere during a press inside the host is Safari's click behaviour
+   * (see `pressInside`), not focus leaving, so it keeps the panel open.
+   */
   protected onFocusOut(event: FocusEvent): void {
     const host = event.currentTarget as HTMLElement;
-    if (!host.contains(event.relatedTarget as Node | null)) this.close();
+    const to = event.relatedTarget as Node | null;
+    if (to === null && this.pressInside) return;
+    if (!host.contains(to)) this.close();
   }
 
   /** Escape closes the panel and returns focus to the disclosure trigger. */

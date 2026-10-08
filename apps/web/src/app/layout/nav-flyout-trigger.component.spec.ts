@@ -115,6 +115,45 @@ describe('NavFlyoutTrigger', () => {
     expect(document.activeElement).toBe(link);
   });
 
+  it('closes when focus leaves the host', () => {
+    const { root, detect } = render('category');
+    const host = root.querySelector('aec-nav-flyout-trigger')!;
+    const link = root.querySelector<HTMLAnchorElement>('a[href="/categories"]')!;
+
+    host.dispatchEvent(new MouseEvent('mouseenter', { bubbles: false }));
+    detect();
+    link.dispatchEvent(new FocusEvent('focusout', { bubbles: true, relatedTarget: null }));
+    detect();
+
+    expect(link.getAttribute('aria-expanded')).toBe('false');
+  });
+
+  // Safari does not focus a clicked link: the mousedown blurs the focused
+  // trigger to <body> (relatedTarget null). Closing on that blur hid the panel
+  // mid-press, so the release missed the link and the click was lost.
+  it('stays open when a press inside the panel blurs the trigger to nowhere (Safari click)', () => {
+    const { root, detect } = render('category');
+    const host = root.querySelector('aec-nav-flyout-trigger')!;
+    const link = root.querySelector<HTMLAnchorElement>('a[href="/categories"]')!;
+
+    host.dispatchEvent(new MouseEvent('mouseenter', { bubbles: false }));
+    detect();
+    const valueLink = root.querySelector<HTMLAnchorElement>('a[href="/categories/bim"]')!;
+    valueLink.dispatchEvent(new Event('pointerdown', { bubbles: true }));
+    link.dispatchEvent(new FocusEvent('focusout', { bubbles: true, relatedTarget: null }));
+    detect();
+
+    expect(link.getAttribute('aria-expanded')).toBe('true');
+    const panel = root.querySelector('#nav-flyout-category') as HTMLElement;
+    expect(panel.hidden).toBe(false);
+
+    // Once the press ends, focus leaving closes it again as normal.
+    valueLink.dispatchEvent(new Event('pointerup', { bubbles: true }));
+    link.dispatchEvent(new FocusEvent('focusout', { bubbles: true, relatedTarget: null }));
+    detect();
+    expect(panel.hidden).toBe(true);
+  });
+
   it.each([
     ['audience', '/audiences', 'Audiences'],
     ['phase', '/phases', 'Phases'],
