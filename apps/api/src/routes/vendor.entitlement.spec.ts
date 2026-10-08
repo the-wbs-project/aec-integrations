@@ -39,6 +39,7 @@ import {
 } from '@aeci/shared';
 import {
   CAPABILITIES,
+  DEFAULT_PLAN_PRICE,
   PRODUCT_FIELD_CAPABILITIES,
   TIERS,
   VENDOR_FIELD_CAPABILITIES,
@@ -58,6 +59,7 @@ import {
   products,
   profiles,
   taxonomyCategories,
+  vendorPlanPricing,
   vendorEntitlements,
   vendors,
 } from '../db/schema';
@@ -324,8 +326,41 @@ describe('reads are NEVER gated (§4.3 / R13 — invariant)', () => {
       period_end: '2027-01-01T00:00:00.000Z',
       ended_at: null,
       capabilities: [...CAPABILITIES],
+      price: DEFAULT_PLAN_PRICE,
     });
     for (const product of body.products) expect(product.plan).toEqual(body.entitlement);
+  });
+
+  it('carries the plan price overrides on the block and every product (§13.13)', async () => {
+    await t.db.insert(vendorPlanPricing).values({
+      vendorId: VENDOR_UNCLAIMED,
+      managedPriceCents: 1250,
+      priceMessage: 'Free until December 12',
+      updatedBy: SEAT_PAID,
+    });
+    const { status, body } = await call('/api/vendor/me', 'GET', SEAT_UNCLAIMED);
+    expect(status).toBe(200);
+    expect(() => VendorMeResponseSchema.parse(body)).not.toThrow();
+    // A Free vendor with no entitlement row still carries its override.
+    expect(body.entitlement.status).toBeNull();
+    expect(body.entitlement.price).toEqual({
+      managed_price_cents: 1250,
+      message: 'Free until December 12',
+    });
+    for (const product of body.products) expect(product.plan).toEqual(body.entitlement);
+    // Who set it is admin-only.
+    expect(JSON.stringify(body)).not.toContain('updated_by');
+
+    // Another vendor's override never leaks.
+    const paid = await call('/api/vendor/me', 'GET', SEAT_PAID);
+    expect(paid.body.entitlement.price).toEqual(DEFAULT_PLAN_PRICE);
+
+    // The product PATCH response carries the same block.
+    const write = await call(`/api/vendor/products/${PRODUCT_UNCLAIMED}`, 'PATCH', SEAT_UNCLAIMED, {
+      description: 'Edited',
+    });
+    expect(write.status).toBe(200);
+    expect(write.body.product.plan.price).toEqual(body.entitlement.price);
   });
 
   it('builds the block from the SESSION — no extra query, and it cannot disagree', async () => {
@@ -539,6 +574,7 @@ describe('a Managed seat edits every field', () => {
       period_end: '2027-01-01T00:00:00.000Z',
       ended_at: null,
       capabilities: [...CAPABILITIES],
+      price: DEFAULT_PLAN_PRICE,
     });
   });
 

@@ -25,6 +25,7 @@ function plan(tier: EntitlementTier): VendorEntitlementBlock {
     period_end: null,
     ended_at: null,
     capabilities: [...capabilitiesFor(tier)],
+    price: { managed_price_cents: null, message: null },
   };
 }
 const FREE = plan('unclaimed');

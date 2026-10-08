@@ -81,6 +81,7 @@ import { textAsc } from '../lib/collation';
 import { isConnectorPoweredEdge } from '../lib/connector-powered';
 import { validateResponseInDev, type DbFactory } from '../lib/handler-utils';
 import { liveEvidencedPairOn, liveIntegrationOn } from '../lib/live-integration';
+import { loadPlanPrice } from '../lib/vendor-plan-pricing';
 import {
   checklistScore,
   productChecklistSteps,
@@ -342,7 +343,7 @@ export function createVendorChecklistHandler(
     // One wave. The fact reads scope by the owned-products subquery, so they need
     // nothing from the product read and can run beside it.
     const facts = settleFacts(loadChecklistFacts(db, vendorId, ownedProductIds(db, vendorId)));
-    const [vendor, owned, seats, invites, settled] = await Promise.all([
+    const [vendor, owned, seats, invites, settled, price] = await Promise.all([
       db.query.vendors.findFirst({
         columns: { maintainedBy: true, lastReviewedAt: true },
         where: eq(vendors.id, vendorId),
@@ -367,13 +368,16 @@ export function createVendorChecklistHandler(
         .from(vendorSeatInvites)
         .where(eq(vendorSeatInvites.vendorId, vendorId)),
       facts,
+      // The display-only plan price overrides (§13.13), so the block matches the
+      // one `GET /api/vendor/me` puts on the product.
+      loadPlanPrice(db, vendorId),
     ]);
     // A granted seat whose vendor row was deleted. `GET /api/vendor/me` answers 404.
     if (!vendor) throw notFoundError('vendor', { id: vendorId });
 
     // Until per-product plans exist, every product carries the vendor's block
     // (§13.7). When they land, only this source changes.
-    const plan = entitlementBlock(session);
+    const plan = entitlementBlock(session, price);
     const summaries: VendorProductChecklistSummary[] = owned.map((product) => {
       const { steps: _steps, ...summary } = productChecklist(product, settled, plan);
       return summary;
@@ -415,9 +419,12 @@ export function createVendorProductChecklistHandler(
     // Ownership first, in its own wave: a foreign product is a 404 before any
     // fact about it is read.
     const { product } = await requireOwnedProduct(db, vendorId, productId);
-    const facts = await settleFacts(loadChecklistFacts(db, vendorId, [productId]));
+    const [facts, price] = await Promise.all([
+      settleFacts(loadChecklistFacts(db, vendorId, [productId])),
+      loadPlanPrice(db, vendorId),
+    ]);
 
-    const body = productChecklist(product, facts, entitlementBlock(session));
+    const body = productChecklist(product, facts, entitlementBlock(session, price));
     validateResponseInDev(c.env, () => VendorProductChecklistResponseSchema.parse(body));
     return json(body);
   };

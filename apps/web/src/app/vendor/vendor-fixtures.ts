@@ -39,7 +39,7 @@ import type {
 // the root barrel so it cannot drag the schema set into a lazy route's graph
 // (`STAGE_2_PAID_TIERS_SPEC.md` §3.1 / §10 R11). `/vendor` is a lazy route and
 // is explicitly ALLOWED to consult it (§3.3c) — cacheable public SSR is not.
-import { capabilitiesFor } from '@aeci/shared/entitlements';
+import { DEFAULT_PLAN_PRICE, capabilitiesFor } from '@aeci/shared/entitlements';
 import { EMPTY_CONTESTABLE_FIELDS, EMPTY_SIDE_LINKS } from '@aeci/shared';
 
 /**
@@ -265,6 +265,7 @@ const MANAGED_PLAN: VendorEntitlementBlock = {
   period_end: '2027-07-01T00:00:00.000Z',
   ended_at: null,
   capabilities: [...capabilitiesFor('verified')],
+  price: DEFAULT_PLAN_PRICE,
 };
 
 /** The Free block for a seat with no entitlement row (`status: null`). */
@@ -274,6 +275,7 @@ const FREE_PLAN: VendorEntitlementBlock = {
   period_end: null,
   ended_at: null,
   capabilities: [...capabilitiesFor('unclaimed')],
+  price: DEFAULT_PLAN_PRICE,
 };
 
 /**
@@ -512,6 +514,7 @@ export const VENDOR_ME_EXPIRING_FIXTURE: VendorMeResponse = withProductPlans({
     period_end: inDays(12),
     ended_at: null,
     capabilities: [...capabilitiesFor('verified')],
+    price: DEFAULT_PLAN_PRICE,
   },
 });
 
@@ -538,6 +541,7 @@ export const VENDOR_ME_DOWNGRADED_FIXTURE: VendorMeResponse = withProductPlans({
     period_end: inDays(-45),
     ended_at: inDays(-45),
     capabilities: [...capabilitiesFor('unclaimed')],
+    price: DEFAULT_PLAN_PRICE,
   },
 });
 
@@ -568,6 +572,7 @@ export const VENDOR_ME_PILOT_ENDED_FIXTURE: VendorMeResponse = withProductPlans(
     period_end: inDays(-14),
     ended_at: inDays(-14),
     capabilities: [...capabilitiesFor('unclaimed')],
+    price: DEFAULT_PLAN_PRICE,
   },
 });
 

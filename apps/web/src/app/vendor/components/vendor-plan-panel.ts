@@ -16,6 +16,7 @@ import {
   daysRemaining,
   noPlanChangesLine,
   parseDate,
+  planPriceSentence,
   planState,
   type PlanState,
 } from '../vendor-plan';
@@ -48,11 +49,18 @@ import { VendorPlanBadge } from './vendor-plan-badge';
  *    holds the Free edits like any seat with no plan (ruling 2026-10-02, §13.3).
  *
  * ── Copy discipline ─────────────────────────────────────────────────────────
- * Every state carries decision 10's line word for word (§13.1). Managed shows a
- * draft price label, and nothing beyond Managed is offered (decision 9). No
- * promise of search placement or instant search. The vendor's own arrangement
- * (amount paid, terms, PO) is never shown: the price is the list price, marked
- * as a draft. Renewal is a conversation (`/contact`), not a checkout.
+ * Every state carries decision 10's line word for word (§13.1). Every state but
+ * `catalogue` shows Managed's price, and nothing beyond Managed is offered
+ * (decision 9). No promise of search placement or instant search. The vendor's
+ * own arrangement (amount paid, terms, PO) is never shown. Renewal is a
+ * conversation (`/contact`), not a checkout.
+ *
+ * ── The price line (ruling 2026-10-08, §13.13) ──────────────────────────────
+ * No "Draft price" label. The line reads `plan.price`, set per vendor by an
+ * admin, by precedence: a message replaces the whole sentence, a price override
+ * replaces the amount, and with neither it is the default list price ("Managed
+ * is $25 a month per product."). Display only: nothing bills from it. The
+ * message is plain text, rendered by interpolation and never as HTML.
  *
  * Not an error surface in any state: no status colour, no alert role. Light
  * theme only.
@@ -102,16 +110,8 @@ import { VendorPlanBadge } from './vendor-plan-badge';
       }
 
       @if (state() !== 'catalogue') {
-        <p
-          class="mt-5 flex flex-wrap items-center gap-2 text-sm text-(--text-primary)"
-          data-testid="plan-price"
-        >
-          <span i18n="@@vendor.plan.price">Managed is $25 a month per product.</span>
-          <span
-            class="rounded-(--radius-sm) bg-(--surface-sunken) px-1.5 py-px text-[0.6875rem] font-semibold tracking-[0.04em] text-(--text-secondary) uppercase"
-            i18n="@@vendor.plan.price.draft"
-            >Draft price</span
-          >
+        <p class="mt-5 max-w-prose text-sm text-(--text-primary)" data-testid="plan-price">
+          {{ priceLine() }}
         </p>
       }
 
@@ -201,6 +201,9 @@ export class VendorPlanPanel {
   readonly now = input<number>(Date.now());
 
   protected readonly decision10 = noPlanChangesLine();
+
+  /** The price sentence, by §13.13 precedence. Shared with the admin preview. */
+  protected readonly priceLine = computed(() => planPriceSentence(this.plan().price, this.locale));
 
   protected readonly state = computed<PlanState | 'catalogue'>(() => {
     const plan = this.plan();

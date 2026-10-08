@@ -386,6 +386,28 @@
     </div>
   </section>
 
+  <!-- Plan price: display only, separate from the entitlement (ruling 2026-10-08). -->
+  <section class="mt-6" aria-labelledby="admin-vendor-plan-price">
+    <h3
+      id="admin-vendor-plan-price"
+      class="text-xs font-bold uppercase tracking-[0.08em] text-(--text-secondary)"
+      i18n="@@admin.vendors.detail.planPrice"
+    >
+      Plan price
+    </h3>
+    <div class="mt-2">
+      <aec-plan-pricing-control
+        [vendorId]="v.id"
+        [vendorName]="v.company_name"
+        [pricing]="v.plan_pricing"
+        [idPrefix]="'vendor-' + v.id"
+        labelledBy="admin-vendor-plan-price"
+        (changed)="onPlanPricingChanged($event)"
+        (announce)="onAnnounce($event)"
+      />
+    </div>
+  </section>
+
   <!-- ── Seats ────────────────────────────────────────────────────────────── -->
   <section class="mt-6" aria-labelledby="admin-vendor-seats">
     <h3

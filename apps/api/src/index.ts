@@ -52,6 +52,7 @@ import {
   createAdminConnectorStubsHandler,
 } from './routes/admin-connectors';
 import { createSetVendorEntitlementHandler } from './routes/admin-entitlements';
+import { createSetVendorPlanPricingHandler } from './routes/admin-plan-pricing';
 import {
   createAdminRevokeSeatHandler,
   createProvisionSeatHandler,
@@ -776,6 +777,15 @@ authAdmin.patch(
   '/api/admin/vendors/:id/entitlement',
   requireAdmin(),
   createSetVendorEntitlementHandler(),
+);
+// Ruling 2026-10-08 (STAGE_2_PAID_TIERS_SPEC.md §13.13): the display-only plan price
+// overrides. Not part of the entitlement: a Free vendor can carry one, and a clear
+// leaves it alone. A write, so `rateLimit('write')` after the guard.
+authAdmin.put(
+  '/api/admin/vendors/:id/plan-pricing',
+  requireAdmin(),
+  rateLimit('write'),
+  createSetVendorPlanPricingHandler(),
 );
 // Stage 2 / AECI-652: the admin vendor surface (§5.6). Three reads plus one seat
 // revoke. Registered AFTER the entitlement PATCH so the literal `/entitlement`

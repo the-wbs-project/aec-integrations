@@ -57,6 +57,7 @@ import { assertStoredLogo } from './logos';
  */
 
 import {
+  type PlanPrice,
   type VendorEntitlementBlock,
   ListVendorSeatsResponseSchema,
   UpdateVendorProductResponseSchema,
@@ -139,6 +140,7 @@ import { publicSiteBase } from '../lib/public-urls';
 import { resolvePublishedTradeSlugs } from './promote-trade-publication';
 import { productEditRecrawl, vendorProfileRecrawl } from './vendor-recrawl';
 import { fetchAuthUserEmails } from '../lib/supabase-admin';
+import { loadPlanPrice } from '../lib/vendor-plan-pricing';
 import { inviteResendState, liveInvitesFor } from '../lib/vendor-seat-invites';
 import {
   afterVendorWrite,
@@ -311,18 +313,27 @@ export type TaxonomySlugs = {
 
 /**
  * The caller's entitlement block, built from the session the guard already
- * loaded — zero extra queries. `GET /api/vendor/me` serves it as `entitlement`,
- * and every `VendorProduct` carries it as `plan` (AECI-1214, §13.7). Both read the
- * same `entitlementTier` the write gates assert, so a screen's enabled state and
- * the 403 its write would get cannot disagree.
+ * loaded. `GET /api/vendor/me` serves it as `entitlement`, and every
+ * `VendorProduct` carries it as `plan` (AECI-1214, §13.7). Both read the same
+ * `entitlementTier` the write gates assert, so a screen's enabled state and the
+ * 403 its write would get cannot disagree.
+ *
+ * `price` is the one field the session does not hold: the display-only plan
+ * price overrides (ruling 2026-10-08, §13.13), one primary-key read through
+ * `loadPlanPrice`. It is a required argument so no builder can forget it. It
+ * decides nothing: no gate, capability or ranking reads it.
  */
-export function entitlementBlock(session: AuthenticatedSession): VendorEntitlementBlock {
+export function entitlementBlock(
+  session: AuthenticatedSession,
+  price: PlanPrice,
+): VendorEntitlementBlock {
   return {
     tier: session.entitlementTier,
     status: session.entitlement?.status ?? null,
     period_end: session.entitlement?.periodEnd ?? null,
     ended_at: session.entitlement?.endedAt ?? null,
     capabilities: [...capabilitiesFor(session.entitlementTier)],
+    price,
   };
 }
 
@@ -733,7 +744,7 @@ export function createVendorMeHandler(
     const productIds = owned.map((row) => row.productId);
     const primaryById = new Map(owned.map((row) => [row.productId, row.isPrimary]));
 
-    const [productRows, taxonomy, seatRows, requestRows, vendorLocks, productLocks] =
+    const [productRows, taxonomy, seatRows, requestRows, vendorLocks, productLocks, price] =
       await Promise.all([
         productIds.length
           ? db.query.products.findMany({
@@ -761,11 +772,13 @@ export function createVendorMeHandler(
         // Two reads on the partial unique index; nothing when nothing is locked.
         lockedFieldsByEntity(db, 'vendor', [vendorId]),
         lockedFieldsByEntity(db, 'product', productIds),
+        // The display-only plan price overrides (§13.13). One primary-key read.
+        loadPlanPrice(db, vendorId),
       ]);
 
     // One block for the vendor and, until per-product plans exist, for every
     // product too (§13.7).
-    const plan = entitlementBlock(session);
+    const plan = entitlementBlock(session, price);
     const body: VendorMeResponse = {
       vendor: toVendorAccount(vendor, vendorLocks.get(vendorId)),
       products: productRows.map((row) =>
@@ -1135,7 +1148,7 @@ export function createUpdateVendorProductHandler(
           before,
           isPrimary,
           unchangedTaxonomy,
-          entitlementBlock(session),
+          entitlementBlock(session, await loadPlanPrice(db, vendorId)),
           locks,
         ),
       };
@@ -1299,7 +1312,13 @@ export function createUpdateVendorProductHandler(
     );
 
     const body: UpdateVendorProductResponse = {
-      product: toVendorProduct(after, isPrimary, afterTaxonomy, entitlementBlock(session), locks),
+      product: toVendorProduct(
+        after,
+        isPrimary,
+        afterTaxonomy,
+        entitlementBlock(session, await loadPlanPrice(db, vendorId)),
+        locks,
+      ),
     };
     validateResponseInDev(c.env, () => UpdateVendorProductResponseSchema.parse(body));
     return json(body);
