@@ -40,7 +40,7 @@ Adopt the existing **"Pair-Page Search Intent (pSEO)" Linear project wholesale**
 - **AECI-343** per-pair "report a missing integration" CTA → requests pipeline
 - **AECI-344** GSC measurement loop (dual-orientation gate + quarterly tier review)
 
-Sequenced **after** the ranking-method page is live (2.5 §2 step 3) so the published mechanism matches what pair pages exhibit. The second gate, that the pages being multiplied actually server-render their content, is **already met** — AECI-746 shipped the SSR fix and AECI-618 closed as its duplicate on 2026-09-11. **AECI-560** (sitemap index / sub-sitemap split) attaches here as the gated companion — dual-orientation + meaningful-no indexing is precisely what could push URL counts toward its 50k trigger.
+Sequenced **after** the ranking-method page is live (2.5 §2 step 3; written at `/docs/trust/how-ranking-works` by AECI-1249) so the published mechanism matches what pair pages exhibit. The second gate, that the pages being multiplied actually server-render their content, is **already met** — AECI-746 shipped the SSR fix and AECI-618 closed as its duplicate on 2026-09-11. **AECI-560** (sitemap index / sub-sitemap split) attaches here as the gated companion — dual-orientation + meaningful-no indexing is precisely what could push URL counts toward its 50k trigger.
 
 ### 2.3 Stack-aware discovery — *candidate, decision required*
 

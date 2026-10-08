@@ -11,8 +11,9 @@ import { RouterLink } from '@angular/router';
  * The label reads "Active on AECi" everywhere (AECI-1131), so the vendor's plan
  * panel shows exactly what the public sees (`STAGE_2_PAID_TIERS_SPEC.md` §8.1).
  * - `public` (vendor detail hero) follows it with a visible "What this means"
- *   link to the help article. The link replaces the hover-only `title` tooltip
- *   that touch and keyboard readers never saw.
+ *   link to the reader article `/docs/trust/the-account-label` (AECI-1249; it
+ *   pointed at the noindex vendor guide before). The link replaces the
+ *   hover-only `title` tooltip that touch and keyboard readers never saw.
  * - `portal` (the vendor's own plan panel) omits the link, because the panel
  *   carries the framing sentence itself.
  *
@@ -36,7 +37,7 @@ import { RouterLink } from '@angular/router';
         </span>
         @if (variant() === 'public') {
           <a
-            routerLink="/docs/vendors/plans-and-the-account-label"
+            routerLink="/docs/trust/the-account-label"
             class="rounded-(--radius-sm) text-xs text-(--text-secondary) underline
               underline-offset-2 transition-colors hover:text-(--text-primary)
               focus-visible:outline-2 focus-visible:outline-offset-2

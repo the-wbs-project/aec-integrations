@@ -39,12 +39,19 @@ describe('DocsHomeComponent', () => {
   it('splits by audience, dropping any audience with no pages yet', () => {
     const { host } = render();
     const groups = Array.from(host.querySelectorAll('[data-audience]'));
-    // No reader section has pages yet, so the reader group does not render.
-    expect(groups.map((g) => g.getAttribute('data-audience'))).toEqual(['vendor', 'reviewer']);
+    expect(groups.map((g) => g.getAttribute('data-audience'))).toEqual([
+      'reader',
+      'vendor',
+      'reviewer',
+    ]);
     expect(Array.from(groups[0].querySelectorAll('a')).map((a) => a.getAttribute('href'))).toEqual([
-      '/docs/vendors',
+      '/docs/getting-started',
+      '/docs/trust',
     ]);
     expect(Array.from(groups[1].querySelectorAll('a')).map((a) => a.getAttribute('href'))).toEqual([
+      '/docs/vendors',
+    ]);
+    expect(Array.from(groups[2].querySelectorAll('a')).map((a) => a.getAttribute('href'))).toEqual([
       '/docs/reviewers',
     ]);
   });
@@ -52,12 +59,17 @@ describe('DocsHomeComponent', () => {
   it('lists every non-empty section with its pages, and no empty section', () => {
     const { host } = render();
     const sections = Array.from(host.querySelectorAll('[data-section]'));
-    expect(sections.map((s) => s.getAttribute('data-section'))).toEqual(['vendors', 'reviewers']);
+    expect(sections.map((s) => s.getAttribute('data-section'))).toEqual([
+      'getting-started',
+      'trust',
+      'vendors',
+      'reviewers',
+    ]);
     const hrefs = sections.flatMap((s) =>
       Array.from(s.querySelectorAll('a')).map((a) => a.getAttribute('href')),
     );
     for (const page of DOCS_PAGES) expect(hrefs, page.path).toContain(page.path);
-    for (const empty of ['getting-started', 'trust', 'account', 'faq']) {
+    for (const empty of ['account', 'faq']) {
       expect(host.querySelector(`a[href^="/docs/${empty}"]`), empty).toBeNull();
     }
   });

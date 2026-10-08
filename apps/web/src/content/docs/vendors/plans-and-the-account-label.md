@@ -3,7 +3,7 @@ title: Plans and the account label
 description: What the Free and Managed plans let your company do on AEC Integrations, how the checklists and "Looks right" work, what happens when a plan ends, and the things no plan can buy.
 section: vendors
 order: 7
-last_updated: 4 October 2026
+last_updated: 8 October 2026
 ---
 
 Every company with a seat is on one of two plans: Free or Managed. Free costs nothing. We arrange Managed with you by invoice or purchase order. No plan changes where anything ranks.
@@ -99,7 +99,7 @@ There is no sponsored placement and no promoted tier. We check this with an auto
 
 ## The "Active on AECi" label
 
-While your company is on Managed, your vendor page carries the label "Active on AECi". Next to it, a "What this means" link points back to this article. Your portal's plan panel shows the same label.
+While your company is on Managed, your vendor page carries the label "Active on AECi". Next to it, a "What this means" link opens [The account label](/docs/trust/the-account-label), which explains the label to readers. Your portal's plan panel shows the same label.
 
 The label means your company is on the Managed plan. It is not a separate purchase. It comes with Managed and goes when Managed ends. A company on Free does not show it. It says nothing about the quality of your products or the accuracy of your integrations. It does not affect ranking or placement.
 

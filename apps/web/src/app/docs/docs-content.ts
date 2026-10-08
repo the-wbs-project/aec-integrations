@@ -24,7 +24,13 @@
  */
 import { marked } from 'marked';
 
+import readingMd from '../../content/docs/getting-started/reading-an-integration-page.md';
+import taxonomyMd from '../../content/docs/getting-started/taxonomy.md';
+import whatAeciMd from '../../content/docs/getting-started/what-aeci-is.md';
 import requestsMd from '../../content/docs/reviewers/requests-and-corrections.md';
+import agreementStatesMd from '../../content/docs/trust/agreement-states.md';
+import rankingMd from '../../content/docs/trust/how-ranking-works.md';
+import accountLabelMd from '../../content/docs/trust/the-account-label.md';
 import attestingMd from '../../content/docs/vendors/attesting-an-integration.md';
 import changeHistoryMd from '../../content/docs/vendors/change-history.md';
 import claimingMd from '../../content/docs/vendors/claiming-your-listing.md';
@@ -173,6 +179,16 @@ const SECTION_META: Readonly<Record<DocsSectionId, DocsSectionMeta>> = {
 
 /** Registered pages per section. A section absent here, or empty, is hidden. */
 const SECTION_PAGES: Readonly<Partial<Record<DocsSectionId, readonly RawDocsPage[]>>> = {
+  'getting-started': [
+    { slug: 'what-aeci-is', source: whatAeciMd },
+    { slug: 'reading-an-integration-page', source: readingMd },
+    { slug: 'taxonomy', source: taxonomyMd },
+  ],
+  trust: [
+    { slug: 'how-ranking-works', source: rankingMd },
+    { slug: 'the-account-label', source: accountLabelMd },
+    { slug: 'agreement-states', source: agreementStatesMd },
+  ],
   vendors: [
     { slug: 'claiming-your-listing', source: claimingMd },
     { slug: 'your-seat', source: seatMd },

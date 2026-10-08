@@ -38,9 +38,30 @@ test.describe('/docs shell — AECI-1248', () => {
   });
 
   test('an unknown docs path is a real 404', async ({ request }) => {
-    for (const path of ['/docs/nope', '/docs/vendors/nope', '/docs/trust']) {
+    for (const path of ['/docs/nope', '/docs/vendors/nope', '/docs/faq']) {
       const res = await request.get(path, { maxRedirects: 0 });
       expect(res.status(), path).toBe(404);
+    }
+  });
+
+  // AECI-1249 — the reader pages. Indexable, so the page meta must not carry
+  // noindex (the env-level X-Robots-Tag is a separate, per-tier gate).
+  const READER_PAGES: readonly (readonly [string, string])[] = [
+    ['/docs/getting-started/what-aeci-is', 'What AECi is'],
+    ['/docs/getting-started/reading-an-integration-page', 'Reading an integration page'],
+    ['/docs/getting-started/taxonomy', 'How listings are classified'],
+    ['/docs/trust/how-ranking-works', 'How ranking works'],
+    ['/docs/trust/the-account-label', 'The account label'],
+    ['/docs/trust/agreement-states', 'Agreement states'],
+  ];
+
+  test('SSR-renders the six reader pages with their titles (AECI-1249)', async ({ request }) => {
+    for (const [path, title] of READER_PAGES) {
+      const res = await request.get(path, { maxRedirects: 0 });
+      expect(res.status(), path).toBe(200);
+      const html = await res.text();
+      expect(html, path).toMatch(new RegExp(`<h1[^>]*>\\s*${title}\\s*</h1>`));
+      expect(html, path).not.toMatch(/<meta[^>]+name="robots"[^>]+content="noindex"/);
     }
   });
 
@@ -71,7 +92,12 @@ test.describe('/docs shell — AECI-1248', () => {
     await expect(page).toHaveURL(/\/docs$/);
   });
 
-  for (const path of ['/docs', '/docs/reviewers', '/docs/vendors/your-seat']) {
+  for (const path of [
+    '/docs',
+    '/docs/reviewers',
+    '/docs/vendors/your-seat',
+    '/docs/trust/how-ranking-works',
+  ]) {
     test(`${path} has zero axe violations at WCAG AA and a clean console`, async ({ page }) => {
       const capture = attachConsoleCapture(page);
       const res = await page.goto(path);

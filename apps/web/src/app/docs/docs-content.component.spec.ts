@@ -36,6 +36,10 @@ const VENDOR_SLUGS = [
 
 const REVIEWER_SLUGS = ['requests-and-corrections'];
 
+const GETTING_STARTED_SLUGS = ['what-aeci-is', 'reading-an-integration-page', 'taxonomy'];
+
+const TRUST_SLUGS = ['how-ranking-works', 'the-account-label', 'agreement-states'];
+
 // ─── Fixture manifest ────────────────────────────────────────────────────────
 
 const FIXTURE_META: Record<DocsSectionId, DocsSectionMeta> = {
@@ -179,8 +183,13 @@ describe('buildDocsManifest (fixtures)', () => {
 
 describe('docs manifest', () => {
   it('shows only the sections that have pages, in section order', () => {
-    expect(DOCS_SECTIONS.map((section) => section.id)).toEqual(['vendors', 'reviewers']);
-    for (const empty of ['getting-started', 'trust', 'account', 'faq']) {
+    expect(DOCS_SECTIONS.map((section) => section.id)).toEqual([
+      'getting-started',
+      'trust',
+      'vendors',
+      'reviewers',
+    ]);
+    for (const empty of ['account', 'faq']) {
       expect(getDocsSection(empty), empty).toBeUndefined();
     }
   });
@@ -198,7 +207,14 @@ describe('docs manifest', () => {
   it('lists the vendor guide and the reviewer guide in task order', () => {
     expect(docsSection('vendors').map((page) => page.slug)).toEqual(VENDOR_SLUGS);
     expect(docsSection('reviewers').map((page) => page.slug)).toEqual(REVIEWER_SLUGS);
-    expect(DOCS_PAGES).toHaveLength(VENDOR_SLUGS.length + REVIEWER_SLUGS.length);
+    expect(docsSection('getting-started').map((page) => page.slug)).toEqual(GETTING_STARTED_SLUGS);
+    expect(docsSection('trust').map((page) => page.slug)).toEqual(TRUST_SLUGS);
+    expect(DOCS_PAGES).toHaveLength(
+      GETTING_STARTED_SLUGS.length +
+        TRUST_SLUGS.length +
+        VENDOR_SLUGS.length +
+        REVIEWER_SLUGS.length,
+    );
   });
 
   it('gives every page a title, a description, a date and an order unique in its section', () => {
@@ -289,6 +305,21 @@ describe('docs manifest', () => {
     expect(text).toContain('Suggest a correction');
   });
 
+  it('explains ranking in words, with no numbers and no signal names (STAGE_2_5_SPEC.md §2)', () => {
+    const page = getDocsPage('trust', 'how-ranking-works')!;
+    const text = new DOMParser().parseFromString(page.html, 'text/html').body.textContent ?? '';
+    // "No precise published numbers": no weight, threshold or count in the body.
+    expect(text).not.toMatch(/\d/);
+    // Parameters in words, never the index attributes or the formula.
+    expect(text).not.toMatch(
+      /listing_tier|review_count|integration_count|mechanism_rank|customRanking|Algolia/,
+    );
+    // The two signals that order search, and the ruled review-count tie-break.
+    expect(text).toContain('completeness decides');
+    expect(text).toContain('the number of published reviews');
+    expect(text).toContain('No plan, at any price, changes');
+  });
+
   it('carries no screenshots at v0', () => {
     for (const page of DOCS_PAGES) {
       expect(page.html, page.slug).not.toContain('<img');
@@ -309,9 +340,13 @@ describe('docsNeighbours', () => {
 });
 
 describe('indexableDocsPaths', () => {
-  it('lists /docs, the reviewer guide and its page, and leaves the noindex vendor guide out', () => {
+  it('lists /docs and the reader and reviewer pages, and leaves the noindex vendor guide out', () => {
     expect(indexableDocsPaths()).toEqual([
       '/docs',
+      '/docs/getting-started',
+      ...GETTING_STARTED_SLUGS.map((slug) => `/docs/getting-started/${slug}`),
+      '/docs/trust',
+      ...TRUST_SLUGS.map((slug) => `/docs/trust/${slug}`),
       '/docs/reviewers',
       '/docs/reviewers/requests-and-corrections',
     ]);
@@ -322,6 +357,10 @@ describe('DOCS_ROUTES', () => {
   it('registers the home, one index per non-empty section and one route per page', () => {
     expect(DOCS_ROUTES.map((route) => route.path)).toEqual([
       '',
+      'getting-started',
+      ...GETTING_STARTED_SLUGS.map((slug) => `getting-started/${slug}`),
+      'trust',
+      ...TRUST_SLUGS.map((slug) => `trust/${slug}`),
       'vendors',
       ...VENDOR_SLUGS.map((slug) => `vendors/${slug}`),
       'reviewers',
@@ -336,7 +375,7 @@ describe('DOCS_ROUTES', () => {
   });
 
   it('gives an empty section no route', () => {
-    for (const empty of ['getting-started', 'trust', 'account', 'faq']) {
+    for (const empty of ['account', 'faq']) {
       expect(
         DOCS_ROUTES.some((route) => route.path === empty || route.path?.startsWith(`${empty}/`)),
         empty,

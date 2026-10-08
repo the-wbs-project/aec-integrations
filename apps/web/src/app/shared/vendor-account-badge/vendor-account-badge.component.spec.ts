@@ -37,12 +37,14 @@ describe('VendorAccountBadge', () => {
     expect(el.querySelector('svg')).toBeNull();
   });
 
-  it('explains the label with a visible link, not a hover-only tooltip', () => {
+  it('explains the label with a visible link to the reader article, not a hover-only tooltip', () => {
     const el = render(true, 'public');
     expect(el.querySelector('[title]')).toBeNull();
 
+    // AECI-1249: the public label is read by readers, so it points at the
+    // indexable reader page, not the noindex vendor guide.
     const link = el.querySelector('a');
-    expect(link?.getAttribute('href')).toBe('/docs/vendors/plans-and-the-account-label');
+    expect(link?.getAttribute('href')).toBe('/docs/trust/the-account-label');
     expect(link?.textContent).toContain('What this means');
   });
 

@@ -2,13 +2,22 @@
 
 **Version:** 1.0 — **build contract**
 **Date:** August 2026 (v0.1 scope outline); firmed into a build contract 2026-10-08 (AECI-1247)
-**Status:** Decomposed. The AECI-634 epic has eight sub-issues, AECI-1247 to AECI-1254 (§8). The vendor guide is built and noindex (AECI-1104). The shell is built (AECI-1248): the `/docs` home, section indexes, prev/next, linked breadcrumbs, noindex by path and the sitemap entries, with `requests-and-corrections` imported. The remaining pages of the site map are unbuilt.
+**Status:** Decomposed. The AECI-634 epic has eight sub-issues, AECI-1247 to AECI-1254 (§8). The vendor guide is built and noindex (AECI-1104). The shell is built (AECI-1248): the `/docs` home, section indexes, prev/next, linked breadcrumbs, noindex by path and the sitemap entries, with `requests-and-corrections` imported. The getting-started and trust pages are built and indexable (AECI-1249). The remaining pages of the site map are unbuilt.
 **Companion to:** `docs/STAGE_2_SPEC.md` §2.6 (the pillar stub). The architecture decision is ADR 0040.
+
+> **2026-10-08 — getting-started and trust shipped (AECI-1249).** Six reader pages, indexable and in
+> `sitemap.xml`: `getting-started/what-aeci-is`, `reading-an-integration-page`, `taxonomy`, and
+> `trust/how-ranking-works`, `the-account-label`, `agreement-states`. `how-ranking-works` is the
+> `STAGE_2_5_SPEC.md` §2 step 3 ranking-method page; Chris signs its wording off before AECI-1249
+> merges. The "Active on AECi" label's "What this means" link now opens the reader page
+> `/docs/trust/the-account-label` instead of the noindex vendor guide, so the vendor guide's one
+> remaining inbound link is the claim confirmation. Every label these pages quote was checked
+> against the shipped components on the day.
 
 > **2026-10-08 — the shell shipped (AECI-1248).** `/docs` (home, with the audience split),
 > `/docs/<section>` (section index) and the previous / next pager are built, all generated from the
 > manifest. A declared section with no pages has no home card, no route and no sitemap entry, so
-> today only `vendors` and `reviewers` show. The breadcrumb's "Docs" and section crumbs are links.
+> on that day only `vendors` and `reviewers` showed (AECI-1249 added `getting-started` and `trust`). The breadcrumb's "Docs" and section crumbs are links.
 > Noindex is driven by path: `NOINDEX_PATH_PREFIXES` moved to `apps/web/src/app/docs/docs-indexing.ts`
 > (re-exported by `server/robots-policy.ts`) and now covers `/docs/vendors` itself as well as
 > everything below it. The cache matchers cover bare `/docs`. `sitemap.xml` lists `/docs`,
@@ -26,7 +35,8 @@
 > AECI-1248 built both. The vendor pages are **noindex in every env and absent from
 > `sitemap.xml`** until the portal opens, by path (`pathForcesNoindex`, see the AECI-1248 note).
 > AECI-1253 lifts it, in the same sitting as AECI-1105. Two inbound links exist today: the "Active on AECi" label's "What this
-> means" link and the claim confirmation. The footer entry (AECI-1252) and the portal "Learn more"
+> means" link and the claim confirmation. (AECI-1249 moved the label's link to the reader page
+> `/docs/trust/the-account-label`.) The footer entry (AECI-1252) and the portal "Learn more"
 > links (AECI-1253) are not built. The same-PR sync rule (§4) is in
 > `docs/CODE_REVIEW_CHECKLIST.md` §Spec alignment.
 
@@ -107,11 +117,11 @@ URL scheme: `/docs/<section>/<slug>`, kebab-case. About 25 pages at v1.
 
 ```
 /docs                                — Docs home: audience split (reader / vendor / reviewer), then every section   AECI-1248
-├─ getting-started/                  — AECI-1249
+├─ getting-started/                  — SHIPPED (AECI-1249), indexable
 │  ├─ what-aeci-is                   — the directory, dual-vendor verification, who curates
 │  ├─ reading-an-integration-page    — the product-PAIR page: claims, attestations, agreement states
 │  └─ taxonomy                       — mechanisms, data objects, trades (the four facets)
-├─ trust/                            — AECI-1249
+├─ trust/                            — SHIPPED (AECI-1249), indexable
 │  ├─ how-ranking-works              — purely algorithmic; what paid does NOT buy. Is the STAGE_2_5_SPEC §2 step 3 ranking-method page
 │  ├─ the-account-label              — what "Active on AECi" means (AECI-965 retired "Verified badge"; AECI-1131 relabeled it), that it is the plan
 │  └─ agreement-states               — unverified / single-source / confirmed / conflict, plainly
