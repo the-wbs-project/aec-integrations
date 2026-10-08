@@ -25,7 +25,6 @@ function item(slug: string, name: string, vendorName: string | null = null): Pro
     vendor: vendorName
       ? { id: 'v-' + slug, slug: 'v-' + slug, name: vendorName, logo_url: null, verified: false }
       : null,
-    primary_category: null,
     integration_count: 0,
     review_count: 0,
     rating_overall_avg: null,

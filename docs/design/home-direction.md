@@ -198,7 +198,7 @@ At launch the cache is sparse, so the populated case may not exist. Required emp
 | Stat figure / count | `IntegrationStat` (`products/integration-stat.ts`) — `headline` on cards |
 | Product monogram | `LogoOrInitial` (`shared/logo-or-initial/`) |
 | Trending grid | `ProductCardGrid` (`products/product-card-grid.ts`) |
-| Card chips | `CategoryChip`, `RoleBadge` (`products/`) |
+| Card chips | `RoleBadge` (`products/`) |
 | Header / footer | `SiteHeader`, `SiteFooter` (`layout/`) |
 
 **New components 4.7–4.11 will add** (home-specific): the stats-card trio, the browse count-chip

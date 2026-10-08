@@ -23,7 +23,6 @@ const productListItem = (n: number, slug: string, name: string) => ({
     logo_url: null,
     verified: false,
   },
-  primary_category: null,
   integration_count: 1,
   review_count: 0,
   rating_overall_avg: null,

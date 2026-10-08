@@ -105,21 +105,12 @@ describe('GET /api/products', () => {
     expect(parsed.data[0]?.vendor).toMatchObject({ slug: 'autodesk', name: 'Autodesk' });
   });
 
-  it('resolves primary_category to the lowest display_order (null vendor stays null)', async () => {
+  it('returns a null vendor for a product with no vendor link', async () => {
     await seedProduct(u(1), 'revit', 'Revit');
-    await t.db.insert(taxonomyCategories).values([
-      { id: u(21), slug: 'zeta', name: 'Zeta', displayOrder: 90 },
-      { id: u(22), slug: 'alpha', name: 'Alpha', displayOrder: 10 },
-    ]);
-    await t.db.insert(productCategories).values([
-      { productId: u(1), categoryId: u(21) },
-      { productId: u(1), categoryId: u(22) },
-    ]);
 
     const parsed = ProductsListResponseSchema.parse(
       await (await get(listApp(), '/api/products')).json(),
     );
-    expect(parsed.data[0]?.primary_category?.slug).toBe('alpha');
     expect(parsed.data[0]?.vendor).toBeNull();
   });
 

@@ -51,11 +51,6 @@ const fixtureResponse: ProductsListResponse = {
         logo_url: null,
         verified: false,
       },
-      primary_category: {
-        id: '00000000-0000-4000-8000-000000030001',
-        name: 'Project Management',
-        slug: 'project-management',
-      },
       integration_count: 12,
       review_count: 3,
       rating_overall_avg: 4.5,

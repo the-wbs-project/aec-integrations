@@ -15,7 +15,6 @@ function makeProduct(n: number): ProductListItem {
     logo_url: null,
     product_role: 'application',
     vendor: null,
-    primary_category: null,
     integration_count: n,
     review_count: 0,
     rating_overall_avg: null,

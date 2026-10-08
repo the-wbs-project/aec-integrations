@@ -52,7 +52,6 @@ const productListItem = (slug: string, name: string, verified = slug === 'procor
   logo_url: null,
   product_role: 'application' as const,
   vendor: { id: `v-${slug}`, name: `${name} Inc`, slug: `${slug}-inc`, logo_url: null, verified },
-  primary_category: null,
   integration_count: 1,
   review_count: 0,
   rating_overall_avg: null,

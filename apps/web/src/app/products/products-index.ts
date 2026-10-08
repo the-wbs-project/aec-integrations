@@ -139,7 +139,7 @@ import { ProductCardGrid } from './product-card-grid';
               @case ('table') {
                 <div class="overflow-x-auto">
                   <table
-                    class="w-full border-collapse text-start text-sm md:min-w-[52rem]"
+                    class="w-full border-collapse text-start text-sm md:min-w-[44rem]"
                     i18n-aria-label="@@products.index.table.aria"
                     aria-label="Products"
                   >
@@ -158,13 +158,6 @@ import { ProductCardGrid } from './product-card-grid';
                           i18n="@@products.index.col.vendor"
                         >
                           Vendor
-                        </th>
-                        <th
-                          scope="col"
-                          class="px-4 py-3 text-start text-xs font-medium tracking-wide text-(--text-secondary)"
-                          i18n="@@products.index.col.category"
-                        >
-                          Primary category
                         </th>
                         <th
                           scope="col"

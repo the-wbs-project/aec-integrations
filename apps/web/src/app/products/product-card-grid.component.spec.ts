@@ -15,7 +15,6 @@ function makeProduct(n: number): ProductListItem {
     logo_url: null,
     product_role: 'application',
     vendor: null,
-    primary_category: null,
     integration_count: n,
     review_count: 0,
     rating_overall_avg: null,
@@ -61,5 +60,25 @@ describe('ProductCardGrid featuredEyebrow', () => {
     const root = render(TrendingHost);
     expect(root.textContent).toContain('Most viewed this week');
     expect(root.textContent).not.toContain('Recently added');
+  });
+});
+
+@Component({
+  imports: [ProductCardGrid],
+  template: `<aec-product-card-grid [products]="products" [featuredLead]="false" />`,
+})
+class RoleHost {
+  products = [makeProduct(1), { ...makeProduct(2), product_role: 'connector' as const }];
+}
+
+describe('ProductCardGrid role chip row', () => {
+  it('renders the role chip only on a non-application tile, with no category chip', () => {
+    const root = render(RoleHost);
+    const tiles = root.querySelectorAll('li');
+    expect(tiles).toHaveLength(2);
+    // An application tile carries no chip row at all, so it leaves no empty flex gap.
+    expect(tiles[0]!.querySelector('aec-role-badge')).toBeNull();
+    expect(tiles[1]!.querySelector('aec-role-badge')?.textContent).toContain('Connector');
+    expect(root.querySelector('a[href^="/categories/"]')).toBeNull();
   });
 });

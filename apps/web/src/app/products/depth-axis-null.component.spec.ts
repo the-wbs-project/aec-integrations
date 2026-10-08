@@ -109,7 +109,6 @@ const listItem = (slug: string, name: string) => ({
   logo_url: null,
   product_role: 'application' as const,
   vendor: null,
-  primary_category: null,
   integration_count: 1,
   review_count: 0,
   rating_overall_avg: null,

@@ -76,7 +76,6 @@ export interface AboutSoftwareApplicationLd {
   '@id': string;
   name: string;
   url: string;
-  applicationCategory?: string;
   image?: string;
   publisher?: { '@type': 'Organization'; name: string };
 }
@@ -538,7 +537,6 @@ function aboutProduct(origin: string, product: ProductListItem): AboutSoftwareAp
   // which is why `url` is the AECi product page rather than the vendor site — and
   // that is the better target anyway, since it is where the referenced `@id` node
   // is actually published.
-  if (product.primary_category) node.applicationCategory = product.primary_category.name;
   if (product.logo_url) node.image = product.logo_url;
   if (product.vendor) node.publisher = { '@type': 'Organization', name: product.vendor.name };
   return node;

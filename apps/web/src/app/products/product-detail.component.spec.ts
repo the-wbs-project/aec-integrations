@@ -53,7 +53,6 @@ function buildProduct(overrides: Partial<ProductDetail> = {}): ProductDetail {
       logo_url: 'https://example.com/procore-logo.png',
       verified: false,
     },
-    primary_category: null,
     integration_count: 0,
     review_count: 0,
     rating_overall_avg: null,

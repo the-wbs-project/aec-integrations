@@ -78,10 +78,9 @@ function setup(vendor: VendorDetail) {
 }
 
 // AECI-853 lockstep. This page shares DetailLayout, which now docks its sidebar
-// at `lg` and so leaves the body column 608px wide. At the old 44rem the five
-// column products table overflowed that by 96px and scrolled inside a narrow
-// well. Measured worst case with a long product name AND a long category is
-// 648px, so at 34rem the longest rows wrap one line instead of scrolling.
+// at `lg` and so leaves the body column 608px wide. At the old 44rem the
+// products table overflowed that by 96px and scrolled inside a narrow well.
+// 34rem keeps the table's floor under that 608px column.
 // Paired with the dock assertion in detail-layout.component.spec.ts and the
 // table assertion in product-integrations-section.component.spec.ts.
 describe('VendorDetailPage products table width floor', () => {
@@ -98,7 +97,6 @@ describe('VendorDetailPage products table width floor', () => {
             logo_url: null,
             product_role: 'application',
             vendor: null,
-            primary_category: null,
             integration_count: 1,
             review_count: 0,
             rating_overall_avg: null,
