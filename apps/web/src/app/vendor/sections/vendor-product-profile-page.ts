@@ -2,7 +2,11 @@ import { Component, PLATFORM_ID, computed, effect, inject, untracked } from '@an
 import { isPlatformBrowser } from '@angular/common';
 
 import { VendorProductsSection } from '../components/vendor-products-section';
-import { VendorReviewStrip } from '../components/vendor-review-strip';
+import {
+  VendorReviewStrip,
+  reviewStepState,
+  reviewStripShown,
+} from '../components/vendor-review-strip';
 import { VendorPortalStore } from '../vendor-portal-store';
 
 import { vendorProductContext } from './vendor-product-context';
@@ -23,15 +27,18 @@ import { vendorProductContext } from './vendor-product-context';
   imports: [VendorProductsSection, VendorReviewStrip],
   template: `
     @if (me(); as m) {
-      <!-- AECI-1218: "Looks right" on this product's details (section 13.8). -->
+      <!-- AECI-1218: "Looks right" on this product's details (section 13.8).
+           AECI-1241: only while the step is not done at load. -->
       @if (ctx.product(); as p) {
-        <aec-vendor-review-strip
-          class="mb-6"
-          target="product"
-          [productId]="p.id"
-          [productName]="p.name"
-          [done]="checked()"
-        />
+        @if (showStrip()) {
+          <aec-vendor-review-strip
+            class="mb-6"
+            target="product"
+            [productId]="p.id"
+            [productName]="p.name"
+            [done]="step() === 'done'"
+          />
+        }
       }
       <aec-vendor-products-section
         [products]="m.products"
@@ -50,12 +57,16 @@ export class VendorProductProfilePage {
   protected readonly me = this.store.me;
   protected readonly selectedSlug = computed(() => this.ctx.product()?.slug ?? null);
 
-  /** The "Check product details" step on this product's checklist. */
-  protected readonly checked = computed(() => {
+  /** The "Check product details" step on this product's checklist. `unknown` until it loads. */
+  protected readonly step = computed(() => {
     const id = this.ctx.product()?.id;
-    const c = id ? this.store.productChecklists().get(id) : undefined;
-    return c?.steps.some((s) => s.key === 'product_details' && s.status === 'done') ?? false;
+    return reviewStepState(id ? this.store.productChecklists().get(id) : null, 'product_details');
   });
+  /** AECI-1241: the strip shows only for a step not done when the page loaded. */
+  protected readonly showStrip = reviewStripShown(() => ({
+    record: this.ctx.product()?.id ?? null,
+    state: this.step(),
+  }));
 
   constructor() {
     effect(() => {

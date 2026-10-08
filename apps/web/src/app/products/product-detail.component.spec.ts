@@ -496,7 +496,7 @@ describe('ProductDetailPage integrations table order', () => {
 
   /**
    * The partner name from each rendered row, in DOM order. A row carries two
-   * sibling links — the stretched pair-page overlay and the partner-product
+   * sibling links — the trailing pair-page chevron and the partner-product
    * link (see `ProductIntegrationRow`) — and only the partner one points at a
    * bare product page.
    */

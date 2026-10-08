@@ -771,7 +771,7 @@ Replace `apps/web/src/app/vendor/components/vendor-verified-status.ts` — whose
 | `lapsed` | `expired` / `revoked` (and the fail-closed drift case below) | A **loss to acknowledge**. Leads with what the vendor KEEPS, names what is paused, offers a renewal path. Since AECI-1214 what is paused is the account label, the Managed product fields, and confirming, denying or clearing data flows. The panel copy still says "editing your profile and products" until AECI-1218 rewrites the panels (§13.11). |
 | `none` | `status: null` — no entitlement row at all | An **invitation**, not a loss. |
 
-> **As revised (AECI-1218, 2026-10-02).** The panel is now per product and reads `product.plan` (§13.7). Its states are `managed` (was `active`), `expiring`, `pending`, `ended` (was `lapsed`; now also the plan-ended banner's job vendor-wide), `free` (was `none`; also the unknown-tier drift case, which no longer reads as ended), and `catalogue`. Every state carries decision 10's line. Every state but `catalogue` shows "Managed is $25 a month per product" with a "Draft price" tag (decision 9). The framing sentence below and the compact strip are gone. The vendor overview carries no plan card; the checklist takes the full width (`STAGE_2_VENDOR_PORTAL_SPEC.md` §6.18).
+> **As revised (AECI-1218, 2026-10-02).** The panel is now per product and reads `product.plan` (§13.7). Its states are `managed` (was `active`), `expiring`, `pending`, `ended` (was `lapsed`; now also the plan-ended banner's job vendor-wide), `free` (was `none`; also the unknown-tier drift case, which no longer reads as ended), and `catalogue`. Every state carries decision 10's line. Every state but `catalogue` shows "Managed is $25 a month per product" (decision 9). The "Draft price" tag was removed on 2026-10-08, and the sentence now follows the vendor's price overrides (§13.13). The framing sentence below and the compact strip are gone. The vendor overview carries no plan card; the checklist takes the full width (`STAGE_2_VENDOR_PORTAL_SPEC.md` §6.18).
 
 `null` vs `expired` is the distinction that earned two panels: never-arranged and lapsed are materially different conversations, and rendering a loss-acknowledgement at someone who never bought anything is the wrong message. §4 made that distinction available on the wire.
 
@@ -903,6 +903,8 @@ Chris made these ten decisions on 2026-10-01 in epic AECI-1212. They are quoted 
 7. **"Looks right" is a free action on every plan.** It applies to company details, each product, and each product's integration list. It writes an audit row and stamps `last_reviewed_at`. That column already drives the public "Vendor maintained · Updated <date>" chip in `maintenance-marker.ts`. Edit schemas reject an empty save today. So "Looks right" is the only way to record "checked, nothing to change".
 8. **Pilot end lands the vendor on the Free plan.** A calm banner lists what still works and what went read-only. Nothing the vendor entered is removed.
 9. **The portal shows nothing beyond Managed for now.** Managed shows a draft price label.
+
+   > **2026-10-08 ruling (Chris): draft label removed; per-vendor price and message overrides, display only.** The "Draft price" tag is gone. The default sentence stays: "Managed is $25 a month per product." An admin can set a per-vendor price override or a per-vendor message override. Neither bills anyone or changes a plan, a capability or ranking. §13.13 governs.
 10. **Each plan panel says:** "No plan changes where you rank or appear, whether a review is published, or what we verify."
 
 > **As revised (2026-10-08).** The one-line plan summary in decision 2 is gone. The vendor dashboard shows no plan card, and the vendor checklist takes the full width (`STAGE_2_VENDOR_PORTAL_SPEC.md` §6.18). The decision above stays as quoted.
@@ -1015,7 +1017,7 @@ This implements the option A ruling. AECI-1214 builds it, because it already cha
 - The web gets `productCan(product, cap)`. Product screens use it. They never read `me().entitlement` directly.
 - Server enforcement stays vendor-wide. The field and the gate read the same block, so they cannot disagree.
 
-> **As built (AECI-1214 — 2026-10-02).** `GET /api/vendor/me` and the `PATCH /api/vendor/products/:id` echo both fill `plan` from `entitlementBlock(session)`, the same builder as the `entitlement` block. `productCan` is in `apps/web/src/app/vendor/vendor-capabilities.ts`. The product form and the facet editor call it themselves, per field, on their own `product` input. So the product pages and `VendorProductsSection` pass no gate inputs. The vendor overview still reads `vendorCan(store, 'product.listing.edit')` for its product gap rows, because the overview is a vendor screen. The web fixtures copy the block with `withProductPlans` in `vendor-fixtures.ts`.
+> **As built (AECI-1214 — 2026-10-02).** `GET /api/vendor/me` and the `PATCH /api/vendor/products/:id` echo both fill `plan` from `entitlementBlock(session, price)`, the same builder as the `entitlement` block. The `price` argument was added on 2026-10-08 (§13.13). It is the only field of the block not read from the session. `productCan` is in `apps/web/src/app/vendor/vendor-capabilities.ts`. The product form and the facet editor call it themselves, per field, on their own `product` input. So the product pages and `VendorProductsSection` pass no gate inputs. The vendor overview still reads `vendorCan(store, 'product.listing.edit')` for its product gap rows, because the overview is a vendor screen. The web fixtures copy the block with `withProductPlans` in `vendor-fixtures.ts`.
 
 When per-product plans land, only the server's source for this field changes. `VENDOR_PLAN_DATA_READINESS.md` §4 holds that schema work.
 
@@ -1036,6 +1038,19 @@ Three routes. Each is seat-only. Each registers `requireVendor()` then `rateLimi
 - The two product routes check ownership first. A product the vendor does not own answers 404.
 
 Every pair page embeds both of its products, so the `product:{slug}` tag also purges the pair pages that show a stamped integration's chip.
+
+> **As built (AECI-1241 — 2026-10-08).** The "Looks right" strip at the head of company Profile, product Profile and product Integrations now shows only for a step that was not done when the page loaded. Chris ruled it: a vendor who checked a step long ago comes back to change things, and a permanent strip is noise to them.
+>
+> - **Not done at load.** The strip shows. After a press it stays for the rest of that view and reads "Checked". It does not vanish when the checklist refetch flips the step to done.
+> - **Done at load.** No strip. The next visit to a page the vendor just checked is this case, because `VendorPortalStore` keeps the refetched checklist.
+> - **Checklist not loaded yet.** Nothing renders, so a checked page never flashes the strip.
+> - **The decision is per record.** A product page reused for another product decides again from that product's checklist.
+>
+> The same rule covers the "Looks right" button on the product checklist card on a product's Overview (Chris, 2026-10-08). A row whose step was done when the card first saw it shows no button. A row pressed in this view keeps the button and reads "Checked" until the vendor leaves. The row itself and its "Open Profile" link always render. A done row's body says it is checked and that an edit records a later check, so it never tells the vendor to press a button that is not there. The vendor checklist's company row does the same (`checklist-rows.ts`).
+>
+> The rule is `latchReviewDecisions` in `apps/web/src/app/vendor/components/vendor-review-strip.ts`. It is a `linkedSignal` latch: it records a decision the first time a step's state is known for a record, then holds it. The strips call it through `reviewStripShown`. The card calls it once per row, keyed by target and product. The routes are unchanged.
+>
+> The accepted consequence is that a checked step offers no re-stamp anywhere in the portal. A vendor moves the public "Updated" date on a checked record only by saving an edit.
 
 ### 13.9 Integration-list stamp scope
 
@@ -1123,6 +1138,38 @@ Today only an admin Clear ends a plan, and it records `revoked`. `VENDOR_PLAN_DA
 | AECI-1217 | The checklist API | §13.10 |
 | AECI-1218 | The portal UI | §13.11 and `STAGE_2_VENDOR_PORTAL_SPEC.md` §6.18 |
 | AECI-1219 | The vendor help center page | §13.1, §13.2 and `STAGE_2_VENDOR_PORTAL_SPEC.md` §6.18 |
+
+### 13.13 Plan price overrides (ruling 2026-10-08)
+
+**Ruled by Chris on 2026-10-08.** It amends decision 9 (§13.1).
+
+1. The "Draft price" label is removed from the plan panel. The default sentence stays: "Managed is $25 a month per product."
+2. An admin can set a per-vendor **price override** for Managed, the only priced plan. Unset means the default list price. Set means that price is shown instead, for example "Managed is $12.50 a month per product."
+3. An admin can set a per-vendor **message override**. It is free text that replaces the whole price sentence, for example "Free until December 12, then 50% off for the next year."
+4. **Display only.** No billing, no payment processing, no entitlement effect and no ranking effect. It changes only what the vendor sees in the portal.
+
+**Precedence.** Message, then price, then the default sentence. The `catalogue` state still shows no price at all.
+
+**Storage.** `vendor_plan_pricing`, one row per vendor (`DATABASE_SCHEMA.md` §8.6a, migration 0066). It is its own table for two reasons:
+
+- `vendors` is promote's row.
+- `vendor_entitlements` is the wrong home. A Free vendor with no entitlement row must still carry an override, and clearing an entitlement must not wipe it.
+
+No row means the default. Resetting both fields deletes the row.
+
+**The default.** `MANAGED_LIST_PRICE_CENTS = 2500` in `packages/shared/src/entitlements.ts`. It is the only place the list price lives. The same module holds the bounds and `planPriceDisplay`, the precedence rule.
+
+**Write.** `PUT /api/admin/vendors/:id/plan-pricing` behind `requireAdmin()` and `rateLimit('write')` (`API_CONTRACTS.md` §6.10). The upsert or delete and its `audit_log` row go in one `db.batch`. The actions are `vendor_plan_pricing.set` and `vendor_plan_pricing.cleared`, with `entity_id` the vendor id. They are vendor-scoped, not receipts: the vendor's change history does not list them. A request that changes nothing writes nothing. There is no cache purge, because no public page renders the override.
+
+**Validation.** Price is whole US cents, 0 to 10,000,000, or `null`. Message is trimmed with whitespace runs folded, 1 to 280 characters, or `null`. An empty message is `null`. Markup and control characters are refused.
+
+**Vendor read.** `VendorEntitlementBlock` gains `price: { managed_price_cents, message }` (§13.7). Every builder fills it through `loadPlanPrice`, one primary-key read. So every product of the vendor shows the same override. `updated_by` never reaches the vendor. The override has no cursor on `GET /api/vendor/updates` (`STAGE_2_REALTIME_SPEC.md`), so an open portal shows a new line on its next load of `GET /api/vendor/me`. A price line has no deadline, unlike the entitlement flip.
+
+**Vendor UI.** `vendor-plan-panel.ts` renders `planPriceSentence` from `apps/web/src/app/vendor/vendor-plan.ts`. The message is interpolated text, never HTML. A price formats as USD in the reader's locale, with cents only when they are not zero.
+
+**Admin UI.** The "Plan price" section on `/admin/vendors/:id`, below Entitlement (`ADMIN_PANEL_SPEC.md` §5.7). It previews the line through the same `planPriceSentence`, so the preview is exactly what the vendor sees.
+
+**Still not built.** The founding discount is still not computed, reported or expired. A price override is a display string. `VENDOR_PLAN_DATA_READINESS.md` item 20 is unchanged.
 
 ---
 

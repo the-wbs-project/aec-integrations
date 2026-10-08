@@ -71,6 +71,13 @@ function makeVendor(over: Partial<AdminVendorDetail> = {}): AdminVendorDetail {
     created_at: '2026-01-01T00:00:00.000Z',
     updated_at: '2026-08-20T00:00:00.000Z',
     entitlement: null,
+    plan_pricing: {
+      vendor_id: VENDOR_ID,
+      managed_price_cents: null,
+      message: null,
+      updated_by: null,
+      updated_at: null,
+    },
     seats: [makeSeat()],
     seat_emails_available: true,
     pending_invites: [],
@@ -281,13 +288,63 @@ describe('VendorDetail', () => {
     const { el } = await setup(makeApiMock(makeVendor()));
     const headings = [...el.querySelectorAll('h3')].map((h) => h.textContent?.trim());
     // AECI-1237: Field corrections sits between the basics and the entitlement.
-    expect(headings).toEqual([
-      'Vendor logo',
-      'Basics',
-      'Field corrections',
-      'Entitlement',
-      'Seats',
-    ]);
+    expect(headings).toEqual(['Basics', 'Field corrections', 'Entitlement', 'Plan price', 'Seats']);
+  });
+
+  describe('vendor logo', () => {
+    /** The open logo dialog, mounted in the CDK overlay container on `document.body`. */
+    function logoDialog(): HTMLElement | null {
+      const open = [...document.body.querySelectorAll<HTMLElement>('[role="dialog"]')].filter(
+        (d) => d.querySelector('h2')?.textContent?.trim() === 'Vendor logo',
+      );
+      return open.at(-1) ?? null;
+    }
+
+    it('shows the logo in Basics with a pencil, not an open editor', async () => {
+      const { el } = await setup(makeApiMock(makeVendor({ logo_url: null })));
+      const basics = el.querySelector('section[aria-labelledby="admin-vendor-basics"]')!;
+      expect(basics.querySelector('aec-logo-or-initial')).not.toBeNull();
+      const pencil = basics.querySelector('button[aria-label="Edit vendor logo"]');
+      expect(pencil?.getAttribute('aria-haspopup')).toBe('dialog');
+      // The editor is behind the pencil, so the page itself carries no logo form.
+      expect(el.querySelector('aec-admin-logo-editor')).toBeNull();
+    });
+
+    it('opens the logo editor in a dialog from the pencil', async () => {
+      const { el, fixture } = await setup(makeApiMock(makeVendor()));
+      const pencil = el.querySelector<HTMLButtonElement>('button[aria-label="Edit vendor logo"]')!;
+      pencil.click();
+      fixture.detectChanges();
+      await fixture.whenStable();
+      const dialog = logoDialog();
+      expect(dialog).not.toBeNull();
+      expect(dialog!.querySelector('aec-admin-logo-editor')).not.toBeNull();
+    });
+
+    it('announces upload status inside the dialog and the save on the page after close', async () => {
+      const { el, fixture } = await setup(makeApiMock(makeVendor()));
+      el.querySelector<HTMLButtonElement>('button[aria-label="Edit vendor logo"]')!.click();
+      fixture.detectChanges();
+      await fixture.whenStable();
+      const pageStatus = el.querySelector('p[role="status"]')!;
+
+      // The CDK hides the app root behind the modal, so status must be read from inside it.
+      fixture.componentInstance['logoDialogMessage'].set('Uploading image.');
+      fixture.detectChanges();
+      expect(logoDialog()!.querySelector('[role="status"]')?.textContent?.trim()).toBe(
+        'Uploading image.',
+      );
+      expect(pageStatus.textContent?.trim()).toBe('');
+
+      // The editor emits logoSaved, then its confirmation, in that order.
+      fixture.componentInstance['onVendorLogoSaved']('https://example.com/logo.png');
+      fixture.componentInstance['logoDialogMessage'].set('Logo saved.');
+      await vi.waitFor(() => {
+        fixture.detectChanges();
+        expect(pageStatus.textContent?.trim()).toBe('Logo saved.');
+      });
+      expect(logoDialog()).toBeNull();
+    });
   });
 
   describe('tabs', () => {
@@ -460,6 +517,48 @@ describe('VendorDetail', () => {
       fixture.componentInstance['onAnnounce']('Entitlement granted.');
       fixture.detectChanges();
       expect(el.querySelector('[role="status"]')?.textContent).toContain('Entitlement granted.');
+    });
+  });
+
+  describe('plan price section (ruling 2026-10-08, §13.13)', () => {
+    it('hosts one control under its own heading, fed the stored override', async () => {
+      const { el } = await setup(
+        makeApiMock(
+          makeVendor({
+            plan_pricing: {
+              vendor_id: VENDOR_ID,
+              managed_price_cents: 1250,
+              message: null,
+              updated_by: null,
+              updated_at: '2026-10-08T00:00:00.000Z',
+            },
+          }),
+        ),
+      );
+      const controls = el.querySelectorAll('aec-plan-pricing-control');
+      expect(controls).toHaveLength(1);
+      expect(controls[0].querySelector('[aria-labelledby="admin-vendor-plan-price"]')).toBeTruthy();
+      expect(controls[0].textContent).toContain('Managed is $12.50 a month per product.');
+    });
+
+    it("updates in place from the control's output and reloads the audit trail", async () => {
+      const { fixture, el, api } = await setup(makeApiMock(makeVendor()));
+      const before = api.getVendor.mock.calls.length;
+      const audits = api.listAudit.mock.calls.length;
+      fixture.componentInstance['onPlanPricingChanged']({
+        vendor_id: VENDOR_ID,
+        managed_price_cents: null,
+        message: 'Free until December 12',
+        updated_by: null,
+        updated_at: '2026-10-08T00:00:00.000Z',
+      });
+      await settle();
+      fixture.detectChanges();
+      expect(api.getVendor).toHaveBeenCalledTimes(before);
+      expect(api.listAudit.mock.calls.length).toBeGreaterThan(audits);
+      expect(el.querySelector('[data-testid="plan-pricing-preview"]')?.textContent?.trim()).toBe(
+        'Free until December 12',
+      );
     });
   });
 

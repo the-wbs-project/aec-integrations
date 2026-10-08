@@ -89,6 +89,7 @@ const ME: VendorMeResponse = {
     period_end: null,
     ended_at: null,
     capabilities: ['profile.edit'],
+    price: { managed_price_cents: null, message: null },
   },
 };
 

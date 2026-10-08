@@ -55,6 +55,8 @@ You can use it in three places:
 
 "Looks right" changes no listing details. It only records that your company checked them, and when.
 
+The "Looks right" button only appears while that check is still to do. That holds at the top of a page and on a product's checklist. After you press it, the button stays until you leave the page and reads "Checked". Next time you open the page it is gone. Once something is checked, saving an edit is how you record a later check.
+
 ## The checklists
 
 The portal has two checklists. They show what is left to check.

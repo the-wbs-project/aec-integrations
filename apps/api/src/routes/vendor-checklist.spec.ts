@@ -656,12 +656,13 @@ describe('batching', () => {
     expect(await statementsFor('/api/vendor/checklist')).toBe(two);
   });
 
-  it('runs seven statements for the vendor read', async () => {
+  // Each read includes the one primary-key lookup of the plan price overrides (§13.13).
+  it('runs eight statements for the vendor read', async () => {
     await addProducts(4, 3000);
-    expect(await statementsFor('/api/vendor/checklist')).toBe(7);
+    expect(await statementsFor('/api/vendor/checklist')).toBe(8);
   });
 
-  it('runs the ownership wave plus three fact reads for the product read', async () => {
-    expect(await statementsFor(`/api/vendor/products/${P_ONE}/checklist`)).toBe(6);
+  it('runs the ownership wave plus three fact reads and the price read for the product read', async () => {
+    expect(await statementsFor(`/api/vendor/products/${P_ONE}/checklist`)).toBe(7);
   });
 });

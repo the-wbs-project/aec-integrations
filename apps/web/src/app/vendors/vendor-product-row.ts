@@ -1,4 +1,4 @@
-import { Component, computed, input } from '@angular/core';
+import { Component, ElementRef, computed, input, viewChild } from '@angular/core';
 import { RouterLink } from '@angular/router';
 
 import type { ProductListItem } from '@aeci/shared';
@@ -6,6 +6,7 @@ import type { ProductListItem } from '@aeci/shared';
 import { IntegrationStat } from '../products/integration-stat';
 import { RatingSummary } from '../reviews/rating-summary';
 import { LogoOrInitial } from '../shared/logo-or-initial/logo-or-initial';
+import { forwardRowClick } from '../shared/row-link/row-link-click';
 import { TaxonomyBadge } from '../shared/taxonomy-badge/taxonomy-badge';
 
 /**
@@ -39,10 +40,12 @@ import { TaxonomyBadge } from '../shared/taxonomy-badge/taxonomy-badge';
  *
  * Row click → the product page `/products/:slug`. To keep the whole row
  * clickable *and* still expose a distinct link to the category without nesting
- * `<a>`s, it uses the accessible stretched-link pattern (same as
- * `ProductIntegrationRow`): an `absolute inset-0` overlay against the `relative`
- * `<tr>` host carries the product link, and the category badge sits on top
- * (`relative z-10`) so its own activation wins. Two sibling links, zero nesting.
+ * `<a>`s, the product link is the trailing arrow (a real `<a>` with its own
+ * accessible name), and a click anywhere else on the row is forwarded to it by
+ * `forwardRowClick` (same as `ProductIntegrationRow`). A click on the category
+ * badge keeps its own destination. Two sibling links, zero nesting. This is not
+ * a stretched overlay link, because Safari before 27 cannot anchor one to a
+ * `<tr>` (see `shared/row-link/row-link-click.ts`).
  */
 @Component({
   // Attribute selector so the rendered DOM is a literal `<tr>` (see class doc).
@@ -50,17 +53,15 @@ import { TaxonomyBadge } from '../shared/taxonomy-badge/taxonomy-badge';
   selector: 'tr[aec-vendor-product-row]',
   imports: [RouterLink, LogoOrInitial, TaxonomyBadge, RatingSummary, IntegrationStat],
   host: {
-    // `relative` anchors the stretched product-page overlay to the whole row.
+    // No `relative`: a <tr> cannot anchor positioned children in Safari < 27
+    // (see class doc). The row click is forwarded to the trailing link instead.
     // `group` lets the below-`md` category sublabel step tertiary→secondary
     // when the row fill goes muted on hover / focus-within.
     class:
-      'group relative text-(--text-primary) transition-colors hover:bg-(--surface-muted) focus-within:bg-(--surface-muted)',
+      'group cursor-pointer text-(--text-primary) transition-colors hover:bg-(--surface-muted) focus-within:bg-(--surface-muted)',
+    '(click)': 'onRowClick($event)',
   },
   template: `
-    <!-- No "relative" on this cell: the product overlay below must anchor to the
-         relative <tr> host (see class doc), not this cell, so it spans the whole
-         row. A relative <td> would intercept inset-0 (as the nearest positioned
-         ancestor) and shrink the click target to this cell alone. -->
     <td class="px-4 py-3 font-medium">
       <span class="flex items-center gap-3">
         <aec-logo-or-initial [src]="product().logo_url" [name]="product().name" size="sm" />
@@ -78,20 +79,12 @@ import { TaxonomyBadge } from '../shared/taxonomy-badge/taxonomy-badge';
           }
         </span>
       </span>
-      <!-- Stretched overlay: the whole row navigates to the product page.
-           Absolute against the relative tr host, so it covers every cell;
-           kept below the category badge (which is z-10) so that link stays live. -->
-      <a
-        [routerLink]="['/products', product().slug]"
-        [attr.aria-label]="rowAriaLabel()"
-        class="absolute inset-0 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-(--accent-primary)"
-      ></a>
     </td>
     <td class="hidden px-4 py-3 text-(--text-secondary) md:table-cell">
       @if (primaryCategory(); as cat) {
-        <!-- relative z-10 lifts the category link above the stretched row overlay
-             so its own click (→ /categories/:slug) wins. -->
-        <span class="relative z-10 inline-flex">
+        <!-- The row click handler skips clicks on links, so the category link
+             keeps its own destination (/categories/:slug). -->
+        <span class="inline-flex">
           <aec-taxonomy-badge kind="category" [slug]="cat.slug" [name]="cat.name" />
         </span>
       } @else {
@@ -118,7 +111,19 @@ import { TaxonomyBadge } from '../shared/taxonomy-badge/taxonomy-badge';
       <aec-integration-stat [count]="product().integration_count" variant="inline" />
     </td>
     <td class="px-4 py-3 text-end align-middle">
-      <span class="text-(--text-tertiary) inline-block rtl:-scale-x-100" aria-hidden="true">→</span>
+      <!-- The row's product link. The <a> carries the accessible name, so the
+           glyph is aria-hidden. size-6 keeps the target at 24px (WCAG 2.2
+           SC 2.5.8). A click anywhere else on the row is forwarded here. -->
+      <a
+        #rowLink
+        [routerLink]="['/products', product().slug]"
+        [attr.aria-label]="rowAriaLabel()"
+        class="inline-flex size-6 items-center justify-center rounded-sm align-middle focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+      >
+        <span class="text-(--text-tertiary) inline-block rtl:-scale-x-100" aria-hidden="true"
+          >→</span
+        >
+      </a>
     </td>
   `,
 })
@@ -128,8 +133,15 @@ export class VendorProductRow {
 
   protected readonly primaryCategory = computed(() => this.product().primary_category);
 
+  /** The product link in the trailing cell; row clicks are forwarded to it. */
+  private readonly rowLink = viewChild<ElementRef<HTMLAnchorElement>>('rowLink');
+
+  protected onRowClick(event: MouseEvent): void {
+    forwardRowClick(event, this.rowLink()?.nativeElement);
+  }
+
   // Built in TS (not an interpolated i18n-aria-label, which emits no attribute)
-  // so the stretched overlay link has a real accessible name naming the product.
+  // so the row link has a real accessible name naming the product.
   protected readonly rowAriaLabel = computed(
     () => $localize`:@@vendors.detail.products.row.aria:View ${this.product().name}:PRODUCT:`,
   );

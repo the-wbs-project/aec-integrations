@@ -13,6 +13,12 @@ import {
   viewChild,
 } from '@angular/core';
 import { toSignal } from '@angular/core/rxjs-interop';
+import {
+  BrnDialog,
+  BrnDialogClose,
+  BrnDialogContent,
+  BrnDialogTitle,
+} from '@spartan-ng/brain/dialog';
 import { ActivatedRoute, RouterLink } from '@angular/router';
 
 import type {
@@ -22,14 +28,17 @@ import type {
   AdminVendorProductRow,
   AdminVendorSeatRow,
   VendorEntitlementResponse,
+  VendorPlanPricingResponse,
 } from '@aeci/shared';
 import { ADMIN_REASON_MAX } from '@aeci/shared';
 
+import { LogoOrInitial } from '../../shared/logo-or-initial/logo-or-initial';
 import { NewTabIcon } from '../../shared/new-tab-icon/new-tab-icon';
 import { AdminBreadcrumbStore } from '../admin-breadcrumb.store';
 import { ADMIN_DETAIL_FALLBACK_LABELS } from '../admin-nav';
 import { AuditTrail } from '../audit/audit-trail';
 import { EntitlementControl } from '../entitlement/entitlement-control';
+import { PlanPricingControl } from '../entitlement/plan-pricing-control';
 import { AdminVendorsApi } from './admin-vendors-api';
 import { ProvisionSeatControl } from './provision-seat-control';
 import { VendorIntegrationsPanel } from './vendor-integrations-panel';
@@ -116,17 +125,53 @@ export type AdminVendorTab = 'vendor' | 'products' | 'integrations' | 'audit';
     RouterLink,
     AuditTrail,
     EntitlementControl,
+    PlanPricingControl,
     ProvisionSeatControl,
     VendorProductsTable,
     VendorIntegrationsPanel,
     NewTabIcon,
+    LogoOrInitial,
+    BrnDialog,
+    BrnDialogClose,
+    BrnDialogContent,
+    BrnDialogTitle,
     DatePipe,
   ],
   templateUrl: './vendor-detail.html',
 })
 export class VendorDetail {
+  /** The logo editor's dialog. Editing a logo is rare, so it sits behind the
+   *  pencil on the Basics logo rather than leading the Vendor tab. */
+  private readonly logoDialog = viewChild(BrnDialog);
+
+  /** The dialog's own live region. While the modal is open the CDK sets
+   *  `aria-hidden` on the app root, which silences the page's `liveMessage`, so
+   *  upload status has to be announced from inside the dialog. */
+  protected readonly logoDialogMessage = signal('');
+
+  /** Set by a successful save; the dialog's `(closed)` hands the confirmation to
+   *  the page's live region once the app root is no longer `aria-hidden`. */
+  private logoSavedPending = false;
+
+  /** Called from the pencil's click handler only (NG0602: `open()` creates an effect). */
+  protected openLogoDialog(): void {
+    this.logoDialogMessage.set('');
+    this.logoSavedPending = false;
+    this.logoDialog()?.open();
+  }
+
   protected onVendorLogoSaved(logoUrl: string | null): void {
     this.vendor.update((v) => (v ? { ...v, logo_url: logoUrl } : v));
+    this.logoSavedPending = true;
+    this.logoDialog()?.close();
+  }
+
+  /** The editor emits `logoSaved` before its "Logo saved." announcement, so the
+   *  confirmation arrives here while the dialog is closing and is read on close. */
+  protected onLogoDialogClosed(): void {
+    if (this.logoSavedPending) this.liveMessage.set(this.logoDialogMessage());
+    this.logoSavedPending = false;
+    this.logoDialogMessage.set('');
   }
   private readonly api = inject(AdminVendorsApi);
   private readonly route = inject(ActivatedRoute);
@@ -295,6 +340,13 @@ export class VendorDetail {
     this.vendor.update((v) => (v ? { ...v, entitlement, verified: entitlement.verified } : v));
     // The audit trail just gained a row. Reload it rather than leaving a page
     // that visibly disagrees with the action the operator just took.
+    void this.loadAudit();
+  }
+
+  /** The plan price control returns the committed overrides (§13.13). Display
+   *  only, so nothing else on the page moves. */
+  protected onPlanPricingChanged(planPricing: VendorPlanPricingResponse): void {
+    this.vendor.update((v) => (v ? { ...v, plan_pricing: planPricing } : v));
     void this.loadAudit();
   }
 

@@ -1,5 +1,4 @@
 import { VendorPortalAnnouncer } from '../vendor-announcer';
-import { LogoInput } from '../../shared/logo-input/logo-input';
 import { Component, computed, effect, inject, input, signal, untracked } from '@angular/core';
 
 import {
@@ -13,6 +12,7 @@ import { PRODUCT_FIELD_CAPABILITIES } from '@aeci/shared/entitlements';
 
 import { NewTabIcon } from '../../shared/new-tab-icon/new-tab-icon';
 import { VendorLockedNote } from './vendor-locked-note';
+import { VendorLogoField, type SaveLogo } from './vendor-logo-field';
 import { RequestTrigger } from '../../requests/request-trigger';
 import { VendorApi } from '../vendor-api';
 import { VendorPortalStore } from '../vendor-portal-store';
@@ -70,7 +70,7 @@ interface FieldConfig {
  */
 @Component({
   selector: 'aec-vendor-product-form',
-  imports: [LogoInput, RequestTrigger, NewTabIcon, VendorLockedNote],
+  imports: [VendorLogoField, RequestTrigger, NewTabIcon, VendorLockedNote],
   template: `
     <div class="space-y-6">
       <!-- Read-only identity: rename is a correction request, not a vendor edit. -->
@@ -193,74 +193,71 @@ interface FieldConfig {
           </div>
         }
 
-        @for (cfg of textFields; track cfg.key) {
+        <!-- The logo saves from its own dialog, so it is not part of this form's diff. -->
+        <aec-vendor-logo-field
+          [fieldId]="fieldId('logo_url')"
+          [logoUrl]="product().logo_url"
+          [canEdit]="editable()['logo_url']"
+          [save]="saveLogo"
+          (announce)="announcer.announce($event)"
+        />
+
+        @for (cfg of formFields; track cfg.key) {
           <div class="space-y-1.5">
-            @if (cfg.key === 'logo_url') {
-              <aec-logo-input
-                [inputId]="fieldId(cfg.key)"
-                [value]="model()['logo_url'] ?? ''"
-                [readOnly]="!editable()['logo_url']"
-                [disabled]="saving()"
-                (valueChange)="onLogoChange($event)"
-                (pendingChange)="logoPending.set($event)"
-                (announce)="announcer.announce($event)"
-              />
-            } @else {
-              <label [for]="fieldId(cfg.key)" [class]="labelClass">{{ cfg.label }}</label>
-              @if (!editable()[cfg.key]) {
-                <!--
-                  AECI-1218: the locked field's reason, visible and tied to the
-                  control with aria-describedby so a screen reader reads it too.
-                -->
-                <p
-                  [id]="fieldId(cfg.key) + '-locked'"
-                  class="flex items-center gap-1.5 text-xs text-(--text-secondary)"
-                  data-testid="locked-reason"
+            <label [for]="fieldId(cfg.key)" [class]="labelClass">{{ cfg.label }}</label>
+            @if (!editable()[cfg.key]) {
+              <!--
+                AECI-1218: the locked field's reason, visible and tied to the
+                control with aria-describedby so a screen reader reads it too.
+              -->
+              <p
+                [id]="fieldId(cfg.key) + '-locked'"
+                class="flex items-center gap-1.5 text-xs text-(--text-secondary)"
+                data-testid="locked-reason"
+              >
+                <svg
+                  aria-hidden="true"
+                  class="h-3.5 w-3.5 shrink-0"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
                 >
-                  <svg
-                    aria-hidden="true"
-                    class="h-3.5 w-3.5 shrink-0"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    stroke-width="2"
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
-                  >
-                    <rect x="5" y="11" width="14" height="10" rx="2" />
-                    <path d="M8 11V7a4 4 0 0 1 8 0v4" />
-                  </svg>
-                  <span i18n="@@vendor.product.locked.reason"
-                    >Part of Managed for this product. The current value stays published.</span
-                  >
-                </p>
-              }
-              @if (cfg.control === 'textarea') {
-                <textarea
-                  [id]="fieldId(cfg.key)"
-                  rows="4"
-                  [value]="model()[cfg.key]"
-                  [readOnly]="!editable()[cfg.key] || !!aeciLock(cfg.key)"
-                  (input)="onInput(cfg.key, $event)"
-                  [attr.aria-invalid]="fieldErrors()[cfg.key] ? 'true' : null"
-                  [attr.aria-describedby]="describedBy(cfg.key)"
-                  [class]="controlClass(cfg.key)"
-                ></textarea>
-              } @else {
-                <input
-                  [id]="fieldId(cfg.key)"
-                  type="url"
-                  [value]="model()[cfg.key]"
-                  [readOnly]="!editable()[cfg.key] || !!aeciLock(cfg.key)"
-                  (input)="onInput(cfg.key, $event)"
-                  [attr.aria-invalid]="fieldErrors()[cfg.key] ? 'true' : null"
-                  [attr.aria-describedby]="describedBy(cfg.key)"
-                  [class]="controlClass(cfg.key)"
-                />
-              }
-              @if (aeciLock(cfg.key); as lock) {
-                <aec-vendor-locked-note [lock]="lock" [noteId]="fieldId(cfg.key) + '-aeci'" />
-              }
+                  <rect x="5" y="11" width="14" height="10" rx="2" />
+                  <path d="M8 11V7a4 4 0 0 1 8 0v4" />
+                </svg>
+                <span i18n="@@vendor.product.locked.reason"
+                  >Part of Managed for this product. The current value stays published.</span
+                >
+              </p>
+            }
+            @if (cfg.control === 'textarea') {
+              <textarea
+                [id]="fieldId(cfg.key)"
+                rows="4"
+                [value]="model()[cfg.key]"
+                [readOnly]="!editable()[cfg.key] || !!aeciLock(cfg.key)"
+                (input)="onInput(cfg.key, $event)"
+                [attr.aria-invalid]="fieldErrors()[cfg.key] ? 'true' : null"
+                [attr.aria-describedby]="describedBy(cfg.key)"
+                [class]="controlClass(cfg.key)"
+              ></textarea>
+            } @else {
+              <input
+                [id]="fieldId(cfg.key)"
+                type="url"
+                [value]="model()[cfg.key]"
+                [readOnly]="!editable()[cfg.key] || !!aeciLock(cfg.key)"
+                (input)="onInput(cfg.key, $event)"
+                [attr.aria-invalid]="fieldErrors()[cfg.key] ? 'true' : null"
+                [attr.aria-describedby]="describedBy(cfg.key)"
+                [class]="controlClass(cfg.key)"
+              />
+            }
+            @if (aeciLock(cfg.key); as lock) {
+              <aec-vendor-locked-note [lock]="lock" [noteId]="fieldId(cfg.key) + '-aeci'" />
             }
             @if (fieldErrors()[cfg.key]; as err) {
               <p
@@ -385,15 +382,17 @@ export class VendorProductForm {
       control: 'url',
       label: $localize`:@@vendor.product.field.apiDocsUrl:API documentation URL`,
     },
-    { key: 'logo_url', control: 'url', label: $localize`:@@vendor.product.field.logoUrl:Logo URL` },
+    { key: 'logo_url', control: 'url', label: $localize`:@@vendor.product.field.logo:Logo` },
   ];
+  /** The fields this form renders and diffs. The logo is in {@link textFields} for
+   *  the plan gate and the locked notice only: it saves from its own dialog. */
+  protected readonly formFields = this.textFields.filter((cfg) => cfg.key !== 'logo_url');
 
   private readonly baseline = signal<VendorProduct | null>(null);
   protected readonly model = signal<Record<string, string>>({});
 
   protected readonly announcer = inject(VendorPortalAnnouncer);
   protected readonly saving = signal(false);
-  protected readonly logoPending = signal(false);
   protected readonly saved = signal(false);
   protected readonly saveError = signal(false);
   /** AECI-1237: the save was refused with `409 FIELD_LOCKED_BY_AECI`. */
@@ -418,7 +417,7 @@ export class VendorProductForm {
   protected readonly fieldErrors = computed<Record<string, string | null>>(() => {
     const m = this.model();
     const out: Record<string, string | null> = {};
-    for (const cfg of this.textFields) {
+    for (const cfg of this.formFields) {
       const raw = (m[cfg.key] ?? '').trim();
       if (raw === '') {
         out[cfg.key] = null;
@@ -445,7 +444,7 @@ export class VendorProductForm {
     if (!base) return out as UpdateVendorProductInput;
     const m = this.model();
     const editable = this.editable();
-    for (const cfg of this.textFields) {
+    for (const cfg of this.formFields) {
       // A locked field is never sent, even if trimming made it look changed: the
       // server refuses the whole request when it names one.
       if (!editable[cfg.key]) continue;
@@ -462,12 +461,7 @@ export class VendorProductForm {
     Object.values(this.fieldErrors()).some((e) => e !== null),
   );
   protected readonly saveDisabled = computed(
-    () =>
-      !this.canEdit() ||
-      this.saving() ||
-      this.logoPending() ||
-      !this.hasChanges() ||
-      this.hasErrors(),
+    () => !this.canEdit() || this.saving() || !this.hasChanges() || this.hasErrors(),
   );
 
   /** The store deferred a fresh `me` payload because THIS product form is
@@ -492,13 +486,9 @@ export class VendorProductForm {
       });
     });
 
-    // Register/withdraw this product's unsaved-edit protection. An in-flight
-    // logo upload counts as dirty even though the model has not moved yet: the
-    // store would otherwise push a fresh payload mid-upload and the re-seed
-    // above would drop the draft the upload is about to land on. Same guard as
-    // the profile form.
+    // Register/withdraw this product's unsaved-edit protection.
     effect(() => {
-      const dirty = this.hasChanges() || this.logoPending();
+      const dirty = this.hasChanges();
       untracked(() => {
         const id = this.product().id;
         if (dirty) this.store.markDirty('products', id);
@@ -517,10 +507,28 @@ export class VendorProductForm {
     return `vendor-product-${this.product().id}-${key.replace(/_/g, '-')}`;
   }
 
-  protected onLogoChange(value: string): void {
-    this.model.update((m) => ({ ...m, logo_url: value }));
-    this.saved.set(false);
-  }
+  /**
+   * The logo dialog's save: `{ logo_url }` alone, so the rest of this form's
+   * unsaved edits stay unsaved. Only the logo is spliced into `me`, for the same
+   * reason: the echo's other fields would land under a dirty form.
+   */
+  protected readonly saveLogo: SaveLogo = async (logoUrl) => {
+    const id = this.product().id;
+    const res = await this.api.updateProduct(id, { logo_url: logoUrl });
+    this.store
+      .apply('me', (me) =>
+        me
+          ? {
+              ...me,
+              products: me.products.map((p) =>
+                p.id === id ? { ...p, logo_url: res.product.logo_url } : p,
+              ),
+            }
+          : me,
+      )
+      .commit();
+    return res.product.logo_url;
+  };
 
   protected onInput(key: string, event: Event): void {
     const value = (event.target as HTMLInputElement | HTMLTextAreaElement).value;
@@ -569,7 +577,6 @@ export class VendorProductForm {
       website: p.website ?? '',
       tool_integrations_url: p.tool_integrations_url ?? '',
       api_docs_url: p.api_docs_url ?? '',
-      logo_url: p.logo_url ?? '',
     });
   }
 }

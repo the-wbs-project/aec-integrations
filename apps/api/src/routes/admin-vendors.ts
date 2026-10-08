@@ -104,6 +104,7 @@ import { toProductRole, vendorListConfig } from '../lib/drizzle-helpers';
 import { resolveAdminVendorOrderBy } from '../lib/sort';
 import { likeContains } from '../lib/sql-like';
 import { fetchAuthUserEmailsResult, type AuthEmailLookup } from '../lib/supabase-admin';
+import { selectPlanPricing, toPlanPricingResponse } from '../lib/vendor-plan-pricing';
 import {
   CLAIM_AUDIT_SOURCE,
   provisionSeatStatements,
@@ -295,9 +296,9 @@ const EMPTY_CLAIM_COUNTS: AdminVendorClaimCounts = {
 /**
  * The vendor detail.
  *
- * **Two D1 round trips, not seven.** The first is the 404 gate — nothing may be
+ * **Two D1 round trips, not eight.** The first is the 404 gate — nothing may be
  * reported about a vendor that does not exist. The second is one `db.batch` of
- * seven reads: the batch is the round-trip tool here, not an atomicity one (the
+ * eight reads: the batch is the round-trip tool here, not an atomicity one (the
  * same use `GET /api/vendor/updates` documents). It is deliberately NOT a
  * `UNION` — D1 compiles SQLite with `SQLITE_MAX_COMPOUND_SELECT = 5`, which the
  * admin System screen already got bitten by, and a batch has no such ceiling.
@@ -324,6 +325,7 @@ export function createAdminVendorDetailHandler(
 
     const [
       entitlementRows,
+      pricingRows,
       seatRows,
       inviteRows,
       productRoleGroups,
@@ -332,6 +334,8 @@ export function createAdminVendorDetailHandler(
       claimRows,
     ] = await db.batch([
       db.select().from(vendorEntitlements).where(eq(vendorEntitlements.vendorId, vendorId)),
+      // The display-only plan price overrides (ruling 2026-10-08, §13.13).
+      selectPlanPricing(db, vendorId),
       db
         .select({
           id: profiles.id,
@@ -428,6 +432,7 @@ export function createAdminVendorDetailHandler(
       created_at: vendor.createdAt,
       updated_at: vendor.updatedAt,
       entitlement: toEntitlement(vendor.id, vendor.verified, entitlementRows[0] ?? null),
+      plan_pricing: toPlanPricingResponse(vendor.id, pricingRows[0]),
       seats: seatRows.map(
         (row): AdminVendorSeatRow => ({
           user_id: row.id,

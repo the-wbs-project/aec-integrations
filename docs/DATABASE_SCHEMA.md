@@ -131,6 +131,7 @@ Tables grouped by domain:
 - `audit_log` — every state-changing event
 - `promote_jobs` — exactly-once ledger for the async promote ingest (AECI-571)
 - `vendor_entitlements` — the vendor's paid tier, status and term; `vendors.verified` is its denormalized mirror — Stage 2 (AECI-609)
+- `vendor_plan_pricing` — per-vendor plan price overrides for the portal's plan panel; display only, never billing (§8.6a, ruling 2026-10-08)
 - `vendor_seat_invites` — pending self-serve seat invites; an INTENT, never an account — Stage 2 (AECI-664)
 - `integration_field_challenges` — a vendor's contest of one integration field; a request, never the value (§8.7, AECI-1008)
 - `integration_vendor_links` — each endpoint vendor's own listing and docs link on an integration; web links, never permissions (§8.8, AECI-1007)
@@ -1623,6 +1624,40 @@ create index vendor_entitlements_status_idx on vendor_entitlements(status);
 create index vendor_entitlements_expiry_idx on vendor_entitlements(period_end)
   where period_end is not null and status = 'active';
 ```
+
+### 8.6a `vendor_plan_pricing` (ruling 2026-10-08, migration 0066)
+
+Per-vendor overrides for what the vendor portal's plan panel says Managed costs.
+**Display only.** Nothing bills from it, and no entitlement, capability or ranking reads
+it. `STAGE_2_PAID_TIERS_SPEC.md` §13.13 is the model.
+
+```sql
+create table vendor_plan_pricing (
+  vendor_id text primary key references vendors(id) on delete cascade,
+  managed_price_cents integer, -- Managed per product per month, US cents; null = the default (MANAGED_LIST_PRICE_CENTS)
+  price_message text,          -- replaces the whole price sentence; beats the price; null = none
+  updated_by text,             -- the admin's profiles.id; NO FK, as notification_settings.updated_by; never on the vendor wire
+  created_at text not null,
+  updated_at text not null
+);
+```
+
+- **Its own table.** Not columns on `vendors`, because promote owns that row. Not columns on
+  `vendor_entitlements` (§8.6), because a Free vendor with no entitlement row must still carry
+  an override, and clearing an entitlement must not wipe it.
+- **No row is the default.** The one writer, `PUT /api/admin/vendors/:id/plan-pricing`,
+  deletes the row when both overrides are cleared, so a row always holds at least one.
+- **No CHECK.** Bounds live in `SetVendorPlanPricingSchema` (price 0 to 10,000,000 cents;
+  message 1 to 280 characters). A CHECK change would force a D1 table recreate
+  (`docs/migrations.md` §0).
+- **Domain state.** Every write emits `vendor_plan_pricing.set` or `.cleared` into the same
+  `db.batch` (§8.4), keyed `entity_type = 'vendor_plan_pricing'`, `entity_id` = the vendor id.
+- **Vendor retraction.** The `ON DELETE CASCADE` is left to the FK on purpose
+  (`VENDOR_FK_HANDLING` outcome `fk-action` in `apps/api/src/lib/retract-vendor.ts`). The row
+  means nothing without the vendor, and its history is in `audit_log`.
+- **Read paths.** `GET /api/vendor/me`, the product PATCH echo and both checklist reads put
+  `{ managed_price_cents, message }` on every `plan` block, one primary-key read each.
+  `GET /api/admin/vendors/:id` returns it with `updated_by` / `updated_at` as `plan_pricing`.
 
 ### `vendor_seat_invites` (Stage 2 — AECI-664)
 
@@ -4151,6 +4186,7 @@ High-level intent (now **Worker-enforced**, not RLS-enforced):
 - Owners update own pending reviews
 - Admin-only access to moderation, audit log, workflow, page_views, vendor_requests. The one exception: a vendor reads its own `audit_log` rows through `GET /api/vendor/notifications` and `GET /api/vendor/history` (`STAGE_1_SPEC.md` §26.7)
 - Vendor-portal reads/writes scoped to the caller's `vendor_id` (`vendor_admin`; `AUTH_AND_RLS.md` §3.2 / §4.4)
+- `vendor_plan_pricing` (§8.6a): admin-only write (`requireAdmin()`). A vendor reads only its own row's two display fields, folded into its `plan` block by `vendor_id`; never `updated_by`
 - Connector mapping edits (AECI-724): `admin`, or a `vendor_admin` whose `vendor_id` holds the catalogue's `connector`-role product through `product_vendors`. Never capability-gated and no `vendor_entitlements` read (`STAGE_2_SPEC.md` §8.9(2)). Both paths require `connector_catalogs.managed_by = 'vendor'` (`AUTH_AND_RLS.md` §4.4)
 
 ---

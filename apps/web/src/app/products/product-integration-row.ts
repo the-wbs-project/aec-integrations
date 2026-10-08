@@ -1,4 +1,4 @@
-import { Component, computed, input } from '@angular/core';
+import { Component, ElementRef, computed, input, viewChild } from '@angular/core';
 import { RouterLink } from '@angular/router';
 
 import type {
@@ -14,6 +14,7 @@ import {
   mechanismKindLabel,
 } from '../search/mechanism-labels';
 import { LogoOrInitial } from '../shared/logo-or-initial/logo-or-initial';
+import { forwardRowClick } from '../shared/row-link/row-link-click';
 
 import { routeIntegrationLane } from './connector-lane-grouping';
 
@@ -70,10 +71,16 @@ import { routeIntegrationLane } from './connector-lane-grouping';
  * Row click → the product-PAIR page `/products/:contextSlug/integrations/:other`
  * (context = *this* page's product, so the direction stays context-relative). To
  * keep the whole row clickable *and* still expose a distinct link to the partner
- * product without nesting `<a>`s, it uses the accessible stretched-link pattern:
- * the pair-page link is an `absolute inset-0` overlay against the `relative`
- * `<tr>` host, and the partner-product link sits on top (`relative z-10`) so its
- * own activation wins. Two sibling links, zero nesting.
+ * product without nesting `<a>`s, the pair-page link is the trailing chevron
+ * (a real `<a>` with its own accessible name), and a click anywhere else on the
+ * row is forwarded to it by `forwardRowClick`. A click on the partner-product
+ * link keeps its own destination. Two sibling links, zero nesting.
+ *
+ * **Not a stretched overlay link.** The row used to be an `absolute inset-0`
+ * overlay against a `relative` `<tr>`. Safari before 27 ignores
+ * `position: relative` on a table row, so every row's overlay covered the whole
+ * viewport and a click near the page title opened a random integration. See
+ * `shared/row-link/row-link-click.ts`.
  */
 @Component({
   // Attribute selector so the rendered DOM is a literal `<tr>` (see class doc).
@@ -81,23 +88,21 @@ import { routeIntegrationLane } from './connector-lane-grouping';
   selector: 'tr[aec-product-integration-row]',
   imports: [RouterLink, LogoOrInitial],
   host: {
-    // `relative` anchors the stretched pair-page overlay to the whole row.
+    // No `relative`: a <tr> cannot anchor positioned children in Safari < 27
+    // (see class doc). The row click is forwarded to the chevron link instead.
     // `group` lets the meta line under the partner name step tertiary→secondary
     // when the row fill goes muted on hover / focus-within.
     class:
-      'group relative text-(--text-primary) transition-colors hover:bg-(--surface-muted) focus-within:bg-(--surface-muted)',
+      'group cursor-pointer text-(--text-primary) transition-colors hover:bg-(--surface-muted) focus-within:bg-(--surface-muted)',
+    '(click)': 'onRowClick($event)',
   },
   template: `
-    <!-- No "relative" on this cell: the pair-page overlay below must anchor to
-         the relative <tr> host (see class doc), not this cell, so it spans the
-         whole row. A relative <td> would intercept inset-0 (as the nearest
-         positioned ancestor) and shrink the click target to this cell alone. -->
     <td class="px-4 py-3 font-medium">
       <span class="flex items-center gap-3">
         <aec-logo-or-initial [src]="other().logo_url" [name]="other().name" size="sm" />
         <span class="flex min-w-0 flex-col">
-          <!-- Secondary link to the partner product page. relative + z-10 lifts
-               it above the stretched row overlay so its own click wins.
+          <!-- Secondary link to the partner product page. The row click handler
+               skips clicks on links, so this one keeps its own destination.
                Target size (AECI-1079, WCAG 2.2 SC 2.5.8): the text-sm line box
                is 20px tall, under the 24px minimum. py-0.5 grows the hit area
                to 24px and -my-0.5 gives the 4px back, so the row does not grow
@@ -105,7 +110,7 @@ import { routeIntegrationLane } from './connector-lane-grouping';
                very short partner name. -->
           <a
             [routerLink]="['/products', other().slug]"
-            class="relative z-10 -my-0.5 w-fit min-w-6 rounded-sm py-0.5 transition-colors hover:text-(--accent-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+            class="-my-0.5 w-fit min-w-6 rounded-sm py-0.5 transition-colors hover:text-(--accent-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
             >{{ other().name }}</a
           >
           <!-- The meta line under the partner name. Direction lives here at
@@ -161,14 +166,6 @@ import { routeIntegrationLane } from './connector-lane-grouping';
           </span>
         </span>
       </span>
-      <!-- Stretched overlay: the whole row navigates to the product-PAIR page.
-           Absolute against the relative tr host, so it covers every cell;
-           kept below the partner link (which is z-10) so that link stays live. -->
-      <a
-        [routerLink]="pairLink()"
-        [attr.aria-label]="pairAriaLabel()"
-        class="absolute inset-0 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-(--accent-primary)"
-      ></a>
     </td>
     <td class="hidden px-4 py-3 text-(--text-secondary) md:table-cell">
       <span class="flex flex-col items-start gap-1">
@@ -226,21 +223,31 @@ import { routeIntegrationLane } from './connector-lane-grouping';
            put a direction arrow on the meta line of this very row, one row carried
            two arrows meaning two different things. A chevron is the site's existing
            "there is more this way" mark and carries no direction vocabulary.
-           Hand-inlined Lucide chevron-right (DESIGN.md: Lucide only, no emoji),
-           aria-hidden because the stretched overlay link already names the
-           destination; rtl:-scale-x-100 keeps it pointing at the page edge. -->
-      <svg
-        class="inline-block size-4 text-(--text-tertiary) rtl:-scale-x-100"
-        aria-hidden="true"
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="currentColor"
-        stroke-width="2"
-        stroke-linecap="round"
-        stroke-linejoin="round"
+           Hand-inlined Lucide chevron-right (DESIGN.md: Lucide only, no emoji).
+           The chevron is the row's pair-page link: the <a> carries the
+           accessible name, so the glyph is aria-hidden. size-6 keeps the
+           target at 24px (WCAG 2.2 SC 2.5.8). A click anywhere else on the row
+           is forwarded here (onRowClick). rtl:-scale-x-100 keeps the glyph
+           pointing at the page edge. -->
+      <a
+        #rowLink
+        [routerLink]="pairLink()"
+        [attr.aria-label]="pairAriaLabel()"
+        class="inline-flex size-6 items-center justify-center rounded-sm align-middle focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
       >
-        <path d="m9 18 6-6-6-6" />
-      </svg>
+        <svg
+          class="inline-block size-4 text-(--text-tertiary) rtl:-scale-x-100"
+          aria-hidden="true"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        >
+          <path d="m9 18 6-6-6-6" />
+        </svg>
+      </a>
     </td>
   `,
 })
@@ -308,8 +315,15 @@ export class ProductIntegrationRow {
     );
   });
 
+  /** The pair-page link in the trailing cell; row clicks are forwarded to it. */
+  private readonly rowLink = viewChild<ElementRef<HTMLAnchorElement>>('rowLink');
+
+  protected onRowClick(event: MouseEvent): void {
+    forwardRowClick(event, this.rowLink()?.nativeElement);
+  }
+
   // Built in TS (not an interpolated i18n-aria-label, which emits no attribute)
-  // so the overlay link has a real accessible name naming the partner.
+  // so the pair link has a real accessible name naming the partner.
   protected readonly pairAriaLabel = computed(
     () =>
       $localize`:@@products.detail.integrations.row.aria:View the ${this.other().name}:PARTNER: integration`,

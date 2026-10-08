@@ -97,6 +97,11 @@ export const AUDIT_VENDOR_ACTIONS = {
   'vendor_entitlement.renewed': { kind: 'aeci-override', receipt: true },
   'vendor_entitlement.cleared': { kind: 'aeci-override', receipt: true },
   'vendor_entitlement.expiry_warned': { kind: 'system', receipt: true },
+  // The display-only price overrides (ruling 2026-10-08, STAGE_2_PAID_TIERS_SPEC.md
+  // §13.13). Not receipts: the vendor sees the result on the plan panel, and the
+  // row's before/after names the admin's commercial terms, not a vendor record.
+  'vendor_plan_pricing.set': { kind: 'aeci-override', receipt: false },
+  'vendor_plan_pricing.cleared': { kind: 'aeci-override', receipt: false },
 
   // ── AECi field corrections with a lock (AECI-1237, §11d.5) ────────────────
   // `integration.*` covers both anchor tables, as `integration.updated` does; the

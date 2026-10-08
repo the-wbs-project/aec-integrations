@@ -12,8 +12,10 @@
  *  2. `status: null` and `status: 'revoked'` are different panels (never had a
  *     plan vs. a plan that ended);
  *  3. decision 10's line, word for word, in every state;
- *  4. the draft price label on every state that offers Managed, and none on the
- *     catalogue seat (decision 9);
+ *  4. the Managed price on every state that offers Managed, and none on the
+ *     catalogue seat (decision 9). No "Draft price" label, and the per-vendor
+ *     overrides by precedence: message, then price, then the default (ruling
+ *     2026-10-08, §13.13);
  *  5. fail closed: `active` over an unknown tier is not Managed;
  *  6. copy discipline: no arrangement detail, no ranking claim, no instant search.
  */
@@ -23,7 +25,7 @@ import { provideRouter } from '@angular/router';
 import { beforeEach, describe, expect, it } from 'vitest';
 
 import type { VendorEntitlementBlock } from '@aeci/shared';
-import { capabilitiesFor } from '@aeci/shared/entitlements';
+import { DEFAULT_PLAN_PRICE, capabilitiesFor } from '@aeci/shared/entitlements';
 
 import { VendorPlanPanel } from './vendor-plan-panel';
 
@@ -69,6 +71,7 @@ function managedIn(days: number | null): VendorEntitlementBlock {
     period_end: days === null ? null : new Date(NOW + days * DAY_MS).toISOString(),
     ended_at: null,
     capabilities: MANAGED_CAPS,
+    price: DEFAULT_PLAN_PRICE,
   };
 }
 const FREE: VendorEntitlementBlock = {
@@ -77,6 +80,7 @@ const FREE: VendorEntitlementBlock = {
   period_end: null,
   ended_at: null,
   capabilities: FREE_CAPS,
+  price: DEFAULT_PLAN_PRICE,
 };
 const ENDED: VendorEntitlementBlock = {
   tier: 'unclaimed',
@@ -84,6 +88,7 @@ const ENDED: VendorEntitlementBlock = {
   period_end: '2026-09-18T00:00:00.000Z',
   ended_at: '2026-09-18T00:00:00.000Z',
   capabilities: FREE_CAPS,
+  price: DEFAULT_PLAN_PRICE,
 };
 const PENDING: VendorEntitlementBlock = {
   tier: 'unclaimed',
@@ -91,6 +96,7 @@ const PENDING: VendorEntitlementBlock = {
   period_end: null,
   ended_at: null,
   capabilities: FREE_CAPS,
+  price: DEFAULT_PLAN_PRICE,
 };
 
 const ALL: ReadonlyArray<[string, VendorEntitlementBlock, string | null]> = [
@@ -187,11 +193,12 @@ describe('VendorPlanPanel: copy every panel carries', () => {
   });
 
   it.each(ALL.filter(([name]) => name !== 'catalogue'))(
-    'shows the Managed price as a draft (%s)',
+    'shows the default Managed price, with no draft label (%s)',
     (_name, plan, role) => {
-      const price = el(create(plan, role)).querySelector('[data-testid="plan-price"]');
-      expect(price?.textContent).toContain('Managed is $25 a month per product.');
-      expect(price?.textContent).toContain('Draft price');
+      const f = create(plan, role);
+      const price = el(f).querySelector('[data-testid="plan-price"]');
+      expect(price?.textContent?.trim()).toBe('Managed is $25 a month per product.');
+      expect(text(f)).not.toMatch(/draft/i);
     },
   );
 
@@ -213,5 +220,58 @@ describe('VendorPlanPanel: copy every panel carries', () => {
     const f = create(plan, role);
     expect(el(f).querySelector('[role="alert"]')).toBeNull();
     expect(el(f).innerHTML).not.toContain('--status-error');
+  });
+});
+
+describe('VendorPlanPanel: per-vendor price overrides (ruling 2026-10-08, §13.13)', () => {
+  const priceText = (f: ComponentFixture<VendorPlanPanel>) =>
+    el(f).querySelector('[data-testid="plan-price"]')?.textContent?.trim();
+  const withPrice = (
+    plan: VendorEntitlementBlock,
+    price: VendorEntitlementBlock['price'],
+  ): VendorEntitlementBlock => ({ ...plan, price });
+
+  it('default: no override shows the list price', () => {
+    expect(priceText(create(FREE))).toBe('Managed is $25 a month per product.');
+  });
+
+  it('price override: shows the admin price, with cents when there are any', () => {
+    expect(priceText(create(withPrice(FREE, { managed_price_cents: 1250, message: null })))).toBe(
+      'Managed is $12.50 a month per product.',
+    );
+    expect(
+      priceText(create(withPrice(managedIn(300), { managed_price_cents: 4000, message: null }))),
+    ).toBe('Managed is $40 a month per product.');
+  });
+
+  it('message override: replaces the whole sentence, and beats a price', () => {
+    const message = 'Free until December 12, then 50% off for the next year.';
+    expect(priceText(create(withPrice(ENDED, { managed_price_cents: 1250, message })))).toBe(
+      message,
+    );
+  });
+
+  it('renders the message as text, never as markup', () => {
+    const f = create(withPrice(FREE, { managed_price_cents: null, message: '<b>bold</b> & co' }));
+    const line = el(f).querySelector('[data-testid="plan-price"]');
+    expect(line?.querySelector('b')).toBeNull();
+    expect(line?.textContent?.trim()).toBe('<b>bold</b> & co');
+  });
+
+  it('catalogue: still shows no price, whatever the override', () => {
+    const f = create(
+      withPrice(FREE, { managed_price_cents: 1250, message: 'Half price' }),
+      'connector',
+    );
+    expect(state(f)).toBe('catalogue');
+    expect(el(f).querySelector('[data-testid="plan-price"]')).toBeNull();
+    expect(text(f)).not.toContain('Half price');
+  });
+
+  it('re-renders when the override changes, with no reload', () => {
+    const f = create(FREE);
+    f.componentRef.setInput('plan', withPrice(FREE, { managed_price_cents: 900, message: null }));
+    f.detectChanges();
+    expect(priceText(f)).toBe('Managed is $9 a month per product.');
   });
 });

@@ -36,6 +36,7 @@ import {
   products,
   profiles,
   vendorEntitlements,
+  vendorPlanPricing,
   vendorRequests,
   vendorSeatInvites,
   vendors,
@@ -531,6 +532,38 @@ describe('GET /api/admin/vendors/:id', () => {
       u(23), // zed
       u(22), // unnamed
     ]);
+  });
+
+  it('reports the plan price overrides, all-null when none are set (§13.13)', async () => {
+    const handler = createAdminVendorDetailHandler(t.factory, emailSeam());
+    const none = await body(
+      await send(mount('get', '/api/admin/vendors/:id', handler), `/api/admin/vendors/${VENDOR}`),
+    );
+    expect(none.plan_pricing).toEqual({
+      vendor_id: VENDOR,
+      managed_price_cents: null,
+      message: null,
+      updated_by: null,
+      updated_at: null,
+    });
+
+    await t.db.insert(vendorPlanPricing).values({
+      vendorId: VENDOR,
+      managedPriceCents: 1250,
+      priceMessage: null,
+      updatedBy: SEAT_A,
+      updatedAt: '2026-10-08T00:00:00.000Z',
+    });
+    const set = await body(
+      await send(mount('get', '/api/admin/vendors/:id', handler), `/api/admin/vendors/${VENDOR}`),
+    );
+    expect(set.plan_pricing).toEqual({
+      vendor_id: VENDOR,
+      managed_price_cents: 1250,
+      message: null,
+      updated_by: SEAT_A,
+      updated_at: '2026-10-08T00:00:00.000Z',
+    });
   });
 
   it('includes a BANNED seat on the roster', async () => {

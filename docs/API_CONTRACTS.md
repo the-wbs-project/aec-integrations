@@ -2341,6 +2341,9 @@ export const AdminVendorDetailSchema = z.object({
   created_at: z.string(), updated_at: z.string(),
 
   entitlement: VendorEntitlementResponseSchema.nullable(),   // null = none on record
+  // Ruling 2026-10-08: the display-only plan price overrides. Never null: no
+  // override reads all-null fields. See `PUT …/plan-pricing` below.
+  plan_pricing: VendorPlanPricingResponseSchema,
 
   seats: AdminVendorSeatRowSchema.array().nullable(),        // null = UNAVAILABLE, [] = none
   seat_emails_available: z.boolean(),
@@ -2807,6 +2810,60 @@ write a claimed vendor. Clearing an entitlement leaves the seats, so the promote
 force while the portal's writes now 403 — **nobody can edit that vendor.** Un-verify is rare and
 deliberate, so the accepted launch mitigation is: re-activate → edit → clear again, or use
 `apps/datatool`. Closing it properly is deferred (`STAGE_2_PAID_TIERS_SPEC.md` §11).
+
+#### `PUT /api/admin/vendors/:id/plan-pricing` (ruling 2026-10-08)
+
+Set or reset a vendor's plan price overrides. Behind `requireAdmin()` and
+`rateLimit('write')`. **Display only:** it changes the price line on the vendor
+portal's plan panel and nothing else. No billing, no entitlement, no capability, no
+ranking. It is not part of the entitlement: a vendor with no entitlement row can carry
+one, and a `clear` leaves it alone. Source of truth:
+`packages/shared/src/api/admin-plan-pricing.ts`, `apps/api/src/routes/admin-plan-pricing.ts`;
+model: `STAGE_2_PAID_TIERS_SPEC.md` §13.13.
+
+```typescript
+// Request: a full replacement. Both keys required; both null = reset to default.
+export const SetVendorPlanPricingSchema = z.object({
+  managed_price_cents: z.number().int().min(0).max(10_000_000).nullable(), // whole US cents
+  message: PlanPriceMessageSchema, // whitespace folded + trimmed; "" → null; 1..280; no markup or control chars
+});
+
+// Response, and `AdminVendorDetail.plan_pricing`.
+export const VendorPlanPricingResponseSchema = z.object({
+  vendor_id: z.string().uuid(),
+  managed_price_cents: z.number().int().min(0).nullable(),
+  message: z.string().nullable(),
+  updated_by: z.string().nullable(), // admin profiles.id; admin-only, never on the vendor wire
+  updated_at: z.string().nullable(),
+});
+```
+
+```json
+PUT /api/admin/vendors/0000…0002/plan-pricing
+{ "managed_price_cents": 1250, "message": null }
+
+200
+{ "vendor_id": "0000…0002", "managed_price_cents": 1250, "message": null,
+  "updated_by": "0000…0900", "updated_at": "2026-10-08T12:00:00.000Z" }
+```
+
+**Precedence on the panel:** `message`, then `managed_price_cents`, then the default
+(`MANAGED_LIST_PRICE_CENTS = 2500`, `@aeci/shared/entitlements`).
+
+**Writes.** An upsert, or a `DELETE` when both fields are null, plus its `audit_log` row,
+in one `db.batch`. Actions `vendor_plan_pricing.set` / `vendor_plan_pricing.cleared`,
+`entity_type = 'vendor_plan_pricing'`, `entity_id` = the vendor id, `vendor_id` stamped.
+A request that changes nothing writes nothing and returns the stored state. No cache
+purge: no public page renders it.
+
+| Status | Code | When |
+|---|---|---|
+| 400 | `VALIDATION_FAILED` | a key missing; a price that is negative, fractional, a string or over the cap; a message over 280 characters, or carrying markup or control characters |
+| 400 | `MALFORMED_REQUEST` | the body is not JSON |
+| 404 | `NOT_FOUND` | unknown vendor id |
+
+Plus the shared 401/403 (a `vendor_admin`, including one on this vendor, is 403) and the
+`write` rate limit's 429.
 
 #### `PATCH /api/admin/connector-catalogs/:id` (AECI-720)
 
@@ -5842,6 +5899,7 @@ export const VendorEntitlementBlockSchema = z.object({
   period_end: z.string().nullable(),            // null = perpetual, or no term on record
   ended_at: z.string().nullable(),              // AECI-1218: vendor_entitlements.ended_at; null for no row or a row that has not ended
   capabilities: z.array(CapabilitySchema),      // the expansion of `tier` through TIER_CAPABILITIES
+  price: PlanPriceSchema,                       // 2026-10-08: { managed_price_cents, message }, both null = default
 });
 
 // Each VendorProductSchema entry also carries (AECI-1214):
@@ -5852,7 +5910,7 @@ export const VendorEntitlementBlockSchema = z.object({
 
 **`requests` ships newest first** (`created_at DESC, id DESC`, AECI-1243). The Messages list renders that order.
 
-**The `entitlement` block costs no query.** It is built from the same `AuthenticatedSession` the write gate asserts on, so the dashboard's readout and the 403 a write would get **cannot disagree**. `capabilities` ships expanded so the dashboard disables controls off one field instead of re-deriving the ladder in the browser. It is **required**, not optional (R10). For `unclaimed` (the Free plan, which a lapsed row also resolves to) it is `['profile.edit', 'product.listing.edit', 'product.categories.edit']`, never empty (AECI-1214).
+**The `entitlement` block costs one query, for `price` only.** Every other field is built from the same `AuthenticatedSession` the write gate asserts on, so the dashboard's readout and the 403 a write would get **cannot disagree**. `price` is the display-only plan price override (`STAGE_2_PAID_TIERS_SPEC.md` §13.13), one primary-key read of `vendor_plan_pricing`. It never carries who set it, and it gates nothing. `capabilities` ships expanded so the dashboard disables controls off one field instead of re-deriving the ladder in the browser. It is **required**, not optional (R10). For `unclaimed` (the Free plan, which a lapsed row also resolves to) it is `['profile.edit', 'product.listing.edit', 'product.categories.edit']`, never empty (AECI-1214).
 
 **Each product carries `plan` (AECI-1214, `STAGE_2_PAID_TIERS_SPEC.md` §13.7).** Plans live at the product level, so product screens gate on `product.plan` through `productCan` and never on `entitlement`. Until a per-product plan table exists, the server copies the vendor's block into every product. Server enforcement stays vendor-wide, and the field and the gate read the same block. `PATCH /api/vendor/products/:id` echoes the product with its `plan` too.
 
@@ -6415,6 +6473,8 @@ export const UpdateVendorProfileResponseSchema = z.object({ vendor: VendorAccoun
 ```
 
 `source_url` is excluded on purpose: it records where AECi's own research came from, so letting the subject of that research rewrite it would defeat it.
+
+The portal company form (`vendor-profile-form.ts`) offers only the five links the public vendor hero renders: LinkedIn, X, Facebook, Instagram and YouTube. `crunchbase_url`, `wiki_url` and `github_org` stay in the schema and the allow-list, but no portal control writes them until the site shows them.
 
 Errors: `VALIDATION_FAILED` (empty body, or a body whose only keys are non-allow-listed — Zod strips them, so the vendor gets a clear 400 rather than a silent no-op 200), `MALFORMED_REQUEST`, `NOT_FOUND`, `ENTITLEMENT_REQUIRED` (403 — the tier lacks `profile.edit`, or lacks the capability a **specific** provided field requires, in which case `details.fields` names them; since AECI-1214 every real tier holds `profile.edit`, so a seat with no plan edits company details), `RATE_LIMITED` (429 — AECI-773 burst cap, `Retry-After: 60`).
 
