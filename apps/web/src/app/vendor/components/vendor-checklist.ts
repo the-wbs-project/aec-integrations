@@ -1,9 +1,10 @@
-import { ChangeDetectionStrategy, Component, computed, input } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, input, linkedSignal } from '@angular/core';
 import { RouterLink } from '@angular/router';
 
 import type { ChecklistStepStatus } from '@aeci/shared';
 
 import { VendorLooksRight, type LooksRightTarget } from './vendor-looks-right';
+import { latchReviewDecisions, type ReviewLatchEntry } from './vendor-review-strip';
 
 /** What a checklist row offers the vendor. */
 export type ChecklistAction =
@@ -18,6 +19,13 @@ export type ChecklistAction =
     }
   /** Plain text, for a step the plan does not include ("Available on Managed"). */
   | { readonly kind: 'note'; readonly label: string };
+
+type LooksRightAction = Extract<ChecklistAction, { kind: 'looksRight' }>;
+
+/** The latch key for one control: the step's target on its product (or the company). */
+function looksRightRecord(action: LooksRightAction): string {
+  return `${action.target}:${action.productId ?? 'company'}`;
+}
 
 /** One step, already worded. The caller maps the API's step key to copy. */
 export interface ChecklistRow {
@@ -43,6 +51,12 @@ export interface ChecklistRow {
  * DoorDash Merchant "Get ready to go live" setup list on Mobbin: numbered steps,
  * one action each, the optional step marked in words. The segment bar is
  * decoration (`aria-hidden`); the "x of y done" text carries the score.
+ *
+ * AECI-1241: a "Looks right" row offers the button only when its step was not
+ * done the first time this card saw it. A row pressed in this view keeps the
+ * button and its "Checked" mark until the vendor leaves. The row itself, and
+ * any link beside the button, always render. The rule is
+ * `latchReviewDecisions` in `vendor-review-strip.ts`, the one the page strips use.
  */
 @Component({
   selector: 'aec-vendor-checklist',
@@ -142,12 +156,14 @@ export interface ChecklistRow {
                     @if (a.link; as l) {
                       <a [routerLink]="l.commands" [class]="textLinkClass">{{ l.label }}</a>
                     }
-                    <aec-vendor-looks-right
-                      [target]="a.target"
-                      [productId]="a.productId"
-                      [productName]="a.productName"
-                      [done]="row.status === 'done'"
-                    />
+                    @if (looksRightShown(a)) {
+                      <aec-vendor-looks-right
+                        [target]="a.target"
+                        [productId]="a.productId"
+                        [productName]="a.productName"
+                        [done]="row.status === 'done'"
+                      />
+                    }
                   }
                   @case ('note') {
                     <span
@@ -173,6 +189,29 @@ export class VendorChecklist {
   readonly rows = input.required<readonly ChecklistRow[]>();
   readonly done = input.required<number>();
   readonly total = input.required<number>();
+
+  /** AECI-1241: which "Looks right" controls this card offers, keyed by record. */
+  private readonly looksRightLatch = linkedSignal<
+    readonly ReviewLatchEntry[],
+    ReadonlyMap<string, boolean>
+  >({
+    source: () =>
+      this.rows().flatMap((row) =>
+        row.action?.kind === 'looksRight'
+          ? [
+              {
+                record: looksRightRecord(row.action),
+                state: row.status === 'done' ? ('done' as const) : ('todo' as const),
+              },
+            ]
+          : [],
+      ),
+    computation: (next, prev) => latchReviewDecisions(prev?.value, next),
+  });
+
+  protected looksRightShown(action: LooksRightAction): boolean {
+    return this.looksRightLatch().get(looksRightRecord(action)) === true;
+  }
 
   protected readonly scoreLine = computed(
     () => $localize`:@@vendor.checklist.score:${this.done()}:DONE: of ${this.total()}:TOTAL: done`,

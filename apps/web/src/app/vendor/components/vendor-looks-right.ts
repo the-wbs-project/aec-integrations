@@ -21,9 +21,14 @@ export type LooksRightTarget = 'profile' | 'product' | 'integrations';
  * §2.3). Success is announced through the portal's one live region. A failure
  * stays beside the button as `role="alert"`, the portal's rule for errors.
  *
- * `done` is the checklist step's state, when the caller has it. A checked step
- * keeps its button: pressing it again moves the public "Updated" date, which is
- * the reason to press it.
+ * `done` is the checklist step's state, when the caller has it. It only adds
+ * the "Checked" mark. Whether the button is offered at all is the caller's
+ * call. Every caller offers it only for a step that was not done when it
+ * first knew the step's state (AECI-1241): the three page strips through
+ * `reviewStripShown`, and the product checklist card (`vendor-checklist.ts`)
+ * through `latchReviewDecisions`, both in `vendor-review-strip.ts`. A press
+ * keeps the button and adds the mark until the vendor leaves. So a checked step
+ * offers no re-stamp anywhere in the portal: only an edit moves the date.
  */
 @Component({
   selector: 'aec-vendor-looks-right',

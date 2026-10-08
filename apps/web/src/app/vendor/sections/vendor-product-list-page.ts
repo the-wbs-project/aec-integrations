@@ -5,7 +5,6 @@ import { compareText } from '@aeci/shared/text-sort';
 
 import { LogoOrInitial } from '../../shared/logo-or-initial/logo-or-initial';
 import { VendorPlanBadge } from '../components/vendor-plan-badge';
-import { isManaged } from '../vendor-plan';
 import { VendorPortalStore } from '../vendor-portal-store';
 
 /**
@@ -42,9 +41,6 @@ import { VendorPortalStore } from '../vendor-portal-store';
             {{ m.vendor.company_name }} has no products listed yet.
           </p>
         } @else {
-          <p class="mt-1 text-sm text-(--text-secondary)" data-testid="products-plan-line">
-            {{ planLine() }}
-          </p>
           <ul
             class="m-0 mt-4 list-none divide-y divide-(--border-default) rounded-(--radius-md)
               border border-(--border-default) bg-(--surface-raised) p-0"
@@ -120,14 +116,6 @@ export class VendorProductListPage {
   protected readonly scores = computed(
     () => new Map((this.store.checklist()?.products ?? []).map((s) => [s.product_id, s])),
   );
-
-  /** "12 products: 5 on Managed, 7 on Free", read off each product's plan. */
-  protected readonly planLine = computed(() => {
-    const all = this.products();
-    const managed = all.filter((p) => isManaged(p.plan)).length;
-    const free = all.length - managed;
-    return $localize`:@@vendor.products.planLine:${managed}:MANAGED: on Managed, ${free}:FREE: on Free. Plans and checklists are per product.`;
-  });
 
   protected scoreLabel(complete: boolean): string {
     return complete

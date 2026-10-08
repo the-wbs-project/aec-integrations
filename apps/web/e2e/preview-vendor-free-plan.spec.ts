@@ -77,7 +77,6 @@ test.describe('Free plan portal (preview)', () => {
   test('Mixed: 12 products, each with its plan and checklist score', async ({ page }) => {
     await page.goto(`${PATH}/products?fixture=mixed`);
     await expect(page.locator('aec-vendor-product-list-page li')).toHaveCount(12);
-    await expect(page.getByTestId('products-plan-line')).toContainText('5 on Managed, 7 on Free');
     await expect(page.getByTestId('product-checklist-score')).toHaveCount(12);
     expect(await axeSerious(page), 'Mixed product list must be axe clean').toEqual([]);
   });

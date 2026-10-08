@@ -4,7 +4,11 @@ import { isPlatformBrowser } from '@angular/common';
 import { VendorIntegrationsSection } from '../components/vendor-integrations-section';
 import { VendorOwnedIntegrations } from '../components/vendor-owned-integrations';
 import { VendorProductConnectors } from '../components/vendor-product-connectors';
-import { VendorReviewStrip } from '../components/vendor-review-strip';
+import {
+  VendorReviewStrip,
+  reviewStepState,
+  reviewStripShown,
+} from '../components/vendor-review-strip';
 import { productCan } from '../vendor-capabilities';
 import { VendorPortalStore } from '../vendor-portal-store';
 
@@ -51,16 +55,20 @@ import { vendorProductContext } from './vendor-product-context';
   template: `
     @if (me(); as m) {
       <div>
-        <!-- AECI-1218: "Looks right" on this product's integration list (13.8). -->
+        <!-- AECI-1218: "Looks right" on this product's integration list (13.8).
+             AECI-1241: only while the step is not done at load. -->
         @if (ctx.product(); as p) {
-          <aec-vendor-review-strip
-            target="integrations"
-            [productId]="p.id"
-            [productName]="p.name"
-            [done]="listChecked()"
-          />
+          @if (showStrip()) {
+            <aec-vendor-review-strip
+              class="mb-4"
+              target="integrations"
+              [productId]="p.id"
+              [productName]="p.name"
+              [done]="listStep() === 'done'"
+            />
+          }
         }
-        <div class="mt-4">
+        <div>
           <aec-vendor-integrations-section
             [canAuthor]="canAuthor()"
             [vendorName]="m.vendor.company_name"
@@ -91,12 +99,16 @@ export class VendorIntegrationsPage {
     productCan(this.ctx.product(), 'attestation.author'),
   );
 
-  /** The "Check the integration list" step on this product's checklist. */
-  protected readonly listChecked = computed(() => {
+  /** The "Check the integration list" step on this product's checklist. `unknown` until it loads. */
+  protected readonly listStep = computed(() => {
     const id = this.ctx.product()?.id;
-    const c = id ? this.store.productChecklists().get(id) : undefined;
-    return c?.steps.some((s) => s.key === 'integration_list' && s.status === 'done') ?? false;
+    return reviewStepState(id ? this.store.productChecklists().get(id) : null, 'integration_list');
   });
+  /** AECI-1241: the strip shows only for a step not done when the page loaded. */
+  protected readonly showStrip = reviewStripShown(() => ({
+    record: this.ctx.product()?.id ?? null,
+    state: this.listStep(),
+  }));
 
   constructor() {
     effect(() => {
