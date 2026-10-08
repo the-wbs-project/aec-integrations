@@ -6398,6 +6398,8 @@ export const UpdateVendorProfileResponseSchema = z.object({ vendor: VendorAccoun
 
 `source_url` is excluded on purpose: it records where AECi's own research came from, so letting the subject of that research rewrite it would defeat it.
 
+The portal company form (`vendor-profile-form.ts`) offers only the five links the public vendor hero renders: LinkedIn, X, Facebook, Instagram and YouTube. `crunchbase_url`, `wiki_url` and `github_org` stay in the schema and the allow-list, but no portal control writes them until the site shows them.
+
 Errors: `VALIDATION_FAILED` (empty body, or a body whose only keys are non-allow-listed — Zod strips them, so the vendor gets a clear 400 rather than a silent no-op 200), `MALFORMED_REQUEST`, `NOT_FOUND`, `ENTITLEMENT_REQUIRED` (403 — the tier lacks `profile.edit`, or lacks the capability a **specific** provided field requires, in which case `details.fields` names them; since AECI-1214 every real tier holds `profile.edit`, so a seat with no plan edits company details), `RATE_LIMITED` (429 — AECI-773 burst cap, `Retry-After: 60`).
 
 #### `PATCH /api/vendor/products/:id`

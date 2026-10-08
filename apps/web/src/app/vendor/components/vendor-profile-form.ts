@@ -31,10 +31,7 @@ type ProfileTextKey =
   | 'x_url'
   | 'facebook_url'
   | 'instagram_url'
-  | 'youtube_url'
-  | 'crunchbase_url'
-  | 'wiki_url'
-  | 'github_org';
+  | 'youtube_url';
 type ProfileFieldKey = ProfileTextKey | 'founded_year';
 
 type Control = 'text' | 'url' | 'email' | 'tel' | 'textarea' | 'year';
@@ -406,6 +403,9 @@ export class VendorProfileForm {
     },
   ];
 
+  /** Only the links the public vendor page renders (`vendors/vendor-detail.ts`
+   *  socials). Crunchbase, Wikipedia and GitHub stay in the schema and the PATCH
+   *  allow-list but are not offered here until the site shows them. */
   protected readonly linkFields: readonly FieldConfig[] = [
     {
       key: 'linkedin_url',
@@ -427,17 +427,6 @@ export class VendorProfileForm {
       key: 'youtube_url',
       control: 'url',
       label: $localize`:@@vendor.profile.field.youtube:YouTube`,
-    },
-    {
-      key: 'crunchbase_url',
-      control: 'url',
-      label: $localize`:@@vendor.profile.field.crunchbase:Crunchbase`,
-    },
-    { key: 'wiki_url', control: 'url', label: $localize`:@@vendor.profile.field.wiki:Wikipedia` },
-    {
-      key: 'github_org',
-      control: 'text',
-      label: $localize`:@@vendor.profile.field.githubOrg:GitHub organization`,
     },
   ];
 

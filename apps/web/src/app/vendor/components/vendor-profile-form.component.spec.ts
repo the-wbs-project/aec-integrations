@@ -92,6 +92,17 @@ describe('VendorProfileForm', () => {
     });
   });
 
+  it('offers only the links the public vendor page renders', () => {
+    const fixture = create();
+    const host = fixture.nativeElement as HTMLElement;
+    for (const key of ['linkedin-url', 'x-url', 'facebook-url', 'instagram-url', 'youtube-url']) {
+      expect(host.querySelector(`#vendor-profile-${key}`)).not.toBeNull();
+    }
+    for (const key of ['crunchbase-url', 'wiki-url', 'github-org']) {
+      expect(host.querySelector(`#vendor-profile-${key}`)).toBeNull();
+    }
+  });
+
   it('disables Save until a field actually changes', () => {
     const fixture = create();
     expect(saveButton(fixture).disabled).toBe(true);
