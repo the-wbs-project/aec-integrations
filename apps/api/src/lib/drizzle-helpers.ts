@@ -135,6 +135,7 @@ const vendorLinkColumns = {
  *  embeds the same `ProductLink` shape. One column list, one mapper. */
 export const productLinkColumns = { id: true, name: true, slug: true, logoUrl: true } as const;
 const taxonomyLinkColumns = { id: true, name: true, slug: true } as const;
+const taxonomyLinkWithOrderColumns = { ...taxonomyLinkColumns, displayOrder: true } as const;
 
 // ---------------------------------------------------------------------------
 // Query configs (spread into db.query.<table>.findMany / findFirst)
@@ -780,7 +781,7 @@ export const productDetailConfig = {
     },
     productCategories: {
       columns: {},
-      with: { category: { columns: taxonomyLinkColumns } },
+      with: { category: { columns: taxonomyLinkWithOrderColumns } },
     },
     productAudiences: { columns: {}, with: { audience: { columns: taxonomyLinkColumns } } },
     // `displayOrder` on phases and trades feeds the sidebar sort in
@@ -1062,6 +1063,9 @@ interface RawTaxonomyLink {
   name: string;
   slug: string;
 }
+interface RawTaxonomyLinkWithOrder extends RawTaxonomyLink {
+  displayOrder: number | null;
+}
 
 export interface RawIntegrationListRow {
   id: string;
@@ -1237,7 +1241,7 @@ export interface RawProductListRow {
   productVendors: Array<{ isPrimary: boolean; vendor: RawVendorLink }>;
 }
 export interface RawProductDetailRow extends RawProductListRow, RawMaintenanceColumns {
-  productCategories: Array<{ category: RawTaxonomyLink }>;
+  productCategories: Array<{ category: RawTaxonomyLinkWithOrder }>;
   description: string | null;
   website: string | null;
   toolIntegrationsUrl: string | null;
