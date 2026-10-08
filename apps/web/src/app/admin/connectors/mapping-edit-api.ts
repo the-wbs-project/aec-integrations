@@ -34,9 +34,14 @@ export class MappingEditApi {
   }
 
   /** The public product search, the same read the vendor portal's create form uses.
-   *  It returns published products only, which is also what the PATCH accepts. */
+   *  It returns published products only, which is also what the PATCH accepts.
+   *  `sort=name` makes the page the first matches A to Z, not the newest (AECI-1244). */
   searchProducts(query: string, perPage = 8): Promise<ProductsListResponse> {
-    const params = new URLSearchParams({ search: query, perPage: String(perPage) });
+    const params = new URLSearchParams({
+      search: query,
+      perPage: String(perPage),
+      sort: 'name',
+    });
     return firstValueFrom(this.http.get<ProductsListResponse>(`/api/products?${params}`));
   }
 }

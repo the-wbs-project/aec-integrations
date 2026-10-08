@@ -1,4 +1,16 @@
-import { Component, computed, inject, input, linkedSignal, output, signal } from '@angular/core';
+import {
+  Component,
+  ElementRef,
+  Injector,
+  afterNextRender,
+  computed,
+  inject,
+  input,
+  linkedSignal,
+  output,
+  signal,
+  viewChild,
+} from '@angular/core';
 
 import {
   CONNECTOR_DECISION_STATUSES,
@@ -12,6 +24,11 @@ import {
 } from '@aeci/shared';
 
 import { AecSelect, type AecSelectOption } from '../../shared/aec-select/aec-select';
+import {
+  ProductCombobox,
+  type ProductComboboxItem,
+  type ProductComboboxSearch,
+} from '../../shared/product-combobox/product-combobox';
 import { VendorPortalAnnouncer } from '../vendor-announcer';
 import { VendorApi } from '../vendor-api';
 import { readVendorApiError } from '../vendor-api-error';
@@ -82,7 +99,7 @@ export function catalogueSaveErrorMessage(err: unknown): string {
  */
 @Component({
   selector: 'aec-vendor-connector-mapping-form',
-  imports: [AecSelect],
+  imports: [AecSelect, ProductCombobox],
   host: { class: 'block' },
   template: `
     <form
@@ -117,6 +134,7 @@ export function catalogueSaveErrorMessage(err: unknown): string {
             <p class="mt-1 flex flex-wrap items-center gap-3 text-sm text-(--text-primary)">
               <span class="font-medium" data-chosen-product>{{ p.name }}</span>
               <button
+                #changeButton
                 type="button"
                 [class]="secondaryButtonClass"
                 (click)="clearProduct()"
@@ -133,38 +151,21 @@ export function catalogueSaveErrorMessage(err: unknown): string {
               i18n="@@vendor.catalogue.form.product"
               >Product on AECi</label
             >
-            <div class="mt-1 flex gap-2">
-              <input
-                [id]="idPrefix() + '-product'"
-                type="search"
-                autocomplete="off"
-                [class]="inputClass"
-                [attr.aria-describedby]="productDescribedBy()"
-                [attr.aria-invalid]="productError() ? 'true' : null"
-                [value]="productQuery()"
-                (input)="productQuery.set(inputValue($event))"
-                (keydown.enter)="$event.preventDefault(); searchProducts()"
-              />
-              <button
-                type="button"
-                [class]="secondaryButtonClass"
-                [disabled]="searching()"
-                (click)="searchProducts()"
-                i18n="@@vendor.catalogue.form.product.find"
-              >
-                Find
-              </button>
-            </div>
+            <aec-product-combobox
+              class="mt-1"
+              [inputId]="idPrefix() + '-product'"
+              [search]="search"
+              [describedBy]="productDescribedBy()"
+              [invalid]="productError() !== ''"
+              (picked)="chooseProduct($event)"
+              (announce)="announcer.announce($event)"
+            />
             <p
               [id]="idPrefix() + '-product-hint'"
               class="mt-1 max-w-[52ch] text-xs text-(--text-secondary)"
+              i18n="@@vendor.catalogue.form.product.hint"
             >
-              <span i18n="@@vendor.catalogue.form.product.hint"
-                >Search the products published on AECi by name.</span
-              >
-              @if (searchNotice()) {
-                {{ ' ' }}<span>{{ searchNotice() }}</span>
-              }
+              Search the products published on AECi by name.
             </p>
             @if (productError()) {
               <p
@@ -173,26 +174,6 @@ export function catalogueSaveErrorMessage(err: unknown): string {
               >
                 {{ productError() }}
               </p>
-            }
-            @if (results().length > 0) {
-              <ul
-                class="m-0 mt-2 list-none space-y-1 p-0"
-                [attr.aria-label]="resultsLabel"
-                data-product-results
-              >
-                @for (r of results(); track r.id) {
-                  <li>
-                    <button
-                      type="button"
-                      class="flex min-h-11 w-full cursor-pointer flex-col items-start rounded-(--radius-sm) px-3 py-2 text-start text-sm text-(--text-primary) hover:bg-(--surface-sunken) focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-(--accent-primary)"
-                      (click)="chooseProduct(r)"
-                    >
-                      <span class="font-medium">{{ r.name }}</span>
-                      <span class="text-xs text-(--text-secondary)">{{ r.slug }}</span>
-                    </button>
-                  </li>
-                }
-              </ul>
             }
           }
         </div>
@@ -291,7 +272,8 @@ export function catalogueSaveErrorMessage(err: unknown): string {
 })
 export class VendorConnectorMappingForm {
   private readonly api = inject(VendorApi);
-  private readonly announcer = inject(VendorPortalAnnouncer);
+  protected readonly announcer = inject(VendorPortalAnnouncer);
+  private readonly injector = inject(Injector);
 
   readonly mapping = input.required<VendorConnectorMapping>();
   /** The listing's name, for the form's accessible name and the announcement. */
@@ -311,10 +293,11 @@ export class VendorConnectorMappingForm {
   protected readonly confidence = linkedSignal<string | null>(() => this.mapping().confidence);
   protected readonly evidence = linkedSignal(() => this.mapping().evidence_url ?? '');
 
-  protected readonly productQuery = signal('');
-  protected readonly results = signal<readonly LinkRef[]>([]);
-  protected readonly searching = signal(false);
-  protected readonly searchNotice = signal('');
+  private readonly changeButton = viewChild<ElementRef<HTMLButtonElement>>('changeButton');
+  private readonly combobox = viewChild(ProductCombobox);
+
+  /** The public product search, A to Z (AECI-1244). */
+  protected readonly search: ProductComboboxSearch = (query) => this.api.searchProducts(query);
 
   protected readonly pending = signal(false);
   protected readonly failed = signal('');
@@ -355,8 +338,6 @@ export class VendorConnectorMappingForm {
     })),
   ];
 
-  protected readonly resultsLabel = $localize`:@@vendor.catalogue.form.product.results:Matching products`;
-
   protected onStatusChange(value: string | null): void {
     if (value) this.status.set(value);
     this.productError.set('');
@@ -370,46 +351,16 @@ export class VendorConnectorMappingForm {
     return $localize`:@@vendor.catalogue.form.product.changeAria:Change the product, now ${name}:PRODUCT:`;
   }
 
-  protected async searchProducts(): Promise<void> {
-    const query = this.productQuery().trim();
-    if (query.length < 2) {
-      this.searchNotice.set(
-        $localize`:@@vendor.catalogue.form.search.short:Type at least two letters of the name.`,
-      );
-      return;
-    }
-    if (this.searching()) return;
-    this.searching.set(true);
-    this.searchNotice.set('');
-    try {
-      const page = await this.api.searchProducts(query);
-      const found = page.data.map((p) => ({ id: p.id, name: p.name, slug: p.slug }));
-      this.results.set(found);
-      if (found.length === 0) {
-        this.searchNotice.set(
-          $localize`:@@vendor.catalogue.form.search.none:No published product matches that name.`,
-        );
-      }
-    } catch {
-      this.results.set([]);
-      this.searchNotice.set(
-        $localize`:@@vendor.catalogue.form.search.failed:The search did not work. Try again.`,
-      );
-    } finally {
-      this.searching.set(false);
-    }
-  }
-
-  protected chooseProduct(p: LinkRef): void {
-    this.product.set(p);
-    this.results.set([]);
-    this.productQuery.set('');
-    this.searchNotice.set('');
+  protected chooseProduct(p: ProductComboboxItem): void {
+    this.product.set({ id: p.id, name: p.name, slug: p.slug });
     this.productError.set('');
+    // The picker unmounts, so focus moves to the control that brings it back.
+    afterNextRender(() => this.changeButton()?.nativeElement.focus(), { injector: this.injector });
   }
 
   protected clearProduct(): void {
     this.product.set(null);
+    afterNextRender(() => this.combobox()?.focus(), { injector: this.injector });
   }
 
   protected async submit(): Promise<void> {

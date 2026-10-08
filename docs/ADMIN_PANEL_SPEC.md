@@ -858,7 +858,7 @@ The control (`apps/web/src/app/admin/connectors/mapping-edit-control.{ts,html}`,
 | Field | Control | Notes |
 |---|---|---|
 | Status | `aec-select` over the five statuses | A decision status hides the product picker and sends `productId: null` |
-| Product | Search over `GET /api/products`, pick from results | Published products only, which is also what the endpoint accepts |
+| Product | `aec-product-combobox`, type-ahead over `GET /api/products?sort=name` (AECI-1244) | Published products only, which is also what the endpoint accepts. Results come A to Z. The result count goes to the host's live region through `announce` |
 | Confidence | `aec-select`, including "Not set" | |
 | Evidence link | `https:` URL input | Optional |
 
