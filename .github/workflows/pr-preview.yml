@@ -67,6 +67,13 @@ on:
     paths-ignore:
       - '**/*.md'
       - 'docs/**'
+    # No preview for a sub-agent PR into a `batch/**` branch (docs/CICD_PLAN.md
+    # §10a). Those PRs take deploy.yml's lite lane. The batch → main PR deploys
+    # the one preview for the whole batch. Known gap: a PR that deployed a
+    # preview against `main` and is then retargeted to `batch/**` gets no
+    # `closed` cleanup run. Delete its two `aeci-*-pr-<N>` Workers by hand.
+    branches-ignore:
+      - 'batch/**'
 
 # Per-PR concurrency. `cancel-in-progress: true` lets a fresh push abort the
 # in-flight deploy; the `closed` event arrives as its own run after that and
@@ -75,6 +82,12 @@ on:
 concurrency:
   group: pr-preview-${{ github.event.pull_request.number }}
   cancel-in-progress: true
+
+# Least privilege. Both jobs declare their own block (contents: read +
+# pull-requests: write for the sticky preview comment), which replaces this one.
+# A new job with no block of its own gets read-only contents.
+permissions:
+  contents: read
 
 env:
   NODE_VERSION: '24'

@@ -60,7 +60,7 @@ reproduction, and it is why the defect survived for months.
 | E2E | Playwright | Full deployed preview | Slow (~30s/test) | Every PR |
 | Accessibility | axe-core via Playwright | Deployed preview | Medium | Every PR |
 | Visual | Playwright screenshots + Chromatic | Deployed preview | Medium | Every PR |
-| Performance | Lighthouse CI | Deployed preview | Slow (~2min) | Every PR |
+| Performance | Lighthouse CI | Local `dev:bound` | Slow (~10 min) | Nightly + demo promote gate (§10.4) |
 | Smoke | Playwright (subset) | Staging, production | Medium | Post-deploy |
 | Load | k6 or similar | Staging | Slow | Pre-launch, rarely |
 
@@ -70,8 +70,8 @@ reproduction, and it is why the defect survived for months.
 > **not** true before 2026-08-14: both were pinned to `branches: [main]`, which filters by base
 > branch, so under the ADR 0019 branch model this table over-claimed for most PRs in flight —
 > the ~13k-line AECI-513 epic merged into `stage-2` having run none of it. Two rows carry their
-> own caveats regardless of base: **Performance** (Lighthouse) is push-to-`main`-only by design
-> (`lighthouse.yml`, §10.5) — not on PRs — and **Visual** (Chromatic) is not wired at all.
+> own caveats regardless of base: **Performance** (Lighthouse) never runs on PRs. It runs nightly
+> and as the demo promote gate (`lighthouse.yml`, §10.4). And **Visual** (Chromatic) is not wired at all.
 > `CICD_PLAN.md` §3.1 has the full rationale. `main` is branch-protected on three required
 > contexts, so a red `Lint & typecheck` / `Unit tests` / `Build SSR Worker` blocks the merge (§8).
 > `main` is now the only branch. `stage-2` merged 2026-09-03 and `admin-panel` merged 2026-08-14,
@@ -120,7 +120,7 @@ reproduction, and it is why the defect survived for months.
 - Branch coverage: 60%
 - Critical paths (auth, payments in Stage 4, audit logging) require 90%+ coverage explicitly
 
-Coverage is measured with Vitest's built-in **v8** provider (each package's `vitest.config.ts` records these numbers in its `thresholds` block). CI generates the report on every **push** to `main` — `pnpm -r run test:coverage` runs as an **advisory, non-blocking** step in the `unit-tests` job (`continue-on-error`) and uploads the lcov/HTML as the `coverage` artifact — but a coverage drop **does not fail the build**. Since **AECI-917 (2026-09-14) it no longer runs on PRs**, where it cost ~2 min of the required `unit-tests` check to produce a report nobody read per PR. Note also that `apps/web`'s `test:coverage` is the plain vitest suite, so the `ng test` component specs are **not** measured. The thresholds are a documented target, not a merge gate: quality of tests matters more than the number. There is no Codecov integration today; if one is added later it would be for visualization, not enforcement.
+Coverage is measured with Vitest's built-in **v8** provider (each package's `vitest.config.ts` records these numbers in its `thresholds` block). CI generates the report on every **push** to `main`. Since 2026-10 each unit job (`unit-api`, `unit-web`) runs its suites **once** with coverage on, with the thresholds zeroed on the command line so only a test failure fails the job. `scripts/ci/coverage-advisory.mjs` then compares the totals with each config's `thresholds` and raises a warning annotation on a miss. The lcov/HTML uploads as the `coverage-api` and `coverage-web` artifacts. A coverage drop **does not fail the build** (`docs/CICD_PLAN.md` §3.1). Since **AECI-917 (2026-09-14) it no longer runs on PRs**, where it cost ~2 min of the required `unit-tests` check to produce a report nobody read per PR. Note also that `apps/web`'s `test:coverage` is the plain vitest suite, so the `ng test` component specs are **not** measured. The thresholds are a documented target, not a merge gate: quality of tests matters more than the number. There is no Codecov integration today; if one is added later it would be for visualization, not enforcement.
 
 ### 3.4 Configuration
 
@@ -704,15 +704,15 @@ BrowserStack's visual tool, **Percy**, overlaps Chromatic directly. **Do not run
 
 ### 10.1 Budget enforcement
 
-Lighthouse CI runs post-merge against a local `dev:bound` server (see §10.4). Performance budget and enforcement as of AECI-188 (the gate is the post-merge [`lighthouse.yml`](../.github/workflows/lighthouse.yml) run going red — Lighthouse does not run on PRs):
+Lighthouse CI runs against a local `dev:bound` server (see §10.4), nightly and as the demo promote gate. It does not run on PRs or on merges to `main`. Enforcement as of AECI-188: an error-level miss turns the [`lighthouse.yml`](../.github/workflows/lighthouse.yml) run red. A red nightly files a Linear issue. A red promote measurement stops the demo promote.
 
 | Metric | Threshold | Action |
 |---|---|---|
-| Accessibility score | ≥ 95 | **Error** (red post-merge run) |
-| Best-Practices score | ≥ 90 | **Error** (red post-merge run) |
-| SEO score (indexable pages) | ≥ 90 | **Error** (red post-merge run) |
-| TBT | ≤ 200ms | **Error** (red post-merge run) |
-| `/search` TTFB (`server-response-time`) | ≤ 600ms | **Error** (red post-merge run) |
+| Accessibility score | ≥ 95 | **Error** (red run) |
+| Best-Practices score | ≥ 90 | **Error** (red run) |
+| SEO score (indexable pages) | ≥ 90 | **Error** (red run) |
+| TBT | ≤ 200ms | Warn (demoted 2026-06-11, noise on the browse pages; see `.lighthouserc.cjs`) |
+| `/search` TTFB (`server-response-time`) | ≤ 600ms | **Error** (red run) |
 | Performance score | ≥ 90 | Warn (perf follow-up; see §10.4) |
 | LCP | ≤ 2.5s | Warn (perf follow-up; see §10.4) |
 | CLS | ≤ 0.1 | Warn (perf follow-up; see §10.4) |
@@ -744,11 +744,19 @@ Mobile and desktop profiles separately.
 
 ### 10.4 Phase 2 implementation status (AECI-65)
 
-Lighthouse CI is wired in its own [`lighthouse.yml`](../.github/workflows/lighthouse.yml) workflow (push-to-main only) and runs **mobile** (simulated Slow-4G throttle, median-of-3) against **every Phase 2 page type** on a local `dev:bound` server — not a deployed preview — using the committed fixtures (`apps/api/seed/phase2-fixtures.sql`, seeded into the local D1 by `dev:bound`). The URL set and assertions live in [`.lighthouserc.cjs`](../.lighthouserc.cjs).
+Lighthouse CI is wired in its own [`lighthouse.yml`](../.github/workflows/lighthouse.yml) workflow and runs **mobile** (simulated Slow-4G throttle, median-of-3) against **every Phase 2 page type** on a local `dev:bound` server — not a deployed preview — using the committed fixtures (`apps/api/seed/phase2-fixtures.sql`, seeded into the local D1 by `dev:bound`). The URL set and assertions live in [`.lighthouserc.cjs`](../.lighthouserc.cjs).
+
+**When it runs.** Three triggers, no PRs and no merges:
+
+- **Nightly** at 09:00 UTC against `main` HEAD. It skips when HEAD already has `lighthouse: success`, or a failure an earlier nightly already alerted on. A red nightly files or updates a `lighthouse-regression` Linear issue (`docs/OBSERVABILITY.md`).
+- **Demo promote gate.** `promote-to-demo.yml` reuses a `lighthouse: success` status on the SHA, or calls `lighthouse.yml` to measure it. A failed measurement stops the promote.
+- **Manual** `workflow_dispatch` on any branch, to check a perf change before it merges.
+
+Every run posts the result as a `lighthouse` commit status on the measured SHA. `docs/CICD_PLAN.md` §11c has the design.
 
 Budgets follow `STAGE_1_PHASE_2_SPEC.md` §12 (scores ≥ 90 for Performance / Accessibility / Best-Practices / SEO; LCP ≤ 2.5s; CLS ≤ 0.1; detail-page total JS transfer ≤ 200 KB). Per-URL handling: the JS budget targets detail/browse pages only; the `noindex` 404 is exempt from the SEO score.
 
-> **Posture: partial error gate (AECI-188).** The warn→error flip landed **partially**, driven by what every page actually passes today: Accessibility / Best-Practices / SEO / TBT (+ the `/search` TTFB, §10.5) assert at `'error'` — `lhci autorun` exits 1 on a miss and the post-merge `lighthouse.yml` run goes red — while Performance / LCP / CLS / the JS-transfer budgets stay `'warn'` because multiple pages measurably miss them (per-page numbers recorded on the perf follow-up issue referenced in `.lighthouserc.cjs`). The remaining flip is gated on fixing those misses — **budgets are not lowered to pass** (AECI-65's rule). Note the gate is post-merge, not merge-blocking: a red run means `main` already regressed; fix forward or revert. The §10.1 table reflects the enforced levels.
+> **Posture: partial error gate (AECI-188).** The warn→error flip landed **partially**, driven by what every page actually passes today: Accessibility / Best-Practices / SEO (+ the `/search` TTFB, §10.5) assert at `'error'` — `lhci autorun` exits 1 on a miss and the `lighthouse.yml` run goes red — while Performance / LCP / CLS / TBT / the JS-transfer budgets stay `'warn'` because multiple pages measurably miss them (per-page numbers recorded on the perf follow-up issue referenced in `.lighthouserc.cjs`). The remaining flip is gated on fixing those misses — **budgets are not lowered to pass** (AECI-65's rule). The gate is not merge-blocking. A red nightly means `main` already regressed. Fix forward or revert. A red promote measurement blocks that demo promote only. The §10.1 table reflects the enforced levels.
 
 ### 10.5 Search route (AECI-145 / Phase 3.12)
 

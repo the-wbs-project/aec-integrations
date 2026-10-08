@@ -1388,6 +1388,31 @@ The per-cron windows in `project-config.json` carry margin for the sweep's own
 lateness (26 h for daily jobs, 90 min for the 15-minute reconcile). `job_runs`,
 `/admin/system` and the two daily digest emails remain an independent second record.
 
+### CI operator alert: the nightly Lighthouse run
+
+A red nightly Lighthouse run alerts a human through Linear and email. It is not a PostHog alert. It is not a registry entry either, because no product event triggers it. `docs/NOTIFICATIONS.md` points here.
+
+The alert runs in the `alert` job of `.github/workflows/lighthouse.yml`, on scheduled runs only. The logic is `scripts/lighthouse-alert.mjs`. `docs/CICD_PLAN.md` §11c covers the triggers and the demo promote gate.
+
+| Nightly result | Linear (team AECI) | Email to `support@aecintegrations.com` |
+| --- | --- | --- |
+| Red, no open `lighthouse-regression` issue | Files a Bug. Labels `Bug` and `lighthouse-regression`. Assigned to Chris. The title names the failing assertions. The body has the SHA, the run link, a table of failing assertions, and a note that main regressed. | Yes. Links the run and the new issue. |
+| Red, an open `lighthouse-regression` issue exists | Comments on it with the SHA, run link and failing assertions. | No. The open issue already told a human. |
+| Red, and the Linear step failed | Nothing filed. | Yes, without an issue link. The red is still heard. |
+| Green, an open issue exists | Comments "Recovered at `<sha>`, run `<url>`". Never closes the issue. | No |
+| Green, no open issue | Nothing | No |
+| Skipped: main HEAD already passed, or an earlier nightly already alerted on its failure | Nothing | No |
+
+Details a reader needs:
+
+- **"Open" means any state except completed or canceled.** Close the issue when the fix lands and a nightly passes. The next red then files a fresh issue and emails again.
+- **The label is created on demand.** If no `lighthouse-regression` label is usable on AECI, the first alert creates it on the team. A missing `Bug` label or assignee logs a warning and files the issue anyway.
+- **The two steps are independent.** The email step runs even when the Linear step fails. Either step failing turns the run red with an `::error::` annotation.
+- **A run that fails before assertions still alerts.** If `assertion-results.json` is missing, for example because `dev:bound` never booted, the issue says "no assertion results" and points at the run log.
+- **Sender.** Email goes from `AEC Integrations <notifications@aecintegrations.com>`, the only verified sender (`docs/email.md`). It uses a Resend idempotency key per run attempt.
+- **Secrets.** `LINEAR_API_KEY` and `RESEND_API_KEY` are repo secrets (`docs/CICD_PLAN.md` §7.1). Missing either one fails that step red.
+- **Test without sending.** `node scripts/lighthouse-alert.mjs linear --outcome=failure --dry-run --results=<file>` prints every GraphQL payload. `email --dry-run` prints the Resend payload. Unit tests: `scripts/lighthouse-alert.test.mjs`.
+
 ## Browser search telemetry (`search_performed`)
 
 Search is queried **client-side**, direct to Algolia with the search-only key

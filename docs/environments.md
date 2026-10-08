@@ -108,7 +108,7 @@ local → PR preview → staging (auto on merge to main) → demo (manual) → p
 - **PR previews**: created by `.github/workflows/pr-preview.yml` (AECI-79) on `pull_request` open/sync; torn down on close.
 - **Staging**: deployed by `.github/workflows/deploy.yml` `deploy-staging` job on every push to `main`, gated by `vars.STAGING_ENABLED`.
 - **Staging refresh** (prod data → staging): `.github/workflows/refresh-staging.yml` (AECI-77), `workflow_dispatch` only.
-- **Demo**: deployed by `.github/workflows/promote-to-demo.yml`, `workflow_dispatch` with a single `commit_sha` input (AECI-879 removed the typed `confirm=PROMOTE` box — the SHA is the confirmation). Verifies **staging** is at the SHA, then deploys the demo tier (GH Environment `demo`; no required reviewer unless you add one). The light sibling of promote-to-prod — it touches no Postgres (demo shares the prod Supabase project, which production owns), only the demo D1/queues/Workers/Algolia.
+- **Demo**: deployed by `.github/workflows/promote-to-demo.yml`, `workflow_dispatch` with a single `commit_sha` input (AECI-879 removed the typed `confirm=PROMOTE` box — the SHA is the confirmation). Verifies **staging** is at the SHA, passes the Lighthouse gate (below), then deploys the demo tier (GH Environment `demo`; no required reviewer unless you add one). The light sibling of promote-to-prod — it touches no Postgres (demo shares the prod Supabase project, which production owns), only the demo D1/queues/Workers/Algolia.
 - **Production**: deployed by `.github/workflows/promote-to-prod.yml` (AECI-78), `workflow_dispatch` with a single required `commit_sha` input and a GH Environment approval gate. AECI-879 removed the typed `confirm=PROMOTE` box — the SHA is the confirmation, and the approval gate is the real stop. Verifies **demo** (the immediate upstream tier) is at the SHA before promoting.
 
 There is intentionally **no auto-deploy to demo or production** — both are deliberate `workflow_dispatch` buttons.
@@ -266,23 +266,40 @@ That's the literal check CI runs.
 
 The [`promote-to-demo.yml`](../.github/workflows/promote-to-demo.yml) workflow promotes a staging-verified SHA to the public **demo** tier (`demo.aecintegrations.com`). It is the light sibling of promote-to-prod: demo shares the prod Supabase project (which production owns), so this workflow touches **no Postgres** — no R2 snapshot, no `supabase db push`, no RLS/drift gate. It only provisions the demo queues, applies the **demo D1** (`aeci-app-demo`) migrations, deploys the `aeci-{web,api}-demo` Workers, pushes the demo Worker secrets, and smoke-tests `demo.aecintegrations.com`.
 
-1. Repo → Actions → **promote-to-demo** → **Run workflow**.
-2. `commit_sha`: paste the full 40-char SHA you verified on staging (matches `https://staging.aecintegrations.com/api/version`). This is the only input — there is no confirmation word to type.
-3. Click **Run workflow**.
+1. Repo → Actions → **promote-to-demo** → **Run workflow**. Leave "Use workflow from" on `main`. A run from any other branch fails in its first step.
+2. `commit_sha`: paste the full 40-char SHA you verified on staging (matches `https://staging.aecintegrations.com/api/version`). There is no confirmation word to type.
+3. Leave `override_lighthouse` off. See "The Lighthouse gate" below for when to use it.
+4. Click **Run workflow**.
 
-What happens, in order: validate `commit_sha` is 40 lowercase hex chars → preflight required secrets → assert **staging** is at the SHA (both Workers, with Access headers) → (GH Environment `demo`) provision `aeci-*-demo` queues → apply `aeci-app-demo` D1 migrations + taxonomy seed (`scripts/d1-apply-migrations.sh`, which retries each remote D1 command on a transient Cloudflare `[code: 7500]` internal error) → deploy API then SSR (`--env demo`) → push demo Worker secrets (warn-and-skip for the non-critical ones) → smoke-test `demo.aecintegrations.com` (both Workers at SHA + `/api/health` db:ok) → apply demo Algolia index settings → auto-rollback both demo Workers on a smoke failure. The `demo` GH Environment has no required reviewer by default (add one to gate it). Demo is a showcase, so only the D1 `/api/health` gate (the `DB` binding must answer `db:ok`) is fail-closed; Algolia/email/analytics are warn-and-skip.
+What happens, in order: refuse a run not dispatched from `main` → validate `commit_sha` is 40 lowercase hex chars, and that an override has a reason → preflight required secrets → assert **staging** is at the SHA (both Workers, with Access headers) → the Lighthouse gate → (GH Environment `demo`) provision `aeci-*-demo` queues → apply `aeci-app-demo` D1 migrations + taxonomy seed (`scripts/d1-apply-migrations.sh`, which retries each remote D1 command on a transient Cloudflare `[code: 7500]` internal error) → deploy API then SSR (`--env demo`) → push demo Worker secrets (warn-and-skip for the non-critical ones) → smoke-test `demo.aecintegrations.com` (both Workers at SHA + `/api/health` db:ok) → apply demo Algolia index settings → auto-rollback both demo Workers on a smoke failure. The `demo` GH Environment has no required reviewer by default (add one to gate it). It allows deployments from `main` only, so a run dispatched from another branch cannot reach the deploy job. Demo is a showcase, so only the D1 `/api/health` gate (the `DB` binding must answer `db:ok`) is fail-closed; Algolia/email/analytics are warn-and-skip.
+
+### The Lighthouse gate
+
+Lighthouse no longer runs on every merge to `main`. It runs nightly at 09:00 UTC and here. The result is a commit status named `lighthouse` on the SHA. `docs/CICD_PLAN.md` §11c has the full design.
+
+| What the SHA carries | What the promote does |
+| --- | --- |
+| `lighthouse: success`, verified | Passes at once. The `Lighthouse gate (look up)` job summary links the run that measured it. Verified means the status links to a `lighthouse.yml` or `promote-to-demo.yml` run on `main`, checked through the runs API. |
+| `lighthouse: success`, not verifiable | Measures the SHA now, as below. A missing link, a run from another workflow or branch, or an API error never passes the gate. |
+| No status, `pending`, or `error` | Measures the SHA now. This adds roughly 10 to 15 minutes. The measurement appears as `Lighthouse gate (measure)` jobs inside the promote run. |
+| `lighthouse: failure` | Measures again. An old failure may have been a flake. Only the fresh result decides. |
+| `override_lighthouse` set | Skips the measurement. The reason goes to the job summary and the log. |
+
+If the fresh measurement fails, the promote stops before the `demo` environment. Nothing is deployed. Read the failing assertions in the measure job log. Fix forward, merge, and promote the new SHA.
+
+Use the override only when you have decided to ship past a known Lighthouse miss. Examples: an infra outage blocks the measurement, or the miss is already tracked and accepted. `override_reason` must say why. An empty reason fails the promote in `pre-promotion-checks`. Production needs no second gate: `promote-to-prod` requires demo to be at the SHA.
 
 ## Promote runbook
 
 The [`promote-to-prod.yml`](../.github/workflows/promote-to-prod.yml) workflow (AECI-78) is the only way prod gets new code. **It promotes from the demo tier** (chain: staging → demo → production), so promote a SHA to **demo** first via [`promote-to-demo.yml`](#promote-to-demo-runbook). Trigger it from the GitHub Actions UI:
 
-1. Repo → Actions → **promote-to-prod** → **Run workflow**.
+1. Repo → Actions → **promote-to-prod** → **Run workflow**. Leave "Use workflow from" on `main`. A run from any other branch fails in its first step.
 2. `commit_sha`: paste the full 40-char SHA you already verified on demo (matches what `https://demo.aecintegrations.com/api/version` reports). This is the only input — there is no confirmation word to type.
 3. Click **Run workflow**.
 
 What happens, in order:
 
-- **Pre-promotion checks (unattended, ~2 min)** — `pre-promotion-checks` job. Validates that `commit_sha` is a full 40-char lowercase hex SHA (a short SHA, a branch name, or an uppercased SHA is rejected here rather than failing further down), runs `scripts/require-secrets.sh` (refuses to promote — **before** the approval gate — if a required prod secret is missing), then via `scripts/verify-version.sh` asserts the **demo** SHA matches `inputs.commit_sha` on **both** `demo.aecintegrations.com/api/version` (API Worker) and `/_version` (SSR Worker, AECI-92) — demo is public, so the Cloudflare Access headers are harmless — refusing to continue unless both match. `/api/version` is proxied raw to the API Worker, so on its own it can't catch a stale SSR deploy.
+- **Pre-promotion checks (unattended, ~2 min)** — `pre-promotion-checks` job. First it refuses a run not dispatched from `main`. GitHub runs the workflow file at the dispatched ref, so another branch could carry an old gate. Then it validates that `commit_sha` is a full 40-char lowercase hex SHA (a short SHA, a branch name, or an uppercased SHA is rejected here rather than failing further down), runs `scripts/require-secrets.sh` (refuses to promote — **before** the approval gate — if a required prod secret is missing), then via `scripts/verify-version.sh` asserts the **demo** SHA matches `inputs.commit_sha` on **both** `demo.aecintegrations.com/api/version` (API Worker) and `/_version` (SSR Worker, AECI-92) — demo is public, so the Cloudflare Access headers are harmless — refusing to continue unless both match. `/api/version` is proxied raw to the API Worker, so on its own it can't catch a stale SSR deploy.
 - **Approval pause** — the `deploy-prod-workers` job enters the `production` GH Environment and blocks **before any mutation** (queue/D1/deploy). The GitHub Actions UI shows "Waiting for review". This is the single approval gate.
 - **After approval (~5 min)** — provisions the prod scheduled-job queues, then applies the **app DB migrations to Cloudflare D1** (`wrangler d1 migrations apply aeci-app-production --remote`), reconciles the D1 taxonomy seed (`wrangler d1 execute … --file=seed/taxonomy.sql`), and purges the taxonomy cache tags. This is the **only** data migration: the app DB is D1 (ADR 0016) and auth is the single shared Supabase project (ADR 0017) whose auth-only baseline is maintained out of band, so the promote touches **no** Supabase Postgres — there is no pg_dump → R2 snapshot, no `supabase db push`, no drift/RLS gate (mirrors `promote-to-demo.yml`, the post-D1 template — AECI-256/278).
 - **Worker deploys** — API first (`aeci-api-production`), SSR second (`aeci-web-production`). Each `wrangler deploy` line passes `--var COMMIT_SHA:${{ inputs.commit_sha }} --var DEPLOYED_AT:<shared timestamp>` per the CLAUDE.md non-negotiable, then pushes the Worker runtime secrets.

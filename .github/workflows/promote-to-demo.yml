@@ -13,11 +13,14 @@
 # has its OWN D1 (`aeci-app-demo`), KV, queues (`aeci-*-demo`), and Algolia
 # (`demo_*`) index set; this workflow migrates/deploys those.
 #
-# Two jobs, in order:
+# Jobs, in order:
 #
 #   1. pre-promotion-checks (unattended)
+#      - Refuses a run dispatched from any ref but `main` (`github.ref`).
 #      - Validates `commit_sha` is a full 40-char hex SHA (the SHA is the
 #        confirmation — there is no typed-word gate; AECI-879).
+#      - Validates the Lighthouse override: `override_lighthouse: true` needs a
+#        non-empty `override_reason`.
 #      - Checks out the repo at `inputs.commit_sha`.
 #      - `scripts/require-secrets.sh` over the demo secrets (REQUIRED fail-fast,
 #        RECOMMENDED warn) BEFORE anything is deployed.
@@ -26,7 +29,25 @@
 #        Staging sits behind Cloudflare Access; verify-version.sh attaches the
 #        service-token headers when CF_ACCESS_* are set.
 #
-#   2. deploy-demo-workers (GH Environment `demo`)
+#   2. The Lighthouse gate. Lighthouse no longer runs per merge to main; it runs
+#      nightly and here. Three jobs, because a reusable workflow can only be
+#      called at the JOB level:
+#      - lighthouse-lookup reads the `lighthouse` commit status on the SHA (posted
+#        by lighthouse.yml). A `success` is reused only when its target_url names
+#        a run of lighthouse.yml or promote-to-demo.yml on `main`, checked through
+#        the runs API. Anything else, including a prior `failure` (could be a
+#        flake) or a success it cannot verify, → measure fresh. Override → skip
+#        the measurement and log the reason.
+#      - lighthouse-measure calls lighthouse.yml with `commit_sha` (only when the
+#        lookup said measure). That run posts the new status on the SHA.
+#      - lighthouse-gate (`if: always()`) checks the results explicitly. A failed,
+#        cancelled or skipped-by-error measurement fails it. Only the fresh
+#        measurement decides; the old failure status never blocks on its own.
+#
+#   3. deploy-demo-workers (GH Environment `demo`)
+#      - Runs only when pre-promotion-checks AND lighthouse-gate succeeded. The
+#        `if:` is explicit: a skipped lighthouse-measure upstream would otherwise
+#        skip this job even on a cached pass.
 #      - Same shape as promote-to-prod's deploy job: provision `aeci-*-demo`
 #        queues, apply D1 migrations to `aeci-app-demo`, API deploys FIRST, push
 #        Worker secrets, SSR deploys, smoke-test demo.aecintegrations.com (BOTH
@@ -85,6 +106,16 @@ on:
         description: 'Full 40-char commit SHA already verified on staging (lowercase hex)'
         required: true
         type: string
+      override_lighthouse:
+        description: 'Skip the Lighthouse gate. Needs a reason below. Logged in the run summary.'
+        required: false
+        type: boolean
+        default: false
+      override_reason:
+        description: 'Why the Lighthouse gate is skipped (required when overriding)'
+        required: false
+        type: string
+        default: ''
 
 # Promotes are not idempotent across overlapping runs; queue rather than cancel.
 concurrency:
@@ -109,6 +140,21 @@ jobs:
     permissions:
       contents: read
     steps:
+      # Dispatch from `main` only. GitHub runs the copy of this file at the
+      # dispatched ref, so a run from another branch could carry an old or edited
+      # gate. This check catches a wrong-branch dispatch from the Actions UI or
+      # `gh workflow run`. It cannot stop a branch that deletes the check itself.
+      # The `demo` environment's deployment-branch rule (main only, set
+      # 2026-10-07) does: the deploy job cannot start from any other ref.
+      - name: Require dispatch from main
+        env:
+          REF: ${{ github.ref }}
+        run: |
+          if [ "$REF" != "refs/heads/main" ]; then
+            echo "::error::promote-to-demo must be dispatched from main (got '$REF'). Re-run it with the branch set to main. commit_sha still picks the commit."
+            exit 1
+          fi
+
       # The SHA *is* the confirmation (AECI-879). There is no typed-word gate:
       # pasting a 40-char commit you verified on staging is a deliberate act, and
       # a second "type PROMOTE" box only trains the operator to type past it.
@@ -124,6 +170,19 @@ jobs:
             exit 1
           fi
           echo "commit_sha=$COMMIT_SHA accepted"
+
+      # An override without a reason is refused before anything else runs. The
+      # reason goes to the job summary and the run log in lighthouse-lookup.
+      - name: Validate the Lighthouse override
+        env:
+          OVERRIDE: ${{ inputs.override_lighthouse }}
+          REASON: ${{ inputs.override_reason }}
+        run: |
+          if [ "$OVERRIDE" = "true" ] && [ -z "$(printf '%s' "$REASON" | tr -d '[:space:]')" ]; then
+            echo "::error::override_lighthouse is set but override_reason is empty. Give a reason, or run the promote without the override."
+            exit 1
+          fi
+          echo "override_lighthouse=$OVERRIDE"
 
       - uses: actions/checkout@v5
         with:
@@ -209,11 +268,200 @@ jobs:
           echo "Staging API + SSR both match input SHA: $EXPECTED_SHA"
 
   # ===========================================================================
-  # Job 2: Deploy demo Workers (GH Environment `demo`)
+  # Job 2a: Lighthouse gate, look up an existing result on the SHA
+  # ===========================================================================
+  lighthouse-lookup:
+    name: Lighthouse gate (look up)
+    needs: pre-promotion-checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      statuses: read
+      # Reads the run named in the status target_url (GET .../actions/runs/{id}).
+      actions: read
+    outputs:
+      decision: ${{ steps.lookup.outputs.decision }}
+    steps:
+      # decision: override | cached | measure. A `success` counts as cached only
+      # when all of these hold:
+      #   - github-actions[bot] posted it. Anyone with write access can post a
+      #     status by hand, but not as the bot.
+      #   - Its target_url is a run in this repo. The run id is parsed from it.
+      #   - The runs API says that run's workflow is lighthouse.yml or
+      #     promote-to-demo.yml (the promote gate's measurement runs inside this
+      #     workflow), and its head_branch is main. Any job with statuses: write
+      #     posts as the bot, so the bot check alone is not enough.
+      # Anything unverifiable re-measures, never passes. A prior `failure` also
+      # re-measures: it may have been a flake, and only a fresh run decides. A
+      # status API error re-measures too (the safe direction).
+      - name: Look up the lighthouse status on commit_sha
+        id: lookup
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          SHA: ${{ inputs.commit_sha }}
+          OVERRIDE: ${{ inputs.override_lighthouse }}
+          REASON: ${{ inputs.override_reason }}
+          ACTOR: ${{ github.actor }}
+          SERVER_URL: ${{ github.server_url }}
+        run: |
+          set -euo pipefail
+          if [ "$OVERRIDE" = "true" ]; then
+            reason_one_line="$(printf '%s' "$REASON" | tr '\r\n' '  ')"
+            echo "::warning::Lighthouse gate OVERRIDDEN by $ACTOR for $SHA. Reason: $reason_one_line"
+            {
+              echo "### Lighthouse gate: overridden"
+              echo ""
+              echo "- Commit: \`$SHA\`"
+              echo "- By: $ACTOR"
+              echo "- Reason: $reason_one_line"
+              echo ""
+              echo "No measurement ran for this promote."
+            } >> "$GITHUB_STEP_SUMMARY"
+            echo "decision=override" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          existing=""
+          url=""
+          if state="$(gh api "repos/$REPO/commits/$SHA/statuses?per_page=100" \
+              --jq '[.[] | select(.context == "lighthouse" and .creator.login == "github-actions[bot]")][0] | [(.state // ""), (.target_url // "")] | @tsv')"; then
+            IFS=$'\t' read -r existing url <<<"$state" || true
+          else
+            echo "::warning::Could not read commit statuses for $SHA. Measuring fresh."
+          fi
+          # Verify a success came from a trusted workflow run on main. On any
+          # doubt, downgrade it to "unverified" so the SHA is measured fresh.
+          if [ "${existing:-}" = "success" ]; then
+            run_id=""
+            prefix="$SERVER_URL/$REPO/actions/runs/"
+            case "${url:-}" in
+              "$prefix"*)
+                rest="${url#"$prefix"}"
+                run_id="${rest%%[!0-9]*}"
+                ;;
+            esac
+            if [ -z "$run_id" ]; then
+              echo "::warning::The lighthouse success on $SHA has no run link in this repo (target_url: '${url:-none}'). Measuring fresh."
+              existing="unverified"
+            elif run_info="$(gh api "repos/$REPO/actions/runs/$run_id" --jq '[(.path // ""), (.head_branch // "")] | @tsv')"; then
+              IFS=$'\t' read -r run_path run_branch <<<"$run_info" || true
+              # Strip any `@ref` suffix the API may append to the path.
+              run_path="${run_path%%@*}"
+              case "$run_path/$run_branch" in
+                .github/workflows/lighthouse.yml/main | .github/workflows/promote-to-demo.yml/main)
+                  echo "Verified: run $run_id is $run_path on $run_branch."
+                  ;;
+                *)
+                  echo "::warning::The lighthouse success on $SHA came from run $run_id ($run_path on '$run_branch'), not lighthouse.yml or promote-to-demo.yml on main. Measuring fresh."
+                  existing="unverified"
+                  ;;
+              esac
+            else
+              echo "::warning::Could not read run $run_id to verify the lighthouse success on $SHA. Measuring fresh."
+              existing="unverified"
+            fi
+          fi
+          if [ "${existing:-}" = "success" ]; then
+            echo "Lighthouse already passed on $SHA: ${url:-no run link}. Reusing it."
+            {
+              echo "### Lighthouse gate: passed earlier"
+              echo ""
+              echo "- Commit: \`$SHA\`"
+              echo "- Measured by: ${url:-no run link recorded}"
+            } >> "$GITHUB_STEP_SUMMARY"
+            echo "decision=cached" >> "$GITHUB_OUTPUT"
+          else
+            if [ "${existing:-}" = "failure" ]; then
+              echo "Lighthouse previously FAILED on $SHA (${url:-no run link}). Re-measuring: a fresh run decides."
+            else
+              echo "No lighthouse result on $SHA (found: '${existing:-none}'). Measuring."
+            fi
+            echo "decision=measure" >> "$GITHUB_OUTPUT"
+          fi
+
+  # ===========================================================================
+  # Job 2b: Lighthouse gate, measure (reusable lighthouse.yml)
+  # ===========================================================================
+  # Called at the JOB level, as reusable workflows must be. Its jobs show up
+  # inside THIS run. It posts the `lighthouse` status on commit_sha, so a later
+  # promote of the same SHA reuses the result. Its concurrency group is
+  # `lighthouse-<sha>`, never `promote-to-demo`, so it cannot deadlock with this
+  # run. The nested jobs ask for `statuses: write`, so grant it here.
+  lighthouse-measure:
+    name: Lighthouse gate (measure)
+    needs: lighthouse-lookup
+    if: needs.lighthouse-lookup.outputs.decision == 'measure'
+    permissions:
+      contents: read
+      statuses: write
+    uses: ./.github/workflows/lighthouse.yml
+    with:
+      commit_sha: ${{ inputs.commit_sha }}
+    secrets: inherit
+
+  # ===========================================================================
+  # Job 2c: Lighthouse gate, decide
+  # ===========================================================================
+  # `always()` so it runs after a skipped measurement (cached or override). It
+  # then checks every result by hand: a skipped job is not a failure, so nothing
+  # else would stop a deploy after a failed or cancelled measurement.
+  lighthouse-gate:
+    name: Lighthouse gate
+    needs: [lighthouse-lookup, lighthouse-measure]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions: {}
+    steps:
+      - name: Decide
+        env:
+          LOOKUP_RESULT: ${{ needs.lighthouse-lookup.result }}
+          DECISION: ${{ needs.lighthouse-lookup.outputs.decision }}
+          MEASURE_RESULT: ${{ needs.lighthouse-measure.result }}
+          SHA: ${{ inputs.commit_sha }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          if [ "$LOOKUP_RESULT" != "success" ]; then
+            echo "::error::Lighthouse lookup did not succeed (result: $LOOKUP_RESULT). Refusing to promote."
+            exit 1
+          fi
+          case "$DECISION" in
+            override)
+              echo "Lighthouse gate overridden. See the lighthouse-lookup summary for the reason."
+              ;;
+            cached)
+              echo "Lighthouse already passed on $SHA. Gate open."
+              ;;
+            measure)
+              if [ "$MEASURE_RESULT" != "success" ]; then
+                echo "::error::Lighthouse measurement of $SHA did not pass (result: $MEASURE_RESULT). Refusing to promote. Run: $RUN_URL"
+                echo "### Lighthouse gate: closed (measurement $MEASURE_RESULT)" >> "$GITHUB_STEP_SUMMARY"
+                exit 1
+              fi
+              echo "Lighthouse passed on $SHA in this run. Gate open."
+              {
+                echo "### Lighthouse gate: passed"
+                echo ""
+                echo "- Commit: \`$SHA\`"
+                echo "- Measured by: $RUN_URL"
+              } >> "$GITHUB_STEP_SUMMARY"
+              ;;
+            *)
+              echo "::error::Lighthouse lookup returned no decision ('$DECISION'). Refusing to promote."
+              exit 1
+              ;;
+          esac
+
+  # ===========================================================================
+  # Job 3: Deploy demo Workers (GH Environment `demo`)
   # ===========================================================================
   deploy-demo-workers:
     name: Deploy demo Workers
-    needs: pre-promotion-checks
+    needs: [pre-promotion-checks, lighthouse-gate]
+    # Explicit, not the default success(): lighthouse-measure is SKIPPED on a
+    # cached pass or an override, and a skipped ancestor would skip this job.
+    # `!cancelled()` (not always()) so a cancelled promote never starts a deploy.
+    if: ${{ !cancelled() && needs.pre-promotion-checks.result == 'success' && needs.lighthouse-gate.result == 'success' }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     # The `demo` GH Environment carries the deploy URL and any optional reviewer

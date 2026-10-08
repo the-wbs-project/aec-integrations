@@ -1,34 +1,50 @@
-# AEC Integrations — post-merge Lighthouse (mobile, error gate — AECI-188).
+# AEC Integrations — Lighthouse (mobile, error gate — AECI-188).
 #
-# WHY THIS IS ITS OWN WORKFLOW (moved out of deploy.yml).
-#   Lighthouse used to run as a job in deploy.yml on EVERY PR push. It never
-#   gated anything there (warn-only at the time, not in deploy-staging
-#   `needs:`), so on a PR it was pure noise + ~5 min of CI. This workflow runs
-#   it on PUSH TO MAIN ONLY — so it's off PRs entirely and instead reports on
-#   the post-merge run, right before/alongside the staging deploy in deploy.yml.
+# TRIGGERS. Lighthouse no longer runs on every merge to main. It runs:
+#   1. schedule, 09:00 UTC daily. Measures main HEAD (`github.sha` on a schedule
+#      is the latest commit on the default branch). If that commit already
+#      carries `lighthouse: success`, or a `failure` posted by an earlier NIGHTLY
+#      run (which already alerted), the measurement is skipped and the log says
+#      why. A failure posted by the promote gate or a manual run never alerted,
+#      so the nightly measures again. A quiet main costs nothing.
+#   2. workflow_call from promote-to-demo.yml (`commit_sha` input). The demo
+#      promote gate calls this when the SHA has no `lighthouse: success` status
+#      yet. It measures exactly `inputs.commit_sha`. Runs invoked this way show
+#      up as promote-to-demo runs, not lighthouse runs.
+#   3. workflow_dispatch on any branch (AECI-221). Measures the dispatched ref, so
+#      a perf-affecting branch can be checked under real CI conditions BEFORE it
+#      lands (N=3 median, no RUM, local D1 fixtures).
 #
-#   It can't simply be an `if: push`-gated job back in deploy.yml: that workflow's
-#   run-level `concurrency` is `cancel-in-progress: true`, which is correct for
-#   DEPLOYS (a rapid second merge should cancel the now-superseded staging deploy)
-#   but would also cancel an in-flight Lighthouse run before it reports. Deploys
-#   want ref-based cancellation; a Lighthouse report wants to always complete for
-#   the exact commit it measured. Opposite needs -> separate workflows.
+# THE RESULT LIVES ON THE COMMIT. Every measurement posts a GitHub commit status,
+#   context `lighthouse`, on the measured SHA: `pending` at the start, then
+#   `success` or `failure` (or `error` if the run was cancelled). target_url is
+#   the run that measured it. The description ends with the trigger:
+#   `(nightly)`, `(promote gate)` or `(manual)`. Callers look the result up by commit status, never
+#   by workflow file: a workflow_call measurement is not a lighthouse.yml run.
+#
+# ALERT. On a SCHEDULED run only, the `alert` job runs scripts/lighthouse-alert.mjs:
+#   - red run: comment on the open Linear issue labelled `lighthouse-regression`,
+#     or file a new AECI Bug if none is open. A NEW issue also emails
+#     support@aecintegrations.com. If the Linear step fails, the email still goes.
+#   - green run: comment "recovered" on the open issue, if any. Never closes it.
+#   The skip path (main already measured) does not alert. A failed alert step turns
+#   the run red. docs/OBSERVABILITY.md owns the alert description.
 #
 # ENFORCEMENT (AECI-188 partial warn→error flip). `.lighthouserc.cjs` asserts
-#   accessibility / best-practices / SEO / TBT / the `/search` TTFB at ERROR
-#   level — a miss exits 1 and turns this workflow red (the post-merge alarm).
-#   performance / LCP / CLS / the JS budgets stay WARN pending the perf
-#   follow-up tracked on the Linear issue referenced in `.lighthouserc.cjs`.
-#   Because the gate is post-merge, a red here means MAIN already regressed:
-#   treat it like a failed deploy gate — fix forward or revert, don't ignore it.
+#   accessibility / best-practices / SEO / the `/search` TTFB at ERROR level. A
+#   miss exits 1 and turns the run red. performance / LCP / CLS / TBT / the JS
+#   budgets stay WARN pending the perf follow-up tracked in `.lighthouserc.cjs`.
+#   A red nightly means MAIN regressed: fix forward or revert, don't ignore it.
 #   N=3 runs (LHCI_RUNS below) give a median-run aggregation so the error gate
 #   doesn't flake on a single noisy run.
 #
-# CONCURRENCY. Per-COMMIT group, never cancelled: every merged commit gets its
-#   own Lighthouse run that always finishes, fully decoupled from deploy.yml's
-#   cancellation. (A shared group + cancel-in-progress:false would drop the
-#   intermediate commit when several merges land in a row — GitHub keeps only the
-#   running + newest-pending run and cancels the rest. Per-SHA avoids that.)
+# CONCURRENCY. One group per MEASURED SHA (`inputs.commit_sha || github.sha`),
+#   never cancelled. Under workflow_call `github.sha` is the CALLER's SHA, so the
+#   key must prefer the input. The group name `lighthouse-<sha>` never equals the
+#   caller's own group (`promote-to-demo`), so the call cannot deadlock against
+#   it. Two runs for the same SHA queue. Known edge: GitHub keeps one PENDING run
+#   per group, so a third arrival for the same SHA cancels the waiting one. A
+#   cancelled measurement fails the demo promote gate closed. Re-run the promote.
 #
 # SELF-CONTAINED. Unlike the old job it can't `needs:` build-web / download that
 #   workflow's `web-dist` artifact (artifacts don't cross workflow runs), so it
@@ -55,28 +71,40 @@
 #     never loads, and the /search JS budget + a11y numbers measure a page that
 #     doesn't exist in production. The preview_* indexes it queries are created/
 #     populated by `pnpm algolia:bulk-sync -- --env preview` (read-only here).
+#   - LINEAR_API_KEY — the alert job's Linear key (scheduled runs only). Sent as a
+#     bare `Authorization` header. Absent → the Linear step fails red, and the
+#     email step still sends.
+#   - RESEND_API_KEY — the alert email (scheduled runs, new issue or Linear down).
+#     Sender is the one verified address, notifications@aecintegrations.com
+#     (docs/email.md).
 
 name: lighthouse
 
 on:
-  push:
-    branches: [main]
-    # Docs-only merges can't move perf — skip them (matches deploy.yml).
-    paths-ignore:
-      - '**/*.md'
-      - 'docs/**'
-  # Manual run on any branch (AECI-221). The gate is otherwise post-merge-only,
-  # so there is no pre-merge signal; `workflow_dispatch` lets a perf-affecting
-  # branch be measured against the real CI conditions (N=3 median, no RUM,
-  # the shared dev DB at HEAD) BEFORE it lands — so a warn→error flip can be
-  # validated rather than merged on faith. Reads the same repo secrets.
+  # Nightly. 09:00 UTC daily (`0 9 * * *`). Skips when main HEAD is already
+  # measured (see the `resolve` job for the exact rule).
+  schedule:
+    - cron: '0 9 * * *'
+  # Manual run on any branch (AECI-221). Measures the dispatched ref, so a
+  # perf-affecting branch can be validated BEFORE it lands. Reads the same repo
+  # secrets. Never alerts.
   workflow_dispatch:
+  # The demo promote gate (promote-to-demo.yml `lighthouse-measure`). The caller
+  # must grant `statuses: write` and pass `secrets: inherit`. Never alerts.
+  workflow_call:
+    inputs:
+      commit_sha:
+        description: 'Full 40-char commit SHA to measure (lowercase hex)'
+        required: true
+        type: string
 
-# Per-commit group so each merged SHA gets an uncancelled report, independent of
-# deploy.yml's run-level (ref-based, cancel-in-progress) concurrency.
+# Keyed on the MEASURED SHA. See CONCURRENCY in the header.
 concurrency:
-  group: lighthouse-${{ github.sha }}
+  group: lighthouse-${{ inputs.commit_sha || github.sha }}
   cancel-in-progress: false
+
+permissions:
+  contents: read
 
 env:
   NODE_VERSION: '24'
@@ -84,12 +112,132 @@ env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
 
 jobs:
+  # ===========================================================================
+  # Which commit, and does it still need measuring?
+  # ===========================================================================
+  resolve:
+    name: Resolve the commit to measure
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      statuses: read
+    outputs:
+      sha: ${{ steps.resolve.outputs.sha }}
+      measure: ${{ steps.resolve.outputs.measure }}
+      trigger: ${{ steps.resolve.outputs.trigger }}
+    steps:
+      # Under workflow_call, `github.event_name` is the CALLER's event, so
+      # `schedule` here can only mean this workflow's own nightly trigger. The
+      # status lookup fails OPEN: if the API is unreachable, measure anyway, so a
+      # GitHub hiccup can never silence the nightly alarm.
+      - name: Resolve the SHA and check for an existing lighthouse status
+        id: resolve
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          INPUT_SHA: ${{ inputs.commit_sha }}
+          EVENT_SHA: ${{ github.sha }}
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          set -euo pipefail
+          if [ -n "$INPUT_SHA" ]; then
+            if ! printf '%s' "$INPUT_SHA" | grep -Eq '^[0-9a-f]{40}$'; then
+              echo "::error::commit_sha must be a full 40-char lowercase hex SHA (received: '$INPUT_SHA')"
+              exit 1
+            fi
+            sha="$INPUT_SHA"
+            trigger="promote gate"
+          elif [ "$EVENT_NAME" = "schedule" ]; then
+            sha="$EVENT_SHA"
+            trigger="nightly"
+          else
+            sha="$EVENT_SHA"
+            trigger="manual"
+          fi
+          measure=true
+          if [ "$trigger" = "nightly" ]; then
+            # Newest first. Only statuses this workflow posted count: anyone with
+            # write access can post a `lighthouse` status by hand. The status
+            # description names the trigger that posted it.
+            if state="$(gh api "repos/$REPO/commits/$sha/statuses?per_page=100" \
+                --jq '[.[] | select(.context == "lighthouse" and .creator.login == "github-actions[bot]")][0] | [(.state // ""), (.target_url // ""), (.description // "")] | @tsv')"; then
+              IFS=$'\t' read -r existing url description <<<"$state" || true
+              # Skip on any success, and on a failure only when a NIGHTLY run
+              # posted it (that run already alerted). A failure from the promote
+              # gate or a manual run never alerted, so measure again and alert.
+              skip=false
+              case "${existing:-}" in
+                success) skip=true ;;
+                failure) case "${description:-}" in *"(nightly)"*) skip=true ;; esac ;;
+              esac
+              case "$skip/${existing:-}" in
+                true/*)
+                  measure=false
+                  echo "Skipping: main HEAD $sha already has lighthouse=$existing (${url:-no run link}). Nothing merged since it was measured."
+                  echo "Skipped. main HEAD \`$sha\` already has \`lighthouse: $existing\` ([run](${url:-#}))." >> "$GITHUB_STEP_SUMMARY"
+                  ;;
+                */failure)
+                  echo "main HEAD $sha has lighthouse=failure from a non-nightly run (${description:-no description}). It never alerted. Measuring."
+                  ;;
+                *)
+                  echo "main HEAD $sha has no terminal lighthouse status (found: '${existing:-none}'). Measuring."
+                  ;;
+              esac
+            else
+              echo "::warning::Could not read commit statuses for $sha. Measuring anyway."
+            fi
+          fi
+          echo "Measuring: $measure. SHA: $sha. Trigger: $trigger"
+          {
+            echo "sha=$sha"
+            echo "measure=$measure"
+            echo "trigger=$trigger"
+          } >> "$GITHUB_OUTPUT"
+
+  # ===========================================================================
+  # Measure, then record the result on the commit
+  # ===========================================================================
   lighthouse:
     name: Lighthouse CI (mobile, error gate)
+    needs: resolve
+    if: needs.resolve.outputs.measure == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 25
+    permissions:
+      contents: read
+      statuses: write
+    env:
+      MEASURED_SHA: ${{ needs.resolve.outputs.sha }}
+      TRIGGER: ${{ needs.resolve.outputs.trigger }}
+      REPO: ${{ github.repository }}
+      # Under workflow_call this is the caller's (promote-to-demo) run, which is
+      # where the measurement actually ran.
+      RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
     steps:
       - uses: actions/checkout@v5
+        with:
+          ref: ${{ needs.resolve.outputs.sha }}
+          # This job's token can write commit statuses. Do not leave it in
+          # .git/config, where `pnpm install` scripts could read it. No later
+          # step needs git auth: the status steps call the API through GH_TOKEN,
+          # and LHCI only reads local git metadata.
+          persist-credentials: false
+      # `pending` first, so a run that dies without reaching the final step
+      # (runner loss, job timeout) leaves a NON-terminal status. The nightly
+      # skip and the promote gate both treat `pending` as "not measured".
+      # GH_TOKEN is set on the two status steps only, never job-wide. With
+      # `persist-credentials: false` above, the token is nowhere else on disk
+      # or in the environment, so `pnpm install` scripts and the dev servers
+      # cannot reach it.
+      - name: Mark the lighthouse status pending
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh api -X POST "repos/$REPO/statuses/$MEASURED_SHA" \
+            -f state=pending -f context=lighthouse -f target_url="$RUN_URL" \
+            -f description="Lighthouse is measuring this commit ($TRIGGER)" > /dev/null
       - name: Install pnpm
         run: npm install -g pnpm@${{ env.PNPM_VERSION }}
       - uses: actions/setup-node@v5
@@ -169,6 +317,99 @@ jobs:
         env:
           LHCI_RUNS: '3'
         run: pnpm lighthouse
+      # `pnpm lighthouse` runs `lhci autorun` from apps/web, so LHCI writes
+      # apps/web/.lighthouseci/. assertion-results.json holds the non-passing
+      # assertions; links.json maps each URL to its uploaded report. The alert
+      # job reads both. Absent files (a failure before `lhci assert`) are fine.
+      - name: Keep assertion results for the alert job
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v6
+        with:
+          name: lighthouse-assertions
+          path: |
+            apps/web/.lighthouseci/assertion-results.json
+            apps/web/.lighthouseci/links.json
+          if-no-files-found: ignore
+          retention-days: 14
       - name: dev:bound logs on failure
         if: failure()
         run: tail -200 dev-bound.log || true
+      # Runs on success, failure AND cancellation, so every finished measurement
+      # leaves a terminal status. A cancelled run posts `error`, which neither the
+      # nightly skip nor the promote gate treats as a result. A failure HERE turns
+      # the job red: a measurement nobody can look up is not a pass.
+      - name: Record the lighthouse status on the measured commit
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          JOB_STATUS: ${{ job.status }}
+        run: |
+          case "$JOB_STATUS" in
+            success) state=success; description="Lighthouse error gate passed ($TRIGGER)" ;;
+            failure) state=failure; description="Lighthouse error gate failed ($TRIGGER)" ;;
+            *) state=error; description="Lighthouse run was cancelled before a result ($TRIGGER)" ;;
+          esac
+          gh api -X POST "repos/$REPO/statuses/$MEASURED_SHA" \
+            -f state="$state" -f context=lighthouse -f target_url="$RUN_URL" \
+            -f description="$description" > /dev/null
+          echo "Posted lighthouse=$state on $MEASURED_SHA ($RUN_URL)"
+          echo "\`lighthouse: $state\` posted on \`$MEASURED_SHA\`." >> "$GITHUB_STEP_SUMMARY"
+
+  # ===========================================================================
+  # Alert a human (scheduled runs only)
+  # ===========================================================================
+  # Not on workflow_dispatch (someone is already watching) and not on
+  # workflow_call (the promote gate is the signal there). Not on the skip path:
+  # `lighthouse` is skipped then, which matches neither result below.
+  alert:
+    name: Alert on the nightly result
+    needs: [resolve, lighthouse]
+    if: >-
+      ${{ !cancelled() && github.event_name == 'schedule' &&
+      needs.resolve.outputs.measure == 'true' &&
+      (needs.lighthouse.result == 'failure' || needs.lighthouse.result == 'success') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    env:
+      MEASURED_SHA: ${{ needs.resolve.outputs.sha }}
+      OUTCOME: ${{ needs.lighthouse.result }}
+    steps:
+      # Pinned to full commit SHAs: this job holds write-capable Linear and
+      # Resend keys, so a moved tag must not swap the code that runs next to them.
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        with:
+          ref: ${{ needs.resolve.outputs.sha }}
+          # The job never pushes. Do not leave the GITHUB_TOKEN in .git/config.
+          persist-credentials: false
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+      # Missing on a run that failed before `lhci assert`. The script then
+      # files the alert with "no assertion results" instead of a table.
+      - name: Fetch the assertion results
+        if: needs.lighthouse.result == 'failure'
+        continue-on-error: true
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: lighthouse-assertions
+          path: lighthouse-results
+      # Red: comment on the open `lighthouse-regression` issue, or file a new
+      # Bug. Green: comment "recovered" on the open issue, if any.
+      - name: Linear (file, comment, or recover)
+        id: linear
+        env:
+          LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}
+        run: node scripts/lighthouse-alert.mjs linear --outcome="$OUTCOME" --results=lighthouse-results/assertion-results.json
+      # Independent of the Linear step: `!cancelled()` runs it even when that
+      # step failed. Emails only for a NEW issue (an open one already told a
+      # human) or when Linear failed (so the red is still heard).
+      - name: Email support@ (new issue, or Linear failed)
+        if: >-
+          ${{ !cancelled() && needs.lighthouse.result == 'failure' &&
+          (steps.linear.outputs.issue_created == 'true' || steps.linear.outcome == 'failure') }}
+        env:
+          RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+          ISSUE_URL: ${{ steps.linear.outputs.issue_url }}
+        run: node scripts/lighthouse-alert.mjs email --results=lighthouse-results/assertion-results.json ${ISSUE_URL:+--issue-url="$ISSUE_URL"}

@@ -6,7 +6,7 @@
 # (unit / component / integration / chromium-E2E / axe) stays fast, free, and
 # merge-gating, exactly as before (ADR 0012 §Decision-3).
 #
-# WHY ITS OWN WORKFLOW (same reasoning as lighthouse.yml). It must run
+# WHY ITS OWN WORKFLOW. It must run
 # POST-MERGE against the SHA that is actually live on staging, must ALWAYS finish
 # for the commit it measured (per-SHA, never-cancelled concurrency), and must
 # never gate a merge or a deploy.

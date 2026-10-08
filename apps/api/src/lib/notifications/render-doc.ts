@@ -261,8 +261,21 @@ function alertsSection(monitoring: MonitoringAlerts): string[] {
     ...alerts.map(
       (a) => `| ${[`\`${a.key}\``, a.name, a.calculationInterval].map(cell).join(' | ')} |`,
     ),
+    '',
+    ...CI_OPERATOR_ALERTS,
   ];
 }
+
+/**
+ * Operator alerts raised by CI, not by PostHog or the registry. Static text: the doc only
+ * points at them so a reader of this page knows they exist.
+ */
+const CI_OPERATOR_ALERTS = [
+  'CI also alerts the operator, outside PostHog. A red nightly Lighthouse run files or',
+  'updates a `lighthouse-regression` Linear issue, and a new issue also emails',
+  '`support@aecintegrations.com` (`.github/workflows/lighthouse.yml`). `docs/OBSERVABILITY.md`',
+  'describes it.',
+];
 
 /** Group ids by channel in `CHANNEL_ORDER`, ids in code-unit order. Empty channels drop. */
 function groupByChannel(

@@ -14,8 +14,9 @@
  *   on day one); AECI-188 then flipped to `'error'` the set that, on CI run
  *   27262521501 (2026-06-10), passed with wide margins: accessibility /
  *   best-practices / SEO / TBT, plus /search's TTFB. An error-level miss exits
- *   1 and turns the post-merge lighthouse.yml run RED — that red means `main`
- *   already regressed; fix forward or revert.
+ *   1 and turns the run RED. lighthouse.yml runs nightly against main HEAD and
+ *   as the demo promote gate (promote-to-demo.yml). A red nightly means `main`
+ *   already regressed; fix forward or revert. A red gate blocks the promote.
  *   TBT was DEMOTED back to `'warn'` on 2026-06-11: the taxonomy browse pages
  *   (/phases/construction, /audiences/general-contracting) measure 203–232ms
  *   under `simulate` + 4× CPU throttle on the shared GitHub runner — right on
