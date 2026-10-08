@@ -101,12 +101,12 @@ Stage 1.5 shipped the claim spine with **dormant** `vendor_a`/`vendor_b` attesta
 
 ### 2.6 Product Docs / Help Center
 
-> **Scope outline:** this pillar is outlined in **`docs/STAGE_2_PRODUCT_DOCS_SPEC.md`** (the AECI-634 epic — **kickoff draft, added 2026-08-19, not yet a build contract**). Not one of the original §18 pillars; added at end-of-stage planning because Stage 2's new primary user (the vendor, §1) is the first user the product must *teach*.
+> **Scope outline:** this pillar is outlined in **`docs/STAGE_2_PRODUCT_DOCS_SPEC.md`** (the AECI-634 epic — kickoff draft added 2026-08-19, **firmed into a build contract 2026-10-08** and decomposed into AECI-1247 to AECI-1254; the decision is ADR 0040). Not one of the original §18 pillars; added at end-of-stage planning because Stage 2's new primary user (the vendor, §1) is the first user the product must *teach*.
 
 - Reader-facing product documentation under **`/docs` inside `apps/web`** — **decided: not a separate site, app, or subdomain** (rationale + re-open trigger in the companion doc §2). Generalizes the proven legal-pages pattern: build-time-inlined markdown → content registry → `marked` → SSR, edge-cached.
 - Three audiences: vendors (claiming, dashboard, attestations, versions, plans — the Stage 2 core), readers (taxonomy, agreement states, the badge), reviewers (dual reviews, requests).
 - Trust content is first-class: how ranking works and what paid does **not** buy (§8.1(4)) get their own pages.
-- The vendor-guide content is **deliberately unwritten until vendor-portal testing settles**; the site map is a v0. Do not decompose the epic before then.
+- The vendor-guide content waited for vendor-portal testing to settle. That gate was crossed by AECI-1104 (2026-09-23), and the epic was decomposed on 2026-10-08 (companion doc §8).
 
 ---
 
