@@ -223,12 +223,12 @@ Per-detail hydration rules:
 | Detail response | Field | Embedded shape |
 |---|---|---|
 | `ProductDetail` | `vendor` | `VendorLink` |
-| `ProductDetail` | `categories` / `audiences` / `phases` / `trades` | `LinkRef[]` — `trades` (AECI-541) is **sparse by design**: most products carry zero trade tags, so `[]` is the common, correct value, not missing data (`STAGE_1_SPEC.md` §5.5a). |
+| `ProductDetail` | `categories` / `audiences` / `phases` / `trades` | `LinkRef[]`, sorted by the API (AECI-1242): audiences A to Z, the other three by `display_order` then name. `trades` (AECI-541) is **sparse by design**: most products carry zero trade tags, so `[]` is the common, correct value, not missing data (`STAGE_1_SPEC.md` §5.5a). |
 | `ProductDetail` | `integrations_as_source` / `integrations_as_target` | `ProductIntegrationItem[]` (= `IntegrationListItem` + `context_direction` + `powered_by_product` + `data_object_slugs`). **Each array spans BOTH delivered-tier tables** (AECI-713 / `STAGE_1_5_SPEC.md` §13.1) — an edge in `integrations`, or a `connector_evidenced_pairs` row on which this product is an endpoint, discriminated by `via`. An evidenced pair is filed by its **oriented** source/target, never by which of `product_a` / `product_b` matched: the canonical order is a storage detail and carries no orientation meaning. **Both arrays are unordered** — deliberately. The rendered table interleaves them into one list sorted alphabetically by partner name (`STAGE_1_5_SPEC.md` §7.1), which SQL cannot express here: the relations can only `ORDER BY` columns of `integrations`, while the partner name lives on the joined product. Do not add an `orderBy` and assume the client inherits it. |
 | `ProductDetail` | `integrations_as_connector` | `PoweredIntegrationItem[]` (= `IntegrationListItem` + `data_object_slugs`) — edges this product **powers** as the mechanism (`powered_by_product_id`), not as an endpoint (Stage 1.5 Addendum B). No `context_direction` **by design**: the page product is neither endpoint, so it has no frame to be relative to. `data_object_slugs` (AECI-1080) means what it means on `ProductIntegrationItem`, on both arms (`integrations` and `connector_evidenced_pairs`). The hub unions it per collapsed pair row. `/api/integrations` does not carry it. |
 | `ProductDetail` | `related_products` | `ProductListItem[]` |
 | `ProductDetail` | `extension_of` / `extensions` | `ProductListItem[]`, both defaulted to `[]` (AECI-710 / `STAGE_1_5_SPEC.md` §13.3b). `extension_of` is the hosts this product is built **within**; `extensions` is the products built within it. Read from `product_extensions` by `productExtensionRows` (`apps/api/src/lib/product-extensions.ts`), each sorted by `textAsc(name)` then `id`, unbounded. **Not integrations**: never in `integrations_as_*`, never in `integration_count`, never a §13.5 lockstep site. |
-| `VendorDetail` | `products` | `ProductListItem[]` |
+| `VendorDetail` | `products` | `ProductListItem[]`, sorted A to Z by name (`compareText`, case-insensitive) then `id`, in `toVendorDetail` (AECI-1242). The junction relation cannot `ORDER BY` the product name. |
 | `IntegrationDetail` | `source` / `target` | `ProductLink` |
 | `IntegrationDetail` | `built_by_vendor` | `VendorLink \| null` |
 | `IntegrationDetail` / `ProductIntegrationItem` | `powered_by_product` | `ProductLink \| null` |
@@ -429,6 +429,9 @@ export const ProductListItemSchema = z.object({
 // group elaborates one audience or phase term by `slug`/`name` (same field types as
 // LinkRef, but it carries NO `id` — it is slug-based, not a hydrated LinkRef; do not
 // "fix" this by extending LinkRefSchema). `points` holds >= 1 bullet, in display order.
+// GET /api/products/:slug sorts the GROUPS on read (lib/usefulness-order.ts): audiences
+// alphabetically by name, phases by taxonomy display_order (lifecycle, as the header
+// Phases menu). Points keep the writer's order. Writers' stored group order is not public.
 export const UsefulnessGroupSchema = z.object({
   slug: z.string().min(1),
   name: z.string().min(1),
@@ -446,6 +449,9 @@ export const ProductDetailSchema = ProductListItemSchema.extend({
   tool_integrations_url: z.string().url().nullable(),
   api_docs_url: z.string().url().nullable(),
   has_api_docs: z.boolean(),
+  // Facet order is set by the API (AECI-1242, lib/taxonomy-order.ts): audiences A-Z by
+  // name; categories, phases and trades by display_order then name (NULLs last), so
+  // phases read in project-lifecycle order. Clients render as received.
   categories: z.array(LinkRefSchema),
   audiences: z.array(LinkRefSchema),
   phases: z.array(LinkRefSchema),
@@ -670,7 +676,7 @@ export type ProductFacetsQuery = z.infer<typeof ProductFacetsQuerySchema>;
 
 // One `TaxonomyTermWithCount[]` per dimension; here `product_count` is the
 // SCOPED count (reflecting the other active filters), ordered by `display_order`
-// then name — same per-term shape the flat taxonomy list endpoints return.
+// then name, EXCEPT audiences, which are A to Z by name then slug (AECI-1242) — same per-term shape the flat taxonomy list endpoints return.
 // `integration_count` is deliberately ABSENT on this endpoint: it would be
 // unscoped, and sitting beside a scoped product count it would read as
 // comparable. See the note under §6.4.

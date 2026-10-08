@@ -108,6 +108,29 @@ describe('GET /api/vendors', () => {
 });
 
 describe('GET /api/vendors/:slug', () => {
+  it('lists the vendor products A to Z by name, ignoring case (AECI-1242)', async () => {
+    await seedVendor(u(1), 'autodesk', 'Autodesk');
+    await t.db.insert(products).values([
+      { id: u(11), slug: 'forma', name: 'Forma for Buildings', promotionStatus: 'promoted' },
+      { id: u(12), slug: 'autocad-mep', name: 'AutoCAD MEP', promotionStatus: 'promoted' },
+      { id: u(13), slug: 'civil-3d', name: 'civil 3D', promotionStatus: 'promoted' },
+      { id: u(14), slug: 'autocad', name: 'AutoCAD', promotionStatus: 'promoted' },
+    ]);
+    await t.db
+      .insert(productVendors)
+      .values([11, 12, 13, 14].map((n) => ({ productId: u(n), vendorId: u(1), isPrimary: true })));
+
+    const detail = VendorDetailSchema.parse(
+      await (await get(detailApp(), '/api/vendors/autodesk')).json(),
+    );
+    expect(detail.products.map((p) => p.slug)).toEqual([
+      'autocad',
+      'autocad-mep',
+      'civil-3d',
+      'forma',
+    ]);
+  });
+
   it('hydrates detail: embedded products + github_url derived from the org handle', async () => {
     await seedVendor(u(1), 'autodesk', 'Autodesk', { githubOrg: 'Autodesk' });
     await t.db

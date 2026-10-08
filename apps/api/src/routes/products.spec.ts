@@ -321,6 +321,90 @@ describe('GET /api/products', () => {
 });
 
 describe('GET /api/products/:slug', () => {
+  it('sorts the sidebar facets: audiences by name, the rest by display_order (AECI-1242)', async () => {
+    await seedProduct(u(1), 'cam', 'Cam');
+    await t.db.insert(taxonomyCategories).values([
+      { id: u(21), slug: 'field', name: 'Field Management', displayOrder: 30 },
+      { id: u(22), slug: 'docs', name: 'Document Management', displayOrder: 20 },
+      { id: u(23), slug: 'minted', name: 'Aardvark', displayOrder: null },
+    ]);
+    await t.db.insert(taxonomyAudiences).values([
+      { id: u(31), slug: 'specialty', name: 'Specialty Contracting', displayOrder: 190 },
+      { id: u(32), slug: 'foreman', name: 'Foreman / Field Supervisor', displayOrder: 270 },
+      { id: u(33), slug: 'cm', name: 'construction Management', displayOrder: 50 },
+    ]);
+    await t.db.insert(taxonomyPhases).values([
+      { id: u(41), slug: 'closeout', name: 'Closeout & Operations', displayOrder: 50 },
+      { id: u(42), slug: 'construction', name: 'Construction', displayOrder: 40 },
+      { id: u(43), slug: 'precon', name: 'Pre-Construction', displayOrder: 30 },
+    ]);
+    await t.db.insert(taxonomyTrades).values([
+      { id: u(44), slug: 'roofing', name: 'Roofing', description: 'Roofs.', displayOrder: 20 },
+      {
+        id: u(45),
+        slug: 'crane',
+        name: 'Crane & Rigging',
+        description: 'Lifts.',
+        displayOrder: 10,
+      },
+    ]);
+    await t.db
+      .insert(productCategories)
+      .values([21, 23, 22].map((n) => ({ productId: u(1), categoryId: u(n) })));
+    await t.db
+      .insert(productAudiences)
+      .values([31, 32, 33].map((n) => ({ productId: u(1), audienceId: u(n) })));
+    await t.db
+      .insert(productPhases)
+      .values([42, 41, 43].map((n) => ({ productId: u(1), phaseId: u(n) })));
+    await t.db
+      .insert(productTrades)
+      .values([44, 45].map((n) => ({ productId: u(1), tradeId: u(n) })));
+
+    const res = await get(detailApp(), '/api/products/cam');
+    expect(res.status).toBe(200);
+    const body = ProductDetailSchema.parse(await res.json());
+    expect(body.categories.map((c) => c.slug)).toEqual(['docs', 'field', 'minted']);
+    expect(body.audiences.map((a) => a.slug)).toEqual(['cm', 'foreman', 'specialty']);
+    expect(body.phases.map((p) => p.slug)).toEqual(['precon', 'construction', 'closeout']);
+    expect(body.trades.map((tr) => tr.slug)).toEqual(['crane', 'roofing']);
+    expect(body.phases[0]).toEqual({ id: u(43), slug: 'precon', name: 'Pre-Construction' });
+  });
+
+  it('orders "How teams use it": audiences by name, phases by lifecycle, points as stored', async () => {
+    await t.db.insert(taxonomyPhases).values([
+      { id: u(41), slug: 'design', name: 'Design', displayOrder: 20 },
+      { id: u(42), slug: 'construction', name: 'Construction', displayOrder: 40 },
+      { id: u(43), slug: 'closeout-operations', name: 'Closeout & Operations', displayOrder: 50 },
+    ]);
+    await seedProduct(u(1), 'cam', 'Cam', {
+      usefulness: {
+        audiences: [
+          { slug: 'specialty', name: 'Specialty Contracting', points: ['s1'] },
+          { slug: 'foreman', name: 'Foreman / Field Supervisor', points: ['f2', 'f1'] },
+          { slug: 'gc', name: 'General Contracting', points: ['g1'] },
+        ],
+        phases: [
+          { slug: 'closeout-operations', name: 'Closeout & Operations', points: ['c1'] },
+          { slug: 'design', name: 'Design', points: ['d2', 'd1'] },
+          { slug: 'construction', name: 'Construction', points: ['k1'] },
+        ],
+      },
+    });
+
+    const res = await get(detailApp(), '/api/products/cam');
+    expect(res.status).toBe(200);
+    const { usefulness } = ProductDetailSchema.parse(await res.json());
+    expect(usefulness!.audiences.map((a) => a.slug)).toEqual(['foreman', 'gc', 'specialty']);
+    expect(usefulness!.phases.map((p) => p.slug)).toEqual([
+      'design',
+      'construction',
+      'closeout-operations',
+    ]);
+    expect(usefulness!.audiences[0]!.points).toEqual(['f2', 'f1']);
+    expect(usefulness!.phases[0]!.points).toEqual(['d2', 'd1']);
+  });
+
   it('hydrates detail: taxonomy + both integration sides + approved reviews only', async () => {
     await seedProduct(u(1), 'revit', 'Revit', { reviewCount: 5, ratingOverallAvg: 4.2 });
     await seedProduct(u(2), 'navisworks', 'Navisworks');

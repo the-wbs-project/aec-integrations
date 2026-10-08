@@ -96,6 +96,7 @@ import { isConnectorPoweredEdge } from './connector-powered';
 import { reachOnlyPartnerCount } from './connector-reach';
 import { liveEvidencedPairWhere, liveIntegrationWhere } from './live-integration';
 import { toPairVendorLinks, type StoredVendorLink } from './integration-vendor-links';
+import { compareTermsByDisplayOrder, compareTermsByName } from './taxonomy-order';
 
 // ---------------------------------------------------------------------------
 // Shared read orderings
@@ -786,9 +787,11 @@ export const productDetailConfig = {
       with: { category: { columns: taxonomyLinkWithOrderColumns } },
     },
     productAudiences: { columns: {}, with: { audience: { columns: taxonomyLinkColumns } } },
-    productPhases: { columns: {}, with: { phase: { columns: taxonomyLinkColumns } } },
+    // `displayOrder` on phases and trades feeds the sidebar sort in
+    // `toProductDetail` (AECI-1242); a relation `orderBy` cannot reach it.
+    productPhases: { columns: {}, with: { phase: { columns: taxonomyLinkWithOrderColumns } } },
     // Sparse by design (§5.5a) — most products resolve to `[]` here.
-    productTrades: { columns: {}, with: { trade: { columns: taxonomyLinkColumns } } },
+    productTrades: { columns: {}, with: { trade: { columns: taxonomyLinkWithOrderColumns } } },
     // Deliberately unordered. The detail page interleaves these two buckets
     // into ONE list sorted alphabetically by partner name (`product-detail.ts`,
     // `STAGE_1_5_SPEC.md` §7.1) — an order SQL can't express from here: a
@@ -1249,8 +1252,8 @@ export interface RawProductDetailRow extends RawProductListRow, RawMaintenanceCo
   hasApiDocs: boolean;
   usefulness: unknown;
   productAudiences: Array<{ audience: RawTaxonomyLink }>;
-  productPhases: Array<{ phase: RawTaxonomyLink }>;
-  productTrades: Array<{ trade: RawTaxonomyLink }>;
+  productPhases: Array<{ phase: RawTaxonomyLinkWithOrder }>;
+  productTrades: Array<{ trade: RawTaxonomyLinkWithOrder }>;
   sourceIntegrations: RawProductIntegrationRow[];
   targetIntegrations: RawProductIntegrationRow[];
   evidencedPairsAsA: RawProductEvidencedPairRow[];
@@ -1433,6 +1436,11 @@ function synthesizeIntegrationName(
 ): string {
   if (rawName && rawName.length > 0) return rawName;
   return `${source.name} → ${target.name}`;
+}
+
+/** Drops `displayOrder`, which is a sort key and not part of `LinkRef`. */
+function toTaxonomyLink(t: RawTaxonomyLink): RawTaxonomyLink {
+  return { id: t.id, name: t.name, slug: t.slug };
 }
 
 export function toUsefulness(raw: unknown): ProductUsefulness | null {
@@ -2446,14 +2454,22 @@ export function toProductDetail(
     tool_integrations_url: raw.toolIntegrationsUrl,
     api_docs_url: raw.apiDocsUrl,
     has_api_docs: raw.hasApiDocs,
-    categories: raw.productCategories.map((r) => ({
-      id: r.category.id,
-      name: r.category.name,
-      slug: r.category.slug,
-    })),
-    audiences: raw.productAudiences.map((r) => r.audience),
-    phases: raw.productPhases.map((r) => r.phase),
-    trades: raw.productTrades.map((r) => r.trade),
+    // Sidebar chip order (AECI-1242). D1 returns join rows in no defined order,
+    // so sort here: audiences by name, the other three by curated
+    // `display_order` (phases = project lifecycle). See `taxonomy-order.ts`.
+    categories: raw.productCategories
+      .map((r) => r.category)
+      .sort(compareTermsByDisplayOrder)
+      .map(toTaxonomyLink),
+    audiences: raw.productAudiences.map((r) => r.audience).sort(compareTermsByName),
+    phases: raw.productPhases
+      .map((r) => r.phase)
+      .sort(compareTermsByDisplayOrder)
+      .map(toTaxonomyLink),
+    trades: raw.productTrades
+      .map((r) => r.trade)
+      .sort(compareTermsByDisplayOrder)
+      .map(toTaxonomyLink),
     usefulness: toUsefulness(raw.usefulness),
     // Source bucket: this product IS the integration's source (contextIsSource:
     // true → outbound flows read outbound); target bucket is the mirror.
@@ -2545,7 +2561,12 @@ export function toVendorDetail(raw: RawVendorDetailRow): VendorDetail {
     facebook_url: raw.facebookUrl,
     instagram_url: raw.instagramUrl,
     youtube_url: raw.youtubeUrl,
-    products: raw.productVendors.map((r) => toProductListItem(r.product)),
+    // A to Z by name, case-insensitive, id as the tiebreaker (AECI-1242). The
+    // junction relation has no `orderBy` that reaches the product name, so D1
+    // returned these in no defined order.
+    products: raw.productVendors
+      .map((r) => toProductListItem(r.product))
+      .sort((a, b) => compareText(a.name, b.name) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0)),
     maintenance: toMaintenance(raw),
   };
 }
