@@ -12,7 +12,8 @@ import { expect, test, type Locator, type Page } from '@playwright/test';
  *
  * Covers: a list row opens its page; a deep link with a fragment lands on the
  * section; the section nav is native anchors that move focus; "Things that need
- * you" jumps into Change requests; a Yes saves and announces; the No reason form;
+ * you" jumps into Change requests; a Yes saves, announces and locks the row behind
+ * Change; the No reason form;
  * an unknown id is not found; and axe (serious and critical) on the page with a
  * form open.
  */
@@ -97,10 +98,12 @@ test.describe('integration detail page (preview)', () => {
 
   test('Yes saves at once and announces; No asks for a reason', async ({ page }) => {
     await openPage(page, PROCORE);
-    const yes = page.getByTestId('yes-models');
-    await clickUntil(yes, () =>
-      expect(yes).toHaveAttribute('aria-pressed', 'true', { timeout: 1_000 }),
+    // An answered row reads as text with a Change link (AECI-1246), so the saved
+    // Yes shows as the answer, not as a pressed toggle.
+    await clickUntil(page.getByTestId('yes-models'), () =>
+      expect(page.getByTestId('answer-models')).toContainText('Yes', { timeout: 1_000 }),
     );
+    await expect(page.getByTestId('change-models')).toBeFocused();
     await expect(page.locator(ANNOUNCER)).toContainText('Models: you said this is right.');
 
     await page.getByTestId('no-documents').click();
