@@ -446,7 +446,9 @@ export class IntegrationSharedData {
   protected readonly adding = signal(false);
   protected readonly addError = signal<string | null>(null);
 
-  protected readonly directions = ['outbound', 'inbound', 'both'] as const;
+  /** Outbound, both, inbound: the one order every direction picker uses
+   *  (AECI-1243). */
+  protected readonly directions = ['outbound', 'both', 'inbound'] as const;
 
   private readonly live = computed(() => !this.integration().retired_at);
 

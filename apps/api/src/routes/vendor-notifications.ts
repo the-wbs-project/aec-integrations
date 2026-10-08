@@ -624,7 +624,9 @@ export function createListVendorNotificationsHandler(
       })
       .from(auditLog)
       .where(vendorNotificationLedgerWhere(vendorId))
-      .orderBy(desc(auditLog.createdAt))
+      // `id` breaks a same-millisecond tie, as on the history trail: rows from
+      // one `db.batch` routinely share a timestamp (AECI-1243).
+      .orderBy(desc(auditLog.createdAt), desc(auditLog.id))
       .limit(NOTIFICATION_PAGE_SIZE);
 
     const body: ListVendorNotificationsResponse = {

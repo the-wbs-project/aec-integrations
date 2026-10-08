@@ -86,6 +86,7 @@ async function get(auth?: AuthzVariables['auth']) {
 /** Write a ledger row exactly as `lib/attestation-notify.ts` does. */
 async function ledgerRow(
   over: {
+    id?: string;
     vendorId?: string | null;
     detector?: string;
     claimId?: string;
@@ -94,7 +95,7 @@ async function ledgerRow(
   } = {},
 ) {
   await t.db.insert(auditLog).values({
-    id: crypto.randomUUID(),
+    id: over.id ?? crypto.randomUUID(),
     actorType: 'system',
     action: NOTIFICATION_SENT_ACTION,
     entityType: 'claim',
@@ -130,6 +131,17 @@ describe('GET /api/vendor/notifications', () => {
     const list = body.notifications as Array<Record<string, unknown>>;
     expect(list.map((n) => n.claim_id)).toEqual([uuid(32), uuid(31)]);
     expect(() => ListVendorNotificationsResponseSchema.parse(body)).not.toThrow();
+  });
+
+  it('breaks a same-timestamp tie on id, newest id first (AECI-1243)', async () => {
+    const at = daysAgo(2);
+    await ledgerRow({ id: uuid(901), claimId: uuid(31), createdAt: at });
+    await ledgerRow({ id: uuid(903), claimId: uuid(33), createdAt: at });
+    await ledgerRow({ id: uuid(902), claimId: uuid(32), createdAt: at });
+
+    const { body } = await get();
+    const list = body.notifications as Array<Record<string, unknown>>;
+    expect(list.map((n) => n.claim_id)).toEqual([uuid(33), uuid(32), uuid(31)]);
   });
 
   it('rebuilds the canonical pair path from the stored slugs', async () => {

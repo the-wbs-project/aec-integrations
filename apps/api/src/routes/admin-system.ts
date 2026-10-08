@@ -242,10 +242,14 @@ async function tableCounts(db: Db): Promise<AdminTableCount[]> {
 
   // Re-sort: the chunks resolve out of order and UNION ALL does not guarantee
   // branch order back either.
-  return results
-    .flat()
-    .map((r) => ({ table: r.t, rows: Number(r.n) }))
-    .sort((a, b) => a.table.localeCompare(b.table));
+  return (
+    results
+      .flat()
+      .map((r) => ({ table: r.t, rows: Number(r.n) }))
+      // Table names are identifiers: BINARY, never an unpinned `localeCompare`
+      // (AECI-1243).
+      .sort((a, b) => (a.table < b.table ? -1 : a.table > b.table ? 1 : 0))
+  );
 }
 
 /**
@@ -292,7 +296,8 @@ async function algoliaWatermark(db: Db): Promise<AdminAlgoliaWatermark | null> {
             entity,
             watermark: typeof watermark === 'string' ? watermark : null,
           }))
-          .sort((a, b) => a.entity.localeCompare(b.entity))
+          // Entity keys are identifiers: BINARY (AECI-1243).
+          .sort((a, b) => (a.entity < b.entity ? -1 : a.entity > b.entity ? 1 : 0))
       : [];
 
   return { computed_at: row.computedAt, entities };

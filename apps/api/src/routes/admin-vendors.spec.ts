@@ -490,6 +490,49 @@ describe('GET /api/admin/vendors/:id', () => {
     expect(b.seats[0].email).toBe('ada@acme.test');
   });
 
+  it('orders the roster A to Z by display name, unnamed seats last (AECI-1243)', async () => {
+    // Created oldest-first in the opposite order, so a created_at sort fails this.
+    await t.db.insert(profiles).values([
+      {
+        id: u(22),
+        role: 'vendor_admin',
+        vendorId: VENDOR,
+        displayName: null,
+        createdAt: '2026-01-01T00:00:00.000Z',
+      },
+      {
+        id: u(23),
+        role: 'vendor_admin',
+        vendorId: VENDOR,
+        displayName: 'zed',
+        createdAt: '2026-01-02T00:00:00.000Z',
+      },
+      {
+        id: u(24),
+        role: 'vendor_admin',
+        vendorId: VENDOR,
+        displayName: 'amy',
+        createdAt: '2026-01-03T00:00:00.000Z',
+      },
+    ]);
+    const res = await send(
+      mount(
+        'get',
+        '/api/admin/vendors/:id',
+        createAdminVendorDetailHandler(t.factory, emailSeam()),
+      ),
+      `/api/admin/vendors/${VENDOR}`,
+    );
+    const b = await body(res);
+    expect(b.seats.map((s: { user_id: string }) => s.user_id)).toEqual([
+      SEAT_A, // Ada
+      u(24), // amy
+      SEAT_B, // Ben
+      u(23), // zed
+      u(22), // unnamed
+    ]);
+  });
+
   it('includes a BANNED seat on the roster', async () => {
     // A ban is a per-seat lock, not a removal — hiding it would leave an operator
     // unable to see why a colleague cannot sign in.

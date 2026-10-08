@@ -91,7 +91,7 @@ import {
   type ProductEditableField,
   type VendorEditableField,
 } from '@aeci/shared/entitlements';
-import { asc, count, eq, inArray } from 'drizzle-orm';
+import { asc, count, desc, eq, inArray } from 'drizzle-orm';
 import { alias } from 'drizzle-orm/sqlite-core';
 
 import { getDb, type Db } from '../db/client';
@@ -121,7 +121,7 @@ import {
   requireCapability,
   type AuthenticatedSession,
 } from '../lib/authz';
-import { textAsc } from '../lib/collation';
+import { blankLast, textAsc } from '../lib/collation';
 import {
   PRODUCT_OVERRIDE_COLUMNS,
   VENDOR_OVERRIDE_COLUMNS,
@@ -755,7 +755,8 @@ export function createVendorMeHandler(
         // `vendorRequestsWhere` for why that sharing is load-bearing.
         db.query.vendorRequests.findMany({
           where: vendorRequestsWhere(vendorId, productIds),
-          orderBy: [asc(vendorRequests.createdAt)],
+          // Newest first, `id` breaking a same-millisecond tie (AECI-1243).
+          orderBy: [desc(vendorRequests.createdAt), desc(vendorRequests.id)],
         }),
         // AECI-1237: AECi's field locks, so the forms render those fields read-only.
         // Two reads on the partial unique index; nothing when nothing is locked.
@@ -820,7 +821,9 @@ export function createVendorSeatsHandler(
         seatOwner: true,
       },
       where: seatsOf(vendorId),
-      orderBy: [asc(profiles.createdAt)],
+      // A to Z by the name the roster shows, unnamed seats last, then id
+      // (AECI-1243).
+      orderBy: [blankLast(profiles.displayName), textAsc(profiles.displayName), asc(profiles.id)],
     });
 
     // The pending invites (AECI-664 / §11a), joined to their sender for a display
@@ -853,7 +856,7 @@ export function createVendorSeatsHandler(
       .from(vendorSeatInvites)
       .leftJoin(invitedBy, eq(invitedBy.id, vendorSeatInvites.invitedById))
       .where(liveInvitesFor(vendorId, invitesReadAt))
-      .orderBy(asc(vendorSeatInvites.createdAt));
+      .orderBy(asc(vendorSeatInvites.createdAt), asc(vendorSeatInvites.id));
 
     // Degrades to `email: null` when SUPABASE_SERVICE_ROLE_KEY is absent — the
     // roster must stay usable in local dev and PR previews, never 500.

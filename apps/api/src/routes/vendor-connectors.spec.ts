@@ -236,3 +236,51 @@ describe('GET /api/vendor/products/:id/connectors', () => {
     expect(aquifer!.reachable.map((p) => p.name)).toEqual(['Acumatica', 'NetSuite']);
   });
 });
+
+describe('GET /api/vendor/products/:id/connectors — tiebreaks (AECI-1243)', () => {
+  it('orders delivered rows whose partners share a name by edge name, then id', async () => {
+    // Two partner products that differ only in case: the partner name ties.
+    await t.db.insert(products).values([
+      { id: uuid(24), slug: 'sage-a', name: 'Sage' },
+      { id: uuid(25), slug: 'sage-b', name: 'sage' },
+    ]);
+    await t.db.insert(connectorEvidencedPairs).values([
+      {
+        id: uuid(500),
+        connectorProductId: KROO,
+        productAId: uuid(24),
+        productBId: OWNED,
+        name: 'Zeta sync',
+        direction: 'both',
+      },
+      {
+        id: uuid(501),
+        connectorProductId: KROO,
+        productAId: uuid(25),
+        productBId: OWNED,
+        name: 'alpha sync',
+        direction: 'both',
+      },
+    ]);
+
+    const parsed = VendorProductConnectorsResponseSchema.parse((await get()).body);
+    const kroo = parsed.connectors.find((c) => c.connector.id === KROO);
+    expect(kroo!.delivered.map((d) => d.id)).toEqual([uuid(501), uuid(500)]);
+  });
+
+  it('breaks a same-name, same-size connector tie on id', async () => {
+    const TWIN = uuid(39);
+    await t.db
+      .insert(products)
+      .values({ id: TWIN, slug: 'aquifer-2', name: 'Aquifer', productRole: 'connector' });
+    await t.db
+      .insert(connectorCatalogs)
+      .values({ id: 'cat-twin', connectorProductId: TWIN, connectorAuthorship: 'platform' });
+    // Seeded in the opposite order to the expected one.
+    await seedReach(AQUIFER_CATALOG, [REACH_ONLY]);
+    await seedReach('cat-twin', [REACH_OTHER]);
+
+    const parsed = VendorProductConnectorsResponseSchema.parse((await get()).body);
+    expect(parsed.connectors.map((c) => c.connector.id)).toEqual([TWIN, AQUIFER]);
+  });
+});

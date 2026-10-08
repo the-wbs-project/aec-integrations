@@ -196,7 +196,7 @@ describe('Yes and No', () => {
     const models = claim('models');
     api.upsertAttestation.mockResolvedValue({ claim: echo(models, false, 'Wrong way.') });
     api.createClaim.mockResolvedValue({
-      claim: { ...echo(models, true, null), id: 'new-claim', direction: 'inbound' },
+      claim: { ...echo(models, true, null), id: 'new-claim', direction: 'both' },
     });
     await setup(api, PROCORE);
     const announce = vi.spyOn(TestBed.inject(VendorPortalAnnouncer), 'announce');
@@ -216,7 +216,9 @@ describe('Yes and No', () => {
     expect(api.createClaim).toHaveBeenCalledWith({
       integration_id: PROCORE.id,
       data_object: 'models',
-      direction: 'inbound',
+      // The first other direction in the one order (outbound, both, inbound)
+      // is the default (AECI-1243).
+      direction: 'both',
       context_product_id: PROCORE.context_product.id,
       note: null,
     });
@@ -226,6 +228,22 @@ describe('Yes and No', () => {
     expect(announce).toHaveBeenLastCalledWith(
       expect.stringContaining('you said the direction is wrong and added the corrected row'),
     );
+  });
+
+  it('lists the corrected-direction options as outbound, both, inbound (AECI-1243)', async () => {
+    const api = makeApi([PROCORE]);
+    await setup(api, PROCORE);
+    const fixture = await mount(IntegrationSharedData, PROCORE);
+    el(fixture).querySelector<HTMLButtonElement>(testid('no-models'))!.click();
+    await settle(fixture);
+    el(fixture).querySelector<HTMLInputElement>('input[type="radio"][value="direction"]')!.click();
+    await settle(fixture);
+    const form = el(fixture).querySelector<HTMLFormElement>(testid('answer-form'))!;
+    const values = [...form.querySelectorAll<HTMLOptionElement>('select option')].map(
+      (o) => o.value,
+    );
+    // `models` is outbound, so the two others remain, in the shared order.
+    expect(values).toEqual(['both', 'inbound']);
   });
 
   it('offers a retry when the corrected row fails after the No saved', async () => {

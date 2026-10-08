@@ -60,7 +60,7 @@ import { asc, desc, sql, type SQL } from 'drizzle-orm';
 import type { SQLiteColumn } from 'drizzle-orm/sqlite-core';
 
 import { integrations, products, profiles, vendorEntitlements, vendors } from '../db/schema';
-import { textAsc, textDir } from './collation';
+import { blankLast, textAsc, textDir } from './collation';
 
 type Direction = 'asc' | 'desc';
 
@@ -247,11 +247,11 @@ export function resolveAdminUserOrderBy(sort: AdminUsersSort, order?: SortOrder)
     case 'updated':
       return [dir(profiles.updatedAt), asc(profiles.id)];
     case 'name':
-      // AECI-1243. Case-insensitive, and an unnamed account sorts LAST in both
-      // directions: `x IS NULL` is 0/1, so it stays ascending while the name
-      // flips. Sorting "Unnamed account" by its label would scatter them.
+      // AECI-1243. Case-insensitive, and an unnamed account (NULL or empty,
+      // both render "Unnamed account") sorts LAST in both directions:
+      // `blankLast` is 0/1 and stays ascending while the name flips.
       return [
-        sql`${profiles.displayName} is null`,
+        blankLast(profiles.displayName),
         textDir(profiles.displayName, ascending),
         asc(profiles.id),
       ];

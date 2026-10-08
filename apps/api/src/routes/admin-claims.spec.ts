@@ -1237,6 +1237,37 @@ describe('GET /api/admin/claims — reviewer-assist LIST', () => {
     expect(seats[0]).toMatchObject({ display_name: 'Existing Admin', work_email_verified: true });
   });
 
+  it('lists existing seats A to Z by display name, unnamed last (AECI-1243)', async () => {
+    await seedVendor();
+    await seedRequest();
+    await t.db.insert(profiles).values([
+      {
+        id: CLAIMANT_ID,
+        role: 'vendor_admin',
+        vendorId: VENDOR_ID,
+        displayName: null,
+        createdAt: '2026-05-01T00:00:00.000Z',
+      },
+      {
+        id: CLAIMANT2_ID,
+        role: 'vendor_admin',
+        vendorId: VENDOR_ID,
+        displayName: 'zed',
+        createdAt: '2026-05-02T00:00:00.000Z',
+      },
+      {
+        id: '00000000-0000-4000-8000-0000000009a1',
+        role: 'vendor_admin',
+        vendorId: VENDOR_ID,
+        displayName: 'Amy',
+        createdAt: '2026-05-03T00:00:00.000Z',
+      },
+    ]);
+
+    const body = await parseClaims(await getClaims());
+    expect(body.data[0]!.existing_seats!.map((s) => s.display_name)).toEqual(['Amy', 'zed', null]);
+  });
+
   // ── The entitlement column (AECI-532 / STAGE_2_PAID_TIERS_SPEC.md §5) ──────
 
   it('resolves the entitlement vendor + readout for a vendor claim', async () => {

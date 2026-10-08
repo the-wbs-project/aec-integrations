@@ -5850,6 +5850,8 @@ export const VendorEntitlementBlockSchema = z.object({
 
 `VendorRequestSummary` deliberately omits `submitter_email` and the free-text `body` — a correction may be filed by a member of the public.
 
+**`requests` ships newest first** (`created_at DESC, id DESC`, AECI-1243). The Messages list renders that order.
+
 **The `entitlement` block costs no query.** It is built from the same `AuthenticatedSession` the write gate asserts on, so the dashboard's readout and the 403 a write would get **cannot disagree**. `capabilities` ships expanded so the dashboard disables controls off one field instead of re-deriving the ladder in the browser. It is **required**, not optional (R10). For `unclaimed` (the Free plan, which a lapsed row also resolves to) it is `['profile.edit', 'product.listing.edit', 'product.categories.edit']`, never empty (AECI-1214).
 
 **Each product carries `plan` (AECI-1214, `STAGE_2_PAID_TIERS_SPEC.md` §13.7).** Plans live at the product level, so product screens gate on `product.plan` through `productCan` and never on `entitlement`. Until a per-product plan table exists, the server copies the vendor's block into every product. Server enforcement stays vendor-wide, and the field and the gate read the same block. `PATCH /api/vendor/products/:id` echoes the product with its `plan` too.
@@ -5869,6 +5871,8 @@ The vendor's seat roster plus the caller's own management rights. A bare object,
 Multi-seat is **flat in data capability** — every seat edits the same things — but since AECI-664 it is not flat in seat MANAGEMENT: `profiles.seat_owner` gates invite/remove alone (`STAGE_2_VENDOR_PORTAL_SPEC.md` §11a). A seat is an owner if it came from an admin claim grant, and is not if it came from redeeming an invite.
 
 **This read is never capability-gated** (R13, with `GET /api/vendor/me`): a vendor whose entitlement lapsed must still be able to see and manage who has access.
+
+**Order (AECI-1243).** `seats` A to Z by `display_name` (case-insensitive), a seat with no name last, then `user_id`. `pending_invites` in the order they were sent, then `id`. The admin vendor roster (`GET /api/admin/vendors/:id`) and the claim queue's `existing_seats` use the same seat order.
 
 **`token` is deliberately absent from `pending_invites`.** Every seat can read this payload, and a token is the redeem handle — putting it here would let any seat redeem an invite addressed to somebody else's mailbox. Revoking uses the row `id`; the token appears only in the invite email.
 
@@ -6592,7 +6596,7 @@ export const VendorProductConnectorsResponseSchema = z.object({
 
 **Not listed:** a Convention-A self-reference and an `iPaaS` edge with no named connector. Both stay in `integrations`, and `GET /api/vendor/integrations` already returns them with `attestable: false`.
 
-**Ordering.** Connectors by delivered count, then reachable count (both descending), then name through `compareText`. Partners by name through `compareText`. Nothing paid is read.
+**Ordering.** Connectors by delivered count, then reachable count (both descending), then name through `compareText`, then connector `id`. Delivered rows by partner name, then the row's own name (both `compareText`), then `id`. Reachable partners by name, then `id` (the `id` tiebreaks are AECI-1243). Nothing paid is read.
 
 **Outside the AECI-516 cursor.** No `GET /api/vendor/updates` scope covers this read. Only an operator catalogue sync, a promote, or a connector seat's mapping edit on its own vendor-managed catalogue moves it (AECI-724). Nothing the reading vendor does moves it. The client fetches it once per product (`STAGE_2_REALTIME_SPEC.md` §2.3). A pure read, so no `audit_log` row.
 
@@ -6632,7 +6636,7 @@ export const VendorConnectorCatalogResponseSchema = paginatedResponseSchema(Vend
   });
 ```
 
-**Narrower than the admin triage row, on purpose.** No `notes` (review-side curation text), and `decided_by` crosses as a kind: `vendor` for `vendor:{slug}`, `automatic` for `auto-name-match`, `aeci` for anything else, which before AECI-724 was a review-app reviewer's name. Removed listings are not returned, and the action inventory is not on the wire. Ordered by `COALESCE(label, slug)` case-insensitively (`textAsc`), `id` as the tiebreaker. The summary counts describe the whole catalogue, not the filtered page.
+**Narrower than the admin triage row, on purpose.** No `notes` (review-side curation text), and `decided_by` crosses as a kind: `vendor` for `vendor:{slug}`, `automatic` for `auto-name-match`, `aeci` for anything else, which before AECI-724 was a review-app reviewer's name. Removed listings are not returned, and the action inventory is not on the wire. Ordered by `COALESCE(label, slug)` case-insensitively (`textAsc`), `id` as the tiebreaker. The summary counts describe the whole catalogue, not the filtered page. Each listing's `mappings[]` reads A to Z by mapped product name, a mapping with no product last, then `id` (AECI-1243).
 
 **The catalogue is resolved through `ownedConnectorCatalogIds`** (`lib/vendor-connector-catalog.ts`), which is the PATCH's ownership clause as a subquery, and the `catalogue` cursor scope imports the same function. `vendor-connector-catalog.spec.ts` pins that every mapping the read shows is one the PATCH does not 404.
 
@@ -6881,7 +6885,7 @@ export const ListDataObjectsResponseSchema = z.object({
 });
 ```
 
-**`GET /api/vendor/integrations`** returns every integration touching a product the caller owns, with each claim's live attestations resolved into `mine` / `counterparty`, its computed `agreement`, and the slot(s) that are the caller's. Unpaginated — the set is bounded by the vendor's own catalog. Retracted attestations never appear (`retracted_at IS NULL`, the same filter the public pair page applies). Claims are ordered by the `data_object` vocabulary's `display_order`. A vendor whose products carry no integrations gets `200 { integrations: [], owned: [] }`, not a 404.
+**`GET /api/vendor/integrations`** returns every integration touching a product the caller owns, with each claim's live attestations resolved into `mine` / `counterparty`, its computed `agreement`, and the slot(s) that are the caller's. Unpaginated — the set is bounded by the vendor's own catalog. Retracted attestations never appear (`retracted_at IS NULL`, the same filter the public pair page applies). Integrations are ordered by context product name, then counterpart name, then `id`. Claims are ordered by the `data_object` vocabulary's `display_order` (NULLs last), then slug, then direction as the caller's frame shows it (outbound, both, inbound), then claim `id` (AECI-1243). A vendor whose products carry no integrations gets `200 { integrations: [], owned: [] }`, not a 404.
 
 **`owned` (AECI-1089).** The rows the caller's vendor owns (`built_by_vendor_id`) that `integrations` does not carry: every owned `connector_evidenced_pairs` row, and every owned `integrations` row on which the caller holds no endpoint. A third-party owner makes neither product of its rows, so this is the only place it sees them. Retired rows are listed. Sorted by `product_a` name, then `product_b` name (`compareText`), then `id`. `.default([])` for deploy skew. The freshness cursor covers it (`GET /api/vendor/updates`).
 
@@ -7321,7 +7325,7 @@ export const AdminRetireIntegrationBodySchema = z
 
 **On a pair (AECI-1091, ruling D).** The same two routes take a `connector_evidenced_pairs` id. Vendor-held means the same on the pair (`claimed_at IS NOT NULL OR origin = 'vendor'`), and the refusals, cross-refusal and reason rule are unchanged. The batch is the owner's pair batch above with the admin's guard (vendor-held, and `retired_by = 'aeci'` on restore); the owner and every vendor of either endpoint are told.
 
-**The list.** `GET /api/admin/vendors/:id/integrations` returns the rows with `built_by_vendor_id = :id` that are vendor-held, live and retired, in **both** tables since AECI-1091, ordered by name case-insensitively (`compareText`, an unnamed row first) then id: `id`, `anchor` (`'integration'` or `'evidenced_pair'`), `name`, `source` / `target` (`{ id, slug, name }`; a pair's canonical A and B), `connector` (the pair's connector product, `null` on an `integrations` row), `connector_powered` (`isConnectorPoweredEdge`, always `true` on a pair; AECI-1237's field-correction picker reads it), `origin`, `claimed_at`, `retired_at`, `retired_by` (NULL on a retired row reads `'owner'`), `pair_path` and `updated_at`. Paged in memory, because the two tables share no SQL `ORDER BY` without a compound select and one vendor's vendor-held rows are few. `anchor`, `connector` and `connector_powered` default on parse (`'integration'`, `null`, `false`) for deploy skew. `404` for an unknown vendor. No audit row.
+**The list.** `GET /api/admin/vendors/:id/integrations` returns the rows with `built_by_vendor_id = :id` that are vendor-held, live and retired, in **both** tables since AECI-1091, ordered by the label the page shows, case-insensitively (`compareText`), then id. That label is the name, or `Source ↔ Target` for an unnamed row (AECI-1243; it used to sort first). Fields: `id`, `anchor` (`'integration'` or `'evidenced_pair'`), `name`, `source` / `target` (`{ id, slug, name }`; a pair's canonical A and B), `connector` (the pair's connector product, `null` on an `integrations` row), `connector_powered` (`isConnectorPoweredEdge`, always `true` on a pair; AECI-1237's field-correction picker reads it), `origin`, `claimed_at`, `retired_at`, `retired_by` (NULL on a retired row reads `'owner'`), `pair_path` and `updated_at`. Paged in memory, because the two tables share no SQL `ORDER BY` without a compound select and one vendor's vendor-held rows are few. `anchor`, `connector` and `connector_powered` default on parse (`'integration'`, `null`, `false`) for deploy skew. `404` for an unknown vendor. No audit row.
 
 **The owner's view.** `GET /api/vendor/integrations` carries `retired_by` on each entry, and a `kind: 'integration_retire'` row on `GET /api/vendor/notifications` carries `retired_by` (`'owner'` for rows written before AECI-1046).
 
