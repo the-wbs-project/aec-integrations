@@ -290,6 +290,10 @@ export class IntegrationDetailState {
    * direction withdraws the Yes on the old correction, then runs the two writes of
    * "the direction is wrong". Any other choice withdraws the Yes on the correction
    * and saves the No alone.
+   *
+   * The withdraw runs only while the correction still carries the caller's answer.
+   * A retry after a failed second write finds it already withdrawn, and a second
+   * `DELETE` would answer 404.
    */
   async reviseChange(
     denied: VendorClaim,
@@ -301,8 +305,11 @@ export class IntegrationDetailState {
     if (right === correction.direction) {
       return this.answerWithNote(denied, false, reason);
     }
-    const withdrawn = await this.clearAnswer(correction, true);
-    if (withdrawn !== null) return withdrawn;
+    const current = this.integration()?.claims.find((c) => c.id === correction.id) ?? correction;
+    if (current.mine.length > 0) {
+      const withdrawn = await this.clearAnswer(current, true);
+      if (withdrawn !== null) return withdrawn;
+    }
     if (right === null) return this.answerWithNote(denied, false, reason);
     return this.directionWrong(denied, reason, right);
   }

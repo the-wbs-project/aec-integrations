@@ -744,4 +744,29 @@ describe('a submitted change (AECI-1246)', () => {
     );
     expect(api.createClaim).not.toHaveBeenCalled();
   });
+
+  it('a retry after the No failed does not withdraw the correction a second time', async () => {
+    const { api, fixture, integration } = await openChange();
+    // The server's re-read after the withdraw: the correction carries no answer.
+    const withdrawn = {
+      ...integration,
+      claims: integration.claims.map((c) => (c.id === CORRECTION.id ? { ...c, mine: [] } : c)),
+    };
+    api.getIntegrations.mockResolvedValue({ integrations: [withdrawn], owned: [] });
+    api.upsertAttestation
+      .mockRejectedValueOnce(apiError(500, 'INTERNAL'))
+      .mockResolvedValue({ claim: DENIED });
+    el(fixture).querySelector<HTMLInputElement>('input[value="not-shared"]')!.click();
+    await settle(fixture);
+    submit(fixture);
+    await settle(fixture, 6);
+    expect(api.retractAttestation).toHaveBeenCalledTimes(1);
+    expect(el(fixture).querySelector(testid('answer-form'))).not.toBeNull();
+
+    submit(fixture);
+    await settle(fixture, 6);
+    expect(api.retractAttestation).toHaveBeenCalledTimes(1);
+    expect(api.upsertAttestation).toHaveBeenCalledTimes(2);
+    expect(el(fixture).querySelector(testid('answer-form'))).toBeNull();
+  });
 });
