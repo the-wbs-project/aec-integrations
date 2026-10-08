@@ -11,7 +11,12 @@
  *   4. Pressing the pressed button clears the answer.
  *   5. Add a row: the note, the audience helper text, a duplicate focuses the row.
  *   6. A connector-powered row, and a caller without access, are read-only.
+ *   7. The answer lock (AECI-1246): an answered row shows plain text and Change;
+ *      Change reveals the toggles; a save or Escape puts the row back.
+ *   8. A submitted change (AECI-1246): the correction folds into a box under the
+ *      denied row, with Change and Cancel.
  */
+import { Component, inject } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
@@ -36,9 +41,29 @@ import {
   setup,
   text,
 } from './integration-detail-testing.harness';
+import { IntegrationDetailState } from './integration-detail-state';
 import { IntegrationSharedData } from './integration-shared-data';
 
 afterEach(() => vi.restoreAllMocks());
+
+/** Binds the section to the page state's live integration, as the page does, so a
+ *  write re-renders the table without a manual refresh. */
+@Component({
+  imports: [IntegrationSharedData],
+  template: `@if (state.integration(); as i) {
+    <aec-integration-shared-data [integration]="i" />
+  }`,
+})
+class LiveHost {
+  protected readonly state = inject(IntegrationDetailState);
+}
+
+async function mountLive() {
+  const fixture = TestBed.createComponent(LiveHost);
+  document.body.appendChild(fixture.nativeElement as HTMLElement);
+  await settle(fixture);
+  return fixture;
+}
 
 const PROCORE = INTEGRATION_PROCORE_DETAIL;
 const claim = (slug: string): VendorClaim =>
@@ -100,6 +125,8 @@ describe('Yes and No', () => {
     api.upsertAttestation.mockResolvedValue({ claim: echo(saidNo, true, null) });
     await setup(api, integration);
     const fixture = await mount(IntegrationSharedData, integration);
+    el(fixture).querySelector<HTMLButtonElement>(testid('change-models'))!.click();
+    await settle(fixture);
     el(fixture).querySelector<HTMLButtonElement>(testid('yes-models'))!.click();
     await settle(fixture);
     expect(api.upsertAttestation).toHaveBeenCalledWith(
@@ -250,10 +277,13 @@ describe('Yes and No', () => {
     expect(buttonNamed(fixture, 'Add the corrected row')).toBeTruthy();
   });
 
-  it('clears the answer when the pressed button is pressed again', async () => {
+  it('clears the answer when the pressed button is pressed again, through Change', async () => {
     const api = makeApi([PROCORE]);
     await setup(api, PROCORE);
     const fixture = await mount(IntegrationSharedData, PROCORE);
+    expect(el(fixture).querySelector(testid('yes-submittals'))).toBeNull();
+    el(fixture).querySelector<HTMLButtonElement>(testid('change-submittals'))!.click();
+    await settle(fixture);
     const yes = el(fixture).querySelector<HTMLButtonElement>(testid('yes-submittals'))!;
     expect(yes.getAttribute('aria-pressed')).toBe('true');
     yes.click();
@@ -400,6 +430,8 @@ describe('read-only rows', () => {
     const api = makeApi([retired]);
     await setup(api, retired);
     const fixture = await mount(IntegrationSharedData, retired);
+    el(fixture).querySelector<HTMLButtonElement>(testid('change-submittals'))!.click();
+    await settle(fixture);
     expect(el(fixture).querySelector<HTMLButtonElement>(testid('yes-submittals'))!.disabled).toBe(
       false,
     );
@@ -407,5 +439,309 @@ describe('read-only rows', () => {
       true,
     );
     expect(el(fixture).querySelector<HTMLButtonElement>(testid('yes-models'))!.disabled).toBe(true);
+  });
+});
+
+describe('the answer lock (AECI-1246)', () => {
+  it('an answered row shows its answer as text and a Change link; an unanswered row keeps the toggles', async () => {
+    const api = makeApi([PROCORE]);
+    await setup(api, PROCORE);
+    const fixture = await mount(IntegrationSharedData, PROCORE);
+    expect(el(fixture).querySelector(testid('answer-submittals'))?.textContent).toContain('Yes');
+    const change = el(fixture).querySelector<HTMLButtonElement>(testid('change-submittals'))!;
+    expect(change.textContent?.trim()).toBe('Change');
+    expect(change.getAttribute('aria-label')).toBe(
+      'Change your answer: Submittals come from Procore',
+    );
+    expect(el(fixture).querySelector(testid('yes-submittals'))).toBeNull();
+    expect(el(fixture).querySelector(testid('yes-models'))).not.toBeNull();
+    expect(el(fixture).querySelector(testid('change-models'))).toBeNull();
+  });
+
+  it('Change reveals the toggles and focuses the pressed one; Escape puts the row back', async () => {
+    const api = makeApi([PROCORE]);
+    await setup(api, PROCORE);
+    const fixture = await mountLive();
+    el(fixture).querySelector<HTMLButtonElement>(testid('change-submittals'))!.click();
+    await settle(fixture);
+    const yes = el(fixture).querySelector<HTMLButtonElement>(testid('yes-submittals'))!;
+    expect(yes.getAttribute('aria-pressed')).toBe('true');
+    expect(document.activeElement).toBe(yes);
+    // Only that row opened.
+    expect(el(fixture).querySelector(testid('yes-rfis'))).toBeNull();
+
+    yes.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    await settle(fixture);
+    expect(el(fixture).querySelector(testid('yes-submittals'))).toBeNull();
+    expect(document.activeElement).toBe(el(fixture).querySelector(testid('change-submittals')));
+    expect(api.upsertAttestation).not.toHaveBeenCalled();
+    el(fixture).remove();
+  });
+
+  it('a one-click Yes on an unanswered row lands as text, with focus on Change', async () => {
+    const api = makeApi([PROCORE]);
+    api.upsertAttestation.mockResolvedValue({ claim: echo(claim('models'), true, null) });
+    await setup(api, PROCORE);
+    const fixture = await mountLive();
+    el(fixture).querySelector<HTMLButtonElement>(testid('yes-models'))!.click();
+    await settle(fixture);
+    expect(el(fixture).querySelector(testid('yes-models'))).toBeNull();
+    expect(document.activeElement).toBe(el(fixture).querySelector(testid('change-models')));
+    el(fixture).remove();
+  });
+
+  it('saving a No through Change puts the row back to text', async () => {
+    const api = makeApi([PROCORE]);
+    const submittals = claim('submittals');
+    api.upsertAttestation.mockResolvedValue({
+      claim: echo(submittals, false, 'Not any more.'),
+    });
+    await setup(api, PROCORE);
+    const fixture = await mountLive();
+    el(fixture).querySelector<HTMLButtonElement>(testid('change-submittals'))!.click();
+    await settle(fixture);
+    el(fixture).querySelector<HTMLButtonElement>(testid('no-submittals'))!.click();
+    await settle(fixture);
+    const note = el(fixture).querySelector<HTMLTextAreaElement>('textarea')!;
+    note.value = 'Not any more.';
+    note.dispatchEvent(new Event('input'));
+    el(fixture)
+      .querySelector<HTMLFormElement>(testid('answer-form'))!
+      .dispatchEvent(new Event('submit'));
+    await settle(fixture);
+    expect(el(fixture).querySelector(testid('answer-submittals'))?.textContent).toContain('No');
+    expect(el(fixture).querySelector(testid('no-submittals'))).toBeNull();
+    el(fixture).remove();
+  });
+
+  it('without access an answered row offers no Change', async () => {
+    const api = makeApi([PROCORE]);
+    await setup(api, PROCORE, VENDOR_ME_UNVERIFIED_FIXTURE);
+    const fixture = await mount(IntegrationSharedData, PROCORE);
+    expect(el(fixture).querySelector(testid('answer-submittals'))).not.toBeNull();
+    expect(el(fixture).querySelector(testid('change-submittals'))).toBeNull();
+  });
+});
+
+describe('a submitted change (AECI-1246)', () => {
+  const own = (asserted: boolean, note: string | null = null) => [
+    {
+      slot: 'vendor_a' as const,
+      asserted,
+      note,
+      introduced_version_id: null,
+      deprecated_version_id: null,
+      updated_at: '2026-10-01T00:00:00.000Z',
+    },
+  ];
+  const DENIED: VendorClaim = {
+    ...claim('models'),
+    id: 'denied-docs',
+    data_object_slug: 'documents',
+    data_object_name: 'Documents',
+    direction: 'outbound',
+    agreement: 'single_source',
+    mine: own(false, 'They go both ways.'),
+    counterparty: null,
+    added_by: null,
+    disagreement: null,
+  };
+  const CORRECTION: VendorClaim = {
+    ...DENIED,
+    id: 'corrected-docs',
+    direction: 'both',
+    mine: own(true),
+    added_by: 'you',
+  };
+  const withPair = (correction: VendorClaim = CORRECTION, extra: VendorClaim[] = []) => ({
+    ...PROCORE,
+    claims: [claim('models'), DENIED, correction, ...extra],
+  });
+
+  async function mountPair(integration = withPair()) {
+    const api = makeApi([integration]);
+    api.getIntegrations.mockResolvedValue({ integrations: [integration], owned: [] });
+    await setup(api, integration);
+    const fixture = await mountLive();
+    return { api, fixture, integration };
+  }
+
+  afterEach(() => document.body.replaceChildren());
+
+  it('folds the correction into a box under the denied row', async () => {
+    const { fixture } = await mountPair();
+    expect(el(fixture).querySelectorAll('th[scope="row"]')).toHaveLength(2);
+    expect(el(fixture).querySelector('h3')?.textContent).toContain("Data that's shared (2)");
+    const box = el(fixture).querySelector(testid('change-box-documents'))!;
+    // The box is the row right after the denied row.
+    expect(el(fixture).querySelector(testid('data-row-documents'))!.nextElementSibling).toBe(box);
+    const cell = box.querySelector('td')!;
+    expect(cell.getAttribute('colspan')).toBe('4');
+    expect(cell.id).toBe('change-denied-docs');
+    expect(cell.getAttribute('tabindex')).toBe('-1');
+    expect(cell.classList).toContain('id-change-box');
+    expect(box.textContent).toContain('You submitted a change');
+    expect(box.textContent).toContain('Documents: To Procore becomes Both ways');
+    expect(box.textContent).toContain('Your reason: They go both ways.');
+    expect(box.textContent).toContain('Procore Technologies has not answered yet.');
+    expect(box.querySelector(testid('change-box-change-documents'))).not.toBeNull();
+    expect(box.querySelector(testid('change-box-cancel-documents'))).not.toBeNull();
+  });
+
+  it('the denied row reads "No" as text with no Change, and its pill says "Change submitted"', async () => {
+    const { fixture } = await mountPair();
+    const row = el(fixture).querySelector(testid('data-row-documents'))!;
+    expect(row.querySelector(testid('answer-documents'))?.textContent).toContain('No');
+    expect(row.querySelector(testid('change-documents'))).toBeNull();
+    expect(row.querySelector('[role="group"]')).toBeNull();
+    expect(row.textContent).toContain('Change submitted');
+    expect(row.textContent).not.toContain('You said this is wrong');
+  });
+
+  it('says when the other company agrees, and when it disagrees with the flag', async () => {
+    const agrees = await mountPair(
+      withPair({
+        ...CORRECTION,
+        agreement: 'confirmed',
+        counterparty: { asserted: true, note: null },
+      }),
+    );
+    expect(text(agrees.fixture)).toContain('Procore Technologies agrees.');
+
+    const disputed = {
+      ...CORRECTION,
+      agreement: 'conflict' as const,
+      counterparty: { asserted: false, note: 'Only one way.' },
+      disagreement: { id: CORRECTION.id, raised_at: '2026-10-02T00:00:00.000Z' },
+    };
+    const disagrees = await mountPair(withPair(disputed));
+    const line = el(disagrees.fixture).querySelector(testid('change-answer-documents'))!;
+    expect(line.textContent).toContain('Procore Technologies disagrees.');
+    expect(line.textContent).toContain('Only one way.');
+    expect(
+      line.querySelector('button[aria-label="Open disagreement on Documents"]'),
+    ).not.toBeNull();
+  });
+
+  it('shows no answer line when the caller holds both endpoints', async () => {
+    const both = { ...withPair(), slots: ['vendor_a', 'vendor_b'] as ('vendor_a' | 'vendor_b')[] };
+    const { fixture } = await mountPair(both);
+    expect(el(fixture).querySelector(testid('change-box-documents'))).not.toBeNull();
+    expect(el(fixture).querySelector(testid('change-answer-documents'))).toBeNull();
+  });
+
+  it('two candidate corrections mean no box, and every row renders', async () => {
+    const second = { ...CORRECTION, id: 'corrected-docs-2', direction: 'inbound' as const };
+    const { fixture } = await mountPair(withPair(CORRECTION, [second]));
+    expect(el(fixture).querySelector(testid('change-box-documents'))).toBeNull();
+    expect(el(fixture).querySelectorAll('th[scope="row"]')).toHaveLength(4);
+  });
+
+  it('Cancel withdraws the Yes on the correction, then the No, with one announcement', async () => {
+    const { api, fixture, integration } = await mountPair();
+    const cleared = {
+      ...integration,
+      claims: integration.claims.map((c) =>
+        c.id === DENIED.id || c.id === CORRECTION.id ? { ...c, mine: [] } : c,
+      ),
+    };
+    api.getIntegrations.mockResolvedValue({ integrations: [cleared], owned: [] });
+    const announce = vi.spyOn(TestBed.inject(VendorPortalAnnouncer), 'announce');
+    el(fixture).querySelector<HTMLButtonElement>(testid('change-box-cancel-documents'))!.click();
+    await settle(fixture, 6);
+    expect(api.retractAttestation.mock.calls.map((c) => c[0])).toEqual([CORRECTION.id, DENIED.id]);
+    expect(announce).toHaveBeenCalledTimes(1);
+    expect(announce).toHaveBeenCalledWith(
+      'Documents: your change is cancelled and your answers are cleared.',
+    );
+    expect(el(fixture).querySelector(testid('change-box-documents'))).toBeNull();
+    const row = el(fixture).querySelector(testid('data-row-documents'))!;
+    expect(row.textContent).toContain('Needs your answer');
+    expect(row.querySelector('[role="group"]')).not.toBeNull();
+  });
+
+  async function openChange() {
+    const ctx = await mountPair();
+    el(ctx.fixture)
+      .querySelector<HTMLButtonElement>(testid('change-box-change-documents'))!
+      .click();
+    await settle(ctx.fixture);
+    return ctx;
+  }
+
+  function submit(fixture: Parameters<typeof el>[0]) {
+    el(fixture)
+      .querySelector<HTMLFormElement>(testid('answer-form'))!
+      .dispatchEvent(new Event('submit'));
+  }
+
+  it('Change opens the reason form in the box, prefilled', async () => {
+    const { fixture } = await openChange();
+    const box = el(fixture).querySelector(testid('change-box-documents'))!;
+    const form = box.querySelector(testid('answer-form'))!;
+    expect(form).not.toBeNull();
+    expect(form.querySelector<HTMLInputElement>('input[value="direction"]')!.checked).toBe(true);
+    expect((form.querySelector('select') as HTMLSelectElement).value).toBe('both');
+    expect(form.querySelector<HTMLTextAreaElement>('textarea')!.value).toBe('They go both ways.');
+    expect(
+      box.querySelector(testid('change-box-change-documents'))!.getAttribute('aria-expanded'),
+    ).toBe('true');
+  });
+
+  it('the same direction re-saves the No with the new reason, and nothing else', async () => {
+    const { api, fixture } = await openChange();
+    api.upsertAttestation.mockResolvedValue({ claim: { ...DENIED, mine: own(false, 'Both.') } });
+    const note = el(fixture).querySelector<HTMLTextAreaElement>('textarea')!;
+    note.value = 'Both.';
+    note.dispatchEvent(new Event('input'));
+    submit(fixture);
+    await settle(fixture);
+    expect(api.upsertAttestation).toHaveBeenCalledTimes(1);
+    expect(api.upsertAttestation).toHaveBeenCalledWith(
+      DENIED.id,
+      expect.objectContaining({ asserted: false, note: 'Both.' }),
+      PROCORE.context_product.id,
+    );
+    expect(api.retractAttestation).not.toHaveBeenCalled();
+    expect(api.createClaim).not.toHaveBeenCalled();
+  });
+
+  it('a new direction withdraws the Yes on the correction, then adds the new one', async () => {
+    const { api, fixture } = await openChange();
+    api.upsertAttestation.mockResolvedValue({ claim: DENIED });
+    api.createClaim.mockResolvedValue({
+      claim: { ...CORRECTION, id: 'corrected-docs-in', direction: 'inbound' },
+    });
+    const select = el(fixture).querySelector('select') as HTMLSelectElement;
+    select.value = 'inbound';
+    select.dispatchEvent(new Event('change'));
+    submit(fixture);
+    await settle(fixture, 6);
+    expect(api.retractAttestation).toHaveBeenCalledWith(CORRECTION.id);
+    expect(api.createClaim).toHaveBeenCalledWith(
+      expect.objectContaining({ data_object: 'documents', direction: 'inbound', note: null }),
+    );
+    const order = [
+      api.retractAttestation.mock.invocationCallOrder[0]!,
+      api.upsertAttestation.mock.invocationCallOrder[0]!,
+      api.createClaim.mock.invocationCallOrder[0]!,
+    ];
+    expect([...order].sort((a, b) => a - b)).toEqual(order);
+  });
+
+  it('another "what\'s wrong" withdraws the Yes on the correction and saves the No alone', async () => {
+    const { api, fixture } = await openChange();
+    api.upsertAttestation.mockResolvedValue({ claim: DENIED });
+    el(fixture).querySelector<HTMLInputElement>('input[value="not-shared"]')!.click();
+    await settle(fixture);
+    submit(fixture);
+    await settle(fixture, 6);
+    expect(api.retractAttestation).toHaveBeenCalledWith(CORRECTION.id);
+    expect(api.upsertAttestation).toHaveBeenCalledWith(
+      DENIED.id,
+      expect.objectContaining({ asserted: false, note: 'They go both ways.' }),
+      PROCORE.context_product.id,
+    );
+    expect(api.createClaim).not.toHaveBeenCalled();
   });
 });

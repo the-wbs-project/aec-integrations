@@ -18,7 +18,10 @@ import {
 } from '../vendor-fixtures';
 
 import {
+  changeBoxId,
   contestChange,
+  deniedRowFor,
+  disagreementItemId,
   howYouGetIt,
   integrationStatus,
   needsItems,
@@ -28,6 +31,8 @@ import {
   stampsToKeep,
   statusFromParam,
   statusLabel,
+  submittedChange,
+  submittedChanges,
 } from './integration-detail-model';
 import { noteAudienceHint } from '../components/vendor-attestation-labels';
 
@@ -377,6 +382,115 @@ describe('noteAudienceHint (AECI-1139)', () => {
     } as VendorIntegration;
     expect(noteAudience(integration, 'me')).toBe(
       'Only Procore Technologies and AEC Integrations see this.',
+    );
+  });
+});
+
+describe('submittedChange — a denied row and its correction (§6.17.4, AECI-1246)', () => {
+  const base = INTEGRATION_OWNED_CLAIMED;
+  const own = (asserted: boolean, note: string | null = null) => [
+    {
+      slot: 'vendor_a' as const,
+      asserted,
+      note,
+      introduced_version_id: null,
+      deprecated_version_id: null,
+      updated_at: '2026-10-01T00:00:00.000Z',
+    },
+  ];
+  const row = (id: string, overrides: Partial<VendorClaim>): VendorClaim => ({
+    ...base.claims[0]!,
+    id,
+    data_object_slug: 'documents',
+    data_object_name: 'Documents',
+    agreement: 'single_source',
+    counterparty: null,
+    added_by: null,
+    ...overrides,
+  });
+  const denied = row('r', { direction: 'outbound', mine: own(false, 'It goes both ways.') });
+  const correction = row('c', { direction: 'both', mine: own(true), added_by: 'you' });
+  const pair = withClaims(base, [denied, correction]);
+
+  it('pairs a No with the one row of the same data the caller added and said Yes to', () => {
+    expect(submittedChange(pair, denied)?.id).toBe('c');
+    expect([...submittedChanges(pair).entries()].map(([r, c]) => [r, c.id])).toEqual([['r', 'c']]);
+    expect(deniedRowFor(pair, 'c')?.id).toBe('r');
+    expect(deniedRowFor(pair, 'r')).toBeNull();
+  });
+
+  it('no candidate: no box', () => {
+    expect(submittedChange(withClaims(base, [denied]), denied)).toBeNull();
+  });
+
+  it('two candidates: no box', () => {
+    const second = row('c2', { direction: 'inbound', mine: own(true), added_by: 'you' });
+    expect(submittedChange(withClaims(base, [denied, correction, second]), denied)).toBeNull();
+  });
+
+  it('a row added by the other company, or by AEC Integrations, is not a correction', () => {
+    for (const added_by of ['counterpart', null] as const) {
+      const other = { ...correction, added_by };
+      expect(submittedChange(withClaims(base, [denied, other]), denied)).toBeNull();
+    }
+  });
+
+  it('needs the caller’s No on the row and Yes on the correction', () => {
+    const yesOnBoth = { ...denied, mine: own(true) };
+    expect(submittedChange(withClaims(base, [yesOnBoth, correction]), yesOnBoth)).toBeNull();
+    const noOnBoth = { ...correction, mine: own(false, 'No.') };
+    expect(submittedChange(withClaims(base, [denied, noOnBoth]), denied)).toBeNull();
+    const unanswered = { ...correction, mine: [] };
+    expect(submittedChange(withClaims(base, [denied, unanswered]), denied)).toBeNull();
+  });
+
+  it('needs the same data and a different direction', () => {
+    const otherData = { ...correction, data_object_slug: 'models' };
+    expect(submittedChange(withClaims(base, [denied, otherData]), denied)).toBeNull();
+    const sameWay = { ...correction, direction: 'outbound' as const };
+    expect(submittedChange(withClaims(base, [denied, sameWay]), denied)).toBeNull();
+  });
+
+  it('never pairs on a connector-powered row', () => {
+    expect(submittedChange({ ...pair, attestable: false }, denied)).toBeNull();
+  });
+
+  it('the denied row’s pill reads "Change submitted"; a plain No does not', () => {
+    expect(rowPill(pair, denied, 'Trimble').label).toBe('Change submitted');
+    expect(rowPill(withClaims(base, [denied]), denied, 'Trimble').label).toBe(
+      'You said this is wrong',
+    );
+    const bothNo = { ...denied, counterparty: { asserted: false, note: null } };
+    expect(rowPill(withClaims(base, [bothNo, correction]), bothNo, 'Trimble').label).toBe(
+      'Both companies said this is wrong',
+    );
+  });
+
+  it('"Waiting on someone else" names the change and jumps to the box', () => {
+    const lists = needsItems(pair, { ...ctx(), company: 'Trimble' });
+    const item = lists.waiting.find((w) => w.key === 'added-you-c')!;
+    expect(item.text).toBe('You submitted a change to Documents. Waiting for Trimble');
+    expect(item.target).toBe(changeBoxId('r'));
+    expect(item.inRequests).toBe(false);
+  });
+
+  it('a disagreement on the correction jumps to the box', () => {
+    const disputed = {
+      ...correction,
+      agreement: 'conflict' as const,
+      counterparty: { asserted: false, note: 'Only one way.' },
+    };
+    const lists = needsItems(withClaims(base, [denied, disputed]), {
+      ...ctx(),
+      company: 'Trimble',
+    });
+    const item = lists.yours.find((y) => y.key === 'disagreement-c')!;
+    expect(item.target).toBe(changeBoxId('r'));
+    expect(item.inRequests).toBe(false);
+    // An unpaired disagreement still jumps to its item in Change requests.
+    const alone = needsItems(withClaims(base, [disputed]), { ...ctx(), company: 'Trimble' });
+    expect(alone.yours.find((y) => y.key === 'disagreement-c')!.target).toBe(
+      disagreementItemId('c'),
     );
   });
 });
