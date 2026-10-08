@@ -321,8 +321,9 @@ export class UserDetail {
 /** The sortable columns of the pending-invites table. */
 export type InviteSortKey = 'vendor' | 'invited_by' | 'created' | 'expires';
 
-/** What a first click on each header does: names A to Z, sent newest first,
- *  expiry soonest first. */
+/** What a first click on each header does: names A to Z, invited newest
+ *  first, expiry soonest first. `created` is when the invite was first made; a
+ *  resend does not move it. */
 const INVITE_SORT_NATURAL_ORDER: Record<InviteSortKey, 'asc' | 'desc'> = {
   vendor: 'asc',
   invited_by: 'asc',

@@ -280,10 +280,10 @@ describe('UserDetail', () => {
         th.textContent?.trim().startsWith(label),
       );
 
-    it('defaults to newest sent first, and says so through aria-sort', async () => {
+    it('defaults to newest invite first, and says so through aria-sort', async () => {
       const { el } = await setup(makeApiMock(makeUser({ pending_invites: invites })));
       expect(vendorColumn(el)).toEqual(['acme', 'Procore', 'Zeta']);
-      expect(inviteHeader(el, 'Sent')?.getAttribute('aria-sort')).toBe('descending');
+      expect(inviteHeader(el, 'Invited on')?.getAttribute('aria-sort')).toBe('descending');
       expect(inviteHeader(el, 'Vendor')?.getAttribute('aria-sort')).toBe('none');
     });
 
