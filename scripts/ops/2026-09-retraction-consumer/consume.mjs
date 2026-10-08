@@ -272,9 +272,9 @@ const HOLD_REASON =
 // here in the same change. What ran is in the README.
 // 2026-09-21 (AECI-1020, the ADP row): pinned to `1 / 0 / 1` for the run, reset here in the
 // same change. What ran is in the README.
-// 2026-10-01 (AECI-1170): pinned to `3 / 0 / 3` for the three promote double-create strays.
-// RESET TO ZERO in the same change once the run is recorded.
-const EXPECTED = { total: 3, inPairs: 0, inIntegrations: 3 };
+// 2026-10-01 (AECI-1170): pinned to `3 / 0 / 3` for the three promote double-create strays,
+// reset in the change that recorded the run. What ran is in the README.
+const EXPECTED = { total: 0, inPairs: 0, inIntegrations: 0 };
 
 /**
  * The cascade ceiling: the most curation data a single run is authorised to let go. ZERO,
@@ -332,9 +332,9 @@ const EXPECTED = { total: 3, inPairs: 0, inIntegrations: 3 };
 // in-session ruling and not by twin-count, reset here in the same change. What ran is in the
 // README.
 // 2026-10-01 (AECI-1170): raised to `10 / 10` by twin-count, per pair, object by object and
-// direction by direction: 4 = 4, 5 = 5, 1 = 1 against the three kept twins. RESET TO ZERO in
-// the same change once the run is recorded.
-const MAX_CASCADE = { claims: 10, attestations: 10 };
+// direction by direction: 4 = 4, 5 = 5, 1 = 1 against the three kept twins. Reset in the
+// change that recorded the run. What ran is in the README.
+const MAX_CASCADE = { claims: 0, attestations: 0 };
 
 /**
  * The AECI-878 negative sentinel. The upstream ruling that retracted
