@@ -247,9 +247,46 @@ describe('collectAnalyticsMetrics', () => {
 
     expect(m.referrers).toEqual([
       { source: 'LinkedIn', views: 2 },
-      { source: 'Google', views: 1 },
+      // A count tie reads A to Z (AECI-1243).
       { source: 'Direct', views: 1 },
+      { source: 'Google', views: 1 },
     ]);
+  });
+
+  it('breaks a count tie A to Z on top products and bot activity (AECI-1243)', async () => {
+    // Ids sort opposite to names, so a tie left to the group order fails this.
+    await t.db.insert(products).values([
+      { id: 'p1', slug: 'zoho', name: 'Zoho' },
+      { id: 'p2', slug: 'acumatica', name: 'acumatica' },
+      { id: 'p3', slug: 'buildertrend', name: 'Buildertrend' },
+    ]);
+    const human = (productId: string, minute: number) => ({
+      path: `/products/${productId}`,
+      productId,
+      createdAt: `2026-07-23T10:${String(minute).padStart(2, '0')}:00.000Z`,
+    });
+    const bot = (botName: string, minute: number) => ({
+      path: '/',
+      isBot: true,
+      botName,
+      createdAt: `2026-07-23T11:${String(minute).padStart(2, '0')}:00.000Z`,
+    });
+    await t.db
+      .insert(pageViews)
+      .values([
+        human('p1', 1),
+        human('p2', 2),
+        human('p3', 3),
+        human('p3', 4),
+        bot('bingbot', 1),
+        bot('Applebot', 2),
+        bot('Zbot', 3),
+      ]);
+
+    const m = await collectAnalyticsMetrics(t.db, window);
+
+    expect(m.topProducts.map((p) => p.slug)).toEqual(['buildertrend', 'acumatica', 'zoho']);
+    expect(m.botActivity.map((b) => b.name)).toEqual(['Applebot', 'bingbot', 'Zbot']);
   });
 
   // AECI-575 / ADMIN_PANEL_SPEC §9.6 — the read-side half. The tracker no longer
@@ -380,8 +417,8 @@ describe('collectAnalyticsMetrics', () => {
     // `Direct` is the bucket operator traffic inflates hardest — both of the
     // operator's rows classified Direct, only the NULL-flagged visitor survives.
     expect(m.referrers).toEqual([
-      { source: 'Google', views: 1 },
       { source: 'Direct', views: 1 },
+      { source: 'Google', views: 1 },
     ]);
   });
 

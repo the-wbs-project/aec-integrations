@@ -391,6 +391,24 @@ describe('GET /api/admin/catalog/coverage — taxonomy usage', () => {
     expect(categories.terms[0]).toMatchObject({ slug: 'orphan', count: 0 });
   });
 
+  it('lists audiences A to Z and categories in display order (AECI-1243)', async () => {
+    await t.db.insert(taxonomyAudiences).values([
+      { id: u(6201), slug: 'superintendent', name: 'Superintendent', displayOrder: 10 },
+      { id: u(6202), slug: 'architecture', name: 'architecture', displayOrder: 20 },
+    ]);
+    await t.db.insert(taxonomyCategories).values([
+      { id: u(6203), slug: 'zeta', name: 'Zeta', displayOrder: 10 },
+      { id: u(6204), slug: 'alpha', name: 'Alpha', displayOrder: 20 },
+    ]);
+
+    const body = await coverage();
+    expect(facet(body, 'audience').terms.map((x) => x.slug)).toEqual([
+      'architecture',
+      'superintendent',
+    ]);
+    expect(facet(body, 'category').terms.map((x) => x.slug)).toEqual(['zeta', 'alpha']);
+  });
+
   it('applies the trade publication floor inclusively at the boundary', async () => {
     const seedTrade = async (slug: string, productCount: number, seq: number) => {
       const tradeId = u(9100 + seq);

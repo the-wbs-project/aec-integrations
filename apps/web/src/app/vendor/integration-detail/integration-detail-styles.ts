@@ -102,6 +102,13 @@ export const ID_STYLES = `
     background-color: var(--surface-sunken);
   }
 
+  /* "You submitted a change" (§6.17.4, AECI-1246): attached to the row above it,
+     so it reads as part of that row and not as another data row. */
+  .id-change-box {
+    border-inline-start: 3px solid var(--accent-primary);
+    background-color: var(--surface-sunken);
+  }
+
   .id-rail { border-inline-start: 1px solid var(--border-strong); }
   .id-rail-dot {
     border: 2px solid var(--surface-base);

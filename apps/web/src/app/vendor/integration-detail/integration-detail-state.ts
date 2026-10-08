@@ -225,16 +225,18 @@ export class IntegrationDetailState {
   }
 
   /** Pressing the pressed button again clears the answer (`DELETE`). */
-  async clearAnswer(claim: VendorClaim): Promise<WriteError> {
+  async clearAnswer(claim: VendorClaim, silent = false): Promise<WriteError> {
     const integration = this.integration();
     if (!integration) return genericAnswerError();
     const mutation = this.patchMine(claim, []);
     try {
       await this.api.retractAttestation(claim.id);
       mutation.commit();
-      this.announcer.announce(
-        $localize`:@@vendor.im.live.cleared:${claim.data_object_name}:data:: your answer is cleared.`,
-      );
+      if (!silent) {
+        this.announcer.announce(
+          $localize`:@@vendor.im.live.cleared:${claim.data_object_name}:data:: your answer is cleared.`,
+        );
+      }
       // A 204 carries nothing to reconcile from, and agreement must not be guessed.
       // One targeted re-read, spliced by claim id.
       await this.rereadClaim(claim.id);
@@ -263,6 +265,53 @@ export class IntegrationDetailState {
     const first = await this.answerWithNote(claim, false, reason, true);
     if (first !== null) return first;
     return (await this.addCorrectedRow(claim, right)) ? null : 'partial';
+  }
+
+  /**
+   * Cancel a submitted change (§6.17.4, AECI-1246): withdraw the Yes on the
+   * correction, then the No on the denied row. One announcement after both land.
+   * The correction stays on record as an unanswered row until AECI-1245 lets a
+   * vendor delete a row it added.
+   */
+  async cancelChange(denied: VendorClaim, correction: VendorClaim): Promise<WriteError> {
+    const first = await this.clearAnswer(correction, true);
+    if (first !== null) return first;
+    const second = await this.clearAnswer(denied, true);
+    if (second !== null) return second;
+    this.announcer.announce(
+      $localize`:@@vendor.im.live.changeCancelled:${denied.data_object_name}:data:: your change is cancelled and your answers are cleared.`,
+    );
+    return null;
+  }
+
+  /**
+   * Save the reason form opened from a submitted change's Change (§6.17.4,
+   * AECI-1246). The same direction re-saves the No with the new reason. A new
+   * direction withdraws the Yes on the old correction, then runs the two writes of
+   * "the direction is wrong". Any other choice withdraws the Yes on the correction
+   * and saves the No alone.
+   *
+   * The withdraw runs only while the correction still carries the caller's answer.
+   * A retry after a failed second write finds it already withdrawn, and a second
+   * `DELETE` would answer 404.
+   */
+  async reviseChange(
+    denied: VendorClaim,
+    correction: VendorClaim,
+    reason: string,
+    right: ContextDirection | null,
+  ): Promise<WriteError | 'partial'> {
+    if (attestationNoteProblem(false, reason.trim()) !== null) return noteRequiredMessage();
+    if (right === correction.direction) {
+      return this.answerWithNote(denied, false, reason);
+    }
+    const current = this.integration()?.claims.find((c) => c.id === correction.id) ?? correction;
+    if (current.mine.length > 0) {
+      const withdrawn = await this.clearAnswer(current, true);
+      if (withdrawn !== null) return withdrawn;
+    }
+    if (right === null) return this.answerWithNote(denied, false, reason);
+    return this.directionWrong(denied, reason, right);
   }
 
   /** The second half of "the direction is wrong", also the retry. */

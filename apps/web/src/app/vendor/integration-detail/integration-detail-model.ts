@@ -74,6 +74,12 @@ export function addedItemId(claimId: string): string {
   return `added-${claimId}`;
 }
 
+/** The "You submitted a change" box under a denied row (§6.17.4, AECI-1246). Keyed
+ *  by the denied row's id. */
+export function changeBoxId(deniedClaimId: string): string {
+  return `change-${deniedClaimId}`;
+}
+
 // ─── Dates ───────────────────────────────────────────────────────────────────
 
 const DAY = new Intl.DateTimeFormat('en-US', {
@@ -201,6 +207,71 @@ export function isAddedByYouWaiting(integration: VendorIntegration, claim: Vendo
 export function myNote(claim: VendorClaim): string | null {
   const note = claim.mine.find((m) => m.note && m.note.trim() !== '')?.note ?? null;
   return note && note.trim() !== '' ? note : null;
+}
+
+// ─── A submitted change (§6.17.4, AECI-1246) ─────────────────────────────────
+
+/**
+ * The row that corrects `denied`, if the pair reads as one submitted change.
+ *
+ * The link is inferred, not stored: v1 keeps no structured "what's wrong", so
+ * nothing records which row corrects which. A row R has a submitted change C
+ * when the caller's answer on R is No, and exactly one other row C has the same
+ * data type, a different direction, the caller's Yes, and `added_by = 'you'`.
+ * Zero or two candidates mean no box. A connector-powered row never pairs: nobody
+ * answers on it.
+ */
+export function submittedChange(
+  integration: Pick<VendorIntegration, 'attestable' | 'claims'>,
+  denied: VendorClaim,
+): VendorClaim | null {
+  if (!integration.attestable || myAnswer(denied) !== 'no') return null;
+  const candidates = integration.claims.filter(
+    (c) =>
+      c.id !== denied.id &&
+      c.data_object_slug === denied.data_object_slug &&
+      c.direction !== denied.direction &&
+      c.added_by === 'you' &&
+      myAnswer(c) === 'yes',
+  );
+  if (candidates.length !== 1) return null;
+  const change = candidates[0];
+  // One to one: a correction two denied rows could claim gets no box, so a Cancel
+  // on one box never withdraws the Yes another box stands on.
+  const rivals = integration.claims.filter(
+    (c) =>
+      c.id !== denied.id &&
+      c.id !== change.id &&
+      c.data_object_slug === denied.data_object_slug &&
+      c.direction !== change.direction &&
+      myAnswer(c) === 'no',
+  );
+  return rivals.length === 0 ? change : null;
+}
+
+/** Every submitted change on the integration: the denied row's id to its
+ *  correction. */
+export function submittedChanges(
+  integration: Pick<VendorIntegration, 'attestable' | 'claims'>,
+): ReadonlyMap<string, VendorClaim> {
+  const pairs = new Map<string, VendorClaim>();
+  for (const claim of integration.claims) {
+    const change = submittedChange(integration, claim);
+    if (change) pairs.set(claim.id, change);
+  }
+  return pairs;
+}
+
+/** The denied row whose box stands for `correctionId`, if that row is a
+ *  correction. */
+export function deniedRowFor(
+  integration: Pick<VendorIntegration, 'attestable' | 'claims'>,
+  correctionId: string,
+): VendorClaim | null {
+  for (const claim of integration.claims) {
+    if (submittedChange(integration, claim)?.id === correctionId) return claim;
+  }
+  return null;
 }
 
 /** Disagreements: claims whose agreement is `conflict`, on a live, attestable row. */
@@ -584,10 +655,15 @@ export function rowPill(
   const mine = myAnswer(claim);
   const theirs = theirAnswer(claim);
   if (mine === null) return { label: needsAnswerLabel(), tone: 'attention' };
+  // A No with nobody else's answer, and a submitted change under it (§6.17.4).
+  const saidWrong = (): RowPill =>
+    submittedChange(integration, claim)
+      ? { label: $localize`:@@vendor.im.row.changeSubmitted:Change submitted`, tone: 'neutral' }
+      : { label: saidWrongLabel(), tone: 'neutral' };
   if (ownsBoth(integration)) {
     return mine === 'yes'
       ? { label: $localize`:@@vendor.im.row.confirmedByYou:Confirmed by you`, tone: 'ok' }
-      : { label: saidWrongLabel(), tone: 'neutral' };
+      : saidWrong();
   }
   if (mine === 'yes' && theirs === 'yes') {
     return {
@@ -608,7 +684,7 @@ export function rowPill(
       tone: 'neutral',
     };
   }
-  if (mine === 'no' && theirs === null) return { label: saidWrongLabel(), tone: 'neutral' };
+  if (mine === 'no' && theirs === null) return saidWrong();
   // yes/no or no/yes without the server calling it a conflict (a third voter):
   // the server's agreement is the truth, so this reads as the caller's own stance.
   return mine === 'yes'
@@ -676,22 +752,30 @@ export function needsItems(integration: VendorIntegration, ctx: NeedsContext): N
   const company = companyOrFallback(ctx.company);
   const companyMid = companyMidSentence(ctx.company);
 
+  // A row folded into a "You submitted a change" box has no row of its own, so an
+  // item about it jumps to the box instead (§6.17.4, AECI-1246).
+  const boxFor = (claim: VendorClaim): string | null => {
+    const denied = deniedRowFor(integration, claim.id);
+    return denied ? changeBoxId(denied.id) : null;
+  };
+
   if (integration.attestable) {
     for (const claim of disagreements(integration)) {
       const data = claim.data_object_name;
+      const box = boxFor(claim);
       if (myNote(claim)) {
         waiting.push({
           key: `disagreement-${claim.id}`,
           text: $localize`:@@vendor.im.needs.disagreeReasoned:${company}:company: disagrees about ${data}:data:. You gave your reason`,
-          target: disagreementItemId(claim.id),
-          inRequests: true,
+          target: box ?? disagreementItemId(claim.id),
+          inRequests: box === null,
         });
       } else {
         yours.push({
           key: `disagreement-${claim.id}`,
           text: $localize`:@@vendor.im.needs.disagree:${company}:company: disagrees about ${data}:data:`,
-          target: disagreementItemId(claim.id),
-          inRequests: true,
+          target: box ?? disagreementItemId(claim.id),
+          inRequests: box === null,
         });
       }
     }
@@ -781,11 +865,14 @@ export function needsItems(integration: VendorIntegration, ctx: NeedsContext): N
     for (const claim of integration.claims) {
       if (!isAddedByYouWaiting(integration, claim)) continue;
       const data = claim.data_object_name;
+      const box = boxFor(claim);
       waiting.push({
         key: `added-you-${claim.id}`,
-        text: $localize`:@@vendor.im.needs.addedYou:You added ${data}:data:. Waiting for ${companyMid}:company:`,
-        target: addedItemId(claim.id),
-        inRequests: true,
+        text: box
+          ? $localize`:@@vendor.im.needs.changeSubmitted:You submitted a change to ${data}:data:. Waiting for ${companyMid}:company:`
+          : $localize`:@@vendor.im.needs.addedYou:You added ${data}:data:. Waiting for ${companyMid}:company:`,
+        target: box ?? addedItemId(claim.id),
+        inRequests: box === null,
       });
     }
   }

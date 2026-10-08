@@ -19,14 +19,14 @@ type RequestStatus = VendorRequestSummary['status'];
   selector: 'aec-vendor-request-status',
   imports: [DatePipe],
   template: `
-    @if (requests().length === 0) {
+    @if (ordered().length === 0) {
       <p class="text-sm leading-relaxed text-(--text-secondary)" i18n="@@vendor.requests.empty">
         No open claim or correction requests. When someone files one about your listing, its status
         shows here.
       </p>
     } @else {
       <ul class="flex flex-col gap-3">
-        @for (r of requests(); track r.id) {
+        @for (r of ordered(); track r.id) {
           <li
             class="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 rounded-(--radius-md) border border-(--border-default) bg-(--surface-raised) px-4 py-3"
           >
@@ -56,6 +56,11 @@ type RequestStatus = VendorRequestSummary['status'];
 })
 export class VendorRequestStatus {
   readonly requests = input.required<readonly VendorRequestSummary[]>();
+
+  /** Newest filed first, `id` breaking a same-millisecond tie (AECI-1243). The
+   *  API already ships this order; sorting here keeps the list right whatever
+   *  the caller passes. Both keys compare in binary: ISO timestamps and ids. */
+  protected readonly ordered = computed(() => [...this.requests()].sort(newestFirst));
 
   /** How many requests are still open/in-review — a small header count. */
   readonly openCount = computed(
@@ -99,4 +104,9 @@ export class VendorRequestStatus {
         return 'border-(--border-default) bg-(--surface-sunken) text-(--text-secondary)';
     }
   }
+}
+
+function newestFirst(a: VendorRequestSummary, b: VendorRequestSummary): number {
+  if (a.created_at !== b.created_at) return a.created_at < b.created_at ? 1 : -1;
+  return a.id < b.id ? 1 : a.id > b.id ? -1 : 0;
 }

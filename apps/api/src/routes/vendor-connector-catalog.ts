@@ -44,6 +44,7 @@ import {
   type VendorConnectorListing,
   type VendorConnectorMapping,
 } from '@aeci/shared';
+import { compareText } from '@aeci/shared/text-sort';
 import { and, asc, count, eq, inArray, isNull, max, sql } from 'drizzle-orm';
 
 import { getDb } from '../db/client';
@@ -202,6 +203,8 @@ export function createVendorConnectorCatalogHandler(
       });
       byStub.set(m.stubId, list);
     }
+    // A to Z by mapped product name, product-less last, then id (AECI-1243).
+    for (const list of byStub.values()) list.sort(compareMappingsByProductName);
 
     return respond(c, {
       data: pageRows.map(
@@ -234,4 +237,21 @@ function respond(c: VendorContext, body: VendorConnectorCatalogResponse): Respon
     VendorConnectorCatalogResponseSchema.parse(body);
   });
   return json(body);
+}
+
+/** A listing's mappings A to Z by mapped product name, a mapping with no
+ *  product last, then id (AECI-1243). */
+function compareMappingsByProductName(
+  a: VendorConnectorMapping,
+  b: VendorConnectorMapping,
+): number {
+  const an = a.product?.name;
+  const bn = b.product?.name;
+  if (an !== bn) {
+    if (an === undefined) return 1;
+    if (bn === undefined) return -1;
+    const byName = compareText(an, bn);
+    if (byName !== 0) return byName;
+  }
+  return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
 }

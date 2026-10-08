@@ -268,6 +268,43 @@ describe('GET /api/vendor/products/:id/connector-catalog — the owner seat', ()
     ]);
   });
 
+  it("lists a listing's mappings A to Z by product name, product-less last (AECI-1243)", async () => {
+    await seed();
+    await t.db.insert(connectorStubMappings).values([
+      {
+        id: 'm-a-none',
+        stubId: 'st-procore',
+        catalogId: CATALOG,
+        productId: null,
+        status: 'ambiguous_parked',
+      },
+      {
+        id: 'm-b-sage',
+        stubId: 'st-procore',
+        catalogId: CATALOG,
+        productId: SAGE,
+        status: 'ruled_out',
+        decidedBy: 'Chris Walton',
+      },
+      {
+        id: 'm-c-autodesk',
+        stubId: 'st-procore',
+        catalogId: CATALOG,
+        productId: AUTODESK,
+        status: 'ruled_out',
+        decidedBy: 'Chris Walton',
+      },
+    ]);
+    const parsed = VendorConnectorCatalogResponseSchema.parse((await read()).body);
+    const listing = parsed.data.find((l) => l.id === 'st-procore');
+    expect(listing?.mappings.map((m) => m.id)).toEqual([
+      'm-c-autodesk', // Autodesk Build
+      'm-procore', // Procore
+      'm-b-sage', // Sage Intacct
+      'm-a-none',
+    ]);
+  });
+
   it('never ships notes or a raw decided_by, and says what kind of decider stands behind a row', async () => {
     await seed();
     const { body } = await read();

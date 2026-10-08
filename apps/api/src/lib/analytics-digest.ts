@@ -60,10 +60,11 @@
  *   - pending moderation: `reviews` where `status='pending'` (a live snapshot).
  */
 
-import { and, count, desc, eq, gte, inArray, isNotNull, lt, sql } from 'drizzle-orm';
+import { and, asc, count, desc, eq, gte, inArray, isNotNull, lt, sql } from 'drizzle-orm';
 
 import type { Db } from '../db/client';
 import { pageViews, products, profiles, reviews } from '../db/schema';
+import { textAsc } from './collation';
 import {
   ARRIVAL_CF_COVERAGE_MIN,
   readArrivalCfCoverage,
@@ -372,7 +373,9 @@ async function topProductsByViews(
       ),
     )
     .groupBy(products.id)
-    .orderBy(desc(count()))
+    // A count tie reads A to Z, then id, so the cut at the limit is stable
+    // (AECI-1243).
+    .orderBy(desc(count()), textAsc(products.name), asc(products.id))
     .limit(TOP_PRODUCTS_LIMIT);
   return rows.map((r) => ({ name: r.name, slug: r.slug, views: r.views }));
 }
@@ -400,7 +403,8 @@ async function referrerBreakdown(
       ),
     )
     .groupBy(pageViews.referrerSource)
-    .orderBy(desc(count()));
+    // Count tie: A to Z; the raw column settles a case-only tie (AECI-1243).
+    .orderBy(desc(count()), textAsc(pageViews.referrerSource), asc(pageViews.referrerSource));
   return rows.map((r) => ({ source: r.source ?? 'Direct', views: r.views }));
 }
 
@@ -419,7 +423,8 @@ async function botActivityInWindow(
       and(gte(pageViews.createdAt, startIso), lt(pageViews.createdAt, endIso), BOT, NOT_INTERNAL),
     )
     .groupBy(pageViews.botName)
-    .orderBy(desc(count()));
+    // Count tie: A to Z; the raw column settles a case-only tie (AECI-1243).
+    .orderBy(desc(count()), textAsc(pageViews.botName), asc(pageViews.botName));
   return rows.map((r) => ({ name: r.name ?? 'Other bot', crawls: r.crawls }));
 }
 

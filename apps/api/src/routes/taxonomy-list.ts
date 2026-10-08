@@ -15,6 +15,7 @@
  */
 
 import { CategoriesListResponseSchema, type CategoriesListResponse } from '@aeci/shared';
+import { asc } from 'drizzle-orm';
 import type { Context } from 'hono';
 
 import { getDb } from '../db/client';
@@ -62,10 +63,9 @@ export function createTaxonomyListHandler(
       case 'audiences':
         rows = await db.query.taxonomyAudiences.findMany({
           ...audienceTermConfig,
-          orderBy: [
-            ...displayOrderAsc(taxonomyAudiences.displayOrder),
-            textAsc(taxonomyAudiences.name),
-          ],
+          // Audiences read A to Z (AECI-1243). Their curated `display_order`
+          // is disciplines then job titles, which is not alphabetical.
+          orderBy: [textAsc(taxonomyAudiences.name), asc(taxonomyAudiences.slug)],
         });
         break;
       case 'phases':

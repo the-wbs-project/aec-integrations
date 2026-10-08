@@ -23,6 +23,7 @@ import type {
   VendorConnectorListing,
 } from '@aeci/shared';
 
+import { PRODUCT_COMBOBOX_DEBOUNCE_MS } from '../../shared/product-combobox/product-combobox';
 import { VendorPortalAnnouncer } from '../vendor-announcer';
 import { VendorApi, type VendorConnectorCatalogFilters } from '../vendor-api';
 import { catalogueListings } from '../vendor-catalogue-fixtures';
@@ -60,10 +61,12 @@ function page(
 
 let getConnectorCatalog: ReturnType<typeof vi.fn>;
 let updateConnectorMapping: ReturnType<typeof vi.fn>;
+let searchProducts: ReturnType<typeof vi.fn>;
 
 beforeEach(() => {
   getConnectorCatalog = vi.fn(async () => page('vendor'));
   updateConnectorMapping = vi.fn();
+  searchProducts = vi.fn().mockResolvedValue({ data: [], total: 0, page: 1, perPage: 8 });
   TestBed.resetTestingModule();
   TestBed.configureTestingModule({
     providers: [
@@ -73,7 +76,7 @@ beforeEach(() => {
         useValue: {
           getConnectorCatalog,
           updateConnectorMapping,
-          searchProducts: vi.fn().mockResolvedValue({ data: [], total: 0, page: 1, perPage: 8 }),
+          searchProducts,
         },
       },
       VendorPortalStore,
@@ -340,6 +343,51 @@ describe('VendorConnectorCatalogue — edit and save', () => {
     await settle(fixture);
     expect(updateConnectorMapping).not.toHaveBeenCalled();
     expect(text(form)).toContain('Choose the product, or pick a status that names none.');
+    // The error reaches the type-ahead box itself (AECI-1244).
+    const box = form.querySelector<HTMLInputElement>('[data-product-combobox-input]')!;
+    expect(box.getAttribute('aria-invalid')).toBe('true');
+    expect(box.getAttribute('aria-describedby')).toMatch(/-product-hint .*-product-error$/);
+  });
+
+  it('re-points the match with the type-ahead picker and saves the new product', async () => {
+    const autodesk = {
+      id: '00000000-0000-4000-8000-000000005302',
+      slug: 'autodesk-build',
+      name: 'Autodesk Build',
+    };
+    searchProducts.mockResolvedValue({ data: [autodesk], total: 1, page: 1, perPage: 8 });
+    updateConnectorMapping.mockResolvedValue(echo({ product: autodesk }));
+    const announce = vi.spyOn(TestBed.inject(VendorPortalAnnouncer), 'announce');
+    const fixture = await create();
+    const form = await openFirstEdit(fixture);
+    [...form.querySelectorAll('button')].find((b) => text(b)?.startsWith('Change'))!.click();
+    await settle(fixture);
+
+    const box = form.querySelector<HTMLInputElement>('[data-product-combobox-input]')!;
+    expect(box.getAttribute('role')).toBe('combobox');
+    expect([...form.querySelectorAll('button')].some((b) => text(b) === 'Find')).toBe(false);
+    box.dispatchEvent(new FocusEvent('focusin', { bubbles: true }));
+    box.value = 'auto';
+    box.dispatchEvent(new InputEvent('input', { bubbles: true }));
+    await settle(fixture);
+    await new Promise((resolve) => setTimeout(resolve, PRODUCT_COMBOBOX_DEBOUNCE_MS + 30));
+    await settle(fixture);
+    expect(searchProducts).toHaveBeenCalledWith('auto');
+    expect(announce).toHaveBeenCalledWith('1 product found.');
+
+    const option = document.querySelector<HTMLElement>('[data-product-option]')!;
+    option.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
+    option.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    await settle(fixture);
+    expect(text(form.querySelector('[data-chosen-product]'))).toBe('Autodesk Build');
+
+    form.requestSubmit();
+    await settle(fixture);
+    expect(updateConnectorMapping).toHaveBeenCalledWith(
+      't-map-00-0',
+      expect.objectContaining({ productId: autodesk.id }),
+    );
+    document.querySelectorAll('.cdk-overlay-container').forEach((n) => n.remove());
   });
 
   it.each([

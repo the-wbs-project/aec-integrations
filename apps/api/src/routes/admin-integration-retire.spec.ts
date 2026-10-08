@@ -604,6 +604,15 @@ describe('GET /api/admin/vendors/:id/integrations', () => {
     );
   });
 
+  it('sorts an unnamed row by the "Source ↔ Target" label the page shows (AECI-1243)', async () => {
+    // Unnamed, I_MAIN renders as "Revit ↔ MicroStation", which sorts after
+    // "Created link". Sorting on an empty name would put it first.
+    await t.db.update(integrations).set({ name: null }).where(eq(integrations.id, I_MAIN));
+    const res = await call(ADMIN, `/api/admin/vendors/${VENDOR_B}/integrations`, 'GET');
+    expect(res.status).toBe(200);
+    expect((res.body.data as { id: string }[]).map((r) => r.id)).toEqual([I_CREATED, I_MAIN]);
+  });
+
   it('404s an unknown vendor', async () => {
     expect((await call(ADMIN, `/api/admin/vendors/${uuid(98)}/integrations`, 'GET')).status).toBe(
       404,

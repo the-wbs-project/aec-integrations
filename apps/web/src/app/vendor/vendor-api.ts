@@ -624,9 +624,14 @@ export class VendorApi {
   /** The counterpart picker's search: the PUBLIC `GET /api/products?search=`, over
    *  the same-origin passthrough. Public on purpose: the counterpart is any
    *  published product, and this list is exactly what a visitor can see. The
-   *  server re-checks that the pick is promoted. */
+   *  server re-checks that the pick is promoted. `sort=name` makes the page the
+   *  first matches A to Z, not the newest (AECI-1244). */
   searchProducts(query: string, perPage = 8): Promise<ProductsListResponse> {
-    const params = new URLSearchParams({ search: query, perPage: String(perPage) });
+    const params = new URLSearchParams({
+      search: query,
+      perPage: String(perPage),
+      sort: 'name',
+    });
     return firstValueFrom(this.http.get<ProductsListResponse>(`/api/products?${params}`));
   }
 

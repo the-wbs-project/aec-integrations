@@ -53,10 +53,11 @@ type RoleFilter = 'any' | 'reviewer' | 'vendor_admin' | 'admin';
  * ── A TABLE, AND LAST SIGN-IN IS NOT SORTABLE (AECI-694) ────────────────────
  * Rows were cards; they are a table for the same reason `/admin/vendors` is.
  *
- * `AdminUsersSortSchema` is `created | updated`, so those are the only two
- * sortable headers. Both now accept a direction: clicking the active one flips
- * it (`order` on the wire), clicking the other adopts that column's natural
- * direction — newest-first for both. Everything else is
+ * `AdminUsersSortSchema` is `created | updated | name`, so those are the only
+ * three sortable headers (Person sorts on the display name, AECI-1243). Each
+ * accepts a direction: clicking the active one flips it (`order` on the wire),
+ * clicking another adopts that column's natural direction — newest-first for
+ * the dates, A to Z for Person. Everything else is
  * plain `<th>` text with no hover state, and **Last sign-in will never join
  * them** (`ADMIN_PANEL_SPEC.md` §5.8, and `resolveAdminUserOrderBy` says the
  * same in the API): it lives in GoTrue and is fetched per-id AFTER the ORDER BY

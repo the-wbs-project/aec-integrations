@@ -25,10 +25,12 @@ import { VendorPortalAnnouncer } from '../vendor-announcer';
 
 import { IntegrationAnswerForm } from './integration-answer-form';
 import {
+  changeBoxId,
   companyMidSentence,
   companyOrFallback,
   dataRowId,
   dataSentence,
+  deniedRowFor,
   directionShort,
   disagreementItemId,
   formatDay,
@@ -38,6 +40,7 @@ import {
   ownsBoth,
   possessive,
   rowPill,
+  submittedChanges,
   theirAnswer,
 } from './integration-detail-model';
 import { IntegrationDetailState } from './integration-detail-state';
@@ -48,6 +51,7 @@ import {
   HELP,
   ID_STYLES,
   LABEL,
+  ROW_ACTION,
 } from './integration-detail-styles';
 import { VendorTip } from './vendor-tip';
 
@@ -63,6 +67,15 @@ import { VendorTip } from './vendor-tip';
  *   other company said No: then Yes opens the note form so both sides can explain;
  * - No opens the reason form under the row, and the answer changes only on Save;
  * - pressing the pressed button again clears the answer.
+ *
+ * Those one-click toggles are for a row the caller has not answered. An answered
+ * row shows its answer as plain text and a Change link (AECI-1246): Change reveals
+ * the toggles for that row only, and a save or Escape puts it back.
+ *
+ * ── A SUBMITTED CHANGE ──────────────────────────────────────────────────────
+ * "The direction is wrong" leaves a denied row and its correction. The correction
+ * is not rendered as its own row: a "You submitted a change" box under the denied
+ * row stands for it, with Change and Cancel ({@link submittedChanges}).
  *
  * Answering and adding need `attestation.author`. Without it every answer reads
  * read-only with the portal's access sentence. A connector-powered row is read-only
@@ -247,13 +260,15 @@ import { VendorTip } from './vendor-tip';
             </tr>
           </thead>
           <tbody>
-            @for (claim of i.claims; track claim.id) {
+            @for (claim of rows(); track claim.id) {
               @let pill = pillFor(claim);
               @let mine = answerOf(claim);
+              @let change = changeOf(claim);
               <tr
                 [id]="rowId(claim.id)"
                 tabindex="-1"
-                class="scroll-mt-20 border-b border-(--border-default) focus:outline-2 focus:-outline-offset-2 focus:outline-(--accent-primary)"
+                class="scroll-mt-20 focus:outline-2 focus:-outline-offset-2 focus:outline-(--accent-primary)"
+                [class.border-b]="!change"
                 [attr.data-testid]="'data-row-' + claim.data_object_slug"
               >
                 <th scope="row" class="py-2 pe-4 text-start font-semibold text-(--text-primary)">
@@ -318,12 +333,62 @@ import { VendorTip } from './vendor-tip';
                     <span class="text-(--text-secondary)" i18n="@@vendor.im.data.notNeeded"
                       >Not needed</span
                     >
+                  } @else if (mine !== null && editing() !== claim.id) {
+                    <span class="inline-flex flex-wrap items-center gap-x-3 gap-y-1">
+                      <span
+                        class="inline-flex items-center gap-1 font-medium text-(--text-primary)"
+                        [attr.data-testid]="'answer-' + claim.data_object_slug"
+                      >
+                        @if (mine === 'yes') {
+                          <svg
+                            aria-hidden="true"
+                            class="h-3.5 w-3.5"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            stroke-width="2.5"
+                            stroke-linecap="round"
+                            stroke-linejoin="round"
+                          >
+                            <path d="M20 6 9 17l-5-5" />
+                          </svg>
+                          <span i18n="@@vendor.im.answer.yes">Yes</span>
+                        } @else {
+                          <svg
+                            aria-hidden="true"
+                            class="h-3.5 w-3.5"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            stroke-width="2.5"
+                            stroke-linecap="round"
+                          >
+                            <path d="M18 6 6 18M6 6l12 12" />
+                          </svg>
+                          <span i18n="@@vendor.im.answer.no">No</span>
+                        }
+                      </span>
+                      @if (!change && canChange()) {
+                        <button
+                          type="button"
+                          [class]="rowAction"
+                          [attr.aria-label]="changeLabel(claim)"
+                          [attr.data-change-for]="claim.id"
+                          [attr.data-testid]="'change-' + claim.data_object_slug"
+                          (click)="startEdit(claim)"
+                          i18n="@@vendor.im.answer.change"
+                        >
+                          Change
+                        </button>
+                      }
+                    </span>
                   } @else {
                     <div
                       class="id-seg"
                       role="group"
                       [attr.aria-label]="groupLabel(claim)"
                       [attr.data-answer-group]="claim.id"
+                      (keydown.escape)="stopEdit(claim)"
                     >
                       <button
                         type="button"
@@ -377,9 +442,9 @@ import { VendorTip } from './vendor-tip';
                         <span i18n="@@vendor.im.answer.no">No</span>
                       </button>
                     </div>
-                    @if (rowError()?.id === claim.id) {
-                      <p role="alert" [class]="alert" class="mt-1">{{ rowError()?.message }}</p>
-                    }
+                  }
+                  @if (i.attestable && rowError()?.id === claim.id) {
+                    <p role="alert" [class]="alert" class="mt-1">{{ rowError()?.message }}</p>
                   }
                 </td>
                 <td class="py-2">
@@ -409,8 +474,96 @@ import { VendorTip } from './vendor-tip';
                       [integration]="i"
                       [claim]="claim"
                       [mode]="openForm() === claim.id + ':no' ? 'no' : 'yes'"
+                      (saved)="formSaved.set(true)"
                       (closed)="closeForm(claim)"
                     />
+                  </td>
+                </tr>
+              }
+              @if (change) {
+                <tr class="border-b" [attr.data-testid]="'change-box-' + claim.data_object_slug">
+                  <td
+                    colspan="4"
+                    [id]="boxId(claim.id)"
+                    tabindex="-1"
+                    class="id-change-box scroll-mt-20 space-y-1 px-4 py-3 text-(--text-primary) focus:outline-2 focus:-outline-offset-2 focus:outline-(--accent-primary)"
+                  >
+                    <p class="font-semibold" i18n="@@vendor.im.change.title">
+                      You submitted a change
+                    </p>
+                    <p>{{ changeLine(claim, change) }}</p>
+                    @if (reasonOf(claim); as reason) {
+                      <p class="text-(--text-secondary)">{{ yourReason(reason) }}</p>
+                    }
+                    @if (!ownsBoth()) {
+                      <p
+                        class="inline-flex flex-wrap items-center gap-1"
+                        [attr.data-testid]="'change-answer-' + claim.data_object_slug"
+                      >
+                        <span>{{ theirChangeAnswer(change) }}</span>
+                        @if (theirNote(change); as note) {
+                          <aec-vendor-tip
+                            [label]="theirReasonAbout()"
+                            [lines]="[theirReason(note)]"
+                          />
+                        }
+                        @if (change.agreement === 'conflict') {
+                          <aec-vendor-tip
+                            variant="flag"
+                            [label]="disagreementFlagLabel(change)"
+                            [lines]="[disagreementFlagText(change)]"
+                            (activate)="state.jumpTo(disagreementTarget(change), true)"
+                          />
+                        }
+                      </p>
+                    }
+                    @if (state.canAuthor()) {
+                      <div class="flex flex-wrap gap-x-4 gap-y-1 pt-1">
+                        @if (live()) {
+                          <button
+                            type="button"
+                            [class]="rowAction"
+                            [attr.aria-label]="changeBoxLabel(claim)"
+                            [attr.aria-expanded]="changeForm()?.id === claim.id"
+                            [attr.aria-controls]="boxId(claim.id) + '-form'"
+                            [attr.data-box-change]="claim.id"
+                            [disabled]="busy() === claim.id"
+                            [attr.data-testid]="'change-box-change-' + claim.data_object_slug"
+                            (click)="toggleChangeForm(claim)"
+                            i18n="@@vendor.im.answer.change"
+                          >
+                            Change
+                          </button>
+                        }
+                        <button
+                          type="button"
+                          [class]="rowAction"
+                          [attr.aria-label]="cancelBoxLabel(claim)"
+                          [disabled]="busy() === claim.id"
+                          [attr.data-testid]="'change-box-cancel-' + claim.data_object_slug"
+                          (click)="cancelChange(claim, change)"
+                          i18n="@@vendor.im.change.cancel"
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    }
+                    @if (boxError()?.id === claim.id) {
+                      <p role="alert" [class]="alert">{{ boxError()?.message }}</p>
+                    }
+                    <div [id]="boxId(claim.id) + '-form'">
+                      @if (changeForm()?.id === claim.id) {
+                        <div class="pt-2">
+                          <aec-integration-answer-form
+                            [integration]="i"
+                            [claim]="claim"
+                            mode="no"
+                            [change]="change"
+                            (closed)="closeChangeForm(claim)"
+                          />
+                        </div>
+                      }
+                    </div>
                   </td>
                 </tr>
               }
@@ -435,8 +588,19 @@ export class IntegrationSharedData {
 
   /** Which row's form is open: "claimId:no" or "claimId:yes". */
   protected readonly openForm = signal<string | null>(null);
+  /** Set by the open form's `saved`, read when it closes: a save, not a Cancel. */
+  protected readonly formSaved = signal(false);
   protected readonly busy = signal<string | null>(null);
   protected readonly rowError = signal<{ id: string; message: string } | null>(null);
+  /** The answered row whose toggles Change has revealed (§6.17.4, AECI-1246). */
+  protected readonly editing = signal<string | null>(null);
+  /**
+   * The submitted change whose reason form is open, by the denied row's id. It
+   * holds the correction as it was when Change opened, so the box and its form stay
+   * on the page while a save withdraws that correction and adds the next one.
+   */
+  protected readonly changeForm = signal<{ id: string; correction: VendorClaim } | null>(null);
+  protected readonly boxError = signal<{ id: string; message: string } | null>(null);
 
   protected readonly dataObjects = signal<readonly DataObjectOption[]>([]);
   protected readonly vocabularyFailed = signal(false);
@@ -446,16 +610,35 @@ export class IntegrationSharedData {
   protected readonly adding = signal(false);
   protected readonly addError = signal<string | null>(null);
 
-  protected readonly directions = ['outbound', 'inbound', 'both'] as const;
+  /** Outbound, both, inbound: the one order every direction picker uses
+   *  (AECI-1243). */
+  protected readonly directions = ['outbound', 'both', 'inbound'] as const;
 
-  private readonly live = computed(() => !this.integration().retired_at);
+  protected readonly live = computed(() => !this.integration().retired_at);
 
   protected readonly canAdd = computed(
     () => this.integration().attestable && this.live() && this.state.canAuthor(),
   );
 
+  /** Whether an answered row offers Change. On a retired row Change still opens,
+   *  because a pressed answer can be cleared there (§4.6.2). */
+  protected readonly canChange = computed(
+    () => this.integration().attestable && this.state.canAuthor(),
+  );
+
+  protected readonly ownsBoth = computed(() => ownsBoth(this.integration()));
+
+  /** Submitted changes: the denied row's id to its correction (§6.17.4). */
+  private readonly changes = computed(() => submittedChanges(this.integration()));
+
+  /** The rows the table renders: every row but a correction a box stands for. */
+  protected readonly rows = computed(() => {
+    const folded = new Set([...this.changes().values()].map((c) => c.id));
+    return this.integration().claims.filter((c) => !folded.has(c.id));
+  });
+
   protected readonly heading = computed(() => {
-    const n = this.integration().claims.length;
+    const n = this.rows().length;
     return $localize`:@@vendor.im.data.heading:Data that's shared (${n}:count:)`;
   });
 
@@ -552,9 +735,22 @@ export class IntegrationSharedData {
   protected readonly alert = ALERT;
   protected readonly primary = BTN_PRIMARY;
   protected readonly secondary = BTN_SECONDARY;
+  protected readonly rowAction = ROW_ACTION;
 
   protected rowId(claimId: string): string {
     return dataRowId(claimId);
+  }
+
+  protected boxId(claimId: string): string {
+    return changeBoxId(claimId);
+  }
+
+  /** The correction a box under this row stands for, if any. While the box's form
+   *  is open, the correction it opened on. */
+  protected changeOf(claim: VendorClaim): VendorClaim | null {
+    const open = this.changeForm();
+    if (open?.id === claim.id) return open.correction;
+    return this.changes().get(claim.id) ?? null;
   }
 
   protected disagreementTarget(claim: VendorClaim): string {
@@ -571,6 +767,75 @@ export class IntegrationSharedData {
 
   protected directionText(direction: ContextDirection): string {
     return directionShort(direction, this.integration().other_product.name);
+  }
+
+  /** "Change your answer: Models are sent to Procore". Starts with the visible
+   *  word, so speech input can say "Change". */
+  protected changeLabel(claim: VendorClaim): string {
+    const sentence = this.sentence(claim);
+    return $localize`:@@vendor.im.answer.change.aria:Change your answer: ${sentence}:sentence:`;
+  }
+
+  protected changeBoxLabel(claim: VendorClaim): string {
+    const data = claim.data_object_name;
+    return $localize`:@@vendor.im.change.change.aria:Change your submitted change to ${data}:data:`;
+  }
+
+  protected cancelBoxLabel(claim: VendorClaim): string {
+    const data = claim.data_object_name;
+    return $localize`:@@vendor.im.change.cancel.aria:Cancel your submitted change to ${data}:data:`;
+  }
+
+  /** "Documents: To AccuLynx becomes Both ways". */
+  protected changeLine(denied: VendorClaim, correction: VendorClaim): string {
+    const data = denied.data_object_name;
+    const from = this.directionText(denied.direction);
+    const to = this.directionText(correction.direction);
+    return $localize`:@@vendor.im.change.line:${data}:data:: ${from}:from: becomes ${to}:to:`;
+  }
+
+  protected reasonOf(claim: VendorClaim): string | null {
+    return myNote(claim);
+  }
+
+  protected yourReason(note: string): string {
+    return $localize`:@@vendor.im.data.status.yourReason:Your reason: ${note}:note:`;
+  }
+
+  /** The other company's answer on the correction. */
+  protected theirChangeAnswer(correction: VendorClaim): string {
+    const who = companyOrFallback(this.state.company());
+    switch (theirAnswer(correction)) {
+      case 'yes':
+        return $localize`:@@vendor.im.change.agrees:${who}:company: agrees.`;
+      case 'no':
+        return $localize`:@@vendor.im.change.disagrees:${who}:company: disagrees.`;
+      default:
+        return $localize`:@@vendor.im.change.notAnswered:${who}:company: has not answered yet.`;
+    }
+  }
+
+  protected theirNote(correction: VendorClaim): string | null {
+    const note = correction.counterparty?.note;
+    return note && note.trim() !== '' ? note : null;
+  }
+
+  protected readonly theirReasonAbout = computed(() => {
+    const who = possessive(companyOrFallback(this.state.company()));
+    return $localize`:@@vendor.im.change.theirReason.about:About ${who}:who: answer`;
+  });
+
+  protected theirReason(note: string): string {
+    const who = possessive(companyOrFallback(this.state.company()));
+    return $localize`:@@vendor.im.data.status.theirReason:${who}:who: reason: ${note}:note:`;
+  }
+
+  private sentence(claim: VendorClaim): string {
+    return dataSentence(
+      claim.data_object_name,
+      claim.direction,
+      this.integration().other_product.name,
+    );
   }
 
   protected groupLabel(claim: VendorClaim): string {
@@ -631,7 +896,7 @@ export class IntegrationSharedData {
   protected async pressYes(claim: VendorClaim): Promise<void> {
     this.rowError.set(null);
     if (myAnswer(claim) === 'yes') {
-      await this.clear(claim);
+      await this.clear(claim, 'yes');
       return;
     }
     if (this.yesOpensForm(claim)) {
@@ -639,45 +904,130 @@ export class IntegrationSharedData {
       return;
     }
     this.openForm.set(null);
+    // Hold the toggles on screen until the write lands, so an optimistic Yes does
+    // not swap the pressed button for plain text under the pointer.
+    const wasEditing = this.editing() === claim.id;
+    this.editing.set(claim.id);
     this.busy.set(claim.id);
     const error = await this.state.answerYes(claim);
     this.busy.set(null);
-    if (error) this.rowError.set({ id: claim.id, message: error });
+    if (error) {
+      if (!wasEditing) this.editing.set(null);
+      this.rowError.set({ id: claim.id, message: error });
+      return;
+    }
+    this.editing.set(null);
+    this.focusAnswer(claim.id);
   }
 
   protected async pressNo(claim: VendorClaim): Promise<void> {
     this.rowError.set(null);
     if (myAnswer(claim) === 'no') {
-      await this.clear(claim);
+      await this.clear(claim, 'no');
       return;
     }
     const key = `${claim.id}:no`;
     this.openForm.set(this.openForm() === key ? null : key);
   }
 
-  private async clear(claim: VendorClaim): Promise<void> {
+  private async clear(claim: VendorClaim, which: 'yes' | 'no'): Promise<void> {
     this.openForm.set(null);
     this.busy.set(claim.id);
     const error = await this.state.clearAnswer(claim);
     this.busy.set(null);
-    if (error) this.rowError.set({ id: claim.id, message: error });
-  }
-
-  /** Close the form and return focus to the row's pressed control. */
-  protected closeForm(claim: VendorClaim): void {
-    const which = this.openForm()?.endsWith(':yes') ? 'yes' : 'no';
-    this.openForm.set(null);
+    if (error) {
+      this.rowError.set({ id: claim.id, message: error });
+      return;
+    }
+    // The row has no answer now, so its one-click toggles are back.
+    this.editing.set(null);
     this.focusAnswer(claim.id, which);
   }
 
-  /** Focus a row's Yes or No button, once it has rendered. */
+  /** Change on an answered row: reveal its toggles, and focus the pressed one. */
+  protected startEdit(claim: VendorClaim): void {
+    this.rowError.set(null);
+    this.editing.set(claim.id);
+    this.focusAnswer(claim.id, myAnswer(claim) ?? 'yes');
+  }
+
+  /** Escape on revealed toggles: back to plain text, focus on Change. */
+  protected stopEdit(claim: VendorClaim): void {
+    if (this.editing() !== claim.id || this.busy() === claim.id) return;
+    if (this.openForm()?.startsWith(`${claim.id}:`)) this.openForm.set(null);
+    this.editing.set(null);
+    this.focusAnswer(claim.id);
+  }
+
+  /**
+   * Close the form. After a save the row reads as plain text again and focus goes
+   * to its Change link (or the box's, when the save submitted a change). After a
+   * Cancel focus returns to the row's pressed control.
+   */
+  protected closeForm(claim: VendorClaim): void {
+    const which = this.openForm()?.endsWith(':yes') ? 'yes' : 'no';
+    const saved = this.formSaved();
+    this.formSaved.set(false);
+    this.openForm.set(null);
+    if (saved && this.editing() === claim.id) this.editing.set(null);
+    this.focusAnswer(claim.id, which);
+  }
+
+  // ── A submitted change (§6.17.4, AECI-1246) ────────────────────────────────
+
+  protected toggleChangeForm(claim: VendorClaim): void {
+    this.boxError.set(null);
+    if (this.changeForm()?.id === claim.id) {
+      this.closeChangeForm(claim);
+      return;
+    }
+    const correction = this.changes().get(claim.id);
+    if (correction) this.changeForm.set({ id: claim.id, correction });
+  }
+
+  protected closeChangeForm(claim: VendorClaim): void {
+    this.changeForm.set(null);
+    this.focusAnswer(claim.id);
+  }
+
+  /** Cancel: withdraw the Yes on the correction, then the No on this row. */
+  protected async cancelChange(claim: VendorClaim, correction: VendorClaim): Promise<void> {
+    this.boxError.set(null);
+    this.rowError.set(null);
+    this.changeForm.set(null);
+    this.busy.set(claim.id);
+    const error = await this.state.cancelChange(claim, correction);
+    this.busy.set(null);
+    if (error) {
+      // The box is gone once the correction's Yes is withdrawn, so a failure on the
+      // second write shows beside the row's answer instead.
+      if (this.changes().has(claim.id)) this.boxError.set({ id: claim.id, message: error });
+      else this.rowError.set({ id: claim.id, message: error });
+    }
+    this.focusAnswer(claim.id);
+  }
+
+  /**
+   * Focus what stands for a row's answer, once it has rendered: the box when the
+   * row is a correction a box stands for; else the Yes or No toggle when the
+   * toggles show; else the box's Change; else the row's Change; else the row.
+   */
   focusAnswer(claimId: string, which: 'yes' | 'no' = 'yes'): void {
     afterNextRender(
       () => {
+        const denied = deniedRowFor(this.integration(), claimId);
+        if (denied) {
+          this.document.getElementById(changeBoxId(denied.id))?.focus();
+          return;
+        }
         const group = this.document.querySelector(`[data-answer-group="${claimId}"]`);
         const buttons = group?.querySelectorAll<HTMLButtonElement>('button');
-        const target = buttons?.[which === 'yes' ? 0 : 1];
-        (target ?? this.document.getElementById(dataRowId(claimId)))?.focus();
+        const target =
+          buttons?.[which === 'yes' ? 0 : 1] ??
+          this.document.querySelector<HTMLElement>(`[data-box-change="${claimId}"]`) ??
+          this.document.querySelector<HTMLElement>(`[data-change-for="${claimId}"]`) ??
+          this.document.getElementById(dataRowId(claimId));
+        target?.focus();
       },
       { injector: this.injector },
     );

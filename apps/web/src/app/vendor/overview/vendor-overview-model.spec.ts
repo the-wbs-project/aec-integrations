@@ -155,6 +155,17 @@ describe('openCorrections', () => {
     expect(result.newestCreatedAt).toBe('2026-03-01T00:00:00.000Z');
     expect(openCorrections([]).newestCreatedAt).toBeNull();
   });
+
+  it('breaks a same-timestamp tie on id, newest id first, whatever the input order (AECI-1243)', () => {
+    const at = '2026-03-01T00:00:00.000Z';
+    const rows = [
+      { ...base, id: 'b', kind: 'correction' as const, status: 'open' as const, created_at: at },
+      { ...base, id: 'c', kind: 'correction' as const, status: 'open' as const, created_at: at },
+      { ...base, id: 'a', kind: 'correction' as const, status: 'open' as const, created_at: at },
+    ];
+    expect(openCorrections(rows).items.map((r) => r.id)).toEqual(['c', 'b', 'a']);
+    expect(openCorrections([...rows].reverse()).items.map((r) => r.id)).toEqual(['c', 'b', 'a']);
+  });
 });
 
 describe('productGaps / profileGaps', () => {

@@ -60,7 +60,7 @@ import { asc, desc, sql, type SQL } from 'drizzle-orm';
 import type { SQLiteColumn } from 'drizzle-orm/sqlite-core';
 
 import { integrations, products, profiles, vendorEntitlements, vendors } from '../db/schema';
-import { textAsc, textDir } from './collation';
+import { blankLast, textAsc, textDir } from './collation';
 
 type Direction = 'asc' | 'desc';
 
@@ -246,6 +246,15 @@ export function resolveAdminUserOrderBy(sort: AdminUsersSort, order?: SortOrder)
       return [dir(profiles.createdAt), asc(profiles.id)];
     case 'updated':
       return [dir(profiles.updatedAt), asc(profiles.id)];
+    case 'name':
+      // AECI-1243. Case-insensitive, and an unnamed account (NULL or empty,
+      // both render "Unnamed account") sorts LAST in both directions:
+      // `blankLast` is 0/1 and stays ascending while the name flips.
+      return [
+        blankLast(profiles.displayName),
+        textDir(profiles.displayName, ascending),
+        asc(profiles.id),
+      ];
     default:
       return sort satisfies never;
   }

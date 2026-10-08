@@ -169,21 +169,95 @@
   <p class="mt-4 text-sm font-medium text-(--text-primary)" i18n="@@admin.users.detail.invites">
     Pending seat invites
   </p>
-  <ul role="list" class="mt-2 space-y-2">
-    @for (invite of u.pending_invites; track invite.id) {
-    <li class="text-sm text-(--text-secondary)">
-      <a
-        [routerLink]="['/admin/vendors', invite.vendor_id]"
-        class="underline decoration-(--border-strong) underline-offset-4 transition-colors hover:text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
-      >
-        {{ invite.vendor_name }}
-      </a>
-      <span i18n="@@admin.users.detail.inviteExpires"
-        >— expires {{ invite.expires_at | date: 'medium' : 'UTC' }}</span
-      >
-    </li>
-    }
-  </ul>
+  <!--
+    Sortable in place (AECI-1243): every live invite to this address is on the
+    page, so a header click reorders the whole set. Default is newest first.
+  -->
+  <div class="mt-2 overflow-x-auto">
+    <table class="w-full min-w-[40rem] border-collapse text-sm">
+      <caption class="sr-only" i18n="@@admin.users.detail.invites.caption">
+        Seat invitations to this address that have not been accepted, revoked, or expired
+      </caption>
+      <thead>
+        <tr class="border-b border-(--border-strong)">
+          <th
+            scope="col"
+            aec-sort-header
+            sortKey="vendor"
+            i18n-label="@@admin.users.detail.invites.col.vendor"
+            label="Vendor"
+            [activeSort]="inviteSort()"
+            [direction]="inviteDirection('vendor')"
+            (sortChange)="onInviteSortChange($event)"
+            class="py-2 pe-4 text-start"
+          ></th>
+          <th
+            scope="col"
+            aec-sort-header
+            sortKey="invited_by"
+            i18n-label="@@admin.users.detail.invites.col.invitedBy"
+            label="Invited by"
+            [activeSort]="inviteSort()"
+            [direction]="inviteDirection('invited_by')"
+            (sortChange)="onInviteSortChange($event)"
+            class="py-2 pe-4 text-start"
+          ></th>
+          <th
+            scope="col"
+            aec-sort-header
+            sortKey="created"
+            i18n-label="@@admin.users.detail.invites.col.invited"
+            label="Invited on"
+            [activeSort]="inviteSort()"
+            [direction]="inviteDirection('created')"
+            (sortChange)="onInviteSortChange($event)"
+            class="py-2 pe-4 text-start"
+          ></th>
+          <th
+            scope="col"
+            aec-sort-header
+            sortKey="expires"
+            i18n-label="@@admin.users.detail.invites.col.expires"
+            label="Expires"
+            [activeSort]="inviteSort()"
+            [direction]="inviteDirection('expires')"
+            (sortChange)="onInviteSortChange($event)"
+            class="py-2 text-start"
+          ></th>
+        </tr>
+      </thead>
+      <tbody>
+        @for (invite of sortedInvites(); track invite.id) {
+        <tr class="border-b border-(--border-default)">
+          <th scope="row" class="py-2 pe-4 text-start font-medium text-(--text-primary)">
+            <a
+              [routerLink]="['/admin/vendors', invite.vendor_id]"
+              class="underline decoration-(--border-strong) underline-offset-4 transition-colors hover:text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+            >
+              {{ invite.vendor_name }}
+            </a>
+          </th>
+          <td class="py-2 pe-4 text-(--text-secondary)">
+            @if (invite.invited_by) { {{ invite.invited_by }} } @else {
+            <!-- No name: the sender deleted their account (the FK is ON DELETE
+                 SET NULL) or never set a display name. -->
+            <span class="text-(--text-tertiary)" aria-hidden="true">&ndash;</span>
+            <span class="sr-only" i18n="@@admin.users.detail.invites.noSenderName"
+              >No sender name</span
+            >
+            }
+          </td>
+          <td class="py-2 pe-4 text-(--text-secondary)">
+            {{ invite.created_at | date: 'medium' : 'UTC' }}
+          </td>
+          <td class="py-2 text-(--text-secondary)">
+            {{ invite.expires_at | date: 'medium' : 'UTC' }}
+          </td>
+        </tr>
+        }
+      </tbody>
+    </table>
+  </div>
   }
 
   <!-- ── Activity ─────────────────────────────────────────────────────────── -->

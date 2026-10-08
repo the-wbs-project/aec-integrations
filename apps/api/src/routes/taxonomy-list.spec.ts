@@ -11,6 +11,7 @@ import {
   productCategories,
   products,
   productTrades,
+  taxonomyAudiences,
   taxonomyCategories,
   taxonomyPhases,
   taxonomyTrades,
@@ -149,6 +150,28 @@ describe('integration_count', () => {
     const body = CategoriesListResponseSchema.parse(await res.json());
     expect(body.data.find((c) => c.slug === 'alpha')?.integration_count).toBe(0);
     expect(body.data.find((c) => c.slug === 'beta')?.integration_count).toBe(1);
+  });
+});
+
+describe('GET /api/audiences (list)', () => {
+  it('orders audiences A to Z by name, case-insensitive, ignoring display_order (AECI-1243)', async () => {
+    await t.db.insert(taxonomyAudiences).values([
+      { id: u(1), slug: 'structural-engineer', name: 'Structural Engineer', displayOrder: 10 },
+      { id: u(2), slug: 'architect', name: 'architect', displayOrder: 20 },
+      { id: u(3), slug: 'bim-manager', name: 'BIM Manager', displayOrder: null },
+    ]);
+    const res = await app('audiences', '/api/audiences').request(
+      '/api/audiences',
+      {},
+      TEST_ENV,
+      fakeExecutionContext(),
+    );
+    const body = CategoriesListResponseSchema.parse(await res.json());
+    expect(body.data.map((a) => a.slug)).toEqual([
+      'architect',
+      'bim-manager',
+      'structural-engineer',
+    ]);
   });
 });
 

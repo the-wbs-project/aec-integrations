@@ -308,12 +308,24 @@ describe('UserList', () => {
       expect(header(el, 'Updated')?.getAttribute('aria-sort')).toBe('none');
     });
 
+    it('sorts Person by name, A to Z on the first click (AECI-1243)', async () => {
+      const { el, fixture, api } = await setup();
+      expect(header(el, 'Person')?.getAttribute('aria-sort')).toBe('none');
+      header(el, 'Person')?.querySelector('button')?.click();
+      await settle();
+      fixture.detectChanges();
+      const sent = api.listUsers.mock.calls.at(-1)?.[0] ?? {};
+      expect(sent.sort).toBe('name');
+      expect(sent.order).toBe('asc');
+      expect(header(el, 'Person')?.getAttribute('aria-sort')).toBe('ascending');
+    });
+
     it('gives Last sign-in no sort control, and never will', async () => {
       const { el } = await setup();
       expect(header(el, 'Last sign-in')).toBeTruthy();
       expect(header(el, 'Last sign-in')?.querySelector('button')).toBeFalsy();
       // Email is unsortable for the same reason and is not even its own column.
-      for (const label of ['Person', 'Role', 'Vendor', 'Status']) {
+      for (const label of ['Role', 'Vendor', 'Status']) {
         expect(header(el, label)?.querySelector('button')).toBeFalsy();
       }
     });

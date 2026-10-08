@@ -3,7 +3,7 @@ title: Attesting an integration
 description: How to say whether the data flows recorded under an integration are right, what readers see as a result, and what happens when the two companies disagree.
 section: vendors
 order: 3
-last_updated: 2 October 2026
+last_updated: 8 October 2026
 ---
 
 An integration's own page lists the data that moves between two products: a model, a schedule, an RFI, and so on, each in one direction. We call each of those a data flow. Most of them were recorded by AEC Integrations from public sources. Answering Yes or No on that page is how the company at either end says whether a flow is right.
@@ -16,16 +16,31 @@ In the vendor portal, open one of your products, choose **Integrations**, then c
 
 ## Say Yes or No to a data flow
 
-Each row of data has two buttons:
+A row you have not answered yet has two buttons:
 
 - **Yes** says the flow is right.
 - **No** says it is wrong.
 
-Choosing the pressed button again takes back your answer.
-
 **Yes** saves at once. If the other company has already said No, choosing Yes instead opens a short form so you can add a note explaining your side. The note is optional there.
 
 **No** opens a form asking why. Give a reason: it is required, so the other company and AEC Integrations know what to fix. If the direction is wrong, say so there too. Saving records your No and adds a corrected row for you, in one step.
+
+## Change an answer
+
+Once you have answered a row, it shows your answer as text, Yes or No, with a **Change** link beside it. This stops a stray click from changing an answer you meant to keep.
+
+Choose **Change** to bring back the two buttons for that row. Then choose the other answer, or choose the pressed button again to take back your answer. Press Escape to leave the row as it was. Once you save, the row shows your answer as text again.
+
+## When the direction is wrong
+
+If you say No because the direction is wrong, the page records your No on the row and adds the corrected row for you. It shows the two together: the row you said No to, and under it a box headed **You submitted a change**. The box says what the direction becomes, gives your reason, and says whether the other company has answered the corrected row yet: it has not answered, it agrees, or it disagrees. If it gave a reason, choose the i button beside that line to read it.
+
+The box ends with two links:
+
+- **Change** opens the reason form again, with your reason and the corrected direction filled in. Edit the reason, pick another direction, or pick another reason for the No.
+- **Cancel** takes back both answers: your Yes on the corrected row and your No on the original. The original row then needs your answer again.
+
+For now, a corrected row you added stays on record after you cancel the change or pick another direction. It shows again as a row with no answer from you. Being able to remove a row you added is planned.
 
 Your note is not public. Only the company at the other end of the integration and AEC Integrations see it. If your company makes both products, only AEC Integrations sees it.
 

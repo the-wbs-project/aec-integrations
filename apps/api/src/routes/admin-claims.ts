@@ -108,6 +108,7 @@ import { ApiError, notFoundError } from '../errors';
 import { json } from '../http';
 import { type BatchTuple } from '../lib/audit';
 import { auditActorType, type AuthzVariables } from '../lib/authz';
+import { blankLast, textAsc } from '../lib/collation';
 import { resolveClaimantIdentity } from '../lib/claimant-identity';
 import { VENDOR_ADMIN_ROLE } from '../lib/claimed-vendors';
 import {
@@ -898,8 +899,8 @@ async function loadVendorProductRoles(
  * The claimed vendor's active seats, keyed by REQUEST id (§5 "existing seats"). ONE
  * grouped `profiles` scan over the page's vendor ids (`role='vendor_admin' AND
  * banned_at IS NULL`) — no per-row N+1. A claim whose product has no vendor is absent
- * from `vendorByRow` and maps to `[]` (there is no vendor to seat). Ordered oldest-first
- * so the roster is stable.
+ * from `vendorByRow` and maps to `[]` (there is no vendor to seat). Ordered A to Z by
+ * display name, unnamed seats last, then id (AECI-1243).
  */
 async function loadExistingSeats(
   db: Db,
@@ -923,7 +924,8 @@ async function loadExistingSeats(
           inArray(profiles.vendorId, vendorIds),
         ),
       )
-      .orderBy(asc(profiles.createdAt));
+      // A to Z by display name, unnamed seats last, then id (AECI-1243).
+      .orderBy(blankLast(profiles.displayName), textAsc(profiles.displayName), asc(profiles.id));
     for (const s of seatRows) {
       if (!s.vendorId) continue;
       const list = seatsByVendor.get(s.vendorId) ?? [];
@@ -967,7 +969,7 @@ async function loadRelatedRequests(
     })
     .from(vendorRequests)
     .where(inArray(vendorRequests.submitterEmail, [...new Set(claimEmails)]))
-    .orderBy(desc(vendorRequests.createdAt));
+    .orderBy(desc(vendorRequests.createdAt), desc(vendorRequests.id));
 
   const byEmail = new Map<string, RelatedRequestRef[]>();
   for (const r of related) {

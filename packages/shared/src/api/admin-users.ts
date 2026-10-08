@@ -112,17 +112,23 @@ export type AdminUserSeat = z.infer<typeof AdminUserSeatSchema>;
  *
  * `created` is `profiles.created_at` — when the account first got a profile row
  * in THIS environment — not the `auth.created_at` on the row's `auth` block.
+ *
+ * `name` is `profiles.display_name`, case-insensitive (AECI-1243). An account
+ * with no display name sorts last in either direction.
  */
-export const AdminUsersSortSchema = z.enum(['created', 'updated']).default('created');
-/** Sort direction. Absent = the key's natural direction (both of these descend —
- *  newest first is what an operator opening a user list wants). Shares the
- *  vendor list's semantics because both screens render the same `SortHeader`. */
+export const AdminUsersSortSchema = z.enum(['created', 'updated', 'name']).default('created');
+/** Sort direction. Absent = the key's natural direction (the two dates descend —
+ *  newest first is what an operator opening a user list wants; `name` ascends).
+ *  Shares the vendor list's semantics because both screens render the same
+ *  `SortHeader`. */
 export type AdminUsersSort = z.infer<typeof AdminUsersSortSchema>;
 
-/** Both keys are naturally newest-first. Same one-copy rule as the vendor map. */
+/** The dates are naturally newest-first, `name` A to Z. Same one-copy rule as
+ *  the vendor map. */
 export const ADMIN_USER_SORT_DEFAULT_ORDER: Record<AdminUsersSort, SortOrder> = {
   created: 'desc',
   updated: 'desc',
+  name: 'asc',
 };
 
 /**

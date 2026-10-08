@@ -1413,10 +1413,10 @@ export class PreviewVendorApi extends VendorApi {
 
   override async searchProducts(query: string, perPage = 8): Promise<ProductsListResponse> {
     const needle = query.trim().toLowerCase();
-    const items = PREVIEW_CATALOGUE.filter((p) => p.name.toLowerCase().includes(needle)).slice(
-      0,
-      perPage,
-    );
+    // A to Z, the order the real `sort=name` search returns (AECI-1244).
+    const items = PREVIEW_CATALOGUE.filter((p) => p.name.toLowerCase().includes(needle))
+      .sort((a, b) => compareText(a.name, b.name) || compareText(a.id, b.id))
+      .slice(0, perPage);
     return { data: clone(items), total: items.length, page: 1, perPage };
   }
 

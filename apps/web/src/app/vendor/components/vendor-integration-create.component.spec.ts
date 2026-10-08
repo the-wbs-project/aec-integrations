@@ -4,8 +4,9 @@
  *
  * What these pin:
  *   1. The trigger opens the form; nothing is sent until the vendor submits.
- *   2. The counterpart search calls the public product list and leaves out the
- *      vendor's own product; Enter in the search box searches, it does not submit.
+ *   2. The counterpart search is the shared type-ahead combobox (AECI-1244): it
+ *      calls the public product list as the vendor types, leaves out the vendor's
+ *      own product, and Enter in it never submits the form.
  *   3. A submit with the required fields missing sends nothing and marks the fields.
  *   4. A good submit sends the create body (own product, counterpart, the fields),
  *      announces, revalidates the integrations scope and lists the server's
@@ -26,6 +27,8 @@ import { VendorPortalAnnouncer } from '../vendor-announcer';
 import { VendorApi } from '../vendor-api';
 import { VENDOR_INTEGRATIONS_FIXTURE, VENDOR_ME_FIXTURE } from '../vendor-fixtures';
 import { VendorPortalStore } from '../vendor-portal-store';
+
+import { PRODUCT_COMBOBOX_DEBOUNCE_MS } from '../../shared/product-combobox/product-combobox';
 
 import {
   VENDOR_CREATE_FORM_START_OPEN,
@@ -97,7 +100,10 @@ function configure(startOpen?: boolean): void {
 }
 
 beforeEach(() => configure());
-afterEach(() => vi.restoreAllMocks());
+afterEach(() => {
+  vi.restoreAllMocks();
+  document.querySelectorAll('.cdk-overlay-container').forEach((n) => n.remove());
+});
 
 async function settle(fixture: ComponentFixture<unknown>): Promise<void> {
   fixture.detectChanges();
@@ -135,13 +141,25 @@ async function open(fixture: ComponentFixture<unknown>): Promise<void> {
   await settle(fixture);
 }
 
-async function pickProcore(fixture: ComponentFixture<unknown>): Promise<void> {
-  await type(fixture, '#vendor-create-search', 'pro');
-  q<HTMLButtonElement>(fixture, '[data-testid="create-search"]')!.click();
+/** Type into the counterpart combobox and wait out its debounce (AECI-1244). */
+async function searchFor(fixture: ComponentFixture<unknown>, value: string): Promise<void> {
+  const input = q<HTMLInputElement>(fixture, '#vendor-create-search')!;
+  input.dispatchEvent(new FocusEvent('focusin', { bubbles: true }));
+  input.value = value;
+  input.dispatchEvent(new InputEvent('input', { bubbles: true }));
   await settle(fixture);
-  const radio = q<HTMLInputElement>(fixture, `input[type="radio"][value="${PROCORE.id}"]`)!;
-  radio.checked = true;
-  radio.dispatchEvent(new Event('change'));
+  await new Promise((resolve) => setTimeout(resolve, PRODUCT_COMBOBOX_DEBOUNCE_MS + 30));
+  await settle(fixture);
+}
+
+/** The popup renders into the body-level CDK overlay under jsdom. */
+const options = () => [...document.querySelectorAll<HTMLElement>('[data-product-option]')];
+
+async function pickProcore(fixture: ComponentFixture<unknown>): Promise<void> {
+  await searchFor(fixture, 'pro');
+  const row = options().find((o) => o.textContent?.includes('Procore'))!;
+  row.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
+  row.dispatchEvent(new MouseEvent('click', { bubbles: true }));
   await settle(fixture);
 }
 
@@ -195,37 +213,47 @@ describe('opening the form', () => {
 });
 
 describe('the counterpart search', () => {
-  it('searches the public list and leaves the vendor’s own product out', async () => {
+  it('searches the public list as the vendor types and leaves the vendor’s own product out', async () => {
+    const fixture = await mount();
+    await open(fixture);
+    expect(q(fixture, '[data-testid="create-search"]')).toBeNull();
+    await searchFor(fixture, 'pro');
+    expect(api.searchProducts).toHaveBeenCalledWith('pro');
+    expect(options()).toHaveLength(1);
+    expect(options()[0]!.textContent).toContain('Procore');
+    expect(options()[0]!.textContent).toContain('Vendor Co');
+  });
+
+  it('waits for two letters before searching', async () => {
+    const fixture = await mount();
+    await open(fixture);
+    await searchFor(fixture, 'p');
+    expect(api.searchProducts).not.toHaveBeenCalled();
+    expect(document.body.textContent).toContain('at least two letters');
+  });
+
+  it('never submits the form on Enter in the search box', async () => {
+    const fixture = await mount();
+    await open(fixture);
+    await searchFor(fixture, 'pro');
+    const enter = new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true });
+    q(fixture, '#vendor-create-search')!.dispatchEvent(enter);
+    await settle(fixture);
+    expect(enter.defaultPrevented).toBe(true);
+    expect(api.createIntegration).not.toHaveBeenCalled();
+  });
+
+  it('shows the chosen product with a Change button that brings the search back', async () => {
     const fixture = await mount();
     await open(fixture);
     await pickProcore(fixture);
-    expect(api.searchProducts).toHaveBeenCalledWith('pro');
-    const radios = el(fixture).querySelectorAll(
-      '[data-testid="create-results"] input[type="radio"]',
-    );
-    expect(radios).toHaveLength(1);
-  });
-
-  it('asks for two letters before searching', async () => {
-    const fixture = await mount();
-    await open(fixture);
-    await type(fixture, '#vendor-create-search', 'p');
-    q<HTMLButtonElement>(fixture, '[data-testid="create-search"]')!.click();
+    const chosen = q(fixture, '[data-testid="create-counterpart"]');
+    expect(chosen?.textContent).toContain('Procore');
+    expect(q(fixture, '#vendor-create-search')).toBeNull();
+    q<HTMLButtonElement>(fixture, '[data-testid="create-change-counterpart"]')!.click();
     await settle(fixture);
-    expect(api.searchProducts).not.toHaveBeenCalled();
-    expect(el(fixture).textContent).toContain('at least two letters');
-  });
-
-  it('searches on Enter without submitting the form', async () => {
-    const fixture = await mount();
-    await open(fixture);
-    await type(fixture, '#vendor-create-search', 'pro');
-    const enter = new KeyboardEvent('keydown', { key: 'Enter', cancelable: true });
-    q(fixture, '#vendor-create-search')!.dispatchEvent(enter);
-    await settle(fixture);
-    expect(api.searchProducts).toHaveBeenCalled();
-    expect(enter.defaultPrevented).toBe(true);
-    expect(api.createIntegration).not.toHaveBeenCalled();
+    expect(q(fixture, '[data-testid="create-counterpart"]')).toBeNull();
+    expect(q(fixture, '#vendor-create-search')).not.toBeNull();
   });
 
   it('lists what is already on record for the chosen pair, without blocking', async () => {

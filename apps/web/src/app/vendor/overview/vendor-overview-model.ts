@@ -118,7 +118,19 @@ export function openCorrections(requests: readonly VendorRequestSummary[]): Open
   const items = requests
     .filter((r) => r.kind === 'correction' && (r.status === 'open' || r.status === 'in_review'))
     .slice()
-    .sort((a, b) => (a.created_at < b.created_at ? 1 : a.created_at > b.created_at ? -1 : 0));
+    // Newest first; `id` breaks a same-millisecond tie so the order never
+    // depends on the input order (AECI-1243).
+    .sort((a, b) =>
+      a.created_at !== b.created_at
+        ? a.created_at < b.created_at
+          ? 1
+          : -1
+        : a.id < b.id
+          ? 1
+          : a.id > b.id
+            ? -1
+            : 0,
+    );
   return { items, newestCreatedAt: items[0]?.created_at ?? null };
 }
 

@@ -71,3 +71,19 @@ export function textDesc(column: SQLWrapper): SQL {
 export function textDir(column: SQLWrapper, ascending: boolean): SQL {
   return ascending ? textAsc(column) : textDesc(column);
 }
+
+/**
+ * Sort key that puts a NULL or empty-string value LAST (AECI-1243). Use it ahead
+ * of {@link textAsc} / {@link textDir} on an optional name, so a row the UI shows
+ * as "Unnamed" lands after the named rows in either direction:
+ *
+ * ```ts
+ * .orderBy(blankLast(profiles.displayName), textAsc(profiles.displayName), asc(profiles.id))
+ * ```
+ *
+ * The expression is 0/1, so it always sorts ascending and never flips with the
+ * name's direction.
+ */
+export function blankLast(column: SQLWrapper): SQL {
+  return sql`coalesce(${column}, '') = ''`;
+}

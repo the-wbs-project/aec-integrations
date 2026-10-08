@@ -240,6 +240,31 @@ describe('GET /api/vendor/me', () => {
     expect(body.requests[0]).not.toHaveProperty('body');
   });
 
+  it('lists requests newest first, id breaking a tie (AECI-1243)', async () => {
+    const correction = (id: string, createdAt: string) => ({
+      id,
+      kind: 'correction',
+      targetType: 'product',
+      targetId: PRODUCT,
+      submitterEmail: 'someone@example.com',
+      body: 'The description is out of date and should be refreshed.',
+      createdAt,
+    });
+    await t.db
+      .insert(vendorRequests)
+      .values([
+        correction(uuid(310), '2026-07-01T00:00:00.000Z'),
+        correction(uuid(311), '2026-09-01T00:00:00.000Z'),
+        correction(uuid(312), '2026-09-01T00:00:00.000Z'),
+      ]);
+    const { body } = await call('/api/vendor/me');
+    expect(body.requests.map((r: { id: string }) => r.id)).toEqual([
+      uuid(312),
+      uuid(311),
+      uuid(310),
+    ]);
+  });
+
   it('counts only real seats — a reviewer carrying a vendor_id is not one', async () => {
     // seat_count and GET /seats must use the same predicate, or the dashboard
     // claims a seat the roster can't account for.
@@ -281,6 +306,23 @@ describe('GET /api/vendor/seats', () => {
       [SEAT, SEAT_2].sort(),
     );
     expect(body.seats.find((s: { user_id: string }) => s.user_id === SEAT_2)?.banned).toBe(true);
+  });
+
+  it('orders the roster A to Z by display name, unnamed seats last (AECI-1243)', async () => {
+    // SEAT is "Dana Ops", SEAT_2 has no name.
+    await t.db.insert(profiles).values([
+      { id: uuid(104), role: 'vendor_admin', vendorId: VENDOR, displayName: 'zoe' },
+      { id: uuid(105), role: 'vendor_admin', vendorId: VENDOR, displayName: 'Adam' },
+      { id: uuid(106), role: 'vendor_admin', vendorId: VENDOR, displayName: '' },
+    ]);
+    const { body } = await call('/api/vendor/seats');
+    expect(body.seats.map((s: { user_id: string }) => s.user_id)).toEqual([
+      uuid(105),
+      SEAT,
+      uuid(104),
+      SEAT_2,
+      uuid(106),
+    ]);
   });
 
   it('degrades to email: null when the Supabase admin seam returns nothing', async () => {

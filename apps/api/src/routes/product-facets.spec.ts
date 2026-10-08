@@ -141,3 +141,23 @@ describe('GET /api/products/facets', () => {
     expect(body.trades.find((x) => x.slug === 'electrical')?.product_count).toBe(2);
   });
 });
+
+describe('GET /api/products/facets — audience order (AECI-1242)', () => {
+  it('lists audiences A to Z by name, not by display_order', async () => {
+    await t.db.insert(taxonomyAudiences).values([
+      { id: u(21), slug: 'architecture', name: 'Architecture', displayOrder: 20 },
+      { id: u(22), slug: 'project-manager', name: 'Project Manager', displayOrder: 220 },
+      { id: u(23), slug: 'bim-manager', name: 'BIM Manager', displayOrder: 290 },
+      { id: u(24), slug: 'general-contracting', name: 'general Contracting', displayOrder: 80 },
+    ]);
+    const body = ProductFacetsResponseSchema.parse(
+      await (await get('/api/products/facets')).json(),
+    );
+    expect(body.audiences.map((a) => a.slug)).toEqual([
+      'architecture',
+      'bim-manager',
+      'general-contracting',
+      'project-manager',
+    ]);
+  });
+});

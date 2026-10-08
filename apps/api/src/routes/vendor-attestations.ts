@@ -114,6 +114,7 @@ import {
   VendorClaimResponseSchema,
   type AgreementAttestation,
   type ClaimDirection,
+  type ContextDirection,
   type HistoricalAttestation,
   type ContestableFields,
   type CounterpartyAttestation,
@@ -376,8 +377,9 @@ function toVendorClaim(
     mine: live
       .filter((row) => isOwnAttestation(row, vendorId, slots))
       .map(toOwnAttestation)
-      // Stable `vendor_a` before `vendor_b`, matching `slotsForOwnership`.
-      .sort((a, b) => a.slot.localeCompare(b.slot)),
+      // Stable `vendor_a` before `vendor_b`, matching `slotsForOwnership`. An
+      // enum token, so a BINARY compare, never `localeCompare` (AECI-1243).
+      .sort((a, b) => binaryCompare(a.slot, b.slot)),
     counterparty: toCounterparty(live, vendorId, slots),
     added_by: addedBy(claim, vendorId),
     created_at: claim.createdAt,
@@ -1140,12 +1142,23 @@ export function createListVendorIntegrationsHandler(
           slots: [...authority.slots],
           claims: [...row.claims]
             // Vocabulary order, then slug — the same ordering the pair page's claim
-            // lanes use, so a vendor sees its flows listed as readers do.
+            // lanes use, so a vendor sees its flows listed as readers do. Then
+            // the direction as this frame shows it (outbound, both, inbound: the
+            // order every direction picker lists), then the claim id, so two
+            // flows of one data object never swap (AECI-1243). Slug and id are
+            // tokens, so BINARY compares.
             .sort(
               (a, b) =>
                 (a.dataObject.displayOrder ?? Number.MAX_SAFE_INTEGER) -
                   (b.dataObject.displayOrder ?? Number.MAX_SAFE_INTEGER) ||
-                a.dataObject.slug.localeCompare(b.dataObject.slug),
+                binaryCompare(a.dataObject.slug, b.dataObject.slug) ||
+                DIRECTION_RANK[
+                  claimDirectionForContext(a.direction as ClaimDirection, contextIsSource)
+                ] -
+                  DIRECTION_RANK[
+                    claimDirectionForContext(b.direction as ClaimDirection, contextIsSource)
+                  ] ||
+                binaryCompare(a.id, b.id),
             )
             .map((claim) =>
               // The parent row's id, not `claim.integrationId`. AECI-721 made the
@@ -1173,7 +1186,9 @@ export function createListVendorIntegrationsHandler(
     surface.sort(
       (a, b) =>
         compareText(a.context_product.name, b.context_product.name) ||
-        compareText(a.other_product.name, b.other_product.name),
+        compareText(a.other_product.name, b.other_product.name) ||
+        // Two integrations between the same pair: the id settles it (AECI-1243).
+        binaryCompare(a.id, b.id),
     );
 
     // AECI-1089: the rows the caller owns that the list above does not carry, from
@@ -1756,3 +1771,11 @@ async function loadClaimDataObject(
   }
   return row;
 }
+
+/** BINARY order for ids, slugs and enum tokens (AECI-1243). */
+function binaryCompare(a: string, b: string): number {
+  return a < b ? -1 : a > b ? 1 : 0;
+}
+
+/** Outbound, both, inbound: the one order every direction list uses (AECI-1243). */
+const DIRECTION_RANK: Record<ContextDirection, number> = { outbound: 0, both: 1, inbound: 2 };
