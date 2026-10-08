@@ -1089,6 +1089,8 @@ export const CategoriesListResponseSchema = z.object({
 
 Not paginated — the taxonomy is small by design (Phase 2 Spec §3.1).
 
+**Order (AECI-1243).** Categories, phases and trades by `display_order` (NULLs last), then name. Audiences A to Z by name (`textAsc`), then `slug`, because the curated audience `display_order` is disciplines then job titles and reads as unsorted. `GET /api/taxonomy` uses the same per-facet order.
+
 **`/api/trades` is not publication-gated.** Every term is returned with its `product_count`, including terms below the `TRADE_PUBLISH_MIN_PRODUCTS = 1` floor — i.e. the zero-product terms, which after the AECI-547 backfill is 27 of the 34; the gate is applied per-surface by the consumer (`STAGE_1_SPEC.md` §5.5a, `TRADES_VOCABULARY.md` §6). Keeping the gate out of the API avoids splitting the vocabulary into two response shapes.
 
 #### `GET /api/categories/:slug`, `/api/audiences/:slug`, `/api/phases/:slug`, `/api/trades/:slug`
@@ -2881,8 +2883,8 @@ handlers in `apps/api/src/routes/admin-connectors.ts` over `apps/api/src/lib/adm
 |---|---|
 | `GET /api/admin/connector-catalogs` | Paginated catalogue list. `?managed_by=review\|vendor`, `?search=` over the connector product's name/slug |
 | `GET /api/admin/connector-catalogs/:id` | Basics, surfaces, counts, the derived `handover`, `advisories` |
-| `GET /api/admin/connector-catalogs/:id/stubs` | The triage queue. `?state=`, `?proposals_only=`, `?confidence=`, `?search=`, `?include_removed=` |
-| `GET /api/admin/connector-catalogs/:id/pairs` | `?lane=reachable\|evidenced` (default `reachable`), `?surface=curated\|generated\|derived\|unknown` on the reachable lane |
+| `GET /api/admin/connector-catalogs/:id/stubs` | The triage queue. `?state=`, `?proposals_only=`, `?confidence=`, `?search=`, `?include_removed=`. Newest listing first; each stub's `mappings[]` A to Z by mapped product name, product-less last, then `id` (AECI-1243) |
+| `GET /api/admin/connector-catalogs/:id/pairs` | `?lane=reachable\|evidenced` (default `reachable`), `?surface=curated\|generated\|derived\|unknown` on the reachable lane. Order (AECI-1243): evidenced A to Z by product A name, then product B name, then `id`. Reachable A to Z by side A's listing name (`label`, else `slug`), then side B's, then `id` |
 | `GET /api/admin/connector-catalogs/:id/audit` | `entity_type='connector_catalog' AND entity_id=:id`, off `audit_log_entity_idx` |
 
 **All five write nothing** — no `audit_log` row (§6's convention as scoped by ADR 0022), no purge,
@@ -3012,8 +3014,8 @@ seam #2, `fetchAuthUserRecords`) enriches the page D1 already chose.
 // packages/shared/src/api/admin-users.ts
 AdminUsersListQuerySchema = PageQuerySchema.extend({
   perPage: …default 24, max 50,           // NOT the shared 100 — see below
-  sort:    z.enum(['created', 'updated']), // D1 columns ONLY
-  order:   z.enum(['asc', 'desc']).optional(), // absent = natural (both DESC)
+  sort:    z.enum(['created', 'updated', 'name']), // D1 columns ONLY; `name` AECI-1243
+  order:   z.enum(['asc', 'desc']).optional(), // absent = natural (dates DESC, name ASC)
   search:  z.string().optional(),
   role:    z.enum(['reviewer', 'admin', 'vendor_admin']).optional(),
   banned:  z.enum(['true', 'false']).transform((v) => v === 'true').optional(),
@@ -3041,12 +3043,15 @@ AdminUsersListResponse = PaginatedResponse<AdminUserRow> & {
 - **`sort` takes D1 columns only.** `last_sign_in_at` lives in GoTrue and is fetched
   *after* the `ORDER BY` has chosen the page, so sorting by it would reorder the
   current page and call it a ranking. It is not sortable and will not become so.
-- **`order` is optional, and absent means the key's natural direction** — both keys
-  here descend (newest first). It is the same parameter, with the same semantics,
+- **`order` is optional, and absent means the key's natural direction** — the two
+  date keys descend (newest first) and `name` ascends. It is the same parameter, with the same semantics,
   that `GET /api/admin/vendors` takes: the natural directions live in
   `ADMIN_USER_SORT_DEFAULT_ORDER` (`packages/shared`), which `resolveAdminUserOrderBy`
   and the table's arrows both read, and only the PRIMARY term flips — `id ASC` stays
   the stable tiebreaker (AECI-99).
+- **`sort=name` orders on `profiles.display_name`** (AECI-1243), case-insensitive
+  (`textDir`). An account with no display name sorts **last in both directions**:
+  the `display_name IS NULL` term never flips, only the name does.
 - **`search` matches `display_name` as an escaped substring** (`likeContains` —
   operator-typed `%`/`_` are escaped, not honoured) and, **only when the term
   contains `@`**, also resolves it as an **exact** email through seam #4a.
@@ -3094,6 +3099,9 @@ AdminUserDetail = {
   `created_at` on the enclosing object, which is the profile's; both ship.
 - **`null` is not `[]` and not `0`.** `pending_invites: null` means the address
   could not be resolved, so the set is unknown; `[]` means resolved and empty.
+- **`pending_invites` ships newest first** (`created_at DESC, id DESC`, AECI-1243).
+  The page renders it as a table that re-sorts in place by vendor, sender, sent
+  date or expiry.
   `requests_by_email: null` means the match could not be attempted; `0` would
   assert "this person filed none".
 - **`seat` is single-valued by construction.** There is no `vendor_users` table — a

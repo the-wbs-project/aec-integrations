@@ -58,7 +58,7 @@ import {
   type AdminUserSeat,
   type AdminUsersListResponse,
 } from '@aeci/shared';
-import { and, count, eq, gt, isNotNull, isNull, ne, or, sql, type SQL } from 'drizzle-orm';
+import { and, count, desc, eq, gt, isNotNull, isNull, ne, or, sql, type SQL } from 'drizzle-orm';
 import type { Context } from 'hono';
 
 import { getDb } from '../db/client';
@@ -403,7 +403,10 @@ export function createAdminUserDetailHandler(
               // shared `pendingInvitesFor` predicate deliberately does not.
               gt(vendorSeatInvites.expiresAt, nowIso),
             ),
-          ),
+          )
+          // Newest invite first, `id` breaking a same-millisecond tie
+          // (AECI-1243). The page re-sorts on a header click.
+          .orderBy(desc(vendorSeatInvites.createdAt), desc(vendorSeatInvites.id)),
         db
           .select({ value: count() })
           .from(vendorRequests)

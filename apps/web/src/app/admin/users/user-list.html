@@ -146,11 +146,15 @@
         <tr class="border-b border-(--border-strong)">
           <th
             scope="col"
-            class="py-2 pe-4 text-start font-bold text-(--text-secondary)"
-            i18n="@@admin.users.col.person"
-          >
-            Person
-          </th>
+            aec-sort-header
+            sortKey="name"
+            i18n-label="@@admin.users.col.person"
+            label="Person"
+            [activeSort]="sort()"
+            [direction]="directionFor('name')"
+            (sortChange)="onSortChange($event)"
+            class="py-2 pe-4 text-start"
+          ></th>
           <th
             scope="col"
             class="py-2 pe-4 text-start font-bold text-(--text-secondary)"

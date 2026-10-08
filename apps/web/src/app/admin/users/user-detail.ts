@@ -10,12 +10,14 @@ import {
 } from '@angular/core';
 import { ActivatedRoute, RouterLink } from '@angular/router';
 
-import type { AdminUserDetail } from '@aeci/shared';
+import type { AdminUserDetail, AdminUserPendingInvite } from '@aeci/shared';
+import { compareText } from '@aeci/shared/text-sort';
 
 import { AdminBreadcrumbStore } from '../admin-breadcrumb.store';
 import { ADMIN_DETAIL_FALLBACK_LABELS } from '../admin-nav';
 import { isStatus } from '../http-status';
 import { ReviewerBansApi } from '../reviewers/reviewer-bans-api';
+import { SortHeader } from '../../shared/sort-header/sort-header';
 import { AdminUsersApi } from './admin-users-api';
 
 /**
@@ -56,7 +58,7 @@ import { AdminUsersApi } from './admin-users-api';
  */
 @Component({
   selector: 'aec-user-detail',
-  imports: [RouterLink, DatePipe],
+  imports: [RouterLink, DatePipe, SortHeader],
   templateUrl: './user-detail.html',
 })
 export class UserDetail {
@@ -84,6 +86,32 @@ export class UserDetail {
 
   /** The page owns exactly ONE live region, at the top. */
   protected readonly liveMessage = signal('');
+
+  // ── Pending invites table (AECI-1243) ──────────────────────────────────────
+
+  /**
+   * The invites table sorts in place. The whole set is on the page (live
+   * invites to one address, a handful at most), so a client sort reorders every
+   * row rather than one page of many. Default: newest invite first, the order
+   * the API ships.
+   */
+  protected readonly inviteSort = signal<InviteSortKey>('created');
+  protected readonly inviteOrder = signal<'asc' | 'desc'>(INVITE_SORT_NATURAL_ORDER.created);
+
+  protected readonly sortedInvites = computed<readonly AdminUserPendingInvite[]>(() => {
+    const invites = this.user()?.pending_invites ?? [];
+    return sortInvites(invites, this.inviteSort(), this.inviteOrder());
+  });
+
+  protected inviteDirection(key: InviteSortKey): 'ascending' | 'descending' {
+    const order = key === this.inviteSort() ? this.inviteOrder() : INVITE_SORT_NATURAL_ORDER[key];
+    return order === 'asc' ? 'ascending' : 'descending';
+  }
+
+  protected onInviteSortChange(change: { key: string; order: 'asc' | 'desc' }): void {
+    this.inviteSort.set(change.key as InviteSortKey);
+    this.inviteOrder.set(change.order);
+  }
 
   // ── Ban / reinstate ────────────────────────────────────────────────────────
 
@@ -288,4 +316,49 @@ export class UserDetail {
         return this.user()?.role ?? '';
     }
   }
+}
+
+/** The sortable columns of the pending-invites table. */
+export type InviteSortKey = 'vendor' | 'invited_by' | 'created' | 'expires';
+
+/** What a first click on each header does: names A to Z, sent newest first,
+ *  expiry soonest first. */
+const INVITE_SORT_NATURAL_ORDER: Record<InviteSortKey, 'asc' | 'desc'> = {
+  vendor: 'asc',
+  invited_by: 'asc',
+  created: 'desc',
+  expires: 'asc',
+};
+
+const binary = (a: string, b: string): number => (a < b ? -1 : a > b ? 1 : 0);
+
+/**
+ * Sort the invites by one column (AECI-1243). Names compare case-insensitively
+ * (`compareText`). Timestamps are ISO strings and compare in binary. A missing
+ * sender sorts last in either direction. `id` breaks every tie, so the order
+ * never depends on the order the rows arrived in.
+ */
+export function sortInvites(
+  invites: readonly AdminUserPendingInvite[],
+  key: InviteSortKey,
+  order: 'asc' | 'desc',
+): AdminUserPendingInvite[] {
+  const sign = order === 'asc' ? 1 : -1;
+  const primary = (a: AdminUserPendingInvite, b: AdminUserPendingInvite): number => {
+    switch (key) {
+      case 'vendor':
+        return sign * compareText(a.vendor_name, b.vendor_name);
+      case 'invited_by': {
+        if (a.invited_by === b.invited_by) return 0;
+        if (a.invited_by === null) return 1;
+        if (b.invited_by === null) return -1;
+        return sign * compareText(a.invited_by, b.invited_by);
+      }
+      case 'created':
+        return sign * binary(a.created_at, b.created_at);
+      case 'expires':
+        return sign * binary(a.expires_at, b.expires_at);
+    }
+  };
+  return [...invites].sort((a, b) => primary(a, b) || binary(a.id, b.id));
 }

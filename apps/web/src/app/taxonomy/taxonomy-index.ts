@@ -18,7 +18,8 @@ import type { TaxonomyKind } from '../shared/taxonomy-badge/taxonomy-badge';
 /**
  * How the term grid is ordered.
  *
- * `sequence` is the API's own order (`display_order ASC, name ASC`) and is
+ * `sequence` is the API's own order (`display_order ASC, name ASC`; audiences
+ * ship A to Z by name instead, AECI-1243) and is
  * offered on **`/phases` only**, where the vocabulary genuinely *is* a sequence:
  * Concept & Planning → Design → Pre-Construction → Construction → Closeout &
  * Operations. Sorting those alphabetically as the default would scramble meaning
@@ -27,9 +28,10 @@ import type { TaxonomyKind } from '../shared/taxonomy-badge/taxonomy-badge';
  * The other three facets do **not** expose it. Their `display_order` is an
  * editorial convenience rather than information the reader needs, and a term
  * grid answers "is my thing in here?" — a question A→Z answers better than any
- * curated sequence. `display_order` still drives those facets everywhere else it
- * matters (the nav flyout, the facet sidebar, the home browse grids); it is only
- * this one surface that stops deferring to it.
+ * curated sequence. For categories and trades, `display_order` still sets the
+ * API's list order that other surfaces render (the facet sidebar, the vendor
+ * facet editor). Audiences never follow it: the API ships them A to Z by name
+ * (AECI-1242, AECI-1243). The nav flyouts and home grids rank by product count.
  */
 type SortMode = 'sequence' | 'name' | 'products';
 

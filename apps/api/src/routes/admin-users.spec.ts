@@ -294,6 +294,37 @@ describe('GET /api/admin/users — the list', () => {
     expect(literal.data.map((r: { id: string }) => r.id)).toEqual([u(40)]);
   });
 
+  it('sorts by name case-insensitively, unnamed accounts last in both directions (AECI-1243)', async () => {
+    await seedPeople();
+    await t.db.insert(profiles).values([
+      { id: u(24), role: 'reviewer', displayName: 'alice lower' },
+      { id: u(25), role: 'reviewer', displayName: null },
+    ]);
+    const app = mount('/users', createAdminUsersListHandler(t.factory, recordSeam()));
+
+    const asc = await readJson(await call(app, '/users?sort=name'));
+    expect(asc.data.map((r: { id: string }) => r.id)).toEqual([
+      ADMIN, // Ada Admin
+      u(24), // alice lower: case does not push it after the capitals
+      BANNED,
+      REVIEWER,
+      SEAT,
+      STALE_VENDOR_REF,
+      u(25),
+    ]);
+
+    const desc = await readJson(await call(app, '/users?sort=name&order=desc'));
+    expect(desc.data.map((r: { id: string }) => r.id)).toEqual([
+      STALE_VENDOR_REF,
+      SEAT,
+      REVIEWER,
+      BANNED,
+      u(24),
+      ADMIN,
+      u(25),
+    ]);
+  });
+
   it('count and page agree — total describes the filtered set, not the table', async () => {
     await seedPeople();
     const app = mount('/users', createAdminUsersListHandler(t.factory, recordSeam()));
@@ -580,6 +611,34 @@ describe('GET /api/admin/users/:id — the detail', () => {
     });
     // The token is the redeem handle and is never on the wire.
     expect(body.pending_invites[0].token).toBeUndefined();
+  });
+
+  it('lists pending invites newest first, id breaking a tie (AECI-1243)', async () => {
+    await seedPeople();
+    await t.db.insert(vendors).values([
+      { id: u(11), slug: 'acme', companyName: 'Acme' },
+      { id: u(12), slug: 'zeta', companyName: 'Zeta' },
+    ]);
+    const invite = (id: string, vendorId: string, createdAt: string) => ({
+      id,
+      vendorId,
+      email: 'rita@acme.com',
+      token: `tok-${id}`,
+      invitedById: SEAT,
+      expiresAt: '2099-01-01T00:00:00Z',
+      createdAt,
+    });
+    await t.db
+      .insert(vendorSeatInvites)
+      .values([
+        invite(u(93), VENDOR, '2026-08-01T00:00:00.000Z'),
+        invite(u(94), u(11), '2026-09-01T00:00:00.000Z'),
+        invite(u(95), u(12), '2026-09-01T00:00:00.000Z'),
+      ]);
+    const app = await detailApp(recordSeam({ [REVIEWER]: { email: 'rita@acme.com' } }));
+
+    const body = await readJson(await call(app, `/users/${REVIEWER}`));
+    expect(body.pending_invites.map((i: { id: string }) => i.id)).toEqual([u(95), u(94), u(93)]);
   });
 
   it('reports pending_invites null and requests_by_email null when the seam is down', async () => {

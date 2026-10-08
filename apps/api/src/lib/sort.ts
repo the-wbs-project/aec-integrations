@@ -246,6 +246,15 @@ export function resolveAdminUserOrderBy(sort: AdminUsersSort, order?: SortOrder)
       return [dir(profiles.createdAt), asc(profiles.id)];
     case 'updated':
       return [dir(profiles.updatedAt), asc(profiles.id)];
+    case 'name':
+      // AECI-1243. Case-insensitive, and an unnamed account sorts LAST in both
+      // directions: `x IS NULL` is 0/1, so it stays ascending while the name
+      // flips. Sorting "Unnamed account" by its label would scatter them.
+      return [
+        sql`${profiles.displayName} is null`,
+        textDir(profiles.displayName, ascending),
+        asc(profiles.id),
+      ];
     default:
       return sort satisfies never;
   }
