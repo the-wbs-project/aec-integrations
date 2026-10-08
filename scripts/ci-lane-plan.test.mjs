@@ -142,7 +142,12 @@ test('the other cross-package reads are mapped', () => {
     '@aeci/api',
     '@aeci/shared',
   ]);
-  // An apps/api change outside migrations/ and src/ adds nothing.
+  // apps/web's eslint-config spec resolves apps/api's ESLint config.
+  assert.deepEqual(withHiddenReaders(['@aeci/api'], ['apps/api/eslint.config.mjs']), [
+    '@aeci/api',
+    '@aeci/web',
+  ]);
+  // An apps/api change outside migrations/, src/ and the ESLint config adds nothing.
   assert.deepEqual(withHiddenReaders(['@aeci/api'], ['apps/api/wrangler.jsonc']), ['@aeci/api']);
 });
 

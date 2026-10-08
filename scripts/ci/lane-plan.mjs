@@ -68,6 +68,10 @@ export function rootLevelFiles(changedFiles) {
  *                          their test D1 (src/test/d1.ts).
  *   apps/api/src/,         packages/shared's version-diff consult-sites spec scans
  *   apps/web/src/          both trees.
+ *   apps/api/eslint.config apps/web/src/eslint-config.spec.ts resolves apps/api's ESLint
+ *                          config for api fixture files. Editing those fixtures cannot
+ *                          change the resolved config, and deleting one forces the full
+ *                          lane, so the config file is the only edge.
  *
  * A new spec that reads across packages needs a row here, or the lite lane will skip it.
  */
@@ -78,6 +82,7 @@ export const HIDDEN_READERS = [
   ['apps/api/migrations/', ['@aeci/datatool', '@aeci/agent']],
   ['apps/api/src/', ['@aeci/shared']],
   ['apps/web/src/', ['@aeci/shared']],
+  ['apps/api/eslint.config', [WEB_PACKAGE]],
 ];
 
 /** Adds every hidden reader of a changed path to the affected set, keeping order. */

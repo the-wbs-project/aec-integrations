@@ -207,6 +207,7 @@ Runs in parallel where possible to minimize wall time. Goal: under 10 minutes to
 > | `apps/agent/` | apps/api | The count-lockstep spec scans agent source |
 > | `apps/api/migrations/` | apps/datatool, apps/agent | Their test D1 applies the api migrations |
 > | `apps/api/src/`, `apps/web/src/` | packages/shared | The version-diff consult-sites spec scans both trees |
+> | `apps/api/eslint.config.mjs` | apps/web | `eslint-config.spec.ts` resolves the api ESLint config for api fixture files |
 >
 > A new spec that reads across packages needs a row in that table.
 >
@@ -672,6 +673,7 @@ To check the payload locally without calling Linear, run `node scripts/mirror-no
 | `lighthouse.yml` | `resolve` | `statuses: read` | Reads the existing `lighthouse` status |
 | `lighthouse.yml` | `lighthouse` | `statuses: write` | Posts the `lighthouse` status |
 | `promote-to-demo.yml` | `lighthouse-lookup` | `statuses: read`, `actions: read` | Reads the status, then the run it links to |
+| `promote-to-demo.yml` | `lighthouse-measure` | `statuses: write` | Ceiling for the called `lighthouse.yml` jobs, which post the status |
 
 Artifacts and `actions/cache` use the runner's own runtime token, so no job needs `actions` scope for them.
 
