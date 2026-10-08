@@ -1,7 +1,7 @@
 import { Component, signal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
-import { provideRouter } from '@angular/router';
-import { describe, expect, it } from 'vitest';
+import { Router, provideRouter } from '@angular/router';
+import { describe, expect, it, vi } from 'vitest';
 
 import type { ProductListItem } from '@aeci/shared';
 
@@ -63,33 +63,49 @@ describe('VendorProductRow', () => {
     expect(cells[0]?.textContent).toContain('Procore Platform');
   });
 
-  it('makes the whole row a stretched link to the product page', () => {
+  it('renders the product link in the trailing cell', () => {
     const { el } = setup();
-    const overlay = el.querySelector<HTMLAnchorElement>('a[href="/products/procore-platform"]');
-    expect(overlay).not.toBeNull();
-    // Named for assistive tech, and covering the whole row.
-    expect(overlay?.getAttribute('aria-label')).toContain('Procore Platform');
-    expect(overlay?.className).toContain('absolute');
-    expect(overlay?.className).toContain('inset-0');
-    // The overlay is `absolute inset-0`, so its containing block is the nearest
-    // positioned ancestor. That must be the `relative` <tr> host — a `relative`
-    // <td> in between would intercept `inset-0` and shrink the click target to
-    // one cell instead of the whole row (jsdom can't measure layout, so assert
-    // the invariant structurally). Guards the containing-block regression.
-    const cell = overlay!.closest('td')!;
-    expect(cell.className).not.toContain('relative');
-    expect(overlay!.parentElement?.closest('.relative')?.tagName).toBe('TR');
+    const link = el.querySelector<HTMLAnchorElement>('a[href="/products/procore-platform"]');
+    expect(link).not.toBeNull();
+    // Named for assistive tech; it is the row's one link to the product page.
+    expect(link?.getAttribute('aria-label')).toContain('Procore Platform');
+    const cells = el.querySelectorAll('td');
+    expect(link!.closest('td')).toBe(cells[cells.length - 1]);
   });
 
-  it('links the primary category chip to its category page, lifted above the row overlay', () => {
+  // Safari < 27 computes `position: relative` on a <tr> as `static`, so a
+  // stretched `absolute inset-0` link anchored to the row covered the whole
+  // viewport instead. jsdom cannot measure layout, so guard the structure.
+  it('does not anchor a stretched overlay link to the <tr> (Safari < 27 regression)', () => {
+    const { el } = setup();
+    expect(el.querySelector('tr')!.className).not.toContain('relative');
+    for (const a of Array.from(el.querySelectorAll('a'))) {
+      expect(a.className).not.toMatch(/\babsolute\b|\binset-0\b/);
+    }
+  });
+
+  it('forwards a click anywhere else on the row to the product link', () => {
+    const { el } = setup();
+    const router = TestBed.inject(Router);
+    const navigate = vi.spyOn(router, 'navigateByUrl').mockResolvedValue(true);
+    el.querySelectorAll('td')[0]!.click();
+    expect(navigate).toHaveBeenCalledTimes(1);
+    expect(String(navigate.mock.calls[0]![0])).toBe('/products/procore-platform');
+  });
+
+  it('links the primary category chip to its category page, and that click wins', () => {
     const { el } = setup();
     const link = el.querySelector<HTMLAnchorElement>('a[href="/categories/project-management"]');
     expect(link).not.toBeNull();
     expect(link?.textContent).toContain('Project Management');
-    // The chip is lifted (relative z-10) so its own click wins over the overlay.
-    const overlay = el.querySelector<HTMLAnchorElement>('a[href="/products/procore-platform"]')!;
-    expect(overlay.contains(link!)).toBe(false);
-    expect(link!.contains(overlay)).toBe(false);
+    const row = el.querySelector<HTMLAnchorElement>('a[href="/products/procore-platform"]')!;
+    expect(row.contains(link!)).toBe(false);
+    expect(link!.contains(row)).toBe(false);
+    const router = TestBed.inject(Router);
+    const navigate = vi.spyOn(router, 'navigateByUrl').mockResolvedValue(true);
+    link!.click();
+    expect(navigate).toHaveBeenCalledTimes(1);
+    expect(String(navigate.mock.calls[0]![0])).toBe('/categories/project-management');
   });
 
   it('renders an en-dash placeholder when the product has no primary category', () => {

@@ -44,9 +44,10 @@ type SocialKey = 'linkedin' | 'x' | 'youtube' | 'facebook' | 'instagram';
  * `@defer (on viewport; hydrate on viewport)` block inside the same `<tbody>`.
  * Under v22 incremental hydration the deferred rows are SSR-rendered (crawlable,
  * no hydration layout shift); the `on viewport` trigger still defers the block
- * on client-side navigations. Each row's whole surface links to `/products/:slug`
- * via a stretched-link overlay, with the category chip linked separately on top.
- * See AECI-130.
+ * on client-side navigations. Each row's whole surface links to `/products/:slug`:
+ * the trailing arrow is the real link and a click elsewhere on the row is
+ * forwarded to it (`VendorProductRow`), with the category chip linked
+ * separately. See AECI-130.
  *
  * Cache discipline: tags are written by the SSR runtime (the path matcher
  * emits `route:detail` + `vendor:{slug}`; the resolver pushes
