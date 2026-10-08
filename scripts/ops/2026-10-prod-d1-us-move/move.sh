@@ -8,7 +8,8 @@
 #   move.sh export     read the live aeci-app-production, prepare an importable dump, prove it locally
 #   move.sh import     reset aeci-app-production-us to empty, import the dump, compare row counts to the dump
 #   move.sh verify     old vs new: every table's row count, d1_migrations, sqlite_sequence, schema, FK check
-#   move.sh verify --strict   the same, but any old-vs-new row-count difference fails (writes must be frozen)
+#   move.sh verify --strict   the same, but any old-vs-new row-count difference fails (writes must be frozen),
+#                             except old-side growth in page_views and user_activity_daily, which is reported only
 #   move.sh latency    time a representative read against both databases from this machine
 #   move.sh region     today's D1 analytics (servedByRegion, queries) for both databases
 #   move.sh pause-crons    CUTOVER ONLY: save, then empty, the cron schedules of aeci-api-production
@@ -313,5 +314,5 @@ case "${1:-}" in
   resume-crons) resume_crons ;;
   checklist) checklist ;;
   ids) check_ids ;;
-  *) sed -n '2,28p' "$0"; exit 1 ;;
+  *) sed -n '2,29p' "$0"; exit 1 ;;
 esac
