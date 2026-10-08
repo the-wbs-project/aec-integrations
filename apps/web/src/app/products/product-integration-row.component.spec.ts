@@ -1,7 +1,7 @@
 import { Component, signal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
-import { provideRouter } from '@angular/router';
-import { describe, expect, it } from 'vitest';
+import { Router, provideRouter } from '@angular/router';
+import { describe, expect, it, vi } from 'vitest';
 
 import type { ProductIntegrationItem, ProductLink } from '@aeci/shared';
 
@@ -73,36 +73,73 @@ describe('ProductIntegrationRow', () => {
     expect(link?.textContent).toContain('Autodesk BIM 360');
   });
 
-  it('makes the whole row a stretched link to the product-PAIR page (context = this product)', () => {
+  it('renders the product-PAIR page link (context = this product) in the trailing cell', () => {
     const { el } = setup();
-    const overlay = el.querySelector<HTMLAnchorElement>(
+    const pair = el.querySelector<HTMLAnchorElement>(
       'a[href="/products/procore/integrations/autodesk-bim-360"]',
     );
-    expect(overlay).not.toBeNull();
-    // Named for assistive tech, and covering the whole row.
-    expect(overlay?.getAttribute('aria-label')).toContain('Autodesk BIM 360');
-    expect(overlay?.className).toContain('absolute');
-    expect(overlay?.className).toContain('inset-0');
-    // The overlay is `absolute inset-0`, so its containing block is the nearest
-    // positioned ancestor. That must be the `relative` <tr> host — a `relative`
-    // <td> in between would intercept `inset-0` and shrink the click target to
-    // one cell instead of the whole row (jsdom can't measure layout, so assert
-    // the invariant structurally). Guards the containing-block regression.
-    const cell = overlay!.closest('td')!;
-    expect(cell.className).not.toContain('relative');
-    expect(overlay!.parentElement?.closest('.relative')?.tagName).toBe('TR');
+    expect(pair).not.toBeNull();
+    // Named for assistive tech; it is the row's one link to the pair page.
+    expect(pair?.getAttribute('aria-label')).toContain('Autodesk BIM 360');
+    const cells = el.querySelectorAll('td');
+    expect(pair!.closest('td')).toBe(cells[cells.length - 1]);
   });
 
-  it('does not nest the two links (partner link is a sibling, not inside the pair overlay)', () => {
+  // Safari < 27 computes `position: relative` on a <tr> as `static`, so a
+  // stretched `absolute inset-0` link anchored to the row covered the whole
+  // viewport instead (every row's overlay stacked over the page). jsdom cannot
+  // measure layout, so guard the structure: no positioned row, no overlay link.
+  it('does not anchor a stretched overlay link to the <tr> (Safari < 27 regression)', () => {
     const { el } = setup();
-    const overlay = el.querySelector<HTMLAnchorElement>(
+    const row = el.querySelector('tr')!;
+    expect(row.className).not.toContain('relative');
+    for (const a of Array.from(el.querySelectorAll('a'))) {
+      expect(a.className).not.toMatch(/\babsolute\b|\binset-0\b/);
+    }
+  });
+
+  it('forwards a click anywhere else on the row to the pair-page link', () => {
+    const { el } = setup();
+    const router = TestBed.inject(Router);
+    const navigate = vi.spyOn(router, 'navigateByUrl').mockResolvedValue(true);
+    el.querySelectorAll('td')[1]!.click();
+    expect(navigate).toHaveBeenCalledTimes(1);
+    expect(String(navigate.mock.calls[0]![0])).toBe(
+      '/products/procore/integrations/autodesk-bim-360',
+    );
+  });
+
+  it('lets the partner link keep its own destination', () => {
+    const { el } = setup();
+    const router = TestBed.inject(Router);
+    const navigate = vi.spyOn(router, 'navigateByUrl').mockResolvedValue(true);
+    el.querySelector<HTMLAnchorElement>('a[href="/products/autodesk-bim-360"]')!.click();
+    expect(navigate).toHaveBeenCalledTimes(1);
+    expect(String(navigate.mock.calls[0]![0])).toBe('/products/autodesk-bim-360');
+  });
+
+  it('opens the pair page in a new tab on a Cmd/Ctrl click elsewhere on the row', () => {
+    const { el } = setup();
+    const open = vi.spyOn(window, 'open').mockReturnValue(null);
+    el.querySelectorAll('td')[1]!.dispatchEvent(
+      new MouseEvent('click', { bubbles: true, cancelable: true, metaKey: true }),
+    );
+    expect(open).toHaveBeenCalledTimes(1);
+    expect(String(open.mock.calls[0]![0])).toContain(
+      '/products/procore/integrations/autodesk-bim-360',
+    );
+    open.mockRestore();
+  });
+
+  it('does not nest the two links (partner link is a sibling, not inside the pair link)', () => {
+    const { el } = setup();
+    const pair = el.querySelector<HTMLAnchorElement>(
       'a[href="/products/procore/integrations/autodesk-bim-360"]',
     )!;
     const partner = el.querySelector<HTMLAnchorElement>('a[href="/products/autodesk-bim-360"]')!;
-    expect(overlay.contains(partner)).toBe(false);
-    expect(partner.contains(overlay)).toBe(false);
-    // The overlay itself carries no descendant anchors.
-    expect(overlay.querySelector('a')).toBeNull();
+    expect(pair.contains(partner)).toBe(false);
+    expect(partner.contains(pair)).toBe(false);
+    expect(pair.querySelector('a')).toBeNull();
   });
 
   // AECI-853 folded Direction out of its own leading cell and into the meta line
@@ -153,7 +190,7 @@ describe('ProductIntegrationRow', () => {
 
     const chevron = nav.querySelector('svg')!;
     expect(chevron).toBeTruthy();
-    // Lucide `chevron-right`; aria-hidden because the stretched overlay link
+    // Lucide `chevron-right`; aria-hidden because the enclosing pair link
     // already carries the accessible name for this row's destination.
     expect(chevron.querySelector('path')?.getAttribute('d')).toBe('m9 18 6-6-6-6');
     expect(chevron.getAttribute('aria-hidden')).toBe('true');
