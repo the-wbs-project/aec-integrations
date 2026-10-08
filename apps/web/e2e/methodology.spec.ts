@@ -6,7 +6,8 @@
  * (`s-maxage=86400`, `Cache-Tag: route:index`), the self-referential canonical,
  * the absence of a noindex robots meta, the SSR-rendered body (the Markdown is
  * inlined at build time, so it must be in the first paint with no client JS), the
- * sitemap entry, the footer link in, and a clean axe pass.
+ * sitemap entry, the footer link in, the links down into /docs (AECI-1252), the
+ * footer Help column resolving, and a clean axe pass.
  */
 import AxeBuilder from '@axe-core/playwright';
 import { expect, test } from '@playwright/test';
@@ -76,6 +77,36 @@ test.describe('/methodology — AECI-804', () => {
     await expect(page.getByRole('heading', { level: 1 })).toContainText(
       'How we research and verify listings',
     );
+  });
+
+  test('links down to /docs pages that resolve (AECI-1252)', async ({ request }) => {
+    const html = await (await request.get('/methodology')).text();
+    for (const href of [
+      '/docs/getting-started/taxonomy',
+      '/docs/trust/agreement-states',
+      '/docs/trust/the-account-label',
+      '/docs/trust/how-ranking-works',
+    ]) {
+      expect(html, `methodology links ${href}`).toContain(`href="${href}"`);
+      const res = await request.get(href, { maxRedirects: 0 });
+      expect(res.status(), href).toBe(200);
+    }
+  });
+
+  test('footer Help links resolve to /docs pages (AECI-1252)', async ({ page, request }) => {
+    await page.goto('/methodology');
+    await expect(page.locator('app-root')).toBeAttached();
+
+    const help = page.getByRole('navigation', { name: 'Help' });
+    const hrefs = await help
+      .getByRole('link')
+      .evaluateAll((links) => links.map((a) => a.getAttribute('href')));
+    expect(hrefs).toEqual(['/docs', '/docs/getting-started', '/docs/trust/how-ranking-works']);
+
+    for (const href of hrefs) {
+      const res = await request.get(href!, { maxRedirects: 0 });
+      expect(res.status(), href!).toBe(200);
+    }
   });
 
   test('has zero axe violations at WCAG AA', async ({ page }) => {

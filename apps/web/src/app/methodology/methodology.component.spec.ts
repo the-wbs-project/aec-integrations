@@ -235,6 +235,18 @@ describe('MethodologyPage', () => {
     expect(hrefs).toContain('/legal/review-guidelines');
   });
 
+  it('links down to the /docs pages that show each rule in practice (AECI-1252)', () => {
+    // STAGE_2_5_SPEC.md §7.1–§7.2: /methodology states the rule and stays the
+    // citable statement; /docs/trust/* and /docs/getting-started/* are the
+    // task-level depth it points down to.
+    const { host } = setup();
+    const hrefs = Array.from(host.querySelectorAll('a')).map((a) => a.getAttribute('href'));
+    expect(hrefs).toContain('/docs/getting-started/taxonomy');
+    expect(hrefs).toContain('/docs/trust/agreement-states');
+    expect(hrefs).toContain('/docs/trust/the-account-label');
+    expect(hrefs).toContain('/docs/trust/how-ranking-works');
+  });
+
   it('sets an indexable static-page title (no noindex robots tag)', () => {
     const { title } = setup();
     expect(title.getTitle()).toBe('How we research and verify listings · AEC Integrations');

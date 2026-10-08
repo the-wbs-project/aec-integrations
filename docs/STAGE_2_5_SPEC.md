@@ -116,8 +116,8 @@ Built as **build-time-inlined Markdown**, generalizing the AECI-237 legal patter
 Three planned surfaces overlap, and without a rule they duplicate:
 
 - **`/methodology` is the single-page, citable editorial statement.** Top-level URL, indexable, in the sitemap. It answers "how does this directory work and why should I trust it" in one read. It is the canonical short answer.
-- **The ranking-method page (§2 step 3)** carries the plain-language ranking parameters and their relative importance. It lives at `/docs/trust/how-ranking-works` (AECI-1249), so it is one of the `/docs/trust/*` pages below. `/methodology` states only the rule and links here once it exists; that link is AECI-1252.
-- **AECI-634's `/docs/trust/*`** (`STAGE_2_PRODUCT_DOCS_SPEC.md` §5: `how-ranking-works`, `the-account-label`, `agreement-states`) carries task-level depth for vendors and readers. It links up to `/methodology` and does not absorb it. Rule of thumb: `/methodology` is what we assert, `/docs/trust/*` is how to act on it.
+- **The ranking-method page (§2 step 3)** carries the plain-language ranking parameters and their relative importance. It lives at `/docs/trust/how-ranking-works` (AECI-1249), so it is one of the `/docs/trust/*` pages below. `/methodology` states only the rule and links down here (AECI-1252).
+- **AECI-634's `/docs/trust/*`** (`STAGE_2_PRODUCT_DOCS_SPEC.md` §5: `how-ranking-works`, `the-account-label`, `agreement-states`) carries task-level depth for vendors and readers. It links up to `/methodology` and does not absorb it. `/methodology` links down to the matching page wherever it states the rule, one short pointer each with no restated content (AECI-1252: classification, agreement states, the account label, ranking). Rule of thumb: `/methodology` is what we assert, `/docs/trust/*` is how to act on it.
 
 ## 8. Exit criteria
 

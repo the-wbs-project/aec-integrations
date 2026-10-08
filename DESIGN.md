@@ -973,23 +973,26 @@ by `site-footer.component.spec.ts`, because a link quietly dropping out is a
 regression rather than a tidy-up.
 
 **Anchor:** Stripe — a brand region (wordmark + one-line tagline) beside a nav
-group of three labelled `<nav>` columns, over a bottom strip carrying copyright,
+group of four labelled `<nav>` columns, over a bottom strip carrying copyright,
 separated by a `border-default` hairline. The nav group is its own responsive
-grid (2 columns on mobile, 3 from `sm`) so the columns stay balanced instead of
-the brand eating a quarter-column and leaving a dead zone at tablet widths. From
-`lg` the brand sits left, the nav group right.
+grid (2 columns below `md`, 4 from `md`) so the columns stay balanced: a 2×2
+block on phones and small tablets, one row from `md`. Three columns at `sm`
+would orphan the fourth on a row of its own. From `lg` the brand sits left, the
+nav group right. The nav group does not shrink (`shrink-0`), so at 1024px the
+brand's tagline gives up width instead of a link label wrapping.
 
-**The three columns, and why each holds what it does:**
+**The four columns, and why each holds what it does:**
 
 | Column | Holds | Why |
 |---|---|---|
 | **Directory** | Home, Products, Categories, Audiences, Trades, Phases | The primary surfaces, in **server-rendered HTML**. The header's facet values render client-side and its mobile overlay never reaches SSR, so this is where a crawler meets the taxonomy. |
+| **Help** | Help center, Getting started, How ranking works | The footer-only entry into `/docs` (AECI-1252, `docs/STAGE_2_PRODUCT_DOCS_SPEC.md` §7 question 3). The header row is closed, so the help center comes here. "For vendors" joins with AECI-1253, once `/docs/vendors` is indexable. |
 | **Legal** | Terms, Privacy, Review guidelines, Listing accuracy | Trust-first positioning means the legal set is one click from every page, not buried. |
 | **Company** | About, Methodology, Contact, Updates, Roadmap | Who we are and where we are going. Methodology sits next to About because it is the same kind of destination — how the directory works (AECI-804). Methodology, Updates and Roadmap are all footer-only; the header links none of them, so this is their sole site-wide entry. |
 
 **Rules.**
 
-- **Every column is a `<nav>` with an `aria-label`.** Three unlabelled navs in one
+- **Every column is a `<nav>` with an `aria-label`.** Four unlabelled navs in one
   landmark are indistinguishable in a screen reader's landmark list.
 - **The footer is visitor-neutral, absolutely.** It sits inside URL-keyed cached
   HTML and holds no session state — no portal door, no account link, no badge.
@@ -1006,9 +1009,11 @@ the brand eating a quarter-column and leaving a dead zone at tablet widths. From
   `<ng-container i18n>` wrap so the extracted source string stays byte-identical —
   an identical source under a shared id is one translation unit; a differing one
   is a collision.
-- **Adding a column** is a re-measure at `sm`, where three become two. Prefer
-  growing an existing column: four to six items read fine, and the Company column
-  absorbed three without a layout change.
+- **Adding a column** is a re-measure at every breakpoint. Prefer growing an
+  existing column: four to six items read fine, and the Company column absorbed
+  three without a layout change. The Help column (AECI-1252) was the exception,
+  because the help center is a destination of its own kind. It moved the grid
+  from 2→3 to 2→4, measured at 375, 768, 1024 and 1280px.
 
 ### Layout shells
 
