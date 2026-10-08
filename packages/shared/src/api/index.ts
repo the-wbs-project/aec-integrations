@@ -7,6 +7,7 @@ export * from './admin-connectors';
 export * from './admin-email';
 export * from './admin-entitlements';
 export * from './admin-panel';
+export * from './admin-plan-pricing';
 export * from './admin-reason';
 export * from './admin-reindex';
 export * from './admin-requests';

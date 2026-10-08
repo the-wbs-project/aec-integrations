@@ -11,6 +11,7 @@ import {
   paginatedResponseSchema,
   type SortOrder,
 } from './common';
+import { VendorPlanPricingResponseSchema } from './admin-plan-pricing';
 import { AdminOverrideReasonSchema } from './admin-reason';
 import { IntegrationRetiredBySchema } from './integration-retire';
 import { ProductRoleSchema } from './products';
@@ -22,7 +23,7 @@ import { VendorSeatInviteSchema, VendorSeatSchema } from './vendor';
  * `requireAdmin()`:
  *
  *   GET    /api/admin/vendors                    — paginated list + name/slug search
- *   GET    /api/admin/vendors/:id                — basics, entitlement, seats, counts
+ *   GET    /api/admin/vendors/:id                — basics, entitlement, plan price, seats, counts
  *   GET    /api/admin/vendors/:id/products       — the vendor's product roster
  *   GET    /api/admin/vendors/:id/audit          — the `audit_log` viewer
  *   DELETE /api/admin/vendors/:id/seats/:userId  — revoke one seat; body `{ reason }` (AECI-1191)
@@ -304,6 +305,9 @@ export const AdminVendorDetailSchema = z.object({
 
   /** `null` = no entitlement on record (never granted, or cleared). */
   entitlement: VendorEntitlementResponseSchema.nullable(),
+  /** The plan price overrides (ruling 2026-10-08, §13.13). All-null fields = the
+   *  default list price; never absent. Written by `PUT …/plan-pricing`. */
+  plan_pricing: VendorPlanPricingResponseSchema,
 
   seats: AdminVendorSeatRowSchema.array().nullable(),
   /** Whether the GoTrue email lookup succeeded at all (AECI-652 / the

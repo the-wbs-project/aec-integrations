@@ -28,6 +28,7 @@ import type {
   AdminVendorProductRow,
   AdminVendorSeatRow,
   VendorEntitlementResponse,
+  VendorPlanPricingResponse,
 } from '@aeci/shared';
 import { ADMIN_REASON_MAX } from '@aeci/shared';
 
@@ -37,6 +38,7 @@ import { AdminBreadcrumbStore } from '../admin-breadcrumb.store';
 import { ADMIN_DETAIL_FALLBACK_LABELS } from '../admin-nav';
 import { AuditTrail } from '../audit/audit-trail';
 import { EntitlementControl } from '../entitlement/entitlement-control';
+import { PlanPricingControl } from '../entitlement/plan-pricing-control';
 import { AdminVendorsApi } from './admin-vendors-api';
 import { ProvisionSeatControl } from './provision-seat-control';
 import { VendorIntegrationsPanel } from './vendor-integrations-panel';
@@ -123,6 +125,7 @@ export type AdminVendorTab = 'vendor' | 'products' | 'integrations' | 'audit';
     RouterLink,
     AuditTrail,
     EntitlementControl,
+    PlanPricingControl,
     ProvisionSeatControl,
     VendorProductsTable,
     VendorIntegrationsPanel,
@@ -337,6 +340,13 @@ export class VendorDetail {
     this.vendor.update((v) => (v ? { ...v, entitlement, verified: entitlement.verified } : v));
     // The audit trail just gained a row. Reload it rather than leaving a page
     // that visibly disagrees with the action the operator just took.
+    void this.loadAudit();
+  }
+
+  /** The plan price control returns the committed overrides (§13.13). Display
+   *  only, so nothing else on the page moves. */
+  protected onPlanPricingChanged(planPricing: VendorPlanPricingResponse): void {
+    this.vendor.update((v) => (v ? { ...v, plan_pricing: planPricing } : v));
     void this.loadAudit();
   }
 

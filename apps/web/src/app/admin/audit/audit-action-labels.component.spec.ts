@@ -94,6 +94,8 @@ const EMITTED_ACTIONS = [
   'notification.sent',
   'retention.pruned',
   'indexnow.drained',
+  'vendor_plan_pricing.set',
+  'vendor_plan_pricing.cleared',
 ] as const;
 
 describe('describeAuditAction', () => {

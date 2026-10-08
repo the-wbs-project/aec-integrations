@@ -1475,6 +1475,40 @@ export const vendorEntitlements = sqliteTable(
 );
 
 /**
+ * Per-vendor plan price overrides (ruling 2026-10-08, `STAGE_2_PAID_TIERS_SPEC.md`
+ * §13.13). DISPLAY ONLY: what the vendor portal's plan panel says Managed costs.
+ * Nothing bills from it, and no entitlement, capability or ranking reads it.
+ *
+ * Its own table, on purpose. Not columns on `vendors`, because promote owns that
+ * row. Not columns on `vendor_entitlements`, because a Free vendor with no
+ * entitlement row must still be able to carry an override, and clearing an
+ * entitlement must not wipe it.
+ *
+ * One row per vendor. No row means the default list price
+ * (`MANAGED_LIST_PRICE_CENTS`). The admin route deletes the row when both fields
+ * are cleared, so a row always carries at least one override. `price_message`
+ * beats `managed_price_cents` when both are set.
+ *
+ * `updated_by` has no FK, like `notification_settings.updated_by`: an admin's id
+ * stays on the record and a `profiles` recreate cannot cascade into it.
+ * No CHECK on either value: a CHECK change forces a D1 table recreate
+ * (`docs/migrations.md` §0). `SetVendorPlanPricingSchema` owns the bounds.
+ */
+export const vendorPlanPricing = sqliteTable('vendor_plan_pricing', {
+  vendorId: text('vendor_id')
+    .primaryKey()
+    .references(() => vendors.id, { onDelete: 'cascade' }),
+  /** Managed's monthly per-product price, in US cents. Null = the default. */
+  managedPriceCents: integer('managed_price_cents'),
+  /** Free text that replaces the whole price sentence. Null = none. */
+  priceMessage: text('price_message'),
+  /** The admin's `profiles.id`. Never shown to the vendor. */
+  updatedBy: text('updated_by'),
+  createdAt: createdAt(),
+  updatedAt: updatedAt(),
+});
+
+/**
  * Vendor seat invites — the self-serve half of the §6 seat roster (AECI-664 /
  * `STAGE_2_VENDOR_PORTAL_SPEC.md` §11a). A row is an INTENT, never an account:
  * this table is why the vendor portal can add a colleague without the vendor ever

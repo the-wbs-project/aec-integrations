@@ -136,6 +136,9 @@ const ACTION_LABELS: Readonly<Record<string, string>> = {
   'vendor_entitlement.cleared': $localize`:@@admin.audit.action.entitlementCleared:Entitlement cleared`,
   'vendor_entitlement.granted': $localize`:@@admin.audit.action.entitlementGranted:Entitlement granted with a claim approval`,
   'vendor_entitlement.expiry_warned': $localize`:@@admin.audit.action.entitlementExpiryWarned:Entitlement expiry warning sent`,
+  // The display-only plan price overrides (§13.13). `entity_id` is the vendor id.
+  'vendor_plan_pricing.set': $localize`:@@admin.audit.action.planPricingSet:Plan price override set`,
+  'vendor_plan_pricing.cleared': $localize`:@@admin.audit.action.planPricingCleared:Plan price reset to default`,
 
   // ── Moderation. Role-aware since AECI-524: the same endpoint writes
   //    `reviewer.*` or `vendor_admin.*` depending on the target's role. ──────
