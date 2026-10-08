@@ -8,7 +8,8 @@
 #   move.sh export     read the live aeci-app-production, prepare an importable dump, prove it locally
 #   move.sh import     reset aeci-app-production-us to empty, import the dump, compare row counts to the dump
 #   move.sh verify     old vs new: every table's row count, d1_migrations, sqlite_sequence, schema, FK check
-#   move.sh verify --strict   the same, but any old-vs-new row-count difference fails (writes must be frozen)
+#   move.sh verify --strict   the same, but any old-vs-new row-count difference fails (writes must be frozen),
+#                             except old-side growth in page_views and user_activity_daily, which is reported only
 #   move.sh latency    time a representative read against both databases from this machine
 #   move.sh region     today's D1 analytics (servedByRegion, queries) for both databases
 #   move.sh pause-crons    CUTOVER ONLY: save, then empty, the cron schedules of aeci-api-production
@@ -180,10 +181,21 @@ do_verify() {
     let fail=0;
     const dump=Object.fromEntries(fs.readFileSync(process.env.COUNTS,"utf8").trim().split("\n").map(l=>l.split(" ")));
     const oc=rd("old.counts.json")[0], nc=rd("new.counts.json")[0];
-    let newVsDump=0, drift=[];
+    // Visitor log tables keep taking writes during a freeze (anonymous page views). Losing the
+    // rows written between export and deploy is accepted (README "Writes lost"), so strict mode
+    // reports old-side growth in these tables without failing on it.
+    const VISITOR=new Set(["page_views","user_activity_daily"]);
+    let newVsDump=0, drift=[], visitorDrift=[];
     for (const t of Object.keys(dump).sort()) {
       if (String(nc[t])!==dump[t]) { newVsDump++; console.log(`NEW != DUMP  ${t}: dump ${dump[t]}, new ${nc[t]}`); }
-      if (oc[t]!==nc[t]) drift.push(`${t}: old ${oc[t]}, new ${nc[t]} (${oc[t]-nc[t]>0?"+":""}${oc[t]-nc[t]} on old)`);
+      if (oc[t]!==nc[t]) {
+        const line=`${t}: old ${oc[t]}, new ${nc[t]} (${oc[t]-nc[t]>0?"+":""}${oc[t]-nc[t]} on old)`;
+        (VISITOR.has(t) && oc[t]>nc[t] ? visitorDrift : drift).push(line);
+      }
+    }
+    if (visitorDrift.length) {
+      console.log(`info ${visitorDrift.length} visitor log tables grew on old since the export (accepted loss):`);
+      for (const d of visitorDrift) console.log(`       ${d}`);
     }
     console.log(newVsDump ? `FAIL ${newVsDump} tables differ from the dump` : `ok   all ${Object.keys(dump).length} tables match the dump`);
     fail+=newVsDump;
@@ -201,6 +213,7 @@ do_verify() {
     // sqlite_sequence moves with every insert on the old side; compare strictly only when frozen.
     { const a=rd("old.sequence.json")[0].s, b=rd("new.sequence.json")[0].s;
       if (a===b) console.log("ok   sqlite_sequence identical");
+      else if (strict && drift.length===0) console.log("info sqlite_sequence differs, and only visitor log tables drifted (accepted)");
       else { console.log(`${strict?"FAIL":"info"} sqlite_sequence differs (expected while old takes writes)`); if (strict) fail++; } }
     const fk=rd("new.fkcheck.json");
     console.log(fk.length ? `FAIL foreign_key_check: ${fk.length} violations` : "ok   PRAGMA foreign_key_check is clean on new");
@@ -242,11 +255,11 @@ pause_crons() {
   # `wrangler deploy --env production` (the promote) writes them back.
   curl -sf -H "Authorization: Bearer $tok" "$SCHEDULES_URL" |
     node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>console.log(JSON.stringify(JSON.parse(s).result.schedules.map(x=>({cron:x.cron})))))' > "$SAVED_SCHEDULES.tmp"
-  [ "$(node -e 'console.log(require(process.argv[1]).length)' "$SAVED_SCHEDULES.tmp")" -gt 0 ] ||
+  [ "$(node -e 'console.log(JSON.parse(require("fs").readFileSync(process.argv[1],"utf8")).length)' "$SAVED_SCHEDULES.tmp")" -gt 0 ] ||
     { echo "aeci-api-production already has no schedules; keeping the earlier saved copy" >&2; rm -f "$SAVED_SCHEDULES.tmp"; exit 1; }
   mv "$SAVED_SCHEDULES.tmp" "$SAVED_SCHEDULES"
   curl -sf -X PUT -H "Authorization: Bearer $tok" -H 'Content-Type: application/json' --data '[]' "$SCHEDULES_URL" >/dev/null
-  echo "saved $(node -e 'console.log(require(process.argv[1]).length)' "$SAVED_SCHEDULES") schedules to $SAVED_SCHEDULES; aeci-api-production now has none"
+  echo "saved $(node -e 'console.log(JSON.parse(require("fs").readFileSync(process.argv[1],"utf8")).length)' "$SAVED_SCHEDULES") schedules to $SAVED_SCHEDULES; aeci-api-production now has none"
 }
 
 resume_crons() {
@@ -301,5 +314,5 @@ case "${1:-}" in
   resume-crons) resume_crons ;;
   checklist) checklist ;;
   ids) check_ids ;;
-  *) sed -n '2,28p' "$0"; exit 1 ;;
+  *) sed -n '2,29p' "$0"; exit 1 ;;
 esac

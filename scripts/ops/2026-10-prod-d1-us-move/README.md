@@ -40,7 +40,7 @@ Tested 2026-10-05: a scratch config with the old name and the new id ran `d1 exe
 | `export` | read old | `d1 export`, then the three prep scripts from `scripts/ops/2026-09-wbs-account-move/`. Proves the prepared file loads under strict foreign keys and matches the raw export. Writes the expected row counts |
 | `import` | write new | Restores the new database to its empty bookmark if it has tables, imports, compares every table's count to the dump |
 | `verify` | read both | Row count of every table old vs new. `d1_migrations` contents, schema text and `sqlite_sequence` old vs new. `PRAGMA foreign_key_check` on new |
-| `verify --strict` | read both | The same, but any old-vs-new difference fails. Use it only while writes are frozen |
+| `verify --strict` | read both | The same, but any old-vs-new difference fails. Use it only while writes are frozen. Two visitor log tables, `page_views` and `user_activity_daily`, are exempt. Growth on the old side there is printed as accepted loss and does not fail. A `sqlite_sequence` difference is also accepted when only those two tables drifted |
 | `latency` | read both | Times one read through the D1 REST API from this machine |
 | `region` | read | Today's D1 analytics per database: `servedByRegion`, reads, writes |
 | `pause-crons` | prod Worker | Saves, then empties, the cron schedules of `aeci-api-production`. Cutover only |
@@ -138,7 +138,7 @@ Everything written to the old database after the export starts and before produc
 | Sign-in profile ensure | Cannot be stopped | Self-heals on the next `GET /api/account` |
 | Vendor portal | Dark: 0 entitlements, 0 vendor profiles in the dump | |
 
-`verify --strict` shows any of these as a row-count difference.
+`verify --strict` shows any of these as a row-count difference. It fails on all of them except the visitor rows, which it lists as accepted loss.
 
 ### Order
 
