@@ -2120,6 +2120,7 @@ The anchor supplies structure only. Tokens, type and colour stay AECi's: light o
 | 2026-09-28 | Release stage stays free text. | AECI-1146, §6.17.3 |
 | 2026-09-28 | A private conversation between the two companies goes to Stage 2.5. The page marks where a reply would go with "Replies coming soon". | AECI-1145, §6.17.6 |
 | 2026-09-28 | "NOBODY says provenance." The public labels change, and the maintenance chip uses exactly two labels, "AEC Integrations maintained" and "Vendor maintained". The pair card gains an "At a glance" row: price, release stage, how you get it, last checked. | AECI-1142, §6.17.8 |
+| 2026-10-08 | Option A: a corrected row folds into a "You submitted a change" box under the denied row, with Change and Cancel. Answered rows need a Change step, with no confirm dialog. Deleting an added row on Cancel waits for Stage 3. | AECI-1246, AECI-1245, §6.17.4 |
 
 **Scope of v1.** The page covers every entry of `integrations[]` on `GET /api/vendor/integrations` (§4.5, `STAGE_2_ATTESTATIONS_SPEC.md` §5.1): the rows where the caller holds an endpoint. Two surfaces stay as they are: the owned-rows section of §6.15, which lists rows the caller owns but holds no endpoint of, and the read-only Connectors section of §6.13. Neither is part of the inline panel, and both keep their own components.
 
@@ -2262,6 +2263,8 @@ One row per claim, in the API's order (the `data_object` vocabulary's `display_o
 | No | Opens the reason form (below). The answer changes only on Save. Pessimistic. |
 | The pressed button again | Clears the answer: `DELETE …/attestation`. |
 
+**An answered row needs a Change step (AECI-1246, ruled 2026-10-08).** The one-click toggles above apply only to a row with no answer from the caller (`mine = []`). Once the caller has answered, the row shows the answer as plain text ("Yes" or "No" with its icon) and a **Change** link. Change shows the two toggles for that row only, and the table above applies again. Saving an answer, or pressing Escape, puts the row back to plain text and returns focus to the Change link. Clearing goes through Change too: press Change, then the pressed button. There is no confirm dialog. The reason: a stray click on a filled toggle changed an answer the vendor meant to keep, and once answered a row rarely changes.
+
 **The reason form** (under the row, in a full-width cell):
 
 - **"What's wrong?"**, three radio buttons: "This data isn't shared at all", "The direction is wrong", "Something else". **For v1 the choice is folded into the note** (ruled 2026-09-28): the attestation model holds a stance and a note only, and nothing structured is stored. The choice decides the flow. The stored note is the vendor's reason text, verbatim.
@@ -2271,6 +2274,17 @@ One row per claim, in the API's order (the `data_object` vocabulary's `display_o
 - Save and Cancel. Opening the form focuses the first radio (or the textarea for a Yes note). Closing returns focus to the row's pressed control.
 
 **"The direction is wrong" is two writes, shown as one outcome.** First `PUT …/attestation` with `asserted: false` and the reason on the old claim. Then `POST /api/vendor/claims` with the corrected direction, `context_product_id` and no note. In that order, because the No with its reason is the statement that matters if the second write fails. The announcement is one sentence after both land. If the second write fails, the page announces that the No was saved and the corrected row was not, and offers "Add the corrected row" as a retry. A `400` with `details.claim_id` (the corrected row already exists) is not an error: the page answers Yes on that claim instead, with a `PUT`.
+
+**A submitted change (AECI-1246, ruled 2026-10-08).** "The direction is wrong" leaves two rows for one decision: the denied row and its correction. The page folds them into one row and a box, so the table does not read as a duplicate.
+
+- **The link is inferred, not stored.** v1 stores no structured "what's wrong" (above), so nothing records which row corrects which. A row R has a submitted change C when the caller's answer on R is No, and exactly one other row C has the same `data_object_slug`, a different `direction`, the caller's Yes, and `added_by = 'you'`. Zero or two candidates means no box, and every row renders as a plain row. A vendor who says No on one row and adds Yes on another by hand has said the same thing, so the inference treats it the same.
+- **C is not rendered as its own row.** The box under R stands for it. The heading count "({N})" counts R and not C.
+- **The box.** A full-width cell under R, spanning all four columns. It has a sunken background and a left accent border, and no row divider between it and R, so it reads as attached to R and not as a data row. It reads, in order: "You submitted a change"; "{data}: {R's direction} becomes {C's direction}"; "Your reason: {R's note}"; then the other company's answer on C: "{Company} has not answered yet.", "{Company} agrees." or "{Company} disagrees." (with the row's disagreement flag). The other company's reason on C, when there is one, goes in a tooltip on that line. **Change** and **Cancel** links end the box. A caller holding both endpoints sees no answer line.
+- **R's cells.** The answer cell shows "No" as plain text with no Change link: the box's Change covers it. R's pill reads "Change submitted" in place of "You said this is wrong" (§6.17.8). Every other pill R can carry stays.
+- **Change** opens the reason form inside the box, with "The direction is wrong" chosen, C's direction selected and R's reason filled in. Saving with the same direction re-`PUT`s the No with the new reason. Saving a new direction withdraws the caller's Yes on C (`DELETE …/attestation`) and then runs the two writes above for the new direction. Picking another "What's wrong?" choice withdraws the Yes on C and saves the No alone.
+- **Cancel** withdraws the caller's Yes on C, then its No on R. The box goes and R returns to "Needs your answer". The announcement is one sentence after both land.
+- **Known gap until AECI-1245 (Stage 3).** No vendor route deletes a claim (`STAGE_2_ATTESTATIONS_SPEC.md` §5), so after Cancel or a direction change the old C stays on record and reappears as an unanswered row. AECI-1245 lets a vendor delete a row it added while no other company has answered it.
+- **Jumps.** A "Things that need you" item, a "Waiting on someone else" item or a disagreement flag that targets C focuses the box instead. The "You added {data}" item reads "You submitted a change to {data}. Waiting for {Company}" when its claim is a C.
 
 **Version stamps survive an answer.** A `PUT` replaces the whole position, and an omitted stamp lands as `null` (`STAGE_2_ATTESTATIONS_SPEC.md` §5.4). The page has no version pickers, so every `PUT` re-sends `introduced_version_id` and `deprecated_version_id` from the caller's own row for the context product's slot in `mine`. When a caller holding both endpoints carries different stamps on its two slots, the other slot's stamp is lost. That is accepted for v1: no stamps exist in production (§8.4 there).
 
@@ -2398,6 +2412,7 @@ The page never says attestation, claim, provenance, data object, contest, counte
 | Yes, none | Waiting for {Company} |
 | none, Yes; none, No; none, none | Needs your answer |
 | No, none | You said this is wrong |
+| No, none, and the row has a submitted change (§6.17.4) | Change submitted |
 | No, No | Both companies said this is wrong |
 | Yes (caller holds both endpoints) | Confirmed by you |
 | any, on a connector-powered row | Checked by AEC Integrations |
