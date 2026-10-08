@@ -1,0 +1,89 @@
+/**
+ * AECI-1248 — the docs shell: `/docs` home, a section index, an article, the
+ * prev/next pager, and the explicit route table's 404 for unknown paths.
+ *
+ * The manifest, components and noindex-by-path rules are pinned in the
+ * `src/app/docs/*.component.spec.ts` specs and `src/server.spec.ts`; this
+ * proves the real routes render, link together and stay accessible.
+ */
+import AxeBuilder from '@axe-core/playwright';
+import { expect, test } from '@playwright/test';
+
+import {
+  attachConsoleCapture,
+  expectConsoleClean,
+  waitForHydrationSettle,
+} from './console-capture';
+
+test.describe('/docs shell — AECI-1248', () => {
+  test('SSR-renders the home, a section and an article on the static-page cache', async ({
+    request,
+  }) => {
+    for (const path of ['/docs', '/docs/reviewers', '/docs/reviewers/requests-and-corrections']) {
+      const res = await request.get(path, { maxRedirects: 0 });
+      expect(res.status(), path).toBe(200);
+      expect(res.headers()['cache-tag'] ?? '', path).toContain('route:index');
+    }
+    const home = await (await request.get('/docs')).text();
+    expect(home).toContain('Help center');
+    expect(home).toContain('/docs/reviewers/requests-and-corrections');
+  });
+
+  test('keeps the vendor guide noindex, its bare section index included', async ({ request }) => {
+    for (const path of ['/docs/vendors', '/docs/vendors/your-seat']) {
+      const res = await request.get(path, { maxRedirects: 0 });
+      expect(res.status(), path).toBe(200);
+      expect(res.headers()['x-robots-tag'] ?? '', path).toContain('noindex');
+    }
+  });
+
+  test('an unknown docs path is a real 404', async ({ request }) => {
+    for (const path of ['/docs/nope', '/docs/vendors/nope', '/docs/trust']) {
+      const res = await request.get(path, { maxRedirects: 0 });
+      expect(res.status(), path).toBe(404);
+    }
+  });
+
+  test('walks home → section → article, then the pager and breadcrumb', async ({ page }) => {
+    await page.goto('/docs');
+    await expect(page.getByRole('heading', { level: 1 })).toHaveText('Help center');
+    await waitForHydrationSettle(page);
+
+    await page.locator('[data-section="vendors"] h3 a').click();
+    await expect(page).toHaveURL(/\/docs\/vendors$/);
+    await expect(page.getByRole('heading', { level: 1 })).toHaveText('Vendor guide');
+
+    await page.locator('main a[href="/docs/vendors/claiming-your-listing"]').first().click();
+    await expect(page).toHaveURL(/\/docs\/vendors\/claiming-your-listing$/);
+
+    const pager = page.getByRole('navigation', { name: 'Previous and next articles' });
+    await pager.getByRole('link', { name: /Next/ }).click();
+    await expect(page).toHaveURL(/\/docs\/vendors\/your-seat$/);
+    await expect(page.getByRole('heading', { level: 1 })).toHaveText('Your seat');
+
+    await pager.getByRole('link', { name: /Previous/ }).click();
+    await expect(page).toHaveURL(/\/docs\/vendors\/claiming-your-listing$/);
+
+    await page
+      .getByRole('navigation', { name: 'Breadcrumb' })
+      .getByRole('link', { name: 'Docs' })
+      .click();
+    await expect(page).toHaveURL(/\/docs$/);
+  });
+
+  for (const path of ['/docs', '/docs/reviewers', '/docs/vendors/your-seat']) {
+    test(`${path} has zero axe violations at WCAG AA and a clean console`, async ({ page }) => {
+      const capture = attachConsoleCapture(page);
+      const res = await page.goto(path);
+      expect(res?.status()).toBe(200);
+      await expect(page.locator('app-root')).toBeAttached();
+      await waitForHydrationSettle(page);
+
+      const results = await new AxeBuilder({ page })
+        .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa'])
+        .analyze();
+      expect(results.violations).toEqual([]);
+      expectConsoleClean(capture, `GET ${path}`);
+    });
+  }
+});

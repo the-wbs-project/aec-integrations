@@ -132,7 +132,10 @@ describe('cacheTagInputsForPath', () => {
     ['/methodology', { route: 'index' }],
     ['/legal', { route: 'index' }],
     ['/legal/privacy', { route: 'index' }],
-    // AECI-1104 — the /docs vendor guide: static content, route tag only.
+    // AECI-1104, AECI-1248 — the product docs: static content, route tag only,
+    // on the bare home, a section index and an article alike.
+    ['/docs', { route: 'index' }],
+    ['/docs/reviewers', { route: 'index' }],
     ['/docs/vendors/claiming-your-listing', { route: 'index' }],
     ['/products', { route: 'index', entity: { type: 'index', slug: 'products' } }],
     ['/products/procore', { route: 'detail', entity: { type: 'product', slug: 'procore' } }],
@@ -220,6 +223,8 @@ describe('cacheTagInputsForPath', () => {
       '/updates',
       '/roadmap',
       '/legal/terms',
+      '/docs',
+      '/docs/reviewers',
       '/docs/vendors/your-seat',
       '/products',
       '/products/procore',

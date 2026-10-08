@@ -118,6 +118,21 @@ async function paginate<T>(client: ServerApiClient, path: string): Promise<T[]> 
 }
 
 /**
+ * The indexable product-docs paths (AECI-1248): `/docs`, each non-empty section
+ * index and each page, minus anything `pathForcesNoindex` covers. Derived from
+ * the docs manifest (`src/app/docs/docs-content.ts`) by `indexableDocsPaths`.
+ *
+ * A dynamic `import()`, so the manifest, its inlined Markdown and `marked` sit
+ * in a lazy chunk that loads on the first `/sitemap.xml` request rather than at
+ * Worker startup. The manifest imports `.md` files, which only the Angular build
+ * can load, so plain-Vitest specs pass their own loader instead.
+ */
+export type DocsPathsLoader = () => Promise<readonly string[]>;
+
+const loadIndexableDocsPaths: DocsPathsLoader = async () =>
+  (await import('../app/docs/docs-content')).indexableDocsPaths();
+
+/**
  * Resolves the full set of sitemap entries: index pages, then every product,
  * vendor, integration, and taxonomy term. `baseUrl` is the absolute origin
  * (e.g. `https://aecintegrations.com`) the `<loc>` URLs are built against.
@@ -125,15 +140,17 @@ async function paginate<T>(client: ServerApiClient, path: string): Promise<T[]> 
 export async function resolveSitemapEntries(
   client: ServerApiClient,
   baseUrl: string,
+  loadDocsPaths: DocsPathsLoader = loadIndexableDocsPaths,
 ): Promise<SitemapEntry[]> {
   const base = baseUrl.replace(/\/+$/, '');
 
-  const [products, vendors, integrations, taxonomy, slugRedirects] = await Promise.all([
+  const [products, vendors, integrations, taxonomy, slugRedirects, docsPaths] = await Promise.all([
     paginate<ProductListItem>(client, '/api/products'),
     paginate<VendorListItem>(client, '/api/vendors'),
     paginate<IntegrationListItem>(client, '/api/integrations'),
     client.request<TaxonomyResponse>('/api/taxonomy'),
     client.request<SlugRedirectsListResponse>('/api/slug-redirects'),
+    loadDocsPaths(),
   ]);
 
   // AECI-978 — never advertise a URL that only redirects. A retired slug is usually
@@ -191,8 +208,14 @@ export async function resolveSitemapEntries(
     // Higher priority than the legal set and a shorter changefreq, because it is
     // revised whenever the product's verification posture moves.
     { loc: `${base}/methodology`, changefreq: 'monthly', priority: 0.5 },
-    // AECI-1104 — the `/docs/vendors/*` guide is deliberately ABSENT while it is
-    // noindex (`pathForcesNoindex`). TODO(AECI-1105): list it when the portal opens.
+    // AECI-1248 — the product docs, from the manifest: `/docs`, each indexable
+    // section index and page. No `<lastmod>`, the `/legal/*` rule: the page's
+    // `last_updated` is a display string, not a date. The vendor guide
+    // (`/docs/vendors` and below) is ABSENT while `pathForcesNoindex` covers it;
+    // TODO(AECI-1253) lifts that, and this list follows with no change here.
+    ...docsPaths.map(
+      (path): SitemapEntry => ({ loc: `${base}${path}`, changefreq: 'monthly', priority: 0.4 }),
+    ),
   ];
 
   for (const product of products) {

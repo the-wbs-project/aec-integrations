@@ -2,20 +2,30 @@
 
 **Version:** 1.0 — **build contract**
 **Date:** August 2026 (v0.1 scope outline); firmed into a build contract 2026-10-08 (AECI-1247)
-**Status:** Decomposed. The AECI-634 epic has eight sub-issues, AECI-1247 to AECI-1254 (§8). The vendor guide is built and noindex (AECI-1104). The rest of the site map is unbuilt.
+**Status:** Decomposed. The AECI-634 epic has eight sub-issues, AECI-1247 to AECI-1254 (§8). The vendor guide is built and noindex (AECI-1104). The shell is built (AECI-1248): the `/docs` home, section indexes, prev/next, linked breadcrumbs, noindex by path and the sitemap entries, with `requests-and-corrections` imported. The remaining pages of the site map are unbuilt.
 **Companion to:** `docs/STAGE_2_SPEC.md` §2.6 (the pillar stub). The architecture decision is ADR 0040.
+
+> **2026-10-08 — the shell shipped (AECI-1248).** `/docs` (home, with the audience split),
+> `/docs/<section>` (section index) and the previous / next pager are built, all generated from the
+> manifest. A declared section with no pages has no home card, no route and no sitemap entry, so
+> today only `vendors` and `reviewers` show. The breadcrumb's "Docs" and section crumbs are links.
+> Noindex is driven by path: `NOINDEX_PATH_PREFIXES` moved to `apps/web/src/app/docs/docs-indexing.ts`
+> (re-exported by `server/robots-policy.ts`) and now covers `/docs/vendors` itself as well as
+> everything below it. The cache matchers cover bare `/docs`. `sitemap.xml` lists `/docs`,
+> `/docs/reviewers` and `/docs/reviewers/requests-and-corrections`, through a lazy `import()` of the
+> manifest. `requests-and-corrections` is imported and was re-checked against the shipped request
+> form and the vendor change-request flow. The v0 note below is kept as history.
 
 > **2026-09-23 — v0 vendor tranche shipped (AECI-1104).** The vendor guide was built ahead of the
 > rest of the epic, because publishing it is a `STAGE_2_1_SPEC.md` §5 exit gate (§3.5 there). It
 > brought the minimum shell with it: a docs manifest (`apps/web/src/app/docs/docs-content.ts`), one
 > article component (`docs-page.ts`, anchor site **Zendesk**'s help-center article page:
 > breadcrumb, a section rail, the article), and one route pattern, `/docs/<section>/<slug>`, as
-> explicit lazy children generated from the manifest (`docs.routes.ts`). There is **no `/docs` home
-> page and no section index yet**. The breadcrumb's "Docs" and section crumbs are plain text.
-> AECI-1248 builds both. The vendor pages are **noindex in every env and absent from
-> `sitemap.xml`** until the portal opens: the page sets `robots: noindex` and the SSR egress stamps
-> `X-Robots-Tag` on `/docs/vendors/*` (`pathForcesNoindex`). AECI-1253 lifts both, in the same
-> sitting as AECI-1105. Two inbound links exist today: the "Active on AECi" label's "What this
+> explicit lazy children generated from the manifest (`docs.routes.ts`). It had **no `/docs` home
+> page and no section index**, and the breadcrumb's "Docs" and section crumbs were plain text.
+> AECI-1248 built both. The vendor pages are **noindex in every env and absent from
+> `sitemap.xml`** until the portal opens, by path (`pathForcesNoindex`, see the AECI-1248 note).
+> AECI-1253 lifts it, in the same sitting as AECI-1105. Two inbound links exist today: the "Active on AECi" label's "What this
 > means" link and the claim confirmation. The footer entry (AECI-1252) and the portal "Learn more"
 > links (AECI-1253) are not built. The same-PR sync rule (§4) is in
 > `docs/CODE_REVIEW_CHECKLIST.md` §Spec alignment.
@@ -72,7 +82,7 @@ No new Worker, no new schema, no new bindings, no migration.
 | Prev/next | Within one section, in `order`. Never across sections |
 | Styling | Tailwind v4 and the semantic tokens. Typography per `DESIGN.md`, body in `.aec-prose`. Light only |
 | Caching | Native Workers Cache on the static-page TTL (24h edge / 1h browser), on both `/docs` and `/docs/*`. Freshness on deploy is automatic (§2.3). **`Cache-Tag: route:index`**, not the `docs docs:{slug}` first sketched here (AECI-1104): the content changes only on deploy, which already rotates the cache key, so a per-page purge handle would have no producer. `cache-tags.ts` also forbids ad-hoc tag namespaces. Add a `docs` entity only if a runtime purge of docs ever becomes real |
-| Indexing | Driven by path. `NOINDEX_PATH_PREFIXES` (`apps/web/src/server/robots-policy.ts`) is the one list. The page's `robots` meta and the SSR egress `X-Robots-Tag` both read it, and the sitemap leaves out any path it covers. Opening a section to search engines is a one-line change |
+| Indexing | Driven by path. `NOINDEX_PATH_PREFIXES` (`apps/web/src/app/docs/docs-indexing.ts`, re-exported by `apps/web/src/server/robots-policy.ts`) is the one list. A prefix covers the path itself and everything below it, so `/docs/vendors` covers the section index too. The page's `robots` meta and the SSR egress `X-Robots-Tag` both read it, and the sitemap leaves out any path it covers. Opening a section to search engines is a one-line change |
 | Sitemap | `/docs`, every indexable section index and every indexable page, built from the manifest. **No `<lastmod>`**, the same as `/legal/*`: `last_updated` is a display string, and parsing it would add a second date format |
 | Re-crawl pings | **None.** IndexNow is not part of docs publishing (Chris, 2026-10-08). Its producers are catalog promotes and vendor portal writes. Nothing submits a build-inlined static page, and `/methodology` and `/legal/*` rely on the sitemap too |
 | Search | **None at v0.** Navigation and browser find. The deferred path is an Algolia `docs_{env}` index on the existing app, not a new search system |
@@ -105,7 +115,7 @@ URL scheme: `/docs/<section>/<slug>`, kebab-case. About 25 pages at v1.
 │  ├─ how-ranking-works              — purely algorithmic; what paid does NOT buy. Is the STAGE_2_5_SPEC §2 step 3 ranking-method page
 │  ├─ the-account-label              — what "Active on AECi" means (AECI-965 retired "Verified badge"; AECI-1131 relabeled it), that it is the plan
 │  └─ agreement-states               — unverified / single-source / confirmed / conflict, plainly
-├─ vendors/                          — SHIPPED (AECI-1104 and after), noindex until AECI-1253
+├─ vendors/                          — SHIPPED (AECI-1104 and after), noindex (index included) until AECI-1253
 │  ├─ claiming-your-listing          — the claim form, what we check, outcomes, connector-vendor seats (§8.9/§8.10)
 │  ├─ your-seat                      — sign-in, portal tabs, owners vs members, invites, removal, seat vs plan
 │  ├─ attesting-an-integration       — Affirm/Deny/Clear, add a data flow, agreement states, what happens next
@@ -116,7 +126,7 @@ URL scheme: `/docs/<section>/<slug>`, kebab-case. About 25 pages at v1.
 │  ├─ change-history                 — the Changes page: every change, who made it, AECi's reasons (AECI-1160)
 │  └─ (AECI-1251, after the AECI-1103 rehearsal) your-dashboard, editing-profile-and-products, product-versions,
 │     notifications-and-messages; performance only if analytics.view has shipped
-├─ reviewers/                        — AECI-1250 (requests-and-corrections is imported by AECI-1248)
+├─ reviewers/                        — AECI-1250 (requests-and-corrections: SHIPPED by AECI-1248, indexable)
 │  ├─ writing-a-review               — dual reviews: product quality vs onboarding experience
 │  └─ requests-and-corrections       — requesting an integration, correcting a listing, contesting a detail (AECI-1023)
 ├─ account/                          — AECI-1250
@@ -137,9 +147,13 @@ URL scheme: `/docs/<section>/<slug>`, kebab-case. About 25 pages at v1.
 > `agreement-states` with `attesting-an-integration`) explain what a reader sees and link across for
 > what a vendor does. No paragraph appears in both.
 
-> **`requests-and-corrections` was drafted ahead of the epic (AECI-1023, 2026-09-22)** and is still
-> not imported, so it is not in the bundle. AECI-1248 imports it and re-verifies it against today's
-> request form. Until then it is held to the same-PR sync rule (§4) by hand.
+> **`requests-and-corrections` was drafted ahead of the epic (AECI-1023, 2026-09-22)** and imported
+> by AECI-1248, which re-verified it against the shipped request form and the vendor portal. Three
+> sentences were wrong and were fixed. A public correction is not forwarded to an integration's owner
+> by any code, so the page now says we ask the owner. The vendor route on an integration's own page is
+> **Request a change** or **Request a correction**; **Contest a field** is the connector lane only.
+> A contest can move to AEC Integrations after it is sent, and the owner of a connector-delivered
+> integration decides only on Managed.
 
 ## 6. Deliberately deferred (not in this epic)
 

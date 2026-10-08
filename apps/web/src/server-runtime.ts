@@ -431,11 +431,17 @@ const ROUTE_CACHE_PATTERNS: readonly RoutePattern[] = [
     match: (p) => p === '/legal' || p.startsWith('/legal/'),
     ttl: { edge: 86_400, browser: 3_600 },
   },
-  // AECI-1104 — the `/docs` vendor guide (`/docs/vendors/:slug`). Build-inlined
-  // Markdown, static and visitor-state-neutral, so the static-page TTL. Content is
-  // fresh on every deploy because the cache key includes the Worker version.
-  // Noindex for now (`pathForcesNoindex`), which does not affect cacheability.
-  { match: (p) => p.startsWith('/docs/'), ttl: { edge: 86_400, browser: 3_600 } },
+  // AECI-1104, AECI-1248 — the product docs: `/docs` (home), `/docs/:section`
+  // (section index) and `/docs/:section/:slug` (article). Build-inlined Markdown,
+  // static and visitor-state-neutral, so the static-page TTL. Content is fresh on
+  // every deploy because the cache key includes the Worker version. The vendor
+  // guide is noindex for now (`pathForcesNoindex`), which does not affect
+  // cacheability. Bare `/docs` must match too: `startsWith('/docs/')` alone left
+  // the home on the fail-closed `private, no-store` default.
+  {
+    match: (p) => p === '/docs' || p.startsWith('/docs/'),
+    ttl: { edge: 86_400, browser: 3_600 },
+  },
   // Phase 2 §8.3: detail pages are `s-maxage=900, max-age=0`. AECI-294 retired
   // the standalone /integrations/:id detail (now a 301 to the pair page) and
   // added the product-PAIR page /products/:contextSlug/integrations/:otherSlug —
@@ -1251,8 +1257,9 @@ export function createApp(options: {
   app.use('*', async (c, next) => {
     await next();
     const pathname = new URL(c.req.url).pathname;
-    // AECI-1104: a few paths stay noindex even in the indexed env
-    // (`pathForcesNoindex`, the unopened vendor guide). Same stamp, same bake.
+    // AECI-1104, AECI-1248: a few paths stay noindex even in the indexed env
+    // (`pathForcesNoindex`, the unopened vendor guide incl. its `/docs/vendors`
+    // index). Same stamp, same bake.
     if (indexingAllowed(c.env) && !pathForcesNoindex(stripLocalePrefix(pathname).path)) return;
     if (pathname.startsWith('/api/')) return;
     const res = c.res;

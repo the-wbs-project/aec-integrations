@@ -45,17 +45,8 @@ export function indexingAllowed(env: { ALLOW_INDEXING?: string }): boolean {
 
 /**
  * Paths held out of the index even where `ALLOW_INDEXING` is `"true"`
- * (AECI-1104). The vendor guide at `/docs/vendors/*` describes a portal that is
- * still a dark launch, so it stays unindexed until vendors are seated. The
- * egress middleware stamps `X-Robots-Tag` on these in every env, and the page
- * component also emits `<meta name="robots" content="noindex">`.
- *
- * TODO(AECI-1105): remove `/docs/vendors/` when the first pilot vendor is seated
- * and the portal opens, together with the component's `noindex: true`.
+ * (AECI-1104, AECI-1248). The list lives in `src/app/docs/docs-indexing.ts` so
+ * the docs components, this egress stamp and the sitemap read ONE list. It is
+ * re-exported here so server code keeps one import site for crawler policy.
  */
-export const NOINDEX_PATH_PREFIXES: readonly string[] = ['/docs/vendors/'];
-
-/** Whether a locale-stripped pathname is held out of the index in every env. */
-export function pathForcesNoindex(path: string): boolean {
-  return NOINDEX_PATH_PREFIXES.some((prefix) => path.startsWith(prefix));
-}
+export { NOINDEX_PATH_PREFIXES, pathForcesNoindex } from '../app/docs/docs-indexing';

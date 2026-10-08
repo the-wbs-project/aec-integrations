@@ -169,7 +169,10 @@ describe('cacheControlForRoute', () => {
     // the same deliberate absence of the resilience pair.
     ['/methodology', { edge: 86_400, browser: 3_600 }],
     ['/legal/privacy', { edge: 86_400, browser: 3_600 }],
-    // AECI-1104 — the /docs vendor guide is static build-inlined content.
+    // AECI-1104, AECI-1248 — the product docs are static build-inlined content:
+    // the bare `/docs` home, a section index and an article share one TTL.
+    ['/docs', { edge: 86_400, browser: 3_600 }],
+    ['/docs/reviewers', { edge: 86_400, browser: 3_600 }],
     ['/docs/vendors/your-seat', { edge: 86_400, browser: 3_600 }],
     ['/products/procore', { edge: 900, browser: 0, ...R }],
     ['/vendors/autodesk', { edge: 900, browser: 0, ...R }],
@@ -419,20 +422,42 @@ describe('createApp X-Robots-Tag egress block (pre-launch crawler gate)', () => 
     expect(res.headers.get('X-Robots-Tag')).toBeNull();
   });
 
-  it('stamps /docs/vendors/* even when ALLOW_INDEXING is "true" (AECI-1104, until AECI-1105)', async () => {
-    const { binding } = recordingApiBinding();
-    const app = createApp({ ssrRenderer: htmlRenderer() });
+  it.each(['/docs/vendors/your-seat', '/docs/vendors'])(
+    'stamps %s even when ALLOW_INDEXING is "true" (AECI-1104, until AECI-1253)',
+    async (path) => {
+      const { binding } = recordingApiBinding();
+      const app = createApp({ ssrRenderer: htmlRenderer() });
 
-    const res = await app.fetch(
-      new Request('https://www.aecintegrations.com/docs/vendors/your-seat'),
-      { ...binding, ENV: 'production', ALLOW_INDEXING: 'true' } as unknown as Bindings,
-      fakeExecutionContext(),
-    );
+      const res = await app.fetch(
+        new Request(`https://www.aecintegrations.com${path}`),
+        { ...binding, ENV: 'production', ALLOW_INDEXING: 'true' } as unknown as Bindings,
+        fakeExecutionContext(),
+      );
 
-    expect(res.status).toBe(200);
-    expect(res.headers.get('Cache-Control')).toContain('public');
-    expect(res.headers.get('X-Robots-Tag')).toBe('noindex, nofollow');
-  });
+      expect(res.status).toBe(200);
+      expect(res.headers.get('Cache-Control')).toContain('public');
+      expect(res.headers.get('X-Robots-Tag')).toBe('noindex, nofollow');
+    },
+  );
+
+  it.each(['/docs', '/docs/reviewers', '/docs/reviewers/requests-and-corrections'])(
+    'leaves %s indexable and cacheable where ALLOW_INDEXING is "true" (AECI-1248)',
+    async (path) => {
+      const { binding } = recordingApiBinding();
+      const app = createApp({ ssrRenderer: htmlRenderer() });
+
+      const res = await app.fetch(
+        new Request(`https://www.aecintegrations.com${path}`),
+        { ...binding, ENV: 'production', ALLOW_INDEXING: 'true' } as unknown as Bindings,
+        fakeExecutionContext(),
+      );
+
+      expect(res.status).toBe(200);
+      expect(res.headers.get('Cache-Control')).toContain('public');
+      expect(res.headers.get('Cache-Tag')).toContain('route:index');
+      expect(res.headers.get('X-Robots-Tag')).toBeNull();
+    },
+  );
 
   it('stamps redirects too (301 → /products) so removed URLs drop from the index', async () => {
     const { binding } = recordingApiBinding();
