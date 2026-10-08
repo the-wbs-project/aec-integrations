@@ -1,5 +1,4 @@
 import { VendorPortalAnnouncer } from '../vendor-announcer';
-import { LogoInput } from '../../shared/logo-input/logo-input';
 import { Component, computed, effect, inject, input, signal, untracked } from '@angular/core';
 import { Listbox, Option } from '@angular/aria/listbox';
 
@@ -14,6 +13,7 @@ import {
 import { RequestTrigger } from '../../requests/request-trigger';
 import { NewTabIcon } from '../../shared/new-tab-icon/new-tab-icon';
 import { VendorLockedNote } from './vendor-locked-note';
+import { VendorLogoField, type SaveLogo } from './vendor-logo-field';
 import { VendorApi } from '../vendor-api';
 import { VendorPortalStore } from '../vendor-portal-store';
 
@@ -26,7 +26,6 @@ type ProfileTextKey =
   | 'parent_company'
   | 'contact_email'
   | 'phone_number'
-  | 'logo_url'
   | 'linkedin_url'
   | 'x_url'
   | 'facebook_url'
@@ -90,7 +89,7 @@ interface FieldConfig {
  */
 @Component({
   selector: 'aec-vendor-profile-form',
-  imports: [LogoInput, Listbox, Option, RequestTrigger, NewTabIcon, VendorLockedNote],
+  imports: [VendorLogoField, Listbox, Option, RequestTrigger, NewTabIcon, VendorLockedNote],
   template: `
     <form class="space-y-8" novalidate (submit)="$event.preventDefault(); onSave()">
       <!--
@@ -173,48 +172,45 @@ interface FieldConfig {
       <fieldset class="space-y-5 border-0 p-0">
         <legend class="sr-only" i18n="@@vendor.profile.section.details">Profile details</legend>
 
+        <!-- The logo saves from its own dialog, so it is not part of this form's diff. -->
+        <aec-vendor-logo-field
+          [fieldId]="fieldId('logo_url')"
+          [logoUrl]="vendor().logo_url"
+          [canEdit]="canEdit()"
+          [save]="saveLogo"
+          (announce)="announcer.announce($event)"
+        />
+
         @for (cfg of profileFields; track cfg.key) {
           <div class="space-y-1.5">
-            @if (cfg.key === 'logo_url') {
-              <aec-logo-input
-                [inputId]="fieldId(cfg.key)"
-                [value]="model()['logo_url'] ?? ''"
-                [readOnly]="!canEdit()"
-                [disabled]="saving()"
-                (valueChange)="onLogoChange($event)"
-                (pendingChange)="logoPending.set($event)"
-                (announce)="announcer.announce($event)"
-              />
+            <label [for]="fieldId(cfg.key)" [class]="labelClass">{{ cfg.label }}</label>
+            @if (cfg.control === 'textarea') {
+              <textarea
+                [id]="fieldId(cfg.key)"
+                rows="4"
+                [value]="model()[cfg.key]"
+                [readOnly]="readOnly(cfg.key)"
+                (input)="onInput(cfg.key, $event)"
+                [attr.aria-invalid]="fieldErrors()[cfg.key] ? 'true' : null"
+                [attr.aria-describedby]="describedBy(cfg.key)"
+                [class]="fieldClass(cfg.key)"
+              ></textarea>
             } @else {
-              <label [for]="fieldId(cfg.key)" [class]="labelClass">{{ cfg.label }}</label>
-              @if (cfg.control === 'textarea') {
-                <textarea
-                  [id]="fieldId(cfg.key)"
-                  rows="4"
-                  [value]="model()[cfg.key]"
-                  [readOnly]="readOnly(cfg.key)"
-                  (input)="onInput(cfg.key, $event)"
-                  [attr.aria-invalid]="fieldErrors()[cfg.key] ? 'true' : null"
-                  [attr.aria-describedby]="describedBy(cfg.key)"
-                  [class]="fieldClass(cfg.key)"
-                ></textarea>
-              } @else {
-                <input
-                  [id]="fieldId(cfg.key)"
-                  [type]="inputType(cfg.control)"
-                  [attr.inputmode]="cfg.control === 'year' ? 'numeric' : null"
-                  [attr.autocomplete]="cfg.autocomplete ?? null"
-                  [value]="model()[cfg.key]"
-                  [readOnly]="readOnly(cfg.key)"
-                  (input)="onInput(cfg.key, $event)"
-                  [attr.aria-invalid]="fieldErrors()[cfg.key] ? 'true' : null"
-                  [attr.aria-describedby]="describedBy(cfg.key)"
-                  [class]="fieldClass(cfg.key)"
-                />
-              }
-              @if (lockOf(cfg.key); as lock) {
-                <aec-vendor-locked-note [lock]="lock" [noteId]="fieldId(cfg.key) + '-locked'" />
-              }
+              <input
+                [id]="fieldId(cfg.key)"
+                [type]="inputType(cfg.control)"
+                [attr.inputmode]="cfg.control === 'year' ? 'numeric' : null"
+                [attr.autocomplete]="cfg.autocomplete ?? null"
+                [value]="model()[cfg.key]"
+                [readOnly]="readOnly(cfg.key)"
+                (input)="onInput(cfg.key, $event)"
+                [attr.aria-invalid]="fieldErrors()[cfg.key] ? 'true' : null"
+                [attr.aria-describedby]="describedBy(cfg.key)"
+                [class]="fieldClass(cfg.key)"
+              />
+            }
+            @if (lockOf(cfg.key); as lock) {
+              <aec-vendor-locked-note [lock]="lock" [noteId]="fieldId(cfg.key) + '-locked'" />
             }
             @if (fieldErrors()[cfg.key]; as err) {
               <p
@@ -396,11 +392,6 @@ export class VendorProfileForm {
       autocomplete: 'tel',
       label: $localize`:@@vendor.profile.field.phoneNumber:Phone number`,
     },
-    {
-      key: 'logo_url',
-      control: 'url',
-      label: $localize`:@@vendor.profile.field.logoUrl:Logo URL`,
-    },
   ];
 
   /** Only the links the public vendor page renders (`vendors/vendor-detail.ts`
@@ -449,7 +440,6 @@ export class VendorProfileForm {
 
   protected readonly announcer = inject(VendorPortalAnnouncer);
   protected readonly saving = signal(false);
-  protected readonly logoPending = signal(false);
   protected readonly saved = signal(false);
   protected readonly saveError = signal(false);
   /** AECI-1237: the save was refused with `409 FIELD_LOCKED_BY_AECI`. */
@@ -520,12 +510,7 @@ export class VendorProfileForm {
     Object.values(this.fieldErrors()).some((e) => e !== null),
   );
   protected readonly saveDisabled = computed(
-    () =>
-      !this.canEdit() ||
-      this.saving() ||
-      this.logoPending() ||
-      !this.hasChanges() ||
-      this.hasErrors(),
+    () => !this.canEdit() || this.saving() || !this.hasChanges() || this.hasErrors(),
   );
 
   /** The store deferred a fresh vendor payload because THIS form is holding it. */
@@ -555,7 +540,7 @@ export class VendorProfileForm {
     // Tell the store when there is something to protect. `hasChanges` is a
     // computed boolean, so this only runs on the transitions.
     effect(() => {
-      if (this.hasChanges() || this.logoPending()) untracked(() => this.store.markDirty('profile'));
+      if (this.hasChanges()) untracked(() => this.store.markDirty('profile'));
       else untracked(() => this.store.clearDirty('profile'));
     });
   }
@@ -609,10 +594,20 @@ export class VendorProfileForm {
     }
   }
 
-  protected onLogoChange(value: string): void {
-    this.model.update((m) => ({ ...m, logo_url: value }));
-    this.saved.set(false);
-  }
+  /**
+   * The logo dialog's save: `{ logo_url }` alone, so the rest of this form's
+   * unsaved edits stay unsaved. The echo goes into `me` so every reader of the
+   * vendor sees the new logo without waiting for a poll.
+   */
+  protected readonly saveLogo: SaveLogo = async (logoUrl) => {
+    const res = await this.api.updateProfile({ logo_url: logoUrl });
+    this.store
+      .apply('me', (me) =>
+        me ? { ...me, vendor: { ...me.vendor, logo_url: res.vendor.logo_url } } : me,
+      )
+      .commit();
+    return res.vendor.logo_url;
+  };
 
   protected onInput(key: string, event: Event): void {
     const value = (event.target as HTMLInputElement | HTMLTextAreaElement).value;
