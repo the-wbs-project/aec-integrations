@@ -92,6 +92,8 @@ describe('VendorContestsList — rendering', () => {
     expect(el(fixture).textContent).toContain('Nothing to decide');
     expect(el(fixture).textContent).toContain('Once you claim an integration');
     expect(el(fixture).textContent).toContain('You have not contested anything');
+    // AECI-1255: name the control most integrations show, not only the connector one.
+    expect(el(fixture).textContent).toContain('choose Request a change beside a detail');
   });
 
   it('offers a retry when the read fails', async () => {

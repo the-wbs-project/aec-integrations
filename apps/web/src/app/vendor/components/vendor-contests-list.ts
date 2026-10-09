@@ -204,7 +204,8 @@ type Busy = { readonly id: string; readonly action: ContestDecision | 'withdraw'
                   i18n="@@vendor.contests.submitted.empty"
                 >
                   You have not contested anything. Open an integration under one of your products
-                  and choose Contest a field.
+                  and choose Request a change beside a detail. For an integration delivered through
+                  a connector, choose Contest a field in your product's Connectors section.
                 </p>
               } @else {
                 <ul

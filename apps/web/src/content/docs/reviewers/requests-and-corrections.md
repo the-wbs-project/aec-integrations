@@ -3,7 +3,7 @@ title: Requests and corrections
 description: How to ask for a missing integration, correct a listing, and, for vendors, contest one detail of an integration.
 section: reviewers
 order: 2
-last_updated: 22 September 2026
+last_updated: 9 October 2026
 ---
 
 Anyone can ask us to add something or fix something. It is free, and it needs no account. Vendors with a seat on a vendor account have one more route for integrations, a contest, described at the end.
@@ -26,7 +26,7 @@ We check it against public sources and update the listing where the evidence sup
 
 ## Contest an integration detail (vendors)
 
-A vendor whose product is at one end of an integration, and which does not own it, can contest one detail from its vendor account. Open the integration under your product in the vendor portal and choose **Contest a field**. Name the field, give the value you believe is right, and say why.
+A vendor whose product is at one end of an integration, and which does not own it, can contest one detail from its vendor account. Open the integration under your product in the vendor portal and choose **Request a change** beside the detail, or **Request a correction** under Change requests. On an integration delivered through a connector, choose **Contest a field** in your product's Connectors section. Name the field, give the value you believe is right, and say why.
 
 Who decides:
 
