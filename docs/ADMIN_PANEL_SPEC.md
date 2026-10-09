@@ -1136,9 +1136,14 @@ Four IA notes, in §5.10's voice:
   next action, and working top-down is the entire value of the screen. The
   `?priority=` filter is a convenience for "clear the tier-1 backlog first on a tight
   day", not the mechanism. Since AECI-1236 the order is `priority`, then an inspection
-  bucket, then `queued_at`, then `id`. The bucket puts rows Google says need a request
+  bucket, then never-crawled first, then `queued_at`, then `id`. The bucket puts rows Google says need a request
   first (0), rows not yet inspected next (1), and `page_fetch_failed` rows last (2).
   A failed fetch is a page problem that a request cannot fix, so it sinks inside its tier.
+  Inside the inspected buckets, pages Google has never crawled (no `last_crawl_at`)
+  come before the rest. A request gains most on a page missing from Google entirely.
+  An indexed page with a stale crawl is already in results. The not-yet-inspected
+  bucket stays in `queued_at` order. A re-enqueue clears `inspect_reason` but keeps
+  `last_crawl_at`, so a null crawl there does not mean Google never crawled the page.
 
 **This section is not read-only, and it is the sixth §2 exception.** The write is a
 `DELETE`, and three things about it are decisions rather than defaults:
