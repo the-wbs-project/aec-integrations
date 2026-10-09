@@ -265,20 +265,23 @@ Callers of `/admin/purge`:
 above**, from the same builder: `vendorPurgeTags` was promoted out of
 `admin-claims.ts` into the shared `apps/api/src/lib/vendor-cache-tags.ts` precisely
 because this epic added a second writer of it, and duplicated tag construction is how
-a label goes stale on one path and not the other. **No new tag** — the account-status label
-renders on the vendor hero, the product-detail vendor card and both pair rails, all of
-which are already covered by `vendor:{slug}` + every owned `product:{slug}` +
-`index:products`.
+a page goes stale on one path and not the other. **No new tag.** The mirror drives the claim
+button copy and its "Already managed" note on the vendor page and every owned product page,
+and the version-diff gate on every pair page. All of them are already covered by
+`vendor:{slug}` + every owned `product:{slug}` (a pair page carries both endpoints'
+`product:` tags) + `index:products`. *(Reworded 2026-10-09, AECI-1264. This paragraph used to
+name the public account label, which is removed. The tag set is unchanged.)*
 
 Two deliberate details. **`clear` purges as hard as `set`**: this is the only writer
 that takes `vendors.verified` back *down* (`STAGE_2_PAID_TIERS_SPEC.md` §5), and a
-missed purge there leaves an active-account label on every cached product page of a vendor
-who is no longer paying. And the purge is **not gated on whether the mirror actually
-flipped** — on a drifted vendor a redundant purge costs one cache miss, while a missed
-one is a wrong badge with a full TTL behind it. **`renew` is the exception and skips
+missed purge there leaves "Request access to this listing" and "Already managed through an
+active vendor account" on every cached product page of a vendor who is no longer paying. And
+the purge is **not gated on whether the mirror actually flipped** — on a drifted vendor a
+redundant purge costs one cache miss, while a missed one is wrong claim copy with a full TTL
+behind it. **`renew` is the exception and skips
 the purge entirely**, because its builder provably emits no `vendors` statement at all,
 so nothing rendered can have changed. Search freshness rides the same nightly watermark
-as every other vendor write (see the verified-badge-flip paragraph below): the flip
+as every other vendor write (see the `verified`-flip paragraph below): the flip
 stamps `vendors.updated_at` in **both** directions, so an un-verify reaches Algolia
 within 24h rather than never.
 
@@ -291,7 +294,7 @@ the route sends them with `source: 'moderation'`. That means `vendor:{slug}` for
 row, `product:{slug}` plus `index:products` for each solely-owned product, and
 `pair:{min}__{max}` plus both `product:` tags for each integration whose marker flipped.
 Clearing `claimed_at` alone purges nothing, because no public read renders it. It is **not**
-`vendorPurgeTags`: the account-status label is untouched by a revoke, so purging every
+`vendorPurgeTags`: a revoke leaves `vendors.verified` alone, so purging every
 owned product would evict pages whose HTML did not change. Any other revoke, and a ban or
 unban, purges nothing. **Account erasure of a vendor's last seat** (`DELETE /api/account`,
 AECI-1106) runs the same builder in its own batch and sends the same tags, with
@@ -468,17 +471,18 @@ nothing. An **attestation** write does not stamp it either, and for a stronger
 reason — claims are not in the search index at all (`STAGE_1_5_SPEC.md` §9 defers
 per-pair records), so there is nothing for a sync to pick up. Dashboard copy must
 therefore not promise that attesting changes search. The same asymmetry governs the
-**verified-badge flip** (AECI-529): the §5(b) claim→grant stamps `vendors.updated_at`
+**`verified` flip** (AECI-529): the §5(b) claim→grant stamps `vendors.updated_at`
 alongside `verified = true`, so the `vendors` index re-indexes the flip on the next
 nightly window while the grant's `vendor:{slug}` + `product:{slug}` purge repaints the
-SSR pages immediately. The badge therefore appears on the vendor's SSR detail/product
-pages at once but on the `/search` Vendors-tab card only after the next sync
-(`SEARCH_RANKING.md` §6). Since AECI-609 that stamp is governed by a sharper rule:
+SSR pages immediately. The flip therefore shows in the claim button copy on the vendor's
+SSR detail and product pages at once, but reaches the Algolia vendor record only after the
+next sync (`SEARCH_RANKING.md` §6). No search card renders the field since AECI-1131, and the
+public account badge is gone since 2026-10-09 (AECI-1264). Since AECI-609 that stamp is governed by a sharper rule:
 **`vendors.updated_at` moves if and only if `vendors.verified` moves**, in either
 direction, stamped explicitly inside the same guarded `WHERE verified = <old>` rather
 than left to `$onUpdate`. Both halves earn their keep — a second-seat grant or a term
 renewal must *not* bump it (needless nightly re-push of an unchanged record), and an
-**deactivation must**, or a lapsed vendor keeps an active-account label in search indefinitely.
+**deactivation must**, or a lapsed vendor keeps `verified: true` on its Algolia record indefinitely.
 That second direction is the one AECI-529 never reasoned about, because until AECI-532
 nothing could clear the bit.
 

@@ -45,8 +45,8 @@ export const EntitlementTierSchema = z.enum(TIERS);
  *
  * Separate from {@link EntitlementTierSchema} because reporting a tier and selling
  * one are different contracts. An `active` row at `unclaimed` would flip the
- * `vendors.verified` mirror and light the badge while resolving to zero
- * capabilities — a vendor billed for a badge that unlocks nothing. The handler
+ * `vendors.verified` mirror while resolving to zero capabilities — a vendor billed
+ * for a plan that unlocks nothing. The handler
  * also refuses it (defence in depth, and it keeps the error message actionable),
  * but the guard-rail belongs here: `packages/shared/src/api/vendor.ts`'s header
  * invariant is that **the allow-list IS the guard-rail**, and a future consumer of

@@ -240,6 +240,8 @@ Four indirect couplings need a ruling:
 4. **The paid flag is named `verified`.** `vendors.verified` mirrors an active plan. The public label
    now reads "Active on AEC Integrations", but the column, the API field, the tier id and the public
    `GET /api/vendors?verified=` filter still say `verified`. Anyone can list paying vendors with it.
+   _Amended 2026-10-09 (AECI-1264): the public label is removed, so no page shows it. The column,
+   the API field, the tier id and the `?verified=` filter are unchanged, so this finding stands._
 
 A minor one: `sort=updated` on public lists orders by `updated_at`, and paid saves bump it.
 

@@ -46,8 +46,8 @@ import { coerceDirection, pickPrimaryVendor, toMechanismKind } from './drizzle-h
 // The vendor `verified` bit lives on the Algolia *vendor* record instead, emitted by
 // `toAlgoliaVendor` (AECI-529): a vendor's verified flip bumps `vendors.updated_at`
 // (not `products.updated_at`), so the vendor index catches it on the next nightly
-// sync while product records would go stale — keeping the badge on the vendor record
-// is the freshness-clean choice.
+// sync while product records would go stale. Keeping the bit on the vendor record
+// is the freshness-clean choice. No card renders it since AECI-1131.
 const vendorLinkColumns = {
   id: true,
   companyName: true,
@@ -129,7 +129,7 @@ export const algoliaVendorConfig = {
     foundedYear: true,
     logoUrl: true,
     website: true, // AECI-636 — a `listing_tier` input
-    verified: true, // AECI-529: denormalized onto the record for the search-card badge
+    verified: true, // AECI-529: denormalized onto the record. No card renders it (AECI-1131).
     promotionStatus: true,
     updatedAt: true,
   },
@@ -285,7 +285,7 @@ export function toAlgoliaVendor(row: RawAlgoliaVendorRow): AlgoliaVendorRecord {
     // to `buildVendorRecords` in `apps/datatool/src/algolia-reindex.ts`.
     company_name_sort: algoliaSortKey(row.companyName),
     slug: row.slug,
-    verified: row.verified, // AECI-529/AECI-965: search-card account-status label
+    verified: row.verified, // AECI-529: the mirror. No card renders it (AECI-1131).
     description: row.description,
     headquarters: row.headquarters,
     founded_year: row.foundedYear,

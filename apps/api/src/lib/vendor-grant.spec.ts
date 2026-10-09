@@ -263,8 +263,8 @@ describe('provisionSeatStatements is a seat and nothing else (§8.9(2))', () => 
 
   it('names neither `vendors` nor `vendor_entitlements`', () => {
     // The §8.9(2) fence, structurally: `vendors.verified` mirrors off an ACTIVE
-    // entitlement row, so a statement on either table would light the verified
-    // badge this seat must never carry.
+    // entitlement row, so a statement on either table could flip `verified`,
+    // which this seat must never do.
     const { stmts } = provisionSeatStatements(t.db, provisionArgs());
     const sql = stmts.map(sqlOf).join('\n');
 
@@ -340,7 +340,7 @@ describe('provisionSeatStatements is a seat and nothing else (§8.9(2))', () => 
 
   it('leaves the vendor row byte-identical when run against D1', async () => {
     // Guard 2, the observed-effect half: catches a write that evades the SQL
-    // match. The whole claim of this endpoint is "a seat, and no badge".
+    // match. The whole claim of this endpoint is "a seat, and no `verified`".
     await seed(false);
     const beforeRow = await vendorOf();
 

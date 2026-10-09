@@ -26,7 +26,7 @@
  *
  * PROOF IT LANDED is the `entitlement_mirror_drift` data-quality check (Guard 2, 04:00
  * UTC) — which is why §2 does not ship without it: "the backfill ran on staging but not
- * demo" is otherwise invisible until a reader notices a missing badge.
+ * demo" is otherwise invisible until someone notices by hand.
  *
  * CAVEAT (§26.1): a raw backfill writes no `audit_log` row — there is no handler to
  * route it through. `notes` carries the provenance instead, and the CLI prints the

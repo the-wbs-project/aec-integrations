@@ -6,9 +6,10 @@
  * be deleted without reopening the spec.
  *
  * `vendors.verified` is a denormalized MIRROR. The whole epic is additive precisely
- * because the five shipped readers (the public `?verified=` filter, `VendorLinkSchema`,
- * `VendorDetail`/`VendorListItem`, the Algolia vendor record, `aec-vendor-account-badge`)
- * keep reading the mirror. The obvious "improvement" — joining `vendor_entitlements`
+ * because the shipped readers (the public `?verified=` filter, `VendorLinkSchema`,
+ * `VendorDetail`/`VendorListItem`, the Algolia vendor record) keep reading the mirror.
+ * A fifth, `aec-vendor-account-badge`, was deleted by AECI-1264 (2026-10-09).
+ * The obvious "improvement" — joining `vendor_entitlements`
  * into a read config so it reads the truth rather than the mirror — would defeat the
  * entire denormalization, put an entitlement lookup on every public request, and break
  * the guarantee that this epic touches no reader.

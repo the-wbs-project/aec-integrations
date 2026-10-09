@@ -24,8 +24,8 @@ export type EntitlementMode = SetVendorEntitlementInput['action'];
  *
  *   1. Clearing an entitlement is **not** a seat revoke and **not** a ban (§5.2).
  *      Seats, logins and the dashboard all survive — read-only.
- *   2. Search is nightly in **both** directions (§5.3 / R2), so the badge can lag
- *      the action by up to a day. Never promise instant search.
+ *   2. Search is nightly in **both** directions (§5.3 / R2), so the Algolia record's
+ *      `verified` can lag the action by up to a day. Never promise instant search.
  *   3. The §5.4 lockout: a cleared-but-still-seated vendor can be edited by
  *      nobody (the portal 403s, and `POST /api/promote` refuses a claimed
  *      vendor). The escape hatch — re-activate, edit, clear again — is named on
@@ -87,7 +87,7 @@ export class EntitlementControl {
   protected readonly failedMessage = signal('');
 
   /** Whether the vendor currently holds the paid entitlement. `active` is the ONLY
-   *  status that grants capabilities and the only one that mirrors onto the public label
+   *  status that grants capabilities and the only one that mirrors onto `vendors.verified`
    *  (§2.2) — every other status, and no row at all, reads as "not entitled". */
   protected readonly entitled = computed(() => this.entitlement()?.status === 'active');
 

@@ -685,8 +685,9 @@ describe('ProductsPairPage', () => {
       slug: 'agave',
       logo_url: null,
       // `VendorLinkSchema` gained `verified` with the Stage 2 account label
-      // (AECI-523); this fixture predates it. Unverified is the right default —
-      // the badge cases live in the verified-badge specs.
+      // (AECI-523, removed by AECI-1264); this fixture predates it. Unverified is
+      // the right default. Cases that need it true set it themselves, such as the
+      // claim-copy cases in the product-detail spec.
       verified: false,
     };
     const agaveProduct = {

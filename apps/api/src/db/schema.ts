@@ -1369,9 +1369,10 @@ export const vendorRequests = sqliteTable(
 /**
  * Vendor entitlements (AECI-609 / `docs/STAGE_2_PAID_TIERS_SPEC.md` §2). The real
  * paid-tier model. `vendors.verified` is demoted to a DENORMALIZED MIRROR of this
- * table, so the five shipped readers (the public `?verified=` filter,
- * `VendorLinkSchema`, `VendorDetail`/`VendorListItem`, the Algolia vendor record,
- * `aec-vendor-account-badge`) are untouched by the epic (§2.4/§2.5).
+ * table, so the shipped readers (the public `?verified=` filter,
+ * `VendorLinkSchema`, `VendorDetail`/`VendorListItem`, the Algolia vendor record)
+ * are untouched by the epic (§2.4/§2.5). A fifth reader, `aec-vendor-account-badge`,
+ * was deleted by AECI-1264 (2026-10-09).
  *
  * THE MIRROR INVARIANT (§2.1): `vendors.verified = true` IFF this table holds a row
  * for the vendor with `status = 'active'`. `vendor_id` is UNIQUE, so that predicate

@@ -109,7 +109,7 @@ following, at any step, **fails the run**. That includes a read taken only to co
 | Any review-app write: the `aeci-review` MCP `create_*`, `update_*`, `delete_*`, `add_attestation` or `promote_*` tools, or the review app's own UI | Catalog shape is an input, not something the rehearsal may adjust mid-run. |
 | Any `apps/datatool` action against the environment | It writes D1 directly. |
 | Editing a user in the Supabase dashboard, or any GoTrue admin call made by hand | The claim pipeline owns identity resolution (step 4). |
-| A manual Algolia push, reindex, or record edit | The label must reach search through the 08:00 UTC sync (step 13b). |
+| A manual Algolia push, reindex, or record edit | The `verified` flip must reach the Algolia vendor record through the 08:00 UTC sync (step 13b). |
 | Triggering a cron by hand | The run waits for the schedule. |
 
 **Allowed:** the admin console, the vendor portal, the public site, reading email, DevTools on the
@@ -195,7 +195,7 @@ Run these before the sitting ends. On production they are mandatory, not tidy-up
 
 | # | Action | Expected |
 |---|---|---|
-| C1 | Admin clears A's entitlement (as 12a). **Production:** in the sitting, before 08:00 UTC. **Staging:** the next morning, after step 13b has seen the label. | Status `revoked`, `vendors.verified` false, public label gone on the next request. |
+| C1 | Admin clears A's entitlement (as 12a). **Production:** in the sitting, before 08:00 UTC. **Staging:** the next morning, after step 13b has run. | Status `revoked`, `vendors.verified` false. On the next request the claim button reads "Claim this listing" again, and "Already managed through an active vendor account" is gone. |
 | C2 | **Staging only.** Claimant (A) retracts every attestation written in steps 11 and 12c. | Each `DELETE` returns `204`. The pair returns to `unverified`, and "AEC Integrations maintained" returns. `last_reviewed_at` stays by design. |
 | C3 | Admin revokes every seat on A (and B on staging) through `/admin/vendors/:id`. | As 16a. The **last** revoke also hands the record back (AECI-989, `STAGE_2_ATTESTATIONS_SPEC.md` §13.9). The vendor and each product it owns alone read "AEC Integrations maintained" again, with `last_reviewed_at` kept. Every live integration it claimed has `claimed_at` NULL, so promote writes it again. Its open owner contests sit in `/admin/contests`. Claims and attestations remain. The vendor is inert again. |
 | C4 | **Production:** reject AECI-855 and AECI-856 in `/admin/claims/:id`, then cancel their Linear issues. Reject AECI-923 in **demo's** admin, then cancel its issue. Close AECI-857's Linear issue with a pointer to this run. | Each reject returns `200` and sends `Your claim for {name} was not approved` to the submitter. The `reason` goes to the audit log only. |

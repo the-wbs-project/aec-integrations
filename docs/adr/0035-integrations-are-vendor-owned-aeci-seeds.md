@@ -168,6 +168,12 @@ Decision 12 and the AECI-1046 admin retire kept AECi's reason for an override in
 
 Decisions 1 to 15 are unchanged.
 
+## 2026-10-09 note: the public account label is gone (AECI-1264)
+
+Rule 2 of "The non-endpoint owner" says the ordinary paid seat "lights the public account label". Chris removed that label on 2026-10-09 (marketing review B1). A Managed grant still opens a `vendor_entitlements` row at `verified`, and that row still flips `vendors.verified`. On public pages the mirror now drives only the claim button copy and the version-diff gate. A third-party owner still pays and still holds the ordinary paid seat. The ruling is `STAGE_2_VENDOR_PORTAL_SPEC.md` §8.
+
+Decisions 1 to 15 are unchanged.
+
 ## Revisit
 
 When the AECI-1040 follow-ups ship the owner carve-out (decision 9), if tiers start to differentiate what a seat may do (decision 15), or if a claimed row needs to go back to AECi by a path other than the owner-reassignment accept or the last-seat hand-back (the 2026-09-23 note).

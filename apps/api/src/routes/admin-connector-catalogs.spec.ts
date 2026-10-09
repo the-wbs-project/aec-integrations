@@ -192,8 +192,8 @@ describe('PATCH …/connector-catalogs/:id — freezing the review lane', () => 
     await seedVendor();
     await patch(CATALOG_ID, { managedBy: 'vendor', vendorId: VENDOR });
 
-    // The whole point of §8.9(2): handing over catalogue authorship must not light the
-    // public account label, and `vendors.verified` mirrors off ANY active entitlement row.
+    // The whole point of §8.9(2): handing over catalogue authorship must not flip the
+    // public `verified` mirror, which mirrors off ANY active entitlement row.
     const vendorRow = (await t.db.select().from(vendors).where(eq(vendors.id, VENDOR)))[0];
     expect(vendorRow?.verified).toBe(false);
     expect(await t.db.select().from(profiles).where(eq(profiles.vendorId, VENDOR))).toHaveLength(0);

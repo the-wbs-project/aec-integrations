@@ -25,8 +25,8 @@
  * guarded `WHERE verified = <old>` — so a second-seat grant, a renewal, and a
  * drifted self-heal all leave it alone (no needless nightly Algolia re-push), while a
  * real flip in EITHER direction bumps it. The un-verify direction is the one AECI-529
- * never reasoned about: without the bump, a lapsed vendor keeps an active-account label in
- * search indefinitely.
+ * never reasoned about: without the bump, a lapsed vendor keeps `verified: true` on its
+ * Algolia record indefinitely.
  *
  * ── NO WORKFLOW ROW ────────────────────────────────────────────────────────────
  * Entitlement changes write no `workflow_instances` row. `workflow_instances_type_check`

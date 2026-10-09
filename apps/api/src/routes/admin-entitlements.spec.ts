@@ -7,8 +7,8 @@
  *
  *   1. **`vendors.updated_at` moves on BOTH the set and the clear.** The un-verify
  *      direction is the one AECI-529 never reasoned about: the nightly Algolia sync is
- *      watermark-driven, so a clear that forgets the stamp leaves an active-account label in
- *      search indefinitely (R2). A renew, which does NOT move the mirror, must equally
+ *      watermark-driven, so a clear that forgets the stamp leaves `verified: true` on the
+ *      Algolia record indefinitely (R2). A renew, which does NOT move the mirror, must equally
  *      NOT move the watermark.
  *   2. **No `workflow_instances` row, ever.** `workflow_instances_type_check` is a
  *      closed CHECK and §1.2 settles entitlement changes as audit-only, permanently.
@@ -235,9 +235,9 @@ describe('PATCH …/entitlement — set', () => {
     expect(((await res.json()) as { error: { code: string } }).error.code).toBe(
       'VALIDATION_FAILED',
     );
-    // The badge would have lit (status `active` mirrors) while `tierFor` resolved the
-    // row to the Free capabilities every seat already holds (AECI-1214) — a vendor
-    // billed for a badge that unlocks nothing.
+    // The mirror would have flipped (status `active` mirrors) while `tierFor` resolved
+    // the row to the Free capabilities every seat already holds (AECI-1214) — a vendor
+    // billed for a plan that unlocks nothing.
     expect((await readVendor()).verified).toBe(false);
     expect(await t.db.select().from(vendorEntitlements)).toHaveLength(0);
     // No metric: rejected before the handler, so nothing counts it as an attempt.
@@ -452,8 +452,8 @@ describe('cache purge', () => {
     expect((await patch(VENDOR, { action: 'set' }, envWithQueue(send))).status).toBe(200);
     await vi.waitFor(() => expect(send).toHaveBeenCalled());
 
-    // Purging only `vendor:{slug}` would leave a stale badge on every cached product
-    // page — the badge renders on the product-detail vendor card and both pair rails.
+    // Purging only `vendor:{slug}` would leave stale claim copy on every cached product
+    // page, which reads the built-by vendor's `verified` for its claim button.
     expect(firstMessage(send)).toEqual({
       tags: ['vendor:autodesk', 'product:revit', 'index:products'],
       source: 'moderation',

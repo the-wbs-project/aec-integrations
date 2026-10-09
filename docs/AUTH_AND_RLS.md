@@ -230,11 +230,13 @@ and the `vendors.verified` flip into the **same** batch (§4.3).
 `POST /api/admin/vendors/:id/seats` writes the seat — `role`, `vendor_id`, `seat_owner` — and
 its `audit_log` row, in one `db.batch`, through `provisionSeatStatements` in the same module.
 It contributes **no** entitlement row and emits **no statement naming `vendors`**, so the
-mirror and the badge are untouched. That is not an oversight: `STAGE_2_SPEC.md` §8.9 gives a
+mirror is untouched. That is not an oversight: `STAGE_2_SPEC.md` §8.9 gives a
 pure **connector** vendor a catalogue-maintenance seat and never sells it verification, and
 because `vendors.verified` mirrors off `status = 'active'` rather than `tier`, *any*
-entitlement row would light the badge — so "a seat but no badge" had to be built outside the
-entitlement table entirely. The two paths are held apart by
+entitlement row would flip the public `verified` mirror. So "a seat but no `verified`" had to be
+built outside the entitlement table entirely. (This read "light the badge" until AECI-1264
+removed the public badge on 2026-10-09. The mirror still drives the claim button copy and the
+version-diff gate.) The two paths are held apart by
 `apps/api/src/routes/vendor-admin-role-writers.spec.ts`, which asserts at the source level
 that `vendor_admin` has exactly two writers (both `lib/` batch builders) and that no module
 composes `provisionSeatStatements` with `activateEntitlementStatements`.
@@ -298,8 +300,8 @@ vendor keeps portal access, read-only — reads still return 200 and writes 403
 `ENTITLEMENT_REQUIRED`. There are therefore **three orthogonal "take it away" actions**, and
 confusing them is a foreseeable incident: **ban a seat** (one `profiles` row, that seat 403s,
 mirror untouched), **revoke a seat** (one `profiles` row, drops to `reviewer`, mirror
-untouched), and **clear an entitlement** (vendor-level, badge goes away,
-seats and logins survive). Banning or revoking one abusive seat leaves the vendor
+untouched), and **clear an entitlement** (vendor-level, mirror cleared and
+Managed access ends, seats and logins survive). Banning or revoking one abusive seat leaves the vendor
 verified and its other seats working. Grant and revoke each emit their `audit_log` row in the
 same batch (§4.3) and are fully reversible. **One qualification since AECI-989:** the admin
 revoke of a vendor's **last** seat also hands its record back to AECi in the same batch. The
@@ -751,7 +753,8 @@ backwards:
   `assertVerifiedVendor()`, a one-function stand-in that read the
   `vendors.verified` mirror and answered `403 FORBIDDEN`. That stand-in is
   deleted. No authorization decision reads the mirror any more; it survives only
-  for rendering (the public account badge, the version-diff depth gate). The
+  for rendering: the claim button copy and the version-diff depth gate. (The
+  public account badge read it too until AECI-1264 removed it on 2026-10-09.) The
   same capability gates the three attestation writes on `/api/vendor/claims*`.
 
 Two rejection cells are deliberate and easy to get wrong:

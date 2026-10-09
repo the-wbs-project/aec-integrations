@@ -5,7 +5,7 @@
  * product decision, not behaviour, and must not be deleted without reopening the
  * spec:
  *
- *   **The cron warns; it never lapses.** Auto-lapse would strip a badge from a
+ *   **The cron warns; it never lapses.** Auto-lapse would strip Managed access from a
  *   paying customer over a data-entry mistake. So the job's batch may not mutate
  *   `status`, and may not touch `vendors` at all. That is asserted against the
  *   GENERATED SQL, because it is the only form of the claim that survives a
@@ -270,7 +270,7 @@ describe('§7.3 THE NON-NEGOTIABLE — the cron warns, it never lapses', () => {
     expect(row?.endedAt).toBeNull();
     expect(row?.expiryNoticeSentAt).toBe(NOW.toISOString());
 
-    // The Algolia watermark (R2) must not move: nothing about the badge changed.
+    // The Algolia watermark (R2) must not move: `verified` did not change.
     const vendor = await vendorOf();
     expect(vendor?.verified).toBe(true);
     expect(vendor?.updatedAt).toBe(OLD_TS);

@@ -17,8 +17,8 @@ import { Component, DestroyRef, inject, input, signal } from '@angular/core';
  *
  * A `title` attribute would be the cheap version and is deliberately not used:
  * it is not reliably keyboard-reachable, its screen-reader support is
- * inconsistent, and it cannot be styled. The account-status label uses one only
- * for supplemental context beside visible text; here the text is the only place
+ * inconsistent, and it cannot be styled. A `title` is acceptable only for
+ * supplemental context beside visible text; here the text is the only place
  * the information exists.
  *
  * ── WHY AN OVERLAY AND NOT A CSS TOOLTIP ─────────────────────────────────────

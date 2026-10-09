@@ -9,7 +9,7 @@
  * ── THE NON-NEGOTIABLE (§7.3) ───────────────────────────────────────────────────
  *
  * **This job never writes `status`, and never writes `vendors.verified`.** It warns;
- * it never lapses. Auto-lapse would strip a badge from a paying customer over a
+ * it never lapses. Auto-lapse would strip Managed access from a paying customer over a
  * data-entry mistake, and un-verify stays a deliberate admin act (§5). The only
  * column this module mutates on `vendor_entitlements` is `expiry_notice_sent_at`
  * (plus the row's own `updated_at`); it emits no statement against `vendors` at
@@ -351,7 +351,7 @@ export function expiryNoticeStatements(
       vendor_recipients: p.vendorRecipients,
       admin_notice: p.adminNotice,
       // Stated in the trail rather than left to be inferred: this row records a
-      // WARNING. No status moved, and no badge moved (§7.3).
+      // WARNING. No status moved, and `vendors.verified` did not move (§7.3).
       status_unchanged: true,
     },
   };

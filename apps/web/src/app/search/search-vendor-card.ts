@@ -10,8 +10,8 @@ import type { AlgoliaVendorRecord } from '@aeci/shared/algolia-records';
  * render as supporting text with em-dash empty states (the record nullable
  * fields mirror the `/vendors` table card). Both themes via tokens; strings
  * `$localize`-wrapped. The card carries no account-status label: AECI-1131
- * limited that label to the vendor detail hero, so the record's legacy `verified`
- * field is not read here.
+ * limited that label to the vendor detail hero, and AECI-1264 removed it there too
+ * (2026-10-09). The record's legacy `verified` field is not read here.
  */
 @Component({
   selector: 'aec-search-vendor-card',

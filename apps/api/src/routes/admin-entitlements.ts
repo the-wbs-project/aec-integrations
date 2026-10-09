@@ -34,9 +34,10 @@
  *
  * ── PURGE ───────────────────────────────────────────────────────────────────────
  * The FULL grant tag set via the shared `lib/vendor-cache-tags.ts`, not just
- * `vendor:{slug}`: the account-status label renders on the vendor hero, the product-detail
- * vendor card and both pair rails, so a vendor-only purge leaves a stale badge on
- * every cached product page (§5.3).
+ * `vendor:{slug}`: `vendors.verified` drives the claim button copy on the vendor page and
+ * every owned product page, and the version-diff gate on every pair page, so a
+ * vendor-only purge leaves stale claim copy on every cached product page (§5.3). Until
+ * AECI-1264 (2026-10-09) it also drove the public account badge, which is gone.
  *
  * ── THE THREE ORTHOGONAL "TAKE IT AWAY" ACTIONS (§5.2) ──────────────────────────
  * Clearing an entitlement is NOT a seat revoke and NOT a ban. Seats, logins and the
@@ -212,9 +213,8 @@ export function createSetVendorEntitlementHandler(
 
     // ── 2. Guardrails ────────────────────────────────────────────────────────
     // Never sell a tier that unlocks nothing. An `active` row flips the
-    // `vendors.verified` mirror and lights the badge (§2.1), so a row at a tier that
-    // grants nothing beyond what every seat already holds is a vendor billed for a
-    // badge that unlocks nothing.
+    // `vendors.verified` mirror (§2.1), so a row at a tier that grants nothing beyond
+    // what every seat already holds is a vendor billed for a plan that unlocks nothing.
     //
     // "Nothing beyond what every seat holds", not "no capabilities": since AECI-1214
     // the Free plan (`unclaimed`) holds company details and the four `listing_tier`
@@ -400,10 +400,10 @@ export function createSetVendorEntitlementHandler(
 
     // ── 8. Post-commit, best-effort ──────────────────────────────────────────
     // Purge on `set` / `clear` — the two actions whose batch carries a `vendors`
-    // statement and can therefore change a rendered badge. `renew` is skipped because
+    // statement and can therefore change rendered claim copy. `renew` is skipped because
     // it provably cannot: its builder emits no `vendors` statement at all. Not gated
     // on `verifiedFlipped`: on a drifted vendor a redundant purge costs one cache
-    // miss, while a missed purge leaves a wrong badge on every cached product page.
+    // miss, while a missed purge leaves wrong claim copy on every cached product page.
     if (action !== 'renew') {
       const tags = await vendorPurgeTags(db, vendor);
       c.executionCtx.waitUntil(purgeEntitlementTags(c, tags));

@@ -2119,8 +2119,7 @@ describe('entitlement expiry templates', () => {
     );
 
     const text = String(lastBody(fetchSpy).text);
-    // It says the opposite, explicitly. This matches the public account label
-    // tooltip and the claim-approved email.
+    // It says the opposite, explicitly. This matches the claim-approved email.
     expect(text).toContain("doesn't affect search ranking or placement");
     expect(text).toContain('does not verify product quality or integration accuracy');
   });

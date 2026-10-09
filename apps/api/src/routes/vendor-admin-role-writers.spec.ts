@@ -9,8 +9,8 @@
  * ── WHY IT IS WORTH A TEST ───────────────────────────────────────────────────
  * `vendors.verified` is a denormalized mirror of `vendor_entitlements` that flips
  * on `status = 'active'` — **not on `tier`** (`lib/vendor-entitlement.ts`). So
- * *any* active entitlement row turns on the public account label, whatever it contains,
- * and "a seat but no badge" is not expressible through the entitlement table at
+ * *any* active entitlement row flips the public `verified` mirror, whatever it contains,
+ * and "a seat but no `verified`" is not expressible through the entitlement table at
  * all. §8.9(1) says a pure connector vendor is **never** sold verification; §8.9(2)
  * therefore fences its seat off from `vendor_entitlements` entirely.
  *
@@ -19,9 +19,9 @@
  * somebody comparing the two seat paths will notice the provision route "forgets"
  * the entitlement and add it. That change compiles, passes every behavioural
  * test that does not specifically look for the absence, and silently hands a
- * connector vendor the badge the carve-out says they will never be sold —
- * through a one-way door, since withdrawing a badge costs more than never
- * granting one (§8.8(2)).
+ * connector vendor the Managed plan the carve-out says they will never be sold —
+ * through a one-way door, since withdrawing paid status costs more than never
+ * granting it (§8.8(2)).
  *
  * Asserted over module SOURCE rather than behaviour for the same reason
  * `banned-at-writers.spec.ts` is: there is no test you can write against a

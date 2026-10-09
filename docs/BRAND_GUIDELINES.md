@@ -131,7 +131,7 @@ A small set of cross-cutting principles. Component-level implementation lives in
 - **No pure black for text.** Use Ink `#0F1419` (light theme) or the theme's `--text-primary` token. Pure black plus pure white is harsher than the near-black/near-white pairings the design system already provides.
 - **No emoji in UI chrome.** Use Lucide icons exclusively. Emoji rendering is inconsistent across platforms and clashes with the editorial brand.
 - **No stock photography of construction sites, hard hats, or blueprints.** The AEC software visual cliché. The brand is editorial — diagrams, screenshots, and original photography only.
-- **No pay-for-placement visual tells.** Paid vendor access uses a neutral account-status label. It never uses verification iconography, endorsement color, or promoted treatment (`DESIGN.md` §Badges).
+- **No pay-for-placement visual tells.** Paid vendor access carries no public badge or label. The neutral account-status label was removed on 2026-10-09 (AECI-1264), and nothing replaces it. The claim button copy still reads the mirror, which is copy, not a badge. Never use verification iconography, endorsement color, or promoted treatment for a paying vendor (`DESIGN.md` §Badges).
 
 ---
 

@@ -465,8 +465,8 @@ export function revokeSeatStatements(db: Db, p: RevokeSeatParams): RevokeBatch {
  * ── WHAT IT DELIBERATELY DOES NOT DO ─────────────────────────────────────────
  * **No entitlement statement.** §8.9(2) is a fence, not a build: `vendors.verified`
  * mirrors off `status = 'active'`, not `tier` (`lib/vendor-entitlement.ts`), so
- * ANY active row turns on the public account label and "a seat but no label" is not
- * expressible through the entitlement table. The seat is therefore not an
+ * ANY active row flips the public `verified` mirror, and "a seat but no `verified`" is
+ * not expressible through the entitlement table. The seat is therefore not an
  * entitlement row at all. `findVendorProfile` (`lib/authz.ts`) uses a `leftJoin`
  * precisely so this shape authenticates: the holder passes `requireVendor()` and
  * resolves to `unclaimed`, the Free capabilities only (AECI-1214).

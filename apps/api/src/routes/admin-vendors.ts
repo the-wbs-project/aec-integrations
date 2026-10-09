@@ -1020,7 +1020,7 @@ function emitSeatProvision(
  * statements in one `db.batch`.
  *
  * ── THE INVARIANT THIS ENDPOINT EXISTS TO HOLD ───────────────────────────────
- * **It opens no `vendor_entitlements` row, so the public account label never appears.**
+ * **It opens no `vendor_entitlements` row, so it never turns `vendors.verified` on.**
  * That is not a side effect of the implementation — it is the entire point.
  * §8.9(1) settled that a pure connector vendor is never sold verification and
  * gets a catalogue-maintenance seat instead; §8.9(2) proved every existing path

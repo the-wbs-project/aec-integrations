@@ -430,8 +430,8 @@ export async function checkAlgoliaDrift(
  * Guard 2 of the mirror. Guard 1 is the sole-writer ESLint rule; this is the one that
  * catches what lint structurally cannot: hand-written D1 SQL against a tier, the
  * `apps/datatool` worker (which binds all four tiers and can write prod D1), and — the
- * likely one — a backfill (§2.4) that ran on staging but not demo. Without it, "the
- * badge is missing on demo" is invisible until a human notices.
+ * likely one — a backfill (§2.4) that ran on staging but not demo. Without it, that
+ * drift is invisible until a human notices.
  *
  * A LEFT JOIN, not two subqueries: `vendor_entitlements_vendor_key` is UNIQUE, so
  * there is at most one row per vendor and no row multiplication — and joining
