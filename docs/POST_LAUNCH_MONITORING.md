@@ -464,6 +464,11 @@ once the PostHog join lands.
 | `TRENDING_LIMIT` | 5 | validated (top-5 well-separated: 17/17/17/12/12); raising it also requires bumping the `home.trending_products` Zod `.max(5)` cap in `@aeci/shared` **and** the web fallback `.slice(0, 5)` |
 | `TRENDING_MIN_VIEWS` | 3 | the honesty floor. **Since AECI-582 (2026-08-13) `computeTrendingProducts` filters on the digest's `HUMAN` predicate**, so the card and the operator's numbers rank the same population; before that it counted every view, and crawlers dominate — of 1,121 product views in the trailing 7 days, only **74** were human, so the card was ranking products by how hard they were being scraped. Consequence: the floor is **no longer inert**. On the day the filter landed exactly 9 products cleared it on human views (8/8/5/4/4/3/3/3/3) — enough to fill the top-5, but a quiet week now falls back to recently-added. Lower it if that fallback starts firing at healthy traffic |
 
+**Population change (AECI-929).** Since the switch date in `ADMIN_PANEL_SPEC.md` §7.3, a view of an
+integration pair page counts toward BOTH endpoint products, in trending and in the digest's top-products
+table. Expect more products to clear `TRENDING_MIN_VIEWS` than before that date. The digest prints
+"Includes integration-page views from <date>." under its table so a cross-date comparison is not misread.
+
 Deferred to the AECI-280 ~30d follow-up: the PostHog-join weighting + recency decay, and the
 card-resonance/swap review once PostHog + RUM have real volume.
 

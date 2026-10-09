@@ -2068,6 +2068,34 @@ export const pageViews = sqliteTable(
     productId: text('product_id').references(() => products.id),
     vendorId: text('vendor_id').references(() => vendors.id),
 
+    // The two endpoint products of an integration PAIR page (AECI-929 /
+    // `ADMIN_PANEL_SPEC.md` §13 D25). A pair page is about two products and
+    // `product_id` holds one, so pair rows used to store no product at all and every
+    // pair-page view and crawl went unattributed. `product_id` stays NULL on these
+    // rows, which keeps the product/vendor XOR readers in `lib/admin-analytics.ts`
+    // correct.
+    //
+    // An UNORDERED pair stored in a canonical order: the lower id (BINARY `<`) in
+    // `_a`. Both URL orientations of one pair therefore land on the same two
+    // values. When only one slug resolved, it sits in `_a`; readers never rely on
+    // position and probe both columns.
+    //
+    // Product ids, never an integration row id. A delivered edge can move between
+    // `integrations` and `connector_evidenced_pairs` (AECI-888), and a pair page
+    // with no edge at all still renders (noindex, not 404), so no edge row is a
+    // stable key for "this pair page".
+    //
+    // Derived at INGEST from `concrete_path` (`parsePairPagePath` in `@aeci/shared`),
+    // not sent by the writer. That covers the SSR arrival, the browser tracker's SPA
+    // hop and crawler fetches with one rule. An unknown slug stores NULL on that side
+    // and the row is still written.
+    //
+    // FKs to `products`, like `product_id`, so retraction must clear them:
+    // `lib/retract-product.ts` NULLs the matching side and KEEPS the row (detach,
+    // never delete), so the surviving endpoint keeps its credit for the view.
+    pairProductAId: text('pair_product_a_id').references(() => products.id),
+    pairProductBId: text('pair_product_b_id').references(() => products.id),
+
     // Which taxonomy term a facet browse page showed (AECI-585 / §7.3). The SSR
     // resolvers have always sent `entity_type: 'category'|'audience'|'phase'|'trade'`
     // plus the term id; ingest used to drop them, so ~600 rows could say a taxonomy
@@ -2276,6 +2304,17 @@ export const pageViews = sqliteTable(
     index('page_views_product_idx')
       .on(t.productId, t.createdAt)
       .where(sql`"product_id" IS NOT NULL`),
+    // AECI-929 — one per pair column, mirroring `page_views_product_idx`. Two, not
+    // one composite: a per-product read must find the product on EITHER side, and
+    // a composite leading on `_a` cannot serve the `_b` probe. PARTIAL for the same
+    // write-cost reason as `page_views_operator_pair_idx` below: only pair-page
+    // rows pay for an index entry.
+    index('page_views_pair_a_idx')
+      .on(t.pairProductAId, t.createdAt)
+      .where(sql`"pair_product_a_id" IS NOT NULL`),
+    index('page_views_pair_b_idx')
+      .on(t.pairProductBId, t.createdAt)
+      .where(sql`"pair_product_b_id" IS NOT NULL`),
     // Serves the digest's human/bot split + crawler grouping over a day window.
     index('page_views_bot_idx').on(t.isBot, t.createdAt),
     // Serves the operator-pair retro-join (AECI-683): `NOT_INTERNAL`'s correlated

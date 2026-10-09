@@ -53,7 +53,9 @@
  * UTC-only / DST-unaware (see `scheduled.ts`), so bucketing the day in UTC avoids a
  * DST off-by-one; the email labels the window as UTC. Sources:
  *   - human page views + top products: `page_views` where `is_bot IS NOT 1`, minus
- *     the operator-only paths (below).
+ *     the operator-only paths (below). Top products also count the integration
+ *     pair pages a product is an endpoint of (AECI-929), from
+ *     {@link PAIR_ATTRIBUTION_STARTS_ON}.
  *   - crawler activity: `page_views` where `is_bot = 1`, grouped by `bot_name`.
  *   - new users: `profiles.created_at` (a profile row is created on first sign-in).
  *   - total users: cumulative `COUNT(profiles)`.
@@ -84,6 +86,7 @@ import {
   OPERATOR_PAIR_LOOKBACK_DAYS,
   OPERATOR_PAIR_MATCH,
 } from './page-view-predicates';
+import { productAttributedViews } from './product-attributed-views';
 import { NAMED_REFERRER_SOURCES } from './referrer-classification';
 import {
   detectSwarms,
@@ -263,6 +266,21 @@ export interface AnalyticsMetrics {
 const TOP_PRODUCTS_LIMIT = 5;
 
 /**
+ * The first UTC day whose `page_views` rows carry pair-page attribution
+ * (AECI-929 / `ADMIN_PANEL_SPEC.md` §7.3). Before it, a view of an integration
+ * pair page counted for neither endpoint, so a top-products table spanning it
+ * compares two different populations. Both renderings print it under the table.
+ *
+ * Set to the production deploy date of migration 0067. The backfill
+ * (`scripts/ops/2026-10-pair-page-view-backfill/`) can move earlier rows into the
+ * population, but it has not run on production, so this date stands until it does.
+ */
+export const PAIR_ATTRIBUTION_STARTS_ON = '2026-10-09';
+
+/** The caption both renderings print under the top-products table. */
+export const PAIR_ATTRIBUTION_NOTE = `Includes integration-page views from ${PAIR_ATTRIBUTION_STARTS_ON}.`;
+
+/**
  * Is this window's arrival telemetry too sparse for the network-based exclusions
  * to have meant anything (AECI-869)?
  *
@@ -351,27 +369,35 @@ async function countNewProfiles(db: Db, startIso: string, endIso: string): Promi
   return row?.value ?? 0;
 }
 
-/** Top products by HUMAN `page_views` in `[startIso, endIso)`, joined to `products`. */
+/**
+ * Top products by HUMAN `page_views` in `[startIso, endIso)`, joined to `products`.
+ *
+ * A product's views include the integration pair pages it is an endpoint of, so
+ * one pair-page view counts for both products (AECI-929, `productAttributedViews`).
+ * The caller's predicates run once, inside that helper's CTE, so `notFlagged`'s
+ * parameter list is bound once rather than per attribution column.
+ */
 async function topProductsByViews(
   db: Db,
   startIso: string,
   endIso: string,
   exclusion?: AutomationExclusion,
 ): Promise<TopProduct[]> {
+  const av = productAttributedViews(
+    db,
+    and(
+      gte(pageViews.createdAt, startIso),
+      lt(pageViews.createdAt, endIso),
+      HUMAN,
+      NOT_INTERNAL,
+      notFlagged(exclusion),
+    ),
+  );
   const rows = await db
+    .with(av.cte)
     .select({ name: products.name, slug: products.slug, views: count() })
-    .from(pageViews)
-    .innerJoin(products, eq(pageViews.productId, products.id))
-    .where(
-      and(
-        gte(pageViews.createdAt, startIso),
-        lt(pageViews.createdAt, endIso),
-        isNotNull(pageViews.productId),
-        HUMAN,
-        NOT_INTERNAL,
-        notFlagged(exclusion),
-      ),
-    )
+    .from(av.views)
+    .innerJoin(products, eq(av.productId, products.id))
     .groupBy(products.id)
     // A count tie reads A to Z, then id, so the cut at the limit is stable
     // (AECI-1243).
@@ -1112,6 +1138,8 @@ function buildText(metrics: AnalyticsMetrics, opts: AnalyticsDigestOptions): str
     topProducts.forEach((p, i) =>
       t.push(`  ${i + 1}. ${p.name} — ${plural(p.views, 'view')} (/${p.slug})`),
     );
+    // AECI-929. Under the list, because it qualifies every number in it.
+    t.push(`  (${PAIR_ATTRIBUTION_NOTE})`);
   } else {
     t.push('Most viewed product: (no unresolved product page views)');
   }
@@ -1342,7 +1370,9 @@ function buildHtml(metrics: AnalyticsMetrics, opts: AnalyticsDigestOptions): str
           'Product',
           'Views',
           topProducts.map((p) => ({ label: productLabel(p), count: p.views })),
-        )
+        ) +
+        // AECI-929. Under the table, because it qualifies every number in it.
+        `<p style="margin:6px 0 0;font-size:13px;color:${HTML.muted}">${escapeHtml(PAIR_ATTRIBUTION_NOTE)}</p>`
       : emptyNote('No human product page views.'));
 
   const referrersSection =

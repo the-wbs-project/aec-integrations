@@ -47,20 +47,7 @@ import {
   type AdminTrafficPopulation,
   type AdminWindow,
 } from '@aeci/shared';
-import {
-  and,
-  asc,
-  count,
-  desc,
-  eq,
-  gte,
-  isNotNull,
-  isNull,
-  lt,
-  lte,
-  sql,
-  type SQL,
-} from 'drizzle-orm';
+import { and, asc, count, desc, eq, gte, isNull, lt, lte, sql, type SQL } from 'drizzle-orm';
 import type { AnySQLiteColumn } from 'drizzle-orm/sqlite-core';
 
 import type { Db } from '../db/client';
@@ -102,6 +89,7 @@ import { textAsc } from './collation';
 import { resolveRequestTargets } from './drizzle-helpers';
 import { excludeInternalAsns, parseInternalAsns } from './internal-asns';
 import { liveEvidencedPairWhere, liveIntegrationWhere } from './live-integration';
+import { productAttributedViews } from './product-attributed-views';
 import { likeContains } from './sql-like';
 
 const DAY_MS = 86_400_000;
@@ -812,38 +800,41 @@ export async function breakdown(
   const offset = (page - 1) * perPage;
 
   if (dimension === 'product') {
-    const withProduct = and(base, isNotNull(pageViews.productId));
-    const rows = await db
-      .select({ id: products.id, name: products.name, slug: products.slug, views: count() })
-      .from(pageViews)
-      .innerJoin(products, eq(pageViews.productId, products.id))
-      .where(withProduct)
-      .groupBy(products.id)
-      .orderBy(desc(count()), asc(products.id))
+    // AECI-929 (§13 D25): a product's views include the integration pair pages it
+    // is an endpoint of, so a pair-page view counts once for EACH endpoint. The
+    // window total is still a count of rows, so on this dimension the groups can
+    // sum past it by the number of pair rows; product views were never the whole
+    // window anyway (a vendor or browse page names no product).
+    const attributed = (where: SQL | undefined) => {
+      const av = productAttributedViews(db, where);
+      return {
+        av,
+        grouped: db
+          .with(av.cte)
+          .select({ id: products.id, name: products.name, slug: products.slug, views: count() })
+          .from(av.views)
+          .innerJoin(products, eq(av.productId, products.id))
+          .groupBy(products.id),
+      };
+    };
+    const rows = await attributed(base)
+      .grouped.orderBy(desc(count()), asc(products.id))
       .limit(perPage)
       .offset(offset);
 
     const filtered = filter.applied
-      ? new Map(
-          (
-            await db
-              .select({ id: products.id, views: count() })
-              .from(pageViews)
-              .innerJoin(products, eq(pageViews.productId, products.id))
-              .where(and(withProduct, filter.predicate))
-              .groupBy(products.id)
-          ).map((r) => [r.id, r.views]),
-        )
+      ? new Map((await attributed(and(base, filter.predicate)).grouped).map((r) => [r.id, r.views]))
       : null;
 
+    const groupAv = productAttributedViews(db, base);
     const [groupRow] = await db
+      .with(groupAv.cte)
       .select({ value: count() })
       .from(
         db
           .select({ id: products.id })
-          .from(pageViews)
-          .innerJoin(products, eq(pageViews.productId, products.id))
-          .where(withProduct)
+          .from(groupAv.views)
+          .innerJoin(products, eq(groupAv.productId, products.id))
           .groupBy(products.id)
           .as('g'),
       );

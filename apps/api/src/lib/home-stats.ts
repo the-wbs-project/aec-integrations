@@ -75,6 +75,7 @@ import {
 import { textAsc } from './collation';
 import { liveEvidencedPairWhere, liveIntegrationWhere } from './live-integration';
 import { HUMAN, NOT_INTERNAL } from './page-view-predicates';
+import { productAttributedViews } from './product-attributed-views';
 import { COUNTED_REVIEW_STATUS } from './recompute-counts';
 import {
   connectorEvidencedPairListConfig,
@@ -349,8 +350,8 @@ export async function computeRecentIntegrations(db: Db): Promise<IntegrationList
 
 export async function computeTrendingProducts(db: Db, now: Date): Promise<ProductListItem[]> {
   // Top products by page-view volume in the last `TRENDING_WINDOW_DAYS`, ranked
-  // `desc(count())` with `productId` ascending as a deterministic tiebreak. Null
-  // `product_id` rows (non-product paths) are excluded, and the `HAVING` floor drops
+  // `desc(count())` with `productId` ascending as a deterministic tiebreak. Rows that
+  // name no product (non-product paths) are excluded, and the `HAVING` floor drops
   // any product below `TRENDING_MIN_VIEWS` so 1–2-view noise is never called
   // "trending" (AECI-280 / Phase 8.2). Fewer than `TRENDING_LIMIT` clearing the floor
   // → fewer shown; none clearing it → `[]`, and the home UI falls back to recently-added.
@@ -364,25 +365,28 @@ export async function computeTrendingProducts(db: Db, now: Date): Promise<Produc
   // `NOT_INTERNAL` is imported for the same reason, and specifically for its
   // `is_operator` half (§13 D13). `ADMIN_PANEL_SPEC.md` D12 recorded this query as
   // immune to the `/admin/*` exclusion, correctly: an admin-path row carries no
-  // `product_id`, so `isNotNull` already dropped it. That reasoning does NOT extend
+  // `product_id`, and since AECI-929 no pair id either (an `/admin` path never
+  // parses as a pair page), so the attribution filter already drops it. That
+  // reasoning does NOT extend
   // to an operator SESSION, which lands on `/products/:slug` and carries the FK like
   // any other view. Without this the operator re-checking one product a few times
   // would rank it on the PUBLIC home page — `TRENDING_MIN_VIEWS` is 3, against a
   // human population of roughly 2,100 all-time views, so the floor is no protection.
+  //
+  // Since AECI-929 (§13 D25) a view of an integration pair page counts for BOTH of
+  // its endpoint products, through `productAttributedViews`. The tiebreak is the
+  // attributed id, still ascending BINARY.
+  const av = productAttributedViews(
+    db,
+    and(gte(pageViews.createdAt, sinceIso(now, TRENDING_WINDOW_DAYS)), HUMAN, NOT_INTERNAL),
+  );
   const groups = await db
-    .select({ productId: pageViews.productId, value: count() })
-    .from(pageViews)
-    .where(
-      and(
-        gte(pageViews.createdAt, sinceIso(now, TRENDING_WINDOW_DAYS)),
-        isNotNull(pageViews.productId),
-        HUMAN,
-        NOT_INTERNAL,
-      ),
-    )
-    .groupBy(pageViews.productId)
+    .with(av.cte)
+    .select({ productId: av.productId, value: count() })
+    .from(av.views)
+    .groupBy(av.productId)
     .having(sql`count(*) >= ${TRENDING_MIN_VIEWS}`)
-    .orderBy(desc(count()), asc(pageViews.productId))
+    .orderBy(desc(count()), asc(av.productId))
     .limit(TRENDING_LIMIT);
   const ids = groups.map((g) => g.productId).filter((id): id is string => id !== null);
   if (ids.length === 0) return []; // no product clears the floor — expected, not a failure

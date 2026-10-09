@@ -113,7 +113,17 @@ Aggregate only. No individual browsing trail, no visitor-attributed search text,
 
 ### 3.1 Pair-page attribution on `page_views` — AECI-929
 
-The contract is the issue. Summary: two nullable product columns holding the pair's endpoints as an **unordered pair** (canonical order), keyed on product ids and never on an integration row id (edges move between `integrations` and `connector_evidenced_pairs`; a pair page with no edge still renders). `product_id` stays NULL on pair rows so the existing XOR readers hold. Partial index mirroring `page_views_product_idx`. Retraction deletes pair rows referencing either endpoint. One-time `concrete_path` backfill under `scripts/ops/`, not run against production inside that issue. `home.trending_products` and the admin product breakdown count pair views for both endpoints.
+The contract is the issue. Summary: two nullable product columns holding the pair's endpoints as an **unordered pair** (canonical order), keyed on product ids and never on an integration row id (edges move between `integrations` and `connector_evidenced_pairs`; a pair page with no edge still renders). `product_id` stays NULL on pair rows so the existing XOR readers hold. Partial index mirroring `page_views_product_idx`. Retraction NULLs the side that names the retracted endpoint and keeps the row, so the other endpoint keeps the view. One-time `concrete_path` backfill under `scripts/ops/`, not run against production inside that issue. `home.trending_products` and the admin product breakdown count pair views for both endpoints.
+
+**As built (AECI-929, `ADMIN_PANEL_SPEC.md` §13 D25).**
+
+- Columns `page_views.pair_product_a_id` and `pair_product_b_id`, migration `0067`. Lower id first, compared BINARY. A side whose slug did not resolve is NULL, and a lone resolved id sits in `_a`.
+- Two partial indexes, `page_views_pair_a_idx` and `page_views_pair_b_idx`. A per-product read probes both sides, so §5's aggregates read three indexes, not two.
+- Ingest derives both ids from `concrete_path`. The pair resolver still sends only the route. This covers SSR arrivals, SPA hops and crawler rows alike.
+- Retraction detaches and never deletes, as stated above. The issue text said "delete"; Chris ruled detach on 2026-10-09.
+- Per-product readers go through `apps/api/src/lib/product-attributed-views.ts`, which counts a pair view once per endpoint.
+- **The vendor-total rule is not built.** No reader groups `page_views` by vendor yet. Rule 5 in §2 ("once in the vendor's total even when the vendor owns both endpoints") belongs to AECI-941, which builds that read. Counting `productAttributedViews` rows per vendor would count such a pair twice.
+- The switch date and the backfill status live in `ADMIN_PANEL_SPEC.md` §7.3. That date is the boundary `pair_attribution_starts_at` reports.
 
 ### 3.2 Outbound-click ownership — AECI-933
 

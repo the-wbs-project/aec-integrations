@@ -486,6 +486,105 @@ describe('POST /api/page-views — AECI-585 ingest fixes', () => {
  * table in that day's digest. The guard is a `dedupe_key` carrying a floored time
  * bucket, backed by a UNIQUE index.
  */
+describe('pair-page attribution (AECI-929 / §13 D25)', () => {
+  const PAIR_ROUTE = '/products/:contextSlug/integrations/:otherSlug';
+  // u(1) < u(2) in a BINARY order, so u(1) is always side A.
+  beforeEach(async () => {
+    await t.db.insert(products).values([
+      { id: u(1), slug: 'procore', name: 'Procore', promotionStatus: 'promoted' },
+      { id: u(2), slug: 'autodesk-docs', name: 'Autodesk Docs', promotionStatus: 'promoted' },
+    ]);
+  });
+
+  async function onlyRow() {
+    const rows = await t.db.select().from(pageViews);
+    expect(rows).toHaveLength(1);
+    return rows[0]!;
+  }
+
+  it.each([
+    ['/products/procore/integrations/autodesk-docs'],
+    ['/products/autodesk-docs/integrations/procore'],
+  ])('stores both endpoints in canonical order for an SSR arrival at %s', async (path) => {
+    const { res, settle } = post({ route: PAIR_ROUTE, path, navigation: 'arrival' });
+    expect((await res).status).toBe(204);
+    await settle();
+    const row = await onlyRow();
+    expect([row.pairProductAId, row.pairProductBId]).toEqual([u(1), u(2)]);
+    // `product_id` stays NULL, so the product/vendor XOR readers are unchanged.
+    expect(row.productId).toBeNull();
+    expect(row.path).toBe(PAIR_ROUTE);
+  });
+
+  it.each([
+    ['/products/procore/integrations/autodesk-docs'],
+    ['/products/autodesk-docs/integrations/procore'],
+  ])('stores both endpoints for an SPA hop to %s, which sends only the route', async (route) => {
+    const { res, settle } = post({ route, navigation: 'spa' });
+    expect((await res).status).toBe(204);
+    await settle();
+    const row = await onlyRow();
+    expect([row.pairProductAId, row.pairProductBId]).toEqual([u(1), u(2)]);
+    expect(row.navigation).toBe('spa');
+  });
+
+  it('stores both endpoints for a pair with no delivered edge', async () => {
+    // No `integrations` or `connector_evidenced_pairs` row exists for this pair at
+    // all. The page still renders (noindex, not 404), so the view still counts.
+    const { res, settle } = post({
+      route: PAIR_ROUTE,
+      path: '/products/procore/integrations/autodesk-docs',
+    });
+    expect((await res).status).toBe(204);
+    await settle();
+    const row = await onlyRow();
+    expect([row.pairProductAId, row.pairProductBId]).toEqual([u(1), u(2)]);
+  });
+
+  it('stores NULL for a slug that does not resolve, and still writes the row', async () => {
+    const { res, settle } = post({
+      route: PAIR_ROUTE,
+      path: '/products/ghost/integrations/autodesk-docs',
+    });
+    expect((await res).status).toBe(204);
+    await settle();
+    const row = await onlyRow();
+    // The lone resolved id takes side A; readers probe both sides.
+    expect([row.pairProductAId, row.pairProductBId]).toEqual([u(2), null]);
+    expect(row.concretePath).toBe('/products/ghost/integrations/autodesk-docs');
+  });
+
+  it('attributes a crawler fetch of a pair page, beside is_bot and bot_name', async () => {
+    const { res, settle } = post(
+      {
+        route: PAIR_ROUTE,
+        path: '/products/autodesk-docs/integrations/procore',
+        navigation: 'arrival',
+      },
+      { 'user-agent': 'Mozilla/5.0 (compatible; GPTBot/1.2; +https://openai.com/gptbot)' },
+    );
+    expect((await res).status).toBe(204);
+    await settle();
+    const row = await onlyRow();
+    expect(row.isBot).toBe(true);
+    expect(row.botName).toBe('GPTBot (OpenAI)');
+    expect([row.pairProductAId, row.pairProductBId]).toEqual([u(1), u(2)]);
+  });
+
+  it('leaves both NULL on a non-pair path and reads no slug for it', async () => {
+    // No UA (so no duplicate probe), no entity, no cookie: with the pair lookup
+    // skipped too, ingest issues no SELECT at all before its insert.
+    const select = vi.spyOn(t.db, 'select');
+    const { res, settle } = post({ route: '/products/procore' });
+    expect((await res).status).toBe(204);
+    await settle();
+    expect(select).not.toHaveBeenCalled();
+    select.mockRestore();
+    const row = await onlyRow();
+    expect([row.pairProductAId, row.pairProductBId]).toEqual([null, null]);
+  });
+});
+
 describe('writer provenance (AECI-871 / \u00a713 D18)', () => {
   /** What the browser tracker's POST looks like once the SSR passthrough has
    *  stamped it: the browser's own same-origin fetch headers plus our stamp. */
