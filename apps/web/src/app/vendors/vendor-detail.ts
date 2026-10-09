@@ -5,6 +5,7 @@ import { map } from 'rxjs';
 
 import type { ProductListItem, VendorDetail } from '@aeci/shared';
 
+import type { ExternalLinkContext } from '../analytics/analytics';
 import { ExternalLinkTracker } from '../analytics/external-link-tracker';
 import { DetailLayout } from '../layouts/detail-layout';
 import { NotFound } from '../not-found/not-found';
@@ -146,6 +147,7 @@ type SocialKey = 'linkedin' | 'x' | 'youtube' | 'facebook' | 'instagram';
                 target="_blank"
                 rel="noopener noreferrer nofollow"
                 aecTrackExternalLink="vendor_detail"
+                [aecLinkContext]="linkContexts()!.website"
                 class="inline-flex items-center gap-2 rounded-(--radius-md)
                   border border-(--border-strong) bg-(--accent-primary)
                   px-4 py-2 text-sm font-bold text-(--surface-base) no-underline
@@ -198,6 +200,7 @@ type SocialKey = 'linkedin' | 'x' | 'youtube' | 'facebook' | 'instagram';
                     target="_blank"
                     rel="noopener noreferrer nofollow"
                     aecTrackExternalLink="vendor_detail_social"
+                    [aecLinkContext]="linkContexts()!.social"
                     class="inline-flex h-9 w-9 items-center justify-center rounded-(--radius-sm)
                       border border-(--border-default) bg-(--surface-raised) text-(--text-secondary)
                       transition-colors hover:border-(--border-strong) hover:text-(--accent-primary)
@@ -588,6 +591,28 @@ export class VendorDetailPage {
         aria: $localize`:@@vendors.detail.social.aria:${this.socialLabels[key]}:PLATFORM: (opens in a new tab)`,
         path: this.socialPaths[key],
       }));
+  });
+
+  /**
+   * Ownership facts for the hero's outbound clicks (AECI-933). The vendor owns its
+   * own website and social profiles, so the owner is always this vendor.
+   */
+  protected readonly linkContexts = computed<{
+    website: ExternalLinkContext;
+    social: ExternalLinkContext;
+  } | null>(() => {
+    const v = this.vendor();
+    if (!v) return null;
+    const base = {
+      owner_vendor_id: v.id,
+      link_origin: 'vendor',
+      source_entity_type: 'vendor',
+      source_entity_id: v.id,
+    } as const;
+    return {
+      website: { ...base, link_purpose: 'website' },
+      social: { ...base, link_purpose: 'social' },
+    };
   });
 
   protected readonly hqAria = computed(() => {

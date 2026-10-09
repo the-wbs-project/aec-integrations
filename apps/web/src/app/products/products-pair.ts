@@ -4,7 +4,7 @@ import { toSignal } from '@angular/core/rxjs-interop';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { map } from 'rxjs';
 
-import { distinctDataObjectSlugs, isHttpUrl } from '@aeci/shared';
+import { canonicalPairIds, distinctDataObjectSlugs, isHttpUrl } from '@aeci/shared';
 import type {
   ContextDirection,
   ProductLink,
@@ -15,6 +15,7 @@ import type {
 } from '@aeci/shared';
 import { CONTEXT_VERSION_PARAM, OTHER_VERSION_PARAM } from '@aeci/shared/version-diff';
 
+import type { ExternalLinkContext } from '../analytics/analytics';
 import { ExternalLinkTracker } from '../analytics/external-link-tracker';
 import { NotFound } from '../not-found/not-found';
 import {
@@ -233,6 +234,9 @@ interface GlanceFacts {
   /** AECI-1158: the owner's pricing page (`pricing_url`), http(s) only. It links
    *  the price text, or stands alone as "See pricing" when there is no price. */
   readonly priceUrl: string | null;
+  /** AECI-933: ownership facts for the price link click. The owner's own page, so
+   *  it is the row's `built_by_vendor`. `null` exactly when `priceUrl` is. */
+  readonly priceLinkContext: ExternalLinkContext | null;
   readonly stage: string | null;
   readonly how: GlanceHow | null;
   readonly lastChecked: string | null;
@@ -242,6 +246,35 @@ interface GlanceFacts {
 interface MechanismLink {
   readonly href: string;
   readonly label: string;
+  /** AECI-933: whose link it is and whose site it leads to, for the click event. */
+  readonly context: ExternalLinkContext;
+}
+
+/**
+ * The page-level facts every outbound click on the pair page carries (AECI-933).
+ * Each side's owner is that product's primary vendor. `pairKey` is the canonical
+ * pair id, the same from either URL orientation.
+ */
+interface PairLinkOwners {
+  readonly context: string | null;
+  readonly other: string | null;
+  readonly pairKey: string;
+}
+
+/** A pair page click's context, from its owner, origin and purpose. */
+function pairLinkContext(
+  owners: PairLinkOwners,
+  owner: string | null,
+  origin: ExternalLinkContext['link_origin'],
+  purpose: ExternalLinkContext['link_purpose'],
+): ExternalLinkContext {
+  return {
+    owner_vendor_id: owner,
+    link_origin: origin,
+    source_entity_type: 'pair',
+    source_entity_id: owners.pairKey,
+    link_purpose: purpose,
+  };
 }
 
 /** Whose name labels a side's own link: its product. The link is stored per
@@ -258,13 +291,20 @@ interface PairSideNames {
  * `listing_url` / `docs_url`, under the unlabelled copy it always had. Listing links
  * come before docs links, as they did before.
  */
-function mechanismLinks(m: ProductPairMechanism, names: PairSideNames): MechanismLink[] {
+function mechanismLinks(
+  m: ProductPairMechanism,
+  names: PairSideNames,
+  owners: PairLinkOwners,
+): MechanismLink[] {
   // `?.` because the SSR Worker may read an API that predates the field, and the
   // response is not re-parsed through the schema default on every path.
   const sides = [
-    { links: m.vendor_links?.context ?? null, name: names.context },
-    { links: m.vendor_links?.other ?? null, name: names.other },
+    { links: m.vendor_links?.context ?? null, name: names.context, owner: owners.context },
+    { links: m.vendor_links?.other ?? null, name: names.other, owner: owners.other },
   ];
+  // AECI-933: a curated link leads to whoever built the row, else the connector's
+  // vendor. `connector_vendor_id` is absent on an older API, which reads as unknown.
+  const curatedOwner = m.built_by_vendor?.id ?? m.connector_vendor_id ?? null;
   const out: MechanismLink[] = [];
   const listings = sides.filter((side) => side.links?.listing_url);
   if (listings.length > 0) {
@@ -272,10 +312,15 @@ function mechanismLinks(m: ProductPairMechanism, names: PairSideNames): Mechanis
       out.push({
         href: side.links!.listing_url!,
         label: $localize`:@@pair.mechanism.listingBy:${side.name}:product: listing`,
+        context: pairLinkContext(owners, side.owner, 'vendor', 'listing'),
       });
     }
   } else if (m.listing_url) {
-    out.push({ href: m.listing_url, label: $localize`:@@pair.mechanism.listing:View listing` });
+    out.push({
+      href: m.listing_url,
+      label: $localize`:@@pair.mechanism.listing:View listing`,
+      context: pairLinkContext(owners, curatedOwner, 'aeci', 'listing'),
+    });
   }
   const docs = sides.filter((side) => side.links?.docs_url);
   if (docs.length > 0) {
@@ -283,10 +328,15 @@ function mechanismLinks(m: ProductPairMechanism, names: PairSideNames): Mechanis
       out.push({
         href: side.links!.docs_url!,
         label: $localize`:@@pair.mechanism.docsBy:${side.name}:product: documentation`,
+        context: pairLinkContext(owners, side.owner, 'vendor', 'docs'),
       });
     }
   } else if (m.docs_url) {
-    out.push({ href: m.docs_url, label: $localize`:@@pair.mechanism.docs:Documentation` });
+    out.push({
+      href: m.docs_url,
+      label: $localize`:@@pair.mechanism.docs:Documentation`,
+      context: pairLinkContext(owners, curatedOwner, 'aeci', 'docs'),
+    });
   }
   return out;
 }
@@ -829,6 +879,7 @@ function writePairViewCookie(mode: PairViewMode): void {
                                 target="_blank"
                                 rel="noopener noreferrer nofollow"
                                 aecTrackExternalLink="pair_detail"
+                                [aecLinkContext]="g.priceLinkContext!"
                                 class="inline-flex items-center gap-1 text-(--accent-primary) underline underline-offset-2"
                                 data-testid="pair-glance-price-link"
                               >
@@ -1015,6 +1066,7 @@ function writePairViewCookie(mode: PairViewMode): void {
                           target="_blank"
                           rel="noopener noreferrer nofollow"
                           aecTrackExternalLink="pair_detail"
+                          [aecLinkContext]="link.context"
                           class="inline-flex items-center gap-1.5 rounded-(--radius-md) px-3 py-1.5
                             text-xs font-medium text-(--text-secondary) underline
                             decoration-(--border-strong) underline-offset-4 transition-colors
@@ -1126,8 +1178,15 @@ export class ProductsPairPage {
       context: pair.context_product.name,
       other: otherName,
     };
+    // AECI-933: computed once per page. The canonical key is what AECI-929 stores
+    // for pair page views, so both URL orientations report one pair.
+    const owners: PairLinkOwners = {
+      context: pair.context_product.vendor?.id ?? null,
+      other: pair.other_product.vendor?.id ?? null,
+      pairKey: canonicalPairIds(pair.context_product.id, pair.other_product.id).join(':'),
+    };
     const mechanisms = pair.mechanisms.map((m) =>
-      this.toMechanismView(m, otherName, vendorNames, sideNames),
+      this.toMechanismView(m, otherName, vendorNames, sideNames, owners),
     );
     return {
       pair,
@@ -1151,13 +1210,14 @@ export class ProductsPairPage {
     otherName: string,
     vendorNames: PairVendorNames,
     sideNames: PairSideNames,
+    owners: PairLinkOwners,
   ): MechanismView {
     return {
       id: m.id,
       kindLabel: mechanismKindLabel(m.mechanism_kind),
       name: m.mechanism_name,
       description: m.description,
-      links: mechanismLinks(m, sideNames),
+      links: mechanismLinks(m, sideNames, owners),
       direction: m.direction,
       glyph: m.direction ? directionGlyph(m.direction) : '',
       directionLabel: m.direction ? directionHeading(m.direction, otherName) : '',
@@ -1179,7 +1239,7 @@ export class ProductsPairPage {
         this.pair()?.version_diff?.selected ?? null,
       ),
       hasClaims: m.claims.length > 0,
-      glance: this.glanceFacts(m),
+      glance: this.glanceFacts(m, owners),
     };
   }
 
@@ -1189,7 +1249,7 @@ export class ProductsPairPage {
    * http(s) scheme behind the API's own check, so no other scheme reaches `href`. `?? null` because the web never Zod-parses the
    * pair response, so an older API Worker leaves the fields absent.
    */
-  private glanceFacts(m: ProductPairMechanism): GlanceFacts | null {
+  private glanceFacts(m: ProductPairMechanism, owners: PairLinkOwners): GlanceFacts | null {
     const offeredBy = m.built_by_vendor;
     const through = m.via ?? m.powered_by_product;
     // With no mechanism name the kind label is already the card's h2.
@@ -1198,9 +1258,13 @@ export class ProductsPairPage {
       kind || offeredBy || through
         ? { kind, offeredBy, through, vendorAdded: m.origin === 'vendor' && offeredBy !== null }
         : null;
+    const priceUrl = this.pricingHref(m.pricing_url);
     const facts: GlanceFacts = {
       price: m.pricing_model?.trim() || null,
-      priceUrl: this.pricingHref(m.pricing_url),
+      priceUrl,
+      priceLinkContext: priceUrl
+        ? pairLinkContext(owners, m.built_by_vendor?.id ?? null, 'vendor', 'pricing')
+        : null,
       stage: m.maturity?.trim() || null,
       how,
       lastChecked: this.formatReviewDate(m.last_reviewed_at ?? null),

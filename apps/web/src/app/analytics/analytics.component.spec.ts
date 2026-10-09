@@ -102,7 +102,15 @@ describe('Analytics — custom events carry locale + theme (§14.1)', () => {
     analytics.reviewSubmitted('prod-1');
     analytics.claimRequested({ target_type: 'vendor', slug: 'autodesk', request_id: 'req-1' });
     analytics.correctionRequested({ target_type: 'product', slug: 'revit', request_id: 'req-2' });
-    analytics.externalLinkClicked({ destination: 'https://x.com', source: 'product_detail' });
+    analytics.externalLinkClicked({
+      destination: 'https://x.com',
+      source: 'product_detail',
+      owner_vendor_id: 'vendor-1',
+      link_origin: 'vendor',
+      source_entity_type: 'product',
+      source_entity_id: 'prod-1',
+      link_purpose: 'website',
+    });
     analytics.mailingListSignup({ source: 'home_closing_cta' });
     await flush();
 
@@ -148,12 +156,44 @@ describe('Analytics — custom events carry locale + theme (§14.1)', () => {
     );
     expect(client.capture).toHaveBeenCalledWith(
       'external_link_clicked',
-      expect.objectContaining({ destination: 'https://x.com', source: 'product_detail', ...dims }),
+      expect.objectContaining({
+        destination: 'https://x.com',
+        source: 'product_detail',
+        owner_vendor_id: 'vendor-1',
+        link_origin: 'vendor',
+        source_entity_type: 'product',
+        source_entity_id: 'prod-1',
+        link_purpose: 'website',
+        ...dims,
+      }),
     );
     expect(client.capture).toHaveBeenCalledWith(
       'mailing_list_signup',
       expect.objectContaining({ source: 'home_closing_cta', ...dims }),
     );
+  });
+
+  it('external_link_clicked sends a null owner as a present key, never omits it (AECI-933)', async () => {
+    const { analytics, client } = setup();
+    analytics.externalLinkClicked({
+      destination: 'https://example.com/listing',
+      source: 'pair_detail',
+      owner_vendor_id: null,
+      link_origin: 'aeci',
+      source_entity_type: 'pair',
+      source_entity_id: 'a:b',
+      link_purpose: 'listing',
+    });
+    await flush();
+    const call = client.capture.mock.calls.find(([event]) => event === 'external_link_clicked');
+    const properties = call?.[1] as Record<string, unknown>;
+    expect(properties).toHaveProperty('owner_vendor_id', null);
+    expect(properties).toMatchObject({
+      link_origin: 'aeci',
+      source_entity_type: 'pair',
+      source_entity_id: 'a:b',
+      link_purpose: 'listing',
+    });
   });
 
   it('search_performed carries the re-homed status / duration_ms / results_bucket (§3.9)', async () => {
@@ -659,6 +699,11 @@ describe('Analytics — an email address never reaches PostHog (§2)', () => {
     analytics.externalLinkClicked({
       destination: 'https://autodesk.com',
       source: 'product_detail',
+      owner_vendor_id: 'vendor-1',
+      link_origin: 'vendor',
+      source_entity_type: 'product',
+      source_entity_id: 'prod-1',
+      link_purpose: 'website',
     });
     analytics.mailingListSignup({ source: 'mailing_list_band' });
     TestBed.tick();

@@ -1002,7 +1002,7 @@ Client-side initialization in Angular app:
   - `review_submitted` — product_id
   - `claim_requested` — vendor_id *(as shipped: `target_type`, `slug`, `request_id` — the request form never holds the UUID; the documented deviation is in `ANALYTICS.md` §4)*
   - `correction_requested` — product_id or vendor_id *(same deviation)*
-  - `external_link_clicked` — destination, source
+  - `external_link_clicked` — destination, source *(AECI-933 adds `owner_vendor_id`, `link_origin`, `source_entity_type`, `source_entity_id`, `link_purpose`; the contract is `VENDOR_PERFORMANCE_SPEC.md` §3.2)*
   - `mailing_list_signup` — source (home closing CTA; fired on a genuine new subscribe only — consented funnel, see OBSERVABILITY.md)
 - All events include `locale` and `theme` dimensions
 

@@ -301,6 +301,20 @@ export const ProductPairMechanismSchema = z.object({
    */
   via: ProductLinkSchema.nullable().default(null),
   /**
+   * The primary vendor of the connector product behind this mechanism (AECI-933):
+   * `powered_by_product`'s vendor on an `integrations` row, `via`'s vendor on a
+   * connector-evidenced pair, picked by `pickPrimaryVendor` (the `is_primary` row,
+   * else the first). `null` when there is no connector, or the connector has no
+   * vendor.
+   *
+   * It exists for one reader: the pair page's outbound-click analytics. When the
+   * card falls back to AECi's curated `listing_url` / `docs_url` and the row has no
+   * `built_by_vendor`, the click is owned by the connector's vendor. A new field
+   * rather than a vendor on `ProductLinkSchema`, which many responses share.
+   * `.optional()` for SSR/API deploy skew: absent means `null`.
+   */
+  connector_vendor_id: z.string().uuid().nullable().optional(),
+  /**
    * The owner's pricing page link (AECI-1154 / `STAGE_2_VENDOR_PORTAL_SPEC.md`
    * §6.17.11), from `integrations` or `connector_evidenced_pairs` alike. It feeds
    * the "Price" fact of the card's "At a glance" row (AECI-1142): the price text
