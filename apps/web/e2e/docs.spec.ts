@@ -40,10 +40,29 @@ test.describe('/docs shell — AECI-1248', () => {
   });
 
   test('an unknown docs path is a real 404', async ({ request }) => {
-    for (const path of ['/docs/nope', '/docs/vendors/nope', '/docs/faq']) {
+    // `/docs/trust/the-account-label` never shipped, so it has no redirect (AECI-1264).
+    for (const path of [
+      '/docs/nope',
+      '/docs/vendors/nope',
+      '/docs/faq',
+      '/docs/trust/the-account-label',
+    ]) {
       const res = await request.get(path, { maxRedirects: 0 });
       expect(res.status(), path).toBe(404);
     }
+  });
+
+  // AECI-1264 — the plans page was renamed. Its old URL is live in production, so
+  // it answers a permanent redirect to the new one, and the new one renders.
+  test('the old plans URL 301s to /docs/vendors/plans', async ({ request }) => {
+    const res = await request.get('/docs/vendors/plans-and-the-account-label', { maxRedirects: 0 });
+    expect(res.status()).toBe(301);
+    expect(new URL(res.headers()['location'] ?? '', 'http://x').pathname).toBe(
+      '/docs/vendors/plans',
+    );
+    const target = await request.get('/docs/vendors/plans', { maxRedirects: 0 });
+    expect(target.status()).toBe(200);
+    expect(await target.text()).toMatch(/<h1[^>]*>\s*Plans\s*<\/h1>/);
   });
 
   // AECI-1249 — the reader pages. Indexable, so the page meta must not carry
@@ -53,11 +72,10 @@ test.describe('/docs shell — AECI-1248', () => {
     ['/docs/getting-started/reading-an-integration-page', 'Reading an integration page'],
     ['/docs/getting-started/taxonomy', 'How listings are classified'],
     ['/docs/trust/how-ranking-works', 'How ranking works'],
-    ['/docs/trust/the-account-label', 'The account label'],
     ['/docs/trust/agreement-states', 'Agreement states'],
   ];
 
-  test('SSR-renders the six reader pages with their titles (AECI-1249)', async ({ request }) => {
+  test('SSR-renders the reader pages with their titles (AECI-1249)', async ({ request }) => {
     for (const [path, title] of READER_PAGES) {
       const res = await request.get(path, { maxRedirects: 0 });
       expect(res.status(), path).toBe(200);
@@ -144,10 +162,10 @@ test.describe('/docs shell — AECI-1248', () => {
     const tree = page.getByRole('navigation', { name: 'Help center' });
     await expect(tree.locator('a[aria-current="page"]')).toHaveText('How ranking works');
 
-    await tree.getByRole('link', { name: 'The account label', exact: true }).click();
-    await expect(page).toHaveURL(/\/docs\/trust\/the-account-label$/);
-    await expect(page.getByRole('heading', { level: 1 })).toHaveText('The account label');
-    await expect(tree.locator('a[aria-current="page"]')).toHaveText('The account label');
+    await tree.getByRole('link', { name: 'Agreement states', exact: true }).click();
+    await expect(page).toHaveURL(/\/docs\/trust\/agreement-states$/);
+    await expect(page.getByRole('heading', { level: 1 })).toHaveText('Agreement states');
+    await expect(tree.locator('a[aria-current="page"]')).toHaveText('Agreement states');
   });
 
   test('the rail links jump to their heading (AECI-1259)', async ({ page }) => {

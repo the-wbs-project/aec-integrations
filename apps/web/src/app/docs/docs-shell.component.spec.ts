@@ -137,7 +137,7 @@ describe('DocsShellComponent', () => {
     expect(button.getAttribute('aria-expanded')).toBe('true');
     expect(panel.classList).not.toContain('hidden');
 
-    await TestBed.inject(Router).navigateByUrl('/docs/trust/the-account-label');
+    await TestBed.inject(Router).navigateByUrl('/docs/trust/agreement-states');
     await harness.fixture.whenStable();
     harness.fixture.detectChanges();
     expect(button.getAttribute('aria-expanded')).toBe('false');

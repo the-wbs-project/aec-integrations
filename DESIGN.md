@@ -614,7 +614,7 @@ the product row, so the two can never drift apart visually.
 - **(Superseded by AECI-1218) The plan panel had a compact strip for the quiet state.** Plans moved to the product level (`STAGE_2_PAID_TIERS_SPEC.md` §13.1 decision 2), so the full panel lives on each product's overview. The vendor overview first carried a one-line plan summary; that is gone too, and the vendor checklist takes the full width (`STAGE_2_VENDOR_PORTAL_SPEC.md` §6.18). The compact strip and the "Account access" heading are gone.
 - **The Free plan surfaces** (AECI-1218, `STAGE_2_VENDOR_PORTAL_SPEC.md` §6.18). **Anchor: the in-repo mockup** (`docs/design/mockups/free-plan-portal/`) **and DoorDash Merchant's "Get ready to go live" setup list on Mobbin** (numbered steps, one action each, the optional step marked in words).
   - **Checklist card** (`vendor/components/vendor-checklist.ts`): a bordered `--surface-raised` card, the `font-display` heading with an "x of y done" score at the right, a segmented bar (`aria-hidden`; the text carries the score), then a divided `<ol>` of steps. Each step has a 28px round marker: the number, a Forest-filled check when done, or a lock when the step is outside the product's plan. An sr-only "Done" / "Not done" / "Not done, optional" rides in the title, so state is never colour alone. Optional steps carry a borderless `--surface-sunken` "Optional" tag. One action per step: a bordered link-button, "Looks right" (`vendor-looks-right.ts`), or a sunken "Available on Managed" note.
-  - **Plan badge** (`vendor-plan-badge.ts`): the word "Free" (outlined) or "Managed" (sunken fill, strong border). Text, never colour alone. Not the public "Active on AEC Integrations" label.
+  - **Plan badge** (`vendor-plan-badge.ts`): the word "Free" (outlined) or "Managed" (sunken fill, strong border). Text, never colour alone. Portal only. No public page carries a plan or account badge (AECI-1264).
   - **Product plan panel** (`vendor-plan-panel.ts`): "Free includes" / "Managed adds" lists under `aec-overline` microheadings (a size utility cannot beat the unlayered `h3` rule), a plain price line (no "Draft price" tag since the 2026-10-08 ruling; it follows the per-vendor override, `STAGE_2_PAID_TIERS_SPEC.md` §13.13), one bordered call to action, and decision 10's line under a hairline. No box inside the card: `npx impeccable detect` flags a bordered price box as a nested card.
   - **Plan-ended banner** (`vendor-plan-ended-banner.ts`): above the tab row on every portal page, the warm Bone wash with a strong border, two columns ("Still works" / "Now read-only"), the Forest primary button. Calm: no status colour, no alert role, no dismiss button.
   - **Locked field**: the control stays `readonly` on the sunken surface, and a lock glyph plus a one-line reason sits between the label and the control, tied with `aria-describedby`. One notice above the form names every locked field once.
@@ -684,15 +684,15 @@ Native inputs driven by Signal Forms today (ADR 0009); richer controls use Angul
 > and later. No checkmark, shield, tick, or "Verified" fill may imply that AECi endorses
 > a vendor, product, or integration. Provenance and account state are carried by visible
 > text because text can state the exact claim. The legacy `vendors.verified` mirror is a
-> paid-entitlement signal, so it renders as a neutral account-status label rather than a
-> trust glyph. This is also why `home-credibility-strip` uses a balance scale rather than
+> paid-entitlement signal. It rendered as a neutral account-status label until AECI-1264
+> removed that label (2026-10-09), and it must not come back as a glyph or a badge. This is also why `home-credibility-strip` uses a balance scale rather than
 > the shield-check it originally shipped with.
 
 **One chip spec (AECI-841).** The **standalone attribution chip** — the kind that sits in a hero or
 card chip row on its own line of meaning — is `px-2.5 py-1` / `0.75rem` / `font-medium` /
-`tracking-[0.01em]` / `rounded.sm`, which renders **29px tall**. Four components carry it:
-`RoleBadge`, `MaintenanceMarker`, `AgreementBadge`, and `VendorAccountBadge`
-(as of AECI-1131 its only remaining variants are `public` and `portal`, both at this spec).
+`tracking-[0.01em]` / `rounded.sm`, which renders **29px tall**. Three components carry it:
+`RoleBadge`, `MaintenanceMarker` and `AgreementBadge`. (`VendorAccountBadge` carried it too until
+AECI-1264 deleted it.)
 
 This is a rule because it was broken twice in the same change. `RoleBadge` shipped at `px-2 py-0.5`
 and the product-detail hero put a 22px "Connector" chip next to the 29px maintenance marker in the
@@ -709,8 +709,8 @@ columns inside a table row or list row, not a standalone statement. It renders i
 `home/integration-tile.ts`. Do not "converge" it onto the 29px spec: at row density the extra 7px
 per badge is what pushes a row off one line. Two badges keep their own documented specs for
 reasons stated below or in their own sections — `TaxonomyBadge` (a link, `px-3` / 13px), and
-`ReviewStatusBadge` (a coloured state chip). (As of AECI-1131, `VendorAccountBadge` no longer has
-a dense/compact variant, so it is no longer an exemption here — see the Badges list below.)
+`ReviewStatusBadge` (a coloured state chip). (`VendorAccountBadge` lost its compact variant in
+AECI-1131 and was deleted in AECI-1264.)
 
 **Chips are sentence case**, like everything else — the Sentence-Case Rule's single exception is the
 overline role, and a chip is not an overline. The product-detail "Not yet rated" chip was uppercase
@@ -751,14 +751,14 @@ What actually renders today:
     marker is page-header attribution ("who is on the hook for this page"), the pill is
     per-claim state on the mechanism cards ("do the two vendors agree about this one data
     object"). Two distinct signals share the pair page — marker and agreement chip — and
-    collapsing them would lose information. (As of AECI-1131 the account-status label no longer
-    renders on this page; see below.)
+    collapsing them would lose information. (The account-status label left this page in
+    AECI-1131 and was deleted everywhere in AECI-1264; see below.)
 - **Agreement pill** (`products/agreement-badge`): same neutral chip tokens. Renders
   `Listed by AEC Integrations` on most claims (AECI-1142; `Unverified · AECi` before it), the
   honest posture, not a warning. The other three states are in the Agreement badge table below.
 - **Pending** (`badge-pending`): surface-sunken fill, text-secondary text, 0.5px border-default. Indicates "submitted, not yet reviewed" — never confused with confirmed.
-- **Active on AEC Integrations** (`aec-vendor-account-badge`, AECI-965, relabeled AECI-1131, name spelled out AECI-1261): a neutral account-status label driven by the legacy `vendors.verified` mirror. It means the vendor has active access to manage its AECi profile. It does not verify product quality, integration accuracy, or any vendor assertion. The label reads "Active on AEC Integrations" in both of its variants: `public` (the vendor detail hero, followed by a visible "What this means" link to the reader page `/docs/trust/the-account-label`, AECI-1249; it pointed at the noindex vendor guide `/docs/vendors/plans-and-the-account-label` before) and `portal` (the vendor's own plan panel, no link). There is no compact variant. Both use the standalone 29px chip metrics, `rounded.sm`, `border-strong`, `surface-base`, and `text-secondary`. Neither uses a glyph, positive status fill, hidden accessible-name substitute, or trust color. The label renders only when the mirror is true. The inactive public baseline remains the label's absence. It no longer renders on the product-pair rails, the product detail vendor card, or the `/search` Vendors-tab card (AECI-1131) — a reader comparing products gains nothing from a vendor's plan state.
-- **Agreement badge** (`aec-agreement-badge`, AECI-300 / AECI-605): the per-claim state on the product-pair page's data-flow lanes — whether the two vendors agree that a `data_object` flows between their products. Its agreement-specific wording and tonal ladder keep it distinct from the neutral account-status label. Four states, and the tonal ladder between them is the point:
+- **No account or plan label on public pages** (AECI-1264, removed 2026-10-09, marketing review B1). `aec-vendor-account-badge` ("Active on AEC Integrations", AECI-965, relabeled AECI-1131) is deleted. "Active" implied a vendor without it was inactive, and it marked publicly who pays. Do not build a replacement public marker of plan or payment. The `vendors.verified` mirror still drives the claim CTA's copy on the vendor and product pages, which is copy, not a badge. Inside the portal the plan reads as the **Plan badge** above.
+- **Agreement badge** (`aec-agreement-badge`, AECI-300 / AECI-605): the per-claim state on the product-pair page's data-flow lanes — whether the two vendors agree that a `data_object` flows between their products. Its agreement-specific wording and tonal ladder keep it distinct from the maintenance marker. Four states, and the tonal ladder between them is the point:
 
   | State | Treatment | Label |
   |---|---|---|

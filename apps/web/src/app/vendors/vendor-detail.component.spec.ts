@@ -186,6 +186,18 @@ describe('VendorDetailPage claim CTA', () => {
     expect(section.textContent).toContain('Already managed through an active vendor account');
   });
 
+  // AECI-1264 (marketing review B1): no public account or plan label. The hero
+  // shows the same thing for a vendor with or without an active plan.
+  it('shows no account label and no "What this means" link, whatever the plan', () => {
+    for (const verified of [false, true]) {
+      TestBed.resetTestingModule();
+      const { el } = setup(buildVendor({ verified }));
+      expect(el.textContent).not.toContain('Active on AEC Integrations');
+      expect(el.textContent).not.toContain('What this means');
+      expect(el.querySelector('a[href^="/docs/trust/the-account-label"]')).toBeNull();
+    }
+  });
+
   it('keeps the CTA pointed at the same claim route in both states', () => {
     // Copy only: a claimed listing still submits `kind:'claim'` to the same
     // route, because that is the only seat/dispute path there is (§11).

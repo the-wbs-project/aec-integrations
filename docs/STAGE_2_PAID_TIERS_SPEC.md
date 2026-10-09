@@ -88,6 +88,8 @@ This is the deliberate contrast with `STAGE_2_VENDOR_PORTAL_SPEC.md` §1.2 ("no 
 
 **The shape of the problem.** `vendors.verified` is read in five places that all ship and all render: the public `GET /api/vendors?verified=` filter (`apps/api/src/routes/vendors.ts` ~:47), `VendorLinkSchema.verified` (`packages/shared/src/api/common.ts` ~:48-51, embedded in product / integration / pair payloads), `VendorDetail.verified` / `VendorListItem.verified`, the Algolia vendor record (AECI-529), and `aec-vendor-account-badge`. Any design that changes what those readers query is a large, risky diff.
 
+> **Removed 2026-10-09 (AECI-1264, marketing review B1).** `aec-vendor-account-badge` is deleted, so the mirror has four readers. Chris ruled the public "Active on AEC Integrations" badge out: "Active" implied a vendor without it was inactive, and it marked publicly who pays. The mirror itself and its other four readers are unchanged. No plan turns a public label on or off.
+
 **So they don't change.** A new `vendor_entitlements` table carries the real model; `vendors.verified` is demoted to a **denormalized mirror** of it, maintained inside the same `db.batch([...])` as every entitlement write. Every existing reader keeps reading the mirror and is untouched by this epic (§2.4).
 
 ### 2.1 The mirror invariant, and its two mechanical guards
@@ -175,7 +177,7 @@ Rows already `verified = 1` from the Airtable/claim era violate the mirror the m
 
 ### 2.5 What this epic deliberately does NOT touch
 
-> **No public or read path may query `vendor_entitlements`.** The public `?verified=` filter, `VendorLinkSchema`, `VendorDetail`/`VendorListItem`, the Algolia vendor record, and `aec-vendor-account-badge` all keep reading `vendors.verified`. The entitlement table is written by `lib/vendor-entitlement.ts`, read by the §4 gate and the §5/§8 surfaces, and by **nothing else**.
+> **No public or read path may query `vendor_entitlements`.** The public `?verified=` filter, `VendorLinkSchema`, `VendorDetail`/`VendorListItem`, the Algolia vendor record, and `aec-vendor-account-badge` all keep reading `vendors.verified`. *(Removed 2026-10-09 (AECI-1264, marketing review B1). The badge is deleted. The other four readers are unchanged.)* The entitlement table is written by `lib/vendor-entitlement.ts`, read by the §4 gate and the §5/§8 surfaces, and by **nothing else**.
 
 This is what keeps the epic additive, and it needs stating because the obvious "improvement" — joining `vendor_entitlements` into the public filter so it reads the truth rather than a mirror — would defeat the entire denormalization. Back it with a test asserting no read config in `apps/api/src/lib/drizzle-helpers.ts` references the table. Also **promote `grantPurgeTags` out of `admin-claims.ts` into a shared `apps/api/src/lib/vendor-cache-tags.ts`** in this issue: this epic adds a second writer of the same tag set (§5), and duplicated tag construction is exactly how a badge goes stale on one path and not the other.
 
@@ -314,7 +316,7 @@ The other half of the firewall **already exists and must stay untouched**: `algo
 **(c) The render path — deliberately asymmetric.**
 
 - **Vendor portal (`/vendor`)** — non-cacheable and `Cache-Tag`-free by the fail-closed classifier, so per-session forking is safe. `GET /api/vendor/me` returns an `entitlement` block and the forms disable on it (§8).
-- **Public SSR (`/vendors/:slug`, `/products/:slug`, the pair page — all cacheable)** — **never forks on the VIEWER.** `aec-vendor-account-badge` keeps reading the mirror. If a paid capability forks public HTML at all, it forks on **the subject vendor's** tier — a function of the entity already in the URL, already purged by `vendor:{slug}` — never on the reader's. There is no viewer axis on a cacheable request, and there must never be one: the Workers Cache is URL-keyed, so the first visitor would poison the entry for everyone. See R3 in §10.
+- **Public SSR (`/vendors/:slug`, `/products/:slug`, the pair page — all cacheable)** — **never forks on the VIEWER.** `aec-vendor-account-badge` keeps reading the mirror. *(Removed 2026-10-09 (AECI-1264, marketing review B1). The badge is gone. The claim CTA's copy on the vendor and product pages still reads the mirror, and so does the pair page's version-diff gate. Both fork on the subject vendor, never the viewer.)* If a paid capability forks public HTML at all, it forks on **the subject vendor's** tier — a function of the entity already in the URL, already purged by `vendor:{slug}` — never on the reader's. There is no viewer axis on a cacheable request, and there must never be one: the Workers Cache is URL-keyed, so the first visitor would poison the entry for everyone. See R3 in §10.
 
 > **Restated at build (AECI-304).** This bullet originally read "**no cacheable SSR component may import `@aeci/shared/entitlements`**", naming AECI-304 as the build that would reach for it. That sketch is the wrong shape, and reading it literally would reopen a settled decision. The product-pair resolver **does** import the registry, transitively (`version-diff.ts` → `entitlements.ts`), and is correct to: `canViewVersionDiff` forks on the **pair's two endpoint vendors' tiers**, which are a function of the two slugs in the URL. The page stays storable in the shared cache, shareable, and free of any `Cache-Control: private` — the constraint is discharged **by construction**, not by a module ban. So the rule is a **viewer-tier ban, not an import ban**. A future mechanical guard must either express the viewer-tier property directly or allow-list `@aeci/shared/version-diff`; none exists today (§3.4 note 4), so **R3 stays open** and this is review-only.
 
@@ -534,7 +536,9 @@ Three consequences for this section specifically:
 - **Adding a seat and setting an entitlement stay separate controls on one page, deliberately.**
   They are the two halves the claim grant fuses, and §5.2's whole problem was that fusion. Putting
   them behind one button would recreate it on the surface built to avoid it. The provision control
-  says so in its own copy: *"opens no entitlement, does not turn on the public account label."*
+  says so in its own copy: *"opens no entitlement and carries no attestation rights."* (It also
+  said "does not turn on the public account label" until that label was removed on 2026-10-09,
+  AECI-1264.)
 - **It lives here rather than on `/admin/claims/:id` or `/admin/users/:id`** for exactly the reason
   the revoke does: this is the only screen showing the blast radius — the other seats, the
   entitlement state, `is_pure_connector_vendor` — that makes the decision safe. `ADMIN_PANEL_SPEC.md`
@@ -757,6 +761,8 @@ Replace `apps/web/src/app/vendor/components/vendor-verified-status.ts` — whose
 
 > **Extended 2026-10-01 (AECI-1212).** The Free plan, the per-product plan panel and the pilot-ended banner are governed by §13 here and `STAGE_2_VENDOR_PORTAL_SPEC.md` §6.18.
 
+> **Removed 2026-10-09 (AECI-1264, marketing review B1).** The public "Active on AEC Integrations" badge is gone, and so is every line of plan copy that named it: the plan panel's Managed list ("Counts toward the … label on your vendor page"), its catalogue-seat sentence, and the plan-ended banner's read-only list. No plan turns a public label on or off. The panel states the plan in words: the portal-only "Free" / "Managed" plan badge beside its heading, and its lede. The help page moved from `/docs/vendors/plans-and-the-account-label` to `/docs/vendors/plans`, with a 301 from the old URL. The reader page `/docs/trust/the-account-label` never shipped and was deleted with no redirect.
+
 ### 8.1 As built (AECI-614 — 2026-08-19)
 
 `vendor-plan-panel.ts` replaces `vendor-verified-status.ts`, which is **deleted** — resolving the `STAGE_2_VENDOR_PORTAL_SPEC.md` §6.1 hand-off that named this issue. It reads the `entitlement` block on `GET /api/vendor/me`; no new endpoint, no new query.
@@ -768,7 +774,7 @@ Replace `apps/web/src/app/vendor/components/vendor-verified-status.ts` — whose
 | `active` | `status: 'active'`, known tier, term far off or absent | Quiet. The real badge, the term, the framing sentence. |
 | `expiring` | as above, `period_end` within `EXPIRY_WARNING_DAYS` | "Ends in N days", a renewal path. **Still verified** — nothing has been taken away yet, and the copy says so. |
 | `pending` | `status: 'pending'` | Arranged, not yet switched on. |
-| `lapsed` | `expired` / `revoked` (and the fail-closed drift case below) | A **loss to acknowledge**. Leads with what the vendor KEEPS, names what is paused, offers a renewal path. Since AECI-1214 what is paused is the account label, the Managed product fields, and confirming, denying or clearing data flows. The panel copy still says "editing your profile and products" until AECI-1218 rewrites the panels (§13.11). |
+| `lapsed` | `expired` / `revoked` (and the fail-closed drift case below) | A **loss to acknowledge**. Leads with what the vendor KEEPS, names what is paused, offers a renewal path. Since AECI-1214 what is paused is the account label, the Managed product fields, and confirming, denying or clearing data flows. *(Removed 2026-10-09 (AECI-1264, marketing review B1). The account label is not paused, because it no longer exists.)* The panel copy still says "editing your profile and products" until AECI-1218 rewrites the panels (§13.11). |
 | `none` | `status: null` — no entitlement row at all | An **invitation**, not a loss. |
 
 > **As revised (AECI-1218, 2026-10-02).** The panel is now per product and reads `product.plan` (§13.7). Its states are `managed` (was `active`), `expiring`, `pending`, `ended` (was `lapsed`; now also the plan-ended banner's job vendor-wide), `free` (was `none`; also the unknown-tier drift case, which no longer reads as ended), and `catalogue`. Every state carries decision 10's line. Every state but `catalogue` shows "Managed is $25 a month per product" (decision 9). The "Draft price" tag was removed on 2026-10-08, and the sentence now follows the vendor's price overrides (§13.13). The framing sentence below and the compact strip are gone. The vendor overview carries no plan card; the checklist takes the full width (`STAGE_2_VENDOR_PORTAL_SPEC.md` §6.18).
@@ -779,7 +785,7 @@ Three decisions this section did not pre-specify:
 
 1. **State resolution is fail-closed, mirroring `tierFor`.** `status: 'active'` over an **unknown tier** renders as **lapsed**, not active. `vendor_entitlements.tier` is DB-unconstrained by design (§2.2), so this case is real; an "Active on AEC Integrations" label (AECI-1131 relabeled it from "Account active"; AECI-1261 spelled out the name) sitting above read-only forms would be the wrong claim, and the panel must never claim more than the gate will honour.
 2. **The read-only forms use `readOnly`, not `disabled`.** §5.2's promise is that the data survives a lapse, and `disabled` removes the values from the accessibility tree — a screen-reader user would lose exactly the data the promise is about. `readOnly` keeps them focusable and copyable. Both `onSave` handlers guard independently, because Enter submits a form with no button.
-3. **The active/expiring states render the real `aec-vendor-account-badge`**, not a lookalike — the vendor sees the exact neutral label the public sees, which is the whole point of a status readout.
+3. **The active/expiring states render the real `aec-vendor-account-badge`**, not a lookalike — the vendor sees the exact neutral label the public sees, which is the whole point of a status readout. *(Stale since AECI-1218: the per-product panel renders `aec-vendor-plan-badge`, "Free" or "Managed", not the account badge. Removed 2026-10-09 (AECI-1264, marketing review B1). The component is deleted. The panel's readout is the plan, stated in words.)*
 
 The expiry horizon is **one constant**: `EXPIRY_WARNING_DAYS` in `@aeci/shared/entitlements`, consumed by both the cron and this panel. It shipped as two independent `30`s (AECI-613's `EXPIRY_WARNING_DAYS` and this issue's `EXPIRY_SOON_DAYS`) that agreed by coincidence; a follow-up consolidated them, because a cron whose horizon was the wider of the two would email a paying customer about a problem their own portal still denied.
 
@@ -897,7 +903,7 @@ Chris made these ten decisions on 2026-10-01 in epic AECI-1212. They are quoted 
 1. There is a deliberate **Free plan** state of the existing portal. It is not a separate portal.
 2. **Plans and checklists live at the product level.** The vendor dashboard shows only a one-line plan summary. The Products list shows a plan badge and a checklist score on each row. Each product page has its own plan panel and checklist.
 3. **Company details are editable on every plan.**
-4. **Product description, website, logo and categories are editable on every plan.** They feed `listing_tier`, so keeping them paid let payment raise ranking. These stay Managed-only: "How teams use it", the integrations page URL, the API docs URL, trades, audiences, phases, data-flow confirm or deny, integrations delivered through a connector, and the "Active on AEC Integrations" label.
+4. **Product description, website, logo and categories are editable on every plan.** They feed `listing_tier`, so keeping them paid let payment raise ranking. These stay Managed-only: "How teams use it", the integrations page URL, the API docs URL, trades, audiences, phases, data-flow confirm or deny, integrations delivered through a connector, and the "Active on AEC Integrations" label. *(Removed 2026-10-09 (AECI-1264, marketing review B1). The label is gone, so it is no longer a Managed feature.)*
 5. **The checklist has two levels.** Vendor level: check company details, finish each product checklist, and invite a colleague. The invite step is optional. Product level: check product details, check the integration list, claim integrations or say which are not yours, and confirm data flows.
 6. **The checklist is finishable on Free.** On a Free product the data-flows step is visible but optional. A Free product therefore reads "3 of 3". On Managed the step counts, so it reads "x of 4".
 7. **"Looks right" is a free action on every plan.** It applies to company details, each product, and each product's integration list. It writes an audit row and stamps `last_reviewed_at`. That column already drives the public "Vendor maintained · Updated <date>" chip in `maintenance-marker.ts`. Edit schemas reject an empty save today. So "Looks right" is the only way to record "checked, nothing to change".

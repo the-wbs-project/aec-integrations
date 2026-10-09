@@ -1464,8 +1464,8 @@ export function createApp(options: {
   //
   // The redirects that remain in this file are whole route CLASSES with immutable
   // mappings (`/disciplines/*`, `/vendors`, `/integrations`, `/integrations/:id`)
-  // plus one taxonomy term, below. Those are not per-entity retirements and do not
-  // belong in the table as it stands.
+  // plus one taxonomy term and one renamed docs page (AECI-1264), below. Those are
+  // not per-entity retirements and do not belong in the table as it stands.
 
   // AECI-926 — the one per-entity 301 still hard-coded, and the reason is a seam,
   // not a policy: `slug_redirects` is wired to `createDetailResolver`, which serves
@@ -1499,6 +1499,28 @@ export function createApp(options: {
       status: 301,
       headers: {
         Location: `${url.origin}/categories/reality-capture${url.search}`,
+        'Cache-Control': buildCacheControl({ edge: 86_400, browser: 3_600 }),
+      },
+    });
+  });
+
+  // AECI-1264 — a renamed docs page. The vendor guide's plans page moved from
+  // `/docs/vendors/plans-and-the-account-label` to `/docs/vendors/plans` when the
+  // public account label was removed (marketing review B1). The old URL is live
+  // in production and linked from emails and bookmarks, so it answers a permanent
+  // redirect rather than the `**` 404. Same shape as the category redirect above:
+  // a standalone Response registered before the SSR catch-all, edge-cacheable,
+  // no `Cache-Tag` (the mapping never changes and docs content only changes on
+  // deploy). The query string is dropped: docs pages read none, and keeping a
+  // query-free `Location` is what lets this stay `public` (`CACHE_STRATEGY.md`,
+  // the WC-4 standalone-redirect rule). A `#fragment` never reaches the server,
+  // and browsers carry it across the 301 themselves.
+  app.get('/docs/vendors/plans-and-the-account-label', (c) => {
+    const url = new URL(c.req.url);
+    return new Response(null, {
+      status: 301,
+      headers: {
+        Location: `${url.origin}/docs/vendors/plans`,
         'Cache-Control': buildCacheControl({ edge: 86_400, browser: 3_600 }),
       },
     });

@@ -169,10 +169,10 @@ describe('MethodologyPage', () => {
     it('does not add ownership to the paid-plan list (decision 15: a seat is the gate)', () => {
       const { host } = setup();
       const text = host.textContent ?? '';
-      // The Managed list is exactly five items (the Free edits sit in the
-      // sentence before it, AECI-1219, and the reply item is AECI-1181), and
-      // claiming, editing and contesting are seat-gated, so none of them may
-      // appear in it.
+      // The Managed list is exactly four items (the Free edits sit in the
+      // sentence before it, AECI-1219, the reply item is AECI-1181, and the
+      // account-label item went with the label, AECI-1264), and claiming,
+      // editing and contesting are seat-gated, so none of them may appear in it.
       const planList = Array.from(host.querySelectorAll('li'))
         .map((li) => li.textContent?.trim() ?? '')
         .filter((line) =>
@@ -180,7 +180,8 @@ describe('MethodologyPage', () => {
             line,
           ),
         );
-      expect(planList).toHaveLength(5);
+      expect(planList).toHaveLength(4);
+      expect(planList.join(' ')).not.toMatch(/label/i);
       expect(planList.join(' ')).not.toMatch(/claim an integration|contest/i);
       expect(text).toContain('this is the complete list');
     });
@@ -243,7 +244,7 @@ describe('MethodologyPage', () => {
     const hrefs = Array.from(host.querySelectorAll('a')).map((a) => a.getAttribute('href'));
     expect(hrefs).toContain('/docs/getting-started/taxonomy');
     expect(hrefs).toContain('/docs/trust/agreement-states');
-    expect(hrefs).toContain('/docs/trust/the-account-label');
+    expect(hrefs).not.toContain('/docs/trust/the-account-label');
     expect(hrefs).toContain('/docs/trust/how-ranking-works');
   });
 

@@ -84,7 +84,6 @@ test.describe('/methodology — AECI-804', () => {
     for (const href of [
       '/docs/getting-started/taxonomy',
       '/docs/trust/agreement-states',
-      '/docs/trust/the-account-label',
       '/docs/trust/how-ranking-works',
     ]) {
       expect(html, `methodology links ${href}`).toContain(`href="${href}"`);

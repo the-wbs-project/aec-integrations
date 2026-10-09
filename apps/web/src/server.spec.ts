@@ -1009,6 +1009,57 @@ describe('createApp /categories/reality-capture-scan-to-bim 301 (AECI-926)', () 
   });
 });
 
+describe('createApp renamed docs page 301 (AECI-1264)', () => {
+  function appWithSpyRenderer(): { app: ReturnType<typeof createApp>; ssrRenderer: SsrRenderer } {
+    const ssrRenderer = vi.fn<SsrRenderer>(
+      fixedRenderer(new Response('<html>x</html>', { status: 200 })),
+    );
+    return { app: createApp({ ssrRenderer }), ssrRenderer };
+  }
+
+  it('301-redirects the old plans URL to /docs/vendors/plans without invoking SSR', async () => {
+    const { binding } = recordingApiBinding();
+    const { app, ssrRenderer } = appWithSpyRenderer();
+    const res = await app.fetch(
+      new Request('https://www.aecintegrations.com/docs/vendors/plans-and-the-account-label'),
+      binding as unknown as Bindings,
+      fakeExecutionContext(),
+    );
+    expect(res.status).toBe(301);
+    expect(res.headers.get('location')).toBe('https://www.aecintegrations.com/docs/vendors/plans');
+    expect(res.headers.get('cache-control')).toBe('public, max-age=3600, s-maxage=86400');
+    expect(res.headers.get('cache-tag')).toBeNull();
+    expect(ssrRenderer).not.toHaveBeenCalled();
+  });
+
+  it('drops the query, so the Location never depends on it (WC-4 redirect rule)', async () => {
+    const { binding } = recordingApiBinding();
+    const { app } = appWithSpyRenderer();
+    const res = await app.fetch(
+      new Request('https://www.aecintegrations.com/docs/vendors/plans-and-the-account-label?x=1'),
+      binding as unknown as Bindings,
+      fakeExecutionContext(),
+    );
+    expect(res.headers.get('location')).toBe('https://www.aecintegrations.com/docs/vendors/plans');
+  });
+
+  it('leaves the new URL, and the never-shipped reader page, on the SSR pipeline', async () => {
+    // The target must not itself redirect (a loop), and `/docs/trust/the-account-label`
+    // never shipped, so it gets no redirect: the SSR `**` route answers it.
+    for (const path of ['/docs/vendors/plans', '/docs/trust/the-account-label']) {
+      const { binding } = recordingApiBinding();
+      const { app, ssrRenderer } = appWithSpyRenderer();
+      const res = await app.fetch(
+        new Request(`https://www.aecintegrations.com${path}`),
+        binding as unknown as Bindings,
+        fakeExecutionContext(),
+      );
+      expect(res.status, path).toBe(200);
+      expect(ssrRenderer, path).toHaveBeenCalledTimes(1);
+    }
+  });
+});
+
 describe('createApp /integrations/:id → pair 301 (AECI-294)', () => {
   const integrationResponse = () =>
     new Response(

@@ -3,7 +3,7 @@ title: Your seat
 description: Signing in to the vendor portal, inviting and removing colleagues, and what a seat lets you do on the Free and Managed plans.
 section: vendors
 order: 2
-last_updated: 2 October 2026
+last_updated: 9 October 2026
 ---
 
 A seat is one person's access to one vendor's account on AEC Integrations. Seats have no price and no limit on how many your company holds. What a seat can change depends partly on your company's plan, Free or Managed, set out below.
@@ -55,7 +55,7 @@ On every plan, including Free, you can:
 
 - see everything in the vendor portal,
 - edit your company details, and each product's description, website, logo and categories,
-- mark your company details, a product, or a product's integration list as "Looks right", and work through the checklists ([Plans and the account label](/docs/vendors/plans-and-the-account-label)),
+- mark your company details, a product, or a product's integration list as "Looks right", and work through the checklists ([Plans](/docs/vendors/plans)),
 - manage seats, if you are an owner,
 - claim, edit, retire and add the integrations your company owns, except one delivered through a connector ([Owning an integration](/docs/vendors/owning-an-integration)),
 - add your own links to an integration at either end,
@@ -70,7 +70,7 @@ On Managed, you can also:
 - claim, edit, retire and restore an integration your company owns that is delivered through a connector, and decide contests on it ([Owning an integration](/docs/vendors/owning-an-integration)),
 - reply in public to reviews of your products ([Replying to reviews](/docs/vendors/replying-to-reviews)).
 
-A seat never changes where your company or products appear in search or in any listing. Neither does a plan. See [Plans and the account label](/docs/vendors/plans-and-the-account-label).
+A seat never changes where your company or products appear in search or in any listing. Neither does a plan. See [Plans](/docs/vendors/plans).
 
 ## If a Managed plan ends
 
@@ -80,4 +80,4 @@ Your company moves to Free. Your seats stay, and so does sign-in. The portal bec
 
 - Previous: [Claiming your vendor listing](/docs/vendors/claiming-your-listing).
 - Next: [Attesting an integration](/docs/vendors/attesting-an-integration).
-- [Plans and the account label](/docs/vendors/plans-and-the-account-label).
+- [Plans](/docs/vendors/plans).

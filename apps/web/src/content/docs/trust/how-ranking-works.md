@@ -55,7 +55,7 @@ None of these changes where a listing appears in search:
 - Ratings. They decide the "Highest rated" sort, but not the Relevance order.
 - How many people view a page.
 - Trades, beyond matching your words. A trade helps a product be found when you search for that trade or filter by it. It gives no boost of its own.
-- Which plan a vendor is on, and whether it shows the "Active on AEC Integrations" label. See [The account label](/docs/trust/the-account-label).
+- Which plan a vendor is on.
 - A vendor's reply to a review.
 
 ## What a plan does not buy
@@ -70,6 +70,6 @@ Anyone can ask us to correct a listing, at no charge. A more complete, accurate 
 
 ## Related
 
-- Next: [The account label](/docs/trust/the-account-label).
+- Next: [Agreement states](/docs/trust/agreement-states).
 - [How we research and verify listings](/methodology), including the no-pay-for-placement rule.
-- [Plans and the account label](/docs/vendors/plans-and-the-account-label), for what vendors can edit on each plan.
+- [Plans](/docs/vendors/plans), for what vendors can edit on each plan.

@@ -1171,7 +1171,9 @@ describe('VendorDetail — provisioning a seat (AECI-740)', () => {
     const text = el.textContent ?? '';
     // The distinction from Grant, stated on the page rather than assumed.
     expect(text).toContain('opens no entitlement');
-    expect(text).toContain('does not show the public account label');
+    expect(text).toContain('carries no attestation rights');
+    // AECI-1264: there is no public account label to promise about.
+    expect(text).not.toContain('public account label');
   });
 
   it('warns on a vendor that owns endpoint products, WITHOUT disabling the action', async () => {
@@ -1288,8 +1290,8 @@ describe('VendorDetail — provisioning a seat (AECI-740)', () => {
     const status = el.querySelector('[role="status"]');
     expect(status?.textContent).toContain('Seat added');
     // Load-bearing: the operator must not have to read the Basics table to learn
-    // that provisioning did not verify the vendor.
-    expect(status?.textContent).toContain('public account label is unchanged');
+    // that provisioning did not open an entitlement.
+    expect(status?.textContent).toContain('No entitlement was opened.');
   });
 
   it('disables submit on an empty address — field validation, not the gate', async () => {

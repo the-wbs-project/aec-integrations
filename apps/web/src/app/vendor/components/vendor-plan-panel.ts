@@ -62,6 +62,13 @@ import { VendorPlanBadge } from './vendor-plan-badge';
  * is $25 a month per product."). Display only: nothing bills from it. The
  * message is plain text, rendered by interpolation and never as HTML.
  *
+ * ── The plan readout (AECI-1264) ────────────────────────────────────────────
+ * The panel states the plan in words: the "Free" or "Managed" plan badge beside
+ * the heading (portal only, `vendor-plan-badge.ts`) and the lede ("This product
+ * is on Managed…"). No plan turns a public label on or off, so no list here
+ * names one. The public "Active on AEC Integrations" badge was removed
+ * (marketing review B1).
+ *
  * Not an error surface in any state: no status colour, no alert role. Light
  * theme only.
  */
@@ -89,7 +96,7 @@ import { VendorPlanBadge } from './vendor-plan-badge';
           <p class="mt-2 max-w-prose text-sm leading-relaxed text-(--text-secondary)">
             <span i18n="@@vendor.plan.catalogue.scope"
               >Its description, website, logo and categories are yours to edit, like any listing on
-              Free. Catalogue maintenance carries no public account label.</span
+              Free.</span
             >
           </p>
         }
@@ -175,9 +182,6 @@ import { VendorPlanBadge } from './vendor-plan-badge';
         </li>
         <li i18n="@@vendor.plan.managed.connector">
           Manage its integrations delivered through a connector
-        </li>
-        <li i18n="@@vendor.plan.managed.label">
-          Counts toward the "Active on AEC Integrations" label on your vendor page
         </li>
       </ul>
     </ng-template>

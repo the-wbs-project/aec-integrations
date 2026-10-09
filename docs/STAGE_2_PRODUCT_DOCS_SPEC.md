@@ -5,6 +5,14 @@
 **Status:** Decomposed. The AECI-634 epic has eight sub-issues, AECI-1247 to AECI-1254 (§8). The vendor guide is built and noindex (AECI-1104). The shell is built (AECI-1248): the `/docs` home, section indexes, prev/next, linked breadcrumbs, noindex by path and the sitemap entries, with `requests-and-corrections` imported. The getting-started and trust pages are built and indexable (AECI-1249). The reviewer and account pages are built and indexable (AECI-1250). The footer Help column and the `/methodology` links down into `/docs/trust/*` and `/docs/getting-started/taxonomy` are built (AECI-1252). The help center was restyled after Devin's DeepWiki (AECI-1259). The 2026-10-09 marketing-review rulings are applied (AECI-1261). The remaining pages of the site map are unbuilt.
 **Companion to:** `docs/STAGE_2_SPEC.md` §2.6 (the pillar stub). The architecture decision is ADR 0040.
 
+> **2026-10-09, the account label removed (AECI-1264, marketing review B1).** The public
+> "Active on AEC Integrations" badge is gone, and no page says a plan turns a public label on or
+> off. `trust/the-account-label` never shipped, so it was deleted with no redirect, and the trust
+> section is two pages. `vendors/plans-and-the-account-label` is now `vendors/plans`, titled
+> "Plans". Its old URL was live in production, so the SSR Worker answers it with a 301 to the new
+> one (`server-runtime.ts`, beside the AECI-926 category redirect). `/methodology` lost its label
+> bullet, and its list of what Managed affects is four items.
+
 > **2026-10-09, marketing review rulings (AECI-1261).** Two rules now bind every page.
 > **"AECi" is internal shorthand.** Public text says "AEC Integrations", or "we" and "us" in body
 > copy. The first getting-started page is now `getting-started/about-aec-integrations`, titled
@@ -88,7 +96,7 @@ A **reader-facing product documentation surface** ("the docs") supporting the pr
 Three audiences, in priority order:
 
 1. **Vendors**: the Stage 2 addition and the reason this exists now. Claiming a profile, the dashboard, attesting to integrations, product versions, plans and entitlements, notifications.
-2. **Readers** (AEC firms evaluating integrations): how the directory works. Taxonomy, agreement states, the vendor account-status label, what ranking does and does not reward.
+2. **Readers** (AEC firms evaluating integrations): how the directory works. Taxonomy, agreement states, what ranking does and does not reward.
 3. **Reviewers**: dual reviews, requesting integrations and corrections.
 
 Trust content is first-class, not an afterthought: "how ranking works and what paid does **not** buy" (§8.1(4) of `STAGE_2_SPEC.md`) gets its own pages. Documentation is part of the trust surface.
@@ -162,7 +170,6 @@ URL scheme: `/docs/<section>/<slug>`, kebab-case. About 25 pages at v1.
 │  └─ taxonomy                       — mechanisms, data objects, trades (the four facets)
 ├─ trust/                            — SHIPPED (AECI-1249), indexable
 │  ├─ how-ranking-works              — purely algorithmic; what paid does NOT buy. Is the STAGE_2_5_SPEC §2 step 3 ranking-method page
-│  ├─ the-account-label              — what "Active on AEC Integrations" means (AECI-965 retired "Verified badge"; AECI-1131 relabeled it; AECI-1261 spelled out the name), that it is the plan
 │  └─ agreement-states               — unverified / single-source / confirmed / conflict, plainly
 ├─ vendors/                          — SHIPPED (AECI-1104 and after), noindex (index included) until AECI-1253
 │  ├─ claiming-your-listing          — the claim form, what we check, outcomes, connector-vendor seats (§8.9/§8.10)
@@ -171,7 +178,7 @@ URL scheme: `/docs/<section>/<slug>`, kebab-case. About 25 pages at v1.
 │  ├─ owning-an-integration          — claim, edit, per-side links, retire/restore, create (AECI-1023, ADR 0035)
 │  ├─ contests-and-protests          — sending and receiving contests, the protest to AECi (§11b)
 │  ├─ replying-to-reviews            — who replies, moderation, the public label, edit/withdraw/resubmit (§11c, AECI-1181)
-│  ├─ plans-and-the-account-label    — Free vs Managed, checklists, "Looks right", what no plan changes, billing, plan end (AECI-1219)
+│  ├─ plans                          — Free vs Managed, checklists, "Looks right", what no plan changes, billing, plan end (AECI-1219; slug renamed by AECI-1264, old URL 301s)
 │  ├─ change-history                 — the Changes page: every change, who made it, AECi's reasons (AECI-1160)
 │  └─ (AECI-1251, after the AECI-1103 rehearsal) your-dashboard, editing-profile-and-products, product-versions,
 │     notifications-and-messages; performance only if analytics.view has shipped
@@ -184,7 +191,7 @@ URL scheme: `/docs/<section>/<slug>`, kebab-case. About 25 pages at v1.
 └─ faq                               — AECI-1254: seeded from real pilot-vendor questions, not invented
 ```
 
-> **Boundary with `/methodology` (AECI-804, shipped).** The three `trust/` pages above cover the same
+> **Boundary with `/methodology` (AECI-804, shipped).** The two `trust/` pages above cover the same
 > ground as the editorial methodology page. They do not duplicate it and they must not replace it.
 > `/methodology` is the **single-page, citable editorial statement**: one read, indexable, in the
 > sitemap, the canonical short answer to "how does this directory work". `/docs/trust/*` is the
@@ -192,9 +199,8 @@ URL scheme: `/docs/<section>/<slug>`, kebab-case. About 25 pages at v1.
 > `/methodology` is what we assert, `/docs/trust/*` is how to act on it. Same split for
 > `getting-started/about-aec-integrations`. See `STAGE_2_5_SPEC.md` §7.2, which owns this boundary.
 >
-> Reader pages that overlap a vendor page (`the-account-label` with `plans-and-the-account-label`,
-> `agreement-states` with `attesting-an-integration`) explain what a reader sees and link across for
-> what a vendor does. No paragraph appears in both.
+> Reader pages that overlap a vendor page (`agreement-states` with `attesting-an-integration`)
+> explain what a reader sees and link across for what a vendor does. No paragraph appears in both.
 
 > **`requests-and-corrections` was drafted ahead of the epic (AECI-1023, 2026-09-22)** and imported
 > by AECI-1248, which re-verified it against the shipped request form and the vendor portal. Three
@@ -226,7 +232,7 @@ URL scheme: `/docs/<section>/<slug>`, kebab-case. About 25 pages at v1.
    | Integration edit, create, retire | `vendor-integration-edit-form.ts`, `vendor-integration-create.ts` | `owning-an-integration` |
    | Contest form and protest | `vendor-contest-form.ts`, `vendor-contest-protest.ts` | `contests-and-protests` |
    | Review reply | `vendor/sections/vendor-product-reviews-page.ts` | `replying-to-reviews` |
-   | Plan panel and free-plan checklist | `vendor/vendor-plan.ts`, the free-plan checklist | `plans-and-the-account-label` |
+   | Plan panel and free-plan checklist | `vendor/vendor-plan.ts`, the free-plan checklist | `plans` |
    | Changes page | `vendor/history/` | `change-history` |
 
 2. ~~Does the vendor guide organize by task or by tier?~~ **Answered: by task** (AECI-1104). Seat-only and plan-gated actions are marked on each task page rather than split into tiers.

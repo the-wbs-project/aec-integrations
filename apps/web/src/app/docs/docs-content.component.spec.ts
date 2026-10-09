@@ -33,7 +33,7 @@ const VENDOR_SLUGS = [
   'owning-an-integration',
   'contests-and-protests',
   'replying-to-reviews',
-  'plans-and-the-account-label',
+  'plans',
   'change-history',
 ];
 
@@ -43,7 +43,7 @@ const ACCOUNT_SLUGS = ['signing-in', 'your-data'];
 
 const GETTING_STARTED_SLUGS = ['about-aec-integrations', 'reading-an-integration-page', 'taxonomy'];
 
-const TRUST_SLUGS = ['how-ranking-works', 'the-account-label', 'agreement-states'];
+const TRUST_SLUGS = ['how-ranking-works', 'agreement-states'];
 
 // ─── Fixture manifest ────────────────────────────────────────────────────────
 
@@ -333,6 +333,18 @@ describe('docs manifest', () => {
       // AECI-965 renamed the public label; "Verified badge" is retired copy.
       expect(page.html, page.slug).not.toMatch(/verified badge|verified vendor/i);
     }
+  });
+
+  // AECI-1264 (marketing review B1): the public account badge is gone, and no
+  // page may say a plan turns a public label on or off.
+  it('never describes a public account label, and never links its retired pages', () => {
+    for (const page of DOCS_PAGES) {
+      expect(page.html, page.slug).not.toMatch(/Active on AEC Integrations|account label/i);
+      expect(page.html, page.slug).not.toContain('/docs/trust/the-account-label');
+      expect(page.html, page.slug).not.toContain('/docs/vendors/plans-and-the-account-label');
+    }
+    expect(getDocsPage('trust', 'the-account-label')).toBeUndefined();
+    expect(getDocsPage('vendors', 'plans')?.title).toBe('Plans');
   });
 
   it('describes review replies the way STAGE_2_VENDOR_PORTAL_SPEC.md §11c ships them (AECI-1181)', () => {

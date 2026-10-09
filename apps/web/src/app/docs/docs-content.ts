@@ -33,13 +33,12 @@ import requestsMd from '../../content/docs/reviewers/requests-and-corrections.md
 import writingReviewMd from '../../content/docs/reviewers/writing-a-review.md';
 import agreementStatesMd from '../../content/docs/trust/agreement-states.md';
 import rankingMd from '../../content/docs/trust/how-ranking-works.md';
-import accountLabelMd from '../../content/docs/trust/the-account-label.md';
 import attestingMd from '../../content/docs/vendors/attesting-an-integration.md';
 import changeHistoryMd from '../../content/docs/vendors/change-history.md';
 import claimingMd from '../../content/docs/vendors/claiming-your-listing.md';
 import contestsMd from '../../content/docs/vendors/contests-and-protests.md';
 import owningMd from '../../content/docs/vendors/owning-an-integration.md';
-import plansMd from '../../content/docs/vendors/plans-and-the-account-label.md';
+import plansMd from '../../content/docs/vendors/plans.md';
 import replyingMd from '../../content/docs/vendors/replying-to-reviews.md';
 import seatMd from '../../content/docs/vendors/your-seat.md';
 import { parseFrontmatter } from '../legal/legal-frontmatter';
@@ -143,7 +142,7 @@ const SECTION_META: Readonly<Record<DocsSectionId, DocsSectionMeta>> = {
       return $localize`:@@app.docs.section.trust:Trust and ranking`;
     },
     get summary() {
-      return $localize`:@@app.docs.section.trust.summary:How ranking works, what the account label means, and what no plan can buy.`;
+      return $localize`:@@app.docs.section.trust.summary:How ranking works and how to read the agreement labels.`;
     },
     audience: 'reader',
     order: 2,
@@ -200,7 +199,6 @@ const SECTION_PAGES: Readonly<Partial<Record<DocsSectionId, readonly RawDocsPage
   ],
   trust: [
     { slug: 'how-ranking-works', source: rankingMd },
-    { slug: 'the-account-label', source: accountLabelMd },
     { slug: 'agreement-states', source: agreementStatesMd },
   ],
   vendors: [
@@ -210,7 +208,7 @@ const SECTION_PAGES: Readonly<Partial<Record<DocsSectionId, readonly RawDocsPage
     { slug: 'owning-an-integration', source: owningMd },
     { slug: 'contests-and-protests', source: contestsMd },
     { slug: 'replying-to-reviews', source: replyingMd },
-    { slug: 'plans-and-the-account-label', source: plansMd },
+    { slug: 'plans', source: plansMd },
     { slug: 'change-history', source: changeHistoryMd },
   ],
   reviewers: [

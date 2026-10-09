@@ -322,6 +322,12 @@ describe('VendorPlanEndedBanner', () => {
     expect((f.nativeElement as HTMLElement).querySelector('[role="alert"]')).toBeNull();
   });
 
+  // AECI-1264 (marketing review B1): the plan never switched a public label.
+  it('lists no public account label among the things that went read-only', () => {
+    const f = create(VENDOR_ME_PILOT_ENDED_FIXTURE.entitlement);
+    expect(textOf(f)).not.toMatch(/Active on AEC Integrations|account label/i);
+  });
+
   it('still reads without an ended_at', () => {
     const f = create({ ...VENDOR_ME_PILOT_ENDED_FIXTURE.entitlement, ended_at: null });
     expect(textOf(f)).toContain('Your products are now on the Free plan.');

@@ -8,7 +8,7 @@ last_updated: 9 October 2026
 
 An integration's own page lists the data that moves between two products: a model, a schedule, an RFI, and so on, each in one direction. We call each of those a data flow. Most of them were recorded by AEC Integrations from public sources. Answering Yes or No on that page is how the company at either end says whether a flow is right.
 
-Answering needs a seat and the Managed plan. A company on Free can see every flow and every answer, but cannot answer. See [Your seat](/docs/vendors/your-seat) and [Plans and the account label](/docs/vendors/plans-and-the-account-label).
+Answering needs a seat and the Managed plan. A company on Free can see every flow and every answer, but cannot answer. See [Your seat](/docs/vendors/your-seat) and [Plans](/docs/vendors/plans).
 
 ## Open the integration's page
 
@@ -84,8 +84,6 @@ The page tells you, on the integration's own page, what your answer sets in moti
 ## What "confirmed" means, and what it does not
 
 "Confirmed by" and "Confirmed by both companies" mean the companies at the ends of the integration stand behind that data flow. It is a statement by the companies, not a test by AEC Integrations.
-
-It is a different thing from the "Active on AEC Integrations" label on a vendor's page. That label means the company is on the Managed plan. It says nothing about whether its integrations are accurate.
 
 ## Related
 
