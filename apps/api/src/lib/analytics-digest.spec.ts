@@ -16,6 +16,8 @@ import {
   collectAnalyticsMetrics,
   computeDelta,
   dailyWindows,
+  PAIR_ATTRIBUTION_NOTE,
+  PAIR_ATTRIBUTION_STARTS_ON,
   trafficDaysNotComparable,
   unresolvedRequests,
   windowsForDay,
@@ -673,6 +675,47 @@ describe('collectAnalyticsMetrics — automation exclusion on the tables (AECI-7
     expect(m.referrers).toEqual([{ source: 'Google', views: 1 }]);
   });
 
+  it('counts a pair-page view for BOTH endpoints, and drops flagged pair rows (AECI-929)', async () => {
+    // The flagged swarm reads the p1 ↔ p2 PAIR page, so `notFlagged` has to reach
+    // the pair rows too. It does, because the caller's predicate runs inside
+    // `productAttributedViews`' CTE rather than per attribution column.
+    await t.db.insert(pageViews).values([
+      ...Array.from({ length: 4 }, (_, i) =>
+        swarmRow(i, {
+          path: '/products/:contextSlug/integrations/:otherSlug',
+          productId: null,
+          pairProductAId: 'p1',
+          pairProductBId: 'p2',
+        }),
+      ),
+      // One genuine reader of the pair page and one of p2's own page.
+      {
+        path: '/products/:contextSlug/integrations/:otherSlug',
+        pairProductAId: 'p1',
+        pairProductBId: 'p2',
+        createdAt: AT,
+        userAgentHash: 'person',
+        cfAsn: 7922,
+      },
+      {
+        path: '/products/p2',
+        productId: 'p2',
+        createdAt: AT,
+        userAgentHash: 'person',
+        cfAsn: 7922,
+      },
+    ]);
+
+    const m = await collectAnalyticsMetrics(t.db, window);
+
+    expect(m.automation?.flagged.day).toBe(4);
+    // p2: its own view plus the pair view. p1: the pair view only.
+    expect(m.topProducts).toEqual([
+      { name: 'P2', slug: 'p2', views: 2 },
+      { name: 'P1', slug: 'p1', views: 1 },
+    ]);
+  });
+
   it('KEEPS rows with a null hash, a null ASN AND a null verdict — the 3VL trap', async () => {
     // `NOT (ua IN (…) OR asn IN (…) OR verdict IN (…))` is NULL for this row, and
     // a NULL WHERE drops it — so the row would vanish from the tables while still
@@ -742,7 +785,9 @@ describe('collectAnalyticsMetrics — automation exclusion on the tables (AECI-7
 
     // Headline is `raw - flagged` (6 - 4 = 2); the table rows must sum to no more
     // than that. If the negation ever stops matching `countFlaggedViews`, this is
-    // where it shows up.
+    // where it shows up. The bound holds here because no seeded row is a pair page:
+    // since AECI-929 a pair-page row counts once per endpoint, so with pair rows the
+    // table can legitimately sum past the headline.
     const net = unresolvedRequests(m);
     const tableViews = m.topProducts.reduce((n, p) => n + p.views, 0);
     expect(m.pageViews.day).toBe(6);
@@ -976,6 +1021,19 @@ describe('buildAnalyticsDigest — the two bounds (AECI-658 / AECI-660)', () => 
     dayLabel: '2026-08-23',
     generatedAt: new Date('2026-08-24T05:00:00.000Z'),
   };
+
+  it('says under the top-products table that pair views are included (AECI-929)', () => {
+    const { text, html } = buildAnalyticsDigest(metrics, opts);
+    expect(PAIR_ATTRIBUTION_NOTE).toContain(PAIR_ATTRIBUTION_STARTS_ON);
+    expect(text).toContain(`(${PAIR_ATTRIBUTION_NOTE})`);
+    expect(text.indexOf(PAIR_ATTRIBUTION_NOTE)).toBeGreaterThan(text.indexOf('Corpay'));
+    expect(html).toContain(PAIR_ATTRIBUTION_NOTE);
+    expect(html.indexOf(PAIR_ATTRIBUTION_NOTE)).toBeGreaterThan(html.indexOf('Corpay'));
+    // No table, no caption: there is nothing for it to qualify.
+    const empty = buildAnalyticsDigest({ ...metrics, topProducts: [] }, opts);
+    expect(empty.text).not.toContain(PAIR_ATTRIBUTION_NOTE);
+    expect(empty.html).not.toContain(PAIR_ATTRIBUTION_NOTE);
+  });
 
   it('qualifies the headline number in the subject line', () => {
     // The subject is what the operator actually reads. For weeks it asserted a

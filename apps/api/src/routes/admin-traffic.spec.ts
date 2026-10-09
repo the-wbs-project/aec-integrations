@@ -203,6 +203,56 @@ describe('GET /api/admin/traffic/breakdown — every dimension', () => {
     expect(body.window_total.total).toBe(4);
   });
 
+  it('product: counts a pair-page view once for EACH endpoint (AECI-929)', async () => {
+    await t.db
+      .insert(products)
+      .values({ id: u(3), slug: 'bluebeam', name: 'Bluebeam', promotionStatus: 'promoted' });
+    await t.db.insert(pageViews).values([
+      // Procore ↔ Revit pair page: one row, credited to both.
+      {
+        path: '/products/:contextSlug/integrations/:otherSlug',
+        pairProductAId: u(1),
+        pairProductBId: u(2),
+        isBot: false,
+        cfAsn: 23700,
+        createdAt: '2026-08-10T07:00:00.000Z',
+      },
+      // Revit ↔ Bluebeam, from an internal ASN, so the filtered figure drops it.
+      {
+        path: '/products/:contextSlug/integrations/:otherSlug',
+        pairProductAId: u(2),
+        pairProductBId: u(3),
+        isBot: false,
+        cfAsn: 23700,
+        createdAt: '2026-08-10T08:00:00.000Z',
+      },
+      // A pair row whose other side never resolved still credits the side that did.
+      {
+        path: '/products/:contextSlug/integrations/:otherSlug',
+        pairProductAId: u(3),
+        isBot: false,
+        cfAsn: 7922,
+        createdAt: '2026-08-10T09:00:00.000Z',
+      },
+    ]);
+    const body = await breakdown(`dimension=product&${RANGE}&exclude_internal=1`, {
+      ...TEST_ENV,
+      ANALYTICS_INTERNAL_ASNS: '23700',
+    });
+    expect(body.data.map((r) => [r.key, r.views, r.views_excluding_internal])).toEqual([
+      // Procore: 2 own + 1 pair; every one from the internal ASN.
+      [u(1), 3, 0],
+      // Revit: 1 own (ASN 7922) + 2 pair (both internal).
+      [u(2), 3, 1],
+      // Bluebeam: 2 pair, one internal.
+      [u(3), 2, 1],
+    ]);
+    expect(body.total).toBe(3);
+    // Seven rows in the window, but the groups sum to eight: the two-sided pair
+    // rows count twice, the one-sided one once.
+    expect(body.window_total.total).toBe(7);
+  });
+
   it('bot: forces the bot population regardless of ?traffic, and labels a null bot_name', async () => {
     const body = await breakdown(`dimension=bot&${RANGE}&traffic=human`);
     expect(body.traffic).toBe('bot');

@@ -18,6 +18,8 @@ import {
   isVendorHeldAbort,
   VENDOR_HELD_ABORT_MESSAGE,
   INTEGRATIONS_DDL_SQL,
+  PAGE_VIEWS_DDL_SQL,
+  ddlHasPageViewPairColumns,
   buildProductLookupSql,
   classifyRetraction,
   DELETE_EVIDENCED_PAIRS_FLAG,
@@ -266,6 +268,14 @@ describe('buildDeleteStatements', () => {
     );
   });
 
+  it('detaches each pair side on its own, before the product DELETE (AECI-929)', () => {
+    for (const col of ['pair_product_a_id', 'pair_product_b_id']) {
+      const stmt = `UPDATE "page_views" SET "${col}" = NULL WHERE "${col}" = '${PRODUCT.id}';`;
+      expect(stmts).toContain(stmt);
+      expect(stmts.indexOf(stmt)).toBeLessThan(idx('DELETE FROM "products"'));
+    }
+  });
+
   it('NULLs the powered_by no-action ref rather than blocking on it', () => {
     expect(stmts.find((s) => s.startsWith('UPDATE "integrations"'))).toContain(
       'SET "powered_by_product_id" = NULL',
@@ -386,6 +396,20 @@ function seed(t: TestDb): void {
   run(
     `INSERT INTO product_categories (product_id, category_id, created_at) VALUES ('${P}', 'cat1', ${TS});`,
   );
+  // AECI-929: a pair-page view of P and Q, where the columns exist. Canonical order
+  // puts the lower id first ('prod-other' < 'prod-retract'), so P sits on side B.
+  if (hasPageViewPairColumns(t)) {
+    run(
+      `INSERT INTO page_views (path, concrete_path, pair_product_a_id, pair_product_b_id, created_at) VALUES ('/products/:contextSlug/integrations/:otherSlug', '/products/retract-me/integrations/other', '${Q}', '${P}', ${TS});`,
+    );
+  }
+}
+
+/** AECI-929: does this harness carry migration 0067's `page_views` pair columns?
+ *  The older-schema cases below seed a database without them. */
+function hasPageViewPairColumns(t: TestDb): boolean {
+  const ddl = (t.raw.prepare(PAGE_VIEWS_DDL_SQL).get() as { sql: string } | undefined)?.sql;
+  return ddlHasPageViewPairColumns(ddl);
 }
 
 function footprintOf(t: TestDb, id: string): RetractFootprint {
@@ -456,6 +480,30 @@ describe('a tier without migration 0058 (AECI-1175)', () => {
   });
 });
 
+describe('a tier without migration 0067 (AECI-929)', () => {
+  it('never names the pair columns when the probe says they are absent', async () => {
+    const product = { id: P, slug: 'retract-me', name: 'retract-me', promotion_status: 'promoted' };
+    const footprint = parseFootprint(RAW_EMPTY);
+    expect(footprint.pageViewPairs).toBe(0);
+    const without = buildDeleteStatements({
+      product,
+      footprint,
+      auditId: 'a',
+      now: NOW,
+      pageViewPairColumns: false,
+    }).join('\n');
+    expect(without).not.toContain('pair_product_');
+    expect(buildFootprintSql(P, { pageViewPairColumns: false })).not.toContain('pair_product_');
+    // The probe reads the real DDL either side of the migration.
+    const before = await makeTestDb({ upToExclusive: '0067_nappy_thor_girl.sql' });
+    expect(hasPageViewPairColumns(before)).toBe(false);
+    before.dispose();
+    const after = await makeTestDb();
+    expect(hasPageViewPairColumns(after)).toBe(true);
+    after.dispose();
+  });
+});
+
 describe('buildDeleteStatements against the migrated schema', () => {
   it('reads a footprint that counts every relation it will touch', async () => {
     const t = await makeTestDb();
@@ -477,6 +525,7 @@ describe('buildDeleteStatements against the migrated schema', () => {
       reviewResponses: 1,
       productVersions: 1,
       pageViews: 1,
+      pageViewPairs: 1,
       productCategories: 1,
       connectorCatalogs: 0,
       stubMappings: 0,
@@ -522,6 +571,14 @@ describe('buildDeleteStatements against the migrated schema', () => {
         .prepare(`SELECT product_id AS v FROM page_views WHERE concrete_path = '/products/pg1'`)
         .get(),
     ).toEqual({ v: null });
+    // AECI-929: the pair view survives with only P's side NULLed, so Q keeps it.
+    expect(
+      t.raw
+        .prepare(
+          `SELECT pair_product_a_id AS a, pair_product_b_id AS b FROM page_views WHERE concrete_path = '/products/retract-me/integrations/other'`,
+        )
+        .get(),
+    ).toEqual({ a: Q, b: null });
 
     const rows = t.raw
       .prepare('SELECT * FROM audit_log ORDER BY action, entity_id')
@@ -578,7 +635,7 @@ describe('buildDeleteStatements against the migrated schema', () => {
         product_versions: 1,
         vendor_links: 2,
       },
-      detached: { page_views: 1, powered_by: 1 },
+      detached: { page_views: 1, page_view_pairs: 1, powered_by: 1 },
     });
     t.dispose();
   });
@@ -655,6 +712,7 @@ describe('vendor-held integrations are refused, --force or not (AECI-1005)', () 
             vendorHeldColumns: ddlHasVendorHeldColumns(ddl),
             vendorLinksTable: Boolean(t.raw.prepare(VENDOR_LINKS_TABLE_SQL).get()),
             reviewResponsesTable: Boolean(t.raw.prepare(REVIEW_RESPONSES_TABLE_SQL).get()),
+            pageViewPairColumns: hasPageViewPairColumns(t),
           }),
         )
         .get() as RawFootprintRow,
@@ -726,6 +784,7 @@ describe('vendor-held evidenced pairs are refused, whatever the flags (AECI-1088
             vendorHeldPairColumns: ddlHasVendorHeldColumns(ddl(EVIDENCED_PAIRS_DDL_SQL)),
             vendorLinksTable: Boolean(t.raw.prepare(VENDOR_LINKS_TABLE_SQL).get()),
             reviewResponsesTable: Boolean(t.raw.prepare(REVIEW_RESPONSES_TABLE_SQL).get()),
+            pageViewPairColumns: hasPageViewPairColumns(t),
           }),
         )
         .get() as RawFootprintRow,
@@ -878,7 +937,13 @@ describe('the delete plan re-checks vendor-held at write time (AECI-1088 review)
     seed(t);
     const footprint = parseFootprint(
       t.raw
-        .prepare(buildFootprintSql(P, { vendorLinksTable: false, reviewResponsesTable: false }))
+        .prepare(
+          buildFootprintSql(P, {
+            vendorLinksTable: false,
+            reviewResponsesTable: false,
+            pageViewPairColumns: false,
+          }),
+        )
         .get() as RawFootprintRow,
     );
     const statements = buildDeleteStatements({
@@ -890,6 +955,8 @@ describe('the delete plan re-checks vendor-held at write time (AECI-1088 review)
       footprint,
       vendorLinksTable: false,
       reviewResponsesTable: false,
+      // AECI-929: nor 0067's `page_views` pair columns.
+      pageViewPairColumns: false,
       vendorHeldColumns: false,
       vendorHeldPairColumns: false,
       // AECI-1092: nor 0050's evidenced contest anchor.
@@ -981,6 +1048,7 @@ describe('formatFootprintReport', () => {
     expect(report).toContain('226817bb-25d1-4d10-90fa-f346638df821');
     expect(report).toContain('promoted');
     expect(report).toContain('page_views');
+    expect(report).toContain('page_views pair side (NULLed, kept)');
   });
 });
 
