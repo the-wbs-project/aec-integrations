@@ -75,6 +75,31 @@ describe('ProductPairMechanismSchema', () => {
     expect(parsed.direction).toBeNull();
     expect(parsed.mechanism_kind).toBeNull();
   });
+
+  describe('connector_vendor_id (AECI-933)', () => {
+    it('may be absent, so a response from an older API Worker still parses', () => {
+      const parsed = ProductPairMechanismSchema.parse(validMechanism);
+      expect(parsed.connector_vendor_id).toBeUndefined();
+    });
+
+    it('accepts a vendor uuid or null', () => {
+      expect(
+        ProductPairMechanismSchema.parse({ ...validMechanism, connector_vendor_id: uuid(7) })
+          .connector_vendor_id,
+      ).toBe(uuid(7));
+      expect(
+        ProductPairMechanismSchema.parse({ ...validMechanism, connector_vendor_id: null })
+          .connector_vendor_id,
+      ).toBeNull();
+    });
+
+    it('rejects a value that is not a uuid', () => {
+      expect(
+        ProductPairMechanismSchema.safeParse({ ...validMechanism, connector_vendor_id: 'zapier' })
+          .success,
+      ).toBe(false);
+    });
+  });
 });
 
 describe('ProductPairResponseSchema', () => {

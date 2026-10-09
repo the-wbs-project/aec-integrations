@@ -21,6 +21,7 @@ import type {
   SyncHeadline,
 } from '@aeci/shared';
 
+import { Analytics } from '../analytics/analytics';
 import { ProductsPairPage } from './products-pair';
 
 const productListItem = (slug: string, name: string, overrides = {}) => ({
@@ -1288,5 +1289,198 @@ describe('ProductsPairPage — version selectors (AECI-303)', () => {
         queryParamsHandling: 'merge',
       }),
     );
+  });
+});
+
+// AECI-933: every outbound click on the pair page records whose site it leads to
+// and whose link it is. The owner rules are the spec's §3.2 table.
+describe('ProductsPairPage: outbound click ownership (AECI-933)', () => {
+  beforeEach(() => {
+    TestBed.resetTestingModule();
+    clearViewCookie();
+  });
+
+  const vendor = (id: string, name: string) => ({
+    id,
+    name,
+    slug: name.toLowerCase(),
+    logo_url: null,
+    verified: false,
+  });
+  const PROCORE_INC = '00000000-0000-4000-8000-000000000c01';
+  const AUTODESK = '00000000-0000-4000-8000-000000000c02';
+  const BUILDER = '00000000-0000-4000-8000-000000000c03';
+  const ZAPIER_INC = '00000000-0000-4000-8000-000000000c04';
+  const PROCORE_ID = productListItem('procore', 'Procore').id;
+  const REVIT_ID = productListItem('revit', 'Revit').id;
+  // Lower id first, BINARY: "procore…" sorts before "revit…".
+  const PAIR_KEY = `${PROCORE_ID}:${REVIT_ID}`;
+
+  type Mechanism = ProductPairResponse['mechanisms'][number];
+
+  /** Procore (context) by Procore Inc, Revit (other) by Autodesk, one mechanism. */
+  function pairWith(overrides: Partial<Mechanism> = {}, swap = false): ProductPairResponse {
+    const procore = productListItem('procore', 'Procore', {
+      vendor: vendor(PROCORE_INC, 'Procore Inc'),
+    });
+    const revit = productListItem('revit', 'Revit', { vendor: vendor(AUTODESK, 'Autodesk') });
+    const base = buildPair({
+      context_product: swap ? revit : procore,
+      other_product: swap ? procore : revit,
+    });
+    return { ...base, mechanisms: [{ ...base.mechanisms[0]!, ...overrides }] };
+  }
+
+  function render(pair: ProductPairResponse) {
+    const analytics = { externalLinkClicked: vi.fn() };
+    TestBed.configureTestingModule({ providers: [{ provide: Analytics, useValue: analytics }] });
+    const { el } = setup(pair);
+    // Keep the test runner on the page: the tracker's own listener still runs.
+    el.addEventListener('click', (e) => e.preventDefault());
+    const click = (href: string) => {
+      const anchor = el.querySelector(`a[href="${href}"]`) as HTMLAnchorElement | null;
+      expect(anchor, href).not.toBeNull();
+      anchor!.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+      return analytics.externalLinkClicked.mock.lastCall?.[0];
+    };
+    return { analytics, click };
+  }
+
+  describe("AECi's curated fallback links (link_origin aeci)", () => {
+    it('are owned by the vendor that built the row first', () => {
+      const { click } = render(
+        pairWith({
+          built_by_vendor: vendor(BUILDER, 'Builder'),
+          connector_vendor_id: ZAPIER_INC,
+          docs_url: 'https://aeci.example/docs',
+        }),
+      );
+      expect(click('https://example.com/listing')).toEqual({
+        destination: 'https://example.com/listing',
+        source: 'pair_detail',
+        owner_vendor_id: BUILDER,
+        link_origin: 'aeci',
+        source_entity_type: 'pair',
+        source_entity_id: PAIR_KEY,
+        link_purpose: 'listing',
+      });
+      expect(click('https://aeci.example/docs')).toMatchObject({
+        owner_vendor_id: BUILDER,
+        link_origin: 'aeci',
+        link_purpose: 'docs',
+      });
+    });
+
+    it("fall back to the powered_by connector's vendor when no vendor built the row", () => {
+      const { click } = render(
+        pairWith({
+          built_by_vendor: null,
+          powered_by_product: {
+            id: '00000000-0000-4000-8000-0000000000z1',
+            name: 'Zapier',
+            slug: 'zapier',
+            logo_url: null,
+          },
+          connector_vendor_id: ZAPIER_INC,
+        }),
+      );
+      expect(click('https://example.com/listing')).toMatchObject({
+        owner_vendor_id: ZAPIER_INC,
+        link_origin: 'aeci',
+      });
+    });
+
+    it("fall back to the via connector's vendor on a connector-evidenced pair", () => {
+      const { click } = render(
+        pairWith({
+          mechanism_kind: null,
+          built_by_vendor: null,
+          via: {
+            id: '00000000-0000-4000-8000-0000000000z1',
+            name: 'Zapier',
+            slug: 'zapier',
+            logo_url: null,
+          },
+          connector_vendor_id: ZAPIER_INC,
+        }),
+      );
+      expect(click('https://example.com/listing')).toMatchObject({
+        owner_vendor_id: ZAPIER_INC,
+        link_origin: 'aeci',
+      });
+    });
+
+    it('send a null owner when there is neither a builder nor a connector vendor', () => {
+      // `connector_vendor_id` absent, as an API Worker older than AECI-933 sends it.
+      const { click } = render(pairWith({ built_by_vendor: null }));
+      const call = click('https://example.com/listing');
+      expect(call).toHaveProperty('owner_vendor_id', null);
+      expect(call).toMatchObject({ link_origin: 'aeci', link_purpose: 'listing' });
+    });
+  });
+
+  it("owns a side's own link by that side's vendor, with link_origin vendor", () => {
+    const { click } = render(
+      pairWith({
+        // A builder is set, and must NOT take credit for a side's own link.
+        built_by_vendor: vendor(BUILDER, 'Builder'),
+        vendor_links: {
+          context: { listing_url: null, docs_url: 'https://procore.example/d' },
+          other: { listing_url: 'https://revit.example/l', docs_url: null },
+        },
+      }),
+    );
+    expect(click('https://revit.example/l')).toEqual({
+      destination: 'https://revit.example/l',
+      source: 'pair_detail',
+      owner_vendor_id: AUTODESK,
+      link_origin: 'vendor',
+      source_entity_type: 'pair',
+      source_entity_id: PAIR_KEY,
+      link_purpose: 'listing',
+    });
+    expect(click('https://procore.example/d')).toMatchObject({
+      owner_vendor_id: PROCORE_INC,
+      link_origin: 'vendor',
+      link_purpose: 'docs',
+    });
+  });
+
+  it('owns the price link by the row builder, with purpose pricing', () => {
+    const { click } = render(
+      pairWith({
+        built_by_vendor: vendor(BUILDER, 'Builder'),
+        connector_vendor_id: ZAPIER_INC,
+        pricing_url: 'https://builder.example/pricing',
+      }),
+    );
+    expect(click('https://builder.example/pricing')).toEqual({
+      destination: 'https://builder.example/pricing',
+      source: 'pair_detail',
+      owner_vendor_id: BUILDER,
+      link_origin: 'vendor',
+      source_entity_type: 'pair',
+      source_entity_id: PAIR_KEY,
+      link_purpose: 'pricing',
+    });
+  });
+
+  it('sends a null price owner when no vendor built the row, never the connector', () => {
+    const { click } = render(
+      pairWith({
+        built_by_vendor: null,
+        connector_vendor_id: ZAPIER_INC,
+        pricing_url: 'https://example.com/pricing',
+      }),
+    );
+    expect(click('https://example.com/pricing')).toHaveProperty('owner_vendor_id', null);
+  });
+
+  it('reports the same pair key from both URL orientations', () => {
+    const forward = render(pairWith()).click('https://example.com/listing');
+    TestBed.resetTestingModule();
+    const reverse = render(pairWith({}, true)).click('https://example.com/listing');
+    expect(forward?.source_entity_id).toBe(PAIR_KEY);
+    expect(reverse?.source_entity_id).toBe(PAIR_KEY);
   });
 });

@@ -6,7 +6,7 @@ import { map } from 'rxjs';
 
 import type { ProductDetail } from '@aeci/shared';
 
-import { Analytics } from '../analytics/analytics';
+import { Analytics, type ExternalLinkContext } from '../analytics/analytics';
 import { ExternalLinkTracker } from '../analytics/external-link-tracker';
 import { DetailLayout } from '../layouts/detail-layout';
 import { NotFound } from '../not-found/not-found';
@@ -252,6 +252,7 @@ import { RoleBadge } from './role-badge';
                 target="_blank"
                 rel="noopener noreferrer nofollow"
                 aecTrackExternalLink="product_detail"
+                [aecLinkContext]="websiteLinkContext()!"
                 class="inline-flex items-center gap-2 rounded-(--radius-md)
                   border border-(--border-strong) bg-(--accent-primary)
                   px-4 py-2 text-sm font-bold text-(--surface-base) no-underline
@@ -648,6 +649,23 @@ export class ProductDetailPage {
       if (p) this.analytics.productViewed(p.id);
     });
   }
+
+  /**
+   * Ownership facts for the "Visit website" click (AECI-933). The owner is the
+   * product's primary vendor, the one `vendor` already resolves to. A product with
+   * no vendor sends a `null` owner rather than guessing.
+   */
+  protected readonly websiteLinkContext = computed<ExternalLinkContext | null>(() => {
+    const p = this.product();
+    if (!p) return null;
+    return {
+      owner_vendor_id: p.vendor?.id ?? null,
+      link_origin: 'vendor',
+      source_entity_type: 'product',
+      source_entity_id: p.id,
+      link_purpose: 'website',
+    };
+  });
 
   /** One-decimal display of an average rating, e.g. 4 → "4.0", 4.25 → "4.3". */
   protected decimal(value: number): string {

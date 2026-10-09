@@ -127,9 +127,49 @@ The contract is the issue. Summary: two nullable product columns holding the pai
 
 ### 3.2 Outbound-click ownership — AECI-933
 
-`external_link_clicked` gains four properties, all identifiers (`ANALYTICS.md` §2): `owner_vendor_id` (the vendor whose destination this is, or null when unknown), `source_entity_type` (`product` | `vendor` | `pair`), `source_entity_id` (for a pair, the canonical unordered pair key), `link_purpose` (`website` | `docs` | `listing` | `social` | `connector`). The directive already receives `source`; the owning component supplies the rest via inputs. Historical events without these properties stay unattributed; **no backfill from URLs**.
+**Amended 2026-10-09 (AECI-933).** The first version of this section predates two pair-card links. AECI-1007 added each endpoint vendor's own listing and docs links. AECI-1158 added the owner's price link. A single "mechanism owner" rule would credit the wrong vendor for both. Chris ruled two things on 2026-10-09. Collect the properties now, ahead of the Performance page. Record facts on the event, and decide credit when the page reads them.
 
-Surfaces today: `product_detail` (product website), `vendor_detail` and `vendor_detail_social`, `pair_detail` (listing and docs URLs per mechanism). The mechanism's owner is `built_by_vendor` when present, else the connector product's vendor for `powered_by_product`, else null.
+`external_link_clicked` keeps `destination` and `source` and gains five properties. All are identifiers (`ANALYTICS.md` §2). Every one is always present. An unknown owner is sent as `null` and is never omitted.
+
+| Property | Values | Meaning |
+|---|---|---|
+| `owner_vendor_id` | vendor uuid or `null` | The vendor whose site the link leads to. `null` means unknown. |
+| `link_origin` | `vendor` or `aeci` | `vendor` is the owner's own link to its own property. That covers a website, a social profile, a pair side's own listing or docs link, and the owner's price page. `aeci` is the curated listing or docs link AECi shows when neither pair side has set its own. |
+| `source_entity_type` | `product`, `vendor` or `pair` | The kind of page the click came from. |
+| `source_entity_id` | uuid, or `a:b` for a pair | A pair is `canonicalPairIds(a, b).join(':')` from `packages/shared/src/pair-page-path.ts`. That is the AECI-929 order, so both URL orientations give one key. |
+| `link_purpose` | `website`, `docs`, `listing`, `social`, `pricing` or `connector` | What the link is for. `pricing` is new in this amendment. `connector` is reserved. |
+
+Owner per surface:
+
+| Surface (`source`) | Link | `owner_vendor_id` | `link_origin` | `link_purpose` |
+|---|---|---|---|---|
+| `product_detail` | the product website | the product's primary vendor, else `null` | `vendor` | `website` |
+| `vendor_detail` | the vendor website | this vendor | `vendor` | `website` |
+| `vendor_detail_social` | a social profile | this vendor | `vendor` | `social` |
+| `pair_detail` | a side's own listing or docs link | that side's product's primary vendor, else `null` | `vendor` | `listing` or `docs` |
+| `pair_detail` | the curated `listing_url` or `docs_url` | `built_by_vendor`, else the connector's vendor, else `null` | `aeci` | `listing` or `docs` |
+| `pair_detail` | the price link (`pricing_url`) | `built_by_vendor`, else `null` | `vendor` | `pricing` |
+
+"The connector's vendor" is the primary vendor of `powered_by_product` on an `integrations` row, or of `via` on a connector-evidenced pair. The pair response carries it as `ProductPairMechanism.connector_vendor_id` (`API_CONTRACTS.md`).
+
+**The read-time rule, for AECI-941.** This PR builds none of it. Take a vendor V and a pair page where V owns an endpoint. Each click on that page falls in exactly one bucket.
+
+| Bucket | Rule |
+|---|---|
+| Delivered | `owner_vendor_id = V` |
+| Shared | `link_origin = 'aeci'` and `owner_vendor_id` is not V |
+| Elsewhere | every other click |
+
+Shared never adds to delivered. A shared click is a curated link AECi showed on V's pair that leads to someone else's site. The page may show it beside delivered, never inside it. Historical events without these properties stay unattributed. **No backfill from URLs.**
+
+**As built (AECI-933).**
+
+- The directive `apps/web/src/app/analytics/external-link-tracker.ts` takes a required `aecLinkContext` input of type `ExternalLinkContext`. The type and its value unions live in `analytics.ts`. A surface that omits the input does not compile, so every surface sends every property.
+- The pair page builds each link's context in its view model (`mechanismLinks()` and `glanceFacts()` in `products-pair.ts`). The pair key is computed once per page.
+- `connector` is reserved. No public page renders an external connector link today. "Through {connector}" is an internal link to the connector's product page, so it fires no event.
+- A product's owner is its primary vendor, the same vendor `ProductListItem.vendor` resolves through `pickPrimaryVendor`. A product with several vendors credits only the primary one.
+- The price link never falls back to the connector's vendor. A price page is the builder's own page, so with no builder the owner is unknown.
+- Events sent before this shipped carry none of the five properties. They stay unattributed and are not backfilled.
 
 ### 3.3 Vendor self-visit exclusion — AECI-934
 

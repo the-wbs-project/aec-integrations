@@ -132,7 +132,7 @@ summed with it.
 | `search_performed` | `search-controller.ts`, once per distinct non-empty query when the root stats settle | `query`, `results_count`, `results_products`, `results_vendors`, `filters_applied[]`, `status`, `duration_ms`, `results_bucket` | The empty initial `/search` load is skipped. `status` / `duration_ms` / `results_bucket` arrived in AECI-643, absorbing the `aeci.search.query` Datadog RUM action (§3.9), which AECI-651 then deleted — so this event is the only carrier, and search *latency* is now a consented-slice number where RUM saw every search. **The header autocomplete is not covered by this event and is currently unmeasured (AECI-717).** `results_products` / `results_vendors` split the federated total, because 8 hits being 8 products or 8 vendors are different demand signals. Only two indexes: `/search` does not search integrations. |
 | `product_viewed` | `products/product-detail.ts` (`afterNextRender`) | `product_id`, `source` | `source` is `search` / `browse` / `direct`, derived from the previous in-app route. |
 | `integration_viewed` | `integrations/integration-detail.ts` | `integration_id` | |
-| `external_link_clicked` | the `[aecTrackExternalLink]` directive on outbound detail-page anchors | `destination`, `source` | **The one that matters most.** The outbound click to a vendor is what the product actually sells; see §6. |
+| `external_link_clicked` | the `[aecTrackExternalLink]` directive on outbound detail-page anchors | `destination`, `source`, `owner_vendor_id`, `link_origin`, `source_entity_type`, `source_entity_id`, `link_purpose` | **The one that matters most.** The outbound click to a vendor is what the product actually sells; see §6. `source` is `product_detail`, `vendor_detail`, `vendor_detail_social` or `pair_detail`. The five ownership properties arrived in AECI-933 and are always present: an unknown owner is `null`, never omitted. A pair's `source_entity_id` is its canonical `a:b` key. The values and the owner rule per surface are `VENDOR_PERFORMANCE_SPEC.md` §3.2. Events before AECI-933 shipped carry only `destination` and `source`. |
 | `review_submitted` | `reviews/review-form.ts` on submit success | `product_id` | Body text deliberately absent (§2). |
 | `claim_requested` | `requests/request-form-body.ts` on submit success | `target_type`, `slug`, `request_id` | See the deviation note below. |
 | `correction_requested` | `requests/request-form-body.ts` on submit success | `target_type`, `slug`, `request_id` | Same. |
@@ -196,6 +196,13 @@ That is the product thesis expressed as three events. Someone arrives with a
 question, finds a candidate, and leaves for the vendor — the outbound click is
 the moment AECi delivered what it promised, which is why `external_link_clicked`
 is the terminal step and not `product_viewed`.
+
+Since AECI-933 the outbound step also says whose site the click went to
+(`owner_vendor_id`) and whose link it was (`link_origin`). That lets a funnel
+split clicks delivered to a vendor from clicks to the counterparty or a
+connector. The split rule is `VENDOR_PERFORMANCE_SPEC.md` §3.2. Clicks sent
+before AECI-933 shipped carry no ownership. A funnel that groups by owner must
+start at the ship date, or it reads the older clicks as unowned.
 
 Two deeper-commitment steps sit past it, measured separately because they are
 contribution rather than consumption:

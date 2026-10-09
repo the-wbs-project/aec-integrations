@@ -73,3 +73,27 @@ describe('§2.5 — no read path queries vendor_entitlements', () => {
     expect(schema).toHaveProperty('vendorEntitlements');
   });
 });
+
+/**
+ * AECI-933: the connector's vendor join is a PAIR-read cost only. The pair configs
+ * hydrate the connector's `productVendors` so the mapper can set
+ * `connector_vendor_id`. The shared list config, which `/api/integrations`, the
+ * powered hub and the product-detail embed all spread, must stay bare.
+ */
+describe('AECI-933 — connector vendor join stays on the pair read', () => {
+  it('the pair configs hydrate the connector product with its vendors', async () => {
+    const { integrationPairConfig, connectorEvidencedPairPairConfig } =
+      await import('./drizzle-helpers');
+    expect(integrationPairConfig.with.poweredByProduct).toHaveProperty('with.productVendors');
+    expect(connectorEvidencedPairPairConfig.with.connectorProduct).toHaveProperty(
+      'with.productVendors',
+    );
+  });
+
+  it('the shared list configs do not', async () => {
+    const { connectorEvidencedPairListConfig, connectorEvidencedPairDetailConfig } =
+      await import('./drizzle-helpers');
+    expect(connectorEvidencedPairListConfig.with.connectorProduct).not.toHaveProperty('with');
+    expect(connectorEvidencedPairDetailConfig.with.connectorProduct).not.toHaveProperty('with');
+  });
+});

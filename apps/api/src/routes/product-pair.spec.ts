@@ -879,6 +879,101 @@ describe('GET /api/products/:slug/integrations/:otherSlug: At a glance facts (AE
   });
 });
 
+describe('GET /api/products/:slug/integrations/:otherSlug: connector_vendor_id (AECI-933)', () => {
+  // The pair page's outbound-click analytics owns a curated-link click by the
+  // connector's vendor when no vendor built the row. The id must come from the
+  // connector product's PRIMARY vendor, on both delivered-tier tables.
+  const ZAPIER_INC = u(903);
+  const ZAPIER_RESELLER = u(904);
+
+  async function seedConnector({ withVendors = true } = {}) {
+    await t.db.insert(products).values({
+      id: u(3),
+      slug: 'zapier',
+      name: 'Zapier',
+      productRole: 'connector',
+      promotionStatus: 'promoted',
+    });
+    if (!withVendors) return;
+    await t.db.insert(vendors).values([
+      { id: ZAPIER_INC, companyName: 'Zapier Inc', slug: 'zapier-inc' },
+      { id: ZAPIER_RESELLER, companyName: 'Reseller', slug: 'reseller' },
+    ]);
+    // The non-primary row is inserted first, so a "first row wins" read would fail.
+    await t.db.insert(productVendors).values([
+      { productId: u(3), vendorId: ZAPIER_RESELLER, isPrimary: false },
+      { productId: u(3), vendorId: ZAPIER_INC, isPrimary: true },
+    ]);
+  }
+
+  async function mechanismById(url: string, id: string) {
+    const body = ProductPairResponseSchema.parse(await (await get(url)).json());
+    return body.mechanisms.find((m) => m.id === id);
+  }
+
+  it("is the powered_by connector's primary vendor on an integrations row", async () => {
+    await seedProducts();
+    await seedConnector();
+    await integration(u(10), u(1), u(2), { mechanismKind: 'iPaaS', poweredByProductId: u(3) });
+
+    const m = await mechanismById('/api/products/procore/integrations/revit', u(10));
+    expect(m?.connector_vendor_id).toBe(ZAPIER_INC);
+    // The byline's ProductLink stays the bare shape: no vendor rows leak into it.
+    expect(m?.powered_by_product).toEqual({
+      id: u(3),
+      name: 'Zapier',
+      slug: 'zapier',
+      logo_url: null,
+    });
+  });
+
+  it("is the via connector's primary vendor on a connector-evidenced pair", async () => {
+    await seedProducts();
+    await seedConnector();
+    const [a, b] = [u(1), u(2)].sort();
+    await t.db.insert(connectorEvidencedPairs).values({
+      id: u(60),
+      connectorProductId: u(3),
+      productAId: a!,
+      productBId: b!,
+    });
+
+    for (const url of [
+      '/api/products/procore/integrations/revit',
+      '/api/products/revit/integrations/procore',
+    ]) {
+      const m = await mechanismById(url, u(60));
+      expect(m?.connector_vendor_id).toBe(ZAPIER_INC);
+      expect(m?.via).toEqual({ id: u(3), name: 'Zapier', slug: 'zapier', logo_url: null });
+    }
+  });
+
+  it('is null on a row with no connector', async () => {
+    await seedProducts();
+    await integration(u(10), u(1), u(2));
+
+    const m = await mechanismById('/api/products/procore/integrations/revit', u(10));
+    expect(m?.connector_vendor_id).toBeNull();
+  });
+
+  it('is null when the connector product has no vendor', async () => {
+    await seedProducts();
+    await seedConnector({ withVendors: false });
+    await integration(u(10), u(1), u(2), { mechanismKind: 'iPaaS', poweredByProductId: u(3) });
+    const [a, b] = [u(1), u(2)].sort();
+    await t.db.insert(connectorEvidencedPairs).values({
+      id: u(60),
+      connectorProductId: u(3),
+      productAId: a!,
+      productBId: b!,
+    });
+
+    const url = '/api/products/procore/integrations/revit';
+    expect((await mechanismById(url, u(10)))?.connector_vendor_id).toBeNull();
+    expect((await mechanismById(url, u(60)))?.connector_vendor_id).toBeNull();
+  });
+});
+
 // ─── The page-header maintenance marker (AECI-616 / §13) ─────────────────────
 //
 // A pair has N mechanisms but ONE header marker, so `computePairMaintenance` folds
