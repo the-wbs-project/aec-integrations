@@ -34,8 +34,9 @@ test.describe('/docs/vendors/replying-to-reviews — AECI-1181', () => {
     await page.goto(PATH);
     await expect(page.locator('app-root')).toBeAttached();
     await expect(page.getByRole('heading', { level: 1 })).toHaveText('Replying to reviews');
+    // AECI-1265: a vendor guide page shows the vendor guide's own tree.
     await expect(
-      page.getByRole('navigation', { name: 'Help center' }).locator('a[aria-current="page"]'),
+      page.getByRole('navigation', { name: 'Vendor guide' }).locator('a[aria-current="page"]'),
     ).toHaveText(/Replying to reviews/);
   });
 

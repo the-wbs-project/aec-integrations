@@ -1,6 +1,7 @@
 /**
- * AECI-1248, AECI-1259 — the docs section index (`/docs/<section>`). The
- * breadcrumb moved to the shell's top bar (`docs-shell.component.spec.ts`).
+ * AECI-1248, AECI-1259, AECI-1265 — the docs section index (`/docs/<section>`),
+ * including the vendor guide's landing page. The breadcrumb moved to the
+ * shell's top bar (`docs-shell.component.spec.ts`).
  *
  * `*.component.spec.ts` because the manifest imports `.md` files (see
  * `docs-page.component.spec.ts`).
@@ -48,6 +49,27 @@ describe('DocsSectionComponent', () => {
     ]);
     expect(links).toEqual(pages.map((page) => [page.title, page.path]));
     for (const page of pages) expect(list.textContent).toContain(page.description);
+  });
+
+  // AECI-1265: /docs/vendors is the vendor guide's landing page. Its intro lead
+  // sits above the page list and its Current limits note below, with an id.
+  it('renders the vendor guide landing: lead, page list, then Current limits', () => {
+    const { host } = render('vendors');
+    const lead = host.querySelector('[data-intro="lead"]')!;
+    const list = host.querySelector('ol')!;
+    const rest = host.querySelector('[data-intro="rest"]')!;
+    expect(lead.compareDocumentPosition(list) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(list.compareDocumentPosition(rest) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(lead.querySelector('a[href="/docs/vendors/overview"]')).not.toBeNull();
+    const heading = rest.querySelector('h2');
+    expect(heading?.id).toBe('current-limits');
+    expect(heading?.textContent?.trim()).toBe('Current limits');
+    expect(rest.querySelectorAll('li')).toHaveLength(3);
+  });
+
+  it('renders no intro on a section that declares none', () => {
+    const { host } = render('reviewers');
+    expect(host.querySelector('[data-intro]')).toBeNull();
   });
 
   // The shell's top bar carries the breadcrumb now; the page must not repeat it.

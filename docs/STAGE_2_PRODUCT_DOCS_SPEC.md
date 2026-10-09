@@ -2,8 +2,38 @@
 
 **Version:** 1.0 — **build contract**
 **Date:** August 2026 (v0.1 scope outline); firmed into a build contract 2026-10-08 (AECI-1247)
-**Status:** Decomposed. The AECI-634 epic has eight sub-issues, AECI-1247 to AECI-1254 (§8). The vendor guide is built and noindex (AECI-1104). The shell is built (AECI-1248): the `/docs` home, section indexes, prev/next, linked breadcrumbs, noindex by path and the sitemap entries, with `requests-and-corrections` imported. The getting-started and trust pages are built and indexable (AECI-1249). The reviewer and account pages are built and indexable (AECI-1250). The footer Help column and the `/methodology` links down into `/docs/trust/*` and `/docs/getting-started/taxonomy` are built (AECI-1252). The help center was restyled after Devin's DeepWiki (AECI-1259). The 2026-10-09 marketing-review rulings are applied (AECI-1261). The remaining pages of the site map are unbuilt.
+**Status:** Decomposed. The AECI-634 epic has eight sub-issues, AECI-1247 to AECI-1254 (§8). The vendor guide is built and noindex (AECI-1104). The shell is built (AECI-1248): the `/docs` home, section indexes, prev/next, linked breadcrumbs, noindex by path and the sitemap entries, with `requests-and-corrections` imported. The getting-started and trust pages are built and indexable (AECI-1249). The reviewer and account pages are built and indexable (AECI-1250). The footer Help column and the `/methodology` links down into `/docs/trust/*` and `/docs/getting-started/taxonomy` are built (AECI-1252). The help center was restyled after Devin's DeepWiki (AECI-1259). The 2026-10-09 marketing-review rulings are applied (AECI-1261, AECI-1264, AECI-1265): the vendor guide is its own docs, out of the help center's sidebar and home. The remaining pages of the site map are unbuilt.
 **Companion to:** `docs/STAGE_2_SPEC.md` §2.6 (the pillar stub). The architecture decision is ADR 0040.
+
+> **2026-10-09, the vendor guide split out and the help center tightened (AECI-1265, marketing
+> review B2 to B7, B9, B10).** Chris's rulings, applied in one pass.
+> - **Two guides from one manifest.** Every section now belongs to a guide. The **help center**
+>   (`/docs`, its home and its sidebar) holds Getting started, Trust and ranking, Reviewer guide,
+>   Your account and a new **For vendors** section of exactly two pages: a short overview at
+>   `/docs/vendors/overview` and `claiming-your-listing`. The **vendor guide** is the `vendors`
+>   section: every other `/docs/vendors/*` page, at its old URL, with `/docs/vendors` as its landing
+>   page. On its pages the shell shows the vendor guide's own tree and a "Back to the help center"
+>   link. The home and the help-center sidebar never list it. Which tree renders follows from the
+>   URL alone, so cached pages stay visitor-neutral. Indexing is unchanged: everything under
+>   `/docs/vendors`, the For vendors pages included, stays noindex until AECI-1253.
+> - **Vendor material left the buyer pages** for the vendor guide: "If you are the vendor" on
+>   `agreement-states`, the vendor change-request section of `requests-and-corrections` (one
+>   sentence now links to `contests-and-protests`), the seat-address rule on `signing-in`, and the
+>   seat notes on `your-data` (now on `your-seat`, with one sentence left before deletion). The
+>   connector sections of `owning-an-integration` and `claiming-your-listing` moved to a new
+>   `vendors/connector-vendors` page, "For connector vendors".
+> - **New buyer page** `getting-started/checking-before-you-buy` (B4). `claiming-your-listing` opens
+>   with what buyers see when a vendor claims (B5).
+> - **The plan panel line** is "No plan changes where you rank or appear, or whether a review is
+>   published." (B2). The Plans list drops "what we verify" and ends on how an agreement label is
+>   worked out.
+> - **"Cannot be bought" is stated in full once**, on `how-ranking-works` (B6). Elsewhere a page
+>   says how the order or label is worked out and links there. "Not bought" on `agreement-states`
+>   is now "Not set by a plan".
+> - **"Data flow" and "type of data" are linked once** where both appear (B7). The connector
+>   contest field list uses the labels the form shows.
+> - **There is no reviews@ mailbox** (B9). Review reports go to `support@aecintegrations.com`.
+> - **One "Current limits" note** on the vendor guide's landing collects the not-yet notes (B10).
 
 > **2026-10-09, the account label removed (AECI-1264, marketing review B1).** The public
 > "Active on AEC Integrations" badge is gone, and no page says a plan turns a public label on or
@@ -133,8 +163,9 @@ No new Worker, no new schema, no new bindings, no migration.
 | Content | Markdown and YAML frontmatter: `apps/web/src/content/docs/<section>/<slug>.md` |
 | Build | The existing esbuild `text` loader (`apps/web/angular.json`). Inlined at build time, no runtime fetch |
 | Rendering | `marked` (GFM), the same pipeline as `legal-content.ts`. The **docs manifest** (`docs-content.ts`) is the single source for routes, navigation, prev/next and sitemap entries |
-| Sections | `getting-started`, `trust`, `vendors`, `reviewers`, `account`, `faq`. Each has a `$localize`-wrapped label and summary in the manifest, and an order. `faq` is a one-page section at `/docs/faq` |
-| Routes | `/docs` (home), `/docs/<section>` (section index), `/docs/<section>/<slug>` (article). All explicit and generated from the manifest, so an unknown `/docs/*` path falls through to the `**` 404 |
+| Sections | `getting-started`, `trust`, `reviewers`, `account`, `for-vendors`, `vendors`, `faq`. Each has a `$localize`-wrapped label and summary in the manifest, an order and a **guide**: `help` (the help center) or `vendor` (the vendor guide, `vendors` only). `faq` is a one-page section at `/docs/faq`. Since AECI-1265 a section's URL segment can differ from its id: `for-vendors` serves `/docs/vendors/*` beside the vendor guide. A section with a `home` page (`for-vendors`, home `overview`) has no index of its own. A section may carry an intro, rendered on its index (the vendor guide's landing) |
+| Routes | `/docs` (home), `/docs/<segment>` (section index), `/docs/<segment>/<slug>` (article). All explicit and generated from the manifest, so an unknown `/docs/*` path falls through to the `**` 404. The manifest throws if two sections would own one index path or two pages one path |
+| Navigation | Two sidebar trees, picked from the URL (AECI-1265). The help center's lists its sections; the vendor guide's lists the vendor guide with a link back. The `/docs` home lists help-center sections only |
 | Frontmatter | Scalar keys only (`parseFrontmatter`): `title`, `description`, `section`, `order`, `last_updated` (a pre-formatted display string, the legal rule). The manifest throws at module init when `section` does not match the folder, when two pages in a section share an `order`, or when a page does not end in a `## Related` list |
 | Prev/next | Within one section, in `order`. Never across sections |
 | Styling | Tailwind v4 and the semantic tokens. Typography per `DESIGN.md`, body in `.aec-prose`. Light only |
@@ -160,36 +191,51 @@ No new Worker, no new schema, no new bindings, no migration.
 
 ## 5. Site map
 
-URL scheme: `/docs/<section>/<slug>`, kebab-case. About 25 pages at v1.
+URL scheme: `/docs/<segment>/<slug>`, kebab-case. About 25 pages at v1. Since AECI-1265 the site
+map has two guides.
+
+**The help center** (`/docs`, its home and its sidebar):
 
 ```
-/docs                                — Docs home: audience split (reader / vendor / reviewer), then every section   AECI-1248
+/docs                                — Help center home: audience split (reader / reviewer), then every help-center section   AECI-1248, AECI-1265
 ├─ getting-started/                  — SHIPPED (AECI-1249), indexable
 │  ├─ about-aec-integrations         — the directory, dual-vendor verification, who curates
 │  ├─ reading-an-integration-page    — the product-PAIR page: claims, attestations, agreement states
+│  ├─ checking-before-you-buy        — reading the labels for a buying decision, what to ask each vendor (AECI-1265)
 │  └─ taxonomy                       — mechanisms, data objects, trades (the four facets)
 ├─ trust/                            — SHIPPED (AECI-1249), indexable
-│  ├─ how-ranking-works              — purely algorithmic; what paid does NOT buy. Is the STAGE_2_5_SPEC §2 step 3 ranking-method page
+│  ├─ how-ranking-works              — purely algorithmic; what paid does NOT buy, stated in full here only. Is the STAGE_2_5_SPEC §2 step 3 ranking-method page
 │  └─ agreement-states               — unverified / single-source / confirmed / conflict, plainly
-├─ vendors/                          — SHIPPED (AECI-1104 and after), noindex (index included) until AECI-1253
-│  ├─ claiming-your-listing          — the claim form, what we check, outcomes, connector-vendor seats (§8.9/§8.10)
-│  ├─ your-seat                      — sign-in, portal tabs, owners vs members, invites, removal, seat vs plan
-│  ├─ attesting-an-integration       — Affirm/Deny/Clear, add a data flow, agreement states, what happens next
-│  ├─ owning-an-integration          — claim, edit, per-side links, retire/restore, create (AECI-1023, ADR 0035)
-│  ├─ contests-and-protests          — sending and receiving contests, the protest to AECi (§11b)
-│  ├─ replying-to-reviews            — who replies, moderation, the public label, edit/withdraw/resubmit (§11c, AECI-1181)
-│  ├─ plans                          — Free vs Managed, checklists, "Looks right", what no plan changes, billing, plan end (AECI-1219; slug renamed by AECI-1264, old URL 301s)
-│  ├─ change-history                 — the Changes page: every change, who made it, AECi's reasons (AECI-1160)
-│  └─ (AECI-1251, after the AECI-1103 rehearsal) your-dashboard, editing-profile-and-products, product-versions,
-│     notifications-and-messages; performance only if analytics.view has shipped
 ├─ reviewers/                        — SHIPPED (AECI-1250; requests-and-corrections by AECI-1248), indexable
 │  ├─ writing-a-review               — dual reviews: product quality vs onboarding experience
-│  └─ requests-and-corrections       — requesting an integration, correcting a listing, contesting a detail (AECI-1023)
+│  └─ requests-and-corrections       — requesting an integration, correcting a listing
 ├─ account/                          — SHIPPED (AECI-1250), indexable
 │  ├─ signing-in                     — magic link + Google, common failure modes, an expired session
 │  └─ your-data                      — links /legal/privacy; deletion/erasure path
+├─ For vendors (section `for-vendors`, URLs under /docs/vendors/, no index page) — AECI-1265, noindex until AECI-1253
+│  ├─ overview                       — "For vendors": what claiming is, Free and Managed at a glance, what no plan changes, the vendor guide
+│  └─ claiming-your-listing          — what buyers see, the claim form, what we check, outcomes
 └─ faq                               — AECI-1254: seeded from real pilot-vendor questions, not invented
 ```
+
+**The vendor guide** (section `vendors`, its own landing page and sidebar tree, listed on neither the
+help-center home nor its sidebar):
+
+```
+/docs/vendors                        — Vendor guide landing: intro, the page list, one "Current limits" note   AECI-1265
+├─ your-seat                         — sign-in, portal tabs, owners vs members, invites, removal, your account and your seat
+├─ attesting-an-integration          — Affirm/Deny/Clear, add a data flow, agreement states, what happens next
+├─ owning-an-integration             — claim, edit, per-side links, retire/restore, create (AECI-1023, ADR 0035)
+├─ contests-and-protests             — sending and receiving contests and change requests, the protest to AECi (§11b)
+├─ replying-to-reviews               — who replies, moderation, the public label, edit/withdraw/resubmit (§11c, AECI-1181)
+├─ plans                             — Free vs Managed, checklists, "Looks right", what no plan changes, billing, plan end (AECI-1219; slug renamed by AECI-1264, old URL 301s)
+├─ change-history                    — the Changes page: every change, who made it, AECi's reasons (AECI-1160)
+├─ connector-vendors                 — "For connector vendors": the catalogue seat, the Catalogue tab, integrations delivered through a connector (§8.9/§8.10; AECI-1265)
+└─ (AECI-1251, after the AECI-1103 rehearsal) your-dashboard, editing-profile-and-products, product-versions,
+   notifications-and-messages; performance only if analytics.view has shipped
+```
+
+Everything under `/docs/vendors`, both guides' pages there included, is noindex until AECI-1253.
 
 > **Boundary with `/methodology` (AECI-804, shipped).** The two `trust/` pages above cover the same
 > ground as the editorial methodology page. They do not duplicate it and they must not replace it.
@@ -208,7 +254,8 @@ URL scheme: `/docs/<section>/<slug>`, kebab-case. About 25 pages at v1.
 > by any code, so the page now says we ask the owner. The vendor route on an integration's own page is
 > **Request a change** or **Request a correction**; **Contest a field** is the connector lane only.
 > A contest can move to AEC Integrations after it is sent, and the owner of a connector-delivered
-> integration decides only on Managed.
+> integration decides only on Managed. *(AECI-1265: the vendor change-request section left this
+> page for `contests-and-protests`, which already covered all of it. One sentence links there.)*
 
 ## 6. Deliberately deferred (not in this epic)
 
@@ -226,7 +273,7 @@ URL scheme: `/docs/<section>/<slug>`, kebab-case. About 25 pages at v1.
 
    | Portal moment | Component | Page |
    |---|---|---|
-   | Claim outcome | `vendor/components/vendor-claim-outcome.ts` | `claiming-your-listing` |
+   | Claim outcome | `vendor/components/vendor-claim-outcome.ts` | `claiming-your-listing` (in the help center's For vendors section since AECI-1265; URL unchanged) |
    | Seats page | `vendor/sections/vendor-seats-page.ts` | `your-seat` |
    | Attestation lane | `vendor/integration-detail/` | `attesting-an-integration` |
    | Integration edit, create, retire | `vendor-integration-edit-form.ts`, `vendor-integration-create.ts` | `owning-an-integration` |
@@ -236,7 +283,7 @@ URL scheme: `/docs/<section>/<slug>`, kebab-case. About 25 pages at v1.
    | Changes page | `vendor/history/` | `change-history` |
 
 2. ~~Does the vendor guide organize by task or by tier?~~ **Answered: by task** (AECI-1104). Seat-only and plan-gated actions are marked on each task page rather than split into tiers.
-3. ~~Header nav entry or footer-only at launch?~~ **Answered: footer-only, as a Help column** (2026-10-08). The header's primary row is public-directory-only, width-budgeted and closed, so a new secondary destination goes to the footer (`DESIGN.md` §Navigation, The Overflow Rule). The Help column holds "Help center" (`/docs`), "Getting started" and "How ranking works" from AECI-1252, and "For vendors" from AECI-1253. Chris: easy to readjust. Promoting `/docs` into the header row later is a deliberate re-measure at 1024px, not a default.
+3. ~~Header nav entry or footer-only at launch?~~ **Answered: footer-only, as a Help column** (2026-10-08). The header's primary row is public-directory-only, width-budgeted and closed, so a new secondary destination goes to the footer (`DESIGN.md` §Navigation, The Overflow Rule). The Help column holds "Help center" (`/docs`), "Getting started" and "How ranking works" from AECI-1252, and "For vendors" from AECI-1253. Since AECI-1265 that link has a page to land on: `/docs/vendors/overview`. Chris: easy to readjust. Promoting `/docs` into the header row later is a deliberate re-measure at 1024px, not a default.
 4. **What does the FAQ actually need?** Collect the real questions from the first pilot cohort (AECI-1105) rather than inventing them. AECI-1254 writes it after that.
 
 ## 8. Epic decomposition (2026-10-08)

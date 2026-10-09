@@ -3,6 +3,7 @@
  * prev/next pager, and the explicit route table's 404 for unknown paths.
  * AECI-1259 — the DeepWiki-style layout: the sidebar tree, the small-screen
  * menu, the "On this page" rail and its fragment links.
+ * AECI-1265 — the help center and the vendor guide: two trees from one manifest.
  *
  * The manifest, components and noindex-by-path rules are pinned in the
  * `src/app/docs/*.component.spec.ts` specs and `src/server.spec.ts`; this
@@ -32,7 +33,14 @@ test.describe('/docs shell — AECI-1248', () => {
   });
 
   test('keeps the vendor guide noindex, its bare section index included', async ({ request }) => {
-    for (const path of ['/docs/vendors', '/docs/vendors/your-seat']) {
+    // AECI-1265: "For vendors" shares the /docs/vendors prefix, so it stays noindex too.
+    for (const path of [
+      '/docs/vendors',
+      '/docs/vendors/your-seat',
+      '/docs/vendors/overview',
+      '/docs/vendors/claiming-your-listing',
+      '/docs/vendors/connector-vendors',
+    ]) {
       const res = await request.get(path, { maxRedirects: 0 });
       expect(res.status(), path).toBe(200);
       expect(res.headers()['x-robots-tag'] ?? '', path).toContain('noindex');
@@ -70,6 +78,7 @@ test.describe('/docs shell — AECI-1248', () => {
   const READER_PAGES: readonly (readonly [string, string])[] = [
     ['/docs/getting-started/about-aec-integrations', 'About AEC Integrations'],
     ['/docs/getting-started/reading-an-integration-page', 'Reading an integration page'],
+    ['/docs/getting-started/checking-before-you-buy', 'Checking an integration before you buy'],
     ['/docs/getting-started/taxonomy', 'How listings are classified'],
     ['/docs/trust/how-ranking-works', 'How ranking works'],
     ['/docs/trust/agreement-states', 'Agreement states'],
@@ -121,21 +130,21 @@ test.describe('/docs shell — AECI-1248', () => {
     await expect(page.getByRole('heading', { level: 1 })).toHaveText('Help center');
     await waitForHydrationSettle(page);
 
-    await page.locator('main div[data-section="vendors"] h3 a').click();
-    await expect(page).toHaveURL(/\/docs\/vendors$/);
-    await expect(page.getByRole('heading', { level: 1 })).toHaveText('Vendor guide');
+    await page.locator('main div[data-section="reviewers"] h3 a').click();
+    await expect(page).toHaveURL(/\/docs\/reviewers$/);
+    await expect(page.getByRole('heading', { level: 1 })).toHaveText('Reviewer guide');
 
     // The section index's own list, not the sidebar's link to the same page.
-    await page.locator('main ol h2 a[href="/docs/vendors/claiming-your-listing"]').click();
-    await expect(page).toHaveURL(/\/docs\/vendors\/claiming-your-listing$/);
+    await page.locator('main ol h2 a[href="/docs/reviewers/writing-a-review"]').click();
+    await expect(page).toHaveURL(/\/docs\/reviewers\/writing-a-review$/);
 
     const pager = page.getByRole('navigation', { name: 'Previous and next articles' });
     await pager.getByRole('link', { name: /Next/ }).click();
-    await expect(page).toHaveURL(/\/docs\/vendors\/your-seat$/);
-    await expect(page.getByRole('heading', { level: 1 })).toHaveText('Your seat');
+    await expect(page).toHaveURL(/\/docs\/reviewers\/requests-and-corrections$/);
+    await expect(page.getByRole('heading', { level: 1 })).toHaveText('Requests and corrections');
 
     await pager.getByRole('link', { name: /Previous/ }).click();
-    await expect(page).toHaveURL(/\/docs\/vendors\/claiming-your-listing$/);
+    await expect(page).toHaveURL(/\/docs\/reviewers\/writing-a-review$/);
 
     await page
       .getByRole('navigation', { name: 'Breadcrumb' })
@@ -166,6 +175,50 @@ test.describe('/docs shell — AECI-1248', () => {
     await expect(page).toHaveURL(/\/docs\/trust\/agreement-states$/);
     await expect(page.getByRole('heading', { level: 1 })).toHaveText('Agreement states');
     await expect(tree.locator('a[aria-current="page"]')).toHaveText('Agreement states');
+  });
+
+  // AECI-1265 — "For vendors" in the help center leads into the vendor guide,
+  // which has its own landing page and sidebar tree, and a way back.
+  test('walks For vendors → vendor guide → back to the help center', async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.goto('/docs');
+    await waitForHydrationSettle(page);
+    const help = page.getByRole('navigation', { name: 'Help center' });
+    await expect(help.getByRole('link', { name: 'Your seat' })).toHaveCount(0);
+
+    await page.locator('main div[data-section="for-vendors"] h3 a').click();
+    await expect(page).toHaveURL(/\/docs\/vendors\/overview$/);
+    await expect(page.getByRole('heading', { level: 1 })).toHaveText('For vendors');
+    await expect(help.locator('a[aria-current="page"]')).toHaveText('For vendors');
+
+    await page.locator('main article a[href="/docs/vendors"]').first().click();
+    await expect(page).toHaveURL(/\/docs\/vendors$/);
+    await expect(page.getByRole('heading', { level: 1 })).toHaveText('Vendor guide');
+    const guide = page.getByRole('navigation', { name: 'Vendor guide' });
+    await expect(guide).toBeVisible();
+    await expect(page.getByRole('navigation', { name: 'Help center' })).toHaveCount(0);
+    await expect(page.locator('#current-limits')).toHaveText('Current limits');
+
+    await guide.getByRole('link', { name: 'Plans', exact: true }).click();
+    await expect(page).toHaveURL(/\/docs\/vendors\/plans$/);
+    await expect(guide.locator('a[aria-current="page"]')).toHaveText('Plans');
+
+    await guide.getByRole('link', { name: 'Back to the help center' }).click();
+    await expect(page).toHaveURL(/\/docs$/);
+    await expect(page.getByRole('navigation', { name: 'Help center' })).toBeVisible();
+  });
+
+  test('SSR-renders the vendor guide tree on its pages, and the help tree elsewhere', async ({
+    request,
+  }) => {
+    const guide = await (await request.get('/docs/vendors/your-seat')).text();
+    expect(guide).toMatch(/<nav[^>]+aria-label="Vendor guide"/);
+    expect(guide).not.toMatch(/<nav[^>]+aria-label="Help center"/);
+    const forVendors = await (await request.get('/docs/vendors/claiming-your-listing')).text();
+    expect(forVendors).toMatch(/<nav[^>]+aria-label="Help center"/);
+    // The help tree carries "For vendors" and never the vendor guide's section.
+    expect(forVendors).toContain('data-section="for-vendors"');
+    expect(forVendors).not.toContain('data-section="vendors"');
   });
 
   test('the rail links jump to their heading (AECI-1259)', async ({ page }) => {
@@ -211,7 +264,12 @@ test.describe('/docs shell — AECI-1248', () => {
     '/docs',
     '/docs/trust',
     '/docs/reviewers',
+    '/docs/vendors',
+    '/docs/vendors/overview',
     '/docs/vendors/your-seat',
+    '/docs/vendors/plans',
+    '/docs/vendors/connector-vendors',
+    '/docs/getting-started/checking-before-you-buy',
     '/docs/trust/how-ranking-works',
   ]) {
     test(`${path} has zero axe violations at WCAG AA and a clean console`, async ({ page }) => {

@@ -1,12 +1,12 @@
 ---
 title: Plans
-description: What the Free and Managed plans let your company do on AEC Integrations, how the checklists and "Looks right" work, what happens when a plan ends, and the things no plan can buy.
+description: What the Free and Managed plans let your company do on AEC Integrations, how the checklists and "Looks right" work, and what happens when a plan ends.
 section: vendors
 order: 7
 last_updated: 9 October 2026
 ---
 
-Every company with a seat is on one of two plans: Free or Managed. Free costs nothing. We arrange Managed with you by invoice or purchase order. No plan changes where anything ranks.
+Every company with a seat is on one of two plans: Free or Managed. Free costs nothing. We arrange Managed with you by invoice or purchase order.
 
 Each product in your portal shows its own plan and its own checklist. Today every product your company makes is on the same plan as your company.
 
@@ -22,7 +22,7 @@ On Free and on Managed, anyone with a seat can:
 
 The company name and the product names are not edited in the portal.
 
-The product details on this list are the ones that feed search ranking. They are editable on Free for that reason. Paying never gives a company a better way to improve its ranking.
+The product details on this list are the ones that feed search ranking. They are editable on Free for that reason. [How ranking works](/docs/trust/how-ranking-works) explains how they count.
 
 ## What needs Managed
 
@@ -82,17 +82,16 @@ How a product's score counts:
 
 Each plan panel in your portal carries this line:
 
-> "No plan changes where you rank or appear, whether a review is published, or what we verify."
+> "No plan changes where you rank or appear, or whether a review is published."
 
-In full, no plan, at any price, changes:
+In full, no plan changes:
 
 - your position in search or in any listing,
 - whether a review is published or removed,
 - whether a listing exists,
-- what we verify,
-- what readers see on an integration page, including whether the two companies agree.
+- how an agreement label is worked out. Both companies' answers count the same.
 
-There is no sponsored placement and no promoted tier. We check this with an automated test. The list of things a plan can unlock is compared with the list of signals that order search results. The build fails if anything appears in both. A second test checks that every listing detail that feeds ranking is editable on Free.
+Search order is worked out from how well a listing matches the search, then how complete it is. [How ranking works](/docs/trust/how-ranking-works) sets out the full rule and how we check it.
 
 ## Starting, paying and renewing
 
@@ -120,4 +119,5 @@ This applies to a pilot too.
 
 - Previous: [Replying to reviews](/docs/vendors/replying-to-reviews).
 - Next: [Your change history](/docs/vendors/change-history).
-- [How we research and verify listings](/methodology), including the no-pay-for-placement rule.
+- [How ranking works](/docs/trust/how-ranking-works).
+- [How we research and verify listings](/methodology).

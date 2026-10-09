@@ -3,7 +3,7 @@ title: Writing a review
 description: How to review a product on AEC Integrations, what the form asks, how we check a review before it is published, and what readers see.
 section: reviewers
 order: 1
-last_updated: 8 October 2026
+last_updated: 9 October 2026
 ---
 
 A review on AEC Integrations scores a product on two separate measures. One is the product itself. The other is what getting started with it was like. A good product can be hard to adopt, and a weak one can be easy to start with. Keeping the two scores apart shows readers which is which.
@@ -71,7 +71,7 @@ A company cannot ask you to change or remove your review in a reply, or offer yo
 
 ## Reporting a review
 
-If you think someone else's review breaks the [Review Guidelines](/legal/review-guidelines), email [reviews@thewbsproject.com](mailto:reviews@thewbsproject.com) with a link and a short explanation.
+If you think someone else's review breaks the [Review Guidelines](/legal/review-guidelines), email [support@aecintegrations.com](mailto:support@aecintegrations.com) with a link and a short explanation.
 
 ## Related
 

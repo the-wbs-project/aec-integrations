@@ -1,10 +1,12 @@
 ---
 title: Claiming your vendor listing
 description: How to ask for a seat on your company's vendor account, what we check before we grant one, and what happens next.
-section: vendors
-order: 1
+section: for-vendors
+order: 2
 last_updated: 9 October 2026
 ---
+
+Claiming changes what buyers see. Once you edit your listing or mark it as checked, its page reads "Vendor maintained · Updated" with that date, where an unclaimed listing reads "AEC Integrations maintained". Buyers also see the links you add, such as the setup guide for an integration, and the details you keep current yourself.
 
 AEC Integrations compiles its listings from public sources. A claim is how someone who works at a listed vendor asks for a seat on that vendor's account, so they can keep the listing accurate. You do not need an account to send one, and it costs nothing.
 
@@ -44,20 +46,13 @@ We do not promise a time for a decision. Some claims take longer to confirm than
 
 Once you have a seat, your company's requests and their status appear in the vendor portal under **Messages**.
 
-## Vendors whose products are connectors
+## If your company makes connector products
 
-Some vendors make connector products: software whose job is to carry data between other products. A vendor whose products are all connectors is not invoiced for a seat. It can have a catalogue-maintenance seat instead, which covers its connector listings, the products each connector reaches, and the evidence for each. The portal shows it as **Catalogue maintenance seat**.
-
-That seat is on the Free plan. Like any Free seat, it can edit your company details and each product's description, website, logo and categories. It cannot confirm data flows. The other product details stay with the AEC Integrations team.
-
-The seat's work is on the **Catalogue** tab of your connector product: open **Products**, choose the connector, then **Catalogue**. The overview links there too. The tab lists every listing in your published catalogue and which product on AEC Integrations each one is. Once we hand the catalogue to your company, each match has an **Edit** button: you can change the product, rule a product out, mark a listing as outside our scope, set how confident the match is, and add a link that shows the evidence. A match you save counts toward that product's reach on AEC Integrations. Until the handover, the tab is read-only and says we maintain the catalogue. You cannot add a match to a listing that has none yet. We add those.
-
-We handle connector-vendor claims by conversation rather than by the usual approve or decline, so you will hear from us directly rather than by an automatic email.
-
-**If your company owns integrations and sells them,** it is treated as an ordinary vendor on Free or Managed, not a catalogue-maintenance seat. See [Plans](/docs/vendors/plans). Claiming and editing the integrations it offers through a connector needs Managed. [Owning an integration](/docs/vendors/owning-an-integration) explains the limits.
+A connector product carries data between other products. If your company makes one, [For connector vendors](/docs/vendors/connector-vendors) covers the seat you can have and how we handle your claim.
 
 ## Related
 
-- Next: [Your seat](/docs/vendors/your-seat), signing in and inviting colleagues.
+- Previous: [For vendors](/docs/vendors/overview).
+- [Your seat](/docs/vendors/your-seat), in the vendor guide: signing in and inviting colleagues.
 - [Plans](/docs/vendors/plans), what the Free and Managed plans include.
 - [How we research and verify listings](/methodology).

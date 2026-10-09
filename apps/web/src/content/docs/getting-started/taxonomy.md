@@ -2,7 +2,7 @@
 title: How listings are classified
 description: The four ways every product is classified, the kinds of integration, and the types of data an integration can carry.
 section: getting-started
-order: 3
+order: 4
 last_updated: 9 October 2026
 ---
 
@@ -61,6 +61,6 @@ If a product has a term it should not, or is missing one, use **Suggest a correc
 
 ## Related
 
-- Previous: [Reading an integration page](/docs/getting-started/reading-an-integration-page).
+- Previous: [Checking an integration before you buy](/docs/getting-started/checking-before-you-buy).
 - [How ranking works](/docs/trust/how-ranking-works), including why a trade gives no ranking boost.
 - [How we research and verify listings](/methodology).

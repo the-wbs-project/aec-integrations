@@ -3,7 +3,7 @@ title: Your account and your data
 description: What your account page shows, what you can change there, and what happens to your reviews when you delete your account.
 section: account
 order: 2
-last_updated: 8 October 2026
+last_updated: 9 October 2026
 ---
 
 Your account page shows your email address, your display name and your reviews. It is also where you delete your account. To open it, choose **Account** in the account menu at the top right of any page (on a phone, in the menu at the top left), or go to [/account](/account). For what we collect, why, how long we keep it, and your rights over it, the [Privacy Policy](/legal/privacy) is the full statement. This page does not repeat it.
@@ -12,7 +12,7 @@ Your account page shows your email address, your display name and your reviews. 
 
 **Email** is the address you sign in with. You cannot change it on this page. To use a different address, sign in with that address. That is a separate account. See [Signing in](/docs/account/signing-in).
 
-**Display name** is the name your account menu shows. Enter one between 1 and 80 characters and choose **Save**. If you have not set one and you signed in with Google, the menu shows your Google name. If you hold a seat on a vendor account, your colleagues see your display name in the vendor portal.
+**Display name** is the name your account menu shows. Enter one between 1 and 80 characters and choose **Save**. If you have not set one and you signed in with Google, the menu shows your Google name.
 
 Published reviews never show your display name, your email address or your firm.
 
@@ -41,7 +41,7 @@ When you confirm:
 - You are signed out and taken to the home page.
 - We send a confirmation to your email address.
 
-If you hold a seat on a vendor account, deleting your account gives up that seat. See [Your seat](/docs/vendors/your-seat).
+If you hold a seat on a vendor account, read [Your seat](/docs/vendors/your-seat#your-account-and-your-seat) before you delete your account.
 
 To ask for anything else, such as a copy of your data or the removal of a review you wrote, follow the [Privacy Policy](/legal/privacy).
 

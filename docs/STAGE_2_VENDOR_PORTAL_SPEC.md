@@ -2522,7 +2522,9 @@ Decision 4 names the fields that stay Managed-only. On a Free product they stay 
 
 Every plan panel carries decision 10's line, word for word:
 
-> "No plan changes where you rank or appear, whether a review is published, or what we verify."
+> "No plan changes where you rank or appear, or whether a review is published."
+
+*(Reworded 2026-10-09, AECI-1265, marketing review B2: it ended "whether a review is published, or what we verify". `STAGE_2_PAID_TIERS_SPEC.md` §13.1 has the amendment.)*
 
 #### What the portal offers
 
@@ -3507,7 +3509,7 @@ A read-time rule would also hand the contest back to the owner when the entitlem
 
 **Status: specified 2026-10-02 by AECI-1174 and built on the epic branch by AECI-1175 to AECI-1181: the table (AECI-1175, migration `0058`), the four vendor routes, the `review.reply` capability and the `reviews` cursor scope (AECI-1176), the admin queue with its two routes and badge (AECI-1177), `vendor_responses` on both public reads with the product-page render (AECI-1178), the portal Reviews tab with its Overview row (AECI-1179), the vendor notifications (AECI-1180), and the vendor guide page `/docs/vendors/replying-to-reviews` with the §11c.10 firewall assertion and the `/methodology` sentence (AECI-1181).** Chris ruled the open decisions on 2026-10-01 and 2026-10-02. This section is the build contract. The table is in `DATABASE_SCHEMA.md` §7.3. The wire shapes are in `API_CONTRACTS.md` §6.6 and §6.14. The admin queue is `ADMIN_PANEL_SPEC.md` §5.13. The Stage 2.1 admission is `STAGE_2_1_SPEC.md` §3.3.4.
 
-**This section supersedes the AECI-313 ruling of 2026-07-02.** That ruling made launch flag-only. A vendor could report a review by email and nothing else, and public replies were held back for a later paid listing. This is that feature. Reporting a review is unchanged. It stays an email to `reviews@thewbsproject.com` under the Review Guidelines (`apps/web/src/content/legal/review-guidelines.md`). A reply never removes, hides or flags a review.
+**This section supersedes the AECI-313 ruling of 2026-07-02.** That ruling made launch flag-only. A vendor could report a review by email and nothing else, and public replies were held back for a later paid listing. This is that feature. Reporting a review is unchanged. It stays an email, to `support@aecintegrations.com` since 2026-10-09 (AECI-1265, ruled by Chris: there is no reviews@ mailbox; it was `reviews@thewbsproject.com` before), under the Review Guidelines (`apps/web/src/content/legal/review-guidelines.md`). A reply never removes, hides or flags a review.
 
 ### 11c.1 What a reply is
 

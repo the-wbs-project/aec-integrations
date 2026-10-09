@@ -17,9 +17,10 @@ import {
   type DocsSectionId,
   type DocsSectionMeta,
   buildDocsManifest,
+  docsSectionsInGuide,
   getDocsPage,
 } from './docs-content';
-import { locate } from './docs-shell';
+import { locate, sidebarTree } from './docs-shell';
 import { DOCS_ROUTES } from './docs.routes';
 
 const ARTICLE = '/docs/trust/how-ranking-works';
@@ -37,12 +38,12 @@ async function renderAt(
   return { host: harness.fixture.nativeElement as HTMLElement, harness };
 }
 
-function tree(host: HTMLElement): HTMLElement {
-  return host.querySelector('nav[aria-label="Help center"]')!;
+function tree(host: HTMLElement, name = 'Help center'): HTMLElement {
+  return host.querySelector(`nav[aria-label="${name}"]`)!;
 }
 
-function current(host: HTMLElement): string[] {
-  return Array.from(tree(host).querySelectorAll('a[aria-current="page"]')).map(
+function current(host: HTMLElement, name = 'Help center'): string[] {
+  return Array.from(tree(host, name).querySelectorAll('a[aria-current="page"]')).map(
     (a) => a.getAttribute('href') ?? '',
   );
 }
@@ -62,22 +63,70 @@ describe('DocsShellComponent', () => {
 
   // The tree must list exactly what the manifest shows, so a new page or an
   // emptied section changes the sidebar with no template edit.
-  it('lists Help center, then every visible section in manifest order with its pages', async () => {
+  it('lists Help center, then every help-center section in manifest order with its pages', async () => {
     const { host } = await renderAt(ARTICLE);
+    const help = docsSectionsInGuide('help');
     const top = Array.from(tree(host).querySelectorAll(':scope > ul > li > a')).map((a) =>
       a.getAttribute('href'),
     );
-    expect(top).toEqual(['/docs', ...DOCS_SECTIONS.map((section) => section.path)]);
-    for (const section of DOCS_SECTIONS) {
+    expect(top).toEqual(['/docs', ...help.map((section) => section.path)]);
+    for (const { section, children } of sidebarTree('help')) {
       const item = tree(host).querySelector(`li[data-section="${section.id}"]`)!;
-      const children = Array.from(item.querySelectorAll(':scope > ul a')).map((a) => [
+      const links = Array.from(item.querySelectorAll(':scope > ul a')).map((a) => [
         a.textContent?.trim(),
         a.getAttribute('href'),
       ]);
-      expect(children, section.id).toEqual(section.pages.map((page) => [page.title, page.path]));
+      expect(links, section.id).toEqual(children.map((page) => [page.title, page.path]));
     }
     // An empty section shows nowhere.
     expect(tree(host).querySelector('a[href^="/docs/faq"]')).toBeNull();
+  });
+
+  // AECI-1265: the help center's tree holds "For vendors" and its two pages, and
+  // nothing from the vendor guide.
+  it('keeps the vendor guide out of the help-center tree', async () => {
+    const { host } = await renderAt(ARTICLE);
+    const forVendors = tree(host).querySelector('li[data-section="for-vendors"]')!;
+    expect(forVendors.querySelector(':scope > a')?.getAttribute('href')).toBe(
+      '/docs/vendors/overview',
+    );
+    expect(forVendors.querySelector(':scope > a')?.textContent?.trim()).toBe('For vendors');
+    expect(
+      Array.from(forVendors.querySelectorAll(':scope > ul a')).map((a) => a.getAttribute('href')),
+    ).toEqual(['/docs/vendors/claiming-your-listing']);
+    expect(tree(host).querySelector('li[data-section="vendors"]')).toBeNull();
+    for (const page of DOCS_SECTIONS.find((section) => section.id === 'vendors')!.pages) {
+      expect(tree(host).querySelector(`a[href="${page.path}"]`), page.slug).toBeNull();
+    }
+    expect(host.querySelector('nav[aria-label="Vendor guide"]')).toBeNull();
+  });
+
+  // AECI-1265: on a vendor guide page the sidebar is the vendor guide's own tree.
+  it('shows the vendor guide tree, with a link back, on a vendor guide page', async () => {
+    const { host } = await renderAt('/docs/vendors/plans');
+    expect(host.querySelector('nav[aria-label="Help center"]')).toBeNull();
+    const nav = tree(host, 'Vendor guide');
+    const back = nav.querySelector(':scope > a')!;
+    expect(back.getAttribute('href')).toBe('/docs');
+    expect(back.textContent?.trim()).toBe('Back to the help center');
+    const top = Array.from(nav.querySelectorAll(':scope > ul > li > a')).map((a) =>
+      a.getAttribute('href'),
+    );
+    expect(top).toEqual(['/docs/vendors']);
+    const guide = DOCS_SECTIONS.find((section) => section.id === 'vendors')!;
+    expect(
+      Array.from(nav.querySelectorAll('li[data-section="vendors"] > ul a')).map((a) =>
+        a.getAttribute('href'),
+      ),
+    ).toEqual(guide.pages.map((page) => page.path));
+    expect(current(host, 'Vendor guide')).toEqual(['/docs/vendors/plans']);
+    // The landing page uses the same tree.
+    const landing = (await renderAt('/docs/vendors')).host;
+    expect(current(landing, 'Vendor guide')).toEqual(['/docs/vendors']);
+    // "For vendors" pages share the URL prefix but belong to the help center.
+    const overview = (await renderAt('/docs/vendors/overview')).host;
+    expect(overview.querySelector('nav[aria-label="Vendor guide"]')).toBeNull();
+    expect(current(overview)).toEqual(['/docs/vendors/overview']);
   });
 
   // Exact matching: a page marks itself only, never its section or the home.
@@ -108,6 +157,23 @@ describe('DocsShellComponent', () => {
     expect(crumbs((await renderAt(ARTICLE)).host)).toEqual([
       ['Help center', '/docs'],
       ['Trust and ranking', '/docs/trust'],
+    ]);
+    // AECI-1265: the vendor guide and "For vendors" share /docs/vendors.
+    expect(crumbs((await renderAt('/docs/vendors/plans')).host)).toEqual([
+      ['Help center', '/docs'],
+      ['Vendor guide', '/docs/vendors'],
+    ]);
+    expect(crumbs((await renderAt('/docs/vendors')).host)).toEqual([
+      ['Help center', '/docs'],
+      ['Vendor guide', null],
+    ]);
+    expect(crumbs((await renderAt('/docs/vendors/overview')).host)).toEqual([
+      ['Help center', '/docs'],
+      ['For vendors', null],
+    ]);
+    expect(crumbs((await renderAt('/docs/vendors/claiming-your-listing')).host)).toEqual([
+      ['Help center', '/docs'],
+      ['For vendors', '/docs/vendors/overview'],
     ]);
   });
 

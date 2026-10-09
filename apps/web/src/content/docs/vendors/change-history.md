@@ -65,5 +65,6 @@ A change here is a change to your listing on AEC Integrations. "Submitted" and "
 ## Related
 
 - Previous: [Plans](/docs/vendors/plans).
-- Back to the start: [Claiming your vendor listing](/docs/vendors/claiming-your-listing).
+- Next: [For connector vendors](/docs/vendors/connector-vendors).
+- Back to the start: [Your seat](/docs/vendors/your-seat).
 - [Contests and protests](/docs/vendors/contests-and-protests), for how to ask for a change to an integration you do not own.

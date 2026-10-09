@@ -9,7 +9,7 @@ import { Meta, Title } from '@angular/platform-browser';
 import { provideRouter } from '@angular/router';
 import { beforeEach, describe, expect, it } from 'vitest';
 
-import { DOCS_PAGES } from './docs-content';
+import { DOCS_PAGES, docsSectionsInGuide } from './docs-content';
 import { DocsHomeComponent } from './docs-home';
 
 function render(): { host: HTMLElement; title: Title; meta: Meta } {
@@ -52,41 +52,52 @@ describe('DocsHomeComponent', () => {
   it('splits by audience, dropping any audience with no pages yet', () => {
     const { host } = render();
     const groups = Array.from(host.querySelectorAll('[data-audience]'));
-    expect(groups.map((g) => g.getAttribute('data-audience'))).toEqual([
-      'reader',
-      'vendor',
-      'reviewer',
-    ]);
+    // AECI-1265: the "Listing your products" role card gave way to "For vendors".
+    expect(groups.map((g) => g.getAttribute('data-audience'))).toEqual(['reader', 'reviewer']);
+    expect(host.textContent).not.toContain('Listing your products');
     expect(Array.from(groups[0].querySelectorAll('a')).map((a) => a.getAttribute('href'))).toEqual([
       '/docs/getting-started',
       '/docs/trust',
     ]);
     expect(Array.from(groups[1].querySelectorAll('a')).map((a) => a.getAttribute('href'))).toEqual([
-      '/docs/vendors',
-    ]);
-    expect(Array.from(groups[2].querySelectorAll('a')).map((a) => a.getAttribute('href'))).toEqual([
       '/docs/reviewers',
       '/docs/account',
     ]);
   });
 
-  it('lists every non-empty section with its pages, and no empty section', () => {
+  it('lists every help-center section with its pages, and no empty section', () => {
     const { host } = render();
     const sections = Array.from(host.querySelectorAll('[data-section]'));
     expect(sections.map((s) => s.getAttribute('data-section'))).toEqual([
       'getting-started',
       'trust',
-      'vendors',
       'reviewers',
       'account',
+      'for-vendors',
     ]);
     const hrefs = sections.flatMap((s) =>
       Array.from(s.querySelectorAll('a')).map((a) => a.getAttribute('href')),
     );
-    for (const page of DOCS_PAGES) expect(hrefs, page.path).toContain(page.path);
+    for (const section of docsSectionsInGuide('help')) {
+      for (const page of section.pages) expect(hrefs, page.path).toContain(page.path);
+    }
     for (const empty of ['faq']) {
       expect(host.querySelector(`a[href^="/docs/${empty}"]`), empty).toBeNull();
     }
+  });
+
+  // AECI-1265: the vendor guide is listed on neither the home nor its sidebar.
+  it('never links the vendor guide, and lists "For vendors" with its two pages', () => {
+    const { host } = render();
+    expect(host.querySelector('[data-section="vendors"]')).toBeNull();
+    expect(host.querySelector('a[href="/docs/vendors"]')).toBeNull();
+    for (const page of DOCS_PAGES.filter((entry) => entry.section === 'vendors')) {
+      expect(host.querySelector(`a[href="${page.path}"]`), page.slug).toBeNull();
+    }
+    const forVendors = host.querySelector('[data-section="for-vendors"]')!;
+    expect(Array.from(forVendors.querySelectorAll('a')).map((a) => a.getAttribute('href'))).toEqual(
+      ['/docs/vendors/overview', '/docs/vendors/claiming-your-listing'],
+    );
   });
 
   it('is indexable, with title and canonical', () => {

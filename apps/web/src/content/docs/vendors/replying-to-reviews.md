@@ -65,7 +65,7 @@ A removed reply is final. Your company cannot reply to that review again.
 
 ## Reporting a review
 
-A reply is not a report. If you think a review breaks the [Review Guidelines](/legal/review-guidelines), for example it is fake or names a person, email [reviews@thewbsproject.com](mailto:reviews@thewbsproject.com) with a link and a short explanation. Replying does not remove, hide or flag a review.
+A reply is not a report. If you think a review breaks the [Review Guidelines](/legal/review-guidelines), for example it is fake or names a person, email [support@aecintegrations.com](mailto:support@aecintegrations.com) with a link and a short explanation. Replying does not remove, hide or flag a review.
 
 ## Related
 

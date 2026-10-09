@@ -71,6 +71,7 @@ Some products also show a line such as "3 more pairs reachable via connectors". 
 ## Related
 
 - Previous: [About AEC Integrations](/docs/getting-started/about-aec-integrations).
-- Next: [How listings are classified](/docs/getting-started/taxonomy).
+- Next: [Checking an integration before you buy](/docs/getting-started/checking-before-you-buy).
+- [How listings are classified](/docs/getting-started/taxonomy).
 - [Agreement states](/docs/trust/agreement-states).
 - [How we research and verify listings](/methodology).

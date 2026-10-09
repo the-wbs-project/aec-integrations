@@ -121,4 +121,4 @@ The [Listing Accuracy Policy](/legal/listing-accuracy) and the [Review Guideline
 
 AEC Integrations is built and maintained by The WBS Project, which operates the site and is accountable for what is on it.
 
-Corrections, questions, and disputes reach us at [support@aecintegrations.com](mailto:support@aecintegrations.com), or through the [contact page](/contact). Reports about a specific review go to [reviews@thewbsproject.com](mailto:reviews@thewbsproject.com).
+Corrections, questions, disputes, and reports about a specific review reach us at [support@aecintegrations.com](mailto:support@aecintegrations.com), or through the [contact page](/contact).

@@ -236,7 +236,7 @@ export function capabilitiesFor(tier: EntitlementTier): readonly Capability[];
 
 > **Amended 2026-10-01 by §13.3 (AECI-1212), built by AECI-1214 (2026-10-02).** The registry holds ten ids: `product.listing.edit` and `product.categories.edit` are new. `unclaimed` holds `profile.edit` and both new ids. That is the Free plan. Every field's capability is in `VENDOR_FIELD_CAPABILITIES` / `PRODUCT_FIELD_CAPABILITIES` in the same module.
 
-> **Amended 2026-10-02 by `STAGE_2_VENDOR_PORTAL_SPEC.md` §11c.9 (AECI-1174).** The registry gains `review.reply`, the gate on a vendor's public reply to a review. It is held by `verified` only. `unclaimed` must not hold it. Opening it to Free is a one-line move into `TIER_CAPABILITIES.unclaimed`. AECI-1176 changes the code. **Built by AECI-1176 (2026-10-02).** The registry holds eleven ids. This supersedes the AECI-313 flag-only ruling of 2026-07-02. Reporting a review stays the `reviews@thewbsproject.com` email.
+> **Amended 2026-10-02 by `STAGE_2_VENDOR_PORTAL_SPEC.md` §11c.9 (AECI-1174).** The registry gains `review.reply`, the gate on a vendor's public reply to a review. It is held by `verified` only. `unclaimed` must not hold it. Opening it to Free is a one-line move into `TIER_CAPABILITIES.unclaimed`. AECI-1176 changes the code. **Built by AECI-1176 (2026-10-02).** The registry holds eleven ids. This supersedes the AECI-313 flag-only ruling of 2026-07-02. Reporting a review stays an email: `support@aecintegrations.com` since 2026-10-09 (AECI-1265, ruled by Chris: there is no reviews@ mailbox; it was `reviews@thewbsproject.com` before).
 
 Three capabilities are **declared with no consumer on purpose**: `attestation.author` (AECI-301), `analytics.view`, and `integration.version_diff` (AECI-304). Minting the ids now means those later issues become pure render-path/handler changes with no registry edit, and it makes the vocabulary auditable in one place today.
 
@@ -912,6 +912,8 @@ Chris made these ten decisions on 2026-10-01 in epic AECI-1212. They are quoted 
 
    > **2026-10-08 ruling (Chris): draft label removed; per-vendor price and message overrides, display only.** The "Draft price" tag is gone. The default sentence stays: "Managed is $25 a month per product." An admin can set a per-vendor price override or a per-vendor message override. Neither bills anyone or changes a plan, a capability or ranking. §13.13 governs.
 10. **Each plan panel says:** "No plan changes where you rank or appear, whether a review is published, or what we verify."
+
+    > **Amended 2026-10-09 (AECI-1265, marketing review B2, approved by Chris).** The line now reads: "No plan changes where you rank or appear, or whether a review is published." "What we verify" was dropped. `noPlanChangesLine()` in `apps/web/src/app/vendor/vendor-plan.ts` carries it.
 
 > **As revised (2026-10-08).** The one-line plan summary in decision 2 is gone. The vendor dashboard shows no plan card, and the vendor checklist takes the full width (`STAGE_2_VENDOR_PORTAL_SPEC.md` §6.18). The decision above stays as quoted.
 

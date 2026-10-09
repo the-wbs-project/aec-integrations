@@ -1,6 +1,7 @@
 /**
- * AECI-1104, AECI-1248, AECI-1259 — the docs manifest and the routes generated
- * from it.
+ * AECI-1104, AECI-1248, AECI-1259, AECI-1265 — the docs manifest and the routes
+ * generated from it, including the split into the help center and the vendor
+ * guide.
  *
  * `*.component.spec.ts` (the Angular `ng test` tier) because the manifest
  * imports `.md` files, and only the Angular build carries the esbuild `text`
@@ -16,18 +17,22 @@ import {
   type DocsSectionMeta,
   type RawDocsPage,
   buildDocsManifest,
+  docsGuideForPath,
   docsNeighbours,
   docsSection,
+  docsSectionsInGuide,
   getDocsPage,
+  getDocsPageByPath,
   getDocsSection,
+  getDocsSectionIndexByPath,
   indexableDocsPaths,
 } from './docs-content';
 import { headingSlug } from './docs-markdown';
 import { DocsShellComponent } from './docs-shell';
 import { DOCS_CHILD_ROUTES, DOCS_ROUTES } from './docs.routes';
 
+// AECI-1265: the vendor guide. Every page keeps its `/docs/vendors/*` URL.
 const VENDOR_SLUGS = [
-  'claiming-your-listing',
   'your-seat',
   'attesting-an-integration',
   'owning-an-integration',
@@ -35,13 +40,22 @@ const VENDOR_SLUGS = [
   'replying-to-reviews',
   'plans',
   'change-history',
+  'connector-vendors',
 ];
+
+// AECI-1265: the help center's "For vendors" section, also under `/docs/vendors/*`.
+const FOR_VENDORS_SLUGS = ['overview', 'claiming-your-listing'];
 
 const REVIEWER_SLUGS = ['writing-a-review', 'requests-and-corrections'];
 
 const ACCOUNT_SLUGS = ['signing-in', 'your-data'];
 
-const GETTING_STARTED_SLUGS = ['about-aec-integrations', 'reading-an-integration-page', 'taxonomy'];
+const GETTING_STARTED_SLUGS = [
+  'about-aec-integrations',
+  'reading-an-integration-page',
+  'checking-before-you-buy',
+  'taxonomy',
+];
 
 const TRUST_SLUGS = ['how-ranking-works', 'agreement-states'];
 
@@ -50,10 +64,18 @@ const TRUST_SLUGS = ['how-ranking-works', 'agreement-states'];
 const FIXTURE_META: Record<DocsSectionId, DocsSectionMeta> = {
   'getting-started': { label: 'Getting started', summary: 's', audience: 'reader', order: 1 },
   trust: { label: 'Trust', summary: 's', audience: 'reader', order: 2 },
-  vendors: { label: 'Vendors', summary: 's', audience: 'vendor', order: 3 },
-  reviewers: { label: 'Reviewers', summary: 's', audience: 'reviewer', order: 4 },
-  account: { label: 'Account', summary: 's', audience: 'reviewer', order: 5 },
-  faq: { label: 'FAQ', summary: 's', audience: 'reader', order: 6, singlePage: true },
+  reviewers: { label: 'Reviewers', summary: 's', audience: 'reviewer', order: 3 },
+  account: { label: 'Account', summary: 's', audience: 'reviewer', order: 4 },
+  'for-vendors': {
+    label: 'For vendors',
+    summary: 's',
+    audience: 'vendor',
+    order: 5,
+    urlSegment: 'vendors',
+    home: 'overview',
+  },
+  vendors: { label: 'Vendors', summary: 's', audience: 'vendor', order: 6, guide: 'vendor' },
+  faq: { label: 'FAQ', summary: 's', audience: 'reader', order: 7, singlePage: true },
 };
 
 function md(
@@ -182,6 +204,98 @@ describe('buildDocsManifest (fixtures)', () => {
       }),
     ).toThrow(/single-page/);
   });
+
+  // AECI-1265: two sections, two guides, one URL segment.
+  it('serves a home section and a guide section under one URL segment', () => {
+    const manifest = buildDocsManifest(FIXTURE_META, {
+      'for-vendors': [raw('overview', md('for-vendors', 1)), raw('claim', md('for-vendors', 2))],
+      vendors: [raw('seat', md('vendors', 1))],
+    });
+    const forVendors = getDocsSection('for-vendors', manifest)!;
+    const guide = getDocsSection('vendors', manifest)!;
+    // The home section's landing is its home page, and it has no index of its own.
+    expect(forVendors.path).toBe('/docs/vendors/overview');
+    expect(forVendors.hasIndex).toBe(false);
+    expect(forVendors.guide).toBe('help');
+    expect(forVendors.pages.map((page) => page.path)).toEqual([
+      '/docs/vendors/overview',
+      '/docs/vendors/claim',
+    ]);
+    // The guide section owns the shared segment's index page.
+    expect(guide.path).toBe('/docs/vendors');
+    expect(guide.hasIndex).toBe(true);
+    expect(guide.guide).toBe('vendor');
+    expect(getDocsSectionIndexByPath('/docs/vendors', manifest)?.id).toBe('vendors');
+    expect(getDocsPageByPath('/docs/vendors/claim', manifest)?.section).toBe('for-vendors');
+    expect(docsGuideForPath('/docs/vendors/seat', manifest)).toBe('vendor');
+    expect(docsGuideForPath('/docs/vendors/claim', manifest)).toBe('help');
+    expect(docsGuideForPath('/docs', manifest)).toBe('help');
+    expect(docsSectionsInGuide('help', manifest).map((section) => section.id)).toEqual([
+      'for-vendors',
+    ]);
+    // Each path once: no separate index entry for the home section.
+    expect(indexableDocsPaths(manifest)).toEqual(['/docs']);
+  });
+
+  it('lists a home section once in the sitemap paths when it is indexable', () => {
+    const meta = {
+      ...FIXTURE_META,
+      'for-vendors': { ...FIXTURE_META['for-vendors'], urlSegment: 'x' },
+    };
+    const manifest = buildDocsManifest(meta, {
+      'for-vendors': [raw('overview', md('for-vendors', 1)), raw('b', md('for-vendors', 2))],
+    });
+    expect(indexableDocsPaths(manifest)).toEqual(['/docs', '/docs/x/overview', '/docs/x/b']);
+  });
+
+  it('throws when a home slug is not one of the section pages', () => {
+    expect(() =>
+      buildDocsManifest(FIXTURE_META, { 'for-vendors': [raw('a', md('for-vendors', 1))] }),
+    ).toThrow(/home "overview"/);
+  });
+
+  it('throws when two sections would both own one index path', () => {
+    const meta = { ...FIXTURE_META, trust: { ...FIXTURE_META.trust, urlSegment: 'reviewers' } };
+    expect(() =>
+      buildDocsManifest(meta, {
+        trust: [raw('a', md('trust', 1))],
+        reviewers: [raw('b', md('reviewers', 1))],
+      }),
+    ).toThrow(/both own \/docs\/reviewers/);
+  });
+
+  it('throws when two pages share a path', () => {
+    expect(() =>
+      buildDocsManifest(FIXTURE_META, {
+        'for-vendors': [raw('overview', md('for-vendors', 1))],
+        vendors: [raw('overview', md('vendors', 1))],
+      }),
+    ).toThrow(/share a path/);
+  });
+
+  it('builds a section intro, split at its first heading, for an index page only', () => {
+    const manifest = buildDocsManifest(
+      FIXTURE_META,
+      { vendors: [raw('a', md('vendors', 1))] },
+      { vendors: 'Lead [link](/docs).\n\n## Current limits\n\n- One.\n' },
+    );
+    const intro = getDocsSection('vendors', manifest)!.intro!;
+    expect(intro.lead.map((block) => block.heading)).toEqual([undefined]);
+    expect(intro.lead[0].html).toContain('Lead');
+    expect(intro.rest[0].heading).toEqual({
+      id: 'current-limits',
+      text: 'Current limits',
+      level: 2,
+    });
+    expect(intro.html).toContain('id="current-limits"');
+    expect(() =>
+      buildDocsManifest(
+        FIXTURE_META,
+        { 'for-vendors': [raw('overview', md('for-vendors', 1))] },
+        { 'for-vendors': 'Lead.' },
+      ),
+    ).toThrow(/no index page/);
+  });
 });
 
 // ─── The real manifest ───────────────────────────────────────────────────────
@@ -191,9 +305,10 @@ describe('docs manifest', () => {
     expect(DOCS_SECTIONS.map((section) => section.id)).toEqual([
       'getting-started',
       'trust',
-      'vendors',
       'reviewers',
       'account',
+      'for-vendors',
+      'vendors',
     ]);
     for (const empty of ['faq']) {
       expect(getDocsSection(empty), empty).toBeUndefined();
@@ -205,9 +320,50 @@ describe('docs manifest', () => {
       expect(section.label, section.id).not.toBe('');
       expect(section.summary, section.id).not.toBe('');
       expect(['reader', 'vendor', 'reviewer']).toContain(section.audience);
-      expect(section.path).toBe(`/docs/${section.id}`);
     }
     expect(getDocsSection('vendors')?.label).toBe('Vendor guide');
+    expect(getDocsSection('for-vendors')?.label).toBe('For vendors');
+  });
+
+  // AECI-1265: the help center and the vendor guide, from one manifest.
+  it('splits the docs into the help center and the vendor guide', () => {
+    expect(docsSectionsInGuide('help').map((section) => section.id)).toEqual([
+      'getting-started',
+      'trust',
+      'reviewers',
+      'account',
+      'for-vendors',
+    ]);
+    expect(docsSectionsInGuide('vendor').map((section) => section.id)).toEqual(['vendors']);
+    // Every section index sits at /docs/<id>, except that /docs/vendors is the
+    // vendor guide's landing and "For vendors" lands on its overview.
+    for (const section of DOCS_SECTIONS.filter((entry) => entry.id !== 'for-vendors')) {
+      expect(section.path, section.id).toBe(`/docs/${section.id}`);
+      expect(section.hasIndex, section.id).toBe(true);
+    }
+    const forVendors = getDocsSection('for-vendors')!;
+    expect(forVendors.path).toBe('/docs/vendors/overview');
+    expect(forVendors.hasIndex).toBe(false);
+    // Every vendor URL kept its address, in either guide.
+    for (const page of [...docsSection('for-vendors'), ...docsSection('vendors')]) {
+      expect(page.path).toBe(`/docs/vendors/${page.slug}`);
+    }
+    expect(docsGuideForPath('/docs/vendors')).toBe('vendor');
+    expect(docsGuideForPath('/docs/vendors/plans')).toBe('vendor');
+    expect(docsGuideForPath('/docs/vendors/overview')).toBe('help');
+    expect(docsGuideForPath('/docs/vendors/claiming-your-listing')).toBe('help');
+  });
+
+  it('gives the vendor guide a landing page with one Current limits note', () => {
+    const intro = getDocsSection('vendors')!.intro!;
+    expect(intro.lead.length).toBeGreaterThan(0);
+    expect(intro.rest.map((block) => block.heading?.text)).toEqual(['Current limits']);
+    const doc = new DOMParser().parseFromString(intro.html, 'text/html');
+    expect(Array.from(doc.querySelectorAll('li')).length).toBe(3);
+    // The notes it collects are gone from the pages they came from.
+    for (const page of DOCS_PAGES) {
+      expect(page.html, page.slug).not.toMatch(/is planned|not part of the portal yet|For now,/);
+    }
   });
 
   it('lists the vendor guide, the reviewer guide and the account pages in task order', () => {
@@ -216,10 +372,12 @@ describe('docs manifest', () => {
     expect(docsSection('account').map((page) => page.slug)).toEqual(ACCOUNT_SLUGS);
     expect(docsSection('getting-started').map((page) => page.slug)).toEqual(GETTING_STARTED_SLUGS);
     expect(docsSection('trust').map((page) => page.slug)).toEqual(TRUST_SLUGS);
+    expect(docsSection('for-vendors').map((page) => page.slug)).toEqual(FOR_VENDORS_SLUGS);
     expect(DOCS_PAGES).toHaveLength(
       GETTING_STARTED_SLUGS.length +
         TRUST_SLUGS.length +
         VENDOR_SLUGS.length +
+        FOR_VENDORS_SLUGS.length +
         REVIEWER_SLUGS.length +
         ACCOUNT_SLUGS.length,
     );
@@ -263,25 +421,30 @@ describe('docs manifest', () => {
   });
 
   it('only links to docs pages, sections and headings that exist', () => {
-    for (const page of DOCS_PAGES) {
-      const doc = new DOMParser().parseFromString(page.html, 'text/html');
+    // Pages, and the section intros (the vendor guide's landing), by path: since
+    // AECI-1265 two sections share `/docs/vendors`, so a URL segment is not an id.
+    const sources = [
+      ...DOCS_PAGES.map((page) => ({ name: page.slug, html: page.html })),
+      ...DOCS_SECTIONS.filter((section) => section.intro).map((section) => ({
+        name: `${section.id} intro`,
+        html: section.intro!.html,
+      })),
+    ];
+    for (const { name, html } of sources) {
+      const doc = new DOMParser().parseFromString(html, 'text/html');
       for (const a of Array.from(doc.querySelectorAll('a[href^="/docs"]'))) {
         const href = a.getAttribute('href') ?? '';
         const [path, fragment] = href.split('#');
-        const [, , section, slug] = path.split('/');
-        const target = !section
-          ? true
-          : slug
-            ? getDocsPage(section, slug)
-            : getDocsSection(section);
-        expect(target, `${page.slug} → ${href}`).toBeTruthy();
+        const targetPage = getDocsPageByPath(path);
+        const targetIndex = getDocsSectionIndexByPath(path);
+        expect(path === '/docs' || targetPage || targetIndex, `${name} → ${href}`).toBeTruthy();
         // AECI-1259: a deep link must land on a heading id the target renders.
-        if (fragment && slug) {
-          const targetHtml = getDocsPage(section, slug)!.html;
+        if (fragment) {
+          const targetHtml = targetPage?.html ?? targetIndex?.intro?.html ?? '';
           const ids = Array.from(
             new DOMParser().parseFromString(targetHtml, 'text/html').querySelectorAll('[id]'),
           ).map((el) => el.id);
-          expect(ids, `${page.slug} → ${href}`).toContain(fragment);
+          expect(ids, `${name} → ${href}`).toContain(fragment);
         }
       }
     }
@@ -361,18 +524,130 @@ describe('docs manifest', () => {
     expect(text).toContain('You can still withdraw one.');
     // Ruling 3: no reviewer notice. Reporting stays the email route.
     expect(text).toContain('We do not tell the reviewer that you replied.');
-    expect(page.html).toContain('mailto:reviews@thewbsproject.com');
+    // AECI-1265: there is no reviews@ mailbox, so reports go to support@.
+    expect(page.html).toContain('mailto:support@aecintegrations.com');
   });
 
   it('describes vendor change requests by the buttons the portal shows (AECI-1248 re-check)', () => {
-    const page = getDocsPage('reviewers', 'requests-and-corrections')!;
-    const text = new DOMParser().parseFromString(page.html, 'text/html').body.textContent ?? '';
+    const textOf = (section: string, slug: string): string =>
+      new DOMParser().parseFromString(getDocsPage(section, slug)!.html, 'text/html').body
+        .textContent ?? '';
+    const requests = textOf('reviewers', 'requests-and-corrections');
     // A public correction is never forwarded to an integration's owner by code.
-    expect(text).not.toContain('We will share it with the owner');
+    expect(requests).not.toContain('We will share it with the owner');
+    expect(requests).toContain('Suggest a correction');
+    // AECI-1265: the vendor route moved to the vendor guide. One sentence links there.
+    expect(requests).not.toContain('Request a change');
+    const contests = textOf('vendors', 'contests-and-protests');
     // The integration page's buttons; Contest a field is the connector lane only.
-    expect(text).toContain('Request a change');
-    expect(text).toContain('Request a correction');
-    expect(text).toContain('Suggest a correction');
+    expect(contests).toContain('Request a change');
+    expect(contests).toContain('Request a correction');
+    expect(contests).toContain('Contest a field');
+  });
+
+  // AECI-1265 B3: vendor material lives in the vendor guide, not on buyer pages.
+  it('keeps vendor material out of the buyer pages', () => {
+    const textOf = (section: string, slug: string): string =>
+      new DOMParser().parseFromString(getDocsPage(section, slug)!.html, 'text/html').body
+        .textContent ?? '';
+    expect(textOf('trust', 'agreement-states')).not.toContain('If you are the vendor');
+    expect(textOf('account', 'signing-in')).not.toContain('seat was granted to');
+    const data = textOf('account', 'your-data');
+    expect(data).not.toContain('your colleagues see your display name');
+    expect(data).not.toContain('gives up that seat');
+    const seat = textOf('vendors', 'your-seat');
+    expect(seat).toContain('see your display name in the vendor portal');
+    expect(seat).toContain('If you delete your account, you give up your seat.');
+    // The connector sections moved to their own page.
+    expect(textOf('vendors', 'owning-an-integration')).not.toContain(
+      'Integrations your company offers',
+    );
+    expect(textOf('for-vendors', 'claiming-your-listing')).not.toContain(
+      'Catalogue maintenance seat',
+    );
+    expect(textOf('vendors', 'connector-vendors')).toContain('Catalogue maintenance seat');
+    expect(textOf('vendors', 'connector-vendors')).toContain('Integrations your company offers');
+  });
+
+  // AECI-1265 B2: the panel line and the Plans list, as approved 2026-10-09.
+  it('quotes the reworded plan panel line and the What no plan changes list', () => {
+    const page = getDocsPage('vendors', 'plans')!;
+    const text = new DOMParser().parseFromString(page.html, 'text/html').body.textContent ?? '';
+    expect(text).toContain(
+      'No plan changes where you rank or appear, or whether a review is published.',
+    );
+    expect(text).toContain(
+      "how an agreement label is worked out. Both companies' answers count the same.",
+    );
+    expect(text).not.toContain('what we verify');
+  });
+
+  // AECI-1265 B4: the buying page quotes the four labels as the badge renders them.
+  it('quotes the agreement labels exactly on Checking an integration before you buy', () => {
+    const page = getDocsPage('getting-started', 'checking-before-you-buy')!;
+    const text = new DOMParser().parseFromString(page.html, 'text/html').body.textContent ?? '';
+    for (const label of [
+      'Listed by AEC Integrations',
+      'Confirmed by (a company)',
+      'Confirmed by one company',
+      'Confirmed by both companies',
+      'Companies disagree',
+    ]) {
+      expect(text, label).toContain(label);
+    }
+    // Never claim the catalog is vendor-verified.
+    expect(text).not.toMatch(/verified/i);
+  });
+
+  // AECI-1265 B5: claiming opens with what buyers see, using the marker's labels.
+  it('opens Claiming your vendor listing with what changes for buyers', () => {
+    const page = getDocsPage('for-vendors', 'claiming-your-listing')!;
+    const first = new DOMParser().parseFromString(page.html, 'text/html').querySelector('p');
+    expect(first?.textContent).toContain('Vendor maintained · Updated');
+    expect(first?.textContent).toContain('AEC Integrations maintained');
+  });
+
+  // AECI-1265 B6: the full "cannot be bought" statement lives on How ranking works.
+  it('states the cannot-be-bought rule in full only on How ranking works', () => {
+    for (const page of DOCS_PAGES.filter((entry) => entry.slug !== 'how-ranking-works')) {
+      expect(page.html, page.slug).not.toMatch(
+        /at any price|for sale|can buy|not bought|sponsored placement|promoted tier|pay-for-placement|pay to change/i,
+      );
+    }
+    const ranking = getDocsPage('trust', 'how-ranking-works')!.html;
+    expect(ranking).toContain('No plan, at any price, changes');
+  });
+
+  // AECI-1265 B7: the connector contest list uses the labels the form shows.
+  it('names connector contest fields by their portal labels, and defines data flow', () => {
+    const textOf = (section: string, slug: string): string =>
+      new DOMParser().parseFromString(getDocsPage(section, slug)!.html, 'text/html').body
+        .textContent ?? '';
+    const contests = textOf('vendors', 'contests-and-protests');
+    for (const label of [
+      'Name',
+      'Mechanism name',
+      'Direction',
+      'Description',
+      'Listing link',
+      'Documentation link',
+      'Pricing',
+      'Maturity',
+      'Owner',
+    ]) {
+      expect(contests, label).toContain(label);
+    }
+    const attesting = textOf('vendors', 'attesting-an-integration');
+    expect(attesting).toContain("Data that's shared");
+    expect(attesting).toContain('types of data');
+    expect(attesting).not.toContain('only just opened');
+  });
+
+  // AECI-1265 B9: there is no reviews@ mailbox.
+  it('sends every report to support@, never a reviews@ address', () => {
+    for (const page of DOCS_PAGES) {
+      expect(page.html, page.slug).not.toContain('reviews@');
+    }
   });
 
   it('describes reviews and accounts as the code ships them (AECI-1250)', () => {
@@ -421,7 +696,7 @@ describe('docsNeighbours', () => {
     const vendors = docsSection('vendors');
     expect(docsNeighbours(vendors[0])).toEqual({ prev: undefined, next: vendors[1] });
     expect(docsNeighbours(vendors[3])).toEqual({ prev: vendors[2], next: vendors[4] });
-    // The last vendor page is followed by the reviewer section; the pager stops.
+    // The vendor guide's last page is followed by no other section; the pager stops.
     expect(docsNeighbours(vendors.at(-1)!)).toEqual({ prev: vendors.at(-2), next: undefined });
     const [writing, requests] = docsSection('reviewers');
     expect(docsNeighbours(writing)).toEqual({ prev: undefined, next: requests });
@@ -441,6 +716,7 @@ describe('indexableDocsPaths', () => {
       ...REVIEWER_SLUGS.map((slug) => `/docs/reviewers/${slug}`),
       '/docs/account',
       ...ACCOUNT_SLUGS.map((slug) => `/docs/account/${slug}`),
+      // "For vendors" and the vendor guide sit under /docs/vendors: noindex until AECI-1253.
     ]);
   });
 });
@@ -465,12 +741,14 @@ describe('DOCS_ROUTES', () => {
       ...GETTING_STARTED_SLUGS.map((slug) => `getting-started/${slug}`),
       'trust',
       ...TRUST_SLUGS.map((slug) => `trust/${slug}`),
-      'vendors',
-      ...VENDOR_SLUGS.map((slug) => `vendors/${slug}`),
       'reviewers',
       ...REVIEWER_SLUGS.map((slug) => `reviewers/${slug}`),
       'account',
       ...ACCOUNT_SLUGS.map((slug) => `account/${slug}`),
+      // AECI-1265: "For vendors" has no index; the vendor guide owns `vendors`.
+      ...FOR_VENDORS_SLUGS.map((slug) => `vendors/${slug}`),
+      'vendors',
+      ...VENDOR_SLUGS.map((slug) => `vendors/${slug}`),
     ]);
   });
 

@@ -6,10 +6,16 @@
  * Anchor site: **Devin (DeepWiki)**, Mobbin screen c3936cdb: the same quiet
  * column as an article. A small Source Serif `h1` "Help center" and a one-line
  * intro, then two plain divided lists, no cards. First the **audience split**,
- * which sends a reader, a vendor or a reviewer to the sections written for them.
- * Then "All sections", each with its summary and page links. Built entirely from
+ * which sends a reader or a reviewer to the sections written for them. Then
+ * "All sections", each with its summary and page links. Built entirely from
  * the manifest (`docs-content.ts`), so an empty section shows nowhere and an
  * audience with no non-empty section drops out of the split.
+ *
+ * **Help center only (AECI-1265).** The home lists the help center's sections,
+ * never the vendor guide. Vendors reach it through the "For vendors" section,
+ * which replaced both the "Listing your products" role card and the vendor
+ * guide's block under "All sections". A section whose landing is a `home` page
+ * links its heading there and lists its other pages.
  *
  * Static, SSR-safe, edge-cached on the static-page TTL, and indexable (`/docs`
  * is in `sitemap.xml`). Light theme only.
@@ -19,7 +25,12 @@ import { RouterLink } from '@angular/router';
 
 import { canonicalUrl } from '../core/canonical';
 import { MetaService } from '../core/meta.service';
-import { type DocsAudience, type DocsSection, DOCS_SECTIONS } from './docs-content';
+import {
+  type DocsAudience,
+  type DocsPage,
+  type DocsSection,
+  docsSectionsInGuide,
+} from './docs-content';
 import { pathForcesNoindex } from './docs-indexing';
 
 interface AudienceGroup {
@@ -34,11 +45,6 @@ const AUDIENCES: readonly Omit<AudienceGroup, 'sections'>[] = [
     audience: 'reader',
     heading: $localize`:@@app.docs.home.audience.reader:Choosing integrations`,
     summary: $localize`:@@app.docs.home.audience.reader.summary:For firms reading the directory: how listings work and how ranking is decided.`,
-  },
-  {
-    audience: 'vendor',
-    heading: $localize`:@@app.docs.home.audience.vendor:Listing your products`,
-    summary: $localize`:@@app.docs.home.audience.vendor.summary:For vendors: claim your listing and keep your integrations accurate.`,
   },
   {
     audience: 'reviewer',
@@ -99,7 +105,8 @@ const AUDIENCES: readonly Omit<AudienceGroup, 'sections'>[] = [
             All sections
           </h2>
           <div class="mt-3 divide-y divide-(--border-default) border-t border-(--border-default)">
-            @for (section of sections; track section.id) {
+            @for (entry of allSections; track entry.section.id) {
+              @let section = entry.section;
               <div class="py-5" [attr.data-section]="section.id">
                 <h3 class="aec-docs-subhead">
                   <a
@@ -113,7 +120,7 @@ const AUDIENCES: readonly Omit<AudienceGroup, 'sections'>[] = [
                 </p>
                 @if (!section.singlePage) {
                   <ul class="mt-2.5 space-y-1.5 text-sm">
-                    @for (page of section.pages; track page.slug) {
+                    @for (page of entry.pages; track page.slug) {
                       <li>
                         <a
                           [routerLink]="page.path"
@@ -135,12 +142,25 @@ const AUDIENCES: readonly Omit<AudienceGroup, 'sections'>[] = [
 export class DocsHomeComponent {
   private readonly meta = inject(MetaService);
 
-  protected readonly sections = DOCS_SECTIONS;
+  /** The help center's sections. The vendor guide is never listed here. */
+  protected readonly sections = docsSectionsInGuide('help');
   /** The audience split, minus any audience with no non-empty section. */
   protected readonly audiences: readonly AudienceGroup[] = AUDIENCES.map((group) => ({
     ...group,
-    sections: DOCS_SECTIONS.filter((section) => section.audience === group.audience),
+    sections: this.sections.filter((section) => section.audience === group.audience),
   })).filter((group) => group.sections.length > 0);
+
+  /**
+   * "All sections", each with the pages it lists. A `home` page is the section
+   * heading's link, so it is not listed again under it.
+   */
+  protected readonly allSections: readonly {
+    readonly section: DocsSection;
+    readonly pages: readonly DocsPage[];
+  }[] = this.sections.map((section) => ({
+    section,
+    pages: section.pages.filter((page) => page.path !== section.path),
+  }));
 
   constructor() {
     this.meta.setStaticPageMeta({

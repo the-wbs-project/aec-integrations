@@ -225,7 +225,8 @@ describe('MethodologyPage', () => {
     expect(host.textContent).toContain('The WBS Project');
     const hrefs = Array.from(host.querySelectorAll('a')).map((a) => a.getAttribute('href'));
     expect(hrefs).toContain('mailto:support@aecintegrations.com');
-    expect(hrefs).toContain('mailto:reviews@thewbsproject.com');
+    // AECI-1265: there is no reviews@ mailbox; review reports go to support@ too.
+    expect(hrefs.some((href) => href?.startsWith('mailto:reviews@'))).toBe(false);
     expect(hrefs).toContain('/contact');
   });
 

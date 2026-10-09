@@ -2,7 +2,7 @@
 title: Your seat
 description: Signing in to the vendor portal, inviting and removing colleagues, and what a seat lets you do on the Free and Managed plans.
 section: vendors
-order: 2
+order: 1
 last_updated: 9 October 2026
 ---
 
@@ -49,6 +49,13 @@ You cannot remove your own seat from the portal. If you are leaving your company
 
 If AEC Integrations removes the last seat on your company's account, your listing goes back to us to maintain. The integrations your company claimed become unclaimed, and your data flows and attestations stay on them. When your company has a seat again, claim the integrations again.
 
+## Your account and your seat
+
+Your seat belongs to your account on AEC Integrations, the one you sign in with.
+
+- Colleagues with a seat on your vendor account see your display name in the vendor portal. You set it on your [account page](/account). See [Your account and your data](/docs/account/your-data).
+- If you delete your account, you give up your seat. If yours is the last seat on your company's account, your listing goes back to us to maintain, as described above.
+
 ## What a seat can do
 
 On every plan, including Free, you can:
@@ -61,7 +68,7 @@ On every plan, including Free, you can:
 - add your own links to an integration at either end,
 - see the reviews of your products, and withdraw your company's reply to one ([Replying to reviews](/docs/vendors/replying-to-reviews)),
 - contest a detail on an integration your company does not own ([Contests and protests](/docs/vendors/contests-and-protests)),
-- maintain the catalogue of a connector product your company makes, on that product's **Catalogue** tab, once we have handed the catalogue to you ([Claiming your vendor listing](/docs/vendors/claiming-your-listing#vendors-whose-products-are-connectors)).
+- maintain the catalogue of a connector product your company makes, on that product's **Catalogue** tab, once we have handed the catalogue to you ([For connector vendors](/docs/vendors/connector-vendors)).
 
 On Managed, you can also:
 
@@ -70,7 +77,7 @@ On Managed, you can also:
 - claim, edit, retire and restore an integration your company owns that is delivered through a connector, and decide contests on it ([Owning an integration](/docs/vendors/owning-an-integration)),
 - reply in public to reviews of your products ([Replying to reviews](/docs/vendors/replying-to-reviews)).
 
-A seat never changes where your company or products appear in search or in any listing. Neither does a plan. See [Plans](/docs/vendors/plans).
+Where your company and products appear in search is worked out from how well each listing matches the search and how complete it is. See [How ranking works](/docs/trust/how-ranking-works).
 
 ## If a Managed plan ends
 
@@ -78,6 +85,6 @@ Your company moves to Free. Your seats stay, and so does sign-in. The portal bec
 
 ## Related
 
-- Previous: [Claiming your vendor listing](/docs/vendors/claiming-your-listing).
 - Next: [Attesting an integration](/docs/vendors/attesting-an-integration).
+- [Claiming your vendor listing](/docs/vendors/claiming-your-listing), in the help center.
 - [Plans](/docs/vendors/plans).

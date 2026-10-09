@@ -1,6 +1,6 @@
 ---
 title: About AEC Integrations
-description: What AEC Integrations lists, where the listings come from, who confirms them, and what is never for sale.
+description: What AEC Integrations lists, where the listings come from, who confirms them, and how the order of listings is worked out.
 section: getting-started
 order: 1
 last_updated: 9 October 2026
@@ -29,9 +29,9 @@ An integration has a company at each end. On an integration page, each type of d
 
 Most data today reads "Listed by AEC Integrations". That means we recorded it from public sources and neither company has confirmed it yet. [Agreement states](/docs/trust/agreement-states) explains every label.
 
-## What is never for sale
+## How the order is worked out
 
-No payment changes where a product or vendor appears, in search or in any list. Correcting a listing is free for anyone. [How ranking works](/docs/trust/how-ranking-works) explains what does decide the order.
+Search results and lists are ordered by fixed rules, applied the same way to every listing. [How ranking works](/docs/trust/how-ranking-works) names them. Correcting a listing is free for anyone.
 
 ## If something is wrong
 

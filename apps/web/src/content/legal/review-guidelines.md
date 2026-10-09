@@ -2,7 +2,7 @@
 title: Review Guidelines
 version: 1.0
 effective_date:
-last_updated: 2 October 2026
+last_updated: 9 October 2026
 counsel_approved_by: pending sign-off
 counsel_approved_on: pending sign-off
 linear_issue: AECI-308
@@ -53,7 +53,7 @@ A company that believes a review breaches these guidelines reports it in the usu
 
 ## Reporting a review
 
-If you believe a published review breaches these guidelines, for example it is fake, defamatory, names an individual, or discloses confidential information, please report it to [reviews@thewbsproject.com](mailto:reviews@thewbsproject.com) with a link and a brief explanation. We will review reports promptly. Concerns about the **accuracy of a listing** (rather than a review) follow our [Listing Accuracy Policy](/legal/listing-accuracy).
+If you believe a published review breaches these guidelines, for example it is fake, defamatory, names an individual, or discloses confidential information, please report it to [support@aecintegrations.com](mailto:support@aecintegrations.com) with a link and a brief explanation. We will review reports promptly. Concerns about the **accuracy of a listing** (rather than a review) follow our [Listing Accuracy Policy](/legal/listing-accuracy).
 
 ## Changes to these guidelines
 

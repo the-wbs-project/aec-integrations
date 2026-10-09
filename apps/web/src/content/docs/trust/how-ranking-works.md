@@ -6,7 +6,7 @@ order: 1
 last_updated: 9 October 2026
 ---
 
-The order of every list on AEC Integrations comes from fixed rules, applied the same way to every listing. Nobody can pay to change it. This page names the things that decide the order and says, in words, how much each one counts. It does not publish a formula or any weights.
+The order of every list on AEC Integrations comes from fixed rules, applied the same way to every listing. This page names the things that decide the order and says, in words, how much each one counts. It does not publish a formula or any weights.
 
 ## Search
 
@@ -71,5 +71,5 @@ Anyone can ask us to correct a listing, at no charge. A more complete, accurate 
 ## Related
 
 - Next: [Agreement states](/docs/trust/agreement-states).
-- [How we research and verify listings](/methodology), including the no-pay-for-placement rule.
-- [Plans](/docs/vendors/plans), for what vendors can edit on each plan.
+- [How we research and verify listings](/methodology), our full statement of how the directory works.
+- [For vendors](/docs/vendors/overview), for what vendors can edit on each plan.

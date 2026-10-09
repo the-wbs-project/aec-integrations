@@ -3,7 +3,7 @@ title: Contests and protests
 description: How to ask for a change to a detail on an integration your company does not own, what to do when one of yours is asked about, and how to ask AEC Integrations to review an owner's decision.
 section: vendors
 order: 5
-last_updated: 8 October 2026
+last_updated: 9 October 2026
 ---
 
 A change request is how a company asks to change one detail of an integration it does not own. A protest is how it asks AEC Integrations to look again when the owner turns a request down. Both need a seat on your vendor account. Both work on the Free plan. An owner deciding a request on an integration delivered through a connector needs the Managed plan.
@@ -22,7 +22,7 @@ Choose **Send request**.
 
 The fields you can ask about this way are the integration's name, description, how you get it, connection name, listing page, documentation, pricing, release stage, and owner. You can have one open request per field on each integration. To send a different value, withdraw the open one first.
 
-Integrations delivered through a connector can be asked about too. The ones a connector product delivers to your product are listed in the **Connectors** section of that product's Integrations tab, each one your company does not own with **Contest a field**. Those have no type field, so their type cannot be changed this way. The fields there are the integration's name, mechanism name, direction, description, listing link, documentation link, pricing, maturity, and owner.
+Integrations delivered through a connector can be asked about too. The ones a connector product delivers to your product are listed in the **Connectors** section of that product's Integrations tab, each one your company does not own with **Contest a field**. Those have no type field, so their type cannot be changed this way. The form lists the fields by these names: **Name**, **Mechanism name**, **Direction**, **Description**, **Listing link**, **Documentation link**, **Pricing**, **Maturity** and **Owner**. **Mechanism name** is the same field the integration page calls **Connection name**, and **Maturity** is its **Release stage**.
 
 A change request is a request, not a change. While it is open, the public page keeps the value on record and does not show that one exists.
 
@@ -77,7 +77,7 @@ We read both sides and say which one we agree with. Our view is advice. It does 
 
 You can ask once per request. **Withdraw review request** cancels it, and a withdrawn request cannot be sent again. Only requests an owner decided can be reviewed this way. A request AEC Integrations decided has already had our answer.
 
-Nothing about a request or a review is public. Replies between the two companies are not part of the portal yet: each side sees the other's reason, note and reply, but there is no back-and-forth conversation.
+Nothing about a request or a review is public. Each side sees the other's reason, note and reply. There is no back-and-forth conversation: see [Current limits](/docs/vendors#current-limits).
 
 ## If you are the owner and a review is requested
 

@@ -32,8 +32,8 @@ import { VendorPlanPanel } from './vendor-plan-panel';
 
 const DAY_MS = 86_400_000;
 const NOW = Date.parse('2026-10-02T12:00:00.000Z');
-const DECISION_10 =
-  'No plan changes where you rank or appear, whether a review is published, or what we verify.';
+// Reworded by AECI-1265 (marketing review B2): "or what we verify" is gone.
+const DECISION_10 = 'No plan changes where you rank or appear, or whether a review is published.';
 
 beforeEach(() => {
   TestBed.resetTestingModule();
