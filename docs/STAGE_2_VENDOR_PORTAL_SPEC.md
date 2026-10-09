@@ -3376,7 +3376,7 @@ The two decision events carry `metadata.recipientRole` (`submitter` or `owner`),
 - **The reminder.** The reply window is 14 days, so the reminder goes out on the first daily 12:00 UTC run inside the 3-day window. That is 2 to 3 days before the deadline, on day 11 or 12 after filing. The next runs inside the window are duplicates. A replied, withdrawn, decided or past-due protest is never selected. The job needs no column: the ledger key is its fence. It is queue-less, like `entitlement-expiry`.
 - **Only an owner decline sends the window email.** An AECi decline cannot be protested (§11b.12.2), and an accept has nothing to protest.
 - **No mute.** These emails carry a deadline the vendor loses a right by missing. The per-seat attestation nudge mute (AECI-1204) does not apply to them.
-- **Tier policy.** The three vendor emails are `production-external`: off production they reach only internal addresses (AECI-1198). The alert is operator mail.
+- **Tier policy.** The three vendor emails are `production-external`: off production they reach only internal addresses (AECI-1198), and on staging they land in the support inbox instead (2026-10-09). The alert is operator mail.
 
 **Every deadline shows its time of day**, not only the date: the filing window's close, the silence-decline date, the reply due date and the cooldown end render with Angular's `medium` format in the viewer's time zone, in the portal, the admin card, the contest form and the notification notes. Each falls at an instant, so a date alone could be read as the whole day.
 

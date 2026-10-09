@@ -43,9 +43,14 @@
  * `lib/notifications/delivery-policy.ts` before calling Resend. Production sends to
  * anyone. Every other tier, including a missing or unknown `ENV`, sends only to
  * `@thewbsproject.com` and `@aecintegrations.com` addresses and prefixes the subject with
- * the tier (`[staging] …`). A send whose recipient is outside resolves to `'suppressed'`
+ * the tier (`[demo] …`). A send whose recipient is outside resolves to `'suppressed'`
  * with no fetch, and logs a recipient hash, never the address. BCC addresses go through
- * the same filter.
+ * the same filter. **Staging is the exception (2026-10-09):** it suppresses nobody for
+ * recipient reasons. Every send goes to `STAGING_REDIRECT_RECIPIENT` instead, with the
+ * intended recipient in the subject (`[staging → x@gmail.com] …`) and no blind copy. The
+ * ledger row, dedupe key, `Idempotency-Key` and every token stay keyed to the intended
+ * recipient, so only the envelope `to` differs from production. A tier-limited entry is
+ * still refused first.
  *
  * **Send ledger (AECI-1202).** Both layers write one `notification_sends` row per
  * addressed recipient (`lib/notifications/send-ledger.ts`): `skipped`, `suppressed`,
@@ -99,11 +104,13 @@ import {
 } from './email-layout';
 import { recipientHash, sha256Hex } from './hash';
 import {
+  deliverySubject,
+  envelopeRecipients,
   isProductionTier,
+  isRedirectTier,
   partitionRecipients,
   refusedByTierRule,
   tierLabel,
-  tierSubject,
   type DeliveryPolicyEnv,
 } from './notifications/delivery-policy';
 import {
@@ -291,7 +298,9 @@ export async function sendTransactionalEmail(
   // `registry.spec.ts` asserts that every `any-tier` email entry is operator mail.
   //
   // A `production-only` or `production-and-demo` entry (AECI-1220) is refused outright
-  // on any other tier, whatever the recipient.
+  // on any other tier, whatever the recipient. It runs first, so it still refuses on
+  // staging. Staging's allowlist passes everyone, because the envelope below sends the
+  // mail to `STAGING_REDIRECT_RECIPIENT` instead.
   const { envRule } = getNotification(input.template);
   const tierRefused = refusedByTierRule(c.env, envRule);
   if (tierRefused || partitionRecipients(c.env, [input.to]).suppressed.length > 0) {
@@ -308,7 +317,11 @@ export async function sendTransactionalEmail(
     emit(c, 'duplicate', input.template);
     return 'duplicate';
   }
-  const subject = tierSubject(c.env, input.subject);
+  // Staging (2026-10-09) delivers to its one inbox and names the intended recipient in
+  // the subject. The row, key, tokens and links above and below stay the intended
+  // recipient's, so only the envelope differs from production.
+  const subject = deliverySubject(c.env, input.subject, [input.to]);
+  const envelopeTo = envelopeRecipients(c.env, [input.to])[0]!;
 
   // A send with an unsubscribe header never blind-copies: a bcc is the same
   // message, so the operator's copy would carry the recipient's one-click opt-out.
@@ -318,7 +331,7 @@ export async function sendTransactionalEmail(
   const requestBody = (content: EmailContent): string =>
     JSON.stringify({
       from,
-      to: input.to,
+      to: envelopeTo,
       ...(unsubscribable ? {} : bccField(c.env, [input.to], supportCopy)),
       subject,
       text: content.text,
@@ -427,10 +440,12 @@ async function sendOperatorCopy(
   input: SendInput,
   switches: SendSwitches,
 ): Promise<void> {
-  // `bccField` already drops any address the tier policy refuses (AECI-1198). It is asked
-  // for the list with the switch on, so a paused copy still records who it skipped.
-  const to = bccField(c.env, [input.to], true).bcc;
-  if (!to || !input.operatorCopy) return;
+  // The operator list already drops any address the tier policy refuses (AECI-1198). It
+  // is read whatever the switch says, so a paused copy still records who it skipped. On
+  // staging the copy is delivered to the one inbox like every other send, and the ledger
+  // rows stay the intended operator addresses'.
+  const to = operatorCopyRecipients(c.env, [input.to]);
+  if (to.length === 0 || !input.operatorCopy) return;
   const notification = input.operatorCopy.notification;
   if (switches.isPaused(SUPPORT_COPY_KEY)) {
     await logPaused(console, notification, c.env, to);
@@ -466,8 +481,8 @@ async function sendOperatorCopy(
         },
         body: JSON.stringify({
           from,
-          to,
-          subject: tierSubject(c.env, `COPY: ${input.subject}`),
+          to: envelopeRecipients(c.env, to),
+          subject: deliverySubject(c.env, `COPY: ${input.subject}`, to),
           text: content.text,
           ...(content.html ? { html: content.html } : {}),
           tags: resendTags(c.env, notification),
@@ -2434,7 +2449,10 @@ export interface EmailEnv extends DeliveryPolicyEnv {
  * (AECI-1202): `suppressed` for each refused address, and `sent` (sharing the one
  * Resend id), `failed` or `unknown` for the rest. One Resend call, so no reservation step.
  * Outside production, `to` is filtered to internal addresses and the subject gets the
- * tier prefix. A partly suppressed list still sends to the allowed addresses.
+ * tier prefix. A partly suppressed list still sends to the allowed addresses. Staging
+ * (2026-10-09) filters nobody: it makes the same one Resend call, to
+ * `STAGING_REDIRECT_RECIPIENT`, with every intended address in the subject and no blind
+ * copy. The ledger rows are still one per intended address, sharing the one Resend id.
  * The optional `logger` records the reason on skip/fail/suppress (defaults to `console`).
  */
 export async function sendEmail(
@@ -2492,9 +2510,9 @@ export async function sendEmail(
       },
       body: JSON.stringify({
         from: message.from,
-        to,
+        to: envelopeRecipients(env, to),
         ...bccField(env, to, supportCopy),
-        subject: tierSubject(env, message.subject),
+        subject: deliverySubject(env, message.subject, to),
         text: message.text,
         ...(message.html ? { html: message.html } : {}),
         tags: resendTags(env, message.notification),
@@ -2602,19 +2620,33 @@ async function hashRecipient(address: string): Promise<string> {
  * exactly what users receive. An address already in `to` is dropped, so an
  * operator alert never lands twice. So is any address the tier delivery policy
  * refuses (AECI-1198). Absent or empty → no `bcc` field at all, and so is a paused
- * support copy (`supportCopy: false`, AECI-1224).
- * `sendOperatorCopy` reuses it as the `to` list of its separate copy.
+ * support copy (`supportCopy: false`, AECI-1224). Staging never blind-copies
+ * (2026-10-09): its envelope already goes to `STAGING_REDIRECT_RECIPIENT`, so a blind
+ * copy would only mail that inbox a second time. A blind copy writes no ledger row, so
+ * dropping it changes no row.
  */
 function bccField(
   env: DeliveryPolicyEnv & { EMAIL_BCC?: string },
   to: readonly string[],
   supportCopy: boolean,
 ): { bcc?: string[] } {
-  if (!supportCopy) return {};
+  if (!supportCopy || isRedirectTier(env)) return {};
+  const bcc = operatorCopyRecipients(env, to);
+  return bcc.length > 0 ? { bcc } : {};
+}
+
+/**
+ * The operator addresses from `EMAIL_BCC` for one send: any address already in `to` is
+ * dropped, and so is any address the tier delivery policy refuses (AECI-1198). The `bcc`
+ * of {@link bccField}, and the intended `to` of the separate `COPY:` in `sendOperatorCopy`.
+ */
+function operatorCopyRecipients(
+  env: DeliveryPolicyEnv & { EMAIL_BCC?: string },
+  to: readonly string[],
+): string[] {
   const addressed = new Set(to.map((t) => bareAddress(t)));
   const candidates = parseRecipients(env.EMAIL_BCC).filter((b) => !addressed.has(bareAddress(b)));
-  const bcc = partitionRecipients(env, candidates).allowed;
-  return bcc.length > 0 ? { bcc } : {};
+  return partitionRecipients(env, candidates).allowed;
 }
 
 /**
