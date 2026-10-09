@@ -1,18 +1,20 @@
 /**
- * Docs home (`/docs`, AECI-1248; `docs/STAGE_2_PRODUCT_DOCS_SPEC.md` §3, §5).
+ * Docs home (`/docs`, AECI-1248, AECI-1259; `docs/STAGE_2_PRODUCT_DOCS_SPEC.md`
+ * §3, §5). Renders inside `DocsShellComponent`, which owns the sidebar and the
+ * top bar.
  *
- * Anchor site: **Zendesk** (the Copenhagen help-center home): a title and a
- * short intro, an audience split, then every section with its articles. The
- * audience split sends a reader, a vendor or a reviewer to the sections written
- * for them. Built entirely from the manifest (`docs-content.ts`), so an empty
- * section shows nowhere and an audience with no non-empty section drops out of
- * the split.
+ * Anchor site: **Devin (DeepWiki)**, Mobbin screen c3936cdb: the same quiet
+ * column as an article. A small Source Serif `h1` "Help center" and a one-line
+ * intro, then two plain divided lists, no cards. First the **audience split**,
+ * which sends a reader, a vendor or a reviewer to the sections written for them.
+ * Then "All sections", each with its summary and page links. Built entirely from
+ * the manifest (`docs-content.ts`), so an empty section shows nowhere and an
+ * audience with no non-empty section drops out of the split.
  *
- * Same breadcrumb, overline, Source Serif `h1` and token vocabulary as the
- * article page (`docs-page.ts`). Static, SSR-safe, edge-cached on the
- * static-page TTL, and indexable (`/docs` is in `sitemap.xml`). Light theme only.
+ * Static, SSR-safe, edge-cached on the static-page TTL, and indexable (`/docs`
+ * is in `sitemap.xml`). Light theme only.
  */
-import { ChangeDetectionStrategy, Component, inject } from '@angular/core';
+import { Component, inject } from '@angular/core';
 import { RouterLink } from '@angular/router';
 
 import { canonicalUrl } from '../core/canonical';
@@ -47,59 +49,37 @@ const AUDIENCES: readonly Omit<AudienceGroup, 'sections'>[] = [
 
 @Component({
   selector: 'app-docs-home',
-  changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [RouterLink],
   template: `
-    <div class="bg-(--surface-base) text-(--text-primary)">
-      <div class="mx-auto max-w-7xl px-6 py-10 md:px-8 md:py-14">
-        <nav i18n-aria-label="@@app.docs.breadcrumbs.aria" aria-label="Breadcrumb">
-          <ol class="flex flex-wrap items-center gap-2 text-sm text-(--text-secondary)">
-            <li>
-              <a
-                routerLink="/"
-                class="rounded-sm transition-colors hover:text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
-                i18n="@@app.docs.breadcrumbs.home"
-                >Home</a
-              >
-            </li>
-          </ol>
-        </nav>
-
-        <header class="mt-8 max-w-[62ch]">
-          <p class="aec-overline text-(--accent-primary)" i18n="@@app.docs.home.overline">Docs</p>
-          <h1
-            class="mt-3 font-display text-4xl font-normal leading-[1.1] tracking-[-0.01em] text-(--text-primary) md:text-5xl"
-            i18n="@@app.docs.home.heading"
-          >
+    <div class="px-4 pt-8 pb-14 md:px-6 lg:px-8 lg:pt-10">
+      <div class="mx-auto max-w-[42rem]">
+        <header>
+          <h1 class="aec-docs-title text-(--text-primary)" i18n="@@app.docs.home.heading">
             Help center
           </h1>
-          <p
-            class="mt-4 text-lg leading-relaxed text-(--text-secondary)"
-            i18n="@@app.docs.home.intro"
-          >
+          <p class="mt-2 leading-relaxed text-(--text-secondary)" i18n="@@app.docs.home.intro">
             How AEC Integrations works, and how to get things done on it. Pick the guide written for
             you, or browse every section below.
           </p>
         </header>
 
-        <section class="mt-10" aria-labelledby="docs-audience-heading">
+        <section class="mt-8" aria-labelledby="docs-audience-heading">
           <h2 id="docs-audience-heading" class="sr-only" i18n="@@app.docs.home.audience.heading">
             Guides by role
           </h2>
-          <ul class="grid gap-4 md:grid-cols-3">
+          <ul class="divide-y divide-(--border-default) border-y border-(--border-default)">
             @for (group of audiences; track group.audience) {
-              <li
-                class="rounded-lg border border-(--border-default) bg-(--surface-raised) p-6"
-                [attr.data-audience]="group.audience"
-              >
-                <h3 class="font-display text-2xl font-normal leading-tight">{{ group.heading }}</h3>
-                <p class="mt-2 text-(--text-secondary)">{{ group.summary }}</p>
-                <ul class="mt-4 space-y-2">
+              <li class="py-4" [attr.data-audience]="group.audience">
+                <h3 class="aec-docs-subhead text-(--text-primary)">{{ group.heading }}</h3>
+                <p class="mt-1 max-w-[36rem] text-sm leading-relaxed text-(--text-secondary)">
+                  {{ group.summary }}
+                </p>
+                <ul class="mt-2 flex flex-wrap gap-x-5 gap-y-1 text-sm">
                   @for (section of group.sections; track section.id) {
                     <li>
                       <a
                         [routerLink]="section.path"
-                        class="rounded-sm font-semibold text-(--accent-primary) underline-offset-4 hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+                        class="rounded-sm font-medium text-(--accent-primary) underline-offset-4 hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
                         >{{ section.label }}</a
                       >
                     </li>
@@ -110,7 +90,7 @@ const AUDIENCES: readonly Omit<AudienceGroup, 'sections'>[] = [
           </ul>
         </section>
 
-        <section class="mt-14" aria-labelledby="docs-sections-heading">
+        <section class="mt-10" aria-labelledby="docs-sections-heading">
           <h2
             id="docs-sections-heading"
             class="aec-overline text-(--text-secondary)"
@@ -118,19 +98,21 @@ const AUDIENCES: readonly Omit<AudienceGroup, 'sections'>[] = [
           >
             All sections
           </h2>
-          <div class="mt-6 grid gap-x-12 gap-y-10 md:grid-cols-2">
+          <div class="mt-3 divide-y divide-(--border-default) border-t border-(--border-default)">
             @for (section of sections; track section.id) {
-              <div class="border-t border-(--border-default) pt-6" [attr.data-section]="section.id">
-                <h3 class="text-xl font-semibold leading-snug">
+              <div class="py-5" [attr.data-section]="section.id">
+                <h3 class="aec-docs-subhead">
                   <a
                     [routerLink]="section.path"
                     class="rounded-sm text-(--text-primary) underline-offset-4 hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
                     >{{ section.label }}</a
                   >
                 </h3>
-                <p class="mt-2 text-(--text-secondary)">{{ section.summary }}</p>
+                <p class="mt-1 max-w-[36rem] text-sm leading-relaxed text-(--text-secondary)">
+                  {{ section.summary }}
+                </p>
                 @if (!section.singlePage) {
-                  <ul class="mt-4 space-y-2">
+                  <ul class="mt-2.5 space-y-1.5 text-sm">
                     @for (page of section.pages; track page.slug) {
                       <li>
                         <a

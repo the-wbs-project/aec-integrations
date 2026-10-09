@@ -57,7 +57,7 @@ A published review appears in the product's Reviews section, newest first. It sh
 
 It does not show your name, your email address or your firm.
 
-Once a product has five published reviews, its page also shows the average Overall and Onboarding scores. Until then it says "Ratings shown once this product has 5+ reviews."
+Once a product has five published reviews, its page also shows the average Overall and Onboarding scores. With one to four reviews it says "Ratings shown once this product has 5+ reviews."
 
 ## Changing or removing a review
 

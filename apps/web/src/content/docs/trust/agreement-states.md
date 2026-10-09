@@ -48,7 +48,7 @@ A closing line says what is missing, such as a company that has not answered yet
 
 - **Not a test by us.** "Confirmed" is a statement by the companies. We do not test it.
 - **Not a vote by us.** Our own record never counts as a confirmation. We cannot make a row read "Companies disagree" on our own.
-- **Not bought.** What you see does not depend on either company's plan.
+- **Not bought.** A plan never changes how a label is worked out or shown, and both companies' answers count the same. Only a company on a Managed plan can confirm or dispute a row, so a row can read "Listed by AEC Integrations" simply because neither company is on Managed.
 - **Not the account label.** "Active on AECi" on a vendor's page is about the company's plan. See [The account label](/docs/trust/the-account-label).
 - **Not in search.** The labels appear on integration pages only.
 

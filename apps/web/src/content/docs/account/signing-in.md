@@ -10,7 +10,7 @@ You need an account to write a review. Vendors need one to use the vendor portal
 
 ## Sign in
 
-Choose **Sign in** at the top right of any page. The sign-in page offers two ways in:
+Choose **Sign in** at the top right of any page. On a phone, open the menu (**Open menu**, at the top left) and choose Sign in there. The sign-in page offers two ways in:
 
 - **Continue with Google.** Google asks you to approve, then sends you back to us.
 - **Email me a sign-in link.** Enter your email address under **Your email** and choose the button. The page changes to "Check your email". Open the link in that email to finish.
@@ -43,7 +43,7 @@ If your sign-in has fully ended, most pages simply show you as signed out. Pages
 
 ## Sign out
 
-Open the account menu, the round button at the top right of any page. Choose **Sign out**. You are signed out and taken to the home page. If it shows "Couldn't sign out. Try again.", choose Sign out again.
+Open the account menu, the round button at the top right of any page. On a phone, open the menu at the top left instead. Choose **Sign out**. You are signed out and taken to the home page. If it shows "Couldn't sign out. Try again.", choose Sign out again.
 
 ## Related
 

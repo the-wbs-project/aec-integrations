@@ -1,6 +1,7 @@
 /**
- * AECI-1104, AECI-1248 — the docs article page: body, section rail, linked
- * breadcrumbs, the prev/next pager, and noindex by path.
+ * AECI-1104, AECI-1248, AECI-1259 — the docs article page: body, heading ids,
+ * the prev/next pager, and noindex by path. The sidebar, the breadcrumb and the
+ * rail's place on the page live in the shell (`docs-shell.component.spec.ts`).
  *
  * `*.component.spec.ts` (the Angular `ng test` tier) because the registry
  * imports `.md` files, and only the Angular build carries the esbuild `text`
@@ -45,32 +46,39 @@ describe('DocsPageComponent', () => {
     document.head.querySelector('meta[name="robots"]')?.remove();
   });
 
-  it.each(VENDOR_SLUGS)('renders %s with one h1, its body and the section rail', (slug) => {
+  it.each(VENDOR_SLUGS)('renders %s with one h1 and its body', (slug) => {
     const { host } = render('vendors', slug);
     const page = getDocsPage('vendors', slug)!;
     const h1s = host.querySelectorAll('h1');
     expect(h1s).toHaveLength(1);
     expect(h1s[0].textContent?.trim()).toBe(page.title);
     expect(host.querySelector('.aec-prose h2')).not.toBeNull();
-
-    const rail = host.querySelectorAll('nav[aria-labelledby] a');
-    expect(rail).toHaveLength(VENDOR_SLUGS.length);
-    const current = host.querySelectorAll('nav[aria-labelledby] a[aria-current="page"]');
-    expect(current).toHaveLength(1);
-    expect(current[0].textContent?.trim()).toBe(page.title);
+    // The quiet DeepWiki header: no overline above the title.
+    expect(host.querySelector('header .aec-overline')).toBeNull();
   });
 
-  it('links the breadcrumb up to the docs home and the section index', () => {
-    const { host } = render('vendors', 'your-seat');
-    const crumbs = Array.from(host.querySelectorAll('nav[aria-label="Breadcrumb"] a')).map((a) => [
-      a.textContent?.trim(),
-      a.getAttribute('href'),
+  // The sanitizer strips ids from [innerHTML], so the template renders headings.
+  it('renders every h2 with its manifest id, in order, Related last', () => {
+    const { host } = render('vendors', 'owning-an-integration');
+    const page = getDocsPage('vendors', 'owning-an-integration')!;
+    const h2s = Array.from(host.querySelectorAll('.aec-prose h2')).map((h) => [
+      h.id,
+      h.textContent?.trim(),
     ]);
-    expect(crumbs).toEqual([
-      ['Home', '/'],
-      ['Docs', '/docs'],
-      ['Vendor guide', '/docs/vendors'],
-    ]);
+    expect(h2s).toEqual([...page.headings.map((h) => [h.id, h.text]), ['related', 'Related']]);
+    // The in-content deep link from contests-and-protests lands here.
+    expect(host.querySelector('#if-aec-integrations-changes-something-you-hold')?.tagName).toBe(
+      'H2',
+    );
+  });
+
+  // The body between headings still renders, links and lists included.
+  it('keeps the body HTML between the headings', () => {
+    const { host } = render('trust', 'how-ranking-works');
+    const prose = host.querySelector('.aec-prose')!;
+    expect(prose.querySelector('a[href="/search"]')).not.toBeNull();
+    expect(prose.querySelectorAll('ul').length).toBeGreaterThan(2);
+    expect(prose.textContent).toContain('No plan, at any price, changes');
   });
 
   it('shows only Next on the first page of a section', () => {

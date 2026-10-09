@@ -30,13 +30,13 @@ test.describe('/docs/vendors/replying-to-reviews — AECI-1181', () => {
     expect(html).toContain('A removed reply is final.');
   });
 
-  test('renders one h1 and lists the page in the section nav', async ({ page }) => {
+  test('renders one h1 and marks the page current in the sidebar', async ({ page }) => {
     await page.goto(PATH);
     await expect(page.locator('app-root')).toBeAttached();
     await expect(page.getByRole('heading', { level: 1 })).toHaveText('Replying to reviews');
-    await expect(page.locator('nav[aria-labelledby] a[aria-current="page"]')).toHaveText(
-      /Replying to reviews/,
-    );
+    await expect(
+      page.getByRole('navigation', { name: 'Help center' }).locator('a[aria-current="page"]'),
+    ).toHaveText(/Replying to reviews/);
   });
 
   test('has zero axe violations at WCAG AA', async ({ page }) => {

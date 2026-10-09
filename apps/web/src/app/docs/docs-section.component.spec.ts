@@ -1,5 +1,6 @@
 /**
- * AECI-1248 — the docs section index (`/docs/<section>`).
+ * AECI-1248, AECI-1259 — the docs section index (`/docs/<section>`). The
+ * breadcrumb moved to the shell's top bar (`docs-shell.component.spec.ts`).
  *
  * `*.component.spec.ts` because the manifest imports `.md` files (see
  * `docs-page.component.spec.ts`).
@@ -40,8 +41,7 @@ describe('DocsSectionComponent', () => {
     expect(host.querySelector('h1')?.textContent?.trim()).toBe('Vendor guide');
 
     const pages = docsSection('vendors');
-    // The breadcrumb is the first `ol`; the page list is the last.
-    const list = Array.from(host.querySelectorAll('ol')).at(-1)!;
+    const list = host.querySelector('ol')!;
     const links = Array.from(list.querySelectorAll('a')).map((a) => [
       a.textContent?.trim(),
       a.getAttribute('href'),
@@ -50,12 +50,10 @@ describe('DocsSectionComponent', () => {
     for (const page of pages) expect(list.textContent).toContain(page.description);
   });
 
-  it('links the breadcrumb to Home and the docs home', () => {
+  // The shell's top bar carries the breadcrumb now; the page must not repeat it.
+  it('renders no breadcrumb of its own', () => {
     const { host } = render('reviewers');
-    const crumbs = Array.from(host.querySelectorAll('nav[aria-label="Breadcrumb"] a')).map((a) =>
-      a.getAttribute('href'),
-    );
-    expect(crumbs).toEqual(['/', '/docs']);
+    expect(host.querySelector('nav[aria-label="Breadcrumb"]')).toBeNull();
   });
 
   it('keeps the vendor guide index noindex (the bare /docs/vendors path)', () => {

@@ -60,7 +60,7 @@ When a page has more than one card, a chip such as "3 types of data" says how ma
 
 ## Versions
 
-Where we have version information for an integration, a version selector can appear under a product. Choosing an earlier version shows what was different then. Rows that changed are marked "New in" or "Removed in" with the version. **Show the latest versions** takes you back to the current state. The current state is always shown in full.
+Where we have version information for an integration, a version selector can appear under a product. Choosing an earlier version shows what was different then. That comparison opens only when either company on the page is on a Managed plan. Otherwise the page shows the latest versions. Rows that changed are marked "New in" or "Removed in" with the version. **Show the latest versions** takes you back to the current state. The current state is always shown in full.
 
 ## When there is nothing listed
 

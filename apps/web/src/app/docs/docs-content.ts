@@ -7,8 +7,10 @@
  * module init. See `src/content/README.md` for the mechanism and its traps.
  *
  * This module is the single source for the routes (`docs.routes.ts`), the docs
- * home, the section indexes, the section rail, prev/next and the sitemap
- * (`indexableDocsPaths`, loaded lazily by `src/server/sitemap.ts`).
+ * home, the section indexes, the help-center sidebar (`docs-shell.ts`), the
+ * "On this page" rail, prev/next and the sitemap (`indexableDocsPaths`, loaded
+ * lazily by `src/server/sitemap.ts`). The body is rendered by `renderDocsBody`
+ * (`docs-markdown.ts`), which gives every `h2` and `h3` a stable id (AECI-1259).
  *
  * A section is declared in `SECTION_META` (label, summary, audience, order) and
  * gets pages by listing them in `SECTION_PAGES`. **A section with no pages does
@@ -22,8 +24,6 @@
  * `order` is not an integer or repeats within the section, when it does not end
  * in a `## Related` list, or when a single-page section has more than one page.
  */
-import { marked } from 'marked';
-
 import signingInMd from '../../content/docs/account/signing-in.md';
 import yourDataMd from '../../content/docs/account/your-data.md';
 import readingMd from '../../content/docs/getting-started/reading-an-integration-page.md';
@@ -44,6 +44,9 @@ import replyingMd from '../../content/docs/vendors/replying-to-reviews.md';
 import seatMd from '../../content/docs/vendors/your-seat.md';
 import { parseFrontmatter } from '../legal/legal-frontmatter';
 import { pathForcesNoindex } from './docs-indexing';
+import { type DocsBlock, type DocsHeading, renderDocsBody } from './docs-markdown';
+
+export type { DocsBlock, DocsHeading } from './docs-markdown';
 
 /** A docs section: the first path segment under `/docs`. */
 export type DocsSectionId =
@@ -83,7 +86,15 @@ export interface DocsPage {
   readonly order: number;
   /** Pre-formatted display string, rendered verbatim (the legal rule). */
   readonly lastUpdated: string;
+  /** The body as one HTML string, heading ids included. Specs read it; the page renders `blocks`. */
   readonly html: string;
+  /** The body cut at each `h2` / `h3`, so the template can render the headings with ids. */
+  readonly blocks: readonly DocsBlock[];
+  /**
+   * The `h2`s the "On this page" rail lists, in order. The closing `## Related`
+   * is left out: the manifest guarantees it is the last `h2` of every page.
+   */
+  readonly headings: readonly DocsHeading[];
 }
 
 /** A section that has pages, ready to render. */
@@ -212,11 +223,6 @@ const SECTION_PAGES: Readonly<Partial<Record<DocsSectionId, readonly RawDocsPage
   ],
 };
 
-/** The text of every level-2 ATX heading in a Markdown body, in order. */
-function h2Headings(body: string): string[] {
-  return [...body.matchAll(/^## +(.+?)\s*#*\s*$/gm)].map((m) => m[1]);
-}
-
 function buildPage(
   section: DocsSectionId,
   meta: DocsSectionMeta,
@@ -230,11 +236,10 @@ function buildPage(
   if (!Number.isInteger(order)) {
     throw new Error(`Docs page "${section}/${slug}" has no integer frontmatter order`);
   }
-  if (h2Headings(body).at(-1) !== 'Related') {
+  const { html, blocks, h2s } = renderDocsBody(body);
+  if (h2s.at(-1)?.text !== 'Related') {
     throw new Error(`Docs page "${section}/${slug}" does not end in a "## Related" list`);
   }
-  // `async: false` keeps the body in the first SSR paint; `gfm` renders tables.
-  const html = marked.parse(body, { async: false, gfm: true });
   return {
     section,
     slug,
@@ -244,6 +249,8 @@ function buildPage(
     order,
     lastUpdated: data['last_updated'] ?? '',
     html,
+    blocks,
+    headings: h2s.slice(0, -1),
   };
 }
 

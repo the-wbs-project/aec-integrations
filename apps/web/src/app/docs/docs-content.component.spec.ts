@@ -1,5 +1,6 @@
 /**
- * AECI-1104, AECI-1248 — the docs manifest and the routes generated from it.
+ * AECI-1104, AECI-1248, AECI-1259 — the docs manifest and the routes generated
+ * from it.
  *
  * `*.component.spec.ts` (the Angular `ng test` tier) because the manifest
  * imports `.md` files, and only the Angular build carries the esbuild `text`
@@ -21,7 +22,9 @@ import {
   getDocsSection,
   indexableDocsPaths,
 } from './docs-content';
-import { DOCS_ROUTES } from './docs.routes';
+import { headingSlug } from './docs-markdown';
+import { DocsShellComponent } from './docs-shell';
+import { DOCS_CHILD_ROUTES, DOCS_ROUTES } from './docs.routes';
 
 const VENDOR_SLUGS = [
   'claiming-your-listing',
@@ -258,20 +261,69 @@ describe('docs manifest', () => {
     }
   });
 
-  it('only links to docs pages and sections that exist', () => {
+  it('only links to docs pages, sections and headings that exist', () => {
     for (const page of DOCS_PAGES) {
       const doc = new DOMParser().parseFromString(page.html, 'text/html');
       for (const a of Array.from(doc.querySelectorAll('a[href^="/docs"]'))) {
         const href = a.getAttribute('href') ?? '';
-        const [, , section, slug] = href.split('#')[0].split('/');
+        const [path, fragment] = href.split('#');
+        const [, , section, slug] = path.split('/');
         const target = !section
           ? true
           : slug
             ? getDocsPage(section, slug)
             : getDocsSection(section);
         expect(target, `${page.slug} → ${href}`).toBeTruthy();
+        // AECI-1259: a deep link must land on a heading id the target renders.
+        if (fragment && slug) {
+          const targetHtml = getDocsPage(section, slug)!.html;
+          const ids = Array.from(
+            new DOMParser().parseFromString(targetHtml, 'text/html').querySelectorAll('[id]'),
+          ).map((el) => el.id);
+          expect(ids, `${page.slug} → ${href}`).toContain(fragment);
+        }
       }
     }
+  });
+
+  // AECI-1259: the rail and every #link depend on these ids being unique and
+  // derived from the heading text alone, so a rebuild never moves them.
+  it('gives every h2 and h3 a unique id slugged from its text', () => {
+    for (const page of DOCS_PAGES) {
+      const doc = new DOMParser().parseFromString(page.html, 'text/html');
+      const headings = Array.from(doc.querySelectorAll('h2, h3'));
+      const ids = headings.map((h) => h.id);
+      expect(new Set(ids).size, page.slug).toBe(ids.length);
+      for (const h of headings) {
+        expect(h.id, `${page.slug}: ${h.textContent}`).toMatch(
+          new RegExp(`^${headingSlug(h.textContent ?? '')}(-\\d+)?$`),
+        );
+      }
+    }
+  });
+
+  // AECI-1259: the rail lists the h2s minus the closing Related, in order.
+  it('exposes each page h2 list for the rail, Related left out', () => {
+    for (const page of DOCS_PAGES) {
+      const doc = new DOMParser().parseFromString(page.html, 'text/html');
+      const h2s = Array.from(doc.querySelectorAll('h2')).map((h) => ({
+        id: h.id,
+        text: h.textContent,
+      }));
+      expect(page.headings, page.slug).toEqual(h2s.slice(0, -1));
+      expect(
+        page.headings.map((h) => h.text),
+        page.slug,
+      ).not.toContain('Related');
+    }
+    expect(getDocsPage('trust', 'how-ranking-works')!.headings.map((h) => h.id)).toEqual([
+      'search',
+      'browsing-lists',
+      'the-home-page',
+      'what-does-not-count',
+      'what-a-plan-does-not-buy',
+      'corrections-are-free',
+    ]);
   });
 
   it('uses no em dashes and never calls the account label a Verified badge', () => {
@@ -381,8 +433,20 @@ describe('indexableDocsPaths', () => {
 });
 
 describe('DOCS_ROUTES', () => {
+  // AECI-1259: one layout route that adds no path segment, so URLs are unchanged.
+  it('is one shell layout route with the docs routes as its children', () => {
+    expect(DOCS_ROUTES).toHaveLength(1);
+    expect(DOCS_ROUTES[0]).toEqual({
+      path: '',
+      component: DocsShellComponent,
+      children: DOCS_CHILD_ROUTES,
+    });
+    // No pathMatch: an unmatched child backs out of the shell to the 404.
+    expect(DOCS_ROUTES[0].pathMatch).toBeUndefined();
+  });
+
   it('registers the home, one index per non-empty section and one route per page', () => {
-    expect(DOCS_ROUTES.map((route) => route.path)).toEqual([
+    expect(DOCS_CHILD_ROUTES.map((route) => route.path)).toEqual([
       '',
       'getting-started',
       ...GETTING_STARTED_SLUGS.map((slug) => `getting-started/${slug}`),
@@ -398,15 +462,17 @@ describe('DOCS_ROUTES', () => {
   });
 
   it('uses no params, so an unknown /docs path falls through to the 404', () => {
-    expect(DOCS_ROUTES.some((route) => route.path?.includes(':'))).toBe(false);
-    expect(DOCS_ROUTES.some((route) => route.path?.includes('*'))).toBe(false);
-    expect(DOCS_ROUTES[0].pathMatch).toBe('full');
+    expect(DOCS_CHILD_ROUTES.some((route) => route.path?.includes(':'))).toBe(false);
+    expect(DOCS_CHILD_ROUTES.some((route) => route.path?.includes('*'))).toBe(false);
+    expect(DOCS_CHILD_ROUTES[0].pathMatch).toBe('full');
   });
 
   it('gives an empty section no route', () => {
     for (const empty of ['faq']) {
       expect(
-        DOCS_ROUTES.some((route) => route.path === empty || route.path?.startsWith(`${empty}/`)),
+        DOCS_CHILD_ROUTES.some(
+          (route) => route.path === empty || route.path?.startsWith(`${empty}/`),
+        ),
         empty,
       ).toBe(false);
     }

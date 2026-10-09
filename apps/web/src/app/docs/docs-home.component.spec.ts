@@ -1,5 +1,5 @@
 /**
- * AECI-1248 — the docs home (`/docs`).
+ * AECI-1248, AECI-1259 — the docs home (`/docs`), restyled as plain lists.
  *
  * `*.component.spec.ts` because the manifest imports `.md` files (see
  * `docs-page.component.spec.ts`).
@@ -34,6 +34,19 @@ describe('DocsHomeComponent', () => {
     const h1s = host.querySelectorAll('h1');
     expect(h1s).toHaveLength(1);
     expect(h1s[0].textContent?.trim()).toBe('Help center');
+  });
+
+  // AECI-1259: DeepWiki restraint. Divided lists, no bordered cards.
+  it('renders the audience split as a divided list, not cards', () => {
+    const { host } = render();
+    const groups = Array.from(host.querySelectorAll('[data-audience]'));
+    expect(groups[0].parentElement?.classList).toContain('divide-y');
+    for (const group of groups) {
+      expect(group.classList, group.getAttribute('data-audience') ?? '').not.toContain(
+        'rounded-lg',
+      );
+      expect(group.classList).not.toContain('bg-(--surface-raised)');
+    }
   });
 
   it('splits by audience, dropping any audience with no pages yet', () => {

@@ -2,8 +2,21 @@
 
 **Version:** 1.0 — **build contract**
 **Date:** August 2026 (v0.1 scope outline); firmed into a build contract 2026-10-08 (AECI-1247)
-**Status:** Decomposed. The AECI-634 epic has eight sub-issues, AECI-1247 to AECI-1254 (§8). The vendor guide is built and noindex (AECI-1104). The shell is built (AECI-1248): the `/docs` home, section indexes, prev/next, linked breadcrumbs, noindex by path and the sitemap entries, with `requests-and-corrections` imported. The getting-started and trust pages are built and indexable (AECI-1249). The reviewer and account pages are built and indexable (AECI-1250). The remaining pages of the site map are unbuilt.
+**Status:** Decomposed. The AECI-634 epic has eight sub-issues, AECI-1247 to AECI-1254 (§8). The vendor guide is built and noindex (AECI-1104). The shell is built (AECI-1248): the `/docs` home, section indexes, prev/next, linked breadcrumbs, noindex by path and the sitemap entries, with `requests-and-corrections` imported. The getting-started and trust pages are built and indexable (AECI-1249). The reviewer and account pages are built and indexable (AECI-1250). The footer Help column and the `/methodology` links down into `/docs/trust/*` and `/docs/getting-started/taxonomy` are built (AECI-1252). The help center was restyled after Devin's DeepWiki (AECI-1259). The remaining pages of the site map are unbuilt.
 **Companion to:** `docs/STAGE_2_SPEC.md` §2.6 (the pillar stub). The architecture decision is ADR 0040.
+
+> **2026-10-09 — the DeepWiki shell (AECI-1259).** Chris rejected the Zendesk look. `/docs` is now a
+> layout route: `DocsShellComponent` (`docs-shell.ts`) renders a full-height sidebar tree, a slim
+> top bar with a slash breadcrumb and "Last updated", and a `<router-outlet>` for the home, the
+> section indexes and the articles. Anchor site **Devin (DeepWiki)**, Mobbin screen c3936cdb,
+> replacing Zendesk. The sidebar lists exactly the manifest's visible sections and pages. Below `lg`
+> it is a panel behind a "Docs menu" button. Articles gain an "On this page" rail from `xl`, drawn as
+> dashes, which lists the page's `h2`s minus "Related". Every body `h2` and `h3` now has a stable
+> slug id, built at manifest time by `docs-markdown.ts`. The template renders those headings itself,
+> because Angular's `[innerHTML]` sanitizer strips `id` and the repo never bypasses it. The home and
+> the section indexes drop their cards for divided lists, and the pager drops its cards for text
+> links. Content, routes, URLs, indexing, caching and the sitemap are unchanged. There is still no
+> docs search and no "Ask" box (§3). The layout contract is `DESIGN.md` "Product docs".
 
 > **2026-10-08 — reviewer and account pages shipped (AECI-1250).** Three pages, indexable and in
 > `sitemap.xml`: `reviewers/writing-a-review` (order 1, ahead of `requests-and-corrections`), and
@@ -37,16 +50,17 @@
 > **2026-09-23 — v0 vendor tranche shipped (AECI-1104).** The vendor guide was built ahead of the
 > rest of the epic, because publishing it is a `STAGE_2_1_SPEC.md` §5 exit gate (§3.5 there). It
 > brought the minimum shell with it: a docs manifest (`apps/web/src/app/docs/docs-content.ts`), one
-> article component (`docs-page.ts`, anchor site **Zendesk**'s help-center article page:
-> breadcrumb, a section rail, the article), and one route pattern, `/docs/<section>/<slug>`, as
+> article component (`docs-page.ts`, then anchored on **Zendesk**'s help-center article page:
+> breadcrumb, a section rail, the article; AECI-1259 replaced that anchor with DeepWiki), and one
+> route pattern, `/docs/<section>/<slug>`, as
 > explicit lazy children generated from the manifest (`docs.routes.ts`). It had **no `/docs` home
 > page and no section index**, and the breadcrumb's "Docs" and section crumbs were plain text.
 > AECI-1248 built both. The vendor pages are **noindex in every env and absent from
 > `sitemap.xml`** until the portal opens, by path (`pathForcesNoindex`, see the AECI-1248 note).
 > AECI-1253 lifts it, in the same sitting as AECI-1105. Two inbound links exist today: the "Active on AECi" label's "What this
 > means" link and the claim confirmation. (AECI-1249 moved the label's link to the reader page
-> `/docs/trust/the-account-label`.) The footer entry (AECI-1252) and the portal "Learn more"
-> links (AECI-1253) are not built. The same-PR sync rule (§4) is in
+> `/docs/trust/the-account-label`.) The footer Help column (AECI-1252) links into `/docs` but
+> not into the vendor guide. The portal "Learn more" links (AECI-1253) are not built. The same-PR sync rule (§4) is in
 > `docs/CODE_REVIEW_CHECKLIST.md` §Spec alignment.
 
 ---
