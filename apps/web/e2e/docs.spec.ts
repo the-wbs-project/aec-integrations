@@ -49,7 +49,7 @@ test.describe('/docs shell — AECI-1248', () => {
   // AECI-1249 — the reader pages. Indexable, so the page meta must not carry
   // noindex (the env-level X-Robots-Tag is a separate, per-tier gate).
   const READER_PAGES: readonly (readonly [string, string])[] = [
-    ['/docs/getting-started/what-aeci-is', 'What AECi is'],
+    ['/docs/getting-started/about-aec-integrations', 'About AEC Integrations'],
     ['/docs/getting-started/reading-an-integration-page', 'Reading an integration page'],
     ['/docs/getting-started/taxonomy', 'How listings are classified'],
     ['/docs/trust/how-ranking-works', 'How ranking works'],

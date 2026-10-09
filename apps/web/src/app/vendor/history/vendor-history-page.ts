@@ -230,7 +230,7 @@ const NO_LINES: readonly FollowUpLine[] = [];
                       class="text-xs font-semibold text-(--text-secondary)"
                       i18n="@@vendor.history.reason.label"
                     >
-                      Reason from AECi
+                      Our reason
                     </p>
                     <p class="mt-1 whitespace-pre-line break-words text-(--text-primary)">
                       {{ item.reason }}

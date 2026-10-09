@@ -2,8 +2,24 @@
 
 **Version:** 1.0 — **build contract**
 **Date:** August 2026 (v0.1 scope outline); firmed into a build contract 2026-10-08 (AECI-1247)
-**Status:** Decomposed. The AECI-634 epic has eight sub-issues, AECI-1247 to AECI-1254 (§8). The vendor guide is built and noindex (AECI-1104). The shell is built (AECI-1248): the `/docs` home, section indexes, prev/next, linked breadcrumbs, noindex by path and the sitemap entries, with `requests-and-corrections` imported. The getting-started and trust pages are built and indexable (AECI-1249). The reviewer and account pages are built and indexable (AECI-1250). The footer Help column and the `/methodology` links down into `/docs/trust/*` and `/docs/getting-started/taxonomy` are built (AECI-1252). The help center was restyled after Devin's DeepWiki (AECI-1259). The remaining pages of the site map are unbuilt.
+**Status:** Decomposed. The AECI-634 epic has eight sub-issues, AECI-1247 to AECI-1254 (§8). The vendor guide is built and noindex (AECI-1104). The shell is built (AECI-1248): the `/docs` home, section indexes, prev/next, linked breadcrumbs, noindex by path and the sitemap entries, with `requests-and-corrections` imported. The getting-started and trust pages are built and indexable (AECI-1249). The reviewer and account pages are built and indexable (AECI-1250). The footer Help column and the `/methodology` links down into `/docs/trust/*` and `/docs/getting-started/taxonomy` are built (AECI-1252). The help center was restyled after Devin's DeepWiki (AECI-1259). The 2026-10-09 marketing-review rulings are applied (AECI-1261). The remaining pages of the site map are unbuilt.
 **Companion to:** `docs/STAGE_2_SPEC.md` §2.6 (the pillar stub). The architecture decision is ADR 0040.
+
+> **2026-10-09, marketing review rulings (AECI-1261).** Two rules now bind every page.
+> **"AECi" is internal shorthand.** Public text says "AEC Integrations", or "we" and "us" in body
+> copy. The first getting-started page is now `getting-started/about-aec-integrations`, titled
+> "About AEC Integrations". Its first slug never left this branch, so it has no redirect.
+> The public label now reads "Active on AEC Integrations". Four Changes-page labels were renamed
+> in the product and the docs follow them: "AEC Integrations" under By, "Changes by AEC
+> Integrations", "Our reason" and "Queued for a Google re-crawl request". Other portal and public
+> strings that say "AECi" are inventoried for a follow-up, not changed.
+> **No page describes version comparison or version stamps** until the product can create them.
+> The pair-page comparison is built (AECI-303, AECI-304) but dormant: no portal screen creates a
+> release or stamps an answer, and promote does not carry versions. So the Versions sections of
+> `reading-an-integration-page` and `attesting-an-integration` are gone, and so is the Managed
+> paragraph about it on `plans-and-the-account-label`. The 12-month re-confirmation line now says
+> what `detectStaleVersion` does: any Yes older than 12 months gets a re-confirm ask, and it does
+> not expire.
 
 > **2026-10-09 — the DeepWiki shell (AECI-1259).** Chris rejected the Zendesk look. `/docs` is now a
 > layout route: `DocsShellComponent` (`docs-shell.ts`) renders a full-height sidebar tree, a slim
@@ -28,10 +44,10 @@
 > "submit an updated review" (AECI-1257) and the unset "Verified reviewer" label (AECI-1258).
 
 > **2026-10-08 — getting-started and trust shipped (AECI-1249).** Six reader pages, indexable and in
-> `sitemap.xml`: `getting-started/what-aeci-is`, `reading-an-integration-page`, `taxonomy`, and
+> `sitemap.xml`: `getting-started/about-aec-integrations` (renamed by AECI-1261), `reading-an-integration-page`, `taxonomy`, and
 > `trust/how-ranking-works`, `the-account-label`, `agreement-states`. `how-ranking-works` is the
 > `STAGE_2_5_SPEC.md` §2 step 3 ranking-method page; Chris signs its wording off before AECI-1249
-> merges. The "Active on AECi" label's "What this means" link now opens the reader page
+> merges. The "Active on AEC Integrations" label's "What this means" link now opens the reader page
 > `/docs/trust/the-account-label` instead of the noindex vendor guide, so the vendor guide's one
 > remaining inbound link is the claim confirmation. Every label these pages quote was checked
 > against the shipped components on the day.
@@ -57,7 +73,7 @@
 > page and no section index**, and the breadcrumb's "Docs" and section crumbs were plain text.
 > AECI-1248 built both. The vendor pages are **noindex in every env and absent from
 > `sitemap.xml`** until the portal opens, by path (`pathForcesNoindex`, see the AECI-1248 note).
-> AECI-1253 lifts it, in the same sitting as AECI-1105. Two inbound links exist today: the "Active on AECi" label's "What this
+> AECI-1253 lifts it, in the same sitting as AECI-1105. Two inbound links exist today: the "Active on AEC Integrations" label's "What this
 > means" link and the claim confirmation. (AECI-1249 moved the label's link to the reader page
 > `/docs/trust/the-account-label`.) The footer Help column (AECI-1252) links into `/docs` but
 > not into the vendor guide. The portal "Learn more" links (AECI-1253) are not built. The same-PR sync rule (§4) is in
@@ -141,12 +157,12 @@ URL scheme: `/docs/<section>/<slug>`, kebab-case. About 25 pages at v1.
 ```
 /docs                                — Docs home: audience split (reader / vendor / reviewer), then every section   AECI-1248
 ├─ getting-started/                  — SHIPPED (AECI-1249), indexable
-│  ├─ what-aeci-is                   — the directory, dual-vendor verification, who curates
+│  ├─ about-aec-integrations         — the directory, dual-vendor verification, who curates
 │  ├─ reading-an-integration-page    — the product-PAIR page: claims, attestations, agreement states
 │  └─ taxonomy                       — mechanisms, data objects, trades (the four facets)
 ├─ trust/                            — SHIPPED (AECI-1249), indexable
 │  ├─ how-ranking-works              — purely algorithmic; what paid does NOT buy. Is the STAGE_2_5_SPEC §2 step 3 ranking-method page
-│  ├─ the-account-label              — what "Active on AECi" means (AECI-965 retired "Verified badge"; AECI-1131 relabeled it), that it is the plan
+│  ├─ the-account-label              — what "Active on AEC Integrations" means (AECI-965 retired "Verified badge"; AECI-1131 relabeled it; AECI-1261 spelled out the name), that it is the plan
 │  └─ agreement-states               — unverified / single-source / confirmed / conflict, plainly
 ├─ vendors/                          — SHIPPED (AECI-1104 and after), noindex (index included) until AECI-1253
 │  ├─ claiming-your-listing          — the claim form, what we check, outcomes, connector-vendor seats (§8.9/§8.10)
@@ -174,7 +190,7 @@ URL scheme: `/docs/<section>/<slug>`, kebab-case. About 25 pages at v1.
 > sitemap, the canonical short answer to "how does this directory work". `/docs/trust/*` is the
 > **task-level depth** underneath it, and links up rather than absorbing. The rule of thumb:
 > `/methodology` is what we assert, `/docs/trust/*` is how to act on it. Same split for
-> `getting-started/what-aeci-is`. See `STAGE_2_5_SPEC.md` §7.2, which owns this boundary.
+> `getting-started/about-aec-integrations`. See `STAGE_2_5_SPEC.md` §7.2, which owns this boundary.
 >
 > Reader pages that overlap a vendor page (`the-account-label` with `plans-and-the-account-label`,
 > `agreement-states` with `attesting-an-integration`) explain what a reader sees and link across for

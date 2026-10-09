@@ -1,12 +1,12 @@
 ---
-title: What AECi is
+title: About AEC Integrations
 description: What AEC Integrations lists, where the listings come from, who confirms them, and what is never for sale.
 section: getting-started
 order: 1
-last_updated: 8 October 2026
+last_updated: 9 October 2026
 ---
 
-AEC Integrations (AECi) is a directory of the software used in architecture, engineering and construction, and of the integrations between those products. It is free to read. You do not need an account to browse, search or read any page.
+AEC Integrations is a directory of the software used in architecture, engineering and construction, and of the integrations between those products. It is free to read. You do not need an account to browse, search or read any page.
 
 ## What you will find
 

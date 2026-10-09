@@ -3,7 +3,7 @@ title: Agreement states
 description: The four labels on each type of data on an integration page, what each one tells you, and how to act on it.
 section: trust
 order: 3
-last_updated: 8 October 2026
+last_updated: 9 October 2026
 ---
 
 On an integration page, each type of data carries a label. The label says which of the two companies at the ends of the integration has confirmed it. You see the labels in the Detailed view, which is the default. [Reading an integration page](/docs/getting-started/reading-an-integration-page) shows where they sit.
@@ -49,7 +49,7 @@ A closing line says what is missing, such as a company that has not answered yet
 - **Not a test by us.** "Confirmed" is a statement by the companies. We do not test it.
 - **Not a vote by us.** Our own record never counts as a confirmation. We cannot make a row read "Companies disagree" on our own.
 - **Not bought.** A plan never changes how a label is worked out or shown, and both companies' answers count the same. Only a company on a Managed plan can confirm or dispute a row, so a row can read "Listed by AEC Integrations" simply because neither company is on Managed.
-- **Not the account label.** "Active on AECi" on a vendor's page is about the company's plan. See [The account label](/docs/trust/the-account-label).
+- **Not the account label.** "Active on AEC Integrations" on a vendor's page is about the company's plan. See [The account label](/docs/trust/the-account-label).
 - **Not in search.** The labels appear on integration pages only.
 
 ## If you are the vendor

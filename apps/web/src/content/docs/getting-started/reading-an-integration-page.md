@@ -3,7 +3,7 @@ title: Reading an integration page
 description: What each part of an integration page tells you, from the two products at the top to the agreement label on each type of data.
 section: getting-started
 order: 2
-last_updated: 8 October 2026
+last_updated: 9 October 2026
 ---
 
 Every pair of products that work together has one integration page. Its heading reads "How (one product) and (the other) exchange data". You reach it from the Integrations section of either product's page.
@@ -56,11 +56,7 @@ When a page has more than one card, a chip such as "3 types of data" says how ma
 
 **The i button** at the end of a row opens **Sources**. It lists everyone who has answered for that type of data, for example "(Company) confirms this" or "(Company) says this is not accurate". A closing line says what is missing, such as a company that has not answered yet. A company's reasons are never shown on the public page.
 
-**The links** at the foot of a card go to listings and documentation outside AECi. A link named after a product, such as "(Product) documentation", was added by that product's company. "View listing" and "Documentation" are links we recorded.
-
-## Versions
-
-Where we have version information for an integration, a version selector can appear under a product. Choosing an earlier version shows what was different then. That comparison opens only when either company on the page is on a Managed plan. Otherwise the page shows the latest versions. Rows that changed are marked "New in" or "Removed in" with the version. **Show the latest versions** takes you back to the current state. The current state is always shown in full.
+**The links** at the foot of a card go to listings and documentation outside AEC Integrations. A link named after a product, such as "(Product) documentation", was added by that product's company. "View listing" and "Documentation" are links we recorded.
 
 ## When there is nothing listed
 
@@ -74,7 +70,7 @@ Some products also show a line such as "3 more pairs reachable via connectors". 
 
 ## Related
 
-- Previous: [What AECi is](/docs/getting-started/what-aeci-is).
+- Previous: [About AEC Integrations](/docs/getting-started/about-aec-integrations).
 - Next: [How listings are classified](/docs/getting-started/taxonomy).
 - [Agreement states](/docs/trust/agreement-states).
 - [How we research and verify listings](/methodology).

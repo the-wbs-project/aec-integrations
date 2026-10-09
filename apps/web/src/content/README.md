@@ -13,7 +13,9 @@ fetched at runtime. Three families live here:
 `SECTION_PAGES` in `docs-content.ts`. The route, the docs home, the section index, the sidebar, the
 "On this page" rail, prev/next and the sitemap pick it up from there. The manifest throws at module init when the
 frontmatter `section` does not match the folder, when `order` is not an integer or repeats within the
-section, or when the page does not end in a `## Related` list linking its neighbours.
+section, or when the page does not end in a `## Related` list linking its neighbours. Page copy
+says "AEC Integrations", never the internal shorthand "AECi", and describes only what the product
+can do today (`STAGE_2_PRODUCT_DOCS_SPEC.md`, the AECI-1261 note).
 
 **Adding a section.** The six sections (`getting-started`, `trust`, `vendors`, `reviewers`, `account`,
 `faq`) are already declared in `SECTION_META`, each with a `$localize` label and summary, an audience

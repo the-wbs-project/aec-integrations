@@ -3,7 +3,7 @@ title: Plans and the account label
 description: What the Free and Managed plans let your company do on AEC Integrations, how the checklists and "Looks right" work, what happens when a plan ends, and the things no plan can buy.
 section: vendors
 order: 7
-last_updated: 8 October 2026
+last_updated: 9 October 2026
 ---
 
 Every company with a seat is on one of two plans: Free or Managed. Free costs nothing. We arrange Managed with you by invoice or purchase order. No plan changes where anything ranks.
@@ -34,12 +34,10 @@ These stay part of Managed:
 - confirming or denying data flows on your integrations ([Attesting an integration](/docs/vendors/attesting-an-integration)),
 - claiming, editing, retiring and restoring an integration delivered through a connector, and deciding change requests on one ([Owning an integration](/docs/vendors/owning-an-integration)),
 - writing, editing and resubmitting a public reply to a review of one of your products ([Replying to reviews](/docs/vendors/replying-to-reviews)),
-- the "Active on AECi" label on your vendor page,
+- the "Active on AEC Integrations" label on your vendor page,
 - telling search engines about your changes.
 
 When your company edits a public page on Managed, we tell search engines that the page changed. We send it to Bing and Yandex through IndexNow, and we add it to our own list for asking Google to look again. On Free, your edits still go live straight away. Search engines find them on their own schedule, through our sitemap. Telling a search engine about a page does not decide whether it crawls, indexes or ranks that page. The search engine decides that.
-
-One more thing depends on Managed. On an integration page, readers always see the current state in full. The comparison with older versions opens when either company at the ends of that integration is on Managed.
 
 On a Free product, the Managed-only fields stay visible in the portal. They are read-only, and each one says it is part of Managed.
 
@@ -93,13 +91,13 @@ In full, no plan, at any price, changes:
 - whether a review is published or removed,
 - whether a listing exists,
 - what we verify,
-- what readers see about an integration's current state, including whether the two companies agree.
+- what readers see on an integration page, including whether the two companies agree.
 
 There is no sponsored placement and no promoted tier. We check this with an automated test. The list of things a plan can unlock is compared with the list of signals that order search results. The build fails if anything appears in both. A second test checks that every listing detail that feeds ranking is editable on Free.
 
-## The "Active on AECi" label
+## The "Active on AEC Integrations" label
 
-While your company is on Managed, your vendor page carries the label "Active on AECi". Next to it, a "What this means" link opens [The account label](/docs/trust/the-account-label), which explains the label to readers. Your portal's plan panel shows the same label.
+While your company is on Managed, your vendor page carries the label "Active on AEC Integrations". Next to it, a "What this means" link opens [The account label](/docs/trust/the-account-label), which explains the label to readers. Your portal's plan panel shows the same label.
 
 The label means your company is on the Managed plan. It is not a separate purchase. It comes with Managed and goes when Managed ends. A company on Free does not show it. It says nothing about the quality of your products or the accuracy of your integrations. It does not affect ranking or placement.
 
@@ -120,7 +118,7 @@ This applies to a pilot too.
 - The portal shows a banner with the date the plan ended. It lists what still works and what is now read-only.
 - Everything in "What every plan includes" keeps working. That includes editing your company details and product basics, "Looks right" and the checklists.
 - Everything in "What needs Managed" becomes read-only.
-- The "Active on AECi" label comes off.
+- The "Active on AEC Integrations" label comes off.
 - We stop telling search engines about your changes. Your edits still go live.
 - You can no longer write, edit or resubmit a reply to a review. Published replies stay up, and you can still withdraw one.
 - An integration delivered through a connector that you already claimed stays claimed. One you retired stays retired. Open change requests on one move to AEC Integrations.

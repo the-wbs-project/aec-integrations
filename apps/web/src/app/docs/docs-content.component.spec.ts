@@ -41,7 +41,7 @@ const REVIEWER_SLUGS = ['writing-a-review', 'requests-and-corrections'];
 
 const ACCOUNT_SLUGS = ['signing-in', 'your-data'];
 
-const GETTING_STARTED_SLUGS = ['what-aeci-is', 'reading-an-integration-page', 'taxonomy'];
+const GETTING_STARTED_SLUGS = ['about-aec-integrations', 'reading-an-integration-page', 'taxonomy'];
 
 const TRUST_SLUGS = ['how-ranking-works', 'the-account-label', 'agreement-states'];
 
@@ -240,7 +240,8 @@ describe('docs manifest', () => {
 
   it('writes titles in sentence case', () => {
     for (const page of DOCS_PAGES) {
-      const words = page.title.split(' ').slice(1);
+      // The brand name is a proper noun, so it keeps its capitals (AECI-1261).
+      const words = page.title.replaceAll('AEC Integrations', 'AEC').split(' ').slice(1);
       const capitalised = words.filter((w) => /^[A-Z][a-z]/.test(w));
       expect(capitalised, page.title).toEqual([]);
     }

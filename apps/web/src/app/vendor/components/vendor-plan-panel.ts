@@ -177,7 +177,7 @@ import { VendorPlanBadge } from './vendor-plan-badge';
           Manage its integrations delivered through a connector
         </li>
         <li i18n="@@vendor.plan.managed.label">
-          Counts toward the "Active on AECi" label on your vendor page
+          Counts toward the "Active on AEC Integrations" label on your vendor page
         </li>
       </ul>
     </ng-template>

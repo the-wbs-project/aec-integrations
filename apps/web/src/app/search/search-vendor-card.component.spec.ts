@@ -64,7 +64,7 @@ describe('SearchVendorCard', () => {
   it('never renders the account label, even for an active vendor (AECI-1131)', () => {
     const el = setup({ ...baseRecord, verified: true });
     expect(el.querySelector('aec-vendor-account-badge')).toBeNull();
-    expect(el.textContent).not.toContain('Active on AECi');
+    expect(el.textContent).not.toContain('Active on AEC Integrations');
     expect(el.textContent).not.toContain('account active');
   });
 });

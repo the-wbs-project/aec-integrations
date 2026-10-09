@@ -3,7 +3,7 @@ title: Attesting an integration
 description: How to say whether the data flows recorded under an integration are right, what readers see as a result, and what happens when the two companies disagree.
 section: vendors
 order: 3
-last_updated: 8 October 2026
+last_updated: 9 October 2026
 ---
 
 An integration's own page lists the data that moves between two products: a model, a schedule, an RFI, and so on, each in one direction. We call each of those a data flow. Most of them were recorded by AEC Integrations from public sources. Answering Yes or No on that page is how the company at either end says whether a flow is right.
@@ -79,17 +79,13 @@ The page tells you, on the integration's own page, what your answer sets in moti
 - **When you say Yes and the other company has not answered,** it is reminded after 14 days.
 - **When you say No,** the other company and AEC Integrations are told. A No does not delete the flow. It stays on the page, shown as the table above describes, until we look at it.
 - **When the two companies disagree for 7 days,** we email both and review the listing.
-- **A flow both companies confirmed** asks for confirmation again after 12 months if it has no version stamps.
+- **When your Yes is 12 months old,** we ask you to confirm it again. It does not expire, and the public page shows it as before.
 
 ## What "confirmed" means, and what it does not
 
 "Confirmed by" and "Confirmed by both companies" mean the companies at the ends of the integration stand behind that data flow. It is a statement by the companies, not a test by AEC Integrations.
 
-It is a different thing from the "Active on AECi" label on a vendor's page. That label means the company is on the Managed plan. It says nothing about whether its integrations are accurate.
-
-## Versions
-
-Earlier answers could be stamped with the versions of your own product a flow was introduced or removed in. Picking versions is not available on the integration's page yet, and any stamp already on record stays in place. The page marks this "Versions: coming soon". If you need to change an existing stamp, contact us.
+It is a different thing from the "Active on AEC Integrations" label on a vendor's page. That label means the company is on the Managed plan. It says nothing about whether its integrations are accurate.
 
 ## Related
 

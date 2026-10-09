@@ -51,7 +51,7 @@ Two rules govern that table.
 Two other markers appear on listings and are easy to confuse with verification.
 
 - **Who maintains a page.** Every page carries "AEC Integrations maintained" until a vendor acts on the record through its own account. Then it reads "Vendor maintained". On a product or vendor page, the company edited it, so the words on the page are theirs rather than ours. On an integration page, a vendor at one end has claimed it, edited it, confirmed one of its claims, or added its own links. The marker does not say which vendor owns the integration. The "Offered by" line does that. A date appears beside the marker on product and vendor pages only where a person actually touched the record, and the wording says which person: we write "Reviewed" when we re-checked it, and "Updated" when a vendor acted on it. On an integration page the date sits on each integration instead, as "Last checked". Most records carry no date at all, because nobody has been back to them yet. We will not manufacture one from a bulk update, and a routine catalog sync on our side never stamps a date onto a record a vendor maintains.
-- **The "Active on AECi" label.** It means a company has an active Managed plan with AECi. It does not verify product quality or integration accuracy, and it carries no weight in ranking. The label appears only while that account access is active, on the vendor's own page. [The account label](/docs/trust/the-account-label) covers it from a reader's side.
+- **The "Active on AEC Integrations" label.** It means a company has an active Managed plan with AECi. It does not verify product quality or integration accuracy, and it carries no weight in ranking. The label appears only while that account access is active, on the vendor's own page. [The account label](/docs/trust/the-account-label) covers it from a reader's side.
 
 ## Who owns an integration
 
@@ -88,7 +88,7 @@ Every claimed vendor can edit its company details and its products' description,
 - which other product details a vendor may edit,
 - whether a vendor can confirm or dispute integration details,
 - whether a vendor can post a public reply to a review of its product,
-- whether the "Active on AECi" label appears on its vendor page,
+- whether the "Active on AEC Integrations" label appears on its vendor page,
 - how far back the version history on an integration page goes.
 
 Replies and version history are the two places a payment changes what a reader sees, so it is worth being exact about the limits. A reply shows only after we approve it, sits under the review it answers, and is labelled as the vendor's. The current state of an integration is always shown in full, to everyone, including whether the two vendors agree or disagree. Only the comparison between older versions is affected, and it opens when either vendor at the ends of that integration is on Managed. Readers are never asked to pay, to sign in, or to be identified.

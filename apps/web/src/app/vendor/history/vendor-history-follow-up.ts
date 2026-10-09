@@ -69,7 +69,7 @@ export function followUpStateLabel(
   switch (state) {
     case 'queued':
       return channel === 'google'
-        ? $localize`:@@vendor.history.followUp.state.queuedGoogle:Queued for AECi to request a Google re-crawl`
+        ? $localize`:@@vendor.history.followUp.state.queuedGoogle:Queued for a Google re-crawl request`
         : $localize`:@@vendor.history.followUp.state.queued:Queued for the next daily send`;
     case 'submitted':
       return $localize`:@@vendor.history.followUp.state.submitted:Submitted`;

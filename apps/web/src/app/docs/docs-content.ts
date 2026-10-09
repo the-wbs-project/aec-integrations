@@ -26,9 +26,9 @@
  */
 import signingInMd from '../../content/docs/account/signing-in.md';
 import yourDataMd from '../../content/docs/account/your-data.md';
+import aboutMd from '../../content/docs/getting-started/about-aec-integrations.md';
 import readingMd from '../../content/docs/getting-started/reading-an-integration-page.md';
 import taxonomyMd from '../../content/docs/getting-started/taxonomy.md';
-import whatAeciMd from '../../content/docs/getting-started/what-aeci-is.md';
 import requestsMd from '../../content/docs/reviewers/requests-and-corrections.md';
 import writingReviewMd from '../../content/docs/reviewers/writing-a-review.md';
 import agreementStatesMd from '../../content/docs/trust/agreement-states.md';
@@ -194,7 +194,7 @@ const SECTION_META: Readonly<Record<DocsSectionId, DocsSectionMeta>> = {
 /** Registered pages per section. A section absent here, or empty, is hidden. */
 const SECTION_PAGES: Readonly<Partial<Record<DocsSectionId, readonly RawDocsPage[]>>> = {
   'getting-started': [
-    { slug: 'what-aeci-is', source: whatAeciMd },
+    { slug: 'about-aec-integrations', source: aboutMd },
     { slug: 'reading-an-integration-page', source: readingMd },
     { slug: 'taxonomy', source: taxonomyMd },
   ],

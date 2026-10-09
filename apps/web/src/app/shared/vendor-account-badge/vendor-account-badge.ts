@@ -8,8 +8,9 @@ import { RouterLink } from '@angular/router';
  * has an active account arrangement and can manage its AECi profile. It does
  * not verify a product, an integration claim, or the quality of either.
  *
- * The label reads "Active on AECi" everywhere (AECI-1131), so the vendor's plan
- * panel shows exactly what the public sees (`STAGE_2_PAID_TIERS_SPEC.md` §8.1).
+ * The label reads "Active on AEC Integrations" everywhere (AECI-1131; AECI-1261
+ * spelled out the name), so the vendor's plan panel shows exactly what the public
+ * sees (`STAGE_2_PAID_TIERS_SPEC.md` §8.1).
  * - `public` (vendor detail hero) follows it with a visible "What this means"
  *   link to the reader article `/docs/trust/the-account-label` (AECI-1249; it
  *   pointed at the noindex vendor guide before). The link replaces the
@@ -33,7 +34,7 @@ import { RouterLink } from '@angular/router';
             border-(--border-strong) bg-(--surface-base) px-2.5 py-1 text-xs font-semibold
             tracking-[0.01em] text-(--text-secondary)"
         >
-          <span i18n="@@vendor.accountBadge.label">Active on AECi</span>
+          <span i18n="@@vendor.accountBadge.label">Active on AEC Integrations</span>
         </span>
         @if (variant() === 'public') {
           <a
@@ -43,7 +44,7 @@ import { RouterLink } from '@angular/router';
               focus-visible:outline-2 focus-visible:outline-offset-2
               focus-visible:outline-(--accent-primary)"
             i18n="@@vendor.accountBadge.explain"
-            >What this means<span class="sr-only">: the Active on AECi label</span></a
+            >What this means<span class="sr-only">: the Active on AEC Integrations label</span></a
           >
         }
       </span>

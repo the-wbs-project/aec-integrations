@@ -3,10 +3,10 @@ title: How ranking works
 description: What decides the order of search results and lists on AEC Integrations, what never does, and why no plan can buy a better position.
 section: trust
 order: 1
-last_updated: 8 October 2026
+last_updated: 9 October 2026
 ---
 
-The order of every list on AECi comes from fixed rules, applied the same way to every listing. Nobody can pay to change it. This page names the things that decide the order and says, in words, how much each one counts. It does not publish a formula or any weights.
+The order of every list on AEC Integrations comes from fixed rules, applied the same way to every listing. Nobody can pay to change it. This page names the things that decide the order and says, in words, how much each one counts. It does not publish a formula or any weights.
 
 ## Search
 
@@ -55,7 +55,7 @@ None of these changes where a listing appears in search:
 - Ratings. They decide the "Highest rated" sort, but not the Relevance order.
 - How many people view a page.
 - Trades, beyond matching your words. A trade helps a product be found when you search for that trade or filter by it. It gives no boost of its own.
-- Which plan a vendor is on, and whether it shows the "Active on AECi" label. See [The account label](/docs/trust/the-account-label).
+- Which plan a vendor is on, and whether it shows the "Active on AEC Integrations" label. See [The account label](/docs/trust/the-account-label).
 - A vendor's reply to a review.
 
 ## What a plan does not buy

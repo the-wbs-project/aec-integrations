@@ -136,7 +136,7 @@ export function historyActorLabel(kind: VendorHistoryActorKind): string {
     case 'your_team':
       return $localize`:@@vendor.history.actor.yourTeam:Your team`;
     case 'aeci':
-      return $localize`:@@vendor.history.actor.aeci:AECi`;
+      return $localize`:@@vendor.history.actor.aeci:AEC Integrations`;
     default:
       return $localize`:@@vendor.history.actor.system:System`;
   }
@@ -150,7 +150,7 @@ export function historyKindLabel(kind: VendorHistoryKind): string {
     case 'vendor':
       return $localize`:@@vendor.history.filter.vendor:Your team's edits`;
     case 'aeci':
-      return $localize`:@@vendor.history.filter.aeci:AECi changes`;
+      return $localize`:@@vendor.history.filter.aeci:Changes by AEC Integrations`;
     default:
       return $localize`:@@vendor.history.filter.all:All changes`;
   }

@@ -1,12 +1,12 @@
 ---
 title: The account label
-description: What the "Active on AECi" label on a vendor's page means for a reader, what it does not mean, and where you will see it.
+description: What the "Active on AEC Integrations" label on a vendor's page means for a reader, what it does not mean, and where you will see it.
 section: trust
 order: 2
-last_updated: 8 October 2026
+last_updated: 9 October 2026
 ---
 
-Some vendor pages show a label that reads **"Active on AECi"**, with a **What this means** link beside it. This page is what that link is for.
+Some vendor pages show a label that reads **"Active on AEC Integrations"**, with a **What this means** link beside it. This page is what that link is for.
 
 ## What it means
 
