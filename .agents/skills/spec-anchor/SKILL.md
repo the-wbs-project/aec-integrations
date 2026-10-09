@@ -150,7 +150,7 @@ Within the loaded section, look for explicit pointers and load whichever apply. 
 | Why a choice was made (and whether it's been reversed) | `docs/adr/README.md` → the specific ADR |
 | Phase 2 / 5 / 6 scope | `docs/STAGE_1_PHASE_{2,5,6}_SPEC.md` |
 | Integration pair page, claims, attestations | `docs/STAGE_1_5_SPEC.md` |
-| Vendor portal, claiming, verified badges | `docs/STAGE_2_VENDOR_PORTAL_SPEC.md` |
+| Vendor portal, claiming, account status | `docs/STAGE_2_VENDOR_PORTAL_SPEC.md` |
 | Admin panel surfaces, operator console, traffic/audience reporting | `docs/ADMIN_PANEL_SPEC.md` |
 | Visual tokens, palette, typography, components | `DESIGN.md` (repo root) and `docs/BRAND_GUIDELINES.md` |
 | Audience, voice, anti-references, principles | `PRODUCT.md` (repo root) |

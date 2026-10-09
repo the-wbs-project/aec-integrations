@@ -64,7 +64,7 @@ If your work touches a topic below, that document is the truth, not your prior k
 | Free plan, product checklists, "Looks right" | `docs/STAGE_2_PAID_TIERS_SPEC.md` §13, `docs/STAGE_2_VENDOR_PORTAL_SPEC.md` §6.18, ADR 0037 |
 | Vendor replies to reviews (pre-moderated, `review.reply`) | `docs/STAGE_2_VENDOR_PORTAL_SPEC.md` §11c |
 | Stage 2 scope outline (kickoff draft, not a build contract) | `docs/STAGE_2_SPEC.md` |
-| Stage 2 Vendor Portal build spec (claims, vendor authz seam, portal, verified badge) | `docs/STAGE_2_VENDOR_PORTAL_SPEC.md` |
+| Stage 2 Vendor Portal build spec (claims, vendor authz seam, portal, account status) | `docs/STAGE_2_VENDOR_PORTAL_SPEC.md` |
 | Stage 2 Paid Tiers & Entitlements (`vendor_entitlements`, capability registry, ranking firewall) | `docs/STAGE_2_PAID_TIERS_SPEC.md` |
 | Stage 2 Integration Attestations (authority, agreement state, version model, §13.9 maintenance transfer) | `docs/STAGE_2_ATTESTATIONS_SPEC.md` |
 | Stage 2 Real-Time / Live Portal: scoped client revalidation, not sockets (ADR 0023); `GET /api/vendor/updates` cursor | `docs/STAGE_2_REALTIME_SPEC.md` |
