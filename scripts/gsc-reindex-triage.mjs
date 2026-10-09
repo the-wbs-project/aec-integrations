@@ -163,17 +163,23 @@ async function adminFetch(path, init = {}) {
   return res;
 }
 
-// Same columns and order as GET /api/admin/reindex: priority, then age, then id.
+// Same columns and order as GET /api/admin/reindex: priority, inspection bucket,
+// never crawled first, then age, then id.
 // Run from the OS temp dir, because inside apps/api wrangler takes that
 // wrangler.jsonc's settings. CLOUDFLARE_API_TOKEN is dropped so the OAuth login
 // is used: the token in Conductor's environment reaches only the old account.
 function readWorklistFromD1() {
   const priority = args.priority ? Number(args.priority) : null;
   if (priority !== null && !Number.isInteger(priority)) fail('--priority must be a number.');
-  const query = (columns) =>
+  // Before migration 0064 the inspection columns do not exist either, so the
+  // fallback read orders by priority, age and id only.
+  const inspectionOrder = `
+      CASE WHEN inspect_reason IS NULL THEN 1 WHEN inspect_reason = 'page_fetch_failed' THEN 2 ELSE 0 END ASC,
+      CASE WHEN inspect_reason IS NOT NULL AND last_crawl_at IS NULL THEN 0 ELSE 1 END ASC,`;
+  const query = (columns, withInspection = true) =>
     `SELECT ${columns} FROM gsc_recrawl_queue${
       priority === null ? '' : ` WHERE priority = ${priority}`
-    } ORDER BY priority ASC, queued_at ASC, id ASC`;
+    } ORDER BY priority ASC,${withInspection ? inspectionOrder : ''} queued_at ASC, id ASC`;
   const env = { ...process.env, CLOUDFLARE_ACCOUNT_ID: D1_ACCOUNT_ID };
   delete env.CLOUDFLARE_API_TOKEN;
   const execute = (sql) => {
@@ -196,7 +202,7 @@ function readWorklistFromD1() {
     console.error(
       'last_changed_at is missing (migration 0064 not applied). Nothing will be cleared.',
     );
-    ({ parsed, run } = execute(query(base)));
+    ({ parsed, run } = execute(query(base, false)));
   }
   if (!Array.isArray(parsed) || parsed[0]?.success !== true) {
     fail(

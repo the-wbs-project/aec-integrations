@@ -9,12 +9,13 @@
  *      operator-initiated delete on an admin screen, so §26.1's *scheduled*-
  *      deletion exception does not reach it — it audits per row, attributed to
  *      the admin rather than to `'system'`.
- *   2. **Ordering is priority, then age, then id.** The screen's entire value is
- *      that working top-down spends a capped quota well, so a regression in the
- *      `ORDER BY` is a silent regression in what gets indexed. The `id` third
- *      term is the AECI-825 rule: two rows from one promote share a `queued_at`
- *      to the millisecond, and a paginated list without a unique trailing term
- *      can drop or duplicate a row across pages.
+ *   2. **Ordering is priority, inspection bucket, never crawled first, age, then
+ *      id.** The screen's entire value is that working top-down spends a capped
+ *      quota well, so a regression in the `ORDER BY` is a silent regression in
+ *      what gets indexed. The trailing `id` term is the AECI-825 rule: two rows
+ *      from one promote share a `queued_at` to the millisecond, and a paginated
+ *      list without a unique trailing term can drop or duplicate a row across
+ *      pages.
  *   3. **Done takes no concurrency guard, and that is safe.** An already-cleared
  *      row 404s, because `id` is `AUTOINCREMENT` and never reused. A row that was
  *      merely re-prioritised is the same URL, so clearing it is correct.
@@ -216,6 +217,79 @@ describe('GET /api/admin/reindex — the worklist', () => {
       inspect_reason: 'crawl_predates_change',
       last_crawl_at: '2026-08-30T00:00:00Z',
     });
+  });
+
+  it('puts never-crawled pages first inside a bucket, ahead of older stale crawls', async () => {
+    const inspectedAt = '2026-10-05T12:00:00.000Z';
+    await seed([
+      {
+        url: `${BASE}/vendors/stale`,
+        priority: 3,
+        reason: 'vendor.updated',
+        queuedAt: '2026-09-01T00:00:00.000Z',
+        inspectReason: 'crawl_predates_change',
+        inspectedAt,
+        lastCrawlAt: '2026-08-30T00:00:00Z',
+      },
+      {
+        url: `${BASE}/vendors/discovered`,
+        priority: 3,
+        reason: 'vendor.updated',
+        queuedAt: '2026-09-03T00:00:00.000Z',
+        inspectReason: 'discovered_not_indexed',
+        inspectedAt,
+      },
+      {
+        url: `${BASE}/vendors/unchecked`,
+        priority: 3,
+        reason: 'vendor.updated',
+        queuedAt: '2026-08-01T00:00:00.000Z',
+      },
+      {
+        url: `${BASE}/vendors/unknown`,
+        priority: 3,
+        reason: 'vendor.updated',
+        queuedAt: '2026-09-02T00:00:00.000Z',
+        inspectReason: 'unknown_to_google',
+        inspectedAt,
+      },
+    ]);
+
+    const body = (await (await get()).json()) as { data: { url: string }[] };
+    // Never crawled first (oldest first among them), then the stale crawl, even though
+    // it is the oldest. The uninspected row stays in its own later bucket.
+    expect(body.data.map((r) => r.url)).toEqual([
+      `${BASE}/vendors/unknown`,
+      `${BASE}/vendors/discovered`,
+      `${BASE}/vendors/stale`,
+      `${BASE}/vendors/unchecked`,
+    ]);
+  });
+
+  it('keeps the not-yet-inspected bucket in queued_at order, crawl time or not', async () => {
+    // A re-enqueue clears inspect_reason but keeps last_crawl_at, so this bucket
+    // mixes new rows with pages Google already crawled. Age alone orders it.
+    await seed([
+      {
+        url: `${BASE}/vendors/re-changed`,
+        priority: 3,
+        reason: 'vendor.updated',
+        queuedAt: '2026-09-01T00:00:00.000Z',
+        lastCrawlAt: '2026-08-30T00:00:00Z',
+      },
+      {
+        url: `${BASE}/vendors/new`,
+        priority: 3,
+        reason: 'vendor.updated',
+        queuedAt: '2026-09-02T00:00:00.000Z',
+      },
+    ]);
+
+    const body = (await (await get()).json()) as { data: { url: string }[] };
+    expect(body.data.map((r) => r.url)).toEqual([
+      `${BASE}/vendors/re-changed`,
+      `${BASE}/vendors/new`,
+    ]);
   });
 
   it('breaks a same-priority same-timestamp tie on id, so pagination is total', async () => {

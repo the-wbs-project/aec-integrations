@@ -3501,9 +3501,12 @@ to labels and falls back to humanizing the slug. Known values today:
 `vendor.updated`, `vendor.minor`, `pair.created`, `pair.updated`,
 `trade.published`.
 
-**Ordering is `priority ASC, inspection bucket ASC, queued_at ASC, id ASC` and there is no
-`sort` parameter.** The bucket (AECI-1236) is 0 for a row Google says needs a request, 1 for a row
-not yet inspected, and 2 for `page_fetch_failed`, which a request cannot fix. Before AECI-1236
+**Ordering is `priority ASC, inspection bucket ASC, never crawled first, queued_at ASC, id ASC` and
+there is no `sort` parameter.** The bucket (AECI-1236) is 0 for a row Google says needs a request, 1 for a row
+not yet inspected, and 2 for `page_fetch_failed`, which a request cannot fix. Inside an inspected bucket, a row
+with no `last_crawl_at` comes first, because a page Google has never crawled gains most from a request.
+The not-yet-inspected bucket skips that term. A re-enqueue keeps `last_crawl_at`, so bucket 1 mixes new
+rows with pages Google already crawled. Before AECI-1236
 the order was `priority ASC, queued_at ASC, id ASC`. A worklist whose order the operator can change no longer has the right
 next action on top, which is the only thing this surface is for. The `id ASC` term is
 the AECI-825 rule rather than decoration: two rows written by the same promote share

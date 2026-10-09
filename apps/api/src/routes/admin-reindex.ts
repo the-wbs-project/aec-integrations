@@ -112,10 +112,23 @@ const INSPECTION_BUCKET = sql`case
   else 0 end`;
 
 /**
+ * Inside a bucket, inspected pages Google has never crawled come first. A request
+ * gains the most there: the page is missing from Google entirely, while an indexed
+ * page with a stale crawl is already in results. The term needs `inspect_reason`,
+ * not just a null crawl: a re-enqueue clears `inspect_reason` but keeps
+ * `last_crawl_at`, so the not-yet-inspected bucket holds both new rows and pages
+ * Google already crawled. That bucket stays in plain `queued_at` order.
+ */
+const NEVER_CRAWLED_FIRST = sql`case
+  when ${gscRecrawlQueue.inspectReason} is not null and ${gscRecrawlQueue.lastCrawlAt} is null then 0
+  else 1 end`;
+
+/**
  * The worklist, most important first.
  *
- * Ordering is `priority ASC, inspection bucket ASC, queued_at ASC, id ASC` (see
- * `INSPECTION_BUCKET`) and is **not** client-selectable. A worklist whose order the operator can change is a worklist whose
+ * Ordering is `priority ASC, inspection bucket ASC, never crawled first, queued_at ASC,
+ * id ASC` (see `INSPECTION_BUCKET` and `NEVER_CRAWLED_FIRST`) and is **not**
+ * client-selectable. A worklist whose order the operator can change is a worklist whose
  * top row is no longer reliably the right next action, and the whole value of
  * this screen is that working top-down spends a capped quota well.
  *
@@ -154,6 +167,7 @@ export function createAdminReindexListHandler(
         .orderBy(
           asc(gscRecrawlQueue.priority),
           asc(INSPECTION_BUCKET),
+          asc(NEVER_CRAWLED_FIRST),
           asc(gscRecrawlQueue.queuedAt),
           asc(gscRecrawlQueue.id),
         )

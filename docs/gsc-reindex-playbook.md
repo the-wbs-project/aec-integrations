@@ -39,6 +39,8 @@ If it ran, go straight to the loop. If it did not, run the triage script below, 
 - The GSC service-account key in the `GSC_SA_KEY_JSON` environment variable, as the JSON text of the key file. Set it in `~/.zshrc` so every shell has it. Failing that, the script reads the file at `GSC_SA_KEY`, default `~/.config/aeci/gsc-sa.json`. The account needs read access to the `sc-domain:aecintegrations.com` property. The script uses the read-only scope.
 - An admin session, as either `AECI_ADMIN_TOKEN` (the Supabase access token) or `AECI_ADMIN_COOKIE` (the `Cookie` request header). To get the cookie: open `https://www.aecintegrations.com/admin/reindex` signed in, open DevTools → Network, select any `/api/admin/...` request, and copy its `Cookie` request header. It expires about an hour after sign-in, so copy it just before the run.
 
+**One authorized exception (2026-10-08).** Migration 0064 stamped `last_changed_at` = 2026-10-05 07:30 UTC on every row then queued, not the page's real last change. So rows Google had already re-crawled read "crawled before the change". With the operator's written authorization, 411 such rows were cleared by one direct SQL run. The run wrote a single `reindex.bulk_cleared` audit row listing every cleared row and the rule used. The rule: Google reports the page indexed and last crawled it at least an hour after its real last change, taken from `audit_log`. This was a one-off. It is not a pattern to repeat. The 919 rows left still carry the placeholder date.
+
 **Dry run without a session.** `--from-d1` reads the worklist from production D1 with a read-only `SELECT` through wrangler, so a dry run needs no admin session. It uses your wrangler OAuth login on The WBS Project account, and drops `CLOUDFLARE_API_TOKEN` for that call because the token in Conductor's environment reaches only the old account. `--apply` still needs the admin session, because rows are only ever cleared through the audited Done call.
 
 ```bash
@@ -71,6 +73,8 @@ Other flags: `--limit N` inspects only the first N rows, `--priority N` only one
 Record the script's summary (`inspected`, `done`, `cleared`, `request`, `error`) in the run report. Then start the loop on what is left. The URL Inspection API's own quota (2,000 calls a day per property, 600 a minute) is separate from the Request Indexing quota, so step 0 does not eat into the requests. The cron spends up to 1,500 of those calls a day, so run the script only on a day the cron did not run, or with `--limit`. Both run four inspections at a time.
 
 ## Loop — for each row in the admin queue, top to bottom
+
+The queue is sorted for this loop: inside each priority, rows Google says need a request come first, and among those, pages Google has never crawled ("Not known to Google", "Discovered, not indexed") come before indexed pages with a stale crawl. Working top-down spends the request quota where it gains most.
 
 After step 0, read the **Google says** column first. Every row with a reason other than "Could not fetch the page" needs a request, so go straight to step 6 for it after confirming the URL in Search Console. "Not checked yet" means the row is new or its page changed since the last inspection: request it.
 
