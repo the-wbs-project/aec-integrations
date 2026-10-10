@@ -92,11 +92,12 @@ export function planLabel(name: PlanName): string {
 }
 
 /**
- * Decision 10, word for word (§13.1). Every plan panel carries it. One string
- * with one id, so no panel can drift from it.
+ * Decision 10, word for word (§13.1), as reworded on 2026-10-09 (AECI-1265,
+ * marketing review B2: "or what we verify" dropped). Every plan panel carries
+ * it. One string with one id, so no panel can drift from it.
  */
 export function noPlanChangesLine(): string {
-  return $localize`:@@vendor.plan.decision10:No plan changes where you rank or appear, whether a review is published, or what we verify.`;
+  return $localize`:@@vendor.plan.decision10:No plan changes where you rank or appear, or whether a review is published.`;
 }
 
 /**

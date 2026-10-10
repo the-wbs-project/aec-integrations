@@ -244,16 +244,18 @@ entitlement bit; it is now a denormalized boolean over `vendor_entitlements` (§
 invariant **`vendors.verified = true` iff the vendor has an entitlement row with
 `status = 'active'`**. The demotion is deliberately invisible to readers: the public
 `GET /api/vendors?verified=` filter, `VendorLinkSchema.verified`, `VendorDetail` /
-`VendorListItem`, the Algolia vendor record and `aec-vendor-account-badge` all still read this
-column and none of them changed. **No public or read path may query `vendor_entitlements`** —
+`VendorListItem` and the Algolia vendor record all still read this column and none of them
+changed. On public pages the column drives the claim button copy and the pair page's
+version-diff gate. *(A fifth reader, `aec-vendor-account-badge`, was deleted on 2026-10-09 by
+AECI-1264. The column and the invariant are unchanged.)* **No public or read path may query `vendor_entitlements`** —
 "fixing" the filter to join the entitlement table would defeat the entire denormalization, and
 a test asserts no read config in `lib/drizzle-helpers.ts` references it.
 
 Two consequences worth knowing before touching this column. **`updated_at` moves iff `verified`
 moves** — stamped explicitly inside the same guarded `WHERE verified = <old>`, never left to
 `$onUpdate` — because the nightly Algolia sync selects by `updated_at`: a renewal that does not
-flip the bit must not bump it, and an un-verify **must**, or a lapsed vendor keeps a Verified
-badge in search indefinitely. And **`vendors_verified_idx` is now an index over a cache**; the
+flip the bit must not bump it, and an un-verify **must**, or a lapsed vendor keeps
+`verified: true` on its Algolia record indefinitely. And **`vendors_verified_idx` is now an index over a cache**; the
 authoritative predicate is on the entitlement row's `status`.
 
 ### 4.2 `products`

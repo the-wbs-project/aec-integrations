@@ -40,9 +40,10 @@ export type LinkRef = z.infer<typeof LinkRefSchema>;
  * consumers can rely on `id`, `name`, `slug` being present.
  *
  * `verified` mirrors `vendors.verified` (the AECi-verified-vendor-account bit,
- * flipped by the AECI-519 claim grant) so the SSR trust surfaces can render the
- * account-status label (AECI-523/AECI-965) wherever a product/integration shows its built-by
- * vendor. Required — the DB column is `NOT NULL DEFAULT false`, so the mapper
+ * flipped by the AECI-519 claim grant) so the SSR pages can read the built-by vendor's
+ * state: the product page's claim button copy and the pair page's version-diff gate.
+ * It once drove the account-status label (AECI-523/AECI-965), which AECI-1264 removed
+ * on 2026-10-09. Required — the DB column is `NOT NULL DEFAULT false`, so the mapper
  * always emits a real boolean (matching the required `verified` on
  * `VendorListItem` / `VendorDetail`).
  */

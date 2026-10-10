@@ -1,10 +1,12 @@
 /**
- * AECI-1104 — the `/docs` vendor guide: the manifest, the generated routes and
- * the article page.
+ * AECI-1104, AECI-1248, AECI-1259 — the docs article page: body, heading ids,
+ * the prev/next pager, and noindex by path. The sidebar, the breadcrumb and the
+ * rail's place on the page live in the shell (`docs-shell.component.spec.ts`).
  *
  * `*.component.spec.ts` (the Angular `ng test` tier) because the registry
  * imports `.md` files, and only the Angular build carries the esbuild `text`
- * loader. The `X-Robots-Tag` half of the noindex contract is pinned in
+ * loader. The manifest itself is pinned in `docs-content.component.spec.ts`.
+ * The `X-Robots-Tag` half of the noindex contract is pinned in
  * `src/server.spec.ts`; the `<meta name="robots">` half is pinned here.
  */
 import { TestBed } from '@angular/core/testing';
@@ -12,30 +14,17 @@ import { Meta, Title } from '@angular/platform-browser';
 import { ActivatedRoute, provideRouter } from '@angular/router';
 import { beforeEach, describe, expect, it } from 'vitest';
 
-import { DOCS_PAGES, docsSection, getDocsPage } from './docs-content';
+import { docsSection, getDocsPage } from './docs-content';
 import { DocsPageComponent } from './docs-page';
-import { DOCS_ROUTES } from './docs.routes';
 
-const VENDOR_SLUGS = [
-  'claiming-your-listing',
-  'your-seat',
-  'attesting-an-integration',
-  'owning-an-integration',
-  'contests-and-protests',
-  'replying-to-reviews',
-  'plans-and-the-account-label',
-  'change-history',
-];
+const VENDOR_SLUGS = docsSection('vendors').map((page) => page.slug);
 
-function render(slug: string): { host: HTMLElement; title: Title; meta: Meta } {
+function render(section: string, slug: string): { host: HTMLElement; title: Title; meta: Meta } {
   TestBed.resetTestingModule();
   TestBed.configureTestingModule({
     providers: [
       provideRouter([]),
-      {
-        provide: ActivatedRoute,
-        useValue: { snapshot: { data: { section: 'vendors', slug } } },
-      },
+      { provide: ActivatedRoute, useValue: { snapshot: { data: { section, slug } } } },
     ],
   });
   const fixture = TestBed.createComponent(DocsPageComponent);
@@ -47,100 +36,9 @@ function render(slug: string): { host: HTMLElement; title: Title; meta: Meta } {
   };
 }
 
-describe('docs manifest', () => {
-  it('lists the eight vendor-guide pages in task order', () => {
-    expect(docsSection('vendors').map((page) => page.slug)).toEqual(VENDOR_SLUGS);
-    expect(DOCS_PAGES).toHaveLength(8);
-  });
-
-  it('gives every page a title, a description, a date and a unique order', () => {
-    for (const page of DOCS_PAGES) {
-      expect(page.title, page.slug).not.toBe('');
-      expect(page.description, page.slug).not.toBe('');
-      expect(page.lastUpdated, page.slug).toMatch(/^\d{1,2} \w+ \d{4}$/);
-      expect(Number.isInteger(page.order), page.slug).toBe(true);
-    }
-    expect(new Set(DOCS_PAGES.map((page) => page.order)).size).toBe(DOCS_PAGES.length);
-  });
-
-  it('writes titles in sentence case', () => {
-    for (const page of DOCS_PAGES) {
-      const words = page.title.split(' ').slice(1);
-      const capitalised = words.filter((w) => /^[A-Z][a-z]/.test(w));
-      expect(capitalised, page.title).toEqual([]);
-    }
-  });
-
-  it('ends every page with a Related section linking to its guide neighbours', () => {
-    for (const page of DOCS_PAGES) {
-      const doc = new DOMParser().parseFromString(page.html, 'text/html');
-      const h2s = Array.from(doc.querySelectorAll('h2'));
-      const last = h2s.at(-1);
-      expect(last?.textContent, page.slug).toBe('Related');
-      const links = Array.from(doc.querySelectorAll('h2:last-of-type ~ ul a')).map((a) =>
-        a.getAttribute('href'),
-      );
-      const index = VENDOR_SLUGS.indexOf(page.slug);
-      const neighbours = [VENDOR_SLUGS[index - 1], VENDOR_SLUGS[index + 1]].filter(Boolean);
-      for (const slug of neighbours) {
-        expect(links, `${page.slug} → ${slug}`).toContain(`/docs/vendors/${slug}`);
-      }
-    }
-  });
-
-  it('only links to docs pages that exist', () => {
-    for (const page of DOCS_PAGES) {
-      const doc = new DOMParser().parseFromString(page.html, 'text/html');
-      for (const a of Array.from(doc.querySelectorAll('a[href^="/docs/"]'))) {
-        const [, , section, slug] = (a.getAttribute('href') ?? '').split('#')[0].split('/');
-        expect(
-          getDocsPage(section, slug),
-          `${page.slug} → ${a.getAttribute('href')}`,
-        ).toBeDefined();
-      }
-    }
-  });
-
-  it('uses no em dashes and never calls the account label a Verified badge', () => {
-    for (const page of DOCS_PAGES) {
-      expect(page.html, page.slug).not.toContain('\u2014');
-      // AECI-965 renamed the public label; "Verified badge" is retired copy.
-      expect(page.html, page.slug).not.toMatch(/verified badge|verified vendor/i);
-    }
-  });
-
-  it('describes review replies the way STAGE_2_VENDOR_PORTAL_SPEC.md §11c ships them (AECI-1181)', () => {
-    const page = getDocsPage('vendors', 'replying-to-reviews')!;
-    const text = new DOMParser().parseFromString(page.html, 'text/html').body.textContent ?? '';
-    // §11c.15: the public label, and §11c.10: a reply never moves ranking.
-    expect(text).toContain('"Response from" your company name');
-    expect(text).toContain('or where anything ranks');
-    // Ruling 1 (pre-moderation), ruling 5 (an edit hides the live reply), §11c.6 (removed is final).
-    expect(text).toContain('We check every reply before anyone sees it.');
-    expect(text).toContain('Editing a published reply takes it off the product page.');
-    expect(text).toContain('A removed reply is final.');
-    // §11c.9 and §11c.14: Free cannot write, but can withdraw.
-    expect(text).toContain('You can still withdraw one.');
-    // Ruling 3: no reviewer notice. Reporting stays the email route.
-    expect(text).toContain('We do not tell the reviewer that you replied.');
-    expect(page.html).toContain('mailto:reviews@thewbsproject.com');
-  });
-
-  it('carries no screenshots at v0', () => {
-    for (const page of DOCS_PAGES) {
-      expect(page.html, page.slug).not.toContain('<img');
-    }
-  });
-});
-
-describe('DOCS_ROUTES', () => {
-  it('registers one explicit route per page, no :slug param', () => {
-    expect(DOCS_ROUTES.map((route) => route.path)).toEqual(
-      VENDOR_SLUGS.map((slug) => `vendors/${slug}`),
-    );
-    expect(DOCS_ROUTES.some((route) => route.path?.includes(':'))).toBe(false);
-  });
-});
+function pager(host: HTMLElement): HTMLElement | null {
+  return host.querySelector('nav[aria-label="Previous and next articles"]');
+}
 
 describe('DocsPageComponent', () => {
   // The Angular vitest builder shares one jsdom <head> across specs.
@@ -148,27 +46,92 @@ describe('DocsPageComponent', () => {
     document.head.querySelector('meta[name="robots"]')?.remove();
   });
 
-  it.each(VENDOR_SLUGS)('renders %s with one h1, its body and the section rail', (slug) => {
-    const { host } = render(slug);
+  it.each(VENDOR_SLUGS)('renders %s with one h1 and its body', (slug) => {
+    const { host } = render('vendors', slug);
     const page = getDocsPage('vendors', slug)!;
     const h1s = host.querySelectorAll('h1');
     expect(h1s).toHaveLength(1);
     expect(h1s[0].textContent?.trim()).toBe(page.title);
     expect(host.querySelector('.aec-prose h2')).not.toBeNull();
-
-    const rail = host.querySelectorAll('nav[aria-labelledby] a');
-    expect(rail).toHaveLength(8);
-    const current = host.querySelectorAll('nav[aria-labelledby] a[aria-current="page"]');
-    expect(current).toHaveLength(1);
-    expect(current[0].textContent?.trim()).toBe(page.title);
+    // The quiet DeepWiki header: no overline above the title.
+    expect(host.querySelector('header .aec-overline')).toBeNull();
   });
 
-  it('is noindex until the portal opens (AECI-1105) and sets title + canonical', () => {
-    const { title, meta } = render('your-seat');
+  // The sanitizer strips ids from [innerHTML], so the template renders headings.
+  it('renders every h2 with its manifest id, in order, Related last', () => {
+    const { host } = render('vendors', 'owning-an-integration');
+    const page = getDocsPage('vendors', 'owning-an-integration')!;
+    const h2s = Array.from(host.querySelectorAll('.aec-prose h2')).map((h) => [
+      h.id,
+      h.textContent?.trim(),
+    ]);
+    expect(h2s).toEqual([...page.headings.map((h) => [h.id, h.text]), ['related', 'Related']]);
+    // The in-content deep link from contests-and-protests lands here.
+    expect(host.querySelector('#if-aec-integrations-changes-something-you-hold')?.tagName).toBe(
+      'H2',
+    );
+  });
+
+  // The body between headings still renders, links and lists included.
+  it('keeps the body HTML between the headings', () => {
+    const { host } = render('trust', 'how-ranking-works');
+    const prose = host.querySelector('.aec-prose')!;
+    expect(prose.querySelector('a[href="/search"]')).not.toBeNull();
+    expect(prose.querySelectorAll('ul').length).toBeGreaterThan(2);
+    expect(prose.textContent).toContain('No plan, at any price, changes');
+  });
+
+  it('shows only Next on the first page of a section', () => {
+    const { host } = render('vendors', VENDOR_SLUGS[0]);
+    const links = pager(host)!.querySelectorAll('a');
+    expect(links).toHaveLength(1);
+    expect(links[0].getAttribute('rel')).toBe('next');
+    expect(links[0].getAttribute('href')).toBe(`/docs/vendors/${VENDOR_SLUGS[1]}`);
+    expect(links[0].textContent).toContain('Next');
+  });
+
+  it('shows Previous and Next in the middle of a section', () => {
+    const { host } = render('vendors', VENDOR_SLUGS[2]);
+    const links = Array.from(pager(host)!.querySelectorAll('a'));
+    expect(links.map((a) => [a.getAttribute('rel'), a.getAttribute('href')])).toEqual([
+      ['prev', `/docs/vendors/${VENDOR_SLUGS[1]}`],
+      ['next', `/docs/vendors/${VENDOR_SLUGS[3]}`],
+    ]);
+    expect(links[0].textContent).toContain(getDocsPage('vendors', VENDOR_SLUGS[1])!.title);
+  });
+
+  it('stops at the end of a section rather than crossing into the next one', () => {
+    const { host } = render('vendors', VENDOR_SLUGS.at(-1)!);
+    const links = pager(host)!.querySelectorAll('a');
+    expect(links).toHaveLength(1);
+    expect(links[0].getAttribute('rel')).toBe('prev');
+  });
+
+  // No section has a single page since AECI-1250, so the no-pager case is covered
+  // by the synthetic-manifest `docsNeighbours` spec in docs-content.component.spec.ts.
+  it('does not page from the reviewer guide into the account section', () => {
+    const { host } = render('reviewers', 'requests-and-corrections');
+    const links = Array.from(pager(host)!.querySelectorAll('a'));
+    expect(links.map((a) => [a.getAttribute('rel'), a.getAttribute('href')])).toEqual([
+      ['prev', '/docs/reviewers/writing-a-review'],
+    ]);
+  });
+
+  it('is noindex on the vendor guide until AECI-1253 and sets title + canonical', () => {
+    const { title, meta } = render('vendors', 'your-seat');
     expect(meta.getTag('name="robots"')?.content).toBe('noindex');
     expect(title.getTitle()).toBe('Your seat · AEC Integrations');
     expect(document.head.querySelector('link[rel="canonical"]')?.getAttribute('href')).toMatch(
       /\/docs\/vendors\/your-seat$/,
     );
+  });
+
+  it('is indexable outside the noindex prefixes (the reviewer guide)', () => {
+    const { meta, host } = render('reviewers', 'requests-and-corrections');
+    expect(meta.getTag('name="robots"')).toBeNull();
+    expect(document.head.querySelector('link[rel="canonical"]')?.getAttribute('href')).toMatch(
+      /\/docs\/reviewers\/requests-and-corrections$/,
+    );
+    expect(host.querySelector('h1')?.textContent?.trim()).toBe('Requests and corrections');
   });
 });

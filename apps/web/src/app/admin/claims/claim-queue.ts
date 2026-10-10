@@ -81,10 +81,10 @@ type FormMode = 'approve' | 'reject';
  *
  * The move is not tidying. The control carries three sentences whose drift is a
  * foreseeable incident rather than a typo — clearing is not a seat revoke and not
- * a ban (§5.2); search is nightly in BOTH directions so the badge lags by up to a
- * day (§5.3 / R2); and the §5.4 lockout with its re-activate → edit → clear
- * escape hatch — and two surfaces meant two copies of them. They now live in
- * exactly one file, `admin/entitlement/entitlement-control.html`.
+ * a ban (§5.2); search is nightly in BOTH directions so the Algolia record's
+ * `verified` lags by up to a day (§5.3 / R2); and the §5.4 lockout with its
+ * re-activate → edit → clear escape hatch — and two surfaces meant two copies of
+ * them. They now live in exactly one file, `admin/entitlement/entitlement-control.html`.
  *
  * The readout still points at `entitlement_vendor` — the row's RESOLVED target
  * vendor, because a product claim's entitlement belongs to that product's primary

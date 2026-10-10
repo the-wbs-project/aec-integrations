@@ -25,10 +25,16 @@
  * a regression, not a tidy-up.
  *
  * Layout: the brand area and the nav group are two flex regions. The nav group
- * is its own responsive grid (2 cols on mobile → 3 cols from `sm`) so the three
- * navs stay balanced instead of the brand eating a full quarter-column and
- * leaving a dead zone at tablet widths. From `lg` the brand sits left and the
- * nav group right (Stripe anchor).
+ * is its own responsive grid (2 cols below `md` → 4 cols from `md`) so the four
+ * navs stay balanced: a 2×2 block on phones and small tablets, one row from
+ * `md`. Three columns at `sm` would orphan the fourth on a second row. From
+ * `lg` the brand sits left and the nav group right (Stripe anchor). The nav
+ * group is `shrink-0`: at 1024px the brand's tagline gives up width, so no link
+ * label wraps ("How ranking works" did before).
+ *
+ * The Help column (AECI-1252) is the footer-only entry into `/docs`
+ * (STAGE_2_PRODUCT_DOCS_SPEC.md §7 question 3). "For vendors" joins it with
+ * AECI-1253, once `/docs/vendors` is indexable.
  *
  * Year is frozen at class init so SSR and client render the same value (no
  * `new Date()` in the template — see ANGULAR_STYLE_GUIDE.md §8, §16).
@@ -52,7 +58,7 @@ import { BrandLogo } from './brand-logo';
             The independent directory of AEC software integrations.
           </p>
         </div>
-        <div class="grid grid-cols-2 gap-x-10 gap-y-8 sm:grid-cols-3">
+        <div class="grid shrink-0 grid-cols-2 gap-x-10 gap-y-8 md:grid-cols-4">
           <nav class="text-sm" i18n-aria-label="@@app.footer.directory.aria" aria-label="Directory">
             <p
               class="mb-3 text-xs uppercase tracking-wide text-(--text-secondary)"
@@ -111,6 +117,36 @@ import { BrandLogo } from './brand-logo';
                 <a routerLink="/phases" class="text-(--text-secondary) hover:text-(--text-primary)">
                   <ng-container i18n="@@app.nav.phases">Phases</ng-container>
                 </a>
+              </li>
+            </ul>
+          </nav>
+          <nav class="text-sm" i18n-aria-label="@@app.footer.help.aria" aria-label="Help">
+            <p class="mb-3 text-xs uppercase tracking-wide text-(--text-secondary)">
+              <ng-container i18n="@@app.footer.help.eyebrow">Help</ng-container>
+            </p>
+            <ul class="space-y-2">
+              <li>
+                <a routerLink="/docs" class="text-(--text-secondary) hover:text-(--text-primary)"
+                  ><ng-container i18n="@@app.footer.help.helpCenter">Help center</ng-container></a
+                >
+              </li>
+              <li>
+                <a
+                  routerLink="/docs/getting-started"
+                  class="text-(--text-secondary) hover:text-(--text-primary)"
+                  ><ng-container i18n="@@app.footer.help.gettingStarted"
+                    >Getting started</ng-container
+                  ></a
+                >
+              </li>
+              <li>
+                <a
+                  routerLink="/docs/trust/how-ranking-works"
+                  class="text-(--text-secondary) hover:text-(--text-primary)"
+                  ><ng-container i18n="@@app.footer.help.howRankingWorks"
+                    >How ranking works</ng-container
+                  ></a
+                >
               </li>
             </ul>
           </nav>

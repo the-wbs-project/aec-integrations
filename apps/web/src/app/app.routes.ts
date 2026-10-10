@@ -528,12 +528,12 @@ export const routes: Routes = [
     path: 'notifications/mute',
     loadComponent: () => import('./notifications/nudge-mute').then((m) => m.NudgeMutePage),
   },
-  // AECI-1104 — the product docs (`/docs/<section>/<slug>`,
-  // `docs/STAGE_2_PRODUCT_DOCS_SPEC.md`). Only the vendor guide exists so far.
-  // Lazy children generated from the docs manifest, so the Markdown ships only
-  // on docs routes and an unknown `/docs/*` falls through to the `**` 404.
-  // Cacheable on the static-page TTL; `/docs/vendors/*` is noindex until the
-  // portal opens (AECI-1105).
+  // AECI-1104, AECI-1248 — the product docs (`docs/STAGE_2_PRODUCT_DOCS_SPEC.md`):
+  // `/docs` (home), `/docs/<section>` (section index), `/docs/<section>/<slug>`
+  // (article). Lazy children generated from the docs manifest, so the Markdown
+  // ships only on docs routes and an unknown `/docs/*` falls through to the `**`
+  // 404. Cacheable on the static-page TTL; `/docs/vendors` and everything under
+  // it is noindex until the vendor guide is published (AECI-1253).
   {
     path: 'docs',
     loadChildren: () => import('./docs/docs.routes').then((m) => m.DOCS_ROUTES),

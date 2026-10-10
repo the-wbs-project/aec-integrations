@@ -52,7 +52,7 @@ These are Stage 2 close-out work, not Stage 2.1 scope — recorded here because 
 
 The full vendor lifecycle exercised as a real vendor would hit it — on staging first, then against dark production:
 
-claim submission → claimant identity resolution → admin claim review → approve → seat grant → first sign-in → vendor dashboard → attestation authoring (including the `single_source` / conflict states) → entitlement set / renew / clear → account-status label appearing on detail **and** search surfaces → claim-decision + seat emails delivered → live revalidation cadence observed (20 s focused / 60 s unfocused / paused hidden).
+claim submission → claimant identity resolution → admin claim review → approve → seat grant → first sign-in → vendor dashboard → attestation authoring (including the `single_source` / conflict states) → entitlement set / renew / clear → account-status label appearing on detail **and** search surfaces *(removed 2026-10-09, AECI-1264: no surface shows the label now. The rehearsal checks the claim button copy instead, `STAGE_2_1_REHEARSAL.md` step 13a)* → claim-decision + seat emails delivered → live revalidation cadence observed (20 s focused / 60 s unfocused / paused hidden).
 
 Tools that exist for this: `/preview/vendor-dashboard` (persona/entitlement presets, no session needed) for surface passes; a staged claim with a test vendor identity for the real pipeline. The rehearsal is complete only when a full pass requires **zero manual DB intervention**.
 
@@ -175,7 +175,7 @@ Chris moved AECI-1159 and AECI-1160 in from Stage 3 on 2026-10-01, under epic AE
 
 The Product Docs / Help Center epic remains Stage 2 scope (`STAGE_2_SPEC.md` §2.6, `STAGE_2_PRODUCT_DOCS_SPEC.md`), but its deferred **vendor-guide tranche** was always triggered by "vendor-portal testing settles" — which is this stage. Publication of the vendor guides is a §5 exit gate: vendors are not asked to do the work (and later pay) without support content in place.
 
-**Built 2026-09-23 (AECI-1104).** Six task pages render at `/docs/vendors/*` (`STAGE_2_PRODUCT_DOCS_SPEC.md` §5). They are live but noindex, out of the sitemap, and not yet linked from the footer or the portal. AECI-1105 flips all three when the first pilot vendor is seated, which is the moment §5's "published" becomes literal. The rehearsal script (`STAGE_2_1_REHEARSAL.md`, AECI-1103) links each lifecycle step to its page in its "Vendor-guide mapping" table. AECI-1181 added a seventh page on 2026-10-02, `/docs/vendors/replying-to-reviews`, under the same noindex rule.
+**Built 2026-09-23 (AECI-1104).** Six task pages render at `/docs/vendors/*` (`STAGE_2_PRODUCT_DOCS_SPEC.md` §5). They are live but noindex, out of the sitemap, and not yet linked from the footer or the portal. AECI-1105 flips all three when the first pilot vendor is seated, which is the moment §5's "published" becomes literal. The rehearsal script (`STAGE_2_1_REHEARSAL.md`, AECI-1103) links each lifecycle step to its page in its "Vendor-guide mapping" table. AECI-1181 added a seventh page on 2026-10-02, `/docs/vendors/replying-to-reviews`, and AECI-1160 an eighth on 2026-10-05, `/docs/vendors/change-history`, both under the same noindex rule. The flip is AECI-1253, run in the same sitting as AECI-1105 (`STAGE_2_PRODUCT_DOCS_SPEC.md` §8).
 
 ## 4. Out of scope
 

@@ -169,7 +169,10 @@ describe('cacheControlForRoute', () => {
     // the same deliberate absence of the resilience pair.
     ['/methodology', { edge: 86_400, browser: 3_600 }],
     ['/legal/privacy', { edge: 86_400, browser: 3_600 }],
-    // AECI-1104 — the /docs vendor guide is static build-inlined content.
+    // AECI-1104, AECI-1248 — the product docs are static build-inlined content:
+    // the bare `/docs` home, a section index and an article share one TTL.
+    ['/docs', { edge: 86_400, browser: 3_600 }],
+    ['/docs/reviewers', { edge: 86_400, browser: 3_600 }],
     ['/docs/vendors/your-seat', { edge: 86_400, browser: 3_600 }],
     ['/products/procore', { edge: 900, browser: 0, ...R }],
     ['/vendors/autodesk', { edge: 900, browser: 0, ...R }],
@@ -419,20 +422,42 @@ describe('createApp X-Robots-Tag egress block (pre-launch crawler gate)', () => 
     expect(res.headers.get('X-Robots-Tag')).toBeNull();
   });
 
-  it('stamps /docs/vendors/* even when ALLOW_INDEXING is "true" (AECI-1104, until AECI-1105)', async () => {
-    const { binding } = recordingApiBinding();
-    const app = createApp({ ssrRenderer: htmlRenderer() });
+  it.each(['/docs/vendors/your-seat', '/docs/vendors'])(
+    'stamps %s even when ALLOW_INDEXING is "true" (AECI-1104, until AECI-1253)',
+    async (path) => {
+      const { binding } = recordingApiBinding();
+      const app = createApp({ ssrRenderer: htmlRenderer() });
 
-    const res = await app.fetch(
-      new Request('https://www.aecintegrations.com/docs/vendors/your-seat'),
-      { ...binding, ENV: 'production', ALLOW_INDEXING: 'true' } as unknown as Bindings,
-      fakeExecutionContext(),
-    );
+      const res = await app.fetch(
+        new Request(`https://www.aecintegrations.com${path}`),
+        { ...binding, ENV: 'production', ALLOW_INDEXING: 'true' } as unknown as Bindings,
+        fakeExecutionContext(),
+      );
 
-    expect(res.status).toBe(200);
-    expect(res.headers.get('Cache-Control')).toContain('public');
-    expect(res.headers.get('X-Robots-Tag')).toBe('noindex, nofollow');
-  });
+      expect(res.status).toBe(200);
+      expect(res.headers.get('Cache-Control')).toContain('public');
+      expect(res.headers.get('X-Robots-Tag')).toBe('noindex, nofollow');
+    },
+  );
+
+  it.each(['/docs', '/docs/reviewers', '/docs/reviewers/requests-and-corrections'])(
+    'leaves %s indexable and cacheable where ALLOW_INDEXING is "true" (AECI-1248)',
+    async (path) => {
+      const { binding } = recordingApiBinding();
+      const app = createApp({ ssrRenderer: htmlRenderer() });
+
+      const res = await app.fetch(
+        new Request(`https://www.aecintegrations.com${path}`),
+        { ...binding, ENV: 'production', ALLOW_INDEXING: 'true' } as unknown as Bindings,
+        fakeExecutionContext(),
+      );
+
+      expect(res.status).toBe(200);
+      expect(res.headers.get('Cache-Control')).toContain('public');
+      expect(res.headers.get('Cache-Tag')).toContain('route:index');
+      expect(res.headers.get('X-Robots-Tag')).toBeNull();
+    },
+  );
 
   it('stamps redirects too (301 → /products) so removed URLs drop from the index', async () => {
     const { binding } = recordingApiBinding();
@@ -981,6 +1006,57 @@ describe('createApp /categories/reality-capture-scan-to-bim 301 (AECI-926)', () 
     // The redirect TARGET must not itself redirect — that would be a loop.
     expect(res.status).toBe(200);
     expect(ssrRenderer).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('createApp renamed docs page 301 (AECI-1264)', () => {
+  function appWithSpyRenderer(): { app: ReturnType<typeof createApp>; ssrRenderer: SsrRenderer } {
+    const ssrRenderer = vi.fn<SsrRenderer>(
+      fixedRenderer(new Response('<html>x</html>', { status: 200 })),
+    );
+    return { app: createApp({ ssrRenderer }), ssrRenderer };
+  }
+
+  it('301-redirects the old plans URL to /docs/vendors/plans without invoking SSR', async () => {
+    const { binding } = recordingApiBinding();
+    const { app, ssrRenderer } = appWithSpyRenderer();
+    const res = await app.fetch(
+      new Request('https://www.aecintegrations.com/docs/vendors/plans-and-the-account-label'),
+      binding as unknown as Bindings,
+      fakeExecutionContext(),
+    );
+    expect(res.status).toBe(301);
+    expect(res.headers.get('location')).toBe('https://www.aecintegrations.com/docs/vendors/plans');
+    expect(res.headers.get('cache-control')).toBe('public, max-age=3600, s-maxage=86400');
+    expect(res.headers.get('cache-tag')).toBeNull();
+    expect(ssrRenderer).not.toHaveBeenCalled();
+  });
+
+  it('drops the query, so the Location never depends on it (WC-4 redirect rule)', async () => {
+    const { binding } = recordingApiBinding();
+    const { app } = appWithSpyRenderer();
+    const res = await app.fetch(
+      new Request('https://www.aecintegrations.com/docs/vendors/plans-and-the-account-label?x=1'),
+      binding as unknown as Bindings,
+      fakeExecutionContext(),
+    );
+    expect(res.headers.get('location')).toBe('https://www.aecintegrations.com/docs/vendors/plans');
+  });
+
+  it('leaves the new URL, and the never-shipped reader page, on the SSR pipeline', async () => {
+    // The target must not itself redirect (a loop), and `/docs/trust/the-account-label`
+    // never shipped, so it gets no redirect: the SSR `**` route answers it.
+    for (const path of ['/docs/vendors/plans', '/docs/trust/the-account-label']) {
+      const { binding } = recordingApiBinding();
+      const { app, ssrRenderer } = appWithSpyRenderer();
+      const res = await app.fetch(
+        new Request(`https://www.aecintegrations.com${path}`),
+        binding as unknown as Bindings,
+        fakeExecutionContext(),
+      );
+      expect(res.status, path).toBe(200);
+      expect(ssrRenderer, path).toHaveBeenCalledTimes(1);
+    }
   });
 });
 

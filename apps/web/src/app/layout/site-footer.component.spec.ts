@@ -8,8 +8,8 @@ import { SiteFooter } from './site-footer';
 /**
  * The footer is **load-bearing for secondary navigation**, which it was not when
  * it last went untested. Retiring the header's "More" overflow menu made this the
- * only place Updates, Roadmap, About, Contact and the four Legal pages are linked
- * from every page (DESIGN.md §Navigation → The Overflow Rule). A link silently
+ * only place Updates, Roadmap, About, Contact, the four Legal pages and the help
+ * center are linked from every page (DESIGN.md §Navigation → The Overflow Rule). A link silently
  * dropping out of a column is now a regression, not a tidy-up — so the columns
  * are pinned here.
  *
@@ -50,6 +50,17 @@ describe('SiteFooter', () => {
     ]);
   });
 
+  it('carries the Help column into /docs (AECI-1252)', () => {
+    // STAGE_2_PRODUCT_DOCS_SPEC.md §7 question 3: the help center is footer-only,
+    // as its own column. "For vendors" is deliberately absent until AECI-1253,
+    // because /docs/vendors stays noindex until the portal opens.
+    expect(column(render(), 'Help')).toEqual([
+      '/docs',
+      '/docs/getting-started',
+      '/docs/trust/how-ranking-works',
+    ]);
+  });
+
   it('carries all four Legal pages', () => {
     expect(column(render(), 'Legal')).toEqual([
       '/legal/terms',
@@ -79,7 +90,7 @@ describe('SiteFooter', () => {
   it('names every column for assistive tech and renders no role-gated link', () => {
     const el = render();
     const labels = Array.from(el.querySelectorAll('nav')).map((n) => n.getAttribute('aria-label'));
-    expect(labels).toEqual(['Directory', 'Legal', 'Company']);
+    expect(labels).toEqual(['Directory', 'Help', 'Legal', 'Company']);
 
     // The footer is inside cached, URL-keyed HTML — it must be visitor-neutral.
     expect(el.querySelectorAll('a[href^="/admin"]').length).toBe(0);

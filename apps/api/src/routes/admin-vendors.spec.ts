@@ -1551,7 +1551,7 @@ describe('DELETE /api/admin/vendors/:id/seats/:userId', () => {
  * `STAGE_2_SPEC.md` §8.9(1) settled that a pure connector vendor is never sold
  * verification and gets a catalogue-maintenance seat instead; §8.9(2) showed the
  * seat cannot be an entitlement row, because `vendors.verified` mirrors off
- * `status = 'active'` rather than `tier` — so any active row lights the badge.
+ * `status = 'active'` rather than `tier` — so any active row flips `verified`.
  * Before this endpoint, every path to a seat opened one on the way, which is why
  * `STAGE_2_VENDOR_PORTAL_SPEC.md` §5.2 had to tell operators not to press Grant.
  *
@@ -1621,7 +1621,7 @@ describe('POST /api/admin/vendors/:id/seats', () => {
 
   it('opens NO entitlement row and never lights the badge — the whole point', async () => {
     // §8.9(2). This is the assertion the endpoint exists for; if it ever fails,
-    // a connector vendor has been handed the public account label the carve-out says
+    // a connector vendor has been handed the paid `verified` status the carve-out says
     // they will never be sold, through a one-way door.
     const [before] = await t.db.select().from(vendors).where(eq(vendors.id, VENDOR));
     const res = await provision(VENDOR, linked());

@@ -169,8 +169,9 @@ describe('MethodologyPage', () => {
     it('does not add ownership to the paid-plan list (decision 15: a seat is the gate)', () => {
       const { host } = setup();
       const text = host.textContent ?? '';
-      // The Managed list is exactly four items (the Free edits sit in the
-      // sentence before it, AECI-1219, the reply item is AECI-1181, and AECI-1263
+      // The Managed list is exactly three items (the Free edits sit in the
+      // sentence before it, AECI-1219, the reply item is AECI-1181, the
+      // account-label item went with the label, AECI-1264, and AECI-1263
       // dropped version history), and claiming, editing and contesting are
       // seat-gated, so none of them may appear in it.
       const planList = Array.from(host.querySelectorAll('li'))
@@ -178,7 +179,8 @@ describe('MethodologyPage', () => {
         .filter((line) =>
           /^(which other product details a vendor may edit|whether (a vendor|the))/.test(line),
         );
-      expect(planList).toHaveLength(4);
+      expect(planList).toHaveLength(3);
+      expect(planList.join(' ')).not.toMatch(/label/i);
       expect(planList.join(' ')).not.toMatch(/claim an integration|contest/i);
       expect(text).toContain('this is the complete list');
     });
@@ -224,7 +226,8 @@ describe('MethodologyPage', () => {
     expect(host.textContent).toContain('The WBS Project');
     const hrefs = Array.from(host.querySelectorAll('a')).map((a) => a.getAttribute('href'));
     expect(hrefs).toContain('mailto:support@aecintegrations.com');
-    expect(hrefs).toContain('mailto:reviews@thewbsproject.com');
+    // AECI-1265: there is no reviews@ mailbox; review reports go to support@ too.
+    expect(hrefs.some((href) => href?.startsWith('mailto:reviews@'))).toBe(false);
     expect(hrefs).toContain('/contact');
   });
 
@@ -233,6 +236,18 @@ describe('MethodologyPage', () => {
     const hrefs = Array.from(host.querySelectorAll('a')).map((a) => a.getAttribute('href'));
     expect(hrefs).toContain('/legal/listing-accuracy');
     expect(hrefs).toContain('/legal/review-guidelines');
+  });
+
+  it('links down to the /docs pages that show each rule in practice (AECI-1252)', () => {
+    // STAGE_2_5_SPEC.md §7.1–§7.2: /methodology states the rule and stays the
+    // citable statement; /docs/trust/* and /docs/getting-started/* are the
+    // task-level depth it points down to.
+    const { host } = setup();
+    const hrefs = Array.from(host.querySelectorAll('a')).map((a) => a.getAttribute('href'));
+    expect(hrefs).toContain('/docs/getting-started/taxonomy');
+    expect(hrefs).toContain('/docs/trust/agreement-states');
+    expect(hrefs).not.toContain('/docs/trust/the-account-label');
+    expect(hrefs).toContain('/docs/trust/how-ranking-works');
   });
 
   it('sets an indexable static-page title (no noindex robots tag)', () => {

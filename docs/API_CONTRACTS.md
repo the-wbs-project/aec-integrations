@@ -206,7 +206,9 @@ export const LinkRefSchema = z.object({
 
 // VendorLink extends LinkRef with logo_url + verified (the legacy account-access
 // mirror from vendors.verified — required, since the column is NOT NULL DEFAULT
-// false; powers the AECI-965 account-status label on detail surfaces).
+// false). It drives the claim button copy on the product page and the pair page's
+// version-diff gate. The AECI-965 account label it once drove was removed on
+// 2026-10-09 (AECI-1264).
 // ProductLink extends LinkRef with logo_url only.
 export const VendorLinkSchema = LinkRefSchema.extend({
   logo_url: LogoReadUrlSchema.nullable(),
@@ -2619,8 +2621,10 @@ part of a claim grant, and by `POST /api/seat-invites/:token/accept` on invite r
 those need a claim or an existing owner seat behind them. The first opens an entitlement on a Managed approve only. Since AECI-1215 a Free approve opens none.) That combination is the entire point. §8.9(1) settled that a
 pure connector vendor is never sold verification and receives a catalogue-maintenance seat
 instead; §8.9(2) showed the seat cannot BE an entitlement row, because `vendors.verified`
-mirrors off `status = 'active'` rather than `tier` — so any active row lights the badge, and
-"a seat but no badge" is not expressible through that table. Every prior path to a seat opened
+mirrors off `status = 'active'` rather than `tier`. So any active row flips the public
+`verified` mirror, and "a seat but no `verified`" is not expressible through that table.
+(This read "lights the badge" until AECI-1264 removed the public badge on 2026-10-09. The
+mirror still drives the claim button copy and the version-diff gate.) Every prior path to a seat opened
 one on the way (`approveClaim` composed `grantSeatStatements` with
 `activateEntitlementStatements` at `GRANT_TIER = 'verified'`), which is why §5.2 had to tell
 operators not to press Grant and to park the claim instead. AECI-1215 since gave the claim
@@ -2755,9 +2759,11 @@ where the mirror landed.
 includes `unclaimed`, because the session block (§6.14) and the grant summary must be able to
 *report* that a vendor has no entitlement. A `set` request uses `PaidEntitlementTierSchema` —
 `TIERS` minus `unclaimed`. The distinction is not tidiness: an `active` row at `unclaimed`
-would flip the mirror and show the public account label while resolving to only the Free
-capabilities every seat already holds (AECI-1214), i.e. a vendor billed for an account status
-that unlocks nothing. Free is never a `vendor_entitlements` row (`STAGE_2_PAID_TIERS_SPEC.md` §13.2).
+would flip the mirror while resolving to only the Free capabilities every seat already holds
+(AECI-1214), i.e. a vendor billed for an account status that unlocks nothing. The flipped mirror
+still shows in public: the claim button reads "Request access to this listing" and the
+`verified` field turns true. (Until 2026-10-09 it also showed the public account label, which
+AECI-1264 removed.) Free is never a `vendor_entitlements` row (`STAGE_2_PAID_TIERS_SPEC.md` §13.2).
 
 The three actions:
 
@@ -2792,7 +2798,8 @@ row** — that CHECK is closed and `audit_log` is the ledger. Post-commit, best-
 Cache-Tag purge of the full grant tag set (`vendor:{slug}` + every owned `product:{slug}` +
 `index:products`) via the shared `lib/vendor-cache-tags.ts`. The purge is **not** gated on
 whether the mirror actually flipped: a redundant purge costs one cache miss, a missed one
-leaves a wrong badge on every cached product page.
+leaves wrong claim button copy on every cached product page. (This said "a wrong badge" until
+AECI-1264 removed the public badge on 2026-10-09.)
 
 Errors:
 

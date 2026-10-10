@@ -9,7 +9,7 @@ AEC Integrations is an independent directory of the software integrations that a
 
 We catalog software products used in AEC work, the vendors behind them, and the integrations between them. A product is listed when it is relevant to the industry and we can describe it from public sources. Inclusion is an editorial decision. It is never bought, and it does not imply any relationship with the vendor.
 
-We classify every product four ways: what the software does, who uses it, which project phases it supports, and which specialty trades it serves. Each of the four draws on a fixed set of terms we maintain rather than free-form tags, so similar products can be compared consistently.
+We classify every product four ways: what the software does, who uses it, which project phases it supports, and which specialty trades it serves. Each of the four draws on a fixed set of terms we maintain rather than free-form tags, so similar products can be compared consistently. [How listings are classified](/docs/getting-started/taxonomy) shows the terms in use.
 
 An integration appears only when both products at its ends are listed here. An entry naming a product we had never assessed would be a claim we could not stand behind. If an integration you rely on is missing, tell us.
 
@@ -38,6 +38,8 @@ Every claim carries one of four states. The first column is the label the page s
 | Confirmed by both companies | Both companies have independently confirmed this claim. |
 | Companies disagree | The two companies disagree about this. We show both answers and do not take sides. |
 
+[Agreement states](/docs/trust/agreement-states) shows how to read each label on an integration page.
+
 Two rules govern that table.
 
 **Our own entry never counts as a confirmation.** We record the claim, and our own record is excluded from the count. We can be the only voice on a claim. We can never produce a disagreement on our own.
@@ -46,10 +48,7 @@ Two rules govern that table.
 
 **Where this stands today.** Confirming a claim needs an approved vendor account, and so does owning an integration. Vendor accounts opened in September 2026, so most claims and integrations are still recorded by AEC Integrations, and you will see "Listed by AEC Integrations" nearly everywhere. We would rather label that plainly than imply an endorsement nobody has given.
 
-Two other markers appear on listings and are easy to confuse with verification.
-
-- **Who maintains a page.** Every page carries "AEC Integrations maintained" until a vendor acts on the record through its own account. Then it reads "Vendor maintained". On a product or vendor page, the company edited it, so the words on the page are theirs rather than ours. On an integration page, a vendor at one end has claimed it, edited it, confirmed one of its claims, or added its own links. The marker does not say which vendor owns the integration. The "Offered by" line does that. A date appears beside the marker on product and vendor pages only where a person actually touched the record, and the wording says which person: we write "Reviewed" when we re-checked it, and "Updated" when a vendor acted on it. On an integration page the date sits on each integration instead, as "Last checked". Most records carry no date at all, because nobody has been back to them yet. We will not manufacture one from a bulk update, and a routine catalog sync on our side never stamps a date onto a record a vendor maintains.
-- **The "Active on AEC Integrations" label.** It means a company has an active Managed plan with us. It does not verify product quality or integration accuracy, and it carries no weight in ranking. The label appears only while that account access is active, on the vendor's own page.
+**Who maintains a page** is a separate marker, and it is easy to confuse with verification. Every page carries "AEC Integrations maintained" until a vendor acts on the record through its own account. Then it reads "Vendor maintained". On a product or vendor page, the company edited it, so the words on the page are theirs rather than ours. On an integration page, a vendor at one end has claimed it, edited it, confirmed one of its claims, or added its own links. The marker does not say which vendor owns the integration. The "Offered by" line does that. A date appears beside the marker on product and vendor pages only where a person actually touched the record, and the wording says which person: we write "Reviewed" when we re-checked it, and "Updated" when a vendor acted on it. On an integration page the date sits on each integration instead, as "Last checked". Most records carry no date at all, because nobody has been back to them yet. We will not manufacture one from a bulk update, and a routine catalog sync on our side never stamps a date onto a record a vendor maintains.
 
 ## Who owns an integration
 
@@ -79,14 +78,13 @@ A contest stays with whoever was deciding when it was sent. A contest is a reque
 
 ## No pay-for-placement
 
-Position is never for sale. Not the order of search results, not the order of any listing, not a slot on the home page. There is no sponsored placement, no promoted tier, and no arrangement under which a payment moves a product up.
+Position is never for sale. Not the order of search results, not the order of any listing, not a slot on the home page. There is no sponsored placement, no promoted tier, and no arrangement under which a payment moves a product up. [How ranking works](/docs/trust/how-ranking-works) names what does decide the order.
 
-Every claimed vendor can edit its company details and its products' description, website, logo and categories, on any plan. These are the details that feed search, so no payment is needed to improve them. A Managed plan affects four further things, and this is the complete list:
+Every claimed vendor can edit its company details and its products' description, website, logo and categories, on any plan. These are the details that feed search, so no payment is needed to improve them. A Managed plan affects three further things, and this is the complete list:
 
 - which other product details a vendor may edit,
 - whether a vendor can confirm or dispute integration details,
-- whether a vendor can post a public reply to a review of its product,
-- whether the "Active on AEC Integrations" label appears on its vendor page.
+- whether a vendor can post a public reply to a review of its product.
 
 A reply puts a vendor's own words in front of a reader, so it is worth being exact about the limits. A reply shows only after we approve it, sits under the review it answers, and is labeled as the vendor's. The current state of an integration is always shown in full, to everyone, including whether the two vendors agree or disagree. Readers are never asked to pay, to sign in, or to be identified.
 
@@ -122,4 +120,4 @@ The [Listing Accuracy Policy](/legal/listing-accuracy) and the [Review Guideline
 
 AEC Integrations is built and maintained by The WBS Project, which operates the site and is accountable for what is on it.
 
-Corrections, questions, and disputes reach us at [support@aecintegrations.com](mailto:support@aecintegrations.com), or through the [contact page](/contact). Reports about a specific review go to [reviews@thewbsproject.com](mailto:reviews@thewbsproject.com).
+Corrections, questions, disputes, and reports about a specific review reach us at [support@aecintegrations.com](mailto:support@aecintegrations.com), or through the [contact page](/contact).

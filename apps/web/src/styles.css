@@ -402,17 +402,6 @@ h3 {
   border-color: var(--border-strong);
 }
 
-/* The /docs section rail (AECI-1104, `docs/docs-page.ts`). The current page
-   carries a Forest start-edge rule. `border-(--accent-primary)` would lose to the
-   unlayered `*` rule (the `.aec-nav-tab` note), so the edge colour lives here. */
-.aec-docs-nav-link {
-  border-inline-start-color: transparent;
-}
-
-.aec-docs-nav-link[aria-current='page'] {
-  border-inline-start-color: var(--accent-primary);
-}
-
 hr {
   border-color: var(--border-default);
 }
@@ -670,4 +659,157 @@ html {
 .aec-prose th {
   color: var(--text-primary);
   font-weight: 600;
+}
+
+/* ─── The /docs help center (AECI-1259; anchor site Devin DeepWiki) ───────────
+   `docs/docs-*.ts`; DESIGN.md "Product docs". Unlayered on purpose, and after the
+   `.aec-prose` block on purpose:
+
+   - The global `h1, h2, h3` rule is unlayered, so a `text-*` utility on a heading
+     is dead (DESIGN.md "The Unlayered-Heading Rule"). A class beats the element
+     selector, so the docs heading sizes live here.
+   - `.aec-docs-prose h2` ties `.aec-prose h2` on specificity, so it must come
+     later in the file to win.
+   - The rail's open panel needs a border colour, which a layered utility cannot
+     set past the unlayered `*` rule (the `.aec-nav-tab` note). */
+
+/* Page h1 on the home, a section index and an article: the Headline role at
+   ~30px, DeepWiki's quiet title rather than a hero. Serif, above the 18px floor. */
+.aec-docs-title {
+  font-size: 1.875rem;
+  line-height: 1.2;
+}
+
+/* Small headings in the home and section-index lists. Body face, because the
+   Serif-Floor Rule keeps Source Serif at 18px and up. */
+.aec-docs-subhead {
+  font-family: var(--font-body);
+  font-size: 1rem;
+  font-weight: 600;
+  letter-spacing: normal;
+  line-height: 1.4;
+}
+
+/* The article body: `.aec-prose` with DeepWiki's density (tighter leading and
+   block spacing, the body size unchanged). The body is cut into
+   `display: contents` blocks around each heading (`docs-markdown.ts`), so the
+   first paragraph sits one level deeper than `.aec-prose > :first-child`. */
+.aec-docs-prose {
+  line-height: 1.65;
+}
+
+.aec-docs-prose > :first-child > :first-child {
+  margin-block-start: 0;
+}
+
+.aec-docs-prose p,
+.aec-docs-prose ul,
+.aec-docs-prose ol {
+  margin-block-start: 0.875rem;
+}
+
+.aec-docs-prose li {
+  margin-block-start: 0.375rem;
+}
+
+.aec-docs-prose h2 {
+  font-size: 1.375rem;
+  line-height: 1.3;
+  margin-block: 2.25rem 0;
+}
+
+.aec-docs-prose h3 {
+  font-size: 1.125rem;
+  line-height: 1.35;
+  margin-block: 1.75rem 0;
+}
+
+/* Fragment jumps (the rail, `/docs/...#id` links) land with air above the
+   heading. Nothing above the article is sticky: the site header scrolls away,
+   and so does the docs top bar. */
+.aec-docs-prose h2,
+.aec-docs-prose h3 {
+  scroll-margin-top: 1.5rem;
+}
+
+/* "On this page" rail (`docs-toc.ts`). Closed: one dash per heading, the label
+   visually hidden but still the link's name. Open on hover or when a link has
+   focus: a bordered panel with the headings beside their dashes. The list is
+   absolutely placed so opening it overlays the article and never reflows it. */
+.aec-docs-toc {
+  position: relative;
+}
+
+.aec-docs-toc-list {
+  border: 1px solid transparent;
+  border-radius: 0.5rem;
+  display: flex;
+  flex-direction: column;
+  inset-block-start: 0;
+  inset-inline-end: 0;
+  padding: 0.5rem;
+  position: absolute;
+  width: max-content;
+}
+
+/* 24px minimum target (WCAG 2.2 2.5.8): closed, the dash alone is 2px tall, so
+   the link box, not the mark, carries the size. That sets the dash pitch. */
+.aec-docs-toc-link {
+  align-items: center;
+  color: var(--text-secondary);
+  display: flex;
+  font-size: 0.875rem;
+  gap: 0.75rem;
+  justify-content: flex-end;
+  line-height: 1.4;
+  min-height: 1.5rem;
+  min-width: 1.5rem;
+  padding-block: 0.125rem;
+}
+
+.aec-docs-toc-link:hover,
+.aec-docs-toc-link[aria-current] {
+  color: var(--text-primary);
+}
+
+/* The dash is the link's only visible mark while the rail is closed, so it
+   holds the 3:1 non-text floor: tertiary (4.83:1), primary when current. */
+.aec-docs-toc-dash {
+  background-color: var(--text-tertiary);
+  border-radius: 1px;
+  flex-shrink: 0;
+  height: 2px;
+  width: 0.75rem;
+}
+
+.aec-docs-toc-link[aria-current] .aec-docs-toc-dash {
+  background-color: var(--text-primary);
+  width: 1.25rem;
+}
+
+.aec-docs-toc-label {
+  clip-path: inset(50%);
+  height: 1px;
+  overflow: hidden;
+  position: absolute;
+  white-space: nowrap;
+  width: 1px;
+}
+
+.aec-docs-toc:hover .aec-docs-toc-list,
+.aec-docs-toc:focus-within .aec-docs-toc-list {
+  background-color: var(--surface-base);
+  border-color: var(--border-default);
+  width: 16rem;
+}
+
+.aec-docs-toc:hover .aec-docs-toc-label,
+.aec-docs-toc:focus-within .aec-docs-toc-label {
+  clip-path: none;
+  flex: 1;
+  height: auto;
+  overflow: visible;
+  position: static;
+  white-space: normal;
+  width: auto;
 }

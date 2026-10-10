@@ -549,7 +549,7 @@ export type AdminVendorAuditResponse = z.infer<typeof AdminVendorAuditResponseSc
  * by **no `vendor_entitlements` row**. §8.9(2) then proved every existing path to
  * a seat was foreclosed: `approveClaim` composes `grantSeatStatements` with
  * `activateEntitlementStatements` at `GRANT_TIER = 'verified'` in one batch, so
- * approving such a claim *always* opens an entitlement and lights the badge; the
+ * approving such a claim *always* opens an entitlement and flips `verified`; the
  * seat-invite redeem needs an existing OWNER seat, which only a grant creates;
  * and no admin route wrote `role = 'vendor_admin'` at all. So
  * `STAGE_2_VENDOR_PORTAL_SPEC.md` §5.2 was a nine-step operator procedure whose
@@ -596,7 +596,7 @@ export type AdminRevokeSeat = z.infer<typeof AdminRevokeSeatSchema>;
  *
  * **`verified` is read back, never written.** No statement on this path names
  * `vendors`, so the flag is whatever it already was; it is on the wire so the
- * operator can see at a glance that provisioning did not light the badge.
+ * operator can see at a glance that provisioning did not flip `verified`.
  *
  * `is_pure_connector_vendor` / `product_roles` are the §8.8(1) payer test as it
  * stood at the moment of the write (AECI-738's shared derivation). They are

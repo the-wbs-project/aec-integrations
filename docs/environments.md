@@ -1367,7 +1367,9 @@ Preview's manual apply goes **last**, because it creates `preview_products_name_
 That is exactly at the cap. A new tier set still cannot fit.
 `stage2` shipped **without search** for exactly this reason and lost nothing that mattered
 — the only Stage 2 feature reading Algolia is the AECI-529 account-status label on the search
-surfaces, verifiable on a PR preview against `preview_*`.
+surfaces, verifiable on a PR preview against `preview_*`. No search card has rendered that label
+since AECI-1131, and AECI-1264 removed the label on 2026-10-09. The vendor record still carries
+`verified`, and nothing displays it.
 
 Two things not to do if you hit this: do **not** point a temp tier at another tier's index
 prefix (its promote→index hook would write into indexes that tier reads), and do **not**

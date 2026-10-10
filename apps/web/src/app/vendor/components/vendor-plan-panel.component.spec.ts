@@ -17,7 +17,8 @@
  *     overrides by precedence: message, then price, then the default (ruling
  *     2026-10-08, §13.13);
  *  5. fail closed: `active` over an unknown tier is not Managed;
- *  6. copy discipline: no arrangement detail, no ranking claim, no instant search.
+ *  6. copy discipline: no arrangement detail, no ranking claim, no instant search,
+ *     and no public account label (AECI-1264).
  */
 import { provideZonelessChangeDetection } from '@angular/core';
 import { TestBed, type ComponentFixture } from '@angular/core/testing';
@@ -31,8 +32,8 @@ import { VendorPlanPanel } from './vendor-plan-panel';
 
 const DAY_MS = 86_400_000;
 const NOW = Date.parse('2026-10-02T12:00:00.000Z');
-const DECISION_10 =
-  'No plan changes where you rank or appear, whether a review is published, or what we verify.';
+// Reworded by AECI-1265 (marketing review B2): "or what we verify" is gone.
+const DECISION_10 = 'No plan changes where you rank or appear, or whether a review is published.';
 
 beforeEach(() => {
   TestBed.resetTestingModule();
@@ -214,6 +215,17 @@ describe('VendorPlanPanel: copy every panel carries', () => {
 
   it.each(ALL)('promises nothing about search freshness (%s)', (_name, plan, role) => {
     expect(text(create(plan, role))).not.toMatch(/immediately|right away|instantly/i);
+  });
+
+  // AECI-1264 (marketing review B1): no plan turns a public label on or off.
+  // The panel names the plan in words, through its own badge and lede.
+  it.each(ALL)('names no public account label (%s)', (_name, plan, role) => {
+    const f = create(plan, role);
+    expect(text(f)).not.toMatch(/Active on AEC Integrations|account label|public label/i);
+    expect(el(f).querySelector('aec-vendor-account-badge')).toBeNull();
+    expect(el(f).querySelector('aec-vendor-plan-badge')?.textContent?.trim()).toMatch(
+      /^(Free|Managed)$/,
+    );
   });
 
   it.each(ALL)('is not an error surface (%s)', (_name, plan, role) => {

@@ -13,7 +13,6 @@ import { RequestDrawer } from '../requests/request-drawer';
 import { RequestTrigger } from '../requests/request-trigger';
 import { LogoOrInitial } from '../shared/logo-or-initial/logo-or-initial';
 import { MailingListSignup } from '../shared/mailing-list-signup/mailing-list-signup';
-import { VendorAccountBadge } from '../shared/vendor-account-badge/vendor-account-badge';
 import { MaintenanceMarker } from '../shared/maintenance-marker/maintenance-marker';
 import { NewTabIcon } from '../shared/new-tab-icon/new-tab-icon';
 
@@ -56,6 +55,11 @@ type SocialKey = 'linkedin' | 'x' | 'youtube' | 'facebook' | 'instagram';
  * page-view payload was queued by the resolver. Nothing here triggers HTTP
  * — hydration reads the resolved data out of `route.data`.
  *
+ * No account or plan label in the hero (AECI-1264, marketing review B1). The
+ * "Active on AEC Integrations" badge is gone: it implied a vendor without it was
+ * inactive, and it marked publicly who pays. `v.verified` still drives the claim
+ * CTA's copy below, and nothing else on this page.
+ *
  * "Funding stage badge" from the AECI-59 acceptance criteria is omitted:
  * `VendorDetail` has no `funding_stage` field today. A follow-up issue would
  * need to extend the schema (column + Drizzle select + Zod + mapper).
@@ -74,7 +78,6 @@ type SocialKey = 'linkedin' | 'x' | 'youtube' | 'facebook' | 'instagram';
     RequestTrigger,
     RouterLink,
     VendorProductRow,
-    VendorAccountBadge,
   ],
   template: `
     @let v = vendor();
@@ -136,7 +139,6 @@ type SocialKey = 'linkedin' | 'x' | 'youtube' | 'facebook' | 'instagram';
               >
                 {{ v.company_name }}
               </h1>
-              <aec-vendor-account-badge [active]="v.verified" />
             </div>
           </div>
 

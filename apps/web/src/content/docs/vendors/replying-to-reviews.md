@@ -3,7 +3,7 @@ title: Replying to reviews
 description: How your company posts a public reply to a review of one of its products, how we check it, and how to edit or withdraw it.
 section: vendors
 order: 6
-last_updated: 2 October 2026
+last_updated: 9 October 2026
 ---
 
 Your company can post one public reply to each published review of a product it owns. The reply shows under the review on the product page. We check every reply before anyone sees it. A reply never changes the review.
@@ -12,7 +12,7 @@ Your company can post one public reply to each published review of a product it 
 
 Anyone with a seat on your vendor account can reply, owner or member. Your company must own the product. If a product has more than one owner, each owning company can post its own reply, and it does not matter which one is the main owner.
 
-Replying needs Managed. On Free you can see your products' reviews and any replies you posted before, but you cannot write, edit or resubmit a reply. You can still withdraw one. See [Plans and the account label](/docs/vendors/plans-and-the-account-label).
+Replying needs Managed. On Free you can see your products' reviews and any replies you posted before, but you cannot write, edit or resubmit a reply. You can still withdraw one. See [Plans](/docs/vendors/plans).
 
 You can reply only to a review that is published. You cannot see reviews that are still waiting for us or that we turned down.
 
@@ -65,11 +65,11 @@ A removed reply is final. Your company cannot reply to that review again.
 
 ## Reporting a review
 
-A reply is not a report. If you think a review breaks the [Review Guidelines](/legal/review-guidelines), for example it is fake or names a person, email [reviews@thewbsproject.com](mailto:reviews@thewbsproject.com) with a link and a short explanation. Replying does not remove, hide or flag a review.
+A reply is not a report. If you think a review breaks the [Review Guidelines](/legal/review-guidelines), for example it is fake or names a person, email [support@aecintegrations.com](mailto:support@aecintegrations.com) with a link and a short explanation. Replying does not remove, hide or flag a review.
 
 ## Related
 
 - Previous: [Contests and protests](/docs/vendors/contests-and-protests).
-- Next: [Plans and the account label](/docs/vendors/plans-and-the-account-label).
+- Next: [Plans](/docs/vendors/plans).
 - [Review Guidelines](/legal/review-guidelines), including the rules for vendor responses.
 - [How we research and verify listings](/methodology).

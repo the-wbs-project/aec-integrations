@@ -195,7 +195,7 @@ describe('the entitlement and ranking vocabularies are disjoint (§3.2) [invaria
 
   it('(b) no entitlement concept appears in INDEX_SETTINGS at all', () => {
     // The Algolia vendor RECORD may carry `verified` (AECI-529) — it is
-    // display-only, for the search-card badge. INDEX_SETTINGS may never name
+    // display-only, and no card renders it since AECI-1131. INDEX_SETTINGS may never name
     // it: not searchable, not a facet, not a custom-ranking signal.
     for (const banned of ['verified', 'tier', 'entitlement', 'status', 'paid', 'plan']) {
       expect(
@@ -719,9 +719,9 @@ describe('capabilitiesFor / hasCapability', () => {
 describe('PAID_TIERS — what an admin may actually grant [invariant]', () => {
   // `TIERS` and "what you can sell someone" are different lists, and conflating them
   // is a live incoherence, not a tidiness point: an `active` vendor_entitlements row
-  // at a zero-capability tier flips the `vendors.verified` mirror and lights the
-  // public account label (§2.1) while `tierFor` resolves it to no capabilities at all — a
-  // vendor billed for a badge that unlocks nothing. `SetVendorEntitlementSchema.tier`
+  // at a zero-capability tier flips the `vendors.verified` mirror (§2.1) while
+  // `tierFor` resolves it to no capabilities at all — a vendor billed for a plan that
+  // unlocks nothing. `SetVendorEntitlementSchema.tier`
   // therefore derives from PAID_TIERS, while the session block and grant summary keep
   // reading TIERS because they must be able to REPORT `unclaimed`.
   //

@@ -218,7 +218,7 @@ export async function buildVendorRecords(db: D1Database): Promise<Record<string,
     // AECI-825 — byte-identical to `toAlgoliaVendor`'s `company_name_sort`.
     company_name_sort: algoliaSortKey(r.company_name),
     slug: r.slug,
-    // AECI-1038 — the search-card account-status label (AECI-529 / AECI-965).
+    // AECI-1038 — the `verified` mirror (AECI-529). No card renders it (AECI-1131).
     // D1 stores it as 0/1; the record schema wants a boolean and defaults a
     // missing key to `false`, so omitting it here silently un-verified every
     // vendor on each full reindex. Parity with `toAlgoliaVendor` is asserted by

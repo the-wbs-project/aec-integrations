@@ -3,12 +3,12 @@ title: Attesting an integration
 description: How to say whether the data flows recorded under an integration are right, what readers see as a result, and what happens when the two companies disagree.
 section: vendors
 order: 3
-last_updated: 8 October 2026
+last_updated: 9 October 2026
 ---
 
-An integration's own page lists the data that moves between two products: a model, a schedule, an RFI, and so on, each in one direction. We call each of those a data flow. Most of them were recorded by AEC Integrations from public sources. Answering Yes or No on that page is how the company at either end says whether a flow is right.
+An integration's own page lists the data that moves between two products: a model, a schedule, an RFI, and so on, each in one direction. We call each of those a data flow. In the portal they are the rows under **Data that's shared**. The public integration page shows the same rows as types of data, under headings such as "Sends to (other product)". Most of them were recorded by AEC Integrations from public sources. Answering Yes or No on that page is how the company at either end says whether a flow is right.
 
-Answering needs a seat and the Managed plan. A company on Free can see every flow and every answer, but cannot answer. See [Your seat](/docs/vendors/your-seat) and [Plans and the account label](/docs/vendors/plans-and-the-account-label).
+Answering needs a seat and the Managed plan. A company on Free can see every flow and every answer, but cannot answer. See [Your seat](/docs/vendors/your-seat) and [Plans](/docs/vendors/plans).
 
 ## Open the integration's page
 
@@ -40,7 +40,7 @@ The box ends with two links:
 - **Change** opens the reason form again, with your reason and the corrected direction filled in. Edit the reason, pick another direction, or pick another reason for the No.
 - **Cancel** takes back both answers: your Yes on the corrected row and your No on the original. The original row then needs your answer again.
 
-For now, a corrected row you added stays on record after you cancel the change or pick another direction. It shows again as a row with no answer from you. Being able to remove a row you added is planned.
+A corrected row you added stays on record after you cancel the change or pick another direction. It shows again as a row with no answer from you. See [Current limits](/docs/vendors#current-limits).
 
 Your note is not public. Only the company at the other end of the integration and AEC Integrations see it. If your company makes both products, only AEC Integrations sees it.
 
@@ -66,7 +66,7 @@ The public integration page shows where each flow stands. It shows each company'
 | One confirms and the other says no | Companies disagree |
 | Only "no" answers | Listed by AEC Integrations |
 
-Most flows today read "Listed by AEC Integrations", because company confirmation has only just opened. AEC Integrations' own record is never counted as a vote, so it cannot create a disagreement.
+A flow reads "Listed by AEC Integrations" until a company confirms it. AEC Integrations' own record is never counted as a vote, so it cannot create a disagreement.
 
 If your company makes the products at both ends, it still has one position. That flow can show "Confirmed by" your company, but not "Confirmed by both companies".
 
@@ -79,17 +79,11 @@ The page tells you, on the integration's own page, what your answer sets in moti
 - **When you say Yes and the other company has not answered,** it is reminded after 14 days.
 - **When you say No,** the other company and AEC Integrations are told. A No does not delete the flow. It stays on the page, shown as the table above describes, until we look at it.
 - **When the two companies disagree for 7 days,** we email both and review the listing.
-- **A flow both companies confirmed** asks for confirmation again after 12 months if it has no version stamps.
+- **When your Yes is 12 months old,** we ask you to confirm it again. It does not expire, and the public page shows it as before.
 
 ## What "confirmed" means, and what it does not
 
 "Confirmed by" and "Confirmed by both companies" mean the companies at the ends of the integration stand behind that data flow. It is a statement by the companies, not a test by AEC Integrations.
-
-It is a different thing from the "Active on AECi" label on a vendor's page. That label means the company is on the Managed plan. It says nothing about whether its integrations are accurate.
-
-## Versions
-
-Earlier answers could be stamped with the versions of your own product a flow was introduced or removed in. Picking versions is not available on the integration's page yet, and any stamp already on record stays in place. The page marks this "Versions: coming soon". If you need to change an existing stamp, contact us.
 
 ## Related
 

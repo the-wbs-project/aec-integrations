@@ -99,9 +99,6 @@ import { parseDate, planHasEnded } from '../vendor-plan';
               <li i18n="@@vendor.planEnded.readOnly.connector">
                 Integrations delivered through a connector
               </li>
-              <li i18n="@@vendor.planEnded.readOnly.label">
-                The "Active on AEC Integrations" label on your vendor page
-              </li>
             </ul>
           </div>
         </div>

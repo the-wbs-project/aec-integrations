@@ -3,12 +3,12 @@ title: Owning an integration
 description: How the company that offers an integration claims it, edits it, adds its links, retires it, and adds new ones.
 section: vendors
 order: 4
-last_updated: 4 October 2026
+last_updated: 9 October 2026
 ---
 
 An integration belongs to the company that offers it: whoever a customer buys it from or gets it from. The public integration page names that company on its "Offered by" line. AEC Integrations recorded most integrations from public sources to start the catalogue. This page is for the company that owns one.
 
-Everything here needs a seat on your company's vendor account ([Your seat](/docs/vendors/your-seat)). None of it affects where anything ranks. One part depends on your plan: claiming, editing, retiring or restoring an integration delivered through a connector, and deciding change requests on one, need the Managed plan (see the last section). Everything else here works on Free too.
+Everything here needs a seat on your company's vendor account ([Your seat](/docs/vendors/your-seat)). None of it affects where anything ranks. One part depends on your plan: claiming, editing, retiring or restoring an integration delivered through a connector, and deciding change requests on one, need the Managed plan ([For connector vendors](/docs/vendors/connector-vendors)). Everything else here works on Free too.
 
 ## Find your integrations
 
@@ -22,7 +22,7 @@ Open the vendor portal, choose one of your products, and open its Integrations t
 | The page says AEC Integrations retired it, with no Restore button | AEC Integrations retired it. It is off the public site, and only AEC Integrations can bring it back. |
 | Owner: another company's name | Another company owns it. You can request a change, but not edit it. |
 | Owner: not set, with **Ask to be recorded as the owner** | Nobody is recorded as the owner. |
-| Owner: your company, with a note that it runs through a connector | A connector product carries the data. You can claim it on the Managed plan. See the last section. |
+| Owner: your company, with a note that it runs through a connector | A connector product carries the data. You can claim it on the Managed plan. See [For connector vendors](/docs/vendors/connector-vendors). |
 
 ## Claim an integration
 
@@ -102,15 +102,10 @@ If a similar integration was already listed for the same two products, you are t
 
 A company at either end that does not own the integration can ask to change one of its details. Once you have claimed the integration, those requests come to you on that integration's own page, under **Change requests**, where you **Accept** or **Decline** each one. You can also see every open one across your products in **Messages**, under **Field contests**: the two never disagree, because they use the same rules. A request about who owns the integration never comes to you. It always goes to AEC Integrations. On an integration delivered through a connector, deciding a request needs Managed. [Contests and protests](/docs/vendors/contests-and-protests) covers both sides, including what happens if you decline one.
 
-## Integrations delivered through a connector
-
-Where a connector product carries the data and your company holds neither product, the company recorded as the owner can claim the integration, if it is on the Managed plan. That includes a company that sells the connector and makes neither product. Those integrations appear on your Integrations tab under **Integrations your company offers**, as a list of cards rather than a page each, because they have no product of yours at either end. Once you claim one, AEC Integrations stops updating it. On Managed you can then edit its details and retire or restore it, from the same card. Its type is set by AEC Integrations and cannot be edited. Retiring it also stops it counting on the connector product. No company can add links to one, or add a new one. Other companies can still request a change on one that appears on their Integrations tab.
-
-Where your company does hold a product at one end and the connection later becomes connector-delivered, the integration keeps its own page. Its Integration links section stops offering your product's group, and your existing links no longer show on the public page. They still appear in your product's group there, and you can remove them.
-
 ## Related
 
 - Previous: [Attesting an integration](/docs/vendors/attesting-an-integration).
 - Next: [Contests and protests](/docs/vendors/contests-and-protests).
 - [How we research and verify listings](/methodology) explains ownership for readers.
+- [For connector vendors](/docs/vendors/connector-vendors), for integrations delivered through a connector.
 - The [Listing Accuracy Policy](/legal/listing-accuracy) sets out the contest and correction routes.

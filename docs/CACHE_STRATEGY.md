@@ -133,7 +133,7 @@ buildCacheTags(opts: {
 }): string;
 ```
 
-`entity.type` is the tag prefix (`product`, `vendor`, `pair`, `integration`, `category`, `audience`, `phase`, `trade`, or `index` for index pages); `slug` or `id` is the suffix (slug for slug-keyed entities — the pair page passes the composite `{min}__{max}` as its `slug` — id for `integration:<id>`). `taxonomy: true` appends the global `taxonomy` tag — set on routes whose HTML renders the full taxonomy term set (home `/` and the flat `/categories`, `/audiences`, `/phases`, `/trades` index pages). Static pages with no §2 vocabulary entry (`/about`, `/methodology`, `/updates`, `/roadmap`, `/legal/*`, `/docs/*`) pass `entity` as `undefined`, yielding just the route-class tag.
+`entity.type` is the tag prefix (`product`, `vendor`, `pair`, `integration`, `category`, `audience`, `phase`, `trade`, or `index` for index pages); `slug` or `id` is the suffix (slug for slug-keyed entities — the pair page passes the composite `{min}__{max}` as its `slug` — id for `integration:<id>`). `taxonomy: true` appends the global `taxonomy` tag — set on routes whose HTML renders the full taxonomy term set (home `/` and the flat `/categories`, `/audiences`, `/phases`, `/trades` index pages). Static pages with no §2 vocabulary entry (`/about`, `/methodology`, `/updates`, `/roadmap`, `/legal/*`, `/docs` and `/docs/*`) pass `entity` as `undefined`, yielding just the route-class tag.
 
 The companion helper `cacheTagInputsForPath(localeStrippedPath)` (same module) returns the helper's input shape for every cacheable URL the SSR Worker handles, mirroring `ROUTE_CACHE_PATTERNS` in `server-runtime.ts`. Adding a new cacheable URL means extending both that table and `cacheTagInputsForPath` in the same change — and its per-route content-param allowlist (`cacheKeyParams`, restored in WC-4; see §4a). Callers never construct `Cache-Tag` strings by hand.
 
@@ -155,7 +155,7 @@ The companion helper `cacheTagInputsForPath(localeStrippedPath)` (same module) r
 
 `max-age: 0` on browser is deliberate — the browser revalidates on every navigation, the edge absorbs the actual load. Combined with tag-based purge, the worst-case staleness for an end user is one edge round-trip after a write, not 15 minutes.
 
-**Resilience directives (WC-3 / AECI-317).** The data-backed **detail + index/browse** route TTLs also carry `stale-while-revalidate=60` and `stale-if-error=86400`, so the native Workers Cache serves a just-expired copy for up to 60s while it revalidates in the background (smoothing the TTL-boundary latency spike) and a day-old copy if the origin 5xxs during revalidation. Static pages (`/about`, `/methodology`, `/legal`, `/docs`), redirects, `sitemap.xml`, `robots.txt`, and 404s deliberately omit them. Values live in the `RESILIENCE` const in `server-runtime.ts` and are tunable. Under native Workers Cache the platform stores each response **from its `Cache-Control`** — there is no explicit `cache.put()`.
+**Resilience directives (WC-3 / AECI-317).** The data-backed **detail + index/browse** route TTLs also carry `stale-while-revalidate=60` and `stale-if-error=86400`, so the native Workers Cache serves a just-expired copy for up to 60s while it revalidates in the background (smoothing the TTL-boundary latency spike) and a day-old copy if the origin 5xxs during revalidation. Static pages (`/about`, `/methodology`, `/legal`, `/docs` and `/docs/*`), redirects, `sitemap.xml`, `robots.txt`, and 404s deliberately omit them. Values live in the `RESILIENCE` const in `server-runtime.ts` and are tunable. Under native Workers Cache the platform stores each response **from its `Cache-Control`** — there is no explicit `cache.put()`.
 
 Per [AECI-43](https://linear.app/aec-integrations/issue/AECI-43), API responses themselves remain `Cache-Control: private, no-store`. Only SSR HTML is edge-cached.
 
@@ -192,7 +192,7 @@ The per-route allowlist lives on each `ROUTE_CACHE_PATTERNS` entry as `cacheKeyP
 | Detail (`/products/:slug`, `/vendors/:slug`) | none — strip all |
 | Product-PAIR page (`/products/:context/integrations/:other`) | `view`, `context_version`, `other_version`. **`view`** — the Basic/Detailed disclosure toggle SSR-renders different content (Basic drops the claim lanes), so `?view=basic` and the `detailed` default MUST get distinct keys. Same rationale as `/products ?view=table` (AECI-190). The companion `aeci_pair_view` cookie (remembers the reader's choice) is **NOT** a cache-key input and is **NOT** in `VISITOR_STATE_COOKIES` — it is read only post-hydration in the browser, never by SSR (see §6.1). **The two version selectors** (AECI-303 / `STAGE_2_ATTESTATIONS_SPEC.md` §9.2) carry a version **label** each and change which claims render plus every added/removed/unchanged marker — and the pair resolver marks a non-default selection `noindex`, a decision baked into the stored payload (§7.2). Under-including them would serve one visitor's version selection *and its robots tag* to everyone. There is no cookie counterpart: a remembered version is meaningless on a different pair, and "latest × latest is the default" must track newly-published releases. |
 | Taxonomy index (`/categories`, `/audiences`, `/phases`, `/trades`) | inherits the listing allowlist (combined `match`); these pages read none of it — harmless over-include |
-| Home (`/`), `/about`, `/methodology`, `/updates`, `/roadmap`, `/legal/*`, `/docs/*` | none — strip all |
+| Home (`/`), `/about`, `/methodology`, `/updates`, `/roadmap`, `/legal/*`, `/docs`, `/docs/*` | none — strip all |
 
 The listing/browse rows share one `LISTING_CACHE_KEY_PARAMS` const in `server-runtime.ts` (AECI-143): `/products` and the four `:slug` browse pages all read `page` / `sort` / `view` and the taxonomy facet ids the `aec-facet-sidebar` writes to the URL (`category_id` / `audience_id` / `phase_id` / `trade_id`). **`view`** is the cards/table toggle: the two views SSR different markup, so they must key separately. The const has carried it since AECI-190 — this table omitted it until AECI-657, which is also when the browse pages gained the toggle and started reading it. On a browse page the page's own dimension rides the path (`/categories/:slug`), so only the *other* three facet ids ever appear in its query — but listing all four keeps the const uniform (over-including is harmless). The user's remembered cards/table choice (AECI-988 — `aeci_listing_view` cookie, or `profiles.listing_view_preference` when signed in) is a **post-hydration default, not a cache-key input** — SSR never reads it, and the client applies it in `afterNextRender` without navigating, so the edge entry stays the shared param-absent one (§6.1).
 
@@ -265,20 +265,23 @@ Callers of `/admin/purge`:
 above**, from the same builder: `vendorPurgeTags` was promoted out of
 `admin-claims.ts` into the shared `apps/api/src/lib/vendor-cache-tags.ts` precisely
 because this epic added a second writer of it, and duplicated tag construction is how
-a label goes stale on one path and not the other. **No new tag** — the account-status label
-renders on the vendor hero, the product-detail vendor card and both pair rails, all of
-which are already covered by `vendor:{slug}` + every owned `product:{slug}` +
-`index:products`.
+a page goes stale on one path and not the other. **No new tag.** The mirror drives the claim
+button copy and its "Already managed" note on the vendor page and every owned product page,
+and the version-diff gate on every pair page. All of them are already covered by
+`vendor:{slug}` + every owned `product:{slug}` (a pair page carries both endpoints'
+`product:` tags) + `index:products`. *(Reworded 2026-10-09, AECI-1264. This paragraph used to
+name the public account label, which is removed. The tag set is unchanged.)*
 
 Two deliberate details. **`clear` purges as hard as `set`**: this is the only writer
 that takes `vendors.verified` back *down* (`STAGE_2_PAID_TIERS_SPEC.md` §5), and a
-missed purge there leaves an active-account label on every cached product page of a vendor
-who is no longer paying. And the purge is **not gated on whether the mirror actually
-flipped** — on a drifted vendor a redundant purge costs one cache miss, while a missed
-one is a wrong badge with a full TTL behind it. **`renew` is the exception and skips
+missed purge there leaves "Request access to this listing" and "Already managed through an
+active vendor account" on every cached product page of a vendor who is no longer paying. And
+the purge is **not gated on whether the mirror actually flipped** — on a drifted vendor a
+redundant purge costs one cache miss, while a missed one is wrong claim copy with a full TTL
+behind it. **`renew` is the exception and skips
 the purge entirely**, because its builder provably emits no `vendors` statement at all,
 so nothing rendered can have changed. Search freshness rides the same nightly watermark
-as every other vendor write (see the verified-badge-flip paragraph below): the flip
+as every other vendor write (see the `verified`-flip paragraph below): the flip
 stamps `vendors.updated_at` in **both** directions, so an un-verify reaches Algolia
 within 24h rather than never.
 
@@ -291,7 +294,7 @@ the route sends them with `source: 'moderation'`. That means `vendor:{slug}` for
 row, `product:{slug}` plus `index:products` for each solely-owned product, and
 `pair:{min}__{max}` plus both `product:` tags for each integration whose marker flipped.
 Clearing `claimed_at` alone purges nothing, because no public read renders it. It is **not**
-`vendorPurgeTags`: the account-status label is untouched by a revoke, so purging every
+`vendorPurgeTags`: a revoke leaves `vendors.verified` alone, so purging every
 owned product would evict pages whose HTML did not change. Any other revoke, and a ban or
 unban, purges nothing. **Account erasure of a vendor's last seat** (`DELETE /api/account`,
 AECI-1106) runs the same builder in its own batch and sends the same tags, with
@@ -468,17 +471,18 @@ nothing. An **attestation** write does not stamp it either, and for a stronger
 reason — claims are not in the search index at all (`STAGE_1_5_SPEC.md` §9 defers
 per-pair records), so there is nothing for a sync to pick up. Dashboard copy must
 therefore not promise that attesting changes search. The same asymmetry governs the
-**verified-badge flip** (AECI-529): the §5(b) claim→grant stamps `vendors.updated_at`
+**`verified` flip** (AECI-529): the §5(b) claim→grant stamps `vendors.updated_at`
 alongside `verified = true`, so the `vendors` index re-indexes the flip on the next
 nightly window while the grant's `vendor:{slug}` + `product:{slug}` purge repaints the
-SSR pages immediately. The badge therefore appears on the vendor's SSR detail/product
-pages at once but on the `/search` Vendors-tab card only after the next sync
-(`SEARCH_RANKING.md` §6). Since AECI-609 that stamp is governed by a sharper rule:
+SSR pages immediately. The flip therefore shows in the claim button copy on the vendor's
+SSR detail and product pages at once, but reaches the Algolia vendor record only after the
+next sync (`SEARCH_RANKING.md` §6). No search card renders the field since AECI-1131, and the
+public account badge is gone since 2026-10-09 (AECI-1264). Since AECI-609 that stamp is governed by a sharper rule:
 **`vendors.updated_at` moves if and only if `vendors.verified` moves**, in either
 direction, stamped explicitly inside the same guarded `WHERE verified = <old>` rather
 than left to `$onUpdate`. Both halves earn their keep — a second-seat grant or a term
 renewal must *not* bump it (needless nightly re-push of an unchanged record), and an
-**deactivation must**, or a lapsed vendor keeps an active-account label in search indefinitely.
+**deactivation must**, or a lapsed vendor keeps `verified: true` on its Algolia record indefinitely.
 That second direction is the one AECI-529 never reasoned about, because until AECI-532
 nothing could clear the bit.
 
@@ -612,7 +616,7 @@ Pages that emit `noindex` today, and how:
 | `/trades/:slug` | `product_count < TRADE_PUBLISH_MIN_PRODUCTS` (AECI-546) | `setEntityMeta({ noindex })` — `taxonomy-browse.resolver.ts` → `applyBrowseMeta` |
 | `/auth/login`, `/account`, `/admin/*`, `/products/:slug/review`, the claim/correction request forms | always — authenticated or transactional | the component itself, calling Angular's `Meta.updateTag` directly rather than going through `MetaService` |
 
-Two things worth noting about that last row: those pages are all non-cacheable, so the direct `Meta.updateTag` call carries no cache risk — but it also means `grep 'noindex'` over `MetaService` alone under-reports the set. `/contact`, `/about`, `/methodology`, `/updates`, and `/legal/*` are static **and indexable**; they use `setStaticPageMeta` without the flag. `/methodology` (AECI-804) is additionally the one static page in `sitemap.xml` outside `/legal/*` — it is the citable trust surface, so discovery is the point (`STAGE_1_SPEC.md` §20.1). `/roadmap` is the one static page that is cacheable **and** noindexed — a coming-soon placeholder is thin content, so it opts in to the flag and stays out of `sitemap.xml`; indexability and cacheability are independent axes. `/docs/vendors/*` (AECI-1104) is the second cacheable noindexed set, and the only one held out **in every env**: the page sets `noindex: true` and the egress middleware stamps `X-Robots-Tag` on it even where `ALLOW_INDEXING` is `"true"` (`pathForcesNoindex` in `server/robots-policy.ts`). It is absent from `sitemap.xml`. All three lift together when the vendor portal opens (AECI-1105).
+Two things worth noting about that last row: those pages are all non-cacheable, so the direct `Meta.updateTag` call carries no cache risk — but it also means `grep 'noindex'` over `MetaService` alone under-reports the set. `/contact`, `/about`, `/methodology`, `/updates`, and `/legal/*` are static **and indexable**; they use `setStaticPageMeta` without the flag. `/methodology` (AECI-804) is additionally in `sitemap.xml`, with `/legal/*` and the indexable `/docs` pages (AECI-1248) — it is the citable trust surface, so discovery is the point (`STAGE_1_SPEC.md` §20.1). `/roadmap` is the one static page that is cacheable **and** noindexed — a coming-soon placeholder is thin content, so it opts in to the flag and stays out of `sitemap.xml`; indexability and cacheability are independent axes. The vendor guide (`/docs/vendors` and `/docs/vendors/*`, AECI-1104) is the second cacheable noindexed set, and the only one held out **in every env**. Its noindex is driven by path: `NOINDEX_PATH_PREFIXES` and `pathForcesNoindex` live in `apps/web/src/app/docs/docs-indexing.ts` (re-exported by `server/robots-policy.ts`), and that one list sets the docs components' robots meta, the egress `X-Robots-Tag` stamp (even where `ALLOW_INDEXING` is `"true"`), and the docs entries `sitemap.xml` leaves out (AECI-1248). The help center's For vendors pages (`/docs/vendors/overview`, `/docs/vendors/claiming-your-listing`, AECI-1265) sit under the same prefix and are noindex with it. Every other help-center page outside `/docs/vendors` is indexable and in the sitemap. Publishing the vendor guide (AECI-1253) removes the one prefix, which makes the For vendors pages indexable in the same change.
 
 The trade case is the only **count-gated** one, and it is deliberately paired with sitemap exclusion — the two must agree, or the sitemap advertises a page that tells the crawler to go away. The `/trades` index page and the three sibling taxonomy facets are never gated. Full policy: `TRADES_VOCABULARY.md` §6.
 

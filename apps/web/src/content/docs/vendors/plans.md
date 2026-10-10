@@ -1,12 +1,12 @@
 ---
-title: Plans and the account label
-description: What the Free and Managed plans let your company do on AEC Integrations, how the checklists and "Looks right" work, what happens when a plan ends, and the things no plan can buy.
+title: Plans
+description: What the Free and Managed plans let your company do on AEC Integrations, how the checklists and "Looks right" work, and what happens when a plan ends.
 section: vendors
 order: 7
 last_updated: 10 October 2026
 ---
 
-Every company with a seat is on one of two plans: Free or Managed. Free costs nothing. We arrange Managed with you by invoice or purchase order. No plan changes where anything ranks.
+Every company with a seat is on one of two plans: Free or Managed. Free costs nothing. We arrange Managed with you by invoice or purchase order.
 
 Each product in your portal shows its own plan and its own checklist. Today every product your company makes is on the same plan as your company.
 
@@ -22,7 +22,7 @@ On Free and on Managed, anyone with a seat can:
 
 The company name and the product names are not edited in the portal.
 
-The product details on this list are the ones that feed search ranking. They are editable on Free for that reason. Paying never gives a company a better way to improve its ranking.
+The product details on this list are the ones that feed search ranking. They are editable on Free for that reason. [How ranking works](/docs/trust/how-ranking-works) explains how they count.
 
 ## What needs Managed
 
@@ -34,10 +34,9 @@ These stay part of Managed:
 - confirming or denying data flows on your integrations ([Attesting an integration](/docs/vendors/attesting-an-integration)),
 - claiming, editing, retiring and restoring an integration delivered through a connector, and deciding change requests on one ([Owning an integration](/docs/vendors/owning-an-integration)),
 - writing, editing and resubmitting a public reply to a review of one of your products ([Replying to reviews](/docs/vendors/replying-to-reviews)),
-- the "Active on AECi" label on your vendor page,
 - telling search engines about your changes.
 
-When your company edits a public page on Managed, we tell search engines that the page changed. We send it to Bing and Yandex through IndexNow, and we add it to our own list for asking Google to look again. On Free, your edits still go live straight away. Search engines find them on their own schedule, through our sitemap. Telling a search engine about a page does not decide whether it crawls, indexes or ranks that page. The search engine decides that.
+When your company edits a public page on Managed, we tell search engines that the page changed. On Free, your edits still go live straight away. Search engines find them on their own schedule, through our sitemap. Telling a search engine about a page does not decide whether it crawls, indexes or ranks that page. The search engine decides that.
 
 On a Free product, the Managed-only fields stay visible in the portal. They are read-only, and each one says it is part of Managed.
 
@@ -83,23 +82,16 @@ How a product's score counts:
 
 Each plan panel in your portal carries this line:
 
-> "No plan changes where you rank or appear, whether a review is published, or what we verify."
+> "No plan changes where you rank or appear, or whether a review is published."
 
-In full, no plan, at any price, changes:
+In full, no plan changes:
 
 - your position in search or in any listing,
 - whether a review is published or removed,
 - whether a listing exists,
-- what we verify,
-- what readers see about an integration's current state, including whether the two companies agree.
+- how an agreement label is worked out. Both companies' answers count the same.
 
-There is no sponsored placement and no promoted tier. We check this with an automated test. The list of things a plan can unlock is compared with the list of signals that order search results. The build fails if anything appears in both. A second test checks that every listing detail that feeds ranking is editable on Free.
-
-## The "Active on AECi" label
-
-While your company is on Managed, your vendor page carries the label "Active on AECi". Next to it, a "What this means" link points back to this article. Your portal's plan panel shows the same label.
-
-The label means your company is on the Managed plan. It is not a separate purchase. It comes with Managed and goes when Managed ends. A company on Free does not show it. It says nothing about the quality of your products or the accuracy of your integrations. It does not affect ranking or placement.
+Search order is worked out from how well a listing matches the search, then how complete it is. [How ranking works](/docs/trust/how-ranking-works) sets out the full rule and how we check it.
 
 ## Starting, paying and renewing
 
@@ -118,7 +110,6 @@ This applies to a pilot too.
 - The portal shows a banner with the date the plan ended. It lists what still works and what is now read-only.
 - Everything in "What every plan includes" keeps working. That includes editing your company details and product basics, "Looks right" and the checklists.
 - Everything in "What needs Managed" becomes read-only.
-- The "Active on AECi" label comes off.
 - We stop telling search engines about your changes. Your edits still go live.
 - You can no longer write, edit or resubmit a reply to a review. Published replies stay up, and you can still withdraw one.
 - An integration delivered through a connector that you already claimed stays claimed. One you retired stays retired. Open change requests on one move to AEC Integrations.
@@ -128,4 +119,5 @@ This applies to a pilot too.
 
 - Previous: [Replying to reviews](/docs/vendors/replying-to-reviews).
 - Next: [Your change history](/docs/vendors/change-history).
-- [How we research and verify listings](/methodology), including the no-pay-for-placement rule.
+- [How ranking works](/docs/trust/how-ranking-works).
+- [How we research and verify listings](/methodology).

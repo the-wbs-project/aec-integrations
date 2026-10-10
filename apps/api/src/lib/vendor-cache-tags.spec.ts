@@ -1,7 +1,7 @@
 /**
  * The shared vendor purge-tag builder (AECI-609 / §2.5). Promoted out of
  * `routes/admin-claims.ts` so the epic's second writer (§5's entitlement endpoint)
- * cannot construct a divergent set — that is how a badge goes stale on one path and
+ * cannot construct a divergent set — that is how a page goes stale on one path and
  * not the other. `admin-claims.spec.ts`'s purge assertion passing unedited is the
  * proof the promotion was byte-identical.
  */
@@ -40,8 +40,8 @@ describe('vendorPurgeTags', () => {
 
     const tags = await vendorPurgeTags(t.db, { id: VENDOR_ID, slug: 'autodesk', verified: true });
 
-    // The badge renders on the vendor hero, the product detail vendor card, and both
-    // pair rails — purging only `vendor:` would leave it stale on cached product pages.
+    // `verified` drives the claim button copy on the vendor page and every owned product
+    // page. Purging only `vendor:` would leave it stale on cached product pages.
     expect(tags).toContain('vendor:autodesk');
     expect(tags).toContain('product:revit');
     expect(tags).toContain('product:autocad');

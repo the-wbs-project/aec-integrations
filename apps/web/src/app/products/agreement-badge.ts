@@ -30,8 +30,9 @@ import type { AgreementState } from '@aeci/shared';
  * visible label and `aria-label`, and the dot/glyph is `aria-hidden`. Light
  * theme only (Stage 1 / AECI-226).
  *
- * This claim-agreement chip remains distinct from the account-status label
- * through its state-specific wording and tone.
+ * This claim-agreement chip was kept distinct from the account-status label
+ * through its state-specific wording and tone. That label was removed on
+ * 2026-10-09 (AECI-1264), so no public chip reports account access now.
  */
 @Component({
   selector: 'aec-agreement-badge',

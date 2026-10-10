@@ -712,6 +712,8 @@ migration. Decisions taken at build that §4.1–§4.4 did not pre-specify:
   the glyph and the ids are unchanged. `STAGE_1_5_SPEC.md` §3.5 carries the full before/after table.
 - **The badge stays a `rounded.sm` chip.** Its agreement-specific wording and tonal ladder keep it
   distinct from `VendorAccountBadge`, which describes active account access rather than a claim.
+  *(2026-10-09, AECI-1264: `VendorAccountBadge` is deleted, so no public chip reports account
+  access now.)*
 - **`@@pair.dataflow.subline`** ("Vendor confirmation arrives with the vendor portal") is now
   conditional on no vendor having attested at all — keyed off the presence of a vendor attestation,
   not off the agreement state, because a claim every vendor *denied* is still `unverified` yet the
@@ -2512,7 +2514,7 @@ keeps their wording and tones distinct. The marker and agreement state are both 
 chips. Merging them would collapse two separate signals into one. **As revised (AECI-1131,
 2026-09-24):** `aec-vendor-account-badge` no longer renders on the pair page at all — a reader
 comparing products gains nothing from a vendor's plan state — so the badge is no longer a third
-signal to keep distinct here.
+signal to keep distinct here. AECI-1264 deleted the component on 2026-10-09.
 
 ### 13.7 Acceptance
 

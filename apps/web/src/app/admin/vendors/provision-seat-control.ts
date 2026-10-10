@@ -39,7 +39,7 @@ const REASON_MAX_LENGTH = 500;
  * A seat is portal access to a vendor's own record, so it is a consequence an
  * operator should have to mean — hence a two-step form rather than a one-click
  * button, matching the revoke directly beneath it. The copy states what the seat
- * is NOT (no badge, no entitlement, no attestation) for the same reason
+ * is NOT (no entitlement, no attestation rights) for the same reason
  * `ManagedByControl` states that a handover grants no seat: nothing else on the
  * page corrects the assumption, and here the assumption runs the other way.
  *
@@ -167,7 +167,7 @@ export class ProvisionSeatControl {
     if (result.noop) {
       return $localize`:@@admin.vendors.provision.announce.noop:${email}:EMAIL: already holds this seat. Nothing changed.`;
     }
-    return $localize`:@@admin.vendors.provision.announce.added:Seat added for ${email}:EMAIL:. No entitlement was opened and the public account label is unchanged.`;
+    return $localize`:@@admin.vendors.provision.announce.added:Seat added for ${email}:EMAIL:. No entitlement was opened.`;
   }
 }
 

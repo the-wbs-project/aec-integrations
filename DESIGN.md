@@ -614,7 +614,7 @@ the product row, so the two can never drift apart visually.
 - **(Superseded by AECI-1218) The plan panel had a compact strip for the quiet state.** Plans moved to the product level (`STAGE_2_PAID_TIERS_SPEC.md` §13.1 decision 2), so the full panel lives on each product's overview. The vendor overview first carried a one-line plan summary; that is gone too, and the vendor checklist takes the full width (`STAGE_2_VENDOR_PORTAL_SPEC.md` §6.18). The compact strip and the "Account access" heading are gone.
 - **The Free plan surfaces** (AECI-1218, `STAGE_2_VENDOR_PORTAL_SPEC.md` §6.18). **Anchor: the in-repo mockup** (`docs/design/mockups/free-plan-portal/`) **and DoorDash Merchant's "Get ready to go live" setup list on Mobbin** (numbered steps, one action each, the optional step marked in words).
   - **Checklist card** (`vendor/components/vendor-checklist.ts`): a bordered `--surface-raised` card, the `font-display` heading with an "x of y done" score at the right, a segmented bar (`aria-hidden`; the text carries the score), then a divided `<ol>` of steps. Each step has a 28px round marker: the number, a Forest-filled check when done, or a lock when the step is outside the product's plan. An sr-only "Done" / "Not done" / "Not done, optional" rides in the title, so state is never colour alone. Optional steps carry a borderless `--surface-sunken` "Optional" tag. One action per step: a bordered link-button, "Looks right" (`vendor-looks-right.ts`), or a sunken "Available on Managed" note.
-  - **Plan badge** (`vendor-plan-badge.ts`): the word "Free" (outlined) or "Managed" (sunken fill, strong border). Text, never colour alone. Not the public "Active on AEC Integrations" label.
+  - **Plan badge** (`vendor-plan-badge.ts`): the word "Free" (outlined) or "Managed" (sunken fill, strong border). Text, never colour alone. Portal only. No public page carries a plan or account badge (AECI-1264).
   - **Product plan panel** (`vendor-plan-panel.ts`): "Free includes" / "Managed adds" lists under `aec-overline` microheadings (a size utility cannot beat the unlayered `h3` rule), a plain price line (no "Draft price" tag since the 2026-10-08 ruling; it follows the per-vendor override, `STAGE_2_PAID_TIERS_SPEC.md` §13.13), one bordered call to action, and decision 10's line under a hairline. No box inside the card: `npx impeccable detect` flags a bordered price box as a nested card.
   - **Plan-ended banner** (`vendor-plan-ended-banner.ts`): above the tab row on every portal page, the warm Bone wash with a strong border, two columns ("Still works" / "Now read-only"), the Forest primary button. Calm: no status colour, no alert role, no dismiss button.
   - **Locked field**: the control stays `readonly` on the sunken surface, and a lock glyph plus a one-line reason sits between the label and the control, tied with `aria-describedby`. One notice above the form names every locked field once.
@@ -649,15 +649,22 @@ the product row, so the two can never drift apart visually.
 
 - **Copy carries the trust promise.** Nothing implies answering Yes or No affects ranking or placement; the only search reference is that search refreshes within a day; "Verified" is framed as an account status arranged with AEC Integrations, and the unverified state explains what verification unlocks rather than 403-ing a vendor out of their own data.
 
-### Product docs (Stage 2, AECI-1104)
+### Product docs (Stage 2, AECI-1104; layout AECI-1259)
 
-The `/docs/<section>/<slug>` article page (`apps/web/src/app/docs/docs-page.ts`). **Anchor site: Zendesk**, its help-center article page (Copenhagen theme): a breadcrumb, an "articles in this section" rail beside the article, and the article. It is a public, edge-cached reading surface, so it reuses the `/legal/*` and `/methodology` prose vocabulary rather than the portal's cards.
+Three surfaces, home → section → article (`apps/web/src/app/docs/`), all inside one **help-center shell** between the site header and footer. **Anchor site: Devin (DeepWiki)**, Mobbin screen `c3936cdb-13b2-4b54-b2a2-c7ccf723dd1b`, which replaced the Zendesk anchor on 2026-10-09 (AECI-1259). DeepWiki supplies the structure, density and restraint. AECi keeps its own type, tokens and Forest links. It is a public, edge-cached reading surface, so it reuses the `/legal/*` and `/methodology` prose vocabulary rather than the portal's cards. Everything is built from the docs manifest, so a section with no pages shows nowhere (AECI-1248).
 
-- **Breadcrumb** follows the public treatment (`Home › Docs › Vendor guide`). Only ancestors appear, and "Docs" and the section are plain text until they have pages.
-- **Article column** carries the overline section name, the Source Serif `h1`, a lede from the frontmatter description, the pre-formatted "Last updated" line, a hairline, then `.aec-prose`. The measure is **62ch**, not the 70ch of `/legal/*`. `npx impeccable detect` measured ~91 characters a line at 70ch in Atkinson and flagged every paragraph.
-- **Section rail** is an `ol` under an "In this guide" overline, sticky from `lg`. The current page gets `aria-current="page"`, a `--surface-muted` fill, semibold text and a Forest start edge. The edge colour is on the unlayered `.aec-docs-nav-link` class, for the reason `.aec-nav-tab` records.
-- **Reading order:** the article is first in the DOM. From `lg`, grid placement moves the rail to the left column, so small screens and screen readers reach the content first.
-- No screenshots in content at v0 (`STAGE_2_PRODUCT_DOCS_SPEC.md` §4). Light only. Token-only. Chrome is i18n-wrapped, and the Markdown body is content.
+- **Shell** (`docs-shell.ts`, the `/docs` layout route). From `lg`: a 16rem sidebar on `--surface-raised` behind a hairline end border, spanning the shell's full height, and a content column. The shell carries a hairline top border under the site header. No search box and no "Ask" box (`STAGE_2_PRODUCT_DOCS_SPEC.md` §3: no docs search at v0).
+- **Sidebar tree** (`nav` named "Help center"): "Help center" first, then each help-center section in manifest order, its pages indented under a `--border-default` start-edge guide line. A single-page section is one item. A section whose landing is a page ("For vendors", landing on its overview) links its item to that page and lists only its other pages. **On a vendor guide page the tree is the vendor guide's own** (AECI-1265): a `nav` named "Vendor guide", a muted "Back to the help center" link with a start chevron (mirrored in RTL) above the list, then "Vendor guide" and its pages. The URL alone picks the tree, so the SSR HTML is the same for every visitor. All groups are expanded. Items are `text-sm` `--text-secondary`, no icons. The current page is a `--surface-sunken` rounded pill with `--text-primary` medium text and `aria-current="page"` (`routerLinkActive`, exact match, so a section item is current only on its own index). From `lg` the tree is sticky at the viewport top, at most one viewport tall, and scrolls on its own when it is longer. The site header is not sticky, so nothing sits above it.
+- **Top bar** over the content only, with a hairline under it. Left: a slash breadcrumb derived from the URL. "Help center", then the section. Ancestors are links. The current place is text with `aria-current="page"`. On an article the trail stops at the section, as DeepWiki's does, because the `h1` names the page. Right, articles only, from `sm`: the pre-formatted "Last updated" line in `--text-secondary`.
+- **Below `lg`** the tree becomes a panel under the top bar, closed by default. A bordered icon button at the start of the top bar ("Docs menu", `aria-expanded`, `aria-controls`) toggles it. Escape and any navigation close it. DOM order is top bar, panel, page at every width, so the SSR HTML is identical for every visitor.
+- **Article column** (`docs-page.ts`): a centred 42rem column. A Source Serif `h1` at 1.875rem (`.aec-docs-title`, the Headline role brought down from a hero), one muted lede line from the frontmatter description, then `.aec-prose aec-docs-prose`. No overline. Docs `h2`s are 1.375rem and `h3`s 1.125rem, both serif at or above the 18px floor. Below `sm` the "Last updated" line moves under the lede.
+- **Heading ids.** Every body `h2` and `h3` has a stable GitHub-style slug id, unique per page, built at manifest time (`docs-markdown.ts`). The template renders the headings itself, because the `[innerHTML]` sanitizer strips `id`. Headings carry `scroll-margin-top: 1.5rem`.
+- **"On this page" rail** (`docs-toc.ts`), from `xl` only, sticky at the far right of the content. One short dash per `h2`, the closing "Related" excluded, none at all below two headings. The current dash is longer and `--text-primary`. Others are `--text-tertiary`, which holds the 3:1 non-text floor because a closed dash is the link's only visible mark. Each link is at least a 24px target (WCAG 2.2 target size), which sets the dash pitch. Hover or keyboard focus opens it into a bordered `--surface-base` panel listing the headings. The labels are visually hidden, never removed, so the links stay named. Links are `routerLink` plus `fragment`. The first dash is current in the SSR HTML; an `IntersectionObserver` moves it only after the first browser render.
+- **Previous / next pager** at the article foot (`nav` named "Previous and next articles"): a hairline, then two text links, "Previous" left and "Next" right, each a muted label over the neighbour's title in Forest. No cards. It walks one section in order and never crosses into the next section.
+- **Docs home** (`/docs`, `docs-home.ts`): the same column. It lists help-center sections only, never the vendor guide (AECI-1265). The `h1` "Help center" and a one-line intro, then the **audience split** as a divided list: readers and reviewers. The vendor role card gave way to the "For vendors" section. Each audience is an Atkinson 600 subhead (`.aec-docs-subhead`), a one-line summary and its section links. An audience with no section yet drops out. Below it, "All sections" under an overline: a divided list of each section's linked name, summary and page links.
+- **Section index** (`/docs/<section>`, `docs-section.ts`): the same column. The section label as `h1`, its summary as the lede, then a divided list of the section's pages, each a linked title with its one-line description. A section intro, when declared, renders as `.aec-prose`: its lead above the list, its headed parts below with bound heading ids. The vendor guide's landing (`/docs/vendors`) uses it for a pointer to "For vendors" and its "Current limits" note.
+- **Reading order:** top bar, sidebar, then the page. On an article: the article, the rail, then the pager.
+- No screenshots in content at v0 (`STAGE_2_PRODUCT_DOCS_SPEC.md` §4). Light only. Token-only. Borders, never shadows. Chrome is i18n-wrapped, and the Markdown body is content. The docs classes live unlayered in `styles.css` after `.aec-prose`, for the reasons the Unlayered-Heading Rule and `.aec-nav-tab` record.
 
 ### Inputs / Fields
 
@@ -677,15 +684,15 @@ Native inputs driven by Signal Forms today (ADR 0009); richer controls use Angul
 > and later. No checkmark, shield, tick, or "Verified" fill may imply that AECi endorses
 > a vendor, product, or integration. Provenance and account state are carried by visible
 > text because text can state the exact claim. The legacy `vendors.verified` mirror is a
-> paid-entitlement signal, so it renders as a neutral account-status label rather than a
-> trust glyph. This is also why `home-credibility-strip` uses a balance scale rather than
+> paid-entitlement signal. It rendered as a neutral account-status label until AECI-1264
+> removed that label (2026-10-09), and it must not come back as a glyph or a badge. This is also why `home-credibility-strip` uses a balance scale rather than
 > the shield-check it originally shipped with.
 
 **One chip spec (AECI-841).** The **standalone attribution chip** — the kind that sits in a hero or
 card chip row on its own line of meaning — is `px-2.5 py-1` / `0.75rem` / `font-medium` /
-`tracking-[0.01em]` / `rounded.sm`, which renders **29px tall**. Four components carry it:
-`RoleBadge`, `MaintenanceMarker`, `AgreementBadge`, and `VendorAccountBadge`
-(as of AECI-1131 its only remaining variants are `public` and `portal`, both at this spec).
+`tracking-[0.01em]` / `rounded.sm`, which renders **29px tall**. Three components carry it:
+`RoleBadge`, `MaintenanceMarker` and `AgreementBadge`. (`VendorAccountBadge` carried it too until
+AECI-1264 deleted it.)
 
 This is a rule because it was broken twice in the same change. `RoleBadge` shipped at `px-2 py-0.5`
 and the product-detail hero put a 22px "Connector" chip next to the 29px maintenance marker in the
@@ -702,8 +709,8 @@ columns inside a table row or list row, not a standalone statement. It renders i
 `home/integration-tile.ts`. Do not "converge" it onto the 29px spec: at row density the extra 7px
 per badge is what pushes a row off one line. Two badges keep their own documented specs for
 reasons stated below or in their own sections — `TaxonomyBadge` (a link, `px-3` / 13px), and
-`ReviewStatusBadge` (a coloured state chip). (As of AECI-1131, `VendorAccountBadge` no longer has
-a dense/compact variant, so it is no longer an exemption here — see the Badges list below.)
+`ReviewStatusBadge` (a coloured state chip). (`VendorAccountBadge` lost its compact variant in
+AECI-1131 and was deleted in AECI-1264.)
 
 **Chips are sentence case**, like everything else — the Sentence-Case Rule's single exception is the
 overline role, and a chip is not an overline. The product-detail "Not yet rated" chip was uppercase
@@ -744,14 +751,14 @@ What actually renders today:
     marker is page-header attribution ("who is on the hook for this page"), the pill is
     per-claim state on the mechanism cards ("do the two vendors agree about this one data
     object"). Two distinct signals share the pair page — marker and agreement chip — and
-    collapsing them would lose information. (As of AECI-1131 the account-status label no longer
-    renders on this page; see below.)
+    collapsing them would lose information. (The account-status label left this page in
+    AECI-1131 and was deleted everywhere in AECI-1264; see below.)
 - **Agreement pill** (`products/agreement-badge`): same neutral chip tokens. Renders
   `Listed by AEC Integrations` on most claims (AECI-1142; `Unverified · AECi` before it), the
   honest posture, not a warning. The other three states are in the Agreement badge table below.
 - **Pending** (`badge-pending`): surface-sunken fill, text-secondary text, 0.5px border-default. Indicates "submitted, not yet reviewed" — never confused with confirmed.
-- **Active on AEC Integrations** (`aec-vendor-account-badge`, AECI-965, relabeled AECI-1131, name spelled out AECI-1261): a neutral account-status label driven by the legacy `vendors.verified` mirror. It means the vendor has active access to manage its AECi profile. It does not verify product quality, integration accuracy, or any vendor assertion. The label reads "Active on AEC Integrations" in both of its variants: `public` (the vendor detail hero, followed by a visible "What this means" link to `/docs/vendors/plans-and-the-account-label`) and `portal` (the vendor's own plan panel, no link). There is no compact variant. Both use the standalone 29px chip metrics, `rounded.sm`, `border-strong`, `surface-base`, and `text-secondary`. Neither uses a glyph, positive status fill, hidden accessible-name substitute, or trust color. The label renders only when the mirror is true. The inactive public baseline remains the label's absence. It no longer renders on the product-pair rails, the product detail vendor card, or the `/search` Vendors-tab card (AECI-1131) — a reader comparing products gains nothing from a vendor's plan state.
-- **Agreement badge** (`aec-agreement-badge`, AECI-300 / AECI-605): the per-claim state on the product-pair page's data-flow lanes — whether the two vendors agree that a `data_object` flows between their products. Its agreement-specific wording and tonal ladder keep it distinct from the neutral account-status label. Four states, and the tonal ladder between them is the point:
+- **No account or plan label on public pages** (AECI-1264, removed 2026-10-09, marketing review B1). `aec-vendor-account-badge` ("Active on AEC Integrations", AECI-965, relabeled AECI-1131) is deleted. "Active" implied a vendor without it was inactive, and it marked publicly who pays. Do not build a replacement public marker of plan or payment. The `vendors.verified` mirror still drives the claim CTA's copy on the vendor and product pages, which is copy, not a badge. Inside the portal the plan reads as the **Plan badge** above.
+- **Agreement badge** (`aec-agreement-badge`, AECI-300 / AECI-605): the per-claim state on the product-pair page's data-flow lanes — whether the two vendors agree that a `data_object` flows between their products. Its agreement-specific wording and tonal ladder keep it distinct from the maintenance marker. Four states, and the tonal ladder between them is the point:
 
   | State | Treatment | Label |
   |---|---|---|
@@ -970,23 +977,26 @@ by `site-footer.component.spec.ts`, because a link quietly dropping out is a
 regression rather than a tidy-up.
 
 **Anchor:** Stripe — a brand region (wordmark + one-line tagline) beside a nav
-group of three labelled `<nav>` columns, over a bottom strip carrying copyright,
+group of four labelled `<nav>` columns, over a bottom strip carrying copyright,
 separated by a `border-default` hairline. The nav group is its own responsive
-grid (2 columns on mobile, 3 from `sm`) so the columns stay balanced instead of
-the brand eating a quarter-column and leaving a dead zone at tablet widths. From
-`lg` the brand sits left, the nav group right.
+grid (2 columns below `md`, 4 from `md`) so the columns stay balanced: a 2×2
+block on phones and small tablets, one row from `md`. Three columns at `sm`
+would orphan the fourth on a row of its own. From `lg` the brand sits left, the
+nav group right. The nav group does not shrink (`shrink-0`), so at 1024px the
+brand's tagline gives up width instead of a link label wrapping.
 
-**The three columns, and why each holds what it does:**
+**The four columns, and why each holds what it does:**
 
 | Column | Holds | Why |
 |---|---|---|
 | **Directory** | Home, Products, Categories, Audiences, Trades, Phases | The primary surfaces, in **server-rendered HTML**. The header's facet values render client-side and its mobile overlay never reaches SSR, so this is where a crawler meets the taxonomy. |
+| **Help** | Help center, Getting started, How ranking works | The footer-only entry into `/docs` (AECI-1252, `docs/STAGE_2_PRODUCT_DOCS_SPEC.md` §7 question 3). The header row is closed, so the help center comes here. "For vendors" joins with AECI-1253, once `/docs/vendors` is indexable. |
 | **Legal** | Terms, Privacy, Review guidelines, Listing accuracy | Trust-first positioning means the legal set is one click from every page, not buried. |
 | **Company** | About, Methodology, Contact, Updates, Roadmap | Who we are and where we are going. Methodology sits next to About because it is the same kind of destination — how the directory works (AECI-804). Methodology, Updates and Roadmap are all footer-only; the header links none of them, so this is their sole site-wide entry. |
 
 **Rules.**
 
-- **Every column is a `<nav>` with an `aria-label`.** Three unlabelled navs in one
+- **Every column is a `<nav>` with an `aria-label`.** Four unlabelled navs in one
   landmark are indistinguishable in a screen reader's landmark list.
 - **The footer is visitor-neutral, absolutely.** It sits inside URL-keyed cached
   HTML and holds no session state — no portal door, no account link, no badge.
@@ -1003,9 +1013,11 @@ the brand eating a quarter-column and leaving a dead zone at tablet widths. From
   `<ng-container i18n>` wrap so the extracted source string stays byte-identical —
   an identical source under a shared id is one translation unit; a differing one
   is a collision.
-- **Adding a column** is a re-measure at `sm`, where three become two. Prefer
-  growing an existing column: four to six items read fine, and the Company column
-  absorbed three without a layout change.
+- **Adding a column** is a re-measure at every breakpoint. Prefer growing an
+  existing column: four to six items read fine, and the Company column absorbed
+  three without a layout change. The Help column (AECI-1252) was the exception,
+  because the help center is a destination of its own kind. It moved the grid
+  from 2→3 to 2→4, measured at 375, 768, 1024 and 1280px.
 
 ### Layout shells
 

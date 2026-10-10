@@ -780,7 +780,8 @@ export function sendVendorReviewPublishedEmail(
  * inside a sentence, and this is the one action the email exists to prompt. Every §9 AC
  * is unchanged — the vendor is named, capabilities are listed, the link appears only
  * when configured, the sign-in line still branches on the identity outcome, and the
- * account-status framing stays aligned with the public label.
+ * account-status framing stays account-scoped. (It used to be aligned with the public
+ * account label, which AECI-1264 removed on 2026-10-09.)
  *
  * **Two variants since AECI-1215** (`STAGE_2_PAID_TIERS_SPEC.md` §13.6), one per plan
  * the operator chose. Only the capabilities block differs. Managed keeps the copy
