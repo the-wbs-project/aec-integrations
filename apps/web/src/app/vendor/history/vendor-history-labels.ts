@@ -39,14 +39,14 @@ const ACTION_LABELS: Readonly<Record<string, string>> = {
   'integration.link_removed': $localize`:@@vendor.history.action.integrationLinkRemoved:Integration link removed`,
   'integration.retired': $localize`:@@vendor.history.action.integrationRetired:Integration retired`,
   'integration.restored': $localize`:@@vendor.history.action.integrationRestored:Integration restored`,
-  'connector_mapping.updated': $localize`:@@vendor.history.action.connectorMappingUpdated:Connector catalogue entry updated`,
+  'connector_mapping.updated': $localize`:@@vendor.history.action.connectorMappingUpdated:Connector catalog entry updated`,
 
   // ── AECi corrections with a lock (AECI-1237) ─────────────────────────────
-  'vendor.field_overridden': $localize`:@@vendor.history.action.vendorFieldOverridden:Company profile detail corrected and locked by AECi`,
+  'vendor.field_overridden': $localize`:@@vendor.history.action.vendorFieldOverridden:Company profile detail corrected and locked by AEC Integrations`,
   'vendor.override_lifted': $localize`:@@vendor.history.action.vendorOverrideLifted:Lock lifted on a company profile detail`,
-  'product.field_overridden': $localize`:@@vendor.history.action.productFieldOverridden:Product listing detail corrected and locked by AECi`,
+  'product.field_overridden': $localize`:@@vendor.history.action.productFieldOverridden:Product listing detail corrected and locked by AEC Integrations`,
   'product.override_lifted': $localize`:@@vendor.history.action.productOverrideLifted:Lock lifted on a product listing detail`,
-  'integration.field_overridden': $localize`:@@vendor.history.action.integrationFieldOverridden:Integration detail corrected and locked by AECi`,
+  'integration.field_overridden': $localize`:@@vendor.history.action.integrationFieldOverridden:Integration detail corrected and locked by AEC Integrations`,
   'integration.override_lifted': $localize`:@@vendor.history.action.integrationOverrideLifted:Lock lifted on an integration detail`,
 
   // ── Field contests and protests ──────────────────────────────────────────
@@ -54,11 +54,11 @@ const ACTION_LABELS: Readonly<Record<string, string>> = {
   'integration.contest.withdrawn': $localize`:@@vendor.history.action.contestWithdrawn:Field contest withdrawn`,
   'integration.contest.accepted': $localize`:@@vendor.history.action.contestAccepted:Field contest accepted`,
   'integration.contest.declined': $localize`:@@vendor.history.action.contestDeclined:Field contest declined`,
-  'integration.contest.protested': $localize`:@@vendor.history.action.contestProtested:Contest decision sent to AECi`,
+  'integration.contest.protested': $localize`:@@vendor.history.action.contestProtested:Contest decision sent to AEC Integrations`,
   'integration.contest.protest_replied': $localize`:@@vendor.history.action.contestProtestReplied:Reply added to a protest`,
   'integration.contest.protest_withdrawn': $localize`:@@vendor.history.action.contestProtestWithdrawn:Protest withdrawn`,
-  'integration.contest.protest_upheld': $localize`:@@vendor.history.action.contestProtestUpheld:AECi upheld a protest`,
-  'integration.contest.protest_rejected': $localize`:@@vendor.history.action.contestProtestRejected:AECi turned down a protest`,
+  'integration.contest.protest_upheld': $localize`:@@vendor.history.action.contestProtestUpheld:AEC Integrations upheld a protest`,
+  'integration.contest.protest_rejected': $localize`:@@vendor.history.action.contestProtestRejected:AEC Integrations turned down a protest`,
   'integration.contest.lapsed': $localize`:@@vendor.history.action.contestLapsed:Field contest closed with no answer`,
   'integration.contest.rerouted': $localize`:@@vendor.history.action.contestRerouted:Field contest passed to the new owner`,
   'integration.contest.seat_stamp_cleared': $localize`:@@vendor.history.action.contestSeatStampCleared:Contest sender cleared after a seat left`,
@@ -74,11 +74,11 @@ const ACTION_LABELS: Readonly<Record<string, string>> = {
   // ── Seats ────────────────────────────────────────────────────────────────
   'vendor_seat.invited': $localize`:@@vendor.history.action.seatInvited:Colleague invited`,
   'vendor_seat.invite_resent': $localize`:@@vendor.history.action.seatInviteResent:Invitation sent again`,
-  'vendor_seat.invite_revoked': $localize`:@@vendor.history.action.seatInviteRevoked:Invitation cancelled`,
+  'vendor_seat.invite_revoked': $localize`:@@vendor.history.action.seatInviteRevoked:Invitation canceled`,
   'vendor_seat.invite_accepted': $localize`:@@vendor.history.action.seatInviteAccepted:Invitation accepted`,
-  'vendor_seat.provisioned': $localize`:@@vendor.history.action.seatProvisioned:Seat added by AECi`,
+  'vendor_seat.provisioned': $localize`:@@vendor.history.action.seatProvisioned:Seat added by AEC Integrations`,
   'vendor_claim.granted': $localize`:@@vendor.history.action.vendorClaimGranted:Company claim approved`,
-  'vendor_claim.seat_revoked': $localize`:@@vendor.history.action.vendorClaimSeatRevoked:Seat removed by AECi`,
+  'vendor_claim.seat_revoked': $localize`:@@vendor.history.action.vendorClaimSeatRevoked:Seat removed by AEC Integrations`,
   'vendor_admin.banned': $localize`:@@vendor.history.action.vendorAdminBanned:Seat suspended`,
   'vendor_admin.unbanned': $localize`:@@vendor.history.action.vendorAdminUnbanned:Seat restored`,
 
@@ -90,8 +90,8 @@ const ACTION_LABELS: Readonly<Record<string, string>> = {
   'vendor_entitlement.expiry_warned': $localize`:@@vendor.history.action.entitlementExpiryWarned:Plan end reminder sent`,
 
   // ── Connector catalogues ─────────────────────────────────────────────────
-  'connector_catalog.managed_by_vendor': $localize`:@@vendor.history.action.catalogManagedByVendor:Connector catalogue handed to your team`,
-  'connector_catalog.managed_by_review': $localize`:@@vendor.history.action.catalogManagedByReview:Connector catalogue taken back by AECi`,
+  'connector_catalog.managed_by_vendor': $localize`:@@vendor.history.action.catalogManagedByVendor:Connector catalog handed to your team`,
+  'connector_catalog.managed_by_review': $localize`:@@vendor.history.action.catalogManagedByReview:Connector catalog taken back by AEC Integrations`,
 };
 
 /** `vendor_seat.invite_resent` → "Vendor seat invite resent". Never guesses meaning. */
@@ -136,7 +136,7 @@ export function historyActorLabel(kind: VendorHistoryActorKind): string {
     case 'your_team':
       return $localize`:@@vendor.history.actor.yourTeam:Your team`;
     case 'aeci':
-      return $localize`:@@vendor.history.actor.aeci:AECi`;
+      return $localize`:@@vendor.history.actor.aeci:AEC Integrations`;
     default:
       return $localize`:@@vendor.history.actor.system:System`;
   }
@@ -150,7 +150,7 @@ export function historyKindLabel(kind: VendorHistoryKind): string {
     case 'vendor':
       return $localize`:@@vendor.history.filter.vendor:Your team's edits`;
     case 'aeci':
-      return $localize`:@@vendor.history.filter.aeci:AECi changes`;
+      return $localize`:@@vendor.history.filter.aeci:Changes by AEC Integrations`;
     default:
       return $localize`:@@vendor.history.filter.all:All changes`;
   }

@@ -91,16 +91,16 @@ describe('VendorProductConnectors', () => {
     // Reach-only connector: no delivered block, and an undated catalogue says so.
     expect(aquifer!.querySelector('[data-tier="delivered"]')).toBeNull();
     expect(text(aquifer!.querySelector('summary'))).toBe(
-      'Reachable 5 products catalogue date not recorded',
+      'Reachable 5 products catalog date not recorded',
     );
   });
 
-  it('offers "Contest a field" on a delivered pair the vendor does not own (AECI-1092)', async () => {
+  it('offers "Request a change" on a delivered pair the vendor does not own (AECI-1092)', async () => {
     const fixture = await create(PRIMARY);
     const target = el(fixture).querySelector('[data-contest-target]');
     expect(text(target)).toContain('Sage Intacct, through Kroo Connector. Offered by Kroo.');
     const trigger = target!.querySelector('button');
-    expect(text(trigger)).toBe('Contest a field');
+    expect(text(trigger)).toBe('Request a change');
   });
 
   it('offers no contest on a pair the vendor owns, or on a retired one', async () => {

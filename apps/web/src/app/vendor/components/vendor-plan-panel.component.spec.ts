@@ -172,7 +172,7 @@ describe('VendorPlanPanel: the states', () => {
   it('the connector catalogue seat gets no offer, no price and no call to action', () => {
     const f = create(FREE, 'connector');
     expect(state(f)).toBe('catalogue');
-    expect(text(f)).toContain('This seat maintains your connector catalogue');
+    expect(text(f)).toContain('This seat maintains your connector catalog');
     expect(text(f)).toContain('Its description, website, logo and categories are yours to edit');
     expect(el(f).querySelector('[data-testid="plan-price"]')).toBeNull();
     expect(cta(f)).toBeNull();

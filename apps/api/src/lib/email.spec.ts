@@ -2614,7 +2614,9 @@ describe('protest and decline emails (AECI-1205)', () => {
       'Reply by Sep 3, 2026, 2:30 PM UTC: review requested on Revit for MicroStation',
     );
     const text = String(body.text);
-    expect(text).toContain('Field: integration type');
+    expect(text).toContain('Field: how you get it');
+    expect(text).toContain('the "how you get it" detail of Revit for MicroStation');
+    expect(text).toContain('Reply under Change requests in Messages');
     expect(text).toContain('Value on record: native');
     expect(text).toContain('Proposed value: plugin');
     expect(text).toContain('Their reason: The docs say plugin.');

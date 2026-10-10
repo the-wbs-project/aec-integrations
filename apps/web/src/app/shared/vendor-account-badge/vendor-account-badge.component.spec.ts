@@ -30,9 +30,10 @@ describe('VendorAccountBadge', () => {
     expect(el.textContent?.trim()).toBe('');
   });
 
-  it('says "Active on AECi" publicly, with no trust glyph or verification claim', () => {
+  it('says "Active on AEC Integrations" publicly, with no trust glyph or verification claim', () => {
     const el = render(true, 'public');
-    expect(el.textContent).toContain('Active on AECi');
+    expect(el.textContent).toContain('Active on AEC Integrations');
+    expect(el.textContent).not.toContain('AECi');
     expect(el.textContent).not.toMatch(/verified/i);
     expect(el.querySelector('svg')).toBeNull();
   });
@@ -48,7 +49,7 @@ describe('VendorAccountBadge', () => {
 
   it('shows the vendor the same label in the portal, without the explainer link', () => {
     const el = render(true, 'portal');
-    expect(el.textContent?.trim()).toBe('Active on AECi');
+    expect(el.textContent?.trim()).toBe('Active on AEC Integrations');
     expect(el.querySelector('a')).toBeNull();
   });
 });

@@ -810,7 +810,7 @@ export function sendClaimApprovedEmail(
     : 'Sign in with your existing account to get started.';
 
   const accountStatus =
-    "An active vendor account means this company can manage its AECi profile. It does not verify product quality or integration accuracy, and it doesn't affect search ranking or placement.";
+    "An active vendor account means this company can manage its AEC Integrations profile. It does not verify product quality or integration accuracy, and it doesn't affect search ranking or placement.";
   const capabilities =
     opts.plan === 'free'
       ? 'Your account is on the Free plan. From your vendor portal you can edit your company details and your product listing.'
@@ -1342,7 +1342,7 @@ export function sendEntitlementExpiringEmail(
     "Nothing changes automatically. We don't switch access off when a term reaches its end date. This is a heads-up so you can decide, not a countdown.";
   const ask = 'To renew, or if the term dates look wrong, just reply to this email.';
   const stance =
-    "An active vendor account means this company can manage its AECi profile. It does not verify product quality or integration accuracy, and it doesn't affect search ranking or placement.";
+    "An active vendor account means this company can manage its AEC Integrations profile. It does not verify product quality or integration accuracy, and it doesn't affect search ranking or placement.";
 
   const render = (link: LinkTagger): EmailContent => {
     const textParagraphs = [lead, noLapse, ask];
@@ -2057,16 +2057,16 @@ export function sendContestSubmittedNotification(
 /** Vendor-facing names for the contestable fields. Raw ids stay in the operator alert. */
 const CONTEST_FIELD_LABELS: Record<string, string> = {
   name: 'name',
-  mechanism_kind: 'integration type',
-  mechanism_name: 'connector name',
+  mechanism_kind: 'how you get it',
+  mechanism_name: 'connection name',
   direction: 'data direction',
   description: 'description',
   listing_url: 'listing page',
   docs_url: 'documentation link',
   website: 'website',
-  mechanism_url: 'connector link',
+  mechanism_url: 'connection link',
   pricing_model: 'pricing model',
-  maturity: 'maturity',
+  maturity: 'release stage',
   owner: 'owner',
 };
 
@@ -2167,9 +2167,9 @@ export function sendContestProtestOpenedEmail(
   const messages = vendorMessagesUrl(c.env, opts.vendorSlug);
   const why =
     opts.basis === 'silence'
-      ? `${opts.submitterVendorName} asked to change the ${field} of ${opts.integrationName}, and ${company} did not answer within 30 days. They have now asked AEC Integrations to review it.`
-      : `${opts.submitterVendorName} disagrees with the decision ${company} made on their request to change the ${field} of ${opts.integrationName}. They have asked AEC Integrations to review it.`;
-  const reply = `You can reply once, by ${due}. Reply under Field contests in Messages on your vendor portal.`;
+      ? `${opts.submitterVendorName} asked to change the "${field}" detail of ${opts.integrationName}, and ${company} did not answer within 30 days. They have now asked AEC Integrations to review it.`
+      : `${opts.submitterVendorName} disagrees with the decision ${company} made on their request to change the "${field}" detail of ${opts.integrationName}. They have asked AEC Integrations to review it.`;
+  const reply = `You can reply once, by ${due}. Reply under Change requests in Messages on your vendor portal.`;
   const shared = (link: LinkTagger) => ({
     preheader: `Reply by ${due}.`,
     heading: `Review requested on ${opts.integrationName}`,
@@ -2215,7 +2215,7 @@ export function sendContestProtestReplyReminderEmail(
   const field = contestFieldLabel(opts.field);
   const due = formatDeadline(opts.replyDueAt);
   const messages = vendorMessagesUrl(c.env, opts.vendorSlug);
-  const lead = `${opts.submitterVendorName} asked AEC Integrations to review a contest on the ${field} of ${opts.integrationName}. ${company} has not replied yet.`;
+  const lead = `${opts.submitterVendorName} asked AEC Integrations to review a contest on the "${field}" detail of ${opts.integrationName}. ${company} has not replied yet.`;
   const reply = `You can reply once, until ${due}. After that the reply closes, and AEC Integrations decides on what it has.`;
   const shared = (link: LinkTagger) => ({
     preheader: `The reply closes ${due}.`,
@@ -2317,8 +2317,8 @@ export function sendContestDeclinedProtestWindowEmail(
   const field = contestFieldLabel(opts.field);
   const closes = formatDeadline(opts.protestClosesAt);
   const messages = vendorMessagesUrl(c.env, opts.vendorSlug);
-  const lead = `${opts.ownerVendorName} declined the request from ${company} to change the ${field} of ${opts.integrationName}. The value on record stays as it is.`;
-  const window = `If you disagree, you can ask AEC Integrations to review it until ${closes}, from Field contests in Messages on your vendor portal. Its view is advice, and nothing about the review is public.`;
+  const lead = `${opts.ownerVendorName} declined the request from ${company} to change the "${field}" detail of ${opts.integrationName}. The value on record stays as it is.`;
+  const window = `If you disagree, you can ask AEC Integrations to review it until ${closes}, from Change requests in Messages on your vendor portal. Its view is advice, and nothing about the review is public.`;
   const shared = (link: LinkTagger) => ({
     preheader: `You can ask for a review until ${closes}.`,
     heading: `${opts.ownerVendorName} declined your change request`,

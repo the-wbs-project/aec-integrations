@@ -470,11 +470,11 @@ describe('ProductDetailPage powered-integrations hub', () => {
     );
 
     const endpoints = el.querySelector('#integrations')!;
-    expect(endpoints.textContent).toContain('Only partners listed on AECi appear here');
+    expect(endpoints.textContent).toContain('Only partners listed on AEC Integrations appear here');
 
     const powered = el.querySelector('#powered-integrations')!;
     expect(powered.textContent).toContain(
-      'Only integrations between products listed on AECi appear here',
+      'Only integrations between products listed on AEC Integrations appear here',
     );
 
     // Each note routes to the same correction drawer the empty states use, so
@@ -494,7 +494,7 @@ describe('ProductDetailPage powered-integrations hub', () => {
 
     expect(el.querySelector('#integrations')!.textContent).not.toContain('Only partners listed');
     expect(el.querySelector('#powered-integrations')!.textContent).toContain(
-      'Only integrations between products listed on AECi appear here',
+      'Only integrations between products listed on AEC Integrations appear here',
     );
   });
 
@@ -813,7 +813,9 @@ describe('ProductDetailPage integrations lanes (§13.3)', () => {
     );
 
     const section = el.querySelector('#integrations')!;
-    expect(section.textContent!.match(/Only partners listed on AECi appear here/g)).toHaveLength(1);
+    expect(
+      section.textContent!.match(/Only partners listed on AEC Integrations appear here/g),
+    ).toHaveLength(1);
   });
 
   it('keeps ONE anchor and one section-nav entry across the split', () => {
@@ -1123,7 +1125,7 @@ describe('ProductDetailPage hero reach line (§13.6)', () => {
 
     // Four distinct products across three pairs.
     expect(el.querySelector('[slot="hero"]')!.textContent).toContain(
-      'Connects 4 products in the AECi catalog',
+      'Connects 4 products in the AEC Integrations catalog',
     );
   });
 
@@ -1141,7 +1143,7 @@ describe('ProductDetailPage hero reach line (§13.6)', () => {
     );
 
     expect(el.querySelector('[slot="hero"]')!.textContent).toContain(
-      'Connects 3 products in the AECi catalog',
+      'Connects 3 products in the AEC Integrations catalog',
     );
     expect(el.querySelector('#powered-integrations')).toBeNull();
   });
@@ -1150,7 +1152,7 @@ describe('ProductDetailPage hero reach line (§13.6)', () => {
     const { el } = setup(connector({ integrations_as_connector: [selfEdge(procore, agave)] }));
 
     expect(el.querySelector('[slot="hero"]')!.textContent).toContain(
-      'Connects 1 product in the AECi catalog',
+      'Connects 1 product in the AEC Integrations catalog',
     );
   });
 

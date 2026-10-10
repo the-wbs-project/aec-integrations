@@ -176,7 +176,7 @@ import { RoleBadge } from './role-badge';
                    whenever the product reaches at least one catalog product,
                    with no role gate: §13.6 states only the N > 0 condition, and
                    a mis-roled application that powers edges is described just
-                   as accurately by it. "in the AECi catalog" carries §12.7's
+                   as accurately by it. "in the AEC Integrations catalog" carries §12.7's
                    scope framing inline, so the number never reads as the
                    vendor's full partner set. -->
               @if (connectsLabel(); as connects) {
@@ -774,9 +774,9 @@ export class ProductDetailPage {
     const count = connectedProductCount(p.integrations_as_connector, p.slug);
     if (count === 0) return null;
     if (count === 1) {
-      return $localize`:@@products.detail.hero.connects.one:Connects 1 product in the AECi catalog`;
+      return $localize`:@@products.detail.hero.connects.one:Connects 1 product in the AEC Integrations catalog`;
     }
-    return $localize`:@@products.detail.hero.connects.other:Connects ${count}:count: products in the AECi catalog`;
+    return $localize`:@@products.detail.hero.connects.other:Connects ${count}:count: products in the AEC Integrations catalog`;
   });
 
   /**

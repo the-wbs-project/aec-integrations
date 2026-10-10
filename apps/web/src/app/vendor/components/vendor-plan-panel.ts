@@ -89,7 +89,7 @@ import { VendorPlanBadge } from './vendor-plan-badge';
           <p class="mt-2 max-w-prose text-sm leading-relaxed text-(--text-secondary)">
             <span i18n="@@vendor.plan.catalogue.scope"
               >Its description, website, logo and categories are yours to edit, like any listing on
-              Free. Catalogue maintenance carries no public account label.</span
+              Free. Catalog maintenance carries no public account label.</span
             >
           </p>
         }
@@ -177,7 +177,7 @@ import { VendorPlanBadge } from './vendor-plan-badge';
           Manage its integrations delivered through a connector
         </li>
         <li i18n="@@vendor.plan.managed.label">
-          Counts toward the "Active on AECi" label on your vendor page
+          Counts toward the "Active on AEC Integrations" label on your vendor page
         </li>
       </ul>
     </ng-template>
@@ -246,7 +246,7 @@ export class VendorPlanPanel {
           : $localize`:@@vendor.plan.lede.ended:Managed ended for this product on ${date}:DATE:, so it is on Free. Nothing you entered was removed.`;
       }
       case 'catalogue':
-        return $localize`:@@vendor.plan.lede.catalogue:This seat maintains your connector catalogue on AECi: your listings, the products each one maps to, and the evidence behind each mapping.`;
+        return $localize`:@@vendor.plan.lede.catalogue:This seat maintains your connector catalog on AEC Integrations: your listings, the products each one maps to, and the evidence behind each mapping.`;
       default:
         return $localize`:@@vendor.plan.lede.free:This product is on Free. Its listing is published and stays published.`;
     }

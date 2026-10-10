@@ -436,9 +436,7 @@ describe('VendorDashboardTabbed — the overview landing page (AECI-983)', () =>
     const el = root(await open('overview', VENDOR_ME_CONNECTOR_SEAT_FIXTURE));
 
     expect(el.textContent).not.toContain('Editing is paused');
-    expect(el.textContent).not.toContain(
-      'Your profile and product details stay with the AECi team.',
-    );
+    expect(el.textContent).not.toMatch(/stays? with (the AECi team|AEC Integrations|us)\b/);
     expect(el.textContent).not.toContain('back on');
   });
 
@@ -933,7 +931,7 @@ describe('VendorDashboardTabbed — the connector catalogue seat (AECI-1083)', (
   const SEAT = VENDOR_ME_CONNECTOR_SEAT_FIXTURE;
   const seatSlug = SEAT.vendor.slug;
 
-  it('adds a Catalogue tab to a connector product’s row, last', async () => {
+  it('adds a Catalog tab to a connector product’s row, last', async () => {
     const harness = await RouterTestingHarness.create();
     TestBed.inject(VendorPortalStore).seed(SEAT);
     await harness.navigateByUrl(`/vendor/${seatSlug}/products/agave/profile`);
@@ -950,16 +948,16 @@ describe('VendorDashboardTabbed — the connector catalogue seat (AECI-1083)', (
       'Phases',
       'Integrations',
       'Reviews',
-      'Catalogue',
+      'Catalog',
     ]);
-    expect(navLink(harness, 'Catalogue').getAttribute('href')).toBe(
+    expect(navLink(harness, 'Catalog').getAttribute('href')).toBe(
       `/vendor/${seatSlug}/products/agave/catalogue`,
     );
   });
 
-  it('never shows the Catalogue tab on an application product', async () => {
+  it('never shows the Catalog tab on an application product', async () => {
     const harness = await open('products/summit-field-issues/profile');
-    expect(navLabels(harness)).not.toContain('Catalogue');
+    expect(navLabels(harness)).not.toContain('Catalog');
   });
 
   it('renders the catalogue on the tab', async () => {
@@ -972,14 +970,14 @@ describe('VendorDashboardTabbed — the connector catalogue seat (AECI-1083)', (
     await flush();
     harness.detectChanges();
 
-    expect(navLink(harness, 'Catalogue').getAttribute('aria-current')).toBe('page');
+    expect(navLink(harness, 'Catalog').getAttribute('aria-current')).toBe('page');
     expect(root(harness).querySelector('aec-vendor-connector-catalogue')).not.toBeNull();
   });
 
   it('says a typed catalogue URL on an application product has no catalogue', async () => {
     const harness = await open('products/summit-field-issues/catalogue');
     expect(root(harness).querySelector('[data-catalogue-not-connector]')?.textContent).toContain(
-      'Only connector products have a catalogue.',
+      'Only connector products have a catalog.',
     );
     expect(root(harness).querySelector('aec-vendor-connector-catalogue')).toBeNull();
   });
@@ -993,7 +991,7 @@ describe('VendorDashboardTabbed — the connector catalogue seat (AECI-1083)', (
     harness.detectChanges();
 
     const link = root(harness).querySelector('[data-catalogue-link]');
-    expect(link?.textContent?.trim()).toBe('Open the Agave catalogue');
+    expect(link?.textContent?.trim()).toBe('Open the Agave catalog');
     expect(link?.getAttribute('href')).toBe(`/vendor/${seatSlug}/products/agave/catalogue`);
   });
 });

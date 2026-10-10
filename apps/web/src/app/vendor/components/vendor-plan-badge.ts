@@ -14,7 +14,7 @@ import { planLabel, planName } from '../vendor-plan';
  * whole visual difference: neither is a warning, so neither borrows a status
  * colour.
  *
- * Not the public "Active on AECi" account label (`vendor-account-badge.ts`).
+ * Not the public "Active on AEC Integrations" account label (`vendor-account-badge.ts`).
  * That one describes the company's account on public pages. This one names a
  * product's plan inside the portal.
  */

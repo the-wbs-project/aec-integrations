@@ -6257,7 +6257,7 @@ The item is an **allow-list projection**. It never carries `actor_id`, an email,
 
 **`GET /api/vendor/history.csv`** returns the same rows as CSV.
 
-- Headers: `Content-Type: text/csv; charset=utf-8`, `Content-Disposition: attachment; filename="aeci-change-history-<YYYY-MM-DD>.csv"`, `Cache-Control: private, no-store`.
+- Headers: `Content-Type: text/csv; charset=utf-8`, `Content-Disposition: attachment; filename="aec-integrations-change-history-<YYYY-MM-DD>.csv"` (`aeci-change-history-…` until AECI-1262; `actor_kind` keeps the value `aeci`), `Cache-Control: private, no-store`.
 - Columns: `id, at, actor_kind, action, entity_type, entity_id, entity_name, fields, plan_tier, plan_status, reason`. `fields` is joined with `;`.
 - The export stops at **10,000 rows** (`VENDOR_HISTORY_CSV_MAX_ROWS`), newest first. Every response carries `X-AECI-Total-Rows: <matching rows>` and `X-AECI-Truncated: true|false`. `true` means the file holds the newest 10,000 rows of a longer history. Narrow `from`/`to` to export the rest.
 - Cells go through `csvCell` in `@aeci/shared/csv`: RFC 4180 quoting, and a leading `'` on any cell starting with `=`, `+`, `-` or `@` after any leading whitespace (NBSP included), or with a tab or CR, so a spreadsheet never runs it as a formula.

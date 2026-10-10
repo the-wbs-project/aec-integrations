@@ -83,7 +83,7 @@ type LoadState = 'idle' | 'loading' | 'loaded' | 'failed';
           </h2>
           <p class="max-w-prose text-sm text-(--text-secondary)" i18n="@@vendor.connectors.intro">
             Integration platforms that list this product. AEC Integrations maintains this list from
-            each platform's published catalogue, so it is read-only here.
+            each platform's published catalog, so it is read-only here.
           </p>
         </div>
 
@@ -177,9 +177,9 @@ type LoadState = 'idle' | 'loading' | 'loaded' | 'failed';
                       class="max-w-prose text-sm text-(--text-secondary)"
                       i18n="@@vendor.connectors.reachable.explain"
                     >
-                      These products appear in {{ group.connector.name }}'s catalogue alongside
-                      yours. That means {{ group.connector.name }} could connect them. Nobody has
-                      confirmed a working integration, so we do not count these as integrations.
+                      These products appear in {{ group.connector.name }}'s catalog alongside yours.
+                      That means {{ group.connector.name }} could connect them. Nobody has confirmed
+                      a working integration, so we do not count these as integrations.
                     </p>
                     <ul
                       class="mt-2 list-disc space-y-1 ps-5 text-sm text-(--text-primary) sm:columns-2"
@@ -251,7 +251,7 @@ export class VendorProductConnectors {
 
   protected asOfLabel(group: VendorProductConnector): string {
     if (group.catalog_as_of === null) {
-      return $localize`:@@vendor.connectors.reachable.undated:catalogue date not recorded`;
+      return $localize`:@@vendor.connectors.reachable.undated:catalog date not recorded`;
     }
     const date = formatDate(group.catalog_as_of, 'MMMM d, y', this.locale, 'UTC');
     return $localize`:@@vendor.connectors.reachable.asOf:as of ${date}:date:`;

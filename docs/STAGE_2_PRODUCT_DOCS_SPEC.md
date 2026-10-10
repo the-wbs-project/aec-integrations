@@ -65,7 +65,7 @@ No new Worker, no new schema, no new bindings, no migration.
 | Content | Markdown + YAML frontmatter: `apps/web/src/content/docs/<section>/<slug>.md` |
 | Build | Existing esbuild `text` loader (`apps/web/angular.json`) — inlined at build time, no runtime fetch |
 | Rendering | `marked` (GFM), same pipeline as `legal-content.ts`; the registry generalizes into a **docs manifest** that also carries the nav tree (section order, page order, prev/next) from frontmatter |
-| Frontmatter | Scalar keys only (reuse/generalize `parseFrontmatter`): `title`, `description`, `section`, `order`, `last_updated` (pre-formatted display string — the legal rule), optional `related` |
+| Frontmatter | Scalar keys only (reuse/generalize `parseFrontmatter`): `title`, `description`, `section`, `order`, `last_updated` (pre-formatted display string in US format, "Month D, YYYY": the legal rule. AECI-1262 set the format; help-center pages still carry "D Month YYYY" until their follow-up), optional `related` |
 | Styling | Tailwind v4 + the semantic tokens; typography per `DESIGN.md`. Light-only until §2.5 dark reintroduction, after which docs inherit dark for free |
 | Caching | Native Workers Cache on the static-page TTL (24h edge / 1h browser); freshness on deploy is automatic (see §2.3). **Shipped as `Cache-Tag: route:index`, not the `docs docs:{slug}` first sketched here** (AECI-1104): the build-inlined content changes only on deploy, which already rotates the cache key, so a per-page purge handle would have no producer. `cache-tags.ts` also forbids ad-hoc tag namespaces. Add a `docs` entity only if a runtime purge of docs ever becomes real |
 | Search | **None at v0.** Nav + browser find. The deferred path is an Algolia `docs_{env}` index (Algolia is already wired) — not a new search system |
@@ -93,7 +93,7 @@ URL scheme: `/docs/<section>/<slug>`, kebab-case. Roughly 18 pages.
 │  └─ taxonomy                       — mechanisms, data objects, trades (the four facets)
 ├─ trust/
 │  ├─ how-ranking-works              — purely algorithmic; what paid does NOT buy
-│  ├─ the-account-label              — what "Active on AECi" means (AECI-965 retired "Verified badge"; AECI-1131 relabeled it from "Vendor account active"/"Account active"), that it is the plan
+│  ├─ the-account-label              — what "Active on AEC Integrations" means (AECI-965 retired "Verified badge"; AECI-1131 relabeled it from "Vendor account active"/"Account active"; AECI-1261 spelled out the name), that it is the plan
 │  └─ agreement-states               — unverified / single-source / confirmed / conflict, plainly
 ├─ vendors/                          — SHIPPED v0 2026-09-23 (AECI-1104), noindex until AECI-1105
 │  ├─ claiming-your-listing          — the claim form, what we check, outcomes, connector-vendor seats (§8.9/§8.10)

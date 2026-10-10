@@ -184,7 +184,7 @@ interface NeedsRow {
                   class="text-sm font-semibold text-(--text-primary)"
                   i18n="@@vendor.overview.catalogue.title"
                 >
-                  This seat maintains your connector catalogue.
+                  This seat maintains your connector catalog.
                 </p>
                 <p
                   class="mt-1 max-w-prose text-sm leading-relaxed text-(--text-secondary)"
@@ -393,7 +393,7 @@ export class VendorOverviewSection {
     () => this.store.me()?.products.filter((p) => p.product_role === 'connector') ?? [],
   );
   protected catalogueLinkLabel(name: string): string {
-    return $localize`:@@vendor.plan.catalogue.link:Open the ${name}:PRODUCT: catalogue`;
+    return $localize`:@@vendor.plan.catalogue.link:Open the ${name}:PRODUCT: catalog`;
   }
 
   protected readonly conflicts = computed(() => conflictsByProduct(this.store.integrations()));

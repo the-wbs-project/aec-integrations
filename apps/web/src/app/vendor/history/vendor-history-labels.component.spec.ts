@@ -50,7 +50,7 @@ describe('vendor history labels', () => {
 
   it('names each actor kind', () => {
     expect(historyActorLabel('your_team')).toBe('Your team');
-    expect(historyActorLabel('aeci')).toBe('AECi');
+    expect(historyActorLabel('aeci')).toBe('AEC Integrations');
     expect(historyActorLabel('system')).toBe('System');
   });
 

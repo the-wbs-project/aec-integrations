@@ -363,7 +363,8 @@ import type { PoweredConnection, PoweredHubPartner, PoweredHubView } from './pow
            pay-for-placement. Both sections carry the note, deliberately:
            caveating one would imply the other is complete. -->
       <p class="text-xs text-(--text-secondary)" i18n="@@products.detail.body.powers.scope">
-        Only integrations between products listed on AECi appear here. If one is missing,
+        Only integrations between products listed on AEC Integrations appear here. If one is
+        missing,
         <a
           aecRequestTrigger
           [entity]="'product'"

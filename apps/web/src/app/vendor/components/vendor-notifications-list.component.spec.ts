@@ -222,7 +222,7 @@ describe('VendorNotificationsList', () => {
   it.each([
     ['declined', 'The value on record stays as it is.'],
     ['closed_by_retire', 'Restoring the integration does not reopen your contest.'],
-    ['submitted', 'Accept or decline it under Field contests in Messages.'],
+    ['submitted', 'Accept or decline it under Change requests in Messages.'],
   ] as const)('explains a contest `%s` row under its title (AECI-1023)', async (event, note) => {
     getNotifications.mockResolvedValue({
       notifications: [

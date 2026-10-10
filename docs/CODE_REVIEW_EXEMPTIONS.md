@@ -252,6 +252,32 @@ added_by: claude (AECI-1116)
 
 **Justification.** `npx impeccable detect` on `/preview/vendor-dashboard/overview` reports two findings that are not defects. **`nested-cards`** is the Views tile's period toggle: a sunken, bordered, rounded segmented track inside the glance-band card. It is a control, not a card, and DESIGN.md "Vendor portal (Stage 2)" specifies that sunken track. The detector's card test is only "border plus radius or background", so any segmented control inside a card trips it. **`text-occlusion`** is the framing sentence inside the compact access strip's closed `<details>` ("What an active account covers"). While the disclosure is closed the text is not rendered (`checkVisibility()` is false), but the detector still reads its layout box, which sits over the glance band below. Opened, the sentence is in flow and nothing covers it, measured at 1280px and 375px. Both match only on these two files and only on those finding names. A `nested-cards` or `text-occlusion` finding on any other vendor surface is still in scope. Impeccable's inline-ignore comments cannot carry this: Angular strips template comments, so a URL scan never sees them.
 
+### EX-005 — Help-center pages lag the AECI-1262 portal labels and US spelling
+
+```yaml
+id: EX-005
+scope:
+  files:
+    - apps/web/src/content/docs/**
+  categories:
+    - Spec alignment
+  finding_matches:
+    - "docs page"
+    - "relabel"
+    - "AECi"
+    - "catalogue"
+    - "Field contests"
+    - "Contest a field"
+    - "last_updated"
+severity: any
+expiry: AECI-1267
+status: active
+added: 2026-10-10
+added_by: claude (AECI-1262)
+```
+
+**Justification.** AECI-1262 renamed portal labels and switched app copy to US English on `main`: "Change requests" for "Field contests", "Request a change" for "Contest a field", the four contest field names, "Catalog", and "AEC Integrations" for "AECi". The checklist's docs-sync rule (`CODE_REVIEW_CHECKLIST.md`, Spec alignment) wants the help-center pages under `apps/web/src/content/docs/` changed in the same PR. They are deliberately not. Those pages are being rewritten on the unmerged docs epic (AECI-634, the AECI-1261 commit), so editing them on `main` would conflict on content. AECI-1267, built on top of the epic, carries them: the label quotes, US spelling and US `last_updated` dates, and the two page renames with their 301s. The lag is low-risk. The vendor portal is dark until AECI-1105 opens it, and the `/docs/vendors/*` pages are noindex until then. AECI-1267 must merge before AECI-1105 opens the portal, so the pages are right before vendors arrive. Retire this entry when AECI-1267 merges.
+
 ---
 
 ## Retired exemptions

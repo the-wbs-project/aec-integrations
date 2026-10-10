@@ -77,7 +77,7 @@ describe('VendorHistoryPage — rows', () => {
   it('names who made each change, per actor kind', async () => {
     const fixture = await create();
     expect(text(row(fixture, byActor('your_team')), '[data-history-actor]')).toBe('Your team');
-    expect(text(row(fixture, byActor('aeci')), '[data-history-actor]')).toBe('AECi');
+    expect(text(row(fixture, byActor('aeci')), '[data-history-actor]')).toBe('AEC Integrations');
     expect(text(row(fixture, byActor('system')), '[data-history-actor]')).toBe('System');
   });
 
@@ -101,10 +101,10 @@ describe('VendorHistoryPage — rows', () => {
     expect(row(fixture, noPlan).querySelector('[data-history-plan]')).toBeNull();
   });
 
-  it('shows the reason from AECi only when the row carries one', async () => {
+  it('shows our reason only when the row carries one', async () => {
     const fixture = await create();
     const withReason = row(fixture, AECI_WITH_REASON);
-    expect(text(withReason, '[data-history-reason]')).toContain('Reason from AECi');
+    expect(text(withReason, '[data-history-reason]')).toContain('Our reason');
     expect(text(withReason, '[data-history-reason]')).toContain(AECI_WITH_REASON.reason!);
     expect(row(fixture, AECI_NO_REASON).querySelector('[data-history-reason]')).toBeNull();
     expect(row(fixture, byActor('your_team')).querySelector('[data-history-reason]')).toBeNull();
@@ -181,7 +181,7 @@ describe('VendorHistoryPage — search follow-up', () => {
       'google',
     ]);
     expect(shown.find((l) => l.channel === 'google')!.text).toContain(
-      'Queued for AECi to request a Google re-crawl',
+      'Queued for a Google re-crawl request',
     );
     const failed = shown.find((l) => l.state === 'failed')!;
     expect(failed.text).toContain('IndexNow did not answer.');
@@ -320,11 +320,11 @@ describe('VendorHistoryPage — screen readers', () => {
 
     el(fixture).querySelector<HTMLButtonElement>('[data-kind="aeci"]')!.click();
     await settle(fixture);
-    expect(announcer.message().trim()).toBe('AECi changes, page 1 of 3.');
+    expect(announcer.message().trim()).toBe('Changes by AEC Integrations, page 1 of 3.');
 
     button(fixture, 'Next').click();
     await settle(fixture);
-    expect(announcer.message().trim()).toBe('AECi changes, page 2 of 3.');
+    expect(announcer.message().trim()).toBe('Changes by AEC Integrations, page 2 of 3.');
   });
 
   it('announces an empty filter result', async () => {
@@ -406,7 +406,7 @@ describe('historyKindKeeps — the preview filter mirrors the API (AECI-1194)', 
     expect(keep('all')).toHaveLength(VENDOR_HISTORY_FIXTURE.length);
   });
 
-  it("puts AECi's integration.retired row under AECi changes, not your team's", () => {
+  it("puts AECi's integration.retired row under Changes by AEC Integrations, not your team's", () => {
     const retired = VENDOR_HISTORY_FIXTURE.find((r) => r.action === 'integration.retired')!;
     expect(retired.actor_kind).toBe('aeci');
     expect(keep('aeci')).toContain(retired);

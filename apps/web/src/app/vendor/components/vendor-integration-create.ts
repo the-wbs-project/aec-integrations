@@ -261,7 +261,7 @@ function emptyDraft(): Draft {
                   class="max-w-prose text-xs text-(--text-secondary)"
                   i18n="@@vendor.integrationCreate.search.hint"
                 >
-                  Search the published catalogue by product name, then choose one result.
+                  Search the published catalog by product name, then choose one result.
                 </p>
               }
               @if (showError('counterpart')) {

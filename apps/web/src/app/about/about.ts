@@ -140,7 +140,7 @@ import { HomeTrustPillars } from '../home/home-trust-pillars';
                   class="mt-2 text-base leading-relaxed text-(--text-secondary)"
                   i18n="@@app.about.different.curation.body"
                 >
-                  We seed the catalogue from public research. The vendor that offers an integration
+                  We seed the catalog from public research. The vendor that offers an integration
                   can take it over and keep its details current, and every claim stays labeled
                   “Unverified” until the vendors involved confirm it. Vendors never pay to rank,
                   never pay to remove a review, and never set their own position. Rankings are
@@ -197,8 +197,8 @@ import { HomeTrustPillars } from '../home/home-trust-pillars';
               class="mt-4 text-base leading-relaxed text-(--text-secondary)"
               i18n="@@app.about.next.body"
             >
-              Browse the directory to see which tools connect to what, read how the catalogue is
-              built and verified, or get in touch if you have a question or a correction.
+              Browse the directory to see which tools connect to what, read how the catalog is built
+              and verified, or get in touch if you have a question or a correction.
             </p>
             <div class="mt-6 flex flex-wrap gap-x-6 gap-y-3">
               <a
