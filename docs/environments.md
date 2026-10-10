@@ -49,13 +49,15 @@ The SSR Worker (`apps/web`) is the only public ingress. The API Worker (`apps/ap
 
 Every tier shares one Supabase auth project, so every tier can resolve a real user's
 address. The API Worker therefore gates outbound email by tier. The rule and its
-details live in `docs/email.md` §Tier delivery policy.
+details live in `docs/email.md` §Tier delivery policy. Staging redirects every app email to
+the support inbox (2026-10-09, for the AECI-1103 dress rehearsal), and the subject names
+who it was for. Supabase sign-in mail is outside the gate on every tier.
 
 | Tier | `ENV` | Outside recipients | Internal recipients | Subject | Stuck-request email without `LINEAR_API_KEY` |
 | --- | --- | --- | --- | --- | --- |
 | **Local** | `preview` (the top-level `wrangler.jsonc` var) | Suppressed | Sent, if `.dev.vars` holds a Resend key | `[preview]` | Skipped |
 | **PR preview** | `preview` | Suppressed | Skipped today, no `RESEND_API_KEY` | `[preview]` | Skipped |
-| **Staging** | `staging` | Suppressed | Sent | `[staging]` | Skipped |
+| **Staging** | `staging` | Sent to `support@aecintegrations.com` instead | Sent to `support@aecintegrations.com` instead | `[staging → {intended recipient}]` | Skipped |
 | **Demo** | `demo` | Suppressed | Sent | `[demo]` | Skipped |
 | **Production** | `production` | Sent | Sent | Unchanged | Sent |
 

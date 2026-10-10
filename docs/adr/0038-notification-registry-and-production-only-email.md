@@ -6,6 +6,7 @@
 - Supersedes: nothing. It amends `STAGE_2_ATTESTATIONS_SPEC.md` §7.2 and §7.3 (one email per finding becomes one digest per seat) and `STAGE_1_PHASE_6_SPEC.md` §6.1 (the sweep's claim alert re-send shares the submit's dedupe key).
 - Amended: 2026-10-01, the branch review. Recorded inline below and listed under "Review amendments".
 - Amended: 2026-10-04, AECI-1220. Tier-limited rules (`production-only`, `production-and-demo`), one `SUPPORT_EMAIL`, the operator blind copy off. See §7.
+- Amended: 2026-10-09, the AECI-1103 dress rehearsal. Staging redirects every email to the support inbox. See §8.
 
 ## Context
 
@@ -194,6 +195,28 @@ The branch review changed these, each recorded where it applies above or below.
   `LINEAR_NOTIFICATIONS_DOC_ID` and its key are set. AECI-1201 is Canceled. This replaces the
   "fails with exit 2" consequence below.
 
+### 8. Amendment (2026-10-09, AECI-1103): staging delivers every email to the support inbox
+
+- **Why.** The AECI-1103 dress rehearsal runs on staging with gmail.com test identities. Under
+  §1 their claim decisions and seat invites were suppressed, so the rehearsal could not see
+  them. Chris ruled that on staging every app email goes to `support@aecintegrations.com`.
+- **The rule.** When `ENV` is exactly `staging`, both transports send every allowed email to the
+  code constant `STAGING_REDIRECT_RECIPIENT`, internal recipients included. Nothing is
+  suppressed on staging for recipient reasons. Demo, preview, local and an unknown `ENV` keep
+  the §1 allowlist. Production is unchanged.
+- **The tier rule wins first.** A `production-only` or `production-and-demo` entry is still
+  suppressed on staging.
+- **The subject names the intended recipient**, for example
+  `[staging → x@gmail.com] Your claim for …`. Logs keep only the recipient hash.
+- **Only the envelope changes.** The ledger row, dedupe key, `Idempotency-Key`, unsubscribe
+  token and tagged links are the intended recipient's. A redirected send counts `sent`.
+- **No blind copy on staging**, since the envelope already reaches the support inbox. The
+  operator `COPY:` still goes there. The delivery webhook reads a redirected event's recipient
+  from the ledger rows for the message id.
+- **Consequence.** The §1 promise that staging never mails an outside person still holds: the
+  envelope is a code constant. A staging tester no longer needs an internal seat address to
+  see app mail, but still needs a readable mailbox for the Supabase sign-in email.
+
 ## Consequences
 
 - **Staging now shows portal rows with `emailedSeats` 0.** Its seats are outside the allowlist, so
@@ -213,8 +236,9 @@ The branch review changed these, each recorded where it applies above or below.
   Identical retries are always stopped.
 - **`profiles` has a cascade-child pin.** `apps/api/src/test/d1.spec.ts` fails if the set of
   `ON DELETE CASCADE` children of `profiles` changes, so a recreate plan sees the mutes.
-- **Non-production testing needs an internal address.** A tester who wants to see a mail on staging
-  must use a seat on one of the two allowlisted domains.
+- **Non-production testing needs an internal address.** A tester who wants to see a mail on demo
+  must use a seat on one of the two allowlisted domains. On staging, since §8, every mail lands in
+  the support inbox whatever the seat address.
 - **The registry must change with the code.** Adding, retiring or re-keying a notification is a
   registry edit plus `pnpm docs:notifications` in the same commit, or lint fails.
 - **The Linear Document needs a repository secret and a variable.** Until the operator sets

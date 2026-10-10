@@ -133,8 +133,9 @@ Tiers: **F** = Free listing and seat, **M** = Managed, **I** = Insights, **E** =
 > `notification_sends` row with the Resend message id (AECI-1202). The `?n=` link and portal open
 > or click recording are AECI-1209, not built. Since AECI-1222 (2026-10-02) a Resend delivery webhook records delivered, delayed, bounced and complained events per send in `notification_delivery_events`. Opens and clicks are deliberately not recorded. The vendor nudge is one daily digest per
 > seat, and a `notification.sent` row is written whether or not a seat was emailed, with
-> `metadata.emailedSeats` (AECI-1204). Staging and demo no longer email vendors at all, because
-> non-production email goes only to `thewbsproject.com` and `aecintegrations.com` (AECI-1198). The
+> `metadata.emailedSeats` (AECI-1204). Staging and demo no longer email vendors at all. Demo
+> sends only to `thewbsproject.com` and `aecintegrations.com` (AECI-1198), and staging delivers
+> every email to `support@aecintegrations.com` instead (2026-10-09). The
 > `attestation-notify.ts` line range in the row is out of date.
 
 ## 3. Gaps to close before the pilot starts on 2026-10-14

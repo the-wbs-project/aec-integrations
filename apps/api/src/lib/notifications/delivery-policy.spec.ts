@@ -2,16 +2,21 @@
  * The AECI-1198 tier delivery policy: outside recipients get mail from production only.
  * Every tier is checked against an allowlisted address, an outside address, mixed case
  * and the two subdomain lookalikes. A missing or unknown `ENV` must fail closed.
+ * Staging (2026-10-09) redirects every recipient to one internal inbox instead.
  */
 
 import { describe, expect, it } from 'vitest';
 
 import {
+  deliverySubject,
+  envelopeRecipients,
   INTERNAL_RECIPIENT_DOMAINS,
   isInternalRecipient,
   isProductionTier,
+  isRedirectTier,
   partitionRecipients,
   refusedByTierRule,
+  STAGING_REDIRECT_RECIPIENT,
   tierLabel,
   tierSubject,
 } from './delivery-policy';
@@ -25,6 +30,8 @@ const SUFFIX_LOOKALIKE = 'x@thewbsproject.com.evil.io';
 const SUBDOMAIN = 'x@mail.thewbsproject.com';
 
 const NON_PRODUCTION = ['development', 'preview', 'staging', 'demo'] as const;
+/** The non-production tiers that keep the allowlist: every one but staging. */
+const ALLOWLIST_TIERS = ['development', 'preview', 'demo'] as const;
 
 describe('isProductionTier', () => {
   it('is true only for ENV=production', () => {
@@ -106,7 +113,14 @@ describe('partitionRecipients', () => {
     });
   });
 
-  for (const tier of NON_PRODUCTION) {
+  it('allows everyone on staging, because the envelope redirects them all', () => {
+    expect(partitionRecipients({ ENV: 'staging' }, ALL)).toEqual({
+      allowed: ALL,
+      suppressed: [],
+    });
+  });
+
+  for (const tier of ALLOWLIST_TIERS) {
     it(`on ${tier}, allows only internal addresses, in order`, () => {
       expect(partitionRecipients({ ENV: tier }, ALL)).toEqual({
         allowed: [INTERNAL, MIXED_CASE, INTERNAL_2],
@@ -146,6 +160,55 @@ describe('tierSubject / tierLabel', () => {
     expect(tierSubject({}, 'Hello')).toBe('[non-production] Hello');
     expect(tierSubject({ ENV: 'qa' }, 'Hello')).toBe('[non-production] Hello');
     expect(tierLabel({})).toBe('non-production');
+  });
+});
+
+describe('the staging redirect (2026-10-09)', () => {
+  it('names the support inbox as the one redirect address', () => {
+    expect(STAGING_REDIRECT_RECIPIENT).toBe('support@aecintegrations.com');
+    expect(isInternalRecipient(STAGING_REDIRECT_RECIPIENT)).toBe(true);
+  });
+
+  it('applies to ENV=staging exactly, and nowhere else', () => {
+    expect(isRedirectTier({ ENV: 'staging' })).toBe(true);
+    for (const ENV of ['production', 'demo', 'preview', 'development', 'Staging', 'qa', '']) {
+      expect(isRedirectTier({ ENV })).toBe(false);
+    }
+    expect(isRedirectTier({})).toBe(false);
+  });
+
+  it('sends every staging envelope to the redirect address, internal or outside', () => {
+    expect(envelopeRecipients({ ENV: 'staging' }, [OUTSIDE])).toEqual([STAGING_REDIRECT_RECIPIENT]);
+    expect(envelopeRecipients({ ENV: 'staging' }, [INTERNAL, OUTSIDE])).toEqual([
+      STAGING_REDIRECT_RECIPIENT,
+    ]);
+  });
+
+  it('leaves the envelope unchanged on every other tier', () => {
+    for (const ENV of ['production', ...ALLOWLIST_TIERS, undefined]) {
+      expect(envelopeRecipients({ ENV }, [INTERNAL, INTERNAL_2])).toEqual([INTERNAL, INTERNAL_2]);
+    }
+  });
+
+  it('names the intended recipients in a staging subject, bare and lowercased', () => {
+    expect(deliverySubject({ ENV: 'staging' }, 'Hi', [`Seat <${MIXED_CASE}>`])).toBe(
+      '[staging → support@aecintegrations.com] Hi',
+    );
+    expect(deliverySubject({ ENV: 'staging' }, 'Hi', [OUTSIDE, INTERNAL])).toBe(
+      `[staging → ${OUTSIDE}, ${INTERNAL}] Hi`,
+    );
+  });
+
+  it('flattens a line break in an address, so it cannot add a header line', () => {
+    expect(deliverySubject({ ENV: 'staging' }, 'Hi', ['a@x.com\r\nBcc: b@y.com'])).toBe(
+      '[staging → a@x.com bcc: b@y.com] Hi',
+    );
+  });
+
+  it('is tierSubject on every other tier', () => {
+    expect(deliverySubject({ ENV: 'production' }, 'Hi', [OUTSIDE])).toBe('Hi');
+    expect(deliverySubject({ ENV: 'demo' }, 'Hi', [INTERNAL])).toBe('[demo] Hi');
+    expect(deliverySubject({}, 'Hi', [INTERNAL])).toBe('[non-production] Hi');
   });
 });
 

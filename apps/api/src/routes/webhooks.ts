@@ -70,6 +70,7 @@ import {
   shortEventType,
   UNKNOWN_NOTIFICATION,
 } from '../lib/notifications/delivery-events';
+import { isRedirectTier, STAGING_REDIRECT_RECIPIENT } from '../lib/notifications/delivery-policy';
 import { verifySvixSignature } from '../lib/resend-webhook-auth';
 
 // ─── Status mapping ───────────────────────────────────────────────────────────
@@ -399,6 +400,7 @@ export function createResendWebhookHandler(
       data,
       classification,
       emailBcc: c.env.EMAIL_BCC,
+      redirectRecipient: isRedirectTier(c.env) ? STAGING_REDIRECT_RECIPIENT : undefined,
     });
 
     const outcome = result.inserted ? 'recorded' : 'replay';

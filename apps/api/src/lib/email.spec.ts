@@ -2341,27 +2341,27 @@ describe('tier delivery policy (AECI-1198)', () => {
     template: 'claim-approved' as const,
   };
 
-  it('suppresses an outside recipient on staging: no fetch, outcome + metric tag, hashed log', async () => {
+  it('suppresses an outside recipient on demo: no fetch, outcome + metric tag, hashed log', async () => {
     const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
 
-    const outcome = await sendTransactionalEmail(fakeContext({ ENV: 'staging' }), INPUT);
+    const outcome = await sendTransactionalEmail(fakeContext({ ENV: 'demo' }), INPUT);
 
     expect(outcome).toBe('suppressed');
     expect(fetchSpy).not.toHaveBeenCalled();
     expect(sendTags()).toEqual([['outcome:suppressed', 'template:claim-approved']]);
     expect(warnSpy).toHaveBeenCalledTimes(1);
     const [, fields] = warnSpy.mock.calls[0]! as [string, Record<string, string>];
-    expect(fields).toMatchObject({ template: 'claim-approved', tier: 'staging' });
+    expect(fields).toMatchObject({ template: 'claim-approved', tier: 'demo' });
     expect(fields.recipientHash).toMatch(/^[0-9a-f]{64}$/);
     // The raw address never reaches the log.
     expect(JSON.stringify(warnSpy.mock.calls)).not.toContain('vendor.example');
   });
 
-  it('suppresses on every non-production tier, and on a missing ENV', async () => {
+  it('suppresses on every non-production tier but staging, and on a missing ENV', async () => {
     const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
     vi.spyOn(console, 'warn').mockImplementation(() => {});
-    for (const ENV of ['development', 'preview', 'staging', 'demo', undefined] as const) {
+    for (const ENV of ['development', 'preview', 'demo', undefined] as const) {
       expect(await sendTransactionalEmail(fakeContext({ ENV }), INPUT)).toBe('suppressed');
     }
     expect(fetchSpy).not.toHaveBeenCalled();
@@ -2378,16 +2378,16 @@ describe('tier delivery policy (AECI-1198)', () => {
     expect(fetchSpy).not.toHaveBeenCalled();
   });
 
-  it('still sends to an internal address on staging, with a [staging] subject', async () => {
+  it('still sends to an internal address on demo, with a [demo] subject', async () => {
     const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
-    const outcome = await sendTransactionalEmail(fakeContext({ ENV: 'staging' }), {
+    const outcome = await sendTransactionalEmail(fakeContext({ ENV: 'demo' }), {
       ...INPUT,
       to: 'Chris@TheWBSProject.com',
     });
     expect(outcome).toBe('sent');
     expect(lastBody(fetchSpy)).toMatchObject({
       to: 'Chris@TheWBSProject.com',
-      subject: '[staging] Hi',
+      subject: '[demo] Hi',
     });
     expect(sendTags()).toEqual([['outcome:sent', 'template:claim-approved']]);
   });
@@ -2399,11 +2399,11 @@ describe('tier delivery policy (AECI-1198)', () => {
     expect(lastBody(fetchSpy)).toMatchObject({ to: 'seat@vendor.example', subject: 'Hi' });
   });
 
-  it('drops outside BCC addresses on staging and keeps internal ones', async () => {
+  it('drops outside BCC addresses on demo and keeps internal ones', async () => {
     const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
     await sendTransactionalEmail(
       fakeContext({
-        ENV: 'staging',
+        ENV: 'demo',
         EMAIL_BCC: 'support@aecintegrations.com, someone@gmail.com',
       }),
       { ...INPUT, to: 'chris@thewbsproject.com' },
@@ -2411,9 +2411,9 @@ describe('tier delivery policy (AECI-1198)', () => {
     expect(lastBody(fetchSpy).bcc).toEqual(['support@aecintegrations.com']);
   });
 
-  it('omits bcc entirely on staging when every BCC address is outside', async () => {
+  it('omits bcc entirely on demo when every BCC address is outside', async () => {
     const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
-    await sendTransactionalEmail(fakeContext({ ENV: 'staging', EMAIL_BCC: 'someone@gmail.com' }), {
+    await sendTransactionalEmail(fakeContext({ ENV: 'demo', EMAIL_BCC: 'someone@gmail.com' }), {
       ...INPUT,
       to: 'chris@thewbsproject.com',
     });
@@ -2433,8 +2433,8 @@ describe('tier delivery policy (AECI-1198)', () => {
     const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
     await sendMailingListWelcomeEmail(
       fakeContext({
-        ENV: 'staging',
-        PUBLIC_SITE_URL: 'https://staging.aecintegrations.com',
+        ENV: 'demo',
+        PUBLIC_SITE_URL: 'https://demo.aecintegrations.com',
         EMAIL_BCC: 'support@aecintegrations.com, someone@gmail.com',
       }),
       { to: 'sub@thewbsproject.com', token: 'tok-123' },
@@ -2442,17 +2442,124 @@ describe('tier delivery policy (AECI-1198)', () => {
     expect(fetchSpy).toHaveBeenCalledTimes(2);
     const copy = lastBody(fetchSpy);
     expect(copy.to).toEqual(['support@aecintegrations.com']);
-    expect(String(copy.subject).startsWith('[staging] COPY: ')).toBe(true);
+    expect(String(copy.subject).startsWith('[demo] COPY: ')).toBe(true);
   });
 
   it('makes no operator copy when the recipient itself is suppressed', async () => {
     const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
     vi.spyOn(console, 'warn').mockImplementation(() => {});
     const outcome = await sendMailingListWelcomeEmail(
-      fakeContext({ ENV: 'staging', EMAIL_BCC: 'support@aecintegrations.com' }),
+      fakeContext({ ENV: 'demo', EMAIL_BCC: 'support@aecintegrations.com' }),
       { to: 'sub@example.com', token: 'tok-123' },
     );
     expect(outcome).toBe('suppressed');
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+});
+
+describe('staging redirect (2026-10-09, AECI-1103 rehearsal)', () => {
+  const INPUT = {
+    to: 'seat@vendor.example',
+    subject: 'Hi',
+    text: 'Body',
+    template: 'claim-approved' as const,
+  };
+
+  it('delivers an outside recipient to the support inbox, named in the subject', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    const outcome = await sendTransactionalEmail(fakeContext({ ENV: 'staging' }), INPUT);
+
+    expect(outcome).toBe('sent');
+    expect(fetchSpy).toHaveBeenCalledOnce();
+    expect(lastBody(fetchSpy)).toMatchObject({
+      to: 'support@aecintegrations.com',
+      subject: '[staging → seat@vendor.example] Hi',
+    });
+    expect(sendTags()).toEqual([['outcome:sent', 'template:claim-approved']]);
+    // Nothing is suppressed, and no log carries the raw address.
+    expect(JSON.stringify(warnSpy.mock.calls)).not.toContain('vendor.example');
+  });
+
+  it('redirects an internal recipient too, with the bare lowercased address', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
+    const outcome = await sendTransactionalEmail(fakeContext({ ENV: 'staging' }), {
+      ...INPUT,
+      to: 'Chris <Chris@TheWBSProject.com>',
+    });
+    expect(outcome).toBe('sent');
+    expect(lastBody(fetchSpy)).toMatchObject({
+      to: 'support@aecintegrations.com',
+      subject: '[staging → chris@thewbsproject.com] Hi',
+    });
+  });
+
+  it('never mails a smuggled second address: the envelope is the constant', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
+    await sendTransactionalEmail(fakeContext({ ENV: 'staging' }), {
+      ...INPUT,
+      to: 'x@gmail.com,y@gmail.com',
+    });
+    expect(lastBody(fetchSpy).to).toBe('support@aecintegrations.com');
+  });
+
+  it('still refuses a production-only entry on staging, before any redirect', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const outcome = await sendTransactionalEmail(fakeContext({ ENV: 'staging' }), {
+      ...INPUT,
+      template: 'stale-claim-ticket-alert',
+      to: 'support@aecintegrations.com',
+    });
+    expect(outcome).toBe('suppressed');
+    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(warnSpy.mock.calls[0]![0]).toBe(
+      'email: suppressed — this notification does not send on staging',
+    );
+  });
+
+  it('sends no blind copy on staging, even with EMAIL_BCC set', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
+    await sendTransactionalEmail(
+      fakeContext({ ENV: 'staging', EMAIL_BCC: 'ops@aecintegrations.com' }),
+      INPUT,
+    );
+    expect(lastBody(fetchSpy)).not.toHaveProperty('bcc');
+  });
+
+  it('keeps the recipient token and unsubscribe header, and redirects the operator copy', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
+    await sendMailingListWelcomeEmail(
+      fakeContext({
+        ENV: 'staging',
+        PUBLIC_SITE_URL: 'https://staging.aecintegrations.com',
+        EMAIL_BCC: 'ops@aecintegrations.com',
+      }),
+      { to: 'sub@example.com', token: 'tok-123' },
+    );
+    expect(fetchSpy).toHaveBeenCalledTimes(2);
+    const user = JSON.parse(String((fetchSpy.mock.calls[0]![1] as RequestInit).body)) as {
+      to: string;
+      subject: string;
+      headers: Record<string, string>;
+    };
+    expect(user.to).toBe('support@aecintegrations.com');
+    expect(user.subject.startsWith('[staging → sub@example.com] ')).toBe(true);
+    expect(user.headers['List-Unsubscribe']).toContain('tok-123');
+    const copy = lastBody(fetchSpy);
+    expect(copy.to).toEqual(['support@aecintegrations.com']);
+    expect(String(copy.subject).startsWith('[staging → ops@aecintegrations.com] COPY: ')).toBe(
+      true,
+    );
+  });
+
+  it('leaves demo, preview, development and a missing ENV on the allowlist', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    for (const ENV of ['development', 'preview', 'demo', undefined] as const) {
+      expect(await sendTransactionalEmail(fakeContext({ ENV }), INPUT)).toBe('suppressed');
+    }
     expect(fetchSpy).not.toHaveBeenCalled();
   });
 });

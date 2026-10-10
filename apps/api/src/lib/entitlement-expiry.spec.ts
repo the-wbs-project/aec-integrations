@@ -785,10 +785,10 @@ describe('pure helpers', () => {
 
 // ─── AECI-1198: outside recipients get mail from production only ─────────────
 
-describe('tier delivery policy — the real senders on a staging config (AECI-1198)', () => {
+describe('tier delivery policy — the real senders on a demo config (AECI-1198)', () => {
   const RESEND_URL = 'https://api.resend.com/emails';
-  const STAGING: Partial<Env> = {
-    ENV: 'staging',
+  const DEMO: Partial<Env> = {
+    ENV: 'demo',
     RESEND_API_KEY: 'rk_test',
     EMAIL_FROM: 'AEC Integrations <notifications@aecintegrations.com>',
     POSTHOG_PROJECT_KEY: undefined,
@@ -811,7 +811,7 @@ describe('tier delivery policy — the real senders on a staging config (AECI-11
       .spyOn(globalThis, 'fetch')
       .mockImplementation(async () => new Response('{"id":"re_1"}', { status: 200 }));
 
-    const result = await runEntitlementExpirySweep(ctx(STAGING), t.db, {
+    const result = await runEntitlementExpirySweep(ctx(DEMO), t.db, {
       now: NOW,
       fetchSeatEmails: seatEmails,
       sendVendorEmail: sendEntitlementExpiringEmail,
@@ -823,7 +823,7 @@ describe('tier delivery policy — the real senders on a staging config (AECI-11
     expect(bodies.some((b) => JSON.stringify(b).includes('vendor.example'))).toBe(false);
     expect(bodies).toHaveLength(1);
     expect(bodies[0]!.to).toBe('ops@aecintegrations.com');
-    expect(String(bodies[0]!.subject).startsWith('[staging] ')).toBe(true);
+    expect(String(bodies[0]!.subject).startsWith('[demo] ')).toBe(true);
     expect(result.vendor).toEqual({
       sent: 0,
       failed: 0,
@@ -845,7 +845,7 @@ describe('tier delivery policy — the real senders on a staging config (AECI-11
       .mockImplementation(async () => new Response('{"id":"re_1"}', { status: 200 }));
 
     const result = await runEntitlementExpirySweep(
-      ctx({ ...STAGING, SUPPORT_EMAIL: 'ops@vendor.example' }),
+      ctx({ ...DEMO, SUPPORT_EMAIL: 'ops@vendor.example' }),
       t.db,
       {
         now: NOW,

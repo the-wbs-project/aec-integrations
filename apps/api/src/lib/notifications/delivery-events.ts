@@ -51,6 +51,15 @@
  *     stored unattributed and never under the BCC address.
  *   - None left from several BCC addresses, or nothing named: unattributed.
  *
+ * ─── The staging redirect ─────────────────────────────────────────────────────
+ *
+ * Staging delivers every send to one inbox, `STAGING_REDIRECT_RECIPIENT` (2026-10-09), and
+ * keeps the ledger rows under the intended recipients. So an event there names the redirect
+ * inbox, not the recipient. When the route passes `redirectRecipient` and the event names
+ * exactly that one address, the recipient is read from the ledger instead: the rows for the
+ * message id. Rows under one recipient hash attribute the event to it and join the earliest.
+ * Rows under several (a digest to several addresses) or none leave it unattributed.
+ *
  * ─── Log-class ────────────────────────────────────────────────────────────────
  *
  * No `audit_log` row (ADR 0022), like `notification_sends`. Unlike the ledger it does NOT
@@ -197,6 +206,9 @@ export interface RecordInput {
   classification: Extract<DeliveryClassification, { kind: 'record' }>;
   /** The tier's raw `EMAIL_BCC`: the support blind copy's addresses. See "Blind copies". */
   emailBcc?: string;
+  /** The inbox this tier redirects every send to, on staging only. See "The staging
+   *  redirect". */
+  redirectRecipient?: string;
 }
 
 export interface RecordResult {
@@ -233,7 +245,29 @@ export async function recordDeliveryEvent(db: Db, input: RecordInput): Promise<R
     : (classification.taggedNotificationId ?? UNKNOWN_NOTIFICATION);
 
   let match: { id: number; notificationId: string } | undefined;
-  if (hash !== null) {
+  const redirected =
+    input.redirectRecipient !== undefined &&
+    named.length === 1 &&
+    named[0] === (await recipientHash(bareAddress(input.redirectRecipient)));
+  if (redirected) {
+    // The event names the redirect inbox. The ledger names who the mail was for.
+    const rows = await db
+      .select({
+        id: notificationSends.id,
+        notificationId: notificationSends.notificationId,
+        recipientHash: notificationSends.recipientHash,
+      })
+      .from(notificationSends)
+      .where(eq(notificationSends.providerMessageId, data.email_id))
+      .orderBy(asc(notificationSends.id));
+    const hashes = new Set(rows.map((r) => r.recipientHash));
+    if (rows.length > 0 && hashes.size === 1) {
+      hash = rows[0]!.recipientHash;
+      match = { id: rows[0]!.id, notificationId: rows[0]!.notificationId };
+    } else {
+      hash = null;
+    }
+  } else if (hash !== null) {
     // Ordered by id, so the first row is the earliest send to this recipient.
     [match] = await db
       .select({ id: notificationSends.id, notificationId: notificationSends.notificationId })

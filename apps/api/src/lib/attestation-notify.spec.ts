@@ -508,9 +508,9 @@ describe('runAttestationNotifySweep — audit forwarding', () => {
 // ─── AECI-1198: outside recipients get mail from production only ─────────────
 
 describe('runAttestationNotifySweep — tier delivery policy (AECI-1198)', () => {
-  it('on staging, sends nothing to a vendor seat but records the portal rows (AECI-1204)', async () => {
+  it('on demo, sends nothing to a vendor seat but records the portal rows (AECI-1204)', async () => {
     const result = await sweep([finding(), finding({ vendorId: ACME, claimId: u(31) })], {
-      env: { ENV: 'staging' },
+      env: { ENV: 'demo' },
     });
 
     expect(fetchSpy).not.toHaveBeenCalled();
@@ -527,14 +527,22 @@ describe('runAttestationNotifySweep — tier delivery policy (AECI-1198)', () =>
     expect(fetchSpy).not.toHaveBeenCalled();
   });
 
-  it('on staging, still sends the ops alert to an internal address, tier-prefixed', async () => {
+  it('on demo, still sends the ops alert to an internal address, tier-prefixed', async () => {
     const result = await sweep([finding({ detector: 'claim-denied', vendorId: null })], {
-      env: { ENV: 'staging' },
+      env: { ENV: 'demo' },
     });
 
     expect(sentTo()).toEqual(['ops@aecintegrations.com']);
-    expect(sentTemplatesBySubject()[0]!.startsWith('[staging] ')).toBe(true);
+    expect(sentTemplatesBySubject()[0]!.startsWith('[demo] ')).toBe(true);
     expect(result.sent).toBe(1);
+  });
+
+  it('on staging, mails the vendor seat digest to the support inbox and counts it sent', async () => {
+    const result = await sweep([finding()], { env: { ENV: 'staging' } });
+
+    expect(sentTo()).toEqual(['support@aecintegrations.com']);
+    expect(sentTemplatesBySubject()[0]!.startsWith('[staging → ')).toBe(true);
+    expect(result).toMatchObject({ sent: 1, portalOnly: 0, failed: 0 });
   });
 });
 

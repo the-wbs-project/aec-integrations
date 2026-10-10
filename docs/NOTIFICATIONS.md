@@ -36,7 +36,10 @@ on a sender that names no registry id, or on an entry that no code sends.
 **The tier rule (AECI-1198).** Email to an outside recipient sends from production only.
 Every other tier sends only to the internal allowlist, `thewbsproject.com` and `aecintegrations.com`, matched exactly on the
 domain. Anything else is suppressed and counted as `outcome:suppressed`. A missing or
-unknown `ENV` counts as non-production. The policy is
+unknown `ENV` counts as non-production. **Staging is the exception (2026-10-09):** it
+delivers every email, to anyone, to `support@aecintegrations.com`, with the intended
+recipient named in the subject. Its ledger, dedupe and tokens stay the intended
+recipient's. The tier rules below still refuse first on staging. The policy is
 `apps/api/src/lib/notifications/delivery-policy.ts`, and `docs/email.md` §Tier delivery
 policy is its governing doc.
 

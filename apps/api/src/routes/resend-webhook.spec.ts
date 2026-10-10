@@ -369,6 +369,53 @@ describe('POST /api/webhooks/resend — recording', () => {
   });
 });
 
+describe('POST /api/webhooks/resend — the staging redirect (2026-10-09)', () => {
+  const stagingEvent = (data: Rec = {}) =>
+    event('email.delivered', {
+      to: ['support@aecintegrations.com'],
+      tags: { tier: 'staging', notification_id: 'review-submitted' },
+      ...data,
+    });
+
+  it('attributes an event to the redirect inbox to the intended recipient on the ledger', async () => {
+    const sendId = await ledgerRow('r@example.com', { tier: 'staging' });
+    await post(stagingEvent(), { env: STAGING });
+    expect(await events()).toEqual([
+      expect.objectContaining({
+        notificationSendId: sendId,
+        recipientHash: await recipientHash('r@example.com'),
+      }),
+    ]);
+  });
+
+  it('leaves a redirected multi-recipient send unattributed', async () => {
+    await ledgerRow('a@example.com', { tier: 'staging' });
+    await ledgerRow('b@example.com', { tier: 'staging' });
+    await post(stagingEvent(), { env: STAGING });
+    expect(await events()).toEqual([
+      expect.objectContaining({ notificationSendId: null, recipientHash: '' }),
+    ]);
+  });
+
+  it('leaves it unattributed when no ledger row holds the message', async () => {
+    await post(stagingEvent(), { env: STAGING });
+    expect(await events()).toEqual([
+      expect.objectContaining({ notificationSendId: null, recipientHash: '' }),
+    ]);
+  });
+
+  it('does not re-read the ledger on production: the support address is itself', async () => {
+    await ledgerRow('r@example.com');
+    await post(event('email.delivered', { to: ['support@aecintegrations.com'] }));
+    expect(await events()).toEqual([
+      expect.objectContaining({
+        notificationSendId: null,
+        recipientHash: await recipientHash('support@aecintegrations.com'),
+      }),
+    ]);
+  });
+});
+
 describe('POST /api/webhooks/resend — tier filter', () => {
   it('drops an event tagged for another tier, counts it, and stores nothing', async () => {
     const res = await post(

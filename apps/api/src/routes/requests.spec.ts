@@ -661,7 +661,7 @@ describe('POST /api/requests/* → claim-intake operator alert (background)', ()
     const res = await claimApp().request(
       '/api/requests/claim',
       postInit(claimBody),
-      { ...ENV_WITH_ALERT, ENV: 'staging' },
+      { ...ENV_WITH_ALERT, ENV: 'demo' },
       execCtx,
     );
     expect(res.status).toBe(201);
@@ -673,7 +673,7 @@ describe('POST /api/requests/* → claim-intake operator alert (background)', ()
     };
     expect(sent.text).toContain('not created, Linear is not configured on this tier');
     expect(sent.text).not.toContain('sweep retries it');
-    expect(sent.subject.startsWith('[staging] ')).toBe(true);
+    expect(sent.subject.startsWith('[demo] ')).toBe(true);
   });
 
   it('does NOT alert on a correction — claims only', async () => {
