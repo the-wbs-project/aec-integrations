@@ -299,6 +299,6 @@ One PR per sub-issue, each into `main`. All sit in the "Stage 2.1 — Vendor Act
 | T4 | AECI-1251 | The rest of the vendor guide | T1, the AECI-1103 rehearsal |
 | T5a | AECI-1252 | Footer Help column; `/methodology` links down into `/docs/trust/*` | T2 |
 | T5b | AECI-1253 | Publish the vendor guide (drop the noindex prefix), "For vendors" in the footer, the §7 portal links | T1; run in the same sitting as AECI-1105 |
-| T6 | AECI-1254 | FAQ, build-time internal link check, epic close-out | T5b, AECI-1105 |
+| T6 | AECI-1254 | FAQ, internal link check (an `ng test` case, §4), epic close-out | T5b, AECI-1105 |
 
 The epic closes when every sub-issue is closed (`docs/linear-issue-conventions.md` §6).
