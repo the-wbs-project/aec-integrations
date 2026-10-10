@@ -32,7 +32,7 @@ Each file opens with a YAML frontmatter block (scalar keys only — parsed by th
 title: Privacy Policy
 version: 1.0
 effective_date: 2026-08-01      # blank while a doc is an unapproved draft
-last_updated: 23 June 2026
+last_updated: June 23, 2026
 counsel_approved_by:            # blank until counsel signs off
 counsel_approved_on:            # blank until counsel signs off
 linear_issue: AECI-237
@@ -41,7 +41,9 @@ linear_issue: AECI-237
 
 `title`, `version`, and `last_updated` render in the page header. `effective_date` renders only
 when present. Dates are authored **pre-formatted as display strings** — never parsed/reformatted
-at render time (that would be an SSR/CSR hydration and edge-cache trap).
+at render time (that would be an SSR/CSR hydration and edge-cache trap). Write them in US format,
+"Month D, YYYY" (for example `October 10, 2026`), the same as `methodology.md` (AECI-1262). Copy is
+US English throughout.
 
 ## Status: pre-launch drafts
 

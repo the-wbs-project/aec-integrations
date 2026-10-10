@@ -187,7 +187,7 @@ interface FieldConfig {
                   >Request a correction
                   <span class="inline-flex align-middle"><aec-new-tab-icon /></span
                 ></a>
-                and the AECi team fixes it.
+                and we fix it.
               </p>
             </div>
           </div>

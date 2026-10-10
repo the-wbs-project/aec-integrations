@@ -21,9 +21,9 @@ export function catalogueStatusLabel(status: ConnectorMappingStatus | string): s
     case 'ruled_out':
       return $localize`:@@vendor.catalogue.status.ruledOut:Not this product`;
     case 'out_of_scope':
-      return $localize`:@@vendor.catalogue.status.outOfScope:Outside AECi's scope`;
+      return $localize`:@@vendor.catalogue.status.outOfScope:Outside our scope`;
     case 'no_record':
-      return $localize`:@@vendor.catalogue.status.noRecord:Not listed on AECi`;
+      return $localize`:@@vendor.catalogue.status.noRecord:Not listed on AEC Integrations`;
     case 'ambiguous_parked':
       return $localize`:@@vendor.catalogue.status.parked:Unclear, set aside`;
     default:
@@ -37,11 +37,11 @@ export function catalogueStatusHelp(status: ConnectorMappingStatus | string): st
     case 'mapped':
       return $localize`:@@vendor.catalogue.statusHelp.mapped:This listing is the product you choose.`;
     case 'ruled_out':
-      return $localize`:@@vendor.catalogue.statusHelp.ruledOut:This listing is not the product you choose. AECi stops suggesting it.`;
+      return $localize`:@@vendor.catalogue.statusHelp.ruledOut:This listing is not the product you choose. We stop suggesting it.`;
     case 'out_of_scope':
-      return $localize`:@@vendor.catalogue.statusHelp.outOfScope:This listing is not software AECi covers, so it matches no product.`;
+      return $localize`:@@vendor.catalogue.statusHelp.outOfScope:This listing is not software we cover, so it matches no product.`;
     case 'no_record':
-      return $localize`:@@vendor.catalogue.statusHelp.noRecord:The product this listing connects to is not on AECi yet.`;
+      return $localize`:@@vendor.catalogue.statusHelp.noRecord:The product this listing connects to is not on AEC Integrations yet.`;
     case 'ambiguous_parked':
       return $localize`:@@vendor.catalogue.statusHelp.parked:It is not clear which product this listing is. It is set aside for now.`;
     default:
@@ -68,7 +68,7 @@ export function catalogueDeciderLabel(decider: VendorConnectorDecider | null): s
     case 'vendor':
       return $localize`:@@vendor.catalogue.decider.vendor:Confirmed by your company`;
     case 'aeci':
-      return $localize`:@@vendor.catalogue.decider.aeci:Decided by AECi`;
+      return $localize`:@@vendor.catalogue.decider.aeci:Decided by AEC Integrations`;
     case 'automatic':
       return $localize`:@@vendor.catalogue.decider.automatic:Suggested by name, not confirmed`;
     default:
@@ -85,7 +85,7 @@ export function catalogueMappingSummary(m: VendorConnectorMapping): string {
   const status = catalogueStatusLabel(m.status);
   if (m.status !== 'mapped' && m.status !== 'ruled_out') return status;
   if (m.product === null) {
-    return $localize`:@@vendor.catalogue.summary.productGone:${status}:STATUS: to a product no longer on AECi`;
+    return $localize`:@@vendor.catalogue.summary.productGone:${status}:STATUS: to a product no longer on AEC Integrations`;
   }
   const name = m.product.name;
   return m.status === 'mapped'

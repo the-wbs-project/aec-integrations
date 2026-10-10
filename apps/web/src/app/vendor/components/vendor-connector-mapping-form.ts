@@ -56,7 +56,7 @@ export function catalogueSaveErrorMessage(err: unknown): string {
       return $localize`:@@vendor.catalogue.error.conflict:This listing already has a match to that product, or already carries a decision that names no product. Edit that one instead.`;
     case 'VALIDATION_FAILED':
       return info.field === 'productId'
-        ? $localize`:@@vendor.catalogue.error.product:Choose a product that is published on AECi, or pick a status that names no product.`
+        ? $localize`:@@vendor.catalogue.error.product:Choose a product that is published on AEC Integrations, or pick a status that names no product.`
         : $localize`:@@vendor.catalogue.error.invalid:Check the product and the evidence link, then save again.`;
     case 'NOT_FOUND':
       return $localize`:@@vendor.catalogue.error.gone:This match no longer exists. Reload the list to see where the listing stands.`;
@@ -69,7 +69,7 @@ export function catalogueSaveErrorMessage(err: unknown): string {
     return $localize`:@@vendor.catalogue.error.session:Your session has ended. Sign in again, then save.`;
   }
   if (info?.status === 403) {
-    return $localize`:@@vendor.catalogue.error.forbidden:Your seat cannot edit this catalogue.`;
+    return $localize`:@@vendor.catalogue.error.forbidden:Your seat cannot edit this catalog.`;
   }
   return $localize`:@@vendor.catalogue.error.generic:Could not save this match. Try again.`;
 }
@@ -130,7 +130,9 @@ export function catalogueSaveErrorMessage(err: unknown): string {
       @if (namesProduct()) {
         <div>
           @if (product(); as p) {
-            <p [class]="labelClass" i18n="@@vendor.catalogue.form.product">Product on AECi</p>
+            <p [class]="labelClass" i18n="@@vendor.catalogue.form.product">
+              Product on AEC Integrations
+            </p>
             <p class="mt-1 flex flex-wrap items-center gap-3 text-sm text-(--text-primary)">
               <span class="font-medium" data-chosen-product>{{ p.name }}</span>
               <button
@@ -149,7 +151,7 @@ export function catalogueSaveErrorMessage(err: unknown): string {
               [class]="labelClass"
               [attr.for]="idPrefix() + '-product'"
               i18n="@@vendor.catalogue.form.product"
-              >Product on AECi</label
+              >Product on AEC Integrations</label
             >
             <aec-product-combobox
               class="mt-1"
@@ -165,7 +167,7 @@ export function catalogueSaveErrorMessage(err: unknown): string {
               class="mt-1 max-w-[52ch] text-xs text-(--text-secondary)"
               i18n="@@vendor.catalogue.form.product.hint"
             >
-              Search the products published on AECi by name.
+              Search the products published on AEC Integrations by name.
             </p>
             @if (productError()) {
               <p
@@ -221,7 +223,7 @@ export function catalogueSaveErrorMessage(err: unknown): string {
           >{{ ' '
           }}<span i18n="@@vendor.catalogue.form.evidence.hint"
             >A page that shows this listing connects to the product, such as its page in your
-            catalogue.</span
+            catalog.</span
           >
         </p>
         @if (evidenceError()) {
@@ -240,7 +242,7 @@ export function catalogueSaveErrorMessage(err: unknown): string {
         i18n="@@vendor.catalogue.form.decider"
       >
         Saving records your company as the one who decided. A matched listing then counts toward
-        that product's reach on AECi.
+        that product's reach on AEC Integrations.
       </p>
 
       <div class="flex flex-wrap items-center gap-3">

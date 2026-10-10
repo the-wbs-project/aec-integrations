@@ -491,8 +491,10 @@ export function statusFromParam(value: string | null): IntegrationStatusKey | 'a
 
 // ─── Field labels (§6.17.8) ──────────────────────────────────────────────────
 
-/** A field's name on this page. Not `contestFieldLabel`: the Messages tab still
- *  says "Integration type" and "Maturity", and §6.17.8's copy table does not. */
+/** A field's name on this page. Not `contestFieldLabel`: the two now agree on
+ *  the four renamed fields (AECI-1262), but this page also names edit-only
+ *  fields and says "Listing page" and "Documentation" where Messages says
+ *  "Listing link" and "Documentation link" (§6.17.8). */
 export function pageFieldLabel(field: IntegrationContestField | IntegrationEditField): string {
   switch (field) {
     case 'name':
@@ -941,7 +943,7 @@ export function submittedOutcome(contest: VendorContest): Outcome {
         };
       case 'withdrawn':
         return {
-          label: $localize`:@@vendor.im.request.protestWithdrawn:You cancelled the review`,
+          label: $localize`:@@vendor.im.request.protestWithdrawn:You canceled the review`,
           tone: 'neutral',
           explain: $localize`:@@vendor.im.request.protestWithdrawn.explain:The public page stays as it is.`,
         };
@@ -987,7 +989,7 @@ export function submittedOutcome(contest: VendorContest): Outcome {
       return {
         label: $localize`:@@vendor.im.request.withdrawn:Withdrawn by you`,
         tone: 'neutral',
-        explain: $localize`:@@vendor.im.request.withdrawn.explain:You cancelled this request. Nothing changed.`,
+        explain: $localize`:@@vendor.im.request.withdrawn.explain:You canceled this request. Nothing changed.`,
       };
   }
 }

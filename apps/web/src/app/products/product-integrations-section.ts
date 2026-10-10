@@ -230,7 +230,7 @@ import { ProductIntegrationsTable } from './product-integrations-table';
              people screenshot. Scope, not apology: it states the boundary and
              offers the fix. Once per section, never once per group (§13.3). -->
       <p class="text-xs text-(--text-secondary)" i18n="@@products.detail.body.integrations.scope">
-        Only partners listed on AECi appear here. If one is missing,
+        Only partners listed on AEC Integrations appear here. If one is missing,
         <a
           aecRequestTrigger
           [entity]="'product'"

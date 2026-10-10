@@ -99,7 +99,7 @@ import {
           class="max-w-prose text-xs text-(--text-secondary)"
           i18n="@@vendor.attest.notify.framing.overrides"
         >
-          What we noted in the last 90 days: our reminders, updates on field contests, what owners
+          What we noted in the last 90 days: our reminders, updates on change requests, what owners
           changed on integrations with your products, new reviews of your products, our decisions on
           your replies, and changes AEC Integrations made to what your company holds, with our
           reason. Reminders also go out in the daily reminder email, unless your seat muted it, so a

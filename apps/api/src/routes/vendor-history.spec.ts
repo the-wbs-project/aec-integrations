@@ -525,7 +525,7 @@ describe('GET /api/vendor/history.csv', () => {
     expect(res.status).toBe(200);
     expect(res.headers.get('content-type')).toBe('text/csv; charset=utf-8');
     expect(res.headers.get('content-disposition')).toBe(
-      'attachment; filename="aeci-change-history-2026-10-09.csv"',
+      'attachment; filename="aec-integrations-change-history-2026-10-09.csv"',
     );
     expect(res.headers.get('x-aeci-total-rows')).toBe('4');
     expect(res.headers.get('x-aeci-truncated')).toBe('false');

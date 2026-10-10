@@ -12,6 +12,12 @@ fetched at runtime. Three families live here, plus one unrendered product-docs d
 
 A docs page is added by dropping the `.md` into its section folder and listing it in `SECTIONS` in `docs-content.ts`. The route, the section rail and the tests pick it up from there. Its frontmatter `section` must match the folder or the manifest throws at module init. Each page ends with a `## Related` list linking its neighbours.
 
+**Copy rules (all three families).** Page copy says "AEC Integrations", never the internal
+shorthand "AECi". Body copy may say "we" and "us" instead. Copy is US English: "catalog",
+"labeled", "canceled", and `last_updated` written as "Month D, YYYY". The help-center pages under
+`docs/` lag this rule and the portal's renamed labels until their follow-up on the docs epic
+(`docs/CODE_REVIEW_EXEMPTIONS.md`, AECI-1262).
+
 The legal set has its own stricter workflow (versioning, counsel sign-off, frontmatter schema) in
 `legal/README.md`. **Read that one before touching anything under `legal/`.** This file covers the
 mechanism both families share.

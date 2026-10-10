@@ -2,7 +2,7 @@
 title: Terms of Service
 version: 1.0
 effective_date:
-last_updated: 5 October 2026
+last_updated: October 10, 2026
 counsel_approved_by: pending sign-off
 counsel_approved_on: pending sign-off
 linear_issue: AECI-308
@@ -14,7 +14,7 @@ These terms govern your use of AEC Integrations (the "service"), an independent 
 
 ## What the service is
 
-AEC Integrations catalogues software products, the vendors that make them, and the integrations between them, alongside community reviews. We are an **independent** directory: we are not affiliated with, endorsed by, or acting on behalf of the vendors we list, and we do not sell ranking position. Our editorial judgment and search ranking are algorithmic and are never influenced by payment.
+AEC Integrations catalogs software products, the vendors that make them, and the integrations between them, alongside community reviews. We are an **independent** directory: we are not affiliated with, endorsed by, or acting on behalf of the vendors we list, and we do not sell ranking position. Our editorial judgment and search ranking are algorithmic and are never influenced by payment.
 
 The service is provided for general informational purposes to help AEC teams evaluate software. It is not professional, legal, procurement, or engineering advice, and it is not a substitute for your own evaluation and due diligence.
 
@@ -35,12 +35,12 @@ Reviews and ratings published on the service are the **opinions of the individua
 When you use the service, including submitting a review, request, or correction, you agree not to:
 
 - submit false, misleading, defamatory, or fraudulent content, or content you do not have the right to share;
-- impersonate any person or organisation, or misrepresent your affiliation;
+- impersonate any person or organization, or misrepresent your affiliation;
 - submit reviews in exchange for compensation, or otherwise attempt to manipulate ratings or ranking;
-- attempt to disrupt, overload, scrape at scale, reverse-engineer, or gain unauthorised access to the service; or
+- attempt to disrupt, overload, scrape at scale, reverse-engineer, or gain unauthorized access to the service; or
 - use the service in violation of any applicable law.
 
-You retain ownership of content you submit, but you grant the operator a non-exclusive, worldwide, royalty-free licence to host, moderate, reproduce, adapt, and display that content in connection with operating the service.
+You retain ownership of content you submit, but you grant the operator a non-exclusive, worldwide, royalty-free license to host, moderate, reproduce, adapt, and display that content in connection with operating the service.
 
 ## Intellectual property
 

@@ -238,7 +238,7 @@ Four indirect couplings need a ruling:
    plan (`lib/pair-version-diff.ts:76-114`). It is disclosed on `/methodology`. Per-product plans
    must re-key it to the endpoint product.
 4. **The paid flag is named `verified`.** `vendors.verified` mirrors an active plan. The public label
-   now reads "Active on AECi", but the column, the API field, the tier id and the public
+   now reads "Active on AEC Integrations", but the column, the API field, the tier id and the public
    `GET /api/vendors?verified=` filter still say `verified`. Anyone can list paying vendors with it.
 
 A minor one: `sort=updated` on public lists orders by `updated_at`, and paid saves bump it.

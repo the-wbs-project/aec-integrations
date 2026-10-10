@@ -2,7 +2,7 @@
 title: Review Guidelines
 version: 1.0
 effective_date:
-last_updated: 2 October 2026
+last_updated: October 10, 2026
 counsel_approved_by: pending sign-off
 counsel_approved_on: pending sign-off
 linear_issue: AECI-308
@@ -19,7 +19,7 @@ A valid review is **first-hand, specific, and honest**:
 - Write about an integration you have actually used. Describe what you were trying to do, what worked, and what didn't.
 - Separate the two things we ask about: how well the **product** performs, and what the **onboarding** experience was like. They are different, and both matter.
 - Be concrete. "The sync dropped custom parameters on round-trip" helps a reader far more than "it's bad".
-- Disclose any relationship that could colour your view, for example, if you work for the vendor or a competitor.
+- Disclose any relationship that could color your view, for example, if you work for the vendor or a competitor.
 
 ## What is not allowed
 
@@ -43,7 +43,7 @@ We may remove or edit a published review at any time if it later appears to brea
 
 A company that owns a reviewed product may post one public response to each published review of that product. Where a product has more than one owner, each owner may post one response.
 
-- **Labelled.** A response appears under the review as "Response from" the company's name, with the date it was published. It is never shown as part of the review.
+- **Labeled.** A response appears under the review as "Response from" the company's name, with the date it was published. It is never shown as part of the review.
 - **Moderated before publication.** We check every response against these guidelines before anyone sees it. An edited response goes back through moderation and is hidden until we approve the change.
 - **The review stays as written.** A response cannot alter, hide, or remove a review. It does not change a review's rating, whether the review is published, or how any product ranks.
 - **The same standards apply.** A response must not identify or speculate about the reviewer, offer them anything, or ask them to change or remove their review. It must not contain advertising, contact details intended to move the conversation elsewhere, or anything this page does not allow in a review.

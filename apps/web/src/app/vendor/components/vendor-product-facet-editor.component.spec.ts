@@ -380,11 +380,11 @@ describe('VendorProductFacetEditor', () => {
 
   // ── Gates ────────────────────────────────────────────────────────────────
 
-  it('gives the connector catalogue seat the Free reason, not a "stays with AECi" line', () => {
+  it('gives the connector catalogue seat the Free reason, not a "stays with AEC Integrations" line', () => {
     TestBed.inject(VendorPortalStore).seed(VENDOR_ME_CONNECTOR_SEAT_FIXTURE);
     const f = create('audiences', { capabilities: capabilitiesFor('unclaimed') });
 
-    expect(el(f).textContent).not.toContain('stay with the AECi team');
+    expect(el(f).textContent).not.toMatch(/stays? with (the AECi team|AEC Integrations|us)\b/);
     expect(el(f).textContent).not.toContain('Editing is paused');
     expect(save(f)).toBeNull();
   });

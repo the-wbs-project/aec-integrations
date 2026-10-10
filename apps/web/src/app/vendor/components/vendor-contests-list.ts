@@ -58,7 +58,7 @@ type Busy = { readonly id: string; readonly action: ContestDecision | 'withdraw'
         class="font-display text-lg font-semibold text-(--text-primary)"
         i18n="@@vendor.contests.heading"
       >
-        Field contests
+        Change requests
       </h3>
       <p
         class="mt-2 max-w-prose text-sm leading-relaxed text-(--text-secondary)"
@@ -205,7 +205,7 @@ type Busy = { readonly id: string; readonly action: ContestDecision | 'withdraw'
                 >
                   You have not contested anything. Open an integration under one of your products
                   and choose Request a change beside a detail. For an integration delivered through
-                  a connector, choose Contest a field in your product's Connectors section.
+                  a connector, choose Request a change in your product's Connectors section.
                 </p>
               } @else {
                 <ul

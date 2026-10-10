@@ -670,7 +670,7 @@ describe('a submitted change (AECI-1246)', () => {
     expect(api.retractAttestation.mock.calls.map((c) => c[0])).toEqual([CORRECTION.id, DENIED.id]);
     expect(announce).toHaveBeenCalledTimes(1);
     expect(announce).toHaveBeenCalledWith(
-      'Documents: your change is cancelled and your answers are cleared.',
+      'Documents: your change is canceled and your answers are cleared.',
     );
     expect(el(fixture).querySelector(testid('change-box-documents'))).toBeNull();
     const row = el(fixture).querySelector(testid('data-row-documents'))!;

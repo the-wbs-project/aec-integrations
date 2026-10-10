@@ -237,7 +237,7 @@ describe('VendorProfileForm — read-only when the entitlement lapsed', () => {
     const text = create(false).nativeElement.textContent as string;
     expect(text).not.toContain('Editing is paused');
     expect(text).not.toContain('renewal');
-    expect(text).not.toContain('stays with the AECi team');
+    expect(text).not.toMatch(/stays? with (the AECi team|AEC Integrations|us)\b/);
   });
 
   it('does not PATCH even if the form is submitted anyway', async () => {

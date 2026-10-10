@@ -90,7 +90,7 @@ describe('MethodologyPage', () => {
       const text = setup().host.textContent ?? '';
       expect(text).toContain('An integration belongs to the vendor that offers it');
       expect(text).toContain('"Offered by" line');
-      expect(text).toContain('We seeded the catalogue.');
+      expect(text).toContain('We seeded the catalog.');
     });
 
     it('says a claim needs no approval and fences our updates off the row (decisions 1 and 5)', () => {
@@ -133,7 +133,7 @@ describe('MethodologyPage', () => {
       expect(text).toContain('Retiring is not deleting.');
       expect(text).toContain('Nothing is deleted.');
       expect(text).toContain('restoring it does not reopen them');
-      expect(text).toContain('our catalogue tools refuse to delete an integration a vendor holds');
+      expect(text).toContain('our catalog tools refuse to delete an integration a vendor holds');
       // AECI-1046: AECi can retire a vendor-held listing, audited, and only AECi
       // restores that retire. The page must say so and must not say only the owner acts.
       expect(text).toContain('AEC Integrations can also retire an integration a vendor holds');
@@ -163,7 +163,7 @@ describe('MethodologyPage', () => {
     it('no longer says AECi is the source of every claim', () => {
       const text = setup().host.textContent ?? '';
       expect(text).not.toContain('currently the source of every claim');
-      expect(text).not.toContain('Nothing reaches the public catalogue on its own');
+      expect(text).not.toContain('Nothing reaches the public catalog on its own');
     });
 
     it('does not add ownership to the paid-plan list (decision 15: a seat is the gate)', () => {

@@ -785,7 +785,7 @@ between `#integrations` and `#reviews`, with a matching "Integrations it powers"
     `#integrations`, where §13.2(a) keeps them direct — so the empty state's claim ("no integrations
     are recorded as running on this connector yet") would be false, and its correction CTA would be
     soliciting data already on the page. Worse, §13.6's hero line sits directly above it: _"Connects
-    43 products in the AECi catalog"_ over _"powers 0, none recorded yet"_ is a plain-English
+    43 products in the AEC Integrations catalog"_ over _"powers 0, none recorded yet"_ is a plain-English
     contradiction. This is not a corner: **every one of Aquifer's 43 and Kroo's 44 powered edges is
     Convention A**, and both are promoted.
     The rule this preserves is §12.3's own. The always-render rule exists so a connector page never
@@ -1043,10 +1043,10 @@ overstatement.
 
 - **One line per section, on the populated branch only.** `text-xs text-(--text-secondary)`, below
   the list, no callout box, no icon, never repeated per card or per hub.
-  - `#integrations` (`@@products.detail.body.integrations.scope`): "Only partners listed on AECi
-    appear here. If one is missing, suggest a correction."
+  - `#integrations` (`@@products.detail.body.integrations.scope`): "Only partners listed on AEC
+    Integrations appear here. If one is missing, suggest a correction." ("listed on AECi" until AECI-1262.)
   - `#powered-integrations` (`@@products.detail.body.powers.scope`): "Only integrations between
-    products listed on AECi appear here. If one is missing, suggest a correction."
+    products listed on AEC Integrations appear here. If one is missing, suggest a correction."
 - **Both sections carry it, deliberately.** The boundary is identical for the two lists; caveating
   only the powered one would imply the endpoint table is complete.
 - **Scope, not apology.** It states the boundary and ends in the same `aecRequestTrigger`
@@ -1996,7 +1996,7 @@ review-side). And AECI-1065's endpoint-vendor mapping proposals, which were prec
     Written unguarded, this bullet leads with an **empty section on four of the eight promoted
     connector pages** (§13.9): Aquifer and Kroo are emptied by §13.4(2), and Extractus and MYOB 0link
     carry no powered edges at all. On Aquifer the empty state would sit directly beneath this
-    section's own hero line reading _"Connects 43 products in the AECi catalog"_, above a populated
+    section's own hero line reading _"Connects 43 products in the AEC Integrations catalog"_, above a populated
     endpoint table.
     This is **not** the data-driven rule rejected above. That one was _comparative_ — powered versus
     endpoint, re-ordering a populated page as counts move, which is the churn the paragraph objects
@@ -2007,7 +2007,7 @@ review-side). And AECI-1065's endpoint-vendor mapping proposals, which were prec
     `ngTemplateOutlet` on whichever side wins, so the swap moves **real DOM order**. CSS `order`
     would leave screen readers and crawlers on the old sequence (WCAG 1.3.2).
 - **Hero.** `RoleBadge` is already there (§12.3). Add one data-derived line — "Connects N products
-  in the AECi catalog" — where `N` counts **distinct endpoint products**, not pairs, and excludes
+  in the AEC Integrations catalog" ("AECi catalog" until AECI-1262) — where `N` counts **distinct endpoint products**, not pairs, and excludes
   self-references per §13.4(2). It renders only when `N > 0` and carries §12.7's catalog-scope
   framing rather than implying the vendor's full partner set.
   - **`N` is computed over the RAW edge list** (`connectedProductCount`, `powered-hub-grouping.ts`):

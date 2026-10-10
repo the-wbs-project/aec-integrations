@@ -38,7 +38,7 @@ test.describe('vendor catalogue tab (preview)', () => {
     expect(res?.status()).toBe(200);
 
     const nav = page.getByRole('navigation', { name: 'Agave sections' });
-    await expect(nav.getByRole('link', { name: 'Catalogue' })).toHaveAttribute(
+    await expect(nav.getByRole('link', { name: 'Catalog' })).toHaveAttribute(
       'aria-current',
       'page',
     );
@@ -53,7 +53,7 @@ test.describe('vendor catalogue tab (preview)', () => {
   test('is read-only on an AECi-managed catalogue', async ({ page }) => {
     await page.goto(`${PATH}?fixture=connector-seat-review`);
     await expect(page.locator('[data-catalogue-review-managed]')).toContainText(
-      'The AECi team maintains this catalogue for now',
+      'We maintain this catalog for now',
     );
     await expect(page.locator('[data-listing]').first()).toBeVisible();
     await expect(page.getByRole('button', { name: /^Edit the match/ })).toHaveCount(0);

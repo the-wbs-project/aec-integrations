@@ -202,7 +202,7 @@ export function ownedRowsForProduct(
                         data-testid="claim-hint"
                         i18n="@@vendor.ownedIntegrations.claimHintOtherSide"
                       >
-                        Claiming takes this integration over from AEC Integrations. Our catalogue
+                        Claiming takes this integration over from AEC Integrations. Our catalog
                         updates stop reaching it. The other product's vendor is told that you
                         claimed it.
                       </p>
@@ -212,7 +212,7 @@ export function ownedRowsForProduct(
                         data-testid="claim-hint"
                         i18n="@@vendor.ownedIntegrations.claimHint"
                       >
-                        Claiming takes this integration over from AEC Integrations. Our catalogue
+                        Claiming takes this integration over from AEC Integrations. Our catalog
                         updates stop reaching it. The vendors of both products are told that you
                         claimed it.
                       </p>

@@ -93,7 +93,7 @@ export const VENDOR_PRODUCT_NAV_ITEMS: readonly VendorNavItem[] = [
   { path: 'reviews', label: $localize`:@@vendor.productNav.reviews:Reviews` },
   {
     path: 'catalogue',
-    label: $localize`:@@vendor.productNav.catalogue:Catalogue`,
+    label: $localize`:@@vendor.productNav.catalogue:Catalog`,
     roles: ['connector'],
   },
 ];
