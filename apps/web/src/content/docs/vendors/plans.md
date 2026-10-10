@@ -36,7 +36,7 @@ These stay part of Managed:
 - writing, editing and resubmitting a public reply to a review of one of your products ([Replying to reviews](/docs/vendors/replying-to-reviews)),
 - telling search engines about your changes.
 
-When your company edits a public page on Managed, we tell search engines that the page changed. We send it to Bing and Yandex through IndexNow, and we add it to our own list for asking Google to look again. On Free, your edits still go live straight away. Search engines find them on their own schedule, through our sitemap. Telling a search engine about a page does not decide whether it crawls, indexes or ranks that page. The search engine decides that.
+When your company edits a public page on Managed, we tell search engines that the page changed. On Free, your edits still go live straight away. Search engines find them on their own schedule, through our sitemap. Telling a search engine about a page does not decide whether it crawls, indexes or ranks that page. The search engine decides that.
 
 On a Free product, the Managed-only fields stay visible in the portal. They are read-only, and each one says it is part of Managed.
 

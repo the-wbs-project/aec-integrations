@@ -10,7 +10,7 @@ A connector product carries data between other products, the way an iPaaS platfo
 
 ## Your seat
 
-A vendor whose products are all connectors is not invoiced for a seat. It can have a catalogue-maintenance seat instead, which covers its connector listings, the products each connector reaches, and the evidence for each. The portal shows it as **Catalogue maintenance seat**.
+A vendor whose products are all connectors is not invoiced for a seat. It can have a catalogue-maintenance seat instead, which covers its connector listings, the products each connector reaches, and the evidence for each. In the portal, the plan panel says the seat maintains your connector catalogue, and its plan badge reads **Free**.
 
 That seat is on the Free plan. Like any Free seat, it can edit your company details and each product's description, website, logo and categories. It cannot confirm data flows. The other product details stay with the AEC Integrations team.
 

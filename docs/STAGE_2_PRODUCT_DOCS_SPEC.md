@@ -83,7 +83,7 @@
 
 > **2026-10-08 — getting-started and trust shipped (AECI-1249).** Six reader pages, indexable and in
 > `sitemap.xml`: `getting-started/about-aec-integrations` (renamed by AECI-1261), `reading-an-integration-page`, `taxonomy`, and
-> `trust/how-ranking-works`, `the-account-label`, `agreement-states`. `how-ranking-works` is the
+> `trust/how-ranking-works`, `the-account-label` _(never reached production; deleted by AECI-1264, see above)_, `agreement-states`. `how-ranking-works` is the
 > `STAGE_2_5_SPEC.md` §2 step 3 ranking-method page; Chris signs its wording off before AECI-1249
 > merges. The "Active on AEC Integrations" label's "What this means" link now opens the reader page
 > `/docs/trust/the-account-label` instead of the noindex vendor guide, so the vendor guide's one
@@ -111,9 +111,8 @@
 > page and no section index**, and the breadcrumb's "Docs" and section crumbs were plain text.
 > AECI-1248 built both. The vendor pages are **noindex in every env and absent from
 > `sitemap.xml`** until the portal opens, by path (`pathForcesNoindex`, see the AECI-1248 note).
-> AECI-1253 lifts it, in the same sitting as AECI-1105. Two inbound links exist today: the "Active on AEC Integrations" label's "What this
-> means" link and the claim confirmation. (AECI-1249 moved the label's link to the reader page
-> `/docs/trust/the-account-label`.) The footer Help column (AECI-1252) links into `/docs` but
+> AECI-1253 lifts it, in the same sitting as AECI-1105. Since AECI-1265 the claim confirmation opens the help center's `claiming-your-listing`, and the vendor guide's inbound links are help-center cross-links. (The
+> "Active on AEC Integrations" label and its "What this means" link were removed in AECI-1264.) The footer Help column (AECI-1252) links into `/docs` but
 > not into the vendor guide. The portal "Learn more" links (AECI-1253) are not built. The same-PR sync rule (§4) is in
 > `docs/CODE_REVIEW_CHECKLIST.md` §Spec alignment.
 

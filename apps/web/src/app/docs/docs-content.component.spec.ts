@@ -563,9 +563,9 @@ describe('docs manifest', () => {
       'Integrations your company offers',
     );
     expect(textOf('for-vendors', 'claiming-your-listing')).not.toContain(
-      'Catalogue maintenance seat',
+      'maintains your connector catalogue',
     );
-    expect(textOf('vendors', 'connector-vendors')).toContain('Catalogue maintenance seat');
+    expect(textOf('vendors', 'connector-vendors')).toContain('maintains your connector catalogue');
     expect(textOf('vendors', 'connector-vendors')).toContain('Integrations your company offers');
   });
 

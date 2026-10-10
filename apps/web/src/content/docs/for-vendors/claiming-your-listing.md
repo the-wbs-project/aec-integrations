@@ -12,7 +12,7 @@ AEC Integrations compiles its listings from public sources. A claim is how someo
 
 ## Send a claim
 
-Open your company's page, or one of its product pages, and choose **Claim this listing**. If a colleague already manages the listing, the button reads **Request access to this listing** instead. It is the same form.
+Open your company's page, or one of its product pages, and choose **Claim this listing**. On some listings the button reads **Request access to this listing** instead. It is the same form.
 
 The form asks for:
 

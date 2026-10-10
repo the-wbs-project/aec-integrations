@@ -14,7 +14,7 @@ A field that AEC Integrations corrected and locked shows "Set by AEC Integration
 
 Go to the [sign-in page](/auth/login) and choose **Continue with Google**, or enter your email and choose **Email me a sign-in link**. Use the address your seat was granted to. There is no password.
 
-Once you are signed in, the vendor portal opens on your company's overview. Its tabs are **Vendor Overview**, **Profile**, **Products**, **Messages** and **Seats**. Each product has its own tabs, including **Integrations**.
+Once you are signed in, the vendor portal opens on your company's overview. Its tabs are **Vendor Overview**, **Profile**, **Products**, **Messages**, **Changes** and **Seats**. Each product has its own tabs, including **Integrations**.
 
 One account holds a seat on one vendor. If you need seats at two companies, use a separate email address for each.
 
