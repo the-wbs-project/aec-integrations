@@ -188,7 +188,7 @@ interface Target {
 function resolveTarget(argv: string[]): Target {
   if (argv.includes('--local')) {
     return {
-      label: process.env.TELEMETRY_ENV ?? 'preview',
+      label: process.env.TELEMETRY_ENV ?? 'development',
       db: 'aeci-app-preview',
       flags: ['--local'],
       remote: false,

@@ -17,7 +17,7 @@
  *     caller can persist the review regardless. The `reviews.toxicity_score`
  *     column is nullable precisely for this.
  *   - **Absent key → `null`, silently.** No `ANTHROPIC_API_KEY` is the expected
- *     state in local `dev:bound` and PR previews (the secret is staging/prod
+ *     state in local `dev:bound` (the secret is staging/prod
  *     only), so we don't log a warning for it — only genuine outages warn.
  *   - **Sane timeout.** `AbortSignal.timeout(TIMEOUT_MS)` caps the worst case so
  *     a slow model never materially blocks the 5.6 submit response.
@@ -95,7 +95,7 @@ type AnthropicResponse = {
  */
 export async function scoreToxicity(c: ScoreContext, body: string): Promise<number | null> {
   const apiKey = c.env.ANTHROPIC_API_KEY;
-  // Absent key is the expected dev/preview state — silent no-op, no warning and
+  // Absent key is the expected dev state — silent no-op, no warning and
   // no metric (an intentional skip, like Algolia's `skipped_no_creds` — it must
   // not pollute the `aeci.toxicity.api` error-rate denominator).
   if (!apiKey) return null;

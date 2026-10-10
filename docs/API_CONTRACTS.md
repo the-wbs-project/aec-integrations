@@ -2111,7 +2111,7 @@ Errors:
   linked to a **different** vendor; `details.reason` ∈ `already_admin` | `other_vendor`;
   nothing is written. (A second seat on the **same** vendor is allowed, not a conflict.)
 - `DEPENDENCY_FAILURE` (503) — claimant identity resolution is unavailable
-  (`SUPABASE_SERVICE_ROLE_KEY` absent — local dev and PR previews only, since
+  (`SUPABASE_SERVICE_ROLE_KEY` absent — local dev only, since
   AECI-530 CI-pushes it on staging/demo/production) or upstream GoTrue errored; the
   grant refuses rather than half-grant.
 - `INVALID_STATE_TRANSITION` (422) — the request is not a claim, is already terminal
@@ -2642,8 +2642,7 @@ source, because behaviour cannot test for the absence of a coupling that does no
 `resolveClaimantIdentity` seam the claim grant uses, which links an existing `auth.users` row
 or **provisions one** — a connector-lane contact typically has no AECi account, and requiring
 them to sign up first would reintroduce the round trip this action removes. The cost is that
-the seam needs `SUPABASE_SERVICE_ROLE_KEY`, so **503 is the default outcome on local dev and
-on every PR preview**, exactly as on `PATCH /api/admin/claims/:id`.
+the seam needs `SUPABASE_SERVICE_ROLE_KEY`, so **503 is the default outcome on local dev**, exactly as on `PATCH /api/admin/claims/:id`.
 
 **`seat_owner` is `true`.** Same rule `grantSeatStatements` follows (§11a): an AECi-reviewed
 seat IS the owner event, and it is what makes the shipped `POST /api/vendor/seats/invites`
@@ -3074,7 +3073,7 @@ The operator's user list — **profiles-first**, behind `requireAdmin()`, emitti
 Profiles-first is a decision, not a convenience: GoTrue's own `GET /admin/users`
 would answer "every account with an auth row", but one Supabase project backs
 **every** environment (ADR 0017), so an auth-first list on production would include
-staging and preview signups and its "no profile" rows would be ambiguous across
+staging and local-dev signups and its "no profile" rows would be ambiguous across
 tiers. `profiles` is the per-environment truth; the seam (`AUTH_AND_RLS.md` §3.1
 seam #2, `fetchAuthUserRecords`) enriches the page D1 already chose.
 
@@ -3694,7 +3693,7 @@ emit nothing, §26.1 as scoped by ADR 0022). **No `Cache-Tag`, no edge caching**
 `json()` sets `private, no-store` and `/admin/*` is absent from
 `ROUTE_CACHE_PATTERNS` in `server-runtime.ts`, which `server.spec.ts` asserts; a
 cached admin response is a visitor-state leak (panel spec §9.2). Response shapes
-are Zod-validated in dev/preview/staging via `validateResponseInDev`.
+are Zod-validated in local dev and staging via `validateResponseInDev`.
 
 ##### The honesty envelope
 
@@ -5953,7 +5952,7 @@ export const VendorSeatSchema = z.object({
   user_id: z.string().uuid(),
   display_name: z.string().nullable(),
   email: z.string().nullable(),   // from Supabase auth.users; null without the
-                                  // service-role key (local dev / PR preview)
+                                  // service-role key (local dev)
   banned: z.boolean(),            // per-seat ban never touches vendors.verified
   created_at: z.string().datetime(),
 });

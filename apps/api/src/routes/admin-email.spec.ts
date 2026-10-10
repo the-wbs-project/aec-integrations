@@ -51,7 +51,7 @@ const NOW = new Date('2026-10-02T12:00:00.000Z');
 const clock = { now: () => NOW };
 const daysAgo = (d: number) => new Date(NOW.getTime() - d * 86_400_000).toISOString();
 
-const PREVIEW = { ENV: 'preview' } as Env;
+const PREVIEW = { ENV: 'staging' } as Env;
 const PRODUCTION = { ENV: 'production' } as Env;
 
 const ALICE = 'Alice@Example.com';
@@ -326,7 +326,7 @@ describe('GET /api/admin/email/summary', () => {
       await (await get('/api/admin/email/summary', PREVIEW)).json(),
     );
     expect(preview.sign_in).toBeNull();
-    expect(preview.environment).toBe('preview');
+    expect(preview.environment).toBe('staging');
 
     const prod = AdminEmailSummaryResponseSchema.parse(
       await (await get('/api/admin/email/summary', PRODUCTION)).json(),
@@ -535,7 +535,7 @@ describe('entityLink', () => {
 
 describe('/api/admin/email — authorization', () => {
   const SUPABASE_URL = 'https://test-project.supabase.co';
-  const AUTHZ_ENV = { ENV: 'preview', SUPABASE_URL } as Env;
+  const AUTHZ_ENV = { ENV: 'staging', SUPABASE_URL } as Env;
   const ADMIN = '00000000-0000-4000-8000-000000000900';
   const USER = '00000000-0000-4000-8000-000000000901';
 

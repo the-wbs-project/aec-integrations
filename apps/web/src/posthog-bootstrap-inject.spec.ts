@@ -13,7 +13,7 @@ function makeEnv(overrides: Partial<WebEnv> = {}): WebEnv {
     API: {} as Fetcher,
     POSTHOG_PROJECT_KEY: 'phc_abc',
     POSTHOG_HOST: 'https://us.i.posthog.com',
-    ENV: 'preview',
+    ENV: 'staging',
     ...overrides,
   };
 }

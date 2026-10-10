@@ -21,7 +21,7 @@
  *
  * The second assertion is the inverse: the key must NOT be pushed to any non-prod
  * tier. The Linear board constants in `lib/linear.ts` are hardcoded to the one
- * live "Vendor Requests" project, so a staging/demo/preview Worker holding this
+ * live "Vendor Requests" project, so a staging/demo Worker holding this
  * key files fixture claims as real AECi issues. `AECI-638` ("Claim: Fixture
  * Procore (product)") is what that looks like.
  */
@@ -38,7 +38,7 @@ const readWorkflow = (name: string): string => readFileSync(join(WORKFLOWS, name
 const PROD = readWorkflow('promote-to-prod.yml');
 
 /** Workflows that must never push `LINEAR_API_KEY` — every non-production tier. */
-const NON_PROD_WORKFLOWS = ['deploy.yml', 'promote-to-demo.yml', 'pr-preview.yml'] as const;
+const NON_PROD_WORKFLOWS = ['deploy.yml', 'promote-to-demo.yml'] as const;
 
 /** Pull the single-quoted value of a `KEY: '…'` line out of a workflow. */
 function secretList(raw: string, key: string): string[] {

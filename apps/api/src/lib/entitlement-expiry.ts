@@ -43,7 +43,7 @@
  *
  * The vendor half needs seat addresses, which need `fetchAuthUserEmails` and
  * therefore `SUPABASE_SERVICE_ROLE_KEY` — present on staging/demo/prod, absent
- * locally and on PR previews. So it degrades to `skipped` while the operator copy
+ * locally. So it degrades to `skipped` while the operator copy
  * always lands. The fence is stamped when **either** channel was `sent`: writing
  * it on attempt would silently consume the notice during a Resend outage, and
  * requiring BOTH would re-nag the operator every night on any tier without the
@@ -167,7 +167,7 @@ export interface ExpiryDeps {
   fetchSeatEmails?: FetchSeatEmails;
   sendVendorEmail?: SendEntitlementExpiringEmail;
   sendAdminEmail?: SendEntitlementExpiringAdminEmail;
-  /** Metric sink. Absent → metrics are simply not emitted (local/preview). */
+  /** Metric sink. Absent → metrics are simply not emitted (local). */
   metrics?: EntitlementExpiryMetricSink;
 }
 

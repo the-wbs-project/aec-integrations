@@ -60,7 +60,7 @@
  * enqueue onto `CACHE_PURGE_QUEUE`; the SSR Worker's queue consumer issues the
  * `ctx.cache.purge()` — ADR 0020 §3, since the API Worker's own zone-HTTP purge is
  * inert against native Workers Cache); no-op without the queue binding
- * (local/preview). Algolia sync (AECI-139) is an injectable post-commit seam over
+ * (local). Algolia sync (AECI-139) is an injectable post-commit seam over
  * the Drizzle `algolia-sync` core, no-op without the Algolia secrets.
  */
 
@@ -121,6 +121,7 @@ import type { Env } from '../env';
 import { ApiError } from '../errors';
 import { syncPromoteTargets } from '../lib/algolia-sync';
 import { emitAlgoliaSyncMetrics, type SyncMetricSink } from '../lib/algolia-sync-metrics';
+import { guardAlgoliaWrite } from '../lib/algolia-write-guard';
 import { auditInsert, type BatchStmt, type BatchTuple } from '../lib/audit';
 import { loadClaimedVendorIds } from '../lib/claimed-vendors';
 import {
@@ -1094,7 +1095,7 @@ export const REFUSED_CLAIMED_INTEGRATION =
 
 /**
  * Best-effort, post-commit edge-cache invalidation for a promote. No-ops when
- * `CACHE_PURGE_QUEUE` is unbound (local `pnpm dev:bound`, PR previews — there is
+ * `CACHE_PURGE_QUEUE` is unbound (local `pnpm dev:bound` — there is
  * no edge cache there), or when nothing cacheable changed.
  *
  * WC-5 (AECI-319 / ADR 0020 §3): this ENQUEUES onto `aeci-cache-purge-{env}`
@@ -1538,7 +1539,7 @@ export async function refreshHomeStatsAfterPromote(rc: PromoteRunCtx, db: Db): P
 
   // Invalidate the home page's edge cache now that `stats_cache` is fresh, so the
   // next render repaints with the new counts. Best-effort, post-refresh; no-ops
-  // without the queue producer (local/preview don't edge-cache, so the refresh
+  // without the queue producer (local don't edge-cache, so the refresh
   // above already suffices). Wrapped so a `queue.send` throw can't reject this
   // post-commit task — the error is recorded, never rethrown. Queue rather than
   // zone purge for the WC-5 reason in `purgeAfterPromote`.
@@ -3869,8 +3870,13 @@ export function dispatchPromoteHooks(
   }
 
   // AECI-139: push the promoted records to Algolia immediately (independent
-  // best-effort task). No-ops without the Algolia secrets.
-  if (rc.env.ALGOLIA_APP_ID && rc.env.ALGOLIA_ADMIN_KEY) {
+  // best-effort task). No-ops without the Algolia secrets, and on a local run
+  // unless ALGOLIA_ALLOW_LOCAL_WRITES opts in (AECI-1268: local reads staging_*).
+  if (
+    rc.env.ALGOLIA_APP_ID &&
+    rc.env.ALGOLIA_ADMIN_KEY &&
+    guardAlgoliaWrite(rc.env, 'promote algolia-sync hook')
+  ) {
     dispatchHook(rc, 'algolia-sync', syncAlgolia(rc, response));
   }
 

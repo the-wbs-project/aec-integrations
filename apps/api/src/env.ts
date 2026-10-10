@@ -157,8 +157,7 @@ export type Env = {
    * secret — one Supabase auth project backs every env (ADR 0017) — that CI pushes
    * to THIS Worker on staging (`deploy.yml`), demo, and production
    * (`promote-to-{demo,prod}.yml`), each a graceful warn-and-skip step. Never on
-   * the web Worker, and deliberately never on per-PR previews (see the note in
-   * `pr-preview.yml`), so local dev and previews run keyless by design.
+   * the web Worker, and never on local dev, which runs keyless by design.
    *
    * Optional + fail-safe: absent → email reads degrade to `null`, claim resolution
    * reports `unavailable`, and the erasure `auth.users` delete is SKIPPED (the D1
@@ -168,12 +167,13 @@ export type Env = {
   SUPABASE_SERVICE_ROLE_KEY?: string;
   /**
    * Deployment environment label. Each wrangler env block sets this explicitly
-   * (`preview`/`staging`/`demo`/`production`); when unset (bare `wrangler dev`,
-   * tests) both `/api/version` and the telemetry tags report `development` — one
+   * (`staging`/`demo`/`production`); the top-level block that local dev runs
+   * under sets `development`, and when unset (tests) both `/api/version` and the
+   * telemetry tags report `development` — one
    * convention for the unset state (AECI-119). `demo` + `production` are the two
    * public, non-Access-gated tiers (see `@aeci/shared/deploy-env`).
    */
-  ENV?: 'development' | 'preview' | 'staging' | 'demo' | 'production';
+  ENV?: 'development' | 'staging' | 'demo' | 'production';
   /**
    * Commit SHA the Worker was deployed at (AECI-74). Injected via
    * `wrangler dev --var COMMIT_SHA:$(git rev-parse HEAD)` locally and
@@ -202,7 +202,7 @@ export type Env = {
    * the management API (`us.posthog.com`); swapping them 404s. Defaults to the
    * US ingest host when unset.
    *
-   * Topology (spec §3.6 / D4): preview/staging/demo carry the
+   * Topology (spec §3.6 / D4): local/staging/demo carry the
    * `aec-integrations-dev` (525793) token; ONLY production carries
    * `aec-integrations` (354071).
    */
@@ -235,7 +235,7 @@ export type Env = {
    * `POST /api/promote` creates an instance whose **id is the caller-supplied job
    * id** — the kick-off idempotency key, since `create({ id })` throws on a
    * duplicate — and `GET /api/promote/jobs/:id` reads its status/output back.
-   * One Workflow per environment (`aeci-promote-{preview,staging,demo,production}`),
+   * One Workflow per environment (`aeci-promote-{staging,demo,production}`; local dev serves the base block's),
    * like the queues, so environments never share instances.
    *
    * Optional because some test/tooling contexts construct a partial Env without a
@@ -300,7 +300,7 @@ export type Env = {
    * Optional + fail-open: absent → `rateLimit()` calls `next()`, warns once per
    * isolate, and emits `aeci.api.ratelimit{outcome:unconfigured}` so a tier that
    * lost its binding is a non-zero series rather than silence. Fail-open because
-   * fail-closed would 429 an entire preview tier, and because the binding is
+   * fail-closed would 429 an entire non-prod tier, and because the binding is
    * legitimately absent in the plain-Node unit lane. The residual risk — a
    * deployed tier missing a block — is removed by the lockstep test, not by the
    * runtime.
@@ -327,7 +327,7 @@ export type Env = {
    * covers the shared zone across all envs; CI pushes it per env (deploy.yml /
    * promote-to-demo.yml / promote-to-prod.yml — graceful warn-skip, no hard gate).
    * Optional + fail-safe: absent (with `CF_ZONE_ID`) → the poll logs
-   * `outcome:skipped_no_creds` and no-ops (local/preview/pre-provisioning). See
+   * `outcome:skipped_no_creds` and no-ops (local/pre-provisioning). See
    * `docs/waf-rate-limits.md` §5.
    */
   CF_ANALYTICS_API_TOKEN?: string;
@@ -371,7 +371,7 @@ export type Env = {
    * site root (`apps/web/src/server/routes/indexnow-key.ts`). Set as a Wrangler
    * secret. 8–128 chars of `[A-Za-z0-9-]`. Optional + fail-open: absent (with or
    * without `PUBLIC_SITE_URL`) → the promote IndexNow submission is a graceful
-   * no-op (local `dev:bound` / PR previews / pre-launch).
+   * no-op (local `dev:bound` / pre-launch).
    *
    * **Provision ONLY at public launch**, on the env whose web Worker has
    * `ALLOW_INDEXING="true"`. Pinging IndexNow for a `noindex` site (every env
@@ -408,6 +408,16 @@ export type Env = {
    */
   ALGOLIA_ADMIN_KEY?: string;
   /**
+   * Local-only opt-in for Algolia WRITES (AECI-1268). A local run (`ENV` =
+   * `development`, unset, or any label that is not a deployed tier) reads the
+   * `staging_*` indexes and, by default, never mutates them: the sync cron, the
+   * drift orphan sweep, the promote hook and the owner-write tail all no-op.
+   * Exactly `"true"` (in `apps/api/.dev.vars`) lifts that. Ignored on
+   * staging/demo/production, which always write their own set. Never set it on a
+   * deployed Worker. See `lib/algolia-write-guard.ts`.
+   */
+  ALGOLIA_ALLOW_LOCAL_WRITES?: string;
+  /**
    * Cloudflare Queue **producer** bindings for the daily scheduled jobs. The
    * cron `scheduled()` handler enqueues a `ScheduledJobMessage` here rather than
    * doing the work inline; the `queue()` consumer (`src/scheduled.ts`) runs it.
@@ -431,7 +441,7 @@ export type Env = {
   RECONCILE_QUEUE?: Queue<ScheduledJobMessage>;
   /**
    * Queue carrying the daily §23.1 data-quality job (AECI-241 / Phase 7.6).
-   * Same producer/consumer split as the others; absent on local/preview → the
+   * Same producer/consumer split as the others; absent on local → the
    * cron runs the job inline (`enqueueOrRun`).
    */
   DATA_QUALITY_QUEUE?: Queue<ScheduledJobMessage>;
@@ -440,7 +450,7 @@ export type Env = {
    * `STAGE_2_ATTESTATIONS_SPEC.md` §7.4). Queue-backed rather than inline like the
    * read-only gauges because the job sends email and writes `audit_log`, so it
    * benefits from the consumer's native retries. Same producer/consumer split as
-   * the others; absent on local/preview → the cron runs the job inline
+   * the others; absent on local → the cron runs the job inline
    * (`enqueueOrRun`).
    */
   ATTESTATION_NOTIFY_QUEUE?: Queue<ScheduledJobMessage>;
@@ -448,7 +458,7 @@ export type Env = {
    * Queue carrying the daily per-vendor snapshot (AECI-1210,
    * `DATABASE_SCHEMA.md` §9.12). Queue-backed so a transient D1 failure gets the
    * consumer's native retries: the write is an idempotent upsert on
-   * `(day, vendor_id)`, so a retry cannot double-count. Absent on local/preview →
+   * `(day, vendor_id)`, so a retry cannot double-count. Absent on local →
    * the cron runs the job inline (`enqueueOrRun`).
    */
   VENDOR_SNAPSHOT_QUEUE?: Queue<ScheduledJobMessage>;
@@ -456,7 +466,7 @@ export type Env = {
    * Queue carrying the daily Google URL Inspection run (AECI-1236 / §20.2). A run
    * is about an hour of calls and a consumer invocation is capped at 15 minutes,
    * so the consumer handles one chunk and re-sends the next one HERE with the
-   * budget left (`ScheduledJobMessage.gscInspect`). Absent on local/preview → the
+   * budget left (`ScheduledJobMessage.gscInspect`). Absent on local → the
    * cron runs the chunks inline (`enqueueOrRun`).
    */
   GSC_INSPECT_QUEUE?: Queue<ScheduledJobMessage>;
@@ -561,7 +571,7 @@ export type Env = {
    * Perspective). The Worker reads it at runtime to score review bodies via
    * Claude Haiku on `POST /api/reviews`. Set as a Wrangler secret per env.
    * Optional and **fail-open**: absent → `scoreToxicity()` is a silent no-op
-   * that stores `null` (the expected state in local `dev:bound` / PR previews),
+   * that stores `null` (the expected state in local `dev:bound`),
    * and any outage also stores `null` (logged `warn`) — the score only ever
    * *flags* the moderation queue, it never blocks a submission. See
    * `lib/toxicity.ts` and `STAGE_1_PHASE_5_SPEC.md` §5.3.
@@ -586,7 +596,7 @@ export type Env = {
    * `promote-to-prod.yml` pushes it from the un-suffixed `LINEAR_API_KEY` GH
    * secret, `require-secrets.sh` fails the promote when that secret is empty, and
    * `verify-worker-secrets.sh` re-asserts it on the live Worker afterwards.
-   * Staging, demo and PR previews deliberately get **no** push — the board
+   * Staging, demo and local dev deliberately get **no** push — the board
    * constants below in `lib/linear.ts` are hardcoded to the one live "Vendor
    * Requests" project, so a non-prod tier would file fixture claims there as real
    * issues. Absent is therefore the expected state everywhere except production.
@@ -638,7 +648,7 @@ export type Env = {
    * data-quality digest (AECI-241 / Phase 7.6, `sendEmail`). Set as a Wrangler
    * **secret** per env, staging/prod only. Optional and **fail-open** (mirrors
    * `ANTHROPIC_API_KEY`): absent → every `lib/email.ts` send is a silent `'skipped'`
-   * (the expected state in local `dev:bound` / PR previews), so the triggering
+   * (the expected state in local `dev:bound`), so the triggering
    * action / cron still succeeds. The repo standardized on Resend over the spec's
    * original "Loops"; see `docs/email.md`. Presented as a Bearer token to Resend.
    */

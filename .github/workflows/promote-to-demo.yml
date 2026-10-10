@@ -89,8 +89,8 @@
 #                              ADR 0016 §6). Single shared un-suffixed key — one
 #                              Supabase auth project backs every env (ADR 0017).
 #                              Pushed to the demo API Worker below; **API Worker
-#                              only** (never the web Worker) and never on per-PR
-#                              previews. Fail-open — absent → reviewer emails read
+#                              only** (never the web Worker). Fail-open — absent →
+#                              reviewer emails read
 #                              null, the account-erasure auth.users delete is
 #                              silently skipped, and vendor-claim resolution
 #                              reports 'unavailable'.
@@ -619,7 +619,7 @@ jobs:
       # Recommended + warn-and-skip: POST /api/webhooks/resend fails CLOSED without it (every
       # delivery 401s and counts aeci.webhooks.resend.signature_failure), so its absence is
       # loud, and a tier whose endpoint is not registered yet must not block a deploy.
-      # API Worker only. Previews never get it.
+      # API Worker only.
       - name: Push RESEND_WEBHOOK_SECRET to API Worker (demo)
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
@@ -656,8 +656,7 @@ jobs:
       # Reconciles CI with ADR 0016 §6. SINGLE shared un-suffixed key — one auth
       # project backs every env (ADR 0017). API WORKER ONLY (the web Worker verifies
       # with public JWKS material; apps/web/src/supabase-bootstrap-inject.spec.ts is
-      # the standing guard), and deliberately never on per-PR previews — see
-      # pr-preview.yml. Optional + fail-open, so NOT in REQUIRED_WORKER_SECRETS.
+      # the standing guard). Optional + fail-open, so NOT in REQUIRED_WORKER_SECRETS.
       - name: Push SUPABASE_SERVICE_ROLE_KEY to API Worker (demo)
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
@@ -708,7 +707,7 @@ jobs:
       # the SAME suffix as POSTHOG_KEY on every tier — here `_NONPROD`, because PostHog
       # splits prod from non-prod and demo is non-prod: its browser events go to the
       # non-prod project (see the POSTHOG_KEY_NONPROD push below), shared with staging
-      # and PR previews and separated from them only by $host, which is exactly what
+      # and local dev and separated from them only by $host, which is exactly what
       # the digest's query filters on. Demo carries `_PRODUCTION` for Anthropic and
       # Algolia but NOT for PostHog — do not "fix" this back to `_PRODUCTION`, that
       # pollutes the production analytics project with demo traffic. Pairing the demo

@@ -202,7 +202,7 @@ The branch review changed these, each recorded where it applies above or below.
   them. Chris ruled that on staging every app email goes to `support@aecintegrations.com`.
 - **The rule.** When `ENV` is exactly `staging`, both transports send every allowed email to the
   code constant `STAGING_REDIRECT_RECIPIENT`, internal recipients included. Nothing is
-  suppressed on staging for recipient reasons. Demo, preview, local and an unknown `ENV` keep
+  suppressed on staging for recipient reasons. Demo, local and an unknown `ENV` keep
   the §1 allowlist. Production is unchanged.
 - **The tier rule wins first.** A `production-only` or `production-and-demo` entry is still
   suppressed on staging.
@@ -245,3 +245,5 @@ The branch review changed these, each recorded where it applies above or below.
   `LINEAR_DOCS_MIRROR_API_KEY` and `LINEAR_NOTIFICATIONS_DOC_ID`, the mirror workflow skips
   (§7, AECI-1220). The run is not a required check, so it never blocks a merge
   (`docs/CICD_PLAN.md` §11b).
+
+**Amendment 2026-10-10 (AECI-1268):** PR previews are retired. A missing `unsubscribe@` host or token now happens on local dev only.

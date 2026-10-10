@@ -404,7 +404,7 @@ export type JobRunDetail =
    *  from the row alone. `warned` counts terms that got a delivered notice AND a
    *  stamped fence. Per-channel outcomes are recorded because a deployed tier
    *  reporting `vendor.skipped` is a real finding (no `SUPABASE_SERVICE_ROLE_KEY`,
-   *  or no unbanned seat) while on preview it is the expected state. Nothing here
+   *  or no unbanned seat) while locally it is the expected state. Nothing here
    *  reports a status change, because the job never makes one (§7.3). */
   | {
       job: 'entitlement-expiry';

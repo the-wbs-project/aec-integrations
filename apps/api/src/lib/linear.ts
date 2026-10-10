@@ -17,7 +17,7 @@
  *     metered — the row simply stays `open` with
  *     `linear_issue_id=null` for the §6.7 reconciliation sweep to retry (§6.2).
  *   - **Absent key → silent no-op, no metric.** No `LINEAR_API_KEY` is the
- *     expected state in local `dev:bound` / PR previews (staging/prod only), so it
+ *     expected state in local `dev:bound` (staging/prod only), so it
  *     must not pollute the `aeci.linear.issue` error-rate denominator. Since
  *     AECI-854 it is metric-silent but no longer *caller*-silent: the function
  *     returns `{ status:'failed', reason:'no_api_key' }` so the §6.7 sweep can name
@@ -1019,7 +1019,7 @@ function buildTitle(input: LinearIssueInput): string {
  * website to compare against, not that a check is still running.
  *
  * Both URL-derived rows are omitted rather than faked when `PUBLIC_SITE_URL` is
- * unset (local `dev:bound`, PR previews).
+ * unset (local `dev:bound`).
  */
 function buildDescription(env: Env, input: LinearIssueInput): string {
   const lines = [

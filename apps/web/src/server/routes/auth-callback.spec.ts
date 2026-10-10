@@ -272,7 +272,7 @@ describe('profile-ensure is retried, then fatal (AECI-770)', () => {
   it('retries a transient failure and completes the sign-in when a later attempt succeeds', async () => {
     const ensure = vi
       .fn()
-      .mockRejectedValueOnce(new Error('Worker "aeci-api-preview" not found'))
+      .mockRejectedValueOnce(new Error('Worker "aeci-api" not found'))
       .mockRejectedValueOnce(apiError(503))
       .mockResolvedValue({ created: true });
     const { request, signOutCalls, sleeps } = makeHarness({ ensure });

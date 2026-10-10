@@ -15,7 +15,7 @@ Operational response guides for AECi's alerts.
 monitors, the five dashboards, and both Worker transport legs. The alert set is
 committed as `observability/posthog/alerts.json` and applied to the **production**
 project (`aec-integrations`, 354071); alerts are deliberately production-only, so a
-preview deploy failing a cron does not page anyone.
+failing cron on staging or demo does not page anyone.
 
 Two properties of the current model matter mid-incident and are different from what
 the Datadog monitors did:
@@ -43,7 +43,7 @@ onto PostHog Logs as follows:
 
 Two log-shaped things are worth knowing about mid-incident: **`posthogDistinctId`**
 (an unhandled 500 is one click from the person it happened to) and the **`deployment`
-event** (`deploy_kind` ∈ `deploy` / `promote` / `preview` / `auto_rollback`), which is
+event** (`deploy_kind` ∈ `deploy` / `promote` / `auto_rollback`), which is
 how you answer "did a deploy cause this" with a join rather than a guess.
 
 ## Alert → runbook
@@ -425,7 +425,7 @@ is held so the next cron retries it.
    or `aeci.api.promote.algolia_sync_failed` (promote hook). The `reason` field carries the
    Algolia error.
 3. Credentials? Missing `ALGOLIA_APP_ID` / `ALGOLIA_ADMIN_KEY` show as `outcome:skipped_no_creds`
-   (a graceful no-op, not a failure) — expected on local/preview, never on staging/production.
+   (a graceful no-op, not a failure) — expected on local dev, never on staging/production.
 4. Algolia status? Check https://status.algolia.com — an Algolia outage surfaces as transient
    push failures that self-heal on the next run.
 5. Liveness alert ("sync not running"): this is the no-data variant of the `outcome:ok`
@@ -1197,7 +1197,7 @@ corrects rather than duplicates. **No `audit_log` row** — derived bookkeeping,
    just re-run the day.
 4. **Nothing at all since a deploy?** Check the cron is still scheduled: `"15 0 * * *"` must be in
    `apps/api/wrangler.jsonc`'s `triggers.crons` for the tier (it is in `staging`, `demo` and
-   `production`; `preview` deliberately has none, so PR previews run no crons). Confirm against the
+   `production`; the top-level local block deliberately has none, so local dev runs no crons). Confirm against the
    Worker's scheduled invocations and `wrangler tail`.
 
 **Repair:** re-run the affected range through the backfill. It is dry-run by default and refuses

@@ -67,7 +67,7 @@ export function renderUi(nonce: string): string {
     <h2>Copy data (full clone → replace)</h2>
     <p class="muted">Makes the destination an exact mirror of the source — every table, including reviews/auth/analytics. Destructive on the destination.</p>
     <div class="row">
-      <div><label for="copy-source">Source</label><select id="copy-source">${envOptions('preview')}</select></div>
+      <div><label for="copy-source">Source</label><select id="copy-source">${envOptions('production')}</select></div>
       <div><label for="copy-dest">Destination</label><select id="copy-dest">${envOptions('staging')}</select></div>
       <button id="copy-dry" class="primary">Dry run</button>
     </div>

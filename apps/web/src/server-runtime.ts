@@ -174,8 +174,8 @@ export function localeAttrsForPath(
 /**
  * `/preview/*` hosts dev-only ports of v0.dev screens (see
  * `apps/web/src/app/preview/preview.routes.ts`). The routes are registered in
- * every Angular build so they're available on `*.workers.dev` preview Worker
- * deploys, but production must return 404 — production users should never see
+ * every Angular build so they're available in local dev and on staging, but
+ * production must return 404 — production users should never see
  * these surfaces. Locale prefixes are stripped first so future-locale
  * `/es/preview/...` URLs also hit the gate.
  */
@@ -1233,7 +1233,7 @@ export function createApp(options: {
 
   // Pre-launch crawler block (`server/robots-policy.ts`). FAIL-CLOSED: unless
   // `ALLOW_INDEXING=true`, stamp `X-Robots-Tag: noindex, nofollow` on every
-  // response so demo (public, NOT behind Access), staging, and PR previews never
+  // response so demo (public, NOT behind Access), and staging never
   // enter a search index — even when a crawler ignores robots.txt or reaches a
   // URL via an external link. Registered first so it wraps every route.
   //

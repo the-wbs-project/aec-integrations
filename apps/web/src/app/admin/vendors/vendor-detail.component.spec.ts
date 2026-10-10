@@ -1307,8 +1307,8 @@ describe('VendorDetail — provisioning a seat (AECI-740)', () => {
   });
 
   it('renders the 503 as a configuration fact, not a failure', async () => {
-    // `SUPABASE_SERVICE_ROLE_KEY` is legitimately absent on local dev and every
-    // PR preview, so 503 is the DEFAULT outcome there — the same seam and the
+    // `SUPABASE_SERVICE_ROLE_KEY` is legitimately absent on local dev, so 503 is
+    // the DEFAULT outcome there — the same seam and the
     // same copy discipline the claim queue already carries.
     const provision = {
       provisionSeat: vi.fn(async () => {

@@ -235,7 +235,7 @@ export type VendorRequestSummary = z.infer<typeof VendorRequestSummarySchema>;
  *
  * `email` lives in Supabase `auth.users`, not D1, and is resolved through the
  * privileged admin seam. It degrades to `null` when the service-role key is
- * absent (local dev / PR previews), never a 500.
+ * absent (local dev), never a 500.
  *
  * `banned` reflects `profiles.banned_at` — a banned seat still appears on the
  * roster (per-seat ban never touches `vendors.verified`, §7) so co-admins can

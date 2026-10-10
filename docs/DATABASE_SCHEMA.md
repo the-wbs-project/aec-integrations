@@ -1666,7 +1666,7 @@ create table vendor_plan_pricing (
 A pending self-serve seat invite. A row is an **INTENT, never an account**: this
 table is why the vendor portal can add a colleague without the vendor ever
 triggering a Supabase account create, and therefore why the whole invite path
-needs no `SUPABASE_SERVICE_ROLE_KEY` and works in local dev and on PR previews.
+needs no `SUPABASE_SERVICE_ROLE_KEY` and works in local dev.
 
 **The row grants nothing.** Redeeming requires the caller's verified JWT email to
 equal `email`, so a forwarded or prefetched `token` is inert. The token is an
@@ -3698,7 +3698,7 @@ create table notification_sends (
   id integer primary key autoincrement,
   notification_id text not null,   -- the registry id (apps/api/src/lib/notifications/registry.ts)
   recipient_hash text not null,    -- sha256 hex of the trimmed, lowercased bare address; '' = no recipient
-  tier text not null,              -- tierLabel(env): production | staging | demo | preview | development | non-production
+  tier text not null,              -- tierLabel(env): production | staging | demo | development | non-production (`preview` rows are historical, from the retired tier)
   outcome text not null,           -- sending | sent | failed | unknown | skipped | suppressed | duplicate | paused
   provider_message_id text,        -- the Resend id on 'sent'; null otherwise
   dedupe_key text,                 -- the sender's idempotency key; null = never deduplicated
@@ -4385,7 +4385,7 @@ ctx.waitUntil(env.CACHE_PURGE_QUEUE?.send({ tags: [`product:${slug}`], source: "
 return json({ row: updated });
 ```
 
-The enqueue is best-effort: a failed or absent purge must never roll back the write — the queue binding is unset on local dev / PR previews, where `?.send` is a graceful no-op. Log failures; surface via the `aeci.cache.purge` metric. The URL-map `invalidateForEntity()` helper this section once showed was **never built and is superseded** — see `docs/CACHE_STRATEGY.md` §5 for the full native-Workers-Cache invalidation model (ADR 0020).
+The enqueue is best-effort: a failed or absent purge must never roll back the write — the queue binding is unset on local dev, where `?.send` is a graceful no-op. Log failures; surface via the `aeci.cache.purge` metric. The URL-map `invalidateForEntity()` helper this section once showed was **never built and is superseded** — see `docs/CACHE_STRATEGY.md` §5 for the full native-Workers-Cache invalidation model (ADR 0020).
 
 **Reviewers:** see `CODE_REVIEW_CHECKLIST.md` "Data integrity and audit" for the corresponding check.
 

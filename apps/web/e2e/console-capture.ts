@@ -25,7 +25,7 @@ import { expect, type Page } from '@playwright/test';
  * only on in-app navigations, never on the full-document `page.goto()` loads these
  * specs perform; Datadog RUM / CF-beacon injection is deployment-token-gated in
  * `server-runtime.ts` and absent locally), so a clean local run needs no entries.
- * The concrete future consumer is the deployed-preview job, which DOES inject
+ * The concrete future consumer is a run against a deployed tier, which DOES inject
  * beacons. Add an entry ONLY for provably-benign noise, each with an inline reason
  * — mirroring the `EXPECTED_PENDING_PREFIXES` discipline in
  * `internal-link-graph.spec.ts`.

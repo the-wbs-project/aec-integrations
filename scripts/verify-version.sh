@@ -17,7 +17,7 @@
 # caller emits the single `::error::` after its budget is exhausted).
 #
 # Cloudflare Access (docs/access.md): every environment hostname — staging,
-# PR-preview, AND production (gated until launch, ADR 0017) — sits behind Access
+# AND production (gated until launch, ADR 0017) — sits behind Access
 # and is reachable from CI only via the `aeci-gh-actions` service token. The
 # service-token headers are attached only when both env vars are set; the caller
 # now passes them for every environment (it is the presence of the vars, not the

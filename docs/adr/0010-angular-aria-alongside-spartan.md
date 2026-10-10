@@ -429,3 +429,5 @@ handler, and the shared token classes (`appearance-none` plus a decorative chevr
 the Decision still stands. Discrete choices that are not a dropdown, such as the direction control in the
 same add form, stay an Aria `ngListbox`. Surfaces that need a styled, filterable or overlay dropdown keep
 `AecSelect`. This narrows rule 1; it does not reopen the ADR.
+
+**Amendment 2026-10-10 (AECI-1268):** The local `preview_*` Algolia indexes named under Open / deferred no longer exist as a tier. Local dev now reads the `staging_*` indexes, so the typeahead can be checked against real data. The `/preview/*` design-sample routes are unchanged.

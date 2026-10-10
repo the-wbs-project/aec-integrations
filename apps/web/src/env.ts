@@ -85,20 +85,20 @@ export type WebEnv = {
   API: Fetcher;
   /**
    * Deployment environment label. Each wrangler env block sets this explicitly
-   * (`preview`/`staging`/`demo`/`production`); when unset (bare `wrangler dev`,
-   * tests) the logs/metrics tags and the browser bootstrap report `development` —
+   * (`staging`/`demo`/`production`); local dev runs the top-level block, which
+   * sets `development`. When unset (tests) the logs/metrics tags and the browser bootstrap report `development` —
    * matching the API Worker's `/api/version` convention (AECI-119). `demo` +
    * `production` are the two public, non-Access-gated tiers (see
    * `@aeci/shared/deploy-env`).
    */
-  ENV?: 'development' | 'preview' | 'staging' | 'demo' | 'production';
+  ENV?: 'development' | 'staging' | 'demo' | 'production';
   /**
    * Crawler-indexing gate (`server/robots-policy.ts`). FAIL-CLOSED: indexing is
    * blocked on every environment unless this is exactly the string `"true"`.
    * Since the apex cutover (AECI-247/277) exactly ONE env sets it: `production`,
    * which serves `aecintegrations.com` + `www.aecintegrations.com`. Everything
    * else — `demo.aecintegrations.com` (public but no-index by decision), staging,
-   * PR previews — emits `X-Robots-Tag: noindex` (the authoritative block) plus a
+   * local dev — emits `X-Robots-Tag: noindex` (the authoritative block) plus a
    * sitemap-less `robots.txt` that still allows crawling so the noindex is seen.
    *
    * Deliberately NOT derived from `ENV`: an env can serve more than one hostname,
@@ -141,7 +141,7 @@ export type WebEnv = {
    * Supabase auth surface (AECI-193 / Phase 5.2).
    *
    * - SUPABASE_URL — public project base URL (`https://<ref>.supabase.co`),
-   *   plain `vars` entry per env (dev project for preview/staging, prod
+   *   plain `vars` entry per env (dev project for local/staging/demo, prod
    *   project for production).
    * - SUPABASE_ANON_KEY — the publishable/anon key. Safe to expose (it only
    *   unlocks anon-RLS access + the auth endpoints) but stored as a CI-pushed
@@ -165,10 +165,10 @@ export type WebEnv = {
    *   kept it out of git for tidiness only, and that choice is what produced
    *   the weeks-dark production analytics of AECI-326: the push step existed,
    *   the secret did not, and the warn-and-skip path was silent. A committed
-   *   var has no provisioning step to forget, and PR previews get analytics
-   *   automatically. Absent → `injectPostHogBootstrap` is a no-op (no
-   *   `window.__AECI_POSTHOG__`) and the browser layer never loads PostHog
-   *   (fail-open) — which is the intended state for bare `wrangler dev`.
+   *   var has no provisioning step to forget, and local dev (the top-level
+   *   block) gets analytics automatically. Absent → `injectPostHogBootstrap` is
+   *   a no-op (no `window.__AECI_POSTHOG__`) and the browser layer never loads
+   *   PostHog (fail-open) — the state unit tests run in.
    *   Since AECI-642 the SSR Worker's own server-side telemetry authenticates
    *   with this same token (PostHog's log/metric/event intakes all accept the
    *   publishable project key), which is why the Worker holds **no** PostHog
@@ -180,7 +180,7 @@ export type WebEnv = {
    *   (`server/seo-headers.ts`).
    *
    * Project topology (POSTHOG_MIGRATION_SPEC.md §3.6 / D4): production points
-   * at `aec-integrations` (354071); preview/staging/demo all point at
+   * at `aec-integrations` (354071); local/staging/demo all point at
    * `aec-integrations-dev` (525793). Demo previously received the *production*
    * key and polluted the prod project with synthetic traffic — AECI-640.
    */

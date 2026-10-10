@@ -2361,7 +2361,7 @@ describe('tier delivery policy (AECI-1198)', () => {
   it('suppresses on every non-production tier but staging, and on a missing ENV', async () => {
     const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
     vi.spyOn(console, 'warn').mockImplementation(() => {});
-    for (const ENV of ['development', 'preview', 'demo', undefined] as const) {
+    for (const ENV of ['development', 'demo', undefined] as const) {
       expect(await sendTransactionalEmail(fakeContext({ ENV }), INPUT)).toBe('suppressed');
     }
     expect(fetchSpy).not.toHaveBeenCalled();
@@ -2554,10 +2554,10 @@ describe('staging redirect (2026-10-09, AECI-1103 rehearsal)', () => {
     );
   });
 
-  it('leaves demo, preview, development and a missing ENV on the allowlist', async () => {
+  it('leaves demo, development and a missing ENV on the allowlist', async () => {
     const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
     vi.spyOn(console, 'warn').mockImplementation(() => {});
-    for (const ENV of ['development', 'preview', 'demo', undefined] as const) {
+    for (const ENV of ['development', 'demo', undefined] as const) {
       expect(await sendTransactionalEmail(fakeContext({ ENV }), INPUT)).toBe('suppressed');
     }
     expect(fetchSpy).not.toHaveBeenCalled();

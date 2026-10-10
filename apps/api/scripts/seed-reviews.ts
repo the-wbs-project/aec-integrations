@@ -248,7 +248,7 @@ export async function main(): Promise<number> {
   const args = parseArgs(process.argv.slice(2));
 
   if (args.remote && !args.env) {
-    console.error('--remote requires --env <preview|staging|production> (the wrangler.jsonc env).');
+    console.error('--remote requires --env <staging|demo|production> (the wrangler.jsonc env).');
     return 1;
   }
   const targetingProd = args.remote && (args.env === 'production' || /prod/i.test(args.db));

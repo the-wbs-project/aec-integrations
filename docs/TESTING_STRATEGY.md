@@ -44,7 +44,7 @@ either guard.
 
 **Neither guard is meaningful against local `wrangler dev`** for this particular
 failure: the relative `/api/...` URL resolves to `localhost` there and works, so
-local passes with and without the bug. Run the script against preview, staging, or
+local passes with and without the bug. Run the script against staging or
 production. This is a rare case where the local environment is not a faithful
 reproduction, and it is why the defect survived for months.
 
@@ -57,9 +57,9 @@ reproduction, and it is why the defect survived for months.
 | Component | Vitest + Angular Testing Utilities | Single component, mocked deps | Fast (~10ms) | Every PR |
 | API contract | Vitest + Zod assertions | Mock fetch against schemas | Fast | Every PR |
 | Integration | Vitest + Miniflare | Worker code with real Workers runtime | Medium | Every PR |
-| E2E | Playwright | Full deployed preview | Slow (~30s/test) | Every PR |
-| Accessibility | axe-core via Playwright | Deployed preview | Medium | Every PR |
-| Visual | Playwright screenshots + Chromatic | Deployed preview | Medium | Every PR |
+| E2E | Playwright | Local `dev:bound` server | Slow (~30s/test) | Every PR |
+| Accessibility | axe-core via Playwright | Local `dev:bound` server | Medium | Every PR |
+| Visual | Playwright screenshots + Chromatic | Deployed environment | Medium | Every PR |
 | Performance | Lighthouse CI | Local `dev:bound` | Slow (~10 min) | Nightly + demo promote gate (§10.4) |
 | Smoke | Playwright (subset) | Staging, production | Medium | Post-deploy |
 | Load | k6 or similar | Staging | Slow | Pre-launch, rarely |
@@ -379,7 +379,7 @@ Two habits follow:
 
 ### 6.4 Edge-cache integration layer (complementary to Miniflare)
 
-Vitest + Miniflare exercises Worker *handler logic* but does **not** exercise native Workers Cache in front of the Worker. Verified for AECI-323 with Wrangler 4.111.0 / Miniflare 4.20260710.0: `wrangler dev --env preview` accepts the per-entrypoint cache config, but every localhost request executes the Worker and responses carry neither `Cf-Cache-Status` nor `Age`. Local tests therefore own the response-header contract, gateway normalization, queue consumer, native purge call shape, noindex bake, and stable cache/robots semantics across repeat requests; only a deployed Worker can prove front-cache state and HIT behavior. Do not require byte-identical local SSR documents—Angular may emit request-specific element ids on each uncached render.
+Vitest + Miniflare exercises Worker *handler logic* but does **not** exercise native Workers Cache in front of the Worker. Verified for AECI-323 with Wrangler 4.111.0 / Miniflare 4.20260710.0: `wrangler dev` (top-level block, which carries the cache config) accepts the per-entrypoint cache config, but every localhost request executes the Worker and responses carry neither `Cf-Cache-Status` nor `Age`. Local tests therefore own the response-header contract, gateway normalization, queue consumer, native purge call shape, noindex bake, and stable cache/robots semantics across repeat requests; only a deployed Worker can prove front-cache state and HIT behavior. Do not require byte-identical local SSR documents—Angular may emit request-specific element ids on each uncached render.
 
 Keep a small bash- or Playwright-driven suite for these multi-request, edge-stateful scenarios — modeled on `apps/web/scripts/run-extra-tests.sh` (T1–T12). The scenarios that earned their keep there:
 
@@ -392,7 +392,7 @@ Keep a small bash- or Playwright-driven suite for these multi-request, edge-stat
 - **Per-field translation fallback** — entity with partial overlay renders translated fields + canonical fallback for missing fields.
 - **`ng extract-i18n` discipline** — every chrome string in templates appears in the extracted XLIFF.
 
-The local HTTP checks run in `deploy.yml` against `dev:bound`; their T7 assertion pins the absence of native-cache headers. The request-only deployed cache spec runs after deployment in `pr-preview.yml` for every first-party PR, using the existing Cloudflare Access service-token headers and no browser download. The full preview-URL E2E jobs in `deploy.yml` remain parked.
+The local HTTP checks run in `deploy.yml` against `dev:bound`; their T7 assertion pins the absence of native-cache headers. The request-only deployed cache spec ran after deployment in `pr-preview.yml` for every first-party PR. That workflow was deleted on 2026-10-10 (AECI-1268), along with the parked preview-URL E2E jobs in `deploy.yml`, so no automated run of it remains. Run it by hand against staging, the only cached tier.
 
 ### 6.5 Live-auth integration suite in CI (AECI-90; pruned AECI-265)
 
@@ -410,14 +410,14 @@ The job is **non-blocking** today (intentionally not in `deploy-staging`'s `need
 
 ## 7. E2E testing — Playwright
 
-End-to-end tests drive a real browser against a deployed preview environment. Highest fidelity, slowest, used for critical user journeys.
+End-to-end tests drive a real browser. In CI they run against a local `dev:bound` server (the per-PR preview tier was retired 2026-10-10, AECI-1268). Highest fidelity, slowest, used for critical user journeys.
 
 ### 7.1 Why Playwright over Cypress
 
 - Faster (no constant context-switching between test runner and app)
 - Multi-browser support (Chromium, Firefox, WebKit) without extra config
 - Better support for SSR apps (handles multi-page navigation cleanly)
-- First-class Workers support (can hit `wrangler dev` or deployed previews)
+- First-class Workers support (can hit `wrangler dev` or a deployed environment)
 - Parallel by default
 - Better debugging tools (trace viewer, time-travel)
 
@@ -469,7 +469,7 @@ test('user can search and find a product', async ({ page }) => {
 
 ### 7.5 Test data
 
-- The local/preview environment uses a fixed seed data set in D1
+- The local environment uses a fixed seed data set in D1
 - Tests assume seed data exists (Procore, Autodesk, etc.)
 - Seed data lives in `apps/api/seed/*.sql` and is applied to the local D1 via `pnpm db:seed:local` (`db:setup:local` migrates + seeds). The chain's **last step is not SQL**: `db:grant-admin:local` runs `apps/api/scripts/grant-local-admin.mjs`, which upserts a `role='admin'` profile for `LOCAL_ADMIN_USER_ID` from `apps/api/.dev.vars` so `/admin/*` is reachable in a local browser (AECI-765), then `db:grant-vendor:local` seats `LOCAL_VENDOR_USER_ID` as a `vendor_admin` on `LOCAL_VENDOR_SLUG` (default `autodesk`) so `/vendor` is reachable too. Unset → each no-ops; both always exit 0 so they can never fail a seed run
 
@@ -508,16 +508,9 @@ from `apps/web/.dev.vars`, and in CI they come from the Playwright step `env:` i
 `deploy.yml` (warn-and-skip when the secrets are absent). Remaining manual step to activate
 it in CI: set the `SUPABASE_TEST_USER_EMAIL` / `SUPABASE_TEST_USER_PASSWORD` GH secrets.
 
-### 7.7 Cross-browser & real-device — BrowserStack (Phase 7.8 — shipped, AECI-154)
+### 7.7 Cross-browser & real-device — none
 
-The `projects` list above is **chromium-only** by design — cross-browser/mobile is handled by a separate **BrowserStack** (real-device cloud) lane, recorded in **ADR 0012** (**Accepted**) and shipped in Phase 7.8 (AECI-154). The lane:
-
-- Fans the *existing* Playwright suite out to **BrowserStack Automate** via `browserstack-node-sdk` + `apps/web/browserstack.yml`, running a **curated cross-browser smoke subset** — critical **read-only render journeys only** (`smoke`, `home`, `products-detail`, `search`, `facets`), not the full suite (parallel-session quota). The selection lives in `apps/web/playwright.browserstack.config.ts` (`testMatch`); the mutating journeys (auth / review-submission / account-delete) stay on the local chromium lane.
-- Matrix (`apps/web/browserstack.yml`): **real iOS Safari** + **real Android Chrome** (the gap local WebKit can't reproduce — bundled WebKit ≈ Safari, not the real engine), plus desktop Safari, Firefox, Edge.
-- Runs as a **separate, non-blocking** workflow — `.github/workflows/browserstack.yml`, triggered **post-merge** (`workflow_run` after the `deploy` workflow succeeds) + `workflow_dispatch` + a weekly schedule, against **deployed staging**. It is never in any deploy `needs:`, so the fast PR lane (unit / component / integration / chromium-E2E / axe) stays fast, free, and keeps gating merge.
-- Reaches Access-gated staging over the public internet with the CF Access **service-token headers** (`CF-Access-Client-Id` / `CF-Access-Client-Secret`, sent via Playwright `extraHTTPHeaders`) — **no BrowserStackLocal tunnel**; `demo.aecintegrations.com` is public and needs none.
-- **Inert until provisioned:** the lane **skips green** (does not gate, does not fail) until the personal-subscription secrets `BROWSERSTACK_USERNAME` / `BROWSERSTACK_ACCESS_KEY` are set (`gh secret set …`). The real iOS Safari row requires the **Automate** product specifically.
-- A BrowserStack **MCP server** (`@browserstack/mcp-server`) is also wired for ad-hoc real-device checks during UI work — that part is *not* CI.
+The `projects` list above is **chromium-only**, and there is no cross-browser or real-device lane. The BrowserStack lane from Phase 7.8 (AECI-154, ADR 0012) was removed on 2026-10-10 under AECI-1269. Its workflow had been disabled since 2026-06-26 and never gated a merge or a deploy. ADR 0012 is marked superseded. Adding a cross-browser lane again needs a new decision record.
 
 ---
 
@@ -694,9 +687,9 @@ Chromatic free tier covers ~5,000 snapshots/month. Avoid snapshotting every page
 
 Visual diffs appear as a check on the PR. Reviewers approve or reject visual changes inline in Chromatic's UI. Once approved, the new baseline is committed.
 
-### 9.5 Why not Percy (BrowserStack)
+### 9.5 Why not Percy
 
-BrowserStack's visual tool, **Percy**, overlaps Chromatic directly. **Do not run both.** Phase 7.8 (AECI-154) shipped the BrowserStack **Automate** *functional* cross-browser lane (§7.7) **without Percy** — Percy was evaluated and deliberately not adopted. Chromatic stays the visual-regression tool (above); Percy is only worth revisiting if cross-*real*-browser visual diffs become a requirement, in which case it consolidates billing under BrowserStack alongside the cross-browser lane (ADR 0012, AECI-154).
+Percy (BrowserStack's visual tool) overlaps Chromatic directly. **Do not run both.** Percy was evaluated in Phase 7.8 (AECI-154) and not adopted. Chromatic stays the visual-regression tool.
 
 ---
 
@@ -765,7 +758,7 @@ Budgets follow `STAGE_1_PHASE_2_SPEC.md` §12 (scores ≥ 90 for Performance / A
 - **`noindex`** — like the 404, its SEO audit fails by design. AECI-146 grouped `/search` with the 404 in the **noindex class** (matched by `NOINDEX_URL_PATTERN`): perf/a11y/CWV only, **SEO-exempt** (excluded from the indexable class's `categories:seo`).
 - **No-cache (always an edge MISS)** — `/search` is `private, no-store`, the one route that never serves from an edge HIT. AECI-145 adds a `/search`-only class with a **MISS-only TTFB budget** (`server-response-time ≤ 600ms`, error-level since AECI-188) rather than inheriting cached-page timing assumptions. The threshold is Lighthouse's own native pass bar and measures the SSR-shell document fetch on `dev:bound` — the document itself involves no Algolia round-trip (InstantSearch loads browser-side) — not production search latency.
 
-`/search` does **not** match the detail/browse URL pattern, so it correctly skips the 200 KB JS budget — InstantSearch ships more than a detail page. Instead it carries its **own JS-transfer budget** (AECI-188; ceiling recorded in `.lighthouserc.cjs`, measured against the real SDK). To make that measurement meaningful, `lighthouse.yml` provisions the shared search key (`ALGOLIA_SEARCH_KEY`, which must cover the `preview_*` indexes) into `apps/web/.dev.vars`, so CI's `/search` boots real InstantSearch against the `preview_*` indexes rather than the degraded shell — and hard-fails if the key is missing. `?q=…` is intentionally not collected: the empty-query page already loads the full SDK + widgets, and a pinned query would couple the budget to index contents. Enforcement: a11y + TTFB at `'error'`; perf/CWV + the JS budget stay `'warn'` (§10.4).
+`/search` does **not** match the detail/browse URL pattern, so it correctly skips the 200 KB JS budget — InstantSearch ships more than a detail page. Instead it carries its **own JS-transfer budget** (AECI-188; ceiling recorded in `.lighthouserc.cjs`, measured against the real SDK). To make that measurement meaningful, `lighthouse.yml` provisions the shared search key (`ALGOLIA_SEARCH_KEY`, which must cover the `staging_*` indexes) into `apps/web/.dev.vars`, so CI's `/search` boots real InstantSearch against the `staging_*` indexes (local runs fold onto the staging prefix, AECI-1268) rather than the degraded shell — and hard-fails if the key is missing. `?q=…` is intentionally not collected: the empty-query page already loads the full SDK + widgets, and a pinned query would couple the budget to index contents. Enforcement: a11y + TTFB at `'error'`; perf/CWV + the JS budget stay `'warn'` (§10.4).
 
 ---
 
@@ -831,11 +824,11 @@ Use Miniflare's in-memory storage. Reset between tests.
 
 ### 13.3 E2E tests
 
-Run against a preview environment with seed data applied. Seed data is the same across all preview deployments — a known, stable dataset.
+Run against a local `dev:bound` server with seed data applied. The seed is a known, stable dataset.
 
 If a test needs to create data (e.g. submit a review), it creates it with a unique identifier (test-{timestamp}) so it doesn't conflict with other concurrent test runs.
 
-A nightly job cleans up test-created data from preview Supabase to prevent buildup.
+A nightly job cleans up test-created data from Supabase to prevent buildup.
 
 ---
 

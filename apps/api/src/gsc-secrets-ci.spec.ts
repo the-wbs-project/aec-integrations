@@ -41,10 +41,7 @@ describe('AECI-1236: GSC_SA_KEY_JSON is provisioned by the production promote', 
     expect(readWorkflow('deploy.yml')).toContain('create_queue aeci-gsc-inspect-staging');
   });
 
-  it.each(['deploy.yml', 'promote-to-demo.yml', 'pr-preview.yml'])(
-    'never pushes the key from %s',
-    (name) => {
-      expect(readWorkflow(name)).not.toMatch(/secret put GSC_SA_KEY_JSON/);
-    },
-  );
+  it.each(['deploy.yml', 'promote-to-demo.yml'])('never pushes the key from %s', (name) => {
+    expect(readWorkflow(name)).not.toMatch(/secret put GSC_SA_KEY_JSON/);
+  });
 });

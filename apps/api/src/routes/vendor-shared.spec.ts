@@ -70,7 +70,7 @@ function makeCtx(env: Partial<Env> = {}, auth?: Partial<AuthzVariables['auth']>)
   const sendBatch = vi.fn().mockResolvedValue(undefined);
   const send = vi.fn().mockResolvedValue(undefined);
   const c = {
-    env: { ENV: 'preview', ...env } as Env,
+    env: { ENV: 'staging', ...env } as Env,
     executionCtx: execCtx,
     req: { raw: new Request('http://localhost:8787/api/vendor/claims') },
     get: (key: string) => (key === 'auth' ? auth : undefined),

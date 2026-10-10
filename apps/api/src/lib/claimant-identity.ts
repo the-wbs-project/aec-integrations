@@ -91,7 +91,7 @@ export type ClaimantResolution =
       email: string;
       profile: ClaimantProfileSnapshot;
     }
-  /** Supabase admin creds are absent (local `wrangler dev`, PR previews).
+  /** Supabase admin creds are absent (local `wrangler dev`).
    *  Resolution is IMPOSSIBLE here, not negative — the grant must refuse rather
    *  than half-grant. */
   | { outcome: 'unavailable' }

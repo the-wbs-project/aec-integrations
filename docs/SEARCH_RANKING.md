@@ -26,7 +26,7 @@ The ranking **configuration** is not prose — it is executable code, and that c
 One command applies every index's settings for one environment:
 
 ```bash
-pnpm algolia:apply-settings --env <preview|staging|demo|production>
+pnpm algolia:apply-settings --env <staging|demo|production>
 # → scripts/algolia/apply-settings.mjs → applyIndexSettings(client, env)
 ```
 
@@ -37,9 +37,8 @@ It is idempotent, prints no secrets, and per run issues **5 `setSettings` calls*
 | `staging` | CI — `.github/workflows/deploy.yml` ("Update Algolia staging index settings") |
 | `demo` | CI — `.github/workflows/promote-to-demo.yml` |
 | `production` | CI — `.github/workflows/promote-to-prod.yml` |
-| **`preview`** | **No CI step — an operator must run the command by hand.** |
 
-The preview gap matters in practice: `lighthouse.yml` measures `/search` against the **preview** indexes, so a settings change that lands in code but not on preview is invisible there until someone runs the command. It degrades gracefully rather than erroring (Algolia returns no values for an unconfigured facet attribute, and the widget renders nothing), so it is a hygiene step, not a release blocker.
+There is no `preview` environment. *(Amendment 2026-10-10, AECI-1268: the preview tier is retired. Local dev and `lighthouse.yml` now search the `staging_*` indexes, so the staging apply covers them. `indexPrefixForEnv` folds `development` and any unknown label onto `staging`.)*
 
 > **One Algolia application spans every environment** — `--env` only selects the index-name *prefix*, and an admin key reaches every index (`CICD_PLAN.md`). Check the flag before running the command locally.
 
@@ -365,15 +364,15 @@ The model is code: `REPLICA_SORTS` (+ `sortReplicasFor`, `replicaIndexName`, `re
 | `demo` | `demo_products_integration_count_desc`, `demo_vendors_integration_count_desc` | after demo is verified |
 | `production` | `production_products_integration_count_desc`, `production_vendors_integration_count_desc` | after a 7-day soak |
 
-Preview never had replicas. Its manual `pnpm algolia:apply-settings --env preview` must run **last**, after all six deletions, because it creates `preview_products_name_asc` and `preview_vendors_name_asc`. The quota arithmetic:
+*(Amendment 2026-10-10, AECI-1268: the preview tier is retired, so there is no preview apply and no `preview_*` replicas to create. The three `preview_*` primaries are deleted by the operator instead.)* The quota arithmetic:
 
 | Step | Indexes |
 |---|---|
-| Recorded (last verified 2026-08-20) | 24 |
-| After deleting the six detached replicas | 18 |
-| After preview's apply creates its two `name_asc` replicas | 20 of a 20 cap |
+| Now (24 against a cap of 20) | 24 = 3 `preview_*` + 6 detached `*_integration_count_desc` replicas + 15 live |
+| After deleting the three `preview_*` indexes | 21 |
+| After deleting the six detached replicas | 15 of a 20 cap |
 
-That lands exactly at the cap, with no headroom.
+That leaves five indexes of headroom. The three prefixes in use are `staging`, `demo` and `production`, each with 3 primaries and 2 `name_asc` replicas.
 
 **Rollback is a forward fix, never a plain revert.** Reverting PR-B would put the two replicas back in each primary's `replicas` list. That asks Algolia to create or relink them. At the index cap Algolia refuses, and the CI settings step fails. So a rollback PR restores only the old `customRanking` values and leaves `REPLICA_SORTS` retired. Records still carry `integration_count`, `review_count` and `product_count`, so no reindex is needed.
 
@@ -413,7 +412,7 @@ Search quality is a continuous concern, not a launch-day deliverable. This is th
 4. Per-attribute relevance tuning (e.g. demote `description` further, or mark attributes for exact-only matching).
 5. Recency or popularity signals if the data supports them without becoming a pay-to-win proxy (§1).
 
-**Roll out.** Every change is code: edit `INDEX_SETTINGS` / `MECHANISM_RANK` in `packages/shared/src/algolia.ts`, update the matching section of this doc in the same PR, and let `applyIndexSettings()` push it through the per-environment path in §1.1 (remembering that **preview is manual**). `algolia.spec.ts` must be updated to assert the new settings. Prefer Algolia A/B testing (two index configurations) to validate a ranking change against live metrics before making it the default, rather than flipping production ranking blind.
+**Roll out.** Every change is code: edit `INDEX_SETTINGS` / `MECHANISM_RANK` in `packages/shared/src/algolia.ts`, update the matching section of this doc in the same PR, and let `applyIndexSettings()` push it through the per-environment path in §1.1 (CI applies settings for staging, demo and production; there is no preview tier). `algolia.spec.ts` must be updated to assert the new settings. Prefer Algolia A/B testing (two index configurations) to validate a ranking change against live metrics before making it the default, rather than flipping production ranking blind.
 
 **Evaluating a lever before there is enough data.** The full loop above runs on real query data — that is [AECI-283](https://linear.app/aec-integrations/issue/AECI-283), unblocked since go-live ([AECI-247](https://linear.app/aec-integrations/issue/AECI-247), 2026-07-03) but only actionable once launch traffic has accumulated meaningful Algolia analytics. Until then, the dev-only **`/preview/search-relevance`** harness ([AECI-286](https://linear.app/aec-integrations/issue/AECI-286)) ranks a curated AEC fixture set under the candidate levers above (Baseline, Ratings-forward, Coverage-weighted, and a tunable Balanced blend) so the trade-offs can be *seen and felt* before any `INDEX_SETTINGS` change. It is a **client-side model** of `customRanking`, not Algolia: a deterministic token-overlap text score stands in for Algolia's textual ranking, the lexicographic strategies mirror the real "signals only break textual ties" model, and the weighted strategies illustrate a best-match alternative where signals can override text. The pure logic lives in `apps/web/src/app/preview/search-relevance/ranking-strategies.ts` (unit-tested); the surface itself is covered by `apps/web/e2e/preview-search-relevance.spec.ts` (reorder behavior + axe). It touches no production setting and is production-blocked by `isPreviewPath`. *(AECI-636 PR-B, 2026-09-22: its Baseline strategy now models the new production `customRanking`.)*
 

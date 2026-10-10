@@ -176,8 +176,8 @@ export const ProductIntegrationItemSchema = IntegrationListItemSchema.extend({
    *     larger population (60 production rows) and it is deliberate, not dirt.
    *   - a row whose `powered_by` is neither endpoint routes to the Via lane per
    *     §13.2(b). Post-migration that set is empty in a migrated database, and
-   *     that is exactly why this field is here: preview and staging D1 are not
-   *     migrated by CI, and without it every connector edge in an un-migrated
+   *     that is exactly why this field is here: a D1 that has not taken that
+   *     migration still holds such rows, and without it every connector edge in an un-migrated
    *     environment misfiles as direct — the failure AECI-706 guarded against.
    */
   powered_by_product: ProductLinkSchema.nullable().default(null),

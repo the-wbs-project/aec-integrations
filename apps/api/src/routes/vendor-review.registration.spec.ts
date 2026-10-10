@@ -76,7 +76,7 @@ async function hit(path: string, limiter: RateLimit, authed = true): Promise<Res
         ...(authed ? { authorization: 'Bearer test' } : {}),
       },
     }),
-    { ENV: 'preview', WRITE_RATE_LIMIT: limiter } as Env,
+    { ENV: 'staging', WRITE_RATE_LIMIT: limiter } as Env,
     fakeExecutionContext(),
   );
 }

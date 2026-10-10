@@ -38,7 +38,7 @@ import { VendorSeatInviteSchema } from './vendor';
  *    `validateResponseInDev` rather than shipping as `undefined`.
  *  - **`null` means UNAVAILABLE, `[]` means computed-and-empty.** This surface is
  *    the sharpest case of it: `SUPABASE_SERVICE_ROLE_KEY` is legitimately absent
- *    on local dev and PR previews, so the degraded path is the DEFAULT path.
+ *    on local dev, so the degraded path is the DEFAULT path.
  *  - **Bare `paginatedResponseSchema`**, not the admin-console
  *    `.extend({ generated_at, source, notes })` shape — `/admin/users` is an
  *    Operations surface, the `/admin/claims` / `/admin/vendors` lineage.
@@ -53,7 +53,7 @@ import { VendorSeatInviteSchema } from './vendor';
  * it is the distinction the 2026-08-24 "Account status unknown" day turned on:
  *
  *  - response `auth_available: false` → the seam is down (absent creds on local
- *    dev / PR previews, or a GoTrue error). Every `auth` on the page is `null`
+ *    dev, or a GoTrue error). Every `auth` on the page is `null`
  *    and says NOTHING about the accounts.
  *  - `auth_available: true`, `auth: null` → there is no `auth.users` row for this
  *    profile id. That is an ORPHANED PROFILE, a real data defect, not a blank.

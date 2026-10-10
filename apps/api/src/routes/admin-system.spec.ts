@@ -61,7 +61,7 @@ function call(query = '', env: Env = TEST_ENV, deps: AdminSystemDeps = {}) {
       now: () => NOW,
       fetchImpl: NO_FETCH,
       // No Algolia credentials by default — `createDriftRunner`'s production
-      // behaviour on preview/local, and what the drift check reads as "skipped".
+      // behaviour on local, and what the drift check reads as "skipped".
       driftRunnerFor: () => undefined,
       ...deps,
     }),
@@ -832,11 +832,11 @@ describe('GET /api/admin/system — version + freshness', () => {
   });
 
   it('falls back to sentinels when the deploy vars were never injected', async () => {
-    const body = await system('', { ENV: 'preview' } as Env);
+    const body = await system('', { ENV: 'staging' } as Env);
     expect(body.version).toEqual({
       sha: 'unknown',
       deployed_at: '1970-01-01T00:00:00.000Z',
-      environment: 'preview',
+      environment: 'staging',
     });
   });
 

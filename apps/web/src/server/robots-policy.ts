@@ -4,7 +4,7 @@
  * AECi is launched. Exactly ONE env is indexed: `production`, which serves the
  * apex + `www.aecintegrations.com` and sets `ALLOW_INDEXING="true"` (the apex
  * cutover, AECI-247/277). `demo.aecintegrations.com` is public but stays
- * no-index by decision, and staging + PR previews sit behind Cloudflare Access.
+ * no-index by decision, and staging sits behind Cloudflare Access.
  *
  * Indexing is FAIL-CLOSED: every environment blocks crawlers unless
  * `ALLOW_INDEXING` is explicitly the string `"true"`. It is keyed on that var

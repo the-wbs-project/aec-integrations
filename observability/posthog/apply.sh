@@ -10,7 +10,7 @@
 # ── What it does ────────────────────────────────────────────────────────────────
 #   dashboards  → BOTH projects (prod 354071 + non-prod 525793)
 #   insights    → BOTH projects, attached to their dashboard
-#   alerts      → PROD ONLY. A preview deploy failing a cron is not an incident, and the
+#   alerts      → PROD ONLY. A non-prod tier failing a cron is not an incident, and the
 #                 same alert firing from two projects trains the operator to ignore it.
 #
 # ── Design rules this file is held to (spec §4, verbatim from the EV migration) ──

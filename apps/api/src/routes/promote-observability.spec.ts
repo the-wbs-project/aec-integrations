@@ -38,7 +38,7 @@ const noopAlgolia: PromoteAlgoliaSync = noop;
 const noopIndexNow: PromoteIndexNowNotify = noop;
 const noopHomeStats: PromoteHomeStatsRefresh = noop;
 
-const baseEnv: Env = { ENV: 'preview' };
+const baseEnv: Env = { ENV: 'staging' };
 const uuid = (n: number) => `${String(n).padStart(8, '0')}-0000-4000-8000-000000000000`;
 
 let t: TestDb;

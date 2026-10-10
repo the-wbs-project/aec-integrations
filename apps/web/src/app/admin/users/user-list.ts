@@ -89,7 +89,7 @@ export class UserList {
   /**
    * Whether the GoTrue seam ran at all. `false` means every `auth` block on the
    * page is `null` because the seam was unreachable — which is the NORMAL state
-   * on local dev and PR previews, where `SUPABASE_SERVICE_ROLE_KEY` is absent by
+   * on local dev, where `SUPABASE_SERVICE_ROLE_KEY` is absent by
    * design. Surfaced as a banner, because a column of "Unavailable" with no
    * explanation is what made a real misconfiguration invisible for a day.
    */

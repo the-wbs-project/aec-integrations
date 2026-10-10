@@ -136,7 +136,7 @@ Verified against live prod on 2026-07-11: the served HTML on `www.aecintegration
 only `__AECI_ALGOLIA__` + `__AECI_SUPABASE__` config — **no `__AECI_POSTHOG__`, no `__AECI_DD__`**.
 Injection is gated on the Worker secrets existing, so PostHog and Datadog **RUM** were **not
 capturing anything in production**. AECI-326 makes both durable: PostHog was already CI-pushed
-(from `POSTHOG_KEY_{NONPROD,PRODUCTION}` — non-prod covers staging, demo and PR previews); the RUM credentials are now CI-pushed too (shared
+(from `POSTHOG_KEY_{NONPROD,PRODUCTION}` — non-prod covers local, staging and demo; PR previews were retired 2026-10-10, AECI-1268); the RUM credentials are now CI-pushed too (shared
 un-suffixed `DD_APPLICATION_ID` / `DD_CLIENT_TOKEN`, all four deploy/promote workflows). **Both go
 live once the GitHub secret *values* are set** (see [`OBSERVABILITY.md` → Credentials](./OBSERVABILITY.md#credentials)).
 
@@ -163,8 +163,9 @@ live once the GitHub secret *values* are set** (see [`OBSERVABILITY.md` → Cred
 > **Two topology facts that change how you read a production number:**
 >
 > - Since AECI-640, **production is the only tier on the production PostHog project**
->   (`aec-integrations`, 354071); preview / staging / demo all report to
->   `aec-integrations-dev` (525793). Before that, `promote-to-demo.yml` pushed the production
+>   (`aec-integrations`, 354071); local / staging / demo all report to
+>   `aec-integrations-dev` (525793). The preview tier that used to report there was retired
+>   2026-10-10 (AECI-1268). Before that, `promote-to-demo.yml` pushed the production
 >   key to the demo Worker, so **synthetic demo traffic landed in the production project**.
 >   Events in 354071 from **before** that change carry mixed tiers — filter by `$host` when
 >   reading history.
@@ -341,7 +342,7 @@ numbers), and again at launch.
 > 102 → 80. Any figure in this file quoted from one of those days is high by that amount. Preview was
 > not corrected in that run — its D1 sat at migration `0015` and had no `is_operator` column. **AECI-828
 > closed that later the same day**: preview was brought to head and backfilled (51 `is_operator` rows,
-> 624 `metrics_daily` rows), and `deploy.yml`'s `migrate-preview` job now keeps the tier current.
+> 624 `metrics_daily` rows), and `deploy.yml`'s `migrate-preview` job then kept the tier current (the tier and job were retired 2026-10-10, AECI-1268).
 >
 > **And a stored day is no longer left to go stale (AECI-827 / ADR 0027, 2026-09-09).** The retro-join
 > is anchored on each row's own timestamp, so a day inside the trailing 30 can lose views to an
@@ -654,7 +655,7 @@ time with `curl -s https://www.aecintegrations.com/ | grep -oE '__AECI_(POSTHOG|
 > `tls_version` and `http_protocol`. The cache gateway forwarded each GET/HEAD to the cached
 > `Renderer` entrypoint with a `cf` object that **replaced** `request.cf` instead of merging into it,
 > and every trusted `x-aeci-cf-*` header is derived from that object (`CACHE_STRATEGY.md` §4a.1).
-> **Staging and preview are affected from 2026-07-19**, when the gateway landed on `stage-2`.
+> **Staging and preview (then live) were affected from 2026-07-19**, when the gateway landed on `stage-2`.
 >
 > | Day (production) | Arrivals | With a `cf_asn` |
 > |---|---|---|

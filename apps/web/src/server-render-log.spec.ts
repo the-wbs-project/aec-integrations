@@ -11,7 +11,7 @@ function makeEnv(overrides: Partial<WebEnv> = {}): WebEnv {
   return {
     ASSETS: {} as Fetcher,
     API: {} as Fetcher,
-    ENV: 'preview',
+    ENV: 'staging',
     ...overrides,
   };
 }
@@ -28,9 +28,9 @@ describe('shouldEmitRenderLog (AECI-103 ssr.render log gate)', () => {
     },
   );
 
-  // Non-public tiers keep every render (dev/preview/staging volume is tiny; the
+  // Non-public tiers keep every render (dev/staging volume is tiny; the
   // full stream verifies the pipe end-to-end).
-  it.each<WebEnv['ENV']>(['development', 'preview', 'staging'])(
+  it.each<WebEnv['ENV']>(['development', 'staging'])(
     'logs 2xx renders in non-public env %s',
     (env) => {
       expect(shouldEmitRenderLog(makeEnv({ ENV: env }), 200)).toBe(true);

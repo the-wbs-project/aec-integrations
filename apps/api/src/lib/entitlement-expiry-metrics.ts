@@ -27,7 +27,7 @@ export interface EntitlementExpiryMetricSink {
  * operator copy. `outcome` is the `EmailOutcome` verbatim, so a deployed tier
  * reporting `channel:vendor,outcome:skipped` is a real finding (a missing
  * `SUPABASE_SERVICE_ROLE_KEY` or a vendor with no unbanned seat) rather than the
- * expected local state it is on preview.
+ * expected local state.
  */
 export const EXPIRY_NOTICE_METRIC = 'aeci.entitlement.expiry_notice';
 

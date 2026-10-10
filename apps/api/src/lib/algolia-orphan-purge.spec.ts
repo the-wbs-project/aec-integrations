@@ -40,11 +40,17 @@ describe('parsePurgeArgs', () => {
     expect(parsePurgeArgs(['--apply']).apply).toBe(true);
     expect(parsePurgeArgs(['--allow-production']).allowProduction).toBe(true);
     expect(parsePurgeArgs(['--env', 'production']).env).toBe('production');
-    expect(parsePurgeArgs(['--env=preview']).env).toBe('preview');
+    expect(parsePurgeArgs(['--env=demo']).env).toBe('demo');
   });
 
   it('rejects an unknown --env', () => {
     expect(() => parsePurgeArgs(['--env', 'prod'])).toThrow(/Invalid --env/);
+  });
+
+  it('rejects the retired preview tier and the local label (AECI-1268)', () => {
+    expect(() => parsePurgeArgs(['--env', 'preview'])).toThrow(/Invalid --env/);
+    // `development` folds onto staging_*; a purge must name the tier it deletes from.
+    expect(() => parsePurgeArgs(['--env', 'development'])).toThrow(/Invalid --env/);
   });
 
   it('parses --ids into targets and rejects bad entries', () => {

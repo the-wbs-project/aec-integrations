@@ -114,3 +114,5 @@ Access** at the network edge — not by Supabase project separation.
 
 At launch, removing the production Access app makes prod public; the prod `CF_ACCESS_*`
 vars then become a harmless no-op (the verify scripts only attach headers when present).
+
+**Amendment 2026-10-10 (AECI-1268):** The per-PR preview tier is retired. Where this ADR says PR-preview, read staging and local dev. Access now gates staging and production (until launch) only. Test-user pollution comes from staging and local signups. The 2026-08 record below is left as written.

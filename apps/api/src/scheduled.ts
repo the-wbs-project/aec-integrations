@@ -9,9 +9,9 @@
  * This cron→queue→consumer split (ADR 0013) decouples scheduling from execution:
  * the queue gives native retries, and the same queue can be fed by a future
  * manual/REST producer to force a run on demand. Both queues are bound per-env in
- * `wrangler.jsonc` (staging + production only — NOT base config / preview, so PR
- * previews carry no queues and run no daily jobs). On an env without the binding
- * (local `wrangler dev`, preview), `enqueueOrRun` runs the job inline so a
+ * `wrangler.jsonc` (deployed tiers only — NOT the base block, so local dev
+ * carries no queues). On an env without the binding
+ * (local `wrangler dev`), `enqueueOrRun` runs the job inline so a
  * `--test-scheduled` tick is never silently dropped.
  *
  * Cron triggers (`wrangler.jsonc`), staging + production:
@@ -126,6 +126,7 @@ import {
   drizzlePromotedIds,
 } from './lib/algolia-drift-deps';
 import { runDailySync } from './lib/algolia-sync';
+import { guardAlgoliaWrite } from './lib/algolia-write-guard';
 import {
   createAlgoliaDeleteClient,
   createAlgoliaObjectIdClient,
@@ -421,7 +422,7 @@ async function runAlgoliaSync(env: Env, ctx: ExecutionContext): Promise<JobRunRe
   const creds = { appId: env.ALGOLIA_APP_ID, apiKey: env.ALGOLIA_ADMIN_KEY };
 
   // Defensive no-op: production deploys are gated on these secrets
-  // (verify-worker-secrets.sh), but local/preview may legitimately lack them.
+  // (verify-worker-secrets.sh), but local may legitimately lack them.
   if (!creds.appId || !creds.apiKey) {
     submitCount(ctx, env, req, 'aeci.algolia.sync', 1, [
       'trigger:cron',
@@ -434,6 +435,14 @@ async function runAlgoliaSync(env: Env, ctx: ExecutionContext): Promise<JobRunRe
       source: 'algolia-sync-cron',
     });
     return { outcome: 'skipped', detail: { job: 'algolia-sync', reason: 'no_creds' } };
+  }
+
+  // AECI-1268: a local run reads staging_* but never writes it unless opted in.
+  if (!guardAlgoliaWrite(env, 'algolia-sync cron')) {
+    return {
+      outcome: 'skipped',
+      detail: { job: 'algolia-sync', reason: 'local_writes_disabled' },
+    };
   }
 
   const { db } = cronDb(env);
@@ -513,7 +522,7 @@ async function runAlgoliaDrift(env: Env, ctx: ExecutionContext): Promise<JobRunR
   const req = cronRequest('/cron/algolia-drift');
 
   // Defensive no-op: production deploys are gated on these secrets
-  // (verify-worker-secrets.sh), but local/preview may legitimately lack them.
+  // (verify-worker-secrets.sh), but local may legitimately lack them.
   if (!env.ALGOLIA_APP_ID || !env.ALGOLIA_ADMIN_KEY) {
     logToPosthog(ctx, env, req, {
       level: 'warn',
@@ -586,64 +595,72 @@ async function runAlgoliaDrift(env: Env, ctx: ExecutionContext): Promise<JobRunR
   // replica). `apply:true` is safe because the safety cap (`override:false`)
   // refuses an unexpectedly large purge (e.g. an empty/misconfigured D1 read).
   // Independent try/catch so a drift-report failure doesn't block the heal.
-  try {
-    const swept = await sweepAlgoliaOrphans(
-      {
-        ids: drizzlePromotedIds(cronDb(env).db),
-        browse: createAlgoliaObjectIdClient(env.ALGOLIA_APP_ID, env.ALGOLIA_ADMIN_KEY),
-        remove: createAlgoliaDeleteClient({
-          appId: env.ALGOLIA_APP_ID,
-          apiKey: env.ALGOLIA_ADMIN_KEY,
-        }),
-        emit: (r: EntityOrphanResult) => {
-          submitGauge(ctx, env, req, ORPHANS_REMOVED_METRIC, r.deleted, [
-            `entity:${r.entity}`,
-            `index:${r.indexName}`,
-          ]);
-          if (r.skippedBySafetyCap) {
-            submitGauge(ctx, env, req, ORPHANS_SKIPPED_CAP_METRIC, r.orphanIds.length, [
+  //
+  // AECI-1268: the sweep DELETES objects, so a local run (which reads staging_*)
+  // skips it unless opted in. The measurement above is a read and still runs.
+  const sweepAllowed = guardAlgoliaWrite(env, 'algolia-drift orphan sweep');
+  if (!sweepAllowed) {
+    sweep = { ran: false, reason: 'local_writes_disabled' };
+  } else {
+    try {
+      const swept = await sweepAlgoliaOrphans(
+        {
+          ids: drizzlePromotedIds(cronDb(env).db),
+          browse: createAlgoliaObjectIdClient(env.ALGOLIA_APP_ID, env.ALGOLIA_ADMIN_KEY),
+          remove: createAlgoliaDeleteClient({
+            appId: env.ALGOLIA_APP_ID,
+            apiKey: env.ALGOLIA_ADMIN_KEY,
+          }),
+          emit: (r: EntityOrphanResult) => {
+            submitGauge(ctx, env, req, ORPHANS_REMOVED_METRIC, r.deleted, [
               `entity:${r.entity}`,
               `index:${r.indexName}`,
             ]);
-          }
+            if (r.skippedBySafetyCap) {
+              submitGauge(ctx, env, req, ORPHANS_SKIPPED_CAP_METRIC, r.orphanIds.length, [
+                `entity:${r.entity}`,
+                `index:${r.indexName}`,
+              ]);
+            }
+          },
         },
-      },
-      { env: ddEnv, apply: true, safetyCap: DEFAULT_SAFETY_CAP },
-    );
+        { env: ddEnv, apply: true, safetyCap: DEFAULT_SAFETY_CAP },
+      );
 
-    const capped = swept.entities.filter((e) => e.skippedBySafetyCap);
-    const failed = swept.entities.filter((e) => !e.ok);
-    if (swept.totalDeleted > 0 || capped.length > 0 || failed.length > 0) {
+      const capped = swept.entities.filter((e) => e.skippedBySafetyCap);
+      const failed = swept.entities.filter((e) => !e.ok);
+      if (swept.totalDeleted > 0 || capped.length > 0 || failed.length > 0) {
+        logToPosthog(ctx, env, req, {
+          level: capped.length > 0 || failed.length > 0 ? 'warn' : 'info',
+          message: `aeci.algolia.orphans_removed on ${ddEnv}: removed ${swept.totalDeleted} orphan object(s)${
+            capped.length > 0
+              ? `; ${capped.length} index(es) refused by safety cap (re-run the CLI with --force)`
+              : ''
+          }${failed.length > 0 ? `; ${failed.length} index(es) errored` : ''}`,
+          source: 'algolia-drift-cron',
+          sweep: swept.entities,
+        });
+      }
+
+      // `orphanIds` is dropped — an unbounded id list the log above already carries.
+      // The counts are what §5.6 renders (AECI-583); until this shipped the sweep's
+      // result reached Datadog and nowhere else.
+      sweep = {
+        ran: true,
+        ok: failed.length === 0,
+        totalOrphans: swept.totalOrphans,
+        totalDeleted: swept.totalDeleted,
+        entities: swept.entities.map(toOrphanSweepEntity),
+      };
+    } catch (error) {
       logToPosthog(ctx, env, req, {
-        level: capped.length > 0 || failed.length > 0 ? 'warn' : 'info',
-        message: `aeci.algolia.orphans_removed on ${ddEnv}: removed ${swept.totalDeleted} orphan object(s)${
-          capped.length > 0
-            ? `; ${capped.length} index(es) refused by safety cap (re-run the CLI with --force)`
-            : ''
-        }${failed.length > 0 ? `; ${failed.length} index(es) errored` : ''}`,
+        level: 'error',
+        message: 'aeci.algolia.orphans_sweep.crashed',
         source: 'algolia-drift-cron',
-        sweep: swept.entities,
+        reason: error instanceof Error ? error.message : String(error),
       });
+      sweep = { ran: false, reason: error instanceof Error ? error.message : String(error) };
     }
-
-    // `orphanIds` is dropped — an unbounded id list the log above already carries.
-    // The counts are what §5.6 renders (AECI-583); until this shipped the sweep's
-    // result reached Datadog and nowhere else.
-    sweep = {
-      ran: true,
-      ok: failed.length === 0,
-      totalOrphans: swept.totalOrphans,
-      totalDeleted: swept.totalDeleted,
-      entities: swept.entities.map(toOrphanSweepEntity),
-    };
-  } catch (error) {
-    logToPosthog(ctx, env, req, {
-      level: 'error',
-      message: 'aeci.algolia.orphans_sweep.crashed',
-      source: 'algolia-drift-cron',
-      reason: error instanceof Error ? error.message : String(error),
-    });
-    sweep = { ran: false, reason: error instanceof Error ? error.message : String(error) };
   }
 
   // Since AECI-266 the heal is half this job's contract and the report is its
@@ -651,6 +668,12 @@ async function runAlgoliaDrift(env: Env, ctx: ExecutionContext): Promise<JobRunR
   // when the drift gauge never emitted would be the "reports fine because it has
   // no data" failure the whole §5.6 nullable design exists to prevent; `detail`
   // keeps the halves apart so the screen can say which one broke.
+  //
+  // A local run whose sweep the write guard skipped reports `skipped`, not
+  // `failed`: nothing broke, the heal was withheld on purpose (AECI-1268).
+  if (!sweepAllowed && report.ran) {
+    return { outcome: 'skipped', detail: { job: 'algolia-drift', report, sweep } };
+  }
   return {
     outcome: report.ran && sweep.ran && sweep.ok ? 'ok' : 'failed',
     detail: { job: 'algolia-drift', report, sweep },
@@ -1125,7 +1148,7 @@ async function runReconcileJob(env: Env, ctx: ExecutionContext): Promise<JobRunR
  *  checks → per-check gauge + job heartbeat/duration → email digest to Chris +
  *  Bill. Report-only — no auto-remediation. The `algolia_index_drift` check reuses
  *  the AECI-140 count (`findAlgoliaIndexDrift`) when creds are present; otherwise
- *  it skips (local/preview). The email transport is fail-open: a missing
+ *  it skips (local). The email transport is fail-open: a missing
  *  `RESEND_API_KEY`/recipients logs `outcome:skipped`, the Datadog monitors are
  *  the delivery backstop. Errors per check are captured, not thrown (the suite is
  *  best-effort), so reaching the catch is a pre-run crash. */
@@ -1248,7 +1271,7 @@ async function runDataQualityJob(env: Env, ctx: ExecutionContext): Promise<JobRu
  *  pending-moderation depth (with day-over-day deltas). Report-only reads — no audit
  *  row, no mutation. The Resend transport is fail-open: an absent `RESEND_API_KEY` /
  *  `EMAIL_FROM` / `SUPPORT_EMAIL` yields `outcome:skipped` (the expected
- *  local/preview state), and the `aeci.analytics_digest.email` metric is the delivery
+ *  local state), and the `aeci.analytics_digest.email` metric is the delivery
  *  signal. Queue-less (like `moderation`/`waf`), so it always runs inline. Never throws:
  *  a read/format crash is logged and counted `outcome:failed` (so the metric still
  *  fires as a liveness heartbeat), never rethrown — a failed cron must not tear down
@@ -1345,7 +1368,7 @@ async function runAnalyticsDigestJob(env: Env, ctx: ExecutionContext): Promise<J
     });
     // 1:1 with `ANALYTICS_EMAIL_METRIC` above — no second opinion. On production
     // all three secrets are set, so a `skipped` row there is a real
-    // misconfiguration the operator should see as not-ok; on local/preview it is
+    // misconfiguration the operator should see as not-ok; on local it is
     // the expected state.
     return {
       // A tier-policy `suppressed` (AECI-1198) or an operator's `paused` (AECI-1224) is
@@ -1873,7 +1896,7 @@ async function runIndexNowDrainJob(env: Env, ctx: ExecutionContext): Promise<Job
  * an operator's force-run) starts a run with the full budget; a chained one
  * continues with what the previous chunk left. With the queue bound, each chunk
  * re-sends the next one and returns, so no invocation outlives the 15-minute
- * consumer cap. Without it (local, preview) the chunks run inline in a loop.
+ * consumer cap. Without it (local) the chunks run inline in a loop.
  *
  * Metric outcomes: `ok`, `skipped` (no key / not a public env), `quota` (Google
  * said 429: the day is spent, routine, NOT a failure) and `failed` (the key was
@@ -2018,7 +2041,7 @@ async function runWafMetricsJob(env: Env, ctx: ExecutionContext): Promise<JobRun
   const creds = { apiToken: env.CF_ANALYTICS_API_TOKEN, zoneId: env.CF_ZONE_ID };
 
   // Defensive no-op: the token is provisioned per env when ready (no CI gate),
-  // and local/preview legitimately lack it — mirror the Algolia/email fail-safe.
+  // and local legitimately lack it — mirror the Algolia/email fail-safe.
   if (!creds.apiToken || !creds.zoneId || !host) {
     submitCount(ctx, env, req, WAF_POLL_METRIC, 1, ['trigger:cron', 'outcome:skipped_no_creds']);
     logToPosthog(ctx, env, req, {
@@ -2080,7 +2103,7 @@ async function runWafMetricsJob(env: Env, ctx: ExecutionContext): Promise<JobRun
   };
 }
 
-/** The producer queue binding for a job (absent on local/preview → inline run). */
+/** The producer queue binding for a job (absent on local → inline run). */
 function queueForJob(env: Env, job: ScheduledJob): Queue<ScheduledJobMessage> | undefined {
   switch (job) {
     case 'sync':
@@ -2308,7 +2331,7 @@ function enqueueFailureLog(job: ScheduledJob): { path: string; message: string; 
 /** Run a job, or — preferably — enqueue it. On staging/production the matching
  *  queue binding is present, so we `send` a message and return immediately; the
  *  `queue` consumer below does the work (ADR 0013). On an env without the binding
- *  (local `wrangler dev`, preview) there is no queue, so run inline — a
+ *  (local `wrangler dev`) there is no queue, so run inline — a
  *  `--test-scheduled` tick must never be silently dropped. */
 async function enqueueOrRun(env: Env, ctx: ExecutionContext, job: ScheduledJob): Promise<void> {
   const queue = queueForJob(env, job);
@@ -2335,7 +2358,7 @@ async function enqueueOrRun(env: Env, ctx: ExecutionContext, job: ScheduledJob):
       });
     }
   } else {
-    console.warn(`scheduled: no queue binding for "${job}" — running inline (local/preview)`);
+    console.warn(`scheduled: no queue binding for "${job}" — running inline (local)`);
   }
   await runScheduledJob(env, ctx, job);
 }

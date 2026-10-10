@@ -3,21 +3,16 @@ import { describe, expect, it } from 'vitest';
 import { EnvironmentSchema, VersionResponseSchema } from './version';
 
 describe('EnvironmentSchema', () => {
-  it.each(['development', 'preview', 'staging', 'demo', 'production'])(
+  it.each(['development', 'staging', 'demo', 'production'])(
     'accepts the fixed literal %s',
     (env) => {
       expect(EnvironmentSchema.parse(env)).toBe(env);
     },
   );
 
-  it('accepts the preview-pr-N shape reserved for per-PR CI deploys', () => {
-    // Guards: AECI-71 composes ENV=preview + PR number into preview-pr-<n>.
-    expect(EnvironmentSchema.parse('preview-pr-123')).toBe('preview-pr-123');
-  });
-
-  it('rejects a preview-pr value without a numeric suffix', () => {
-    expect(EnvironmentSchema.safeParse('preview-pr-').success).toBe(false);
-    expect(EnvironmentSchema.safeParse('preview-pr-abc').success).toBe(false);
+  it('rejects the retired preview-tier labels (AECI-1268)', () => {
+    expect(EnvironmentSchema.safeParse('preview').success).toBe(false);
+    expect(EnvironmentSchema.safeParse('preview-pr-123').success).toBe(false);
   });
 
   it('rejects an unrelated environment label', () => {

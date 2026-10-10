@@ -10,9 +10,9 @@ function envWith(env: Env['ENV']): Env {
 }
 
 describe('validateResponseInDev (AECI-111 — hoisted from route handlers)', () => {
-  it('runs the validator when ENV is "preview"', () => {
+  it('runs the validator when ENV is "development"', () => {
     const validate = vi.fn();
-    validateResponseInDev(envWith('preview'), validate);
+    validateResponseInDev(envWith('development'), validate);
     expect(validate).toHaveBeenCalledTimes(1);
   });
 
@@ -47,7 +47,7 @@ describe('validateResponseInDev (AECI-111 — hoisted from route handlers)', () 
     const boom = () => {
       throw new Error('shape drift');
     };
-    expect(() => validateResponseInDev(envWith('preview'), boom)).toThrow('shape drift');
+    expect(() => validateResponseInDev(envWith('staging'), boom)).toThrow('shape drift');
   });
 });
 

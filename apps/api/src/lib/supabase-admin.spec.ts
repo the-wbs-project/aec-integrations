@@ -643,7 +643,7 @@ describe('fetchAuthUserRecords (seam #2, record form, AECI-692)', () => {
   });
 
   it('reports no_credentials — available:false, empty map, no request, warns ONCE', async () => {
-    // Absent creds are the NORMAL state on local dev and PR previews. The warn
+    // Absent creds are the NORMAL state on local dev. The warn
     // fires once before the fan-out, not once per id, or a 24-row admin page
     // buries the log it exists to produce.
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);

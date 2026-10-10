@@ -128,7 +128,7 @@ Two deliberate widenings ride along:
    match: a batch IndexNow rejects is `outcome:refused`, not `failed`, because a throttled
    tick is routine and this alert pages above zero. Refusals belong to
    `indexnow-failure-rate`. Its `outcome:skipped` (no `INDEXNOW_KEY` / `PUBLIC_SITE_URL`) is
-   the correct pre-launch and preview posture and does not match either, so previews stay
+   the correct pre-launch and local posture and does not match either, so those runs stay
    quiet.
 2. **The `trigger:cron` predicate is dropped.** `aeci.algolia.sync` and
    `aeci.stats.compute` also fire on `trigger:promote`, and a promote-path failure is a

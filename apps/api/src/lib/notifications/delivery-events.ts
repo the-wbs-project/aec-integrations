@@ -110,7 +110,6 @@ const METRIC_TIERS = new Set([
   'production',
   'staging',
   'demo',
-  'preview',
   'development',
   'non-production',
   AUTH_TIER,

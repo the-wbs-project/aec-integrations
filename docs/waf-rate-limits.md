@@ -329,7 +329,7 @@ flipped — here a row that flips to `200 / 200` means the narrowing overshot. A
 | `demo.aecintegrations.com` (SSR Worker, the public **showcase** tier — no-index, *not* production) | yes | **yes** (host-scoped) |
 | `staging.aecintegrations.com` (SSR Worker, staging) | yes | **yes** (host-scoped) |
 | `aecintegrations.com` (bare apex) | yes | **no** — 301s to `www.` at the edge, so no request under this host reaches a matched path |
-| `aeci-*.thewbsproject.workers.dev` (PR previews) | no (workers.dev, not a zone) | n/a — WAF rules require a zone; previews are gated by [Cloudflare Access](./access.md) instead |
+| `aeci-*.thewbsproject.workers.dev` (bare Worker URLs) | no (workers.dev, not a zone) | n/a — WAF rules require a zone; these are gated by [Cloudflare Access](./access.md) instead. The per-PR preview Workers that used this pattern were retired 2026-10-10 (AECI-1268). |
 
 > Until 2026-09 this table said `www.` was "the landing site, deliberately excluded" and
 > called `demo.` production. Both statements went stale at the apex cutover and together
@@ -894,8 +894,8 @@ read-only CF API token in this repo can read neither the managed rulesets nor
    (`STAGE_2_VENDOR_PORTAL_SPEC.md` §6.2). Bare `/vendor` 302'd straight into a
    403'd path, so the portal was unreachable on the zone — not merely degraded.
 
-**Why CI never caught it:** e2e runs against `localhost` and `workers.dev` preview
-URLs, which are outside the zone and carry no zone WAF.
+**Why CI never caught it:** e2e runs against `localhost` (and, when this was written, `workers.dev` preview
+URLs, since retired, AECI-1268), which are outside the zone and carry no zone WAF.
 
 **Fix (dashboard access required) — if it recurs:** add a WAF **skip / exception**
 for that managed rule scoped to the portal's own paths —
@@ -1306,8 +1306,8 @@ Four properties to hold on to before changing anything:
   on the surface — a count over a rolling window cannot produce one without a second aggregate,
   while a column on the row you already read is free.
 - **The binding is not inherited across wrangler environments.** Each bucket is declared
-  **five** times in `apps/api/wrangler.jsonc` (base + preview + staging + demo +
-  production), each with its own `namespace_id` because counters are shared *account-wide*
+  **four** times in `apps/api/wrangler.jsonc` (base + staging + demo +
+  production; the `preview` block was removed 2026-10-10, AECI-1268), each with its own `namespace_id` because counters are shared *account-wide*
   by namespace and the sibling `aec-integrations-review` app already ships this binding on
   the same account. A missing block is bound on zero Workers, throws nothing, and looks
   exactly like a limit that is simply never reached — the AECI-659 failure read into a

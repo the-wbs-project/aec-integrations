@@ -277,3 +277,5 @@ guaranteed, or if provisioning can't be made reliably idempotent, the migration 
   ADR 0008 (taxonomy reference data) — topology unchanged; reads move to Drizzle.
 - `docs/migrations.md` (rewritten), `docs/prisma.md` (deleted, AECI-278),
   `docs/AUTH_AND_RLS.md` (rewritten), `docs/REVIEW_APP_PROMOTE_API.md` (updated).
+
+**Amendment 2026-10-10 (AECI-1268):** The `preview` D1 database is retired. `aeci-app-preview` survives only as the local-only name in the top-level `apps/api/wrangler.jsonc` block, so `.wrangler/state` carries over. Remote databases are staging, demo and production. Local dev runs on that block with `ENV=development`.

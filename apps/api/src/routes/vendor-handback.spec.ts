@@ -385,7 +385,7 @@ describe('revoking the LAST seat hands the record back (AECI-989)', () => {
     const promote = (name: string) =>
       runPromoteIngest(
         {
-          env: { ENV: 'preview' } as Env,
+          env: { ENV: 'staging' } as Env,
           request: new Request('http://localhost:8787/api/promote'),
           waitUntil: () => {},
           bookmark: () => null,

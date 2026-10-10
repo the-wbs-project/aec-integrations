@@ -43,7 +43,7 @@ export const STAGING_REDIRECT_RECIPIENT = 'support@aecintegrations.com';
 
 /** The non-production tiers that get a named subject prefix. Anything else is
  *  `[non-production]`. */
-const NAMED_TIERS = new Set(['development', 'preview', 'staging', 'demo']);
+const NAMED_TIERS = new Set(['development', 'staging', 'demo']);
 
 /** True only when `ENV` is exactly `'production'`. Missing or unknown is non-production. */
 export function isProductionTier(env: DeliveryPolicyEnv): boolean {
@@ -51,7 +51,7 @@ export function isProductionTier(env: DeliveryPolicyEnv): boolean {
 }
 
 /** True only when `ENV` is exactly `'staging'`: the one tier that redirects every
- *  recipient to {@link STAGING_REDIRECT_RECIPIENT}. Demo, preview, development and a
+ *  recipient to {@link STAGING_REDIRECT_RECIPIENT}. Demo, development and a
  *  missing or unknown `ENV` keep the allowlist. */
 export function isRedirectTier(env: DeliveryPolicyEnv): boolean {
   return env.ENV === 'staging';

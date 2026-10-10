@@ -28,7 +28,7 @@ changes are part of this issue — Phase 5 ships already.
 
 | Need | Detail |
 |---|---|
-| **Staging origin** | `https://staging.aecintegrations.com` — behind **Cloudflare Access** (same allowlist as PR previews). Humans: OTP-to-email. Automation (axe/LH/curl): the `aeci-gh-actions` service token → `CF-Access-Client-Id` / `CF-Access-Client-Secret` headers. See [`docs/access.md`](./access.md) §2. |
+| **Staging origin** | `https://staging.aecintegrations.com` — behind **Cloudflare Access** (PR previews, which shared this allowlist, were retired 2026-10-10, AECI-1268). Humans: OTP-to-email. Automation (axe/LH/curl): the `aeci-gh-actions` service token → `CF-Access-Client-Id` / `CF-Access-Client-Secret` headers. See [`docs/access.md`](./access.md) §2. |
 | **Supabase auth** | One shared project `ktuhnlypztujpsseujzx` serves every env (ADR 0017). Its **Redirect URLs** already allow-list `https://staging.aecintegrations.com/**`, so deployed magic links carry the **staging** callback. If a magic link instead points at `localhost`, the allow-list regressed — see `docs/environments.md` §"Deployed Supabase Auth". |
 | **Test accounts** (shared auth project) | A **normal** user; an **admin** (D1 `profiles.role = 'admin'` keyed to the account's Supabase `auth.users.id`); a **banned** user (`profiles.banned_at` set); and a **Google** account for the OAuth path. Seeded out-of-band via `scripts/seed-staging-users.sql` (auth is never sourced from prod — ADR 0017). |
 | **Staging D1** | `aeci-app-staging`. Already holds ~211 synthetic **approved** demo reviews across the 43 real products (id prefix `aeceed00-`) — handy for the ≥5 gate, but pick a product deliberately for A6. Query it with `wrangler d1 execute aeci-app-staging --remote --env staging`. |

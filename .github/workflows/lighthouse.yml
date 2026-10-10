@@ -50,7 +50,7 @@
 #   workflow's `web-dist` artifact (artifacts don't cross workflow runs), so it
 #   builds the SSR Worker itself and boots `dev:bound` exactly like the old job.
 #   The Phase 2 detail/browse fixtures it measures come from the LOCAL D1
-#   (`aeci-app-preview`), seeded by `dev:bound`'s `db:setup:local` →
+#   (local-only name `aeci-app-preview`, AECI-1268), seeded by `dev:bound`'s `db:setup:local` →
 #   `db:seed:fixtures:local` (apps/api/seed/phase2-fixtures.sql) — post-D1 cutover
 #   (ADR 0016) the API Worker reads D1, not Supabase, so there is no longer a
 #   shared-dev-DB fixture seed to depend on (AECI-268). NOTE (error gate): if that
@@ -65,12 +65,14 @@
 #
 # Required repo secrets:
 #   - ALGOLIA_APP_ID + ALGOLIA_SEARCH_KEY — the single shared client-exposed,
-#     query-only search key (AECI-188; must be able to query the preview_*
+#     query-only search key (AECI-188; must be able to query the staging_*
 #     indexes this run measures against). Without it `/search`
 #     renders the degraded "search unavailable" shell, the InstantSearch SDK
 #     never loads, and the /search JS budget + a11y numbers measure a page that
-#     doesn't exist in production. The preview_* indexes it queries are created/
-#     populated by `pnpm algolia:bulk-sync -- --env preview` (read-only here).
+#     doesn't exist in production. The run is local (`ENV=development`), which
+#     folds onto the staging_* set since the preview tier and its preview_*
+#     indexes retired (AECI-1268). Staging's own sync keeps them populated; this
+#     run only reads them.
 #   - LINEAR_API_KEY — the alert job's Linear key (scheduled runs only). Sent as a
 #     bare `Authorization` header. Absent → the Linear step fails red, and the
 #     email step still sends.
@@ -252,11 +254,11 @@ jobs:
       # No DATABASE_URL wiring: the app DB is local D1 (ADR 0016) — dev:bound runs
       # `db:setup:local` to migrate + seed it, and the Prisma Accelerate runtime
       # path is retired (AECI-253). The measured pages read D1 via the `DB` binding.
-      # Wire the preview Algolia search key into the SSR Worker so `/search`
+      # Wire the shared Algolia search key into the SSR Worker so `/search`
       # boots the REAL InstantSearch SDK (AECI-188): the JS budget + a11y
       # assertions on /search are meaningless against the degraded shell.
       #
-      # Also overlay ALLOW_INDEXING=true. The `preview` env is fail-closed
+      # Also overlay ALLOW_INDEXING=true. The local top-level env is fail-closed
       # noindex (AECI-303: it stamps `X-Robots-Tag: noindex, nofollow` on every
       # non-/api/* response), which fails Lighthouse's `is-crawlable` audit and
       # drags `categories:seo` to ~0.63 on EVERY indexable URL — turning the
@@ -269,15 +271,15 @@ jobs:
       # `<meta robots>`, not this egress header.
       #
       # `.dev.vars` overlays wrangler.jsonc vars PER-KEY, so writing only these
-      # keys preserves `ENV=preview` (and with it the preview_* index names)
-      # from apps/web/wrangler.jsonc.
+      # keys preserves `ENV=development` (and with it the staging_* index names)
+      # from apps/web/wrangler.jsonc's top-level block.
       - name: Write apps/web/.dev.vars (Algolia search key + indexing gate)
         env:
           ALGOLIA_APP_ID_VALUE: ${{ secrets.ALGOLIA_APP_ID }}
           ALGOLIA_SEARCH_KEY_VALUE: ${{ secrets.ALGOLIA_SEARCH_KEY }}
         run: |
           if [ -z "$ALGOLIA_APP_ID_VALUE" ] || [ -z "$ALGOLIA_SEARCH_KEY_VALUE" ]; then
-            echo "::error::ALGOLIA_APP_ID / ALGOLIA_SEARCH_KEY secret is empty. The /search Lighthouse budgets must measure the real InstantSearch SDK, not the degraded shell. Seed it from the shared search-only key (scripts/algolia/provision.mjs prints the gh secret command; the key is client-exposed/query-only by design and must cover the preview_* indexes)."
+            echo "::error::ALGOLIA_APP_ID / ALGOLIA_SEARCH_KEY secret is empty. The /search Lighthouse budgets must measure the real InstantSearch SDK, not the degraded shell. Seed it from the shared search-only key (scripts/algolia/provision.mjs prints the gh secret command; the key is client-exposed/query-only by design and must cover the staging_* indexes)."
             exit 1
           fi
           {

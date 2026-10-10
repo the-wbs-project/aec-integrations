@@ -77,7 +77,7 @@ describe('change-history route registration', () => {
     const token = refusingLimiter();
     const res = await worker.fetch(
       new Request(`https://api${path}`, { headers: { authorization: 'Bearer test' } }),
-      { ENV: 'preview', WRITE_RATE_LIMIT: write, TOKEN_RATE_LIMIT: token } as Env,
+      { ENV: 'staging', WRITE_RATE_LIMIT: write, TOKEN_RATE_LIMIT: token } as Env,
       fakeExecutionContext(),
     );
     expect(res.status).toBe(200);
@@ -92,7 +92,7 @@ describe('change-history route registration', () => {
   ])('%s is behind the vendor guard', async (path) => {
     const res = await worker.fetch(
       new Request(`https://api${path}`),
-      { ENV: 'preview' } as Env,
+      { ENV: 'staging' } as Env,
       fakeExecutionContext(),
     );
     expect(res.status).toBe(401);

@@ -39,13 +39,13 @@ loadDevVarsAuthEnv();
 // so the service binding `env.API` resolves end-to-end.
 // CI (preview-URL job): `PLAYWRIGHT_BASE_URL` is set; `webServer` is skipped.
 //
-// Phase 1.19: chromium-only smoke + axe. Cross-browser / mobile deferred to
-// Phase 7 per `docs/TESTING_STRATEGY.md` §7 and the AECI-33 spec.
+// Phase 1.19: chromium-only smoke + axe. There is no cross-browser / mobile
+// lane (removed by AECI-1269); see `docs/TESTING_STRATEGY.md` §7.7.
 
 // Mirror the `AECI_WEB_PORT` override honored by `apps/web`'s `dev:preview`
 // script (defaults to 8788). Lets a Conductor workspace run dev + e2e on its
 // own port pair without colliding with sibling workspaces. A `PLAYWRIGHT_BASE_URL`
-// (CI preview-URL job) still takes precedence and skips the local webServer.
+// (a deployed tier such as staging) still takes precedence and skips the local webServer.
 const WEB_PORT = process.env['AECI_WEB_PORT'] ?? '8788';
 const BASE_URL = process.env['PLAYWRIGHT_BASE_URL'] ?? `http://localhost:${WEB_PORT}`;
 const IS_CI = !!process.env['CI'];
@@ -69,7 +69,7 @@ export default defineConfig({
       use: { ...devices['Desktop Chrome'] },
     },
   ],
-  // Only launch the local web server when targeting localhost. When a preview
+  // Only launch the local web server when targeting localhost. When a deployed
   // URL is supplied via env, the Workers are already deployed.
   webServer: process.env['PLAYWRIGHT_BASE_URL']
     ? undefined
@@ -82,7 +82,7 @@ export default defineConfig({
         // Probe `/api/health`, NOT the SSR root `/`. The SSR Worker answers `/`
         // with 200 the instant it boots — before the API Worker has registered
         // its service binding — so gating on `/` lets the first API-dependent
-        // test fire into a `Worker "aeci-api-preview" not found` failure that
+        // test fire into a `Worker "aeci-api" not found` failure that
         // the SSR layer renders as a 404 (the cold-start flake this guards
         // against). `/api/health` proxies through `env.API` and only returns 200
         // once the binding is connected AND `SELECT 1` succeeds; binding-down /

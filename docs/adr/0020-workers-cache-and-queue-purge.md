@@ -131,3 +131,5 @@ Grounded in the Cloudflare Workers Cache docs (overview / configuration / cache-
 - ➖ **Billing shift:** cache HITs consume no CPU, but static-asset requests and worker-to-worker (loopback) invocations become billable once caching is enabled.
 - ➖ **Local-dev gap:** front-of-Worker HIT/MISS isn't reliably reproducible under miniflare; parts of the model can only be verified on a deployed preview (WC-9).
 - ↔ **Unchanged (don't-break):** API Worker cache stays disabled (`no-store`); cookie-strip stays on the miss/uncacheable path; the ordered **refresh-stats-then-purge** home flow is preserved (now emitting onto the Queue); `CF_ZONE_ID` is **kept** (still consumed by the AECI-262 WAF analytics poll — WC-10 must not delete it wholesale, even when `CF_PURGE_API_TOKEN` is pruned).
+
+**Amendment 2026-10-10 (AECI-1268):** The preview tier is retired, so native Workers Cache is live on **staging only**. Demo and production run uncached by ruling. Local SSR is uncached. Where this ADR says preview → staging, or verifies HIT/MISS on a deployed PR preview (WC-9, Q3), read staging. The decision is unchanged.

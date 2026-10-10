@@ -28,8 +28,9 @@ import { RATE_LIMIT_BUCKETS, type RateLimitBucket } from './rate-limit-middlewar
 const WRANGLER_PATH = join(__dirname, '..', 'wrangler.jsonc');
 const RAW = readFileSync(WRANGLER_PATH, 'utf8');
 
-/** Every named environment that is actually deployed. */
-const ENV_NAMES = ['preview', 'staging', 'demo', 'production'] as const;
+/** Every named environment that is actually deployed. The `preview` env block
+ *  retired with the preview tier (AECI-1268); the base block is the local-dev config. */
+const ENV_NAMES = ['staging', 'demo', 'production'] as const;
 
 type RateLimitEntry = {
   name: string;
@@ -55,7 +56,7 @@ function parseWrangler(): {
 
 const config = parseWrangler();
 
-/** base + the four named envs, in the order they appear. */
+/** base + the three named envs, in the order they appear. */
 function allBlocks(): { label: string; entries: RateLimitEntry[] }[] {
   return [
     { label: 'base', entries: config.ratelimits ?? [] },
@@ -79,7 +80,7 @@ describe('wrangler.jsonc ratelimits', () => {
     expect(offenders.map((o) => o.n)).toEqual([]);
   });
 
-  it('declares every bucket in ALL FIVE blocks — this is the whole point of the file', () => {
+  it('declares every bucket in ALL FOUR blocks — this is the whole point of the file', () => {
     for (const bucket of Object.keys(RATE_LIMIT_BUCKETS) as RateLimitBucket[]) {
       const binding = RATE_LIMIT_BUCKETS[bucket].binding;
       for (const { label, entries } of allBlocks()) {
@@ -120,24 +121,21 @@ describe('wrangler.jsonc ratelimits', () => {
     // Counters are shared ACCOUNT-WIDE by namespace_id, across Workers — the
     // sibling aec-integrations-review app already ships this binding on the same
     // account. A duplicated id silently merges two counters.
+    // The base block (local dev) is included: it kept the retired preview tier's
+    // ids, which no deployed tier uses, so a local counter never merges with one.
     const seen = new Map<string, string>();
     for (const { label, entries } of allBlocks()) {
-      if (label === 'base') continue; // base deliberately mirrors preview
       for (const entry of entries) {
         const owner = seen.get(entry.namespace_id);
         expect(owner, `namespace_id ${entry.namespace_id} is used twice`).toBeUndefined();
         seen.set(entry.namespace_id, `${label}/${entry.name}`);
       }
     }
-    expect(seen.size).toBe(ENV_NAMES.length * Object.keys(RATE_LIMIT_BUCKETS).length);
+    expect(seen.size).toBe((ENV_NAMES.length + 1) * Object.keys(RATE_LIMIT_BUCKETS).length);
   });
 
-  it('mirrors preview in the base block, like kv_namespaces and workflows do', () => {
-    // So bare `wrangler dev` and `pnpm dev:bound --env preview` share one
-    // local counter instead of quietly diverging.
-    const base = config.ratelimits ?? [];
-    const preview = config.env.preview?.ratelimits ?? [];
-    expect(base).toEqual(preview);
+  it('has no env.preview block left (AECI-1268)', () => {
+    expect(config.env.preview).toBeUndefined();
   });
 
   it('declares no bucket the code does not read', () => {

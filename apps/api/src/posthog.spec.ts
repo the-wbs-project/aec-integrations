@@ -17,7 +17,7 @@ function makeEnv(overrides: Partial<Env> = {}): Env {
   return {
     POSTHOG_PROJECT_KEY: 'phc_test_token',
     POSTHOG_HOST: 'https://us.i.posthog.com',
-    ENV: 'preview',
+    ENV: 'staging',
     COMMIT_SHA: 'abc123',
     ...overrides,
   };

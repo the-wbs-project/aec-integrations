@@ -10,7 +10,7 @@ function makeEnv(overrides: Partial<WebEnv> = {}): WebEnv {
   return {
     ASSETS: {} as Fetcher,
     API: {} as Fetcher,
-    ENV: 'preview',
+    ENV: 'staging',
     ...overrides,
   };
 }

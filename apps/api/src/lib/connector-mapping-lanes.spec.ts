@@ -295,7 +295,7 @@ describe('the sync page against seed/connector-fixtures.sql (AECI-1084)', () => 
     );
 
   const runCtx = (): PromoteRunCtx => ({
-    env: { ENV: 'preview' } as Env,
+    env: { ENV: 'staging' } as Env,
     request: new Request('https://api.test/api/promote/connector-catalog'),
     waitUntil: () => {},
     bookmark: () => null,

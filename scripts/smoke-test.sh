@@ -2,8 +2,8 @@
 # AECI-77: pluggable-HOST /api/health smoke test with Cloudflare Access
 # service-token headers. Reused by sub-issue (c) promote-to-prod.yml.
 #
-# Per docs/access.md §1 and §5, every environment hostname — staging, PR
-# previews, AND web prod (demo.aecintegrations.com, gated by Cloudflare Access
+# Per docs/access.md §1 and §5, every environment hostname — staging
+# AND web prod (demo.aecintegrations.com, gated by Cloudflare Access
 # until launch per ADR 0017) — is reachable from CI only via the
 # `aeci-gh-actions` service token, so this script always attaches the headers
 # and does NOT branch on host. At launch, dropping the prod Access app makes the

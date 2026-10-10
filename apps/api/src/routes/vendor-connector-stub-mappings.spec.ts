@@ -147,7 +147,7 @@ async function call(opts: { as?: string; id?: string; body?: unknown } = {}) {
         ...(token ? { authorization: `Bearer ${token}` } : {}),
       },
     },
-    { ENV: 'preview', SUPABASE_URL } as Env,
+    { ENV: 'staging', SUPABASE_URL } as Env,
     fakeExecutionContext(),
   );
 }
@@ -300,7 +300,7 @@ describe('route registration', () => {
         body: JSON.stringify({ confidence: 'low' }),
         headers: { 'content-type': 'application/json' },
       }),
-      { ENV: 'preview', SUPABASE_URL } as Env,
+      { ENV: 'staging', SUPABASE_URL } as Env,
       fakeExecutionContext(),
     );
     expect(res.status).toBe(401);

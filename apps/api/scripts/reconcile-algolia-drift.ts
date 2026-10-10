@@ -39,7 +39,8 @@
  *   … --env staging --apply --force
  *   # production --apply requires the extra guard flag:
  *   … --env production --apply --allow-production
- *   # against the seeded local D1 (no token; for testing the query):
+ *   # against the seeded local D1 (no token; for testing the query). Reads
+ *   # staging_* (AECI-1268); `--apply` is refused unless ALGOLIA_ALLOW_LOCAL_WRITES=true:
  *   pnpm --filter @aeci/api db:reconcile-algolia-drift -- --local
  *
  * Emits the gauges `aeci.algolia.index_drift` (signed, per entity — the existing
@@ -69,6 +70,7 @@ import {
   type OrphanSweepResult,
   type PromotedIdProvider,
 } from '../src/lib/algolia-orphans';
+import { algoliaWritesAllowed } from '../src/lib/algolia-write-guard';
 
 // ─── Authoritative promoted-id queries ───────────────────────────────────────
 // Plain `SELECT id` — only the membership rule, no transforms (that's what keeps
@@ -141,12 +143,15 @@ interface Target {
 
 function resolveTarget(argv: string[]): Target {
   if (argv.includes('--local')) {
+    // The local D1 keeps its local-only name. `development` folds onto staging_*
+    // since the preview tier retired (AECI-1268), so `--local --apply` would delete
+    // staging objects that the thin local seed lacks. `main` refuses that below.
     return {
-      label: 'preview',
+      label: 'development',
       db: 'aeci-app-preview',
       flags: ['--local'],
       remote: false,
-      algoliaEnv: 'preview',
+      algoliaEnv: 'development',
     };
   }
   const env = (readValueFlag(argv, '--env') ?? process.env.RECONCILE_ENV ?? '').trim();
@@ -327,6 +332,21 @@ export async function main(argv: string[]): Promise<number> {
   }
   if (target.remote && !process.env.CLOUDFLARE_API_TOKEN) {
     console.warn('⚠  CLOUDFLARE_API_TOKEN is unset — wrangler --remote will fail to authenticate.');
+  }
+  if (
+    !target.remote &&
+    apply &&
+    !algoliaWritesAllowed({
+      ENV: 'development',
+      ALGOLIA_ALLOW_LOCAL_WRITES: process.env.ALGOLIA_ALLOW_LOCAL_WRITES,
+    })
+  ) {
+    console.error(
+      'Refusing --local --apply: the local D1 is compared against staging_* (AECI-1268), so ' +
+        'this would delete staging objects the local seed lacks. Dry-run is fine. Set ' +
+        'ALGOLIA_ALLOW_LOCAL_WRITES=true only if you mean to write staging_*.',
+    );
+    return 1;
   }
   if (target.label === 'production' && apply && !argv.includes('--allow-production')) {
     console.error(

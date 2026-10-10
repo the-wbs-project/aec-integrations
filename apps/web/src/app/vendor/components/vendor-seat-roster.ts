@@ -27,7 +27,7 @@ import { VendorPortalStore } from '../vendor-portal-store';
  *
  * The roster is a **separate** browser read (`GET /api/vendor/seats`) from the
  * dashboard payload because it needs the Supabase email lookup and the first
- * paint shouldn't wait on it. `email` degrades to `null` in local/preview
+ * paint shouldn't wait on it. `email` degrades to `null` in local
  * environments (no service-role key), rendered as "email unavailable" — never an
  * error. A banned seat still appears (per-seat ban never touches the vendor's
  * verified state, §7) so co-admins can see why a colleague is locked out.

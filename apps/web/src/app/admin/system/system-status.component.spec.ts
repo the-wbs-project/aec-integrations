@@ -190,7 +190,7 @@ describe('SystemStatus — version mismatch (AC 1)', () => {
 
   it('does not cry mismatch when a SHA was never injected — that is unknown, not a difference', async () => {
     const system = makeSystem({
-      version: { sha: 'unknown', deployed_at: '1970-01-01T00:00:00.000Z', environment: 'preview' },
+      version: { sha: 'unknown', deployed_at: '1970-01-01T00:00:00.000Z', environment: 'staging' },
     });
     const { el } = await setup(makeApiMock(system, makeSsrVersion('a1b2c3d')));
 

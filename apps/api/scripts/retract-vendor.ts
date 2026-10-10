@@ -92,15 +92,14 @@ import {
 
 // ─── Args + target resolution ────────────────────────────────────────────────
 
-const D1_ENVS = ['preview', 'staging', 'demo', 'production'] as const;
+// The preview tier retired with AECI-1268; `--local` still reads the local D1.
+const D1_ENVS = ['staging', 'demo', 'production'] as const;
 type D1Env = (typeof D1_ENVS)[number];
 
 /** Which Algolia index env a D1 env de-indexes against — 1:1, as in `retract-product.ts`.
  *  Only `--local` has no `target.env` and so skips Algolia. */
 function algoliaEnvFor(env: D1Env): AlgoliaEnv {
   switch (env) {
-    case 'preview':
-      return 'preview';
     case 'staging':
       return 'staging';
     case 'production':
@@ -115,7 +114,7 @@ interface Target {
   db: string;
   flags: string[];
   remote: boolean;
-  /** undefined for --local (preview D1 with no matching remote Algolia env). */
+  /** undefined for --local (the local D1 has no matching remote Algolia env). */
   env: D1Env | undefined;
 }
 

@@ -191,7 +191,7 @@ describe('requireUserAuth — posthogDistinctId threading', () => {
     SUPABASE_URL,
     POSTHOG_PROJECT_KEY: 'phc_test_token',
     POSTHOG_HOST: 'https://us.i.posthog.com',
-    ENV: 'preview',
+    ENV: 'staging',
   } as Env;
 
   let fetchSpy: ReturnType<typeof vi.fn>;

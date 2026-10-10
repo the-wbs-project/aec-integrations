@@ -15,7 +15,7 @@
 #      deploy introduced this error" or "how many deploys did we ship this
 #      week". This leg authenticates with the publishable `phc_` project token,
 #      which since AECI-640 is a committed wrangler var, so it is always
-#      available — including on PR previews and forks.
+#      available — including on forks.
 #
 # BOTH legs are best-effort and the script ALWAYS exits 0. A PostHog outage,
 # a rotated key, or a missing repo variable must never fail or block a deploy;
@@ -26,10 +26,10 @@
 #
 # Usage (all values via env):
 #
-#   PH_EVENT_ENV        required  deployment tier: preview|staging|demo|production
+#   PH_EVENT_ENV        required  deployment tier: staging|demo|production
 #   PH_SERVICE          required  which Worker(s): aeci-web|aeci-api|both
 #   PH_VERSION          required  the commit SHA being deployed
-#   PH_DEPLOY_KIND      optional  deploy|promote|preview|auto_rollback   (default: deploy)
+#   PH_DEPLOY_KIND      optional  deploy|promote|auto_rollback   (default: deploy)
 #   PH_PROJECT_KEY      required  publishable `phc_` token for the target project
 #   PH_HOST             optional  ingest host        (default https://us.i.posthog.com)
 #   PH_APP_HOST         optional  management host    (default https://us.posthog.com)

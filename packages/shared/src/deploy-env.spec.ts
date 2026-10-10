@@ -10,7 +10,6 @@ describe('isPublicSite', () => {
 
   it('is false for the Access-gated / local envs', () => {
     expect(isPublicSite('staging')).toBe(false);
-    expect(isPublicSite('preview')).toBe(false);
     expect(isPublicSite('development')).toBe(false);
   });
 

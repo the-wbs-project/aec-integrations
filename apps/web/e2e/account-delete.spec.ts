@@ -1,7 +1,7 @@
 /**
  * AECI-202 / Phase 5.11 — the authenticated `/account` page + the GDPR
- * delete-account flow. Runs against the bound dev stack (`pnpm dev:agent` / CI
- * preview).
+ * delete-account flow. Runs against the bound dev stack (`pnpm dev:agent` / the
+ * CI e2e lane).
  *
  * Coverage:
  *   - SSR auth gate: a logged-out visitor (no `sb-…-auth-token` cookie) is

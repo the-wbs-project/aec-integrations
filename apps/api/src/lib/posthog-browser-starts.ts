@@ -73,7 +73,7 @@ export async function readAdminUserIds(db: Db): Promise<string[] | null> {
  * Read `app_started` for this environment's own host and the given window.
  *
  * Host-scoped to `PUBLIC_SITE_URL` for the same reason the `$pageview` read is
- * (`scheduled.ts` `readPosthogFloor`): preview, staging and demo share one
+ * (`scheduled.ts` `readPosthogFloor`): local, staging and demo share one
  * PostHog project, so an unscoped read folds three tiers into one figure.
  */
 export async function readPosthogBrowserStarts(

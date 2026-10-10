@@ -67,7 +67,7 @@ export type RateLimitBucket = 'token' | 'write';
  *   1. compile time — `binding: keyof Env` makes a name `env.ts` does not
  *      declare a type error;
  *   2. CI — `rate-limit-middleware.spec.ts` asserts every entry here is
- *      declared in ALL FIVE `wrangler.jsonc` blocks with these exact numbers.
+ *      declared in ALL FOUR `wrangler.jsonc` blocks with these exact numbers.
  *
  * Two guards because `ratelimits` is **not inherited** into a named environment
  * (wrangler's own config schema says so verbatim), so a bucket declared only at

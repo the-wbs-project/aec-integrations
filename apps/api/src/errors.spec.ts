@@ -23,7 +23,7 @@ vi.mock('./posthog', () => ({
   submitGauge: vi.fn(),
 }));
 
-const ENV: Env = { ENV: 'preview' };
+const ENV: Env = { ENV: 'staging' };
 
 /** Build an app whose single route throws `err`, wired to `errorHandler(opts)`. */
 function appThatThrows(err: unknown, opts?: Parameters<typeof errorHandler>[0]) {

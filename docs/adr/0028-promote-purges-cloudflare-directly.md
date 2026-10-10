@@ -43,3 +43,5 @@ Alternatives considered:
 - ➖ `CF_PURGE_API_TOKEN` (same scope) now lives on **two** Workers. Mild secret sprawl — both must be rotated together. A Queue (Option C) would re-centralize the token on a single consumer; revisit if a second cross-Worker producer appears.
 - ➖ **Operational step:** before promote purge works in an environment, the API Worker needs `CF_PURGE_API_TOKEN` (secret) and `CF_ZONE_ID` provisioned. Until then promote no-ops the purge and pages fall back to their edge TTL (≤15 min) — no correctness regression.
 - ➖ The `aeci.cache.purge` metric for promotes now carries `worker:aeci-api` instead of `worker:aeci-web`. Dashboards/monitors that pivot on `worker` for this metric should account for both.
+
+**Amendment 2026-10-10 (AECI-1268):** The `preview` env and ephemeral `aeci-web-pr-<N>` Workers named above are retired. The "omitted on preview" divergence no longer exists. Without purge credentials (local `pnpm dev:bound`) the purge is still a graceful no-op.

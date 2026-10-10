@@ -53,7 +53,7 @@
 #   resolves to `http://localhost:<port>` there and works, while on the edge it
 #   does not. Verified 2026-08-31 — local passed with and without the fix, while
 #   production failed 5/5. So a green local run means "no regression", NOT "fixed".
-#   The environments that can answer the question are preview, staging, and prod.
+#   The environments that can answer the question are staging, demo, and prod.
 #
 # WHY IT SENDS A BROWSER USER AGENT
 #   The WAF scraper rule (docs/waf-rate-limits.md §2) serves a Managed Challenge to

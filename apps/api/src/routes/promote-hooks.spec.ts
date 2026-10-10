@@ -106,7 +106,7 @@ afterEach(() => vi.useRealTimers());
 
 describe('dispatchPromoteHooks — audit forwards', () => {
   it('forwards N audit entries in ONE batched call, not N', () => {
-    const { rc } = makeRc({ ENV: 'preview', POSTHOG_PROJECT_KEY: 'phc_test_token' });
+    const { rc } = makeRc({ ENV: 'staging', POSTHOG_PROJECT_KEY: 'phc_test_token' });
     const auditEntries = Array.from({ length: 14 }, (_, i) => auditEntry(i));
 
     dispatchPromoteHooks(rc, makeResult({ auditEntries }), makeDeps());
@@ -117,7 +117,7 @@ describe('dispatchPromoteHooks — audit forwards', () => {
   });
 
   it('keeps the §26.5 envelope for each entry', () => {
-    const { rc } = makeRc({ ENV: 'preview', POSTHOG_PROJECT_KEY: 'phc_test_token' });
+    const { rc } = makeRc({ ENV: 'staging', POSTHOG_PROJECT_KEY: 'phc_test_token' });
 
     dispatchPromoteHooks(rc, makeResult({ auditEntries: [auditEntry(1)] }), makeDeps());
 
@@ -136,7 +136,7 @@ describe('dispatchPromoteHooks — audit forwards', () => {
   // self-gates — this locks that in, so a re-added gate
   // (which would silently drop every forward on a key-less tier) fails here.
   it('dispatches the batch without any vendor key configured — each leg self-gates', () => {
-    const { rc } = makeRc({ ENV: 'preview' });
+    const { rc } = makeRc({ ENV: 'staging' });
 
     dispatchPromoteHooks(rc, makeResult({ auditEntries: [auditEntry(1)] }), makeDeps());
 
@@ -149,7 +149,7 @@ describe('dispatchPromoteHooks — a wedged hook cannot hang the invocation', ()
     vi.useFakeTimers();
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
     const { rc, settled } = makeRc({
-      ENV: 'preview',
+      ENV: 'staging',
       ALGOLIA_APP_ID: 'app',
       ALGOLIA_ADMIN_KEY: 'key',
     });
@@ -170,7 +170,7 @@ describe('dispatchPromoteHooks — a wedged hook cannot hang the invocation', ()
   it('does not wait out the timeout for a hook that settles normally', async () => {
     vi.useFakeTimers();
     const { rc, settled } = makeRc({
-      ENV: 'preview',
+      ENV: 'staging',
       ALGOLIA_APP_ID: 'app',
       ALGOLIA_ADMIN_KEY: 'key',
     });
@@ -185,7 +185,7 @@ describe('dispatchPromoteHooks — a wedged hook cannot hang the invocation', ()
   it('swallows a hook that throws instead of leaking an unhandled rejection', async () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
     const { rc, settled } = makeRc({
-      ENV: 'preview',
+      ENV: 'staging',
       ALGOLIA_APP_ID: 'app',
       ALGOLIA_ADMIN_KEY: 'key',
     });

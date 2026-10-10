@@ -220,7 +220,7 @@ async function send(path: string, as: string | null, init: RequestInit = {}) {
         ...(token ? { authorization: `Bearer ${token}` } : {}),
       },
     },
-    { ENV: 'preview', SUPABASE_URL } as Env,
+    { ENV: 'staging', SUPABASE_URL } as Env,
     fakeExecutionContext(),
   );
 }
@@ -446,7 +446,7 @@ describe('GET /api/vendor/products/:id/connector-catalog — guard cells', () =>
   it('is mounted on the vendor sub-router and guarded: 401, not 404', async () => {
     const res = await worker.fetch(
       new Request(`https://api/api/vendor/products/${AGAVE}/connector-catalog`),
-      { ENV: 'preview', SUPABASE_URL } as Env,
+      { ENV: 'staging', SUPABASE_URL } as Env,
       fakeExecutionContext(),
     );
     expect(res.status).toBe(401);

@@ -14,7 +14,7 @@
  *     did exactly that until AECI-807 retired it. Adding a route to an indexed env
  *     (`apps/web/wrangler.jsonc` `env.production`) is what creates that situation; there
  *     is no per-host opt-out here by design.
- *   - Non-prod hosts (PR previews `*.workers.dev`, `staging.`) sit behind Cloudflare Access
+ *   - Non-prod hosts (`staging.`) sit behind Cloudflare Access
  *     (`docs/access.md`), so their self-canonicals never reach the public index.
  *   - The sitemap (`server/sitemap.ts`) and `robots.txt` already build against the serving
  *     origin, so sitemap `<loc>` ⇄ page canonical stay consistent.

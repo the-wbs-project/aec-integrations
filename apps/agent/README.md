@@ -75,6 +75,8 @@ Both deploy scripts inject `COMMIT_SHA` and `DEPLOYED_AT` via `--var`, per the A
 
 There are only two wrangler environments: the default block (preview) and `env.production`. Bindings are not inherited into a named environment, so every binding is written twice in `wrangler.jsonc`. That duplication is deliberate.
 
+> **Open decision (AECI-1268, 2026-10-10):** the app's preview tier is retired, but the default block here still binds `aeci-app-preview` and `aeci-api-preview`. Those resources are due for deletion. Whether this Worker moves to staging bindings or keeps its own default tier is not decided. "Preview" in this README means this Worker's default block, not the retired app tier.
+
 ---
 
 ## This Worker writes no domain state
@@ -285,7 +287,7 @@ The catch is **which** path.
 | Miniflare (this Worker under `vite dev`) | `MINIFLARE_REGISTRY_PATH` | `~/.config/.wrangler/registry` |
 | This repo's `dev:bound` / `dev:agent` | `WRANGLER_REGISTRY_PATH` | a per-workspace directory |
 
-Miniflare does not read `WRANGLER_REGISTRY_PATH`. So against a plain `wrangler dev --env preview` the binding resolves, and against `pnpm dev:agent` it does not, because the two processes look at different directories.
+Miniflare does not read `WRANGLER_REGISTRY_PATH`. So against a plain `wrangler dev` (default block) the binding resolves, and against `pnpm dev:agent` it does not, because the two processes look at different directories.
 
 Two ways out, and the first is better.
 

@@ -5,15 +5,15 @@
 #   PR into batch/**   → LITE lane: lint/typecheck/unit for the affected
 #                       packages only, no E2E (scripts/ci/lane-plan.mjs;
 #                       procedure in docs/CICD_PLAN.md §10a)
-#   push to main       → …same… → migrate-preview + deploy-staging
-#   push to stage-2 / admin-panel → …same… (no deploy — migrate-preview and
-#                       deploy-staging are independently gated on
-#                       refs/heads/main)
+#   push to main       → …same… → deploy-staging
+#   push to stage-2 / admin-panel → …same… (no deploy — deploy-staging is
+#                       gated on refs/heads/main)
 #
-# `migrate-preview` (AECI-828) applies the D1 migrations to the SHARED
-# `aeci-app-preview` database that every PR preview binds to. It is its own job,
-# not a step in deploy-staging, because deploy-staging is gated on
-# `vars.STAGING_ENABLED` and preview's schema must not hang off that gate.
+# There is no per-PR preview tier. It retired on 2026-10-10 (AECI-1268): the
+# `pr-preview.yml` workflow, its `migrate-preview` job here, and the two parked
+# preview-URL jobs (`e2e-tests-preview`, `integration-runner-preview`) are gone.
+# Human review and search run against staging, which deploy-staging keeps at
+# main's head.
 #
 # The PR lane is deliberately BASE-BRANCH-AGNOSTIC. See the `on:` block below for
 # why (short version: `branches: [main]` on `pull_request` filters by BASE, which
@@ -25,14 +25,10 @@
 # `production` GH Environment approval gate. There is intentionally no
 # auto-deploy-to-prod here.
 #
-# Per-PR ephemeral previews live in the separate `pr-preview.yml` workflow
-# (AECI-79). The e2e-tests-preview / integration-runner-preview jobs below remain
-# parked: they need a deployed-preview URL but live in this workflow, and
-# cross-workflow `needs:` isn't a thing. Un-parking means either moving them into
-# pr-preview.yml or wiring a `workflow_run` trigger here. (AECI-65 originally
-# un-parked the `lighthouse` job here against a local `dev:bound` server; it has
-# since moved to its own workflow — `.github/workflows/lighthouse.yml`, which runs
-# nightly and as the promote-to-demo gate, never on merges.)
+# AECI-65 originally un-parked the `lighthouse` job here against a local
+# `dev:bound` server; it has since moved to its own workflow —
+# `.github/workflows/lighthouse.yml`, which runs nightly and as the
+# promote-to-demo gate, never on merges.
 #
 # `deploy-staging` is gated on `vars.STAGING_ENABLED == 'true'`. Flip the
 # repo variable after the manual prerequisites in `docs/environments.md`
@@ -44,8 +40,8 @@
 #   - e2e-and-integration       — Playwright + axe smoke AND apps/web/scripts/run-extra-tests.sh,
 #                                 both against one `pnpm dev:bound` (merged from the former
 #                                 e2e-tests-local + integration-runner-local jobs)
-#   - e2e-tests-preview         — Playwright + axe against preview URL (PARKED — see header note re: pr-preview.yml)
-#   - integration-runner-preview — extras script against preview URL (PARKED — see header note re: pr-preview.yml)
+#   (The two parked preview-URL jobs it also added were deleted with the preview
+#   tier, AECI-1268.)
 #
 # AECI-65 un-parked `lighthouse` against a local `dev:bound` server (warn-only,
 # non-blocking) and added the phase2-a11y success-path axe specs in the e2e job
@@ -103,8 +99,8 @@
 # Optional repo secrets:
 #   ANTHROPIC_API_KEY_STAGING — Anthropic key for review toxicity scoring (Claude
 #                              Haiku; AECI-258). deploy-staging pushes it to the
-#                              staging API Worker as `ANTHROPIC_API_KEY`; pr-preview
-#                              reuses it for per-PR Workers. Optional + fail-open:
+#                              staging API Worker as `ANTHROPIC_API_KEY`.
+#                              Optional + fail-open:
 #                              absent → scoring no-ops (toxicity_score=null) and the
 #                              review still enters the moderation queue. Production
 #                              uses ANTHROPIC_API_KEY_PRODUCTION (promote-to-prod.yml).
@@ -123,9 +119,8 @@
 #                              holding one string. deploy-staging pushes it to the
 #                              staging API Worker; promote-to-{demo,prod}.yml push
 #                              the same secret. **API Worker only** — never the web
-#                              Worker (it verifies tokens with public JWKS material)
-#                              and DELIBERATELY never on per-PR previews (see
-#                              pr-preview.yml). Optional + fail-open: absent → every
+#                              Worker (it verifies tokens with public JWKS material).
+#                              Optional + fail-open: absent → every
 #                              seam degrades (reviewer emails null, the account-
 #                              erasure auth.users delete silently skipped, vendor-
 #                              claim resolution 'unavailable').
@@ -144,14 +139,13 @@ on:
     # (`stage-2`, `admin-panel`) or an epic branch (`aeci-513`). Under the ADR
     # 0019 post-launch branch model (CICD_PLAN §10) that is most of the work in
     # flight: PR #521 — the 13k-line AECI-513 vendor-portal epic into `stage-2` —
-    # merged having run ONLY pr-preview. No lint, no unit tests, no build, no
-    # E2E. Running base-branch-agnostic matches what `pr-preview.yml` and
-    # `drift-check.yml` already do, and needs no branch list to maintain as epic
+    # merged having run ONLY the (since retired) pr-preview workflow. No lint, no
+    # unit tests, no build, no E2E. Running base-branch-agnostic matches what
+    # `drift-check.yml` already does, and needs no branch list to maintain as epic
     # branches come and go. This is safe because `deploy-staging` is
-    # independently gated on `push` + `refs/heads/main` (see its own `if:`), and
-    # the two preview-URL jobs are `if: false` — so a non-main PR adds only
-    # lint-and-types / the unit jobs / build-web / e2e-and-integration and
-    # deploys nothing. A PR into `batch/**` takes the LITE lane (see the note
+    # independently gated on `push` + `refs/heads/main` (see its own `if:`), so a
+    # non-main PR adds only lint-and-types / the unit jobs / build-web /
+    # e2e-and-integration and deploys nothing. A PR into `batch/**` takes the LITE lane (see the note
     # above `lint-and-types`), which still reports all three required checks.
     # Keep this trigger filter-free so those PRs run at all.
     #
@@ -691,104 +685,6 @@ jobs:
         if: failure()
         run: tail -200 dev-bound.log || true
 
-  e2e-tests-preview:
-    name: E2E + axe (preview URL)
-    # PARKED until `deploy-preview` job is added. When that lands, replace
-    # `if: false` with `needs: deploy-preview` and supply PLAYWRIGHT_BASE_URL.
-    if: false
-    runs-on: ubuntu-latest
-    needs: [build-web]
-    timeout-minutes: 15
-    steps:
-      - uses: actions/checkout@v5
-      - name: Install pnpm
-        run: npm install -g pnpm@${{ env.PNPM_VERSION }}
-      - uses: actions/setup-node@v5
-        with:
-          node-version: ${{ env.NODE_VERSION }}
-          cache: 'pnpm'
-      - run: pnpm install --frozen-lockfile
-      # Drop the flaky Google Chrome apt source before `--with-deps` runs
-      # apt-get update — see the matching note in `e2e-and-integration`.
-      - name: Drop flaky Google Chrome apt source
-        run: sudo rm -f /etc/apt/sources.list.d/google-chrome.list /etc/apt/sources.list.d/google-chrome.sources
-      - run: pnpm --filter @aeci/web exec playwright install --with-deps chromium
-      - run: pnpm --filter @aeci/web run test:e2e
-        env:
-          PLAYWRIGHT_BASE_URL: ${{ vars.PREVIEW_URL }}
-
-  integration-runner-preview:
-    name: Edge-cache integration runner (preview URL)
-    # PARKED — see e2e-tests-preview.
-    if: false
-    runs-on: ubuntu-latest
-    needs: [build-web]
-    timeout-minutes: 10
-    steps:
-      - uses: actions/checkout@v5
-      - run: HOST="${PREVIEW_URL}" ./apps/web/scripts/run-extra-tests.sh
-        env:
-          PREVIEW_URL: ${{ vars.PREVIEW_URL }}
-
-  # AECI-828: keep the SHARED preview D1 (`aeci-app-preview`) at `main`'s head.
-  #
-  # WHY THIS JOB EXISTS. Every PR preview binds the SAME remote D1 — the
-  # `env.preview` block in apps/api/wrangler.jsonc (docs/environments.md
-  # §"PR previews", Option 1). Nothing applied migrations to it, so it drifted
-  # 14 behind (0015 vs 0029) and silently broke every surface downstream of
-  # `page_views.is_operator`: NOT_INTERNAL, the digest, /admin/overview,
-  # /admin/traffic, the swarm detectors, /admin/connectors, and both page-view
-  # backfills. The failure reads as a code bug on the PR, not an environment
-  # one, which is what made it survive so long. docs/migrations.md §0 used to
-  # tell humans to apply it by hand on any migration-bearing PR; that rule
-  # failed 14 times in a row, so a job owns it now.
-  #
-  # WHY PUSH-TO-MAIN AND NOT PER-PR. Applying a PR branch's migrations would
-  # push unmerged schema into the database every OTHER PR preview reads. The
-  # recorded trade-off (docs/environments.md §"PR previews", option 1) is that
-  # "previews cannot exercise migrations that haven't yet landed on `main`" —
-  # this job keeps preview AT main's head, it does not run ahead of it. A
-  # migration-bearing PR still previews against the pre-merge schema.
-  #
-  # WHY A SEPARATE JOB, not a step in `deploy-staging`. That job is gated on
-  # `vars.STAGING_ENABLED`; preview's health must not hang off the staging
-  # gate. The `staging` GH Environment holds no secrets of its own
-  # (docs/environments.md §"GitHub Environments"), so a standalone job reaches
-  # CLOUDFLARE_API_TOKEN fine, and a red preview apply never blocks staging.
-  #
-  # `needs: [unit-tests]` is deliberate: that gate requires `unit-api`, which
-  # runs apps/api/src/test/migration-0027.spec.ts, the guard on the one migration
-  # whose statement order is a data-loss control. We never touch a real
-  # database while it is red. Fail-closed otherwise (no continue-on-error) —
-  # silent drift is the defect being fixed here.
-  #
-  # Gated to `main` only. Pushes to `admin-panel` carry migrations that are not
-  # on the production line; those must not reach the shared preview DB.
-  migrate-preview:
-    name: Migrate preview D1
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    runs-on: ubuntu-latest
-    needs: [unit-tests]
-    timeout-minutes: 10
-    steps:
-      - uses: actions/checkout@v5
-      - name: Install pnpm
-        run: npm install -g pnpm@${{ env.PNPM_VERSION }}
-      - uses: actions/setup-node@v5
-        with:
-          node-version: ${{ env.NODE_VERSION }}
-          cache: 'pnpm'
-      - run: pnpm install --frozen-lockfile
-      # Same helper the staging/demo/prod lanes use: applies pending migrations
-      # and reconciles the three idempotent reference-data seeds, retrying each
-      # remote D1 command on a transient Cloudflare [code: 7500] internal error.
-      - name: Apply D1 migrations (preview)
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-        working-directory: apps/api
-        run: bash "$GITHUB_WORKSPACE/scripts/d1-apply-migrations.sh" aeci-app-preview preview
-
   deploy-staging:
     name: Deploy staging
     # Runs on push to `main` once Chris flips `vars.STAGING_ENABLED` to "true"
@@ -1046,7 +942,7 @@ jobs:
       # Recommended + warn-and-skip: POST /api/webhooks/resend fails CLOSED without it (every
       # delivery 401s and counts aeci.webhooks.resend.signature_failure), so its absence is
       # loud, and a tier whose endpoint is not registered yet must not block a deploy.
-      # API Worker only. Previews never get it.
+      # API Worker only.
       - name: Push RESEND_WEBHOOK_SECRET to API Worker (staging)
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
@@ -1097,8 +993,7 @@ jobs:
       #
       # API WORKER ONLY. The web Worker verifies user JWTs with public JWKS material
       # and must never carry this key (apps/web/src/supabase-bootstrap-inject.spec.ts
-      # is the standing regression guard). Per-PR previews deliberately do NOT get it
-      # — see the note in pr-preview.yml.
+      # is the standing regression guard).
       #
       # Optional + FAIL-OPEN — every seam degrades rather than throwing, so this is
       # graceful warn-and-skip and is NOT in REQUIRED_WORKER_SECRETS. Same idempotent
@@ -1154,7 +1049,7 @@ jobs:
       # this one grants account-wide read and must never reach apps/web.
       # POSTHOG_PROJECT_ID is suffixed like POSTHOG_KEY because PostHog splits on ONE
       # axis — prod vs non-prod — and the two do NOT share a project. Staging, demo and
-      # PR previews all write to the non-prod project (`_NONPROD`); only production
+      # local dev all write to the non-prod project (`_NONPROD`); only production
       # writes to the production project (`_PRODUCTION`). Within a project the tiers
       # are separated by $host, which is what the digest filters on. An un-suffixed id
       # would point this tier's digest at some other project filtered to this tier's

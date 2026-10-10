@@ -29,7 +29,7 @@ None is a launch blocker: the §12 perf/CWV budgets are deliberately **warn-leve
 **Two measurement artifacts** are called out so scores are read correctly (both are environment noise, not AECi defects):
 
 - Deployed **Best-Practices is depressed to 82** purely by Cloudflare's injected `/cdn-cgi/challenge-platform` script. Clean LAB BP = **100**.
-- The demo/preview **SEO score (~63–69)** reflects the fail-closed `noindex` on non-production environments, not an SEO defect. The indexable production config passes SEO in CI.
+- The demo and staging **SEO score (~63–69)** reflects the fail-closed `noindex` on non-production environments, not an SEO defect. The indexable production config passes SEO in CI.
 
 The **RUM sample is thin and pre-launch-unrepresentative** (~210 views/week, internal traffic on fast devices/connections + cache HITs) — green today, but to be re-read once real traffic arrives.
 

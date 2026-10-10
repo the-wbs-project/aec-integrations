@@ -8,7 +8,7 @@
 # edge keeps serving the old vocabulary until TTL (≤5 min browse, ≤1 hr nav)
 # unless we purge explicitly here. See docs/adr/0008-taxonomy-reference-data.md.
 #
-# Like smoke-test.sh: staging and PR previews are reachable from CI only via the
+# Like smoke-test.sh: staging is reachable from CI only via the
 # `aeci-gh-actions` service token, so we always attach the headers and never
 # branch on host. The public tiers (www.aecintegrations.com since the apex
 # cutover, demo.aecintegrations.com) ignore them — an Access header is inert once

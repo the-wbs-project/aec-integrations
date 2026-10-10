@@ -21,10 +21,10 @@ export function fakeExecutionContext(): ExecutionContext {
   } as unknown as ExecutionContext;
 }
 
-/** Default env for spec runs. `ENV` is `'preview'` so dev-only response
- *  validation runs — drift in mappers fails loudly in tests. */
+/** Default env for spec runs. `ENV` is `'development'` (the local label) so
+ *  dev-only response validation runs — drift in mappers fails loudly in tests. */
 export const TEST_ENV: Env = {
-  ENV: 'preview',
+  ENV: 'development',
 };
 
 /** Build a Hono app with the supplied handler factory wired under the given

@@ -13,7 +13,7 @@ import type { Env } from '../env';
 import { stubPosthogIntake } from '../test/posthog-intake';
 import { forwardAuditBatch, type ForwardContext } from './moderation-forward';
 
-const KEYED_ENV = { ENV: 'preview', POSTHOG_PROJECT_KEY: 'phc_test' } as Env;
+const KEYED_ENV = { ENV: 'staging', POSTHOG_PROJECT_KEY: 'phc_test' } as Env;
 
 function ctx(env: Env = KEYED_ENV) {
   const waited: Promise<unknown>[] = [];
@@ -115,7 +115,7 @@ describe('forwardAuditBatch', () => {
 
   it('sends nothing without POSTHOG_PROJECT_KEY', async () => {
     const intake = stubPosthogIntake();
-    const { c, settle } = ctx({ ENV: 'preview' } as Env);
+    const { c, settle } = ctx({ ENV: 'staging' } as Env);
 
     forwardAuditBatch(c, [audit(1)], [transition(1)]);
     await settle();

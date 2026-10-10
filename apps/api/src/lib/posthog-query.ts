@@ -107,7 +107,7 @@ export type PosthogWindow = {
    *
    * NOT optional, and the query is useless without it. PostHog is split on one
    * axis — the prod project (`aec-integrations`) and the non-prod project
-   * (`aec-integrations-dev`, shared by staging, demo and PR previews) — so an
+   * (`aec-integrations-dev`, shared by staging, demo and local dev) — so an
    * unscoped read still folds demo and preview traffic into the staging figure.
    * The host filter is what separates tiers inside a project.
    */

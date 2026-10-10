@@ -90,3 +90,5 @@ Adopt Durable-Object WebSockets when **any one** of the following holds. Each is
 3. **Measured `aeci.api.vendor.updates` request volume at the shipped cadence exceeds the cost of a hibernating DO.** This is the one condition that arrives on its own: the metric ships with the epic, and the `changed` tag distinguishes "we are polling too often" (lengthen the interval first) from "there is genuinely this much to deliver" (adopt the socket).
 
 If any trigger fires, this ADR is superseded rather than amended — the endpoint, store, and sync loop all survive a socket adoption as the fallback path for a client whose connection is down, so the successor is additive.
+
+**Amendment 2026-10-10 (AECI-1268):** The `preview` wrangler environment named above no longer exists. The Durable Object binding and `migrations` block ship in `staging`, `demo` and `production`. The "verify on a deployed preview" route is now staging.

@@ -116,6 +116,8 @@ function batchedPoints(): { kind: string; metric: string; value: number; tags?: 
 }
 import { reportAlgoliaDrift } from './lib/algolia-drift';
 import { runDailySync } from './lib/algolia-sync';
+import { sweepAlgoliaOrphans } from './lib/algolia-orphans';
+import { resetAlgoliaWriteGuardWarning } from './lib/algolia-write-guard';
 import { runAttestationNotifySweep } from './lib/attestation-notify';
 import { runEntitlementExpirySweep } from './lib/entitlement-expiry';
 import { refreshAsnRegistry } from './lib/asn-registry';
@@ -257,7 +259,7 @@ describe('scheduled (cron producer)', () => {
     expect(runReconciliationSweep).toHaveBeenCalledTimes(1);
   });
 
-  it('runs the job inline when no queue binding is present (local/preview)', async () => {
+  it('runs the job inline when no queue binding is present (local)', async () => {
     await scheduled(cronController(SYNC_CRON), makeEnv(), ctx);
 
     expect(runDailySync).toHaveBeenCalledTimes(1);
@@ -1154,6 +1156,41 @@ describe('job_runs bookkeeping (§7.2)', () => {
     });
   });
 
+  it('skips the Algolia sync on a local run with credentials (AECI-1268 write guard)', async () => {
+    resetAlgoliaWriteGuardWarning();
+    await scheduled(cronController(SYNC_CRON), makeEnv({ ENV: 'development' }), ctx);
+
+    expect(runDailySync).not.toHaveBeenCalled();
+    expect((await jobRunRows())[0]).toMatchObject({
+      job: 'algolia-sync',
+      outcome: 'skipped',
+      detail: { job: 'algolia-sync', reason: 'local_writes_disabled' },
+    });
+  });
+
+  it('runs the Algolia sync on a local run that opts in (AECI-1268)', async () => {
+    await scheduled(
+      cronController(SYNC_CRON),
+      makeEnv({ ENV: 'development', ALGOLIA_ALLOW_LOCAL_WRITES: 'true' }),
+      ctx,
+    );
+
+    expect(runDailySync).toHaveBeenCalledTimes(1);
+  });
+
+  it('measures drift but skips the orphan sweep on a local run (AECI-1268 write guard)', async () => {
+    resetAlgoliaWriteGuardWarning();
+    await scheduled(cronController(DRIFT_CRON), makeEnv({ ENV: undefined }), ctx);
+
+    expect(reportAlgoliaDrift).toHaveBeenCalledTimes(1);
+    expect(sweepAlgoliaOrphans).not.toHaveBeenCalled();
+    expect((await jobRunRows())[0]).toMatchObject({
+      job: 'algolia-drift',
+      outcome: 'skipped',
+      detail: { sweep: { ran: false, reason: 'local_writes_disabled' } },
+    });
+  });
+
   it('never claims more success than Datadog: a partly-failed sync is `failed`', async () => {
     vi.mocked(runDailySync).mockResolvedValue({
       cutoff: '2026-08-13T00:00:00.000Z',
@@ -1446,7 +1483,7 @@ describe('gsc_inspect: cron → queue → chained consumer (AECI-1236)', () => {
     expect(vi.mocked(runGscInspectChunk).mock.calls[1]![2]).toEqual([5]);
   });
 
-  it('runs every chunk inline in a loop when no queue is bound (local/preview)', async () => {
+  it('runs every chunk inline in a loop when no queue is bound (local)', async () => {
     vi.mocked(runGscInspectChunk)
       .mockResolvedValueOnce(chunk({ next: 1_400 }))
       .mockResolvedValueOnce(chunk({ inspected: 3, next: null }));

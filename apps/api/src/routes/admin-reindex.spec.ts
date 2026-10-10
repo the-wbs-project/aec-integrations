@@ -656,7 +656,7 @@ describe('readAdminQueueCounts — the fourth queue', () => {
 
 describe('/api/admin/reindex — authorization', () => {
   const SUPABASE_URL = 'https://test-project.supabase.co';
-  const AUTHZ_ENV = { ENV: 'preview', SUPABASE_URL } as Env;
+  const AUTHZ_ENV = { ENV: 'staging', SUPABASE_URL } as Env;
 
   let jwks: TestJwks;
   beforeAll(async () => {

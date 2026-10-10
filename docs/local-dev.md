@@ -43,14 +43,23 @@ Local secrets live in `.dev.vars`, one per Worker package. They are not committe
 The SSR Worker calls the private API Worker over a service binding (`env.API`). In local dev,
 wrangler's cross-Worker registry resolves the binding only when both Workers are running and
 the API Worker's registered name matches the SSR Worker's `service` value. The bound name is
-`aeci-api-preview`, which is the API Worker's `env.preview.name`. So the API Worker must be
-started with `--env preview`.
+`aeci-api`, which is the API Worker's top-level `name`. Both Workers run the top-level
+wrangler block with no `--env`. That block is the local-dev config, and its `ENV` var is
+`development`. The per-PR preview tier and its `env.preview` blocks were retired on 2026-10-10
+(AECI-1268).
+
+Local Algolia reads fold onto the `staging_*` indexes, because any `ENV` that is not staging,
+demo or production folds onto staging. Local Workers never write to them. The write guard
+(`apps/api/src/lib/algolia-write-guard.ts`) turns the sync cron, the orphan sweep, the promote
+hook and the owner-write tail into no-ops. To write `staging_*` on purpose, set
+`ALGOLIA_ALLOW_LOCAL_WRITES=true` in `apps/api/.dev.vars`. It is ignored on deployed tiers.
+Detail: `docs/CICD_PLAN.md` §7.5, `apps/api/.dev.vars.example`.
 
 ```bash
 pnpm dev:bound
 ```
 
-`pnpm dev:bound` boots the API on `:8787` (as `aeci-api-preview`) and the SSR Worker on `:8788`
+`pnpm dev:bound` boots the API on `:8787` (as `aeci-api`) and the SSR Worker on `:8788`
 in parallel. It runs `pnpm -r --parallel --filter @aeci/api --filter @aeci/web run dev:preview`.
 
 - Running only one of the two Workers leaves the binding unresolved, and the SSR `/api/health`
@@ -64,7 +73,7 @@ Many Conductor workspaces run in parallel. Naively they collide two ways.
 
 1. **Ports.** The symptom is `Address already in use` on `8788/8787`.
 2. **Wrangler's local dev registry.** It is keyed by worker name (`aeci-web`,
-   `aeci-api-preview`), not port. This clash is the nastier one. A second workspace registering
+   `aeci-api`), not port. This clash is the nastier one. A second workspace registering
    the same names makes the first `wrangler dev` exit immediately, and pnpm `--parallel` then
    SIGTERMs its sibling. The symptom is `web: Done` plus `api: … signal "SIGTERM"`, with no
    "Address already in use".
@@ -141,7 +150,7 @@ guardrails and recipes. The short version:
 
 ### 4.1 Which Cloudflare account remote commands hit (AECI-1161)
 
-Local dev reads a local D1 and touches no Cloudflare account. Any `wrangler` command with `--remote`, and any `wrangler deploy`, reaches the account named by `account_id` at the top of each `wrangler.jsonc`. From the 2026-10-04 cutover that is The WBS Project (`004dc1af737b22a8aa83b3550fa9b9d3`), and the D1 and KV ids in those files are the new ones. Sign wrangler in as a user with access to that account. Preview and agent URLs are `aeci-*.thewbsproject.workers.dev`, behind the Access app in [`access.md`](./access.md). Before the cutover they were `*.aec-integrations.workers.dev` on the old account. [ADR 0036](./adr/0036-move-to-the-wbs-project-cloudflare-account.md).
+Local dev reads a local D1 and touches no Cloudflare account. Any `wrangler` command with `--remote`, and any `wrangler deploy`, reaches the account named by `account_id` at the top of each `wrangler.jsonc`. From the 2026-10-04 cutover that is The WBS Project (`004dc1af737b22a8aa83b3550fa9b9d3`), and the D1 and KV ids in those files are the new ones. Sign wrangler in as a user with access to that account. Staging and agent URLs are `aeci-*.thewbsproject.workers.dev`, behind the Access app in [`access.md`](./access.md). Before the cutover they were `*.aec-integrations.workers.dev` on the old account. [ADR 0036](./adr/0036-move-to-the-wbs-project-cloudflare-account.md).
 
 ## 5. Version reporting (AECI-74)
 
@@ -165,7 +174,7 @@ wrangler deploy --env staging \
 ```
 
 The deploy gates that check both endpoints (`deploy.yml`, `promote-to-prod.yml`,
-`pr-preview.yml`, `refresh-staging.yml`, via `scripts/verify-version.sh`) are described in
+`refresh-staging.yml`, via `scripts/verify-version.sh`) are described in
 [`CICD_PLAN.md`](./CICD_PLAN.md) §9.2. CI wiring landed in AECI-71 and the dual SSR plus API
 gate in AECI-92.
 
