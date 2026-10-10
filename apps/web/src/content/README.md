@@ -89,6 +89,18 @@ makes `/docs/<section>/<slug>#<heading>` links and the "On this page" rail work.
 Internal links are plain `<a href="/...">`, so they are full document loads rather than router
 navigations. That is the accepted trade for authoring in Markdown and is how `/legal/*` already behaves.
 
+**Internal links are checked (AECI-1254).** The `only links to docs pages and app routes that exist`
+case in `src/app/docs/docs-content.component.spec.ts` (`ng test`) reads every docs page and section
+intro. A `/docs` href must be a path the manifest serves, and its `#fragment` a heading id on that
+page. Any other href starting with `/` must match a route in `src/app/app.routes.ts`, with every
+`children` and `loadChildren` followed and `:param` matching any one segment. So renaming a page in
+`SECTION_PAGES` fails every link to its old path until the links are updated. A path only the SSR
+Worker answers, such as a 301, fails too: link the canonical URL. Write every internal link as a
+site-absolute path. A relative or bare `#fragment` link fails, because the app sets `<base href>`.
+`http(s)` and `mailto:` links are not checked, and neither are fragments on non-docs pages. A failure
+prints the `.md` file, the href and the reason. The helpers live in
+`src/app/docs/docs-link-check.harness.ts`, with fixture tests in `docs-link-check.spec.ts`.
+
 ## Adding a page
 
 A new Markdown-backed route is not just a file. It needs, in the same change: the `.md`, a registry, a
