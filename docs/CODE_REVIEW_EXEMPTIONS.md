@@ -270,13 +270,13 @@ scope:
     - "Contest a field"
     - "last_updated"
 severity: any
-expiry: AECI-1105
+expiry: AECI-1267
 status: active
 added: 2026-10-10
 added_by: claude (AECI-1262)
 ```
 
-**Justification.** AECI-1262 renamed portal labels and switched app copy to US English on `main`: "Change requests" for "Field contests", "Request a change" for "Contest a field", the four contest field names, "Catalog", and "AEC Integrations" for "AECi". The checklist's docs-sync rule (`CODE_REVIEW_CHECKLIST.md`, Spec alignment) wants the help-center pages under `apps/web/src/content/docs/` changed in the same PR. They are deliberately not. Those pages are being rewritten on the unmerged docs epic (AECI-634, the AECI-1261 commit), so editing them on `main` would conflict on content. A follow-up issue on top of the epic carries them: the label quotes, US spelling and US `last_updated` dates, and the two page renames with their 301s. The lag is low-risk. The vendor portal is dark until AECI-1105 opens it, and the `/docs/vendors/*` pages are noindex until then. The expiry is AECI-1105 because the pages must be right before vendors arrive. Replace it with the follow-up issue's id once that issue is filed, and retire this entry when the follow-up merges.
+**Justification.** AECI-1262 renamed portal labels and switched app copy to US English on `main`: "Change requests" for "Field contests", "Request a change" for "Contest a field", the four contest field names, "Catalog", and "AEC Integrations" for "AECi". The checklist's docs-sync rule (`CODE_REVIEW_CHECKLIST.md`, Spec alignment) wants the help-center pages under `apps/web/src/content/docs/` changed in the same PR. They are deliberately not. Those pages are being rewritten on the unmerged docs epic (AECI-634, the AECI-1261 commit), so editing them on `main` would conflict on content. AECI-1267, built on top of the epic, carries them: the label quotes, US spelling and US `last_updated` dates, and the two page renames with their 301s. The lag is low-risk. The vendor portal is dark until AECI-1105 opens it, and the `/docs/vendors/*` pages are noindex until then. AECI-1267 must merge before AECI-1105 opens the portal, so the pages are right before vendors arrive. Retire this entry when AECI-1267 merges.
 
 ---
 
