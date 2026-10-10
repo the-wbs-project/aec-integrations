@@ -85,7 +85,7 @@
 #   exit 2  could not check — missing credential, bad args, incomplete sweep, or a crash
 #
 # PRODUCTION ONLY, deliberately. There is one curation catalog for all deploy tiers and it
-# holds *production* uuids, so comparing it against staging/demo/preview's seeded catalogs
+# holds *production* uuids, so comparing it against staging/demo's seeded catalogs
 # reports near-total mismatch. The script itself warns when pointed elsewhere; there is no
 # matrix here on purpose.
 #

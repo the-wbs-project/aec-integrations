@@ -243,7 +243,7 @@ describe('reindexEnv', () => {
       h.db,
       fetchImpl,
       { appId: 'APP123', apiKey: undefined },
-      'preview',
+      'staging',
     );
     expect(result.skipped).toBe(true);
     if (!result.skipped) return;

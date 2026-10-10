@@ -46,7 +46,7 @@ function page(overrides: Record<string, unknown> = {}): PromoteConnectorPagePayl
 
 function runCtx(): PromoteRunCtx {
   return {
-    env: { ENV: 'preview' } as Env,
+    env: { ENV: 'staging' } as Env,
     request: new Request('https://api.test/api/promote/connector-catalog'),
     waitUntil: () => {},
     bookmark: () => null,
@@ -194,7 +194,7 @@ describe('dispatchConnectorHooks — the reach-line purge', () => {
   function queueEnv() {
     const sent: { tags: string[]; source: string }[] = [];
     const env = {
-      ENV: 'preview',
+      ENV: 'staging',
       CACHE_PURGE_QUEUE: {
         sendBatch: async (msgs: { body: { tags: string[]; source: string } }[]) => {
           for (const m of msgs) sent.push(m.body);

@@ -26,7 +26,7 @@ function stubSession(bookmark: string | null) {
 function envWithSession(session: ReturnType<typeof stubSession>) {
   const withSession = vi.fn((_anchor?: string) => session);
   const env = {
-    ENV: 'preview',
+    ENV: 'staging',
     DB: { withSession },
   } as unknown as Env;
   return { env, withSession };
@@ -34,7 +34,7 @@ function envWithSession(session: ReturnType<typeof stubSession>) {
 
 describe('getDb (AECI-250 Sessions API)', () => {
   it('throws loudly when the DB binding is missing', () => {
-    expect(() => getDb({ ENV: 'preview' } as unknown as Env)).toThrow(/DB/);
+    expect(() => getDb({ ENV: 'staging' } as unknown as Env)).toThrow(/DB/);
   });
 
   it('defaults reads to the first-unconstrained anchor and proxies getBookmark()', () => {
@@ -60,7 +60,7 @@ describe('getDb (AECI-250 Sessions API)', () => {
 
   it('falls back to the plain binding (getBookmark null) when withSession is absent', () => {
     const env = {
-      ENV: 'preview',
+      ENV: 'staging',
       DB: { prepare: vi.fn(), batch: vi.fn() },
     } as unknown as Env;
     const ctx = getDb(env, { constraint: 'first-primary', bookmark: 'bk-1' });

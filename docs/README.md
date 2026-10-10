@@ -26,7 +26,7 @@ This directory holds the planning, architecture, and operational documentation f
 | [`REVIEW_APP_PROMOTE_API.md`](./REVIEW_APP_PROMOTE_API.md) | Active | Review-app → D1 promotion push: `POST /api/promote` payload/response, idempotency, integration rule. |
 | [`AUTH_AND_RLS.md`](./AUTH_AND_RLS.md) | Active | The complete authorization source of truth. The API Worker request guard is the only layer for app tables (ADR 0016); the historical Postgres GRANT/RLS design is retained under banners. Includes GDPR erasure. |
 | [`CICD_PLAN.md`](./CICD_PLAN.md) | Active | GitHub Actions pipeline, environments, deployments, rollback, secrets management. |
-| [`environments.md`](./environments.md) | Active | Environment topology, promotion model, PR-preview lifecycle, secrets, and bootstrap checklist across all tiers. |
+| [`environments.md`](./environments.md) | Active | Environment topology, promotion model, secrets, and bootstrap checklist across all tiers. |
 | [`access.md`](./access.md) | Active | Cloudflare Access runbook for non-prod environments — allowlist management, service-token rotation, lockout recovery. |
 | [`CACHE_STRATEGY.md`](./CACHE_STRATEGY.md) | Active | Edge caching: tag vocabulary, TTLs, `POST /admin/purge` invalidation, SEO header set. |
 | [`OBSERVABILITY.md`](./OBSERVABILITY.md) | Active | The custom-metric catalogue, cardinality budget, dashboards and alerts. **PostHog only** — the AECI-639 dual-run ended when AECI-651 deleted the Datadog leg. |

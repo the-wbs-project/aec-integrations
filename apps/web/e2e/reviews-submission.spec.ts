@@ -1,7 +1,7 @@
 /**
  * AECI-200 / Phase 5.9 — the authenticated review-submission form at
  * `/products/:slug/review` (Signal Forms + Angular Aria). Runs against the
- * bound dev stack (`pnpm dev:agent` / CI preview).
+ * bound dev stack (`pnpm dev:agent` / the CI e2e lane).
  *
  * Coverage:
  *   - SSR auth gate: a logged-out visitor (no `sb-…-auth-token` cookie) is

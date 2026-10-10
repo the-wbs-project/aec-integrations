@@ -165,7 +165,7 @@ These recur in tasks and are tempting to violate. Don't. Several are enforced by
 - **Cache: tags, native Workers Cache, and `Vary`.** Every cacheable SSR response sets `Cache-Tag`
   via the helper in `apps/web/src/server/cache-tags.ts`; invalidation is `ctx.cache.purge()`,
   cross-Worker via the `aeci-cache-purge-{env}` Queue. `Vary` may only be `Accept-Language`
-  (`Lint: ✅`, tests exempt). Native caching is live on preview + staging only; demo/production run
+  (`Lint: ✅`, tests exempt). Native caching is live on staging only; demo/production run
   uncached today. Miniflare does not emulate the front cache. `docs/CACHE_STRATEGY.md`.
 - **Cached SSR routes render visitor-state-neutral HTML.** The cache is keyed by URL, not cookies.
   Strip visitor-state cookies before SSR (`stripVisitorStateCookies` in
@@ -191,7 +191,7 @@ These recur in tasks and are tempting to violate. Don't. Several are enforced by
   `docs/API_CONTRACTS.md` §3.2, `ANGULAR_STYLE_GUIDE.md` §20a.
 - **Reads are never rate-limited.** `Lint: 🟡`. `rateLimit()` is registered per route, after the
   authz guard, on writes only, never globally. The `ratelimits` binding is not inherited across
-  wrangler environments (declare it in all five blocks); `simple.period` is 10 or 60 seconds only.
+  wrangler environments (declare it in all four blocks); `simple.period` is 10 or 60 seconds only.
   `docs/waf-rate-limits.md` §6, ADR 0026.
 - **Audit logging is transactional.** See "Audit logging" below.
 - **Accessibility is built in.** Spartan + CDK give a11y by default; don't break it. Run axe-core
@@ -296,7 +296,7 @@ by SHA via `promote-to-demo` → `promote-to-prod`, `docs/environments.md`).
   attribution line naming Claude. This overrides any harness attribution reminder.
 - PR description includes a `Closes AECI-{N}` line for **every** issue the PR finishes (Linear never reads commit messages, so a `Closes` only in a commit body leaves the issue open, `docs/linear-issue-conventions.md` §6); base branch is `main`.
 - Merge on the required checks: `main` is branch-protected on Lint & typecheck / Unit tests /
-  Build SSR Worker. E2E, a11y and the preview deploy don't block the merge; E2E blocks staging.
+  Build SSR Worker. E2E and a11y don't block the merge; E2E blocks staging.
 - **Squash merge.** `main` requires linear history. Linear auto-closes the issue on merge.
 - **Fanning out to sub-agent PRs?** Use a `batch/<name>` branch: lite CI per sub-PR, one full run
   for the batch → `main` PR. Procedure: `docs/CICD_PLAN.md` §10a.

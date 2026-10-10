@@ -2,19 +2,16 @@ import { z } from 'zod';
 
 /**
  * Environment label reported by `GET /api/version`. The fixed literals match
- * the `ENV` `vars` entry declared in each Worker's wrangler config; the
- * `preview-pr-N` shape is reserved for AECI-71's per-PR CI deploys, which will
- * compose the value from `ENV=preview` + an injected PR number. `development`
- * is what the API Worker returns when no `ENV` var is present (i.e., local
- * `wrangler dev` without an `--env` flag).
+ * the `ENV` `vars` entry declared in each Worker's wrangler config. `development`
+ * is what local dev reports (the top-level wrangler block sets it, and the
+ * Workers default to it when no `ENV` var is present). The `preview` literal and
+ * the `preview-pr-N` shape retired with the per-PR preview tier (AECI-1268).
  */
 export const EnvironmentSchema = z.union([
   z.literal('development'),
-  z.literal('preview'),
   z.literal('staging'),
   z.literal('demo'),
   z.literal('production'),
-  z.string().regex(/^preview-pr-\d+$/),
 ]);
 
 export type Environment = z.infer<typeof EnvironmentSchema>;

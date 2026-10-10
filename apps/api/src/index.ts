@@ -637,7 +637,7 @@ app.route('/', authActivity);
 //     display name and (only when the term contains `@`) by exact email.
 //     Profiles-first because ONE Supabase project backs every environment
 //     (ADR 0017), so GoTrue's own user list rendered on prod would include
-//     staging and preview signups. `perPage` caps at 50, not the shared 100:
+//     staging and local signups. `perPage` caps at 50, not the shared 100:
 //     each row costs one GoTrue GET in waves of WORKER_CONNECTION_LIMIT.
 //   - GET    /api/admin/users/:id                 (AP §5.8, AECI-692) — profile,
 //     auth account, the ONE vendor seat, live pending invites, and counts
@@ -724,7 +724,7 @@ authAdmin.get('/api/admin/claims/:id', requireAdmin(), createAdminClaimDetailHan
 authAdmin.patch('/api/admin/claims/:id/notes', requireAdmin(), createSaveClaimNotesHandler());
 // Stage 2 / AECI-519: the claim → verified-account grant. `resolveClaimantIdentity`
 // reports `unavailable` (→503) wherever `SUPABASE_SERVICE_ROLE_KEY` is absent — local
-// dev and PR previews, since AECI-530 CI-pushes it on staging/demo/production.
+// dev, since AECI-530 CI-pushes it on staging/demo/production.
 // AECI-528 injects the real claim-decision email sender (`sendClaimDecisionEmail`,
 // `lib/email.ts`) into the post-commit seam; it fail-opens to `'skipped'` without
 // `RESEND_API_KEY`/`EMAIL_FROM`.

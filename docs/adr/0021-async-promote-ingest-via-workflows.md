@@ -305,3 +305,5 @@ spy, because the thing worth preventing is a future refactor wiring this arm int
 ### Operating notes (moved from CLAUDE.md, 2026-09-23)
 
 - Never make the `kind` field of `PromoteWorkflowParams` required. It is absent for the product arm so that pre-AECI-714 instances still replay as product promotes.
+
+**Amendment 2026-10-10 (AECI-1268):** The `aeci-promote-preview` Workflow is retired with the preview tier. Remote Workflows are `aeci-promote-{staging,demo,production}`. The top-level `apps/api/wrangler.jsonc` block keeps the old preview Workflow and KV names as local-only so `.wrangler/state` carries over.

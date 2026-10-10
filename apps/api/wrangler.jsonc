@@ -44,12 +44,12 @@
   //                 API/sync use only — never client-exposed. Provision per env via
   //                 `node scripts/algolia/provision.mjs`; see docs/CICD_PLAN.md §7.5.
   //                 Required on production (verify-worker-secrets.sh fails the deploy
-  //                 if absent — AECI-139); absent on preview/local → the cron +
+  //                 if absent — AECI-139); absent on local → the cron +
   //                 promote hook are a graceful no-op.
   //   ANTHROPIC_API_KEY — Anthropic API key for review toxicity scoring via Claude
   //                 Haiku (AECI-258, supersedes the sunsetting Perspective API of
   //                 AECI-198). Read at runtime by `scoreToxicity()` on POST
-  //                 /api/reviews. Optional + fail-open: absent (local/preview) →
+  //                 /api/reviews. Optional + fail-open: absent (local) →
   //                 scoring is a silent no-op storing toxicity_score=null (emits no
   //                 metric); an outage stores null too. Never blocks a submission.
   //                 Set per env via `wrangler secret put ANTHROPIC_API_KEY --env
@@ -71,8 +71,8 @@
   //                 the absent-key path emits NO metric and NO log, so a vendor
   //                 claim reaches nobody and the only signal is the 60-minute
   //                 reconciliation-sweep email (that is exactly what happened
-  //                 2026-07 → 2026-09-10). PRODUCTION ONLY — staging/demo/PR
-  //                 previews deliberately get no push, because the board constants
+  //                 2026-07 → 2026-09-10). PRODUCTION ONLY — staging/demo/local
+  //                 deliberately get no push, because the board constants
   //                 in `src/lib/linear.ts` point at the one shared "Vendor Requests"
   //                 project and a non-prod tier would file fixture claims there as
   //                 real issues. Bootstrap a new env by hand with `wrangler secret
@@ -93,12 +93,12 @@
   //                 Resend endpoint has its own secret, so CI pushes
   //                 RESEND_WEBHOOK_SECRET_{STAGING,DEMO,PRODUCTION} (deploy.yml /
   //                 promote-to-demo.yml / promote-to-prod.yml, warn-and-skip) under
-  //                 this one name. Never on previews or the web Worker.
+  //                 this one name. Never on local dev or the web Worker.
   //   RESEND_API_KEY — Resend API key for transactional email (AECI-240 / Phase 7.5,
   //                 §11.1). Read at runtime by `lib/email.ts` for review submit/
   //                 approve/reject confirmations, the account-deletion email, and the
   //                 reconcile-sweep admin alert. Optional + fail-open like
-  //                 ANTHROPIC_API_KEY: absent (local/preview) → every send is a silent
+  //                 ANTHROPIC_API_KEY: absent (local) → every send is a silent
   //                 `'skipped'`, never blocking the action. CI pushes it per env from
   //                 the RESEND_API_KEY_{STAGING,PRODUCTION} GH secrets (graceful — no
   //                 hard gate). Pairs with the `EMAIL_FROM` var (sender). The repo uses
@@ -115,10 +115,10 @@
   //                 per env by CI (deploy.yml staging / promote-to-demo.yml /
   //                 promote-to-prod.yml, graceful warn-skip, no hard gate).
   //                 API WORKER ONLY: never the web Worker (which verifies user JWTs
-  //                 with public JWKS material), and DELIBERATELY not on per-PR
-  //                 previews — it is the project-wide auth key and the seams both
-  //                 delete and create identities on the project that backs prod.
-  //                 Optional + fail-open: absent (local/preview) → reviewer emails
+  //                 with public JWKS material). It is the project-wide auth key
+  //                 and the seams both delete and create identities on the
+  //                 project that backs prod, so a local .dev.vars copy is live.
+  //                 Optional + fail-open: absent (local) → reviewer emails
   //                 read null, the auth.users delete is skipped (the D1 erasure
   //                 still commits), and claim resolution reports 'unavailable'.
   //                 Rotating it invalidates every env at once — docs/CICD_PLAN.md §7.4.
@@ -128,8 +128,8 @@
   // enqueues a message onto the matching Cloudflare Queue, and the `queue`
   // consumer runs it (ADR 0013: cron→queue→consumer). Cron triggers AND the queue
   // producer/consumer bindings are registered ONLY on staging + production (see
-  // each env's `triggers` + `queues` blocks) — NOT on the base config or preview,
-  // so ephemeral PR-preview Workers carry no queues and run no daily jobs. The
+  // each env's `triggers` + `queues` blocks) — NOT on the base config, so local
+  // dev carries no queues and runs a job inline when its cron fires. The
   // scheduled-job queues (`aeci-algolia-{sync,drift}-{env}` for AECI-139/140,
   // `aeci-stats-{env}` for the AECI-178 home-stats job, `aeci-reconcile-{env}` for the
   // AECI-214 request→Linear reconciliation sweep, `aeci-data-quality-{env}` for the
@@ -177,7 +177,7 @@
   // There is still NO `WEB` service binding back to the SSR Worker; the coupling is
   // async, via the queue (ADR 0020 §3). The SSR Worker's `POST /admin/purge` is the
   // manual/incident + CI surface (native `ctx.cache.purge()` in-process since WC-6). When
-  // CACHE_PURGE_QUEUE is unbound (local `pnpm dev:bound`, PR previews) the producers
+  // CACHE_PURGE_QUEUE is unbound (local `pnpm dev:bound`) the producers
   // no-op — expected, not a bug (no edge cache there). CF_ZONE_ID is KEPT (the AECI-262
   // WAF poll still uses it); the CF_PURGE_API_TOKEN HTTP purge token was retired in WC-10.
   // See docs/adr/0020-workers-cache-and-queue-purge.md and docs/CACHE_STRATEGY.md §5.
@@ -193,24 +193,62 @@
       "invocation_logs": true,
     },
   },
+  // THE TOP-LEVEL BLOCK IS THE LOCAL-DEV CONFIG (AECI-1268). The per-PR preview
+  // tier and its `env.preview` block retired on 2026-10-10; `pnpm dev:bound` /
+  // `dev:agent` now run this block with no `--env`. Nothing deploys it: every CI
+  // deploy passes `--env staging|demo|production`. Its resource names still say
+  // `preview` (`aeci-app-preview`, `aeci-uploads-preview`, the two KV ids, the
+  // `aeci-promote-preview` Workflow). They are LOCAL-ONLY names now, kept so the
+  // existing `.wrangler/state` (local D1 keyed by `database_id`, local R2 keyed by
+  // bucket name, local KV keyed by id) carries over untouched. The remote
+  // resources they once named are deleted by the operator steps in
+  // docs/environments.md §"Operator steps after merge (AECI-1268)".
   "vars": {
-    "ENV": "preview",
+    // `development` is the local label. Algolia folds it onto `staging_*` for
+    // READS; every index write is refused locally unless ALGOLIA_ALLOW_LOCAL_WRITES
+    // is "true" in .dev.vars (src/lib/algolia-write-guard.ts).
+    "ENV": "development",
     // AECI-74: overridden at dev/deploy time via `wrangler --var COMMIT_SHA:<sha> --var DEPLOYED_AT:<iso>`.
     "COMMIT_SHA": "unknown",
     "DEPLOYED_AT": "1970-01-01T00:00:00.000Z",
-    // AECI-193 / ADR 0017: Supabase base URL (public) — the SINGLE shared auth
-    // project (see the preview block). Base config mirrors preview (bare
-    // `wrangler dev`).
+    // AECI-193 / ADR 0017: Supabase base URL (public) — the SINGLE shared
+    // auth project across all environments. Drives JWKS user-JWT
+    // verification in lib/user-auth.ts. The anon key is never on the API
+    // Worker; the service-role key is a Worker SECRET (not a var here), used
+    // only by the ADR-0016 split-identity seams (AUTH_AND_RLS.md §4).
     "SUPABASE_URL": "https://ktuhnlypztujpsseujzx.supabase.co",
+    // AECI-640 / AECI-642: PostHog INGEST host + publishable project key.
+    // `us.i.posthog.com` is the INGEST host; `us.posthog.com` (no `.i`) is the
+    // MANAGEMENT API and 404s on an intake path. Easy to swap, confusing to
+    // diagnose. The OTLP intakes (`/i/v1/logs`, `/i/v1/metrics`) authenticate
+    // with an `Authorization: Bearer <token>` header; an `?api_key=` query param
+    // is rejected 401 there (verified 2026-08-24).
+    //
+    // POSTHOG_PROJECT_KEY is a `phc_` PUBLISHABLE key. The SSR Worker already
+    // renders it into the served HTML on every page (window.__AECI_POSTHOG__),
+    // so it is not a secret and committing it costs nothing. AECI-239 kept it as
+    // a CI-pushed secret for tidiness; that is exactly what produced the
+    // weeks-dark production analytics of AECI-326 (push step present, secret
+    // absent, warn-and-skip silent). A committed var has no provisioning step to
+    // forget, and it takes Worker telemetry secrets from 4 to 0.
+    //
+    // Project topology (POSTHOG_MIGRATION_SPEC.md §3.6 / D4): local, staging
+    // and demo all report to `aec-integrations-dev` (525793); ONLY
+    // production reports to `aec-integrations` (354071). Tiers inside the
+    // non-prod project are separated by `$host`/`env`. Local dev reported
+    // `env=preview` until AECI-1268 and reports `env=development` since.
+    "POSTHOG_HOST": "https://us.i.posthog.com",
+    "POSTHOG_PROJECT_KEY": "phc_pY8FDQ9FNAmFUJFFd85jNKAAUCMvndUsyGMMV8TR97MD",
   },
   "dev": {
     "port": 8787,
   },
   // AECI-54: TAXONOMY_KV powers `GET /api/taxonomy` read-through caching with
-  // a 5-minute TTL. Each environment has its own namespace so preview/staging
-  // never poisons production. `preview_id` here wires `aeci-api-taxonomy-preview`
-  // for unscoped `wrangler dev`; per-env blocks below override with each env's
-  // own namespace ID. Handler at `src/routes/taxonomy.ts` falls back to a
+  // a 5-minute TTL. Each environment has its own namespace so staging never
+  // poisons production. The ids here are the retired preview tier's namespaces
+  // (`aeci-api-taxonomy-preview`, `aeci-api-promote-preview`), kept as LOCAL-ONLY
+  // ids so local KV state carries over (AECI-1268); per-env blocks below override
+  // with each env's own namespace ID. Handler at `src/routes/taxonomy.ts` falls back to a
   // direct D1 read when the binding is absent, so this stays optional.
   "kv_namespaces": [
     {
@@ -233,17 +271,18 @@
   // These bindings have neither limitation.
   //
   // This block is NOT inherited into a named environment — wrangler's own config
-  // schema says so verbatim — so it is repeated in all four env blocks below.
+  // schema says so verbatim — so it is repeated in all three env blocks below.
   // A bucket declared only here is bound on exactly ZERO deployed Workers, which
   // is AECI-659's "protection that covers nothing" in a different file format.
-  // `src/rate-limit-middleware.spec.ts` asserts all five blocks and their values.
+  // `src/wrangler-ratelimits.spec.ts` asserts all four blocks and their values.
   //
   // Every (bucket, env) pair gets its OWN namespace_id: counters are shared
   // ACCOUNT-WIDE by namespace_id, across Workers, and the sibling
   // aec-integrations-review app already ships this binding on the same account.
   // The ids are AECI-773-derived (77 3x) rather than the 1001/1002 the Cloudflare
   // docs example uses, which is what a neighbouring Worker is most likely to hold.
-  // Base mirrors preview, like kv_namespaces / workflows / d1_databases above.
+  // The base block is the local-dev config (AECI-1268), so these ids only ever
+  // count local requests.
   "ratelimits": [
     {
       "name": "TOKEN_RATE_LIMIT",
@@ -256,9 +295,10 @@
       "simple": { "limit": 30, "period": 60 },
     },
   ],
-  // AECI-563 / ADR 0021: the promote ingest Workflow. Base config mirrors preview (bare
-  // `wrangler dev`); per-env blocks below give each environment its own Workflow so
-  // instance ids — which ARE the caller-supplied job ids — never collide across tiers.
+  // AECI-563 / ADR 0021: the promote ingest Workflow. The base block is the local-dev
+  // config (`wrangler dev` serves the Workflow locally under this LOCAL-ONLY name);
+  // per-env blocks below give each environment its own Workflow so instance ids —
+  // which ARE the caller-supplied job ids — never collide across tiers.
   "workflows": [
     {
       "name": "aeci-promote-preview",
@@ -268,10 +308,11 @@
   ],
   // ADR 0016 / AECI-252: the application database is Cloudflare D1, bound as `DB`
   // and reached via the Drizzle client factory `getDb(env)` (`src/db/client.ts`).
-  // `wrangler dev` serves a LOCAL SQLite copy (in `.wrangler/state`) regardless of
-  // `database_id`, so local dev works no matter what id is set here. The preview
-  // database is now provisioned (AECI-256); the staging/production ids below are
-  // still placeholders, created with `wrangler d1 create` and pasted in. Drizzle writes flat
+  // `wrangler dev` serves a LOCAL SQLite copy (in `.wrangler/state`), keyed by
+  // `database_id`. Keep this id: changing it orphans every developer's local
+  // database. The remote `aeci-app-preview` it once named retires with the preview
+  // tier (AECI-1268), so a `--remote` call against this block fails once the
+  // operator deletes it, which is the intent. Drizzle writes flat
   // migration SQL to `apps/api/migrations/` (drizzle.config.ts `out`), which is
   // wrangler's default `migrations_dir`, so `wrangler d1 migrations apply` finds
   // them with no `migrations_pattern` override.
@@ -285,101 +326,6 @@
     },
   ],
   "env": {
-    "preview": {
-      "name": "aeci-api-preview",
-      "workers_dev": false,
-      // AECI-105: no CF purge credentials provisioned for preview. Promote's
-      // cache purge therefore no-ops in preview / local dev — the documented
-      // graceful-degradation path (Option B; see the top comment).
-      "vars": {
-        "ENV": "preview",
-        // AECI-74: overridden at dev/deploy time via `wrangler --var COMMIT_SHA:<sha> --var DEPLOYED_AT:<iso>`.
-        "COMMIT_SHA": "unknown",
-        "DEPLOYED_AT": "1970-01-01T00:00:00.000Z",
-        // AECI-193 / ADR 0017: Supabase base URL (public) — the SINGLE shared
-        // auth project across all environments. Drives JWKS user-JWT
-        // verification in lib/user-auth.ts. The anon key is never on the API
-        // Worker; the service-role key is a Worker SECRET (not a var here), used
-        // only by the ADR-0016 split-identity seams (AUTH_AND_RLS.md §4).
-        "SUPABASE_URL": "https://ktuhnlypztujpsseujzx.supabase.co",
-        // AECI-640 / AECI-642: PostHog INGEST host + publishable project key.
-        // `us.i.posthog.com` is the INGEST host; `us.posthog.com` (no `.i`) is the
-        // MANAGEMENT API and 404s on an intake path. Easy to swap, confusing to
-        // diagnose. The OTLP intakes (`/i/v1/logs`, `/i/v1/metrics`) authenticate
-        // with an `Authorization: Bearer <token>` header; an `?api_key=` query param
-        // is rejected 401 there (verified 2026-08-24).
-        //
-        // POSTHOG_PROJECT_KEY is a `phc_` PUBLISHABLE key. The SSR Worker already
-        // renders it into the served HTML on every page (window.__AECI_POSTHOG__),
-        // so it is not a secret and committing it costs nothing. AECI-239 kept it as
-        // a CI-pushed secret for tidiness; that is exactly what produced the
-        // weeks-dark production analytics of AECI-326 (push step present, secret
-        // absent, warn-and-skip silent). A committed var has no provisioning step to
-        // forget, and it takes Worker telemetry secrets from 4 to 0.
-        //
-        // Project topology (POSTHOG_MIGRATION_SPEC.md §3.6 / D4): preview, staging
-        // and demo all report to `aec-integrations-dev` (525793); ONLY
-        // production reports to `aec-integrations` (354071). Tiers inside the
-        // non-prod project are separated by `$host`/`env`.
-        "POSTHOG_HOST": "https://us.i.posthog.com",
-        "POSTHOG_PROJECT_KEY": "phc_pY8FDQ9FNAmFUJFFd85jNKAAUCMvndUsyGMMV8TR97MD",
-      },
-      "kv_namespaces": [
-        {
-          "binding": "TAXONOMY_KV",
-          "id": "9acd62934424496da76de31aa761255f",
-          "preview_id": "9acd62934424496da76de31aa761255f",
-        },
-        // AECI-563 / ADR 0021: promote job payload staging + result mirror.
-        {
-          "binding": "PROMOTE_KV",
-          "id": "48be5fd8a6284d6bb7b43b2f3aac323d",
-          "preview_id": "48be5fd8a6284d6bb7b43b2f3aac323d",
-        },
-      ],
-      // AECI-773 / ADR 0026: native Workers Rate Limiting (see the base-config note).
-      // NOT inherited from the top level, so this block must exist in every env.
-      "ratelimits": [
-        {
-          "name": "TOKEN_RATE_LIMIT",
-          "namespace_id": "7731",
-          "simple": { "limit": 10, "period": 10 },
-        },
-        {
-          "name": "WRITE_RATE_LIMIT",
-          "namespace_id": "7735",
-          "simple": { "limit": 30, "period": 60 },
-        },
-      ],
-      // AECI-563 / ADR 0021. `pnpm dev:bound` runs the API Worker with `--env preview`,
-      // so this is the Workflow the bound local stack uses — served locally by
-      // `wrangler dev` regardless of account state.
-      "workflows": [
-        {
-          "name": "aeci-promote-preview",
-          "binding": "PROMOTE_WORKFLOW",
-          "class_name": "PromoteWorkflow",
-        },
-      ],
-      // ADR 0016 / AECI-252. `pnpm dev:bound` runs the API Worker with
-      // `--env preview`, so this is the binding the bound local stack uses — a
-      // LOCAL SQLite copy regardless of id; the real preview database is provisioned (AECI-256).
-      "r2_buckets": [{ "binding": "UPLOADS", "bucket_name": "aeci-uploads-preview" }],
-      "d1_databases": [
-        {
-          "binding": "DB",
-          "database_name": "aeci-app-preview",
-          "database_id": "40b2021f-9023-4f4a-affb-9d2c657bb7e3",
-          "migrations_dir": "migrations",
-        },
-      ],
-      "observability": {
-        "logs": {
-          "enabled": true,
-          "invocation_logs": true,
-        },
-      },
-    },
     "staging": {
       "name": "aeci-api-staging",
       "workers_dev": false,
@@ -397,7 +343,7 @@
         // only by the ADR-0016 split-identity seams (AUTH_AND_RLS.md §4).
         "SUPABASE_URL": "https://ktuhnlypztujpsseujzx.supabase.co",
         "POSTHOG_HOST": "https://us.i.posthog.com",
-        // See the preview env note (AECI-640): non-prod tiers report to
+        // See the top-level vars note (AECI-640): non-prod tiers report to
         // `aec-integrations-dev` (525793).
         "POSTHOG_PROJECT_KEY": "phc_pY8FDQ9FNAmFUJFFd85jNKAAUCMvndUsyGMMV8TR97MD",
         // AECI-240 / Phase 7.5: transactional email (Resend). EMAIL_FROM is the
@@ -470,8 +416,8 @@
         },
       ],
       // Scheduled crons, dispatched by `controller.cron` in `src/scheduled.ts`.
-      // Staging + production only (base config / preview have no `triggers`, so PR
-      // previews don't run them). 04:00 UTC — §23.1 data-quality suite + email
+      // Staging + production only (the base block has no `triggers`, so local
+      // dev does not run them). 04:00 UTC — §23.1 data-quality suite + email
       // digest (AECI-241 / Phase 7.6); 06:00 UTC (= 01:00 EST) — moderation-queue
       // health snapshot (AECI-206, inline gauge); 07:00 UTC (= 02:00 EST) — home-stats
       // compute (AECI-178, §10); 08:00 UTC (= 03:00 EST, US-East launch base) —
@@ -664,7 +610,7 @@
         // AECI-640 REPOINT: demo previously received POSTHOG_KEY_PRODUCTION from
         // promote-to-demo.yml, so synthetic demo traffic landed in the PROD project
         // (354071) and skewed every production number. Demo is a non-prod tier and
-        // reports to `aec-integrations-dev` (525793). See the preview env note.
+        // reports to `aec-integrations-dev` (525793). See the top-level vars note.
         "POSTHOG_PROJECT_KEY": "phc_pY8FDQ9FNAmFUJFFd85jNKAAUCMvndUsyGMMV8TR97MD",
         // AECI-240 / Phase 7.5: transactional email (Resend). See the staging note.
         "EMAIL_FROM": "AEC Integrations <notifications@aecintegrations.com>",
@@ -868,7 +814,7 @@
         "POSTHOG_HOST": "https://us.i.posthog.com",
         // AECI-640: the ONLY tier that reports to the production PostHog project
         // `aec-integrations` (354071). Every other tier uses the dev project — see
-        // the preview env note.
+        // the top-level vars note.
         "POSTHOG_PROJECT_KEY": "phc_Ka6zXrunFnSKZS6jQTqG6GNQHKuya9RTMZzQvcY7reJ",
         // AECI-240 / Phase 7.5: transactional email (Resend). See the staging note.
         // The RESEND_API_KEY secret is pushed by CI from RESEND_API_KEY_PRODUCTION

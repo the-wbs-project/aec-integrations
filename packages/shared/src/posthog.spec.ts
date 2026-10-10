@@ -53,7 +53,7 @@ function makeEnv(overrides: Partial<PosthogEnv> = {}): PosthogEnv {
   return {
     POSTHOG_PROJECT_KEY: 'phc_test_token',
     POSTHOG_HOST: 'https://us.i.posthog.com',
-    ENV: 'preview',
+    ENV: 'staging',
     COMMIT_SHA: 'abc123',
     ...overrides,
   };
@@ -453,7 +453,7 @@ describe('createPosthogClient — submitCount', () => {
     });
     expect(attributeMap(metricResource().attributes)).toEqual({
       'service.name': 'aeci-test',
-      env: 'preview',
+      env: 'staging',
       app: 'aeci',
       service: 'aeci-test',
       worker: 'aeci-test',
@@ -468,7 +468,7 @@ describe('createPosthogClient — submitCount', () => {
     client.submitCount(
       ctx as never,
       makeEnv(),
-      // A per-PR preview Worker hostname: unbounded cardinality, one per PR forever.
+      // A per-PR Worker hostname (the retired preview tier's shape): unbounded cardinality.
       makeRequest('https://aeci-web-pr-123.thewbsproject.workers.dev/x'),
       'aeci.metric',
       1,
@@ -699,7 +699,7 @@ describe('createPosthogClient — captureEvent / captureException', () => {
     expect(posthogNode.captureException).toHaveBeenCalledWith(
       error,
       'aeci-test',
-      expect.objectContaining({ env: 'preview', service: 'aeci-test', route: '/x' }),
+      expect.objectContaining({ env: 'staging', service: 'aeci-test', route: '/x' }),
     );
     expect(ctx.waitUntil).toHaveBeenCalledTimes(1);
     await Promise.all(promises);

@@ -177,7 +177,7 @@ describe('rateLimit middleware', () => {
 
   it('fails OPEN when the binding is absent, and announces once per isolate', async () => {
     const { app, handler } = makeApp(rateLimit('token', { by: 'ip' }));
-    const env = { ENV: 'preview' } satisfies Partial<Env>;
+    const env = { ENV: 'staging' } satisfies Partial<Env>;
 
     for (let i = 0; i < 3; i += 1) {
       const res = await app.request(

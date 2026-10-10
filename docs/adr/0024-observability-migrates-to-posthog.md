@@ -110,3 +110,5 @@ EV policy.
 
 - The status line's "`main` still carries Datadog-only code until the branches merge" is closed. The 2026-09-03 `stage-2 → main` merge carried AECI-651 onto `main`.
 - Live production flips at the next `promote-to-demo` then `promote-to-prod`. A prod promote flips prod's observability plane, not the merge.
+
+**Amendment 2026-10-10 (AECI-1268):** The `preview` label is retired. The non-prod PostHog project now receives local, staging and demo events, separated by `$host`.

@@ -2,5 +2,5 @@
   "enabledPlugins": {
     "claude-code-setup@claude-plugins-official": true
   },
-  "enabledMcpjsonServers": ["angular-cli", "browserstack", "aeci-review", "linear"]
+  "enabledMcpjsonServers": ["angular-cli", "aeci-review", "linear"]
 }

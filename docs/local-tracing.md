@@ -65,7 +65,7 @@ instances, and therefore **two independent trace stores on two different ports**
 | Store | Endpoint base | Contains |
 |---|---|---|
 | SSR Worker | `http://localhost:<WEB_PORT>/cdn-cgi/local/explorer/api` | `service = aeci-web` — the browser-facing request, the WC-4 gateway→`Renderer` hop, and the **outbound** `env.API` fetch |
-| API Worker | `http://localhost:<API_PORT>/cdn-cgi/local/explorer/api` | `service = aeci-api-preview` — the **inbound** API request and every D1 / KV span beneath it |
+| API Worker | `http://localhost:<API_PORT>/cdn-cgi/local/explorer/api` | `service = aeci-api` — the **inbound** API request and every D1 / KV span beneath it |
 
 **A request crossing the `env.API` service binding produces two traces, not one.** Trace
 context does *not* propagate across the cross-process dev-registry hop. Verified by clearing
@@ -99,7 +99,7 @@ the Cloudflare API envelope:
   "messages": [],
   "result": {
     "columns": ["service", "name", "outcome", "duration_ms"],
-    "rows": [["aeci-api-preview", "GET", "ok", 540]]
+    "rows": [["aeci-api", "GET", "ok", 540]]
   }
 }
 ```

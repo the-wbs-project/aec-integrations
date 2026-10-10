@@ -31,7 +31,7 @@ export const INTERNAL_RECIPIENT_DOMAINS = ['thewbsproject.com', 'aecintegrations
 
 /** The non-production tiers that get a named subject prefix. Anything else is
  *  `[non-production]`. */
-const NAMED_TIERS = new Set(['development', 'preview', 'staging', 'demo']);
+const NAMED_TIERS = new Set(['development', 'staging', 'demo']);
 
 /** True only when `ENV` is exactly `'production'`. Missing or unknown is non-production. */
 export function isProductionTier(env: DeliveryPolicyEnv): boolean {

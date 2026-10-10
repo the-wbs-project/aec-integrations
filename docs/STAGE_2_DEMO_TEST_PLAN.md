@@ -37,7 +37,7 @@ Read these before concluding anything from a demo result.
 
 | Caveat | Consequence |
 |---|---|
-| **Demo runs uncached** — no `exports` block in `apps/web/wrangler.jsonc` (only `preview` and `staging` have one) | Cache-tag emission, TTLs, `MISS → HIT`, and stale-while-revalidate are **not testable here**. A cache defect will not appear on demo and will appear in production only if prod is later switched on. Verify caching on a PR preview instead. |
+| **Demo runs uncached** — no `exports` block in `apps/web/wrangler.jsonc` (only `staging` has one) | Cache-tag emission, TTLs, `MISS → HIT`, and stale-while-revalidate are **not testable here**. A cache defect will not appear on demo and will appear in production only if prod is later switched on. Verify caching on staging instead. The PR preview tier was retired 2026-10-10 (AECI-1268), and local SSR is uncached. |
 | **Datadog is gone on this line (AECI-651)** | Demo stops writing to Datadog the moment it is promoted. PostHog is the only plane. If a dashboard goes quiet, that is expected, not an incident. |
 | **PostHog project split** | Demo's SSR key is the **non-prod** project (`phc_pY8F…`, 525793); only production uses `phc_Ka6z…` (354071). AECI-754 is still in flight for the remaining axis — confirm demo test traffic is not landing in the production project before you generate volume. |
 | **Internal-user exclusion is not configured** | Your own testing will appear in PostHog product analytics while `page_views` excludes it by admin session. The two surfaces will disagree; that is a known gap, not a bug. |

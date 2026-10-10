@@ -5,7 +5,7 @@
  * cannot act on anything it is told (every `/api/vendor/*` call fails the ban
  * check), so it gets no mail. `profiles` holds no email, so the addresses come from
  * Supabase `auth.users` through the privileged seam. Without
- * `SUPABASE_SERVICE_ROLE_KEY` (local dev, PR previews) the seam returns nothing and
+ * `SUPABASE_SERVICE_ROLE_KEY` (local dev) the seam returns nothing and
  * every vendor resolves to no recipients, which the senders report as `skipped`.
  *
  * Shared by the entitlement-expiry sweep (AECI-613) and the protest emails

@@ -2361,7 +2361,7 @@ describe('tier delivery policy (AECI-1198)', () => {
   it('suppresses on every non-production tier, and on a missing ENV', async () => {
     const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
     vi.spyOn(console, 'warn').mockImplementation(() => {});
-    for (const ENV of ['development', 'preview', 'staging', 'demo', undefined] as const) {
+    for (const ENV of ['development', 'staging', 'demo', undefined] as const) {
       expect(await sendTransactionalEmail(fakeContext({ ENV }), INPUT)).toBe('suppressed');
     }
     expect(fetchSpy).not.toHaveBeenCalled();

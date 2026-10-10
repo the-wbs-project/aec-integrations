@@ -24,8 +24,7 @@ import { describe, expect, it } from 'vitest';
 import { ADMIN_CRON_JOB, CRON_JOBS, CRON_SCHEDULES } from './cron-schedules';
 
 /** The three env blocks that declare `triggers.crons` (staging, demo,
- *  production). Base config and `preview` deliberately declare none, so PR
- *  previews run no crons. */
+ *  production). The base block (local dev) deliberately declares none. */
 const TRIGGER_BLOCKS = 3;
 
 /** Read as text rather than parsed: `wrangler.jsonc` carries comments and

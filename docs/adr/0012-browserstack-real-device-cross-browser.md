@@ -1,6 +1,14 @@
 # ADR 0012: BrowserStack for cross-browser / real-device testing (Phase 7)
 
-**Status:** **Accepted** (2026-06-25; proposed 2026-06-09)
+**Status:** **Superseded** (2026-10-10, AECI-1269). Accepted 2026-06-25; proposed 2026-06-09.
+
+> **Superseded 2026-10-10 (AECI-1269).** The BrowserStack lane is removed. The workflow had been
+> disabled since 2026-06-26 and it never gated a merge or a deploy.
+> AECI-1269 deleted `.github/workflows/browserstack.yml`, `apps/web/browserstack.yml`,
+> `apps/web/playwright.browserstack.config.ts`, the `test:e2e:browserstack` script, the
+> `browserstack-node-sdk` devDependency, and the `browserstack` MCP server entry. E2E stays
+> chromium-only. There is no cross-browser or real-device lane today. The record below is kept for
+> history; its file paths no longer exist.
 
 **Context owner:** Chris Walton
 
@@ -94,3 +102,7 @@ free PR-blocking lane.
 - **Pre-launch:** one-off full real-device sweep + BrowserStack accessibility audit as a launch gate.
 - **Ratified:** this ADR flipped **Proposed → Accepted** (2026-06-25) and `TESTING_STRATEGY.md` §7.7/§9.5
   were promoted from "planned" to the documented approach.
+
+**Amendment 2026-10-10 (AECI-1268):** The per-PR Workers previews named above are retired. Lighthouse CI and axe run against a local `dev:bound` server on each PR, and staging is the deployed tier for human review and for BrowserStack. The Access service-token pattern now applies to staging only.
+
+**Amendment 2026-10-10 (AECI-1269):** The BrowserStack lane named in the amendment above no longer exists. See the superseded note at the top.

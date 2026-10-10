@@ -15,7 +15,7 @@
  * delegates to `sendStuckRequestAdminAlert` in `lib/email.ts`, then emits
  * `aeci.linear.reconcile.email` with the send `outcome` and logs the digest. It
  * stays fail-open: an absent `RESEND_API_KEY` / `SUPPORT_EMAIL` resolves to
- * `'skipped'` (the expected local/preview state, mirroring the absent-`LINEAR_API_KEY`
+ * `'skipped'` (the expected local state, mirroring the absent-`LINEAR_API_KEY`
  * posture), and the §6.2 Datadog alert remains the guaranteed backstop regardless.
  * Kept as its own module so the email channel (and its test) live in one place,
  * apart from the sweep. (Originally specced as "Loops"; the repo uses Resend — see

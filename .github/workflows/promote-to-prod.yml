@@ -90,7 +90,7 @@
 #                            0016 §6). Single shared un-suffixed key — one Supabase
 #                            auth project backs every env (ADR 0017). Pushed to the
 #                            prod API Worker below; **API Worker only** (never the
-#                            web Worker) and never on per-PR previews. Recommended +
+#                            web Worker). Recommended +
 #                            fail-open — absent → reviewer emails read null, the
 #                            account-erasure auth.users delete is silently skipped,
 #                            and vendor-claim resolution reports 'unavailable'.
@@ -544,7 +544,7 @@ jobs:
       # files fixture claims as real issues in the live tracker. That already
       # happened: AECI-638 "Claim: Fixture Procore (product)" and AECI-662 came from
       # a non-prod tier during the AECI-637 window. Do NOT copy these steps into
-      # deploy.yml / promote-to-demo.yml / pr-preview.yml until non-prod has its own
+      # deploy.yml / promote-to-demo.yml until non-prod has its own
       # Linear project and those constants become env-configurable.
       #
       # LINEAR_API_KEY is REQUIRED (asserted in preflight AND on the Worker below).
@@ -573,7 +573,7 @@ jobs:
       # Recommended + warn-and-skip: POST /api/webhooks/resend fails CLOSED without it (every
       # delivery 401s and counts aeci.webhooks.resend.signature_failure), so its absence is
       # loud, and a tier whose endpoint is not registered yet must not block a deploy.
-      # API Worker only. Previews never get it.
+      # API Worker only.
       - name: Push RESEND_WEBHOOK_SECRET to API Worker (production)
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
@@ -636,8 +636,7 @@ jobs:
       #
       # API WORKER ONLY. The web Worker verifies user JWTs with public JWKS material
       # and must never carry this key (apps/web/src/supabase-bootstrap-inject.spec.ts
-      # is the standing regression guard). Per-PR previews deliberately do NOT get it
-      # — see the note in pr-preview.yml.
+      # is the standing regression guard).
       #
       # Optional + FAIL-OPEN even on production — every seam degrades rather than
       # throwing, so this is graceful warn-and-skip and NOT in
@@ -768,7 +767,7 @@ jobs:
       # PostHog source maps (AECI-646 / POSTHOG_MIGRATION_SPEC.md §AW5).
       #
       # This step was MISSING from the production path while staging, demo and
-      # PR preview all had it. That was not a scoping choice: this workflow
+      # the (since retired) PR preview tier all had it. That was not a scoping choice: this workflow
       # builds `apps/web` inline (the `pnpm --filter @aeci/web build` above) and
       # then deploys `dist/browser` verbatim as Worker assets, so with no step
       # here the hidden `.map` files were neither uploaded NOR deleted — i.e.

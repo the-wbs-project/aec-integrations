@@ -79,7 +79,7 @@ Two semantics in that count are silent if they are wrong, so they are asserted b
 
 - Per-colo, eventually consistent counters. A brake, not an accounting system.
 - Layer 2 runs after the Worker invocation is already paid for. It bounds D1 and downstream cost, not Worker cost.
-- The binding is **not inherited across wrangler environments**, so each bucket is declared five times. A missing block silently protects nothing — AECI-659's shape in a config file — and the PR suite runs no `wrangler deploy --dry-run`, so nothing else would catch it. `apps/api/src/wrangler-ratelimits.spec.ts` is the gate, and it fails with the environment named.
+- The binding is **not inherited across wrangler environments**, so each bucket is declared four times (top-level local block, staging, demo, production; amended 2026-10-10, AECI-1268, when the preview block was removed). A missing block silently protects nothing — AECI-659's shape in a config file — and the PR suite runs no `wrangler deploy --dry-run`, so nothing else would catch it. `apps/api/src/wrangler-ratelimits.spec.ts` is the gate, and it fails with the environment named.
 - Counters are shared **account-wide** by `namespace_id`, across Workers. The sibling `aec-integrations-review` app already ships this binding on the same account, so every (bucket, environment) pair gets its own id and the ids are AECI-773-derived rather than the `1001`/`1002` the Cloudflare docs example uses.
 
 **Invariants that must not be broken**

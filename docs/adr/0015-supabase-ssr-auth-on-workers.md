@@ -99,3 +99,5 @@ Validated end-to-end on the bound local stack against the shared dev project
 - A kept dev tool, `apps/web/scripts/mint-dev-session.mjs`, mints a real
   session (prints the JWT header, the bearer token, and a ready-to-paste
   `Cookie:` header) so the 200-path smoke is reproducible until login UI lands.
+
+**Amendment 2026-10-10 (AECI-1268):** Per-PR preview deploys are retired. The shared dev Supabase project now serves staging and local dev only. The decision is unchanged.

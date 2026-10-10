@@ -171,7 +171,7 @@ file in the same change.
 <!-- A live defect with no spec contract:
      **Spec section:** n/a — live defect. Governing docs: `docs/A.md` §X -->
 
-**Environment:** [local / preview / staging / demo / production]
+**Environment:** [local / staging / demo / production]
 
 **Severity:** [P0 / P1 / P2 / P3]
 

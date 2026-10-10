@@ -17,7 +17,7 @@
  * `lib/claimant-identity.ts` (`docs/STAGE_2_VENDOR_PORTAL_SPEC.md` §2).
  *
  * Every seam DEGRADES GRACEFULLY when `SUPABASE_URL` /
- * `SUPABASE_SERVICE_ROLE_KEY` are absent (local `wrangler dev`, PR previews):
+ * `SUPABASE_SERVICE_ROLE_KEY` are absent (local `wrangler dev`):
  * emails resolve to a partial/empty map, the auth-user delete is skipped (the D1
  * data erasure still happened), and claim resolution reports `unavailable`.
  * None throws — the caller decides how to surface a failure. The single-shot
@@ -68,7 +68,7 @@ function normalizeEmail(email: string): string {
  * Say out loud why a seam degraded.
  *
  * Every seam in this module swallows its failure by design — a missing
- * service-role key is a legitimate state in local dev and PR previews, and an
+ * service-role key is a legitimate state in local dev, and an
  * admin queue must render rather than 500. What was NOT by design is that the
  * status code and error text went with it: on 2026-08-24 the claim queue read
  * "Account status unknown" for every row on the (since-retired) `stage2` test

@@ -20,10 +20,9 @@
  * The success-path coverage (hero / breadcrumbs / Cache-Tag with vendor +
  * integration tags / second-visit cache HIT) lives in the Phase 2.18 crawler
  * (AECI-64) and Phase 2.19 Lighthouse/axe harness (AECI-65) once those land
- * — they run against a seeded dev DB / preview deployment where the assertions
+ * — they run against a seeded dev DB / staging where the assertions
  * have data to bite on. This file is intentionally seed-free so it stays
- * green on `pnpm dev:bound` against an empty local DB and on `pr-preview.yml`
- * runs before the seed lands.
+ * green on `pnpm dev:bound` against an empty local DB.
  */
 import AxeBuilder from '@axe-core/playwright';
 import { expect, request as playwrightRequest, test } from '@playwright/test';

@@ -268,7 +268,7 @@ test.describe('authed console health — Phase 5 gated pages (AECI-235)', () => 
   // The detail page. Console-clean here is a real signal that the authorized read
   // resolved through the SSR `/api/*` passthrough with the session cookie —
   // including the GoTrue enrichment, which in CI is deliberately DEGRADED
-  // (`pr-preview.yml` withholds `SUPABASE_SERVICE_ROLE_KEY`), so this also proves
+  // (the CI e2e stack has no `SUPABASE_SERVICE_ROLE_KEY`), so this also proves
   // the tri-state's "unavailable" path renders without erroring. That is the path
   // CI can prove; the seam-up path is post-merge verification on staging.
   test('/admin/users/:id hydrates with no console errors', async ({ page }) => {

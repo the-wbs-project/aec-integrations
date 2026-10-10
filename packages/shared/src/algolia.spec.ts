@@ -31,12 +31,15 @@ describe('INDEX_ENTITIES', () => {
 });
 
 describe('indexPrefixForEnv', () => {
-  it('folds development onto the preview index set', () => {
-    expect(indexPrefixForEnv('development')).toBe('preview');
+  it('folds development onto the staging index set (AECI-1268)', () => {
+    expect(indexPrefixForEnv('development')).toBe('staging');
   });
 
-  it('maps preview/staging/demo/production to themselves', () => {
-    expect(indexPrefixForEnv('preview')).toBe('preview');
+  it('folds a stale non-tier label (a retired ENV=preview) onto staging, never a deleted set', () => {
+    expect(indexPrefixForEnv('preview' as AlgoliaEnv)).toBe('staging');
+  });
+
+  it('maps staging/demo/production to themselves', () => {
     expect(indexPrefixForEnv('staging')).toBe('staging');
     expect(indexPrefixForEnv('demo')).toBe('demo');
     expect(indexPrefixForEnv('production')).toBe('production');
@@ -57,13 +60,8 @@ describe('indexNamesFor', () => {
     });
   });
 
-  it('uses the preview_* set for both preview and development', () => {
-    expect(indexNamesFor('preview')).toEqual({
-      products: 'preview_products',
-      vendors: 'preview_vendors',
-      integrations: 'preview_integrations',
-    });
-    expect(indexNamesFor('development')).toEqual(indexNamesFor('preview'));
+  it('uses the staging_* set for development (the preview_* set retired, AECI-1268)', () => {
+    expect(indexNamesFor('development')).toEqual(indexNamesFor('staging'));
   });
 
   it('keeps demo on its own index set, separate from production (the showcase must never touch live indexes)', () => {
@@ -107,18 +105,18 @@ describe('localizedIndexNamesFor', () => {
     });
   });
 
-  it('folds development onto the preview set before suffixing', () => {
+  it('folds development onto the staging set before suffixing', () => {
     expect(localizedIndexNamesFor('development', 'es')).toEqual(
-      localizedIndexNamesFor('preview', 'es'),
+      localizedIndexNamesFor('staging', 'es'),
     );
   });
 });
 
 describe('keyDescription', () => {
-  it('tags by role and index prefix (development folds to preview)', () => {
+  it('tags by role and index prefix (development folds to staging)', () => {
     expect(keyDescription('search', 'staging')).toBe('aeci:search:staging');
     expect(keyDescription('management', 'production')).toBe('aeci:management:production');
-    expect(keyDescription('search', 'development')).toBe('aeci:search:preview');
+    expect(keyDescription('search', 'development')).toBe('aeci:search:staging');
   });
 });
 
@@ -179,7 +177,7 @@ describe('managementKeyParams', () => {
   });
 
   it('is scoped to indexes, never the whole app', () => {
-    for (const env of ['preview', 'staging', 'production'] as AlgoliaEnv[]) {
+    for (const env of ['staging', 'demo', 'production'] as AlgoliaEnv[]) {
       expect(managementKeyParams(env).indexes).not.toContain('*');
       expect(searchKeyParams(env).indexes).not.toContain('*');
     }
@@ -246,7 +244,7 @@ describe('replicaIndexName / replicaNamesFor', () => {
       'staging_products_name_asc',
       'staging_vendors_name_asc',
     ]);
-    expect(replicaNamesFor('development')).toEqual(replicaNamesFor('preview'));
+    expect(replicaNamesFor('development')).toEqual(replicaNamesFor('staging'));
   });
 });
 
@@ -469,15 +467,15 @@ describe('applyIndexSettings', () => {
     ]);
   });
 
-  it('folds development onto the preview index set (primaries + replicas)', async () => {
+  it('folds development onto the staging index set (primaries + replicas)', async () => {
     const { client, calls } = makeClient();
     await applyIndexSettings(client, 'development');
     expect(calls.map((c) => c.indexName)).toEqual([
-      'preview_products',
-      'preview_products_name_asc',
-      'preview_vendors',
-      'preview_vendors_name_asc',
-      'preview_integrations',
+      'staging_products',
+      'staging_products_name_asc',
+      'staging_vendors',
+      'staging_vendors_name_asc',
+      'staging_integrations',
     ]);
   });
 

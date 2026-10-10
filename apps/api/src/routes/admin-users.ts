@@ -34,9 +34,8 @@
  * sets `private, no-store` and `/admin/*` is absent from `ROUTE_CACHE_PATTERNS`.
  *
  * ── THE SEAM IS ABSENT MORE OFTEN THAN IT IS PRESENT ─────────────────────────
- * `SUPABASE_SERVICE_ROLE_KEY` is legitimately unset on local dev and on every PR
- * preview (`pr-preview.yml` withholds it deliberately), so the degraded path is
- * the DEFAULT path here, not an edge case. Every auth-derived field is therefore
+ * `SUPABASE_SERVICE_ROLE_KEY` is legitimately unset on local dev and in the CI
+ * e2e stack, so the degraded path is the DEFAULT path there, not an edge case. Every auth-derived field is therefore
  * tri-state: `auth_available` says whether the seam ran, an absent record says
  * the account does not exist, and a `null` field says the account has no such
  * value. Collapsing any two of those is how "Account status unknown" hid a

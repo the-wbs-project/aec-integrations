@@ -47,8 +47,8 @@
  *      response back to the user.
  *   2. A forwarding failure MUST NOT throw — observability outages cannot take
  *      the site down. Errors are logged to `console.warn` and swallowed.
- *   3. No `POSTHOG_PROJECT_KEY` → total no-op. Keyless local/preview is the
- *      design, not a degraded mode.
+ *   3. No `POSTHOG_PROJECT_KEY` → total no-op. A keyless run (unit tests) is
+ *      the design, not a degraded mode.
  *   4. One tag vocabulary on all pipes: `env` · `app:aeci` · `service` ·
  *      `worker` · `version` · `locale` · `host`, emitted as OTLP **resource**
  *      attributes (plus `service.name`, which is the only key the Logs
@@ -58,8 +58,8 @@
  *      **One deliberate exception: `host` is NOT on the metrics pipe**
  *      (AECI-645 / §AW4). The AW4 arithmetic over the ~50-metric catalogue
  *      already sums to ≈854 point-attribute series against a 1,000-series
- *      guardrail, and `host` on the preview tier is unbounded — one Worker
- *      hostname per PR, forever. Logs and events keep it. The full reasoning is
+ *      guardrail, and `host` was unbounded on the retired per-PR preview tier
+ *      (one Worker hostname per PR). Logs and events keep it. The full reasoning is
  *      on `metricResourceAttributes` below; do not "restore consistency" here
  *      without redoing that arithmetic.
  *
@@ -128,7 +128,7 @@ export type PosthogEnv = {
   POSTHOG_PROJECT_KEY?: string;
   /** Ingest origin, e.g. `https://us.i.posthog.com`. NOT the management host. */
   POSTHOG_HOST?: string;
-  ENV?: 'development' | 'preview' | 'staging' | 'demo' | 'production';
+  ENV?: 'development' | 'staging' | 'demo' | 'production';
   /** Deploy SHA (AECI-74) — rides every pipe as the `version` dimension. */
   COMMIT_SHA?: string;
 };
@@ -470,10 +470,12 @@ export function createPosthogClient(config: PosthogClientConfig): PosthogClient 
    * The AW4 arithmetic over the ~50-metric catalogue sums to ≈854 point-attribute
    * series — 85% of PostHog's 1,000-series-per-window guardrail before any
    * resource attribute applies — and `version` alone already doubles that to
-   * ≈1,708 during a deploy overlap. `host` is what makes it unrecoverable: in the
-   * non-prod project the preview tier deploys **one Worker per PR**
-   * (`aeci-web-pr-123.<subdomain>.workers.dev`), so `host` is unbounded
-   * cardinality that grows with every PR opened, forever. Even in production it
+   * ≈1,708 during a deploy overlap. `host` is what made it unrecoverable: in the
+   * non-prod project the retired preview tier deployed **one Worker per PR**
+   * (`aeci-web-pr-123.<subdomain>.workers.dev`), so `host` was unbounded
+   * cardinality that grew with every PR opened. That tier retired with AECI-1268,
+   * but `host` stays off the metric side: any future per-branch deploy would
+   * reopen the same hole. Even in production it
    * would be ×2–3 (apex, `www.`, `prod.`) for no analytical gain, because `env`
    * already identifies the tier.
    *

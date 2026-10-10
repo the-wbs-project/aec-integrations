@@ -315,7 +315,7 @@ describe('PATCH /api/admin/contests/:id', () => {
 
 describe('/api/admin/contests — authorization', () => {
   const SUPABASE_URL = 'https://test-project.supabase.co';
-  const AUTHZ_ENV = { ENV: 'preview', SUPABASE_URL } as Env;
+  const AUTHZ_ENV = { ENV: 'staging', SUPABASE_URL } as Env;
   const REVIEWER_ID = uuid(300);
 
   let jwks: TestJwks;

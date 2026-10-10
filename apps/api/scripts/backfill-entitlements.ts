@@ -59,7 +59,8 @@ import {
 
 // ─── Args + target resolution ────────────────────────────────────────────────
 
-const D1_ENVS = ['preview', 'staging', 'demo', 'production'] as const;
+// The preview tier retired with AECI-1268; `--local` still reads the local D1.
+const D1_ENVS = ['staging', 'demo', 'production'] as const;
 type D1Env = (typeof D1_ENVS)[number];
 
 interface Target {

@@ -72,8 +72,8 @@ a legal document:
    feature requiring a policy update).
 2. **Linear issue** — open one describing the rationale, scope, and urgency.
 3. **Branch + PR** — commit the text change on a branch; open a PR linking the Linear issue.
-   Reviewers (and counsel) can read the rendered change on the PR's Cloudflare preview deploy.
-4. **Counsel review** — counsel reviews the PR / preview; capture their approval in the Linear issue.
+   Reviewers (and counsel) can read the rendered change from the diff, or by running the branch locally. There is no per-PR preview deploy (retired 2026-10-10, AECI-1268).
+4. **Counsel review** — counsel reviews the PR diff; capture their approval in the Linear issue.
 5. **Bump frontmatter** — increment `version`, set `effective_date`, fill `counsel_approved_by` /
    `counsel_approved_on`, update `last_updated`, and remove the draft notice.
 6. **Merge** — the new version goes live on the next deploy.

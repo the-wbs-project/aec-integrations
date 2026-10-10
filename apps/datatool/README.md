@@ -1,8 +1,9 @@
 # `@aeci/datatool` — internal D1 copy / seed / reindex tool
 
 A small Cloudflare-Access-gated admin Worker + web UI that does three jobs across the
-four D1 environments (`preview` / `staging` / `demo` / `production` — one per deploy
-tier, `docs/environments.md`):
+three D1 environments (`staging` / `demo` / `production` — one per deploy tier,
+`docs/environments.md`). The `preview` target retired with the preview tier
+(AECI-1268, 2026-10-10). The `DB_PREVIEW` binding is gone too, so the deployed Worker needs a hand redeploy:
 
 1. **Copy data env→env** — a **full clone** in **replace/mirror** mode: the
    destination becomes an exact copy of the source, table for table.
@@ -34,9 +35,9 @@ that tier's own SSR Worker consumes.
 - **Cross-env auth coherence (post-ADR 0017).** A full clone copies `profiles` /
   `reviews` / `audit_log` etc. whose ids reference Supabase `auth.users`. Per
   [ADR 0017](../../docs/adr/0017-single-supabase-auth-project-across-environments.md)
-  **all four tiers share one auth project** (`ktuhnlypztujpsseujzx`), so those
+  **every tier shares one auth project** (`ktuhnlypztujpsseujzx`), so those
   referenced users exist everywhere — a clone between **any** two tiers
-  (preview/staging/demo/production) stays sign-in-coherent. (This retires the
+  (staging/demo/production) stays sign-in-coherent. (This retires the
   earlier two-project caveat, where a prod↔dev clone left auth-linked rows orphaned;
   D1 has no auth FK regardless, so the insert always succeeds.)
 - **Not globally atomic.** A clone spans many tables / batches; a mid-clone failure
@@ -67,7 +68,7 @@ that tier's own SSR Worker consumes.
   single `{ purgeEverything: true, source: 'datatool' }` message onto the
   **destination tier's** `aeci-cache-purge-{env}` queue (WC-5 / ADR 0020); that tier's
   own SSR Worker consumes it and evicts its native Workers Cache. Per-Worker caches →
-  **no cross-tier bleed**. `preview` has no queue → graceful no-op; a `queue.send`
+  **no cross-tier bleed**. An unbound queue → graceful no-op; a `queue.send`
   failure never fails the write. (The old zone HTTP purge is inert against Workers
   Cache, hence the queue.) No CF secret is needed — the producer bindings
   `CACHE_PURGE_QUEUE_{STAGING,DEMO,PRODUCTION}` are declared in `wrangler.jsonc`.
@@ -190,7 +191,7 @@ ungated (the edge Access gates the host).
 
 `refresh` defaults **true** (reindex + cache purge after a write); set `false` to
 skip. The reindex is a graceful no-op without Algolia creds; the purge is a no-op on
-a tier with no cache-purge queue (`preview`, local).
+a tier with no cache-purge queue (local).
 
 ## Deploy (manual — not in CI, like `apps/landing`)
 
@@ -232,15 +233,15 @@ Needs `CLOUDFLARE_API_TOKEN` (Workers Scripts: Edit + D1: Edit on all three DBs)
    Verify: `curl -I https://aeci-datatool.thewbsproject.workers.dev` → `302` to
    `cloudflareaccess.com`; a browser hit prompts the OTP for the allowlist.
 
-## Verify (preview → staging; never test against production)
+## Verify (production → staging; never write production)
 
 ```bash
 H=(-H "CF-Access-Client-Id: $CF_ACCESS_CLIENT_ID" -H "CF-Access-Client-Secret: $CF_ACCESS_CLIENT_SECRET" -H 'content-type: application/json')
 U=https://aeci-datatool.thewbsproject.workers.dev
 
 # Copy dry-run → execute
-curl -s "${H[@]}" -d '{"source":"preview","dest":"staging","dryRun":true}'  $U/api/copy   # per-table counts
-curl -s "${H[@]}" -d '{"source":"preview","dest":"staging","dryRun":false,"confirmName":"aeci-app-staging"}' $U/api/copy
+curl -s "${H[@]}" -d '{"source":"production","dest":"staging","dryRun":true}'  $U/api/copy   # per-table counts
+curl -s "${H[@]}" -d '{"source":"production","dest":"staging","dryRun":false,"confirmName":"aeci-app-staging"}' $U/api/copy
 
 # Confirm dest mirrors source + Algolia matches the promoted count
 pnpm --filter @aeci/api exec wrangler d1 execute aeci-app-staging --env staging --remote \

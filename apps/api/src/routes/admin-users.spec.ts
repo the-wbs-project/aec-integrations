@@ -4,7 +4,7 @@
  * What each group of assertions earns its keep for:
  *
  *  1. **The tri-state.** `SUPABASE_SERVICE_ROLE_KEY` is legitimately absent on
- *     local dev and every PR preview, so "seam down" is the DEFAULT path here.
+ *     local dev, so "seam down" is the DEFAULT path here.
  *     Three states must stay distinguishable — seam down / no auth row / field
  *     empty — because collapsing them is what let a misconfigured key read as
  *     "Account status unknown" for a day on 2026-08-24.
@@ -344,7 +344,7 @@ describe('GET /api/admin/users — the list', () => {
 
 describe('GET /api/admin/users — the GoTrue tri-state', () => {
   it('seam down: auth_available false, every auth null, page still 200s', async () => {
-    // This is the DEFAULT local-dev and PR-preview state, not an edge case.
+    // This is the DEFAULT local-dev state, not an edge case.
     await seedPeople();
     const app = mount('/users', createAdminUsersListHandler(t.factory, recordSeam({}, false)));
 

@@ -563,7 +563,7 @@ export type AdminVendorAuditResponse = z.infer<typeof AdminVendorAuditResponseSc
  * AECi account yet, and requiring them to sign up first would reintroduce the
  * out-of-band round trip this action exists to remove. The cost is that the seam
  * needs `SUPABASE_SERVICE_ROLE_KEY`, so this endpoint reports **503
- * `DEPENDENCY_FAILURE`** on local dev and PR previews exactly as the grant does.
+ * `DEPENDENCY_FAILURE`** on local dev exactly as the grant does.
  */
 export const ProvisionVendorSeatSchema = z.object({
   email: z.string().email(),

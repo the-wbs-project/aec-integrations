@@ -147,7 +147,7 @@ export async function parseJsonBody<T>(c: VendorContext, schema: ZodType<T>): Pr
 /**
  * Enqueue the Cache-Tag purge for an edited entity (WC-5 / ADR 0020 §3). The SSR
  * consumer issues the actual `ctx.cache.purge()`. Best-effort by design: no-ops
- * without the queue binding (local / PR preview) and a `queue.send` rejection is
+ * without the queue binding (local) and a `queue.send` rejection is
  * logged and swallowed — a cache miss must never fail a committed edit.
  */
 export async function purgeTags(
@@ -182,8 +182,8 @@ export async function purgeTags(
  *
  * Exported so a handler can skip DERIVING the URLs on a gated environment — the
  * product edit resolves the trade publication floor with a D1 read, and running
- * it to feed a buffer that will not be written is pure waste on every preview
- * and every local request.
+ * it to feed a buffer that will not be written is pure waste on every gated
+ * tier and every local request.
  */
 export function recrawlEnabled(env: Pick<Env, 'INDEXNOW_KEY' | 'PUBLIC_SITE_URL'>): boolean {
   return Boolean(env.INDEXNOW_KEY) && publicSiteBase(env) !== null;

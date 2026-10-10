@@ -40,7 +40,7 @@ import {
 const NOW = new Date('2026-10-02T12:00:00.000Z');
 const clock = { now: () => NOW };
 const ADMIN = '00000000-0000-4000-8000-000000000900';
-const PREVIEW = { ENV: 'preview' } as Env;
+const PREVIEW = { ENV: 'staging' } as Env;
 
 let t: TestDb;
 beforeEach(async () => {
@@ -91,7 +91,7 @@ const audits = () => t.db.select().from(auditLog);
 describe('GET /api/admin/email/switches', () => {
   it('lists the support copy first, then every email entry, all enabled with no rows', async () => {
     const body = await get();
-    expect(body.environment).toBe('preview');
+    expect(body.environment).toBe('staging');
     expect(body.switches[0]).toEqual(
       expect.objectContaining({
         key: 'support-copy',
@@ -138,7 +138,7 @@ describe('GET /api/admin/email/switches', () => {
     const res = await app().request(
       '/api/admin/email/switches',
       {},
-      { ENV: 'preview', EMAIL_BCC: 'chris@thewbsproject.com' } as Env,
+      { ENV: 'staging', EMAIL_BCC: 'chris@thewbsproject.com' } as Env,
       fakeExecutionContext(),
     );
     const text = await res.text();
@@ -171,7 +171,7 @@ describe('PUT /api/admin/email/switches/:key', () => {
         entityId: 'landing-feedback',
         beforeState: { enabled: true },
         afterState: { enabled: false },
-        metadata: { source: 'admin-email-switches', tier: 'preview', reason: 'Spam wave' },
+        metadata: { source: 'admin-email-switches', tier: 'staging', reason: 'Spam wave' },
       }),
     ]);
   });
@@ -252,7 +252,7 @@ describe('switchWriteStatements', () => {
       to: false,
       actorId: ADMIN,
       actorType: 'admin',
-      tier: 'preview',
+      tier: 'staging',
       now: NOW.toISOString(),
     });
     let error: unknown;
@@ -272,7 +272,7 @@ describe('switchWriteStatements', () => {
       to: false,
       actorId: ADMIN,
       actorType: 'admin',
-      tier: 'preview',
+      tier: 'staging',
       now: NOW.toISOString(),
     });
     await t.db.batch(stmts as unknown as BatchTuple);
@@ -292,7 +292,7 @@ describe('switchWriteStatements', () => {
 
 describe('authorization', () => {
   const SUPABASE_URL = 'https://test-project.supabase.co';
-  const AUTHZ_ENV = { ENV: 'preview', SUPABASE_URL } as Env;
+  const AUTHZ_ENV = { ENV: 'staging', SUPABASE_URL } as Env;
   let jwks: TestJwks;
   beforeAll(async () => {
     jwks = await makeTestJwks();
@@ -361,7 +361,7 @@ describe('route registration', () => {
             }
           : {}),
       }),
-      { ENV: 'preview', SUPABASE_URL: 'https://test-project.supabase.co' } as Env,
+      { ENV: 'staging', SUPABASE_URL: 'https://test-project.supabase.co' } as Env,
       fakeExecutionContext(),
     );
     expect(res.status).toBe(401);

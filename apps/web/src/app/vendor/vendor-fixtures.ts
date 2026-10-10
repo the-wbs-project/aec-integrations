@@ -768,7 +768,7 @@ export const CHECKLIST_MIXED_STATE: ChecklistFixtureState = {
 
 /** The seat roster for the active vendor account: the viewer (an OWNER, so the preview
  *  exercises the invite/remove controls), a member, and a banned seat with an
- *  unresolved email (the local/preview degrade-to-null case). */
+ *  unresolved email (the local degrade-to-null case). */
 export const VENDOR_SEATS_FIXTURE: readonly VendorSeat[] = [
   {
     user_id: '00000000-0000-4000-8000-0000000052b1',

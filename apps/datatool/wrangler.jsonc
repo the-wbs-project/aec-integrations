@@ -12,8 +12,8 @@
   // origin hit can't bypass the edge gate. workers_dev:true is required for that
   // hostname to exist.
   //
-  // This Worker binds all FOUR remote D1 databases at once (preview/staging/demo/
-  // production — one per deploy tier, docs/environments.md) and can wipe-and-replace
+  // This Worker binds all THREE remote D1 databases at once (staging/demo/production
+  // — one per deploy tier, docs/environments.md) and can wipe-and-replace
   // any of them — see docs/access.md and the README. Deliberately NOT wired into CI
   // (deployed by hand like apps/landing).
   //
@@ -60,11 +60,6 @@
   },
   "d1_databases": [
     {
-      "binding": "DB_PREVIEW",
-      "database_name": "aeci-app-preview",
-      "database_id": "40b2021f-9023-4f4a-affb-9d2c657bb7e3",
-    },
-    {
       "binding": "DB_STAGING",
       "database_name": "aeci-app-staging",
       "database_id": "f4f80b55-d8e0-47fd-8277-e1879fe56a44",
@@ -86,10 +81,9 @@
   // 'datatool' }` message onto the TARGET tier's queue; the SSR Worker for that tier
   // consumes `aeci-cache-purge-{env}` (apps/web/wrangler.jsonc) and applies
   // `ctx.cache.purge()`. Unlike apps/api/apps/web, this Worker has no `env.*` blocks,
-  // so it binds all three cacheable tiers at once (one distinct binding each, mirroring
-  // the four D1 bindings) and `targets.ts` picks the right one per request. There is
-  // deliberately NO preview producer: preview is `*.workers.dev` with no edge cache and
-  // no `aeci-cache-purge-preview` queue, so a preview target is a graceful no-op.
+  // so it binds all three tiers at once (one distinct binding each, mirroring the
+  // three D1 bindings) and `targets.ts` picks the right one per request. The preview
+  // tier, its D1 binding and its target retired with AECI-1268.
   // The queues are provisioned by the WC-5 deploy workflows (deploy.yml /
   // promote-to-demo.yml / promote-to-prod.yml); they must exist before this manual deploy.
   "queues": {

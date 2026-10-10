@@ -8,8 +8,8 @@ import { expect, test } from '@playwright/test';
 //
 // Preview routes are blocked at the SSR Worker for `ENV=production`
 // (`isPreviewPath` in `server-runtime.ts`); against a production deployment
-// these checks would 404. Local dev (`pnpm dev:bound`) and PR preview Workers
-// both run with `ENV=preview`, so this spec runs against both.
+// these checks would 404. Local dev (`pnpm dev:bound`) runs with
+// `ENV=development`, a non-public tier, so this spec runs there.
 
 test.describe('MetaService SSR output (/preview/vendor-detail)', () => {
   test('SSR HTML contains title, canonical, OG tags, and JSON-LD', async ({ request }) => {

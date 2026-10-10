@@ -45,7 +45,7 @@ import type { Env } from '../env';
  *
  * Returning `null` rather than throwing is what lets every caller be a fail-open
  * post-commit hook: an environment with no public URL simply produces no URLs,
- * which is the correct behaviour on preview and in the in-memory test harness.
+ * which is the correct behaviour in local dev and in the in-memory test harness.
  *
  * The `new URL()` parse is not decoration. An unparseable value means every URL
  * built from it is malformed, and catching that at the producer keeps junk out of

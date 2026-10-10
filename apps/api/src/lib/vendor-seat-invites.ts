@@ -18,7 +18,7 @@
  * that mailbox, proven through the ordinary Supabase sign-in. This is why no code
  * here (and nothing on the vendor-facing surface at all) calls `createAuthUser`:
  * the vendor never provisions an account, so this whole path needs no
- * `SUPABASE_SERVICE_ROLE_KEY` and works identically in local dev, on PR previews,
+ * `SUPABASE_SERVICE_ROLE_KEY` and works identically in local dev,
  * and in production — unlike the §3 admin grant, which 503s wherever that key is
  * absent.
  *

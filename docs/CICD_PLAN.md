@@ -67,18 +67,17 @@ shipped.
 > - **Staging** is auto-deployed on merge to `main` via `.github/workflows/deploy.yml` `deploy-staging` job, gated by `vars.STAGING_ENABLED`.
 > - **Demo** is promoted manually via `.github/workflows/promote-to-demo.yml` — `workflow_dispatch` with a single `commit_sha` input (AECI-879 dropped the typed `confirm=PROMOTE` box; the SHA is the confirmation). The public showcase tier, inserted between staging and production; it shares the prod Supabase project (touches no Postgres). It is gated on Lighthouse: the SHA needs a `lighthouse: success` commit status, or the promote measures it first (§11c).
 > - **Production** is promoted manually via `.github/workflows/promote-to-prod.yml` (AECI-78) — `workflow_dispatch` with a single explicit `commit_sha` input and a GH Environment approval gate. AECI-879 dropped the typed `confirm=PROMOTE` box; the SHA is the confirmation and the approval gate is the real stop. It promotes from **demo** (the immediate upstream tier). There is intentionally **no auto-deploy to demo or production**.
-> - **Per-PR previews** are wired via `.github/workflows/pr-preview.yml` (AECI-79). Only the SSR Worker is per-PR (`aeci-web-pr-<N>` on `aeci-*.thewbsproject.workers.dev`); the API Worker is shared (`aeci-api-preview`) and reaches the app DB through its native D1 `DB` binding (no Prisma Accelerate, no `DATABASE_URL`; ADR 0016). See `docs/environments.md` §"PR previews" for the DB-strategy decision.
+> - **Per-PR previews are retired (AECI-1268, 2026-10-10).** `pr-preview.yml` is deleted. Human review and Algolia use staging. See §2.1.
 
-Four permanent environments, all on Cloudflare — plus, while Stage 2 is being tested, one temporary fifth:
+Three permanent deployed environments, all on Cloudflare, plus local:
 
 | Environment | URL pattern | Triggered by | Auto/Manual | Data |
 |---|---|---|---|---|
-| **Preview** | `aeci-web-pr-<N>.thewbsproject.workers.dev` | Every PR push | Auto | `aeci-app-preview` D1 via `aeci-api-preview` — ONE shared database for every PR (Option 1, see environments.md); migrated on push to `main` by `deploy.yml`'s `migrate-preview` job (AECI-828) |
 | **Staging** | `staging.aecintegrations.com` | Merge to `main` | Auto | `aeci-app-staging` D1 |
 | **Demo** | `demo.aecintegrations.com` | Manual, after staging | Manual | `aeci-app-demo` D1 |
 | **Production** | `aecintegrations.com` + `www.` (public, canonical) | Manual approval, after demo | Manual | `aeci-app-production` D1 |
 
-> **The promotion chain has four tiers, not five.** A temporary `stage2` tier sat outside it 2026-08 → 2026-09 (AECI-637) and was torn down under **AECI-808** — no `promote-to-stage2.yml` ever existed, and no GH Environment or secret named it. `docs/environments.md` §10 keeps the bootstrap procedure as the pattern for any future throwaway tier.
+> **The promotion chain has three deployed tiers.** A temporary `stage2` tier sat outside it 2026-08 → 2026-09 (AECI-637) and was torn down under **AECI-808** — no `promote-to-stage2.yml` ever existed, and no GH Environment or secret named it. `docs/environments.md` §10 keeps the bootstrap procedure as the pattern for any future throwaway tier.
 
 > **One Supabase project, one D1 database per tier.** Per **ADR 0017** every tier shares a *single*
 > Supabase project (`ktuhnlypztujpsseujzx`, verified in every `env.*` block of both
@@ -88,15 +87,18 @@ Four permanent environments, all on Cloudflare — plus, while Stage 2 is being 
 > "Staging Supabase project" / "Production D1 + Supabase", implying per-env Supabase projects;
 > they do not exist.
 
-### 2.1 Preview environment
+### 2.1 Preview environment (retired 2026-10-10, AECI-1268)
 
-Spun up per PR by [`pr-preview.yml`](../.github/workflows/pr-preview.yml) (AECI-79). Provides a working deployment for human review; the preview-URL E2E / integration-runner jobs remain parked in `deploy.yml` pending separate work to bridge them across workflows. (E2E and axe run **on every PR** against a local `dev:bound` server in `deploy.yml`. Lighthouse used to as well — AECI-65 un-parked it against `dev:bound` — but it never gated anything on a PR and has since moved to its own workflow ([`lighthouse.yml`](../.github/workflows/lighthouse.yml)). It no longer runs on PRs or merges. It runs nightly and as the demo promote gate (§11c).)
+The per-PR preview tier is gone. Chris ruled to use staging for human review and for Algolia. `pr-preview.yml`, the `migrate-preview` job and the two parked preview-URL jobs (`e2e-tests-preview`, `integration-runner-preview`) are deleted. Required checks are unchanged: Lint & typecheck, Unit tests, Build SSR Worker.
 
-- Each PR gets a unique SSR Worker `aeci-web-pr-<N>` at `https://aeci-web-pr-<N>.thewbsproject.workers.dev`.
-- Auto-deletes when the PR is closed or merged (cleanup job in the same workflow).
-- **DB:** the shared `aeci-api-preview` Worker reaches Cloudflare D1 via its native `DB` binding (ADR 0016) — no Prisma Accelerate, no per-PR Supabase branches (see `docs/environments.md` §"PR previews" for the trade-off and decision history).
-- Fronted by the "AECi Non-Prod" Cloudflare Access app — service token for CI, OTP-to-email for humans (see `docs/access.md`).
-- Resend and Linear behaviour for previews is shared with staging (preview Workers don't have their own integrations — they ride on whatever the shared `aeci-api-preview` is wired to). **PostHog is now the second exception:** since AECI-640 the publishable `phc_` token is a committed `env.preview` wrangler var pointing at `aec-integrations-dev` (525793), so **every PR preview gets analytics and error tracking for free** — no secret push, nothing to provision. Previews also post a PostHog `deployment` marker (`deploy_kind: preview`) and upload hidden source maps. **Algolia is the other exception:** previews use their own dedicated `preview_*` index set (and `preview` scoped keys), per §7.5 — so preview/local search can't poison staging data. Local `pnpm dev:bound` (`ENV=preview`) rides the same `preview_*` set.
+E2E and axe run **on every PR** against a local `dev:bound` server in `deploy.yml`. Lighthouse has its own workflow ([`lighthouse.yml`](../.github/workflows/lighthouse.yml)). It runs nightly and as the demo promote gate (§11c), against the local config.
+
+- **Local dev** runs the top-level block of each `wrangler.jsonc` with no `--env`. Its `ENV` is `development`. The `dev:preview` package scripts kept their names but no longer pass `--env preview`.
+- **The top-level API block keeps** the names `aeci-app-preview` (D1), `aeci-uploads-preview` (R2), `aeci-promote-preview` (Workflow) and the two preview KV ids as local-only names, so existing `.wrangler/state` carries over.
+- **Local SSR is uncached.** The top-level web block has no `exports` cache block.
+- **PostHog:** the top-level blocks carry the committed `phc_` token for `aec-integrations-dev` (525793), so local still reports analytics, now with `env=development`.
+- **Algolia:** there is no preview index set. Local and the Lighthouse run read `staging_*` (§7.5). The Algolia write guard (§7.5) stops a local Worker writing to them.
+- **Cleanup:** the remote preview resources are deleted by hand. The checklist is `docs/environments.md` "Operator steps after merge (AECI-1268)".
 
 ### 2.2 Staging environment
 
@@ -109,7 +111,7 @@ Mirror of production, but with test data and isolated from real users.
 - Resend sends real emails but only to allowlisted internal addresses
 - Linear creates real issues in a "Staging Test" project
 - Used for smoke tests, manual QA, and demos
-- **Network-level access control:** staging and `aeci-*.thewbsproject.workers.dev` previews sit behind Cloudflare Access (email-allowlist OTP for humans, service token for CI) — verified 2026-08-14: `https://staging.aecintegrations.com/` still 302s to the Access login. The demo tier is intentionally public (showcase), and **production is now public too** (see §2.4 — the pre-launch Access gate is gone). See [`access.md`](./access.md) for the runbook (allowlist management, service-token rotation, lockout recovery).
+- **Network-level access control:** staging sits behind Cloudflare Access (email-allowlist OTP for humans, service token for CI) — verified 2026-08-14: `https://staging.aecintegrations.com/` still 302s to the Access login. The demo tier is intentionally public (showcase), and **production is now public too** (see §2.4 — the pre-launch Access gate is gone). See [`access.md`](./access.md) for the runbook (allowlist management, service-token rotation, lockout recovery).
 
 ### 2.3 Demo environment
 
@@ -161,13 +163,13 @@ Runs in parallel where possible to minimize wall time. Goal: under 10 minutes to
 
 > **The PR lane is base-branch-agnostic — every PR runs the full gate regardless of what it
 > targets.** `deploy.yml` and `integration-db-tests.yml` intentionally carry **no `branches:`
-> filter** on their `pull_request` trigger, matching `pr-preview.yml` and `drift-check.yml`.
+> filter** on their `pull_request` trigger, matching `drift-check.yml`.
 > This is load-bearing under the ADR 0019 branch model (§10): `branches:` on `pull_request`
 > filters by **base** branch, so the former `branches: [main]` made this entire suite invisible
 > to any PR targeting a long-lived integration branch (`stage-2`, `admin-panel`) or an epic
 > branch (`aeci-513`) — i.e. to most of the work in flight. It went unnoticed until PR #521
 > (the AECI-513 vendor-portal epic, ~13k lines into `stage-2`) merged having run **only**
-> `pr-preview`: no lint, no typecheck, no unit tests, no build, no E2E. Omitting the filter
+> `pr-preview` (since deleted, AECI-1268): no lint, no typecheck, no unit tests, no build, no E2E. Omitting the filter
 > rather than listing branches means epic branches are covered as they come and go, with no
 > list to maintain. It is safe because `deploy-staging` is independently gated on
 > `push` + `refs/heads/main` (plus `vars.STAGING_ENABLED`), so a non-`main` PR runs
@@ -181,7 +183,7 @@ Runs in parallel where possible to minimize wall time. Goal: under 10 minutes to
 > **One exception since 2026-10: PRs into `batch/**` take a lite lane.** A sub-agent PR into a
 > batch branch (§10a) runs `deploy.yml` with lint, typecheck and unit tests scoped to the packages
 > it changed plus their dependents. E2E is skipped. `Build SSR Worker` builds only when apps/web
-> is in scope. `pr-preview.yml` and `integration-db-tests.yml` skip these PRs through
+> is in scope. `integration-db-tests.yml` skips these PRs through
 > `branches-ignore: ['batch/**']`. `drift-check.yml` still runs, because it is cheap and
 > migration-relevant. The batch → `main` PR runs the full lane once for the whole batch.
 >
@@ -263,7 +265,7 @@ vitest and `ng test` (207 s) under one `pnpm -r`. Each now has its own runner.
 
 The gate has `if: always()` and checks each `needs.<job>.result` explicitly. Without that, a red
 unit job would skip the gate, and a skipped required check counts as passing. Every job that waits
-on unit work (`migrate-preview`, `deploy-staging`) still `needs: [unit-tests]`, so it waits on both.
+on unit work (`deploy-staging`) still `needs: [unit-tests]`, so it waits on both.
 `unit-web` excludes the workspace root by name. The root's own `test:unit` script recurses into
 every package, apps/api included.
 
@@ -308,23 +310,22 @@ apps/web is in scope. It stays in that lane because it is cheap and catches temp
 breaks that lint and unit tests miss. It exposes `outputs.lane`, which `e2e-and-integration` reads
 to skip itself in the lite lane.
 
-**Per-PR preview deploy** — lives in the separate [`pr-preview.yml`](../.github/workflows/pr-preview.yml) workflow (AECI-79), not as a job in `deploy.yml`. Triggered by `pull_request` (`opened` / `synchronize` / `reopened`); the deploy job builds the SSR Worker, runs `wrangler deploy --env preview --name aeci-web-pr-<N>` with `COMMIT_SHA` + `DEPLOYED_AT` vars, verifies both `/api/version` (API Worker) and `/_version` (SSR Worker, AECI-92) report the PR head SHA, and posts a sticky PR comment with the preview URL. The matching `closed` event teardown runs `wrangler delete`. **No migrations of any kind are applied per-PR** under the current Option 1 strategy — not Supabase (there is no Postgres app DB) and deliberately not D1 either. The shared `aeci-app-preview` D1 is migrated on push to `main` by `deploy.yml`'s `migrate-preview` job (§3.2), never from a PR branch: applying an unmerged branch's schema would change the database every *other* PR preview reads. A PR that adds a migration therefore previews against the pre-merge schema (AECI-828).
+**Per-PR preview deploy** — retired 2026-10-10 (AECI-1268). `pr-preview.yml` is deleted and no PR deploys a Worker. A PR runs lint, typecheck, unit tests, build, and E2E plus axe against a local `dev:bound` server. Migration safety on a PR is the D1 schema drift check (`drift-check.yml`). Review happens on staging after merge.
 
-**Job: `e2e-tests`** (depends on `deploy-preview`, ~5 min)
-1. Wait for preview deployment health check
-2. Run Playwright E2E suite against preview URL
+**Job: `e2e-tests`** (as originally planned against a preview URL; never built that way)
+1. Run the Playwright E2E suite against the local `dev:bound` server
 3. Capture screenshots and traces on failure
 4. Upload Playwright report as artifact
 
 > The E2E suite that actually gates PRs is the local **`e2e-and-integration`** job
-> (against `dev:bound`), not this parked preview-URL job. Its Playwright step also
+> (against `dev:bound`). The parked preview-URL job was deleted in AECI-1268. Its Playwright step also
 > passes `SUPABASE_URL` / `SUPABASE_ANON_KEY` / `SUPABASE_TEST_USER_EMAIL` /
 > `SUPABASE_TEST_USER_PASSWORD` (AECI-235) so `authed-console.spec.ts` can mint a real
 > admin session and console-check the auth-gated Phase 5 pages — warn-and-skip when the
 > `SUPABASE_TEST_USER_*` secrets are unset. See `TESTING_STRATEGY.md` §7.6.
 
-**Job: `accessibility`** (depends on `deploy-preview`, ~2 min)
-1. Run axe-core via Playwright against key pages on preview
+**Job: `accessibility`** (~2 min)
+1. Run axe-core via Playwright against key pages on the local server
 2. Fail if any violations above "moderate" severity
 3. Comment on PR with summary if violations found
 
@@ -361,7 +362,7 @@ Re-runs all PR checks against the merged code (in case of merge conflicts), then
 3. Provision the staging queues — the scheduled-job set (`aeci-algolia-sync-staging`, `aeci-algolia-drift-staging`, `aeci-stats-staging`, `aeci-reconcile-staging`, `aeci-data-quality-staging`, the AECI-302 `aeci-attestation-notify-staging`, the AECI-1210 `aeci-vendor-snapshot-staging`, and the AECI-1236 `aeci-gsc-inspect-staging`) plus the WC-5 `aeci-cache-purge-staging` purge queue; idempotent
 4. Apply **Cloudflare D1** migrations — `scripts/d1-apply-migrations.sh aeci-app-staging staging`. *(Not Supabase: the app DB is D1 per ADR 0016 and the `supabase db push` path was decommissioned in AECI-278 — see §5.)*
 
-In parallel with `deploy-staging`, the independent **`migrate-preview`** job applies the same migrations to the shared preview D1 (`scripts/d1-apply-migrations.sh aeci-app-preview preview`, AECI-828). It is a separate job on purpose: `deploy-staging` is gated on `vars.STAGING_ENABLED`, and preview's schema must not hang off the staging gate. It `needs: [unit-tests]` so nothing reaches a real database while `migration-0027.spec.ts` is red, and it is gated to `main` so `admin-panel`'s migrations never reach the shared preview DB.
+The former independent `migrate-preview` job (AECI-828) was deleted on 2026-10-10 (AECI-1268) with the preview tier.
 5. `wrangler deploy --env staging` for the API Worker, then push its runtime secrets (`REVIEW_APP_TOKEN`, Algolia, `ANTHROPIC_API_KEY`, `RESEND_API_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, `CF_ANALYTICS_API_TOKEN` — the optional ones warn-and-skip)
    - **5b — PostHog source maps** (`scripts/ci/posthog-sourcemaps.sh`, AECI-646) — runs **after the build and before the SSR deploy**, and that order is load-bearing: `posthog-cli sourcemap inject` rewrites the built JS to add the `//# chunkId=…` comment PostHog matches on, so deploying the pre-inject bundle would upload maps that can never be matched. Angular's `production` configuration emits **hidden** maps (no `sourceMappingURL` comment in the served JS), and **every exit path of the script deletes the `.map` files** — including the warn-skip when `POSTHOG_CLI_API_KEY` is absent. That deletion is the safety property, not a tidy-up: `dist/browser` is uploaded verbatim as Worker assets, so a surviving `.map` would publish the whole app source at a guessable URL.
 6. `wrangler deploy --env staging` for the SSR Worker, then push its public config (`SUPABASE_ANON_KEY`, Algolia public config). **No observability push step at all** — AECI-640 deleted the four PostHog ones and AECI-651 deleted the Datadog RUM credential push; the publishable `phc_` token is a committed `vars.POSTHOG_PROJECT_KEY` in `wrangler.jsonc`
@@ -432,7 +433,7 @@ Algolia index updates **are** wired (step 9 of `deploy-staging` above, and the e
 Wrangler is the only deployment tool. Single source of truth for Worker configuration.
 
 **Configuration files:**
-- `wrangler.jsonc` per Worker package (e.g., `apps/web/wrangler.jsonc`, `apps/api/wrangler.jsonc`), with environment overrides under `env.preview`, `env.staging`, `env.demo`, `env.production`. JSONC is preferred over TOML because it allows comments and matches the validated pattern in `apps/web/wrangler.jsonc` and `apps/api/wrangler.jsonc`.
+- `wrangler.jsonc` per Worker package (e.g., `apps/web/wrangler.jsonc`, `apps/api/wrangler.jsonc`), with environment overrides under `env.staging`, `env.demo`, `env.production`. The top-level block is the local-dev config, run with no `--env`. JSONC is preferred over TOML because it allows comments and matches the validated pattern in `apps/web/wrangler.jsonc` and `apps/api/wrangler.jsonc`.
 - Compatibility date locked per environment to prevent surprise Worker runtime changes
 - SSR Worker requires `"compatibility_flags": ["nodejs_compat"]` — needed for `@angular/ssr` runtime Node polyfills. This is unrelated to database access; see `DATABASE_SCHEMA.md` §1a.
 - API Worker does not need `nodejs_compat` for the DB path — it reaches Cloudflare D1 through its native `DB` binding (Drizzle), no pg adapter, no Accelerate (ADR 0016).
@@ -448,7 +449,6 @@ Wrangler is the only deployment tool. Single source of truth for Worker configur
   "assets": { "binding": "ASSETS", "directory": "./dist/browser" },
   "observability": { "enabled": true },
   "env": {
-    "preview": { "vars": { "ENV": "preview" } },
     "staging": {
       "vars": { "ENV": "staging" },
       "routes": [{ "pattern": "staging.aecintegrations.com", "custom_domain": true }]
@@ -521,7 +521,7 @@ The application database is **Cloudflare D1**, with migrations generated by **dr
 
 ### 5.1 Migration source
 
-The schema source of truth is the Drizzle schema `apps/api/src/db/schema.ts`. Migration SQL is generated by `pnpm --filter @aeci/api db:generate` (drizzle-kit) into `apps/api/migrations/`, committed alongside the schema change. Applied with `wrangler d1 migrations apply <db> [--remote]` — locally via `pnpm db:migrate:local`, in CI via `deploy.yml` (**preview** + **staging**, two independent jobs) / `promote-to-demo.yml` (**demo**) / `promote-to-prod.yml` (**production**). All four deployed tiers go through `scripts/d1-apply-migrations.sh`. There is no `DATABASE_URL` / `DIRECT_URL` / `supabase db push` — Prisma was removed entirely (AECI-278) and the API Worker reaches D1 through its native `DB` binding.
+The schema source of truth is the Drizzle schema `apps/api/src/db/schema.ts`. Migration SQL is generated by `pnpm --filter @aeci/api db:generate` (drizzle-kit) into `apps/api/migrations/`, committed alongside the schema change. Applied with `wrangler d1 migrations apply <db> [--remote]` — locally via `pnpm db:migrate:local`, in CI via `deploy.yml` (**staging**) / `promote-to-demo.yml` (**demo**) / `promote-to-prod.yml` (**production**). All three deployed tiers go through `scripts/d1-apply-migrations.sh`. There is no `DATABASE_URL` / `DIRECT_URL` / `supabase db push` — Prisma was removed entirely (AECI-278) and the API Worker reaches D1 through its native `DB` binding.
 
 ### 5.2 Forward-only
 
@@ -533,7 +533,7 @@ Migrations are forward-only. No automated rollback. If a migration is bad:
 
 ### 5.3 Migration ordering
 
-- Migrations apply to **preview and staging** at merge-to-main (two independent `deploy.yml` jobs — `migrate-preview` and `deploy-staging`)
+- Migrations apply to **staging** at merge-to-main (`deploy.yml` `deploy-staging`). The separate preview apply (`migrate-preview`) was retired in AECI-1268
 - Migrations apply to demo at the demo promote
 - Migrations apply to production at production approval
 - Migrations are typically applied **before** the new Worker code is deployed, to ensure the database is ready for the new code
@@ -601,11 +601,11 @@ Stored in GitHub Settings → Secrets and Variables → Actions. Scoped per envi
 | `SUPABASE_ACCESS_TOKEN` — **orphaned** | Was for the Supabase CLI app-DB migrations; the Postgres `supabase db push` machinery was decommissioned (AECI-278). Only manual auth-baseline reconciliation uses the CLI now. | — |
 | `SUPABASE_DB_URL` / `DIRECT_URL` — **retired** | The Postgres app-DB `supabase db push` path is gone (AECI-278). No DB connection URL is needed — the app DB is Cloudflare D1, reached via the Worker's `DB` binding. | — |
 | `DATABASE_URL` — **retired** | Prisma Accelerate was removed (AECI-253/278). The app DB is Cloudflare D1 (ADR 0016) via the `DB` binding; there is no DB connection secret. | — |
-| `SUPABASE_SERVICE_ROLE_KEY` | GoTrue Admin API key for the **split-identity seams** (register: `AUTH_AND_RLS.md` §3.1 — `auth.users` email reads, GDPR erasure of the `auth.users` row, vendor-claimant lookup + provisioning). **Single shared, un-suffixed key** — one Supabase auth project backs every env (ADR 0017), like `SUPABASE_ANON_KEY` / `RESEND_API_KEY` / `CF_ANALYTICS_API_TOKEN`. Pushed to the **API Worker** as `SUPABASE_SERVICE_ROLE_KEY` by `deploy.yml` (staging), `promote-to-demo.yml` (demo), and `promote-to-prod.yml` (production) — reconciling CI with ADR 0016 §6 (AECI-530). **Optional + fail-open on every env** (prod included — warn-and-skip, never in `REQUIRED_WORKER_SECRETS`): absent → reviewer emails read `null`, the erasure `auth.users` delete is silently skipped, and vendor-claim resolution reports `unavailable`. **API Worker only, and deliberately NOT on per-PR previews** (§7.2). Not involved in sign-in. Unrelated to `integration-db-tests`, which mints its own key from a local `supabase start` stack. See `environments.md` §Secrets. | staging, demo, production (optional) |
+| `SUPABASE_SERVICE_ROLE_KEY` | GoTrue Admin API key for the **split-identity seams** (register: `AUTH_AND_RLS.md` §3.1 — `auth.users` email reads, GDPR erasure of the `auth.users` row, vendor-claimant lookup + provisioning). **Single shared, un-suffixed key** — one Supabase auth project backs every env (ADR 0017), like `SUPABASE_ANON_KEY` / `RESEND_API_KEY` / `CF_ANALYTICS_API_TOKEN`. Pushed to the **API Worker** as `SUPABASE_SERVICE_ROLE_KEY` by `deploy.yml` (staging), `promote-to-demo.yml` (demo), and `promote-to-prod.yml` (production) — reconciling CI with ADR 0016 §6 (AECI-530). **Optional + fail-open on every env** (prod included — warn-and-skip, never in `REQUIRED_WORKER_SECRETS`): absent → reviewer emails read `null`, the erasure `auth.users` delete is silently skipped, and vendor-claim resolution reports `unavailable`. **API Worker only, and deliberately NOT on local dev (the per-PR preview tier it was also withheld from was retired, AECI-1268)** (§7.2). Not involved in sign-in. Unrelated to `integration-db-tests`, which mints its own key from a local `supabase start` stack. See `environments.md` §Secrets. | staging, demo, production (optional) |
 | `SUPABASE_ANON_KEY` | Public Supabase key | All |
 | `ALGOLIA_ADMIN_KEY` | **Single shared management** key (one value, every env) — search + index-mutation ACLs; one Algolia app spans all envs and the key reaches every index (`--env` is only an index-name prefix). Sync pipeline (3.5/3.6) + CI. Pushed to the API Worker as `ALGOLIA_ADMIN_KEY` by `deploy.yml` / `promote-to-prod.yml` / `promote-to-demo.yml`. The former `_STAGING`/`_PRODUCTION` secrets are retired. | All |
-| `ALGOLIA_SEARCH_KEY` | **Single shared search-only** key (`['search']`, one value every env), client-exposed (InstantSearch, 3.9). **Must be scoped to cover every env's indexes + sort replicas** it serves (`staging_*`/`production_*`/`demo_*`/`preview_*`; AECI-175 — `connectSortBy` queries a replica directly) — it's one shared value now, so an env-scoped key breaks the others. Pushed to the web Worker (with `ALGOLIA_APP_ID`) by `deploy.yml` (staging — recommended/warn-and-skip), `promote-to-prod.yml` (production — required/fail-closed), `promote-to-demo.yml` (demo). The former `_STAGING`/`_PRODUCTION`/`_PREVIEW`/`_DEMO` secrets are retired. | All |
-| `ALGOLIA_SEARCH_KEY` (Lighthouse preview use) | The same shared `ALGOLIA_SEARCH_KEY` above. Consumed by [`lighthouse.yml`](../.github/workflows/lighthouse.yml) (AECI-188), which writes it into `apps/web/.dev.vars` so every Lighthouse run (nightly, promote gate, manual; §11c) measures `/search` with the real InstantSearch SDK against the `preview_*` indexes (populated via `pnpm algolia:bulk-sync -- --env preview`); the workflow hard-fails without it, so the shared key **must** also cover `preview_*`. | CI (lighthouse.yml) |
+| `ALGOLIA_SEARCH_KEY` | **Single shared search-only** key (`['search']`, one value every env), client-exposed (InstantSearch, 3.9). **Must be scoped to cover every env's indexes + sort replicas** it serves (`staging_*`/`production_*`/`demo_*`; AECI-175 — `connectSortBy` queries a replica directly) — it's one shared value now, so an env-scoped key breaks the others. Pushed to the web Worker (with `ALGOLIA_APP_ID`) by `deploy.yml` (staging — recommended/warn-and-skip), `promote-to-prod.yml` (production — required/fail-closed), `promote-to-demo.yml` (demo). The former `_STAGING`/`_PRODUCTION`/`_PREVIEW`/`_DEMO` secrets are retired. | All |
+| `ALGOLIA_SEARCH_KEY` (Lighthouse use) | The same shared `ALGOLIA_SEARCH_KEY` above. Consumed by [`lighthouse.yml`](../.github/workflows/lighthouse.yml) (AECI-188), which writes it into `apps/web/.dev.vars` so every Lighthouse run (nightly, promote gate, manual; §11c) measures `/search` with the real InstantSearch SDK against the `staging_*` indexes (the local config folds onto `staging`, AECI-1268; populated by staging's own sync); the workflow hard-fails without it, so the shared key **must** keep covering `staging_*`. | CI (lighthouse.yml) |
 | `ALGOLIA_APP_ID` | Algolia application id. **Single value shared across all envs** (one app; only indexes/keys differ). Pushed to both Workers. | All |
 | ~~`POSTHOG_KEY_STAGING` / `_PRODUCTION`~~ — **retired (AECI-640)** | **No longer read by any workflow.** The publishable `phc_` project token is now a committed per-env `vars.POSTHOG_PROJECT_KEY` in both `wrangler.jsonc` files, and all four CI push steps are deleted. The token ships in the served HTML on every page, so keeping it a secret bought nothing and cost the weeks-dark prod analytics of AECI-326. **Operator action: delete both GH secrets.** | — |
 | `POSTHOG_CLI_API_KEY` | Personal `phx_` key. **CI-only — never a Worker secret** (a personal key reaches the whole org). Used by `posthog-sourcemaps.sh` (§9.1a) and the deploy marker's annotation leg (§9.1). Needs the union of `error tracking write` + `organization read` and insight/dashboard/alert write + project read (for the AECI-647 `apply.sh`). Optional + warn-and-skip everywhere. Not in `RECOMMENDED_SECRETS` — the scripts self-warn, which is the right gate for a step that must never block a deploy. | CI (all deploy paths) |
@@ -626,8 +626,8 @@ Stored in GitHub Settings → Secrets and Variables → Actions. Scoped per envi
 | Variable | Purpose | Read by |
 |---|---|---|
 | `STAGING_ENABLED` | Gates the `deploy-staging` job. `true` since 2026-05-28 (§3.2). Any other value stops staging deploys on merge. | `deploy.yml` |
-| `PREVIEW_URL` | Base URL for the preview-URL E2E and edge-cache runner jobs. Both jobs are parked (`if: false`), so nothing reads it today. | `deploy.yml` |
-| `POSTHOG_PROJECT_ID_NONPROD` | PostHog non-prod project id for source maps and deploy markers. Optional: the workflows fall back to `525793`. | `deploy.yml`, `pr-preview.yml`, `promote-to-demo.yml` |
+| `PREVIEW_URL` | Retired (AECI-1268). It fed the parked preview-URL jobs, which are deleted. Delete the variable if it still exists. | none |
+| `POSTHOG_PROJECT_ID_NONPROD` | PostHog non-prod project id for source maps and deploy markers. Optional: the workflows fall back to `525793`. | `deploy.yml`, `promote-to-demo.yml` |
 | `POSTHOG_PROJECT_ID_PROD` | PostHog prod project id for source maps, deploy markers and the liveness sweep. Optional: the workflows fall back to `354071`. | `promote-to-prod.yml`, `posthog-liveness-sweep.yml` |
 | `LINEAR_NOTIFICATIONS_DOC_ID` | The id of the one Linear Document that `docs/NOTIFICATIONS.md` is mirrored into (AECI-1201, §11b). While it is unset, a push to `main` skips the mirror job cleanly (the job's `if:` guard, on hold since 2026-10-02 until the Linear Document exists). A `workflow_dispatch` always runs, and with it unset the mirror exits 2 and the run goes red. | `mirror-notifications-doc.yml` |
 
@@ -664,12 +664,11 @@ gh run watch --repo the-wbs-project/aec-integrations
 
 To check the payload locally without calling Linear, run `node scripts/mirror-notifications-doc.mjs --dry-run`.
 
-**The `GITHUB_TOKEN` scope.** `deploy.yml`, `pr-preview.yml` and `lighthouse.yml` set a top-level `permissions: contents: read`. A job that needs more grants it in its own block:
+**The `GITHUB_TOKEN` scope.** `deploy.yml` and `lighthouse.yml` set a top-level `permissions: contents: read`. A job that needs more grants it in its own block:
 
 | Workflow | Job | Extra scope | Why |
 |---|---|---|---|
 | `deploy.yml` | `changes` | `pull-requests: read` | `dorny/paths-filter` lists the PR's files through the pulls API |
-| `pr-preview.yml` | `deploy`, `cleanup` | `pull-requests: write` | The sticky preview comment on the PR |
 | `lighthouse.yml` | `resolve` | `statuses: read` | Reads the existing `lighthouse` status |
 | `lighthouse.yml` | `lighthouse` | `statuses: write` | Posts the `lighthouse` status |
 | `promote-to-demo.yml` | `lighthouse-lookup` | `statuses: read`, `actions: read` | Reads the status, then the run it links to |
@@ -689,7 +688,7 @@ GitHub Actions does this via the `cloudflare/wrangler-action` step, pulling from
 
 > **The Supabase service-role key goes to the API Worker only.** It is a real runtime secret there — `apps/api/src/lib/supabase-admin.ts` (the single module allowed to read it) uses it for the GoTrue Admin API split-identity seams registered in `AUTH_AND_RLS.md` §3.1, per ADR 0016 §6. It must **never** reach the **web Worker**: that Worker's auth path uses `SUPABASE_URL` + the publishable anon key, it renders its config into client HTML, and `apps/web/src/supabase-bootstrap-inject.spec.ts` is the standing regression guard that the bootstrap never serializes a service-role value. The API Worker still verifies **user JWTs** with public JWKS material only — the service-role key is for Admin-API calls, never for token verification.
 >
-> It is also **deliberately not pushed to per-PR preview Workers** (`pr-preview.yml` carries the rationale inline): previews are numerous, short-lived and least-reviewed, the key is the *project-wide* auth key, and under ADR 0017 a single Supabase project backs every environment including production — with seams that **delete** (`DELETE /auth/v1/admin/users/:id`) and **create** (`POST /auth/v1/admin/users`) identities. GoTrue has no scoped admin credential, so the exposure cannot be narrowed per tier. Previews keep the degraded behaviour by design. See `environments.md` §Secrets.
+> It was also **deliberately never pushed to per-PR preview Workers**, a tier retired on 2026-10-10 (AECI-1268). The key is the *project-wide* auth key, and under ADR 0017 a single Supabase project backs every environment including production — with seams that **delete** (`DELETE /auth/v1/admin/users/:id`) and **create** (`POST /auth/v1/admin/users`) identities. GoTrue has no scoped admin credential, so the exposure cannot be narrowed per tier. Local dev keeps the degraded behaviour by design. See `environments.md` §Secrets.
 
 ### 7.3 Local development
 
@@ -723,7 +722,7 @@ For the API keys with dev/prod separation (Algolia, Datadog), rotate independent
 2. Re-run **all three** deploy paths so every Worker picks it up: `deploy.yml` (staging — push to `main`, or re-run the last `deploy-staging`), then `promote-to-demo.yml`, then `promote-to-prod.yml`.
 3. Between step 1 and the last re-run there is a **degraded window**, not an outage — every seam fails open (reviewer emails read `null`, the erasure `auth.users` delete is skipped, vendor-claim approval 503s). Accept the window or drain it quickly; nothing fails closed and no deploy is blocked.
 
-PR previews are unaffected — they never carry the key (§7.2). Note the GDPR consequence of the window: account erasures processed during it leave orphaned `auth.users` rows that need the manual cleanup in `AUTH_AND_RLS.md` §8 step 4.
+Local dev is unaffected — it never carries the key (§7.2). Note the GDPR consequence of the window: account erasures processed during it leave orphaned `auth.users` rows that need the manual cleanup in `AUTH_AND_RLS.md` §8 step 4.
 
 **Algolia (per-env, independent).** The app-wide root admin key stays operator-held and is used _only_ to run the provision script — it is never a GitHub or Worker secret, so it does not rotate through this pipeline. The per-env scoped keys rotate one env at a time:
 
@@ -737,16 +736,17 @@ PR previews are unaffected — they never carry the key (§7.2). Note the GDPR c
 
 ### 7.5 Algolia topology (AECI-134)
 
-**One application, per-env indexes.** A single AECi Algolia app (one `ALGOLIA_APP_ID`, shared) holds four index sets, one per environment. Physical names are `<prefix>_<entity>`:
+**One application, per-env indexes.** A single AECi Algolia app (one `ALGOLIA_APP_ID`, shared) holds three index sets, one per deployed environment. Physical names are `<prefix>_<entity>`:
 
 | Prefix | Indexes | Used by |
 |---|---|---|
-| `preview` | `preview_products`, `preview_vendors`, `preview_integrations` | PR previews + local `pnpm dev:bound` (`ENV=preview`) + `development` (bare `wrangler dev`/tests fold here) |
-| `staging` | `staging_products`, `staging_vendors`, `staging_integrations` | staging |
+| `staging` | `staging_products`, `staging_vendors`, `staging_integrations` | staging, plus local `pnpm dev:bound` (`ENV=development`), the Lighthouse run, and any unknown `ENV` label (all fold here, read-only by default) |
 | `demo` | `demo_products`, `demo_vendors`, `demo_integrations` | demo (`ENV=demo`) |
 | `production` | `production_products`, `production_vendors`, `production_integrations` | production |
 
-The prefix is derived from the Worker `ENV` label (matching the Datadog tags + `/api/version` convention); `development` folds onto `preview` so there is no fifth set. `demo` and `production` keep separate sets so the showcase never reads or writes the live `production_*` indexes. The names and the key shapes are defined once in `packages/shared/src/algolia.ts` and consumed by the Workers and the provision script alike.
+The prefix is derived from the Worker `ENV` label (matching the Datadog tags + `/api/version` convention); `development`, and any label that is not staging, demo or production (for example a stale `ENV=preview` in a local `.dev.vars`), folds onto `staging`, so local runs **read** `staging_*`. There is no fourth set. The preview set (`preview_*`) was retired on 2026-10-10 (AECI-1268). `demo` and `production` keep separate sets so the showcase never reads or writes the live `production_*` indexes. The names and the key shapes are defined once in `packages/shared/src/algolia.ts` and consumed by the Workers and the provision script alike.
+
+**Algolia write guard (AECI-1268).** One shared admin key reaches every index, and a developer's `apps/api/.dev.vars` holds it. `apps/api/src/lib/algolia-write-guard.ts` therefore makes every Worker Algolia mutation a no-op, with one warning per isolate, whenever `ENV` is not `staging`, `demo` or `production`. That covers local, unset and stale labels. It covers the daily sync cron (`runAlgoliaSync`, job outcome `skipped`, reason `local_writes_disabled`), the orphan-sweep half of the drift cron, the promote post-commit `algolia-sync` hook, and `syncOwnerWriteSearch` (the tail of the owner writes). The drift measurement half is a read and still runs. Set `ALGOLIA_ALLOW_LOCAL_WRITES=true` in `apps/api/.dev.vars` to opt in. Operator scripts and `apps/datatool` take an explicit named tier and are not guarded. `provision.mjs`, `apply-settings.mjs` and `purge-algolia-orphans` accept only `staging|demo|production`. `reconcile-algolia-drift --local` reads `staging_*` and refuses `--apply` unless `ALGOLIA_ALLOW_LOCAL_WRITES=true`.
 
 **Three keys per app, two of them per-env-scoped:**
 
@@ -770,8 +770,7 @@ Every PR must pass these gates before merge:
 - ✓ Unit tests pass
 - ✓ Build succeeds
 - ✓ Bundle size under budget
-- ✓ Preview deploys successfully
-- ✓ E2E tests pass against preview
+- ✓ E2E tests pass against the local `dev:bound` server (no preview deploy since AECI-1268)
 - ✓ No new accessibility violations (axe-core) — blocks the **staging deploy**, but is not a required merge check (see the branch-protection table below) and is skipped on docs-only PRs
 - ✓ Lighthouse scores meet budget (Performance / Accessibility / Best-Practices / SEO ≥ 90 mobile) — **partially enforced** (AECI-188): Accessibility / Best-Practices / SEO / TBT / the `/search` TTFB are error-level on the nightly run and the promote-to-demo gate (§11c); Performance / LCP / CLS / the JS budgets remain advisory pending the perf follow-up (see the note below)
 - ✓ At least one human reviewer approval
@@ -869,19 +868,19 @@ The "human reviewer" line is **not enforced**. Branch protection on `main` sets 
 Datadog is what production dashboards still carry. The Datadog half is deleted by
 **AECI-651**, not before.
 
-#### PostHog markers (AECI-640) — all four deploy paths
+#### PostHog markers (AECI-640) — all three deploy paths
 
-`scripts/ci/posthog-deploy-marker.sh` runs on **staging, PR preview, demo and production**,
+`scripts/ci/posthog-deploy-marker.sh` runs on **staging, demo and production**,
 plus the production rollback path. It posts **two legs**, because they answer different
 questions and neither substitutes for the other:
 
 | Leg | What it is | Needs | State today |
 |---|---|---|---|
 | Project **annotation** | the vertical line PostHog draws across every insight and dashboard | personal `phx_` key (`POSTHOG_CLI_API_KEY`) + numeric project id | live — the key was provisioned 2026-09-04; it warn-skipped before that |
-| `deployment` **event** | the queryable record a HogQL query joins against — "which deploy introduced this error", "how many deploys this week" | only the publishable `phc_` project token, which is a committed var | **works today**, including on PR previews and forks |
+| `deployment` **event** | the queryable record a HogQL query joins against — "which deploy introduced this error", "how many deploys this week" | only the publishable `phc_` project token, which is a committed var | **works today**, including on forks |
 
 Properties on the event: `env`, `service` (`aeci-web` / `aeci-api` / `both`), `version`
-(the commit SHA), `deploy_kind` (`deploy` / `promote` / `preview` / `auto_rollback`),
+(the commit SHA), `deploy_kind` (`deploy` / `promote` / `auto_rollback`; `preview` was the retired PR-preview kind, AECI-1268),
 `app`, `workflow`, `run_url`. It is not a user event — `$process_person_profile: false`,
 `distinct_id: aeci-ci`.
 
@@ -920,8 +919,7 @@ Markers appear on Datadog dashboards as vertical lines, making it easy to correl
 
 ### 9.1a Source-map upload (AECI-646)
 
-`scripts/ci/posthog-sourcemaps.sh` runs on all four deploy paths — PR preview
-(`pr-preview.yml`), staging (`deploy.yml`), demo (`promote-to-demo.yml`) and production
+`scripts/ci/posthog-sourcemaps.sh` runs on all three deploy paths — staging (`deploy.yml`), demo (`promote-to-demo.yml`) and production
 (`promote-to-prod.yml`) — **after the build and before the deploy**.
 
 > **The production step was missing until 2026-09-04.** `promote-to-prod.yml` builds
@@ -1008,7 +1006,7 @@ Version reporting (AECI-74):
 - The SSR Worker proxies that path over the existing `/api/*` service binding. So `GET /api/version` on `apps/web` reports the API Worker's values.
 - The SSR Worker also serves its own `GET /_version` from `apps/web/src/server/routes/version.ts` (AECI-92). It has the same response shape but is not proxied, so it reports the SSR Worker's `COMMIT_SHA`.
 - Both endpoints exist because `/api/version` alone cannot catch a stale SSR deploy. The SSR Worker forwards `/api/*` untouched to the API Worker.
-- The deploy gates that assert both endpoints equal the target commit via `scripts/verify-version.sh` are `deploy.yml`, `promote-to-prod.yml`, `pr-preview.yml` and `refresh-staging.yml`.
+- The deploy gates that assert both endpoints equal the target commit via `scripts/verify-version.sh` are `deploy.yml`, `promote-to-prod.yml` and `refresh-staging.yml`.
 - `COMMIT_SHA` and `DEPLOYED_AT` are injected with `wrangler --var`. They override the `"unknown"` and epoch placeholders declared in each Worker's `wrangler.jsonc`: `apps/api/wrangler.jsonc`, and per env in `apps/web/wrangler.jsonc`.
 - Both Workers' `dev` and `dev:preview` scripts derive the two values from `git rev-parse HEAD` and `date -u +%Y-%m-%dT%H:%M:%S.000Z`.
 - Any new `wrangler dev` or `wrangler deploy` invocation that targets either Worker must pass both flags. Otherwise that Worker's version endpoint reports `sha: "unknown"`.
@@ -1090,7 +1088,7 @@ wrangler deploy --env staging \
   clean `git status --porcelain`, and the two migration sets' object sets must be **disjoint** (if
   they are, the interleaved apply order on already-migrated tiers is inert).
 - **CI on the integration branches.** Every PR gets the full gate no matter which branch it
-  targets — `deploy.yml`, `integration-db-tests.yml`, `drift-check.yml` and `pr-preview.yml` are
+  targets — `deploy.yml`, `integration-db-tests.yml`, and `drift-check.yml` are
   all base-branch-agnostic (§3.1). The one exception is a PR into `batch/**`, which takes the lite
   lane and skips the preview and integration-DB workflows (§10a). `main` additionally gets a
   post-merge `push` run (§3.2) and is the only branch that deploys. `main` is branch-protected on
@@ -1103,7 +1101,7 @@ wrangler deploy --env staging \
   `pull_request: branches: [main]`. Because that filter matches the **base** branch, it exempted
   every PR into `stage-2` / `admin-panel` / an epic branch from lint, typecheck, unit tests,
   build and E2E — the gap that let PR #521, the ~13k-line AECI-513 epic, merge into `stage-2` on
-  preview-deploy signal alone.)*
+  preview-deploy signal alone. That workflow is gone now, AECI-1268.)*
 - **A workflow fix only helps the branches that actually contain it.** For `pull_request` events
   GitHub evaluates the workflow from the PR's **merge ref** (head merged into base), but
   `push`-triggered runs use the *pushed branch's own* copy. That is why the 2026-08-14 trigger fix
@@ -1129,7 +1127,7 @@ parallel feature work creates conflicts, work it out in PRs. ADR 0019 reinstates
 - Commit messages are descriptive and reference the issue ID where helpful.
 - No AI co-author trailer on commits. Do not add a `Co-Authored-By: Claude` line, or any other attribution line naming Claude, to a commit message. This overrides any harness attribution reminder.
 - The PR description includes `Closes AECI-{N}` for the primary issue, and the PR base branch is `main`.
-- Wait for CI to pass: lint, typecheck, unit tests, build, preview deploy, E2E, accessibility and Lighthouse. Only `Lint & typecheck`, `Unit tests` and `Build SSR Worker` block a merge. E2E, accessibility and Lighthouse do not.
+- Wait for CI to pass: lint, typecheck, unit tests, build, E2E and accessibility. Lighthouse runs nightly and at the demo promote, not on the PR. Only `Lint & typecheck`, `Unit tests` and `Build SSR Worker` block a merge. E2E, accessibility and Lighthouse do not.
 - The PR suite is base-branch-agnostic. It runs identically whether a PR targets `main` or an epic branch, because `deploy.yml` carries no `branches:` filter on `pull_request`. The exception is a PR into `batch/**`, which takes the lite lane (§10a). Lighthouse never runs on PRs. It runs nightly and at the demo promote (§11c).
 - Squash merge to `main`. Required linear history rejects merge commits, so squash or rebase only. The `stage-2` to `main` merge commit was a one-off that needed the protection temporarily relaxed. Do not plan on repeating it.
 - Applying a fix to live prod is the ordinary flow, then promote by SHA (`promote-to-demo`, then `promote-to-prod`; see `docs/environments.md`).
@@ -1146,7 +1144,7 @@ tests and 7.7 min of E2E. A batch branch pays the full lane once per batch.
 
 **How CI treats it.** A PR whose base starts with `batch/` takes the lite lane (§3.1). Lint,
 typecheck and unit tests run for the changed packages and their dependents. Packages whose specs
-read the changed files by relative path are added too. E2E, the PR preview and the integration-DB
+read the changed files by relative path are added too. E2E and the integration-DB
 tests are skipped. `drift-check.yml` still runs. These force the full lane:
 
 - a root-level change, such as the lockfile or `.github/**`;
@@ -1232,7 +1230,7 @@ changes  ──────────────────────┘  
  (advisory)                                              ├─→ deploy-staging
 unit-api ──┐                                             │   (push + refs/heads/main
            ├─→ unit-tests (gate, if: always()) ──────────┤    + STAGING_ENABLED)
-unit-web ──┘        └─→ migrate-preview (push + main)    │
+unit-web ──┘                                             │
 lint-and-types ──────────────────────────────────────────┘
 ```
 
@@ -1268,8 +1266,7 @@ lint-and-types ─────────────────────�
 `build-web` — none of them `needs:` `changes`, so the filter can never block a merge. `unit-tests`
 does `needs:` the two unit jobs, which is why it runs under `if: always()` and checks each result.
 
-Preview deploys are a separate workflow (`pr-preview.yml`), and Lighthouse runs nightly and at
-the demo promote in `lighthouse.yml` (§11c). Neither is a job in this graph.
+Lighthouse runs nightly and at the demo promote in `lighthouse.yml` (§11c). It is not a job in this graph. There is no preview deploy workflow since AECI-1268.
 
 ### 11.3 Selective testing
 
@@ -1444,12 +1441,12 @@ Append a row on each re-check rather than re-researching from scratch.
 Before the first deploy:
 
 - [ ] GitHub repo created with branch protection on `main`
-- [ ] GitHub Environments created: `preview`, `staging`, `production`
+- [ ] GitHub Environments created: `staging`, `production` (full list in `docs/environments.md` "GitHub Environments"; the `preview` environment is retired, AECI-1268)
 - [ ] Production environment requires manual approval from Chris or Bill
 - [ ] All secrets configured per Section 7.1
 - [ ] Cloudflare account has Workers, Pages (for static assets), and zone access
 - [ ] Supabase projects created for dev/staging/production
-- [ ] Algolia app created; per-env indexes + scoped keys provisioned via `scripts/algolia/provision.mjs` (`preview_*` / `staging_*` / `production_*`, per §7.5)
+- [ ] Algolia app created; per-env indexes + scoped keys provisioned via `scripts/algolia/provision.mjs` (`staging_*` / `demo_*` / `production_*`, per §7.5)
 - [ ] Datadog account configured with appropriate API keys *(dual-run — Datadog stays until AECI-651)*
 - [ ] PostHog: both projects exist (`aec-integrations` 354071 = production only; `aec-integrations-dev` 525793 = every other tier) ✅, error tracking enabled on both ✅ (2026-08-26), `POSTHOG_CLI_API_KEY` set ✅ (2026-09-04), **internal-user exclusion configured** ⬜ — the one item still open, and the reason production product analytics carry operator traffic while `page_views` excludes it. The two `POSTHOG_PROJECT_ID_*` repo **variables** are optional: the workflows fall back to the literals `354071` / `525793`, so they are a repoint convenience, not a prerequisite (note the prod var is read as `POSTHOG_PROJECT_ID_PROD`, not `_PRODUCTION` — the identically-prefixed *secrets* are a different, Worker-bound pair). **No PostHog Worker secret to provision** — the publishable token is a committed wrangler var
 - [ ] Resend account configured: verified sending domain (SPF/DKIM/DMARC), `EMAIL_FROM` sender, and the single shared `RESEND_API_KEY` GH secret; Supabase Auth SMTP pointed at Resend for magic links (see `docs/email.md`)
@@ -1460,12 +1457,11 @@ Before the first deploy:
 
 ## Logo storage deployment (AECI-955)
 
-The API Worker declares `UPLOADS` in root plus preview, staging, demo and production. Root and preview use `aeci-uploads-preview`; other tiers use `aeci-uploads-staging`, `aeci-uploads-demo`, and `aeci-uploads-production`. Provision all four private R2 buckets before deploying this change. No public R2 domain, bucket CORS or client storage credential is required: all writes and reads pass through the API Worker. Local Wrangler emulates R2. Per-PR Workers use the preview bucket, matching their shared preview environment.
+The API Worker declares `UPLOADS` in root plus staging, demo and production. Root is the local-dev block and uses `aeci-uploads-preview` as a local-only name (AECI-1268); the deployed tiers use `aeci-uploads-staging`, `aeci-uploads-demo`, and `aeci-uploads-production`. Provision the three deployed private R2 buckets before deploying this change. No public R2 domain, bucket CORS or client storage credential is required: all writes and reads pass through the API Worker. Local Wrangler emulates R2. The remote `aeci-uploads-preview` bucket is deleted in the operator checklist (`docs/environments.md`).
 
 **The deploy token needs a new permission, and this is the first thing that breaks.** `wrangler deploy` resolves every `r2_buckets` entry against the Cloudflare API *before* it uploads, so a token without R2 access fails the deploy outright rather than degrading — the symptom is `A request to the Cloudflare API (/accounts/…/r2/buckets/aeci-uploads-preview) failed` with `Authentication error [code: 10000]`. Read that code carefully: **10000 is the token, not the bucket.** A bucket that genuinely does not exist reports a not-found error naming the bucket, so a 10000 means the token cannot see R2 at all and creating the bucket will not fix it. Add **`Workers R2 Storage: Edit`** to the `CLOUDFLARE_API_TOKEN` repo secret (account-scoped, alongside the existing Workers Scripts and D1 grants). Both steps are required and the order does not matter, but until the token is widened every tier's deploy — including `Deploy PR preview` on an ordinary PR — fails at this call.
 
 ```bash
-wrangler r2 bucket create aeci-uploads-preview
 wrangler r2 bucket create aeci-uploads-staging
 wrangler r2 bucket create aeci-uploads-demo
 wrangler r2 bucket create aeci-uploads-production

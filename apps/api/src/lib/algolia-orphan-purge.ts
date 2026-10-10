@@ -103,7 +103,10 @@ export type PurgeArgs = {
   ids: OrphanTarget[] | undefined;
 };
 
-const VALID_ENVS: readonly AlgoliaEnv[] = ['development', 'preview', 'staging', 'production'];
+// Named, deployed tiers only. `development` is deliberately absent: it folds onto
+// `staging_*` (AECI-1268), so accepting it would let a "local" run delete staging
+// objects under a label that hides where they live.
+const VALID_ENVS: readonly AlgoliaEnv[] = ['staging', 'demo', 'production'];
 
 function isEnv(value: string): value is AlgoliaEnv {
   return (VALID_ENVS as readonly string[]).includes(value);

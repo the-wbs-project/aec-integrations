@@ -177,7 +177,7 @@ export class ProvisionSeatControl {
  * two that matter most.
  *
  * The **503** is the one worth spelling out: `SUPABASE_SERVICE_ROLE_KEY` is
- * legitimately absent on local dev and on every PR preview, so on those tiers it
+ * legitimately absent on local dev, so on those tiers it
  * is the DEFAULT outcome rather than an incident — the same copy the claim queue
  * carries for the same seam.
  */

@@ -75,7 +75,7 @@ test.describe('/search — search page (AECI-142)', () => {
 // `.dev.vars` supplies search creds. The CI-deterministic embodiment of this
 // flow (facet refine → result click → detail h1, via the API-backed /products
 // path) lives in facets.spec.ts.
-test.describe('/search — live results (requires Algolia; local/preview only)', () => {
+test.describe('/search — live results (requires Algolia; local only)', () => {
   test('search box → product results → result click lands on the detail page', async ({ page }) => {
     await page.goto('/search');
     const hasAlgolia = await page.evaluate(() =>

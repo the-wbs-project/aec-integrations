@@ -872,7 +872,7 @@ export function createVendorSeatsHandler(
       .orderBy(asc(vendorSeatInvites.createdAt), asc(vendorSeatInvites.id));
 
     // Degrades to `email: null` when SUPABASE_SERVICE_ROLE_KEY is absent — the
-    // roster must stay usable in local dev and PR previews, never 500.
+    // roster must stay usable in local dev, never 500.
     const emails = await fetchEmails(
       c.env,
       rows.map((row) => row.id),

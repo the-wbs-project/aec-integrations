@@ -1,14 +1,14 @@
 /**
  * Deployment-environment helpers shared by both Workers.
  *
- * The `ENV` var (declared per wrangler env block — `preview`/`staging`/`demo`/
- * `production`; unset → `development`) labels a deployment. Most code keys off the
+ * The `ENV` var (declared per wrangler env block — `staging`/`demo`/`production`;
+ * `development` for local dev and when unset) labels a deployment. Most code keys off the
  * *exact* label (Algolia index prefix, observability `env` tag, `/api/version`). A few
  * gates instead care about a coarser question: "is this an audience-facing,
  * real-build site?" — true for BOTH `production` (the apex +
  * `www.aecintegrations.com`, the live home) AND `demo`
  * (`demo.aecintegrations.com`, the public showcase). Both run the real build at
- * audience scale; `preview`/`staging` are lower-volume Access-gated test tiers
+ * audience scale; `staging` is the lower-volume Access-gated test tier
  * and `development` is local. (Network visibility is orthogonal to this gate:
  * both are public today, and re-gating one behind Cloudflare Access would not
  * change how it should behave below.)

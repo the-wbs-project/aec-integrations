@@ -1,8 +1,11 @@
 # Local dev secrets for @aec/web (SSR Worker). Copy to `.dev.vars` and fill in.
 # `.dev.vars` is git-ignored at the repo root. For deployed Workers, push
-# secrets via: wrangler secret put <KEY> --env <preview|production>
-
-ENV=preview
+# secrets via: wrangler secret put <KEY> --env <staging|demo|production>
+#
+# Do NOT set ENV here. Local dev runs the top-level wrangler block, which sets
+# ENV=development (AECI-1268). An `ENV=preview` line left over from the retired
+# preview tier overrides it: delete it. (Search still lands on staging_* either
+# way, because any non-tier label folds onto staging.)
 
 # ─── Observability (ADR 0024) ──────────────────────────────────────────────
 # Nothing to set. The browser and Worker planes both run on PostHog, which
@@ -14,7 +17,7 @@ ENV=preview
 # ─── Cache-tag purge (AECI-56) ─────────────────────────────────────────────
 # ADMIN_PURGE_TOKEN: bearer the caller of POST /admin/purge must present.
 #   Locally pick anything (e.g. `dev-admin-token`). In deployed envs push via
-#   `wrangler secret put ADMIN_PURGE_TOKEN --env <preview|production>`.
+#   `wrangler secret put ADMIN_PURGE_TOKEN --env <staging|demo|production>`.
 # /admin/purge invalidates natively via ctx.cache.purge() (WC-6) — it no longer
 # reads a Cloudflare API token (CF_PURGE_API_TOKEN was retired in WC-10).
 # Optional locally — the endpoint 401s until the token is set. Don't commit real values.
@@ -41,8 +44,8 @@ ALGOLIA_SEARCH_KEY=
 # convention as ALGOLIA_SEARCH_KEY).
 #
 # SUPABASE_ANON_KEY is the one value you MUST set. SUPABASE_URL is already a
-# committed wrangler `var` in every env block of wrangler.jsonc and dev:preview
-# runs `--env preview`, so it binds without this file; the anon key is a secret
+# committed wrangler `var` in every block of wrangler.jsonc, including the
+# top-level block that dev:preview runs, so it binds without this file; the anon key is a secret
 # with NO vars fallback. Missing → no `window.__AECI_SUPABASE__` is injected,
 # `/auth/login` renders "Sign-in is temporarily unavailable" with both buttons
 # disabled, and `/auth/whoami` returns 503 `auth_not_configured` (AECI-765).

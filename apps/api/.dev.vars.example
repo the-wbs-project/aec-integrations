@@ -54,8 +54,7 @@ SUPABASE_TEST_USER_JWT=
 # provisioning. In DEPLOYED envs CI pushes it to the API Worker from the single
 # shared (un-suffixed) SUPABASE_SERVICE_ROLE_KEY GH secret — deploy.yml (staging),
 # promote-to-demo.yml, promote-to-prod.yml, all graceful warn-and-skip (AECI-530,
-# per ADR 0016 §6). NEVER on the web Worker, and deliberately NOT on per-PR
-# previews. Also used by the integration CI lane's mint step
+# per ADR 0016 §6). NEVER on the web Worker. Also used by the integration CI lane's mint step
 # (.github/workflows/integration-db-tests.yml) to create a throwaway confirmed
 # user via the admin API, whose freshly-issued access token feeds the JWKS spec —
 # but that lane mints its own from a local `supabase start` stack, not this file.
@@ -111,7 +110,7 @@ LOCAL_VENDOR_SLUG=
 # Bearer token the review application presents to push promoted records into
 # Supabase. The WORKER reads this at runtime (unlike the migration vars above),
 # so set it as a Wrangler secret in deployed envs:
-#   wrangler secret put REVIEW_APP_TOKEN --env preview|staging|production
+#   wrangler secret put REVIEW_APP_TOKEN --env staging|demo|production
 # Generate a high-entropy value, e.g. `openssl rand -hex 32`. Absent → every
 # /api/promote request is rejected 401 (fail-closed).
 REVIEW_APP_TOKEN=
@@ -122,7 +121,7 @@ REVIEW_APP_TOKEN=
 # `Authorization` (Linear's convention — no `Bearer` prefix). Create it at
 # Linear > Settings > Security & access > Personal API keys.
 #
-# Leave this EMPTY locally and on PR previews. It writes to the real shared team
+# Leave this EMPTY locally. It writes to the real shared team
 # tracker, and the board constants in src/lib/linear.ts are hardcoded to the one
 # live "Vendor Requests" project — so a key here files your test submissions as
 # real AECi issues. Absent → issue creation is a silent no-op (no metric, no log)
@@ -147,7 +146,7 @@ GSC_SA_KEY_JSON=
 # linear). Copy it from the webhook's settings in Linear (Settings > API >
 # Webhooks). The WORKER reads it at runtime, so set it as a Wrangler secret in
 # deployed envs:
-#   wrangler secret put LINEAR_WEBHOOK_SIGNING_SECRET --env preview|staging|production
+#   wrangler secret put LINEAR_WEBHOOK_SIGNING_SECRET --env staging|demo|production
 # Absent → every webhook is rejected 401 (fail-closed). For local testing,
 # generate any value and sign requests with it:
 #   printf '%s' "$BODY" | openssl dgst -sha256 -hmac "$SECRET"   # → Linear-Signature
@@ -192,29 +191,36 @@ CF_ANALYTICS_API_TOKEN=
 # PostHog needs NO secret here. All three intakes (OTLP logs, OTLP metrics,
 # events) authenticate with the publishable `phc_` project token, which is a
 # committed per-env `vars.POSTHOG_PROJECT_KEY` in wrangler.jsonc — so on a
-# deployed tier there is nothing to provision. Locally, `--env preview` supplies
-# it, and a bare `wrangler dev` has none, which makes the transport a total
-# no-op. That is the intended local default (AECI-642).
+# deployed tier there is nothing to provision. Locally, the top-level block of
+# wrangler.jsonc supplies it too (AECI-1268), so local runs report to the
+# non-prod project `aec-integrations-dev` with `env=development`.
 #
 # There is nothing else to set: the Datadog leg (DD_API_KEY / DD_SITE) was
 # deleted in AECI-651. If you have those in a local `.dev.vars`, drop them.
 
 # ─── Algolia (AECI-134) ────────────────────────────────────────────────────
-# Optional until the sync pipeline lands (3.5/3.6) — the Worker reads neither at
-# runtime yet, so leave empty for local dev. ALGOLIA_ADMIN_KEY is the per-env
-# MANAGEMENT key (search + index-mutation ACLs, scoped to this env's indexes),
-# NOT the app-wide root admin key. Provision real per-env values with
-# `node scripts/algolia/provision.mjs` and push them with
+# Optional. Leave empty for local dev unless you are working on sync. With them
+# set, local runs still never WRITE: ENV=development folds onto the staging_*
+# indexes (the preview_* set retired with AECI-1268), and the write guard
+# (src/lib/algolia-write-guard.ts) makes the sync cron, the drift orphan sweep,
+# the promote hook and the owner-write tail no-op, logging once. ALGOLIA_ADMIN_KEY
+# is the MANAGEMENT key (search + index-mutation ACLs), NOT the app-wide root
+# admin key. One shared value reaches every tier's indexes. Provision with
+# `node scripts/algolia/provision.mjs` and push with
 # `wrangler secret put ALGOLIA_APP_ID/ALGOLIA_ADMIN_KEY --env <env>`.
 ALGOLIA_APP_ID=
 ALGOLIA_ADMIN_KEY=
+# Set to exactly `true` ONLY to make a local run write staging_* on purpose
+# (for example to test the promote hook end to end). Anything else, or unset,
+# keeps local writes off. Ignored on deployed tiers. Never set it there.
+# ALGOLIA_ALLOW_LOCAL_WRITES=true
 
 # ─── Anthropic API toxicity scoring (AECI-258) ─────────────────────────────
 # Anthropic API key. The WORKER reads it at runtime to score review bodies via
 # Claude Haiku on POST /api/reviews, so set it as a Wrangler secret in deployed
 # envs:
 #   wrangler secret put ANTHROPIC_API_KEY --env staging|production
-# Optional and FAIL-OPEN: absent (local dev, PR previews) → scoring is a silent
+# Optional and FAIL-OPEN: absent (local dev) → scoring is a silent
 # no-op storing toxicity_score=null; an outage also stores null (logged warn).
 # The score only flags the moderation queue — it never blocks a submission.
 # Get one from https://console.anthropic.com (Settings → API Keys). Supersedes
@@ -230,7 +236,7 @@ ANTHROPIC_API_KEY=
 # approved / rejected emails, the account-deletion confirmation, and the
 # reconcile-sweep admin alert. Set it as a Wrangler secret in deployed envs:
 #   wrangler secret put RESEND_API_KEY --env staging|production
-# Optional and FAIL-OPEN: absent (local dev, PR previews) → every send is a silent
+# Optional and FAIL-OPEN: absent (local dev) → every send is a silent
 # 'skipped' and the triggering action still succeeds. Get a key from
 # https://resend.com (API Keys). The repo uses Resend, not the spec's original
 # "Loops" — see docs/email.md. To exercise real sends locally, set a key AND
@@ -238,7 +244,7 @@ ANTHROPIC_API_KEY=
 # Local mail reaches INTERNAL addresses only (AECI-1198). Local runs as a
 # non-production tier, so a send to anyone outside @thewbsproject.com or
 # @aecintegrations.com is suppressed and logged, and every subject gets a
-# [preview] prefix. Test a template by sending it to your own internal address.
+# [development] prefix. Test a template by sending it to your own internal address.
 # See docs/email.md §Tier delivery policy.
 RESEND_API_KEY=
 # Sender for transactional email — the Resend `from`. Bare address or `Name <addr>`.
@@ -264,8 +270,8 @@ SUPPORT_EMAIL=
 #   wrangler secret put INDEXNOW_KEY --env production   # 8–128 chars [A-Za-z0-9-]
 #   PUBLIC_SITE_URL  → a wrangler var (apps/api/wrangler.jsonc), not a secret
 # INDEXNOW_KEY must MATCH the web Worker's INDEXNOW_KEY (the SSR Worker serves the
-# `{INDEXNOW_KEY}.txt` verification file). FAIL-OPEN: absent (local dev, PR
-# previews, pre-launch) → the submission is a graceful no-op.
+# `{INDEXNOW_KEY}.txt` verification file). FAIL-OPEN: absent (local dev,
+# pre-launch) → the submission is a graceful no-op.
 # PROVISION ONLY AT LAUNCH, on the env whose web Worker has ALLOW_INDEXING="true":
 # pinging IndexNow for a noindex'd site is a correctness bug, so the key's absence
 # is the enforcement. Generate a key with e.g. `openssl rand -hex 16`.

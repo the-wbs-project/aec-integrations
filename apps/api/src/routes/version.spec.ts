@@ -29,7 +29,7 @@ describe('createVersionHandler', () => {
     // serve the same shape that AECI-71's promote-to-prod workflow parses.
     const env: Env = {
       ...baseEnv,
-      ENV: 'preview',
+      ENV: 'staging',
       COMMIT_SHA: 'abc123def456',
       DEPLOYED_AT: '2026-05-25T03:30:00.000Z',
     };
@@ -42,7 +42,7 @@ describe('createVersionHandler', () => {
     expect(body).toEqual({
       sha: 'abc123def456',
       deployedAt: '2026-05-25T03:30:00.000Z',
-      environment: 'preview',
+      environment: 'staging',
     });
   });
 
@@ -58,7 +58,7 @@ describe('createVersionHandler', () => {
     // Guards: AECI-71's promote-to-prod step compares the staging response's
     // `environment` against the workflow's expected stage. Any rewrite here
     // (uppercasing, aliasing) would silently break that check.
-    for (const env of ['preview', 'staging', 'production'] as const) {
+    for (const env of ['development', 'staging', 'production'] as const) {
       const res = await buildApp().request(
         '/api/version',
         {},
@@ -71,7 +71,7 @@ describe('createVersionHandler', () => {
   });
 
   it("returns environment: 'development' when ENV is undefined (local wrangler dev)", async () => {
-    // Guards: `wrangler dev` without `--env preview` boots with no ENV var.
+    // Guards: a Worker with no ENV var (unit tests) reports `development`.
     // The local-development label keeps the response schema-valid and
     // distinguishes ad-hoc local runs from a deployed `preview` Worker.
     const res = await buildApp().request('/api/version', {}, baseEnv, fakeExecutionContext());

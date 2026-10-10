@@ -48,6 +48,7 @@ import {
 import type { Env } from '../env';
 import { ApiError, errorHandler } from '../errors';
 import { json } from '../http';
+import { resetAlgoliaWriteGuardWarning } from '../lib/algolia-write-guard';
 import type { DbFactory } from '../lib/handler-utils';
 import {
   PRESERVED_CONVERTED_CLAIM,
@@ -77,7 +78,7 @@ import { affectedUrlsForPromote, type AffectedUrlOptions } from './promote-index
 const uuid = (n: number) => `${String(n).padStart(8, '0')}-0000-4000-8000-000000000000`;
 
 const baseEnv: Env = {
-  ENV: 'preview',
+  ENV: 'staging',
   REVIEW_APP_TOKEN: 'secret-token',
 };
 
@@ -3841,7 +3842,13 @@ describe('cache purge after promote (AECI-105 → WC-5 / AECI-319)', () => {
 });
 
 describe('Algolia index sync after promote (AECI-139)', () => {
-  const algoliaEnv: Env = { ...baseEnv, ALGOLIA_APP_ID: 'APP', ALGOLIA_ADMIN_KEY: 'write-key' };
+  // A deployed tier: the AECI-1268 write guard refuses a local run (see below).
+  const algoliaEnv: Env = {
+    ...baseEnv,
+    ENV: 'staging',
+    ALGOLIA_APP_ID: 'APP',
+    ALGOLIA_ADMIN_KEY: 'write-key',
+  };
 
   async function promoteWithSeam(env: Env, body: unknown, syncAlgolia: PromoteAlgoliaSync) {
     const execCtx = fakeExecutionContext();
@@ -3876,6 +3883,32 @@ describe('Algolia index sync after promote (AECI-139)', () => {
     );
     expect(res.status).toBe(200);
     expect(syncAlgolia).not.toHaveBeenCalled();
+  });
+
+  it('does not schedule the Algolia sync on a local run, even with credentials (AECI-1268)', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    resetAlgoliaWriteGuardWarning();
+    const syncAlgolia = vi.fn<PromoteAlgoliaSync>(async () => {});
+    const { res } = await promoteWithSeam(
+      { ...algoliaEnv, ENV: 'development' },
+      { product: { ref: 'p1', name: 'Revit' } },
+      syncAlgolia,
+    );
+    expect(res.status).toBe(200);
+    expect(syncAlgolia).not.toHaveBeenCalled();
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('promote algolia-sync hook'));
+    warn.mockRestore();
+  });
+
+  it('schedules the Algolia sync on a local run that opts in (AECI-1268)', async () => {
+    const syncAlgolia = vi.fn<PromoteAlgoliaSync>(async () => {});
+    const { res } = await promoteWithSeam(
+      { ...algoliaEnv, ENV: 'development', ALGOLIA_ALLOW_LOCAL_WRITES: 'true' },
+      { product: { ref: 'p1', name: 'Revit' } },
+      syncAlgolia,
+    );
+    expect(res.status).toBe(200);
+    expect(syncAlgolia).toHaveBeenCalledTimes(1);
   });
 
   it('still returns 200 when the Algolia sync rejects (post-response, never fails the promote)', async () => {

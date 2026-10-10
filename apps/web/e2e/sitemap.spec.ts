@@ -117,9 +117,9 @@ test.describe('GET /robots.txt', () => {
     expect(body).toContain('Allow: /');
 
     // The crawler-indexing gate (server/robots-policy.ts) is fail-closed: every
-    // pre-launch env (preview/staging/production) sets ALLOW_INDEXING="false",
+    // non-production env (local/staging/demo) sets ALLOW_INDEXING="false",
     // which stamps `X-Robots-Tag: noindex` and emits a sitemap-less robots.txt.
-    // The E2E stack boots the preview env, so this run is normally the blocked
+    // The E2E stack boots the local top-level env, so this run is normally the blocked
     // shape — but assert against the env's actual gate so the test stays correct
     // if ALLOW_INDEXING flips to "true" at launch. (Pre-AECI-303 this always
     // expected the Sitemap line, which is why this failed after the gate landed.)

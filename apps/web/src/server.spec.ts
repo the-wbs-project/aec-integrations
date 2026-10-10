@@ -263,7 +263,7 @@ describe('isCacheableRoute', () => {
 // moved out with the manual `caches.default` pipeline (WC-3 / AECI-317); WC-4
 // (AECI-318) restored it via the gateway entrypoint (`cacheGateway` →
 // `cacheKeyFor`), whose unit tests now live in `cache-key-url.spec.ts`.
-// Front-of-Worker HIT/MISS is verified on a deployed preview via
+// Front-of-Worker HIT/MISS is verified on a deployed tier (staging) via
 // `Cf-Cache-Status` (WC-9), not miniflare.
 // (AECI-544 `trade_id` cache-key coverage moved with it — see
 // `cache-key-url.spec.ts`.)
@@ -318,7 +318,7 @@ describe('createApp /api/* passthrough (AC: cookies intact to API Worker)', () =
     const apiBody = JSON.stringify({
       sha: 'abc123def456',
       deployedAt: '2026-05-25T03:30:00.000Z',
-      environment: 'preview',
+      environment: 'staging',
     });
     const { binding, calls } = recordingApiBinding(
       new Response(apiBody, {
@@ -566,7 +566,7 @@ describe('createApp GET /_version (AECI-92: SSR Worker’s OWN SHA, not proxied)
     const { binding, calls } = recordingApiBinding();
     const env = {
       ...binding,
-      ENV: 'preview',
+      ENV: 'staging',
       COMMIT_SHA: 'ssr123abc456',
       DEPLOYED_AT: '2026-06-02T03:30:00.000Z',
     };
@@ -586,7 +586,7 @@ describe('createApp GET /_version (AECI-92: SSR Worker’s OWN SHA, not proxied)
     expect(body).toEqual({
       sha: 'ssr123abc456',
       deployedAt: '2026-06-02T03:30:00.000Z',
-      environment: 'preview',
+      environment: 'staging',
     });
 
     // Served by SSR, NOT proxied to the API Worker.
@@ -1166,7 +1166,7 @@ describe('createApp /preview/* public-tier gate', () => {
 
     const res = await app.fetch(
       new Request('https://aeci-web.workers.dev/preview/vendor-detail'),
-      { ...binding, ENV: 'preview' } as unknown as Bindings,
+      { ...binding, ENV: 'staging' } as unknown as Bindings,
       fakeExecutionContext(),
     );
 
@@ -1221,7 +1221,7 @@ describe('createApp 404 handling (AC: §9.1b, not the pinned-404 trap)', () => {
 // and asserted on `cache.match`/`cache.put`) no longer have a Worker-level seam to
 // exercise: under native Workers Cache a HIT never runs the Worker, and the
 // platform stores from `Cache-Control`. Front-of-Worker HIT/MISS is now verified
-// on a deployed preview via `Cf-Cache-Status` (WC-9). The response-header contract
+// on a deployed tier (staging) via `Cf-Cache-Status` (WC-9). The response-header contract
 // the native cache consumes is still covered here — Cache-Control (buildCacheControl,
 // cacheControlForRoute), Cache-Tag emission, cookie-strip, and the 404 short-TTL.
 
@@ -1288,7 +1288,7 @@ describe('createApp render-duration metric (AECI-66, Phase 2 §14)', () => {
     return {
       ...binding,
       POSTHOG_PROJECT_KEY: 'phc_test_token',
-      ENV: 'preview',
+      ENV: 'staging',
     } as unknown as Bindings;
   }
 
@@ -1358,7 +1358,7 @@ describe('createApp ssr.render count metric (AECI-103)', () => {
     return {
       ...binding,
       POSTHOG_PROJECT_KEY: 'phc_test_token',
-      ENV: 'preview',
+      ENV: 'staging',
     } as unknown as Bindings;
   }
 

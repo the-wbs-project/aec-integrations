@@ -40,19 +40,20 @@
  * COMPILE fact, not a claim that an index set exists — `indexPrefixForEnv` will
  * happily name a prefix nobody ever provisioned.
  */
-export type AlgoliaEnv = 'development' | 'preview' | 'staging' | 'demo' | 'production';
+export type AlgoliaEnv = 'development' | 'staging' | 'demo' | 'production';
 
 /**
- * Physical index-name prefix. `development` folds onto `preview` (there is no
- * `development_*` set), so the prefix space is exactly four (preview, staging,
- * demo, production). `demo` and `production` keep separate index sets — the demo
+ * Physical index-name prefix. `development` folds onto `staging` (there is no
+ * `development_*` set), so the prefix space is exactly three (staging, demo,
+ * production). `demo` and `production` keep separate index sets — the demo
  * showcase must never read or write the live `production_*` indexes.
  *
- * Kept in lockstep with `AlgoliaEnv` above: `indexPrefixForEnv` passes every
- * non-`development` label straight through, so a label present there and absent
- * here is a type error at that function.
+ * The `preview_*` set retired with the per-PR preview tier (AECI-1268, ruled
+ * 2026-10-10). Local runs now READ `staging_*`; every Worker write path refuses
+ * to mutate it from a local run unless `ALGOLIA_ALLOW_LOCAL_WRITES` opts in
+ * (`apps/api/src/lib/algolia-write-guard.ts`).
  */
-export type AlgoliaIndexPrefix = 'preview' | 'staging' | 'demo' | 'production';
+export type AlgoliaIndexPrefix = 'staging' | 'demo' | 'production';
 
 /** The three entity indexes, in a stable order. */
 export const INDEX_ENTITIES = ['products', 'vendors', 'integrations'] as const;
@@ -76,13 +77,16 @@ export type AlgoliaKeyRole = 'search' | 'management';
 
 /**
  * Map an `ENV` label to its index prefix. `development` (bare `wrangler dev`,
- * tests) folds onto `preview_*` so local/unscoped runs ride the preview index
- * set rather than minting a fourth one — matching the DD-tag + `/api/version`
- * convention where the unset state reports `development`. Previews get a
- * dedicated `preview_*` set (CICD_PLAN §2.1).
+ * tests) folds onto `staging_*` so local/unscoped runs search the staging index
+ * set rather than minting a fourth one — matching the `/api/version` convention
+ * where the unset state reports `development` (CICD_PLAN §7.5).
+ *
+ * Any label that is not a deployed tier also folds onto `staging`. That covers a
+ * stale `ENV=preview` left in a local `.dev.vars` after the preview tier retired
+ * (AECI-1268): it reads `staging_*` instead of naming a deleted `preview_*` set.
  */
 export function indexPrefixForEnv(env: AlgoliaEnv): AlgoliaIndexPrefix {
-  return env === 'development' ? 'preview' : env;
+  return env === 'demo' || env === 'production' ? env : 'staging';
 }
 
 /** Physical index names for an env, e.g. `{ products: 'staging_products', … }`. */

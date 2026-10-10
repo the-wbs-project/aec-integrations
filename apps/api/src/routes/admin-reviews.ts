@@ -110,7 +110,7 @@ function emitModeration(
  * SSR Worker's queue consumer issues the actual `ctx.cache.purge()` and emits
  * `aeci.cache.purge{source:moderation}` — the API Worker's own zone-HTTP purge is
  * inert against native Workers Cache. Best-effort: no-ops without the queue binding
- * (local/preview), and a `queue.send` rejection is logged (a `warn`) and
+ * (local), and a `queue.send` rejection is logged (a `warn`) and
  * swallowed so it never affects the committed moderation.
  */
 async function purgeProductTag(c: AdminContext, slug: string): Promise<void> {

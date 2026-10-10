@@ -38,12 +38,12 @@
       "key": "nonprod",
       "id": 525793,
       "name": "aec-integrations-dev",
-      "tiers": ["development", "preview", "staging", "demo"],
+      "tiers": ["development", "staging", "demo"],
       "publishableToken": "phc_pY8FDQ9FNAmFUJFFd85jNKAAUCMvndUsyGMMV8TR97MD",
       "repoVariable": "POSTHOG_PROJECT_ID_NONPROD",
       "receivesAlerts": false,
       "receivesDashboards": true,
-      "_note": "Dashboards land here too, deliberately: a production-only board cannot be checked against data until something reaches production, which is backwards. Alerts stay prod-only \u2014 a preview deploy failing a cron is not an incident."
+      "_note": "Dashboards land here too, deliberately: a production-only board cannot be checked against data until something reaches production, which is backwards. Alerts stay prod-only \u2014 a staging or local run failing a cron is not an incident."
     }
   ],
   "alertSubscribers": [

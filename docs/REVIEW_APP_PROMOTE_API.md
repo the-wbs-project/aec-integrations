@@ -2030,7 +2030,7 @@ and the push never delays your poll.
 Outcomes are observable as `aeci.algolia.sync{trigger:promote,entity,outcome}` plus a
 `warn` log (`aeci.api.promote.algolia_sync_failed`) on failure; a failed push is
 reconciled by the next daily sync. When the Worker has no Algolia credentials
-(local / PR previews) the push is a graceful no-op. Membership matches the daily sync
+(local) the push is a graceful no-op. Since AECI-1268 (2026-10-10) it is also a no-op whenever `ENV` is not `staging`, `demo` or `production`, unless `ALGOLIA_ALLOW_LOCAL_WRITES=true` is set in `apps/api/.dev.vars` (`apps/api/src/lib/algolia-write-guard.ts`; one warning per isolate). Membership matches the daily sync
 and the bulk reindex: promoted products/vendors are upserted; an integration is indexed
 only when both its endpoint products are promoted.
 

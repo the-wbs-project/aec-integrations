@@ -56,16 +56,17 @@ migrations) via `src/test/d1.ts`. Unit-test conventions live in
 ## Deploy
 
 ```bash
-# Preview (workers.dev)
-pnpm --filter @aeci/api deploy
-
-# Staging / production
+# Staging / demo / production
 pnpm --filter @aeci/api deploy:staging
+pnpm --filter @aeci/api deploy:demo
 pnpm --filter @aeci/api deploy:production
 ```
 
-D1 binds per-env (`aeci-app-{preview,staging,production}`); apply migrations to a
-deployed DB with `wrangler d1 migrations apply aeci-app-<env> --env <env> --remote`.
+The top-level wrangler block is the local-dev config (no `--env`), so the bare `deploy`
+script is not a deploy path. The per-PR preview tier was retired 2026-10-10 (AECI-1268).
+D1 binds per-env (`aeci-app-{staging,demo,production}`); apply migrations to a deployed
+DB with `wrangler d1 migrations apply aeci-app-<env> --env <env> --remote`. The name
+`aeci-app-preview` is the local-only SQLite binding.
 Environment topology + the Worker secret set live in `docs/environments.md`.
 
 ## Layout

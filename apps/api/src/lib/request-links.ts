@@ -18,7 +18,7 @@
  * under AECI-851 and why rehearsing the claim flow on demo was blocked.
  *
  * Every function returns `null` when `PUBLIC_SITE_URL` is unset (local
- * `dev:bound`, PR previews). Callers omit the row rather than rendering a broken
+ * `dev:bound`). Callers omit the row rather than rendering a broken
  * link — the same posture as `email.ts`'s existing `siteUrl` helper.
  */
 

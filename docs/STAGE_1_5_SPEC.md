@@ -1555,9 +1555,9 @@ mid-flight will make a local decision about a cross-cutting contract.
    names. And **an un-migrated database can still exist**: the
    claim here originally read "preview and staging D1 are not migrated by CI",
    which was wrong about staging — staging has been CI-migrated since AECI-256
-   (`docs/CICD_PLAN.md` §3.2) — and is now wrong about preview too, which
-   `deploy.yml`'s `migrate-preview` job has owned since AECI-828
-   (`docs/migrations.md` §0). The _shape_ of the failure is what to keep: on any
+   (`docs/CICD_PLAN.md` §3.2) — and was wrong about preview too, which
+   `deploy.yml`'s `migrate-preview` job owned from AECI-828 until the preview
+   tier was retired on 2026-10-10 (AECI-1268; `docs/migrations.md` §0). The _shape_ of the failure is what to keep: on any
    tier where `0026`/`0027` have not landed, the evidenced table is empty while
    the powered edges sit in `integrations`, so without the field every connector
    edge there misfiles as direct — the failure §13.2's last paragraph names
@@ -2420,7 +2420,7 @@ argument.
 - **Posture as of 2026-08-31: the call is deferred.** We scrape what we can get ourselves first. An incomplete coverage list is explicitly acceptable, so workstream D is not blocked on a MindCloud feed.
 - **`relations()` split.** AECI-722 discharged the remaining deferral, which covered the five non-evidenced tables. AECI-721 had already added the evidenced-pairs block.
 - **The AECI-892 reach read applies `publishableMappingOn` at both ends** of the pair.
-- **The `dispatchConnectorHooks` purge is live on preview and staging only.** `demo` and `production` run uncached today, so the emission does nothing there yet (`CACHE_STRATEGY.md` §3 rule 5).
+- **The `dispatchConnectorHooks` purge is live on staging only.** *(Preview was retired 2026-10-10, AECI-1268.)* `demo` and `production` run uncached today, so the emission does nothing there yet (`CACHE_STRATEGY.md` §3 rule 5).
 - **AECI-1013's vendor-portal reader** reads through `GET /api/vendor/products/:id/connectors`. It dates every reach and sits outside the live-update cursor.
 - **The first production sync (AECI-764, 2026-09-10) followed the review-side sender, AECI-731, shipping.** It loaded Agave, Trimble AppXchange, Aquifer and Kroo, each in one page. Three things it left open have since moved:
   - **MindCloud is live in production since 2026-09-21.** AECI-1029 promoted the product at `04:48Z`. AECI-902 synced its catalogue at `10:14–10:19Z`: 12 pages, 3,395 stubs, 2,016 pairs, 52 mappings, with 79 mappings skipped because their product is unpromoted.

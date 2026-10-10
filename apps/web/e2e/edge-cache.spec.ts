@@ -15,14 +15,14 @@ function accessHeaders(): Record<string, string> {
 }
 
 test.describe('native Workers Cache (AECI-323 / WC-9)', () => {
-  test('a unique cacheable URL progresses from MISS to HIT on a deployed preview', async ({
+  test('a unique cacheable URL progresses from MISS to HIT on a deployed tier (staging)', async ({
     request,
   }) => {
     test.skip(IS_LOCAL, 'native Workers Cache is not emulated by local Wrangler/Miniflare');
 
     // `view` is a display-only /products cache-key parameter (AECI-190): it is on
     // the route's cacheKeyParams allowlist, so a unique value forks the native
-    // cache key (guaranteeing a cold MISS regardless of prior preview traffic),
+    // cache key (guaranteeing a cold MISS regardless of prior traffic),
     // yet the index maps any non-`table` value to the default card grid — so the
     // response is a normal 200 carrying the standard /products cache headers, and
     // `view` is never forwarded to the API. (A unique `page=` was unusable: `page`

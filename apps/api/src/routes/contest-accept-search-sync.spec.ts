@@ -52,6 +52,7 @@ import {
 import type { Env } from '../env';
 import { errorHandler } from '../errors';
 import { syncIndexTargets } from '../lib/algolia-sync';
+import { resetAlgoliaWriteGuardWarning } from '../lib/algolia-write-guard';
 import type { AuthzVariables } from '../lib/authz';
 import { submitCount, submitDistribution, submitMetricsBatch } from '../posthog';
 import { makeTestDb, type TestDb } from '../test/d1';
@@ -131,6 +132,7 @@ async function call(
   auth: Auth,
   path: string,
   body: unknown,
+  envOverrides: Partial<Env> = {},
 ): Promise<{ status: number; body: JsonBody }> {
   const a = new Hono<{ Bindings: Env; Variables: AuthzVariables }>();
   a.onError(errorHandler());
@@ -142,9 +144,12 @@ async function call(
   a.post('/api/vendor/contests/:id/decision', createDecideContestHandler(t.factory));
   const env: Env = {
     ...TEST_ENV,
+    // A deployed tier: the AECI-1268 write guard refuses a local run.
+    ENV: 'staging',
     // Fake credentials: the index push itself is stubbed above.
     ALGOLIA_APP_ID: 'TESTAPP',
     ALGOLIA_ADMIN_KEY: 'test-admin-key',
+    ...envOverrides,
   } as Env;
   const execCtx = fakeExecutionContext();
   const res = await a.request(
@@ -209,5 +214,34 @@ describe('the owner accept’s Algolia sync metrics (AECI-1092 re-review)', () =
       ...vi.mocked(submitDistribution).mock.calls,
     ].filter((c) => String(c[3]).startsWith('aeci.algolia.sync'));
     expect(singles).toHaveLength(0);
+  });
+
+  it('skips the index sync on a local run, even with credentials (AECI-1268 write guard)', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    resetAlgoliaWriteGuardWarning();
+    const local: Partial<Env> = { ENV: 'development' };
+    const filed = await call(
+      seat(SEAT_A, VENDOR_A, false),
+      `/api/vendor/integrations/${PAIR}/contests`,
+      {
+        field: 'docs_url',
+        proposed_value: 'https://example.test/better-docs',
+        reason: 'The docs moved.',
+      },
+      local,
+    );
+    expect(filed.status).toBe(201);
+
+    const decided = await call(
+      seat(SEAT_T, VENDOR_T, true),
+      `/api/vendor/contests/${filed.body.contest.id}/decision`,
+      { decision: 'accept' },
+      local,
+    );
+    // The write itself commits; only the post-commit index push is withheld.
+    expect(decided.status).toBe(200);
+    expect(vi.mocked(syncIndexTargets)).not.toHaveBeenCalled();
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('owner-write search sync'));
+    warn.mockRestore();
   });
 });

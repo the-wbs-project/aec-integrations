@@ -162,7 +162,7 @@ export interface DataQualityDeps {
   /** Max logo URLs to probe (default {@link DEFAULT_LOGO_SAMPLE}). */
   logoSampleSize?: number;
   /** Reuse of the AECI-140 drift count (`findAlgoliaIndexDrift`). `undefined` →
-   *  `algolia_index_drift` is skipped (no Algolia creds — the local/preview default). */
+   *  `algolia_index_drift` is skipped (no Algolia creds — the local default). */
   runDrift?: () => Promise<AlgoliaIndexDrift[]>;
 }
 

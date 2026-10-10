@@ -376,7 +376,7 @@ describe('GET /api/admin/requests', () => {
 
   it('leaves has_auth_account null when the seam degrades to an empty map', async () => {
     // TEST_ENV carries no Supabase creds, so the REAL seam short-circuits to an
-    // empty map with no fetch — the local/PR-preview posture.
+    // empty map with no fetch — the local posture.
     await seed(reqRow({ submitterEmail: 'jane@acme.com' }));
 
     const parsed = ListVendorRequestsResponseSchema.parse(await (await getList()).json());

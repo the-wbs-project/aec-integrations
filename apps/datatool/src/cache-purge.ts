@@ -16,7 +16,7 @@
  * queue, so a purge after a write to one tier evicts ONLY that tier (the former
  * shared-`aecintegrations.com`-zone caveat is moot under per-Worker caches).
  *
- * Best-effort / graceful skip, unchanged: `preview` (and any unbound tier) has no
+ * Best-effort / graceful skip, unchanged: an unbound tier has no
  * queue producer → returns `{ enqueued: false }` without sending; a `queue.send()`
  * failure is caught and returned, never thrown, so a purge hiccup never fails the
  * copy/seed itself.
@@ -33,7 +33,7 @@ export type PurgeEnqueueOutcome = {
 export async function purgeEnvCache(
   queue: Queue<CachePurgeMessage> | undefined,
 ): Promise<PurgeEnqueueOutcome> {
-  // No queue for this tier (preview / unbound) → graceful no-op.
+  // No queue for this tier (unbound) → graceful no-op.
   if (!queue) {
     return { ok: false, enqueued: false, message: 'cache_purge_queue_unconfigured' };
   }

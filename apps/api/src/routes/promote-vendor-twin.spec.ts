@@ -61,7 +61,7 @@ const NOW = '2026-09-22T00:00:00.000Z';
 let t: TestDb;
 
 const rc = (): PromoteRunCtx => ({
-  env: { ENV: 'preview' } as Env,
+  env: { ENV: 'staging' } as Env,
   request: new Request('http://localhost:8787/api/promote'),
   waitUntil: () => {},
   bookmark: () => null,

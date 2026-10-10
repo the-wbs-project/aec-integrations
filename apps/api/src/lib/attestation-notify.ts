@@ -174,7 +174,7 @@ export interface NotifyDeps {
   fetchSeatEmails?: FetchSeatEmails;
   /** Detector pass. Injected so the sweep's own specs can drive synthetic findings. */
   runDetectors?: typeof runAttestationDetectors;
-  /** Metric sink. Absent → metrics are simply not emitted (local/preview). */
+  /** Metric sink. Absent → metrics are simply not emitted (local). */
   metrics?: AttestationNotifyMetricSink;
 }
 

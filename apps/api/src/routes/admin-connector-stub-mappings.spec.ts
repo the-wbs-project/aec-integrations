@@ -341,7 +341,7 @@ describe('PATCH …/connector-stub-mappings/:id — rejections', () => {
 
 describe('authorization', () => {
   const SUPABASE_URL = 'https://test-project.supabase.co';
-  const AUTHZ_ENV = { ENV: 'preview', SUPABASE_URL } as Env;
+  const AUTHZ_ENV = { ENV: 'staging', SUPABASE_URL } as Env;
   const SEAT = u(500);
   const VENDOR = u(10);
 
@@ -407,7 +407,7 @@ describe('route registration', () => {
         body: JSON.stringify({ confidence: 'low' }),
         headers: { 'content-type': 'application/json' },
       }),
-      { ENV: 'preview', SUPABASE_URL: 'https://test-project.supabase.co' } as Env,
+      { ENV: 'staging', SUPABASE_URL: 'https://test-project.supabase.co' } as Env,
       fakeExecutionContext(),
     );
     expect(res.status).toBe(401);

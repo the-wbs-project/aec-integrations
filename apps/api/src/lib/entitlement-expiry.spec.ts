@@ -500,7 +500,7 @@ describe('without SUPABASE_SERVICE_ROLE_KEY', () => {
     expect((await entitlementOf())?.expiryNoticeSentAt).toBe(NOW.toISOString());
   });
 
-  it('does not stamp when there is no admin recipient either (the local/preview state)', async () => {
+  it('does not stamp when there is no admin recipient either (the local state)', async () => {
     await seedVendor();
     await seedSeat();
     await seedEntitlement();

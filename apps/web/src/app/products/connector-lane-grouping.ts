@@ -114,8 +114,8 @@ export type IntegrationLane =
  * **(b) Then the connector, FK first.** `via` is the post-migration answer — the
  * row is a `connector_evidenced_pairs` row and names its connector. Failing
  * that, a `powered_by_product` that is neither endpoint routes here too: in a
- * migrated database that set is empty, but preview and staging D1 are not
- * migrated by CI, and misfiling every connector edge as direct there is exactly
+ * migrated database that set is empty, but a D1 that has not taken that
+ * migration still holds such rows, and misfiling every connector edge as direct there is exactly
  * the failure AECI-706 guarded against.
  *
  * **(c) `iPaaS` with no connector at all → the unnamed group; everything else is

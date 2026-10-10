@@ -41,7 +41,8 @@ import { liveEvidencedPairWhere, liveIntegrationWhere } from './live-integration
 const PROMOTED = 'promoted';
 
 /** Map the Worker `ENV` var to the Algolia env (unset → `development`, which
- *  folds onto the preview index set — same convention as `/api/version`). */
+ *  folds onto the staging index set since AECI-1268 — same convention as
+ *  `/api/version`). Reads only: writes go through `algolia-write-guard`. */
 export function algoliaEnvFor(env: Env): AlgoliaEnv {
   return env.ENV ?? 'development';
 }
@@ -204,7 +205,7 @@ export function drizzlePromotedIds(db: Db): PromotedIdProvider {
  *
  * **Fail-safe by absence**: no `ALGOLIA_APP_ID` / `ALGOLIA_ADMIN_KEY` →
  * `undefined`, which `checkAlgoliaDrift` already reads as "skip this check, don't
- * error". That is the expected local `dev:bound` / PR-preview state.
+ * error". That is the expected local `dev:bound` state.
  */
 export function createDriftRunner(
   env: Env,

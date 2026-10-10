@@ -12,7 +12,7 @@
  *   1. **A vendor write lands rows in BOTH tables**, tagged `source = 'vendor'`
  *      so a row is attributable per row rather than only per deploy.
  *   2. **The environment gate holds.** With no `INDEXNOW_KEY` nothing is
- *      buffered at all, so a preview tier never accumulates rows that a later
+ *      buffered at all, so a non-indexed tier never accumulates rows that a later
  *      launch would release as a backlog of stale work.
  *   3. **A buffering failure never fails the write.** These are post-commit
  *      hooks on an already-committed edit.
@@ -343,7 +343,7 @@ describe('PATCH /api/vendor/profile — re-crawl buffering', () => {
 
 describe('the environment gate', () => {
   it('buffers nothing at all without INDEXNOW_KEY', async () => {
-    // A preview tier renders `noindex`, so accumulating rows there would build a
+    // A non-indexed tier renders `noindex`, so accumulating rows there would build a
     // backlog of stale work that a later launch would release in one go.
     const res = await patchJson(`/api/vendor/products/${PRODUCT}`, { description: 'x' }, {
       ...TEST_ENV,
@@ -365,7 +365,7 @@ describe('the environment gate', () => {
 
   it('does not even run the trade-floor read on a gated environment', async () => {
     // `resolvePublishedTradeSlugs` is a grouped D1 count. Running it to feed a
-    // buffer that will not be written is pure waste on every preview and every
+    // buffer that will not be written is pure waste on every gated tier and every
     // local request, so `recrawlEnabled` is checked BEFORE the derivation rather
     // than only inside the buffer.
     const spy = vi.spyOn(t.raw, 'prepare');

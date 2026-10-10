@@ -194,7 +194,7 @@ export function createSeatInviteHandler(
     // colleague is harmless anyway: the accept upsert lands on the same values it
     // already has, and the owner can see who is on the roster right above the
     // form. Buying a redundant check with a hard dependency on a key that is
-    // absent in local dev and on every PR preview is the wrong trade.
+    // absent in local dev is the wrong trade.
     const existingInvite = await db.query.vendorSeatInvites.findFirst({
       columns: { id: true },
       where: and(liveInvitesFor(vendorId, now), eq(vendorSeatInvites.email, email)),

@@ -24,7 +24,7 @@
  *     non-2xx, network error, timeout) resolves to an `EmailOutcome`, so a send can
  *     never break the action that triggered it. Callers fire it via `ctx.waitUntil`.
  *   - **Absent key → `'skipped'`.** No `RESEND_API_KEY` is the expected local
- *     `dev:bound` / PR-preview state (the secret is staging/prod only), so it
+ *     `dev:bound` state (the secret is staging/prod only), so it
  *     no-ops; only genuine outages warn (mirrors `ANTHROPIC_API_KEY`).
  *   - **Sane timeout** via `AbortSignal.timeout` so a slow provider never hangs the
  *     `waitUntil` budget (transactional layer).
@@ -1319,7 +1319,7 @@ function expiryPhrase(daysRemaining: number): string {
  * unbanned `vendor_admin` seats.
  *
  * Degrades to `'skipped'` without `SUPABASE_SERVICE_ROLE_KEY` (no resolvable seat
- * address), which is the expected local / PR-preview state; the admin copy below
+ * address), which is the expected local state; the admin copy below
  * always lands, so a term is never silently un-warned.
  *
  * The money is deliberately absent. Amount, payer, terms and PO reference are
@@ -1414,7 +1414,7 @@ export function sendEntitlementExpiringAdminEmail(
     ['Payer', opts.payer?.trim() || '(none recorded)'],
     ['Invoice ref', opts.invoiceRef?.trim() || '(none recorded)'],
     // Named explicitly so "the vendor was told" is never assumed. `skipped` here is
-    // the normal local/preview state (no SUPABASE_SERVICE_ROLE_KEY) and a real
+    // the normal local state (no SUPABASE_SERVICE_ROLE_KEY) and a real
     // misconfiguration on a deployed tier.
     ['Vendor notice', opts.vendorNotice],
   ];
@@ -1460,7 +1460,7 @@ export function sendAccountDeletionEmail(
  *  an https `List-Unsubscribe` target that hits `POST /api/unsubscribe?token=…`
  *  through the SSR passthrough). Without a host or a token there is no opt-out
  *  link and no header. That happens only where `PUBLIC_SITE_URL` is unset (local
- *  and PR previews): every deployed tier sets it, and every subscriber row carries a
+ *  dev): every deployed tier sets it, and every subscriber row carries a
  *  token. Until AECI-1220 the header also carried an `unsubscribe@<sender-domain>`
  *  mailto, and the no-host footer named that mailbox. Nobody owned that mailbox, so
  *  an opt-out sent to it may never have been actioned. Both are gone.

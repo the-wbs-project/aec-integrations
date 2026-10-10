@@ -172,3 +172,5 @@ resume if no further parallel-stage work is outstanding.
 >
 > Surfaced by AECI-601, which found `.agents/skills/spec-anchor/SKILL.md` still citing this ADR to
 > route Stage 2 work onto the deleted branch.
+
+**Amendment 2026-10-10 (AECI-1268):** Per-PR previews are retired, so the review path named above no longer exists. Human review happens on staging after merge to `main`. The branch decision is unchanged. `main` is the only line (see the 2026-09 amendment above).

@@ -75,7 +75,7 @@ function makeHarness(overrides: Partial<Env> = {}) {
   const workflow = fakeWorkflow();
   const kv = fakeKv();
   const env = {
-    ENV: 'preview',
+    ENV: 'staging',
     REVIEW_APP_TOKEN: 'secret-token',
     PROMOTE_WORKFLOW: workflow as unknown as Env['PROMOTE_WORKFLOW'],
     PROMOTE_KV: kv as unknown as Env['PROMOTE_KV'],

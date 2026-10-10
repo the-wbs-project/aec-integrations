@@ -69,7 +69,7 @@ function harness(opts: {
   const workflow = fakeWorkflow(opts.states ?? {});
   const kv = fakeKv(opts.kvEntries);
   const env = {
-    ENV: 'preview',
+    ENV: 'staging',
     REVIEW_APP_TOKEN: 'secret-token',
     PROMOTE_WORKFLOW: opts.noWorkflow
       ? undefined

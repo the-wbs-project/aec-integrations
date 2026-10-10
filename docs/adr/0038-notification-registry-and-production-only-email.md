@@ -221,3 +221,5 @@ The branch review changed these, each recorded where it applies above or below.
   `LINEAR_DOCS_MIRROR_API_KEY` and `LINEAR_NOTIFICATIONS_DOC_ID`, the mirror workflow skips
   (§7, AECI-1220). The run is not a required check, so it never blocks a merge
   (`docs/CICD_PLAN.md` §11b).
+
+**Amendment 2026-10-10 (AECI-1268):** PR previews are retired. A missing `unsubscribe@` host or token now happens on local dev only.

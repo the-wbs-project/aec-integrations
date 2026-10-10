@@ -39,3 +39,5 @@ The decision owner's stated preference is that recurring jobs be structured as *
 - ↔ The `aeci.algolia.sync` / `aeci.algolia.index_drift` metrics are emitted from the consumer now instead of the cron invocation; tag values (`trigger:cron`) are unchanged, so dashboards/monitors are unaffected.
 
 This narrows ADR 0028's deferral: a Queue is now used for the Algolia jobs. The promote→purge path remains a direct Cloudflare call (ADR 0028 Option B) — unchanged.
+
+**Amendment 2026-10-10 (AECI-1268):** There is no `preview` env block any more. The top-level `apps/api/wrangler.jsonc` block is local-dev config with no queue bindings, so the inline fallback still covers it. The Algolia sync job and the drift job's orphan sweep also no-op on a non-staging/demo/production `ENV` unless `ALGOLIA_ALLOW_LOCAL_WRITES=true` (`apps/api/src/lib/algolia-write-guard.ts`).

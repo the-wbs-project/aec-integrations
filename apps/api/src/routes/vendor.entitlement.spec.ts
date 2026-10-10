@@ -81,7 +81,7 @@ import {
 } from './vendor';
 
 const SUPABASE_URL = 'https://test-project.supabase.co';
-const ENV = { ENV: 'preview', SUPABASE_URL } as Env;
+const ENV = { ENV: 'staging', SUPABASE_URL } as Env;
 
 const uuid = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
 

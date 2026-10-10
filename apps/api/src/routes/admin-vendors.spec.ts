@@ -1556,7 +1556,7 @@ describe('DELETE /api/admin/vendors/:id/seats/:userId', () => {
  * `STAGE_2_VENDOR_PORTAL_SPEC.md` §5.2 had to tell operators not to press Grant.
  *
  * The identity seam is injected, so these run with no Supabase. Its ABSENCE is
- * covered too — 503 is the default outcome on local dev and PR previews, exactly
+ * covered too — 503 is the default outcome on local dev, exactly
  * as on the claim grant.
  */
 describe('POST /api/admin/vendors/:id/seats', () => {
@@ -1751,8 +1751,8 @@ describe('POST /api/admin/vendors/:id/seats', () => {
   });
 
   it('503s when the identity seam is unavailable — the local-dev default', async () => {
-    // `SUPABASE_SERVICE_ROLE_KEY` is legitimately absent on local dev and every
-    // PR preview, so this is the DEFAULT path there, exactly as on the grant. It
+    // `SUPABASE_SERVICE_ROLE_KEY` is legitimately absent on local dev, so this is
+    // the DEFAULT path there, exactly as on the grant. It
     // must refuse rather than half-provision.
     const res = await provision(VENDOR, identity({ outcome: 'unavailable' }));
     expect(res.status).toBe(503);

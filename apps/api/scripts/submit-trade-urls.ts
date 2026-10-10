@@ -51,7 +51,7 @@
  *   # submit (production requires the extra guard flag):
  *   INDEXNOW_KEY=… pnpm --filter @aeci/api ops:submit-trade-urls -- \
  *     --env production --apply --allow-production
- *   # against an arbitrary origin (PR preview, local dev):
+ *   # against an arbitrary origin (a non-canonical deploy, local dev):
  *   pnpm --filter @aeci/api ops:submit-trade-urls -- --site http://localhost:8788
  *
  * Credentials (read from the ambient environment; this script does NOT auto-load
@@ -92,7 +92,7 @@ const USAGE = `usage: ops:submit-trade-urls (--env <staging|demo|production> | -
                             [--apply] [--allow-production]
 
   --env <name>         Target a deployed env by its PUBLIC_SITE_URL.
-  --site <origin>      Target an arbitrary origin (PR preview, localhost).
+  --site <origin>      Target an arbitrary origin (staging, localhost).
   --apply              Actually submit. Without it, discover and report only.
   --allow-production    Required alongside --apply when the target is production.`;
 

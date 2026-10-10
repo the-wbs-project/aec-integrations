@@ -124,7 +124,7 @@ async function handleMessage(
 /**
  * Factory for the SSR Worker's `queue()` handler. Registered on the default export in
  * `server.ts`; the consumer binding is wired per-env in `apps/web/wrangler.jsonc`
- * (staging / demo / production only — no queue on preview/local, a graceful no-op). Each
+ * (staging / demo / production only — no queue on local, a graceful no-op). Each
  * message is handled independently so one failure retries only that message (the
  * consumer runs with `max_batch_size: 1`).
  */

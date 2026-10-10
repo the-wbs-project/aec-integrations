@@ -40,12 +40,14 @@ describe('buildAlgoliaPublicConfig', () => {
     });
   });
 
-  it('folds an absent ENV onto the preview index set', () => {
-    expect(buildAlgoliaPublicConfig(makeEnv({ ENV: undefined }))?.indexes).toEqual({
-      products: 'preview_products',
-      vendors: 'preview_vendors',
-      integrations: 'preview_integrations',
-    });
+  it('folds an absent ENV (local dev) onto the staging index set (AECI-1268)', () => {
+    const staging = {
+      products: 'staging_products',
+      vendors: 'staging_vendors',
+      integrations: 'staging_integrations',
+    };
+    expect(buildAlgoliaPublicConfig(makeEnv({ ENV: undefined }))?.indexes).toEqual(staging);
+    expect(buildAlgoliaPublicConfig(makeEnv({ ENV: 'development' }))?.indexes).toEqual(staging);
   });
 });
 

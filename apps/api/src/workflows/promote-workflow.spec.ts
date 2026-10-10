@@ -106,7 +106,7 @@ beforeEach(async () => {
   t = await makeTestDb();
   kv = fakeKv();
   env = {
-    ENV: 'preview',
+    ENV: 'staging',
     PROMOTE_KV: kv as unknown as Env['PROMOTE_KV'],
   } as Env;
 });
@@ -185,7 +185,7 @@ describe('runPromoteWorkflow', () => {
   });
 
   it('still commits when PROMOTE_KV is absent (the mirror is best-effort)', async () => {
-    env = { ENV: 'preview' } as Env;
+    env = { ENV: 'staging' } as Env;
     const response = await run().promise;
 
     expect(response.product?.operation).toBe('created');

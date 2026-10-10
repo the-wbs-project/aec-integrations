@@ -24,7 +24,7 @@ const PREFIX_LOOKALIKE = 'x@evilthewbsproject.com';
 const SUFFIX_LOOKALIKE = 'x@thewbsproject.com.evil.io';
 const SUBDOMAIN = 'x@mail.thewbsproject.com';
 
-const NON_PRODUCTION = ['development', 'preview', 'staging', 'demo'] as const;
+const NON_PRODUCTION = ['development', 'staging', 'demo'] as const;
 
 describe('isProductionTier', () => {
   it('is true only for ENV=production', () => {

@@ -43,6 +43,7 @@ import type { Db } from '../db/client';
 import { connectorEvidencedPairs, integrationFieldChallenges, integrations } from '../db/schema';
 import { syncIndexTargets, type IndexTargetIds } from '../lib/algolia-sync';
 import { emitAlgoliaSyncMetrics } from '../lib/algolia-sync-metrics';
+import { guardAlgoliaWrite } from '../lib/algolia-write-guard';
 import { auditInsert, type BatchStmt } from '../lib/audit';
 import {
   CONTEST_ENTITY_TYPE,
@@ -525,6 +526,8 @@ export async function syncOwnerWriteSearch(
 ): Promise<void> {
   const creds = { appId: c.env.ALGOLIA_APP_ID, apiKey: c.env.ALGOLIA_ADMIN_KEY };
   if (!creds.appId || !creds.apiKey) return;
+  // AECI-1268: a local run reads staging_* but never writes it unless opted in.
+  if (!guardAlgoliaWrite(c.env, 'owner-write search sync')) return;
   const env: AlgoliaEnv = c.env.ENV ?? 'development';
   const started = Date.now();
   try {

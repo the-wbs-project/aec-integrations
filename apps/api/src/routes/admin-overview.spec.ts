@@ -175,7 +175,7 @@ describe('GET /api/admin/overview — digest parity (the AECI-574 acceptance cri
     // What the 05:00 cron would compute and email for `DAY`.
     const metrics = await collectAnalyticsMetrics(t.db, windowsForDay(DAY));
     const email = buildAnalyticsDigest(metrics, {
-      env: 'preview',
+      env: 'staging',
       dayLabel: DAY,
       generatedAt: NOW,
     });
@@ -239,7 +239,7 @@ describe('GET /api/admin/overview — digest parity (the AECI-574 acceptance cri
 
     const metrics = await collectAnalyticsMetrics(t.db, windowsForDay(DAY));
     const email = buildAnalyticsDigest(metrics, {
-      env: 'preview',
+      env: 'staging',
       dayLabel: DAY,
       generatedAt: NOW,
     });
@@ -560,7 +560,7 @@ describe('GET /api/admin/overview — the status strip and ?recompute=1 (§13 D8
     expect(body.status.version).toEqual({
       sha: 'abc1234',
       deployed_at: '2026-08-11T00:00:00.000Z',
-      environment: 'preview',
+      environment: 'development',
     });
     expect(body.status.stats_freshness.computed_at).toBe('2026-08-11T01:00:00.000Z');
     expect(body.status.stats_freshness.stale).toBe(false);

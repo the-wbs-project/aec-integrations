@@ -11,20 +11,17 @@ const CTX = {
 } as unknown as ExecutionContext;
 
 describe('datatool routes', () => {
-  let preview: ShimHandle;
   let staging: ShimHandle;
   let demo: ShimHandle;
   let production: ShimHandle;
   let env: Record<string, unknown>;
 
   beforeEach(() => {
-    preview = makeShimDb();
     staging = makeShimDb();
     demo = makeShimDb();
     production = makeShimDb();
     // No Algolia/CF creds → the post-write refresh gracefully skips (no network).
     env = {
-      DB_PREVIEW: preview.db,
       DB_STAGING: staging.db,
       DB_DEMO: demo.db,
       DB_PRODUCTION: production.db,
@@ -34,7 +31,6 @@ describe('datatool routes', () => {
     };
   });
   afterEach(() => {
-    preview.dispose();
     staging.dispose();
     demo.dispose();
     production.dispose();
@@ -55,7 +51,7 @@ describe('datatool routes', () => {
   }
 
   it('403s the API without auth, serves the UI ungated', async () => {
-    const denied = await call('/api/copy', { source: 'preview', dest: 'staging', dryRun: true });
+    const denied = await call('/api/copy', { source: 'production', dest: 'staging', dryRun: true });
     expect(denied.status).toBe(403);
 
     const ui = await app.fetch(new Request('http://tool.local/'), env, CTX);
@@ -65,10 +61,10 @@ describe('datatool routes', () => {
   });
 
   it('copy dry-run reports counts without writing (authed via tool token)', async () => {
-    seedCatalog(preview.raw);
+    seedCatalog(production.raw);
     const res = await call(
       '/api/copy',
-      { source: 'preview', dest: 'staging', dryRun: true },
+      { source: 'production', dest: 'staging', dryRun: true },
       TOKEN,
     );
     expect(res.status).toBe(200);
@@ -84,10 +80,10 @@ describe('datatool routes', () => {
   });
 
   it('rejects execute without the typed confirmation', async () => {
-    seedCatalog(preview.raw);
+    seedCatalog(production.raw);
     const res = await call(
       '/api/copy',
-      { source: 'preview', dest: 'staging', dryRun: false },
+      { source: 'production', dest: 'staging', dryRun: false },
       TOKEN,
     );
     expect(res.status).toBe(400);
@@ -95,10 +91,10 @@ describe('datatool routes', () => {
   });
 
   it('executes a confirmed copy and skips refresh when no Algolia/CF creds', async () => {
-    seedCatalog(preview.raw);
+    seedCatalog(production.raw);
     const res = await call(
       '/api/copy',
-      { source: 'preview', dest: 'staging', dryRun: false, confirmName: 'aeci-app-staging' },
+      { source: 'production', dest: 'staging', dryRun: false, confirmName: 'aeci-app-staging' },
       TOKEN,
     );
     expect(res.status).toBe(200);
@@ -114,10 +110,10 @@ describe('datatool routes', () => {
   });
 
   it('routes a confirmed copy to the demo DB with only the typed confirm (no prod double-confirm)', async () => {
-    seedCatalog(preview.raw);
+    seedCatalog(production.raw);
     const res = await call(
       '/api/copy',
-      { source: 'preview', dest: 'demo', dryRun: false, confirmName: 'aeci-app-demo' },
+      { source: 'production', dest: 'demo', dryRun: false, confirmName: 'aeci-app-demo' },
       TOKEN,
     );
     expect(res.status).toBe(200);
@@ -132,10 +128,10 @@ describe('datatool routes', () => {
   });
 
   it('requires the production double-confirm', async () => {
-    seedCatalog(preview.raw);
+    seedCatalog(staging.raw);
     const res = await call(
       '/api/copy',
-      { source: 'preview', dest: 'production', dryRun: false, confirmName: 'aeci-app-production' },
+      { source: 'staging', dest: 'production', dryRun: false, confirmName: 'aeci-app-production' },
       TOKEN,
     );
     expect(res.status).toBe(400);
@@ -225,9 +221,9 @@ describe('datatool routes', () => {
   });
 
   it('gracefully skips the purge when the target tier has no queue producer', async () => {
-    seedCatalog(preview.raw);
-    // preview has no `aeci-cache-purge-preview` queue → no producer bound.
-    const res = await call('/api/reindex', { target: 'preview' }, TOKEN);
+    seedCatalog(demo.raw);
+    // No CACHE_PURGE_QUEUE_DEMO bound in this env → no producer for the target tier.
+    const res = await call('/api/reindex', { target: 'demo' }, TOKEN);
     expect(res.status).toBe(200);
     const json = (await res.json()) as { purge: { ok: boolean; enqueued: boolean } };
     expect(json.purge.ok).toBe(false);
@@ -246,13 +242,13 @@ describe('datatool routes', () => {
   });
 
   it('a confirmed copy enqueues the destination tier purge', async () => {
-    seedCatalog(preview.raw);
+    seedCatalog(production.raw);
     const stagingQueue = queueSpy();
     env.CACHE_PURGE_QUEUE_STAGING = stagingQueue;
 
     const res = await call(
       '/api/copy',
-      { source: 'preview', dest: 'staging', dryRun: false, confirmName: 'aeci-app-staging' },
+      { source: 'production', dest: 'staging', dryRun: false, confirmName: 'aeci-app-staging' },
       TOKEN,
     );
     expect(res.status).toBe(200);

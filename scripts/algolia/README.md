@@ -19,7 +19,7 @@ Operator-run script that stands up one environment's Algolia search infrastructu
 
 ## What it does (per `--env`)
 
-1. **Ensures three indexes exist** — `<prefix>_products`, `<prefix>_vendors`, `<prefix>_integrations` — by applying _empty_ settings. The prefix is the env name; `development` folds onto `preview` (there is no `development_*` set).
+1. **Ensures three indexes exist** — `<prefix>_products`, `<prefix>_vendors`, `<prefix>_integrations` — by applying _empty_ settings. The prefix is the env name and only `staging`, `demo` and `production` are accepted. `development` (local dev) and any unknown label fold onto `staging`, so there is no `development_*` or `preview_*` set. Local dev and Lighthouse read `staging_*`.
 2. **Mints two standalone, independently-rotatable keys**, each scoped to that env's three indexes:
    - **search-only key** — ACL `['search']` → the web Worker's `ALGOLIA_SEARCH_KEY` (client-exposed, query-only).
    - **management key** — ACL `search + browse + addObject + deleteObject + editSettings + listIndexes` → the API Worker's `ALGOLIA_ADMIN_KEY` (server-only; used by sync from 3.5 and the orphan sweep from AECI-266, which needs `browse`).
@@ -41,7 +41,6 @@ The root admin key is **operator-held**. It is used _only_ to run this script an
 export ALGOLIA_APP_ID=…
 export ALGOLIA_ADMIN_KEY=<root admin key>   # the app-wide ROOT key, not a scoped one
 
-node scripts/algolia/provision.mjs --env preview
 node scripts/algolia/provision.mjs --env staging
 node scripts/algolia/provision.mjs --env production
 ```
@@ -54,10 +53,8 @@ Or via the package script: `pnpm algolia:provision --env staging`.
 
 For each env the script prints the live `ALGOLIA_SEARCH_KEY` and `ALGOLIA_ADMIN_KEY` (management) values, then a copy-pasteable block of:
 
-- `gh secret set ALGOLIA_APP_ID`, `ALGOLIA_SEARCH_KEY`, `ALGOLIA_ADMIN_KEY` — all **single shared** secrets now (one value across every env; no `_STAGING`/`_PRODUCTION`/`_PREVIEW`/`_DEMO` suffix). The shared search key must cover every env's indexes it serves.
+- `gh secret set ALGOLIA_APP_ID`, `ALGOLIA_SEARCH_KEY`, `ALGOLIA_ADMIN_KEY` — all **single shared** secrets now (one value across every env; no per-env suffix). The shared search key must cover every env's indexes it serves.
 - `wrangler secret put` for the web Worker (`ALGOLIA_APP_ID` + `ALGOLIA_SEARCH_KEY`) and the API Worker (`ALGOLIA_APP_ID` + `ALGOLIA_ADMIN_KEY`).
-
-`preview` has no GitHub secret (per-PR previews are untouched until 3.9); push its Worker secrets directly.
 
 ## Idempotency & rotation
 
@@ -83,7 +80,7 @@ Applies the per-index settings as code (AECI-137 / Phase 3.2) — `searchableAtt
 
 This is the script the CI "update Algolia indexes" step (CICD §3.2) runs on every staging/demo/prod deploy. It **prints no secrets** and is safe in CI.
 
-> **`preview` is not covered by any workflow** — it is operator-run only (`pnpm algolia:apply-settings --env preview`). Worth remembering because the Lighthouse job measures `/search` against the preview indexes, so a new facet won't appear there until someone runs it. Full per-environment table: `docs/SEARCH_RANKING.md` §1.1.
+> Only `staging`, `demo` and `production` are accepted. The preview tier is retired (AECI-1268, 2026-10-10). Local dev and the Lighthouse job read `staging_*`, which the staging deploy covers. Full per-environment table: `docs/SEARCH_RANKING.md` §1.1.
 
 ## Run
 
@@ -136,9 +133,9 @@ quota. The management key has no `deleteIndex` ACL, so this script cannot delete
 
 Delete `<env>_products_integration_count_desc` and `<env>_vendors_integration_count_desc` by hand,
 in the Algolia dashboard or with the root admin key. Do staging and demo after verification, and
-production after a 7-day soak. Run the preview apply **last**, after all six deletions, because it
-creates `preview_products_name_asc` and `preview_vendors_name_asc` and lands the app at 20 of its 20
-index cap. Full runbook: `docs/SEARCH_RANKING.md` §5a.
+production after a 7-day soak. The operator also deletes the three retired `preview_*` indexes
+(AECI-1268). Algolia is at 24 indexes against a cap of 20 today. It lands at 15 of 20 after the three
+`preview_*` indexes and the six detached replicas are gone. Full runbook: `docs/SEARCH_RANKING.md` §5a.
 
 ## Verify (in the Algolia dashboard, after a run)
 

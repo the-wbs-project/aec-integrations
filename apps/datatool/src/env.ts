@@ -9,12 +9,12 @@
 import type { CachePurgeMessage } from '@aeci/shared/cache-purge';
 
 export type Env = {
-  // ── D1: the four remote application databases (ADR 0016), one per deploy tier
-  //    (preview → staging → demo → production; docs/environments.md). A deployed
+  // ── D1: the three remote application databases (ADR 0016), one per deploy tier
+  //    (staging → demo → production; docs/environments.md). The preview tier and
+  //    its `DB_PREVIEW` binding retired with AECI-1268. A deployed
   //    Worker reaches the REAL remote DB through each binding; `wrangler dev` (no
   //    `--remote`) would serve local SQLite copies, which is why LOCAL is not a
   //    copy/seed target for the deployed tool. ──────────────────────────────────
-  DB_PREVIEW: D1Database;
   DB_STAGING: D1Database;
   DB_DEMO: D1Database;
   DB_PRODUCTION: D1Database;
@@ -25,9 +25,8 @@ export type Env = {
   //    the datatool enqueues a `{ purgeEverything: true, source: 'datatool' }`
   //    message that the TARGET tier's SSR Worker consumes (`ctx.cache.purge()`),
   //    so a purge evicts only that tier's own Workers Cache — no cross-tier bleed.
-  //    There is intentionally NO `preview` producer: preview is `*.workers.dev`
-  //    with no edge cache and no `aeci-cache-purge-preview` queue, so a preview
-  //    (or unbound) target is a graceful no-op. See `cache-purge.ts` / `targets.ts`.
+  //    An unbound producer makes a target's purge a graceful no-op. See
+  //    `cache-purge.ts` / `targets.ts`.
   CACHE_PURGE_QUEUE_STAGING?: Queue<CachePurgeMessage>;
   CACHE_PURGE_QUEUE_DEMO?: Queue<CachePurgeMessage>;
   CACHE_PURGE_QUEUE_PRODUCTION?: Queue<CachePurgeMessage>;

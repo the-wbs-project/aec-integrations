@@ -185,9 +185,10 @@ environments actually carry it.
 `SUPABASE_SERVICE_ROLE_KEY` GH secret to the API Worker on **staging**
 (`deploy.yml`), **demo** (`promote-to-demo.yml`), and **production**
 (`promote-to-prod.yml`) — each a graceful warn-and-skip step, never in
-`REQUIRED_WORKER_SECRETS`. **Local `wrangler dev` and per-PR previews carry no key**,
-so the seams degrade exactly as tabled above there; for previews that is a deliberate
-choice recorded inline in `pr-preview.yml`, not an oversight. (This reconciled CI with
+`REQUIRED_WORKER_SECRETS`. **Local `wrangler dev` carries no key**,
+so the seams degrade exactly as tabled above there. (Per-PR previews also carried none, by a
+deliberate choice recorded in `pr-preview.yml`. That tier and workflow were retired
+2026-10-10, AECI-1268.) (This reconciled CI with
 ADR 0016 §6, which had already decided the key belongs on the API Worker; the former
 `environments.md` / `CICD_PLAN.md` "never on a Worker" rows were doc lag from the
 Prisma/Postgres era, when the Worker reached `auth.*` over SQL.) Because one Supabase
@@ -208,13 +209,12 @@ admin credential** (no read-only or per-endpoint admin key), so narrowing is not
 available. ADR 0016 accepted this exposure as the cost of Option A (auth stays Supabase,
 app data moves to D1); Option B (self-hosted auth) was explicitly deferred. The
 mitigations are the ones above — one module, API Worker only, optional-and-degrading —
-plus keeping the key off ephemeral per-PR preview Workers, which since AECI-530 is
-**CI-enforced**: `deploy.yml` / `promote-to-{demo,prod}.yml` push it, `pr-preview.yml`
-deliberately does not. Note the asymmetry: #2/#4a are reads, but **#3 destroys**
+plus keeping the key off throwaway Workers. Since AECI-530 only `deploy.yml` (staging) and
+`promote-to-{demo,prod}.yml` push it. The per-PR preview Workers that once deliberately went
+without it were retired 2026-10-10 (AECI-1268). Note the asymmetry: #2/#4a are reads, but **#3 destroys**
 identities and **#4b creates** them. One live consequence of the shared project: a
 `DELETE /api/account` on **staging or demo** now really deletes the `auth.users` row
-that also backs production. That is the accepted ADR-0017 cost, and it is precisely why
-previews are excluded.
+that also backs production. That is the accepted ADR-0017 cost, and it is why local dev carries no key.
 
 ### 3.2 Role exclusivity & the vendor grant
 

@@ -12,7 +12,7 @@ function makeEnv(overrides: Partial<WebEnv> = {}): WebEnv {
   return {
     ASSETS: {} as Fetcher,
     API: {} as Fetcher,
-    ENV: 'preview',
+    ENV: 'staging',
     ADMIN_PURGE_TOKEN: ADMIN_TOKEN,
     ...overrides,
   };

@@ -15,7 +15,7 @@ import { cacheGateway, cacheKeyFor, type Bindings } from './server-runtime';
 //
 // This lives as a unit test, NOT an HTTP HIT/MISS e2e, on purpose: front-of-
 // Worker HIT/MISS is unobservable on localhost Miniflare and is verified on a
-// deployed preview via `Cf-Cache-Status` (WC-9). The facet e2e
+// deployed tier (staging) via `Cf-Cache-Status` (WC-9). The facet e2e
 // (`e2e/facets.spec.ts`) asserts the complementary half — distinct facet URLs
 // carry the *same* Cache-Tag (facets live in the key, not the tag).
 
