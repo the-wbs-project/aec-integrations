@@ -3,7 +3,7 @@ title: Plans and the account label
 description: What the Free and Managed plans let your company do on AEC Integrations, how the checklists and "Looks right" work, what happens when a plan ends, and the things no plan can buy.
 section: vendors
 order: 7
-last_updated: 4 October 2026
+last_updated: 10 October 2026
 ---
 
 Every company with a seat is on one of two plans: Free or Managed. Free costs nothing. We arrange Managed with you by invoice or purchase order. No plan changes where anything ranks.
@@ -38,8 +38,6 @@ These stay part of Managed:
 - telling search engines about your changes.
 
 When your company edits a public page on Managed, we tell search engines that the page changed. We send it to Bing and Yandex through IndexNow, and we add it to our own list for asking Google to look again. On Free, your edits still go live straight away. Search engines find them on their own schedule, through our sitemap. Telling a search engine about a page does not decide whether it crawls, indexes or ranks that page. The search engine decides that.
-
-One more thing depends on Managed. On an integration page, readers always see the current state in full. The comparison with older versions opens when either company at the ends of that integration is on Managed.
 
 On a Free product, the Managed-only fields stay visible in the portal. They are read-only, and each one says it is part of Managed.
 
