@@ -168,7 +168,7 @@ describe('VendorConnectorCatalogue — the list', () => {
     const [procore, acc, acumatica] = rows(fixture);
     expect(text(procore)).toContain('Matched to Procore');
     expect(text(procore)).toContain('Counts toward reach');
-    expect(text(procore)).toContain('Decided by AECi');
+    expect(text(procore)).toContain('Decided by AEC Integrations');
     expect(text(procore)).toContain('Confidence: High');
     // A name-match suggestion is not publishable, and says it is unconfirmed.
     expect(text(acc)).toContain('Suggested by name, not confirmed');
@@ -204,7 +204,7 @@ describe('VendorConnectorCatalogue — the list', () => {
     getConnectorCatalog.mockResolvedValueOnce(page('review'));
     const fixture = await create();
     expect(text(el(fixture).querySelector('[data-catalogue-review-managed]'))).toContain(
-      'The AECi team maintains this catalogue for now, so it is read-only here.',
+      'We maintain this catalog for now, so it is read-only here.',
     );
     expect(editButtons(fixture)).toHaveLength(0);
     // Not the lapsed-access copy (AECI-1082): nothing here says access comes back.
@@ -216,7 +216,7 @@ describe('VendorConnectorCatalogue — the list', () => {
     getConnectorCatalog.mockResolvedValueOnce(page(null, []));
     const fixture = await create();
     expect(text(el(fixture).querySelector('[data-catalogue-none]'))).toContain(
-      'AECi does not hold a catalogue for this product yet.',
+      'We do not hold a catalog for this product yet.',
     );
   });
 
@@ -224,7 +224,7 @@ describe('VendorConnectorCatalogue — the list', () => {
     getConnectorCatalog.mockRejectedValueOnce(new Error('offline'));
     const fixture = await create();
     const failed = el(fixture).querySelector('[data-catalogue-failed]');
-    expect(text(failed)).toContain('Could not load this catalogue.');
+    expect(text(failed)).toContain('Could not load this catalog.');
     failed!.querySelector('button')!.click();
     await settle(fixture);
     expect(rows(fixture)).toHaveLength(3);
@@ -258,7 +258,7 @@ describe('VendorConnectorCatalogue — the list', () => {
     getConnectorCatalog.mockResolvedValue(page('vendor', [], 0));
     const fixture = await create();
     expect(text(el(fixture).querySelector('[data-catalogue-empty]'))).toBe(
-      'This catalogue has no listings yet.',
+      'This catalog has no listings yet.',
     );
   });
 });
@@ -397,7 +397,7 @@ describe('VendorConnectorCatalogue — edit and save', () => {
     ],
     [
       apiError(422, 'VALIDATION_FAILED', 'productId'),
-      'Choose a product that is published on AECi, or pick a status that names no product.',
+      'Choose a product that is published on AEC Integrations, or pick a status that names no product.',
     ],
     [apiError(404, 'NOT_FOUND'), 'This match no longer exists. Reload the list'],
     [apiError(429, 'RATE_LIMITED'), 'Too many saves in a short time.'],
@@ -424,7 +424,7 @@ describe('VendorConnectorCatalogue — edit and save', () => {
     expect(el(fixture).querySelector('form[aria-label^="Edit the match"]')).toBeNull();
     const alert = el(fixture).querySelector('[data-catalogue-alert]');
     expect(alert?.getAttribute('role')).toBe('alert');
-    expect(text(alert)).toContain('The AECi team took this catalogue back while you were editing');
+    expect(text(alert)).toContain('We took this catalog back while you were editing');
     expect(el(fixture).querySelector('[data-catalogue-review-managed]')).not.toBeNull();
     expect(editButtons(fixture)).toHaveLength(0);
   });
@@ -463,7 +463,7 @@ describe('VendorConnectorCatalogue — the live cursor', () => {
     expect(getConnectorCatalog).toHaveBeenCalledTimes(1);
     expect(el(fixture).querySelector('form[aria-label^="Edit the match"]')).not.toBeNull();
     const stale = el(fixture).querySelector('[data-catalogue-stale]');
-    expect(text(stale)).toContain('This catalogue changed elsewhere.');
+    expect(text(stale)).toContain('This catalog changed elsewhere.');
 
     stale!.querySelector('button')!.click();
     await settle(fixture);

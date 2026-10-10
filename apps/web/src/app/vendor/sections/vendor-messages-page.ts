@@ -73,8 +73,8 @@ import { VendorPortalStore } from '../vendor-portal-store';
             class="mt-2 max-w-prose text-sm leading-relaxed text-(--text-secondary)"
             i18n="@@vendor.messages.intro.contests"
           >
-            Updates about your company: where your claim and correction requests stand, the field
-            contests you have sent or received, and the reminders we have sent you about your
+            Updates about your company: where your claim and correction requests stand, the change
+            requests you have sent or received, and the reminders we have sent you about your
             integrations.
           </p>
         </div>

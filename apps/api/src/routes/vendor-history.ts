@@ -98,7 +98,7 @@ export function createVendorHistoryCsvHandler(
     const date = now().toISOString().slice(0, 10);
     const headers = new Headers({
       'Content-Type': 'text/csv; charset=utf-8',
-      'Content-Disposition': `attachment; filename="aeci-change-history-${date}.csv"`,
+      'Content-Disposition': `attachment; filename="aec-integrations-change-history-${date}.csv"`,
       'Cache-Control': 'private, no-store',
       'X-Content-Type-Options': 'nosniff',
       [VENDOR_HISTORY_CSV_TOTAL_HEADER]: String(total),

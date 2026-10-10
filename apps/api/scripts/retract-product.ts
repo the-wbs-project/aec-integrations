@@ -72,6 +72,8 @@ import {
   VENDOR_LINKS_TABLE_SQL,
   REVIEW_RESPONSES_TABLE_SQL,
   AUDIT_LOG_DDL_SQL,
+  PAGE_VIEWS_DDL_SQL,
+  ddlHasPageViewPairColumns,
   ddlHasAuditVendorColumns,
   INTEGRATIONS_DDL_SQL,
   buildProductLookupSql,
@@ -314,6 +316,10 @@ export async function main(argv: string[]): Promise<number> {
   const auditVendorColumns = ddlHasAuditVendorColumns(
     runD1<{ sql: string }>(target, AUDIT_LOG_DDL_SQL)[0]?.results[0]?.sql,
   );
+  // AECI-929: the same for migration 0067's `page_views` pair columns.
+  const pageViewPairColumns = ddlHasPageViewPairColumns(
+    runD1<{ sql: string }>(target, PAGE_VIEWS_DDL_SQL)[0]?.results[0]?.sql,
+  );
   // AECI-1092: the same for migration 0050's evidenced-pair contest anchor.
   const evidencedContestAnchor = ddlHasEvidencedContestAnchor(
     runD1<{ sql: string }>(target, CONTESTS_DDL_SQL)[0]?.results[0]?.sql ?? null,
@@ -325,6 +331,7 @@ export async function main(argv: string[]): Promise<number> {
       vendorHeldPairColumns,
       vendorLinksTable,
       reviewResponsesTable,
+      pageViewPairColumns,
     }),
   )[0]?.results[0];
   if (!rawFootprint) {
@@ -401,6 +408,7 @@ export async function main(argv: string[]): Promise<number> {
     deleteEvidencedPairs,
     vendorLinksTable,
     reviewResponsesTable,
+    pageViewPairColumns,
     vendorHeldColumns,
     vendorHeldPairColumns,
     evidencedContestAnchor,

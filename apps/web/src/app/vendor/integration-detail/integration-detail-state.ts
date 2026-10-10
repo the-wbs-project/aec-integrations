@@ -279,7 +279,7 @@ export class IntegrationDetailState {
     const second = await this.clearAnswer(denied, true);
     if (second !== null) return second;
     this.announcer.announce(
-      $localize`:@@vendor.im.live.changeCancelled:${denied.data_object_name}:data:: your change is cancelled and your answers are cleared.`,
+      $localize`:@@vendor.im.live.changeCancelled:${denied.data_object_name}:data:: your change is canceled and your answers are cleared.`,
     );
     return null;
   }

@@ -250,7 +250,7 @@ export class VendorPlanPanel {
           : $localize`:@@vendor.plan.lede.ended:Managed ended for this product on ${date}:DATE:, so it is on Free. Nothing you entered was removed.`;
       }
       case 'catalogue':
-        return $localize`:@@vendor.plan.lede.catalogue:This seat maintains your connector catalogue on AECi: your listings, the products each one maps to, and the evidence behind each mapping.`;
+        return $localize`:@@vendor.plan.lede.catalogue:This seat maintains your connector catalog on AEC Integrations: your listings, the products each one maps to, and the evidence behind each mapping.`;
       default:
         return $localize`:@@vendor.plan.lede.free:This product is on Free. Its listing is published and stays published.`;
     }

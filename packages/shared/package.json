@@ -85,6 +85,10 @@
       "types": "./src/live-integration.ts",
       "default": "./src/live-integration.ts"
     },
+    "./pair-page-path": {
+      "types": "./src/pair-page-path.ts",
+      "default": "./src/pair-page-path.ts"
+    },
     "./response-drain": {
       "types": "./src/response-drain.ts",
       "default": "./src/response-drain.ts"

@@ -85,7 +85,7 @@ function domId(value: string): string {
           <span
             class="block font-display text-xl font-semibold text-(--text-primary)"
             i18n="@@vendor.catalogue.heading"
-            >Catalogue</span
+            >Catalog</span
           >
         </h2>
         <p class="text-sm leading-relaxed text-(--text-secondary)">{{ intro() }}</p>
@@ -94,7 +94,7 @@ function domId(value: string): string {
       @if (state() === 'failed' && !response()) {
         <div class="mt-6 space-y-2" data-catalogue-failed>
           <p class="text-sm text-(--text-primary)" i18n="@@vendor.catalogue.failed">
-            Could not load this catalogue.
+            Could not load this catalog.
           </p>
           <button
             type="button"
@@ -107,7 +107,7 @@ function domId(value: string): string {
         </div>
       } @else if (!response()) {
         <p class="mt-6 text-sm text-(--text-secondary)" i18n="@@vendor.catalogue.loading">
-          Loading the catalogue…
+          Loading the catalog…
         </p>
       } @else if (catalog(); as c) {
         <p class="mt-3 text-sm text-(--text-secondary)" data-catalogue-summary>
@@ -130,8 +130,8 @@ function domId(value: string): string {
             data-catalogue-review-managed
             i18n="@@vendor.catalogue.reviewManaged"
           >
-            The AECi team maintains this catalogue for now, so it is read-only here. Once it is
-            handed to your company, you can change each match on this tab.
+            We maintain this catalog for now, so it is read-only here. Once it is handed to your
+            company, you can change each match on this tab.
           </p>
         } @else {
           <p
@@ -139,8 +139,8 @@ function domId(value: string): string {
             data-catalogue-vendor-managed
             i18n="@@vendor.catalogue.vendorManaged"
           >
-            Your company maintains this catalogue. You can change any match below. A listing with no
-            match yet is matched by the AECi team. You cannot add a match here yet.
+            Your company maintains this catalog. You can change any match below. A listing with no
+            match yet is matched by us. You cannot add a match here yet.
           </p>
         }
 
@@ -181,7 +181,7 @@ function domId(value: string): string {
             class="mt-4 flex max-w-[52ch] flex-wrap items-center gap-3 rounded-(--radius-md) bg-(--surface-sunken) px-4 py-3 text-sm text-(--text-primary)"
             data-catalogue-stale
           >
-            <span i18n="@@vendor.catalogue.stale">This catalogue changed elsewhere.</span>
+            <span i18n="@@vendor.catalogue.stale">This catalog changed elsewhere.</span>
             <button
               type="button"
               [class]="secondaryButtonClass"
@@ -374,8 +374,7 @@ function domId(value: string): string {
           data-catalogue-none
           i18n="@@vendor.catalogue.none"
         >
-          AECi does not hold a catalogue for this product yet. When it does, its listings appear
-          here.
+          We do not hold a catalog for this product yet. When it does, its listings appear here.
         </p>
       }
     </section>
@@ -423,13 +422,13 @@ export class VendorConnectorCatalogue {
 
   protected readonly intro = computed(
     () =>
-      $localize`:@@vendor.catalogue.intro:Every listing in ${this.productName()}:PRODUCT:'s published catalogue, and which product on AECi each one is. A match confirmed by AECi or by your company counts toward that product's reach.`,
+      $localize`:@@vendor.catalogue.intro:Every listing in ${this.productName()}:PRODUCT:'s published catalog, and which product on AEC Integrations each one is. A match confirmed by us or by your company counts toward that product's reach.`,
   );
 
   protected readonly asOf = computed(() => {
     const at = this.catalog()?.last_ingested_at ?? null;
     if (at === null) {
-      return $localize`:@@vendor.catalogue.asOf.none:catalogue date not recorded`;
+      return $localize`:@@vendor.catalogue.asOf.none:catalog date not recorded`;
     }
     const date = formatDate(at, 'MMMM d, y', this.locale, 'UTC');
     return $localize`:@@vendor.catalogue.asOf:as of ${date}:date:`;
@@ -443,7 +442,7 @@ export class VendorConnectorCatalogue {
   protected readonly emptyMessage = computed(() =>
     this.search() || this.filter()
       ? $localize`:@@vendor.catalogue.empty.filtered:No listing matches that search and filter.`
-      : $localize`:@@vendor.catalogue.empty:This catalogue has no listings yet.`,
+      : $localize`:@@vendor.catalogue.empty:This catalog has no listings yet.`,
   );
 
   protected readonly filterOptions: readonly AecSelectOption[] = [
@@ -455,7 +454,7 @@ export class VendorConnectorCatalogue {
   ];
 
   protected readonly filterLabel = $localize`:@@vendor.catalogue.filter.aria:Find listings`;
-  protected readonly pagingLabel = $localize`:@@vendor.catalogue.page.aria:Catalogue pages`;
+  protected readonly pagingLabel = $localize`:@@vendor.catalogue.page.aria:Catalog pages`;
 
   constructor() {
     afterNextRender(() => this.rendered.set(true));
@@ -592,7 +591,7 @@ export class VendorConnectorCatalogue {
     this.editingId.set(null);
     this.stale.set(false);
     this.listAlert.set(
-      $localize`:@@vendor.catalogue.reclaimed:The AECi team took this catalogue back while you were editing, so your change was not saved. The list below is now read-only.`,
+      $localize`:@@vendor.catalogue.reclaimed:We took this catalog back while you were editing, so your change was not saved. The list below is now read-only.`,
     );
     void this.load({ quiet: true });
     this.focusAfterRender('vendor-catalogue-alert');

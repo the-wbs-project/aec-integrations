@@ -165,7 +165,7 @@ No new Worker, no new schema, no new bindings, no migration.
 | Sections | `getting-started`, `trust`, `reviewers`, `account`, `for-vendors`, `vendors`, `faq`. Each has a `$localize`-wrapped label and summary in the manifest, an order and a **guide**: `help` (the help center) or `vendor` (the vendor guide, `vendors` only). `faq` is a one-page section at `/docs/faq`. Since AECI-1265 a section's URL segment can differ from its id: `for-vendors` serves `/docs/vendors/*` beside the vendor guide. A section with a `home` page (`for-vendors`, home `overview`) has no index of its own. A section may carry an intro, rendered on its index (the vendor guide's landing) |
 | Routes | `/docs` (home), `/docs/<segment>` (section index), `/docs/<segment>/<slug>` (article). All explicit and generated from the manifest, so an unknown `/docs/*` path falls through to the `**` 404. The manifest throws if two sections would own one index path or two pages one path |
 | Navigation | Two sidebar trees, picked from the URL (AECI-1265). The help center's lists its sections; the vendor guide's lists the vendor guide with a link back. The `/docs` home lists help-center sections only |
-| Frontmatter | Scalar keys only (`parseFrontmatter`): `title`, `description`, `section`, `order`, `last_updated` (a pre-formatted display string, the legal rule). The manifest throws at module init when `section` does not match the folder, when two pages in a section share an `order`, or when a page does not end in a `## Related` list |
+| Frontmatter | Scalar keys only (`parseFrontmatter`): `title`, `description`, `section`, `order`, `last_updated` (a pre-formatted display string in US format, "Month D, YYYY": the legal rule. AECI-1262 set the format. Help-center pages still carry "D Month YYYY" until AECI-1267). The manifest throws at module init when `section` does not match the folder, when two pages in a section share an `order`, or when a page does not end in a `## Related` list |
 | Prev/next | Within one section, in `order`. Never across sections |
 | Styling | Tailwind v4 and the semantic tokens. Typography per `DESIGN.md`, body in `.aec-prose`. Light only |
 | Caching | Native Workers Cache on the static-page TTL (24h edge / 1h browser), on both `/docs` and `/docs/*`. Freshness on deploy is automatic (§2.3). **`Cache-Tag: route:index`**, not the `docs docs:{slug}` first sketched here (AECI-1104): the content changes only on deploy, which already rotates the cache key, so a per-page purge handle would have no producer. `cache-tags.ts` also forbids ad-hoc tag namespaces. Add a `docs` entity only if a runtime purge of docs ever becomes real |
@@ -230,8 +230,8 @@ help-center home nor its sidebar):
 ├─ plans                             — Free vs Managed, checklists, "Looks right", what no plan changes, billing, plan end (AECI-1219; slug renamed by AECI-1264, old URL 301s)
 ├─ change-history                    — the Changes page: every change, who made it, AECi's reasons (AECI-1160)
 ├─ connector-vendors                 — "For connector vendors": the catalogue seat, the Catalogue tab, integrations delivered through a connector (§8.9/§8.10; AECI-1265)
-└─ (AECI-1251, after the AECI-1103 rehearsal) your-dashboard, editing-profile-and-products, product-versions,
-   notifications-and-messages; performance only if analytics.view has shipped
+└─ (AECI-1251, after the AECI-1103 rehearsal) your-dashboard, editing-profile-and-products,
+   notifications-and-messages; performance only if analytics.view has shipped; product-versions waits until a vendor can create a release (AECI-1263)
 ```
 
 Everything under `/docs/vendors`, both guides' pages there included, is noindex until AECI-1253.
@@ -262,6 +262,7 @@ Everything under `/docs/vendors`, both guides' pages there included, is noindex 
 - A changelog / what's-new page
 - Per-locale content files
 - Any versioned-docs mechanism
+- A `product-versions` vendor page, until a vendor can create a release. The version comparison is not reachable today and the docs must not describe it (AECI-1263)
 - Screenshots / recorded walkthroughs
 - An embedded support widget (the feedback endpoint and mailing-list band already exist)
 - Re-crawl pings on publish (§3, "Re-crawl pings")

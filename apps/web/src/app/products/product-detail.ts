@@ -6,7 +6,7 @@ import { map } from 'rxjs';
 
 import type { ProductDetail } from '@aeci/shared';
 
-import { Analytics } from '../analytics/analytics';
+import { Analytics, type ExternalLinkContext } from '../analytics/analytics';
 import { ExternalLinkTracker } from '../analytics/external-link-tracker';
 import { DetailLayout } from '../layouts/detail-layout';
 import { NotFound } from '../not-found/not-found';
@@ -176,7 +176,7 @@ import { RoleBadge } from './role-badge';
                    whenever the product reaches at least one catalog product,
                    with no role gate: §13.6 states only the N > 0 condition, and
                    a mis-roled application that powers edges is described just
-                   as accurately by it. "in the AECi catalog" carries §12.7's
+                   as accurately by it. "in the AEC Integrations catalog" carries §12.7's
                    scope framing inline, so the number never reads as the
                    vendor's full partner set. -->
               @if (connectsLabel(); as connects) {
@@ -252,6 +252,7 @@ import { RoleBadge } from './role-badge';
                 target="_blank"
                 rel="noopener noreferrer nofollow"
                 aecTrackExternalLink="product_detail"
+                [aecLinkContext]="websiteLinkContext()!"
                 class="inline-flex items-center gap-2 rounded-(--radius-md)
                   border border-(--border-strong) bg-(--accent-primary)
                   px-4 py-2 text-sm font-bold text-(--surface-base) no-underline
@@ -649,6 +650,23 @@ export class ProductDetailPage {
     });
   }
 
+  /**
+   * Ownership facts for the "Visit website" click (AECI-933). The owner is the
+   * product's primary vendor, the one `vendor` already resolves to. A product with
+   * no vendor sends a `null` owner rather than guessing.
+   */
+  protected readonly websiteLinkContext = computed<ExternalLinkContext | null>(() => {
+    const p = this.product();
+    if (!p) return null;
+    return {
+      owner_vendor_id: p.vendor?.id ?? null,
+      link_origin: 'vendor',
+      source_entity_type: 'product',
+      source_entity_id: p.id,
+      link_purpose: 'website',
+    };
+  });
+
   /** One-decimal display of an average rating, e.g. 4 → "4.0", 4.25 → "4.3". */
   protected decimal(value: number): string {
     return value.toFixed(1);
@@ -756,9 +774,9 @@ export class ProductDetailPage {
     const count = connectedProductCount(p.integrations_as_connector, p.slug);
     if (count === 0) return null;
     if (count === 1) {
-      return $localize`:@@products.detail.hero.connects.one:Connects 1 product in the AECi catalog`;
+      return $localize`:@@products.detail.hero.connects.one:Connects 1 product in the AEC Integrations catalog`;
     }
-    return $localize`:@@products.detail.hero.connects.other:Connects ${count}:count: products in the AECi catalog`;
+    return $localize`:@@products.detail.hero.connects.other:Connects ${count}:count: products in the AEC Integrations catalog`;
   });
 
   /**

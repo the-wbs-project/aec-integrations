@@ -112,7 +112,7 @@ export function assertVendorManaged(target: Pick<MappingEditTarget, 'managedBy'>
     throw new ApiError(
       409,
       ApiErrorCode.CATALOG_REVIEW_MANAGED,
-      'This catalogue is still maintained through the review app, so its mappings cannot be edited here. The next sync would overwrite the change.',
+      'This catalog is still maintained through the review app, so its mappings cannot be edited here. The next sync would overwrite the change.',
     );
   }
 }
@@ -263,7 +263,7 @@ export async function applyMappingEdit(
   if (next.productId !== null && next.productId !== target.productId) {
     const named = productById.get(next.productId);
     if (!named || named.promotionStatus !== 'promoted') {
-      throw validationFailed('productId', 'That product is not published on AECi.');
+      throw validationFailed('productId', 'That product is not published on AEC Integrations.');
     }
   }
 

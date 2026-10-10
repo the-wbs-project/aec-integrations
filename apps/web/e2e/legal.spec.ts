@@ -129,7 +129,7 @@ test.describe('/legal/privacy — signed-in activity disclosure (AECI-1211)', ()
   test('discloses the first-party daily activity record', async ({ request }) => {
     const html = await (await request.get('/legal/privacy')).text();
     expect(html).toContain(
-      'When you are signed in, we keep a record of the days you use AECi, which parts of the site you use, and how you arrived.',
+      'When you are signed in, we keep a record of the days you use AEC Integrations, which parts of the site you use, and how you arrived.',
     );
   });
 });

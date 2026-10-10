@@ -88,7 +88,7 @@ const el = (fixture: ComponentFixture<unknown>) => fixture.nativeElement as HTML
 
 function trigger(fixture: ComponentFixture<unknown>): HTMLButtonElement {
   return [...el(fixture).querySelectorAll('button')].find((b) =>
-    b.textContent?.includes('Contest a field'),
+    b.textContent?.includes('Request a change'),
   )!;
 }
 

@@ -69,6 +69,39 @@ import {
 /** Where a `product_viewed` was reached from (§14.1). */
 export type ProductViewSource = 'search' | 'browse' | 'direct';
 
+/**
+ * Who an outbound link belongs to, recorded on `external_link_clicked` (AECI-933,
+ * `docs/VENDOR_PERFORMANCE_SPEC.md` §3.2). Facts only: the Performance page decides
+ * at read time whether a click counts as delivered, shared or elsewhere.
+ *
+ * Every property is always sent. An unknown owner is `null`, never omitted, so a
+ * reader can tell "no owner" from "an event that predates the contract".
+ */
+export interface ExternalLinkContext {
+  /** The vendor whose site the link leads to. `null` when it is unknown. */
+  owner_vendor_id: string | null;
+  /** `vendor` = the owner's own link to its own property. `aeci` = AECi's curated
+   *  listing or docs fallback, shown when neither pair side has set its own. */
+  link_origin: ExternalLinkOrigin;
+  /** The kind of page the click came from. */
+  source_entity_type: ExternalLinkSourceEntityType;
+  /** That page's entity id. A pair is `canonicalPairIds(a, b).join(':')`. */
+  source_entity_id: string;
+  link_purpose: ExternalLinkPurpose;
+}
+
+export type ExternalLinkOrigin = 'vendor' | 'aeci';
+export type ExternalLinkSourceEntityType = 'product' | 'vendor' | 'pair';
+/** `connector` is reserved: no public page renders an external connector link
+ *  today, because "Through {connector}" is an internal link. */
+export type ExternalLinkPurpose =
+  | 'website'
+  | 'docs'
+  | 'listing'
+  | 'social'
+  | 'pricing'
+  | 'connector';
+
 /** Catalog index/listing surfaces — arriving from one means `source: 'browse'`. */
 const BROWSE_ROOTS = new Set(['products', 'vendors', 'integrations', 'categories']);
 
@@ -239,7 +272,9 @@ export class Analytics {
     this.capture('correction_requested', { ...input });
   }
 
-  externalLinkClicked(input: { destination: string; source: string }): void {
+  /** Outbound click with its ownership facts (AECI-933). The spread keeps a `null`
+   *  owner as a present key, which is the contract. */
+  externalLinkClicked(input: { destination: string; source: string } & ExternalLinkContext): void {
     this.capture('external_link_clicked', { ...input });
   }
 

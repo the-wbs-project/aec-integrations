@@ -57,6 +57,7 @@ function buildVendor(overrides: Partial<VendorDetail> = {}): VendorDetail {
 }
 
 function setup(vendor: VendorDetail) {
+  const analytics = { externalLinkClicked: vi.fn(), track: vi.fn() };
   TestBed.configureTestingModule({
     providers: [
       provideZonelessChangeDetection(),
@@ -64,8 +65,8 @@ function setup(vendor: VendorDetail) {
       provideHttpClient(),
       provideHttpClientTesting(),
       // Leaf analytics seams on the page's children (the external-link tracker,
-      // the mailing-list band). Nothing here clicks, so neutral no-ops suffice.
-      { provide: Analytics, useValue: { externalLinkClicked: vi.fn(), track: vi.fn() } },
+      // the mailing-list band). Returned so the AECI-933 cases can read clicks.
+      { provide: Analytics, useValue: analytics },
       {
         provide: ActivatedRoute,
         useValue: { data: of({ vendor }), snapshot: { data: { vendor } } },
@@ -74,8 +75,53 @@ function setup(vendor: VendorDetail) {
   });
   const fixture = TestBed.createComponent(VendorDetailPage);
   fixture.detectChanges();
-  return { fixture, el: fixture.nativeElement as HTMLElement };
+  return { fixture, el: fixture.nativeElement as HTMLElement, analytics };
 }
+
+// AECI-933: the vendor owns its own website and social profiles, so both clicks
+// name this vendor as the owner, with the vendor page as the source.
+describe('VendorDetailPage outbound click ownership (AECI-933)', () => {
+  beforeEach(() => TestBed.resetTestingModule());
+
+  const VENDOR_ID = '00000000-0000-4000-8000-000000010001';
+
+  function click(el: HTMLElement, href: string): void {
+    el.addEventListener('click', (e) => e.preventDefault());
+    const anchor = el.querySelector<HTMLAnchorElement>(`a[href="${href}"]`);
+    expect(anchor).toBeTruthy();
+    anchor!.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+  }
+
+  it('records the website click as owned by this vendor', () => {
+    const { el, analytics } = setup(buildVendor());
+    click(el, 'https://www.procore.com');
+    expect(analytics.externalLinkClicked).toHaveBeenCalledExactlyOnceWith({
+      destination: 'https://www.procore.com/',
+      source: 'vendor_detail',
+      owner_vendor_id: VENDOR_ID,
+      link_origin: 'vendor',
+      source_entity_type: 'vendor',
+      source_entity_id: VENDOR_ID,
+      link_purpose: 'website',
+    });
+  });
+
+  it('records a social click as owned by this vendor, with purpose social', () => {
+    const { el, analytics } = setup(
+      buildVendor({ linkedin_url: 'https://www.linkedin.com/company/procore' }),
+    );
+    click(el, 'https://www.linkedin.com/company/procore');
+    expect(analytics.externalLinkClicked).toHaveBeenCalledExactlyOnceWith({
+      destination: 'https://www.linkedin.com/company/procore',
+      source: 'vendor_detail_social',
+      owner_vendor_id: VENDOR_ID,
+      link_origin: 'vendor',
+      source_entity_type: 'vendor',
+      source_entity_id: VENDOR_ID,
+      link_purpose: 'social',
+    });
+  });
+});
 
 // AECI-853 lockstep. This page shares DetailLayout, which now docks its sidebar
 // at `lg` and so leaves the body column 608px wide. At the old 44rem the

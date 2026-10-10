@@ -346,6 +346,80 @@ describe('reachable never counts — the §13.5 complement (AECI-892)', () => {
   });
 });
 
+/**
+ * The same complement for page views (AECI-929 / `ADMIN_PANEL_SPEC.md` §13 D25):
+ * **a pair-page view never counts toward `integration_count`.**
+ *
+ * `page_views.pair_product_a_id` / `_b_id` name the two products of an integration
+ * pair page, so they look like an edge. They are not one. A pair page renders with
+ * no delivered edge at all, and a crawler can fetch any URL of that shape, so a
+ * count derived from them would count attention as integrations. §13.5 says views
+ * never count, exactly as reach never counts.
+ *
+ * `home-stats.ts` is the one count site allowed to read them: its trending card
+ * ranks products BY views, which is what the columns are for. Its
+ * `integration_count`-bearing functions are pinned by the windowed check below.
+ */
+describe('page-view pair columns never count — the §13.5 complement (AECI-929)', () => {
+  it('appear in no count expression, and the scan is not vacuous', async () => {
+    const { readFileSync } = await import('node:fs');
+    const { join } = await import('node:path');
+    const read = (rel: string) =>
+      readFileSync(join(process.cwd(), rel), 'utf8')
+        .replace(/\/\*[\s\S]*?\*\//g, '')
+        .replace(/\/\/.*$/gm, '');
+    const PAIR_COLUMN = /pair_product_|pairProduct/;
+
+    // The same site list as the reach scan, less `home-stats.ts` (trending reads
+    // the columns on purpose; its count functions are windowed below).
+    const COUNT_SITES = [
+      'src/lib/recompute-counts.ts',
+      'src/lib/admin-catalog.ts',
+      'src/lib/metrics-snapshot.ts',
+      'src/lib/algolia-transforms.ts',
+      'src/lib/algolia-drift-deps.ts',
+      'src/routes/admin-overview.ts',
+      'scripts/reconcile-product-counts.ts',
+      'scripts/reconcile-algolia-drift.ts',
+    ];
+    for (const site of COUNT_SITES) expect(read(site), site).not.toMatch(PAIR_COLUMN);
+
+    // Windowed: the expression `integration_count` is derived from, and the drift
+    // sweep's two SQL blocks, by marker, so a move inside those files still fails.
+    const recompute = read('src/lib/recompute-counts.ts');
+    const reconcile = read('scripts/reconcile-product-counts.ts');
+    const windows = [
+      windowAfter(recompute, 'function integrationCountSql'),
+      sqlBlockAfter(reconcile, 'export const DRIFT_QUERY'),
+      sqlBlockAfter(reconcile, 'export const RECOMPUTE_SQL'),
+    ];
+    for (const w of windows) {
+      expect(w).not.toBeNull();
+      expect(w!).not.toMatch(PAIR_COLUMN);
+    }
+    const homeStats = read('src/lib/home-stats.ts');
+    for (const marker of [
+      'export async function computeTotalIntegrations',
+      'export async function computeIntegrationsAdded30d',
+      'export async function computeMostActiveCategory',
+      'export async function computeMostIntegratedProduct',
+    ]) {
+      const w = windowAfter(homeStats, marker);
+      expect(w, marker).not.toBeNull();
+      // Bounded at the next exported function so the trending read below does not
+      // leak into the window of the function above it.
+      const own = w!.split('\nexport ')[0]!;
+      expect(own, marker).not.toMatch(PAIR_COLUMN);
+    }
+
+    // Not vacuous: the columns exist, and the one sanctioned reader does read them.
+    expect(read('src/db/schema.ts')).toContain("text('pair_product_a_id')");
+    expect(read('src/db/schema.ts')).toContain("text('pair_product_b_id')");
+    expect(read('src/lib/product-attributed-views.ts')).toMatch(PAIR_COLUMN);
+    expect(homeStats).toContain('productAttributedViews');
+  });
+});
+
 // ═══════════════════════════════════════════════════════════════════════════════
 // AECI-1010 / AECI-1091: a RETIRED row counts nowhere and is in no id set, in
 // EITHER table. Every site is asserted on both arms, not one.

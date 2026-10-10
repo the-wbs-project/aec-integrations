@@ -133,7 +133,7 @@ interface SelectOption {
         [class]="triggerClass"
         i18n="@@vendor.contest.trigger"
       >
-        Contest a field
+        Request a change
       </button>
 
       @if (open()) {
@@ -150,7 +150,7 @@ interface SelectOption {
               class="text-sm font-semibold text-(--text-primary)"
               i18n="@@vendor.contest.form.title"
             >
-              Contest a field on this integration
+              Request a change on this integration
             </p>
             <p class="text-xs text-(--text-secondary)" i18n="@@vendor.contest.form.intro">
               Tell us which detail is wrong, what it should say, and why. The integration’s owner or

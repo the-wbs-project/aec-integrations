@@ -36,6 +36,8 @@
  *                                                     cascade     facet; deleted, counted on the
  *                                                                 product's own tombstone
  *   page_views                 product_id             —           log-class; NULLed, never deleted
+ *   page_views                 pair_product_a_id      —           log-class; NULLed, never deleted
+ *   page_views                 pair_product_b_id      —           log-class; NULLed, never deleted
  *
  * The rows this lane deletes have children of their own, and those are covered the
  * same way by `CASCADE_CHILD_HANDLING` (claims → attestations, field contests, the
@@ -153,6 +155,11 @@ export const PRODUCT_FK_HANDLING: Readonly<Record<string, FkOutcome>> = {
   'product_extensions.product_id': 'facet',
   'product_extensions.host_product_id': 'facet',
   'page_views.product_id': 'detach',
+  // AECI-929 (0067): the two endpoints of a pair-page view. Detached like
+  // `product_id`, one side at a time, so the row survives and the OTHER endpoint
+  // keeps its credit for the view (§13 D25).
+  'page_views.pair_product_a_id': 'detach',
+  'page_views.pair_product_b_id': 'detach',
 };
 
 /** Every FK into a table this lane DELETEs from (other than `products` itself),
@@ -286,6 +293,18 @@ export const CONTESTS_DDL_SQL = `SELECT "sql" FROM "sqlite_master" WHERE "type" 
  *  SQLite appends an `ADD COLUMN` to the stored `CREATE TABLE` text, so the DDL shows it. */
 export const AUDIT_LOG_DDL_SQL = `SELECT "sql" FROM "sqlite_master" WHERE "type" = 'table' AND "name" = 'audit_log';`;
 
+/** AECI-929: the `page_views` DDL. It carries `pair_product_a_id` / `_b_id` on a tier
+ *  migration 0067 has reached, and not before. Same `ADD COLUMN` reasoning as
+ *  {@link AUDIT_LOG_DDL_SQL}. */
+export const PAGE_VIEWS_DDL_SQL = `SELECT "sql" FROM "sqlite_master" WHERE "type" = 'table' AND "name" = 'page_views';`;
+
+/** Does this `page_views` DDL carry 0067's pair columns? The last one added is the
+ *  test. A tier without them has no row that can name the product on a pair side,
+ *  so leaving them out of the plan loses nothing. */
+export function ddlHasPageViewPairColumns(ddl: string | null | undefined): boolean {
+  return typeof ddl === 'string' && /[`"[]?pair_product_b_id[`"\]]?\s+text\b/i.test(ddl);
+}
+
 /** Does this `audit_log` DDL carry 0063's columns? The last one added is the test. */
 export function ddlHasAuditVendorColumns(ddl: string | null | undefined): boolean {
   return typeof ddl === 'string' && /[`"[]?vendor_entitlement_status[`"\]]?\s+text\b/i.test(ddl);
@@ -305,6 +324,8 @@ export function buildFootprintSql(
     vendorLinksTable?: boolean;
     /** AECI-1175: `review_responses` exists (migration 0058). */
     reviewResponsesTable?: boolean;
+    /** AECI-929: `page_views` has migration 0067's pair columns. */
+    pageViewPairColumns?: boolean;
   } = {},
 ): string {
   const p = `'${escapeSqlLiteral(id)}'`;
@@ -322,6 +343,12 @@ export function buildFootprintSql(
   const reviewResponses =
     (opts.reviewResponsesTable ?? true)
       ? `(SELECT count(*) FROM "review_responses" WHERE "review_id" IN (SELECT "id" FROM "reviews" WHERE "product_id" = ${p}))`
+      : '0';
+  // AECI-929: pair-page views that name the product on either side. One row is
+  // counted once even if it could match both sides; it cannot, since `a ≠ b`.
+  const pageViewPairs =
+    (opts.pageViewPairColumns ?? true)
+      ? `(SELECT count(*) FROM "page_views" WHERE "pair_product_a_id" = ${p} OR "pair_product_b_id" = ${p})`
       : '0';
   // AECI-1005: endpoint integrations the delete would cascade that are vendor-held,
   // plus `powered_by` rows it would detach. NULL-safe 0 when the columns are absent.
@@ -353,6 +380,7 @@ export function buildFootprintSql(
     ${reviewResponses} AS review_responses,
     (SELECT count(*) FROM "product_versions" WHERE "product_id" = ${p}) AS product_versions,
     (SELECT count(*) FROM "page_views" WHERE "product_id" = ${p}) AS page_views,
+    ${pageViewPairs} AS page_view_pairs,
     (SELECT count(*) FROM "product_vendors" WHERE "product_id" = ${p}) AS product_vendors,
     (SELECT count(*) FROM "product_categories" WHERE "product_id" = ${p}) AS product_categories,
     (SELECT count(*) FROM "product_audiences" WHERE "product_id" = ${p}) AS product_audiences,
@@ -390,6 +418,8 @@ export interface RawFootprintRow {
   review_responses?: number;
   product_versions: number;
   page_views: number;
+  /** AECI-929. Optional so a row built before it still parses. */
+  page_view_pairs?: number;
   product_vendors: number;
   product_categories: number;
   product_audiences: number;
@@ -429,6 +459,9 @@ export interface RetractFootprint {
   reviewResponses: number;
   productVersions: number;
   pageViews: number;
+  /** Pair-page views naming the product on either side (AECI-929). Detached like
+   *  `pageViews`: that side is NULLed and the row is kept. */
+  pageViewPairs: number;
   productVendors: number;
   productCategories: number;
   productAudiences: number;
@@ -467,6 +500,7 @@ export function parseFootprint(row: RawFootprintRow): RetractFootprint {
     reviewResponses: row.review_responses ?? 0,
     productVersions: row.product_versions,
     pageViews: row.page_views,
+    pageViewPairs: row.page_view_pairs ?? 0,
     productVendors: row.product_vendors,
     productCategories: row.product_categories,
     productAudiences: row.product_audiences,
@@ -492,7 +526,8 @@ export function parseFootprint(row: RawFootprintRow): RetractFootprint {
  * Blockers are editorial or user content that should normally be re-pointed to the
  * canonical product (the future merge-then-retract tool), not destroyed. Refusals
  * are the connector-catalogue mirror, which the sync owns (see the header).
- * Facet links and page_views are cosmetic and always cleaned up.
+ * Facet links and page_views (both `product_id` and the pair sides) are cosmetic and
+ * always cleaned up.
  */
 export interface RetractionClassification {
   safe: boolean;
@@ -586,6 +621,9 @@ export interface ProductDeleteArgs {
   /** AECI-1175: whether `review_responses` exists on the target tier (migration
    *  0058). Defaults to true; the CLI passes its {@link REVIEW_RESPONSES_TABLE_SQL}. */
   reviewResponsesTable?: boolean;
+  /** AECI-929: whether `page_views` has migration 0067's pair columns on the target
+   *  tier. Defaults to true; the CLI passes its {@link PAGE_VIEWS_DDL_SQL} probe. */
+  pageViewPairColumns?: boolean;
   /** AECI-1088 review: whether `integrations` has migration 0044's vendor-held columns.
    *  Defaults to true, the schema at HEAD; the CLI passes its probe. */
   vendorHeldColumns?: boolean;
@@ -719,7 +757,12 @@ function productTombstone(args: ProductDeleteArgs, guard: string): string {
       // rows the product no longer sits on.
       vendor_links: f.vendorLinks,
     },
-    detached: { page_views: f.pageViews, powered_by: f.poweredBy },
+    detached: {
+      page_views: f.pageViews,
+      // AECI-929: pair-page views whose matching side was NULLed. Kept, not deleted.
+      page_view_pairs: f.pageViewPairs,
+      powered_by: f.poweredBy,
+    },
   };
   const vals = [
     sqlLiteral(args.auditId),
@@ -759,6 +802,7 @@ export function buildDeleteStatements(args: ProductDeleteArgs): string[] {
     `(SELECT count(*) FROM "attestations" a JOIN "claims" c ON c."id" = a."claim_id" WHERE c."${col}" = t."id")`;
   const vendorLinksTable = args.vendorLinksTable ?? true;
   const reviewResponsesTable = args.reviewResponsesTable ?? true;
+  const pageViewPairColumns = args.pageViewPairColumns ?? true;
   // AECI-1088 review: the vendor-held refusal, re-checked at write time. The CLI
   // refused on the footprint, but a claim can land between that read and `--apply`.
   // Every edge the plan deletes (or detaches, for `powered_by`) is in scope, pairs
@@ -900,6 +944,15 @@ export function buildDeleteStatements(args: ProductDeleteArgs): string[] {
     // page_views is log-class traffic history: detach, never delete (the no-action FK
     // would otherwise block the product DELETE).
     `UPDATE "page_views" SET "product_id" = NULL WHERE "product_id" = ${p};`,
+    // AECI-929: the same for either pair side. Only the side that names this product
+    // is NULLed, so the row survives and the other endpoint keeps the view (§13 D25).
+    // Both FKs are no-action, so these must also run before the product DELETE.
+    ...(pageViewPairColumns
+      ? [
+          `UPDATE "page_views" SET "pair_product_a_id" = NULL WHERE "pair_product_a_id" = ${p};`,
+          `UPDATE "page_views" SET "pair_product_b_id" = NULL WHERE "pair_product_b_id" = ${p};`,
+        ]
+      : []),
     // Facets.
     `DELETE FROM "product_categories" WHERE "product_id" = ${p};`,
     `DELETE FROM "product_audiences" WHERE "product_id" = ${p};`,
@@ -963,6 +1016,7 @@ export function formatFootprintReport(product: ProductRow, footprint: RetractFoo
     ['  vendor replies on them', footprint.reviewResponses],
     ['product_versions', footprint.productVersions],
     ['page_views (NULLed, kept)', footprint.pageViews],
+    ['page_views pair side (NULLed, kept)', footprint.pageViewPairs],
     ['product_vendors', footprint.productVendors],
     ['product_categories', footprint.productCategories],
     ['product_audiences', footprint.productAudiences],

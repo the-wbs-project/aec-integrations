@@ -70,7 +70,7 @@ const NO_LINES: readonly FollowUpLine[] = [];
           </h2>
           <p class="text-sm leading-relaxed text-(--text-secondary)" i18n="@@vendor.history.intro">
             Every change to your company, products, integrations and seats, newest first. It shows
-            who made each change: your team, AECi, or an automatic process.
+            who made each change: your team, AEC Integrations, or an automatic process.
           </p>
         </div>
         <a [href]="csvUrl()" download [class]="secondaryClass" data-history-csv>
@@ -316,7 +316,7 @@ export class VendorHistoryPage {
 
   protected readonly emptyMessage = computed(() =>
     this.kind() === 'all'
-      ? $localize`:@@vendor.history.empty:No changes yet. When your team or AECi changes your listing, it shows here.`
+      ? $localize`:@@vendor.history.empty:No changes yet. When your team or AEC Integrations changes your listing, it shows here.`
       : $localize`:@@vendor.history.empty.filtered:No change matches that filter.`,
   );
 

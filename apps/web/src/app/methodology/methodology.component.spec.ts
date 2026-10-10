@@ -90,7 +90,7 @@ describe('MethodologyPage', () => {
       const text = setup().host.textContent ?? '';
       expect(text).toContain('An integration belongs to the vendor that offers it');
       expect(text).toContain('"Offered by" line');
-      expect(text).toContain('We seeded the catalogue.');
+      expect(text).toContain('We seeded the catalog.');
     });
 
     it('says a claim needs no approval and fences our updates off the row (decisions 1 and 5)', () => {
@@ -133,7 +133,7 @@ describe('MethodologyPage', () => {
       expect(text).toContain('Retiring is not deleting.');
       expect(text).toContain('Nothing is deleted.');
       expect(text).toContain('restoring it does not reopen them');
-      expect(text).toContain('our catalogue tools refuse to delete an integration a vendor holds');
+      expect(text).toContain('our catalog tools refuse to delete an integration a vendor holds');
       // AECI-1046: AECi can retire a vendor-held listing, audited, and only AECi
       // restores that retire. The page must say so and must not say only the owner acts.
       expect(text).toContain('AEC Integrations can also retire an integration a vendor holds');
@@ -163,24 +163,23 @@ describe('MethodologyPage', () => {
     it('no longer says AECi is the source of every claim', () => {
       const text = setup().host.textContent ?? '';
       expect(text).not.toContain('currently the source of every claim');
-      expect(text).not.toContain('Nothing reaches the public catalogue on its own');
+      expect(text).not.toContain('Nothing reaches the public catalog on its own');
     });
 
     it('does not add ownership to the paid-plan list (decision 15: a seat is the gate)', () => {
       const { host } = setup();
       const text = host.textContent ?? '';
-      // The Managed list is exactly four items (the Free edits sit in the
-      // sentence before it, AECI-1219, the reply item is AECI-1181, and the
-      // account-label item went with the label, AECI-1264), and claiming,
-      // editing and contesting are seat-gated, so none of them may appear in it.
+      // The Managed list is exactly three items (the Free edits sit in the
+      // sentence before it, AECI-1219, the reply item is AECI-1181, the
+      // account-label item went with the label, AECI-1264, and AECI-1263
+      // dropped version history), and claiming, editing and contesting are
+      // seat-gated, so none of them may appear in it.
       const planList = Array.from(host.querySelectorAll('li'))
         .map((li) => li.textContent?.trim() ?? '')
         .filter((line) =>
-          /^(which other product details a vendor may edit|whether (a vendor|the)|how far back)/.test(
-            line,
-          ),
+          /^(which other product details a vendor may edit|whether (a vendor|the))/.test(line),
         );
-      expect(planList).toHaveLength(4);
+      expect(planList).toHaveLength(3);
       expect(planList.join(' ')).not.toMatch(/label/i);
       expect(planList.join(' ')).not.toMatch(/claim an integration|contest/i);
       expect(text).toContain('this is the complete list');
@@ -209,15 +208,17 @@ describe('MethodologyPage', () => {
   it('discloses the reader-visible surfaces a vendor plan reaches', () => {
     const { host } = setup();
     const text = host.textContent ?? '';
-    // `integration.version_diff` gates historical diff depth on the PUBLIC pair
-    // page, keyed on the pair's vendors (`packages/shared/src/version-diff.ts`).
-    // It is the only capability an anonymous reader can feel, so a paid-plan
-    // section that lists only vendor-facing effects would understate. Both halves
-    // are pinned: that it happens, and that the current state stays free.
-    expect(text).toContain('how far back the version history on an integration page goes');
+    // AECI-1181: `review.reply` puts vendor text on a public page, so its limits
+    // are disclosed. The label is reader-visible too, so the page must not call
+    // replies the only place a payment shows.
+    expect(text).toContain("A reply puts a vendor's own words in front of a reader");
     expect(text).toContain('The current state of an integration is always shown in full');
-    // AECI-1181: `review.reply` is the second. A reply is vendor text a reader sees.
-    expect(text).toContain('Replies and version history are the two places a payment changes');
+    // AECI-1263: `integration.version_diff` still gates the pair-page comparison,
+    // but no vendor can create the release data it compares, so a reader cannot
+    // reach it. The page must not describe it until that changes
+    // (STAGE_2_5_SPEC.md §7.2 point 5).
+    expect(text).not.toContain('version history');
+    expect(text).not.toContain('older versions');
   });
 
   it('renders the maintainer and both contact routes', () => {

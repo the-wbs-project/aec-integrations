@@ -396,6 +396,34 @@ describe('computeTrendingProducts', () => {
     await expect(computeTrendingProducts(t.db, NOW)).resolves.toEqual([]);
   });
 
+  // AECI-929 (§13 D25). A pair-page view names both endpoints in the pair columns
+  // and leaves `product_id` NULL, so it must count once for EACH endpoint.
+  it('counts a pair-page view for both endpoint products, beside their own views', async () => {
+    await seedProduct({ id: U.p1, slug: 'a', name: 'A' });
+    await seedProduct({ id: U.p2, slug: 'b', name: 'B' });
+    await seedProduct({ id: U.p3, slug: 'c', name: 'C' });
+    // p-1: 1 own view + 2 pair views = 3, which clears the floor only WITH the pairs.
+    await seedPageView(U.p1, within7d);
+    // p-2: 2 pair views + 2 own = 4. p-3: 1 one-sided pair view, below the floor.
+    for (let i = 0; i < 2; i++) {
+      await t.db.insert(pageViews).values({
+        path: '/products/:contextSlug/integrations/:otherSlug',
+        pairProductAId: U.p1,
+        pairProductBId: U.p2,
+        createdAt: within7d,
+      });
+    }
+    await seedPageView(U.p2, within7d);
+    await seedPageView(U.p2, within7d);
+    await t.db.insert(pageViews).values({
+      path: '/products/:contextSlug/integrations/:otherSlug',
+      pairProductAId: U.p3,
+      createdAt: within7d,
+    });
+    const result = await computeTrendingProducts(t.db, NOW);
+    expect(result.map((r) => r.id)).toEqual([U.p2, U.p1]);
+  });
+
   // AECI-582. Crawlers out-view humans by an order of magnitude, so without this the
   // card ranks products by how hard they are being scraped. Bot views must not count
   // toward the floor either — otherwise one crawler promotes a product nobody read.

@@ -34,9 +34,9 @@ export function contestFieldLabel(field: IntegrationContestField): string {
     case 'name':
       return $localize`:@@vendor.contest.field.name:Name`;
     case 'mechanism_kind':
-      return $localize`:@@vendor.contest.field.mechanismKind:Integration type`;
+      return $localize`:@@vendor.contest.field.mechanismKind:How you get it`;
     case 'mechanism_name':
-      return $localize`:@@vendor.contest.field.mechanismName:Mechanism name`;
+      return $localize`:@@vendor.contest.field.mechanismName:Connection name`;
     case 'direction':
       return $localize`:@@vendor.contest.field.direction:Direction`;
     case 'description':
@@ -48,11 +48,11 @@ export function contestFieldLabel(field: IntegrationContestField): string {
     case 'website':
       return $localize`:@@vendor.contest.field.website:Website`;
     case 'mechanism_url':
-      return $localize`:@@vendor.contest.field.mechanismUrl:Mechanism link`;
+      return $localize`:@@vendor.contest.field.mechanismUrl:Connection link`;
     case 'pricing_model':
       return $localize`:@@vendor.contest.field.pricingModel:Pricing`;
     case 'maturity':
-      return $localize`:@@vendor.contest.field.maturity:Maturity`;
+      return $localize`:@@vendor.contest.field.maturity:Release stage`;
     case 'owner':
       return $localize`:@@vendor.contest.field.integrationOwner:Owner`;
   }
@@ -220,12 +220,12 @@ export function contestNotificationNote(
   const owner = notification.recipient_role === 'owner';
   switch (notification.event) {
     case 'submitted':
-      return $localize`:@@vendor.contest.notify.note.submitted:Accept or decline it under Field contests in Messages. Until you decide, the public page keeps the value on record.`;
+      return $localize`:@@vendor.contest.notify.note.submitted:Accept or decline it under Change requests in Messages. Until you decide, the public page keeps the value on record.`;
     case 'declined': {
       const closes = notification.protest_closes_at;
       if (closes) {
         const date = formatDate(closes);
-        return $localize`:@@vendor.contest.notify.note.declinedProtestable:The value on record stays as it is. If you disagree, you can ask AEC Integrations to review it until ${date}:DATE:, from Field contests in Messages.`;
+        return $localize`:@@vendor.contest.notify.note.declinedProtestable:The value on record stays as it is. If you disagree, you can ask AEC Integrations to review it until ${date}:DATE:, from Change requests in Messages.`;
       }
       return $localize`:@@vendor.contest.notify.note.declined:The value on record stays as it is.`;
     }
@@ -237,10 +237,10 @@ export function contestNotificationNote(
     case 'protested': {
       const due = notification.reply_due_at;
       if (!due) {
-        return $localize`:@@vendor.contest.notify.note.protestedNoDate:You can reply once, under Field contests in Messages. Nothing about it is public.`;
+        return $localize`:@@vendor.contest.notify.note.protestedNoDate:You can reply once, under Change requests in Messages. Nothing about it is public.`;
       }
       const date = formatDate(due);
-      return $localize`:@@vendor.contest.notify.note.protested:You can reply once, by ${date}:DATE:, under Field contests in Messages. Nothing about it is public.`;
+      return $localize`:@@vendor.contest.notify.note.protested:You can reply once, by ${date}:DATE:, under Change requests in Messages. Nothing about it is public.`;
     }
     case 'protest_upheld':
       return owner

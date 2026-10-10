@@ -2038,6 +2038,15 @@ The guard is `dedupe_key` + its UNIQUE index (see the DDL below) at ingest, plus
 
 **Two consequences for anyone querying this table.** Rows written before 2026-09 carry a null `dedupe_key` and are still double-counted; `scripts/ops/2026-09-page-view-duplicates/find-duplicates.sql` reports them read-only (the corroborated floor is wrong on exactly two days, 2026-08-18 and 2026-08-29, corrected in `POST_LAUNCH_HEALTH_REPORT.md`). And the guard is a **floor on precision, not a claim of exactness**: bot rows and rows with no `user_agent_hash` are deliberately left unconstrained, so a crawler's repeat fetches still count once each.
 
+**Integration pair pages carry two product ids (AECI-929, migration `0067`, `ADMIN_PANEL_SPEC.md` §13 **D25**).** A pair page (`/products/:a/integrations/:b`) is about two products, and `product_id` holds one. So pair rows store their endpoints in `pair_product_a_id` and `pair_product_b_id` and leave `product_id` NULL, which keeps the product/vendor XOR readers correct.
+
+- **Canonical order.** The pair is unordered, stored lower id first, compared BINARY (`<`). Both URL orientations land on the same two values. When only one slug resolved, it sits in `_a` and `_b` is NULL. Readers never rely on position.
+- **Product ids, never an integration row id.** A delivered edge can move between `integrations` and `connector_evidenced_pairs` (AECI-888). A pair page with no edge at all still renders (noindex, not 404). Neither table is a stable key for "this pair page".
+- **Derived at ingest from the path.** `routes/page-views.ts` parses `concrete_path` with `parsePairPagePath` (`@aeci/shared`) and resolves both slugs in one `products.slug` read. The writer sends nothing new. That one rule covers SSR arrivals, SPA hops and crawler fetches. An unknown slug stores NULL on that side, and the row is still written.
+- **Detached on retraction, never deleted.** Both columns are FKs to `products` with no `ON DELETE` action. `retract-product.ts` NULLs the side that names the retracted product and keeps the row, so the other endpoint keeps the view.
+- **Read through one helper.** `lib/product-attributed-views.ts` expands a row into one row per product it names. Home trending, the `/admin` product breakdown and the digest's top products all go through it, so a pair view counts once for each endpoint. The pair columns never feed `integration_count` (`count-lockstep.spec.ts`).
+- **Older rows.** `scripts/ops/2026-10-pair-page-view-backfill/` re-derives the columns from `concrete_path`. It has not run on production. Rows older than AECI-585 have no `concrete_path` and cannot be attributed.
+
 **`path` vs `concrete_path` (AECI-585).** `path` is the route the *writer* named: the pattern (`/products/:slug`) when it knows one — an SSR resolver attached `ctx.pageView` — and the concrete path otherwise (the browser tracker, an SSR cache HIT). It has always been that mix; nothing changed about it. `concrete_path` is new and is *always* the real URL path, locale-stripped and without query or hash. Both are stored because they answer different questions: grouping "top pages" wants the pattern, naming an individual row wants the concrete path. Product and vendor rows could always recover a name through their FK; taxonomy rows could not, which is what made this column necessary.
 
 ```sql
@@ -2047,6 +2056,12 @@ create table page_views (
   concrete_path text, -- always the real URL path, locale-stripped, no query/hash (AECI-585); null before it shipped
   product_id uuid references products(id),
   vendor_id uuid references vendors(id),
+  -- AECI-929 / §13 D25: the two endpoint products of an integration pair page, lower id
+  -- first (BINARY). Derived at ingest from concrete_path; NULL on a side whose slug did
+  -- not resolve; product_id stays NULL on these rows. Retraction NULLs the matching
+  -- side and keeps the row. Product ids, never an integration row id (AECI-888).
+  pair_product_a_id uuid references products(id),
+  pair_product_b_id uuid references products(id),
 
   -- Which taxonomy term a facet browse page showed (AECI-585 / ADMIN_PANEL_SPEC.md §7.3).
   -- Two columns for four facets ('category' | 'audience' | 'phase' | 'trade'), and
@@ -2241,6 +2256,11 @@ create table page_views (
 
 create index page_views_path_idx on page_views(path, created_at);
 create index page_views_product_idx on page_views(product_id, created_at) where product_id is not null;
+-- AECI-929: one partial index per pair side. A per-product read must find the product on
+-- EITHER side, and a composite leading on _a cannot serve the _b probe. Partial, so only
+-- pair-page rows pay an index write on this hot path.
+create index page_views_pair_a_idx on page_views(pair_product_a_id, created_at) where pair_product_a_id is not null;
+create index page_views_pair_b_idx on page_views(pair_product_b_id, created_at) where pair_product_b_id is not null;
 create index page_views_country_idx on page_views(cf_country, created_at);
 create index page_views_bot_idx on page_views(is_bot, created_at); -- digest human/bot split + crawler grouping
 -- page_views_user_idx is gone with its column (AECI-585). No index was added for the

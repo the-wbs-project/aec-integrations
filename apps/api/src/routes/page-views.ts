@@ -2,7 +2,10 @@ import {
   PAGE_VIEW_CF_HEADERS,
   PAGE_VIEW_DEDUPE_WINDOW_MS,
   PageViewPayloadSchema,
+  canonicalPairIds,
+  parsePairPagePath,
   type PageViewPayload,
+  type PairPageSlugs,
 } from '@aeci/shared';
 import { eq, inArray } from 'drizzle-orm';
 import type { Context } from 'hono';
@@ -47,6 +50,12 @@ import { isOperatorRequest, type OperatorSessionOptions } from '../lib/operator-
  * §13 D13 added a fifth, `is_operator`: whether the request carried a verified
  * admin session (`lib/operator-session.ts`). Same recoverable-only-at-write-time
  * property, same not-backfillable consequence for older rows.
+ *
+ * AECI-929 (§13 D25) added the two endpoint products of an integration pair page,
+ * `pair_product_a_id` / `pair_product_b_id`. Unlike the columns above they ARE
+ * recoverable later, from `concrete_path`, which is why they are derived here from
+ * the path rather than sent by the writer, and why a one-time backfill exists
+ * (`scripts/ops/2026-10-pair-page-view-backfill/`).
  */
 
 /** Structural view of a directly-present `request.cf` (local dev / direct test). */
@@ -198,6 +207,36 @@ async function resolveEntity(db: Db, payload: PageViewPayload): Promise<Resolved
   return NO_ENTITY;
 }
 
+const NO_PAIR: [string | null, string | null] = [null, null];
+
+/**
+ * The two endpoint product ids of a pair-page view, in canonical order (AECI-929 /
+ * §13 D25), or `[null, null]` when the path is not a pair page.
+ *
+ * Derived from the concrete path rather than from the payload, so the SSR arrival,
+ * the browser tracker's SPA hop (which sends only `{ route, navigation }`) and a
+ * crawler's fetch all attribute the same way without any writer changing. One
+ * `slug IN (a, b)` read, the same existence-check rule `resolveEntity` applies: an
+ * unknown slug stores NULL on that side, never a guess, and the row is still
+ * written.
+ *
+ * Looked up by `products.slug` only, not `slug_redirects`: a retired slug 301s to
+ * the current URL before the page renders, so the view that counts is recorded
+ * under the slug that resolves.
+ */
+async function resolvePairProducts(
+  db: Db,
+  pair: PairPageSlugs | null,
+): Promise<[string | null, string | null]> {
+  if (!pair) return NO_PAIR;
+  const rows = await db
+    .select({ id: products.id, slug: products.slug })
+    .from(products)
+    .where(inArray(products.slug, [pair.a, pair.b]));
+  const idFor = (slug: string): string | null => rows.find((r) => r.slug === slug)?.id ?? null;
+  return canonicalPairIds(idFor(pair.a), idFor(pair.b));
+}
+
 function botScoreSampledOut(env: Env, botScore: number | null): boolean {
   const floor = intOrNull(env.PAGE_VIEWS_MIN_BOT_SCORE ?? null);
   if (floor === null || botScore === null) return false;
@@ -319,16 +358,22 @@ async function capturePageView(
     // 204 regardless) — stays on the `'first-unconstrained'` read default; a
     // primary anchor would spend a round-trip for no benefit. (AECI-250)
     const { db } = dbFor(c.env);
-    // All three reads are independent, so they overlap rather than queue. The
+    // All four reads are independent, so they overlap rather than queue. The
     // operator check short-circuits to `false` with no I/O when the request is
     // anonymous, which is nearly all of them, and the duplicate probe is a seek on
-    // `page_views_dedupe_key_idx` that costs nothing when the key is null.
-    const [{ productId, vendorId, taxonomyKind, taxonomyId }, isOperator, duplicate] =
-      await Promise.all([
-        resolveEntity(db, payload),
-        isOperatorRequest(c, db, deps),
-        findDuplicate(db, keys),
-      ]);
+    // `page_views_dedupe_key_idx` that costs nothing when the key is null. The pair
+    // lookup (AECI-929) likewise does no I/O unless the path is a pair page.
+    const [
+      { productId, vendorId, taxonomyKind, taxonomyId },
+      isOperator,
+      duplicate,
+      [pairProductAId, pairProductBId],
+    ] = await Promise.all([
+      resolveEntity(db, payload),
+      isOperatorRequest(c, db, deps),
+      findDuplicate(db, keys),
+      resolvePairProducts(db, parsePairPagePath(concretePath)),
+    ]);
 
     // Suppression is COUNTED, never silent: a metric that quietly drops rows is
     // indistinguishable from an ingest outage, and the whole point of this issue is
@@ -349,6 +394,10 @@ async function capturePageView(
         concretePath,
         productId,
         vendorId,
+        // AECI-929 — both endpoints of a pair page, lower id first. Bot rows take
+        // this same insert, so a crawler's fetch of a pair page is attributed too.
+        pairProductAId,
+        pairProductBId,
         taxonomyKind,
         taxonomyId,
         // Never inferred — an omitted flag stays null rather than being guessed into

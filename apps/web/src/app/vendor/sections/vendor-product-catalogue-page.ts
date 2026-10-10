@@ -30,7 +30,7 @@ import { vendorProductContext } from './vendor-product-context';
             data-catalogue-not-connector
             i18n="@@vendor.catalogue.notConnector"
           >
-            Only connector products have a catalogue. This product is not a connector.
+            Only connector products have a catalog. This product is not a connector.
           </p>
         }
       </div>

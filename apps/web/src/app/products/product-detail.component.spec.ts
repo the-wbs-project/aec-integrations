@@ -84,13 +84,14 @@ function buildProduct(overrides: Partial<ProductDetail> = {}): ProductDetail {
 }
 
 function setup(product: ProductDetail) {
+  const analytics = { productViewed: vi.fn(), externalLinkClicked: vi.fn() };
   TestBed.configureTestingModule({
     providers: [
       provideZonelessChangeDetection(),
       provideRouter([]),
       provideHttpClient(),
       provideHttpClientTesting(),
-      { provide: Analytics, useValue: { productViewed: vi.fn() } },
+      { provide: Analytics, useValue: analytics },
       // Embedded review CTA (inside ProductReviews) — keep it on the neutral,
       // no-network path; its own spec exercises the real behaviour.
       { provide: AuthService, useValue: { isConfigured: vi.fn(() => false), isSignedIn: vi.fn() } },
@@ -103,8 +104,46 @@ function setup(product: ProductDetail) {
   });
   const fixture = TestBed.createComponent(ProductDetailPage);
   fixture.detectChanges();
-  return { fixture, el: fixture.nativeElement as HTMLElement };
+  return { fixture, el: fixture.nativeElement as HTMLElement, analytics };
 }
+
+/** Click the hero's "Visit website" link without leaving the test page. */
+function clickWebsite(el: HTMLElement, href: string): void {
+  el.addEventListener('click', (e) => e.preventDefault());
+  const anchor = el.querySelector<HTMLAnchorElement>(`a[href="${href}"]`);
+  expect(anchor).toBeTruthy();
+  anchor!.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+}
+
+// AECI-933: the website click records whose site it leads to, the product's
+// primary vendor, and the product page it came from.
+describe('ProductDetailPage website click ownership (AECI-933)', () => {
+  beforeEach(() => TestBed.resetTestingModule());
+
+  it("sends the primary vendor as the owner of the product's website", () => {
+    const { el, analytics } = setup(buildProduct());
+    clickWebsite(el, 'https://www.procore.com');
+    expect(analytics.externalLinkClicked).toHaveBeenCalledExactlyOnceWith({
+      destination: 'https://www.procore.com/',
+      source: 'product_detail',
+      owner_vendor_id: '00000000-0000-4000-8000-000000010001',
+      link_origin: 'vendor',
+      source_entity_type: 'product',
+      source_entity_id: '00000000-0000-4000-8000-000000020001',
+      link_purpose: 'website',
+    });
+  });
+
+  it('sends a null owner for a product with no vendor', () => {
+    const { el, analytics } = setup(buildProduct({ vendor: null }));
+    clickWebsite(el, 'https://www.procore.com');
+    expect(analytics.externalLinkClicked).toHaveBeenCalledOnce();
+    expect(analytics.externalLinkClicked.mock.lastCall?.[0]).toHaveProperty(
+      'owner_vendor_id',
+      null,
+    );
+  });
+});
 
 describe('ProductDetailPage hero rating', () => {
   beforeEach(() => TestBed.resetTestingModule());
@@ -431,11 +470,11 @@ describe('ProductDetailPage powered-integrations hub', () => {
     );
 
     const endpoints = el.querySelector('#integrations')!;
-    expect(endpoints.textContent).toContain('Only partners listed on AECi appear here');
+    expect(endpoints.textContent).toContain('Only partners listed on AEC Integrations appear here');
 
     const powered = el.querySelector('#powered-integrations')!;
     expect(powered.textContent).toContain(
-      'Only integrations between products listed on AECi appear here',
+      'Only integrations between products listed on AEC Integrations appear here',
     );
 
     // Each note routes to the same correction drawer the empty states use, so
@@ -455,7 +494,7 @@ describe('ProductDetailPage powered-integrations hub', () => {
 
     expect(el.querySelector('#integrations')!.textContent).not.toContain('Only partners listed');
     expect(el.querySelector('#powered-integrations')!.textContent).toContain(
-      'Only integrations between products listed on AECi appear here',
+      'Only integrations between products listed on AEC Integrations appear here',
     );
   });
 
@@ -774,7 +813,9 @@ describe('ProductDetailPage integrations lanes (§13.3)', () => {
     );
 
     const section = el.querySelector('#integrations')!;
-    expect(section.textContent!.match(/Only partners listed on AECi appear here/g)).toHaveLength(1);
+    expect(
+      section.textContent!.match(/Only partners listed on AEC Integrations appear here/g),
+    ).toHaveLength(1);
   });
 
   it('keeps ONE anchor and one section-nav entry across the split', () => {
@@ -1084,7 +1125,7 @@ describe('ProductDetailPage hero reach line (§13.6)', () => {
 
     // Four distinct products across three pairs.
     expect(el.querySelector('[slot="hero"]')!.textContent).toContain(
-      'Connects 4 products in the AECi catalog',
+      'Connects 4 products in the AEC Integrations catalog',
     );
   });
 
@@ -1102,7 +1143,7 @@ describe('ProductDetailPage hero reach line (§13.6)', () => {
     );
 
     expect(el.querySelector('[slot="hero"]')!.textContent).toContain(
-      'Connects 3 products in the AECi catalog',
+      'Connects 3 products in the AEC Integrations catalog',
     );
     expect(el.querySelector('#powered-integrations')).toBeNull();
   });
@@ -1111,7 +1152,7 @@ describe('ProductDetailPage hero reach line (§13.6)', () => {
     const { el } = setup(connector({ integrations_as_connector: [selfEdge(procore, agave)] }));
 
     expect(el.querySelector('[slot="hero"]')!.textContent).toContain(
-      'Connects 1 product in the AECi catalog',
+      'Connects 1 product in the AEC Integrations catalog',
     );
   });
 

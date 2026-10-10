@@ -135,6 +135,16 @@ const vendorLinkColumns = {
  *  embeds the same `ProductLink` shape. One column list, one mapper. */
 export const productLinkColumns = { id: true, name: true, slug: true, logoUrl: true } as const;
 const taxonomyLinkColumns = { id: true, name: true, slug: true } as const;
+/**
+ * A connector product as the pair read hydrates it (AECI-933): the `ProductLink`
+ * columns plus the vendor links `pickPrimaryVendor` reads, so the mapper can set
+ * `ProductPairMechanism.connector_vendor_id`. Pair reads only. The list and detail
+ * configs keep the bare `productLinkColumns` and do not pay for the join.
+ */
+const pairConnectorProductConfig = {
+  columns: productLinkColumns,
+  with: { productVendors: { with: { vendor: { columns: vendorLinkColumns } } } },
+} as const;
 const taxonomyLinkWithOrderColumns = { ...taxonomyLinkColumns, displayOrder: true } as const;
 
 // ---------------------------------------------------------------------------
@@ -360,6 +370,9 @@ export const connectorEvidencedPairPairConfig = {
   },
   with: {
     ...connectorEvidencedPairListConfig.with,
+    // AECI-933: the connector's primary vendor, for `connector_vendor_id`. Overrides
+    // the list config's bare `connectorProduct`, which other reads share.
+    connectorProduct: pairConnectorProductConfig,
     builtByVendor: { columns: vendorLinkColumns },
     claims: pairClaimsConfig,
   },
@@ -444,6 +457,8 @@ export interface RawConnectorEvidencedPairDetailRow extends RawConnectorEvidence
   lastReviewedAt: string | null;
   maintainedBy: string;
   builtByVendor: RawVendorLink | null;
+  /** AECI-933: the pair config adds the connector's vendor links. */
+  connectorProduct: RawPairConnectorProduct;
   /** Stored in the canonical A/B frame — A is `productA`, never the oriented source. */
   claims: RawPairClaimRow[];
   /** AECI-1154. Optional so a hand-built fixture without it reads as unset. */
@@ -638,7 +653,8 @@ export const integrationPairConfig = {
     sourceProduct: { columns: productLinkColumns },
     targetProduct: { columns: productLinkColumns },
     builtByVendor: { columns: vendorLinkColumns },
-    poweredByProduct: { columns: productLinkColumns },
+    // AECI-933: with its primary vendor, for `connector_vendor_id`.
+    poweredByProduct: pairConnectorProductConfig,
     // Layer B (§8 — AECI-300): the `data_object` claims on this mechanism, each
     // with its stored direction + live attestations, mapped to a
     // context-relative claim with computed agreement in `toProductPairClaim`.
@@ -1058,6 +1074,17 @@ interface RawProductLink {
   slug: string;
   logoUrl: string | null;
 }
+/** A connector product as `pairConnectorProductConfig` returns it (AECI-933).
+ *  `productVendors` is optional so a hand-built fixture without it reads as "no
+ *  connector vendor". */
+interface RawPairConnectorProduct extends RawProductLink {
+  productVendors?: Array<{ isPrimary: boolean; vendor: RawVendorLink }>;
+}
+
+/** The connector's primary vendor id, or `null` (AECI-933). */
+function connectorVendorId(connector: RawPairConnectorProduct | null): string | null {
+  return connector ? (pickPrimaryVendor(connector.productVendors ?? [])?.id ?? null) : null;
+}
 interface RawTaxonomyLink {
   id: string;
   name: string;
@@ -1198,7 +1225,8 @@ export interface RawIntegrationPairRow {
   sourceProduct: RawProductLink;
   targetProduct: RawProductLink;
   builtByVendor: RawVendorLink | null;
-  poweredByProduct: RawProductLink | null;
+  /** AECI-933: carries the connector's vendor links on the pair read. */
+  poweredByProduct: RawPairConnectorProduct | null;
   claims: RawPairClaimRow[];
   /** AECI-1007. Optional so a hand-built fixture without links still type-checks
    *  as "no links"; the read config always selects it. */
@@ -1774,6 +1802,8 @@ function toProductPairMechanism(
     // Always null on an `integrations` row — the evidenced-pair arm of the pair
     // read sets it (`toProductPairMechanismFromEvidencedPair`).
     via: null,
+    // AECI-933: the owner of a curated-link click when no vendor built the row.
+    connector_vendor_id: connectorVendorId(raw.poweredByProduct),
     // AECI-1154: the owner's pricing page link. Owner-written only; promote never.
     pricing_url: publicPricingUrl(raw.pricingUrl),
     // Sort FIRST, then drop: ordering stays this mapper's job and is independent
@@ -1846,6 +1876,8 @@ function toProductPairMechanismFromEvidencedPair(
     // Promote is the only writer of this table (decision 9 keeps vendors off it).
     origin: 'aeci',
     via: toProductLink(raw.connectorProduct),
+    // AECI-933: the same fact as the `integrations` arm, read from `via`'s product.
+    connector_vendor_id: connectorVendorId(raw.connectorProduct),
     // AECI-1154: an entitled owner edits it here too (AECI-1090). Promote never does.
     pricing_url: publicPricingUrl(raw.pricingUrl),
     // Same sort-then-drop as `toProductPairMechanism`; only the frame flag differs.
