@@ -1080,7 +1080,8 @@ function viaMechanism(name: string | null): string {
  * - silent-counterparty says plainly that silence renders as silence
  *   (`STAGE_2_SPEC.md` §8.1(4)), so the nudge informs rather than coerces.
  * - open-conflict is non-accusatory: a difference in description, not a defect.
- * - stale-version asks three ways, because "withdraw" is a legitimate answer.
+ * - stale-version asks two ways, because "withdraw" is a legitimate answer. It
+ *   does not ask for product versions: no vendor can create one yet (AECI-1263).
  * - claim-denied states that the flow stays listed as unverified until AECi acts.
  */
 function digestItem(f: AttestationDigestFinding): { title: string; ask: string } {
@@ -1098,7 +1099,7 @@ function digestItem(f: AttestationDigestFinding): { title: string; ask: string }
     case 'stale-version':
       return {
         title: `Re-confirm your ${f.dataObject} record for ${f.product}`,
-        ask: 'Re-confirm it, add the product versions it applies to, or withdraw it if it no longer holds. Any of the three is a good answer.',
+        ask: 'Re-confirm it, or withdraw it if it no longer holds. Either is a good answer.',
       };
     case 'claim-denied':
       return {

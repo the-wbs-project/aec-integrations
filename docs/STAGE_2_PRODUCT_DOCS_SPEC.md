@@ -27,7 +27,7 @@ A **reader-facing product documentation surface** ("the docs") supporting the pr
 
 Three audiences, in priority order:
 
-1. **Vendors** — the Stage 2 addition and the reason this exists now: claiming a profile, the dashboard, attesting to integrations, product versions, plans & entitlements, notifications.
+1. **Vendors** — the Stage 2 addition and the reason this exists now: claiming a profile, the dashboard, attesting to integrations, plans & entitlements, notifications.
 2. **Readers** (AEC firms evaluating integrations) — how the directory works: taxonomy, agreement states, the vendor account-status label, what ranking does and does not reward.
 3. **Reviewers** — dual reviews, requesting integrations/corrections.
 
@@ -103,7 +103,7 @@ URL scheme: `/docs/<section>/<slug>`, kebab-case. Roughly 18 pages.
 │  ├─ contests-and-protests          — sending and receiving contests, the protest to AECi (§11b)
 │  ├─ replying-to-reviews            — who replies, moderation, the public label, edit/withdraw/resubmit (§11c, AECI-1181)
 │  └─ plans-and-the-account-label    — Free vs Managed, checklists, "Looks right", what no plan changes, billing, plan end (AECI-1219)
-│     (not yet written: your-dashboard, editing-profile-and-products, product-versions)
+│     (not yet written: your-dashboard, editing-profile-and-products)
 ├─ reviewers/
 │  ├─ writing-a-review               — dual reviews: product quality vs onboarding experience
 │  └─ requests-and-corrections       — requesting an integration, correcting a listing, contesting a detail (AECI-1023)
@@ -149,6 +149,7 @@ URL scheme: `/docs/<section>/<slug>`, kebab-case. Roughly 18 pages.
 - A changelog / what's-new page
 - Per-locale content files
 - Any versioned-docs mechanism
+- A `product-versions` vendor page, until a vendor can create a release. The version comparison is not reachable today and the docs must not describe it (AECI-1263)
 - Screenshots / recorded walkthroughs
 - An embedded support widget (the feedback endpoint + mailing-list band already exist)
 
