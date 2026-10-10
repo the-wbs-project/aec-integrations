@@ -769,7 +769,9 @@ Like toxicity scoring, every send is **fail-open and fire-and-forget** (dispatch
 never blocks the triggering action), so the count is an *outage/triage-loss* signal, never user-facing.
 `skipped` is the absent-config no-op (no `RESEND_API_KEY` / `EMAIL_FROM`, or an unresolved recipient — the
 expected local state), so it doesn't pollute the `failed` error-rate denominator. `suppressed`
-(AECI-1198) is the tier delivery policy refusing an outside recipient on a non-production tier. It is
+(AECI-1198) is the tier delivery policy refusing an outside recipient on demo or local, or a
+tier-limited entry on any non-production tier. Staging redirects every recipient to the support inbox
+instead, so a staging send counts `sent` (2026-10-09, `docs/email.md` §Tier delivery policy). It is
 also kept out of the `failed` denominator, and it should never appear in the production project.
 `duplicate` (AECI-1202) is the send ledger refusing a send whose dedupe key an earlier send holds
 (`DATABASE_SCHEMA.md` §9.9). Nothing went to Resend, and it stays out of the `failed` denominator

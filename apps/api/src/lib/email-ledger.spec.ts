@@ -250,10 +250,65 @@ describe('sendTransactionalEmail writes the send ledger', () => {
   it('writes a suppressed row on a non-production tier, with the tier label', async () => {
     vi.spyOn(console, 'warn').mockImplementation(() => {});
     const fetchSpy = vi.spyOn(globalThis, 'fetch');
-    expect(await sendTransactionalEmail(ctx({ ENV: 'staging' }), INPUT)).toBe('suppressed');
+    expect(await sendTransactionalEmail(ctx({ ENV: 'demo' }), INPUT)).toBe('suppressed');
     expect(fetchSpy).not.toHaveBeenCalled();
     expect(await rows()).toEqual([
-      expect.objectContaining({ outcome: 'suppressed', tier: 'staging', dedupeKey: null }),
+      expect.objectContaining({ outcome: 'suppressed', tier: 'demo', dedupeKey: null }),
+    ]);
+  });
+
+  it('on staging, keys the row, dedupe and Idempotency-Key to the intended recipient', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('{"id":"re_s"}'));
+    const send = () =>
+      sendTransactionalEmail(ctx({ ENV: 'staging' }), {
+        ...INPUT,
+        dedupeKey: 'claim-approved:c1',
+        entity: { type: 'claim', id: 'c1' },
+      });
+
+    expect(await send()).toBe('sent');
+    // The same key again is a duplicate, exactly as on production.
+    expect(await send()).toBe('duplicate');
+
+    expect(fetchSpy).toHaveBeenCalledOnce();
+    const body = JSON.parse(String((fetchSpy.mock.calls[0]![1] as RequestInit).body)) as {
+      to: string;
+    };
+    expect(body.to).toBe('support@aecintegrations.com');
+    expect(idempotencyKeys(fetchSpy)[0]).toMatch(/^staging:claim-approved:c1:[0-9a-f]{16}$/);
+    expect(await rows()).toEqual([
+      expect.objectContaining({
+        recipientHash: await recipientHash('r@example.com'),
+        tier: 'staging',
+        outcome: 'sent',
+        providerMessageId: 're_s',
+        dedupeKey: 'claim-approved:c1',
+      }),
+      expect.objectContaining({
+        recipientHash: await recipientHash('r@example.com'),
+        outcome: 'duplicate',
+      }),
+    ]);
+  });
+
+  it('on staging, records the operator copy under the intended operator addresses', async () => {
+    vi.spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(new Response('{"id":"re_user"}'))
+      .mockResolvedValueOnce(new Response('{"id":"re_copy"}'));
+
+    await sendMailingListWelcomeEmail(
+      ctx({
+        ENV: 'staging',
+        EMAIL_BCC: 'ops@aecintegrations.com',
+        PUBLIC_SITE_URL: 'https://staging.aecintegrations.com',
+      }),
+      { to: 'sub@example.com', token: 'tok' },
+    );
+
+    const hashes = (await rows()).map((r) => [r.notificationId, r.recipientHash]);
+    expect(hashes).toEqual([
+      ['mailing-list-welcome', await recipientHash('sub@example.com')],
+      ['mailing-list-welcome-operator-copy', await recipientHash('ops@aecintegrations.com')],
     ]);
   });
 

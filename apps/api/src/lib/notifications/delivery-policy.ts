@@ -6,6 +6,11 @@
  * The rule:
  *
  *   - **Production** sends to anyone.
+ *   - **Staging redirects** (2026-10-09, the AECI-1103 rehearsal). Every recipient, internal
+ *     or outside, is mailed at {@link STAGING_REDIRECT_RECIPIENT} instead, and the subject
+ *     names the intended recipient. The ledger, dedupe keys and tokens stay keyed to the
+ *     intended recipient, so only the envelope `to` differs from production. See
+ *     {@link isRedirectTier}.
  *   - **Every other tier** sends only to an address in {@link INTERNAL_RECIPIENT_DOMAINS}.
  *     Anything else is suppressed by the transport (`lib/email.ts`), which logs it with
  *     a recipient hash and counts `aeci.email.send` with `outcome:suppressed`.
@@ -15,8 +20,8 @@
  *     `'production-and-demo'` from production and demo. Every other tier suppresses it
  *     whatever the recipient, through {@link refusedByTierRule}.
  *
- * The allowlist is a code constant, not an env var, so a misconfigured var cannot widen
- * it. Supabase sign-in mail is outside this gate because Supabase sends it itself.
+ * The allowlist and the staging redirect address are code constants, not env vars, so a
+ * misconfigured var cannot widen either. Supabase sign-in mail is outside this gate because Supabase sends it itself.
  * `docs/email.md` (§Tier delivery policy) is the governing doc.
  */
 
@@ -29,6 +34,13 @@ export interface DeliveryPolicyEnv {
 /** Recipient domains that receive mail on every tier. Exact match, no subdomains. */
 export const INTERNAL_RECIPIENT_DOMAINS = ['thewbsproject.com', 'aecintegrations.com'] as const;
 
+/**
+ * The one inbox every staging email is delivered to (2026-10-09). A code constant, so a
+ * bad var cannot point staging mail at an outside inbox. It is internal, so the intended
+ * recipient's raw address may appear in the subject.
+ */
+export const STAGING_REDIRECT_RECIPIENT = 'support@aecintegrations.com';
+
 /** The non-production tiers that get a named subject prefix. Anything else is
  *  `[non-production]`. */
 const NAMED_TIERS = new Set(['development', 'staging', 'demo']);
@@ -36,6 +48,13 @@ const NAMED_TIERS = new Set(['development', 'staging', 'demo']);
 /** True only when `ENV` is exactly `'production'`. Missing or unknown is non-production. */
 export function isProductionTier(env: DeliveryPolicyEnv): boolean {
   return env.ENV === 'production';
+}
+
+/** True only when `ENV` is exactly `'staging'`: the one tier that redirects every
+ *  recipient to {@link STAGING_REDIRECT_RECIPIENT}. Demo, development and a
+ *  missing or unknown `ENV` keep the allowlist. */
+export function isRedirectTier(env: DeliveryPolicyEnv): boolean {
+  return env.ENV === 'staging';
 }
 
 /** True when the entry's tier rule refuses this tier outright, before any recipient is
@@ -88,12 +107,16 @@ export function isInternalRecipient(address: string): boolean {
 }
 
 /** Split recipients into the ones this tier may mail and the ones it must suppress.
- *  Production allows everything. Order is preserved within each list. */
+ *  Production allows everything. Staging allows everything too, because
+ *  {@link envelopeRecipients} sends it all to {@link STAGING_REDIRECT_RECIPIENT}. Order is
+ *  preserved within each list. */
 export function partitionRecipients(
   env: DeliveryPolicyEnv,
   addresses: readonly string[],
 ): { allowed: string[]; suppressed: string[] } {
-  if (isProductionTier(env)) return { allowed: [...addresses], suppressed: [] };
+  if (isProductionTier(env) || isRedirectTier(env)) {
+    return { allowed: [...addresses], suppressed: [] };
+  }
   const allowed: string[] = [];
   const suppressed: string[] = [];
   for (const address of addresses) {
@@ -107,6 +130,29 @@ export function partitionRecipients(
 export function tierSubject(env: DeliveryPolicyEnv, subject: string): string {
   if (isProductionTier(env)) return subject;
   return `[${tierLabel(env)}] ${subject}`;
+}
+
+/** The Resend `to` for a send to these allowed recipients. Staging gives the one
+ *  {@link STAGING_REDIRECT_RECIPIENT}, whoever was intended. Every other tier gives the
+ *  list unchanged. */
+export function envelopeRecipients(env: DeliveryPolicyEnv, intended: readonly string[]): string[] {
+  return isRedirectTier(env) ? [STAGING_REDIRECT_RECIPIENT] : [...intended];
+}
+
+/**
+ * The delivered subject. Staging names the intended recipients, so the shared inbox shows
+ * who each mail was for: `[staging → x@gmail.com] Your claim …`. Several recipients are
+ * joined with `, `. Every other tier is {@link tierSubject}. Line breaks in an address are
+ * flattened to spaces, so a stored value cannot add a header line.
+ */
+export function deliverySubject(
+  env: DeliveryPolicyEnv,
+  subject: string,
+  intended: readonly string[],
+): string {
+  if (!isRedirectTier(env)) return tierSubject(env, subject);
+  const names = intended.map((a) => bareAddress(a).replace(/[\r\n]+/g, ' ')).join(', ');
+  return `[${tierLabel(env)} → ${names}] ${subject}`;
 }
 
 /** `Name <a@b.com>` or `a@b.com` → `a@b.com`, trimmed and lowercased. */

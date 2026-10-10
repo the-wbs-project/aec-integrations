@@ -231,8 +231,9 @@ where `n` must not fork an edge entry, is in `docs/CACHE_STRATEGY.md` §4a.
 
 ## Tier delivery policy (AECI-1198)
 
-**The rule: an email to an outside recipient sends from production only.** Every other
-tier sends only to internal addresses. Anything else is suppressed and logged.
+**The rule: an email to an outside recipient reaches its inbox from production only.**
+Staging delivers every email to the support inbox instead. Demo and local send
+only to internal addresses and suppress the rest.
 
 Why it exists. Every tier shares one Supabase auth project, so staging and demo resolve
 real vendor seat addresses. Staging, demo and agent workspaces also hold a live
@@ -241,16 +242,48 @@ real vendor seat addresses. Staging, demo and agent workspaces also hold a live
 How it works. The policy is `apps/api/src/lib/notifications/delivery-policy.ts`. Both
 transports in `lib/email.ts` apply it before they call Resend.
 
-| | Production | Every other tier |
-|---|---|---|
-| Who counts as production | `ENV` is exactly `production` | `development`, `staging`, `demo`, a missing `ENV`, or any unknown value |
-| Outside recipient | Sent | Suppressed. No Resend call. |
-| Internal recipient | Sent | Sent |
-| A `production-only` notification | Sent | Suppressed, whatever the recipient |
-| A `production-and-demo` notification | Sent | Sent on demo. Suppressed on every other tier, whatever the recipient |
-| `EMAIL_BCC` addresses | All copied | Outside addresses dropped |
-| Subject | Unchanged | Prefixed with the tier, e.g. `[staging] [AECi] New vendor claim: …`. Local dev sends `[development]` (it was `[preview]` until 2026-10-10, AECI-1268). |
+| | Production | Staging | Demo, local, missing or unknown `ENV` |
+|---|---|---|---|
+| Who counts as this tier | `ENV` is exactly `production` | `ENV` is exactly `staging` | `development`, `demo`, a missing `ENV`, or any unknown value |
+| Outside recipient | Sent | Sent to `support@aecintegrations.com` instead | Suppressed. No Resend call. |
+| Internal recipient | Sent | Sent to `support@aecintegrations.com` instead | Sent |
+| A `production-only` notification | Sent | Suppressed, whatever the recipient | Suppressed, whatever the recipient |
+| A `production-and-demo` notification | Sent | Suppressed, whatever the recipient | Sent on demo. Suppressed on the rest, whatever the recipient |
+| `EMAIL_BCC` addresses | All copied | No blind copy. The operator `COPY:` is sent to the support inbox | Outside addresses dropped |
+| Subject | Unchanged | `[staging → x@gmail.com] Your claim …` | Prefixed with the tier, e.g. `[demo] [AECi] New vendor claim: …`. Local dev sends `[development]` (it was `[preview]` until 2026-10-10, AECI-1268). |
 
+- **The staging redirect (2026-10-09, ruled by Chris for the AECI-1103 dress rehearsal).**
+  The rehearsal's test identities are gmail.com addresses. Under the allowlist their claim
+  decisions, seat invites and nudges never arrived. So staging now delivers every app email
+  to `support@aecintegrations.com`, whoever it was for. The rules:
+  - **Staging only.** `isRedirectTier` is true when `ENV` is exactly `staging`. Every other
+    non-production tier keeps the allowlist.
+  - **The address is the code constant `STAGING_REDIRECT_RECIPIENT`**, not an env var, so a
+    bad var cannot point staging mail at an outside inbox.
+  - **The tier rule still wins.** `refusedByTierRule` runs first in both transports, so a
+    `production-only` or `production-and-demo` entry is still suppressed on staging.
+  - **The subject names the intended recipient**, bare and lowercased:
+    `[staging → x@gmail.com] <subject>`. A send to several recipients lists them, joined by
+    `, `. The inbox is internal, so the raw address in the mail is acceptable. Logs still
+    carry only `recipientHash`.
+  - **Only the envelope changes.** The `notification_sends` row, the dedupe key, the
+    `Idempotency-Key`, the unsubscribe token and every tagged link are computed for the
+    intended recipient, exactly as on production. A second send with the same dedupe key
+    is still a `duplicate`. The outcome is `sent`, not `suppressed`, and `aeci.email.send`
+    gets no extra tag: every staging send is redirected, so the tier already says so.
+  - **One Resend call per production call.** A digest to several recipients stays one call,
+    to the support inbox, with every intended address in the subject and one ledger row per
+    intended address. Both cron digests are tier-limited today, so staging sends none.
+  - **No blind copy on staging.** The envelope already goes to the support inbox, so a
+    `bcc` would mail it twice. A blind copy writes no ledger row, so no row changes. The
+    separate operator `COPY:` of an unsubscribable send still goes, to the support inbox,
+    subject `[staging → <operator address>] COPY: …`, with its rows under the operator
+    addresses. `EMAIL_BCC` is unset on every tier today, so neither path fires.
+  - **The unsubscribe header and link still work.** They carry the intended recipient's
+    token. Clicking one in the support inbox opts that staging recipient out.
+  - **Delivery webhooks.** A staging event names the support inbox, not the recipient. When
+    it names that one address, `recordDeliveryEvent` reads the recipient from the ledger
+    rows for the message id instead (§Delivery webhooks).
 - **The `production-only` rule (AECI-1220).** A registry entry with `envRule: 'production-only'`
   is operator email that sends from production alone, to anyone. Every other tier suppresses
   it, even to an internal address. `refusedByTierRule` in `delivery-policy.ts` decides, and
@@ -263,7 +296,8 @@ transports in `lib/email.ts` apply it before they call Resend.
   holds a promoted catalog worth checking and staging holds synthetic data. It replaced unsetting a recipient var per tier, which
   stopped working once one `SUPPORT_EMAIL` named the inbox everywhere. Every other
   operator alert stays `any-tier`.
-- **The allowlist is two domains:** `thewbsproject.com` and `aecintegrations.com`. It is
+- **The allowlist is two domains:** `thewbsproject.com` and `aecintegrations.com`. It
+  applies on every non-production tier but staging. It is
   the code constant `INTERNAL_RECIPIENT_DOMAINS`, not an env var, so a bad var cannot
   widen it. The match is exact on the part after the last `@`, case-insensitive. A
   subdomain such as `mail.thewbsproject.com` is outside. So are lookalikes such as
@@ -273,8 +307,8 @@ transports in `lib/email.ts` apply it before they call Resend.
   `;`, whitespace inside the address, more than one `@` in the address, more than one `<`
   or `>`, or an `@` outside the angle brackets. `x@gmail.com,support@aecintegrations.com`
   and `"a@x.com"@aecintegrations.com` are both suppressed.
-- **Fail closed.** A missing or unknown `ENV` is non-production. Its subject prefix is
-  `[non-production]`.
+- **Fail closed.** A missing or unknown `ENV` is non-production, never staging. Its subject
+  prefix is `[non-production]`, and it keeps the allowlist.
 - **What a suppressed send leaves.** `sendTransactionalEmail` returns `'suppressed'` and
   counts `aeci.email.send` with `outcome:suppressed`. It writes a `console.warn` with the
   template, the tier and `recipientHash`. The hash is an unsalted SHA-256 of the trimmed,
@@ -298,7 +332,8 @@ transports in `lib/email.ts` apply it before they call Resend.
   invite emails itself, over the Resend SMTP relay (§Magic-link sender below). No code
   in this repo touches that path, so this policy cannot stop it. It also carries no Resend
   tags, which is how the delivery webhook tells it apart (§Delivery webhooks).
-- **Testing a template on a non-production tier.** Send it to an internal address. It
+- **Testing a template on a non-production tier.** On staging, send it to anyone and read
+  `support@aecintegrations.com`. On demo or locally, send it to an internal address. It
   arrives with the tier prefix.
 
 ### Operating notes (moved from CLAUDE.md, 2026-09-23)
@@ -685,6 +720,13 @@ its ledger row by `recipientHash`, and the earliest matching row wins:
   only one BCC address is named, the event is attributed to it only when that address has a
   ledger row for the message: the operator `COPY:` send, which goes to support and keeps its
   own rows. Otherwise it is stored unattributed. No ledger row is invented.
+- **Staging redirects every send to the support inbox (2026-10-09, §Tier delivery policy).**
+  So a staging event names `support@aecintegrations.com`, while the ledger rows sit under
+  the intended recipients. When the event names exactly that one address, the handler reads
+  the rows for the message id instead. Rows under one recipient hash attribute the event to
+  that recipient and join the earliest row. Rows under several hashes, such as a digest to
+  two addresses, or no rows at all, leave it unattributed. Only staging passes the redirect
+  address in, so production still reads a support event as the support address.
 - **An event that lands before `finalizeSend` stores the message id stays unjoined.** The ledger
   row gets `provider_message_id` only after Resend's send call returns. An event that arrives
   first, in practice only `email.sent`, finds no row and is stored with `notification_send_id`
@@ -779,7 +821,7 @@ a seat's own choice about the attestation digest.
 | `EMAIL_BCC` | plain `var` | API Worker, per env (`wrangler.jsonc`) | **Unset on every tier since AECI-1220.** When set, it is a Resend `bcc` on every send from both transports, except a send with a `List-Unsubscribe` header, which gets a separate `COPY:` message instead (see the transport notes above). Comma/whitespace-separated list (`parseRecipients`). An address already in `to` is dropped. Absent → no `bcc` field. **Why it is off:** the send ledger `notification_sends` records each send, and the copies kept personal data in Microsoft 365 after an account deletion. **To turn it back on:** add one plain `EMAIL_BCC` var line per tier in `apps/api/wrangler.jsonc` and deploy. The code path, the operator `COPY:`, the support-copy switch on `/admin/email` and the delivery-events BCC handling all stay in place. |
 | `DATA_QUALITY_EMAIL_FROM` | plain `var` | API Worker, staging / demo / production | `from` for the daily data-quality digest (AECI-241). **Same address as `EMAIL_FROM`** — see the note below. |
 | `PUBLIC_SITE_URL` | plain `var` | API Worker, per env | Builds absolute links in emails; absent → link omitted. |
-| `SUPPORT_EMAIL` | plain `var` | API Worker, staging + demo + production | **`support@aecintegrations.com` on all three tiers (AECI-1220).** The one recipient of every operator email: moderation, lead capture, feedback, new claim, contest and protest alerts, the stuck-request alert, the `entitlement-expiring-admin` term warnings, the stale-claim alert, the `attestation-ops-digest`, and the two cron digests. **One address only.** The digests parse it as a list, but the transactional alerts pass it to Resend verbatim, and off production the tier policy refuses a value with a comma in it. Absent → every operator send is a `skipped` no-op and the triggering action still succeeds. The metric and log line each sender emits are the backstop. It replaced `ADMIN_ALERT_EMAIL`, `CLAIM_ALERT_EMAIL`, `FOUNDER_ALERT_EMAIL`, `DATA_QUALITY_EMAIL_TO` and `ANALYTICS_DIGEST_EMAIL_TO`. `digest-analytics` and `stale-claim-ticket-alert` send from production only, and `digest-data-quality` from production and demo, whatever this var says (§Tier delivery policy). |
+| `SUPPORT_EMAIL` | plain `var` | API Worker, staging + demo + production | **`support@aecintegrations.com` on all three tiers (AECI-1220).** The one recipient of every operator email: moderation, lead capture, feedback, new claim, contest and protest alerts, the stuck-request alert, the `entitlement-expiring-admin` term warnings, the stale-claim alert, the `attestation-ops-digest`, and the two cron digests. **One address only.** The digests parse it as a list, but the transactional alerts pass it to Resend verbatim, and on demo and locally the tier policy refuses a value with a comma in it. Staging delivers it to the support inbox whatever it holds. Absent → every operator send is a `skipped` no-op and the triggering action still succeeds. The metric and log line each sender emits are the backstop. It replaced `ADMIN_ALERT_EMAIL`, `CLAIM_ALERT_EMAIL`, `FOUNDER_ALERT_EMAIL`, `DATA_QUALITY_EMAIL_TO` and `ANALYTICS_DIGEST_EMAIL_TO`. `digest-analytics` and `stale-claim-ticket-alert` send from production only, and `digest-data-quality` from production and demo, whatever this var says (§Tier delivery policy). |
 
 > **Every `_FROM` in the repo is `notifications@aecintegrations.com`, deliberately (2026-08-26).**
 > `aecintegrations.com` is the Resend-verified sending domain (§Deliverability below), and it is

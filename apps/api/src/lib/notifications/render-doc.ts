@@ -13,7 +13,7 @@
  * Pure: no I/O, so the spec renders a fixture registry and compares an exact string.
  */
 
-import { INTERNAL_RECIPIENT_DOMAINS } from './delivery-policy';
+import { INTERNAL_RECIPIENT_DOMAINS, STAGING_REDIRECT_RECIPIENT } from './delivery-policy';
 import type { NotificationChannel, NotificationEntry } from './registry';
 
 /** The doc's path from the repo root, and the command that regenerates it. */
@@ -174,7 +174,10 @@ function intro(): string[] {
     '**The tier rule (AECI-1198).** Email to an outside recipient sends from production only.',
     `Every other tier sends only to the internal allowlist, ${domains}, matched exactly on the`,
     'domain. Anything else is suppressed and counted as `outcome:suppressed`. A missing or',
-    'unknown `ENV` counts as non-production. The policy is',
+    'unknown `ENV` counts as non-production. **Staging is the exception (2026-10-09):** it',
+    `delivers every email, to anyone, to \`${STAGING_REDIRECT_RECIPIENT}\`, with the intended`,
+    'recipient named in the subject. Its ledger, dedupe and tokens stay the intended',
+    "recipient's. The tier rules below still refuse first on staging. The policy is",
     '`apps/api/src/lib/notifications/delivery-policy.ts`, and `docs/email.md` §Tier delivery',
     'policy is its governing doc.',
     '',
