@@ -10,6 +10,8 @@
  */
 import { describe, expect, it } from 'vitest';
 
+import { routes } from '../app.routes';
+
 import {
   DOCS_PAGES,
   DOCS_SECTIONS,
@@ -27,6 +29,7 @@ import {
   getDocsSectionIndexByPath,
   indexableDocsPaths,
 } from './docs-content';
+import { appRoutePatterns, findBrokenDocsLinks } from './docs-link-check.harness';
 import { headingSlug } from './docs-markdown';
 import { DocsShellComponent } from './docs-shell';
 import { DOCS_CHILD_ROUTES, DOCS_ROUTES } from './docs.routes';
@@ -420,34 +423,49 @@ describe('docs manifest', () => {
     }
   });
 
-  it('only links to docs pages, sections and headings that exist', () => {
-    // Pages, and the section intros (the vendor guide's landing), by path: since
-    // AECI-1265 two sections share `/docs/vendors`, so a URL segment is not an id.
+  // AECI-1254: the link checker (`docs-link-check.harness.ts`). Every in-app
+  // href in every page and intro must land: a /docs href on a page, index or
+  // heading the manifest serves, anything else on a route in the real route
+  // table. A renamed page breaks the links to its old path here.
+  it('only links to docs pages and app routes that exist', async () => {
+    const hrefsIn = (html: string): string[] =>
+      Array.from(
+        new DOMParser().parseFromString(html, 'text/html').querySelectorAll('a[href]'),
+      ).map((a) => a.getAttribute('href') ?? '');
+    const headingIdsIn = (html: string): string[] =>
+      Array.from(new DOMParser().parseFromString(html, 'text/html').querySelectorAll('[id]')).map(
+        (el) => el.id,
+      );
+
+    // The folder is the section id and the file name is the slug (the manifest
+    // enforces the first; `RawDocsPage` documents the second).
     const sources = [
-      ...DOCS_PAGES.map((page) => ({ name: page.slug, html: page.html })),
+      ...DOCS_PAGES.map((page) => ({
+        file: `src/content/docs/${page.section}/${page.slug}.md`,
+        hrefs: hrefsIn(page.html),
+      })),
       ...DOCS_SECTIONS.filter((section) => section.intro).map((section) => ({
-        name: `${section.id} intro`,
-        html: section.intro!.html,
+        file: `src/content/docs/${section.id}/_index.md`,
+        hrefs: hrefsIn(section.intro!.html),
       })),
     ];
-    for (const { name, html } of sources) {
-      const doc = new DOMParser().parseFromString(html, 'text/html');
-      for (const a of Array.from(doc.querySelectorAll('a[href^="/docs"]'))) {
-        const href = a.getAttribute('href') ?? '';
-        const [path, fragment] = href.split('#');
-        const targetPage = getDocsPageByPath(path);
-        const targetIndex = getDocsSectionIndexByPath(path);
-        expect(path === '/docs' || targetPage || targetIndex, `${name} → ${href}`).toBeTruthy();
-        // AECI-1259: a deep link must land on a heading id the target renders.
-        if (fragment) {
-          const targetHtml = targetPage?.html ?? targetIndex?.intro?.html ?? '';
-          const ids = Array.from(
-            new DOMParser().parseFromString(targetHtml, 'text/html').querySelectorAll('[id]'),
-          ).map((el) => el.id);
-          expect(ids, `${name} → ${href}`).toContain(fragment);
-        }
-      }
-    }
+    const routePatterns = await appRoutePatterns(routes);
+    // A flattening bug must not shrink the table unnoticed: pin one route from
+    // the root, one from a lazy child table and one parameterised.
+    expect(routePatterns).toEqual(
+      expect.arrayContaining(['/methodology', '/vendor/:vendorSlug/seats', '/products/:slug']),
+    );
+
+    const failures = findBrokenDocsLinks(sources, {
+      routePatterns,
+      docsHeadingIds: (path) => {
+        if (path === '/docs') return [];
+        const html = getDocsPageByPath(path)?.html ?? getDocsSectionIndexByPath(path)?.intro?.html;
+        if (html !== undefined) return headingIdsIn(html);
+        return getDocsSectionIndexByPath(path) ? [] : undefined;
+      },
+    });
+    expect(failures).toEqual([]);
   });
 
   // AECI-1259: the rail and every #link depend on these ids being unique and
