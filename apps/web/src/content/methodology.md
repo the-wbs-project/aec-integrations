@@ -81,15 +81,14 @@ A contest stays with whoever was deciding when it was sent. A contest is a reque
 
 Position is never for sale. Not the order of search results, not the order of any listing, not a slot on the home page. There is no sponsored placement, no promoted tier, and no arrangement under which a payment moves a product up.
 
-Every claimed vendor can edit its company details and its products' description, website, logo and categories, on any plan. These are the details that feed search, so no payment is needed to improve them. A Managed plan affects five further things, and this is the complete list:
+Every claimed vendor can edit its company details and its products' description, website, logo and categories, on any plan. These are the details that feed search, so no payment is needed to improve them. A Managed plan affects four further things, and this is the complete list:
 
 - which other product details a vendor may edit,
 - whether a vendor can confirm or dispute integration details,
 - whether a vendor can post a public reply to a review of its product,
-- whether the "Active on AEC Integrations" label appears on its vendor page,
-- how far back the version history on an integration page goes.
+- whether the "Active on AEC Integrations" label appears on its vendor page.
 
-Replies and version history are the two places a payment changes what a reader sees, so it is worth being exact about the limits. A reply shows only after we approve it, sits under the review it answers, and is labeled as the vendor's. The current state of an integration is always shown in full, to everyone, including whether the two vendors agree or disagree. Only the comparison between older versions is affected, and it opens when either vendor at the ends of that integration is on Managed. Readers are never asked to pay, to sign in, or to be identified.
+A reply puts a vendor's own words in front of a reader, so it is worth being exact about the limits. A reply shows only after we approve it, sits under the review it answers, and is labeled as the vendor's. The current state of an integration is always shown in full, to everyone, including whether the two vendors agree or disagree. Readers are never asked to pay, to sign in, or to be identified.
 
 A vendor plan never affects position in search or in any listing, whether a review is published or removed, or whether a listing exists at all.
 

@@ -1917,6 +1917,8 @@ describe('attestation digest templates (AECI-1204)', () => {
     expect(text).toContain('reported by one company only');
     expect(text).toContain('rather than picking a side');
     expect(text).toContain('withdraw it');
+    // AECI-1263: vendors cannot add product versions, so the ask must not offer it.
+    expect(text).not.toContain('product versions');
     expect(text).toContain('stays listed as unverified');
     // The canonical pair URL: the alphabetically-first slug is the context.
     expect(text).toContain('https://www.aecintegrations.com/products/procore/integrations/revit');
