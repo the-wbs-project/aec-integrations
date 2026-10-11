@@ -427,8 +427,8 @@ describe('collectAnalyticsMetrics', () => {
   it('recovers the rows a LAPSED operator session left unflagged (AECI-683)', async () => {
     // A replay of production 2026-08-26. The operator's second browser hash on
     // AS23700 was `is_operator = 1` early, went dark for 105 minutes while the
-    // access token sat expired, then came back flagged. `isOperatorRequest`
-    // resolves an expired token to `false` by design, so the middle burst is
+    // access token sat expired, then came back flagged. `resolveVisitorSession`
+    // treats a token expired past its grace window as not the operator, so the middle burst is
     // indistinguishable from a visitor on the row itself — only the pair
     // identifies it.
     await t.db.insert(products).values([{ id: 'p1', slug: 'p1', name: 'P1' }]);

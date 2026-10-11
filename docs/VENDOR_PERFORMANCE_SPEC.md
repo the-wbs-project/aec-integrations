@@ -92,7 +92,7 @@ Rows from 2026-09-07 to 2026-09-12 are degraded (AECI-868) and carry the corresp
 
 ### 2.3 Counting rules
 
-1. **A view is one `page_views` row** for the vendor's entity, after the §2.2 population filter, excluding operator rows (`is_operator`) and owner-visit rows (§3.3). Arrival and SPA rows both count; the AECI-743 dedupe key already prevents the double-fire.
+1. **A view is one `page_views` row** for the vendor's entity, after the §2.2 population filter, excluding operator rows (`is_operator`, via `NOT_INTERNAL`) and owner-visit rows (`NOT_OWNER_VISIT`, §3.3). Rows from before migration `0068` are NULL and count. Arrival and SPA rows both count; the AECI-743 dedupe key already prevents the double-fire.
 2. **A crawl is one `page_views` row with `is_bot = 1`** for the vendor's entity, grouped by purpose: **search indexing**, **AI training**, **on-demand assistant fetch**, **preview / social**, **other**. Until AECI-762 lands the purpose split, the page shows the operator label (`bot_name`) and marks purpose as unavailable. A crawl is a request. The page states that it is not indexing, not model inclusion, and not a citation.
 3. **On-demand assistant fetches** (`ChatGPT-User`, `Perplexity-User`, `Claude-User`) are reported on their own line: each one means a person asked an assistant a question and the assistant fetched the vendor's page. They are the nearest observable thing to an AI-answer referral. `page_views` cannot isolate them today: it merges them into crawler labels and drops Cloudflare's verified-bot flag. The verified record is Cloudflare's, kept 31 days. **AECI-1169** stores it daily; until then, the manual backfill from 2026-08-31 (AI-assistant fetches, all requests for 31 days, Web Analytics for 184 days) is in the temporary R2 bucket `aeci-views-temp`. The pull scripts and column docs are in `scripts/ops/2026-10-ai-assistant-fetch-history/` and `scripts/ops/2026-10-traffic-history/`.
 4. **Crawl history for AI crawlers starts 2026-09-09** (AECI-800). The zone-level allow posture in `waf-rate-limits.md` §3b is a measurement dependency; when it changes, the crawl panel changes with no error. The DQ check in §3.5 exists for that, and **AECI-948** (due 2026-09-16) is the operator re-check after the toggle deprecates.
@@ -174,6 +174,15 @@ Shared never adds to delivered. A shared click is a curated link AECi showed on 
 ### 3.3 Vendor self-visit exclusion — AECI-934
 
 `page_views.is_owner_visit` (boolean, NULL = unknown, reads as not owner). Set at ingest by extending `lib/operator-session.ts` to return `vendor_id` for a verified `vendor_admin` session; the flag is `1` when the row's entity (product via `product_vendors`, vendor, or either pair endpoint) belongs to that vendor. One boolean whose only consumer is an exclusion predicate, no identity stored, the same D7-safe shape as `is_operator`. Signed-out self-visits stay unknowable and the page says so.
+
+As built (2026-10-12, AECI-934, `ADMIN_PANEL_SPEC.md` §13 D26):
+
+- Migration `0068` adds the column. `resolveVisitorSession()` replaces `isOperatorRequest()` and returns `{ isOperator, ownerVendorId }` from one token verification and one `profiles` read. `ownerVendorId` is set only for `vendor_admin` with a non-null `vendor_id`, and the AECI-689 expiry grace applies to it.
+- Ownership is wider than the primary vendor. Any `product_vendors` row ties the vendor to `product_id` or to either pair endpoint, because a co-owner viewing its own listing is not buyer demand either (Chris, 2026-10-12).
+- An SPA hop stores no entity id, so the flag also matches the `/products/:slug` or `/vendors/:slug` slug in the path (Chris, 2026-10-12). `product_id` and `vendor_id` storage is unchanged.
+- The read side is `NOT_OWNER_VISIT` in `lib/page-view-predicates.ts`, NULL-safe. It is deliberately not part of `NOT_INTERNAL`, so platform figures are unchanged. The reader built under AECI-941 must AND it with `NOT_INTERNAL`.
+- Rows from before `0068` are `NULL`, count as not owner, and are never backfilled. A pilot vendor's earliest self-visits therefore stay in its counts.
+- The page-side disclosure that signed-out self-visits cannot be excluded is not part of AECI-934. It ships with the page under AECI-941.
 
 ### 3.4 Consented pair-page view event — AECI-935
 

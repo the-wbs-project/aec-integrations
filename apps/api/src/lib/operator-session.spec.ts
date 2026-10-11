@@ -1,6 +1,7 @@
 /**
- * `isOperatorRequest()` — the ingest-time operator verdict (`ADMIN_PANEL_SPEC.md`
- * §13 **D13**). Uses the shared offline JWKS (`test/auth.ts`) so tokens verify
+ * `resolveVisitorSession()` — the ingest-time operator verdict (`ADMIN_PANEL_SPEC.md`
+ * §13 **D13**) and, since AECI-934, the vendor a `vendor_admin` session
+ * administers (§13 **D26**). Uses the shared offline JWKS (`test/auth.ts`) so tokens verify
  * with no network, and the in-memory D1 harness for the `profiles.role` read.
  *
  * The properties under test are the three the module header commits to: the
@@ -13,15 +14,18 @@ import { Hono } from 'hono';
 import type { JWTVerifyGetKey } from 'jose';
 import { afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 
-import { profiles } from '../db/schema';
+import { profiles, vendors } from '../db/schema';
 import type { Env } from '../env';
 import { makeTestDb, type TestDb } from '../test/d1';
 import { makeTestJwks } from '../test/auth';
-import { isOperatorRequest } from './operator-session';
+import { resolveVisitorSession, type VisitorSession } from './operator-session';
 
 const SUPABASE_URL = 'https://test-project.supabase.co';
 const ADMIN_ID = '00000000-0000-4000-8000-00000000ad11';
 const USER_ID = '00000000-0000-4000-8000-000000000001';
+const VENDOR_ADMIN_ID = '00000000-0000-4000-8000-0000000000a1';
+const SEATLESS_VENDOR_ADMIN_ID = '00000000-0000-4000-8000-0000000000a2';
+const VENDOR_ID = '00000000-0000-4000-8000-00000000f001';
 
 let getKey: JWTVerifyGetKey;
 let mintToken: (opts: { sub: string; supabaseUrl: string; expiresIn?: string }) => Promise<string>;
@@ -35,34 +39,51 @@ beforeAll(async () => {
 let t: TestDb;
 beforeEach(async () => {
   t = await makeTestDb();
+  await t.db.insert(vendors).values({ id: VENDOR_ID, slug: 'acme', companyName: 'Acme' });
   await t.db.insert(profiles).values([
     { id: ADMIN_ID, role: 'admin' },
     { id: USER_ID, role: 'reviewer' },
+    { id: VENDOR_ADMIN_ID, role: 'vendor_admin', vendorId: VENDOR_ID },
+    // A half-granted seat: the role is set but the vendor link is not.
+    { id: SEATLESS_VENDOR_ADMIN_ID, role: 'vendor_admin' },
   ]);
 });
 afterEach(() => t.dispose());
 
-/** Run `isOperatorRequest` inside a real Hono context so cookie parsing and
+/** Run `resolveVisitorSession` inside a real Hono context so cookie parsing and
  *  header access match production exactly. */
-async function ask(
+async function session(
   headers: Record<string, string>,
   env: Partial<Env> = { SUPABASE_URL },
   graceSeconds?: number,
-): Promise<boolean> {
-  let verdict: boolean | undefined;
+): Promise<VisitorSession> {
+  let verdict: VisitorSession | undefined;
   const app = new Hono<{ Bindings: Env }>();
   app.get('/', async (c) => {
-    verdict = await isOperatorRequest(c, t.db, {
+    verdict = await resolveVisitorSession(c, t.db, {
       getKey,
       ...(graceSeconds === undefined ? {} : { graceSeconds }),
     });
     return c.body(null, 204);
   });
   await app.request('/', { headers }, env as Env);
-  return verdict as boolean;
+  return verdict as VisitorSession;
 }
 
-describe('isOperatorRequest', () => {
+/** The operator half alone, which is what most cases below assert. */
+async function ask(
+  headers: Record<string, string>,
+  env: Partial<Env> = { SUPABASE_URL },
+  graceSeconds?: number,
+): Promise<boolean> {
+  return (await session(headers, env, graceSeconds)).isOperator;
+}
+
+const bearer = async (sub: string, expiresIn?: string) => ({
+  Authorization: `Bearer ${await mintToken({ sub, supabaseUrl: SUPABASE_URL, ...(expiresIn ? { expiresIn } : {}) })}`,
+});
+
+describe('resolveVisitorSession', () => {
   it('is true for a verified admin session sent as a bearer token', async () => {
     const token = await mintToken({ sub: ADMIN_ID, supabaseUrl: SUPABASE_URL });
     expect(await ask({ Authorization: `Bearer ${token}` })).toBe(true);
@@ -91,15 +112,15 @@ describe('isOperatorRequest', () => {
       },
     }) as typeof t.db;
 
-    let verdict: boolean | undefined;
+    let verdict: VisitorSession | undefined;
     const app = new Hono<{ Bindings: Env }>();
     app.get('/', async (c) => {
-      verdict = await isOperatorRequest(c, counting, { getKey });
+      verdict = await resolveVisitorSession(c, counting, { getKey });
       return c.body(null, 204);
     });
     await app.request('/', {}, { SUPABASE_URL } as Env);
 
-    expect(verdict).toBe(false);
+    expect(verdict).toEqual({ isOperator: false, ownerVendorId: null });
     // The fast path must return before it reaches for the client at all —
     // `page_views` is the hottest write path in the app.
     expect(reads).toBe(0);
@@ -200,5 +221,48 @@ describe('isOperatorRequest', () => {
     t.dispose();
     await expect(ask({ Authorization: `Bearer ${token}` })).resolves.toBe(false);
     t = await makeTestDb(); // so afterEach's dispose stays valid
+  });
+
+  // ── AECI-934: the vendor half (§13 D26) ───────────────────────────────────
+  describe('ownerVendorId', () => {
+    it('is the vendor of a verified vendor_admin session, which is not the operator', async () => {
+      expect(await session(await bearer(VENDOR_ADMIN_ID))).toEqual({
+        isOperator: false,
+        ownerVendorId: VENDOR_ID,
+      });
+    });
+
+    it('resolves on the cookie path, which is how the browser tracker arrives', async () => {
+      const token = await mintToken({ sub: VENDOR_ADMIN_ID, supabaseUrl: SUPABASE_URL });
+      const value = `base64-${btoa(JSON.stringify({ access_token: token }))}`;
+      expect((await session({ cookie: `sb-test-auth-token=${value}` })).ownerVendorId).toBe(
+        VENDOR_ID,
+      );
+    });
+
+    it('is null for an admin, a reviewer, and a seat with no vendor link', async () => {
+      // A site admin is not a vendor (`lib/authz.ts` refuses it the vendor seam).
+      expect(await session(await bearer(ADMIN_ID))).toEqual({
+        isOperator: true,
+        ownerVendorId: null,
+      });
+      expect((await session(await bearer(USER_ID))).ownerVendorId).toBeNull();
+      expect((await session(await bearer(SEATLESS_VENDOR_ADMIN_ID))).ownerVendorId).toBeNull();
+    });
+
+    it('is null for a claimed role or vendor, since both are re-read from D1', async () => {
+      const headers = { ...(await bearer(USER_ID)), 'x-aeci-vendor-id': VENDOR_ID };
+      expect((await session(headers)).ownerVendorId).toBeNull();
+    });
+
+    it('takes the same expiry grace window as the operator half', async () => {
+      // A vendor browsing its own listing across an hourly expiry would
+      // otherwise count as a buyer in its own report.
+      expect((await session(await bearer(VENDOR_ADMIN_ID, '-1h'))).ownerVendorId).toBe(VENDOR_ID);
+      expect(
+        (await session(await bearer(VENDOR_ADMIN_ID, '-2h'), { SUPABASE_URL }, 60 * 60))
+          .ownerVendorId,
+      ).toBeNull();
+    });
   });
 });
