@@ -1540,7 +1540,7 @@ Embedded in `<head>` on relevant pages:
 - **Products** — `SoftwareApplication` with `aggregateRating` (once ≥5 reviews), `offers`, `description`
 - **Vendors** — `Organization` with `address`, `foundingDate`, `url`
 - **Integrations** — `WebPage` with rich description; no perfect schema.org type exists
-- **Home** — `WebSite` with `SearchAction` for Google sitelinks search box, plus a publisher `Organization` (whose `logo` is the square monogram)
+- **Home** — `WebSite` with `SearchAction` for Google sitelinks search box, plus a publisher `Organization` (whose `logo` is the square stacked logo, `/branding/stacked-logo-512.png`, the same mark as the Google OAuth consent screen; `branding/logo-construction.md` §The stacked logo)
 - **Reviews** — `Review` nested in `SoftwareApplication`
 
 Generates rich results in search once data accumulates (star ratings in Google results, etc.).
@@ -1556,7 +1556,7 @@ Every product, vendor, and integration page includes:
 
 Dynamic OG image generation (via Cloudflare Workers + Satori) deferred to a Stage 1.x iteration. At launch, OG image is the entity's logo on a branded background, generated server-side or pre-rendered.
 
-> **Implemented — home share card (AECI-276):** the **home** (`/`) does not use the monogram fallback. It ships a dedicated, pre-rendered **1200×630 PNG** share card (`apps/web/public/branding/home-og.png`, served at `/branding/home-og.png`), and `setHomeMeta` (`apps/web/src/app/core/meta.service.ts`) points `og:image` + `twitter:image` (with `og:image:alt` / `twitter:image:alt`) at it as an **absolute** URL — the home is the highest-value share surface ("buyers send the link to colleagues"). The card is light-editorial and **evergreen** (no live numbers, so the static asset never goes stale); regenerate from `apps/web/scripts/home-og-template.html` via `pnpm --filter @aeci/web og:home` (a manual Playwright-render dev tool, not in CI). **Per-entity** product/vendor OG cards remain the monogram fallback (`DEFAULT_OG_IMAGE`) — a separate effort. The home `Organization` JSON-LD `logo` (§20.3) intentionally stays the square monogram, not the share card.
+> **Implemented — home share card (AECI-276):** the **home** (`/`) does not use the monogram fallback. It ships a dedicated, pre-rendered **1200×630 PNG** share card (`apps/web/public/branding/home-og.png`, served at `/branding/home-og.png`), and `setHomeMeta` (`apps/web/src/app/core/meta.service.ts`) points `og:image` + `twitter:image` (with `og:image:alt` / `twitter:image:alt`) at it as an **absolute** URL — the home is the highest-value share surface ("buyers send the link to colleagues"). The card is light-editorial and **evergreen** (no live numbers, so the static asset never goes stale); regenerate from `apps/web/scripts/home-og-template.html` via `pnpm --filter @aeci/web og:home` (a manual Playwright-render dev tool, not in CI). **Per-entity** product/vendor OG cards remain the monogram fallback (`DEFAULT_OG_IMAGE`) — a separate effort. The home `Organization` JSON-LD `logo` (§20.3) intentionally stays a square mark, not the share card. Since 2026-10-12 that mark is the stacked logo (`SITE_LOGO`), not the monogram.
 
 ### 20.5 Single write-event pipeline
 

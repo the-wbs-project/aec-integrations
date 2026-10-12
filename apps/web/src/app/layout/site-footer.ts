@@ -53,7 +53,7 @@ import { BrandLogo } from './brand-logo';
         class="mx-auto flex max-w-7xl flex-col gap-10 px-8 py-12 lg:flex-row lg:justify-between lg:gap-16"
       >
         <div class="lg:max-w-xs">
-          <aec-brand-logo [height]="28" />
+          <aec-brand-logo [height]="28" [priority]="false" />
           <p class="mt-3 max-w-xs text-sm text-(--text-secondary)" i18n="@@app.footer.tagline">
             The independent directory of AEC software integrations.
           </p>

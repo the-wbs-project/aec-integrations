@@ -7,6 +7,7 @@ import type { ProductDetail, ProductListItem, VendorDetail } from '@aeci/shared'
 import {
   CANONICAL_QUERY_ALLOWLIST,
   DEFAULT_OG_IMAGE,
+  SITE_LOGO,
   type EntityKind,
   HOME_OG_IMAGE,
   SITE_NAME,
@@ -232,7 +233,7 @@ export class MetaService {
     this.upsertJsonLdScript('website', buildWebSiteJsonLd({ origin, name: SITE_NAME }));
     this.upsertJsonLdScript(
       'organization',
-      buildSiteOrganizationLd({ origin, name: SITE_NAME, logo: `${origin}${DEFAULT_OG_IMAGE}` }),
+      buildSiteOrganizationLd({ origin, name: SITE_NAME, logo: `${origin}${SITE_LOGO}` }),
     );
   }
 
