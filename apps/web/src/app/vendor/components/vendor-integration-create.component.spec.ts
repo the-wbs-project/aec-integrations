@@ -51,7 +51,6 @@ const product = (id: string, name: string): ProductListItem => ({
     slug: 'v',
     name: 'Vendor Co',
     logo_url: null,
-    verified: false,
   },
   integration_count: 0,
   review_count: 0,

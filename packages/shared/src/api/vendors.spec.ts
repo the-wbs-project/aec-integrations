@@ -16,7 +16,6 @@ const validVendorListItem = {
   slug: 'procore',
   company_name: 'Procore Technologies',
   logo_url: null,
-  verified: true,
   headquarters: 'Carpinteria, CA',
   founded_year: 2002,
   product_count: 3,
@@ -37,7 +36,6 @@ const validProductListItem = {
     name: 'Procore Technologies',
     slug: 'procore',
     logo_url: null,
-    verified: false,
   },
   integration_count: 12,
   review_count: 5,
@@ -62,7 +60,12 @@ describe('VendorListItemSchema', () => {
   it('parses a valid list item', () => {
     const parsed = VendorListItemSchema.parse(validVendorListItem);
     expect(parsed.company_name).toBe('Procore Technologies');
-    expect(parsed.verified).toBe(true);
+  });
+
+  // AECI-1266: the plan mirror is never public.
+  it('strips a stray verified bit', () => {
+    const parsed = VendorListItemSchema.parse({ ...validVendorListItem, verified: true });
+    expect(parsed).not.toHaveProperty('verified');
   });
 
   it('rejects an empty company_name', () => {
@@ -155,8 +158,10 @@ describe('VendorDetailSchema', () => {
 });
 
 describe('VendorsListQuerySchema', () => {
-  it('coerces verified=true from a string', () => {
+  // AECI-1266: the `?verified=` filter is retired. A stale param is ignored, not
+  // rejected, so an old link still returns the unfiltered list.
+  it('ignores a stale verified param instead of rejecting it', () => {
     const parsed = VendorsListQuerySchema.parse({ verified: 'true' });
-    expect(parsed.verified).toBe(true);
+    expect(parsed).not.toHaveProperty('verified');
   });
 });

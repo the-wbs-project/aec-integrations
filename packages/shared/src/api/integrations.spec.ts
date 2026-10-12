@@ -89,7 +89,6 @@ describe('IntegrationDetailSchema', () => {
         name: 'Procore',
         slug: 'procore',
         logo_url: null,
-        verified: false,
       },
       powered_by_product: null,
       pricing_model: 'free',

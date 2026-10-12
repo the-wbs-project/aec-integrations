@@ -242,12 +242,23 @@ create index vendors_verified_idx on vendors(verified);
 **`verified` is a mirror, not the model (AECI-609).** Until the Paid Tiers epic it *was* the
 entitlement bit; it is now a denormalized boolean over `vendor_entitlements` (§8.6), with the
 invariant **`vendors.verified = true` iff the vendor has an entitlement row with
-`status = 'active'`**. The demotion is deliberately invisible to readers: the public
-`GET /api/vendors?verified=` filter, `VendorLinkSchema.verified`, `VendorDetail` /
-`VendorListItem` and the Algolia vendor record all still read this column and none of them
-changed. On public pages the column drives the claim button copy and the pair page's
-version-diff gate. *(A fifth reader, `aec-vendor-account-badge`, was deleted on 2026-10-09 by
-AECI-1264. The column and the invariant are unchanged.)* **No public or read path may query `vendor_entitlements`** —
+`status = 'active'`**. The demotion was deliberately invisible to readers at the time.
+
+**No public reader is left (AECI-1266, 2026-10-12).** The column tells anyone who can read it
+which vendors are on a paid plan. AECI-1264 deleted `aec-vendor-account-badge` on 2026-10-09.
+AECI-1266 then removed the public `GET /api/vendors?verified=` filter, the `verified` key on
+`VendorLinkSchema`, `VendorDetail` and `VendorListItem`, the Algolia vendor record's field, and
+the claim button copy that switched on it. The remaining readers are internal:
+
+- the API's pair version-diff gate, which reads the raw vendor row through
+  `pickPrimaryVendorRow` (`apps/api/src/lib/drizzle-helpers.ts`) and answers `diff_access`
+- the admin vendor surfaces, including the separate `GET /api/admin/vendors?verified=` filter
+- the vendor portal's `VendorAccountSchema`, as read-only state
+- the `entitlement_mirror_drift` data-quality check, the retract path and the backfill
+
+`vendorLinkColumns` still selects the column for the gate. `toVendorLink` and
+`toVendorListItem` no longer emit it. The column, `vendors_verified_idx` and the invariant are
+unchanged. **No public or read path may query `vendor_entitlements`** —
 "fixing" the filter to join the entitlement table would defeat the entire denormalization, and
 a test asserts no read config in `lib/drizzle-helpers.ts` references it.
 

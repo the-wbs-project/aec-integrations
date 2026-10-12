@@ -6,10 +6,10 @@
  * hook use the Drizzle transforms in `./algolia-transforms`. The datatool full
  * reindex (`POST /api/reindex`) uses raw SQL in
  * `apps/datatool/src/algolia-reindex.ts`, typed `Record<string, unknown>`, so the
- * compiler cannot tell when the two disagree. A Zod parse cannot either: the
- * vendor schema defaults `verified` to `false`, so a builder that never emitted
- * the field still produced valid records. That is how every full reindex quietly
- * un-verified every vendor.
+ * compiler cannot tell when the two disagree. A Zod parse cannot either: a
+ * schema default hides a field a builder never emitted. That is how every full
+ * reindex once quietly reset the vendor `verified` field (AECI-1038), a field
+ * AECI-1266 has since removed from the record.
  *
  * This spec seeds one D1, builds every promoted row through BOTH paths, and
  * asserts the records are deeply equal with `toStrictEqual`, which also fails on
@@ -94,8 +94,9 @@ async function transformProduct(id: string) {
 }
 
 /**
- * A catalog that exercises every record field on both entities: a verified and an
- * unverified vendor, a vendor with a tier and one without, built integrations in
+ * A catalog that exercises every record field on both entities: a vendor whose plan
+ * mirror is set and one whose is not (neither may leak it), a vendor with a tier and
+ * one without, built integrations in
  * both delivered-tier tables, a multi-vendor product whose primary is inserted
  * second, multi-valued taxonomy, and trades whose aliases need deduping.
  */
@@ -236,14 +237,14 @@ describe('Algolia builder parity: datatool full reindex vs Worker transform (AEC
     }
   });
 
-  it('carries verified: true for a verified vendor on the reindex path', async () => {
+  it('never carries the plan mirror on the reindex path (AECI-1266)', async () => {
     await seed();
     const reindexed = await buildVendorRecords(asD1(t.raw));
     const byId = new Map(reindexed.map((r) => [r.objectID, r]));
-    // Asserted directly as well as through parity: the schema's `.default(false)`
-    // means an omitted key parses as unverified, so only an explicit value proves it.
-    expect(byId.get(u(1))?.verified).toBe(true);
-    expect(byId.get(u(2))?.verified).toBe(false);
+    // Asserted directly as well as through parity: both builders could regress
+    // together, and a public index must not say which vendors pay.
+    expect(byId.get(u(1))).not.toHaveProperty('verified');
+    expect(byId.get(u(2))).not.toHaveProperty('verified');
     // One live integration plus one evidenced pair. The retired row is not counted.
     expect(byId.get(u(1))?.integration_count).toBe(2);
   });

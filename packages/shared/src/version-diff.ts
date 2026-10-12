@@ -277,14 +277,14 @@ export interface VersionDiffRequest {
  * querying the entitlement table at all — the mirror exists precisely so reads
  * don't have to. So the mapping is `verified ? 'verified' : 'unclaimed'` and the
  * registry decides the capability: adding a rung to the ladder later stays a
- * data-only edit in `./entitlements`, with no branch here and none at either
- * consult site.
+ * data-only edit in `./entitlements`, with no branch here and none at the consult
+ * site.
  *
- * Declared here rather than at each consult site because the API and the web
- * resolver must derive the SAME tiers from the SAME field — both read the primary
- * vendor of each endpoint product, i.e. exactly `ProductListItem.vendor`, which is
- * the only vendor link on the wire. If the two derivations drifted, the resolver
- * would clamp a page the API served in full, or vice versa.
+ * Fed INTERNAL rows only: the API passes each endpoint product's primary vendor row
+ * (`pickPrimaryVendorRow`). No public payload carries `verified` (AECI-1266), so the
+ * web cannot and does not call this. Until AECI-1266 the web pair resolver re-derived
+ * the same tiers off `ProductListItem.vendor`; that re-gate is gone and the API's
+ * `diff_access` is the only answer.
  */
 export function vendorTiersFromMirror(
   vendors: readonly ({ readonly verified: boolean } | null | undefined)[],
@@ -310,9 +310,9 @@ export function vendorTiersFromMirror(
  * the first of §9.4's two ⚠️ notes, and it is discharged by construction — no
  * cookie, no session, no `Cache-Control: private`, no new cache-key axis. Anything
  * that makes this depend on the *visitor* breaks `STAGE_1_SPEC.md` §9.1a.
- * Invalidation needs nothing new either: an entitlement flip already purges
- * `vendor:{slug}` (`apps/api/src/lib/vendor-cache-tags.ts`), and every pair page
- * embeds its mechanisms' vendor tags.
+ * Invalidation needs nothing new either: an entitlement flip already purges the
+ * vendor's `product:{slug}` tags (`apps/api/src/lib/vendor-cache-tags.ts`), and every
+ * pair page carries both endpoints' product tags.
  *
  * **The `!historical` early return IS §8.1(4)** — "the latest-version view, and the
  * latest conflict / single-source state, are always free and full-fidelity to
@@ -321,11 +321,12 @@ export function vendorTiersFromMirror(
  * independently of the version selection, so the dispute is never paywalled; only
  * the *diff* is.
  *
- * ONE function, and — per §9.3 and AECI-303's acceptance criteria — exactly **two**
- * consult sites repo-wide, asserted by `version-diff.consult-sites.spec.ts`. Those
- * two are `resolveDiffAccess` (`apps/api/src/lib/pair-version-diff.ts`, which both
- * the pair read and the timeline read route through) and the web pair resolver
- * (`apps/web/src/app/products/products-pair.resolver.ts`).
+ * ONE function, and — per §9.3 and AECI-303's acceptance criteria as revised by
+ * AECI-1266 — exactly **one** consult site repo-wide, asserted by
+ * `version-diff.consult-sites.spec.ts`: `resolveDiffAccess`
+ * (`apps/api/src/lib/pair-version-diff.ts`, which both the pair read and the
+ * timeline read route through). The web pair resolver was the second site until
+ * AECI-1266 removed it.
  */
 export function canViewVersionDiff(request: VersionDiffRequest): VersionDiffAccess {
   if (!request.historical) return 'full';

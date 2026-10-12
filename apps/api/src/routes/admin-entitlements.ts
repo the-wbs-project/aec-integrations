@@ -34,10 +34,11 @@
  *
  * ── PURGE ───────────────────────────────────────────────────────────────────────
  * The FULL grant tag set via the shared `lib/vendor-cache-tags.ts`, not just
- * `vendor:{slug}`: `vendors.verified` drives the claim button copy on the vendor page and
- * every owned product page, and the version-diff gate on every pair page, so a
- * vendor-only purge leaves stale claim copy on every cached product page (§5.3). Until
- * AECI-1264 (2026-10-09) it also drove the public account badge, which is gone.
+ * `vendor:{slug}`: `vendors.verified` drives the version-diff gate on every pair page,
+ * and a pair page carries both endpoints' `product:` tags, so a vendor-only purge leaves
+ * a stale gate on every cached pair page (§5.3). Until AECI-1266 (2026-10-12) it also
+ * drove the claim button copy, and until AECI-1264 (2026-10-09) the public account
+ * badge. Both are gone.
  *
  * ── THE THREE ORTHOGONAL "TAKE IT AWAY" ACTIONS (§5.2) ──────────────────────────
  * Clearing an entitlement is NOT a seat revoke and NOT a ban. Seats, logins and the
@@ -400,10 +401,10 @@ export function createSetVendorEntitlementHandler(
 
     // ── 8. Post-commit, best-effort ──────────────────────────────────────────
     // Purge on `set` / `clear` — the two actions whose batch carries a `vendors`
-    // statement and can therefore change rendered claim copy. `renew` is skipped because
-    // it provably cannot: its builder emits no `vendors` statement at all. Not gated
-    // on `verifiedFlipped`: on a drifted vendor a redundant purge costs one cache
-    // miss, while a missed purge leaves wrong claim copy on every cached product page.
+    // statement and can therefore change the pair-page version-diff gate. `renew` is
+    // skipped because it provably cannot: its builder emits no `vendors` statement at
+    // all. Not gated on `verifiedFlipped`: on a drifted vendor a redundant purge costs
+    // one cache miss, while a missed purge leaves a wrong gate on cached pair pages.
     if (action !== 'renew') {
       const tags = await vendorPurgeTags(db, vendor);
       c.executionCtx.waitUntil(purgeEntitlementTags(c, tags));

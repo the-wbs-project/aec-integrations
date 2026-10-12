@@ -55,7 +55,7 @@ const ListingTierSchema = z.union([z.literal(1), z.literal(2)]).optional();
  *     never rendered.** It is matching metadata, not a label
  *     (`SEARCH_RANKING.md` §3.1, `TRADES_VOCABULARY.md` §4).
  * Both `.default([])` so records indexed before AECI-545 still parse, reading as
- * the untagged baseline (the AECI-529 `verified` precedent). Trades are SPARSE by
+ * the untagged baseline. Trades are SPARSE by
  * design — most products carry zero (`TRADES_VOCABULARY.md` §1.1), so an empty
  * array is the normal case, not missing data.
  */
@@ -76,7 +76,7 @@ export const AlgoliaProductRecordSchema = z.object({
   // rendered; it exists only so `asc()` has something to sort that case cannot
   // reorder.
   //
-  // REQUIRED, unlike `trades` / `verified`, which carry `.default()` so records
+  // REQUIRED, unlike `trades`, which carries `.default()` so records
   // written before they existed still parse. This one is deliberately strict: the
   // datatool's raw-SQL builder has no compile-time link to this type, and a
   // `.default('')` would let it forget the field, emit an empty key, and sort
@@ -168,13 +168,10 @@ export const AlgoliaVendorRecordSchema = z.object({
   objectID: z.string().uuid(),
   company_name: z.string().min(1),
   slug: z.string().min(1),
-  // AECI-529: the owning `vendors.verified` bit, denormalized for the `/search`
-  // Vendors-tab card. AECI-1131 took the account label off that card, so nothing
-  // renders it today; the field stays so dropping it needs no reindex. Never a
-  // searchable attribute or custom-ranking signal (no pay-for-placement).
-  // `.default(false)` keeps parsing resilient to records indexed before this
-  // field existed; they read as the unverified baseline.
-  verified: z.boolean().default(false),
+  // No `verified` field (AECI-1266). AECI-529 denormalized the `vendors.verified`
+  // plan mirror here for the `/search` card. Nothing has rendered it since
+  // AECI-1131, and a public index must not say which vendors pay. Records written
+  // before AECI-1266 still carry the key until their next push; Zod strips it.
   description: z.string().nullable(),
   headquarters: z.string().nullable(),
   founded_year: z.number().int().nullable(),

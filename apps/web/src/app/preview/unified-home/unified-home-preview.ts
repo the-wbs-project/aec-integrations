@@ -742,7 +742,7 @@ export class UnifiedHomePreview {
       name,
       logo_url: null,
       product_role: 'application',
-      vendor: { id: `v${n}`, slug: slug(vendor), name: vendor, logo_url: null, verified: false },
+      vendor: { id: `v${n}`, slug: slug(vendor), name: vendor, logo_url: null },
       integration_count,
       review_count: 0,
       rating_overall_avg: null,

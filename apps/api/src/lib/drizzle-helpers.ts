@@ -124,6 +124,9 @@ export const VERSION_ORDER = [
 // Leaf column sets (reused by several parents)
 // ---------------------------------------------------------------------------
 
+/** `verified` is selected for INTERNAL use only: the §9.3 version-diff gate reads
+ *  the plan mirror off this raw row via `pickPrimaryVendorRow`. `toVendorLink`
+ *  never emits it (AECI-1266), because a public payload must not say who pays. */
 const vendorLinkColumns = {
   id: true,
   companyName: true,
@@ -726,14 +729,15 @@ export const integrationTimelineConfig = {
 
 /**
  * The narrowest product read that still answers §9.3's version-diff gate: the id,
- * plus the vendor links `pickPrimaryVendor` needs to expose the `verified` MIRROR
+ * plus the raw vendor rows `pickPrimaryVendorRow` reads the `verified` MIRROR off
  * (AECI-304 / `STAGE_2_ATTESTATIONS_SPEC.md` §9.3).
  *
  * Used by the pair TIMELINE read, whose products are otherwise `{ id: true }` — the
  * pair read itself already carries this via `productListConfig`. It reuses
- * `vendorLinkColumns` and `pickPrimaryVendor` rather than a bespoke
- * "is-this-vendor-verified" selection so the two reads and the web resolver cannot
- * disagree about *which* vendor of a multi-vendor product the gate reads.
+ * `vendorLinkColumns` and `pickPrimaryVendorRow` rather than a bespoke
+ * "is-this-vendor-verified" selection so the two reads and the public payload's
+ * `vendor` cannot disagree about *which* vendor of a multi-vendor product the gate
+ * reads. The mirror stays on the raw row: no public payload carries it (AECI-1266).
  *
  * `verified` is the denormalized mirror of an `active` entitlement row. **Nothing
  * here may join the entitlement table** — `STAGE_2_PAID_TIERS_SPEC.md` §2.5 forbids
@@ -908,7 +912,6 @@ export const vendorListConfig = {
     slug: true,
     companyName: true,
     logoUrl: true,
-    verified: true,
     headquarters: true,
     foundedYear: true,
     createdAt: true,
@@ -1061,7 +1064,9 @@ export const tradeTermConfig = {
 // Raw row shapes (what the configs above return)
 // ---------------------------------------------------------------------------
 
-interface RawVendorLink {
+/** Raw vendor columns (`vendorLinkColumns`). Carries the internal `verified`
+ *  mirror that `toVendorLink` drops (AECI-1266). */
+export interface RawVendorLink {
   id: string;
   companyName: string;
   slug: string;
@@ -1337,7 +1342,6 @@ export interface RawVendorListRow {
   slug: string;
   companyName: string;
   logoUrl: string | null;
-  verified: boolean;
   headquarters: string | null;
   foundedYear: number | null;
   createdAt: string;
@@ -1451,7 +1455,6 @@ function toVendorLink(raw: RawVendorLink): VendorLink {
     name: raw.companyName,
     slug: raw.slug,
     logo_url: raw.logoUrl,
-    verified: raw.verified,
   };
 }
 function synthesizeIntegrationName(
@@ -2059,12 +2062,25 @@ export function computePairMaintenance(
   };
 }
 
+/**
+ * The product's primary vendor as its RAW row: the `is_primary` row, else the
+ * first. Internal reads that need the `verified` plan mirror (the §9.3
+ * version-diff gate) call this. `pickPrimaryVendor` is the public mapping of the
+ * same pick, so the gate and the payload's `vendor` always name the same vendor
+ * of a multi-vendor product (AECI-1266).
+ */
+export function pickPrimaryVendorRow(
+  rows: Array<{ isPrimary: boolean; vendor: RawVendorLink }>,
+): RawVendorLink | null {
+  if (rows.length === 0) return null;
+  return (rows.find((r) => r.isPrimary) ?? rows[0]!).vendor;
+}
+
 export function pickPrimaryVendor(
   rows: Array<{ isPrimary: boolean; vendor: RawVendorLink }>,
 ): VendorLink | null {
-  if (rows.length === 0) return null;
-  const primary = rows.find((r) => r.isPrimary) ?? rows[0]!;
-  return toVendorLink(primary.vendor);
+  const primary = pickPrimaryVendorRow(rows);
+  return primary ? toVendorLink(primary) : null;
 }
 
 export function toProductListItem(raw: RawProductListRow): ProductListItem {
@@ -2549,7 +2565,6 @@ export function toVendorListItem(raw: RawVendorListRow): VendorListItem {
     slug: raw.slug,
     company_name: raw.companyName,
     logo_url: raw.logoUrl,
-    verified: raw.verified,
     headquarters: raw.headquarters,
     founded_year: raw.foundedYear,
     product_count: raw.productCount,

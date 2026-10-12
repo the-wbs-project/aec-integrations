@@ -1369,10 +1369,11 @@ export const vendorRequests = sqliteTable(
 /**
  * Vendor entitlements (AECI-609 / `docs/STAGE_2_PAID_TIERS_SPEC.md` §2). The real
  * paid-tier model. `vendors.verified` is demoted to a DENORMALIZED MIRROR of this
- * table, so the shipped readers (the public `?verified=` filter,
- * `VendorLinkSchema`, `VendorDetail`/`VendorListItem`, the Algolia vendor record)
- * are untouched by the epic (§2.4/§2.5). A fifth reader, `aec-vendor-account-badge`,
- * was deleted by AECI-1264 (2026-10-09).
+ * table (§2.4/§2.5). It has no public reader left: AECI-1264 (2026-10-09) deleted
+ * `aec-vendor-account-badge`, and AECI-1266 (2026-10-12) took the flag off
+ * `VendorLinkSchema`, `VendorDetail`/`VendorListItem`, the `?verified=` filter and
+ * the Algolia vendor record. Its readers are internal: the pair version-diff gate,
+ * admin, the vendor portal, data-quality, retract and the backfill.
  *
  * THE MIRROR INVARIANT (§2.1): `vendors.verified = true` IFF this table holds a row
  * for the vendor with `status = 'active'`. `vendor_id` is UNIQUE, so that predicate
@@ -4485,6 +4486,7 @@ export const schema = {
   // type-check and autocomplete — the read path `STAGE_2_PAID_TIERS_SPEC.md` §2.5
   // forbids ("joining vendor_entitlements into the public ?verified= filter so it
   // reads the truth rather than the mirror would defeat the entire denormalization").
+  // That filter is gone (AECI-1266); the rule still covers every read path.
   // Without the relation that line does not compile. The §4 entitlement gate and the
   // `entitlement_mirror_drift` check both use an explicit leftJoin, which needs none.
   // Every other ops/ledger table here (auditLog, pageViews, statsCache, vendorRequests)

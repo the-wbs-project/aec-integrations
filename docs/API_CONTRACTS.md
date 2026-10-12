@@ -204,15 +204,15 @@ export const LinkRefSchema = z.object({
   slug: z.string().min(1),
 });
 
-// VendorLink extends LinkRef with logo_url + verified (the legacy account-access
-// mirror from vendors.verified — required, since the column is NOT NULL DEFAULT
-// false). It drives the claim button copy on the product page and the pair page's
-// version-diff gate. The AECI-965 account label it once drove was removed on
-// 2026-10-09 (AECI-1264).
+// VendorLink extends LinkRef with logo_url only. It has no `verified` key, and
+// must not gain one (AECI-1266, 2026-10-12). vendors.verified mirrors an active
+// paid plan, so publishing it tells every visitor which vendors pay. It once drove
+// the account label (removed by AECI-1264), the claim button copy and the web
+// version-diff re-gate (both removed by AECI-1266). The API still reads the mirror
+// internally for the pair version-diff gate, off the raw vendor row.
 // ProductLink extends LinkRef with logo_url only.
 export const VendorLinkSchema = LinkRefSchema.extend({
   logo_url: LogoReadUrlSchema.nullable(),
-  verified: z.boolean(),
 });
 
 export const ProductLinkSchema = LinkRefSchema.extend({
@@ -515,7 +515,6 @@ export const VendorListItemSchema = z.object({
   slug: z.string().min(1),
   company_name: z.string().min(1),
   logo_url: LogoReadUrlSchema.nullable(),
-  verified: z.boolean(),
   headquarters: z.string().nullable(),
   founded_year: z.number().int().nullable(),
   product_count: z.number().int().min(0),
@@ -726,12 +725,17 @@ Default sort `created` (DESC). The public `name` key maps to `company_name` serv
 export const VendorsListQuerySchema = PageQuerySchema.extend({
   sort: VendorSortSchema,                          // default 'created'
   search: z.string().optional(),
-  verified: z.coerce.boolean().optional(),
 });
 
 export const VendorsListResponseSchema = paginatedResponseSchema(VendorListItemSchema);
 export type VendorsListResponse = z.infer<typeof VendorsListResponseSchema>;
 ```
+
+**The `verified` filter is retired (AECI-1266, 2026-10-12).** It let anyone list the
+vendors on a paid plan. A stale `?verified=` param is not rejected with a 400. Zod strips
+the unknown key and the caller gets the unfiltered list. No public vendor shape carries
+`verified` either: not `VendorListItem`, not `VendorDetail`, not `VendorLink`. The admin
+`GET /api/admin/vendors?verified=` filter is a separate schema and is unchanged.
 
 #### `GET /api/vendors/:slug`
 
@@ -2247,8 +2251,9 @@ export const AdminVendorsListQuerySchema = PageQuerySchema.extend({
   sort: AdminVendorSortSchema,
   order: SortOrderSchema.optional(),      // absent = the key's natural direction
   search: z.string().optional(),          // matches company_name OR slug, substring
-  // NOT `z.coerce.boolean()` — `Boolean("false") === true`, so the public
+  // NOT `z.coerce.boolean()` — `Boolean("false") === true`, so the old public
   // `VendorsListQuerySchema` shape would filter for VERIFIED here (AECI-691).
+  // The public filter itself was retired by AECI-1266.
   verified: z.enum(['true', 'false']).transform((v) => v === 'true').optional(),
 });
 
@@ -2629,10 +2634,11 @@ part of a claim grant, and by `POST /api/seat-invites/:token/accept` on invite r
 those need a claim or an existing owner seat behind them. The first opens an entitlement on a Managed approve only. Since AECI-1215 a Free approve opens none.) That combination is the entire point. §8.9(1) settled that a
 pure connector vendor is never sold verification and receives a catalogue-maintenance seat
 instead; §8.9(2) showed the seat cannot BE an entitlement row, because `vendors.verified`
-mirrors off `status = 'active'` rather than `tier`. So any active row flips the public
+mirrors off `status = 'active'` rather than `tier`. So any active row flips the
 `verified` mirror, and "a seat but no `verified`" is not expressible through that table.
-(This read "lights the badge" until AECI-1264 removed the public badge on 2026-10-09. The
-mirror still drives the claim button copy and the version-diff gate.) Every prior path to a seat opened
+(This read "lights the badge" until AECI-1264 removed the public badge on 2026-10-09. Since
+AECI-1266 on 2026-10-12 the mirror is never public. It only drives the API's pair
+version-diff gate.) Every prior path to a seat opened
 one on the way (`approveClaim` composed `grantSeatStatements` with
 `activateEntitlementStatements` at `GRANT_TIER = 'verified'`), which is why §5.2 had to tell
 operators not to press Grant and to park the claim instead. AECI-1215 since gave the claim
@@ -2768,9 +2774,10 @@ includes `unclaimed`, because the session block (§6.14) and the grant summary m
 `TIERS` minus `unclaimed`. The distinction is not tidiness: an `active` row at `unclaimed`
 would flip the mirror while resolving to only the Free capabilities every seat already holds
 (AECI-1214), i.e. a vendor billed for an account status that unlocks nothing. The flipped mirror
-still shows in public: the claim button reads "Request access to this listing" and the
-`verified` field turns true. (Until 2026-10-09 it also showed the public account label, which
-AECI-1264 removed.) Free is never a `vendor_entitlements` row (`STAGE_2_PAID_TIERS_SPEC.md` §13.2).
+unlocks the pair version-diff depth. It no longer shows in public. (Until 2026-10-09 it also
+showed the public account label, which AECI-1264 removed. Until 2026-10-12 it switched the
+claim button to "Request access to this listing" and set a public `verified` field. AECI-1266
+removed both.) Free is never a `vendor_entitlements` row (`STAGE_2_PAID_TIERS_SPEC.md` §13.2).
 
 The three actions:
 
@@ -2804,9 +2811,11 @@ row** — that CHECK is closed and `audit_log` is the ledger. Post-commit, best-
 `aeci.entitlement.action`, the §26.5 post-commit audit forward, and — on `set`/`clear` only — a
 Cache-Tag purge of the full grant tag set (`vendor:{slug}` + every owned `product:{slug}` +
 `index:products`) via the shared `lib/vendor-cache-tags.ts`. The purge is **not** gated on
-whether the mirror actually flipped: a redundant purge costs one cache miss, a missed one
-leaves wrong claim button copy on every cached product page. (This said "a wrong badge" until
-AECI-1264 removed the public badge on 2026-10-09.)
+whether the mirror actually flipped: a redundant purge costs one cache miss. The `product:`
+tags are the ones that matter. A pair page carries both endpoints' `product:` tags, and a
+missed purge leaves a stale version-diff gate on it. (This said "a wrong badge" until
+AECI-1264 removed the public badge on 2026-10-09. It said "wrong claim button copy" until
+AECI-1266 made the claim button stateless on 2026-10-12.)
 
 Errors:
 
@@ -3104,8 +3113,8 @@ AdminUsersListResponse = PaginatedResponse<AdminUserRow> & {
 ```
 
 - **Every boolean filter is an enum-plus-transform, never `z.coerce.boolean()`.**
-  `Boolean("false") === true` — the live AECI-691 defect on the public vendors
-  endpoint. Here it would mean `?banned=false` returning the *banned* users, on a
+  `Boolean("false") === true` — the AECI-691 defect on the public vendors
+  endpoint. That defect is no longer live, because AECI-1266 retired the public filter. Here it would mean `?banned=false` returning the *banned* users, on a
   moderation surface. An omitted filter is a genuine third state and stays
   `undefined`.
 - **`role` is an enum on the request and a plain string on the response.** The two

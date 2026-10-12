@@ -2009,6 +2009,30 @@ Tiers are derived by `vendorTiersFromMirror` off `vendors.verified`, because
 `STAGE_2_PAID_TIERS_SPEC.md` §2.5 forbids a public read path from querying the entitlement table;
 the mirror exists precisely so reads do not have to. See the two resolved ⚠️ notes in §9.4.
 
+**As revised (AECI-1266, 2026-10-12): AC5 reopened, one consult site.** `canViewVersionDiff` now has
+exactly **one** consult site repo-wide: the API wrapper `resolveDiffAccess`
+(`apps/api/src/lib/pair-version-diff.ts`). The web re-gate `gateHistoricalDepth` in
+`apps/web/src/app/products/products-pair.resolver.ts` is deleted.
+`version-diff.consult-sites.spec.ts` now sanctions only the API file.
+
+- **Why.** The web re-gate read `verified` off the public payload. AECI-1266 drops `verified` from
+  `VendorLink`, because it told any reader which vendors pay. So the web resolver has nothing to
+  gate on. The API already clamps, and its `diff_access` enum is the authority. The web renders
+  what the API returns.
+- **Rejected alternative.** A pair-level "entitled" field on the payload would let the web keep its
+  re-gate. It would also re-publish the paid flag under a new name, so it was not added.
+- **Where tiers come from now.** `vendorTiersFromMirror` still reads `vendors.verified`. It reads
+  it off the raw vendor row inside the API, through `pickPrimaryVendorRow`
+  (`apps/api/src/lib/drizzle-helpers.ts`). It no longer reads it off `ProductListItem.vendor`.
+  `pickPrimaryVendor` wraps the same helper, so the gate and the payload name the same primary
+  vendor.
+- **Rollback caveat.** The web re-gate only guarded against an API Worker older than AECI-304,
+  which shipped 2026-08-19. Only a rollback of more than about seven weeks brings that case back.
+  With no vendor entitled today, it is harmless anyway.
+- **Deploy-order window.** If the API deploys before the SSR Worker, the old SSR Worker sees
+  `verified` as undefined. Its re-gate then strips the version diff on entitled pairs until the web
+  deploy lands. This is harmless today, because no production vendor is entitled.
+
 ### 9.4 As built (AECI-303 — 2026-08-18)
 
 **No migration.** Every column already existed: `product_versions` and the two attestation FKs
@@ -2132,7 +2156,9 @@ Decisions taken at build that §9.1–§9.3 did not pre-specify:
   history), so a direct call in each would make three. `resolveDiffAccess` in
   `lib/pair-version-diff.ts` is the sole `canViewVersionDiff` importer in `apps/api`; the web pair
   resolver is the other. The `assertVerifiedVendor` precedent — "ONE function with ONE call site per
-  handler" — is a looser rule that would not have satisfied the literal AC.
+  handler" — is a looser rule that would not have satisfied the literal AC. *(As revised
+  (AECI-1266, 2026-10-12): the web consult is deleted, so `resolveDiffAccess` is the only consult
+  site repo-wide. See §9.3.)*
 - **✅ The cache constraint AECI-304 inherited — discharged by construction.** This note warned that
   the clamp was edge-cache-safe only while the seam returned a constant, and named three escape
   routes if it started depending on a cookie or session. **None were needed:** AECI-304 kept the
@@ -2142,7 +2168,9 @@ Decisions taken at build that §9.1–§9.3 did not pre-specify:
   `cacheKeyParams` is unchanged. Invalidation needed nothing new either: an entitlement flip already
   purges `vendor:{slug}` for every product an entitled vendor owns
   (`apps/api/src/lib/vendor-cache-tags.ts`), and the pair route embeds both endpoints' `product:`
-  tags (`apps/web/src/server/cache-tags.ts`). **The one place it still bites:** SSR `TransferState`
+  tags (`apps/web/src/server/cache-tags.ts`). *(As revised (AECI-1266, 2026-10-12): the tag set is
+  unchanged. The `product:` tags are now the ones that guard this gate, since the claim CTA no
+  longer reads the mirror.)* **The one place it still bites:** SSR `TransferState`
   is serialized into the cached document, so the gate must run **before** `transferState.set` —
   clamping after would ship the full payload inside the cached HTML.
 - **✅ Whose entitlement is this? Resolved: the PAIR'S VENDORS, never the reader.**
@@ -2351,7 +2379,8 @@ consolidated list that enumerates them. Grep for the artifact across `**/*.md`, 
   not the gate.~~ **SHIPPED 2026-08-19.** §9.3 shipped the seam and AECI-303 unblocked the gate, so
   AECI-304 landed on the `aeci-515` branch: `canViewVersionDiff` forks on the **pair's endpoint
   vendors' tiers**, never the reader's, at the same two consult sites. Both §9.4 ⚠️ notes are
-  resolved there. The free latest view, the never-paywalled dispute, and the visible labeling of
+  resolved there. *(As revised (AECI-1266, 2026-10-12): one consult site now, `resolveDiffAccess`.
+  See §9.3.)* The free latest view, the never-paywalled dispute, and the visible labeling of
   one-sided states are unchanged.
 - **Promote ingest of version stamps / `product_versions`** — §8.3; vendor-authored only at launch.
 - **Per-pair Algolia records / claims in the search index** — still deferred

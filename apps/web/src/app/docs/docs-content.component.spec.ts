@@ -625,6 +625,15 @@ describe('docs manifest', () => {
     expect(first?.textContent).toContain('AEC Integrations maintained');
   });
 
+  // AECI-1266: the claim button reads the same on every listing, so the page names
+  // one button and says a colleague joining uses it too.
+  it('names one claim button and covers a colleague joining', () => {
+    const page = getDocsPage('for-vendors', 'claiming-your-listing')!;
+    const text = new DOMParser().parseFromString(page.html, 'text/html').body.textContent ?? '';
+    expect(text).not.toContain('Request access');
+    expect(text).toContain('when a colleague already has a seat');
+  });
+
   // AECI-1265 B6: the full "cannot be bought" statement lives on How ranking works.
   it('states the cannot-be-bought rule in full only on How ranking works', () => {
     for (const page of DOCS_PAGES.filter((entry) => entry.slug !== 'how-ranking-works')) {

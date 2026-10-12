@@ -101,11 +101,6 @@ export class RequestFormBody implements OnInit {
   readonly slug = input.required<string>();
   readonly variant = input<Variant>('page');
 
-  /** Copy-only, mirrors `RequestDrawerTarget.claimed`: picks the access-request
-   *  steps over the first-claim steps on the confirmation. The routed page never
-   *  passes it and keeps the first-claim wording. */
-  readonly claimed = input(false);
-
   /**
    * Seed text for `body` (AECI-967), supplied by the surface that opened the
    * drawer. Read ONCE in `ngOnInit`, before `form()` is built, and then never

@@ -206,7 +206,6 @@ describe('ProductsPairPage', () => {
             name: 'Procore Technologies',
             slug: 'procore-tech',
             logo_url: null,
-            verified: false,
           },
         }),
       });
@@ -249,7 +248,7 @@ describe('ProductsPairPage', () => {
     // "Autodesk listing", so the reader could not tell them apart (WCAG 2.4.4).
     it('gives distinct labels when one vendor owns both products', () => {
       const autodesk = {
-        vendor: { id: 'v2', name: 'Autodesk', slug: 'autodesk', logo_url: null, verified: false },
+        vendor: { id: 'v2', name: 'Autodesk', slug: 'autodesk', logo_url: null },
       };
       const pair = buildPair({
         context_product: productListItem('acad-arch', 'AutoCAD Architecture', autodesk),
@@ -552,12 +551,11 @@ describe('ProductsPairPage', () => {
           name: 'Acme Software',
           slug: 'acme-software',
           logo_url: null,
-          verified: true,
         },
       },
       other_product: {
         ...pair.other_product,
-        vendor: { id: 'v2', name: 'Globex', slug: 'globex', logo_url: null, verified: false },
+        vendor: { id: 'v2', name: 'Globex', slug: 'globex', logo_url: null },
       },
     });
 
@@ -685,11 +683,6 @@ describe('ProductsPairPage', () => {
       name: 'Agave',
       slug: 'agave',
       logo_url: null,
-      // `VendorLinkSchema` gained `verified` with the Stage 2 account label
-      // (AECI-523, removed by AECI-1264); this fixture predates it. Unverified is
-      // the right default. Cases that need it true set it themselves, such as the
-      // claim-copy cases in the product-detail spec.
-      verified: false,
     };
     const agaveProduct = {
       id: '00000000-0000-4000-8000-0000000000p1',
@@ -961,7 +954,6 @@ describe('ProductsPairPage: plain wording and At a glance (AECI-1142)', () => {
             slug: 'procore',
             name: 'Procore Technologies',
             logo_url: null,
-            verified: false,
           },
           pricing_model: 'Free with a Procore subscription',
           maturity: 'Generally available',
@@ -1306,7 +1298,6 @@ describe('ProductsPairPage: outbound click ownership (AECI-933)', () => {
     name,
     slug: name.toLowerCase(),
     logo_url: null,
-    verified: false,
   });
   const PROCORE_INC = '00000000-0000-4000-8000-000000000c01';
   const AUTODESK = '00000000-0000-4000-8000-000000000c02';

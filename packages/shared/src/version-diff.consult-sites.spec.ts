@@ -1,20 +1,23 @@
 /**
- * §9.3's structural invariant: **`canViewVersionDiff` has exactly TWO consult sites
- * repo-wide** (AECI-303 AC5 / AECI-304 / `docs/STAGE_2_ATTESTATIONS_SPEC.md` §9.3).
+ * §9.3's structural invariant: **`canViewVersionDiff` has exactly ONE consult site
+ * repo-wide** (AECI-303 AC5 / AECI-304 / `docs/STAGE_2_ATTESTATIONS_SPEC.md` §9.3,
+ * as revised by AECI-1266 on 2026-10-12; it allowed two until then).
  *
  * This is an INVARIANT test — it encodes a decision, not behaviour, and must not be
  * deleted without reopening the spec.
  *
  * The point of the rule is auditability. `STAGE_2_SPEC.md` §2.2 requires entitlements
  * to be "data, not code branches scattered across the app", and the failure mode it
- * guards against is real: a third consult somewhere in the render path is how a
+ * guards against is real: a second consult somewhere in the render path is how a
  * paywall silently starts covering the LATEST view, which §8.1(4) says must always be
- * free and full-fidelity. Two sites can be re-read in a minute; five cannot.
+ * free and full-fidelity. One site can be re-read in a minute; five cannot.
  *
- * The two are `resolveDiffAccess` (`apps/api/src/lib/pair-version-diff.ts` — a
+ * The one is `resolveDiffAccess` (`apps/api/src/lib/pair-version-diff.ts`), a
  * deliberate wrapper, because both the pair read and the timeline read need the
- * answer and two direct calls would make three sites) and the web pair resolver's
- * `gateHistoricalDepth`.
+ * answer and two direct calls would make two sites. The web pair resolver's
+ * `gateHistoricalDepth` was the second site until AECI-1266 deleted it: it read the
+ * vendors' plan mirror off the public payload, which no longer carries it. The API's
+ * `diff_access` is the only authority now.
  *
  * Matched on the CALL form `canViewVersionDiff(`, not the bare identifier: several
  * modules legitimately name the seam in prose (`drizzle-helpers.ts`,
@@ -42,11 +45,8 @@ const DEFINITION = join('packages', 'shared', 'src', 'version-diff.ts');
 /** A call, not a mention. */
 const CONSULT = /canViewVersionDiff\s*\(/;
 
-/** The sanctioned two, as repo-relative POSIX paths. */
-const SANCTIONED = [
-  'apps/api/src/lib/pair-version-diff.ts',
-  'apps/web/src/app/products/products-pair.resolver.ts',
-] as const;
+/** The sanctioned one, as a repo-relative POSIX path. */
+const SANCTIONED = ['apps/api/src/lib/pair-version-diff.ts'] as const;
 
 function walk(dir: string, out: string[] = []): string[] {
   for (const entry of readdirSync(dir, { withFileTypes: true })) {
@@ -68,22 +68,23 @@ const SOURCE_FILES = SCANNED_TREES.flatMap((tree) => walk(join(REPO_ROOT, tree))
   (file) => relative(REPO_ROOT, file) !== DEFINITION,
 );
 
-describe('§9.3 — the entitlement seam has exactly two consult sites', () => {
+describe('§9.3 — the entitlement seam has exactly one consult site', () => {
   it('scans a non-empty tree (guards against a walk that silently found nothing)', () => {
     expect(SOURCE_FILES.length).toBeGreaterThan(100);
   });
 
-  it('is consulted only by the API wrapper and the web pair resolver', () => {
+  it('is consulted only by the API wrapper', () => {
     const consultSites = SOURCE_FILES.filter((file) =>
       CONSULT.test(readFileSync(file, 'utf8')),
     ).map((file) => relative(REPO_ROOT, file).split(sep).join('/'));
 
     expect(
       consultSites.sort(),
-      'canViewVersionDiff must be consulted in exactly two places (STAGE_2_ATTESTATIONS_SPEC.md ' +
-        '§9.3 / AECI-303 AC5). A third consult is how a paywall starts leaking onto the LATEST ' +
-        'view, which §8.1(4) requires to stay free and full-fidelity. Route new callers through ' +
-        '`resolveDiffAccess` (apps/api) or `gateHistoricalDepth` (apps/web) instead.',
+      'canViewVersionDiff must be consulted in exactly one place (STAGE_2_ATTESTATIONS_SPEC.md ' +
+        '§9.3 / AECI-303 AC5, as revised by AECI-1266). A second consult is how a paywall starts ' +
+        'leaking onto the LATEST view, which §8.1(4) requires to stay free and full-fidelity. ' +
+        'Route new callers through `resolveDiffAccess` (apps/api) instead. The web reads the ' +
+        "API's `diff_access` and never re-gates.",
     ).toEqual([...SANCTIONED].sort());
   });
 

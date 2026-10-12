@@ -44,7 +44,6 @@ export function createVendorsListHandler(
     const { db } = dbFor(c.env);
     const conds: SQL[] = [];
     if (query.search) conds.push(like(vendors.companyName, `%${query.search}%`));
-    if (query.verified !== undefined) conds.push(eq(vendors.verified, query.verified));
     const where = conds.length ? and(...conds) : undefined;
 
     const [rows, countRows] = await Promise.all([

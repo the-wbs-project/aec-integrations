@@ -9,8 +9,9 @@
  *      entire seat grant — proven directly below, not just asserted about.
  *   2. `vendors.updated_at` moves IFF `vendors.verified` moves, in BOTH directions.
  *      The un-verify direction had never been tested (AECI-529 only reasoned about the
- *      flip to `true`); miss it and a lapsed vendor keeps `verified: true` on its Algolia
- *      record indefinitely (R2).
+ *      flip to `true`). Missing it once left a lapsed vendor's `verified: true` on its
+ *      Algolia record indefinitely (R2). The record drops the field since AECI-1266,
+ *      and the stamp still feeds the portal's updates cursor.
  *   3. Neither builder ever emits one side of the *iff* without the other.
  *
  * Statements are asserted by OBSERVED EFFECT (build → `db.batch` → read the rows back)

@@ -19,8 +19,9 @@
  * ── THE ONE ACCESS CONSULT ──────────────────────────────────────────────────────
  * `resolveDiffAccess` is the ONLY importer of `canViewVersionDiff` in `apps/api`.
  * Both the pair read and the timeline read route through it, so §9.3's seam keeps
- * exactly two consult sites repo-wide (this file and the web pair resolver) even
- * though two handlers need the answer. See its doc comment.
+ * exactly one consult site repo-wide (this file) even though two handlers need the
+ * answer. See its doc comment. The web pair resolver's re-gate was the second site
+ * until AECI-1266 removed it with the public `verified` field.
  *
  * AECI-304 settled *whose* entitlement it is: **the pair's two endpoint vendors,
  * never the reader.** Both handlers therefore hand this module the tiers derived

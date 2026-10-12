@@ -95,11 +95,12 @@ Check every box before a sitting starts. A box you cannot tick is a blocker, not
 
       | Step | What becomes public | Undone by |
       |---|---|---|
-      | 4 approve, 12c set | The claim button on the CompanyCam vendor and product pages reads "Request access to this listing", with "Already managed through an active vendor account" (SSR, on the next request after the purge). No badge renders anywhere: the "Active on AEC Integrations" badge was removed on 2026-10-09 (AECI-1264). | C1 entitlement clear |
-      | 4 approve, 12c set | the Algolia vendor record's `verified` field, **only if** the 08:00 UTC sync runs while verified — it is not rendered on any search card (AECI-1131) | C1 clear, then the next 08:00 UTC sync |
+      | 4 approve, 12c set | Nothing on the CompanyCam vendor or product pages. The claim button reads "Claim this listing" whatever the plan, with no note (AECI-1266, 2026-10-12). No badge renders anywhere: the "Active on AEC Integrations" badge was removed on 2026-10-09 (AECI-1264). | Nothing to undo |
+      | 4 approve, 12c set | Nothing in search. The Algolia vendor record has no `verified` field since AECI-1266 (2026-10-12). | Nothing to undo |
 
-- [ ] **The production sitting ends before 08:00 UTC,** C1 included. Then the search index never
-      sees CompanyCam as verified. Start early enough to finish. If the clock runs short, run C1
+- [ ] **The production sitting ends before 08:00 UTC,** C1 included. This once kept the search
+      index from seeing CompanyCam as verified. Since AECI-1266 (2026-10-12) the index carries no
+      plan state, but the one-sitting rule stands. Start early enough to finish. If the clock runs short, run C1
       and C3 first and stop.
 
 ---
@@ -115,7 +116,7 @@ following, at any step, **fails the run**. That includes a read taken only to co
 | Any review-app write: the `aeci-review` MCP `create_*`, `update_*`, `delete_*`, `add_attestation` or `promote_*` tools, or the review app's own UI | Catalog shape is an input, not something the rehearsal may adjust mid-run. |
 | Any `apps/datatool` action against the environment | It writes D1 directly. |
 | Editing a user in the Supabase dashboard, or any GoTrue admin call made by hand | The claim pipeline owns identity resolution (step 4). |
-| A manual Algolia push, reindex, or record edit | The `verified` flip must reach the Algolia vendor record through the 08:00 UTC sync (step 13b). |
+| A manual Algolia push, reindex, or record edit | Search must change only through the 08:00 UTC sync (step 13b). The vendor record carries no `verified` field since AECI-1266. |
 | Triggering a cron by hand | The run waits for the schedule. |
 
 **Allowed:** the admin console, the vendor portal, the public site, reading email, DevTools on the
@@ -180,8 +181,8 @@ Every error body has the shape `{ error: { code, message, field?, details? }, tr
 | 12b | **Claimant (A)**, DevTools console on any `/vendor` page. Read a `claim_id` on a direct, live integration from `GET /api/vendor/integrations`. Then send `PUT /api/vendor/claims/:claimId/attestation` with the body `{}`. | Attempt an attestation write while unentitled. | **`403 ENTITLEMENT_REQUIRED`**, `details: { capability: "attestation.author", tier: "unclaimed" }`, message "This action requires an active Verified plan. Contact AEC Integrations to activate or renew it." This is the AECI-623 gate. The capability check runs before the body is parsed, so the empty body writes nothing. That makes this safe on production. The ordinary UI hides the write controls, so a hand-sent request is the only way to reach the 403. A connector-powered edge answers `403 FORBIDDEN` first: pick a direct one. | The 403 body. | [plans] |
 | 12c | **Admin.** "Grant entitlement" then "Confirm grant". `{ action: "set" }`, with a `period_end` more than 30 days out. | Set it again. | `200`. The admin screen says "Entitlement granted for {name}. Search results update within a day." `vendors.verified` becomes true, with audit `vendor_entitlement.set`. The Claimant's controls unlock within one poll, no reload. Sending the step-12b request again now returns **`400 VALIDATION_FAILED`**. The gate passed, and the empty body was refused, so nothing is written. On staging, also affirm a flow in the UI and expect `2xx`. `set` on an already-active entitlement is `422 INVALID_STATE_TRANSITION`. | Admin response. The `400` body. On staging, the `2xx`. | [plans] |
 | 12d | **Admin.** "Renew term" then "Confirm renewal". `{ action: "renew" }`. | Renew. | `200`, audit `vendor_entitlement.renewed`. **No** `vendors` write and **no** cache purge. The Claimant's `entitlement` revision still moves and `/vendor/me` refetches. `renew` on an inactive entitlement is `422 INVALID_STATE_TRANSITION`. Renew and clear send **no** email. | Admin response. The `updates` response showing the moved `entitlement` revision. | [plans] |
-| 13a | **Anonymous visitor.** `/vendors/:slug`, `/products/:slug`, and one of A's pair pages (the step-11 pair on staging). | Load each while A is entitled. | **No surface shows an account or plan label** (AECI-1264 removed the "Active on AEC Integrations" badge and its "What this means" link on 2026-10-09). The vendor and product pages' claim button reads "Request access to this listing", with "Already managed through an active vendor account". The pair-page rails show no label. No surface says "Verified". | Three screenshots. On staging, the `Cache-Tag` header. | [plans] |
-| 13b | **Anonymous visitor.** `/search`, vendor results. **Next morning, after 08:00 UTC.** | Search for A by name. | **No label on the vendor card, by design (AECI-1131).** The Algolia vendor record still carries `verified`, but nothing renders it. Product records never carried the label. | Screenshot. | [plans] |
+| 13a | **Anonymous visitor.** `/vendors/:slug`, `/products/:slug`, and one of A's pair pages (the step-11 pair on staging). | Load each while A is entitled. | **No surface shows an account or plan label** (AECI-1264 removed the "Active on AEC Integrations" badge and its "What this means" link on 2026-10-09). The vendor and product pages' claim button reads "Claim this listing", with no note (AECI-1266, 2026-10-12). The pair-page rails show no label. No surface says "Verified". | Three screenshots. On staging, the `Cache-Tag` header. | [plans] |
+| 13b | **Anonymous visitor.** `/search`, vendor results. **Next morning, after 08:00 UTC.** | Search for A by name. | **No label on the vendor card, by design (AECI-1131).** The Algolia vendor record carries no `verified` field (AECI-1266, 2026-10-12). Product records never carried the label. | Screenshot. | [plans] |
 
 ### Part 3 — Seats and sessions
 
@@ -201,11 +202,11 @@ Run these before the sitting ends. On production they are mandatory, not tidy-up
 
 | # | Action | Expected |
 |---|---|---|
-| C1 | Admin clears A's entitlement (as 12a). **Production:** in the sitting, before 08:00 UTC. **Staging:** the next morning, after step 13b has run. | Status `revoked`, `vendors.verified` false. On the next request the claim button reads "Claim this listing" again, and "Already managed through an active vendor account" is gone. |
+| C1 | Admin clears A's entitlement (as 12a). **Production:** in the sitting, before 08:00 UTC. **Staging:** the next morning, after step 13b has run. | Status `revoked`, `vendors.verified` false. The claim button still reads "Claim this listing". It never changed (AECI-1266, 2026-10-12). |
 | C2 | **Staging only.** Claimant (A) retracts every attestation written in steps 11 and 12c. | Each `DELETE` returns `204`. The pair returns to `unverified`, and "AEC Integrations maintained" returns. `last_reviewed_at` stays by design. |
 | C3 | Admin revokes every seat on A (and B on staging) through `/admin/vendors/:id`. | As 16a. The **last** revoke also hands the record back (AECI-989, `STAGE_2_ATTESTATIONS_SPEC.md` §13.9). The vendor and each product it owns alone read "AEC Integrations maintained" again, with `last_reviewed_at` kept. Every live integration it claimed has `claimed_at` NULL, so promote writes it again. Its open owner contests sit in `/admin/contests`. Claims and attestations remain. The vendor is inert again. |
 | C4 | **Production:** reject AECI-855 and AECI-856 in `/admin/claims/:id`, then cancel their Linear issues. Reject AECI-923 in **demo's** admin, then cancel its issue. Close AECI-857's Linear issue with a pointer to this run. | Each reject returns `200` and sends `Your claim for {name} was not approved` to the submitter. The `reason` goes to the audit log only. |
-| C5 | The morning after C1, after 08:00 UTC, load `/search` on both environments and search for A by name. In the browser's network panel, open the Algolia response. | A's vendor hit carries `verified: false`. No card renders the field, so read the response, not the page (AECI-1264, 2026-10-09). On staging this proves the clear reached search. |
+| C5 | The morning after C1, after 08:00 UTC, load `/search` on both environments and search for A by name. In the browser's network panel, open the Algolia response. | A's vendor hit has no `verified` key at all (AECI-1266, 2026-10-12). Read the response, not the page. Until 2026-10-12 this step read `verified: false` to prove the clear reached search. |
 
 ---
 

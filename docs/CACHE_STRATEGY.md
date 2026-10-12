@@ -258,32 +258,32 @@ Callers of `/admin/purge`:
 - CI (`promote-to-prod.yml` purges `taxonomy` + `route:browse` after the reference-data seed) — inherits the native backend automatically (it only checks the HTTP status)
 - Future admin tooling (Phase 6) — direct call from admin Workers, not n8n
 
-**(b) `POST /api/promote` + review moderation on the API Worker** — since WC-5, these **enqueue** onto `aeci-cache-purge-{env}` (producer binding `CACHE_PURGE_QUEUE`) after the write commits — for promote, from `dispatchPromoteHooks` *after* the Workflow commit step resolves rather than from the request (AECI-563 / ADR 0021), so a step replay cannot double-enqueue; the SSR consumer issues the `ctx.cache.purge()`. Best-effort, post-commit (`ctx.waitUntil`), a graceful no-op when the queue binding is unset (local dev), and never fails the committed write (a `queue.send` rejection is logged and swallowed). The promote's entity/index/pair/taxonomy tags are derived by `cacheTagsForPromote` (`promote-cache-tags.ts`); review moderation enqueues `product:{slug}`; so does an admin approve or remove of a vendor's reply to a review (`PATCH /api/admin/review-responses/:id`, AECI-1177, `source: 'moderation'`), while a reject purges nothing because a pending reply was never on the page; the **vendor-claim grant** (`PATCH /api/admin/claims/:id`, AECI-519) enqueues the vendor **and its products** — `{ tags: ['vendor:{slug}', 'product:{slug}'…, 'index:products'], source: 'moderation' }` — because it flips `vendors.verified` (unlike plain request-moderation, which purges nothing). One message per ≤1000-tag batch (`CACHE_PURGE_QUEUE_MAX_TAGS`, vs. the HTTP transport's 30), and every batch goes in **one `queue.sendBatch()`** rather than a concurrent `send()` per batch — a Queue producer call counts against the same per-invocation connection budget as `fetch` (AECI-666 / ADR 0020 §3). This supersedes the ADR-0028 direct HTTP purge (which is inert against Workers Cache); the message is async, so there is still no api→web service binding.
+**(b) `POST /api/promote` + review moderation on the API Worker** — since WC-5, these **enqueue** onto `aeci-cache-purge-{env}` (producer binding `CACHE_PURGE_QUEUE`) after the write commits — for promote, from `dispatchPromoteHooks` *after* the Workflow commit step resolves rather than from the request (AECI-563 / ADR 0021), so a step replay cannot double-enqueue; the SSR consumer issues the `ctx.cache.purge()`. Best-effort, post-commit (`ctx.waitUntil`), a graceful no-op when the queue binding is unset (local dev), and never fails the committed write (a `queue.send` rejection is logged and swallowed). The promote's entity/index/pair/taxonomy tags are derived by `cacheTagsForPromote` (`promote-cache-tags.ts`); review moderation enqueues `product:{slug}`; so does an admin approve or remove of a vendor's reply to a review (`PATCH /api/admin/review-responses/:id`, AECI-1177, `source: 'moderation'`), while a reject purges nothing because a pending reply was never on the page; the **vendor-claim grant** (`PATCH /api/admin/claims/:id`, AECI-519) enqueues the vendor **and its products** — `{ tags: ['vendor:{slug}', 'product:{slug}'…, 'index:products'], source: 'moderation' }` — because it flips `vendors.verified`, which drives the API's pair version-diff gate (unlike plain request-moderation, which purges nothing). One message per ≤1000-tag batch (`CACHE_PURGE_QUEUE_MAX_TAGS`, vs. the HTTP transport's 30), and every batch goes in **one `queue.sendBatch()`** rather than a concurrent `send()` per batch — a Queue producer call counts against the same per-invocation connection budget as `fetch` (AECI-666 / ADR 0020 §3). This supersedes the ADR-0028 direct HTTP purge (which is inert against Workers Cache); the message is async, so there is still no api→web service binding.
 
 **(b1) entitlement set / clear (Stage 2 paid tiers, AECI-532)** — `PATCH
 /api/admin/vendors/:id/entitlement` enqueues **the same tag set as the claim grant
 above**, from the same builder: `vendorPurgeTags` was promoted out of
 `admin-claims.ts` into the shared `apps/api/src/lib/vendor-cache-tags.ts` precisely
 because this epic added a second writer of it, and duplicated tag construction is how
-a page goes stale on one path and not the other. **No new tag.** The mirror drives the claim
-button copy and its "Already managed" note on the vendor page and every owned product page,
-and the version-diff gate on every pair page. All of them are already covered by
-`vendor:{slug}` + every owned `product:{slug}` (a pair page carries both endpoints'
-`product:` tags) + `index:products`. *(Reworded 2026-10-09, AECI-1264. This paragraph used to
-name the public account label, which is removed. The tag set is unchanged.)*
+a page goes stale on one path and not the other. **No new tag.** Since AECI-1266 the mirror drives no claim copy and no note. Its one
+rendered effect is the API's version-diff gate on every pair page. The owned `product:{slug}`
+tags are what refresh it, because a pair page carries both endpoints' `product:` tags.
+`vendor:{slug}` and `index:products` stay in the set because a redundant purge costs one cache
+miss. *(Reworded 2026-10-09, AECI-1264, which removed the public account label. Reworded again
+2026-10-12, AECI-1266, which made the claim button stateless and dropped `verified` from every
+public payload. The tag set is unchanged both times.)*
 
 Two deliberate details. **`clear` purges as hard as `set`**: this is the only writer
-that takes `vendors.verified` back *down* (`STAGE_2_PAID_TIERS_SPEC.md` §5), and a
-missed purge there leaves "Request access to this listing" and "Already managed through an
-active vendor account" on every cached product page of a vendor who is no longer paying. And
-the purge is **not gated on whether the mirror actually flipped** — on a drifted vendor a
-redundant purge costs one cache miss, while a missed one is wrong claim copy with a full TTL
-behind it. **`renew` is the exception and skips
-the purge entirely**, because its builder provably emits no `vendors` statement at all,
-so nothing rendered can have changed. Search freshness rides the same nightly watermark
-as every other vendor write (see the `verified`-flip paragraph below): the flip
-stamps `vendors.updated_at` in **both** directions, so an un-verify reaches Algolia
-within 24h rather than never.
+that takes `vendors.verified` back *down* (`STAGE_2_PAID_TIERS_SPEC.md` §5). A missed purge
+there leaves a stale version-diff gate on every cached pair page of a vendor who is no longer
+paying. And the purge is **not gated on whether the mirror actually flipped**. On a drifted
+vendor a redundant purge costs one cache miss, while a missed one is a wrong gate with a full
+TTL behind it. *(Until AECI-1266 on 2026-10-12, the stale content named here was the "Request
+access to this listing" button and its "Already managed" note.)* **`renew` is the exception
+and skips the purge entirely**, because its builder provably emits no `vendors` statement at
+all, so nothing rendered can have changed. The flip still stamps `vendors.updated_at` in
+**both** directions (see the `verified`-flip paragraph below). Since AECI-1266 that stamp no
+longer serves search freshness, because the Algolia vendor record carries no `verified`.
 
 **(b1a) the last-seat hand-back (AECI-989)** — `DELETE
 /api/admin/vendors/:id/seats/:userId` purges only when the revoke removes the vendor's
@@ -470,19 +470,20 @@ bumping `updated_at` would drag the product through the nightly window for
 nothing. An **attestation** write does not stamp it either, and for a stronger
 reason — claims are not in the search index at all (`STAGE_1_5_SPEC.md` §9 defers
 per-pair records), so there is nothing for a sync to pick up. Dashboard copy must
-therefore not promise that attesting changes search. The same asymmetry governs the
-**`verified` flip** (AECI-529): the §5(b) claim→grant stamps `vendors.updated_at`
-alongside `verified = true`, so the `vendors` index re-indexes the flip on the next
-nightly window while the grant's `vendor:{slug}` + `product:{slug}` purge repaints the
-SSR pages immediately. The flip therefore shows in the claim button copy on the vendor's
-SSR detail and product pages at once, but reaches the Algolia vendor record only after the
-next sync (`SEARCH_RANKING.md` §6). No search card renders the field since AECI-1131, and the
-public account badge is gone since 2026-10-09 (AECI-1264). Since AECI-609 that stamp is governed by a sharper rule:
+therefore not promise that attesting changes search. The **`verified` flip** (AECI-529) once
+followed the same asymmetry: the §5(b) claim→grant stamps `vendors.updated_at` alongside
+`verified = true`, and the `vendors` index re-indexed the flip on the next nightly window.
+That no longer applies. Since AECI-1266 (2026-10-12) no public surface shows the flip: not
+the claim button, not any public payload, not the Algolia vendor record
+(`SEARCH_RANKING.md` §6). The grant's purge still refreshes the pair pages' version-diff gate
+at once. No search card rendered the field after AECI-1131, and the public account badge is
+gone since 2026-10-09 (AECI-1264). Since AECI-609 that stamp is governed by a sharper rule:
 **`vendors.updated_at` moves if and only if `vendors.verified` moves**, in either
 direction, stamped explicitly inside the same guarded `WHERE verified = <old>` rather
 than left to `$onUpdate`. Both halves earn their keep — a second-seat grant or a term
 renewal must *not* bump it (needless nightly re-push of an unchanged record), and an
-**deactivation must**, or a lapsed vendor keeps `verified: true` on its Algolia record indefinitely.
+**deactivation must**. Until AECI-1266 the reason was that a lapsed vendor would otherwise keep
+`verified: true` on its Algolia record indefinitely. The record no longer carries the field.
 That second direction is the one AECI-529 never reasoned about, because until AECI-532
 nothing could clear the bit.
 

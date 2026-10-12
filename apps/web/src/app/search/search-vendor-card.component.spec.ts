@@ -12,7 +12,6 @@ const baseRecord: AlgoliaVendorRecord = {
   company_name: 'Procore Technologies',
   company_name_sort: 'procore technologies', // AECI-825 — replica sort key
   slug: 'procore-technologies',
-  verified: false,
   description: 'Construction software vendor.',
   headquarters: 'Carpinteria, CA',
   founded_year: 2002,
@@ -61,8 +60,9 @@ describe('SearchVendorCard', () => {
     expect(el.textContent).not.toContain('2002');
   });
 
-  it('never renders the account label, even for an active vendor (AECI-1131)', () => {
-    const el = setup({ ...baseRecord, verified: true });
+  it('never renders the account label (AECI-1131)', () => {
+    // The record carries no plan mirror since AECI-1266, so there is nothing to show.
+    const el = setup();
     expect(el.querySelector('aec-vendor-account-badge')).toBeNull();
     expect(el.textContent).not.toContain('Active on AEC Integrations');
     expect(el.textContent).not.toContain('account active');

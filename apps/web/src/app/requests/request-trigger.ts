@@ -29,9 +29,6 @@ export class RequestTrigger {
   readonly entity = input.required<RequestTargetType>();
   readonly kind = input.required<RequestKind>();
   readonly slug = input.required<string>();
-  /** The target's built-by vendor is already AECi-verified, i.e. the listing is
-   *  claimed. Copy-only — see `RequestDrawerTarget.claimed`. */
-  readonly claimed = input(false);
   /** Seed text for the drawer's free-text `body` (AECI-967). Null on every
    *  trigger whose only context is the target itself — the request already
    *  carries that. See `RequestDrawerTarget.bodyPrefill`. */
@@ -49,7 +46,6 @@ export class RequestTrigger {
       entity: this.entity(),
       kind: this.kind(),
       slug: this.slug(),
-      claimed: this.claimed(),
       bodyPrefill: this.bodyPrefill() ?? undefined,
     });
   }
