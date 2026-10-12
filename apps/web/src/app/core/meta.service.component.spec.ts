@@ -187,7 +187,7 @@ describe('MetaService.setHomeMeta', () => {
     const parsed = JSON.parse(org?.textContent ?? '{}');
     expect(parsed['@type']).toBe('Organization');
     expect(parsed.name).toBe('AEC Integrations');
-    expect(parsed.logo).toBe('https://aecintegrations.com/branding/monogram-light.svg');
+    expect(parsed.logo).toBe('https://aecintegrations.com/branding/stacked-logo-512.png');
   });
 
   it('is idempotent — re-applying does not duplicate JSON-LD scripts', () => {

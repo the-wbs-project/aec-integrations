@@ -25,12 +25,19 @@ export const SITE_NAME = 'AEC Integrations';
  * (older LinkedIn, some Slack flavors) render SVG OG images inconsistently;
  * Phase 7 polish should replace this with a rendered 1200×630 PNG.
  *
- * This stays the monogram on purpose: it is both the entity-page fallback AND
- * the home `Organization` JSON-LD `logo` (a logo wants the square mark, not a
- * 1200×630 card). The home page's share preview uses `HOME_OG_IMAGE` instead.
+ * This is the entity-page fallback only. The home `Organization` JSON-LD `logo`
+ * uses `SITE_LOGO`, and the home share preview uses `HOME_OG_IMAGE`.
  * Per-entity OG cards are a separate effort (AECI-276 out-of-scope).
  */
 export const DEFAULT_OG_IMAGE = '/branding/monogram-light.svg';
+
+/**
+ * The home `Organization` JSON-LD `logo`: the square stacked logo ("AEC", the
+ * clay connector, "Integrations"), a 512×512 PNG. It is the same mark as the
+ * Google OAuth consent-screen logo, so a crawler matching that logo to the site
+ * finds it here. Construction: `branding/logo-construction.md` §The stacked logo.
+ */
+export const SITE_LOGO = '/branding/stacked-logo-512.png';
 
 /**
  * The dedicated home share card (AECI-276): a real, rendered 1200×630 PNG, not
