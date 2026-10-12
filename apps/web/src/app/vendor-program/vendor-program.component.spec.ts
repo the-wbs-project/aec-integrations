@@ -89,7 +89,9 @@ describe('VendorProgramPage', () => {
       expect(text(h1s[0])).toBe(
         'Your products may already be listed here. Make sure buyers read your version.',
       );
-      expect(text(host.querySelector('section'))).toContain('Claiming your listing is free.');
+      expect(text(host.querySelector('section'))).toContain(
+        'Claim your listing for free to correct it, keep it current, and show buyers your team maintains it.',
+      );
     });
 
     it('states no statistics in the hero', async () => {
@@ -184,7 +186,6 @@ describe('VendorProgramPage', () => {
         'How teams use it',
         'Trades, audiences and phases',
         'More detailed information about integrations (additional URLs, data flow, etc.)',
-        'Connector integrations',
         'Review replies',
       ]);
       // Every line is the one shared item: the same host classes on both sections.
@@ -202,7 +203,8 @@ describe('VendorProgramPage', () => {
     it('ends each Managed line with "Learn more" to the page that explains it', async () => {
       const { host } = await setup({ plan: stub() });
       const items = [...host.querySelectorAll('#vp-managed li')];
-      expect(items).toHaveLength(5);
+      // Ruling 2026-10-12: connector integrations left the Managed pitch.
+      expect(items).toHaveLength(4);
       const more = items.map((li) => li.querySelector('[data-testid="vp-learn-more"]')!);
       for (const [i, a] of more.entries()) {
         // The last thing in the line, named by the title for a links list.
@@ -216,7 +218,6 @@ describe('VendorProgramPage', () => {
         '/docs/vendors/plans#what-managed-adds',
         '/docs/getting-started/taxonomy',
         '/docs/vendors/plans#what-managed-adds',
-        '/docs/vendors/owning-an-integration',
         '/docs/vendors/replying-to-reviews',
       ]);
       // Ruling 2026-10-12: the links line and the data flows line are one entry,
@@ -254,7 +255,7 @@ describe('VendorProgramPage', () => {
     it('opens every docs link in a new tab with the new-tab cue', async () => {
       const { host } = await setup({ plan: stub() });
       const docs = [...host.querySelectorAll<HTMLAnchorElement>('a[href^="/docs/"]')];
-      expect(docs.length).toBe(13);
+      expect(docs.length).toBe(12);
       for (const a of docs) {
         const href = a.getAttribute('href');
         expect(a.getAttribute('target'), href!).toBe('_blank');
@@ -393,6 +394,13 @@ describe('VendorProgramPage', () => {
       const how = host.querySelector('section [data-testid="vp-how"]')!;
       expect(text(how.querySelector('#vp-how-heading'))).toBe('How claiming works');
       expect(how.querySelectorAll('ol > li')).toHaveLength(3);
+      // Copy ruling 2026-10-12: a claim is free, and approval sets up the account.
+      const bodies = [...how.querySelectorAll('ol > li p:last-child')].map((p) => text(p));
+      expect(bodies.slice(1)).toEqual([
+        'Claiming is free. We set up your account when we approve your claim.',
+        'A person at AEC Integrations reads and processes every claim.',
+      ]);
+      expect(text(how)).not.toContain('needs no account');
       // Not a section heading: the page keeps one h1, then one h2 per section.
       expect(how.querySelector('h1, h2, h3')).toBeNull();
     });

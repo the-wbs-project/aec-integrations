@@ -48,6 +48,10 @@ describe('ClaimDialog', () => {
     const title = panel()!.querySelector('h2')!;
     expect(title.textContent?.trim()).toBe('Claim your listing');
     expect(dialog.getAttribute('aria-labelledby')).toBe(title.id);
+    // Copy ruling 2026-10-12: free, and approval sets up the account.
+    expect(title.nextElementSibling?.textContent?.trim()).toBe(
+      'Claiming is free. We set up your account when we approve your claim.',
+    );
     expect(panel()!.querySelector('h3')?.textContent?.trim()).toBe('Find your listing');
   });
 

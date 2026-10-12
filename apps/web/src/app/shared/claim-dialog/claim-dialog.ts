@@ -62,7 +62,7 @@ import { ClaimDialogService } from './claim-dialog.service';
                 class="mt-1 text-sm text-(--text-secondary)"
                 i18n="@@claimDialog.description"
               >
-                A claim is free and needs no account.
+                Claiming is free. We set up your account when we approve your claim.
               </p>
             </div>
             <button

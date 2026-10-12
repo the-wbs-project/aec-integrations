@@ -8,7 +8,7 @@ last_updated: 12 October 2026
 
 Claiming changes what buyers see. Once you edit your listing or mark it as checked, its page reads "Vendor maintained · Updated" with that date, where an unclaimed listing reads "AEC Integrations maintained". Buyers also see the links you add, such as the setup guide for an integration, and the details you keep current yourself.
 
-AEC Integrations compiles its listings from public sources. A claim is how someone who works at a listed vendor asks for a seat on that vendor's account, so they can keep the listing accurate. You do not need an account to send one, and it costs nothing.
+AEC Integrations compiles its listings from public sources. A claim is how someone who works at a listed vendor asks for a seat on that vendor's account, so they can keep the listing accurate. Claiming is free, and you do not need an account to send one. We set up your account when we approve your claim.
 
 ## Send a claim
 

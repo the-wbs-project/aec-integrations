@@ -10,7 +10,7 @@ AEC Integrations lists software products, the companies that make them, and the 
 
 ## What claiming is
 
-A claim asks us for a seat on your company's vendor account. A seat is one person's access to the vendor portal. A person at AEC Integrations checks every claim before we grant a seat. Sending a claim is free and needs no account.
+A claim asks us for a seat on your company's vendor account. A seat is one person's access to the vendor portal. A person at AEC Integrations checks every claim before we grant a seat. Claiming is free, and you do not need an account to send a claim. We set up your account when we approve it.
 
 With a seat you can edit your company and product details, claim the integrations your company offers, add your own links, and ask for a change to an integration you do not own. [Claiming your vendor listing](/docs/vendors/claiming-your-listing) covers the form, what we check, and what happens next.
 

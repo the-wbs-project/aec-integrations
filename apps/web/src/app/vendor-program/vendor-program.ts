@@ -132,9 +132,9 @@ const PLANS_PATH = '/docs/vendors/plans';
               class="mt-4 max-w-[52ch] text-base leading-relaxed text-(--text-secondary) md:mt-5 md:text-lg"
               i18n="@@app.vendorProgram.lede"
             >
-              AEC Integrations lists AEC software and its integrations from public sources. Claiming
-              your listing is free. Keep it current, and it reads "Vendor maintained" with the date
-              you last updated it.
+              AEC Integrations lists AEC software and its integrations from public sources. Claim
+              your listing for free to correct it, keep it current, and show buyers your team
+              maintains it.
             </p>
             <aec-plan-cta-actions class="mt-6 md:mt-8" page="vendor_program" [portal]="portal()" />
           </div>
@@ -174,7 +174,7 @@ const PLANS_PATH = '/docs/vendors/plans';
                     class="mt-0.5 leading-relaxed text-(--text-secondary)"
                     i18n="@@vendorProgram.how.claim.body"
                   >
-                    A claim costs nothing and needs no account.
+                    Claiming is free. We set up your account when we approve your claim.
                   </p>
                 </div>
               </li>
@@ -186,7 +186,7 @@ const PLANS_PATH = '/docs/vendors/plans';
                     class="mt-0.5 leading-relaxed text-(--text-secondary)"
                     i18n="@@vendorProgram.how.review.body"
                   >
-                    A person at AEC Integrations reads every claim and emails you the result.
+                    A person at AEC Integrations reads and processes every claim.
                   </p>
                 </div>
               </li>
@@ -370,17 +370,6 @@ const PLANS_PATH = '/docs/vendors/plans';
               </li>
               <li
                 aec-vendor-program-benefit
-                [benefitTitle]="managedTitles.connector"
-                link="/docs/vendors/owning-an-integration"
-              >
-                <ng-container i18n="@@vendorProgram.managed.connector.body">
-                  Claim, edit, retire and restore the integrations you deliver through a connector,
-                  not only the ones you built directly. Those listings stay as current as your
-                  direct ones, so a team using one on a project reads up-to-date details.
-                </ng-container>
-              </li>
-              <li
-                aec-vendor-program-benefit
                 [benefitTitle]="managedTitles.replies"
                 link="/docs/vendors/replying-to-reviews"
               >
@@ -493,9 +482,10 @@ const PLANS_PATH = '/docs/vendors/plans';
                   <ng-container [ngTemplateOutlet]="chevron" />
                 </summary>
                 <p [class]="answerClass" i18n="@@vendorProgram.faq.who.a">
-                  Anyone who works at the company that makes the product. You do not need an
-                  account, and a claim costs nothing. A claim on a product is a claim on the company
-                  that makes it, and the seat covers the whole company account. See
+                  Anyone who works at the company that makes the product. Claiming is free, and you
+                  do not need an account to start. We set up your account when we approve your
+                  claim. A claim on a product is a claim on the company that makes it, and the seat
+                  covers the whole company account. See
                   <a
                     routerLink="/docs/vendors/claiming-your-listing"
                     target="_blank"
@@ -656,7 +646,6 @@ export class VendorProgramPage {
     usefulness: $localize`:@@vendorProgram.managed.usefulness.title:How teams use it`,
     taxonomy: $localize`:@@vendorProgram.managed.taxonomy.title:Trades, audiences and phases`,
     integrationDetail: $localize`:@@vendorProgram.managed.integrationDetail.title:More detailed information about integrations (additional URLs, data flow, etc.)`,
-    connector: $localize`:@@vendorProgram.managed.connector.title:Connector integrations`,
     replies: $localize`:@@vendorProgram.managed.replies.title:Review replies`,
   };
   /** `$25 a month per product, or $250 a year, billed by invoice or purchase order.` */

@@ -1,6 +1,6 @@
 # AEC Integrations — Vendor Program Page Specification
 
-**Version:** 0.4, build contract (2026-10-12 rulings: own benefit copy, the claim panel, new-tab doc links; §15 the claim dialog; Find your product removed and Free and Managed made one pattern)
+**Version:** 0.4, build contract (2026-10-12 rulings: own benefit copy, the claim panel, new-tab doc links; §15 the claim dialog; Find your product removed and Free and Managed made one pattern; hero and claim copy, connector integrations out of the Managed pitch)
 **Date:** 2026-10-12
 **Status:** Build contract. Admitted into **Stage 2.5** by operator decision on 2026-10-12, as the sixth named exception to its "no new surface area" rule (`STAGE_2_5_SPEC.md` §14). It turns the marketing review's requirements draft ("For vendors" marketing page, 2026-10-12) into a contract checked against the code. Where the draft and the code disagreed, §1.2 records the ruling.
 **Supersedes:** nothing. The draft stays a marketing-side input; this doc is the build truth.
@@ -85,10 +85,10 @@ The header row gets no link (§1.2).
 
 ## 3. Page sections, in order
 
-1. **Hero.** The headline (settled 2026-10-12): "Your products may already be listed here. Make sure buyers read your version." A subhead saying the catalog comes from public sources, a claim is free, and a listing kept current reads "Vendor maintained" with the date. Both calls to action (§4). No statistics.
+1. **Hero.** The headline (settled 2026-10-12): "Your products may already be listed here. Make sure buyers read your version." The subhead (settled 2026-10-12, Chris): "AEC Integrations lists AEC software and its integrations from public sources. Claim your listing for free to correct it, keep it current, and show buyers your team maintains it." Both calls to action (§4). No statistics.
 2. **What changes when you claim** (settled 2026-10-12, replaces "The problem"). One or two sentences of the problem, then a before and after panel with the two real maintenance labels: "AEC Integrations maintained" before, "Vendor maintained · Updated" and a date once the vendor saves a change or confirms a page is right (`STAGE_2_ATTESTATIONS_SPEC.md` §13.9, `STAGE_2_PAID_TIERS_SPEC.md` §13.8). Both labels are drawn by the listing's own `shared/maintenance-marker` component, never retyped, so the page cannot show wording a listing does not. The example date is today, in UTC. A claim alone does not change the label, so the copy never says it does.
 3. **What a free claim gets you.** Three outcomes: your listing in your words, your integrations owned by you, a complete listing at no cost. The seat link stays in the lede, and the checklist link in the first item's body.
-4. **What Managed adds.** The price and terms line first, from the shared constants. Then five lines: how teams use it; trades, audiences and phases; more detailed information about integrations; connector integrations; review replies. Ruled 2026-10-12: the integrations page and API docs links line and the confirmed data flows line are one entry, "More detailed information about integrations (additional URLs, data flow, etc.)", which keeps both docs links. The plan cards merge the same two items into the same line. "Search engine notice" stays on the plan cards and the docs page, not in this list.
+4. **What Managed adds.** The price and terms line first, from the shared constants. Then four lines: how teams use it; trades, audiences and phases; more detailed information about integrations; review replies. Ruled 2026-10-12: the integrations page and API docs links line and the confirmed data flows line are one entry, "More detailed information about integrations (additional URLs, data flow, etc.)", which keeps both docs links. The plan cards merge the same two items into the same line. "Search engine notice" stays on the plan cards and the docs page, not in this list. **Removed from the Managed pitch 2026-10-12 (Chris): connector integrations.** The "Connector integrations" line is gone from this list, and "The integrations you deliver through a connector" is gone from the shared plan cards, so `/docs/vendors/plans` loses that card line too. It remains a Managed capability (`STAGE_2_SPEC.md` §8.10, AECI-1040). The Markdown "What Managed adds" list on `/docs/vendors/plans` and the comparison table keep it as the feature reference.
 5. **Plan cards.** Free and Managed side by side (§4, placement `card`). Reuse `DocsPlansComparisonComponent`'s cards. Do not copy them.
 6. **How listings are sorted.** "Every listing is sorted the same way: how well it matches the search, then how complete it is. Your plan is not part of that." Link to `/docs/trust/how-ranking-works`. Write it as the reason buyers trust the directory, not as a disclaimer.
 7. **Coming soon.** Performance reporting for Managed, labelled as not available yet, framed as what it will let the vendor see. It keeps the sentence that it never changes where a listing ranks or appears.
@@ -109,7 +109,7 @@ One `h1`, then `h2` per section, in this order. The only `h3`s are the plan card
 
 | Section | From `lg` |
 |---|---|
-| Hero | The copy and both buttons in the left seven of twelve columns. "How claiming works" in the right five: three numbered steps (find, claim, we review it), facts the FAQ already states. Not a heading. Hidden below `lg`. |
+| Hero | The copy and both buttons in the left seven of twelve columns. "How claiming works" in the right five: three numbered steps (find, claim, we review it), facts the FAQ already states. Copy settled 2026-10-12 (Chris): step 2 reads "Claiming is free. We set up your account when we approve your claim." Step 3 reads "A person at AEC Integrations reads and processes every claim." The claim dialog's subtitle uses the step 2 wording. "Needs no account" is retired everywhere: it read as if no account is needed to manage a listing. Not a heading. Hidden below `lg`. |
 | What changes when you claim, Coming soon, FAQ | A split: the heading (and lede) in the left five columns, the content in the right seven. What changes when you claim puts the two labels side by side on the right (stacked below `sm`). |
 | What a free claim gets you, What Managed adds | The same split for both (2026-10-12): the heading and lede (Free's seat line, Managed's terms line) in the left four columns, the lines in the right eight as a two-column grid from `md`. One column at 375. |
 | Plan cards | The shared cards side by side across the full width. |
@@ -420,7 +420,7 @@ One drizzle-kit migration, additive only. The generated SQL must be exactly `CRE
 
 ### 15.11 Not changed
 
-- The "What Managed adds" list and the FAQ copy (other rulings pending). On 2026-10-12 the list's structure changed (§3, Free and Managed one pattern). Its wording did not.
+- The "What Managed adds" list and the FAQ copy (other rulings pending). On 2026-10-12 the list's structure changed (§3, Free and Managed one pattern). Its wording did not. A later 2026-10-12 ruling removed its connector integrations line (§3 item 4).
 - `POST /api/plan-inquiries` and the inquiry dialog (§7).
 - The claim approval flow, the plan radios' rule and the grant emails.
 - The full-width layout rule (§3, §11).
