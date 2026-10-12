@@ -1,8 +1,9 @@
 /**
- * Contact page (`/contact`, AECI-238 / Phase 7.3). Stage 1 contact path is a
- * `mailto:` link (the acceptance criteria explicitly permits it; no contact form
- * and no `/api/contact` endpoint — vendor/listing issues already flow through the
- * per-entity claim/correction forms). A short editorial intro, the email as the
+ * Contact page (`/contact`, AECI-238 / Phase 7.3). The general contact path is a
+ * `mailto:` link (the acceptance criteria explicitly permits it; no general contact
+ * form and no `/api/contact` endpoint — vendor/listing issues already flow through
+ * the per-entity claim/correction forms). The one form here is the Managed plan
+ * inquiry on `?topic=managed` (AECI-1279, below). A short editorial intro, the email as the
  * primary contact path, and a pointer to the correction flow for listing fixes.
  *
  * **Non-cacheable, SSR, indexable.** `/contact` is "No cache" per §3.1 — it is not
@@ -19,34 +20,23 @@
  * (not translated) and shared between the visible label and the `mailto:` href.
  *
  * **`?topic=managed`** (the vendor guide's Plans page buttons, `docs-plans-cta.ts`).
- * There is no contact form, so the topic pre-fills the email instead: a fixed
- * subject, so the inquiry arrives labelled, and a short body with the three
- * things we need to quote. The page also says what happens next. Any other
- * topic value is ignored. `/contact` is not cached, so reading the query in SSR
- * is safe, and the canonical URL stays `/contact`.
+ * The Plans page opens the plan inquiry form in a dialog (AECI-1279). This page is
+ * those buttons' link target, so a click without JS, or into a new tab, lands on the
+ * same form, inline (`PlanInquiryForm`, `POST /api/plan-inquiries`). The page also
+ * says what happens next. Any other topic value is ignored. `/contact` is not cached,
+ * so reading the query in SSR is safe, and the canonical URL stays `/contact`. The
+ * general "Email us" card is unchanged for every other question.
  */
 import { Component, inject } from '@angular/core';
 import { ActivatedRoute, RouterLink } from '@angular/router';
 
 import { canonicalUrl } from '../core/canonical';
 import { MetaService } from '../core/meta.service';
-
-/** The subject a Managed inquiry arrives under, so it can be filtered. */
-export function managedSubject(): string {
-  return $localize`:@@app.contact.managed.subject:Managed plan inquiry`;
-}
-
-/** The prompts a Managed inquiry starts with. Plain text; the visitor fills it in. */
-export function managedBody(): string {
-  return $localize`:@@app.contact.managed.mailBody:Company:
-Products we want on Managed:
-Who should receive the invoice:
-`;
-}
+import { PlanInquiryForm } from '../shared/plan-inquiry/plan-inquiry-form';
 
 @Component({
   selector: 'app-contact',
-  imports: [RouterLink],
+  imports: [RouterLink, PlanInquiryForm],
   template: `
     <div class="bg-(--surface-base) text-(--text-primary)">
       <section class="border-b border-(--border-default) bg-(--accent-warm)">
@@ -84,19 +74,14 @@ Who should receive the invoice:
             </h2>
             <p
               class="mt-4 max-w-[70ch] text-base leading-relaxed text-(--text-secondary)"
-              i18n="@@app.contact.managed.body"
+              i18n="@@app.contact.managed.formBody"
             >
-              Email us with your company name, the products you want on Managed, and who should
-              receive the invoice. The button below starts that email for you. We agree the price
-              and the term with you, then switch Managed on for your company.
+              Tell us who you are and which products you want on Managed. We agree the price and the
+              term with you, then switch Managed on for your company.
             </p>
-            <a
-              [href]="mailtoHref"
-              class="mt-6 inline-flex items-center justify-center rounded-(--radius-md) bg-(--accent-primary) px-5 py-3 text-sm font-semibold text-(--surface-base) no-underline transition-colors hover:bg-(--accent-primary-hover) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
-              i18n="@@app.contact.managed.cta"
-            >
-              Email us about Managed
-            </a>
+            <div class="mt-6 max-w-xl">
+              <aec-plan-inquiry-form idPrefix="contact-plan-inquiry" placement="contact" />
+            </div>
           </section>
         }
         <div class="grid max-w-5xl gap-6 md:grid-cols-2">
@@ -173,9 +158,7 @@ export class ContactPage {
   /** The public contact address. Shared by the visible label and the `mailto:`
    *  href so they can never drift. */
   protected readonly email = 'support@aecintegrations.com';
-  protected readonly mailtoHref = this.managed
-    ? `mailto:${this.email}?subject=${encodeURIComponent(managedSubject())}&body=${encodeURIComponent(managedBody())}`
-    : `mailto:${this.email}`;
+  protected readonly mailtoHref = `mailto:${this.email}`;
 
   constructor() {
     this.meta.setStaticPageMeta({

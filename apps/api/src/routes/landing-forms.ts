@@ -52,7 +52,10 @@ import {
 import { writeDb, type DbFactory } from '../lib/handler-utils';
 import { recipientHash } from '../lib/hash';
 
-async function parseJsonBody<T>(c: Context<{ Bindings: Env }>, schema: ZodType<T>): Promise<T> {
+export async function parseJsonBody<T>(
+  c: Context<{ Bindings: Env }>,
+  schema: ZodType<T>,
+): Promise<T> {
   let raw: unknown;
   try {
     raw = await c.req.json();
@@ -69,7 +72,7 @@ async function parseJsonBody<T>(c: Context<{ Bindings: Env }>, schema: ZodType<T
  *  value when a header is absent. `asn` / `metroCode` are integer columns, parsed
  *  with a finite-number guard so a malformed header degrades to null rather than
  *  writing `NaN`. */
-interface LandingCf {
+export interface LandingCf {
   country: string | null;
   city: string | null;
   region: string | null;
@@ -79,7 +82,7 @@ interface LandingCf {
   metroCode: number | null;
 }
 
-function readLandingCfFromHeaders(c: Context<{ Bindings: Env }>): LandingCf {
+export function readLandingCfFromHeaders(c: Context<{ Bindings: Env }>): LandingCf {
   const str = (name: string): string | null => {
     const v = c.req.header(name)?.trim();
     return v ? v : null;

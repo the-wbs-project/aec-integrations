@@ -28,9 +28,9 @@ const ENTRIES = Object.entries(NOTIFICATIONS) as Array<[string, NotificationEntr
  * AECI-1205 added the four protest and decline emails: 46.
  * AECI-1180 added the vendor review email and the two review feed rows: 49.
  * AECI-1159 added the three AECi override feed rows: 52. AECI-1237 added the field
- * correction and its lift: 54.
+ * correction and its lift: 54. AECI-1279 added the plan inquiry receipt and alert: 56.
  */
-const EXPECTED_COUNT = 54;
+const EXPECTED_COUNT = 56;
 
 const sendsEmail = (e: NotificationEntry) => e.channel === 'email' || e.channel === 'email+portal';
 
@@ -64,8 +64,9 @@ describe('notification registry shape', () => {
       // AECI-1205 added `protest-submitted-alert`, `contest-protest-opened`,
       // `contest-protest-reply-reminder` and `contest-declined-protest-window`.
       // AECI-1180 added `vendor-review-published`, `portal-review` and
-      // `portal-review-response`.
-      email: 27,
+      // `portal-review-response`. AECI-1279 added `plan-inquiry-received` and
+      // `plan-inquiry-alert`.
+      email: 29,
       'email+portal': 1,
       'supabase-email': 1,
       portal: 21,
@@ -179,7 +180,9 @@ describe('notification registry shape', () => {
 /**
  * Mail an operator must never be able to stop from `/admin/email`. Security- or
  * obligation-bearing: invites, decisions, the erasure confirmation, and every vendor email
- * that carries a deadline. Moving an id out of this list is a decision, so it is a test edit.
+ * that carries a deadline. `plan-inquiry-alert` is here because no screen lists plan
+ * inquiries yet (AECI-1279), so pausing it would hide them. Moving an id out of this list is
+ * a decision, so it is a test edit.
  */
 const ALWAYS_ON = [
   'account-deleted',
@@ -190,6 +193,7 @@ const ALWAYS_ON = [
   'contest-protest-reply-reminder',
   'entitlement-expiring',
   'mailing-list-welcome-operator-copy',
+  'plan-inquiry-alert',
   'review-approved',
   'review-rejected',
   'vendor-seat-invite',
@@ -217,9 +221,9 @@ describe('pausable (AECI-1224)', () => {
     }
   });
 
-  it('pauses only what is listed: 15 pausable email entries', () => {
+  it('pauses only what is listed: 16 pausable email entries', () => {
     const pausable = ENTRIES.filter(([, e]) => e.pausable).map(([id]) => id);
-    expect(pausable).toHaveLength(15);
+    expect(pausable).toHaveLength(16);
     for (const id of pausable) expect(ALWAYS_ON).not.toContain(id);
   });
 

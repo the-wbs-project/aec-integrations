@@ -225,6 +225,31 @@ describe('Analytics — custom events carry locale + theme (§14.1)', () => {
     expect(captured(client)).not.toContain('plan_cta_clicked');
   });
 
+  // AECI-1279: a sent inquiry, with where it came from and no typed field.
+  it('fires plan_inquiry_submitted with the topic and placement once consented', async () => {
+    const { analytics, client } = setup();
+    TestBed.tick();
+    analytics.planInquirySubmitted({ topic: 'managed', placement: 'contact' });
+    await flush();
+    expect(client.capture).toHaveBeenCalledWith(
+      'plan_inquiry_submitted',
+      expect.objectContaining({ topic: 'managed', placement: 'contact' }),
+    );
+    const props = client.capture.mock.calls.find(
+      (call) => call[0] === 'plan_inquiry_submitted',
+    )![1] as Record<string, unknown>;
+    expect(Object.keys(props)).not.toContain('email');
+    expect(Object.keys(props)).not.toContain('company');
+  });
+
+  it('does not fire plan_inquiry_submitted before consent is granted', async () => {
+    const { analytics, client } = setup({ consent: 'unknown' });
+    TestBed.tick();
+    analytics.planInquirySubmitted({ topic: 'managed', placement: 'top' });
+    await flush();
+    expect(captured(client)).not.toContain('plan_inquiry_submitted');
+  });
+
   it('does not fire mailing_list_signup before consent is granted', async () => {
     const { analytics, client } = setup({ consent: 'unknown' });
     TestBed.tick();

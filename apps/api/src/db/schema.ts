@@ -4075,6 +4075,37 @@ export const mailingList = sqliteTable(
   ],
 );
 
+/**
+ * A "Talk to us about Managed" inquiry (AECI-1279), written by
+ * `POST /api/plan-inquiries` (`routes/plan-inquiries.ts`). Lead capture, like
+ * `feedback`: write-once, invisible on every public surface, no `audit_log` row
+ * (ADR 0022, the 2026-10-12 amendment). The support-inbox alert is the reader
+ * today; there is no admin screen yet.
+ *
+ * `topic` is not CHECK-constrained on purpose. The Zod enum
+ * (`PlanInquirySubmitSchema`) is the gate, and a CHECK here would turn every new
+ * topic into a drizzle-kit table recreate on D1 (`docs/migrations.md` §0).
+ * Geo comes from the trusted `LANDING_CF_HEADERS` the SSR proxy sets, as for
+ * `feedback`. No user id: the route is public and holds no session.
+ */
+export const planInquiries = sqliteTable(
+  'plan_inquiries',
+  {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    topic: text('topic').notNull(),
+    email: text('email').notNull(),
+    company: text('company').notNull(),
+    details: text('details'),
+    country: text('country'),
+    city: text('city'),
+    region: text('region'),
+    timezone: text('timezone'),
+    referrer: text('referrer'),
+    createdAt: createdAt(),
+  },
+  (t) => [index('plan_inquiries_created_at_idx').on(t.createdAt)],
+);
+
 // ===========================================================================
 // Relations — power the Drizzle relational query builder (`db.query.*`), which
 // hydrates nested rows the way Prisma `select`/`include` did. Multi-FK targets

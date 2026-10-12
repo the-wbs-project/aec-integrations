@@ -118,7 +118,7 @@ If your work touches a topic below, that document is the truth, not your prior k
 - **Hosting:** Cloudflare Workers: SSR Worker + private API Worker over a service binding. The API
   Worker also runs the `PromoteWorkflow` Cloudflare Workflow (ADR 0021).
 - **Database:** Cloudflare D1 via Drizzle over the `DB` binding (ADR 0016). Supabase is Auth only.
-  Lead capture lives in D1 (`/api/feedback`, `/api/subscribe`, tokenized soft-delete unsubscribe);
+  Lead capture lives in D1 (`/api/feedback`, `/api/subscribe`, `/api/plan-inquiries`, tokenized soft-delete unsubscribe);
   `docs/email.md`.
 - **Search:** Algolia + InstantSearch Angular. **Auth:** Supabase Auth (magic link + Google OAuth).
 - **Observability:** PostHog only (ADR 0024). Workers hold no observability secret; the `phc_`
@@ -329,7 +329,7 @@ post-commit via `ctx.waitUntil` to PostHog Logs through the seam in
 `packages/shared/src/audit-log.ts`. A forwarding failure warns and swallows; a missing row is a
 transactional failure. Domain state = catalog, users/profiles, reviews/moderation,
 claims/attestations, requests/workflows. Derived and log-class writes are exempt (`page_views`,
-`mailing_list`, `feedback`, `stats_cache`, Algolia watermark, `recompute-counts`, `metrics_daily`,
+`mailing_list`, `feedback`, `plan_inquiries`, `stats_cache`, Algolia watermark, `recompute-counts`, `metrics_daily`,
 `job_runs`, `notification_sends`, `notification_delivery_events`, `vendor_activity_daily`, the append-only evidence logs `recrawl_submissions` + `recrawl_submission_causes` (ADR 0022 2026-10-04 amendment), `recrawl_queue_causes`, and the per-user service log `user_activity_daily`
 under ADR 0022's 2026-10-02 amendment). The test is entity class, not actor class; scheduled `DELETE`s are never exempt.
 `docs/STAGE_1_SPEC.md` §26, ADR 0022.
